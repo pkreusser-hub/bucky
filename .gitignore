@@ -11,3 +11,5 @@ shots/
 
 # functions dependencies get installed by netlify at build time
 netlify/functions/node_modules/
+tools/.env
+*.key

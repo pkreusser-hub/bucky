@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>glb-shot viewer</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #cfcfcf; }
+  #c { display: block; width: 100vw; height: 100vh; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/fflate.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script>
+"use strict";
+
+// Query params: ?glb=<url>&view=front|three4|top|side&w=..&h=..
+const qs = new URLSearchParams(location.search);
+const glbUrl = qs.get("glb");
+const view = qs.get("view") || "front";
+const W = parseInt(qs.get("w") || "900", 10);
+const H = parseInt(qs.get("h") || "900", 10);
+
+window.__shotReady = false;
+window.__shotError = null;
+
+const canvas = document.getElementById("c");
+canvas.width = W; canvas.height = H;
+canvas.style.width = W + "px";
+canvas.style.height = H + "px";
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.setSize(W, H, false);
+renderer.setClearColor(0xcfcfcf, 1); // light gray studio background
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xcfcfcf);
+
+const camera = new THREE.PerspectiveCamera(40, W / H, 0.01, 1000);
+
+// Neutral studio lighting: hemisphere fill + key directional light.
+const hemi = new THREE.HemisphereLight(0xffffff, 0x555555, 1.0);
+scene.add(hemi);
+const key = new THREE.DirectionalLight(0xffffff, 0.9);
+key.position.set(2, 3, 2.5);
+scene.add(key);
+const fillLight = new THREE.DirectionalLight(0xffffff, 0.35);
+fillLight.position.set(-2.5, 1.5, -2);
+scene.add(fillLight);
+scene.add(new THREE.AmbientLight(0xffffff, 0.25));
+
+function frameCameraOnObject(object, viewName){
+  object.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(object);
+  const size = new THREE.Vector3(); box.getSize(size);
+  const center = new THREE.Vector3(); box.getCenter(center);
+
+  const maxDim = Math.max(size.x, size.y, size.z) || 1;
+  const fitDist = (maxDim / 2) / Math.tan((camera.fov * Math.PI / 180) / 2) * 1.6; // padding
+
+  let dir;
+  switch (viewName){
+    case "front": dir = new THREE.Vector3(0, 0.15, 1); break;
+    case "three4": dir = new THREE.Vector3(0.85, 0.55, 0.85); break;
+    case "top": dir = new THREE.Vector3(0, 1, 0.001); break;
+    case "side": dir = new THREE.Vector3(1, 0.15, 0); break;
+    default: dir = new THREE.Vector3(0, 0.15, 1);
+  }
+  dir.normalize();
+
+  camera.position.copy(center).addScaledVector(dir, fitDist);
+  camera.lookAt(center);
+  camera.near = Math.max(0.01, fitDist / 100);
+  camera.far = fitDist * 100;
+  camera.updateProjectionMatrix();
+}
+
+if (!glbUrl){
+  window.__shotError = "No ?glb= query param supplied.";
+} else {
+  new THREE.GLTFLoader().load(
+    glbUrl,
+    (gltf) => {
+      const model = gltf.scene;
+      scene.add(model);
+      frameCameraOnObject(model, view);
+      renderer.render(scene, camera);
+      window.__shotReady = true;
+    },
+    undefined,
+    (err) => {
+      window.__shotError = "Failed to load GLB: " + (err && err.message ? err.message : String(err));
+      window.__shotReady = true; // unblock the waiter so the caller sees the error
+    }
+  );
+}
+</script>
+</body>
+</html>

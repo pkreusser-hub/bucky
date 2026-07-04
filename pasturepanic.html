@@ -1274,6 +1274,35 @@
       return g;
     }
 
+    // ---- downloaded armadillo model (assets/armadillo.glb) — replaces the procedural shell ----
+    // Faces +Z already (no rotation needed). Each spawn clones the scene and gives every
+    // mesh its own material (like the rat pack) so per-tier tinting and hit-flash don't
+    // bleed across spawns — the cloned materials are NOT shared, so freeMesh() disposes
+    // them on death, while the shared geometry + texture (markShared) survive for the next spawn.
+    let armadilloAssets = null;
+    new THREE.GLTFLoader().load("assets/armadillo.glb", (gltf) => {
+      const src = gltf.scene;
+      src.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(src);
+      const size = new THREE.Vector3(); box.getSize(size);
+      armadilloAssets = { scene: src, scaleTo: 2.0 / Math.max(size.x, size.y, size.z), minY: box.min.y };
+      markShared(src);   // clones reference these buffers — never dispose them
+    }, undefined, (err) => console.warn("armadillo.glb failed to load — using the built-in armadillo", err));
+    const buildArmadilloProcedural = buildArmadillo;
+    BUILDERS.armadillo = function(){
+      if (!armadilloAssets) return buildArmadilloProcedural();
+      const g = new THREE.Group();
+      const m = armadilloAssets.scene.clone(true);
+      m.traverse(o => { if (o.isMesh && o.material) o.material = o.material.clone(); });
+      const s = armadilloAssets.scaleTo;
+      m.scale.setScalar(s);
+      m.position.y = -armadilloAssets.minY * s;   // feet on the grass
+      g.add(m);
+      g.userData.model = m;
+      g.add(blobShadow(0.85));
+      return g;
+    };
+
     // ---- downloaded hay-bale model (haybale.fbx + straw.png) — one round roll, textured ----
     let baleAsset = null;
     {
