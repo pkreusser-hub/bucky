@@ -8,11 +8,8 @@
 // Exposes window.BuckyPush = { enable, disable, isSupported, status, notify }
 //
 // ---------------------------------------------------------------------------
-// TODO(owner): paste your VAPID key here. Get it from:
-//   Firebase console -> Project settings -> Cloud Messaging -> Web Push
-//   certificates -> "Generate key pair"
-// See PUSH_SETUP.md for full instructions.
-window.BUCKY_VAPID_KEY = window.BUCKY_VAPID_KEY || "PASTE_VAPID_PUBLIC_KEY_HERE";
+// Web Push certificate (public VAPID key) for the amen-farms-app Firebase project.
+window.BUCKY_VAPID_KEY = window.BUCKY_VAPID_KEY || "BM3TmG-fXYJUJfmuw1_WG7SjkwsKTLXDy7si1MLNAK1Nw0kQy2gDVJ6EM1g3kpDh4WwB5Nmd8wekYeb7bpXyu7A";
 // ---------------------------------------------------------------------------
 
 (function () {
