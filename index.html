@@ -459,6 +459,10 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
       <span>Alert me on this device</span>
       <button type="button" class="switch" id="notifDesktopToggle" role="switch" aria-checked="false"></button>
     </div>
+    <div class="notif-toggle-row">
+      <span style="font-size:13px;color:var(--muted);">Not buzzing? Test the full pipeline:</span>
+      <button type="button" class="btn ghost" id="notifTestBtn" style="font-size:13px;padding:6px 12px;">📳 Send test alert</button>
+    </div>
     <div id="notifList"></div>
     <div class="sheet-actions">
       <button class="btn ghost" id="notifCloseBtn" style="flex:1;">Close</button>
@@ -986,12 +990,22 @@ async function toggleDesktopAlerts(){
   if (perm === "default") perm = await Notification.requestPermission();
   if (perm === "granted"){
     localStorage.setItem("buckyNotifDesktop", "1");
-    // also register this device for phone push — silently a no-op until PUSH_SETUP.md is done
+    // register this device for phone push — and SAY SO if it fails, don't fail silently
     if (window.BuckyPush && familyKey && myName()){
-      BuckyPush.enable(myName(), familyKey).catch(e => console.warn("Push not configured yet:", e.message || e));
+      BuckyPush.enable(myName(), familyKey)
+        .then(() => showToast("✅ This device will now get BUCKY alerts"))
+        .catch(e => { console.warn("Push registration failed:", e); showToast("⚠️ Phone alerts issue: " + (e && e.message || e)); });
     }
   }
   updateNotifToggleUI();
+}
+// Re-register for push on every visit while alerts are on: heals devices whose first
+// registration failed (e.g. toggled on before setup finished) and follows FCM token rotation.
+function refreshPushRegistration(){
+  if (!desktopAlertsEnabled()) return;
+  if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  if (!window.BuckyPush || !familyKey || !myName()) return;
+  BuckyPush.enable(myName(), familyKey).catch(e => console.warn("push refresh failed:", e && e.message || e));
 }
 
 // Time since a completion: hours if under a day, days if over (minutes if under an hour).
@@ -2931,6 +2945,8 @@ document.getElementById("choreName").addEventListener("keydown", e=>{ if(e.key==
 function refreshName(){
   document.getElementById("whoName").textContent = myName() || "Set up family";
   checkNotifications();   // user may have just switched profiles — recompute their badge/inbox
+  // defer so push-client.js (deferred) and familyKey (set at unlock) are ready; no-ops when not
+  setTimeout(refreshPushRegistration, 2500);
 }
 function familyMembers(){
   return chores.filter(c => c.frequency === "profile").sort((a,b)=> (a.name||"").localeCompare(b.name||""));
@@ -3002,6 +3018,21 @@ document.getElementById("bellBtn").onclick = openNotifPanel;
 document.getElementById("notifCloseBtn").onclick = closeNotifPanel;
 document.getElementById("notifOverlay").onclick = (e)=>{ if(e.target.id==="notifOverlay") closeNotifPanel(); };
 document.getElementById("notifDesktopToggle").onclick = toggleDesktopAlerts;
+document.getElementById("notifTestBtn").onclick = async () => {
+  if (!window.BuckyPush || !familyKey || !myName()){ showToast("⚠️ Not ready — set your name first"); return; }
+  try {
+    // re-register first so a stale/missing token can't fail the test, then send to yourself
+    await BuckyPush.enable(myName(), familyKey);
+    const r = await BuckyPush.notify(FAMILY_PASSWORD, familyKey, myName(),
+      "📳 Test from BUCKY", "If you can read this on your phone, alerts work!");
+    if (r && r.sent >= 1) showToast("📳 Sent to " + r.sent + " device" + (r.sent > 1 ? "s" : "") + " — background the app to see it arrive");
+    else if (r && r.sent === 0) showToast("⚠️ 0 devices registered for \"" + myName() + "\" — toggle alerts off and on again");
+    else showToast("⚠️ Couldn't reach the notification server");
+  } catch (e) {
+    console.warn("Test alert failed:", e);
+    showToast("⚠️ Test failed: " + (e && e.message || e));
+  }
+};
 refreshName();
 
 // Send an email via EmailJS to a family member by name (no-op until configured + that person has an email)
@@ -3146,6 +3177,7 @@ function unlock(){
   familyKey = roomId(FAMILY_PASSWORD);
   document.getElementById("lockScreen").classList.add("hidden");
   bootApp();
+  setTimeout(refreshPushRegistration, 3000);   // heal/refresh this device's push token once we're in
 }
 function tryUnlock(){
   const v = document.getElementById("lockInput").value.trim().toLowerCase();
