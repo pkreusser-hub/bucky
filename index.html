@@ -71,6 +71,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   }
 
   /* Notification panel */
+  #notifList { max-height: 42vh; overflow-y: auto; overscroll-behavior: contain; }
   .notif-row { display: flex; gap: 10px; align-items: flex-start; padding: 12px 4px; border-bottom: 1px solid var(--line); cursor: pointer; }
   .notif-row:last-child { border-bottom: 0; }
   .notif-row.unread { background: var(--done); border-radius: 10px; }
@@ -86,10 +87,12 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .switch.on::after { left: 20px; }
 
   /* Live toast */
-  #toastWrap { position: fixed; top: calc(env(safe-area-inset-top) + 10px); left: 0; right: 0; z-index: 90; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
+  #toastWrap { position: fixed; top: calc(env(safe-area-inset-top) + 88px); left: 0; right: 0; z-index: 90; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
   .toast {
-    pointer-events: auto; max-width: 92%; width: 420px; background: var(--green); color: #fff;
-    border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow); font-size: 14px; cursor: pointer;
+    pointer-events: auto; max-width: 92%; width: 420px; background: #ffffff; color: var(--ink);
+    border: 1px solid var(--line); border-left: 5px solid var(--red);
+    border-radius: 12px; padding: 12px 14px; font-size: 14px; font-weight: 600; cursor: pointer;
+    box-shadow: 0 6px 22px rgba(10, 49, 97, .28);
     animation: toast-in .25s ease;
   }
   @keyframes toast-in { from { transform: translateY(-16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
@@ -947,7 +950,17 @@ function openNotifPanel(){
   markAllNotifsRead();
   renderNotifList();   // re-render so the just-marked-read rows lose the unread highlight immediately
 }
-function closeNotifPanel(){ document.getElementById("notifOverlay").classList.remove("open"); }
+function closeNotifPanel(){
+  document.getElementById("notifOverlay").classList.remove("open");
+  // seen once = done: purge read notifications when the panel closes so the list stays short.
+  // (Safe: the state map, not the inbox, is what prevents re-notification.)
+  const user = myName();
+  if (user){
+    const inbox = loadNotifInbox(user).filter(n => !n.read);
+    saveNotifInbox(user, inbox);
+    renderBell();
+  }
+}
 
 // ---- Live toast ----
 function showToast(text, onClick){
