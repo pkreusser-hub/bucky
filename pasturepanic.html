@@ -255,11 +255,11 @@
     };
     // ---- weapons: 4 slots, new pick every 5 levels ----
     const WEAPON_SPECS = {
-      corn:      { ico:"🌽", name:"Corn Cannon",      baseDmg:11, baseRate:2.0,  range:26 },
+      corn:      { ico:"🌽", name:"Corn Cannon",      baseDmg:11, baseRate:1.5,  range:26 },
       pumpkin:   { ico:"🎃", name:"Pumpkin Launcher", baseDmg:30, baseRate:0.55, range:22, blast:3.4 },
       cats:      { ico:"🐈", name:"Barn Cat Blaster", baseDmg:26, baseRate:0.75, range:30 },
       scarecrow: { ico:"🌾", name:"Scarecrow Turret", baseDmg:15, baseRate:1.6,  range:14, deployEvery:7, life:15 },
-      bees:      { ico:"🐝", name:"Bee Hive",         baseDmg:9,  baseRate:1.0,  range:0,  orbitR:3.4 },
+      bees:      { ico:"🐝", name:"Bee Hive",         baseDmg:9,  baseRate:1.0,  range:0,  orbitR:6.0 },
       sprinkler: { ico:"💦", name:"Sprinkler",        baseDmg:9,  baseRate:0.9,  range:7.5 },
       fork:      { ico:"🔱", name:"Pitchfork",        baseDmg:38, baseRate:0.6,  range:30 },
       bolt:      { ico:"⚡", name:"Weathervane",      baseDmg:48, baseRate:0.5,  range:24 }
@@ -1541,6 +1541,14 @@
       if (!sawSkinned) box.setFromObject(object);
       return box;
     }
+    // The run and idle clips ship in SEPARATE GLB exports whose armature scales can differ
+    // by a hair; a clip's baked .scale keyframes then fight the other file's bind scale and
+    // the character visibly shrinks/grows when switching animations. The rig never needs
+    // animated scale, so strip those tracks entirely.
+    function stripScaleTracks(clip){
+      if (clip) clip.tracks = clip.tracks.filter(t => !t.name.endsWith(".scale"));
+      return clip;
+    }
     function loadRiggedCharacter(baseUrl, idleUrl, targetHeight, onReady){
       let scene = null, runClip = null, idleClip = null;
       function maybeReady(){
@@ -1555,11 +1563,11 @@
       }
       new THREE.GLTFLoader().load(baseUrl, (gltf) => {
         scene = gltf.scene;
-        runClip = gltf.animations[0];
+        runClip = stripScaleTracks(gltf.animations[0]);
         maybeReady();
       }, undefined, (err) => console.warn(baseUrl + " failed to load — using the built-in procedural model", err));
       new THREE.GLTFLoader().load(idleUrl, (gltf) => {
-        idleClip = gltf.animations[0];
+        idleClip = stripScaleTracks(gltf.animations[0]);
         maybeReady();
       }, undefined, (err) => console.warn(idleUrl + " failed to load — using the built-in procedural model", err));
     }
@@ -1580,7 +1588,8 @@
       const s = template.scaleTo;
       clone.scale.setScalar(s);
       clone.position.y = -template.minY * s;   // feet on the grass
-      clone.rotation.y = Math.PI;   // face travel direction (+Z), matches other downloaded models
+      // Meshy rigs already face +Z (travel direction) — no flip needed. The old PI flip
+      // here (copied from the rat.fbx, which ships nose-to--Z) made the farmer run backwards.
       g.add(clone);
 
       const mixer = new THREE.AnimationMixer(clone);
@@ -1803,7 +1812,7 @@
     // per-weapon state: multipliers stack from weapon-specific upgrades, gDmg/gRate from universal ones
     function newWeapon(id){
       return { id, dmgMul: 1, rateMul: 1, blastMul: 1, count: 1,
-               multishot: id === "corn" ? 2 : 1,   // the cannon comes out of the barn double-barreled
+               multishot: 1,   // single kernel to start — extra projectiles come from upgrades
                pierce: 0, maxOut: 1, timer: 0.5, deployTimer: 1 };
     }
     function weaponById(id){ return weapons.find(w => w.id === id); }
