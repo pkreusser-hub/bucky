@@ -146,12 +146,17 @@ async function deleteTokenDoc(accessToken, familyKey, docId) {
 }
 
 async function sendFcmMessage(accessToken, token, title, body) {
+  // DATA-ONLY message: if we sent a `notification` payload, the browser's FCM layer
+  // would auto-display it AND our service worker would display it — two tray entries
+  // per event, which made launcher icon badges climb forever. Data-only means the
+  // service worker's showNotification (with its replace-don't-stack tag) is the
+  // single source of truth for what sits in the tray.
   const message = {
     message: {
       token,
-      notification: { title, body },
+      data: { title: String(title), body: String(body), url: "https://amenfarms.netlify.app" },
       webpush: {
-        fcm_options: { link: "https://amenfarms.netlify.app" },
+        headers: { Urgency: "high" },
       },
     },
   };

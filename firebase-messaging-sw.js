@@ -26,13 +26,20 @@ firebase.initializeApp(firebaseConfig);
 const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage((payload) => {
-  const title = (payload.notification && payload.notification.title) || "BUCKY";
-  const body = (payload.notification && payload.notification.body) || "";
-  const url = (payload.data && payload.data.url) || "/";
+  // Messages are DATA-ONLY (see netlify/functions/notify.mjs) so the browser never
+  // auto-displays a duplicate — this handler is the single source of tray notifications.
+  const d = payload.data || {};
+  const title = d.title || (payload.notification && payload.notification.title) || "BUCKY";
+  const body = d.body || (payload.notification && payload.notification.body) || "";
+  const url = d.url || "/";
 
   self.registration.showNotification(title, {
     body,
     icon: "/icons/icon-192.png",
+    // one tag = new pushes REPLACE the old tray entry instead of stacking,
+    // so the launcher badge can't climb; renotify keeps the buzz on replace
+    tag: "bucky-workorders",
+    renotify: true,
     data: { url },
   });
 });

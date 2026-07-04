@@ -947,6 +947,7 @@ function openNotifPanel(){
   renderNotifList();
   updateNotifToggleUI();
   document.getElementById("notifOverlay").classList.add("open");
+  clearTrayNotifications();
   markAllNotifsRead();
   renderNotifList();   // re-render so the just-marked-read rows lose the unread highlight immediately
 }
@@ -1012,6 +1013,21 @@ async function toggleDesktopAlerts(){
   }
   updateNotifToggleUI();
 }
+// Opening the app means you've seen the news: sweep BUCKY's notifications out of the
+// system tray so the launcher's icon badge resets instead of climbing forever.
+async function clearTrayNotifications(){
+  try {
+    if (!("serviceWorker" in navigator)) return;
+    const reg = (await navigator.serviceWorker.getRegistration("firebase-messaging-sw.js"))
+             || (await navigator.serviceWorker.getRegistration());
+    if (reg && reg.getNotifications){
+      for (const n of await reg.getNotifications()) n.close();
+    }
+    if (navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {});
+  } catch (e) { /* tray hygiene is best-effort */ }
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) clearTrayNotifications(); });
+
 // Re-register for push on every visit while alerts are on: heals devices whose first
 // registration failed (e.g. toggled on before setup finished) and follows FCM token rotation.
 function refreshPushRegistration(){
@@ -3191,6 +3207,7 @@ function unlock(){
   document.getElementById("lockScreen").classList.add("hidden");
   bootApp();
   setTimeout(refreshPushRegistration, 3000);   // heal/refresh this device's push token once we're in
+  setTimeout(clearTrayNotifications, 1000);    // opening the app clears the icon badge
 }
 function tryUnlock(){
   const v = document.getElementById("lockInput").value.trim().toLowerCase();
