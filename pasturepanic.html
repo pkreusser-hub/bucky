@@ -2183,9 +2183,7 @@
         const t = nearestEnemy(player.position, spec.range);
         if (!t) return false;
         const dir = fireKernels(player.position, t, w.multishot, wDmg(w), w.pierce);
-        player.rotation.y = Math.atan2(dir.x, dir.z);
-        // muzzle flash + recoil kick on the cannon
-        player.userData.cannonKick = 0.14;
+        // (facing is movement-driven only — shooting never turns the character)
         const mz = player.position.clone().setY(1.35).addScaledVector(dir, 1.1);
         puff(mz.x, mz.y, mz.z, 0xffe27a, 2);
         return true;
@@ -2687,18 +2685,22 @@
       if (ud.mixer){
         // rigged characters: cross-fade between the skeletal idle/run clips instead of the
         // procedural limb-swing; the clips already bake in their own up/down bob.
-        if (moving){
-          if (ud.animState !== "run"){
-            ud.idleAction.crossFadeTo(ud.runAction, 0.15, false);
-            ud.runAction.play();
-            ud.animState = "run";
-          }
-          ud.runAction.timeScale = Math.max(0.6, Math.min(1.8, stats.speed / 6));
-        } else if (ud.animState !== "idle"){
-          ud.runAction.crossFadeTo(ud.idleAction, 0.15, false);
-          ud.idleAction.play();
+        // Debounced + reset()-based: interrupted crossfades can strand BOTH clips at zero
+        // weight, which renders the bind pose (the stuck-in-T-pose bug). reset() +
+        // setEffectiveWeight(1) + fadeIn can't be stranded, and the stillness window stops
+        // input flicker from interleaving fades in the first place.
+        ud.stillFor = moving ? 0 : (ud.stillFor || 0) + dt;
+        const wantRun = moving || ud.stillFor < 0.12;
+        if (wantRun && ud.animState !== "run"){
+          ud.animState = "run";
+          ud.runAction.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(0.12).play();
+          ud.idleAction.fadeOut(0.12);
+        } else if (!wantRun && ud.animState !== "idle"){
           ud.animState = "idle";
+          ud.idleAction.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(0.15).play();
+          ud.runAction.fadeOut(0.15);
         }
+        if (ud.animState === "run") ud.runAction.timeScale = Math.max(0.6, Math.min(1.8, stats.speed / 6));
         player.position.y = 0;
       } else if (ud.legPivots){
         // split-leg quadruped players (goat/collie): diagonal-pair trot while moving,
