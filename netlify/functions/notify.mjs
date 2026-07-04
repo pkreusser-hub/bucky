@@ -30,7 +30,8 @@ const ALLOWED_ORIGINS = new Set([
 ]);
 
 const FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
-const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
+// needs BOTH scopes: messaging to send pushes, datastore to read/prune token docs
+const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging https://www.googleapis.com/auth/datastore";
 const FCM_SEND_URL = `https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send`;
 
 function corsHeaders(origin) {
