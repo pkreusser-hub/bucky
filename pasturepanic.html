@@ -1713,6 +1713,45 @@
       g.userData.wings = wings;
       return g;
     }
+
+    // ---- downloaded bee model (assets/bee.glb) — Bee Hive weapon orbiters ----
+    // Single merged mesh (no separate wing nodes survive Meshy's text-to-3D pipeline), so
+    // there's no geometry to assign to userData.wings for the flap animation; beesUpdate
+    // instead gives the whole body a gentle roll + bob (see the bob/roll block there) to keep
+    // them feeling alive. Model ships face-forward toward +Z already (confirmed via glb-shot
+    // top/side renders — no rotation.y flip needed, unlike cat.glb). Body (z-extent) is scaled
+    // to 0.9 world units, ~2.5x the old procedural bee's ~0.36 nose-to-tail length.
+    // Per-bee material is cloned (like the armadillo split-quadruped pattern) so freeMesh can
+    // safely dispose it without touching the shared template geometry/texture.
+    let beeAssets = null;
+    new THREE.GLTFLoader().load("assets/bee.glb", (gltf) => {
+      const src = gltf.scene;
+      src.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(src);
+      const size = new THREE.Vector3(); box.getSize(size);
+      beeAssets = { scene: src, scaleTo: 0.9 / size.z, minY: box.min.y };
+      markShared(src);   // clones reference these buffers — never dispose them
+    }, undefined, (err) => console.warn("bee.glb failed to load — using the built-in bee", err));
+    const buildBeeProcedural = buildBee;
+    function buildBeeModel(){
+      if (!beeAssets) return buildBeeProcedural();
+      const g = new THREE.Group();
+      const m = beeAssets.scene.clone(true);
+      const s = beeAssets.scaleTo;
+      // clone materials per-bee so freeMesh (which skips SHARED_ASSETS) can dispose them
+      // independently of the shared template and every other live bee
+      m.traverse(o => {
+        if (o.isMesh && o.material){
+          o.material = Array.isArray(o.material) ? o.material.map(mm => mm.clone()) : o.material.clone();
+        }
+      });
+      m.scale.setScalar(s);
+      m.position.y = -beeAssets.minY * s;
+      g.add(m);
+      g.userData.model = m;
+      g.userData.wings = null;   // merged mesh — no distinct wing nodes to flap
+      return g;
+    }
     function buildFork(){
       const g = new THREE.Group();
       const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.3, 6), mat(0x8a6a44));
@@ -2319,7 +2358,7 @@
       const w = weaponById("bees");
       const want = w ? w.count + 2 : 0;   // base swarm of 3 (count starts at 1)
       while (beeUnits.length < want){
-        const mesh = buildBee();
+        const mesh = buildBeeModel();
         scene.add(mesh);
         beeUnits.push({ mesh, cd: 0 });
       }
@@ -2335,12 +2374,19 @@
           1.1 + Math.sin(elapsed * 6 + i) * 0.25,
           player.position.z + Math.sin(a) * orbitR);
         b.mesh.rotation.y = -a;   // face along the orbit
-        for (const wg of b.mesh.userData.wings) wg.rotation.z = Math.sin(elapsed * 40 + i) * 0.6;
+        if (b.mesh.userData.wings){
+          for (const wg of b.mesh.userData.wings) wg.rotation.z = Math.sin(elapsed * 40 + i) * 0.6;
+        } else {
+          // GLB bee is one merged mesh with no separate wing nodes — a gentle body
+          // roll + extra bob stands in for the flap so it still feels alive in flight.
+          b.mesh.rotation.z = Math.sin(elapsed * 20 + i) * 0.15;
+          b.mesh.position.y += Math.sin(elapsed * 14 + i * 1.7) * 0.06;
+        }
         b.cd -= dt;
         if (b.cd <= 0){
           for (const e of enemies){
             const d = Math.hypot(e.mesh.position.x - b.mesh.position.x, e.mesh.position.z - b.mesh.position.z);
-            if (d < e.r + 0.7){
+            if (d < e.r + 1.0){
               damageEnemy(e, wDmg(w), new THREE.Vector3(e.mesh.position.x - player.position.x, 0, e.mesh.position.z - player.position.z).normalize());
               puff(b.mesh.position.x, b.mesh.position.y, b.mesh.position.z, 0xf2c531, 2);
               b.cd = 0.4;
