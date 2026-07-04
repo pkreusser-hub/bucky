@@ -74,31 +74,62 @@
   .scores .row{ font-size:13px; color:#d7ead2; }
   .stat{ font-family:monospace; font-size:16px; color:#ffd23f; margin-bottom:10px; }
 
-  /* level-up cards */
+  /* level-up cards — rarity-driven: colored header band, diagonal tint wash, medallion icon */
   #cards, #chestCards{ display:flex; gap:12px; flex-wrap:wrap; justify-content:center; margin-top:10px; max-width:620px; }
-  .card{ width:170px; background:#14301a; border:2px solid #7df58a; border-radius:14px; padding:16px 12px; cursor:pointer;
+  .card{ position:relative; width:170px; background:#14301a; border:2px solid #7df58a; border-radius:14px;
+         padding:0 12px 14px; cursor:pointer; overflow:hidden;
          transition:transform .1s, box-shadow .1s; }
   .card:hover{ transform:translateY(-3px) scale(1.02); }
-  .card:active{ background:#1d4426; transform:scale(.98); }
+  .card:active{ transform:scale(.98); }
   .card.evo{ border-color:#ffd23f; background:#3a2e10; box-shadow:0 0 18px rgba(255,210,63,.5); width:230px; }
+  /* diagonal rarity tint wash sits behind everything else in the card */
+  .card::before{ content:""; position:absolute; inset:0; z-index:0; pointer-events:none;
+                 background:linear-gradient(135deg, var(--rc, #a8b0b8) 0%, transparent 55%);
+                 opacity:.16; }
+  /* header band: rarity name on a solid strip across the top of the card */
+  .card .band{ position:relative; z-index:1; margin:0 -12px 10px; padding:5px 12px 4px;
+               font-weight:800; font-size:10.5px; letter-spacing:1.5px; text-align:center;
+               color:#12180f; background:var(--rc, #a8b0b8); }
+  .card.evo .band{ background:linear-gradient(90deg,#ffd23f,#ffb347); }
+  .card .cardtop{ position:relative; z-index:1; display:flex; flex-direction:column; align-items:center; }
+  /* icon medallion: circular badge, rarity-colored ring */
+  .card .medal{ position:relative; z-index:1; width:56px; height:56px; border-radius:50%;
+                display:flex; align-items:center; justify-content:center; font-size:28px;
+                background:radial-gradient(circle at 35% 30%, #21391f, #0e1c0d);
+                border:3px solid var(--rc, #a8b0b8); box-shadow:0 0 10px var(--rc, #a8b0b855); margin-bottom:6px; }
   .card .ico{ font-size:34px; }
-  .card .cbody{ min-width:0; }
-  .card .nm{ font-weight:800; font-size:15px; margin:8px 0 4px; color:#fff; }
-  .card .ds{ font-size:12.5px; color:#c9d8c2; line-height:1.4; }
+  .card .cbody{ position:relative; z-index:1; min-width:0; text-align:center; }
+  .card .nm{ font-family:'Luckiest Guy','Arial Black',sans-serif; font-weight:400; letter-spacing:.5px;
+             font-size:17px; margin:2px 0 5px; color:#fff; text-shadow:0 2px 0 rgba(0,0,0,.35); }
+  .card .ds{ font-size:12.5px; color:#c9d8c2; line-height:1.4; font-family:-apple-system,Segoe UI,Roboto,sans-serif; }
   #chestCards .card{ cursor:default; }
+  /* small emoji watermark tucked in the corner — weapon icon, or 🌐 for universal cards */
+  .card .watermark{ position:absolute; z-index:0; right:-6px; bottom:-10px; font-size:52px; opacity:.1;
+                     pointer-events:none; transform:rotate(-8deg); }
+  /* epic cards get a slow diagonal light sweep — subtle, not a strobe */
+  .card.epic{ --rc:#ff9d2e; }
+  .card.epic::after{ content:""; position:absolute; inset:0; z-index:1; pointer-events:none;
+                      background:linear-gradient(115deg, transparent 30%, rgba(255,255,255,.22) 48%, transparent 66%);
+                      background-size:220% 100%; background-position:130% 0;
+                      animation:epicSweep 3.2s ease-in-out infinite; }
+  @keyframes epicSweep{ 0%,20%{ background-position:130% 0; } 70%,100%{ background-position:-30% 0; } }
 
   /* compact phone layout: cards flip to horizontal rows so 3 picks + tools stay high on screen */
   @media (max-width:520px){
     .overlay h1{ font-size:22px; margin:0 0 4px; }
     .overlay .desc{ font-size:12px; margin-bottom:6px; line-height:1.35; }
     #cards, #chestCards{ gap:7px; margin-top:4px; }
-    .card, .card.evo{ width:min(360px,90vw); display:flex; align-items:center; gap:11px;
-                      text-align:left; padding:9px 32px 9px 12px; }
+    .card, .card.evo{ width:min(360px,90vw); display:flex; flex-wrap:wrap; align-items:center; gap:0 11px;
+                      text-align:left; padding:0 32px 9px 12px; }
+    .card .band{ flex:0 0 100%; margin:0 -12px 6px; border-radius:10px 10px 0 0; font-size:8.5px; padding:3px 12px; }
+    .card .cardtop{ flex-direction:row; }
+    .card .medal{ width:40px; height:40px; font-size:20px; margin:0; flex:0 0 auto; }
     .card .ico{ font-size:27px; flex:0 0 auto; }
-    .card .cbody{ flex:1; }
-    .card .nm{ font-size:13.5px; margin:0 0 2px; }
+    .card .cbody{ flex:1; text-align:left; }
+    .card .nm{ font-size:14.5px; margin:0 0 2px; }
     .card .ds{ font-size:11px; line-height:1.3; }
     .card .banish{ top:50%; transform:translateY(-50%); right:8px; font-size:15px; }
+    .card .watermark{ font-size:40px; right:-4px; bottom:-8px; }
     #lvlTools{ margin-top:8px; gap:8px; }
     #lvlTools button{ padding:7px 11px; font-size:12px; }
   }
@@ -196,6 +227,7 @@
       <h1>🚜 Barn Upgrades</h1>
       <div class="desc" style="margin-bottom:8px;">Spend corn coins on permanent boosts for every future run. &nbsp;<span style="color:#ffd23f;font-weight:800;">🪙 <span id="barnCoins">0</span></span></div>
       <div id="barnList"></div>
+      <button class="reset" id="refundBtn" style="margin-bottom:6px;">↩️ Refund all upgrades</button>
       <button class="big" id="barnBackBtn">Back</button>
     </div>
 
@@ -243,9 +275,9 @@
   <script>
   (() => {
     // ================== constants ==================
-    const ARENA = 38;                 // half-size of the fenced pasture
+    const ARENA = 66;                 // half-size of the fenced pasture (3x area vs the old 38)
     const SCORES_KEY = "pasturePanicScores";
-    const ENEMY_CAP = 90;   // leans into swarm volume — separation pass is O(n²) but fine at this size
+    const ENEMY_CAP = 120;   // leans into swarm volume — separation pass is O(n²) but fine at this size
     const SPECS = {   // everything but the turtle slowed so the swarm can be outrun
       rat:       { hp: 10,  speed: 4.0, dmg: 6,  xp: 1, r: 0.75, mass: 0.7 },
       armadillo: { hp: 28,  speed: 2.7, dmg: 10, xp: 2, r: 1.0,  mass: 1.4 },
@@ -255,12 +287,12 @@
     };
     // ---- weapons: 4 slots, new pick every 5 levels ----
     const WEAPON_SPECS = {
-      corn:      { ico:"🌽", name:"Corn Cannon",      baseDmg:11, baseRate:1.5,  range:26 },
+      corn:      { ico:"🌽", name:"Corn Cannon",      baseDmg:11, baseRate:1.5,  range:14 },
       pumpkin:   { ico:"🎃", name:"Pumpkin Launcher", baseDmg:30, baseRate:0.55, range:22, blast:3.4 },
-      cats:      { ico:"🐈", name:"Barn Cat Blaster", baseDmg:26, baseRate:0.75, range:30 },
+      cats:      { ico:"🐈", name:"Barn Cat Blaster", baseDmg:21, baseRate:0.75, range:30 },
       scarecrow: { ico:"🌾", name:"Scarecrow Turret", baseDmg:15, baseRate:1.6,  range:14, deployEvery:7, life:15 },
       bees:      { ico:"🐝", name:"Bee Hive",         baseDmg:9,  baseRate:1.0,  range:0,  orbitR:6.0 },
-      sprinkler: { ico:"💦", name:"Sprinkler",        baseDmg:9,  baseRate:0.9,  range:7.5 },
+      sprinkler: { ico:"💦", name:"Sprinkler",        baseDmg:12, baseRate:0.9,  range:7.5 },
       fork:      { ico:"🔱", name:"Pitchfork",        baseDmg:38, baseRate:0.6,  range:30 },
       bolt:      { ico:"⚡", name:"Weathervane",      baseDmg:48, baseRate:0.5,  range:24 }
     };
@@ -343,7 +375,7 @@
       { id:"fork_multi",  weapon:"fork", ico:"🔱", name:"Spare Fork",    desc:"Pitchfork: +1 per throw",    max:3, int:true },
       { id:"bolt_damage", weapon:"bolt", ico:"⚡", name:"Hotter Bolts",  desc:"Lightning: +15% damage",     max:5 },
       { id:"bolt_rate",   weapon:"bolt", ico:"⚡", name:"Charged Vane",  desc:"Lightning: +10% strike rate", max:4 },
-      { id:"bolt_multi",  weapon:"bolt", ico:"⚡", name:"Split Sky",     desc:"Lightning: +1 strike",       max:3, int:true }
+      { id:"bolt_multi",  weapon:"bolt", ico:"⚡", name:"Split Sky",     desc:"Lightning: +1 strike",       max:2, int:true }
     ];
     // mark the other integer upgrades so epic rarity can double them
     for (const u of UPGRADES){
@@ -361,22 +393,22 @@
                    apply:(w)=>{ w.spread = 3; w.blastMul *= 1.8; w.dmgMul *= 1.6; } },
       cats:      { ico:"🐆", name:"Cat Stampede",
                    blurb:"A whole barn's worth of cats pours out with every pounce.",
-                   apply:(w)=>{ w.count += 3; w.rateMul *= 1.6; w.dmgMul *= 1.25; } },
+                   apply:(w)=>{ w.count += 2; w.rateMul *= 1.35; w.dmgMul *= 1.25; } },
       scarecrow: { ico:"💂", name:"Scarecrow Army",
                    blurb:"A standing brigade of trigger-happy scarecrows.",
-                   apply:(w)=>{ w.maxOut += 3; w.rateMul *= 1.6; w.dmgMul *= 1.3; } },
+                   apply:(w)=>{ w.maxOut += 2; w.rateMul *= 1.25; w.dmgMul *= 1.2; } },
       bees:      { ico:"🌪", name:"Hornet Storm",
                    blurb:"An angry cloud — more bees on a wider, faster orbit.",
                    apply:(w)=>{ w.count += 3; w.rateMul *= 1.5; w.dmgMul *= 1.4; w.blastMul *= 1.4; } },
       sprinkler: { ico:"🌧", name:"Monsoon",
                    blurb:"A drenching downpour that slows everything it soaks.",
-                   apply:(w)=>{ w.blastMul *= 1.6; w.dmgMul *= 1.5; w.slows = true; } },
+                   apply:(w)=>{ w.blastMul *= 1.6; w.dmgMul *= 1.5; w.rateMul *= 1.4; w.slows = true; } },
       fork:      { ico:"🌊", name:"Trident Volley",
                    blurb:"Forks the size of fence posts, three to a throw.",
                    apply:(w)=>{ w.multishot += 2; w.dmgMul *= 1.4; w.rateMul *= 1.3; } },
       bolt:      { ico:"🌩", name:"Thunderhead",
                    blurb:"The storm parks overhead — bolts land in volleys.",
-                   apply:(w)=>{ w.count += 2; w.dmgMul *= 1.4; w.rateMul *= 1.3; } }
+                   apply:(w)=>{ w.count += 1; w.dmgMul *= 1.3; w.rateMul *= 1.3; } }
     };
 
     // ---- meta-progression: corn coins spent on permanent Barn Upgrades ----
@@ -502,14 +534,15 @@
     ground.rotation.x = -Math.PI/2;
     scene.add(ground);
     // mowing stripes — the classic freshly-cut look
-    for (let i = 0; i < 10; i++){
+    const STRIPE_N = 18;   // 3x the field means 3x the stripes to keep the same look front-to-back
+    for (let i = 0; i < STRIPE_N; i++){
       const stripe = new THREE.Mesh(new THREE.PlaneGeometry(ARENA*2 + 60, 4.4), mat(0x549245));
       stripe.rotation.x = -Math.PI/2;
       stripe.position.set(0, 0.004, -ARENA - 24 + i * 9);
       scene.add(stripe);
     }
     // mowed patches for variety
-    for (let i = 0; i < 26; i++){
+    for (let i = 0; i < 78; i++){
       const p = new THREE.Mesh(new THREE.CircleGeometry(1.5 + Math.random()*3, 10), mat(0x529044));
       p.rotation.x = -Math.PI/2; p.position.set((Math.random()*2-1)*ARENA, 0.01, (Math.random()*2-1)*ARENA);
       scene.add(p);
@@ -622,7 +655,12 @@
     // ---- hay bales: big, textured, and SOLID (nothing runs or shoots through them) ----
     // Placed once with a cylinder placeholder; when the downloaded model loads, the
     // visual is swapped in (colliders stay the same).
+    // `bales` holds every COLLIDING bale (base-level, r≈1.9 — used by pushOutOfBales/baleBlocks).
+    // `baleDecor` holds purely-visual top-stacked bales (no collider — you can't stand on them
+    // anyway, they're just for the "leaning pile" look) so refreshBaleVisuals can re-skin both
+    // once the FBX model streams in without conflating decor with collision entries.
     const bales = [];
+    const baleDecor = [];
     const baleCylGeo = new THREE.CylinderGeometry(1.35, 1.35, 2.8, 16);
     SHARED_ASSETS.add(baleCylGeo);
     const baleCylMats = [
@@ -630,17 +668,57 @@
       new THREE.MeshPhongMaterial({ map: hayEndTex }),
       new THREE.MeshPhongMaterial({ map: hayEndTex })
     ];
+    function placeBaleMesh(x, z, tiltTop){
+      const hay = new THREE.Mesh(baleCylGeo, baleCylMats);
+      hay.rotation.z = Math.PI/2;
+      hay.rotation.y = Math.random()*Math.PI;
+      if (tiltTop){ hay.rotation.x = (Math.random()-0.5) * 0.5; hay.position.y = 2.9; }
+      else hay.position.y = 1.35;
+      hay.position.x = x; hay.position.z = z;
+      scene.add(hay);
+      return hay;
+    }
     {
-      let placed = 0, guard = 0;
-      while (placed < 8 && guard++ < 200){
+      // ~16-18 bales total: 5 clusters of 2-3 (touching/angled, two get a top-stacked bale for
+      // visual interest) + 4-5 scattered singles. Kept off the center spawn (min dist ~8) and
+      // away from the fence line (~5 from ARENA edge).
+      const clusterCenters = [];
+      let guard = 0;
+      while (clusterCenters.length < 5 && guard++ < 400){
+        const x = (Math.random()*2-1)*(ARENA-9), z = (Math.random()*2-1)*(ARENA-9);
+        if (Math.hypot(x, z) < 8) continue;                                        // clear the center spawn
+        if (Math.max(Math.abs(x), Math.abs(z)) > ARENA - 5) continue;             // stay off the fence
+        if (clusterCenters.some(c => Math.hypot(c.x - x, c.z - z) < 12)) continue; // spread clusters out
+        clusterCenters.push({ x, z });
+      }
+      clusterCenters.forEach((c, ci) => {
+        const n = 2 + ((Math.random() < 0.5) ? 1 : 0);   // 2 or 3 bales in this cluster
+        const stackTop = ci < 2;                          // first two clusters get a leaning top bale
+        const placedHere = [];
+        for (let i = 0; i < n; i++){
+          const a = (i / n) * Math.PI * 2 + Math.random() * 0.5;
+          const d = 1.8;   // touching/angled — collider radius is 1.9, so ~1.8 apart overlaps nicely
+          const x = c.x + Math.cos(a) * d, z = c.z + Math.sin(a) * d;
+          const hay = placeBaleMesh(x, z, false);
+          bales.push({ x, z, r: 1.9, mesh: hay });
+          placedHere.push({ x, z });
+        }
+        if (stackTop){
+          // one bale balanced at an angle on top — decor only, base bales below keep the colliders
+          const base = placedHere[0];
+          const hay = placeBaleMesh(base.x + (Math.random()-0.5)*0.6, base.z + (Math.random()-0.5)*0.6, true);
+          baleDecor.push({ x: base.x, z: base.z, mesh: hay });
+        }
+      });
+      // 4-5 scattered singles filling out the rest of the field
+      const singleTarget = 4 + ((Math.random() < 0.6) ? 1 : 0);
+      let placed = 0; guard = 0;
+      while (placed < singleTarget && guard++ < 400){
         const x = (Math.random()*2-1)*(ARENA-7), z = (Math.random()*2-1)*(ARENA-7);
-        if (Math.hypot(x, z) < 9) continue;                                     // keep the spawn area open
-        if (bales.some(b => Math.hypot(b.x - x, b.z - z) < 7)) continue;        // spread them out
-        const hay = new THREE.Mesh(baleCylGeo, baleCylMats);
-        hay.rotation.z = Math.PI/2;
-        hay.rotation.y = Math.random()*Math.PI;
-        hay.position.set(x, 1.35, z);
-        scene.add(hay);
+        if (Math.hypot(x, z) < 8) continue;
+        if (Math.max(Math.abs(x), Math.abs(z)) > ARENA - 5) continue;
+        if (bales.some(b => Math.hypot(b.x - x, b.z - z) < 7)) continue;
+        const hay = placeBaleMesh(x, z, false);
         bales.push({ x, z, r: 1.9, mesh: hay });
         placed++;
       }
@@ -653,11 +731,22 @@
       const scale = (1.9 * 2) / Math.max(sz.x, sz.z);   // match the ~1.9 collider radius
       const mat = new THREE.MeshPhongMaterial({ map: baleAsset.tex, shininess: 6 });
       for (const b of bales){
+        if (b.notBale) continue;   // windmill (and any other non-bale collider sharing this array)
         scene.remove(b.mesh);
         const m = new THREE.Mesh(g, mat);
         m.scale.setScalar(scale);
         m.rotation.y = Math.random() * Math.PI;
         m.position.set(b.x, 0, b.z);
+        scene.add(m);
+        b.mesh = m;
+      }
+      for (const b of baleDecor){
+        scene.remove(b.mesh);
+        const m = new THREE.Mesh(g, mat);
+        m.scale.setScalar(scale);
+        m.rotation.y = Math.random() * Math.PI;
+        m.rotation.x = (Math.random()-0.5) * 0.6;   // tilted, leaning look on the stacked bale
+        m.position.set(b.x + (Math.random()-0.5)*0.6, 1.55, b.z + (Math.random()-0.5)*0.6);
         scene.add(m);
         b.mesh = m;
       }
@@ -680,8 +769,102 @@
       return false;
     }
 
+    // ---- mud ponds: flattened dark ellipses that bog down anything standing in them ----
+    // Not colliders — you walk IN them, just slower (60% speed for both enemies and the player).
+    const ponds = [];
+    function buildPond(x, z, rx, rz){
+      const g = new THREE.Group();
+      const puddle = new THREE.Mesh(new THREE.CircleGeometry(1, 20),
+        new THREE.MeshPhongMaterial({ color: 0x4a3a2a, shininess: 40, transparent: true, opacity: 0.92 }));
+      puddle.rotation.x = -Math.PI/2; puddle.scale.set(rx, rz, 1); puddle.position.y = 0.015;
+      g.add(puddle);
+      const rim = new THREE.Mesh(new THREE.RingGeometry(0.94, 1.05, 20),
+        new THREE.MeshBasicMaterial({ color: 0x2c2015, transparent: true, opacity: 0.5, side: THREE.DoubleSide }));
+      rim.rotation.x = -Math.PI/2; rim.scale.set(rx, rz, 1); rim.position.y = 0.017;
+      g.add(rim);
+      g.position.set(x, 0, z);
+      scene.add(g);
+      return g;
+    }
+    {
+      // placed away from center (min dist ~14, clear of the spawn ring) and clear of the fence
+      const pondSpots = [];
+      let guard = 0;
+      while (pondSpots.length < 2 && guard++ < 400){
+        const x = (Math.random()*2-1)*(ARENA-10), z = (Math.random()*2-1)*(ARENA-10);
+        if (Math.hypot(x, z) < 14) continue;
+        if (pondSpots.some(p => Math.hypot(p.x - x, p.z - z) < 20)) continue;
+        if (bales.some(b => Math.hypot(b.x - x, b.z - z) < 10)) continue;
+        pondSpots.push({ x, z });
+      }
+      for (const p of pondSpots){
+        const rx = 5 + Math.random()*2, rz = 5 + Math.random()*2;   // ~5-7 radius, slightly oblong
+        const mesh = buildPond(p.x, p.z, rx, rz);
+        ponds.push({ x: p.x, z: p.z, rx, rz, mesh, rippleT: Math.random()*2 });
+      }
+    }
+    function inPond(x, z){
+      for (const p of ponds){
+        const dx = (x - p.x) / p.rx, dz = (z - p.z) / p.rz;
+        if (dx*dx + dz*dz < 1) return true;
+      }
+      return false;
+    }
+    function updatePonds(dt){
+      for (const p of ponds){
+        p.rippleT -= dt;
+        if (p.rippleT <= 0){
+          p.rippleT = 2 + Math.random()*0.6;
+          ring(p.x, p.z, 0x8a9aa0, Math.max(p.rx, p.rz) * 0.9, 1.4);
+        }
+      }
+    }
+
+    // ---- windmill: procedural landmark near a corner, blades spin, blocks movement like a bale ----
+    function buildWindmill(){
+      const g = new THREE.Group();
+      const woodM = mat(0x8a6a44), steelM = mat(0x9aa5ad), redM = mat(0xb5432e, true);
+      const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.95, 6.5, 10), woodM);
+      tower.position.y = 3.25; g.add(tower);
+      const cap = new THREE.Mesh(new THREE.ConeGeometry(0.65, 1.1, 10), redM);
+      cap.position.y = 7.05; g.add(cap);
+      const hub = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), steelM);
+      hub.position.y = 6.6; g.add(hub);
+      const blades = new THREE.Group();
+      blades.position.y = 6.6;
+      for (let i = 0; i < 4; i++){
+        const blade = new THREE.Mesh(new THREE.BoxGeometry(0.18, 2.6, 0.06), woodM);
+        blade.position.y = 1.4;
+        const pivot = new THREE.Group();
+        pivot.rotation.z = (Math.PI/2) * i;
+        pivot.add(blade);
+        blades.add(pivot);
+      }
+      blades.position.z = 0.5;
+      g.add(blades);
+      g.userData.blades = blades;
+      g.add(blobShadow(2.2));
+      return g;
+    }
+    let windmill = null;
+    {
+      // near a corner, clear of the fence and other landmarks (bales, ponds)
+      const corners = [[-1,-1],[-1,1],[1,-1],[1,1]].sort(() => Math.random()-0.5);
+      let wx = (ARENA - 9) * corners[0][0], wz = (ARENA - 9) * corners[0][1];
+      for (const [sx, sz] of corners){
+        const cx = (ARENA - 9) * sx, cz = (ARENA - 9) * sz;
+        const clear = !bales.some(b => Math.hypot(b.x - cx, b.z - cz) < 8) &&
+                      !ponds.some(p => Math.hypot(p.x - cx, p.z - cz) < 10);
+        if (clear){ wx = cx; wz = cz; break; }
+      }
+      windmill = buildWindmill();
+      windmill.position.set(wx, 0, wz);
+      scene.add(windmill);
+      bales.push({ x: wx, z: wz, r: 2.2, mesh: windmill, notBale: true });   // reuse the collider system, skip visual refresh
+    }
+
     // ---- grass field: one InstancedMesh, sways idly and springs away as you run through ----
-    const GRASS_N = 420;
+    const GRASS_N = 1260;   // 3x for the 3x field — InstancedMesh count is cheap
     const grassData = [];
     let grassMesh;
     {
@@ -962,7 +1145,9 @@
     }
 
     // ---- field pickups & destructible props ----
-    function buildPickupMesh(type){
+    // GLB-backed pickups (bomb/magnet/milk) fall back to the original procedural builders
+    // below until their model finishes loading — see loadPickupModel near the bee loader.
+    function buildPickupMeshProcedural(type){
       const g = new THREE.Group();
       if (type === "coin"){
         const c = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.1, 12), new THREE.MeshPhongMaterial({ color: 0xffd23f, shininess: 70 }));
@@ -988,6 +1173,13 @@
         fuse.rotation.z = 0.4; fuse.position.y = 0.42; g.add(fuse);
       }
       return g;
+    }
+    function buildPickupMesh(type){
+      if (type === "coin") return buildPickupMeshProcedural(type);   // coin stays procedural always
+      if (type === "milk" && milkAssets) return pickupModelMesh(milkAssets, 0, 0, 0);
+      if (type === "magnet" && magnetAssets) return pickupModelMesh(magnetAssets, Math.PI/2, 0, 0);
+      if (type === "boom" && bombAssets) return pickupModelMesh(bombAssets, 0, 0, 0);
+      return buildPickupMeshProcedural(type);
     }
     function buildPropMesh(kind){
       const g = new THREE.Group();
@@ -1752,6 +1944,58 @@
       g.userData.wings = null;   // merged mesh — no distinct wing nodes to flap
       return g;
     }
+
+    // ---- downloaded pickup models (assets/bomb.glb, magnet.glb, milk.glb) ----
+    // Static (non-skinned) props — plain .clone() shares geometry+material with the template,
+    // and since pickups are never tinted/flashed, the shared materials stay untouched for the
+    // clone's whole life; freeMesh skips anything in SHARED_ASSETS so this is safe AND cheap
+    // (no per-spawn material clone needed, unlike the per-bee tinting case above).
+    function loadPickupModel(url, targetSize, onReady){
+      new THREE.GLTFLoader().load(url, (gltf) => {
+        const src = gltf.scene;
+        src.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(src);
+        const size = new THREE.Vector3(); box.getSize(size);
+        const maxAxis = Math.max(size.x, size.y, size.z) || 1;
+        const scaleTo = targetSize / maxAxis;
+        markShared(src);   // clones reference these buffers — never dispose them
+        onReady({ scene: src, scaleTo, box });
+      }, undefined, (err) => console.warn(url + " failed to load — using the built-in pickup", err));
+    }
+    let bombAssets = null, magnetAssets = null, milkAssets = null;
+    loadPickupModel("assets/bomb.glb", 0.8, (a) => { bombAssets = a; });
+    loadPickupModel("assets/magnet.glb", 0.8, (a) => { magnetAssets = a; });
+    loadPickupModel("assets/milk.glb", 0.8, (a) => { milkAssets = a; });
+    function pickupModelMesh(assets, rotX, rotY, rotZ){
+      const g = new THREE.Group();
+      const m = assets.scene.clone();
+      m.scale.setScalar(assets.scaleTo);
+      // center the model on the group origin — pickups hover at y≈0.6 and bob from there
+      const c = assets.box.getCenter(new THREE.Vector3()).multiplyScalar(assets.scaleTo);
+      m.position.set(-c.x, -c.y, -c.z);
+      if (rotX) m.rotation.x = rotX;
+      if (rotY) m.rotation.y = rotY;
+      if (rotZ) m.rotation.z = rotZ;
+      g.add(m);
+      return g;
+    }
+
+    // ---- downloaded treasure chest model (assets/chest.glb) — replaces the feed-sack prop ----
+    // Wide along X, latch faces +Z on the source model; the game camera sits at +Z looking back
+    // toward the origin (see camera.position.set(..., z + 21...) in the follow-cam and the fixed
+    // title-screen camera at z=21), so the chest's native +Z-facing latch already reads toward
+    // the camera with no extra yaw needed.
+    let chestAssets = null;
+    new THREE.GLTFLoader().load("assets/chest.glb", (gltf) => {
+      const src = gltf.scene;
+      src.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(src);
+      const size = new THREE.Vector3(); box.getSize(size);
+      const scaleTo = 1.75 / (size.x || 1);   // ~1.75 units wide along X
+      markShared(src);   // clones reference these buffers — never dispose them
+      chestAssets = { scene: src, scaleTo, box };
+    }, undefined, (err) => console.warn("chest.glb failed to load — using the built-in feed sack", err));
+
     function buildFork(){
       const g = new THREE.Group();
       const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.3, 6), mat(0x8a6a44));
@@ -1820,7 +2064,7 @@
     // ================== game state ==================
     let state = "title";     // title | playing | levelup | paused | over
     let player, stats, hp, level, xp, xpNeed, kills, elapsed, spawnTimer, regenTimer;
-    let enemies = [], projectiles = [], orbs = [], puffs = [];
+    let enemies = [], projectiles = [], orbs = [], puffs = [], corpses = [];
     let pumpkins = [], cats = [], turrets = [], rings = [], chunks = [], chests = [];
     let pickups = [], props = [];
     let beeUnits = [], forks = [], boltsFx = [];
@@ -1874,9 +2118,10 @@
       for (const b of beeUnits) freeMesh(b.mesh);
       for (const f of forks) freeMesh(f.mesh);
       for (const b of boltsFx) freeMesh(b.mesh);
+      for (const c of corpses) freeMesh(c.mesh);
       enemies = []; projectiles = []; orbs = []; puffs = [];
       pumpkins = []; cats = []; turrets = []; rings = []; chunks = []; chests = [];
-      pickups = []; props = []; beeUnits = []; forks = []; boltsFx = [];
+      pickups = []; props = []; beeUnits = []; forks = []; boltsFx = []; corpses = [];
       boss = null; document.getElementById("bossBar").style.display = "none";
     }
 
@@ -1901,7 +2146,7 @@
       rerollsLeft = 2 + stats.luck;
       banishesLeft = 2 + stats.luck;
       bonusCoins = 0; waveIdx = 0; bannerTimer = 0; finalDown = false;
-      formationTimer = 55; propTimer = 75;
+      formationTimer = 55; propTimer = 45;
       for (let i = 0; i < 6; i++) spawnProp();
       state = "playing";
       showOverlay(null);
@@ -2105,12 +2350,20 @@
     // ---- treasure chest (feed sack) dropped by a slain boss ----
     function dropChest(x, z){
       const g = new THREE.Group();
-      const sack = new THREE.Mesh(new THREE.BoxGeometry(1.3, 1.5, 1.1), new THREE.MeshPhongMaterial({ color: 0xc79a4a }));
-      sack.position.y = 0.75; g.add(sack);
-      const tie = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.4, 0.5, 8), new THREE.MeshPhongMaterial({ color: 0xb0863a }));
-      tie.position.y = 1.55; g.add(tie);
-      const knot = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.09, 6, 10), new THREE.MeshPhongMaterial({ color: 0x8a6a2a }));
-      knot.rotation.x = Math.PI/2; knot.position.y = 1.8; g.add(knot);
+      if (chestAssets){
+        const m = chestAssets.scene.clone();
+        const s = chestAssets.scaleTo;
+        m.scale.setScalar(s);
+        m.position.y = -chestAssets.box.min.y * s;   // feet on the ground
+        g.add(m);
+      } else {
+        const sack = new THREE.Mesh(new THREE.BoxGeometry(1.3, 1.5, 1.1), new THREE.MeshPhongMaterial({ color: 0xc79a4a }));
+        sack.position.y = 0.75; g.add(sack);
+        const tie = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.4, 0.5, 8), new THREE.MeshPhongMaterial({ color: 0xb0863a }));
+        tie.position.y = 1.55; g.add(tie);
+        const knot = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.09, 6, 10), new THREE.MeshPhongMaterial({ color: 0x8a6a2a }));
+        knot.rotation.x = Math.PI/2; knot.position.y = 1.8; g.add(knot);
+      }
       const star = new THREE.Mesh(new THREE.OctahedronGeometry(0.3), new THREE.MeshBasicMaterial({ color: 0xffe27a }));
       star.position.y = 2.5; g.add(star);
       g.add(blobShadow(0.9));
@@ -2314,7 +2567,11 @@
           // deploys on its own cadence; the standing scarecrows do the actual shooting
           w.deployTimer -= dt;
           if (w.deployTimer <= 0){
-            w.deployTimer = WEAPON_SPECS.scarecrow.deployEvery;
+            // cadence tightens as max-standing grows, so Straw Brigade / the evolution
+            // actually keep that many scarecrows alive (life 15s / deployEvery 7s used
+            // to hard-cap the standing count at ~2 no matter what maxOut said)
+            w.deployTimer = Math.min(WEAPON_SPECS.scarecrow.deployEvery,
+                                     WEAPON_SPECS.scarecrow.life / w.maxOut);
             const mine = turrets;
             while (mine.length >= w.maxOut){ const old = mine.shift(); puff(old.mesh.position.x, 1, old.mesh.position.z, 0xdcc27e, 5); freeMesh(old.mesh); }
             const mesh = buildScarecrow();
@@ -2397,6 +2654,53 @@
       }
     }
 
+    // ---- corpse ragdoll: blasted onto the back, then fades out over ~0.7s ----
+    // Called from the non-boss death path — bosses/THE COMBINE keep their explosion deaths.
+    // Materials are per-spawn clones already (tinted per elite/tier), so it's always safe to
+    // flip transparent=true on them here without bleeding the fade onto any other live enemy.
+    function spawnCorpse(e, dir){
+      // knock dir defines the fling + the flip axis (perpendicular to it, in the ground plane,
+      // so the body rotates "backwards" onto its spine rather than corkscrewing sideways)
+      const kd = (dir && dir.lengthSq() > 1e-6) ? dir.clone().setY(0).normalize() : new THREE.Vector3(0, 0, 1);
+      const spinAxis = new THREE.Vector3(-kd.z, 0, kd.x);   // perpendicular to the hit, flat on the ground
+      const startOpacities = [];
+      e.mesh.traverse(o => {
+        if (o.isMesh && o.material){
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          for (const m of mats){
+            startOpacities.push({ m, op: (m.transparent ? m.opacity : 1) });
+            m.transparent = true;
+          }
+        }
+      });
+      corpses.push({
+        mesh: e.mesh,
+        vel: kd.clone().multiplyScalar(4).add(new THREE.Vector3(0, 3.5, 0)),
+        spinAxis, spinAmt: 0,
+        startOpacities,
+        life: 0, maxLife: 0.7
+      });
+    }
+    function updateCorpses(dt){
+      for (const c of corpses.slice()){
+        c.life += dt;
+        c.vel.y -= 12 * dt;   // gravity
+        c.mesh.position.addScaledVector(c.vel, dt);
+        if (c.mesh.position.y < 0){ c.mesh.position.y = 0; c.vel.y = 0; }
+        // ease toward flat-on-the-back (±PI*0.6 rotation about the perpendicular axis)
+        const targetSpin = Math.PI * 0.6;
+        c.spinAmt += (targetSpin - c.spinAmt) * Math.min(1, dt * 6);
+        c.mesh.rotateOnWorldAxis(c.spinAxis, c.spinAmt - (c.lastSpin || 0));
+        c.lastSpin = c.spinAmt;
+        const k = 1 - c.life / c.maxLife;
+        for (const so of c.startOpacities) so.m.opacity = so.op * Math.max(0, k);
+        if (c.life >= c.maxLife){
+          freeMesh(c.mesh);
+          corpses.splice(corpses.indexOf(c), 1);
+        }
+      }
+    }
+
     function damageEnemy(e, dmg, dir){
       e.hp -= dmg;
       e.flash = 0.12;
@@ -2453,8 +2757,10 @@
         if (Math.random() < 0.015 + stats.luck * 0.004){
           dropPickup(e.mesh.position.x + 0.8, e.mesh.position.z + 0.8);
         }
-        freeMesh(e.mesh);
+        // removed from `enemies` immediately — no more collisions/targeting once dead — but the
+        // mesh lingers as a ragdoll corpse (blasted onto its back, then fades) instead of vanishing
         enemies.splice(enemies.indexOf(e), 1);
+        spawnCorpse(e, dir);
         updateHud();
       }
     }
@@ -2502,15 +2808,18 @@
         // universal upgrades cap at rare — epics are reserved for weapon-specific cards
         if (!u.weapon && rar.mult > RARITIES[2].mult) rar = RARITIES[2];
         const el = document.createElement("div");
-        el.className = "card";
+        el.className = "card" + (rar.id === "epic" ? " epic" : "");
+        el.style.setProperty("--rc", rar.color);
         el.style.borderColor = rar.color;
         el.style.boxShadow = `0 0 14px ${rar.color}55`;
+        const watermark = u.weapon ? WEAPON_SPECS[u.weapon].ico : "🌐";
         el.innerHTML =
-          `<div class="ico">${u.ico}</div><div class="cbody">` +
-          `<div class="ds" style="font-weight:800;color:${rar.color}">${rar.name.toUpperCase()}</div>` +
+          `<div class="band">${rar.name.toUpperCase()}</div>` +
+          `<div class="cardtop"><div class="medal">${u.ico}</div><div class="cbody">` +
           `<div class="nm">${u.name}</div><div class="ds">${descFor(u, rar)}</div>` +
           `<div class="ds" style="margin-top:3px;opacity:.7">Taken ${(stats.taken[u.id]||0)}/${u.max}` +
-          (u.weapon ? ` · Wpn Lv ${weaponLevel(weaponById(u.weapon))}/${EVOLVE_AT}` : "") + `</div></div>`;
+          (u.weapon ? ` · Wpn Lv ${weaponLevel(weaponById(u.weapon))}/${EVOLVE_AT}` : "") + `</div></div></div>` +
+          `<div class="watermark">${watermark}</div>`;
         el.onclick = () => { applyUpgrade(u.id, rar.mult); afterCardPick(); };
         // banish: strike this upgrade from the pool for the rest of the run
         if (banishesLeft > 0){
@@ -2547,7 +2856,12 @@
         const spec = WEAPON_SPECS[p.id];
         const el = document.createElement("div");
         el.className = "card";
-        el.innerHTML = `<div class="ico">${spec.ico}</div><div class="cbody"><div class="nm">${spec.name}</div><div class="ds">${p.desc}</div></div>`;
+        el.style.setProperty("--rc", "#7df58a");
+        el.innerHTML =
+          `<div class="band">NEW WEAPON</div>` +
+          `<div class="cardtop"><div class="medal">${spec.ico}</div><div class="cbody">` +
+          `<div class="nm">${spec.name}</div><div class="ds">${p.desc}</div></div></div>` +
+          `<div class="watermark">${spec.ico}</div>`;
         el.onclick = () => { weapons.push(newWeapon(p.id)); updateHud(); afterCardPick(); };
         cards.appendChild(el);
       }
@@ -2648,23 +2962,29 @@
         const wasEvolved = u.weapon && weaponById(u.weapon) ? weaponById(u.weapon).evolved : true;
         applyUpgrade(u.id, rar.mult);
         const nowEvolved = u.weapon && weaponById(u.weapon) ? weaponById(u.weapon).evolved : wasEvolved;
-        rewards.push({ ico:u.ico, name:u.name, desc:descFor(u, rar), rar, evo: !wasEvolved && nowEvolved });
+        rewards.push({ ico:u.ico, name:u.name, desc:descFor(u, rar), rar, evo: !wasEvolved && nowEvolved, weapon:u.weapon });
       } else {
         // everything maxed — pay out coins instead
         bonusCoins += 40;
-        rewards.push({ ico:"🪙", name:"Corn Coins", desc:"+40 coins — every upgrade is maxed!", rar:null, evo:false });
+        rewards.push({ ico:"🪙", name:"Corn Coins", desc:"+40 coins — every upgrade is maxed!", rar:null, evo:false, weapon:null });
       }
       const anyEvo = rewards.some(r => r.evo);
       document.getElementById("chestTitle").textContent = anyEvo ? "✨ EVOLUTION!" : "🎁 Feed Sack!";
       const cont = document.getElementById("chestCards"); cont.innerHTML = "";
       for (const r of rewards){
         const el = document.createElement("div");
-        el.className = "card" + (r.evo ? " evo" : "");
+        const isEpic = !r.evo && r.rar && r.rar.id === "epic";
+        el.className = "card" + (r.evo ? " evo" : "") + (isEpic ? " epic" : "");
+        const rc = r.evo ? "#ffd23f" : (r.rar ? r.rar.color : "#a8b0b8");
+        el.style.setProperty("--rc", rc);
         if (!r.evo && r.rar){ el.style.borderColor = r.rar.color; el.style.boxShadow = `0 0 14px ${r.rar.color}55`; }
-        el.innerHTML = `<div class="ico">${r.ico}</div><div class="cbody">` +
-          (r.rar ? `<div class="ds" style="font-weight:800;color:${r.rar.color}">${r.rar.name.toUpperCase()}</div>` : "") +
+        const watermark = r.weapon ? WEAPON_SPECS[r.weapon].ico : "🌐";
+        el.innerHTML =
+          (r.evo ? `<div class="band">EVOLUTION</div>` : (r.rar ? `<div class="band">${r.rar.name.toUpperCase()}</div>` : "")) +
+          `<div class="cardtop"><div class="medal">${r.ico}</div><div class="cbody">` +
           `<div class="nm">${r.name}</div>` +
-          (r.desc ? `<div class="ds">${r.desc}</div>` : "") + `</div>`;
+          (r.desc ? `<div class="ds">${r.desc}</div>` : "") + `</div></div>` +
+          `<div class="watermark">${watermark}</div>`;
         cont.appendChild(el);
       }
       showOverlay("chestOverlay");
@@ -2729,8 +3049,10 @@
 
       // player movement — clamped to the fence and blocked by hay bales
       const mv = moveVector();
-      player.position.x = Math.max(-ARENA+1, Math.min(ARENA-1, player.position.x + mv.x * stats.speed * dt));
-      player.position.z = Math.max(-ARENA+1, Math.min(ARENA-1, player.position.z + mv.z * stats.speed * dt));
+      // mud ponds bog the player down to 60% speed — a per-frame multiplier only, stats.speed itself is untouched
+      const playerSpeedMul = inPond(player.position.x, player.position.z) ? 0.6 : 1;
+      player.position.x = Math.max(-ARENA+1, Math.min(ARENA-1, player.position.x + mv.x * stats.speed * playerSpeedMul * dt));
+      player.position.z = Math.max(-ARENA+1, Math.min(ARENA-1, player.position.z + mv.z * stats.speed * playerSpeedMul * dt));
       pushOutOfBales(player.position, 0.7);
       if (mv.x || mv.z) player.rotation.y = Math.atan2(mv.x, mv.z);
 
@@ -2853,7 +3175,14 @@
 
       // destructible props trickle back over time
       propTimer -= dt;
-      if (propTimer <= 0){ propTimer = 75; spawnProp(); }
+      if (propTimer <= 0){ propTimer = 45; spawnProp(); }
+
+      // mud ponds ripple; windmill blades turn lazily
+      updatePonds(dt);
+      if (windmill) windmill.userData.blades.rotation.z += dt * 0.7;
+
+      // corpses: blasted onto their back, then fade out and free their GPU assets
+      updateCorpses(dt);
 
       weaponsUpdate(dt);
       beesUpdate(dt);
@@ -3021,7 +3350,9 @@
         const dist = dir.length();
         dir.normalize();
         if (e.slowT > 0) e.slowT -= dt;   // Monsoon soak wears off
-        let step = e.speed * (e.slowT > 0 ? 0.55 : 1) * dt;
+        // mud ponds bog down ground varmints to 60% speed — flyers (crows) pass over untouched
+        const pondMul = (!e.fly && inPond(e.mesh.position.x, e.mesh.position.z)) ? 0.6 : 1;
+        let step = e.speed * (e.slowT > 0 ? 0.55 : 1) * pondMul * dt;
 
         // crows fly a locked straight line through the farm — swoop, flap, and leave
         if (e.fly){
@@ -3299,6 +3630,18 @@
     document.getElementById("chestGrabBtn").addEventListener("click", closeChest);
 
     // ---- Barn Upgrades shop ----
+    // simple confirm wrapper — no custom dialog UI exists in this page, so window.confirm it is
+    function confirmDialog(msg){ return window.confirm(msg); }
+
+    // Σ cost(l) for l = 0..level-1, summed over every purchased upgrade — exactly what was spent
+    function totalRefundValue(){
+      let total = 0;
+      for (const m of META){
+        const lvl = metaLvl(m.id);
+        for (let l = 0; l < lvl; l++) total += m.cost(l);
+      }
+      return total;
+    }
     function renderBarn(){
       document.getElementById("barnCoins").textContent = meta.coins;
       document.getElementById("titleCoins").textContent = meta.coins;
@@ -3320,7 +3663,27 @@
         row.appendChild(btn);
         list.appendChild(row);
       }
+      // refund button: hidden/disabled when nothing's purchased, otherwise shows the exact payout
+      const refundBtn = document.getElementById("refundBtn");
+      const refundValue = totalRefundValue();
+      if (refundValue <= 0){
+        refundBtn.style.display = "none";
+      } else {
+        refundBtn.style.display = "";
+        refundBtn.textContent = `↩️ Refund all upgrades · 🪙 ${refundValue}`;
+      }
     }
+    document.getElementById("refundBtn").addEventListener("click", () => {
+      const refundValue = totalRefundValue();
+      if (refundValue <= 0) return;
+      if (confirmDialog(`Refund all barn upgrades for ${refundValue} 🪙?`)){
+        meta.coins += refundValue;
+        meta.up = {};
+        saveMeta();
+        renderBarn();
+        document.getElementById("titleCoins").textContent = meta.coins;
+      }
+    });
     // the barn remembers where it was opened from (title or death screen) and returns there
     function openBarn(from){
       barnReturn = from;
