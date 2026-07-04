@@ -1,0 +1,13 @@
+# dev tooling — not part of the deployed site
+tools/node_modules/
+shots/
+*.log
+
+# local claude session config (skills and launch config ARE tracked)
+.claude/settings.local.json
+
+# netlify local state
+.netlify/
+
+# functions dependencies get installed by netlify at build time
+netlify/functions/node_modules/

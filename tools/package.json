@@ -1,0 +1,15 @@
+{
+  "name": "bucky-photobooth",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Headless PNG capture tool for reviewing BUCKY's 3D game art.",
+  "type": "commonjs",
+  "main": "photobooth.js",
+  "scripts": {
+    "photobooth": "node photobooth.js"
+  },
+  "dependencies": {
+    "puppeteer-core": "^25.3.0",
+    "sharp": "^0.35.3"
+  }
+}

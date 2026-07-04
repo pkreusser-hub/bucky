@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>BUCKY — Branch Manager</title>
+<style>
+  :root{ --navy:#0a3161; --red:#b31942; --bark:#241a12; --bark2:#2e2118; --sky:#4a90c9; --sky2:#5aa0d8; }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; height:100%; background:#1c4a6e; color:#fff; font-family:-apple-system,Segoe UI,Roboto,sans-serif; overflow:hidden; }
+  #bar{ position:fixed; top:0; left:0; right:0; height:46px; display:flex; align-items:center; gap:10px; padding:0 12px;
+        background:var(--navy); z-index:10; }
+  #bar a{ color:#fff; text-decoration:none; font-weight:800; font-size:15px; background:rgba(255,255,255,.15); padding:7px 12px; border-radius:9px; }
+  #bar .t{ font-weight:800; letter-spacing:.5px; }
+  #hud{ position:fixed; top:46px; left:0; right:0; height:34px; display:flex; align-items:center; justify-content:center; gap:18px;
+        padding:0 14px; z-index:9; font-family:monospace; font-weight:bold; font-size:14px; color:#e6dcc8; }
+  #layout{ position:absolute; top:80px; left:0; right:0; bottom:150px; display:flex; align-items:flex-start; justify-content:center; gap:14px; padding:10px 14px; }
+  #boardStage{ flex:1 1 auto; height:100%; display:flex; align-items:center; justify-content:center; min-width:0; }
+  canvas{ display:block; touch-action:none; }
+  #board{ border-radius:8px; box-shadow:0 4px 20px rgba(0,0,0,.6); }
+  #side{ flex:0 0 auto; display:flex; flex-direction:column; gap:10px; padding-top:4px; width:100px; }
+  .panel{ background:var(--bark2); border:1px solid #4a3826; border-radius:10px; padding:8px; text-align:center; }
+  .panel .label{ font-size:11px; color:#c9b79a; font-weight:800; letter-spacing:.5px; margin-bottom:6px; }
+  #nextCanvas{ border-radius:6px; }
+  #touchControls{ position:fixed; left:0; right:0; bottom:0; height:150px; display:flex; align-items:center;
+                  justify-content:space-between; padding:0 20px; z-index:9; }
+  #touchControls .grp{ display:flex; gap:10px; align-items:center; }
+  #touchControls button{ width:56px; height:56px; border:0; border-radius:12px; background:rgba(255,255,255,.16); color:#fff;
+                          font-size:24px; display:flex; align-items:center; justify-content:center; touch-action:none; }
+  #touchControls button:active{ background:rgba(255,255,255,.32); }
+  .overlay{ position:fixed; inset:0; background:rgba(0,0,0,.65); z-index:20; display:none; align-items:center; justify-content:center; flex-direction:column; padding:0 24px; text-align:center; }
+  .overlay.show{ display:flex; }
+  .overlay h1{ font-size:28px; margin:0 0 6px; }
+  .overlay .stat{ font-family:monospace; font-size:16px; color:#e6dcc8; margin-bottom:14px; }
+  .overlay .desc{ font-size:14px; color:#dcecd4; max-width:340px; margin-bottom:16px; line-height:1.6; }
+  .overlay .desc b{ color:#fff; }
+  .overlay button{ font-size:18px; font-weight:800; color:var(--navy); background:#fff; border:0; border-radius:10px;
+                    padding:12px 22px; margin-bottom:10px; }
+  .overlay .reset{ background:none; color:#c9b79a; font-size:13px; font-weight:normal; padding:4px; }
+  .overlay .links{ display:flex; gap:18px; align-items:center; }
+  .overlay a.reset{ text-decoration:none; cursor:pointer; }
+  .overlay .scores{ font-family:monospace; margin:4px 0 16px; }
+  .overlay .scores .title{ font-weight:800; color:#fff; font-size:14px; margin-bottom:6px; }
+  .overlay .scores .row{ font-size:13px; color:#dcecd4; }
+</style>
+</head>
+<body>
+  <div id="bar"><a href="index.html">← BUCKY</a><span class="t">🪵 Branch Manager</span></div>
+  <div id="hud"><span id="scoreText">Score 0</span><span id="levelText">Level 0</span><span id="linesText">Lines 0</span></div>
+  <div id="layout">
+    <div id="boardStage"><canvas id="board"></canvas></div>
+    <div id="side">
+      <div class="panel"><div class="label">NEXT</div><canvas id="nextCanvas" width="88" height="88"></canvas></div>
+    </div>
+  </div>
+  <div id="touchControls">
+    <div class="grp">
+      <button data-act="left">⬅️</button>
+      <button data-act="down">⬇️</button>
+      <button data-act="right">➡️</button>
+    </div>
+    <div class="grp">
+      <button data-act="ccw">↺</button>
+      <button data-act="cw">↻</button>
+    </div>
+  </div>
+  <div id="startOverlay" class="overlay show">
+    <h1>🪵 Branch Manager</h1>
+    <div class="desc">Classic block-stacking, but the pieces are branches. <b>← → </b> move, <b>↑</b>/<b>X</b> rotate CW, <b>Z</b> rotate CCW, <b>↓</b> soft drop, <b>P</b> pause — or use the on-screen buttons.<br>Clear a row and watch it burn away!</div>
+    <div class="scores" id="scoresStart"></div>
+    <button id="startBtn">Start Game</button>
+  </div>
+  <div id="overlay" class="overlay">
+    <h1>🔥 Game Over</h1>
+    <div class="stat" id="overStat"></div>
+    <div class="scores" id="scoresOver"></div>
+    <button id="againBtn">Play again</button>
+    <div class="links">
+      <a class="reset" href="index.html">🏠 Home</a>
+      <button class="reset" id="resetBtn">Reset high scores</button>
+    </div>
+  </div>
+  <script>
+  (() => {
+    const COLS = 10, ROWS = 20;
+    const FRAME_MS = 1000 / 60;
+    const SCORES_KEY = "branchManagerScores";
+    const DAS_DELAY = 16, ARR = 6;   // classic-style delayed auto shift (frames)
+    const BURN_FRAMES = 26;
+
+    // ---- classic (non-SRS) tetromino rotation states: each state is a list of {r,c} cells in a 4x4 box ----
+    const SHAPES = {
+      I: { color:"#e3c896", dark:"#b89a68", states:[
+        [{r:1,c:0},{r:1,c:1},{r:1,c:2},{r:1,c:3}],
+        [{r:0,c:2},{r:1,c:2},{r:2,c:2},{r:3,c:2}],
+        [{r:1,c:0},{r:1,c:1},{r:1,c:2},{r:1,c:3}],
+        [{r:0,c:2},{r:1,c:2},{r:2,c:2},{r:3,c:2}]
+      ]},
+      O: { color:"#c9a06a", dark:"#96733f", states:[
+        [{r:0,c:1},{r:0,c:2},{r:1,c:1},{r:1,c:2}],
+        [{r:0,c:1},{r:0,c:2},{r:1,c:1},{r:1,c:2}],
+        [{r:0,c:1},{r:0,c:2},{r:1,c:1},{r:1,c:2}],
+        [{r:0,c:1},{r:0,c:2},{r:1,c:1},{r:1,c:2}]
+      ]},
+      T: { color:"#966b3c", dark:"#6b4a24", states:[
+        [{r:0,c:1},{r:1,c:0},{r:1,c:1},{r:1,c:2}],
+        [{r:0,c:1},{r:1,c:1},{r:1,c:2},{r:2,c:1}],
+        [{r:1,c:0},{r:1,c:1},{r:1,c:2},{r:2,c:1}],
+        [{r:0,c:1},{r:1,c:0},{r:1,c:1},{r:2,c:1}]
+      ]},
+      S: { color:"#5f3f26", dark:"#3e2716", states:[
+        [{r:0,c:1},{r:0,c:2},{r:1,c:0},{r:1,c:1}],
+        [{r:0,c:1},{r:1,c:1},{r:1,c:2},{r:2,c:2}],
+        [{r:0,c:1},{r:0,c:2},{r:1,c:0},{r:1,c:1}],
+        [{r:0,c:1},{r:1,c:1},{r:1,c:2},{r:2,c:2}]
+      ]},
+      Z: { color:"#7a5030", dark:"#52341c", states:[
+        [{r:0,c:0},{r:0,c:1},{r:1,c:1},{r:1,c:2}],
+        [{r:0,c:2},{r:1,c:1},{r:1,c:2},{r:2,c:1}],
+        [{r:0,c:0},{r:0,c:1},{r:1,c:1},{r:1,c:2}],
+        [{r:0,c:2},{r:1,c:1},{r:1,c:2},{r:2,c:1}]
+      ]},
+      J: { color:"#3f2c1c", dark:"#291c11", states:[
+        [{r:0,c:0},{r:1,c:0},{r:1,c:1},{r:1,c:2}],
+        [{r:0,c:1},{r:0,c:2},{r:1,c:1},{r:2,c:1}],
+        [{r:1,c:0},{r:1,c:1},{r:1,c:2},{r:2,c:2}],
+        [{r:0,c:1},{r:1,c:1},{r:2,c:0},{r:2,c:1}]
+      ]},
+      L: { color:"#b3813f", dark:"#7c561f", states:[
+        [{r:0,c:2},{r:1,c:0},{r:1,c:1},{r:1,c:2}],
+        [{r:0,c:1},{r:1,c:1},{r:2,c:1},{r:2,c:2}],
+        [{r:1,c:0},{r:1,c:1},{r:1,c:2},{r:2,c:0}],
+        [{r:0,c:0},{r:0,c:1},{r:1,c:1},{r:2,c:1}]
+      ]}
+    };
+    const TYPES = Object.keys(SHAPES);
+
+    // NES frame-per-row gravity table, indexed by level (levels beyond the table use 1)
+    const SPEED_TABLE = [48,43,38,33,28,23,18,13,8,6,5,5,5,4,4,4,3,3,3,2,2,2,2,2,2,2,2,2,2,1];
+    function framesForLevel(level){ return level < SPEED_TABLE.length ? SPEED_TABLE[level] : 1; }
+    function lineScore(numLines, level){ return ({1:40,2:100,3:300,4:1200}[numLines] || 0) * (level + 1); }
+
+    const boardCanvas = document.getElementById("board");
+    const bctx = boardCanvas.getContext("2d");
+    const nextCanvas = document.getElementById("nextCanvas");
+    const nctx = nextCanvas.getContext("2d");
+    const scoreText = document.getElementById("scoreText");
+    const levelText = document.getElementById("levelText");
+    const linesText = document.getElementById("linesText");
+    const overlay = document.getElementById("overlay");
+    const overStat = document.getElementById("overStat");
+    const startOverlay = document.getElementById("startOverlay");
+
+    function loadScores(){
+      try { const v = JSON.parse(localStorage.getItem(SCORES_KEY) || "[]"); return Array.isArray(v) ? v : []; }
+      catch(e){ return []; }
+    }
+    function saveScoreEntry(finalScore){
+      if (finalScore <= 0) return;
+      const list = loadScores();
+      list.push({ score: finalScore, by: localStorage.getItem("choreUser") || "Someone" });
+      list.sort((a,b) => b.score - a.score);
+      localStorage.setItem(SCORES_KEY, JSON.stringify(list.slice(0, 5)));
+    }
+    function renderScores(el){
+      if (!el) return;
+      const list = loadScores();
+      el.innerHTML = "";
+      const title = document.createElement("div");
+      title.className = "title";
+      title.textContent = list.length ? "🏆 High Scores" : "🏆 No scores yet — be the first!";
+      el.appendChild(title);
+      list.forEach((e, i) => {
+        const row = document.createElement("div");
+        row.className = "row";
+        row.textContent = `${i + 1}.  ${e.score}  —  ${e.by}`;
+        el.appendChild(row);
+      });
+    }
+    function renderAllScores(){
+      renderScores(document.getElementById("scoresStart"));
+      renderScores(document.getElementById("scoresOver"));
+    }
+
+    let cell = 24;
+    let groundH = 0, skyH = 0;
+    function fitBoard(){
+      const stage = document.getElementById("boardStage");
+      const availW = stage.clientWidth - 8, availH = stage.clientHeight - 8;
+      cell = Math.max(10, Math.floor(Math.min(availW / COLS, availH / ROWS)));
+      boardCanvas.width = cell * COLS;
+      boardCanvas.height = cell * ROWS;
+      groundH = boardCanvas.height * 0.1;
+      skyH = boardCanvas.height - groundH;
+      clouds = makeClouds();
+      draw();
+    }
+
+    function makeClouds(){
+      const arr = [];
+      for (let i = 0; i < 6; i++){
+        arr.push({
+          x: Math.random() * boardCanvas.width,
+          y: Math.random() * skyH * 0.85,
+          s: 0.5 + Math.random() * 0.7,
+          speed: 0.15 + Math.random() * 0.2
+        });
+      }
+      return arr;
+    }
+    function drawCloud(ctx, x, y, s){
+      ctx.beginPath();
+      ctx.arc(x, y, 13*s, 0, Math.PI*2);
+      ctx.arc(x + 15*s, y - 7*s, 16*s, 0, Math.PI*2);
+      ctx.arc(x + 32*s, y, 13*s, 0, Math.PI*2);
+      ctx.fill();
+    }
+    function updateClouds(){
+      for (const c of clouds){
+        c.x -= c.speed;
+        if (c.x < -50*c.s){
+          c.x = boardCanvas.width + 50*c.s;
+          c.y = Math.random() * skyH * 0.85;
+          c.s = 0.5 + Math.random() * 0.7;
+          c.speed = 0.15 + Math.random() * 0.2;
+        }
+      }
+    }
+    function drawScenery(ctx){
+      const sky = ctx.createLinearGradient(0, 0, 0, skyH);
+      sky.addColorStop(0, "#7ec4ee"); sky.addColorStop(1, "#a9d8f2");
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, boardCanvas.width, skyH);
+      ctx.fillStyle = "rgba(255,255,255,.85)";
+      for (const c of clouds) drawCloud(ctx, c.x, c.y, c.s);
+
+      // grass ground
+      const groundY = skyH;
+      const grass = ctx.createLinearGradient(0, groundY, 0, boardCanvas.height);
+      grass.addColorStop(0, "#5aa34a"); grass.addColorStop(1, "#3f7d3a");
+      ctx.fillStyle = grass;
+      ctx.fillRect(0, groundY, boardCanvas.width, boardCanvas.height - groundY);
+      ctx.strokeStyle = "rgba(255,255,255,.25)"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(0, groundY+1); ctx.lineTo(boardCanvas.width, groundY+1); ctx.stroke();
+    }
+    let clouds = [];
+
+    let board, cur, curType, curRot, curRow, curCol, nextType;
+    let score, level, lines, state;
+    let dropCounter, leftHeld, rightHeld, downHeld, dasCounter, dasDir;
+    let burnRows, burnTimer;
+
+    function emptyBoard(){ return Array.from({length:ROWS}, () => Array(COLS).fill(null)); }
+    function randomType(){ return TYPES[(Math.random()*TYPES.length)|0]; }
+
+    function cellsFor(type, rot){ return SHAPES[type].states[rot]; }
+    function canPlace(type, rot, row, col){
+      for (const cell_ of cellsFor(type, rot)){
+        const r = row + cell_.r, c = col + cell_.c;
+        if (c < 0 || c >= COLS || r >= ROWS) return false;
+        if (r >= 0 && board[r][c]) return false;
+      }
+      return true;
+    }
+
+    function spawnPiece(){
+      curType = nextType || randomType();
+      nextType = randomType();
+      curRot = 0; curRow = 0; curCol = 3;
+      drawNext();
+      if (!canPlace(curType, curRot, curRow, curCol)){ gameOver(); return false; }
+      return true;
+    }
+
+    function setupState(){
+      board = emptyBoard();
+      score = 0; level = 0; lines = 0;
+      dropCounter = 0; leftHeld = false; rightHeld = false; downHeld = false; dasCounter = 0; dasDir = 0;
+      burnRows = []; burnTimer = 0;
+      nextType = randomType();
+      updateHud();
+      spawnPiece();
+      draw();
+    }
+
+    function reset(){
+      state = "playing";
+      overlay.classList.remove("show");
+      startOverlay.classList.remove("show");
+      setupState();
+    }
+
+    function updateHud(){
+      scoreText.textContent = "Score " + score;
+      levelText.textContent = "Level " + level;
+      linesText.textContent = "Lines " + lines;
+    }
+
+    function tryMove(dr, dc){
+      if (canPlace(curType, curRot, curRow + dr, curCol + dc)){
+        curRow += dr; curCol += dc;
+        return true;
+      }
+      return false;
+    }
+    function tryRotate(dir){
+      const nrot = (curRot + dir + 4) % 4;
+      if (canPlace(curType, nrot, curRow, curCol)){ curRot = nrot; return true; }
+      return false;
+    }
+
+    function lockPiece(){
+      for (const cell_ of cellsFor(curType, curRot)){
+        const r = curRow + cell_.r, c = curCol + cell_.c;
+        if (r >= 0) board[r][c] = curType;
+      }
+      const cleared = [];
+      for (let r = 0; r < ROWS; r++){ if (board[r].every(v => v)) cleared.push(r); }
+      if (cleared.length){
+        burnRows = cleared; burnTimer = BURN_FRAMES; state = "clearing";
+      } else {
+        if (!spawnPiece()) return;
+      }
+    }
+
+    function finishClear(){
+      const n = burnRows.length;
+      burnRows.sort((a,b) => a-b).forEach(r => { board.splice(r, 1); board.unshift(Array(COLS).fill(null)); });
+      score += lineScore(n, level);
+      lines += n;
+      level = Math.floor(lines / 5);   // level up every 5 lines (twice as fast as classic) for a quicker difficulty ramp
+      updateHud();
+      burnRows = [];
+      state = "playing";
+      if (!spawnPiece()) return;
+    }
+
+    function gameOver(){
+      state = "over";
+      saveScoreEntry(score);
+      renderAllScores();
+      overStat.textContent = `Score ${score}    Level ${level}    Lines ${lines}`;
+      overlay.classList.add("show");
+    }
+
+    function handleDAS(){
+      if (dasDir === 0) return;
+      dasCounter++;
+      if (dasCounter >= DAS_DELAY && (dasCounter - DAS_DELAY) % ARR === 0) tryMove(0, dasDir);
+    }
+
+    function stepFrame(){
+      if (state === "clearing"){
+        burnTimer--;
+        if (burnTimer <= 0) finishClear();
+        return;
+      }
+      if (state !== "playing") return;
+      handleDAS();
+      dropCounter++;
+      const framesNeeded = downHeld ? Math.min(framesForLevel(level), 2) : framesForLevel(level);
+      if (dropCounter >= framesNeeded){
+        dropCounter = 0;
+        if (!tryMove(1, 0)) lockPiece();
+      }
+    }
+
+    // ---- rendering ----
+    function drawBranchCell(ctx, x, y, size, color, dark){
+      ctx.fillStyle = color;
+      ctx.fillRect(x+1, y+1, size-2, size-2);
+      ctx.strokeStyle = dark; ctx.lineWidth = Math.max(1, size*0.06);
+      ctx.beginPath();
+      ctx.moveTo(x+size*0.15, y+size*0.35); ctx.lineTo(x+size*0.85, y+size*0.3);
+      ctx.moveTo(x+size*0.15, y+size*0.68); ctx.lineTo(x+size*0.85, y+size*0.72);
+      ctx.stroke();
+      ctx.strokeStyle = "rgba(0,0,0,.35)"; ctx.lineWidth = 1;
+      ctx.strokeRect(x+0.5, y+0.5, size-1, size-1);
+    }
+    function drawBurnCell(ctx, x, y, size, t){
+      const flicker = 0.6 + 0.4*Math.sin((t*0.6) + (x*0.7));
+      const g = ctx.createLinearGradient(x, y, x, y+size);
+      g.addColorStop(0, `rgba(255,${Math.floor(140+80*flicker)},40,${0.9})`);
+      g.addColorStop(1, "rgba(40,20,10,.95)");
+      ctx.fillStyle = g;
+      ctx.fillRect(x+1, y+1, size-2, size-2);
+    }
+    // once a piece locks it "joins the fire" — a soft pulsing ember glow, phase-shifted per cell so it flickers organically
+    function drawEmberGlow(ctx, x, y, size, phase){
+      const t = emberTime*0.05 + phase;
+      const flicker = 0.5 + 0.3*Math.sin(t) + 0.2*Math.sin(t*2.3 + 1.7);
+      const cx = x + size/2, cy = y + size/2;
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, size*0.8);
+      g.addColorStop(0, `rgba(255,120,20,${Math.max(0, flicker*0.5)})`);
+      g.addColorStop(0.6, `rgba(255,60,10,${Math.max(0, flicker*0.22)})`);
+      g.addColorStop(1, "rgba(255,40,0,0)");
+      ctx.fillStyle = g;
+      ctx.fillRect(x-2, y-2, size+4, size+4);
+    }
+
+    // topmost filled cell in each column — the visible "surface" of the woodpile that sparks/smoke rise from
+    function pileSurfaceCells(){
+      const out = [];
+      if (!board) return out;
+      for (let c=0;c<COLS;c++){
+        for (let r=0;r<ROWS;r++){
+          if (board[r][c]){ out.push({r,c}); break; }
+        }
+      }
+      return out;
+    }
+
+    let emberTime = 0;
+    let sparks = [];
+    let smokePuffs = [];
+    function updateEmbers(){
+      emberTime++;
+      const surface = pileSurfaceCells();
+      if (surface.length && Math.random() < 0.18){
+        const p = surface[(Math.random()*surface.length)|0];
+        sparks.push({
+          x: p.c*cell + cell*(0.2 + Math.random()*0.6),
+          y: p.r*cell + cell*0.3,
+          vx: (Math.random()-0.5)*0.3,
+          vy: -(0.25 + Math.random()*0.45),
+          life: 0, maxLife: 40 + Math.random()*40,
+          size: 1.3 + Math.random()*1.4
+        });
+      }
+      for (const s of sparks){ s.x += s.vx; s.y += s.vy; s.life++; }
+      sparks = sparks.filter(s => s.life < s.maxLife);
+
+      if (surface.length && Math.random() < 0.08){
+        const p = surface[(Math.random()*surface.length)|0];
+        smokePuffs.push({
+          x: p.c*cell + cell*(0.3 + Math.random()*0.4),
+          y: p.r*cell + cell*0.15,
+          vx: (Math.random()-0.5)*0.18,
+          vy: -(0.18 + Math.random()*0.22),
+          life: 0, maxLife: 100 + Math.random()*70,
+          size: cell*(0.18 + Math.random()*0.08)
+        });
+      }
+      for (const s of smokePuffs){ s.x += s.vx; s.y += s.vy; s.vx += (Math.random()-0.5)*0.01; s.life++; s.size += 0.035; }
+      smokePuffs = smokePuffs.filter(s => s.life < s.maxLife);
+    }
+    function drawSparks(ctx){
+      for (const s of sparks){
+        const t = s.life / s.maxLife;
+        const alpha = Math.max(0, 1 - t);
+        ctx.fillStyle = `rgba(255,${160 + Math.floor(60*(1-t))},${30 + Math.floor(50*t)},${alpha})`;
+        ctx.beginPath(); ctx.arc(s.x, s.y, s.size*(1 - t*0.5), 0, Math.PI*2); ctx.fill();
+      }
+    }
+    function drawSmoke(ctx){
+      for (const s of smokePuffs){
+        const t = s.life / s.maxLife;
+        const alpha = Math.max(0, (1 - t) * 0.3);
+        ctx.fillStyle = `rgba(200,200,200,${alpha})`;
+        ctx.beginPath(); ctx.arc(s.x, s.y, s.size, 0, Math.PI*2); ctx.fill();
+      }
+    }
+
+    function draw(){
+      drawScenery(bctx);
+      const burning = new Set(burnRows);
+      for (let r=0;r<ROWS;r++){
+        for (let c=0;c<COLS;c++){
+          const v = board[r][c];
+          if (!v) continue;
+          if (burning.has(r)) drawBurnCell(bctx, c*cell, r*cell, cell, burnTimer);
+          else {
+            drawBranchCell(bctx, c*cell, r*cell, cell, SHAPES[v].color, SHAPES[v].dark);
+            drawEmberGlow(bctx, c*cell, r*cell, cell, (r*7 + c*13) % 20);
+          }
+        }
+      }
+      drawSparks(bctx);
+      drawSmoke(bctx);
+      if (state === "playing"){
+        for (const cell_ of cellsFor(curType, curRot)){
+          const r = curRow + cell_.r, c = curCol + cell_.c;
+          if (r >= 0) drawBranchCell(bctx, c*cell, r*cell, cell, SHAPES[curType].color, SHAPES[curType].dark);
+        }
+      }
+    }
+    function drawNext(){
+      nctx.clearRect(0, 0, nextCanvas.width, nextCanvas.height);
+      if (!nextType) return;
+      const s = 20;
+      const cells = cellsFor(nextType, 0);
+      const minC = Math.min(...cells.map(c=>c.c)), maxC = Math.max(...cells.map(c=>c.c));
+      const minR = Math.min(...cells.map(c=>c.r)), maxR = Math.max(...cells.map(c=>c.r));
+      const w = (maxC-minC+1)*s, h = (maxR-minR+1)*s;
+      const ox = (nextCanvas.width - w)/2, oy = (nextCanvas.height - h)/2;
+      for (const cell_ of cells){
+        drawBranchCell(nctx, ox + (cell_.c-minC)*s, oy + (cell_.r-minR)*s, s, SHAPES[nextType].color, SHAPES[nextType].dark);
+      }
+    }
+
+    // ---- shared control actions (used by both keyboard and on-screen touch buttons) ----
+    function togglePause(){
+      if (state === "playing") state = "paused";
+      else if (state === "paused") state = "playing";
+      draw();
+    }
+    function pressLeft(){ if (state !== "playing" || dasDir === -1) return; dasDir = -1; dasCounter = 0; tryMove(0,-1); draw(); }
+    function pressRight(){ if (state !== "playing" || dasDir === 1) return; dasDir = 1; dasCounter = 0; tryMove(0,1); draw(); }
+    function releaseLeft(){ if (dasDir === -1){ dasDir = 0; dasCounter = 0; } }
+    function releaseRight(){ if (dasDir === 1){ dasDir = 0; dasCounter = 0; } }
+    function pressDown(){ if (state !== "playing") return; downHeld = true; }
+    function releaseDown(){ downHeld = false; }
+    function pressRotateCW(){ if (state !== "playing") return; tryRotate(1); draw(); }
+    function pressRotateCCW(){ if (state !== "playing") return; tryRotate(-1); draw(); }
+
+    // ---- keyboard input ----
+    window.addEventListener("keydown", (e) => {
+      const k = e.key;
+      if ((k === "p" || k === "P") && !e.repeat){ togglePause(); e.preventDefault(); return; }
+      if (state !== "playing") return;
+      if (k === "ArrowLeft"){ if (!e.repeat) pressLeft(); e.preventDefault(); }
+      else if (k === "ArrowRight"){ if (!e.repeat) pressRight(); e.preventDefault(); }
+      else if (k === "ArrowDown"){ pressDown(); e.preventDefault(); }
+      else if ((k === "ArrowUp" || k === "x" || k === "X") && !e.repeat){ pressRotateCW(); e.preventDefault(); }
+      else if ((k === "z" || k === "Z") && !e.repeat){ pressRotateCCW(); e.preventDefault(); }
+    });
+    window.addEventListener("keyup", (e) => {
+      const k = e.key;
+      if (k === "ArrowLeft") releaseLeft();
+      else if (k === "ArrowRight") releaseRight();
+      else if (k === "ArrowDown") releaseDown();
+    });
+
+    // ---- on-screen touch controls ----
+    document.querySelectorAll("#touchControls button[data-act]").forEach(btn => {
+      const act = btn.dataset.act;
+      const press = { left: pressLeft, right: pressRight, down: pressDown, cw: pressRotateCW, ccw: pressRotateCCW, pause: togglePause }[act];
+      const release = { left: releaseLeft, right: releaseRight, down: releaseDown }[act];
+      btn.addEventListener("pointerdown", (e) => { e.preventDefault(); press && press(); });
+      if (release){
+        btn.addEventListener("pointerup", (e) => { e.preventDefault(); release(); });
+        btn.addEventListener("pointerleave", () => release());
+        btn.addEventListener("pointercancel", () => release());
+      }
+    });
+
+    document.getElementById("startBtn").addEventListener("click", reset);
+    document.getElementById("againBtn").addEventListener("click", reset);
+    document.getElementById("resetBtn").addEventListener("click", () => {
+      localStorage.removeItem(SCORES_KEY);
+      renderAllScores();
+    });
+
+    window.addEventListener("resize", fitBoard);
+    state = "ready";
+    board = emptyBoard();
+    nextType = randomType();
+    renderAllScores();
+    fitBoard();
+    drawNext();
+
+    let lastTime = null, frameAcc = 0, rafId = 0;
+    function loop(ts){
+      if (lastTime === null) lastTime = ts;
+      let dt = ts - lastTime;
+      if (dt > 250) dt = 250;
+      lastTime = ts;
+      frameAcc += dt;
+      while (frameAcc >= FRAME_MS){
+        frameAcc -= FRAME_MS;
+        updateClouds();
+        updateEmbers();
+        stepFrame();
+      }
+      draw();
+      rafId = requestAnimationFrame(loop);
+    }
+    rafId = requestAnimationFrame(loop);
+  })();
+  </script>
+</body>
+</html>

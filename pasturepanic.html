@@ -1,0 +1,2985 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>BUCKY — Pasture Panic</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Luckiest+Guy&display=swap" rel="stylesheet">
+<style>
+  :root{ --navy:#0a3161; --red:#b31942; }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; height:100%; background:#0d1b0d; color:#fff; font-family:-apple-system,Segoe UI,Roboto,sans-serif; overflow:hidden; }
+  #bar{ position:fixed; top:0; left:0; right:0; height:46px; display:flex; align-items:center; gap:10px; padding:0 12px;
+        background:var(--navy); z-index:30; }
+  #bar a{ color:#fff; text-decoration:none; font-weight:800; font-size:15px; background:rgba(255,255,255,.15); padding:7px 12px; border-radius:9px; }
+  #bar .t{ font-weight:800; letter-spacing:.5px; }
+  #stage{ position:absolute; top:46px; left:0; right:0; bottom:0; }
+  canvas{ display:block; touch-action:none; }
+
+  /* HUD */
+  #hud{ position:absolute; top:8px; left:8px; right:8px; z-index:10; pointer-events:none; display:none; }
+  .hudbar{ height:14px; border-radius:7px; background:rgba(0,0,0,.45); overflow:hidden; margin-bottom:5px; max-width:340px; }
+  .hudbar>div{ height:100%; border-radius:7px; transition:width .15s; }
+  #hpFill{ background:linear-gradient(90deg,#4ecb5c,#7df58a); width:100%; }
+  #xpFill{ background:linear-gradient(90deg,#e0a92c,#ffd23f); width:0%; }
+  #hudText{ font-family:monospace; font-weight:bold; font-size:13px; text-shadow:0 1px 3px rgba(0,0,0,.8); }
+  #pauseBtn{ position:absolute; top:0; right:0; z-index:11; pointer-events:auto; background:rgba(0,0,0,.45); color:#fff;
+             border:0; border-radius:9px; font-size:17px; padding:6px 12px; display:none; }
+
+  /* joystick */
+  #joyBase{ position:absolute; width:96px; height:96px; border-radius:50%; background:rgba(255,255,255,.12);
+            border:2px solid rgba(255,255,255,.25); display:none; z-index:9; pointer-events:none; }
+  #joyKnob{ position:absolute; width:44px; height:44px; border-radius:50%; background:rgba(255,255,255,.4); display:none; z-index:9; pointer-events:none; }
+
+  /* overlays */
+  .overlay{ position:absolute; inset:0; background:rgba(6,16,8,.78); z-index:20; display:none;
+            align-items:center; justify-content:center; flex-direction:column; padding:0 20px; text-align:center; }
+  .overlay.show{ display:flex; }
+  .overlay h1{ font-size:30px; margin:0 0 8px; font-family:'Luckiest Guy', 'Arial Black', sans-serif; font-weight:400;
+               letter-spacing:1px; text-shadow:0 3px 0 rgba(0,0,0,.35); }
+  .overlay .desc{ font-size:15px; color:#d7ead2; max-width:420px; margin-bottom:14px; line-height:1.55; }
+  .overlay button.big{ font-size:20px; font-family:'Luckiest Guy', 'Arial Black', sans-serif; color:#3a2800;
+                    background:linear-gradient(180deg,#ffe27a,#ffc832 55%,#eda51e); border:0; border-radius:14px;
+                    padding:15px 34px 12px; margin:8px 0; cursor:pointer; letter-spacing:1px;
+                    box-shadow:0 5px 0 #a86f10, 0 8px 18px rgba(0,0,0,.45); transition:transform .08s, box-shadow .08s;
+                    text-shadow:0 1px 0 rgba(255,255,255,.5); }
+  .overlay button.big:hover{ transform:translateY(-1px); }
+  .overlay button.big:active{ transform:translateY(3px); box-shadow:0 2px 0 #a86f10, 0 4px 10px rgba(0,0,0,.45); }
+
+  /* title screen — big open pasture behind a light vignette, chunky logo up top */
+  #titleOverlay{ background:radial-gradient(ellipse at 50% 38%, rgba(8,20,10,.30) 0%, rgba(6,16,8,.62) 68%, rgba(4,12,6,.82) 100%); }
+  #logo{ margin-bottom:4px; user-select:none; animation:logoIn .7s cubic-bezier(.22,1.6,.36,1) both; }
+  #logo .lTop{ font-family:'Luckiest Guy', 'Arial Black', sans-serif; font-size:clamp(20px,4.5vw,30px); color:#fff6da;
+               letter-spacing:6px; text-shadow:0 2px 0 #2c4a27, 0 4px 10px rgba(0,0,0,.5); }
+  #logo .lMain{ font-family:'Luckiest Guy', 'Arial Black', sans-serif; font-size:clamp(58px,13vw,102px); line-height:.95;
+                color:#ffd23f; transform:rotate(-2.5deg);
+                -webkit-text-stroke:2px #2c4a27;
+                text-shadow:0 3px 0 #b8860b, 0 6px 0 #7a5a08, 0 9px 0 #2c4a27, 0 14px 22px rgba(0,0,0,.55);
+                animation:logoWob 3.2s ease-in-out infinite; }
+  #logo .lSub{ font-family:'Luckiest Guy', 'Arial Black', sans-serif; font-size:clamp(12px,2.6vw,16px); color:#aef0a2;
+               letter-spacing:4px; margin-top:10px; text-shadow:0 2px 0 rgba(0,0,0,.5); }
+  @keyframes logoIn{ from{ transform:scale(2.4); opacity:0; } 60%{ transform:scale(.94); opacity:1; } to{ transform:scale(1); } }
+  @keyframes logoWob{ 0%,100%{ transform:rotate(-2.5deg) scale(1); } 50%{ transform:rotate(-1deg) scale(1.025); } }
+
+  /* soft cinematic vignette over the whole stage */
+  #vignette{ position:absolute; inset:0; pointer-events:none; z-index:8;
+             background:radial-gradient(ellipse at 50% 45%, transparent 55%, rgba(6,14,6,.38) 100%); }
+  .overlay .reset{ background:none; border:0; color:#c9d8c2; font-size:13px; padding:4px; cursor:pointer; }
+  .overlay a.reset{ text-decoration:none; }
+  .overlay .links{ display:flex; gap:18px; align-items:center; }
+  .scores{ font-family:monospace; margin:6px 0 14px; }
+  .scores .title{ font-weight:800; font-size:14px; margin-bottom:6px; }
+  .scores .row{ font-size:13px; color:#d7ead2; }
+  .stat{ font-family:monospace; font-size:16px; color:#ffd23f; margin-bottom:10px; }
+
+  /* level-up cards */
+  #cards, #chestCards{ display:flex; gap:12px; flex-wrap:wrap; justify-content:center; margin-top:10px; max-width:620px; }
+  .card{ width:170px; background:#14301a; border:2px solid #7df58a; border-radius:14px; padding:16px 12px; cursor:pointer;
+         transition:transform .1s, box-shadow .1s; }
+  .card:hover{ transform:translateY(-3px) scale(1.02); }
+  .card:active{ background:#1d4426; transform:scale(.98); }
+  .card.evo{ border-color:#ffd23f; background:#3a2e10; box-shadow:0 0 18px rgba(255,210,63,.5); width:230px; }
+  .card .ico{ font-size:34px; }
+  .card .cbody{ min-width:0; }
+  .card .nm{ font-weight:800; font-size:15px; margin:8px 0 4px; color:#fff; }
+  .card .ds{ font-size:12.5px; color:#c9d8c2; line-height:1.4; }
+  #chestCards .card{ cursor:default; }
+
+  /* compact phone layout: cards flip to horizontal rows so 3 picks + tools stay high on screen */
+  @media (max-width:520px){
+    .overlay h1{ font-size:22px; margin:0 0 4px; }
+    .overlay .desc{ font-size:12px; margin-bottom:6px; line-height:1.35; }
+    #cards, #chestCards{ gap:7px; margin-top:4px; }
+    .card, .card.evo{ width:min(360px,90vw); display:flex; align-items:center; gap:11px;
+                      text-align:left; padding:9px 32px 9px 12px; }
+    .card .ico{ font-size:27px; flex:0 0 auto; }
+    .card .cbody{ flex:1; }
+    .card .nm{ font-size:13.5px; margin:0 0 2px; }
+    .card .ds{ font-size:11px; line-height:1.3; }
+    .card .banish{ top:50%; transform:translateY(-50%); right:8px; font-size:15px; }
+    #lvlTools{ margin-top:8px; gap:8px; }
+    #lvlTools button{ padding:7px 11px; font-size:12px; }
+  }
+
+  /* boss health bar */
+  #bossBar{ position:absolute; top:80px; left:50%; transform:translateX(-50%); width:min(70%,460px); z-index:9; display:none; text-align:center; pointer-events:none; }
+  #bossName{ font-weight:800; font-size:14px; color:#ffb0b0; text-shadow:0 1px 3px rgba(0,0,0,.9); margin-bottom:3px; }
+  .bossbarback{ height:16px; border-radius:9px; background:rgba(0,0,0,.55); overflow:hidden; border:2px solid rgba(255,255,255,.3);
+                box-shadow:0 0 14px rgba(179,25,66,.5); }
+  #bossFill{ height:100%; width:100%; background:linear-gradient(90deg,#b31942,#e8506f); transition:width .1s; }
+  #bossName{ font-family:'Luckiest Guy', 'Arial Black', sans-serif; letter-spacing:1px; }
+
+  /* barn shop rows */
+  #barnList{ display:flex; flex-direction:column; gap:8px; max-width:460px; width:92vw; max-height:52vh; overflow-y:auto; margin-bottom:12px; }
+  .barnrow{ display:flex; align-items:center; gap:11px; background:rgba(255,255,255,.07); border-radius:12px; padding:9px 12px; }
+  .barnrow .bico{ font-size:26px; flex:0 0 auto; }
+  .barnrow .binfo{ flex:1; min-width:0; text-align:left; }
+  .barnrow .bnm{ font-weight:800; font-size:14px; }
+  .barnrow .bds{ font-size:12px; color:#c9d8c2; }
+  .barnrow .bpips{ font-size:11px; color:#ffd23f; letter-spacing:2px; }
+  .barnrow .bbuy{ flex:0 0 auto; border:0; border-radius:9px; padding:9px 12px; font-weight:800; font-size:13px; cursor:pointer;
+                  background:#7df58a; color:#0a3161; min-width:72px; }
+  .barnrow .bbuy.max{ background:#3a5a3f; color:#9fc0a4; }
+  .barnrow .bbuy.cant{ background:#5a4a3a; color:#c9a98a; }
+
+  /* the big golden barn button — the star of the death screen */
+  .goldbtn{ font-size:17px; font-weight:800; color:#4a2f00; background:linear-gradient(180deg,#ffd23f,#e8b420);
+            border:0; border-radius:10px; padding:13px 24px; margin:6px 0; cursor:pointer;
+            box-shadow:0 2px 12px rgba(255,210,63,.45); }
+  .goldbtn:active{ transform:scale(.97); }
+
+  /* character select */
+  #charRow{ display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin:2px 0 8px; }
+  .charcard{ width:106px; background:rgba(255,255,255,.08); border:2px solid rgba(255,255,255,.22); border-radius:12px;
+             padding:8px 6px; cursor:pointer; transition:transform .1s, border-color .1s; }
+  .charcard:hover{ transform:translateY(-3px); border-color:rgba(255,255,255,.5); }
+  .charcard.sel{ border-color:#7df58a; background:#14301a; }
+  .charcard.locked{ opacity:.8; }
+  .charcard .cico{ font-size:25px; }
+  .charcard .cnm{ font-weight:800; font-size:12.5px; margin-top:2px; }
+  .charcard .cds{ font-size:10.5px; color:#c9d8c2; line-height:1.3; margin-top:2px; }
+  .charcard .ccost{ font-size:11px; color:#ffd23f; font-weight:800; margin-top:3px; }
+
+  /* wave banner — slams in, hangs, fades */
+  #waveBanner{ position:absolute; top:24%; left:50%; transform:translateX(-50%); z-index:12; font-size:30px;
+               font-family:'Luckiest Guy', 'Arial Black', sans-serif; letter-spacing:1px;
+               color:#fff; text-shadow:0 3px 0 rgba(0,0,0,.5), 0 6px 14px rgba(0,0,0,.6);
+               opacity:0; transition:opacity .4s; pointer-events:none; white-space:nowrap; }
+  #waveBanner.pop{ animation:bannerPop .5s cubic-bezier(.22,1.8,.36,1) both; }
+  @keyframes bannerPop{ from{ transform:translateX(-50%) scale(2.2); } to{ transform:translateX(-50%) scale(1); } }
+
+  /* level-up tool row (reroll / skip) + banish X on cards */
+  #lvlTools{ display:flex; gap:10px; margin-top:12px; align-items:center; }
+  #lvlTools button{ background:rgba(255,255,255,.14); color:#fff; border:0; border-radius:9px; padding:8px 14px;
+                    font-size:13px; font-weight:700; cursor:pointer; }
+  #lvlTools button:disabled{ opacity:.4; }
+  .card{ position:relative; }
+  .card .banish{ position:absolute; top:3px; right:7px; font-size:13px; opacity:.65; cursor:pointer; }
+</style>
+</head>
+<body>
+  <div id="bar"><a href="index.html">← BUCKY</a><span class="t">🌽 Pasture Panic</span></div>
+  <div id="stage">
+    <div id="hud">
+      <div class="hudbar"><div id="hpFill"></div></div>
+      <div class="hudbar" style="height:9px;"><div id="xpFill"></div></div>
+      <div id="hudText">Lv 1 · 0:00 · 0 kills</div>
+      <div id="weapSlots" style="font-size:18px; margin-top:3px; text-shadow:0 1px 3px rgba(0,0,0,.8);"></div>
+      <div id="passRow" style="font-size:13px; margin-top:2px; font-weight:bold; font-family:monospace; text-shadow:0 1px 3px rgba(0,0,0,.8); color:#e8f2e0;"></div>
+    </div>
+    <div id="vignette"></div>
+    <button id="pauseBtn">⏸</button>
+    <div id="bossBar"><div id="bossName">Boss</div><div class="bossbarback"><div id="bossFill"></div></div></div>
+    <div id="waveBanner"></div>
+    <div id="joyBase"></div><div id="joyKnob"></div>
+
+    <div id="titleOverlay" class="overlay show">
+      <div id="logo">
+        <div class="lTop">🌽 PASTURE 🌽</div>
+        <div class="lMain">PANIC!</div>
+        <div class="lSub">SURVIVE THE STAMPEDE</div>
+      </div>
+      <div class="desc" style="margin-bottom:8px;">Move and your weapons <b>fire by themselves</b>. Level up, <b>slay bosses</b>,
+        <b>evolve</b> your arsenal… and last 15 minutes to face <b>THE COMBINE</b>.</div>
+      <div id="charRow"></div>
+      <div class="scores" id="scoresTitle"></div>
+      <button class="big" id="startBtn">Start Game</button>
+      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; justify-content:center;">
+        <button class="goldbtn" id="barnBtn">🚜 Barn Upgrades · 🪙 <span id="titleCoins">0</span></button>
+        <button class="reset" id="pactBtn" style="font-size:14px;">💀 Stampede Pact: None</button>
+      </div>
+    </div>
+
+    <div id="barnOverlay" class="overlay">
+      <h1>🚜 Barn Upgrades</h1>
+      <div class="desc" style="margin-bottom:8px;">Spend corn coins on permanent boosts for every future run. &nbsp;<span style="color:#ffd23f;font-weight:800;">🪙 <span id="barnCoins">0</span></span></div>
+      <div id="barnList"></div>
+      <button class="big" id="barnBackBtn">Back</button>
+    </div>
+
+    <div id="chestOverlay" class="overlay">
+      <h1 id="chestTitle">🎁 Feed Sack!</h1>
+      <div id="chestCards"></div>
+      <button class="big" id="chestGrabBtn">Grab it!</button>
+    </div>
+
+    <div id="levelupOverlay" class="overlay">
+      <h1 id="levelupTitle">⭐ Level Up!</h1>
+      <div class="desc" id="levelupDesc">Pick one upgrade:</div>
+      <div id="cards"></div>
+      <div id="lvlTools">
+        <button id="rerollBtn">🎲 Reroll</button>
+        <button id="skipBtn">⏭ Skip (+8 🪙)</button>
+        <span id="banishNote" style="font-size:12px;color:#c9d8c2;"></span>
+      </div>
+    </div>
+
+    <div id="pausedOverlay" class="overlay">
+      <h1>⏸ Paused</h1>
+      <button class="big" id="resumeBtn">Resume</button>
+      <a class="reset" href="index.html">🏠 Home</a>
+    </div>
+
+    <div id="overOverlay" class="overlay">
+      <h1 id="overTitle">🌾 Overrun!</h1>
+      <div class="stat" id="overStat"></div>
+      <div class="scores" id="scoresOver"></div>
+      <button class="goldbtn" id="barnBtn2">🚜 Spend your coins — Barn Upgrades</button>
+      <button class="big" id="againBtn">Play Again</button>
+      <div class="links">
+        <a class="reset" href="index.html">🏠 Home</a>
+        <button class="reset" id="resetBtn">Reset high scores</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/fflate.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FBXLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+  <script>
+  (() => {
+    // ================== constants ==================
+    const ARENA = 38;                 // half-size of the fenced pasture
+    const SCORES_KEY = "pasturePanicScores";
+    const ENEMY_CAP = 90;   // leans into swarm volume — separation pass is O(n²) but fine at this size
+    const SPECS = {   // everything but the turtle slowed so the swarm can be outrun
+      rat:       { hp: 10,  speed: 4.0, dmg: 6,  xp: 1, r: 0.75, mass: 0.7 },
+      armadillo: { hp: 28,  speed: 2.7, dmg: 10, xp: 2, r: 1.0,  mass: 1.4 },
+      snake:     { hp: 18,  speed: 3.3, dmg: 8,  xp: 2, r: 0.9,  mass: 0.9 },
+      turtle:    { hp: 80,  speed: 2.0, dmg: 18, xp: 5, r: 1.3,  mass: 2.6 },
+      crow:      { hp: 8,   speed: 9.5, dmg: 12, xp: 1, r: 0.7,  mass: 0.4 }   // kamikaze flyer — formations only
+    };
+    // ---- weapons: 4 slots, new pick every 5 levels ----
+    const WEAPON_SPECS = {
+      corn:      { ico:"🌽", name:"Corn Cannon",      baseDmg:11, baseRate:2.0,  range:26 },
+      pumpkin:   { ico:"🎃", name:"Pumpkin Launcher", baseDmg:30, baseRate:0.55, range:22, blast:3.4 },
+      cats:      { ico:"🐈", name:"Barn Cat Blaster", baseDmg:26, baseRate:0.75, range:30 },
+      scarecrow: { ico:"🌾", name:"Scarecrow Turret", baseDmg:15, baseRate:1.6,  range:14, deployEvery:7, life:15 },
+      bees:      { ico:"🐝", name:"Bee Hive",         baseDmg:9,  baseRate:1.0,  range:0,  orbitR:3.4 },
+      sprinkler: { ico:"💦", name:"Sprinkler",        baseDmg:9,  baseRate:0.9,  range:7.5 },
+      fork:      { ico:"🔱", name:"Pitchfork",        baseDmg:38, baseRate:0.6,  range:30 },
+      bolt:      { ico:"⚡", name:"Weathervane",      baseDmg:48, baseRate:0.5,  range:24 }
+    };
+    const WEAPON_POOL = [
+      { id:"corn",      desc:"Rapid-fire kernels at the nearest varmint" },
+      { id:"pumpkin",   desc:"Lobs pumpkins that blow up in a big splash of gourd" },
+      { id:"cats",      desc:"Launches barn cats that chase varmints down" },
+      { id:"scarecrow", desc:"Plants scarecrows that pepper nearby varmints with corn" },
+      { id:"bees",      desc:"Loyal bees orbit you and sting anything they touch" },
+      { id:"sprinkler", desc:"Soaks everything close by with pulsing sprays" },
+      { id:"fork",      desc:"Hurls a spinning pitchfork straight through the crowd" },
+      { id:"bolt",      desc:"Calls lightning down on the biggest varmint around" }
+    ];
+    // per-weapon upgrade prefixes — every upgrade with this prefix counts toward the weapon's level
+    const WPREFIX = { corn:"corn_", pumpkin:"pump_", cats:"cat_", scarecrow:"scare_",
+                      bees:"bees_", sprinkler:"sprk_", fork:"fork_", bolt:"bolt_" };
+
+    // ---- upgrade rarity: rolled per card, scales the effect ----
+    const RARITIES = [
+      { id:"common",   name:"Common",   color:"#a8b0b8", mult:1.0 },
+      { id:"uncommon", name:"Uncommon", color:"#6fd06f", mult:1.4 },
+      { id:"rare",     name:"Rare",     color:"#58a6ff", mult:1.9 },
+      { id:"epic",     name:"Epic",     color:"#ff9d2e", mult:2.6 }
+    ];
+
+    // ---- playable characters: stat identity + signature starting weapon, unlocked with corn coins ----
+    const CHARS = [
+      { id:"farmer", ico:"🧑‍🌾", name:"Farmer",        blurb:"Balanced. Corn Cannon.",              cost:0,   weapon:"corn" },
+      { id:"goat",   ico:"🐐",  name:"Bucky",          blurb:"+20% speed, frail. Pumpkins.",        cost:300, weapon:"pumpkin", speedMul:1.2, hpAdd:-20 },
+      { id:"collie", ico:"🐕",  name:"Border Collie",  blurb:"Herds kernels: +60% magnet. Cats.",   cost:500, weapon:"cats",    magnetMul:1.6, hpAdd:-10 },
+      { id:"straw",  ico:"🎩",  name:"Strawman",       blurb:"Tough but slow. Scarecrow turret.",   cost:800, weapon:"scarecrow", hpAdd:40, speedMul:0.85 }
+    ];
+    const charById = (id) => CHARS.find(c => c.id === id) || CHARS[0];
+
+    // ---- named minute-mark waves, ending in the 15:00 final boss ----
+    const FINAL_AT = 900;
+    // set-piece waves surround the WHOLE screen — a closing ring you have to fight out of
+    const WAVES = [
+      { t: 60,  txt:"🐀 The Rat Pack!",        f: () => spawnRing("rat", 20, 30) },
+      { t: 120, txt:"🦔 Dillo Brigade!",       f: () => spawnRing("armadillo", 12, 30) },
+      { t: 180, txt:"🐦‍⬛ Crow Squadron!",      f: () => spawnCrows(10) },
+      { t: 240, txt:"🐍 Snake Hour!",          f: () => spawnRing("snake", 20, 30) },
+      { t: 300, txt:"🐢 Shell Shock!",         f: () => spawnRing("turtle", 12, 30) },
+      { t: 420, txt:"🌪 Total Stampede!",      f: () => { spawnRing("rat", 26, 30); spawnRing("armadillo", 10, 24); } },
+      { t: 600, txt:"🐦‍⬛ Murder of Crows!",    f: () => { spawnCrows(12); spawnRing("snake", 18, 30); } },
+      { t: FINAL_AT - 30, txt:"⚠️ THE COMBINE IS COMING…", f: () => {} },
+      { t: FINAL_AT, txt:"🚜 THE COMBINE HARVESTER!", f: () => spawnFinalBoss() }
+    ];
+    const UPGRADES = [
+      // universal — a little weaker, but they boost every weapon you carry
+      { id:"uni_damage", ico:"🌐", name:"Farmhand Muscle", desc:"+6% damage on ALL weapons",     max:8 },
+      { id:"uni_rate",   ico:"🌐", name:"Well-Oiled Gears",desc:"+5% fire rate on ALL weapons",  max:8 },
+      { id:"speed",      ico:"👢", name:"Quick Boots",     desc:"+8% move speed",                max:5 },
+      { id:"maxhp",      ico:"🍲", name:"Hearty Stew",     desc:"+25 max HP and heal 50",        max:6 },
+      { id:"magnet",     ico:"🧲", name:"Kernel Magnet",   desc:"+45% pickup range",             max:5 },
+      { id:"regen",      ico:"🌱", name:"Farm Fresh",      desc:"Regenerate 1 HP / 2s",          max:5 },
+      { id:"knockback",  ico:"💨", name:"Heavy Hits",      desc:"+50% knockback, hits briefly stagger", max:4 },
+      // weapon-specific — stronger, only offered for weapons you own
+      { id:"corn_damage", weapon:"corn", ico:"🌽", name:"Sharper Kernels", desc:"Corn Cannon: +15% damage",    max:6 },
+      { id:"corn_rate",   weapon:"corn", ico:"🌽", name:"Rapid Fling",     desc:"Corn Cannon: +10% fire rate", max:5 },
+      { id:"corn_multi",  weapon:"corn", ico:"🌽", name:"Extra Kernel",    desc:"Corn Cannon: +1 projectile",  max:4 },
+      { id:"corn_pierce", weapon:"corn", ico:"🌽", name:"Punch-Through",   desc:"Corn Cannon: shots pierce +1",max:4 },
+      { id:"pump_damage", weapon:"pumpkin", ico:"🎃", name:"Heavier Gourds", desc:"Pumpkins: +15% damage",       max:6 },
+      { id:"pump_rate",   weapon:"pumpkin", ico:"🎃", name:"Quick Reload",   desc:"Pumpkins: +10% fire rate",    max:5 },
+      { id:"pump_blast",  weapon:"pumpkin", ico:"🎃", name:"Bigger Boom",    desc:"Pumpkins: +12% blast radius", max:5 },
+      { id:"cat_damage",  weapon:"cats", ico:"🐈", name:"Meaner Mousers", desc:"Cats: +15% damage",        max:6 },
+      { id:"cat_rate",    weapon:"cats", ico:"🐈", name:"Eager Pounce",   desc:"Cats: +10% fire rate",     max:5 },
+      { id:"cat_count",   weapon:"cats", ico:"🐈", name:"Litter Mates",   desc:"Cats: +1 cat per launch",  max:3 },
+      { id:"scare_damage",weapon:"scarecrow", ico:"🌾", name:"Angrier Scarecrow", desc:"Scarecrows: +15% damage",    max:6 },
+      { id:"scare_rate",  weapon:"scarecrow", ico:"🌾", name:"Twitchy Trigger",   desc:"Scarecrows: +10% fire rate", max:5 },
+      { id:"scare_count", weapon:"scarecrow", ico:"🌾", name:"Straw Brigade",     desc:"+1 scarecrow standing at once", max:2, int:true },
+      { id:"bees_damage", weapon:"bees", ico:"🐝", name:"Sharper Stingers", desc:"Bees: +15% damage",       max:5 },
+      { id:"bees_count",  weapon:"bees", ico:"🐝", name:"Busier Hive",      desc:"Bees: +1 bee in orbit",   max:4, int:true },
+      { id:"bees_rate",   weapon:"bees", ico:"🐝", name:"Angry Buzz",       desc:"Bees: +10% orbit speed",  max:4 },
+      { id:"sprk_damage", weapon:"sprinkler", ico:"💦", name:"High Pressure",  desc:"Sprinkler: +15% damage",   max:5 },
+      { id:"sprk_radius", weapon:"sprinkler", ico:"💦", name:"Wider Coverage", desc:"Sprinkler: +12% radius",   max:4 },
+      { id:"sprk_rate",   weapon:"sprinkler", ico:"💦", name:"Faster Cycle",   desc:"Sprinkler: +10% pulse rate", max:4 },
+      { id:"fork_damage", weapon:"fork", ico:"🔱", name:"Forged Tines",  desc:"Pitchfork: +15% damage",     max:5 },
+      { id:"fork_rate",   weapon:"fork", ico:"🔱", name:"Quick Arm",     desc:"Pitchfork: +10% throw rate", max:4 },
+      { id:"fork_multi",  weapon:"fork", ico:"🔱", name:"Spare Fork",    desc:"Pitchfork: +1 per throw",    max:3, int:true },
+      { id:"bolt_damage", weapon:"bolt", ico:"⚡", name:"Hotter Bolts",  desc:"Lightning: +15% damage",     max:5 },
+      { id:"bolt_rate",   weapon:"bolt", ico:"⚡", name:"Charged Vane",  desc:"Lightning: +10% strike rate", max:4 },
+      { id:"bolt_multi",  weapon:"bolt", ico:"⚡", name:"Split Sky",     desc:"Lightning: +1 strike",       max:3, int:true }
+    ];
+    // mark the other integer upgrades so epic rarity can double them
+    for (const u of UPGRADES){
+      if (["corn_multi","corn_pierce","cat_count"].includes(u.id)) u.int = true;
+    }
+
+    // ---- weapon evolutions: ANY 5 upgrades to a weapon unlock its special ability instantly ----
+    const EVOLVE_AT = 10;
+    const EVOLUTIONS = {
+      corn:      { ico:"🍿", name:"Kettle Corn Cannon",
+                   blurb:"A ripping popcorn storm — extra kernels that punch clean through the swarm.",
+                   apply:(w)=>{ w.multishot += 3; w.pierce += 3; w.rateMul *= 1.6; w.dmgMul *= 1.3; } },
+      pumpkin:   { ico:"🎃", name:"The Great Pumpkin",
+                   blurb:"Carpet-bombs a triple spread of huge gourd blasts.",
+                   apply:(w)=>{ w.spread = 3; w.blastMul *= 1.8; w.dmgMul *= 1.6; } },
+      cats:      { ico:"🐆", name:"Cat Stampede",
+                   blurb:"A whole barn's worth of cats pours out with every pounce.",
+                   apply:(w)=>{ w.count += 3; w.rateMul *= 1.6; w.dmgMul *= 1.25; } },
+      scarecrow: { ico:"💂", name:"Scarecrow Army",
+                   blurb:"A standing brigade of trigger-happy scarecrows.",
+                   apply:(w)=>{ w.maxOut += 3; w.rateMul *= 1.6; w.dmgMul *= 1.3; } },
+      bees:      { ico:"🌪", name:"Hornet Storm",
+                   blurb:"An angry cloud — more bees on a wider, faster orbit.",
+                   apply:(w)=>{ w.count += 3; w.rateMul *= 1.5; w.dmgMul *= 1.4; w.blastMul *= 1.4; } },
+      sprinkler: { ico:"🌧", name:"Monsoon",
+                   blurb:"A drenching downpour that slows everything it soaks.",
+                   apply:(w)=>{ w.blastMul *= 1.6; w.dmgMul *= 1.5; w.slows = true; } },
+      fork:      { ico:"🌊", name:"Trident Volley",
+                   blurb:"Forks the size of fence posts, three to a throw.",
+                   apply:(w)=>{ w.multishot += 2; w.dmgMul *= 1.4; w.rateMul *= 1.3; } },
+      bolt:      { ico:"🌩", name:"Thunderhead",
+                   blurb:"The storm parks overhead — bolts land in volleys.",
+                   apply:(w)=>{ w.count += 2; w.dmgMul *= 1.4; w.rateMul *= 1.3; } }
+    };
+
+    // ---- meta-progression: corn coins spent on permanent Barn Upgrades ----
+    const META_KEY = "pasturePanicMeta";
+    const META = [
+      { id:"might",   ico:"💪", name:"Prize Bull Feed",  desc:"+8% damage",             max:5, cost:(l)=>40+l*45 },
+      { id:"vigor",   ico:"❤️", name:"Sunday Roast",      desc:"+20 max HP",             max:5, cost:(l)=>40+l*40 },
+      { id:"boots",   ico:"👢", name:"Broke-In Boots",    desc:"+6% move speed",         max:5, cost:(l)=>35+l*40 },
+      { id:"magnet",  ico:"🧲", name:"Lodestone Charm",   desc:"+15% pickup range",      max:5, cost:(l)=>30+l*35 },
+      { id:"harvest", ico:"🌽", name:"Bumper Crop",       desc:"+10% XP gained",         max:5, cost:(l)=>50+l*50 },
+      { id:"greed",   ico:"🪙", name:"Piggy Bank",        desc:"+12% coins earned",      max:5, cost:(l)=>40+l*45 },
+      { id:"luck",    ico:"🍀", name:"Four-Leaf Clover",  desc:"Rarer upgrades, +1 reroll & banish per level", max:5, cost:(l)=>60+l*60 },
+      { id:"revive",  ico:"🥚", name:"Golden Egg",        desc:"Revive once per run",    max:2, cost:(l)=>250+l*350 }
+    ];
+    function loadMeta(){
+      try { const v = JSON.parse(localStorage.getItem(META_KEY)); if (v && v.up) return v; } catch(e){}
+      return { coins: 0, up: {} };
+    }
+    function saveMeta(){ localStorage.setItem(META_KEY, JSON.stringify(meta)); }
+    let meta = loadMeta();
+    const metaLvl = (id) => meta.up[id] || 0;
+
+    // ---- bosses: a big telegraphed brute every couple minutes that drops a chest ----
+    const BOSSES = [
+      { kind:"turtle",    ico:"🐢", name:"Ol' Snapper",   hp:620, dmg:34, scale:3.4, speed:1.3, tint:0x5a1616 },
+      { kind:"armadillo", ico:"🦔", name:"Tank Dillo",    hp:520, dmg:30, scale:3.2, speed:1.8, tint:0x4a2a12 },
+      { kind:"rat",       ico:"🐀", name:"The Rat King",  hp:460, dmg:26, scale:3.4, speed:2.4, tint:0x3a2a30 }
+    ];
+
+    // ================== leaderboard ==================
+    function loadScores(){
+      try { const v = JSON.parse(localStorage.getItem(SCORES_KEY) || "[]"); return Array.isArray(v) ? v : []; }
+      catch(e){ return []; }
+    }
+    function saveScoreEntry(sec, kills){
+      if (sec <= 0) return;
+      const list = loadScores();
+      list.push({ sec, kills, by: localStorage.getItem("choreUser") || "Someone" });
+      list.sort((a,b) => b.sec - a.sec);
+      localStorage.setItem(SCORES_KEY, JSON.stringify(list.slice(0, 5)));
+    }
+    function fmtTime(s){ return Math.floor(s/60) + ":" + String(Math.floor(s%60)).padStart(2,"0"); }
+    function renderScores(el){
+      if (!el) return;
+      const list = loadScores();
+      el.innerHTML = "";
+      const t = document.createElement("div"); t.className = "title";
+      t.textContent = list.length ? "🏆 High Scores" : "🏆 No scores yet — be the first!";
+      el.appendChild(t);
+      list.forEach((e, i) => {
+        const r = document.createElement("div"); r.className = "row";
+        r.textContent = `${i+1}.  ${fmtTime(e.sec)}  ·  ${e.kills} kills  —  ${e.by}`;
+        el.appendChild(r);
+      });
+    }
+    function renderAllScores(){
+      renderScores(document.getElementById("scoresTitle"));
+      renderScores(document.getElementById("scoresOver"));
+    }
+
+    // ================== three.js scene ==================
+    const stage = document.getElementById("stage");
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    stage.appendChild(renderer.domElement);
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x8ecdf2);
+    scene.fog = new THREE.Fog(0x8ecdf2, 80, 140);
+    const camera = new THREE.PerspectiveCamera(52, 1, 0.1, 240);
+
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x4a7d3a, 0.85));
+    const sun = new THREE.DirectionalLight(0xfff3d0, 0.8);
+    sun.position.set(20, 40, 10);
+    scene.add(sun);
+
+    function fit(){
+      const w = stage.clientWidth, h = stage.clientHeight;
+      renderer.setSize(w, h);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+    window.addEventListener("resize", fit);
+    fit();
+
+    const mat = (color, flat) => new THREE.MeshPhongMaterial({ color, flatShading: !!flat, shininess: 12 });
+
+    // GPU cleanup: removing a mesh from the scene does NOT free its buffers — long runs
+    // (thousands of kills) exhaust WebGL memory and the context dies (white screen).
+    // Assets shared across spawns (loaded models, pooled geometries) go in this set so
+    // freeMesh never disposes them out from under the next spawn.
+    const SHARED_ASSETS = new Set();
+    function markShared(root){
+      root.traverse(o => {
+        if (o.isMesh){
+          if (o.geometry) SHARED_ASSETS.add(o.geometry);
+          for (const m of (Array.isArray(o.material) ? o.material : [o.material])){
+            if (m){ SHARED_ASSETS.add(m); if (m.map) SHARED_ASSETS.add(m.map); }
+          }
+        }
+      });
+    }
+    function freeMesh(root){
+      if (!root) return;
+      scene.remove(root);
+      root.traverse(o => {
+        if (o.isMesh){
+          if (o.geometry && !SHARED_ASSETS.has(o.geometry)) o.geometry.dispose();
+          for (const m of (Array.isArray(o.material) ? o.material : [o.material])){
+            if (m && !SHARED_ASSETS.has(m)){
+              if (m.map && !SHARED_ASSETS.has(m.map)) m.map.dispose();
+              m.dispose();
+            }
+          }
+        }
+      });
+    }
+
+    // ---- pasture ground + fence + décor ----
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(ARENA*2 + 60, ARENA*2 + 60), mat(0x5a9a48));
+    ground.rotation.x = -Math.PI/2;
+    scene.add(ground);
+    // mowing stripes — the classic freshly-cut look
+    for (let i = 0; i < 10; i++){
+      const stripe = new THREE.Mesh(new THREE.PlaneGeometry(ARENA*2 + 60, 4.4), mat(0x549245));
+      stripe.rotation.x = -Math.PI/2;
+      stripe.position.set(0, 0.004, -ARENA - 24 + i * 9);
+      scene.add(stripe);
+    }
+    // mowed patches for variety
+    for (let i = 0; i < 26; i++){
+      const p = new THREE.Mesh(new THREE.CircleGeometry(1.5 + Math.random()*3, 10), mat(0x529044));
+      p.rotation.x = -Math.PI/2; p.position.set((Math.random()*2-1)*ARENA, 0.01, (Math.random()*2-1)*ARENA);
+      scene.add(p);
+    }
+    // puffy cartoon clouds drifting way overhead
+    const clouds = [];
+    for (let i = 0; i < 6; i++){
+      const c = new THREE.Group();
+      const cm = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.88 });
+      for (const [bx, by, bz, br] of [[-2.2,0,0,2.1],[0,0.7,0.5,2.6],[2.4,0.1,-0.3,1.9],[0.8,-0.3,0.9,1.6]]){
+        const blob = new THREE.Mesh(new THREE.SphereGeometry(br, 7, 5), cm);
+        blob.position.set(bx, by, bz); blob.scale.y = 0.55; c.add(blob);
+      }
+      // parked out past the fences so they dress the horizon without ever covering the action
+      const zSide = i % 2 ? 1 : -1;
+      c.position.set((Math.random()*2-1)*ARENA*1.8, 16 + Math.random()*9, zSide * (ARENA + 14 + Math.random()*22));
+      scene.add(c);
+      clouds.push({ mesh: c, v: 0.5 + Math.random()*0.8 });
+    }
+    // fence
+    const postG = new THREE.CylinderGeometry(0.14, 0.16, 1.6, 6), postM = mat(0x8a6a44);
+    const railG = new THREE.BoxGeometry(4, 0.14, 0.1), railM = mat(0x9c7a50);
+    for (let s = 0; s < 4; s++){
+      for (let i = -ARENA; i <= ARENA; i += 4){
+        const post = new THREE.Mesh(postG, postM);
+        if (s === 0) post.position.set(i, 0.8, -ARENA);
+        if (s === 1) post.position.set(i, 0.8, ARENA);
+        if (s === 2) post.position.set(-ARENA, 0.8, i);
+        if (s === 3) post.position.set(ARENA, 0.8, i);
+        scene.add(post);
+        if (i < ARENA){
+          for (const ry of [0.6, 1.15]){
+            const rail = new THREE.Mesh(railG, railM);
+            if (s === 0) rail.position.set(i+2, ry, -ARENA);
+            if (s === 1) rail.position.set(i+2, ry, ARENA);
+            if (s === 2){ rail.position.set(-ARENA, ry, i+2); rail.rotation.y = Math.PI/2; }
+            if (s === 3){ rail.position.set(ARENA, ry, i+2); rail.rotation.y = Math.PI/2; }
+            scene.add(rail);
+          }
+        }
+      }
+    }
+    // ---- procedural canvas textures (all art stays self-contained) ----
+    function canvasTex(size, draw){
+      const c = document.createElement("canvas"); c.width = c.height = size;
+      draw(c.getContext("2d"), size);
+      const t = new THREE.CanvasTexture(c);
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      return t;
+    }
+    function speckle(g, s, base, dots, dotColors, dotR){
+      g.fillStyle = base; g.fillRect(0, 0, s, s);
+      for (let i = 0; i < dots; i++){
+        g.fillStyle = dotColors[(Math.random()*dotColors.length)|0];
+        g.beginPath(); g.arc(Math.random()*s, Math.random()*s, dotR*(0.5+Math.random()), 0, Math.PI*2); g.fill();
+      }
+    }
+    const haySideTex = canvasTex(128, (g, s) => {
+      g.fillStyle = "#d9b23c"; g.fillRect(0, 0, s, s);
+      for (let i = 0; i < 90; i++){
+        g.strokeStyle = ["#c9a02c","#e5c45e","#b8922a","#eed27c"][(Math.random()*4)|0];
+        g.lineWidth = 1 + Math.random()*2;
+        const y = Math.random()*s;
+        g.beginPath(); g.moveTo(0, y); g.lineTo(s, y + (Math.random()-0.5)*10); g.stroke();
+      }
+    });
+    const hayEndTex = canvasTex(128, (g, s) => {
+      g.fillStyle = "#cfa832"; g.fillRect(0, 0, s, s);
+      g.translate(s/2, s/2);
+      for (let r = 4; r < s/2; r += 5){
+        g.strokeStyle = r % 2 ? "#b8922a" : "#e5c45e";
+        g.lineWidth = 2.5;
+        g.beginPath(); g.arc(0, 0, r, 0, Math.PI*2); g.stroke();
+      }
+    });
+    const ratFurTex = canvasTex(64, (g, s) => speckle(g, s, "#8d8d94", 260, ["#7c7c84","#9d9da4","#6e6e76"], 1.6));
+    const armaTex = canvasTex(128, (g, s) => {
+      speckle(g, s, "#a89a82", 160, ["#988a72", "#b8aa92"], 1.4);
+      g.fillStyle = "#7c7062";
+      // horizontal stripes = latitude rings on the shell sphere = bands wrapping ACROSS the back
+      for (let y = 26; y < s - 18; y += 20) g.fillRect(0, y, s, 8);
+    });
+    const snakeTex = canvasTex(128, (g, s) => {
+      g.fillStyle = "#4e8f46"; g.fillRect(0, 0, s, s);
+      g.fillStyle = "#33632d";
+      for (let y = 0; y < s; y += 24){
+        for (let x = 0; x < s; x += 24){
+          const ox = (y/24 % 2) * 12;
+          g.beginPath();
+          g.moveTo(x+ox+12, y); g.lineTo(x+ox+24, y+12); g.lineTo(x+ox+12, y+24); g.lineTo(x+ox, y+12);
+          g.closePath(); g.fill();
+        }
+      }
+    });
+    const shellTex = canvasTex(128, (g, s) => {
+      g.fillStyle = "#3a6134"; g.fillRect(0, 0, s, s);
+      for (let y = 0; y < s; y += 30){
+        for (let x = 0; x < s; x += 34){
+          const ox = (y/30 % 2) * 17;
+          g.fillStyle = "#49793f";
+          g.beginPath();
+          g.moveTo(x+ox+8, y+4); g.lineTo(x+ox+26, y+4); g.lineTo(x+ox+32, y+15);
+          g.lineTo(x+ox+26, y+26); g.lineTo(x+ox+8, y+26); g.lineTo(x+ox+2, y+15);
+          g.closePath(); g.fill();
+          g.strokeStyle = "#2c4a27"; g.lineWidth = 2; g.stroke();
+        }
+      }
+    });
+
+    // ---- hay bales: big, textured, and SOLID (nothing runs or shoots through them) ----
+    // Placed once with a cylinder placeholder; when the downloaded model loads, the
+    // visual is swapped in (colliders stay the same).
+    const bales = [];
+    const baleCylGeo = new THREE.CylinderGeometry(1.35, 1.35, 2.8, 16);
+    SHARED_ASSETS.add(baleCylGeo);
+    const baleCylMats = [
+      new THREE.MeshPhongMaterial({ map: haySideTex }),
+      new THREE.MeshPhongMaterial({ map: hayEndTex }),
+      new THREE.MeshPhongMaterial({ map: hayEndTex })
+    ];
+    {
+      let placed = 0, guard = 0;
+      while (placed < 8 && guard++ < 200){
+        const x = (Math.random()*2-1)*(ARENA-7), z = (Math.random()*2-1)*(ARENA-7);
+        if (Math.hypot(x, z) < 9) continue;                                     // keep the spawn area open
+        if (bales.some(b => Math.hypot(b.x - x, b.z - z) < 7)) continue;        // spread them out
+        const hay = new THREE.Mesh(baleCylGeo, baleCylMats);
+        hay.rotation.z = Math.PI/2;
+        hay.rotation.y = Math.random()*Math.PI;
+        hay.position.set(x, 1.35, z);
+        scene.add(hay);
+        bales.push({ x, z, r: 1.9, mesh: hay });
+        placed++;
+      }
+    }
+    function refreshBaleVisuals(){
+      if (!baleAsset) return;
+      const g = baleAsset.geo;
+      g.computeBoundingBox();
+      const sz = new THREE.Vector3(); g.boundingBox.getSize(sz);
+      const scale = (1.9 * 2) / Math.max(sz.x, sz.z);   // match the ~1.9 collider radius
+      const mat = new THREE.MeshPhongMaterial({ map: baleAsset.tex, shininess: 6 });
+      for (const b of bales){
+        scene.remove(b.mesh);
+        const m = new THREE.Mesh(g, mat);
+        m.scale.setScalar(scale);
+        m.rotation.y = Math.random() * Math.PI;
+        m.position.set(b.x, 0, b.z);
+        scene.add(m);
+        b.mesh = m;
+      }
+    }
+    function pushOutOfBales(pos, r){
+      for (const b of bales){
+        const dx = pos.x - b.x, dz = pos.z - b.z;
+        const min = b.r + r, d2 = dx*dx + dz*dz;
+        if (d2 < min*min && d2 > 1e-6){
+          const d = Math.sqrt(d2);
+          pos.x = b.x + dx/d*min; pos.z = b.z + dz/d*min;
+        }
+      }
+    }
+    function baleBlocks(x, z, r){
+      for (const b of bales){
+        const dx = x - b.x, dz = z - b.z;
+        if (dx*dx + dz*dz < (b.r*0.85 + r) * (b.r*0.85 + r)) return true;
+      }
+      return false;
+    }
+
+    // ---- grass field: one InstancedMesh, sways idly and springs away as you run through ----
+    const GRASS_N = 420;
+    const grassData = [];
+    let grassMesh;
+    {
+      // tapered blade: a simple triangle looks far more grass-like than a rectangle
+      const bladeGeo = new THREE.BufferGeometry();
+      bladeGeo.setAttribute("position", new THREE.Float32BufferAttribute(
+        [-0.1, 0, 0,   0.1, 0, 0,   0, 0.95, 0], 3));
+      bladeGeo.computeVertexNormals();
+      const bladeMat = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+      grassMesh = new THREE.InstancedMesh(bladeGeo, bladeMat, GRASS_N);
+      const col = new THREE.Color();
+      for (let i = 0; i < GRASS_N; i++){
+        grassData.push({
+          x: (Math.random()*2-1)*(ARENA-1.5), z: (Math.random()*2-1)*(ARENA-1.5),
+          rotY: Math.random()*Math.PI, s: 0.75 + Math.random()*0.6,
+          phase: Math.random()*Math.PI*2, bendX: 0, bendZ: 0
+        });
+        col.setHSL(0.27 + Math.random()*0.06, 0.55, 0.42 + Math.random()*0.16);
+        grassMesh.setColorAt(i, col);
+      }
+      grassMesh.instanceColor.needsUpdate = true;
+      scene.add(grassMesh);
+    }
+    const _gp = new THREE.Vector3(), _gq = new THREE.Quaternion(), _gs = new THREE.Vector3(), _ge = new THREE.Euler(), _gm = new THREE.Matrix4();
+    function updateGrass(dt, px, pz, t){
+      for (let i = 0; i < GRASS_N; i++){
+        const d = grassData[i];
+        // spring back toward upright
+        d.bendX -= d.bendX * Math.min(1, 4 * dt);
+        d.bendZ -= d.bendZ * Math.min(1, 4 * dt);
+        // shove away from the farmer's boots
+        const dx = d.x - px, dz = d.z - pz;
+        const dd = dx*dx + dz*dz;
+        if (dd < 2.6 && dd > 0.0001){
+          const dist = Math.sqrt(dd), k = (1 - dist/1.62) * 1.1;
+          d.bendX += (dx/dist) * k; d.bendZ += (dz/dist) * k;
+        }
+        const swayX = Math.sin(t * 1.7 + d.phase) * 0.07;
+        _ge.set(d.bendZ + swayX, d.rotY, -(d.bendX), "YXZ");
+        _gq.setFromEuler(_ge);
+        _gp.set(d.x, 0, d.z);
+        _gs.set(d.s, d.s, d.s);
+        _gm.compose(_gp, _gq, _gs);
+        grassMesh.setMatrixAt(i, _gm);
+      }
+      grassMesh.instanceMatrix.needsUpdate = true;
+    }
+
+    function blobShadow(r){
+      const m = new THREE.Mesh(new THREE.CircleGeometry(r, 12),
+        new THREE.MeshBasicMaterial({ color: 0x1e3a18, transparent: true, opacity: 0.32 }));
+      m.rotation.x = -Math.PI/2; m.position.y = 0.02;
+      return m;
+    }
+
+    // ---- farmer model (articulated: legs/arms pivot at hip/shoulder for the run cycle) ----
+    function buildFarmer(){
+      const g = new THREE.Group();
+      const skin = 0xe8b88a, denim = 0x3b6ea5, denimDark = 0x2d5580, shirt = 0xb5432e, straw = 0xd9b23c;
+
+      // legs: geometry shifted so the mesh pivots at the hip; boots ride along as children
+      const legGeo = new THREE.CylinderGeometry(0.17, 0.15, 0.62, 8);
+      legGeo.translate(0, -0.31, 0);
+      for (const side of [-1, 1]){
+        const leg = new THREE.Mesh(legGeo, mat(denimDark));
+        leg.position.set(0.2 * side, 0.72, 0);
+        const boot = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.16, 0.4), mat(0x5b4224));
+        boot.position.set(0, -0.66, 0.07);
+        leg.add(boot);
+        g.add(leg);
+        g.userData[side < 0 ? "legL" : "legR"] = leg;
+      }
+      // overalls torso with straps + buttons
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.6, 1.0, 12), mat(denim));
+      body.position.y = 1.22; g.add(body);
+      for (const side of [-1, 1]){
+        const strap = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.5, 0.06), mat(denimDark));
+        strap.position.set(0.2 * side, 1.62, 0.4);
+        strap.rotation.x = -0.18;
+        g.add(strap);
+        const button = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 5), mat(0xd9b23c));
+        button.position.set(0.2 * side, 1.44, 0.47); g.add(button);
+      }
+      // arms: pivot at the shoulder; rolled red sleeves + skin hands
+      const armGeo = new THREE.CylinderGeometry(0.13, 0.11, 0.62, 8);
+      armGeo.translate(0, -0.31, 0);
+      for (const side of [-1, 1]){
+        const arm = new THREE.Mesh(armGeo, mat(shirt));
+        arm.position.set(0.58 * side, 1.66, 0);
+        arm.rotation.z = side * 0.15;
+        const hand = new THREE.Mesh(new THREE.SphereGeometry(0.12, 7, 6), mat(skin));
+        hand.position.set(0, -0.66, 0);
+        arm.add(hand);
+        g.add(arm);
+        g.userData[side < 0 ? "armL" : "armR"] = arm;
+      }
+      // shoulders / shirt collar
+      const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.5, 0.3, 10), mat(shirt));
+      collar.position.y = 1.78; g.add(collar);
+      // head with eyes, nose and a proper straw hat
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.4, 14, 12), mat(skin));
+      head.position.y = 2.16; g.add(head);
+      for (const side of [-1, 1]){
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 5), mat(0x2a2a2a));
+        eye.position.set(0.14 * side, 2.22, 0.34); g.add(eye);
+      }
+      const nose = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 5), mat(0xdba374));
+      nose.position.set(0, 2.12, 0.4); g.add(nose);
+      const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.76, 0.08, 14), mat(straw));
+      brim.position.y = 2.44; g.add(brim);
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 0.32, 12), mat(straw));
+      cap.position.y = 2.62; g.add(cap);
+      const hatBand = new THREE.Mesh(new THREE.CylinderGeometry(0.41, 0.42, 0.09, 12), mat(0xb5432e));
+      hatBand.position.y = 2.5; g.add(hatBand);
+      // weapon cradled at the hip: the downloaded shotgun if it loaded, else a corn cannon
+      const cannonGrp = new THREE.Group();
+      if (gunAsset){
+        const gun = new THREE.Mesh(gunAsset.geo, [
+          new THREE.MeshPhongMaterial({ color: 0x8a6a44, shininess: 20 }),   // stock
+          new THREE.MeshPhongMaterial({ color: 0x5b5b62, shininess: 60 })    // barrel
+        ]);
+        const s = 1.1 / gunAsset.len;           // ~1.1 units long
+        gun.scale.setScalar(s);
+        // orient the model's long axis to point forward (+Z)
+        if (gunAsset.longAxis === "x") gun.rotation.y = Math.PI/2;
+        else if (gunAsset.longAxis === "y") gun.rotation.x = Math.PI/2;
+        gun.position.z = 0.3;
+        cannonGrp.add(gun);
+      } else {
+        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.19, 1.0, 8), mat(0x6e5233));
+        barrel.rotation.x = Math.PI/2; cannonGrp.add(barrel);
+        const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.13, 0.14, 8), mat(0x54402a));
+        muzzle.rotation.x = Math.PI/2; muzzle.position.z = 0.55; cannonGrp.add(muzzle);
+        const cob = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 5), mat(0xffd23f));
+        cob.position.z = 0.62; cannonGrp.add(cob);
+      }
+      cannonGrp.position.set(0.35, 1.35, 0.55);
+      g.add(cannonGrp);
+      g.userData.cannon = cannonGrp;
+      g.userData.runPhase = 0;
+      g.userData.cannonKick = 0;
+      g.add(blobShadow(0.85));
+      return g;
+    }
+
+    // ---- playable character models (same userData interface as the farmer; missing limbs are null) ----
+    function attachSidearm(g, x, y, z){
+      const grp = new THREE.Group();
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.13, 0.8, 7), mat(0x6e5233));
+      barrel.rotation.x = Math.PI/2; grp.add(barrel);
+      grp.position.set(x, y, z);
+      g.add(grp);
+      g.userData.cannon = grp;
+      g.userData.cannonBaseZ = z;
+      g.userData.runPhase = 0;
+      g.userData.cannonKick = 0;
+      return grp;
+    }
+    function buildGoatChar(){
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.85, 1.5), mat(0xe8e4da, true));
+      body.position.y = 0.95; g.add(body);
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.55, 0.65), mat(0xe8e4da, true));
+      head.position.set(0, 1.55, 0.85); g.add(head);
+      for (const side of [-1, 1]){
+        const horn = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.4, 6), mat(0xb9b2a4));
+        horn.position.set(0.16 * side, 1.95, 0.72); horn.rotation.x = -0.5; g.add(horn);
+      }
+      googlyEyes(g, 0.17, 1.66, 1.19, 0.09);
+      const beard = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.3, 5), mat(0xd6d2c8));
+      beard.rotation.x = Math.PI; beard.position.set(0, 1.2, 1.05); g.add(beard);
+      const legGeo = new THREE.CylinderGeometry(0.11, 0.09, 0.55, 6);
+      legGeo.translate(0, -0.27, 0);
+      const legs = {};
+      for (const [key, lx, lz] of [["armL",-0.3,0.55],["armR",0.3,0.55],["legL",-0.3,-0.55],["legR",0.3,-0.55]]){
+        const leg = new THREE.Mesh(legGeo, mat(0xd6d2c8));
+        leg.position.set(lx, 0.55, lz); g.add(leg); legs[key] = leg;
+      }
+      Object.assign(g.userData, legs);
+      const tail = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.3, 5), mat(0xe8e4da));
+      tail.rotation.x = -0.9; tail.position.set(0, 1.35, -0.8); g.add(tail);
+      attachSidearm(g, 0.55, 1.1, 0.4);
+      g.add(blobShadow(0.85));
+      return g;
+    }
+    function buildCollieChar(){
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.75, 1.6), mat(0x2e2a28, true));
+      body.position.y = 0.85; g.add(body);
+      const chest = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.5, 0.7), mat(0xf2eee6, true));
+      chest.position.set(0, 0.72, 0.5); g.add(chest);
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.55), mat(0x2e2a28, true));
+      head.position.set(0, 1.4, 0.95); g.add(head);
+      const snout = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.2, 0.4), mat(0xf2eee6, true));
+      snout.position.set(0, 1.3, 1.3); g.add(snout);
+      const noseTip = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 5), mat(0x111111));
+      noseTip.position.set(0, 1.33, 1.5); g.add(noseTip);
+      for (const side of [-1, 1]){
+        const ear = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.28, 4), mat(0x2e2a28));
+        ear.position.set(0.17 * side, 1.72, 0.85); g.add(ear);
+      }
+      googlyEyes(g, 0.15, 1.49, 1.18, 0.075);
+      const legGeo = new THREE.CylinderGeometry(0.1, 0.09, 0.5, 6);
+      legGeo.translate(0, -0.25, 0);
+      const legs = {};
+      for (const [key, lx, lz] of [["armL",-0.26,0.6],["armR",0.26,0.6],["legL",-0.26,-0.6],["legR",0.26,-0.6]]){
+        const leg = new THREE.Mesh(legGeo, mat(0xf2eee6));
+        leg.position.set(lx, 0.5, lz); g.add(leg); legs[key] = leg;
+      }
+      Object.assign(g.userData, legs);
+      const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.11, 0.6, 5), mat(0x2e2a28));
+      tail.rotation.x = -1.0; tail.position.set(0, 1.15, -0.95); g.add(tail);
+      attachSidearm(g, 0.5, 1.0, 0.4);
+      g.add(blobShadow(0.8));
+      return g;
+    }
+    function buildStrawChar(){
+      const g = new THREE.Group();
+      const torso = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.0, 0.5), mat(0xb5432e));
+      torso.position.y = 1.15; g.add(torso);
+      const skirt = new THREE.Mesh(new THREE.ConeGeometry(0.55, 0.8, 8), mat(0xdcc27e, true));
+      skirt.position.y = 0.5; g.add(skirt);
+      const arms = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.14, 0.14), mat(0x8a6a44));
+      arms.position.y = 1.5; g.add(arms);
+      for (const side of [-1, 1]){
+        const strawHand = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.3, 5), mat(0xdcc27e));
+        strawHand.rotation.z = side * Math.PI/2; strawHand.position.set(0.93 * side, 1.5, 0); g.add(strawHand);
+      }
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.36, 10, 8), mat(0xdcc27e, true));
+      head.position.y = 2.05; g.add(head);
+      for (const side of [-1, 1]){
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.055, 6, 5), mat(0x1c1c1c));
+        eye.position.set(0.13 * side, 2.12, 0.3); g.add(eye);
+      }
+      const hat = new THREE.Mesh(new THREE.ConeGeometry(0.45, 0.55, 8), mat(0x54402a, true));
+      hat.position.y = 2.5; g.add(hat);
+      g.userData.legL = null; g.userData.legR = null; g.userData.armL = null; g.userData.armR = null;
+      attachSidearm(g, 0.45, 1.3, 0.4);
+      g.add(blobShadow(0.8));
+      return g;
+    }
+    function buildCharacter(id){
+      if (id === "goat") return buildGoatChar();
+      if (id === "collie") return buildCollieChar();
+      if (id === "straw") return buildStrawChar();
+      return buildFarmer();
+    }
+
+    // ---- crow (kamikaze flyer) ----
+    function buildCrow(){
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.9, 7), mat(0x23232a, true));
+      body.rotation.x = Math.PI/2; body.position.y = 1.5; g.add(body);
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 6), mat(0x23232a, true));
+      head.position.set(0, 1.6, 0.45); g.add(head);
+      const beak = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.22, 5), mat(0xe0a92c));
+      beak.rotation.x = Math.PI/2; beak.position.set(0, 1.58, 0.68); g.add(beak);
+      googlyEyes(g, 0.1, 1.68, 0.55, 0.055);
+      // angry little brows — this crow means business
+      for (const side of [-1, 1]){
+        const brow = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.03, 0.03), mat(0x111111));
+        brow.position.set(0.1 * side, 1.76, 0.58); brow.rotation.z = side * -0.5; g.add(brow);
+      }
+      const wings = [];
+      for (const side of [-1, 1]){
+        const wing = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.05, 0.4), mat(0x2e2e38, true));
+        wing.position.set(0.5 * side, 1.55, 0);
+        g.add(wing); wings.push(wing);
+      }
+      g.userData.wings = wings;
+      g.add(blobShadow(0.5));
+      return g;
+    }
+
+    // ---- THE COMBINE HARVESTER (final boss) ----
+    function buildCombine(){
+      const g = new THREE.Group();
+      const bodyM = mat(0xb32424), darkM = mat(0x6e1515), steelM = mat(0x9aa5ad);
+      const hull = new THREE.Mesh(new THREE.BoxGeometry(4.2, 2.4, 5.2), bodyM);
+      hull.position.y = 2.2; g.add(hull);
+      const cab = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.6, 1.8), darkM);
+      cab.position.set(0, 4.2, -0.8); g.add(cab);
+      const glass = new THREE.Mesh(new THREE.BoxGeometry(1.9, 1.0, 0.1), new THREE.MeshPhongMaterial({ color: 0x8ecdf2, shininess: 80 }));
+      glass.position.set(0, 4.25, 0.12); g.add(glass);
+      const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 2.4, 8), steelM);
+      pipe.rotation.z = 0.5; pipe.position.set(-1.9, 4.2, -1.6); g.add(pipe);
+      // the header reel — a wide spinning drum of blades out front
+      const reel = new THREE.Group();
+      const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 5.4, 10), steelM);
+      drum.rotation.z = Math.PI/2; reel.add(drum);
+      for (let i = 0; i < 6; i++){
+        const blade = new THREE.Mesh(new THREE.BoxGeometry(5.4, 0.1, 0.5), darkM);
+        blade.rotation.x = i * Math.PI / 3;
+        reel.add(blade);
+      }
+      reel.position.set(0, 1.0, 3.2);
+      g.add(reel);
+      g.userData.reel = reel;
+      for (const [wx, wz, wr] of [[-1.9, 1.4, 1.1], [1.9, 1.4, 1.1], [-1.7, -1.8, 0.75], [1.7, -1.8, 0.75]]){
+        const wheel = new THREE.Mesh(new THREE.CylinderGeometry(wr, wr, 0.6, 12), mat(0x1c1c1c));
+        wheel.rotation.z = Math.PI/2; wheel.position.set(wx, wr, wz); g.add(wheel);
+      }
+      g.add(blobShadow(3.4));
+      return g;
+    }
+
+    // ---- field pickups & destructible props ----
+    function buildPickupMesh(type){
+      const g = new THREE.Group();
+      if (type === "coin"){
+        const c = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.1, 12), new THREE.MeshPhongMaterial({ color: 0xffd23f, shininess: 70 }));
+        c.rotation.x = Math.PI/2; g.add(c);
+      } else if (type === "milk"){
+        const jug = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.32, 0.6, 10), mat(0xf2f2ee));
+        g.add(jug);
+        const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 0.22, 8), mat(0xdad8d0));
+        neck.position.y = 0.4; g.add(neck);
+      } else if (type === "magnet"){
+        const u = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.11, 7, 12, Math.PI), mat(0xd8342a));
+        u.rotation.z = Math.PI; g.add(u);
+        for (const side of [-1, 1]){
+          const tip = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.16, 0.13), mat(0xd9dde2));
+          tip.position.set(0.3 * side, 0.12, 0); g.add(tip);
+        }
+      } else { // boom
+        const can = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.62, 10), mat(0xb32424));
+        g.add(can);
+        const band = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.27, 0.14, 10), mat(0xffd23f));
+        g.add(band);
+        const fuse = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.25, 5), mat(0x54402a));
+        fuse.rotation.z = 0.4; fuse.position.y = 0.42; g.add(fuse);
+      }
+      return g;
+    }
+    function buildPropMesh(kind){
+      const g = new THREE.Group();
+      if (kind === 0){   // feed trough
+        const woodM = mat(0x8a6a44);
+        const base = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.5, 0.8), woodM);
+        base.position.y = 0.35; g.add(base);
+        const feed = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.16, 0.6), mat(0xd9b23c));
+        feed.position.y = 0.62; g.add(feed);
+        for (const side of [-1, 1]){
+          const leg = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.4, 0.7), woodM);
+          leg.position.set(0.7 * side, 0.15, 0); g.add(leg);
+        }
+      } else {           // milk churn
+        const churn = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.5, 1.1, 10), mat(0x9aa5ad));
+        churn.position.y = 0.55; g.add(churn);
+        const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.42, 0.24, 10), mat(0x7d8a92));
+        lid.position.y = 1.2; g.add(lid);
+      }
+      g.add(blobShadow(0.7));
+      return g;
+    }
+    function spawnProp(){
+      if (props.length >= 6) return;
+      let guard = 0;
+      while (guard++ < 60){
+        const x = (Math.random()*2-1)*(ARENA-6), z = (Math.random()*2-1)*(ARENA-6);
+        if (Math.hypot(x, z) < 7) continue;
+        if (baleBlocks(x, z, 1.5)) continue;
+        if (props.some(p => Math.hypot(p.x - x, p.z - z) < 6)) continue;
+        const mesh = buildPropMesh((Math.random()*2)|0);
+        mesh.position.set(x, 0, z);
+        mesh.rotation.y = Math.random()*Math.PI;
+        scene.add(mesh);
+        props.push({ mesh, x, z, r: 1.0, hp: 25 });
+        return;
+      }
+    }
+    function destroyProp(p){
+      chunkBurst(p.x, 0.7, p.z, 0x8a6a44, 8);
+      puff(p.x, 0.6, p.z, 0xd9b23c, 6);
+      freeMesh(p.mesh);
+      props.splice(props.indexOf(p), 1);
+      dropPickup(p.x, p.z);   // busting farm gear always pays out
+    }
+
+    // ---- enemy models (per-enemy materials so tints/flashes never bleed across the pack) ----
+    const texMat = (tex) => new THREE.MeshPhongMaterial({ map: tex, shininess: 8 });
+
+    // big cartoon googly eyes — white sclera + forward pupil, unlit so they always read
+    function googlyEyes(g, dx, y, z, s, pupilShift){
+      pupilShift = pupilShift || 0;
+      for (const side of [-1, 1]){
+        const white = new THREE.Mesh(new THREE.SphereGeometry(s, 8, 6),
+          new THREE.MeshBasicMaterial({ color: 0xffffff }));
+        white.position.set(dx * side, y, z); g.add(white);
+        const pupil = new THREE.Mesh(new THREE.SphereGeometry(s * 0.5, 6, 5),
+          new THREE.MeshBasicMaterial({ color: 0x1c1c1c }));
+        pupil.position.set(dx * side + pupilShift * side, y + s * 0.08, z + s * 0.58); g.add(pupil);
+      }
+    }
+
+    function buildRat(){
+      const g = new THREE.Group();
+      const fur = () => texMat(ratFurTex);
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.5, 12, 9), fur());
+      body.scale.set(1.45, 0.72, 0.8); body.position.y = 0.36; g.add(body);
+      const rump = new THREE.Mesh(new THREE.SphereGeometry(0.36, 10, 8), fur());
+      rump.scale.set(1, 0.9, 1); rump.position.set(0, 0.38, -0.42); g.add(rump);
+      const head = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.66, 9), fur());
+      head.rotation.x = Math.PI/2; head.position.set(0, 0.36, 0.82); g.add(head);
+      const noseTip = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 5), mat(0xe3a0a8));
+      noseTip.position.set(0, 0.36, 1.16); g.add(noseTip);
+      // big round ears — flattened discs, pink inside
+      for (const side of [-1, 1]){
+        const ear = new THREE.Mesh(new THREE.SphereGeometry(0.17, 8, 6), fur());
+        ear.scale.set(1, 1, 0.32); ear.position.set(0.2 * side, 0.66, 0.42);
+        ear.rotation.y = side * 0.35; g.add(ear);
+        const inner = new THREE.Mesh(new THREE.SphereGeometry(0.1, 6, 5), mat(0xe3a0a8));
+        inner.scale.set(1, 1, 0.3); inner.position.set(0.2 * side, 0.66, 0.46);
+        inner.rotation.y = side * 0.35; g.add(inner);
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 5), mat(0x1c1c1c));
+        eye.position.set(0.13 * side, 0.46, 0.72); g.add(eye);
+        const foot = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 5), mat(0xe3a0a8));
+        foot.scale.set(1, 0.55, 1.4); foot.position.set(0.26 * side, 0.06, 0.3); g.add(foot);
+        const foot2 = foot.clone(); foot2.position.z = -0.35; g.add(foot2);
+      }
+      // long naked tail curving behind — three tapering segments
+      const tailM = mat(0xd6959c);
+      const t1 = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.5, 6), tailM);
+      t1.rotation.x = Math.PI/2 - 0.35; t1.position.set(0, 0.3, -0.85); g.add(t1);
+      const t2 = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, 0.45, 6), tailM);
+      t2.rotation.x = Math.PI/2 - 0.9; t2.position.set(0, 0.5, -1.2); g.add(t2);
+      const t3 = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.035, 0.35, 5), tailM);
+      t3.rotation.x = Math.PI/2 - 1.4; t3.position.set(0, 0.72, -1.4); g.add(t3);
+      g.add(blobShadow(0.65));
+      return g;
+    }
+
+    function buildArmadillo(){
+      const g = new THREE.Group();
+      // banded carapace — sphere poles aligned with the spine so the texture bands wrap ACROSS the back
+      const shell = new THREE.Mesh(new THREE.SphereGeometry(0.72, 14, 11), texMat(armaTex));
+      shell.rotation.x = Math.PI/2;
+      shell.scale.set(0.95, 1.35, 0.75);   // local y (pole axis) becomes the long head-to-tail axis
+      shell.position.y = 0.5; g.add(shell);
+      const headPlate = new THREE.Mesh(new THREE.SphereGeometry(0.24, 8, 7), mat(0x8b8272, true));
+      headPlate.scale.set(1, 0.7, 1.4); headPlate.position.set(0, 0.42, 1.0); g.add(headPlate);
+      const snout = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.5, 8), mat(0x9a8c76, true));
+      snout.rotation.x = Math.PI/2; snout.position.set(0, 0.36, 1.32); g.add(snout);
+      // tall upright ears (a real armadillo signature)
+      for (const side of [-1, 1]){
+        const ear = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.3, 6), mat(0x8b8272));
+        ear.position.set(0.15 * side, 0.72, 0.88); ear.rotation.x = -0.25; g.add(ear);
+        const legF = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.3, 6), mat(0x8b8272));
+        legF.position.set(0.45 * side, 0.15, 0.5); g.add(legF);
+        const legB = legF.clone(); legB.position.z = -0.5; g.add(legB);
+      }
+      // ringed tapering tail
+      const tail = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.85, 7), mat(0x9a8c76));
+      tail.rotation.x = -Math.PI/2 - 0.25; tail.position.set(0, 0.36, -1.25); g.add(tail);
+      googlyEyes(g, 0.15, 0.54, 1.08, 0.08);
+      g.add(blobShadow(0.85));
+      return g;
+    }
+
+    function buildSnake(){
+      const g = new THREE.Group();
+      g.userData.segs = [];
+      // longer tapering body with a diamondback pattern
+      for (let i = 0; i < 7; i++){
+        const s = new THREE.Mesh(new THREE.SphereGeometry(0.3 - i*0.026, 9, 7), texMat(snakeTex));
+        s.scale.y = 0.85;
+        s.position.set(0, 0.26, -i * 0.38);
+        g.add(s); g.userData.segs.push(s);
+      }
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.34, 10, 8), texMat(snakeTex));
+      head.scale.set(1.15, 0.72, 1.35); head.position.set(0, 0.28, 0.42); g.add(head);
+      for (const side of [-1, 1]){
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 5), mat(0xffd23f));
+        eye.position.set(0.16 * side, 0.42, 0.6); g.add(eye);
+        const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.032, 5, 4), mat(0x151515));
+        pupil.position.set(0.16 * side, 0.43, 0.66); g.add(pupil);
+      }
+      // forked tongue
+      const tongueM = mat(0xc93a4a);
+      for (const side of [-1, 1]){
+        const fork = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.22, 4), tongueM);
+        fork.rotation.x = Math.PI/2; fork.rotation.y = side * 0.22;
+        fork.position.set(0.04 * side, 0.26, 0.92); g.add(fork);
+      }
+      g.add(blobShadow(0.6));
+      return g;
+    }
+
+    function buildTurtle(){
+      const g = new THREE.Group();
+      // scute-patterned dome with a ridge of spikes — proper snapper menace
+      const shell = new THREE.Mesh(new THREE.SphereGeometry(1.0, 16, 12), texMat(shellTex));
+      shell.scale.set(1.15, 0.6, 1.05); shell.position.y = 0.6; g.add(shell);
+      const rim = new THREE.Mesh(new THREE.CylinderGeometry(1.08, 1.16, 0.2, 16), mat(0x55703c, true));
+      rim.position.y = 0.36; g.add(rim);
+      for (let i = 0; i < 3; i++){
+        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.3, 6), mat(0x2c4a27, true));
+        spike.position.set(0, 1.06 - i*0.1, -0.35 + i*0.42);
+        g.add(spike);
+      }
+      // thick neck + beaked head with an overbite hook
+      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.26, 0.55, 8), mat(0x7ba05b));
+      neck.rotation.x = Math.PI/2 - 0.35; neck.position.set(0, 0.52, 1.1); g.add(neck);
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.32, 10, 8), mat(0x7ba05b, true));
+      head.scale.set(1, 0.9, 1.1); head.position.set(0, 0.62, 1.42); g.add(head);
+      const beak = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.34, 6), mat(0xd9c9a0, true));
+      beak.rotation.x = Math.PI/2 + 0.35; beak.position.set(0, 0.5, 1.72); g.add(beak);
+      for (const side of [-1, 1]){
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 5), mat(0xe8c93a));
+        eye.position.set(0.17 * side, 0.72, 1.52); g.add(eye);
+        const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.03, 5, 4), mat(0x151515));
+        pupil.position.set(0.18 * side, 0.72, 1.57); g.add(pupil);
+      }
+      // stumpy clawed legs + ridged tail
+      for (const [lx, lz] of [[-0.85, 0.6], [0.85, 0.6], [-0.85, -0.6], [0.85, -0.6]]){
+        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.22, 0.4, 7), mat(0x5b7d43));
+        leg.position.set(lx, 0.2, lz); g.add(leg);
+        for (let c = -1; c <= 1; c++){
+          const claw = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.14, 4), mat(0xd9c9a0));
+          claw.rotation.x = Math.PI/2;
+          claw.position.set(lx + c*0.09, 0.06, lz + 0.2); g.add(claw);
+        }
+      }
+      const tail = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.8, 6), mat(0x55703c, true));
+      tail.rotation.x = -Math.PI/2 - 0.3; tail.position.set(0, 0.4, -1.3); g.add(tail);
+      g.add(blobShadow(1.2));
+      return g;
+    }
+    const BUILDERS = { rat: buildRat, armadillo: buildArmadillo, snake: buildSnake, turtle: buildTurtle, crow: buildCrow };
+
+    // ---- downloaded rat model (rat.fbx + rat-palette.jpg in this folder) ----
+    // The pack holds three rat poses (Rat1-3); spawns pick one at random. Geometry is
+    // shared, but each spawn gets its own material so tier tints and hit flashes don't
+    // bleed across the pack. Until the file loads (or if it fails), the procedural rat
+    // below keeps working as the fallback.
+    let ratAssets = null;
+    {
+      const ratTex = new THREE.TextureLoader().load("rat-palette.jpg");
+      new THREE.FBXLoader().load("rat.fbx", (fbx) => {
+        const geos = [];
+        for (const n of ["Rat1", "Rat2", "Rat3"]){
+          const src = fbx.getObjectByName(n);
+          if (src && src.geometry){
+            src.geometry.computeBoundingBox();
+            geos.push(src.geometry);
+          }
+        }
+        if (geos.length){
+          ratAssets = { geos, tex: ratTex };
+          geos.forEach(g => SHARED_ASSETS.add(g)); SHARED_ASSETS.add(ratTex);
+        }
+      }, undefined, (err) => console.warn("rat.fbx failed to load — using the built-in rat", err));
+    }
+    const buildRatProcedural = buildRat;
+    BUILDERS.rat = function(){
+      if (!ratAssets) return buildRatProcedural();
+      const g = new THREE.Group();
+      const geo = ratAssets.geos[(Math.random() * ratAssets.geos.length) | 0];
+      const m = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({ map: ratAssets.tex, shininess: 10 }));
+      m.rotation.y = Math.PI;                    // model ships nose toward -Z; our varmints face +Z
+      const s = 0.72;                            // ~1.8 units nose-to-tail at gameplay scale
+      m.scale.setScalar(s);
+      m.position.y = -geo.boundingBox.min.y * s; // feet on the grass
+      m.userData.animBase = m;                   // handle for the scurry animation
+      g.add(m);
+      g.userData.model = m;
+      g.add(blobShadow(0.65));
+      return g;
+    };
+
+    // ---- downloaded cat model (cat.glb) — replaces the barn-cat projectile mesh ----
+    let catAssets = null;
+    new THREE.GLTFLoader().load("cat.glb", (gltf) => {
+      const src = gltf.scene;
+      src.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(src);
+      const size = new THREE.Vector3(); box.getSize(size);
+      catAssets = { scene: src, scaleTo: 1.5 / Math.max(size.x, size.y, size.z), minY: box.min.y };
+      markShared(src);   // clones reference these buffers — never dispose them
+    }, undefined, (err) => console.warn("cat.glb failed to load — using the built-in cat", err));
+    const buildCatProcedural = buildCatShot;
+    function buildCatModel(){
+      if (!catAssets) return buildCatProcedural();
+      const g = new THREE.Group();
+      const m = catAssets.scene.clone(true);
+      const s = catAssets.scaleTo;
+      m.scale.setScalar(s);
+      m.position.y = -catAssets.minY * s;
+      m.rotation.y = Math.PI;   // face travel direction (+Z)
+      g.add(m);
+      // keep a tail-ish handle for the wag if the GLB exposes one; else the whole model bobs
+      g.userData.tail = null;
+      m.traverse(o => { if (o.name && /tail/i.test(o.name)) g.userData.tail = o; });
+      return g;
+    }
+
+    // ---- downloaded hay-bale model (haybale.fbx + straw.png) — one round roll, textured ----
+    let baleAsset = null;
+    {
+      const strawTex = new THREE.TextureLoader().load("straw.png");
+      new THREE.FBXLoader().load("haybale.fbx", (fbx) => {
+        const roll = fbx.getObjectByName("HayRoll_Straw01");
+        if (roll && roll.geometry){
+          const geo = roll.geometry.clone();
+          geo.computeBoundingBox();
+          const c = new THREE.Vector3(); geo.boundingBox.getCenter(c);
+          geo.translate(-c.x, -geo.boundingBox.min.y, -c.z);   // center on x/z, base at y=0
+          geo.computeBoundingBox();
+          baleAsset = { geo, tex: strawTex };
+          SHARED_ASSETS.add(geo); SHARED_ASSETS.add(strawTex);
+          refreshBaleVisuals();
+        }
+      }, undefined, (err) => console.warn("haybale.fbx failed to load — using the built-in bales", err));
+    }
+
+    // ---- downloaded shotgun model (shotgun.fbx) — the farmer's weapon ----
+    let gunAsset = null;
+    new THREE.FBXLoader().load("shotgun.fbx", (fbx) => {
+      let mesh = null;
+      fbx.traverse(o => { if (o.isMesh && !mesh) mesh = o; });
+      if (mesh){
+        const geo = mesh.geometry.clone();
+        geo.computeBoundingBox();
+        const c = new THREE.Vector3(); geo.boundingBox.getCenter(c);
+        geo.translate(-c.x, -c.y, -c.z);   // center the barrel on origin
+        geo.computeBoundingBox();
+        const sz = new THREE.Vector3(); geo.boundingBox.getSize(sz);
+        gunAsset = { geo, longAxis: (sz.x >= sz.y && sz.x >= sz.z) ? "x" : (sz.y >= sz.z ? "y" : "z"),
+          len: Math.max(sz.x, sz.y, sz.z) };
+        SHARED_ASSETS.add(geo);
+      }
+    }, undefined, (err) => console.warn("shotgun.fbx failed to load — using the corn cannon", err));
+
+    // ---- shared geometries ----
+    const projG = new THREE.SphereGeometry(0.3, 8, 6);
+    const projM = new THREE.MeshBasicMaterial({ color: 0xfff9b8 });   // bright cream — pops against the grass
+    const orbG = new THREE.OctahedronGeometry(0.3);
+    const orbM = new THREE.MeshBasicMaterial({ color: 0x2b52e8 });   // royal blue — pops against the grass
+    const puffG = new THREE.SphereGeometry(0.18, 6, 5);
+    [projG, projM, orbG, orbM, puffG].forEach(a => SHARED_ASSETS.add(a));
+
+    // ---- weapon projectile / turret models ----
+    function buildPumpkinShot(){
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.55, 10, 8), mat(0xe0862c, true));
+      body.scale.y = 0.85; g.add(body);
+      // ribbing so it reads as a pumpkin, not an orange ball
+      for (let i = 0; i < 3; i++){
+        const rib = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.03, 5, 14), mat(0xc9722a));
+        rib.rotation.y = i * Math.PI / 3; rib.scale.y = 0.85; g.add(rib);
+      }
+      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.11, 0.28, 5), mat(0x4a6e30));
+      stem.position.y = 0.52; g.add(stem);
+      return g;
+    }
+    function buildBee(){
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 6), mat(0xf2c531, true));
+      body.scale.set(1, 0.85, 1.3); g.add(body);
+      const stripe = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.045, 5, 10), mat(0x2a2a2a));
+      stripe.rotation.x = Math.PI/2; g.add(stripe);
+      const stinger = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.14, 5), mat(0x2a2a2a));
+      stinger.rotation.x = Math.PI/2; stinger.position.z = -0.28; g.add(stinger);
+      const wings = [];
+      for (const side of [-1, 1]){
+        const wing = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.14),
+          new THREE.MeshBasicMaterial({ color: 0xdfefff, transparent: true, opacity: 0.7, side: THREE.DoubleSide }));
+        wing.position.set(0.14 * side, 0.14, 0);
+        wing.rotation.z = side * 0.4;
+        g.add(wing); wings.push(wing);
+      }
+      g.userData.wings = wings;
+      return g;
+    }
+    function buildFork(){
+      const g = new THREE.Group();
+      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.3, 6), mat(0x8a6a44));
+      handle.rotation.x = Math.PI/2; g.add(handle);
+      const cross = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.05), mat(0x9aa5ad));
+      cross.position.z = 0.65; g.add(cross);
+      for (const off of [-0.22, 0, 0.22]){
+        const tine = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.4, 5), mat(0x9aa5ad));
+        tine.rotation.x = Math.PI/2; tine.position.set(off, 0, 0.85); g.add(tine);
+      }
+      return g;
+    }
+    function buildCatShot(){
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.3, 9, 7), mat(0xd98e3c, true));
+      body.scale.set(1.35, 0.85, 0.85); g.add(body);
+      // tabby stripes
+      for (const off of [-0.14, 0.06]){
+        const stripe = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.035, 5, 10), mat(0xb56f28));
+        stripe.rotation.y = Math.PI/2; stripe.scale.y = 0.8;
+        stripe.position.set(off, 0.02, 0); g.add(stripe);
+      }
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 9, 7), mat(0xd98e3c, true));
+      head.position.set(0, 0.14, 0.4); g.add(head);
+      for (const side of [-1, 1]){
+        const ear = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.17, 4), mat(0xb56f28));
+        ear.position.set(0.11 * side, 0.34, 0.36); g.add(ear);
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.04, 5, 4), mat(0x2fa84f));
+        eye.position.set(0.09 * side, 0.18, 0.58); g.add(eye);
+        const pawF = new THREE.Mesh(new THREE.SphereGeometry(0.07, 5, 4), mat(0xe8e4da));
+        pawF.position.set(0.15 * side, -0.24, 0.24); g.add(pawF);
+        const pawB = pawF.clone(); pawB.position.z = -0.24; g.add(pawB);
+      }
+      const muzz = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 5), mat(0xe8e4da));
+      muzz.position.set(0, 0.1, 0.58); g.add(muzz);
+      const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.065, 0.55, 5), mat(0xb56f28));
+      tail.rotation.x = Math.PI/2.6; tail.position.set(0, 0.22, -0.5); g.add(tail);
+      g.userData.tail = tail;
+      g.scale.setScalar(1.7);   // proper barn-cat size
+      return g;
+    }
+    function buildScarecrow(){
+      const g = new THREE.Group();
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 1.9, 6), mat(0x8a6a44));
+      pole.position.y = 0.95; g.add(pole);
+      const arms = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.12, 0.12), mat(0x8a6a44));
+      arms.position.y = 1.45; g.add(arms);
+      const torso = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.75, 0.4), mat(0xb5432e));
+      torso.position.y = 1.25; g.add(torso);
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 7), mat(0xdcc27e, true));
+      head.position.y = 1.95; g.add(head);
+      // stitched-on button face
+      for (const side of [-1, 1]){
+        const button = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 5), mat(0x1c1c1c));
+        button.position.set(0.11 * side, 2.02, 0.27); g.add(button);
+      }
+      const stitch = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.02, 4, 8, Math.PI), mat(0x54402a));
+      stitch.rotation.x = Math.PI; stitch.rotation.z = Math.PI;
+      stitch.position.set(0, 1.93, 0.28); g.add(stitch);
+      const hat = new THREE.Mesh(new THREE.ConeGeometry(0.4, 0.5, 8), mat(0xd9b23c, true));
+      hat.position.y = 2.3; g.add(hat);
+      g.add(blobShadow(0.6));
+      return g;
+    }
+
+    // ================== game state ==================
+    let state = "title";     // title | playing | levelup | paused | over
+    let player, stats, hp, level, xp, xpNeed, kills, elapsed, spawnTimer, regenTimer;
+    let enemies = [], projectiles = [], orbs = [], puffs = [];
+    let pumpkins = [], cats = [], turrets = [], rings = [], chunks = [], chests = [];
+    let pickups = [], props = [];
+    let beeUnits = [], forks = [], boltsFx = [];
+    let weapons = [], pickQueue = [], banished = new Set();
+    let boss = null, bossTimer = 0, bossIdx = 0, revivesLeft = 0;
+    let rerollsLeft = 0, banishesLeft = 0, bonusCoins = 0;
+    let waveIdx = 0, formationTimer = 0, bannerTimer = 0, propTimer = 0, curse = 0, finalDown = false;
+    let barnReturn = "titleOverlay", lastRunLine = "";
+    const keys = new Set();
+    let joy = null;           // { id, ox, oy, dx, dy }
+
+    function baseStats(){
+      // start every run with the permanent Barn Upgrades + character identity folded in
+      const s = { gDmg: 1, gRate: 1, speed: 8, maxhp: 100,
+                  magnet: 4, regen: 0, knockback: 1, xpMult: 1, luck: 0, taken: {} };
+      s.gDmg   *= 1 + metaLvl("might")  * 0.08;
+      s.maxhp  += metaLvl("vigor")  * 20;
+      s.speed  *= 1 + metaLvl("boots")  * 0.06;
+      s.magnet *= 1 + metaLvl("magnet") * 0.15;
+      s.xpMult  = 1 + metaLvl("harvest")* 0.10;
+      s.luck    = metaLvl("luck");
+      const ch = charById(meta.selChar);
+      if (ch.speedMul)  s.speed  *= ch.speedMul;
+      if (ch.magnetMul) s.magnet *= ch.magnetMul;
+      if (ch.hpAdd)     s.maxhp  += ch.hpAdd;
+      return s;
+    }
+    // per-weapon state: multipliers stack from weapon-specific upgrades, gDmg/gRate from universal ones
+    function newWeapon(id){
+      return { id, dmgMul: 1, rateMul: 1, blastMul: 1, count: 1,
+               multishot: id === "corn" ? 2 : 1,   // the cannon comes out of the barn double-barreled
+               pierce: 0, maxOut: 1, timer: 0.5, deployTimer: 1 };
+    }
+    function weaponById(id){ return weapons.find(w => w.id === id); }
+    function wDmg(w){ return WEAPON_SPECS[w.id].baseDmg * w.dmgMul * stats.gDmg; }
+    function wRate(w){ return WEAPON_SPECS[w.id].baseRate * w.rateMul * stats.gRate; }
+
+    function clearEntities(){
+      for (const e of enemies) freeMesh(e.mesh);
+      for (const p of projectiles) freeMesh(p.mesh);
+      for (const o of orbs) freeMesh(o.mesh);
+      for (const f of puffs) freeMesh(f.mesh);
+      for (const p of pumpkins) freeMesh(p.mesh);
+      for (const c of cats) freeMesh(c.mesh);
+      for (const t of turrets) freeMesh(t.mesh);
+      for (const r of rings) freeMesh(r.mesh);
+      for (const c of chunks) freeMesh(c.mesh);
+      for (const c of chests) freeMesh(c.mesh);
+      for (const p of pickups) freeMesh(p.mesh);
+      for (const p of props) freeMesh(p.mesh);
+      for (const b of beeUnits) freeMesh(b.mesh);
+      for (const f of forks) freeMesh(f.mesh);
+      for (const b of boltsFx) freeMesh(b.mesh);
+      enemies = []; projectiles = []; orbs = []; puffs = [];
+      pumpkins = []; cats = []; turrets = []; rings = []; chunks = []; chests = [];
+      pickups = []; props = []; beeUnits = []; forks = []; boltsFx = [];
+      boss = null; document.getElementById("bossBar").style.display = "none";
+    }
+
+    function startGame(){
+      clearEntities();
+      if (player) freeMesh(player);
+      const ch = charById(meta.selChar);
+      player = buildCharacter(ch.id);
+      scene.add(player);
+      player.position.set(0, 0, 0);
+      stats = baseStats();
+      weapons = [newWeapon(ch.weapon)];
+      pickQueue = []; banished = new Set();
+      hp = stats.maxhp; level = 1; xp = 0; xpNeed = 5;
+      kills = 0; elapsed = 0; spawnTimer = 0; regenTimer = 0;
+      bossTimer = 90; bossIdx = 0; revivesLeft = metaLvl("revive");
+      curse = meta.curse || 0;
+      rerollsLeft = 2 + stats.luck;
+      banishesLeft = 2 + stats.luck;
+      bonusCoins = 0; waveIdx = 0; bannerTimer = 0; finalDown = false;
+      formationTimer = 55; propTimer = 75;
+      for (let i = 0; i < 6; i++) spawnProp();
+      state = "playing";
+      showOverlay(null);
+      document.getElementById("hud").style.display = "block";
+      document.getElementById("pauseBtn").style.display = "block";
+      updateHud();
+    }
+
+    function showOverlay(id){
+      for (const o of document.querySelectorAll(".overlay")) o.classList.remove("show");
+      if (id) document.getElementById(id).classList.add("show");
+    }
+
+    // ================== spawning ==================
+    // difficulty tier climbs with TIME — fixed walls the player runs into (~every 75s),
+    // so barn upgrades genuinely push how far you get instead of accelerating the ramp
+    function threatTier(){ return Math.floor(elapsed / 90); }
+
+    function enemyKindForPressure(){
+      // racking up kills nudges nastier species in, but the ramp is gentle:
+      // each new type trickles in as a minority before joining the pool fully
+      const t = elapsed + kills * 0.5;
+      const pool = ["rat", "rat"];
+      if (t > 75)  pool.push("armadillo");
+      if (t > 130) pool.push("armadillo", "rat");
+      if (t > 170) pool.push("snake");
+      if (t > 230) pool.push("snake");
+      if (t > 290) pool.push("turtle");
+      if (t > 400) pool.push("turtle", "armadillo");
+      return pool[(Math.random()*pool.length)|0];
+    }
+
+    function spawnEnemy(kind, opts){
+      opts = opts || {};
+      const elite = !!opts.elite;
+      if (enemies.length >= ENEMY_CAP + (elite ? 8 : 0)) return;   // elites may squeeze past the soft cap
+      kind = kind || enemyKindForPressure();
+      const spec = SPECS[kind];
+      const mesh = BUILDERS[kind]();
+      if (opts.at){
+        mesh.position.set(opts.at[0], 0, opts.at[1]);
+      } else {
+        // spawn on a random fence edge
+        const side = (Math.random()*4)|0, along = (Math.random()*2-1) * (ARENA-2);
+        const pos = [ [along, -ARENA+1], [along, ARENA-1], [-ARENA+1, along], [ARENA-1, along] ][side];
+        mesh.position.set(pos[0], 0, pos[1]);
+      }
+
+      const tier = threatTier();
+      // gentle HP growth — the pressure comes from volume, not sponginess; the Pact stacks on top
+      const hpScale  = (1 + elapsed/60 * 0.3 + tier * 0.25) * (elite ? 6 : 1) * (1 + curse * 0.1);
+      const dmgScale = (1 + tier * 0.2) * (elite ? 1.5 : 1);
+      const spdScale = Math.min(1.5, 1 + tier * 0.06) * (elite ? 0.85 : 1);   // elites loom, they don't sprint
+      if (elite) mesh.scale.setScalar(1.9);
+      // menace tint: darker + redder per tier; elites get a dark violet cast (skip the shadow disc)
+      const tintAmt = Math.min(0.45, tier * 0.15);
+      if (tintAmt > 0 || elite){
+        mesh.traverse(o => {
+          if (o.isMesh && o.material && !o.material.transparent){
+            if (tintAmt > 0) o.material.color.lerp(new THREE.Color(0x8a2020), tintAmt);
+            if (elite) o.material.color.lerp(new THREE.Color(0x3a1050), 0.4);
+          }
+        });
+      }
+      scene.add(mesh);
+      const e = { kind, mesh, hp: spec.hp * hpScale, maxHp: spec.hp * hpScale,
+        speed: spec.speed * (0.9 + Math.random()*0.2) * spdScale, dmg: spec.dmg * dmgScale,
+        xp: spec.xp * (elite ? 2 : 1), r: spec.r * (elite ? 1.9 : 1), mass: spec.mass * (elite ? 3 : 1),
+        elite, hitCd: 0, flash: 0, wob: Math.random()*Math.PI*2 };
+      if (kind === "crow"){
+        // crows are kamikaze flyers: they lock a straight course through the farmer and keep going
+        e.fly = true;
+        e.dirFixed = new THREE.Vector3().subVectors(player.position, mesh.position).setY(0).normalize()
+          .applyAxisAngle(new THREE.Vector3(0,1,0), (Math.random()-0.5) * 0.25);
+        mesh.rotation.y = Math.atan2(e.dirFixed.x, e.dirFixed.z);
+      }
+      // cartoon pop-in: everything (except airborne crows) springs up out of the grass
+      e.baseScale = elite ? 1.9 : 1;
+      if (kind !== "crow"){ e.pop = 0; mesh.scale.setScalar(e.baseScale * 0.05); }
+      enemies.push(e);
+      return e;
+    }
+
+    // ---- formation spawners (Tier 3: attacks that read as intentional, not noise) ----
+    function spawnLine(kind, n){
+      const side = (Math.random()*4)|0;
+      for (let i = 0; i < n; i++){
+        const along = -ARENA + 3 + (i + 0.5) * ((ARENA*2 - 6) / n);
+        const at = [ [along, -ARENA+1], [along, ARENA-1], [-ARENA+1, along], [ARENA-1, along] ][side];
+        spawnEnemy(kind, { at });
+      }
+    }
+    function spawnRing(kind, n, R){
+      R = R || 22;
+      for (let i = 0; i < n; i++){
+        const a = (i / n) * Math.PI * 2;
+        const x = Math.max(-ARENA+1.5, Math.min(ARENA-1.5, player.position.x + Math.cos(a) * R));
+        const z = Math.max(-ARENA+1.5, Math.min(ARENA-1.5, player.position.z + Math.sin(a) * R));
+        spawnEnemy(kind, { at: [x, z] });
+      }
+    }
+    function spawnCrows(n){
+      const side = (Math.random()*4)|0;
+      for (let i = 0; i < n; i++){
+        const along = player.position.x + (Math.random()-0.5) * 26;
+        const a2 = player.position.z + (Math.random()-0.5) * 26;
+        const at = [ [along, -ARENA+1], [along, ARENA-1], [-ARENA+1, a2], [ARENA-1, a2] ][side];
+        spawnEnemy("crow", { at });
+      }
+    }
+    function randomFormation(){
+      const roll = Math.random();
+      if (roll < 0.4) spawnLine(enemyKindForPressure(), 6 + Math.min(6, threatTier()*2));
+      else if (roll < 0.75) spawnRing(enemyKindForPressure(), 7 + Math.min(6, threatTier()*2));
+      else spawnCrows(4 + Math.min(8, threatTier()));   // crows are the anti-kite answer late
+    }
+
+    // ---- THE COMBINE: 15-minute final boss; killing it wins the run ----
+    function spawnFinalBoss(){
+      const mesh = buildCombine();
+      mesh.position.set(Math.max(-ARENA+5, Math.min(ARENA-5, player.position.x)), 0, -ARENA + 3);
+      scene.add(mesh);
+      const hpTotal = 3200 * (1 + curse * 0.15) * (1 + threatTier() * 0.1);
+      boss = { kind:"combine", mesh, hp: hpTotal, maxHp: hpTotal, speed: 2.3, dmg: 50, xp: 0,
+        r: 3.4, mass: 30, elite: false, isBoss: true, isFinal: true,
+        name: "THE COMBINE", ico: "🚜", hitCd: 0, flash: 0, wob: 0 };
+      enemies.push(boss);
+      const bar = document.getElementById("bossBar");
+      bar.style.display = "block";
+      document.getElementById("bossName").textContent = "🚜 THE COMBINE";
+      ring(mesh.position.x, mesh.position.z, 0xb32424, 14, 0.8);
+      puff(mesh.position.x, 3, mesh.position.z, 0x9aa5ad, 24);
+    }
+
+    // ---- field pickups: dropped by luck, props and busted farm gear ----
+    function dropPickup(x, z, forceType){
+      const roll = Math.random();
+      const type = forceType || (roll < 0.4 ? "coin" : roll < 0.68 ? "milk" : roll < 0.88 ? "magnet" : "boom");
+      const mesh = buildPickupMesh(type);
+      mesh.position.set(x, 0.6, z);
+      scene.add(mesh);
+      pickups.push({ mesh, type, t: Math.random()*Math.PI*2 });
+    }
+    function applyPickup(p){
+      const px = player.position.x, pz = player.position.z;
+      if (p.type === "coin"){
+        bonusCoins += 10;
+        puff(px, 1.4, pz, 0xffd23f, 6);
+      } else if (p.type === "milk"){
+        hp = Math.min(stats.maxhp, hp + stats.maxhp * 0.3);
+        puff(px, 1.4, pz, 0xf2f2ee, 8);
+        ring(px, pz, 0x7df58a, 3, 0.4);
+      } else if (p.type === "magnet"){
+        for (const o of orbs) o.vac = true;
+        ring(px, pz, 0x2b52e8, 12, 0.6);
+      } else { // boom — the whole pasture erupts (no blood, just a mighty pop)
+        ring(px, pz, 0xffffff, 22, 0.7);
+        ring(px, pz, 0xe0862c, 16, 0.55);
+        puff(px, 2, pz, 0xffd23f, 26);
+        for (const e of enemies.slice()){
+          const dir = new THREE.Vector3().subVectors(e.mesh.position, player.position).setY(0).normalize();
+          damageEnemy(e, e.isBoss ? 150 : 400, dir.multiplyScalar(2.5));
+        }
+      }
+      updateHud();
+    }
+
+    function spawnBoss(){
+      const def = BOSSES[bossIdx % BOSSES.length]; bossIdx++;
+      const spec = SPECS[def.kind];
+      const mesh = BUILDERS[def.kind]();
+      mesh.scale.setScalar(def.scale);
+      // enter from the top edge, centered on the player's column
+      mesh.position.set(Math.max(-ARENA+3, Math.min(ARENA-3, player.position.x)), 0, -ARENA+2);
+      mesh.traverse(o => { if (o.isMesh && o.material && !o.material.transparent) o.material.color.lerp(new THREE.Color(def.tint), 0.5); });
+      scene.add(mesh);
+      const hpScale = 1 + threatTier() * 0.35 + elapsed/120 * 0.5;
+      boss = { kind:def.kind, mesh, hp: def.hp * hpScale, maxHp: def.hp * hpScale,
+        speed: def.speed, dmg: def.dmg, xp: 0, r: spec.r * def.scale * 0.7, mass: spec.mass * 8,
+        elite: false, isBoss: true, name: def.name, ico: def.ico, hitCd: 0, flash: 0, wob: 0 };
+      enemies.push(boss);
+      const bar = document.getElementById("bossBar");
+      bar.style.display = "block";
+      document.getElementById("bossName").textContent = def.ico + " " + def.name;
+      puff(mesh.position.x, 2, mesh.position.z, 0xffffff, 20);
+      ring(mesh.position.x, mesh.position.z, def.tint, 10, 0.6);
+    }
+
+    // ---- treasure chest (feed sack) dropped by a slain boss ----
+    function dropChest(x, z){
+      const g = new THREE.Group();
+      const sack = new THREE.Mesh(new THREE.BoxGeometry(1.3, 1.5, 1.1), new THREE.MeshPhongMaterial({ color: 0xc79a4a }));
+      sack.position.y = 0.75; g.add(sack);
+      const tie = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.4, 0.5, 8), new THREE.MeshPhongMaterial({ color: 0xb0863a }));
+      tie.position.y = 1.55; g.add(tie);
+      const knot = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.09, 6, 10), new THREE.MeshPhongMaterial({ color: 0x8a6a2a }));
+      knot.rotation.x = Math.PI/2; knot.position.y = 1.8; g.add(knot);
+      const star = new THREE.Mesh(new THREE.OctahedronGeometry(0.3), new THREE.MeshBasicMaterial({ color: 0xffe27a }));
+      star.position.y = 2.5; g.add(star);
+      g.add(blobShadow(0.9));
+      g.position.set(x, 0, z);
+      scene.add(g);
+      chests.push({ mesh: g, star, t: 0 });
+    }
+
+    // ---- weapon levels & evolution: any 5 upgrades on a weapon trigger its special ability ----
+    function weaponLevel(w){
+      const prefix = WPREFIX[w.id];
+      let n = 0;
+      for (const [k, v] of Object.entries(stats.taken)) if (k.startsWith(prefix)) n += v;
+      return n;
+    }
+    function evolveWeapon(w){
+      const rec = EVOLUTIONS[w.id];
+      w.evolved = true; w.evoIco = rec.ico; w.evoName = rec.name;
+      rec.apply(w);
+      // fanfare — the pasture should know
+      const b = document.getElementById("waveBanner");
+      b.textContent = `✨ ${rec.name.toUpperCase()}! ✨`;
+      b.style.opacity = 1; bannerTimer = 2.6;
+      b.classList.remove("pop"); void b.offsetWidth; b.classList.add("pop");
+      if (player){
+        ring(player.position.x, player.position.z, 0xffd23f, 10, 0.7);
+        puff(player.position.x, 1.6, player.position.z, 0xffe27a, 20);
+      }
+      updateHud();
+    }
+
+    function dropOrb(x, z, amount){
+      const mesh = new THREE.Mesh(orbG, orbM);
+      mesh.position.set(x, 0.5, z);
+      scene.add(mesh);
+      orbs.push({ mesh, amount, t: Math.random()*Math.PI*2 });
+    }
+    function puff(x, y, z, color, n){
+      for (let i = 0; i < n; i++){
+        const m = new THREE.Mesh(puffG, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 }));
+        m.position.set(x, y, z);
+        scene.add(m);
+        const a = Math.random()*Math.PI*2;
+        puffs.push({ mesh: m, vx: Math.cos(a)*(1+Math.random()*2.5), vy: 2+Math.random()*2.5,
+          vz: Math.sin(a)*(1+Math.random()*2.5), life: 0, maxLife: 0.55 + Math.random()*0.3 });
+      }
+    }
+
+    // expanding shockwave ring, flat on the grass
+    const ringGeo = new THREE.RingGeometry(0.8, 1.05, 28);
+    SHARED_ASSETS.add(ringGeo);
+    function ring(x, z, color, growTo, life){
+      const m = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, side: THREE.DoubleSide }));
+      m.rotation.x = -Math.PI/2; m.position.set(x, 0.12, z);
+      scene.add(m);
+      rings.push({ mesh: m, t: 0, life, growTo });
+    }
+    // tumbling debris chunks (pumpkin rind, straw bits) with gravity + spin
+    const chunkGeo = new THREE.BoxGeometry(0.22, 0.16, 0.22);
+    SHARED_ASSETS.add(chunkGeo);
+    function chunkBurst(x, y, z, color, n){
+      for (let i = 0; i < n; i++){
+        const m = new THREE.Mesh(chunkGeo, new THREE.MeshPhongMaterial({ color, transparent: true, opacity: 1 }));
+        m.position.set(x, y, z);
+        scene.add(m);
+        const a = Math.random()*Math.PI*2, sp = 2.5 + Math.random()*4;
+        chunks.push({ mesh: m, vx: Math.cos(a)*sp, vy: 4 + Math.random()*3.5, vz: Math.sin(a)*sp,
+          rx: (Math.random()-0.5)*14, rz: (Math.random()-0.5)*14,
+          life: 0, maxLife: 0.7 + Math.random()*0.4 });
+      }
+    }
+
+    // ================== combat ==================
+    function nearestEnemy(fromPos, range){
+      let best = null, bestD = range;
+      for (const e of enemies){
+        const d = fromPos.distanceTo(e.mesh.position.clone().setY(fromPos.y));
+        if (d < bestD){ bestD = d; best = e; }
+      }
+      return best;
+    }
+    function nearestEnemies(fromPos, range, n){
+      return enemies
+        .map(e => ({ e, d: fromPos.distanceTo(e.mesh.position.clone().setY(fromPos.y)) }))
+        .filter(o => o.d < range)
+        .sort((a, b) => a.d - b.d)
+        .slice(0, n)
+        .map(o => o.e);
+    }
+    // heavy hitters (pumpkins, cats) prioritize the beefiest target in range — bosses and turtles first
+    function toughestEnemies(fromPos, range, n){
+      return enemies
+        .map(e => ({ e, d: fromPos.distanceTo(e.mesh.position.clone().setY(fromPos.y)) }))
+        .filter(o => o.d < range)
+        .sort((a, b) => b.e.maxHp - a.e.maxHp)
+        .slice(0, n)
+        .map(o => o.e);
+    }
+    function toughestEnemy(fromPos, range){ return toughestEnemies(fromPos, range, 1)[0] || null; }
+
+    // corn kernels — straight shots (also used by scarecrow turrets, with their own dmg/origin)
+    function fireKernels(origin, target, n, dmg, pierce){
+      const dir = new THREE.Vector3().subVectors(target.mesh.position, origin).setY(0).normalize();
+      for (let i = 0; i < n; i++){
+        const spread = n === 1 ? 0 : (i - (n-1)/2) * 0.14;
+        const d2 = dir.clone().applyAxisAngle(new THREE.Vector3(0,1,0), spread);
+        const mesh = new THREE.Mesh(projG, projM);
+        mesh.position.copy(origin).setY(1.25).addScaledVector(d2, 0.9);
+        scene.add(mesh);
+        projectiles.push({ mesh, dir: d2, speed: 24, life: 1.4, dmg, pierceLeft: pierce, hitSet: new Set() });
+      }
+      return dir;
+    }
+
+    function fireWeapon(w){
+      const spec = WEAPON_SPECS[w.id];
+      if (w.id === "corn"){
+        const t = nearestEnemy(player.position, spec.range);
+        if (!t) return false;
+        const dir = fireKernels(player.position, t, w.multishot, wDmg(w), w.pierce);
+        player.rotation.y = Math.atan2(dir.x, dir.z);
+        // muzzle flash + recoil kick on the cannon
+        player.userData.cannonKick = 0.14;
+        const mz = player.position.clone().setY(1.35).addScaledVector(dir, 1.1);
+        puff(mz.x, mz.y, mz.z, 0xffe27a, 2);
+        return true;
+      }
+      if (w.id === "pumpkin"){
+        const t = toughestEnemy(player.position, spec.range);   // lob at the beefiest target
+        if (!t) return false;
+        const from = player.position.clone().setY(1.3);
+        const lobs = w.spread || 1;   // The Great Pumpkin evolution carpet-bombs a spread
+        for (let i = 0; i < lobs; i++){
+          const off = lobs === 1 ? new THREE.Vector3() : new THREE.Vector3((Math.random()-0.5)*8, 0, (Math.random()-0.5)*8);
+          const target = t.mesh.position.clone().setY(0.3).add(off);
+          const dur = Math.min(1.1, Math.max(0.45, from.distanceTo(target) / 16));
+          const mesh = buildPumpkinShot();
+          mesh.position.copy(from);
+          scene.add(mesh);
+          pumpkins.push({ mesh, from, target, t: 0, dur, w });
+        }
+        return true;
+      }
+      if (w.id === "cats"){
+        const targets = toughestEnemies(player.position, spec.range, w.count);   // pounce on the beefiest
+        if (!targets.length) return false;
+        for (let i = 0; i < w.count; i++){
+          const t = targets[i % targets.length];
+          const dir = new THREE.Vector3().subVectors(t.mesh.position, player.position).setY(0).normalize()
+            .applyAxisAngle(new THREE.Vector3(0,1,0), (Math.random()-0.5) * 0.8);
+          const mesh = buildCatModel();
+          mesh.position.copy(player.position).setY(0.45).addScaledVector(dir, 1.0);
+          scene.add(mesh);
+          cats.push({ mesh, dir, target: t, speed: 13, life: 3.5, dmg: wDmg(w) });
+        }
+        return true;
+      }
+      if (w.id === "fork"){
+        const t = nearestEnemy(player.position, spec.range);
+        if (!t) return false;
+        const baseDir = new THREE.Vector3().subVectors(t.mesh.position, player.position).setY(0).normalize();
+        for (let i = 0; i < w.multishot; i++){
+          const spread = w.multishot === 1 ? 0 : (i - (w.multishot-1)/2) * 0.22;
+          const dir = baseDir.clone().applyAxisAngle(new THREE.Vector3(0,1,0), spread);
+          const mesh = buildFork();
+          mesh.scale.setScalar(w.evolved ? 3.2 : 1.9);   // a proper fence-post fork, not a toothpick
+          mesh.position.copy(player.position).setY(1.1).addScaledVector(dir, 0.8);
+          mesh.rotation.y = Math.atan2(dir.x, dir.z);
+          scene.add(mesh);
+          forks.push({ mesh, dir, speed: 19, dmg: wDmg(w), hitSet: new Set() });
+        }
+        return true;
+      }
+      if (w.id === "bolt"){
+        const targets = toughestEnemies(player.position, spec.range, w.count);
+        if (!targets.length) return false;
+        for (let i = 0; i < w.count; i++){
+          const t = targets[i % targets.length];
+          const bx = t.mesh.position.x, bz = t.mesh.position.z;
+          // instant strike: a bright column that fades, damage at the point plus a small splash
+          const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.5, 22, 7),
+            new THREE.MeshBasicMaterial({ color: 0xfff8d8, transparent: true, opacity: 0.95 }));
+          beam.position.set(bx, 11, bz);
+          scene.add(beam);
+          boltsFx.push({ mesh: beam, life: 0, maxLife: 0.28 });
+          ring(bx, bz, 0xfff2a8, 3.4, 0.35);
+          puff(bx, 1.2, bz, 0xfff2a8, 8);
+          damageEnemy(t, wDmg(w), new THREE.Vector3(0, 0, 0));
+          for (const e of enemies.slice()){
+            if (e === t) continue;
+            const d = Math.hypot(e.mesh.position.x - bx, e.mesh.position.z - bz);
+            if (d < 2.2) damageEnemy(e, wDmg(w) * 0.5, new THREE.Vector3(e.mesh.position.x - bx, 0, e.mesh.position.z - bz).normalize());
+          }
+        }
+        return true;
+      }
+      return false;
+    }
+
+    function weaponsUpdate(dt){
+      for (const w of weapons){
+        if (w.id === "scarecrow"){
+          // deploys on its own cadence; the standing scarecrows do the actual shooting
+          w.deployTimer -= dt;
+          if (w.deployTimer <= 0){
+            w.deployTimer = WEAPON_SPECS.scarecrow.deployEvery;
+            const mine = turrets;
+            while (mine.length >= w.maxOut){ const old = mine.shift(); puff(old.mesh.position.x, 1, old.mesh.position.z, 0xdcc27e, 5); freeMesh(old.mesh); }
+            const mesh = buildScarecrow();
+            mesh.position.set(player.position.x + (Math.random()-0.5)*2, 0, player.position.z + (Math.random()-0.5)*2);
+            scene.add(mesh);
+            turrets.push({ mesh, life: WEAPON_SPECS.scarecrow.life, fireTimer: 0.4, w });
+            puff(mesh.position.x, 0.5, mesh.position.z, 0xdcc27e, 6);
+          }
+          continue;
+        }
+        if (w.id === "bees") continue;   // bees are persistent orbiters, handled in beesUpdate
+        if (w.id === "sprinkler"){
+          // pulses damage in a circle around the player on its own clock
+          w.timer -= dt;
+          if (w.timer <= 0){
+            w.timer = 1 / wRate(w);
+            const R = WEAPON_SPECS.sprinkler.range * w.blastMul;
+            ring(player.position.x, player.position.z, 0x58c4ff, R * 0.9, 0.4);
+            for (let i = 0; i < 5; i++){
+              const a = Math.random() * Math.PI * 2;
+              puff(player.position.x + Math.cos(a) * R * 0.6, 0.5, player.position.z + Math.sin(a) * R * 0.6, 0x9adcff, 1);
+            }
+            for (const e of enemies.slice()){
+              const d = Math.hypot(e.mesh.position.x - player.position.x, e.mesh.position.z - player.position.z);
+              if (d < R + e.r){
+                const dir = new THREE.Vector3(e.mesh.position.x - player.position.x, 0, e.mesh.position.z - player.position.z).normalize();
+                damageEnemy(e, wDmg(w), dir.multiplyScalar(0.6));
+                if (w.slows) e.slowT = 1.3;   // Monsoon evolution: a soaking slow
+              }
+            }
+          }
+          continue;
+        }
+        w.timer -= dt;
+        if (w.timer <= 0 && fireWeapon(w)) w.timer = 1 / wRate(w);
+      }
+    }
+
+    // ---- bee orbit: persistent stingers circling the player ----
+    function beesUpdate(dt){
+      const w = weaponById("bees");
+      const want = w ? w.count + 2 : 0;   // base swarm of 3 (count starts at 1)
+      while (beeUnits.length < want){
+        const mesh = buildBee();
+        scene.add(mesh);
+        beeUnits.push({ mesh, cd: 0 });
+      }
+      while (beeUnits.length > want){ freeMesh(beeUnits.pop().mesh); }
+      if (!w || !beeUnits.length) return;
+      const spec = WEAPON_SPECS.bees;
+      const orbitR = spec.orbitR * w.blastMul;
+      const spd = 2.4 * w.rateMul * stats.gRate;
+      for (let i = 0; i < beeUnits.length; i++){
+        const b = beeUnits[i];
+        const a = elapsed * spd + (i / beeUnits.length) * Math.PI * 2;
+        b.mesh.position.set(player.position.x + Math.cos(a) * orbitR,
+          1.1 + Math.sin(elapsed * 6 + i) * 0.25,
+          player.position.z + Math.sin(a) * orbitR);
+        b.mesh.rotation.y = -a;   // face along the orbit
+        for (const wg of b.mesh.userData.wings) wg.rotation.z = Math.sin(elapsed * 40 + i) * 0.6;
+        b.cd -= dt;
+        if (b.cd <= 0){
+          for (const e of enemies){
+            const d = Math.hypot(e.mesh.position.x - b.mesh.position.x, e.mesh.position.z - b.mesh.position.z);
+            if (d < e.r + 0.7){
+              damageEnemy(e, wDmg(w), new THREE.Vector3(e.mesh.position.x - player.position.x, 0, e.mesh.position.z - player.position.z).normalize());
+              puff(b.mesh.position.x, b.mesh.position.y, b.mesh.position.z, 0xf2c531, 2);
+              b.cd = 0.4;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    function damageEnemy(e, dmg, dir){
+      e.hp -= dmg;
+      e.flash = 0.12;
+      if (!e.isBoss) e.squash = 0.3;   // cartoon squish on every hit
+      // knockback: modest shove, heavier varmints increasingly plant their feet;
+      // elites and bosses ignore it entirely (shove AND stagger)
+      if (!e.isBoss && !e.elite){
+        const kb = 0.45 * stats.knockback / Math.pow(e.mass, 1.5);
+        e.mesh.position.addScaledVector(dir, kb);
+        if (stats.knockback > 1)
+          e.slowT = Math.max(e.slowT || 0, Math.min(0.5, 0.2 * (stats.knockback - 1)));
+      }
+      if (e.hp <= 0){
+        kills++;
+        if (e.isBoss){
+          if (e.isFinal){
+            // THE COMBINE goes down — that's the win
+            for (let i = 0; i < 3; i++) ring(e.mesh.position.x, e.mesh.position.z, [0xffe27a,0xb32424,0xffffff][i], 14 + i*6, 0.8);
+            puff(e.mesh.position.x, 3, e.mesh.position.z, 0xffe27a, 34);
+            chunkBurst(e.mesh.position.x, 2.5, e.mesh.position.z, 0xb32424, 16);
+            chunkBurst(e.mesh.position.x, 2, e.mesh.position.z, 0x9aa5ad, 10);
+            boss = null; finalDown = true;
+            document.getElementById("bossBar").style.display = "none";
+            freeMesh(e.mesh); enemies.splice(enemies.indexOf(e), 1);
+            gameOver(true);
+            return;
+          }
+          // regular bosses erupt and leave a feed-sack chest behind
+          puff(e.mesh.position.x, 2, e.mesh.position.z, 0xffe27a, 30);
+          puff(e.mesh.position.x, 2, e.mesh.position.z, 0xffffff, 18);
+          ring(e.mesh.position.x, e.mesh.position.z, 0xffe27a, 18, 0.7);
+          chunkBurst(e.mesh.position.x, 1.5, e.mesh.position.z, 0xc79a4a, 12);
+          dropChest(e.mesh.position.x, e.mesh.position.z);
+          for (let i = 0; i < 6; i++){ const a = Math.random()*Math.PI*2; dropOrb(e.mesh.position.x + Math.cos(a)*2, e.mesh.position.z + Math.sin(a)*2, 4); }
+          boss = null;
+          document.getElementById("bossBar").style.display = "none";
+          freeMesh(e.mesh); enemies.splice(enemies.indexOf(e), 1);
+          updateHud();
+          return;
+        }
+        if (e.elite){
+          // elites pop big and scatter a spray of kernels
+          puff(e.mesh.position.x, 1.1, e.mesh.position.z, 0xd8cfa8, 16);
+          puff(e.mesh.position.x, 1.1, e.mesh.position.z, 0x3a1050, 10);
+          for (let i = 0; i < 3; i++){
+            const a = Math.random() * Math.PI * 2;
+            dropOrb(e.mesh.position.x + Math.cos(a) * 1.4, e.mesh.position.z + Math.sin(a) * 1.4, e.xp);
+          }
+        } else {
+          puff(e.mesh.position.x, 0.7, e.mesh.position.z, 0xd8cfa8, 7);
+          dropOrb(e.mesh.position.x, e.mesh.position.z, e.xp);
+        }
+        // luck-scaled chance of a field pickup dropping alongside the kernels
+        if (Math.random() < 0.015 + stats.luck * 0.004){
+          dropPickup(e.mesh.position.x + 0.8, e.mesh.position.z + 0.8);
+        }
+        freeMesh(e.mesh);
+        enemies.splice(enemies.indexOf(e), 1);
+        updateHud();
+      }
+    }
+
+    function remainingWeapons(){ return WEAPON_POOL.filter(p => !weapons.some(w => w.id === p.id)); }
+
+    function gainXp(n){
+      xp += n * stats.xpMult * (1 + curse * 0.15);
+      while (xp >= xpNeed){
+        xp -= xpNeed;
+        level++;
+        // gently super-linear: identical early pace, tames late-game level-up spam
+        xpNeed = 5 + Math.round(level * 3.5) + Math.floor(level * level * 0.2);
+        // every 5th level: a new weapon (while slots + pool remain); otherwise a normal upgrade
+        if (level % 5 === 0 && weapons.length < 4 && remainingWeapons().length) pickQueue.push("weapon");
+        else pickQueue.push("upgrade");
+      }
+      if (pickQueue.length && state === "playing") processPick();
+      updateHud();
+    }
+
+    // level-ups can stack (a pile of orbs at once) — the queue guarantees every pick is offered
+    function processPick(){
+      const kind = pickQueue.shift();
+      if (!kind){ showOverlay(null); state = "playing"; return; }
+      state = "levelup";
+      if (kind === "weapon") openWeaponPick(); else openLevelUp();
+    }
+    function afterCardPick(){
+      if (pickQueue.length) processPick();
+      else { showOverlay(null); state = "playing"; }
+    }
+
+    function openLevelUp(){
+      document.getElementById("levelupTitle").textContent = "⭐ Level Up!";
+      document.getElementById("levelupDesc").textContent = "Pick one upgrade — 🌐 = all weapons, weapon icons = that weapon only:";
+      const avail = UPGRADES.filter(u => (!u.weapon || weaponById(u.weapon)) && (stats.taken[u.id] || 0) < u.max && !banished.has(u.id));
+      const picks = [];
+      const pool = avail.slice();
+      while (picks.length < 3 && pool.length){ picks.push(pool.splice((Math.random()*pool.length)|0, 1)[0]); }
+      const cards = document.getElementById("cards");
+      cards.innerHTML = "";
+      for (const u of picks){
+        let rar = rollRarity();   // each card rolls its own rarity
+        // universal upgrades cap at rare — epics are reserved for weapon-specific cards
+        if (!u.weapon && rar.mult > RARITIES[2].mult) rar = RARITIES[2];
+        const el = document.createElement("div");
+        el.className = "card";
+        el.style.borderColor = rar.color;
+        el.style.boxShadow = `0 0 14px ${rar.color}55`;
+        el.innerHTML =
+          `<div class="ico">${u.ico}</div><div class="cbody">` +
+          `<div class="ds" style="font-weight:800;color:${rar.color}">${rar.name.toUpperCase()}</div>` +
+          `<div class="nm">${u.name}</div><div class="ds">${descFor(u, rar)}</div>` +
+          `<div class="ds" style="margin-top:3px;opacity:.7">Taken ${(stats.taken[u.id]||0)}/${u.max}` +
+          (u.weapon ? ` · Wpn Lv ${weaponLevel(weaponById(u.weapon))}/${EVOLVE_AT}` : "") + `</div></div>`;
+        el.onclick = () => { applyUpgrade(u.id, rar.mult); afterCardPick(); };
+        // banish: strike this upgrade from the pool for the rest of the run
+        if (banishesLeft > 0){
+          const bx = document.createElement("div");
+          bx.className = "banish"; bx.textContent = "🚫"; bx.title = "Banish this upgrade for the run";
+          bx.onclick = (ev) => { ev.stopPropagation(); banishesLeft--; banished.add(u.id); openLevelUp(); };
+          el.appendChild(bx);
+        }
+        cards.appendChild(el);
+      }
+      // tool row: reroll & skip live here; weapon picks hide them
+      const tools = document.getElementById("lvlTools");
+      tools.style.display = "flex";
+      const rr = document.getElementById("rerollBtn");
+      rr.textContent = `🎲 Reroll (${rerollsLeft})`;
+      rr.disabled = rerollsLeft <= 0;
+      rr.onclick = () => { if (rerollsLeft > 0){ rerollsLeft--; openLevelUp(); } };
+      document.getElementById("skipBtn").onclick = () => { bonusCoins += 8; updateHud(); afterCardPick(); };
+      document.getElementById("banishNote").textContent = banishesLeft > 0 ? `🚫 on a card banishes it (${banishesLeft} left)` : "";
+      showOverlay("levelupOverlay");
+    }
+
+    function openWeaponPick(){
+      document.getElementById("levelupTitle").textContent = "🧰 New Weapon!";
+      document.getElementById("levelupDesc").textContent = "Choose a weapon for your next slot:";
+      document.getElementById("lvlTools").style.display = "none";
+      const cards = document.getElementById("cards");
+      cards.innerHTML = "";
+      // 3 random choices from whatever's left in the 8-weapon pool
+      const pool = remainingWeapons().slice();
+      const offer = [];
+      while (offer.length < 3 && pool.length) offer.push(pool.splice((Math.random()*pool.length)|0, 1)[0]);
+      for (const p of offer){
+        const spec = WEAPON_SPECS[p.id];
+        const el = document.createElement("div");
+        el.className = "card";
+        el.innerHTML = `<div class="ico">${spec.ico}</div><div class="cbody"><div class="nm">${spec.name}</div><div class="ds">${p.desc}</div></div>`;
+        el.onclick = () => { weapons.push(newWeapon(p.id)); updateHud(); afterCardPick(); };
+        cards.appendChild(el);
+      }
+      showOverlay("levelupOverlay");
+    }
+
+    // card text shows the rarity-scaled value directly (e.g. rare "+35%" reads "+67%") — no multiplier math
+    function descFor(u, rar){
+      const mult = rar.mult;
+      if (u.id === "maxhp") return `+${Math.round(25*mult)} max HP and heal ${Math.round(50*mult)}`;
+      if (u.id === "regen") return `Regenerate ${Math.round(10*mult)/10} HP / 2s`;
+      if (u.int){
+        if (mult < 2.6) return u.desc;
+        return u.desc.replace(/\+1/, "+2").replace(/\b(projectile|strike|bee|cat|scarecrow)\b/, "$1s");
+      }
+      return u.desc.replace(/(\d+)%/, (m, p) => Math.round(parseInt(p,10)*mult) + "%");
+    }
+
+    // rarity roll — Luck tilts the odds toward the shinier tiers
+    function rollRarity(){
+      const shift = stats.luck * 0.015;
+      const r = Math.random();
+      if (r < 0.05 + shift * 1.5) return RARITIES[3];   // epic
+      if (r < 0.20 + shift * 2.0) return RARITIES[2];   // rare
+      if (r < 0.50 + shift)       return RARITIES[1];   // uncommon
+      return RARITIES[0];                                // common
+    }
+
+    // apply an upgrade at a rarity multiplier: % effects scale smoothly, integer effects double on epic
+    function applyUpgrade(id, mult){
+      mult = mult || 1;
+      stats.taken[id] = (stats.taken[id] || 0) + 1;
+      const intN = mult >= 2.6 ? 2 : 1;   // epic doubles +1-style upgrades
+      // additive stacking (the genre standard): every pick adds a slice of BASE power,
+      // so a full damage line lands ~2x — not the 6-10x runaway of multiplicative stacking
+      // universal (weaker — they touch every weapon)
+      if (id === "uni_damage") stats.gDmg += 0.06 * mult;
+      else if (id === "uni_rate") stats.gRate += 0.05 * mult;
+      else if (id === "speed") stats.speed *= 1 + 0.08 * mult;
+      else if (id === "maxhp"){ stats.maxhp += Math.round(25 * mult); hp = Math.min(stats.maxhp, hp + Math.round(50 * mult)); }
+      else if (id === "magnet") stats.magnet *= 1 + 0.45 * mult;
+      else if (id === "regen") stats.regen += 0.5 * mult;
+      else if (id === "knockback") stats.knockback += 0.5 * mult;
+      // weapon-specific (stronger)
+      else if (id === "corn_damage") weaponById("corn").dmgMul += 0.15 * mult;
+      else if (id === "corn_rate") weaponById("corn").rateMul += 0.10 * mult;
+      else if (id === "corn_multi") weaponById("corn").multishot += intN;
+      else if (id === "corn_pierce") weaponById("corn").pierce += intN;
+      else if (id === "pump_damage") weaponById("pumpkin").dmgMul += 0.15 * mult;
+      else if (id === "pump_rate") weaponById("pumpkin").rateMul += 0.10 * mult;
+      else if (id === "pump_blast") weaponById("pumpkin").blastMul += 0.12 * mult;
+      else if (id === "cat_damage") weaponById("cats").dmgMul += 0.15 * mult;
+      else if (id === "cat_rate") weaponById("cats").rateMul += 0.10 * mult;
+      else if (id === "cat_count") weaponById("cats").count += intN;
+      else if (id === "scare_damage") weaponById("scarecrow").dmgMul += 0.15 * mult;
+      else if (id === "scare_rate") weaponById("scarecrow").rateMul += 0.10 * mult;
+      else if (id === "scare_count") weaponById("scarecrow").maxOut += intN;
+      else if (id === "bees_damage") weaponById("bees").dmgMul += 0.15 * mult;
+      else if (id === "bees_count") weaponById("bees").count += intN;
+      else if (id === "bees_rate") weaponById("bees").rateMul += 0.10 * mult;
+      else if (id === "sprk_damage") weaponById("sprinkler").dmgMul += 0.15 * mult;
+      else if (id === "sprk_radius") weaponById("sprinkler").blastMul += 0.12 * mult;
+      else if (id === "sprk_rate") weaponById("sprinkler").rateMul += 0.10 * mult;
+      else if (id === "fork_damage") weaponById("fork").dmgMul += 0.15 * mult;
+      else if (id === "fork_rate") weaponById("fork").rateMul += 0.10 * mult;
+      else if (id === "fork_multi") weaponById("fork").multishot += intN;
+      else if (id === "bolt_damage") weaponById("bolt").dmgMul += 0.15 * mult;
+      else if (id === "bolt_rate") weaponById("bolt").rateMul += 0.10 * mult;
+      else if (id === "bolt_multi") weaponById("bolt").count += intN;
+      // hitting weapon level 5 unlocks the evolution on the spot
+      const def = UPGRADES.find(u => u.id === id);
+      if (def && def.weapon){
+        const w = weaponById(def.weapon);
+        if (w && !w.evolved && weaponLevel(w) >= EVOLVE_AT) evolveWeapon(w);
+      }
+      updateHud();
+    }
+
+    function randomAvailableUpgrade(weaponOnly){
+      let avail = UPGRADES.filter(u => (!u.weapon || weaponById(u.weapon)) && (stats.taken[u.id] || 0) < u.max);
+      if (weaponOnly){
+        const wpn = avail.filter(u => u.weapon);
+        if (wpn.length) avail = wpn;
+      }
+      return avail.length ? avail[(Math.random()*avail.length)|0] : null;
+    }
+
+    // open a boss chest: exactly one guaranteed epic upgrade
+    function openChest(chest){
+      freeMesh(chest.mesh); chests.splice(chests.indexOf(chest), 1);
+      state = "chest";
+      const rewards = [];
+      // one reward only: a guaranteed EPIC, favoring a weapon-specific upgrade when any remain
+      const u = randomAvailableUpgrade(true);
+      if (u){
+        let rar = RARITIES[3];
+        if (!u.weapon) rar = RARITIES[2];   // universal caps at rare (same rule as level-up cards)
+        const wasEvolved = u.weapon && weaponById(u.weapon) ? weaponById(u.weapon).evolved : true;
+        applyUpgrade(u.id, rar.mult);
+        const nowEvolved = u.weapon && weaponById(u.weapon) ? weaponById(u.weapon).evolved : wasEvolved;
+        rewards.push({ ico:u.ico, name:u.name, desc:descFor(u, rar), rar, evo: !wasEvolved && nowEvolved });
+      } else {
+        // everything maxed — pay out coins instead
+        bonusCoins += 40;
+        rewards.push({ ico:"🪙", name:"Corn Coins", desc:"+40 coins — every upgrade is maxed!", rar:null, evo:false });
+      }
+      const anyEvo = rewards.some(r => r.evo);
+      document.getElementById("chestTitle").textContent = anyEvo ? "✨ EVOLUTION!" : "🎁 Feed Sack!";
+      const cont = document.getElementById("chestCards"); cont.innerHTML = "";
+      for (const r of rewards){
+        const el = document.createElement("div");
+        el.className = "card" + (r.evo ? " evo" : "");
+        if (!r.evo && r.rar){ el.style.borderColor = r.rar.color; el.style.boxShadow = `0 0 14px ${r.rar.color}55`; }
+        el.innerHTML = `<div class="ico">${r.ico}</div><div class="cbody">` +
+          (r.rar ? `<div class="ds" style="font-weight:800;color:${r.rar.color}">${r.rar.name.toUpperCase()}</div>` : "") +
+          `<div class="nm">${r.name}</div>` +
+          (r.desc ? `<div class="ds">${r.desc}</div>` : "") + `</div>`;
+        cont.appendChild(el);
+      }
+      showOverlay("chestOverlay");
+    }
+    function closeChest(){
+      if (pickQueue.length) processPick();
+      else { showOverlay(null); state = "playing"; }
+    }
+
+    function gameOver(victory){
+      // one free comeback if a Golden Egg is banked (defeat only — victory always ends the run)
+      if (!victory && revivesLeft > 0){
+        revivesLeft--;
+        hp = stats.maxhp;
+        // clear the immediate crowd so the revive isn't instantly re-killed
+        for (const e of enemies.slice()){
+          if (!e.isBoss && e.mesh.position.distanceTo(player.position) < 12){
+            puff(e.mesh.position.x, 0.8, e.mesh.position.z, 0xfff2b0, 6);
+            freeMesh(e.mesh); enemies.splice(enemies.indexOf(e), 1);
+          }
+        }
+        ring(player.position.x, player.position.z, 0xffe27a, 14, 0.7);
+        puff(player.position.x, 1.5, player.position.z, 0xffe27a, 24);
+        updateHud();
+        return;
+      }
+      state = "over";
+      const secs = Math.floor(elapsed);
+      const payMult = (1 + metaLvl("greed") * 0.12) * (1 + curse * 0.2);
+      const coins = Math.floor((kills + secs * 0.5) * payMult) + bonusCoins + (victory ? Math.floor(400 * payMult) : 0);
+      meta.coins += coins; saveMeta();
+      saveScoreEntry(secs, kills);
+      renderAllScores();
+      document.getElementById("overTitle").textContent = victory ? "🏆 PASTURE SECURED!" : "🌾 Overrun!";
+      lastRunLine = `${victory ? "Beat THE COMBINE in" : "Survived"} ${fmtTime(elapsed)} · ${kills} varmints · Level ${level}<br>` +
+        `<span style="color:#ffd23f">🪙 +${coins} corn coins</span>` +
+        (bonusCoins ? ` <span style="opacity:.75">(incl. ${bonusCoins} picked up)</span>` : "") +
+        (victory ? ` <span style="opacity:.75">(incl. victory bonus)</span>` : "");
+      document.getElementById("overStat").innerHTML = lastRunLine + ` &nbsp; <span id="bankSpan">(bank: ${meta.coins})</span>`;
+      document.getElementById("hud").style.display = "none";
+      document.getElementById("pauseBtn").style.display = "none";
+      document.getElementById("bossBar").style.display = "none";
+      showOverlay("overOverlay");
+    }
+
+    // ================== update ==================
+    function moveVector(){
+      let x = 0, z = 0;
+      if (keys.has("ArrowLeft") || keys.has("a")) x -= 1;
+      if (keys.has("ArrowRight") || keys.has("d")) x += 1;
+      if (keys.has("ArrowUp") || keys.has("w")) z -= 1;
+      if (keys.has("ArrowDown") || keys.has("s")) z += 1;
+      if (joy && (joy.dx || joy.dy)){ x = joy.dx; z = joy.dy; }
+      const len = Math.hypot(x, z);
+      return len > 1 ? { x: x/len, z: z/len } : { x, z };
+    }
+
+    function update(dt){
+      if (state !== "playing") return;
+      elapsed += dt;
+
+      // player movement — clamped to the fence and blocked by hay bales
+      const mv = moveVector();
+      player.position.x = Math.max(-ARENA+1, Math.min(ARENA-1, player.position.x + mv.x * stats.speed * dt));
+      player.position.z = Math.max(-ARENA+1, Math.min(ARENA-1, player.position.z + mv.z * stats.speed * dt));
+      pushOutOfBales(player.position, 0.7);
+      if (mv.x || mv.z) player.rotation.y = Math.atan2(mv.x, mv.z);
+
+      // run cycle: limbs swing if the character has them (Strawman just hops); body bobs, settles when standing
+      const ud = player.userData;
+      const moving = !!(mv.x || mv.z);
+      ud.runPhase += dt * (moving ? 11 : 3);
+      const swing = moving ? Math.sin(ud.runPhase) * 0.75 : Math.sin(ud.runPhase) * 0.05;
+      if (ud.legL){ ud.legL.rotation.x = swing;  ud.legR.rotation.x = -swing; }
+      if (ud.armL){ ud.armL.rotation.x = -swing * 0.8; ud.armR.rotation.x = swing * 0.8; }
+      player.position.y = moving ? Math.abs(Math.sin(ud.runPhase)) * (ud.legL ? 0.14 : 0.24) : 0;
+      // cannon recoil eases back after each shot
+      ud.cannonKick = Math.max(0, ud.cannonKick - dt * 3);
+      ud.cannon.position.z = (ud.cannonBaseZ !== undefined ? ud.cannonBaseZ : 0.5) - ud.cannonKick * 0.9;
+
+      // regen
+      if (stats.regen > 0){
+        regenTimer += dt;
+        if (regenTimer >= 1){ regenTimer -= 1; hp = Math.min(stats.maxhp, hp + stats.regen); updateHud(); }
+      }
+
+      // spawning — pressure builds with BOTH time and kills, leaning on sheer volume
+      spawnTimer -= dt;
+      // time is the main throttle; kills feed in gently so good play doesn't explode the spawner
+      const interval = Math.max(0.25, 1.7 - elapsed * 0.007 - kills * 0.0012);
+      if (spawnTimer <= 0){
+        spawnTimer = interval;
+        const burst = 1 + Math.min(3, threatTier());   // tier 1: pairs, tier 2: triples, tier 3+: quads
+        for (let i = 0; i < burst; i++) spawnEnemy();
+        // elites are a rare occasion, not a parade
+        if (kills >= 60 && Math.random() < Math.min(0.03, 0.008 + kills * 0.00004)){
+          spawnEnemy(null, { elite: true });
+        }
+      }
+
+      // boss cadence — one telegraphed brute at a time, then a cooldown (stops once THE COMBINE arrives)
+      bossTimer -= dt;
+      if (!boss && bossTimer <= 0 && elapsed < FINAL_AT - 40){ spawnBoss(); bossTimer = 105; }
+      if (boss){
+        document.getElementById("bossFill").style.width = Math.max(0, boss.hp / boss.maxHp * 100) + "%";
+      }
+
+      // named minute-mark waves with banners
+      if (waveIdx < WAVES.length && elapsed >= WAVES[waveIdx].t){
+        const w = WAVES[waveIdx++];
+        const b = document.getElementById("waveBanner");
+        b.textContent = w.txt; b.style.opacity = 1; bannerTimer = 2.4;
+        b.classList.remove("pop"); void b.offsetWidth; b.classList.add("pop");
+        w.f();
+      }
+      if (bannerTimer > 0){
+        bannerTimer -= dt;
+        if (bannerTimer <= 0) document.getElementById("waveBanner").style.opacity = 0;
+      }
+      // surprise formations between the set-piece waves
+      formationTimer -= dt;
+      if (formationTimer <= 0 && elapsed > 90 && elapsed < FINAL_AT - 40){
+        formationTimer = 45 + Math.random() * 30;
+        randomFormation();
+      }
+
+      // chests — bob & spin, and open when the farmer walks up
+      for (const c of chests.slice()){
+        c.t += dt;
+        c.mesh.position.y = Math.sin(c.t * 2) * 0.12;
+        c.star.rotation.y += dt * 2.5;
+        c.star.position.y = 2.5 + Math.sin(c.t * 3) * 0.15;
+        if (c.mesh.position.distanceTo(player.position.clone().setY(c.mesh.position.y)) < 2.2){
+          openChest(c);
+          return;   // openChest pauses the sim
+        }
+      }
+
+      // field pickups — bob, magnetize, collect
+      for (const p of pickups.slice()){
+        p.t += dt * 3;
+        p.mesh.position.y = 0.6 + Math.sin(p.t) * 0.14;
+        p.mesh.rotation.y += dt * 2.2;
+        const d = p.mesh.position.distanceTo(player.position.clone().setY(p.mesh.position.y));
+        if (d < stats.magnet){
+          const pull = new THREE.Vector3().subVectors(player.position, p.mesh.position).setY(0).normalize();
+          p.mesh.position.addScaledVector(pull, (14 - d) * dt * 2.0);
+        }
+        if (d < 1.4){
+          freeMesh(p.mesh);
+          pickups.splice(pickups.indexOf(p), 1);
+          applyPickup(p);
+        }
+      }
+
+      // destructible props trickle back over time
+      propTimer -= dt;
+      if (propTimer <= 0){ propTimer = 75; spawnProp(); }
+
+      weaponsUpdate(dt);
+      beesUpdate(dt);
+
+      // spinning pitchforks — pierce everything on a straight line, bust props, sail off the field
+      for (const f of forks.slice()){
+        f.mesh.position.addScaledVector(f.dir, f.speed * dt);
+        f.mesh.rotation.z += dt * 10;
+        for (const e of enemies){
+          if (f.hitSet.has(e)) continue;
+          const d = Math.hypot(f.mesh.position.x - e.mesh.position.x, f.mesh.position.z - e.mesh.position.z);
+          if (d < e.r + 1.1){ f.hitSet.add(e); damageEnemy(e, f.dmg, f.dir); }
+        }
+        for (const pr of props){
+          if (!f.hitSet.has(pr) && Math.hypot(f.mesh.position.x - pr.x, f.mesh.position.z - pr.z) < pr.r + 0.8){
+            f.hitSet.add(pr); pr.hp -= f.dmg;
+            if (pr.hp <= 0) destroyProp(pr);
+          }
+        }
+        if (Math.abs(f.mesh.position.x) > ARENA + 3 || Math.abs(f.mesh.position.z) > ARENA + 3){
+          freeMesh(f.mesh); forks.splice(forks.indexOf(f), 1);
+        }
+      }
+
+      // lightning beams flash and fade
+      for (const b of boltsFx.slice()){
+        b.life += dt;
+        b.mesh.material.opacity = Math.max(0, 0.95 * (1 - b.life / b.maxLife));
+        if (b.life >= b.maxLife){ freeMesh(b.mesh); boltsFx.splice(boltsFx.indexOf(b), 1); }
+      }
+
+      // corn kernels (player + scarecrows) — spin in flight, thunk into hay bales
+      for (const p of projectiles.slice()){
+        p.mesh.position.addScaledVector(p.dir, p.speed * dt);
+        p.mesh.rotation.x += 14 * dt;
+        p.life -= dt;
+        let dead = p.life <= 0;
+        if (!dead && baleBlocks(p.mesh.position.x, p.mesh.position.z, 0.2)){
+          puff(p.mesh.position.x, p.mesh.position.y, p.mesh.position.z, 0xd9b23c, 4);
+          dead = true;
+        }
+        if (!dead){
+          for (const e of enemies){
+            if (p.hitSet.has(e)) continue;
+            const d = p.mesh.position.distanceTo(e.mesh.position.clone().setY(p.mesh.position.y));
+            if (d < e.r + 0.35){
+              p.hitSet.add(e);
+              damageEnemy(e, p.dmg, p.dir);
+              if (p.pierceLeft > 0){ p.pierceLeft--; } else { dead = true; }
+              break;
+            }
+          }
+        }
+        if (!dead){
+          // stray shots bust up farm props — which always drop a pickup
+          for (const pr of props){
+            if (Math.hypot(p.mesh.position.x - pr.x, p.mesh.position.z - pr.z) < pr.r + 0.3){
+              pr.hp -= p.dmg;
+              puff(pr.x, 0.8, pr.z, 0xa98d5f, 3);
+              if (pr.hp <= 0) destroyProp(pr);
+              dead = true;
+              break;
+            }
+          }
+        }
+        if (dead){ freeMesh(p.mesh); projectiles.splice(projectiles.indexOf(p), 1); }
+      }
+
+      // pumpkins — lobbed arcs; explode on landing, or early if they come down into a bale
+      function pumpkinBoom(p, bx, bz){
+        const R = WEAPON_SPECS.pumpkin.blast * p.w.blastMul;
+        ring(bx, bz, 0xffb347, R * 1.9, 0.45);
+        puff(bx, 0.6, bz, 0xe0862c, 14);
+        puff(bx, 0.9, bz, 0xffd23f, 8);
+        chunkBurst(bx, 0.7, bz, 0xe0862c, 7);
+        for (const e of enemies.slice()){
+          const d = Math.hypot(e.mesh.position.x - bx, e.mesh.position.z - bz);
+          if (d < R + e.r){
+            const fall = Math.max(0.45, 1 - d / (R + e.r));
+            const dir = new THREE.Vector3(e.mesh.position.x - bx, 0, e.mesh.position.z - bz).normalize();
+            damageEnemy(e, wDmg(p.w) * fall, dir.multiplyScalar(1.6 * fall));
+          }
+        }
+        for (const pr of props.slice()){
+          if (Math.hypot(pr.x - bx, pr.z - bz) < R + pr.r) destroyProp(pr);   // blasts flatten farm gear
+        }
+        freeMesh(p.mesh); pumpkins.splice(pumpkins.indexOf(p), 1);
+      }
+      for (const p of pumpkins.slice()){
+        p.t += dt / p.dur;
+        if (p.t >= 1){ pumpkinBoom(p, p.target.x, p.target.z); continue; }
+        p.mesh.position.lerpVectors(p.from, p.target, p.t);
+        p.mesh.position.y += Math.sin(p.t * Math.PI) * 5;   // arc height
+        p.mesh.rotation.x += dt * 7;
+        p.mesh.rotation.z += dt * 3;
+        if (p.t > 0.5 && p.mesh.position.y < 1.7 && baleBlocks(p.mesh.position.x, p.mesh.position.z, 0.3)){
+          pumpkinBoom(p, p.mesh.position.x, p.mesh.position.z);   // descending into a bale — pop early
+        }
+      }
+
+      // homing cats — gallop, wag, kick up dust, and shoulder around the bales
+      for (const c of cats.slice()){
+        if (!c.target || c.target.hp <= 0 || !enemies.includes(c.target)){
+          c.target = nearestEnemy(c.mesh.position, 40);
+        }
+        if (c.target){
+          const want = new THREE.Vector3().subVectors(c.target.mesh.position, c.mesh.position).setY(0).normalize();
+          c.dir.lerp(want, Math.min(1, 6 * dt)).normalize();
+        }
+        c.mesh.position.addScaledVector(c.dir, c.speed * dt);
+        pushOutOfBales(c.mesh.position, 0.45);
+        c.mesh.rotation.y = Math.atan2(c.dir.x, c.dir.z);
+        c.gallop = (c.gallop || 0) + dt * 12;
+        c.mesh.position.y = 0.5 + Math.abs(Math.sin(c.gallop)) * 0.22;
+        c.mesh.rotation.z = Math.sin(c.gallop) * 0.08;
+        if (c.mesh.userData.tail) c.mesh.userData.tail.rotation.z = Math.sin(c.gallop * 1.3) * 0.5;
+        c.trailT = (c.trailT || 0) - dt;
+        if (c.trailT <= 0){ c.trailT = 0.11; puff(c.mesh.position.x, 0.15, c.mesh.position.z, 0xcbbfa2, 1); }
+        c.life -= dt;
+        let done = c.life <= 0;
+        if (!done && c.target){
+          const d = c.mesh.position.distanceTo(c.target.mesh.position.clone().setY(c.mesh.position.y));
+          if (d < c.target.r + 0.7){
+            damageEnemy(c.target, c.dmg, c.dir);
+            puff(c.mesh.position.x, 0.6, c.mesh.position.z, 0xd98e3c, 5);
+            ring(c.mesh.position.x, c.mesh.position.z, 0xd98e3c, 2.2, 0.3);
+            done = true;
+          }
+        }
+        if (done){ freeMesh(c.mesh); cats.splice(cats.indexOf(c), 1); }
+      }
+
+      // scarecrow turrets — pop up out of the dirt, recoil when they fire
+      for (const t of turrets.slice()){
+        t.life -= dt;
+        t.fireTimer -= dt;
+        if (t.spawn === undefined) t.spawn = 0;
+        if (t.spawn < 1){
+          t.spawn = Math.min(1, t.spawn + dt * 4);
+          const s = (0.2 + 0.8 * t.spawn) * 1.4;   // scarecrows stand 40% taller now
+          t.mesh.scale.setScalar(s * (1 + Math.sin(t.spawn * Math.PI) * 0.15));   // little overshoot pop
+        }
+        t.kick = Math.max(0, (t.kick || 0) - dt * 4);
+        t.mesh.rotation.x = -t.kick * 0.35;
+        if (t.life <= 0){
+          puff(t.mesh.position.x, 1, t.mesh.position.z, 0xdcc27e, 6);
+          chunkBurst(t.mesh.position.x, 1, t.mesh.position.z, 0xd9b23c, 4);
+          freeMesh(t.mesh); turrets.splice(turrets.indexOf(t), 1);
+          continue;
+        }
+        if (t.fireTimer <= 0){
+          const target = nearestEnemy(t.mesh.position, WEAPON_SPECS.scarecrow.range);
+          if (target){
+            fireKernels(t.mesh.position, target, 1, wDmg(t.w), 0);
+            t.fireTimer = 1 / wRate(t.w);
+            t.kick = 1;
+            t.mesh.rotation.y = Math.atan2(target.mesh.position.x - t.mesh.position.x, target.mesh.position.z - t.mesh.position.z);
+          }
+        }
+      }
+
+      // enemies chase the farmer
+      for (const e of enemies.slice()){
+        const dir = new THREE.Vector3().subVectors(player.position, e.mesh.position).setY(0);
+        const dist = dir.length();
+        dir.normalize();
+        if (e.slowT > 0) e.slowT -= dt;   // Monsoon soak wears off
+        let step = e.speed * (e.slowT > 0 ? 0.55 : 1) * dt;
+
+        // crows fly a locked straight line through the farm — swoop, flap, and leave
+        if (e.fly){
+          e.wob += dt * 12;
+          e.mesh.position.addScaledVector(e.dirFixed, step);
+          for (const w of (e.mesh.userData.wings || [])) w.rotation.z = Math.sin(e.wob) * 0.55 * (w.position.x < 0 ? 1 : -1);
+          e.hitCd -= dt;
+          if (dist < e.r + 0.9 && e.hitCd <= 0){
+            e.hitCd = 0.8;
+            hp -= e.dmg;
+            puff(player.position.x, 1.4, player.position.z, 0xffffff, 4);
+            updateHud();
+            if (hp <= 0){ gameOver(); return; }
+          }
+          if (Math.abs(e.mesh.position.x) > ARENA + 3 || Math.abs(e.mesh.position.z) > ARENA + 3){
+            freeMesh(e.mesh); enemies.splice(enemies.indexOf(e), 1);   // flew off — no kill, no orb
+          }
+          if (e.flash > 0){
+            e.flash -= dt;
+            e.mesh.traverse(o => { if (o.isMesh && o.material.emissive) o.material.emissive.setHex(e.flash > 0 ? 0x888888 : 0x000000); });
+          }
+          continue;
+        }
+
+        // THE COMBINE plows straight through hay bales, shredding them
+        if (e.isFinal){
+          e.mesh.userData.reel.rotation.x += dt * 6;
+          for (const b of bales.slice()){
+            if (Math.hypot(e.mesh.position.x - b.x, e.mesh.position.z - b.z) < b.r + e.r * 0.6){
+              chunkBurst(b.x, 1.2, b.z, 0xd9b23c, 10);
+              puff(b.x, 1, b.z, 0xd9b23c, 8);
+              scene.remove(b.mesh);
+              bales.splice(bales.indexOf(b), 1);
+            }
+          }
+        }
+
+        // every varmint has a gait — scurry / waddle / slither / plod — scaled by how fast it's actually moving
+        const moving = Math.min(1, e.speed / 3);
+        const model = e.mesh.userData.model;   // the inner display mesh (rat FBX), if any
+        if (e.kind === "snake"){
+          e.wob += dt * 7;
+          const perp = new THREE.Vector3(-dir.z, 0, dir.x);
+          e.mesh.position.addScaledVector(perp, Math.sin(e.wob) * 1.9 * dt);   // serpentine weave
+          const segs = e.mesh.userData.segs || [];
+          for (let i = 0; i < segs.length; i++){
+            segs[i].position.x = Math.sin(e.wob - i*0.8) * 0.22;               // lateral S-wave down the body
+            segs[i].position.y = 0.26 + Math.abs(Math.sin(e.wob*0.5 - i*0.6)) * 0.08;
+          }
+          e.mesh.rotation.z = 0;
+        } else if (e.kind === "rat"){
+          e.wob += dt * 15;                                                    // fast little legs
+          e.mesh.position.y = Math.abs(Math.sin(e.wob)) * 0.16 * moving;       // scampering hop
+          if (model){ model.rotation.x = Math.sin(e.wob) * 0.12 * moving; }    // body pitch
+          e.mesh.rotation.z = Math.sin(e.wob*0.5) * 0.05 * moving;
+        } else if (e.kind === "armadillo"){
+          e.wob += dt * 9;
+          e.mesh.rotation.z = Math.sin(e.wob) * 0.13 * moving;                 // side-to-side waddle
+          e.mesh.position.y = Math.abs(Math.sin(e.wob)) * 0.06 * moving;
+        } else {   // turtle — heavy, plodding rock
+          e.wob += dt * 5;
+          e.mesh.position.y = Math.abs(Math.sin(e.wob)) * 0.05 * moving;
+          e.mesh.rotation.z = Math.sin(e.wob) * 0.05 * moving;
+        }
+        e.mesh.position.addScaledVector(dir, step);
+        e.mesh.position.x = Math.max(-ARENA+0.8, Math.min(ARENA-0.8, e.mesh.position.x));
+        e.mesh.position.z = Math.max(-ARENA+0.8, Math.min(ARENA-0.8, e.mesh.position.z));
+        if (!e.isFinal) pushOutOfBales(e.mesh.position, e.r * 0.6);   // varmints go around the bales; THE COMBINE goes through
+        // facing (rotation.y) — set via quaternion so it composes with the gait's z/x tilt
+        const yaw = Math.atan2(dir.x, dir.z);
+        e.mesh.rotation.y = yaw;
+
+        // squash & stretch: spring up on spawn, squish wide on every hit
+        if (e.baseScale !== undefined && (e.pop < 1 || e.squash > 0)){
+          if (e.pop < 1) e.pop = Math.min(1, e.pop + dt * 3.2);
+          const k = e.pop;
+          const base = e.baseScale * (k >= 1 ? 1 : 0.15 + 0.85 * k + Math.sin(k * Math.PI) * 0.2);
+          const sq = e.squash > 0 ? e.squash : 0;
+          if (e.squash > 0) e.squash -= dt * 2.5;
+          e.mesh.scale.set(base * (1 + sq * 0.4), base * (1 - sq * 0.5), base * (1 + sq * 0.4));
+        }
+
+        // hit flash (no blood — just a white blink)
+        if (e.flash > 0){
+          e.flash -= dt;
+          e.mesh.traverse(o => { if (o.isMesh && o.material.emissive) o.material.emissive.setHex(e.flash > 0 ? 0x888888 : 0x000000); });
+        }
+
+        // contact damage
+        e.hitCd -= dt;
+        if (dist < e.r + 0.9 && e.hitCd <= 0){
+          e.hitCd = 0.8;
+          hp -= e.dmg;
+          puff(player.position.x, 1.2, player.position.z, 0xffffff, 4);
+          updateHud();
+          if (hp <= 0){ gameOver(); return; }
+        }
+      }
+
+      // separation physics — varmints shove each other aside instead of stacking into one blob.
+      // Each overlapping pair resolves half its overlap per frame, split by mass (turtles barely budge).
+      for (let i = 0; i < enemies.length; i++){
+        const a = enemies[i];
+        if (a.fly) continue;   // crows are airborne — they don't shove or get shoved
+        for (let j = i + 1; j < enemies.length; j++){
+          const b = enemies[j];
+          if (b.fly) continue;
+          let dx = b.mesh.position.x - a.mesh.position.x;
+          let dz = b.mesh.position.z - a.mesh.position.z;
+          const minD = (a.r + b.r) * 0.85;
+          const d2 = dx*dx + dz*dz;
+          if (d2 >= minD*minD) continue;
+          let dd = Math.sqrt(d2);
+          if (dd < 0.001){ dx = Math.random() - 0.5; dz = Math.random() - 0.5; dd = Math.hypot(dx, dz); }
+          const push = (minD - dd) / dd * 0.5;
+          const wa = b.mass / (a.mass + b.mass), wb = a.mass / (a.mass + b.mass);
+          a.mesh.position.x -= dx * push * wa; a.mesh.position.z -= dz * push * wa;
+          b.mesh.position.x += dx * push * wb; b.mesh.position.z += dz * push * wb;
+        }
+      }
+
+      // xp orbs — magnet pull then collect; a magnet pickup vacuums every orb on the field
+      for (const o of orbs.slice()){
+        o.t += dt * 4;
+        o.mesh.rotation.y += dt * 3;
+        o.mesh.position.y = 0.5 + Math.sin(o.t) * 0.12;
+        o.mesh.scale.setScalar(1 + Math.sin(o.t * 1.5) * 0.14);   // heartbeat pulse
+        const d = o.mesh.position.distanceTo(player.position.clone().setY(o.mesh.position.y));
+        if (o.vac){
+          const pull = new THREE.Vector3().subVectors(player.position, o.mesh.position).setY(0).normalize();
+          o.mesh.position.addScaledVector(pull, 30 * dt);
+        } else if (d < stats.magnet){
+          const pull = new THREE.Vector3().subVectors(player.position, o.mesh.position).setY(0).normalize();
+          o.mesh.position.addScaledVector(pull, (14 - d) * dt * 2.2);
+        }
+        if (d < 1.3){
+          scene.remove(o.mesh);
+          orbs.splice(orbs.indexOf(o), 1);
+          gainXp(o.amount);
+        }
+      }
+
+      // dust puffs
+      for (const f of puffs.slice()){
+        f.life += dt;
+        f.mesh.position.x += f.vx * dt; f.mesh.position.y += f.vy * dt; f.mesh.position.z += f.vz * dt;
+        f.vy -= 7 * dt;
+        f.mesh.material.opacity = Math.max(0, 0.9 * (1 - f.life / f.maxLife));
+        if (f.life >= f.maxLife){ freeMesh(f.mesh); puffs.splice(puffs.indexOf(f), 1); }
+      }
+
+      // shockwave rings — grow and fade
+      for (const r of rings.slice()){
+        r.t += dt;
+        const k = r.t / r.life;
+        const s = 1 + (r.growTo - 1) * k;
+        r.mesh.scale.set(s, s, s);
+        r.mesh.material.opacity = Math.max(0, 0.85 * (1 - k));
+        if (r.t >= r.life){ freeMesh(r.mesh); rings.splice(rings.indexOf(r), 1); }
+      }
+      // tumbling debris chunks
+      for (const c of chunks.slice()){
+        c.life += dt;
+        c.mesh.position.x += c.vx * dt; c.mesh.position.y += c.vy * dt; c.mesh.position.z += c.vz * dt;
+        c.vy -= 12 * dt;
+        c.mesh.rotation.x += c.rx * dt; c.mesh.rotation.z += c.rz * dt;
+        if (c.mesh.position.y < 0.1) c.mesh.position.y = 0.1;
+        c.mesh.material.opacity = Math.max(0, 1 - Math.pow(c.life / c.maxLife, 2));
+        if (c.life >= c.maxLife){ freeMesh(c.mesh); chunks.splice(chunks.indexOf(c), 1); }
+      }
+
+      // camera follows — zoomed out enough to see the full firing range; extra zoom on narrow (portrait) screens
+      const zoomK = camera.aspect < 1 ? 1.35 : 1;
+      camera.position.set(player.position.x, 44 * zoomK, player.position.z + 21 * zoomK);
+      camera.lookAt(player.position.x, 0, player.position.z);
+    }
+
+    function updateHud(){
+      document.getElementById("hpFill").style.width = Math.max(0, hp / stats.maxhp * 100) + "%";
+      document.getElementById("xpFill").style.width = Math.min(100, xp / xpNeed * 100) + "%";
+      const tier = threatTier();
+      document.getElementById("hudText").textContent =
+        `Lv ${level} · ${fmtTime(elapsed)} · ${kills} kills · HP ${Math.max(0,Math.ceil(hp))}/${stats.maxhp}` +
+        ` · 🪙 ${meta.coins}${bonusCoins > 0 ? "+" + bonusCoins : ""}` +
+        (tier > 0 ? ` · ☠ Threat ${tier}` : "");
+      // loadout: weapon slots with their level toward evolution (★ once evolved), then passives
+      let slots = "";
+      for (let i = 0; i < 4; i++){
+        const w = weapons[i];
+        if (!w){ slots += "▫ "; continue; }
+        slots += (w.evolved ? w.evoIco + "★" : WEAPON_SPECS[w.id].ico + (weaponLevel(w) || "")) + " ";
+      }
+      document.getElementById("weapSlots").textContent = slots.trim();
+      const passIcons = { uni_damage:"🌐", uni_rate:"⚙️", speed:"👢", maxhp:"🍲", magnet:"🧲", regen:"🌱", knockback:"💨" };
+      let passes = "";
+      for (const [id, ico] of Object.entries(passIcons)){
+        const n = stats.taken[id] || 0;
+        if (n > 0) passes += ico + n + " ";
+      }
+      document.getElementById("passRow").textContent = passes.trim();
+    }
+
+    // ================== input ==================
+    window.addEventListener("keydown", (e) => {
+      const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      keys.add(k);
+      if (["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"," "].includes(e.key)) e.preventDefault();
+      if ((k === "p") && (state === "playing" || state === "paused")) togglePause();
+    });
+    window.addEventListener("keyup", (e) => {
+      const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      keys.delete(k);
+    });
+
+    const joyBase = document.getElementById("joyBase"), joyKnob = document.getElementById("joyKnob");
+    renderer.domElement.addEventListener("pointerdown", (e) => {
+      if (state !== "playing") return;
+      joy = { id: e.pointerId, ox: e.clientX, oy: e.clientY, dx: 0, dy: 0 };
+      joyBase.style.display = joyKnob.style.display = "block";
+      positionJoy(e.clientX, e.clientY, e.clientX, e.clientY);
+    });
+    window.addEventListener("pointermove", (e) => {
+      if (!joy || e.pointerId !== joy.id) return;
+      let dx = e.clientX - joy.ox, dy = e.clientY - joy.oy;
+      const len = Math.hypot(dx, dy), maxR = 48;
+      if (len > maxR){ dx *= maxR/len; dy *= maxR/len; }
+      joy.dx = dx / maxR; joy.dy = dy / maxR;
+      positionJoy(joy.ox, joy.oy, joy.ox + dx, joy.oy + dy);
+    });
+    function endJoy(e){
+      if (!joy || (e.pointerId !== undefined && e.pointerId !== joy.id)) return;
+      joy = null;
+      joyBase.style.display = joyKnob.style.display = "none";
+    }
+    window.addEventListener("pointerup", endJoy);
+    window.addEventListener("pointercancel", endJoy);
+    function positionJoy(bx, by, kx, ky){
+      const r = stage.getBoundingClientRect();
+      joyBase.style.left = (bx - r.left - 48) + "px"; joyBase.style.top = (by - r.top - 48) + "px";
+      joyKnob.style.left = (kx - r.left - 22) + "px"; joyKnob.style.top = (ky - r.top - 22) + "px";
+    }
+
+    function togglePause(){
+      if (state === "playing"){ state = "paused"; showOverlay("pausedOverlay"); }
+      else if (state === "paused"){ state = "playing"; showOverlay(null); }
+    }
+    document.getElementById("pauseBtn").addEventListener("click", togglePause);
+    document.getElementById("resumeBtn").addEventListener("click", togglePause);
+    document.getElementById("startBtn").addEventListener("click", startGame);
+    document.getElementById("againBtn").addEventListener("click", startGame);
+    document.getElementById("resetBtn").addEventListener("click", () => {
+      localStorage.removeItem(SCORES_KEY);
+      renderAllScores();
+    });
+    document.getElementById("chestGrabBtn").addEventListener("click", closeChest);
+
+    // ---- Barn Upgrades shop ----
+    function renderBarn(){
+      document.getElementById("barnCoins").textContent = meta.coins;
+      document.getElementById("titleCoins").textContent = meta.coins;
+      const list = document.getElementById("barnList");
+      list.innerHTML = "";
+      for (const m of META){
+        const lvl = metaLvl(m.id), maxed = lvl >= m.max, cost = m.cost(lvl);
+        const row = document.createElement("div");
+        row.className = "barnrow";
+        const pips = "●".repeat(lvl) + "○".repeat(m.max - lvl);
+        row.innerHTML = `<div class="bico">${m.ico}</div>` +
+          `<div class="binfo"><div class="bnm">${m.name}</div><div class="bds">${m.desc}</div><div class="bpips">${pips}</div></div>`;
+        const btn = document.createElement("button");
+        btn.className = "bbuy" + (maxed ? " max" : (meta.coins < cost ? " cant" : ""));
+        btn.textContent = maxed ? "MAX" : "🪙 " + cost;
+        if (!maxed) btn.onclick = () => {
+          if (meta.coins >= cost){ meta.coins -= cost; meta.up[m.id] = lvl + 1; saveMeta(); renderBarn(); }
+        };
+        row.appendChild(btn);
+        list.appendChild(row);
+      }
+    }
+    // the barn remembers where it was opened from (title or death screen) and returns there
+    function openBarn(from){
+      barnReturn = from;
+      renderBarn();
+      showOverlay("barnOverlay");
+    }
+    document.getElementById("barnBtn").addEventListener("click", () => openBarn("titleOverlay"));
+    document.getElementById("barnBtn2").addEventListener("click", () => openBarn("overOverlay"));
+    document.getElementById("barnBackBtn").addEventListener("click", () => {
+      showOverlay(barnReturn);
+      document.getElementById("titleCoins").textContent = meta.coins;
+      if (barnReturn === "overOverlay"){   // refresh the bank line after shopping
+        const span = document.getElementById("bankSpan");
+        if (span) span.textContent = `(bank: ${meta.coins})`;
+      } else {
+        renderChars();
+      }
+    });
+
+    // ---- Stampede Pact: opt-in difficulty for richer XP and coin payouts ----
+    const PACT_NAMES = ["None", "I", "II", "III"];
+    function renderPact(){
+      document.getElementById("pactBtn").textContent =
+        "💀 Stampede Pact: " + PACT_NAMES[meta.curse || 0] +
+        ((meta.curse || 0) > 0 ? ` (+${(meta.curse)*20}% spawns, +${(meta.curse)*15}% XP, +${(meta.curse)*20}% 🪙)` : "");
+    }
+    document.getElementById("pactBtn").addEventListener("click", () => {
+      meta.curse = ((meta.curse || 0) + 1) % 4;
+      saveMeta(); renderPact();
+    });
+
+    // ---- character select ----
+    function renderChars(){
+      const row = document.getElementById("charRow");
+      row.innerHTML = "";
+      const sel = charById(meta.selChar).id;
+      for (const c of CHARS){
+        const owned = c.cost === 0 || (meta.chars && meta.chars[c.id]);
+        const el = document.createElement("div");
+        el.className = "charcard" + (sel === c.id ? " sel" : "") + (owned ? "" : " locked");
+        el.innerHTML = `<div class="cico">${c.ico}</div><div class="cnm">${c.name}</div><div class="cds">${c.blurb}</div>` +
+          (owned ? "" : `<div class="ccost">🪙 ${c.cost} to unlock</div>`);
+        el.onclick = () => {
+          if (owned){ meta.selChar = c.id; saveMeta(); renderChars(); }
+          else if (meta.coins >= c.cost){
+            meta.coins -= c.cost;
+            meta.chars = meta.chars || {};
+            meta.chars[c.id] = true;
+            meta.selChar = c.id;
+            saveMeta(); renderChars();
+            document.getElementById("titleCoins").textContent = meta.coins;
+          }
+        };
+        row.appendChild(el);
+      }
+    }
+
+    // ---- title-screen ambience: critters wander the pasture while the menu is up ----
+    let ambient = [], ambientTimer = 0;
+    function ambientUpdate(dt){
+      const menuUp = state === "title" || state === "over";
+      if (!menuUp){
+        if (ambient.length){ for (const a of ambient) freeMesh(a.mesh); ambient = []; }
+        return;
+      }
+      ambientTimer -= dt;
+      if (ambientTimer <= 0 && ambient.length < 7){
+        ambientTimer = 1.4 + Math.random() * 2;
+        const kinds = ["rat", "rat", "armadillo", "snake", "turtle"];
+        const kind = kinds[(Math.random() * kinds.length) | 0];
+        const mesh = BUILDERS[kind]();
+        const side = (Math.random() * 4) | 0, along = (Math.random() * 2 - 1) * (ARENA - 8);
+        const pos = [[along, -ARENA+2], [along, ARENA-2], [-ARENA+2, along], [ARENA-2, along]][side];
+        mesh.position.set(pos[0], 0, pos[1]);
+        const dir = new THREE.Vector3(-pos[0] + (Math.random()*2-1)*12, 0, -pos[1] + (Math.random()*2-1)*12).normalize();
+        mesh.rotation.y = Math.atan2(dir.x, dir.z);
+        scene.add(mesh);
+        ambient.push({ mesh, dir, kind, wob: Math.random() * 6,
+          speed: (kind === "turtle" ? 0.9 : 1.4) + Math.random(), life: 60 });
+      }
+      for (const a of ambient.slice()){
+        a.wob += dt * (a.kind === "rat" ? 12 : a.kind === "snake" ? 7 : 6);
+        a.life -= dt;
+        a.mesh.position.addScaledVector(a.dir, a.speed * dt);
+        a.mesh.position.y = Math.abs(Math.sin(a.wob)) * (a.kind === "turtle" ? 0.04 : 0.1);
+        a.mesh.rotation.z = Math.sin(a.wob) * 0.07;
+        if (a.kind === "snake"){
+          const segs = a.mesh.userData.segs || [];
+          for (let i = 0; i < segs.length; i++) segs[i].position.x = Math.sin(a.wob - i * 0.8) * 0.22;
+        }
+        if (a.life <= 0 || Math.abs(a.mesh.position.x) > ARENA + 2 || Math.abs(a.mesh.position.z) > ARENA + 2){
+          freeMesh(a.mesh); ambient.splice(ambient.indexOf(a), 1);
+        }
+      }
+    }
+
+    // ================== main loop ==================
+    document.getElementById("titleCoins").textContent = meta.coins;
+    renderPact();
+    renderChars();
+    renderAllScores();
+    camera.position.set(0, 44, 21);
+    camera.lookAt(0, 0, 0);
+    let last = null;
+    function loop(ts){
+      if (last === null) last = ts;
+      let dt = (ts - last) / 1000;
+      last = ts;
+      if (dt > 0.05) dt = 0.05;
+      update(dt);
+      ambientUpdate(dt);
+      // clouds drift and wrap
+      for (const c of clouds){
+        c.mesh.position.x += c.v * dt;
+        if (c.mesh.position.x > ARENA * 1.7) c.mesh.position.x = -ARENA * 1.7;
+      }
+      // grass always sways; during play it parts around the farmer's boots
+      const gpx = (state !== "title" && player) ? player.position.x : 999;
+      const gpz = (state !== "title" && player) ? player.position.z : 999;
+      updateGrass(dt, gpx, gpz, ts / 1000);
+      // idle title spin
+      if (state === "title"){
+        const t = ts / 1000;
+        camera.position.set(Math.sin(t*0.15)*20, 26, Math.cos(t*0.15)*20);
+        camera.lookAt(0, 0, 0);
+      }
+      renderer.render(scene, camera);
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+  })();
+  </script>
+</body>
+</html>

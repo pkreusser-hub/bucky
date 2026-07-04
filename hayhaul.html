@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>BUCKY — Hay Haul</title>
+<style>
+  :root{ --navy:#0a3161; --red:#b31942; --grass:#4c8a3a; --grass2:#569a41; }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; height:100%; background:#132a0d; color:#fff; font-family:-apple-system,Segoe UI,Roboto,sans-serif; overflow:hidden; }
+  #bar{ position:fixed; top:0; left:0; right:0; height:46px; display:flex; align-items:center; gap:10px; padding:0 12px;
+        background:var(--navy); z-index:10; }
+  #bar a{ color:#fff; text-decoration:none; font-weight:800; font-size:15px; background:rgba(255,255,255,.15); padding:7px 12px; border-radius:9px; }
+  #bar .t{ font-weight:800; letter-spacing:.5px; }
+  #hud{ position:fixed; top:46px; left:0; right:0; height:44px; display:flex; align-items:center; justify-content:space-between;
+        padding:0 14px; z-index:9; font-family:monospace; font-weight:bold; }
+  #hud .score{ font-size:20px; }
+  #hud .best{ font-size:13px; color:#c9b79a; }
+  #stage{ position:absolute; top:90px; left:0; right:0; bottom:170px; display:flex; align-items:center; justify-content:center; }
+  canvas{ display:block; touch-action:none; border-radius:10px; box-shadow:0 4px 20px rgba(0,0,0,.5); }
+  #dpad{ position:fixed; left:0; right:0; bottom:0; height:170px; display:grid; place-items:center; z-index:9; }
+  #dpad .grid{ display:grid; grid-template-columns:56px 56px 56px; grid-template-rows:56px 56px 56px; gap:6px; }
+  #dpad button{ border:0; border-radius:12px; background:rgba(255,255,255,.14); color:#fff; font-size:22px;
+                display:flex; align-items:center; justify-content:center; }
+  #dpad button:active{ background:rgba(255,255,255,.3); }
+  #dpad .up{ grid-column:2; grid-row:1; }
+  #dpad .left{ grid-column:1; grid-row:2; }
+  #dpad .mid{ grid-column:2; grid-row:2; visibility:hidden; }
+  #dpad .right{ grid-column:3; grid-row:2; }
+  #dpad .down{ grid-column:2; grid-row:3; }
+  .overlay{ position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:20; display:none; align-items:center; justify-content:center; flex-direction:column; padding:0 24px; text-align:center; }
+  .overlay.show{ display:flex; }
+  .overlay h1{ font-size:30px; margin:0 0 6px; }
+  .overlay .stat{ font-family:monospace; font-size:16px; color:#e6dcc8; margin-bottom:18px; }
+  .overlay .desc{ font-size:15px; color:#dcecd4; max-width:320px; margin-bottom:22px; line-height:1.5; }
+  .overlay button{ font-size:18px; font-weight:800; color:var(--navy); background:#fff; border:0; border-radius:10px;
+                    padding:12px 22px; margin-bottom:10px; }
+  .overlay .reset{ background:none; color:#c9b79a; font-size:13px; font-weight:normal; padding:4px; }
+  .overlay .links{ display:flex; gap:18px; align-items:center; }
+  .overlay a.reset{ text-decoration:none; cursor:pointer; }
+  .overlay .scores{ font-family:monospace; margin:4px 0 18px; }
+  .overlay .scores .title{ font-weight:800; color:#fff; font-size:14px; margin-bottom:6px; }
+  .overlay .scores .row{ font-size:13px; color:#dcecd4; }
+</style>
+</head>
+<body>
+  <div id="bar"><a href="index.html">← BUCKY</a><span class="t">🚜 Hay Haul</span></div>
+  <div id="hud"><span class="score" id="scoreText">Bales 0</span><span class="best" id="bestText">Best 0</span></div>
+  <div id="stage"><canvas id="game"></canvas></div>
+  <div id="dpad">
+    <div class="grid">
+      <button class="up" data-dx="0" data-dy="-1">⬆️</button>
+      <button class="left" data-dx="-1" data-dy="0">⬅️</button>
+      <div class="mid"></div>
+      <button class="right" data-dx="1" data-dy="0">➡️</button>
+      <button class="down" data-dx="0" data-dy="1">⬇️</button>
+    </div>
+  </div>
+  <div id="startOverlay" class="overlay show">
+    <h1>🚜 Hay Haul</h1>
+    <div class="desc">Swipe, use arrow keys, or the D-pad to steer. Collect hay bales to grow and speed up — the edges wrap around, so the only thing that can stop you is your own trail!</div>
+    <div class="scores" id="scoresStart"></div>
+    <button id="startBtn">Start Game</button>
+  </div>
+  <div id="overlay" class="overlay">
+    <h1>💥 Crashed!</h1>
+    <div class="stat" id="overStat"></div>
+    <div class="scores" id="scoresOver"></div>
+    <button id="againBtn">Play again</button>
+    <div class="links">
+      <a class="reset" href="index.html">🏠 Home</a>
+      <button class="reset" id="resetBtn">Reset high scores</button>
+    </div>
+  </div>
+  <script>
+  (() => {
+    const COLS = 12, ROWS = 16;
+    const START_TICK_MS = 260;    // grid-move speed at 0 bales (gentle start)
+    const MIN_TICK_MS   = 90;     // speed cap once you've collected a lot of bales
+    const SPEEDUP_PER_BALE = 8;   // ms shaved off each bale collected
+    const FRAME_MS = 1000 / 60;   // update+render locked to 60fps
+    const BEST_KEY = "hayHaulBest";
+    const SCORES_KEY = "hayHaulScores";
+
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingEnabled = false;
+    const scoreText = document.getElementById("scoreText");
+    const bestText = document.getElementById("bestText");
+    const overlay = document.getElementById("overlay");
+    const overStat = document.getElementById("overStat");
+    const startOverlay = document.getElementById("startOverlay");
+
+    function loadScores(){
+      try { const v = JSON.parse(localStorage.getItem(SCORES_KEY) || "[]"); return Array.isArray(v) ? v : []; }
+      catch(e){ return []; }
+    }
+    function saveScoreEntry(finalScore){
+      if (finalScore <= 0) return;
+      const list = loadScores();
+      list.push({ score: finalScore, by: localStorage.getItem("choreUser") || "Someone" });
+      list.sort((a,b) => b.score - a.score);
+      localStorage.setItem(SCORES_KEY, JSON.stringify(list.slice(0, 5)));
+    }
+    function renderScores(el){
+      if (!el) return;
+      const list = loadScores();
+      el.innerHTML = "";
+      const title = document.createElement("div");
+      title.className = "title";
+      title.textContent = list.length ? "🏆 High Scores" : "🏆 No scores yet — be the first!";
+      el.appendChild(title);
+      list.forEach((e, i) => {
+        const row = document.createElement("div");
+        row.className = "row";
+        row.textContent = `${i + 1}.  ${e.score}  —  ${e.by}`;
+        el.appendChild(row);
+      });
+    }
+    function renderAllScores(){
+      renderScores(document.getElementById("scoresStart"));
+      renderScores(document.getElementById("scoresOver"));
+    }
+
+    const tractorImg = new Image(); tractorImg.src = "tractor.png";
+    const haleImg = new Image(); haleImg.src = "haybale.png";
+    const imgReady = (img) => img.complete && img.naturalWidth > 0;
+
+    let cell = 30;
+    function fitCanvas(){
+      const stage = document.getElementById("stage");
+      const availW = stage.clientWidth - 16, availH = stage.clientHeight - 16;
+      cell = Math.max(14, Math.floor(Math.min(availW / COLS, availH / ROWS)));
+      canvas.width = cell * COLS;
+      canvas.height = cell * ROWS;
+      draw();
+    }
+
+    let snake, dir, nextDir, bale, score, best, running = false;
+    let tickAcc = 0;   // accumulated ms toward the next grid step, fed by the 60fps loop
+
+    function setupState(){
+      snake = [ {x:5,y:8}, {x:4,y:8}, {x:3,y:8} ];
+      dir = { x:1, y:0 };
+      nextDir = dir;
+      score = 0;
+      best = +(localStorage.getItem(BEST_KEY) || 0);
+      tickAcc = 0;
+      spawnBale();
+      updateHud();
+    }
+
+    function reset(){
+      setupState();
+      running = true;
+      overlay.classList.remove("show");
+      startOverlay.classList.remove("show");
+      draw();
+    }
+
+    function spawnBale(){
+      const free = [];
+      for (let x=0;x<COLS;x++) for (let y=0;y<ROWS;y++){
+        if (!snake.some(s => s.x===x && s.y===y)) free.push({x,y});
+      }
+      bale = free.length ? free[(Math.random()*free.length)|0] : { x:0, y:0 };
+    }
+
+    function setDir(dx, dy){
+      if (!running) return;
+      if (dx === -dir.x && dy === -dir.y) return;   // no instant reverse
+      if (dx === dir.x && dy === dir.y) return;
+      nextDir = { x:dx, y:dy };
+    }
+
+    function tick(){
+      if (!running) return;
+      dir = nextDir;
+      const head = snake[0];
+      // walls wrap to the opposite side — only running into your own bales ends the game
+      const nh = { x: (head.x + dir.x + COLS) % COLS, y: (head.y + dir.y + ROWS) % ROWS };
+      const body = snake.slice(0, -1);
+      if (body.some(s => s.x===nh.x && s.y===nh.y)){ return gameOver(); }
+
+      const grow = nh.x === bale.x && nh.y === bale.y;
+      snake.unshift(nh);
+      if (grow){
+        score++;
+        if (score > best){ best = score; localStorage.setItem(BEST_KEY, best); }
+        updateHud();
+        spawnBale();
+      } else {
+        snake.pop();
+      }
+    }
+
+    function gameOver(){
+      running = false;
+      saveScoreEntry(score);
+      renderAllScores();
+      overStat.textContent = `Bales ${score}    Best ${best}`;
+      overlay.classList.add("show");
+    }
+
+    function updateHud(){
+      scoreText.textContent = "Bales " + score;
+      bestText.textContent = "Best " + best;
+    }
+
+    function drawSprite(img, gx, gy, scale, angle){
+      const s = (scale || 1) * cell * 0.92;
+      const cx = gx*cell + cell/2, cy = gy*cell + cell/2;
+      ctx.save();
+      ctx.translate(cx, cy);
+      if (angle) ctx.rotate(angle);
+      ctx.drawImage(img, -s/2, -s/2, s, s);
+      ctx.restore();
+    }
+
+    // tractor.png is drawn facing south by default; rotate to match travel direction
+    function tractorAngle(d){ return Math.atan2(-d.x, d.y); }
+
+    function draw(){
+      ctx.fillStyle = "#4c8a3a";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#569a41";
+      for (let x=0;x<COLS;x++) for (let y=0;y<ROWS;y++){
+        if ((x+y) % 2 === 0) ctx.fillRect(x*cell, y*cell, cell, cell);
+      }
+      if (imgReady(haleImg)){
+        drawSprite(haleImg, bale.x, bale.y);
+        for (let i = snake.length-1; i >= 1; i--) drawSprite(haleImg, snake[i].x, snake[i].y, 0.9);
+      }
+      if (imgReady(tractorImg)) drawSprite(tractorImg, snake[0].x, snake[0].y, 1.05, tractorAngle(dir));
+    }
+
+    // keyboard
+    window.addEventListener("keydown", (e) => {
+      const k = e.key;
+      if (k==="ArrowUp"||k==="w"||k==="W") setDir(0,-1);
+      else if (k==="ArrowDown"||k==="s"||k==="S") setDir(0,1);
+      else if (k==="ArrowLeft"||k==="a"||k==="A") setDir(-1,0);
+      else if (k==="ArrowRight"||k==="d"||k==="D") setDir(1,0);
+      else return;
+      e.preventDefault();
+    });
+
+    // swipe
+    let touchStart = null;
+    canvas.addEventListener("touchstart", (e) => {
+      const t = e.changedTouches[0];
+      touchStart = { x:t.clientX, y:t.clientY };
+    }, { passive:true });
+    canvas.addEventListener("touchend", (e) => {
+      if (!touchStart) return;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - touchStart.x, dy = t.clientY - touchStart.y;
+      touchStart = null;
+      if (Math.hypot(dx,dy) < 20) return;
+      if (Math.abs(dx) > Math.abs(dy)) setDir(dx > 0 ? 1 : -1, 0);
+      else setDir(0, dy > 0 ? 1 : -1);
+    }, { passive:true });
+
+    // d-pad
+    document.querySelectorAll("#dpad button[data-dx]").forEach(btn => {
+      btn.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        setDir(+btn.dataset.dx, +btn.dataset.dy);
+      });
+    });
+
+    document.getElementById("startBtn").addEventListener("click", reset);
+    document.getElementById("againBtn").addEventListener("click", reset);
+    document.getElementById("resetBtn").addEventListener("click", () => {
+      localStorage.removeItem(BEST_KEY);
+      localStorage.removeItem(SCORES_KEY);
+      best = 0;
+      updateHud();
+      renderAllScores();
+    });
+
+    window.addEventListener("resize", fitCanvas);
+    setupState();   // draw a static preview behind the start screen; play begins only on Start Game
+    renderAllScores();
+    fitCanvas();
+
+    // Fixed-timestep loop, locked to 60fps: game logic and rendering both advance
+    // in whole 16.67ms frame steps regardless of the display's actual refresh rate,
+    // so grid speed stays consistent instead of drifting with frame rate.
+    let lastTime = null, frameAcc = 0;
+    function loop(ts){
+      if (lastTime === null) lastTime = ts;
+      let dt = ts - lastTime;
+      if (dt > 250) dt = 250;   // clamp huge gaps (tab backgrounded, etc.)
+      lastTime = ts;
+      frameAcc += dt;
+      while (frameAcc >= FRAME_MS){
+        frameAcc -= FRAME_MS;
+        if (running){
+          tickAcc += FRAME_MS;
+          const tickMs = Math.max(MIN_TICK_MS, START_TICK_MS - score * SPEEDUP_PER_BALE);
+          while (tickAcc >= tickMs){ tick(); tickAcc -= tickMs; }
+        }
+      }
+      draw();
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#0a3161" />
+<title>BUCKY — Games</title>
+<link rel="icon" href="bucky.png" />
+<link rel="apple-touch-icon" href="bucky.png" />
+<style>
+  :root {
+    --bg: #eef2fa;
+    --card: #ffffff;
+    --ink: #15233f;
+    --muted: #5d6b86;
+    --green: #0a3161;     /* Old Glory navy — primary */
+    --green-d: #07223f;
+    --red: #b31942;       /* Old Glory red — accent */
+    --line: #d7e0f0;
+    --shadow: 0 1px 3px rgba(10,49,97,.10), 0 6px 16px rgba(10,49,97,.06);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    padding-bottom: 40px;
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    background: var(--green);
+    color: #fff;
+    padding: calc(env(safe-area-inset-top) + 16px) 16px 14px;
+    position: sticky; top: 0; z-index: 20;
+    box-shadow: var(--shadow);
+  }
+  #bar { display: flex; align-items: center; gap: 10px; }
+  #bar a {
+    color: #fff; text-decoration: none; font-weight: 800; font-size: 15px;
+    background: rgba(255,255,255,.16); padding: 7px 12px; border-radius: 9px; flex: 0 0 auto;
+  }
+  #bar .t { font-size: 18px; font-weight: 800; letter-spacing: .2px; }
+  .stripes {
+    height: 6px; margin: 10px -16px -14px;
+    background: repeating-linear-gradient(90deg, var(--red) 0 18px, #fff 18px 36px);
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 12px; }
+  .progress { font-size: 13px; color: var(--muted); margin: 14px 2px 12px; }
+  ul.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  li.dash-grid { background: transparent; border: 0; box-shadow: none; padding: 6px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .dash-tile {
+    background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow);
+    padding: 18px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 5px; align-items: center;
+    text-align: center; text-decoration: none;
+  }
+  .dash-tile:active { background: var(--done, #e7eefb); }
+  .dash-ico { font-size: 30px; line-height: 1; }
+  .dash-name { font-weight: 800; font-size: 15px; color: var(--ink); }
+  .dash-desc { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<header>
+  <div id="bar">
+    <a href="index.html">← BUCKY</a>
+    <span class="t">🎮 Games</span>
+  </div>
+  <div class="stripes"></div>
+</header>
+
+<main>
+  <div class="progress">Pick your poison</div>
+  <ul class="list">
+    <li class="dash-grid" id="gamesGrid"></li>
+  </ul>
+</main>
+
+<script>
+  // Every game the family can play. Add a tile here to add it to the games hub.
+  const GAMES = [
+    { ico:"🐐", name:"Bucky Jump",     desc:"Jump the fences",              url:"index.html#game" },
+    { ico:"🐱", name:"Cat Rescue",     desc:"Save the barn cats",           url:"index.html#catgame" },
+    { ico:"🚜", name:"Hay Haul",       desc:"Snake, but tractor & hay",     url:"hayhaul.html" },
+    { ico:"🪵", name:"Branch Manager", desc:"Tetris, but with branches",    url:"branchmanager.html" },
+    { ico:"🛶", name:"Varmint Wars",   desc:"Pond artillery battles",       url:"varmintwars.html" },
+    { ico:"🌽", name:"Pasture Panic",  desc:"3D survive-the-stampede",      url:"pasturepanic.html" },
+    { ico:"🐐", name:"Baby Bucky",     desc:"raise & care for a baby goat", url:"goatcare.html" }
+  ];
+  const grid = document.getElementById("gamesGrid");
+  for (const g of GAMES){
+    const a = document.createElement("a");
+    a.className = "dash-tile";
+    a.href = g.url;
+    const ico = document.createElement("div"); ico.className = "dash-ico"; ico.textContent = g.ico;
+    const nm = document.createElement("div"); nm.className = "dash-name"; nm.textContent = g.name;
+    const ds = document.createElement("div"); ds.className = "dash-desc"; ds.textContent = g.desc;
+    a.append(ico, nm, ds);
+    grid.appendChild(a);
+  }
+</script>
+</body>
+</html>

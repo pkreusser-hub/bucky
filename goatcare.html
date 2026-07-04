@@ -1,0 +1,1665 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>BUCKY — Baby Bucky</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Luckiest+Guy&display=swap" rel="stylesheet">
+<style>
+  :root{ --navy:#0a3161; --red:#b31942; }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none; }
+  html,body{ margin:0; height:100%; background:#0d1b0d; color:#fff; font-family:-apple-system,Segoe UI,Roboto,sans-serif; overflow:hidden; }
+  #bar{ position:fixed; top:0; left:0; right:0; height:46px; display:flex; align-items:center; gap:10px; padding:0 12px;
+        background:var(--navy); z-index:30; }
+  #bar a{ color:#fff; text-decoration:none; font-weight:800; font-size:15px; background:rgba(255,255,255,.15); padding:7px 12px; border-radius:9px; }
+  #bar .t{ font-weight:800; letter-spacing:.5px; font-size:14px; }
+  #stage{ position:absolute; top:46px; left:0; right:0; bottom:0; }
+  canvas{ display:block; touch-action:none; }
+
+  /* ---- HUD ---- */
+  #hud{ position:absolute; top:8px; left:8px; z-index:10; pointer-events:none; }
+  #hudName{ font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:19px; color:#fff6da;
+            text-shadow:0 2px 0 rgba(0,0,0,.5), 0 3px 6px rgba(0,0,0,.4); letter-spacing:.5px; }
+  #hudAge{ font-size:11px; color:#e8f2e0; text-shadow:0 1px 3px rgba(0,0,0,.8); margin:-2px 0 5px; font-weight:600; }
+  .meterRow{ display:flex; align-items:center; gap:5px; margin-bottom:3px; }
+  .meterIco{ font-size:12px; width:16px; text-align:center; text-shadow:0 1px 2px rgba(0,0,0,.7); }
+  .meterBar{ width:96px; height:10px; border-radius:6px; background:rgba(0,0,0,.45); overflow:hidden; border:1px solid rgba(255,255,255,.25); }
+  .meterBar>div{ height:100%; border-radius:6px; transition:width .3s, background-color .3s; }
+  #moodRow{ margin-top:2px; font-size:12px; text-shadow:0 1px 3px rgba(0,0,0,.8); font-weight:700; }
+
+  #clock{ position:absolute; top:10px; right:10px; z-index:10; font-family:monospace; font-weight:800; font-size:15px;
+          color:#fff; background:rgba(0,0,0,.35); padding:4px 10px; border-radius:9px; text-shadow:0 1px 2px rgba(0,0,0,.6); }
+
+  /* ---- speech bubble ---- */
+  #speech{ position:absolute; z-index:12; pointer-events:none; background:#fff; color:#2a2a2a; font-weight:800;
+           padding:5px 11px; border-radius:14px; font-size:13px; transform:translate(-50%,-100%); opacity:0;
+           transition:opacity .15s, transform .15s; box-shadow:0 3px 10px rgba(0,0,0,.35); white-space:nowrap; }
+  #speech:after{ content:""; position:absolute; left:50%; bottom:-6px; transform:translateX(-50%);
+                 border:6px solid transparent; border-top-color:#fff; }
+
+  /* ---- toolbar ---- */
+  #toolbar{ position:absolute; left:0; right:0; bottom:0; z-index:15; display:flex; justify-content:center;
+            gap:8px; padding:8px 8px calc(8px + env(safe-area-inset-bottom)); background:linear-gradient(0deg, rgba(0,0,0,.42), rgba(0,0,0,0)); }
+  .toolBtn{ width:56px; height:56px; border-radius:16px; border:0; background:rgba(255,255,255,.16);
+            display:flex; align-items:center; justify-content:center; font-size:26px; cursor:pointer;
+            box-shadow:0 3px 0 rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.25); transition:transform .1s, background .15s; }
+  .toolBtn:active{ transform:translateY(2px) scale(.95); }
+  .toolBtn.active{ background:#ffd23f; box-shadow:0 3px 0 #a8790b, 0 0 14px rgba(255,210,63,.7); }
+
+  /* ---- overlays ---- */
+  .overlay{ position:absolute; inset:0; background:rgba(6,16,8,.78); z-index:20; display:none;
+            align-items:center; justify-content:center; flex-direction:column; padding:0 20px; text-align:center; }
+  .overlay.show{ display:flex; }
+  .overlay h1{ font-size:26px; margin:0 0 10px; font-family:'Luckiest Guy','Arial Black',sans-serif; font-weight:400;
+               letter-spacing:1px; text-shadow:0 3px 0 rgba(0,0,0,.35); color:#fff6da; }
+  .overlay .desc{ font-size:14px; color:#d7ead2; max-width:340px; margin-bottom:14px; line-height:1.5; }
+  .overlay input[type=text]{ font-size:16px; padding:10px 14px; border-radius:10px; border:0; width:min(260px,80vw);
+               text-align:center; margin-bottom:12px; font-weight:700; }
+  .overlay button.big{ font-size:18px; font-family:'Luckiest Guy','Arial Black',sans-serif; color:#3a2800;
+                    background:linear-gradient(180deg,#ffe27a,#ffc832 55%,#eda51e); border:0; border-radius:14px;
+                    padding:13px 30px 10px; margin:6px 0; cursor:pointer; letter-spacing:1px;
+                    box-shadow:0 5px 0 #a86f10, 0 8px 18px rgba(0,0,0,.45); transition:transform .08s; }
+  .overlay button.big:active{ transform:translateY(3px); box-shadow:0 2px 0 #a86f10, 0 4px 10px rgba(0,0,0,.45); }
+
+  @media (max-width:400px){
+    .meterBar{ width:78px; }
+    #hudName{ font-size:16px; }
+    .toolBtn{ width:48px; height:48px; font-size:21px; border-radius:13px; }
+    #toolbar{ gap:6px; }
+  }
+</style>
+</head>
+<body>
+  <div id="bar"><a href="index.html">← BUCKY</a><span class="t">🐐 Baby Bucky</span></div>
+  <div id="stage">
+    <div id="clock">12:00</div>
+    <div id="hud">
+      <div id="hudName">Bucky Jr.</div>
+      <div id="hudAge">0 days old</div>
+      <div class="meterRow"><span class="meterIco">🍼</span><div class="meterBar"><div id="mFood" style="width:100%;background:#4ecb5c;"></div></div></div>
+      <div class="meterRow"><span class="meterIco">🧼</span><div class="meterBar"><div id="mClean" style="width:100%;background:#4ecb5c;"></div></div></div>
+      <div class="meterRow"><span class="meterIco">⚽</span><div class="meterBar"><div id="mPlay" style="width:100%;background:#4ecb5c;"></div></div></div>
+      <div id="moodRow">❤️ Happy</div>
+    </div>
+    <div id="speech"></div>
+
+    <div id="toolbar">
+      <button class="toolBtn active" data-tool="pet" title="Pet">👋</button>
+      <button class="toolBtn" data-tool="bottle" title="Bottle">🍼</button>
+      <button class="toolBtn" data-tool="hay" title="Hay">🌾</button>
+      <button class="toolBtn" data-tool="brush" title="Brush">🧽</button>
+      <button class="toolBtn" data-tool="ball" title="Ball">⚽</button>
+    </div>
+
+    <div id="nameOverlay" class="overlay">
+      <h1>🐐 A New Kid!</h1>
+      <div class="desc">A wobbly little baby goat just arrived at the barn. What should we name her?</div>
+      <input type="text" id="nameInput" maxlength="18" placeholder="Bucky Jr.">
+      <button class="big" id="nameBtn">That's her name!</button>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+  <script>
+  (() => {
+    // ================== photo mode (headless art review) ==================
+    // ?photo=1 turns on a deterministic "photo booth" mode: no localStorage writes,
+    // name overlay auto-dismissed, clock/pose/camera forced via query params, and a
+    // window.__photoReady flag set once everything has settled for a screenshot.
+    const _photoParams = new URLSearchParams(location.search);
+    const PHOTO = _photoParams.get("photo") === "1";
+    let photoHour = null; // 0-23, overrides the real clock when set (photo mode only)
+    if (PHOTO && _photoParams.has("hour")){
+      const hn = parseInt(_photoParams.get("hour"), 10);
+      if (!isNaN(hn)) photoHour = ((hn % 24) + 24) % 24;
+    }
+
+    // ================== persistence ==================
+    const STATE_KEY = "goatCareState";
+    const DECAY_MS = { food: 8*3600*1000, clean: 24*3600*1000, play: 6*3600*1000 };
+
+    function defaultState(){
+      const now = Date.now();
+      return { name:null, needs:{ food:100, clean:100, play:100 }, lastSeen:now, dirtLevel:0, bornAt:now };
+    }
+    function loadState(){
+      try{
+        const v = JSON.parse(localStorage.getItem(STATE_KEY));
+        if (v && v.needs && v.bornAt) return v;
+      }catch(e){}
+      return defaultState();
+    }
+    function saveState(){
+      if (PHOTO) return; // photo mode never touches localStorage
+      state.lastSeen = Date.now();
+      try{ localStorage.setItem(STATE_KEY, JSON.stringify(state)); }catch(e){}
+    }
+    function applyElapsedDecay(){
+      const now = Date.now();
+      const elapsed = Math.max(0, now - (state.lastSeen || now));
+      state.needs.food  = clamp(state.needs.food  - (elapsed / DECAY_MS.food)  * 100, 0, 100);
+      state.needs.clean = clamp(state.needs.clean - (elapsed / DECAY_MS.clean) * 100, 0, 100);
+      state.needs.play  = clamp(state.needs.play  - (elapsed / DECAY_MS.play)  * 100, 0, 100);
+      state.dirtLevel = clamp(100 - state.needs.clean, 0, 100);
+      state.lastSeen = now;
+    }
+    function clamp(v, lo, hi){ return v < lo ? lo : (v > hi ? hi : v); }
+
+    let state = loadState();
+    applyElapsedDecay();
+    saveState();
+
+    // ================== name overlay ==================
+    const nameOverlay = document.getElementById("nameOverlay");
+    const nameInput = document.getElementById("nameInput");
+    const hudName = document.getElementById("hudName");
+    const hudAge = document.getElementById("hudAge");
+
+    if (PHOTO){
+      // photo mode: never show the overlay, use an in-memory name, never persist
+      state.name = state.name || "Photo";
+      hudName.textContent = state.name;
+      nameOverlay.classList.remove("show");
+    } else if (!state.name){
+      nameOverlay.classList.add("show");
+      nameInput.value = "";
+      nameInput.placeholder = "Bucky Jr.";
+    } else {
+      hudName.textContent = state.name;
+    }
+    document.getElementById("nameBtn").onclick = confirmName;
+    nameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") confirmName(); });
+    function confirmName(){
+      const v = nameInput.value.trim();
+      state.name = v || "Bucky Jr.";
+      hudName.textContent = state.name;
+      saveState();
+      nameOverlay.classList.remove("show");
+    }
+
+    function ageText(){
+      const days = Math.floor((Date.now() - state.bornAt) / 86400000);
+      if (days <= 0) return "Born today!";
+      if (days === 1) return "1 day old";
+      return days + " days old";
+    }
+
+    // ================== three.js scene ==================
+    const stage = document.getElementById("stage");
+    const renderer = new THREE.WebGLRenderer({ antialias:true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    stage.appendChild(renderer.domElement);
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x2a2016);
+    const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 100);
+
+    function fit(){
+      const w = stage.clientWidth, h = stage.clientHeight;
+      renderer.setSize(w, h);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+    window.addEventListener("resize", fit);
+    fit();
+
+    const mat = (color, flat) => new THREE.MeshPhongMaterial({ color, flatShading: !!flat, shininess: 8 });
+
+    // ---- lighting: warm day / cozy blue night, blended over real clock ----
+    const hemi = new THREE.HemisphereLight(0xfff2d0, 0x4a3a2a, 0.9);
+    scene.add(hemi);
+    const sun = new THREE.DirectionalLight(0xfff0c8, 1.0);
+    sun.position.set(6, 10, 4);
+    scene.add(sun);
+    // the barn lantern hangs over the stall — the barn is NEVER dark, just cozier at night
+    const lantern = new THREE.PointLight(0xffb060, 0, 11, 2);
+    lantern.position.set(-1.4, 2.2, -1.0);
+    scene.add(lantern);
+    const lanternBulb = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8),
+      new THREE.MeshBasicMaterial({ color: 0xffc878, transparent: true, opacity: 0 }));
+    lanternBulb.position.copy(lantern.position);
+    scene.add(lanternBulb);
+
+    const DAY = { bg:0x8ecdf2, hemiSky:0xfff2d0, hemiGround:0x4a3a2a, hemiI:0.95, sunColor:0xfff0c8, sunI:1.05, lantern:0 };
+    const NIGHT = { bg:0x141d3a, hemiSky:0x33405e, hemiGround:0x1c1410, hemiI:0.55, sunColor:0x4a5a8a, sunI:0.22, lantern:1.7 };
+    const _cA = new THREE.Color(), _cB = new THREE.Color(), _cOut = new THREE.Color();
+    function dayBlend(){
+      // 6:00-19:00 full day; smooth 1hr transitions at 5-6, 19-20; night otherwise
+      let h;
+      if (photoHour != null) h = photoHour; // photo mode: frozen clock, minutes=0
+      else { const d = new Date(); h = d.getHours() + d.getMinutes()/60; }
+      let t; // 0 = night, 1 = day
+      if (h >= 6 && h <= 19) t = 1;
+      else if (h > 19 && h < 20) t = 1 - (h - 19);
+      else if (h >= 5 && h < 6) t = (h - 5);
+      else t = 0;
+      return t;
+    }
+    function applyLighting(t){
+      _cA.setHex(NIGHT.bg); _cB.setHex(DAY.bg); _cOut.copy(_cA).lerp(_cB, t);
+      scene.background = _cOut.clone();
+      _cA.setHex(NIGHT.hemiSky); _cB.setHex(DAY.hemiSky);
+      hemi.color.copy(_cA).lerp(_cB, t);
+      _cA.setHex(NIGHT.hemiGround); _cB.setHex(DAY.hemiGround);
+      hemi.groundColor.copy(_cA).lerp(_cB, t);
+      hemi.intensity = NIGHT.hemiI + (DAY.hemiI - NIGHT.hemiI) * t;
+      _cA.setHex(NIGHT.sunColor); _cB.setHex(DAY.sunColor);
+      sun.color.copy(_cA).lerp(_cB, t);
+      sun.intensity = NIGHT.sunI + (DAY.sunI - NIGHT.sunI) * t;
+      lantern.intensity = NIGHT.lantern * (1 - t);
+      lanternBulb.material.opacity = (1 - t) * 0.95;
+    }
+
+    // ---- procedural canvas texture helper (fallback if straw.png fails) ----
+    function canvasTex(size, draw){
+      const c = document.createElement("canvas"); c.width = c.height = size;
+      draw(c.getContext("2d"), size);
+      const t = new THREE.CanvasTexture(c);
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      return t;
+    }
+    const strawFallback = canvasTex(64, (g, s) => {
+      g.fillStyle = "#d9b23c"; g.fillRect(0,0,s,s);
+      for (let i=0;i<60;i++){
+        g.strokeStyle = ["#c9a02c","#e5c45e","#b8922a"][(Math.random()*3)|0];
+        g.lineWidth = 1+Math.random();
+        const y = Math.random()*s;
+        g.beginPath(); g.moveTo(0,y); g.lineTo(s,y+(Math.random()-0.5)*8); g.stroke();
+      }
+    });
+
+    // ---- barn stall geometry ----
+    const STALL_W = 6, STALL_D = 5, STALL_H = 3.4;
+    const woodTones = [0x8a5a34, 0x9c6a3e, 0x7c4d2a, 0x8a5a34, 0x93613a];
+    function plankWall(w, h, rotY, x, z){
+      const grp = new THREE.Group();
+      const plankH = 0.42;
+      const rows = Math.ceil(h / plankH);
+      for (let i = 0; i < rows; i++){
+        const tone = woodTones[i % woodTones.length];
+        const plank = new THREE.Mesh(new THREE.BoxGeometry(w, plankH*0.96, 0.12), mat(tone, true));
+        plank.position.set(0, i*plankH + plankH/2, 0);
+        grp.add(plank);
+      }
+      grp.position.set(x, 0, z);
+      grp.rotation.y = rotY;
+      return grp;
+    }
+    const stallGroup = new THREE.Group();
+    scene.add(stallGroup);
+    // back wall
+    stallGroup.add(plankWall(STALL_W, STALL_H, 0, 0, -STALL_D/2));
+    // left / right walls
+    stallGroup.add(plankWall(STALL_D, STALL_H, Math.PI/2, -STALL_W/2, 0));
+    stallGroup.add(plankWall(STALL_D, STALL_H, Math.PI/2, STALL_W/2, 0));
+
+    // floor (straw texture)
+    const strawTex = new THREE.TextureLoader().load("straw.png",
+      undefined, undefined, () => { floor.material.map = strawFallback; floor.material.needsUpdate = true; });
+    strawTex.wrapS = strawTex.wrapT = THREE.RepeatWrapping;
+    strawTex.repeat.set(4, 4);
+    const floorMat = new THREE.MeshPhongMaterial({ map: strawTex, color: 0xffdf9e });
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(STALL_W, STALL_D), floorMat);
+    floor.rotation.x = -Math.PI/2;
+    stallGroup.add(floor);
+
+    // straw tufts scattered for depth
+    const tuftGeo = new THREE.BoxGeometry(0.03, 0.28, 0.03);
+    const tuftMat = new THREE.MeshPhongMaterial({ color: 0xe4c25e, flatShading:true });
+    for (let i = 0; i < 60; i++){
+      const tuft = new THREE.Mesh(tuftGeo, tuftMat);
+      const x = (Math.random()-0.5)*(STALL_W-0.4), z = (Math.random()-0.5)*(STALL_D-0.4);
+      tuft.position.set(x, 0.1, z);
+      tuft.rotation.set((Math.random()-0.5)*0.6, Math.random()*Math.PI, (Math.random()-0.5)*0.7);
+      tuft.scale.setScalar(0.6 + Math.random()*0.8);
+      stallGroup.add(tuft);
+    }
+
+    // front rail / fence (camera looks over this)
+    const railMat = mat(0x9c7a50);
+    const postMat = mat(0x7a5a38);
+    const FRONT_Z = STALL_D/2;
+    for (let x = -STALL_W/2; x <= STALL_W/2 + 0.01; x += STALL_W/3){
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 1.0, 8), postMat);
+      post.position.set(x, 0.5, FRONT_Z);
+      stallGroup.add(post);
+    }
+    for (const ry of [0.35, 0.75]){
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(STALL_W, 0.09, 0.09), railMat);
+      rail.position.set(0, ry, FRONT_Z);
+      stallGroup.add(rail);
+    }
+
+    // feed trough (corner)
+    const troughGroup = new THREE.Group();
+    {
+      const troughMat = mat(0x6e5233);
+      const base = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.22, 0.4), troughMat);
+      base.position.y = 0.11;
+      troughGroup.add(base);
+      const rim = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.06, 0.48), troughMat);
+      rim.position.y = 0.24;
+      troughGroup.add(rim);
+      const hay = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.12, 0.32), mat(0xdcb84a, true));
+      hay.position.y = 0.24;
+      hay.visible = false;
+      troughGroup.add(hay);
+      troughGroup.userData.hayMesh = hay;
+    }
+    troughGroup.position.set(-STALL_W/2 + 0.7, 0, -STALL_D/2 + 0.5);
+    troughGroup.rotation.y = 0.5;
+    stallGroup.add(troughGroup);
+
+    // water bucket
+    const bucketGroup = new THREE.Group();
+    {
+      const bMat = mat(0x8a8a92);
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.18, 0.32, 10), bMat);
+      body.position.y = 0.16;
+      bucketGroup.add(body);
+      const water = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.02, 10), mat(0x4a90c8));
+      water.position.y = 0.31;
+      bucketGroup.add(water);
+    }
+    bucketGroup.position.set(STALL_W/2 - 0.55, 0, -STALL_D/2 + 0.45);
+    stallGroup.add(bucketGroup);
+
+    // ---- ambient butterfly ----
+    const butterfly = new THREE.Group();
+    {
+      const wingMat = new THREE.MeshBasicMaterial({ color: 0xffd23f, side: THREE.DoubleSide, transparent:true, opacity:0.9 });
+      const wL = new THREE.Mesh(new THREE.CircleGeometry(0.1, 8, 0, Math.PI), wingMat);
+      wL.rotation.y = Math.PI/2; wL.position.x = -0.02;
+      const wR = wL.clone(); wR.position.x = 0.02; wR.rotation.y = -Math.PI/2;
+      butterfly.add(wL, wR);
+      butterfly.userData.wL = wL; butterfly.userData.wR = wR;
+    }
+    butterfly.visible = false;
+    scene.add(butterfly);
+    let butterflyState = { active:false, t:0, next: 8 + Math.random()*14, path:null };
+
+    // ---- camera: eye-level 3/4 view just outside the front rail, following the kid ----
+    const camBase = new THREE.Vector3(0, 1.35, FRONT_Z + 2.3);
+    const camLook = new THREE.Vector3(0, 0, -0.3);   // smoothed follow point on the goat
+    camera.position.copy(camBase);
+    camera.lookAt(0, 0.7, -0.4);
+    let camSwayT = 0;
+
+    // ================== shared particle system ==================
+    // small shared geometries reused across particle kinds; each particle owns its own material (disposed on removal)
+    const heartGeo = (() => {
+      const shape = new THREE.Shape();
+      shape.moveTo(0, 0.3);
+      shape.bezierCurveTo(0, 0.5, -0.4, 0.5, -0.4, 0.2);
+      shape.bezierCurveTo(-0.4, -0.1, 0, -0.25, 0, -0.5);
+      shape.bezierCurveTo(0, -0.25, 0.4, -0.1, 0.4, 0.2);
+      shape.bezierCurveTo(0.4, 0.5, 0, 0.5, 0, 0.3);
+      const g = new THREE.ShapeGeometry(shape);
+      g.scale(0.16, 0.16, 0.16);
+      return g;
+    })();
+    const sparkleGeo = new THREE.OctahedronGeometry(0.05, 0);
+    const bubbleGeo = new THREE.SphereGeometry(0.06, 8, 6);
+    const puffGeo = new THREE.SphereGeometry(0.05, 6, 5);
+
+    const particles = []; // { mesh, vel, life, maxLife, kind, spin }
+    function spawnParticle(kind, pos, opts){
+      opts = opts || {};
+      let geo, color, size = 1;
+      if (kind === "heart"){ geo = heartGeo; color = 0xff5577; }
+      else if (kind === "sparkle"){ geo = sparkleGeo; color = 0xfff2a0; }
+      else if (kind === "bubble"){ geo = bubbleGeo; color = 0xcfe8ff; }
+      else { geo = puffGeo; color = 0xe8d9a8; } // puff
+      const m = new THREE.MeshBasicMaterial({ color, transparent:true, opacity: opts.opacity!=null?opts.opacity:0.95 });
+      const mesh = new THREE.Mesh(geo, m);
+      mesh.position.copy(pos);
+      const s = (opts.scale || 1);
+      mesh.scale.setScalar(s);
+      scene.add(mesh);
+      particles.push({
+        mesh, kind,
+        vel: opts.vel || new THREE.Vector3((Math.random()-0.5)*0.4, 0.6+Math.random()*0.5, (Math.random()-0.5)*0.4),
+        life: 0, maxLife: opts.maxLife || 1.0,
+        grav: opts.grav != null ? opts.grav : -0.4,
+        spin: (Math.random()-0.5)*3
+      });
+    }
+    function updateParticles(dt){
+      for (let i = particles.length - 1; i >= 0; i--){
+        const p = particles[i];
+        p.life += dt;
+        const t = p.life / p.maxLife;
+        if (t >= 1){
+          scene.remove(p.mesh);
+          p.mesh.material.dispose();
+          particles.splice(i, 1);
+          continue;
+        }
+        p.vel.y += p.grav * dt;
+        p.mesh.position.addScaledVector(p.vel, dt);
+        p.mesh.rotation.y += p.spin * dt;
+        if (p.kind === "heart" || p.kind === "sparkle") p.mesh.rotation.z += p.spin * dt;
+        p.mesh.material.opacity = (1 - t) * 0.95;
+        p.mesh.lookAt(camera.position);
+      }
+    }
+
+    // ================== the goat (procedural skeleton) ==================
+    // Pied-kid palette (matched to the family's reference art): white coat with soft brown
+    // patches, brown head with a white blaze, perky ears, little silver horns, brown socks
+    const FUR = 0xf7f2ea, FUR_DARK = 0x9c6238, MUZZLE = 0xf3ece2, HOOF = 0x474038, HORN = 0x9aa0a8;
+    const INNER_EAR = 0xe6c3ae, NOSE_C = 0xdb9490, IRIS = 0x7a4a22, PUPIL = 0x1c120c;
+    const SOCK = 0x8a5632, PATCH = 0xa97042, EYE_C = 0x2a1a10;
+
+    // smooth organic material — baby fur reads soft, not shiny or faceted
+    const smat = (color) => new THREE.MeshPhongMaterial({ color, shininess: 4 });
+    // tiny vertex jitter -> fuzzy, hand-made silhouette instead of perfect primitives
+    function fuzz(geo, amt){
+      const p = geo.attributes.position;
+      for (let i = 0; i < p.count; i++)
+        p.setXYZ(i, p.getX(i) + (Math.random()-0.5)*amt, p.getY(i) + (Math.random()-0.5)*amt, p.getZ(i) + (Math.random()-0.5)*amt);
+      geo.computeVertexNormals();
+      return geo;
+    }
+    // sculpted torso: long barrel with a round milk belly, tucked flank, and a gentle withers rise
+    function kidTorsoGeo(){
+      const geo = new THREE.SphereGeometry(0.235, 24, 18);
+      geo.scale(1.0, 0.95, 1.48);
+      const p = geo.attributes.position;
+      for (let i = 0; i < p.count; i++){
+        const x = p.getX(i); let y = p.getY(i); const z = p.getZ(i);
+        if (y < 0) y -= 0.05 * Math.exp(-Math.pow((z + 0.06) / 0.17, 2));   // round belly
+        if (y > 0.08) y += 0.03 * Math.exp(-Math.pow((z - 0.28) / 0.13, 2)); // withers
+        p.setXYZ(i, x, y, z);
+      }
+      return fuzz(geo, 0.004);
+    }
+
+    function buildGoat(){
+      const root = new THREE.Group();
+
+      // shadow blob
+      const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.5, 16),
+        new THREE.MeshBasicMaterial({ color:0x000000, transparent:true, opacity:0.28 }));
+      shadow.rotation.x = -Math.PI/2; shadow.position.y = 0.01;
+      root.add(shadow);
+      root.userData.shadow = shadow;
+
+      // body group
+      const body = new THREE.Group();
+      body.position.y = 0.46;
+      root.add(body);
+      // one sculpted barrel instead of two spheres — belly, tuck, and withers in the silhouette
+      const torso = new THREE.Mesh(kidTorsoGeo(), smat(FUR));
+      torso.position.set(0, 0.02, -0.02);
+      body.add(torso);
+      // brisket — the soft chest bump between the front legs
+      const brisket = new THREE.Mesh(fuzz(new THREE.SphereGeometry(0.115, 12, 10), 0.005), smat(FUR));
+      brisket.scale.set(0.85, 0.72, 0.95);
+      brisket.position.set(0, -0.05, 0.26);
+      body.add(brisket);
+      // soft brown pied patches over the shoulders and rump, like the reference art
+      const patchDefs = [
+        [ 0.05,  0.15,  0.14, 1.5, 0.7, 1.3],   // shoulder saddle
+        [-0.16,  0.05, -0.05, 0.9, 1.0, 1.4],   // left flank
+        [ 0.10,  0.10, -0.26, 1.3, 0.8, 1.1]    // rump
+      ];
+      for (const [px, py, pz, sx, sy, sz] of patchDefs){
+        const patch = new THREE.Mesh(fuzz(new THREE.SphereGeometry(0.095, 12, 10), 0.004), smat(PATCH));
+        patch.scale.set(sx, sy, sz);
+        patch.position.set(px, py, pz);
+        body.add(patch);
+      }
+
+      // dirt blotches (hidden until Clean < 50)
+      const dirtBlotches = [];
+      const dirtGeo = new THREE.SphereGeometry(0.09, 6, 5);
+      const dirtSpots = [
+        [0.15, 0.05, -0.15], [-0.18, 0.0, 0.05], [0.1, -0.05, 0.2],
+        [-0.12, 0.08, -0.25], [0.05, 0.1, 0.15], [-0.08, -0.02, -0.05]
+      ];
+      for (const [x,y,z] of dirtSpots){
+        const bm = new THREE.MeshPhongMaterial({ color:0x5a3d22, transparent:true, opacity:0 });
+        const blob = new THREE.Mesh(dirtGeo, bm);
+        blob.scale.set(1, 0.4, 1);
+        blob.position.set(x, y, z);
+        body.add(blob);
+        dirtBlotches.push({ mesh: blob, baseScale: 0.7 + Math.random()*0.6 });
+      }
+      root.userData.dirtBlotches = dirtBlotches;
+
+      // neck pivot at front-top of body — an actual furry neck connects body to head
+      const neck = new THREE.Group();
+      neck.position.set(0, 0.24, 0.24);
+      body.add(neck);
+      root.userData.neck = neck;
+      const neckGeo = new THREE.CylinderGeometry(0.08, 0.105, 0.24, 12);
+      neckGeo.translate(0, 0.09, 0);
+      // brown nape flowing down from the head, white up the throat — like the reference
+      const neckMesh = new THREE.Mesh(fuzz(neckGeo, 0.005), smat(FUR_DARK));
+      neckMesh.rotation.x = -0.87;   // aims at the head pivot
+      neck.add(neckMesh);
+      const throat = new THREE.Mesh(fuzz(new THREE.SphereGeometry(0.062, 12, 10), 0.004), smat(FUR));
+      throat.scale.set(0.9, 1.6, 0.8);
+      throat.position.set(0, 0.075, 0.085);
+      throat.rotation.x = -0.75;
+      neck.add(throat);
+      const ruff = new THREE.Mesh(fuzz(new THREE.SphereGeometry(0.115, 12, 10), 0.006), smat(FUR));
+      ruff.scale.set(1.0, 0.85, 0.9);
+      ruff.position.set(0, -0.02, -0.02);
+      neck.add(ruff);
+      // thin collar with a tiny silver bell — she's somebody's baby
+      const collar = new THREE.Mesh(new THREE.TorusGeometry(0.094, 0.008, 6, 20), smat(0x2a2a30));
+      collar.rotation.x = Math.PI/2 - 0.87;
+      collar.position.set(0, 0.07, 0.035);
+      neck.add(collar);
+      const bell = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 7),
+        new THREE.MeshPhongMaterial({ color: 0xc8ccd2, shininess: 80 }));
+      bell.position.set(0, 0.028, 0.12);
+      neck.add(bell);
+
+      // head group — big domed baby forehead, short dished muzzle
+      const head = new THREE.Group();
+      head.position.set(0, 0.1, 0.12);
+      neck.add(head);
+      root.userData.head = head;
+
+      const skull = new THREE.Mesh(fuzz(new THREE.SphereGeometry(0.15, 18, 14), 0.005), smat(FUR_DARK));
+      skull.scale.set(0.95, 1.0, 1.05);
+      head.add(skull);
+      const dome = new THREE.Mesh(fuzz(new THREE.SphereGeometry(0.07, 12, 10), 0.003), smat(FUR_DARK));
+      dome.position.set(0, 0.078, 0.03);
+      head.add(dome);
+      const muzzle = new THREE.Mesh(fuzz(new THREE.SphereGeometry(0.078, 14, 11), 0.004), smat(MUZZLE));
+      muzzle.scale.set(0.72, 0.62, 1.05);
+      muzzle.position.set(0, -0.045, 0.128);
+      head.add(muzzle);
+      // white blaze — one continuous stripe from the poll down the nose bridge into the muzzle
+      const blazeTop = new THREE.Mesh(fuzz(new THREE.SphereGeometry(0.05, 12, 10), 0.003), smat(FUR));
+      blazeTop.scale.set(0.62, 1.5, 1.0);
+      blazeTop.position.set(0, 0.075, 0.07);
+      blazeTop.rotation.x = -0.35;
+      head.add(blazeTop);
+      const blazeBridge = new THREE.Mesh(fuzz(new THREE.SphereGeometry(0.044, 12, 10), 0.003), smat(FUR));
+      blazeBridge.scale.set(0.58, 1.7, 0.9);
+      blazeBridge.position.set(0, 0.015, 0.112);
+      blazeBridge.rotation.x = -0.72;
+      head.add(blazeBridge);
+      // small soft nose with nostril dots — goat-sized, not cow-sized
+      const nose = new THREE.Mesh(new THREE.SphereGeometry(0.024, 10, 8), smat(NOSE_C));
+      nose.scale.set(1.1, 0.65, 0.6);
+      nose.position.set(0, -0.022, 0.198);
+      head.add(nose);
+      for (const side of [-1, 1]){
+        const nostril = new THREE.Mesh(new THREE.SphereGeometry(0.006, 6, 5), smat(0x4a3028));
+        nostril.position.set(0.011*side, -0.024, 0.213);
+        head.add(nostril);
+      }
+      // hinged lower jaw for chewing / bottle gulps
+      const jawGroup = new THREE.Group();
+      jawGroup.position.set(0, -0.075, 0.06);
+      head.add(jawGroup);
+      const lowerLip = new THREE.Mesh(new THREE.SphereGeometry(0.027, 10, 8), smat(MUZZLE));
+      lowerLip.scale.set(0.85, 0.42, 0.9);
+      lowerLip.position.set(0, -0.016, 0.098);
+      jawGroup.add(lowerLip);
+      root.userData.jaw = jawGroup;
+
+      // little silver horns, swept back — kid-sized, pointy, proud
+      for (const side of [-1, 1]){
+        const horn = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.115, 8),
+          new THREE.MeshPhongMaterial({ color: HORN, shininess: 30 }));
+        horn.position.set(0.048*side, 0.175, -0.01);
+        horn.rotation.x = -0.28;   // mostly upright with a light backward sweep — visible from the front
+        horn.rotation.z = side * 0.14;
+        head.add(horn);
+      }
+      for (let i = 0; i < 3; i++){
+        const tuft = new THREE.Mesh(new THREE.ConeGeometry(0.011, 0.038, 5), smat(FUR));
+        tuft.position.set((i-1)*0.016, 0.148, 0.035 + (i%2)*0.01);
+        tuft.rotation.x = 0.55 + (i%2)*0.2;
+        tuft.rotation.z = (i-1)*0.3;
+        head.add(tuft);
+      }
+
+      // ears: BIG perky alert ears angled up-and-out (reference-style), pale fuzzy inners.
+      // Lobes point UP from the pivot, so the animation's ±0.55 flare reads as a happy V.
+      const ears = {};
+      const earGeo = new THREE.SphereGeometry(0.05, 12, 12);
+      earGeo.scale(1.3, 1.9, 0.45);
+      earGeo.translate(0, 0.082, 0);   // stand up from the pivot
+      const innerGeo = new THREE.SphereGeometry(0.05, 10, 10);
+      innerGeo.scale(0.85, 1.5, 0.22);
+      innerGeo.translate(0, 0.078, 0.02);
+      for (const side of [-1, 1]){
+        const earPivot = new THREE.Group();
+        earPivot.position.set(0.105*side, 0.095, -0.005);
+        head.add(earPivot);
+        const ear = new THREE.Mesh(earGeo.clone(), smat(FUR_DARK));
+        ear.rotation.x = -0.18;   // tipped slightly back, cupped toward the camera
+        earPivot.add(ear);
+        const inner = new THREE.Mesh(innerGeo.clone(), smat(INNER_EAR));
+        inner.rotation.x = -0.18;
+        earPivot.add(inner);
+        earPivot.rotation.z = side * 0.55; // flare out from the head, animation drives from here
+        ears[side] = earPivot;
+      }
+      root.userData.earL = ears[-1];
+      root.userData.earR = ears[1];
+
+      // eyes: BIG Nintendogs eyes set goat-wide on the head — cream sclera, amber iris,
+      // the real horizontal goat pupil, double sparkle, and fur eyelids that blink
+      const eyes = {};
+      for (const side of [-1, 1]){
+        const eyeGroup = new THREE.Group();
+        eyeGroup.position.set(0.085*side, 0.05, 0.082);   // seated INTO the skull, not on stalks
+        eyeGroup.rotation.y = side * 0.25;
+        head.add(eyeGroup);
+        // giant round near-black eye with a warm amber ring — the reference's Pixar formula
+        const eyeball = new THREE.Mesh(new THREE.SphereGeometry(0.048, 16, 14),
+          new THREE.MeshPhongMaterial({ color: EYE_C, shininess: 110 }));
+        eyeGroup.add(eyeball);
+        const iris = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.006, 6, 20),
+          new THREE.MeshPhongMaterial({ color: IRIS, shininess: 60 }));
+        iris.position.z = 0.034;
+        eyeGroup.add(iris);
+        const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.008, 6, 5), smat(PUPIL));
+        pupil.position.z = 0.046;
+        pupil.visible = false;   // kept for rig compatibility; the whole eye reads as pupil
+        eyeGroup.add(pupil);
+        const sparkle = new THREE.Mesh(new THREE.SphereGeometry(0.015, 8, 6), new THREE.MeshBasicMaterial({ color:0xffffff }));
+        sparkle.position.set(0.014, 0.018, 0.037);
+        eyeGroup.add(sparkle);
+        const sparkle2 = new THREE.Mesh(new THREE.SphereGeometry(0.007, 6, 5), new THREE.MeshBasicMaterial({ color:0xffffff }));
+        sparkle2.position.set(-0.012, -0.008, 0.041);
+        eyeGroup.add(sparkle2);
+        // eyelid: a fur shell that scales down over the eye to close it
+        const lid = new THREE.Mesh(new THREE.SphereGeometry(0.048, 12, 10, 0, Math.PI*2, 0, Math.PI/2), smat(FUR_DARK));
+        lid.position.set(0, 0.012, -0.003);
+        lid.rotation.x = Math.PI; // hemisphere facing down, hidden above the eye by default
+        lid.scale.set(1, 0.001, 1);
+        lid.visible = false;
+        eyeGroup.add(lid);
+        eyes[side] = { group: eyeGroup, lid, pupil };
+      }
+      root.userData.eyeL = eyes[-1];
+      root.userData.eyeR = eyes[1];
+
+      // tail pivot at rump: the short upright kid flag, cream with a caramel tip
+      const tailPivot = new THREE.Group();
+      tailPivot.position.set(0, 0.12, -0.28);
+      body.add(tailPivot);
+      const tailGeo = new THREE.SphereGeometry(0.05, 10, 10);
+      tailGeo.scale(0.7, 1.5, 0.42);
+      tailGeo.translate(0, 0.06, 0);
+      const tail = new THREE.Mesh(fuzz(tailGeo, 0.005), smat(FUR));
+      tailPivot.add(tail);
+      const tailTip = new THREE.Mesh(new THREE.SphereGeometry(0.02, 8, 6), smat(FUR));   // all-white fluffy flag
+      tailTip.position.set(0, 0.13, 0);
+      tailPivot.add(tailTip);
+      tailPivot.rotation.x = -0.6;
+      root.userData.tail = tailPivot;
+
+      // legs: leggy like a real kid — tapered thighs, KNOBBY KNEES, slim shanks,
+      // fetlock bumps, and proper two-toed hooves. Same bones as before.
+      const legDefs = [
+        { key:"FL", x:-0.15, z:0.18, shoulder:true },
+        { key:"FR", x:0.15,  z:0.18, shoulder:true },
+        { key:"BL", x:-0.16, z:-0.2, shoulder:false },
+        { key:"BR", x:0.16,  z:-0.2, shoulder:false }
+      ];
+      // LEGGY like a real kid: hips at mid-body, long legs that actually reach the straw
+      const legs = {};
+      const upperGeo = new THREE.CylinderGeometry(0.05, 0.028, 0.24, 10);
+      upperGeo.translate(0, -0.12, 0);
+      const lowerGeo = new THREE.CylinderGeometry(0.023, 0.018, 0.2, 9);
+      lowerGeo.translate(0, -0.1, 0);
+      const toeGeo = new THREE.BoxGeometry(0.021, 0.05, 0.05);
+      for (const def of legDefs){
+        const hip = new THREE.Group();
+        hip.position.set(def.x, 0.0, def.z);
+        body.add(hip);
+        const upper = new THREE.Mesh(upperGeo.clone(), smat(FUR));
+        hip.add(upper);
+        const thigh = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), smat(FUR));
+        thigh.scale.set(0.85, 1.25, 1.0);
+        thigh.position.set(0, -0.05, def.shoulder ? 0 : -0.01);
+        upper.add(thigh);
+        const knee = new THREE.Group();
+        knee.position.set(0, -0.24, 0);
+        upper.add(knee);
+        const kneeKnob = new THREE.Mesh(new THREE.SphereGeometry(0.029, 12, 10), smat(FUR));
+        knee.add(kneeKnob);
+        const lower = new THREE.Mesh(lowerGeo.clone(), smat(SOCK));   // brown socks below the knee
+        knee.add(lower);
+        const fetlock = new THREE.Mesh(new THREE.SphereGeometry(0.021, 8, 6), smat(SOCK));
+        fetlock.position.set(0, -0.18, 0.003);
+        lower.add(fetlock);
+        for (const t of [-1, 1]){   // cloven hoof: two toes with a center split
+          const toe = new THREE.Mesh(toeGeo, smat(HOOF));
+          toe.position.set(0.0125*t, -0.195, 0.008);
+          toe.rotation.y = t * 0.08;
+          lower.add(toe);
+        }
+        legs[def.key] = { hip, knee };
+      }
+      root.userData.legs = legs;
+
+      // Z z z sleep sprites (simple small planes with canvas texture)
+      const zTex = canvasTex(64, (g, s) => {
+        g.clearRect(0,0,s,s);
+        g.fillStyle = "#ffffff";
+        g.font = "bold 40px sans-serif";
+        g.textAlign = "center"; g.textBaseline = "middle";
+        g.fillText("Z", s/2, s/2);
+      });
+      const zGroup = new THREE.Group();
+      const zSprites = [];
+      for (let i = 0; i < 3; i++){
+        const sm = new THREE.SpriteMaterial({ map: zTex, transparent:true, opacity:0 });
+        const spr = new THREE.Sprite(sm);
+        spr.scale.set(0.14 - i*0.02, 0.14 - i*0.02, 1);
+        zGroup.add(spr);
+        zSprites.push(spr);
+      }
+      zGroup.position.set(0.15, 0.55, 0);
+      root.add(zGroup);
+      root.userData.zSprites = zSprites;
+      root.userData.zGroup = zGroup;
+
+      return root;
+    }
+
+    const goat = buildGoat();
+    stallGroup.add(goat);
+    goat.position.set(0, 0, -0.3);
+
+    // ================== goat animation / behavior state machine ==================
+    const GOAT = {
+      pos: new THREE.Vector3(0, 0, -0.3),
+      facing: 0, // radians
+      state: "idle", // idle, walk, pronk, jump, lie, eat, happy, sad, shake
+      stateT: 0,
+      target: null, // THREE.Vector3 walk target
+      idleTimer: 3 + Math.random()*4,
+      blinkTimer: 3 + Math.random()*3,
+      blinking: 0,
+      lookTimer: 2 + Math.random()*3,
+      lookAngle: 0,
+      earTwitchTimer: 4 + Math.random()*4,
+      earTwitch: 0,
+      jumpPhase: 0,
+      pronkPhase: 0,
+      eatTarget: null,
+      speed: 0.9,
+      walkPhase: 0,
+      leaning: 0, // for pet lean
+      wagT: 0,
+      forcedUntil: 0, // if >Date.now(), free-roam AI is suppressed (busy with bottle/eat)
+      shakeT: 0,
+      lastLanded: true
+    };
+    // joint target values, lerp toward these each frame (0.15s blend)
+    const JOINT = {
+      hipFL:0, hipFR:0, hipBL:0, hipBR:0,
+      kneeFL:0, kneeFR:0, kneeBL:0, kneeBR:0,
+      neckX:0, neckY:0, headX:0,
+      earL:0, earR:0, tailX:0, tailWag:0,
+      bodyY:0, bodyTiltX:0, jawX:0
+    };
+    const JOINT_CUR = Object.assign({}, JOINT);
+
+    function lerpJoints(dt){
+      const k = 1 - Math.pow(0.001, dt / 0.15); // ~0.15s blend time
+      for (const key in JOINT){
+        JOINT_CUR[key] += (JOINT[key] - JOINT_CUR[key]) * k;
+      }
+    }
+
+    function applyJointsToMesh(){
+      const legs = goat.userData.legs;
+      legs.FL.hip.rotation.x = JOINT_CUR.hipFL; legs.FL.knee.rotation.x = JOINT_CUR.kneeFL;
+      legs.FR.hip.rotation.x = JOINT_CUR.hipFR; legs.FR.knee.rotation.x = JOINT_CUR.kneeFR;
+      legs.BL.hip.rotation.x = JOINT_CUR.hipBL; legs.BL.knee.rotation.x = JOINT_CUR.kneeBL;
+      legs.BR.hip.rotation.x = JOINT_CUR.hipBR; legs.BR.knee.rotation.x = JOINT_CUR.kneeBR;
+      goat.userData.neck.rotation.x = JOINT_CUR.neckX;
+      goat.userData.neck.rotation.y = JOINT_CUR.neckY;
+      goat.userData.head.rotation.x = JOINT_CUR.headX;
+      goat.userData.earL.rotation.z = -0.55 - JOINT_CUR.earL;
+      goat.userData.earR.rotation.z = 0.55 + JOINT_CUR.earR;
+      goat.userData.tail.rotation.x = -0.6 + JOINT_CUR.tailX;
+      goat.userData.tail.rotation.z = Math.sin(JOINT_CUR.tailWag) * 0.5;
+      goat.position.y = JOINT_CUR.bodyY;
+      goat.rotation.z = JOINT_CUR.bodyTiltX;
+      goat.userData.jaw.rotation.x = JOINT_CUR.jawX;
+    }
+
+    // blink control (eyelids)
+    function setBlink(amount){ // 0 open .. 1 closed
+      const s = Math.max(0.001, amount);
+      for (const e of [goat.userData.eyeL, goat.userData.eyeR]){
+        e.lid.scale.y = s;
+        e.lid.visible = amount > 0.03;   // fully hidden when open — no beret disc on the eye
+      }
+    }
+
+    function pickRoamTarget(){
+      const margin = 0.35;
+      const x = (Math.random()*2-1) * (STALL_W/2 - margin);
+      const z = (Math.random()*2-1) * 0.5 * (STALL_D/2 - margin) - 0.3;
+      return new THREE.Vector3(x, 0, Math.min(z, STALL_D/2 - margin - 0.4));
+    }
+
+    function isNight(){
+      const h = photoHour != null ? photoHour : new Date().getHours();
+      return h >= 21 || h < 7;
+    }
+
+    function moodValue(){
+      return (state.needs.food + state.needs.clean + state.needs.play) / 3;
+    }
+
+    function setGoatState(next){
+      if (GOAT.state === next) return;
+      GOAT.state = next;
+      GOAT.stateT = 0;
+    }
+
+    // ---- straw puff particle burst ----
+    function strawPuff(pos, n){
+      for (let i = 0; i < (n||6); i++){
+        spawnParticle("puff", pos, {
+          vel: new THREE.Vector3((Math.random()-0.5)*1.2, 0.4+Math.random()*0.6, (Math.random()-0.5)*1.2),
+          maxLife: 0.5 + Math.random()*0.3, grav: -1.2, scale: 0.7 + Math.random()*0.6
+        });
+      }
+    }
+    function heartBurst(pos, n){
+      for (let i = 0; i < (n||3); i++){
+        spawnParticle("heart", pos.clone().add(new THREE.Vector3((Math.random()-0.5)*0.2, Math.random()*0.15, (Math.random()-0.5)*0.2)), {
+          vel: new THREE.Vector3((Math.random()-0.5)*0.3, 0.5+Math.random()*0.4, (Math.random()-0.5)*0.3),
+          maxLife: 1.0 + Math.random()*0.4, grav: -0.1
+        });
+      }
+    }
+    function sparkleBurst(pos, n){
+      for (let i = 0; i < (n||8); i++){
+        spawnParticle("sparkle", pos, {
+          vel: new THREE.Vector3((Math.random()-0.5)*1.0, 0.3+Math.random()*0.8, (Math.random()-0.5)*1.0),
+          maxLife: 0.6 + Math.random()*0.4, grav: -0.6
+        });
+      }
+    }
+    function bubblePop(pos, n){
+      for (let i = 0; i < (n||1); i++){
+        spawnParticle("bubble", pos.clone().add(new THREE.Vector3((Math.random()-0.5)*0.15,0,(Math.random()-0.5)*0.15)), {
+          vel: new THREE.Vector3((Math.random()-0.5)*0.2, 0.3+Math.random()*0.2, (Math.random()-0.5)*0.2),
+          maxLife: 0.8, grav: 0.05, scale: 0.6+Math.random()*0.8
+        });
+      }
+    }
+
+    // ================== dirt blotches ==================
+    function updateDirtVisual(){
+      const dirtiness = clamp(state.dirtLevel, 0, 100);
+      const showLevel = state.needs.clean < 50 ? clamp((50 - state.needs.clean) / 50, 0, 1) : 0;
+      const blotches = goat.userData.dirtBlotches;
+      for (let i = 0; i < blotches.length; i++){
+        const b = blotches[i];
+        // stagger which blotches appear based on dirtiness
+        const appear = clamp(showLevel * blotches.length - i, 0, 1);
+        b.mesh.material.opacity = appear * 0.75;
+        b.mesh.scale.set(b.baseScale * appear, 0.4 * appear, b.baseScale * appear);
+      }
+    }
+
+    // ================== tools / interaction ==================
+    let currentTool = "pet";
+    const toolButtons = Array.from(document.querySelectorAll(".toolBtn"));
+    toolButtons.forEach(btn => {
+      btn.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        currentTool = btn.dataset.tool;
+        toolButtons.forEach(b => b.classList.toggle("active", b === btn));
+        onToolSwitch();
+      });
+    });
+    function onToolSwitch(){
+      if (bottleMesh) bottleMesh.visible = false;
+      if (brushMesh) brushMesh.visible = false;
+      isPetting = false; isBrushing = false; holdingBottle = false;
+    }
+
+    // held prop meshes
+    const bottleMesh = (() => {
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.18, 10), new THREE.MeshPhongMaterial({ color:0xffffff, transparent:true, opacity:0.9 }));
+      body.position.y = 0.09;
+      g.add(body);
+      const neckM = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.03, 0.06, 8), mat(0xe8e8e8));
+      neckM.position.y = 0.21;
+      g.add(neckM);
+      const teat = new THREE.Mesh(new THREE.ConeGeometry(0.018, 0.05, 8), mat(0xd8a878));
+      teat.position.y = 0.26;
+      g.add(teat);
+      const milk = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.13, 10), mat(0xfffdf0));
+      milk.position.y = 0.07;
+      g.add(milk);
+      g.visible = false;
+      scene.add(g);
+      return g;
+    })();
+    const brushMesh = (() => {
+      const g = new THREE.Group();
+      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.16, 8), mat(0x8a5a34));
+      handle.rotation.z = Math.PI/2.2;
+      g.add(handle);
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.05, 0.06), mat(0x3a3a3a, true));
+      head.position.set(0.09, 0.035, 0);
+      g.add(head);
+      g.visible = false;
+      scene.add(g);
+      return g;
+    })();
+
+    let isPetting = false, isBrushing = false, holdingBottle = false;
+    let lastPetPos = null, petStrokeAccum = 0;
+    let hayInTrough = false;
+    let ballObj = null;
+
+    const raycaster = new THREE.Raycaster();
+    const pointerNDC = new THREE.Vector2();
+    const groundPlane = new THREE.Plane(new THREE.Vector3(0,1,0), 0);
+    const stagePt = new THREE.Vector3();
+
+    function pointerToNDC(e){
+      const r = renderer.domElement.getBoundingClientRect();
+      pointerNDC.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+      pointerNDC.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+    }
+    function raycastGoat(e){
+      pointerToNDC(e);
+      raycaster.setFromCamera(pointerNDC, camera);
+      const hits = raycaster.intersectObject(goat, true);
+      return hits.length > 0 ? hits[0] : null;
+    }
+    function raycastGround(e){
+      pointerToNDC(e);
+      raycaster.setFromCamera(pointerNDC, camera);
+      const pt = new THREE.Vector3();
+      raycaster.ray.intersectPlane(groundPlane, pt);
+      return pt;
+    }
+
+    function speechBubble(text){
+      const el = document.getElementById("speech");
+      el.textContent = text;
+      const headPos = new THREE.Vector3();
+      goat.userData.head.getWorldPosition(headPos);
+      headPos.y += 0.25;
+      const proj = headPos.clone().project(camera);
+      const r = renderer.domElement.getBoundingClientRect();
+      const x = (proj.x * 0.5 + 0.5) * r.width;
+      const y = (-proj.y * 0.5 + 0.5) * r.height;
+      el.style.left = x + "px";
+      el.style.top = y + "px";
+      el.style.opacity = "1";
+      el.style.transform = "translate(-50%,-100%) scale(1)";
+      clearTimeout(speechBubble._t);
+      speechBubble._t = setTimeout(() => { el.style.opacity = "0"; }, 1400);
+    }
+
+    // ---- pointer interaction ----
+    let pointerDown = false;
+    renderer.domElement.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      pointerDown = true;
+      const hit = raycastGoat(e);
+      if (currentTool === "pet"){
+        if (hit){
+          isPetting = true; lastPetPos = e; petStrokeAccum = 0;
+          GOAT.forcedUntil = Date.now() + 600;
+        } else {
+          // tap elsewhere with pet tool but hitting goat via quick tap check below
+        }
+        if (hit) { /* petting begins */ }
+        else {
+          // simple tap-to-look if they tap near but miss; ignore
+        }
+      } else if (currentTool === "bottle"){
+        bottleMesh.visible = true;
+        holdingBottle = true;
+        GOAT.forcedUntil = Date.now() + 30000;
+      } else if (currentTool === "hay"){
+        dropHay();
+      } else if (currentTool === "brush"){
+        brushMesh.visible = true;
+        isBrushing = true;
+        GOAT.forcedUntil = Date.now() + 600;
+      } else if (currentTool === "ball"){
+        tossBall();
+      }
+      if (hit && currentTool !== "hay" && currentTool !== "ball"){
+        // acknowledge a tap on the goat regardless of tool -> look + baa, but only if not actively stroking
+      }
+    });
+    renderer.domElement.addEventListener("pointermove", (e) => {
+      if (currentTool === "bottle" && holdingBottle){
+        const pt = raycastGround(e);
+        // position bottle near where pointer projects, floating at goat mouth height
+        bottleMesh.position.set(pt.x, 0.5, pt.z);
+      } else if (currentTool === "brush" && isBrushing){
+        const pt = raycastGround(e);
+        brushMesh.position.set(pt.x, 0.45, pt.z);
+        scrubDirt(pt);
+      } else if (currentTool === "pet" && isPetting && pointerDown){
+        const hit = raycastGoat(e);
+        if (hit && lastPetPos){
+          const dx = e.clientX - lastPetPos.clientX, dy = e.clientY - lastPetPos.clientY;
+          petStrokeAccum += Math.hypot(dx, dy);
+          if (petStrokeAccum > 26){
+            petStrokeAccum = 0;
+            const p = hit.point.clone(); p.y += 0.1;
+            heartBurst(p, 1);
+            state.needs.play = clamp(state.needs.play + 0.6, 0, 100);
+            saveState();
+          }
+        }
+        lastPetPos = e;
+        GOAT.leaning = clamp(GOAT.leaning + 0.05, 0, 1);
+      }
+    });
+    function endPointer(e){
+      pointerDown = false;
+      if (isPetting){
+        isPetting = false;
+        GOAT.forcedUntil = Date.now() + 200;
+      }
+      if (isBrushing){
+        isBrushing = false;
+      }
+      if (holdingBottle){
+        holdingBottle = false;
+        bottleMesh.visible = false;
+        GOAT.forcedUntil = 0;
+      }
+    }
+    window.addEventListener("pointerup", endPointer);
+    window.addEventListener("pointercancel", endPointer);
+
+    // simple tap detection (goat look + baa) — separate lightweight listener, ignores drags
+    let tapStart = null;
+    renderer.domElement.addEventListener("pointerdown", (e) => { tapStart = { x:e.clientX, y:e.clientY, t:Date.now() }; });
+    renderer.domElement.addEventListener("pointerup", (e) => {
+      if (!tapStart) return;
+      const dx = e.clientX - tapStart.x, dy = e.clientY - tapStart.y;
+      const dt = Date.now() - tapStart.t;
+      tapStart = null;
+      if (Math.hypot(dx,dy) < 8 && dt < 350){
+        const hit = raycastGoat(e);
+        if (hit) speechBubble("Baaa!");
+      }
+    });
+
+    function dropHay(){
+      hayInTrough = true;
+      troughGroup.userData.hayMesh.visible = true;
+      GOAT.forcedUntil = Date.now() + 6000;
+      GOAT.eatTarget = "trough";
+    }
+
+    function scrubDirt(pt){
+      const blotches = goat.userData.dirtBlotches;
+      let scrubbed = false;
+      for (const b of blotches){
+        if (b.mesh.material.opacity <= 0.02) continue;
+        const wp = new THREE.Vector3();
+        b.mesh.getWorldPosition(wp);
+        if (wp.distanceTo(pt) < 0.5){
+          b.mesh.material.opacity = Math.max(0, b.mesh.material.opacity - 0.06);
+          scrubbed = true;
+        }
+      }
+      if (scrubbed){
+        bubblePop(pt.clone().setY(0.4));
+        state.needs.clean = clamp(state.needs.clean + 0.5, 0, 100);
+        if (Math.random() < 0.15) sparkleBurst(pt.clone().setY(0.4), 4);
+        saveState();
+        if (state.needs.clean >= 90 && !GOAT._justShook){
+          GOAT._justShook = true;
+          setGoatState("shake");
+          sparkleBurst(GOAT.pos.clone().setY(0.5), 14);
+          setTimeout(()=>{ GOAT._justShook = false; }, 8000);
+        }
+      }
+    }
+
+    // ---- ball physics ----
+    function tossBall(){
+      if (ballObj){ scene.remove(ballObj.mesh); ballObj.mesh.geometry.dispose(); ballObj.mesh.material.dispose(); ballObj = null; }
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), mat(0xe85050, true));
+      const start = camera.position.clone(); start.y = 0.6;
+      mesh.position.copy(start);
+      scene.add(mesh);
+      ballObj = {
+        mesh,
+        vel: new THREE.Vector3(-start.x*0.35, 2.6, -3.4),
+        idleT: 0,
+        lastBounce: 0
+      };
+    }
+    function updateBall(dt){
+      if (!ballObj) return;
+      ballObj.vel.y += -6 * dt;
+      ballObj.mesh.position.addScaledVector(ballObj.vel, dt);
+      const p = ballObj.mesh.position;
+      if (p.y < 0.12){
+        p.y = 0.12;
+        ballObj.vel.y = Math.abs(ballObj.vel.y) * 0.55;
+        ballObj.vel.x *= 0.75; ballObj.vel.z *= 0.75;
+        if (Math.abs(ballObj.vel.y) < 0.3) ballObj.vel.y = 0;
+      }
+      const halfW = STALL_W/2 - 0.15, halfD = STALL_D/2 - 0.15;
+      if (p.x < -halfW){ p.x = -halfW; ballObj.vel.x *= -0.6; }
+      if (p.x > halfW){ p.x = halfW; ballObj.vel.x *= -0.6; }
+      if (p.z < -halfD){ p.z = -halfD; ballObj.vel.z *= -0.6; }
+      if (p.z > halfD){ p.z = halfD; ballObj.vel.z *= -0.6; }
+      const speed = ballObj.vel.length();
+      if (speed < 0.15) ballObj.idleT += dt; else ballObj.idleT = 0;
+      if (ballObj.idleT > 20){
+        scene.remove(ballObj.mesh); ballObj.mesh.geometry.dispose(); ballObj.mesh.material.dispose();
+        ballObj = null;
+      }
+    }
+    function headbuttBall(){
+      if (!ballObj) return;
+      const dx = ballObj.mesh.position.x - GOAT.pos.x, dz = ballObj.mesh.position.z - GOAT.pos.z;
+      const dir = new THREE.Vector3(dx, 0, dz).normalize();
+      ballObj.vel.x = dir.x * 2.6 + (Math.random()-0.5)*0.6;
+      ballObj.vel.z = dir.z * 2.6 + (Math.random()-0.5)*0.6;
+      ballObj.vel.y = 1.4;
+      state.needs.play = clamp(state.needs.play + 4, 0, 100);
+      saveState();
+      if (Math.random() < 0.5) setGoatState("pronk");
+      sparkleBurst(ballObj.mesh.position.clone(), 4);
+    }
+
+    // ================== main animation / behavior tick ==================
+    let lastFrame = null;
+
+    function updateBehavior(dt, now){
+      const mood = moodValue();
+      const night = isNight();
+      GOAT.stateT += dt;
+
+      // blinking
+      goat.userData.head // noop to keep reference warm
+      GOAT.blinkTimer -= dt;
+      if (GOAT.blinking > 0){
+        GOAT.blinking -= dt / 0.12;
+        setBlink(Math.max(0, Math.sin(Math.min(1, GOAT.stateT) * Math.PI)));
+      }
+      if (GOAT.blinkTimer <= 0 && GOAT.state !== "sleep" && GOAT.state !== "lie"){
+        GOAT.blinkTimer = 3 + Math.random()*3;
+        GOAT.blinkPhase = 0;
+        GOAT._blinking = true;
+        GOAT._blinkT = 0;
+      }
+      if (GOAT._blinking){
+        GOAT._blinkT += dt;
+        const b = Math.sin(Math.min(1, GOAT._blinkT/0.22) * Math.PI);
+        setBlink(b);
+        if (GOAT._blinkT >= 0.22){ GOAT._blinking = false; setBlink(0); }
+      } else if (GOAT.state !== "lie" && !isPetting){
+        setBlink(0);
+      }
+
+      // ear twitch idle detail
+      GOAT.earTwitchTimer -= dt;
+      if (GOAT.earTwitchTimer <= 0){
+        GOAT.earTwitchTimer = 4 + Math.random()*4;
+        GOAT._earFlick = 0.3;
+      }
+      if (GOAT._earFlick > 0){ GOAT._earFlick -= dt; JOINT.earL = Math.sin(GOAT._earFlick*20)*0.15; }
+      else JOINT.earL = 0;
+
+      const sad = mood < 30;
+      const veryHappy = mood > 75;
+
+      // decide behavior transitions when not forced by a tool
+      const forced = now < GOAT.forcedUntil;
+      if (!forced){
+        if (holdingBottle || isPetting || isBrushing) { /* handled elsewhere */ }
+        else if (night && GOAT.state !== "eat" && GOAT.state !== "shake"){
+          if (GOAT.state !== "lie") setGoatState("lie");
+        } else if (ballObj && new THREE.Vector3(ballObj.mesh.position.x-GOAT.pos.x,0,ballObj.mesh.position.z-GOAT.pos.z).length() < 2.6){
+          setGoatState("walk");
+          GOAT.target = ballObj.mesh.position.clone().setY(0);
+        } else if (hayInTrough && GOAT.eatTarget === "trough"){
+          setGoatState("walk");
+          GOAT.target = troughGroup.position.clone();
+        } else {
+          GOAT.idleTimer -= dt;
+          if (GOAT.state === "idle" && GOAT.idleTimer <= 0){
+            GOAT.idleTimer = 5 + Math.random()*10;
+            if (Math.random() < 0.25 && !sad){
+              setGoatState("pronk");
+            } else {
+              GOAT.target = pickRoamTarget();
+              setGoatState("walk");
+            }
+          } else if (GOAT.state === "walk" && GOAT.target){
+            const d = GOAT.target.clone().sub(GOAT.pos); d.y = 0;
+            if (d.length() < 0.08){
+              setGoatState(sad ? "sadidle" : "idle");
+              GOAT.target = null;
+            }
+          } else if (GOAT.state !== "walk" && GOAT.state !== "idle" && GOAT.state !== "sadidle"){
+            // finished a one-off animation (pronk/jump/shake) -> back to idle
+            if (GOAT.stateT > 1.0) setGoatState(sad ? "sadidle" : "idle");
+          }
+        }
+      }
+
+      // bottle feeding: walk to head-height near pointer, then drink
+      if (holdingBottle){
+        const bp = bottleMesh.position;
+        const headWorld = new THREE.Vector3(); goat.userData.head.getWorldPosition(headWorld);
+        const dist = headWorld.distanceTo(bp);
+        if (dist < 0.35){
+          setGoatState("eat");
+          JOINT.neckX = -0.5; JOINT.headX = -0.35;
+          GOAT.jawTimer = (GOAT.jawTimer||0) + dt;
+          JOINT.jawX = Math.sin(GOAT.jawTimer*10) * 0.06;
+          state.needs.food = clamp(state.needs.food + dt * 9, 0, 100);
+          if (Math.floor(GOAT.jawTimer*3) !== Math.floor((GOAT.jawTimer-dt)*3)){
+            bubblePop(headWorld.clone());
+          }
+          saveState();
+        } else {
+          setGoatState("walk");
+          const flat = bp.clone().setY(0);
+          GOAT.target = flat;
+        }
+      }
+
+      // eating hay in trough
+      if (GOAT.eatTarget === "trough" && GOAT.state !== "walk"){
+        const troughPos = troughGroup.position;
+        if (GOAT.pos.distanceTo(troughPos) < 0.6){
+          setGoatState("eat");
+          JOINT.neckX = -0.3; JOINT.headX = -0.5;
+          GOAT.jawTimer = (GOAT.jawTimer||0) + dt;
+          JOINT.jawX = Math.sin(GOAT.jawTimer*8) * 0.08;
+          GOAT._eatFeedT = (GOAT._eatFeedT||0) + dt;
+          if (GOAT._eatFeedT > 3){
+            state.needs.food = clamp(state.needs.food + 25, 0, 100);
+            saveState();
+            GOAT.eatTarget = null;
+            hayInTrough = false;
+            troughGroup.userData.hayMesh.visible = false;
+            GOAT._eatFeedT = 0;
+            setGoatState("idle");
+          }
+        }
+      }
+
+      // pet interaction shaping
+      if (isPetting){
+        setGoatState("happy");
+        GOAT.leaning = clamp(GOAT.leaning + dt*2, 0, 1);
+        setBlink(0.9);
+      } else {
+        GOAT.leaning = clamp(GOAT.leaning - dt*2, 0, 1);
+      }
+      if (isBrushing){
+        setGoatState("happy");
+      }
+
+      // headbutt trigger when close to ball while walking toward it and state settles
+      if (ballObj){
+        const flatDist = new THREE.Vector3(ballObj.mesh.position.x-GOAT.pos.x,0,ballObj.mesh.position.z-GOAT.pos.z).length();
+        if (flatDist < 0.32 && (now - (GOAT._lastHeadbutt||0)) > 900){
+          GOAT._lastHeadbutt = now;
+          headbuttBall();
+        }
+      }
+
+      // movement toward target
+      if (GOAT.state === "walk" && GOAT.target){
+        const d = GOAT.target.clone().sub(GOAT.pos); d.y = 0;
+        const dist = d.length();
+        if (dist > 0.02){
+          d.normalize();
+          const targetFacing = Math.atan2(d.x, d.z);
+          let da = targetFacing - GOAT.facing;
+          da = Math.atan2(Math.sin(da), Math.cos(da));
+          GOAT.facing += da * Math.min(1, dt*6);
+          const spd = GOAT.speed * (1 - Math.min(0.5, mood < 40 ? 0.3 : 0));
+          GOAT.pos.addScaledVector(d, spd * dt);
+          GOAT.walkPhase += dt * 7 * spd;
+          const swing = 0.55;
+          JOINT.hipFL = Math.sin(GOAT.walkPhase) * swing;
+          JOINT.hipBR = Math.sin(GOAT.walkPhase) * swing;
+          JOINT.hipFR = Math.sin(GOAT.walkPhase+Math.PI) * swing;
+          JOINT.hipBL = Math.sin(GOAT.walkPhase+Math.PI) * swing;
+          JOINT.kneeFL = Math.max(0, Math.sin(GOAT.walkPhase - 0.6)) * 0.7;
+          JOINT.kneeBR = Math.max(0, Math.sin(GOAT.walkPhase - 0.6)) * 0.7;
+          JOINT.kneeFR = Math.max(0, Math.sin(GOAT.walkPhase+Math.PI - 0.6)) * 0.7;
+          JOINT.kneeBL = Math.max(0, Math.sin(GOAT.walkPhase+Math.PI - 0.6)) * 0.7;
+          JOINT.bodyY = 0.02 + Math.abs(Math.sin(GOAT.walkPhase*2)) * 0.015;
+          JOINT.tailWag += dt*4;
+          JOINT.neckX = 0; JOINT.headX = 0;
+        }
+      } else if (GOAT.state === "idle" || GOAT.state === "sadidle"){
+        const t = now/1000;
+        const weightShift = Math.sin(t*0.8) * 0.04;
+        JOINT.hipFL = weightShift; JOINT.hipBR = -weightShift;
+        JOINT.hipFR = -weightShift*0.6; JOINT.hipBL = weightShift*0.6;
+        JOINT.kneeFL = JOINT.kneeFR = JOINT.kneeBL = JOINT.kneeBR = 0;
+        JOINT.bodyY = 0.02 + Math.sin(t*1.3) * (GOAT.state === "sadidle" ? 0.003 : 0.008);
+        GOAT.lookTimer -= dt;
+        if (GOAT.lookTimer <= 0){
+          GOAT.lookTimer = 2 + Math.random()*3;
+          GOAT.lookAngle = (Math.random()-0.5) * 0.8;
+        }
+        if (GOAT.state === "sadidle"){
+          JOINT.neckX = 0.35; JOINT.headX = 0.2;
+          JOINT.earL = 0.25; JOINT.earR = 0.25;
+          JOINT.tailWag = 0;
+        } else {
+          JOINT.neckY = GOAT.lookAngle * 0.6;
+          JOINT.headX = 0;
+          JOINT.tailX = Math.sin(t*0.5)*0.1;
+        }
+      } else if (GOAT.state === "pronk"){
+        const p = Math.min(1, GOAT.stateT / 0.7);
+        const bounce = Math.sin(p*Math.PI);
+        JOINT.bodyY = 0.02 + bounce*0.18;
+        const tuck = bounce*1.1;
+        JOINT.hipFL = JOINT.hipFR = -tuck; JOINT.hipBL = JOINT.hipBR = tuck*0.8;
+        JOINT.kneeFL = JOINT.kneeFR = tuck*1.3; JOINT.kneeBL = JOINT.kneeBR = tuck*1.1;
+        JOINT.tailWag += dt*10;
+        if (bounce > 0.85 && !GOAT._pronkLanded){ GOAT._pronkLanded = true; }
+        if (p >= 1){
+          GOAT._pronkLanded = false;
+          strawPuff(GOAT.pos.clone().setY(0.05), 5);
+        }
+      } else if (GOAT.state === "jump"){
+        const p = Math.min(1, GOAT.stateT / 0.6);
+        let bounce;
+        if (p < 0.3){ bounce = -0.06 * (p/0.3); } // crouch
+        else if (p < 0.75){ const q=(p-0.3)/0.45; bounce = -0.06 + q*0.3; }
+        else { const q=(p-0.75)/0.25; bounce = 0.24 * (1-q); }
+        JOINT.bodyY = 0.02 + bounce;
+        JOINT.hipFL = JOINT.hipFR = JOINT.hipBL = JOINT.hipBR = bounce > 0 ? -0.6 : 0.3;
+        if (p >= 1 && GOAT.lastLanded === false){
+          strawPuff(GOAT.pos.clone().setY(0.02), 6);
+          GOAT.lastLanded = true;
+        } else if (p < 1) GOAT.lastLanded = false;
+      } else if (GOAT.state === "lie"){
+        const p = Math.min(1, GOAT.stateT / 0.8);
+        JOINT.bodyY = 0.02 - p*0.28;
+        JOINT.hipFL = JOINT.hipFR = -1.9*p; JOINT.kneeFL = JOINT.kneeFR = 2.1*p;
+        JOINT.hipBL = JOINT.hipBR = 1.7*p; JOINT.kneeBL = JOINT.kneeBR = -1.9*p;
+        JOINT.neckX = 0.2*p; JOINT.headX = 0.1*p;
+        JOINT.earL = 0.2*p; JOINT.earR = 0.2*p;
+        if (p >= 1){
+          setBlink(1);
+          goat.userData.zGroup.visible = true;
+          const t = now/1000;
+          goat.userData.zSprites.forEach((s, i) => {
+            s.material.opacity = 0.85;
+            s.position.set(0.15 + i*0.08, 0.55 + i*0.12 + Math.sin(t*0.8+i)*0.03, 0);
+          });
+        }
+      } else if (GOAT.state === "eat"){
+        JOINT.bodyY = 0.02;
+        JOINT.hipFL = JOINT.hipFR = JOINT.hipBL = JOINT.hipBR = 0;
+      } else if (GOAT.state === "happy"){
+        const t = now/1000;
+        JOINT.tailWag += dt*14;
+        JOINT.earL = -0.3; JOINT.earR = -0.3;
+        JOINT.bodyY = 0.02 + Math.max(0, Math.sin(t*6))*0.03 * GOAT.leaning;
+        JOINT.neckX = -0.15 * GOAT.leaning;
+        JOINT.headX = -0.1 * GOAT.leaning;
+        JOINT.bodyTiltX = Math.sin(t*3) * 0.03 * GOAT.leaning;
+      } else if (GOAT.state === "shake"){
+        const p = Math.min(1, GOAT.stateT / 0.9);
+        JOINT.bodyTiltX = Math.sin(p*Math.PI*6) * 0.35 * (1-p);
+        JOINT.earL = Math.sin(p*Math.PI*6)*0.4;
+        JOINT.earR = -Math.sin(p*Math.PI*6)*0.4;
+        if (p >= 1) JOINT.bodyTiltX = 0;
+      }
+
+      // clear sleep Z's when not lying
+      if (GOAT.state !== "lie"){
+        goat.userData.zGroup.visible = false;
+      }
+
+      // if not lying/sleeping, hips settle toward 0 for idle-adjacent states handled above already
+
+      // face direction
+      goat.rotation.y = GOAT.facing;
+      goat.position.set(GOAT.pos.x, 0, GOAT.pos.z);
+
+      lerpJoints(dt);
+      applyJointsToMesh();
+      updateDirtVisual();
+
+      // shadow follow (child of goat root already, stays local)
+    }
+
+    // ================== HUD update ==================
+    const mFood = document.getElementById("mFood"), mClean = document.getElementById("mClean"), mPlay = document.getElementById("mPlay");
+    const moodRow = document.getElementById("moodRow");
+    const clockEl = document.getElementById("clock");
+
+    function meterColor(v){
+      if (v > 60) return "#4ecb5c";
+      if (v > 30) return "#e0a92c";
+      return "#e85050";
+    }
+    function updateHUD(){
+      mFood.style.width = state.needs.food + "%"; mFood.style.background = meterColor(state.needs.food);
+      mClean.style.width = state.needs.clean + "%"; mClean.style.background = meterColor(state.needs.clean);
+      mPlay.style.width = state.needs.play + "%"; mPlay.style.background = meterColor(state.needs.play);
+      const mood = moodValue();
+      let label = "❤️ Happy";
+      if (mood < 30) label = "💔 Sad";
+      else if (mood < 60) label = "🧡 Okay";
+      else if (mood > 85) label = "💕 Overjoyed";
+      moodRow.textContent = label;
+      hudAge.textContent = ageText();
+      let h, m;
+      if (photoHour != null){ h = photoHour; m = 0; }
+      else { const d = new Date(); h = d.getHours(); m = d.getMinutes(); }
+      clockEl.textContent = h + ":" + String(m).padStart(2,"0");
+    }
+
+    // ================== butterfly update ==================
+    function updateButterfly(dt, now){
+      if (!butterflyState.active){
+        butterflyState.t -= dt;
+        if (butterflyState.t <= 0 && !isNight()){
+          butterflyState.active = true;
+          butterfly.visible = true;
+          const startX = -STALL_W/2 - 0.3;
+          butterflyState.startTime = now;
+        }
+      } else {
+        const t = (now - butterflyState.startTime) / 1000;
+        const p = t / 9; // 9s flight
+        if (p >= 1){
+          butterflyState.active = false;
+          butterfly.visible = false;
+          butterflyState.next = 10 + Math.random()*20;
+          butterflyState.t = butterflyState.next;
+        } else {
+          const x = -STALL_W/2 - 0.3 + p * (STALL_W + 0.6);
+          const z = -0.5 + Math.sin(p*Math.PI*3) * 1.2;
+          const y = 0.9 + Math.sin(p*Math.PI*5) * 0.25 + Math.sin(t*2)*0.05;
+          butterfly.position.set(x, y, z);
+          const flap = Math.sin(t*18);
+          butterfly.userData.wL.rotation.y = Math.PI/2 + flap*0.9;
+          butterfly.userData.wR.rotation.y = -Math.PI/2 - flap*0.9;
+        }
+      }
+    }
+
+    // ================== render loop ==================
+    let lightT = dayBlend();
+    function frame(ts){
+      requestAnimationFrame(frame);
+      if (lastFrame === null) lastFrame = ts;
+      let dt = (ts - lastFrame) / 1000;
+      if (dt > 0.1) dt = 0.1;
+      lastFrame = ts;
+      const now = Date.now();
+
+      // periodic real-time decay re-check (in case tab was hidden and just resumed)
+      applyElapsedDecay();
+
+      lightT += ((dayBlend()) - lightT) * Math.min(1, dt*0.5);
+      applyLighting(lightT);
+
+      if (PHOTO) photoPoseTick();
+      updateBehavior(dt, now);
+      updateParticles(dt);
+      updateBall(dt);
+      updateButterfly(dt, now);
+      updateHUD();
+
+      // camera follows the kid — smoothed look-at with gentle parallax + idle sway
+      // (disabled in photo mode unless cam=game, so fixed photo presets aren't fought each frame)
+      if (!PHOTO || photoCam === "game"){
+        camSwayT += dt;
+        const camK = Math.min(1, dt * 2.2);
+        camLook.x += (goat.position.x - camLook.x) * camK;
+        camLook.z += (goat.position.z - camLook.z) * camK;
+        camera.position.x = camBase.x + camLook.x * 0.45 + Math.sin(camSwayT*0.25) * 0.08;
+        camera.position.y = camBase.y + Math.sin(camSwayT*0.18) * 0.03;
+        camera.position.z = camBase.z + camLook.z * 0.18;
+        camera.lookAt(camLook.x, 0.55, camLook.z);
+      } else {
+        applyPhotoCamera();
+      }
+
+      // held props follow their target position already set on pointermove; keep bottle upright
+      if (bottleMesh.visible) bottleMesh.rotation.z = Math.sin(now/300)*0.05;
+
+      renderer.render(scene, camera);
+
+      // periodic save so lastSeen stays reasonably fresh even without interaction
+      if (now - (frame._lastSave||0) > 15000){ frame._lastSave = now; saveState(); }
+    }
+    requestAnimationFrame(frame);
+
+    // save on unload / visibility change (covers closing tab / backgrounding)
+    window.addEventListener("beforeunload", saveState);
+    document.addEventListener("visibilitychange", () => { if (document.hidden) saveState(); else applyElapsedDecay(); });
+
+    // initial pick
+    GOAT.target = pickRoamTarget();
+    setGoatState("idle");
+
+    // ================== photo mode: pose / camera / settle ==================
+    // Everything below only runs when ?photo=1. It forces a pose and camera, lets
+    // physics/lerps settle synchronously, then flags window.__photoReady so a
+    // headless capture script knows the frame is safe to screenshot.
+    let photoCam = "three4";
+    const photoHeadWorld = new THREE.Vector3();
+    function applyPhotoCamera(){
+      // closeup looks at the goat's actual head position each frame (it moves with poses)
+      goat.userData.head.getWorldPosition(photoHeadWorld);
+      if (photoCam === "front"){
+        camera.position.set(0, 0.7, 1.4);
+        camera.lookAt(0, 0.45, -0.2);
+      } else if (photoCam === "side"){
+        camera.position.set(1.6, 0.7, -0.2);
+        camera.lookAt(0, 0.45, -0.2);
+      } else if (photoCam === "three4"){
+        camera.position.set(1.25, 0.8, 1.0);
+        camera.lookAt(0, 0.4, -0.2);
+      } else if (photoCam === "closeup"){
+        camera.position.set(0.6, 0.72, 0.65);
+        camera.lookAt(photoHeadWorld);
+      }
+      // cam=game falls through to the normal follow-cam block in frame()
+    }
+
+    let photoPose = null;
+    // Keeps looping poses alive under forcedUntil=Infinity, which otherwise blocks the
+    // normal "animation finished -> idle" and "pick a new walk target" transitions.
+    function photoPoseTick(){
+      if (!photoPose) return;
+      if (photoPose === "walk"){
+        if (!GOAT.target || GOAT.pos.distanceTo(GOAT.target) < 0.08) GOAT.target = pickRoamTarget();
+      } else if (photoPose === "pronk"){
+        // setGoatState() no-ops when the state is already "pronk", so reset stateT
+        // directly to replay the ~0.7s bounce cycle indefinitely
+        if (GOAT.stateT > 0.7) GOAT.stateT = 0;
+      } else if (photoPose === "stand"){
+        for (const key in JOINT) JOINT[key] = 0; // hold a perfectly neutral stance every tick
+      } else if (photoPose === "eat"){
+        // the base "eat" state only zeroes hips; head-down munching normally comes from
+        // the bottle/trough feeding code, so drive it directly here for a bare pose=eat shot
+        JOINT.neckX = -0.3; JOINT.headX = -0.5;
+        GOAT._photoJawT = (GOAT._photoJawT || 0) + (1/60);
+        JOINT.jawX = Math.sin(GOAT._photoJawT * 8) * 0.08;
+      }
+    }
+
+    if (PHOTO){
+      const p = _photoParams;
+
+      // ---- pose ----
+      const pose = p.get("pose") || "stand";
+      const poseState = { stand:"idle", lie:"lie", walk:"walk", pronk:"pronk", eat:"eat", happy:"happy" }[pose] || "idle";
+      setGoatState(poseState);
+      GOAT.forcedUntil = Infinity; // free-roam AI must never override a photo pose
+      photoPose = pose;
+      if (pose === "stand"){
+        // zero every joint target so the goat holds a plain, neutral standing pose
+        for (const key in JOINT) JOINT[key] = 0;
+      } else if (pose === "walk"){
+        GOAT.target = pickRoamTarget();
+      }
+      // pronk/happy are left animating live (their per-state code in updateBehavior
+      // drives JOINT targets every frame based on GOAT.state and GOAT.stateT); walk
+      // and pronk get re-armed each tick by photoPoseTick() so they loop indefinitely
+
+      // ---- position / facing ----
+      const rot = p.has("rot") ? parseFloat(p.get("rot")) : 0.9;
+      const px = p.has("x") ? parseFloat(p.get("x")) : 0;
+      const pz = p.has("z") ? parseFloat(p.get("z")) : -0.2;
+      GOAT.facing = isNaN(rot) ? 0.9 : rot;
+      GOAT.pos.set(isNaN(px) ? 0 : px, 0, isNaN(pz) ? -0.2 : pz);
+      goat.rotation.y = GOAT.facing;
+      goat.position.set(GOAT.pos.x, 0, GOAT.pos.z);
+
+      // ---- camera preset ----
+      photoCam = p.get("cam") || "three4";
+
+      // ---- lighting: snap instantly, no 2s lerp ----
+      lightT = dayBlend();
+      applyLighting(lightT);
+
+      // ---- settle: synchronously step the sim so lerped joints/camera land in place ----
+      const settleSeconds = p.has("settle") ? parseFloat(p.get("settle")) : 1.5;
+      const settleSteps = Math.max(0, Math.round((isNaN(settleSeconds) ? 1.5 : settleSeconds) * 60));
+      const settleNow = Date.now();
+      for (let i = 0; i < settleSteps; i++){
+        photoPoseTick();
+        updateBehavior(1/60, settleNow);
+        updateParticles(1/60);
+      }
+      if (photoCam !== "game") applyPhotoCamera();
+
+      window.__photoReady = true;
+    }
+  })();
+  </script>
+</body>
+</html>
