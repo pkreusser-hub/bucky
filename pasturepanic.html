@@ -737,34 +737,6 @@
       return m;
     }
 
-    // ---- farmer's weapon: the downloaded shotgun if it loaded, else a corn cannon ----
-    // Extracted so both the procedural buildFarmer() and the rigged buildFarmerRigged()
-    // (which hangs this off the RightHand bone) can share the exact same construction.
-    function buildFarmerGun(){
-      const cannonGrp = new THREE.Group();
-      if (gunAsset){
-        const gun = new THREE.Mesh(gunAsset.geo, [
-          new THREE.MeshPhongMaterial({ color: 0x8a6a44, shininess: 20 }),   // stock
-          new THREE.MeshPhongMaterial({ color: 0x5b5b62, shininess: 60 })    // barrel
-        ]);
-        const s = 1.1 / gunAsset.len;           // ~1.1 units long
-        gun.scale.setScalar(s);
-        // orient the model's long axis to point forward (+Z)
-        if (gunAsset.longAxis === "x") gun.rotation.y = Math.PI/2;
-        else if (gunAsset.longAxis === "y") gun.rotation.x = Math.PI/2;
-        gun.position.z = 0.3;
-        cannonGrp.add(gun);
-      } else {
-        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.19, 1.0, 8), mat(0x6e5233));
-        barrel.rotation.x = Math.PI/2; cannonGrp.add(barrel);
-        const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.13, 0.14, 8), mat(0x54402a));
-        muzzle.rotation.x = Math.PI/2; muzzle.position.z = 0.55; cannonGrp.add(muzzle);
-        const cob = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 5), mat(0xffd23f));
-        cob.position.z = 0.62; cannonGrp.add(cob);
-      }
-      return cannonGrp;
-    }
-
     // ---- farmer model (articulated: legs/arms pivot at hip/shoulder for the run cycle) ----
     function buildFarmer(){
       const g = new THREE.Group();
@@ -824,11 +796,8 @@
       cap.position.y = 2.62; g.add(cap);
       const hatBand = new THREE.Mesh(new THREE.CylinderGeometry(0.41, 0.42, 0.09, 12), mat(0xb5432e));
       hatBand.position.y = 2.5; g.add(hatBand);
-      // weapon cradled at the hip: the downloaded shotgun if it loaded, else a corn cannon
-      const cannonGrp = buildFarmerGun();
-      cannonGrp.position.set(0.35, 1.35, 0.55);
-      g.add(cannonGrp);
-      g.userData.cannon = cannonGrp;
+      // no held weapon — the farm magic fires itself (family decision: no guns on characters)
+      g.userData.cannon = null;
       g.userData.runPhase = 0;
       g.userData.cannonKick = 0;
       g.add(blobShadow(0.85));
@@ -836,17 +805,13 @@
     }
 
     // ---- playable character models (same userData interface as the farmer; missing limbs are null) ----
-    function attachSidearm(g, x, y, z){
-      const grp = new THREE.Group();
-      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.13, 0.8, 7), mat(0x6e5233));
-      barrel.rotation.x = Math.PI/2; grp.add(barrel);
-      grp.position.set(x, y, z);
-      g.add(grp);
-      g.userData.cannon = grp;
-      g.userData.cannonBaseZ = z;
+    // (characters carry no weapons — attacks visually originate from the character)
+    function attachSidearm(g){
+      g.userData.cannon = null;
+      g.userData.cannonBaseZ = 0.5;
       g.userData.runPhase = 0;
       g.userData.cannonKick = 0;
-      return grp;
+      return null;
     }
     function buildGoatChar(){
       const g = new THREE.Group();
@@ -1475,9 +1440,9 @@
 
     // ---- downloaded player quadrupeds (goatchar.glb / collie.glb) — split legs, face +Z ----
     let goatTemplate = null;
-    loadSplitQuadruped("assets/goatchar.glb", { height: 1.6 }, (tpl) => { goatTemplate = tpl; });
+    loadSplitQuadruped("assets/goatchar.glb", { height: 1.6 }, (tpl) => { goatTemplate = tpl; upgradePlayerIfWaiting(); });
     let collieTemplate = null;
-    loadSplitQuadruped("assets/collie.glb", { height: 1.5 }, (tpl) => { collieTemplate = tpl; });
+    loadSplitQuadruped("assets/collie.glb", { height: 1.5 }, (tpl) => { collieTemplate = tpl; upgradePlayerIfWaiting(); });
     function buildGoatSplit(){
       if (!goatTemplate) return buildGoatChar();
       const g = buildSplitQuadruped(goatTemplate, false);
@@ -1599,9 +1564,9 @@
       }, undefined, (err) => console.warn(idleUrl + " failed to load — using the built-in procedural model", err));
     }
     let farmerTemplate = null;
-    loadRiggedCharacter("assets/farmer.glb", "assets/farmer-idle.glb", 2.6, (tpl) => { farmerTemplate = tpl; });
+    loadRiggedCharacter("assets/farmer.glb", "assets/farmer-idle.glb", 2.6, (tpl) => { farmerTemplate = tpl; upgradePlayerIfWaiting(); });
     let strawmanTemplate = null;
-    loadRiggedCharacter("assets/strawman.glb", "assets/strawman-idle.glb", 2.6, (tpl) => { strawmanTemplate = tpl; });
+    loadRiggedCharacter("assets/strawman.glb", "assets/strawman-idle.glb", 2.6, (tpl) => { strawmanTemplate = tpl; upgradePlayerIfWaiting(); });
 
     // Shared builder for rigged players: clones the template scene (via SkeletonUtils.clone,
     // which — unlike Object3D.clone/scene.clone(true) — correctly re-binds a fresh skeleton
@@ -1651,40 +1616,32 @@
 
     const buildFarmerProcedural = buildFarmer;
     function buildFarmerRigged(){
-      return buildRiggedCharacter(farmerTemplate, buildFarmerProcedural, 0.85, (handBone) => {
-        const grp = buildFarmerGun();
-        if (handBone){
-          // Bone-local space is ~100x world space under the Armature's 0.01 scale, so a
-          // mesh parented under a bone needs a corrective inverse scale to read as the
-          // same visual size it had in world space. Position/rotation tuned by eye against
-          // a posed screenshot (see verification step) to sit the gun in the hand.
-          grp.scale.setScalar(100);
-          grp.position.set(0, -0.05, 0.55);
-          grp.rotation.set(0, 0, 0);
-          handBone.add(grp);
-        } else {
-          grp.position.set(0.35, 1.35, 0.55);
-        }
-        return { grp };
-      });
+      return buildRiggedCharacter(farmerTemplate, buildFarmerProcedural, 0.85, null);
     }
 
     const buildStrawProcedural = buildStrawChar;
     function buildStrawRigged(){
-      return buildRiggedCharacter(strawmanTemplate, buildStrawProcedural, 0.8, (handBone) => {
-        const grp = new THREE.Group();
-        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.13, 0.8, 7), mat(0x6e5233));
-        barrel.rotation.x = Math.PI/2; grp.add(barrel);
-        if (handBone){
-          grp.scale.setScalar(100);
-          grp.position.set(0, -0.05, 0.5);
-          grp.rotation.set(0, 0, 0);
-          handBone.add(grp);
-        } else {
-          grp.position.set(0.45, 1.3, 0.4);
-        }
-        return { grp };
-      });
+      return buildRiggedCharacter(strawmanTemplate, buildStrawProcedural, 0.8, null);
+    }
+
+    // If a run started before a player character's model finished downloading, the game
+    // fell back to the procedural stand-in for the WHOLE run (the "where's my new farmer?"
+    // bug — guaranteed on a phone's first cold visit). When a template lands, upgrade the
+    // live player in place, keeping position and facing.
+    function upgradePlayerIfWaiting(){
+      if (!player || state === "title") return;
+      if (player.userData && (player.userData.mixer || player.userData.legPivots)) return;  // already upgraded
+      const fresh = buildCharacter(charById(meta.selChar).id);
+      if (!fresh.userData || (!fresh.userData.mixer && !fresh.userData.legPivots)){
+        freeMesh(fresh);   // template still not the upgraded kind — keep waiting
+        return;
+      }
+      const pos = player.position.clone(), yaw = player.rotation.y;
+      freeMesh(player);
+      player = fresh;
+      player.position.copy(pos);
+      player.rotation.y = yaw;
+      scene.add(player);
     }
 
     // ---- downloaded hay-bale model (haybale.fbx + straw.png) — one round roll, textured ----
@@ -1705,24 +1662,6 @@
         }
       }, undefined, (err) => console.warn("haybale.fbx failed to load — using the built-in bales", err));
     }
-
-    // ---- downloaded shotgun model (shotgun.fbx) — the farmer's weapon ----
-    let gunAsset = null;
-    new THREE.FBXLoader().load("shotgun.fbx", (fbx) => {
-      let mesh = null;
-      fbx.traverse(o => { if (o.isMesh && !mesh) mesh = o; });
-      if (mesh){
-        const geo = mesh.geometry.clone();
-        geo.computeBoundingBox();
-        const c = new THREE.Vector3(); geo.boundingBox.getCenter(c);
-        geo.translate(-c.x, -c.y, -c.z);   // center the barrel on origin
-        geo.computeBoundingBox();
-        const sz = new THREE.Vector3(); geo.boundingBox.getSize(sz);
-        gunAsset = { geo, longAxis: (sz.x >= sz.y && sz.x >= sz.z) ? "x" : (sz.y >= sz.z ? "y" : "z"),
-          len: Math.max(sz.x, sz.y, sz.z) };
-        SHARED_ASSETS.add(geo);
-      }
-    }, undefined, (err) => console.warn("shotgun.fbx failed to load — using the corn cannon", err));
 
     // ---- shared geometries ----
     const projG = new THREE.SphereGeometry(0.3, 8, 6);
