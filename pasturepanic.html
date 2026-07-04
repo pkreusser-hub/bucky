@@ -18,15 +18,72 @@
   #stage{ position:absolute; top:46px; left:0; right:0; bottom:0; }
   canvas{ display:block; touch-action:none; }
 
-  /* HUD */
-  #hud{ position:absolute; top:8px; left:8px; right:8px; z-index:10; pointer-events:none; display:none; }
-  .hudbar{ height:14px; border-radius:7px; background:rgba(0,0,0,.45); overflow:hidden; margin-bottom:5px; max-width:340px; }
-  .hudbar>div{ height:100%; border-radius:7px; transition:width .15s; }
+  /* HUD — corner clusters with a subtle backdrop pill so text reads against bright grass */
+  #hud{ position:absolute; inset:0; z-index:10; pointer-events:none; display:none; }
+  .hudCluster{ position:absolute; display:flex; align-items:center; pointer-events:none;
+               background:rgba(0,0,0,.28); border-radius:14px; backdrop-filter:blur(1px); }
+  /* top-left: HP bar + level chip */
+  #hudTopLeft{ top:10px; left:10px; gap:8px; padding:7px 10px 7px 8px; }
+  .lvlChip{ flex:0 0 auto; width:34px; height:34px; border-radius:50%; background:radial-gradient(circle at 35% 30%,#3a5a3f,#14301a);
+            border:2px solid #ffd23f; display:flex; align-items:center; justify-content:center;
+            font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:12px; color:#ffd23f; text-shadow:0 1px 2px rgba(0,0,0,.7); line-height:1; }
+  #hpWrap{ display:flex; flex-direction:column; gap:2px; }
+  .hudbar{ height:16px; width:220px; border-radius:8px; background:rgba(0,0,0,.45); overflow:hidden; position:relative;
+           border:1px solid rgba(255,255,255,.12); }
+  .hudbar>div{ height:100%; border-radius:8px; transition:width .15s; }
   #hpFill{ background:linear-gradient(90deg,#4ecb5c,#7df58a); width:100%; }
-  #xpFill{ background:linear-gradient(90deg,#e0a92c,#ffd23f); width:0%; }
-  #hudText{ font-family:monospace; font-weight:bold; font-size:13px; text-shadow:0 1px 3px rgba(0,0,0,.8); }
-  #pauseBtn{ position:absolute; top:0; right:0; z-index:11; pointer-events:auto; background:rgba(0,0,0,.45); color:#fff;
+  .hudbar .barlabel{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+                     font-family:monospace; font-weight:bold; font-size:11px; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.9); }
+  /* top-center: run timer, boss bar sits directly beneath it */
+  #hudTopCenter{ top:6px; left:50%; transform:translateX(-50%); flex-direction:column; background:none; padding:0; gap:2px; }
+  #runTimer{ font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:28px; color:#fff; letter-spacing:1px;
+             text-shadow:0 3px 0 rgba(0,0,0,.4), 0 5px 10px rgba(0,0,0,.5); background:rgba(0,0,0,.22); border-radius:12px; padding:2px 16px; }
+  #hudThreat{ font-family:monospace; font-weight:bold; font-size:11px; color:#ffb0b0; text-shadow:0 1px 3px rgba(0,0,0,.8); text-align:center; }
+  /* top-right: kills + coins, left of the pause button */
+  #hudTopRight{ top:10px; right:56px; gap:10px; padding:7px 12px; font-family:monospace; font-weight:bold; font-size:14px;
+                text-shadow:0 1px 3px rgba(0,0,0,.8); }
+  #hudTopRight .stat{ white-space:nowrap; }
+  #pauseBtn{ position:absolute; top:10px; right:10px; z-index:11; pointer-events:auto; background:rgba(0,0,0,.45); color:#fff;
              border:0; border-radius:9px; font-size:17px; padding:6px 12px; display:none; }
+  /* bottom-left: weapon loadout */
+  #hudBottomLeft{ left:10px; bottom:22px; padding:8px 10px; }
+  #weapSlots{ display:flex; gap:6px; }
+  .wSlot{ position:relative; width:40px; height:40px; border-radius:10px; background:rgba(255,255,255,.08);
+          display:flex; align-items:center; justify-content:center; font-size:26px; }
+  .wSlot.evo{ box-shadow:0 0 10px 2px rgba(255,210,63,.65); background:rgba(255,210,63,.12); }
+  .wSlot .lvlChip2{ position:absolute; bottom:-4px; right:-4px; min-width:15px; height:15px; border-radius:8px;
+                    background:#14301a; border:1px solid #ffd23f; color:#ffd23f; font-size:9px; font-weight:800;
+                    display:flex; align-items:center; justify-content:center; padding:0 3px; font-family:monospace; }
+  /* bottom-right: passive upgrades */
+  #hudBottomRight{ right:10px; bottom:22px; padding:8px 10px; justify-content:flex-end; }
+  #passRow{ display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; max-width:160px; }
+  .pChip{ display:flex; align-items:center; gap:2px; font-size:13px; font-family:monospace; font-weight:bold; color:#e8f2e0; }
+  .pChip .n{ font-size:11px; }
+  /* xp bar: full-width thin strip pinned to the very bottom edge */
+  #xpBarWrap{ position:absolute; left:0; right:0; bottom:0; height:7px; background:rgba(0,0,0,.35); z-index:10;
+              pointer-events:none; display:none; }
+  #xpFill{ height:100%; background:linear-gradient(90deg,#e0a92c,#ffd23f); width:0%; transition:width .15s; }
+
+  @media (max-width:520px){
+    #hudTopLeft{ top:8px; left:6px; padding:4px 6px 4px 5px; gap:4px; }
+    .lvlChip{ width:22px; height:22px; font-size:8.5px; }
+    .hudbar{ width:96px; height:12px; }
+    .hudbar .barlabel{ font-size:8px; }
+    #hudTopCenter{ top:4px; }
+    #runTimer{ font-size:16px; padding:1px 8px; }
+    #hudThreat{ font-size:8px; }
+    /* stack kills/coins vertically so the cluster stays narrow and clears the centered timer */
+    #hudTopRight{ top:6px; right:40px; gap:1px; padding:4px 7px; font-size:10px; flex-direction:column; align-items:flex-end; }
+    #pauseBtn{ top:6px; right:6px; font-size:13px; padding:4px 8px; }
+    #hudBottomLeft{ left:6px; bottom:14px; padding:5px 6px; }
+    #weapSlots{ gap:4px; }
+    .wSlot{ width:30px; height:30px; border-radius:8px; font-size:18px; }
+    .wSlot .lvlChip2{ font-size:7.5px; min-width:12px; height:12px; bottom:-3px; right:-3px; }
+    #hudBottomRight{ right:6px; bottom:14px; padding:5px 6px; }
+    #passRow{ gap:5px; max-width:120px; }
+    .pChip{ font-size:10px; }
+    .pChip .n{ font-size:9px; }
+  }
 
   /* joystick */
   #joyBase{ position:absolute; width:96px; height:96px; border-radius:50%; background:rgba(255,255,255,.12);
@@ -114,33 +171,43 @@
                       animation:epicSweep 3.2s ease-in-out infinite; }
   @keyframes epicSweep{ 0%,20%{ background-position:130% 0; } 70%,100%{ background-position:-30% 0; } }
 
-  /* compact phone layout: cards flip to horizontal rows so 3 picks + tools stay high on screen */
+  /* compact phone layout: cards stay PORTRAIT — 3-up side by side, just scaled down —
+     rather than flattening into full-width rows (that read as squished, not card-like) */
   @media (max-width:520px){
     .overlay h1{ font-size:22px; margin:0 0 4px; }
     .overlay .desc{ font-size:12px; margin-bottom:6px; line-height:1.35; }
-    #cards, #chestCards{ gap:7px; margin-top:4px; }
-    .card, .card.evo{ width:min(360px,90vw); display:flex; flex-wrap:wrap; align-items:center; gap:0 11px;
-                      text-align:left; padding:0 32px 9px 12px; }
-    .card .band{ flex:0 0 100%; margin:0 -12px 6px; border-radius:10px 10px 0 0; font-size:8.5px; padding:3px 12px; }
-    .card .cardtop{ flex-direction:row; }
-    .card .medal{ width:40px; height:40px; font-size:20px; margin:0; flex:0 0 auto; }
-    .card .ico{ font-size:27px; flex:0 0 auto; }
-    .card .cbody{ flex:1; text-align:left; }
-    .card .nm{ font-size:14.5px; margin:0 0 2px; }
-    .card .ds{ font-size:11px; line-height:1.3; }
-    .card .banish{ top:50%; transform:translateY(-50%); right:8px; font-size:15px; }
-    .card .watermark{ font-size:40px; right:-4px; bottom:-8px; }
-    #lvlTools{ margin-top:8px; gap:8px; }
+    #cards, #chestCards{ gap:6px; margin-top:4px; flex-wrap:nowrap; max-width:100%; }
+    .card{ width:31vw; max-width:118px; min-width:0; padding:0 6px 10px; }
+    .card .band{ margin:0 -6px 6px; font-size:7.5px; padding:3px 6px; letter-spacing:1px; }
+    .card .medal{ width:38px; height:38px; font-size:19px; margin-bottom:4px; border-width:2px; }
+    .card .ico{ font-size:22px; }
+    .card .nm{ font-size:11.5px; margin:2px 0 3px; line-height:1.15; }
+    .card .ds{ font-size:9.5px; line-height:1.25; }
+    .card .ds[style]{ margin-top:2px !important; }
+    .card .banish{ top:2px; right:4px; font-size:12px; }
+    .card .watermark{ font-size:32px; right:-4px; bottom:-6px; }
+    /* #chestCards always holds exactly ONE reward card (chest/evolution) — give it proper
+       standalone proportions instead of squeezing to the 3-up width meant for side-by-side picks */
+    #chestCards .card{ width:min(58vw,220px); max-width:220px; padding:0 14px 16px; }
+    #chestCards .card .band{ margin:0 -14px 8px; font-size:10px; padding:4px 14px; }
+    #chestCards .card .medal{ width:56px; height:56px; font-size:28px; margin-bottom:6px; border-width:3px; }
+    #chestCards .card .ico{ font-size:34px; }
+    #chestCards .card .nm{ font-size:16px; margin:2px 0 5px; }
+    #chestCards .card .ds{ font-size:12px; line-height:1.35; }
+    #chestCards .card .watermark{ font-size:48px; right:-6px; bottom:-10px; }
+    #lvlTools{ margin-top:8px; gap:8px; flex-wrap:wrap; justify-content:center; }
     #lvlTools button{ padding:7px 11px; font-size:12px; }
+    #banishNote{ flex-basis:100%; text-align:center; }
   }
 
-  /* boss health bar */
-  #bossBar{ position:absolute; top:80px; left:50%; transform:translateX(-50%); width:min(70%,460px); z-index:9; display:none; text-align:center; pointer-events:none; }
+  /* boss health bar — sits top-center, directly below the run timer, spacing tuned so they never touch */
+  #bossBar{ position:absolute; top:64px; left:50%; transform:translateX(-50%); width:min(70%,460px); z-index:9; display:none; text-align:center; pointer-events:none; }
   #bossName{ font-weight:800; font-size:14px; color:#ffb0b0; text-shadow:0 1px 3px rgba(0,0,0,.9); margin-bottom:3px; }
   .bossbarback{ height:16px; border-radius:9px; background:rgba(0,0,0,.55); overflow:hidden; border:2px solid rgba(255,255,255,.3);
                 box-shadow:0 0 14px rgba(179,25,66,.5); }
   #bossFill{ height:100%; width:100%; background:linear-gradient(90deg,#b31942,#e8506f); transition:width .1s; }
   #bossName{ font-family:'Luckiest Guy', 'Arial Black', sans-serif; letter-spacing:1px; }
+  @media (max-width:520px){ #bossBar{ top:44px; } #bossName{ font-size:11px; } .bossbarback{ height:11px; } }
 
   /* barn shop rows */
   #barnList{ display:flex; flex-direction:column; gap:8px; max-width:460px; width:92vw; max-height:52vh; overflow-y:auto; margin-bottom:12px; }
@@ -194,12 +261,25 @@
   <div id="bar"><a href="index.html">← BUCKY</a><span class="t">🌽 Pasture Panic</span></div>
   <div id="stage">
     <div id="hud">
-      <div class="hudbar"><div id="hpFill"></div></div>
-      <div class="hudbar" style="height:9px;"><div id="xpFill"></div></div>
-      <div id="hudText">Lv 1 · 0:00 · 0 kills</div>
-      <div id="weapSlots" style="font-size:18px; margin-top:3px; text-shadow:0 1px 3px rgba(0,0,0,.8);"></div>
-      <div id="passRow" style="font-size:13px; margin-top:2px; font-weight:bold; font-family:monospace; text-shadow:0 1px 3px rgba(0,0,0,.8); color:#e8f2e0;"></div>
+      <div class="hudCluster" id="hudTopLeft">
+        <div class="lvlChip" id="lvlChip">Lv1</div>
+        <div id="hpWrap">
+          <div class="hudbar"><div id="hpFill"></div><div class="barlabel" id="hpLabel">HP 100/100</div></div>
+        </div>
+      </div>
+      <div class="hudCluster" id="hudTopCenter">
+        <div id="runTimer">0:00</div>
+        <div id="hudThreat"></div>
+      </div>
+      <div class="hudCluster" id="hudTopRight">
+        <span class="stat" id="killsStat">💀 0</span>
+        <span class="stat" id="coinsStat">🪙 0</span>
+      </div>
+      <div class="hudCluster" id="hudBottomLeft"><div id="weapSlots"></div></div>
+      <div class="hudCluster" id="hudBottomRight"><div id="passRow"></div></div>
+      <div id="hudText" style="display:none;"></div>
     </div>
+    <div id="xpBarWrap"><div id="xpFill"></div></div>
     <div id="vignette"></div>
     <button id="pauseBtn">⏸</button>
     <div id="bossBar"><div id="bossName">Boss</div><div class="bossbarback"><div id="bossFill"></div></div></div>
@@ -277,7 +357,7 @@
     // ================== constants ==================
     const ARENA = 66;                 // half-size of the fenced pasture (3x area vs the old 38)
     const SCORES_KEY = "pasturePanicScores";
-    const ENEMY_CAP = 120;   // leans into swarm volume — separation pass is O(n²) but fine at this size
+    const ENEMY_CAP = 190;   // leans into swarm volume — separation pass is O(n²) but fine at this size
     const SPECS = {   // everything but the turtle slowed so the swarm can be outrun
       rat:       { hp: 10,  speed: 4.0, dmg: 6,  xp: 1, r: 0.75, mass: 0.7 },
       armadillo: { hp: 28,  speed: 2.7, dmg: 10, xp: 2, r: 1.0,  mass: 1.4 },
@@ -292,7 +372,7 @@
       cats:      { ico:"🐈", name:"Barn Cat Blaster", baseDmg:21, baseRate:0.75, range:30 },
       scarecrow: { ico:"🌾", name:"Scarecrow Turret", baseDmg:15, baseRate:1.6,  range:14, deployEvery:7, life:15 },
       bees:      { ico:"🐝", name:"Bee Hive",         baseDmg:9,  baseRate:1.0,  range:0,  orbitR:6.0 },
-      sprinkler: { ico:"💦", name:"Sprinkler",        baseDmg:12, baseRate:0.9,  range:7.5 },
+      sprinkler: { ico:"💦", name:"Sprinkler",        baseDmg:26, baseRate:1.5,  range:7.5 },
       fork:      { ico:"🔱", name:"Pitchfork",        baseDmg:38, baseRate:0.6,  range:30 },
       bolt:      { ico:"⚡", name:"Weathervane",      baseDmg:48, baseRate:0.5,  range:24 }
     };
@@ -331,13 +411,13 @@
     const FINAL_AT = 900;
     // set-piece waves surround the WHOLE screen — a closing ring you have to fight out of
     const WAVES = [
-      { t: 60,  txt:"🐀 The Rat Pack!",        f: () => spawnRing("rat", 20, 30) },
-      { t: 120, txt:"🦔 Dillo Brigade!",       f: () => spawnRing("armadillo", 12, 30) },
-      { t: 180, txt:"🐦‍⬛ Crow Squadron!",      f: () => spawnCrows(10) },
-      { t: 240, txt:"🐍 Snake Hour!",          f: () => spawnRing("snake", 20, 30) },
-      { t: 300, txt:"🐢 Shell Shock!",         f: () => spawnRing("turtle", 12, 30) },
-      { t: 420, txt:"🌪 Total Stampede!",      f: () => { spawnRing("rat", 26, 30); spawnRing("armadillo", 10, 24); } },
-      { t: 600, txt:"🐦‍⬛ Murder of Crows!",    f: () => { spawnCrows(12); spawnRing("snake", 18, 30); } },
+      { t: 60,  txt:"🐀 The Rat Pack!",        f: () => spawnRing("rat", 50, 32) },
+      { t: 120, txt:"🦔 Dillo Brigade!",       f: () => spawnRing("armadillo", 28, 30) },
+      { t: 180, txt:"🐦‍⬛ Crow Squadron!",      f: () => spawnCrows(24) },
+      { t: 240, txt:"🐍 Snake Hour!",          f: () => spawnRing("snake", 45, 30) },
+      { t: 300, txt:"🐢 Shell Shock!",         f: () => spawnRing("turtle", 26, 30) },
+      { t: 420, txt:"🌪 Total Stampede!",      f: () => { spawnRing("rat", 55, 30); spawnRing("armadillo", 22, 24); } },
+      { t: 600, txt:"🐦‍⬛ Murder of Crows!",    f: () => { spawnCrows(26); spawnRing("snake", 40, 30); } },
       { t: FINAL_AT - 30, txt:"⚠️ THE COMBINE IS COMING…", f: () => {} },
       { t: FINAL_AT, txt:"🚜 THE COMBINE HARVESTER!", f: () => spawnFinalBoss() }
     ];
@@ -369,7 +449,7 @@
       { id:"bees_rate",   weapon:"bees", ico:"🐝", name:"Angry Buzz",       desc:"Bees: +10% orbit speed",  max:4 },
       { id:"sprk_damage", weapon:"sprinkler", ico:"💦", name:"High Pressure",  desc:"Sprinkler: +15% damage",   max:5 },
       { id:"sprk_radius", weapon:"sprinkler", ico:"💦", name:"Wider Coverage", desc:"Sprinkler: +12% radius",   max:4 },
-      { id:"sprk_rate",   weapon:"sprinkler", ico:"💦", name:"Faster Cycle",   desc:"Sprinkler: +10% pulse rate", max:4 },
+      { id:"sprk_beams",  weapon:"sprinkler", ico:"💦", name:"Extra Jet",      desc:"Sprinkler: +1 water beam",   max:3, int:true },
       { id:"fork_damage", weapon:"fork", ico:"🔱", name:"Forged Tines",  desc:"Pitchfork: +15% damage",     max:5 },
       { id:"fork_rate",   weapon:"fork", ico:"🔱", name:"Quick Arm",     desc:"Pitchfork: +10% throw rate", max:4 },
       { id:"fork_multi",  weapon:"fork", ico:"🔱", name:"Spare Fork",    desc:"Pitchfork: +1 per throw",    max:3, int:true },
@@ -401,8 +481,8 @@
                    blurb:"An angry cloud — more bees on a wider, faster orbit.",
                    apply:(w)=>{ w.count += 3; w.rateMul *= 1.5; w.dmgMul *= 1.4; w.blastMul *= 1.4; } },
       sprinkler: { ico:"🌧", name:"Monsoon",
-                   blurb:"A drenching downpour that slows everything it soaks.",
-                   apply:(w)=>{ w.blastMul *= 1.6; w.dmgMul *= 1.5; w.rateMul *= 1.4; w.slows = true; } },
+                   blurb:"A spinning monsoon — extra jets that drench and slow.",
+                   apply:(w)=>{ w.beams += 2; w.dmgMul *= 1.4; w.blastMul *= 1.5; w.rateMul *= 1.3; w.slows = true; } },
       fork:      { ico:"🌊", name:"Trident Volley",
                    blurb:"Forks the size of fence posts, three to a throw.",
                    apply:(w)=>{ w.multishot += 2; w.dmgMul *= 1.4; w.rateMul *= 1.3; } },
@@ -433,9 +513,9 @@
 
     // ---- bosses: a big telegraphed brute every couple minutes that drops a chest ----
     const BOSSES = [
-      { kind:"turtle",    ico:"🐢", name:"Ol' Snapper",   hp:620, dmg:34, scale:3.4, speed:1.3, tint:0x5a1616 },
-      { kind:"armadillo", ico:"🦔", name:"Tank Dillo",    hp:520, dmg:30, scale:3.2, speed:1.8, tint:0x4a2a12 },
-      { kind:"rat",       ico:"🐀", name:"The Rat King",  hp:460, dmg:26, scale:3.4, speed:2.4, tint:0x3a2a30 }
+      { kind:"turtle",    ico:"🐢", name:"Ol' Snapper",   hp:850, dmg:38, scale:4.4, speed:1.3, tint:0x5a1616, ability:"quake" },
+      { kind:"armadillo", ico:"🦔", name:"Tank Dillo",    hp:700, dmg:34, scale:3.2, speed:1.8, tint:0x4a2a12, ability:"rollout" },
+      { kind:"rat",       ico:"🐀", name:"The Rat King",  hp:680, dmg:30, scale:5.2, speed:2.4, tint:0x3a2a30, ability:"court" }
     ];
 
     // ================== leaderboard ==================
@@ -863,54 +943,150 @@
       bales.push({ x: wx, z: wz, r: 2.2, mesh: windmill, notBale: true });   // reuse the collider system, skip visual refresh
     }
 
-    // ---- grass field: one InstancedMesh, sways idly and springs away as you run through ----
-    const GRASS_N = 1260;   // 3x for the 3x field — InstancedMesh count is cheap
-    const grassData = [];
+    // ---- grass field: dense InstancedMesh field that parts as the player wades through ----
+    // Perf approach: every blade's UPRIGHT matrix is precomputed once at setup and never
+    // touched again unless the blade is actually bent or actively recovering. A spatial hash
+    // (grid cells GRASS_CELL units wide) maps cell -> blade indices so the per-frame "which
+    // blades are near the player" query only walks a handful of cells, not all 8000 blades.
+    // An "active set" tracks blades currently bent/recovering; only those get a fresh
+    // matrix write each frame. Once a blade finishes recovering it's written upright one
+    // last time and dropped from the active set — back to "free" (zero per-frame cost).
+    const GRASS_N = 9000;
+    const GRASS_CELL = 4;              // spatial hash cell size (units)
+    const GRASS_TOUCH_R = 3.5;         // player influence radius
+    const GRASS_BEND_MIN = 75 * Math.PI/180, GRASS_BEND_MAX = 85 * Math.PI/180;
+    const grassData = [];              // per-blade static + dynamic state
+    const grassGrid = new Map();       // "cx,cz" -> [blade indices]
+    const grassActive = new Set();     // indices currently bent/recovering (need per-frame update)
     let grassMesh;
+    let playerVelX = 0, playerVelZ = 0;   // last non-zero movement direction, biases bend direction
+    function grassCellKey(cx, cz){ return cx + "," + cz; }
+    function grassCellOf(x, z){ return [Math.floor(x / GRASS_CELL), Math.floor(z / GRASS_CELL)]; }
     {
       // tapered blade: a simple triangle looks far more grass-like than a rectangle
       const bladeGeo = new THREE.BufferGeometry();
       bladeGeo.setAttribute("position", new THREE.Float32BufferAttribute(
-        [-0.1, 0, 0,   0.1, 0, 0,   0, 0.95, 0], 3));
+        [-0.09, 0, 0,   0.09, 0, 0,   0, 1, 0], 3));
       bladeGeo.computeVertexNormals();
       const bladeMat = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide });
       grassMesh = new THREE.InstancedMesh(bladeGeo, bladeMat, GRASS_N);
+      SHARED_ASSETS.add(bladeGeo); SHARED_ASSETS.add(bladeMat);   // created once, lives for the whole page — never disposed
       const col = new THREE.Color();
+      const p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3(), e = new THREE.Euler(), m = new THREE.Matrix4();
       for (let i = 0; i < GRASS_N; i++){
-        grassData.push({
-          x: (Math.random()*2-1)*(ARENA-1.5), z: (Math.random()*2-1)*(ARENA-1.5),
-          rotY: Math.random()*Math.PI, s: 0.75 + Math.random()*0.6,
-          phase: Math.random()*Math.PI*2, bendX: 0, bendZ: 0
-        });
+        const x = (Math.random()*2-1)*(ARENA-1.5), z = (Math.random()*2-1)*(ARENA-1.5);
+        const rotY = Math.random()*Math.PI*2, sc = 0.85 + Math.random()*0.55 /* height ~0.9-1.4 */;
+        const d = {
+          x, z, rotY, s: sc, phase: Math.random()*Math.PI*2,
+          bend: 0,            // current bend angle (0 = upright, GRASS_BEND_MAX = flat)
+          bendDirX: 0, bendDirZ: 1,  // unit direction the blade is bent away toward
+          state: "up",         // "up" | "bent" | "recovering"
+          recoverT: 0, recoverDur: 1
+        };
+        grassData.push(d);
+        // precompute + write the upright matrix once
+        p.set(x, 0, z); q.setFromEuler(e.set(0, rotY, 0)); s.set(sc, sc, sc);
+        m.compose(p, q, s);
+        d.upMatrix = m.clone();
+        grassMesh.setMatrixAt(i, m);
         col.setHSL(0.27 + Math.random()*0.06, 0.55, 0.42 + Math.random()*0.16);
         grassMesh.setColorAt(i, col);
+        const [cx, cz] = grassCellOf(x, z);
+        const key = grassCellKey(cx, cz);
+        if (!grassGrid.has(key)) grassGrid.set(key, []);
+        grassGrid.get(key).push(i);
       }
       grassMesh.instanceColor.needsUpdate = true;
+      grassMesh.instanceMatrix.needsUpdate = true;
       scene.add(grassMesh);
     }
     const _gp = new THREE.Vector3(), _gq = new THREE.Quaternion(), _gs = new THREE.Vector3(), _ge = new THREE.Euler(), _gm = new THREE.Matrix4();
-    function updateGrass(dt, px, pz, t){
-      for (let i = 0; i < GRASS_N; i++){
-        const d = grassData[i];
-        // spring back toward upright
-        d.bendX -= d.bendX * Math.min(1, 4 * dt);
-        d.bendZ -= d.bendZ * Math.min(1, 4 * dt);
-        // shove away from the farmer's boots
-        const dx = d.x - px, dz = d.z - pz;
-        const dd = dx*dx + dz*dz;
-        if (dd < 2.6 && dd > 0.0001){
-          const dist = Math.sqrt(dd), k = (1 - dist/1.62) * 1.1;
-          d.bendX += (dx/dist) * k; d.bendZ += (dz/dist) * k;
-        }
-        const swayX = Math.sin(t * 1.7 + d.phase) * 0.07;
-        _ge.set(d.bendZ + swayX, d.rotY, -(d.bendX), "YXZ");
-        _gq.setFromEuler(_ge);
-        _gp.set(d.x, 0, d.z);
-        _gs.set(d.s, d.s, d.s);
-        _gm.compose(_gp, _gq, _gs);
-        grassMesh.setMatrixAt(i, _gm);
+    const _gAxis = new THREE.Vector3(), _gUpright = new THREE.Quaternion();
+    function grassWriteMatrix(i, d, t){
+      // idle sway only applies while a blade is in the active set (bent/recovering) — static
+      // blades never pay for a sway calc, they're invisible from this camera height anyway.
+      const sway = d.state !== "up" ? Math.sin(t * 1.7 + d.phase) * 0.05 * (1 - d.bend / GRASS_BEND_MAX) : 0;
+      if (d.bend <= 0.0001 && sway === 0){
+        grassMesh.setMatrixAt(i, d.upMatrix);
+        return;
       }
-      grassMesh.instanceMatrix.needsUpdate = true;
+      // bend axis is perpendicular (in the XZ plane) to the bend direction, so the blade
+      // tips over AWAY from the player along bendDirX/Z
+      _gAxis.set(-d.bendDirZ, 0, d.bendDirX);
+      _gq.setFromAxisAngle(_gAxis, d.bend + sway);
+      _gUpright.setFromEuler(_ge.set(0, d.rotY, 0));
+      _gq.multiply(_gUpright);
+      _gp.set(d.x, 0, d.z);
+      _gs.set(d.s, d.s, d.s);
+      _gm.compose(_gp, _gq, _gs);
+      grassMesh.setMatrixAt(i, _gm);
+    }
+    function grassNearbyIndices(px, pz, radius, out){
+      const cr = Math.ceil(radius / GRASS_CELL);
+      const [ccx, ccz] = grassCellOf(px, pz);
+      for (let dx = -cr; dx <= cr; dx++){
+        for (let dz = -cr; dz <= cr; dz++){
+          const arr = grassGrid.get(grassCellKey(ccx+dx, ccz+dz));
+          if (arr) for (const idx of arr) out.push(idx);
+        }
+      }
+    }
+    const _grassNearBuf = [];
+    function updateGrass(dt, px, pz, t, extraPositions){
+      let dirty = false;
+      // 1) find blades to newly bend: near the player (and bosses, if any)
+      const influencers = [[px, pz]];
+      if (extraPositions) for (const ep of extraPositions) influencers.push(ep);
+      for (const [ix, iz] of influencers){
+        if (ix > ARENA + 5 || iz > ARENA + 5) continue;   // sentinel "not in play" position
+        _grassNearBuf.length = 0;
+        grassNearbyIndices(ix, iz, GRASS_TOUCH_R, _grassNearBuf);
+        for (const idx of _grassNearBuf){
+          const d = grassData[idx];
+          const dx = d.x - ix, dz = d.z - iz;
+          const dd = dx*dx + dz*dz;
+          if (dd > GRASS_TOUCH_R*GRASS_TOUCH_R || dd < 0.0001) continue;
+          const dist = Math.sqrt(dd);
+          const nx = dx/dist, nz = dz/dist;
+          // bias the bend direction along player velocity so the path reads as "away from travel"
+          let bdx = nx, bdz = nz;
+          if (ix === px && iz === pz && (playerVelX || playerVelZ)){
+            bdx = nx * 0.6 + playerVelX * 0.4; bdz = nz * 0.6 + playerVelZ * 0.4;
+            const bl = Math.hypot(bdx, bdz) || 1; bdx /= bl; bdz /= bl;
+          }
+          d.bendDirX = bdx; d.bendDirZ = bdz;
+          d.bend = GRASS_BEND_MIN + Math.random() * (GRASS_BEND_MAX - GRASS_BEND_MIN);
+          d.state = "bent";
+          d.recoverDur = 2.5 + Math.random() * 1.5;   // 2.5-4s, randomized so the path closes raggedly
+          d.recoverT = 0;
+          if (!grassActive.has(idx)){ grassActive.add(idx); }
+        }
+      }
+      // 2) advance every currently-active (bent/recovering) blade; this set is small even
+      // when the player is standing in a field of 8000 blades.
+      for (const idx of grassActive){
+        const d = grassData[idx];
+        if (d.state === "bent"){
+          d.recoverT += dt;
+          if (d.recoverT >= 0.12){ d.state = "recovering"; d.recoverT = 0; }   // brief hold flat, then ease up
+        } else if (d.state === "recovering"){
+          d.recoverT += dt;
+          const k = Math.min(1, d.recoverT / d.recoverDur);
+          const ease = 1 - Math.pow(1 - k, 2);   // ease-out — fast at first settle, ragged tail
+          const peak = GRASS_BEND_MIN + 0.5 * (GRASS_BEND_MAX - GRASS_BEND_MIN);
+          d.bend = peak * (1 - ease);
+          if (k >= 1){
+            d.bend = 0; d.state = "up";
+            grassMesh.setMatrixAt(idx, d.upMatrix);   // final upright write, then drop from active set
+            grassActive.delete(idx);
+            dirty = true;
+            continue;
+          }
+        }
+        grassWriteMatrix(idx, d, t);
+        dirty = true;
+      }
+      if (dirty) grassMesh.instanceMatrix.needsUpdate = true;
     }
 
     function blobShadow(r){
@@ -1871,6 +2047,12 @@
     const orbM = new THREE.MeshBasicMaterial({ color: 0x2b52e8 });   // royal blue — pops against the grass
     const puffG = new THREE.SphereGeometry(0.18, 6, 5);
     [projG, projM, orbG, orbM, puffG].forEach(a => SHARED_ASSETS.add(a));
+    // sprinkler beam strips — unit-length box (1 unit along +z), stretched per-frame to the
+    // weapon's current range so upgrades/evolution just rescale instead of rebuilding geometry
+    const beamCoreGeo = new THREE.BoxGeometry(0.22, 0.08, 1);
+    const beamOuterGeo = new THREE.BoxGeometry(0.55, 0.06, 1);
+    beamCoreGeo.translate(0, 0, 0.5); beamOuterGeo.translate(0, 0, 0.5);   // anchor end at local origin
+    SHARED_ASSETS.add(beamCoreGeo); SHARED_ASSETS.add(beamOuterGeo);
 
     // ---- weapon projectile / turret models ----
     function buildPumpkinShot(){
@@ -2066,6 +2248,8 @@
     let player, stats, hp, level, xp, xpNeed, kills, elapsed, spawnTimer, regenTimer;
     let enemies = [], projectiles = [], orbs = [], puffs = [], corpses = [];
     let pumpkins = [], cats = [], turrets = [], rings = [], chunks = [], chests = [];
+    let quakeRings = [];   // Shell Quake gameplay damage rings (Ol' Snapper ability)
+    let sprinklerBeams = [];   // rotating water-beam strip meshes { group, core, outer, dripTimer }
     let pickups = [], props = [];
     let beeUnits = [], forks = [], boltsFx = [];
     let weapons = [], pickQueue = [], banished = new Set();
@@ -2096,7 +2280,8 @@
     function newWeapon(id){
       return { id, dmgMul: 1, rateMul: 1, blastMul: 1, count: 1,
                multishot: 1,   // single kernel to start — extra projectiles come from upgrades
-               pierce: 0, maxOut: 1, timer: 0.5, deployTimer: 1 };
+               pierce: 0, maxOut: 1, timer: 0.5, deployTimer: 1,
+               beams: 1, spinAngle: 0 };   // sprinkler: water-beam count + current rotation angle
     }
     function weaponById(id){ return weapons.find(w => w.id === id); }
     function wDmg(w){ return WEAPON_SPECS[w.id].baseDmg * w.dmgMul * stats.gDmg; }
@@ -2119,9 +2304,12 @@
       for (const f of forks) freeMesh(f.mesh);
       for (const b of boltsFx) freeMesh(b.mesh);
       for (const c of corpses) freeMesh(c.mesh);
+      for (const q of quakeRings) freeMesh(q.mesh);
+      for (const s of sprinklerBeams) freeMesh(s.group);
       enemies = []; projectiles = []; orbs = []; puffs = [];
       pumpkins = []; cats = []; turrets = []; rings = []; chunks = []; chests = [];
       pickups = []; props = []; beeUnits = []; forks = []; boltsFx = []; corpses = [];
+      quakeRings = []; sprinklerBeams = [];
       boss = null; document.getElementById("bossBar").style.display = "none";
     }
 
@@ -2151,6 +2339,7 @@
       state = "playing";
       showOverlay(null);
       document.getElementById("hud").style.display = "block";
+      document.getElementById("xpBarWrap").style.display = "block";
       document.getElementById("pauseBtn").style.display = "block";
       updateHud();
     }
@@ -2337,8 +2526,12 @@
       scene.add(mesh);
       const hpScale = 1 + threatTier() * 0.35 + elapsed/120 * 0.5;
       boss = { kind:def.kind, mesh, hp: def.hp * hpScale, maxHp: def.hp * hpScale,
-        speed: def.speed, dmg: def.dmg, xp: 0, r: spec.r * def.scale * 0.7, mass: spec.mass * 8,
-        elite: false, isBoss: true, name: def.name, ico: def.ico, hitCd: 0, flash: 0, wob: 0 };
+        speed: def.speed, baseSpeed: def.speed, dmg: def.dmg, baseDmg: def.dmg, xp: 0,
+        r: spec.r * def.scale * 0.7, baseR: spec.r * def.scale * 0.7, mass: spec.mass * 8,
+        elite: false, isBoss: true, name: def.name, ico: def.ico, hitCd: 0, flash: 0, wob: 0,
+        meshScale: def.scale,
+        // ability state — per-boss timer/phase machine, ticked in the enemy update loop
+        ability: def.ability, abTimer: 4 + Math.random()*2, abPhase: "idle", abT: 0 };
       enemies.push(boss);
       const bar = document.getElementById("bossBar");
       bar.style.display = "block";
@@ -2584,29 +2777,81 @@
         }
         if (w.id === "bees") continue;   // bees are persistent orbiters, handled in beesUpdate
         if (w.id === "sprinkler"){
-          // pulses damage in a circle around the player on its own clock
-          w.timer -= dt;
-          if (w.timer <= 0){
-            w.timer = 1 / wRate(w);
-            const R = WEAPON_SPECS.sprinkler.range * w.blastMul;
-            ring(player.position.x, player.position.z, 0x58c4ff, R * 0.9, 0.4);
-            for (let i = 0; i < 5; i++){
-              const a = Math.random() * Math.PI * 2;
-              puff(player.position.x + Math.cos(a) * R * 0.6, 0.5, player.position.z + Math.sin(a) * R * 0.6, 0x9adcff, 1);
-            }
-            for (const e of enemies.slice()){
-              const d = Math.hypot(e.mesh.position.x - player.position.x, e.mesh.position.z - player.position.z);
-              if (d < R + e.r){
-                const dir = new THREE.Vector3(e.mesh.position.x - player.position.x, 0, e.mesh.position.z - player.position.z).normalize();
-                damageEnemy(e, wDmg(w), dir.multiplyScalar(0.6));
-                if (w.slows) e.slowT = 1.3;   // Monsoon evolution: a soaking slow
-              }
-            }
-          }
+          sprinklerUpdate(w, dt);   // rotating water beams — persistent visuals, not projectiles
           continue;
         }
         w.timer -= dt;
         if (w.timer <= 0 && fireWeapon(w)) w.timer = 1 / wRate(w);
+      }
+    }
+
+    // ---- sprinkler: rotating water beams anchored on the player, like clock hands ----
+    // Not a projectile system — beams are persistent strip meshes, repositioned/rotated every
+    // frame around player.position. Rebuilt (add/remove strips) whenever w.beams changes.
+    function sprinklerBeamMat(core){
+      return new THREE.MeshBasicMaterial({
+        color: core ? 0xbfe9ff : 0x58c4ff,
+        transparent: true, opacity: core ? 0.85 : 0.4, side: THREE.DoubleSide, depthWrite: false
+      });
+    }
+    function sprinklerUpdate(w, dt){
+      // rebuild the beam list if the beam count changed
+      while (sprinklerBeams.length < w.beams){
+        const group = new THREE.Group();
+        const core = new THREE.Mesh(beamCoreGeo, sprinklerBeamMat(true));
+        const outer = new THREE.Mesh(beamOuterGeo, sprinklerBeamMat(false));
+        group.add(outer); group.add(core);
+        group.position.y = 0.5;
+        scene.add(group);
+        sprinklerBeams.push({ group, core, outer, dripTimer: Math.random() * 0.15 });
+      }
+      while (sprinklerBeams.length > w.beams){
+        freeMesh(sprinklerBeams.pop().group);
+      }
+      if (!sprinklerBeams.length) return;
+
+      const R = WEAPON_SPECS.sprinkler.range * w.blastMul;
+      const spinSpeed = WEAPON_SPECS.sprinkler.baseRate * w.rateMul * stats.gRate;   // radians/sec
+      w.spinAngle += spinSpeed * dt;
+      const dmg = wDmg(w);
+      const halfWidth = 0.16;   // fixed half-angle — forgiving up close, thinner far away by geometry
+
+      // tick the per-enemy sprinkler cooldown once per frame, regardless of beam count
+      for (const e of enemies) if (e.sprkCd > 0) e.sprkCd -= dt;
+
+      for (let i = 0; i < sprinklerBeams.length; i++){
+        const b = sprinklerBeams[i];
+        const angle = w.spinAngle + (i / sprinklerBeams.length) * Math.PI * 2;
+        b.group.position.x = player.position.x;
+        b.group.position.z = player.position.z;
+        b.group.rotation.y = angle;
+        b.core.scale.z = R; b.outer.scale.z = R;
+
+        // droplets trickle along the beam
+        b.dripTimer -= dt;
+        if (b.dripTimer <= 0){
+          b.dripTimer = 0.15;
+          const t = 0.15 + Math.random() * 0.8;
+          const dx = Math.sin(angle) * R * t, dz = Math.cos(angle) * R * t;
+          puff(player.position.x + dx, 0.55, player.position.z + dz, 0x9adcff, 1);
+        }
+
+        // damage: enemies within R (+their radius) whose bearing falls inside this beam's arc
+        for (const e of enemies.slice()){
+          const ex = e.mesh.position.x - player.position.x, ez = e.mesh.position.z - player.position.z;
+          const dist = Math.hypot(ex, ez);
+          if (dist > R + e.r) continue;
+          const bearing = Math.atan2(ex, ez);
+          let diff = bearing - angle;
+          diff = Math.atan2(Math.sin(diff), Math.cos(diff));   // wrap to [-PI, PI]
+          if (Math.abs(diff) > halfWidth) continue;
+          e.sprkCd = e.sprkCd || 0;
+          if (e.sprkCd > 0) continue;
+          e.sprkCd = 0.4;
+          const dir = new THREE.Vector3(ex, 0, ez).normalize();
+          damageEnemy(e, dmg, dir.multiplyScalar(0.4));
+          if (w.slows) e.slowT = Math.max(e.slowT || 0, 1.3);
+        }
       }
     }
 
@@ -2673,30 +2918,160 @@
           }
         }
       });
+      // launched into the air, lands a good distance away, tumbles past flat-on-back
+      const launchV = 6.5 + Math.random() * 2.5;      // 6.5–9 vertical
+      const flingV = 8 + Math.random() * 4;            // 8–12 horizontal
+      const targetSpin = Math.PI * (0.9 + Math.random() * 0.4);   // PI*0.9 – PI*1.3
       corpses.push({
         mesh: e.mesh,
-        vel: kd.clone().multiplyScalar(4).add(new THREE.Vector3(0, 3.5, 0)),
-        spinAxis, spinAmt: 0,
+        vel: kd.clone().multiplyScalar(flingV).add(new THREE.Vector3(0, launchV, 0)),
+        spinAxis, spinAmt: 0, targetSpin,
         startOpacities,
-        life: 0, maxLife: 0.7
+        landed: false, landTimer: 0,
+        life: 0, maxLife: 1.3
       });
     }
     function updateCorpses(dt){
       for (const c of corpses.slice()){
         c.life += dt;
-        c.vel.y -= 12 * dt;   // gravity
-        c.mesh.position.addScaledVector(c.vel, dt);
-        if (c.mesh.position.y < 0){ c.mesh.position.y = 0; c.vel.y = 0; }
-        // ease toward flat-on-the-back (±PI*0.6 rotation about the perpendicular axis)
-        const targetSpin = Math.PI * 0.6;
-        c.spinAmt += (targetSpin - c.spinAmt) * Math.min(1, dt * 6);
-        c.mesh.rotateOnWorldAxis(c.spinAxis, c.spinAmt - (c.lastSpin || 0));
-        c.lastSpin = c.spinAmt;
-        const k = 1 - c.life / c.maxLife;
-        for (const so of c.startOpacities) so.m.opacity = so.op * Math.max(0, k);
+        if (!c.landed){
+          c.vel.y -= 16 * dt;   // gravity
+          c.mesh.position.addScaledVector(c.vel, dt);
+          // ease toward the fuller flip (past flat-on-back), most of it during flight
+          c.spinAmt += (c.targetSpin - c.spinAmt) * Math.min(1, dt * 6);
+          c.mesh.rotateOnWorldAxis(c.spinAxis, c.spinAmt - (c.lastSpin || 0));
+          c.lastSpin = c.spinAmt;
+          if (c.mesh.position.y <= 0){
+            c.mesh.position.y = 0;
+            // small skid + tiny bounce, then rest
+            c.vel.x *= 0.25; c.vel.z *= 0.25;
+            c.vel.y = c.vel.y < -1 ? -c.vel.y * 0.15 : 0;
+            if (c.vel.y <= 0.05) c.landed = true;
+            // keep the landing spot inside the fenced arena
+            c.mesh.position.x = Math.max(-(ARENA-1), Math.min(ARENA-1, c.mesh.position.x));
+            c.mesh.position.z = Math.max(-(ARENA-1), Math.min(ARENA-1, c.mesh.position.z));
+            puff(c.mesh.position.x, 0.15, c.mesh.position.z, 0xcbbfa2, 3);
+          }
+        } else {
+          // resting on the back briefly, then fading out
+          c.landTimer += dt;
+          c.mesh.position.x = Math.max(-(ARENA-1), Math.min(ARENA-1, c.mesh.position.x));
+          c.mesh.position.z = Math.max(-(ARENA-1), Math.min(ARENA-1, c.mesh.position.z));
+        }
+        const fadeStart = c.maxLife - 0.4;   // fade over the last ~0.4s
+        const k = c.life <= fadeStart ? 1 : Math.max(0, 1 - (c.life - fadeStart) / 0.4);
+        for (const so of c.startOpacities) so.m.opacity = so.op * k;
         if (c.life >= c.maxLife){
           freeMesh(c.mesh);
           corpses.splice(corpses.indexOf(c), 1);
+        }
+      }
+    }
+
+    // ---- boss abilities: per-boss timer/phase machine (boss.abTimer/abPhase/abT) ----
+    // Ability state lives on the boss object itself, so it's automatically discarded when the
+    // boss dies (removed from `enemies`, boss = null) — nothing dangling to clean up beyond the
+    // gameplay quakeRings list, which frees itself in updateQuakeRings regardless of boss state.
+    function updateQuakeRings(dt){
+      for (const q of quakeRings.slice()){
+        q.t += dt;
+        const R = q.growTo * Math.min(1, q.t / q.dur);
+        q.mesh.scale.setScalar(Math.max(0.001, R / q.growTo));
+        q.mesh.material.opacity = 0.7 * Math.max(0, 1 - q.t / q.dur);
+        if (!q.hit && player){
+          const d = Math.hypot(player.position.x - q.x, player.position.z - q.z);
+          if (Math.abs(d - R) < 1.2){
+            q.hit = true;
+            hp -= q.dmg;
+            const dir = new THREE.Vector3(player.position.x - q.x, 0, player.position.z - q.z).normalize();
+            player.position.addScaledVector(dir, 3.2);
+            player.position.x = Math.max(-ARENA+1, Math.min(ARENA-1, player.position.x));
+            player.position.z = Math.max(-ARENA+1, Math.min(ARENA-1, player.position.z));
+            puff(player.position.x, 1.2, player.position.z, 0xffffff, 6);
+            updateHud();
+            if (hp <= 0){ gameOver(); }
+          }
+        }
+        if (q.t >= q.dur){ freeMesh(q.mesh); quakeRings.splice(quakeRings.indexOf(q), 1); }
+      }
+    }
+    function updateBossAbilities(dt){
+      if (!boss || !boss.isBoss || boss.isFinal || !boss.ability) return;
+      const b = boss;
+      b.abTimer -= dt;
+
+      if (b.ability === "quake"){
+        // Ol' Snapper: telegraph squash-flash, then an expanding damage ring out to ~9 units
+        if (b.abPhase === "idle" && b.abTimer <= 0){
+          b.abPhase = "telegraph"; b.abT = 0;
+        } else if (b.abPhase === "telegraph"){
+          b.abT += dt;
+          const k = Math.min(1, b.abT / 0.7);
+          b.mesh.scale.set((1 + Math.sin(k*Math.PI*3)*0.12) * b.meshScale, (1 - Math.sin(k*Math.PI*3)*0.15) * b.meshScale, (1 + Math.sin(k*Math.PI*3)*0.12) * b.meshScale);
+          if (b.abT >= 0.7){
+            b.mesh.scale.setScalar(b.meshScale);
+            b.abPhase = "idle"; b.abTimer = 8;
+            ring(b.mesh.position.x, b.mesh.position.z, 0x5a1616, 9, 0.9);
+            const qm = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xff8a3d, transparent: true, opacity: 0.7, side: THREE.DoubleSide }));
+            qm.rotation.x = -Math.PI/2; qm.position.set(b.mesh.position.x, 0.15, b.mesh.position.z);
+            scene.add(qm);
+            quakeRings.push({ mesh: qm, x: b.mesh.position.x, z: b.mesh.position.z, t: 0, dur: 0.6, growTo: 9, dmg: 16, hit: false });
+            puff(b.mesh.position.x, 1, b.mesh.position.z, 0x9aa5ad, 10);
+          }
+        }
+      } else if (b.ability === "rollout"){
+        // Tank Dillo: windup wobble, then a fast straight-line roll toward the player, then dizzy
+        if (b.abPhase === "idle" && b.abTimer <= 0){
+          b.abPhase = "windup"; b.abT = 0;
+        } else if (b.abPhase === "windup"){
+          b.abT += dt;
+          b.mesh.rotation.z = Math.sin(b.abT * 30) * 0.18;
+          if (b.abT >= 0.8){
+            b.mesh.rotation.z = 0;
+            b.abPhase = "rolling"; b.abT = 0;
+            b.rollDir = new THREE.Vector3().subVectors(player.position, b.mesh.position).setY(0).normalize();
+            b.speed = b.baseSpeed * 4;
+            b.dmg = b.baseDmg * 1.5;
+            puff(b.mesh.position.x, 1, b.mesh.position.z, 0x4a2a12, 10);
+          }
+        } else if (b.abPhase === "rolling"){
+          b.abT += dt;
+          b.mesh.position.addScaledVector(b.rollDir, b.speed * dt);
+          b.mesh.position.x = Math.max(-ARENA+0.8, Math.min(ARENA-0.8, b.mesh.position.x));
+          b.mesh.position.z = Math.max(-ARENA+0.8, Math.min(ARENA-0.8, b.mesh.position.z));
+          b.mesh.rotation.x += dt * 14;
+          if (b.abT >= 1.6){
+            b.abPhase = "dizzy"; b.abT = 0;
+            b.speed = b.baseSpeed * 0.3;
+            b.dmg = b.baseDmg;
+          }
+        } else if (b.abPhase === "dizzy"){
+          b.abT += dt;
+          if (b.abT >= 1){
+            b.abPhase = "idle"; b.abTimer = 9;
+            b.speed = b.baseSpeed;
+          }
+        }
+      } else if (b.ability === "court"){
+        // The Rat King: squeak telegraph (scale pulse), then summons 7 rats around him
+        if (b.abPhase === "idle" && b.abTimer <= 0){
+          b.abPhase = "telegraph"; b.abT = 0;
+        } else if (b.abPhase === "telegraph"){
+          b.abT += dt;
+          const k = Math.min(1, b.abT / 0.5);
+          const pulse = 1 + Math.sin(k * Math.PI * 4) * 0.1;
+          b.mesh.scale.setScalar(b.meshScale * pulse);
+          if (b.abT >= 0.5){
+            b.mesh.scale.setScalar(b.meshScale);
+            b.abPhase = "idle"; b.abTimer = 10;
+            const n = 7, R = b.r + 3;
+            for (let i = 0; i < n; i++){
+              const a = (i / n) * Math.PI * 2;
+              spawnEnemy("rat", { at: [b.mesh.position.x + Math.cos(a)*R, b.mesh.position.z + Math.sin(a)*R] });
+            }
+            ring(b.mesh.position.x, b.mesh.position.z, 0x3a2a30, 6, 0.5);
+            puff(b.mesh.position.x, 1.5, b.mesh.position.z, 0x3a2a30, 12);
+          }
         }
       }
     }
@@ -2924,7 +3299,7 @@
       else if (id === "bees_rate") weaponById("bees").rateMul += 0.10 * mult;
       else if (id === "sprk_damage") weaponById("sprinkler").dmgMul += 0.15 * mult;
       else if (id === "sprk_radius") weaponById("sprinkler").blastMul += 0.12 * mult;
-      else if (id === "sprk_rate") weaponById("sprinkler").rateMul += 0.10 * mult;
+      else if (id === "sprk_beams") weaponById("sprinkler").beams += intN;
       else if (id === "fork_damage") weaponById("fork").dmgMul += 0.15 * mult;
       else if (id === "fork_rate") weaponById("fork").rateMul += 0.10 * mult;
       else if (id === "fork_multi") weaponById("fork").multishot += intN;
@@ -3025,6 +3400,7 @@
         (victory ? ` <span style="opacity:.75">(incl. victory bonus)</span>` : "");
       document.getElementById("overStat").innerHTML = lastRunLine + ` &nbsp; <span id="bankSpan">(bank: ${meta.coins})</span>`;
       document.getElementById("hud").style.display = "none";
+      document.getElementById("xpBarWrap").style.display = "none";
       document.getElementById("pauseBtn").style.display = "none";
       document.getElementById("bossBar").style.display = "none";
       showOverlay("overOverlay");
@@ -3055,6 +3431,7 @@
       player.position.z = Math.max(-ARENA+1, Math.min(ARENA-1, player.position.z + mv.z * stats.speed * playerSpeedMul * dt));
       pushOutOfBales(player.position, 0.7);
       if (mv.x || mv.z) player.rotation.y = Math.atan2(mv.x, mv.z);
+      if (mv.x || mv.z){ playerVelX = mv.x; playerVelZ = mv.z; }   // last heading, biases grass bend direction
 
       // run cycle: limbs swing if the character has them (Strawman just hops); body bobs, settles when standing
       const ud = player.userData;
@@ -3106,11 +3483,13 @@
 
       // spawning — pressure builds with BOTH time and kills, leaning on sheer volume
       spawnTimer -= dt;
-      // time is the main throttle; kills feed in gently so good play doesn't explode the spawner
-      const interval = Math.max(0.25, 1.7 - elapsed * 0.007 - kills * 0.0012);
+      // time is the main throttle; kills feed in gently so good play doesn't explode the spawner.
+      // Past 240s pressure climbs fast — an extra time-based term and a lower floor.
+      const interval = Math.max(0.16, 1.7 - elapsed * 0.007 - kills * 0.0012 - Math.max(0, elapsed - 240) * 0.0045);
       if (spawnTimer <= 0){
         spawnTimer = interval;
-        const burst = 1 + Math.min(3, threatTier());   // tier 1: pairs, tier 2: triples, tier 3+: quads
+        // tier 1: pairs, tier 2: triples, tier 3+: quads, plus late-game bonus bursts every 75s past 240s
+        const burst = Math.min(7, 1 + Math.min(3, threatTier()) + Math.floor(Math.max(0, elapsed - 240) / 75));
         for (let i = 0; i < burst; i++) spawnEnemy();
         // elites are a rare occasion, not a parade
         if (kills >= 60 && Math.random() < Math.min(0.03, 0.008 + kills * 0.00004)){
@@ -3183,6 +3562,10 @@
 
       // corpses: blasted onto their back, then fade out and free their GPU assets
       updateCorpses(dt);
+
+      // boss special abilities (Shell Quake / Rollout / Summon the Court)
+      updateBossAbilities(dt);
+      updateQuakeRings(dt);
 
       weaponsUpdate(dt);
       beesUpdate(dt);
@@ -3553,26 +3936,50 @@
     function updateHud(){
       document.getElementById("hpFill").style.width = Math.max(0, hp / stats.maxhp * 100) + "%";
       document.getElementById("xpFill").style.width = Math.min(100, xp / xpNeed * 100) + "%";
+      document.getElementById("hpLabel").textContent = `HP ${Math.max(0,Math.ceil(hp))}/${stats.maxhp}`;
+      document.getElementById("lvlChip").textContent = "Lv" + level;
+      document.getElementById("runTimer").textContent = fmtTime(elapsed);
+      document.getElementById("killsStat").textContent = "💀 " + kills;
+      document.getElementById("coinsStat").textContent = "🪙 " + meta.coins + (bonusCoins > 0 ? "+" + bonusCoins : "");
       const tier = threatTier();
+      document.getElementById("hudThreat").textContent = tier > 0 ? `☠ Threat ${tier}` : "";
+      // legacy plain-text summary — hidden, kept in sync in case anything still reads it
       document.getElementById("hudText").textContent =
         `Lv ${level} · ${fmtTime(elapsed)} · ${kills} kills · HP ${Math.max(0,Math.ceil(hp))}/${stats.maxhp}` +
         ` · 🪙 ${meta.coins}${bonusCoins > 0 ? "+" + bonusCoins : ""}` +
         (tier > 0 ? ` · ☠ Threat ${tier}` : "");
-      // loadout: weapon slots with their level toward evolution (★ once evolved), then passives
-      let slots = "";
+
+      // loadout: one slot per owned weapon — icon + level chip; evolved weapons get a gold glow + evo icon
+      const slotsEl = document.getElementById("weapSlots");
+      slotsEl.innerHTML = "";
       for (let i = 0; i < 4; i++){
         const w = weapons[i];
-        if (!w){ slots += "▫ "; continue; }
-        slots += (w.evolved ? w.evoIco + "★" : WEAPON_SPECS[w.id].ico + (weaponLevel(w) || "")) + " ";
+        const el = document.createElement("div");
+        el.className = "wSlot" + (w && w.evolved ? " evo" : "");
+        if (w){
+          el.textContent = w.evolved ? w.evoIco : WEAPON_SPECS[w.id].ico;
+          const lvl = document.createElement("div");
+          lvl.className = "lvlChip2";
+          lvl.textContent = w.evolved ? "★" : (weaponLevel(w) || 0);
+          el.appendChild(lvl);
+        } else {
+          el.style.opacity = 0.35;
+          el.textContent = "▫";
+        }
+        slotsEl.appendChild(el);
       }
-      document.getElementById("weapSlots").textContent = slots.trim();
+      // passives: icon + count chip, right-aligned
+      const passRowEl = document.getElementById("passRow");
+      passRowEl.innerHTML = "";
       const passIcons = { uni_damage:"🌐", uni_rate:"⚙️", speed:"👢", maxhp:"🍲", magnet:"🧲", regen:"🌱", knockback:"💨" };
-      let passes = "";
       for (const [id, ico] of Object.entries(passIcons)){
         const n = stats.taken[id] || 0;
-        if (n > 0) passes += ico + n + " ";
+        if (n <= 0) continue;
+        const chip = document.createElement("div");
+        chip.className = "pChip";
+        chip.innerHTML = `<span>${ico}</span><span class="n">${n}</span>`;
+        passRowEl.appendChild(chip);
       }
-      document.getElementById("passRow").textContent = passes.trim();
     }
 
     // ================== input ==================
@@ -3814,10 +4221,12 @@
         c.mesh.position.x += c.v * dt;
         if (c.mesh.position.x > ARENA * 1.7) c.mesh.position.x = -ARENA * 1.7;
       }
-      // grass always sways; during play it parts around the farmer's boots
+      // grass field parts around the farmer's boots (and any boss — big enough to matter,
+      // and it's just one extra position to test per cell so the hot path stays cheap)
       const gpx = (state !== "title" && player) ? player.position.x : 999;
       const gpz = (state !== "title" && player) ? player.position.z : 999;
-      updateGrass(dt, gpx, gpz, ts / 1000);
+      const grassExtra = (state !== "title" && boss) ? [[boss.mesh.position.x, boss.mesh.position.z]] : null;
+      updateGrass(dt, gpx, gpz, ts / 1000, grassExtra);
       // idle title spin
       if (state === "title"){
         const t = ts / 1000;
