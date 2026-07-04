@@ -11,6 +11,7 @@
 <link rel="icon" href="bucky.png" />
 <link rel="apple-touch-icon" href="bucky.png" />
 <link rel="manifest" href="manifest.webmanifest" />
+<script src="push-client.js" defer></script>
 <script>
 /* Goat herd + starter chores, baked in so it can never be lost. */
 window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","target":1,"order":1,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"s2","name":"Collect eggs","frequency":"daily","target":1,"order":2,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"s3","name":"Refill water troughs","frequency":"daily","target":2,"order":3,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"s4","name":"Muck out the barn","frequency":"weekly","order":4,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"s5","name":"Pay feed supplier","frequency":"monthly","order":5,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"s6","name":"Renew livestock insurance","frequency":"yearly","order":6,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-archie","name":"Archie","frequency":"goathooves","type":"buck","dob":"2023-02-21","weight":"","sire":"","dam":"","care":{},"order":1,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-tua","name":"Tua","frequency":"goathooves","type":"buck","dob":"2023-02-21","weight":"","sire":"","dam":"","care":{"cdt":{"at":1741953600000,"by":""}},"order":2,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-kaboom","name":"Kaboom","frequency":"goathooves","type":"buck","dob":"2021-05-22","weight":"","sire":"","dam":"","care":{},"order":3,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-oscar","name":"Oscar","frequency":"goathooves","type":"buck","dob":"2021-05-22","weight":"","sire":"","dam":"","care":{},"order":4,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-latte","name":"Latte","frequency":"goathooves","type":"doe","dob":"2021-05-22","weight":"","sire":"","dam":"","care":{},"order":5,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-truffy","name":"Truffy","frequency":"goathooves","type":"doe","dob":"2022-02-22","weight":"","sire":"","dam":"","care":{},"order":6,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-monkey","name":"Monkey","frequency":"goathooves","type":"doe","dob":"2023-03-07","weight":"","sire":"","dam":"","care":{},"order":7,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-chichi","name":"ChiChi","frequency":"goathooves","type":"doe","dob":"2023-02-16","weight":"","sire":"","dam":"","care":{},"order":8,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-cauli","name":"Cauli","frequency":"goathooves","type":"doe","dob":"2023-03-07","weight":"","sire":"","dam":"","care":{"dewormed":{"at":1742040000000,"by":""}},"order":9,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-daisy","name":"Daisy","frequency":"goathooves","type":"doe","dob":"2023-02-16","weight":"","sire":"","dam":"","care":{"dewormed":{"at":1742040000000,"by":""}},"order":10,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-steffi","name":"Steffi","frequency":"goathooves","type":"doe","dob":"2023-02-21","weight":"","sire":"","dam":"","care":{},"order":11,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-graffi","name":"Graffi","frequency":"goathooves","type":"doe","dob":"2023-02-21","weight":"","sire":"","dam":"","care":{},"order":12,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-montana","name":"Montana","frequency":"goathooves","type":"wether","dob":"2025-02-20","weight":"","sire":"Tua","dam":"Truffy","care":{},"order":13,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-oakley","name":"Oakley","frequency":"goathooves","type":"doe","dob":"2025-02-21","weight":"","sire":"Archie","dam":"Steffi","care":{"cdt":{"at":1740744000000,"by":""}},"order":14,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-peyton","name":"Peyton","frequency":"goathooves","type":"buck","dob":"2025-02-22","weight":"","sire":"Archie","dam":"Graffi","care":{"cdt":{"at":1740744000000,"by":""}},"order":15,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-annie","name":"Annie","frequency":"goathooves","type":"doe","dob":"2025-02-22","weight":"","sire":"Archie","dam":"Graffi","care":{"cdt":{"at":1740744000000,"by":""}},"order":16,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-hyperion","name":"Hyperion","frequency":"goathooves","type":"wether","dob":"2025-02-23","weight":"","sire":"Tua","dam":"Monkey","care":{},"order":17,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-caya","name":"Caya","frequency":"goathooves","type":"doe","dob":"2025-02-23","weight":"","sire":"Tua","dam":"Monkey","care":{},"order":18,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-lavender","name":"Lavender","frequency":"goathooves","type":"doe","dob":"2025-02-25","weight":"","sire":"Tua","dam":"Daisy","care":{},"order":19,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-marigold","name":"Marigold","frequency":"goathooves","type":"doe","dob":"2025-02-25","weight":"","sire":"Tua","dam":"Daisy","care":{},"order":20,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-jalen","name":"Jalen","frequency":"goathooves","type":"wether","dob":"2025-02-25","weight":"","sire":"Tua","dam":"Daisy","care":{},"order":21,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-champ","name":"Champ","frequency":"goathooves","type":"buck","dob":"2025-02-25","weight":"","sire":"Tua","dam":"Daisy","care":{},"order":22,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-jj","name":"JJ","frequency":"goathooves","type":"buck","dob":"2025-02-25","weight":"","sire":"Tua","dam":"Daisy","care":{},"order":23,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-hazel","name":"Hazel","frequency":"goathooves","type":"doe","dob":"2025-03-11","weight":"","sire":"Tua","dam":"ChiChi","care":{},"order":24,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-cocoa","name":"Cocoa","frequency":"goathooves","type":"doe","dob":"2025-03-11","weight":"","sire":"Tua","dam":"ChiChi","care":{},"order":25,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-moose","name":"Moose","frequency":"goathooves","type":"wether","dob":"2025-03-11","weight":"","sire":"Tua","dam":"Monkey","care":{},"order":26,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-juniper","name":"Juniper","frequency":"goathooves","type":"doe","dob":"2026-03-09","weight":"","sire":"Kaboom","dam":"Cauli","care":{},"order":27,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-gusgus","name":"GusGus","frequency":"goathooves","type":"wether","dob":"2026-03-09","weight":"","sire":"Kaboom","dam":"Cauli","care":{},"order":28,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-raspberry","name":"Raspberry","frequency":"goathooves","type":"doe","dob":"2026-03-09","weight":"","sire":"Kaboom","dam":"Cauli","care":{},"order":29,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-tippy","name":"Tippy","frequency":"goathooves","type":"doe","dob":"2026-01-31","weight":"","sire":"Tua","dam":"Monkey","care":{},"order":30,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-cookie-dough","name":"Cookie Dough","frequency":"goathooves","type":"wether","dob":"2026-01-31","weight":"","sire":"Tua","dam":"Monkey","care":{},"order":31,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-hershey","name":"Hershey","frequency":"goathooves","type":"wether","dob":"2026-01-31","weight":"","sire":"Tua","dam":"Monkey","care":{},"order":32,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-bo","name":"Bo","frequency":"goathooves","type":"wether","dob":"2026-01-31","weight":"","sire":"Oscar","dam":"Daisy","care":{},"order":33,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-nix","name":"Nix","frequency":"goathooves","type":"wether","dob":"2026-01-31","weight":"","sire":"Oscar","dam":"Daisy","care":{},"order":34,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-skunkworks","name":"Skunkworks","frequency":"goathooves","type":"wether","dob":"2026-01-31","weight":"","sire":"Oscar","dam":"Daisy","care":{},"order":35,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-primrose","name":"Primrose","frequency":"goathooves","type":"doe","dob":"2026-01-31","weight":"","sire":"Oscar","dam":"Daisy","care":{},"order":36,"lastPeriod":"","lastBy":"","lastAt":0}];
@@ -928,6 +929,7 @@ function updateNotifToggleUI(){
 async function toggleDesktopAlerts(){
   if (desktopAlertsEnabled()){
     localStorage.setItem("buckyNotifDesktop", "0");
+    if (window.BuckyPush) BuckyPush.disable().catch(()=>{});
     updateNotifToggleUI();
     return;
   }
@@ -939,6 +941,10 @@ async function toggleDesktopAlerts(){
   if (perm === "default") perm = await Notification.requestPermission();
   if (perm === "granted"){
     localStorage.setItem("buckyNotifDesktop", "1");
+    // also register this device for phone push — silently a no-op until PUSH_SETUP.md is done
+    if (window.BuckyPush && familyKey && myName()){
+      BuckyPush.enable(myName(), familyKey).catch(e => console.warn("Push not configured yet:", e.message || e));
+    }
   }
   updateNotifToggleUI();
 }
@@ -2974,6 +2980,12 @@ function notifyAssignee(name, wo){
       + (wo.due ? ` Due ${wo.due}.` : "") + (wo.value ? ` Value $${wo.value}.` : "") + (wo.desc ? ` ${wo.desc}` : ""),
     task: wo.name, due: wo.due || "no due date", value: wo.value ? ("$" + wo.value) : "", description: wo.desc || ""
   });
+  // phone push (no-op until push is configured; see PUSH_SETUP.md)
+  if (window.BuckyPush && familyKey){
+    BuckyPush.notify(FAMILY_PASSWORD, familyKey, name,
+      "🛠️ New work order: " + wo.name,
+      `From ${myName() || "the family"}` + (wo.due ? ` · due ${wo.due}` : "") + (wo.value ? ` · $${wo.value}` : ""));
+  }
 }
 function notifyCreatorClosed(wo){
   sendEmail(wo.createdBy, {
@@ -2981,6 +2993,12 @@ function notifyCreatorClosed(wo){
     message: `The work order you created, "${wo.name}", was just completed by ${myName() || "someone"}.`,
     task: wo.name, due: wo.due || "", value: wo.value ? ("$" + wo.value) : "", description: wo.desc || ""
   });
+  // phone push (no-op until push is configured; see PUSH_SETUP.md)
+  if (window.BuckyPush && familyKey){
+    BuckyPush.notify(FAMILY_PASSWORD, familyKey, wo.createdBy,
+      "✅ Work order closed: " + wo.name,
+      `Closed by ${myName() || "someone"}`);
+  }
 }
 
 // Re-render every minute so "X min ago" stays fresh and chores reset at day/week boundaries
