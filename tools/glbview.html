@@ -17,11 +17,18 @@
 "use strict";
 
 // Query params: ?glb=<url>&view=front|three4|top|side&w=..&h=..
+// Animation strip mode (optional): &anim=<clipIndex>&frame=<i>&frames=<N>
+// When "anim" is present, the AnimationMixer is advanced to frame i/N of the
+// clip's duration (looping) before the single screenshot is taken. Calling
+// this endpoint once per frame (i=0..N-1) lets glb-shot.js assemble a strip.
 const qs = new URLSearchParams(location.search);
 const glbUrl = qs.get("glb");
 const view = qs.get("view") || "front";
 const W = parseInt(qs.get("w") || "900", 10);
 const H = parseInt(qs.get("h") || "900", 10);
+const animIndex = qs.has("anim") ? parseInt(qs.get("anim"), 10) : null;
+const frameIndex = qs.has("frame") ? parseInt(qs.get("frame"), 10) : 0;
+const totalFrames = qs.has("frames") ? parseInt(qs.get("frames"), 10) : 6;
 
 window.__shotReady = false;
 window.__shotError = null;
@@ -52,9 +59,37 @@ fillLight.position.set(-2.5, 1.5, -2);
 scene.add(fillLight);
 scene.add(new THREE.AmbientLight(0xffffff, 0.25));
 
+// Box3.setFromObject() does NOT account for GPU skinning on a SkinnedMesh —
+// it only transforms the raw local (bind-pose-authored) geometry by the
+// object's matrixWorld, ignoring bone deformation entirely. For Meshy's
+// rigged GLBs (skeleton wrapped in an "Armature" node scaled 0.01, with
+// large compensating scale baked into skeleton.boneInverses), that raw-geometry
+// box came out ~20-90x smaller than the actual on-screen skinned silhouette,
+// which put the camera far too close and rendered a blank/clipped-through
+// close-up of a single body part instead of the whole character. Bones
+// themselves ARE positioned correctly in world space post-skinning, so when
+// a SkinnedMesh is present, frame off its skeleton's bone world positions
+// instead of the mesh geometry's bbox.
+function computeWorldBox(object){
+  const box = new THREE.Box3();
+  let sawSkinned = false;
+  object.traverse((o) => {
+    if (o.isSkinnedMesh && o.skeleton){
+      sawSkinned = true;
+      for (const bone of o.skeleton.bones){
+        box.expandByPoint(bone.getWorldPosition(new THREE.Vector3()));
+      }
+    }
+  });
+  if (!sawSkinned){
+    box.setFromObject(object);
+  }
+  return box;
+}
+
 function frameCameraOnObject(object, viewName){
   object.updateMatrixWorld(true);
-  const box = new THREE.Box3().setFromObject(object);
+  const box = computeWorldBox(object);
   const size = new THREE.Vector3(); box.getSize(size);
   const center = new THREE.Vector3(); box.getCenter(center);
 
@@ -73,7 +108,12 @@ function frameCameraOnObject(object, viewName){
 
   camera.position.copy(center).addScaledVector(dir, fitDist);
   camera.lookAt(center);
-  camera.near = Math.max(0.01, fitDist / 100);
+  // near must scale with the object, not a fixed floor: rigged GLBs from
+  // Meshy wrap the skeleton in an "Armature" node scaled by 0.01, so a
+  // farmer generated at height_meters=1.75 ends up ~0.0175 three.js units
+  // tall. A fixed near=0.01 floor was larger than fitDist itself for such
+  // objects, clipping straight through the mesh (blank/sliced renders).
+  camera.near = fitDist / 100;
   camera.far = fitDist * 100;
   camera.updateProjectionMatrix();
 }
@@ -86,7 +126,29 @@ if (!glbUrl){
     (gltf) => {
       const model = gltf.scene;
       scene.add(model);
+
+      if (animIndex !== null){
+        const clips = gltf.animations || [];
+        const clip = clips[animIndex];
+        if (!clip){
+          window.__shotError = `No animation clip at index ${animIndex} (file has ${clips.length} clip(s)).`;
+          window.__shotReady = true;
+          return;
+        }
+        const mixer = new THREE.AnimationMixer(model);
+        const action = mixer.clipAction(clip);
+        action.play();
+        // Step the mixer to a specific point in the loop: frame i of N spans
+        // [0, duration) evenly, e.g. frames=6 -> i=0,1,2,3,4,5 at 0/6..5/6 of duration.
+        const t = clip.duration * (frameIndex / totalFrames);
+        mixer.update(t);
+        model.updateMatrixWorld(true);
+      }
+
+      // Framed AFTER the mixer update so a posed (non-rest) frame is
+      // measured accurately, not just the bind pose.
       frameCameraOnObject(model, view);
+
       renderer.render(scene, camera);
       window.__shotReady = true;
     },

@@ -239,6 +239,7 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/fflate.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FBXLoader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
   <script>
   (() => {
     // ================== constants ==================
@@ -467,6 +468,9 @@
     // Assets shared across spawns (loaded models, pooled geometries) go in this set so
     // freeMesh never disposes them out from under the next spawn.
     const SHARED_ASSETS = new Set();
+    // Rigged-character animation mixers (farmer/strawman skeletal run+idle clips) are advanced
+    // once per frame from update(dt) — see Stage 1 of the rigged-player animation work.
+    const activeMixers = [];
     function markShared(root){
       root.traverse(o => {
         if (o.isMesh){
@@ -733,6 +737,34 @@
       return m;
     }
 
+    // ---- farmer's weapon: the downloaded shotgun if it loaded, else a corn cannon ----
+    // Extracted so both the procedural buildFarmer() and the rigged buildFarmerRigged()
+    // (which hangs this off the RightHand bone) can share the exact same construction.
+    function buildFarmerGun(){
+      const cannonGrp = new THREE.Group();
+      if (gunAsset){
+        const gun = new THREE.Mesh(gunAsset.geo, [
+          new THREE.MeshPhongMaterial({ color: 0x8a6a44, shininess: 20 }),   // stock
+          new THREE.MeshPhongMaterial({ color: 0x5b5b62, shininess: 60 })    // barrel
+        ]);
+        const s = 1.1 / gunAsset.len;           // ~1.1 units long
+        gun.scale.setScalar(s);
+        // orient the model's long axis to point forward (+Z)
+        if (gunAsset.longAxis === "x") gun.rotation.y = Math.PI/2;
+        else if (gunAsset.longAxis === "y") gun.rotation.x = Math.PI/2;
+        gun.position.z = 0.3;
+        cannonGrp.add(gun);
+      } else {
+        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.19, 1.0, 8), mat(0x6e5233));
+        barrel.rotation.x = Math.PI/2; cannonGrp.add(barrel);
+        const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.13, 0.14, 8), mat(0x54402a));
+        muzzle.rotation.x = Math.PI/2; muzzle.position.z = 0.55; cannonGrp.add(muzzle);
+        const cob = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 5), mat(0xffd23f));
+        cob.position.z = 0.62; cannonGrp.add(cob);
+      }
+      return cannonGrp;
+    }
+
     // ---- farmer model (articulated: legs/arms pivot at hip/shoulder for the run cycle) ----
     function buildFarmer(){
       const g = new THREE.Group();
@@ -793,27 +825,7 @@
       const hatBand = new THREE.Mesh(new THREE.CylinderGeometry(0.41, 0.42, 0.09, 12), mat(0xb5432e));
       hatBand.position.y = 2.5; g.add(hatBand);
       // weapon cradled at the hip: the downloaded shotgun if it loaded, else a corn cannon
-      const cannonGrp = new THREE.Group();
-      if (gunAsset){
-        const gun = new THREE.Mesh(gunAsset.geo, [
-          new THREE.MeshPhongMaterial({ color: 0x8a6a44, shininess: 20 }),   // stock
-          new THREE.MeshPhongMaterial({ color: 0x5b5b62, shininess: 60 })    // barrel
-        ]);
-        const s = 1.1 / gunAsset.len;           // ~1.1 units long
-        gun.scale.setScalar(s);
-        // orient the model's long axis to point forward (+Z)
-        if (gunAsset.longAxis === "x") gun.rotation.y = Math.PI/2;
-        else if (gunAsset.longAxis === "y") gun.rotation.x = Math.PI/2;
-        gun.position.z = 0.3;
-        cannonGrp.add(gun);
-      } else {
-        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.19, 1.0, 8), mat(0x6e5233));
-        barrel.rotation.x = Math.PI/2; cannonGrp.add(barrel);
-        const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.13, 0.14, 8), mat(0x54402a));
-        muzzle.rotation.x = Math.PI/2; muzzle.position.z = 0.55; cannonGrp.add(muzzle);
-        const cob = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 5), mat(0xffd23f));
-        cob.position.z = 0.62; cannonGrp.add(cob);
-      }
+      const cannonGrp = buildFarmerGun();
       cannonGrp.position.set(0.35, 1.35, 0.55);
       g.add(cannonGrp);
       g.userData.cannon = cannonGrp;
@@ -920,10 +932,10 @@
       return g;
     }
     function buildCharacter(id){
-      if (id === "goat") return buildGoatChar();
-      if (id === "collie") return buildCollieChar();
-      if (id === "straw") return buildStrawChar();
-      return buildFarmer();
+      if (id === "goat") return buildGoatSplit();
+      if (id === "collie") return buildCollieSplit();
+      if (id === "straw") return buildStrawRigged();
+      return buildFarmerRigged();
     }
 
     // ---- crow (kamikaze flyer) ----
@@ -1274,34 +1286,406 @@
       return g;
     }
 
-    // ---- downloaded armadillo model (assets/armadillo.glb) — replaces the procedural shell ----
-    // Faces +Z already (no rotation needed). Each spawn clones the scene and gives every
-    // mesh its own material (like the rat pack) so per-tier tinting and hit-flash don't
-    // bleed across spawns — the cloned materials are NOT shared, so freeMesh() disposes
-    // them on death, while the shared geometry + texture (markShared) survive for the next spawn.
-    let armadilloAssets = null;
-    new THREE.GLTFLoader().load("assets/armadillo.glb", (gltf) => {
-      const src = gltf.scene;
-      src.updateMatrixWorld(true);
-      const box = new THREE.Box3().setFromObject(src);
-      const size = new THREE.Vector3(); box.getSize(size);
-      armadilloAssets = { scene: src, scaleTo: 2.0 / Math.max(size.x, size.y, size.z), minY: box.min.y };
-      markShared(src);   // clones reference these buffers — never dispose them
-    }, undefined, (err) => console.warn("armadillo.glb failed to load — using the built-in armadillo", err));
+    // ---- quadruped leg-split module (turtle/armadillo enemies + goatchar/collie players) ----
+    // Splits a static quadruped mesh into body + 4 leg geometries ONCE per template at load,
+    // so every spawn gets swingable legs without any skeleton. Leg triangles are classified
+    // by centroid (low + off-centerline, which keeps tail/snout chunks on the body), then
+    // clustered into the 4 legs with a small deterministic k-means on (x,z) — naive sign-based
+    // quadrant splitting mislabels goatchar/collie, whose leg clusters don't divide at any
+    // single global Z midpoint (verified against the real vertex data: collie came out
+    // 551/203/0/282 with the naive split vs 255/203/296/282 with k-means + per-side pairing).
+    function splitQuadruped(srcGeometry){
+      // De-index AND de-interleave by hand: these GLBs ship interleaved attributes
+      // (pos+normal+uv, stride 8), and r128's toNonIndexed() reads interleaved arrays with
+      // the wrong stride — it scrambles positions with normal/uv floats (shredded-mesh bug,
+      // fixed upstream only in later three releases). The BufferAttribute accessor API
+      // (getX/getY/getZ) handles interleaving correctly, so build packed arrays through it.
+      const index = srcGeometry.index;
+      const pa = srcGeometry.attributes.position, na = srcGeometry.attributes.normal, ua = srcGeometry.attributes.uv;
+      const vertCount = index ? index.count : pa.count;
+      const pos = new Float32Array(vertCount * 3);
+      const norm = new Float32Array(vertCount * 3);
+      const uv = ua ? new Float32Array(vertCount * 2) : null;
+      for (let i = 0; i < vertCount; i++){
+        const vi = index ? index.getX(i) : i;
+        pos[i*3] = pa.getX(vi);  pos[i*3+1] = pa.getY(vi);  pos[i*3+2] = pa.getZ(vi);
+        norm[i*3] = na.getX(vi); norm[i*3+1] = na.getY(vi); norm[i*3+2] = na.getZ(vi);
+        if (uv){ uv[i*2] = ua.getX(vi); uv[i*2+1] = ua.getY(vi); }
+      }
+      const triCount = vertCount / 3;
+
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (let i = 0; i < pos.length; i += 3){
+        minX = Math.min(minX, pos[i]);   maxX = Math.max(maxX, pos[i]);
+        minY = Math.min(minY, pos[i+1]); maxY = Math.max(maxY, pos[i+1]);
+      }
+      const legYThresh = minY + 0.32 * (maxY - minY);   // legs live in the bottom third…
+      const legXThresh = 0.12 * (maxX - minX);          // …and off the centerline (skips tail/snout)
+
+      const legTris = [];
+      for (let t = 0; t < triCount; t++){
+        const b = t * 9;
+        const cx = (pos[b] + pos[b+3] + pos[b+6]) / 3;
+        const cy = (pos[b+1] + pos[b+4] + pos[b+7]) / 3;
+        const cz = (pos[b+2] + pos[b+5] + pos[b+8]) / 3;
+        if (cy < legYThresh && Math.abs(cx) > legXThresh) legTris.push({ t, cx, cz });
+      }
+
+      // k-means (k=4) on leg-triangle centroids, deterministically seeded from the 4 corners
+      const xs = legTris.map(l => l.cx), zs = legTris.map(l => l.cz);
+      const cMaxX = Math.max.apply(null, xs), cMinX = Math.min.apply(null, xs);
+      const cMaxZ = Math.max.apply(null, zs), cMinZ = Math.min.apply(null, zs);
+      const centers = [[cMaxX, cMaxZ], [cMaxX, cMinZ], [cMinX, cMaxZ], [cMinX, cMinZ]];
+      const nearest = (cx, cz) => {
+        let bi = 0, bd = Infinity;
+        for (let i = 0; i < 4; i++){
+          const dx = cx - centers[i][0], dz = cz - centers[i][1], d = dx*dx + dz*dz;
+          if (d < bd){ bd = d; bi = i; }
+        }
+        return bi;
+      };
+      for (let iter = 0; iter < 15; iter++){
+        const sums = [[0,0,0],[0,0,0],[0,0,0],[0,0,0]];
+        for (const l of legTris){ const bi = nearest(l.cx, l.cz); sums[bi][0] += l.cx; sums[bi][1] += l.cz; sums[bi][2]++; }
+        for (let i = 0; i < 4; i++) if (sums[i][2] > 0) centers[i] = [sums[i][0]/sums[i][2], sums[i][1]/sums[i][2]];
+      }
+      // Label clusters FL/FR/BL/BR: split left/right by center x sign, then front/back WITHIN
+      // each side pair by relative z (a single global front/back Z threshold is what broke the
+      // naive approach — asymmetric stances put 3 of 4 clusters on one side of any midpoint).
+      const withIdx = centers.map((c, i) => ({ i, x: c[0], z: c[1] }));
+      const label = {};
+      for (const side of [withIdx.filter(c => c.x > 0), withIdx.filter(c => c.x <= 0)]){
+        if (side.length !== 2) continue;
+        const front = side[0].z > side[1].z ? side[0] : side[1];
+        const back = front === side[0] ? side[1] : side[0];
+        label[front.i] = (front.x > 0 ? "FR" : "FL");
+        label[back.i] = (back.x > 0 ? "BR" : "BL");
+      }
+
+      const buckets = { body: [], FL: [], FR: [], BL: [], BR: [] };
+      const legTriSet = new Map();   // triIndex -> leg key
+      for (const l of legTris){
+        const key = label[nearest(l.cx, l.cz)];
+        if (key) legTriSet.set(l.t, key);
+      }
+      for (let t = 0; t < triCount; t++) buckets[legTriSet.get(t) || "body"].push(t);
+
+      function geoFromTris(list){
+        const p = new Float32Array(list.length * 9), n = new Float32Array(list.length * 9);
+        const u = uv ? new Float32Array(list.length * 6) : null;
+        list.forEach((t, o) => {
+          for (let k = 0; k < 9; k++){ p[o*9+k] = pos[t*9+k]; n[o*9+k] = norm[t*9+k]; }
+          if (u) for (let k = 0; k < 6; k++) u[o*6+k] = uv[t*6+k];
+        });
+        const g2 = new THREE.BufferGeometry();
+        g2.setAttribute("position", new THREE.BufferAttribute(p, 3));
+        g2.setAttribute("normal", new THREE.BufferAttribute(n, 3));
+        if (u) g2.setAttribute("uv", new THREE.BufferAttribute(u, 2));
+        return g2;
+      }
+
+      const bodyGeo = geoFromTris(buckets.body);
+      const legGeos = {}, legPivotOffsets = {};
+      for (const key of ["FL", "FR", "BL", "BR"]){
+        const g2 = geoFromTris(buckets[key]);
+        // pivot = top-center of the leg cluster (its "hip"); bake it into the geometry origin
+        let sx = 0, sz = 0, cnt = 0, topY = 0;
+        const gp = g2.attributes.position.array;
+        for (let i = 0; i < gp.length; i += 3){ sx += gp[i]; sz += gp[i+2]; cnt++; topY = Math.max(topY, gp[i+1]); }
+        const piv = cnt ? { x: sx/cnt, y: topY, z: sz/cnt } : { x: 0, y: 0, z: 0 };
+        g2.translate(-piv.x, -piv.y, -piv.z);
+        legGeos[key] = g2; legPivotOffsets[key] = piv;
+      }
+      return { bodyGeo, legGeos, legPivotOffsets };
+    }
+
+    // Template loader: GLTF → split geometries + one shared Phong material, all marked shared.
+    // sizeBy: { maxDim } scales the largest bbox dimension to that many world units (enemies),
+    // { height } scales bbox height instead (players, whose specs are stated as heights).
+    function loadSplitQuadruped(url, sizeBy, onReady){
+      new THREE.GLTFLoader().load(url, (gltf) => {
+        let srcMesh = null;
+        gltf.scene.traverse(o => { if (o.isMesh && !srcMesh) srcMesh = o; });
+        if (!srcMesh) return console.warn(url + " has no mesh — using the built-in model");
+        gltf.scene.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(gltf.scene);
+        const size = new THREE.Vector3(); box.getSize(size);
+        const scaleTo = sizeBy.height ? sizeBy.height / size.y
+                                      : sizeBy.maxDim / Math.max(size.x, size.y, size.z);
+        const split = splitQuadruped(srcMesh.geometry);
+        const material = new THREE.MeshPhongMaterial({ map: srcMesh.material.map, shininess: 8 });
+        [split.bodyGeo, split.legGeos.FL, split.legGeos.FR, split.legGeos.BL, split.legGeos.BR]
+          .forEach(g2 => SHARED_ASSETS.add(g2));
+        SHARED_ASSETS.add(material); if (material.map) SHARED_ASSETS.add(material.map);
+        onReady({ scaleTo, minY: box.min.y, bodyGeo: split.bodyGeo, legGeos: split.legGeos,
+                  legPivotOffsets: split.legPivotOffsets, material });
+      }, undefined, (err) => console.warn(url + " failed to load — using the built-in model", err));
+    }
+
+    // Per-spawn assembly: body mesh + 4 leg pivot groups inside an inner group that carries the
+    // template scale (so elite/boss scaling and squash on the OUTER group compose cleanly).
+    // cloneMaterial=true gives the spawn its own material (swarm enemies: tier-tint/elite-tint/
+    // hit-flash stay per-spawn, exactly like the rat pack); the ONE clone is shared by all 5
+    // meshes of the spawn so freeMesh disposes a single material on death. Players (a single
+    // instance at a time) skip the clone and use the shared template material directly.
+    function buildSplitQuadruped(tpl, cloneMaterial){
+      const g = new THREE.Group();
+      const inner = new THREE.Group();
+      const m = cloneMaterial ? tpl.material.clone() : tpl.material;
+      inner.add(new THREE.Mesh(tpl.bodyGeo, m));
+      const legPivots = {};
+      for (const key of ["FL", "FR", "BL", "BR"]){
+        const pivot = new THREE.Group();
+        const off = tpl.legPivotOffsets[key];
+        pivot.position.set(off.x, off.y, off.z);
+        pivot.add(new THREE.Mesh(tpl.legGeos[key], m));
+        inner.add(pivot);
+        legPivots[key] = pivot;
+      }
+      inner.scale.setScalar(tpl.scaleTo);
+      inner.position.y = -tpl.minY * tpl.scaleTo;   // feet on the grass
+      g.add(inner);
+      g.userData.model = inner;
+      g.userData.legPivots = legPivots;
+      return g;
+    }
+
+    // ---- downloaded armadillo model (assets/armadillo.glb), now with split swinging legs ----
+    // Faces +Z already (no rotation needed).
+    let armadilloTemplate = null;
+    loadSplitQuadruped("assets/armadillo.glb", { maxDim: 2.0 }, (tpl) => { armadilloTemplate = tpl; });
     const buildArmadilloProcedural = buildArmadillo;
     BUILDERS.armadillo = function(){
-      if (!armadilloAssets) return buildArmadilloProcedural();
-      const g = new THREE.Group();
-      const m = armadilloAssets.scene.clone(true);
-      m.traverse(o => { if (o.isMesh && o.material) o.material = o.material.clone(); });
-      const s = armadilloAssets.scaleTo;
-      m.scale.setScalar(s);
-      m.position.y = -armadilloAssets.minY * s;   // feet on the grass
-      g.add(m);
-      g.userData.model = m;
+      if (!armadilloTemplate) return buildArmadilloProcedural();
+      const g = buildSplitQuadruped(armadilloTemplate, true);
       g.add(blobShadow(0.85));
       return g;
     };
+
+    // ---- downloaded turtle model (assets/turtle.glb) — split swinging legs, faces +Z ----
+    let turtleTemplate = null;
+    loadSplitQuadruped("assets/turtle.glb", { maxDim: 2.6 }, (tpl) => { turtleTemplate = tpl; });
+    const buildTurtleProcedural = buildTurtle;
+    BUILDERS.turtle = function(){
+      if (!turtleTemplate) return buildTurtleProcedural();
+      const g = buildSplitQuadruped(turtleTemplate, true);
+      g.add(blobShadow(1.2));
+      return g;
+    };
+
+    // ---- downloaded player quadrupeds (goatchar.glb / collie.glb) — split legs, face +Z ----
+    let goatTemplate = null;
+    loadSplitQuadruped("assets/goatchar.glb", { height: 1.6 }, (tpl) => { goatTemplate = tpl; });
+    let collieTemplate = null;
+    loadSplitQuadruped("assets/collie.glb", { height: 1.5 }, (tpl) => { collieTemplate = tpl; });
+    function buildGoatSplit(){
+      if (!goatTemplate) return buildGoatChar();
+      const g = buildSplitQuadruped(goatTemplate, false);
+      attachSidearm(g, 0.55, 1.1, 0.4);   // same offsets as the procedural goat
+      g.add(blobShadow(0.85));
+      return g;
+    }
+    function buildCollieSplit(){
+      if (!collieTemplate) return buildCollieChar();
+      const g = buildSplitQuadruped(collieTemplate, false);
+      attachSidearm(g, 0.5, 1.0, 0.4);    // same offsets as the procedural collie
+      g.add(blobShadow(0.8));
+      return g;
+    }
+
+    // ---- downloaded snake model (assets/snake.glb) — programmatic 7-bone spine ----
+    // The GLB is a straight limbless body along +Z (head at the +Z end). At load we bolt
+    // skinIndex/skinWeight onto the shared geometry: each vertex blends linearly between the
+    // two nearest of 7 evenly-spaced bones by z. Bones + Skeleton are per-spawn (cheap, JS-side)
+    // while the geometry/texture stay shared; the per-spawn material clone keeps tint/flash
+    // independent across the pack. NOTE r128: materials need skinning:true (not automatic).
+    let snakeAssets = null;
+    new THREE.GLTFLoader().load("assets/snake.glb", (gltf) => {
+      let srcMesh = null;
+      gltf.scene.traverse(o => { if (o.isMesh && !srcMesh) srcMesh = o; });
+      if (!srcMesh) return console.warn("snake.glb has no mesh — using the built-in snake");
+      const geo = srcMesh.geometry;
+      geo.computeBoundingBox();
+      const bb = geo.boundingBox;
+      const N_BONES = 7;
+      const pos = geo.attributes.position;
+      const skinIndices = new Uint16Array(pos.count * 4);
+      const skinWeights = new Float32Array(pos.count * 4);
+      const zMin = bb.min.z, zMax = bb.max.z, span = zMax - zMin || 1;
+      for (let i = 0; i < pos.count; i++){
+        // bone 0 sits at the head (+Z end); t runs 0 (head) → N-1 (tail tip)
+        const t = (zMax - pos.getZ(i)) / span * (N_BONES - 1);
+        const i0 = Math.min(N_BONES - 2, Math.max(0, Math.floor(t)));
+        const frac = Math.min(1, Math.max(0, t - i0));
+        skinIndices[i*4] = i0; skinIndices[i*4+1] = i0 + 1;
+        skinWeights[i*4] = 1 - frac; skinWeights[i*4+1] = frac;
+      }
+      geo.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(skinIndices, 4));
+      geo.setAttribute("skinWeight", new THREE.Float32BufferAttribute(skinWeights, 4));
+      const material = new THREE.MeshPhongMaterial({ map: srcMesh.material.map, shininess: 8, skinning: true });
+      SHARED_ASSETS.add(geo); SHARED_ASSETS.add(material); if (material.map) SHARED_ASSETS.add(material.map);
+      snakeAssets = { geo, material, scaleTo: 2.6 / span, minY: bb.min.y, zMax, step: span / (N_BONES - 1), nBones: N_BONES };
+    }, undefined, (err) => console.warn("snake.glb failed to load — using the built-in snake", err));
+    const buildSnakeProcedural = buildSnake;
+    BUILDERS.snake = function(){
+      if (!snakeAssets) return buildSnakeProcedural();
+      const g = new THREE.Group();
+      const mesh = new THREE.SkinnedMesh(snakeAssets.geo, snakeAssets.material.clone());
+      const bones = [];
+      let prev = null;
+      for (let i = 0; i < snakeAssets.nBones; i++){
+        const b = new THREE.Bone();
+        if (prev){ b.position.z = -snakeAssets.step; prev.add(b); }
+        else b.position.z = snakeAssets.zMax;
+        bones.push(b); prev = b;
+      }
+      mesh.add(bones[0]);
+      mesh.updateMatrixWorld(true);                 // Skeleton computes boneInverses from matrixWorld
+      mesh.bind(new THREE.Skeleton(bones));
+      mesh.frustumCulled = false;                   // bone-bent extremes would pop the raw bbox cull
+      const s = snakeAssets.scaleTo;
+      mesh.scale.setScalar(s);
+      mesh.position.y = -snakeAssets.minY * s;      // belly on the grass
+      g.add(mesh);
+      g.userData.model = mesh;
+      g.userData.bones = bones;
+      g.add(blobShadow(0.6));
+      return g;
+    };
+
+    // ---- rigged player models (assets/farmer.glb + farmer-idle.glb, strawman.glb + strawman-idle.glb) ----
+    // Meshy-rigged skinned characters: the base file carries the run clip (animations[0]) and
+    // the "-idle" companion file carries the idle clip (also animations[0] there — grab by
+    // index, not by clip name, since the idle file may only contain that one clip).
+    // GOTCHA: the skeleton sits under an "Armature" node scaled 0.01 with compensating scale
+    // baked into skeleton.boneInverses. THREE.Box3().setFromObject() on the raw bind-pose
+    // geometry ignores GPU-skinning deformation entirely and under-reports size by 20-90x —
+    // see tools/glbview.html's computeWorldBox for the same fix applied here: frame off the
+    // SkinnedMesh's skeleton bone world positions instead of the geometry.
+    function computeBoneWorldBox(object){
+      const box = new THREE.Box3();
+      let sawSkinned = false;
+      object.traverse((o) => {
+        if (o.isSkinnedMesh && o.skeleton){
+          sawSkinned = true;
+          for (const bone of o.skeleton.bones){
+            box.expandByPoint(bone.getWorldPosition(new THREE.Vector3()));
+          }
+        }
+      });
+      if (!sawSkinned) box.setFromObject(object);
+      return box;
+    }
+    function loadRiggedCharacter(baseUrl, idleUrl, targetHeight, onReady){
+      let scene = null, runClip = null, idleClip = null;
+      function maybeReady(){
+        if (!scene || !runClip || !idleClip) return;
+        scene.updateMatrixWorld(true);
+        const box = computeBoneWorldBox(scene);
+        const size = new THREE.Vector3(); box.getSize(size);
+        const boneBoxHeight = size.y || 1;
+        const scaleTo = targetHeight / boneBoxHeight;
+        markShared(scene);   // clones reference these buffers — never dispose them
+        onReady({ scene, runClip, idleClip, scaleTo, minY: box.min.y });
+      }
+      new THREE.GLTFLoader().load(baseUrl, (gltf) => {
+        scene = gltf.scene;
+        runClip = gltf.animations[0];
+        maybeReady();
+      }, undefined, (err) => console.warn(baseUrl + " failed to load — using the built-in procedural model", err));
+      new THREE.GLTFLoader().load(idleUrl, (gltf) => {
+        idleClip = gltf.animations[0];
+        maybeReady();
+      }, undefined, (err) => console.warn(idleUrl + " failed to load — using the built-in procedural model", err));
+    }
+    let farmerTemplate = null;
+    loadRiggedCharacter("assets/farmer.glb", "assets/farmer-idle.glb", 2.6, (tpl) => { farmerTemplate = tpl; });
+    let strawmanTemplate = null;
+    loadRiggedCharacter("assets/strawman.glb", "assets/strawman-idle.glb", 2.6, (tpl) => { strawmanTemplate = tpl; });
+
+    // Shared builder for rigged players: clones the template scene (via SkeletonUtils.clone,
+    // which — unlike Object3D.clone/scene.clone(true) — correctly re-binds a fresh skeleton
+    // per instance), scales+grounds it, wires up an AnimationMixer with run/idle actions, and
+    // hands back a group with the same userData interface (cannon/cannonBaseZ/runPhase/
+    // cannonKick) the procedural builders use, plus mixer/runAction/idleAction/animState.
+    function buildRiggedCharacter(template, proceduralFallbackFn, shadowRadius, buildWeaponFn){
+      if (!template) return proceduralFallbackFn();
+      const g = new THREE.Group();
+      const clone = THREE.SkeletonUtils.clone(template.scene);
+      const s = template.scaleTo;
+      clone.scale.setScalar(s);
+      clone.position.y = -template.minY * s;   // feet on the grass
+      clone.rotation.y = Math.PI;   // face travel direction (+Z), matches other downloaded models
+      g.add(clone);
+
+      const mixer = new THREE.AnimationMixer(clone);
+      const runAction = mixer.clipAction(template.runClip);
+      const idleAction = mixer.clipAction(template.idleClip);
+      idleAction.play();
+      activeMixers.push(mixer);
+
+      g.userData = {
+        mixer, runAction, idleAction, animState: "idle",
+        cannon: null, cannonBaseZ: 0.5, runPhase: 0, cannonKick: 0
+      };
+
+      // weapon: try to hang it off the RightHand bone; fall back to a fixed offset on the
+      // top-level group if no matching bone is found (or if bone-attach looks wrong).
+      let handBone = null;
+      clone.traverse(o => { if (o.isBone && /RightHand/i.test(o.name)) handBone = o; });
+      if (buildWeaponFn){
+        const weapon = buildWeaponFn(handBone);
+        if (handBone){
+          g.userData.cannon = weapon.grp;
+          g.userData.cannonBaseZ = weapon.grp.position.z;
+        } else {
+          g.add(weapon.grp);
+          g.userData.cannon = weapon.grp;
+          g.userData.cannonBaseZ = weapon.grp.position.z;
+        }
+      }
+
+      g.add(blobShadow(shadowRadius));
+      return g;
+    }
+
+    const buildFarmerProcedural = buildFarmer;
+    function buildFarmerRigged(){
+      return buildRiggedCharacter(farmerTemplate, buildFarmerProcedural, 0.85, (handBone) => {
+        const grp = buildFarmerGun();
+        if (handBone){
+          // Bone-local space is ~100x world space under the Armature's 0.01 scale, so a
+          // mesh parented under a bone needs a corrective inverse scale to read as the
+          // same visual size it had in world space. Position/rotation tuned by eye against
+          // a posed screenshot (see verification step) to sit the gun in the hand.
+          grp.scale.setScalar(100);
+          grp.position.set(0, -0.05, 0.55);
+          grp.rotation.set(0, 0, 0);
+          handBone.add(grp);
+        } else {
+          grp.position.set(0.35, 1.35, 0.55);
+        }
+        return { grp };
+      });
+    }
+
+    const buildStrawProcedural = buildStrawChar;
+    function buildStrawRigged(){
+      return buildRiggedCharacter(strawmanTemplate, buildStrawProcedural, 0.8, (handBone) => {
+        const grp = new THREE.Group();
+        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.13, 0.8, 7), mat(0x6e5233));
+        barrel.rotation.x = Math.PI/2; grp.add(barrel);
+        if (handBone){
+          grp.scale.setScalar(100);
+          grp.position.set(0, -0.05, 0.5);
+          grp.rotation.set(0, 0, 0);
+          handBone.add(grp);
+        } else {
+          grp.position.set(0.45, 1.3, 0.4);
+        }
+        return { grp };
+      });
+    }
 
     // ---- downloaded hay-bale model (haybale.fbx + straw.png) — one round roll, textured ----
     let baleAsset = null;
@@ -1511,6 +1895,10 @@
 
     function startGame(){
       clearEntities();
+      if (player && player.userData.mixer){
+        const idx = activeMixers.indexOf(player.userData.mixer);
+        if (idx >= 0) activeMixers.splice(idx, 1);
+      }
       if (player) freeMesh(player);
       const ch = charById(meta.selChar);
       player = buildCharacter(ch.id);
@@ -1584,8 +1972,12 @@
       // menace tint: darker + redder per tier; elites get a dark violet cast (skip the shadow disc)
       const tintAmt = Math.min(0.45, tier * 0.15);
       if (tintAmt > 0 || elite){
+        // dedupe by material: split-leg spawns share ONE material across body + 4 legs,
+        // so an un-deduped traverse would compound the lerp 5x on that one material
+        const tinted = new Set();
         mesh.traverse(o => {
-          if (o.isMesh && o.material && !o.material.transparent){
+          if (o.isMesh && o.material && !o.material.transparent && !tinted.has(o.material)){
+            tinted.add(o.material);
             if (tintAmt > 0) o.material.color.lerp(new THREE.Color(0x8a2020), tintAmt);
             if (elite) o.material.color.lerp(new THREE.Color(0x3a1050), 0.4);
           }
@@ -1701,7 +2093,15 @@
       mesh.scale.setScalar(def.scale);
       // enter from the top edge, centered on the player's column
       mesh.position.set(Math.max(-ARENA+3, Math.min(ARENA-3, player.position.x)), 0, -ARENA+2);
-      mesh.traverse(o => { if (o.isMesh && o.material && !o.material.transparent) o.material.color.lerp(new THREE.Color(def.tint), 0.5); });
+      {  // dedupe by material — split-leg bosses share one material across body + 4 legs
+        const tinted = new Set();
+        mesh.traverse(o => {
+          if (o.isMesh && o.material && !o.material.transparent && !tinted.has(o.material)){
+            tinted.add(o.material);
+            o.material.color.lerp(new THREE.Color(def.tint), 0.5);
+          }
+        });
+      }
       scene.add(mesh);
       const hpScale = 1 + threatTier() * 0.35 + elapsed/120 * 0.5;
       boss = { kind:def.kind, mesh, hp: def.hp * hpScale, maxHp: def.hp * hpScale,
@@ -2333,6 +2733,7 @@
     function update(dt){
       if (state !== "playing") return;
       elapsed += dt;
+      for (let i = 0; i < activeMixers.length; i++) activeMixers[i].update(dt);
 
       // player movement — clamped to the fence and blocked by hay bales
       const mv = moveVector();
@@ -2344,14 +2745,40 @@
       // run cycle: limbs swing if the character has them (Strawman just hops); body bobs, settles when standing
       const ud = player.userData;
       const moving = !!(mv.x || mv.z);
-      ud.runPhase += dt * (moving ? 11 : 3);
-      const swing = moving ? Math.sin(ud.runPhase) * 0.75 : Math.sin(ud.runPhase) * 0.05;
-      if (ud.legL){ ud.legL.rotation.x = swing;  ud.legR.rotation.x = -swing; }
-      if (ud.armL){ ud.armL.rotation.x = -swing * 0.8; ud.armR.rotation.x = swing * 0.8; }
-      player.position.y = moving ? Math.abs(Math.sin(ud.runPhase)) * (ud.legL ? 0.14 : 0.24) : 0;
+      if (ud.mixer){
+        // rigged characters: cross-fade between the skeletal idle/run clips instead of the
+        // procedural limb-swing; the clips already bake in their own up/down bob.
+        if (moving){
+          if (ud.animState !== "run"){
+            ud.idleAction.crossFadeTo(ud.runAction, 0.15, false);
+            ud.runAction.play();
+            ud.animState = "run";
+          }
+          ud.runAction.timeScale = Math.max(0.6, Math.min(1.8, stats.speed / 6));
+        } else if (ud.animState !== "idle"){
+          ud.runAction.crossFadeTo(ud.idleAction, 0.15, false);
+          ud.idleAction.play();
+          ud.animState = "idle";
+        }
+        player.position.y = 0;
+      } else if (ud.legPivots){
+        // split-leg quadruped players (goat/collie): diagonal-pair trot while moving,
+        // settling to a gentle idle sway when standing
+        ud.runPhase += dt * (moving ? 11 : 3);
+        const swing = moving ? Math.sin(ud.runPhase) * 0.55 : Math.sin(ud.runPhase) * 0.08;
+        ud.legPivots.FL.rotation.x = swing;  ud.legPivots.BR.rotation.x = swing;
+        ud.legPivots.FR.rotation.x = -swing; ud.legPivots.BL.rotation.x = -swing;
+        player.position.y = moving ? Math.abs(Math.sin(ud.runPhase)) * 0.08 : 0;
+      } else {
+        ud.runPhase += dt * (moving ? 11 : 3);
+        const swing = moving ? Math.sin(ud.runPhase) * 0.75 : Math.sin(ud.runPhase) * 0.05;
+        if (ud.legL){ ud.legL.rotation.x = swing;  ud.legR.rotation.x = -swing; }
+        if (ud.armL){ ud.armL.rotation.x = -swing * 0.8; ud.armR.rotation.x = swing * 0.8; }
+        player.position.y = moving ? Math.abs(Math.sin(ud.runPhase)) * (ud.legL ? 0.14 : 0.24) : 0;
+      }
       // cannon recoil eases back after each shot
       ud.cannonKick = Math.max(0, ud.cannonKick - dt * 3);
-      ud.cannon.position.z = (ud.cannonBaseZ !== undefined ? ud.cannonBaseZ : 0.5) - ud.cannonKick * 0.9;
+      if (ud.cannon) ud.cannon.position.z = (ud.cannonBaseZ !== undefined ? ud.cannonBaseZ : 0.5) - ud.cannonKick * 0.9;
 
       // regen
       if (stats.regen > 0){
@@ -2643,12 +3070,32 @@
           e.wob += dt * 7;
           const perp = new THREE.Vector3(-dir.z, 0, dir.x);
           e.mesh.position.addScaledVector(perp, Math.sin(e.wob) * 1.9 * dt);   // serpentine weave
-          const segs = e.mesh.userData.segs || [];
-          for (let i = 0; i < segs.length; i++){
-            segs[i].position.x = Math.sin(e.wob - i*0.8) * 0.22;               // lateral S-wave down the body
-            segs[i].position.y = 0.26 + Math.abs(Math.sin(e.wob*0.5 - i*0.6)) * 0.08;
+          const bones = e.mesh.userData.bones;
+          if (bones){
+            // traveling wave down the 7-bone spine; head (bones 0-1) stays steady-ish so the
+            // hitbox (centered on the group) reads honest while the tail whips
+            for (let i = 0; i < bones.length; i++){
+              const amp = i === 0 ? 0.05 : i === 1 ? 0.12 : 0.22;
+              bones[i].rotation.y = Math.sin(e.wob - i * 0.9) * amp;
+            }
+          } else {
+            const segs = e.mesh.userData.segs || [];
+            for (let i = 0; i < segs.length; i++){
+              segs[i].position.x = Math.sin(e.wob - i*0.8) * 0.22;             // lateral S-wave down the body
+              segs[i].position.y = 0.26 + Math.abs(Math.sin(e.wob*0.5 - i*0.6)) * 0.08;
+            }
           }
           e.mesh.rotation.z = 0;
+        } else if (e.mesh.userData.legPivots){
+          // split-leg quadrupeds (turtle, armadillo): diagonal-pair trot — FL+BR swing together,
+          // FR+BL in antiphase; the old whole-body roll drops to a subtle 0.04 accent
+          e.wob += dt * (e.kind === "turtle" ? 5 : 9);   // per-kind cadence unchanged (turtle stays slow)
+          const lp = e.mesh.userData.legPivots;
+          const swing = Math.sin(e.wob) * 0.55 * moving;
+          lp.FL.rotation.x = swing;  lp.BR.rotation.x = swing;
+          lp.FR.rotation.x = -swing; lp.BL.rotation.x = -swing;
+          e.mesh.rotation.z = Math.sin(e.wob) * 0.04 * moving;
+          e.mesh.position.y = Math.abs(Math.sin(e.wob)) * 0.04 * moving;
         } else if (e.kind === "rat"){
           e.wob += dt * 15;                                                    // fast little legs
           e.mesh.position.y = Math.abs(Math.sin(e.wob)) * 0.16 * moving;       // scampering hop
@@ -2963,10 +3410,24 @@
         a.life -= dt;
         a.mesh.position.addScaledVector(a.dir, a.speed * dt);
         a.mesh.position.y = Math.abs(Math.sin(a.wob)) * (a.kind === "turtle" ? 0.04 : 0.1);
-        a.mesh.rotation.z = Math.sin(a.wob) * 0.07;
+        a.mesh.rotation.z = Math.sin(a.wob) * (a.mesh.userData.legPivots ? 0.03 : 0.07);
+        if (a.mesh.userData.legPivots){
+          const lp = a.mesh.userData.legPivots;
+          const swing = Math.sin(a.wob) * 0.5;
+          lp.FL.rotation.x = swing;  lp.BR.rotation.x = swing;
+          lp.FR.rotation.x = -swing; lp.BL.rotation.x = -swing;
+        }
         if (a.kind === "snake"){
-          const segs = a.mesh.userData.segs || [];
-          for (let i = 0; i < segs.length; i++) segs[i].position.x = Math.sin(a.wob - i * 0.8) * 0.22;
+          const bones = a.mesh.userData.bones;
+          if (bones){
+            for (let i = 0; i < bones.length; i++){
+              const amp = i === 0 ? 0.05 : i === 1 ? 0.12 : 0.22;
+              bones[i].rotation.y = Math.sin(a.wob - i * 0.9) * amp;
+            }
+          } else {
+            const segs = a.mesh.userData.segs || [];
+            for (let i = 0; i < segs.length; i++) segs[i].position.x = Math.sin(a.wob - i * 0.8) * 0.22;
+          }
         }
         if (a.life <= 0 || Math.abs(a.mesh.position.x) > ARENA + 2 || Math.abs(a.mesh.position.z) > ARENA + 2){
           freeMesh(a.mesh); ambient.splice(ambient.indexOf(a), 1);

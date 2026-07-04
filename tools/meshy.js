@@ -13,7 +13,9 @@
  *   node tools/meshy.js text "<prompt>" --name <asset-name> [--polycount 3000] [--no-refine] [--no-remesh]
  *   node tools/meshy.js image <path-or-url> --name <asset-name> [--polycount 3000] [--no-texture] [--no-remesh]
  *   node tools/meshy.js remesh <task-id> --name <asset-name> [--polycount 3000] [--topology triangle]
- *   node tools/meshy.js status <task-id> [--kind text|image|remesh]
+ *   node tools/meshy.js rig <task-id-or-model-url> --name <asset-name> [--height 1.7] [--texture-url <url>]
+ *   node tools/meshy.js animate <rig-task-id> --name <asset-name> --action-id <id> [--fps 30]
+ *   node tools/meshy.js status <task-id> [--kind text|image|remesh|rig|animate]
  *   node tools/meshy.js list [--kind text|image]
  *
  * Note: should_remesh defaults to TRUE here (Meshy's own default is false for
@@ -24,6 +26,34 @@
  * Docs verified against https://docs.meshy.ai on 2026-07-04. Field names below
  * (model_type vs topology, consumed_credits, etc.) follow the current docs,
  * which occasionally drift from older blog posts / examples.
+ *
+ * --- rig / animate notes (docs.meshy.ai/en/api/rigging-and-animation) ---
+ * POST /openapi/v1/rigging
+ *   body: { input_task_id | model_url, height_meters?, texture_image_url? }
+ *   HUMANOID/BIPEDAL ONLY. Docs: "currently only works well with standard
+ *   humanoid (bipedal) assets with clearly defined limbs." Quadrupeds are
+ *   NOT supported by this endpoint — do not attempt rig on turtle/goatchar/
+ *   collie/armadillo/snake; they stay static GLBs by design.
+ *   Model must face +Z (glTF forward), must be textured, <=300k faces.
+ *   Result on SUCCEEDED includes rigged_character_glb_url/fbx_url PLUS
+ *   FREE bundled basic_animations { walking_glb_url, running_glb_url,
+ *   (+ _fbx_url, _armature_glb_url variants) }. So one rig call already
+ *   gets you a walk+run GLB without a separate /animations call.
+ *   consumed_credits: docs example shows 5, changelog says 10 — verify
+ *   against the real response each time, don't trust either figure blindly.
+ *
+ * POST /openapi/v1/animations
+ *   body: { rig_task_id, action_id, change_fps?, fbx2usdz?, extract_armature? }
+ *   ONE call = ONE clip = ONE glb (no multi-clip batching in a single call).
+ *   action_id comes from the Animation Library (docs.meshy.ai/en/api/animation-library),
+ *   540+ entries. Known-good generic ids: Idle=0, Walk=1 ("Walking_Woman")
+ *   or 30 ("Casual_Walk"), Run=14 ("Run_02") or 16 ("RunFast").
+ *   Use this mainly to grab Idle (action-id 0) since rig already bundles
+ *   walk+run for free.
+ *
+ * pose_mode (on text-to-3d v2 create, NOT rig): "a-pose"|"t-pose"|"" replaces
+ * deprecated is_a_t_pose. Pass pose_mode:"a-pose" when generating humanoids
+ * intended for rigging, for the best auto-rig success chance.
  */
 
 "use strict";
@@ -200,6 +230,15 @@ async function downloadGlb(task, assetName){
   return destPath;
 }
 
+// Downloads an arbitrary URL to assets/<assetName>.glb (used for rig/animate
+// tasks whose result field names differ from the generation endpoints).
+async function downloadUrlAsGlb(url, assetName){
+  if (!fs.existsSync(ASSETS_DIR)) fs.mkdirSync(ASSETS_DIR, { recursive: true });
+  const destPath = path.join(ASSETS_DIR, `${assetName}.glb`);
+  await downloadTo(url, destPath);
+  return destPath;
+}
+
 // ------------------------------------------------------------- commands
 async function cmdText(argv){
   const { flags, positional } = parseFlags(argv);
@@ -209,20 +248,23 @@ async function cmdText(argv){
   const polycount = flags.polycount ? parseInt(flags.polycount, 10) : 3000;
   const doRefine = flags.refine !== false;
   const shouldRemesh = flags.remesh !== false; // default TRUE so target_polycount is honored
+  const poseMode = flags["pose-mode"] || undefined; // "a-pose" | "t-pose"
 
   const apiKey = readApiKey();
   const deadline = Date.now() + OVERALL_TIMEOUT_MS;
   const endpointBase = "/openapi/v2/text-to-3d";
 
-  console.log(`Creating text-to-3d PREVIEW task for prompt: "${prompt}" (target_polycount=${polycount}, should_remesh=${shouldRemesh})`);
-  const createRes = await apiCall(apiKey, "POST", endpointBase, {
+  console.log(`Creating text-to-3d PREVIEW task for prompt: "${prompt}" (target_polycount=${polycount}, should_remesh=${shouldRemesh}${poseMode ? `, pose_mode=${poseMode}` : ""})`);
+  const createBody = {
     mode: "preview",
     prompt,
     topology: "triangle",
     target_polycount: polycount,
     should_remesh: shouldRemesh,
     ai_model: "meshy-6",
-  });
+  };
+  if (poseMode) createBody.pose_mode = poseMode;
+  const createRes = await apiCall(apiKey, "POST", endpointBase, createBody);
   const previewId = createRes.result;
   if (!previewId) throw new Error(`Unexpected create response, no "result" task id: ${JSON.stringify(createRes)}`);
   console.log(`Preview task id: ${previewId}  (resume anytime with: node tools/meshy.js status ${previewId} --kind text)`);
@@ -334,13 +376,107 @@ async function cmdRemesh(argv){
   console.log(`Done.`);
 }
 
+// Rigs a humanoid/bipedal model. HUMANOID ONLY per docs — do not use on
+// quadrupeds (turtle/goatchar/collie/armadillo) or the snake; those fail or
+// produce garbage. POST /openapi/v1/rigging. Downloads the rigged (bind-pose)
+// GLB to assets/<name>.glb, and the two FREE bundled basic_animations
+// (walking, running) to assets/<name>-walk.glb / <name>-run.glb.
+async function cmdRig(argv){
+  const { flags, positional } = parseFlags(argv);
+  const source = positional[0];
+  if (!source) throw new Error("Usage: node tools/meshy.js rig <task-id-or-model-url> --name <asset-name> [--height 1.7] [--texture-url <url>]");
+  if (!flags.name) throw new Error("Missing required --name <asset-name>");
+  const heightMeters = flags.height ? parseFloat(flags.height) : undefined;
+
+  const apiKey = readApiKey();
+  const deadline = Date.now() + OVERALL_TIMEOUT_MS;
+  const endpointBase = "/openapi/v1/rigging";
+
+  const isUrl = /^https?:\/\//i.test(source) || /^data:/i.test(source);
+  const body = isUrl ? { model_url: source } : { input_task_id: source };
+  if (heightMeters) body.height_meters = heightMeters;
+  if (flags["texture-url"]) body.texture_image_url = flags["texture-url"];
+
+  console.log(`Creating RIG task from ${isUrl ? "model_url" : "input_task_id"}=${source}${heightMeters ? ` height_meters=${heightMeters}` : ""}`);
+  const createRes = await apiCall(apiKey, "POST", endpointBase, body);
+  const taskId = createRes.result;
+  if (!taskId) throw new Error(`Unexpected create response, no "result" task id: ${JSON.stringify(createRes)}`);
+  console.log(`Rig task id: ${taskId}  (resume anytime with: node tools/meshy.js status ${taskId} --kind rig)`);
+
+  const task = await pollTask(apiKey, endpointBase, taskId, "rig", deadline);
+  console.log(`Rig SUCCEEDED${fmtCredits(task)}`);
+  console.log(`Full result: ${JSON.stringify(task.result, null, 2)}`);
+
+  const result = task.result || {};
+  const outputs = [];
+  if (result.rigged_character_glb_url){
+    const p = await downloadUrlAsGlb(result.rigged_character_glb_url, flags.name);
+    outputs.push(["rigged (bind pose)", p]);
+  }
+  const basic = result.basic_animations || {};
+  if (basic.walking_glb_url){
+    const p = await downloadUrlAsGlb(basic.walking_glb_url, `${flags.name}-walk`);
+    outputs.push(["walk (bundled free)", p]);
+  }
+  if (basic.running_glb_url){
+    const p = await downloadUrlAsGlb(basic.running_glb_url, `${flags.name}-run`);
+    outputs.push(["run (bundled free)", p]);
+  }
+  console.log(`\nDownloaded:`);
+  for (const [label, p] of outputs){
+    const size = fs.statSync(p).size;
+    console.log(`  [${label}] ${p} (${size} bytes)`);
+  }
+  console.log(`\nRig task id (save this for animate): ${taskId}`);
+  console.log(`Done.`);
+}
+
+// Applies one named animation clip (by action_id from the Animation Library)
+// to an already-rigged character. POST /openapi/v1/animations. One call =
+// one clip = one GLB. Use action_id 0 for a generic standing Idle.
+async function cmdAnimate(argv){
+  const { flags, positional } = parseFlags(argv);
+  const rigTaskId = positional[0];
+  if (!rigTaskId) throw new Error("Usage: node tools/meshy.js animate <rig-task-id> --name <asset-name> --action-id <id> [--fps 30]");
+  if (!flags.name) throw new Error("Missing required --name <asset-name>");
+  if (flags["action-id"] === undefined) throw new Error("Missing required --action-id <id> (see docs.meshy.ai/en/api/animation-library; 0 = generic Idle)");
+  const actionId = parseInt(flags["action-id"], 10);
+
+  const apiKey = readApiKey();
+  const deadline = Date.now() + OVERALL_TIMEOUT_MS;
+  const endpointBase = "/openapi/v1/animations";
+
+  const body = { rig_task_id: rigTaskId, action_id: actionId };
+  if (flags.fps) body.change_fps = parseInt(flags.fps, 10);
+
+  console.log(`Creating ANIMATE task for rig ${rigTaskId} action_id=${actionId}`);
+  const createRes = await apiCall(apiKey, "POST", endpointBase, body);
+  const taskId = createRes.result;
+  if (!taskId) throw new Error(`Unexpected create response, no "result" task id: ${JSON.stringify(createRes)}`);
+  console.log(`Animate task id: ${taskId}  (resume anytime with: node tools/meshy.js status ${taskId} --kind animate)`);
+
+  const task = await pollTask(apiKey, endpointBase, taskId, "animate", deadline);
+  console.log(`Animate SUCCEEDED${fmtCredits(task)}`);
+  console.log(`Full result: ${JSON.stringify(task.result, null, 2)}`);
+
+  const result = task.result || {};
+  const glbUrl = result.animation_glb_url;
+  if (!glbUrl) throw new Error(`Animate task ${taskId} succeeded but no animation_glb_url in result: ${JSON.stringify(result)}`);
+  const destPath = await downloadUrlAsGlb(glbUrl, flags.name);
+  const size = fs.statSync(destPath).size;
+  console.log(`\nDownloaded GLB: ${destPath} (${size} bytes)`);
+  console.log(`Done.`);
+}
+
 async function cmdStatus(argv){
   const { flags, positional } = parseFlags(argv);
   const id = positional[0];
-  if (!id) throw new Error("Usage: node tools/meshy.js status <task-id> [--kind text|image|remesh]");
+  if (!id) throw new Error("Usage: node tools/meshy.js status <task-id> [--kind text|image|remesh|rig|animate]");
   const endpointBase =
     flags.kind === "image" ? "/openapi/v1/image-to-3d" :
     flags.kind === "remesh" ? "/openapi/v1/remesh" :
+    flags.kind === "rig" ? "/openapi/v1/rigging" :
+    flags.kind === "animate" ? "/openapi/v1/animations" :
     "/openapi/v2/text-to-3d";
 
   const apiKey = readApiKey();
@@ -375,12 +511,19 @@ function printUsage(){
   console.log(`meshy.js — Meshy.ai asset-generation CLI
 
 Usage:
-  node tools/meshy.js text "<prompt>" --name <asset-name> [--polycount 3000] [--no-refine] [--no-remesh]
+  node tools/meshy.js text "<prompt>" --name <asset-name> [--polycount 3000] [--no-refine] [--no-remesh] [--pose-mode a-pose|t-pose]
   node tools/meshy.js image <path-or-url> --name <asset-name> [--polycount 3000] [--no-texture] [--no-remesh]
   node tools/meshy.js remesh <task-id> --name <asset-name> [--polycount 3000] [--topology triangle]
-  node tools/meshy.js status <task-id> [--kind text|image|remesh]
+  node tools/meshy.js rig <task-id-or-model-url> --name <asset-name> [--height 1.7] [--texture-url <url>]
+  node tools/meshy.js animate <rig-task-id> --name <asset-name> --action-id <id> [--fps 30]
+  node tools/meshy.js status <task-id> [--kind text|image|remesh|rig|animate]
   node tools/meshy.js list [--kind text|image]
   node tools/meshy.js balance
+
+Notes:
+  - rig is HUMANOID-ONLY per Meshy docs; do not use on quadrupeds or the snake.
+  - rig bundles free walk+run GLBs (assets/<name>-walk.glb, <name>-run.glb).
+  - animate applies ONE clip per call; action_id 0 = generic Idle.
 `);
 }
 
@@ -391,6 +534,8 @@ async function main(){
       case "text": await cmdText(rest); break;
       case "image": await cmdImage(rest); break;
       case "remesh": await cmdRemesh(rest); break;
+      case "rig": await cmdRig(rest); break;
+      case "animate": await cmdAnimate(rest); break;
       case "status": await cmdStatus(rest); break;
       case "list": await cmdList(rest); break;
       case "balance": await cmdBalance(); break;

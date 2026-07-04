@@ -9,11 +9,17 @@
  *
  * Usage:
  *   node tools/glb-shot.js assets/trough.glb [--out shots/trough.png] [--views front,three4,top]
+ *   node tools/glb-shot.js assets/farmer.glb --anim 0 --frames 6 [--view three4]
  *
  * Default views: front,three4
  * Output naming: if --out is omitted, writes shots/<basename>-<view>.png per view.
  *                if --out is given and only one view is requested, writes exactly
  *                that path; with multiple views, "-<view>" is inserted before the extension.
+ *
+ * Animation strip mode (--anim <clipIndex>): steps an AnimationMixer through
+ * N evenly-spaced points across one loop of the given clip (glTF animations[])
+ * and captures one PNG per frame, writing shots/<basename>-anim<idx>-f<NN>.png.
+ * Use --view (singular) to pick the camera angle for the strip (default three4).
  */
 
 "use strict";
@@ -32,7 +38,7 @@ const BASE_URL = `http://localhost:${PORT}`;
 
 // ---------------------------------------------------------------- CLI args
 function parseArgs(argv){
-  const out = { glb: null, out: null, views: ["front", "three4"], w: 900, h: 900 };
+  const out = { glb: null, out: null, views: ["front", "three4"], w: 900, h: 900, anim: null, frames: 6, view: "three4" };
   const positional = [];
   for (let i = 0; i < argv.length; i++){
     const a = argv[i];
@@ -42,6 +48,9 @@ function parseArgs(argv){
       case "--views": out.views = next().split(",").map((s) => s.trim()).filter(Boolean); break;
       case "--w": out.w = parseInt(next(), 10); break;
       case "--h": out.h = parseInt(next(), 10); break;
+      case "--anim": out.anim = parseInt(next(), 10); break;
+      case "--frames": out.frames = parseInt(next(), 10); break;
+      case "--view": out.view = next(); break;
       default:
         if (a.startsWith("--")){
           console.error(`Unknown argument: ${a}`);
@@ -185,6 +194,57 @@ async function main(){
   try {
     serverChild = await ensureServer();
     browser = await launchBrowser();
+
+    if (args.anim !== null){
+      // Animation strip mode: N frames of one clip, same camera view for all.
+      const base = path.basename(args.glb, path.extname(args.glb));
+      for (let f = 0; f < args.frames; f++){
+        const page = await browser.newPage();
+        await page.setViewport({ width: args.w, height: args.h, deviceScaleFactor: 1 });
+        page.on("pageerror", (err) => console.error("[page error]", err.message));
+        page.on("console", (msg) => {
+          if (msg.type() === "error") console.error("[console.error]", msg.text());
+        });
+
+        const qs = new URLSearchParams({
+          glb: `/${glbRelFromRoot}`,
+          view: args.view,
+          w: String(args.w),
+          h: String(args.h),
+          anim: String(args.anim),
+          frame: String(f),
+          frames: String(args.frames),
+        });
+        const url = `${BASE_URL}/tools/glbview.html?${qs.toString()}`;
+        console.log(`Rendering anim=${args.anim} frame ${f + 1}/${args.frames} from ${url}`);
+        await page.goto(url, { waitUntil: "load", timeout: 30000 });
+        await waitForShotReady(page, 20000);
+
+        const frameLabel = String(f).padStart(2, "0");
+        const outPath = args.out
+          ? (() => {
+              const outAbs = path.isAbsolute(args.out) ? args.out : path.join(ROOT, args.out);
+              const ext = path.extname(outAbs) || ".png";
+              return `${outAbs.slice(0, -ext.length)}-f${frameLabel}${ext}`;
+            })()
+          : path.join(SHOTS_DIR, `${base}-anim${args.anim}-f${frameLabel}.png`);
+        const outDir = path.dirname(outPath);
+        if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+
+        const canvas = await page.$("canvas");
+        await canvas.screenshot({ path: outPath });
+        written.push(outPath);
+
+        await page.close();
+      }
+
+      console.log("\nFiles written:");
+      for (const f of written){
+        const size = fs.statSync(f).size;
+        console.log(`  ${f}  (${size} bytes)${size < 5000 ? "  <-- suspiciously small, check for a blank frame" : ""}`);
+      }
+      return;
+    }
 
     for (const view of args.views){
       const page = await browser.newPage();
