@@ -724,6 +724,7 @@ const STORES = [
 ];
 let shopAddStore = "";  // which store the add-item sheet is targeting
 let chores = [];          // [{id, name, frequency, order, lastPeriod, lastBy, lastAt}]
+let dataReady = false;    // true once the backend has delivered chores at least once (guards checkNotifications from the async cloud-load race)
 let editingId = null;     // null = adding new
 let sheetFreq = "daily";
 let sheetTod = "morning";
@@ -778,20 +779,64 @@ function loadNotifState(user){
 }
 function saveNotifState(user, state){ localStorage.setItem(notifStateKey(user), JSON.stringify(state)); }
 function loadNotifInbox(user){
-  try { return JSON.parse(localStorage.getItem(notifInboxKey(user))) || []; } catch { return []; }
+  let inbox;
+  try { inbox = JSON.parse(localStorage.getItem(notifInboxKey(user))) || []; } catch { inbox = []; }
+  const deduped = dedupeNotifInbox(inbox);
+  if (deduped.changed) saveNotifInbox(user, deduped.inbox);
+  return deduped.inbox;
+}
+// One-time cleanup for inboxes polluted by the pre-fix duplicate-notification bug.
+// Groups by (woId||id-less-legacy-key, type), keeps one entry: earliest "at", read
+// if ANY duplicate in the group was read. Entries without a woId (pre-migration
+// notifications) are deduped by (type + text) as a best-effort fallback.
+function dedupeNotifInbox(inbox){
+  if (!Array.isArray(inbox) || inbox.length === 0) return { inbox: [], changed: false };
+  const groups = new Map();
+  const order = [];
+  for (const n of inbox){
+    const key = (n.woId ? n.woId : "legacy:" + n.text) + "|" + n.type;
+    if (!groups.has(key)){ groups.set(key, []); order.push(key); }
+    groups.get(key).push(n);
+  }
+  let changed = false;
+  const result = [];
+  for (const key of order){
+    const dupes = groups.get(key);
+    if (dupes.length > 1) changed = true;
+    let merged = dupes[0];
+    for (const d of dupes.slice(1)){
+      merged = {
+        ...merged,
+        at: Math.min(merged.at, d.at),
+        read: merged.read || d.read
+      };
+    }
+    result.push(merged);
+  }
+  // Preserve original relative order (most-recent-first) by original array order, not group-discovery order.
+  const keyOf = n => (n.woId ? n.woId : "legacy:" + n.text) + "|" + n.type;
+  const firstIndex = new Map();
+  inbox.forEach((n, i) => { const k = keyOf(n); if (!firstIndex.has(k)) firstIndex.set(k, i); });
+  result.sort((a, b) => firstIndex.get(keyOf(a)) - firstIndex.get(keyOf(b)));
+  return { inbox: result, changed };
 }
 function saveNotifInbox(user, inbox){ localStorage.setItem(notifInboxKey(user), JSON.stringify(inbox.slice(0, NOTIF_CAP))); }
 
 let lastNotifUser = null;   // tracks which user's state we last diffed, so switching users recomputes cleanly
-function addNotif(user, type, text){
+// woId + type identify a single logical event (e.g. "assigned this work order" or "closed this work order").
+// Re-adding the same (woId, type) is a no-op so a confused state map can never produce duplicate notifications.
+function addNotif(user, type, text, woId){
   const inbox = loadNotifInbox(user);
-  inbox.unshift({ id: "n" + Date.now() + Math.random().toString(36).slice(2,7), type, text, at: Date.now(), read: false });
+  if (woId && inbox.some(n => n.woId === woId && n.type === type)) return null;
+  const n = { id: "n" + Date.now() + Math.random().toString(36).slice(2,7), woId: woId || null, type, text, at: Date.now(), read: false };
+  inbox.unshift(n);
   saveNotifInbox(user, inbox);
-  return inbox[0];
+  return n;
 }
 // Diff current work orders against what this user last saw; generate notifications for
 // new assignments and new closures. Runs on every render() so it catches cloud + local changes.
 function checkNotifications(){
+  if (!dataReady) return;   // backend hasn't delivered chores yet — diffing now would look like everything got deleted
   const user = myName();
   if (!user) return;
   const firstRunForUser = lastNotifUser !== user && localStorage.getItem(notifStateKey(user)) === null;
@@ -808,22 +853,22 @@ function checkNotifications(){
     if (!prev){
       // Never seen this work order before.
       if (!firstRunForUser && assignee === user && !done && w.createdBy !== user){
-        const n = addNotif(user, "assigned", `🛠️ New work order for you: ${w.name} (from ${w.createdBy || "someone"})`);
-        fresh.push(n);
+        const n = addNotif(user, "assigned", `🛠️ New work order for you: ${w.name} (from ${w.createdBy || "someone"})`, w.id);
+        if (n) fresh.push(n);
       } else if (firstRunForUser && assignee === user && !done){
         // First-ever run: don't spam old history, but do surface currently-open assignments.
-        const n = addNotif(user, "assigned", `🛠️ New work order for you: ${w.name}${w.createdBy ? " (from " + w.createdBy + ")" : ""}`);
-        fresh.push(n);
+        const n = addNotif(user, "assigned", `🛠️ New work order for you: ${w.name}${w.createdBy ? " (from " + w.createdBy + ")" : ""}`, w.id);
+        if (n) fresh.push(n);
       }
     } else {
       if (!firstRunForUser){
         if (assignee === user && prev.assignee !== user && !done && w.createdBy !== user){
-          const n = addNotif(user, "assigned", `🛠️ New work order for you: ${w.name} (from ${w.createdBy || "someone"})`);
-          fresh.push(n);
+          const n = addNotif(user, "assigned", `🛠️ New work order for you: ${w.name} (from ${w.createdBy || "someone"})`, w.id);
+          if (n) fresh.push(n);
         }
         if (!prev.done && done && w.createdBy === user && w.doneBy !== user){
-          const n = addNotif(user, "closed", `✅ Your work order '${w.name}' was closed by ${w.doneBy || "someone"}`);
-          fresh.push(n);
+          const n = addNotif(user, "closed", `✅ Your work order '${w.name}' was closed by ${w.doneBy || "someone"}`, w.id);
+          if (n) fresh.push(n);
         }
       }
     }
@@ -3028,6 +3073,7 @@ function makeLocalBackend(){
     chores = seedData();
     save();
   }
+  dataReady = true;
   return {
     add: async (data) => { const id = "c" + Date.now(); chores.push({ id, ...data }); save(); return id; },
     update: async (id, patch) => { const c = chores.find(x=>x.id===id); if(c) Object.assign(c, patch); save(); },
@@ -3047,6 +3093,7 @@ async function makeCloudBackend(){
   let seedChecked = false;
   fs.onSnapshot(col, (snap)=>{
     chores = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    dataReady = true;
     render(); refreshGoatDetail();
     setStatus("live", "Synced with your family");
     // One-time: if this family's database is empty, load the starter data + goat herd
