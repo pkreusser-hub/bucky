@@ -98,6 +98,17 @@
     .plusPop{ font-size:36px; }
   }
 
+  /* ---- Family playtest fix #4 (throwing v2): AIR MAIL! bonus popup — same pop-in language as
+     .tipPop, distinct color/size so it reads as its own special-outcome reward, stacked one beat
+     further below the main +N popup. ---- */
+  .airMailPop{ position:absolute; font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:26px; color:#5fd8ff;
+           text-shadow:0 2px 0 rgba(0,0,0,.4), 0 4px 10px rgba(0,0,0,.5);
+           animation:tipPopIn 1.2s cubic-bezier(.22,1.6,.36,1) both; animation-delay:.34s; opacity:0; }
+  /* full-screen soft flash — one-shot "pop" of light on a special outcome (air delivery). */
+  #screenLiteWrap{ position:absolute; inset:0; pointer-events:none; background:#fff; opacity:0; }
+  #screenLiteWrap.pop{ animation:screenLitePop .5s ease-out; }
+  @keyframes screenLitePop{ 0%{ opacity:.55; } 100%{ opacity:0; } }
+
   /* ---- order queue ----
      NOTE: entry/exit/wiggle motion is driven by transitions + JS class/inline-style toggles
      rather than @keyframes. Verified in headless Chrome that keyframe animations can stall
@@ -431,6 +442,7 @@
       <div id="missToast">Missed one! 💛 Try the next!</div>
       <div id="hintWrap"><div id="hint">Walk to a crate and press SPACE!</div></div>
       <div id="popupWrap"></div>
+      <div id="screenLiteWrap"></div>
       <div id="victoryOverlay">
         <div id="victoryCard">
           <div id="victoryTitle">DAY COMPLETE! 🎉</div>
@@ -885,11 +897,13 @@
     // hostSim/tryAction never gate on level for hidden stations, they just never get interacted
     // with since the render layer won't show them and no station-visibility check is needed in
     // the action layer itself — G state for hidden stations stays inert but present, per spec). ----
-    // ---- Systems pass 4: dish washing (sink/dishTray/dishReturn) is CORE from level 1 per the
+    // ---- Systems pass 4: dish washing (sink/plateStack/dirtyBin) is CORE from level 1 per the
     // design doc ("keeps it simple and teaches early") — appended to every level's `stations`
     // list below for clarity, even though these 3 types are also in ALWAYS_ACTIVE_TYPES so the
     // list membership itself is redundant (belt-and-suspenders per the design doc's instruction).
-    const DISH_WASH_STATIONS = ["dishReturn", "dishTray", "sink"];
+    // Family playtest fix #6/#3: dishReturn -> dirtyBin (relocated to the right wall), dishTray
+    // folded into plateStack (beside the sink).
+    const DISH_WASH_STATIONS = ["dirtyBin", "plateStack", "sink"];
     // ---- Balance playtest pass (bot-driven, see report): a scripted competent-solo-chef bot
     // ran a full 180s simulated day on every level and recorded money/served/missed/tips. Two
     // findings drove the tuning below:
@@ -909,23 +923,23 @@
     const LEVELS = [
       { id: 1, name: "Salad Days", emoji: "🥗", recipes: ["salad"], extraRecipes: [], starMoney: [80, 150, 300],
         spawnFactor: 1.5, patienceMax: 100,
-        stations: ["tomatoCrate", "lettuceCrate", "cuttingBoard", "cuttingBoard2", "plateStation", ...DISH_WASH_STATIONS], crates: ["tomato", "lettuce"] },
+        stations: ["tomatoCrate", "lettuceCrate", "cuttingBoard", "cuttingBoard2", ...DISH_WASH_STATIONS], crates: ["tomato", "lettuce"] },
       { id: 2, name: "Soup's On", emoji: "🍲", recipes: ["soup"], extraRecipes: [{ id: "salad", chance: 0.2 }],
         starMoney: [50, 100, 200], spawnFactor: 1.1, patienceMax: 78,
-        stations: ["tomatoCrate", "lettuceCrate", "onionCrate", "potatoCrate", "cuttingBoard", "cuttingBoard2", "plateStation", "stove", ...DISH_WASH_STATIONS],
+        stations: ["tomatoCrate", "lettuceCrate", "onionCrate", "potatoCrate", "cuttingBoard", "cuttingBoard2", "stove", ...DISH_WASH_STATIONS],
         crates: ["tomato", "lettuce", "onion", "potato"] },
       { id: 3, name: "Burger Barn", emoji: "🍔", recipes: ["burger"], extraRecipes: [{ id: "salad", chance: 0.2 }],
         starMoney: [55, 110, 210], spawnFactor: 1.05, patienceMax: 70,
-        stations: ["tomatoCrate", "lettuceCrate", "bunCrate", "pattyCrate", "cuttingBoard", "cuttingBoard2", "plateStation", "pan", ...DISH_WASH_STATIONS],
+        stations: ["tomatoCrate", "lettuceCrate", "bunCrate", "pattyCrate", "cuttingBoard", "cuttingBoard2", "pan", ...DISH_WASH_STATIONS],
         crates: ["tomato", "lettuce", "bun", "patty"] },
       { id: 4, name: "Pizza Night", emoji: "🍕", recipes: ["pizza"], extraRecipes: [{ id: "soup", chance: 0.2 }],
         starMoney: [95, 190, 370], spawnFactor: 0.9, patienceMax: 58,
-        stations: ["tomatoCrate", "onionCrate", "potatoCrate", "doughCrate", "cheeseCrate", "cuttingBoard", "cuttingBoard2", "plateStation", "stove", "oven", ...DISH_WASH_STATIONS],
+        stations: ["tomatoCrate", "onionCrate", "potatoCrate", "doughCrate", "cheeseCrate", "cuttingBoard", "cuttingBoard2", "stove", "oven", ...DISH_WASH_STATIONS],
         crates: ["tomato", "onion", "potato", "dough", "cheese"] },
       { id: 5, name: "Feast Night", emoji: "🎉", recipes: ["salad", "soup", "burger", "pizza"], extraRecipes: [],
         starMoney: [75, 150, 280], spawnFactor: 0.52, patienceMax: 45,
         stations: ["tomatoCrate", "lettuceCrate", "onionCrate", "potatoCrate", "bunCrate", "pattyCrate", "doughCrate", "cheeseCrate",
-                   "cuttingBoard", "cuttingBoard2", "plateStation", "stove", "pan", "oven", ...DISH_WASH_STATIONS],
+                   "cuttingBoard", "cuttingBoard2", "stove", "pan", "oven", ...DISH_WASH_STATIONS],
         crates: ["tomato", "lettuce", "onion", "potato", "bun", "patty", "dough", "cheese"] }
     ];
     let CURRENT_LEVEL = LEVELS[0];
@@ -951,6 +965,36 @@
         if (r && r.matches(plateContents)) return rid;
       }
       return null;
+    }
+    // ---- Family playtest fix #2/#3: shared "is this ingredient legal to add to an in-progress
+    // plate right now" check — used identically wherever a plate can receive an ingredient (the
+    // plate stack, a plate sitting on a counter slot, and a thrown ingredient landing on a plate).
+    // A candidate item is legal if plateContents + item is still a subset of what SOME recipe this
+    // level offers ultimately needs (kind+state present, no duplicate kind already on the plate,
+    // and the recipe hasn't already been exceeded). Soup is excluded (never assembled via a plate
+    // ingredient-add — it's collected whole from the pot) and pizza is plateless, so neither
+    // recipe is checked here. Returns true/false; never mutates.
+    const PLATE_INGREDIENT_KEYS = {
+      salad:  [{ kind: "tomato", state: "chopped" }, { kind: "lettuce", state: "chopped" }],
+      burger: [{ kind: "bun", state: "raw" }, { kind: "patty", state: "grilled" },
+               { kind: "lettuce", state: "chopped" }, { kind: "tomato", state: "chopped" }]
+    };
+    function isLegalPlateAddition(plateContents, item){
+      if (!item || item.kind === "plate") return false;
+      const ids = CURRENT_LEVEL.recipes.concat(CURRENT_LEVEL.extraRecipes.map(e => e.id));
+      for (const rid of ids){
+        const need = PLATE_INGREDIENT_KEYS[rid];
+        if (!need) continue;   // soup/pizza: never legal via this path
+        const already = plateContents.some(c => c.kind === item.kind);
+        if (already) continue;   // one of each kind only, per recipe
+        const wants = need.find(n => n.kind === item.kind && n.state === item.state);
+        if (!wants) continue;
+        // every existing content must also belong to this same recipe's need-list, else this
+        // plate is already committed to a different recipe and can't accept a foreign kind.
+        const consistent = plateContents.every(c => need.some(n => n.kind === c.kind));
+        if (consistent) return true;
+      }
+      return false;
     }
     // Picks a dish for a new customer order: mostly the level's main recipe list (uniform random
     // for Feast Night's 4-way mix), with pass-3 levels 2-4 occasionally slipping in an "easy"
@@ -984,7 +1028,14 @@
       // item: null | {kind:"tomato"|"lettuce"|..., state:"raw"|"chopped"} (or a pizzaBase/pizza in
       // progress, same as before — boards behave identically, there are just two of them now).
       boards: [{ item: null, progress: 0 }, { item: null, progress: 0 }],
-      plate: { contents: [] }, // array of {kind, state:"chopped"} — the plate station's current plate
+      // ---- Family playtest fix #3 (plate system redesign): G.plate (station-singular) is GONE.
+      // The plate STACK (beside the sink) is the one place an in-progress plate assembly happens
+      // now. `top` is null | a first-class plate item {kind:"plate", contents:[...], dish:null} —
+      // the SAME shape a plate takes anywhere else (hands, counter slots, flying). Starting a
+      // fresh assembly (top===null, first ingredient lands) draws one from G.plates.clean exactly
+      // like the old plate station did. Only ONE in-progress plate at a time — see tryAction's
+      // "plateStack" branch for the "second assembly while one's in progress" rule.
+      plateStack: { top: null },
       // ---- Systems pass 2: customers (REPLACES the anonymous Stage-2 order queue) ----
       customers: [],          // [{id, kind, state, spot, dish, patience, patienceMax, x, z}]
       nextCustomerId: 1,
@@ -1048,6 +1099,12 @@
       noCleanPlateHintChef: null,
       dirtyThrowHintId: 0,     // event counter: chef tried to throw a dirty plate (refused)
       dirtyThrowHintChef: null,
+      // ---- Family playtest fix #4 (throwing v2): event counters for the new throw outcomes —
+      // same "bump a counter, render layer diffs it" pattern as every other one-shot event here.
+      airMailId: 0, airMailSpot: 1,           // a thrown completed dish was air-delivered
+      dishShatterId: 0, dishShatterX: 0, dishShatterZ: 0,   // a thrown plate missed and shattered
+      pizzaSplatId: 0, pizzaSplatX: 0, pizzaSplatZ: 0,       // a thrown baked pizza missed and splatted
+      trashSwishId: 0,                        // anything thrown landed in the trash bin
       // ---- Systems pass 4: title screen / level-intro banner ----
       titleOpen: true,          // true until the host presses COOK! — level select then opens instead
       levelIntroId: 0,          // event counter: bumped whenever a level/day actually starts (both
@@ -1134,24 +1191,23 @@
       { id: "pattyCrate",   type: "crate",   kind: "patty",    x:  HALF_W - CT/2, z: -2.8,             w: CT, d: 1.0 },
       { id: "doughCrate",   type: "crate",   kind: "dough",    x:  HALF_W - CT/2, z: -1.4,             w: CT, d: 1.0 },
       { id: "cheeseCrate",  type: "crate",   kind: "cheese",   x:  HALF_W - CT/2, z:  0.0,             w: CT, d: 1.0 },
-      { id: "plateStation", type: "plate",                     x:  HALF_W - CT/2, z:  1.35,            w: CT, d: 1.1 },
+      // ---- Family playtest fix #6: DIRTY DISH BIN now lives here on the right wall (roughly
+      // where the old standalone plate station used to sit — fills the vacated space) instead of
+      // a "dishReturn" slot further down the wall. Same interaction (empty hands + GRAB takes a
+      // dirty plate to carry to the sink), just relocated + restyled as a visible bin/tub.
+      { id: "dirtyBin",     type: "dirtyBin",                  x:  HALF_W - CT/2, z:  1.35,            w: CT, d: 1.1 },
       { id: "stove",        type: "stove",                     x:  HALF_W - CT/2, z:  2.65,            w: CT, d: 1.0 },
       { id: "trashBin",     type: "trash",                     x: -1.6,           z:  HALF_D - CT/2,   w: 1.1, d: CT },
       { id: "pan",          type: "pan",                       x:  0.5,           z:  HALF_D - CT/2,   w: 1.3, d: CT },
       { id: "oven",         type: "oven",                      x:  2.4,           z:  HALF_D - CT/2,   w: 1.6, d: CT },
-      // ---- Systems pass 4: dish washing — dish RETURN slot stays on the right wall beyond the
-      // stove (visible near the window, per the design doc — carrying dirty plates across the
-      // kitchen to the sink is the INTENDED gameplay loop, so dish-return deliberately stays put).
-      // SINK on the bottom wall beyond the oven. User-reported layout fix: DISH TRAY moved to sit
-      // DIRECTLY beside the sink (was on the right wall, a separate trip from the sink) so the
-      // wash-to-rack step is now wash -> turn -> rack with no cross-kitchen detour — verified
-      // clear of the sink's own footprint (0.25 gap) and the bottom wall's right corner (0.3 gap).
-      // All three are ALWAYS_ACTIVE (washing is core from level 1) — added to every level's
-      // `stations` list below too, for clarity/consistency even though ALWAYS_ACTIVE_TYPES makes
-      // the list redundant for these.
-      { id: "dishReturn",   type: "dishReturn",                x:  HALF_W - CT/2, z:  3.7,             w: CT, d: 0.8 },
+      // ---- Family playtest fix #3 (plate system redesign): the plate STATION and the standalone
+      // dish TRAY are GONE as separate right-wall fixtures. NEW: one PLATE STACK sitting on the
+      // counter directly beside the sink (bottom wall) — all clean plates live here as a visible
+      // stack, AND it's where an in-progress plate assembly happens (see tryAction's "plateStack"
+      // branch). SINK stays on the bottom wall; the stack sits immediately to its right so
+      // washing can deposit straight onto it with no separate tray trip.
       { id: "sink",         type: "sink",                      x:  4.3,           z:  HALF_D - CT/2,   w: 1.3, d: CT },
-      { id: "dishTray",     type: "dishTray",                  x:  5.7,           z:  HALF_D - CT/2,   w: 1.0, d: 0.7 }
+      { id: "plateStack",   type: "plateStack",                x:  5.7,           z:  HALF_D - CT/2,   w: 1.0, d: 0.7 }
     ];
 
     const stationById = (id) => G.stations.find(s => s.id === id);
@@ -1251,14 +1307,16 @@
     // stations (stove/pan/oven) actually vary per level per the design doc. Hidden stations keep
     // their G slot but are inert: nearestStation skips them entirely so no action can target
     // them, and the render layer (syncStationVisibility) hides their meshes.
-    const ALWAYS_ACTIVE_TYPES = new Set(["board", "plate", "bell", "spot", "trash", "dishReturn", "dishTray", "sink"]);
+    const ALWAYS_ACTIVE_TYPES = new Set(["board", "plateStack", "bell", "spot", "trash", "dirtyBin", "sink"]);
     function stationActive(st){
       if (ALWAYS_ACTIVE_TYPES.has(st.type)) return true;
       if (!stationVisibleThisLevel(st.id)) return false;
       if (st.type === "crate") return crateVisibleThisLevel(st.kind);
       return true;
     }
-    function nearestStation(chef){
+    // Raw nearest-station lookup by distance alone (no priority bias) — used internally by
+    // nearestStation() below AND by the combined resolver so both share one distance metric.
+    function nearestStationRaw(chef){
       let best = null, bestD = Infinity;
       for (const st of G.stations){
         if (!stationActive(st)) continue;
@@ -1269,18 +1327,48 @@
         const d = Math.hypot(dx, dz);
         if (d < bestD){ bestD = d; best = st; }
       }
+      return { best, bestD };
+    }
+    function nearestStation(chef){
+      const { best, bestD } = nearestStationRaw(chef);
       return bestD <= REACH ? best : null;
     }
 
     // Counter slots are point surfaces (no footprint to clamp against — just their x,z),
     // so distance is a plain point-to-point check against SLOT_REACH.
-    function nearestCounterSlot(chef){
+    function nearestCounterSlotRaw(chef){
       let best = null, bestD = Infinity;
       for (const s of G.counterSlots){
         const d = Math.hypot(chef.x - s.x, chef.z - s.z);
         if (d < bestD){ bestD = d; best = s; }
       }
+      return { best, bestD };
+    }
+    function nearestCounterSlot(chef){
+      const { best, bestD } = nearestCounterSlotRaw(chef);
       return bestD <= SLOT_REACH ? best : null;
+    }
+    // ---- Family playtest fix #2 (diagnosed complaint: "counter tops aren't usable" next to a
+    // station): tryAction/holdAction used to call nearestStation() FIRST and only ever consider
+    // a counter slot when NO station was in reach at all — so a slot sitting just past a
+    // station's REACH-radius bubble could be permanently unreachable (the station always won by
+    // sheer existence, not by actually being closer). Fixed here: both candidates are found, then
+    // compared by distance with a small bias in the station's favor (STATION_BIAS) so a station
+    // still wins ties/near-ties (keeps existing station-priority feel when standing basically AT
+    // the station), but a slot that is GENUINELY closer — e.g. standing between a crate and an
+    // adjacent slot, facing the slot — now correctly resolves to the slot instead of being shadowed.
+    const STATION_BIAS = 0.35;   // units — station distance effectively counts as this much closer
+    function resolveStationOrSlot(chef){
+      const st = nearestStationRaw(chef);
+      const slot = nearestCounterSlotRaw(chef);
+      const stationInReach = st.best && st.bestD <= REACH;
+      const slotInReach = slot.best && slot.bestD <= SLOT_REACH;
+      if (!stationInReach && !slotInReach) return { station: null, slot: null };
+      if (stationInReach && !slotInReach) return { station: st.best, slot: null };
+      if (!stationInReach && slotInReach) return { station: null, slot: slot.best };
+      // both in reach — nearer wins, with the station getting a small home-turf bias.
+      if (st.bestD - STATION_BIAS <= slot.bestD) return { station: st.best, slot: null };
+      return { station: null, slot: slot.best };
     }
     function nearestFloorItem(chef){
       let best = null, bestD = Infinity;
@@ -1343,11 +1431,15 @@
     function tryAction(chefId){
       const chef = G.chefs[chefId];
       if (!chef || G.phase !== "playing" || G.levelSelectOpen) return;
-      const st = nearestStation(chef);
+      // Family playtest fix #2: station vs counter-slot targeting now resolved by actual nearest-
+      // face distance (with a small station bias), not "station always wins if merely in reach" —
+      // see resolveStationOrSlot's comment above for the diagnosed bug.
+      const resolved = resolveStationOrSlot(chef);
+      const st = resolved.station;
       if (!st){
-        // no station in reach: fall through to counter-slot place/take (incl. pizza assembly),
-        // then floor pickup (target priority: station > counter slot > floor item).
-        const slot = nearestCounterSlot(chef);
+        // no station in reach (or the slot genuinely won the resolution): counter-slot place/
+        // take (incl. pizza assembly), then floor pickup.
+        const slot = resolved.slot;
         if (slot){
           // pizza assembly (Systems pass 3): a counter slot holding a "pizzaBase" item accepts
           // chopped tomato (-> sauced) then chopped cheese (-> finished raw "pizza") from a chef
@@ -1372,18 +1464,51 @@
             refuse(chefId, slot.item.state === "raw" ? "Add chopped tomato for sauce! 🍅" : "Now add chopped cheese! 🧀");
             return;
           }
+          // ---- Family playtest fix #2: a counter slot holding a PLATE accepts a valid chopped/
+          // prepared ingredient from a chef's hands (same legality rule as the plate stack) —
+          // this is how "add food to a plate ON a counter" works. Illegal item -> gentle refusal
+          // wobble (not a silent no-op), per the design doc.
+          if (slot.item && slot.item.kind === "plate"){
+            if (chef.holding && chef.holding.kind !== "plate" && isLegalPlateAddition(slot.item.contents, chef.holding)){
+              slot.item.contents.push({ kind: chef.holding.kind, state: chef.holding.state });
+              chef.holding = null;
+              return;
+            }
+            if (!chef.holding){
+              // take the plate (with whatever's on it) — re-check for a completed dish first.
+              const dishId = matchAnyRecipe(slot.item.contents);
+              chef.holding = { kind: "plate", contents: slot.item.contents.slice(), dish: dishId };
+              slot.item = null;
+              return;
+            }
+            plateWobbleT.v = 0.5;   // gentle refusal — held item isn't legal for this plate
+            return;
+          }
           if (chef.holding && chef.holding.kind === "dough" && chef.holding.state === "raw" && !slot.item){
             slot.item = { kind: "pizzaBase", state: "raw" };
             chef.holding = null;
             return;
           }
-          if (chef.holding && !slot.item && chef.holding.kind !== "plate"){
-            slot.item = { kind: chef.holding.kind, state: chef.holding.state };
+          // ---- Family playtest fix #2: counter slots now hold ANYTHING carryable — raw/chopped
+          // ingredients, grilled patty, pizza (any stage), trash blob, dirty plates, AND plates
+          // (empty/partial/complete — handled above when the SLOT already has one; this covers
+          // placing a plate INTO an empty slot for the first time). No more "chef.holding.kind
+          // !== plate" exclusion.
+          if (chef.holding && !slot.item){
+            if (chef.holding.kind === "plate"){
+              slot.item = { kind: "plate", contents: chef.holding.contents.slice(), dish: chef.holding.dish || null };
+            } else {
+              slot.item = { kind: chef.holding.kind, state: chef.holding.state };
+            }
             chef.holding = null;
             return;
           }
           if (!chef.holding && slot.item){
-            chef.holding = { kind: slot.item.kind, state: slot.item.state };
+            if (slot.item.kind === "plate"){
+              chef.holding = { kind: "plate", contents: slot.item.contents.slice(), dish: slot.item.dish || null };
+            } else {
+              chef.holding = { kind: slot.item.kind, state: slot.item.state };
+            }
             slot.item = null;
             return;
           }
@@ -1458,81 +1583,68 @@
         return;
       }
 
-      if (st.type === "plate"){
-        // Systems pass 3: grab a bare EMPTY plate (empty hands, nothing plated yet) to carry
-        // elsewhere — needed so a chef can bring an empty plate to the stove and collect soup
-        // into it (soup never touches G.plate.contents; it's assembled entirely in the pot).
-        // Gated to levels that actually offer soup (main OR extra recipe) so salad/burger/pizza-
-        // only levels keep the old "empty station + empty hands = gentle wobble" feel — an empty
-        // plate serves no purpose there and would just be a confusing extra thing to carry.
+      // ---- Family playtest fix #3: PLATE STACK (beside the sink) replaces the old standalone
+      // plate station + dish tray. Interactions:
+      //  (a) empty hands + GRAB -> take the TOP plate (in-progress if one exists, else a fresh
+      //      clean plate from the pool).
+      //  (b) holding a valid prepared/chopped item + GRAB -> lands directly on the stack's top
+      //      plate, starting/continuing an assembly (consumes one clean plate the moment the
+      //      FIRST ingredient lands, exactly like the old plate station's first-item rule).
+      //  (c) empty hands, nothing in progress, level has soup -> grab a bare empty plate to carry
+      //      to the stove (soup is collected whole from the pot, never via ingredient-add here).
+      // Only ONE in-progress plate on the stack at a time — starting a second while one's already
+      // in progress just interacts with that same in-progress plate (there's only ever `top`).
+      if (st.type === "plateStack"){
         const levelHasSoup = CURRENT_LEVEL.recipes.includes("soup") ||
           CURRENT_LEVEL.extraRecipes.some(e => e.id === "soup");
-        // ---- Systems pass 4: plates are FINITE — starting a NEW plate (the empty-plate grab
-        // for soup, or the first item landing on an empty G.plate.contents for salad/burger)
-        // consumes one from the shared clean pool. G.plate.contents.length === 0 is the exact
-        // "this would be a brand new plate" signal in both cases (an in-progress plate already
-        // has an item on it and never needs to check the pool again for its later items).
-        if (!chef.holding && G.plate.contents.length === 0 && levelHasSoup){
+        // holding a valid ingredient -> add to (or start) the in-progress top plate.
+        if (chef.holding && chef.holding.kind !== "plate" && isLegalPlateAddition(
+              G.plateStack.top ? G.plateStack.top.contents : [], chef.holding)){
+          if (!G.plateStack.top){
+            if (G.plates.clean <= 0){ noCleanPlateRefuse(chefId); return; }
+            G.plates.clean--;
+            G.plateStack.top = { kind: "plate", contents: [], dish: null };
+          }
+          G.plateStack.top.contents.push({ kind: chef.holding.kind, state: chef.holding.state });
+          chef.holding = null;
+          return;
+        }
+        // empty hands, nothing in progress, soup level -> grab a bare empty plate for the stove.
+        if (!chef.holding && !G.plateStack.top && levelHasSoup){
           if (G.plates.clean <= 0){ noCleanPlateRefuse(chefId); return; }
           G.plates.clean--;
           chef.holding = { kind: "plate", contents: [], dish: null };
           return;
         }
-        if (chef.holding && chef.holding.kind !== "plate" && chef.holding.state === "chopped"){
-          if (G.plate.contents.length === 0){
-            if (G.plates.clean <= 0){ noCleanPlateRefuse(chefId); return; }
-            G.plates.clean--;
-          }
-          G.plate.contents.push({ kind: chef.holding.kind, state: "chopped" });
-          chef.holding = null;
-          return;
-        }
-        // burger assembly: bun (raw) and grilled patty land on the plate too, order-independent,
-        // one of each — reuse the same plate.contents array (matchAnyRecipe's burger.matches
-        // checks these exact kind/state pairs).
-        if (chef.holding && chef.holding.kind === "bun" && chef.holding.state === "raw" &&
-            !G.plate.contents.some(c => c.kind === "bun")){
-          if (G.plate.contents.length === 0){
-            if (G.plates.clean <= 0){ noCleanPlateRefuse(chefId); return; }
-            G.plates.clean--;
-          }
-          G.plate.contents.push({ kind: "bun", state: "raw" });
-          chef.holding = null;
-          return;
-        }
-        if (chef.holding && chef.holding.kind === "patty" && chef.holding.state === "grilled" &&
-            !G.plate.contents.some(c => c.kind === "patty")){
-          if (G.plate.contents.length === 0){
-            if (G.plates.clean <= 0){ noCleanPlateRefuse(chefId); return; }
-            G.plates.clean--;
-          }
-          G.plate.contents.push({ kind: "patty", state: "grilled" });
-          chef.holding = null;
-          return;
-        }
-        // ---- Systems pass 4: put back a bare EMPTY plate (e.g. fresh off the sink in a level
-        // with no soup — see the wash-completion flow in holdAction, which always hands the
-        // washer a tangible empty plate regardless of level). Doesn't touch G.plates.clean (that
-        // was already incremented at the moment the wash finished) — this is purely "the chef
-        // sets the physical plate back down", freeing their hands. Checked BEFORE the "raw item"
-        // refusal below since a held plate has no `.state` field of its own.
+        // put back a bare empty plate (fresh off the sink in a level with no soup, or just set
+        // back down) — doesn't touch G.plates.clean (already accounted for), just frees the hands
+        // and becomes the new in-progress top (empty) so it's visible/takeable again.
         if (chef.holding && chef.holding.kind === "plate" && !chef.holding.dish && chef.holding.contents.length === 0){
+          if (!G.plateStack.top) G.plateStack.top = chef.holding;
+          else G.plates.clean++;   // stack already has a top; this empty plate just rejoins the clean pool
           chef.holding = null;
           return;
         }
-        if (chef.holding && chef.holding.state === "raw"){
-          plateWobbleT.v = 0.5;   // gentle refusal
+        if (chef.holding && (chef.holding.kind === "plate" ? false : chef.holding.state === "raw")){
+          plateWobbleT.v = 0.5;   // gentle refusal (raw, non-plate item — not a legal addition)
           return;
         }
+        // empty hands -> take whatever's on top (in-progress plate w/ contents, complete dish, or
+        // a fresh clean plate if nothing's in progress).
         if (!chef.holding){
-          // pluggable recipe check: pick up the plate once its contents match ANY recipe this
-          // level offers — pass 3 extends CURRENT_LEVEL.recipes/RECIPES, nothing here changes.
-          const dishId = matchAnyRecipe(G.plate.contents);
-          if (dishId){
-            chef.holding = { kind: "plate", contents: G.plate.contents.slice(), dish: dishId };
-            G.plate.contents = [];
+          if (G.plateStack.top){
+            const dishId = matchAnyRecipe(G.plateStack.top.contents);
+            chef.holding = { kind: "plate", contents: G.plateStack.top.contents.slice(), dish: dishId };
+            G.plateStack.top = null;
             return;
           }
+          if (G.plates.clean > 0){
+            G.plates.clean--;
+            chef.holding = { kind: "plate", contents: [], dish: null };
+            return;
+          }
+          noCleanPlateRefuse(chefId);
+          return;
         }
         wobble(chefId);
         return;
@@ -1541,10 +1653,11 @@
       // ---- STOVE + POT (Systems pass 3) — soup flow. Chef with a chopped soup veggie in hand
       // adds it to the pot (needs exactly one each of tomato/onion/potato, chopped; wrong kind or
       // a duplicate is a gentle refusal). Once all 3 are in, cooking starts automatically (see
-      // hostSim). A chef holding an EMPTY plate (grabbed from the plate station, see the "plate"
-      // branch above) collects "done" soup straight into that plate as a finished soup dish —
-      // soup never touches G.plate.contents, it's assembled entirely in the pot. A chef with
-      // empty hands can also collect an "overdone" pot's contents (gray blob) to carry to trash. ----
+      // hostSim). A chef holding an EMPTY plate (grabbed from the plate stack, see the
+      // "plateStack" branch above) collects "done" soup straight into that plate as a finished
+      // soup dish — soup never touches the plate stack's in-progress contents array, it's
+      // assembled entirely in the pot. A chef with empty hands can also collect an "overdone"
+      // pot's contents (gray blob) to carry to trash. ----
       if (st.type === "stove"){
         if (chef.holding && chef.holding.kind === "plate" && !chef.holding.dish){
           if (G.pot.state === "done"){
@@ -1675,9 +1788,10 @@
         return;
       }
 
-      // ---- Systems pass 4: DISH RETURN — take one dirty plate (empty hands only) into your
-      // hands to carry to the sink. Dirty plates are NOT throwable (see tryThrow's guard). ----
-      if (st.type === "dishReturn"){
+      // ---- Family playtest fix #6: DIRTY DISH BIN (right wall) — take one dirty plate (empty
+      // hands only) into your hands to carry to the sink. Dirty plates are NOT throwable (see
+      // tryThrow's guard). ----
+      if (st.type === "dirtyBin"){
         if (!chef.holding && G.plates.dirtyQueue.length > 0){
           const dirty = G.plates.dirtyQueue.shift();
           chef.holding = { kind: "dirtyPlate", state: "dirty", id: dirty.id };
@@ -1690,21 +1804,13 @@
       // ---- Systems pass 4: SINK — hold action ~2s to wash a carried dirty plate into a clean
       // one (progress ticked in holdAction below, mirroring the cutting board's hold-to-chop).
       // Pressing (tap, not hold) with a dirty plate just "arrives" at the sink — actual washing
-      // needs the HOLD; a tap here with empty hands or a non-dirty item is a gentle wobble. ----
+      // needs the HOLD; a tap here with empty hands or a non-dirty item is a gentle wobble.
+      // Family playtest fix #3: washing now deposits the cleaned plate straight onto the adjacent
+      // plate stack (see holdAction) — no separate tray trip; the tray station is gone. ----
       if (st.type === "sink"){
         if (chef.holding && chef.holding.kind === "dirtyPlate"){
           return;   // in position — hold WORK to start scrubbing (handled in holdAction)
         }
-        wobble(chefId);
-        return;
-      }
-
-      // ---- Systems pass 4: DISH TRAY — visually distinct return-to spot for a freshly washed
-      // clean plate; shares G.plates.clean with the plate station (no separate pool). A chef
-      // arriving here with empty hands (nothing to do) or already-clean hands just wobbles —
-      // the tray has no "take" interaction of its own (plateStation is where clean plates are
-      // drawn FROM); this station exists so kids see the count go up visibly near the window.
-      if (st.type === "dishTray"){
         wobble(chefId);
         return;
       }
@@ -1729,7 +1835,12 @@
         G.sink.washingChef = chefId;
         G.sink.progress = Math.min(1, G.sink.progress + dt / SINK_WASH_TIME);
         if (G.sink.progress >= 1){
-          chef.holding = { kind: "plate", contents: [], dish: null };   // becomes an EMPTY clean plate in hand
+          // Family playtest fix #3: the cleaned plate deposits straight onto the adjacent plate
+          // stack (no separate tray trip) — the chef's hands go empty, ready to grab something
+          // else. If nothing's in progress on the stack, the fresh plate becomes visible as an
+          // idle clean plate (G.plates.clean); if an assembly is already in progress up there, it
+          // just rejoins the clean pool same as before.
+          chef.holding = null;
           G.plates.clean++;
           G.sink.progress = 0;
           G.sink.washingChef = null;
@@ -1771,39 +1882,78 @@
       }
     }
 
-    // ---- throwing (Systems pass 1, extended pass 3) ----
-    // Only held INGREDIENTS (raw or chopped) are throwable — never a plate/pot/finished dish.
-    // Systems pass 3 adds two more gentle refusals with their OWN hint text (grilled patty is
-    // hot, raw/sauced pizza is floppy) — both reuse the refusalHint event-counter mechanism
-    // (see refuse()) rather than the plate-specific plateThrowHintId, so the sound-reaction pass
-    // just needs the one generic refusalHint watcher to cover every kind of throw refusal.
-    // Launches a host-simulated flying item in a straight line along the chef's current facing;
-    // landing/catch resolution happens per-frame in advanceFlyingItems() below (called from
-    // hostSim). Wind-up FX/whoosh sound and refusal hints are driven from the render layer's
-    // G-diff sound-reaction pass (watching G.flying/G.plateThrowHintId/G.refusalHintId), not
-    // called directly here — that's what makes them show up correctly on BOTH host and guest
-    // screens even though only one side actually executes this function for a given chef.
-    const NOT_THROWABLE_KINDS = new Set(["plate", "pizzaDish", "soupTrash", "pizzaBase"]);
+    // ---- THROWING v2 (family playtest fix #4 — "the signature mechanic, make it FUN") ----
+    // Throwable now: raw/chopped ingredients, grilled patty (the "too hot" restriction is GONE —
+    // it was cute but limited the fun; a sizzle trail plays instead, see spawnThrowWindupFX/
+    // syncFlyingVisuals), and — the headline addition — PLATES/COMPLETED DISHES (any plate,
+    // empty/partial/complete, and the plateless baked pizza dish). Still refused: raw/assembling
+    // pizza (still floppy — the one remaining comedy restriction) and dirty plates (gross-out
+    // refusal, unchanged). Landing/catch/delivery resolution happens per-frame in
+    // advanceFlyingItems() below (called from hostSim, HOST-AUTHORITATIVE). Wind-up FX/whoosh
+    // sound and refusal hints are driven from the render layer's G-diff sound-reaction pass
+    // (watching G.flying/G.plateThrowHintId/G.refusalHintId), not called directly here — that's
+    // what makes them show up correctly on BOTH host and guest screens even though only one side
+    // actually executes this function for a given chef.
+    const NOT_THROWABLE_KINDS = new Set(["pizzaBase"]);   // raw/assembling pizza only — still floppy
+    // ---- Family playtest fix #4: AIM ASSIST — within a generous ±12° cone of the chef's current
+    // facing, bend the throw straight AT the best valid target instead of leaving a slightly-off
+    // toss to sail past. Preference order (per the design doc): chefs > plates > boards > window,
+    // since a caught throw is the most satisfying/least punishing outcome. Computed once at
+    // launch (not re-evaluated mid-flight) — simplest mental model for a kid: "aim close enough
+    // and it finds its way."
+    const AIM_ASSIST_CONE = 12 * Math.PI / 180;
+    function angleTo(chef, x, z){ return Math.atan2(x - chef.x, z - chef.z); }
+    function angleDiff(a, b){ return Math.abs(((a - b + Math.PI*3) % (Math.PI*2)) - Math.PI); }
+    function findAimAssistTarget(chef, chefId){
+      const candidates = [];   // {x,z,priority} — LOWER priority number = preferred
+      for (const cid in G.chefs){
+        if (cid === chefId) continue;
+        const c = G.chefs[cid];
+        if (c.holding) continue;
+        if (Math.hypot(c.x - chef.x, c.z - chef.z) > THROW_MAX_RANGE) continue;
+        candidates.push({ x: c.x, z: c.z, priority: 0 });
+      }
+      // plates in reach: the plate-stack top, or any counter slot holding a plate.
+      if (G.plateStack.top){
+        const stackSt = stationById("plateStack");
+        candidates.push({ x: stackSt.x, z: stackSt.z, priority: 1 });
+      }
+      for (const s of G.counterSlots){
+        if (s.item && s.item.kind === "plate") candidates.push({ x: s.x, z: s.z, priority: 1 });
+      }
+      for (const boardStId of BOARD_STATIONS){
+        const boardSt = stationById(boardStId);
+        if (!boardFor(boardSt).item) candidates.push({ x: boardSt.x, z: boardSt.z, priority: 2 });
+      }
+      // window spots with a matching waiting customer (only meaningful for a completed dish, but
+      // aim-assist is generous — any completed-dish throw benefits from this bucket).
+      for (const c of G.customers){
+        if (c.state !== "waiting" || !c.spot) continue;
+        const spotSt = stationBySpot(c.spot);
+        if (spotSt) candidates.push({ x: spotSt.x, z: spotSt.z, priority: 3 });
+      }
+      let best = null, bestPriority = Infinity, bestDiff = AIM_ASSIST_CONE;
+      const curAngle = chef.dir;
+      for (const cand of candidates){
+        const targetAngle = angleTo(chef, cand.x, cand.z);
+        const diff = angleDiff(curAngle, targetAngle);
+        if (diff > AIM_ASSIST_CONE) continue;
+        if (cand.priority < bestPriority || (cand.priority === bestPriority && diff < bestDiff)){
+          best = targetAngle; bestPriority = cand.priority; bestDiff = diff;
+        }
+      }
+      return best;   // angle to snap to, or null if nothing qualifies
+    }
     function tryThrow(chefId){
       const chef = G.chefs[chefId];
       if (!chef || G.phase !== "playing" || G.levelSelectOpen) return;
       if (!chef.holding) return;
-      if (chef.holding.kind === "plate"){
-        wobble(chefId);
-        G.plateThrowHintId = (G.plateThrowHintId || 0) + 1;   // event counter, same pattern as stats.*
-        G.plateThrowHintChef = chefId;
-        return;
-      }
-      // ---- Systems pass 4: dirty plates are NOT throwable either ("Ew, don't throw that! 🤢")
-      // — own hint counter (not the clean-plate one) so the render layer can show distinct text.
+      // dirty plates are NOT throwable ("Ew, don't throw that! 🤢") — own hint counter (not the
+      // clean-plate one) so the render layer can show distinct text.
       if (chef.holding.kind === "dirtyPlate"){
         wobble(chefId);
         G.dirtyThrowHintId = (G.dirtyThrowHintId || 0) + 1;
         G.dirtyThrowHintChef = chefId;
-        return;
-      }
-      if (chef.holding.kind === "patty" && chef.holding.state === "grilled"){
-        refuse(chefId, "Too hot to throw! 🔥");
         return;
       }
       if (chef.holding.kind === "pizza"){
@@ -1816,21 +1966,52 @@
       }
       const item = chef.holding;
       chef.holding = null;
+      const assistAngle = findAimAssistTarget(chef, chefId);
+      const throwDir = assistAngle != null ? assistAngle : chef.dir;
+      // Juice pass: rough "how far will this travel" estimate (distance to the nearest wall
+      // along the throw direction, capped at THROW_MAX_RANGE) — used only to vary the whoosh's
+      // pitch by distance (a short flick toward a nearby target sounds different from a long
+      // cross-kitchen bomb); gameplay itself still resolves the real flight step by step.
+      const sinD = Math.sin(throwDir), cosD = Math.cos(throwDir);
+      const wallXDist = sinD > 0.001 ? (HALF_W - CT - chef.x) / sinD : sinD < -0.001 ? (-HALF_W + CT - chef.x) / sinD : Infinity;
+      const wallZDist = cosD > 0.001 ? (HALF_D - CT - chef.z) / cosD : cosD < -0.001 ? (-HALF_D + CT - chef.z) / cosD : Infinity;
+      const rangeHint = Math.min(wallXDist, wallZDist);
       G.flying.push({
         id: G.nextFlyId++,
         kind: item.kind,
         state: item.state,
+        // plates/dirty-dish-eligible dishes carry their contents+dish along for the ride so
+        // advanceFlyingItems can resolve air-delivery/plate-landing/shatter outcomes correctly.
+        contents: item.kind === "plate" ? item.contents.slice() : undefined,
+        dish: item.dish || null,
         x: chef.x,
         z: chef.z,
-        dir: chef.dir,
+        dir: throwDir,   // aim assist: bend generously toward a good target
         dist: 0,
+        rangeHint: Math.max(1, Math.min(THROW_MAX_RANGE, rangeHint)),
         throwerId: chefId
       });
       G.stats.thrown++;   // event counter — render layer diffs this to play the whoosh + wind-up on BOTH screens
     }
 
-    // Advances every in-flight item by dt, resolving catches/landings/drops. HOST-AUTHORITATIVE —
-    // called once per tick from hostSim, exactly like order spawning/timers.
+    // ---- Family playtest fix #4: THROWING v2 landing priority chain, checked in this exact
+    // order every step of flight:
+    //   a) CHEF with empty hands -> catch (existing, radius THROW_CATCH_R).
+    //   b) CUTTING BOARD (either) with space -> lands (existing).
+    //   c) A PLATE in the path (counter slot OR the stack top): a thrown chopped/prepared
+    //      ingredient that is recipe-legal for that plate -> lands ON the plate ("assembly by
+    //      air"). Illegal/raw -> bounces off to the floor nearby (not just "keeps flying").
+    //   d) SERVING WINDOW spot: a thrown COMPLETED dish (plate-complete or baked pizza) crossing a
+    //      spot where its matching customer waits -> AIR DELIVERY (full payment+tip+AIR MAIL
+    //      bonus, customer catch anim). Wrong spot / no match -> the dish falls: plate shatters
+    //      (contents poof, becomes a dirty plate on the floor); pizza just splats+poofs.
+    //   e) TRASH BIN: anything thrown into it -> gone, "swish!".
+    //   f) Empty counter slot (existing) -> lands. g) else floor.
+    // HOST-AUTHORITATIVE — called once per tick from hostSim, exactly like order spawning/timers.
+    const BOARD_STATIONS = ["cuttingBoard", "cuttingBoard2"];
+    const THROW_PLATE_R = 0.85;     // radius for landing an ingredient onto a plate in the path
+    const THROW_WINDOW_R = 0.9;     // radius for a completed-dish throw to register at a window spot
+    const THROW_TRASH_R = 0.85;     // radius for "thrown into the trash bin"
     function advanceFlyingItems(dt){
       if (G.flying.length === 0) return;
       for (let i = G.flying.length - 1; i >= 0; i--){
@@ -1839,15 +2020,18 @@
         const nx = f.x + Math.sin(f.dir) * step;
         const nz = f.z + Math.cos(f.dir) * step;
         f.dist += step;
+        const isCompletedDish = (f.kind === "plate" && f.dish) || f.kind === "pizzaDish";
+        const isPlate = f.kind === "plate";
 
-        // 1) catch: any chef (except the thrower) with empty hands within THROW_CATCH_R
+        // a) catch: any chef (except the thrower) with empty hands within THROW_CATCH_R
         let caught = false;
         for (const cid in G.chefs){
           if (cid === f.throwerId) continue;
           const c = G.chefs[cid];
           if (c.holding) continue;
           if (Math.hypot(nx - c.x, nz - c.z) <= THROW_CATCH_R){
-            c.holding = { kind: f.kind, state: f.state };
+            c.holding = isPlate ? { kind: "plate", contents: (f.contents || []).slice(), dish: f.dish || null }
+                                 : { kind: f.kind, state: f.state };
             c.lastCatchId = f.id;   // synced marker (not a lerped value) so BOTH screens' render
                                      // layer can detect "this chef just caught something" via diff
             G.flying.splice(i, 1);
@@ -1858,42 +2042,104 @@
         }
         if (caught) continue;
 
-        // 2) landing: user-reported forgiving-landing fix (#4) — every step, look for the
-        // NEAREST EMPTY landing surface (cutting board OR a counter slot) within THROW_LAND_R of
-        // the item's current position, and snap-land there the moment one comes in range. This
-        // replaces the old "nearest slot overall, then check if it's free" ordering, which let an
-        // occupied slot that merely happened to be geometrically closest block a free slot just
-        // a little further away from ever being tried. Only falls through to the floor if nothing
-        // empty is within range (still-occupied nearest slot) — same "occupied -> floor" rule as
-        // before, just no longer starved by a bad nearest-neighbor pick.
-        const landing = findNearestEmptyLanding(nx, nz);
-        if (landing){
-          if (landing.type === "board"){
-            landing.board.item = { kind: f.kind, state: f.state };
-            landing.board.progress = 0;
-          } else {
-            landing.slot.item = { kind: f.kind, state: f.state };
+        // b) cutting board landing — only for plain ingredients (a plate/dish sailing over a
+        // board doesn't make sense to "land" there; it stays airborne toward window/plate/trash).
+        if (!isPlate && f.kind !== "pizzaDish"){
+          const boardLanding = findNearestEmptyBoard(nx, nz);
+          if (boardLanding){
+            boardLanding.item = { kind: f.kind, state: f.state };
+            boardLanding.progress = 0;
+            G.flying.splice(i, 1);
+            continue;
           }
+        }
+
+        // c) plate-in-path: a chopped/prepared ingredient landing directly ON a plate (counter
+        // slot or the stack top) if it's recipe-legal there — "assembly by air".
+        if (!isPlate && f.kind !== "pizzaDish"){
+          // findNearestPlateInPath returns the live `contents` array itself (not a wrapper), so
+          // it can be pushed to directly.
+          const plateContents = findNearestPlateInPath(nx, nz);
+          if (plateContents){
+            if (isLegalPlateAddition(plateContents, { kind: f.kind, state: f.state })){
+              plateContents.push({ kind: f.kind, state: f.state });
+              plateWobbleT.v = 0.35;   // little bounce of the plate on a successful air-plate
+              G.flying.splice(i, 1);
+              continue;
+            }
+            // illegal/raw thrown at a plate — bounces off to the floor nearby, doesn't just fly on.
+            dropToFloor(f.kind, f.state, nx, nz);
+            G.flying.splice(i, 1);
+            continue;
+          }
+        }
+
+        // d) serving window: a thrown COMPLETED dish crossing a spot segment.
+        if (isCompletedDish){
+          const spotSt = findWindowSpotInPath(nx, nz);
+          if (spotSt){
+            const waitingHere = G.customers.find(c => c.state === "waiting" && c.spot === spotSt.spot);
+            const dishId = f.dish;
+            if (waitingHere && dishId && waitingHere.dish === dishId){
+              // AIR DELIVERY — full payment + tip + AIR MAIL bonus, customer catch anim.
+              completeDelivery(dishId, waitingHere, spotSt.spot, true);
+              G.airMailId = (G.airMailId || 0) + 1;
+              G.airMailSpot = spotSt.spot;
+              G.flying.splice(i, 1);
+              continue;
+            }
+            // wrong spot / no match — the dish falls: plate shatters (contents poof, becomes a
+            // dirty plate ON THE FLOOR to pick up — a real floor item, not auto-queued into the
+            // bin, per the design doc); pizza just splats+poofs (no plate, nothing to pick up).
+            if (isPlate){
+              G.dishShatterId = (G.dishShatterId || 0) + 1;
+              G.dishShatterX = nx; G.dishShatterZ = nz;
+              dropToFloor("dirtyPlate", "dirty", nx, nz);
+            } else {
+              G.pizzaSplatId = (G.pizzaSplatId || 0) + 1;
+              G.pizzaSplatX = nx; G.pizzaSplatZ = nz;
+            }
+            G.flying.splice(i, 1);
+            continue;
+          }
+        }
+
+        // e) trash bin: anything thrown into it vanishes with a "swish!"
+        const trashSt = stationById("trashBin");
+        if (Math.hypot(nx - trashSt.x, nz - trashSt.z) <= THROW_TRASH_R){
+          G.trashSwishId = (G.trashSwishId || 0) + 1;
           G.flying.splice(i, 1);
           continue;
         }
 
-        // 3) max range or wall reached -> one last forgiving search around the clamped impact
-        // point (user-reported: "a throw aimed at a wall should land in the slot nearest the
-        // impact point, not the floor, when one is free within 0.9"), THEN drop to the floor.
+        // f) landing: user-reported forgiving-landing fix (#4, retained) — nearest EMPTY counter
+        // slot within THROW_LAND_R. Plates/completed dishes can land in an empty slot too (a
+        // plate is a perfectly normal counter-slot occupant now, per the counters redesign).
+        const slotLanding = findNearestEmptySlot(nx, nz);
+        if (slotLanding){
+          slotLanding.item = isPlate ? { kind: "plate", contents: (f.contents || []).slice(), dish: f.dish || null }
+                                      : { kind: f.kind, state: f.state };
+          G.flying.splice(i, 1);
+          continue;
+        }
+
+        // g) max range or wall reached -> one last forgiving search around the clamped impact
+        // point, THEN drop to the floor.
         const hitWallX = nx < -HALF_W + CT || nx > HALF_W - CT;
         const hitWallZ = nz < -HALF_D + CT || nz > HALF_D - CT;
         if (f.dist >= THROW_MAX_RANGE || hitWallX || hitWallZ){
           const fx = clamp(nx, -HALF_W + CT + 0.1, HALF_W - CT - 0.1);
           const fz = clamp(nz, -HALF_D + CT + 0.1, HALF_D - CT - 0.1);
-          const impactLanding = findNearestEmptyLanding(fx, fz);
-          if (impactLanding){
-            if (impactLanding.type === "board"){
-              impactLanding.board.item = { kind: f.kind, state: f.state };
-              impactLanding.board.progress = 0;
-            } else {
-              impactLanding.slot.item = { kind: f.kind, state: f.state };
-            }
+          const impactSlot = findNearestEmptySlot(fx, fz);
+          if (impactSlot){
+            impactSlot.item = isPlate ? { kind: "plate", contents: (f.contents || []).slice(), dish: f.dish || null }
+                                       : { kind: f.kind, state: f.state };
+          } else if (isPlate){
+            // ran out of range/wall with a plate still in flight — same "shatter" outcome as a
+            // wrong-spot window throw, just triggered by running out of road instead.
+            G.dishShatterId = (G.dishShatterId || 0) + 1;
+            G.dishShatterX = fx; G.dishShatterZ = fz;
+            dropToFloor("dirtyPlate", "dirty", fx, fz);
           } else {
             dropToFloor(f.kind, f.state, fx, fz);
           }
@@ -1905,28 +2151,60 @@
       }
     }
 
-    // Shared landing-surface search used by advanceFlyingItems above: finds the nearest EMPTY
-    // cutting board (either of the two, user-reported layout fix) / counter slot within
-    // THROW_LAND_R of (x,z), or null if nothing empty is in range (caller then either keeps
-    // flying or drops to the floor). Boards and slots are compared on equal footing by distance
-    // so whichever is genuinely closer wins, rather than always preferring one kind over the other.
-    const BOARD_STATIONS = ["cuttingBoard", "cuttingBoard2"];
-    function findNearestEmptyLanding(x, z){
+    // Shared landing-surface searches used by advanceFlyingItems above — split into three focused
+    // helpers (board / plate-in-path / empty slot) so each step of the priority chain reads
+    // clearly, rather than one function trying to do all three at once.
+    function findNearestEmptyBoard(x, z){
       let best = null, bestD = THROW_LAND_R;
       for (const boardStId of BOARD_STATIONS){
         const boardSt = stationById(boardStId);
         const board = boardFor(boardSt);
         if (board.item) continue;
-        // distance to the board's footprint (0 if inside it, else distance to the nearest edge)
         const dx = Math.max(Math.abs(x - boardSt.x) - boardSt.w/2, 0);
         const dz = Math.max(Math.abs(z - boardSt.z) - boardSt.d/2, 0);
         const d = Math.hypot(dx, dz);
-        if (d <= bestD){ bestD = d; best = { type: "board", board }; }
+        if (d <= bestD){ bestD = d; best = board; }
       }
+      return best;
+    }
+    // Finds the nearest plate (a counter slot holding one, or the stack's in-progress top) within
+    // THROW_PLATE_R — returns its live `contents` array (mutated in place by the caller) or null.
+    function findNearestPlateInPath(x, z){
+      let best = null, bestD = THROW_PLATE_R;
+      if (G.plateStack.top){
+        const stackSt = stationById("plateStack");
+        const d = Math.hypot(x - stackSt.x, z - stackSt.z);
+        if (d <= bestD){ bestD = d; best = G.plateStack.top.contents; }
+      }
+      for (const s of G.counterSlots){
+        if (!s.item || s.item.kind !== "plate") continue;
+        const d = Math.hypot(x - s.x, z - s.z);
+        if (d <= bestD){ bestD = d; best = s.item.contents; }
+      }
+      return best;
+    }
+    function findNearestEmptySlot(x, z){
+      let best = null, bestD = THROW_LAND_R;
       for (const s of G.counterSlots){
         if (s.item) continue;
         const d = Math.hypot(x - s.x, z - s.z);
-        if (d <= bestD){ bestD = d; best = { type: "slot", slot: s }; }
+        if (d <= bestD){ bestD = d; best = s; }
+      }
+      return best;
+    }
+    // Finds the nearest numbered window spot within THROW_WINDOW_R of (x,z) — used to detect "a
+    // thrown completed dish crossed this spot's segment," regardless of whether a matching
+    // customer is actually waiting there (the caller checks that separately so a miss still
+    // resolves to "wrong spot," not "kept flying").
+    function findWindowSpotInPath(x, z){
+      let best = null, bestD = THROW_WINDOW_R;
+      for (let n = 1; n <= 3; n++){
+        const st = stationBySpot(n);
+        if (!st) continue;
+        const dx = Math.max(Math.abs(x - st.x) - st.w/2, 0);
+        const dz = Math.max(Math.abs(z - st.z) - st.d/2, 0);
+        const d = Math.hypot(dx, dz);
+        if (d <= bestD){ bestD = d; best = st; }
       }
       return best;
     }
@@ -2385,6 +2663,45 @@
       publishSnapshotNow();   // discrete event
     }
 
+    // ---- Family playtest fix #4: AIR MAIL bonus — a thrown completed dish caught by its
+    // matching customer pays full price + tip + this flat bonus, rewarding the style of an air
+    // delivery over just walking it over.
+    const AIR_MAIL_BONUS = 5;
+    // Shared delivery-completion core — used by BOTH the walk-up hand delivery (hostDeliverAtSpot)
+    // and the new air-delivery throw outcome (advanceFlyingItems). Handles payout/tip/streak/dirty-
+    // plate-queueing/FX identically either way; `isAirMail` just adds the bonus + a distinct popup
+    // flag the render layer picks up to show "AIR MAIL! 🛫" instead of the plain payout text.
+    function completeDelivery(dishId, waitingHere, spotNum, isAirMail){
+      const recipe = RECIPES[dishId];
+      const elapsed = waitingHere.patienceMax - waitingHere.patience;
+      const tipFrac = Math.max(0, 1 - Math.max(0, elapsed - waitingHere.patienceMax * TIP_FULL_FRACTION) /
+                                     (waitingHere.patienceMax * (1 - TIP_FULL_FRACTION)));
+      const tip = Math.round(TIP_FULL_AMOUNT * tipFrac);
+      const airBonus = isAirMail ? AIR_MAIL_BONUS : 0;
+      G.money += recipe.price + tip + airBonus;
+      G.stats.tips += tip;
+      G.stats.served++;
+      waitingHere.state = "leaving_happy";
+      lastDeliveryInfo = { price: recipe.price, tip, spot: spotNum, airMail: !!isAirMail, airBonus };   // consumed by the render layer's popup
+      spawnDeliveryFX(spotNum);
+      // Systems pass 4: plated dishes (salad/soup/burger) leave a dirty plate behind at the
+      // customer's table — queued to pop at the dirty bin ~5s later. Pizza is plateless
+      // (recipe.needsPlate === false) and generates NO dirty plate at all, per the design doc.
+      if (recipe.needsPlate) queueDirtyPlateReturn();
+
+      // ---- Tier-1 batch: delivery streak — every successful (on-time, by definition: delivery
+      // only ever happens while a customer is still "waiting", i.e. before its patience hit 0)
+      // delivery from ANY chef extends the shared streak. At 3/5/8/12 landed, a new celebration
+      // tier fires (bumps streakCelebId so the render layer plays the synchronized wave-hop +
+      // banner + bonus exactly once per tier landed, on both screens via the snapshot diff).
+      G.streak = (G.streak || 0) + 1;
+      if (STREAK_TIERS.includes(G.streak)){
+        G.streakCelebTier = G.streak;
+        G.streakCelebId = (G.streakCelebId || 0) + 1;
+        G.money += STREAK_BONUS;
+      }
+      publishSnapshotNow();   // discrete event — money change should reach the guest instantly
+    }
     // ---- DELIVER (Systems pass 2) — chef holding a completed plate presses action at a
     // numbered spot. Correct dish AND correct spot -> payment + tip; dish matches someone else's
     // spot -> gentle bounce-back hint, plate stays in hand, nothing lost. ----
@@ -2402,39 +2719,12 @@
       }
 
       chef.holding = null;
-      const recipe = RECIPES[dishId];
-      const elapsed = waitingHere.patienceMax - waitingHere.patience;
-      const tipFrac = Math.max(0, 1 - Math.max(0, elapsed - waitingHere.patienceMax * TIP_FULL_FRACTION) /
-                                     (waitingHere.patienceMax * (1 - TIP_FULL_FRACTION)));
-      const tip = Math.round(TIP_FULL_AMOUNT * tipFrac);
-      G.money += recipe.price + tip;
-      G.stats.tips += tip;
-      G.stats.served++;
-      waitingHere.state = "leaving_happy";
-      lastDeliveryInfo = { price: recipe.price, tip, spot: spotNum };   // consumed by the render layer's popup
-      spawnDeliveryFX(spotNum);
-      // Systems pass 4: plated dishes (salad/soup/burger) leave a dirty plate behind at the
-      // customer's table — queued to pop at the dish-return slot ~5s later. Pizza is plateless
-      // (recipe.needsPlate === false) and generates NO dirty plate at all, per the design doc.
-      if (recipe.needsPlate) queueDirtyPlateReturn();
-
-      // ---- Tier-1 batch: delivery streak — every successful (on-time, by definition: delivery
-      // only ever happens while a customer is still "waiting", i.e. before its patience hit 0)
-      // delivery from ANY chef extends the shared streak. At 3/5/8/12 landed, a new celebration
-      // tier fires (bumps streakCelebId so the render layer plays the synchronized wave-hop +
-      // banner + bonus exactly once per tier landed, on both screens via the snapshot diff).
-      G.streak = (G.streak || 0) + 1;
-      if (STREAK_TIERS.includes(G.streak)){
-        G.streakCelebTier = G.streak;
-        G.streakCelebId = (G.streakCelebId || 0) + 1;
-        G.money += STREAK_BONUS;
-      }
-      publishSnapshotNow();   // discrete event — money change should reach the guest instantly
+      completeDelivery(dishId, waitingHere, spotNum, false);
     }
     // Render-layer hook target: last delivery's price/tip/spot breakdown, read once by the
     // popup + flash spawn on the G.stats.served diff (see updateSoundReactions) then irrelevant
     // until next delivery — plain scratch var, not gameplay truth, so it stays outside G.
-    let lastDeliveryInfo = { price: 0, tip: 0, spot: 1 };
+    let lastDeliveryInfo = { price: 0, tip: 0, spot: 1, airMail: false, airBonus: 0 };
 
     // ---- host-only: full day reset, called from the "Play again" button handler below.
     // Rebuilds every mutable field of G fresh (money 0, dayLeft reset, customers cleared,
@@ -2449,7 +2739,7 @@
       G.dayLeft = DAY_LENGTH;
       G.stats = { served: 0, missed: 0, thrown: 0, caught: 0, floorDrops: 0, tips: 0, orderedCount: 0 };
       G.boards = [{ item: null, progress: 0 }, { item: null, progress: 0 }];
-      G.plate = { contents: [] };
+      G.plateStack = { top: null };
       G.customers = [];
       G.nextCustomerId = 1;
       G.customerSpawnCd = 0;
@@ -2480,6 +2770,7 @@
       G.noCleanPlateHintChef = null;
       G.dirtyThrowHintId = 0;
       G.dirtyThrowHintChef = null;
+      G.airMailId = 0; G.dishShatterId = 0; G.pizzaSplatId = 0; G.trashSwishId = 0;
       // Systems pass 4: level-intro banner fires once per fresh day/level start (both screens).
       G.levelIntroId = (G.levelIntroId || 0) + 1;
       G.levelIntroLevel = G.level;
@@ -2660,8 +2951,13 @@
             }
           }, notes.length * 130);
         },
-        // quick downward-glide "whoosh" for a throw wind-up/release — soft sawtooth-free sine sweep
-        whoosh(){ tone(620, 0.16, { type: "sine", vol: 0.22, glideTo: 260 }); },
+        // quick downward-glide "whoosh" for a throw wind-up/release — soft sawtooth-free sine sweep.
+        // Family playtest fix #4: pitchMul varies the whoosh by throw distance (a short flick
+        // reads a bit higher/quicker, a long cross-kitchen bomb a bit lower/longer) — purely juice.
+        whoosh(pitchMul){
+          const p = pitchMul || 1;
+          tone(620 * p, 0.16 / p, { type: "sine", vol: 0.22, glideTo: 260 * p });
+        },
         // soft round "bop" when a thrown item is caught — gentle, satisfying, not startling
         bop(){ tone(460, 0.11, { type: "triangle", vol: 0.34, glideTo: 620 }); },
         // gentle low "plop" thud when a thrown item lands on the floor
@@ -2688,7 +2984,17 @@
           notes.forEach((f, i) => setTimeout(() => tone(f, 0.16, { type: "triangle", vol: 0.36 }), i * 90));
         },
         // quick cheerful chirp for an emote pop-in — tiny, unobtrusive.
-        emotePop(){ tone(1200, 0.07, { type: "sine", vol: 0.22, glideTo: 1500 }); }
+        emotePop(){ tone(1200, 0.07, { type: "sine", vol: 0.22, glideTo: 1500 }); },
+        // ---- Family playtest fix #4: throwing v2 new-outcome sounds ----
+        // soft "clink" — a thrown dish missed its spot and gently shattered (kid-gentle, not harsh).
+        clink(){
+          tone(900, 0.07, { type: "triangle", vol: 0.22, glideTo: 500 });
+          setTimeout(() => tone(650, 0.09, { type: "triangle", vol: 0.18, glideTo: 380 }), 60);
+        },
+        // soft wet "splat" — a thrown pizza missed and splatted.
+        splat(){ tone(160, 0.14, { type: "sine", vol: 0.26, glideTo: 90 }); },
+        // quick bright "swish!" — anything thrown into the trash bin, satisfying not gross.
+        swish(){ tone(1100, 0.1, { type: "sine", vol: 0.24, glideTo: 1700 }); }
       };
     })();
 
@@ -2714,6 +3020,10 @@
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x8ecdf2);
     const camera = new THREE.PerspectiveCamera(46, 1, 0.1, 120);
+    // GLB integration pass: shared geometry/material/texture registry — see the full comment
+    // near markShared() further below. Declared here (not there) because the environment ground-
+    // plane/tree pass runs at module-eval time, earlier in file order than markShared's own section.
+    const SHARED_ASSETS = new Set();
 
     scene.add(new THREE.HemisphereLight(0xffffff, 0x6a8a5a, 0.95));
     const sun = new THREE.DirectionalLight(0xfff3d0, 0.85);
@@ -2799,6 +3109,77 @@
     addCounterBox(0,  HALF_D - CT/2, FLOOR_W, CT);
     addCounterBox(-HALF_W + CT/2, 0, CT, FLOOR_D - 2*CT);
     addCounterBox( HALF_W - CT/2, 0, CT, FLOOR_D - 2*CT);
+
+    // ---- coordinator-flagged fix #8: the kitchen used to float on flat sky-blue background —
+    // a big grass-green ground plane (with a subtle two-tone mowing-stripe tint, Pasture-Panic-
+    // style) now extends well beyond the kitchen in every direction, plus a scatter of simple
+    // low-poly trees (cylinder trunk + 1-2 cone/sphere tops, a couple of size variants) sitting
+    // OUTSIDE the counters. All static geometry, built once here — zero per-frame cost, and kept
+    // clear of the queue lane (front/top, -z beyond the wall) and the camera's view wedge so
+    // nothing blocks the kitchen or the customer queue.
+    const GROUND_HALF = Math.max(SCENE_HALF_W, SCENE_HALF_D) + 40;   // "extending well beyond" in every direction
+    {
+      const grassA = new THREE.MeshPhongMaterial({ color: 0x5fa84a, flatShading: true, shininess: 4 });
+      const grassB = new THREE.MeshPhongMaterial({ color: 0x6bb654, flatShading: true, shininess: 4 });
+      SHARED_ASSETS.add(grassA); SHARED_ASSETS.add(grassB);
+      const groundGroup = new THREE.Group();
+      // a handful of wide alternating stripes (not a fine per-tile checker — this is a big open
+      // field, not the kitchen floor) running across x, each a single flat plane for near-zero
+      // geometry cost regardless of how far "well beyond" extends.
+      const STRIPE_W = 3.2;
+      const stripeCount = Math.ceil((GROUND_HALF * 2) / STRIPE_W);
+      const stripeGeo = new THREE.PlaneGeometry(STRIPE_W, GROUND_HALF * 2);
+      for (let i = 0; i < stripeCount; i++){
+        const x = -GROUND_HALF + STRIPE_W/2 + i * STRIPE_W;
+        const strip = new THREE.Mesh(stripeGeo, (i % 2 === 0) ? grassA : grassB);
+        strip.rotation.x = -Math.PI / 2;
+        strip.position.set(x, -0.06, 0);
+        groundGroup.add(strip);
+      }
+      scene.add(groundGroup);
+
+      // ---- low-poly trees scattered outside the kitchen — static, cheap (2-3 meshes each),
+      // placed in the four "corner wedges" beyond the counters and clear of the queue lane
+      // (queue runs along -z beyond the top wall, so trees avoid a wide lane straight ahead of
+      // it) and clear of the camera's forward view (kept behind/beside the kitchen, not between
+      // camera and kitchen). ----
+      const trunkM = new THREE.MeshPhongMaterial({ color: 0x7a5230, flatShading: true });
+      const leafM1 = new THREE.MeshPhongMaterial({ color: 0x3f8f3f, flatShading: true });
+      const leafM2 = new THREE.MeshPhongMaterial({ color: 0x4aa34a, flatShading: true });
+      SHARED_ASSETS.add(trunkM); SHARED_ASSETS.add(leafM1); SHARED_ASSETS.add(leafM2);
+      function makeLowPolyTree(scale, leafMat){
+        const g = new THREE.Group();
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.14*scale, 0.18*scale, 1.1*scale, 7), trunkM);
+        trunk.position.y = 0.55 * scale;
+        g.add(trunk);
+        const coneTop = new THREE.Mesh(new THREE.ConeGeometry(0.62*scale, 1.15*scale, 8), leafMat);
+        coneTop.position.y = 1.35 * scale;
+        g.add(coneTop);
+        const coneMid = new THREE.Mesh(new THREE.ConeGeometry(0.5*scale, 0.9*scale, 8), leafMat);
+        coneMid.position.y = 1.9 * scale;
+        g.add(coneMid);
+        return g;
+      }
+      // hand-placed spots in the corner wedges (well clear of the kitchen footprint, the queue
+      // lane straight off the top wall, and the camera's forward sightline toward the kitchen).
+      const treeSpots = [
+        { x: -HALF_W - 3.5, z: HALF_D + 2.5, s: 1.1 },
+        { x: -HALF_W - 5.2, z: HALF_D + 4.8, s: 0.85 },
+        { x: -HALF_W - 2.6, z: -HALF_D - 4.0, s: 1.0 },
+        { x: -HALF_W - 5.0, z: -HALF_D - 2.0, s: 0.9 },
+        { x:  HALF_W + 3.8, z: HALF_D + 3.2, s: 1.15 },
+        { x:  HALF_W + 5.5, z: HALF_D + 1.2, s: 0.8 },
+        { x:  HALF_W + 3.0, z: -HALF_D - 3.5, s: 0.95 },
+        { x:  HALF_W + 5.8, z: -HALF_D - 5.5, s: 1.05 },
+        { x: -HALF_W - 6.5, z: 0.5, s: 1.0 },
+        { x:  HALF_W + 6.8, z: -0.8, s: 0.9 }
+      ];
+      treeSpots.forEach((spot, i) => {
+        const tree = makeLowPolyTree(spot.s, i % 2 === 0 ? leafM1 : leafM2);
+        tree.position.set(spot.x, 0, spot.z);
+        scene.add(tree);
+      });
+    }
 
     // ---- decor: hay bale + potted sunflower, outside the counters ----
     {
@@ -3050,19 +3431,6 @@
     // (hot-swap for this station is handled by the declarative syncPropStationVisuals() sweep
     // further down this file, alongside every other single-instance prop station.)
 
-    function buildPlateStation(st){
-      const g = new THREE.Group();
-      const counterTop = new THREE.Mesh(new THREE.BoxGeometry(st.w, 0.06, st.d), mat(0xffffff));
-      counterTop.position.set(st.x, CH + 0.05, st.z);
-      g.add(counterTop);
-      const plateGroup = new THREE.Group();
-      plateGroup.position.set(st.x, CH + 0.08, st.z);
-      g.add(plateGroup);
-      scene.add(g);
-      stationMeshes[st.id] = { group: g, plateGroup, highlightTargets: [counterTop] };
-    }
-    buildPlateStation(stationById("plateStation"));
-
     // ---- WIDE 4-segment serving window (Systems pass 2 rework): one continuous frame/awning
     // spanning the bell + 3 numbered spots, built once from the combined footprint of those 4
     // station entries, then each segment gets its own small highlight target (so the existing
@@ -3091,18 +3459,10 @@
         div.position.set(divX, CH * 0.425, z);
         g.add(div);
       }
-      const top = new THREE.Mesh(new THREE.BoxGeometry(totalW + 0.2, 0.18, 0.2), frameM);
-      top.position.set(midX, CH + 0.05, z);
-      g.add(top);
-      // one continuous awning: two angled planes red/white
-      const awnRed = new THREE.Mesh(new THREE.BoxGeometry(totalW + 0.3, 0.06, 0.5), mat(0xb31942, true));
-      awnRed.position.set(midX - (totalW+0.3)/4, CH + 0.45, z - 0.5);
-      awnRed.rotation.x = -0.5;
-      g.add(awnRed);
-      const awnWhite = new THREE.Mesh(new THREE.BoxGeometry(totalW + 0.3, 0.06, 0.5), mat(0xffffff, true));
-      awnWhite.position.set(midX + (totalW+0.3)/4, CH + 0.45, z - 0.5);
-      awnWhite.rotation.x = -0.5;
-      g.add(awnWhite);
+      // No spanning top bar and no awning trim: family play-testing found ANY horizontal
+      // red/white line above the window reads as visual noise from the game camera. The end
+      // posts, the white divider posts, the number tiles, and the bell carry the window's
+      // identity on their own.
       scene.add(g);
 
       // bell segment: little bell-on-a-post icon (simple bell shape + "ORDER HERE" via a small
@@ -3334,6 +3694,11 @@
     // chefModelFor() — the ONE function the future Meshy GLB swap replaces; everything else
     // (buildChef's callers, ensureChefVisual, syncChefVisual) stays untouched by that swap.
     const CHEF_COLORS = { blue: 0x3a5fc4, red: 0xd6432a };
+    // ---- Family playtest fix #1: GLB chefs loaded inconsistently across the family's devices
+    // (network/device variance). Flip this to true to re-enable the Meshy rigged-chef path once
+    // that's sorted out — the GLB loader/builder code below is left fully intact, just unreached
+    // while this is false. Customers and props are UNAFFECTED (they keep their own GLB paths).
+    const USE_GLB_CHEFS = false;
     // ---- Systems pass 4: chef picker mapping — farmer (straw hat, blue overalls, exactly
     // today's look), grandma (red dress-tone body + a gray "bun" hair blob replacing the straw
     // hat), kid (green body + an oversized hat via a bigger brim/top scale). Pure data — the
@@ -3417,7 +3782,7 @@
         }, undefined, (err) => console.warn(base + "-" + k + ".glb failed to load — using the built-in procedural chef", err));
       }
     }
-    for (const id of CHEF_MODEL_IDS) loadChefTemplate(id);
+    if (USE_GLB_CHEFS) for (const id of CHEF_MODEL_IDS) loadChefTemplate(id);
     function buildChefProcedural(color, chefModel){
       const g = new THREE.Group();
       const look = chefModelFor(chefModel);
@@ -3542,7 +3907,7 @@
     }
     function buildChef(color, chefModel){
       const modelId = chefModel || "farmer";
-      const template = CHEF_TEMPLATES[modelId];
+      const template = USE_GLB_CHEFS ? CHEF_TEMPLATES[modelId] : null;
       if (template) return buildChefGLB(template, color, modelId);
       return buildChefProcedural(color, modelId);
     }
@@ -3584,6 +3949,7 @@
     // lands — same "upgradePlayerIfWaiting" pattern as pasturepanic.html, generalized to every
     // live chef currently on that modelId (both players may be waiting on the same template).
     function upgradeChefsWaitingOn(modelId){
+      if (!USE_GLB_CHEFS) return;
       for (const chefId in chefVisuals){
         const vis = chefVisuals[chefId];
         if (vis.mixer) continue;              // already GLB-backed
@@ -3648,34 +4014,51 @@
     // geoPlate/plateWhiteM/geoCheeseBit are declared above) since these builders reuse those
     // shared geometries/materials rather than allocating their own, same leak-avoidance
     // convention as every other station builder in this file. ----
-    // dish RETURN: a small counter with up to 3 visibly-stacked dirty plates, slightly askew for
-    // comedy, plus a lazy single fly-dot looping above the stack (kid-gentle, one fly, no gross-
-    // out) — count/visibility driven each frame in syncDishWashingVisuals() from
+    // ---- Family playtest fix #6: DIRTY DISH BIN — a small bin/tub on the right wall (where the
+    // old plate station used to sit) with up to 4 visibly-stacked dirty plates, slightly askew
+    // for comedy, plus a lazy single fly-dot looping above the stack (kid-gentle, one fly, no
+    // gross-out) — count/visibility driven each frame in syncDishWashingVisuals() from
     // G.plates.dirtyQueue.length.
     const dirtyPlateM = new THREE.MeshPhongMaterial({ color: 0xcfc9b8, flatShading: true, shininess: 4 });
     const grimeM = new THREE.MeshBasicMaterial({ color: 0x8a7a5a, transparent: true, opacity: 0.5 });
-    // Builds one stacked-plate mesh for the dishReturn/dishTray stacks — GLB plate.glb (tinted
+    // Builds one stacked-plate mesh for the dirtyBin/plateStack stacks — GLB plate.glb (tinted
     // gray-brown for the dirty stack, per the design doc) when the template is ready, else the
-    // original procedural geoPlate disc. Kept as a shared helper since dishReturn/dishTray only
-    // differ in tint + count.
+    // original procedural geoPlate disc. Kept as a shared helper since the two stacks only differ
+    // in tint + count.
     function makeStackPlateMesh(dirty){
       if (PROP_TEMPLATES.plate) return dirty ? cloneDirtyPlateGLB() : cloneStaticProp(PROP_TEMPLATES.plate);
       return new THREE.Mesh(geoPlate, dirty ? dirtyPlateM : plateWhiteM);
     }
-    function buildDishReturn(st){
+    // Family playtest fix #6: display cap of 4 stacked dirty plates (askew) in the bin, distinct
+    // from DIRTY_PLATE_MAX (the actual gameplay cap on how many can queue at once).
+    const DIRTY_BIN_DISPLAY_MAX = 4;
+    function buildDirtyBin(st){
       const g = new THREE.Group();
+      // a simple bin/tub silhouette: a shallow open box sitting on the counter top, distinct from
+      // the flat plate-station look it replaces — reads as "this is where mess accumulates."
       const counterTop = new THREE.Mesh(new THREE.BoxGeometry(st.w, 0.06, st.d), mat(0xe8e0cc));
       counterTop.position.set(st.x, CH + 0.05, st.z);
       g.add(counterTop);
+      const tubM = mat(0x8a95a0, true);
+      const tubFloor = new THREE.Mesh(new THREE.BoxGeometry(st.w * 0.85, 0.05, st.d * 0.85), tubM);
+      tubFloor.position.set(st.x, CH + 0.1, st.z);
+      g.add(tubFloor);
+      const tubWallGeo = new THREE.BoxGeometry(st.w * 0.85, 0.22, 0.05);
+      const tubWallF = new THREE.Mesh(tubWallGeo, tubM);
+      tubWallF.position.set(st.x, CH + 0.2, st.z + st.d * 0.4);
+      g.add(tubWallF);
+      const tubWallB = new THREE.Mesh(tubWallGeo, tubM);
+      tubWallB.position.set(st.x, CH + 0.2, st.z - st.d * 0.4);
+      g.add(tubWallB);
       const stackGroup = new THREE.Group();
-      stackGroup.position.set(st.x, CH + 0.08, st.z);
+      stackGroup.position.set(st.x, CH + 0.14, st.z);
       g.add(stackGroup);
       const plateMeshes = [];
-      for (let i = 0; i < DIRTY_PLATE_MAX; i++){
+      for (let i = 0; i < DIRTY_BIN_DISPLAY_MAX; i++){
         const p = makeStackPlateMesh(true);
-        p.position.y = i * 0.06;
-        p.rotation.z = (i % 2 === 0 ? 1 : -1) * 0.08;   // "slightly askew"
-        p.rotation.x = (Math.random() - 0.5) * 0.03;
+        p.position.y = i * 0.07;
+        p.rotation.z = (i % 2 === 0 ? 1 : -1) * 0.12;   // "slightly askew"
+        p.rotation.x = (Math.random() - 0.5) * 0.05;
         p.visible = false;
         // a couple of grime smudges per plate so "dirty" reads even at a glance
         const smudge = new THREE.Mesh(geoCheeseBit, grimeM);
@@ -3690,28 +4073,25 @@
       fly.visible = false;
       g.add(fly);
       scene.add(g);
-      stationMeshes[st.id] = { group: g, plateMeshes, fly, highlightTargets: [counterTop], usingGLB: !!PROP_TEMPLATES.plate };
+      stationMeshes[st.id] = { group: g, plateMeshes, fly, highlightTargets: [tubFloor], usingGLB: !!PROP_TEMPLATES.plate };
     }
-    buildDishReturn(stationById("dishReturn"));
+    buildDirtyBin(stationById("dirtyBin"));
 
-    // dish TRAY: visually distinct return-to spot for freshly washed clean plates — same visual
-    // language as the plate station (white counter + a small stack), showing up to 3 clean
-    // plates matching G.plates.clean each frame. dish-tray.glb replaces the plain white counter
-    // top once loaded; the clean-plate stack (makeStackPlateMesh) sits on top of it either way.
-    function buildDishTray(st){
+    // ---- Family playtest fix #3: PLATE STACK, sitting on the counter directly beside the sink.
+    // Shows G.plates.clean as a stack of clean plates; the TOP one is the in-progress assembly
+    // (G.plateStack.top) when one exists — it visually separates slightly (raised extra height +
+    // its contents rendered stacked on it) so it reads as "this one's being worked on," distinct
+    // from the idle clean stack beneath it.
+    function buildPlateStack(st){
       const g = new THREE.Group();
-      let counterTop;
-      if (PROP_TEMPLATES["dish-tray"]){
-        counterTop = cloneStaticProp(PROP_TEMPLATES["dish-tray"]);
-        counterTop.position.set(st.x, CH, st.z);
-      } else {
-        counterTop = new THREE.Mesh(new THREE.BoxGeometry(st.w, 0.06, st.d), mat(0xffffff));
-        counterTop.position.set(st.x, CH + 0.05, st.z);
-      }
+      const counterTop = new THREE.Mesh(new THREE.BoxGeometry(st.w, 0.06, st.d), mat(0xffffff));
+      counterTop.position.set(st.x, CH + 0.05, st.z);
       g.add(counterTop);
       const stackGroup = new THREE.Group();
       stackGroup.position.set(st.x, CH + 0.08, st.z);
       g.add(stackGroup);
+      // clean-stack plates: up to 3 (the total plates in circulation), shown below the in-progress
+      // top plate (which gets its own separate group so it can lift/separate and carry contents).
       const plateMeshes = [];
       for (let i = 0; i < 3; i++){
         const p = makeStackPlateMesh(false);
@@ -3720,10 +4100,16 @@
         stackGroup.add(p);
         plateMeshes.push(p);
       }
+      // in-progress top plate: its own group (rebuilt from G.plateStack.top each frame in
+      // syncDishWashingVisuals, same "clear + rebuild" convention as syncBoardVisual/
+      // syncPlateVisual) so its contents can render stacked on it and it can lift free of the
+      // idle stack beneath.
+      const topGroup = new THREE.Group();
+      g.add(topGroup);
       scene.add(g);
-      stationMeshes[st.id] = { group: g, plateMeshes, highlightTargets: [counterTop], usingGLB: !!PROP_TEMPLATES["dish-tray"] };
+      stationMeshes[st.id] = { group: g, plateMeshes, topGroup, highlightTargets: [counterTop] };
     }
-    buildDishTray(stationById("dishTray"));
+    buildPlateStack(stationById("plateStack"));
 
     // SINK: a basin + faucet, a small "sparkle" burst group (shown while noCleanPlateHint points
     // here to draw the eye per the design doc) and the soap-bubble progress bar (reuses the
@@ -3806,8 +4192,8 @@
       { id: "pan",          ready: () => !!PROP_TEMPLATES.pan,              rebuild: () => buildPan(stationById("pan")) },
       { id: "oven",         ready: () => !!PROP_TEMPLATES.stove,            rebuild: () => buildOven(stationById("oven")) },
       { id: "sink",         ready: () => !!PROP_TEMPLATES.sink,             rebuild: () => buildSink(stationById("sink")) },
-      { id: "dishTray",     ready: () => !!PROP_TEMPLATES["dish-tray"],     rebuild: () => buildDishTray(stationById("dishTray")) },
-      { id: "dishReturn",   ready: () => !!PROP_TEMPLATES.plate,            rebuild: () => buildDishReturn(stationById("dishReturn")) }
+      { id: "plateStack",   ready: () => !!PROP_TEMPLATES.plate,            rebuild: () => buildPlateStack(stationById("plateStack")) },
+      { id: "dirtyBin",     ready: () => !!PROP_TEMPLATES.plate,            rebuild: () => buildDirtyBin(stationById("dirtyBin")) }
     ];
     function syncPropStationVisuals(){
       for (const entry of PROP_STATION_REBUILDERS){
@@ -3839,15 +4225,37 @@
       if (kind === "patty") return new THREE.Mesh(geoRawBox, ingredientMat(0x6a4030));
       return new THREE.Mesh(geoRawSphere, ingredientMat(0xffffff));
     }
+    // ---- Family playtest fix #5 (chopped-item jitter): ROOT CAUSE — syncCounterSlotVisuals/
+    // syncBoardVisual/syncPlateVisual (and the held-item block in syncChefVisual) all rebuild
+    // their item meshes from scratch EVERY FRAME (group.clear() + makeItemMesh()), which is fine
+    // for rigid meshes but makeChoppedGroup used bare Math.random() for each slice's position/
+    // rotation — so a chopped tomato/lettuce/etc got a BRAND NEW random scatter ~60 times a
+    // second, reading as violent vibration rather than a static chopped pile. Fix: a tiny
+    // deterministic hash-based PRNG seeded by the ingredient kind (+ slice index) replaces
+    // Math.random() here, so the SAME kind always lays out its slices identically call to call —
+    // static per state, no per-instance id plumbing needed through every copy site (chef.holding
+    // -> board.item -> plate.contents -> counter slot all just carry {kind,state}).
+    function seededRand(seed){
+      let x = Math.sin(seed * 12.9898) * 43758.5453;
+      return x - Math.floor(x);
+    }
     function makeChoppedGroup(kind){
       const g = new THREE.Group();
       const pal = INGREDIENT_PALETTE[kind] || { color: 0xffffff };
       const m = ingredientMat(pal.color);
       const n = kind === "tomato" ? 3 : 5;
+      // hash the kind string to a stable numeric base seed so different kinds don't all share
+      // the exact same scatter pattern.
+      let kindSeed = 0;
+      for (let c = 0; c < kind.length; c++) kindSeed = (kindSeed * 31 + kind.charCodeAt(c)) % 9973;
       for (let i = 0; i < n; i++){
         const bit = new THREE.Mesh(kind === "tomato" ? geoSliceBox : geoBitBox, m);
-        bit.position.set((Math.random()-0.5)*0.3, 0.03 + Math.random()*0.06, (Math.random()-0.5)*0.3);
-        bit.rotation.y = Math.random() * Math.PI;
+        const r1 = seededRand(kindSeed + i * 7.13);
+        const r2 = seededRand(kindSeed + i * 7.13 + 1.7);
+        const r3 = seededRand(kindSeed + i * 7.13 + 3.1);
+        const r4 = seededRand(kindSeed + i * 7.13 + 5.9);
+        bit.position.set((r1-0.5)*0.3, 0.03 + r2*0.06, (r3-0.5)*0.3);
+        bit.rotation.y = r4 * Math.PI;
         g.add(bit);
       }
       return g;
@@ -3873,9 +4281,11 @@
         g.add(sauce);
       }
       if (state === "pizza" || state === "baked"){
+        // same jitter fix as makeChoppedGroup above: this also rebuilds every frame (oven sync
+        // clears+rebuilds each tick) — seeded-deterministic scatter instead of Math.random().
         for (let i = 0; i < 6; i++){
           const bit = new THREE.Mesh(geoCheeseBit, cheeseTopM);
-          const ang = Math.random() * Math.PI * 2, r = Math.random() * 0.15;
+          const ang = seededRand(i * 4.41) * Math.PI * 2, r = seededRand(i * 4.41 + 2.2) * 0.15;
           bit.position.set(Math.cos(ang) * r, 0.055, Math.sin(ang) * r);
           g.add(bit);
         }
@@ -3903,6 +4313,25 @@
       if (kind === "pizzaDish") return makePizzaMesh("baked");
       if (kind === "dirtyPlate") return makeDirtyPlateMesh();   // Systems pass 4
       return state === "raw" ? makeRawItemMesh(kind) : makeChoppedGroup(kind);
+    }
+    // ---- Family playtest fix #2/#3: PLATE is now a first-class item shape usable anywhere any
+    // other held/placed item is (hands, counter slots, the plate stack top, flying) — this shared
+    // builder renders a plate mesh with its `contents` stacked on top, reused by counter-slot
+    // sync, floor-item sync, and flying-item sync so a plate looks identical wherever it sits.
+    // (The held-item render in syncChefVisual keeps its own inline version since it also needs
+    // the outline-ring treatment specific to held items — see that call site.)
+    function makeFullItemMesh(item){
+      if (item.kind === "plate"){
+        const p = makePlateMesh();
+        const n = item.contents.length || 1;
+        item.contents.forEach((c, i) => {
+          const ig = makeItemMesh(c.kind, c.state);
+          ig.position.set((i - (n-1)/2) * 0.16, 0.05, 0);
+          p.add(ig);
+        });
+        return p;
+      }
+      return makeItemMesh(item.kind, item.state);
     }
 
     // ---- held-item legibility pass (user-reported fix) ----
@@ -3939,7 +4368,8 @@
     // first chef/prop/customer torn down (chef model swap, order expiry, level change) would
     // free the GPU buffers out from under every other instance still using them. Mirrors
     // pasturepanic.html's SHARED_ASSETS/markShared convention exactly.
-    const SHARED_ASSETS = new Set();
+    // (SHARED_ASSETS itself is declared much earlier, right after the scene/camera setup, since
+    // the environment ground-plane/tree pass below needs it at module-eval time — see there.)
     function markShared(root){
       root.traverse(o => {
         if (o.isMesh || o.isSkinnedMesh){
@@ -4180,7 +4610,7 @@
     // Systems pass 2: replaces the old flat "+10 ⭐" popup — shows the coin payout (+ a stacked
     // "+N tip! 💝" popup underneath when a tip landed) and pulses the HUD coin icon. Runs on
     // BOTH screens since it's called from updateSoundReactions off the G.stats.served diff.
-    function showDeliveryPopup(price, tip){
+    function showDeliveryPopup(price, tip, airMail, airBonus){
       const wrap = document.getElementById("popupWrap");
       const el = document.createElement("div");
       el.className = "plusPop";
@@ -4210,6 +4640,21 @@
         tipEl.textContent = "+" + tip + " tip! 💝";
         wrap.appendChild(tipEl);
         setTimeout(() => { tipEl.remove(); }, 1300);
+      }
+
+      // ---- Family playtest fix #4: AIR MAIL! bonus popup + a soft full-screen "pop" of light —
+      // rewards the style of an air delivery over just walking the dish over.
+      if (airMail){
+        const airEl = document.createElement("div");
+        airEl.className = "airMailPop";
+        airEl.textContent = "AIR MAIL! 🛫 +" + (airBonus || 0);
+        wrap.appendChild(airEl);
+        setTimeout(() => { airEl.remove(); }, 1550);
+        const liteWrap = document.getElementById("screenLiteWrap");
+        liteWrap.classList.remove("pop");
+        void liteWrap.offsetWidth;
+        liteWrap.classList.add("pop");
+        setTimeout(() => liteWrap.classList.remove("pop"), 520);
       }
 
       // coin-flip pulse on the HUD chip
@@ -4817,24 +5262,6 @@
       }
     }
 
-    function syncPlateVisual(dt){
-      const sm = stationMeshes.plateStation;
-      sm.plateGroup.clear();
-      const base = makePlateMesh();
-      sm.plateGroup.add(base);
-      G.plate.contents.forEach((item, i) => {
-        const ig = makeItemMesh(item.kind, item.state);
-        ig.position.set((i - (G.plate.contents.length-1)/2) * 0.16, 0.05, 0);
-        base.add(ig);
-      });
-      if (plateWobbleT.v > 0){
-        plateWobbleT.v -= dt;
-        sm.plateGroup.rotation.z = Math.sin(plateWobbleT.v * 40) * 0.15 * Math.max(0, plateWobbleT.v / 0.5);
-      } else {
-        sm.plateGroup.rotation.z = 0;
-      }
-    }
-
     // ---- Systems pass 3: cooking station visuals (pot/pan/oven) — mirrors syncBoardVisual's
     // approach: item mesh rebuilt from G state each frame, mini progress bar frame reused from
     // the same styling as the cutting board's, amber+gentle-pulse once the cook timer is past
@@ -4988,30 +5415,52 @@
       });
     }
 
-    // ---- Systems pass 4: dish washing visuals (dish return stack + fly, dish tray stack, sink
-    // wash progress + sparkle) — mirrors syncCookingStationVisuals' "rebuild small bits from G
-    // each frame" approach, just with toggling pre-built plate meshes instead of rebuilding groups
-    // (the stack sizes are small/fixed so pre-building once at startup is simplest).
+    // ---- Systems pass 4 / family playtest fix #3/#6: dish washing visuals (dirty bin stack +
+    // fly, plate stack + in-progress top plate, sink wash progress + sparkle) — mirrors
+    // syncCookingStationVisuals' "rebuild small bits from G each frame" approach, just with
+    // toggling pre-built plate meshes instead of rebuilding groups (the stack sizes are small/
+    // fixed so pre-building once at startup is simplest). The in-progress top plate's CONTENTS
+    // do get rebuilt each frame here (same as syncPlateVisual used to) but that's fine per the
+    // #5 fix — makeChoppedGroup's seeded PRNG keeps it static now regardless of rebuild cadence.
     let sinkSparkleT = 0;
     function syncDishWashingVisuals(dt){
-      // dish return: show exactly G.plates.dirtyQueue.length of the pre-built stacked plates.
-      const retSm = stationMeshes.dishReturn;
-      if (retSm){
-        const n = G.plates.dirtyQueue.length;
-        retSm.plateMeshes.forEach((p, i) => { p.visible = i < n; });
-        retSm.fly.visible = n > 0;
+      // dirty bin: show exactly G.plates.dirtyQueue.length of the pre-built stacked plates
+      // (display capped at DIRTY_BIN_DISPLAY_MAX — gameplay cap is the separate DIRTY_PLATE_MAX).
+      const binSm = stationMeshes.dirtyBin;
+      if (binSm){
+        const n = Math.min(DIRTY_BIN_DISPLAY_MAX, G.plates.dirtyQueue.length);
+        binSm.plateMeshes.forEach((p, i) => { p.visible = i < n; });
+        binSm.fly.visible = n > 0;
         if (n > 0){
           const t = performance.now() / 900;
-          const st = stationById("dishReturn");
-          retSm.fly.position.set(st.x + Math.cos(t) * 0.16, CH + 0.55 + Math.sin(t * 1.7) * 0.03, st.z + Math.sin(t) * 0.12);
+          const st = stationById("dirtyBin");
+          binSm.fly.position.set(st.x + Math.cos(t) * 0.16, CH + 0.55 + Math.sin(t * 1.7) * 0.03, st.z + Math.sin(t) * 0.12);
         }
       }
-      // dish tray: show exactly G.plates.clean of the pre-built stacked plates (capped at 3 —
-      // the total plates in circulation never exceeds DIRTY_PLATE_MAX anyway).
-      const traySm = stationMeshes.dishTray;
-      if (traySm){
-        const n = Math.min(3, G.plates.clean);
-        traySm.plateMeshes.forEach((p, i) => { p.visible = i < n; });
+      // plate stack: idle clean-plate count beneath (capped at 3 minus one if an assembly is
+      // currently in progress, since that one physically IS the top of the stack, just lifted +
+      // shown separately with its contents) plus the in-progress top plate itself.
+      const stackSm = stationMeshes.plateStack;
+      if (stackSm){
+        const idleN = Math.min(3, G.plates.clean);
+        stackSm.plateMeshes.forEach((p, i) => { p.visible = i < idleN; });
+        stackSm.topGroup.clear();
+        if (G.plateStack.top){
+          const st = stationById("plateStack");
+          const stackH = idleN * 0.06;
+          const p = makePlateMesh();
+          p.position.set(st.x, CH + 0.1 + stackH + 0.06, st.z);   // lifted clear of the idle stack
+          G.plateStack.top.contents.forEach((item, i) => {
+            const ig = makeItemMesh(item.kind, item.state);
+            ig.position.set((i - (G.plateStack.top.contents.length-1)/2) * 0.16, 0.05, 0);
+            p.add(ig);
+          });
+          if (plateWobbleT.v > 0){
+            p.rotation.z = Math.sin(plateWobbleT.v * 40) * 0.15 * Math.max(0, plateWobbleT.v / 0.5);
+          }
+          stackSm.topGroup.add(p);
+        }
+        if (plateWobbleT.v > 0) plateWobbleT.v -= dt;
       }
       // sink: dirty-plate-in-hand look while someone's washing + soap-bubble progress bar +
       // sparkle burst while the no-clean-plate hint points here.
@@ -5094,7 +5543,7 @@
         const g = counterSlotGroups[i];
         g.clear();
         if (!s.item) return;
-        const m = makeItemMesh(s.item.kind, s.item.state);
+        const m = makeFullItemMesh(s.item);
         m.position.y = 0.1;
         g.add(m);
       });
@@ -5106,15 +5555,28 @@
     const flyingLayer = new THREE.Group();
     scene.add(flyingLayer);
     const flyingMeshesById = new Map();   // flyId -> mesh, so identity is stable across frames (lerp-friendly on guest)
+    // Family playtest fix #4: soft shadow disc that tracks under each flying item (shared
+    // geometry/material — same convention as heldShadowGeo/floorShadowGeo elsewhere in this
+    // file), so a throw's ground position reads clearly even mid-arc.
+    const flyingShadowGeo = new THREE.CircleGeometry(0.24, 16);
+    const flyingShadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3 });
+    const flyingShadowsById = new Map();
+    // sizzle trail for a thrown grilled patty (replaces the old "too hot to throw" restriction —
+    // it's throwable now, but leaves a little heat trail as it flies).
+    const flyingSizzleCd = new Map();
     function syncFlyingVisuals(dt){
       const seen = new Set();
       for (const f of G.flying){
         seen.add(f.id);
         let mesh = flyingMeshesById.get(f.id);
         if (!mesh){
-          mesh = makeItemMesh(f.kind, f.state);
+          mesh = makeFullItemMesh(f);   // Family playtest fix #4: plates/dishes can fly too now
           flyingLayer.add(mesh);
           flyingMeshesById.set(f.id, mesh);
+          const shadow = new THREE.Mesh(flyingShadowGeo, flyingShadowMat);
+          shadow.rotation.x = -Math.PI / 2;
+          floorLayerForShadows().add(shadow);
+          flyingShadowsById.set(f.id, shadow);
         }
         const arcHeight = Math.sin(Math.min(1, f.dist / THROW_MAX_RANGE) * Math.PI) * 0.9;
         mesh.position.set(f.x, CH + 0.3 + arcHeight, f.z);
@@ -5126,6 +5588,24 @@
         const launchP = Math.min(1, f.dist / 1.1);
         const launchSquash = (1 - launchP) * 0.3;
         mesh.scale.set(1 + launchSquash, 1 - launchSquash * 1.4, 1 + launchSquash);
+
+        // shadow tracks the ground point directly below the item, fading slightly the higher it arcs.
+        const shadow = flyingShadowsById.get(f.id);
+        if (shadow){
+          shadow.position.set(f.x, 0.015, f.z);
+          shadow.material.opacity = 0.3 * Math.max(0.35, 1 - arcHeight / 0.9);
+        }
+
+        // sizzle trail: a couple of pale sizzle flecks per second while a grilled patty flies.
+        if (f.kind === "patty" && f.state === "grilled"){
+          const cd = (flyingSizzleCd.get(f.id) || 0) - dt;
+          if (cd <= 0){
+            flyingSizzleCd.set(f.id, 0.09);
+            spawnSizzleFleck(f.x, f.z);
+          } else {
+            flyingSizzleCd.set(f.id, cd);
+          }
+        }
       }
       // remove meshes for items no longer flying (caught/landed/dropped)
       for (const [id, mesh] of flyingMeshesById){
@@ -5133,9 +5613,16 @@
           flyingLayer.remove(mesh);
           disposeGroupChildren(mesh);
           flyingMeshesById.delete(id);
+          const shadow = flyingShadowsById.get(id);
+          if (shadow){ floorLayerForShadows().remove(shadow); flyingShadowsById.delete(id); }
+          flyingSizzleCd.delete(id);
         }
       }
     }
+    // flying-item shadows live in the same layer as floor items (both are ground-plane decals) —
+    // small accessor so this file's existing `floorLayer` group (declared further below) can be
+    // referenced here without reordering every declaration in the file.
+    function floorLayerForShadows(){ return floorLayer; }
     // Removes a mesh's own geometry ONLY if it's not one of the shared module-scope geometries —
     // simplest safe approach here is to just detach without disposing, since makeRawItemMesh/
     // makeChoppedGroup always build from the shared geoTomatoRaw/geoLettuceRaw/etc pool declared
@@ -5167,7 +5654,7 @@
           shadow.position.y = 0.01;
           g.add(shadow);
           const itemGroup = new THREE.Group();   // squash scale applied here, tilt/offset on the item inside
-          const item = makeItemMesh(it.kind, it.state);
+          const item = makeFullItemMesh(it);   // Family playtest fix #4: a shattered dirty plate can land here too
           item.rotation.x = -Math.PI/2 * 0.35;   // "slightly tilted" resting on the ground
           item.position.y = 0.08;
           itemGroup.add(item);
@@ -5765,7 +6252,9 @@
     function updateHighlight(){
       const chef = G.chefs[net.myChefId];
       if (!chef){ highlightedId = null; return; }
-      const st = nearestStation(chef);
+      // Family playtest fix #2: use the same resolved target as tryAction/holdAction so the
+      // highlight never lights up a station that a nearer counter slot actually wins over.
+      const st = resolveStationOrSlot(chef).station;
       const newId = st ? st.id : null;
       if (newId === highlightedId) return;
       // clear old
@@ -5845,7 +6334,7 @@
     // timer so it's purely a render-layer concern like the rest of the hint system. ----
     const TEACH_HINTS = {
       1: ["Salad Days: chop tomato & lettuce, then plate them!"],
-      2: ["Soup: chop tomato, onion & potato...", "...then drop them in the pot!", "Hold WORK at the pot to stir it faster!", "Grab a plate at the plate station, then collect the soup!"],
+      2: ["Soup: chop tomato, onion & potato...", "...then drop them in the pot!", "Hold WORK at the pot to stir it faster!", "Grab a plate from the stack by the sink, then collect the soup!"],
       3: ["Burger: put a raw patty on the pan to grill it!", "Chop lettuce & tomato while it grills!", "Bun + patty + lettuce + tomato — all on one plate!"],
       4: ["Pizza: place dough on a counter or the board!", "Add chopped tomato for sauce...", "...then chopped cheese, then bake it in the oven!"],
       5: ["Feast Night: any dish could come up — stay sharp!"]
@@ -5913,12 +6402,13 @@
         msg = urgentOrder ? "Quick — deliver the dish! ⏰" : spotMsg;
       } else if (chef.holding && chef.holding.kind === "plate" && !chef.holding.dish){
         // Systems pass 3: bare empty plate — normally carried to the stove for soup collection.
-        // Systems pass 4: a freshly WASHED plate can also be a plain empty plate in a level with
-        // no soup at all (the plate station hands one back after a wash regardless of level), so
-        // this hint is level-aware — same levelHasSoup check tryAction's plate branch already uses.
+        // Family playtest fix #3: a freshly WASHED plate can also be a plain empty plate in a
+        // level with no soup at all (the sink deposits one back onto the stack regardless of
+        // level), so this hint is level-aware — same levelHasSoup check tryAction's plateStack
+        // branch already uses.
         const levelHasSoupHint = CURRENT_LEVEL.recipes.includes("soup") ||
           CURRENT_LEVEL.extraRecipes.some(e => e.id === "soup");
-        msg = levelHasSoupHint ? "Bring it to the pot to collect the soup!" : "Place it at the plate station to start a dish!";
+        msg = levelHasSoupHint ? "Bring it to the pot to collect the soup!" : "Put it back on the plate stack to start a dish!";
       } else if (chef.holding && chef.holding.kind === "soupTrash"){
         msg = "Take that to the trash bin!";
       } else if (chef.holding && !hasShownThrowHint && chef.holding.kind !== "patty" && chef.holding.kind !== "pizza" && chef.holding.kind !== "pizzaBase"){
@@ -5946,9 +6436,14 @@
         msg = "Stand at a board and HOLD " + WORK_KEY_LABEL + " to chop!";
       } else if (G.boards.some(b => b.item && b.item.state === "chopped")){
         msg = "Press " + GRAB_KEY_LABEL + " to pick up the chopped food!";
+      } else if (G.plates.clean === 0 && G.plates.dirtyQueue.length > 0){
+        // Family playtest fix #6: empty hands, no clean plates left, dirty ones waiting in the
+        // bin — nudge toward the wash cycle (dirty bin -> sink -> stack).
+        msg = "Dishes piling up! 🧼 Wash some at the sink!";
       } else {
-        const has = (k) => G.plate.contents.some(c => c.kind === k);
-        if (G.plate.contents.length === 0){
+        const topContents = G.plateStack.top ? G.plateStack.top.contents : [];
+        const has = (k) => topContents.some(c => c.kind === k);
+        if (topContents.length === 0){
           msg = "Walk to a crate and press " + GRAB_KEY_LABEL + "!";
         } else if (!has("tomato") && CURRENT_LEVEL.recipes.includes("salad")){
           msg = "Now get a tomato, chop it, and plate it!";
@@ -5969,7 +6464,7 @@
     // are visible via the synced snapshot on the guest side too).
     let sndPrev = {
       myHoldingKey: null,     // "<kind>:<state>" of MY chef's held item, or null
-      plateCount: 0,          // G.plate.contents.length
+      plateCount: 0,          // G.plateStack.top's contents.length (0 when nothing in progress)
       // user-reported layout fix: TWO boards now — per-board previous-frame snapshot array
       // (was a single flat {boardProgress,boardWasRaw,boardKind} triple; same fields, one per
       // board index) so chop-tick/chop-done sounds+flecks fire correctly for EITHER board
@@ -6000,7 +6495,9 @@
       // ---- Tier-1 batch ----
       buckyIntroId: 0,
       buckyBleatId: 0,
-      streakCelebId: 0
+      streakCelebId: 0,
+      // ---- Family playtest fix #4: throwing v2 new-outcome event counters ----
+      airMailId: 0, dishShatterId: 0, pizzaSplatId: 0, trashSwishId: 0
     };
     function updateSoundReactions(){
       const chef = G.chefs[net.myChefId];
@@ -6017,9 +6514,11 @@
       }
       sndPrev.myHoldingKey = holdingKey;
 
-      // plating: plate contents count increased (someone — maybe the other chef — plated).
-      if (G.plate.contents.length > sndPrev.plateCount) Snd.place();
-      sndPrev.plateCount = G.plate.contents.length;
+      // plating: in-progress plate's contents count increased (someone — maybe the other chef —
+      // plated, on the stack OR on a counter-slot plate).
+      const topPlateCount = G.plateStack.top ? G.plateStack.top.contents.length : 0;
+      if (topPlateCount > sndPrev.plateCount) Snd.place();
+      sndPrev.plateCount = topPlateCount;
 
       // chopping ticks: board progress rising while item is raw (only fire while actively
       // climbing, so a stalled/finished board stays silent). Runs for BOTH boards independently.
@@ -6047,9 +6546,10 @@
       if (G.stats.served > sndPrev.served){
         Snd.chaChing();
         flashServingWindow(lastDeliveryInfo.spot);
-        showDeliveryPopup(lastDeliveryInfo.price, lastDeliveryInfo.tip);
+        showDeliveryPopup(lastDeliveryInfo.price, lastDeliveryInfo.tip, lastDeliveryInfo.airMail, lastDeliveryInfo.airBonus);
         spawnCoinBurstFX(lastDeliveryInfo.spot);
         if (lastDeliveryInfo.tip > 0) Snd.tipSparkle();
+        if (lastDeliveryInfo.airMail) Snd.whoosh();   // extra flourish on top of the cha-ching
       } else if (G.stats.missed > sndPrev.missed){
         Snd.miss();
       }
@@ -6085,7 +6585,11 @@
 
       // throw / catch / floor-drop: event counters (mirrors served/missed) so BOTH screens
       // react identically regardless of which side actually ran tryThrow/advanceFlyingItems.
-      if (G.stats.thrown > sndPrev.thrown) Snd.whoosh();
+      // Family playtest fix #4: pitch varies by the new item's rangeHint (see the seenFlyIds
+      // loop below, which actually plays the whoosh per new flying item — this counter bump is
+      // just the drop-in fallback for the (rare) case a snapshot ever skips straight past seeing
+      // the item mid-flight, e.g. extreme network jitter).
+      if (G.stats.thrown > sndPrev.thrown && G.flying.length === 0) Snd.whoosh();
       sndPrev.thrown = G.stats.thrown;
       if (G.stats.caught > sndPrev.caught){
         Snd.bop();
@@ -6102,11 +6606,17 @@
       if (G.stats.floorDrops > sndPrev.floorDrops) Snd.plop();
       sndPrev.floorDrops = G.stats.floorDrops;
 
-      // wind-up pulse: fire once per newly-seen flying item, on the thrower's own chef.
+      // wind-up pulse + whoosh: fire once per newly-seen flying item, on the thrower's own chef.
+      // Family playtest fix #4: whoosh pitch scaled by the throw's rangeHint (short flick -> a
+      // touch higher/quicker, long bomb -> a touch lower/longer) — pure juice, distance-readable.
       const flyIds = new Set();
       for (const f of G.flying){
         flyIds.add(f.id);
-        if (!sndPrev.seenFlyIds.has(f.id)) spawnThrowWindupFX(f.throwerId);
+        if (!sndPrev.seenFlyIds.has(f.id)){
+          spawnThrowWindupFX(f.throwerId);
+          const rangeFrac = Math.min(1, (f.rangeHint || THROW_MAX_RANGE) / THROW_MAX_RANGE);
+          Snd.whoosh(1.25 - rangeFrac * 0.5);   // ~1.25x pitch for a short flick down to ~0.75x for a long bomb
+        }
       }
       sndPrev.seenFlyIds = flyIds;
 
@@ -6118,11 +6628,36 @@
       }
       sndPrev.floorIds = floorIds;
 
-      // plate-throw refusal hint: "Plates are for carrying!" for the chef who tried it.
+      // plate-throw refusal hint: "Plates are for carrying!" for the chef who tried it. (Dead as
+      // of family playtest fix #4 — plates are throwable now — kept harmless since the counter
+      // is never bumped anymore; left wired in case a future restriction reuses it.)
       if (G.plateThrowHintId > sndPrev.plateThrowHintId && G.plateThrowHintChef === net.myChefId){
         showTransientHint("Plates are for carrying! 🍽", 1.4);
       }
       sndPrev.plateThrowHintId = G.plateThrowHintId;
+
+      // ---- Family playtest fix #4: throwing v2 new-outcome reactions (both screens react
+      // identically off these event counters, same pattern as every other one-shot here) ----
+      if ((G.airMailId || 0) > sndPrev.airMailId){
+        // showDeliveryPopup already fired off the G.stats.served diff above (completeDelivery
+        // bumps both counters in the same host tick) — this just adds the celebratory hop wave.
+        triggerCustomerWaveHop();
+      }
+      sndPrev.airMailId = G.airMailId || 0;
+      if ((G.dishShatterId || 0) > sndPrev.dishShatterId){
+        Snd.clink();
+        spawnFloorDropFX(G.dishShatterX, G.dishShatterZ);
+      }
+      sndPrev.dishShatterId = G.dishShatterId || 0;
+      if ((G.pizzaSplatId || 0) > sndPrev.pizzaSplatId){
+        Snd.splat();
+        spawnFloorDropFX(G.pizzaSplatX, G.pizzaSplatZ);
+      }
+      sndPrev.pizzaSplatId = G.pizzaSplatId || 0;
+      if ((G.trashSwishId || 0) > sndPrev.trashSwishId){
+        Snd.swish();
+      }
+      sndPrev.trashSwishId = G.trashSwishId || 0;
 
       // ---- Systems pass 4: dish washing sound reactions ----
       // no-clean-plate hint: gentle toast for the chef who tried it + sink sparkles on BOTH
@@ -6189,7 +6724,7 @@
     function resetSoundReactionBaseline(){
       const chef = G.chefs[net.myChefId];
       sndPrev.myHoldingKey = chef && chef.holding ? (chef.holding.kind + ":" + (chef.holding.state || "")) : null;
-      sndPrev.plateCount = G.plate.contents.length;
+      sndPrev.plateCount = G.plateStack.top ? G.plateStack.top.contents.length : 0;
       sndPrev.boards = G.boards.map(board => ({
         progress: board.progress,
         wasRaw: !!(board.item && board.item.state === "raw"),
@@ -6820,15 +7355,28 @@
         if (id === LOCAL2_ID) continue;
         emotes[id] = G.emotes[id];
       }
-      // counter slots: compact — only non-empty slots go over the wire, as [slotIndex, kind, state].
+      // counter slots: compact — only non-empty slots go over the wire, as [slotIndex, kind,
+      // state, extra]. Family playtest fix #2: a slot can now hold a PLATE (with contents/dish),
+      // so `extra` carries {contents, dish} for plate items, omitted (undefined) otherwise — kept
+      // as a 4th tuple element rather than reshaping the whole array so plain-ingredient slots
+      // (the overwhelming majority) stay just as compact as before.
       const cs = [];
-      G.counterSlots.forEach((s, idx) => { if (s.item) cs.push([idx, s.item.kind, s.item.state]); });
+      G.counterSlots.forEach((s, idx) => {
+        if (!s.item) return;
+        if (s.item.kind === "plate"){
+          cs.push([idx, "plate", "", { contents: s.item.contents, dish: s.item.dish }]);
+        } else {
+          cs.push([idx, s.item.kind, s.item.state]);
+        }
+      });
       return {
         chefs,
         // user-reported layout fix: both boards travel compactly as a 2-element array (same
         // {item,progress} shape as before, just twice) so the guest sees host's board-1 progress.
         boards: G.boards.map(b => ({ item: b.item, progress: b.progress })),
-        plate: { contents: G.plate.contents },
+        // Family playtest fix #3: G.plate (station-singular) replaced by the plate stack's
+        // in-progress top item (null | {kind:"plate",contents,dish}).
+        plateStackTop: G.plateStack.top,
         // Systems pass 2: customers replace the old anonymous orders array — carried compactly,
         // lerped on the guest exactly like chef positions (see applySnapshot below).
         customers: G.customers.map(c => ({
@@ -6844,7 +7392,7 @@
           floorDrops: G.stats.floorDrops, tips: G.stats.tips, orderedCount: G.stats.orderedCount || 0
         },
         cs,
-        flying: G.flying.map(f => ({ id: f.id, kind: f.kind, state: f.state, x: f.x, z: f.z, dir: f.dir, dist: f.dist, throwerId: f.throwerId })),
+        flying: G.flying.map(f => ({ id: f.id, kind: f.kind, state: f.state, x: f.x, z: f.z, dir: f.dir, dist: f.dist, throwerId: f.throwerId, contents: f.contents, dish: f.dish || null })),
         floorItems: G.floorItems.map(it => ({ id: it.id, kind: it.kind, state: it.state, x: it.x, z: it.z })),
         plateThrowHintId: G.plateThrowHintId,
         plateThrowHintChef: G.plateThrowHintChef,
@@ -6870,6 +7418,11 @@
         noCleanPlateHintChef: G.noCleanPlateHintChef,
         dirtyThrowHintId: G.dirtyThrowHintId,
         dirtyThrowHintChef: G.dirtyThrowHintChef,
+        // ---- Family playtest fix #4: throwing v2 new-outcome event counters ----
+        airMailId: G.airMailId || 0, airMailSpot: G.airMailSpot || 1,
+        dishShatterId: G.dishShatterId || 0, dishShatterX: G.dishShatterX || 0, dishShatterZ: G.dishShatterZ || 0,
+        pizzaSplatId: G.pizzaSplatId || 0, pizzaSplatX: G.pizzaSplatX || 0, pizzaSplatZ: G.pizzaSplatZ || 0,
+        trashSwishId: G.trashSwishId || 0,
         titleOpen: G.titleOpen,
         levelIntroId: G.levelIntroId,
         levelIntroLevel: G.levelIntroLevel,
@@ -6913,7 +7466,7 @@
           G.boards[i].progress = b.progress;
         });
       }
-      G.plate.contents = snap.plate.contents.map(c => ({ ...c }));
+      G.plateStack.top = snap.plateStackTop ? { kind: "plate", contents: snap.plateStackTop.contents.map(c => ({ ...c })), dish: snap.plateStackTop.dish || null } : null;
       if (snap.phase) G.phase = snap.phase;
       if (typeof snap.dayLeft === "number") G.dayLeft = snap.dayLeft;
       if (snap.stats){
@@ -6958,15 +7511,25 @@
       G.noCleanPlateHintChef = snap.noCleanPlateHintChef || null;
       G.dirtyThrowHintId = snap.dirtyThrowHintId || 0;
       G.dirtyThrowHintChef = snap.dirtyThrowHintChef || null;
+      G.airMailId = snap.airMailId || 0; G.airMailSpot = snap.airMailSpot || 1;
+      G.dishShatterId = snap.dishShatterId || 0; G.dishShatterX = snap.dishShatterX || 0; G.dishShatterZ = snap.dishShatterZ || 0;
+      G.pizzaSplatId = snap.pizzaSplatId || 0; G.pizzaSplatX = snap.pizzaSplatX || 0; G.pizzaSplatZ = snap.pizzaSplatZ || 0;
+      G.trashSwishId = snap.trashSwishId || 0;
       if (typeof snap.titleOpen === "boolean") G.titleOpen = snap.titleOpen;
       G.levelIntroId = snap.levelIntroId || 0;
       G.levelIntroLevel = snap.levelIntroLevel || 0;
 
       // counter slots: host is authoritative, guest just replaces its local copy each snapshot
-      // (cheap — only non-empty slots travel over the wire as [idx, kind, state]).
+      // (cheap — only non-empty slots travel over the wire as [idx, kind, state, extra]). Family
+      // playtest fix #2: a "plate" entry carries its contents/dish in the 4th tuple element.
       for (const s of G.counterSlots) s.item = null;
-      if (snap.cs) for (const [idx, kind, state] of snap.cs){
-        if (G.counterSlots[idx]) G.counterSlots[idx].item = { kind, state };
+      if (snap.cs) for (const [idx, kind, state, extra] of snap.cs){
+        if (!G.counterSlots[idx]) continue;
+        if (kind === "plate"){
+          G.counterSlots[idx].item = { kind: "plate", contents: (extra && extra.contents || []).map(c => ({ ...c })), dish: (extra && extra.dish) || null };
+        } else {
+          G.counterSlots[idx].item = { kind, state };
+        }
       }
       // flying/floor items: guest never simulates these, just renders+lerps host's authoritative
       // list — replace wholesale each snapshot (same simple approach as before).
@@ -7418,7 +7981,6 @@
       syncCrateVisuals();
       syncPropStationVisuals();
       syncBoardVisual();
-      syncPlateVisual(dt);
       syncCookingStationVisuals(dt);
       syncDishWashingVisuals(dt);
       syncCounterSlotVisuals();

@@ -209,6 +209,21 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .donephoto { width: 42px; height: 42px; border-radius: 8px; object-fit: cover; flex: 0 0 auto; }
   li.chore.wo-row { background: #fff8e1; border-color: #f0d98a; }
 
+  /* 3D print requests (mirrors the work-order card look) */
+  .print-form-card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 16px; margin: 0 0 14px; }
+  .print-form-head { font-weight: 800; font-size: 15px; margin-bottom: 10px; }
+  .print-form-card input[type=text], .print-form-card textarea { margin-bottom: 10px; }
+  li.print3d { display: flex; flex-direction: column; align-items: stretch; gap: 0; padding: 0; overflow: hidden; }
+  li.print3d.done { opacity: .6; }
+  li.print3d.done .name { text-decoration: line-through; }
+  .print-top { display: flex; align-items: center; gap: 10px; padding: 12px 14px 6px; }
+  .print-top .name { flex: 1; min-width: 0; font-size: 16px; font-weight: 700; }
+  .print-notes { padding: 0 14px 8px; font-size: 13.5px; color: var(--muted); white-space: pre-wrap; word-break: break-word; }
+  .print-notes a { color: var(--green); }
+  .print-meta { padding: 0 14px 8px; font-size: 13px; color: var(--muted); }
+  .print-actions { padding: 10px 14px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+  .print-done-btn { flex: 1; padding: 11px; border: 0; border-radius: 10px; background: var(--green); color: #fff; font-weight: 700; font-size: 14px; cursor: pointer; }
+
   /* Shopping */
   li.store-head { background: transparent; border: 0; box-shadow: none; display: flex; align-items: center; gap: 10px; padding: 12px 4px 4px; cursor: pointer; }
   .store-badge { width: 34px; height: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 800; font-size: 12px; flex: 0 0 auto; letter-spacing: .3px; }
@@ -621,6 +636,11 @@ const firebaseConfig = {
    just edit the text inside the quotes (keep the quotes). */
 const FAMILY_PASSWORD = "amenfarms";
 
+/* ---- 3D print requests: who gets notified when a new request comes in.
+   Must match Dad's profile name / choreUser value EXACTLY (see the family
+   sheet / localStorage "choreUser"), or he won't get the bell + push alert. */
+const PRINT_ADMIN = "Dad";
+
 /* ---- Email alerts (EmailJS) — see the setup guide, "Work-order email alerts".
    Leave as PASTE_HERE until you've set up EmailJS; the app works fine without it,
    it just won't send emails yet. ---- */
@@ -706,6 +726,7 @@ let familyKey = "default";  // set from the password; scopes your family's data
 const SECTIONS = [
   { key:"chores",     ico:"✅",  name:"Chores",         desc:"Daily, weekly & more" },
   { key:"workorders", ico:"🛠️",  name:"Work Orders",    desc:"Assigned jobs" },
+  { key:"print3d",    ico:"🖨️",  name:"3D Prints",       desc:"Ask Dad to print something" },
   { key:"shopping",   ico:"🛒",  name:"Shopping",        desc:"Store lists" },
   { key:"goathooves", ico:"🐐",  name:"Goats",           desc:"Herd & records" },
   { key:"goatcare",   ico:"🩺",  name:"Goat Care",       desc:"Log care quickly" },
@@ -783,11 +804,16 @@ function myName(){ return localStorage.getItem("choreUser") || ""; }
    ============================================================ */
 const NOTIF_CAP = 50;
 function notifStateKey(user){ return "buckyNotifState_" + user; }
+function printNotifStateKey(user){ return "buckyPrintState_" + user; }   // separate bucket — never collides with work-order state
 function notifInboxKey(user){ return "buckyNotifs_" + user; }
 function loadNotifState(user){
   try { return JSON.parse(localStorage.getItem(notifStateKey(user))) || {}; } catch { return {}; }
 }
 function saveNotifState(user, state){ localStorage.setItem(notifStateKey(user), JSON.stringify(state)); }
+function loadPrintNotifState(user){
+  try { return JSON.parse(localStorage.getItem(printNotifStateKey(user))) || {}; } catch { return {}; }
+}
+function savePrintNotifState(user, state){ localStorage.setItem(printNotifStateKey(user), JSON.stringify(state)); }
 function loadNotifInbox(user){
   let inbox;
   try { inbox = JSON.parse(localStorage.getItem(notifInboxKey(user))) || []; } catch { inbox = []; }
@@ -887,6 +913,38 @@ function checkNotifications(){
   // Drop state entries for work orders that no longer exist (deleted)
   for (const id of Object.keys(state)) if (!seenIds.has(id)) delete state[id];
   saveNotifState(user, state);
+
+  // ---- 3D print requests: same diff pattern, separate state bucket so it can never
+  // collide with (or get cleaned up by) the work-order state above. ----
+  const printFirstRun = localStorage.getItem(printNotifStateKey(user)) === null;
+  const pstate = loadPrintNotifState(user);
+  const prints = chores.filter(c => c.frequency === "print3d");
+  const seenPrintIds = new Set();
+  for (const p of prints){
+    seenPrintIds.add(p.id);
+    const prev = pstate[p.id];
+    const done = p.status === "done";
+    if (!prev){
+      // Never seen this request before: tell PRINT_ADMIN about new open requests from someone else.
+      if (user === PRINT_ADMIN && !done && p.requestedBy !== user && !printFirstRun){
+        const n = addNotif(user, "print_request", `🖨️ Print request: ${p.requestedBy || "Someone"} wants: ${p.item}`, p.id);
+        if (n) fresh.push(n);
+      } else if (user === PRINT_ADMIN && !done && p.requestedBy !== user && printFirstRun){
+        // First-ever run: don't spam old history, but do surface currently-open requests.
+        const n = addNotif(user, "print_request", `🖨️ Print request: ${p.requestedBy || "Someone"} wants: ${p.item}`, p.id);
+        if (n) fresh.push(n);
+      }
+    } else if (!printFirstRun){
+      if (!prev.done && done && p.requestedBy === user && p.doneBy !== user){
+        const n = addNotif(user, "print_done", `Your print '${p.item}' is ready! 🎉`, p.id);
+        if (n) fresh.push(n);
+      }
+    }
+    pstate[p.id] = { done, requestedBy: p.requestedBy || "" };
+  }
+  for (const id of Object.keys(pstate)) if (!seenPrintIds.has(id)) delete pstate[id];
+  savePrintNotifState(user, pstate);
+
   for (const n of fresh) liveNotify(n);
   renderBell();
 }
@@ -949,6 +1007,9 @@ function relNotifTime(ms){
 function goToWorkOrders(){
   currentTab = "workorders"; syncTabsUI(); render();
 }
+function goToPrint3D(){
+  currentTab = "print3d"; syncTabsUI(); render();
+}
 function renderNotifList(){
   const user = myName();
   const wrap = document.getElementById("notifList");
@@ -980,7 +1041,8 @@ function renderNotifList(){
     const time = document.createElement("div"); time.className = "notif-time"; time.textContent = relNotifTime(n.at);
     body.append(text, time);
     row.append(body);
-    row.onclick = () => { closeNotifPanel(); goToWorkOrders(); };
+    const isPrint = n.type === "print_request" || n.type === "print_done";
+    row.onclick = () => { closeNotifPanel(); isPrint ? goToPrint3D() : goToWorkOrders(); };
     wrap.appendChild(row);
   }
 }
@@ -1025,7 +1087,8 @@ function showToast(text, onClick){
   setTimeout(() => t.remove(), 5000);
 }
 function liveNotify(n){
-  showToast(n.text, goToWorkOrders);
+  const isPrint = n.type === "print_request" || n.type === "print_done";
+  showToast(n.text, isPrint ? goToPrint3D : goToWorkOrders);
   if (desktopAlertsEnabled() && typeof Notification !== "undefined" && document.hidden){
     try { new Notification("BUCKY", { body: n.text }); } catch {}
   }
@@ -1119,12 +1182,13 @@ function render(){
   checkNotifications();
   const cf = document.getElementById("careFilter");
   if (cf) cf.style.display = currentTab === "goatcare" ? "block" : "none";
-  document.getElementById("addFab").style.display = (currentTab === "dashboard" || currentTab === "goatcare" || currentTab === "shopping" || currentTab === "game" || currentTab === "catgame") ? "none" : "";
+  document.getElementById("addFab").style.display = (currentTab === "dashboard" || currentTab === "goatcare" || currentTab === "shopping" || currentTab === "print3d" || currentTab === "game" || currentTab === "catgame") ? "none" : "";
   if (currentTab === "dashboard") return renderDashboard();
   if (currentTab === "catgame") return renderCatGame();
   if (currentTab === "goathooves") return renderGoats();
   if (currentTab === "goatcare") return renderGoatCare();
   if (currentTab === "workorders") return renderWorkOrders();
+  if (currentTab === "print3d") return renderPrint3D();
   if (currentTab === "shopping") return renderShopping();
   if (currentTab === "game") return renderGame();
   renderChores();
@@ -2198,6 +2262,136 @@ document.getElementById("woCopyCancelBtn").onclick = closeCopySheet;
 document.getElementById("woCopyCreateBtn").onclick = createWorkOrderCopy;
 document.getElementById("woCopyOverlay").onclick = (e)=>{ if(e.target.id==="woCopyOverlay") closeCopySheet(); };
 
+// ==================== 3D PRINTS ====================
+// doc shape: { id, frequency:"print3d", item, notes, requestedBy, requestedAt, status:"open"|"done", doneBy, doneAt }
+
+// Turn bare URLs in plain text into clickable links without touching the rest of the text.
+// Builds DOM nodes directly (no innerHTML on user text) to avoid any injection risk.
+function linkify(container, text){
+  if (!text){ return; }
+  const re = /(https?:\/\/[^\s]+)/g;
+  let last = 0, m;
+  while ((m = re.exec(text))){
+    if (m.index > last) container.appendChild(document.createTextNode(text.slice(last, m.index)));
+    const a = document.createElement("a");
+    a.href = m[0]; a.textContent = m[0]; a.target = "_blank"; a.rel = "noopener noreferrer";
+    container.appendChild(a);
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) container.appendChild(document.createTextNode(text.slice(last)));
+}
+
+function renderPrint3D(){
+  const list = document.getElementById("list");
+  list.innerHTML = "";
+  document.querySelector(".bar").style.display = "none";
+  document.getElementById("empty").style.display = "none";
+
+  // ---- Request form (always visible at the top) ----
+  const formLi = document.createElement("li");
+  formLi.style.cssText = "background:transparent;border:0;box-shadow:none;padding:0;";
+  const card = document.createElement("div"); card.className = "print-form-card";
+  const head = document.createElement("div"); head.className = "print-form-head"; head.textContent = "What should we print?";
+  const itemInput = document.createElement("input");
+  itemInput.type = "text"; itemInput.id = "printItemInput"; itemInput.placeholder = "e.g. A phone stand"; itemInput.autocomplete = "off";
+  const notesInput = document.createElement("textarea");
+  notesInput.id = "printNotesInput"; notesInput.placeholder = "Notes or a link (optional)"; notesInput.rows = 2;
+  const submitBtn = document.createElement("button");
+  submitBtn.className = "btn primary"; submitBtn.textContent = "Request 🖨️"; submitBtn.style.width = "100%";
+  submitBtn.onclick = submitPrintRequest;
+  card.append(head, itemInput, notesInput, submitBtn);
+  formLi.appendChild(card);
+  list.appendChild(formLi);
+  itemInput.addEventListener("keydown", e => { if (e.key === "Enter") submitPrintRequest(); });
+
+  const prints = chores.filter(c => c.frequency === "print3d");
+  const open = prints.filter(p => p.status !== "done").sort((a,b)=> (b.requestedAt||0) - (a.requestedAt||0));
+  const done = prints.filter(p => p.status === "done").sort((a,b)=> (b.doneAt||0) - (a.doneAt||0));
+
+  if (!open.length){
+    const empty = document.createElement("li");
+    empty.className = "empty"; empty.style.cssText = "display:block;";
+    empty.textContent = "No open print requests. Ask away!";
+    list.appendChild(empty);
+  } else {
+    for (const p of open) list.appendChild(buildPrintCard(p));
+  }
+
+  if (done.length){
+    const key = "print3d_done";
+    defaultCollapse(key);
+    list.appendChild(groupHeader("Finished prints", key, done.length));
+    if (!collapsedGroups.has(key)) for (const p of done.slice(0, 10)) list.appendChild(buildPrintCard(p));
+  }
+
+  document.getElementById("progressText").textContent =
+    open.length ? `${open.length} open print request${open.length > 1 ? "s" : ""}` : "No open print requests";
+}
+
+function buildPrintCard(p){
+  const li = document.createElement("li");
+  li.className = "print3d" + (p.status === "done" ? " done" : "");
+
+  const top = document.createElement("div"); top.className = "print-top";
+  const name = document.createElement("div"); name.className = "name"; name.textContent = p.item;
+  const status = document.createElement("span");
+  status.className = "wo-status " + (p.status === "done" ? "done" : "open");
+  status.textContent = p.status === "done" ? "Done" : "Open";
+  top.append(name, status);
+  li.appendChild(top);
+
+  if (p.notes){
+    const notes = document.createElement("div"); notes.className = "print-notes";
+    linkify(notes, p.notes);
+    li.appendChild(notes);
+  }
+
+  const meta = document.createElement("div"); meta.className = "print-meta";
+  meta.textContent = `Requested by ${p.requestedBy || "someone"} · ${relTime(p.requestedAt)}`;
+  li.appendChild(meta);
+
+  const actions = document.createElement("div"); actions.className = "print-actions";
+  if (p.status === "done"){
+    const info = document.createElement("div");
+    info.style.flex = "1"; info.style.fontSize = "13px"; info.style.color = "var(--muted)";
+    info.textContent = `Completed${p.doneBy ? " by " + p.doneBy : ""}${p.doneAt ? " · " + relTime(p.doneAt) : ""}`;
+    actions.appendChild(info);
+  } else {
+    const doneBtn = document.createElement("button");
+    doneBtn.className = "print-done-btn"; doneBtn.textContent = "Done ✅";
+    doneBtn.onclick = () => markPrintDone(p);
+    actions.appendChild(doneBtn);
+  }
+  li.appendChild(actions);
+  return li;
+}
+
+async function submitPrintRequest(){
+  const me = myName();
+  if (!me){ await confirmDialog("Set your name first — tap the 👤 button at the top.", "OK"); return; }
+  const itemInput = document.getElementById("printItemInput");
+  const notesInput = document.getElementById("printNotesInput");
+  const item = itemInput.value.trim();
+  if (!item){ itemInput.focus(); return; }
+  const notes = notesInput.value.trim();
+  const data = {
+    frequency: "print3d", item, notes,
+    requestedBy: me, requestedAt: Date.now(),
+    status: "open", doneBy: "", doneAt: 0
+  };
+  await backend.add(data);
+  if (me !== PRINT_ADMIN) notifyPrintAdmin(data);   // never self-notify
+  currentTab = "print3d"; syncTabsUI(); render();
+}
+
+async function markPrintDone(p){
+  const me = myName();
+  const patch = { status: "done", doneBy: me, doneAt: Date.now() };
+  Object.assign(p, patch); render();
+  await backend.update(p.id, patch);
+  if (p.requestedBy && p.requestedBy !== me) notifyPrintRequestorDone(Object.assign({}, p, patch));
+}
+
 // ==================== SHOPPING ====================
 function shopCatalogNames(store){
   const set = new Set();
@@ -3154,6 +3348,23 @@ function notifyCreatorClosed(wo){
     BuckyPush.notify(FAMILY_PASSWORD, familyKey, wo.createdBy,
       "✅ Work order closed: " + wo.name,
       `Closed by ${myName() || "someone"}`);
+  }
+}
+// 3D print requests: push PRINT_ADMIN when a new request comes in, and push the
+// requestor back when their print is marked done. Mirrors notifyAssignee/notifyCreatorClosed
+// but print requests don't have email templates, so this is push-only (fire-and-forget).
+function notifyPrintAdmin(p){
+  if (window.BuckyPush && familyKey){
+    BuckyPush.notify(FAMILY_PASSWORD, familyKey, PRINT_ADMIN,
+      "🖨️ Print request",
+      `${p.requestedBy || "Someone"} wants: ${p.item}`);
+  }
+}
+function notifyPrintRequestorDone(p){
+  if (window.BuckyPush && familyKey){
+    BuckyPush.notify(FAMILY_PASSWORD, familyKey, p.requestedBy,
+      "🎉 Print ready!",
+      `Your print '${p.item}' is ready!`);
   }
 }
 
