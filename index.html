@@ -209,6 +209,58 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .donephoto { width: 42px; height: 42px; border-radius: 8px; object-fit: cover; flex: 0 0 auto; }
   li.chore.wo-row { background: #fff8e1; border-color: #f0d98a; }
 
+  /* Work-order progress milestones */
+  .wo-progress-wrap { padding: 0 14px 8px; }
+  .wo-progress-bar { height: 8px; background: var(--line); border-radius: 999px; overflow: hidden; }
+  .wo-progress-bar > span { display: block; height: 100%; background: var(--green); border-radius: 999px; transition: width .25s ease; }
+  .wo-progress-label { font-size: 12px; color: var(--muted); margin-top: 3px; font-weight: 700; }
+  .wo-progress-btn { flex: 0 0 auto; border: 1.5px solid var(--green); background: #fff; color: var(--green); padding: 7px 13px; border-radius: 999px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+  input[type=range].fat-slider { width: 100%; height: 40px; -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; }
+  input[type=range].fat-slider::-webkit-slider-runnable-track { height: 12px; border-radius: 999px; background: var(--line); }
+  input[type=range].fat-slider::-moz-range-track { height: 12px; border-radius: 999px; background: var(--line); }
+  input[type=range].fat-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; margin-top: -14px; width: 38px; height: 38px; border-radius: 50%;
+    background: var(--green); border: 4px solid #fff; box-shadow: 0 2px 8px rgba(10,49,97,.4);
+  }
+  input[type=range].fat-slider::-moz-range-thumb {
+    width: 38px; height: 38px; border-radius: 50%; background: var(--green); border: 4px solid #fff; box-shadow: 0 2px 8px rgba(10,49,97,.4);
+  }
+  .slider-pct { text-align: center; font-size: 34px; font-weight: 800; color: var(--green); margin: 6px 0 2px; }
+  .milestone-row { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .milestone-row:last-child { border-bottom: 0; }
+  .milestone-pct { flex: 0 0 auto; width: 44px; height: 44px; border-radius: 50%; background: var(--done); color: var(--green); font-weight: 800; font-size: 13px; display: flex; align-items: center; justify-content: center; }
+  .milestone-body { flex: 1; min-width: 0; }
+  .milestone-note { font-size: 14px; color: var(--ink); }
+  .milestone-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .milestone-thumb { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; flex: 0 0 auto; cursor: pointer; }
+
+  /* Farm Bank */
+  .bank-card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 18px; margin-bottom: 16px; }
+  .bank-head { display: flex; align-items: center; justify-content: space-between; }
+  .bank-name { font-weight: 800; font-size: 17px; }
+  .bank-balance { font-size: 34px; font-weight: 800; color: var(--green); margin: 4px 0 12px; }
+  .bank-balance.neg { color: var(--red); }
+  .bank-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .bank-chip { border: 1.5px solid var(--green); background: #fff; color: var(--green); padding: 8px 14px; border-radius: 999px; font-size: 14px; font-weight: 700; cursor: pointer; }
+  .bank-chip.neg { border-color: var(--red); color: var(--red); }
+  .bank-custom-row { display: flex; gap: 8px; margin-bottom: 6px; }
+  .bank-custom-row input { flex: 1; }
+  .bank-readonly-note { font-size: 12.5px; color: var(--muted); font-style: italic; margin-bottom: 6px; }
+  .bank-ledger { margin-top: 8px; }
+  .ledger-row { display: flex; align-items: baseline; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+  .ledger-row:last-child { border-bottom: 0; }
+  .ledger-amt { flex: 0 0 auto; font-weight: 800; min-width: 56px; }
+  .ledger-amt.pos { color: #1c8a4a; }
+  .ledger-amt.neg { color: var(--red); }
+  .ledger-desc { flex: 1; min-width: 0; color: var(--ink); }
+  .ledger-meta { flex: 0 0 auto; font-size: 11.5px; color: var(--muted); text-align: right; }
+  .ledger-more-btn { border: 0; background: transparent; color: var(--green); font-weight: 700; font-size: 13px; padding: 8px 0 0; cursor: pointer; }
+  .payout-card { background: #fff8e1; border: 2px solid #f0d98a; border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; }
+  .payout-head { font-weight: 800; font-size: 14px; margin-bottom: 8px; }
+  .payout-actions { display: flex; gap: 10px; }
+  .payout-confirm-btn { flex: 1; padding: 10px; border: 0; border-radius: 10px; background: #1c8a4a; color: #fff; font-weight: 700; font-size: 14px; cursor: pointer; }
+  .payout-notyet-btn { flex: 0 0 auto; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--muted); font-weight: 700; font-size: 14px; cursor: pointer; }
+
   /* 3D print requests (mirrors the work-order card look) */
   .print-form-card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 16px; margin: 0 0 14px; }
   .print-form-head { font-weight: 800; font-size: 15px; margin-bottom: 10px; }
@@ -572,6 +624,54 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   </div>
 </div>
 
+<!-- Update work-order progress -->
+<div class="overlay" id="woProgressOverlay">
+  <div class="sheet">
+    <h2>Update progress</h2>
+    <div class="slider-pct" id="woProgressPctLabel">0%</div>
+    <input type="range" class="fat-slider" id="woProgressSlider" min="0" max="100" step="5" value="0" />
+    <label for="woProgressNote">Note (optional)</label>
+    <textarea id="woProgressNote" rows="2" placeholder="What did you get done?"></textarea>
+    <label>Photo (optional)</label>
+    <div class="photo-row">
+      <div id="woProgressPhotoPreview" class="photo-preview placeholder">📷</div>
+      <div class="photo-actions">
+        <label for="woProgressPhotoInput" class="btn ghost photo-btn">Add / take photo</label>
+        <input type="file" id="woProgressPhotoInput" accept="image/*" capture="environment" style="display:none" />
+        <button type="button" class="btn ghost photo-btn" id="woProgressPhotoRemove" style="display:none">Remove</button>
+      </div>
+    </div>
+    <div class="sheet-actions">
+      <button class="btn ghost" id="woProgressCancelBtn">Cancel</button>
+      <button class="btn primary" id="woProgressSaveBtn">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Work-order milestone timeline (view only) -->
+<div class="overlay" id="woMilestonesOverlay">
+  <div class="sheet">
+    <h2 id="woMilestonesTitle">Progress history</h2>
+    <div id="woMilestonesList"></div>
+    <div class="sheet-actions">
+      <button class="btn ghost" id="woMilestonesCloseBtn" style="flex:1;">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Farm Bank: "what for?" description dialog for a pending chip amount -->
+<div class="overlay" id="bankWhatForOverlay">
+  <div class="sheet">
+    <h2 id="bankWhatForTitle">What for?</h2>
+    <label for="bankWhatForInput">Description</label>
+    <input type="text" id="bankWhatForInput" placeholder="e.g. Extra chores this week" autocomplete="off" />
+    <div class="sheet-actions">
+      <button class="btn ghost" id="bankWhatForCancelBtn">Cancel</button>
+      <button class="btn primary" id="bankWhatForSaveBtn">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- Add a shopping item to a store -->
 <div class="overlay" id="shopOverlay">
   <div class="sheet">
@@ -640,6 +740,11 @@ const FAMILY_PASSWORD = "amenfarms";
    Must match Dad's profile name / choreUser value EXACTLY (see the family
    sheet / localStorage "choreUser"), or he won't get the bell + push alert. */
 const PRINT_ADMIN = "Dad";
+
+/* ---- Farm Bank: who's allowed to make deposits/withdrawals, and which kids have accounts.
+   Must match profile names EXACTLY (same rule as PRINT_ADMIN above). ---- */
+const BANK_ADMIN = "Dad";
+const BANK_KIDS = ["Isaac", "Eleanor"];
 
 /* ---- Email alerts (EmailJS) — see the setup guide, "Work-order email alerts".
    Leave as PASTE_HERE until you've set up EmailJS; the app works fine without it,
@@ -728,6 +833,7 @@ const SECTIONS = [
   { key:"workorders", ico:"🛠️",  name:"Work Orders",    desc:"Assigned jobs" },
   { key:"print3d",    ico:"🖨️",  name:"3D Prints",       desc:"Ask Dad to print something" },
   { key:"shopping",   ico:"🛒",  name:"Shopping",        desc:"Store lists" },
+  { key:"farmbank",   ico:"💰",  name:"Farm Bank",       desc:"Kid savings accounts" },
   { key:"goathooves", ico:"🐐",  name:"Goats",           desc:"Herd & records" },
   { key:"goatcare",   ico:"🩺",  name:"Goat Care",       desc:"Log care quickly" },
   { key:"games",      ico:"🎮",  name:"Games",           desc:"games might just be real life", url:"games.html" }
@@ -735,7 +841,8 @@ const SECTIONS = [
 
 // Deep-link support: games.html sends players to index.html#game / #catgame so the
 // in-app games (which have no page of their own) still open directly from the games hub.
-const DEEP_LINK_TABS = ["game", "catgame"];
+// workorders/farmbank are here too so email "View in BUCKY" buttons can land on the right tab.
+const DEEP_LINK_TABS = ["game", "catgame", "workorders", "farmbank"];
 const initialHashTab = DEEP_LINK_TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "dashboard";
 let currentTab = initialHashTab;
 let careView = "hooves";    // which activity the Goat Care tab is updating
@@ -1010,6 +1117,9 @@ function goToWorkOrders(){
 function goToPrint3D(){
   currentTab = "print3d"; syncTabsUI(); render();
 }
+function goToFarmBank(){
+  currentTab = "farmbank"; syncTabsUI(); render();
+}
 function renderNotifList(){
   const user = myName();
   const wrap = document.getElementById("notifList");
@@ -1041,8 +1151,7 @@ function renderNotifList(){
     const time = document.createElement("div"); time.className = "notif-time"; time.textContent = relNotifTime(n.at);
     body.append(text, time);
     row.append(body);
-    const isPrint = n.type === "print_request" || n.type === "print_done";
-    row.onclick = () => { closeNotifPanel(); isPrint ? goToPrint3D() : goToWorkOrders(); };
+    row.onclick = () => { closeNotifPanel(); notifDestination(n)(); };
     wrap.appendChild(row);
   }
 }
@@ -1086,9 +1195,13 @@ function showToast(text, onClick){
   wrap.appendChild(t);
   setTimeout(() => t.remove(), 5000);
 }
+function notifDestination(n){
+  if (n.type === "print_request" || n.type === "print_done") return goToPrint3D;
+  if (n.type === "payout_confirmed") return goToFarmBank;
+  return goToWorkOrders;   // assigned, closed, progress, payout_pending, payout_notyet
+}
 function liveNotify(n){
-  const isPrint = n.type === "print_request" || n.type === "print_done";
-  showToast(n.text, isPrint ? goToPrint3D : goToWorkOrders);
+  showToast(n.text, notifDestination(n));
   if (desktopAlertsEnabled() && typeof Notification !== "undefined" && document.hidden){
     try { new Notification("BUCKY", { body: n.text }); } catch {}
   }
@@ -1180,11 +1293,14 @@ function fmtDate(ms){
 // ---- Rendering ----
 function render(){
   checkNotifications();
+  ensureKidSeeds();
+  ensureDailyAllowance();
   const cf = document.getElementById("careFilter");
   if (cf) cf.style.display = currentTab === "goatcare" ? "block" : "none";
-  document.getElementById("addFab").style.display = (currentTab === "dashboard" || currentTab === "goatcare" || currentTab === "shopping" || currentTab === "print3d" || currentTab === "game" || currentTab === "catgame") ? "none" : "";
+  document.getElementById("addFab").style.display = (currentTab === "dashboard" || currentTab === "goatcare" || currentTab === "shopping" || currentTab === "print3d" || currentTab === "game" || currentTab === "catgame" || currentTab === "farmbank") ? "none" : "";
   if (currentTab === "dashboard") return renderDashboard();
   if (currentTab === "catgame") return renderCatGame();
+  if (currentTab === "farmbank") return renderFarmBank();
   if (currentTab === "goathooves") return renderGoats();
   if (currentTab === "goatcare") return renderGoatCare();
   if (currentTab === "workorders") return renderWorkOrders();
@@ -2021,13 +2137,49 @@ function buildWoCard(w){
 
   if (w.desc){ const d = document.createElement("div"); d.className = "wo-desc"; d.textContent = w.desc; li.appendChild(d); }
 
+  // Slim progress bar + milestone timeline link (shown once any progress has been logged).
+  if (!w.done && (w.progress || 0) > 0){
+    const pwrap = document.createElement("div"); pwrap.className = "wo-progress-wrap";
+    pwrap.style.cursor = "pointer";
+    pwrap.onclick = () => openMilestonesView(w);
+    const bar = document.createElement("div"); bar.className = "wo-progress-bar";
+    const span = document.createElement("span"); span.style.width = (w.progress || 0) + "%"; bar.appendChild(span);
+    const label = document.createElement("div"); label.className = "wo-progress-label"; label.textContent = (w.progress || 0) + "% · tap for history";
+    pwrap.append(bar, label);
+    li.appendChild(pwrap);
+  } else if (w.done && Array.isArray(w.milestones) && w.milestones.length){
+    const pwrap = document.createElement("div"); pwrap.className = "wo-progress-wrap";
+    pwrap.style.cursor = "pointer";
+    pwrap.onclick = () => openMilestonesView(w);
+    const label = document.createElement("div"); label.className = "wo-progress-label"; label.textContent = "View progress history";
+    pwrap.appendChild(label);
+    li.appendChild(pwrap);
+  }
+
+  // Payout confirmation card: Dad sees this on a completed kid work order awaiting a decision.
+  if (w.done && w.payoutPending && myName() === BANK_ADMIN){
+    const pc = document.createElement("div"); pc.className = "payout-card";
+    const head = document.createElement("div"); head.className = "payout-head";
+    head.textContent = `💰 Confirm: ${w.doneBy} finished "${w.name}" ($${w.value})`;
+    const pa = document.createElement("div"); pa.className = "payout-actions";
+    const conf = document.createElement("button"); conf.className = "payout-confirm-btn";
+    conf.textContent = `Confirm $${w.value} → ${w.doneBy} 💰`;
+    conf.onclick = () => confirmPayout(w);
+    const notyet = document.createElement("button"); notyet.className = "payout-notyet-btn";
+    notyet.textContent = "Not yet";
+    notyet.onclick = () => notYetPayout(w);
+    pa.append(conf, notyet);
+    pc.append(head, pa);
+    li.appendChild(pc);
+  }
+
   const actions = document.createElement("div"); actions.className = "wo-actions";
   if (w.done){
     const info = document.createElement("div");
     info.style.flex = "1"; info.style.fontSize = "13px"; info.style.color = "var(--muted)";
     info.textContent = `Completed${w.doneBy ? " by " + w.doneBy : ""}${w.doneAt ? " · " + fmtDate(w.doneAt) : ""}`;
     actions.appendChild(info);
-    if (w.donePhoto){ const im = document.createElement("img"); im.className = "donephoto"; im.src = w.donePhoto; im.alt = ""; actions.appendChild(im); }
+    if (w.donePhoto){ const im = document.createElement("img"); im.className = "donephoto"; im.src = w.donePhoto; im.alt = ""; im.style.cursor = "pointer"; im.onclick = () => openPhoto(w.donePhoto); actions.appendChild(im); }
     const cp = document.createElement("button"); cp.className = "iconbtn"; cp.textContent = "Copy"; cp.style.fontSize = "13px"; cp.title = "Create a new work order from this one"; cp.onclick = () => openCopySheet(w); actions.appendChild(cp);
     const re = document.createElement("button"); re.className = "iconbtn"; re.textContent = "Reopen"; re.style.fontSize = "13px"; re.onclick = () => reopenWorkOrder(w); actions.appendChild(re);
   } else {
@@ -2035,6 +2187,11 @@ function buildWoCard(w){
       const re = document.createElement("button"); re.className = "iconbtn"; re.textContent = "Reassign"; re.style.fontSize = "13px"; re.onclick = () => reassignWorkOrder(w); actions.appendChild(re);
     } else {
       const claim = document.createElement("button"); claim.className = "iconbtn"; claim.textContent = "Claim"; claim.style.cssText = "font-size:13px;color:var(--green);font-weight:700;"; claim.onclick = () => claimWorkOrder(w); actions.appendChild(claim);
+    }
+    if (w.assignee === myName()){
+      const prog = document.createElement("button"); prog.className = "wo-progress-btn"; prog.textContent = "Update progress";
+      prog.onclick = () => openProgressSheet(w);
+      actions.appendChild(prog);
     }
     const close = document.createElement("button"); close.className = "wo-close-btn"; close.textContent = "Close work order"; close.onclick = () => openCompleteSheet(w);
     actions.appendChild(close);
@@ -2120,6 +2277,30 @@ function buildWoChoreRow(w){
 
 // ----- Add / edit work order -----
 let editingWoId = null, woPhoto = "";
+let woInitialSnapshot = null;   // {name,assignee,due,value,desc} captured when the sheet opened
+let woHistoryPushed = false;    // whether we pushed a history sentinel for the open sheet
+function woSnapshot(){
+  return {
+    name: document.getElementById("woName").value,
+    assignee: document.getElementById("woAssignee").value,
+    due: document.getElementById("woDue").value,
+    value: document.getElementById("woValue").value,
+    desc: document.getElementById("woDesc").value
+  };
+}
+function woIsDirty(){
+  if (!woInitialSnapshot) return false;
+  const now = woSnapshot();
+  return Object.keys(now).some(k => now[k] !== woInitialSnapshot[k]);
+}
+// Guarded dismissal: asks to confirm discard if the sheet has unsaved changes.
+async function requestCloseWorkOrderSheet(){
+  if (woIsDirty()){
+    if (!(await confirmDialog("Discard this work order?", "Discard"))) return false;
+  }
+  closeWorkOrderSheet();
+  return true;
+}
 function populateWoNames(current){
   const sel = document.getElementById("woAssignee");
   sel.innerHTML = "";
@@ -2147,8 +2328,18 @@ function openWorkOrderSheet(w){
   document.getElementById("woDeleteBtn").style.display = w ? "block" : "none";
   document.getElementById("woOverlay").classList.add("open");
   if (!w) setTimeout(()=>document.getElementById("woName").focus(), 100);
+  woInitialSnapshot = woSnapshot();
+  if (!woHistoryPushed){ history.pushState({ woSheet: true }, ""); woHistoryPushed = true; }
 }
-function closeWorkOrderSheet(){ document.getElementById("woOverlay").classList.remove("open"); }
+function closeWorkOrderSheet(){
+  document.getElementById("woOverlay").classList.remove("open");
+  woInitialSnapshot = null;
+  if (woHistoryPushed){
+    woHistoryPushed = false;
+    // Consume the sentinel we pushed on open, unless it's already gone (e.g. popstate got us here).
+    if (history.state && history.state.woSheet) history.back();
+  }
+}
 async function saveWorkOrder(){
   const name = document.getElementById("woName").value.trim();
   if (!name){ document.getElementById("woName").focus(); return; }
@@ -2160,6 +2351,7 @@ async function saveWorkOrder(){
     desc: document.getElementById("woDesc").value.trim(),
     photo: woPhoto || ""
   };
+  const wasEditing = !!editingWoId;
   let oldAssignee = "";
   if (editingWoId){
     const w = chores.find(x=>x.id===editingWoId);
@@ -2167,11 +2359,13 @@ async function saveWorkOrder(){
     Object.assign(w, fields);
     await backend.update(editingWoId, fields);
   } else {
-    await backend.add(Object.assign({ frequency:"workorder", done:false, doneAt:0, doneBy:"", donePhoto:"", createdBy: myName(), createdAt: Date.now(), order: Date.now() }, fields));
+    await backend.add(Object.assign({ frequency:"workorder", done:false, doneAt:0, doneBy:"", donePhoto:"", progress:0, milestones:[], payoutPending:false, createdBy: myName(), createdAt: Date.now(), order: Date.now() }, fields));
   }
   // Email the assignee when they're newly assigned (not on every edit)
   if (fields.assignee && fields.assignee !== oldAssignee) notifyAssignee(fields.assignee, fields);
   currentTab = "workorders"; syncTabsUI(); closeWorkOrderSheet(); render();
+  if (wasEditing) showToast("Work order updated ✅");
+  else showToast("Work order created ✅" + (fields.assignee ? ` — ${fields.assignee} will be notified` : ""));
 }
 async function deleteWorkOrder(){
   if (!editingWoId) return;
@@ -2180,10 +2374,29 @@ async function deleteWorkOrder(){
   await backend.remove(editingWoId);
   closeWorkOrderSheet(); render();
 }
-document.getElementById("woCancelBtn").onclick = closeWorkOrderSheet;
+document.getElementById("woCancelBtn").onclick = requestCloseWorkOrderSheet;
 document.getElementById("woSaveBtn").onclick = saveWorkOrder;
 document.getElementById("woDeleteBtn").onclick = deleteWorkOrder;
-document.getElementById("woOverlay").onclick = (e)=>{ if(e.target.id==="woOverlay") closeWorkOrderSheet(); };
+document.getElementById("woOverlay").onclick = (e)=>{ if(e.target.id==="woOverlay") requestCloseWorkOrderSheet(); };
+// Browser back button while the sheet is open: guard against losing unsaved edits.
+// Scoped to the WO sheet only via the `woSheet` history-state sentinel we push on open,
+// so this never interferes with #game/#catgame hash deep-link routing (which only reads
+// location.hash once at load time and doesn't use pushState/popstate).
+window.addEventListener("popstate", (e)=>{
+  if (!document.getElementById("woOverlay").classList.contains("open")) return;
+  if (!woHistoryPushed) return;   // sheet open but no sentinel (shouldn't happen) — nothing to guard
+  if (woIsDirty()){
+    // Undo the back navigation by re-pushing the sentinel, then ask.
+    history.pushState({ woSheet: true }, "");
+    confirmDialog("Discard this work order?", "Discard").then(ok => {
+      if (ok) closeWorkOrderSheet();   // consumes the re-pushed sentinel via its normal history.back()
+    });
+  } else {
+    woHistoryPushed = false;
+    document.getElementById("woOverlay").classList.remove("open");
+    woInitialSnapshot = null;
+  }
+});
 document.getElementById("woPhotoInput").addEventListener("change", e=>{
   const f = e.target.files && e.target.files[0];
   if (f) resizeImage(f, 700, durl => { woPhoto = durl; updateWoPhotoPreview(); });
@@ -2208,9 +2421,14 @@ async function markWorkOrderComplete(){
   if (!completingWoId) return;
   const w = chores.find(x=>x.id===completingWoId);
   if (!w){ closeCompleteSheet(); return; }
-  const patch = { done: true, doneAt: Date.now(), doneBy: myName(), donePhoto: woDonePhoto || "" };
+  const me = myName();
+  const patch = { done: true, doneAt: Date.now(), doneBy: me, donePhoto: woDonePhoto || "" };
+  // Kid work orders with a dollar value don't pay out automatically — Dad has to confirm first.
+  const value = parseFloat(w.value);
+  if (BANK_KIDS.includes(me) && value > 0) patch.payoutPending = true;
   Object.assign(w, patch);
-  if (w.createdBy && w.createdBy !== myName()) notifyCreatorClosed(w);   // tell the creator it's done
+  if (w.createdBy && w.createdBy !== me) notifyCreatorClosed(w);   // tell the creator it's done
+  if (patch.payoutPending) notifyPayoutPending(w);
   closeCompleteSheet(); render();
   await backend.update(w.id, patch);
 }
@@ -2218,6 +2436,27 @@ async function reopenWorkOrder(w){
   const patch = { done: false, doneAt: 0, doneBy: "", donePhoto: "" };
   Object.assign(w, patch); render();
   await backend.update(w.id, patch);
+}
+
+// ----- Kid payout confirmation (Dad-only decision on a completed, value>0 kid work order) -----
+async function confirmPayout(w){
+  const value = parseFloat(w.value) || 0;
+  await addLedgerEntry(w.doneBy, value, w.name, BANK_ADMIN, "workorder");
+  const patch = { payoutPending: false };
+  Object.assign(w, patch); render();
+  await backend.update(w.id, patch);
+  notifyPayoutConfirmed(w, value);
+}
+async function notYetPayout(w){
+  // Gentle reopen: done goes back to false (progress is untouched), payoutPending clears.
+  const patch = { done: false, doneAt: 0, doneBy: "", donePhoto: "", payoutPending: false };
+  Object.assign(w, patch); render();
+  await backend.update(w.id, patch);
+  addNotif(w.doneBy || w.assignee, "payout_notyet", `👍 "${w.name}" needs a bit more before it's done — take another look!`, w.id + ":notyet:" + Date.now());
+  if (window.BuckyPush && familyKey && (w.doneBy || w.assignee)){
+    BuckyPush.notify(FAMILY_PASSWORD, familyKey, w.doneBy || w.assignee,
+      "👍 Almost there!", `"${w.name}" needs a bit more before it's done.`);
+  }
 }
 document.getElementById("woCompleteCancelBtn").onclick = closeCompleteSheet;
 document.getElementById("woCompleteBtn").onclick = markWorkOrderComplete;
@@ -2261,6 +2500,84 @@ async function createWorkOrderCopy(){
 document.getElementById("woCopyCancelBtn").onclick = closeCopySheet;
 document.getElementById("woCopyCreateBtn").onclick = createWorkOrderCopy;
 document.getElementById("woCopyOverlay").onclick = (e)=>{ if(e.target.id==="woCopyOverlay") closeCopySheet(); };
+
+// ----- Work-order progress milestones -----
+// wo doc gains: progress (0-100, default 0), milestones: [{at, by, pct, note, photo}] (cap 12, oldest trimmed).
+const MILESTONE_CAP = 12;
+let progressingWoId = null, woProgressPhoto = "";
+function updateWoProgressPhotoPreview(){
+  const p = document.getElementById("woProgressPhotoPreview"), rm = document.getElementById("woProgressPhotoRemove");
+  if (woProgressPhoto){ p.style.backgroundImage = `url(${woProgressPhoto})`; p.textContent = ""; p.classList.remove("placeholder"); rm.style.display = "inline-block"; }
+  else { p.style.backgroundImage = ""; p.textContent = "📷"; p.classList.add("placeholder"); rm.style.display = "none"; }
+}
+function openProgressSheet(w){
+  progressingWoId = w.id; woProgressPhoto = "";
+  updateWoProgressPhotoPreview();
+  const slider = document.getElementById("woProgressSlider");
+  slider.value = w.progress || 0;
+  document.getElementById("woProgressPctLabel").textContent = (w.progress || 0) + "%";
+  document.getElementById("woProgressNote").value = "";
+  document.getElementById("woProgressOverlay").classList.add("open");
+}
+function closeProgressSheet(){ document.getElementById("woProgressOverlay").classList.remove("open"); }
+document.getElementById("woProgressSlider").addEventListener("input", e => {
+  document.getElementById("woProgressPctLabel").textContent = e.target.value + "%";
+});
+async function saveProgress(){
+  if (!progressingWoId) return;
+  const w = chores.find(x=>x.id===progressingWoId);
+  if (!w){ closeProgressSheet(); return; }
+  const pct = parseInt(document.getElementById("woProgressSlider").value, 10) || 0;
+  const note = document.getElementById("woProgressNote").value.trim();
+  const milestone = { at: Date.now(), by: myName(), pct, note, photo: woProgressPhoto || "" };
+  const milestones = Array.isArray(w.milestones) ? w.milestones.slice() : [];
+  milestones.push(milestone);
+  while (milestones.length > MILESTONE_CAP) milestones.shift();   // trim oldest
+  const patch = { progress: pct, milestones };
+  Object.assign(w, patch);
+  closeProgressSheet(); render();
+  await backend.update(w.id, patch);
+  // Notify the creator only on an increase, and only when someone else made the update.
+  if (w.createdBy && w.createdBy !== myName()) notifyProgressIncrease(w, milestone);
+}
+document.getElementById("woProgressCancelBtn").onclick = closeProgressSheet;
+document.getElementById("woProgressSaveBtn").onclick = saveProgress;
+document.getElementById("woProgressOverlay").onclick = (e)=>{ if(e.target.id==="woProgressOverlay") closeProgressSheet(); };
+document.getElementById("woProgressPhotoInput").addEventListener("change", e=>{
+  const f = e.target.files && e.target.files[0];
+  if (f) resizeImage(f, 700, durl => { woProgressPhoto = durl; updateWoProgressPhotoPreview(); });
+  e.target.value = "";
+});
+document.getElementById("woProgressPhotoRemove").onclick = () => { woProgressPhoto = ""; updateWoProgressPhotoPreview(); };
+
+function openMilestonesView(w){
+  document.getElementById("woMilestonesTitle").textContent = w.name + " — progress history";
+  const wrap = document.getElementById("woMilestonesList");
+  wrap.innerHTML = "";
+  const ms = (Array.isArray(w.milestones) ? w.milestones.slice() : []).sort((a,b)=> (b.at||0)-(a.at||0));
+  if (!ms.length){
+    wrap.innerHTML = '<div class="empty" style="padding:16px 4px;">No progress logged yet.</div>';
+  } else {
+    for (const m of ms){
+      const row = document.createElement("div"); row.className = "milestone-row";
+      const pctCircle = document.createElement("div"); pctCircle.className = "milestone-pct"; pctCircle.textContent = m.pct + "%";
+      const body = document.createElement("div"); body.className = "milestone-body";
+      const note = document.createElement("div"); note.className = "milestone-note"; note.textContent = m.note || "(no note)";
+      const meta = document.createElement("div"); meta.className = "milestone-meta"; meta.textContent = `${m.by || "someone"} · ${relTime(m.at)}`;
+      body.append(note, meta);
+      row.append(pctCircle, body);
+      if (m.photo){
+        const im = document.createElement("img"); im.className = "milestone-thumb"; im.src = m.photo; im.alt = "";
+        im.onclick = () => openPhoto(m.photo);
+        row.appendChild(im);
+      }
+      wrap.appendChild(row);
+    }
+  }
+  document.getElementById("woMilestonesOverlay").classList.add("open");
+}
+document.getElementById("woMilestonesCloseBtn").onclick = () => document.getElementById("woMilestonesOverlay").classList.remove("open");
+document.getElementById("woMilestonesOverlay").onclick = (e)=>{ if(e.target.id==="woMilestonesOverlay") document.getElementById("woMilestonesOverlay").classList.remove("open"); };
 
 // ==================== 3D PRINTS ====================
 // doc shape: { id, frequency:"print3d", item, notes, requestedBy, requestedAt, status:"open"|"done", doneBy, doneAt }
@@ -2390,6 +2707,198 @@ async function markPrintDone(p){
   Object.assign(p, patch); render();
   await backend.update(p.id, patch);
   if (p.requestedBy && p.requestedBy !== me) notifyPrintRequestorDone(Object.assign({}, p, patch));
+}
+
+// ==================== FARM BANK ====================
+// doc shape: { id, frequency:"kidbank", kid, amount(+/-), desc, by, at, kind:"manual"|"workorder"|"allowance"|"seed", day? }
+function kidLedger(kid){
+  return chores.filter(c => c.frequency === "kidbank" && c.kid === kid).sort((a,b)=> (b.at||0)-(a.at||0));
+}
+function kidBalance(kid){
+  return chores.filter(c => c.frequency === "kidbank" && c.kid === kid).reduce((sum,c)=> sum + (Number(c.amount)||0), 0);
+}
+async function addLedgerEntry(kid, amount, desc, by, kind, extra){
+  return backend.add(Object.assign({ frequency:"kidbank", kid, amount, desc, by, at: Date.now(), kind }, extra || {}));
+}
+// One-time seed per kid: Isaac starts at $0, Eleanor at $40. Lazy + idempotent — checks for an
+// existing seed doc before writing (query-first). The in-memory "attempted" guard only stops
+// THIS session from firing a second write while the cloud round-trip is in flight; the real
+// idempotency is the existence check against `chores`, which is re-run on every call (cheap
+// filter) so it also self-heals: if two devices ever raced and both inserted a seed doc (visible
+// once the snapshot listener delivers both), whichever tab notices the duplicate deletes the
+// extra one and keeps the earliest — safe for any tab to do, converges either way.
+let bankSeedAttempted = new Set();
+async function ensureKidSeeds(){
+  if (!dataReady || !backend) return;
+  const seedAmounts = { Isaac: 0, Eleanor: 40 };
+  for (const kid of BANK_KIDS){
+    const existing = chores.filter(c => c.frequency === "kidbank" && c.kid === kid && c.kind === "seed");
+    if (existing.length > 1){
+      const sorted = existing.sort((a,b)=> (a.at||0)-(b.at||0));
+      for (const dupe of sorted.slice(1)) await backend.remove(dupe.id);
+      continue;
+    }
+    if (existing.length === 1) continue;
+    if (bankSeedAttempted.has(kid)) continue;   // write already in flight this session
+    bankSeedAttempted.add(kid);
+    await addLedgerEntry(kid, seedAmounts[kid] || 0, "Starting balance", "BUCKY", "seed");
+    if (currentTab === "farmbank") render();   // local backend doesn't auto-render; cloud's onSnapshot will anyway
+  }
+}
+// "All chores due today" = every DAILY chore's current period is fully checked off (isDone()),
+// using the same curPeriodLog/target logic the Chores tab already uses. Chores have no
+// per-person assignee (they're shared family chores), so this is a household-wide gate, not
+// per-kid — both kids are paid together when the daily list is clear. Weekly/monthly/yearly
+// chores and work orders are NOT part of this check (only "daily" frequency counts as "due today").
+function allDailyChoresDone(){
+  const daily = chores.filter(c => c.frequency === "daily");
+  if (!daily.length) return false;   // no daily chores configured yet — nothing to reward
+  return daily.every(c => isDone(c));
+}
+function todayKey(){
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+let allowanceChecked = new Set();   // in-memory guard so we don't re-query every render on top of the doc check
+async function ensureDailyAllowance(){
+  if (!dataReady || !backend) return;
+  const day = todayKey();
+  if (!allDailyChoresDone()) return;
+  for (const kid of BANK_KIDS){
+    const memKey = kid + "|" + day;
+    if (allowanceChecked.has(memKey)) continue;
+    const existing = chores.some(c => c.frequency === "kidbank" && c.kid === kid && c.kind === "allowance" && c.day === day);
+    if (!existing){
+      allowanceChecked.add(memKey);
+      await addLedgerEntry(kid, 2, "All chores done — daily $2! ⭐", "BUCKY", "allowance", { day });
+      if (currentTab === "farmbank") render();
+    } else {
+      allowanceChecked.add(memKey);
+    }
+  }
+}
+
+function relLedgerTime(ms){
+  const diff = Date.now() - ms;
+  const d = Math.round(diff / 86400000);
+  if (d < 1) return "today";
+  if (d === 1) return "yesterday";
+  return d + "d ago";
+}
+
+let bankExpanded = new Set();   // kids whose ledger is expanded beyond the top 10
+function buildBankCard(kid){
+  const card = document.createElement("div"); card.className = "bank-card";
+  const head = document.createElement("div"); head.className = "bank-head";
+  const nm = document.createElement("div"); nm.className = "bank-name"; nm.textContent = kid;
+  head.appendChild(nm);
+  card.appendChild(head);
+
+  const bal = kidBalance(kid);
+  const balEl = document.createElement("div"); balEl.className = "bank-balance" + (bal < 0 ? " neg" : ""); balEl.textContent = "$" + bal.toFixed(2).replace(/\.00$/, "");
+  card.appendChild(balEl);
+
+  const isAdmin = myName() === BANK_ADMIN;
+  if (isAdmin){
+    const chips = document.createElement("div"); chips.className = "bank-chips";
+    for (const amt of [1, 5, 10]){
+      const chip = document.createElement("button"); chip.className = "bank-chip"; chip.textContent = "+$" + amt;
+      chip.onclick = () => openWhatFor(kid, amt);
+      chips.appendChild(chip);
+    }
+    for (const amt of [1, 5, 10]){
+      const chip = document.createElement("button"); chip.className = "bank-chip neg"; chip.textContent = "−$" + amt;
+      chip.onclick = () => openWhatFor(kid, -amt);
+      chips.appendChild(chip);
+    }
+    card.appendChild(chips);
+
+    const customRow = document.createElement("div"); customRow.className = "bank-custom-row";
+    const input = document.createElement("input"); input.type = "text"; input.inputMode = "decimal";
+    input.placeholder = "$ amount";
+    const btn = document.createElement("button"); btn.className = "btn ghost photo-btn"; btn.textContent = "− Custom";
+    btn.onclick = () => {
+      const v = parseFloat(input.value);
+      if (!v || v <= 0) { input.focus(); return; }
+      openWhatFor(kid, -Math.abs(v));
+      input.value = "";
+    };
+    const btnPlus = document.createElement("button"); btnPlus.className = "btn ghost photo-btn"; btnPlus.textContent = "+ Custom";
+    btnPlus.onclick = () => {
+      const v = parseFloat(input.value);
+      if (!v || v <= 0) { input.focus(); return; }
+      openWhatFor(kid, Math.abs(v));
+      input.value = "";
+    };
+    customRow.append(input, btnPlus, btn);
+    card.appendChild(customRow);
+  } else {
+    const note = document.createElement("div"); note.className = "bank-readonly-note";
+    note.textContent = "Only Dad can make deposits 🏦";
+    card.appendChild(note);
+  }
+
+  const ledger = kidLedger(kid);
+  const expanded = bankExpanded.has(kid);
+  const shown = expanded ? ledger : ledger.slice(0, 10);
+  const ledgerWrap = document.createElement("div"); ledgerWrap.className = "bank-ledger";
+  for (const entry of shown){
+    const row = document.createElement("div"); row.className = "ledger-row";
+    const amt = Number(entry.amount) || 0;
+    const amtEl = document.createElement("div"); amtEl.className = "ledger-amt " + (amt < 0 ? "neg" : "pos");
+    amtEl.textContent = (amt < 0 ? "−$" : "+$") + Math.abs(amt).toFixed(2).replace(/\.00$/, "");
+    const descEl = document.createElement("div"); descEl.className = "ledger-desc"; descEl.textContent = entry.desc || "";
+    const metaEl = document.createElement("div"); metaEl.className = "ledger-meta";
+    metaEl.textContent = (entry.by || "") + (entry.at ? " · " + relLedgerTime(entry.at) : "");
+    row.append(amtEl, descEl, metaEl);
+    ledgerWrap.appendChild(row);
+  }
+  if (!ledger.length){
+    const empty = document.createElement("div"); empty.style.cssText = "font-size:13px;color:var(--muted);padding:6px 0;";
+    empty.textContent = "No transactions yet.";
+    ledgerWrap.appendChild(empty);
+  } else if (ledger.length > 10){
+    const more = document.createElement("button"); more.className = "ledger-more-btn";
+    more.textContent = expanded ? "Show less" : `Show all ${ledger.length}`;
+    more.onclick = () => { expanded ? bankExpanded.delete(kid) : bankExpanded.add(kid); renderFarmBank(); };
+    ledgerWrap.appendChild(more);
+  }
+  card.appendChild(ledgerWrap);
+  return card;
+}
+
+let bankWhatForKid = null, bankWhatForAmount = 0;
+function openWhatFor(kid, amount){
+  bankWhatForKid = kid; bankWhatForAmount = amount;
+  document.getElementById("bankWhatForTitle").textContent = (amount >= 0 ? "+$" : "−$") + Math.abs(amount) + " for " + kid + " — what for?";
+  document.getElementById("bankWhatForInput").value = "";
+  document.getElementById("bankWhatForOverlay").classList.add("open");
+  setTimeout(()=>document.getElementById("bankWhatForInput").focus(), 100);
+}
+function closeWhatFor(){ document.getElementById("bankWhatForOverlay").classList.remove("open"); }
+async function saveWhatFor(){
+  const desc = document.getElementById("bankWhatForInput").value.trim();
+  if (!desc){ document.getElementById("bankWhatForInput").focus(); return; }
+  if (!bankWhatForKid) { closeWhatFor(); return; }
+  await addLedgerEntry(bankWhatForKid, bankWhatForAmount, desc, myName() || BANK_ADMIN, "manual");
+  closeWhatFor();
+  render();
+}
+document.getElementById("bankWhatForCancelBtn").onclick = closeWhatFor;
+document.getElementById("bankWhatForSaveBtn").onclick = saveWhatFor;
+document.getElementById("bankWhatForOverlay").onclick = (e)=>{ if(e.target.id==="bankWhatForOverlay") closeWhatFor(); };
+document.getElementById("bankWhatForInput").addEventListener("keydown", e=>{ if(e.key==="Enter") saveWhatFor(); });
+
+function renderFarmBank(){
+  const list = document.getElementById("list");
+  list.innerHTML = "";
+  document.querySelector(".bar").style.display = "none";
+  document.getElementById("empty").style.display = "none";
+  const li = document.createElement("li");
+  li.style.cssText = "background:transparent;border:0;box-shadow:none;padding:0;";
+  for (const kid of BANK_KIDS) li.appendChild(buildBankCard(kid));
+  list.appendChild(li);
+  document.getElementById("progressText").textContent = "Farm Bank";
 }
 
 // ==================== SHOPPING ====================
@@ -3309,6 +3818,81 @@ document.getElementById("notifTestBtn").onclick = async () => {
 };
 refreshName();
 
+// ---- Email HTML fragment builders (raw-HTML slots in email-template.html: progress_block,
+// photo_block, details_block, cta_block). Each is a self-contained inline-styled table so it's
+// safe inside an email client. Empty string = the slot renders as nothing. ----
+function escapeHtml(s){
+  return String(s == null ? "" : s).replace(/[&<>"']/g, ch => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[ch]));
+}
+function buildProgressBlock(pct, note){
+  const p = Math.max(0, Math.min(100, Number(pct) || 0));
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:18px 0;">
+    <tr><td style="font-size:13px;color:#5d6b86;font-weight:600;padding-bottom:6px;">${p}% complete</td></tr>
+    <tr><td>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="height:10px;background:#e7eefb;border-radius:6px;overflow:hidden;">
+        <tr>
+          <td width="${p}%" style="background:#1c8a4a;height:10px;font-size:1px;line-height:1px;">&nbsp;</td>
+          <td style="height:10px;font-size:1px;line-height:1px;">&nbsp;</td>
+        </tr>
+      </table>
+    </td></tr>
+    ${note ? `<tr><td style="padding-top:8px;font-size:14px;color:#15233f;">${escapeHtml(note)}</td></tr>` : ""}
+  </table>`;
+}
+// Real https photo URL via Firebase Storage when possible; ANY failure (including a bucket
+// that was never enabled in the console, which the Storage SDK reports via a slow retry/backoff
+// rather than a quick rejection) falls back to a styled button linking back into the app so an
+// email is never blocked or broken by a photo problem. Races the upload against a short timeout
+// so a hanging bucket can't delay the email by the SDK's full multi-minute backoff window.
+function timeout(ms){ return new Promise((_, reject) => setTimeout(() => reject(new Error("upload timed out")), ms)); }
+async function uploadPhotoForEmail(dataUrl){
+  if (!dataUrl) return "";
+  try {
+    return await Promise.race([uploadPhotoForEmailAttempt(dataUrl), timeout(8000)]);
+  } catch (e){
+    console.warn("Photo upload for email failed (falling back to app link):", e && e.message || e);
+    return photoFallbackBlock();
+  }
+}
+async function uploadPhotoForEmailAttempt(dataUrl){
+  const appMod = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
+  const st = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js");
+  let app;
+  try { app = appMod.getApp(); } catch { app = appMod.initializeApp(firebaseConfig); }
+  const storage = st.getStorage(app);
+  const path = `woPhotos_${familyKey}/${"p" + Date.now()}.jpg`;
+  const ref = st.ref(storage, path);
+  await st.uploadString(ref, dataUrl, "data_url");
+  const url = await st.getDownloadURL(ref);
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:18px 0;">
+    <tr><td><img src="${escapeHtml(url)}" alt="Photo" width="100%" style="max-width:100%;border-radius:12px;display:block;" /></td></tr>
+  </table>`;
+}
+function photoFallbackBlock(){
+  return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:18px 0;">
+    <tr><td style="background:#0a3161;border-radius:10px;">
+      <a href="https://amenfarms.netlify.app" style="display:inline-block;padding:12px 20px;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;">📷 View the photo in BUCKY</a>
+    </td></tr>
+  </table>`;
+}
+function buildDetailsBlock(fields){
+  const rows = fields.filter(f => f.value).map(f =>
+    `<tr>
+      <td style="padding:6px 0;font-size:13px;color:#5d6b86;font-weight:600;width:110px;">${escapeHtml(f.label)}</td>
+      <td style="padding:6px 0;font-size:14px;color:#15233f;">${escapeHtml(f.value)}</td>
+    </tr>`).join("");
+  if (!rows) return "";
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:18px 0;border-top:1px solid #d7e0f0;border-bottom:1px solid #d7e0f0;">${rows}</table>`;
+}
+function buildCtaBlock(label, hash){
+  const url = "https://amenfarms.netlify.app" + (hash ? "#" + hash : "");
+  return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:22px 0 4px;">
+    <tr><td style="background:#b31942;border-radius:10px;">
+      <a href="${escapeHtml(url)}" style="display:inline-block;padding:14px 24px;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;">${escapeHtml(label)}</a>
+    </td></tr>
+  </table>`;
+}
+
 // Send an email via EmailJS to a family member by name (no-op until configured + that person has an email)
 async function sendEmail(toName, params){
   if (!toName) return;
@@ -3319,7 +3903,10 @@ async function sendEmail(toName, params){
     const mod = await import("https://esm.sh/@emailjs/browser@4");
     const emailjs = mod.default || mod;
     await emailjs.send(EMAILJS.serviceId, EMAILJS.templateId,
-      Object.assign({ to_email: prof.email, to_name: toName, from_name: myName() || "BUCKY" }, params),
+      Object.assign({
+        to_email: prof.email, to_name: toName, from_name: myName() || "BUCKY",
+        progress_block: "", photo_block: "", details_block: "", cta_block: buildCtaBlock("Open BUCKY", "workorders")
+      }, params),
       { publicKey: EMAILJS.publicKey });
   } catch (e){ console.error("Email alert failed:", e); }
 }
@@ -3328,7 +3915,11 @@ function notifyAssignee(name, wo){
     subject: "New BUCKY job: " + wo.name,
     message: `You've been assigned a work order: "${wo.name}".`
       + (wo.due ? ` Due ${wo.due}.` : "") + (wo.value ? ` Value $${wo.value}.` : "") + (wo.desc ? ` ${wo.desc}` : ""),
-    task: wo.name, due: wo.due || "no due date", value: wo.value ? ("$" + wo.value) : "", description: wo.desc || ""
+    task: wo.name, due: wo.due || "no due date", value: wo.value ? ("$" + wo.value) : "", description: wo.desc || "",
+    details_block: buildDetailsBlock([
+      { label: "Task", value: wo.name }, { label: "Due", value: wo.due || "" },
+      { label: "Value", value: wo.value ? ("$" + wo.value) : "" }, { label: "Description", value: wo.desc || "" }
+    ])
   });
   // phone push (no-op until push is configured; see PUSH_SETUP.md)
   if (window.BuckyPush && familyKey){
@@ -3337,11 +3928,18 @@ function notifyAssignee(name, wo){
       `From ${myName() || "the family"}` + (wo.due ? ` · due ${wo.due}` : "") + (wo.value ? ` · $${wo.value}` : ""));
   }
 }
-function notifyCreatorClosed(wo){
+async function notifyCreatorClosed(wo){
+  const photoBlock = wo.donePhoto ? await uploadPhotoForEmail(wo.donePhoto) : "";
   sendEmail(wo.createdBy, {
-    subject: "Work order completed: " + wo.name,
+    subject: "✅ " + wo.name + " completed by " + (myName() || "someone"),
     message: `The work order you created, "${wo.name}", was just completed by ${myName() || "someone"}.`,
-    task: wo.name, due: wo.due || "", value: wo.value ? ("$" + wo.value) : "", description: wo.desc || ""
+    task: wo.name, due: wo.due || "", value: wo.value ? ("$" + wo.value) : "", description: wo.desc || "",
+    photo_block: photoBlock,
+    details_block: buildDetailsBlock([
+      { label: "Task", value: wo.name }, { label: "Completed by", value: myName() || "" },
+      { label: "Value", value: wo.value ? ("$" + wo.value) : "" }
+    ]),
+    cta_block: buildCtaBlock("View in BUCKY", "workorders")
   });
   // phone push (no-op until push is configured; see PUSH_SETUP.md)
   if (window.BuckyPush && familyKey){
@@ -3366,6 +3964,72 @@ function notifyPrintRequestorDone(p){
       "🎉 Print ready!",
       `Your print '${p.item}' is ready!`);
   }
+}
+
+// ---- Work-order progress milestone notifications (creator gets bell + push + email, only on
+// an increase, and only when the updater isn't the creator). Diff bucket keyed on (woId, pct)
+// via addNotif's existing woId+type dedupe — using a composite id so each milestone % notifies
+// exactly once even if progress bounces up/down/up again to the same number later.
+function notifyProgressIncrease(wo, milestone){
+  const notifKey = wo.id + ":" + milestone.pct;
+  const n = addNotif(wo.createdBy, "progress", `📈 "${wo.name}" is now ${milestone.pct}%${milestone.note ? " — " + milestone.note : ""}`, notifKey);
+  if (n) liveNotify(n);
+  if (window.BuckyPush && familyKey){
+    BuckyPush.notify(FAMILY_PASSWORD, familyKey, wo.createdBy,
+      "📈 " + wo.name + " is now " + milestone.pct + "%",
+      milestone.note || `Updated by ${milestone.by || "someone"}`);
+  }
+  (async () => {
+    const photoBlock = milestone.photo ? await uploadPhotoForEmail(milestone.photo) : "";
+    sendEmail(wo.createdBy, {
+      subject: `📈 "${wo.name}" is now ${milestone.pct}%`,
+      message: `${milestone.by || "Someone"} updated progress on "${wo.name}".`,
+      task: wo.name, due: wo.due || "", value: wo.value ? ("$" + wo.value) : "", description: wo.desc || "",
+      progress_block: buildProgressBlock(milestone.pct, milestone.note),
+      photo_block: photoBlock,
+      details_block: buildDetailsBlock([{ label: "Task", value: wo.name }, { label: "Updated by", value: milestone.by || "" }]),
+      cta_block: buildCtaBlock("View progress in BUCKY", "workorders")
+    });
+  })();
+}
+
+// ---- Kid Farm Account (payout) notifications ----
+function notifyPayoutPending(wo){
+  const value = parseFloat(wo.value) || 0;
+  const n = addNotif(BANK_ADMIN, "payout_pending", `💰 Confirm: ${wo.doneBy} finished "${wo.name}" ($${value})`, wo.id + ":payout");
+  if (n) liveNotify(n);
+  if (window.BuckyPush && familyKey){
+    BuckyPush.notify(FAMILY_PASSWORD, familyKey, BANK_ADMIN,
+      "💰 Confirm payout", `${wo.doneBy} finished "${wo.name}" ($${value}) — confirm in Work Orders`);
+  }
+  (async () => {
+    const photoBlock = wo.donePhoto ? await uploadPhotoForEmail(wo.donePhoto) : "";
+    sendEmail(BANK_ADMIN, {
+      subject: `💰 Confirm ${wo.doneBy}'s $${value} for "${wo.name}"`,
+      message: `${wo.doneBy} marked "${wo.name}" complete. Confirm the $${value} payout to their Farm Bank account, or send it back with "Not yet".`,
+      task: wo.name, due: wo.due || "", value: "$" + value, description: wo.desc || "",
+      photo_block: photoBlock,
+      details_block: buildDetailsBlock([{ label: "Task", value: wo.name }, { label: "Completed by", value: wo.doneBy || "" }, { label: "Amount", value: "$" + value }]),
+      cta_block: buildCtaBlock("Confirm in BUCKY", "workorders")
+    });
+  })();
+}
+function notifyPayoutConfirmed(wo, value){
+  const kid = wo.doneBy;
+  if (!kid) return;
+  const n = addNotif(kid, "payout_confirmed", `💰 $${value} added to your Farm Bank for "${wo.name}"!`, wo.id + ":confirmed");
+  if (n) liveNotify(n);
+  if (window.BuckyPush && familyKey){
+    BuckyPush.notify(FAMILY_PASSWORD, familyKey, kid,
+      "💰 Payout confirmed!", `$${value} added to your Farm Bank for "${wo.name}"`);
+  }
+  sendEmail(kid, {
+    subject: `💰 $${value} added to your Farm Bank!`,
+    message: `Great work! $${value} was added to your Farm Bank account for finishing "${wo.name}".`,
+    task: wo.name, due: "", value: "$" + value, description: "",
+    details_block: buildDetailsBlock([{ label: "Task", value: wo.name }, { label: "Amount", value: "$" + value }]),
+    cta_block: buildCtaBlock("View Farm Bank", "farmbank")
+  });
 }
 
 // Re-render every minute so "X min ago" stays fresh and chores reset at day/week boundaries

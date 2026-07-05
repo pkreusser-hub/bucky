@@ -1,0 +1,114 @@
+<!--
+  BUCKY — EmailJS template (paste into EmailJS: Email Templates → template_rdk52zn → Content → Code view)
+
+  This is a table-based, inline-styled, email-client-safe HTML template. No external
+  assets (fonts/images/CSS files) are loaded — everything needed is inline so it renders
+  consistently across Gmail, Outlook, Apple Mail, etc.
+
+  VARIABLES (set by index.html's sendEmail()):
+    Plain text (escaped automatically by EmailJS — use double braces):
+      {{subject}}    — also used as the email Subject line in EmailJS's template settings
+      {{to_name}}    — recipient's display name
+      {{from_name}}  — who triggered the notification (or "BUCKY")
+      {{message}}    — the main one-paragraph summary
+
+    Raw HTML (NOT escaped — use TRIPLE braces so the markup renders, not literal text):
+      {{{progress_block}}} — progress-bar table (milestone updates only; "" otherwise)
+      {{{photo_block}}}    — photo <img> or a "View in BUCKY" fallback button; "" if no photo
+      {{{details_block}}}  — small table of task/due/value/assignee, as available
+      {{{cta_block}}}      — a button linking back into the app
+
+    Backward-compat (still passed on every send, unused directly by this template's
+    layout but kept so nothing breaks if you reference them elsewhere):
+      {{task}} {{due}} {{value}} {{description}} {{to_email}}
+
+  SETUP STEPS (EmailJS dashboard):
+    1. Email Templates → your template (template_rdk52zn) → open it.
+    2. Switch the content editor to "Code" / "Source" view (not the visual drag-drop editor —
+       raw-HTML triple-brace variables need the code view to render as HTML instead of text).
+    3. Delete the existing content and paste this entire file's contents in.
+    4. Set the template's "To Email" field to {{to_email}} (unchanged from today).
+    5. Set the template's "Subject" field to {{subject}} (unchanged from today).
+    6. Save. No other settings need to change — Service ID / Template ID / Public Key in
+       index.html's EMAILJS constant stay exactly the same.
+-->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef2fa;padding:24px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <tr>
+    <td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px;background:#ffffff;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(10,49,97,.10);">
+
+        <!-- Navy header -->
+        <tr>
+          <td style="background:#0a3161;padding:22px 28px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="font-size:20px;font-weight:800;color:#ffffff;letter-spacing:.2px;">
+                  🐐 BUCKY
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- Red/white stripe accent (Old Glory palette, matches the app) -->
+        <tr>
+          <td style="height:6px;line-height:6px;font-size:0;background:repeating-linear-gradient(90deg,#b31942 0 18px,#ffffff 18px 36px);">&nbsp;</td>
+        </tr>
+
+        <!-- White card body -->
+        <tr>
+          <td style="padding:32px 28px 8px;">
+
+            <!-- Headline -->
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="font-size:20px;font-weight:800;color:#15233f;padding-bottom:14px;">
+                  {{subject}}
+                </td>
+              </tr>
+            </table>
+
+            <!-- Greeting + message paragraph -->
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="font-size:15px;line-height:1.55;color:#15233f;padding-bottom:4px;">
+                  Hi {{to_name}},
+                </td>
+              </tr>
+              <tr>
+                <td style="font-size:15px;line-height:1.55;color:#15233f;padding-top:10px;">
+                  {{message}}
+                </td>
+              </tr>
+            </table>
+
+            <!-- Raw-HTML slots: each renders as "" (nothing) when the sender didn't set it -->
+            {{{progress_block}}}
+
+            {{{photo_block}}}
+
+            {{{details_block}}}
+
+            {{{cta_block}}}
+
+          </td>
+        </tr>
+
+        <!-- Footer -->
+        <tr>
+          <td style="padding:22px 28px 26px;border-top:1px solid #d7e0f0;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="font-size:12.5px;color:#5d6b86;line-height:1.5;">
+                  Sent by the BUCKY farm app &middot; from {{from_name}}<br />
+                  <a href="https://amenfarms.netlify.app" style="color:#0a3161;text-decoration:underline;">amenfarms.netlify.app</a>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+      </table>
+    </td>
+  </tr>
+</table>
