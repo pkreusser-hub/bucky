@@ -126,7 +126,16 @@ Proper intro: logo art ("BARNYARD BISTRO" barn-sign style), level-select cards w
 earned stars, chef picker, joyful colors. Plus animation juice: run bob/lean, throw
 wind-up + arc, chop arm swing, customer hops.
 
-## QUEUED NEXT (user, 2026-07-04): Baby Bucky (goatcare.html) goat rebuild
+## DONE (2026-07-05): Baby Bucky goat rebuild — assets/babygoat.glb split into a
+9-part articulated rig (4-means legs FL395/FR383/BL393/BR378 tris, head 1474 @ front
+30% z with neck-base pivot + seam cover blob, tail 242; ears did NOT separate — head
+micro-rotations carry the wiggle). Head tracking (yaw ±0.6, pitch +0.3/−0.7), diagonal
+gait, suckle bob, happy hop wired to the pre-existing never-used "jump" state. Bottle
+feeding = walk to bottle → stand still → feed; pauses + follows if bottle moves >0.6.
+Fixed pre-existing bugs: hay-trough walk-reissue deadlock, head-pitch sign flip,
+stale first-frame bottle position, raycastGround origin fallback. GLB legs: mesh
+lives on the KNEE node (hip+knee compose); lie pose damped for rigid legs.
+Original plan (for reference):
 Complete restart on the goat model: Meshy-generated baby goat + a complex rig for all
 needed movement. Constraint: Meshy's rigging endpoint is HUMANOID-ONLY (quadrupeds 422,
 no charge) — attempt once to confirm, then build a programmatic quadruped skeleton
