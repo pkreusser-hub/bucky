@@ -85,6 +85,9 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .switch.on { background: var(--green); }
   .switch::after { content:""; position:absolute; top:2px; left:2px; width:20px; height:20px; border-radius:50%; background:#fff; transition: left .15s ease; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
   .switch.on::after { left: 20px; }
+  /* Lobby-invite rows (bucky-lobby shim): chunkier than a normal notif row, sits at the top */
+  .notif-row.invite { background: var(--done); border-radius: 10px; flex-direction: column; align-items: stretch; cursor: default; }
+  .invite-join { align-self: flex-start; margin-top: 8px; background: var(--red); color: #fff; border: 0; font-weight: 800; font-size: 13.5px; padding: 10px 16px; border-radius: 10px; cursor: pointer; }
 
   /* Live toast */
   #toastWrap { position: fixed; top: calc(env(safe-area-inset-top) + 88px); left: 0; right: 0; z-index: 90; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
@@ -890,11 +893,46 @@ function checkNotifications(){
 function unreadNotifCount(user){
   return loadNotifInbox(user || myName()).filter(n => !n.read).length;
 }
+
+/* ============================================================
+   bucky-lobby shim — lobby-invite docs (notifs_<familyKey>), merged into
+   the bell inbox. Duplicated (intentionally) in games.html; keep tiny + in sync.
+   ============================================================ */
+let lobbyInvites = [];      // raw docs {id, to, from, type, text, url, at, read} for myName()
+let notifsCol = null, notifsFs = null;   // set once the second onSnapshot listener connects
+const INVITE_STALE_MS = 24 * 60 * 60 * 1000;   // lazy-delete invite docs older than 24h
+function initInvitesListener(fs, db){
+  if (notifsCol) return;   // already listening
+  notifsFs = fs;
+  notifsCol = fs.collection(db, "notifs_" + familyKey);
+  fs.onSnapshot(notifsCol, (snap) => {
+    const now = Date.now();
+    const mine = [];
+    for (const d of snap.docs){
+      const data = d.data();
+      if (now - (data.at || 0) >= INVITE_STALE_MS){ fs.deleteDoc(fs.doc(notifsCol, d.id)).catch(()=>{}); continue; }
+      if (data.to === myName()) mine.push({ id: d.id, ...data });
+    }
+    mine.sort((a,b) => (b.at||0) - (a.at||0));
+    lobbyInvites = mine;
+    renderBell();
+    if (document.getElementById("notifOverlay").classList.contains("open")) renderNotifList();
+  }, () => { /* offline/error: invites just don't show up, rest of the app is unaffected */ });
+}
+async function markInviteRead(inviteId){
+  const inv = lobbyInvites.find(n => n.id === inviteId);
+  if (inv) inv.read = true;   // optimistic, so the click feels instant
+  renderBell(); renderNotifList();
+  if (notifsFs && notifsCol) notifsFs.updateDoc(notifsFs.doc(notifsCol, inviteId), { read: true }).catch(()=>{});
+}
+function unreadInviteCount(){
+  return lobbyInvites.filter(n => !n.read).length;
+}
 function renderBell(){
   const user = myName();
   const badge = document.getElementById("bellBadge");
   if (!badge) return;
-  const count = user ? unreadNotifCount(user) : 0;
+  const count = (user ? unreadNotifCount(user) : 0) + unreadInviteCount();
   badge.textContent = count > 99 ? "99+" : String(count);
   badge.style.display = count > 0 ? "" : "none";
 }
@@ -916,9 +954,22 @@ function renderNotifList(){
   const wrap = document.getElementById("notifList");
   wrap.innerHTML = "";
   const inbox = loadNotifInbox(user);
-  if (!inbox.length){
+  if (!inbox.length && !lobbyInvites.length){
     wrap.innerHTML = '<div class="empty" style="padding:24px 8px;">No news — all quiet on the farm 🐐</div>';
     return;
+  }
+  // Lobby invites always sit at the top of the list, ahead of the work-order inbox.
+  for (const n of lobbyInvites){
+    const row = document.createElement("div");
+    row.className = "notif-row invite" + (n.read ? "" : " unread");
+    const body = document.createElement("div"); body.className = "notif-body";
+    const text = document.createElement("div"); text.className = "notif-text"; text.textContent = n.text;
+    const time = document.createElement("div"); time.className = "notif-time"; time.textContent = relNotifTime(n.at);
+    body.append(text, time);
+    const join = document.createElement("button"); join.className = "invite-join"; join.textContent = "JOIN THE KITCHEN 🍳";
+    join.onclick = () => { markInviteRead(n.id); closeNotifPanel(); location.href = n.url; };
+    row.append(body, join);
+    wrap.appendChild(row);
   }
   for (const n of inbox){
     const row = document.createElement("div");
@@ -3165,6 +3216,8 @@ async function makeCloudBackend(){
         for (const item of seedData()){ const { id, ...data } = item; fs.addDoc(col, data); }
       }
     }
+    // Second, lightweight listener (bucky-lobby shim) — only after the main one connects.
+    initInvitesListener(fs, db);
   }, (err)=>{
     setStatus("local", "Sync error — check setup. " + err.code);
   });

@@ -362,25 +362,67 @@
       stallGroup.add(rail);
     }
 
-    // feed trough (corner)
+    // feed trough (corner) — procedural box trough shown immediately; hot-swapped for
+    // assets/trough.glb if/when it loads, same fallback->GLB pattern as the goat itself.
+    // The hay pile mesh and troughGroup.userData.hayMesh contract stay identical either
+    // way, so every other call site (fillTrough/eating flow) works unmodified.
     const troughGroup = new THREE.Group();
+    const troughProcGroup = new THREE.Group();
     {
       const troughMat = mat(0x6e5233);
       const base = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.22, 0.4), troughMat);
       base.position.y = 0.11;
-      troughGroup.add(base);
+      troughProcGroup.add(base);
       const rim = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.06, 0.48), troughMat);
       rim.position.y = 0.24;
-      troughGroup.add(rim);
-      const hay = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.12, 0.32), mat(0xdcb84a, true));
-      hay.position.y = 0.24;
-      hay.visible = false;
-      troughGroup.add(hay);
-      troughGroup.userData.hayMesh = hay;
+      troughProcGroup.add(rim);
     }
+    troughGroup.add(troughProcGroup);
+    const troughHay = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.12, 0.32), mat(0xdcb84a, true));
+    troughHay.position.y = 0.24;
+    troughHay.visible = false;
+    troughGroup.add(troughHay);
+    troughGroup.userData.hayMesh = troughHay;
     troughGroup.position.set(-STALL_W/2 + 0.7, 0, -STALL_D/2 + 0.5);
     troughGroup.rotation.y = 0.5;
     stallGroup.add(troughGroup);
+
+    new THREE.GLTFLoader().load("assets/trough.glb", (gltf) => {
+      let srcMesh = null;
+      gltf.scene.traverse(o => { if (o.isMesh && !srcMesh) srcMesh = o; });
+      if (!srcMesh){ console.warn("trough.glb has no mesh — keeping the procedural trough"); return; }
+      gltf.scene.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(gltf.scene);
+      const size = new THREE.Vector3(); box.getSize(size);
+      // match the procedural trough's footprint (0.9 wide x 0.4 deep) so the hit-test
+      // margin (TROUGH_HALF_X/Z in isPointInTrough) and the goat's eating-distance check
+      // against troughGroup.position both stay correct without touching that logic
+      const scaleX = 0.9 / (size.x || 0.9), scaleZ = 0.4 / (size.z || 0.4);
+      const scaleY = ((scaleX + scaleZ) / 2);   // uniform-ish vertical scale, avoid squashing
+      const mesh = new THREE.Mesh(srcMesh.geometry, srcMesh.material);
+      mesh.geometry.computeBoundingBox();
+      SHARED_ASSETS.add(mesh.geometry);
+      for (const m of (Array.isArray(mesh.material) ? mesh.material : [mesh.material])){
+        if (m){ SHARED_ASSETS.add(m); if (m.map) SHARED_ASSETS.add(m.map); }
+      }
+      const wrap = new THREE.Group();
+      wrap.scale.set(scaleX, scaleY, scaleZ);
+      wrap.position.y = -box.min.y * scaleY;   // sit flush on the straw floor
+      wrap.add(mesh);
+      // GPU hygiene: the procedural trough's box geometries + shared troughMat are NOT
+      // in SHARED_ASSETS (nothing else reuses them), so freeMesh() actually disposes them
+      // here instead of leaking two BoxGeometries + a material every time this load fires
+      freeMesh(troughProcGroup);
+      troughGroup.add(wrap);
+      troughGroup.userData._glbTrough = wrap;
+      // rest the hay pile on the GLB's actual rim height, not the procedural box's
+      // hardcoded 0.24 (the two models' proportions differ), so it doesn't float above
+      // or sink into the real trough once swapped in
+      troughHay.position.y = wrap.position.y + size.y * scaleY * 0.92;
+      troughGroup.remove(troughHay);
+      troughGroup.add(troughHay);
+      console.log("[trough] swapped in trough.glb, footprint scale", scaleX.toFixed(2), scaleZ.toFixed(2));
+    }, undefined, (err) => { console.warn("trough.glb failed to load — keeping the procedural trough", err); });
 
     // water bucket
     const bucketGroup = new THREE.Group();
@@ -909,6 +951,67 @@
         if (tr.cz < tailZThresh){ buckets.tail.push(tr.t); continue; }
         buckets.body.push(tr.t);
       }
+      // snapshot the CLEAN (pre-overlap) partition — pivots must be computed from these,
+      // not from the padded buckets below, or the extra straddling triangles would drag
+      // each pivot's centroid/extent away from the true joint location
+      const cleanBuckets = { body: buckets.body.slice(), head: buckets.head.slice(),
+        tail: buckets.tail.slice(), FL: buckets.FL.slice(), FR: buckets.FR.slice(),
+        BL: buckets.BL.slice(), BR: buckets.BR.slice() };
+
+      // ---- overlap bands (issue #1: "big gaps in its body" while walking) ----
+      // A hard triangle partition means the moment a limb/head/tail pivot rotates even a
+      // little, the cut plane on the BODY side stays put while the cut plane on the moving
+      // part swings away from it — opening a wedge of missing geometry (floor/background
+      // visible through the "gap") right at every hip/shoulder/neck/tail joint. The proper
+      // fix is to duplicate a band of triangles straddling each cut onto BOTH sides of the
+      // cut, so when the limb rotates, the body still carries geometry that covers the
+      // limb's own root (and vice versa) — the joint stays visually "meaty" through the
+      // whole swing instead of the two rigid halves razor-parting at rest and gapping in
+      // motion. Bands are ~8% of the relevant span, per bucket. Triangles are duplicated
+      // (pushed into a second bucket's list) in ORIGINAL (unshifted) coordinates — each
+      // part's geometry is translated to its own pivot-local space afterward, so the same
+      // triangle correctly ends up covering the joint from both the moving part's local
+      // origin AND the body's.
+      const OVERLAP_FRAC = 0.08;
+      const legYBand = OVERLAP_FRAC * (maxY - minY);      // near legYThresh
+      const headZBand = OVERLAP_FRAC * zSpan;             // near headZThresh
+      const tailZBand = OVERLAP_FRAC * zSpan;             // near tailZThresh
+      // 1) body triangles near the leg/head/tail cuts also get duplicated onto the
+      //    matching limb/head/tail bucket, so that part's own geometry reaches back into
+      //    the shoulder/hip/neck/rump pocket it rotates away from.
+      for (const tr of cleanBuckets.body){
+        const b = tr*9;
+        const cx = (pos[b]+pos[b+3]+pos[b+6])/3, cy = (pos[b+1]+pos[b+4]+pos[b+7])/3, cz = (pos[b+2]+pos[b+5]+pos[b+8])/3;
+        if (cy < legYThresh + legYBand && Math.abs(cx) > legXThresh - 0.03){
+          // duplicate onto whichever limb bucket owns the nearest k-means center — reuse
+          // the same nearest() classifier so the overlap band lines up with that limb's cut
+          const key = label[nearest(cx, cz)];
+          if (key) buckets[key].push(tr);
+        }
+        if (cz > headZThresh - headZBand) buckets.head.push(tr);
+        if (cz < tailZThresh + tailZBand) buckets.tail.push(tr);
+      }
+      // 2) the reverse direction: limb/head/tail triangles just on the FAR side of their own
+      //    cut (closest sliver to the body) also get duplicated back onto `body`, so the
+      //    body root itself still has cover directly under/behind the joint when the limb
+      //    swings forward/back past its rest angle.
+      for (const key of ["FL","FR","BL","BR"]){
+        for (const t of cleanBuckets[key]){
+          const b = t*9;
+          const cy = (pos[b+1]+pos[b+4]+pos[b+7])/3;
+          if (cy > legYThresh - legYBand) buckets.body.push(t);
+        }
+      }
+      for (const t of cleanBuckets.head){
+        const b = t*9;
+        const cz = (pos[b+2]+pos[b+5]+pos[b+8])/3;
+        if (cz < headZThresh + headZBand) buckets.body.push(t);
+      }
+      for (const t of cleanBuckets.tail){
+        const b = t*9;
+        const cz = (pos[b+2]+pos[b+5]+pos[b+8])/3;
+        if (cz > tailZThresh - tailZBand) buckets.body.push(t);
+      }
 
       function geoFromTris(list){
         const p = new Float32Array(list.length * 9), n = new Float32Array(list.length * 9);
@@ -948,7 +1051,10 @@
       const legGeos = {}, legPivotOffsets = {};
       for (const key of ["FL","FR","BL","BR"]){
         const g2 = geoFromTris(buckets[key]);
-        const piv = pivotFor(buckets[key], "top");
+        // pivot from the CLEAN (pre-overlap) triangle set — the padded `buckets[key]` now
+        // reaches up into the body/shoulder pocket, which would drag "top" (max Y) far
+        // above the true hip joint if used here
+        const piv = pivotFor(cleanBuckets[key], "top");
         g2.translate(-piv.x, -piv.y, -piv.z);
         legGeos[key] = g2; legPivotOffsets[key] = piv;
       }
@@ -962,7 +1068,7 @@
       {
         const sliceZhi = headZThresh + 0.05*zSpan;
         let sx=0, sy=0, sz=0, cnt=0, backZ=Infinity;
-        for (const t of buckets.head){
+        for (const t of cleanBuckets.head){
           const b = t*9;
           const cz = (pos[b+2]+pos[b+5]+pos[b+8])/3;
           if (cz > sliceZhi) continue;   // only the thin slice closest to the body
@@ -978,7 +1084,7 @@
       let tailPivot;
       {
         let sx=0, cnt=0, topY=-Infinity, frontZ=-Infinity;
-        for (const t of buckets.tail){
+        for (const t of cleanBuckets.tail){
           const b = t*9;
           for (let k=0;k<3;k++){
             sx += pos[b+k*3]; cnt++;
@@ -1040,7 +1146,28 @@
       const coverMat = new THREE.MeshPhongMaterial({ color: coverColor, shininess: 4 });
       const coverGeo = new THREE.SphereGeometry(1, 10, 8);   // unit sphere, scaled per-use
       SHARED_ASSETS.add(coverMat); SHARED_ASSETS.add(coverGeo);
-      babyGoatTemplate = { scaleTo, minY: box.min.y, ...split, material, coverMat, coverGeo };
+      // hip/shoulder joint covers (issue #1b): a small sphere at each leg pivot, sized to
+      // that limb's own cross-section, so the gap that still flashes at extreme swing
+      // (beyond what the overlap band alone hides) is covered by a blob that visually
+      // reads as "part of the leg" rather than a bare joint. Radius = half the leg
+      // geometry's max XZ extent near its pivot (already pivot-local / zero-centered at
+      // the top, since legGeos[key] was translated by -piv in splitBabyGoat).
+      const legCoverRadius = {};
+      for (const key of ["FL","FR","BL","BR"]){
+        const g = split.legGeos[key];
+        const pos2 = g.attributes.position;
+        let maxR = 0.02, sampled = 0;
+        for (let i = 0; i < pos2.count; i++){
+          const y = pos2.getY(i);
+          if (y > -0.05){   // only the slice nearest the pivot (top of the leg, y~0 local)
+            const x = pos2.getX(i), z = pos2.getZ(i);
+            maxR = Math.max(maxR, Math.hypot(x, z));
+            sampled++;
+          }
+        }
+        legCoverRadius[key] = sampled ? maxR : 0.05;
+      }
+      babyGoatTemplate = { scaleTo, minY: box.min.y, ...split, material, coverMat, coverGeo, legCoverRadius };
       console.log("[babygoat] triangle split:", split.counts,
         "(front legs FL/FR " + split.counts.FL + "/" + split.counts.FR +
         " vs rear BL/BR " + split.counts.BL + "/" + split.counts.BR + ")");
@@ -1159,6 +1286,15 @@
         hip.add(knee);
         knee.add(new THREE.Mesh(tpl.legGeos[key], m));
         legs[key] = { hip, knee };
+        // hip/shoulder joint cover (issue #1b, see legCoverRadius comment at load time):
+        // sits ON THE BODY SIDE of the joint (parented to `inner`, not `hip`/`knee`, so it
+        // does NOT rotate with the swinging leg) — it plugs the socket the leg swings out
+        // of, complementing the overlap-band geometry that travels WITH the leg.
+        const r = (tpl.legCoverRadius && tpl.legCoverRadius[key]) || 0.05;
+        const hipCover = new THREE.Mesh(tpl.coverGeo, tpl.coverMat);
+        hipCover.scale.set(r*1.15, r*0.95, r*1.15);
+        hipCover.position.set(off.x, off.y - r*0.3, off.z);
+        inner.add(hipCover);
       }
       root.userData.legs = legs;
 
@@ -1391,7 +1527,8 @@
     function onToolSwitch(){
       if (bottleMesh) bottleMesh.visible = false;
       if (brushMesh) brushMesh.visible = false;
-      isPetting = false; isBrushing = false; holdingBottle = false;
+      if (hayHeldMesh) hayHeldMesh.visible = false;
+      isPetting = false; isBrushing = false; holdingBottle = false; holdingHay = false;
     }
 
     // held prop meshes
@@ -1425,8 +1562,22 @@
       scene.add(g);
       return g;
     })();
+    // held hay clump: follows the pointer while the hay tool is dragged, like the bottle
+    // and brush props above, so the player can see where a drop will land BEFORE releasing
+    const hayHeldMesh = (() => {
+      const g = new THREE.Group();
+      for (let i = 0; i < 5; i++){
+        const wisp = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.16, 0.02), mat(0xe0c257, true));
+        wisp.position.set((Math.random()-0.5)*0.1, 0.08, (Math.random()-0.5)*0.1);
+        wisp.rotation.set((Math.random()-0.5)*0.5, Math.random()*Math.PI, (Math.random()-0.5)*0.5);
+        g.add(wisp);
+      }
+      g.visible = false;
+      scene.add(g);
+      return g;
+    })();
 
-    let isPetting = false, isBrushing = false, holdingBottle = false;
+    let isPetting = false, isBrushing = false, holdingBottle = false, holdingHay = false;
     let lastPetPos = null, petStrokeAccum = 0;
     let hayInTrough = false;
     let ballObj = null;
@@ -1460,6 +1611,34 @@
       if (!hit) return _lastGroundPt.clone();
       _lastGroundPt.copy(pt);
       return pt;
+    }
+    // Issue #2 ("the scrub brush only seems to work some of the time"): the original hit
+    // test compared a GROUND-PLANE point (y=0) against dirt blotches sitting ~0.4-0.6 up
+    // on the goat's body. Any first fix that still measures "did the pointer ray reach
+    // near the goat" via the GROUND plane inherits the same failure mode: a ray aimed at
+    // the goat's head/back (well above ground) continues past the visible body and hits
+    // the ground plane meters further away (verified: aiming at the head from the game's
+    // eye-level 3/4 camera lands the ground intersection ~2.8 units past the goat's root,
+    // vs the goat's own ~0.3 unit body radius) — so a ground-distance test alone still
+    // misses most of the goat's visible silhouette. Test against a SPHERE centered on the
+    // goat's mid-body height instead (closest point on the pointer ray to that sphere's
+    // center, per the task's explicit "ray-to-goat-bounding-sphere" suggestion) — this is
+    // camera-angle-agnostic: aiming anywhere at the goat's visible body, head, or rear
+    // all correctly report a hit regardless of how far past it the ground plane sits.
+    const GOAT_SPHERE_RADIUS = 0.45;
+    const _sphereCenter = new THREE.Vector3(), _rayToCenter = new THREE.Vector3(), _closest = new THREE.Vector3();
+    function rayHitsGoatSphere(e){
+      pointerToNDC(e);
+      raycaster.setFromCamera(pointerNDC, camera);
+      _sphereCenter.set(GOAT.pos.x, 0.35, GOAT.pos.z);   // mid-body height, world space
+      const ray = raycaster.ray;
+      // closest point on the ray to the sphere center: project (center-origin) onto the
+      // ray direction (already normalized by three.js), clamped to t>=0 (in front of camera)
+      _rayToCenter.copy(_sphereCenter).sub(ray.origin);
+      const t = Math.max(0, _rayToCenter.dot(ray.direction));
+      _closest.copy(ray.direction).multiplyScalar(t).add(ray.origin);
+      const dist = _closest.distanceTo(_sphereCenter);
+      return dist <= GOAT_SPHERE_RADIUS;
     }
 
     function speechBubble(text){
@@ -1510,11 +1689,23 @@
         holdingBottle = true;
         GOAT.forcedUntil = Date.now() + 30000;
       } else if (currentTool === "hay"){
-        dropHay();
+        // pick up a hay clump at the cursor's ground point immediately (same
+        // stale-position fix as bottle/brush above), then drag/tap to place it
+        const pt0 = raycastGround(e);
+        hayHeldMesh.position.set(pt0.x, 0, pt0.z);
+        hayHeldMesh.visible = true;
+        holdingHay = true;
       } else if (currentTool === "brush"){
+        // same stale-position bug the bottle branch above already documents/fixes: set
+        // the brush mesh AND run the hit test immediately on pointerdown, not just on the
+        // next pointermove — otherwise a plain tap-without-drag (no move event ever fires)
+        // never scrubs at all, which is part of why brushing felt unreliable.
+        const pt0 = raycastGround(e);
+        brushMesh.position.set(pt0.x, 0.45, pt0.z);
         brushMesh.visible = true;
         isBrushing = true;
         GOAT.forcedUntil = Date.now() + 600;
+        scrubDirt(e, pt0);
       } else if (currentTool === "ball"){
         tossBall();
       }
@@ -1530,7 +1721,10 @@
       } else if (currentTool === "brush" && isBrushing){
         const pt = raycastGround(e);
         brushMesh.position.set(pt.x, 0.45, pt.z);
-        scrubDirt(pt);
+        scrubDirt(e, pt);
+      } else if (currentTool === "hay" && holdingHay){
+        const pt = raycastGround(e);
+        hayHeldMesh.position.set(pt.x, 0.12 + Math.sin(Date.now()/180)*0.02, pt.z);
       } else if (currentTool === "pet" && isPetting && pointerDown){
         const hit = raycastGoat(e);
         if (hit){
@@ -1571,6 +1765,11 @@
           setGoatState("jump");   // happy hop celebration once a full bottle-feeding wraps up
         }
       }
+      if (holdingHay){
+        holdingHay = false;
+        hayHeldMesh.visible = false;
+        dropHayAt(hayHeldMesh.position.clone());
+      }
     }
     window.addEventListener("pointerup", endPointer);
     window.addEventListener("pointercancel", endPointer);
@@ -1589,24 +1788,85 @@
       }
     });
 
-    function dropHay(){
+    // Issue #3: hay must land IN the trough. Footprint = the trough's own rim box
+    // (0.9 x 0.4 in its local XZ) plus a small margin, tested in the trough's own rotated
+    // frame (troughGroup.rotation.y = 0.5) so a drop anywhere near the visible box hits,
+    // not just a raw world-axis-aligned approximation.
+    const TROUGH_HALF_X = 0.9/2, TROUGH_HALF_Z = 0.4/2, TROUGH_MARGIN = 0.22;
+    const _troughLocal = new THREE.Vector3();
+    function isPointInTrough(pt){
+      _troughLocal.copy(pt).sub(troughGroup.position);
+      const ry = -troughGroup.rotation.y;
+      const cos = Math.cos(ry), sin = Math.sin(ry);
+      const lx = _troughLocal.x * cos - _troughLocal.z * sin;
+      const lz = _troughLocal.x * sin + _troughLocal.z * cos;
+      return Math.abs(lx) <= TROUGH_HALF_X + TROUGH_MARGIN && Math.abs(lz) <= TROUGH_HALF_Z + TROUGH_MARGIN;
+    }
+
+    function fillTrough(){
       hayInTrough = true;
       troughGroup.userData.hayMesh.visible = true;
       GOAT.forcedUntil = Date.now() + 6000;
       GOAT.eatTarget = "trough";
     }
+    // a drop outside the trough: the held hay clump tumbles to the ground and fades,
+    // no stat effect, just a gentle nudge toward the trough
+    function missHay(pt){
+      for (let i = 0; i < 5; i++){
+        spawnParticle("puff", pt.clone().setY(0.15), {
+          vel: new THREE.Vector3((Math.random()-0.5)*0.8, 0.5+Math.random()*0.4, (Math.random()-0.5)*0.8),
+          maxLife: 0.7 + Math.random()*0.3, grav: -1.0, scale: 0.9 + Math.random()*0.5
+        });
+      }
+      speechBubbleAt(pt, "Put the hay in the trough! 🌾");
+    }
+    // like speechBubble() but anchored to an arbitrary world point instead of the goat's
+    // head (the hint should appear where the player actually dropped the hay)
+    function speechBubbleAt(worldPos, text){
+      const el = document.getElementById("speech");
+      el.textContent = text;
+      const proj = worldPos.clone().add(new THREE.Vector3(0,0.3,0)).project(camera);
+      const r = renderer.domElement.getBoundingClientRect();
+      const x = (proj.x * 0.5 + 0.5) * r.width;
+      const y = (-proj.y * 0.5 + 0.5) * r.height;
+      el.style.left = x + "px";
+      el.style.top = y + "px";
+      el.style.opacity = "1";
+      el.style.transform = "translate(-50%,-100%) scale(1)";
+      clearTimeout(speechBubble._t);
+      speechBubble._t = setTimeout(() => { el.style.opacity = "0"; }, 1600);
+    }
+    function dropHayAt(pt){
+      if (isPointInTrough(pt)) fillTrough();
+      else missHay(pt);
+    }
 
-    function scrubDirt(pt){
+    // Root cause of "brush only works some of the time": scrubDirt() compared a
+    // GROUND-PLANE point (pt, always y=0 — see raycastGround) against each blotch's
+    // WORLD position, which sits ~0.4-0.6 up on the goat's body. A straight 3D
+    // distanceTo() burns nearly the whole 0.5 threshold on that vertical gap alone,
+    // leaving almost no horizontal slack — so brushing only registered when the
+    // pointer's ground projection happened to land almost exactly under the goat's
+    // belly. A first attempt at fixing this (flat XZ distance from the ground point to
+    // GOAT.pos) turned out to share the same flaw: aiming at the goat's HEAD/back from
+    // the game's real eye-level 3/4 camera sends the ground-plane ray several units past
+    // the goat's actual body (measured ~2.8 units past root for a head-aimed ray) before
+    // it reaches y=0, so a ground-based distance test still misses most strokes. Fixed
+    // per the task's explicit suggestion: test the pointer RAY itself against a bounding
+    // sphere centered on the goat's mid-body (rayHitsGoatSphere, see its own comment) —
+    // this is correct regardless of where on the (elevated) goat body the player aims,
+    // since it never routes through the ground plane at all. Blotch opacity gating is
+    // ALSO not part of the hit test — brushing a clean goat (or one whose blotches
+    // haven't faded in yet) still registers as a successful stroke, it just has nothing
+    // left to visibly scrub.
+    function scrubDirt(e, pt){
+      if (!rayHitsGoatSphere(e)) return false;
       const blotches = goat.userData.dirtBlotches;
       let scrubbed = false;
       for (const b of blotches){
         if (b.mesh.material.opacity <= 0.02) continue;
-        const wp = new THREE.Vector3();
-        b.mesh.getWorldPosition(wp);
-        if (wp.distanceTo(pt) < 0.5){
-          b.mesh.material.opacity = Math.max(0, b.mesh.material.opacity - 0.06);
-          scrubbed = true;
-        }
+        scrubbed = true;
+        b.mesh.material.opacity = Math.max(0, b.mesh.material.opacity - 0.06);
       }
       if (scrubbed){
         bubblePop(pt.clone().setY(0.4));
@@ -1893,16 +2153,22 @@
           const spd = GOAT.speed * (1 - Math.min(0.5, mood < 40 ? 0.3 : 0));
           GOAT.pos.addScaledVector(d, spd * dt);
           GOAT.walkPhase += dt * 7 * spd;
-          const swing = 0.55;
+          // issue #1c: swing amplitude trimmed ~20% (0.55->0.44, knee 0.7->0.56 to match)
+          // so the leg's extreme-swing angle no longer outpaces what the overlap band +
+          // hip cover can visually cover — motion charm over amplitude, per the fix plan.
+          const swing = 0.44;
           JOINT.hipFL = Math.sin(GOAT.walkPhase) * swing;
           JOINT.hipBR = Math.sin(GOAT.walkPhase) * swing;
           JOINT.hipFR = Math.sin(GOAT.walkPhase+Math.PI) * swing;
           JOINT.hipBL = Math.sin(GOAT.walkPhase+Math.PI) * swing;
-          JOINT.kneeFL = Math.max(0, Math.sin(GOAT.walkPhase - 0.6)) * 0.7;
-          JOINT.kneeBR = Math.max(0, Math.sin(GOAT.walkPhase - 0.6)) * 0.7;
-          JOINT.kneeFR = Math.max(0, Math.sin(GOAT.walkPhase+Math.PI - 0.6)) * 0.7;
-          JOINT.kneeBL = Math.max(0, Math.sin(GOAT.walkPhase+Math.PI - 0.6)) * 0.7;
+          JOINT.kneeFL = Math.max(0, Math.sin(GOAT.walkPhase - 0.6)) * 0.56;
+          JOINT.kneeBR = Math.max(0, Math.sin(GOAT.walkPhase - 0.6)) * 0.56;
+          JOINT.kneeFR = Math.max(0, Math.sin(GOAT.walkPhase+Math.PI - 0.6)) * 0.56;
+          JOINT.kneeBL = Math.max(0, Math.sin(GOAT.walkPhase+Math.PI - 0.6)) * 0.56;
           JOINT.bodyY = 0.02 + Math.abs(Math.sin(GOAT.walkPhase*2)) * 0.015;
+          // slight body roll (opposite the swinging fore/hind pair) — reads as a natural
+          // gait sway and helps sell the walk even where the overlap band/cover run out
+          JOINT.bodyTiltX = Math.sin(GOAT.walkPhase) * 0.035;
           JOINT.tailWag += dt*4;
           if (GOAT.feedState === "walking" && GOAT.lookTarget){
             applyHeadTracking(GOAT.lookTarget, dt);   // glance toward the bottle while trotting over
@@ -1920,6 +2186,7 @@
         JOINT.hipFR = -weightShift*0.6; JOINT.hipBL = weightShift*0.6;
         JOINT.kneeFL = JOINT.kneeFR = JOINT.kneeBL = JOINT.kneeBR = 0;
         JOINT.bodyY = 0.02 + Math.sin(t*1.3) * (GOAT.state === "sadidle" ? 0.003 : 0.008);
+        JOINT.bodyTiltX = 0;   // don't inherit the walk gait's roll once stopped
         GOAT.lookTimer -= dt;
         if (GOAT.lookTimer <= 0){
           GOAT.lookTimer = 2 + Math.random()*3;

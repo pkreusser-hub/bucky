@@ -123,6 +123,19 @@
               background:#b31942; color:#fff; font-family:'Luckiest Guy','Arial Black',sans-serif;
               font-size:16px; line-height:26px; text-align:center; box-shadow:0 2px 5px rgba(0,0,0,.35); }
 
+  /* ---- customer speech bubbles (user-reported fix: shrunk ~35%, from 22px/2px-7px padding down
+     to 14px/1px-5px, min-width matches BUBBLE_EST_WIDTH in JS) + horizontal de-overlap support.
+     transform uses `left` positioning set from JS each frame (screen-space projection) combined
+     with a translateX(-50%,-100%) anchor so the bubble sits centered-above its `left`/`top`
+     point; the tail's own translateX (also JS-driven, see layoutCustomerBubbles) offsets it back
+     toward the customer's TRUE screen position whenever the bubble body itself got pushed
+     sideways to avoid a neighbor. ---- */
+  .custBubble{ position:absolute; transform:translate(-50%,-100%); font-size:14px; min-width:40px;
+               background:#fff; border-radius:8px; padding:1px 5px; box-shadow:0 2px 6px rgba(0,0,0,.3);
+               white-space:nowrap; text-align:center; }
+  .custBubbleTail{ position:absolute; left:50%; bottom:-5px; width:8px; height:8px; margin-left:-4px;
+                    background:#fff; clip-path:polygon(0 0, 100% 0, 50% 100%); transition:transform .12s ease-out; }
+
   /* ---- miss toast ---- */
   #missToast{ position:absolute; top:50%; left:50%; transform:translate(-50%,-50%) scale(.4); opacity:0;
               background:rgba(120,110,90,.92); color:#fff8e6; font-weight:800; font-size:20px;
@@ -275,22 +288,68 @@
   .chefCard .ccName{ font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:13px; color:#2a2620; margin-top:4px; }
   .chefCard .ccOwner{ font-size:11px; color:#7a6a4a; margin-top:2px; min-height:14px; }
 
-  #titleCookBtn{ margin-top:16px; font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:26px; letter-spacing:.5px;
+  /* ---- family lobby: connected-family chef-card row (real choreUser names, no Playroom
+       avatars/names anywhere) ---- */
+  #familyCrewRow{ display:flex; gap:14px; justify-content:center; margin-top:12px; flex-wrap:wrap; }
+  .crewCard{ display:flex; align-items:center; gap:8px; background:rgba(0,0,0,.32); border-radius:14px;
+             padding:8px 16px; }
+  .crewCard.crewEmpty{ opacity:.6; }
+  .crewCard .crewEmoji{ font-size:24px; line-height:1; }
+  .crewCard .crewName{ font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:15px; color:#fff;
+                        text-shadow:0 2px 0 rgba(0,0,0,.3); white-space:nowrap; }
+
+  #titleBtnRow{ display:flex; align-items:center; gap:12px; margin-top:16px; }
+  #titleInviteBtn{ font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:19px; letter-spacing:.5px;
+                   background:#4aa3ff; color:#fff; border:none; border-radius:14px; padding:12px 22px;
+                   cursor:pointer; box-shadow:0 4px 0 #2d76c4; }
+  #titleInviteBtn:active{ transform:translateY(3px); box-shadow:0 1px 0 #2d76c4; }
+  #titleCookBtn{ font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:26px; letter-spacing:.5px;
                  background:#4ecb5c; color:#fff; border:none; border-radius:16px; padding:14px 34px;
                  cursor:pointer; box-shadow:0 5px 0 #2e8a3a; }
   #titleCookBtn:active{ transform:translateY(3px); box-shadow:0 2px 0 #2e8a3a; }
   #titleWaiting{ margin-top:14px; font-size:18px; font-weight:700; color:#fff; text-shadow:0 2px 0 rgba(0,0,0,.3); }
 
+  /* ---- family lobby: invite picker overlay + toast ---- */
+  #invitePickerOverlay{ position:absolute; inset:0; z-index:60; display:none; align-items:center;
+                         justify-content:center; background:rgba(20,30,15,.55); }
+  #invitePickerOverlay.show{ display:flex; }
+  #invitePickerCard{ background:#fff8e6; border-radius:18px; padding:22px 26px; max-width:88vw; width:340px;
+                      box-shadow:0 12px 34px rgba(0,0,0,.4); text-align:center; }
+  #invitePickerTitle{ font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:22px; color:#2a2620;
+                       margin-bottom:14px; }
+  #invitePickerList{ display:flex; flex-direction:column; gap:8px; max-height:40vh; overflow-y:auto; }
+  .inviteRow{ font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:17px; color:#2a2620;
+              background:#fff; border:3px solid #ffd23f; border-radius:12px; padding:10px 12px;
+              cursor:pointer; transition:transform .12s ease, border-color .12s ease; }
+  .inviteRow:active{ transform:translateY(2px); }
+  .inviteRow:hover{ border-color:#4ecb5c; }
+  #invitePickerEmpty{ font-size:14px; color:#7a6a4a; padding:10px 0; }
+  #invitePickerClose{ margin-top:16px; font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:15px;
+                       background:#e8e0cc; color:#2a2620; border:none; border-radius:10px; padding:9px 20px;
+                       cursor:pointer; }
+
+  #inviteToast{ position:absolute; left:50%; bottom:10%; transform:translateX(-50%) translateY(20px);
+                z-index:61; background:#2e8a3a; color:#fff; font-family:'Luckiest Guy','Arial Black',sans-serif;
+                font-size:16px; padding:12px 22px; border-radius:14px; box-shadow:0 8px 20px rgba(0,0,0,.35);
+                opacity:0; pointer-events:none; transition:opacity .25s ease, transform .25s ease; }
+  #inviteToast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+
   @media (max-width:520px){
     #titleContent{ padding:14px 10px 12px; }
     #barnSign{ margin-top:2px; border-width:6px; }
     #garnishRow{ margin:10px 0 2px; }
+    #familyCrewRow{ margin-top:8px; gap:8px; }
+    .crewCard{ padding:6px 11px; gap:6px; }
+    .crewCard .crewEmoji{ font-size:19px; }
+    .crewCard .crewName{ font-size:12px; }
     #chefPickerLabel{ margin-bottom:6px; }
     #chefPickerRow{ gap:8px; }
     .chefCard{ width:74px; padding:7px 4px 8px; border-width:3px; }
     .chefCard .ccEmoji{ font-size:26px; }
     .chefCard .ccName{ font-size:11px; }
-    #titleCookBtn{ margin-top:12px; font-size:19px; padding:11px 24px; }
+    #titleBtnRow{ margin-top:12px; gap:8px; }
+    #titleInviteBtn{ font-size:14px; padding:9px 14px; }
+    #titleCookBtn{ font-size:19px; padding:11px 24px; }
     #titleWaiting{ font-size:14px; margin-top:10px; }
     #couchControlsCard{ padding:4px 9px; }
   }
@@ -324,14 +383,22 @@
               display:flex; align-items:center; justify-content:center; z-index:26; pointer-events:auto;
               touch-action:none; user-select:none; -webkit-user-select:none; }
   #actionBtn.pressed{ background:rgba(255,178,63,.85); transform:scale(.94); }
-  /* throw button (Systems pass 1): left of the action button, slightly smaller, same touch style */
-  #throwBtn{ position:absolute; right:118px; bottom:112px; width:64px; height:64px; border-radius:50%;
+  /* WORK button (user-reported control split): NEW, sits between the grab (action) button and the
+     throw button — hold-to-chop/wash/stir, separate verb from grab per the design doc. Same touch
+     style as its siblings, distinct blue tint so the three verbs read as visually distinct. */
+  #workBtn{ position:absolute; right:112px; bottom:96px; width:68px; height:68px; border-radius:50%;
+            background:rgba(74,144,226,.55); border:3px solid rgba(255,255,255,.55); font-size:28px;
+            display:flex; align-items:center; justify-content:center; z-index:26; pointer-events:auto;
+            touch-action:none; user-select:none; -webkit-user-select:none; }
+  #workBtn.pressed{ background:rgba(74,144,226,.85); transform:scale(.94); }
+  /* throw button (Systems pass 1): left of the work button, slightly smaller, same touch style */
+  #throwBtn{ position:absolute; right:198px; bottom:112px; width:64px; height:64px; border-radius:50%;
              background:rgba(74,154,58,.55); border:3px solid rgba(255,255,255,.55); font-size:26px;
              display:flex; align-items:center; justify-content:center; z-index:26; pointer-events:auto;
              touch-action:none; user-select:none; -webkit-user-select:none; }
   #throwBtn.pressed{ background:rgba(74,154,58,.85); transform:scale(.94); }
   /* emote button (Tier-1 batch): small, above the throw button, same touch style */
-  #emoteBtn{ position:absolute; right:126px; bottom:190px; width:52px; height:52px; border-radius:50%;
+  #emoteBtn{ position:absolute; right:206px; bottom:190px; width:52px; height:52px; border-radius:50%;
              background:rgba(255,143,208,.55); border:3px solid rgba(255,255,255,.55); font-size:22px;
              display:flex; align-items:center; justify-content:center; z-index:26; pointer-events:auto;
              touch-action:none; user-select:none; -webkit-user-select:none; }
@@ -342,8 +409,9 @@
   @media (orientation:landscape) and (max-height:520px){
     .touchAware #hintWrap{ bottom:14px; left:14px; transform:none; max-width:44vw; }
     .touchAware #actionBtn{ right:18px; bottom:18px; width:74px; height:74px; font-size:28px; }
-    .touchAware #throwBtn{ right:100px; bottom:28px; width:56px; height:56px; font-size:22px; }
-    .touchAware #emoteBtn{ right:100px; bottom:96px; width:44px; height:44px; font-size:18px; }
+    .touchAware #workBtn{ right:96px; bottom:14px; width:60px; height:60px; font-size:24px; }
+    .touchAware #throwBtn{ right:166px; bottom:28px; width:56px; height:56px; font-size:22px; }
+    .touchAware #emoteBtn{ right:166px; bottom:96px; width:44px; height:44px; font-size:18px; }
     .touchAware #orderRow{ top:6px; }
     .touchAware #sunClock{ font-size:15px; padding:3px 9px 3px 7px; }
     .touchAware #scoreWrap{ top:36px; font-size:20px; }
@@ -400,12 +468,20 @@
             <div id="signText">BARNYARD<br>BISTRO</div>
           </div>
           <div id="garnishRow">🍅 🥬 🍔 🍕 🍲</div>
+          <!-- ---- family lobby: chef-card row of CONNECTED players by their real choreUser name
+               (never a Playroom avatar/name) — "Waiting for family…" fills the empty 2nd seat.
+               Built/updated by updateFamilyCrewRow() below, called every frame from
+               updateTitleScreen (cheap: just textContent/class toggles on two small nodes). ---- -->
+          <div id="familyCrewRow">
+            <div class="crewCard" id="crewCard0"><div class="crewEmoji"></div><div class="crewName"></div></div>
+            <div class="crewCard" id="crewCard1"><div class="crewEmoji"></div><div class="crewName"></div></div>
+          </div>
           <!-- ---- Tier-1 batch: couch co-op mode row — hidden entirely on touch devices (couch
                mode is keyboard-only per the design doc). Disabled (with a tooltip) whenever an
                online guest is already connected, since couch mode is a solo/host-only choice. ---- -->
           <div id="couchModeRow">
             <label id="couchModeLabel"><input type="checkbox" id="couchModeToggle"> 🛋 Same Keyboard</label>
-            <div id="couchControlsCard">P1: WASD · SPACE · Q &nbsp;/&nbsp; P2: ARROWS · ENTER · SHIFT</div>
+            <div id="couchControlsCard">P1: WASD · SPACE grab · C work · Q throw &nbsp;/&nbsp; P2: ARROWS · ENTER grab · RCTRL work · SHIFT throw</div>
           </div>
           <div id="chefPickerWrap">
             <div id="chefPickerLabel">Pick your chef!</div>
@@ -415,10 +491,26 @@
             <div id="chefPickerLabel">Player 2, pick your chef!</div>
             <div id="chefPickerRow2"></div>
           </div>
-          <button id="titleCookBtn">▶ COOK!</button>
+          <div id="titleBtnRow">
+            <button id="titleInviteBtn" style="display:none;">📨 Invite</button>
+            <button id="titleCookBtn">▶ COOK!</button>
+          </div>
           <div id="titleWaiting" style="display:none;">Chef 1 is picking the day! 🍳</div>
         </div>
       </div>
+      <!-- ---- family lobby: invite picker overlay — lists family members (excluding yourself)
+           read one-shot from chores_<familyKey> profile docs; tapping a name sends an invite and
+           shows a confirmation toast. Host-only entry point (titleInviteBtn), hidden whenever the
+           Firestore backend isn't available (see updateTitleScreen). ---- -->
+      <div id="invitePickerOverlay">
+        <div id="invitePickerCard">
+          <div id="invitePickerTitle">Invite who? 📨</div>
+          <div id="invitePickerList"></div>
+          <div id="invitePickerEmpty" style="display:none;">No other family members found yet.</div>
+          <button id="invitePickerClose">Close</button>
+        </div>
+      </div>
+      <div id="inviteToast"></div>
       <!-- ---- Systems pass 4: level-intro banner — brief "DAY N — <LEVEL NAME>!" banner shown
            on BOTH screens whenever a fresh level/day actually starts. ---- -->
       <div id="levelIntroBanner">
@@ -428,6 +520,7 @@
       <div id="touchLayer">
         <div id="joyBase"></div><div id="joyKnob"></div>
         <div id="throwBtn">🎯</div>
+        <div id="workBtn">🔪</div>
         <div id="actionBtn">🖐</div>
         <div id="emoteBtn">💬</div>
       </div>
@@ -438,6 +531,12 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
   <script src="https://unpkg.com/playroomkit@0.0.96/multiplayer.full.umd.js"></script>
+  <!-- BuckyPush: plain (non-module) script per its own file header — safe to include standalone
+       on any page, exposes window.BuckyPush = {enable,disable,isSupported,status,notify}. Used
+       here (family lobby invite flow) only if it loads; every call site below checks
+       `window.BuckyPush &&` first so a failed/blocked load just silently disables push (the
+       notifs_<familyKey> Firestore doc + app-side bell is enough on its own). -->
+  <script src="push-client.js"></script>
   <script>
   (() => {
     // =====================================================================================
@@ -448,8 +547,14 @@
     // layer" that read G each frame and are rebuilt from it; they never hold gameplay truth
     // themselves. Game logic mutates G only through small action functions:
     //   - moveChef(chefId, dx, dz, dt)  — movement + collision, run every frame from input
-    //   - tryAction(chefId)             — the single context-sensitive Spacebar action
-    //   - holdAction(chefId, dt)        — held-down continuation (chopping progress)
+    //   - tryAction(chefId)             — GRAB verb: the context-sensitive tap action (pick up/
+    //                                     place/plate/deliver/take order/take from crate-board-
+    //                                     counter-floor — the whole pick-up-put-down family)
+    //   - tryThrow(chefId)              — THROW verb: unchanged, a single discrete press
+    //   - holdAction(chefId, dt)        — WORK verb: held-down continuation (chop/wash/stir),
+    //                                     user-reported fix split this off GRAB's key entirely —
+    //                                     it used to share Space with tryAction, which is why a
+    //                                     chop-hold could accidentally also register as a grab tap
     //
     // STAGE 3 IDENTITY MODEL: G.chefs is keyed by Playroom player id (a string), not a fixed
     // "p1"/"p2". Join order decides spawn side & color: first player (host, or solo local
@@ -467,6 +572,198 @@
     //     state ~20Hz, integrates its OWN chef's position locally for zero-lag movement feel,
     //     and reconciles everything else from the host's snapshot (lerped, never teleporting).
     // =====================================================================================
+
+    // =====================================================================================
+    // bucky-lobby shim — family-native lobby/invite layer, replacing Playroom's own lobby UI
+    // (skipLobby:true, see initNet below) with a title screen that shows real family member
+    // names (localStorage "choreUser", the app's "This is me" name) and lets the host invite a
+    // specific family member instead of sharing a raw join link. Config/roomId/password are
+    // copied verbatim from index.html:606-619 (same amen-farms-app Firebase project — this is
+    // intentionally duplicated, not imported, since this repo has no shared JS module between
+    // pages; games.html's own "bucky-lobby shim" comment block does the same duplication).
+    // Firestore loads via dynamic ESM import() (this script is a classic script, not a module,
+    // so import() is used as an expression/promise rather than a static import statement) and
+    // degrades gracefully on any failure: lobby features (name list, Invite button, lobby doc)
+    // just stay off silently — the game itself is entirely unaffected (net.* above never
+    // depends on Firestore for anything gameplay-related).
+    // =====================================================================================
+    const firebaseConfig = {
+      apiKey: "AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU",
+      authDomain: "amen-farms-app.firebaseapp.com",
+      projectId: "amen-farms-app",
+      storageBucket: "amen-farms-app.firebasestorage.app",
+      messagingSenderId: "321230755979",
+      appId: "1:321230755979:web:d362c56aaf7e50b4ab5c8e"
+    };
+    const FAMILY_PASSWORD = "amenfarms";
+    function roomId(pw){
+      let h = 0;
+      for (const ch of pw.toLowerCase()) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+      return "fam" + h.toString(36);
+    }
+    const familyKey = roomId(FAMILY_PASSWORD);
+    const LOBBY_HEARTBEAT_MS = 30 * 1000;   // host refreshes updatedAt this often while lobby is open
+    const LOBBY_LIVE_MS = 90 * 1000;        // consumers (games.html/index.html banners) trust status
+                                             // "open" only if updatedAt is fresher than this
+
+    // choreUser: the app's "This is me" identity. Empty string is a valid/expected value (no
+    // name picked yet in the app) — the chef-card row falls back to "Chef 1"/"Chef 2" for that.
+    let myChoreUserName = "";
+    try { myChoreUserName = localStorage.getItem("choreUser") || ""; } catch (err) { /* no storage */ }
+
+    // Lobby state — all Firestore-backed pieces live here, entirely separate from G (this is
+    // presentation/session bookkeeping, not gameplay state, and is NEVER synced through Playroom).
+    const Lobby = {
+      available: false,     // true once Firestore modules + app initialized successfully
+      db: null,
+      fs: null,              // the firebase-firestore module namespace (doc/setDoc/deleteDoc/etc.)
+      lobbyDocRef: null,     // this host's own lobbies_<familyKey> doc ref, once created
+      heartbeatTimer: null,
+      unloadHooked: false
+    };
+
+    async function initLobbyBackend(){
+      try {
+        const appMod = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
+        const fs = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+        const app = appMod.initializeApp(firebaseConfig, "bucky-lobby");
+        Lobby.db = fs.getFirestore(app);
+        Lobby.fs = fs;
+        Lobby.available = true;
+      } catch (err) {
+        console.warn("Barnyard Bistro: family lobby backend unavailable (Firestore failed to load) — Invite hidden, game unaffected.", err);
+        Lobby.available = false;
+      }
+    }
+    const lobbyBackendReady = initLobbyBackend();   // kicked off immediately at parse time; awaited where needed
+
+    // ---- host-only: lobby doc lifecycle. Solo play and couch mode NEVER create a doc (only
+    // called when net.isHost && net.roomCode, i.e. a real Playroom room exists) — see call sites
+    // in updateTitleScreen/COOK!/day-end handling below. ----
+    async function ensureLobbyDoc(){
+      // solo/couch-only sessions never create a doc — couch mode is a host-alone choice offered
+      // only while no online guest is connected, but it can still coexist with a live (empty)
+      // Playroom room, so this checks G.couchMode explicitly rather than inferring it from
+      // net.players.length.
+      if (!Lobby.available || !net.isHost || !net.roomCode || G.couchMode) return;
+      await lobbyBackendReady;
+      if (!Lobby.available) return;
+      const { doc, setDoc, serverTimestamp } = Lobby.fs;
+      const ref = doc(Lobby.db, "lobbies_" + familyKey, "bb_" + net.roomCode);
+      Lobby.lobbyDocRef = ref;
+      try {
+        await setDoc(ref, {
+          game: "barnyardbistro",
+          gameName: "Barnyard Bistro",
+          ico: "🍅",
+          hostName: myChoreUserName || "Someone",
+          roomCode: net.roomCode,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          status: "open",
+          playerCount: net.players.length || 1,
+          maxPlayers: 2
+        });
+        startLobbyHeartbeat();
+        hookUnloadCleanup();
+      } catch (err) {
+        console.warn("Barnyard Bistro: could not create lobby doc (continuing without it).", err);
+      }
+    }
+    async function updateLobbyDoc(patch){
+      if (!Lobby.available || !Lobby.lobbyDocRef) return;
+      try {
+        await Lobby.fs.setDoc(Lobby.lobbyDocRef, { ...patch, updatedAt: Date.now() }, { merge: true });
+      } catch (err) { /* best-effort — a missed update just ages out via the 90s liveness window */ }
+    }
+    function startLobbyHeartbeat(){
+      if (Lobby.heartbeatTimer) return;
+      Lobby.heartbeatTimer = setInterval(() => {
+        if (!Lobby.lobbyDocRef) return;
+        updateLobbyDoc({ playerCount: net.players.length || 1 });
+      }, LOBBY_HEARTBEAT_MS);
+    }
+    async function deleteLobbyDoc(){
+      if (!Lobby.available || !Lobby.lobbyDocRef) return;
+      const ref = Lobby.lobbyDocRef;
+      Lobby.lobbyDocRef = null;
+      if (Lobby.heartbeatTimer){ clearInterval(Lobby.heartbeatTimer); Lobby.heartbeatTimer = null; }
+      try { await Lobby.fs.deleteDoc(ref); } catch (err) { /* best-effort, per the design doc */ }
+    }
+    // best-effort cleanup on tab/page close — beforeunload/pagehide can't reliably await a
+    // network request, but Firestore's deleteDoc fires fast enough locally-queued that it often
+    // lands; the 90s liveness window in every consumer (games.html/index.html banners) is the
+    // real safety net when it doesn't (per the design doc: "acceptable, the 90s liveness covers it").
+    function hookUnloadCleanup(){
+      if (Lobby.unloadHooked) return;
+      Lobby.unloadHooked = true;
+      const cleanup = () => { if (Lobby.lobbyDocRef) deleteLobbyDoc(); };
+      window.addEventListener("pagehide", cleanup);
+      window.addEventListener("beforeunload", cleanup);
+    }
+
+    // ---- invite flow: one-shot read of chores_<familyKey> profile docs (frequency==="profile"),
+    // excluding ourselves, then write a notifs_<familyKey> invite doc + best-effort push. ----
+    async function fetchFamilyMembers(){
+      if (!Lobby.available) return [];
+      await lobbyBackendReady;
+      if (!Lobby.available) return [];
+      try {
+        const { collection, getDocs, query, where } = Lobby.fs;
+        const col = collection(Lobby.db, "chores_" + familyKey);
+        let snap;
+        try {
+          snap = await getDocs(query(col, where("frequency", "==", "profile")));
+        } catch (err) {
+          // no composite index / rules quirk fallback: fetch the whole collection and filter
+          // client-side (chores_<familyKey> is small — a handful to a few dozen docs per family).
+          snap = await getDocs(col);
+        }
+        const names = [];
+        snap.forEach((d) => {
+          const data = d.data();
+          if (data.frequency === "profile" && data.name && data.name !== myChoreUserName){
+            names.push(data.name);
+          }
+        });
+        return names;
+      } catch (err) {
+        console.warn("Barnyard Bistro: could not load family member list for Invite.", err);
+        return [];
+      }
+    }
+    async function sendLobbyInvite(targetName){
+      if (!Lobby.available || !net.roomCode) return false;
+      await lobbyBackendReady;
+      if (!Lobby.available) return false;
+      const url = "barnyardbistro.html#r=" + encodeURIComponent(net.roomCode);
+      try {
+        const { collection, addDoc } = Lobby.fs;
+        await addDoc(collection(Lobby.db, "notifs_" + familyKey), {
+          to: targetName,
+          from: myChoreUserName || "Someone",
+          type: "lobby-invite",
+          text: (myChoreUserName || "Someone") + " wants to cook with you in Barnyard Bistro! 🍅",
+          url,
+          at: Date.now(),
+          read: false
+        });
+      } catch (err) {
+        console.warn("Barnyard Bistro: could not write invite notification.", err);
+        return false;
+      }
+      if (window.BuckyPush && window.BuckyPush.notify){
+        // fire-and-forget, per push-client.js's own contract — never throws/blocks the UI.
+        window.BuckyPush.notify(
+          FAMILY_PASSWORD, familyKey, targetName,
+          "🎮 Game invite",
+          (myChoreUserName || "Someone") + " wants to cook with you!",
+          new URL(url, location.href).href
+        );
+      }
+      return true;
+    }
+
     const LOCAL_SOLO_ID = "local";
     const DAY_LENGTH = 180;          // seconds per day (Stage 4)
     const DAY_SPAWN_CUTOFF = 20;     // stop spawning new customers in the final N seconds
@@ -612,23 +909,23 @@
     const LEVELS = [
       { id: 1, name: "Salad Days", emoji: "🥗", recipes: ["salad"], extraRecipes: [], starMoney: [80, 150, 300],
         spawnFactor: 1.5, patienceMax: 100,
-        stations: ["tomatoCrate", "lettuceCrate", "cuttingBoard", "plateStation", ...DISH_WASH_STATIONS], crates: ["tomato", "lettuce"] },
+        stations: ["tomatoCrate", "lettuceCrate", "cuttingBoard", "cuttingBoard2", "plateStation", ...DISH_WASH_STATIONS], crates: ["tomato", "lettuce"] },
       { id: 2, name: "Soup's On", emoji: "🍲", recipes: ["soup"], extraRecipes: [{ id: "salad", chance: 0.2 }],
         starMoney: [50, 100, 200], spawnFactor: 1.1, patienceMax: 78,
-        stations: ["tomatoCrate", "lettuceCrate", "onionCrate", "potatoCrate", "cuttingBoard", "plateStation", "stove", ...DISH_WASH_STATIONS],
+        stations: ["tomatoCrate", "lettuceCrate", "onionCrate", "potatoCrate", "cuttingBoard", "cuttingBoard2", "plateStation", "stove", ...DISH_WASH_STATIONS],
         crates: ["tomato", "lettuce", "onion", "potato"] },
       { id: 3, name: "Burger Barn", emoji: "🍔", recipes: ["burger"], extraRecipes: [{ id: "salad", chance: 0.2 }],
         starMoney: [55, 110, 210], spawnFactor: 1.05, patienceMax: 70,
-        stations: ["tomatoCrate", "lettuceCrate", "bunCrate", "pattyCrate", "cuttingBoard", "plateStation", "pan", ...DISH_WASH_STATIONS],
+        stations: ["tomatoCrate", "lettuceCrate", "bunCrate", "pattyCrate", "cuttingBoard", "cuttingBoard2", "plateStation", "pan", ...DISH_WASH_STATIONS],
         crates: ["tomato", "lettuce", "bun", "patty"] },
       { id: 4, name: "Pizza Night", emoji: "🍕", recipes: ["pizza"], extraRecipes: [{ id: "soup", chance: 0.2 }],
         starMoney: [95, 190, 370], spawnFactor: 0.9, patienceMax: 58,
-        stations: ["tomatoCrate", "onionCrate", "potatoCrate", "doughCrate", "cheeseCrate", "cuttingBoard", "plateStation", "stove", "oven", ...DISH_WASH_STATIONS],
+        stations: ["tomatoCrate", "onionCrate", "potatoCrate", "doughCrate", "cheeseCrate", "cuttingBoard", "cuttingBoard2", "plateStation", "stove", "oven", ...DISH_WASH_STATIONS],
         crates: ["tomato", "onion", "potato", "dough", "cheese"] },
       { id: 5, name: "Feast Night", emoji: "🎉", recipes: ["salad", "soup", "burger", "pizza"], extraRecipes: [],
         starMoney: [75, 150, 280], spawnFactor: 0.52, patienceMax: 45,
         stations: ["tomatoCrate", "lettuceCrate", "onionCrate", "potatoCrate", "bunCrate", "pattyCrate", "doughCrate", "cheeseCrate",
-                   "cuttingBoard", "plateStation", "stove", "pan", "oven", ...DISH_WASH_STATIONS],
+                   "cuttingBoard", "cuttingBoard2", "plateStation", "stove", "pan", "oven", ...DISH_WASH_STATIONS],
         crates: ["tomato", "lettuce", "onion", "potato", "bun", "patty", "dough", "cheese"] }
     ];
     let CURRENT_LEVEL = LEVELS[0];
@@ -677,10 +974,16 @@
         // seeded with a single local chef so solo play (and the instant before Playroom
         // resolves identity) works exactly like Stage 1/2. Real player ids replace this key
         // once net.init() resolves (see reseedChefsForNet()).
-        [LOCAL_SOLO_ID]: { x: -1.5, z: 2.2, dir: Math.PI, holding: null, color: "blue", chefModel: "farmer" }
+        [LOCAL_SOLO_ID]: { x: -1.5, z: 2.2, dir: Math.PI, holding: null, color: "blue", chefModel: "farmer", name: myChoreUserName }
       },
       stations: [],          // filled in below: {id,type,x,z,w,d,...}
-      board: { item: null, progress: 0 },   // item: null | {kind:"tomato"|"lettuce", state:"raw"|"chopped"}
+      // ---- user-reported layout fix: SECOND cutting board — G.board (singular) refactored to
+      // G.boards, an array of TWO independent {item,progress} slots, one per physical board
+      // station (see G.stations' "cuttingBoard"/"cuttingBoard2" entries, each carrying a
+      // boardIndex field so tryAction/holdAction know which G.boards[] slot they're touching).
+      // item: null | {kind:"tomato"|"lettuce"|..., state:"raw"|"chopped"} (or a pizzaBase/pizza in
+      // progress, same as before — boards behave identically, there are just two of them now).
+      boards: [{ item: null, progress: 0 }, { item: null, progress: 0 }],
       plate: { contents: [] }, // array of {kind, state:"chopped"} — the plate station's current plate
       // ---- Systems pass 2: customers (REPLACES the anonymous Stage-2 order queue) ----
       customers: [],          // [{id, kind, state, spot, dish, patience, patienceMax, x, z}]
@@ -704,7 +1007,12 @@
       // pot: contents is an array of {kind,state:"chopped"} accumulated one at a time; once all
       // 3 soup kinds are in, auto-starts cooking (cookT ticks in hostSim). state cycle:
       // "empty" -> "cooking" -> "done" -> (uncollected 8s) -> "overdone" -> (trashed) -> "empty".
-      pot: { contents: [], cookT: 0, state: "empty" },
+      // stirringChefId (NEW, user-reported WORK verb): whichever chef is currently hold-WORKing at
+      // the stove while G.pot.state === "cooking" — host-authoritative, cleared the instant that
+      // chef stops holding WORK there (mirrors G.sink.washingChef's "who's actively doing this"
+      // convention) or the pot leaves the cooking state. advanceCookingStations reads it to apply
+      // the 1.5x cook-speed bonus; the render layer watches it to show the spoon-swirl FX.
+      pot: { contents: [], cookT: 0, state: "empty", stirringChefId: null },
       // pan: item is a single {kind:"patty",state:"raw"|"grilled"|"overdone"} or null.
       pan: { item: null, cookT: 0, state: "empty" },
       // oven: item is a single {kind:"pizza",state:"raw"|"baked"|"overdone"} (raw pizza in, baked
@@ -812,11 +1120,17 @@
       { id: "onionCrate",   type: "crate",   kind: "onion",   x: -HALF_W + CT/2, z:  0.0,             w: CT, d: 1.0 },
       { id: "potatoCrate",  type: "crate",   kind: "potato",  x: -HALF_W + CT/2, z:  1.4,             w: CT, d: 1.0 },
       { id: "bunCrate",     type: "crate",   kind: "bun",     x: -HALF_W + CT/2, z:  2.8,             w: CT, d: 0.8 },
-      { id: "cuttingBoard", type: "board",                     x: -5.0,           z: -HALF_D + CT/2,  w: 1.8, d: CT },
+      { id: "cuttingBoard", type: "board",   boardIndex: 0,    x: -5.0,           z: -HALF_D + CT/2,  w: 1.8, d: CT },
       { id: "orderBell",    type: "bell",                      x: windowSegX(0),  z: WINDOW_Z,        w: WINDOW_SEG_W, d: CT },
       { id: "windowSpot1",  type: "spot",    spot: 1,           x: windowSegX(1),  z: WINDOW_Z,        w: WINDOW_SEG_W, d: CT },
       { id: "windowSpot2",  type: "spot",    spot: 2,           x: windowSegX(2),  z: WINDOW_Z,        w: WINDOW_SEG_W, d: CT },
       { id: "windowSpot3",  type: "spot",    spot: 3,           x: windowSegX(3),  z: WINDOW_Z,        w: WINDOW_SEG_W, d: CT },
+      // ---- user-reported layout fix: SECOND cutting board — top wall, right of the window
+      // (window's rightmost spot ends at x=4.8; top wall's own right edge is at HALF_W-CT=7.0).
+      // Verified programmatically (see the layout-note comment above this station list) that this
+      // footprint sits >=REACH clear of both the window and the wall corner from its own approach
+      // point, so nearestStation never mis-resolves a chef standing at either into the other.
+      { id: "cuttingBoard2", type: "board",  boardIndex: 1,    x:  5.9,           z: -HALF_D + CT/2,  w: 1.6, d: CT },
       { id: "pattyCrate",   type: "crate",   kind: "patty",    x:  HALF_W - CT/2, z: -2.8,             w: CT, d: 1.0 },
       { id: "doughCrate",   type: "crate",   kind: "dough",    x:  HALF_W - CT/2, z: -1.4,             w: CT, d: 1.0 },
       { id: "cheeseCrate",  type: "crate",   kind: "cheese",   x:  HALF_W - CT/2, z:  0.0,             w: CT, d: 1.0 },
@@ -825,21 +1139,36 @@
       { id: "trashBin",     type: "trash",                     x: -1.6,           z:  HALF_D - CT/2,   w: 1.1, d: CT },
       { id: "pan",          type: "pan",                       x:  0.5,           z:  HALF_D - CT/2,   w: 1.3, d: CT },
       { id: "oven",         type: "oven",                      x:  2.4,           z:  HALF_D - CT/2,   w: 1.6, d: CT },
-      // ---- Systems pass 4: dish washing — dish RETURN slot sits on the right wall beyond the
-      // stove (visible near the window per the design doc), DISH TRAY right beside it (shares
-      // the clean-plate pool with plateStation, just a visually distinct return-to spot), SINK
-      // on the bottom wall beyond the oven. All three are ALWAYS_ACTIVE (washing is core from
-      // level 1, per the design doc) — added to every level's `stations` list below too, for
-      // clarity/consistency even though ALWAYS_ACTIVE_TYPES makes the list redundant for these.
+      // ---- Systems pass 4: dish washing — dish RETURN slot stays on the right wall beyond the
+      // stove (visible near the window, per the design doc — carrying dirty plates across the
+      // kitchen to the sink is the INTENDED gameplay loop, so dish-return deliberately stays put).
+      // SINK on the bottom wall beyond the oven. User-reported layout fix: DISH TRAY moved to sit
+      // DIRECTLY beside the sink (was on the right wall, a separate trip from the sink) so the
+      // wash-to-rack step is now wash -> turn -> rack with no cross-kitchen detour — verified
+      // clear of the sink's own footprint (0.25 gap) and the bottom wall's right corner (0.3 gap).
+      // All three are ALWAYS_ACTIVE (washing is core from level 1) — added to every level's
+      // `stations` list below too, for clarity/consistency even though ALWAYS_ACTIVE_TYPES makes
+      // the list redundant for these.
       { id: "dishReturn",   type: "dishReturn",                x:  HALF_W - CT/2, z:  3.7,             w: CT, d: 0.8 },
-      { id: "dishTray",     type: "dishTray",                  x:  HALF_W - CT/2, z:  4.4,             w: CT, d: 0.7 },
-      { id: "sink",         type: "sink",                      x:  4.3,           z:  HALF_D - CT/2,   w: 1.3, d: CT }
+      { id: "sink",         type: "sink",                      x:  4.3,           z:  HALF_D - CT/2,   w: 1.3, d: CT },
+      { id: "dishTray",     type: "dishTray",                  x:  5.7,           z:  HALF_D - CT/2,   w: 1.0, d: 0.7 }
     ];
 
     const stationById = (id) => G.stations.find(s => s.id === id);
     const counterSlotById = (id) => G.counterSlots.find(s => s.id === id);
     const stationBySpot = (n) => G.stations.find(s => s.type === "spot" && s.spot === n);
-    const REACH = 1.3;          // interaction reach distance from station's inner face
+    // user-reported layout fix: G.boards[st.boardIndex] is THE canonical way any board-station
+    // code below looks up "the board slot this station targets" — a tiny helper so every
+    // interaction/render/hint call site reads the same way regardless of which of the two boards
+    // is involved.
+    const boardFor = (st) => G.boards[st.boardIndex];
+    // User-reported fix (#8b, dead-targeting-zone hardening): widened 1.3 -> 1.45 now that the
+    // layout has grown (second cutting board + relocated dish tray) — station targeting already
+    // takes strict priority over counter-slot targeting in tryAction (nearestStation is checked
+    // FIRST, counter slots only considered when nearestStation finds nothing in reach), so this
+    // is purely about making sure no gap opens up between adjacent stations' reach zones as the
+    // kitchen gets busier, not a targeting-priority change.
+    const REACH = 1.45;          // interaction reach distance from station's inner face
     const CHEF_R = 0.42;        // chef collision radius
     const CHOP_TIME = 1.5;      // seconds to fully chop
 
@@ -898,8 +1227,18 @@
     // ---- throw tuning (Systems pass 1) ----
     const THROW_SPEED = 11;         // units/sec
     const THROW_MAX_RANGE = 9;      // units
-    const THROW_CATCH_R = 0.6;      // catch radius around a chef with empty hands
-    const THROW_LAND_R = 0.55;      // radius for detecting a counter-slot/board landing
+    // User-reported fix (#5 "bigger catch hitbox"): 0.6 -> 1.25 so a deliberately sloppy throw
+    // (offset ~1 unit from the receiving chef) still gets caught. Catch still requires the
+    // receiving chef's hands to be empty, and a thrower can never catch their own throw (both
+    // checks unchanged in advanceFlyingItems below).
+    const THROW_CATCH_R = 1.25;     // catch radius around a chef with empty hands
+    // User-reported fix (#4 "thrown items rarely land on counters"): 0.55 -> 0.9 forgiving-landing
+    // radius, PLUS advanceFlyingItems below now searches for the nearest EMPTY slot/board within
+    // this radius (rather than "nearest slot overall, then check if it happens to be empty") —
+    // that ordering bug was the main reason casual throws missed: an occupied slot that merely
+    // happened to be geometrically closest could block a perfectly good empty slot just 0.3 units
+    // further away from ever being considered.
+    const THROW_LAND_R = 0.9;       // radius for detecting a counter-slot/board landing
     const FLOOR_ITEM_MAX = 12;      // oldest despawns (poof) beyond this cap
     const SLOT_REACH = REACH;       // counter slots share the same reach distance as stations
 
@@ -1072,42 +1411,46 @@
       }
 
       if (st.type === "board"){
+        // user-reported layout fix: TWO independent boards now — boardFor(st) resolves to
+        // WHICHEVER of G.boards[0]/G.boards[1] this specific station (st.boardIndex) targets, so
+        // everything below is unchanged logic, just no longer hardcoded to a single G.board.
+        const board = boardFor(st);
         // pizza assembly also works ON the board (spec: "on ANY counter slot OR the cutting
         // board") — same three-step base/sauce/cheese flow as the counter-slot branch above.
-        if (G.board.item && G.board.item.kind === "pizzaBase"){
-          if (chef.holding && chef.holding.kind === "tomato" && chef.holding.state === "chopped" && G.board.item.state === "raw"){
-            G.board.item.state = "sauced";
+        if (board.item && board.item.kind === "pizzaBase"){
+          if (chef.holding && chef.holding.kind === "tomato" && chef.holding.state === "chopped" && board.item.state === "raw"){
+            board.item.state = "sauced";
             chef.holding = null;
             return;
           }
-          if (chef.holding && chef.holding.kind === "cheese" && chef.holding.state === "chopped" && G.board.item.state === "sauced"){
-            G.board.item = { kind: "pizza", state: "raw" };
+          if (chef.holding && chef.holding.kind === "cheese" && chef.holding.state === "chopped" && board.item.state === "sauced"){
+            board.item = { kind: "pizza", state: "raw" };
             chef.holding = null;
             return;
           }
           if (!chef.holding){
-            chef.holding = { kind: G.board.item.kind, state: G.board.item.state };
-            G.board.item = null;
+            chef.holding = { kind: board.item.kind, state: board.item.state };
+            board.item = null;
             return;
           }
-          refuse(chefId, G.board.item.state === "raw" ? "Add chopped tomato for sauce! 🍅" : "Now add chopped cheese! 🧀");
+          refuse(chefId, board.item.state === "raw" ? "Add chopped tomato for sauce! 🍅" : "Now add chopped cheese! 🧀");
           return;
         }
-        if (chef.holding && chef.holding.kind === "dough" && chef.holding.state === "raw" && !G.board.item){
-          G.board.item = { kind: "pizzaBase", state: "raw" };
+        if (chef.holding && chef.holding.kind === "dough" && chef.holding.state === "raw" && !board.item){
+          board.item = { kind: "pizzaBase", state: "raw" };
           chef.holding = null;
           return;
         }
-        if (chef.holding && CHOPPABLE_KINDS.has(chef.holding.kind) && chef.holding.state === "raw" && !G.board.item){
-          G.board.item = { kind: chef.holding.kind, state: "raw" };
-          G.board.progress = 0;
+        if (chef.holding && CHOPPABLE_KINDS.has(chef.holding.kind) && chef.holding.state === "raw" && !board.item){
+          board.item = { kind: chef.holding.kind, state: "raw" };
+          board.progress = 0;
           chef.holding = null;
           return;
         }
-        if (!chef.holding && G.board.item && G.board.item.state === "chopped"){
-          chef.holding = { kind: G.board.item.kind, state: "chopped" };
-          G.board.item = null;
-          G.board.progress = 0;
+        if (!chef.holding && board.item && board.item.state === "chopped"){
+          chef.holding = { kind: board.item.kind, state: "chopped" };
+          board.item = null;
+          board.progress = 0;
           return;
         }
         // holding while board occupied, or empty hands with raw/no item: no-op
@@ -1206,7 +1549,7 @@
         if (chef.holding && chef.holding.kind === "plate" && !chef.holding.dish){
           if (G.pot.state === "done"){
             chef.holding = { kind: "plate", contents: [{ kind: "soup", state: "chopped" }], dish: "soup" };
-            G.pot.contents = []; G.pot.cookT = 0; G.pot.state = "empty";
+            G.pot.contents = []; G.pot.cookT = 0; G.pot.state = "empty"; G.pot.stirringChefId = null;
             return;
           }
           refuse(chefId, "The soup isn't ready yet! ⏳");
@@ -1222,7 +1565,7 @@
         }
         if (!chef.holding && G.pot.state === "overdone"){
           chef.holding = { kind: "soupTrash", state: "overdone" };
-          G.pot.contents = []; G.pot.cookT = 0; G.pot.state = "empty";
+          G.pot.contents = []; G.pot.cookT = 0; G.pot.state = "empty"; G.pot.stirringChefId = null;
           return;
         }
         if (chef.holding && SOUP_POT_KINDS.includes(chef.holding.kind) && chef.holding.state === "chopped" &&
@@ -1350,7 +1693,7 @@
       // needs the HOLD; a tap here with empty hands or a non-dirty item is a gentle wobble. ----
       if (st.type === "sink"){
         if (chef.holding && chef.holding.kind === "dirtyPlate"){
-          return;   // in position — hold SPACE to start scrubbing (handled in holdAction)
+          return;   // in position — hold WORK to start scrubbing (handled in holdAction)
         }
         wobble(chefId);
         return;
@@ -1400,15 +1743,31 @@
         G.sink.progress = 0;
       }
 
+      // ---- NEW (user-reported WORK verb): STIR — hold WORK at the stove while the pot is
+      // "cooking" to speed it up 1.5x (advanceCookingStations applies the multiplier off
+      // G.pot.stirringChefId). Works for either chef, empty hands or not (stirring is a spoon
+      // motion, doesn't need free hands the way chop does) — same "only one active stirrer, but
+      // anyone can claim it" pattern as the sink wash above. Cleared below (mirrors the sink's own
+      // "stepped away mid-hold" reset) the instant this chef stops holding WORK here.
+      if (st && st.type === "stove" && G.pot.state === "cooking"){
+        G.pot.stirringChefId = chefId;
+        return;
+      }
+      if (G.pot.stirringChefId === chefId){
+        G.pot.stirringChefId = null;
+      }
+
       if (chef.holding) return;   // must have empty hands to chop
       // Systems pass 3: only genuinely CHOPPABLE ingredients progress here — a "pizzaBase" also
       // sits on the board with state "raw"/"sauced" but is assembled (tomato/cheese drops), not
-      // chopped, so it must never accumulate chop progress.
-      if (!st || st.type !== "board" || !G.board.item || G.board.item.state !== "raw" ||
-          !CHOPPABLE_KINDS.has(G.board.item.kind)) return;
-      G.board.progress = Math.min(1, G.board.progress + dt / CHOP_TIME);
-      if (G.board.progress >= 1){
-        G.board.item.state = "chopped";
+      // chopped, so it must never accumulate chop progress. Works identically on EITHER board
+      // (boardFor(st) resolves to whichever G.boards[] slot this station targets).
+      if (!st || st.type !== "board") return;
+      const board = boardFor(st);
+      if (!board.item || board.item.state !== "raw" || !CHOPPABLE_KINDS.has(board.item.kind)) return;
+      board.progress = Math.min(1, board.progress + dt / CHOP_TIME);
+      if (board.progress >= 1){
+        board.item.state = "chopped";
       }
     }
 
@@ -1499,48 +1858,77 @@
         }
         if (caught) continue;
 
-        // 2) landing on the cutting board footprint (only if empty) or a counter slot
-        const board = stationById("cuttingBoard");
-        const onBoard = Math.abs(nx - board.x) <= board.w/2 + THROW_LAND_R*0.4 &&
-                         Math.abs(nz - board.z) <= board.d/2 + THROW_LAND_R*0.4;
-        if (onBoard){
-          if (!G.board.item){
-            G.board.item = { kind: f.kind, state: f.state };
-            G.board.progress = 0;
+        // 2) landing: user-reported forgiving-landing fix (#4) — every step, look for the
+        // NEAREST EMPTY landing surface (cutting board OR a counter slot) within THROW_LAND_R of
+        // the item's current position, and snap-land there the moment one comes in range. This
+        // replaces the old "nearest slot overall, then check if it's free" ordering, which let an
+        // occupied slot that merely happened to be geometrically closest block a free slot just
+        // a little further away from ever being tried. Only falls through to the floor if nothing
+        // empty is within range (still-occupied nearest slot) — same "occupied -> floor" rule as
+        // before, just no longer starved by a bad nearest-neighbor pick.
+        const landing = findNearestEmptyLanding(nx, nz);
+        if (landing){
+          if (landing.type === "board"){
+            landing.board.item = { kind: f.kind, state: f.state };
+            landing.board.progress = 0;
           } else {
-            dropToFloor(f.kind, f.state, nx, nz);
-          }
-          G.flying.splice(i, 1);
-          continue;
-        }
-        let landedSlot = null, landedD = Infinity;
-        for (const s of G.counterSlots){
-          const d = Math.hypot(nx - s.x, nz - s.z);
-          if (d < landedD){ landedD = d; landedSlot = s; }
-        }
-        if (landedSlot && landedD <= THROW_LAND_R){
-          if (!landedSlot.item){
-            landedSlot.item = { kind: f.kind, state: f.state };
-          } else {
-            dropToFloor(f.kind, f.state, nx, nz);
+            landing.slot.item = { kind: f.kind, state: f.state };
           }
           G.flying.splice(i, 1);
           continue;
         }
 
-        // 3) max range or wall reached -> drop to the floor at the clamped position
+        // 3) max range or wall reached -> one last forgiving search around the clamped impact
+        // point (user-reported: "a throw aimed at a wall should land in the slot nearest the
+        // impact point, not the floor, when one is free within 0.9"), THEN drop to the floor.
         const hitWallX = nx < -HALF_W + CT || nx > HALF_W - CT;
         const hitWallZ = nz < -HALF_D + CT || nz > HALF_D - CT;
         if (f.dist >= THROW_MAX_RANGE || hitWallX || hitWallZ){
           const fx = clamp(nx, -HALF_W + CT + 0.1, HALF_W - CT - 0.1);
           const fz = clamp(nz, -HALF_D + CT + 0.1, HALF_D - CT - 0.1);
-          dropToFloor(f.kind, f.state, fx, fz);
+          const impactLanding = findNearestEmptyLanding(fx, fz);
+          if (impactLanding){
+            if (impactLanding.type === "board"){
+              impactLanding.board.item = { kind: f.kind, state: f.state };
+              impactLanding.board.progress = 0;
+            } else {
+              impactLanding.slot.item = { kind: f.kind, state: f.state };
+            }
+          } else {
+            dropToFloor(f.kind, f.state, fx, fz);
+          }
           G.flying.splice(i, 1);
           continue;
         }
 
         f.x = nx; f.z = nz;
       }
+    }
+
+    // Shared landing-surface search used by advanceFlyingItems above: finds the nearest EMPTY
+    // cutting board (either of the two, user-reported layout fix) / counter slot within
+    // THROW_LAND_R of (x,z), or null if nothing empty is in range (caller then either keeps
+    // flying or drops to the floor). Boards and slots are compared on equal footing by distance
+    // so whichever is genuinely closer wins, rather than always preferring one kind over the other.
+    const BOARD_STATIONS = ["cuttingBoard", "cuttingBoard2"];
+    function findNearestEmptyLanding(x, z){
+      let best = null, bestD = THROW_LAND_R;
+      for (const boardStId of BOARD_STATIONS){
+        const boardSt = stationById(boardStId);
+        const board = boardFor(boardSt);
+        if (board.item) continue;
+        // distance to the board's footprint (0 if inside it, else distance to the nearest edge)
+        const dx = Math.max(Math.abs(x - boardSt.x) - boardSt.w/2, 0);
+        const dz = Math.max(Math.abs(z - boardSt.z) - boardSt.d/2, 0);
+        const d = Math.hypot(dx, dz);
+        if (d <= bestD){ bestD = d; best = { type: "board", board }; }
+      }
+      for (const s of G.counterSlots){
+        if (s.item) continue;
+        const d = Math.hypot(x - s.x, z - s.z);
+        if (d <= bestD){ bestD = d; best = { type: "slot", slot: s }; }
+      }
+      return best;
     }
 
     // Adds a floor item, capping the total at FLOOR_ITEM_MAX (oldest despawns with a poof).
@@ -1703,17 +2091,23 @@
     const PAN_COOK_TIME = 6, PAN_OVERDONE_TIME = 6;      // 6s to grilled, +6s uncollected -> overdone
     const OVEN_BAKE_TIME = 10, OVEN_OVERDONE_TIME = 8;   // 10s to baked, +8s uncollected -> overdone
     const TEACH_HINT_DURATION = 20;   // seconds of cycling teaching hints at the start of each level
+    const STIR_SPEED_MULT = 1.5;      // NEW (user-reported WORK verb): stirring speeds pot cooking 1.5x
 
     // Advances the pot/pan/oven cook timers exactly like advanceFlyingItems/advanceCustomers —
     // pure host-side ticking, called every hostSim tick (incl. the hidden-tab heartbeat) so
     // cooking never stalls just because the host's rAF is suspended in a backgrounded tab.
     function advanceCookingStations(dt){
       if (G.pot.state === "cooking"){
-        G.pot.cookT += dt;
-        if (G.pot.cookT >= POT_COOK_TIME) { G.pot.state = "done"; G.pot.cookT = 0; }
+        // NEW: stirring (WORK-hold at the stove, see holdAction) speeds cooking 1.5x — works for
+        // either chef, host-authoritative off G.pot.stirringChefId (set/cleared in holdAction).
+        const stirring = !!(G.pot.stirringChefId && G.chefs[G.pot.stirringChefId]);
+        G.pot.cookT += dt * (stirring ? STIR_SPEED_MULT : 1);
+        if (G.pot.cookT >= POT_COOK_TIME) { G.pot.state = "done"; G.pot.cookT = 0; G.pot.stirringChefId = null; }
       } else if (G.pot.state === "done"){
         G.pot.cookT += dt;
         if (G.pot.cookT >= POT_OVERDONE_TIME) { G.pot.state = "overdone"; G.pot.cookT = 0; }
+      } else if (G.pot.stirringChefId){
+        G.pot.stirringChefId = null;   // pot's not cooking (empty/overdone) -- nothing to stir
       }
       if (G.pan.state === "cooking"){
         G.pan.cookT += dt;
@@ -2054,7 +2448,7 @@
       G.money = 0;
       G.dayLeft = DAY_LENGTH;
       G.stats = { served: 0, missed: 0, thrown: 0, caught: 0, floorDrops: 0, tips: 0, orderedCount: 0 };
-      G.board = { item: null, progress: 0 };
+      G.boards = [{ item: null, progress: 0 }, { item: null, progress: 0 }];
       G.plate = { contents: [] };
       G.customers = [];
       G.nextCustomerId = 1;
@@ -2073,7 +2467,7 @@
       G.refusalHintId = 0;
       G.refusalHintChef = null;
       G.refusalHintMsg = "";
-      G.pot = { contents: [], cookT: 0, state: "empty" };
+      G.pot = { contents: [], cookT: 0, state: "empty", stirringChefId: null };
       G.pan = { item: null, cookT: 0, state: "empty" };
       G.oven = { item: null, bakeT: 0, state: "empty" };
       G.teachT = TEACH_HINT_DURATION;
@@ -2122,6 +2516,11 @@
                               // victory overlay) is what the players see next
       G.levelSelectOpen = true;
       publishSnapshotNow();
+      // family lobby: day-end returns to level-select — the closest thing this game has to "back
+      // to title" (G.titleOpen itself never re-opens once COOK! is first pressed, see its own
+      // comment) — so this is the lifecycle point that flips the lobby doc back to "open" per the
+      // design doc ("back-to-title (day end) → status→open again"). No-op in solo/couch/offline.
+      updateLobbyDoc({ status: "open" });
     }
 
     // =====================================================================================
@@ -2322,16 +2721,16 @@
     scene.add(sun);
 
     // Half-extent of everything that must stay on-screen: the kitchen footprint (including
-    // the border counters) plus a little slack for the decor sitting just outside it. Systems
-    // pass 2: the customer queue lane extends further out past the top wall than the old decor
-    // slack covered — zoom out enough to comfortably frame the first few queued customers (the
-    // ones actually "visible beyond the wall" per the design doc) without shrinking the kitchen
-    // itself down to a speck to fit the FULL queue (which trails off toward the horizon like any
-    // Overcooked-style queue — that compression is expected, not a bug).
-    const SCENE_HALF_W = HALF_W + 1.6;
-    const QUEUE_VISIBLE_SLOTS = 2.5;   // how many queue slots' worth of depth to guarantee comfortably framed
+    // the border counters) plus a little slack for the decor sitting just outside it.
+    // User-reported fix ("zoom in a bit"): only the window row + the FIRST queued customer need
+    // to stay guaranteed-visible — the old QUEUE_VISIBLE_SLOTS=2.5 framed a full ~2.5 slots of
+    // queue depth, which was most of the reason the kitchen itself read as small/distant (lots of
+    // dead blue space above the top wall in practice). Cut to just past one slot so the queue
+    // still peeks into frame without dictating the whole camera distance.
+    const SCENE_HALF_W = HALF_W + 1.2;
+    const QUEUE_VISIBLE_SLOTS = 1.15;   // just the first queued customer, not the whole line
     const QUEUE_LANE_EXTENT = Math.abs(QUEUE_Z0) + QUEUE_VISIBLE_SLOTS * QUEUE_STEP;
-    const SCENE_HALF_D = Math.max(HALF_D + 1.6, QUEUE_LANE_EXTENT);
+    const SCENE_HALF_D = Math.max(HALF_D + 1.2, QUEUE_LANE_EXTENT);
     function fitCamera(){
       const w = stage.clientWidth, h = stage.clientHeight;
       renderer.setSize(w, h);
@@ -2352,7 +2751,10 @@
       const distForV = vertHalfExtent / Math.tan(vFov / 2);
       // Horizontal framing is unaffected by the tilt (rotation is purely around x).
       const distForH = SCENE_HALF_W / Math.tan(hFov / 2);
-      const dist = Math.max(distForV, distForH) * 1.18 + 2; // small safety margin
+      // User-reported fix ("zoom in a bit"): tightened safety-margin multiplier from 1.18 to 1.0
+      // and the flat add-on from 2 to 1 — roughly 12-18% closer overall across aspect ratios,
+      // still with a small margin so nothing clips at the frame edge.
+      const dist = Math.max(distForV, distForH) * 1.0 + 1; // small safety margin
 
       camera.position.set(0, dist * Math.sin(angle), dist * Math.cos(angle) + 2.4);
       camera.lookAt(0, 0, -0.6);
@@ -2499,15 +2901,19 @@
     loadStaticProp("trash-can", "assets/trash-can.glb", { maxDim: 0.9 });
     loadStaticProp("sink", "assets/sink.glb", { maxDim: 1.6 });
     loadStaticProp("dish-tray", "assets/dish-tray.glb", { maxDim: 1.3 });
-    // ingredients: scale to current procedural sizes (~0.35-0.5 units) per the design doc.
-    loadStaticProp("tomato", "assets/tomato.glb", { maxDim: 0.4 });
-    loadStaticProp("lettuce", "assets/lettuce.glb", { maxDim: 0.45 });
-    loadStaticProp("onion", "assets/onion.glb", { maxDim: 0.38 });
-    loadStaticProp("potato", "assets/potato.glb", { maxDim: 0.4 });
-    loadStaticProp("bun", "assets/bun.glb", { maxDim: 0.42 });
-    loadStaticProp("patty", "assets/patty.glb", { maxDim: 0.38 });
-    loadStaticProp("dough", "assets/dough.glb", { maxDim: 0.45 });
-    loadStaticProp("cheese", "assets/cheese.glb", { maxDim: 0.4 });
+    // ingredients: user-reported fix ("food models a lot bigger and more obvious") — bumped from
+    // the original ~0.35-0.45 procedural-matching sizes up to ~0.65-0.8 world units per the
+    // design doc. This targetSize feeds cloneStaticProp everywhere an ingredient GLB renders
+    // (crate displays via buildCrateGLB, held/counter/floor/flying via makeRawItemMesh), so one
+    // change here covers all of those contexts at once.
+    loadStaticProp("tomato", "assets/tomato.glb", { maxDim: 0.72 });
+    loadStaticProp("lettuce", "assets/lettuce.glb", { maxDim: 0.78 });
+    loadStaticProp("onion", "assets/onion.glb", { maxDim: 0.68 });
+    loadStaticProp("potato", "assets/potato.glb", { maxDim: 0.7 });
+    loadStaticProp("bun", "assets/bun.glb", { maxDim: 0.72 });
+    loadStaticProp("patty", "assets/patty.glb", { maxDim: 0.68 });
+    loadStaticProp("dough", "assets/dough.glb", { maxDim: 0.78 });
+    loadStaticProp("cheese", "assets/cheese.glb", { maxDim: 0.7 });
     // Tier-1 batch: Bucky the baby goat — static prop loader pattern (same as every other GLB
     // above), height ~0.9 per the design doc, feet on ground (cloneStaticProp already does that
     // via its minY offset — see buildBuckyMesh below for how it's used).
@@ -2637,6 +3043,10 @@
       stationMeshes[st.id] = { group: g, itemGroup, barGroup, fill, highlightTargets: [highlightTarget], usingGLB: !!PROP_TEMPLATES["cutting-board"] };
     }
     buildBoard(stationById("cuttingBoard"));
+    // user-reported layout fix: SECOND cutting board — buildBoard is already fully generic on
+    // `st` (keys stationMeshes by st.id), so building it again for cuttingBoard2 is all that's
+    // needed; syncBoardVisual below now syncs both by iterating BOARD_STATIONS.
+    buildBoard(stationById("cuttingBoard2"));
     // (hot-swap for this station is handled by the declarative syncPropStationVisuals() sweep
     // further down this file, alongside every other single-instance prop station.)
 
@@ -2834,8 +3244,19 @@
       g.add(steamGroup);
       const bar = buildMiniProgressBar(st.x, st.z, CH + 1.35);
       g.add(bar.barGroup);
+      // NEW (user-reported WORK verb): stir spoon — a small wooden-look stick that pops in and
+      // swirls around the rim while G.pot.stirringChefId is set, hidden otherwise. Simple
+      // procedural shape (no GLB asset for this) since it's a cosmetic cue, not a prop station.
+      const spoon = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.34, 6), mat(0xb8875a, true));
+      const spoonBulb = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), mat(0x8a5a34, true));
+      spoonBulb.position.y = -0.17;
+      spoon.add(spoonBulb);
+      spoon.position.set(st.x, lidY + 0.2, st.z);
+      spoon.rotation.x = Math.PI / 5;
+      spoon.visible = false;
+      g.add(spoon);
       scene.add(g);
-      stationMeshes[st.id] = { group: g, liquid, lid, lidBaseX: st.x, lidBaseY: lidY, lidBaseZ: st.z, steamGroup, steamBits, bar, highlightTargets: [highlightTarget], usingGLB: !!(PROP_TEMPLATES.stove && PROP_TEMPLATES.pot) };
+      stationMeshes[st.id] = { group: g, liquid, lid, lidBaseX: st.x, lidBaseY: lidY, lidBaseZ: st.z, steamGroup, steamBits, bar, spoon, spoonBaseX: st.x, spoonBaseZ: st.z, highlightTargets: [highlightTarget], usingGLB: !!(PROP_TEMPLATES.stove && PROP_TEMPLATES.pot) };
     }
     buildStove(stationById("stove"));
 
@@ -3050,8 +3471,12 @@
       shadow.position.y = 0.02;
       g.add(shadow);
 
+      // User-reported fix ("held items barely visible"): lowered from the old 0.85 (level with
+      // the head, so a scaled-up held item covered the face) to clear chest height, pushed
+      // forward a touch more (0.42 -> 0.5) to read clearly in front of the body rather than
+      // overlapping it — same reasoning as the GLB chef's heldSlot placement above.
       const heldSlot = new THREE.Group();
-      heldSlot.position.set(0, 0.85, 0.42);
+      heldSlot.position.set(0, 0.62, 0.5);
       g.add(heldSlot);
 
       scene.add(g);
@@ -3084,18 +3509,16 @@
       shadow.position.y = 0.02;
       g.add(shadow);
 
-      // hang the held-item slot off the RightHand bone if present so held ingredients/plates
-      // track the arm; otherwise use the same fixed front-of-chest offset as the procedural chef.
-      let handBone = null;
-      clone.traverse(o => { if (o.isBone && /RightHand/i.test(o.name)) handBone = o; });
+      // Held-item slot: user-reported fix ("held items barely visible") — previously hung off the
+      // RightHand bone, but the idle/run clips' natural arm rest pose swings the hand out to the
+      // SIDE (not forward), so a held item tracked there read as a small blob floating off to one
+      // side rather than a clear "I'm carrying this" read. Anchored at a fixed front-of-chest
+      // offset on the main group instead (same convention the procedural chef always used, and
+      // the same fallback this GLB path already had when no hand bone was found) — consistent,
+      // camera-facing placement regardless of whatever the current animation clip's arm pose is.
       const heldSlot = new THREE.Group();
-      if (handBone){
-        heldSlot.position.set(0, -0.05, 0.08);
-        handBone.add(heldSlot);
-      } else {
-        heldSlot.position.set(0, 0.85, 0.42);
-        g.add(heldSlot);
-      }
+      heldSlot.position.set(0, 0.58, 0.56);
+      g.add(heldSlot);
 
       // both-upper-arms-forward "holding pose" blend: the idle clip is a casual strut (known
       // limitation, per the design doc) — while the chef holds something we nudge the
@@ -3183,12 +3606,16 @@
     // materials are created ONCE here and shared across every Mesh instance. Meshes
     // themselves are cheap to create/discard each frame; unique geometry per call is what
     // leaks GPU buffers when old meshes are only detached (group.clear()) instead of disposed.
+    // User-reported fix ("food models a lot bigger and more obvious"): procedural-fallback
+    // ingredient geometry (used when a GLB hasn't loaded yet, or for kinds with no GLB) bumped
+    // ~1.7x — same target range (~0.65-0.8 world units) as the GLB ingredient targetSize bump
+    // above, so the two paths read consistently sized whichever one happens to be showing.
     const plateWhiteM = mat(0xffffff);
-    const geoRawBox = new THREE.BoxGeometry(0.26, 0.26, 0.26);
-    const geoRawSphere = new THREE.SphereGeometry(0.17, 8, 6);
-    const geoSliceBox = new THREE.BoxGeometry(0.14, 0.1, 0.14);
-    const geoBitBox = new THREE.BoxGeometry(0.09, 0.06, 0.09);
-    const geoPlate = new THREE.CylinderGeometry(0.26, 0.26, 0.05, 16);
+    const geoRawBox = new THREE.BoxGeometry(0.44, 0.44, 0.44);
+    const geoRawSphere = new THREE.SphereGeometry(0.29, 8, 6);
+    const geoSliceBox = new THREE.BoxGeometry(0.24, 0.17, 0.24);
+    const geoBitBox = new THREE.BoxGeometry(0.15, 0.1, 0.15);
+    const geoPlate = new THREE.CylinderGeometry(0.3, 0.3, 0.05, 16);
     // Systems pass 3: shared geometries+materials for the non-crate special item states
     // (grilled/overdone patty, gray trash blob, pizza base/sauce/cheese layers) — created ONCE
     // here (not per-call inside the make*Mesh functions below), same leak-avoidance convention
@@ -3202,11 +3629,12 @@
     const sauceM = mat(0xc23a1a, true);
     const cheeseTopM = mat(0xffd23f, true);
     const bakedPizzaM = mat(0xe8a83c, true);
-    const geoPattyPuck = new THREE.CylinderGeometry(0.16, 0.16, 0.08, 12);
-    const geoTrashBlob = new THREE.SphereGeometry(0.16, 8, 6);
-    const geoPizzaBase = new THREE.CylinderGeometry(0.24, 0.24, 0.05, 16);
-    const geoPizzaSauce = new THREE.CylinderGeometry(0.2, 0.2, 0.02, 16);
-    const geoCheeseBit = new THREE.BoxGeometry(0.05, 0.03, 0.05);
+    // (bumped ~1.7x alongside the raw/chopped ingredient geometry above, same food-scale pass)
+    const geoPattyPuck = new THREE.CylinderGeometry(0.27, 0.27, 0.13, 12);
+    const geoTrashBlob = new THREE.SphereGeometry(0.27, 8, 6);
+    const geoPizzaBase = new THREE.CylinderGeometry(0.4, 0.4, 0.08, 16);
+    const geoPizzaSauce = new THREE.CylinderGeometry(0.34, 0.34, 0.03, 16);
+    const geoCheeseBit = new THREE.BoxGeometry(0.08, 0.05, 0.08);
     // ingredient-kind material cache: mat() creates a new THREE.Material each call, so building
     // one per kind ONCE and reusing it (instead of calling mat() inside the hot per-frame mesh
     // builders below) avoids leaking a fresh material object every frame for every visible item.
@@ -3372,6 +3800,7 @@
     // fixtures, unlike the chef).
     const PROP_STATION_REBUILDERS = [
       { id: "cuttingBoard", ready: () => !!PROP_TEMPLATES["cutting-board"], rebuild: () => buildBoard(stationById("cuttingBoard")) },
+      { id: "cuttingBoard2", ready: () => !!PROP_TEMPLATES["cutting-board"], rebuild: () => buildBoard(stationById("cuttingBoard2")) },
       { id: "trashBin",     ready: () => !!PROP_TEMPLATES["trash-can"],     rebuild: () => buildTrash(stationById("trashBin")) },
       { id: "stove",        ready: () => !!(PROP_TEMPLATES.stove && PROP_TEMPLATES.pot), rebuild: () => buildStove(stationById("stove")) },
       { id: "pan",          ready: () => !!PROP_TEMPLATES.pan,              rebuild: () => buildPan(stationById("pan")) },
@@ -3474,6 +3903,28 @@
       if (kind === "pizzaDish") return makePizzaMesh("baked");
       if (kind === "dirtyPlate") return makeDirtyPlateMesh();   // Systems pass 4
       return state === "raw" ? makeRawItemMesh(kind) : makeChoppedGroup(kind);
+    }
+
+    // ---- held-item legibility pass (user-reported fix) ----
+    // Held items render 1.5x their normal world size so they read instantly in a chef's hands,
+    // plus a soft white outline ring / drop-shadow disc underneath so they pop against any
+    // background (kitchen floor, counters, other chefs). Shared geometry/material, built once.
+    const HELD_ITEM_SCALE = 1.5;
+    const heldShadowGeo = new THREE.CircleGeometry(0.24, 16);
+    const heldShadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25 });
+    function makeHeldShadowDisc(){
+      const disc = new THREE.Mesh(heldShadowGeo, heldShadowMat);
+      disc.rotation.x = -Math.PI / 2;
+      return disc;
+    }
+    const heldRingMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, side: THREE.DoubleSide });
+    const heldRingGeoCache = {};
+    function makeHeldOutlineRing(radius){
+      let geo = heldRingGeoCache[radius];
+      if (!geo){ geo = heldRingGeoCache[radius] = new THREE.RingGeometry(radius * 0.82, radius, 20); }
+      const ring = new THREE.Mesh(geo, heldRingMat);
+      ring.rotation.x = -Math.PI / 2;
+      return ring;
     }
 
     // ---- FX: confetti + poof, freeing geometry/materials when done ----
@@ -3885,26 +4336,33 @@
     // throw/emote presses) AND readMoveInput/readMoveInput2 (movement) each frame. Purely local
     // UI state, never touches G (irrelevant outside couch mode, where it's always net.myChefId).
     let mostRecentActingChefId = LOCAL_SOLO_ID;
+    // ---- user-reported control restructure: GRAB / WORK / THROW as three separate verbs ----
+    // GRAB (Space/Enter/touch🖐): the existing pick-up-put-down family — tryAction, unchanged.
+    // WORK (NEW — C or F for P1, Right-Ctrl for P2-couch, touch🔪): hold-to-chop/wash/stir — was
+    // previously bundled onto the SAME key as grab (Space), which is exactly the bug this splits
+    // apart. holdAction() below now ONLY runs off the work-hold flag, never off grab's tap key.
+    // THROW (X/Shift/touch🎯): unchanged.
+    // Emotes move: P2-couch emote moves off Right-Ctrl (now WORK) onto Period (.); P1 stays E.
     window.addEventListener("keydown", (e) => {
       const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
       if (["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"," ","Enter"].includes(e.key)) e.preventDefault();
 
       if (G.couchMode){
-        // ---- P2: Arrow keys (move) + Enter (action) + Right-Shift (throw) + Right-Ctrl (emote) ----
+        // ---- P2: Arrow keys (move) + Enter (grab) + Right-Shift (throw) + Right-Ctrl (WORK, hold)
+        // + Period (emote, moved off Right-Ctrl so WORK has its own key) ----
         if (e.key === "Enter" && !keys.has("Enter")){ tryAction(LOCAL2_ID); mostRecentActingChefId = LOCAL2_ID; }
         if (e.key === "Shift" && e.location === KeyboardEvent.DOM_KEY_LOCATION_RIGHT && !keys.has("ShiftRight")){
           tryThrow(LOCAL2_ID); mostRecentActingChefId = LOCAL2_ID;
         }
-        if (e.key === "Control" && e.location === KeyboardEvent.DOM_KEY_LOCATION_RIGHT && !keys.has("ControlRight")){
-          cycleEmote(LOCAL2_ID);
-        }
-        // ---- P1: WASD + Space (action) + Q (throw) + E (emote) — X/left-Shift belong to nobody
-        // in couch mode (kept clean per the design doc), so they're deliberately NOT wired here.
+        if (k === "." && !keys.has(".")) cycleEmote(LOCAL2_ID);
+        // ---- P1: WASD + Space (grab) + C/F (WORK, hold) + Q (throw) + E (emote) — X/left-Shift
+        // belong to nobody in couch mode (kept clean per the design doc), so they're deliberately
+        // NOT wired here. ----
         if (k === " " && !keys.has(" ")){ net.localActionPress(); mostRecentActingChefId = net.myChefId; }
         if (k === "q" && !keys.has("q")){ net.localThrowPress(); mostRecentActingChefId = net.myChefId; }
         if (k === "e" && !keys.has("e")) net.localEmotePress();
       } else {
-        // ---- Non-couch: original single-chef control scheme (WASD/arrows + Space + X/either-Shift) ----
+        // ---- Non-couch: original single-chef control scheme, WORK added on C or F ----
         if (k === " " && !keys.has(" ")) net.localActionPress();
         if ((k === "x" || k === "Shift") && !keys.has(k)) net.localThrowPress();
         if (k === "e" && !keys.has("e")) net.localEmotePress();
@@ -3922,6 +4380,27 @@
       if (e.key === "Control" && e.location === KeyboardEvent.DOM_KEY_LOCATION_RIGHT) keys.delete("ControlRight");
       keys.delete(k);
     });
+
+    // ---- user-reported stuck-keys fix (#8b root cause): the `keys` Set (and the touch
+    // hold-flags) never cleared when the window lost focus, so a keyup that never reached this
+    // page (tab-switch mid-press, click outside the window, OS-level focus steal) left a key
+    // "stuck" in the Set forever — e.g. `keys.has(" ")` stays true, and the `!keys.has(" ")` tap
+    // guard in the keydown handler above then suppresses EVERY future Space press until another
+    // keyup event for Space happens to arrive (which may never happen again this session). This
+    // is the "grab button randomly stops working" bug: reproduced by dispatching a keydown,
+    // blurring the window (simulating a tab switch), then dispatching a keyup that the page never
+    // sees — the tap guard stays permanently latched. Fix: clear all latched input state on
+    // window blur, document visibilitychange (covers mobile app-switch/lock), and pointercancel
+    // (covers a touch drag being cancelled by the OS mid-gesture) so a lost keyup/pointerup can
+    // never permanently wedge an input.
+    function clearAllInputLatches(){
+      keys.clear();
+      touchWorkHolding = false;
+      touchMove.dx = 0; touchMove.dz = 0;
+    }
+    window.addEventListener("blur", clearAllInputLatches);
+    document.addEventListener("visibilitychange", () => { if (document.hidden) clearAllInputLatches(); });
+    window.addEventListener("pointercancel", clearAllInputLatches);
 
     function readMoveInput(){
       let dx = 0, dz = 0;
@@ -3964,13 +4443,20 @@
     // ================== touch controls (Stage 4) ==================
     // Only shown on coarse-pointer (touch) devices. Routes through the EXACT SAME input path as
     // keyboard: the joystick just contributes to the same dx/dz read by readMoveInput() above,
-    // and the action button calls the SAME net.localActionPress() a spacebar keydown calls (tap)
-    // and sets the SAME kind of "holding" flag the main loop reads via keys.has(" ") for hold-
-    // to-chop — so multiplayer semantics (host tryAction/holdAction, guest actSeq/holdingSpace)
-    // are identical regardless of input device.
+    // the grab (action) button calls the SAME net.localActionPress() a spacebar keydown calls
+    // (tap), and the WORK button sets the SAME kind of "holding" flag the main loop reads via
+    // keys.has("c")/("f") for hold-to-chop/wash/stir — so multiplayer semantics (host
+    // tryAction/holdAction, guest actSeq/workHold) are identical regardless of input device.
     const isTouchDevice = window.matchMedia("(pointer:coarse)").matches || ("ontouchstart" in window);
+    // Hint-text labels for the two verbs, device-aware (touch shows the button glyph, keyboard
+    // shows the key name) — used by updateHUD's teach/contextual hints below so the on-screen
+    // instructions always match whatever input method is actually available.
+    const GRAB_KEY_LABEL = isTouchDevice ? "🖐" : "SPACE";
+    const WORK_KEY_LABEL = isTouchDevice ? "🔪" : "C";
     const touchMove = { dx: 0, dz: 0 };
-    let touchHolding = false;   // merged into the main loop's holdingSpace read below
+    // GRAB is tap-only now (the user-reported control split moved chop/wash/stir to its own WORK
+    // verb below) — no hold-flag needed for the action button any more, just the discrete tap.
+    let touchWorkHolding = false;   // merged into the main loop's WORK-hold read (chop/wash/stir)
     if (isTouchDevice){
       document.body.classList.add("touchAware");
 
@@ -3985,7 +4471,7 @@
         joyKnob.style.left = (kx - r.left - 24) + "px"; joyKnob.style.top = (ky - r.top - 24) + "px";
       }
       touchLayer.addEventListener("pointerdown", (e) => {
-        if (e.target.closest("#actionBtn") || e.target.closest("#throwBtn")) return;   // buttons handle their own pointerdown
+        if (e.target.closest("#actionBtn") || e.target.closest("#throwBtn") || e.target.closest("#workBtn")) return;   // buttons handle their own pointerdown
         const r = stage.getBoundingClientRect();
         if (e.clientX - r.left > r.width / 2) return;   // joystick only lives on the left half
         joy = { id: e.pointerId, ox: e.clientX, oy: e.clientY };
@@ -4009,23 +4495,37 @@
       window.addEventListener("pointerup", endJoy);
       window.addEventListener("pointercancel", endJoy);
 
-      // action button: tap = one tryAction press (same call a spacebar keydown makes); holding
-      // it down continuously feeds holdAction via the same "holdingSpace" flag the main loop
-      // already reads for the keyboard path (see touchHolding merge below).
+      // GRAB (action) button: tap = one tryAction press (same call a spacebar keydown makes) —
+      // tap-only, per the user-reported control split (chop/wash/stir moved to the WORK button
+      // below, so grab no longer needs a hold-flag of its own).
       const actionBtn = document.getElementById("actionBtn");
       actionBtn.addEventListener("pointerdown", (e) => {
         e.preventDefault();
         actionBtn.classList.add("pressed");
-        touchHolding = true;
         net.localActionPress();   // identical call path to a keyboard spacebar keydown
       });
       function releaseActionBtn(){
         actionBtn.classList.remove("pressed");
-        touchHolding = false;
       }
       actionBtn.addEventListener("pointerup", releaseActionBtn);
       actionBtn.addEventListener("pointercancel", releaseActionBtn);
       actionBtn.addEventListener("pointerleave", releaseActionBtn);
+
+      // WORK button (NEW, user-reported control split): hold-to-chop/wash/stir, its OWN verb
+      // separate from grab — sets touchWorkHolding, read by the main loop's workHold flag.
+      const workBtn = document.getElementById("workBtn");
+      workBtn.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        workBtn.classList.add("pressed");
+        touchWorkHolding = true;
+      });
+      function releaseWorkBtn(){
+        workBtn.classList.remove("pressed");
+        touchWorkHolding = false;
+      }
+      workBtn.addEventListener("pointerup", releaseWorkBtn);
+      workBtn.addEventListener("pointercancel", releaseWorkBtn);
+      workBtn.addEventListener("pointerleave", releaseWorkBtn);
 
       // throw button (Systems pass 1): tap = one net.localThrowPress(), routed through the EXACT
       // same net layer path as the action button (host runs tryThrow directly, guest bumps
@@ -4136,7 +4636,7 @@
       if (vis.mixer){
         const a = vis.actions;
         const st = nearestStation(chef);
-        const chopping = !!(st && st.type === "board" && G.board.item && G.board.item.state === "raw" && G.board.progress > 0 && G.board.progress < 1);
+        const chopping = !!(st && st.type === "board" && boardFor(st).item && boardFor(st).item.state === "raw" && boardFor(st).progress > 0 && boardFor(st).progress < 1);
         const washing = G.sink.washingChef === chefId;
         const throwing = (throwWindupT[chefId] || 0) > 0 || (vis.throwAnimT || 0) > 0;
         // one-shot throw: fires the instant a wind-up starts, plays for ~0.5s at 1.5x speed, then
@@ -4187,11 +4687,22 @@
         }
       }
 
-      // held item render
+      // held item render — user-reported fix ("held items barely visible"): held items now
+      // render at HELD_ITEM_SCALE (1.5x their normal world size), pulled forward/up a bit more so
+      // they clear the chest instead of nesting into it (checked against all 3 chef models —
+      // procedural + all 3 GLB rigs share the same heldSlot attach convention, see buildChefGLB/
+      // buildChefProcedural above), plus a soft drop-shadow disc directly under the item so it
+      // pops against any background regardless of held-item silhouette/color.
       for (const m of vis.heldMeshes){ vis.heldSlot.remove(m); }
       vis.heldMeshes.length = 0;
       if (chef.holding){
         const bobHeld = Math.sin(performance.now() / 260) * 0.05;
+        const holdWrap = new THREE.Group();
+        holdWrap.position.set(0, 0, 0.08);   // small extra forward nudge from the slot's own chest anchor
+        holdWrap.scale.setScalar(HELD_ITEM_SCALE);
+        const shadowDisc = makeHeldShadowDisc();
+        shadowDisc.position.y = -0.02;
+        holdWrap.add(shadowDisc);
         if (chef.holding.kind === "plate" && chef.holding.contents){
           const p = makePlateMesh();
           p.position.y = bobHeld;
@@ -4199,18 +4710,24 @@
           const n = chef.holding.contents.length || 1;
           for (const item of chef.holding.contents){
             const ig = makeItemMesh(item.kind, item.state);
-            ig.position.set((i - (n-1)/2) * 0.18, 0.05, 0);
+            ig.position.set((i - (n-1)/2) * 0.22, 0.05, 0);
             p.add(ig);
             i++;
           }
-          vis.heldSlot.add(p);
-          vis.heldMeshes.push(p);
+          holdWrap.add(p);
+          const ring = makeHeldOutlineRing(0.34);
+          ring.position.y = bobHeld + 0.03;
+          holdWrap.add(ring);
         } else {
           const m = makeItemMesh(chef.holding.kind, chef.holding.state);
           m.position.y = 0.15 + bobHeld;
-          vis.heldSlot.add(m);
-          vis.heldMeshes.push(m);
+          holdWrap.add(m);
+          const ring = makeHeldOutlineRing(0.22);
+          ring.position.y = 0.02;
+          holdWrap.add(ring);
         }
+        vis.heldSlot.add(holdWrap);
+        vis.heldMeshes.push(holdWrap);
       }
     }
 
@@ -4283,15 +4800,21 @@
     }
 
     function syncBoardVisual(){
-      const sm = stationMeshes.cuttingBoard;
-      sm.itemGroup.clear();
-      if (G.board.item){
-        sm.itemGroup.add(makeItemMesh(G.board.item.kind, G.board.item.state));
+      // user-reported layout fix: syncs BOTH boards now, same per-board logic as before just
+      // looped over BOARD_STATIONS instead of hardcoded to the single old cuttingBoard.
+      for (const boardStId of BOARD_STATIONS){
+        const sm = stationMeshes[boardStId];
+        if (!sm) continue;
+        const board = boardFor(stationById(boardStId));
+        sm.itemGroup.clear();
+        if (board.item){
+          sm.itemGroup.add(makeItemMesh(board.item.kind, board.item.state));
+        }
+        const chopping = board.item && board.item.state === "raw" && board.progress > 0;
+        sm.barGroup.visible = chopping || (board.progress > 0 && board.progress < 1);
+        sm.fill.scale.x = Math.max(0.001, board.progress);
+        sm.fill.position.x = -0.94/2 * (1 - Math.max(0.001, board.progress));
       }
-      const chopping = G.board.item && G.board.item.state === "raw" && G.board.progress > 0;
-      sm.barGroup.visible = chopping || (G.board.progress > 0 && G.board.progress < 1);
-      sm.fill.scale.x = Math.max(0.001, G.board.progress);
-      sm.fill.position.x = -0.94/2 * (1 - Math.max(0.001, G.board.progress));
     }
 
     function syncPlateVisual(dt){
@@ -4376,6 +4899,20 @@
         if (G.pot.state === "cooking"){ active = true; frac = G.pot.cookT / POT_COOK_TIME_RENDER; amber = frac > 0.7; }
         else if (G.pot.state === "done"){ active = true; frac = 1 - G.pot.cookT / POT_OVERDONE_TIME_RENDER; amber = frac < 0.4; }
         updateMiniBar(potSm.bar, frac, active, amber);
+
+        // NEW (user-reported WORK verb): stir spoon-swirl — visible only while someone is
+        // actively stirring (G.pot.stirringChefId set AND the pot's actually cooking), circles
+        // around the rim so it reads as an active stirring motion rather than a static prop.
+        if (potSm.spoon){
+          const stirring = !!(G.pot.stirringChefId && G.pot.state === "cooking");
+          potSm.spoon.visible = stirring;
+          if (stirring){
+            const st = performance.now() / 260;
+            potSm.spoon.position.x = potSm.spoonBaseX + Math.cos(st) * 0.14;
+            potSm.spoon.position.z = potSm.spoonBaseZ + Math.sin(st) * 0.14;
+            potSm.spoon.rotation.y = st * 2;
+          }
+        }
       }
       // ---- pan ----
       const panSm = stationMeshes.pan;
@@ -4811,6 +5348,12 @@
     custBubbleLayer.style.cssText = "position:absolute; inset:0; pointer-events:none; z-index:14;";
     document.getElementById("hud").appendChild(custBubbleLayer);
     const custBubbleEls = new Map();   // customer.id -> element
+    // User-reported fix ("bubbles overlap"): fallback width estimate used by the de-overlap sweep
+    // before a freshly-created bubble has actually been laid out once (offsetWidth reads 0 on the
+    // very first frame it exists) — .custBubble's CSS min-width below matches this number so the
+    // estimate and the real measured width converge immediately.
+    const BUBBLE_EST_WIDTH = 40;
+    const BUBBLE_GAP = 6;   // minimum breathing room between two adjacent bubbles, in px
 
     function ensureCustomerVisual(c){
       let entry = customerMeshesById.get(c.id);
@@ -4912,13 +5455,22 @@
         }
 
         // speech bubble + spot badge: only while "ordering" (dish about to reveal) or "waiting"
-        // (dish + spot shown above their head), per the design doc.
+        // (dish + spot shown above their head), per the design doc. User-reported fix ("order/
+        // speech bubbles overlap"): bubble creation/content + its RAW (pre-de-overlap) anchor
+        // position are computed here in the per-customer loop same as before; the actual
+        // horizontal de-overlap + final left/top placement now happens in ONE combined pass
+        // AFTER this loop (layoutCustomerBubbles below) so bubbles can be pushed apart relative
+        // to every OTHER currently-visible bubble, not just positioned independently.
         let bubble = custBubbleEls.get(c.id);
         const wantsBubble = (c.state === "ordering" || c.state === "waiting") && c.dish;
         if (wantsBubble && !bubble){
           bubble = document.createElement("div");
-          bubble.style.cssText = "position:absolute; transform:translate(-50%,-100%); font-size:22px; " +
-            "background:#fff; border-radius:10px; padding:2px 7px; box-shadow:0 2px 6px rgba(0,0,0,.3); white-space:nowrap;";
+          bubble.className = "custBubble";
+          const tail = document.createElement("div");
+          tail.className = "custBubbleTail";
+          bubble.appendChild(tail);
+          const label = document.createElement("span");
+          bubble.appendChild(label);
           custBubbleLayer.appendChild(bubble);
           custBubbleEls.set(c.id, bubble);
         } else if (!wantsBubble && bubble){
@@ -4928,7 +5480,7 @@
         }
         if (bubble){
           const recipe = RECIPES[c.dish] || RECIPES.salad;
-          bubble.textContent = recipe.emoji + (c.state === "waiting" ? " " + c.spot : "");
+          bubble.lastChild.textContent = recipe.emoji + (c.state === "waiting" ? " " + c.spot : "");
           const p = new THREE.Vector3(c.x, 1.05, c.z).project(camera);
           const stageRect = stage.getBoundingClientRect();
           const sx = (p.x * 0.5 + 0.5) * stageRect.width;
@@ -4937,13 +5489,55 @@
           // projected screen position, own slower clock so it doesn't sync with the body bounce)
           // — a subtle "breathing" idle cue while a customer waits for their order/spot.
           const bobPx = Math.sin(performance.now() / 480 + c.id) * 3;
-          bubble.style.left = sx + "px";
-          bubble.style.top = (sy + bobPx) + "px";
-          bubble.style.display = (p.z > 1) ? "none" : "block";   // hide if behind the camera
+          bubble._anchorX = sx;
+          bubble._anchorY = sy + bobPx;
+          bubble._behindCamera = p.z > 1;
         }
       }
+      layoutCustomerBubbles();
       for (const id of Array.from(customerMeshesById.keys())){
         if (!seen.has(id)) removeCustomerVisual(id);
+      }
+    }
+
+    // ---- user-reported fix: horizontal de-overlap pass for customer speech bubbles ----
+    // Runs once per frame after every bubble's raw (pre-de-overlap) anchor position has been
+    // computed above. Simple greedy sweep: sort left-to-right by anchor x, then walk the list
+    // pushing any bubble that would overlap its left neighbor further right by just enough to
+    // clear it (and pulls its neighbor left a matching amount so the pair spreads symmetrically
+    // around their shared midpoint rather than only one side moving) — a small connector "tail"
+    // (a little triangle, see .custBubbleTail CSS) stays anchored at the ORIGINAL (un-shifted)
+    // x position so each bubble visibly still points down at its own customer even after being
+    // nudged sideways.
+    function layoutCustomerBubbles(){
+      const active = [];
+      for (const [id, bubble] of custBubbleEls){
+        if (bubble._anchorX == null) continue;
+        active.push(bubble);
+      }
+      active.sort((a, b) => a._anchorX - b._anchorX);
+      // final x starts equal to the anchor x; the sweep below only adjusts `_finalX`, leaving
+      // `_anchorX` untouched so the tail can still point at the true customer position.
+      for (const b of active) b._finalX = b._anchorX;
+      for (let i = 1; i < active.length; i++){
+        const prev = active[i - 1], cur = active[i];
+        const minGap = (prev.offsetWidth || BUBBLE_EST_WIDTH) / 2 + (cur.offsetWidth || BUBBLE_EST_WIDTH) / 2 + BUBBLE_GAP;
+        const gap = cur._finalX - prev._finalX;
+        if (gap < minGap){
+          const push = (minGap - gap) / 2;
+          prev._finalX -= push;
+          cur._finalX += push;
+        }
+      }
+      for (const bubble of active){
+        bubble.style.left = bubble._finalX + "px";
+        bubble.style.top = bubble._anchorY + "px";
+        bubble.style.display = bubble._behindCamera ? "none" : "block";
+        // tail: offset (in the OPPOSITE direction) by however far this bubble got pushed, so it
+        // still visually connects back down to the customer's true screen x (anchorX) even though
+        // the bubble body itself now sits at finalX.
+        const tailOffset = bubble._anchorX - bubble._finalX;
+        bubble.firstChild.style.transform = `translateX(${tailOffset}px)`;
       }
     }
 
@@ -5251,7 +5845,7 @@
     // timer so it's purely a render-layer concern like the rest of the hint system. ----
     const TEACH_HINTS = {
       1: ["Salad Days: chop tomato & lettuce, then plate them!"],
-      2: ["Soup: chop tomato, onion & potato...", "...then drop them in the pot!", "Grab a plate at the plate station, then collect the soup!"],
+      2: ["Soup: chop tomato, onion & potato...", "...then drop them in the pot!", "Hold WORK at the pot to stir it faster!", "Grab a plate at the plate station, then collect the soup!"],
       3: ["Burger: put a raw patty on the pan to grill it!", "Chop lettuce & tomato while it grills!", "Bun + patty + lettuce + tomato — all on one plate!"],
       4: ["Pizza: place dough on a counter or the board!", "Add chopped tomato for sauce...", "...then chopped cheese, then bake it in the oven!"],
       5: ["Feast Night: any dish could come up — stay sharp!"]
@@ -5331,7 +5925,7 @@
         // first time holding any ingredient this session — teach the throw control once, then
         // fall back to the normal contextual hints for the rest of the session.
         hasShownThrowHint = true;
-        msg = "Press X to throw!";
+        msg = isTouchDevice ? "Tap 🎯 to throw!" : "Press X to throw!";
       } else if (chef.holding && chef.holding.kind === "patty" && chef.holding.state === "grilled"){
         msg = "Put the grilled patty on the plate!";
       } else if (chef.holding && chef.holding.kind === "pizzaBase"){
@@ -5346,16 +5940,16 @@
         msg = "Bring it to the cutting board!";
       } else if (chef.holding && (chef.holding.kind === "bun" || chef.holding.kind === "patty")){
         msg = chef.holding.kind === "bun" ? "Put the bun on the plate!" : "Grill the patty on the pan!";
-      } else if (G.board.item && G.board.item.state === "raw" && G.board.progress > 0 && G.board.progress < 1){
-        msg = "HOLD SPACE to chop!";
-      } else if (G.board.item && G.board.item.state === "raw" && CHOPPABLE_KINDS.has(G.board.item.kind)){
-        msg = "Stand at the board and HOLD SPACE to chop!";
-      } else if (G.board.item && G.board.item.state === "chopped"){
-        msg = "Press SPACE to pick up the chopped food!";
+      } else if (G.boards.some(b => b.item && b.item.state === "raw" && b.progress > 0 && b.progress < 1)){
+        msg = "HOLD " + WORK_KEY_LABEL + " to chop!";
+      } else if (G.boards.some(b => b.item && b.item.state === "raw" && CHOPPABLE_KINDS.has(b.item.kind))){
+        msg = "Stand at a board and HOLD " + WORK_KEY_LABEL + " to chop!";
+      } else if (G.boards.some(b => b.item && b.item.state === "chopped")){
+        msg = "Press " + GRAB_KEY_LABEL + " to pick up the chopped food!";
       } else {
         const has = (k) => G.plate.contents.some(c => c.kind === k);
         if (G.plate.contents.length === 0){
-          msg = "Walk to a crate and press SPACE!";
+          msg = "Walk to a crate and press " + GRAB_KEY_LABEL + "!";
         } else if (!has("tomato") && CURRENT_LEVEL.recipes.includes("salad")){
           msg = "Now get a tomato, chop it, and plate it!";
         } else if (!has("lettuce") && CURRENT_LEVEL.recipes.includes("salad")){
@@ -5376,9 +5970,11 @@
     let sndPrev = {
       myHoldingKey: null,     // "<kind>:<state>" of MY chef's held item, or null
       plateCount: 0,          // G.plate.contents.length
-      boardProgress: 0,       // G.board.progress
-      boardWasRaw: false,     // whether the board item was mid-chop last frame
-      boardKind: null,        // ingredient kind on the board last frame (for flecks color)
+      // user-reported layout fix: TWO boards now — per-board previous-frame snapshot array
+      // (was a single flat {boardProgress,boardWasRaw,boardKind} triple; same fields, one per
+      // board index) so chop-tick/chop-done sounds+flecks fire correctly for EITHER board
+      // independently, exactly like before just doubled up.
+      boards: [{ progress: 0, wasRaw: false, kind: null }, { progress: 0, wasRaw: false, kind: null }],
       money: G.money,
       served: G.stats.served,
       missed: G.stats.missed,
@@ -5426,19 +6022,23 @@
       sndPrev.plateCount = G.plate.contents.length;
 
       // chopping ticks: board progress rising while item is raw (only fire while actively
-      // climbing, so a stalled/finished board stays silent).
-      const chopping = G.board.item && G.board.item.state === "raw" && G.board.progress > 0;
-      if (chopping && G.board.progress > sndPrev.boardProgress){
-        sndTickCd -= 1;
-        if (sndTickCd <= 0){ Snd.chopTick(); sndTickCd = SND_TICK_EVERY; }
+      // climbing, so a stalled/finished board stays silent). Runs for BOTH boards independently.
+      for (let bi = 0; bi < G.boards.length; bi++){
+        const board = G.boards[bi];
+        const prevB = sndPrev.boards[bi];
+        const chopping = board.item && board.item.state === "raw" && board.progress > 0;
+        if (chopping && board.progress > prevB.progress){
+          sndTickCd -= 1;
+          if (sndTickCd <= 0){ Snd.chopTick(); sndTickCd = SND_TICK_EVERY; }
+        }
+        if (prevB.wasRaw && board.item && board.item.state === "chopped" && prevB.progress < 1){
+          Snd.chopDone();
+          spawnChopFlecks(prevB.kind);
+        }
+        prevB.wasRaw = !!(board.item && board.item.state === "raw");
+        prevB.kind = board.item ? board.item.kind : prevB.kind;
+        prevB.progress = board.progress;
       }
-      if (sndPrev.boardWasRaw && G.board.item && G.board.item.state === "chopped" && sndPrev.boardProgress < 1){
-        Snd.chopDone();
-        spawnChopFlecks(sndPrev.boardKind);
-      }
-      sndPrev.boardWasRaw = !!(G.board.item && G.board.item.state === "raw");
-      sndPrev.boardKind = G.board.item ? G.board.item.kind : sndPrev.boardKind;
-      sndPrev.boardProgress = G.board.progress;
 
       // deliver vs miss: stats.served increased -> soft coin cha-ching (+ tip sparkle if a tip
       // landed); stats.missed increased -> gentle "aww" (reused for both wrong-timer expiry and
@@ -5590,9 +6190,11 @@
       const chef = G.chefs[net.myChefId];
       sndPrev.myHoldingKey = chef && chef.holding ? (chef.holding.kind + ":" + (chef.holding.state || "")) : null;
       sndPrev.plateCount = G.plate.contents.length;
-      sndPrev.boardProgress = G.board.progress;
-      sndPrev.boardWasRaw = !!(G.board.item && G.board.item.state === "raw");
-      sndPrev.boardKind = G.board.item ? G.board.item.kind : null;
+      sndPrev.boards = G.boards.map(board => ({
+        progress: board.progress,
+        wasRaw: !!(board.item && board.item.state === "raw"),
+        kind: board.item ? board.item.kind : null
+      }));
       sndPrev.money = G.money;
       sndPrev.served = G.stats.served;
       sndPrev.missed = G.stats.missed;
@@ -5809,11 +6411,53 @@
     const chefPickerWrap2El = document.getElementById("chefPickerWrap2");
     const chefPickerRow2El = document.getElementById("chefPickerRow2");
     const titleCookBtnEl = document.getElementById("titleCookBtn");
+    const titleInviteBtnEl = document.getElementById("titleInviteBtn");
     const titleWaitingEl = document.getElementById("titleWaiting");
     const couchModeRowEl = document.getElementById("couchModeRow");
     const couchModeLabelEl = document.getElementById("couchModeLabel");
     const couchModeToggleEl = document.getElementById("couchModeToggle");
     const couchControlsCardEl = document.getElementById("couchControlsCard");
+    const crewCard0El = document.getElementById("crewCard0");
+    const crewCard1El = document.getElementById("crewCard1");
+    const invitePickerOverlayEl = document.getElementById("invitePickerOverlay");
+    const invitePickerListEl = document.getElementById("invitePickerList");
+    const invitePickerEmptyEl = document.getElementById("invitePickerEmpty");
+    const invitePickerCloseEl = document.getElementById("invitePickerClose");
+    const inviteToastEl = document.getElementById("inviteToast");
+
+    // ---- family lobby: chef-card row of CONNECTED players (real choreUser names only — never
+    // a Playroom avatar/name). Empty choreUser falls back to "Chef 1"/"Chef 2" per the design
+    // doc. Seat 0 = whichever chef is blue (host/first seat), seat 1 = red (guest/second seat) —
+    // matches the existing color<->seat convention used everywhere else in this file. ----
+    function updateFamilyCrewRow(){
+      const entries = Object.keys(G.chefs)
+        .filter(id => id !== LOCAL2_ID)
+        .map(id => G.chefs[id])
+        .sort((a, b) => (a.color === "blue" ? 0 : 1) - (b.color === "blue" ? 0 : 1));
+      const seats = [crewCard0El, crewCard1El];
+      seats.forEach((card, i) => {
+        const chef = entries[i];
+        const emojiEl = card.querySelector(".crewEmoji");
+        const nameEl = card.querySelector(".crewName");
+        if (chef){
+          card.classList.remove("crewEmpty");
+          const isHostSeat = i === 0;
+          emojiEl.textContent = isHostSeat ? "👨‍🌾" : "👵";
+          const label = chef.name || ("Chef " + (i + 1));
+          nameEl.textContent = label + (isHostSeat ? " (Host)" : "");
+        } else {
+          card.classList.add("crewEmpty");
+          emojiEl.textContent = "👵";
+          nameEl.textContent = "Waiting for family…";
+        }
+      });
+      // guests' waiting lines use the host's real name once it's known ("Dad is picking
+      // the day!" reads much friendlier than "Chef 1 is picking the day!")
+      const hostLabel = (entries[0] && entries[0].name) || "Chef 1";
+      const waitMsg = hostLabel + " is picking the day! 🍳";
+      if (titleWaitingEl) titleWaitingEl.textContent = waitMsg;
+      if (levelSelectWaitingEl) levelSelectWaitingEl.textContent = waitMsg;
+    }
     const CHEF_MODELS = [
       { id: "farmer", emoji: "👨‍🌾", name: "Farmer" },
       { id: "grandma", emoji: "👵", name: "Grandma" },
@@ -5884,6 +6528,49 @@
       if (!net.isHost) return;   // guests never drive this — safety net, button is hidden for them anyway
       G.titleOpen = false;
       publishSnapshotNow();
+      updateLobbyDoc({ status: "started" });   // family lobby: host-only, online-mode-only (no-op otherwise)
+    });
+
+    // ---- family lobby: invite flow — host-only button opens a picker of family members (one-
+    // shot getDocs, not a listener, per the design doc) excluding yourself; tapping a name writes
+    // the notifs_<familyKey> invite doc + best-effort push, then shows a confirmation toast.
+    // Multiple invites allowed (the picker stays open after a tap so the host can invite several
+    // people in a row; it's dismissed explicitly via Close or reopening never resets anything).
+    let inviteToastTimer = null;
+    function showInviteToast(text){
+      inviteToastEl.textContent = text;
+      inviteToastEl.classList.remove("show");
+      void inviteToastEl.offsetWidth;   // force reflow so back-to-back invites restart the transition
+      inviteToastEl.classList.add("show");
+      if (inviteToastTimer) clearTimeout(inviteToastTimer);
+      inviteToastTimer = setTimeout(() => inviteToastEl.classList.remove("show"), 2200);
+    }
+    async function openInvitePicker(){
+      invitePickerListEl.innerHTML = "";
+      invitePickerEmptyEl.style.display = "none";
+      invitePickerOverlayEl.classList.add("show");
+      const names = await fetchFamilyMembers();
+      if (!names.length){
+        invitePickerEmptyEl.style.display = "";
+        return;
+      }
+      names.forEach((name) => {
+        const row = document.createElement("div");
+        row.className = "inviteRow";
+        row.textContent = name;
+        row.addEventListener("click", async () => {
+          const ok = await sendLobbyInvite(name);
+          showInviteToast(ok ? ("Invite sent to " + name + "! 📨") : "Couldn't send that invite — try again.");
+        });
+        invitePickerListEl.appendChild(row);
+      });
+    }
+    titleInviteBtnEl.addEventListener("click", () => {
+      if (!net.isHost) return;   // guests never see this button anyway — safety net
+      openInvitePicker();
+    });
+    invitePickerCloseEl.addEventListener("click", () => {
+      invitePickerOverlayEl.classList.remove("show");
     });
 
     // ---- Tier-1 batch: couch co-op toggle — solo/host-only, offered ONLY while no online guest
@@ -5907,14 +6594,21 @@
         return;
       }
       G.couchMode = couchModeToggleEl.checked;
-      if (G.couchMode) spawnLocal2(); else despawnLocal2();
+      if (G.couchMode){
+        spawnLocal2();
+        deleteLobbyDoc();   // family lobby: couch-only sessions never keep a lobby doc around
+      } else {
+        despawnLocal2();
+        ensureLobbyDoc();   // back to a normal online-capable title — recreate the (open) lobby doc
+      }
     });
 
     let titleShown = false;   // local-only: gate one-time barn-sign swing kickoff
+    let lobbyDocAttempted = false;   // local-only: fire ensureLobbyDoc() once per title-open, not every frame
     function updateTitleScreen(){
       const open = !!G.titleOpen;
       titleOverlayEl.classList.toggle("show", open);
-      if (!open){ titleShown = false; return; }
+      if (!open){ titleShown = false; lobbyDocAttempted = false; return; }
 
       if (!titleShown){
         titleShown = true;
@@ -5927,10 +6621,19 @@
         });
       }
 
+      // family lobby: create the lobby doc once we know we're really an online host (net.roomCode
+      // only resolves once insertCoin settles — this stays a no-op in solo fallback/couch mode).
+      if (!lobbyDocAttempted && net.isHost && net.roomCode && !G.couchMode){
+        lobbyDocAttempted = true;
+        ensureLobbyDoc();
+      }
+
       const iAmHost = net.isHost;
       titleCookBtnEl.style.display = iAmHost ? "" : "none";
       titleWaitingEl.style.display = iAmHost ? "none" : "";
+      titleInviteBtnEl.style.display = (iAmHost && Lobby.available && net.roomCode && !G.couchMode) ? "" : "none";
       updateChefPickerCards();
+      updateFamilyCrewRow();
 
       // couch toggle availability: solo/host-only, and only while no online guest is connected —
       // "Room's full!" tooltip explains why it's grayed out rather than silently doing nothing.
@@ -6064,12 +6767,14 @@
     //
     // SNAPSHOT (host -> room state, ~12Hz + instantly on discrete events: delivery/miss/order
     // spawn): a lean plain-object copy of G — chefs (x,z,dir,holding,color as compact fields),
-    // board, plate, orders, score. No meshes, no derived/render data.
+    // boards (both of them), plate, orders, score. No meshes, no derived/render data.
     //
     // INPUT (guest -> player state, ~20Hz): { x, z, dir } — the guest's own already-locally-
     // integrated chef position/facing (see below: guest-authoritative), { actSeq } an
     // incrementing sequence number (host runs tryAction once per new seq it observes — never
-    // misses a tap, never double-fires), { holdingSpace } bool (host runs holdAction while true).
+    // misses a tap, never double-fires), { workHold } bool (host runs holdAction — chop/wash/
+    // stir — while true; user-reported control split renamed this from holdingSpace since GRAB's
+    // tap key no longer drives the hold-continuation at all, WORK has its own key/flag now).
     //
     // AUTHORITY SPLIT: position is GUEST-authoritative for its own chef (guest integrates its
     // own movement locally each frame via the same moveChef() math for zero-lag feel, and
@@ -6089,7 +6794,11 @@
       inputCd: 0,            // guest-side: seconds until next throttled input publish
       myActSeq: 0,           // guest-side: local action sequence counter
       myThrowSeq: 0,         // guest-side: local throw sequence counter (Systems pass 1)
-      myEmoteSeq: 0          // guest-side: local emote sequence counter (Tier-1 batch)
+      myEmoteSeq: 0,         // guest-side: local emote sequence counter (Tier-1 batch)
+      // ---- family lobby integration ----
+      roomCode: null,        // Playroom.getRoomCode() once resolved (host or guest) — null in solo
+                              // fallback (no Playroom) or couch mode (no Playroom room at all)
+      myName: ""             // this browser's choreUser name (may be "" if not set in the app)
     };
 
     // ---- host: build a lean snapshot of G (no meshes/derived data) ----
@@ -6104,7 +6813,7 @@
         if (id === LOCAL2_ID) continue;
         const c = G.chefs[id];
         chefs[id] = { x: c.x, z: c.z, dir: c.dir, holding: c.holding, color: c.color, lastCatchId: c.lastCatchId || 0,
-                      chefModel: c.chefModel || "farmer" };
+                      chefModel: c.chefModel || "farmer", name: c.name || "" };
       }
       const emotes = {};
       for (const id in G.emotes){
@@ -6116,7 +6825,9 @@
       G.counterSlots.forEach((s, idx) => { if (s.item) cs.push([idx, s.item.kind, s.item.state]); });
       return {
         chefs,
-        board: { item: G.board.item, progress: G.board.progress },
+        // user-reported layout fix: both boards travel compactly as a 2-element array (same
+        // {item,progress} shape as before, just twice) so the guest sees host's board-1 progress.
+        boards: G.boards.map(b => ({ item: b.item, progress: b.progress })),
         plate: { contents: G.plate.contents },
         // Systems pass 2: customers replace the old anonymous orders array — carried compactly,
         // lerped on the guest exactly like chef positions (see applySnapshot below).
@@ -6142,7 +6853,7 @@
         wrongSpotHintId: G.wrongSpotHintId,
         wrongSpotHintChef: G.wrongSpotHintChef,
         // ---- Systems pass 3: cooking stations + level/progression ----
-        pot: { contents: G.pot.contents, cookT: G.pot.cookT, state: G.pot.state },
+        pot: { contents: G.pot.contents, cookT: G.pot.cookT, state: G.pot.state, stirringChefId: G.pot.stirringChefId || null },
         pan: { item: G.pan.item, cookT: G.pan.cookT, state: G.pan.state },
         oven: { item: G.oven.item, bakeT: G.oven.bakeT, state: G.oven.state },
         refusalHintId: G.refusalHintId,
@@ -6193,8 +6904,15 @@
       // nothing to lerp.
       G.money = snap.money;
       if (snap.nextCustomerId) G.nextCustomerId = snap.nextCustomerId;
-      G.board.item = snap.board.item ? { ...snap.board.item } : null;
-      G.board.progress = snap.board.progress;
+      // user-reported layout fix: two boards now — snap.boards is a 2-element array, same shape
+      // per-board as the old single snap.board.
+      if (snap.boards){
+        snap.boards.forEach((b, i) => {
+          if (!G.boards[i]) G.boards[i] = { item: null, progress: 0 };
+          G.boards[i].item = b.item ? { ...b.item } : null;
+          G.boards[i].progress = b.progress;
+        });
+      }
       G.plate.contents = snap.plate.contents.map(c => ({ ...c }));
       if (snap.phase) G.phase = snap.phase;
       if (typeof snap.dayLeft === "number") G.dayLeft = snap.dayLeft;
@@ -6213,7 +6931,7 @@
       G.wrongSpotHintChef = snap.wrongSpotHintChef || null;
 
       // ---- Systems pass 3: cooking stations + level/progression ----
-      if (snap.pot) G.pot = { contents: snap.pot.contents.map(c => ({ ...c })), cookT: snap.pot.cookT, state: snap.pot.state };
+      if (snap.pot) G.pot = { contents: snap.pot.contents.map(c => ({ ...c })), cookT: snap.pot.cookT, state: snap.pot.state, stirringChefId: snap.pot.stirringChefId || null };
       if (snap.pan) G.pan = { item: snap.pan.item ? { ...snap.pan.item } : null, cookT: snap.pan.cookT, state: snap.pan.state };
       if (snap.oven) G.oven = { item: snap.oven.item ? { ...snap.oven.item } : null, bakeT: snap.oven.bakeT, state: snap.oven.state };
       G.refusalHintId = snap.refusalHintId || 0;
@@ -6295,7 +7013,8 @@
         let chef = G.chefs[id];
         if (!chef){
           chef = G.chefs[id] = { x: remote.x, z: remote.z, dir: remote.dir, holding: remote.holding, color: remote.color,
-                                  lastCatchId: remote.lastCatchId, chefModel: remote.chefModel || "farmer" };
+                                  lastCatchId: remote.lastCatchId, chefModel: remote.chefModel || "farmer",
+                                  name: remote.name || "" };
           ensureChefVisual(id, remote.color, chef.chefModel);
         } else {
           const t = Math.min(1, LERP_RATE * (dt * 60)); // normalize toward ~60fps baseline
@@ -6306,6 +7025,7 @@
           chef.color = remote.color;
           chef.lastCatchId = remote.lastCatchId;
           chef.chefModel = remote.chefModel || "farmer";
+          chef.name = remote.name || "";
           updateChefVisualModel(id, chef.color, chef.chefModel);
         }
       }
@@ -6360,7 +7080,8 @@
           dir: Math.PI,
           holding: null,
           color: joinIndex === 0 ? "blue" : "red",
-          chefModel: "farmer"   // default until the joining player's own pick arrives (Systems pass 4)
+          chefModel: "farmer",   // default until the joining player's own pick arrives (Systems pass 4)
+          name: ""                // family lobby: default until the joining player's own choreUser name arrives
         };
         ensureChefVisual(chefId, G.chefs[chefId].color, G.chefs[chefId].chefModel);
       }
@@ -6395,13 +7116,24 @@
           updateChefVisualModel(chefId, chef.color, chef.chefModel);   // host renders the guest's own kitchen too
         }
 
+        // family lobby: each player publishes their OWN choreUser name (never a Playroom avatar/
+        // name) — same "mirror into G, ride along in the snapshot" pattern as chefModel above.
+        const name = p.getState("name");
+        if (typeof name === "string" && name !== chef.name) chef.name = name;
+
         const seq = p.getState("actSeq") || 0;
+        // seed a brand-new tracking entry at 0 (matches original behavior) so a genuinely NEW
+        // player's very first press — actSeq may already be 1 by the time the host's first read
+        // happens — is never silently swallowed; see the #8c note on player.onQuit below for the
+        // other half of this fix (why the entry must survive a spurious quit/rejoin instead of
+        // being deleted and reseeded here).
         const st = net.remoteInput[chefId] || (net.remoteInput[chefId] = { lastSeq: 0, lastThrowSeq: 0, lastEmoteSeq: 0 });
         if (seq !== st.lastSeq){
           st.lastSeq = seq;
           tryAction(chefId);
         }
-        if (p.getState("holdingSpace")) holdAction(chefId, dt);
+        // WORK hold (user-reported control split): its own bool, independent of actSeq/GRAB.
+        if (p.getState("workHold")) holdAction(chefId, dt);
 
         // throw: same exactly-once seq pattern as actSeq (Systems pass 1).
         const throwSeq = p.getState("throwSeq") || 0;
@@ -6427,7 +7159,8 @@
       delete G.chefs[LOCAL_SOLO_ID];
       removeChefVisual(LOCAL_SOLO_ID);
       G.chefs[newId] = { x, z: 2.2, dir: Math.PI, holding: (old && old.holding) || null, color,
-                         chefModel: (old && old.chefModel) || "farmer" };
+                         chefModel: (old && old.chefModel) || "farmer",
+                         name: (old && old.name) || myChoreUserName };
       ensureChefVisual(newId, color, G.chefs[newId].chefModel);
     }
 
@@ -6468,6 +7201,28 @@
       }
     };
 
+    // ---- Family lobby integration: deep-link contract is "#r=<roomCode>" (plain code, no
+    // prefix — see notifs_<familyKey> invite docs / games.html /index.html lobby banners, which
+    // both build links in exactly this shape). IMPORTANT gotcha found by reading the fetched
+    // playroomkit@0.0.96 UMD source directly: Playroom's OWN internal share-link mechanism also
+    // reads/writes location.hash key "r" — but in ITS format ("r=R<code>", with a literal leading
+    // "R" it slices off on read: `ci("r")?ci("r").slice(1):e.roomCode`) and that hash-read wins
+    // over an explicit insertCoin({roomCode}) option if both are present. If we left our own
+    // "#r=<code>" (no R prefix) sitting in the URL when insertCoin runs, Playroom would read it,
+    // slice off our code's real first character, and join the wrong (usually nonexistent) room —
+    // a silent one-character corruption bug. Playroom also OVERWRITES location.hash to its own
+    // "r=R<code>" format the moment it connects, which would clobber our clean deep-link contract
+    // in the address bar anyway. Fix: parse OUR hash ourselves, capture the code, then clear
+    // location.hash before ever calling insertCoin — so Playroom never sees a stale/foreign "r"
+    // key — and pass the code through the explicit `roomCode` option instead (confirmed from the
+    // UMD: insertCoin's options object accepts `roomCode` directly and joinRoom() uppercases it).
+    function readAndClearRoomCodeFromHash(){
+      const m = /(?:^|&)r=([^&]+)/.exec(location.hash.slice(1));
+      const code = m ? decodeURIComponent(m[1]) : null;
+      if (code) history.replaceState(null, "", location.pathname + location.search);
+      return code;
+    }
+
     // ---- init: try Playroom, fall back to solo on any failure ----
     async function initNet(){
       if (typeof Playroom === "undefined" || !Playroom.insertCoin){
@@ -6476,10 +7231,20 @@
         return;
       }
       try {
-        await Playroom.insertCoin({ maxPlayersPerRoom: 2 });
+        const deepLinkRoomCode = readAndClearRoomCodeFromHash();
+        // skipLobby:true — verified against the fetched UMD source (multiplayer.full.umd.js):
+        // the lobby's whole DOM subtree is gated by `!o||M||B||L?null:c.createElement(...)` where
+        // B = `e.skipLobby||I` (I being the same hash-driven skipLobby flag) — when true, Playroom
+        // NEVER mounts any lobby/join-code UI, ever; it goes straight to createRoom (no roomCode)
+        // or joinRoom(roomCode) internally. Confirmed Playroom.getRoomCode() (exported as a thin
+        // wrapper returning `Di().currentRoom`, the SDK's own raw, un-prefixed room id — this is
+        // the value that belongs in our "#r=<code>" links, NOT Playroom's internal "R"-prefixed
+        // hash form) resolves once insertCoin's promise settles, host or guest.
+        await Playroom.insertCoin({ maxPlayersPerRoom: 2, skipLobby: true, roomCode: deepLinkRoomCode || undefined });
         net.isHost = Playroom.isHost();
         net.localPlayer = Playroom.myPlayer();
         net.myChefId = net.localPlayer.id;
+        try { net.roomCode = Playroom.getRoomCode(); } catch (err) { net.roomCode = deepLinkRoomCode || null; }
 
         if (net.isHost){
           reseedChefsForNet(net.myChefId, "blue", -1.5);
@@ -6496,16 +7261,29 @@
             hostAssignSeat(player.id, joinIndex);
             spawnPoofFX(player.id);   // little poof announcing the new chef
             publishSnapshotNow();
+            updateLobbyDoc({ playerCount: net.players.length });   // family lobby: live count, no-op otherwise
 
             player.onQuit(() => {
               net.players = net.players.filter(p => p.id !== player.id);
-              delete net.remoteInput[player.id];
+              // User-reported fix (#8c): deliberately NOT deleting net.remoteInput[player.id]
+              // here any more. If Playroom fires a spurious quit+rejoin for the SAME player id
+              // during a brief network stutter (not a genuine full disconnect), the guest's own
+              // actSeq/throwSeq/emoteSeq counters (page-session-scoped, never reset by a
+              // reconnect) are still sitting wherever they were — deleting this tracking entry
+              // would make the next hostApplyRemoteInputs call see "a big jump from a fresh 0
+              // baseline" and incorrectly replay tryAction/tryThrow/cycleEmote for actions that
+              // already happened, purely because of the reconnect. Leaving the entry in place
+              // means a same-id rejoin resumes the exactly-once comparison exactly where it left
+              // off — continuous, no replay — while a genuinely NEW player (different id, the
+              // overwhelmingly common case) still gets a fresh {lastSeq:0,...} the first time
+              // hostApplyRemoteInputs sees their new id (see that seeding logic's own comment).
               if (G.chefs[player.id]){
                 spawnPoofFX(player.id);
                 delete G.chefs[player.id];
                 removeChefVisual(player.id);
               }
               publishSnapshotNow();
+              updateLobbyDoc({ playerCount: net.players.length });   // family lobby: live count, no-op otherwise
             });
           });
         } else {
@@ -6565,7 +7343,10 @@
       last = now;
 
       const { dx, dz } = readMoveInput();
-      const holdingSpace = keys.has(" ") || touchHolding;
+      // user-reported control restructure: WORK is its own hold-flag now (C/F for P1, touch🔪),
+      // completely independent of GRAB's tap key (Space) — see holdAction's own comment for why
+      // grab and work used to be bundled onto the same key and why that was the bug.
+      const workHold = keys.has("c") || keys.has("f") || touchWorkHolding;
 
       if (!net.ready){
         // Playroom identity not resolved yet (still connecting) — freeze net-dependent input
@@ -6574,16 +7355,17 @@
         // host drives its own chef straight from local keys, drives every guest chef from
         // their published input, then runs the full authoritative sim.
         moveChef(net.myChefId, dx, dz, dt);
-        if (holdingSpace) holdAction(net.myChefId, dt);
+        if (workHold) holdAction(net.myChefId, dt);
         // Tier-1 batch: couch co-op — local2 is driven through the EXACT SAME per-frame seam as
         // any other chef (moveChef/holdAction), just fed P2's own independently-read input vector
         // and hold flag instead of net.myChefId's. Action/throw/emote presses for local2 are
         // dispatched straight from the keydown handler above (tryAction/tryThrow/cycleEmote), the
         // same as every OTHER chef's discrete presses ultimately resolve to on the host side.
+        // P2's WORK hold is Right-Ctrl (moved off grab's Enter key, mirrors P1's C/F-vs-Space split).
         if (G.couchMode && G.chefs[LOCAL2_ID]){
           const p2Move = readMoveInput2();
           moveChef(LOCAL2_ID, p2Move.dx, p2Move.dz, dt);
-          if (keys.has("Enter")) holdAction(LOCAL2_ID, dt);
+          if (keys.has("ControlRight")) holdAction(LOCAL2_ID, dt);
         }
         hostNetTick(dt);
       } else {
@@ -6601,13 +7383,18 @@
             net.localPlayer.setState("z", myChef.z, false);
             net.localPlayer.setState("dir", myChef.dir, false);
             net.localPlayer.setState("actSeq", net.myActSeq, true);
-            net.localPlayer.setState("holdingSpace", holdingSpace, false);
+            // workHold: NEW flag for the WORK verb (chop/wash/stir), published alongside actSeq/
+            // throwSeq exactly like the design doc asks — GRAB's actSeq semantics are untouched.
+            net.localPlayer.setState("workHold", workHold, false);
             net.localPlayer.setState("throwSeq", net.myThrowSeq, true);
             net.localPlayer.setState("emoteSeq", net.myEmoteSeq, true);   // Tier-1 batch: emotes
             // Systems pass 4: chef picker — publish our own model choice so the host mirrors it
             // into its G.chefs[chefId].chefModel (see hostApplyRemoteInputs) and it rides along
             // in the snapshot back to everyone, including us.
             net.localPlayer.setState("chefModel", myChef.chefModel || "farmer", false);
+            // family lobby: publish our own choreUser name so the host mirrors it into G and it
+            // rides along in the snapshot (see hostApplyRemoteInputs' name mirror above).
+            net.localPlayer.setState("name", myChoreUserName, false);
           } catch (err) { /* connection hiccup — next tick retries */ }
           net.inputCd = INPUT_INTERVAL;
         }

@@ -209,4 +209,24 @@ and STOPS (stands still, head to bottle) while feeding — no more feeding-on-th
       Playroom (block the CDN → solo fallback for deterministic shots).
       Tier-2 backlog: zen/endless mode, daily-special modifiers, unlockable
       hats, farm-road progress map, host migration. Tier-3: photo share cards.
-      COMMITTED LOCALLY — NOT PUSHED (user preview pending).
+- [x] Playtest fix batch (2026-07-05): camera ~20% closer; held items 1.5x w/
+      outline+shadow; ingredients 0.68-0.78; forgiving throw landing (nearest
+      EMPTY surface within 0.9 — landing rate 25%→80%); catch radius 1.25;
+      controls split into GRAB (Space/Enter/🖐) · WORK=chop/wash/STIR-pot-1.5x
+      (C-F/RCtrl/🔪) · THROW (X-Shift/RShift/🎯) · emote (E/Period/💬);
+      2 cutting boards (G.boards[]); dish tray beside sink; bubbles smaller +
+      de-overlap sweep; dead-grab fixed (keys Set cleared on blur/visibility/
+      pointercancel + reconnect actSeq replay guard).
+- [x] FAMILY LOBBY system (2026-07-05): Playroom lobby UI gone (skipLobby:true;
+      CAUTION: Playroom reads #r= hash itself in a DIFFERENT format and it
+      beats the roomCode option — we parse+clear our #r=<code> hash BEFORE
+      insertCoin and pass roomCode explicitly). Identity = localStorage
+      choreUser everywhere. Firestore lobbies_<familyKey> registry (30s
+      heartbeat, 90s liveness, 10min lazy TTL delete) → games.html shows live
+      JOIN cards; notifs_<familyKey> lobby-invite docs → index.html bell with
+      JOIN button (24h TTL); notify.mjs threads deep-link url (allowlisted) to
+      FCM. Bistro title = family lobby: real-name chips, host-only Invite
+      (profile-doc picker) + COOK!, guest sees "<host> is picking the day!".
+      Solo/couch never touch Firestore; all lobby features degrade silently.
+      Verified E2E vs real Playroom + real Firestore (test familyKey for
+      automated writes; production cleaned/untouched).

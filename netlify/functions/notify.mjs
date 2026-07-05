@@ -1,6 +1,6 @@
 // BUCKY — push notification sender.
 //
-// Netlify Function (ESM). POST JSON: { secret, familyKey, targetUser, title, body }
+// Netlify Function (ESM). POST JSON: { secret, familyKey, targetUser, title, body, url }
 //
 // Flow:
 //   1. Validate the shared family secret + CORS origin.
@@ -33,6 +33,19 @@ const FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT_I
 // needs BOTH scopes: messaging to send pushes, datastore to read/prune token docs
 const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging https://www.googleapis.com/auth/datastore";
 const FCM_SEND_URL = `https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send`;
+
+const DEFAULT_URL = "https://amenfarms.netlify.app";
+const ALLOWED_URL_ORIGIN = "https://amenfarms.netlify.app";
+
+// Validates the optional deep-link `url`: must start with the allowlisted origin, or be a
+// relative path (in which case we prefix the origin ourselves). Anything else falls back
+// to DEFAULT_URL so a bad/absolute non-allowlisted url can never smuggle in an open redirect.
+function resolveUrl(url) {
+  if (typeof url !== "string" || !url) return DEFAULT_URL;
+  if (url.startsWith(ALLOWED_URL_ORIGIN)) return url;
+  if (url.startsWith("/")) return ALLOWED_URL_ORIGIN + url;
+  return DEFAULT_URL;
+}
 
 function corsHeaders(origin) {
   const allowOrigin = ALLOWED_ORIGINS.has(origin) ? origin : "https://amenfarms.netlify.app";
@@ -145,7 +158,7 @@ async function deleteTokenDoc(accessToken, familyKey, docId) {
   });
 }
 
-async function sendFcmMessage(accessToken, token, title, body) {
+async function sendFcmMessage(accessToken, token, title, body, url) {
   // DATA-ONLY message: if we sent a `notification` payload, the browser's FCM layer
   // would auto-display it AND our service worker would display it — two tray entries
   // per event, which made launcher icon badges climb forever. Data-only means the
@@ -154,7 +167,7 @@ async function sendFcmMessage(accessToken, token, title, body) {
   const message = {
     message: {
       token,
-      data: { title: String(title), body: String(body), url: "https://amenfarms.netlify.app" },
+      data: { title: String(title), body: String(body), url: resolveUrl(url) },
       webpush: {
         headers: { Urgency: "high" },
       },
@@ -199,7 +212,7 @@ export default async (req) => {
     return new Response(JSON.stringify({ error: "Invalid JSON body" }), { status: 400, headers });
   }
 
-  const { secret, familyKey, targetUser, title, body } = payload || {};
+  const { secret, familyKey, targetUser, title, body, url } = payload || {};
 
   if (!process.env.BUCKY_NOTIFY_SECRET || secret !== process.env.BUCKY_NOTIFY_SECRET) {
     return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers });
@@ -237,7 +250,7 @@ export default async (req) => {
     let pruned = 0;
 
     for (const { docId, token } of tokens) {
-      const result = await sendFcmMessage(accessToken, token, title, body || "");
+      const result = await sendFcmMessage(accessToken, token, title, body || "", url);
       if (result.ok) {
         sent += 1;
       } else if (isUnregistered(result)) {

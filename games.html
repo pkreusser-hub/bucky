@@ -58,6 +58,18 @@
   .dash-ico { font-size: 30px; line-height: 1; }
   .dash-name { font-weight: 800; font-size: 15px; color: var(--ink); }
   .dash-desc { font-size: 12px; color: var(--muted); }
+
+  /* Live lobby banner cards (bucky-lobby shim) */
+  #lobbyBanners { display: flex; flex-direction: column; gap: 10px; margin: 0 0 14px; }
+  .lobby-card {
+    display: flex; align-items: center; gap: 10px; background: var(--card);
+    border: 1px solid var(--line); border-left: 5px solid var(--red); border-radius: 14px;
+    box-shadow: var(--shadow); padding: 12px 14px; text-decoration: none; color: var(--ink);
+  }
+  .lobby-card.static { border-left-color: var(--green); cursor: default; }
+  .lobby-ico { font-size: 24px; flex: 0 0 auto; }
+  .lobby-text { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; }
+  .lobby-join { flex: 0 0 auto; background: var(--red); color: #fff; font-weight: 800; font-size: 13px; padding: 7px 12px; border-radius: 9px; }
 </style>
 </head>
 <body>
@@ -71,6 +83,7 @@
 </header>
 
 <main>
+  <div id="lobbyBanners"></div>
   <div class="progress">Pick your poison</div>
   <ul class="list">
     <li class="dash-grid" id="gamesGrid"></li>
@@ -100,6 +113,79 @@
     a.append(ico, nm, ds);
     grid.appendChild(a);
   }
+</script>
+
+<script type="module">
+  // bucky-lobby shim — live lobby banner cards for open/started game lobbies.
+  // Duplicated (intentionally) in index.html; this repo has no shared JS module,
+  // so keep this copy tiny and in sync with the other one.
+  const firebaseConfig = {
+    apiKey: "AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU",
+    authDomain: "amen-farms-app.firebaseapp.com",
+    projectId: "amen-farms-app",
+    storageBucket: "amen-farms-app.firebasestorage.app",
+    messagingSenderId: "321230755979",
+    appId: "1:321230755979:web:d362c56aaf7e50b4ab5c8e"
+  };
+  const FAMILY_PASSWORD = "amenfarms";
+  function roomId(pw){
+    let h = 0;
+    for (const ch of pw.toLowerCase()) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return "fam" + h.toString(36);
+  }
+  const familyKey = roomId(FAMILY_PASSWORD);
+
+  const LIVE_MS = 90 * 1000;          // updatedAt must be newer than this to count as "live"
+  const STALE_MS = 10 * 60 * 1000;    // lazy-delete docs older than this (shopping-list TTL pattern)
+
+  function renderLobbies(docs, fs, col){
+    const wrap = document.getElementById("lobbyBanners");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+    const now = Date.now();
+    for (const d of docs){
+      const data = d.data();
+      const age = now - (data.updatedAt || 0);
+      if (age >= STALE_MS){ fs.deleteDoc(fs.doc(col, d.id)).catch(()=>{}); continue; }
+      const live = data.status === "open" && age < LIVE_MS;
+      const cooking = data.status === "started" && age < LIVE_MS;
+      if (!live && !cooking) continue;
+
+      if (live){
+        const a = document.createElement("a");
+        a.className = "lobby-card";
+        a.href = `${data.game}.html#r=${encodeURIComponent(data.roomCode || "")}`;
+        const ico = document.createElement("span"); ico.className = "lobby-ico"; ico.textContent = data.ico || "🎮";
+        const text = document.createElement("span"); text.className = "lobby-text";
+        text.textContent = `${data.hostName || "Someone"}'s kitchen is open! · ${data.playerCount || 1}/${data.maxPlayers || 2} chefs`;
+        const join = document.createElement("span"); join.className = "lobby-join"; join.textContent = "JOIN";
+        a.append(ico, text, join);
+        wrap.appendChild(a);
+      } else if (cooking){
+        const card = document.createElement("div");
+        card.className = "lobby-card static";
+        const ico = document.createElement("span"); ico.className = "lobby-ico"; ico.textContent = data.ico || "🎮";
+        const text = document.createElement("span"); text.className = "lobby-text";
+        text.textContent = `🍳 ${data.hostName || "Someone"} is cooking with ${data.playerCount || 1} chefs`;
+        card.append(ico, text);
+        wrap.appendChild(card);
+      }
+    }
+  }
+
+  async function initLobbies(){
+    try {
+      const appMod = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
+      const fs = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+      const app = appMod.initializeApp(firebaseConfig, "bucky-lobby");
+      const db = fs.getFirestore(app);
+      const col = fs.collection(db, "lobbies_" + familyKey);
+      fs.onSnapshot(col, (snap) => renderLobbies(snap.docs, fs, col), () => { /* offline/error: page stays static, like today */ });
+    } catch (e) {
+      // Firebase unreachable/blocked: fail silently, page renders as a plain static page.
+    }
+  }
+  initLobbies();
 </script>
 </body>
 </html>

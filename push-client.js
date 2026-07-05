@@ -215,7 +215,9 @@ window.BUCKY_VAPID_KEY = window.BUCKY_VAPID_KEY || "BM3TmG-fXYJUJfmuw1_WG7SjkwsK
 
   // Fire-and-forget notify call to the Netlify function. Never throws —
   // callers can just do `BuckyPush.notify(...)` without awaiting/catching.
-  async function notify(secret, familyKey, targetUser, title, body) {
+  // `url` is optional (backward-compatible with existing 5-arg call sites) — when given,
+  // it becomes the deep-link the push notification opens on click (see notify.mjs).
+  async function notify(secret, familyKey, targetUser, title, body, url) {
     try {
       var res = await fetch("/.netlify/functions/notify", {
         method: "POST",
@@ -226,6 +228,7 @@ window.BUCKY_VAPID_KEY = window.BUCKY_VAPID_KEY || "BM3TmG-fXYJUJfmuw1_WG7SjkwsK
           targetUser: targetUser,
           title: title,
           body: body,
+          url: url,
         }),
       });
       return await res.json();
