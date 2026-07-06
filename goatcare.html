@@ -8,2497 +8,943 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Luckiest+Guy&display=swap" rel="stylesheet">
 <style>
-  :root{ --navy:#0a3161; --red:#b31942; }
+  :root{ --navy:#0a3161; --red:#b31942; --shell1:#c34a37; --shell2:#8f2d21; --shell3:#6f1f15;
+         --cream:#f4e7cf; --creamDk:#d9c7a6; --ink:#26301f; --lcd:#b9c8a2; --lcdOff:#a3b18c; }
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none; }
-  html,body{ margin:0; height:100%; background:#0d1b0d; color:#fff; font-family:-apple-system,Segoe UI,Roboto,sans-serif; overflow:hidden; }
-  #bar{ position:fixed; top:0; left:0; right:0; height:46px; display:flex; align-items:center; gap:10px; padding:0 12px;
-        background:var(--navy); z-index:30; }
-  #bar a{ color:#fff; text-decoration:none; font-weight:800; font-size:15px; background:rgba(255,255,255,.15); padding:7px 12px; border-radius:9px; }
+  html,body{ margin:0; height:100%; background:#101d10; color:#fff;
+             font-family:-apple-system,Segoe UI,Roboto,sans-serif; overflow:hidden; }
+  #bar{ position:fixed; top:0; left:0; right:0; height:46px; display:flex; align-items:center; gap:10px;
+        padding:0 12px; background:var(--navy); z-index:30; }
+  #bar a{ color:#fff; text-decoration:none; font-weight:800; font-size:15px;
+          background:rgba(255,255,255,.15); padding:7px 12px; border-radius:9px; }
   #bar .t{ font-weight:800; letter-spacing:.5px; font-size:14px; }
-  #stage{ position:absolute; top:46px; left:0; right:0; bottom:0; }
-  canvas{ display:block; touch-action:none; }
 
-  /* ---- HUD ---- */
-  #hud{ position:absolute; top:8px; left:8px; z-index:10; pointer-events:none; }
-  #hudName{ font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:19px; color:#fff6da;
-            text-shadow:0 2px 0 rgba(0,0,0,.5), 0 3px 6px rgba(0,0,0,.4); letter-spacing:.5px; }
-  #hudAge{ font-size:11px; color:#e8f2e0; text-shadow:0 1px 3px rgba(0,0,0,.8); margin:-2px 0 5px; font-weight:600; }
-  .meterRow{ display:flex; align-items:center; gap:5px; margin-bottom:3px; }
-  .meterIco{ font-size:12px; width:16px; text-align:center; text-shadow:0 1px 2px rgba(0,0,0,.7); }
-  .meterBar{ width:96px; height:10px; border-radius:6px; background:rgba(0,0,0,.45); overflow:hidden; border:1px solid rgba(255,255,255,.25); }
-  .meterBar>div{ height:100%; border-radius:6px; transition:width .3s, background-color .3s; }
-  #moodRow{ margin-top:2px; font-size:12px; text-shadow:0 1px 3px rgba(0,0,0,.8); font-weight:700; }
+  /* ================= device shell ================= */
+  #wrap{ position:fixed; top:46px; left:0; right:0; bottom:0; display:flex;
+         align-items:center; justify-content:center;
+         background:radial-gradient(ellipse at 50% 30%, #1b2e1a 0%, #101d10 70%); }
+  #device{
+    --dw: min(380px, 94vw, calc((100vh - 66px) * 0.68), calc((100dvh - 66px) * 0.68));
+    width:var(--dw); font-size:calc(var(--dw) / 20);   /* 1em = 5% of device width */
+    aspect-ratio: 10 / 14; position:relative;
+    display:flex; flex-direction:column; align-items:center;
+    padding:.9em .95em .7em;
+    background:linear-gradient(155deg, var(--shell1) 0%, var(--shell2) 62%, var(--shell3) 100%);
+    border-radius:2.6em 2.6em 3.2em 3.2em;
+    box-shadow: inset 0 .14em .1em rgba(255,235,205,.35), inset 0 -0.2em .3em rgba(0,0,0,.35),
+                inset .12em 0 .2em rgba(255,255,255,.08), 0 1.2em 2.4em rgba(0,0,0,.55);
+    border:.18em solid #58170f;
+  }
+  #brand{ font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:1.28em; letter-spacing:.14em;
+          color:#63190f; text-shadow:0 .06em 0 rgba(255,232,200,.42), 0 -0.05em .05em rgba(0,0,0,.4);
+          margin:.1em 0 .35em; }
+  #muteBtn{ position:absolute; top:.8em; right:.9em; width:1.9em; height:1.9em; border-radius:50%;
+            border:0; font-size:.9em; background:rgba(0,0,0,.25); color:#ffe9c9; cursor:pointer;
+            box-shadow:inset 0 .1em .15em rgba(0,0,0,.4), 0 .06em 0 rgba(255,255,255,.15); z-index:3; }
+  #muteBtn:active{ transform:scale(.92); }
 
-  #clock{ position:absolute; top:10px; right:10px; z-index:10; font-family:monospace; font-weight:800; font-size:15px;
-          color:#fff; background:rgba(0,0,0,.35); padding:4px 10px; border-radius:9px; text-shadow:0 1px 2px rgba(0,0,0,.6); }
+  /* ================= LCD ================= */
+  #bezel{ width:100%; aspect-ratio:3/2; position:relative; border-radius:.9em;
+          background:#22261c; padding:.55em;
+          box-shadow: inset 0 .15em .35em rgba(0,0,0,.85), 0 .07em 0 rgba(255,235,205,.25); }
+  #screen{ position:relative; width:100%; height:100%; overflow:hidden; border-radius:.35em;
+           background:var(--lcd);
+           box-shadow: inset 0 0 1.6em rgba(85,110,60,.5); }
+  #lcd{ position:absolute; inset:0; width:100%; height:100%; display:block;
+        image-rendering:pixelated; image-rendering:crisp-edges; }
+  .lcdGrid{ position:absolute; inset:0; pointer-events:none; mix-blend-mode:multiply; opacity:.5;
+    background-image:
+      linear-gradient(rgba(38,48,31,.16) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(38,48,31,.16) 1px, transparent 1px);
+    background-size: calc(100%/96) calc(100%/64); }
+  .glare{ position:absolute; inset:0; pointer-events:none;
+    background:linear-gradient(112deg, rgba(255,255,255,.14) 0%, rgba(255,255,255,.03) 26%, transparent 40%); }
+  #dimmer{ position:absolute; inset:0; pointer-events:none; background:rgba(16,22,48,.44);
+           opacity:0; transition:opacity .6s; }
+  #flash{ position:absolute; inset:0; pointer-events:none; background:#f6ffe8; opacity:0; }
+  #flash.go{ animation:flashA .55s ease-out; }
+  @keyframes flashA{ 0%{opacity:.95} 100%{opacity:0} }
 
-  /* ---- speech bubble ---- */
-  #speech{ position:absolute; z-index:12; pointer-events:none; background:#fff; color:#2a2a2a; font-weight:800;
-           padding:5px 11px; border-radius:14px; font-size:13px; transform:translate(-50%,-100%); opacity:0;
-           transition:opacity .15s, transform .15s; box-shadow:0 3px 10px rgba(0,0,0,.35); white-space:nowrap; }
-  #speech:after{ content:""; position:absolute; left:50%; bottom:-6px; transform:translateX(-50%);
-                 border:6px solid transparent; border-top-color:#fff; }
+  #toast{ position:absolute; left:0; right:0; bottom:3%; text-align:center; pointer-events:none;
+          font-family:'Courier New',monospace; font-weight:900; font-size:.78em; letter-spacing:.06em;
+          color:var(--ink); opacity:0; transition:opacity .25s; text-shadow:0 0 .3em rgba(185,200,162,.9); }
+  #toast.show{ opacity:1; }
+  #banner{ position:absolute; left:4%; right:4%; top:26%; pointer-events:none; text-align:center;
+           background:rgba(38,48,31,.92); border-radius:.4em; padding:.5em .3em .45em;
+           opacity:0; transform:scale(.7); transition:opacity .25s, transform .25s; }
+  #banner.show{ opacity:1; transform:scale(1); }
+  #bnTitle{ font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:1.05em; letter-spacing:.08em;
+            color:#d8e6bb; }
+  #bnSub{ font-family:'Courier New',monospace; font-weight:900; font-size:.66em; color:#a9bd85; margin-top:.15em; }
 
-  /* ---- toolbar ---- */
-  #toolbar{ position:absolute; left:0; right:0; bottom:0; z-index:15; display:flex; justify-content:center;
-            gap:8px; padding:8px 8px calc(8px + env(safe-area-inset-bottom)); background:linear-gradient(0deg, rgba(0,0,0,.42), rgba(0,0,0,0)); }
-  .toolBtn{ width:56px; height:56px; border-radius:16px; border:0; background:rgba(255,255,255,.16);
-            display:flex; align-items:center; justify-content:center; font-size:26px; cursor:pointer;
-            box-shadow:0 3px 0 rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.25); transition:transform .1s, background .15s; }
-  .toolBtn:active{ transform:translateY(2px) scale(.95); }
-  .toolBtn.active{ background:#ffd23f; box-shadow:0 3px 0 #a8790b, 0 0 14px rgba(255,210,63,.7); }
+  /* ================= plate + buttons ================= */
+  #plate{ margin:.5em 0 .45em; background:linear-gradient(180deg,var(--cream),var(--creamDk));
+          color:#5c2c17; border-radius:.5em; padding:.28em .9em; font-weight:800; font-size:.78em;
+          box-shadow: inset 0 -0.12em .12em rgba(0,0,0,.18), 0 .1em .2em rgba(0,0,0,.3);
+          white-space:nowrap; max-width:100%; overflow:hidden; text-overflow:ellipsis; }
+  #plate .age{ font-weight:700; opacity:.75; }
 
-  /* ---- overlays ---- */
-  .overlay{ position:absolute; inset:0; background:rgba(6,16,8,.78); z-index:20; display:none;
+  #controls{ width:100%; flex:1; min-height:0; position:relative; }
+  #btnRow{ display:grid; grid-template-columns:repeat(4,1fr); gap:.55em; width:100%; }
+  .pbtn{ border:0; border-radius:.85em; padding:.5em .1em .45em; cursor:pointer;
+         background:linear-gradient(180deg,#fdf3de,var(--cream) 45%,var(--creamDk));
+         box-shadow:0 .28em 0 #8d6b45, 0 .45em .7em rgba(0,0,0,.4), inset 0 .1em 0 #fff;
+         display:flex; flex-direction:column; align-items:center; gap:.12em;
+         transition:transform .06s, box-shadow .06s; touch-action:manipulation; }
+  .pbtn:active{ transform:translateY(.22em); box-shadow:0 .08em 0 #8d6b45, 0 .2em .4em rgba(0,0,0,.4), inset 0 .1em 0 #fff; }
+  .pbtn .ico{ font-size:1.25em; line-height:1.1; }
+  .pbtn .lbl{ font-size:.5em; font-weight:900; letter-spacing:.08em; color:#6b3a1d; }
+  #bMed{ position:absolute; left:50%; transform:translateX(-50%); bottom:0; width:44%; display:none;
+         background:linear-gradient(180deg,#eaf6da,#d2e8bb 45%,#b3cf97); animation:medPulse 1.1s infinite; }
+  #bMed:active{ transform:translateX(-50%) translateY(.22em); }
+  #bMed .lbl{ color:#3c5a20; }
+  #bMed.show{ display:flex; }
+  @keyframes medPulse{ 0%,100%{ filter:brightness(1);} 50%{ filter:brightness(1.12);} }
+
+  #playRow{ display:none; grid-template-columns:1fr auto 1fr; gap:.55em; align-items:stretch; width:100%; }
+  #playRow.show{ display:grid; }
+  #playRow .arrow .ico{ font-size:1.6em; }
+  #mgDots{ display:flex; align-items:center; gap:.3em; padding:0 .2em; }
+  #mgDots span{ width:.55em; height:.55em; border-radius:50%; background:rgba(0,0,0,.35);
+                box-shadow:inset 0 .06em .08em rgba(0,0,0,.5); }
+  #mgDots span.hit{ background:#ffd23f; box-shadow:0 0 .35em rgba(255,210,63,.8); }
+  #mgDots span.miss{ background:#7d8d68; }
+
+  #speaker{ margin-top:.55em; width:38%; height:1.05em; border-radius:.5em; opacity:.85;
+    background:radial-gradient(circle at 50% 50%, rgba(0,0,0,.5) 22%, transparent 25%);
+    background-size:.42em .42em; background-position:center; }
+
+  /* ================= overlays ================= */
+  .overlay{ position:fixed; inset:0; top:46px; background:rgba(6,16,8,.82); z-index:20; display:none;
             align-items:center; justify-content:center; flex-direction:column; padding:0 20px; text-align:center; }
   .overlay.show{ display:flex; }
-  .overlay h1{ font-size:26px; margin:0 0 10px; font-family:'Luckiest Guy','Arial Black',sans-serif; font-weight:400;
-               letter-spacing:1px; text-shadow:0 3px 0 rgba(0,0,0,.35); color:#fff6da; }
+  .overlay h1{ font-size:26px; margin:0 0 10px; font-family:'Luckiest Guy','Arial Black',sans-serif;
+               font-weight:400; letter-spacing:1px; text-shadow:0 3px 0 rgba(0,0,0,.35); color:#fff6da; }
   .overlay .desc{ font-size:14px; color:#d7ead2; max-width:340px; margin-bottom:14px; line-height:1.5; }
-  .overlay input[type=text]{ font-size:16px; padding:10px 14px; border-radius:10px; border:0; width:min(260px,80vw);
-               text-align:center; margin-bottom:12px; font-weight:700; }
+  .overlay input[type=text]{ font-size:16px; padding:10px 14px; border-radius:10px; border:0;
+               width:min(260px,80vw); text-align:center; margin-bottom:12px; font-weight:700;
+               user-select:text; -webkit-user-select:text; }
   .overlay button.big{ font-size:18px; font-family:'Luckiest Guy','Arial Black',sans-serif; color:#3a2800;
                     background:linear-gradient(180deg,#ffe27a,#ffc832 55%,#eda51e); border:0; border-radius:14px;
                     padding:13px 30px 10px; margin:6px 0; cursor:pointer; letter-spacing:1px;
                     box-shadow:0 5px 0 #a86f10, 0 8px 18px rgba(0,0,0,.45); transition:transform .08s; }
   .overlay button.big:active{ transform:translateY(3px); box-shadow:0 2px 0 #a86f10, 0 4px 10px rgba(0,0,0,.45); }
-
-  @media (max-width:400px){
-    .meterBar{ width:78px; }
-    #hudName{ font-size:16px; }
-    .toolBtn{ width:48px; height:48px; font-size:21px; border-radius:13px; }
-    #toolbar{ gap:6px; }
-  }
 </style>
 </head>
 <body>
   <div id="bar"><a href="index.html">← BUCKY</a><span class="t">🐐 Baby Bucky</span></div>
-  <div id="stage">
-    <div id="clock">12:00</div>
-    <div id="hud">
-      <div id="hudName">Bucky Jr.</div>
-      <div id="hudAge">0 days old</div>
-      <div class="meterRow"><span class="meterIco">🍼</span><div class="meterBar"><div id="mFood" style="width:100%;background:#4ecb5c;"></div></div></div>
-      <div class="meterRow"><span class="meterIco">🧼</span><div class="meterBar"><div id="mClean" style="width:100%;background:#4ecb5c;"></div></div></div>
-      <div class="meterRow"><span class="meterIco">⚽</span><div class="meterBar"><div id="mPlay" style="width:100%;background:#4ecb5c;"></div></div></div>
-      <div id="moodRow">❤️ Happy</div>
-    </div>
-    <div id="speech"></div>
 
-    <div id="toolbar">
-      <button class="toolBtn active" data-tool="pet" title="Pet">👋</button>
-      <button class="toolBtn" data-tool="bottle" title="Bottle">🍼</button>
-      <button class="toolBtn" data-tool="hay" title="Hay">🌾</button>
-      <button class="toolBtn" data-tool="brush" title="Brush">🧽</button>
-      <button class="toolBtn" data-tool="ball" title="Ball">⚽</button>
-    </div>
-
-    <div id="nameOverlay" class="overlay">
-      <h1>🐐 A New Kid!</h1>
-      <div class="desc">A wobbly little baby goat just arrived at the barn. What should we name her?</div>
-      <input type="text" id="nameInput" maxlength="18" placeholder="Bucky Jr.">
-      <button class="big" id="nameBtn">That's her name!</button>
+  <div id="wrap">
+    <div id="device">
+      <button id="muteBtn" title="Sound on/off">🔊</button>
+      <div id="brand">BABY BUCKY</div>
+      <div id="bezel">
+        <div id="screen">
+          <canvas id="lcd" width="96" height="64"></canvas>
+          <div class="lcdGrid"></div>
+          <div class="glare"></div>
+          <div id="dimmer"></div>
+          <div id="flash"></div>
+          <div id="banner"><div id="bnTitle"></div><div id="bnSub"></div></div>
+          <div id="toast"></div>
+        </div>
+      </div>
+      <div id="plate"><span id="plateName">…</span> <span class="age" id="plateAge"></span></div>
+      <div id="controls">
+        <div id="btnRow">
+          <button class="pbtn" id="bFeed"><span class="ico" id="feedIco">🍼</span><span class="lbl">FEED</span></button>
+          <button class="pbtn" id="bPlay"><span class="ico">🎾</span><span class="lbl">PLAY</span></button>
+          <button class="pbtn" id="bClean"><span class="ico">🧹</span><span class="lbl">CLEAN</span></button>
+          <button class="pbtn" id="bLights"><span class="ico">💤</span><span class="lbl">LIGHTS</span></button>
+        </div>
+        <div id="playRow">
+          <button class="pbtn arrow" id="bLeft"><span class="ico">⬅️</span><span class="lbl">LEFT</span></button>
+          <div id="mgDots"><span></span><span></span><span></span></div>
+          <button class="pbtn arrow" id="bRight"><span class="ico">➡️</span><span class="lbl">RIGHT</span></button>
+        </div>
+        <button class="pbtn" id="bMed"><span class="ico">💊</span><span class="lbl">MEDICINE</span></button>
+      </div>
+      <div id="speaker"></div>
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-  <script>
-  (() => {
-    // ================== photo mode (headless art review) ==================
-    // ?photo=1 turns on a deterministic "photo booth" mode: no localStorage writes,
-    // name overlay auto-dismissed, clock/pose/camera forced via query params, and a
-    // window.__photoReady flag set once everything has settled for a screenshot.
-    const _photoParams = new URLSearchParams(location.search);
-    const PHOTO = _photoParams.get("photo") === "1";
-    let photoHour = null; // 0-23, overrides the real clock when set (photo mode only)
-    if (PHOTO && _photoParams.has("hour")){
-      const hn = parseInt(_photoParams.get("hour"), 10);
-      if (!isNaN(hn)) photoHour = ((hn % 24) + 24) % 24;
-    }
+  <div id="nameOverlay" class="overlay">
+    <h1>🐐 A New Kid!</h1>
+    <div class="desc">A little goat egg just arrived at the barn.<br>What should we name the baby inside?</div>
+    <input type="text" id="nameInput" maxlength="14" placeholder="Bucky Jr.">
+    <button class="big" id="nameBtn">Adopt!</button>
+  </div>
 
-    // ================== persistence ==================
-    const STATE_KEY = "goatCareState";
-    const DECAY_MS = { food: 8*3600*1000, clean: 24*3600*1000, play: 6*3600*1000 };
+<script>
+(() => {
+  'use strict';
+  // ======================================================================
+  //  BABY BUCKY — LCD virtual pet.  All game time flows through now().
+  // ======================================================================
+  const MIN = 60e3, HOUR = 3600e3, DAY = 86400e3;
 
-    function defaultState(){
-      const now = Date.now();
-      return { name:null, needs:{ food:100, clean:100, play:100 }, lastSeen:now, dirtLevel:0, bornAt:now };
-    }
-    function loadState(){
-      try{
-        const v = JSON.parse(localStorage.getItem(STATE_KEY));
-        if (v && v.needs && v.bornAt) return v;
-      }catch(e){}
-      return defaultState();
-    }
-    function saveState(){
-      if (PHOTO) return; // photo mode never touches localStorage
-      state.lastSeen = Date.now();
-      try{ localStorage.setItem(STATE_KEY, JSON.stringify(state)); }catch(e){}
-    }
-    function applyElapsedDecay(){
-      const now = Date.now();
-      const elapsed = Math.max(0, now - (state.lastSeen || now));
-      state.needs.food  = clamp(state.needs.food  - (elapsed / DECAY_MS.food)  * 100, 0, 100);
-      state.needs.clean = clamp(state.needs.clean - (elapsed / DECAY_MS.clean) * 100, 0, 100);
-      state.needs.play  = clamp(state.needs.play  - (elapsed / DECAY_MS.play)  * 100, 0, 100);
-      state.dirtLevel = clamp(100 - state.needs.clean, 0, 100);
-      state.lastSeen = now;
-    }
-    function clamp(v, lo, hi){ return v < lo ? lo : (v > hi ? hi : v); }
+  // single source of game time — every timestamp in the game flows through here
+  function now(){ return Date.now(); }
 
-    let state = loadState();
-    applyElapsedDecay();
-    saveState();
+  // ---------------- tuning ----------------
+  const STAGE_AT   = [0, 10*MIN, 2*DAY, 5*DAY, 9*DAY];     // egg, baby, kid, young, adult
+  const STAGE_NAME = ['EGG', 'BABY', 'KID', 'YOUNG GOAT', 'ADULT'];
+  const RATE = { hu:.5, ha:.4, cl:.2, en:.25 };            // meter loss per awake daytime hour
+  const POOP_DIRT_RATE = .4;                               // extra clean loss /h per poop
+  const SLEEP_MULT = .3, SLEEP_CLEAN_MULT = .5, NIGHT_MULT = .35;
+  const ENERGY_REGEN = .5;                                 // per hour asleep
+  const SICK_AFTER = 3*HOUR;                               // at zero hunger/clean this long -> sick
+  const KIND_GAP = 30*MIN;                                 // gaps longer than this get kind catch-up
+  const FEED_FILL = 1.6, FULL_AT = 3.5;
+  const MAX_POOPS = 3;
+  const POOP_SLOTS = [16, 70, 28];
+  const isNight = h => (h >= 21 || h < 7);
 
-    // ================== name overlay ==================
-    const nameOverlay = document.getElementById("nameOverlay");
-    const nameInput = document.getElementById("nameInput");
-    const hudName = document.getElementById("hudName");
-    const hudAge = document.getElementById("hudAge");
+  // ---------------- persistence ----------------
+  const KEY = 'bb2State';
+  let S = null;
+  function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+  function lsSet(k, v){ try{ localStorage.setItem(k, v); }catch(e){} }
+  function save(){ if (!S) return; S.lastSeen = now(); lsSet(KEY, JSON.stringify(S)); }
+  function newState(name){
+    return { v:1, name, birthTs: now(), m:{ hu:2.5, ha:2.5, cl:4, en:4 },
+             lastSeen: now(), poops:[], nextPoopAt: 0, sick:false, zeroSince:null,
+             lights:true, mute:false, seenStage:0 };
+  }
+  function load(){
+    const raw = lsGet(KEY);
+    if (!raw) return false;
+    try{ S = JSON.parse(raw); }catch(e){ return false; }
+    if (!S || !S.birthTs || !S.m) { S = null; return false; }
+    const elapsed = now() - S.lastSeen;
+    if (elapsed > 0) applyElapsed(elapsed, true);           // kind offline catch-up
+    S.zeroSince = null;
+    if (!S.nextPoopAt || S.nextPoopAt < now()) S.nextPoopAt = now() + poopInterval();
+    return true;
+  }
 
-    if (PHOTO){
-      // photo mode: never show the overlay, use an in-memory name, never persist
-      state.name = state.name || "Photo";
-      hudName.textContent = state.name;
-      nameOverlay.classList.remove("show");
-    } else if (!state.name){
-      nameOverlay.classList.add("show");
-      nameInput.value = "";
-      nameInput.placeholder = "Bucky Jr.";
+  // ---------------- stage ----------------
+  function stageIdx(){
+    const age = now() - S.birthTs;
+    let s = 0;
+    for (let i = 0; i < STAGE_AT.length; i++) if (age >= STAGE_AT[i]) s = i;
+    return s;
+  }
+  function ageText(){
+    const age = now() - S.birthTs;
+    if (stageIdx() === 0) return 'still an egg…';
+    const d = Math.floor(age / DAY);
+    if (d <= 0) return 'hatched today!';
+    return d === 1 ? '1 day old' : d + ' days old';
+  }
+
+  // ---------------- decay / catch-up engine ----------------
+  function poopInterval(){
+    return (S.m.hu >= 2.5 ? (2 + Math.random()*2) : (4 + Math.random()*3)) * HOUR;
+  }
+  // Simulates `ms` of elapsed pet time ending at now(). kind=true -> offline
+  // rules: damage floored at min(pre,1) per meter, at most 1 new poop, never
+  // newly sick. kind=false -> live rules (uncapped, sick timers advance).
+  function applyElapsed(ms, kind){
+    if (!S || ms <= 0) return;
+    const pre = { hu:S.m.hu, ha:S.m.ha, cl:S.m.cl, en:S.m.en, poops:S.poops.length };
+    const endT = now();
+    let simT = endT - ms;
+    let steps = Math.ceil(ms / (15*MIN));
+    if (steps > 5000) steps = 5000;                          // ~52 days is plenty
+    const chunk = ms / steps;
+    let newPoops = 0;
+    for (let i = 0; i < steps; i++){
+      simT += chunk;
+      const hrs = chunk / HOUR;
+      const night = isNight(new Date(simT).getHours());
+      const asleep = !S.lights;
+      const nMult = night ? NIGHT_MULT : 1;
+      const sMult = asleep ? SLEEP_MULT : 1;
+      const dirt = RATE.cl + POOP_DIRT_RATE * S.poops.length;
+      S.m.hu = Math.max(0, S.m.hu - RATE.hu * nMult * sMult * hrs);
+      S.m.ha = Math.max(0, S.m.ha - RATE.ha * nMult * sMult * hrs);
+      S.m.cl = Math.max(0, S.m.cl - dirt * nMult * (asleep ? SLEEP_CLEAN_MULT : 1) * hrs);
+      if (asleep) S.m.en = Math.min(4, S.m.en + ENERGY_REGEN * hrs);
+      else        S.m.en = Math.max(0, S.m.en - RATE.en * nMult * hrs);
+      // poop schedule (eggs don't poop)
+      if (stageIdx() > 0 && S.nextPoopAt && simT >= S.nextPoopAt){
+        if (S.poops.length < MAX_POOPS && (!kind || newPoops < 1)){
+          S.poops.push(POOP_SLOTS[S.poops.length % POOP_SLOTS.length]);
+          newPoops++;
+        }
+        S.nextPoopAt = simT + poopInterval();
+      }
+      // sick timers (live only)
+      if (!kind){
+        if (S.m.hu <= 0 || S.m.cl <= 0){
+          if (S.zeroSince == null) S.zeroSince = simT;
+          else if (!S.sick && simT - S.zeroSince >= SICK_AFTER){
+            S.sick = true; sfx('sad'); toast(S.name + ' feels icky…');
+          }
+        } else S.zeroSince = null;
+      }
+    }
+    if (kind){
+      // kindness caps: never come back to worse than "pretty hungry + one poop + maybe sad"
+      for (const k of ['hu','ha','cl','en']){
+        const floor = Math.min(pre[k], k === 'en' ? 2.5 : 1);   // wakes up rested-ish
+        if (S.m[k] < floor) S.m[k] = floor;
+      }
+      if (S.poops.length > pre.poops + 1) S.poops.length = pre.poops + 1;
+      S.zeroSince = null;                                    // sick never *starts* while away
+    }
+  }
+
+  // ---------------- audio (tiny square-wave chirps) ----------------
+  let AC = null;
+  function ac(){
+    if (!AC){ try{ AC = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){} }
+    if (AC && AC.state === 'suspended') AC.resume().catch(()=>{});
+    return AC;
+  }
+  const MELODY = {
+    press:   [[880,.05]],
+    boop:    [[330,.09]],
+    eat:     [[660,.06],[520,.06],[660,.06],[520,.06],[700,.07]],
+    refuse:  [[392,.1],[311,.16]],
+    sweep:   [[440,.05],[554,.05],[659,.05],[880,.08]],
+    bath:    [[659,.06],[784,.06],[988,.09]],
+    win:     [[523,.07],[659,.07],[784,.12]],
+    lightsOff:[[523,.08],[392,.08],[262,.16]],
+    lightsOn:[[262,.08],[392,.08],[523,.14]],
+    med:     [[659,.06],[880,.06],[1047,.12]],
+    fanfare: [[523,.09],[659,.09],[784,.09],[1047,.22]],
+    hatch:   [[392,.07],[523,.07],[659,.07],[784,.09],[1047,.2]],
+    sad:     [[294,.14],[262,.2]],
+  };
+  function sfx(name){
+    if (!S ? false : S.mute) return;
+    const ctx = ac(); if (!ctx) return;
+    const seq = MELODY[name]; if (!seq) return;
+    let t = ctx.currentTime + 0.01;
+    for (const [f, d] of seq){
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'square'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.045, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + d);
+      o.connect(g).connect(ctx.destination);
+      o.start(t); o.stop(t + d + .02);
+      t += d + .015;
+    }
+  }
+
+  // ======================================================================
+  //  SPRITES — palette-indexed pixel grids, all drawn in code.
+  // ======================================================================
+  const PAL = [null, '#26301f', '#4a5a3d', '#8a9878', '#a2442f', '#3d5aa0'];
+  const LCD_BG = '#b9c8a2', LCD_OFF = '#a3b18c';
+
+  function makeGrid(w, h){
+    const d = new Uint8Array(w*h);
+    return {
+      w, h, d,
+      px(x, y, c){ x|=0; y|=0; if (x>=0 && y>=0 && x<w && y<h) d[y*w+x] = c; },
+      rect(x, y, rw, rh, c){ for (let j=0;j<rh;j++) for (let i=0;i<rw;i++) this.px(x+i, y+j, c); },
+    };
+  }
+  function fromRows(rows){
+    const g = makeGrid(rows[0].length, rows.length);
+    for (let y=0;y<rows.length;y++) for (let x=0;x<rows[y].length;x++){
+      const ch = rows[y][x]; if (ch !== '.') g.d[y*g.w+x] = +ch;
+    }
+    return g;
+  }
+
+  // stage proportions (1..4)
+  const SP = [ null,
+    { bw: 9, bh: 5, hw: 7, hh: 6, leg: 3, neck: 0, horn: 0, beard: 0 },
+    { bw:11, bh: 5, hw: 6, hh: 5, leg: 4, neck: 1, horn: 1, beard: 0 },
+    { bw:13, bh: 6, hw: 6, hh: 6, leg: 5, neck: 2, horn: 2, beard: 0 },
+    { bw:15, bh: 7, hw: 7, hh: 6, leg: 5, neck: 3, horn: 3, beard: 2 },
+  ];
+  // poses: idle | eat | sleep | happy | sad | sleepy | sick | refuse
+  function buildGoat(st, pose, f){
+    const p = SP[st];
+    const hornPad = Math.max(p.horn, 2) + 1;
+    const W = p.bw + p.hw + 4;
+    const gh = hornPad + Math.max(p.hh - 2 + p.neck, 1) + p.bh + p.leg + 1;
+    const g = makeGrid(W, gh);
+    const sleeping = (pose === 'sleep');
+    const happy    = (pose === 'happy');
+    const sad      = (pose === 'sad' || pose === 'sick' || pose === 'sleepy');
+    const sick     = (pose === 'sick');
+    const eat      = (pose === 'eat');
+    const refuse   = (pose === 'refuse');
+
+    const ground = gh - 1;
+    let legLen = p.leg, bob = 0;
+    if (pose === 'idle' && f % 2 === 1) legLen -= 1;
+    if (happy){ bob = -(f % 2 === 0 ? 3 : 1); legLen -= 1; }
+
+    let bodyY0, bodyX0 = 2;
+    if (sleeping){ legLen = 0; bodyY0 = ground - p.bh; }
+    else bodyY0 = ground - legLen - p.bh + 1;
+    bodyY0 += bob;
+    const bodyY1 = bodyY0 + p.bh - 1;
+    const bodyX1 = bodyX0 + p.bw - 1;
+
+    if (!sleeping){
+      const fx1 = bodyX1 - 2, bx1 = bodyX0 + 1, spread = happy ? 1 : 0;
+      for (let i=0;i<legLen;i++){
+        g.px(bx1 - spread, bodyY1 + 1 + i, 1); g.px(bx1+1 - spread, bodyY1 + 1 + i, 1);
+        g.px(fx1 + spread, bodyY1 + 1 + i, 1); g.px(fx1+1 + spread, bodyY1 + 1 + i, 1);
+      }
+      if (legLen > 0){
+        g.px(bx1 - spread, bodyY1 + legLen, 2); g.px(bx1+1 - spread, bodyY1 + legLen, 2);
+        g.px(fx1 + spread, bodyY1 + legLen, 2); g.px(fx1+1 + spread, bodyY1 + legLen, 2);
+      }
     } else {
-      hudName.textContent = state.name;
-    }
-    document.getElementById("nameBtn").onclick = confirmName;
-    nameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") confirmName(); });
-    function confirmName(){
-      const v = nameInput.value.trim();
-      state.name = v || "Bucky Jr.";
-      hudName.textContent = state.name;
-      saveState();
-      nameOverlay.classList.remove("show");
+      g.px(bodyX0+2, ground, 2); g.px(bodyX0+3, ground, 2);
+      g.px(bodyX1-3, ground, 2); g.px(bodyX1-2, ground, 2);
     }
 
-    function ageText(){
-      const days = Math.floor((Date.now() - state.bornAt) / 86400000);
-      if (days <= 0) return "Born today!";
-      if (days === 1) return "1 day old";
-      return days + " days old";
-    }
+    const bh2 = p.bh + (refuse ? 1 : 0);
+    g.rect(bodyX0, bodyY0, p.bw, bh2, 1);
+    g.px(bodyX0, bodyY0, 0); g.px(bodyX1, bodyY0, 0);
+    g.px(bodyX0, bodyY0 + bh2 - 1, 0); g.px(bodyX1, bodyY0 + bh2 - 1, 0);
+    g.rect(bodyX0+2, bodyY0 + bh2 - 1, p.bw - 4, 1, refuse ? 3 : 2);
+    if (sick){ g.px(bodyX0+3, bodyY0+1, 3); g.px(bodyX0+6, bodyY0+2, 3); }
 
-    // ================== three.js scene ==================
-    const stage = document.getElementById("stage");
-    const renderer = new THREE.WebGLRenderer({ antialias:true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    stage.appendChild(renderer.domElement);
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x2a2016);
-    const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 100);
+    const tailUp = (f % 2 === 0) && !sad && !sleeping;
+    const ty = tailUp ? bodyY0 - 1 : bodyY0 + 1;
+    g.px(bodyX0 - 1, ty, 1); g.px(bodyX0 - 1, ty + 1, 1);
 
-    function fit(){
-      const w = stage.clientWidth, h = stage.clientHeight;
-      renderer.setSize(w, h);
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-    }
-    window.addEventListener("resize", fit);
-    fit();
+    let headX0 = bodyX1 - 2, headY1;
+    if (sleeping)      headY1 = bodyY0 + 1;
+    else if (eat){     headY1 = bodyY1 + Math.min(legLen, 2); headX0 = bodyX1 - 1; }
+    else               headY1 = bodyY0 + 1 - p.neck + (sad ? 1 : 0) + (refuse ? -1 : 0);
+    const headY0 = headY1 - p.hh + 1;
+    const shake = (refuse && f % 2 === 1) ? -1 : 0;
+    headX0 += shake;
+    const headX1 = headX0 + p.hw - 1;
+    if (!sleeping && !eat && headY1 < bodyY0 - 1)
+      g.rect(headX0 + 1, headY1 + 1, Math.min(4, p.hw - 2), bodyY0 - headY1 - 1, 1);
+    g.rect(headX0, headY0, p.hw, p.hh, 1);
+    g.px(headX0, headY0, 0); g.px(headX1, headY0, 0);
+    if (headY1 < bodyY0) g.px(headX0, headY1, 0);
+    g.rect(headX1 - 2, headY1 - 1, 3, 2, 2);
+    g.px(headX1, headY1, 0);
+    g.px(headX1 - 1, headY1 - 1, 1);
+    if (eat && f % 2 === 0){ g.px(headX1 - 1, headY1, 0); g.px(headX1 - 2, headY1, 0); }
+    if (happy){ g.px(headX1 - 1, headY1, 0); }
+    if (sad){ g.px(headX1 - 2, headY1, 1); }
 
-    const mat = (color, flat) => new THREE.MeshPhongMaterial({ color, flatShading: !!flat, shininess: 8 });
+    const eyeX = headX1 - 3, eyeY = headY0 + 1;
+    if (sleeping || refuse){ g.px(eyeX, eyeY + 1, 3); g.px(eyeX + 1, eyeY + 1, 3); }
+    else if (happy){ g.px(eyeX, eyeY + 1, 0); g.px(eyeX + 1, eyeY, 0); }
+    else if (pose === 'sleepy'){ g.px(eyeX, eyeY + 1, 0); }
+    else if (sad){ g.px(eyeX, eyeY + 1, 0); g.px(eyeX - 1, eyeY + 3, 5); }
+    else { g.px(eyeX, eyeY, 0); g.px(eyeX, eyeY + 1, 0); }
 
-    // GPU cleanup: removing a mesh from the scene does NOT free its buffers. The GLB-derived
-    // template geometries/material/texture are shared across the fallback->GLB hot-swap and
-    // any future rebuild, so they go in this set and freeMesh() never disposes them.
-    const SHARED_ASSETS = new Set();
-    function markShared(root){
-      root.traverse(o => {
-        if (o.isMesh){
-          if (o.geometry) SHARED_ASSETS.add(o.geometry);
-          for (const m of (Array.isArray(o.material) ? o.material : [o.material])){
-            if (m){ SHARED_ASSETS.add(m); if (m.map) SHARED_ASSETS.add(m.map); }
-          }
-        }
-      });
-    }
-    function freeMesh(root){
-      if (!root) return;
-      if (root.parent) root.parent.remove(root);
-      root.traverse(o => {
-        if (o.isMesh){
-          if (o.geometry && !SHARED_ASSETS.has(o.geometry)) o.geometry.dispose();
-          for (const m of (Array.isArray(o.material) ? o.material : [o.material])){
-            if (m && !SHARED_ASSETS.has(m)){
-              if (m.map && !SHARED_ASSETS.has(m.map)) m.map.dispose();
-              m.dispose();
-            }
-          }
-        }
-      });
-    }
+    const earDroop = sad ? 2 : (f % 2);
+    const eY = headY0 + 1 + earDroop;
+    g.px(headX0 - 1, eY, 1); g.px(headX0 - 2, eY, 1);
+    g.px(headX0 - 1, eY + 1, 1); g.px(headX0 - 2, eY + 1, 1); g.px(headX0 - 3, eY + 1, 1);
 
-    // ---- lighting: warm day / cozy blue night, blended over real clock ----
-    const hemi = new THREE.HemisphereLight(0xfff2d0, 0x4a3a2a, 0.9);
-    scene.add(hemi);
-    const sun = new THREE.DirectionalLight(0xfff0c8, 1.0);
-    sun.position.set(6, 10, 4);
-    scene.add(sun);
-    // the barn lantern hangs over the stall — the barn is NEVER dark, just cozier at night
-    const lantern = new THREE.PointLight(0xffb060, 0, 11, 2);
-    lantern.position.set(-1.4, 2.2, -1.0);
-    scene.add(lantern);
-    const lanternBulb = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8),
-      new THREE.MeshBasicMaterial({ color: 0xffc878, transparent: true, opacity: 0 }));
-    lanternBulb.position.copy(lantern.position);
-    scene.add(lanternBulb);
-
-    const DAY = { bg:0x8ecdf2, hemiSky:0xfff2d0, hemiGround:0x4a3a2a, hemiI:0.95, sunColor:0xfff0c8, sunI:1.05, lantern:0 };
-    const NIGHT = { bg:0x141d3a, hemiSky:0x33405e, hemiGround:0x1c1410, hemiI:0.55, sunColor:0x4a5a8a, sunI:0.22, lantern:1.7 };
-    const _cA = new THREE.Color(), _cB = new THREE.Color(), _cOut = new THREE.Color();
-    function dayBlend(){
-      // 6:00-19:00 full day; smooth 1hr transitions at 5-6, 19-20; night otherwise
-      let h;
-      if (photoHour != null) h = photoHour; // photo mode: frozen clock, minutes=0
-      else { const d = new Date(); h = d.getHours() + d.getMinutes()/60; }
-      let t; // 0 = night, 1 = day
-      if (h >= 6 && h <= 19) t = 1;
-      else if (h > 19 && h < 20) t = 1 - (h - 19);
-      else if (h >= 5 && h < 6) t = (h - 5);
-      else t = 0;
-      return t;
-    }
-    function applyLighting(t){
-      _cA.setHex(NIGHT.bg); _cB.setHex(DAY.bg); _cOut.copy(_cA).lerp(_cB, t);
-      scene.background = _cOut.clone();
-      _cA.setHex(NIGHT.hemiSky); _cB.setHex(DAY.hemiSky);
-      hemi.color.copy(_cA).lerp(_cB, t);
-      _cA.setHex(NIGHT.hemiGround); _cB.setHex(DAY.hemiGround);
-      hemi.groundColor.copy(_cA).lerp(_cB, t);
-      hemi.intensity = NIGHT.hemiI + (DAY.hemiI - NIGHT.hemiI) * t;
-      _cA.setHex(NIGHT.sunColor); _cB.setHex(DAY.sunColor);
-      sun.color.copy(_cA).lerp(_cB, t);
-      sun.intensity = NIGHT.sunI + (DAY.sunI - NIGHT.sunI) * t;
-      lantern.intensity = NIGHT.lantern * (1 - t);
-      lanternBulb.material.opacity = (1 - t) * 0.95;
-    }
-
-    // ---- procedural canvas texture helper (fallback if straw.png fails) ----
-    function canvasTex(size, draw){
-      const c = document.createElement("canvas"); c.width = c.height = size;
-      draw(c.getContext("2d"), size);
-      const t = new THREE.CanvasTexture(c);
-      t.wrapS = t.wrapT = THREE.RepeatWrapping;
-      return t;
-    }
-    const strawFallback = canvasTex(64, (g, s) => {
-      g.fillStyle = "#d9b23c"; g.fillRect(0,0,s,s);
-      for (let i=0;i<60;i++){
-        g.strokeStyle = ["#c9a02c","#e5c45e","#b8922a"][(Math.random()*3)|0];
-        g.lineWidth = 1+Math.random();
-        const y = Math.random()*s;
-        g.beginPath(); g.moveTo(0,y); g.lineTo(s,y+(Math.random()-0.5)*8); g.stroke();
+    if (p.horn > 0){
+      const hx = headX0 + 2;
+      for (let i=1;i<=p.horn;i++){
+        g.px(hx, headY0 - i, 2);
+        if (p.horn >= 3 && i === p.horn) g.px(hx - 1, headY0 - i, 2);
       }
-    });
-
-    // ---- barn stall geometry ----
-    const STALL_W = 6, STALL_D = 5, STALL_H = 3.4;
-    const woodTones = [0x8a5a34, 0x9c6a3e, 0x7c4d2a, 0x8a5a34, 0x93613a];
-    function plankWall(w, h, rotY, x, z){
-      const grp = new THREE.Group();
-      const plankH = 0.42;
-      const rows = Math.ceil(h / plankH);
-      for (let i = 0; i < rows; i++){
-        const tone = woodTones[i % woodTones.length];
-        const plank = new THREE.Mesh(new THREE.BoxGeometry(w, plankH*0.96, 0.12), mat(tone, true));
-        plank.position.set(0, i*plankH + plankH/2, 0);
-        grp.add(plank);
-      }
-      grp.position.set(x, 0, z);
-      grp.rotation.y = rotY;
-      return grp;
-    }
-    const stallGroup = new THREE.Group();
-    scene.add(stallGroup);
-    // back wall
-    stallGroup.add(plankWall(STALL_W, STALL_H, 0, 0, -STALL_D/2));
-    // left / right walls
-    stallGroup.add(plankWall(STALL_D, STALL_H, Math.PI/2, -STALL_W/2, 0));
-    stallGroup.add(plankWall(STALL_D, STALL_H, Math.PI/2, STALL_W/2, 0));
-
-    // floor (straw texture)
-    const strawTex = new THREE.TextureLoader().load("straw.png",
-      undefined, undefined, () => { floor.material.map = strawFallback; floor.material.needsUpdate = true; });
-    strawTex.wrapS = strawTex.wrapT = THREE.RepeatWrapping;
-    strawTex.repeat.set(4, 4);
-    const floorMat = new THREE.MeshPhongMaterial({ map: strawTex, color: 0xffdf9e });
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(STALL_W, STALL_D), floorMat);
-    floor.rotation.x = -Math.PI/2;
-    stallGroup.add(floor);
-
-    // straw tufts scattered for depth
-    const tuftGeo = new THREE.BoxGeometry(0.03, 0.28, 0.03);
-    const tuftMat = new THREE.MeshPhongMaterial({ color: 0xe4c25e, flatShading:true });
-    for (let i = 0; i < 60; i++){
-      const tuft = new THREE.Mesh(tuftGeo, tuftMat);
-      const x = (Math.random()-0.5)*(STALL_W-0.4), z = (Math.random()-0.5)*(STALL_D-0.4);
-      tuft.position.set(x, 0.1, z);
-      tuft.rotation.set((Math.random()-0.5)*0.6, Math.random()*Math.PI, (Math.random()-0.5)*0.7);
-      tuft.scale.setScalar(0.6 + Math.random()*0.8);
-      stallGroup.add(tuft);
-    }
-
-    // front rail / fence (camera looks over this)
-    const railMat = mat(0x9c7a50);
-    const postMat = mat(0x7a5a38);
-    const FRONT_Z = STALL_D/2;
-    for (let x = -STALL_W/2; x <= STALL_W/2 + 0.01; x += STALL_W/3){
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 1.0, 8), postMat);
-      post.position.set(x, 0.5, FRONT_Z);
-      stallGroup.add(post);
-    }
-    for (const ry of [0.35, 0.75]){
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(STALL_W, 0.09, 0.09), railMat);
-      rail.position.set(0, ry, FRONT_Z);
-      stallGroup.add(rail);
-    }
-
-    // feed trough (corner) — procedural box trough shown immediately; hot-swapped for
-    // assets/trough.glb if/when it loads, same fallback->GLB pattern as the goat itself.
-    // The hay pile mesh and troughGroup.userData.hayMesh contract stay identical either
-    // way, so every other call site (fillTrough/eating flow) works unmodified.
-    const troughGroup = new THREE.Group();
-    const troughProcGroup = new THREE.Group();
-    {
-      const troughMat = mat(0x6e5233);
-      const base = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.22, 0.4), troughMat);
-      base.position.y = 0.11;
-      troughProcGroup.add(base);
-      const rim = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.06, 0.48), troughMat);
-      rim.position.y = 0.24;
-      troughProcGroup.add(rim);
-    }
-    troughGroup.add(troughProcGroup);
-    const troughHay = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.12, 0.32), mat(0xdcb84a, true));
-    troughHay.position.y = 0.24;
-    troughHay.visible = false;
-    troughGroup.add(troughHay);
-    troughGroup.userData.hayMesh = troughHay;
-    troughGroup.position.set(-STALL_W/2 + 0.7, 0, -STALL_D/2 + 0.5);
-    troughGroup.rotation.y = 0.5;
-    stallGroup.add(troughGroup);
-
-    new THREE.GLTFLoader().load("assets/trough.glb", (gltf) => {
-      let srcMesh = null;
-      gltf.scene.traverse(o => { if (o.isMesh && !srcMesh) srcMesh = o; });
-      if (!srcMesh){ console.warn("trough.glb has no mesh — keeping the procedural trough"); return; }
-      gltf.scene.updateMatrixWorld(true);
-      const box = new THREE.Box3().setFromObject(gltf.scene);
-      const size = new THREE.Vector3(); box.getSize(size);
-      // match the procedural trough's footprint (0.9 wide x 0.4 deep) so the hit-test
-      // margin (TROUGH_HALF_X/Z in isPointInTrough) and the goat's eating-distance check
-      // against troughGroup.position both stay correct without touching that logic
-      const scaleX = 0.9 / (size.x || 0.9), scaleZ = 0.4 / (size.z || 0.4);
-      const scaleY = ((scaleX + scaleZ) / 2);   // uniform-ish vertical scale, avoid squashing
-      const mesh = new THREE.Mesh(srcMesh.geometry, srcMesh.material);
-      mesh.geometry.computeBoundingBox();
-      SHARED_ASSETS.add(mesh.geometry);
-      for (const m of (Array.isArray(mesh.material) ? mesh.material : [mesh.material])){
-        if (m){ SHARED_ASSETS.add(m); if (m.map) SHARED_ASSETS.add(m.map); }
-      }
-      const wrap = new THREE.Group();
-      wrap.scale.set(scaleX, scaleY, scaleZ);
-      wrap.position.y = -box.min.y * scaleY;   // sit flush on the straw floor
-      wrap.add(mesh);
-      // GPU hygiene: the procedural trough's box geometries + shared troughMat are NOT
-      // in SHARED_ASSETS (nothing else reuses them), so freeMesh() actually disposes them
-      // here instead of leaking two BoxGeometries + a material every time this load fires
-      freeMesh(troughProcGroup);
-      troughGroup.add(wrap);
-      troughGroup.userData._glbTrough = wrap;
-      // rest the hay pile on the GLB's actual rim height, not the procedural box's
-      // hardcoded 0.24 (the two models' proportions differ), so it doesn't float above
-      // or sink into the real trough once swapped in
-      troughHay.position.y = wrap.position.y + size.y * scaleY * 0.92;
-      troughGroup.remove(troughHay);
-      troughGroup.add(troughHay);
-      console.log("[trough] swapped in trough.glb, footprint scale", scaleX.toFixed(2), scaleZ.toFixed(2));
-    }, undefined, (err) => { console.warn("trough.glb failed to load — keeping the procedural trough", err); });
-
-    // water bucket
-    const bucketGroup = new THREE.Group();
-    {
-      const bMat = mat(0x8a8a92);
-      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.18, 0.32, 10), bMat);
-      body.position.y = 0.16;
-      bucketGroup.add(body);
-      const water = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.02, 10), mat(0x4a90c8));
-      water.position.y = 0.31;
-      bucketGroup.add(water);
-    }
-    bucketGroup.position.set(STALL_W/2 - 0.55, 0, -STALL_D/2 + 0.45);
-    stallGroup.add(bucketGroup);
-
-    // ---- ambient butterfly ----
-    const butterfly = new THREE.Group();
-    {
-      const wingMat = new THREE.MeshBasicMaterial({ color: 0xffd23f, side: THREE.DoubleSide, transparent:true, opacity:0.9 });
-      const wL = new THREE.Mesh(new THREE.CircleGeometry(0.1, 8, 0, Math.PI), wingMat);
-      wL.rotation.y = Math.PI/2; wL.position.x = -0.02;
-      const wR = wL.clone(); wR.position.x = 0.02; wR.rotation.y = -Math.PI/2;
-      butterfly.add(wL, wR);
-      butterfly.userData.wL = wL; butterfly.userData.wR = wR;
-    }
-    butterfly.visible = false;
-    scene.add(butterfly);
-    let butterflyState = { active:false, t:0, next: 8 + Math.random()*14, path:null };
-
-    // ---- camera: eye-level 3/4 view just outside the front rail, following the kid ----
-    const camBase = new THREE.Vector3(0, 1.35, FRONT_Z + 2.3);
-    const camLook = new THREE.Vector3(0, 0, -0.3);   // smoothed follow point on the goat
-    camera.position.copy(camBase);
-    camera.lookAt(0, 0.7, -0.4);
-    let camSwayT = 0;
-
-    // ================== shared particle system ==================
-    // small shared geometries reused across particle kinds; each particle owns its own material (disposed on removal)
-    const heartGeo = (() => {
-      const shape = new THREE.Shape();
-      shape.moveTo(0, 0.3);
-      shape.bezierCurveTo(0, 0.5, -0.4, 0.5, -0.4, 0.2);
-      shape.bezierCurveTo(-0.4, -0.1, 0, -0.25, 0, -0.5);
-      shape.bezierCurveTo(0, -0.25, 0.4, -0.1, 0.4, 0.2);
-      shape.bezierCurveTo(0.4, 0.5, 0, 0.5, 0, 0.3);
-      const g = new THREE.ShapeGeometry(shape);
-      g.scale(0.16, 0.16, 0.16);
-      return g;
-    })();
-    const sparkleGeo = new THREE.OctahedronGeometry(0.05, 0);
-    const bubbleGeo = new THREE.SphereGeometry(0.06, 8, 6);
-    const puffGeo = new THREE.SphereGeometry(0.05, 6, 5);
-
-    const particles = []; // { mesh, vel, life, maxLife, kind, spin }
-    function spawnParticle(kind, pos, opts){
-      opts = opts || {};
-      let geo, color, size = 1;
-      if (kind === "heart"){ geo = heartGeo; color = 0xff5577; }
-      else if (kind === "sparkle"){ geo = sparkleGeo; color = 0xfff2a0; }
-      else if (kind === "bubble"){ geo = bubbleGeo; color = 0xcfe8ff; }
-      else { geo = puffGeo; color = 0xe8d9a8; } // puff
-      const m = new THREE.MeshBasicMaterial({ color, transparent:true, opacity: opts.opacity!=null?opts.opacity:0.95 });
-      const mesh = new THREE.Mesh(geo, m);
-      mesh.position.copy(pos);
-      const s = (opts.scale || 1);
-      mesh.scale.setScalar(s);
-      scene.add(mesh);
-      particles.push({
-        mesh, kind,
-        vel: opts.vel || new THREE.Vector3((Math.random()-0.5)*0.4, 0.6+Math.random()*0.5, (Math.random()-0.5)*0.4),
-        life: 0, maxLife: opts.maxLife || 1.0,
-        grav: opts.grav != null ? opts.grav : -0.4,
-        spin: (Math.random()-0.5)*3
-      });
-    }
-    function updateParticles(dt){
-      for (let i = particles.length - 1; i >= 0; i--){
-        const p = particles[i];
-        p.life += dt;
-        const t = p.life / p.maxLife;
-        if (t >= 1){
-          scene.remove(p.mesh);
-          p.mesh.material.dispose();
-          particles.splice(i, 1);
-          continue;
-        }
-        p.vel.y += p.grav * dt;
-        p.mesh.position.addScaledVector(p.vel, dt);
-        p.mesh.rotation.y += p.spin * dt;
-        if (p.kind === "heart" || p.kind === "sparkle") p.mesh.rotation.z += p.spin * dt;
-        p.mesh.material.opacity = (1 - t) * 0.95;
-        p.mesh.lookAt(camera.position);
+      if (p.horn >= 2) for (let i=1;i<=p.horn;i++){
+        g.px(hx + 2, headY0 - i, 2);
+        if (p.horn >= 3 && i === p.horn) g.px(hx + 3, headY0 - i, 2);
       }
     }
+    if (p.beard > 0 && !eat)
+      for (let i=1;i<=p.beard;i++) g.px(headX1 - 1, headY1 + i, 2);
+    return g;
+  }
 
-    // ================== the goat (procedural skeleton) ==================
-    // Pied-kid palette (matched to the family's reference art): white coat with soft brown
-    // patches, brown head with a white blaze, perky ears, little silver horns, brown socks
-    const FUR = 0xf7f2ea, FUR_DARK = 0x9c6238, MUZZLE = 0xf3ece2, HOOF = 0x474038, HORN = 0x9aa0a8;
-    const INNER_EAR = 0xe6c3ae, NOSE_C = 0xdb9490, IRIS = 0x7a4a22, PUPIL = 0x1c120c;
-    const SOCK = 0x8a5632, PATCH = 0xa97042, EYE_C = 0x2a1a10;
-
-    // smooth organic material — baby fur reads soft, not shiny or faceted
-    const smat = (color) => new THREE.MeshPhongMaterial({ color, shininess: 4 });
-    // tiny vertex jitter -> fuzzy, hand-made silhouette instead of perfect primitives
-    function fuzz(geo, amt){
-      const p = geo.attributes.position;
-      for (let i = 0; i < p.count; i++)
-        p.setXYZ(i, p.getX(i) + (Math.random()-0.5)*amt, p.getY(i) + (Math.random()-0.5)*amt, p.getZ(i) + (Math.random()-0.5)*amt);
-      geo.computeVertexNormals();
-      return geo;
+  function buildEgg(pose, f){
+    const g = makeGrid(13, 14);
+    const cx = 6, wob = (pose === 'idle' && f % 2 === 1) ? 1 : 0;
+    const rows = [2,3,4,5,5,6,6,6,6,6,5,4];
+    for (let y=0;y<rows.length;y++){
+      const r = rows[y], yy = y + 1, off = (y < 5 ? wob : 0);
+      g.px(cx - r + off, yy, 1); g.px(cx + r + off, yy, 1);
     }
-    // sculpted torso: long barrel with a round milk belly, tucked flank, and a gentle withers rise
-    function kidTorsoGeo(){
-      const geo = new THREE.SphereGeometry(0.235, 24, 18);
-      geo.scale(1.0, 0.95, 1.48);
-      const p = geo.attributes.position;
-      for (let i = 0; i < p.count; i++){
-        const x = p.getX(i); let y = p.getY(i); const z = p.getZ(i);
-        if (y < 0) y -= 0.05 * Math.exp(-Math.pow((z + 0.06) / 0.17, 2));   // round belly
-        if (y > 0.08) y += 0.03 * Math.exp(-Math.pow((z - 0.28) / 0.13, 2)); // withers
-        p.setXYZ(i, x, y, z);
-      }
-      return fuzz(geo, 0.004);
-    }
-
-    function buildGoat(){
-      const root = new THREE.Group();
-
-      // shadow blob
-      const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.5, 16),
-        new THREE.MeshBasicMaterial({ color:0x000000, transparent:true, opacity:0.28 }));
-      shadow.rotation.x = -Math.PI/2; shadow.position.y = 0.01;
-      root.add(shadow);
-      root.userData.shadow = shadow;
-
-      // body group
-      const body = new THREE.Group();
-      body.position.y = 0.46;
-      root.add(body);
-      // one sculpted barrel instead of two spheres — belly, tuck, and withers in the silhouette
-      const torso = new THREE.Mesh(kidTorsoGeo(), smat(FUR));
-      torso.position.set(0, 0.02, -0.02);
-      body.add(torso);
-      // brisket — the soft chest bump between the front legs
-      const brisket = new THREE.Mesh(fuzz(new THREE.SphereGeometry(0.115, 12, 10), 0.005), smat(FUR));
-      brisket.scale.set(0.85, 0.72, 0.95);
-      brisket.position.set(0, -0.05, 0.26);
-      body.add(brisket);
-      // soft brown pied patches over the shoulders and rump, like the reference art
-      const patchDefs = [
-        [ 0.05,  0.15,  0.14, 1.5, 0.7, 1.3],   // shoulder saddle
-        [-0.16,  0.05, -0.05, 0.9, 1.0, 1.4],   // left flank
-        [ 0.10,  0.10, -0.26, 1.3, 0.8, 1.1]    // rump
-      ];
-      for (const [px, py, pz, sx, sy, sz] of patchDefs){
-        const patch = new THREE.Mesh(fuzz(new THREE.SphereGeometry(0.095, 12, 10), 0.004), smat(PATCH));
-        patch.scale.set(sx, sy, sz);
-        patch.position.set(px, py, pz);
-        body.add(patch);
-      }
-
-      // dirt blotches (hidden until Clean < 50)
-      const dirtBlotches = [];
-      const dirtGeo = new THREE.SphereGeometry(0.09, 6, 5);
-      const dirtSpots = [
-        [0.15, 0.05, -0.15], [-0.18, 0.0, 0.05], [0.1, -0.05, 0.2],
-        [-0.12, 0.08, -0.25], [0.05, 0.1, 0.15], [-0.08, -0.02, -0.05]
-      ];
-      for (const [x,y,z] of dirtSpots){
-        const bm = new THREE.MeshPhongMaterial({ color:0x5a3d22, transparent:true, opacity:0 });
-        const blob = new THREE.Mesh(dirtGeo, bm);
-        blob.scale.set(1, 0.4, 1);
-        blob.position.set(x, y, z);
-        body.add(blob);
-        dirtBlotches.push({ mesh: blob, baseScale: 0.7 + Math.random()*0.6 });
-      }
-      root.userData.dirtBlotches = dirtBlotches;
-
-      // neck pivot at front-top of body — an actual furry neck connects body to head
-      const neck = new THREE.Group();
-      neck.position.set(0, 0.24, 0.24);
-      body.add(neck);
-      root.userData.neck = neck;
-      const neckGeo = new THREE.CylinderGeometry(0.08, 0.105, 0.24, 12);
-      neckGeo.translate(0, 0.09, 0);
-      // brown nape flowing down from the head, white up the throat — like the reference
-      const neckMesh = new THREE.Mesh(fuzz(neckGeo, 0.005), smat(FUR_DARK));
-      neckMesh.rotation.x = -0.87;   // aims at the head pivot
-      neck.add(neckMesh);
-      const throat = new THREE.Mesh(fuzz(new THREE.SphereGeometry(0.062, 12, 10), 0.004), smat(FUR));
-      throat.scale.set(0.9, 1.6, 0.8);
-      throat.position.set(0, 0.075, 0.085);
-      throat.rotation.x = -0.75;
-      neck.add(throat);
-      const ruff = new THREE.Mesh(fuzz(new THREE.SphereGeometry(0.115, 12, 10), 0.006), smat(FUR));
-      ruff.scale.set(1.0, 0.85, 0.9);
-      ruff.position.set(0, -0.02, -0.02);
-      neck.add(ruff);
-      // thin collar with a tiny silver bell — she's somebody's baby
-      const collar = new THREE.Mesh(new THREE.TorusGeometry(0.094, 0.008, 6, 20), smat(0x2a2a30));
-      collar.rotation.x = Math.PI/2 - 0.87;
-      collar.position.set(0, 0.07, 0.035);
-      neck.add(collar);
-      const bell = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 7),
-        new THREE.MeshPhongMaterial({ color: 0xc8ccd2, shininess: 80 }));
-      bell.position.set(0, 0.028, 0.12);
-      neck.add(bell);
-
-      // head group — big domed baby forehead, short dished muzzle
-      const head = new THREE.Group();
-      head.position.set(0, 0.1, 0.12);
-      neck.add(head);
-      root.userData.head = head;
-
-      const skull = new THREE.Mesh(fuzz(new THREE.SphereGeometry(0.15, 18, 14), 0.005), smat(FUR_DARK));
-      skull.scale.set(0.95, 1.0, 1.05);
-      head.add(skull);
-      const dome = new THREE.Mesh(fuzz(new THREE.SphereGeometry(0.07, 12, 10), 0.003), smat(FUR_DARK));
-      dome.position.set(0, 0.078, 0.03);
-      head.add(dome);
-      const muzzle = new THREE.Mesh(fuzz(new THREE.SphereGeometry(0.078, 14, 11), 0.004), smat(MUZZLE));
-      muzzle.scale.set(0.72, 0.62, 1.05);
-      muzzle.position.set(0, -0.045, 0.128);
-      head.add(muzzle);
-      // white blaze — one continuous stripe from the poll down the nose bridge into the muzzle
-      const blazeTop = new THREE.Mesh(fuzz(new THREE.SphereGeometry(0.05, 12, 10), 0.003), smat(FUR));
-      blazeTop.scale.set(0.62, 1.5, 1.0);
-      blazeTop.position.set(0, 0.075, 0.07);
-      blazeTop.rotation.x = -0.35;
-      head.add(blazeTop);
-      const blazeBridge = new THREE.Mesh(fuzz(new THREE.SphereGeometry(0.044, 12, 10), 0.003), smat(FUR));
-      blazeBridge.scale.set(0.58, 1.7, 0.9);
-      blazeBridge.position.set(0, 0.015, 0.112);
-      blazeBridge.rotation.x = -0.72;
-      head.add(blazeBridge);
-      // small soft nose with nostril dots — goat-sized, not cow-sized
-      const nose = new THREE.Mesh(new THREE.SphereGeometry(0.024, 10, 8), smat(NOSE_C));
-      nose.scale.set(1.1, 0.65, 0.6);
-      nose.position.set(0, -0.022, 0.198);
-      head.add(nose);
-      for (const side of [-1, 1]){
-        const nostril = new THREE.Mesh(new THREE.SphereGeometry(0.006, 6, 5), smat(0x4a3028));
-        nostril.position.set(0.011*side, -0.024, 0.213);
-        head.add(nostril);
-      }
-      // hinged lower jaw for chewing / bottle gulps
-      const jawGroup = new THREE.Group();
-      jawGroup.position.set(0, -0.075, 0.06);
-      head.add(jawGroup);
-      const lowerLip = new THREE.Mesh(new THREE.SphereGeometry(0.027, 10, 8), smat(MUZZLE));
-      lowerLip.scale.set(0.85, 0.42, 0.9);
-      lowerLip.position.set(0, -0.016, 0.098);
-      jawGroup.add(lowerLip);
-      root.userData.jaw = jawGroup;
-
-      // little silver horns, swept back — kid-sized, pointy, proud
-      for (const side of [-1, 1]){
-        const horn = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.115, 8),
-          new THREE.MeshPhongMaterial({ color: HORN, shininess: 30 }));
-        horn.position.set(0.048*side, 0.175, -0.01);
-        horn.rotation.x = -0.28;   // mostly upright with a light backward sweep — visible from the front
-        horn.rotation.z = side * 0.14;
-        head.add(horn);
-      }
-      for (let i = 0; i < 3; i++){
-        const tuft = new THREE.Mesh(new THREE.ConeGeometry(0.011, 0.038, 5), smat(FUR));
-        tuft.position.set((i-1)*0.016, 0.148, 0.035 + (i%2)*0.01);
-        tuft.rotation.x = 0.55 + (i%2)*0.2;
-        tuft.rotation.z = (i-1)*0.3;
-        head.add(tuft);
-      }
-
-      // ears: BIG perky alert ears angled up-and-out (reference-style), pale fuzzy inners.
-      // Lobes point UP from the pivot, so the animation's ±0.55 flare reads as a happy V.
-      const ears = {};
-      const earGeo = new THREE.SphereGeometry(0.05, 12, 12);
-      earGeo.scale(1.3, 1.9, 0.45);
-      earGeo.translate(0, 0.082, 0);   // stand up from the pivot
-      const innerGeo = new THREE.SphereGeometry(0.05, 10, 10);
-      innerGeo.scale(0.85, 1.5, 0.22);
-      innerGeo.translate(0, 0.078, 0.02);
-      for (const side of [-1, 1]){
-        const earPivot = new THREE.Group();
-        earPivot.position.set(0.105*side, 0.095, -0.005);
-        head.add(earPivot);
-        const ear = new THREE.Mesh(earGeo.clone(), smat(FUR_DARK));
-        ear.rotation.x = -0.18;   // tipped slightly back, cupped toward the camera
-        earPivot.add(ear);
-        const inner = new THREE.Mesh(innerGeo.clone(), smat(INNER_EAR));
-        inner.rotation.x = -0.18;
-        earPivot.add(inner);
-        earPivot.rotation.z = side * 0.55; // flare out from the head, animation drives from here
-        ears[side] = earPivot;
-      }
-      root.userData.earL = ears[-1];
-      root.userData.earR = ears[1];
-
-      // eyes: BIG Nintendogs eyes set goat-wide on the head — cream sclera, amber iris,
-      // the real horizontal goat pupil, double sparkle, and fur eyelids that blink
-      const eyes = {};
-      for (const side of [-1, 1]){
-        const eyeGroup = new THREE.Group();
-        eyeGroup.position.set(0.085*side, 0.05, 0.082);   // seated INTO the skull, not on stalks
-        eyeGroup.rotation.y = side * 0.25;
-        head.add(eyeGroup);
-        // giant round near-black eye with a warm amber ring — the reference's Pixar formula
-        const eyeball = new THREE.Mesh(new THREE.SphereGeometry(0.048, 16, 14),
-          new THREE.MeshPhongMaterial({ color: EYE_C, shininess: 110 }));
-        eyeGroup.add(eyeball);
-        const iris = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.006, 6, 20),
-          new THREE.MeshPhongMaterial({ color: IRIS, shininess: 60 }));
-        iris.position.z = 0.034;
-        eyeGroup.add(iris);
-        const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.008, 6, 5), smat(PUPIL));
-        pupil.position.z = 0.046;
-        pupil.visible = false;   // kept for rig compatibility; the whole eye reads as pupil
-        eyeGroup.add(pupil);
-        const sparkle = new THREE.Mesh(new THREE.SphereGeometry(0.015, 8, 6), new THREE.MeshBasicMaterial({ color:0xffffff }));
-        sparkle.position.set(0.014, 0.018, 0.037);
-        eyeGroup.add(sparkle);
-        const sparkle2 = new THREE.Mesh(new THREE.SphereGeometry(0.007, 6, 5), new THREE.MeshBasicMaterial({ color:0xffffff }));
-        sparkle2.position.set(-0.012, -0.008, 0.041);
-        eyeGroup.add(sparkle2);
-        // eyelid: a fur shell that scales down over the eye to close it
-        const lid = new THREE.Mesh(new THREE.SphereGeometry(0.048, 12, 10, 0, Math.PI*2, 0, Math.PI/2), smat(FUR_DARK));
-        lid.position.set(0, 0.012, -0.003);
-        lid.rotation.x = Math.PI; // hemisphere facing down, hidden above the eye by default
-        lid.scale.set(1, 0.001, 1);
-        lid.visible = false;
-        eyeGroup.add(lid);
-        eyes[side] = { group: eyeGroup, lid, pupil };
-      }
-      root.userData.eyeL = eyes[-1];
-      root.userData.eyeR = eyes[1];
-
-      // tail pivot at rump: the short upright kid flag, cream with a caramel tip
-      const tailPivot = new THREE.Group();
-      tailPivot.position.set(0, 0.12, -0.28);
-      body.add(tailPivot);
-      const tailGeo = new THREE.SphereGeometry(0.05, 10, 10);
-      tailGeo.scale(0.7, 1.5, 0.42);
-      tailGeo.translate(0, 0.06, 0);
-      const tail = new THREE.Mesh(fuzz(tailGeo, 0.005), smat(FUR));
-      tailPivot.add(tail);
-      const tailTip = new THREE.Mesh(new THREE.SphereGeometry(0.02, 8, 6), smat(FUR));   // all-white fluffy flag
-      tailTip.position.set(0, 0.13, 0);
-      tailPivot.add(tailTip);
-      tailPivot.rotation.x = -0.6;
-      root.userData.tail = tailPivot;
-
-      // legs: leggy like a real kid — tapered thighs, KNOBBY KNEES, slim shanks,
-      // fetlock bumps, and proper two-toed hooves. Same bones as before.
-      const legDefs = [
-        { key:"FL", x:-0.15, z:0.18, shoulder:true },
-        { key:"FR", x:0.15,  z:0.18, shoulder:true },
-        { key:"BL", x:-0.16, z:-0.2, shoulder:false },
-        { key:"BR", x:0.16,  z:-0.2, shoulder:false }
-      ];
-      // LEGGY like a real kid: hips at mid-body, long legs that actually reach the straw
-      const legs = {};
-      const upperGeo = new THREE.CylinderGeometry(0.05, 0.028, 0.24, 10);
-      upperGeo.translate(0, -0.12, 0);
-      const lowerGeo = new THREE.CylinderGeometry(0.023, 0.018, 0.2, 9);
-      lowerGeo.translate(0, -0.1, 0);
-      const toeGeo = new THREE.BoxGeometry(0.021, 0.05, 0.05);
-      for (const def of legDefs){
-        const hip = new THREE.Group();
-        hip.position.set(def.x, 0.0, def.z);
-        body.add(hip);
-        const upper = new THREE.Mesh(upperGeo.clone(), smat(FUR));
-        hip.add(upper);
-        const thigh = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), smat(FUR));
-        thigh.scale.set(0.85, 1.25, 1.0);
-        thigh.position.set(0, -0.05, def.shoulder ? 0 : -0.01);
-        upper.add(thigh);
-        const knee = new THREE.Group();
-        knee.position.set(0, -0.24, 0);
-        upper.add(knee);
-        const kneeKnob = new THREE.Mesh(new THREE.SphereGeometry(0.029, 12, 10), smat(FUR));
-        knee.add(kneeKnob);
-        const lower = new THREE.Mesh(lowerGeo.clone(), smat(SOCK));   // brown socks below the knee
-        knee.add(lower);
-        const fetlock = new THREE.Mesh(new THREE.SphereGeometry(0.021, 8, 6), smat(SOCK));
-        fetlock.position.set(0, -0.18, 0.003);
-        lower.add(fetlock);
-        for (const t of [-1, 1]){   // cloven hoof: two toes with a center split
-          const toe = new THREE.Mesh(toeGeo, smat(HOOF));
-          toe.position.set(0.0125*t, -0.195, 0.008);
-          toe.rotation.y = t * 0.08;
-          lower.add(toe);
-        }
-        legs[def.key] = { hip, knee };
-      }
-      root.userData.legs = legs;
-
-      // Z z z sleep sprites (simple small planes with canvas texture)
-      const zTex = canvasTex(64, (g, s) => {
-        g.clearRect(0,0,s,s);
-        g.fillStyle = "#ffffff";
-        g.font = "bold 40px sans-serif";
-        g.textAlign = "center"; g.textBaseline = "middle";
-        g.fillText("Z", s/2, s/2);
-      });
-      const zGroup = new THREE.Group();
-      const zSprites = [];
-      for (let i = 0; i < 3; i++){
-        const sm = new THREE.SpriteMaterial({ map: zTex, transparent:true, opacity:0 });
-        const spr = new THREE.Sprite(sm);
-        spr.scale.set(0.14 - i*0.02, 0.14 - i*0.02, 1);
-        zGroup.add(spr);
-        zSprites.push(spr);
-      }
-      zGroup.position.set(0.15, 0.55, 0);
-      root.add(zGroup);
-      root.userData.zSprites = zSprites;
-      root.userData.zGroup = zGroup;
-
-      return root;
-    }
-
-    // ================== the goat (babygoat.glb + programmatic rig) ==================
-    // Meshy's rigging endpoint is humanoid-only (confirmed 422 on this exact quadruped
-    // model — no charge), so we build articulation ourselves: split the merged GLB mesh
-    // into body/head/tail/4-legs by vertex-region clustering (the pasturepanic-proven
-    // splitQuadruped technique: k-means on (x,z) of low-y triangles for legs), then
-    // reassemble as pivoted groups. The old procedural goat above stays as the fallback
-    // shown while the GLB loads / if it fails, with a hot-swap when ready.
-    function splitBabyGoat(srcGeometry){
-      // De-index AND de-interleave by hand via the BufferAttribute accessor API: this GLB
-      // (like the pasturepanic ones) may ship interleaved attributes, and r128's
-      // toNonIndexed() reads interleaved arrays with the wrong stride (shredded-mesh bug).
-      const index = srcGeometry.index;
-      const pa = srcGeometry.attributes.position, na = srcGeometry.attributes.normal, ua = srcGeometry.attributes.uv;
-      const vertCount = index ? index.count : pa.count;
-      const pos = new Float32Array(vertCount * 3);
-      const norm = new Float32Array(vertCount * 3);
-      const uv = ua ? new Float32Array(vertCount * 2) : null;
-      for (let i = 0; i < vertCount; i++){
-        const vi = index ? index.getX(i) : i;
-        pos[i*3] = pa.getX(vi);  pos[i*3+1] = pa.getY(vi);  pos[i*3+2] = pa.getZ(vi);
-        norm[i*3] = na.getX(vi); norm[i*3+1] = na.getY(vi); norm[i*3+2] = na.getZ(vi);
-        if (uv){ uv[i*2] = ua.getX(vi); uv[i*2+1] = ua.getY(vi); }
-      }
-      const triCount = vertCount / 3;
-
-      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
-      for (let i = 0; i < pos.length; i += 3){
-        minX = Math.min(minX, pos[i]);   maxX = Math.max(maxX, pos[i]);
-        minY = Math.min(minY, pos[i+1]); maxY = Math.max(maxY, pos[i+1]);
-        minZ = Math.min(minZ, pos[i+2]); maxZ = Math.max(maxZ, pos[i+2]);
-      }
-      // Verified against the actual babygoat.glb vertex data (offline k-means sweep):
-      // legYThresh=0.60 of the y-range and legXThresh=0.08 of the x-range gives four
-      // balanced leg clusters (383/378/395/393 triangles — within a few percent of each
-      // other), vs. e.g. 0.32/0.12 (pasturepanic's turtle/armadillo thresholds) which
-      // badly starves the front legs on THIS model (front legs sit higher/closer together
-      // than the rear, so a too-low y-cut misses most of their triangles).
-      const legYThresh = minY + 0.60 * (maxY - minY);
-      const legXThresh = 0.08 * (maxX - minX);
-      // +Z is the front/head end on this model (verified: ears/horns reach y=0.83 near
-      // +Z, vs a squat y=0.06 tail-height extremity at -Z).
-      const zSpan = maxZ - minZ;
-      const headZThresh = minZ + 0.70 * zSpan;   // front 30% of the bbox
-      const tailZThresh = minZ + 0.12 * zSpan;   // rearmost 12% of the bbox
-
-      const legTris = [];
-      const allTris = [];
-      for (let t = 0; t < triCount; t++){
-        const b = t * 9;
-        const cx = (pos[b] + pos[b+3] + pos[b+6]) / 3;
-        const cy = (pos[b+1] + pos[b+4] + pos[b+7]) / 3;
-        const cz = (pos[b+2] + pos[b+5] + pos[b+8]) / 3;
-        allTris.push({ t, cx, cy, cz });
-        if (cy < legYThresh && Math.abs(cx) > legXThresh) legTris.push({ t, cx, cz });
-      }
-
-      // k-means (k=4) on leg-triangle centroids, deterministically seeded from the 4 corners
-      const xs = legTris.map(l => l.cx), zs = legTris.map(l => l.cz);
-      const cMaxX = Math.max.apply(null, xs), cMinX = Math.min.apply(null, xs);
-      const cMaxZ = Math.max.apply(null, zs), cMinZ = Math.min.apply(null, zs);
-      const centers = [[cMaxX, cMaxZ], [cMaxX, cMinZ], [cMinX, cMaxZ], [cMinX, cMinZ]];
-      const nearest = (cx, cz) => {
-        let bi = 0, bd = Infinity;
-        for (let i = 0; i < 4; i++){
-          const dx = cx - centers[i][0], dz = cz - centers[i][1], d = dx*dx + dz*dz;
-          if (d < bd){ bd = d; bi = i; }
-        }
-        return bi;
-      };
-      for (let iter = 0; iter < 15; iter++){
-        const sums = [[0,0,0],[0,0,0],[0,0,0],[0,0,0]];
-        for (const l of legTris){ const bi = nearest(l.cx, l.cz); sums[bi][0] += l.cx; sums[bi][1] += l.cz; sums[bi][2]++; }
-        for (let i = 0; i < 4; i++) if (sums[i][2] > 0) centers[i] = [sums[i][0]/sums[i][2], sums[i][1]/sums[i][2]];
-      }
-      // Label FL/FR/BL/BR: split left/right by center x sign, front/back WITHIN each side
-      // pair by relative z (a single global front/back Z threshold mislabels asymmetric
-      // stances — see pasturepanic's splitQuadruped for the measured collie/goatchar case).
-      const withIdx = centers.map((c, i) => ({ i, x: c[0], z: c[1] }));
-      const label = {};
-      for (const side of [withIdx.filter(c => c.x > 0), withIdx.filter(c => c.x <= 0)]){
-        if (side.length !== 2) continue;
-        const front = side[0].z > side[1].z ? side[0] : side[1];
-        const back = front === side[0] ? side[1] : side[0];
-        label[front.i] = (front.x > 0 ? "FR" : "FL");
-        label[back.i] = (back.x > 0 ? "BR" : "BL");
-      }
-
-      const legTriSet = new Map();
-      for (const l of legTris){
-        const key = label[nearest(l.cx, l.cz)];
-        if (key) legTriSet.set(l.t, key);
-      }
-
-      // Ears: within the head region, look for two lateral-extrema clusters near the top.
-      // Measured against babygoat.glb: the |x| histogram of the head region's upper 45%
-      // (by y) is CONTINUOUS from x=0 (skull/horn column) out to the ear tips — no gap
-      // separates ear triangles from skull triangles, so a clean ear split isn't possible
-      // here. Ears are skipped (no separate pivot); head micro-rotations sell the wiggle
-      // detail instead, per the plan's own fallback instruction.
-      const buckets = { body: [], head: [], tail: [], FL: [], FR: [], BL: [], BR: [] };
-      for (const tr of allTris){
-        const legKey = legTriSet.get(tr.t);
-        if (legKey){ buckets[legKey].push(tr.t); continue; }
-        if (tr.cz > headZThresh){ buckets.head.push(tr.t); continue; }
-        if (tr.cz < tailZThresh){ buckets.tail.push(tr.t); continue; }
-        buckets.body.push(tr.t);
-      }
-      // snapshot the CLEAN (pre-overlap) partition — pivots must be computed from these,
-      // not from the padded buckets below, or the extra straddling triangles would drag
-      // each pivot's centroid/extent away from the true joint location
-      const cleanBuckets = { body: buckets.body.slice(), head: buckets.head.slice(),
-        tail: buckets.tail.slice(), FL: buckets.FL.slice(), FR: buckets.FR.slice(),
-        BL: buckets.BL.slice(), BR: buckets.BR.slice() };
-
-      // ---- overlap bands (issue #1: "big gaps in its body" while walking) ----
-      // A hard triangle partition means the moment a limb/head/tail pivot rotates even a
-      // little, the cut plane on the BODY side stays put while the cut plane on the moving
-      // part swings away from it — opening a wedge of missing geometry (floor/background
-      // visible through the "gap") right at every hip/shoulder/neck/tail joint. The proper
-      // fix is to duplicate a band of triangles straddling each cut onto BOTH sides of the
-      // cut, so when the limb rotates, the body still carries geometry that covers the
-      // limb's own root (and vice versa) — the joint stays visually "meaty" through the
-      // whole swing instead of the two rigid halves razor-parting at rest and gapping in
-      // motion. Bands are ~8% of the relevant span, per bucket. Triangles are duplicated
-      // (pushed into a second bucket's list) in ORIGINAL (unshifted) coordinates — each
-      // part's geometry is translated to its own pivot-local space afterward, so the same
-      // triangle correctly ends up covering the joint from both the moving part's local
-      // origin AND the body's.
-      const OVERLAP_FRAC = 0.08;
-      const legYBand = OVERLAP_FRAC * (maxY - minY);      // near legYThresh
-      const headZBand = OVERLAP_FRAC * zSpan;             // near headZThresh
-      const tailZBand = OVERLAP_FRAC * zSpan;             // near tailZThresh
-      // 1) body triangles near the leg/head/tail cuts also get duplicated onto the
-      //    matching limb/head/tail bucket, so that part's own geometry reaches back into
-      //    the shoulder/hip/neck/rump pocket it rotates away from.
-      for (const tr of cleanBuckets.body){
-        const b = tr*9;
-        const cx = (pos[b]+pos[b+3]+pos[b+6])/3, cy = (pos[b+1]+pos[b+4]+pos[b+7])/3, cz = (pos[b+2]+pos[b+5]+pos[b+8])/3;
-        if (cy < legYThresh + legYBand && Math.abs(cx) > legXThresh - 0.03){
-          // duplicate onto whichever limb bucket owns the nearest k-means center — reuse
-          // the same nearest() classifier so the overlap band lines up with that limb's cut
-          const key = label[nearest(cx, cz)];
-          if (key) buckets[key].push(tr);
-        }
-        if (cz > headZThresh - headZBand) buckets.head.push(tr);
-        if (cz < tailZThresh + tailZBand) buckets.tail.push(tr);
-      }
-      // 2) the reverse direction: limb/head/tail triangles just on the FAR side of their own
-      //    cut (closest sliver to the body) also get duplicated back onto `body`, so the
-      //    body root itself still has cover directly under/behind the joint when the limb
-      //    swings forward/back past its rest angle.
-      for (const key of ["FL","FR","BL","BR"]){
-        for (const t of cleanBuckets[key]){
-          const b = t*9;
-          const cy = (pos[b+1]+pos[b+4]+pos[b+7])/3;
-          if (cy > legYThresh - legYBand) buckets.body.push(t);
-        }
-      }
-      for (const t of cleanBuckets.head){
-        const b = t*9;
-        const cz = (pos[b+2]+pos[b+5]+pos[b+8])/3;
-        if (cz < headZThresh + headZBand) buckets.body.push(t);
-      }
-      for (const t of cleanBuckets.tail){
-        const b = t*9;
-        const cz = (pos[b+2]+pos[b+5]+pos[b+8])/3;
-        if (cz > tailZThresh - tailZBand) buckets.body.push(t);
-      }
-
-      function geoFromTris(list){
-        const p = new Float32Array(list.length * 9), n = new Float32Array(list.length * 9);
-        const u = uv ? new Float32Array(list.length * 6) : null;
-        list.forEach((t, o) => {
-          for (let k = 0; k < 9; k++){ p[o*9+k] = pos[t*9+k]; n[o*9+k] = norm[t*9+k]; }
-          if (u) for (let k = 0; k < 6; k++) u[o*6+k] = uv[t*6+k];
-        });
-        const g2 = new THREE.BufferGeometry();
-        g2.setAttribute("position", new THREE.BufferAttribute(p, 3));
-        g2.setAttribute("normal", new THREE.BufferAttribute(n, 3));
-        if (u) g2.setAttribute("uv", new THREE.BufferAttribute(u, 2));
-        return g2;
-      }
-
-      // pivot helper: centroid of the cluster's TOP-attachment area (not its geometric
-      // center), so rotation reads as swinging from the joint, not the middle of the limb
-      function pivotFor(list, mode){
-        let sx = 0, sz = 0, sy = 0, cnt = 0, topY = -Infinity, botY = Infinity;
-        for (const t of list){
-          const b = t * 9;
-          for (let k = 0; k < 3; k++){
-            const px = pos[b+k*3], py = pos[b+k*3+1], pz = pos[b+k*3+2];
-            sx += px; sy += py; sz += pz; cnt++;
-            topY = Math.max(topY, py); botY = Math.min(botY, py);
-          }
-        }
-        if (!cnt) return { x:0, y:0, z:0 };
-        if (mode === "top") return { x: sx/cnt, y: topY, z: sz/cnt };       // legs: hip at top
-        if (mode === "bottom") return { x: sx/cnt, y: botY, z: sz/cnt };    // tail: base nearest body
-        return { x: sx/cnt, y: sy/cnt, z: sz/cnt };                         // head: neck-base centroid
-      }
-
-      const bodyGeo = geoFromTris(buckets.body);
-      const headGeo = geoFromTris(buckets.head);
-      const tailGeo = geoFromTris(buckets.tail);
-      const legGeos = {}, legPivotOffsets = {};
-      for (const key of ["FL","FR","BL","BR"]){
-        const g2 = geoFromTris(buckets[key]);
-        // pivot from the CLEAN (pre-overlap) triangle set — the padded `buckets[key]` now
-        // reaches up into the body/shoulder pocket, which would drag "top" (max Y) far
-        // above the true hip joint if used here
-        const piv = pivotFor(cleanBuckets[key], "top");
-        g2.translate(-piv.x, -piv.y, -piv.z);
-        legGeos[key] = g2; legPivotOffsets[key] = piv;
-      }
-      // head pivots at the neck base: the head cluster is a compact rounded shape (chin
-      // to ear-tips span nearly the whole head height even right at the neck boundary),
-      // so the pivot Y must be the AVERAGE height of a thin back-slice near headZThresh —
-      // NOT that slice's lowest point (the chin), which sits well below where the neck
-      // actually meets the body and made head-pitch rotations swing through a huge,
-      // flipped-looking arc around a joint centered near the mouth instead of the throat.
-      let headPivot;
-      {
-        const sliceZhi = headZThresh + 0.05*zSpan;
-        let sx=0, sy=0, sz=0, cnt=0, backZ=Infinity;
-        for (const t of cleanBuckets.head){
-          const b = t*9;
-          const cz = (pos[b+2]+pos[b+5]+pos[b+8])/3;
-          if (cz > sliceZhi) continue;   // only the thin slice closest to the body
-          for (let k=0;k<3;k++){
-            sx += pos[b+k*3]; sy += pos[b+k*3+1]; sz += pos[b+k*3+2]; cnt++;
-          }
-          backZ = Math.min(backZ, cz);
-        }
-        headPivot = cnt ? { x: sx/cnt, y: sy/cnt, z: backZ } : { x:0, y:0, z:headZThresh };
-      }
-      headGeo.translate(-headPivot.x, -headPivot.y, -headPivot.z);
-      // tail pivots at its base (closest to the body, i.e. the tail cluster's +Z / top edge)
-      let tailPivot;
-      {
-        let sx=0, cnt=0, topY=-Infinity, frontZ=-Infinity;
-        for (const t of cleanBuckets.tail){
-          const b = t*9;
-          for (let k=0;k<3;k++){
-            sx += pos[b+k*3]; cnt++;
-            topY = Math.max(topY, pos[b+k*3+1]);
-            frontZ = Math.max(frontZ, pos[b+k*3+2]);
-          }
-        }
-        tailPivot = cnt ? { x: sx/cnt, y: topY, z: frontZ } : { x:0, y:0, z:tailZThresh };
-      }
-      tailGeo.translate(-tailPivot.x, -tailPivot.y, -tailPivot.z);
-
-      return {
-        bodyGeo, headGeo, tailGeo, legGeos, legPivotOffsets, headPivot, tailPivot,
-        counts: {
-          body: buckets.body.length, head: buckets.head.length, tail: buckets.tail.length,
-          FL: buckets.FL.length, FR: buckets.FR.length, BL: buckets.BL.length, BR: buckets.BR.length,
-          total: triCount
-        }
-      };
-    }
-
-    let babyGoatTemplate = null;   // set once the GLB loads + splits successfully
-    let babyGoatLoadFailed = false;
-    new THREE.GLTFLoader().load("assets/babygoat.glb", (gltf) => {
-      let srcMesh = null;
-      gltf.scene.traverse(o => { if (o.isMesh && !srcMesh) srcMesh = o; });
-      if (!srcMesh){ console.warn("babygoat.glb has no mesh — keeping the procedural goat"); babyGoatLoadFailed = true; return; }
-      gltf.scene.updateMatrixWorld(true);
-      const box = new THREE.Box3().setFromObject(gltf.scene);
-      const size = new THREE.Vector3(); box.getSize(size);
-      // match the procedural goat's rough scale: its shadow/body sit with hips around
-      // y=0.46 and overall standing height ~0.62 (torso 0.46 + head/ear extent) — scale
-      // the GLB (whose raw bbox height is ~1.91) so the split model's total height matches.
-      const TARGET_HEIGHT = 0.66;
-      const scaleTo = TARGET_HEIGHT / size.y;
-      const split = splitBabyGoat(srcMesh.geometry);
-      const material = new THREE.MeshPhongMaterial({ map: srcMesh.material.map, shininess: 6 });
-      [split.bodyGeo, split.headGeo, split.tailGeo, split.legGeos.FL, split.legGeos.FR, split.legGeos.BL, split.legGeos.BR]
-        .forEach(g => SHARED_ASSETS.add(g));
-      SHARED_ASSETS.add(material); if (material.map) SHARED_ASSETS.add(material.map);
-      // The rigid-parts split leaves a hairline seam wherever a cut plane crosses the
-      // model (most visible at the neck, since the head cluster ROTATES relative to the
-      // body — any pitch/yaw visibly gaps the seam open into a crack). Cover it with a
-      // small blob in the average coat color, cheap and unnoticeable, same trick the
-      // procedural rig already uses (its "ruff"/"throat" meshes exist for the same reason).
-      let coverColor = 0xe9d2b7;
-      try {
-        const img = material.map && material.map.image;
-        if (img && img.width){
-          const cc = document.createElement("canvas"); cc.width = 8; cc.height = 8;
-          const cx = cc.getContext("2d");
-          cx.drawImage(img, 0, 0, 8, 8);
-          const d = cx.getImageData(0, 0, 8, 8).data;
-          let r=0,g=0,b=0,n=0;
-          for (let i=0;i<d.length;i+=4){ r+=d[i]; g+=d[i+1]; b+=d[i+2]; n++; }
-          coverColor = (Math.round(r/n)<<16) | (Math.round(g/n)<<8) | Math.round(b/n);
-        }
-      } catch(e){ /* canvas tainted or image not ready — keep the fallback color */ }
-      const coverMat = new THREE.MeshPhongMaterial({ color: coverColor, shininess: 4 });
-      const coverGeo = new THREE.SphereGeometry(1, 10, 8);   // unit sphere, scaled per-use
-      SHARED_ASSETS.add(coverMat); SHARED_ASSETS.add(coverGeo);
-      // hip/shoulder joint covers (issue #1b): a small sphere at each leg pivot, sized to
-      // that limb's own cross-section, so the gap that still flashes at extreme swing
-      // (beyond what the overlap band alone hides) is covered by a blob that visually
-      // reads as "part of the leg" rather than a bare joint. Radius = half the leg
-      // geometry's max XZ extent near its pivot (already pivot-local / zero-centered at
-      // the top, since legGeos[key] was translated by -piv in splitBabyGoat).
-      const legCoverRadius = {};
-      for (const key of ["FL","FR","BL","BR"]){
-        const g = split.legGeos[key];
-        const pos2 = g.attributes.position;
-        let maxR = 0.02, sampled = 0;
-        for (let i = 0; i < pos2.count; i++){
-          const y = pos2.getY(i);
-          if (y > -0.05){   // only the slice nearest the pivot (top of the leg, y~0 local)
-            const x = pos2.getX(i), z = pos2.getZ(i);
-            maxR = Math.max(maxR, Math.hypot(x, z));
-            sampled++;
-          }
-        }
-        legCoverRadius[key] = sampled ? maxR : 0.05;
-      }
-      babyGoatTemplate = { scaleTo, minY: box.min.y, ...split, material, coverMat, coverGeo, legCoverRadius };
-      console.log("[babygoat] triangle split:", split.counts,
-        "(front legs FL/FR " + split.counts.FL + "/" + split.counts.FR +
-        " vs rear BL/BR " + split.counts.BL + "/" + split.counts.BR + ")");
-      upgradeGoatIfWaiting();
-    }, undefined, (err) => { console.warn("babygoat.glb failed to load — keeping the procedural goat", err); babyGoatLoadFailed = true; });
-
-    // Builds the GLB-based rig with the SAME userData contract as buildGoat() (shadow,
-    // dirtBlotches, neck/head, jaw, earL/earR, eyeL/eyeR, tail, legs{FL,FR,BL,BR:{hip,knee}},
-    // zSprites/zGroup) so every downstream call site (applyJointsToMesh, setBlink,
-    // updateDirtVisual, speechBubble, photo mode) works unmodified regardless of which
-    // rig is active. Sub-features the GLB doesn't expose as separate geometry (jaw hinge,
-    // eyelids, separate ears) become inert pivot groups or are simply absent — callers
-    // already guard the optional ones.
-    function buildBabyGoatModel(tpl){
-      const root = new THREE.Group();
-
-      const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.5, 16),
-        new THREE.MeshBasicMaterial({ color:0x000000, transparent:true, opacity:0.28 }));
-      shadow.rotation.x = -Math.PI/2; shadow.position.y = 0.01;
-      root.add(shadow);
-      root.userData.shadow = shadow;
-
-      const inner = new THREE.Group();
-      inner.scale.setScalar(tpl.scaleTo);
-      inner.position.y = -tpl.minY * tpl.scaleTo;
-      root.add(inner);
-
-      const m = tpl.material;   // single instance (goatcare has exactly one goat on screen)
-
-      const body = new THREE.Mesh(tpl.bodyGeo, m);
-      inner.add(body);
-
-      // dirt blotches — re-created as small semi-transparent overlay blobs stuck to the
-      // body surface at roughly the same relative spots as the procedural version, since
-      // the GLB body has no baked-in blotch geometry to toggle
-      const dirtBlotches = [];
-      const dirtGeo = new THREE.SphereGeometry(0.09, 6, 5);
-      const dirtSpots = [
-        [0.28, 0.1, -0.25], [-0.32, 0.0, 0.1], [0.18, -0.08, 0.35],
-        [-0.22, 0.15, -0.45], [0.1, 0.18, 0.28], [-0.15, -0.05, -0.1]
-      ];
-      for (const [x,y,z] of dirtSpots){
-        const bm = new THREE.MeshPhongMaterial({ color:0x5a3d22, transparent:true, opacity:0 });
-        const blob = new THREE.Mesh(dirtGeo, bm);
-        blob.scale.set(1, 0.4, 1);
-        blob.position.set(x, y, z);
-        inner.add(blob);
-        dirtBlotches.push({ mesh: blob, baseScale: 0.7 + Math.random()*0.6 });
-      }
-      root.userData.dirtBlotches = dirtBlotches;
-
-      // neck: the split model has no separate neck geometry (it's part of body/head), so
-      // "neck" is an inert pivot at the same world position as the head pivot — head yaw
-      // (neckY) and the head-pitch counterpart both apply through it exactly like before
-      const neck = new THREE.Group();
-      neck.position.set(tpl.headPivot.x, tpl.headPivot.y, tpl.headPivot.z);
-      inner.add(neck);
-      root.userData.neck = neck;
-
-      // seam cover: a small blob straddling the head/body cut plane so the joint doesn't
-      // visibly gap open when the head pitches/yaws (see the load-time comment on coverMat)
-      const neckCover = new THREE.Mesh(tpl.coverGeo, tpl.coverMat);
-      neckCover.scale.set(0.16, 0.13, 0.15);
-      neckCover.position.set(0, -0.01, 0.01);
-      neck.add(neckCover);
-
-      const head = new THREE.Group();
-      neck.add(head);
-      root.userData.head = head;
-      const headMesh = new THREE.Mesh(tpl.headGeo, m);
-      head.add(headMesh);
-
-      // jaw: inert pivot at the lower-front of the head, parented under head, so the
-      // suckle-bob/chew rotation has somewhere to go even though there's no separate
-      // jaw mesh to visibly hinge (the head's own tiny pitch reads as the chew)
-      const jawGroup = new THREE.Group();
-      jawGroup.position.set(0, -0.05, 0.05);
-      head.add(jawGroup);
-      root.userData.jaw = jawGroup;
-
-      // ears: measured as inseparable from the skull on this model (see splitBabyGoat) —
-      // use two inert pivots near where ears visually sit so the ear-flare joint code
-      // still has somewhere to write; since they carry no mesh, the flare is a no-op
-      // and head micro-rotations carry the "alert/happy" read instead
-      const earL = new THREE.Group(); earL.position.set(-0.1, 0.12, -0.02); head.add(earL);
-      const earR = new THREE.Group(); earR.position.set(0.1, 0.12, -0.02); head.add(earR);
-      root.userData.earL = earL; root.userData.earR = earR;
-
-      // eyes: no separate eyelid geometry on the GLB (painted-on eyes in the texture);
-      // give setBlink() a harmless no-op target rather than special-casing every caller
-      const dummyLid = new THREE.Object3D();
-      root.userData.eyeL = { lid: dummyLid };
-      root.userData.eyeR = { lid: new THREE.Object3D() };
-
-      const tailPivot = new THREE.Group();
-      tailPivot.position.set(tpl.tailPivot.x, tpl.tailPivot.y, tpl.tailPivot.z);
-      inner.add(tailPivot);
-      const tailMesh = new THREE.Mesh(tpl.tailGeo, m);
-      tailPivot.add(tailMesh);
-      root.userData.tail = tailPivot;
-
-      // legs: single rigid leg mesh per limb (no real knee bend on a split-mesh leg), but
-      // the mesh is parented under BOTH pivots (hip then knee, knee a child of hip at the
-      // SAME position) so hip and knee rotations actually COMPOSE on the visible geometry —
-      // matching how the procedural rig's hip+knee joint pair reads (e.g. lie's hip=-1.9 +
-      // knee=+2.1 nets a believable ~+0.2 tucked angle instead of swinging -1.9 rad/-109°
-      // of rigid leg through empty space, which is what happened when the mesh lived on
-      // hip alone and knee was an inert dead-end child with nothing attached to rotate)
-      const legs = {};
-      for (const key of ["FL","FR","BL","BR"]){
-        const off = tpl.legPivotOffsets[key];
-        const hip = new THREE.Group();
-        hip.position.set(off.x, off.y, off.z);
-        inner.add(hip);
-        const knee = new THREE.Group();   // zero local offset from hip — same joint position
-        hip.add(knee);
-        knee.add(new THREE.Mesh(tpl.legGeos[key], m));
-        legs[key] = { hip, knee };
-        // hip/shoulder joint cover (issue #1b, see legCoverRadius comment at load time):
-        // sits ON THE BODY SIDE of the joint (parented to `inner`, not `hip`/`knee`, so it
-        // does NOT rotate with the swinging leg) — it plugs the socket the leg swings out
-        // of, complementing the overlap-band geometry that travels WITH the leg.
-        const r = (tpl.legCoverRadius && tpl.legCoverRadius[key]) || 0.05;
-        const hipCover = new THREE.Mesh(tpl.coverGeo, tpl.coverMat);
-        hipCover.scale.set(r*1.15, r*0.95, r*1.15);
-        hipCover.position.set(off.x, off.y - r*0.3, off.z);
-        inner.add(hipCover);
-      }
-      root.userData.legs = legs;
-
-      // Z z z sleep sprites — identical to the procedural goat's
-      const zTex = canvasTex(64, (g, s) => {
-        g.clearRect(0,0,s,s);
-        g.fillStyle = "#ffffff";
-        g.font = "bold 40px sans-serif";
-        g.textAlign = "center"; g.textBaseline = "middle";
-        g.fillText("Z", s/2, s/2);
-      });
-      const zGroup = new THREE.Group();
-      const zSprites = [];
-      for (let i = 0; i < 3; i++){
-        const sm = new THREE.SpriteMaterial({ map: zTex, transparent:true, opacity:0 });
-        const spr = new THREE.Sprite(sm);
-        spr.scale.set(0.14 - i*0.02, 0.14 - i*0.02, 1);
-        zGroup.add(spr);
-        zSprites.push(spr);
-      }
-      zGroup.position.set(0.15, 0.55, 0);
-      root.add(zGroup);
-      root.userData.zSprites = zSprites;
-      root.userData.zGroup = zGroup;
-
-      root.userData.isGLB = true;
-      return root;
-    }
-
-    // Hot-swap: if a game session started before babygoat.glb finished downloading/splitting,
-    // the fallback procedural goat is shown; when the template lands, rebuild the SAME
-    // `goat` root's contents in place (never swap the root object itself — every call site
-    // in this file holds a `goat` reference from module scope, plus raycasting/camera-follow
-    // key off it) so position/state/behavior carry over with no jump and no dangling refs.
-    function upgradeGoatIfWaiting(){
-      if (!babyGoatTemplate) return;
-      if (goat.userData.isGLB) return;   // already upgraded
-      swapGoatModel(buildBabyGoatModel(babyGoatTemplate));
-    }
-    function swapGoatModel(newModel){
-      // dispose only what belonged to the OLD model; SHARED_ASSETS protects the GLB
-      // template's geometries/material/texture from ever being freed by this
-      const old = goat.userData._modelRoot;
-      for (const child of [...goat.children]) goat.remove(child);
-      if (old) freeMesh(old);
-      goat.add(newModel);
-      goat.userData = Object.assign({ _modelRoot: newModel }, newModel.userData);
-    }
-
-    const goat = new THREE.Group();
-    swapGoatModel(buildGoat());
-    stallGroup.add(goat);
-    goat.position.set(0, 0, -0.3);
-
-    // ================== goat animation / behavior state machine ==================
-    const GOAT = {
-      pos: new THREE.Vector3(0, 0, -0.3),
-      facing: 0, // radians
-      state: "idle", // idle, walk, pronk, jump, lie, eat, happy, sad, shake
-      stateT: 0,
-      target: null, // THREE.Vector3 walk target
-      idleTimer: 3 + Math.random()*4,
-      blinkTimer: 3 + Math.random()*3,
-      blinking: 0,
-      lookTimer: 2 + Math.random()*3,
-      lookAngle: 0,
-      earTwitchTimer: 4 + Math.random()*4,
-      earTwitch: 0,
-      jumpPhase: 0,
-      pronkPhase: 0,
-      eatTarget: null,
-      speed: 0.9,
-      walkPhase: 0,
-      leaning: 0, // for pet lean
-      wagT: 0,
-      forcedUntil: 0, // if >Date.now(), free-roam AI is suppressed (busy with bottle/eat)
-      shakeT: 0,
-      lastLanded: true,
-      feedState: null,   // null | "walking" | "arrived" — bottle-feeding sub-state
-      feedAnchor: null,  // THREE.Vector3 — last bottle ground position we planned around
-      lookTarget: null   // THREE.Vector3 (world space) — head/neck tracking target; null = wander
-    };
-    // joint target values, lerp toward these each frame (0.15s blend)
-    const JOINT = {
-      hipFL:0, hipFR:0, hipBL:0, hipBR:0,
-      kneeFL:0, kneeFR:0, kneeBL:0, kneeBR:0,
-      neckX:0, neckY:0, headX:0,
-      earL:0, earR:0, tailX:0, tailWag:0,
-      bodyY:0, bodyTiltX:0, jawX:0
-    };
-    const JOINT_CUR = Object.assign({}, JOINT);
-
-    function lerpJoints(dt){
-      const k = 1 - Math.pow(0.001, dt / 0.15); // ~0.15s blend time
-      for (const key in JOINT){
-        JOINT_CUR[key] += (JOINT[key] - JOINT_CUR[key]) * k;
+    for (let x=cx-2;x<=cx+2;x++) g.px(x + wob, 1, 1);
+    for (let x=cx-4;x<=cx+4;x++) g.px(x, rows.length, 1);
+    g.px(cx-2, 5, 3); g.px(cx+2, 9, 3); g.px(cx, 10, 3);
+    for (let x=cx-5;x<=cx+5;x++) g.px(x, 7 + (x % 2 ? 0 : 1), 2);
+    if (pose === 'crack'){
+      g.px(cx, 3, 1); g.px(cx+1, 4, 1); g.px(cx, 5, 1);
+      if (f >= 1){ g.px(cx-1, 4, 1); g.px(cx-2, 5, 1); g.px(cx+2, 3, 1); }
+      if (f >= 2){
+        for (let x=cx-3;x<=cx+3;x++){ g.px(x, 1, 0); g.px(x, 2, 0); }
+        for (let x=cx-3;x<=cx+3;x++) g.px(x, 3, (x % 2) ? 1 : 0);
+        g.px(cx-1, 5, 1); g.px(cx+1, 5, 1);
       }
     }
+    return g;
+  }
 
-    function applyJointsToMesh(){
-      const legs = goat.userData.legs;
-      legs.FL.hip.rotation.x = JOINT_CUR.hipFL; legs.FL.knee.rotation.x = JOINT_CUR.kneeFL;
-      legs.FR.hip.rotation.x = JOINT_CUR.hipFR; legs.FR.knee.rotation.x = JOINT_CUR.kneeFR;
-      legs.BL.hip.rotation.x = JOINT_CUR.hipBL; legs.BL.knee.rotation.x = JOINT_CUR.kneeBL;
-      legs.BR.hip.rotation.x = JOINT_CUR.hipBR; legs.BR.knee.rotation.x = JOINT_CUR.kneeBR;
-      goat.userData.neck.rotation.x = JOINT_CUR.neckX;
-      goat.userData.neck.rotation.y = JOINT_CUR.neckY;
-      goat.userData.head.rotation.x = JOINT_CUR.headX;
-      goat.userData.earL.rotation.z = -0.55 - JOINT_CUR.earL;
-      goat.userData.earR.rotation.z = 0.55 + JOINT_CUR.earR;
-      goat.userData.tail.rotation.x = -0.6 + JOINT_CUR.tailX;
-      goat.userData.tail.rotation.z = Math.sin(JOINT_CUR.tailWag) * 0.5;
-      goat.position.y = JOINT_CUR.bodyY;
-      goat.rotation.z = JOINT_CUR.bodyTiltX;
-      goat.userData.jaw.rotation.x = JOINT_CUR.jawX;
-    }
+  const SPRITES = {
+    poop:   fromRows(["..2..",".12..",".112.","1111."]),
+    heart:  fromRows([".4.4.","44444","44444",".444.","..4.."]),
+    moon:   fromRows(["..555",".55..","555..","555..",".55..","..555"]),
+    sun:    fromRows(["2..2..2","..222..",".2...2.","22.2.22",".2...2.","..222..","2..2..2"]),
+    cloud:  fromRows(["..222222..",".22222222.","2222222222",".22222222."]),
+    bottle: fromRows([".33.",".22.","3113","3113","3443","3443","3333"]),
+    hay:    fromRows(["..232..",".23232.","2323232","3232323"]),
+    broom:  fromRows(["....11","...11.","..11..",".33...","3333..","333..."]),
+    pill:   fromRows([".33.","3443","3443",".44."]),
+    bubble: fromRows([".33.","3..3","3..3",".33."]),
+    icoFood:fromRows([".11.",".33.","1331","1331","1441","1111"]),
+    icoHappy:fromRows(["11.11","11111","11111",".111.","..1.."]),
+    icoClean:fromRows(["..1..",".111.","11.11",".111.","..1.."]),
+    icoEnergy:fromRows(["...11","..11.",".1111","..11.",".11..","11..."]),
+    zzz:    fromRows(["555",".5.","555"]),
+  };
 
-    // blink control (eyelids)
-    function setBlink(amount){ // 0 open .. 1 closed
-      const s = Math.max(0.001, amount);
-      for (const e of [goat.userData.eyeL, goat.userData.eyeR]){
-        e.lid.scale.y = s;
-        e.lid.visible = amount > 0.03;   // fully hidden when open — no beret disc on the eye
-      }
-    }
+  // pose sprite cache
+  const goatCache = {};
+  function goatSprite(st, pose, f){
+    const k = st + pose + (f % 2);
+    return goatCache[k] || (goatCache[k] = buildGoat(st, pose, f % 2));
+  }
 
-    function pickRoamTarget(){
-      const margin = 0.35;
-      const x = (Math.random()*2-1) * (STALL_W/2 - margin);
-      const z = (Math.random()*2-1) * 0.5 * (STALL_D/2 - margin) - 0.3;
-      return new THREE.Vector3(x, 0, Math.min(z, STALL_D/2 - margin - 0.4));
-    }
+  // ======================================================================
+  //  RENDERING
+  // ======================================================================
+  const cv = document.getElementById('lcd');
+  const ctx = cv.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  const LW = 96, LH = 64, GROUND_Y = 58;
 
-    // ---- head tracking ----
-    // Smoothly yaws/pitches the head+neck toward GOAT.lookTarget (world space): the
-    // bottle while feeding/approaching, the pointer/touch point while petting, else a
-    // wandering gaze. Lerped ~10%/frame, clamped to a natural range. Only called from
-    // states that don't already own the neck/head joints for their own pose (eat/lie/
-    // pronk/happy/shake keep their explicit values).
-    const _lookNeckWorld = new THREE.Vector3(), _lookDir = new THREE.Vector3();
-    function applyHeadTracking(target, dt){
-      if (!target) return;
-      goat.userData.neck.getWorldPosition(_lookNeckWorld);
-      _lookDir.copy(target).sub(_lookNeckWorld);
-      const flatLen = Math.hypot(_lookDir.x, _lookDir.z) || 0.0001;
-      let yaw = Math.atan2(_lookDir.x, _lookDir.z) - GOAT.facing;
-      yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw));
-      let pitch = -Math.atan2(_lookDir.y, flatLen);
-      yaw = clamp(yaw, -0.6, 0.6);
-      pitch = clamp(pitch, -0.7, 0.3);   // + look down (feed), - look up
-      const k = 1 - Math.pow(0.001, dt / 0.1);   // ~10%/frame at 60fps
-      JOINT.neckY += (yaw - JOINT.neckY) * k;
-      JOINT.headX += (pitch - JOINT.headX) * k;
+  function drawGrid(g, x0, y0){
+    x0 = Math.round(x0); y0 = Math.round(y0);   // keep pixels crisp
+    for (let y=0;y<g.h;y++) for (let x=0;x<g.w;x++){
+      const c = g.d[y*g.w+x];
+      if (c){ ctx.fillStyle = PAL[c]; ctx.fillRect(x0+x, y0+y, 1, 1); }
     }
+  }
 
-    function isNight(){
-      const h = photoHour != null ? photoHour : new Date().getHours();
-      return h >= 21 || h < 7;
-    }
-
-    function moodValue(){
-      return (state.needs.food + state.needs.clean + state.needs.play) / 3;
-    }
-
-    function setGoatState(next){
-      if (GOAT.state === next) return;
-      GOAT.state = next;
-      GOAT.stateT = 0;
-    }
-
-    // ---- straw puff particle burst ----
-    function strawPuff(pos, n){
-      for (let i = 0; i < (n||6); i++){
-        spawnParticle("puff", pos, {
-          vel: new THREE.Vector3((Math.random()-0.5)*1.2, 0.4+Math.random()*0.6, (Math.random()-0.5)*1.2),
-          maxLife: 0.5 + Math.random()*0.3, grav: -1.2, scale: 0.7 + Math.random()*0.6
-        });
-      }
-    }
-    function heartBurst(pos, n){
-      for (let i = 0; i < (n||3); i++){
-        spawnParticle("heart", pos.clone().add(new THREE.Vector3((Math.random()-0.5)*0.2, Math.random()*0.15, (Math.random()-0.5)*0.2)), {
-          vel: new THREE.Vector3((Math.random()-0.5)*0.3, 0.5+Math.random()*0.4, (Math.random()-0.5)*0.3),
-          maxLife: 1.0 + Math.random()*0.4, grav: -0.1
-        });
-      }
-    }
-    function sparkleBurst(pos, n){
-      for (let i = 0; i < (n||8); i++){
-        spawnParticle("sparkle", pos, {
-          vel: new THREE.Vector3((Math.random()-0.5)*1.0, 0.3+Math.random()*0.8, (Math.random()-0.5)*1.0),
-          maxLife: 0.6 + Math.random()*0.4, grav: -0.6
-        });
-      }
-    }
-    function bubblePop(pos, n){
-      for (let i = 0; i < (n||1); i++){
-        spawnParticle("bubble", pos.clone().add(new THREE.Vector3((Math.random()-0.5)*0.15,0,(Math.random()-0.5)*0.15)), {
-          vel: new THREE.Vector3((Math.random()-0.5)*0.2, 0.3+Math.random()*0.2, (Math.random()-0.5)*0.2),
-          maxLife: 0.8, grav: 0.05, scale: 0.6+Math.random()*0.8
-        });
-      }
-    }
-
-    // ================== dirt blotches ==================
-    function updateDirtVisual(){
-      const dirtiness = clamp(state.dirtLevel, 0, 100);
-      const showLevel = state.needs.clean < 50 ? clamp((50 - state.needs.clean) / 50, 0, 1) : 0;
-      const blotches = goat.userData.dirtBlotches;
-      for (let i = 0; i < blotches.length; i++){
-        const b = blotches[i];
-        // stagger which blotches appear based on dirtiness
-        const appear = clamp(showLevel * blotches.length - i, 0, 1);
-        b.mesh.material.opacity = appear * 0.75;
-        b.mesh.scale.set(b.baseScale * appear, 0.4 * appear, b.baseScale * appear);
-      }
-    }
-
-    // ================== tools / interaction ==================
-    let currentTool = "pet";
-    const toolButtons = Array.from(document.querySelectorAll(".toolBtn"));
-    toolButtons.forEach(btn => {
-      btn.addEventListener("pointerdown", (e) => {
-        e.preventDefault();
-        currentTool = btn.dataset.tool;
-        toolButtons.forEach(b => b.classList.toggle("active", b === btn));
-        onToolSwitch();
-      });
-    });
-    function onToolSwitch(){
-      if (bottleMesh) bottleMesh.visible = false;
-      if (brushMesh) brushMesh.visible = false;
-      if (hayHeldMesh) hayHeldMesh.visible = false;
-      isPetting = false; isBrushing = false; holdingBottle = false; holdingHay = false;
-    }
-
-    // held prop meshes
-    const bottleMesh = (() => {
-      const g = new THREE.Group();
-      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.18, 10), new THREE.MeshPhongMaterial({ color:0xffffff, transparent:true, opacity:0.9 }));
-      body.position.y = 0.09;
-      g.add(body);
-      const neckM = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.03, 0.06, 8), mat(0xe8e8e8));
-      neckM.position.y = 0.21;
-      g.add(neckM);
-      const teat = new THREE.Mesh(new THREE.ConeGeometry(0.018, 0.05, 8), mat(0xd8a878));
-      teat.position.y = 0.26;
-      g.add(teat);
-      const milk = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.13, 10), mat(0xfffdf0));
-      milk.position.y = 0.07;
-      g.add(milk);
-      g.visible = false;
-      scene.add(g);
-      return g;
-    })();
-    const brushMesh = (() => {
-      const g = new THREE.Group();
-      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.16, 8), mat(0x8a5a34));
-      handle.rotation.z = Math.PI/2.2;
-      g.add(handle);
-      const head = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.05, 0.06), mat(0x3a3a3a, true));
-      head.position.set(0.09, 0.035, 0);
-      g.add(head);
-      g.visible = false;
-      scene.add(g);
-      return g;
-    })();
-    // held hay clump: follows the pointer while the hay tool is dragged, like the bottle
-    // and brush props above, so the player can see where a drop will land BEFORE releasing
-    const hayHeldMesh = (() => {
-      const g = new THREE.Group();
-      for (let i = 0; i < 5; i++){
-        const wisp = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.16, 0.02), mat(0xe0c257, true));
-        wisp.position.set((Math.random()-0.5)*0.1, 0.08, (Math.random()-0.5)*0.1);
-        wisp.rotation.set((Math.random()-0.5)*0.5, Math.random()*Math.PI, (Math.random()-0.5)*0.5);
-        g.add(wisp);
-      }
-      g.visible = false;
-      scene.add(g);
-      return g;
-    })();
-
-    let isPetting = false, isBrushing = false, holdingBottle = false, holdingHay = false;
-    let lastPetPos = null, petStrokeAccum = 0;
-    let hayInTrough = false;
-    let ballObj = null;
-
-    const raycaster = new THREE.Raycaster();
-    const pointerNDC = new THREE.Vector2();
-    const groundPlane = new THREE.Plane(new THREE.Vector3(0,1,0), 0);
-    const stagePt = new THREE.Vector3();
-
-    function pointerToNDC(e){
-      const r = renderer.domElement.getBoundingClientRect();
-      pointerNDC.x = ((e.clientX - r.left) / r.width) * 2 - 1;
-      pointerNDC.y = -((e.clientY - r.top) / r.height) * 2 + 1;
-    }
-    function raycastGoat(e){
-      pointerToNDC(e);
-      raycaster.setFromCamera(pointerNDC, camera);
-      const hits = raycaster.intersectObject(goat, true);
-      return hits.length > 0 ? hits[0] : null;
-    }
-    const _lastGroundPt = new THREE.Vector3(0, 0, -0.3);   // fallback: goat's spawn point
-    function raycastGround(e){
-      pointerToNDC(e);
-      raycaster.setFromCamera(pointerNDC, camera);
-      const pt = new THREE.Vector3();
-      const hit = raycaster.ray.intersectPlane(groundPlane, pt);
-      // a cursor/finger above the horizon (common when dragging a held prop near the top
-      // of the screen) makes the ray miss the ground plane entirely; three.js leaves `pt`
-      // untouched in that case, which silently reused whatever a fresh Vector3 defaults to
-      // (world origin) — teleporting the held prop there instead of just not moving it
-      if (!hit) return _lastGroundPt.clone();
-      _lastGroundPt.copy(pt);
-      return pt;
-    }
-    // Issue #2 ("the scrub brush only seems to work some of the time"): the original hit
-    // test compared a GROUND-PLANE point (y=0) against dirt blotches sitting ~0.4-0.6 up
-    // on the goat's body. Any first fix that still measures "did the pointer ray reach
-    // near the goat" via the GROUND plane inherits the same failure mode: a ray aimed at
-    // the goat's head/back (well above ground) continues past the visible body and hits
-    // the ground plane meters further away (verified: aiming at the head from the game's
-    // eye-level 3/4 camera lands the ground intersection ~2.8 units past the goat's root,
-    // vs the goat's own ~0.3 unit body radius) — so a ground-distance test alone still
-    // misses most of the goat's visible silhouette. Test against a SPHERE centered on the
-    // goat's mid-body height instead (closest point on the pointer ray to that sphere's
-    // center, per the task's explicit "ray-to-goat-bounding-sphere" suggestion) — this is
-    // camera-angle-agnostic: aiming anywhere at the goat's visible body, head, or rear
-    // all correctly report a hit regardless of how far past it the ground plane sits.
-    const GOAT_SPHERE_RADIUS = 0.45;
-    const _sphereCenter = new THREE.Vector3(), _rayToCenter = new THREE.Vector3(), _closest = new THREE.Vector3();
-    function rayHitsGoatSphere(e){
-      pointerToNDC(e);
-      raycaster.setFromCamera(pointerNDC, camera);
-      _sphereCenter.set(GOAT.pos.x, 0.35, GOAT.pos.z);   // mid-body height, world space
-      const ray = raycaster.ray;
-      // closest point on the ray to the sphere center: project (center-origin) onto the
-      // ray direction (already normalized by three.js), clamped to t>=0 (in front of camera)
-      _rayToCenter.copy(_sphereCenter).sub(ray.origin);
-      const t = Math.max(0, _rayToCenter.dot(ray.direction));
-      _closest.copy(ray.direction).multiplyScalar(t).add(ray.origin);
-      const dist = _closest.distanceTo(_sphereCenter);
-      return dist <= GOAT_SPHERE_RADIUS;
-    }
-
-    function speechBubble(text){
-      const el = document.getElementById("speech");
-      el.textContent = text;
-      const headPos = new THREE.Vector3();
-      goat.userData.head.getWorldPosition(headPos);
-      headPos.y += 0.25;
-      const proj = headPos.clone().project(camera);
-      const r = renderer.domElement.getBoundingClientRect();
-      const x = (proj.x * 0.5 + 0.5) * r.width;
-      const y = (-proj.y * 0.5 + 0.5) * r.height;
-      el.style.left = x + "px";
-      el.style.top = y + "px";
-      el.style.opacity = "1";
-      el.style.transform = "translate(-50%,-100%) scale(1)";
-      clearTimeout(speechBubble._t);
-      speechBubble._t = setTimeout(() => { el.style.opacity = "0"; }, 1400);
-    }
-
-    // ---- pointer interaction ----
-    let pointerDown = false;
-    renderer.domElement.addEventListener("pointerdown", (e) => {
-      e.preventDefault();
-      pointerDown = true;
-      const hit = raycastGoat(e);
-      if (currentTool === "pet"){
-        if (hit){
-          isPetting = true; lastPetPos = e; petStrokeAccum = 0;
-          GOAT.forcedUntil = Date.now() + 600;
-          GOAT.lookTarget = hit.point.clone();
+  // meters row: 4 groups of icon + 4 pips
+  const METER_X = [1, 25, 49, 73];
+  const METER_ICO = ['icoFood','icoHappy','icoClean','icoEnergy'];
+  const METER_KEY = ['hu','ha','cl','en'];
+  function drawMeters(blinkOn){
+    for (let i=0;i<4;i++){
+      const ico = SPRITES[METER_ICO[i]];
+      drawGrid(ico, METER_X[i], 2);
+      const v = Math.round(S.m[METER_KEY[i]]);
+      for (let p=0;p<4;p++){
+        const px = METER_X[i] + 7 + p*4, py = 2;
+        if (p < v && !(v <= 1 && !blinkOn)){
+          ctx.fillStyle = PAL[1]; ctx.fillRect(px, py, 3, 5);
         } else {
-          // tap elsewhere with pet tool but hitting goat via quick tap check below
-        }
-        if (hit) { /* petting begins */ }
-        else {
-          // simple tap-to-look if they tap near but miss; ignore
-        }
-      } else if (currentTool === "bottle"){
-        // position at the cursor's ground point IMMEDIATELY (not just on the next
-        // pointermove) — otherwise the bottle briefly sits at its stale last-used spot
-        // (default: world origin, near the goat's spawn point), which could let the
-        // feeding state machine see it as already "arrived" for a frame before the
-        // player has dragged it anywhere.
-        const pt0 = raycastGround(e);
-        bottleMesh.position.set(pt0.x, 0.5, pt0.z);
-        bottleMesh.visible = true;
-        holdingBottle = true;
-        GOAT.forcedUntil = Date.now() + 30000;
-      } else if (currentTool === "hay"){
-        // pick up a hay clump at the cursor's ground point immediately (same
-        // stale-position fix as bottle/brush above), then drag/tap to place it
-        const pt0 = raycastGround(e);
-        hayHeldMesh.position.set(pt0.x, 0, pt0.z);
-        hayHeldMesh.visible = true;
-        holdingHay = true;
-      } else if (currentTool === "brush"){
-        // same stale-position bug the bottle branch above already documents/fixes: set
-        // the brush mesh AND run the hit test immediately on pointerdown, not just on the
-        // next pointermove — otherwise a plain tap-without-drag (no move event ever fires)
-        // never scrubs at all, which is part of why brushing felt unreliable.
-        const pt0 = raycastGround(e);
-        brushMesh.position.set(pt0.x, 0.45, pt0.z);
-        brushMesh.visible = true;
-        isBrushing = true;
-        GOAT.forcedUntil = Date.now() + 600;
-        scrubDirt(e, pt0);
-      } else if (currentTool === "ball"){
-        tossBall();
-      }
-      if (hit && currentTool !== "hay" && currentTool !== "ball"){
-        // acknowledge a tap on the goat regardless of tool -> look + baa, but only if not actively stroking
-      }
-    });
-    renderer.domElement.addEventListener("pointermove", (e) => {
-      if (currentTool === "bottle" && holdingBottle){
-        const pt = raycastGround(e);
-        // position bottle near where pointer projects, floating at goat mouth height
-        bottleMesh.position.set(pt.x, 0.5, pt.z);
-      } else if (currentTool === "brush" && isBrushing){
-        const pt = raycastGround(e);
-        brushMesh.position.set(pt.x, 0.45, pt.z);
-        scrubDirt(e, pt);
-      } else if (currentTool === "hay" && holdingHay){
-        const pt = raycastGround(e);
-        hayHeldMesh.position.set(pt.x, 0.12 + Math.sin(Date.now()/180)*0.02, pt.z);
-      } else if (currentTool === "pet" && isPetting && pointerDown){
-        const hit = raycastGoat(e);
-        if (hit){
-          GOAT.lookTarget = hit.point.clone();   // head tracks the petting hand/finger
-          if (lastPetPos){
-            const dx = e.clientX - lastPetPos.clientX, dy = e.clientY - lastPetPos.clientY;
-            petStrokeAccum += Math.hypot(dx, dy);
-            if (petStrokeAccum > 26){
-              petStrokeAccum = 0;
-              const p = hit.point.clone(); p.y += 0.1;
-              heartBurst(p, 1);
-              state.needs.play = clamp(state.needs.play + 0.6, 0, 100);
-              saveState();
-            }
-          }
-        }
-        lastPetPos = e;
-        GOAT.leaning = clamp(GOAT.leaning + 0.05, 0, 1);
-      }
-    });
-    function endPointer(e){
-      pointerDown = false;
-      if (isPetting){
-        isPetting = false;
-        GOAT.forcedUntil = Date.now() + 200;
-        GOAT.lookTarget = null;
-      }
-      if (isBrushing){
-        isBrushing = false;
-      }
-      if (holdingBottle){
-        holdingBottle = false;
-        bottleMesh.visible = false;
-        GOAT.forcedUntil = 0;
-        GOAT.lookTarget = null;
-        if (GOAT._bottleFull){
-          GOAT._bottleFull = false;
-          setGoatState("jump");   // happy hop celebration once a full bottle-feeding wraps up
-        }
-      }
-      if (holdingHay){
-        holdingHay = false;
-        hayHeldMesh.visible = false;
-        dropHayAt(hayHeldMesh.position.clone());
-      }
-    }
-    window.addEventListener("pointerup", endPointer);
-    window.addEventListener("pointercancel", endPointer);
-
-    // simple tap detection (goat look + baa) — separate lightweight listener, ignores drags
-    let tapStart = null;
-    renderer.domElement.addEventListener("pointerdown", (e) => { tapStart = { x:e.clientX, y:e.clientY, t:Date.now() }; });
-    renderer.domElement.addEventListener("pointerup", (e) => {
-      if (!tapStart) return;
-      const dx = e.clientX - tapStart.x, dy = e.clientY - tapStart.y;
-      const dt = Date.now() - tapStart.t;
-      tapStart = null;
-      if (Math.hypot(dx,dy) < 8 && dt < 350){
-        const hit = raycastGoat(e);
-        if (hit) speechBubble("Baaa!");
-      }
-    });
-
-    // Issue #3: hay must land IN the trough. Footprint = the trough's own rim box
-    // (0.9 x 0.4 in its local XZ) plus a small margin, tested in the trough's own rotated
-    // frame (troughGroup.rotation.y = 0.5) so a drop anywhere near the visible box hits,
-    // not just a raw world-axis-aligned approximation.
-    const TROUGH_HALF_X = 0.9/2, TROUGH_HALF_Z = 0.4/2, TROUGH_MARGIN = 0.22;
-    const _troughLocal = new THREE.Vector3();
-    function isPointInTrough(pt){
-      _troughLocal.copy(pt).sub(troughGroup.position);
-      const ry = -troughGroup.rotation.y;
-      const cos = Math.cos(ry), sin = Math.sin(ry);
-      const lx = _troughLocal.x * cos - _troughLocal.z * sin;
-      const lz = _troughLocal.x * sin + _troughLocal.z * cos;
-      return Math.abs(lx) <= TROUGH_HALF_X + TROUGH_MARGIN && Math.abs(lz) <= TROUGH_HALF_Z + TROUGH_MARGIN;
-    }
-
-    function fillTrough(){
-      hayInTrough = true;
-      troughGroup.userData.hayMesh.visible = true;
-      GOAT.forcedUntil = Date.now() + 6000;
-      GOAT.eatTarget = "trough";
-    }
-    // a drop outside the trough: the held hay clump tumbles to the ground and fades,
-    // no stat effect, just a gentle nudge toward the trough
-    function missHay(pt){
-      for (let i = 0; i < 5; i++){
-        spawnParticle("puff", pt.clone().setY(0.15), {
-          vel: new THREE.Vector3((Math.random()-0.5)*0.8, 0.5+Math.random()*0.4, (Math.random()-0.5)*0.8),
-          maxLife: 0.7 + Math.random()*0.3, grav: -1.0, scale: 0.9 + Math.random()*0.5
-        });
-      }
-      speechBubbleAt(pt, "Put the hay in the trough! 🌾");
-    }
-    // like speechBubble() but anchored to an arbitrary world point instead of the goat's
-    // head (the hint should appear where the player actually dropped the hay)
-    function speechBubbleAt(worldPos, text){
-      const el = document.getElementById("speech");
-      el.textContent = text;
-      const proj = worldPos.clone().add(new THREE.Vector3(0,0.3,0)).project(camera);
-      const r = renderer.domElement.getBoundingClientRect();
-      const x = (proj.x * 0.5 + 0.5) * r.width;
-      const y = (-proj.y * 0.5 + 0.5) * r.height;
-      el.style.left = x + "px";
-      el.style.top = y + "px";
-      el.style.opacity = "1";
-      el.style.transform = "translate(-50%,-100%) scale(1)";
-      clearTimeout(speechBubble._t);
-      speechBubble._t = setTimeout(() => { el.style.opacity = "0"; }, 1600);
-    }
-    function dropHayAt(pt){
-      if (isPointInTrough(pt)) fillTrough();
-      else missHay(pt);
-    }
-
-    // Root cause of "brush only works some of the time": scrubDirt() compared a
-    // GROUND-PLANE point (pt, always y=0 — see raycastGround) against each blotch's
-    // WORLD position, which sits ~0.4-0.6 up on the goat's body. A straight 3D
-    // distanceTo() burns nearly the whole 0.5 threshold on that vertical gap alone,
-    // leaving almost no horizontal slack — so brushing only registered when the
-    // pointer's ground projection happened to land almost exactly under the goat's
-    // belly. A first attempt at fixing this (flat XZ distance from the ground point to
-    // GOAT.pos) turned out to share the same flaw: aiming at the goat's HEAD/back from
-    // the game's real eye-level 3/4 camera sends the ground-plane ray several units past
-    // the goat's actual body (measured ~2.8 units past root for a head-aimed ray) before
-    // it reaches y=0, so a ground-based distance test still misses most strokes. Fixed
-    // per the task's explicit suggestion: test the pointer RAY itself against a bounding
-    // sphere centered on the goat's mid-body (rayHitsGoatSphere, see its own comment) —
-    // this is correct regardless of where on the (elevated) goat body the player aims,
-    // since it never routes through the ground plane at all. Blotch opacity gating is
-    // ALSO not part of the hit test — brushing a clean goat (or one whose blotches
-    // haven't faded in yet) still registers as a successful stroke, it just has nothing
-    // left to visibly scrub.
-    function scrubDirt(e, pt){
-      if (!rayHitsGoatSphere(e)) return false;
-      const blotches = goat.userData.dirtBlotches;
-      let scrubbed = false;
-      for (const b of blotches){
-        if (b.mesh.material.opacity <= 0.02) continue;
-        scrubbed = true;
-        b.mesh.material.opacity = Math.max(0, b.mesh.material.opacity - 0.06);
-      }
-      if (scrubbed){
-        bubblePop(pt.clone().setY(0.4));
-        state.needs.clean = clamp(state.needs.clean + 0.5, 0, 100);
-        if (Math.random() < 0.15) sparkleBurst(pt.clone().setY(0.4), 4);
-        saveState();
-        if (state.needs.clean >= 90 && !GOAT._justShook){
-          GOAT._justShook = true;
-          setGoatState("shake");
-          sparkleBurst(GOAT.pos.clone().setY(0.5), 14);
-          setTimeout(()=>{ GOAT._justShook = false; }, 8000);
+          ctx.fillStyle = PAL[3];
+          ctx.fillRect(px, py, 3, 1); ctx.fillRect(px, py+4, 3, 1);
+          ctx.fillRect(px, py, 1, 5); ctx.fillRect(px+2, py, 1, 5);
         }
       }
     }
+    ctx.fillStyle = PAL[3];
+    for (let x=0;x<LW;x+=2) ctx.fillRect(x, 9, 1, 1);
+  }
 
-    // ---- ball physics ----
-    function tossBall(){
-      if (ballObj){ scene.remove(ballObj.mesh); ballObj.mesh.geometry.dispose(); ballObj.mesh.material.dispose(); ballObj = null; }
-      const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), mat(0xe85050, true));
-      const start = camera.position.clone(); start.y = 0.6;
-      mesh.position.copy(start);
-      scene.add(mesh);
-      ballObj = {
-        mesh,
-        vel: new THREE.Vector3(-start.x*0.35, 2.6, -3.4),
-        idleT: 0,
-        lastBounce: 0
-      };
-    }
-    function updateBall(dt){
-      if (!ballObj) return;
-      ballObj.vel.y += -6 * dt;
-      ballObj.mesh.position.addScaledVector(ballObj.vel, dt);
-      const p = ballObj.mesh.position;
-      if (p.y < 0.12){
-        p.y = 0.12;
-        ballObj.vel.y = Math.abs(ballObj.vel.y) * 0.55;
-        ballObj.vel.x *= 0.75; ballObj.vel.z *= 0.75;
-        if (Math.abs(ballObj.vel.y) < 0.3) ballObj.vel.y = 0;
-      }
-      const halfW = STALL_W/2 - 0.15, halfD = STALL_D/2 - 0.15;
-      if (p.x < -halfW){ p.x = -halfW; ballObj.vel.x *= -0.6; }
-      if (p.x > halfW){ p.x = halfW; ballObj.vel.x *= -0.6; }
-      if (p.z < -halfD){ p.z = -halfD; ballObj.vel.z *= -0.6; }
-      if (p.z > halfD){ p.z = halfD; ballObj.vel.z *= -0.6; }
-      const speed = ballObj.vel.length();
-      if (speed < 0.15) ballObj.idleT += dt; else ballObj.idleT = 0;
-      if (ballObj.idleT > 20){
-        scene.remove(ballObj.mesh); ballObj.mesh.geometry.dispose(); ballObj.mesh.material.dispose();
-        ballObj = null;
-      }
-    }
-    function headbuttBall(){
-      if (!ballObj) return;
-      const dx = ballObj.mesh.position.x - GOAT.pos.x, dz = ballObj.mesh.position.z - GOAT.pos.z;
-      const dir = new THREE.Vector3(dx, 0, dz).normalize();
-      ballObj.vel.x = dir.x * 2.6 + (Math.random()-0.5)*0.6;
-      ballObj.vel.z = dir.z * 2.6 + (Math.random()-0.5)*0.6;
-      ballObj.vel.y = 1.4;
-      state.needs.play = clamp(state.needs.play + 4, 0, 100);
-      saveState();
-      if (Math.random() < 0.5) setGoatState("pronk");
-      sparkleBurst(ballObj.mesh.position.clone(), 4);
-    }
+  function drawGround(){
+    ctx.fillStyle = PAL[2];
+    for (let x=0;x<LW;x+=3) ctx.fillRect(x, GROUND_Y, 2, 1);
+    ctx.fillStyle = PAL[3];
+    ctx.fillRect(9, 61, 1, 1); ctx.fillRect(31, 60, 1, 1);
+    ctx.fillRect(57, 62, 1, 1); ctx.fillRect(84, 61, 1, 1);
+  }
 
-    // ================== main animation / behavior tick ==================
-    let lastFrame = null;
-
-    function updateBehavior(dt, now){
-      const mood = moodValue();
-      const night = isNight();
-      GOAT.stateT += dt;
-
-      // blinking
-      goat.userData.head // noop to keep reference warm
-      GOAT.blinkTimer -= dt;
-      if (GOAT.blinking > 0){
-        GOAT.blinking -= dt / 0.12;
-        setBlink(Math.max(0, Math.sin(Math.min(1, GOAT.stateT) * Math.PI)));
-      }
-      if (GOAT.blinkTimer <= 0 && GOAT.state !== "sleep" && GOAT.state !== "lie"){
-        GOAT.blinkTimer = 3 + Math.random()*3;
-        GOAT.blinkPhase = 0;
-        GOAT._blinking = true;
-        GOAT._blinkT = 0;
-      }
-      if (GOAT._blinking){
-        GOAT._blinkT += dt;
-        const b = Math.sin(Math.min(1, GOAT._blinkT/0.22) * Math.PI);
-        setBlink(b);
-        if (GOAT._blinkT >= 0.22){ GOAT._blinking = false; setBlink(0); }
-      } else if (GOAT.state !== "lie" && !isPetting){
-        setBlink(0);
-      }
-
-      // ear twitch idle detail
-      GOAT.earTwitchTimer -= dt;
-      if (GOAT.earTwitchTimer <= 0){
-        GOAT.earTwitchTimer = 4 + Math.random()*4;
-        GOAT._earFlick = 0.3;
-      }
-      if (GOAT._earFlick > 0){ GOAT._earFlick -= dt; JOINT.earL = Math.sin(GOAT._earFlick*20)*0.15; }
-      else JOINT.earL = 0;
-
-      const sad = mood < 30;
-      const veryHappy = mood > 75;
-
-      // decide behavior transitions when not forced by a tool
-      const forced = now < GOAT.forcedUntil;
-      if (!forced){
-        if (holdingBottle || isPetting || isBrushing) { /* handled elsewhere */ }
-        else if (night && GOAT.state !== "eat" && GOAT.state !== "shake"){
-          if (GOAT.state !== "lie") setGoatState("lie");
-        } else if (ballObj && new THREE.Vector3(ballObj.mesh.position.x-GOAT.pos.x,0,ballObj.mesh.position.z-GOAT.pos.z).length() < 2.6){
-          setGoatState("walk");
-          GOAT.target = ballObj.mesh.position.clone().setY(0);
-        } else if (hayInTrough && GOAT.eatTarget === "trough" && GOAT.pos.distanceTo(troughGroup.position) >= 0.6){
-          // walk toward the trough only while still out of eating range — once within
-          // 0.6 (the same threshold the eating block below checks), stop re-issuing a
-          // walk target so state can actually leave "walk" and the eating block can run
-          // (previously this re-armed "walk" every single frame forever, even standing
-          // right at the trough, since nothing here ever checked arrival distance)
-          setGoatState("walk");
-          GOAT.target = troughGroup.position.clone();
-        } else {
-          GOAT.idleTimer -= dt;
-          if (GOAT.state === "idle" && GOAT.idleTimer <= 0){
-            GOAT.idleTimer = 5 + Math.random()*10;
-            if (Math.random() < 0.25 && !sad){
-              setGoatState("pronk");
-            } else {
-              GOAT.target = pickRoamTarget();
-              setGoatState("walk");
-            }
-          } else if (GOAT.state === "walk" && GOAT.target){
-            const d = GOAT.target.clone().sub(GOAT.pos); d.y = 0;
-            if (d.length() < 0.08){
-              setGoatState(sad ? "sadidle" : "idle");
-              GOAT.target = null;
-            }
-          } else if (GOAT.state !== "walk" && GOAT.state !== "idle" && GOAT.state !== "sadidle"){
-            // finished a one-off animation (pronk/jump/shake) -> back to idle
-            if (GOAT.stateT > 1.0) setGoatState(sad ? "sadidle" : "idle");
-          }
-        }
-      }
-
-      // bottle feeding: goat WALKS TO the bottle and STOPS to drink — no more feeding
-      // on the move. Sub-state machine (GOAT.feedState): "walking" while pathing to a
-      // stop point ~0.8 units from the bottle (facing it); "arrived" once within that
-      // stop distance AND stationary, which is the ONLY state that fills the food stat.
-      // If the bottle drifts >0.6 units from where we last planted feet, feeding pauses
-      // and the goat re-paths to the new spot, resuming on arrival — same stat effects
-      // as before, only the physical behavior (walk-then-stand vs. feed-while-approaching)
-      // changed, per the user's explicit ask.
-      const FEED_STOP_DIST = 0.8, FEED_RESUME_DIST = 0.6;
-      if (holdingBottle){
-        const bp = bottleMesh.position.clone().setY(0);
-        GOAT.lookTarget = bottleMesh.position;   // head tracks the bottle while approaching/feeding
-        if (!GOAT.feedState || GOAT.feedAnchor == null){
-          GOAT.feedState = "walking";
-          GOAT.feedAnchor = bp.clone();
-        }
-        // bottle moved away from the spot we last arrived/pathed to -> pause + re-path
-        if (GOAT.feedAnchor.distanceTo(bp) > FEED_RESUME_DIST){
-          GOAT.feedState = "walking";
-          GOAT.feedAnchor = bp.clone();
-        }
-        if (GOAT.feedState === "walking"){
-          // stop point: FEED_STOP_DIST short of the bottle, along the line from the
-          // goat's current position to it, so the goat approaches and faces the bottle
-          const toBottle = bp.clone().sub(GOAT.pos); toBottle.y = 0;
-          const fullDist = toBottle.length();
-          let stopPoint;
-          if (fullDist > FEED_STOP_DIST){
-            stopPoint = GOAT.pos.clone().addScaledVector(toBottle.clone().normalize(), fullDist - FEED_STOP_DIST);
-          } else {
-            stopPoint = GOAT.pos.clone();   // already closer than the stop distance
-          }
-          if (fullDist <= FEED_STOP_DIST + 0.05){
-            // arrived: plant feet, face the bottle exactly, start the feeding pose
-            GOAT.feedState = "arrived";
-            GOAT.target = null;
-            setGoatState("eat");
-            GOAT.jawTimer = 0;
-          } else {
-            setGoatState("walk");
-            GOAT.target = stopPoint;
-          }
-        }
-        if (GOAT.feedState === "arrived"){
-          // re-check distance every frame (bottle may drift a little without crossing
-          // the FEED_RESUME_DIST re-path threshold) — only feed while truly within reach
-          const dist = GOAT.pos.distanceTo(bp);
-          if (dist > FEED_STOP_DIST + 0.15){
-            GOAT.feedState = "walking";
-          } else {
-            setGoatState("eat");
-            // face the bottle precisely while stationary
-            const toBottle = bp.clone().sub(GOAT.pos); toBottle.y = 0;
-            if (toBottle.lengthSq() > 0.0001){
-              const targetFacing = Math.atan2(toBottle.x, toBottle.z);
-              let da = targetFacing - GOAT.facing;
-              da = Math.atan2(Math.sin(da), Math.cos(da));
-              GOAT.facing += da * Math.min(1, dt*6);
-            }
-            // pitch down toward the bottle nipple height — positive neckX/headX is the
-            // "look down" direction on this rig (matches sadidle's droopy-head pose);
-            // the pre-fix negative values flipped the head backward through the pivot
-            JOINT.neckX = 0.16; JOINT.headX = 0.12;
-            GOAT.jawTimer = (GOAT.jawTimer||0) + dt;
-            JOINT.jawX = Math.sin(GOAT.jawTimer*15.7) * 0.06;   // ~2.5Hz suckle bob (15.7 rad/s = 2.5Hz * 2π)
-            JOINT.tailWag += dt*10;   // happy faster wag while feeding
-            const wasFull = state.needs.food >= 100;
-            state.needs.food = clamp(state.needs.food + dt * 9, 0, 100);
-            if (!wasFull && state.needs.food >= 100){
-              GOAT._bottleFull = true;   // happy hop celebration the instant the bottle tops off the stat
-            }
-            const headWorld = new THREE.Vector3(); goat.userData.head.getWorldPosition(headWorld);
-            if (Math.floor(GOAT.jawTimer*3) !== Math.floor((GOAT.jawTimer-dt)*3)){
-              bubblePop(headWorld.clone());
-            }
-            saveState();
-          }
-        }
-      } else if (GOAT.feedState){
-        // bottle removed -> return to normal wandering
-        GOAT.feedState = null;
-        GOAT.feedAnchor = null;
-      }
-
-      // eating hay in trough
-      if (GOAT.eatTarget === "trough" && GOAT.state !== "walk"){
-        const troughPos = troughGroup.position;
-        if (GOAT.pos.distanceTo(troughPos) < 0.6){
-          setGoatState("eat");
-          JOINT.neckX = 0.3; JOINT.headX = 0.45;   // head down into the trough (see bottle-feed fix above)
-          GOAT.jawTimer = (GOAT.jawTimer||0) + dt;
-          JOINT.jawX = Math.sin(GOAT.jawTimer*8) * 0.08;
-          GOAT._eatFeedT = (GOAT._eatFeedT||0) + dt;
-          if (GOAT._eatFeedT > 3){
-            state.needs.food = clamp(state.needs.food + 25, 0, 100);
-            saveState();
-            GOAT.eatTarget = null;
-            hayInTrough = false;
-            troughGroup.userData.hayMesh.visible = false;
-            GOAT._eatFeedT = 0;
-            setGoatState("jump");   // happy hop celebration on a completed meal
-          }
-        }
-      }
-
-      // pet interaction shaping
-      if (isPetting){
-        setGoatState("happy");
-        GOAT.leaning = clamp(GOAT.leaning + dt*2, 0, 1);
-        setBlink(0.9);
-      } else {
-        GOAT.leaning = clamp(GOAT.leaning - dt*2, 0, 1);
-      }
-      if (isBrushing){
-        setGoatState("happy");
-      }
-
-      // headbutt trigger when close to ball while walking toward it and state settles
-      if (ballObj){
-        const flatDist = new THREE.Vector3(ballObj.mesh.position.x-GOAT.pos.x,0,ballObj.mesh.position.z-GOAT.pos.z).length();
-        if (flatDist < 0.32 && (now - (GOAT._lastHeadbutt||0)) > 900){
-          GOAT._lastHeadbutt = now;
-          headbuttBall();
-        }
-      }
-
-      // movement toward target
-      if (GOAT.state === "walk" && GOAT.target){
-        const d = GOAT.target.clone().sub(GOAT.pos); d.y = 0;
-        const dist = d.length();
-        if (dist > 0.02){
-          d.normalize();
-          const targetFacing = Math.atan2(d.x, d.z);
-          let da = targetFacing - GOAT.facing;
-          da = Math.atan2(Math.sin(da), Math.cos(da));
-          GOAT.facing += da * Math.min(1, dt*6);
-          const spd = GOAT.speed * (1 - Math.min(0.5, mood < 40 ? 0.3 : 0));
-          GOAT.pos.addScaledVector(d, spd * dt);
-          GOAT.walkPhase += dt * 7 * spd;
-          // issue #1c: swing amplitude trimmed ~20% (0.55->0.44, knee 0.7->0.56 to match)
-          // so the leg's extreme-swing angle no longer outpaces what the overlap band +
-          // hip cover can visually cover — motion charm over amplitude, per the fix plan.
-          const swing = 0.44;
-          JOINT.hipFL = Math.sin(GOAT.walkPhase) * swing;
-          JOINT.hipBR = Math.sin(GOAT.walkPhase) * swing;
-          JOINT.hipFR = Math.sin(GOAT.walkPhase+Math.PI) * swing;
-          JOINT.hipBL = Math.sin(GOAT.walkPhase+Math.PI) * swing;
-          JOINT.kneeFL = Math.max(0, Math.sin(GOAT.walkPhase - 0.6)) * 0.56;
-          JOINT.kneeBR = Math.max(0, Math.sin(GOAT.walkPhase - 0.6)) * 0.56;
-          JOINT.kneeFR = Math.max(0, Math.sin(GOAT.walkPhase+Math.PI - 0.6)) * 0.56;
-          JOINT.kneeBL = Math.max(0, Math.sin(GOAT.walkPhase+Math.PI - 0.6)) * 0.56;
-          JOINT.bodyY = 0.02 + Math.abs(Math.sin(GOAT.walkPhase*2)) * 0.015;
-          // slight body roll (opposite the swinging fore/hind pair) — reads as a natural
-          // gait sway and helps sell the walk even where the overlap band/cover run out
-          JOINT.bodyTiltX = Math.sin(GOAT.walkPhase) * 0.035;
-          JOINT.tailWag += dt*4;
-          if (GOAT.feedState === "walking" && GOAT.lookTarget){
-            applyHeadTracking(GOAT.lookTarget, dt);   // glance toward the bottle while trotting over
-          } else {
-            // slight head counter-bob against the body bob, opposite phase reads as
-            // a natural trot instead of a rigid stiff-necked walk
-            JOINT.neckX = -Math.sin(GOAT.walkPhase*2) * 0.05;
-            JOINT.headX = 0;
-          }
-        }
-      } else if (GOAT.state === "idle" || GOAT.state === "sadidle"){
-        const t = now/1000;
-        const weightShift = Math.sin(t*0.8) * 0.04;
-        JOINT.hipFL = weightShift; JOINT.hipBR = -weightShift;
-        JOINT.hipFR = -weightShift*0.6; JOINT.hipBL = weightShift*0.6;
-        JOINT.kneeFL = JOINT.kneeFR = JOINT.kneeBL = JOINT.kneeBR = 0;
-        JOINT.bodyY = 0.02 + Math.sin(t*1.3) * (GOAT.state === "sadidle" ? 0.003 : 0.008);
-        JOINT.bodyTiltX = 0;   // don't inherit the walk gait's roll once stopped
-        GOAT.lookTimer -= dt;
-        if (GOAT.lookTimer <= 0){
-          GOAT.lookTimer = 2 + Math.random()*3;
-          GOAT.lookAngle = (Math.random()-0.5) * 0.8;
-        }
-        if (GOAT.state === "sadidle"){
-          JOINT.neckX = 0.35; JOINT.headX = 0.2;
-          JOINT.earL = 0.25; JOINT.earR = 0.25;
-          JOINT.tailWag = 0;
-        } else if (GOAT.lookTarget){
-          applyHeadTracking(GOAT.lookTarget, dt);   // petting: look at the hand/finger
-          JOINT.tailX = Math.sin(t*0.5)*0.1;
-        } else {
-          JOINT.neckY = GOAT.lookAngle * 0.6;
-          JOINT.headX = 0;
-          JOINT.tailX = Math.sin(t*0.5)*0.1;
-        }
-      } else if (GOAT.state === "pronk"){
-        const p = Math.min(1, GOAT.stateT / 0.7);
-        const bounce = Math.sin(p*Math.PI);
-        JOINT.bodyY = 0.02 + bounce*0.18;
-        const tuck = bounce*1.1;
-        JOINT.hipFL = JOINT.hipFR = -tuck; JOINT.hipBL = JOINT.hipBR = tuck*0.8;
-        JOINT.kneeFL = JOINT.kneeFR = tuck*1.3; JOINT.kneeBL = JOINT.kneeBR = tuck*1.1;
-        JOINT.tailWag += dt*10;
-        if (bounce > 0.85 && !GOAT._pronkLanded){ GOAT._pronkLanded = true; }
-        if (p >= 1){
-          GOAT._pronkLanded = false;
-          strawPuff(GOAT.pos.clone().setY(0.05), 5);
-        }
-      } else if (GOAT.state === "jump"){
-        const p = Math.min(1, GOAT.stateT / 0.6);
-        let bounce;
-        if (p < 0.3){ bounce = -0.06 * (p/0.3); } // crouch
-        else if (p < 0.75){ const q=(p-0.3)/0.45; bounce = -0.06 + q*0.3; }
-        else { const q=(p-0.75)/0.25; bounce = 0.24 * (1-q); }
-        JOINT.bodyY = 0.02 + bounce;
-        JOINT.hipFL = JOINT.hipFR = JOINT.hipBL = JOINT.hipBR = bounce > 0 ? -0.6 : 0.3;
-        if (p >= 1 && GOAT.lastLanded === false){
-          strawPuff(GOAT.pos.clone().setY(0.02), 6);
-          GOAT.lastLanded = true;
-        } else if (p < 1) GOAT.lastLanded = false;
-      } else if (GOAT.state === "lie"){
-        const p = Math.min(1, GOAT.stateT / 0.8);
-        // The GLB rig's legs are single rigid segments (no true knee bend), so the
-        // procedural rig's full recline (body sinks 0.28, legs rotate ~110st) — which
-        // relies on hip+knee ROTATING A JOINTED leg out of the way — instead swings a
-        // rigid limb through empty space and reads as broken (legs vanish into/through
-        // the body and floor). Settle for a believable "tucked down" crouch instead: a
-        // shallower sink and gentler fold that still clearly reads as resting.
-        const sink = goat.userData.isGLB ? 0.12 : 0.28;
-        const foldScale = goat.userData.isGLB ? 0.4 : 1;
-        JOINT.bodyY = 0.02 - p*sink;
-        JOINT.hipFL = JOINT.hipFR = -1.9*p*foldScale; JOINT.kneeFL = JOINT.kneeFR = 2.1*p*foldScale;
-        JOINT.hipBL = JOINT.hipBR = 1.7*p*foldScale; JOINT.kneeBL = JOINT.kneeBR = -1.9*p*foldScale;
-        JOINT.neckX = 0.2*p; JOINT.headX = 0.1*p;
-        JOINT.earL = 0.2*p; JOINT.earR = 0.2*p;
-        if (p >= 1){
-          setBlink(1);
-          goat.userData.zGroup.visible = true;
-          const t = now/1000;
-          goat.userData.zSprites.forEach((s, i) => {
-            s.material.opacity = 0.85;
-            s.position.set(0.15 + i*0.08, 0.55 + i*0.12 + Math.sin(t*0.8+i)*0.03, 0);
-          });
-        }
-      } else if (GOAT.state === "eat"){
-        JOINT.bodyY = 0.02;
-        JOINT.hipFL = JOINT.hipFR = JOINT.hipBL = JOINT.hipBR = 0;
-      } else if (GOAT.state === "happy"){
-        const t = now/1000;
-        JOINT.tailWag += dt*14;
-        JOINT.earL = -0.3; JOINT.earR = -0.3;
-        JOINT.bodyY = 0.02 + Math.max(0, Math.sin(t*6))*0.03 * GOAT.leaning;
-        JOINT.neckX = -0.15 * GOAT.leaning;
-        JOINT.headX = -0.1 * GOAT.leaning;
-        JOINT.bodyTiltX = Math.sin(t*3) * 0.03 * GOAT.leaning;
-      } else if (GOAT.state === "shake"){
-        const p = Math.min(1, GOAT.stateT / 0.9);
-        JOINT.bodyTiltX = Math.sin(p*Math.PI*6) * 0.35 * (1-p);
-        JOINT.earL = Math.sin(p*Math.PI*6)*0.4;
-        JOINT.earR = -Math.sin(p*Math.PI*6)*0.4;
-        if (p >= 1) JOINT.bodyTiltX = 0;
-      }
-
-      // clear sleep Z's when not lying
-      if (GOAT.state !== "lie"){
-        goat.userData.zGroup.visible = false;
-      }
-
-      // if not lying/sleeping, hips settle toward 0 for idle-adjacent states handled above already
-
-      // face direction
-      goat.rotation.y = GOAT.facing;
-      goat.position.set(GOAT.pos.x, 0, GOAT.pos.z);
-
-      lerpJoints(dt);
-      applyJointsToMesh();
-      updateDirtVisual();
-
-      // shadow follow (child of goat root already, stays local)
-    }
-
-    // ================== HUD update ==================
-    const mFood = document.getElementById("mFood"), mClean = document.getElementById("mClean"), mPlay = document.getElementById("mPlay");
-    const moodRow = document.getElementById("moodRow");
-    const clockEl = document.getElementById("clock");
-
-    function meterColor(v){
-      if (v > 60) return "#4ecb5c";
-      if (v > 30) return "#e0a92c";
-      return "#e85050";
-    }
-    function updateHUD(){
-      mFood.style.width = state.needs.food + "%"; mFood.style.background = meterColor(state.needs.food);
-      mClean.style.width = state.needs.clean + "%"; mClean.style.background = meterColor(state.needs.clean);
-      mPlay.style.width = state.needs.play + "%"; mPlay.style.background = meterColor(state.needs.play);
-      const mood = moodValue();
-      let label = "❤️ Happy";
-      if (mood < 30) label = "💔 Sad";
-      else if (mood < 60) label = "🧡 Okay";
-      else if (mood > 85) label = "💕 Overjoyed";
-      moodRow.textContent = label;
-      hudAge.textContent = ageText();
-      let h, m;
-      if (photoHour != null){ h = photoHour; m = 0; }
-      else { const d = new Date(); h = d.getHours(); m = d.getMinutes(); }
-      clockEl.textContent = h + ":" + String(m).padStart(2,"0");
-    }
-
-    // ================== butterfly update ==================
-    function updateButterfly(dt, now){
-      if (!butterflyState.active){
-        butterflyState.t -= dt;
-        if (butterflyState.t <= 0 && !isNight()){
-          butterflyState.active = true;
-          butterfly.visible = true;
-          const startX = -STALL_W/2 - 0.3;
-          butterflyState.startTime = now;
-        }
-      } else {
-        const t = (now - butterflyState.startTime) / 1000;
-        const p = t / 9; // 9s flight
-        if (p >= 1){
-          butterflyState.active = false;
-          butterfly.visible = false;
-          butterflyState.next = 10 + Math.random()*20;
-          butterflyState.t = butterflyState.next;
-        } else {
-          const x = -STALL_W/2 - 0.3 + p * (STALL_W + 0.6);
-          const z = -0.5 + Math.sin(p*Math.PI*3) * 1.2;
-          const y = 0.9 + Math.sin(p*Math.PI*5) * 0.25 + Math.sin(t*2)*0.05;
-          butterfly.position.set(x, y, z);
-          const flap = Math.sin(t*18);
-          butterfly.userData.wL.rotation.y = Math.PI/2 + flap*0.9;
-          butterfly.userData.wR.rotation.y = -Math.PI/2 - flap*0.9;
-        }
+  // ---------------- effects ----------------
+  let fx = [];
+  function spawnFx(kind, x, y, vx, vy, life){ fx.push({ kind, x, y, vx, vy, born: now(), life }); }
+  function burstHearts(cx, cy, n){
+    for (let i=0;i<n;i++) spawnFx('heart', cx + (Math.random()*16-8), cy - Math.random()*4,
+      (Math.random()-.5)*3, -5 - Math.random()*4, 1400);
+  }
+  function confettiBurst(){
+    for (let i=0;i<36;i++) spawnFx('confetti', Math.random()*LW, -2 - Math.random()*18,
+      (Math.random()-.5)*4, 10 + Math.random()*14, 2600);
+  }
+  function drawFx(t){
+    fx = fx.filter(p => t - p.born < p.life);
+    for (const p of fx){
+      const dt = (t - p.born) / 1000;
+      const x = Math.round(p.x + p.vx * dt), y = Math.round(p.y + p.vy * dt);
+      if (p.kind === 'heart')        drawGrid(SPRITES.heart, x - 2, y - 2);
+      else if (p.kind === 'zzz')     drawGrid(SPRITES.zzz, x, y);
+      else if (p.kind === 'bubble')  drawGrid(SPRITES.bubble, x, y);
+      else if (p.kind === 'confetti'){ ctx.fillStyle = PAL[[1,4,5,2][p.born % 4]]; ctx.fillRect(x, y, 1, 1); }
+      else if (p.kind === 'crumb'){  ctx.fillStyle = PAL[2]; ctx.fillRect(x, Math.round(y + 8*dt*dt), 1, 1); }
+      else if (p.kind === 'rain'){   ctx.fillStyle = PAL[5]; ctx.fillRect(x, y, 1, 2); }
+      else if (p.kind === 'sparkle'){
+        ctx.fillStyle = PAL[Math.floor(t/160) % 2 ? 1 : 3];
+        ctx.fillRect(x, y, 1, 1); ctx.fillRect(x-1, y, 1, 1); ctx.fillRect(x+1, y, 1, 1);
+        ctx.fillRect(x, y-1, 1, 1); ctx.fillRect(x, y+1, 1, 1);
       }
     }
+  }
 
-    // ================== render loop ==================
-    let lightT = dayBlend();
-    function frame(ts){
-      requestAnimationFrame(frame);
-      if (lastFrame === null) lastFrame = ts;
-      let dt = (ts - lastFrame) / 1000;
-      if (dt > 0.1) dt = 0.1;
-      lastFrame = ts;
-      const now = Date.now();
+  // ======================================================================
+  //  GAME FLOW
+  // ======================================================================
+  let act = null;              // {type:'eat'|'refuse'|'sweep'|'bath'|'med'|'hatch', t0, dur}
+  let mg = null;               // minigame {round, correct, phase, dir, guess, t0}
+  let celebQ = [];             // queued {kind:'hatch'|'grow', stage}
+  let bannerUntil = 0, lastFxAt = 0, lastPose = 'idle';
+  let bootT0 = 0;              // power-on animation start (0 = not started)
 
-      // periodic real-time decay re-check (in case tab was hidden and just resumed)
-      applyElapsedDecay();
+  const el = id => document.getElementById(id);
+  const toastEl = el('toast');
+  let toastTimer = 0;
+  function toast(msg){
+    toastEl.textContent = msg; toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1700);
+  }
+  function flash(){ const f = el('flash'); f.classList.remove('go'); void f.offsetWidth; f.classList.add('go'); }
+  function banner(title, sub, ms){
+    el('bnTitle').textContent = title; el('bnSub').textContent = sub;
+    el('banner').classList.add('show');
+    bannerUntil = now() + ms;
+  }
 
-      lightT += ((dayBlend()) - lightT) * Math.min(1, dt*0.5);
-      applyLighting(lightT);
+  function goatCx(){ return 44; }
+  function busy(){ return !!act || !!mg || celebQ.length > 0 || el('banner').classList.contains('show'); }
 
-      if (PHOTO) photoPoseTick();
-      updateBehavior(dt, now);
-      updateParticles(dt);
-      updateBall(dt);
-      updateButterfly(dt, now);
-      updateHUD();
-
-      // camera follows the kid — smoothed look-at with gentle parallax + idle sway
-      // (disabled in photo mode unless cam=game, so fixed photo presets aren't fought each frame)
-      if (!PHOTO || photoCam === "game"){
-        camSwayT += dt;
-        const camK = Math.min(1, dt * 2.2);
-        camLook.x += (goat.position.x - camLook.x) * camK;
-        camLook.z += (goat.position.z - camLook.z) * camK;
-        camera.position.x = camBase.x + camLook.x * 0.45 + Math.sin(camSwayT*0.25) * 0.08;
-        camera.position.y = camBase.y + Math.sin(camSwayT*0.18) * 0.03;
-        camera.position.z = camBase.z + camLook.z * 0.18;
-        camera.lookAt(camLook.x, 0.55, camLook.z);
-      } else {
-        applyPhotoCamera();
-      }
-
-      // held props follow their target position already set on pointermove; keep bottle upright
-      if (bottleMesh.visible) bottleMesh.rotation.z = Math.sin(now/300)*0.05;
-
-      renderer.render(scene, camera);
-
-      // periodic save so lastSeen stays reasonably fresh even without interaction
-      if (now - (frame._lastSave||0) > 15000){ frame._lastSave = now; saveState(); }
+  // ---------------- actions ----------------
+  function actionGuard(){
+    if (!S || !bootDone()) return 'no';
+    if (stageIdx() === 0) { toast('The egg wiggles…'); sfx('boop'); return 'no'; }
+    if (act || mg) return 'no';
+    return 'ok';
+  }
+  function doFeed(){
+    if (actionGuard() !== 'ok') return;
+    if (!S.lights){ toast('Shh… ' + S.name + ' is sleeping'); sfx('boop'); return; }
+    if (S.m.hu >= FULL_AT){
+      act = { type:'refuse', t0: now(), dur: 1600 };
+      sfx('refuse'); toast('So full!'); save(); return;
     }
-    requestAnimationFrame(frame);
+    act = { type:'eat', t0: now(), dur: 2300 };
+    S.m.hu = Math.min(4, S.m.hu + FEED_FILL);
+    S.m.ha = Math.min(4, S.m.ha + 0.25);           // food is joy
 
-    // save on unload / visibility change (covers closing tab / backgrounding)
-    window.addEventListener("beforeunload", saveState);
-    document.addEventListener("visibilitychange", () => { if (document.hidden) saveState(); else applyElapsedDecay(); });
+    if (S.nextPoopAt > now() + 3*HOUR) S.nextPoopAt = now() + (1.5 + Math.random()*1.5) * HOUR;
+    sfx('eat'); save();
+  }
+  function doPlay(){
+    if (actionGuard() !== 'ok') return;
+    if (!S.lights){ toast('Shh… ' + S.name + ' is sleeping'); sfx('boop'); return; }
+    mg = { round: 0, correct: 0, phase: 'pick', dir: 0, guess: 0, t0: now() };
+    el('btnRow').style.display = 'none';
+    el('playRow').classList.add('show');
+    for (const d of el('mgDots').children) d.className = '';
+    toast('Which way will ' + S.name + ' hop?');
+    sfx('press');
+  }
+  function mgGuess(dir){
+    if (!mg || mg.phase !== 'pick') return;
+    mg.guess = dir;
+    mg.dir = Math.random() < 0.5 ? -1 : 1;
+    mg.phase = 'hop'; mg.t0 = now();
+    sfx('press');
+  }
+  function mgTick(t){
+    if (!mg) return;
+    if (mg.phase === 'hop' && t - mg.t0 > 900){
+      const hit = mg.guess === mg.dir;
+      el('mgDots').children[mg.round].className = hit ? 'hit' : 'miss';
+      if (hit){ mg.correct++; sfx('win'); burstHearts(goatCx(), 34, 3); }
+      else sfx('boop');
+      mg.round++;
+      if (mg.round >= 3){ mg.phase = 'done'; mg.t0 = t; }
+      else { mg.phase = 'pick'; mg.t0 = t; }
+    } else if (mg.phase === 'done' && t - mg.t0 > 600){
+      S.m.ha = Math.min(4, S.m.ha + 1 + mg.correct * 0.75);
+      toast(mg.correct >= 2 ? 'Great game! +happy' : 'Fun! +happy');
+      if (mg.correct >= 2) burstHearts(goatCx(), 30, 5);
+      mg = null;
+      el('playRow').classList.remove('show');
+      el('btnRow').style.display = '';
+      save();
+    }
+  }
+  function doClean(){
+    if (actionGuard() !== 'ok') return;
+    if (!S.lights){ toast('Shh… ' + S.name + ' is sleeping'); sfx('boop'); return; }
+    if (S.poops.length > 0){
+      act = { type:'sweep', t0: now(), dur: 1300, n: S.poops.length };
+      sfx('sweep');
+    } else {
+      act = { type:'bath', t0: now(), dur: 1700 };
+      S.m.cl = Math.min(4, S.m.cl + 2);
+      for (let i=0;i<6;i++) spawnFx('bubble', goatCx() - 10 + Math.random()*20, 34 + Math.random()*14,
+        (Math.random()-.5)*2, -3 - Math.random()*3, 1500);
+      sfx('bath'); toast('Brush brush!');
+      save();
+    }
+  }
+  function doLights(){
+    if (!S || !bootDone() || mg) return;
+    S.lights = !S.lights;
+    el('dimmer').style.opacity = S.lights ? 0 : 1;
+    sfx(S.lights ? 'lightsOn' : 'lightsOff');
+    toast(S.lights ? 'Rise and shine!' : 'Night night…');
+    save();
+  }
+  function doMed(){
+    if (!S || !S.sick || act || mg) return;
+    S.sick = false; S.zeroSince = null;
+    S.m.ha = Math.min(4, S.m.ha + 0.5);
+    act = { type:'med', t0: now(), dur: 1500 };
+    burstHearts(goatCx(), 30, 4);
+    sfx('med'); toast('All better!'); save();
+  }
 
-    // initial pick
-    GOAT.target = pickRoamTarget();
-    setGoatState("idle");
+  // ---------------- celebrations ----------------
+  function processCelebrations(t){
+    if (!celebQ.length || act || bannerUntil > t || !bootDone()) return;
+    const c = celebQ[0];
+    if (c.kind === 'hatch' && !c.started){
+      c.started = true;
+      act = { type:'hatch', t0: t, dur: 1600 };
+      return;
+    }
+    celebQ.shift();
+    flash(); confettiBurst();
+    if (c.kind === 'hatch'){
+      sfx('hatch');
+      banner('IT HATCHED!', 'say hi to ' + S.name.toUpperCase() + '!', 2600);
+    } else {
+      sfx('fanfare');
+      banner(S.name.toUpperCase() + ' GREW UP!', 'now a ' + STAGE_NAME[c.stage] + '!', 2600);
+    }
+  }
 
-    // ================== photo mode: pose / camera / settle ==================
-    // Everything below only runs when ?photo=1. It forces a pose and camera, lets
-    // physics/lerps settle synchronously, then flags window.__photoReady so a
-    // headless capture script knows the frame is safe to screenshot.
-    let photoCam = "three4";
-    const photoHeadWorld = new THREE.Vector3();
-    function applyPhotoCamera(){
-      // closeup looks at the goat's actual head position each frame (it moves with poses)
-      goat.userData.head.getWorldPosition(photoHeadWorld);
-      if (photoCam === "front"){
-        camera.position.set(0, 0.7, 1.4);
-        camera.lookAt(0, 0.45, -0.2);
-      } else if (photoCam === "side"){
-        camera.position.set(1.6, 0.7, -0.2);
-        camera.lookAt(0, 0.45, -0.2);
-      } else if (photoCam === "three4"){
-        camera.position.set(1.25, 0.8, 1.0);
-        camera.lookAt(0, 0.4, -0.2);
-      } else if (photoCam === "closeup"){
-        camera.position.set(0.6, 0.72, 0.65);
-        camera.lookAt(photoHeadWorld);
+  // ---------------- tick (logic) ----------------
+  let lastTick = 0, lastSave = 0;
+  function tick(t){
+    if (!S) return;
+    const dt = t - lastTick;
+    lastTick = t;
+    if (dt <= 0) return;
+    if (dt > KIND_GAP){ applyElapsed(dt, true); }          // long gap: kind catch-up
+    else applyElapsed(dt, false);                          // live decay
+
+    // stage crossings -> celebrate once each
+    const cs = stageIdx();
+    if (cs > S.seenStage){
+      celebQ.push({ kind: S.seenStage === 0 && cs === 1 ? 'hatch' : 'grow', stage: cs });
+      S.seenStage = cs;
+      save();
+    }
+    // finish transient acts
+    if (act && t - act.t0 >= act.dur){
+      if (act.type === 'sweep'){
+        S.m.cl = Math.min(4, S.m.cl + 1 + 0.5 * act.n);
+        S.poops = [];
+        toast('All clean!'); save();
       }
-      // cam=game falls through to the normal follow-cam block in frame()
+      if (act.type === 'eat') save();
+      act = null;
+    }
+    mgTick(t);
+    processCelebrations(t);
+    if (t - lastSave > 5000){ lastSave = t; save(); }
+  }
+
+  // ---------------- pose + scene ----------------
+  function moodStr(){
+    if (!S) return '';
+    if (S.sick) return 'sick';
+    if (S.m.hu <= 1 || S.m.ha <= 1 || S.m.cl <= 1) return 'sad';
+    if (S.m.en <= 1) return 'sleepy';
+    return 'happy';
+  }
+  function currentPose(t){
+    if (act){
+      if (act.type === 'eat')    return 'eat';
+      if (act.type === 'refuse') return 'refuse';
+      if (act.type === 'med')    return 'happy';
+      if (act.type === 'bath')   return 'idle';
+    }
+    if (mg && mg.phase === 'hop') return 'happy';
+    if (mg && mg.phase === 'done') return 'happy';
+    if (!S.lights) return 'sleep';
+    const m = moodStr();
+    if (m === 'sick') return 'sick';
+    if (m === 'sad') return 'sad';
+    if (m === 'sleepy') return 'sleepy';
+    return 'idle';
+  }
+
+  function bootDone(){ return bootT0 > 0 && now() - bootT0 > 1050; }
+
+  function render(){
+    const t = now();
+    requestAnimationFrame(render);
+    if (!S){ ctx.fillStyle = LCD_OFF; ctx.fillRect(0, 0, LW, LH); return; }
+    tick(t);
+
+    // ---- power-on animation ----
+    if (bootT0 > 0 && t - bootT0 < 1050){
+      const bt = t - bootT0;
+      if (bt < 300 || (bt >= 650 && bt < 800)){ ctx.fillStyle = LCD_OFF; ctx.fillRect(0,0,LW,LH); }
+      else if (bt < 650){ ctx.fillStyle = PAL[1]; ctx.fillRect(0,0,LW,LH); }   // all-pixels-on test
+      else { ctx.fillStyle = LCD_BG; ctx.fillRect(0,0,LW,LH); }
+      return;
     }
 
-    let photoPose = null;
-    // Keeps looping poses alive under forcedUntil=Infinity, which otherwise blocks the
-    // normal "animation finished -> idle" and "pick a new walk target" transitions.
-    function photoPoseTick(){
-      if (!photoPose) return;
-      if (photoPose === "walk"){
-        if (!GOAT.target || GOAT.pos.distanceTo(GOAT.target) < 0.08) GOAT.target = pickRoamTarget();
-      } else if (photoPose === "pronk"){
-        // setGoatState() no-ops when the state is already "pronk", so reset stateT
-        // directly to replay the ~0.7s bounce cycle indefinitely
-        if (GOAT.stateT > 0.7) GOAT.stateT = 0;
-      } else if (photoPose === "stand"){
-        for (const key in JOINT) JOINT[key] = 0; // hold a perfectly neutral stance every tick
-      } else if (photoPose === "eat"){
-        // the base "eat" state only zeroes hips; head-down munching normally comes from
-        // the bottle/trough feeding code, so drive it directly here for a bare pose=eat shot
-        JOINT.neckX = 0.16; JOINT.headX = 0.12;
-        GOAT._photoJawT = (GOAT._photoJawT || 0) + (1/60);
-        JOINT.jawX = Math.sin(GOAT._photoJawT * 8) * 0.08;
+    ctx.fillStyle = LCD_BG; ctx.fillRect(0, 0, LW, LH);
+    const frame = Math.floor(t / 450);
+    drawMeters(frame % 2 === 0);
+    drawGround();
+
+    // sun / moon
+    drawGrid(S.lights ? SPRITES.sun : SPRITES.moon, 87, 12);
+
+    // poops
+    for (const px of S.poops) drawGrid(SPRITES.poop, px, GROUND_Y - 4);
+
+    const st = stageIdx();
+    if (st === 0){
+      const eggPose = (act && act.type === 'hatch') ? 'crack' : 'idle';
+      const ef = eggPose === 'crack' ? Math.min(2, Math.floor((t - act.t0) / 550)) : frame;
+      const g = buildEgg(eggPose, ef);
+      drawGrid(g, goatCx() - (g.w >> 1), GROUND_Y - g.h + 1);
+      lastPose = 'egg';
+    } else if (act && act.type === 'hatch'){
+      const ef = Math.min(2, Math.floor((t - act.t0) / 550));
+      const g = buildEgg('crack', ef);
+      drawGrid(g, goatCx() - (g.w >> 1), GROUND_Y - g.h + 1);
+      lastPose = 'hatch';
+    } else {
+      const pose = currentPose(t);
+      lastPose = pose;
+      const g = goatSprite(st, pose, frame);
+      let gx = goatCx() - (g.w >> 1);
+      if (mg && mg.phase === 'hop'){
+        const p = Math.min(1, (t - mg.t0) / 900);
+        gx += Math.round(Math.sin(p * Math.PI) * 11) * mg.dir;
+      }
+      drawGrid(g, gx, GROUND_Y - g.h + 1);
+
+      // food during eating
+      if (act && act.type === 'eat'){
+        if (st === 1) drawGrid(SPRITES.bottle, gx + g.w - 1, GROUND_Y - 9);
+        else          drawGrid(SPRITES.hay, gx + g.w - 2, GROUND_Y - 3);
+        if (t - lastFxAt > 260){ lastFxAt = t; spawnFx('crumb', gx + g.w - 2 + Math.random()*4, GROUND_Y - 6, 0, 4, 700); }
+      }
+      // broom during sweep
+      if (act && act.type === 'sweep'){
+        const p = (t - act.t0) / act.dur;
+        const bx = Math.round(-8 + p * (LW + 10));
+        drawGrid(SPRITES.broom, bx, GROUND_Y - 5);
+        S.poops = S.poops.filter(px => px > bx - 2);
+        ctx.fillStyle = PAL[3];
+        ctx.fillRect(bx - 2, GROUND_Y - 2 + (frame % 2), 1, 1);
+        ctx.fillRect(bx - 4, GROUND_Y - 4 - (frame % 2), 1, 1);
+      }
+      // bath sparkles
+      if (act && act.type === 'bath' && t - lastFxAt > 300){
+        lastFxAt = t;
+        spawnFx('sparkle', gx + 2 + Math.random()*(g.w - 4), GROUND_Y - g.h + 4 + Math.random()*8, 0, -1, 700);
+      }
+      // medicine pill
+      if (act && act.type === 'med') drawGrid(SPRITES.pill, gx + g.w + 1, GROUND_Y - 16);
+      // sick rain cloud
+      if (S.sick && pose !== 'sleep'){
+        drawGrid(SPRITES.cloud, gx + 1, 13);
+        if (t - lastFxAt > 340){ lastFxAt = t; spawnFx('rain', gx + 2 + Math.random()*8, 18, 0, 9, 900); }
+      }
+      // zzz while sleeping / sleepy suggestion
+      if ((pose === 'sleep' || pose === 'sleepy') && t - lastFxAt > 1200){
+        lastFxAt = t;
+        spawnFx('zzz', gx + g.w - 3, GROUND_Y - g.h - 2, 2.5, -3, 1600);
       }
     }
+    drawFx(t);
 
-    if (PHOTO){
-      const p = _photoParams;
-
-      // ---- pose ----
-      const pose = p.get("pose") || "stand";
-      const poseState = { stand:"idle", lie:"lie", walk:"walk", pronk:"pronk", eat:"eat", happy:"happy" }[pose] || "idle";
-      setGoatState(poseState);
-      GOAT.forcedUntil = Infinity; // free-roam AI must never override a photo pose
-      photoPose = pose;
-      if (pose === "stand"){
-        // zero every joint target so the goat holds a plain, neutral standing pose
-        for (const key in JOINT) JOINT[key] = 0;
-      } else if (pose === "walk"){
-        GOAT.target = pickRoamTarget();
-      }
-      // pronk/happy are left animating live (their per-state code in updateBehavior
-      // drives JOINT targets every frame based on GOAT.state and GOAT.stateT); walk
-      // and pronk get re-armed each tick by photoPoseTick() so they loop indefinitely
-
-      // ---- position / facing ----
-      const rot = p.has("rot") ? parseFloat(p.get("rot")) : 0.9;
-      const px = p.has("x") ? parseFloat(p.get("x")) : 0;
-      const pz = p.has("z") ? parseFloat(p.get("z")) : -0.2;
-      GOAT.facing = isNaN(rot) ? 0.9 : rot;
-      GOAT.pos.set(isNaN(px) ? 0 : px, 0, isNaN(pz) ? -0.2 : pz);
-      goat.rotation.y = GOAT.facing;
-      goat.position.set(GOAT.pos.x, 0, GOAT.pos.z);
-
-      // ---- camera preset ----
-      photoCam = p.get("cam") || "three4";
-
-      // ---- lighting: snap instantly, no 2s lerp ----
-      lightT = dayBlend();
-      applyLighting(lightT);
-
-      // ---- settle: synchronously step the sim so lerped joints/camera land in place ----
-      const settleSeconds = p.has("settle") ? parseFloat(p.get("settle")) : 1.5;
-      const settleSteps = Math.max(0, Math.round((isNaN(settleSeconds) ? 1.5 : settleSeconds) * 60));
-      const settleNow = Date.now();
-      for (let i = 0; i < settleSteps; i++){
-        photoPoseTick();
-        updateBehavior(1/60, settleNow);
-        updateParticles(1/60);
-      }
-      if (photoCam !== "game") applyPhotoCamera();
-
-      window.__photoReady = true;
+    // ---- HTML chrome updates ----
+    if (bannerUntil && t > bannerUntil){ bannerUntil = 0; el('banner').classList.remove('show'); }
+    if (frame !== render._f){
+      render._f = frame;
+      el('plateName').textContent = S.name;
+      el('plateAge').textContent = '· ' + ageText();
+      el('feedIco').textContent = stageIdx() <= 1 ? '🍼' : '🌾';
+      el('bMed').classList.toggle('show', !!S.sick);
+      el('muteBtn').textContent = S.mute ? '🔇' : '🔊';
+      el('dimmer').style.opacity = (S.lights || stageIdx() === 0) ? 0 : 1;
     }
-  })();
-  </script>
+  }
+
+  // ======================================================================
+  //  BOOT + INPUT
+  // ======================================================================
+  function powerOn(){ bootT0 = now(); setTimeout(() => sfx('press'), 700); }
+
+  function adopt(){
+    const nm = (el('nameInput').value || '').trim() || 'Bucky Jr.';
+    S = newState(nm);
+    S.nextPoopAt = now() + STAGE_AT[1] + poopInterval();
+    save();
+    el('nameOverlay').classList.remove('show');
+    powerOn();
+  }
+  el('nameBtn').addEventListener('click', adopt);
+  el('nameInput').addEventListener('keydown', e => { if (e.key === 'Enter') adopt(); });
+
+  el('bFeed').addEventListener('click', doFeed);
+  el('bPlay').addEventListener('click', doPlay);
+  el('bClean').addEventListener('click', doClean);
+  el('bLights').addEventListener('click', doLights);
+  el('bMed').addEventListener('click', doMed);
+  el('bLeft').addEventListener('click', () => mgGuess(-1));
+  el('bRight').addEventListener('click', () => mgGuess(1));
+  el('muteBtn').addEventListener('click', () => {
+    if (!S) return;
+    S.mute = !S.mute; save();
+    el('muteBtn').textContent = S.mute ? '🔇' : '🔊';
+    if (!S.mute) sfx('press');
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.repeat) return;
+    if (el('nameOverlay').classList.contains('show')) return;
+    if (mg && mg.phase === 'pick'){
+      if (e.key === 'ArrowLeft'){ mgGuess(-1); return; }
+      if (e.key === 'ArrowRight'){ mgGuess(1); return; }
+    }
+    if (e.key === '1') doFeed();
+    else if (e.key === '2') doPlay();
+    else if (e.key === '3') doClean();
+    else if (e.key === '4') doLights();
+    else if (e.key === '5') doMed();
+  });
+
+  window.addEventListener('pagehide', save);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
+
+  // resume audio on first interaction (autoplay policy)
+  document.addEventListener('pointerdown', () => ac(), { once: true });
+
+  // ---- start ----
+  if (load()){
+    lastTick = now();
+    powerOn();
+  } else {
+    el('nameOverlay').classList.add('show');
+    el('nameInput').value = '';
+  }
+  lastTick = now();
+  requestAnimationFrame(render);
+})();
+</script>
 </body>
 </html>
