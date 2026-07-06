@@ -101,6 +101,13 @@
   #bMed.show{ display:flex; }
   @keyframes medPulse{ 0%,100%{ filter:brightness(1);} 50%{ filter:brightness(1.12);} }
 
+  /* TEST control (user-requested): fixed corner chip so it never affects the shell's
+     zero-scroll layout — jumps the goat to its next growth stage. */
+  #growBtn{ position:fixed; right:10px; bottom:10px; z-index:50; border:0; border-radius:.6em;
+            padding:.45em .7em; font:700 12px/1.2 system-ui,sans-serif; letter-spacing:.05em;
+            color:#fff; background:rgba(0,0,0,.45); cursor:pointer; }
+  #growBtn:active{ transform:translateY(2px); }
+
   #playRow{ display:none; grid-template-columns:1fr auto 1fr; gap:.55em; align-items:stretch; width:100%; }
   #playRow.show{ display:grid; }
   #playRow .arrow .ico{ font-size:1.6em; }
@@ -167,6 +174,8 @@
       <div id="speaker"></div>
     </div>
   </div>
+
+  <button id="growBtn" title="Test: jump to the next growth stage">⏩ GROW</button>
 
   <div id="nameOverlay" class="overlay">
     <h1>🐐 A New Kid!</h1>
@@ -907,6 +916,15 @@
   el('bMed').addEventListener('click', doMed);
   el('bLeft').addEventListener('click', () => mgGuess(-1));
   el('bRight').addEventListener('click', () => mgGuess(1));
+  // TEST control (user-requested): shift birthTs back past the next stage boundary — the normal
+  // tick sees stage > seenStage and fires the exact same hatch/grow celebration as real time.
+  el('growBtn').addEventListener('click', () => {
+    if (!S) return;
+    const cur = stageIdx();
+    if (cur >= STAGE_AT.length - 1){ toast(S.name + ' is all grown up!'); return; }
+    S.birthTs = now() - STAGE_AT[cur + 1] - 1000;
+    save();
+  });
   el('muteBtn').addEventListener('click', () => {
     if (!S) return;
     S.mute = !S.mute; save();

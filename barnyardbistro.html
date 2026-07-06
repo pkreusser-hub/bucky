@@ -426,27 +426,26 @@
   .touchBtnLabel{ margin-top:3px; font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:10px;
                   letter-spacing:.5px; color:#fff; text-shadow:0 2px 3px rgba(0,0,0,.55); pointer-events:none; }
 
-  /* GRAB — largest, the arc's anchor point (bottom-right corner). */
-  #grabWrap{ right:18px; bottom:18px; }
-  #actionBtn{ width:96px; height:96px; font-size:38px; background:rgba(255,178,63,.6); }
+  /* Playtest tune (user): all FOUR gameplay buttons are the SAME size (64px) fanned along the
+     arc — offsets chosen so every pair of disc centers is ≥ ~80px apart (disc 64 + ring 6+6 =
+     76px minimum) so nothing can overlap. Only emote (top-right corner, not a gameplay verb)
+     is smaller. */
+  #grabWrap{ right:14px; bottom:16px; }
+  #actionBtn{ width:64px; height:64px; font-size:26px; background:rgba(255,178,63,.6); }
   #actionBtn.pressed{ background:rgba(255,178,63,.9); }
-  /* WORK — up-and-left of GRAB, one size step down. */
-  #workWrap{ right:96px; bottom:56px; }
-  #workBtn{ width:75px; height:75px; font-size:29px; background:rgba(74,144,226,.6); }
+  #workWrap{ right:90px; bottom:40px; }
+  #workBtn{ width:64px; height:64px; font-size:26px; background:rgba(74,144,226,.6); }
   #workBtn.pressed{ background:rgba(74,144,226,.9); }
-  /* THROW — further up-and-left, another size step down. */
-  #throwWrap{ right:154px; bottom:120px; }
-  #throwBtn{ width:60px; height:60px; font-size:24px; background:rgba(74,154,58,.6); }
+  #throwWrap{ right:156px; bottom:96px; }
+  #throwBtn{ width:64px; height:64px; font-size:26px; background:rgba(74,154,58,.6); }
   #throwBtn.pressed{ background:rgba(74,154,58,.9); }
-  /* LOB (FIELD-CUSTOMER REWORK) — the delivery verb takes the arc's topmost slot (where emote
-     used to sit): it's core gameplay now, so it stays in thumb reach. */
-  #lobWrap{ right:184px; bottom:196px; }
-  #lobBtn{ width:56px; height:56px; font-size:22px; background:rgba(212,120,42,.6); }
+  /* LOB (FIELD-CUSTOMER REWORK) — the delivery verb, topmost arc slot, same size as the rest. */
+  #lobWrap{ right:178px; bottom:170px; }
+  #lobBtn{ width:64px; height:64px; font-size:26px; background:rgba(212,120,42,.6); }
   #lobBtn.pressed{ background:rgba(212,120,42,.9); }
-  /* emote — novelty, not a gameplay verb: moved OFF the thumb arc to the top-right corner under
-     the mute/score chips so the arc stays 4 buttons (GRAB/WORK/THROW/LOB). */
+  /* emote — novelty, not a gameplay verb: top-right corner under the mute/score chips, smaller. */
   #emoteWrap{ right:10px; top:132px; }
-  #emoteBtn{ width:44px; height:44px; font-size:18px; background:rgba(255,143,208,.6); }
+  #emoteBtn{ width:40px; height:40px; font-size:16px; background:rgba(255,143,208,.6); }
   #emoteBtn.pressed{ background:rgba(255,143,208,.9); }
 
   /* touch layouts: keep hint above thumb zones, out of the order row. MOBILE-FIRST pass (change
@@ -463,17 +462,18 @@
        spare, unlike portrait) with just enough vertical rise to still read as an arc — re-verified
        zero pairwise overlap both with each other and with the widened/repositioned hintWrap. */
     .touchAware #hintWrap{ bottom:14px; left:14px; transform:none; max-width:38vw; }
+    /* Playtest tune (user): landscape row — same-size 54px discs, centers ≥ ~72px apart. */
     #grabWrap{ right:16px; bottom:14px; }
-    .touchAware #actionBtn{ width:80px; height:80px; font-size:30px; }
-    #workWrap{ right:108px; bottom:16px; }
-    .touchAware #workBtn{ width:62px; height:62px; font-size:23px; }
-    #throwWrap{ right:190px; bottom:28px; }
-    .touchAware #throwBtn{ width:50px; height:50px; font-size:19px; }
-    #lobWrap{ right:262px; bottom:40px; }
-    .touchAware #lobBtn{ width:46px; height:46px; font-size:17px; }
+    .touchAware #actionBtn{ width:54px; height:54px; font-size:21px; }
+    #workWrap{ right:88px; bottom:20px; }
+    .touchAware #workBtn{ width:54px; height:54px; font-size:21px; }
+    #throwWrap{ right:160px; bottom:32px; }
+    .touchAware #throwBtn{ width:54px; height:54px; font-size:21px; }
+    #lobWrap{ right:232px; bottom:48px; }
+    .touchAware #lobBtn{ width:54px; height:54px; font-size:21px; }
     /* emote stays in its corner spot (top-right) in landscape too — no arc slot needed. */
     #emoteWrap{ right:10px; top:96px; }
-    .touchAware #emoteBtn{ width:38px; height:38px; font-size:15px; }
+    .touchAware #emoteBtn{ width:36px; height:36px; font-size:14px; }
     .touchAware .touchBtnLabel{ font-size:9px; }
     .touchAware #orderRow{ top:6px; }
     .touchAware #sunClock{ font-size:15px; padding:3px 9px 3px 7px; }
@@ -3241,12 +3241,15 @@
     // comes to rest within CLAIM_R of a waiting customer they trot over, take it, pay, and
     // leave happy. A lob that lands practically in their hooves (BULLSEYE_R) is caught on the
     // spot for a style bonus. States: arriving -> waiting -> fetching -> leaving_happy/sad.
-    const CLAIM_R = 2.6;       // a resting matching dish within this range gets claimed
+    // Playtest tune (user): claim range is now MUCH larger, and it's a RACE — every waiting
+    // customer whose order matches sprints for the dish; first to reach it wins, the rest trot
+    // back to their spots (advanceCustomers' vanished-dish fallback already handles the losers).
+    const CLAIM_R = 6.5;       // a resting matching dish within this range starts the race
     const BULLSEYE_R = 1.2;    // landing this close = instant catch + bonus
     const BULLSEYE_BONUS = 5;
     const FIELD_BAND_MIN = 1.0, FIELD_BAND_MAX = 1.9;   // stand-off distance outside the walls
     const CUSTOMER_MAX_WAITING = 3;
-    const UNCLAIMED_DISH_TTL = 8;   // seconds a dish may rest OUTSIDE unclaimed before the crow takes it
+    const UNCLAIMED_DISH_TTL = 5;   // seconds a dish may rest OUTSIDE with NO racer before the crow takes it
 
     function customerTargetXZ(c){
       if (c.state === "fetching"){
@@ -3385,21 +3388,24 @@
         const f = G.floorItems[i];
         const dish = dishIdOf(f);
         if (!dish || !isOutsideKitchen(f.x, f.z)) continue;
-        f.outsideT = (f.outsideT || 0) + dt;
-        const claimedBy = G.customers.find(c => c.state === "fetching" && c.fetchItemId === f.id);
-        if (claimedBy) continue;
-        // nearest matching waiting customer in range claims it
-        let best = null, bestD = CLAIM_R;
+        // RACE (playtest tune): EVERY matching waiting customer within CLAIM_R starts fetching
+        // this dish — first to reach it wins (advanceCustomers' pickup consumes the floor item;
+        // the losers see it vanish and fall back to waiting at their spots). Re-scanned every
+        // tick so a customer who becomes "waiting" late still joins an ongoing race.
+        let racers = 0;
         for (const c of G.customers){
+          if (c.state === "fetching" && c.fetchItemId === f.id){ racers++; continue; }
           if (c.state !== "waiting" || c.dish !== dish) continue;
-          const d = Math.hypot(c.x - f.x, c.z - f.z);
-          if (d <= bestD){ bestD = d; best = c; }
+          if (Math.hypot(c.x - f.x, c.z - f.z) <= CLAIM_R){
+            c.state = "fetching";
+            c.fetchItemId = f.id;
+            racers++;
+          }
         }
-        if (best){
-          best.state = "fetching";
-          best.fetchItemId = f.id;
-          continue;
-        }
+        // TTL only ticks while NOBODY is racing for it ("too far from any animal") — a dish
+        // being chased never expires out from under the chaser.
+        if (racers > 0){ f.outsideT = 0; continue; }
+        f.outsideT = (f.outsideT || 0) + dt;
         if (f.outsideT >= UNCLAIMED_DISH_TTL){
           // crow takes it — plate returns dirty so nothing is ever permanently lost
           G.floorItems.splice(i, 1);
@@ -5218,6 +5224,7 @@
     // "new mat() every call" pattern in makeRawItemMesh/makeChoppedGroup, which created a fresh
     // material object every single frame for every visible ingredient.
     const grilledPattyM = mat(0x8a4a2a, true);
+    const rawPattyM = mat(0xe8848e, true);   // playtest tune: raw = pink version of the cooked puck
     const overdonePattyM = mat(0x4a2a1a, true);
     const trashBlobM = new THREE.MeshBasicMaterial({ color: 0x9a9a9a, transparent: true, opacity: 0.85 });
     const doughM = mat(0xf0e0c0, true);
@@ -5509,7 +5516,7 @@
     }
     // grilled/overdone patty puck — a flattened dark-brown disc, distinct from the raw box.
     function makePattyMesh(state){
-      const m = state === "overdone" ? overdonePattyM : grilledPattyM;
+      const m = state === "overdone" ? overdonePattyM : (state === "raw" ? rawPattyM : grilledPattyM);
       return new THREE.Mesh(geoPattyPuck, m);
     }
     // gentle gray "trash blob" carried from an overdone pot/pan/oven to the bin.
@@ -5553,7 +5560,9 @@
     // slot/floor/flying) so new item kinds only need handling added HERE, not at every call
     // site. Falls back to the raw/chopped pair for plain ingredients.
     function makeItemMesh(kind, state){
-      if (kind === "patty" && (state === "grilled" || state === "overdone")) return makePattyMesh(state);
+      // Playtest tune (user): the RAW patty is now the same puck as the cooked one, just pink —
+      // the patty.glb prop read as "already cooked," confusing the grill step.
+      if (kind === "patty") return makePattyMesh(state);
       if (kind === "soupTrash") return makeTrashBlobMesh();
       if (kind === "pizzaBase") return makePizzaMesh(state);
       if (kind === "pizza") return makePizzaMesh("pizza");
@@ -5676,7 +5685,9 @@
         }
         ring.position.set(path.landing.x, CH + 0.04, path.landing.z);
         const pulse = 1 + Math.sin(t * 5) * 0.12;
-        ring.scale.setScalar(pulse);
+        // Playtest tune (user): the LOB landing ring is the whole point of aiming — blow it up
+        // to roughly the bullseye catch radius so "where it lands" is unmissable.
+        ring.scale.setScalar(pulse * (path.lob ? 3.0 : 1));
         ring.visible = true;
         // bounced paths get a warmer ring tint so a bank-shot aim reads distinctly from a direct
         // one; lobs go sky-blue (over-the-wall shot) and flip GREEN when the landing would
@@ -5697,7 +5708,11 @@
       const t = performance.now() / 1000;
       const activeBySlot = { p1: null, p2: null };
       for (const [holdKey, hold] of throwHolds){
-        if ((performance.now() - hold.downAt) / 1000 < THROW_HOLD_THRESHOLD) continue;
+        // Playtest tune (user): the LOB preview shows the INSTANT the button goes down — it's
+        // the delivery aim, kids need it immediately. Regular throws keep the short threshold
+        // so a quick pass between chefs doesn't flash a preview.
+        const isLobHold = holdKey.endsWith("lob");
+        if (!isLobHold && (performance.now() - hold.downAt) / 1000 < THROW_HOLD_THRESHOLD) continue;
         const chef = G.chefs[hold.chefId];
         const item = chef && holdTop(chef);
         if (!chef || !item || item.kind === "pizza" || NOT_THROWABLE_KINDS.has(item.kind)) continue;
