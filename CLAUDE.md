@@ -466,3 +466,32 @@ levels; full order→cook→deliver flow on the right-wall window passes.
       charge arg ignored; endless card unlocked sans stars; interval
       18→4.5@3min; clock counts up; staged miss → game over + best 45
       persisted (55 − 10 miss penalty, correct). 0 pageerrors.
+- [x] PER-LEVEL KITCHENS + ENDLESS VARIANTS (2026-07-06): the kitchen is
+      now REBUILDABLE — rebuildKitchenForLevel(levelId) swaps G.stations
+      (from localStorage bb_layouts_v2 = {levelId: entries} else
+      DEFAULT_LAYOUT_ENTRIES, the single source of truth mirrored in the
+      editor), refreshes tile→station mapping + counter slots (tile grid
+      is static so slot array length/order — and the MP slot wire format —
+      never change), and rebuildStationVisuals() tears down + re-runs all
+      station builders. Called from hostStartLevel AND the guest's
+      applySnapshot level change. MP layout sync: snapshot carries a djb2
+      HASH (layoutsHash); the FULL map publishes once as room state
+      "layoutsV2"; mismatched guest adopts + reloads once. ENDLESS is now
+      a VARIANT of every level (LEVELS Endless entry deleted): purple
+      "♾️ ENDLESS" chip on each unlocked card (chip needs explicit
+      display:"block" — "" falls back to the CSS base display:none, and
+      el.click() works on hidden elements so the headless assert had been
+      a false positive until a SCREENSHOT caught it), G.endlessMode synced,
+      per-level bests in bb_endless_best_v2={levelId:money}, chip shows
+      "· 🏆N". Inactive stove/oven tiles render as plain countertops
+      (syncApplianceTileVisibility per rebuild; sink always active so
+      always replaced). Plate contrast: plateStack mat = slate blue
+      0x33475c, dirtyBin mat = dark brown 0x4a3a30. EDITOR: per-level tabs
+      (in-memory edits map so tab switches keep work; SAVE persists every
+      COMPLETE tab at once, default-equal levels omitted; ● dot = custom).
+      Verified: editor L2 sink move saves map {2} only; game boots L1
+      default → L2 custom → L1 default (rebuild both ways); L1 shows
+      stove/oven countertops, L4 hides; ♾️ chip run → "RUSH GOT YOU" +
+      {"1":23} + chip trophy. 0 pageerrors. NOTE: inactive stations
+      resolving to "slot" in sweeps is CORRECT (their tiles are usable
+      counters by design).

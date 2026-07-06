@@ -262,6 +262,13 @@
   .levelCard .lcEmoji{ font-size:38px; line-height:1; }
   .levelCard .lcName{ font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:16px; color:#2a2620; margin:6px 0 4px; }
   .levelCard .lcStars{ font-size:22px; letter-spacing:2px; text-shadow:0 2px 0 rgba(0,0,0,.15); }
+  /* ENDLESS VARIANT chip — a second, smaller "play this level as Endless Rush" button on every
+     unlocked card. Its own hover/press affordance so it reads as a distinct mode. */
+  .levelCard .lcEndless{ display:none; margin-top:6px; padding:4px 6px; border-radius:8px;
+     background:#5a3ea8; color:#fff; font-family:'Luckiest Guy','Arial Black',sans-serif;
+     font-size:11px; letter-spacing:.04em; cursor:pointer; box-shadow:0 2px 0 #3c2a70; }
+  .levelCard .lcEndless:active{ transform:translateY(2px); box-shadow:none; }
+  .levelCard.locked .lcEndless{ display:none !important; }
   /* lock + a little chain link drawn beneath it (two small linked ovals, purely decorative) */
   .levelCard .lcLock{ font-size:30px; margin-top:4px; position:relative; }
   .levelCard .lcChain{ display:flex; justify-content:center; gap:1px; margin-top:1px; }
@@ -979,23 +986,29 @@
       { id: 5, name: "Feast Night", emoji: "🎉", recipes: ["salad", "soup", "burger", "pizza"], extraRecipes: [],
         starMoney: [75, 150, 280], spawnFactor: 0.52, patienceMax: 45,
         stations: ["cuttingBoard", "cuttingBoard2", "stove", "pan", "oven", ...DISH_WASH_STATIONS],
-        crates: ["tomato", "lettuce", "onion", "potato", "bun", "patty", "dough", "cheese"] },
-      // ---- ENDLESS MODE (user-requested): no day timer — the run ends the moment ONE order is
-      // missed. Customer spawn interval shrinks steadily (see endlessSpawnInterval) and the
-      // concurrent-diner cap grows, so every run eventually drowns. Score = money survived;
-      // best persists in localStorage bb_endless_best. Always unlocked. Full Feast menu. ----
-      { id: 6, name: "Endless Rush", emoji: "♾️", endless: true,
-        recipes: ["salad", "soup", "burger", "pizza"], extraRecipes: [],
-        starMoney: [Infinity, Infinity, Infinity], spawnFactor: 1, patienceMax: 60,
-        stations: ["cuttingBoard", "cuttingBoard2", "stove", "pan", "oven", ...DISH_WASH_STATIONS],
         crates: ["tomato", "lettuce", "onion", "potato", "bun", "patty", "dough", "cheese"] }
     ];
-    // Endless pacing: first diner arrives as usual, then the gap halves every 90 seconds of the
-    // run (18s -> 9s at 1:30 -> 4.5s at 3:00 -> floor 2.5s by ~4:30) while the concurrent cap
-    // climbs from 3 toward 8 — gentle start, mathematically doomed ending.
+    // ---- ENDLESS RUSH — a VARIANT of every level (user rework): each level card offers a ♾️
+    // mode using that level's own menu/kitchen but NO day timer — the run ends the moment ONE
+    // order is missed. Spawn gap halves every 90s (18s -> 9s -> 4.5s -> floor 2.5s) while the
+    // concurrent-diner cap climbs from 3 toward 8 — gentle start, doomed ending. Best money
+    // per LEVEL persists in localStorage bb_endless_best_v2 = {levelId: money}. ----
     function endlessSpawnInterval(runT){ return Math.max(2.5, 18 * Math.pow(0.5, runT / 90)); }
     function endlessMaxWaiting(runT){ return Math.min(8, 3 + Math.floor(runT / 45)); }
-    const ENDLESS_BEST_KEY = "bb_endless_best";
+    const ENDLESS_BEST_KEY = "bb_endless_best_v2";
+    function loadEndlessBest(){
+      try { return JSON.parse(localStorage.getItem(ENDLESS_BEST_KEY) || "{}") || {}; } catch (err) { return {}; }
+    }
+    function endlessBestFor(levelId){ return loadEndlessBest()[levelId] || 0; }
+    function saveEndlessBestIfImproved(levelId, money){
+      try {
+        const all = loadEndlessBest();
+        if (money > (all[levelId] || 0)){
+          all[levelId] = money;
+          localStorage.setItem(ENDLESS_BEST_KEY, JSON.stringify(all));
+        }
+      } catch (err) {}
+    }
     let CURRENT_LEVEL = LEVELS[0];
 
     // Returns the first recipe id (from this level's recipe list) whose matches() accepts the
@@ -1070,6 +1083,7 @@
       money: 0,               // replaces Stage 2's raw `score` — 🪙 currency (Systems pass 2)
       dayLeft: DAY_LENGTH,     // host-ticked countdown; synced in the snapshot
       runT: 0,                 // ENDLESS: run clock counting UP (unused on timed days)
+      endlessMode: false,      // ENDLESS VARIANT: current day runs the ♾️ ruleset (synced)
       stats: { served: 0, missed: 0, thrown: 0, caught: 0, floorDrops: 0, tips: 0, orderedCount: 0 },
       chefs: {
         // seeded with a single local chef so solo play (and the instant before Playroom
@@ -1308,18 +1322,13 @@
     // zone (user-confirmed). Oven (left r7) and pan (bottom c9) were absent from the drawing;
     // placements user-confirmed ("confirm both").
     // Grid mapping: top/bottom wall column c -> x = c - 5.5; side wall row r -> z = r - 8.5.
-    // ---- LEVEL EDITOR (user-requested): leveleditor.html writes a custom layout to
-    // localStorage["bb_layout_v1"] as [{type, kind?, c, r}, ...] in the same grid coordinates.
-    // At BOOT, if a valid custom layout exists it replaces the default station list below —
-    // station IDS stay canonical (cuttingBoard/cuttingBoard2/sink/stove/... — everything else
-    // in this file keys off those ids and off types, so only positions change). Validation is
-    // strict (exactly 2 boards, 1 each of sink/dirtyBin/plateStack/stove/oven/pan, 1-2 trash,
-    // all 8 ingredient crates exactly once, every piece on a wall cell); anything off falls
-    // back to the default layout so a bad save can never brick the game.
-    // MP: the host's layout signature rides in every snapshot (layoutSig). A guest that booted
-    // with a different layout adopts the host's (writes it to localStorage) and reloads ONCE
-    // (sessionStorage guard) — the #r= room hash survives the reload so it rejoins seamlessly.
-    const LAYOUT_KEY = "bb_layout_v1";
+    // ---- LEVEL EDITOR (user-requested): leveleditor.html writes layouts as [{type, kind?, c, r}]
+    // entries in these grid coordinates. Validation is strict (exactly 2 boards, 1 each of
+    // sink/dirtyBin/plateStack/stove/oven/pan, 1-2 trash, all 8 ingredient crates exactly once,
+    // every piece on a wall cell); anything off falls back to the default so a bad save can
+    // never brick the game. Station IDS stay canonical — everything in this file keys off those
+    // ids and off types, so only positions change. See the PER-LEVEL LAYOUTS block below for
+    // storage/sync. (The old single-layout bb_layout_v1 key is retired, never shipped.)
     const REQUIRED_CRATES = ["tomato", "lettuce", "onion", "potato", "bun", "patty", "dough", "cheese"];
     function layoutCellToXZ(c, r){
       if (r === 1)  return { x: c - 5.5, z: -HALF_D + CT/2 };
@@ -1364,41 +1373,62 @@
       if (boardN !== 2 || trashN < 1 || !cratesOk || !singlesOk) return null;
       return out;
     }
-    let customLayoutSig = null;   // JSON string of the ACTIVE custom layout, null = default
-    function loadCustomLayout(){
-      try {
-        const raw = localStorage.getItem(LAYOUT_KEY);
-        if (!raw) return null;
-        const built = stationsFromLayout(JSON.parse(raw));
-        if (built){ customLayoutSig = raw; return built; }
-      } catch (err) { /* corrupt save — fall through to default */ }
-      return null;
-    }
-    const customStations = loadCustomLayout();
-    G.stations = customStations || [
-      // ---- top wall (r1): lettuce c3 · onion c5 · board c7 · sink c8 ----
-      { id: "crateLettuce", type: "crate", kind: "lettuce", x: -2.5, z: -HALF_D + CT/2, w: CT, d: CT },
-      { id: "crateOnion",   type: "crate", kind: "onion",   x: -0.5, z: -HALF_D + CT/2, w: CT, d: CT },
-      { id: "cuttingBoard2", type: "board", boardIndex: 1,  x:  1.5, z: -HALF_D + CT/2, w: CT, d: CT },
-      { id: "sink",         type: "sink",                   x:  2.5, z: -HALF_D + CT/2, w: CT, d: CT },
-      // ---- bottom wall (r16): board c3 · potato c5 · tomato c7 · dirty bin c8 · pan c9 ----
-      { id: "cuttingBoard", type: "board", boardIndex: 0,   x: -2.5, z:  HALF_D - CT/2, w: CT, d: CT },
-      { id: "cratePotato",  type: "crate", kind: "potato",  x: -0.5, z:  HALF_D - CT/2, w: CT, d: CT },
-      { id: "crateTomato",  type: "crate", kind: "tomato",  x:  1.5, z:  HALF_D - CT/2, w: CT, d: CT },
-      { id: "dirtyBin",     type: "dirtyBin",               x:  2.5, z:  HALF_D - CT/2, w: CT, d: CT },
-      { id: "pan",          type: "pan",                    x:  3.5, z:  HALF_D - CT/2, w: CT, d: CT },
-      // ---- left wall: patty r3 · stove r5 · oven r7 (top zone) · plates r12 · bun r14 (bottom) ----
-      { id: "cratePatty",   type: "crate", kind: "patty",   x: -HALF_W + CT/2, z: -5.5, w: CT, d: CT },
-      { id: "stove",        type: "stove",                  x: -HALF_W + CT/2, z: -3.5, w: CT, d: CT },
-      { id: "oven",         type: "oven",                   x: -HALF_W + CT/2, z: -1.5, w: CT, d: CT },
-      { id: "plateStack",   type: "plateStack",             x: -HALF_W + CT/2, z:  3.5, w: CT, d: CT },
-      { id: "crateBun",     type: "crate", kind: "bun",     x: -HALF_W + CT/2, z:  5.5, w: CT, d: CT },
-      // ---- right wall: dough r3 · trash r6 (top zone) · trash r10 · cheese r14 (bottom) ----
-      { id: "crateDough",   type: "crate", kind: "dough",   x:  HALF_W - CT/2, z: -5.5, w: CT, d: CT },
-      { id: "trashBin",     type: "trash",                  x:  HALF_W - CT/2, z: -2.5, w: CT, d: CT },
-      { id: "trashBin2",    type: "trash",                  x:  HALF_W - CT/2, z:  1.5, w: CT, d: CT },
-      { id: "crateCheese",  type: "crate", kind: "cheese",  x:  HALF_W - CT/2, z:  5.5, w: CT, d: CT }
+    // ---- PER-LEVEL LAYOUTS (user-requested): each of the 5 levels has its OWN kitchen layout,
+    // edited independently in leveleditor.html. localStorage["bb_layouts_v2"] holds a map
+    // { "<levelId>": [{type, kind?, c, r}, ...] } — levels absent from the map (or invalid)
+    // use DEFAULT_LAYOUT_ENTRIES. The kitchen REBUILDS on every level start (see
+    // rebuildKitchenForLevel): stations, tile->station mapping, counter slots and all station
+    // visuals recompute. The 10×16 tile grid itself never changes, so the counter-slot array's
+    // length/order is identical across levels and the MP snapshot's index-based slot format is
+    // untouched. MP: the host's layouts-map hash rides in every snapshot; the full map is
+    // published ONCE as room state ("layoutsV2") — a mismatched guest adopts it and reloads
+    // once (sessionStorage guard, #r= hash preserved so the reload auto-rejoins).
+    const LAYOUTS_KEY = "bb_layouts_v2";
+    // Single source of truth for the default kitchen (grid coords; mirrored by the editor).
+    const DEFAULT_LAYOUT_ENTRIES = [
+      { type: "crate", kind: "lettuce", c: 3,  r: 1 },  { type: "crate", kind: "onion", c: 5, r: 1 },
+      { type: "board", c: 7, r: 1 },                    { type: "sink", c: 8, r: 1 },
+      { type: "board", c: 3, r: 16 },                   { type: "crate", kind: "potato", c: 5, r: 16 },
+      { type: "crate", kind: "tomato", c: 7, r: 16 },   { type: "dirtyBin", c: 8, r: 16 },
+      { type: "pan", c: 9, r: 16 },
+      { type: "crate", kind: "patty", c: 1, r: 3 },     { type: "stove", c: 1, r: 5 },
+      { type: "oven", c: 1, r: 7 },                     { type: "plateStack", c: 1, r: 12 },
+      { type: "crate", kind: "bun", c: 1, r: 14 },
+      { type: "crate", kind: "dough", c: 10, r: 3 },    { type: "trash", c: 10, r: 6 },
+      { type: "trash", c: 10, r: 10 },                  { type: "crate", kind: "cheese", c: 10, r: 14 }
     ];
+    let layoutsMapJson = null;    // raw JSON of the custom layouts map (null = all defaults)
+    let layoutsMap = {};          // parsed {levelId: entries[]} (invalid entries dropped at use)
+    try {
+      const raw = localStorage.getItem(LAYOUTS_KEY);
+      if (raw){
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object"){ layoutsMap = parsed; layoutsMapJson = raw; }
+      }
+    } catch (err) { /* corrupt save — all levels fall back to the default */ }
+    // Short deterministic hash (djb2) of the active layouts map — rides in every snapshot so
+    // guests can detect a mismatch without shipping the whole map at 12Hz.
+    function layoutsHash(){
+      const s = layoutsMapJson || "default";
+      let h = 5381;
+      for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+      return "v2:" + h.toString(36);
+    }
+    function stationsForLevelId(levelId){
+      const custom = layoutsMap[levelId] && stationsFromLayout(layoutsMap[levelId]);
+      return custom || stationsFromLayout(DEFAULT_LAYOUT_ENTRIES);
+    }
+    // Applies a level's station layout to G + every derived structure. Safe to call any time a
+    // level starts (day state is reset around it); the render layer's rebuildStationVisuals is
+    // hoisted from the visuals section below. levelId is LEVELS[idx].id (1-based).
+    function rebuildKitchenForLevel(levelId){
+      G.stations = stationsForLevelId(levelId);
+      TRASH_STATION_IDS = G.stations.filter(s => s.type === "trash").map(s => s.id);
+      for (const t of COUNTER_TILES) t.station = stationCoveringTile(t.x, t.z);
+      G.counterSlots = buildCounterSlots();
+      if (typeof rebuildStationVisuals === "function") rebuildStationVisuals();
+    }
+    G.stations = stationsForLevelId(1);   // boot: L1's layout (visuals build below at module init)
 
     const stationById = (id) => G.stations.find(s => s.id === id);
     const counterSlotById = (id) => G.counterSlots.find(s => s.id === id);
@@ -2576,8 +2606,9 @@
     //   f) Empty counter slot (existing) -> lands. g) else floor.
     // HOST-AUTHORITATIVE — called once per tick from hostSim, exactly like order spawning/timers.
     const BOARD_STATIONS = ["cuttingBoard", "cuttingBoard2"];
-    // Derived from the live station list (LEVEL EDITOR layouts may have 1 or 2 trash cans).
-    const TRASH_STATION_IDS = G.stations.filter(s => s.type === "trash").map(s => s.id);
+    // Derived from the live station list (layouts may have 1 or 2 trash cans) — refreshed by
+    // rebuildKitchenForLevel on every level start.
+    let TRASH_STATION_IDS = G.stations.filter(s => s.type === "trash").map(s => s.id);
     const THROW_PLATE_R = 0.85;     // radius for landing an ingredient onto a plate in the path
     const THROW_WINDOW_R = 0.9;     // radius for a completed-dish throw to register at a window spot
     const THROW_TRASH_R = 0.85;     // radius for "thrown into the trash bin"
@@ -3439,7 +3470,7 @@
           showMissToast();
           // ENDLESS MODE: one miss ends the run — straight to the day-end overlay (which shows
           // the endless game-over presentation; see updateVictoryOverlay).
-          if (CURRENT_LEVEL.endless) G.phase = "day_end";
+          if (G.endlessMode) G.phase = "day_end";
           publishSnapshotNow();   // discrete event — push immediately, don't wait ~12Hz tick
         }
       }
@@ -3737,7 +3768,7 @@
 
       // day countdown — host-ticked only; at 0 the day ends and gameplay freezes everywhere
       // via the G.phase !== "playing" guards already in moveChef/tryAction/holdAction.
-      if (CURRENT_LEVEL.endless){
+      if (G.endlessMode){
         G.runT = (G.runT || 0) + dt;   // endless: the clock counts UP; the run ends on a miss
       } else if (G.dayLeft > 0){
         G.dayLeft = Math.max(0, G.dayLeft - dt);
@@ -3772,7 +3803,7 @@
 
       // last DAY_SPAWN_CUTOFF seconds: let the kids finish what's already up, no new customers.
       // (Endless never winds down — the whole point is the ever-rising tide.)
-      if (!CURRENT_LEVEL.endless && G.dayLeft <= DAY_SPAWN_CUTOFF) return;
+      if (!G.endlessMode && G.dayLeft <= DAY_SPAWN_CUTOFF) return;
 
       // FIELD-CUSTOMER REWORK spawn logic: first customer ~CUSTOMER_SPAWN_FIRST seconds in,
       // then every CUSTOMER_SPAWN_MIN-MAX seconds (scaled by the level's spawnFactor), capped
@@ -3785,11 +3816,11 @@
       G.customerSpawnCd -= dt;
       if (G.customerSpawnCd <= 0){
         const hungry = countInState("arriving") + countInState("waiting") + countInState("fetching");
-        const cap = CURRENT_LEVEL.endless ? endlessMaxWaiting(G.runT || 0) : CUSTOMER_MAX_WAITING;
+        const cap = G.endlessMode ? endlessMaxWaiting(G.runT || 0) : CUSTOMER_MAX_WAITING;
         if (hungry < cap){
           spawnCustomer();
         }
-        if (CURRENT_LEVEL.endless){
+        if (G.endlessMode){
           // ENDLESS: the gap between diners shrinks relentlessly with the run clock.
           G.customerSpawnCd = endlessSpawnInterval(G.runT || 0);
         } else {
@@ -3845,7 +3876,7 @@
     function hostResetDayState(){
       G.phase = "playing";
       G.money = 0;
-      G.dayLeft = CURRENT_LEVEL.endless ? 999999 : DAY_LENGTH;   // endless: countdown guards never trip
+      G.dayLeft = G.endlessMode ? 999999 : DAY_LENGTH;   // endless: countdown guards never trip
       G.runT = 0;                                                 // endless: run clock counts UP
       G.stats = { served: 0, missed: 0, thrown: 0, caught: 0, floorDrops: 0, tips: 0, orderedCount: 0 };
       G.boards = [{ item: null, progress: 0 }, { item: null, progress: 0 }];
@@ -3896,11 +3927,13 @@
     // overlay, reached after the title screen's COOK! button closes the title (see
     // updateTitleScreen/titleCookBtnEl). Sets CURRENT_LEVEL, closes the overlay, and starts a
     // fresh day for it. ----
-    function hostStartLevel(levelIndex){
+    function hostStartLevel(levelIndex, endlessMode){
       const lvl = LEVELS[levelIndex];
       if (!lvl) return;
       CURRENT_LEVEL = lvl;
       G.level = levelIndex;
+      G.endlessMode = !!endlessMode;        // ENDLESS VARIANT: any level can run as Endless Rush
+      rebuildKitchenForLevel(lvl.id);       // PER-LEVEL LAYOUTS: stations/slots/visuals for THIS level
       G.levelSelectOpen = false;
       hostResetDayState();
       publishSnapshotNow();
@@ -4300,13 +4333,6 @@
     scene.add(counterGroup);
     const counterTileGroups = [];   // index-aligned with COUNTER_TILES — used by the tile-highlight system below
     COUNTER_TILES.forEach((t, idx) => {
-      // Cleanup pass (user): the sink and the cooking appliances REPLACE their counter tile
-      // entirely (their builders draw a full counter-sized unit down to the floor) instead of
-      // sitting as props on top of a wooden counter — so no tile mesh under them at all.
-      if (t.station && ["sink", "oven", "stove"].includes(t.station.type)){
-        counterTileGroups.push(new THREE.Group());   // keep index alignment with COUNTER_TILES
-        return;
-      }
       const g = new THREE.Group();
       g.position.set(t.x, 0, t.z);
       const tw = Math.max(0.1, t.w - TILE_GAP), td = Math.max(0.1, t.d - TILE_GAP);
@@ -4320,6 +4346,18 @@
       counterGroup.add(g);
       counterTileGroups.push(g);
     });
+    // Cleanup pass (user): sink/stove/oven REPLACE their counter tile — but only while ACTIVE
+    // this level. On levels where the stove/oven aren't used, their tile shows as a plain
+    // countertop (user-requested). Called at boot + from rebuildStationVisuals on level change.
+    function syncApplianceTileVisibility(){
+      COUNTER_TILES.forEach((t, idx) => {
+        const g = counterTileGroups[idx];
+        if (!g) return;
+        g.visible = !(t.station && ["sink", "stove", "oven"].includes(t.station.type) &&
+                      stationActive(t.station));
+      });
+    }
+    syncApplianceTileVisibility();
 
     // ---- coordinator-flagged fix #8: the kitchen used to float on flat sky-blue background —
     // a big grass-green ground plane (with a subtle two-tone mowing-stripe tint, Pasture-Panic-
@@ -5403,7 +5441,8 @@
       const g = new THREE.Group();
       // a simple bin/tub silhouette: a shallow open box sitting on the counter top, distinct from
       // the flat plate-station look it replaces — reads as "this is where mess accumulates."
-      const counterTop = new THREE.Mesh(new THREE.BoxGeometry(st.w, 0.06, st.d), mat(0xe8e0cc));
+      // Cleanup pass (user): dark mat under the tub so white/gray dirty plates pop.
+      const counterTop = new THREE.Mesh(new THREE.BoxGeometry(st.w, 0.06, st.d), mat(0x4a3a30, true));
       counterTop.position.set(st.x, CH + 0.05, st.z);
       g.add(counterTop);
       const tubM = mat(0x8a95a0, true);
@@ -5451,7 +5490,9 @@
     // from the idle clean stack beneath it.
     function buildPlateStack(st){
       const g = new THREE.Group();
-      const counterTop = new THREE.Mesh(new THREE.BoxGeometry(st.w, 0.06, st.d), mat(0xffffff));
+      // Cleanup pass (user): white plates were invisible on the old white top — a deep slate-blue
+      // mat gives the stack strong contrast so "plates live here" reads at a glance.
+      const counterTop = new THREE.Mesh(new THREE.BoxGeometry(st.w, 0.06, st.d), mat(0x33475c, true));
       counterTop.position.set(st.x, CH + 0.05, st.z);
       g.add(counterTop);
       const stackGroup = new THREE.Group();
@@ -5579,8 +5620,10 @@
       { id: "cuttingBoard", ready: () => !!PROP_TEMPLATES["cutting-board"], rebuild: () => buildBoard(stationById("cuttingBoard")) },
       { id: "cuttingBoard2", ready: () => !!PROP_TEMPLATES["cutting-board"], rebuild: () => buildBoard(stationById("cuttingBoard2")) },
       { id: "trashBin",     ready: () => !!PROP_TEMPLATES["trash-can"],     rebuild: () => buildTrash(stationById("trashBin")) },
-      ...(stationById("trashBin2") ? [
-      { id: "trashBin2",    ready: () => !!PROP_TEMPLATES["trash-can"],     rebuild: () => buildTrash(stationById("trashBin2")) }] : []),
+      // trashBin2 may or may not exist in the CURRENT level's layout — ready() also gates on
+      // presence so a 1-trash layout never crashes the GLB hot-swap sweep.
+      { id: "trashBin2",    ready: () => !!PROP_TEMPLATES["trash-can"] && !!stationById("trashBin2"),
+        rebuild: () => { if (stationById("trashBin2")) buildTrash(stationById("trashBin2")); } },
       { id: "pan",          ready: () => !!PROP_TEMPLATES.pan,              rebuild: () => buildPan(stationById("pan")) },
       { id: "sink",         ready: () => !!PROP_TEMPLATES.sink,             rebuild: () => buildSink(stationById("sink")) },
       { id: "plateStack",   ready: () => !!PROP_TEMPLATES.plate,            rebuild: () => buildPlateStack(stationById("plateStack")) },
@@ -5596,6 +5639,33 @@
         disposeMesh(sm.group);
         entry.rebuild();
       }
+    }
+
+    // ---- PER-LEVEL LAYOUTS: full station-visual rebuild, called by rebuildKitchenForLevel
+    // whenever a level starts (host: hostStartLevel; guest: applySnapshot level change). Tears
+    // down every station mesh (disposeMesh respects SHARED_ASSETS so GLB templates survive) and
+    // re-runs every builder against the CURRENT G.stations, then refreshes the appliance-tile
+    // visibility. Function declaration — hoisted, so the gameplay layer (defined earlier in the
+    // file) can reference it. ----
+    function rebuildStationVisuals(){
+      for (const id in stationMeshes){
+        const sm = stationMeshes[id];
+        if (sm && sm.group){ scene.remove(sm.group); disposeMesh(sm.group); }
+        delete stationMeshes[id];
+      }
+      for (const st of G.stations){ if (st.type === "crate") buildCrate(st); }
+      buildBoard(stationById("cuttingBoard"));
+      buildBoard(stationById("cuttingBoard2"));
+      buildTrash(stationById("trashBin"));
+      if (stationById("trashBin2")) buildTrash(stationById("trashBin2"));
+      buildStove(stationById("stove"));
+      buildPan(stationById("pan"));
+      buildOven(stationById("oven"));
+      buildDirtyBin(stationById("dirtyBin"));
+      buildPlateStack(stationById("plateStack"));
+      buildSink(stationById("sink"));
+      syncApplianceTileVisibility();
+      syncStationVisibility();
     }
 
     // ingredient kinds that have a loaded GLB template (all 8) — raw ingredients everywhere
@@ -7986,7 +8056,7 @@
     let windDownChimePlayed = false;
     function updateSunClock(){
       // ENDLESS MODE: the clock counts UP (survival time) and never goes amber/pulses.
-      const endless = !!CURRENT_LEVEL.endless;
+      const endless = !!G.endlessMode;
       const t = endless ? Math.floor(G.runT || 0) : Math.max(0, Math.ceil(G.dayLeft));
       const m = Math.floor(t / 60), s = t % 60;
       clockNumEl.textContent = (endless ? "♾ " : "") + m + ":" + String(s).padStart(2, "0");
@@ -8589,14 +8659,13 @@
       victoryLostNumEl.textContent = String(G.stats.missed);
       victoryTipsNumEl.textContent = String(G.stats.tips);
       // ENDLESS MODE: game-over presentation — survived time instead of stars, best-money chip.
-      const endless = !!CURRENT_LEVEL.endless;
+      const endless = !!G.endlessMode;
       document.getElementById("victoryTitle").textContent = endless ? "THE RUSH GOT YOU! 🐔" : "DAY COMPLETE! 🎉";
       document.getElementById("victoryStars").style.display = endless ? "none" : "";
       if (endless){
         const t = Math.floor(G.runT || 0);
         const mm = Math.floor(t / 60), ss = String(t % 60).padStart(2, "0");
-        let best = 0;
-        try { best = +localStorage.getItem(ENDLESS_BEST_KEY) || 0; } catch (err) {}
+        const best = endlessBestFor(CURRENT_LEVEL.id);   // per-level best (endless variants)
         victoryLineEl.textContent = "Survived " + mm + ":" + ss + " — " +
           (G.money > best ? "NEW BEST! 🏆" : "best so far: 🏆 " + best + " 🪙");
       } else {
@@ -8613,14 +8682,9 @@
         victoryShown = true;
         Snd.victory();
         spawnVictoryConfetti();
-        if (CURRENT_LEVEL.endless){
-          // ENDLESS: persist best money (host's browser) instead of stars.
-          if (net.isHost){
-            try {
-              const best = +localStorage.getItem(ENDLESS_BEST_KEY) || 0;
-              if (G.money > best) localStorage.setItem(ENDLESS_BEST_KEY, String(G.money));
-            } catch (err) {}
-          }
+        if (G.endlessMode){
+          // ENDLESS: persist this LEVEL's best money (host's browser) instead of stars.
+          if (net.isHost) saveEndlessBestIfImproved(CURRENT_LEVEL.id, G.money);
         } else {
           const earned = starsForMoney(G.money);
           // host persists best-stars locally (its own browser); guests just display, never write.
@@ -8662,13 +8726,21 @@
     LEVELS.forEach((lvl, idx) => {
       const card = document.createElement("div");
       card.className = "levelCard";
-      card.innerHTML = '<div class="lcEmoji"></div><div class="lcName"></div><div class="lcStars"></div>';
+      card.innerHTML = '<div class="lcEmoji"></div><div class="lcName"></div><div class="lcStars"></div>' +
+                       '<div class="lcEndless"></div>';
       card.querySelector(".lcEmoji").textContent = lvl.emoji;
       card.querySelector(".lcName").textContent = lvl.name;
       card.addEventListener("click", () => {
         if (!net.isHost) return;              // guests never drive level selection
         if (card.classList.contains("locked")) return;
-        hostStartLevel(idx);
+        hostStartLevel(idx, false);
+      });
+      // ENDLESS VARIANT chip: same level, ♾️ ruleset (see LEVELS' endless comment).
+      card.querySelector(".lcEndless").addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (!net.isHost) return;
+        if (card.classList.contains("locked")) return;
+        hostStartLevel(idx, true);
       });
       levelCardRowEl.appendChild(card);
       levelCardEls.push(card);
@@ -8699,16 +8771,17 @@
         // remove any previous lock glyph before re-adding (card content refreshed on each open)
         const oldLock = card.querySelector(".lcLock");
         if (oldLock) oldLock.remove();
+        const chip = card.querySelector(".lcEndless");
         if (unlocked){
           starsEl.style.display = "";
-          if (lvl.endless){
-            // ENDLESS card shows the best-money trophy instead of stars.
-            let best = 0;
-            try { best = +localStorage.getItem(ENDLESS_BEST_KEY) || 0; } catch (err) {}
-            starsEl.textContent = best > 0 ? "🏆 " + best : "🏆 —";
-          } else {
-            const earned = bestStars[lvl.id] || 0;
-            starsEl.textContent = "⭐".repeat(earned) + "☆".repeat(3 - earned);
+          const earned = bestStars[lvl.id] || 0;
+          starsEl.textContent = "⭐".repeat(earned) + "☆".repeat(3 - earned);
+          // ENDLESS VARIANT chip: shows this level's best-money trophy, starts the ♾️ mode.
+          // (explicit "block": the CSS base is display:none, so "" would fall back to hidden.)
+          if (chip){
+            chip.style.display = "block";
+            const best = endlessBestFor(lvl.id);
+            chip.textContent = "♾️ ENDLESS" + (best > 0 ? " · 🏆" + best : "");
           }
         } else {
           starsEl.style.display = "none";
@@ -9150,9 +9223,10 @@
         }),
         plateThrowHintId: G.plateThrowHintId,
         plateThrowHintChef: G.plateThrowHintChef,
-        // LEVEL EDITOR: the host's active layout signature ("default" or the raw layout JSON).
-        // A guest that booted with anything else adopts it and reloads once (see applySnapshot).
-        layoutSig: customLayoutSig || "default",
+        // PER-LEVEL LAYOUTS: short hash of the host's layouts MAP (the full map is published
+        // once as room state "layoutsV2"); a mismatched guest adopts + reloads once.
+        layoutSig: layoutsHash(),
+        endlessMode: !!G.endlessMode,   // ENDLESS VARIANT of the current level
         // (FIELD-CUSTOMER REWORK: bellFullHint/wrongSpotHint fields retired with the checkout window.)
         // ---- Systems pass 3: cooking stations + level/progression ----
         pot: { contents: G.pot.contents, cookT: G.pot.cookT, state: G.pot.state, stirringChefId: G.pot.stirringChefId || null },
@@ -9234,25 +9308,23 @@
       G.plateThrowHintId = snap.plateThrowHintId || 0;
       G.plateThrowHintChef = snap.plateThrowHintChef || null;
 
-      // ---- LEVEL EDITOR: adopt the host's kitchen layout. Stations are built once at boot,
-      // so a mismatch means this guest must store the host's layout and reload the page ONCE
-      // (the #r= room hash is re-set below so the reload auto-rejoins). sessionStorage guards
-      // against any reload loop: each signature is only ever adopted once per tab session. ----
-      if (typeof snap.layoutSig === "string"){
-        const mySig = customLayoutSig || "default";
-        if (snap.layoutSig !== mySig){
-          const guardKey = "bb_layout_adopted";
-          let guarded = null;
-          try { guarded = sessionStorage.getItem(guardKey); } catch (err) {}
-          if (guarded !== snap.layoutSig){
-            try {
-              sessionStorage.setItem(guardKey, snap.layoutSig);
-              if (snap.layoutSig === "default") localStorage.removeItem(LAYOUT_KEY);
-              else localStorage.setItem(LAYOUT_KEY, snap.layoutSig);
-              if (net.roomCode) location.hash = "r=" + net.roomCode;   // survive the reload -> auto-rejoin
-              location.reload();
-            } catch (err) { /* storage unavailable — play on with mismatched visuals */ }
-          }
+      // ---- PER-LEVEL LAYOUTS: adopt the host's layouts MAP. The snapshot only carries a hash;
+      // on mismatch the guest reads the full map from room state ("layoutsV2", published once by
+      // the host at boot), stores it and reloads ONCE (sessionStorage guard; the #r= room hash
+      // is re-set so the reload auto-rejoins). ----
+      if (typeof snap.layoutSig === "string" && snap.layoutSig !== layoutsHash()){
+        const guardKey = "bb_layout_adopted";
+        let guarded = null;
+        try { guarded = sessionStorage.getItem(guardKey); } catch (err) {}
+        if (guarded !== snap.layoutSig){
+          try {
+            const full = Playroom.getState("layoutsV2");
+            sessionStorage.setItem(guardKey, snap.layoutSig);
+            if (full === "default" || !full) localStorage.removeItem(LAYOUTS_KEY);
+            else localStorage.setItem(LAYOUTS_KEY, full);
+            if (net.roomCode) location.hash = "r=" + net.roomCode;   // survive the reload -> auto-rejoin
+            location.reload();
+          } catch (err) { /* storage/room-state unavailable — play on with mismatched visuals */ }
         }
       }
 
@@ -9267,7 +9339,9 @@
         G.level = snap.level;
         CURRENT_LEVEL = LEVELS[snap.level] || LEVELS[0];   // keep the guest's recipe/station-
                                                              // visibility pointer in sync with the host
+        rebuildKitchenForLevel(CURRENT_LEVEL.id);            // PER-LEVEL LAYOUTS: guest rebuilds too
       }
+      if (typeof snap.endlessMode === "boolean") G.endlessMode = snap.endlessMode;
       if (typeof snap.levelSelectOpen === "boolean") G.levelSelectOpen = snap.levelSelectOpen;
       if (typeof snap.teachT === "number") G.teachT = snap.teachT;
 
@@ -9610,6 +9684,9 @@
         if (net.isHost){
           reseedChefsForNet(net.myChefId, "blue", -1.5);
           net.players = [net.localPlayer];
+          // PER-LEVEL LAYOUTS: publish the full layouts map ONCE as room state so a mismatched
+          // guest (hash check in applySnapshot) can adopt it without bloating every snapshot.
+          try { Playroom.setState("layoutsV2", layoutsMapJson || "default", true); } catch (err) {}
 
           Playroom.onPlayerJoin((player) => {
             if (player.id === net.localPlayer.id) return; // host's own join event

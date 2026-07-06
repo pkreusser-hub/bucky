@@ -15,6 +15,15 @@
   #bar .t{ font-weight:800; font-size:14px; letter-spacing:.5px; }
   #wrap{ display:flex; flex-wrap:wrap; gap:22px; padding:18px; justify-content:center; }
 
+  /* ---- per-level tabs ---- */
+  #tabs{ width:100%; display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
+  .tab{ padding:8px 14px; border-radius:10px; background:#dfe6df; font-weight:800; font-size:13px;
+        cursor:pointer; border:2px solid transparent; }
+  .tab.active{ background:#2e9e44; color:#fff; }
+  .tab .dot{ display:inline-block; width:8px; height:8px; border-radius:50%; background:#e2a400;
+             margin-left:6px; vertical-align:middle; visibility:hidden; }
+  .tab.custom .dot{ visibility:visible; }
+
   /* ---- kitchen grid ---- */
   #gridCard{ background:#fff; border-radius:14px; padding:14px; box-shadow:0 4px 14px rgba(0,0,0,.12); }
   #grid{ display:grid; grid-template-columns:repeat(10, 40px); grid-auto-rows:40px; gap:2px; position:relative; }
@@ -59,6 +68,7 @@
 <body>
   <div id="bar"><a href="index.html">← BUCKY</a><span class="t">🍅 Barnyard Bistro — Level Editor</span></div>
   <div id="wrap">
+    <div id="tabs"></div>
     <div id="gridCard">
       <div id="grid"></div>
       <div id="zoneTags"><span>⬆ TOP ZONE (P2)</span><span>hay barrier at the midline</span><span>BOTTOM ZONE (P1) ⬇</span></div>
@@ -81,10 +91,12 @@
         <textarea id="io" spellcheck="false"></textarea>
       </div>
       <div class="card hint">
-        Click a <b>placed piece</b> to pick it back up. Pieces only sit on the brown wall tiles.
-        Saving writes the layout to this browser — the game picks it up on its next load, and when
-        you host a game the kids' devices adopt your layout automatically. The second 🗑️ trash is
-        optional; everything else must be placed. Delete the save with “Default” + SAVE to go back.
+        Each level has its <b>own kitchen</b> — pick a level tab up top, then arrange it. Click a
+        <b>placed piece</b> to pick it back up; pieces only sit on the brown wall tiles. SAVE
+        stores every completed tab at once (a ● dot marks levels with a custom layout). The game
+        picks changes up on its next load, and the kids' devices adopt your layouts automatically
+        when you host. The second 🗑️ trash is optional; everything else must be placed. “Default”
+        + SAVE resets the current level.
       </div>
     </div>
   </div>
@@ -92,7 +104,15 @@
 <script>
 (() => {
   'use strict';
-  const KEY = 'bb_layout_v1';
+  // PER-LEVEL LAYOUTS: bb_layouts_v2 = { "<levelId>": [{type,kind?,c,r}, ...] } — each of the
+  // 5 levels edited independently; levels absent from the map use the default kitchen.
+  const KEY = 'bb_layouts_v2';
+  const GAME_LEVELS = [
+    { id: 1, name: '🥗 Salad Days' }, { id: 2, name: '🍲 Soup’s On' },
+    { id: 3, name: '🍔 Burger Barn' }, { id: 4, name: '🍕 Pizza Night' },
+    { id: 5, name: '🎉 Feast Night' }
+  ];
+  let currentLevelId = 1;
   // the full piece set the game requires (second trash optional)
   const PIECES = [
     { type:'crate', kind:'tomato',  emoji:'🍅', name:'Tomato' },
@@ -128,9 +148,11 @@
     { type:'trash', c:10, r:10 },                 { type:'crate', kind:'cheese', c:10, r:14 },
   ];
 
-  // placement state: cellKey "c,r" -> piece index into PIECES (each piece placed at most once)
-  let placed = {};       // pieceIdx -> {c, r}
+  // placement state: pieceIdx -> {c, r} (each piece placed at most once). One placement set
+  // per LEVEL, all kept in memory (edits) so tab switches never lose work; SAVE persists all.
+  let placed = {};       // the ACTIVE level's placements (alias into edits[currentLevelId])
   let selected = null;   // pieceIdx currently on the cursor
+  const edits = {};      // levelId -> placed-map
 
   const isWall = (c, r) => r === 1 || r === 16 || c === 1 || c === 10;
   const cellAt = {};     // "c,r" -> element
@@ -243,14 +265,74 @@
   }
 
   saveBtn.addEventListener('click', () => {
-    const layout = toLayout();
-    const isDefault = JSON.stringify(sortForCompare(layout)) === JSON.stringify(sortForCompare(DEFAULT_LAYOUT));
+    // SAVE persists ALL levels' layouts at once — any level whose layout matches the default
+    // is simply omitted from the map (no override); an all-default map removes the key.
+    edits[currentLevelId] = placed;
+    const map = {};
+    for (const lvl of GAME_LEVELS){
+      const p = edits[lvl.id];
+      if (!p) continue;
+      const layout = layoutFromPlaced(p);
+      if (!isComplete(p)) continue;   // incomplete tabs are skipped, never saved broken
+      const isDefault = JSON.stringify(sortForCompare(layout)) === JSON.stringify(sortForCompare(DEFAULT_LAYOUT));
+      if (!isDefault) map[lvl.id] = layout;
+    }
     try {
-      if (isDefault) localStorage.removeItem(KEY);   // default = no override
-      else localStorage.setItem(KEY, JSON.stringify(layout));
-      savedNote.textContent = isDefault ? '✔ Saved (back to the default layout)' : '✔ Saved! Reload the game to play it.';
+      if (Object.keys(map).length === 0){
+        localStorage.removeItem(KEY);
+        savedNote.textContent = '✔ Saved (all levels use the default kitchen)';
+      } else {
+        localStorage.setItem(KEY, JSON.stringify(map));
+        savedNote.textContent = '✔ Saved levels ' + Object.keys(map).join(', ') + '! Reload the game to play.';
+      }
+      renderTabs();
     } catch (err) { savedNote.textContent = '✖ Could not save (storage blocked)'; }
   });
+  function isComplete(p){ return PIECES.every((pc, i) => p[i] || pc.optional); }
+  function layoutFromPlaced(p){
+    const out = [];
+    for (const i in p){
+      const pc = PIECES[i];
+      const e = { type: pc.type, c: p[i].c, r: p[i].r };
+      if (pc.kind) e.kind = pc.kind;
+      out.push(e);
+    }
+    return out;
+  }
+
+  // ---- per-level tabs ----
+  const tabsEl = document.getElementById('tabs');
+  const tabEls = GAME_LEVELS.map(lvl => {
+    const t = document.createElement('div');
+    t.className = 'tab';
+    t.innerHTML = lvl.name + '<span class="dot" title="has a custom layout"></span>';
+    t.addEventListener('click', () => {
+      edits[currentLevelId] = placed;      // stash the tab we're leaving
+      currentLevelId = lvl.id;
+      placed = edits[lvl.id] || placedFromStorage(lvl.id);
+      edits[lvl.id] = placed;
+      selected = null;
+      renderTabs(); render();
+    });
+    tabsEl.appendChild(t);
+    return t;
+  });
+  function storedMap(){
+    try { return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (err) { return {}; }
+  }
+  function placedFromStorage(levelId){
+    const map = storedMap();
+    fromLayout(Array.isArray(map[levelId]) && map[levelId].length ? map[levelId] : DEFAULT_LAYOUT);
+    const p = placed; placed = {};
+    return p;
+  }
+  function renderTabs(){
+    const map = storedMap();
+    GAME_LEVELS.forEach((lvl, i) => {
+      tabEls[i].classList.toggle('active', lvl.id === currentLevelId);
+      tabEls[i].classList.toggle('custom', !!map[lvl.id]);
+    });
+  }
   function sortForCompare(l){
     return l.map(e => [e.type, e.kind || '', e.c, e.r]).sort((a, b) => JSON.stringify(a) < JSON.stringify(b) ? -1 : 1);
   }
@@ -273,10 +355,10 @@
     render();
   });
 
-  // start from whatever the game is currently using
-  let start = null;
-  try { start = JSON.parse(localStorage.getItem(KEY)); } catch (err) {}
-  fromLayout(Array.isArray(start) && start.length ? start : DEFAULT_LAYOUT);
+  // start on Salad Days with whatever the game currently uses for it
+  placed = placedFromStorage(1);
+  edits[1] = placed;
+  renderTabs();
   render();
 })();
 </script>
