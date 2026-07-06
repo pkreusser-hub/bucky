@@ -1047,16 +1047,8 @@
     }
     function stationVisibleThisLevel(id){ return CURRENT_LEVEL.stations.includes(id); }
     function crateVisibleThisLevel(kind){ return CURRENT_LEVEL.crates.includes(kind); }
-    // USER-DRAWN GRID: dispenser tiles get their ingredient KIND assigned per level, in
-    // LEVELS[n].crates order (slots 0-4 are the 5 drawn dispenser tiles; slots 5-7 are the
-    // Feast Night extras). Deterministic from G.level alone, so host and guest both call this
-    // whenever CURRENT_LEVEL changes and stay in agreement without syncing station state.
-    function assignLevelDispensers(){
-      for (const st of G.stations){
-        if (st.type !== "crate") continue;
-        st.kind = CURRENT_LEVEL.crates[st.dispSlot] || null;
-      }
-    }
+    // (USER-DRAWN CO-OP GRID: assignLevelDispensers is GONE — every crate has a fixed kind and
+    // crateVisibleThisLevel alone decides whether it's live on the current level.)
 
     const G = {
       phase: "playing",
@@ -1287,64 +1279,43 @@
     // boards + trash/pan/oven/sink/plateStack re-centered with a free gap tile between the two
     // board clusters and between the board cluster and the trash/cook/wash cluster, corners left
     // open on both ends exactly like the old layout's convention.
-    // USER-DRAWN GRID: dispensers are no longer one-fixed-ingredient crates. There are 5
-    // dispenser tiles centered on the TOP wall (grid r1 c3-c7) whose KIND is assigned per level
-    // from LEVELS[n].crates order (see assignLevelDispensers) — plus 3 "extra" dispenser tiles
-    // (c8, c9, c2) that only receive kinds on Feast Night, whose 8-ingredient menu outgrows the
-    // 5 drawn slots. A dispenser with kind:null renders/behaves as a plain counter tile.
+    // USER-DRAWN CO-OP GRID (2026-07-06, second drawn layout — supersedes the first): every
+    // ingredient now has a FIXED home (no per-level dispenser reshuffle; a crate simply
+    // activates on levels whose menu uses its kind, via crateVisibleThisLevel). The kitchen
+    // splits into two self-sufficient-but-interdependent ZONES around the 2-player barrier:
+    //   TOP  (r1-r8):  lettuce + onion + board + SINK on the top wall; patty + stove(pot) +
+    //                  oven down the left; dough + trash down the right.
+    //   BOTTOM (r9-16): board + potato + tomato + DIRTY BIN + pan on the bottom wall; clean
+    //                  plates + bun on the left; trash + cheese on the right.
+    // Wash loop is a vertical relay: dirty plates land BOTTOM (bin), get thrown UP to the top
+    // sink, washed, then thrown back DOWN to the clean-plate stack. Two trash cans — one per
+    // zone (user-confirmed). Oven (left r7) and pan (bottom c9) were absent from the drawing;
+    // placements user-confirmed ("confirm both").
+    // Grid mapping: top/bottom wall column c -> x = c - 5.5; side wall row r -> z = r - 8.5.
     G.stations = [
-      { id: "dispenser1", type: "crate", dispSlot: 0, kind: null, x: -2.5, z: -HALF_D + CT/2, w: CT, d: CT },
-      { id: "dispenser2", type: "crate", dispSlot: 1, kind: null, x: -1.5, z: -HALF_D + CT/2, w: CT, d: CT },
-      { id: "dispenser3", type: "crate", dispSlot: 2, kind: null, x: -0.5, z: -HALF_D + CT/2, w: CT, d: CT },
-      { id: "dispenser4", type: "crate", dispSlot: 3, kind: null, x:  0.5, z: -HALF_D + CT/2, w: CT, d: CT },
-      { id: "dispenser5", type: "crate", dispSlot: 4, kind: null, x:  1.5, z: -HALF_D + CT/2, w: CT, d: CT },
-      // CO-OP SPLIT LAYOUT (user design pass): the kitchen is now two ZONES around the midline —
-      // TOP = supply + big cooking (all dispensers, stove/pot, oven, dirty-plate return),
-      // BOTTOM = prep + finish (boards, pan/grill, plating, sink, trash). Every recipe forces
-      // ingredients/cooked food/plates/dirty dishes to CROSS the midline — thrown back and forth
-      // between the two chefs — and both sides can lob to customers on their own half of the
-      // field. The 3 Feast extras therefore live on the TOP half of the left wall.
-      { id: "dispenser6", type: "crate", dispSlot: 5, kind: null, x: -HALF_W + CT/2, z: -5.5, w: CT, d: CT },
-      { id: "dispenser7", type: "crate", dispSlot: 6, kind: null, x: -HALF_W + CT/2, z: -3.5, w: CT, d: CT },
-      { id: "dispenser8", type: "crate", dispSlot: 7, kind: null, x: -HALF_W + CT/2, z: -1.5, w: CT, d: CT },
-      // ---- both cutting boards, bottom wall, one free counter tile between them ----
-      // Portrait layout fix (verification pass): programmatic self-resolution sweep (every
-      // station's own REACH-0.1 approach point must resolve to itself via resolveStationOrSlot)
-      // caught TWO failures at the original x:-4/x:4 bottom-wall placement: cuttingBoard (left)
-      // and plateStack (right) each sat only 1 tile from their nearest wall CORNER, which put
-      // their own straight-ahead approach point closer to a LEFT/RIGHT-wall corner tile
-      // (diagonally adjacent across the corner) than to the station itself — a genuine dead zone,
-      // not just a corner-slot tie-break. Fix: the whole bottom-wall cluster shifted to keep every
-      // station >=2 tiles from either corner (x range -3..3, all 7 stations packed with zero
-      // internal gaps — adjacent same-wall stations were already proven safe elsewhere in this
-      // file, e.g. the original trash/pan/oven run). Re-verified 17/17 stations resolve to
-      // themselves from their own approach point (script kept in the repo history/PR notes).
-      // Boards on the bottom wall per the drawn grid (r16 c3/c5) with the trash between them
-      // (c4) and the pan two tiles right of the right board (c7, the user's explicit placement).
-      { id: "cuttingBoard", type: "board",   boardIndex: 0,    x: -2.5,           z:  HALF_D - CT/2,  w: CT, d: CT },
-      { id: "cuttingBoard2", type: "board",  boardIndex: 1,    x: -0.5,           z:  HALF_D - CT/2,  w: CT, d: CT },
-      // (FIELD-CUSTOMER REWORK: the 4 checkout tiles are gone — those right-wall tiles are
-      // plain usable counters now.)
-      // Right wall per the drawn grid: stove r3, oven r5 ("two below the stove" — user's
-      // explicit placement), dirty bin r14. Left wall: sink r3, plate stack r14 (the drawn
-      // grid deliberately splits the wash loop across the kitchen — bin lower-right → sink
-      // upper-left → stack lower-left; throwing dirty plates cross-kitchen is the intended
-      // teamwork play).
-      // CO-OP SPLIT LAYOUT: stove + oven stay top-right; the DIRTY BIN moves to the top-right
-      // too (dirty plates come back to the TOP chef, who relays them down to the bottom's sink —
-      // the wash loop crosses the midline by design). Sink joins the plate stack on the BOTTOM
-      // half of the left wall.
-      { id: "stove",        type: "stove",                     x:  HALF_W - CT/2, z: -5.5,             w: CT, d: CT },
-      { id: "oven",         type: "oven",                      x:  HALF_W - CT/2, z: -3.5,             w: CT, d: CT },
-      { id: "dirtyBin",     type: "dirtyBin",                  x:  HALF_W - CT/2, z: -1.5,             w: CT, d: CT },
-      { id: "sink",         type: "sink",                      x: -HALF_W + CT/2, z:  3.5,             w: CT, d: CT },
-      { id: "plateStack",   type: "plateStack",                x: -HALF_W + CT/2, z:  5.5,             w: CT, d: CT },
-      // Bottom wall: trash between the two boards (c4), pan two right of the right board (c7).
-      { id: "trashBin",     type: "trash",                     x: -1.5,           z:  HALF_D - CT/2,   w: CT, d: CT },
-      { id: "pan",          type: "pan",                       x:  1.5,           z:  HALF_D - CT/2,   w: CT, d: CT }
+      // ---- top wall (r1): lettuce c3 · onion c5 · board c7 · sink c8 ----
+      { id: "crateLettuce", type: "crate", kind: "lettuce", x: -2.5, z: -HALF_D + CT/2, w: CT, d: CT },
+      { id: "crateOnion",   type: "crate", kind: "onion",   x: -0.5, z: -HALF_D + CT/2, w: CT, d: CT },
+      { id: "cuttingBoard2", type: "board", boardIndex: 1,  x:  1.5, z: -HALF_D + CT/2, w: CT, d: CT },
+      { id: "sink",         type: "sink",                   x:  2.5, z: -HALF_D + CT/2, w: CT, d: CT },
+      // ---- bottom wall (r16): board c3 · potato c5 · tomato c7 · dirty bin c8 · pan c9 ----
+      { id: "cuttingBoard", type: "board", boardIndex: 0,   x: -2.5, z:  HALF_D - CT/2, w: CT, d: CT },
+      { id: "cratePotato",  type: "crate", kind: "potato",  x: -0.5, z:  HALF_D - CT/2, w: CT, d: CT },
+      { id: "crateTomato",  type: "crate", kind: "tomato",  x:  1.5, z:  HALF_D - CT/2, w: CT, d: CT },
+      { id: "dirtyBin",     type: "dirtyBin",               x:  2.5, z:  HALF_D - CT/2, w: CT, d: CT },
+      { id: "pan",          type: "pan",                    x:  3.5, z:  HALF_D - CT/2, w: CT, d: CT },
+      // ---- left wall: patty r3 · stove r5 · oven r7 (top zone) · plates r12 · bun r14 (bottom) ----
+      { id: "cratePatty",   type: "crate", kind: "patty",   x: -HALF_W + CT/2, z: -5.5, w: CT, d: CT },
+      { id: "stove",        type: "stove",                  x: -HALF_W + CT/2, z: -3.5, w: CT, d: CT },
+      { id: "oven",         type: "oven",                   x: -HALF_W + CT/2, z: -1.5, w: CT, d: CT },
+      { id: "plateStack",   type: "plateStack",             x: -HALF_W + CT/2, z:  3.5, w: CT, d: CT },
+      { id: "crateBun",     type: "crate", kind: "bun",     x: -HALF_W + CT/2, z:  5.5, w: CT, d: CT },
+      // ---- right wall: dough r3 · trash r6 (top zone) · trash r10 · cheese r14 (bottom) ----
+      { id: "crateDough",   type: "crate", kind: "dough",   x:  HALF_W - CT/2, z: -5.5, w: CT, d: CT },
+      { id: "trashBin",     type: "trash",                  x:  HALF_W - CT/2, z: -2.5, w: CT, d: CT },
+      { id: "trashBin2",    type: "trash",                  x:  HALF_W - CT/2, z:  1.5, w: CT, d: CT },
+      { id: "crateCheese",  type: "crate", kind: "cheese",  x:  HALF_W - CT/2, z:  5.5, w: CT, d: CT }
     ];
-
-    assignLevelDispensers();   // initial kinds for the title-screen kitchen (CURRENT_LEVEL = L1)
 
     const stationById = (id) => G.stations.find(s => s.id === id);
     const counterSlotById = (id) => G.counterSlots.find(s => s.id === id);
@@ -2543,6 +2514,7 @@
     //   f) Empty counter slot (existing) -> lands. g) else floor.
     // HOST-AUTHORITATIVE — called once per tick from hostSim, exactly like order spawning/timers.
     const BOARD_STATIONS = ["cuttingBoard", "cuttingBoard2"];
+    const TRASH_STATION_IDS = ["trashBin", "trashBin2"];   // user-drawn co-op grid: one per zone
     const THROW_PLATE_R = 0.85;     // radius for landing an ingredient onto a plate in the path
     const THROW_WINDOW_R = 0.9;     // radius for a completed-dish throw to register at a window spot
     const THROW_TRASH_R = 0.85;     // radius for "thrown into the trash bin"
@@ -2850,14 +2822,19 @@
         // (FIELD-CUSTOMER REWORK: the serving-window air-delivery branch is gone — regular
         // throws stay inside the kitchen; only LOBS (handled above) reach the customers.)
 
-        // e) trash bin: anything thrown into it vanishes with a "swish!" (dirty plates included —
-        // Family playtest fix #2 rule 2 — a dirty plate thrown into the bin just joins the queue).
-        const trashSt = stationById("trashBin");
-        if (Math.hypot(nx - trashSt.x, nz - trashSt.z) <= THROW_TRASH_R){
-          G.trashSwishId = (G.trashSwishId || 0) + 1;
-          G.flying.splice(i, 1);
-          continue;
+        // e) trash bins (one per zone, user-drawn co-op grid): anything thrown into either
+        // vanishes with a "swish!" (dirty plates included — Family playtest fix #2 rule 2).
+        let trashed = false;
+        for (const tid of TRASH_STATION_IDS){
+          const trashSt = stationById(tid);
+          if (Math.hypot(nx - trashSt.x, nz - trashSt.z) <= THROW_TRASH_R){
+            G.trashSwishId = (G.trashSwishId || 0) + 1;
+            G.flying.splice(i, 1);
+            trashed = true;
+            break;
+          }
         }
+        if (trashed) continue;
 
         // f) landing: user-reported forgiving-landing fix (#4, retained) — nearest EMPTY counter
         // slot within THROW_LAND_R. Plates/completed dishes can land in an empty slot too (a
@@ -2989,8 +2966,12 @@
 
         // (FIELD-CUSTOMER REWORK: no window branch — completed dishes bounce/slot/floor inside
         // the kitchen exactly like everything else; delivery is the LOB's job.)
-        const trashSt = stationById("trashBin");
-        if (Math.hypot(nx - trashSt.x, nz - trashSt.z) <= THROW_TRASH_R){
+        let trashHit = false;
+        for (const tid of TRASH_STATION_IDS){
+          const trashSt = stationById(tid);
+          if (Math.hypot(nx - trashSt.x, nz - trashSt.z) <= THROW_TRASH_R){ trashHit = true; break; }
+        }
+        if (trashHit){
           points.push({ x: nx, z: nz });
           return { points, landing: { x: nx, z: nz }, bounced: sim.bounces > 0 };
         }
@@ -3843,7 +3824,6 @@
       const lvl = LEVELS[levelIndex];
       if (!lvl) return;
       CURRENT_LEVEL = lvl;
-      assignLevelDispensers();
       G.level = levelIndex;
       G.levelSelectOpen = false;
       hostResetDayState();
@@ -4628,9 +4608,9 @@
     SHARED_ASSETS.add(crateBoxGeo);   // shared box shape across every dispenser (material is per-instance, box color is uniform so this is safe)
     const crateBoxTopDecalGeo = new THREE.PlaneGeometry(CRATE_BOX_SIZE * 0.86, CRATE_BOX_SIZE * 0.86);
     SHARED_ASSETS.add(crateBoxTopDecalGeo);
-    // USER-DRAWN GRID: dispensers get their KIND per level (assignLevelDispensers), so the crate
-    // visual is rebuilt whenever its station's kind changes. kind:null → an empty group (the tile
-    // reads/behaves as a plain counter; stationActive() is false so slotIsLive() serves it).
+    // USER-DRAWN CO-OP GRID: crate kinds are FIXED now — this builder still tolerates a rebuild
+    // (visuals keyed on kind) and kind:null → an empty group, but in practice each crate keeps
+    // one kind for the whole session; per-level ACTIVATION is stationActive/crateVisibleThisLevel.
     function buildCrate(st){
       const prev = stationMeshes[st.id];
       if (prev && prev.group){
@@ -4753,6 +4733,7 @@
       stationMeshes[st.id] = { group: g, highlightTargets: [highlightTarget], usingGLB: !!PROP_TEMPLATES["trash-can"] };
     }
     buildTrash(stationById("trashBin"));
+    buildTrash(stationById("trashBin2"));   // user-drawn co-op grid: one bin per zone
 
     // Family playtest fix #5: generic "which wall is this tile against, and which way is INTO the
     // kitchen" helper — buildBoard (above) only ever needed the z-wall case (boards only ever sit
@@ -5508,6 +5489,7 @@
       { id: "cuttingBoard", ready: () => !!PROP_TEMPLATES["cutting-board"], rebuild: () => buildBoard(stationById("cuttingBoard")) },
       { id: "cuttingBoard2", ready: () => !!PROP_TEMPLATES["cutting-board"], rebuild: () => buildBoard(stationById("cuttingBoard2")) },
       { id: "trashBin",     ready: () => !!PROP_TEMPLATES["trash-can"],     rebuild: () => buildTrash(stationById("trashBin")) },
+      { id: "trashBin2",    ready: () => !!PROP_TEMPLATES["trash-can"],     rebuild: () => buildTrash(stationById("trashBin2")) },
       { id: "pan",          ready: () => !!PROP_TEMPLATES.pan,              rebuild: () => buildPan(stationById("pan")) },
       { id: "sink",         ready: () => !!PROP_TEMPLATES.sink,             rebuild: () => buildSink(stationById("sink")) },
       { id: "plateStack",   ready: () => !!PROP_TEMPLATES.plate,            rebuild: () => buildPlateStack(stationById("plateStack")) },
@@ -9131,7 +9113,6 @@
         G.level = snap.level;
         CURRENT_LEVEL = LEVELS[snap.level] || LEVELS[0];   // keep the guest's recipe/station-
                                                              // visibility pointer in sync with the host
-        assignLevelDispensers();                             // dispenser kinds derive from level
       }
       if (typeof snap.levelSelectOpen === "boolean") G.levelSelectOpen = snap.levelSelectOpen;
       if (typeof snap.teachT === "number") G.teachT = snap.teachT;

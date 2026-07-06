@@ -415,3 +415,20 @@ levels; full order→cook→deliver flow on the right-wall window passes.
       FULL split flow (P2 top: grab+throw tomato/lettuce over the fence —
       tomato landed straight on a board via throw bias; P1 bottom: chop,
       plate, tap-lob → BULLSEYE +40). 0 pageerrors.
+- [x] USER-DRAWN CO-OP GRID v2 (2026-07-06, second drawn layout, supersedes
+      the first grid + the co-op-pass station shuffle): every ingredient has
+      a FIXED crate (assignLevelDispensers/dispSlot DELETED; activation =
+      crateVisibleThisLevel alone). Mapping c→x=c-5.5, r→z=r-8.5.
+      TOP: lettuce c3 · onion c5 · board c7 · SINK c8 (top wall); patty r3 ·
+      stove r5 · oven r7 (left); dough r3 · trash r6 (right).
+      BOTTOM: board c3 · potato c5 · tomato c7 · DIRTY BIN c8 · pan c9
+      (bottom wall); plates r12 · bun r14 (left); trash r10 · cheese r14
+      (right). Oven/pan placements + TWO trash cans (one per zone)
+      user-confirmed ("confirm both"). Wash = vertical relay: dirty plates
+      land BOTTOM, thrown UP over the fence to the top sink (parks), washed,
+      thrown back DOWN to the stack. TRASH_STATION_IDS loop replaces the
+      single stationById("trashBin") in flight + preview. Verified: 18/18
+      L5 self-resolution, both bins swish thrown items, full cross-fence
+      salad (P2 chops lettuce TOP + throws chopped down; P1 chops tomato
+      BOTTOM, plates, tap-lob +40), dirty-plate throw parks at the top
+      sink. 0 pageerrors.
