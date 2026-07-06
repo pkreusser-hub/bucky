@@ -202,6 +202,12 @@
                white-space:nowrap; text-align:center; }
   .custBubbleTail{ position:absolute; left:50%; bottom:-5px; width:8px; height:8px; margin-left:-4px;
                     background:#fff; clip-path:polygon(0 0, 100% 0, 50% 100%); transition:transform .12s ease-out; }
+  /* User request: each waiting customer's PATIENCE bar lives right in their bubble — with 3+
+     diners it's instantly clear who's next. Same green→amber→red language as the order cards. */
+  .custBubbleBar{ height:5px; border-radius:3px; background:rgba(0,0,0,.14); margin:2px 1px 1px; overflow:hidden; }
+  .custBubbleBar i{ display:block; height:100%; border-radius:3px; background:#4ecb5c; }
+  .custBubbleBar.amber i{ background:#ffb23f; }
+  .custBubbleBar.red i{ background:#ff5252; }
 
   /* ---- miss toast ---- */
   #missToast{ position:absolute; top:50%; left:50%; transform:translate(-50%,-50%) scale(.4); opacity:0;
@@ -1866,7 +1872,16 @@
     // the SCOOP flow (Family playtest fix #1), not a stack add.
     const MAX_HOLD = 3;
     const EXCLUSIVE_HOLD_KINDS = new Set(["plate", "pizzaBase", "pizza", "pizzaDish"]);
-    function isExclusiveItem(item){ return !!item && EXCLUSIVE_HOLD_KINDS.has(item.kind); }
+    // User request (clean-plate carries): an EMPTY plate (no contents, no dish) is NOT exclusive
+    // — up to MAX_HOLD of them stack together like dirty plates do. The moment a plate has
+    // anything on it, it's exclusive again (a stack of half-built dishes would be chaos).
+    function isEmptyPlate(item){
+      return !!item && item.kind === "plate" && (!item.contents || item.contents.length === 0) && !item.dish;
+    }
+    function isExclusiveItem(item){
+      if (isEmptyPlate(item)) return false;
+      return !!item && EXCLUSIVE_HOLD_KINDS.has(item.kind);
+    }
     function holdTop(chef){ return chef.holding.length ? chef.holding[chef.holding.length - 1] : null; }
     function holdCount(chef){ return chef.holding.length; }
     function holdIsEmpty(chef){ return chef.holding.length === 0; }
@@ -1885,6 +1900,8 @@
       const top = holdTop(chef);
       if (!top) return true;
       if (item.kind === "dirtyPlate" || top.kind === "dirtyPlate") return item.kind === "dirtyPlate" && top.kind === "dirtyPlate";
+      // empty CLEAN plates only stack with each other (mirrors the dirty-plate rule above)
+      if (isEmptyPlate(item) || isEmptyPlate(top)) return isEmptyPlate(item) && isEmptyPlate(top);
       return true;
     }
     function holdPush(chef, item){
@@ -2188,10 +2205,15 @@
           holdSet(chef, { kind: "plate", contents: [], dish: null });
           return;
         }
-        // put back a bare empty plate (fresh off the sink in a level with no soup, or just set
-        // back down) — doesn't touch G.plates.clean (already accounted for), just frees the hands
-        // and becomes the new in-progress top (empty) so it's visible/takeable again.
+        // holding empty plate(s): GRAB ANOTHER first (user request: carry up to 3 clean plates)
+        // — only once the pool is dry, the stack has an in-progress top, or the hands are full
+        // does this fall back to the old put-back behavior (rejoin the clean pool / become top).
         if (top && top.kind === "plate" && !top.dish && top.contents.length === 0){
+          if (!G.plateStack.top && G.plates.clean > 0 &&
+              holdPush(chef, { kind: "plate", contents: [], dish: null })){
+            G.plates.clean--;
+            return;
+          }
           if (!G.plateStack.top) G.plateStack.top = top;
           else G.plates.clean++;   // stack already has a top; this empty plate just rejoins the clean pool
           holdPop(chef);
@@ -7005,6 +7027,13 @@
         shadowDisc.position.y = -0.02;
         holdWrap.add(shadowDisc);
         if (top.kind === "plate" && top.contents){
+          // User request (clean-plate carries): render EVERY held plate — a stack of empty
+          // plates shows as N stacked discs under the top plate (which alone carries contents).
+          for (let pi = 0; pi < chef.holding.length - 1; pi++){
+            const under = makePlateMesh();
+            under.position.y = bobHeld - (chef.holding.length - 1 - pi) * 0.09;
+            holdWrap.add(under);
+          }
           const p = makePlateMesh();
           p.position.y = bobHeld;
           let i = 0;
@@ -7872,6 +7901,11 @@
           bubble.appendChild(tail);
           const label = document.createElement("span");
           bubble.appendChild(label);
+          // patience bar (user request): fill + color driven per frame below
+          const barWrap = document.createElement("div");
+          barWrap.className = "custBubbleBar";
+          barWrap.appendChild(document.createElement("i"));
+          bubble.appendChild(barWrap);
           custBubbleLayer.appendChild(bubble);
           custBubbleEls.set(c.id, bubble);
         } else if (!wantsBubble && bubble){
@@ -7881,7 +7915,15 @@
         }
         if (bubble){
           const recipe = RECIPES[c.dish] || RECIPES.salad;
-          bubble.lastChild.textContent = recipe.emoji;   // FIELD-CUSTOMER: the order floats overhead, no spot numbers
+          bubble.querySelector("span").textContent = recipe.emoji;   // FIELD-CUSTOMER: the order floats overhead
+          // patience bar: fill + card-matching color thresholds (waiting only; arriving shows full)
+          const barEl = bubble.querySelector(".custBubbleBar");
+          if (barEl){
+            const frac = Math.max(0, Math.min(1, (c.patience || 0) / (c.patienceMax || 1)));
+            barEl.firstChild.style.width = (frac * 100).toFixed(1) + "%";
+            barEl.classList.toggle("red", frac <= 0.22);
+            barEl.classList.toggle("amber", frac > 0.22 && frac <= 0.45);
+          }
           const p = new THREE.Vector3(c.x, 1.05, c.z).project(camera);
           const stageRect = stage.getBoundingClientRect();
           const sx = (p.x * 0.5 + 0.5) * stageRect.width;
