@@ -448,3 +448,21 @@ levels; full order→cook→deliver flow on the right-wall window passes.
       game boots edited layout (0 L5 sweep fails), corrupt+invalid fall
       back, one-trash layout boots clean. Editor's DEFAULT_LAYOUT const
       must be kept in sync with the game's default station list.
+- [x] CLEANUP BATCH + ENDLESS MODE (2026-07-06): sink/stove/oven now
+      REPLACE their counter tile (tile builder skips those types; appliance
+      bodies are counter-sized — buildApplianceBody bodyH = CH-feet; sink =
+      floor-to-CH porcelain cabinet w/ recessed basin + wall-side faucet).
+      Multi-carry stack COMICALLY TALL (STACK_RISE 0.16→0.5 + wobble).
+      LOB = FIXED DISTANCE (LOB_FIXED_RANGE 8; adaptive range + charging
+      REMOVED — chargeT params remain in the plumbing but are ignored;
+      positioning your feet is the aim skill; preview unchanged).
+      ENDLESS RUSH (LEVELS[5], id 6, always unlocked, 🏆-best card from
+      localStorage bb_endless_best): no countdown (dayLeft 999999 so old
+      guards never trip; G.runT counts UP, synced, HUD shows "♾ m:ss");
+      spawn gap endlessSpawnInterval = max(2.5, 18*0.5^(runT/90)), cap
+      endlessMaxWaiting = min(8, 3+floor(runT/45)); ONE missed order →
+      phase day_end w/ "THE RUSH GOT YOU! 🐔" + survived time + best-money
+      save (stars hidden/skipped). Verified: lob 8.0 from 3 poses w/
+      charge arg ignored; endless card unlocked sans stars; interval
+      18→4.5@3min; clock counts up; staged miss → game over + best 45
+      persisted (55 − 10 miss penalty, correct). 0 pageerrors.

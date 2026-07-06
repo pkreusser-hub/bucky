@@ -979,8 +979,23 @@
       { id: 5, name: "Feast Night", emoji: "🎉", recipes: ["salad", "soup", "burger", "pizza"], extraRecipes: [],
         starMoney: [75, 150, 280], spawnFactor: 0.52, patienceMax: 45,
         stations: ["cuttingBoard", "cuttingBoard2", "stove", "pan", "oven", ...DISH_WASH_STATIONS],
+        crates: ["tomato", "lettuce", "onion", "potato", "bun", "patty", "dough", "cheese"] },
+      // ---- ENDLESS MODE (user-requested): no day timer — the run ends the moment ONE order is
+      // missed. Customer spawn interval shrinks steadily (see endlessSpawnInterval) and the
+      // concurrent-diner cap grows, so every run eventually drowns. Score = money survived;
+      // best persists in localStorage bb_endless_best. Always unlocked. Full Feast menu. ----
+      { id: 6, name: "Endless Rush", emoji: "♾️", endless: true,
+        recipes: ["salad", "soup", "burger", "pizza"], extraRecipes: [],
+        starMoney: [Infinity, Infinity, Infinity], spawnFactor: 1, patienceMax: 60,
+        stations: ["cuttingBoard", "cuttingBoard2", "stove", "pan", "oven", ...DISH_WASH_STATIONS],
         crates: ["tomato", "lettuce", "onion", "potato", "bun", "patty", "dough", "cheese"] }
     ];
+    // Endless pacing: first diner arrives as usual, then the gap halves every 90 seconds of the
+    // run (18s -> 9s at 1:30 -> 4.5s at 3:00 -> floor 2.5s by ~4:30) while the concurrent cap
+    // climbs from 3 toward 8 — gentle start, mathematically doomed ending.
+    function endlessSpawnInterval(runT){ return Math.max(2.5, 18 * Math.pow(0.5, runT / 90)); }
+    function endlessMaxWaiting(runT){ return Math.min(8, 3 + Math.floor(runT / 45)); }
+    const ENDLESS_BEST_KEY = "bb_endless_best";
     let CURRENT_LEVEL = LEVELS[0];
 
     // Returns the first recipe id (from this level's recipe list) whose matches() accepts the
@@ -1054,6 +1069,7 @@
       phase: "playing",
       money: 0,               // replaces Stage 2's raw `score` — 🪙 currency (Systems pass 2)
       dayLeft: DAY_LENGTH,     // host-ticked countdown; synced in the snapshot
+      runT: 0,                 // ENDLESS: run clock counting UP (unused on timed days)
       stats: { served: 0, missed: 0, thrown: 0, caught: 0, floorDrops: 0, tips: 0, orderedCount: 0 },
       chefs: {
         // seeded with a single local chef so solo play (and the instant before Playroom
@@ -2505,37 +2521,16 @@
     // wide cone AND flies exactly the distance to them (a well-aimed lob = BULLSEYE catch).
     const LOB_SPEED = 9;
     // Playtest fix round 3 (user: dishes landing "on" customers never delivered, animals never
-    // fetched, crow never fired): the fixed default range was the root cause BOTH ways — at 13
-    // every miss overshot past CLAIM_R, and at 6.5 most lobs from inside the 16-deep kitchen
-    // came down ON the kitchen floor / counter band, where the claim system and the crow both
-    // (correctly) ignore them, while READING as "landed right on the customer" from the camera.
-    // Fix: the unassisted range is now ADAPTIVE — every lob flies just far enough to clear the
-    // walls in the facing direction and land mid-field-band, so it is ALWAYS a real exterior
-    // delivery attempt. Aim-assisted lobs still fly the exact distance to their customer.
-    const LOB_LAND_PAD = 1.45;        // land this far beyond the wall (middle of the field band)
-    const LOB_RANGE_FALLBACK = 6.5;   // safety only (should never be hit — every dir exits)
-    // FREE-FORM LOB (user design pass): NO aim assist any more — the fun is landing the dish
-    // NEAR a customer and watching them run for it. Distance is player-controlled: a quick tap
-    // lobs the MINIMUM (just over the wall in the facing direction); holding the button charges
-    // extra distance, with the preview ring sliding outward so kids can watch where it'll land.
-    const LOB_CHARGE_RATE = 3.2;      // extra units of range per second held
-    const LOB_CHARGE_MAX_T = 1.5;     // seconds of charge that count (cap ~+4.8 units)
-    function lobRangeFor(chef, dir, chargeT){
-      return lobExitRange(chef.x, chef.z, dir) +
-             clamp(Math.max(0, chargeT || 0), 0, LOB_CHARGE_MAX_T) * LOB_CHARGE_RATE;
-    }
-    function lobExitRange(x, z, dir){
-      const sx = Math.sin(dir), cz = Math.cos(dir);
-      let best = Infinity;
-      if (sx >  1e-6) best = Math.min(best, (( HALF_W + LOB_LAND_PAD) - x) / sx);
-      if (sx < -1e-6) best = Math.min(best, ((-HALF_W - LOB_LAND_PAD) - x) / sx);
-      if (cz >  1e-6) best = Math.min(best, (( HALF_D + LOB_LAND_PAD) - z) / cz);
-      if (cz < -1e-6) best = Math.min(best, ((-HALF_D - LOB_LAND_PAD) - z) / cz);
-      if (!isFinite(best)) return LOB_RANGE_FALLBACK;
-      return Math.max(2.5, Math.min(best, 20));   // minimum toss; sanity cap
-    }
-    // FREE-FORM LOB: aim assist REMOVED (user design pass) — direction is exactly where the
-    // chef faces, distance is exactly what they charged. Skill throws, not magnetized ones.
+    // FIXED-DISTANCE LOB (cleanup pass, user: "just give it a set distance and let the player
+    // figure it out"): no aim assist, no adaptive range, no charging — every lob flies exactly
+    // LOB_FIXED_RANGE in the facing direction. Positioning your feet IS the aiming skill; the
+    // hold-preview ring shows precisely where it comes down. (8 units: from the barrier line it
+    // just clears the far wall; from mid-zone facing out it reaches the field ring. The earlier
+    // adaptive/charged variants are gone — history in CLAUDE.md.)
+    const LOB_FIXED_RANGE = 8;
+    const LOB_RANGE_FALLBACK = LOB_FIXED_RANGE;   // flight-branch safety default
+    function lobRangeFor(chef, dir, chargeT){ return LOB_FIXED_RANGE; }
+    // (aim assist removed — direction is exactly where the chef faces.)
     function tryLob(chefId, chargeT){
       const chef = G.chefs[chefId];
       if (!chef || G.phase !== "playing" || G.levelSelectOpen) return;
@@ -3442,6 +3437,9 @@
           G.streak = 0;   // a customer loss resets the delivery streak (any chef's miss counts)
           spawnMissFX(c);
           showMissToast();
+          // ENDLESS MODE: one miss ends the run — straight to the day-end overlay (which shows
+          // the endless game-over presentation; see updateVictoryOverlay).
+          if (CURRENT_LEVEL.endless) G.phase = "day_end";
           publishSnapshotNow();   // discrete event — push immediately, don't wait ~12Hz tick
         }
       }
@@ -3739,7 +3737,9 @@
 
       // day countdown — host-ticked only; at 0 the day ends and gameplay freezes everywhere
       // via the G.phase !== "playing" guards already in moveChef/tryAction/holdAction.
-      if (G.dayLeft > 0){
+      if (CURRENT_LEVEL.endless){
+        G.runT = (G.runT || 0) + dt;   // endless: the clock counts UP; the run ends on a miss
+      } else if (G.dayLeft > 0){
         G.dayLeft = Math.max(0, G.dayLeft - dt);
         if (G.dayLeft <= 0){
           G.phase = "day_end";
@@ -3771,7 +3771,8 @@
       hostResolveClaims(dt);   // FIELD-CUSTOMER REWORK: match resting dishes to hungry diners
 
       // last DAY_SPAWN_CUTOFF seconds: let the kids finish what's already up, no new customers.
-      if (G.dayLeft <= DAY_SPAWN_CUTOFF) return;
+      // (Endless never winds down — the whole point is the ever-rising tide.)
+      if (!CURRENT_LEVEL.endless && G.dayLeft <= DAY_SPAWN_CUTOFF) return;
 
       // FIELD-CUSTOMER REWORK spawn logic: first customer ~CUSTOMER_SPAWN_FIRST seconds in,
       // then every CUSTOMER_SPAWN_MIN-MAX seconds (scaled by the level's spawnFactor), capped
@@ -3784,11 +3785,17 @@
       G.customerSpawnCd -= dt;
       if (G.customerSpawnCd <= 0){
         const hungry = countInState("arriving") + countInState("waiting") + countInState("fetching");
-        if (hungry < CUSTOMER_MAX_WAITING){
+        const cap = CURRENT_LEVEL.endless ? endlessMaxWaiting(G.runT || 0) : CUSTOMER_MAX_WAITING;
+        if (hungry < cap){
           spawnCustomer();
         }
-        const spawnFactor = CURRENT_LEVEL.spawnFactor || 1;
-        G.customerSpawnCd = (CUSTOMER_SPAWN_MIN + Math.random() * (CUSTOMER_SPAWN_MAX - CUSTOMER_SPAWN_MIN)) * spawnFactor;
+        if (CURRENT_LEVEL.endless){
+          // ENDLESS: the gap between diners shrinks relentlessly with the run clock.
+          G.customerSpawnCd = endlessSpawnInterval(G.runT || 0);
+        } else {
+          const spawnFactor = CURRENT_LEVEL.spawnFactor || 1;
+          G.customerSpawnCd = (CUSTOMER_SPAWN_MIN + Math.random() * (CUSTOMER_SPAWN_MAX - CUSTOMER_SPAWN_MIN)) * spawnFactor;
+        }
       }
     }
 
@@ -3838,7 +3845,8 @@
     function hostResetDayState(){
       G.phase = "playing";
       G.money = 0;
-      G.dayLeft = DAY_LENGTH;
+      G.dayLeft = CURRENT_LEVEL.endless ? 999999 : DAY_LENGTH;   // endless: countdown guards never trip
+      G.runT = 0;                                                 // endless: run clock counts UP
       G.stats = { served: 0, missed: 0, thrown: 0, caught: 0, floorDrops: 0, tips: 0, orderedCount: 0 };
       G.boards = [{ item: null, progress: 0 }, { item: null, progress: 0 }];
       G.plateStack = { top: null };
@@ -4292,6 +4300,13 @@
     scene.add(counterGroup);
     const counterTileGroups = [];   // index-aligned with COUNTER_TILES — used by the tile-highlight system below
     COUNTER_TILES.forEach((t, idx) => {
+      // Cleanup pass (user): the sink and the cooking appliances REPLACE their counter tile
+      // entirely (their builders draw a full counter-sized unit down to the floor) instead of
+      // sitting as props on top of a wooden counter — so no tile mesh under them at all.
+      if (t.station && ["sink", "oven", "stove"].includes(t.station.type)){
+        counterTileGroups.push(new THREE.Group());   // keep index alignment with COUNTER_TILES
+        return;
+      }
       const g = new THREE.Group();
       g.position.set(t.x, 0, t.z);
       const tw = Math.max(0.1, t.w - TILE_GAP), td = Math.max(0.1, t.d - TILE_GAP);
@@ -4829,9 +4844,12 @@
     // cooking cue is the pot bubbling on top, not a glowing door).
     function buildApplianceBody(st, dir){
       const g = new THREE.Group();
-      const bodyW = st.w - TILE_GAP - 0.06, bodyD = st.d - TILE_GAP - 0.06;
-      const bodyH = 0.95;
-      const feetH = 0.08;
+      // Cleanup pass (user): appliances are COUNTER-SIZED now — the body tops out exactly at
+      // counter height (CH) and fills the tile footprint, replacing the counter tile (which the
+      // tile builder skips for stove/oven/sink) instead of towering on top of one.
+      const bodyW = st.w - TILE_GAP, bodyD = st.d - TILE_GAP;
+      const feetH = 0.06;
+      const bodyH = CH - feetH;
       const bodyM = mat(0x707880, true);   // cool appliance-steel tone, distinct from the wood counters/dispensers
       const body = new THREE.Mesh(new THREE.BoxGeometry(bodyW, bodyH, bodyD), bodyM);
       body.position.set(st.x, feetH + bodyH / 2, st.z);
@@ -5467,30 +5485,34 @@
     function buildSink(st){
       const g = new THREE.Group();
       let highlightTarget;
+      // Cleanup pass (user): the sink is a full COUNTER-SIZED unit replacing its tile (the
+      // tile builder skips sink tiles) — a porcelain cabinet from the floor to counter height
+      // with the basin recessed into its top, instead of a basin prop ON a wooden counter.
+      const unitW = st.w - TILE_GAP, unitD = st.d - TILE_GAP;
+      const cabinet = new THREE.Mesh(new THREE.BoxGeometry(unitW, CH, unitD), mat(0xdde6ea, true));
+      cabinet.position.set(st.x, CH / 2, st.z);
+      g.add(cabinet);
+      const basinInner = new THREE.Mesh(new THREE.BoxGeometry(unitW * 0.72, 0.1, unitD * 0.72), mat(0x8fa8b8, true));
+      basinInner.position.set(st.x, CH + 0.02, st.z);
+      g.add(basinInner);
+      highlightTarget = cabinet;
+      // faucet against the wall side (outward = away from the kitchen center)
+      const dirIn = wallInwardDir(st);
+      const fx = st.x - dirIn.x * (unitW / 2 - 0.08), fz = st.z - dirIn.z * (unitD / 2 - 0.08);
+      const faucetM = mat(0xb8b8b8);
+      const faucetBase = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.32, 8), faucetM);
+      faucetBase.position.set(fx, CH + 0.16, fz);
+      g.add(faucetBase);
+      const faucetArm = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.26, 8), faucetM);
+      faucetArm.rotation.z = dirIn.x !== 0 ? 0 : Math.PI / 2;
+      faucetArm.rotation.x = dirIn.x !== 0 ? Math.PI / 2 : 0;
+      faucetArm.position.set(fx + dirIn.x * 0.11, CH + 0.3, fz + dirIn.z * 0.11);
+      g.add(faucetArm);
       if (PROP_TEMPLATES.sink){
+        // GLB sink prop sits INSIDE the unit's top (replaces the procedural basin look)
         const sinkMesh = cloneStaticProp(PROP_TEMPLATES.sink);
         sinkMesh.position.set(st.x, CH - 0.05, st.z);
         g.add(sinkMesh);
-        highlightTarget = sinkMesh;
-      } else {
-        // Uniform-grid pass: basin width pulled in from st.w+0.3 (which overhung neighboring
-        // tiles now that st.w is exactly one tile) to st.w*0.9 — still reads as a basin, just
-        // sized to stay within this station's own tile.
-        const basin = new THREE.Mesh(new THREE.BoxGeometry(st.w * 0.9, 0.35, st.d + 0.5), mat(0xc8d4dc, true));
-        basin.position.set(st.x, CH - 0.05, st.z);
-        g.add(basin);
-        const basinInner = new THREE.Mesh(new THREE.BoxGeometry(st.w * 0.75, 0.2, st.d + 0.2), mat(0x8fa8b8, true));
-        basinInner.position.set(st.x, CH + 0.02, st.z);
-        g.add(basinInner);
-        highlightTarget = basinInner;
-        const faucetM = mat(0xb8b8b8);
-        const faucetBase = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.35, 8), faucetM);
-        faucetBase.position.set(st.x, CH + 0.3, st.z - st.d/2);
-        g.add(faucetBase);
-        const faucetArm = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.28, 8), faucetM);
-        faucetArm.rotation.z = Math.PI / 2;
-        faucetArm.position.set(st.x + 0.12, CH + 0.46, st.z - st.d/2);
-        g.add(faucetArm);
       }
       // dirty plate held over the basin while washing (itemGroup mirrors the pan/board pattern)
       const itemGroup = new THREE.Group();
@@ -6760,12 +6782,15 @@
           holdWrap.add(ring);
         } else {
           // multi-carry stack: render EVERY item in chef.holding (bottom of array = bottom of
-          // stack), each nudged up + given a small alternating tilt so 2-3 items read distinctly.
-          const STACK_RISE = 0.16, STACK_TILT = 0.22;
+          // stack). Cleanup pass (user): items used to overlap at 0.16 rise — now a COMICALLY
+          // TALL tower (each item a full step above the last, tiny alternating wobble so it
+          // reads precarious and fun).
+          const STACK_RISE = 0.5, STACK_TILT = 0.12;
           chef.holding.forEach((item, i) => {
             const m = makeItemMesh(item.kind, item.state);
             m.position.y = 0.15 + bobHeld + i * STACK_RISE;
             m.rotation.z = (i % 2 === 0 ? 1 : -1) * STACK_TILT * Math.min(i, 1);
+            m.position.x = (i % 2 === 0 ? 1 : -1) * 0.03 * Math.min(i, 1);
             holdWrap.add(m);
           });
           const ring = makeHeldOutlineRing(0.22);
@@ -7960,13 +7985,15 @@
     // resetSoundReactionBaseline uses for its own once-per-day flags).
     let windDownChimePlayed = false;
     function updateSunClock(){
-      const t = Math.max(0, Math.ceil(G.dayLeft));
+      // ENDLESS MODE: the clock counts UP (survival time) and never goes amber/pulses.
+      const endless = !!CURRENT_LEVEL.endless;
+      const t = endless ? Math.floor(G.runT || 0) : Math.max(0, Math.ceil(G.dayLeft));
       const m = Math.floor(t / 60), s = t % 60;
-      clockNumEl.textContent = m + ":" + String(s).padStart(2, "0");
-      sunClockEl.classList.toggle("amber", G.dayLeft < 30);
+      clockNumEl.textContent = (endless ? "♾ " : "") + m + ":" + String(s).padStart(2, "0");
+      sunClockEl.classList.toggle("amber", !endless && G.dayLeft < 30);
 
-      if (G.dayLeft > 35) windDownChimePlayed = false;   // re-arm once a fresh day is well underway
-      if (!windDownChimePlayed && G.dayLeft <= 30 && G.dayLeft > 0 && G.phase === "playing"){
+      if (endless || G.dayLeft > 35) windDownChimePlayed = false;   // re-arm once a fresh day is well underway
+      if (!endless && !windDownChimePlayed && G.dayLeft <= 30 && G.dayLeft > 0 && G.phase === "playing"){
         windDownChimePlayed = true;
         Snd.windDownChime();
       }
@@ -7974,7 +8001,7 @@
       // last-10-seconds pulse: toggle between the two scale classes on a fixed ~0.5s cadence
       // (the CSS transition itself provides the smooth grow/shrink motion) — stateless, driven
       // straight off performance.now() like the rest of this file's timer-free cosmetic toggles.
-      const pulsing = G.dayLeft <= 10 && G.dayLeft > 0 && G.phase === "playing";
+      const pulsing = !endless && G.dayLeft <= 10 && G.dayLeft > 0 && G.phase === "playing";
       if (pulsing){
         const big = Math.floor(performance.now() / 500) % 2 === 0;
         sunClockEl.classList.toggle("pulseBig", big);
@@ -8055,8 +8082,8 @@
       // is declared above this in module order, so reading it here at init time is safe.)
       1: ["Salad Days: chop tomato & lettuce, then plate them!",
           "Customers wait OUTSIDE the kitchen — look for their order bubble!",
-          isTouchDevice ? "Hold 🏀 to charge the LOB — longer hold = farther throw!"
-                        : "Hold V to charge the LOB — longer hold = farther throw!",
+          isTouchDevice ? "Hold 🏀 to aim the LOB — it always flies the same distance!"
+                        : "Hold V to aim the LOB — it always flies the same distance!",
           "Land it NEAR a customer and they'll run to grab it!"],
       2: ["Soup: chop tomato, onion & potato...", "...then drop them in the pot!", "Hold WORK at the pot to stir it faster!", "Grab a plate from the stack by the sink, then collect the soup!"],
       3: ["Burger: put a raw patty on the pan to grill it!", "Chop lettuce & tomato while it grills!", "Bun + patty + lettuce + tomato — all on one plate!"],
@@ -8132,7 +8159,7 @@
         // FIELD-CUSTOMER REWORK: delivery = LOB the finished dish out to the waiting customer.
         const owner = G.customers.find(c => c.state === "waiting" && c.dish === top.dish);
         const lobKey = isTouchDevice ? "Hold 🏀" : "Hold V";
-        const lobMsg = owner ? (lobKey + " to charge a LOB near the customer!")
+        const lobMsg = owner ? (lobKey + " to aim a LOB near the customer!")
                              : "Hold it — a customer will want that soon!";
         msg = urgentOrder ? ("Quick — " + lobKey + " to lob the dish! ⏰") : lobMsg;
       } else if (top && top.kind === "plate" && !top.dish){
@@ -8561,7 +8588,20 @@
       victoryServedNumEl.textContent = String(G.stats.served);
       victoryLostNumEl.textContent = String(G.stats.missed);
       victoryTipsNumEl.textContent = String(G.stats.tips);
-      victoryLineEl.textContent = victoryLineFor(G.stats.served, G.stats.missed);
+      // ENDLESS MODE: game-over presentation — survived time instead of stars, best-money chip.
+      const endless = !!CURRENT_LEVEL.endless;
+      document.getElementById("victoryTitle").textContent = endless ? "THE RUSH GOT YOU! 🐔" : "DAY COMPLETE! 🎉";
+      document.getElementById("victoryStars").style.display = endless ? "none" : "";
+      if (endless){
+        const t = Math.floor(G.runT || 0);
+        const mm = Math.floor(t / 60), ss = String(t % 60).padStart(2, "0");
+        let best = 0;
+        try { best = +localStorage.getItem(ENDLESS_BEST_KEY) || 0; } catch (err) {}
+        victoryLineEl.textContent = "Survived " + mm + ":" + ss + " — " +
+          (G.money > best ? "NEW BEST! 🏆" : "best so far: 🏆 " + best + " 🪙");
+      } else {
+        victoryLineEl.textContent = victoryLineFor(G.stats.served, G.stats.missed);
+      }
 
       // host gets the button, guest gets the waiting message — guests pressing anything must
       // never desync, so the guest simply never sees a button wired to hostResetDay.
@@ -8573,16 +8613,26 @@
         victoryShown = true;
         Snd.victory();
         spawnVictoryConfetti();
-        const earned = starsForMoney(G.money);
-        // host persists best-stars locally (its own browser); guests just display, never write.
-        if (net.isHost) saveBestStarsIfImproved(CURRENT_LEVEL.id, earned);
-        // reveal stars one at a time with a pop + chime each, even 0-star runs stay cheerful
-        // (the "Good practice!" line above already covers that tone).
-        for (let i = 0; i < earned; i++){
-          setTimeout(() => {
-            bigStarEls[i].classList.add("earned");
-            Snd.starChime(i);
-          }, 350 + i * 450);
+        if (CURRENT_LEVEL.endless){
+          // ENDLESS: persist best money (host's browser) instead of stars.
+          if (net.isHost){
+            try {
+              const best = +localStorage.getItem(ENDLESS_BEST_KEY) || 0;
+              if (G.money > best) localStorage.setItem(ENDLESS_BEST_KEY, String(G.money));
+            } catch (err) {}
+          }
+        } else {
+          const earned = starsForMoney(G.money);
+          // host persists best-stars locally (its own browser); guests just display, never write.
+          if (net.isHost) saveBestStarsIfImproved(CURRENT_LEVEL.id, earned);
+          // reveal stars one at a time with a pop + chime each, even 0-star runs stay cheerful
+          // (the "Good practice!" line above already covers that tone).
+          for (let i = 0; i < earned; i++){
+            setTimeout(() => {
+              bigStarEls[i].classList.add("earned");
+              Snd.starChime(i);
+            }, 350 + i * 450);
+          }
         }
       }
     }
@@ -8603,6 +8653,7 @@
 
     function isLevelUnlocked(idx, bestStars){
       if (idx === 0) return true;
+      if (LEVELS[idx].endless) return true;   // ENDLESS is always open — it punishes itself
       const prevId = LEVELS[idx - 1].id;
       return (bestStars[prevId] || 0) >= 1;
     }
@@ -8649,9 +8700,16 @@
         const oldLock = card.querySelector(".lcLock");
         if (oldLock) oldLock.remove();
         if (unlocked){
-          const earned = bestStars[lvl.id] || 0;
           starsEl.style.display = "";
-          starsEl.textContent = "⭐".repeat(earned) + "☆".repeat(3 - earned);
+          if (lvl.endless){
+            // ENDLESS card shows the best-money trophy instead of stars.
+            let best = 0;
+            try { best = +localStorage.getItem(ENDLESS_BEST_KEY) || 0; } catch (err) {}
+            starsEl.textContent = best > 0 ? "🏆 " + best : "🏆 —";
+          } else {
+            const earned = bestStars[lvl.id] || 0;
+            starsEl.textContent = "⭐".repeat(earned) + "☆".repeat(3 - earned);
+          }
         } else {
           starsEl.style.display = "none";
           const lock = document.createElement("div");
@@ -9075,6 +9133,7 @@
         money: G.money,
         phase: G.phase,
         dayLeft: G.dayLeft,
+        runT: G.runT || 0,   // ENDLESS: survival clock (guest HUD + game-over line)
         stats: {
           served: G.stats.served, missed: G.stats.missed, thrown: G.stats.thrown, caught: G.stats.caught,
           floorDrops: G.stats.floorDrops, tips: G.stats.tips, orderedCount: G.stats.orderedCount || 0
@@ -9164,6 +9223,7 @@
       G.plateStack.top = snap.plateStackTop ? { kind: "plate", contents: snap.plateStackTop.contents.map(c => ({ ...c })), dish: snap.plateStackTop.dish || null } : null;
       if (snap.phase) G.phase = snap.phase;
       if (typeof snap.dayLeft === "number") G.dayLeft = snap.dayLeft;
+      if (typeof snap.runT === "number") G.runT = snap.runT;   // ENDLESS survival clock
       if (snap.stats){
         G.stats.served = snap.stats.served; G.stats.missed = snap.stats.missed;
         G.stats.thrown = snap.stats.thrown || 0; G.stats.caught = snap.stats.caught || 0;
