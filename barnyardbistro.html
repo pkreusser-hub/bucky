@@ -1903,6 +1903,30 @@
     // successfully grabs it instead of wobbling, while every existing station interaction keeps its
     // exact original priority (this is only ever reached once a station/slot's own branch has
     // already decided it has nothing productive to do with empty hands).
+    // WALK-OVER PICKUP (user-requested): any chef walking over a resting floor item just scoops
+    // it into their hands — no button needed. Same item shapes and holdPush room/compatibility
+    // rules as the manual pickup below; incompatible or full hands simply walk past. Bumping the
+    // chef's lastCatchId reuses the existing catch pop/sound so the pickup reads on BOTH screens.
+    // HOST-AUTHORITATIVE — runs every hostSim tick for every chef.
+    const WALKOVER_PICKUP_R = 0.62;
+    function hostAutoPickup(){
+      for (let i = G.floorItems.length - 1; i >= 0; i--){
+        const f = G.floorItems[i];
+        for (const cid in G.chefs){
+          const c = G.chefs[cid];
+          if (Math.hypot(c.x - f.x, c.z - f.z) > WALKOVER_PICKUP_R) continue;
+          let item;
+          if (f.kind === "plate")         item = { kind: "plate", contents: (f.contents || []).map(x => ({ ...x })), dish: f.dish || null };
+          else if (f.kind === "pizzaDish") item = { kind: "pizzaDish", state: f.state, dish: f.dish || null };
+          else                             item = { kind: f.kind, state: f.state };
+          if (!holdPush(c, item)) continue;   // no room / incompatible — walk on past
+          c.lastCatchId = (c.lastCatchId || 0) + 1;
+          G.floorItems.splice(i, 1);
+          break;
+        }
+      }
+    }
+
     function tryFloorPickup(chef){
       const floorItem = nearestFloorItem(chef);
       if (!floorItem) return false;
@@ -3857,6 +3881,7 @@
       advanceCustomers(dt);
       tickCustomerPatience(dt);
       hostResolveClaims(dt);   // FIELD-CUSTOMER REWORK: match resting dishes to hungry diners
+      hostAutoPickup();        // WALK-OVER PICKUP: chefs scoop up floor items they step on
 
       // last DAY_SPAWN_CUTOFF seconds: let the kids finish what's already up, no new customers.
       // (Endless never winds down — the whole point is the ever-rising tide.)
