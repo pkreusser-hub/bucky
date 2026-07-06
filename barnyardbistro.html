@@ -2537,10 +2537,23 @@
         if (Math.hypot(c.x - chef.x, c.z - chef.z) > THROW_MAX_RANGE) continue;
         candidates.push({ x: c.x, z: c.z, priority: 0 });
       }
-      if (!isCompletedDish){
-        // plates in reach: the plate-stack top, or any counter slot holding a plate. Only
+      if (item.kind === "dirtyPlate"){
+        // THROW-TARGET polish (user): dirty plates aim-assist toward the SINK first (the wash
+        // relay's whole point), the dirty bin second — they used to bend toward plates/boards,
+        // targets they can't even land on.
+        if ((G.sink.parked || 0) < SINK_PARK_MAX){
+          const sinkSt = stationById("sink");
+          candidates.push({ x: sinkSt.x, z: sinkSt.z, priority: 1 });
+        }
+        if (G.plates.dirtyQueue.length < DIRTY_PLATE_MAX){
+          const binSt = stationById("dirtyBin");
+          candidates.push({ x: binSt.x, z: binSt.z, priority: 2 });
+        }
+      } else if (!isCompletedDish){
+        // plates in reach: the plate-stack top (or a fresh stack with clean plates ready to
+        // start one — THROW-TARGET polish), or any counter slot holding a plate. Only
         // meaningful for an ingredient/in-progress-plate throw still being assembled.
-        if (G.plateStack.top){
+        if (G.plateStack.top || (G.plates.clean > 0 && isLegalPlateAddition([], item))){
           const stackSt = stationById("plateStack");
           candidates.push({ x: stackSt.x, z: stackSt.z, priority: 1 });
         }
@@ -2558,12 +2571,15 @@
         if (c.state !== "waiting") continue;
         candidates.push({ x: c.x, z: c.z, priority: 3 });
       }
-      let best = null, bestPriority = Infinity, bestDiff = AIM_ASSIST_CONE;
+      // THROW-TARGET polish (user): dirty plates get a WIDER assist cone toward the sink/bin —
+      // "bias when thrown towards a sink" means a rough aim should be enough for the wash relay.
+      const cone = item.kind === "dirtyPlate" ? 0.38 : AIM_ASSIST_CONE;
+      let best = null, bestPriority = Infinity, bestDiff = cone;
       const curAngle = chef.dir;
       for (const cand of candidates){
         const targetAngle = angleTo(chef, cand.x, cand.z);
         const diff = angleDiff(curAngle, targetAngle);
-        if (diff > AIM_ASSIST_CONE) continue;
+        if (diff > cone) continue;
         if (cand.priority < bestPriority || (cand.priority === bestPriority && diff < bestDiff)){
           best = targetAngle; bestPriority = cand.priority; bestDiff = diff;
         }
@@ -2737,13 +2753,29 @@
       }
       return null;
     }
-    const THROW_SINK_R = 0.85;      // radius for a thrown dirty plate to park at the sink
+    const THROW_SINK_R = 1.15;      // radius for a thrown dirty plate to park at the sink (biased, user)
     const THROW_BIN_R = 0.85;       // radius for a thrown dirty plate to land in the dirty bin
+    const THROW_CRATE_R = 0.85;     // radius for a raw ingredient to be absorbed by its own crate
     // Gathers every viable landing candidate for a thrown ingredient (kind/state) near (x,z),
     // each tagged with its raw distance and a type weight, then resolves ties per the scheme
     // above. Returns { type, apply } for the winner, or null if nothing is in range at all.
     function resolveIngredientLanding(kind, state, x, z){
       const candidates = [];
+      // THROW-TARGET polish (user): a RAW ingredient thrown at ITS OWN (active) crate is simply
+      // absorbed — back in the box, gone from play. Matching kind + raw state only: a chopped
+      // item can't go back, and someone else's box won't eat your ingredient.
+      if (state === "raw" && kind !== "dirtyPlate"){
+        for (const st of G.stations){
+          if (st.type !== "crate" || st.kind !== kind || !stationActive(st)) continue;
+          const dxc = Math.max(Math.abs(x - st.x) - st.w/2, 0);
+          const dzc = Math.max(Math.abs(z - st.z) - st.d/2, 0);
+          const dc = Math.hypot(dxc, dzc);
+          if (dc <= THROW_CRATE_R){
+            candidates.push({ type: "crate", weight: 2, dist: dc, anchor: { x: st.x, z: st.z },
+              apply(){ /* absorbed back into the box */ } });
+          }
+        }
+      }
       // Family playtest fix #2: a thrown DIRTY PLATE prefers the SINK (parks there, consumed
       // first by washing) over the dirty BIN when comparable-distance, via the same weight/tie
       // scheme as every other type-aware bias here — never a board/clean-plate candidate (a dirty
@@ -2786,6 +2818,22 @@
             plate.contents.push({ kind, state });
             plateWobbleT.v = 0.35;
           } });
+        }
+        // THROW-TARGET polish (user): a plate-ready ingredient thrown at the PLATE STACK with no
+        // assembly in progress pulls a clean plate and STARTS one — same rule the walk-up add
+        // uses, now available by air mail.
+        if (!G.plateStack.top && G.plates.clean > 0 && isLegalPlateAddition([], { kind, state })){
+          const stackSt = stationById("plateStack");
+          const dxp = Math.max(Math.abs(x - stackSt.x) - stackSt.w/2, 0);
+          const dzp = Math.max(Math.abs(z - stackSt.z) - stackSt.d/2, 0);
+          const dp = Math.hypot(dxp, dzp);
+          if (dp <= THROW_PLATE_R){
+            candidates.push({ type: "plate", weight: 3, dist: dp, anchor: { x: stackSt.x, z: stackSt.z }, apply(){
+              G.plates.clean--;
+              G.plateStack.top = { kind: "plate", contents: [{ kind, state }], dish: null };
+              plateWobbleT.v = 0.35;
+            } });
+          }
         }
         const appliance = nextApplianceCandidate(kind, state);
         if (appliance){
