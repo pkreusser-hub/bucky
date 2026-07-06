@@ -4648,14 +4648,14 @@
     // (held/counter/floor/flying via makeRawItemMesh/makeItemMesh) — dispensers themselves no
     // longer show a floating 3D ingredient model (flat decal only, see buildCrate), so this only
     // covers those other contexts now.
-    loadStaticProp("tomato", "assets/tomato.glb", { maxDim: 0.72 });
-    loadStaticProp("lettuce", "assets/lettuce.glb", { maxDim: 0.78 });
-    loadStaticProp("onion", "assets/onion.glb", { maxDim: 0.68 });
-    loadStaticProp("potato", "assets/potato.glb", { maxDim: 0.7 });
-    loadStaticProp("bun", "assets/bun.glb", { maxDim: 0.72 });
+    loadStaticProp("tomato", "assets/tomato.glb", { maxDim: 0.8 });    // POLISH: +~12% ingredient size
+    loadStaticProp("lettuce", "assets/lettuce.glb", { maxDim: 0.86 });
+    loadStaticProp("onion", "assets/onion.glb", { maxDim: 0.76 });
+    loadStaticProp("potato", "assets/potato.glb", { maxDim: 0.78 });
+    loadStaticProp("bun", "assets/bun.glb", { maxDim: 0.8 });
     loadStaticProp("patty", "assets/patty.glb", { maxDim: 0.68 });
-    loadStaticProp("dough", "assets/dough.glb", { maxDim: 0.78 });
-    loadStaticProp("cheese", "assets/cheese.glb", { maxDim: 0.7 });
+    loadStaticProp("dough", "assets/dough.glb", { maxDim: 0.86 });
+    loadStaticProp("cheese", "assets/cheese.glb", { maxDim: 0.78 });
     // Tier-1 batch: Bucky the baby goat — static prop loader pattern (same as every other GLB
     // above), height ~0.9 per the design doc, feet on ground (cloneStaticProp already does that
     // via its minY offset — see buildBuckyMesh below for how it's used).
@@ -4777,7 +4777,14 @@
       ctx.arcTo(s, -s, s, s, r); ctx.arcTo(s, s, -s, s, r);
       ctx.arcTo(-s, s, -s, -s, r); ctx.arcTo(-s, -s, s, -s, r);
       ctx.closePath(); ctx.fill();
+      // POLISH PASS: warm border so the lid poster pops against the wood, art drawn ~15% larger
+      ctx.lineWidth = 7;
+      ctx.strokeStyle = "#e0a850";
+      ctx.stroke();
+      ctx.save();
+      ctx.scale(1.15, 1.15);
       if (drawer) drawer(ctx);
+      ctx.restore();
       const tex = new THREE.CanvasTexture(canvas);
       tex.needsUpdate = true;
       SHARED_ASSETS.add(tex);
@@ -4920,18 +4927,22 @@
     function buildTrash(st){
       const g = new THREE.Group();
       let highlightTarget;
-      if (PROP_TEMPLATES["trash-can"]){
-        const can = cloneStaticProp(PROP_TEMPLATES["trash-can"]);
-        can.position.set(st.x, CH - 0.35, st.z);
-        g.add(can);
-        highlightTarget = can;
-      } else {
-        const bin = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.35, 0.7, 12), mat(0x3a3a3a));
-        bin.position.set(st.x, CH - 0.35 + 0.35, st.z);
+      // POLISH PASS (user: "clean and bright and fun"): the trash-can GLB rendered nearly BLACK
+      // at gameplay zoom — it read as a hole in the counter. Always build the procedural can,
+      // restyled: sage-green body, cream lid with a knob, darker base band for grounding.
+      {
+        const bin = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.3, 0.62, 14), mat(0x8fb89b, true));
+        bin.position.set(st.x, CH + 0.06, st.z);
         g.add(bin);
-        const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.44, 0.08, 12), mat(0x2a2a2a));
-        lid.position.set(st.x, CH + 0.35, st.z);
+        const band = new THREE.Mesh(new THREE.CylinderGeometry(0.31, 0.31, 0.1, 14), mat(0x6a9878, true));
+        band.position.set(st.x, CH - 0.2, st.z);
+        g.add(band);
+        const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.09, 14), mat(0xe8e2d2, true));
+        lid.position.set(st.x, CH + 0.4, st.z);
         g.add(lid);
+        const knob = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.08, 8), mat(0x6a9878, true));
+        knob.position.set(st.x, CH + 0.48, st.z);
+        g.add(knob);
         highlightTarget = bin;
       }
       scene.add(g);
@@ -4972,7 +4983,8 @@
       const bodyW = st.w - TILE_GAP, bodyD = st.d - TILE_GAP;
       const feetH = 0.06;
       const bodyH = CH - feetH;
-      const bodyM = mat(0x707880, true);   // cool appliance-steel tone, distinct from the wood counters/dispensers
+      const accent = st.type === "stove" ? 0xd85440 : 0x4a86d8;   // POLISH: stove = warm red door, oven = blue
+      const bodyM = mat(0xece7db, true);   // POLISH PASS: cream enamel — bright, reads as a cheerful appliance
       const body = new THREE.Mesh(new THREE.BoxGeometry(bodyW, bodyH, bodyD), bodyM);
       body.position.set(st.x, feetH + bodyH / 2, st.z);
       g.add(body);
@@ -4988,7 +5000,7 @@
       const faceOffset = { x: dir.x * (bodyD/2 + 0.02), z: dir.z * (bodyD/2 + 0.02) };
       const doorY = feetH + bodyH * 0.42;
       const faceW = Math.max(bodyW, bodyD) * 0.72;
-      const doorM = mat(0x4a4a4a, true);
+      const doorM = mat(accent, true);
       const door = new THREE.Mesh(new THREE.BoxGeometry(
         dir.x !== 0 ? 0.04 : faceW, bodyH * 0.6, dir.x !== 0 ? faceW : 0.04
       ), doorM);
@@ -5003,7 +5015,7 @@
       glowWindow.visible = false;
       g.add(glowWindow);
       // handle: a small horizontal bar mounted just past the door's outer edge
-      const handleM = mat(0x2a2a2a, true);
+      const handleM = mat(0xf2ede0, true);   // POLISH: light handle pops on the colored door
       const handle = new THREE.Mesh(new THREE.BoxGeometry(
         dir.x !== 0 ? 0.05 : faceW * 0.5, 0.05, dir.x !== 0 ? faceW * 0.5 : 0.05
       ), handleM);
@@ -5054,16 +5066,16 @@
       // the appliance's own absolute world-space top surface (it's floor-standing from y=0, not
       // sitting on a counter tile), so the pot goes directly on top of it — no extra CH offset.
       const potY = body.topY;
-      const potBody = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.37, 0.42, 16), mat(0x1c1c1c, true));
+      const potBody = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.37, 0.42, 16), mat(0xd0483a, true));   // POLISH: red enamel pot
       potBody.position.set(st.x, potY + 0.21, st.z);
       g.add(potBody);
-      const potRim = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.035, 8, 16), mat(0x2a2a2a));
+      const potRim = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.035, 8, 16), mat(0xa83a2e));
       potRim.rotation.x = Math.PI / 2;
       potRim.position.set(st.x, potY + 0.42, st.z);
       g.add(potRim);
       // two small side handles so the pot reads as a pot (not a bucket) from any angle.
       const handleGeo = new THREE.TorusGeometry(0.06, 0.015, 6, 10, Math.PI);
-      const handleM = mat(0x1c1c1c);
+      const handleM = mat(0x8a2e24);
       for (const side of [-1, 1]){
         const h = new THREE.Mesh(handleGeo, handleM);
         h.rotation.z = Math.PI / 2;
@@ -5083,7 +5095,7 @@
       // while something's actually cooking — jiggles/rattles in syncCookingStationVisuals as a
       // "boiling hard enough to rattle the lid" cue. Independent group (not a child of `liquid`)
       // so its jiggle motion doesn't fight the liquid's own bob.
-      const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.37, 0.37, 0.04, 14), mat(0x9a9a9a, true));
+      const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.37, 0.37, 0.04, 14), mat(0xe8e2d6, true));
       const lidKnob = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), mat(0x707070));
       lidKnob.position.y = 0.05;
       lid.add(lidKnob);
