@@ -2439,13 +2439,26 @@
     // holding a completed dish, the lob bends toward the nearest matching waiting customer in a
     // wide cone AND flies exactly the distance to them (a well-aimed lob = BULLSEYE catch).
     const LOB_SPEED = 9;
-    // Playtest tune 2 (user: "lob distance is too far, cut in half"): 13 → 6.5. This is ALSO the
-    // "animals never fetch" fix — at 13 every unassisted lob overshot and field-clamped BEYOND
-    // the 6.5 claim radius, so misses always fed the crow while on-target lobs bullseyed
-    // instantly; nothing ever landed in the walk-and-fetch band. At 6.5 a missed lob comes down
-    // near the ring where the claim race can actually reach it. (Aim-assisted lobs still fly the
-    // exact distance to their customer — delivery range is unchanged.)
-    const LOB_DEFAULT_RANGE = 6.5;
+    // Playtest fix round 3 (user: dishes landing "on" customers never delivered, animals never
+    // fetched, crow never fired): the fixed default range was the root cause BOTH ways — at 13
+    // every miss overshot past CLAIM_R, and at 6.5 most lobs from inside the 16-deep kitchen
+    // came down ON the kitchen floor / counter band, where the claim system and the crow both
+    // (correctly) ignore them, while READING as "landed right on the customer" from the camera.
+    // Fix: the unassisted range is now ADAPTIVE — every lob flies just far enough to clear the
+    // walls in the facing direction and land mid-field-band, so it is ALWAYS a real exterior
+    // delivery attempt. Aim-assisted lobs still fly the exact distance to their customer.
+    const LOB_LAND_PAD = 1.45;        // land this far beyond the wall (middle of the field band)
+    const LOB_RANGE_FALLBACK = 6.5;   // safety only (should never be hit — every dir exits)
+    function lobExitRange(x, z, dir){
+      const sx = Math.sin(dir), cz = Math.cos(dir);
+      let best = Infinity;
+      if (sx >  1e-6) best = Math.min(best, (( HALF_W + LOB_LAND_PAD) - x) / sx);
+      if (sx < -1e-6) best = Math.min(best, ((-HALF_W - LOB_LAND_PAD) - x) / sx);
+      if (cz >  1e-6) best = Math.min(best, (( HALF_D + LOB_LAND_PAD) - z) / cz);
+      if (cz < -1e-6) best = Math.min(best, ((-HALF_D - LOB_LAND_PAD) - z) / cz);
+      if (!isFinite(best)) return LOB_RANGE_FALLBACK;
+      return Math.max(2.5, Math.min(best, 20));   // minimum toss; sanity cap
+    }
     const LOB_ASSIST_CONE = 0.6;   // radians (~34°) — wider than throw assist; lobs are the point
     function tryLob(chefId){
       const chef = G.chefs[chefId];
@@ -2456,7 +2469,7 @@
       if (NOT_THROWABLE_KINDS.has(topPeek.kind)){ wobble(chefId); return; }
       const item = holdPop(chef);
       const dishId = item.kind === "pizzaDish" ? (item.dish || "pizza") : (item.kind === "plate" ? item.dish : null);
-      let lobDir = chef.dir, lobRange = LOB_DEFAULT_RANGE;
+      let lobDir = chef.dir, lobRange = lobExitRange(chef.x, chef.z, chef.dir);
       if (dishId){
         let best = null, bestDiff = LOB_ASSIST_CONE;
         for (const c of G.customers){
@@ -2724,7 +2737,7 @@
         //     hostResolveClaims lets a nearby matching customer trot over, or the crow eventually
         //     tidies it up. A short lob that comes down INSIDE the kitchen is a normal floor item.
         if (f.lob){
-          if (f.dist < (f.lobRange || LOB_DEFAULT_RANGE)){ f.x = nx; f.z = nz; continue; }
+          if (f.dist < (f.lobRange || LOB_RANGE_FALLBACK)){ f.x = nx; f.z = nz; continue; }
           const dishId = f.kind === "pizzaDish" ? (f.dish || "pizza") : (isPlate ? f.dish : null);
           if (dishId){
             let best = null, bestD = BULLSEYE_R;
@@ -3000,7 +3013,7 @@
     // the nearest matching waiting customer within LOB_ASSIST_CONE.
     function simulateLobPath(chef, chefId, item){
       const dishId = item.kind === "pizzaDish" ? (item.dish || "pizza") : (item.kind === "plate" ? item.dish : null);
-      let lobDir = chef.dir, lobRange = LOB_DEFAULT_RANGE, target = null;
+      let lobDir = chef.dir, lobRange = lobExitRange(chef.x, chef.z, chef.dir), target = null;
       if (dishId){
         let bestDiff = LOB_ASSIST_CONE;
         for (const c of G.customers){
