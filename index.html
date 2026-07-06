@@ -191,12 +191,14 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   li.wo { display: flex; flex-direction: column; align-items: stretch; gap: 0; padding: 0; overflow: hidden; }
   li.wo.done { opacity: .6; }
   li.wo.done .name { text-decoration: line-through; }
+  li.wo.wo-pending { border: 2px solid #e0a610; box-shadow: 0 0 0 1px #e0a610 inset; background: #fffdf5; }
   .wo-top { display: flex; align-items: center; gap: 10px; padding: 12px 14px 6px; }
   .wo-top .name { flex: 1; min-width: 0; font-size: 16px; font-weight: 700; }
   .wo-thumb { width: 44px; height: 44px; border-radius: 10px; object-fit: cover; flex: 0 0 auto; background: #e9e7dd; }
   .wo-status { flex: 0 0 auto; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; padding: 3px 9px; border-radius: 999px; }
   .wo-status.open { background: #fff1c2; color: #8a6d1a; }
   .wo-status.done { background: #e7eefb; color: var(--green); }
+  .wo-status.pending { background: #f0d98a; color: #6b4e00; text-transform: none; letter-spacing: 0; }
   .wo-meta { padding: 0 14px 8px; font-size: 13px; color: var(--muted); }
   .wo-meta .due.overdue { color: var(--red); font-weight: 700; }
   .wo-money { font-weight: 700; color: var(--green); }
@@ -2075,9 +2077,22 @@ function renderWorkOrders(){
   document.getElementById("empty").style.display = wos.length ? "none" : "block";
   if (!wos.length) document.getElementById("empty").innerHTML = "No work orders yet.<br>Tap the + button to add one.";
 
-  // Open work orders grouped by assignee — your own group first & expanded, others collapsed
+  // Open/active work orders: not-yet-done, PLUS done-but-awaiting-Dad's-payout-confirmation —
+  // those are still "active" from the family's point of view (money hasn't moved yet), so they
+  // stay out of Closed until Dad actually confirms or reopens them.
+  const pendingPayoutWos = wos.filter(w => w.done && w.payoutPending);
   const openWos = wos.filter(w => !w.done);
-  const closedWos = wos.filter(w => w.done);
+  const closedWos = wos.filter(w => w.done && !w.payoutPending);
+  const activeCount = openWos.length + pendingPayoutWos.length;
+
+  // Payout-pending cards render first, above the assignee groups, so they can't be missed.
+  if (pendingPayoutWos.length){
+    const key = "wo_payout_pending";
+    list.appendChild(woGroupHeader("💰 Awaiting payout confirmation", key, pendingPayoutWos.length));
+    if (!collapsedGroups.has(key)) for (const w of pendingPayoutWos.sort((a,b)=> (a.doneAt||0)-(b.doneAt||0))) list.appendChild(buildWoCard(w));
+  }
+
+  // Open work orders grouped by assignee — your own group first & expanded, others collapsed
   const groups = {};
   for (const w of openWos){ const a = (w.assignee||"").trim(); const k = a || "__unassigned"; (groups[k] = groups[k] || []).push(w); }
   const me = myName();
@@ -2103,20 +2118,22 @@ function renderWorkOrders(){
     if (!collapsedGroups.has(key)) for (const w of closedWos.sort((a,b)=> (b.doneAt||0)-(a.doneAt||0))) list.appendChild(buildWoCard(w));
   }
 
-  const open = openWos.length;
   document.getElementById("progressText").textContent =
-    wos.length ? `${open} open · ${wos.length - open} completed` : "No work orders";
+    wos.length ? `${activeCount} open · ${closedWos.length} completed` : "No work orders";
 }
 
 function buildWoCard(w){
+  const pending = !!(w.done && w.payoutPending);   // done, but money hasn't moved yet — treated as active
   const li = document.createElement("li");
-  li.className = "wo" + (w.done ? " done" : "") + (w.value ? " wo-hasvalue" : "");
+  li.className = "wo" + (w.done && !pending ? " done" : "") + (pending ? " wo-pending" : "") + (w.value ? " wo-hasvalue" : "");
 
   const top = document.createElement("div");
   top.className = "wo-top";
   if (w.photo){ const im = document.createElement("img"); im.className = "wo-thumb"; im.src = w.photo; im.alt = ""; top.appendChild(im); }
   const name = document.createElement("div"); name.className = "name"; name.textContent = w.name;
-  const status = document.createElement("span"); status.className = "wo-status " + (w.done ? "done" : "open"); status.textContent = w.done ? "Done" : "Open";
+  const status = document.createElement("span");
+  status.className = "wo-status " + (pending ? "pending" : (w.done ? "done" : "open"));
+  status.textContent = pending ? "💰 Needs Dad's confirmation" : (w.done ? "Done" : "Open");
   const edit = document.createElement("button"); edit.className = "iconbtn"; edit.innerHTML = "✎"; edit.onclick = () => openWorkOrderSheet(w);
   top.append(name, status, edit);
   li.appendChild(top);
@@ -2156,25 +2173,35 @@ function buildWoCard(w){
     li.appendChild(pwrap);
   }
 
-  // Payout confirmation card: Dad sees this on a completed kid work order awaiting a decision.
-  if (w.done && w.payoutPending && myName() === BANK_ADMIN){
+  // Payout confirmation card: everyone sees the amber "awaiting confirmation" card + tag;
+  // the Confirm/Not-yet buttons are Dad-only (BANK_ADMIN) — other users get a read-only card.
+  if (pending){
     const pc = document.createElement("div"); pc.className = "payout-card";
     const head = document.createElement("div"); head.className = "payout-head";
     head.textContent = `💰 Confirm: ${w.doneBy} finished "${w.name}" ($${w.value})`;
-    const pa = document.createElement("div"); pa.className = "payout-actions";
-    const conf = document.createElement("button"); conf.className = "payout-confirm-btn";
-    conf.textContent = `Confirm $${w.value} → ${w.doneBy} 💰`;
-    conf.onclick = () => confirmPayout(w);
-    const notyet = document.createElement("button"); notyet.className = "payout-notyet-btn";
-    notyet.textContent = "Not yet";
-    notyet.onclick = () => notYetPayout(w);
-    pa.append(conf, notyet);
-    pc.append(head, pa);
+    pc.appendChild(head);
+    if (myName() === BANK_ADMIN){
+      const pa = document.createElement("div"); pa.className = "payout-actions";
+      const conf = document.createElement("button"); conf.className = "payout-confirm-btn";
+      conf.textContent = `Confirm $${w.value} → ${w.doneBy} 💰`;
+      conf.onclick = () => confirmPayout(w);
+      const notyet = document.createElement("button"); notyet.className = "payout-notyet-btn";
+      notyet.textContent = "Not yet";
+      notyet.onclick = () => notYetPayout(w);
+      pa.append(conf, notyet);
+      pc.appendChild(pa);
+    }
     li.appendChild(pc);
   }
 
   const actions = document.createElement("div"); actions.className = "wo-actions";
-  if (w.done){
+  if (pending){
+    const info = document.createElement("div");
+    info.style.flex = "1"; info.style.fontSize = "13px"; info.style.color = "var(--muted)";
+    info.textContent = `Completed${w.doneBy ? " by " + w.doneBy : ""}${w.doneAt ? " · " + fmtDate(w.doneAt) : ""} — awaiting confirmation`;
+    actions.appendChild(info);
+    if (w.donePhoto){ const im = document.createElement("img"); im.className = "donephoto"; im.src = w.donePhoto; im.alt = ""; im.style.cursor = "pointer"; im.onclick = () => openPhoto(w.donePhoto); actions.appendChild(im); }
+  } else if (w.done){
     const info = document.createElement("div");
     info.style.flex = "1"; info.style.fontSize = "13px"; info.style.color = "var(--muted)";
     info.textContent = `Completed${w.doneBy ? " by " + w.doneBy : ""}${w.doneAt ? " · " + fmtDate(w.doneAt) : ""}`;
@@ -2720,28 +2747,45 @@ function kidBalance(kid){
 async function addLedgerEntry(kid, amount, desc, by, kind, extra){
   return backend.add(Object.assign({ frequency:"kidbank", kid, amount, desc, by, at: Date.now(), kind }, extra || {}));
 }
-// One-time seed per kid: Isaac starts at $0, Eleanor at $40. Lazy + idempotent — checks for an
-// existing seed doc before writing (query-first). The in-memory "attempted" guard only stops
-// THIS session from firing a second write while the cloud round-trip is in flight; the real
-// idempotency is the existence check against `chores`, which is re-run on every call (cheap
-// filter) so it also self-heals: if two devices ever raced and both inserted a seed doc (visible
-// once the snapshot listener delivers both), whichever tab notices the duplicate deletes the
-// extra one and keeps the earliest — safe for any tab to do, converges either way.
+// Slugify a name for use inside a deterministic doc id (ids can't contain "/", keep it simple/safe).
+function idSlug(s){ return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "x"; }
+
+// Generic self-healing sweep: given a predicate for "one of these per-kid-per-day kinds", group
+// matching kidbank docs by (kid, day-ish key) and delete every doc but the earliest in each group.
+// Runs on every render() (any client) — cheap in-memory grouping over already-loaded `chores` — so
+// duplicates created before the idempotent-write fix (or by any future edge case) self-repair on
+// the next load, on whichever device notices first. Logs what it repaired.
+function sweepKidbankDuplicates(kind, keyFn, label){
+  const docs = chores.filter(c => c.frequency === "kidbank" && c.kind === kind);
+  const groups = {};
+  for (const d of docs){ const k = keyFn(d); if (!k) continue; (groups[k] = groups[k] || []).push(d); }
+  for (const k of Object.keys(groups)){
+    const arr = groups[k];
+    if (arr.length <= 1) continue;
+    const sorted = arr.sort((a,b)=> (a.at||0)-(b.at||0));
+    const keep = sorted[0], dupes = sorted.slice(1);
+    console.info(`[BUCKY] Repairing ${dupes.length} duplicate ${label} doc(s) for ${k} — keeping earliest (${keep.id}), removing extras.`);
+    for (const dupe of dupes) backend.remove(dupe.id);
+  }
+}
+
+// One-time seed per kid: Isaac starts at $0, Eleanor at $40. Deterministic doc id (seed_<kid>)
+// written via backend.set (setDoc-merge / local upsert) — racing writers converge on ONE doc
+// instead of addDoc minting a new one each time. The pre-write existence check is kept as a cheap
+// short-circuit (avoids a network round-trip when we already know the doc's there); the dedupe
+// sweep below is the real safety net for anything written before this fix or by an old client.
 let bankSeedAttempted = new Set();
 async function ensureKidSeeds(){
   if (!dataReady || !backend) return;
+  sweepKidbankDuplicates("seed", d => d.kid, "seed");
   const seedAmounts = { Isaac: 0, Eleanor: 40 };
   for (const kid of BANK_KIDS){
-    const existing = chores.filter(c => c.frequency === "kidbank" && c.kid === kid && c.kind === "seed");
-    if (existing.length > 1){
-      const sorted = existing.sort((a,b)=> (a.at||0)-(b.at||0));
-      for (const dupe of sorted.slice(1)) await backend.remove(dupe.id);
-      continue;
-    }
-    if (existing.length === 1) continue;
+    const existing = chores.some(c => c.frequency === "kidbank" && c.kid === kid && c.kind === "seed");
+    if (existing) continue;
     if (bankSeedAttempted.has(kid)) continue;   // write already in flight this session
     bankSeedAttempted.add(kid);
-    await addLedgerEntry(kid, seedAmounts[kid] || 0, "Starting balance", "BUCKY", "seed");
+    const id = `seed_${idSlug(kid)}`;
+    await backend.set(id, { frequency:"kidbank", kid, amount: seedAmounts[kid] || 0, desc: "Starting balance", by: "BUCKY", at: Date.now(), kind: "seed" });
     if (currentTab === "farmbank") render();   // local backend doesn't auto-render; cloud's onSnapshot will anyway
   }
 }
@@ -2759,21 +2803,29 @@ function todayKey(){
   const d = new Date();
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
 }
+// Root cause of the 4x-mint bug: this used to be query-check-then-add (backend.add/addDoc) —
+// with multiple devices (or multiple rapid re-renders on one device, since render() calls this
+// on every onSnapshot delivery) all racing the same "does an allowance doc exist for
+// (kid, day)?" check, several of them see "no" before any of their addDoc calls land, and each
+// one mints its own separate doc. Now this writes to a DETERMINISTIC id (allowance_<kid>_<day>)
+// via backend.set, so N racing writers all upsert the SAME doc — exactly one entry survives no
+// matter how many times/devices this fires for the same kid+day. The pre-write existence check
+// stays as a cheap short-circuit only; it is no longer load-bearing for correctness.
 let allowanceChecked = new Set();   // in-memory guard so we don't re-query every render on top of the doc check
 async function ensureDailyAllowance(){
   if (!dataReady || !backend) return;
+  sweepKidbankDuplicates("allowance", d => d.kid + "|" + d.day, "allowance");
   const day = todayKey();
   if (!allDailyChoresDone()) return;
   for (const kid of BANK_KIDS){
     const memKey = kid + "|" + day;
     if (allowanceChecked.has(memKey)) continue;
     const existing = chores.some(c => c.frequency === "kidbank" && c.kid === kid && c.kind === "allowance" && c.day === day);
+    allowanceChecked.add(memKey);
     if (!existing){
-      allowanceChecked.add(memKey);
-      await addLedgerEntry(kid, 2, "All chores done — daily $2! ⭐", "BUCKY", "allowance", { day });
+      const id = `allowance_${idSlug(kid)}_${day}`;
+      await backend.set(id, { frequency:"kidbank", kid, amount: 2, desc: "All chores done — daily $2! ⭐", by: "BUCKY", at: Date.now(), kind: "allowance", day });
       if (currentTab === "farmbank") render();
-    } else {
-      allowanceChecked.add(memKey);
     }
   }
 }
@@ -4063,7 +4115,17 @@ function makeLocalBackend(){
   return {
     add: async (data) => { const id = "c" + Date.now(); chores.push({ id, ...data }); save(); return id; },
     update: async (id, patch) => { const c = chores.find(x=>x.id===id); if(c) Object.assign(c, patch); save(); },
-    remove: async (id) => { chores = chores.filter(x=>x.id!==id); save(); }
+    remove: async (id) => { chores = chores.filter(x=>x.id!==id); save(); },
+    // Idempotent upsert by a caller-supplied deterministic id (mirrors Firestore setDoc semantics):
+    // creates the doc if absent, merges fields onto it if present. Used for allowance/seed docs so
+    // racing writers converge on ONE doc instead of each `add()` minting a new one.
+    set: async (id, data) => {
+      const c = chores.find(x=>x.id===id);
+      if (c) Object.assign(c, data);
+      else chores.push({ id, ...data });
+      save();
+      return id;
+    }
   };
 }
 
@@ -4100,7 +4162,12 @@ async function makeCloudBackend(){
   return {
     add: async (data) => { const ref = await fs.addDoc(col, data); return ref.id; },
     update: async (id, patch) => { await fs.updateDoc(fs.doc(col, id), patch); },
-    remove: async (id) => { await fs.deleteDoc(fs.doc(col, id)); }
+    remove: async (id) => { await fs.deleteDoc(fs.doc(col, id)); },
+    // Idempotent upsert: caller supplies a deterministic doc id. setDoc with merge:true creates the
+    // doc if it doesn't exist, or merges fields onto the existing one if it does — so N racing
+    // writers (multiple devices, or multiple rapid onSnapshot-triggered calls on one device) all
+    // converge on the SAME single doc instead of each minting a new one via addDoc.
+    set: async (id, data) => { await fs.setDoc(fs.doc(col, id), data, { merge: true }); return id; }
   };
 }
 

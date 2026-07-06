@@ -135,20 +135,36 @@
   }
   const familyKey = roomId(FAMILY_PASSWORD);
 
-  const LIVE_MS = 90 * 1000;          // updatedAt must be newer than this to count as "live"
-  const STALE_MS = 10 * 60 * 1000;    // lazy-delete docs older than this (shopping-list TTL pattern)
+  const OPEN_LIVE_MS = 45 * 1000;      // "open" lobby heartbeat is every 15s now — 45s window = 3 missed beats before we call it stale
+  const STARTED_LIVE_MS = 90 * 1000;   // "started" (mid-game) cards keep the old, more forgiving window
+  const STALE_MS = 3 * 60 * 1000;      // lazy-delete docs older than this (dropped from 10min — stale cards were sticking around too long)
 
   function renderLobbies(docs, fs, col){
     const wrap = document.getElementById("lobbyBanners");
     if (!wrap) return;
     wrap.innerHTML = "";
     const now = Date.now();
+    // Defensive dedupe: if multiple docs share the same hostName+game (e.g. a host reconnected
+    // and a new doc got created before the old one aged out), only render the freshest one per
+    // (hostName, game) pair. The stale-delete sweep above will clean up the rest over time.
+    const freshestByKey = new Map();
+    for (const d of docs){
+      const data = d.data();
+      const key = (data.hostName || "") + "|" + (data.game || "");
+      const prev = freshestByKey.get(key);
+      if (!prev || (data.updatedAt || 0) > (prev.data.updatedAt || 0)) freshestByKey.set(key, { doc: d, data });
+    }
+
     for (const d of docs){
       const data = d.data();
       const age = now - (data.updatedAt || 0);
       if (age >= STALE_MS){ fs.deleteDoc(fs.doc(col, d.id)).catch(()=>{}); continue; }
-      const live = data.status === "open" && age < LIVE_MS;
-      const cooking = data.status === "started" && age < LIVE_MS;
+      const key = (data.hostName || "") + "|" + (data.game || "");
+      const freshest = freshestByKey.get(key);
+      if (freshest && freshest.doc.id !== d.id) continue;   // superseded by a fresher doc for the same host+game
+
+      const live = data.status === "open" && age < OPEN_LIVE_MS;
+      const cooking = data.status === "started" && age < STARTED_LIVE_MS;
       if (!live && !cooking) continue;
 
       if (live){

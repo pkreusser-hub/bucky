@@ -53,6 +53,17 @@
   #streakChip{ position:absolute; top:92px; right:14px; font-weight:800; font-size:16px; color:#ff8f4a;
                text-shadow:0 2px 0 rgba(0,0,0,.35); text-align:right; }
 
+  /* ---- MOBILE-FIRST pass (change #6): small dirty-dish COUNT BADGE, world-projected above the
+     sink/bin each frame (same projection pattern as the emote bubbles) — shown only while that
+     station has >=1 dirty dish waiting, so the kids can see at a glance "there's dishes piling
+     up" without walking over. ---- */
+  .dishBadge{ position:absolute; transform:translate(-50%,-100%) scale(1); opacity:0;
+              background:rgba(20,20,10,.7); color:#fff; font-weight:800; font-size:14px;
+              padding:3px 9px; border-radius:12px; border:2px solid rgba(255,255,255,.7);
+              box-shadow:0 3px 8px rgba(0,0,0,.35); pointer-events:none; white-space:nowrap;
+              transition:opacity .2s ease, transform .2s cubic-bezier(.22,1.6,.36,1); z-index:16; }
+  .dishBadge.show{ opacity:1; }
+
   @media (max-width:520px){
     #sunClock{ font-size:17px; top:8px; left:8px; padding:3px 10px 3px 8px; }
     #muteBtn{ width:28px; height:28px; font-size:14px; line-height:28px; top:9px; right:9px; }
@@ -130,6 +141,12 @@
   .airMailPop{ position:absolute; font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:26px; color:#5fd8ff;
            text-shadow:0 2px 0 rgba(0,0,0,.4), 0 4px 10px rgba(0,0,0,.5);
            animation:tipPopIn 1.2s cubic-bezier(.22,1.6,.36,1) both; animation-delay:.34s; opacity:0; }
+  /* ---- MOBILE-FIRST pass (change #9): BANK SHOT! popup — same pop-in language, stacked one more
+     beat below AIR MAIL (a bounced-then-delivered dish always shows both), distinct gold/orange
+     tone so "extra style points" reads clearly as its own reward. ---- */
+  .bankShotPop{ position:absolute; font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:24px; color:#ffb23f;
+           text-shadow:0 2px 0 rgba(0,0,0,.4), 0 4px 10px rgba(0,0,0,.5);
+           animation:tipPopIn 1.3s cubic-bezier(.22,1.6,.36,1) both; animation-delay:.5s; opacity:0; }
   /* full-screen soft flash — one-shot "pop" of light on a special outcome (air delivery). */
   #screenLiteWrap{ position:absolute; inset:0; pointer-events:none; background:#fff; opacity:0; }
   #screenLiteWrap.pop{ animation:screenLitePop .5s ease-out; }
@@ -336,40 +353,11 @@
                         text-shadow:0 2px 0 rgba(0,0,0,.3); white-space:nowrap; }
 
   #titleBtnRow{ display:flex; align-items:center; gap:12px; margin-top:16px; }
-  #titleInviteBtn{ font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:19px; letter-spacing:.5px;
-                   background:#4aa3ff; color:#fff; border:none; border-radius:14px; padding:12px 22px;
-                   cursor:pointer; box-shadow:0 4px 0 #2d76c4; }
-  #titleInviteBtn:active{ transform:translateY(3px); box-shadow:0 1px 0 #2d76c4; }
   #titleCookBtn{ font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:26px; letter-spacing:.5px;
                  background:#4ecb5c; color:#fff; border:none; border-radius:16px; padding:14px 34px;
                  cursor:pointer; box-shadow:0 5px 0 #2e8a3a; }
   #titleCookBtn:active{ transform:translateY(3px); box-shadow:0 2px 0 #2e8a3a; }
   #titleWaiting{ margin-top:14px; font-size:18px; font-weight:700; color:#fff; text-shadow:0 2px 0 rgba(0,0,0,.3); }
-
-  /* ---- family lobby: invite picker overlay + toast ---- */
-  #invitePickerOverlay{ position:absolute; inset:0; z-index:60; display:none; align-items:center;
-                         justify-content:center; background:rgba(20,30,15,.55); }
-  #invitePickerOverlay.show{ display:flex; }
-  #invitePickerCard{ background:#fff8e6; border-radius:18px; padding:22px 26px; max-width:88vw; width:340px;
-                      box-shadow:0 12px 34px rgba(0,0,0,.4); text-align:center; }
-  #invitePickerTitle{ font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:22px; color:#2a2620;
-                       margin-bottom:14px; }
-  #invitePickerList{ display:flex; flex-direction:column; gap:8px; max-height:40vh; overflow-y:auto; }
-  .inviteRow{ font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:17px; color:#2a2620;
-              background:#fff; border:3px solid #ffd23f; border-radius:12px; padding:10px 12px;
-              cursor:pointer; transition:transform .12s ease, border-color .12s ease; }
-  .inviteRow:active{ transform:translateY(2px); }
-  .inviteRow:hover{ border-color:#4ecb5c; }
-  #invitePickerEmpty{ font-size:14px; color:#7a6a4a; padding:10px 0; }
-  #invitePickerClose{ margin-top:16px; font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:15px;
-                       background:#e8e0cc; color:#2a2620; border:none; border-radius:10px; padding:9px 20px;
-                       cursor:pointer; }
-
-  #inviteToast{ position:absolute; left:50%; bottom:10%; transform:translateX(-50%) translateY(20px);
-                z-index:61; background:#2e8a3a; color:#fff; font-family:'Luckiest Guy','Arial Black',sans-serif;
-                font-size:16px; padding:12px 22px; border-radius:14px; box-shadow:0 8px 20px rgba(0,0,0,.35);
-                opacity:0; pointer-events:none; transition:opacity .25s ease, transform .25s ease; }
-  #inviteToast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
 
   @media (max-width:520px){
     #titleContent{ padding:14px 10px 12px; }
@@ -385,7 +373,6 @@
     .chefCard .ccEmoji{ font-size:26px; }
     .chefCard .ccName{ font-size:11px; }
     #titleBtnRow{ margin-top:12px; gap:8px; }
-    #titleInviteBtn{ font-size:14px; padding:9px 14px; }
     #titleCookBtn{ font-size:19px; padding:11px 24px; }
     #titleWaiting{ font-size:14px; margin-top:10px; }
     #couchControlsCard{ padding:4px 9px; }
@@ -408,47 +395,77 @@
     #levelIntroBanner{ padding:12px 22px; }
   }
 
-  /* ---- touch controls (coarse pointer only) ---- */
+  /* ---- MOBILE-FIRST pass (change #2): touch controls (coarse pointer only) — full restyle.
+     Four buttons fan out in a comfortable thumb ARC from the bottom-right corner: GRAB (largest,
+     the anchor/most-used verb) at the very corner, WORK next, THROW further up-and-left, emote
+     (smallest, least-used) at the top of the arc — every button shares one sizing SCALE (each a
+     ~78% step down from the last: 96/75/60/48px), the same drop-shadow/ring/pressed-squash
+     treatment, and a tiny label underneath so a young reader can match glyph->word. Joystick
+     (left half) is visually restyled to match (soft shadow ring) but unchanged mechanically. ---- */
   #touchLayer{ position:absolute; inset:0; z-index:25; display:none; pointer-events:none; touch-action:none; }
   .touchAware #touchLayer{ display:block; pointer-events:auto; }
-  #joyBase{ position:absolute; width:104px; height:104px; border-radius:50%; background:rgba(255,255,255,.16);
-            border:2px solid rgba(255,255,255,.3); display:none; z-index:26; pointer-events:none; }
-  #joyKnob{ position:absolute; width:48px; height:48px; border-radius:50%; background:rgba(255,255,255,.45);
-            display:none; z-index:27; pointer-events:none; }
-  #actionBtn{ position:absolute; right:22px; bottom:100px; width:84px; height:84px; border-radius:50%;
-              background:rgba(255,178,63,.55); border:3px solid rgba(255,255,255,.55); font-size:34px;
-              display:flex; align-items:center; justify-content:center; z-index:26; pointer-events:auto;
-              touch-action:none; user-select:none; -webkit-user-select:none; }
-  #actionBtn.pressed{ background:rgba(255,178,63,.85); transform:scale(.94); }
-  /* WORK button (user-reported control split): NEW, sits between the grab (action) button and the
-     throw button — hold-to-chop/wash/stir, separate verb from grab per the design doc. Same touch
-     style as its siblings, distinct blue tint so the three verbs read as visually distinct. */
-  #workBtn{ position:absolute; right:112px; bottom:96px; width:68px; height:68px; border-radius:50%;
-            background:rgba(74,144,226,.55); border:3px solid rgba(255,255,255,.55); font-size:28px;
-            display:flex; align-items:center; justify-content:center; z-index:26; pointer-events:auto;
-            touch-action:none; user-select:none; -webkit-user-select:none; }
-  #workBtn.pressed{ background:rgba(74,144,226,.85); transform:scale(.94); }
-  /* throw button (Systems pass 1): left of the work button, slightly smaller, same touch style */
-  #throwBtn{ position:absolute; right:198px; bottom:112px; width:64px; height:64px; border-radius:50%;
-             background:rgba(74,154,58,.55); border:3px solid rgba(255,255,255,.55); font-size:26px;
-             display:flex; align-items:center; justify-content:center; z-index:26; pointer-events:auto;
-             touch-action:none; user-select:none; -webkit-user-select:none; }
-  #throwBtn.pressed{ background:rgba(74,154,58,.85); transform:scale(.94); }
-  /* emote button (Tier-1 batch): small, above the throw button, same touch style */
-  #emoteBtn{ position:absolute; right:206px; bottom:190px; width:52px; height:52px; border-radius:50%;
-             background:rgba(255,143,208,.55); border:3px solid rgba(255,255,255,.55); font-size:22px;
-             display:flex; align-items:center; justify-content:center; z-index:26; pointer-events:auto;
-             touch-action:none; user-select:none; -webkit-user-select:none; }
-  #emoteBtn.pressed{ background:rgba(255,143,208,.85); transform:scale(.94); }
+  #joyBase{ position:absolute; width:108px; height:108px; border-radius:50%; background:rgba(255,255,255,.16);
+            border:2px solid rgba(255,255,255,.35); box-shadow:0 4px 14px rgba(0,0,0,.25), inset 0 0 0 6px rgba(255,255,255,.06);
+            display:none; z-index:26; pointer-events:none; }
+  #joyKnob{ position:absolute; width:50px; height:50px; border-radius:50%; background:rgba(255,255,255,.5);
+            box-shadow:0 3px 8px rgba(0,0,0,.3); display:none; z-index:27; pointer-events:none; }
 
-  /* touch layouts: keep hint above thumb zones, out of the order row */
-  .touchAware #hintWrap{ bottom:200px; }
+  /* shared button chrome: a semi-transparent RING sits just outside the colored disc (via
+     box-shadow's spread, cheaper than an extra element), a soft drop-shadow grounds it, and a
+     tiny label sits directly under the disc. .touchBtnWrap is the positioned element (holds the
+     button + its label as one unit so moving one arc slot only ever needs one right/bottom pair);
+     the disc itself is .touchBtn (handles press-squash + its own colored background). */
+  .touchBtnWrap{ position:absolute; z-index:26; display:flex; flex-direction:column; align-items:center;
+                 pointer-events:none; }
+  .touchBtn{ border-radius:50%; border:3px solid rgba(255,255,255,.6);
+             box-shadow:0 5px 12px rgba(0,0,0,.32), 0 0 0 6px rgba(255,255,255,.14);
+             display:flex; align-items:center; justify-content:center; pointer-events:auto;
+             touch-action:none; user-select:none; -webkit-user-select:none;
+             transition:transform .08s ease, background .08s ease; }
+  .touchBtn.pressed{ transform:scale(.88); box-shadow:0 2px 6px rgba(0,0,0,.32), 0 0 0 4px rgba(255,255,255,.1); }
+  .touchBtnLabel{ margin-top:3px; font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:10px;
+                  letter-spacing:.5px; color:#fff; text-shadow:0 2px 3px rgba(0,0,0,.55); pointer-events:none; }
+
+  /* GRAB — largest, the arc's anchor point (bottom-right corner). */
+  #grabWrap{ right:18px; bottom:18px; }
+  #actionBtn{ width:96px; height:96px; font-size:38px; background:rgba(255,178,63,.6); }
+  #actionBtn.pressed{ background:rgba(255,178,63,.9); }
+  /* WORK — up-and-left of GRAB, one size step down. */
+  #workWrap{ right:96px; bottom:56px; }
+  #workBtn{ width:75px; height:75px; font-size:29px; background:rgba(74,144,226,.6); }
+  #workBtn.pressed{ background:rgba(74,144,226,.9); }
+  /* THROW — further up-and-left, another size step down. */
+  #throwWrap{ right:154px; bottom:120px; }
+  #throwBtn{ width:60px; height:60px; font-size:24px; background:rgba(74,154,58,.6); }
+  #throwBtn.pressed{ background:rgba(74,154,58,.9); }
+  /* emote — smallest, topmost point of the arc. */
+  #emoteWrap{ right:184px; bottom:196px; }
+  #emoteBtn{ width:48px; height:48px; font-size:19px; background:rgba(255,143,208,.6); }
+  #emoteBtn.pressed{ background:rgba(255,143,208,.9); }
+
+  /* touch layouts: keep hint above thumb zones, out of the order row. MOBILE-FIRST pass (change
+     #2): raised further (216 -> 272px) and narrowed so even a 2-line hint (the longer teach-hint
+     strings) can never overlap the arc's topmost button (emote, whose footprint top edge sits at
+     roughly 196+63=259px from the bottom — verified against the arc's own right/bottom offsets
+     above) — measured empirically against the 375x812 screenshot in the verification pass. */
+  .touchAware #hintWrap{ bottom:272px; max-width:78vw; }
   @media (orientation:landscape) and (max-height:520px){
-    .touchAware #hintWrap{ bottom:14px; left:14px; transform:none; max-width:44vw; }
-    .touchAware #actionBtn{ right:18px; bottom:18px; width:74px; height:74px; font-size:28px; }
-    .touchAware #workBtn{ right:96px; bottom:14px; width:60px; height:60px; font-size:24px; }
-    .touchAware #throwBtn{ right:166px; bottom:28px; width:56px; height:56px; font-size:22px; }
-    .touchAware #emoteBtn{ right:166px; bottom:96px; width:44px; height:44px; font-size:18px; }
+    /* MOBILE-FIRST pass (change #2): landscape-phone arc widened — the previous offsets packed
+       all 4 buttons close enough in both axes to visually/hitbox-overlap at 812x375 (verified via
+       getBoundingClientRect in the verification pass: actionBtn/workBtn/throwBtn/emoteBtn all
+       pairwise overlapped). This layout fans out mostly HORIZONTALLY (landscape has width to
+       spare, unlike portrait) with just enough vertical rise to still read as an arc — re-verified
+       zero pairwise overlap both with each other and with the widened/repositioned hintWrap. */
+    .touchAware #hintWrap{ bottom:14px; left:14px; transform:none; max-width:38vw; }
+    #grabWrap{ right:16px; bottom:14px; }
+    .touchAware #actionBtn{ width:80px; height:80px; font-size:30px; }
+    #workWrap{ right:108px; bottom:16px; }
+    .touchAware #workBtn{ width:62px; height:62px; font-size:23px; }
+    #throwWrap{ right:190px; bottom:28px; }
+    .touchAware #throwBtn{ width:50px; height:50px; font-size:19px; }
+    #emoteWrap{ right:250px; bottom:56px; }
+    .touchAware #emoteBtn{ width:40px; height:40px; font-size:15px; }
+    .touchAware .touchBtnLabel{ font-size:9px; }
     .touchAware #orderRow{ top:6px; }
     .touchAware #sunClock{ font-size:15px; padding:3px 9px 3px 7px; }
     .touchAware #scoreWrap{ top:36px; font-size:20px; }
@@ -476,6 +493,11 @@
       <div id="missToast">Missed one! 💛 Try the next!</div>
       <div id="hintWrap"><div id="hint">Walk to a crate and press SPACE!</div></div>
       <div id="popupWrap"></div>
+      <!-- ---- MOBILE-FIRST pass (change #6): dirty-dish count badges — positioned every frame by
+           updateDishBadges() (world-projected above the sink/dirty bin, same pattern as the emote
+           bubbles), shown only while that station has >=1 dirty dish waiting. ---- -->
+      <div id="sinkDishBadge" class="dishBadge">🍽 1</div>
+      <div id="binDishBadge" class="dishBadge">🍽 1</div>
       <div id="screenLiteWrap"></div>
       <div id="victoryOverlay">
         <div id="victoryCard">
@@ -538,25 +560,11 @@
             <div id="chefPickerRow2"></div>
           </div>
           <div id="titleBtnRow">
-            <button id="titleInviteBtn" style="display:none;">📨 Invite</button>
             <button id="titleCookBtn">▶ COOK!</button>
           </div>
           <div id="titleWaiting" style="display:none;">Chef 1 is picking the day! 🍳</div>
         </div>
       </div>
-      <!-- ---- family lobby: invite picker overlay — lists family members (excluding yourself)
-           read one-shot from chores_<familyKey> profile docs; tapping a name sends an invite and
-           shows a confirmation toast. Host-only entry point (titleInviteBtn), hidden whenever the
-           Firestore backend isn't available (see updateTitleScreen). ---- -->
-      <div id="invitePickerOverlay">
-        <div id="invitePickerCard">
-          <div id="invitePickerTitle">Invite who? 📨</div>
-          <div id="invitePickerList"></div>
-          <div id="invitePickerEmpty" style="display:none;">No other family members found yet.</div>
-          <button id="invitePickerClose">Close</button>
-        </div>
-      </div>
-      <div id="inviteToast"></div>
       <!-- ---- Systems pass 4: level-intro banner — brief "DAY N — <LEVEL NAME>!" banner shown
            on BOTH screens whenever a fresh level/day actually starts. ---- -->
       <div id="levelIntroBanner">
@@ -565,10 +573,14 @@
       </div>
       <div id="touchLayer">
         <div id="joyBase"></div><div id="joyKnob"></div>
-        <div id="throwBtn">🎯</div>
-        <div id="workBtn">🔪</div>
-        <div id="actionBtn">🖐</div>
-        <div id="emoteBtn">💬</div>
+        <!-- ---- MOBILE-FIRST pass (change #2): each button is now a .touchBtnWrap (positioned,
+             holds the disc + its label) so the arc-slot position lives in ONE place per button;
+             the disc itself keeps its original id (all existing JS getElementById/pointerdown
+             wiring is untouched). ---- -->
+        <div id="throwWrap" class="touchBtnWrap"><div id="throwBtn" class="touchBtn">🎯</div><div class="touchBtnLabel">THROW</div></div>
+        <div id="workWrap" class="touchBtnWrap"><div id="workBtn" class="touchBtn">🔪</div><div class="touchBtnLabel">WORK</div></div>
+        <div id="grabWrap" class="touchBtnWrap"><div id="actionBtn" class="touchBtn">🖐</div><div class="touchBtnLabel">GRAB</div></div>
+        <div id="emoteWrap" class="touchBtnWrap"><div id="emoteBtn" class="touchBtn">💬</div><div class="touchBtnLabel">CHAT</div></div>
       </div>
     </div>
   </div>
@@ -577,12 +589,6 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
   <script src="https://unpkg.com/playroomkit@0.0.96/multiplayer.full.umd.js"></script>
-  <!-- BuckyPush: plain (non-module) script per its own file header — safe to include standalone
-       on any page, exposes window.BuckyPush = {enable,disable,isSupported,status,notify}. Used
-       here (family lobby invite flow) only if it loads; every call site below checks
-       `window.BuckyPush &&` first so a failed/blocked load just silently disables push (the
-       notifs_<familyKey> Firestore doc + app-side bell is enough on its own). -->
-  <script src="push-client.js"></script>
   <script>
   (() => {
     // =====================================================================================
@@ -622,16 +628,17 @@
     // =====================================================================================
     // bucky-lobby shim — family-native lobby/invite layer, replacing Playroom's own lobby UI
     // (skipLobby:true, see initNet below) with a title screen that shows real family member
-    // names (localStorage "choreUser", the app's "This is me" name) and lets the host invite a
-    // specific family member instead of sharing a raw join link. Config/roomId/password are
+    // names (localStorage "choreUser", the app's "This is me" name). Config/roomId/password are
     // copied verbatim from index.html:606-619 (same amen-farms-app Firebase project — this is
     // intentionally duplicated, not imported, since this repo has no shared JS module between
     // pages; games.html's own "bucky-lobby shim" comment block does the same duplication).
     // Firestore loads via dynamic ESM import() (this script is a classic script, not a module,
     // so import() is used as an expression/promise rather than a static import statement) and
-    // degrades gracefully on any failure: lobby features (name list, Invite button, lobby doc)
-    // just stay off silently — the game itself is entirely unaffected (net.* above never
-    // depends on Firestore for anything gameplay-related).
+    // degrades gracefully on any failure: lobby features (name list, lobby doc) just stay off
+    // silently — the game itself is entirely unaffected (net.* above never depends on Firestore
+    // for anything gameplay-related). (Family playtest fix #6: the Invite feature — button,
+    // family-member picker, notifs_<familyKey> write, BuckyPush call — was removed entirely; the
+    // lobby registry/join-card system above is unrelated and stays.)
     // =====================================================================================
     const firebaseConfig = {
       apiKey: "AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU",
@@ -648,7 +655,14 @@
       return "fam" + h.toString(36);
     }
     const familyKey = roomId(FAMILY_PASSWORD);
-    const LOBBY_HEARTBEAT_MS = 30 * 1000;   // host refreshes updatedAt this often while lobby is open
+    // Lobby liveness hardening (family playtest complaint: stale JOIN cards lingered too long).
+    // pagehide/beforeunload delete is only ever best-effort (can't reliably await a network
+    // request during unload), so the 90s liveness window was doing all the real work — tightened
+    // the heartbeat itself (30s -> 15s) so a genuinely-dead lobby's LAST real update is never more
+    // than 15s stale, and added a hidden-tab timeout below (see hookVisibilityLifecycle) as a
+    // second, faster line of defense for the single most common "stale lobby" cause in practice:
+    // a kid backgrounding the host tab (switching apps) without ever formally closing it.
+    const LOBBY_HEARTBEAT_MS = 15 * 1000;   // host refreshes updatedAt this often while lobby is open
     const LOBBY_LIVE_MS = 90 * 1000;        // consumers (games.html/index.html banners) trust status
                                              // "open" only if updatedAt is fresher than this
 
@@ -665,7 +679,13 @@
       fs: null,              // the firebase-firestore module namespace (doc/setDoc/deleteDoc/etc.)
       lobbyDocRef: null,     // this host's own lobbies_<familyKey> doc ref, once created
       heartbeatTimer: null,
-      unloadHooked: false
+      unloadHooked: false,
+      // Lobby liveness hardening: hidden-tab timeout bookkeeping (see hookVisibilityLifecycle).
+      visibilityHooked: false,
+      hiddenTimer: null,       // setTimeout handle counting down to the hidden-tab delete
+      hiddenDeletedDoc: false  // true once hiddenTimer fired and deleted the doc out from under us
+                               // — return-to-visible checks this (not just lobbyDocRef) to know
+                               // whether it needs to recreate the doc.
     };
 
     async function initLobbyBackend(){
@@ -677,7 +697,7 @@
         Lobby.fs = fs;
         Lobby.available = true;
       } catch (err) {
-        console.warn("Barnyard Bistro: family lobby backend unavailable (Firestore failed to load) — Invite hidden, game unaffected.", err);
+        console.warn("Barnyard Bistro: family lobby backend unavailable (Firestore failed to load) — lobby doc/JOIN cards disabled, game unaffected.", err);
         Lobby.available = false;
       }
     }
@@ -712,6 +732,7 @@
         });
         startLobbyHeartbeat();
         hookUnloadCleanup();
+        hookVisibilityLifecycle();
       } catch (err) {
         console.warn("Barnyard Bistro: could not create lobby doc (continuing without it).", err);
       }
@@ -747,67 +768,42 @@
       window.addEventListener("pagehide", cleanup);
       window.addEventListener("beforeunload", cleanup);
     }
-
-    // ---- invite flow: one-shot read of chores_<familyKey> profile docs (frequency==="profile"),
-    // excluding ourselves, then write a notifs_<familyKey> invite doc + best-effort push. ----
-    async function fetchFamilyMembers(){
-      if (!Lobby.available) return [];
-      await lobbyBackendReady;
-      if (!Lobby.available) return [];
-      try {
-        const { collection, getDocs, query, where } = Lobby.fs;
-        const col = collection(Lobby.db, "chores_" + familyKey);
-        let snap;
-        try {
-          snap = await getDocs(query(col, where("frequency", "==", "profile")));
-        } catch (err) {
-          // no composite index / rules quirk fallback: fetch the whole collection and filter
-          // client-side (chores_<familyKey> is small — a handful to a few dozen docs per family).
-          snap = await getDocs(col);
-        }
-        const names = [];
-        snap.forEach((d) => {
-          const data = d.data();
-          if (data.frequency === "profile" && data.name && data.name !== myChoreUserName){
-            names.push(data.name);
+    // Lobby liveness hardening: pagehide/beforeunload delete is best-effort only (can't reliably
+    // await a network request during unload), so a host tab that's backgrounded for a long time
+    // WITHOUT ever formally closing (kid switches apps, phone locks, etc.) used to leave a stale
+    // "JOIN" card visible to the rest of the family for up to the full 90s liveness window even
+    // though the heartbeat itself had also stopped (setInterval callbacks are throttled/suspended
+    // in a hidden tab right along with everything else) — realistically the kitchen is dead for
+    // any guest the moment the host backgrounds for that long, so this deletes the doc directly
+    // once the tab has been continuously hidden for LOBBY_HIDDEN_DELETE_MS, then recreates it the
+    // moment the tab is foregrounded again (if a lobby still conceptually belongs open — same
+    // host/room/couch-mode gate ensureLobbyDoc already applies). A quick alt-tab well under the
+    // threshold does nothing at all (the timer is cancelled on visible again before it ever fires).
+    const LOBBY_HIDDEN_DELETE_MS = 60 * 1000;
+    function hookVisibilityLifecycle(){
+      if (Lobby.visibilityHooked) return;
+      Lobby.visibilityHooked = true;
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden){
+          if (Lobby.hiddenTimer) return;   // already counting down
+          Lobby.hiddenTimer = setTimeout(() => {
+            Lobby.hiddenTimer = null;
+            if (Lobby.lobbyDocRef){
+              Lobby.hiddenDeletedDoc = true;
+              deleteLobbyDoc();
+            }
+          }, LOBBY_HIDDEN_DELETE_MS);
+        } else {
+          if (Lobby.hiddenTimer){ clearTimeout(Lobby.hiddenTimer); Lobby.hiddenTimer = null; }
+          if (Lobby.hiddenDeletedDoc){
+            Lobby.hiddenDeletedDoc = false;
+            // re-arm exactly like the title screen's own first-attempt path — ensureLobbyDoc
+            // re-checks isHost/roomCode/couchMode itself, so this is a silent no-op if any of
+            // those no longer apply (guest, couch mode toggled on while hidden, etc.).
+            ensureLobbyDoc();
           }
-        });
-        return names;
-      } catch (err) {
-        console.warn("Barnyard Bistro: could not load family member list for Invite.", err);
-        return [];
-      }
-    }
-    async function sendLobbyInvite(targetName){
-      if (!Lobby.available || !net.roomCode) return false;
-      await lobbyBackendReady;
-      if (!Lobby.available) return false;
-      const url = "barnyardbistro.html#r=" + encodeURIComponent(net.roomCode);
-      try {
-        const { collection, addDoc } = Lobby.fs;
-        await addDoc(collection(Lobby.db, "notifs_" + familyKey), {
-          to: targetName,
-          from: myChoreUserName || "Someone",
-          type: "lobby-invite",
-          text: (myChoreUserName || "Someone") + " wants to cook with you in Barnyard Bistro! 🍅",
-          url,
-          at: Date.now(),
-          read: false
-        });
-      } catch (err) {
-        console.warn("Barnyard Bistro: could not write invite notification.", err);
-        return false;
-      }
-      if (window.BuckyPush && window.BuckyPush.notify){
-        // fire-and-forget, per push-client.js's own contract — never throws/blocks the UI.
-        window.BuckyPush.notify(
-          FAMILY_PASSWORD, familyKey, targetName,
-          "🎮 Game invite",
-          (myChoreUserName || "Someone") + " wants to cook with you!",
-          new URL(url, location.href).href
-        );
-      }
-      return true;
+        }
+      });
     }
 
     const LOCAL_SOLO_ID = "local";
@@ -1182,7 +1178,16 @@
     // restores several genuinely free slots; camera framing (fitCamera) is fully dynamic so this
     // needs no other changes there.). Counters form the border, ~1 unit deep, sitting just
     // inside the floor edge. x runs left(-)/right(+), z runs back(-, top wall)/front(+, bottom wall).
-    const FLOOR_W = 16, FLOOR_D = 11;
+    // ---- MOBILE-FIRST pass: PORTRAIT kitchen (11 wide x 16 deep — was landscape 16x11). Kids
+    // play this on phones/tablets held upright; a portrait rectangle lets fitCamera (below) fill
+    // a portrait viewport with the kitchen instead of leaving huge dead margins top/bottom. Every
+    // station below was re-laid-out for this shape (left/right walls are now much DEEPER — 14
+    // tiles instead of 9 — giving the crates/boards/cookers generous individual spacing; top/
+    // bottom walls are narrower — 11 tiles instead of 16 — so the serving window's 4 segments and
+    // the bottom wall's 7 stations were re-centered to fit). TILE_STEP/grid math below is
+    // unchanged (still 1:1 tile->slot); only the numbers plugged into it changed. Re-verified
+    // with the same self-resolution + slot-sweep checks as every prior layout pass.
+    const FLOOR_W = 11, FLOOR_D = 16;
     const HALF_W = FLOOR_W / 2, HALF_D = FLOOR_D / 2;   // 6.5, 4.5
     const CT = 1.0;      // counter thickness/depth
     // Family playtest fix #7: counters cut to ~half height (1.1 -> 0.55) so the kitchen reads
@@ -1208,7 +1213,11 @@
     // buildServingWindowRow). WINDOW_X0 is the left edge of the bell segment, chosen so all 4
     // segment centers land exactly on the top wall's tile-center grid (…,-2.5,-1.5,-0.5,0.5,1.5,…).
     const WINDOW_SEG_W = CT;              // width of each of the 4 segments == one tile
-    const WINDOW_X0 = -2.0;               // left edge of the bell segment
+    // Portrait pass: top wall is now only 11 tiles wide (grid centers land on whole integers:
+    // -5..5, since HALF_W=5.5), so the window is re-centered here — bell at x=-1, spots at 0/1/2
+    // (a touch right-of-center rather than the old layout's near-perfect center, since 4 is an
+    // even span inside an 11-wide odd-centered wall; still comfortably clear of both corners).
+    const WINDOW_X0 = -1.5;               // left edge of the bell segment
     const WINDOW_Z = -HALF_D + CT/2;
     function windowSegX(i){ return WINDOW_X0 + WINDOW_SEG_W/2 + i * WINDOW_SEG_W; }   // i=0 bell, 1..3 spots
 
@@ -1252,41 +1261,67 @@
     // like the reference). Equipment meshes are unchanged in footprint terms — each builder below
     // now scales its GLB/procedural prop to fit within ~0.85 tile width (see cloneStaticProp call
     // sites), same "sits on the counter" placement, just resized to never overhang a neighbor.
+    // ---- PORTRAIT REHOME (MOBILE-FIRST pass): left/right walls grew from 9 to 14 tiles deep, so
+    // every crate/board/cooker below got generous new spacing (still every neighbor >=1 tile
+    // apart, same margin every prior self-resolution proof relied on — REACH=1.45 comfortably
+    // clears a 1-tile gap, verified again below). Left wall: all 5 "left-side" crates. Right
+    // wall: the other 3 crates + dirtyBin + stove. Bottom wall (now only 11 tiles, was 16): both
+    // boards + trash/pan/oven/sink/plateStack re-centered with a free gap tile between the two
+    // board clusters and between the board cluster and the trash/cook/wash cluster, corners left
+    // open on both ends exactly like the old layout's convention.
     G.stations = [
-      { id: "tomatoCrate",  type: "crate",   kind: "tomato",  x: -HALF_W + CT/2, z: -2,               w: CT, d: CT },
-      { id: "lettuceCrate", type: "crate",   kind: "lettuce", x: -HALF_W + CT/2, z: -1,               w: CT, d: CT },
-      { id: "onionCrate",   type: "crate",   kind: "onion",   x: -HALF_W + CT/2, z:  0,               w: CT, d: CT },
-      { id: "potatoCrate",  type: "crate",   kind: "potato",  x: -HALF_W + CT/2, z:  1,               w: CT, d: CT },
-      { id: "bunCrate",     type: "crate",   kind: "bun",     x: -HALF_W + CT/2, z:  2,               w: CT, d: CT },
-      // ---- both cutting boards, bottom-left, one free counter tile between them ----
-      { id: "cuttingBoard", type: "board",   boardIndex: 0,    x: -6.5,           z:  HALF_D - CT/2,  w: CT, d: CT },
-      { id: "cuttingBoard2", type: "board",  boardIndex: 1,    x: -4.5,           z:  HALF_D - CT/2,  w: CT, d: CT },
+      { id: "tomatoCrate",  type: "crate",   kind: "tomato",  x: -HALF_W + CT/2, z: -5.5,             w: CT, d: CT },
+      { id: "lettuceCrate", type: "crate",   kind: "lettuce", x: -HALF_W + CT/2, z: -4.5,             w: CT, d: CT },
+      { id: "onionCrate",   type: "crate",   kind: "onion",   x: -HALF_W + CT/2, z: -3.5,             w: CT, d: CT },
+      { id: "potatoCrate",  type: "crate",   kind: "potato",  x: -HALF_W + CT/2, z: -2.5,             w: CT, d: CT },
+      { id: "bunCrate",     type: "crate",   kind: "bun",     x: -HALF_W + CT/2, z: -1.5,             w: CT, d: CT },
+      // ---- both cutting boards, bottom wall, one free counter tile between them ----
+      // Portrait layout fix (verification pass): programmatic self-resolution sweep (every
+      // station's own REACH-0.1 approach point must resolve to itself via resolveStationOrSlot)
+      // caught TWO failures at the original x:-4/x:4 bottom-wall placement: cuttingBoard (left)
+      // and plateStack (right) each sat only 1 tile from their nearest wall CORNER, which put
+      // their own straight-ahead approach point closer to a LEFT/RIGHT-wall corner tile
+      // (diagonally adjacent across the corner) than to the station itself — a genuine dead zone,
+      // not just a corner-slot tie-break. Fix: the whole bottom-wall cluster shifted to keep every
+      // station >=2 tiles from either corner (x range -3..3, all 7 stations packed with zero
+      // internal gaps — adjacent same-wall stations were already proven safe elsewhere in this
+      // file, e.g. the original trash/pan/oven run). Re-verified 17/17 stations resolve to
+      // themselves from their own approach point (script kept in the repo history/PR notes).
+      { id: "cuttingBoard", type: "board",   boardIndex: 0,    x: -3,             z:  HALF_D - CT/2,  w: CT, d: CT },
+      { id: "cuttingBoard2", type: "board",  boardIndex: 1,    x: -2,             z:  HALF_D - CT/2,  w: CT, d: CT },
       { id: "orderBell",    type: "bell",                      x: windowSegX(0),  z: WINDOW_Z,        w: WINDOW_SEG_W, d: CT },
       { id: "windowSpot1",  type: "spot",    spot: 1,           x: windowSegX(1),  z: WINDOW_Z,        w: WINDOW_SEG_W, d: CT },
       { id: "windowSpot2",  type: "spot",    spot: 2,           x: windowSegX(2),  z: WINDOW_Z,        w: WINDOW_SEG_W, d: CT },
       { id: "windowSpot3",  type: "spot",    spot: 3,           x: windowSegX(3),  z: WINDOW_Z,        w: WINDOW_SEG_W, d: CT },
-      { id: "pattyCrate",   type: "crate",   kind: "patty",    x:  HALF_W - CT/2, z: -2,               w: CT, d: CT },
-      { id: "doughCrate",   type: "crate",   kind: "dough",    x:  HALF_W - CT/2, z: -1,               w: CT, d: CT },
-      { id: "cheeseCrate",  type: "crate",   kind: "cheese",   x:  HALF_W - CT/2, z:  0,               w: CT, d: CT },
+      { id: "pattyCrate",   type: "crate",   kind: "patty",    x:  HALF_W - CT/2, z: -5.5,             w: CT, d: CT },
+      { id: "doughCrate",   type: "crate",   kind: "dough",    x:  HALF_W - CT/2, z: -4.5,             w: CT, d: CT },
+      { id: "cheeseCrate",  type: "crate",   kind: "cheese",   x:  HALF_W - CT/2, z: -3.5,             w: CT, d: CT },
       // ---- Family playtest fix #6: DIRTY DISH BIN now lives here on the right wall (roughly
       // where the old standalone plate station used to sit — fills the vacated space) instead of
       // a "dishReturn" slot further down the wall. Same interaction (empty hands + GRAB takes a
       // dirty plate to carry to the sink), just relocated + restyled as a visible bin/tub.
-      { id: "dirtyBin",     type: "dirtyBin",                  x:  HALF_W - CT/2, z:  1,               w: CT, d: CT },
-      { id: "stove",        type: "stove",                     x:  HALF_W - CT/2, z:  2,               w: CT, d: CT },
-      // ---- rest of the bottom wall, shifted right to make room for the two boards: trash
-      // center-ish, then pan/oven, then sink+plate stack stay bottom-right as before ----
-      { id: "trashBin",     type: "trash",                     x: -0.5,           z:  HALF_D - CT/2,   w: CT, d: CT },
-      { id: "pan",          type: "pan",                       x:  0.5,           z:  HALF_D - CT/2,   w: CT, d: CT },
-      { id: "oven",         type: "oven",                      x:  1.5,           z:  HALF_D - CT/2,   w: CT, d: CT },
+      { id: "dirtyBin",     type: "dirtyBin",                  x:  HALF_W - CT/2, z: -2.5,             w: CT, d: CT },
+      { id: "stove",        type: "stove",                     x:  HALF_W - CT/2, z: -1.5,             w: CT, d: CT },
+      // Family playtest fix #5 ("cookers become real appliances"): the oven moved here, right next
+      // to the stove on the right wall (was on the bottom wall at x:1, sharing nothing with the
+      // stove) so the two now read as one continuous "range" block — a floor-standing oven-style
+      // unit sits under the (now-bigger, black) soup pot on the stove tile, and the very next tile
+      // is the actual oven appliance. Plenty of room on this wall (right wall spans z -6.5..6.5,
+      // only 5 of 13 tiles were used before this move) — bottom wall's trash/pan/sink/plateStack
+      // row below simply closes the gap oven left behind, still zero internal gaps.
+      { id: "oven",         type: "oven",                      x:  HALF_W - CT/2, z: -0.5,             w: CT, d: CT },
+      // ---- rest of the bottom wall, packed with zero gaps after the boards (see the corner-
+      // clearance fix note above cuttingBoard) — trash, pan, sink, plateStack ----
+      { id: "trashBin",     type: "trash",                     x: -1,             z:  HALF_D - CT/2,   w: CT, d: CT },
+      { id: "pan",          type: "pan",                       x:  0,             z:  HALF_D - CT/2,   w: CT, d: CT },
       // ---- Family playtest fix #3 (plate system redesign): the plate STATION and the standalone
       // dish TRAY are GONE as separate right-wall fixtures. NEW: one PLATE STACK sitting on the
       // counter directly beside the sink (bottom wall) — all clean plates live here as a visible
       // stack, AND it's where an in-progress plate assembly happens (see tryAction's "plateStack"
       // branch). SINK stays on the bottom wall; the stack sits immediately to its right so
       // washing can deposit straight onto it with no separate tray trip.
-      { id: "sink",         type: "sink",                      x:  2.5,           z:  HALF_D - CT/2,   w: CT, d: CT },
-      { id: "plateStack",   type: "plateStack",                x:  3.5,           z:  HALF_D - CT/2,   w: CT, d: CT }
+      { id: "sink",         type: "sink",                      x:  1,             z:  HALF_D - CT/2,   w: CT, d: CT },
+      { id: "plateStack",   type: "plateStack",                x:  2,             z:  HALF_D - CT/2,   w: CT, d: CT }
     ];
 
     const stationById = (id) => G.stations.find(s => s.id === id);
@@ -2256,8 +2291,26 @@
     const AIM_ASSIST_CONE = 12 * Math.PI / 180;
     function angleTo(chef, x, z){ return Math.atan2(x - chef.x, z - chef.z); }
     function angleDiff(a, b){ return Math.abs(((a - b + Math.PI*3) % (Math.PI*2)) - Math.PI); }
+    // Family playtest fix #4 (root cause of "finished plates sometimes bounce off the checkout
+    // instead of delivering"): a COMPLETED DISH (a plate with `.dish` set, or a plateless baked
+    // "pizzaDish") only ever has ONE sensible non-catch destination — the matching customer's
+    // window spot. The plates/boards candidate buckets below exist for raw/chopped ingredients
+    // and in-progress (empty/partial) plates continuing food PREP, not for a finished order. Aim
+    // assist used to gather ALL buckets regardless of item type, with plates(1)/boards(2) ranked
+    // ABOVE the window(3) — so a correct, carefully-aimed throw at a customer could get silently
+    // bent toward some unrelated empty plate sitting on a counter slot (or an empty cutting
+    // board) a few tiles off to the side, the instant that plate/board happened to fall within
+    // the same generous 12° cone as the actual window target. That read exactly like "the dish
+    // bounced off the checkout" even on a perfectly-aimed throw, since the flight never even
+    // headed toward the window in the first place. Fixed by making the candidate list itself
+    // type-aware: a completed dish only ever considers chefs (still a catch) and window spots —
+    // it can no longer be redirected toward a plate/board mid-launch.
+    function isCompletedDishItem(item){
+      return (item.kind === "plate" && item.dish) || item.kind === "pizzaDish";
+    }
     function findAimAssistTarget(chef, chefId, item){
       const candidates = [];   // {x,z,priority} — LOWER priority number = preferred
+      const isCompletedDish = isCompletedDishItem(item);
       for (const cid in G.chefs){
         if (cid === chefId) continue;
         const c = G.chefs[cid];
@@ -2268,20 +2321,24 @@
         if (Math.hypot(c.x - chef.x, c.z - chef.z) > THROW_MAX_RANGE) continue;
         candidates.push({ x: c.x, z: c.z, priority: 0 });
       }
-      // plates in reach: the plate-stack top, or any counter slot holding a plate.
-      if (G.plateStack.top){
-        const stackSt = stationById("plateStack");
-        candidates.push({ x: stackSt.x, z: stackSt.z, priority: 1 });
+      if (!isCompletedDish){
+        // plates in reach: the plate-stack top, or any counter slot holding a plate. Only
+        // meaningful for an ingredient/in-progress-plate throw still being assembled.
+        if (G.plateStack.top){
+          const stackSt = stationById("plateStack");
+          candidates.push({ x: stackSt.x, z: stackSt.z, priority: 1 });
+        }
+        for (const s of G.counterSlots){
+          if (slotIsLive(s) && s.item && s.item.kind === "plate") candidates.push({ x: s.x, z: s.z, priority: 1 });
+        }
+        for (const boardStId of BOARD_STATIONS){
+          const boardSt = stationById(boardStId);
+          if (!boardFor(boardSt).item) candidates.push({ x: boardSt.x, z: boardSt.z, priority: 2 });
+        }
       }
-      for (const s of G.counterSlots){
-        if (slotIsLive(s) && s.item && s.item.kind === "plate") candidates.push({ x: s.x, z: s.z, priority: 1 });
-      }
-      for (const boardStId of BOARD_STATIONS){
-        const boardSt = stationById(boardStId);
-        if (!boardFor(boardSt).item) candidates.push({ x: boardSt.x, z: boardSt.z, priority: 2 });
-      }
-      // window spots with a matching waiting customer (only meaningful for a completed dish, but
-      // aim-assist is generous — any completed-dish throw benefits from this bucket).
+      // window spots with a matching waiting customer — the ONLY non-catch bucket a completed
+      // dish ever considers; still offered (at a lower priority) for a raw/prep throw too, since
+      // aim assist has always been generous about it.
       for (const c of G.customers){
         if (c.state !== "waiting" || !c.spot) continue;
         const spotSt = stationBySpot(c.spot);
@@ -2432,33 +2489,38 @@
       // plate is never a legal ingredient for isLegalPlateAddition, and boards only ever accept
       // CHOPPABLE_KINDS raw ingredients, so those two candidate branches naturally never fire for
       // "dirtyPlate").
+      // MOBILE-FIRST pass (change #7): every candidate below now also carries `anchor: {x,z}` —
+      // the STATION/SLOT's own fixed position the item actually renders at once landed (never
+      // the raw flight-impact point) — purely additive metadata used by the throw-preview's
+      // landing ring (simulateThrowPath) so it can report exactly where a landing will visually
+      // settle; the existing `.apply()` mutation behavior is completely unchanged.
       if (kind === "dirtyPlate"){
         const sinkSt = stationById("sink");
         const dxs = Math.max(Math.abs(x - sinkSt.x) - sinkSt.w/2, 0);
         const dzs = Math.max(Math.abs(z - sinkSt.z) - sinkSt.d/2, 0);
         const ds = Math.hypot(dxs, dzs);
         if (ds <= THROW_SINK_R && !G.sink.parked){
-          candidates.push({ type: "sink", weight: 2, dist: ds, apply(){ G.sink.parked = true; } });
+          candidates.push({ type: "sink", weight: 2, dist: ds, anchor: { x: sinkSt.x, z: sinkSt.z }, apply(){ G.sink.parked = true; } });
         }
         const binSt = stationById("dirtyBin");
         const dxb = Math.max(Math.abs(x - binSt.x) - binSt.w/2, 0);
         const dzb = Math.max(Math.abs(z - binSt.z) - binSt.d/2, 0);
         const db = Math.hypot(dxb, dzb);
         if (db <= THROW_BIN_R && G.plates.dirtyQueue.length < DIRTY_PLATE_MAX){
-          candidates.push({ type: "bin", weight: 1, dist: db, apply(){
+          candidates.push({ type: "bin", weight: 1, dist: db, anchor: { x: binSt.x, z: binSt.z }, apply(){
             G.plates.dirtyQueue.push({ id: G.nextDirtyId++ });
             G.trashSwishId = (G.trashSwishId || 0) + 1;   // reuse the same gentle "swish" cue
           } });
         }
       } else if (state === "raw" && CHOPPABLE_KINDS.has(kind)){
         const board = findNearestEmptyBoard(x, z, true);
-        if (board) candidates.push({ type: "board", weight: 2, dist: board.dist, apply(){
+        if (board) candidates.push({ type: "board", weight: 2, dist: board.dist, anchor: { x: board.st.x, z: board.st.z }, apply(){
           board.board.item = { kind, state }; board.board.progress = 0;
         } });
       } else {
         const plate = findNearestPlateInPath(x, z, true);
         if (plate && isLegalPlateAddition(plate.contents, { kind, state })){
-          candidates.push({ type: "plate", weight: 3, dist: plate.dist, apply(){
+          candidates.push({ type: "plate", weight: 3, dist: plate.dist, anchor: plate.xz, apply(){
             plate.contents.push({ kind, state });
             plateWobbleT.v = 0.35;
           } });
@@ -2468,13 +2530,13 @@
           const dx = Math.max(Math.abs(x - appliance.st.x) - appliance.st.w/2, 0);
           const dz = Math.max(Math.abs(z - appliance.st.z) - appliance.st.d/2, 0);
           const d = Math.hypot(dx, dz);
-          if (d <= THROW_APPLIANCE_R) candidates.push({ type: "appliance", weight: 2, dist: d, apply: appliance.apply });
+          if (d <= THROW_APPLIANCE_R) candidates.push({ type: "appliance", weight: 2, dist: d, anchor: { x: appliance.st.x, z: appliance.st.z }, apply: appliance.apply });
         }
       }
       // Family playtest fix #2: a dirty plate can still land in a plain empty counter slot too
       // (not just sink/bin) — same THROW_LAND_R search every other item uses.
       const slot = findNearestEmptySlot(x, z, true);
-      if (slot) candidates.push({ type: "slot", weight: 1, dist: slot.dist, apply(){ slot.slot.item = { kind, state }; } });
+      if (slot) candidates.push({ type: "slot", weight: 1, dist: slot.dist, anchor: { x: slot.slot.x, z: slot.slot.z }, apply(){ slot.slot.item = { kind, state }; } });
 
       if (candidates.length === 0) return null;
       // nearest-first as the baseline, then let a higher weight win ONLY if it's within
@@ -2541,15 +2603,38 @@
       spawnBounceFX(x, z);   // small hop FX + soft "boing" (render-layer hook, see below)
       return true;
     }
+    // Family playtest fix #4 (secondary hardening): every landing/catch/window/bounce check below
+    // only ever samples the ENDPOINT of one frame's flight step — correct for normal rAF frames
+    // (dt capped at 0.05s elsewhere in this file, so a step is at most THROW_SPEED*0.05 ~= 0.55
+    // units, comfortably inside the window's ~2.8-unit effective catch zone), but the hidden-tab
+    // heartbeat (see hostNetTick's setInterval) can hand this function a dt of up to 1.1s — a
+    // single step of up to ~12 units, more than enough to tunnel straight through the window (or
+    // any other check) without ever sampling a point near it. Subdividing into <=0.05s sub-steps
+    // here means a big heartbeat catch-up tick just runs the exact same per-frame checks several
+    // times in a row instead of once with a huge step — every existing check stays untouched.
+    const FLYING_MAX_SUBSTEP = 0.05;
     function advanceFlyingItems(dt){
       if (G.flying.length === 0) return;
+      if (dt > FLYING_MAX_SUBSTEP){
+        let remaining = dt;
+        while (remaining > 0){
+          const sub = Math.min(FLYING_MAX_SUBSTEP, remaining);
+          advanceFlyingItemsStep(sub);
+          remaining -= sub;
+          if (G.flying.length === 0) return;
+        }
+        return;
+      }
+      advanceFlyingItemsStep(dt);
+    }
+    function advanceFlyingItemsStep(dt){
       for (let i = G.flying.length - 1; i >= 0; i--){
         const f = G.flying[i];
         const step = (f.speed || THROW_SPEED) * dt;
         const nx = f.x + Math.sin(f.dir) * step;
         const nz = f.z + Math.cos(f.dir) * step;
         f.dist += step;
-        const isCompletedDish = (f.kind === "plate" && f.dish) || f.kind === "pizzaDish";
+        const isCompletedDish = isCompletedDishItem(f);
         const isPlate = f.kind === "plate";
         // Family playtest fix #2: dirty plates are floor-safe/bounce-safe like everything else —
         // they just route through resolveIngredientLanding's own dirty-plate branch (sink/bin/
@@ -2557,12 +2642,18 @@
         // `dish` field), so they naturally skip the window-delivery check below and fall through
         // to trash/slot/bounce like any other non-completed-dish item.
 
-        // a) catch: any chef (except the thrower) who has room for this item within THROW_CATCH_R
-        // (Family playtest fix #5: "room" means canStackAdd, not just "totally empty hands" —
-        // stackable ingredients/dirty-plates can be caught into a compatible stack).
+        // a) catch: any chef who has room for this item within THROW_CATCH_R (Family playtest
+        // fix #5: "room" means canStackAdd, not just "totally empty hands" — stackable
+        // ingredients/dirty-plates can be caught into a compatible stack).
+        // MOBILE-FIRST pass (change #4): the thrower CAN catch their own throw once it has
+        // bounced at least once (f.bounces >= 1) — a direct (never-bounced) throw still can't be
+        // self-caught, per the design doc ("remove the never-self-catch rule for BOUNCED segments
+        // only"). tryBounce (above) resets f.dist to 0 and reflects/continues f.dir each bounce,
+        // so by the time this runs on a post-bounce segment the thrower is just another candidate
+        // chef exactly like anyone else — no separate math needed here, just relaxing the guard.
         let caught = false;
         for (const cid in G.chefs){
-          if (cid === f.throwerId) continue;
+          if (cid === f.throwerId && (f.bounces || 0) === 0) continue;
           const c = G.chefs[cid];
           const catchItem = isPlate ? { kind: "plate", contents: (f.contents || []).slice(), dish: f.dish || null }
                                      : { kind: f.kind, state: f.state };
@@ -2607,15 +2698,26 @@
           }
         }
 
-        // d) serving window: a thrown COMPLETED dish crossing a spot segment.
+        // d) serving window: a thrown COMPLETED dish crossing a spot segment. Uses
+        // findDeliveryWindowSpot (not the plain-nearest findWindowSpotInPath) — it can return null
+        // even when a spot is geometrically nearest, if some OTHER spot's matching order is still
+        // being actively converged upon (see that function's own comment) — a null here just means
+        // "not resolved yet," so the flight falls through untouched to the trash/slot/wall checks
+        // below exactly like any other still-flying frame, and gets judged again next frame.
         if (isCompletedDish){
-          const spotSt = findWindowSpotInPath(nx, nz);
+          const spotSt = findDeliveryWindowSpot(nx, nz, f.dish, Math.sin(f.dir), Math.cos(f.dir));
           if (spotSt){
             const waitingHere = G.customers.find(c => c.state === "waiting" && c.spot === spotSt.spot);
             const dishId = f.dish;
             if (waitingHere && dishId && waitingHere.dish === dishId){
               // AIR DELIVERY — full payment + tip + AIR MAIL bonus, customer catch anim.
-              completeDelivery(dishId, waitingHere, spotSt.spot, true);
+              // MOBILE-FIRST pass (change #9): this check runs on EVERY flight segment, bounced
+              // or not (tryBounce just repositions f.x/z/dir and lets the SAME per-frame chain
+              // keep running) — so a dish that bounced at least once (f.bounces>0) and THEN
+              // lands correctly here already falls through to this exact branch with no special
+              // wiring needed; the only new part is flagging it as a BANK SHOT for the bonus/popup.
+              const isBankShot = (f.bounces || 0) > 0;
+              completeDelivery(dishId, waitingHere, spotSt.spot, true, isBankShot);
               G.airMailId = (G.airMailId || 0) + 1;
               G.airMailSpot = spotSt.spot;
               G.flying.splice(i, 1);
@@ -2699,6 +2801,132 @@
       }
     }
 
+    // ---- MOBILE-FIRST pass (change #7): throw arc preview — DRY-RUN twin of advanceFlyingItems'
+    // own landing-priority chain above, used ONLY by the local (render-layer, never-synced) hold-
+    // to-aim preview. This is a genuine reuse of the SAME decision logic (resolveIngredientLanding/
+    // findNearestPlateInPath/findWindowSpotInPath/findNearestEmptySlot/isLegalPlateAddition are
+    // all called directly, unmodified) rather than a re-implementation that could quietly drift
+    // out of sync — every one of those helpers is a pure read of G (they build a decision/return a
+    // candidate; only the CALLER invokes `.apply()` or mutates state), so calling them here without
+    // ever invoking `.apply()`/holdPush/completeDelivery/dropToFloor/G.stats mutations is safe and
+    // side-effect-free. The only piece that can't be reused verbatim is tryBounce (it mutates the
+    // real flying item `f` in place and fires spawnBounceFX) — simulateBounceStep below mirrors
+    // its exact math (same reflection formula, same speed decay/caps) against a throwaway local
+    // object instead. Steps at a fixed dt (same THROW_SPEED-based stepping) up to a generous cap so
+    // a long/bouncy throw's preview still terminates.
+    const THROW_PREVIEW_DT = 1/60;
+    const THROW_PREVIEW_MAX_STEPS = 600;   // generous ceiling (10s of flight) — real throws always resolve long before this
+    function simulateBounceStep(sim, x, z, wallNormal){
+      if (sim.bounces >= BOUNCE_MAX) return false;
+      const nextSpeed = sim.speed * BOUNCE_SPEED_MULT;
+      if (nextSpeed < BOUNCE_MIN_SPEED) return false;
+      sim.x = x; sim.z = z;
+      sim.dist = 0;
+      sim.speed = nextSpeed;
+      sim.bounces++;
+      if (wallNormal){
+        const dx = Math.sin(sim.dir), dz = Math.cos(sim.dir);
+        const dot = dx * wallNormal.x + dz * wallNormal.z;
+        const rx = dx - 2 * dot * wallNormal.x, rz = dz - 2 * dot * wallNormal.z;
+        sim.dir = Math.atan2(rx, rz);
+      }
+      return true;
+    }
+    // Returns { points: [{x,z}, ...], landing: {x,z}, bounced } describing the predicted flight
+    // path (one point per simulated step, for the dotted trajectory) and final resting spot (for
+    // the landing-ring marker) — includes at least the first bounce continuation per the design
+    // doc ("dotted trajectory ... including the bounce continuation (first bounce at least)").
+    // `chef`/`item` are read-only inputs (never mutated); nothing here touches G. `chefId` is
+    // needed to reproduce tryThrow's own AIM ASSIST bend (findAimAssistTarget excludes the
+    // thrower's own chef id from candidates) — without it the preview could show a straight-facing
+    // trajectory while the real throw actually snaps toward an assist target, which would violate
+    // "the preview never lies."
+    function simulateThrowPath(chef, chefId, item){
+      const isPlate = item.kind === "plate";
+      const isCompletedDish = isCompletedDishItem(item);
+      const assistAngle = findAimAssistTarget(chef, chefId, item);
+      const throwDir = assistAngle != null ? assistAngle : chef.dir;
+      const sim = { x: chef.x, z: chef.z, dir: throwDir, dist: 0, speed: THROW_SPEED, bounces: 0 };
+      const points = [{ x: sim.x, z: sim.z }];
+      for (let step = 0; step < THROW_PREVIEW_MAX_STEPS; step++){
+        const d = sim.speed * THROW_PREVIEW_DT;
+        const nx = sim.x + Math.sin(sim.dir) * d;
+        const nz = sim.z + Math.cos(sim.dir) * d;
+        sim.dist += d;
+
+        // a) catch — a preview doesn't care WHO would catch it (that's a live decision at throw
+        // time, not aim time); skip straight to the landing chain, same order as advanceFlyingItems.
+
+        if (!isPlate && item.kind !== "pizzaDish"){
+          // MOBILE-FIRST pass (change #7) bug fix: the landing ring must show where the item
+          // ACTUALLY ends up rendered, not the raw physics impact point — a board/slot/appliance
+          // landing snaps the item to that SURFACE's own x/z (see advanceFlyingItems: it sets
+          // `slotLanding.item = ...`/`board.item = ...`, both rendered at their owning station's
+          // fixed position, never at the raw nx/nz the ball happened to be at that frame). Report
+          // each candidate's actual anchor point so the preview never lies about where it lands.
+          const landing = resolveIngredientLanding(item.kind, item.state, nx, nz);
+          if (landing){
+            points.push({ x: nx, z: nz });
+            // Family playtest fix #2's sink/bin candidates (dirtyPlate only) carry an anchor too;
+            // every candidate type resolveIngredientLanding can return now sets one (see that
+            // function's own comment) — fall back to the raw impact point only in the
+            // (unreachable in practice) case a future candidate type forgets to set one.
+            return { points, landing: landing.anchor || { x: nx, z: nz }, bounced: sim.bounces > 0 };
+          }
+          const plateInPath = findNearestPlateInPath(nx, nz);
+          if (plateInPath && !isLegalPlateAddition(plateInPath, { kind: item.kind, state: item.state })){
+            if (simulateBounceStep(sim, nx, nz)){ points.push({ x: nx, z: nz }); continue; }
+            points.push({ x: nx, z: nz });
+            return { points, landing: { x: nx, z: nz }, bounced: sim.bounces > 0 };
+          }
+        }
+
+        if (isCompletedDish){
+          const spotSt = findWindowSpotInPath(nx, nz);
+          if (spotSt){
+            points.push({ x: nx, z: nz });
+            return { points, landing: { x: nx, z: nz }, bounced: sim.bounces > 0 };
+          }
+        }
+
+        const trashSt = stationById("trashBin");
+        if (Math.hypot(nx - trashSt.x, nz - trashSt.z) <= THROW_TRASH_R){
+          points.push({ x: nx, z: nz });
+          return { points, landing: { x: nx, z: nz }, bounced: sim.bounces > 0 };
+        }
+
+        const slotLanding = findNearestEmptySlot(nx, nz);
+        if (slotLanding){
+          points.push({ x: nx, z: nz });
+          return { points, landing: { x: slotLanding.x, z: slotLanding.z }, bounced: sim.bounces > 0 };
+        }
+
+        const hitWallX = nx < -HALF_W + CT || nx > HALF_W - CT;
+        const hitWallZ = nz < -HALF_D + CT || nz > HALF_D - CT;
+        if (sim.dist >= THROW_MAX_RANGE || hitWallX || hitWallZ){
+          const fx = clamp(nx, -HALF_W + CT + 0.1, HALF_W - CT - 0.1);
+          const fz = clamp(nz, -HALF_D + CT + 0.1, HALF_D - CT - 0.1);
+          let wallNormal = null;
+          if (hitWallX || hitWallZ){
+            wallNormal = { x: hitWallX ? (nx < 0 ? 1 : -1) : 0, z: hitWallZ ? (nz < 0 ? 1 : -1) : 0 };
+            const len = Math.hypot(wallNormal.x, wallNormal.z) || 1;
+            wallNormal.x /= len; wallNormal.z /= len;
+          }
+          if (simulateBounceStep(sim, fx, fz, wallNormal)){ points.push({ x: fx, z: fz }); continue; }
+          // one last forgiving search around the clamped impact point (mirrors advanceFlyingItems'
+          // own branch g) — report the SLOT's anchor if one is found, else the clamped floor point.
+          const impactSlot = findNearestEmptySlot(fx, fz);
+          points.push({ x: fx, z: fz });
+          return { points, landing: impactSlot ? { x: impactSlot.x, z: impactSlot.z } : { x: fx, z: fz }, bounced: sim.bounces > 0 };
+        }
+
+        sim.x = nx; sim.z = nz;
+        points.push({ x: nx, z: nz });
+      }
+      // fell out of the step cap (shouldn't normally happen) — land where it currently is.
+      return { points, landing: { x: sim.x, z: sim.z }, bounced: sim.bounces > 0 };
+    }
+
     // Shared landing-surface searches used by advanceFlyingItems above — split into three focused
     // helpers (board / plate-in-path / empty slot) so each step of the priority chain reads
     // clearly, rather than one function trying to do all three at once.
@@ -2707,7 +2935,7 @@
     // compare against anything else), true returns a {..., dist} wrapper for resolveIngredientLanding's
     // cross-type distance comparison. Search radii/logic are otherwise UNCHANGED.
     function findNearestEmptyBoard(x, z, withDist){
-      let best = null, bestD = THROW_LAND_R;
+      let best = null, bestD = THROW_LAND_R, bestSt = null;
       for (const boardStId of BOARD_STATIONS){
         const boardSt = stationById(boardStId);
         const board = boardFor(boardSt);
@@ -2715,19 +2943,22 @@
         const dx = Math.max(Math.abs(x - boardSt.x) - boardSt.w/2, 0);
         const dz = Math.max(Math.abs(z - boardSt.z) - boardSt.d/2, 0);
         const d = Math.hypot(dx, dz);
-        if (d <= bestD){ bestD = d; best = board; }
+        if (d <= bestD){ bestD = d; best = board; bestSt = boardSt; }
       }
       if (!best) return null;
-      return withDist ? { board: best, dist: bestD } : best;
+      // MOBILE-FIRST pass (change #7): `st` (the station entry, carrying x/z) added alongside the
+      // existing `board`/`dist` shape purely so the throw-preview can report this board's actual
+      // anchor position — every existing call site only ever destructures `.board`/`.dist`.
+      return withDist ? { board: best, dist: bestD, st: bestSt } : best;
     }
     // Finds the nearest plate (a counter slot holding one, or the stack's in-progress top) within
     // THROW_PLATE_R — returns its live `contents` array (mutated in place by the caller) or null.
     function findNearestPlateInPath(x, z, withDist){
-      let best = null, bestD = THROW_PLATE_R;
+      let best = null, bestD = THROW_PLATE_R, bestXZ = null;
       if (G.plateStack.top){
         const stackSt = stationById("plateStack");
         const d = Math.hypot(x - stackSt.x, z - stackSt.z);
-        if (d <= bestD){ bestD = d; best = G.plateStack.top.contents; }
+        if (d <= bestD){ bestD = d; best = G.plateStack.top.contents; bestXZ = { x: stackSt.x, z: stackSt.z }; }
       }
       for (const s of G.counterSlots){
         // Family playtest fix #3: a slot dormant under an active station never participates —
@@ -2735,10 +2966,13 @@
         if (!slotIsLive(s)) continue;
         if (!s.item || s.item.kind !== "plate") continue;
         const d = Math.hypot(x - s.x, z - s.z);
-        if (d <= bestD){ bestD = d; best = s.item.contents; }
+        if (d <= bestD){ bestD = d; best = s.item.contents; bestXZ = { x: s.x, z: s.z }; }
       }
       if (!best) return null;
-      return withDist ? { contents: best, dist: bestD } : best;
+      // MOBILE-FIRST pass (change #7): `xz` added alongside the existing `contents`/`dist` shape
+      // purely so the throw-preview can report this plate's actual anchor position — every
+      // existing call site only ever destructures `.contents`/`.dist`.
+      return withDist ? { contents: best, dist: bestD, xz: bestXZ } : best;
     }
     function findNearestEmptySlot(x, z, withDist){
       let best = null, bestD = THROW_LAND_R;
@@ -2766,6 +3000,74 @@
         if (d <= bestD){ bestD = d; best = st; }
       }
       return best;
+    }
+    // Family playtest fix #4 (root cause #2 — "bounces off the checkout instead of delivering" on
+    // diagonal/bank-shot arrivals): findWindowSpotInPath always picks the SINGLE nearest window
+    // segment in range. Adjacent segments sit only 1 unit apart with a generous THROW_WINDOW_R=0.9
+    // detection radius each, so their zones overlap by design (that's what makes the window
+    // forgiving to aim at) — but a throw crossing the window row at a steep DIAGONAL angle can
+    // enter its NEIGHBOR's zone a frame or two before it ever gets close enough to its own
+    // intended spot's zone (verified: a throw aimed EXACTLY at spot1's center, launched from a
+    // diagonal approach, measurably enters spot2's 0.9-radius zone first even though its straight-
+    // line path passes dead-center through spot1 a few frames later). The old single-nearest check
+    // judged the throw against that first-entered WRONG neighbor, found no matching customer, and
+    // bounced it off — even though the throw was headed for a perfectly correct delivery.
+    //
+    // First attempt (checking every IN-RANGE spot and preferring any with a matching customer)
+    // over-corrected: from many points near the window row MULTIPLE spots are simultaneously "in
+    // range" thanks to that same generous overlap, so it also let a throw aimed EXACTLY at a
+    // WRONG, customer-less spot reach across and deliver to a totally different spot's customer
+    // merely because that neighbor's zone happened to overlap too (verified: a throw dead-center
+    // on spot2 with no customer there incorrectly delivered spot1's order).
+    //
+    // Second attempt (adding a trajectory-convergence check before trusting an in-range match)
+    // still missed the actual diagonal-approach case: right at the instant the WRONG neighbor
+    // first enters range, the TRUE target spot is often still measurably OUTSIDE THROW_WINDOW_R
+    // (verified: d(spot1)=1.005 > 0.9 at the exact frame d(spot2)=0.860 triggers) — so restricting
+    // the convergence check to only "other spots the loop already found in-range" never even
+    // considered spot1 as a candidate that frame, since it never entered the `d > THROW_WINDOW_R`
+    // filter to begin with.
+    //
+    // Fixed by decoupling "is this the wrong spot" from "should I give up and bounce": ANY live
+    // customer, at ANY spot (in range or not), whose order matches this dish AND whose direction
+    // the flight is still actively closing in on (dot product of the flight's unit direction with
+    // the vector to that spot's center is positive and not a glancing near-tangent) counts as "a
+    // legitimate delivery is still incoming" — in that case this frame simply reports "nothing
+    // resolved yet" (null) instead of judging the throw against whichever OTHER spot happens to be
+    // geometrically nearest right now, so the flight keeps going and the real in-range check (this
+    // same function, next frame) catches the true target once it's actually reachable. Only once
+    // NO live order is still being converged upon does a nearest-in-range miss actually bounce —
+    // preserving "wrong-customer/no-customer bounces" for genuine misses (a throw flying in a
+    // fixed direction that never approaches any other order, e.g. straight into a wall, has no
+    // converging candidate and falls straight through to the nearest-in-range check as before).
+    const DELIVERY_CONVERGENCE_MIN = 0.5;   // dot-product floor — well past "glancing", genuinely heading toward it
+    function findDeliveryWindowSpot(x, z, dishId, dirX, dirZ){
+      let nearest = null, nearestD = THROW_WINDOW_R;
+      for (let n = 1; n <= 3; n++){
+        const st = stationBySpot(n);
+        if (!st) continue;
+        const dx = Math.max(Math.abs(x - st.x) - st.w/2, 0);
+        const dz = Math.max(Math.abs(z - st.z) - st.d/2, 0);
+        const d = Math.hypot(dx, dz);
+        if (d <= nearestD){ nearestD = d; nearest = st; }
+      }
+      const nearestWaiting = nearest && dishId && G.customers.find(c => c.state === "waiting" && c.spot === nearest.spot && c.dish === dishId);
+      if (nearestWaiting) return nearest;   // common case: the nearest-in-range spot is simply correct
+      // the nearest-in-range spot (if any) doesn't match — before treating that as a miss, check
+      // whether some OTHER spot's order is still being actively approached; if so, hold off (this
+      // throw isn't "resolved" yet, just still in flight toward its real target).
+      if (dishId && dirX != null && dirZ != null){
+        for (const c of G.customers){
+          if (c.state !== "waiting" || c.dish !== dishId || !c.spot) continue;
+          const st = stationBySpot(c.spot);
+          if (!st || st === nearest) continue;
+          const toTargetX = st.x - x, toTargetZ = st.z - z;
+          const toTargetLen = Math.hypot(toTargetX, toTargetZ) || 1;
+          const closingSpeed = (dirX * toTargetX + dirZ * toTargetZ) / toTargetLen;
+          if (closingSpeed >= DELIVERY_CONVERGENCE_MIN) return null;   // still incoming — don't judge yet
+        }
+      }
+      return nearest;
     }
 
     // Adds a floor item, capping the total at FLOOR_ITEM_MAX (oldest despawns with a poof).
@@ -3282,22 +3584,30 @@
     // matching customer pays full price + tip + this flat bonus, rewarding the style of an air
     // delivery over just walking it over.
     const AIR_MAIL_BONUS = 5;
+    // MOBILE-FIRST pass (change #9): BANK SHOT bonus — an air delivery that bounced at least once
+    // before reaching the right window spot pays an EXTRA bonus on top of the AIR MAIL bonus
+    // ("style points doubly earned" per the design doc) plus its own distinct popup.
+    const BANK_SHOT_BONUS = 2;
     // Shared delivery-completion core — used by BOTH the walk-up hand delivery (hostDeliverAtSpot)
     // and the new air-delivery throw outcome (advanceFlyingItems). Handles payout/tip/streak/dirty-
     // plate-queueing/FX identically either way; `isAirMail` just adds the bonus + a distinct popup
     // flag the render layer picks up to show "AIR MAIL! 🛫" instead of the plain payout text.
-    function completeDelivery(dishId, waitingHere, spotNum, isAirMail){
+    // `isBankShot` (only ever true alongside isAirMail — a bounced throw that then lands correctly
+    // at the window) adds BANK_SHOT_BONUS on top and flags the "BANK SHOT!" popup variant.
+    function completeDelivery(dishId, waitingHere, spotNum, isAirMail, isBankShot){
       const recipe = RECIPES[dishId];
       const elapsed = waitingHere.patienceMax - waitingHere.patience;
       const tipFrac = Math.max(0, 1 - Math.max(0, elapsed - waitingHere.patienceMax * TIP_FULL_FRACTION) /
                                      (waitingHere.patienceMax * (1 - TIP_FULL_FRACTION)));
       const tip = Math.round(TIP_FULL_AMOUNT * tipFrac);
       const airBonus = isAirMail ? AIR_MAIL_BONUS : 0;
-      G.money += recipe.price + tip + airBonus;
+      const bankBonus = isBankShot ? BANK_SHOT_BONUS : 0;
+      G.money += recipe.price + tip + airBonus + bankBonus;
       G.stats.tips += tip;
       G.stats.served++;
       waitingHere.state = "leaving_happy";
-      lastDeliveryInfo = { price: recipe.price, tip, spot: spotNum, airMail: !!isAirMail, airBonus };   // consumed by the render layer's popup
+      lastDeliveryInfo = { price: recipe.price, tip, spot: spotNum, airMail: !!isAirMail, airBonus,
+                            bankShot: !!isBankShot, bankBonus };   // consumed by the render layer's popup
       spawnDeliveryFX(spotNum);
       // Systems pass 4: plated dishes (salad/soup/burger) leave a dirty plate behind at the
       // customer's table — queued to pop at the dirty bin ~5s later. Pizza is plateless
@@ -3340,7 +3650,7 @@
     // Render-layer hook target: last delivery's price/tip/spot breakdown, read once by the
     // popup + flash spawn on the G.stats.served diff (see updateSoundReactions) then irrelevant
     // until next delivery — plain scratch var, not gameplay truth, so it stays outside G.
-    let lastDeliveryInfo = { price: 0, tip: 0, spot: 1, airMail: false, airBonus: 0 };
+    let lastDeliveryInfo = { price: 0, tip: 0, spot: 1, airMail: false, airBonus: 0, bankShot: false, bankBonus: 0 };
 
     // ---- host-only: full day reset, called from the "Play again" button handler below.
     // Rebuilds every mutable field of G fresh (money 0, dayLeft reset, customers cleared,
@@ -3653,29 +3963,83 @@
     const QUEUE_VISIBLE_SLOTS = 1.15;   // just the first queued customer, not the whole line
     const QUEUE_LANE_EXTENT = Math.abs(QUEUE_Z0) + QUEUE_VISIBLE_SLOTS * QUEUE_STEP;
     const SCENE_HALF_D = Math.max(HALF_D + 1.2, QUEUE_LANE_EXTENT);
+    const BASE_FOV = 46;        // this file's original fixed vertical FOV, kept as-is for aspect>=1
+    // MOBILE-FIRST pass: on a PORTRAIT viewport (aspect < 1, i.e. taller than wide — phones/
+    // tablets held upright), a camera with a FIXED vertical FOV forces its horizontal FOV down to
+    // a sliver (hFov shrinks with aspect), which in turn forces the fitting distance way out just
+    // to fit the kitchen's WIDTH in that sliver — this is what made the old fixed-vFov camera read
+    // as tiny and distant on a phone even after the kitchen itself went portrait-shaped. Fix:
+    // below aspect 1, hold the HORIZONTAL fov near BASE_FOV instead (so the kitchen's width is
+    // framed the same way it always was) and let the VERTICAL fov expand to whatever aspect
+    // demands, capped so the perspective never gets absurdly fish-eyed. (Family playtest fix #1
+    // note: the vFov/hFov split here is unaffected by that fix — only the DISTANCE solve below,
+    // shared by both branches, changed to fix the desktop-bottom-clipping bug; see fitCamera's
+    // own comment on distForV/distForH for the actual fix.)
+    const PORTRAIT_HFOV_TARGET = 46;   // degrees — keep the kitchen's on-screen WIDTH framing familiar
+    const PORTRAIT_VFOV_MAX = 92;      // degrees — ceiling so extreme aspects don't fish-eye
     function fitCamera(){
       const w = stage.clientWidth, h = stage.clientHeight;
       renderer.setSize(w, h);
       const aspect = w / h;
-      camera.aspect = aspect;
 
       // Angled Overcooked-style view from the "bottom" side, whole kitchen always in frame.
       // Solve for the camera distance that fits the kitchen's world-space footprint inside
       // the frustum at this aspect ratio, so narrow/mobile viewports zoom out as needed
       // instead of using fixed magic-number tiers that can clip on unexpected aspect ratios.
       const angle = 55 * Math.PI / 180;
-      const vFov = camera.fov * Math.PI / 180;
-      const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
-      // Vertical framing: the tilted view foreshortens the kitchen's depth (z) extent by
-      // cos(angle), so the vertical half-angle must cover that foreshortened depth plus the
-      // full counter height rising toward camera.
-      const vertHalfExtent = SCENE_HALF_D * Math.cos(angle) + CH;
-      const distForV = vertHalfExtent / Math.tan(vFov / 2);
-      // Horizontal framing is unaffected by the tilt (rotation is purely around x).
-      const distForH = SCENE_HALF_W / Math.tan(hFov / 2);
-      // User-reported fix ("zoom in a bit"): tightened safety-margin multiplier from 1.18 to 1.0
-      // and the flat add-on from 2 to 1 — roughly 12-18% closer overall across aspect ratios,
-      // still with a small margin so nothing clips at the frame edge.
+      let vFov, hFov;
+      if (aspect >= 1){
+        vFov = BASE_FOV * Math.PI / 180;
+        hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
+      } else {
+        hFov = PORTRAIT_HFOV_TARGET * Math.PI / 180;
+        vFov = Math.min(PORTRAIT_VFOV_MAX * Math.PI / 180, 2 * Math.atan(Math.tan(hFov / 2) / aspect));
+        hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);   // re-derive hFov in case the vFov cap kicked in
+      }
+      camera.fov = vFov * 180 / Math.PI;
+      camera.aspect = aspect;
+      // Family playtest fix #1 (desktop bottom clipped after the kitchen went portrait/16-deep):
+      // the old formula treated the tilted camera as if it foreshortened the near (bottom-wall)
+      // and far (top-wall/queue) edges of the kitchen SYMMETRICALLY — `SCENE_HALF_D*cos(angle)`
+      // used ONE half-extent for both sides. That's wrong for a perspective camera: the bottom
+      // wall sits much closer to the camera than the top wall/queue, so it subtends a much bigger
+      // slice of the vertical FOV per world-unit (perspective foreshortening isn't symmetric like
+      // it would be under an orthographic camera). At the old landscape kitchen's shallow depth
+      // (HALF_D=5.5) that asymmetry was small enough to hide inside the safety margin; once the
+      // kitchen deepened to HALF_D=8 for portrait play, the near/bottom wall blew straight through
+      // the frustum (verified: bottom wall projected to normalized-device Y ~1.39, i.e. ~40% past
+      // the bottom edge) even though the formula's own "half extent" looked reasonable on paper.
+      // The SAME asymmetry also under-frames the WIDTH at the near wall's corners once the camera
+      // has to pull back this much (their depth-to-camera is shorter than the z=0 plane the old
+      // distForH assumed, so they swing further out toward the horizontal edges too).
+      // Fix: solve distForV/distForH directly against the actual near-wall (bottom, closest to
+      // camera) and far-wall (top/queue, furthest) corners using the camera's real tilted basis,
+      // and take whichever distance clears ALL of them. Derivation (camera at (0,d sin a,d cos a),
+      // looking at the origin, world point P=(x,y,z)): in camera space, vy = y·cos(a) − z·sin(a)
+      // and depth = d − y·sin(a) − z·cos(a) (positive z = toward the bottom/near wall). Solving
+      // ndcY = vy/(depth·tan(vFov/2)) = ∓1 for d at a given (y,z) gives distNearV/distFarV below;
+      // solving ndcX = x/(depth·tan(vFov/2)/aspect) = ±1 at the near-wall depth gives distForH
+      // (the near wall is always the shallower depth, so it alone binds the horizontal fit too).
+      // Checked at both y=0 (floor level, outer wall edge) and y=CH (counter top) since which one
+      // wins depends on the angle/FOV; checked against 1280x900/1440x900/1920x1080/tablet/phone
+      // aspects, worst-case normalized coords stayed under 0.95 everywhere (comfortable margin).
+      const tanHalfV = Math.tan(vFov / 2);
+      const cosA = Math.cos(angle), sinA = Math.sin(angle);
+      const distNearV = (y, Dz) => (Dz * (cosA * tanHalfV + sinA) + y * (sinA * tanHalfV - cosA)) / tanHalfV;
+      const distFarV  = (y, Dz) => (Dz * (sinA + cosA * tanHalfV) + y * (cosA - sinA * tanHalfV)) / tanHalfV;
+      const DZ_NEAR = HALF_D + 1;         // bottom wall + a hair of outside margin
+      const distForV = Math.max(
+        distNearV(0, DZ_NEAR), distNearV(CH, DZ_NEAR),
+        distFarV(0, SCENE_HALF_D), distFarV(CH, SCENE_HALF_D)
+      );
+      // Portrait phones are width-constrained: don't spend precious pixels framing the
+      // decorative side margin — hug the kitchen's actual footprint instead.
+      const sceneHalfW = aspect < 1 ? HALF_W + 0.35 : SCENE_HALF_W;
+      const distForHAt = (y) => sceneHalfW * aspect / tanHalfV + y * sinA + DZ_NEAR * cosA;
+      const distForH = Math.max(distForHAt(0), distForHAt(CH));
+      // User-reported fix ("zoom in a bit"): kept the tight 1.0 safety-margin multiplier / +1 flat
+      // add-on from that earlier pass — the near/far-corner solve above already has its own small
+      // built-in margin (verified <0.95 normalized-device-coord usage), so this stays minimal.
       const dist = Math.max(distForV, distForH) * 1.0 + 1; // small safety margin
 
       camera.position.set(0, dist * Math.sin(angle), dist * Math.cos(angle) + 2.4);
@@ -3936,34 +4300,33 @@
     // for props/ingredients (station visuals are cheap to just always rebuild from current G
     // state each frame, so the very next syncXVisual() call after a template lands already
     // switches everything painted from makeItemMesh/station builders over automatically).
-    // Bug fix (integration-pass review): this crate model's raw bounding box is roughly
-    // 1.91 x 1.85 x 1.09 (X/Y/Z) — nearly cubic, Y only slightly shorter than X. Scaling by
-    // maxDim (the largest of the three axes) barely shrinks Y at all, so every crate stood
-    // ~1.45 units tall on top of an already 1.1-unit counter — a floor-to-above-counter "tower"
-    // once lined up 8-wide along both walls. height-targeting fixes the axis that actually
-    // matters for "sits on the counter, ~0.8 tall" per the design doc, independent of how wide/
-    // deep the raw model happens to be.
-    loadStaticProp("wooden-crate", "assets/wooden-crate.glb", { height: 0.8 });
+    // MOBILE-FIRST pass (dispensers): the wooden-crate GLB + its procedural fallback box are GONE
+    // entirely — a dispenser is now a PLAIN counter tile with a flat painted picture of the
+    // ingredient on top (see buildCrate below). loadStaticProp("wooden-crate", ...) removed along
+    // with it; ingredient GLBs below are still loaded and still used for the HELD/counter/floor
+    // item look (makeRawItemMesh) and the flying-item look, none of that changed.
     // Uniform-grid pass: every station now occupies exactly one CT(1.0)-wide tile — targetSize
     // shrunk from 1.8 to 0.85 (the "~0.85 tile width" ceiling the design doc asks for) so the
     // board+knife sit fully within the tile with a small margin on every side, no overhang onto
     // neighboring tiles.
     loadStaticProp("cutting-board", "assets/cutting-board.glb", { maxDim: 0.85 });
-    loadStaticProp("plate", "assets/plate.glb", { maxDim: 0.52 });
-    loadStaticProp("pot", "assets/pot.glb", { maxDim: 0.68 });
+    // MOBILE-FIRST pass (change #8): plates scaled up ~1.35x everywhere (0.52 -> 0.7) — this one
+    // GLB size feeds cloneStaticProp/makePlateMesh/makeStackPlateMesh/cloneDirtyPlateGLB, i.e.
+    // every held/stack/counter/floor/flying plate at once.
+    loadStaticProp("plate", "assets/plate.glb", { maxDim: 0.7 });
     loadStaticProp("pan", "assets/pan.glb", { maxDim: 0.7 });
-    // Uniform-grid pass: stove/trash-can/sink all shrunk to fit the ~0.85 tile-width ceiling —
-    // stove is also reused (with a further 1.1x bump, still <=0.85 tile) for the oven placement,
-    // see buildOven below, so its own target must leave headroom for that extra scale.
-    loadStaticProp("stove", "assets/stove.glb", { maxDim: 0.75 });
+    // Family playtest fix #5: stove.glb/pot.glb are no longer loaded — buildStove/buildOven now
+    // build a fully procedural floor-standing appliance shell (see buildApplianceBody) with a
+    // black, bigger procedural pot instead, per the user's own "black pot on the oven" ask.
     loadStaticProp("trash-can", "assets/trash-can.glb", { maxDim: 0.75 });
     loadStaticProp("sink", "assets/sink.glb", { maxDim: 0.85 });
     loadStaticProp("dish-tray", "assets/dish-tray.glb", { maxDim: 1.3 });
     // ingredients: user-reported fix ("food models a lot bigger and more obvious") — bumped from
     // the original ~0.35-0.45 procedural-matching sizes up to ~0.65-0.8 world units per the
     // design doc. This targetSize feeds cloneStaticProp everywhere an ingredient GLB renders
-    // (crate displays via buildCrateGLB, held/counter/floor/flying via makeRawItemMesh), so one
-    // change here covers all of those contexts at once.
+    // (held/counter/floor/flying via makeRawItemMesh/makeItemMesh) — dispensers themselves no
+    // longer show a floating 3D ingredient model (flat decal only, see buildCrate), so this only
+    // covers those other contexts now.
     loadStaticProp("tomato", "assets/tomato.glb", { maxDim: 0.72 });
     loadStaticProp("lettuce", "assets/lettuce.glb", { maxDim: 0.78 });
     loadStaticProp("onion", "assets/onion.glb", { maxDim: 0.68 });
@@ -3992,27 +4355,15 @@
       dough:   { color: 0xf0e0c0, shape: "sphere" },
       cheese:  { color: 0xffd23f, shape: "box" }
     };
-    // Builds the procedural crate-box + ingredient-pile look (fallback, and the starting look
-    // before the wooden-crate.glb / ingredient GLBs finish loading).
-    function buildCrateProcedural(st, g){
-      const box = new THREE.Mesh(new THREE.BoxGeometry(st.w + 0.6, 0.55, st.d), mat(0x9c7040, true));
-      box.position.set(st.x, CH + 0.28, st.z);
-      g.add(box);
-      // Family playtest fix #4 ("crates: picture only"): the procedural ingredient pile on the
-      // lid is REMOVED — same reasoning/decal-only outcome as the GLB crate path above.
-      g.add(buildCrateLidDecal(st));
-    }
-    // ---- Change #3 (uniform-grid pass) / Family playtest fix #4 (crates: picture only) —
-    // crate-lid decal: a flat, bold, poster-style icon of the ingredient painted on a canvas
-    // texture and laid on the crate lid at a slight angle. This is now the CRATE'S ONLY
-    // identifier (the floating 3D ingredient model that used to sit alongside it is gone — see
-    // buildCrateGLB/buildCrateProcedural). A single small canvas per ingredient kind (drawn once,
-    // cached, reused by both the procedural AND GLB crate looks) — simplest robust way to make
-    // each crate instantly readable even at a distance/small screenshot crop, independent of
-    // whether the 3D ingredient GLB has loaded yet. Each icon is drawn bold + flat + high-contrast
-    // (thick outline, saturated fill) specifically so it still reads at a 100px-wide crop, per the
-    // verification spec.
-    const CRATE_DECAL_SIZE = 128;   // canvas px — small, cheap, plenty for a ~0.75-unit decal plane
+    // ---- MOBILE-FIRST pass (dispensers): crate-lid decal, now a PLAIN-COUNTERTOP dispenser's
+    // ONLY visual — a flat, bold, poster-style icon of the ingredient painted on a canvas texture
+    // and laid flat on the tile top (see buildCrate below; the raised crate box + GLB crate model
+    // are entirely gone — see the "wooden-crate" removal note above loadStaticProp). A single
+    // small canvas per ingredient kind (drawn once, cached) — simplest robust way to make each
+    // dispenser instantly readable even at a distance/small screenshot crop. Each icon is drawn
+    // bold + flat + high-contrast (thick outline, saturated fill) specifically so it still reads
+    // at a 100px-wide crop, per the verification spec.
+    const CRATE_DECAL_SIZE = 128;   // canvas px — small, cheap, plenty for a ~0.9-unit decal plane
     const crateDecalCache = {};    // kind -> THREE.CanvasTexture
     // Each drawer receives a 2D context already translated so (0,0) is the icon's center and the
     // icon should roughly fill a [-46,46] box (leaving a little margin inside the 128px canvas).
@@ -4096,8 +4447,8 @@
       canvas.width = canvas.height = CRATE_DECAL_SIZE;
       const ctx = canvas.getContext("2d");
       ctx.translate(CRATE_DECAL_SIZE / 2, CRATE_DECAL_SIZE / 2);
-      // small poster-like backing card so the icon reads as "printed on the lid" against any
-      // crate wood tone (light rounded-corner-ish square behind the icon).
+      // small poster-like backing card so the icon reads as "printed on the lid" against the
+      // box's own wood-tone top face.
       ctx.fillStyle = "#fbf6e8";
       ctx.beginPath();
       const r = 14, s = CRATE_DECAL_SIZE / 2 - 4;
@@ -4112,69 +4463,53 @@
       crateDecalCache[kind] = tex;
       return tex;
     }
-    // Family playtest fix #4 ("crates: picture only"): bumped 0.74 -> 0.86 now that the decal is
-    // the crate's ONLY identifier (no more floating 3D ingredient model sharing the lid) — still
-    // comfortably inside the tile footprint (st.w/d == CT == 1.0).
-    const crateDecalGeo = new THREE.PlaneGeometry(0.86, 0.86);
-    SHARED_ASSETS.add(crateDecalGeo);   // reused by every crate's decal plane — must survive syncCrateVisuals' rebuild-in-place dispose
-    function buildCrateLidDecal(st){
-      const tex = getCrateDecalTexture(st.kind);
-      const decalM = new THREE.MeshBasicMaterial({ map: tex, transparent: true, polygonOffset: true, polygonOffsetFactor: -1 });
-      const decal = new THREE.Mesh(crateDecalGeo, decalM);
-      // Bug fix while tuning this: default Euler order (XYZ) composes rotation.x and rotation.z
-      // as "yaw around the ALREADY-TILTED local Z axis," not "lie flat, then yaw around world-up"
-      // — the intended "slight angle" ended up tilting the plane out of horizontal instead of
-      // just rotating it in-plane. "YXZ" order applies the Y (world-up-axis, once X has laid the
-      // plane flat this doubles as its own normal) rotation independently of X, giving the
-      // intended flat-lying-but-yawed look.
-      decal.rotation.order = "YXZ";
-      decal.rotation.x = -Math.PI / 2;         // lie flat on the lid
-      decal.rotation.y = 0.3;                  // "slight angle" per the design doc (in-plane yaw)
-      // Family playtest fix #4: now centered on the lid — it no longer needs to dodge a floating
-      // 3D ingredient model (removed), so it can sit dead-center as the crate's sole identifier.
-      decal.position.set(st.x, CH + 0.6, st.z);
-      return decal;
-    }
-    // GLB crate look: wooden-crate.glb's opening faces its local FRONT (+Z), not top, per the
-    // Meshy quirk list — rotate it so the opening faces INTO the play area (crates line the left
-    // wall at x=-HALF_W+CT/2, facing +X; the right wall's patty/dough/cheese crates face -X), then
-    // display a few of the matching ingredient GLB clones sitting inside/atop it.
-    function buildCrateGLB(st, g){
-      const crate = cloneStaticProp(PROP_TEMPLATES["wooden-crate"]);
-      crate.rotation.y = st.x < 0 ? Math.PI/2 : -Math.PI/2;
-      crate.position.set(st.x, CH, st.z);
-      g.add(crate);
-      // Family playtest fix #4 ("crates: picture only"): the floating 3D ingredient model on the
-      // lid is REMOVED — the painted decal alone identifies the crate now (decal bumped up a
-      // touch in buildCrateLidDecal/crateDecalGeo now that it's the sole identifier).
-      g.add(buildCrateLidDecal(st));
-    }
+    // ---- Family playtest fix #2 (dispenser v3, restart per the user's own words: "basic box that
+    // has the image of the ingredient on top"): the flat-picture-on-bare-countertop look (v2, see
+    // the removed buildCrateLidDecal/plane-decal code this replaces) read as a sticker on a table,
+    // not a container. A dispenser is now a single BASIC BOX — one warm wood tone, plain rounded-
+    // ish proportions (slightly bevelled top edge via a smidge of extra geometry would be overkill;
+    // a plain box reads perfectly well at kid-screenshot distance), sized a little smaller than its
+    // tile so it visually reads as an object SITTING on the tile rather than a re-skin of the tile
+    // itself — with the ingredient's existing 2D decal (same canvas-drawn icon, reused as-is) laid
+    // flat on its TOP face, large and centered. This fully REPLACES the counter-tile block on that
+    // tile — exactly like every other station (stove/board/sink/etc already sit on TOP of the tile
+    // grid; a dispenser now works the same way instead of overriding the tile's own mesh — see
+    // COUNTER_TILES.forEach above, unchanged — so an inactive level's crate tile still falls back
+    // to a perfectly normal plain counter slot underneath once syncStationVisibility() hides this
+    // box group, same mechanism every other station already relies on).
+    // Kept as TWO meshes (box body + a thin decal plane laid on its top face) rather than a single
+    // multi-material Mesh: the highlight/reach-glow system (collectHighlightMeshes/pulseHighlight)
+    // reads `mesh.material.emissive`, which only exists on a single-material mesh — a BoxGeometry
+    // material ARRAY (one material per face) would silently break the glow-on-approach cue. Only
+    // the box body is a highlightTarget (the whole crate glows on reach, same as every other
+    // station), the decal plane just rides along as a cosmetic child.
+    const CRATE_BOX_WOOD_COLOR = 0xa8703c;    // warm wood tone, distinct from the counter's own tan
+    const CRATE_BOX_SIZE = 0.8;               // a little smaller than the 1.0 tile so it reads as an object on it
+    const CRATE_BOX_HEIGHT = 0.5;
+    const crateBoxGeo = new THREE.BoxGeometry(CRATE_BOX_SIZE, CRATE_BOX_HEIGHT, CRATE_BOX_SIZE);
+    SHARED_ASSETS.add(crateBoxGeo);   // shared box shape across every dispenser (material is per-instance, box color is uniform so this is safe)
+    const crateBoxTopDecalGeo = new THREE.PlaneGeometry(CRATE_BOX_SIZE * 0.86, CRATE_BOX_SIZE * 0.86);
+    SHARED_ASSETS.add(crateBoxTopDecalGeo);
     function buildCrate(st){
       const g = new THREE.Group();
-      if (PROP_TEMPLATES["wooden-crate"]) buildCrateGLB(st, g);
-      else buildCrateProcedural(st, g);
+      const box = new THREE.Mesh(crateBoxGeo, mat(CRATE_BOX_WOOD_COLOR, true));
+      box.position.set(st.x, CH + CRATE_BOX_HEIGHT / 2, st.z);
+      g.add(box);
+      const tex = getCrateDecalTexture(st.kind);
+      const decalM = new THREE.MeshBasicMaterial({ map: tex, transparent: true, polygonOffset: true, polygonOffsetFactor: -1 });
+      const decal = new THREE.Mesh(crateBoxTopDecalGeo, decalM);
+      decal.rotation.x = -Math.PI / 2;   // lie flat on the box's top face
+      decal.position.set(st.x, CH + CRATE_BOX_HEIGHT + 0.01, st.z);
+      g.add(decal);
       scene.add(g);
-      stationMeshes[st.id] = { group: g, usingGLBCrate: !!PROP_TEMPLATES["wooden-crate"], usingGLBIngredient: !!PROP_TEMPLATES[st.kind] };
+      stationMeshes[st.id] = { group: g, highlightTargets: [box] };
     }
     for (const kind of ["tomato", "lettuce", "onion", "potato", "bun", "patty", "dough", "cheese"]){
       buildCrate(stationById(kind + "Crate"));
     }
-    // Crates are built once at startup, before the GLB loads resolve — re-check each frame
-    // (cheap: 8 crates, a couple of boolean comparisons) and rebuild in place the first time
-    // either the crate box or that crate's specific ingredient template newly becomes available,
-    // so late-arriving assets still hot-swap in without needing per-crate load callbacks.
-    function syncCrateVisuals(){
-      for (const kind of ["tomato", "lettuce", "onion", "potato", "bun", "patty", "dough", "cheese"]){
-        const st = stationById(kind + "Crate");
-        const sm = stationMeshes[st.id];
-        if (!sm) continue;
-        const crateReady = !!PROP_TEMPLATES["wooden-crate"], ingReady = !!PROP_TEMPLATES[kind];
-        if (crateReady === sm.usingGLBCrate && ingReady === sm.usingGLBIngredient) continue;
-        scene.remove(sm.group);
-        disposeMesh(sm.group);
-        buildCrate(st);
-      }
-    }
+    // no-op kept as a named function (called every frame from the main loop) since dispensers no
+    // longer have anything to hot-swap — cheapest possible way to leave that call site untouched.
+    function syncCrateVisuals(){ /* dispensers have no GLB hot-swap any more — nothing to do */ }
 
     function buildBoard(st){
       const g = new THREE.Group();
@@ -4210,12 +4545,19 @@
       itemGroup.position.set(st.x, CH + 0.18, st.z + 0.35 * inward);
       g.add(itemGroup);
 
-      // floating progress bar (frame + fill), hidden unless chopping
+      // MOBILE-FIRST pass (change #3): floating progress bar ~1.6x bigger (1.0 -> 1.6 wide) with a
+      // dark semi-transparent backing PLATE behind the white border frame, for legibility at
+      // phone size — same 3-layer stack (backing/frame/fill) reused by buildMiniProgressBar below
+      // for the cooking stations/sink, so every progress bar in the game shares this look.
       const barGroup = new THREE.Group();
       barGroup.position.set(st.x, CH + 1.15, st.z + 0.35 * inward);
-      const frame = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.16, 0.05), mat(0xffffff));
+      const backing = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.36, 0.04),
+        new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.55 }));
+      backing.position.z = -0.01;
+      barGroup.add(backing);
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.256, 0.05), mat(0xffffff));
       barGroup.add(frame);
-      const fill = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.11, 0.06), mat(0x4ecb5c, true));
+      const fill = new THREE.Mesh(new THREE.BoxGeometry(1.504, 0.176, 0.06), mat(0x4ecb5c, true));
       fill.position.z = 0.005;
       barGroup.add(fill);
       barGroup.visible = false;
@@ -4321,71 +4663,147 @@
     }
     buildTrash(stationById("trashBin"));
 
+    // Family playtest fix #5: generic "which wall is this tile against, and which way is INTO the
+    // kitchen" helper — buildBoard (above) only ever needed the z-wall case (boards only ever sit
+    // on the top/bottom walls), but the stove+oven range now sits on the RIGHT wall, so the
+    // door/handle/window need an x-based inward direction instead. Returns a unit vector {x,z}
+    // pointing from the tile toward the kitchen's center, based on whichever axis the tile is
+    // actually pinned against (the border is 1 unit deep, so a tile is "against" whichever wall
+    // its x or z sits within CT of).
+    function wallInwardDir(st){
+      if (st.x <= -HALF_W + CT + 0.01) return { x: 1, z: 0 };
+      if (st.x >=  HALF_W - CT - 0.01) return { x: -1, z: 0 };
+      if (st.z <= -HALF_D + CT + 0.01) return { x: 0, z: 1 };
+      return { x: 0, z: -1 };   // bottom wall (or anything else) — matches the z<0?1:-1 convention above
+    }
+    // Family playtest fix #5 ("cookers become real appliances"): shared floor-standing appliance
+    // shell for both the stove and oven tiles — a real body from the FLOOR up (not perched at
+    // counter height like every other station), a door+handle+small window on whichever face
+    // points INTO the kitchen (per wallInwardDir), and small feet lifting it a hair off the floor.
+    // This fully REPLACES the counter-tile block on that tile (same "equipment owns the whole
+    // tile" convention the dispenser-box rework above established) — syncStationVisibility()
+    // hides this group on levels where the station is inactive, revealing the plain counter tile
+    // underneath exactly like every other station already does.
+    // Always builds a door+handle+window (the window mesh is returned so the oven builder below
+    // can drive its baking-glow visibility; the stove builder just never touches it since its own
+    // cooking cue is the pot bubbling on top, not a glowing door).
+    function buildApplianceBody(st, dir){
+      const g = new THREE.Group();
+      const bodyW = st.w - TILE_GAP - 0.06, bodyD = st.d - TILE_GAP - 0.06;
+      const bodyH = 0.95;
+      const feetH = 0.08;
+      const bodyM = mat(0x707880, true);   // cool appliance-steel tone, distinct from the wood counters/dispensers
+      const body = new THREE.Mesh(new THREE.BoxGeometry(bodyW, bodyH, bodyD), bodyM);
+      body.position.set(st.x, feetH + bodyH / 2, st.z);
+      g.add(body);
+      // small feet at the 4 corners
+      const footGeo = new THREE.CylinderGeometry(0.05, 0.05, feetH, 8);
+      const footM = mat(0x2a2a2a, true);
+      for (const fx of [-1, 1]) for (const fz of [-1, 1]){
+        const foot = new THREE.Mesh(footGeo, footM);
+        foot.position.set(st.x + fx * (bodyW/2 - 0.08), feetH/2, st.z + fz * (bodyD/2 - 0.08));
+        g.add(foot);
+      }
+      // door + handle + window, all on the inward-facing side (dir.x/dir.z point INTO the kitchen)
+      const faceOffset = { x: dir.x * (bodyD/2 + 0.02), z: dir.z * (bodyD/2 + 0.02) };
+      const doorY = feetH + bodyH * 0.42;
+      const faceW = Math.max(bodyW, bodyD) * 0.72;
+      const doorM = mat(0x4a4a4a, true);
+      const door = new THREE.Mesh(new THREE.BoxGeometry(
+        dir.x !== 0 ? 0.04 : faceW, bodyH * 0.6, dir.x !== 0 ? faceW : 0.04
+      ), doorM);
+      door.position.set(st.x + faceOffset.x, doorY, st.z + faceOffset.z);
+      g.add(door);
+      // window: a small glowing pane set into the door, same orientation as the door itself
+      const winW = faceW * 0.55;
+      const glowWindow = new THREE.Mesh(new THREE.BoxGeometry(
+        dir.x !== 0 ? 0.05 : winW, bodyH * 0.3, dir.x !== 0 ? winW : 0.05
+      ), mat(0xffb23f, true));
+      glowWindow.position.set(st.x + dir.x * (bodyD/2 + 0.035), doorY + bodyH * 0.02, st.z + dir.z * (bodyD/2 + 0.035));
+      glowWindow.visible = false;
+      g.add(glowWindow);
+      // handle: a small horizontal bar mounted just past the door's outer edge
+      const handleM = mat(0x2a2a2a, true);
+      const handle = new THREE.Mesh(new THREE.BoxGeometry(
+        dir.x !== 0 ? 0.05 : faceW * 0.5, 0.05, dir.x !== 0 ? faceW * 0.5 : 0.05
+      ), handleM);
+      handle.position.set(st.x + dir.x * (bodyD/2 + 0.07), doorY + bodyH * 0.22, st.z + dir.z * (bodyD/2 + 0.07));
+      g.add(handle);
+      return { group: g, topY: feetH + bodyH, glowWindow, door };
+    }
     // ---- Systems pass 3: cooking stations (stove/pot, pan, oven) — each gets a floating mini
     // progress bar (reusing the cutting board's frame+fill styling/positions) that pulses amber
     // when close to overdone, and a small state-driven glow/steam/smoke group. Bar visibility and
     // fill fraction are computed in syncCookingStationVisuals() below from G.pot/pan/oven each
     // frame, mirroring syncBoardVisual's approach exactly. ----
+    // MOBILE-FIRST pass (change #3): same ~1.6x-bigger, dark-backed 3-layer bar as the cutting
+    // board's own progress bar above (0.9 -> 1.44 wide) — shared by every cooking station (pot/
+    // pan/oven) and the sink's wash bar, so this one builder change covers all of them.
     function buildMiniProgressBar(x, z, yTop){
       const barGroup = new THREE.Group();
       barGroup.position.set(x, yTop, z);
-      const frame = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.14, 0.05), mat(0xffffff));
+      const backing = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.32, 0.04),
+        new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.55 }));
+      backing.position.z = -0.01;
+      barGroup.add(backing);
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(1.44, 0.224, 0.05), mat(0xffffff));
       barGroup.add(frame);
-      const fill = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.09, 0.06), mat(0x4ecb5c, true));
+      const fill = new THREE.Mesh(new THREE.BoxGeometry(1.344, 0.144, 0.06), mat(0x4ecb5c, true));
       fill.position.z = 0.005;
       barGroup.add(fill);
       barGroup.visible = false;
       return { barGroup, frame, fill };
     }
 
+    // Family playtest fix #5 ("cookers become real appliances"): the stove tile's counter block
+    // is now fully REPLACED by a floor-standing oven-style range unit (body from the floor up,
+    // a door+handle+window on the side facing INTO the kitchen, small feet) — reusing the exact
+    // same appliance shell buildOven builds below (see buildApplianceBody), just without that
+    // function's own glowing-window state hookup (the stove's "is it cooking" cue is the pot
+    // bubbling/steaming on top, not a window glow). The GLB stove.glb prop is no longer used for
+    // this placement — per the user's own "black pot on the oven" ask, a plain readable procedural
+    // shape reads more clearly than fighting an opaque GLB's proportions/door-side convention.
     function buildStove(st){
       const g = new THREE.Group();
-      let highlightTarget, liquid, lidY;
-      if (PROP_TEMPLATES.stove){
-        // stove.glb used for the stove-unit-under-the-pot placement; door side faces the counter
-        // back wall here (only the oven placement below needs the door facing out into the room).
-        const stoveMesh = cloneStaticProp(PROP_TEMPLATES.stove);
-        stoveMesh.position.set(st.x, CH, st.z);
-        g.add(stoveMesh);
-        highlightTarget = stoveMesh;
-        if (PROP_TEMPLATES.pot){
-          const potMesh = cloneStaticProp(PROP_TEMPLATES.pot);
-          potMesh.position.set(st.x, CH + 0.35, st.z);
-          g.add(potMesh);
-          // liquid surface sits just inside the GLB pot's rim
-          liquid = new THREE.Mesh(new THREE.CircleGeometry(0.24, 14), mat(0xd8933c, true));
-          liquid.rotation.x = -Math.PI / 2;
-          liquid.position.set(st.x, CH + 0.62, st.z);
-          liquid.visible = false;
-          g.add(liquid);
-          lidY = CH + 0.63;
-        }
-      } else {
-        const stoveBody = new THREE.Mesh(new THREE.BoxGeometry(st.w + 0.5, 0.5, st.d), mat(0x5a5a5a, true));
-        stoveBody.position.set(st.x, CH + 0.25, st.z);
-        g.add(stoveBody);
-        highlightTarget = stoveBody;
-        const potBody = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.3, 0.34, 14), mat(0x3a3a3a));
-        potBody.position.set(st.x, CH + 0.5 + 0.17, st.z);
-        g.add(potBody);
-        const potRim = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.03, 8, 16), mat(0x707070));
-        potRim.rotation.x = Math.PI / 2;
-        potRim.position.set(st.x, CH + 0.5 + 0.34, st.z);
-        g.add(potRim);
-        // liquid surface — swaps color/emissive per pot state (empty hidden, cooking dull orange
-        // bubbling glow, done a faint happy green glow, overdone flat gray).
-        liquid = new THREE.Mesh(new THREE.CircleGeometry(0.27, 14), mat(0xd8933c, true));
-        liquid.rotation.x = -Math.PI / 2;
-        liquid.position.set(st.x, CH + 0.5 + 0.34, st.z);
-        liquid.visible = false;
-        g.add(liquid);
-        lidY = CH + 0.5 + 0.35;
+      const dir = wallInwardDir(st);
+      const body = buildApplianceBody(st, dir);
+      g.add(body.group);
+      const highlightTarget = body.group;
+      // Soup pot sits prominently on top of the range — user-reported fix: BLACK, bigger body +
+      // handles, so "black pot on the oven" reads unmistakably at a glance. body.topY is already
+      // the appliance's own absolute world-space top surface (it's floor-standing from y=0, not
+      // sitting on a counter tile), so the pot goes directly on top of it — no extra CH offset.
+      const potY = body.topY;
+      const potBody = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.37, 0.42, 16), mat(0x1c1c1c, true));
+      potBody.position.set(st.x, potY + 0.21, st.z);
+      g.add(potBody);
+      const potRim = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.035, 8, 16), mat(0x2a2a2a));
+      potRim.rotation.x = Math.PI / 2;
+      potRim.position.set(st.x, potY + 0.42, st.z);
+      g.add(potRim);
+      // two small side handles so the pot reads as a pot (not a bucket) from any angle.
+      const handleGeo = new THREE.TorusGeometry(0.06, 0.015, 6, 10, Math.PI);
+      const handleM = mat(0x1c1c1c);
+      for (const side of [-1, 1]){
+        const h = new THREE.Mesh(handleGeo, handleM);
+        h.rotation.z = Math.PI / 2;
+        h.rotation.y = side > 0 ? 0 : Math.PI;
+        h.position.set(st.x + side * 0.41, potY + 0.24, st.z);
+        g.add(h);
       }
+      // liquid surface — swaps color/emissive per pot state (empty hidden, cooking dull orange
+      // bubbling glow, done a faint happy green glow, overdone flat gray).
+      const liquid = new THREE.Mesh(new THREE.CircleGeometry(0.35, 14), mat(0xd8933c, true));
+      liquid.rotation.x = -Math.PI / 2;
+      liquid.position.set(st.x, potY + 0.42, st.z);
+      liquid.visible = false;
+      g.add(liquid);
+      const lidY = potY + 0.43;
       // Juice pass: a small lid disc sitting just above the liquid surface, only ever shown
       // while something's actually cooking — jiggles/rattles in syncCookingStationVisuals as a
       // "boiling hard enough to rattle the lid" cue. Independent group (not a child of `liquid`)
       // so its jiggle motion doesn't fight the liquid's own bob.
-      const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.29, 0.29, 0.04, 14), mat(0x9a9a9a, true));
+      const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.37, 0.37, 0.04, 14), mat(0x9a9a9a, true));
       const lidKnob = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), mat(0x707070));
       lidKnob.position.y = 0.05;
       lid.add(lidKnob);
@@ -4394,7 +4812,7 @@
       g.add(lid);
       // rising steam puffs (cosmetic, always-present group, opacity/position animated per-frame)
       const steamGroup = new THREE.Group();
-      steamGroup.position.set(st.x, CH + 0.9, st.z);
+      steamGroup.position.set(st.x, lidY + 0.5, st.z);
       const steamBits = [];
       for (let i = 0; i < 3; i++){
         const puff = new THREE.Mesh(new THREE.SphereGeometry(0.08, 6, 5),
@@ -4403,7 +4821,7 @@
         steamBits.push(puff);
       }
       g.add(steamGroup);
-      const bar = buildMiniProgressBar(st.x, st.z, CH + 1.35);
+      const bar = buildMiniProgressBar(st.x, st.z, lidY + 0.95);
       g.add(bar.barGroup);
       // NEW (user-reported WORK verb): stir spoon — a small wooden-look stick that pops in and
       // swirls around the rim while G.pot.stirringChefId is set, hidden otherwise. Simple
@@ -4417,7 +4835,7 @@
       spoon.visible = false;
       g.add(spoon);
       scene.add(g);
-      stationMeshes[st.id] = { group: g, liquid, lid, lidBaseX: st.x, lidBaseY: lidY, lidBaseZ: st.z, steamGroup, steamBits, bar, spoon, spoonBaseX: st.x, spoonBaseZ: st.z, highlightTargets: [highlightTarget], usingGLB: !!(PROP_TEMPLATES.stove && PROP_TEMPLATES.pot) };
+      stationMeshes[st.id] = { group: g, liquid, liquidBaseY: potY + 0.42, lid, lidBaseX: st.x, lidBaseY: lidY, lidBaseZ: st.z, steamGroup, steamBits, bar, spoon, spoonBaseX: st.x, spoonBaseZ: st.z, highlightTargets: [highlightTarget], usingGLB: false };
     }
     buildStove(stationById("stove"));
 
@@ -4450,46 +4868,26 @@
     }
     buildPan(stationById("pan"));
 
+    // Family playtest fix #5: same floor-standing appliance shell as buildStove (see
+    // buildApplianceBody) — the oven now sits right beside the stove on the right wall (see the
+    // G.stations layout above) so the two read as one continuous range, door/handle/window facing
+    // the same inward direction the stove's does. The baking glow-window animation (syncCooking-
+    // StationVisuals) is unchanged — just now driven off buildApplianceBody's returned glowWindow
+    // mesh instead of the old two hand-rolled GLB/procedural variants.
     function buildOven(st){
       const g = new THREE.Group();
-      let highlightTarget, glowWindow;
-      if (PROP_TEMPLATES.stove){
-        // reuse stove.glb for the oven placement too, per the design doc — rotated so its
-        // door-ish front faces OUT into the room (the same +Z front convention as the crates).
-        const ovenMesh = cloneStaticProp(PROP_TEMPLATES.stove);
-        ovenMesh.position.set(st.x, CH, st.z);
-        ovenMesh.rotation.y = Math.PI;   // door side faces the play area (st.z is the top wall)
-        // Uniform-grid pass: bump trimmed from 1.15 to 1.08 (stove's own target is now 0.75, so
-        // 0.75*1.08 = 0.81, still under the tile's 0.85 ceiling) — still reads slightly larger
-        // than the plain stove placement without overhanging the oven's own tile.
-        ovenMesh.scale.multiplyScalar(1.08);
-        g.add(ovenMesh);
-        highlightTarget = ovenMesh;
-        glowWindow = new THREE.Mesh(new THREE.BoxGeometry(st.w * 0.4, 0.28, 0.03), mat(0xffb23f, true));
-        glowWindow.position.set(st.x, CH * 0.5 + 0.25, st.z - st.d/2 - 0.05);
-        glowWindow.visible = false;
-        g.add(glowWindow);
-      } else {
-        const ovenBody = new THREE.Mesh(new THREE.BoxGeometry(st.w, 0.9, st.d + 0.3), mat(0x8a5a34, true));
-        ovenBody.position.set(st.x, CH * 0.5 - 0.15, st.z);
-        g.add(ovenBody);
-        highlightTarget = ovenBody;
-        const doorM = mat(0x3a2818, true);
-        const door = new THREE.Mesh(new THREE.BoxGeometry(st.w * 0.7, 0.55, 0.06), doorM);
-        door.position.set(st.x, CH * 0.5 - 0.1, st.z + st.d/2 + 0.02);
-        g.add(door);
-        glowWindow = new THREE.Mesh(new THREE.BoxGeometry(st.w * 0.4, 0.28, 0.03), mat(0xffb23f, true));
-        glowWindow.position.set(st.x, CH * 0.5 - 0.1, st.z + st.d/2 + 0.05);
-        glowWindow.visible = false;
-        g.add(glowWindow);
-      }
+      const dir = wallInwardDir(st);
+      const body = buildApplianceBody(st, dir);
+      g.add(body.group);
+      const highlightTarget = body.group;
+      const glowWindow = body.glowWindow;
       const itemGroup = new THREE.Group();
-      itemGroup.position.set(st.x, CH * 0.5 + 0.35, st.z);
+      itemGroup.position.set(st.x, body.topY + 0.05, st.z);
       g.add(itemGroup);
-      const bar = buildMiniProgressBar(st.x, st.z, CH + 0.85);
+      const bar = buildMiniProgressBar(st.x, st.z, body.topY + 0.55);
       g.add(bar.barGroup);
       scene.add(g);
-      stationMeshes[st.id] = { group: g, itemGroup, glowWindow, bar, highlightTargets: [highlightTarget], usingGLB: !!PROP_TEMPLATES.stove };
+      stationMeshes[st.id] = { group: g, itemGroup, glowWindow, bar, highlightTargets: [highlightTarget], usingGLB: false };
     }
     buildOven(stationById("oven"));
 
@@ -4787,7 +5185,11 @@
     const geoRawSphere = new THREE.SphereGeometry(0.29, 8, 6);
     const geoSliceBox = new THREE.BoxGeometry(0.24, 0.17, 0.24);
     const geoBitBox = new THREE.BoxGeometry(0.15, 0.1, 0.15);
-    const geoPlate = new THREE.CylinderGeometry(0.3, 0.3, 0.05, 16);
+    // MOBILE-FIRST pass (change #8): procedural plate fallback scaled up the same ~1.35x as the
+    // GLB (0.3 -> 0.4 radius) so both paths read the same size — held/stack/counter/floor/sink/
+    // bin plates all funnel through this one geometry (via makePlateMesh/makeStackPlateMesh/
+    // makeDirtyPlateMesh), so this single change covers "everywhere" per the design doc.
+    const geoPlate = new THREE.CylinderGeometry(0.4, 0.4, 0.06, 16);
     // Systems pass 3: shared geometries+materials for the non-crate special item states
     // (grilled/overdone patty, gray trash blob, pizza base/sauce/cheese layers) — created ONCE
     // here (not per-call inside the make*Mesh functions below), same leak-avoidance convention
@@ -4953,6 +5355,17 @@
       const itemGroup = new THREE.Group();
       itemGroup.position.set(st.x, CH + 0.28, st.z);
       g.add(itemGroup);
+      // ---- MOBILE-FIRST pass (change #6): the SINGLE parked dirty plate (G.sink.parked) sitting
+      // in the basin, visible + askew + food-smudge-tinted so "there's a dirty dish waiting here"
+      // reads at a glance even before anyone starts washing it. Built once, toggled visible each
+      // frame in syncDishWashingVisuals — reuses makeDirtyPlateMesh's own gray-brown tint/smudge.
+      const parkedGroup = new THREE.Group();
+      parkedGroup.position.set(st.x, CH + 0.14, st.z);
+      parkedGroup.rotation.z = 0.22;      // "askew" per the design doc
+      parkedGroup.rotation.x = -0.05;
+      parkedGroup.add(makeDirtyPlateMesh());
+      parkedGroup.visible = false;
+      g.add(parkedGroup);
       const bar = buildMiniProgressBar(st.x, st.z, CH + 0.95);
       g.add(bar.barGroup);
       // sparkle burst group: a few small yellow star sprites, shown while the no-clean-plate
@@ -4981,7 +5394,7 @@
       }
       g.add(bubbleGroup);
       scene.add(g);
-      stationMeshes[st.id] = { group: g, itemGroup, bar, sparkleGroup, sparkleBits, bubbleGroup, bubbleBits, highlightTargets: [highlightTarget], usingGLB: !!PROP_TEMPLATES.sink };
+      stationMeshes[st.id] = { group: g, itemGroup, parkedGroup, bar, sparkleGroup, sparkleBits, bubbleGroup, bubbleBits, highlightTargets: [highlightTarget], usingGLB: !!PROP_TEMPLATES.sink };
     }
     buildSink(stationById("sink"));
 
@@ -4993,13 +5406,17 @@
     // — same race-condition fix as the crate/chef hot-swap paths, just declaratively table-driven
     // since there's no per-station animation/position state to preserve (these are all static
     // fixtures, unlike the chef).
+    // Family playtest fix #5: stove/oven are no longer GLB-backed (see buildStove/buildOven/
+    // buildApplianceBody above — now a fully procedural floor-standing appliance shell, same
+    // reasoning as the crate dispensers' own v3 rework) so they're removed from this hot-swap
+    // sweep entirely; leaving a stale entry whose builder always sets usingGLB:false while
+    // entry.ready() flips true the moment stove.glb finishes loading would rebuild them every
+    // single frame forever (ready !== usingGLB never resolves).
     const PROP_STATION_REBUILDERS = [
       { id: "cuttingBoard", ready: () => !!PROP_TEMPLATES["cutting-board"], rebuild: () => buildBoard(stationById("cuttingBoard")) },
       { id: "cuttingBoard2", ready: () => !!PROP_TEMPLATES["cutting-board"], rebuild: () => buildBoard(stationById("cuttingBoard2")) },
       { id: "trashBin",     ready: () => !!PROP_TEMPLATES["trash-can"],     rebuild: () => buildTrash(stationById("trashBin")) },
-      { id: "stove",        ready: () => !!(PROP_TEMPLATES.stove && PROP_TEMPLATES.pot), rebuild: () => buildStove(stationById("stove")) },
       { id: "pan",          ready: () => !!PROP_TEMPLATES.pan,              rebuild: () => buildPan(stationById("pan")) },
-      { id: "oven",         ready: () => !!PROP_TEMPLATES.stove,            rebuild: () => buildOven(stationById("oven")) },
       { id: "sink",         ready: () => !!PROP_TEMPLATES.sink,             rebuild: () => buildSink(stationById("sink")) },
       { id: "plateStack",   ready: () => !!PROP_TEMPLATES.plate,            rebuild: () => buildPlateStack(stationById("plateStack")) },
       { id: "dirtyBin",     ready: () => !!PROP_TEMPLATES.plate,            rebuild: () => buildDirtyBin(stationById("dirtyBin")) }
@@ -5135,7 +5552,9 @@
         const n = item.contents.length || 1;
         item.contents.forEach((c, i) => {
           const ig = makeItemMesh(c.kind, c.state);
-          ig.position.set((i - (n-1)/2) * 0.16, 0.05, 0);
+          // MOBILE-FIRST pass (change #8): spacing/height scaled up ~1.35x (0.16 -> 0.22,
+          // 0.05 -> 0.07) alongside the bigger plate (counter/floor/flying plates, non-held).
+          ig.position.set((i - (n-1)/2) * 0.22, 0.07, 0);
           p.add(ig);
         });
         return p;
@@ -5143,11 +5562,17 @@
       return makeItemMesh(item.kind, item.state);
     }
 
-    // ---- held-item legibility pass (user-reported fix) ----
-    // Held items render 1.5x their normal world size so they read instantly in a chef's hands,
-    // plus a soft white outline ring / drop-shadow disc underneath so they pop against any
-    // background (kitchen floor, counters, other chefs). Shared geometry/material, built once.
-    const HELD_ITEM_SCALE = 1.5;
+    // ---- held-item legibility pass (user-reported fix, later reverted — see Family playtest
+    // fix #3 below) ----
+    // Held items used to render at HELD_ITEM_SCALE (1.5x their normal world size) so they'd read
+    // instantly in a chef's hands. Family playtest fix #3: that made a held tomato visibly BIGGER
+    // than the identical tomato sitting on a counter right next to it — inconsistent and confusing
+    // for kids comparing what they're holding against what's on a station. Held items now render
+    // at the SAME size as everywhere else (counter/floor/flying, all driven by the one shared
+    // makeItemMesh/makeRawItemMesh path) — HELD_ITEM_SCALE is gone (was only ever applied to
+    // holdWrap below); the soft white outline ring / drop-shadow disc underneath (so held items
+    // still pop against any background) stay exactly as before, just no longer scaled up together
+    // with the item.
     const heldShadowGeo = new THREE.CircleGeometry(0.24, 16);
     const heldShadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25 });
     function makeHeldShadowDisc(){
@@ -5169,6 +5594,86 @@
     const fxGroup = new THREE.Group();
     scene.add(fxGroup);
     const activeFX = [];   // {update(dt): bool keepAlive, dispose()}
+
+    // ---- MOBILE-FIRST pass (change #7): throw arc preview — POOLED meshes (built ONCE, just
+    // repositioned/toggled every frame while aiming) so holding the throw button never allocates
+    // geometry per frame. One shared dot geometry/material reused by every dot in every pool (only
+    // .position/.visible change per-dot each frame) + one landing-ring mesh per visual (reuses the
+    // same ring-geometry style as makeHeldOutlineRing elsewhere in this file). Purely local/
+    // render-layer — never touches G, never synced (each player only ever sees their OWN aim(s)
+    // rendered locally; couch mode needs up to 2 CONCURRENT previews since both P1 and P2 share
+    // one screen, so this is a small factory rather than a single set of module-scope meshes).
+    const THROW_PREVIEW_DOT_COUNT = 22;   // pool size — enough dots for the longest realistic previewed path
+    const throwPreviewDotGeo = new THREE.SphereGeometry(0.07, 7, 6);
+    const throwPreviewRingGeo = new THREE.RingGeometry(0.22, 0.32, 20);
+    function createThrowPreviewVisual(){
+      const group = new THREE.Group();
+      const dotMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
+      const dots = [];
+      for (let i = 0; i < THROW_PREVIEW_DOT_COUNT; i++){
+        const dot = new THREE.Mesh(throwPreviewDotGeo, dotMat);
+        dot.visible = false;
+        group.add(dot);
+        dots.push(dot);
+      }
+      const ringMat = new THREE.MeshBasicMaterial({ color: 0xffe14d, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
+      const ring = new THREE.Mesh(throwPreviewRingGeo, ringMat);
+      ring.rotation.x = -Math.PI / 2;
+      ring.visible = false;
+      group.add(ring);
+      scene.add(group);
+      // Renders the pooled dots along `path.points` (evenly re-sampled to fit the fixed dot pool)
+      // plus the landing ring at `path.landing` — pass null to hide everything (aim released/not
+      // holding). `t` (seconds, any monotonic clock) drives a gentle traveling-dash animation and
+      // the ring's idle pulse so the preview reads as "alive," not a static overlay.
+      return function render(path, t){
+        if (!path || path.points.length < 2){
+          for (const d of dots) d.visible = false;
+          ring.visible = false;
+          return;
+        }
+        const n = THROW_PREVIEW_DOT_COUNT;
+        const total = path.points.length - 1;
+        const dashOffset = (t * 3.2) % 1;   // 0..1, animates the dots crawling along the path
+        for (let i = 0; i < n; i++){
+          const frac = Math.min(1, (i + dashOffset) / n);
+          const idx = frac * total;
+          const i0 = Math.min(total, Math.floor(idx)), i1 = Math.min(total, i0 + 1);
+          const lt = idx - i0;
+          const p0 = path.points[i0], p1 = path.points[i1];
+          const dot = dots[i];
+          dot.position.set(p0.x + (p1.x - p0.x) * lt, CH + 0.55, p0.z + (p1.z - p0.z) * lt);
+          dot.visible = true;
+          dot.material.opacity = 0.55 + 0.3 * Math.sin((frac * 8 - t * 4));
+        }
+        ring.position.set(path.landing.x, CH + 0.04, path.landing.z);
+        const pulse = 1 + Math.sin(t * 5) * 0.12;
+        ring.scale.setScalar(pulse);
+        ring.visible = true;
+        // bounced paths get a warmer ring tint so a bank-shot aim reads distinctly from a direct one.
+        ring.material.color.setHex(path.bounced ? 0xff9f43 : 0xffe14d);
+      };
+    }
+    // Two independent preview visuals: "p1" covers P1/solo/touch (only one of those can ever be
+    // aiming on a given device at once), "p2" covers couch mode's second local chef.
+    const throwPreviewRenderers = { p1: createThrowPreviewVisual(), p2: createThrowPreviewVisual() };
+    // Maps a throwHolds key ("p1"/"touch"/"p2") to which preview visual slot renders it.
+    function previewSlotForHoldKey(holdKey){ return holdKey === "p2" ? "p2" : "p1"; }
+    // Called every frame from the main loop: shows/updates/hides each preview visual based on
+    // whichever throwHolds are currently past THROW_HOLD_THRESHOLD (and holding a throwable item).
+    function updateThrowPreviews(){
+      const t = performance.now() / 1000;
+      const activeBySlot = { p1: null, p2: null };
+      for (const [holdKey, hold] of throwHolds){
+        if ((performance.now() - hold.downAt) / 1000 < THROW_HOLD_THRESHOLD) continue;
+        const chef = G.chefs[hold.chefId];
+        const item = chef && holdTop(chef);
+        if (!chef || !item || item.kind === "pizza" || NOT_THROWABLE_KINDS.has(item.kind)) continue;
+        activeBySlot[previewSlotForHoldKey(holdKey)] = simulateThrowPath(chef, hold.chefId, item);
+      }
+      throwPreviewRenderers.p1(activeBySlot.p1, t);
+      throwPreviewRenderers.p2(activeBySlot.p2, t);
+    }
 
     // GLB integration pass: loaded template geometries/materials/textures (chef base meshes,
     // prop models, customer animal models) are SHARED across every clone/instance — a clone
@@ -5449,7 +5954,7 @@
     // Systems pass 2: replaces the old flat "+10 ⭐" popup — shows the coin payout (+ a stacked
     // "+N tip! 💝" popup underneath when a tip landed) and pulses the HUD coin icon. Runs on
     // BOTH screens since it's called from updateSoundReactions off the G.stats.served diff.
-    function showDeliveryPopup(price, tip, airMail, airBonus){
+    function showDeliveryPopup(price, tip, airMail, airBonus, bankShot, bankBonus){
       const wrap = document.getElementById("popupWrap");
       const el = document.createElement("div");
       el.className = "plusPop";
@@ -5494,6 +5999,16 @@
         void liteWrap.offsetWidth;
         liteWrap.classList.add("pop");
         setTimeout(() => liteWrap.classList.remove("pop"), 520);
+      }
+      // ---- MOBILE-FIRST pass (change #9): BANK SHOT! popup — stacks one beat further below the
+      // AIR MAIL popup when the dish bounced at least once before landing at the right window
+      // spot, rewarding the extra style with its own distinct bonus + callout.
+      if (bankShot){
+        const bankEl = document.createElement("div");
+        bankEl.className = "bankShotPop";
+        bankEl.textContent = "BANK SHOT! 🏀 +" + (bankBonus || 0);
+        wrap.appendChild(bankEl);
+        setTimeout(() => { bankEl.remove(); }, 1750);
       }
 
       // coin-flip pulse on the HUD chip
@@ -5620,6 +6135,29 @@
     // readMoveInput) and P2's arrows are read as two INDEPENDENT vectors below (readMoveInput2),
     // each fed into moveChef() for their own chef id every frame from the main loop.
     const keys = new Set();
+
+    // ---- MOBILE-FIRST pass (change #7): throw HOLD-TO-AIM tracking. Every throw input source
+    // (P1 keyboard, P2-couch keyboard, touch button) now goes through this ONE tiny state
+    // machine instead of firing tryThrow/net.localThrowPress the instant the key/button goes
+    // down: press starts a hold record; the ACTUAL throw always fires on RELEASE (a quick tap
+    // releases well under THROW_HOLD_THRESHOLD, so it still feels instant — indistinguishable
+    // from the old immediate-on-press behavior at human reaction speed — while holding past the
+    // threshold shows the local arc preview via updateThrowPreviews() in the main loop, and
+    // release still just throws in whatever direction the chef currently faces, exactly like
+    // every other throw always has). Never touches G — purely local input bookkeeping.
+    const THROW_HOLD_THRESHOLD = 0.25;   // seconds
+    const throwHolds = new Map();   // holdKey -> { downAt, chefId }
+    function beginThrowHold(holdKey, chefId){
+      if (throwHolds.has(holdKey)) return;   // already down (dedupe, mirrors the `keys.has()` guards)
+      throwHolds.set(holdKey, { downAt: performance.now(), chefId });
+    }
+    // Always fires the real throw on release (tap or hold — see comment above), via whichever
+    // `fireFn` the caller supplies for that input source, then clears the hold + preview.
+    function endThrowHold(holdKey, fireFn){
+      if (!throwHolds.has(holdKey)) return;
+      throwHolds.delete(holdKey);
+      fireFn();
+    }
     // Tier-1 batch: couch mode's single shared hint line tracks whichever chef acted (moved or
     // pressed a button) most recently — updated from both the keydown handler below (action/
     // throw/emote presses) AND readMoveInput/readMoveInput2 (movement) each frame. Purely local
@@ -5641,19 +6179,22 @@
         // + Period (emote, moved off Right-Ctrl so WORK has its own key) ----
         if (e.key === "Enter" && !keys.has("Enter")){ tryAction(LOCAL2_ID); mostRecentActingChefId = LOCAL2_ID; }
         if (e.key === "Shift" && e.location === KeyboardEvent.DOM_KEY_LOCATION_RIGHT && !keys.has("ShiftRight")){
-          tryThrow(LOCAL2_ID); mostRecentActingChefId = LOCAL2_ID;
+          // MOBILE-FIRST pass (change #7): throw is now hold-to-aim — see beginThrowHold/
+          // endThrowHold above. mostRecentActingChefId updates on RELEASE now (that's when the
+          // throw actually fires), matching every other discrete-press call site's timing.
+          beginThrowHold("p2", LOCAL2_ID);
         }
         if (k === "." && !keys.has(".")) cycleEmote(LOCAL2_ID);
         // ---- P1: WASD + Space (grab) + C/F (WORK, hold) + Q (throw) + E (emote) — X/left-Shift
         // belong to nobody in couch mode (kept clean per the design doc), so they're deliberately
         // NOT wired here. ----
         if (k === " " && !keys.has(" ")){ net.localActionPress(); mostRecentActingChefId = net.myChefId; }
-        if (k === "q" && !keys.has("q")){ net.localThrowPress(); mostRecentActingChefId = net.myChefId; }
+        if (k === "q" && !keys.has("q")){ beginThrowHold("p1", net.myChefId); }
         if (k === "e" && !keys.has("e")) net.localEmotePress();
       } else {
         // ---- Non-couch: original single-chef control scheme, WORK added on C or F ----
         if (k === " " && !keys.has(" ")) net.localActionPress();
-        if ((k === "x" || k === "Shift") && !keys.has(k)) net.localThrowPress();
+        if ((k === "x" || k === "Shift") && !keys.has(k)){ beginThrowHold("p1", net.myChefId); }
         if (k === "e" && !keys.has("e")) net.localEmotePress();
       }
 
@@ -5665,8 +6206,19 @@
     });
     window.addEventListener("keyup", (e) => {
       const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-      if (e.key === "Shift" && e.location === KeyboardEvent.DOM_KEY_LOCATION_RIGHT) keys.delete("ShiftRight");
+      const isRightShift = e.key === "Shift" && e.location === KeyboardEvent.DOM_KEY_LOCATION_RIGHT;
+      if (isRightShift){
+        keys.delete("ShiftRight");
+        endThrowHold("p2", () => { tryThrow(LOCAL2_ID); mostRecentActingChefId = LOCAL2_ID; });
+      }
       if (e.key === "Control" && e.location === KeyboardEvent.DOM_KEY_LOCATION_RIGHT) keys.delete("ControlRight");
+      // MOBILE-FIRST pass (change #7): release always throws (see beginThrowHold/endThrowHold) —
+      // guarded to plain/left Shift ("Shift" without the right-location flag) or "x"/"q" so
+      // releasing P2's Right-Shift (handled above, its OWN "p2" hold) never also touches P1's
+      // "p1" hold record.
+      if (k === "x" || k === "q" || (k === "Shift" && !isRightShift)){
+        endThrowHold("p1", () => { net.localThrowPress(); if (G.couchMode) mostRecentActingChefId = net.myChefId; });
+      }
       keys.delete(k);
     });
 
@@ -5686,6 +6238,11 @@
       keys.clear();
       touchWorkHolding = false;
       touchMove.dx = 0; touchMove.dz = 0;
+      // MOBILE-FIRST pass (change #7): an abrupt focus/pointer loss just cancels any in-progress
+      // throw-aim silently (no throw fires) — same "never permanently wedge an input" spirit as
+      // the keys Set clear above, but a lost throw-hold should NOT fire a throw on the player's
+      // behalf, so this clears the Map directly rather than going through endThrowHold.
+      throwHolds.clear();
     }
     window.addEventListener("blur", clearAllInputLatches);
     document.addEventListener("visibilitychange", () => { if (document.hidden) clearAllInputLatches(); });
@@ -5816,19 +6373,30 @@
       workBtn.addEventListener("pointercancel", releaseWorkBtn);
       workBtn.addEventListener("pointerleave", releaseWorkBtn);
 
-      // throw button (Systems pass 1): tap = one net.localThrowPress(), routed through the EXACT
-      // same net layer path as the action button (host runs tryThrow directly, guest bumps
-      // throwSeq) — no hold behavior, a throw is a single discrete press like a tap.
+      // throw button: MOBILE-FIRST pass (change #7) — now hold-to-aim, same beginThrowHold/
+      // endThrowHold state machine as the keyboard throw keys, routed through the EXACT same net
+      // layer path as before on release (host runs tryThrow directly, guest bumps throwSeq). A
+      // quick tap still throws immediately-feeling (release fires within THROW_HOLD_THRESHOLD);
+      // holding past the threshold shows the local arc preview. Dragging the finger off the
+      // button (pointercancel/pointerleave) ABORTS the aim with no throw, same natural-feeling
+      // convention as letting go of a real thrown object you changed your mind about.
       const throwBtn = document.getElementById("throwBtn");
       throwBtn.addEventListener("pointerdown", (e) => {
         e.preventDefault();
         throwBtn.classList.add("pressed");
-        net.localThrowPress();
+        beginThrowHold("touch", net.myChefId);
       });
-      function releaseThrowBtn(){ throwBtn.classList.remove("pressed"); }
+      function releaseThrowBtn(){
+        throwBtn.classList.remove("pressed");
+        endThrowHold("touch", () => net.localThrowPress());
+      }
+      function abortThrowBtn(){
+        throwBtn.classList.remove("pressed");
+        throwHolds.delete("touch");
+      }
       throwBtn.addEventListener("pointerup", releaseThrowBtn);
-      throwBtn.addEventListener("pointercancel", releaseThrowBtn);
-      throwBtn.addEventListener("pointerleave", releaseThrowBtn);
+      throwBtn.addEventListener("pointercancel", abortThrowBtn);
+      throwBtn.addEventListener("pointerleave", abortThrowBtn);
 
       // emote button (Tier-1 batch): tap = one net.localEmotePress(), identical exactly-once
       // seq-publish path as the action/throw buttons — cycles bang -> heart -> sweat -> none.
@@ -5976,12 +6544,14 @@
         }
       }
 
-      // held item render — user-reported fix ("held items barely visible"): held items now
-      // render at HELD_ITEM_SCALE (1.5x their normal world size), pulled forward/up a bit more so
-      // they clear the chest instead of nesting into it (checked against all 3 chef models —
-      // procedural + all 3 GLB rigs share the same heldSlot attach convention, see buildChefGLB/
-      // buildChefProcedural above), plus a soft drop-shadow disc directly under the item so it
-      // pops against any background regardless of held-item silhouette/color.
+      // held item render — pulled forward/up a bit more so items clear the chest instead of
+      // nesting into it (checked against all 3 chef models — procedural + all 3 GLB rigs share
+      // the same heldSlot attach convention, see buildChefGLB/buildChefProcedural above), plus a
+      // soft drop-shadow disc directly under the item so it pops against any background regardless
+      // of held-item silhouette/color. Family playtest fix #3: no longer upscaled (see the
+      // HELD_ITEM_SCALE removal note above) — a held item now renders at the exact same world size
+      // as the same item sitting on a counter/floor/mid-flight, only the outline ring + shadow
+      // disc remain to help it read against the chef's own body.
       // Family playtest fix #5 (multi-carry): a plate (always alone, per EXCLUSIVE_HOLD_KINDS)
       // renders exactly as before; a stack of loose ingredients/dirty plates renders each item
       // vertically staggered with a slight alternating tilt so the count reads instantly at a
@@ -5994,7 +6564,6 @@
         const bobHeld = Math.sin(performance.now() / 260) * 0.05;
         const holdWrap = new THREE.Group();
         holdWrap.position.set(0, 0, 0.08);   // small extra forward nudge from the slot's own chest anchor
-        holdWrap.scale.setScalar(HELD_ITEM_SCALE);
         const shadowDisc = makeHeldShadowDisc();
         shadowDisc.position.y = -0.02;
         holdWrap.add(shadowDisc);
@@ -6005,12 +6574,15 @@
           const n = top.contents.length || 1;
           for (const item of top.contents){
             const ig = makeItemMesh(item.kind, item.state);
-            ig.position.set((i - (n-1)/2) * 0.22, 0.05, 0);
+            // MOBILE-FIRST pass (change #8): contents spacing/height scaled up alongside the
+            // 1.35x plate bump (0.22 -> 0.3, 0.05 -> 0.07) so the mound still sits properly
+            // centered/raised on the now-bigger held plate.
+            ig.position.set((i - (n-1)/2) * 0.3, 0.07, 0);
             p.add(ig);
             i++;
           }
           holdWrap.add(p);
-          const ring = makeHeldOutlineRing(0.34);
+          const ring = makeHeldOutlineRing(0.46);
           ring.position.y = bobHeld + 0.03;
           holdWrap.add(ring);
         } else {
@@ -6100,6 +6672,27 @@
       }
     }
 
+    // ---- MOBILE-FIRST pass (change #6): dirty-dish count badges above the sink + dirty bin —
+    // world-projected each frame (same projection pattern as the emote bubbles above), shown only
+    // while that station has >=1 dirty dish waiting. Sink only ever parks exactly one at a time
+    // (G.sink.parked is a bool), the bin can hold up to DIRTY_PLATE_MAX (G.plates.dirtyQueue).
+    const sinkDishBadgeEl = document.getElementById("sinkDishBadge");
+    const binDishBadgeEl = document.getElementById("binDishBadge");
+    function updateDishBadges(){
+      const sinkSt = stationById("sink"), binSt = stationById("dirtyBin");
+      const sinkN = G.sink.parked ? 1 : 0;
+      const binN = G.plates.dirtyQueue.length;
+      for (const [el, st, n] of [[sinkDishBadgeEl, sinkSt, sinkN], [binDishBadgeEl, binSt, binN]]){
+        el.classList.toggle("show", n > 0);
+        if (n <= 0) continue;
+        el.textContent = "🍽 " + n;
+        const p = new THREE.Vector3(st.x, CH + 1.05, st.z).project(camera);
+        const stageRect = stage.getBoundingClientRect();
+        el.style.left = ((p.x * 0.5 + 0.5) * stageRect.width) + "px";
+        el.style.top = ((-p.y * 0.5 + 0.5) * stageRect.height) + "px";
+      }
+    }
+
     function syncBoardVisual(){
       // user-reported layout fix: syncs BOTH boards now, same per-board logic as before just
       // looped over BOARD_STATIONS instead of hardcoded to the single old cuttingBoard.
@@ -6114,7 +6707,10 @@
         const chopping = board.item && board.item.state === "raw" && board.progress > 0;
         sm.barGroup.visible = chopping || (board.progress > 0 && board.progress < 1);
         sm.fill.scale.x = Math.max(0.001, board.progress);
-        sm.fill.position.x = -0.94/2 * (1 - Math.max(0.001, board.progress));
+        // MOBILE-FIRST pass (change #3): fill width bumped 0.94 -> 1.504 alongside the bigger bar
+        // — this left-anchor offset math must track the same base width or the fill would drift
+        // off-center as it grows/shrinks.
+        sm.fill.position.x = -1.504/2 * (1 - Math.max(0.001, board.progress));
       }
     }
 
@@ -6130,7 +6726,8 @@
       bar.barGroup.visible = active;
       if (!active) return;
       bar.fill.scale.x = Math.max(0.001, frac);
-      bar.fill.position.x = -0.84/2 * (1 - Math.max(0.001, frac));
+      // MOBILE-FIRST pass (change #3): fill width bumped 0.84 -> 1.344 alongside the bigger bar.
+      bar.fill.position.x = -1.344/2 * (1 - Math.max(0.001, frac));
       if (amber){
         const p = Math.sin(performance.now() / 140) * 0.5 + 0.5;
         bar.fill.material.color.setRGB(1, 0.5 + p * 0.2, 0.1);
@@ -6146,7 +6743,11 @@
         if (G.pot.state === "cooking"){
           potSm.liquid.material.color.setHex(0xd8933c);
           const bump = Math.sin(performance.now() / 90) * 0.02;
-          potSm.liquid.position.y = CH + 0.5 + 0.34 + bump;
+          // Family playtest fix #5: liquidBaseY replaces the old hardcoded CH+0.5+0.34 magic
+          // number now that the pot sits on the new floor-standing appliance body at a different
+          // height (see buildStove's potY) — liquidBaseY is the exact same y the liquid disc was
+          // originally placed at, so the bubble bump reads identically, just at the new height.
+          potSm.liquid.position.y = potSm.liquidBaseY + bump;
         } else if (G.pot.state === "done"){
           potSm.liquid.material.color.setHex(0x8ad86a);
         } else if (G.pot.state === "overdone"){
@@ -6308,7 +6909,9 @@
           p.position.set(st.x, CH + 0.1 + stackH + 0.06, st.z);   // lifted clear of the idle stack
           G.plateStack.top.contents.forEach((item, i) => {
             const ig = makeItemMesh(item.kind, item.state);
-            ig.position.set((i - (G.plateStack.top.contents.length-1)/2) * 0.16, 0.05, 0);
+            // MOBILE-FIRST pass (change #8): same 0.22/0.07 spacing bump as every other plate
+            // content-mound site, so the in-progress plate on the stack matches everywhere else.
+            ig.position.set((i - (G.plateStack.top.contents.length-1)/2) * 0.22, 0.07, 0);
             p.add(ig);
           });
           if (plateWobbleT.v > 0){
@@ -6326,6 +6929,10 @@
         if (G.sink.washingChef){
           sinkSm.itemGroup.add(makeItemMesh("dirtyPlate", "dirty"));
         }
+        // MOBILE-FIRST pass (change #6): the parked plate sits visibly in the basin whenever one
+        // is waiting there UNWASHED — hidden the instant washing starts (itemGroup's held-plate
+        // look above takes over so the two never overlap).
+        sinkSm.parkedGroup.visible = !!G.sink.parked && !G.sink.washingChef;
         const active = G.sink.progress > 0;
         updateMiniBar(sinkSm.bar, G.sink.progress, active, false);
         // soap bubble tint while active (fill color leans blue-white instead of the cook amber/green)
@@ -7500,10 +8107,12 @@
       if (G.stats.served > sndPrev.served){
         Snd.chaChing();
         flashServingWindow(lastDeliveryInfo.spot);
-        showDeliveryPopup(lastDeliveryInfo.price, lastDeliveryInfo.tip, lastDeliveryInfo.airMail, lastDeliveryInfo.airBonus);
+        showDeliveryPopup(lastDeliveryInfo.price, lastDeliveryInfo.tip, lastDeliveryInfo.airMail, lastDeliveryInfo.airBonus,
+                          lastDeliveryInfo.bankShot, lastDeliveryInfo.bankBonus);
         spawnCoinBurstFX(lastDeliveryInfo.spot);
         if (lastDeliveryInfo.tip > 0) Snd.tipSparkle();
         if (lastDeliveryInfo.airMail) Snd.whoosh();   // extra flourish on top of the cha-ching
+        if (lastDeliveryInfo.bankShot) Snd.boing();   // reuse the bounce "boing" as the bank-shot flourish
       } else if (G.stats.missed > sndPrev.missed){
         Snd.miss();
       }
@@ -7903,7 +8512,6 @@
     const chefPickerWrap2El = document.getElementById("chefPickerWrap2");
     const chefPickerRow2El = document.getElementById("chefPickerRow2");
     const titleCookBtnEl = document.getElementById("titleCookBtn");
-    const titleInviteBtnEl = document.getElementById("titleInviteBtn");
     const titleWaitingEl = document.getElementById("titleWaiting");
     const couchModeRowEl = document.getElementById("couchModeRow");
     const couchModeLabelEl = document.getElementById("couchModeLabel");
@@ -7911,11 +8519,6 @@
     const couchControlsCardEl = document.getElementById("couchControlsCard");
     const crewCard0El = document.getElementById("crewCard0");
     const crewCard1El = document.getElementById("crewCard1");
-    const invitePickerOverlayEl = document.getElementById("invitePickerOverlay");
-    const invitePickerListEl = document.getElementById("invitePickerList");
-    const invitePickerEmptyEl = document.getElementById("invitePickerEmpty");
-    const invitePickerCloseEl = document.getElementById("invitePickerClose");
-    const inviteToastEl = document.getElementById("inviteToast");
 
     // ---- family lobby: chef-card row of CONNECTED players (real choreUser names only — never
     // a Playroom avatar/name). Empty choreUser falls back to "Chef 1"/"Chef 2" per the design
@@ -8023,48 +8626,6 @@
       updateLobbyDoc({ status: "started" });   // family lobby: host-only, online-mode-only (no-op otherwise)
     });
 
-    // ---- family lobby: invite flow — host-only button opens a picker of family members (one-
-    // shot getDocs, not a listener, per the design doc) excluding yourself; tapping a name writes
-    // the notifs_<familyKey> invite doc + best-effort push, then shows a confirmation toast.
-    // Multiple invites allowed (the picker stays open after a tap so the host can invite several
-    // people in a row; it's dismissed explicitly via Close or reopening never resets anything).
-    let inviteToastTimer = null;
-    function showInviteToast(text){
-      inviteToastEl.textContent = text;
-      inviteToastEl.classList.remove("show");
-      void inviteToastEl.offsetWidth;   // force reflow so back-to-back invites restart the transition
-      inviteToastEl.classList.add("show");
-      if (inviteToastTimer) clearTimeout(inviteToastTimer);
-      inviteToastTimer = setTimeout(() => inviteToastEl.classList.remove("show"), 2200);
-    }
-    async function openInvitePicker(){
-      invitePickerListEl.innerHTML = "";
-      invitePickerEmptyEl.style.display = "none";
-      invitePickerOverlayEl.classList.add("show");
-      const names = await fetchFamilyMembers();
-      if (!names.length){
-        invitePickerEmptyEl.style.display = "";
-        return;
-      }
-      names.forEach((name) => {
-        const row = document.createElement("div");
-        row.className = "inviteRow";
-        row.textContent = name;
-        row.addEventListener("click", async () => {
-          const ok = await sendLobbyInvite(name);
-          showInviteToast(ok ? ("Invite sent to " + name + "! 📨") : "Couldn't send that invite — try again.");
-        });
-        invitePickerListEl.appendChild(row);
-      });
-    }
-    titleInviteBtnEl.addEventListener("click", () => {
-      if (!net.isHost) return;   // guests never see this button anyway — safety net
-      openInvitePicker();
-    });
-    invitePickerCloseEl.addEventListener("click", () => {
-      invitePickerOverlayEl.classList.remove("show");
-    });
-
     // ---- Tier-1 batch: couch co-op toggle — solo/host-only, offered ONLY while no online guest
     // is connected (net.players.length <= 1) and hidden entirely on touch devices (keyboard-only
     // per the design doc). Spawns/despawns G.chefs[LOCAL2_ID] immediately on toggle so the chef
@@ -8123,7 +8684,6 @@
       const iAmHost = net.isHost;
       titleCookBtnEl.style.display = iAmHost ? "" : "none";
       titleWaitingEl.style.display = iAmHost ? "none" : "";
-      titleInviteBtnEl.style.display = (iAmHost && Lobby.available && net.roomCode && !G.couchMode) ? "" : "none";
       updateChefPickerCards();
       updateFamilyCrewRow();
 
@@ -8946,12 +9506,14 @@
       syncBoardVisual();
       syncCookingStationVisuals(dt);
       syncDishWashingVisuals(dt);
+      updateDishBadges();
       syncCounterSlotVisuals();
       syncFlyingVisuals(dt);
       syncFloorItemVisuals(dt);
       syncCustomerVisuals(dt);
       syncBuckyVisual(dt);
       syncEmoteBubbles(dt);
+      updateThrowPreviews();
       syncOrderRow();
       syncStationVisibility();
       updateHUD(dt);
