@@ -253,3 +253,24 @@ and STOPS (stands still, head to bottle) while feeding — no more feeding-on-th
       throwable (sink parks via G.sink.parked, bin swishes); bounce-and-travel
       throws (0.78 speed, ≤3 bounces, wall reflection, mid-flight catches);
       plated food floor-safe everywhere.
+- [x] Mobile-first batch (2026-07-05): PORTRAIT kitchen 11×16 (stations
+      rehomed; window+queue top, boards/trash/pan/sink/stack bottom, crates on
+      side walls); fitCamera portrait branch (fixed hFOV ~46°, dist 48→~15 on
+      phones; portrait width margin hugs kitchen +0.35); thumb-arc touch
+      buttons w/ labels; progress bars 1.6x on dark plates; bounce-back
+      self-catch (bounces≥1 only); hold-throw arc preview (simulateThrowPath =
+      dry-run twin of advanceFlyingItems, anchor-exact); plates 1.35x;
+      BANK SHOT +2 (bounced delivery). Known gap: AIR MAIL/BANK SHOT popups
+      are host-only (lastDeliveryInfo not mirrored) — money syncs fine.
+- [x] Desktop+reliability batch (2026-07-06): fitCamera landscape solved
+      against camera's rotated basis (perspective foreshortening is
+      ASYMMETRIC — old formula clipped the near wall 39% past NDC); dispenser
+      v3 = plain box + lid picture; held-size delta removed; delivery
+      reliability (aim-assist excludes plates/boards for completed dishes;
+      findDeliveryWindowSpot defers seam judgment; heartbeat dt sub-stepped
+      0.05s vs tunneling); stove+oven = floor-standing range w/ black pot
+      (wallInwardDir); Invite feature REMOVED; lobby heartbeat 15s + delete
+      after 60s hidden. App: allowance deterministic ids via backend.set
+      (allowance_<kid>_<day>) + self-healing dupe sweep (repaired Eleanor
+      +$6 over-mint); payoutPending WOs render in ACTIVE queue (amber,
+      Dad-only buttons); games.html liveness 45s/3min + per-host dedupe.
