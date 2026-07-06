@@ -44,6 +44,14 @@
      forth on a short interval so the transition keeps re-triggering a gentle grow/shrink. */
   #sunClock.pulseBig{ transform:scale(1.14); }
   #sunClock.pulseSmall{ transform:scale(1); }
+  /* Cleanup pass 2 (user): EXIT button — bottom-left corner (clear of the touch arc on the
+     right and the joystick's usual thumb zone), hidden on the title screen. Two-tap confirm:
+     first tap arms it ("SURE?") for 2.5s, second tap reloads to the game's landing/title. */
+  #exitBtn{ position:absolute; left:12px; bottom:12px; z-index:30; border:0; border-radius:10px;
+            padding:8px 12px; font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:13px;
+            letter-spacing:.05em; color:#fff; background:rgba(0,0,0,.4); cursor:pointer;
+            pointer-events:auto; display:none; }
+  #exitBtn.armed{ background:#c0392b; }
   #muteBtn{ position:absolute; top:14px; right:14px; width:34px; height:34px; border-radius:50%;
             background:rgba(0,0,0,.35); border:none; font-size:18px; line-height:34px; text-align:center;
             padding:0; cursor:pointer; pointer-events:auto; z-index:31; }
@@ -509,6 +517,7 @@
       <div id="missToast">Missed one! 💛 Try the next!</div>
       <div id="hintWrap"><div id="hint">Walk to a crate and press SPACE!</div></div>
       <div id="popupWrap"></div>
+      <button id="exitBtn" title="Exit to the title screen">🚪 EXIT</button>
       <!-- ---- MOBILE-FIRST pass (change #6): dirty-dish count badges — positioned every frame by
            updateDishBadges() (world-projected above the sink/dirty bin, same pattern as the emote
            bubbles), shown only while that station has >=1 dirty dish waiting. ---- -->
@@ -1172,7 +1181,7 @@
       // bias) sits here instead of vanishing into the dirtyQueue; washing consumes a PARKED plate
       // FIRST (see holdAction) before pulling the next one from the bin, since it's already right
       // there at the sink.
-      sink: { progress: 0, washingChef: null, parked: false },
+      sink: { progress: 0, washingChef: null, parked: 0 },   // parked = COUNT of dirty plates (0..3)
       noCleanPlateHintId: 0,   // event counter: plate station tried with clean===0 — gentle hint + sink sparkle
       noCleanPlateHintChef: null,
       // dirtyThrowHintId/dirtyThrowHintChef: RETIRED by Family playtest fix #2 (dirty plates are
@@ -2312,10 +2321,22 @@
       // plate stack (see holdAction) — no separate tray trip; the tray station is gone. ----
       if (st.type === "sink"){
         const top = holdTop(chef);
-        // Family playtest fix #2: a PARKED dirty plate (thrown in) also counts as "in position" —
+        // Cleanup pass 2 (user): the sink now HOLDS up to SINK_PARK_MAX dirty plates — a chef
+        // carrying one can PARK it here with the grab key (frees the hands), same pool the
+        // thrown-plate landings fill. Full sink -> gentle refusal wobble.
+        if (top && top.kind === "dirtyPlate"){
+          if ((G.sink.parked || 0) < SINK_PARK_MAX){
+            holdPop(chef);
+            G.sink.parked = (G.sink.parked || 0) + 1;
+          } else {
+            wobble(chefId);
+          }
+          return;
+        }
+        // Family playtest fix #2: PARKED dirty plates also count as "in position" —
         // empty-handed tap here should be a no-op wait, not a wobble, when there's already a
         // scrub-able plate parked on the tile.
-        if ((top && top.kind === "dirtyPlate") || G.sink.parked){
+        if (G.sink.parked){
           return;   // in position — hold WORK to start scrubbing (handled in holdAction)
         }
         // Change #5 bug fix: tryFloorPickup no-ops safely if hands are full.
@@ -2326,6 +2347,7 @@
     }
 
     const SINK_WASH_TIME = 2;   // seconds to fully wash a dirty plate (Systems pass 4)
+    const SINK_PARK_MAX = 3;    // cleanup pass 2 (user): the sink holds up to 3 dirty plates
 
     function holdAction(chefId, dt){
       const chef = G.chefs[chefId];
@@ -2357,7 +2379,7 @@
           // the stack, the fresh plate becomes visible as an idle clean plate (G.plates.clean); if
           // an assembly is already in progress up there, it just rejoins the clean pool same as
           // before.
-          if (G.sink.parked) G.sink.parked = false;
+          if ((G.sink.parked || 0) > 0) G.sink.parked--;   // parked plates consumed first, one per scrub
           else holdPop(chef);
           G.plates.clean++;
           G.sink.progress = 0;
@@ -2681,8 +2703,9 @@
         const dxs = Math.max(Math.abs(x - sinkSt.x) - sinkSt.w/2, 0);
         const dzs = Math.max(Math.abs(z - sinkSt.z) - sinkSt.d/2, 0);
         const ds = Math.hypot(dxs, dzs);
-        if (ds <= THROW_SINK_R && !G.sink.parked){
-          candidates.push({ type: "sink", weight: 2, dist: ds, anchor: { x: sinkSt.x, z: sinkSt.z }, apply(){ G.sink.parked = true; } });
+        if (ds <= THROW_SINK_R && (G.sink.parked || 0) < SINK_PARK_MAX){
+          candidates.push({ type: "sink", weight: 2, dist: ds, anchor: { x: sinkSt.x, z: sinkSt.z },
+            apply(){ G.sink.parked = (G.sink.parked || 0) + 1; } });
         }
         const binSt = stationById("dirtyBin");
         const dxb = Math.max(Math.abs(x - binSt.x) - binSt.w/2, 0);
@@ -3905,7 +3928,7 @@
       // dirty plates waiting, no in-flight returns, sink idle — a fresh day starts exactly like
       // a fresh kitchen. ----
       G.plates = { clean: 3, dirtyQueue: [], pendingReturns: [] };
-      G.sink = { progress: 0, washingChef: null, parked: false };
+      G.sink = { progress: 0, washingChef: null, parked: 0 };
       G.noCleanPlateHintId = 0;
       G.noCleanPlateHintChef = null;
       G.airMailId = 0; G.trashSwishId = 0;
@@ -4778,11 +4801,13 @@
       // so the board/knife/progress-bar all still sit facing INTO the kitchen instead of clipping
       // through the wall behind them.
       const inward = st.z < 0 ? 1 : -1;
+      // Cleanup pass 2 (user): the board sits CENTERED on its counter tile now (the old
+      // +0.35/+0.28 inward offsets pushed it visibly off-center toward the play area).
       if (PROP_TEMPLATES["cutting-board"]){
         // cutting-board.glb ships board+knife combined — replaces both the board box and the
         // separate procedural knife block in one placement.
         const board = cloneStaticProp(PROP_TEMPLATES["cutting-board"]);
-        board.position.set(st.x, CH, st.z + 0.35 * inward);
+        board.position.set(st.x, CH, st.z);
         if (inward < 0) board.rotation.y = Math.PI;   // face the play area on the bottom wall too
         g.add(board);
         highlightTarget = board;
@@ -4791,16 +4816,16 @@
         // width ceiling (st.w is now exactly one tile, CT) — board narrowed from st.w to st.w*0.85
         // and the knife block pulled in from the tile edge so neither prop overhangs a neighbor.
         const board = new THREE.Mesh(new THREE.BoxGeometry(st.w * 0.85, 0.12, st.d * 0.85), mat(0xe8c894));
-        board.position.set(st.x, CH + 0.08, st.z + 0.28 * inward);
+        board.position.set(st.x, CH + 0.08, st.z);
         g.add(board);
         const knifeBlock = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.4, 0.2), mat(0x5a5a5a));
-        knifeBlock.position.set(st.x + st.w * 0.28, CH + 0.28, st.z - 0.28 * inward);
+        knifeBlock.position.set(st.x + st.w * 0.28, CH + 0.28, st.z - 0.35 * inward);
         g.add(knifeBlock);
         highlightTarget = board;
       }
 
       const itemGroup = new THREE.Group();
-      itemGroup.position.set(st.x, CH + 0.18, st.z + 0.35 * inward);
+      itemGroup.position.set(st.x, CH + 0.18, st.z);   // centered with the board (cleanup pass 2)
       g.add(itemGroup);
 
       // MOBILE-FIRST pass (change #3): floating progress bar ~1.6x bigger (1.0 -> 1.6 wide) with a
@@ -4808,7 +4833,7 @@
       // phone size — same 3-layer stack (backing/frame/fill) reused by buildMiniProgressBar below
       // for the cooking stations/sink, so every progress bar in the game shares this look.
       const barGroup = new THREE.Group();
-      barGroup.position.set(st.x, CH + 1.15, st.z + 0.35 * inward);
+      barGroup.position.set(st.x, CH + 1.15, st.z);   // centered with the board (cleanup pass 2)
       const backing = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.36, 0.04),
         new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.55 }));
       backing.position.z = -0.01;
@@ -5563,11 +5588,21 @@
       // in the basin, visible + askew + food-smudge-tinted so "there's a dirty dish waiting here"
       // reads at a glance even before anyone starts washing it. Built once, toggled visible each
       // frame in syncDishWashingVisuals — reuses makeDirtyPlateMesh's own gray-brown tint/smudge.
+      // Cleanup pass 2 (user): the sink holds up to SINK_PARK_MAX dirty plates — a small askew
+      // stack, each plate toggled visible by the parked COUNT in syncDishWashingVisuals.
       const parkedGroup = new THREE.Group();
       parkedGroup.position.set(st.x, CH + 0.14, st.z);
       parkedGroup.rotation.z = 0.22;      // "askew" per the design doc
       parkedGroup.rotation.x = -0.05;
-      parkedGroup.add(makeDirtyPlateMesh());
+      const parkedPlateMeshes = [];
+      for (let i = 0; i < SINK_PARK_MAX; i++){
+        const pp = makeDirtyPlateMesh();
+        pp.position.y = i * 0.09;
+        pp.rotation.y = i * 0.6;          // rotate each so the stack reads as separate plates
+        pp.visible = false;
+        parkedGroup.add(pp);
+        parkedPlateMeshes.push(pp);
+      }
       parkedGroup.visible = false;
       g.add(parkedGroup);
       const bar = buildMiniProgressBar(st.x, st.z, CH + 0.95);
@@ -5598,7 +5633,7 @@
       }
       g.add(bubbleGroup);
       scene.add(g);
-      stationMeshes[st.id] = { group: g, itemGroup, parkedGroup, bar, sparkleGroup, sparkleBits, bubbleGroup, bubbleBits, highlightTargets: [highlightTarget], usingGLB: !!PROP_TEMPLATES.sink };
+      stationMeshes[st.id] = { group: g, itemGroup, parkedGroup, parkedPlateMeshes, bar, sparkleGroup, sparkleBits, bubbleGroup, bubbleBits, highlightTargets: [highlightTarget], usingGLB: !!PROP_TEMPLATES.sink };
     }
     buildSink(stationById("sink"));
 
@@ -6283,7 +6318,7 @@
       const bits = [];
       for (let i = 0; i < 10; i++){
         const p = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.06), mat(color, true));
-        p.position.set(st.x, CH + 0.3, st.z + 0.35 * inward);
+        p.position.set(st.x, CH + 0.3, st.z);   // flecks burst at the (now centered) board
         group.add(p);
         bits.push({ mesh: p, vel: { x: (Math.random()-0.5)*1.6, y: 1 + Math.random()*1.4, z: (Math.random()-0.5)*1.6 } });
       }
@@ -6942,13 +6977,13 @@
 
     // ---- MOBILE-FIRST pass (change #6): dirty-dish count badges above the sink + dirty bin —
     // world-projected each frame (same projection pattern as the emote bubbles above), shown only
-    // while that station has >=1 dirty dish waiting. Sink only ever parks exactly one at a time
-    // (G.sink.parked is a bool), the bin can hold up to DIRTY_PLATE_MAX (G.plates.dirtyQueue).
+    // while that station has >=1 dirty dish waiting. Cleanup pass 2: the sink parks up to
+    // SINK_PARK_MAX plates now (count), the bin up to DIRTY_PLATE_MAX (G.plates.dirtyQueue).
     const sinkDishBadgeEl = document.getElementById("sinkDishBadge");
     const binDishBadgeEl = document.getElementById("binDishBadge");
     function updateDishBadges(){
       const sinkSt = stationById("sink"), binSt = stationById("dirtyBin");
-      const sinkN = G.sink.parked ? 1 : 0;
+      const sinkN = G.sink.parked || 0;
       const binN = G.plates.dirtyQueue.length;
       for (const [el, st, n] of [[sinkDishBadgeEl, sinkSt, sinkN], [binDishBadgeEl, binSt, binN]]){
         el.classList.toggle("show", n > 0);
@@ -7200,7 +7235,12 @@
         // MOBILE-FIRST pass (change #6): the parked plate sits visibly in the basin whenever one
         // is waiting there UNWASHED — hidden the instant washing starts (itemGroup's held-plate
         // look above takes over so the two never overlap).
-        sinkSm.parkedGroup.visible = !!G.sink.parked && !G.sink.washingChef;
+        // Cleanup pass 2 (user): parked is a COUNT (0..SINK_PARK_MAX) — show that many stacked
+        // plates; while someone scrubs, one plate "lifts" out of the stack (shown by itemGroup),
+        // so the stack displays one fewer during an active parked-plate wash.
+        const parkedN = Math.max(0, (G.sink.parked || 0) - (G.sink.washingChef && (G.sink.parked || 0) > 0 ? 1 : 0));
+        sinkSm.parkedGroup.visible = parkedN > 0;
+        if (sinkSm.parkedPlateMeshes) sinkSm.parkedPlateMeshes.forEach((pp, i) => { pp.visible = i < parkedN; });
         const active = G.sink.progress > 0;
         updateMiniBar(sinkSm.bar, G.sink.progress, active, false);
         // soap bubble tint while active (fill color leans blue-white instead of the cook amber/green)
@@ -8124,6 +8164,32 @@
         const build = RECIPE_STEP_BUILDERS[rid];
         recipeStepsEl.textContent = build ? build() : (RECIPES[rid] ? RECIPES[rid].emoji : "");
       }
+    }
+
+    // ---- Cleanup pass 2 (user): EXIT button — visible only once past the title screen. Two
+    // taps to leave (accidental-tap-proof for the kids): the first arms it for 2.5s, the second
+    // reloads the page WITHOUT any room hash — a clean boot straight to the game's landing/title.
+    // Host exiting ends the shared session (long-standing known behavior); guests just leave. ----
+    const exitBtnEl = document.getElementById("exitBtn");
+    let exitArmT = 0;
+    exitBtnEl.addEventListener("click", () => {
+      if (exitBtnEl.classList.contains("armed")){
+        try { history.replaceState(null, "", location.pathname); } catch (err) {}
+        location.reload();
+        return;
+      }
+      exitBtnEl.classList.add("armed");
+      exitBtnEl.textContent = "🚪 SURE?";
+      exitArmT = performance.now();
+      setTimeout(() => {
+        if (performance.now() - exitArmT >= 2400){
+          exitBtnEl.classList.remove("armed");
+          exitBtnEl.textContent = "🚪 EXIT";
+        }
+      }, 2500);
+    });
+    function syncExitButton(){
+      exitBtnEl.style.display = G.titleOpen ? "none" : "block";
     }
 
     // ================== HUD text ==================
@@ -9241,7 +9307,7 @@
         // ---- Systems pass 4: dish washing + title/level-intro ----
         plates: { clean: G.plates.clean, dirtyQueue: G.plates.dirtyQueue.map(p => ({ id: p.id })),
                   pendingReturns: G.plates.pendingReturns.length },
-        sink: { progress: G.sink.progress, washingChef: G.sink.washingChef, parked: !!G.sink.parked },
+        sink: { progress: G.sink.progress, washingChef: G.sink.washingChef, parked: G.sink.parked || 0 },
         noCleanPlateHintId: G.noCleanPlateHintId,
         noCleanPlateHintChef: G.noCleanPlateHintChef,
         // ---- Family playtest fix #4: throwing v2 new-outcome event counters. Floor-plates pass:
@@ -9353,7 +9419,7 @@
         // countdown — it has nothing to render until a plate actually pops at the return slot).
         G.plates.pendingReturns = new Array(snap.plates.pendingReturns || 0).fill(0).map(() => ({ t: 0 }));
       }
-      if (snap.sink) G.sink = { progress: snap.sink.progress || 0, washingChef: snap.sink.washingChef || null, parked: !!snap.sink.parked };
+      if (snap.sink) G.sink = { progress: snap.sink.progress || 0, washingChef: snap.sink.washingChef || null, parked: +snap.sink.parked || 0 };
       G.noCleanPlateHintId = snap.noCleanPlateHintId || 0;
       G.noCleanPlateHintChef = snap.noCleanPlateHintChef || null;
       G.airMailId = snap.airMailId || 0; G.airMailSpot = snap.airMailSpot || 1;
@@ -9783,6 +9849,7 @@
       // CO-OP BARRIER: fence appears the moment a second chef exists (guest join / couch P2),
       // disappears if they leave — pure G-derived render state, identical on host and guest.
       hayFenceGroup.visible = barrierActive();
+      syncExitButton();   // cleanup pass 2: EXIT shows whenever we're past the title screen
 
       const { dx, dz } = readMoveInput();
       // user-reported control restructure: WORK is its own hold-flag now (C/F for P1, touch🔪),

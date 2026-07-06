@@ -495,3 +495,14 @@ levels; full order→cook→deliver flow on the right-wall window passes.
       {"1":23} + chip trophy. 0 pageerrors. NOTE: inactive stations
       resolving to "slot" in sweeps is CORRECT (their tiles are usable
       counters by design).
+- [x] CLEANUP PASS 2 (2026-07-06, then pushed): 🚪 EXIT button bottom-left
+      (in-game only, two-tap confirm "SURE?" 2.5s, reload w/o hash → title;
+      host exit ends the shared session as ever). SINK parks up to
+      SINK_PARK_MAX=3 dirty plates (G.sink.parked is a COUNT now — place
+      by hand via tryAction or thrown landings; full → wobble/no-park;
+      washes consume parked first, one per scrub; stacked askew visual +
+      count badge). Cutting boards CENTERED on their tile (the old
+      +0.35/+0.28 inward offsets removed from board/itemGroup/bar/flecks;
+      knife block keeps a wall-side offset). Verified: exit flow round-
+      trip, park 3 → 4th refused → thrown-at-full bounced back → 3 washes
+      → +3 clean. 0 pageerrors.
