@@ -386,3 +386,32 @@ levels; full order→cook→deliver flow on the right-wall window passes.
       (goatcare has NO test hook; stage-jump testing = rewrite bb2State
       birthTs + Storage.prototype.setItem no-op to beat the pagehide
       re-save, then reload).
+- [x] CO-OP DESIGN PASS (2026-07-06, user design directive — "the fun of the
+      game is tossing items back and forth between two players and lobbing
+      finished items over the wall"):
+      FREE-FORM LOB: aim assist REMOVED entirely (skill throws — land near a
+      customer and watch them run). Distance = player-charged: tap = minimum
+      (lobExitRange, just over the wall in the facing dir); holding charges
+      +LOB_CHARGE_RATE 3.2/s up to LOB_CHARGE_MAX_T 1.5s (~+4.8); the preview
+      ring slides outward live. Charge plumbing: endThrowHold passes
+      heldSeconds to fireFn; guest publishes "lobCharge" alongside lobSeq
+      (same input tick, read together in hostApplyRemoteInputs).
+      SPLIT-ZONE LAYOUT: TOP = supply + big cooking (5 top-wall dispensers,
+      3 Feast extras left wall z -5.5/-3.5/-1.5, stove -5.5 + oven -3.5 +
+      dirtyBin -1.5 right wall); BOTTOM = prep + finish (boards/trash/pan
+      bottom wall, sink left z 3.5, plateStack left z 5.5). Every recipe
+      crosses the midline: raw veg down, soup veg/patties/plates up or down,
+      dirty plates return TOP and get thrown down to the sink. L5 station
+      self-resolution sweep: 0 fails.
+      CO-OP BARRIER: with 2 chefs in G.chefs (MP guest or couch local2) a
+      hay-bale fence spans z=0 (BARRIER_Z_HALF 0.5) — moveChef clamps each
+      chef to the side they're on (side judged pre-move); throws and lobs
+      sail over untouched; solo = no fence (the "1-player layout").
+      Deterministic from G.chefs — zero new synced state. Seat 0/P1 spawns
+      bottom (z 2.2), seat 1/couch-P2 spawns top (z -2.2). Fence visual =
+      9 hay bales, deterministic jitter, visibility synced per frame.
+      Verified headless: charge +3.8 over tap; no assist (aimed-at-customer
+      tap = adaptive exit range, NOT snapped); both chefs blocked at ±0.92;
+      FULL split flow (P2 top: grab+throw tomato/lettuce over the fence —
+      tomato landed straight on a board via throw bias; P1 bottom: chop,
+      plate, tap-lob → BULLSEYE +40). 0 pageerrors.

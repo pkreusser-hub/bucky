@@ -1298,11 +1298,15 @@
       { id: "dispenser3", type: "crate", dispSlot: 2, kind: null, x: -0.5, z: -HALF_D + CT/2, w: CT, d: CT },
       { id: "dispenser4", type: "crate", dispSlot: 3, kind: null, x:  0.5, z: -HALF_D + CT/2, w: CT, d: CT },
       { id: "dispenser5", type: "crate", dispSlot: 4, kind: null, x:  1.5, z: -HALF_D + CT/2, w: CT, d: CT },
-      // User follow-up: the 3 Feast-Night extra dispensers live on the LEFT wall (below the
-      // sink, one free tile between each) — the top wall keeps exactly the 5 drawn dispensers.
-      { id: "dispenser6", type: "crate", dispSlot: 5, kind: null, x: -HALF_W + CT/2, z: -3.5, w: CT, d: CT },
-      { id: "dispenser7", type: "crate", dispSlot: 6, kind: null, x: -HALF_W + CT/2, z: -1.5, w: CT, d: CT },
-      { id: "dispenser8", type: "crate", dispSlot: 7, kind: null, x: -HALF_W + CT/2, z:  0.5, w: CT, d: CT },
+      // CO-OP SPLIT LAYOUT (user design pass): the kitchen is now two ZONES around the midline —
+      // TOP = supply + big cooking (all dispensers, stove/pot, oven, dirty-plate return),
+      // BOTTOM = prep + finish (boards, pan/grill, plating, sink, trash). Every recipe forces
+      // ingredients/cooked food/plates/dirty dishes to CROSS the midline — thrown back and forth
+      // between the two chefs — and both sides can lob to customers on their own half of the
+      // field. The 3 Feast extras therefore live on the TOP half of the left wall.
+      { id: "dispenser6", type: "crate", dispSlot: 5, kind: null, x: -HALF_W + CT/2, z: -5.5, w: CT, d: CT },
+      { id: "dispenser7", type: "crate", dispSlot: 6, kind: null, x: -HALF_W + CT/2, z: -3.5, w: CT, d: CT },
+      { id: "dispenser8", type: "crate", dispSlot: 7, kind: null, x: -HALF_W + CT/2, z: -1.5, w: CT, d: CT },
       // ---- both cutting boards, bottom wall, one free counter tile between them ----
       // Portrait layout fix (verification pass): programmatic self-resolution sweep (every
       // station's own REACH-0.1 approach point must resolve to itself via resolveStationOrSlot)
@@ -1326,10 +1330,14 @@
       // grid deliberately splits the wash loop across the kitchen — bin lower-right → sink
       // upper-left → stack lower-left; throwing dirty plates cross-kitchen is the intended
       // teamwork play).
+      // CO-OP SPLIT LAYOUT: stove + oven stay top-right; the DIRTY BIN moves to the top-right
+      // too (dirty plates come back to the TOP chef, who relays them down to the bottom's sink —
+      // the wash loop crosses the midline by design). Sink joins the plate stack on the BOTTOM
+      // half of the left wall.
       { id: "stove",        type: "stove",                     x:  HALF_W - CT/2, z: -5.5,             w: CT, d: CT },
       { id: "oven",         type: "oven",                      x:  HALF_W - CT/2, z: -3.5,             w: CT, d: CT },
-      { id: "dirtyBin",     type: "dirtyBin",                  x:  HALF_W - CT/2, z:  5.5,             w: CT, d: CT },
-      { id: "sink",         type: "sink",                      x: -HALF_W + CT/2, z: -5.5,             w: CT, d: CT },
+      { id: "dirtyBin",     type: "dirtyBin",                  x:  HALF_W - CT/2, z: -1.5,             w: CT, d: CT },
+      { id: "sink",         type: "sink",                      x: -HALF_W + CT/2, z:  3.5,             w: CT, d: CT },
       { id: "plateStack",   type: "plateStack",                x: -HALF_W + CT/2, z:  5.5,             w: CT, d: CT },
       // Bottom wall: trash between the two boards (c4), pan two right of the right board (c7).
       { id: "trashBin",     type: "trash",                     x: -1.5,           z:  HALF_D - CT/2,   w: CT, d: CT },
@@ -1642,6 +1650,14 @@
       return bestD <= FLOOR_ITEM_REACH ? best : null;
     }
 
+    // ---- CO-OP BARRIER (user design pass): with TWO chefs in the kitchen a hay-bale fence
+    // spans the midline (z = 0) — one chef works the TOP zone (supply/stove/oven/dirty bin),
+    // the other the BOTTOM (boards/pan/plating/sink), and NOTHING crosses except by throwing.
+    // Deterministic from G.chefs alone (no new synced state): host and guest always agree.
+    // Solo keeps the whole kitchen (the "1-player layout"). Throws and lobs sail over the
+    // fence untouched — it only blocks feet.
+    const BARRIER_Z_HALF = 0.5;   // fence half-depth: one tile row at z -0.5..0.5
+    function barrierActive(){ return Object.keys(G.chefs).length >= 2; }
     function moveChef(chefId, dx, dz, dt){
       const chef = G.chefs[chefId];
       if (!chef || G.phase !== "playing" || G.levelSelectOpen) return;
@@ -1650,7 +1666,14 @@
       const len = Math.hypot(mx, mz);
       if (len > 1e-4){ mx /= len; mz /= len; }
       const nx = chef.x + mx * speed * dt;
-      const nz = chef.z + mz * speed * dt;
+      let nz = chef.z + mz * speed * dt;
+
+      // barrier: each chef stays on the side of the fence they're currently on (side judged
+      // BEFORE the move so brushing the fence can never flip anyone across it).
+      if (barrierActive()){
+        if (chef.z < 0) nz = Math.min(nz, -BARRIER_Z_HALF - CHEF_R);
+        else            nz = Math.max(nz,  BARRIER_Z_HALF + CHEF_R);
+      }
 
       // The playable area is a plain rectangle inside the counter border, so clamping
       // IS the collision — and unlike a reject-if-colliding check, it can never deadlock
@@ -2453,6 +2476,16 @@
     // delivery attempt. Aim-assisted lobs still fly the exact distance to their customer.
     const LOB_LAND_PAD = 1.45;        // land this far beyond the wall (middle of the field band)
     const LOB_RANGE_FALLBACK = 6.5;   // safety only (should never be hit — every dir exits)
+    // FREE-FORM LOB (user design pass): NO aim assist any more — the fun is landing the dish
+    // NEAR a customer and watching them run for it. Distance is player-controlled: a quick tap
+    // lobs the MINIMUM (just over the wall in the facing direction); holding the button charges
+    // extra distance, with the preview ring sliding outward so kids can watch where it'll land.
+    const LOB_CHARGE_RATE = 3.2;      // extra units of range per second held
+    const LOB_CHARGE_MAX_T = 1.5;     // seconds of charge that count (cap ~+4.8 units)
+    function lobRangeFor(chef, dir, chargeT){
+      return lobExitRange(chef.x, chef.z, dir) +
+             clamp(Math.max(0, chargeT || 0), 0, LOB_CHARGE_MAX_T) * LOB_CHARGE_RATE;
+    }
     function lobExitRange(x, z, dir){
       const sx = Math.sin(dir), cz = Math.cos(dir);
       let best = Infinity;
@@ -2463,8 +2496,9 @@
       if (!isFinite(best)) return LOB_RANGE_FALLBACK;
       return Math.max(2.5, Math.min(best, 20));   // minimum toss; sanity cap
     }
-    const LOB_ASSIST_CONE = 0.6;   // radians (~34°) — wider than throw assist; lobs are the point
-    function tryLob(chefId){
+    // FREE-FORM LOB: aim assist REMOVED (user design pass) — direction is exactly where the
+    // chef faces, distance is exactly what they charged. Skill throws, not magnetized ones.
+    function tryLob(chefId, chargeT){
       const chef = G.chefs[chefId];
       if (!chef || G.phase !== "playing" || G.levelSelectOpen) return;
       const topPeek = holdTop(chef);
@@ -2472,21 +2506,6 @@
       if (topPeek.kind === "pizza"){ refuse(chefId, "Too floppy to throw! 🍕"); return; }
       if (NOT_THROWABLE_KINDS.has(topPeek.kind)){ wobble(chefId); return; }
       const item = holdPop(chef);
-      const dishId = dishIdOf(item);   // derived — scooped plates deliver too (round-4 fix)
-      let lobDir = chef.dir, lobRange = lobExitRange(chef.x, chef.z, chef.dir);
-      if (dishId){
-        let best = null, bestDiff = LOB_ASSIST_CONE;
-        for (const c of G.customers){
-          if (c.state !== "waiting" || c.dish !== dishId) continue;
-          const ang = angleTo(chef, c.x, c.z);
-          const diff = angleDiff(chef.dir, ang);
-          if (diff < bestDiff){ bestDiff = diff; best = c; }
-        }
-        if (best){
-          lobDir = angleTo(chef, best.x, best.z);
-          lobRange = Math.hypot(best.x - chef.x, best.z - chef.z);
-        }
-      }
       G.flying.push({
         id: G.nextFlyId++,
         kind: item.kind,
@@ -2494,10 +2513,10 @@
         contents: item.kind === "plate" ? item.contents.slice() : undefined,
         dish: item.dish || null,
         x: chef.x, z: chef.z,
-        dir: lobDir,
+        dir: chef.dir,
         dist: 0,
         lob: true,
-        lobRange,
+        lobRange: lobRangeFor(chef, chef.dir, chargeT),
         throwerId: chefId,
         speed: LOB_SPEED,
         bounces: 0
@@ -3013,24 +3032,11 @@
     // catches/boards/slots/trash/bounces — it sails over the counters), so the path is just a
     // straight ground-track to lobRange with an arc height baked into per-point `y` (the preview
     // renderer uses p.y when present so the dots trace the actual high arc, not a flat line).
-    // Mirrors tryLob's aim assist bit-for-bit: a completed dish snaps direction AND range onto
-    // the nearest matching waiting customer within LOB_ASSIST_CONE.
-    function simulateLobPath(chef, chefId, item){
-      const dishId = dishIdOf(item);   // derived — scooped plates preview/assist too (round-4 fix)
-      let lobDir = chef.dir, lobRange = lobExitRange(chef.x, chef.z, chef.dir), target = null;
-      if (dishId){
-        let bestDiff = LOB_ASSIST_CONE;
-        for (const c of G.customers){
-          if (c.state !== "waiting" || c.dish !== dishId) continue;
-          const ang = angleTo(chef, c.x, c.z);
-          const diff = angleDiff(chef.dir, ang);
-          if (diff < bestDiff){ bestDiff = diff; target = c; }
-        }
-        if (target){
-          lobDir = angleTo(chef, target.x, target.z);
-          lobRange = Math.hypot(target.x - chef.x, target.z - chef.z);
-        }
-      }
+    function simulateLobPath(chef, chefId, item, chargeT){
+      const dishId = dishIdOf(item);   // derived — scooped plates preview too (round-4 fix)
+      // FREE-FORM LOB: no assist — the preview shows exactly where the charged lob will land,
+      // sliding outward while the button is held.
+      const lobDir = chef.dir, lobRange = lobRangeFor(chef, chef.dir, chargeT);
       const points = [];
       const arcH = 2.0 + lobRange * 0.14;   // taller arc for longer lobs — reads as "over the wall"
       const N = 20;
@@ -4259,6 +4265,30 @@
     // OUTSIDE the counters. All static geometry, built once here — zero per-frame cost, and kept
     // clear of the queue lane (front/top, -z beyond the wall) and the camera's view wedge so
     // nothing blocks the kitchen or the customer queue.
+    // ---- CO-OP BARRIER visuals: a row of hay bales across the midline, shown only while two
+    // chefs are in the kitchen (visibility synced from G.chefs each frame — see frame()). Feet
+    // can't cross it (moveChef); throws and lobs sail right over. Static geometry, built once.
+    const hayFenceGroup = new THREE.Group();
+    {
+      const hayM = new THREE.MeshPhongMaterial({ color: 0xd8b04a, flatShading: true, shininess: 6 });
+      const hayBandM = new THREE.MeshPhongMaterial({ color: 0xb98f34, flatShading: true, shininess: 6 });
+      SHARED_ASSETS.add(hayM); SHARED_ASSETS.add(hayBandM);
+      const baleGeo = new THREE.BoxGeometry(0.88, 0.5, 0.62);
+      const bandGeo = new THREE.BoxGeometry(0.9, 0.09, 0.64);
+      for (let x = -4; x <= 4; x++){
+        const bale = new THREE.Mesh(baleGeo, hayM);
+        bale.position.set(x, 0.25, 0);
+        bale.rotation.y = ((x * 7919) % 10) * 0.012 - 0.06;   // deterministic tiny jitter, no RNG
+        hayFenceGroup.add(bale);
+        const band = new THREE.Mesh(bandGeo, hayBandM);
+        band.position.set(x, 0.28, 0);
+        band.rotation.y = bale.rotation.y;
+        hayFenceGroup.add(band);
+      }
+      hayFenceGroup.visible = false;
+      scene.add(hayFenceGroup);
+    }
+
     const GROUND_HALF = Math.max(SCENE_HALF_W, SCENE_HALF_D) + 40;   // "extending well beyond" in every direction
     {
       const grassA = new THREE.MeshPhongMaterial({ color: 0x5fa84a, flatShading: true, shininess: 4 });
@@ -5751,8 +5781,9 @@
         const item = chef && holdTop(chef);
         if (!chef || !item || item.kind === "pizza" || NOT_THROWABLE_KINDS.has(item.kind)) continue;
         // FIELD-CUSTOMER REWORK: "…lob" hold keys preview the high-arc lob path instead.
-        activeBySlot[previewSlotForHoldKey(holdKey)] = holdKey.endsWith("lob")
-          ? simulateLobPath(chef, hold.chefId, item)
+        // FREE-FORM LOB: the preview charges live with the hold — the ring slides outward.
+        activeBySlot[previewSlotForHoldKey(holdKey)] = isLobHold
+          ? simulateLobPath(chef, hold.chefId, item, (performance.now() - hold.downAt) / 1000)
           : simulateThrowPath(chef, hold.chefId, item);
       }
       throwPreviewRenderers.p1(activeBySlot.p1, t);
@@ -6207,8 +6238,11 @@
     // `fireFn` the caller supplies for that input source, then clears the hold + preview.
     function endThrowHold(holdKey, fireFn){
       if (!throwHolds.has(holdKey)) return;
+      // FREE-FORM LOB: releases learn how long the button was held (seconds) — the lob path
+      // charges extra distance with it; regular throws simply ignore the argument.
+      const heldSeconds = (performance.now() - throwHolds.get(holdKey).downAt) / 1000;
       throwHolds.delete(holdKey);
-      fireFn();
+      fireFn(heldSeconds);
     }
     // Tier-1 batch: couch mode's single shared hint line tracks whichever chef acted (moved or
     // pressed a button) most recently — updated from both the keydown handler below (action/
@@ -6279,12 +6313,12 @@
       // FIELD-CUSTOMER REWORK: LOB releases — own hold keys, so they never collide with the
       // regular-throw releases above even when both buttons are somehow down at once.
       if (k === "v"){
-        endThrowHold("p1lob", () => { net.localLobPress(); if (G.couchMode) mostRecentActingChefId = net.myChefId; });
+        endThrowHold("p1lob", (held) => { net.localLobPress(held); if (G.couchMode) mostRecentActingChefId = net.myChefId; });
       }
       // "?" included: P2 holding "/" while (Right-)Shift is down reports the keyup as "?" —
       // without it the lob hold would stay latched until the next blur/visibility clear.
       if (k === "/" || k === "?"){
-        endThrowHold("p2lob", () => { tryLob(LOCAL2_ID); mostRecentActingChefId = LOCAL2_ID; });
+        endThrowHold("p2lob", (held) => { tryLob(LOCAL2_ID, held); mostRecentActingChefId = LOCAL2_ID; });
       }
       keys.delete(k);
     });
@@ -6476,7 +6510,7 @@
       });
       function releaseLobBtn(){
         lobBtn.classList.remove("pressed");
-        endThrowHold("touchlob", () => net.localLobPress());
+        endThrowHold("touchlob", (held) => net.localLobPress(held));
       }
       function abortLobBtn(){
         lobBtn.classList.remove("pressed");
@@ -7970,8 +8004,9 @@
       // is declared above this in module order, so reading it here at init time is safe.)
       1: ["Salad Days: chop tomato & lettuce, then plate them!",
           "Customers wait OUTSIDE the kitchen — look for their order bubble!",
-          isTouchDevice ? "Hold 🏀 to aim, let go to LOB the dish to them!"
-                        : "Hold V to aim, let go to LOB the dish to them!"],
+          isTouchDevice ? "Hold 🏀 to charge the LOB — longer hold = farther throw!"
+                        : "Hold V to charge the LOB — longer hold = farther throw!",
+          "Land it NEAR a customer and they'll run to grab it!"],
       2: ["Soup: chop tomato, onion & potato...", "...then drop them in the pot!", "Hold WORK at the pot to stir it faster!", "Grab a plate from the stack by the sink, then collect the soup!"],
       3: ["Burger: put a raw patty on the pan to grill it!", "Chop lettuce & tomato while it grills!", "Bun + patty + lettuce + tomato — all on one plate!"],
       4: ["Pizza: place dough on a counter or the board!", "Add chopped tomato for sauce...", "...then chopped cheese, then bake it in the oven!"],
@@ -8045,8 +8080,8 @@
       } else if (holdingFinishedDish){
         // FIELD-CUSTOMER REWORK: delivery = LOB the finished dish out to the waiting customer.
         const owner = G.customers.find(c => c.state === "waiting" && c.dish === top.dish);
-        const lobKey = isTouchDevice ? "Tap 🏀" : "Press V";
-        const lobMsg = owner ? (lobKey + " to LOB it to the customer!")
+        const lobKey = isTouchDevice ? "Hold 🏀" : "Hold V";
+        const lobMsg = owner ? (lobKey + " to charge a LOB near the customer!")
                              : "Hold it — a customer will want that soon!";
         msg = urgentOrder ? ("Quick — " + lobKey + " to lob the dish! ⏰") : lobMsg;
       } else if (top && top.kind === "plate" && !top.dish){
@@ -8715,7 +8750,8 @@
     if (isTouchDevice) couchModeRowEl.style.display = "none";
     function spawnLocal2(){
       if (G.chefs[LOCAL2_ID]) return;
-      G.chefs[LOCAL2_ID] = { x: 1.5, z: 2.2, dir: Math.PI, holding: [], color: "red", chefModel: "kid" };
+      // CO-OP BARRIER: couch P2 spawns TOP (P1 keeps the bottom prep zone).
+      G.chefs[LOCAL2_ID] = { x: 1.5, z: -2.2, dir: 0, holding: [], color: "red", chefModel: "kid" };
       ensureChefVisual(LOCAL2_ID, "red", "kid");
     }
     function despawnLocal2(){
@@ -8928,6 +8964,7 @@
       myActSeq: 0,           // guest-side: local action sequence counter
       myThrowSeq: 0,         // guest-side: local throw sequence counter (Systems pass 1)
       myLobSeq: 0,           // guest-side: local LOB sequence counter (FIELD-CUSTOMER REWORK)
+      myLobCharge: 0,        // guest-side: charge seconds of the latest lob (FREE-FORM LOB)
       myEmoteSeq: 0,         // guest-side: local emote sequence counter (Tier-1 batch)
       // ---- family lobby integration ----
       roomCode: null,        // Playroom.getRoomCode() once resolved (host or guest) — null in solo
@@ -9242,10 +9279,12 @@
     // x=+1.5; both z=2.2. Called whenever the host's own view of connected players changes. ----
     function hostAssignSeat(chefId, joinIndex){
       if (!G.chefs[chefId]){
+        // CO-OP BARRIER: seat 0 spawns BOTTOM (prep zone), seat 1 spawns TOP (supply zone) —
+        // one chef per side of the midline fence.
         G.chefs[chefId] = {
           x: joinIndex === 0 ? -1.5 : 1.5,
-          z: 2.2,
-          dir: Math.PI,
+          z: joinIndex === 0 ? 2.2 : -2.2,
+          dir: joinIndex === 0 ? Math.PI : 0,
           holding: [],
           color: joinIndex === 0 ? "blue" : "red",
           chefModel: "farmer",   // default until the joining player's own pick arrives (Systems pass 4)
@@ -9315,7 +9354,7 @@
         const lobSeq = p.getState("lobSeq") || 0;
         if (lobSeq !== (st.lastLobSeq || 0)){
           st.lastLobSeq = lobSeq;
-          tryLob(chefId);
+          tryLob(chefId, p.getState("lobCharge") || 0);   // FREE-FORM LOB: charged distance
         }
 
         // emote: same exactly-once seq pattern (Tier-1 batch).
@@ -9356,11 +9395,14 @@
         net.myThrowSeq++;
       }
     };
-    // ---- LOB counterpart (FIELD-CUSTOMER REWORK) — identical exactly-once seq pattern ----
-    net.localLobPress = function(){
+    // ---- LOB counterpart (FIELD-CUSTOMER REWORK) — identical exactly-once seq pattern.
+    // FREE-FORM LOB: carries the charge duration; a guest stores it and publishes it as
+    // "lobCharge" in the same input tick as the lobSeq bump (see the setState block below). ----
+    net.localLobPress = function(chargeT){
       if (net.isHost){
-        tryLob(net.myChefId);
+        tryLob(net.myChefId, chargeT);
       } else {
+        net.myLobCharge = chargeT || 0;
         net.myLobSeq++;
       }
     };
@@ -9526,6 +9568,10 @@
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
 
+      // CO-OP BARRIER: fence appears the moment a second chef exists (guest join / couch P2),
+      // disappears if they leave — pure G-derived render state, identical on host and guest.
+      hayFenceGroup.visible = barrierActive();
+
       const { dx, dz } = readMoveInput();
       // user-reported control restructure: WORK is its own hold-flag now (C/F for P1, touch🔪),
       // completely independent of GRAB's tap key (Space) — see holdAction's own comment for why
@@ -9571,6 +9617,9 @@
             // throwSeq exactly like the design doc asks — GRAB's actSeq semantics are untouched.
             net.localPlayer.setState("workHold", workHold, false);
             net.localPlayer.setState("throwSeq", net.myThrowSeq, true);
+            // FREE-FORM LOB: charge rides in the same tick as the seq bump, so the host reads
+            // the matching value when it consumes the new lobSeq.
+            net.localPlayer.setState("lobCharge", net.myLobCharge, true);
             net.localPlayer.setState("lobSeq", net.myLobSeq, true);       // FIELD-CUSTOMER REWORK
             net.localPlayer.setState("emoteSeq", net.myEmoteSeq, true);   // Tier-1 batch: emotes
             // Systems pass 4: chef picker — publish our own model choice so the host mirrors it
