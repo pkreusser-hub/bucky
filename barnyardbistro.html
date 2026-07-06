@@ -953,23 +953,22 @@
     const LEVELS = [
       { id: 1, name: "Salad Days", emoji: "🥗", recipes: ["salad"], extraRecipes: [], starMoney: [80, 150, 300],
         spawnFactor: 1.5, patienceMax: 100,
-        stations: ["tomatoCrate", "lettuceCrate", "cuttingBoard", "cuttingBoard2", ...DISH_WASH_STATIONS], crates: ["tomato", "lettuce"] },
+        stations: ["cuttingBoard", "cuttingBoard2", ...DISH_WASH_STATIONS], crates: ["tomato", "lettuce"] },
       { id: 2, name: "Soup's On", emoji: "🍲", recipes: ["soup"], extraRecipes: [{ id: "salad", chance: 0.2 }],
         starMoney: [50, 100, 200], spawnFactor: 1.1, patienceMax: 78,
-        stations: ["tomatoCrate", "lettuceCrate", "onionCrate", "potatoCrate", "cuttingBoard", "cuttingBoard2", "stove", ...DISH_WASH_STATIONS],
+        stations: ["cuttingBoard", "cuttingBoard2", "stove", ...DISH_WASH_STATIONS],
         crates: ["tomato", "lettuce", "onion", "potato"] },
       { id: 3, name: "Burger Barn", emoji: "🍔", recipes: ["burger"], extraRecipes: [{ id: "salad", chance: 0.2 }],
         starMoney: [55, 110, 210], spawnFactor: 1.05, patienceMax: 70,
-        stations: ["tomatoCrate", "lettuceCrate", "bunCrate", "pattyCrate", "cuttingBoard", "cuttingBoard2", "pan", ...DISH_WASH_STATIONS],
+        stations: ["cuttingBoard", "cuttingBoard2", "pan", ...DISH_WASH_STATIONS],
         crates: ["tomato", "lettuce", "bun", "patty"] },
       { id: 4, name: "Pizza Night", emoji: "🍕", recipes: ["pizza"], extraRecipes: [{ id: "soup", chance: 0.2 }],
         starMoney: [95, 190, 370], spawnFactor: 0.9, patienceMax: 58,
-        stations: ["tomatoCrate", "onionCrate", "potatoCrate", "doughCrate", "cheeseCrate", "cuttingBoard", "cuttingBoard2", "stove", "oven", ...DISH_WASH_STATIONS],
+        stations: ["cuttingBoard", "cuttingBoard2", "stove", "oven", ...DISH_WASH_STATIONS],
         crates: ["tomato", "onion", "potato", "dough", "cheese"] },
       { id: 5, name: "Feast Night", emoji: "🎉", recipes: ["salad", "soup", "burger", "pizza"], extraRecipes: [],
         starMoney: [75, 150, 280], spawnFactor: 0.52, patienceMax: 45,
-        stations: ["tomatoCrate", "lettuceCrate", "onionCrate", "potatoCrate", "bunCrate", "pattyCrate", "doughCrate", "cheeseCrate",
-                   "cuttingBoard", "cuttingBoard2", "stove", "pan", "oven", ...DISH_WASH_STATIONS],
+        stations: ["cuttingBoard", "cuttingBoard2", "stove", "pan", "oven", ...DISH_WASH_STATIONS],
         crates: ["tomato", "lettuce", "onion", "potato", "bun", "patty", "dough", "cheese"] }
     ];
     let CURRENT_LEVEL = LEVELS[0];
@@ -1038,6 +1037,16 @@
     }
     function stationVisibleThisLevel(id){ return CURRENT_LEVEL.stations.includes(id); }
     function crateVisibleThisLevel(kind){ return CURRENT_LEVEL.crates.includes(kind); }
+    // USER-DRAWN GRID: dispenser tiles get their ingredient KIND assigned per level, in
+    // LEVELS[n].crates order (slots 0-4 are the 5 drawn dispenser tiles; slots 5-7 are the
+    // Feast Night extras). Deterministic from G.level alone, so host and guest both call this
+    // whenever CURRENT_LEVEL changes and stay in agreement without syncing station state.
+    function assignLevelDispensers(){
+      for (const st of G.stations){
+        if (st.type !== "crate") continue;
+        st.kind = CURRENT_LEVEL.crates[st.dispSlot] || null;
+      }
+    }
 
     const G = {
       phase: "playing",
@@ -1187,7 +1196,13 @@
     // the bottom wall's 7 stations were re-centered to fit). TILE_STEP/grid math below is
     // unchanged (still 1:1 tile->slot); only the numbers plugged into it changed. Re-verified
     // with the same self-resolution + slot-sweep checks as every prior layout pass.
-    const FLOOR_W = 11, FLOOR_D = 16;
+    // USER-DRAWN GRID (2026-07-06): the user supplied an exact 10×16 tile layout (spreadsheet
+    // screenshot; see CLAUDE.md). 10 wide × 16 deep — dispensers ×5 centered on the TOP wall,
+    // sink upper-LEFT, plate stack lower-left, stove/oven upper-RIGHT column, CHECKOUT (bell +
+    // 3 spots) mid-RIGHT wall (customers now queue outside the RIGHT side), dirty bin lower-
+    // right, boards + trash + pan on the BOTTOM wall. Tile centers: top/bottom x=-4.5..4.5,
+    // left/right z=-6.5..6.5.
+    const FLOOR_W = 10, FLOOR_D = 16;
     const HALF_W = FLOOR_W / 2, HALF_D = FLOOR_D / 2;   // 6.5, 4.5
     const CT = 1.0;      // counter thickness/depth
     // Family playtest fix #7: counters cut to ~half height (1.1 -> 0.55) so the kitchen reads
@@ -1212,14 +1227,14 @@
     // tiles in the one continuous grid (Overcooked reference), just visually distinct (see
     // buildServingWindowRow). WINDOW_X0 is the left edge of the bell segment, chosen so all 4
     // segment centers land exactly on the top wall's tile-center grid (…,-2.5,-1.5,-0.5,0.5,1.5,…).
-    const WINDOW_SEG_W = CT;              // width of each of the 4 segments == one tile
-    // Portrait pass: top wall is now only 11 tiles wide (grid centers land on whole integers:
-    // -5..5, since HALF_W=5.5), so the window is re-centered here — bell at x=-1, spots at 0/1/2
-    // (a touch right-of-center rather than the old layout's near-perfect center, since 4 is an
-    // even span inside an 11-wide odd-centered wall; still comfortably clear of both corners).
-    const WINDOW_X0 = -1.5;               // left edge of the bell segment
-    const WINDOW_Z = -HALF_D + CT/2;
-    function windowSegX(i){ return WINDOW_X0 + WINDOW_SEG_W/2 + i * WINDOW_SEG_W; }   // i=0 bell, 1..3 spots
+    const WINDOW_SEG_W = CT;              // each of the 4 segments == one tile
+    // USER-DRAWN GRID: the checkout window moved from the TOP wall to the RIGHT wall (grid rows
+    // 7-10, col 10) — a VERTICAL strip: constant x, segment centers marching down in z. Bell is
+    // the northernmost segment (row 7), spots 1/2/3 below it (rows 8/9/10). Customers queue
+    // OUTSIDE the right wall now (see customerTargetXZ / LANE_X below).
+    const WINDOW_X = HALF_W - CT/2;        // 4.5 — right-wall tile-center column
+    const WINDOW_Z0 = -1.5;                // bell segment center z (grid row 7)
+    function windowSegZ(i){ return WINDOW_Z0 + i * WINDOW_SEG_W; }   // i=0 bell, 1..3 spots
 
     // ---- Systems pass 3: new stations along the RIGHT and BOTTOM walls (cutting board shifts
     // further left per the design doc to make room; left wall grows two more ingredient crates
@@ -1269,12 +1284,22 @@
     // boards + trash/pan/oven/sink/plateStack re-centered with a free gap tile between the two
     // board clusters and between the board cluster and the trash/cook/wash cluster, corners left
     // open on both ends exactly like the old layout's convention.
+    // USER-DRAWN GRID: dispensers are no longer one-fixed-ingredient crates. There are 5
+    // dispenser tiles centered on the TOP wall (grid r1 c3-c7) whose KIND is assigned per level
+    // from LEVELS[n].crates order (see assignLevelDispensers) — plus 3 "extra" dispenser tiles
+    // (c8, c9, c2) that only receive kinds on Feast Night, whose 8-ingredient menu outgrows the
+    // 5 drawn slots. A dispenser with kind:null renders/behaves as a plain counter tile.
     G.stations = [
-      { id: "tomatoCrate",  type: "crate",   kind: "tomato",  x: -HALF_W + CT/2, z: -5.5,             w: CT, d: CT },
-      { id: "lettuceCrate", type: "crate",   kind: "lettuce", x: -HALF_W + CT/2, z: -4.5,             w: CT, d: CT },
-      { id: "onionCrate",   type: "crate",   kind: "onion",   x: -HALF_W + CT/2, z: -3.5,             w: CT, d: CT },
-      { id: "potatoCrate",  type: "crate",   kind: "potato",  x: -HALF_W + CT/2, z: -2.5,             w: CT, d: CT },
-      { id: "bunCrate",     type: "crate",   kind: "bun",     x: -HALF_W + CT/2, z: -1.5,             w: CT, d: CT },
+      { id: "dispenser1", type: "crate", dispSlot: 0, kind: null, x: -2.5, z: -HALF_D + CT/2, w: CT, d: CT },
+      { id: "dispenser2", type: "crate", dispSlot: 1, kind: null, x: -1.5, z: -HALF_D + CT/2, w: CT, d: CT },
+      { id: "dispenser3", type: "crate", dispSlot: 2, kind: null, x: -0.5, z: -HALF_D + CT/2, w: CT, d: CT },
+      { id: "dispenser4", type: "crate", dispSlot: 3, kind: null, x:  0.5, z: -HALF_D + CT/2, w: CT, d: CT },
+      { id: "dispenser5", type: "crate", dispSlot: 4, kind: null, x:  1.5, z: -HALF_D + CT/2, w: CT, d: CT },
+      // User follow-up: the 3 Feast-Night extra dispensers live on the LEFT wall (below the
+      // sink, one free tile between each) — the top wall keeps exactly the 5 drawn dispensers.
+      { id: "dispenser6", type: "crate", dispSlot: 5, kind: null, x: -HALF_W + CT/2, z: -3.5, w: CT, d: CT },
+      { id: "dispenser7", type: "crate", dispSlot: 6, kind: null, x: -HALF_W + CT/2, z: -1.5, w: CT, d: CT },
+      { id: "dispenser8", type: "crate", dispSlot: 7, kind: null, x: -HALF_W + CT/2, z:  0.5, w: CT, d: CT },
       // ---- both cutting boards, bottom wall, one free counter tile between them ----
       // Portrait layout fix (verification pass): programmatic self-resolution sweep (every
       // station's own REACH-0.1 approach point must resolve to itself via resolveStationOrSlot)
@@ -1287,42 +1312,32 @@
       // internal gaps — adjacent same-wall stations were already proven safe elsewhere in this
       // file, e.g. the original trash/pan/oven run). Re-verified 17/17 stations resolve to
       // themselves from their own approach point (script kept in the repo history/PR notes).
-      { id: "cuttingBoard", type: "board",   boardIndex: 0,    x: -3,             z:  HALF_D - CT/2,  w: CT, d: CT },
-      { id: "cuttingBoard2", type: "board",  boardIndex: 1,    x: -2,             z:  HALF_D - CT/2,  w: CT, d: CT },
-      { id: "orderBell",    type: "bell",                      x: windowSegX(0),  z: WINDOW_Z,        w: WINDOW_SEG_W, d: CT },
-      { id: "windowSpot1",  type: "spot",    spot: 1,           x: windowSegX(1),  z: WINDOW_Z,        w: WINDOW_SEG_W, d: CT },
-      { id: "windowSpot2",  type: "spot",    spot: 2,           x: windowSegX(2),  z: WINDOW_Z,        w: WINDOW_SEG_W, d: CT },
-      { id: "windowSpot3",  type: "spot",    spot: 3,           x: windowSegX(3),  z: WINDOW_Z,        w: WINDOW_SEG_W, d: CT },
-      { id: "pattyCrate",   type: "crate",   kind: "patty",    x:  HALF_W - CT/2, z: -5.5,             w: CT, d: CT },
-      { id: "doughCrate",   type: "crate",   kind: "dough",    x:  HALF_W - CT/2, z: -4.5,             w: CT, d: CT },
-      { id: "cheeseCrate",  type: "crate",   kind: "cheese",   x:  HALF_W - CT/2, z: -3.5,             w: CT, d: CT },
-      // ---- Family playtest fix #6: DIRTY DISH BIN now lives here on the right wall (roughly
-      // where the old standalone plate station used to sit — fills the vacated space) instead of
-      // a "dishReturn" slot further down the wall. Same interaction (empty hands + GRAB takes a
-      // dirty plate to carry to the sink), just relocated + restyled as a visible bin/tub.
-      { id: "dirtyBin",     type: "dirtyBin",                  x:  HALF_W - CT/2, z: -2.5,             w: CT, d: CT },
-      { id: "stove",        type: "stove",                     x:  HALF_W - CT/2, z: -1.5,             w: CT, d: CT },
-      // Family playtest fix #5 ("cookers become real appliances"): the oven moved here, right next
-      // to the stove on the right wall (was on the bottom wall at x:1, sharing nothing with the
-      // stove) so the two now read as one continuous "range" block — a floor-standing oven-style
-      // unit sits under the (now-bigger, black) soup pot on the stove tile, and the very next tile
-      // is the actual oven appliance. Plenty of room on this wall (right wall spans z -6.5..6.5,
-      // only 5 of 13 tiles were used before this move) — bottom wall's trash/pan/sink/plateStack
-      // row below simply closes the gap oven left behind, still zero internal gaps.
-      { id: "oven",         type: "oven",                      x:  HALF_W - CT/2, z: -0.5,             w: CT, d: CT },
-      // ---- rest of the bottom wall, packed with zero gaps after the boards (see the corner-
-      // clearance fix note above cuttingBoard) — trash, pan, sink, plateStack ----
-      { id: "trashBin",     type: "trash",                     x: -1,             z:  HALF_D - CT/2,   w: CT, d: CT },
-      { id: "pan",          type: "pan",                       x:  0,             z:  HALF_D - CT/2,   w: CT, d: CT },
-      // ---- Family playtest fix #3 (plate system redesign): the plate STATION and the standalone
-      // dish TRAY are GONE as separate right-wall fixtures. NEW: one PLATE STACK sitting on the
-      // counter directly beside the sink (bottom wall) — all clean plates live here as a visible
-      // stack, AND it's where an in-progress plate assembly happens (see tryAction's "plateStack"
-      // branch). SINK stays on the bottom wall; the stack sits immediately to its right so
-      // washing can deposit straight onto it with no separate tray trip.
-      { id: "sink",         type: "sink",                      x:  1,             z:  HALF_D - CT/2,   w: CT, d: CT },
-      { id: "plateStack",   type: "plateStack",                x:  2,             z:  HALF_D - CT/2,   w: CT, d: CT }
+      // Boards on the bottom wall per the drawn grid (r16 c3/c5) with the trash between them
+      // (c4) and the pan two tiles right of the right board (c7, the user's explicit placement).
+      { id: "cuttingBoard", type: "board",   boardIndex: 0,    x: -2.5,           z:  HALF_D - CT/2,  w: CT, d: CT },
+      { id: "cuttingBoard2", type: "board",  boardIndex: 1,    x: -0.5,           z:  HALF_D - CT/2,  w: CT, d: CT },
+      // Checkout is a VERTICAL strip on the RIGHT wall (grid r7-r10): bell northernmost, spots
+      // 1/2/3 below it. Customers queue outside the right wall.
+      { id: "orderBell",    type: "bell",                      x: WINDOW_X,       z: windowSegZ(0),   w: WINDOW_SEG_W, d: CT },
+      { id: "windowSpot1",  type: "spot",    spot: 1,           x: WINDOW_X,       z: windowSegZ(1),   w: WINDOW_SEG_W, d: CT },
+      { id: "windowSpot2",  type: "spot",    spot: 2,           x: WINDOW_X,       z: windowSegZ(2),   w: WINDOW_SEG_W, d: CT },
+      { id: "windowSpot3",  type: "spot",    spot: 3,           x: WINDOW_X,       z: windowSegZ(3),   w: WINDOW_SEG_W, d: CT },
+      // Right wall per the drawn grid: stove r3, oven r5 ("two below the stove" — user's
+      // explicit placement), dirty bin r14. Left wall: sink r3, plate stack r14 (the drawn
+      // grid deliberately splits the wash loop across the kitchen — bin lower-right → sink
+      // upper-left → stack lower-left; throwing dirty plates cross-kitchen is the intended
+      // teamwork play).
+      { id: "stove",        type: "stove",                     x:  HALF_W - CT/2, z: -5.5,             w: CT, d: CT },
+      { id: "oven",         type: "oven",                      x:  HALF_W - CT/2, z: -3.5,             w: CT, d: CT },
+      { id: "dirtyBin",     type: "dirtyBin",                  x:  HALF_W - CT/2, z:  5.5,             w: CT, d: CT },
+      { id: "sink",         type: "sink",                      x: -HALF_W + CT/2, z: -5.5,             w: CT, d: CT },
+      { id: "plateStack",   type: "plateStack",                x: -HALF_W + CT/2, z:  5.5,             w: CT, d: CT },
+      // Bottom wall: trash between the two boards (c4), pan two right of the right board (c7).
+      { id: "trashBin",     type: "trash",                     x: -1.5,           z:  HALF_D - CT/2,   w: CT, d: CT },
+      { id: "pan",          type: "pan",                       x:  1.5,           z:  HALF_D - CT/2,   w: CT, d: CT }
     ];
+
+    assignLevelDispensers();   // initial kinds for the title-screen kitchen (CURRENT_LEVEL = L1)
 
     const stationById = (id) => G.stations.find(s => s.id === id);
     const counterSlotById = (id) => G.counterSlots.find(s => s.id === id);
@@ -1355,7 +1370,13 @@
     const CUSTOMER_URGENT_T = 15;           // seconds left = "urgent" (wiggle + hint), mirrors ORDER_URGENT_T
     const CUSTOMER_WALK_SPEED = 2.2;        // units/sec, wobble-walk to/from the window
     const QUEUE_STEP = 1.1;                 // spacing between queued customers standing in line
-    const QUEUE_Z0 = -HALF_D - 1.3;         // first queue spot, just outside the top wall
+    // USER-DRAWN GRID: the checkout moved to the RIGHT wall, so the customer lane runs
+    // vertically OUTSIDE the right wall. LANE_X is the walking/queueing line; SERVE_X is where
+    // a customer stands pressed to the wall while ordering at the bell or waiting at a spot.
+    // The queue extends NORTH (toward the stove end) from the bell; leavers walk SOUTH past
+    // the bottom-right corner and despawn.
+    const LANE_X  = HALF_W + 1.3;           // 6.3 — queue/walk lane outside the right wall
+    const SERVE_X = HALF_W + 0.75;          // 5.75 — pressed to the wall at bell/spots
 
     // ---- Individual-counter-tiles pass: the border is now a list of DISCRETE ~1-unit tiles
     // (built once here, shared by BOTH the render layer's tile meshes and G.counterSlots below)
@@ -1477,14 +1498,18 @@
     const ALWAYS_ACTIVE_TYPES = new Set(["board", "plateStack", "bell", "spot", "trash", "dirtyBin", "sink"]);
     function stationActive(st){
       if (ALWAYS_ACTIVE_TYPES.has(st.type)) return true;
-      if (!stationVisibleThisLevel(st.id)) return false;
+      // USER-DRAWN GRID: dispensers gate purely by their per-level assigned kind (their ids are
+      // fixed dispenser1-8 and intentionally NOT listed in LEVELS[n].stations) — checking the
+      // id list first used to dead-zone every dispenser after the per-level-kind rework.
       if (st.type === "crate") return crateVisibleThisLevel(st.kind);
-      return true;
+      return stationVisibleThisLevel(st.id);
     }
     // Raw nearest-station lookup by distance alone (no priority bias) — used internally by
     // nearestStation() below AND by the combined resolver so both share one distance metric.
     function nearestStationRaw(chef){
-      let best = null, bestD = Infinity;
+      // facing-aware selection (see offAxisPenalty below): the penalty shapes WHICH candidate
+      // wins, but bestD stays the true raw distance so REACH checks are unaffected.
+      let best = null, bestD = Infinity, bestAdjD = Infinity;
       for (const st of G.stations){
         if (!stationActive(st)) continue;
         // "front" point = the inner-facing edge of the station, clamped to its footprint
@@ -1492,7 +1517,8 @@
         const nz = Math.max(st.z - st.d/2, Math.min(chef.z, st.z + st.d/2));
         const dx = chef.x - nx, dz = chef.z - nz;
         const d = Math.hypot(dx, dz);
-        if (d < bestD){ bestD = d; best = st; }
+        const adjD = d + offAxisPenalty(chef, st.x, st.z);
+        if (adjD < bestAdjD){ bestAdjD = adjD; bestD = d; best = st; }
       }
       return { best, bestD };
     }
@@ -1509,6 +1535,18 @@
     // so SLOT_REACH checks elsewhere are unaffected; the bonus purely breaks the "which slot is
     // nearest" tie in the corner's favor when the chef is standing in the shared sliver of space
     // that's geometrically reachable-adjacent to both the corner and its immediate neighbor.
+    // USER-DRAWN GRID fix: the cornerBonus must only apply when the chef actually stands in the
+    // corner POCKET (diagonally adjacent to the corner tile — both coordinates past the last
+    // regular tile centers, on the corner's side). A flat always-on bonus provably can't work:
+    // the corner needs >=0.174 to be reachable from the pocket, but a neighbor tile approached
+    // straight-on loses its own tile to the corner at any bonus >0.16 (measured on this layout).
+    // Gating by pocket position satisfies both: full bonus in the pocket, zero elsewhere.
+    function cornerBonusFor(s, chef){
+      if (!s.cornerBonus) return 0;
+      const inPocket = Math.sign(chef.x) === Math.sign(s.x) && Math.sign(chef.z) === Math.sign(s.z)
+        && Math.abs(chef.x) > Math.abs(s.x) - CT && Math.abs(chef.z) > Math.abs(s.z) - CT;
+      return inPocket ? s.cornerBonus : 0;
+    }
     function nearestCounterSlotRaw(chef){
       let best = null, bestD = Infinity, bestAdjD = Infinity;
       for (const s of G.counterSlots){
@@ -1518,7 +1556,7 @@
         const nx = Math.max(s.xLo, Math.min(chef.x, s.xHi));
         const nz = Math.max(s.zLo, Math.min(chef.z, s.zHi));
         const d = Math.hypot(chef.x - nx, chef.z - nz);
-        const adjD = d - (s.cornerBonus || 0);
+        const adjD = d - cornerBonusFor(s, chef) + offAxisPenalty(chef, s.x, s.z);
         if (adjD < bestAdjD){ bestAdjD = adjD; bestD = d; best = s; }
       }
       return { best, bestD };
@@ -1551,6 +1589,24 @@
     // do, so standing at a corner tile's near edge correctly reads as distance ~0 like every other
     // tile. With that fix, a flat near-zero "standing on it" check works uniformly again.
     const STATION_BIAS = 0.005;   // units — pure float-noise guard, not a "near enough" fudge factor
+    // USER-DRAWN GRID: targeting is now FACING-AWARE. Distance alone provably can't disambiguate
+    // this grid's corner-adjacent geometry: standing square in front of a top-wall dispenser, the
+    // PERPENDICULAR side-wall tile's edge is genuinely ~0.2 closer (so it steals with a small
+    // bias), but raising the station bias past 0.16 re-creates the "counters unusable" bug where
+    // an adjacent same-wall station steals a slot-centered stand. No flat bias satisfies both
+    // (needs <0.16 and >0.2). The resolver instead penalizes candidates far off the chef's
+    // FACING axis — players aim at what they want, so a candidate more than ~70° off-forward
+    // (dot < 0.35) is only chosen when nothing on-axis is in reach. Applies inside both argmins
+    // so the raw picks themselves are facing-aware (highlight therefore also follows facing).
+    const OFF_AXIS_PENALTY = 0.45;
+    function offAxisPenalty(chef, tx, tz){
+      if (!chef || chef.dir === undefined || chef.dir === null) return 0;
+      const dx = tx - chef.x, dz = tz - chef.z;
+      const len = Math.hypot(dx, dz);
+      if (len < 1e-4) return 0;   // standing on it — no direction to speak of
+      const dot = (dx * Math.sin(chef.dir) + dz * Math.cos(chef.dir)) / len;
+      return dot < 0.35 ? OFF_AXIS_PENALTY : 0;
+    }
     const SLOT_EXACT_R = 0.08;    // units — "standing essentially on the slot" always wins, no bias
     function resolveStationOrSlot(chef){
       const st = nearestStationRaw(chef);
@@ -1569,7 +1625,7 @@
       // "corner tiles are geometrically shortchanged by CHEF_R" reason. Subtracted from the
       // SLOT's side (making it read as closer), not added to the station's — zero effect on any
       // non-corner slot (cornerBonus defaults to 0).
-      if (st.bestD - STATION_BIAS <= slot.bestD - (slot.best.cornerBonus || 0)) return { station: st.best, slot: null };
+      if (st.bestD - STATION_BIAS <= slot.bestD - cornerBonusFor(slot.best, chef)) return { station: st.best, slot: null };
       return { station: null, slot: slot.best };
     }
     // Change #5 bug fix: FLOOR_ITEM_REACH is deliberately generous — bigger than SLOT_REACH/REACH
@@ -3168,19 +3224,21 @@
     // host's walk integration below and (implicitly) what the guest lerps toward via the synced
     // customer positions in the snapshot.
     function customerTargetXZ(c){
+      const bellZ = windowSegZ(0);
       if (c.state === "queueing"){
-        return { x: windowSegX(0), z: QUEUE_Z0 - c.queuePos * QUEUE_STEP };
+        // line extends NORTH (up the right wall, toward the stove end) from just above the bell
+        return { x: LANE_X, z: bellZ - (1 + c.queuePos) * QUEUE_STEP };
       }
       if (c.state === "ordering"){
-        return { x: windowSegX(0), z: QUEUE_Z0 };
+        return { x: SERVE_X, z: bellZ };
       }
       if (c.state === "waiting"){
         const st = stationBySpot(c.spot);
-        return { x: st.x, z: QUEUE_Z0 };
+        return { x: SERVE_X, z: st.z };
       }
-      // leaving_happy / leaving_sad: walk straight back out along the queue lane and despawn
-      // once off the bottom of the queue lane.
-      return { x: windowSegX(0), z: QUEUE_Z0 - (CUSTOMER_QUEUE_MAX + 2) * QUEUE_STEP };
+      // leaving_happy / leaving_sad: walk SOUTH down the lane, past the bottom-right corner,
+      // and despawn once well clear of the kitchen.
+      return { x: LANE_X, z: HALF_D + 2.2 };
     }
 
     // Recomputes queuePos (0-based distance back from the bell) for every "queueing" customer
@@ -3717,6 +3775,7 @@
       const lvl = LEVELS[levelIndex];
       if (!lvl) return;
       CURRENT_LEVEL = lvl;
+      assignLevelDispensers();
       G.level = levelIndex;
       G.levelSelectOpen = false;
       hostResetDayState();
@@ -3959,10 +4018,17 @@
     // queue depth, which was most of the reason the kitchen itself read as small/distant (lots of
     // dead blue space above the top wall in practice). Cut to just past one slot so the queue
     // still peeks into frame without dictating the whole camera distance.
-    const SCENE_HALF_W = HALF_W + 1.2;
-    const QUEUE_VISIBLE_SLOTS = 1.15;   // just the first queued customer, not the whole line
-    const QUEUE_LANE_EXTENT = Math.abs(QUEUE_Z0) + QUEUE_VISIBLE_SLOTS * QUEUE_STEP;
-    const SCENE_HALF_D = Math.max(HALF_D + 1.2, QUEUE_LANE_EXTENT);
+    // USER-DRAWN GRID: the customer queue moved to the RIGHT side, so the depth extent no
+    // longer includes any queue lane (nothing lives beyond the top wall now) — but the WIDTH
+    // is asymmetric: the west side only needs decor slack, while the east side must keep the
+    // serve line + the first stretch of the queue lane visible. The camera handles asymmetry
+    // by shifting its frustum center east by CAM_X_SHIFT (computed per-branch in fitCamera,
+    // since portrait hugs the kitchen tighter on the west than landscape does).
+    const SCENE_RIGHT_EXTENT = LANE_X + 0.9;   // queue lane + a customer's girth
+    const SCENE_LEFT_EXTENT_LANDSCAPE = HALF_W + 1.2;
+    const SCENE_LEFT_EXTENT_PORTRAIT  = HALF_W + 0.35;
+    const SCENE_HALF_W = (SCENE_LEFT_EXTENT_LANDSCAPE + SCENE_RIGHT_EXTENT) / 2;  // decor/ground sizing
+    const SCENE_HALF_D = HALF_D + 1.2;
     const BASE_FOV = 46;        // this file's original fixed vertical FOV, kept as-is for aspect>=1
     // MOBILE-FIRST pass: on a PORTRAIT viewport (aspect < 1, i.e. taller than wide — phones/
     // tablets held upright), a camera with a FIXED vertical FOV forces its horizontal FOV down to
@@ -4032,9 +4098,14 @@
         distNearV(0, DZ_NEAR), distNearV(CH, DZ_NEAR),
         distFarV(0, SCENE_HALF_D), distFarV(CH, SCENE_HALF_D)
       );
-      // Portrait phones are width-constrained: don't spend precious pixels framing the
-      // decorative side margin — hug the kitchen's actual footprint instead.
-      const sceneHalfW = aspect < 1 ? HALF_W + 0.35 : SCENE_HALF_W;
+      // USER-DRAWN GRID: the customer queue lives outside the RIGHT wall now, so width framing
+      // is ASYMMETRIC — tight against the kitchen on the west (especially on portrait phones),
+      // extended east to keep the serve line + queue lane visible. The frustum handles that by
+      // centering on camXShift instead of 0 (both position and lookAt shift together, so the
+      // view direction/tilt is unchanged — the whole frame just slides east).
+      const leftExt = aspect < 1 ? SCENE_LEFT_EXTENT_PORTRAIT : SCENE_LEFT_EXTENT_LANDSCAPE;
+      const sceneHalfW = (leftExt + SCENE_RIGHT_EXTENT) / 2;
+      const camXShift = (SCENE_RIGHT_EXTENT - leftExt) / 2;
       const distForHAt = (y) => sceneHalfW * aspect / tanHalfV + y * sinA + DZ_NEAR * cosA;
       const distForH = Math.max(distForHAt(0), distForHAt(CH));
       // User-reported fix ("zoom in a bit"): kept the tight 1.0 safety-margin multiplier / +1 flat
@@ -4042,8 +4113,8 @@
       // built-in margin (verified <0.95 normalized-device-coord usage), so this stays minimal.
       const dist = Math.max(distForV, distForH) * 1.0 + 1; // small safety margin
 
-      camera.position.set(0, dist * Math.sin(angle), dist * Math.cos(angle) + 2.4);
-      camera.lookAt(0, 0, -0.6);
+      camera.position.set(camXShift, dist * Math.sin(angle), dist * Math.cos(angle) + 2.4);
+      camera.lookAt(camXShift, 0, -0.6);
       camera.updateProjectionMatrix();
     }
     window.addEventListener("resize", fitCamera);
@@ -4130,7 +4201,9 @@
         g.add(top);
         const arrow = new THREE.Mesh(windowArrowGeo, windowArrowM);
         arrow.rotation.x = Math.PI / 2;     // lay the cone flat, tip pointing along local +/-Z
-        arrow.rotation.z = Math.PI;         // tip toward -Z (outward through the top wall)
+        // USER-DRAWN GRID: the window is on the RIGHT wall now — outward is +x there, so spin
+        // the flat arrow to point east instead of north (kept generic: pick by which wall).
+        arrow.rotation.z = (t.x > HALF_W - CT) ? -Math.PI / 2 : Math.PI;
         arrow.position.y = CH + 0.005;
         g.add(arrow);
       } else {
@@ -4490,26 +4563,45 @@
     SHARED_ASSETS.add(crateBoxGeo);   // shared box shape across every dispenser (material is per-instance, box color is uniform so this is safe)
     const crateBoxTopDecalGeo = new THREE.PlaneGeometry(CRATE_BOX_SIZE * 0.86, CRATE_BOX_SIZE * 0.86);
     SHARED_ASSETS.add(crateBoxTopDecalGeo);
+    // USER-DRAWN GRID: dispensers get their KIND per level (assignLevelDispensers), so the crate
+    // visual is rebuilt whenever its station's kind changes. kind:null → an empty group (the tile
+    // reads/behaves as a plain counter; stationActive() is false so slotIsLive() serves it).
     function buildCrate(st){
+      const prev = stationMeshes[st.id];
+      if (prev && prev.group){
+        scene.remove(prev.group);
+        // dispose only the materials this builder created — geometries (crateBoxGeo/decalGeo)
+        // and decal textures (getCrateDecalTexture cache) are shared and must survive.
+        prev.group.traverse(o => { if (o.isMesh && o.material) o.material.dispose(); });
+      }
       const g = new THREE.Group();
-      const box = new THREE.Mesh(crateBoxGeo, mat(CRATE_BOX_WOOD_COLOR, true));
-      box.position.set(st.x, CH + CRATE_BOX_HEIGHT / 2, st.z);
-      g.add(box);
-      const tex = getCrateDecalTexture(st.kind);
-      const decalM = new THREE.MeshBasicMaterial({ map: tex, transparent: true, polygonOffset: true, polygonOffsetFactor: -1 });
-      const decal = new THREE.Mesh(crateBoxTopDecalGeo, decalM);
-      decal.rotation.x = -Math.PI / 2;   // lie flat on the box's top face
-      decal.position.set(st.x, CH + CRATE_BOX_HEIGHT + 0.01, st.z);
-      g.add(decal);
+      g.userData.builtKind = st.kind;
+      let highlightTargets = [];
+      if (st.kind){
+        const box = new THREE.Mesh(crateBoxGeo, mat(CRATE_BOX_WOOD_COLOR, true));
+        box.position.set(st.x, CH + CRATE_BOX_HEIGHT / 2, st.z);
+        g.add(box);
+        const tex = getCrateDecalTexture(st.kind);
+        const decalM = new THREE.MeshBasicMaterial({ map: tex, transparent: true, polygonOffset: true, polygonOffsetFactor: -1 });
+        const decal = new THREE.Mesh(crateBoxTopDecalGeo, decalM);
+        decal.rotation.x = -Math.PI / 2;   // lie flat on the box's top face
+        decal.position.set(st.x, CH + CRATE_BOX_HEIGHT + 0.01, st.z);
+        g.add(decal);
+        highlightTargets = [box];
+      }
       scene.add(g);
-      stationMeshes[st.id] = { group: g, highlightTargets: [box] };
+      stationMeshes[st.id] = { group: g, highlightTargets };
     }
-    for (const kind of ["tomato", "lettuce", "onion", "potato", "bun", "patty", "dough", "cheese"]){
-      buildCrate(stationById(kind + "Crate"));
+    for (const st of G.stations){ if (st.type === "crate") buildCrate(st); }
+    // Per-frame sweep (main-loop call site unchanged): rebuild any dispenser whose assigned kind
+    // changed since its visual was built — i.e. on every level change, on both host and guest.
+    function syncCrateVisuals(){
+      for (const st of G.stations){
+        if (st.type !== "crate") continue;
+        const cur = stationMeshes[st.id];
+        if (!cur || !cur.group || cur.group.userData.builtKind !== st.kind) buildCrate(st);
+      }
     }
-    // no-op kept as a named function (called every frame from the main loop) since dispensers no
-    // longer have anything to hot-swap — cheapest possible way to leave that call site untouched.
-    function syncCrateVisuals(){ /* dispensers have no GLB hot-swap any more — nothing to do */ }
 
     function buildBoard(st){
       const g = new THREE.Group();
@@ -4581,59 +4673,51 @@
     // a distinguishing visual: a bell icon tile over "orderBell", a painted number tile over
     // each "windowSpot#".
     function buildServingWindowRow(){
+      // USER-DRAWN GRID: the checkout is a VERTICAL strip on the RIGHT wall (constant x,
+      // segments marching down in z: bell northernmost, spots 1/2/3 below). "Inward" (toward
+      // the kitchen, where the signage faces) is -x on this wall.
       const segStations = ["orderBell", "windowSpot1", "windowSpot2", "windowSpot3"].map(stationById);
-      const left = segStations[0], right = segStations[segStations.length - 1];
-      const totalW = (right.x + right.w/2) - (left.x - left.w/2);
-      const midX = (left.x - left.w/2 + right.x + right.w/2) / 2;
-      const z = left.z;
+      const first = segStations[0], last = segStations[segStations.length - 1];
+      const x = first.x;
 
       const g = new THREE.Group();
       const frameM = mat(0xb31942, true);
-      const leftPost = new THREE.Mesh(new THREE.BoxGeometry(0.18, CH, 0.2), frameM);
-      leftPost.position.set(left.x - left.w/2, CH/2, z);
-      g.add(leftPost);
-      const rightPost = new THREE.Mesh(new THREE.BoxGeometry(0.18, CH, 0.2), frameM);
-      rightPost.position.set(right.x + right.w/2, CH/2, z);
-      g.add(rightPost);
+      const northPost = new THREE.Mesh(new THREE.BoxGeometry(0.2, CH, 0.18), frameM);
+      northPost.position.set(x, CH/2, first.z - first.d/2);
+      g.add(northPost);
+      const southPost = new THREE.Mesh(new THREE.BoxGeometry(0.2, CH, 0.18), frameM);
+      southPost.position.set(x, CH/2, last.z + last.d/2);
+      g.add(southPost);
       // divider posts between segments, thinner than the end posts, purely visual
       for (let i = 1; i < segStations.length; i++){
-        const divX = segStations[i].x - segStations[i].w/2;
-        const div = new THREE.Mesh(new THREE.BoxGeometry(0.08, CH * 0.85, 0.16), mat(0xffffff, true));
-        div.position.set(divX, CH * 0.425, z);
+        const divZ = segStations[i].z - segStations[i].d/2;
+        const div = new THREE.Mesh(new THREE.BoxGeometry(0.16, CH * 0.85, 0.08), mat(0xffffff, true));
+        div.position.set(x, CH * 0.425, divZ);
         g.add(div);
       }
-      // No spanning top bar and no awning trim: family play-testing found ANY horizontal
-      // red/white line above the window reads as visual noise from the game camera. The end
-      // posts, the white divider posts, the number tiles, and the bell carry the window's
-      // identity on their own.
+      // (No spanning bar / awning trim — kept from the earlier "visual noise" fix.)
       scene.add(g);
 
-      // bell segment: little bell-on-a-post icon (simple bell shape + "ORDER HERE" via a small
-      // gold dome) so it reads as distinct from the numbered spots even without text sprites.
+      // bell segment: little bell so it reads as distinct from the numbered spots.
       const bell = segStations[0];
-      const bellGroup = new THREE.Group();
       const bellBody = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8, 0, Math.PI*2, 0, Math.PI*0.6), mat(0xffd23f, true));
-      bellBody.position.set(bell.x, CH + 0.35, bell.z + 0.05);
-      bellGroup.add(bellBody);
+      bellBody.position.set(bell.x - 0.05, CH + 0.35, bell.z);
+      g.add(bellBody);
       const bellKnob = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), mat(0xb8860b));
-      bellKnob.position.set(bell.x, CH + 0.24, bell.z + 0.05);
-      bellGroup.add(bellKnob);
-      g.add(bellGroup);
+      bellKnob.position.set(bell.x - 0.05, CH + 0.24, bell.z);
+      g.add(bellKnob);
       stationMeshes[bell.id] = { group: g, highlightTargets: [bellBody] };
 
-      // numbered spots: a small flat painted tile with the number carved via 3 tiny box "pips"
-      // (keeps everything box/procedural per this file's art style, no text meshes needed) —
-      // simplest readable approach: a colored tile whose height step count == spot number.
+      // numbered spots: flat painted tile + N pips, facing the kitchen (thin in x, pips along z).
       for (let i = 1; i <= 3; i++){
         const spotSt = stationById("windowSpot" + i);
-        const tileM = mat(0xffffff, true);
-        const tile = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.06), tileM);
-        tile.position.set(spotSt.x, CH + 0.42, spotSt.z + 0.11);
+        const tile = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.5, 0.5), mat(0xffffff, true));
+        tile.position.set(spotSt.x - 0.11, CH + 0.42, spotSt.z);
         g.add(tile);
         const pipM = mat(0xb31942, true);
         for (let p = 0; p < i; p++){
-          const pip = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.03), pipM);
-          pip.position.set(spotSt.x + (p - (i-1)/2) * 0.16, CH + 0.42, spotSt.z + 0.15);
+          const pip = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.09, 0.09), pipM);
+          pip.position.set(spotSt.x - 0.15, CH + 0.42, spotSt.z + (p - (i-1)/2) * 0.16);
           g.add(pip);
         }
         stationMeshes[spotSt.id] = { group: g, highlightTargets: [tile] };
@@ -9016,6 +9100,7 @@
         G.level = snap.level;
         CURRENT_LEVEL = LEVELS[snap.level] || LEVELS[0];   // keep the guest's recipe/station-
                                                              // visibility pointer in sync with the host
+        assignLevelDispensers();                             // dispenser kinds derive from level
       }
       if (typeof snap.levelSelectOpen === "boolean") G.levelSelectOpen = snap.levelSelectOpen;
       if (typeof snap.teachT === "number") G.teachT = snap.teachT;

@@ -145,6 +145,41 @@ Needed motions: walk/trot, head tracking (look at bottle/cursor), feeding pose, 
 wiggle, tail wag, sit/lie. Behavior change: bottle feeding = goat WALKS TO the bottle
 and STOPS (stands still, head to bottle) while feeding — no more feeding-on-the-move.
 
+## Kitchen layout (2026-07-06): USER-DRAWN 10×16 GRID (user supplied a spreadsheet
+screenshot; implemented directly on Fable 5 per the no-delegation directive).
+Top wall: 5 dispenser tiles c3-c7 (kinds assigned per level from LEVELS[n].crates via
+assignLevelDispensers; 3 extra tiles c8/c9/c2 activate only on Feast Night) — a
+dispenser with kind:null is a plain counter. Left wall: sink r3, plate stack r14.
+Right wall: stove r3, oven r5, CHECKOUT bell r7 + spots r8-r10 (VERTICAL window;
+customers queue outside the RIGHT wall now: LANE_X 6.3, SERVE_X 5.75, queue extends
+north, leavers exit south), dirty bin r14. Bottom: board c3, trash c4, board c5,
+pan c7. Wash loop deliberately spans the kitchen (bin LR → sink UL → stack LL).
+Camera: asymmetric frustum via camXShift (east side keeps the queue visible).
+Follow-up (same day): the 3 Feast extras moved to the LEFT wall (z -3.5/-1.5/0.5,
+one-tile gaps below the sink); trash stays between the boards. DESIGN INTENT
+(user, verbatim spirit): the split wash/prep loop is deliberate — "players are
+encouraged to split between top and bottom of the kitchen and throw items back
+and forth"; throwing IS the game's identity, don't shorten these loops.
+BABY BUCKY MODEL v2 (same day): assets/babygoat.glb replaced with the user's
+Downloads/NewGoat.glb (UniRig auto-rig, 192k tris, 4×2048 PBR maps, 18.6MB) →
+dieted to 1.29MB: skin/joints stripped (bones were unusable Bone_NNN, no anims),
+normal/metallic/emissive maps dropped, meshopt simplify ratio 0.2 (38.5k tris —
+ratio 0.07 destroyed the per-triangle texture atlas + face detail; DON'T go
+below ~0.2 on per-face-atlas models), baseColor resized 2048→1024 via .NET
+System.Drawing (sharp's native binding is BROKEN in this env — use PowerShell
+Add-Type System.Drawing for image resizes), Y-180 rotation BAKED into the GLB
+(model shipped facing -Z; game convention is +Z). Old model kept as
+assets/babygoat-v1.glb. splitBabyGoat's clustering handled the new mesh
+unchanged (legs FL/FR/BL/BR 4397/4622/3898/4140). Photo-mode verified
+front/three4; walk + bottle-feed regression clean.
+
+KEY TARGETING LESSON: distance-only resolution provably cannot disambiguate
+corner-adjacent tiles (perpendicular wall's tile is ~0.2 closer than your own from a
+square stand). Fixed with FACING-AWARE resolution: offAxisPenalty(+0.45 when >~70°
+off the chef's forward axis) inside both argmins + pocket-gated cornerBonus.
+STATION_BIAS stays 0.005. Verified: 0 station fails + 0 slot fails across all 5
+levels; full order→cook→deliver flow on the right-wall window passes.
+
 ## Current progress
 - [x] Design doc (this file)
 - [x] Stage 1 — single-player loop: `barnyardbistro.html` (842 lines). Full
