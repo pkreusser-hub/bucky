@@ -1124,7 +1124,7 @@
         // seeded with a single local chef so solo play (and the instant before Playroom
         // resolves identity) works exactly like Stage 1/2. Real player ids replace this key
         // once net.init() resolves (see reseedChefsForNet()).
-        [LOCAL_SOLO_ID]: { x: -1.5, z: 2.2, dir: Math.PI, holding: [], color: "blue", chefModel: "farmer", name: myChoreUserName }
+        [LOCAL_SOLO_ID]: { x: -1.5, z: -2.2, dir: 0, holding: [], color: "blue", chefModel: "farmer", name: myChoreUserName }
       },
       stations: [],          // filled in below: {id,type,x,z,w,d,...}
       // ---- user-reported layout fix: SECOND cutting board — G.board (singular) refactored to
@@ -3471,6 +3471,14 @@
         landing = { x: clamp(x, -HALF_W - 2.4, HALF_W + 2.4), z: clamp(z, -HALF_D - 2.4, HALF_D + 2.4) };
       } else {
         landing = clampFloorLanding(x, z);
+        // CO-OP BARRIER (user: "the barrier should not interact with any thrown object"): the
+        // fence has never blocked flight, but an item COMING TO REST in the fence strip would sit
+        // where neither chef can reach it (side clamp keeps feet 0.92 away, walk-over radius is
+        // 0.62). Nudge such landings to the thrower-nearest side of the fence instead.
+        if (barrierActive() && Math.abs(landing.z) < BARRIER_Z_HALF + 0.4){
+          const side = (landing.z !== 0 ? Math.sign(landing.z) : (Math.random() < 0.5 ? -1 : 1));
+          landing.z = side * (BARRIER_Z_HALF + 0.45);
+        }
       }
       const item = { id: G.nextFloorId++, kind, state, x: landing.x, z: landing.z };
       if (kind === "plate") item.contents = (extra && extra.contents || []).map(c => ({ ...c }));
@@ -4056,6 +4064,17 @@
       G.customerSpawnCd = 0;
       G.firstCustomerSpawned = false;
       for (const id in G.chefs){ G.chefs[id].holding = []; G.chefs[id].lastCatchId = null; }
+      // CO-OP BARRIER (user): every day STARTS with P1 (blue seat) in the TOP zone and P2 (red)
+      // in the BOTTOM zone, no matter where they ended the previous day — otherwise the pre-move
+      // side clamp in moveChef would lock a chef into whichever half they happened to stand in.
+      if (barrierActive()){
+        for (const id in G.chefs){
+          const c = G.chefs[id];
+          const top = c.color === "blue";
+          c.z = top ? -2.2 : 2.2;
+          c.dir = top ? 0 : Math.PI;
+        }
+      }
       for (const s of G.counterSlots) s.item = null;
       G.flying = [];
       G.floorItems = [];
@@ -9183,8 +9202,8 @@
     if (isTouchDevice) couchModeRowEl.style.display = "none";
     function spawnLocal2(){
       if (G.chefs[LOCAL2_ID]) return;
-      // CO-OP BARRIER: couch P2 spawns TOP (P1 keeps the bottom prep zone).
-      G.chefs[LOCAL2_ID] = { x: 1.5, z: -2.2, dir: 0, holding: [], color: "red", chefModel: "kid" };
+      // CO-OP BARRIER (user): P1 owns the TOP zone, so couch P2 spawns BOTTOM.
+      G.chefs[LOCAL2_ID] = { x: 1.5, z: 2.2, dir: Math.PI, holding: [], color: "red", chefModel: "kid" };
       ensureChefVisual(LOCAL2_ID, "red", "kid");
     }
     function despawnLocal2(){
@@ -9744,18 +9763,28 @@
     // x=+1.5; both z=2.2. Called whenever the host's own view of connected players changes. ----
     function hostAssignSeat(chefId, joinIndex){
       if (!G.chefs[chefId]){
-        // CO-OP BARRIER: seat 0 spawns BOTTOM (prep zone), seat 1 spawns TOP (supply zone) —
-        // one chef per side of the midline fence.
+        // CO-OP BARRIER (user): seat 0/P1 spawns TOP (supply zone), seat 1/P2 spawns BOTTOM
+        // (prep zone) — one chef per side of the midline fence.
         G.chefs[chefId] = {
           x: joinIndex === 0 ? -1.5 : 1.5,
-          z: joinIndex === 0 ? 2.2 : -2.2,
-          dir: joinIndex === 0 ? Math.PI : 0,
+          z: joinIndex === 0 ? -2.2 : 2.2,
+          dir: joinIndex === 0 ? 0 : Math.PI,
           holding: [],
           color: joinIndex === 0 ? "blue" : "red",
           chefModel: "farmer",   // default until the joining player's own pick arrives (Systems pass 4)
           name: ""                // family lobby: default until the joining player's own choreUser name arrives
         };
         ensureChefVisual(chefId, G.chefs[chefId].color, G.chefs[chefId].chefModel);
+      // CO-OP BARRIER (user): the fence just appeared — put P1 (blue) TOP and P2 (red) BOTTOM
+      // immediately (same rule as the day-start snap in hostResetDayState).
+      if (barrierActive()){
+        for (const id in G.chefs){
+          const c = G.chefs[id];
+          const top = c.color === "blue";
+          c.z = top ? -2.2 : 2.2;
+          c.dir = top ? 0 : Math.PI;
+        }
+      }
       }
     }
 
@@ -9838,7 +9867,7 @@
       const old = G.chefs[LOCAL_SOLO_ID];
       delete G.chefs[LOCAL_SOLO_ID];
       removeChefVisual(LOCAL_SOLO_ID);
-      G.chefs[newId] = { x, z: 2.2, dir: Math.PI, holding: (old && old.holding) || [], color,
+      G.chefs[newId] = { x, z: -2.2, dir: 0, holding: (old && old.holding) || [], color,
                          chefModel: (old && old.chefModel) || "farmer",
                          name: (old && old.name) || myChoreUserName };
       ensureChefVisual(newId, color, G.chefs[newId].chefModel);
