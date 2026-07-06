@@ -1119,12 +1119,13 @@
       dayLeft: DAY_LENGTH,     // host-ticked countdown; synced in the snapshot
       runT: 0,                 // ENDLESS: run clock counting UP (unused on timed days)
       endlessMode: false,      // ENDLESS VARIANT: current day runs the ♾️ ruleset (synced)
+      spawnSnapId: 0,          // bumps whenever the host snaps chefs to their zone sides (synced)
       stats: { served: 0, missed: 0, thrown: 0, caught: 0, floorDrops: 0, tips: 0, orderedCount: 0 },
       chefs: {
         // seeded with a single local chef so solo play (and the instant before Playroom
         // resolves identity) works exactly like Stage 1/2. Real player ids replace this key
         // once net.init() resolves (see reseedChefsForNet()).
-        [LOCAL_SOLO_ID]: { x: -1.5, z: -2.2, dir: 0, holding: [], color: "blue", chefModel: "farmer", name: myChoreUserName }
+        [LOCAL_SOLO_ID]: { x: 0, z: -6.0, dir: 0, holding: [], color: "blue", chefModel: "farmer", name: myChoreUserName }
       },
       stations: [],          // filled in below: {id,type,x,z,w,d,...}
       // ---- user-reported layout fix: SECOND cutting board — G.board (singular) refactored to
@@ -4071,9 +4072,15 @@
         for (const id in G.chefs){
           const c = G.chefs[id];
           const top = c.color === "blue";
-          c.z = top ? -2.2 : 2.2;
+          c.x = 0;
+          c.z = top ? -6.0 : 6.0;   // right against your zone's own counter row (user spec)
           c.dir = top ? 0 : Math.PI;
+          c.posHold = 0.9;          // host: ignore the guest's stale published position briefly
         }
+        // synced spawn-snap event: guests ADOPT their own chef's snapped position once per bump
+        // (guest position is otherwise guest-authoritative, which used to silently defeat these
+        // snaps — the guest just republished its old spot and dragged itself back).
+        G.spawnSnapId = (G.spawnSnapId || 0) + 1;
       }
       for (const s of G.counterSlots) s.item = null;
       G.flying = [];
@@ -9203,7 +9210,7 @@
     function spawnLocal2(){
       if (G.chefs[LOCAL2_ID]) return;
       // CO-OP BARRIER (user): P1 owns the TOP zone, so couch P2 spawns BOTTOM.
-      G.chefs[LOCAL2_ID] = { x: 1.5, z: 2.2, dir: Math.PI, holding: [], color: "red", chefModel: "kid" };
+      G.chefs[LOCAL2_ID] = { x: 0, z: 6.0, dir: Math.PI, holding: [], color: "red", chefModel: "kid" };
       ensureChefVisual(LOCAL2_ID, "red", "kid");
     }
     function despawnLocal2(){
@@ -9422,6 +9429,8 @@
       myThrowSeq: 0,         // guest-side: local throw sequence counter (Systems pass 1)
       myLobSeq: 0,           // guest-side: local LOB sequence counter (FIELD-CUSTOMER REWORK)
       myLobCharge: 0,        // guest-side: charge seconds of the latest lob (FREE-FORM LOB)
+      spawnAdopted: false,   // guest-side: true once our host-assigned spawn has been adopted
+      lastSpawnSnapId: null, // guest-side: last spawn-snap event we obeyed
       myEmoteSeq: 0,         // guest-side: local emote sequence counter (Tier-1 batch)
       // ---- family lobby integration ----
       roomCode: null,        // Playroom.getRoomCode() once resolved (host or guest) — null in solo
@@ -9501,6 +9510,7 @@
         // PER-LEVEL LAYOUTS: short hash of the host's layouts MAP (the full map is published
         // once as room state "layoutsV2"); a mismatched guest adopts + reloads once.
         layoutSig: layoutsHash(),
+        spawnSnapId: G.spawnSnapId || 0,
         endlessMode: !!G.endlessMode,   // ENDLESS VARIANT of the current level
         // (FIELD-CUSTOMER REWORK: bellFullHint/wrongSpotHint fields retired with the checkout window.)
         // ---- Systems pass 3: cooking stations + level/progression ----
@@ -9690,6 +9700,17 @@
       // keep our locally-set value (never overwritten from the snapshot, exactly like x/z/dir
       // stay guest-authoritative); for remote chefs we take whatever the host last saw them
       // publish, same as color/holding.
+      // SPAWN SNAP (user fix): our own position is guest-authoritative EXCEPT when the host
+      // just snapped everyone to their zone sides (join / day start) — obey that snap once.
+      if (typeof snap.spawnSnapId === "number" && snap.spawnSnapId !== net.lastSpawnSnapId){
+        net.lastSpawnSnapId = snap.spawnSnapId;
+        const mineSnap = snap.chefs[net.myChefId];
+        const mineLocal = G.chefs[net.myChefId];
+        if (mineSnap && mineLocal){
+          mineLocal.x = mineSnap.x; mineLocal.z = mineSnap.z; mineLocal.dir = mineSnap.dir;
+          net.spawnAdopted = true;
+        }
+      }
       for (const id in snap.chefs){
         const remote = snap.chefs[id];
         if (id === net.myChefId){
@@ -9766,8 +9787,8 @@
         // CO-OP BARRIER (user): seat 0/P1 spawns TOP (supply zone), seat 1/P2 spawns BOTTOM
         // (prep zone) — one chef per side of the midline fence.
         G.chefs[chefId] = {
-          x: joinIndex === 0 ? -1.5 : 1.5,
-          z: joinIndex === 0 ? -2.2 : 2.2,
+          x: 0,
+          z: joinIndex === 0 ? -6.0 : 6.0,
           dir: joinIndex === 0 ? 0 : Math.PI,
           holding: [],
           color: joinIndex === 0 ? "blue" : "red",
@@ -9781,9 +9802,15 @@
         for (const id in G.chefs){
           const c = G.chefs[id];
           const top = c.color === "blue";
-          c.z = top ? -2.2 : 2.2;
+          c.x = 0;
+          c.z = top ? -6.0 : 6.0;   // right against your zone's own counter row (user spec)
           c.dir = top ? 0 : Math.PI;
+          c.posHold = 0.9;          // host: ignore the guest's stale published position briefly
         }
+        // synced spawn-snap event: guests ADOPT their own chef's snapped position once per bump
+        // (guest position is otherwise guest-authoritative, which used to silently defeat these
+        // snaps — the guest just republished its old spot and dragged itself back).
+        G.spawnSnapId = (G.spawnSnapId || 0) + 1;
       }
       }
     }
@@ -9803,9 +9830,17 @@
         if (!chef) continue;
 
         const x = p.getState("x"), z = p.getState("z"), dir = p.getState("dir");
-        if (typeof x === "number") chef.x = x;
-        if (typeof z === "number") chef.z = z;
-        if (typeof dir === "number") chef.dir = dir;
+        if (chef.posHold > 0){
+          chef.posHold -= dt;   // just snapped by the host — ignore stale guest positions briefly
+        } else if (typeof x === "number" && typeof z === "number"){
+          // STUTTER FIX (user): guests publish at 20Hz; adopting raw made their chef jump on the
+          // host screen. Smooth toward the published position instead (matches the guest-side
+          // remote-chef lerp); a big gap (teleport/lag spike) snaps to avoid a long glide.
+          const t = Math.min(1, 0.13 * (dt * 60));
+          if (Math.hypot(x - chef.x, z - chef.z) > 2.5){ chef.x = x; chef.z = z; }
+          else { chef.x += (x - chef.x) * t; chef.z += (z - chef.z) * t; }
+          if (typeof dir === "number") chef.dir = lerpAngle(chef.dir, dir, Math.min(1, 0.2 * (dt * 60)));
+        }
 
         // Systems pass 4: chef picker — each player publishes their OWN model choice; host just
         // mirrors it into G so it rides along in the snapshot (not gameplay-authoritative, purely
@@ -9867,7 +9902,7 @@
       const old = G.chefs[LOCAL_SOLO_ID];
       delete G.chefs[LOCAL_SOLO_ID];
       removeChefVisual(LOCAL_SOLO_ID);
-      G.chefs[newId] = { x, z: -2.2, dir: 0, holding: (old && old.holding) || [], color,
+      G.chefs[newId] = { x, z: -6.0, dir: 0, holding: (old && old.holding) || [], color,
                          chefModel: (old && old.chefModel) || "farmer",
                          name: (old && old.name) || myChoreUserName };
       ensureChefVisual(newId, color, G.chefs[newId].chefModel);
@@ -10108,9 +10143,14 @@
         if (net.inputCd <= 0 && net.localPlayer){
           const myChef = G.chefs[net.myChefId];
           try {
-            net.localPlayer.setState("x", myChef.x, false);
-            net.localPlayer.setState("z", myChef.z, false);
-            net.localPlayer.setState("dir", myChef.dir, false);
+            // SPAWN SNAP: a guest holds off publishing its position until it has adopted its
+            // host-assigned spawn — otherwise the boot placeholder position wins the race and
+            // both players end up wherever the placeholder was.
+            if (net.isHost || net.spawnAdopted){
+              net.localPlayer.setState("x", myChef.x, false);
+              net.localPlayer.setState("z", myChef.z, false);
+              net.localPlayer.setState("dir", myChef.dir, false);
+            }
             net.localPlayer.setState("actSeq", net.myActSeq, true);
             // workHold: NEW flag for the WORK verb (chop/wash/stir), published alongside actSeq/
             // throwSeq exactly like the design doc asks — GRAB's actSeq semantics are untouched.
