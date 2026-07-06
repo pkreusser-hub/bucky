@@ -85,6 +85,10 @@ Ingredients: tomato, lettuce, onion, potato, bun, patty, dough, cheese (8 crates
 Progression: earn ≥1 star to unlock the next level. Stars persist in localStorage (host's).
 
 ### Customers (replaces anonymous order queue — farm animals from assets/ reused as diners)
+> **SUPERSEDED 2026-07-06** by the field-customer/LOB rework (see the progress entry at the
+> bottom): no checkout window, no order-taking — customers stand in the field AROUND the
+> kitchen and dishes are LOBBED out to them. Kept for history:
+
 Queue forms OUTSIDE the top wall; walk to the wide 3-segment serving window. Flow:
 1. Customer waits at the window's "order here" end → chef presses action there = take order
    (speech bubble shows dish, order card gains the customer's spot number).
@@ -309,3 +313,42 @@ levels; full order→cook→deliver flow on the right-wall window passes.
       (allowance_<kid>_<day>) + self-healing dupe sweep (repaired Eleanor
       +$6 over-mint); payoutPending WOs render in ACTIVE queue (amber,
       Dad-only buttons); games.html liveness 45s/3min + per-host dedupe.
+- [x] FIELD-CUSTOMER + LOB rework (2026-07-06, user pivot): checkout window/
+      bell/spots REMOVED entirely (stations, buildServingWindowRow,
+      findDeliveryWindowSpot/findWindowSpotInPath, hostTakeOrder/
+      hostDeliverAtSpot, bell/wrongSpot snapshot hints all gone). Customers
+      now walk to random spots in the FIELD ring around the kitchen
+      (randomFieldSpot, FIELD_BAND 1.0-1.9 outside walls, all 4 sides); order
+      bubble over their head from arrival; states arriving→waiting→fetching→
+      leaving. Delivery = LOB: new hold-to-aim input (P1 V · couch-P2 "/" ·
+      touch 🏀 in the thumb arc; lobSeq exactly-once in MP, own "…lob"
+      throwHolds keys) — high arc (per-point y in preview), sails OVER
+      everything (no catches/boards/slots/bounces), flies exact lobRange.
+      Aim assist: completed dish snaps dir+range onto nearest matching
+      waiting customer within 0.6 rad. Landing ≤BULLSEYE_R 1.2 of matching
+      waiter = instant catch +5 (BULLSEYE!, green preview ring); else rests
+      exterior — nearest matching waiter within CLAIM_R 2.6 trots over
+      (fetch → pay price+tip); unclaimed exterior dishes: crow takes them
+      after 8s (plate returns dirty — plate economy never leaks). Emote
+      button moved OFF the touch arc to top-right corner (LOB took its
+      slot). Regular throws no longer deliver (kitchen-interior only).
+      Fixed: stale custPrevQueuePos ref crashed rAF on first customer
+      despawn; custPrevState overwritten before fetch-hop check. Verified
+      headless: real-V bullseye (+40=20+15+5), claim/fetch (+35), crow TTL,
+      0 pageerrors, desktop+mobile shots. Tip: full if served in first
+      third of patience (unchanged core, now anchored on the customer).
+- [x] BABY BUCKY v2 (2026-07-06, user pivot: "cut bait" on the 3D game):
+      goatcare.html REWRITTEN 2504→950 lines as an LCD giga-pet (Tamagotchi
+      shell, 96×64 pixel canvas upscaled w/ scanline overlay, zero image
+      files — goat sprites PROCEDURALLY built per stage/pose/frame from
+      proportion tables). Stages by real elapsed time: EGG 10min → BABY 2d →
+      KID 5d → YOUNG 9d → ADULT (horn nubs→horns→beard; stage-up fanfare
+      once via seenStage). Meters hunger/happy/clean/energy decay per real
+      hour (sleep ×0.3 + energy regen; night 21:00-07:00 ×0.35); poop max 3;
+      sick (rain cloud + 💊) only from LIVE neglect — offline gaps >30min are
+      KINDNESS-CAPPED (meters floored at 1, energy 2.5, ≤1 poop, never sick,
+      no death path at all). FEED/PLAY(3-arrow mini-game)/CLEAN/LIGHTS +
+      medicine. State in localStorage bb2State (old goatCareState abandoned);
+      mute persists. Agent-verified 51 checks + independently gated (fresh
+      adopt→egg, all buttons, 375×812 zero scroll, 0 pageerrors). Old 3D
+      goat assets (babygoat.glb etc.) remain on disk, now unreferenced.
