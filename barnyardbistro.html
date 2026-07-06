@@ -3612,6 +3612,7 @@
     const PAN_COOK_TIME = 6, PAN_OVERDONE_TIME = 6;      // 6s to grilled, +6s uncollected -> overdone
     const OVEN_BAKE_TIME = 10, OVEN_OVERDONE_TIME = 8;   // 10s to baked, +8s uncollected -> overdone
     const TEACH_HINT_DURATION = 20;   // seconds of cycling teaching hints at the start of each level
+    const TUTORIAL_HINTS = false;     // user (2026-07-06): tutorial/coaching hints OFF until further notice
     const STIR_SPEED_MULT = 1.5;      // NEW (user-reported WORK verb): stirring speeds pot cooking 1.5x
 
     // Advances the pot/pan/oven cook timers exactly like advanceFlyingItems/advanceCustomers —
@@ -8304,6 +8305,12 @@
         hintEl.textContent = transientHint;
         return;
       }
+
+      // TUTORIAL HINTS DISABLED (user, "until further notice — assume everyone has played"):
+      // both the level-start teaching cycle and the contextual what-to-do-next coaching line
+      // below are gated off. Transient EVENT toasts above (refusals, crow, misses) stay — those
+      // are feedback, not tutorial. Flip TUTORIAL_HINTS to true to bring the coaching back.
+      if (!TUTORIAL_HINTS){ hintEl.textContent = ""; return; }
 
       if (G.teachT > 0 && !(top && top.kind === "plate")){
         const lines = TEACH_HINTS[CURRENT_LEVEL.id] || [];
