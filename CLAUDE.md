@@ -432,3 +432,19 @@ levels; full order→cook→deliver flow on the right-wall window passes.
       salad (P2 chops lettuce TOP + throws chopped down; P1 chops tomato
       BOTTOM, plates, tap-lob +40), dirty-plate throw parks at the top
       sink. 0 pageerrors.
+- [x] LEVEL EDITOR (2026-07-06, user-requested): leveleditor.html — click-a-
+      piece, click-a-wall-tile editor on the 10×16 grid (18-piece set: 8
+      crates, 2 boards, sink/dirtyBin/plateStack/stove/oven/pan, 1-2 trash;
+      2nd trash optional, everything else required; live validation).
+      Saves to localStorage["bb_layout_v1"] as [{type,kind?,c,r}]. Game:
+      stationsFromLayout() at BOOT (strict validation, silent fallback to
+      the default on anything invalid — a bad save can never brick);
+      canonical station IDS preserved so all game code is untouched;
+      TRASH_STATION_IDS derived from the live list (1-2 bins). MP: host
+      snapshot carries layoutSig ("default"|raw JSON); mismatched guest
+      adopts to localStorage + reloads ONCE (sessionStorage guard,
+      #r= room hash re-set so the reload auto-rejoins). NOT linked from
+      games.html (dad's tool, direct URL). Verified: editor move+save,
+      game boots edited layout (0 L5 sweep fails), corrupt+invalid fall
+      back, one-trash layout boots clean. Editor's DEFAULT_LAYOUT const
+      must be kept in sync with the game's default station list.

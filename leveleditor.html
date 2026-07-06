@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BUCKY — Bistro Level Editor</title>
+<style>
+  :root{ --navy:#0a3161; --wall:#c8874a; --floor:#fdf6e0; --sel:#2e9e44; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:#eef4ee; font-family:-apple-system,Segoe UI,Roboto,sans-serif; color:#223; }
+  #bar{ position:sticky; top:0; height:46px; display:flex; align-items:center; gap:10px;
+        padding:0 12px; background:var(--navy); color:#fff; z-index:5; }
+  #bar a{ color:#fff; text-decoration:none; font-weight:800; font-size:15px;
+          background:rgba(255,255,255,.15); padding:7px 12px; border-radius:9px; }
+  #bar .t{ font-weight:800; font-size:14px; letter-spacing:.5px; }
+  #wrap{ display:flex; flex-wrap:wrap; gap:22px; padding:18px; justify-content:center; }
+
+  /* ---- kitchen grid ---- */
+  #gridCard{ background:#fff; border-radius:14px; padding:14px; box-shadow:0 4px 14px rgba(0,0,0,.12); }
+  #grid{ display:grid; grid-template-columns:repeat(10, 40px); grid-auto-rows:40px; gap:2px; position:relative; }
+  .cell{ border-radius:5px; display:flex; align-items:center; justify-content:center;
+         font-size:20px; position:relative; user-select:none; }
+  .cell.wall{ background:var(--wall); cursor:pointer; box-shadow:inset 0 -3px 0 rgba(0,0,0,.18); }
+  .cell.wall:hover{ filter:brightness(1.12); }
+  .cell.floor{ background:var(--floor); }
+  .cell.floor.alt{ background:#f6ecc8; }
+  .cell .lbl{ position:absolute; bottom:1px; left:0; right:0; text-align:center; font-size:6.5px;
+              font-weight:800; color:#fff; text-shadow:0 1px 1px rgba(0,0,0,.5); letter-spacing:.02em; }
+  .cell.placed{ background:#8fd08a; }
+  #barrierHint{ position:absolute; left:42px; right:42px; height:8px; border-radius:4px;
+                background:repeating-linear-gradient(90deg, #ecd06c 0 14px, #d8b84a 14px 28px);
+                pointer-events:none; opacity:.9; }
+  #zoneTags{ display:flex; justify-content:space-between; font-size:11px; font-weight:800;
+             color:#667; margin-top:6px; }
+
+  /* ---- palette + controls ---- */
+  #side{ width:320px; display:flex; flex-direction:column; gap:12px; }
+  .card{ background:#fff; border-radius:14px; padding:12px 14px; box-shadow:0 4px 14px rgba(0,0,0,.12); }
+  .card h3{ margin:2px 0 8px; font-size:14px; }
+  #palette{ display:flex; flex-wrap:wrap; gap:6px; }
+  .chip{ display:flex; align-items:center; gap:5px; padding:5px 9px; border-radius:9px; cursor:pointer;
+         background:#f0f0e4; border:2px solid transparent; font-size:13px; font-weight:700; }
+  .chip .n{ font-size:11px; opacity:.75; }
+  .chip.selected{ border-color:var(--sel); background:#e2f5e2; }
+  .chip.empty{ opacity:.35; cursor:default; }
+  #status{ font-size:12.5px; line-height:1.5; }
+  #status .bad{ color:#b32; font-weight:700; }
+  #status .good{ color:#2e7e3a; font-weight:700; }
+  button{ border:0; border-radius:9px; padding:9px 12px; font-weight:800; font-size:13px; cursor:pointer; }
+  #saveBtn{ background:#2e9e44; color:#fff; width:100%; font-size:15px; padding:11px; }
+  #saveBtn:disabled{ background:#9bb89f; cursor:default; }
+  .rowBtns{ display:flex; gap:8px; margin-top:8px; }
+  .rowBtns button{ flex:1; background:#e4e4d4; }
+  #io{ width:100%; height:70px; font-family:monospace; font-size:10px; margin-top:8px; display:none; }
+  #savedNote{ text-align:center; font-size:12px; color:#2e7e3a; font-weight:700; min-height:16px; margin-top:6px; }
+  .hint{ font-size:11.5px; color:#556; line-height:1.5; }
+</style>
+</head>
+<body>
+  <div id="bar"><a href="index.html">← BUCKY</a><span class="t">🍅 Barnyard Bistro — Level Editor</span></div>
+  <div id="wrap">
+    <div id="gridCard">
+      <div id="grid"></div>
+      <div id="zoneTags"><span>⬆ TOP ZONE (P2)</span><span>hay barrier at the midline</span><span>BOTTOM ZONE (P1) ⬇</span></div>
+    </div>
+    <div id="side">
+      <div class="card">
+        <h3>🧰 Pieces — click one, then click a wall tile</h3>
+        <div id="palette"></div>
+      </div>
+      <div class="card">
+        <h3>✅ Layout check</h3>
+        <div id="status"></div>
+        <button id="saveBtn" disabled>💾 SAVE — game uses this layout</button>
+        <div id="savedNote"></div>
+        <div class="rowBtns">
+          <button id="defaultBtn">↩️ Default</button>
+          <button id="clearBtn">🧹 Clear</button>
+          <button id="ioBtn">📋 Export/Import</button>
+        </div>
+        <textarea id="io" spellcheck="false"></textarea>
+      </div>
+      <div class="card hint">
+        Click a <b>placed piece</b> to pick it back up. Pieces only sit on the brown wall tiles.
+        Saving writes the layout to this browser — the game picks it up on its next load, and when
+        you host a game the kids' devices adopt your layout automatically. The second 🗑️ trash is
+        optional; everything else must be placed. Delete the save with “Default” + SAVE to go back.
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  'use strict';
+  const KEY = 'bb_layout_v1';
+  // the full piece set the game requires (second trash optional)
+  const PIECES = [
+    { type:'crate', kind:'tomato',  emoji:'🍅', name:'Tomato' },
+    { type:'crate', kind:'lettuce', emoji:'🥬', name:'Lettuce' },
+    { type:'crate', kind:'onion',   emoji:'🧅', name:'Onion' },
+    { type:'crate', kind:'potato',  emoji:'🥔', name:'Potato' },
+    { type:'crate', kind:'bun',     emoji:'🍞', name:'Bun' },
+    { type:'crate', kind:'patty',   emoji:'🥩', name:'Patty' },
+    { type:'crate', kind:'dough',   emoji:'🫓', name:'Dough' },
+    { type:'crate', kind:'cheese',  emoji:'🧀', name:'Cheese' },
+    { type:'board',      emoji:'🔪', name:'Board 1' },
+    { type:'board',      emoji:'🔪', name:'Board 2' },
+    { type:'sink',       emoji:'🚿', name:'Sink' },
+    { type:'dirtyBin',   emoji:'🥣', name:'Dirty dishes' },
+    { type:'plateStack', emoji:'🍽️', name:'Clean plates' },
+    { type:'stove',      emoji:'🍲', name:'Stove (pot)' },
+    { type:'oven',       emoji:'🔥', name:'Oven' },
+    { type:'pan',        emoji:'🍳', name:'Pan (grill)' },
+    { type:'trash',      emoji:'🗑️', name:'Trash 1' },
+    { type:'trash',      emoji:'🗑️', name:'Trash 2', optional:true },
+  ];
+  // the game's current default layout (kept in sync with barnyardbistro.html's station list)
+  const DEFAULT_LAYOUT = [
+    { type:'crate', kind:'lettuce', c:3,  r:1 },  { type:'crate', kind:'onion', c:5, r:1 },
+    { type:'board', c:7, r:1 },                   { type:'sink', c:8, r:1 },
+    { type:'board', c:3, r:16 },                  { type:'crate', kind:'potato', c:5, r:16 },
+    { type:'crate', kind:'tomato', c:7, r:16 },   { type:'dirtyBin', c:8, r:16 },
+    { type:'pan', c:9, r:16 },
+    { type:'crate', kind:'patty', c:1, r:3 },     { type:'stove', c:1, r:5 },
+    { type:'oven', c:1, r:7 },                    { type:'plateStack', c:1, r:12 },
+    { type:'crate', kind:'bun', c:1, r:14 },
+    { type:'crate', kind:'dough', c:10, r:3 },    { type:'trash', c:10, r:6 },
+    { type:'trash', c:10, r:10 },                 { type:'crate', kind:'cheese', c:10, r:14 },
+  ];
+
+  // placement state: cellKey "c,r" -> piece index into PIECES (each piece placed at most once)
+  let placed = {};       // pieceIdx -> {c, r}
+  let selected = null;   // pieceIdx currently on the cursor
+
+  const isWall = (c, r) => r === 1 || r === 16 || c === 1 || c === 10;
+  const cellAt = {};     // "c,r" -> element
+
+  const grid = document.getElementById('grid');
+  for (let r = 1; r <= 16; r++){
+    for (let c = 1; c <= 10; c++){
+      const el = document.createElement('div');
+      el.className = 'cell ' + (isWall(c, r) ? 'wall' : 'floor' + (((c + r) % 2) ? ' alt' : ''));
+      el.dataset.c = c; el.dataset.r = r;
+      if (isWall(c, r)) el.addEventListener('click', () => onCell(c, r));
+      grid.appendChild(el);
+      cellAt[c + ',' + r] = el;
+    }
+    if (r === 8){
+      // visual midline barrier hint sits between r8 and r9
+      const hint = document.createElement('div');
+      hint.id = 'barrierHint';
+      hint.style.top = (8 * 42 - 4) + 'px';
+      grid.appendChild(hint);
+    }
+  }
+
+  const paletteEl = document.getElementById('palette');
+  const chips = PIECES.map((p, i) => {
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.innerHTML = p.emoji + ' <span class="n">' + p.name + '</span>';
+    chip.addEventListener('click', () => {
+      if (placed[i]) return;                 // already on the board — click it there to pick up
+      selected = (selected === i) ? null : i;
+      render();
+    });
+    paletteEl.appendChild(chip);
+    return chip;
+  });
+
+  function pieceAtCell(c, r){
+    for (const i in placed) if (placed[i].c === c && placed[i].r === r) return +i;
+    return null;
+  }
+  function onCell(c, r){
+    const here = pieceAtCell(c, r);
+    if (here != null){
+      // pick the piece back up (and make it the selection so it can be re-dropped)
+      delete placed[here];
+      selected = here;
+    } else if (selected != null){
+      placed[selected] = { c, r };
+      selected = null;
+      // convenience: auto-select the next unplaced required piece
+      const next = PIECES.findIndex((p, i) => !placed[i] && !p.optional);
+      if (next >= 0) selected = next;
+    }
+    render();
+  }
+
+  function validate(){
+    const missing = PIECES.filter((p, i) => !placed[i] && !p.optional).map(p => p.name);
+    return { ok: missing.length === 0, missing };
+  }
+  function toLayout(){
+    const out = [];
+    for (const i in placed){
+      const p = PIECES[i];
+      const e = { type: p.type, c: placed[i].c, r: placed[i].r };
+      if (p.kind) e.kind = p.kind;
+      out.push(e);
+    }
+    return out;
+  }
+  function fromLayout(entries){
+    placed = {}; selected = null;
+    const used = new Set();
+    for (const e of (entries || [])){
+      const idx = PIECES.findIndex((p, i) => !used.has(i) && p.type === e.type && (p.kind || null) === (e.kind || null));
+      if (idx >= 0 && isWall(e.c, e.r) && pieceAtCell(e.c, e.r) == null){
+        placed[idx] = { c: e.c, r: e.r };
+        used.add(idx);
+      }
+    }
+  }
+
+  const statusEl = document.getElementById('status');
+  const saveBtn = document.getElementById('saveBtn');
+  const savedNote = document.getElementById('savedNote');
+  function render(){
+    for (const key in cellAt){
+      const el = cellAt[key];
+      if (!el.classList.contains('wall')) continue;
+      el.classList.remove('placed');
+      el.innerHTML = '';
+    }
+    for (const i in placed){
+      const p = PIECES[i], pos = placed[i];
+      const el = cellAt[pos.c + ',' + pos.r];
+      el.classList.add('placed');
+      el.innerHTML = p.emoji + '<div class="lbl">' + p.name.toUpperCase() + '</div>';
+    }
+    chips.forEach((chip, i) => {
+      chip.classList.toggle('selected', selected === i);
+      chip.classList.toggle('empty', !!placed[i]);
+    });
+    const v = validate();
+    statusEl.innerHTML = v.ok
+      ? '<span class="good">Ready to save!</span> All required pieces are placed.'
+      : '<span class="bad">Still needed:</span> ' + v.missing.join(', ');
+    saveBtn.disabled = !v.ok;
+    savedNote.textContent = '';
+  }
+
+  saveBtn.addEventListener('click', () => {
+    const layout = toLayout();
+    const isDefault = JSON.stringify(sortForCompare(layout)) === JSON.stringify(sortForCompare(DEFAULT_LAYOUT));
+    try {
+      if (isDefault) localStorage.removeItem(KEY);   // default = no override
+      else localStorage.setItem(KEY, JSON.stringify(layout));
+      savedNote.textContent = isDefault ? '✔ Saved (back to the default layout)' : '✔ Saved! Reload the game to play it.';
+    } catch (err) { savedNote.textContent = '✖ Could not save (storage blocked)'; }
+  });
+  function sortForCompare(l){
+    return l.map(e => [e.type, e.kind || '', e.c, e.r]).sort((a, b) => JSON.stringify(a) < JSON.stringify(b) ? -1 : 1);
+  }
+  document.getElementById('defaultBtn').addEventListener('click', () => { fromLayout(DEFAULT_LAYOUT); render(); });
+  document.getElementById('clearBtn').addEventListener('click', () => { placed = {}; selected = 0; render(); });
+  const io = document.getElementById('io');
+  document.getElementById('ioBtn').addEventListener('click', () => {
+    if (io.style.display === 'block'){
+      // import on second click if the text changed
+      try {
+        const parsed = JSON.parse(io.value);
+        fromLayout(parsed);
+        io.style.display = 'none';
+      } catch (err) { io.style.display = 'none'; }
+    } else {
+      io.value = JSON.stringify(toLayout());
+      io.style.display = 'block';
+      io.select();
+    }
+    render();
+  });
+
+  // start from whatever the game is currently using
+  let start = null;
+  try { start = JSON.parse(localStorage.getItem(KEY)); } catch (err) {}
+  fromLayout(Array.isArray(start) && start.length ? start : DEFAULT_LAYOUT);
+  render();
+})();
+</script>
+</body>
+</html>

@@ -1292,7 +1292,74 @@
     // zone (user-confirmed). Oven (left r7) and pan (bottom c9) were absent from the drawing;
     // placements user-confirmed ("confirm both").
     // Grid mapping: top/bottom wall column c -> x = c - 5.5; side wall row r -> z = r - 8.5.
-    G.stations = [
+    // ---- LEVEL EDITOR (user-requested): leveleditor.html writes a custom layout to
+    // localStorage["bb_layout_v1"] as [{type, kind?, c, r}, ...] in the same grid coordinates.
+    // At BOOT, if a valid custom layout exists it replaces the default station list below —
+    // station IDS stay canonical (cuttingBoard/cuttingBoard2/sink/stove/... — everything else
+    // in this file keys off those ids and off types, so only positions change). Validation is
+    // strict (exactly 2 boards, 1 each of sink/dirtyBin/plateStack/stove/oven/pan, 1-2 trash,
+    // all 8 ingredient crates exactly once, every piece on a wall cell); anything off falls
+    // back to the default layout so a bad save can never brick the game.
+    // MP: the host's layout signature rides in every snapshot (layoutSig). A guest that booted
+    // with a different layout adopts the host's (writes it to localStorage) and reloads ONCE
+    // (sessionStorage guard) — the #r= room hash survives the reload so it rejoins seamlessly.
+    const LAYOUT_KEY = "bb_layout_v1";
+    const REQUIRED_CRATES = ["tomato", "lettuce", "onion", "potato", "bun", "patty", "dough", "cheese"];
+    function layoutCellToXZ(c, r){
+      if (r === 1)  return { x: c - 5.5, z: -HALF_D + CT/2 };
+      if (r === 16) return { x: c - 5.5, z:  HALF_D - CT/2 };
+      if (c === 1)  return { x: -HALF_W + CT/2, z: r - 8.5 };
+      if (c === 10) return { x:  HALF_W - CT/2, z: r - 8.5 };
+      return null;   // interior — invalid for a station
+    }
+    function stationsFromLayout(entries){
+      if (!Array.isArray(entries) || entries.length < 15 || entries.length > 20) return null;
+      const counts = {}, crates = {};
+      const out = [];
+      let boardN = 0, trashN = 0;
+      for (const e of entries){
+        if (!e || typeof e.c !== "number" || typeof e.r !== "number") return null;
+        const pos = layoutCellToXZ(e.c, e.r);
+        if (!pos) return null;
+        if (out.some(s => s.x === pos.x && s.z === pos.z)) return null;   // two pieces on one tile
+        if (e.type === "crate"){
+          if (!REQUIRED_CRATES.includes(e.kind) || crates[e.kind]) return null;
+          crates[e.kind] = true;
+          out.push({ id: "crate" + e.kind[0].toUpperCase() + e.kind.slice(1), type: "crate",
+                     kind: e.kind, x: pos.x, z: pos.z, w: CT, d: CT });
+        } else if (e.type === "board"){
+          out.push({ id: boardN === 0 ? "cuttingBoard" : "cuttingBoard2", type: "board",
+                     boardIndex: boardN, x: pos.x, z: pos.z, w: CT, d: CT });
+          if (++boardN > 2) return null;
+        } else if (e.type === "trash"){
+          out.push({ id: trashN === 0 ? "trashBin" : "trashBin2", type: "trash",
+                     x: pos.x, z: pos.z, w: CT, d: CT });
+          if (++trashN > 2) return null;
+        } else if (["sink", "dirtyBin", "plateStack", "stove", "oven", "pan"].includes(e.type)){
+          if (counts[e.type]) return null;
+          counts[e.type] = true;
+          out.push({ id: e.type === "sink" ? "sink" : e.type === "dirtyBin" ? "dirtyBin"
+                        : e.type === "plateStack" ? "plateStack" : e.type,
+                     type: e.type, x: pos.x, z: pos.z, w: CT, d: CT });
+        } else return null;
+      }
+      const cratesOk = REQUIRED_CRATES.every(k => crates[k]);
+      const singlesOk = ["sink", "dirtyBin", "plateStack", "stove", "oven", "pan"].every(t => counts[t]);
+      if (boardN !== 2 || trashN < 1 || !cratesOk || !singlesOk) return null;
+      return out;
+    }
+    let customLayoutSig = null;   // JSON string of the ACTIVE custom layout, null = default
+    function loadCustomLayout(){
+      try {
+        const raw = localStorage.getItem(LAYOUT_KEY);
+        if (!raw) return null;
+        const built = stationsFromLayout(JSON.parse(raw));
+        if (built){ customLayoutSig = raw; return built; }
+      } catch (err) { /* corrupt save — fall through to default */ }
+      return null;
+    }
+    const customStations = loadCustomLayout();
+    G.stations = customStations || [
       // ---- top wall (r1): lettuce c3 · onion c5 · board c7 · sink c8 ----
       { id: "crateLettuce", type: "crate", kind: "lettuce", x: -2.5, z: -HALF_D + CT/2, w: CT, d: CT },
       { id: "crateOnion",   type: "crate", kind: "onion",   x: -0.5, z: -HALF_D + CT/2, w: CT, d: CT },
@@ -2514,7 +2581,8 @@
     //   f) Empty counter slot (existing) -> lands. g) else floor.
     // HOST-AUTHORITATIVE — called once per tick from hostSim, exactly like order spawning/timers.
     const BOARD_STATIONS = ["cuttingBoard", "cuttingBoard2"];
-    const TRASH_STATION_IDS = ["trashBin", "trashBin2"];   // user-drawn co-op grid: one per zone
+    // Derived from the live station list (LEVEL EDITOR layouts may have 1 or 2 trash cans).
+    const TRASH_STATION_IDS = G.stations.filter(s => s.type === "trash").map(s => s.id);
     const THROW_PLATE_R = 0.85;     // radius for landing an ingredient onto a plate in the path
     const THROW_WINDOW_R = 0.9;     // radius for a completed-dish throw to register at a window spot
     const THROW_TRASH_R = 0.85;     // radius for "thrown into the trash bin"
@@ -4733,7 +4801,7 @@
       stationMeshes[st.id] = { group: g, highlightTargets: [highlightTarget], usingGLB: !!PROP_TEMPLATES["trash-can"] };
     }
     buildTrash(stationById("trashBin"));
-    buildTrash(stationById("trashBin2"));   // user-drawn co-op grid: one bin per zone
+    if (stationById("trashBin2")) buildTrash(stationById("trashBin2"));   // 2nd bin optional (level editor)
 
     // Family playtest fix #5: generic "which wall is this tile against, and which way is INTO the
     // kitchen" helper — buildBoard (above) only ever needed the z-wall case (boards only ever sit
@@ -5489,7 +5557,8 @@
       { id: "cuttingBoard", ready: () => !!PROP_TEMPLATES["cutting-board"], rebuild: () => buildBoard(stationById("cuttingBoard")) },
       { id: "cuttingBoard2", ready: () => !!PROP_TEMPLATES["cutting-board"], rebuild: () => buildBoard(stationById("cuttingBoard2")) },
       { id: "trashBin",     ready: () => !!PROP_TEMPLATES["trash-can"],     rebuild: () => buildTrash(stationById("trashBin")) },
-      { id: "trashBin2",    ready: () => !!PROP_TEMPLATES["trash-can"],     rebuild: () => buildTrash(stationById("trashBin2")) },
+      ...(stationById("trashBin2") ? [
+      { id: "trashBin2",    ready: () => !!PROP_TEMPLATES["trash-can"],     rebuild: () => buildTrash(stationById("trashBin2")) }] : []),
       { id: "pan",          ready: () => !!PROP_TEMPLATES.pan,              rebuild: () => buildPan(stationById("pan")) },
       { id: "sink",         ready: () => !!PROP_TEMPLATES.sink,             rebuild: () => buildSink(stationById("sink")) },
       { id: "plateStack",   ready: () => !!PROP_TEMPLATES.plate,            rebuild: () => buildPlateStack(stationById("plateStack")) },
@@ -9022,6 +9091,9 @@
         }),
         plateThrowHintId: G.plateThrowHintId,
         plateThrowHintChef: G.plateThrowHintChef,
+        // LEVEL EDITOR: the host's active layout signature ("default" or the raw layout JSON).
+        // A guest that booted with anything else adopts it and reloads once (see applySnapshot).
+        layoutSig: customLayoutSig || "default",
         // (FIELD-CUSTOMER REWORK: bellFullHint/wrongSpotHint fields retired with the checkout window.)
         // ---- Systems pass 3: cooking stations + level/progression ----
         pot: { contents: G.pot.contents, cookT: G.pot.cookT, state: G.pot.state, stirringChefId: G.pot.stirringChefId || null },
@@ -9101,6 +9173,28 @@
       }
       G.plateThrowHintId = snap.plateThrowHintId || 0;
       G.plateThrowHintChef = snap.plateThrowHintChef || null;
+
+      // ---- LEVEL EDITOR: adopt the host's kitchen layout. Stations are built once at boot,
+      // so a mismatch means this guest must store the host's layout and reload the page ONCE
+      // (the #r= room hash is re-set below so the reload auto-rejoins). sessionStorage guards
+      // against any reload loop: each signature is only ever adopted once per tab session. ----
+      if (typeof snap.layoutSig === "string"){
+        const mySig = customLayoutSig || "default";
+        if (snap.layoutSig !== mySig){
+          const guardKey = "bb_layout_adopted";
+          let guarded = null;
+          try { guarded = sessionStorage.getItem(guardKey); } catch (err) {}
+          if (guarded !== snap.layoutSig){
+            try {
+              sessionStorage.setItem(guardKey, snap.layoutSig);
+              if (snap.layoutSig === "default") localStorage.removeItem(LAYOUT_KEY);
+              else localStorage.setItem(LAYOUT_KEY, snap.layoutSig);
+              if (net.roomCode) location.hash = "r=" + net.roomCode;   // survive the reload -> auto-rejoin
+              location.reload();
+            } catch (err) { /* storage unavailable — play on with mismatched visuals */ }
+          }
+        }
+      }
 
       // ---- Systems pass 3: cooking stations + level/progression ----
       if (snap.pot) G.pot = { contents: snap.pot.contents.map(c => ({ ...c })), cookT: snap.pot.cookT, state: snap.pot.state, stirringChefId: snap.pot.stirringChefId || null };
