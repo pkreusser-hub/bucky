@@ -47,27 +47,27 @@
   #bezel{ width:100%; aspect-ratio:3/2; position:relative; border-radius:.9em;
           background:#22261c; padding:.55em;
           box-shadow: inset 0 .15em .35em rgba(0,0,0,.85), 0 .07em 0 rgba(255,235,205,.25); }
+  /* SNES ART PASS: full-color screen — the LCD green + pixel-grid overlay are gone; just a
+     dark bezel-backed screen with crisp upscaled pixels and a hint of glass glare. */
   #screen{ position:relative; width:100%; height:100%; overflow:hidden; border-radius:.35em;
-           background:var(--lcd);
-           box-shadow: inset 0 0 1.6em rgba(85,110,60,.5); }
+           background:#0c1014;
+           box-shadow: inset 0 0 1.2em rgba(0,0,0,.55); }
   #lcd{ position:absolute; inset:0; width:100%; height:100%; display:block;
         image-rendering:pixelated; image-rendering:crisp-edges; }
-  .lcdGrid{ position:absolute; inset:0; pointer-events:none; mix-blend-mode:multiply; opacity:.5;
-    background-image:
-      linear-gradient(rgba(38,48,31,.16) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(38,48,31,.16) 1px, transparent 1px);
-    background-size: calc(100%/96) calc(100%/64); }
   .glare{ position:absolute; inset:0; pointer-events:none;
-    background:linear-gradient(112deg, rgba(255,255,255,.14) 0%, rgba(255,255,255,.03) 26%, transparent 40%); }
-  #dimmer{ position:absolute; inset:0; pointer-events:none; background:rgba(16,22,48,.44);
+    background:linear-gradient(112deg, rgba(255,255,255,.12) 0%, rgba(255,255,255,.03) 26%, transparent 40%); }
+  #dimmer{ position:absolute; inset:0; pointer-events:none; background:rgba(8,12,36,.28);
            opacity:0; transition:opacity .6s; }
   #flash{ position:absolute; inset:0; pointer-events:none; background:#f6ffe8; opacity:0; }
   #flash.go{ animation:flashA .55s ease-out; }
   @keyframes flashA{ 0%{opacity:.95} 100%{opacity:0} }
 
-  #toast{ position:absolute; left:0; right:0; bottom:3%; text-align:center; pointer-events:none;
+  /* SNES ART PASS: toast is now a dark chip so it reads over the colorful scene. */
+  #toast{ position:absolute; left:50%; transform:translateX(-50%); bottom:3%; width:max-content;
+          max-width:92%; text-align:center; pointer-events:none; padding:.18em .55em;
+          border-radius:.4em; background:rgba(20,14,10,.75);
           font-family:'Courier New',monospace; font-weight:900; font-size:.78em; letter-spacing:.06em;
-          color:var(--ink); opacity:0; transition:opacity .25s; text-shadow:0 0 .3em rgba(185,200,162,.9); }
+          color:#fff; opacity:0; transition:opacity .25s; }
   #toast.show{ opacity:1; }
   #banner{ position:absolute; left:4%; right:4%; top:26%; pointer-events:none; text-align:center;
            background:rgba(38,48,31,.92); border-radius:.4em; padding:.5em .3em .45em;
@@ -101,12 +101,6 @@
   #bMed.show{ display:flex; }
   @keyframes medPulse{ 0%,100%{ filter:brightness(1);} 50%{ filter:brightness(1.12);} }
 
-  /* TEST control (user-requested): fixed corner chip so it never affects the shell's
-     zero-scroll layout — jumps the goat to its next growth stage. */
-  #growBtn{ position:fixed; right:10px; bottom:10px; z-index:50; border:0; border-radius:.6em;
-            padding:.45em .7em; font:700 12px/1.2 system-ui,sans-serif; letter-spacing:.05em;
-            color:#fff; background:rgba(0,0,0,.45); cursor:pointer; }
-  #growBtn:active{ transform:translateY(2px); }
 
   #playRow{ display:none; grid-template-columns:1fr auto 1fr; gap:.55em; align-items:stretch; width:100%; }
   #playRow.show{ display:grid; }
@@ -148,7 +142,6 @@
       <div id="bezel">
         <div id="screen">
           <canvas id="lcd" width="96" height="64"></canvas>
-          <div class="lcdGrid"></div>
           <div class="glare"></div>
           <div id="dimmer"></div>
           <div id="flash"></div>
@@ -174,8 +167,6 @@
       <div id="speaker"></div>
     </div>
   </div>
-
-  <button id="growBtn" title="Test: jump to the next growth stage">⏩ GROW</button>
 
   <div id="nameOverlay" class="overlay">
     <h1>🐐 A New Kid!</h1>
@@ -345,9 +336,29 @@
 
   // ======================================================================
   //  SPRITES — palette-indexed pixel grids, all drawn in code.
+  //  SNES ART PASS (user pivot): the monochrome LCD palette is gone — full
+  //  16-bit-style color. Sprite GEOMETRY (builders, positions, 96×64 logical
+  //  grid) is untouched; only palette semantics + a generated dark outline
+  //  changed, plus a layered SMW-style background drawn in render().
   // ======================================================================
-  const PAL = [null, '#26301f', '#4a5a3d', '#8a9878', '#a2442f', '#3d5aa0'];
-  const LCD_BG = '#b9c8a2', LCD_OFF = '#a3b18c';
+  const PAL = [ null,
+    '#f8f0dc',  //  1 cream       — goat body, egg shell
+    '#c9964e',  //  2 tan         — horns, hooves, hay, beard
+    '#54381f',  //  3 dark brown  — closed eyes, fine lines
+    '#e23d3d',  //  4 red         — hearts
+    '#4a76e8',  //  5 blue        — zzz, rain, tears, bubbles
+    '#241812',  //  6 near-black  — open eyes, nostril, crack lines
+    '#f0a0b4',  //  7 pink        — nose, pill half
+    '#3a2a1c',  //  8 warm outline— auto-outline around goat/egg
+    '#ffd23f',  //  9 yellow      — sun, moon, sparkle, hay glints
+    '#58c04a',  // 10 (a) green   — egg spots (Yoshi-style), sick spots
+    '#8a5a2e',  // 11 (b) brown   — poop, broom handle, dirt specks
+    '#ffffff',  // 12 (c) white   — clouds, bottle, pill half
+    '#eaddbe',  // 13 (d) soft    — belly shade, muzzle
+  ];
+  const SKY_DAY_TOP = '#4a88f0', SKY_DAY_LOW = '#6fb0ff';
+  const SKY_NGT_TOP = '#141c4a', SKY_NGT_LOW = '#243070';
+  const SCREEN_OFF = '#0c1014';
 
   function makeGrid(w, h){
     const d = new Uint8Array(w*h);
@@ -360,9 +371,25 @@
   function fromRows(rows){
     const g = makeGrid(rows[0].length, rows.length);
     for (let y=0;y<rows.length;y++) for (let x=0;x<rows[y].length;x++){
-      const ch = rows[y][x]; if (ch !== '.') g.d[y*g.w+x] = +ch;
+      const ch = rows[y][x]; if (ch !== '.') g.d[y*g.w+x] = parseInt(ch, 36);   // a=10, b=11, c=12…
     }
     return g;
+  }
+  // SNES ART PASS: pads a sprite by 1px and traces a warm dark outline (index 8) into every
+  // empty cell that touches a filled one — the classic 16-bit colored-outline look, generated
+  // so none of the proportion-table geometry had to be redrawn.
+  function outlined(g){
+    const o = makeGrid(g.w + 2, g.h + 2);
+    for (let y=0;y<g.h;y++) for (let x=0;x<g.w;x++){
+      const c = g.d[y*g.w+x]; if (c) o.d[(y+1)*o.w + (x+1)] = c;
+    }
+    for (let y=0;y<o.h;y++) for (let x=0;x<o.w;x++){
+      if (o.d[y*o.w+x]) continue;
+      const filled = (xx, yy) => xx>=0 && yy>=0 && xx<o.w && yy<o.h &&
+                                 o.d[yy*o.w+xx] && o.d[yy*o.w+xx] !== 8;
+      if (filled(x-1,y) || filled(x+1,y) || filled(x,y-1) || filled(x,y+1)) o.d[y*o.w+x] = 8;
+    }
+    return o;
   }
 
   // stage proportions (1..4)
@@ -417,8 +444,8 @@
     g.rect(bodyX0, bodyY0, p.bw, bh2, 1);
     g.px(bodyX0, bodyY0, 0); g.px(bodyX1, bodyY0, 0);
     g.px(bodyX0, bodyY0 + bh2 - 1, 0); g.px(bodyX1, bodyY0 + bh2 - 1, 0);
-    g.rect(bodyX0+2, bodyY0 + bh2 - 1, p.bw - 4, 1, refuse ? 3 : 2);
-    if (sick){ g.px(bodyX0+3, bodyY0+1, 3); g.px(bodyX0+6, bodyY0+2, 3); }
+    g.rect(bodyX0+2, bodyY0 + bh2 - 1, p.bw - 4, 1, refuse ? 3 : 13);
+    if (sick){ g.px(bodyX0+3, bodyY0+1, 10); g.px(bodyX0+6, bodyY0+2, 10); }   // green sick spots
 
     const tailUp = (f % 2 === 0) && !sad && !sleeping;
     const ty = tailUp ? bodyY0 - 1 : bodyY0 + 1;
@@ -437,19 +464,20 @@
     g.rect(headX0, headY0, p.hw, p.hh, 1);
     g.px(headX0, headY0, 0); g.px(headX1, headY0, 0);
     if (headY1 < bodyY0) g.px(headX0, headY1, 0);
-    g.rect(headX1 - 2, headY1 - 1, 3, 2, 2);
+    g.rect(headX1 - 2, headY1 - 1, 3, 2, 13);   // soft muzzle
     g.px(headX1, headY1, 0);
     g.px(headX1 - 1, headY1 - 1, 1);
-    if (eat && f % 2 === 0){ g.px(headX1 - 1, headY1, 0); g.px(headX1 - 2, headY1, 0); }
-    if (happy){ g.px(headX1 - 1, headY1, 0); }
-    if (sad){ g.px(headX1 - 2, headY1, 1); }
+    g.px(headX1, headY1 - 1, 7);                // pink nose tip
+    if (eat && f % 2 === 0){ g.px(headX1 - 1, headY1, 6); g.px(headX1 - 2, headY1, 6); }
+    if (happy){ g.px(headX1 - 1, headY1, 6); }
+    if (sad){ g.px(headX1 - 2, headY1, 6); }
 
     const eyeX = headX1 - 3, eyeY = headY0 + 1;
     if (sleeping || refuse){ g.px(eyeX, eyeY + 1, 3); g.px(eyeX + 1, eyeY + 1, 3); }
-    else if (happy){ g.px(eyeX, eyeY + 1, 0); g.px(eyeX + 1, eyeY, 0); }
-    else if (pose === 'sleepy'){ g.px(eyeX, eyeY + 1, 0); }
-    else if (sad){ g.px(eyeX, eyeY + 1, 0); g.px(eyeX - 1, eyeY + 3, 5); }
-    else { g.px(eyeX, eyeY, 0); g.px(eyeX, eyeY + 1, 0); }
+    else if (happy){ g.px(eyeX, eyeY + 1, 6); g.px(eyeX + 1, eyeY, 6); }
+    else if (pose === 'sleepy'){ g.px(eyeX, eyeY + 1, 6); }
+    else if (sad){ g.px(eyeX, eyeY + 1, 6); g.px(eyeX - 1, eyeY + 3, 5); }
+    else { g.px(eyeX, eyeY, 6); g.px(eyeX, eyeY + 1, 6); }
 
     const earDroop = sad ? 2 : (f % 2);
     const eY = headY0 + 1 + earDroop;
@@ -472,41 +500,42 @@
     return g;
   }
 
+  // SNES ART PASS: the egg is now a FILLED white egg with big green spots (a friendly Yoshi-egg
+  // nod) instead of the old LCD outline ring — same footprint, wobble and crack timing.
   function buildEgg(pose, f){
     const g = makeGrid(13, 14);
     const cx = 6, wob = (pose === 'idle' && f % 2 === 1) ? 1 : 0;
     const rows = [2,3,4,5,5,6,6,6,6,6,5,4];
     for (let y=0;y<rows.length;y++){
       const r = rows[y], yy = y + 1, off = (y < 5 ? wob : 0);
-      g.px(cx - r + off, yy, 1); g.px(cx + r + off, yy, 1);
+      for (let x=-r;x<=r;x++) g.px(cx + x + off, yy, 12);
     }
-    for (let x=cx-2;x<=cx+2;x++) g.px(x + wob, 1, 1);
-    for (let x=cx-4;x<=cx+4;x++) g.px(x, rows.length, 1);
-    g.px(cx-2, 5, 3); g.px(cx+2, 9, 3); g.px(cx, 10, 3);
-    for (let x=cx-5;x<=cx+5;x++) g.px(x, 7 + (x % 2 ? 0 : 1), 2);
+    // big green spots
+    g.rect(cx-3, 4, 2, 2, 10); g.rect(cx+2, 8, 2, 2, 10);
+    g.rect(cx-1, 10, 2, 1, 10); g.px(cx+3, 3, 10); g.px(cx-4, 8, 10);
     if (pose === 'crack'){
-      g.px(cx, 3, 1); g.px(cx+1, 4, 1); g.px(cx, 5, 1);
-      if (f >= 1){ g.px(cx-1, 4, 1); g.px(cx-2, 5, 1); g.px(cx+2, 3, 1); }
+      g.px(cx, 3, 6); g.px(cx+1, 4, 6); g.px(cx, 5, 6);
+      if (f >= 1){ g.px(cx-1, 4, 6); g.px(cx-2, 5, 6); g.px(cx+2, 3, 6); }
       if (f >= 2){
         for (let x=cx-3;x<=cx+3;x++){ g.px(x, 1, 0); g.px(x, 2, 0); }
-        for (let x=cx-3;x<=cx+3;x++) g.px(x, 3, (x % 2) ? 1 : 0);
-        g.px(cx-1, 5, 1); g.px(cx+1, 5, 1);
+        for (let x=cx-3;x<=cx+3;x++) g.px(x, 3, (x % 2) ? 12 : 0);   // jagged open top
+        g.px(cx-1, 5, 6); g.px(cx+1, 5, 6);
       }
     }
     return g;
   }
 
   const SPRITES = {
-    poop:   fromRows(["..2..",".12..",".112.","1111."]),
+    poop:   fromRows(["..b..",".3b..",".33b.","bbbb."]),
     heart:  fromRows([".4.4.","44444","44444",".444.","..4.."]),
-    moon:   fromRows(["..555",".55..","555..","555..",".55..","..555"]),
-    sun:    fromRows(["2..2..2","..222..",".2...2.","22.2.22",".2...2.","..222..","2..2..2"]),
-    cloud:  fromRows(["..222222..",".22222222.","2222222222",".22222222."]),
-    bottle: fromRows([".33.",".22.","3113","3113","3443","3443","3333"]),
-    hay:    fromRows(["..232..",".23232.","2323232","3232323"]),
-    broom:  fromRows(["....11","...11.","..11..",".33...","3333..","333..."]),
-    pill:   fromRows([".33.","3443","3443",".44."]),
-    bubble: fromRows([".33.","3..3","3..3",".33."]),
+    moon:   fromRows(["..999",".99..","999..","999..",".99..","..999"]),
+    sun:    fromRows(["9..9..9","..999..",".9...9.","99.9.99",".9...9.","..999..","9..9..9"]),
+    cloud:  fromRows(["..cccccc..",".cccccccc.","cccccccccc",".cccccccc."]),
+    bottle: fromRows([".22.",".77.","8cc8","8cc8","8cc8","8cc8","8888"]),
+    hay:    fromRows(["..292..",".29292.","2929292","9292929"]),
+    broom:  fromRows(["....bb","...bb.","..bb..",".22...","2222..","222..."]),
+    pill:   fromRows([".88.","8cc8","8778",".88."]),
+    bubble: fromRows([".55.","5..5","5..5",".55."]),
     icoFood:fromRows([".11.",".33.","1331","1331","1441","1111"]),
     icoHappy:fromRows(["11.11","11111","11111",".111.","..1.."]),
     icoClean:fromRows(["..1..",".111.","11.11",".111.","..1.."]),
@@ -514,11 +543,11 @@
     zzz:    fromRows(["555",".5.","555"]),
   };
 
-  // pose sprite cache
+  // pose sprite cache — SNES ART PASS: cached POST-outline so the trace runs once per pose.
   const goatCache = {};
   function goatSprite(st, pose, f){
     const k = st + pose + (f % 2);
-    return goatCache[k] || (goatCache[k] = buildGoat(st, pose, f % 2));
+    return goatCache[k] || (goatCache[k] = outlined(buildGoat(st, pose, f % 2)));
   }
 
   // ======================================================================
@@ -536,37 +565,84 @@
       if (c){ ctx.fillStyle = PAL[c]; ctx.fillRect(x0+x, y0+y, 1, 1); }
     }
   }
+  // SNES ART PASS: horizontally mirrored draw (the goat sprite faces right; walking left flips it).
+  function drawGridFlip(g, x0, y0){
+    x0 = Math.round(x0); y0 = Math.round(y0);
+    for (let y=0;y<g.h;y++) for (let x=0;x<g.w;x++){
+      const c = g.d[y*g.w+x];
+      if (c){ ctx.fillStyle = PAL[c]; ctx.fillRect(x0 + (g.w - 1 - x), y0+y, 1, 1); }
+    }
+  }
+  // SNES ART PASS: single-color draw — used to tint the HUD meter icons white on the dark band.
+  function drawGridTint(g, x0, y0, color){
+    ctx.fillStyle = color;
+    x0 = Math.round(x0); y0 = Math.round(y0);
+    for (let y=0;y<g.h;y++) for (let x=0;x<g.w;x++){
+      if (g.d[y*g.w+x]) ctx.fillRect(x0+x, y0+y, 1, 1);
+    }
+  }
 
-  // meters row: 4 groups of icon + 4 pips
+  // meters row: 4 groups of icon + 4 pips — SNES ART PASS: white icons + a color per meter on a
+  // translucent dark band so the HUD reads on top of the bright sky.
   const METER_X = [1, 25, 49, 73];
   const METER_ICO = ['icoFood','icoHappy','icoClean','icoEnergy'];
   const METER_KEY = ['hu','ha','cl','en'];
+  const METER_COL = ['#ff9838', '#ff5a8a', '#48c8f8', '#ffd23f'];
   function drawMeters(blinkOn){
+    ctx.fillStyle = 'rgba(20,14,10,.42)';
+    ctx.fillRect(0, 0, LW, 10);
     for (let i=0;i<4;i++){
-      const ico = SPRITES[METER_ICO[i]];
-      drawGrid(ico, METER_X[i], 2);
+      drawGridTint(SPRITES[METER_ICO[i]], METER_X[i], 2, '#ffffff');
       const v = Math.round(S.m[METER_KEY[i]]);
       for (let p=0;p<4;p++){
         const px = METER_X[i] + 7 + p*4, py = 2;
         if (p < v && !(v <= 1 && !blinkOn)){
-          ctx.fillStyle = PAL[1]; ctx.fillRect(px, py, 3, 5);
+          ctx.fillStyle = METER_COL[i]; ctx.fillRect(px, py, 3, 5);
         } else {
-          ctx.fillStyle = PAL[3];
+          ctx.fillStyle = 'rgba(255,255,255,.34)';
           ctx.fillRect(px, py, 3, 1); ctx.fillRect(px, py+4, 3, 1);
           ctx.fillRect(px, py, 1, 5); ctx.fillRect(px+2, py, 1, 5);
         }
       }
     }
-    ctx.fillStyle = PAL[3];
-    for (let x=0;x<LW;x+=2) ctx.fillRect(x, 9, 1, 1);
   }
 
-  function drawGround(){
-    ctx.fillStyle = PAL[2];
-    for (let x=0;x<LW;x+=3) ctx.fillRect(x, GROUND_Y, 2, 1);
-    ctx.fillStyle = PAL[3];
-    ctx.fillRect(9, 61, 1, 1); ctx.fillRect(31, 60, 1, 1);
-    ctx.fillRect(57, 62, 1, 1); ctx.fillRect(84, 61, 1, 1);
+  // SNES ART PASS: layered Super-Mario-World-style backdrop — flat two-band sky, drifting
+  // clouds, rounded outlined hills on the horizon, a bright scalloped grass strip and warm
+  // dirt below it. Day/night follows the LIGHTS toggle (night gets stars, slower clouds).
+  const STARS = [[8,14],[22,20],[40,13],[61,17],[74,22],[89,15],[30,26],[55,25]];
+  function drawHill(cx, r, fill, line){
+    ctx.fillStyle = fill;
+    for (let dy=0;dy<=r;dy++){
+      const half = Math.round(Math.sqrt(r*r - dy*dy));
+      ctx.fillRect(cx - half, GROUND_Y - 1 - dy, half*2 + 1, 1);
+    }
+    ctx.fillStyle = line;
+    for (let a=0;a<=Math.PI;a+=Math.PI/(r*2)){
+      ctx.fillRect(Math.round(cx + Math.cos(a)*r), Math.round(GROUND_Y - 1 - Math.sin(a)*r), 1, 1);
+    }
+  }
+  function drawBackground(t){
+    const day = S.lights || stageIdx() === 0;
+    ctx.fillStyle = day ? SKY_DAY_TOP : SKY_NGT_TOP; ctx.fillRect(0, 0, LW, 26);
+    ctx.fillStyle = day ? SKY_DAY_LOW : SKY_NGT_LOW; ctx.fillRect(0, 26, LW, GROUND_Y - 26);
+    if (!day){
+      ctx.fillStyle = '#e8ecff';
+      for (const [sx, sy] of STARS) if ((Math.floor(t/700) + sx) % 5) ctx.fillRect(sx, sy, 1, 1);
+    }
+    drawGrid(day ? SPRITES.sun : SPRITES.moon, 84, 12);
+    const cw = SPRITES.cloud.w, speed = day ? 2.0 : 0.9;
+    drawGrid(SPRITES.cloud, ((t/1000 * speed) % (LW + cw + 24)) - cw - 6, 13);
+    drawGrid(SPRITES.cloud, ((t/1000 * speed * 0.6 + 62) % (LW + cw + 30)) - cw - 12, 22);
+    drawHill(14, 13, '#3da048', '#2e7a38');
+    drawHill(78, 8, '#58c04a', '#3da048');
+    ctx.fillStyle = '#46b448'; ctx.fillRect(0, GROUND_Y - 1, LW, 3);
+    ctx.fillStyle = '#58c85a';
+    for (let x=0;x<LW;x+=4) ctx.fillRect(x + (x % 8 ? 1 : 0), GROUND_Y - 2, 2, 1);
+    ctx.fillStyle = '#a8703c'; ctx.fillRect(0, GROUND_Y + 2, LW, LH - GROUND_Y - 2);
+    ctx.fillStyle = '#8a5a2e';
+    ctx.fillRect(9, 61, 2, 1); ctx.fillRect(31, 62, 2, 1);
+    ctx.fillRect(57, 61, 2, 1); ctx.fillRect(84, 62, 2, 1);
   }
 
   // ---------------- effects ----------------
@@ -588,11 +664,11 @@
       if (p.kind === 'heart')        drawGrid(SPRITES.heart, x - 2, y - 2);
       else if (p.kind === 'zzz')     drawGrid(SPRITES.zzz, x, y);
       else if (p.kind === 'bubble')  drawGrid(SPRITES.bubble, x, y);
-      else if (p.kind === 'confetti'){ ctx.fillStyle = PAL[[1,4,5,2][p.born % 4]]; ctx.fillRect(x, y, 1, 1); }
+      else if (p.kind === 'confetti'){ ctx.fillStyle = ['#e23d3d','#ffd23f','#58c04a','#4a76e8','#ff8fd0'][p.born % 5]; ctx.fillRect(x, y, 1, 1); }
       else if (p.kind === 'crumb'){  ctx.fillStyle = PAL[2]; ctx.fillRect(x, Math.round(y + 8*dt*dt), 1, 1); }
       else if (p.kind === 'rain'){   ctx.fillStyle = PAL[5]; ctx.fillRect(x, y, 1, 2); }
       else if (p.kind === 'sparkle'){
-        ctx.fillStyle = PAL[Math.floor(t/160) % 2 ? 1 : 3];
+        ctx.fillStyle = Math.floor(t/160) % 2 ? '#ffd23f' : '#ffffff';
         ctx.fillRect(x, y, 1, 1); ctx.fillRect(x-1, y, 1, 1); ctx.fillRect(x+1, y, 1, 1);
         ctx.fillRect(x, y-1, 1, 1); ctx.fillRect(x, y+1, 1, 1);
       }
@@ -795,28 +871,30 @@
 
   function bootDone(){ return bootT0 > 0 && now() - bootT0 > 1050; }
 
+  // ---- SNES ART PASS: idle wander — the goat occasionally strolls a few steps left or
+  // right along the grass (render-local, purely cosmetic). Walking left mirrors the sprite.
+  let wanderX = 0, wanderTarget = 0, nextWanderAt = 0, prevRenderT = 0;
+
   function render(){
     const t = now();
     requestAnimationFrame(render);
-    if (!S){ ctx.fillStyle = LCD_OFF; ctx.fillRect(0, 0, LW, LH); return; }
+    const rdt = prevRenderT ? Math.min(0.1, (t - prevRenderT) / 1000) : 0;
+    prevRenderT = t;
+    if (!S){ ctx.fillStyle = SCREEN_OFF; ctx.fillRect(0, 0, LW, LH); return; }
     tick(t);
 
     // ---- power-on animation ----
     if (bootT0 > 0 && t - bootT0 < 1050){
       const bt = t - bootT0;
-      if (bt < 300 || (bt >= 650 && bt < 800)){ ctx.fillStyle = LCD_OFF; ctx.fillRect(0,0,LW,LH); }
-      else if (bt < 650){ ctx.fillStyle = PAL[1]; ctx.fillRect(0,0,LW,LH); }   // all-pixels-on test
-      else { ctx.fillStyle = LCD_BG; ctx.fillRect(0,0,LW,LH); }
+      if (bt < 300 || (bt >= 650 && bt < 800)){ ctx.fillStyle = SCREEN_OFF; ctx.fillRect(0,0,LW,LH); }
+      else if (bt < 650){ ctx.fillStyle = '#f8f8f8'; ctx.fillRect(0,0,LW,LH); }   // console flash
+      else { ctx.fillStyle = SKY_DAY_LOW; ctx.fillRect(0,0,LW,LH); }
       return;
     }
 
-    ctx.fillStyle = LCD_BG; ctx.fillRect(0, 0, LW, LH);
     const frame = Math.floor(t / 450);
+    drawBackground(t);
     drawMeters(frame % 2 === 0);
-    drawGround();
-
-    // sun / moon
-    drawGrid(S.lights ? SPRITES.sun : SPRITES.moon, 87, 12);
 
     // poops
     for (const px of S.poops) drawGrid(SPRITES.poop, px, GROUND_Y - 4);
@@ -825,24 +903,40 @@
     if (st === 0){
       const eggPose = (act && act.type === 'hatch') ? 'crack' : 'idle';
       const ef = eggPose === 'crack' ? Math.min(2, Math.floor((t - act.t0) / 550)) : frame;
-      const g = buildEgg(eggPose, ef);
+      const g = outlined(buildEgg(eggPose, ef));
       drawGrid(g, goatCx() - (g.w >> 1), GROUND_Y - g.h + 1);
       lastPose = 'egg';
     } else if (act && act.type === 'hatch'){
       const ef = Math.min(2, Math.floor((t - act.t0) / 550));
-      const g = buildEgg('crack', ef);
+      const g = outlined(buildEgg('crack', ef));
       drawGrid(g, goatCx() - (g.w >> 1), GROUND_Y - g.h + 1);
       lastPose = 'hatch';
     } else {
       const pose = currentPose(t);
       lastPose = pose;
+
+      // wander: only while awake, healthy-ish and not doing anything else
+      const canWander = !act && !mg && S.lights && pose === 'idle';
+      if (canWander){
+        if (t >= nextWanderAt){
+          wanderTarget = Math.round((Math.random() * 2 - 1) * 20);
+          nextWanderAt = t + 3500 + Math.random() * 6500;
+        }
+      } else {
+        wanderTarget = wanderX;                          // freeze mid-stroll
+        nextWanderAt = Math.max(nextWanderAt, t + 1500); // and don't restart immediately
+      }
+      const wdx = wanderTarget - wanderX;
+      const walking = canWander && Math.abs(wdx) > 0.5;
+      if (walking) wanderX += Math.sign(wdx) * Math.min(Math.abs(wdx), 8 * rdt);
+
       const g = goatSprite(st, pose, frame);
-      let gx = goatCx() - (g.w >> 1);
+      let gx = goatCx() + Math.round(wanderX) - (g.w >> 1);
       if (mg && mg.phase === 'hop'){
         const p = Math.min(1, (t - mg.t0) / 900);
         gx += Math.round(Math.sin(p * Math.PI) * 11) * mg.dir;
       }
-      drawGrid(g, gx, GROUND_Y - g.h + 1);
+      (walking && wdx < 0 ? drawGridFlip : drawGrid)(g, gx, GROUND_Y - g.h + 1);
 
       // food during eating
       if (act && act.type === 'eat'){
@@ -916,15 +1010,6 @@
   el('bMed').addEventListener('click', doMed);
   el('bLeft').addEventListener('click', () => mgGuess(-1));
   el('bRight').addEventListener('click', () => mgGuess(1));
-  // TEST control (user-requested): shift birthTs back past the next stage boundary — the normal
-  // tick sees stage > seenStage and fires the exact same hatch/grow celebration as real time.
-  el('growBtn').addEventListener('click', () => {
-    if (!S) return;
-    const cur = stageIdx();
-    if (cur >= STAGE_AT.length - 1){ toast(S.name + ' is all grown up!'); return; }
-    S.birthTs = now() - STAGE_AT[cur + 1] - 1000;
-    save();
-  });
   el('muteBtn').addEventListener('click', () => {
     if (!S) return;
     S.mute = !S.mute; save();

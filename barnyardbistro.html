@@ -426,22 +426,22 @@
   .touchBtnLabel{ margin-top:3px; font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:10px;
                   letter-spacing:.5px; color:#fff; text-shadow:0 2px 3px rgba(0,0,0,.55); pointer-events:none; }
 
-  /* Playtest tune (user): all FOUR gameplay buttons are the SAME size (64px) fanned along the
-     arc — offsets chosen so every pair of disc centers is ≥ ~80px apart (disc 64 + ring 6+6 =
-     76px minimum) so nothing can overlap. Only emote (top-right corner, not a gameplay verb)
-     is smaller. */
-  #grabWrap{ right:14px; bottom:16px; }
-  #actionBtn{ width:64px; height:64px; font-size:26px; background:rgba(255,178,63,.6); }
+  /* Playtest tune 2 (user): the four gameplay buttons sit in a tight 2×2 GRID pinned to the
+     bottom-right CORNER — below and beside the kitchen so they never cover the bottom counter
+     row. Same size (60px), 12px gutters. GRAB keeps the corner (most-used, easiest reach);
+     WORK left of it; THROW above GRAB; LOB above WORK. Only emote (top-right) is smaller. */
+  #grabWrap{ right:12px; bottom:10px; }
+  #actionBtn{ width:60px; height:60px; font-size:24px; background:rgba(255,178,63,.6); }
   #actionBtn.pressed{ background:rgba(255,178,63,.9); }
-  #workWrap{ right:90px; bottom:40px; }
-  #workBtn{ width:64px; height:64px; font-size:26px; background:rgba(74,144,226,.6); }
+  #workWrap{ right:84px; bottom:10px; }
+  #workBtn{ width:60px; height:60px; font-size:24px; background:rgba(74,144,226,.6); }
   #workBtn.pressed{ background:rgba(74,144,226,.9); }
-  #throwWrap{ right:156px; bottom:96px; }
-  #throwBtn{ width:64px; height:64px; font-size:26px; background:rgba(74,154,58,.6); }
+  #throwWrap{ right:12px; bottom:100px; }
+  #throwBtn{ width:60px; height:60px; font-size:24px; background:rgba(74,154,58,.6); }
   #throwBtn.pressed{ background:rgba(74,154,58,.9); }
-  /* LOB (FIELD-CUSTOMER REWORK) — the delivery verb, topmost arc slot, same size as the rest. */
-  #lobWrap{ right:178px; bottom:170px; }
-  #lobBtn{ width:64px; height:64px; font-size:26px; background:rgba(212,120,42,.6); }
+  /* LOB (FIELD-CUSTOMER REWORK) — the delivery verb, top-left cell of the grid. */
+  #lobWrap{ right:84px; bottom:100px; }
+  #lobBtn{ width:60px; height:60px; font-size:24px; background:rgba(212,120,42,.6); }
   #lobBtn.pressed{ background:rgba(212,120,42,.9); }
   /* emote — novelty, not a gameplay verb: top-right corner under the mute/score chips, smaller. */
   #emoteWrap{ right:10px; top:132px; }
@@ -462,15 +462,15 @@
        spare, unlike portrait) with just enough vertical rise to still read as an arc — re-verified
        zero pairwise overlap both with each other and with the widened/repositioned hintWrap. */
     .touchAware #hintWrap{ bottom:14px; left:14px; transform:none; max-width:38vw; }
-    /* Playtest tune (user): landscape row — same-size 54px discs, centers ≥ ~72px apart. */
-    #grabWrap{ right:16px; bottom:14px; }
-    .touchAware #actionBtn{ width:54px; height:54px; font-size:21px; }
-    #workWrap{ right:88px; bottom:20px; }
-    .touchAware #workBtn{ width:54px; height:54px; font-size:21px; }
-    #throwWrap{ right:160px; bottom:32px; }
-    .touchAware #throwBtn{ width:54px; height:54px; font-size:21px; }
-    #lobWrap{ right:232px; bottom:48px; }
-    .touchAware #lobBtn{ width:54px; height:54px; font-size:21px; }
+    /* Playtest tune 2 (user): same 2×2 corner grid in landscape, one size step down. */
+    #grabWrap{ right:12px; bottom:8px; }
+    .touchAware #actionBtn{ width:50px; height:50px; font-size:20px; }
+    #workWrap{ right:74px; bottom:8px; }
+    .touchAware #workBtn{ width:50px; height:50px; font-size:20px; }
+    #throwWrap{ right:12px; bottom:86px; }
+    .touchAware #throwBtn{ width:50px; height:50px; font-size:20px; }
+    #lobWrap{ right:74px; bottom:86px; }
+    .touchAware #lobBtn{ width:50px; height:50px; font-size:20px; }
     /* emote stays in its corner spot (top-right) in landscape too — no arc slot needed. */
     #emoteWrap{ right:10px; top:96px; }
     .touchAware #emoteBtn{ width:36px; height:36px; font-size:14px; }
@@ -2439,7 +2439,13 @@
     // holding a completed dish, the lob bends toward the nearest matching waiting customer in a
     // wide cone AND flies exactly the distance to them (a well-aimed lob = BULLSEYE catch).
     const LOB_SPEED = 9;
-    const LOB_DEFAULT_RANGE = 13;
+    // Playtest tune 2 (user: "lob distance is too far, cut in half"): 13 → 6.5. This is ALSO the
+    // "animals never fetch" fix — at 13 every unassisted lob overshot and field-clamped BEYOND
+    // the 6.5 claim radius, so misses always fed the crow while on-target lobs bullseyed
+    // instantly; nothing ever landed in the walk-and-fetch band. At 6.5 a missed lob comes down
+    // near the ring where the claim race can actually reach it. (Aim-assisted lobs still fly the
+    // exact distance to their customer — delivery range is unchanged.)
+    const LOB_DEFAULT_RANGE = 6.5;
     const LOB_ASSIST_CONE = 0.6;   // radians (~34°) — wider than throw assist; lobs are the point
     function tryLob(chefId){
       const chef = G.chefs[chefId];
