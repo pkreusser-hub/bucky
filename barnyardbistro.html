@@ -1788,6 +1788,7 @@
       const item = getItem();
       if (!item || !isLegalPlateAddition(top.contents, item)) return false;
       top.contents.push({ kind: item.kind, state: item.state });
+      top.dish = matchAnyRecipe(top.contents);   // round-4 fix: a scooped-complete dish knows it
       consume();
       return true;
     }
@@ -1837,6 +1838,7 @@
             const top = holdTop(chef);
             if (top && top.kind !== "plate" && isLegalPlateAddition(slot.item.contents, top)){
               slot.item.contents.push({ kind: top.kind, state: top.state });
+              slot.item.dish = matchAnyRecipe(slot.item.contents);   // round-4 fix
               holdPop(chef);
               return;
             }
@@ -1984,6 +1986,7 @@
             G.plateStack.top = { kind: "plate", contents: [], dish: null };
           }
           G.plateStack.top.contents.push({ kind: top.kind, state: top.state });
+          G.plateStack.top.dish = matchAnyRecipe(G.plateStack.top.contents);   // round-4 fix
           holdPop(chef);
           return;
         }
@@ -2332,7 +2335,8 @@
     // type-aware: a completed dish only ever considers chefs (still a catch) and window spots —
     // it can no longer be redirected toward a plate/board mid-launch.
     function isCompletedDishItem(item){
-      return (item.kind === "plate" && item.dish) || item.kind === "pizzaDish";
+      // Playtest fix round 4: derived (see dishIdOf) so scooped/counter-assembled dishes count.
+      return !!dishIdOf(item);
     }
     function findAimAssistTarget(chef, chefId, item){
       const candidates = [];   // {x,z,priority} — LOWER priority number = preferred
@@ -2468,7 +2472,7 @@
       if (topPeek.kind === "pizza"){ refuse(chefId, "Too floppy to throw! 🍕"); return; }
       if (NOT_THROWABLE_KINDS.has(topPeek.kind)){ wobble(chefId); return; }
       const item = holdPop(chef);
-      const dishId = item.kind === "pizzaDish" ? (item.dish || "pizza") : (item.kind === "plate" ? item.dish : null);
+      const dishId = dishIdOf(item);   // derived — scooped plates deliver too (round-4 fix)
       let lobDir = chef.dir, lobRange = lobExitRange(chef.x, chef.z, chef.dir);
       if (dishId){
         let best = null, bestDiff = LOB_ASSIST_CONE;
@@ -2738,7 +2742,7 @@
         //     tidies it up. A short lob that comes down INSIDE the kitchen is a normal floor item.
         if (f.lob){
           if (f.dist < (f.lobRange || LOB_RANGE_FALLBACK)){ f.x = nx; f.z = nz; continue; }
-          const dishId = f.kind === "pizzaDish" ? (f.dish || "pizza") : (isPlate ? f.dish : null);
+          const dishId = dishIdOf(f);   // derived — scooped plates deliver too (round-4 fix)
           if (dishId){
             let best = null, bestD = BULLSEYE_R;
             for (const c of G.customers){
@@ -3012,7 +3016,7 @@
     // Mirrors tryLob's aim assist bit-for-bit: a completed dish snaps direction AND range onto
     // the nearest matching waiting customer within LOB_ASSIST_CONE.
     function simulateLobPath(chef, chefId, item){
-      const dishId = item.kind === "pizzaDish" ? (item.dish || "pizza") : (item.kind === "plate" ? item.dish : null);
+      const dishId = dishIdOf(item);   // derived — scooped plates preview/assist too (round-4 fix)
       let lobDir = chef.dir, lobRange = lobExitRange(chef.x, chef.z, chef.dir), target = null;
       if (dishId){
         let bestDiff = LOB_ASSIST_CONE;
@@ -3393,10 +3397,15 @@
     // CLAIM_R). Runs every hostSim tick. Unclaimed exterior dishes age out after
     // UNCLAIMED_DISH_TTL: a crow "takes" them (poof) and any plate flies back to the dirty
     // bin so the plate economy never leaks.
+    // Playtest fix round 4 (user: scooped/counter-assembled salads ignored by customers): a
+    // plate's stored `dish` was only refreshed on the pick-up-from-stack/slot paths — assembling
+    // by SCOOPING onto a held plate (or adding to a plate on a counter) left dish=null, making
+    // the finished dish invisible to aim assist, bullseye, claims AND the crow. Fix at the root:
+    // NEVER trust the stored field alone — DERIVE the dish from contents via matchAnyRecipe.
     function dishIdOf(item){
       if (!item) return null;
       if (item.kind === "pizzaDish") return item.dish || "pizza";
-      if (item.kind === "plate" && item.dish) return item.dish;
+      if (item.kind === "plate") return item.dish || matchAnyRecipe(item.contents || []);
       return null;
     }
     function isOutsideKitchen(x, z){
@@ -3405,25 +3414,31 @@
     function hostResolveClaims(dt){
       for (let i = G.floorItems.length - 1; i >= 0; i--){
         const f = G.floorItems[i];
+        if (!isOutsideKitchen(f.x, f.z)) continue;
         const dish = dishIdOf(f);
-        if (!dish || !isOutsideKitchen(f.x, f.z)) continue;
-        // RACE (playtest tune): EVERY matching waiting customer within CLAIM_R starts fetching
-        // this dish — first to reach it wins (advanceCustomers' pickup consumes the floor item;
-        // the losers see it vanish and fall back to waiting at their spots). Re-scanned every
-        // tick so a customer who becomes "waiting" late still joins an ongoing race.
-        let racers = 0;
-        for (const c of G.customers){
-          if (c.state === "fetching" && c.fetchItemId === f.id){ racers++; continue; }
-          if (c.state !== "waiting" || c.dish !== dish) continue;
-          if (Math.hypot(c.x - f.x, c.z - f.z) <= CLAIM_R){
-            c.state = "fetching";
-            c.fetchItemId = f.id;
-            racers++;
+        // Round-4 fix: the crow TTL now applies to EVERY exterior floor item, dish or not — a
+        // lobbed stray ingredient or an incomplete plate resting in the field must never sit
+        // there forever (plates still ride back in via pendingReturns below). Only the CLAIM
+        // race requires a real completed dish.
+        if (dish){
+          // RACE (playtest tune): EVERY matching waiting customer within CLAIM_R starts fetching
+          // this dish — first to reach it wins (advanceCustomers' pickup consumes the floor item;
+          // the losers see it vanish and fall back to waiting at their spots). Re-scanned every
+          // tick so a customer who becomes "waiting" late still joins an ongoing race.
+          let racers = 0;
+          for (const c of G.customers){
+            if (c.state === "fetching" && c.fetchItemId === f.id){ racers++; continue; }
+            if (c.state !== "waiting" || c.dish !== dish) continue;
+            if (Math.hypot(c.x - f.x, c.z - f.z) <= CLAIM_R){
+              c.state = "fetching";
+              c.fetchItemId = f.id;
+              racers++;
+            }
           }
+          // TTL only ticks while NOBODY is racing for it ("too far from any animal") — a dish
+          // being chased never expires out from under the chaser.
+          if (racers > 0){ f.outsideT = 0; continue; }
         }
-        // TTL only ticks while NOBODY is racing for it ("too far from any animal") — a dish
-        // being chased never expires out from under the chaser.
-        if (racers > 0){ f.outsideT = 0; continue; }
         f.outsideT = (f.outsideT || 0) + dt;
         if (f.outsideT >= UNCLAIMED_DISH_TTL){
           // crow takes it — plate returns dirty so nothing is ever permanently lost
