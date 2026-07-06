@@ -352,3 +352,37 @@ levels; full order→cook→deliver flow on the right-wall window passes.
       mute persists. Agent-verified 51 checks + independently gated (fresh
       adopt→egg, all buttons, 375×812 zero scroll, 0 pageerrors). Old 3D
       goat assets (babygoat.glb etc.) remain on disk, now unreferenced.
+- [x] LOB playtest-fix arc (2026-07-06, 4 batches from live user playtests):
+      (1) claim RACE (every matching waiter within CLAIM_R 6.5 sprints, first
+      to arrive wins, losers resume waiting), crow TTL 5s (frozen while
+      anyone is racing), instant lob preview (no 0.25s threshold for "…lob"
+      holds; ring 3x, per-point-y arc dots 1.9x), equal 64px touch buttons,
+      raw patty = pink puck (rawPattyM; patty.glb read as pre-cooked).
+      (2) touch buttons → 2×2 corner grid (GRAB/WORK bottom, THROW/LOB top;
+      grid top edge verified below the kitchen's projected bottom wall).
+      (3) ADAPTIVE LOB RANGE (lobExitRange: fly just past the wall in the
+      facing dir + LOB_LAND_PAD 1.45) — fixed ranges provably failed BOTH
+      ways: 13 overshot past CLAIM_R (crow ate every miss), 6.5 landed
+      INSIDE the 16-deep kitchen (claims/crow correctly ignore interior
+      items) while READING as "landed on the customer" from the camera.
+      (4) DERIVED DISH ID (user screenshot: scooped salad ignored):
+      plate.dish was only stamped on stack/slot PICKUP — scooping onto a
+      held plate left dish=null → invisible to assist/bullseye/claims/crow.
+      dishIdOf now derives via matchAnyRecipe(contents), scoop/add sites
+      stamp eagerly, crow TTL covers ALL exterior floor items. Verified
+      with the user's exact scoop flow + real V lob: animal walked 5
+      samples to the plate, +35. LESSON: playtest-verify each ASSEMBLY
+      PATH (stack pickup vs scoop vs counter-add), not just one.
+      BABY BUCKY SNES ART PASS (same day, user pivot "SMW-level graphics"):
+      same 96×64 grid + sprite geometry, monochrome LCD palette → 13-color
+      PAL + outlined() auto-trace (pad 1px, warm-dark index 8 around every
+      sprite — the 16-bit look without redrawing builders); layered SMW
+      backdrop (two-band sky, drifting clouds, drawHill semicircles,
+      scalloped grass, dirt; night = stars + yellow moon, keyed to LIGHTS);
+      Yoshi-spotted filled egg; colored meters on dark HUD band; toast =
+      dark chip; lcdGrid overlay deleted. Idle WANDER: render-local
+      wanderX/Target, ±20px strolls every 3.5-10s while idle+awake,
+      drawGridFlip mirrors when walking left. GROW test chip removed
+      (goatcare has NO test hook; stage-jump testing = rewrite bb2State
+      birthTs + Storage.prototype.setItem no-op to beat the pagehide
+      re-save, then reload).
