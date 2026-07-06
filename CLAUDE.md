@@ -506,3 +506,17 @@ levels; full order→cook→deliver flow on the right-wall window passes.
       knife block keeps a wall-side offset). Verified: exit flow round-
       trip, park 3 → 4th refused → thrown-at-full bounced back → 3 washes
       → +3 clean. 0 pageerrors.
+- [x] CLOUD LAYOUT SYNC (2026-07-06, user: "editor save overrides the
+      default on all devices"): layouts map also lives in Firestore
+      (settings_<familyKey>/bistroLayouts, field layouts = JSON string or
+      "default"). Editor: loads cloud copy before first render (3s
+      timeout), SAVE writes localStorage + setDoc ("Saved to ALL devices"
+      / honest offline fallback note). Game: boots from localStorage
+      instantly, background getDoc reconciles (updates cache; rebuilds the
+      kitchen on the spot if still on title/level-select, else applies at
+      next level start; MP layoutsHash updates live so guests adopt).
+      ?fam= URL param on both pages = dev/test family override (verified
+      vs REAL Firestore w/ scratch famtest key + fresh browser context as
+      "device 2"; doc deleted after). NOTE: bistro3p.html (Minecraft-style
+      3P camera + tank-controls experiment) exists UNTRACKED/local-only —
+      deliberately never committed.

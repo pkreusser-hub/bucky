@@ -680,7 +680,9 @@
       for (const ch of pw.toLowerCase()) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
       return "fam" + h.toString(36);
     }
-    const familyKey = roomId(FAMILY_PASSWORD);
+    // ?fam= override: dev/test hook so automated verification can target a scratch family
+    // collection instead of production (memory: test familyKey for automated writes).
+    const familyKey = (new URLSearchParams(location.search).get("fam")) || roomId(FAMILY_PASSWORD);
     // Lobby liveness hardening (family playtest complaint: stale JOIN cards lingered too long).
     // pagehide/beforeunload delete is only ever best-effort (can't reliably await a network
     // request during unload), so the 90s liveness window was doing all the real work — tightened
@@ -1438,6 +1440,37 @@
       if (typeof rebuildStationVisuals === "function") rebuildStationVisuals();
     }
     G.stations = stationsForLevelId(1);   // boot: L1's layout (visuals build below at module init)
+
+    // ---- CLOUD LAYOUT SYNC (user-requested: editor saves override the default on ALL devices):
+    // the layouts map ALSO lives in Firestore (settings_<familyKey>/bistroLayouts, written by
+    // leveleditor.html). At boot the game uses the localStorage copy instantly (fast start),
+    // then fetches the cloud copy in the background; a difference updates the local cache and —
+    // if we're still on the title/level-select — rebuilds the kitchen on the spot. Mid-game the
+    // new map simply applies at the next level start (rebuildKitchenForLevel reads it fresh).
+    // Degrades silently offline: localStorage behavior is unchanged. ----
+    async function fetchCloudLayouts(){
+      try {
+        await lobbyBackendReady;
+        if (!Lobby.available) return;
+        const { doc, getDoc } = Lobby.fs;
+        const snap = await getDoc(doc(Lobby.db, "settings_" + familyKey, "bistroLayouts"));
+        const raw = snap.exists() ? snap.data().layouts : null;
+        const incoming = (typeof raw === "string" && raw !== "default") ? raw : null;
+        if ((incoming || null) === (layoutsMapJson || null)) return;   // already in sync
+        if (incoming){
+          const parsed = JSON.parse(incoming);
+          if (!parsed || typeof parsed !== "object") return;
+          layoutsMap = parsed; layoutsMapJson = incoming;
+          try { localStorage.setItem(LAYOUTS_KEY, incoming); } catch (err) {}
+        } else {
+          layoutsMap = {}; layoutsMapJson = null;
+          try { localStorage.removeItem(LAYOUTS_KEY); } catch (err) {}
+        }
+        // not mid-day -> apply immediately so the title-screen kitchen preview matches
+        if (G.titleOpen || G.levelSelectOpen) rebuildKitchenForLevel(CURRENT_LEVEL.id);
+      } catch (err) { /* offline / rules — local cache remains authoritative */ }
+    }
+    fetchCloudLayouts();
 
     const stationById = (id) => G.stations.find(s => s.id === id);
     const counterSlotById = (id) => G.counterSlots.find(s => s.id === id);

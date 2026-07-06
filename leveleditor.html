@@ -102,11 +102,53 @@
   </div>
 
 <script>
-(() => {
+(async () => {
   'use strict';
   // PER-LEVEL LAYOUTS: bb_layouts_v2 = { "<levelId>": [{type,kind?,c,r}, ...] } — each of the
   // 5 levels edited independently; levels absent from the map use the default kitchen.
   const KEY = 'bb_layouts_v2';
+
+  // ---- CLOUD SYNC (user-requested): layouts save to the family's Firestore so EVERY device
+  // (kids' phones included, solo play included) uses them — same backend/key derivation as the
+  // game's lobby system. Loads the cloud copy before first render; SAVE writes localStorage AND
+  // Firestore. Offline degrades to local-only with an honest note. ----
+  const firebaseConfig = {
+    apiKey: "AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU",
+    authDomain: "amen-farms-app.firebaseapp.com",
+    projectId: "amen-farms-app",
+    storageBucket: "amen-farms-app.firebasestorage.app",
+    messagingSenderId: "321230755979",
+    appId: "1:321230755979:web:d362c56aaf7e50b4ab5c8e"
+  };
+  const FAMILY_PASSWORD = 'amenfarms';
+  function roomId(pw){
+    let h = 0;
+    for (const ch of pw.toLowerCase()) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return 'fam' + h.toString(36);
+  }
+  // ?fam= override: dev/test hook (matches the game) so verification never touches production.
+  const familyKey = (new URLSearchParams(location.search).get('fam')) || roomId(FAMILY_PASSWORD);
+  const Cloud = { ok: false, db: null, fs: null };
+  try {
+    const appMod = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js');
+    const fsMod = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js');
+    Cloud.db = fsMod.getFirestore(appMod.initializeApp(firebaseConfig, 'bucky-editor'));
+    Cloud.fs = fsMod;
+    Cloud.ok = true;
+  } catch (err) { /* offline — local-only mode */ }
+  function cloudDocRef(){ return Cloud.fs.doc(Cloud.db, 'settings_' + familyKey, 'bistroLayouts'); }
+  // pull the cloud copy into localStorage BEFORE the first render (3s timeout — never hang)
+  if (Cloud.ok){
+    try {
+      const snap = await Promise.race([
+        Cloud.fs.getDoc(cloudDocRef()),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000))
+      ]);
+      const raw = snap.exists() ? snap.data().layouts : null;
+      if (typeof raw === 'string' && raw !== 'default') localStorage.setItem(KEY, raw);
+      else localStorage.removeItem(KEY);
+    } catch (err) { /* keep the local copy */ }
+  }
   const GAME_LEVELS = [
     { id: 1, name: '🥗 Salad Days' }, { id: 2, name: '🍲 Soup’s On' },
     { id: 3, name: '🍔 Burger Barn' }, { id: 4, name: '🍕 Pizza Night' },
@@ -278,14 +320,24 @@
       if (!isDefault) map[lvl.id] = layout;
     }
     try {
-      if (Object.keys(map).length === 0){
-        localStorage.removeItem(KEY);
-        savedNote.textContent = '✔ Saved (all levels use the default kitchen)';
-      } else {
-        localStorage.setItem(KEY, JSON.stringify(map));
-        savedNote.textContent = '✔ Saved levels ' + Object.keys(map).join(', ') + '! Reload the game to play.';
-      }
+      const allDefault = Object.keys(map).length === 0;
+      if (allDefault) localStorage.removeItem(KEY);
+      else localStorage.setItem(KEY, JSON.stringify(map));
       renderTabs();
+      // CLOUD SYNC: push the same map to Firestore so every device picks it up.
+      if (Cloud.ok){
+        savedNote.textContent = '⏳ Saving to all devices…';
+        const payload = { layouts: allDefault ? 'default' : JSON.stringify(map), updatedAt: Date.now() };
+        Cloud.fs.setDoc(cloudDocRef(), payload)
+          .then(() => {
+            savedNote.textContent = allDefault
+              ? '✔ Saved to ALL devices (default kitchen everywhere)'
+              : '✔ Saved to ALL devices — levels ' + Object.keys(map).join(', ') + '!';
+          })
+          .catch(() => { savedNote.textContent = '✔ Saved on THIS device only (cloud save failed)'; });
+      } else {
+        savedNote.textContent = '✔ Saved on THIS device only (offline)';
+      }
     } catch (err) { savedNote.textContent = '✖ Could not save (storage blocked)'; }
   });
   function isComplete(p){ return PIECES.every((pc, i) => p[i] || pc.optional); }
