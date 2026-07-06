@@ -230,3 +230,26 @@ and STOPS (stands still, head to bottle) while feeding — no more feeding-on-th
       Solo/couch never touch Firestore; all lobby features degrade silently.
       Verified E2E vs real Playroom + real Firestore (test familyKey for
       automated writes; production cleaned/untouched).
+- [x] Throwing v2 + plate rework (2026-07-05): USE_GLB_CHEFS=false (procedural
+      chefs everywhere; GLB path kept); counters hold ANY item incl. plates;
+      resolveStationOrSlot (nearest-with-bias, fixed station-shadowing);
+      plate stack beside sink (plate station/tray gone); dirty bin right wall;
+      throw→plate assembly, AIR MAIL dish delivery (+5, catch anim), trash
+      swish, ±12° aim assist; chop-shake fixed (seeded PRNG — visuals were
+      rebuilt per-frame w/ fresh Math.random); grass field + trees; window
+      bars removed.
+- [x] Overcooked-grid pass (2026-07-05): individual counter tiles, slots
+      derived 1:1 from tiles (corner reachability = edge-distance + 0.2
+      cornerBonus; STATION_BIAS 0.35→0.005 bug); every station exactly ONE
+      tile; window tiles gray-blue; crate lid decals (canvas textures);
+      recipe-of-day card; boards moved to bottom wall; type-aware throw bias
+      (raw→board, chopped→plate/appliance, THROW_BIAS_TIE_R 1.2); floor
+      pickup fallback at every empty-hands dead end + landing clearance.
+- [x] Multi-carry + bounce batch (2026-07-05): CH 1.1→0.55 (waist-high);
+      uniform tile color, inactive-station tiles = live slots (slotIsLive);
+      decal-only crates; hold-stack ≤3 (LIFO, hold* helpers, ~135 call sites;
+      plates/pizza/pots exclusive; dirty plates stack together); scoop onto
+      held plate (board/pan/slot; pot soup special-case kept); dirty plates
+      throwable (sink parks via G.sink.parked, bin swishes); bounce-and-travel
+      throws (0.78 speed, ≤3 bounces, wall reflection, mid-flight catches);
+      plated food floor-safe everywhere.
