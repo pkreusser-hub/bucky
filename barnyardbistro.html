@@ -438,9 +438,15 @@
   #throwWrap{ right:154px; bottom:120px; }
   #throwBtn{ width:60px; height:60px; font-size:24px; background:rgba(74,154,58,.6); }
   #throwBtn.pressed{ background:rgba(74,154,58,.9); }
-  /* emote — smallest, topmost point of the arc. */
-  #emoteWrap{ right:184px; bottom:196px; }
-  #emoteBtn{ width:48px; height:48px; font-size:19px; background:rgba(255,143,208,.6); }
+  /* LOB (FIELD-CUSTOMER REWORK) — the delivery verb takes the arc's topmost slot (where emote
+     used to sit): it's core gameplay now, so it stays in thumb reach. */
+  #lobWrap{ right:184px; bottom:196px; }
+  #lobBtn{ width:56px; height:56px; font-size:22px; background:rgba(212,120,42,.6); }
+  #lobBtn.pressed{ background:rgba(212,120,42,.9); }
+  /* emote — novelty, not a gameplay verb: moved OFF the thumb arc to the top-right corner under
+     the mute/score chips so the arc stays 4 buttons (GRAB/WORK/THROW/LOB). */
+  #emoteWrap{ right:10px; top:132px; }
+  #emoteBtn{ width:44px; height:44px; font-size:18px; background:rgba(255,143,208,.6); }
   #emoteBtn.pressed{ background:rgba(255,143,208,.9); }
 
   /* touch layouts: keep hint above thumb zones, out of the order row. MOBILE-FIRST pass (change
@@ -463,8 +469,11 @@
     .touchAware #workBtn{ width:62px; height:62px; font-size:23px; }
     #throwWrap{ right:190px; bottom:28px; }
     .touchAware #throwBtn{ width:50px; height:50px; font-size:19px; }
-    #emoteWrap{ right:250px; bottom:56px; }
-    .touchAware #emoteBtn{ width:40px; height:40px; font-size:15px; }
+    #lobWrap{ right:262px; bottom:40px; }
+    .touchAware #lobBtn{ width:46px; height:46px; font-size:17px; }
+    /* emote stays in its corner spot (top-right) in landscape too — no arc slot needed. */
+    #emoteWrap{ right:10px; top:96px; }
+    .touchAware #emoteBtn{ width:38px; height:38px; font-size:15px; }
     .touchAware .touchBtnLabel{ font-size:9px; }
     .touchAware #orderRow{ top:6px; }
     .touchAware #sunClock{ font-size:15px; padding:3px 9px 3px 7px; }
@@ -578,6 +587,7 @@
              the disc itself keeps its original id (all existing JS getElementById/pointerdown
              wiring is untouched). ---- -->
         <div id="throwWrap" class="touchBtnWrap"><div id="throwBtn" class="touchBtn">🎯</div><div class="touchBtnLabel">THROW</div></div>
+        <div id="lobWrap" class="touchBtnWrap"><div id="lobBtn" class="touchBtn">🏀</div><div class="touchBtnLabel">LOB</div></div>
         <div id="workWrap" class="touchBtnWrap"><div id="workBtn" class="touchBtn">🔪</div><div class="touchBtnLabel">WORK</div></div>
         <div id="grabWrap" class="touchBtnWrap"><div id="actionBtn" class="touchBtn">🖐</div><div class="touchBtnLabel">GRAB</div></div>
         <div id="emoteWrap" class="touchBtnWrap"><div id="emoteBtn" class="touchBtn">💬</div><div class="touchBtnLabel">CHAT</div></div>
@@ -1093,10 +1103,8 @@
       plateThrowHintId: 0,    // event counter: bumped when a chef tries to throw a plate (refused)
       plateThrowHintChef: null,
       // ---- Systems pass 2: misc event counters/hints for sound-reaction + HUD hints ----
-      bellFullHintId: 0,       // event counter: bumped when the bell is pressed but all 3 spots are full
-      bellFullHintChef: null,
-      wrongSpotHintId: 0,      // event counter: bumped on a wrong-spot delivery attempt
-      wrongSpotHintChef: null,
+      crowTakeId: 0,           // event counter: a crow took an unclaimed dish out in the field
+      crowTakeX: 0, crowTakeZ: 0,
       // ---- Systems pass 3: cooking stations ----
       // pot: contents is an array of {kind,state:"chopped"} accumulated one at a time; once all
       // 3 soup kinds are in, auto-starts cooking (cookT ticks in hostSim). state cycle:
@@ -1227,14 +1235,9 @@
     // tiles in the one continuous grid (Overcooked reference), just visually distinct (see
     // buildServingWindowRow). WINDOW_X0 is the left edge of the bell segment, chosen so all 4
     // segment centers land exactly on the top wall's tile-center grid (…,-2.5,-1.5,-0.5,0.5,1.5,…).
-    const WINDOW_SEG_W = CT;              // each of the 4 segments == one tile
-    // USER-DRAWN GRID: the checkout window moved from the TOP wall to the RIGHT wall (grid rows
-    // 7-10, col 10) — a VERTICAL strip: constant x, segment centers marching down in z. Bell is
-    // the northernmost segment (row 7), spots 1/2/3 below it (rows 8/9/10). Customers queue
-    // OUTSIDE the right wall now (see customerTargetXZ / LANE_X below).
-    const WINDOW_X = HALF_W - CT/2;        // 4.5 — right-wall tile-center column
-    const WINDOW_Z0 = -1.5;                // bell segment center z (grid row 7)
-    function windowSegZ(i){ return WINDOW_Z0 + i * WINDOW_SEG_W; }   // i=0 bell, 1..3 spots
+    // (FIELD-CUSTOMER REWORK 2026-07-06: the checkout window is GONE — no bell, no numbered
+    // spots. Its right-wall tiles are plain counters now. Dishes reach customers by being
+    // thrown or LOBBED over the counters into the field; see the customer block below.)
 
     // ---- Systems pass 3: new stations along the RIGHT and BOTTOM walls (cutting board shifts
     // further left per the design doc to make room; left wall grows two more ingredient crates
@@ -1316,12 +1319,8 @@
       // (c4) and the pan two tiles right of the right board (c7, the user's explicit placement).
       { id: "cuttingBoard", type: "board",   boardIndex: 0,    x: -2.5,           z:  HALF_D - CT/2,  w: CT, d: CT },
       { id: "cuttingBoard2", type: "board",  boardIndex: 1,    x: -0.5,           z:  HALF_D - CT/2,  w: CT, d: CT },
-      // Checkout is a VERTICAL strip on the RIGHT wall (grid r7-r10): bell northernmost, spots
-      // 1/2/3 below it. Customers queue outside the right wall.
-      { id: "orderBell",    type: "bell",                      x: WINDOW_X,       z: windowSegZ(0),   w: WINDOW_SEG_W, d: CT },
-      { id: "windowSpot1",  type: "spot",    spot: 1,           x: WINDOW_X,       z: windowSegZ(1),   w: WINDOW_SEG_W, d: CT },
-      { id: "windowSpot2",  type: "spot",    spot: 2,           x: WINDOW_X,       z: windowSegZ(2),   w: WINDOW_SEG_W, d: CT },
-      { id: "windowSpot3",  type: "spot",    spot: 3,           x: WINDOW_X,       z: windowSegZ(3),   w: WINDOW_SEG_W, d: CT },
+      // (FIELD-CUSTOMER REWORK: the 4 checkout tiles are gone — those right-wall tiles are
+      // plain usable counters now.)
       // Right wall per the drawn grid: stove r3, oven r5 ("two below the stove" — user's
       // explicit placement), dirty bin r14. Left wall: sink r3, plate stack r14 (the drawn
       // grid deliberately splits the wash loop across the kitchen — bin lower-right → sink
@@ -1341,7 +1340,6 @@
 
     const stationById = (id) => G.stations.find(s => s.id === id);
     const counterSlotById = (id) => G.counterSlots.find(s => s.id === id);
-    const stationBySpot = (n) => G.stations.find(s => s.type === "spot" && s.spot === n);
     // user-reported layout fix: G.boards[st.boardIndex] is THE canonical way any board-station
     // code below looks up "the board slot this station targets" — a tiny helper so every
     // interaction/render/hint call site reads the same way regardless of which of the two boards
@@ -1361,22 +1359,14 @@
     const CUSTOMER_SPAWN_FIRST = 3;         // seconds until the very first customer appears
     const CUSTOMER_SPAWN_MIN = 20;          // then every ~20-26s (tunable, named+grouped per spec)
     const CUSTOMER_SPAWN_MAX = 26;
-    const CUSTOMER_QUEUE_MAX = 4;           // max customers waiting-to-order (in line outside the wall)
-    const CUSTOMER_SPOTS_MAX = 3;           // the 3 numbered window spots
     const PATIENCE_MAX = 75;                // seconds a "waiting" customer holds out before leaving sad
     const TIP_FULL_FRACTION = 1 / 3;        // delivered within the first third of patience = full tip
     const TIP_FULL_AMOUNT = 15;
     const MONEY_MISS_PENALTY = 10;
     const CUSTOMER_URGENT_T = 15;           // seconds left = "urgent" (wiggle + hint), mirrors ORDER_URGENT_T
-    const CUSTOMER_WALK_SPEED = 2.2;        // units/sec, wobble-walk to/from the window
-    const QUEUE_STEP = 1.1;                 // spacing between queued customers standing in line
-    // USER-DRAWN GRID: the checkout moved to the RIGHT wall, so the customer lane runs
-    // vertically OUTSIDE the right wall. LANE_X is the walking/queueing line; SERVE_X is where
-    // a customer stands pressed to the wall while ordering at the bell or waiting at a spot.
-    // The queue extends NORTH (toward the stove end) from the bell; leavers walk SOUTH past
-    // the bottom-right corner and despawn.
-    const LANE_X  = HALF_W + 1.3;           // 6.3 — queue/walk lane outside the right wall
-    const SERVE_X = HALF_W + 0.75;          // 5.75 — pressed to the wall at bell/spots
+    const CUSTOMER_WALK_SPEED = 2.2;        // units/sec, wobble-walk around the field
+    // (FIELD-CUSTOMER REWORK: the queue/window lane constants are gone — customers stand at
+    // random field spots all around the kitchen; see randomFieldSpot/customerTargetXZ.)
 
     // ---- Individual-counter-tiles pass: the border is now a list of DISCRETE ~1-unit tiles
     // (built once here, shared by BOTH the render layer's tile meshes and G.counterSlots below)
@@ -1459,7 +1449,7 @@
     // so nothing about the MP snapshot's index-based `cs` wire format needs to change — only the
     // runtime gate (slotIsLive below) on whether a given slot participates in targeting this frame.
     function buildCounterSlots(){
-      return COUNTER_TILES.filter(t => !t.station || (t.station.type !== "bell" && t.station.type !== "spot")).map((t, n) =>
+      return COUNTER_TILES.map((t, n) =>   // FIELD-CUSTOMER: no window tiles left to exclude
         ({ id: "cs" + n, x: t.x, z: t.z, xLo: t.x - t.w/2, xHi: t.x + t.w/2, zLo: t.z - t.d/2, zHi: t.z + t.d/2,
            item: null, cornerBonus: t.corner ? CORNER_SLOT_BONUS : 0, stationId: t.station ? t.station.id : null }));
     }
@@ -1495,7 +1485,7 @@
     // stations (stove/pan/oven) actually vary per level per the design doc. Hidden stations keep
     // their G slot but are inert: nearestStation skips them entirely so no action can target
     // them, and the render layer (syncStationVisibility) hides their meshes.
-    const ALWAYS_ACTIVE_TYPES = new Set(["board", "plateStack", "bell", "spot", "trash", "dirtyBin", "sink"]);
+    const ALWAYS_ACTIVE_TYPES = new Set(["board", "plateStack", "trash", "dirtyBin", "sink"]);
     function stationActive(st){
       if (ALWAYS_ACTIVE_TYPES.has(st.type)) return true;
       // USER-DRAWN GRID: dispensers gate purely by their per-level assigned kind (their ids are
@@ -2172,28 +2162,8 @@
         return;
       }
 
-      // ---- ORDER HERE bell (Systems pass 2) — press with empty OR full hands, no hands needed. ----
-      if (st.type === "bell"){
-        hostTakeOrder(chefId);
-        return;
-      }
-
-      // ---- numbered window spot (Systems pass 2, extended pass 3 for the plate-less pizza
-      // dish) — deliver the held completed dish here. A held "plate" must actually be a
-      // finished dish (top.dish set) — a bare EMPTY plate (grabbed to carry to the
-      // stove) is not deliverable and falls through to the gentle wobble below. ----
-      if (st.type === "spot"){
-        const top = holdTop(chef);
-        if (top && (top.kind === "pizzaDish" || (top.kind === "plate" && top.dish))){
-          hostDeliverAtSpot(chefId, st.spot);
-          return;
-        }
-        // Change #5 bug fix: tryFloorPickup no-ops safely if hands are full (e.g. holding an
-        // empty plate here) — only actually grabs when hands are genuinely empty.
-        if (tryFloorPickup(chef)) return;
-        wobble(chefId);
-        return;
-      }
+      // (FIELD-CUSTOMER REWORK: the bell and numbered-spot branches are gone — there is no
+      // checkout. Dishes are delivered by throwing/lobbing them out to the customers.)
 
       if (st.type === "trash"){
         // Family playtest fix #5: trash consumes just the TOP item of a stack (per "actions
@@ -2392,13 +2362,11 @@
           if (!boardFor(boardSt).item) candidates.push({ x: boardSt.x, z: boardSt.z, priority: 2 });
         }
       }
-      // window spots with a matching waiting customer — the ONLY non-catch bucket a completed
-      // dish ever considers; still offered (at a lower priority) for a raw/prep throw too, since
-      // aim assist has always been generous about it.
+      // FIELD-CUSTOMER REWORK: waiting customers themselves are aim-assist candidates for a
+      // completed dish — the throw/lob bends toward the matching diner out in the field.
       for (const c of G.customers){
-        if (c.state !== "waiting" || !c.spot) continue;
-        const spotSt = stationBySpot(c.spot);
-        if (spotSt) candidates.push({ x: spotSt.x, z: spotSt.z, priority: 3 });
+        if (c.state !== "waiting") continue;
+        candidates.push({ x: c.x, z: c.z, priority: 3 });
       }
       let best = null, bestPriority = Infinity, bestDiff = AIM_ASSIST_CONE;
       const curAngle = chef.dir;
@@ -2463,6 +2431,56 @@
         bounces: 0
       });
       G.stats.thrown++;   // event counter — render layer diffs this to play the whoosh + wind-up on BOTH screens
+    }
+
+    // ---- LOB (FIELD-CUSTOMER REWORK): the delivery ability. A high, far arc that sails clean
+    // OVER the counters (no catches, no board/slot/trash interactions mid-flight) and lands out
+    // in the field — the only way to get a finished dish to a customer. Aim assist is generous:
+    // holding a completed dish, the lob bends toward the nearest matching waiting customer in a
+    // wide cone AND flies exactly the distance to them (a well-aimed lob = BULLSEYE catch).
+    const LOB_SPEED = 9;
+    const LOB_DEFAULT_RANGE = 13;
+    const LOB_ASSIST_CONE = 0.6;   // radians (~34°) — wider than throw assist; lobs are the point
+    function tryLob(chefId){
+      const chef = G.chefs[chefId];
+      if (!chef || G.phase !== "playing" || G.levelSelectOpen) return;
+      const topPeek = holdTop(chef);
+      if (!topPeek) return;
+      if (topPeek.kind === "pizza"){ refuse(chefId, "Too floppy to throw! 🍕"); return; }
+      if (NOT_THROWABLE_KINDS.has(topPeek.kind)){ wobble(chefId); return; }
+      const item = holdPop(chef);
+      const dishId = item.kind === "pizzaDish" ? (item.dish || "pizza") : (item.kind === "plate" ? item.dish : null);
+      let lobDir = chef.dir, lobRange = LOB_DEFAULT_RANGE;
+      if (dishId){
+        let best = null, bestDiff = LOB_ASSIST_CONE;
+        for (const c of G.customers){
+          if (c.state !== "waiting" || c.dish !== dishId) continue;
+          const ang = angleTo(chef, c.x, c.z);
+          const diff = angleDiff(chef.dir, ang);
+          if (diff < bestDiff){ bestDiff = diff; best = c; }
+        }
+        if (best){
+          lobDir = angleTo(chef, best.x, best.z);
+          lobRange = Math.hypot(best.x - chef.x, best.z - chef.z);
+        }
+      }
+      G.flying.push({
+        id: G.nextFlyId++,
+        kind: item.kind,
+        state: item.state,
+        contents: item.kind === "plate" ? item.contents.slice() : undefined,
+        dish: item.dish || null,
+        x: chef.x, z: chef.z,
+        dir: lobDir,
+        dist: 0,
+        lob: true,
+        lobRange,
+        throwerId: chefId,
+        speed: LOB_SPEED,
+        bounces: 0
+      });
+      G.stats.thrown++;
+      G.lobId = (G.lobId || 0) + 1;   // distinct event so the render layer plays the big-arc whoosh
     }
 
     // ---- Family playtest fix #4: THROWING v2 landing priority chain, checked in this exact
@@ -2692,6 +2710,33 @@
         f.dist += step;
         const isCompletedDish = isCompletedDishItem(f);
         const isPlate = f.kind === "plate";
+
+        // ---- LOB flight (FIELD-CUSTOMER REWORK): sails clean OVER everything — no catches, no
+        // boards/slots/trash, no wall bounces. It simply flies its full lobRange and comes down:
+        //   • within BULLSEYE_R of a matching waiting customer -> instant catch, bonus, payment.
+        //   • otherwise it rests where it fell (exterior landings allowed — that's the point);
+        //     hostResolveClaims lets a nearby matching customer trot over, or the crow eventually
+        //     tidies it up. A short lob that comes down INSIDE the kitchen is a normal floor item.
+        if (f.lob){
+          if (f.dist < (f.lobRange || LOB_DEFAULT_RANGE)){ f.x = nx; f.z = nz; continue; }
+          const dishId = f.kind === "pizzaDish" ? (f.dish || "pizza") : (isPlate ? f.dish : null);
+          if (dishId){
+            let best = null, bestD = BULLSEYE_R;
+            for (const c of G.customers){
+              if (c.state !== "waiting" || c.dish !== dishId) continue;
+              const d = Math.hypot(nx - c.x, nz - c.z);
+              if (d <= bestD){ bestD = d; best = c; }
+            }
+            if (best){
+              hostFulfillOrder(best, true);   // BULLSEYE! caught right in their hooves
+              G.flying.splice(i, 1);
+              continue;
+            }
+          }
+          dropToFloor(f.kind, f.state, nx, nz, { contents: f.contents, dish: f.dish, field: true });
+          G.flying.splice(i, 1);
+          continue;
+        }
         // Family playtest fix #2: dirty plates are floor-safe/bounce-safe like everything else —
         // they just route through resolveIngredientLanding's own dirty-plate branch (sink/bin/
         // slot) instead of the board/plate/appliance branch, and never match isCompletedDish (no
@@ -2760,45 +2805,8 @@
         // being actively converged upon (see that function's own comment) — a null here just means
         // "not resolved yet," so the flight falls through untouched to the trash/slot/wall checks
         // below exactly like any other still-flying frame, and gets judged again next frame.
-        if (isCompletedDish){
-          const spotSt = findDeliveryWindowSpot(nx, nz, f.dish, Math.sin(f.dir), Math.cos(f.dir));
-          if (spotSt){
-            const waitingHere = G.customers.find(c => c.state === "waiting" && c.spot === spotSt.spot);
-            const dishId = f.dish;
-            if (waitingHere && dishId && waitingHere.dish === dishId){
-              // AIR DELIVERY — full payment + tip + AIR MAIL bonus, customer catch anim.
-              // MOBILE-FIRST pass (change #9): this check runs on EVERY flight segment, bounced
-              // or not (tryBounce just repositions f.x/z/dir and lets the SAME per-frame chain
-              // keep running) — so a dish that bounced at least once (f.bounces>0) and THEN
-              // lands correctly here already falls through to this exact branch with no special
-              // wiring needed; the only new part is flagging it as a BANK SHOT for the bonus/popup.
-              const isBankShot = (f.bounces || 0) > 0;
-              completeDelivery(dishId, waitingHere, spotSt.spot, true, isBankShot);
-              G.airMailId = (G.airMailId || 0) + 1;
-              G.airMailSpot = spotSt.spot;
-              G.flying.splice(i, 1);
-              continue;
-            }
-            // ---- Floor-plates pass: wrong spot / no match used to SHATTER the dish (contents
-            // poof, plate turned dirty). Per the design doc, a missed air-delivery is now
-            // consequence-light and kid-friendly: the plate (with its contents/dish fully
-            // intact) or the baked pizza just lands on the floor nearby with a soft clatter —
-            // walk over, GRAB, and try again at the right spot. No more dishShatter/pizzaSplat
-            // event (dead code removed below); dropToFloor's own floorDrops-diff already drives
-            // the gentle "plop" sound + dust-puff FX + bounce-settle animation on both screens.
-            // Family playtest fix #6: bounces off the wrong-spot window instead of settling
-            // immediately (per rule 6, the window refuses per the "bounce off" convention too).
-            // Clamped inside the playable floor (this branch triggers from THROW_WINDOW_R=0.9
-            // away from the window spot, which sits right at the top wall — the flight's raw nx/
-            // nz at that instant can already be at/past the wall otherwise, landing the plate
-            // somewhere a chef could never walk to pick it back up).
-            const cx = clamp(nx, -HALF_W + CT + 0.1, HALF_W - CT - 0.1), cz = clamp(nz, -HALF_D + CT + 0.1, HALF_D - CT - 0.1);
-            if (tryBounce(f, cx, cz)) continue;
-            dropToFloor(f.kind, f.state, cx, cz, { contents: f.contents, dish: f.dish });
-            G.flying.splice(i, 1);
-            continue;
-          }
-        }
+        // (FIELD-CUSTOMER REWORK: the serving-window air-delivery branch is gone — regular
+        // throws stay inside the kitchen; only LOBS (handled above) reach the customers.)
 
         // e) trash bin: anything thrown into it vanishes with a "swish!" (dirty plates included —
         // Family playtest fix #2 rule 2 — a dirty plate thrown into the bin just joins the queue).
@@ -2937,14 +2945,8 @@
           }
         }
 
-        if (isCompletedDish){
-          const spotSt = findWindowSpotInPath(nx, nz);
-          if (spotSt){
-            points.push({ x: nx, z: nz });
-            return { points, landing: { x: nx, z: nz }, bounced: sim.bounces > 0 };
-          }
-        }
-
+        // (FIELD-CUSTOMER REWORK: no window branch — completed dishes bounce/slot/floor inside
+        // the kitchen exactly like everything else; delivery is the LOB's job.)
         const trashSt = stationById("trashBin");
         if (Math.hypot(nx - trashSt.x, nz - trashSt.z) <= THROW_TRASH_R){
           points.push({ x: nx, z: nz });
@@ -2981,6 +2983,53 @@
       }
       // fell out of the step cap (shouldn't normally happen) — land where it currently is.
       return { points, landing: { x: sim.x, z: sim.z }, bounced: sim.bounces > 0 };
+    }
+
+    // FIELD-CUSTOMER REWORK: dry-run twin of tryLob + the LOB flight branch, exactly like
+    // simulateThrowPath twins the regular throw. A lob ignores EVERYTHING mid-flight (no
+    // catches/boards/slots/trash/bounces — it sails over the counters), so the path is just a
+    // straight ground-track to lobRange with an arc height baked into per-point `y` (the preview
+    // renderer uses p.y when present so the dots trace the actual high arc, not a flat line).
+    // Mirrors tryLob's aim assist bit-for-bit: a completed dish snaps direction AND range onto
+    // the nearest matching waiting customer within LOB_ASSIST_CONE.
+    function simulateLobPath(chef, chefId, item){
+      const dishId = item.kind === "pizzaDish" ? (item.dish || "pizza") : (item.kind === "plate" ? item.dish : null);
+      let lobDir = chef.dir, lobRange = LOB_DEFAULT_RANGE, target = null;
+      if (dishId){
+        let bestDiff = LOB_ASSIST_CONE;
+        for (const c of G.customers){
+          if (c.state !== "waiting" || c.dish !== dishId) continue;
+          const ang = angleTo(chef, c.x, c.z);
+          const diff = angleDiff(chef.dir, ang);
+          if (diff < bestDiff){ bestDiff = diff; target = c; }
+        }
+        if (target){
+          lobDir = angleTo(chef, target.x, target.z);
+          lobRange = Math.hypot(target.x - chef.x, target.z - chef.z);
+        }
+      }
+      const points = [];
+      const arcH = 2.0 + lobRange * 0.14;   // taller arc for longer lobs — reads as "over the wall"
+      const N = 20;
+      for (let i = 0; i <= N; i++){
+        const f = i / N;
+        points.push({
+          x: chef.x + Math.sin(lobDir) * lobRange * f,
+          z: chef.z + Math.cos(lobDir) * lobRange * f,
+          y: CH + 0.55 + Math.sin(Math.PI * f) * arcH
+        });
+      }
+      const landing = { x: points[N].x, z: points[N].z };
+      // bullseye read-out: landing within BULLSEYE_R of a matching waiting customer → the ring
+      // goes green so kids can SEE "this lob will feed them" before letting go.
+      let bullseye = false;
+      if (dishId){
+        for (const c of G.customers){
+          if (c.state !== "waiting" || c.dish !== dishId) continue;
+          if (Math.hypot(landing.x - c.x, landing.z - c.z) <= BULLSEYE_R){ bullseye = true; break; }
+        }
+      }
+      return { points, landing, bounced: false, lob: true, bullseye };
     }
 
     // Shared landing-surface searches used by advanceFlyingItems above — split into three focused
@@ -3041,22 +3090,7 @@
       if (!best) return null;
       return withDist ? { slot: best, dist: bestD } : best;
     }
-    // Finds the nearest numbered window spot within THROW_WINDOW_R of (x,z) — used to detect "a
-    // thrown completed dish crossed this spot's segment," regardless of whether a matching
-    // customer is actually waiting there (the caller checks that separately so a miss still
-    // resolves to "wrong spot," not "kept flying").
-    function findWindowSpotInPath(x, z){
-      let best = null, bestD = THROW_WINDOW_R;
-      for (let n = 1; n <= 3; n++){
-        const st = stationBySpot(n);
-        if (!st) continue;
-        const dx = Math.max(Math.abs(x - st.x) - st.w/2, 0);
-        const dz = Math.max(Math.abs(z - st.z) - st.d/2, 0);
-        const d = Math.hypot(dx, dz);
-        if (d <= bestD){ bestD = d; best = st; }
-      }
-      return best;
-    }
+    // (FIELD-CUSTOMER REWORK: findWindowSpotInPath is gone with the window.)
     // Family playtest fix #4 (root cause #2 — "bounces off the checkout instead of delivering" on
     // diagonal/bank-shot arrivals): findWindowSpotInPath always picks the SINGLE nearest window
     // segment in range. Adjacent segments sit only 1 unit apart with a generous THROW_WINDOW_R=0.9
@@ -3096,35 +3130,8 @@
     // preserving "wrong-customer/no-customer bounces" for genuine misses (a throw flying in a
     // fixed direction that never approaches any other order, e.g. straight into a wall, has no
     // converging candidate and falls straight through to the nearest-in-range check as before).
-    const DELIVERY_CONVERGENCE_MIN = 0.5;   // dot-product floor — well past "glancing", genuinely heading toward it
-    function findDeliveryWindowSpot(x, z, dishId, dirX, dirZ){
-      let nearest = null, nearestD = THROW_WINDOW_R;
-      for (let n = 1; n <= 3; n++){
-        const st = stationBySpot(n);
-        if (!st) continue;
-        const dx = Math.max(Math.abs(x - st.x) - st.w/2, 0);
-        const dz = Math.max(Math.abs(z - st.z) - st.d/2, 0);
-        const d = Math.hypot(dx, dz);
-        if (d <= nearestD){ nearestD = d; nearest = st; }
-      }
-      const nearestWaiting = nearest && dishId && G.customers.find(c => c.state === "waiting" && c.spot === nearest.spot && c.dish === dishId);
-      if (nearestWaiting) return nearest;   // common case: the nearest-in-range spot is simply correct
-      // the nearest-in-range spot (if any) doesn't match — before treating that as a miss, check
-      // whether some OTHER spot's order is still being actively approached; if so, hold off (this
-      // throw isn't "resolved" yet, just still in flight toward its real target).
-      if (dishId && dirX != null && dirZ != null){
-        for (const c of G.customers){
-          if (c.state !== "waiting" || c.dish !== dishId || !c.spot) continue;
-          const st = stationBySpot(c.spot);
-          if (!st || st === nearest) continue;
-          const toTargetX = st.x - x, toTargetZ = st.z - z;
-          const toTargetLen = Math.hypot(toTargetX, toTargetZ) || 1;
-          const closingSpeed = (dirX * toTargetX + dirZ * toTargetZ) / toTargetLen;
-          if (closingSpeed >= DELIVERY_CONVERGENCE_MIN) return null;   // still incoming — don't judge yet
-        }
-      }
-      return nearest;
-    }
+    // (FIELD-CUSTOMER REWORK: findDeliveryWindowSpot and its hard-won tile-seam convergence
+    // logic are gone with the window itself — lobs resolve at a point, not against tiles.)
 
     // Adds a floor item, capping the total at FLOOR_ITEM_MAX (oldest despawns with a poof).
     // G.stats.floorDrops (event counter) + the G.floorItems array diff drive the render layer's
@@ -3184,7 +3191,15 @@
         // if EVERY current floor item is cap-exempt (only possible with <=3 plates in
         // circulation, well under FLOOR_ITEM_MAX=12), just skip the cap this once.
       }
-      const landing = clampFloorLanding(x, z);
+      // FIELD-CUSTOMER REWORK: lob landings (extra.field) may rest OUTSIDE the kitchen — that's
+      // the whole delivery mechanic — so they skip the interior clamp and only stay within the
+      // visible field ring. Interior landings keep the reachability clamp as before.
+      let landing;
+      if (extra && extra.field && isOutsideKitchen(x, z)){
+        landing = { x: clamp(x, -HALF_W - 2.4, HALF_W + 2.4), z: clamp(z, -HALF_D - 2.4, HALF_D + 2.4) };
+      } else {
+        landing = clampFloorLanding(x, z);
+      }
       const item = { id: G.nextFloorId++, kind, state, x: landing.x, z: landing.z };
       if (kind === "plate") item.contents = (extra && extra.contents || []).map(c => ({ ...c }));
       if (carriesDish) item.dish = (extra && extra.dish) || null;
@@ -3219,35 +3234,34 @@
     let spawnFloorDropFX = () => {};
     let spawnBounceFX = () => {};   // Family playtest fix #6: small hop FX + soft "boing" per bounce
 
-    // ---- customer helpers (Systems pass 2) ----
-    // Target x,z for a customer given its current state — single source of truth for both the
-    // host's walk integration below and (implicitly) what the guest lerps toward via the synced
-    // customer positions in the snapshot.
-    function customerTargetXZ(c){
-      const bellZ = windowSegZ(0);
-      if (c.state === "queueing"){
-        // line extends NORTH (up the right wall, toward the stove end) from just above the bell
-        return { x: LANE_X, z: bellZ - (1 + c.queuePos) * QUEUE_STEP };
-      }
-      if (c.state === "ordering"){
-        return { x: SERVE_X, z: bellZ };
-      }
-      if (c.state === "waiting"){
-        const st = stationBySpot(c.spot);
-        return { x: SERVE_X, z: st.z };
-      }
-      // leaving_happy / leaving_sad: walk SOUTH down the lane, past the bottom-right corner,
-      // and despawn once well clear of the kitchen.
-      return { x: LANE_X, z: HALF_D + 2.2 };
-    }
+    // ---- customer helpers — FIELD-CUSTOMER REWORK (user pivot, 2026-07-06) ----
+    // The checkout window is GONE. Customers wander up to random spots in the field AROUND the
+    // kitchen, their order appears over their head, and the ONLY way to serve them is to THROW
+    // or LOB the finished dish over the counters so it lands near them. When a matching dish
+    // comes to rest within CLAIM_R of a waiting customer they trot over, take it, pay, and
+    // leave happy. A lob that lands practically in their hooves (BULLSEYE_R) is caught on the
+    // spot for a style bonus. States: arriving -> waiting -> fetching -> leaving_happy/sad.
+    const CLAIM_R = 2.6;       // a resting matching dish within this range gets claimed
+    const BULLSEYE_R = 1.2;    // landing this close = instant catch + bonus
+    const BULLSEYE_BONUS = 5;
+    const FIELD_BAND_MIN = 1.0, FIELD_BAND_MAX = 1.9;   // stand-off distance outside the walls
+    const CUSTOMER_MAX_WAITING = 3;
+    const UNCLAIMED_DISH_TTL = 8;   // seconds a dish may rest OUTSIDE unclaimed before the crow takes it
 
-    // Recomputes queuePos (0-based distance back from the bell) for every "queueing" customer
-    // so the line always has no gaps after someone moves up to "ordering".
-    function renumberQueue(){
-      let i = 0;
-      for (const c of G.customers){
-        if (c.state === "queueing") c.queuePos = i++;
+    function customerTargetXZ(c){
+      if (c.state === "fetching"){
+        const it = G.floorItems.find(f => f.id === c.fetchItemId);
+        if (it) return { x: it.x, z: it.z };
+        // the dish vanished (crow/expired) — go back to waiting at the spot
+        return { x: c.spotX, z: c.spotZ };
       }
+      if (c.state === "leaving_happy" || c.state === "leaving_sad"){
+        // walk straight away from the kitchen center until well off-scene
+        const len = Math.hypot(c.spotX, c.spotZ) || 1;
+        return { x: (c.spotX / len) * 16, z: (c.spotZ / len) * 16 };
+      }
+      // arriving / waiting: their chosen random field spot
+      return { x: c.spotX, z: c.spotZ };
     }
 
     function countInState(state){
@@ -3255,37 +3269,47 @@
       for (const c of G.customers) if (c.state === state) n++;
       return n;
     }
-    function lowestFreeSpot(){
-      const taken = new Set(G.customers.filter(c => c.state === "waiting").map(c => c.spot));
-      for (let n = 1; n <= CUSTOMER_SPOTS_MAX; n++) if (!taken.has(n)) return n;
-      return null;
-    }
 
     const CUSTOMER_KINDS = ["pig", "cow", "chick", "goat"];   // 4 palettes, cycled/randomized for variety
-    // Balance playtest pass: each level now sets its own patienceMax explicitly (was a flat
-    // PATIENCE_MAX minus an ad-hoc per-level penalty) — tapered smoothly from L1's very
-    // forgiving 85s down to L5's tight 55s, tuned against bot-measured dish-assembly times so
-    // the difficulty curve degrades gently rather than cliffing on any one level. Falls back to
-    // the global PATIENCE_MAX if a level ever omits the field.
+    const CUSTOMER_EMOJI = { pig: "🐷", cow: "🐮", chick: "🐤", goat: "🐐" };   // order-card badge
     function levelPatienceMax(){
       return Math.max(15, CURRENT_LEVEL.patienceMax != null ? CURRENT_LEVEL.patienceMax : PATIENCE_MAX);
+    }
+    // Pick a random stand point in the visible field ring around the kitchen (all four sides —
+    // fitCamera's extents below were widened so every band is on-screen at every aspect).
+    function randomFieldSpot(){
+      const side = Math.floor(Math.random() * 4);   // 0 N, 1 E, 2 S, 3 W
+      const off = FIELD_BAND_MIN + Math.random() * (FIELD_BAND_MAX - FIELD_BAND_MIN);
+      const alongW = (Math.random() * 2 - 1) * (HALF_W - 1.5);
+      const alongD = (Math.random() * 2 - 1) * (HALF_D - 1.5);
+      if (side === 0) return { x: alongW, z: -HALF_D - off };
+      if (side === 1) return { x: HALF_W + off, z: alongD };
+      if (side === 2) return { x: alongW, z: HALF_D + off };
+      return { x: -HALF_W - off, z: alongD };
     }
     function spawnCustomer(){
       const kind = CUSTOMER_KINDS[Math.floor(Math.random() * CUSTOMER_KINDS.length)];
       const patienceMax = levelPatienceMax();
+      const spot = randomFieldSpot();
+      // keep spots from stacking: nudge along the wall while too close to another customer
+      for (let tries = 0; tries < 6; tries++){
+        if (!G.customers.some(o => Math.hypot(o.spotX - spot.x, o.spotZ - spot.z) < 2.0)) break;
+        const s2 = randomFieldSpot(); spot.x = s2.x; spot.z = s2.z;
+      }
       const c = {
         id: G.nextCustomerId++,
         kind,
-        state: "queueing",
-        spot: null,
-        dish: null,
+        state: "arriving",
+        dish: randomDishForOrder(),   // order is known on sight — it floats over their head
+        fetchItemId: null,
         patience: patienceMax,
         patienceMax,
-        queuePos: countInState("queueing"),
+        spotX: spot.x, spotZ: spot.z,
         x: 0, z: 0
       };
-      const t = customerTargetXZ(c);
-      c.x = t.x; c.z = t.z - 4;   // spawn a little further back than its queue slot, walks in
+      // walk in from off-scene along the spot's outward ray
+      const len = Math.hypot(spot.x, spot.z) || 1;
+      c.x = (spot.x / len) * 15; c.z = (spot.z / len) * 15;
       G.customers.push(c);
       publishSnapshotNow();
     }
@@ -3306,30 +3330,94 @@
         } else {
           c.x = t.x; c.z = t.z;
         }
+        if (c.state === "arriving" && dist <= 0.05) c.state = "waiting";   // patience starts here
+        if (c.state === "fetching" && dist <= 0.5){
+          const idx = G.floorItems.findIndex(f => f.id === c.fetchItemId);
+          if (idx >= 0){
+            G.floorItems.splice(idx, 1);
+            hostFulfillOrder(c, false);
+          } else {
+            c.state = "waiting";   // dish vanished mid-trot — resume waiting
+            c.fetchItemId = null;
+          }
+        }
         if ((c.state === "leaving_happy" || c.state === "leaving_sad") && dist <= 0.05){
-          G.customers.splice(i, 1);   // despawned off the back of the queue lane
+          G.customers.splice(i, 1);   // despawned off-scene
         }
       }
     }
 
-    // Ticks patience for every "waiting" customer only (queueing/ordering customers are just
-    // window dressing per the design doc — their patience doesn't start until they're ordered).
-    // Expired -> leaves sad, money -10 floored at 0.
+    // Ticks patience for every "waiting" customer (arriving customers get a grace walk-in;
+    // fetching customers have already earned their meal). Expired -> leaves sad, money -10
+    // floored at 0.
     function tickCustomerPatience(dt){
       for (const c of G.customers){
         if (c.state !== "waiting") continue;
         c.patience = Math.max(0, c.patience - dt);
         if (c.patience <= 0){
-          const missedSpot = c.spot;
           c.state = "leaving_sad";
           G.money = Math.max(0, G.money - MONEY_MISS_PENALTY);
           G.stats.missed++;
-          G.streak = 0;   // Tier-1 batch: a customer loss resets the delivery streak (any chef's miss counts)
-          spawnMissFX(missedSpot);
+          G.streak = 0;   // a customer loss resets the delivery streak (any chef's miss counts)
+          spawnMissFX(c);
           showMissToast();
           publishSnapshotNow();   // discrete event — push immediately, don't wait ~12Hz tick
         }
       }
+    }
+
+    // FIELD-CUSTOMER REWORK: claim resolution — a completed dish resting OUTSIDE the kitchen
+    // walls gets claimed by the nearest waiting customer whose order it matches (within
+    // CLAIM_R). Runs every hostSim tick. Unclaimed exterior dishes age out after
+    // UNCLAIMED_DISH_TTL: a crow "takes" them (poof) and any plate flies back to the dirty
+    // bin so the plate economy never leaks.
+    function dishIdOf(item){
+      if (!item) return null;
+      if (item.kind === "pizzaDish") return item.dish || "pizza";
+      if (item.kind === "plate" && item.dish) return item.dish;
+      return null;
+    }
+    function isOutsideKitchen(x, z){
+      return Math.abs(x) > HALF_W || Math.abs(z) > HALF_D;
+    }
+    function hostResolveClaims(dt){
+      for (let i = G.floorItems.length - 1; i >= 0; i--){
+        const f = G.floorItems[i];
+        const dish = dishIdOf(f);
+        if (!dish || !isOutsideKitchen(f.x, f.z)) continue;
+        f.outsideT = (f.outsideT || 0) + dt;
+        const claimedBy = G.customers.find(c => c.state === "fetching" && c.fetchItemId === f.id);
+        if (claimedBy) continue;
+        // nearest matching waiting customer in range claims it
+        let best = null, bestD = CLAIM_R;
+        for (const c of G.customers){
+          if (c.state !== "waiting" || c.dish !== dish) continue;
+          const d = Math.hypot(c.x - f.x, c.z - f.z);
+          if (d <= bestD){ bestD = d; best = c; }
+        }
+        if (best){
+          best.state = "fetching";
+          best.fetchItemId = f.id;
+          continue;
+        }
+        if (f.outsideT >= UNCLAIMED_DISH_TTL){
+          // crow takes it — plate returns dirty so nothing is ever permanently lost
+          G.floorItems.splice(i, 1);
+          if (f.kind === "plate") G.plates.pendingReturns.push({ t: 0.5 });
+          G.crowTakeId = (G.crowTakeId || 0) + 1;
+          G.crowTakeX = f.x; G.crowTakeZ = f.z;
+          publishSnapshotNow();
+        }
+      }
+    }
+
+    // Payment for a fulfilled order — delegates to completeDelivery (the long-standing shared
+    // payout core: price + patience-scaled tip + streak tiers + dirty-plate return), passing the
+    // CUSTOMER as the anchor (the checkout window no longer exists).
+    function hostFulfillOrder(c, bullseye){
+      c.fetchItemId = null;
+      completeDelivery(c.dish, c, bullseye);
+      if (bullseye){ G.airMailId = (G.airMailId || 0) + 1; G.airMailSpot = c.id; }
     }
 
     // =====================================================================================
@@ -3585,16 +3673,14 @@
       // any "waiting" customers (misses handled inside tickCustomerPatience).
       advanceCustomers(dt);
       tickCustomerPatience(dt);
+      hostResolveClaims(dt);   // FIELD-CUSTOMER REWORK: match resting dishes to hungry diners
 
       // last DAY_SPAWN_CUTOFF seconds: let the kids finish what's already up, no new customers.
       if (G.dayLeft <= DAY_SPAWN_CUTOFF) return;
 
-      // spawn logic: first customer ~CUSTOMER_SPAWN_FIRST seconds in, then every
-      // CUSTOMER_SPAWN_MIN-MAX seconds (randomized each cycle, scaled by this level's spawnFactor
-      // — Systems pass 3: <1 spawns faster/more often, >1 spawns slower), capped at
-      // CUSTOMER_QUEUE_MAX waiting-to-order + CUSTOMER_SPOTS_MAX at spots (a customer already
-      // "waiting" at a spot still counts toward the room being "full enough" so the queue doesn't
-      // overflow the map).
+      // FIELD-CUSTOMER REWORK spawn logic: first customer ~CUSTOMER_SPAWN_FIRST seconds in,
+      // then every CUSTOMER_SPAWN_MIN-MAX seconds (scaled by the level's spawnFactor), capped
+      // at CUSTOMER_MAX_WAITING concurrently hungry diners (arriving/waiting/fetching all count).
       if (!G.firstCustomerSpawned){
         G.customerSpawnCd = CUSTOMER_SPAWN_FIRST;
         G.firstCustomerSpawned = true;
@@ -3602,8 +3688,8 @@
       }
       G.customerSpawnCd -= dt;
       if (G.customerSpawnCd <= 0){
-        const queueing = countInState("queueing") + countInState("ordering");
-        if (queueing < CUSTOMER_QUEUE_MAX){
+        const hungry = countInState("arriving") + countInState("waiting") + countInState("fetching");
+        if (hungry < CUSTOMER_MAX_WAITING){
           spawnCustomer();
         }
         const spawnFactor = CURRENT_LEVEL.spawnFactor || 1;
@@ -3611,72 +3697,30 @@
       }
     }
 
-    // ---- TAKE ORDER (Systems pass 2) — chef presses action at the ORDER HERE bell. No hands
-    // needed. Reveals the front queueing customer's dish and sends them to the lowest free
-    // numbered spot. If all 3 spots are full, gently refuses (bell hint event, no state change). ----
-    function hostTakeOrder(chefId){
-      const front = G.customers.find(c => c.state === "queueing" && c.queuePos === 0)
-                 || G.customers.find(c => c.state === "ordering");
-      if (!front){ return; }   // nobody at the bell yet — silent no-op (not a "full" refusal)
-      // promote a fresh queueing customer to "ordering" first if needed (keeps state machine
-      // simple: only one customer is ever "ordering" at a time, right at the front of the line).
-      if (front.state === "queueing") front.state = "ordering";
-
-      const freeSpot = lowestFreeSpot();
-      if (freeSpot == null){
-        G.bellFullHintId = (G.bellFullHintId || 0) + 1;
-        G.bellFullHintChef = chefId;
-        publishSnapshotNow();
-        return;
-      }
-      front.dish = randomDishForOrder();
-      front.spot = freeSpot;
-      front.state = "waiting";
-      front.patience = front.patienceMax;
-      renumberQueue();
-      G.stats.orderedCount = (G.stats.orderedCount || 0) + 1;
-      publishSnapshotNow();   // discrete event
-    }
-
-    // ---- Family playtest fix #4: AIR MAIL bonus — a thrown completed dish caught by its
-    // matching customer pays full price + tip + this flat bonus, rewarding the style of an air
-    // delivery over just walking it over.
-    const AIR_MAIL_BONUS = 5;
-    // MOBILE-FIRST pass (change #9): BANK SHOT bonus — an air delivery that bounced at least once
-    // before reaching the right window spot pays an EXTRA bonus on top of the AIR MAIL bonus
-    // ("style points doubly earned" per the design doc) plus its own distinct popup.
-    const BANK_SHOT_BONUS = 2;
-    // Shared delivery-completion core — used by BOTH the walk-up hand delivery (hostDeliverAtSpot)
-    // and the new air-delivery throw outcome (advanceFlyingItems). Handles payout/tip/streak/dirty-
-    // plate-queueing/FX identically either way; `isAirMail` just adds the bonus + a distinct popup
-    // flag the render layer picks up to show "AIR MAIL! 🛫" instead of the plain payout text.
-    // `isBankShot` (only ever true alongside isAirMail — a bounced throw that then lands correctly
-    // at the window) adds BANK_SHOT_BONUS on top and flags the "BANK SHOT!" popup variant.
-    function completeDelivery(dishId, waitingHere, spotNum, isAirMail, isBankShot){
+    // FIELD-CUSTOMER REWORK: there is no order-taking and no walk-up delivery any more —
+    // hostTakeOrder/hostDeliverAtSpot are gone. Orders are visible over customers' heads from
+    // the moment they arrive; fulfillment happens exclusively through thrown/lobbed dishes
+    // resolved in hostResolveClaims/advanceCustomers above. completeDelivery remains the one
+    // shared payout core, now anchored on the CUSTOMER (isBullseye = the dish landed right in
+    // their hooves — instant catch + style bonus, the spiritual successor of AIR MAIL).
+    function completeDelivery(dishId, customer, isBullseye){
       const recipe = RECIPES[dishId];
-      const elapsed = waitingHere.patienceMax - waitingHere.patience;
-      const tipFrac = Math.max(0, 1 - Math.max(0, elapsed - waitingHere.patienceMax * TIP_FULL_FRACTION) /
-                                     (waitingHere.patienceMax * (1 - TIP_FULL_FRACTION)));
+      const elapsed = customer.patienceMax - customer.patience;
+      const tipFrac = Math.max(0, 1 - Math.max(0, elapsed - customer.patienceMax * TIP_FULL_FRACTION) /
+                                     (customer.patienceMax * (1 - TIP_FULL_FRACTION)));
       const tip = Math.round(TIP_FULL_AMOUNT * tipFrac);
-      const airBonus = isAirMail ? AIR_MAIL_BONUS : 0;
-      const bankBonus = isBankShot ? BANK_SHOT_BONUS : 0;
-      G.money += recipe.price + tip + airBonus + bankBonus;
+      const airBonus = isBullseye ? BULLSEYE_BONUS : 0;
+      G.money += recipe.price + tip + airBonus;
       G.stats.tips += tip;
       G.stats.served++;
-      waitingHere.state = "leaving_happy";
-      lastDeliveryInfo = { price: recipe.price, tip, spot: spotNum, airMail: !!isAirMail, airBonus,
-                            bankShot: !!isBankShot, bankBonus };   // consumed by the render layer's popup
-      spawnDeliveryFX(spotNum);
-      // Systems pass 4: plated dishes (salad/soup/burger) leave a dirty plate behind at the
-      // customer's table — queued to pop at the dirty bin ~5s later. Pizza is plateless
-      // (recipe.needsPlate === false) and generates NO dirty plate at all, per the design doc.
+      customer.state = "leaving_happy";
+      lastDeliveryInfo = { price: recipe.price, tip, airMail: !!isBullseye, airBonus,
+                           custX: customer.x, custZ: customer.z };   // consumed by the render layer's popup
+      spawnDeliveryFX(customer);
+      // Plated dishes (salad/soup/burger) leave a dirty plate behind — queued to pop at the
+      // dirty bin ~5s later. Pizza is plateless (needsPlate === false): no dirty plate.
       if (recipe.needsPlate) queueDirtyPlateReturn();
-
-      // ---- Tier-1 batch: delivery streak — every successful (on-time, by definition: delivery
-      // only ever happens while a customer is still "waiting", i.e. before its patience hit 0)
-      // delivery from ANY chef extends the shared streak. At 3/5/8/12 landed, a new celebration
-      // tier fires (bumps streakCelebId so the render layer plays the synchronized wave-hop +
-      // banner + bonus exactly once per tier landed, on both screens via the snapshot diff).
+      // Delivery streak: every successful delivery from ANY chef extends the shared streak.
       G.streak = (G.streak || 0) + 1;
       if (STREAK_TIERS.includes(G.streak)){
         G.streakCelebTier = G.streak;
@@ -3685,30 +3729,9 @@
       }
       publishSnapshotNow();   // discrete event — money change should reach the guest instantly
     }
-    // ---- DELIVER (Systems pass 2) — chef holding a completed plate presses action at a
-    // numbered spot. Correct dish AND correct spot -> payment + tip; dish matches someone else's
-    // spot -> gentle bounce-back hint, plate stays in hand, nothing lost. ----
-    function hostDeliverAtSpot(chefId, spotNum){
-      const chef = G.chefs[chefId];
-      const top = holdTop(chef);
-      const dishId = top && top.dish;
-      const waitingHere = G.customers.find(c => c.state === "waiting" && c.spot === spotNum);
-
-      if (!waitingHere || !dishId || waitingHere.dish !== dishId){
-        // wrong spot (or nobody there) — bounce back, keep the plate, no money lost.
-        G.wrongSpotHintId = (G.wrongSpotHintId || 0) + 1;
-        G.wrongSpotHintChef = chefId;
-        publishSnapshotNow();
-        return;
-      }
-
-      holdPop(chef);
-      completeDelivery(dishId, waitingHere, spotNum, false);
-    }
-    // Render-layer hook target: last delivery's price/tip/spot breakdown, read once by the
-    // popup + flash spawn on the G.stats.served diff (see updateSoundReactions) then irrelevant
-    // until next delivery — plain scratch var, not gameplay truth, so it stays outside G.
-    let lastDeliveryInfo = { price: 0, tip: 0, spot: 1, airMail: false, airBonus: 0, bankShot: false, bankBonus: 0 };
+    // Render-layer hook target: last delivery's breakdown, read once by the popup/flash spawn
+    // on the G.stats.served diff — plain scratch var, not gameplay truth, stays outside G.
+    let lastDeliveryInfo = { price: 0, tip: 0, airMail: false, airBonus: 0, custX: 0, custZ: 0 };
 
     // ---- host-only: full day reset, called from the "Play again" button handler below.
     // Rebuilds every mutable field of G fresh (money 0, dayLeft reset, customers cleared,
@@ -3734,10 +3757,9 @@
       G.floorItems = [];
       G.plateThrowHintId = 0;
       G.plateThrowHintChef = null;
-      G.bellFullHintId = 0;
-      G.bellFullHintChef = null;
-      G.wrongSpotHintId = 0;
-      G.wrongSpotHintChef = null;
+      G.crowTakeId = 0;
+      G.crowTakeX = 0; G.crowTakeZ = 0;
+      G.lobId = 0;
       G.refusalHintId = 0;
       G.refusalHintChef = null;
       G.refusalHintMsg = "";
@@ -4024,11 +4046,14 @@
     // serve line + the first stretch of the queue lane visible. The camera handles asymmetry
     // by shifting its frustum center east by CAM_X_SHIFT (computed per-branch in fitCamera,
     // since portrait hugs the kitchen tighter on the west than landscape does).
-    const SCENE_RIGHT_EXTENT = LANE_X + 0.9;   // queue lane + a customer's girth
-    const SCENE_LEFT_EXTENT_LANDSCAPE = HALF_W + 1.2;
-    const SCENE_LEFT_EXTENT_PORTRAIT  = HALF_W + 0.35;
+    // FIELD-CUSTOMER REWORK: customers stand in a ring around ALL four sides now, so every
+    // side needs its field band visible (FIELD_BAND_MAX + a customer's girth).
+    const FIELD_VIEW_MARGIN = FIELD_BAND_MAX + 1.0;   // 2.9 — field band + a customer's girth
+    const SCENE_RIGHT_EXTENT = HALF_W + FIELD_VIEW_MARGIN;
+    const SCENE_LEFT_EXTENT_LANDSCAPE = HALF_W + FIELD_VIEW_MARGIN;
+    const SCENE_LEFT_EXTENT_PORTRAIT  = HALF_W + FIELD_VIEW_MARGIN;   // symmetric again — diners on every side
     const SCENE_HALF_W = (SCENE_LEFT_EXTENT_LANDSCAPE + SCENE_RIGHT_EXTENT) / 2;  // decor/ground sizing
-    const SCENE_HALF_D = HALF_D + 1.2;
+    const SCENE_HALF_D = HALF_D + FIELD_VIEW_MARGIN;
     const BASE_FOV = 46;        // this file's original fixed vertical FOV, kept as-is for aspect>=1
     // MOBILE-FIRST pass: on a PORTRAIT viewport (aspect < 1, i.e. taller than wide — phones/
     // tablets held upright), a camera with a FIXED vertical FOV forces its horizontal FOV down to
@@ -4093,7 +4118,7 @@
       const cosA = Math.cos(angle), sinA = Math.sin(angle);
       const distNearV = (y, Dz) => (Dz * (cosA * tanHalfV + sinA) + y * (sinA * tanHalfV - cosA)) / tanHalfV;
       const distFarV  = (y, Dz) => (Dz * (sinA + cosA * tanHalfV) + y * (cosA - sinA * tanHalfV)) / tanHalfV;
-      const DZ_NEAR = HALF_D + 1;         // bottom wall + a hair of outside margin
+      const DZ_NEAR = HALF_D + FIELD_VIEW_MARGIN;   // bottom wall + the visible field band (diners stand there too)
       const distForV = Math.max(
         distNearV(0, DZ_NEAR), distNearV(CH, DZ_NEAR),
         distFarV(0, SCENE_HALF_D), distFarV(CH, SCENE_HALF_D)
@@ -4167,18 +4192,8 @@
     // tiles pulse together, which defeats the whole point of per-tile highlighting).
     const counterTileGeo = new THREE.BoxGeometry(CT - TILE_GAP, CH, CT - TILE_GAP);
     const COUNTER_TILE_TOP_COLOR = 0x8a5a34;    // ONE uniform counter tone, slot or active-station alike
-    // ---- Change #2 (uniform-grid pass): serving-window tiles (the bell + 3 numbered spots) are
-    // the SAME footprint as every other tile now, but need to read as "not a shelf" per the
-    // design doc — a distinct light gray/blue-gray top (Overcooked's delivery-zone color) plus a
-    // painted arrow chevron pointing OUTWARD (away from the play area, i.e. -z on the top wall,
-    // matching WINDOW_Z's placement) laid flat on the tile top. Shared geometry/material across
-    // all 4 window tiles (never individually highlighted differently from any other station tile,
-    // so no per-tile material instance is needed here the way the corner-highlight system needs
-    // for its emissive toggle — window tiles use the SAME highlightTargets mechanism as every
-    // other station, driven off their bell/spot station entry, untouched by this cosmetic layer).
-    const WINDOW_TILE_TOP_COLOR = 0xaebdc9;      // light blue-gray "delivery zone" tone
-    const windowArrowGeo = new THREE.ConeGeometry(0.16, 0.34, 3);   // 3-sided cone reads as a flat chevron/arrow from above
-    const windowArrowM = mat(0x6a7a88, true);
+    // FIELD-CUSTOMER REWORK: the window/delivery tiles are gone — EVERY tile (plain slot or
+    // station footprint) shares the one uniform counter tone; equipment on top differentiates.
     const counterGroup = new THREE.Group();
     scene.add(counterGroup);
     const counterTileGroups = [];   // index-aligned with COUNTER_TILES — used by the tile-highlight system below
@@ -4190,29 +4205,9 @@
       // change) get their own geometry instead of the shared square one.
       const geo = (Math.abs(tw - (CT - TILE_GAP)) < 1e-6 && Math.abs(td - (CT - TILE_GAP)) < 1e-6)
         ? counterTileGeo : new THREE.BoxGeometry(tw, CH, td);
-      const isWindowTile = t.station && (t.station.type === "bell" || t.station.type === "spot");
-      if (isWindowTile){
-        // distinct delivery-zone tile: light blue-gray top (no dark station plinth — the window
-        // frame posts/number tiles/bell already carry plenty of visual identity on their own, a
-        // plinth here would just compete with them) + a painted arrow pointing away from the
-        // kitchen (outward through the wall, the direction customers/delivery reads as "out").
-        const top = new THREE.Mesh(geo, mat(WINDOW_TILE_TOP_COLOR, true));
-        top.position.y = CH / 2;
-        g.add(top);
-        const arrow = new THREE.Mesh(windowArrowGeo, windowArrowM);
-        arrow.rotation.x = Math.PI / 2;     // lay the cone flat, tip pointing along local +/-Z
-        // USER-DRAWN GRID: the window is on the RIGHT wall now — outward is +x there, so spin
-        // the flat arrow to point east instead of north (kept generic: pick by which wall).
-        arrow.rotation.z = (t.x > HALF_W - CT) ? -Math.PI / 2 : Math.PI;
-        arrow.position.y = CH + 0.005;
-        g.add(arrow);
-      } else {
-        // every other tile — plain slot OR any station's footprint, active or not — shares the
-        // SAME uniform counter top color per the design doc (equipment on top differentiates it).
-        const top = new THREE.Mesh(geo, mat(COUNTER_TILE_TOP_COLOR, true));
-        top.position.y = CH / 2;
-        g.add(top);
-      }
+      const top = new THREE.Mesh(geo, mat(COUNTER_TILE_TOP_COLOR, true));
+      top.position.y = CH / 2;
+      g.add(top);
       counterGroup.add(g);
       counterTileGroups.push(g);
     });
@@ -4666,64 +4661,6 @@
     // (hot-swap for this station is handled by the declarative syncPropStationVisuals() sweep
     // further down this file, alongside every other single-instance prop station.)
 
-    // ---- WIDE 4-segment serving window (Systems pass 2 rework): one continuous frame/awning
-    // spanning the bell + 3 numbered spots, built once from the combined footprint of those 4
-    // station entries, then each segment gets its own small highlight target (so the existing
-    // per-station reach-highlight still lights up just the segment a chef is standing at) plus
-    // a distinguishing visual: a bell icon tile over "orderBell", a painted number tile over
-    // each "windowSpot#".
-    function buildServingWindowRow(){
-      // USER-DRAWN GRID: the checkout is a VERTICAL strip on the RIGHT wall (constant x,
-      // segments marching down in z: bell northernmost, spots 1/2/3 below). "Inward" (toward
-      // the kitchen, where the signage faces) is -x on this wall.
-      const segStations = ["orderBell", "windowSpot1", "windowSpot2", "windowSpot3"].map(stationById);
-      const first = segStations[0], last = segStations[segStations.length - 1];
-      const x = first.x;
-
-      const g = new THREE.Group();
-      const frameM = mat(0xb31942, true);
-      const northPost = new THREE.Mesh(new THREE.BoxGeometry(0.2, CH, 0.18), frameM);
-      northPost.position.set(x, CH/2, first.z - first.d/2);
-      g.add(northPost);
-      const southPost = new THREE.Mesh(new THREE.BoxGeometry(0.2, CH, 0.18), frameM);
-      southPost.position.set(x, CH/2, last.z + last.d/2);
-      g.add(southPost);
-      // divider posts between segments, thinner than the end posts, purely visual
-      for (let i = 1; i < segStations.length; i++){
-        const divZ = segStations[i].z - segStations[i].d/2;
-        const div = new THREE.Mesh(new THREE.BoxGeometry(0.16, CH * 0.85, 0.08), mat(0xffffff, true));
-        div.position.set(x, CH * 0.425, divZ);
-        g.add(div);
-      }
-      // (No spanning bar / awning trim — kept from the earlier "visual noise" fix.)
-      scene.add(g);
-
-      // bell segment: little bell so it reads as distinct from the numbered spots.
-      const bell = segStations[0];
-      const bellBody = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8, 0, Math.PI*2, 0, Math.PI*0.6), mat(0xffd23f, true));
-      bellBody.position.set(bell.x - 0.05, CH + 0.35, bell.z);
-      g.add(bellBody);
-      const bellKnob = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), mat(0xb8860b));
-      bellKnob.position.set(bell.x - 0.05, CH + 0.24, bell.z);
-      g.add(bellKnob);
-      stationMeshes[bell.id] = { group: g, highlightTargets: [bellBody] };
-
-      // numbered spots: flat painted tile + N pips, facing the kitchen (thin in x, pips along z).
-      for (let i = 1; i <= 3; i++){
-        const spotSt = stationById("windowSpot" + i);
-        const tile = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.5, 0.5), mat(0xffffff, true));
-        tile.position.set(spotSt.x - 0.11, CH + 0.42, spotSt.z);
-        g.add(tile);
-        const pipM = mat(0xb31942, true);
-        for (let p = 0; p < i; p++){
-          const pip = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.09, 0.09), pipM);
-          pip.position.set(spotSt.x - 0.15, CH + 0.42, spotSt.z + (p - (i-1)/2) * 0.16);
-          g.add(pip);
-        }
-        stationMeshes[spotSt.id] = { group: g, highlightTargets: [tile] };
-      }
-    }
-    buildServingWindowRow();
 
     function buildTrash(st){
       const g = new THREE.Group();
@@ -5726,7 +5663,14 @@
           const lt = idx - i0;
           const p0 = path.points[i0], p1 = path.points[i1];
           const dot = dots[i];
-          dot.position.set(p0.x + (p1.x - p0.x) * lt, CH + 0.55, p0.z + (p1.z - p0.z) * lt);
+          // FIELD-CUSTOMER REWORK: lob paths carry a per-point arc height in p.y — use it when
+          // present so the dots trace the actual high arc; flat throws keep the fixed height.
+          const y0 = p0.y != null ? p0.y : CH + 0.55;
+          const y1 = p1.y != null ? p1.y : CH + 0.55;
+          dot.position.set(p0.x + (p1.x - p0.x) * lt, y0 + (y1 - y0) * lt, p0.z + (p1.z - p0.z) * lt);
+          // lob dots render high against bright grass — nearly double them so the arc reads at a
+          // glance (throw dots stay small; they hug the counters where contrast is fine).
+          dot.scale.setScalar(path.lob ? 1.9 : 1);
           dot.visible = true;
           dot.material.opacity = 0.55 + 0.3 * Math.sin((frac * 8 - t * 4));
         }
@@ -5734,15 +5678,19 @@
         const pulse = 1 + Math.sin(t * 5) * 0.12;
         ring.scale.setScalar(pulse);
         ring.visible = true;
-        // bounced paths get a warmer ring tint so a bank-shot aim reads distinctly from a direct one.
-        ring.material.color.setHex(path.bounced ? 0xff9f43 : 0xffe14d);
+        // bounced paths get a warmer ring tint so a bank-shot aim reads distinctly from a direct
+        // one; lobs go sky-blue (over-the-wall shot) and flip GREEN when the landing would
+        // BULLSEYE a matching waiting customer — the "let go now!" signal for kids.
+        ring.material.color.setHex(path.lob ? (path.bullseye ? 0x5eff8a : 0x66d9ff)
+                                            : (path.bounced ? 0xff9f43 : 0xffe14d));
       };
     }
     // Two independent preview visuals: "p1" covers P1/solo/touch (only one of those can ever be
     // aiming on a given device at once), "p2" covers couch mode's second local chef.
     const throwPreviewRenderers = { p1: createThrowPreviewVisual(), p2: createThrowPreviewVisual() };
-    // Maps a throwHolds key ("p1"/"touch"/"p2") to which preview visual slot renders it.
-    function previewSlotForHoldKey(holdKey){ return holdKey === "p2" ? "p2" : "p1"; }
+    // Maps a throwHolds key ("p1"/"touch"/"p2" + the "…lob" variants) to which preview visual
+    // slot renders it — P2's throw AND lob both belong to the p2 visual, everything else to p1.
+    function previewSlotForHoldKey(holdKey){ return holdKey.startsWith("p2") ? "p2" : "p1"; }
     // Called every frame from the main loop: shows/updates/hides each preview visual based on
     // whichever throwHolds are currently past THROW_HOLD_THRESHOLD (and holding a throwable item).
     function updateThrowPreviews(){
@@ -5753,7 +5701,10 @@
         const chef = G.chefs[hold.chefId];
         const item = chef && holdTop(chef);
         if (!chef || !item || item.kind === "pizza" || NOT_THROWABLE_KINDS.has(item.kind)) continue;
-        activeBySlot[previewSlotForHoldKey(holdKey)] = simulateThrowPath(chef, hold.chefId, item);
+        // FIELD-CUSTOMER REWORK: "…lob" hold keys preview the high-arc lob path instead.
+        activeBySlot[previewSlotForHoldKey(holdKey)] = holdKey.endsWith("lob")
+          ? simulateLobPath(chef, hold.chefId, item)
+          : simulateThrowPath(chef, hold.chefId, item);
       }
       throwPreviewRenderers.p1(activeBySlot.p1, t);
       throwPreviewRenderers.p2(activeBySlot.p2, t);
@@ -5805,17 +5756,15 @@
       });
     }
 
-    spawnDeliveryFX = (spotNum) => {
-      // Systems pass 2: the single serving window is gone — confetti now bursts at whichever
-      // numbered spot the customer was delivered to (falls back to spot 1's position if no
-      // number was passed, e.g. any legacy call sites).
-      const winSt = stationBySpot(spotNum || 1) || stationBySpot(1);
+    spawnDeliveryFX = (pos) => {
+      // FIELD-CUSTOMER REWORK: confetti bursts right at the customer out in the field.
+      const px = (pos && pos.x) || 0, pz = (pos && pos.z) || 0;
       const bits = [];
       const colors = [0xff5252, 0xffd23f, 0x4ecb5c, 0x4aa3ff, 0xff8fd0];
       const group = new THREE.Group();
       for (let i = 0; i < 18; i++){
         const c = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), mat(colors[i % colors.length], true));
-        c.position.set(winSt.x + (Math.random()-0.5)*1.2, CH + 0.4, winSt.z + (Math.random()-0.5)*0.6);
+        c.position.set(px + (Math.random()-0.5)*1.2, CH + 0.4, pz + (Math.random()-0.5)*0.6);
         const vel = { x: (Math.random()-0.5)*2.2, y: 2 + Math.random()*2, z: (Math.random()-0.5)*1.5 };
         group.add(c);
         bits.push({ mesh: c, vel });
@@ -5847,14 +5796,14 @@
     const coinGeo = new THREE.CylinderGeometry(0.09, 0.09, 0.025, 10);
     const coinMat = mat(0xffd23f, true);
     SHARED_ASSETS.add(coinGeo); SHARED_ASSETS.add(coinMat);
-    function spawnCoinBurstFX(spotNum){
-      const winSt = stationBySpot(spotNum || 1) || stationBySpot(1);
+    function spawnCoinBurstFX(pos){
+      const px = (pos && pos.x) || 0, pz = (pos && pos.z) || 0;   // FIELD-CUSTOMER: anchored at the customer
       const group = new THREE.Group();
       const bits = [];
       for (let i = 0; i < 6; i++){
         const c = new THREE.Mesh(coinGeo, coinMat);
         c.rotation.x = Math.PI / 2;
-        c.position.set(winSt.x + (Math.random()-0.5)*0.6, CH + 0.4, winSt.z + (Math.random()-0.5)*0.4);
+        c.position.set(px + (Math.random()-0.5)*0.6, CH + 0.4, pz + (Math.random()-0.5)*0.4);
         group.add(c);
         bits.push({ mesh: c, vel: { x: (Math.random()-0.5)*1.3, y: 1.6 + Math.random()*1.4, z: (Math.random()-0.5)*1.0 } });
       }
@@ -6038,7 +5987,7 @@
     // Systems pass 2: replaces the old flat "+10 ⭐" popup — shows the coin payout (+ a stacked
     // "+N tip! 💝" popup underneath when a tip landed) and pulses the HUD coin icon. Runs on
     // BOTH screens since it's called from updateSoundReactions off the G.stats.served diff.
-    function showDeliveryPopup(price, tip, airMail, airBonus, bankShot, bankBonus){
+    function showDeliveryPopup(price, tip, airMail, airBonus){
       const wrap = document.getElementById("popupWrap");
       const el = document.createElement("div");
       el.className = "plusPop";
@@ -6070,12 +6019,12 @@
         setTimeout(() => { tipEl.remove(); }, 1300);
       }
 
-      // ---- Family playtest fix #4: AIR MAIL! bonus popup + a soft full-screen "pop" of light —
-      // rewards the style of an air delivery over just walking the dish over.
+      // ---- FIELD-CUSTOMER REWORK: BULLSEYE! popup (successor of AIR MAIL) — a lob that came
+      // down right in the customer's hooves. Soft full-screen "pop" of light included.
       if (airMail){
         const airEl = document.createElement("div");
         airEl.className = "airMailPop";
-        airEl.textContent = "AIR MAIL! 🛫 +" + (airBonus || 0);
+        airEl.textContent = "BULLSEYE! 🎯 +" + (airBonus || 0);
         wrap.appendChild(airEl);
         setTimeout(() => { airEl.remove(); }, 1550);
         const liteWrap = document.getElementById("screenLiteWrap");
@@ -6083,16 +6032,6 @@
         void liteWrap.offsetWidth;
         liteWrap.classList.add("pop");
         setTimeout(() => liteWrap.classList.remove("pop"), 520);
-      }
-      // ---- MOBILE-FIRST pass (change #9): BANK SHOT! popup — stacks one beat further below the
-      // AIR MAIL popup when the dish bounced at least once before landing at the right window
-      // spot, rewarding the extra style with its own distinct bonus + callout.
-      if (bankShot){
-        const bankEl = document.createElement("div");
-        bankEl.className = "bankShotPop";
-        bankEl.textContent = "BANK SHOT! 🏀 +" + (bankBonus || 0);
-        wrap.appendChild(bankEl);
-        setTimeout(() => { bankEl.remove(); }, 1750);
       }
 
       // coin-flip pulse on the HUD chip
@@ -6103,31 +6042,10 @@
       setTimeout(() => coinIcon.classList.remove("flip"), 380);
     }
 
-    // brief happy flash/glow at the delivered-to window spot when a delivery lands (juice,
-    // Stage 4; Systems pass 2: now targets whichever numbered spot's tile) — both screens react
-    // since this is driven off G.stats.served changing, not off the host-only spawnDeliveryFX call.
-    let servingFlashT = 0;
-    let servingFlashSpotId = null;
-    function flashServingWindow(spotNum){
-      servingFlashT = 0.5;
-      servingFlashSpotId = "windowSpot" + (spotNum || 1);
-    }
-    function updateServingFlash(dt){
-      const sm = servingFlashSpotId && stationMeshes[servingFlashSpotId];
-      if (!sm || !sm.highlightTargets) return;
-      if (servingFlashT > 0){
-        servingFlashT = Math.max(0, servingFlashT - dt);
-        const p = (servingFlashT / 0.5) * 0.6;
-        for (const m of sm.highlightTargets){
-          if (m.material.emissive) m.material.emissive.setRGB(1, p, 0);
-        }
-      } else if (highlightedId !== servingFlashSpotId){
-        // only clear if the normal reach-highlight isn't also driving this station's emissive
-        for (const m of sm.highlightTargets){
-          if (m.material.emissive) m.material.emissive.setHex(0x000000);
-        }
-      }
-    }
+    // (FIELD-CUSTOMER REWORK: the serving-window flash is gone with the window — the confetti +
+    // coin burst at the customer carry the delivery celebration now.)
+    function flashServingWindow(){ /* retired — kept as a no-op for any straggler call sites */ }
+    function updateServingFlash(){ }
 
     // tiny burst of ingredient-colored flecks at the board when a chop completes (juice, Stage 4).
     // Tile/board rework pass fix: now takes WHICH board (index into BOARD_STATIONS) so the
@@ -6164,13 +6082,14 @@
     }
 
     // gentle gray puff at the missed customer's window spot — no shake, no red.
-    spawnMissFX = (spotNum) => {
-      const winSt = stationBySpot(spotNum || 1) || stationBySpot(1);
+    spawnMissFX = (customer) => {
+      // FIELD-CUSTOMER REWORK: the sad little cloud puffs at the customer who gave up waiting.
+      const px = (customer && customer.x) || 0, pz = (customer && customer.z) || 0;
       const group = new THREE.Group();
       for (let i = 0; i < 8; i++){
         const p = new THREE.Mesh(new THREE.SphereGeometry(0.1, 6, 5),
           new THREE.MeshBasicMaterial({ color: 0xc9c2b0, transparent: true, opacity: 0.6 }));
-        p.position.set(winSt.x, CH + 0.5, winSt.z);
+        p.position.set(px, CH + 0.5, pz);
         group.add(p);
       }
       fxGroup.add(group);
@@ -6268,17 +6187,22 @@
           // throw actually fires), matching every other discrete-press call site's timing.
           beginThrowHold("p2", LOCAL2_ID);
         }
+        // FIELD-CUSTOMER REWORK: LOB — P2's key is "/" (right beside Right-Shift, mirroring how
+        // P1's V sits beside X). Same hold-to-aim state machine, its own "…lob" hold key.
+        if (k === "/" && !keys.has("/")) beginThrowHold("p2lob", LOCAL2_ID);
         if (k === "." && !keys.has(".")) cycleEmote(LOCAL2_ID);
         // ---- P1: WASD + Space (grab) + C/F (WORK, hold) + Q (throw) + E (emote) — X/left-Shift
         // belong to nobody in couch mode (kept clean per the design doc), so they're deliberately
         // NOT wired here. ----
         if (k === " " && !keys.has(" ")){ net.localActionPress(); mostRecentActingChefId = net.myChefId; }
         if (k === "q" && !keys.has("q")){ beginThrowHold("p1", net.myChefId); }
+        if (k === "v" && !keys.has("v")){ beginThrowHold("p1lob", net.myChefId); }   // LOB (couch P1)
         if (k === "e" && !keys.has("e")) net.localEmotePress();
       } else {
         // ---- Non-couch: original single-chef control scheme, WORK added on C or F ----
         if (k === " " && !keys.has(" ")) net.localActionPress();
         if ((k === "x" || k === "Shift") && !keys.has(k)){ beginThrowHold("p1", net.myChefId); }
+        if (k === "v" && !keys.has("v")){ beginThrowHold("p1lob", net.myChefId); }   // LOB
         if (k === "e" && !keys.has("e")) net.localEmotePress();
       }
 
@@ -6302,6 +6226,16 @@
       // "p1" hold record.
       if (k === "x" || k === "q" || (k === "Shift" && !isRightShift)){
         endThrowHold("p1", () => { net.localThrowPress(); if (G.couchMode) mostRecentActingChefId = net.myChefId; });
+      }
+      // FIELD-CUSTOMER REWORK: LOB releases — own hold keys, so they never collide with the
+      // regular-throw releases above even when both buttons are somehow down at once.
+      if (k === "v"){
+        endThrowHold("p1lob", () => { net.localLobPress(); if (G.couchMode) mostRecentActingChefId = net.myChefId; });
+      }
+      // "?" included: P2 holding "/" while (Right-)Shift is down reports the keyup as "?" —
+      // without it the lob hold would stay latched until the next blur/visibility clear.
+      if (k === "/" || k === "?"){
+        endThrowHold("p2lob", () => { tryLob(LOCAL2_ID); mostRecentActingChefId = LOCAL2_ID; });
       }
       keys.delete(k);
     });
@@ -6481,6 +6415,27 @@
       throwBtn.addEventListener("pointerup", releaseThrowBtn);
       throwBtn.addEventListener("pointercancel", abortThrowBtn);
       throwBtn.addEventListener("pointerleave", abortThrowBtn);
+
+      // LOB button (FIELD-CUSTOMER REWORK): identical hold-to-aim contract as the throw button —
+      // its own "touchlob" hold key, release fires through net.localLobPress (host runs tryLob
+      // directly, guest bumps lobSeq), finger-off aborts with no lob.
+      const lobBtn = document.getElementById("lobBtn");
+      lobBtn.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        lobBtn.classList.add("pressed");
+        beginThrowHold("touchlob", net.myChefId);
+      });
+      function releaseLobBtn(){
+        lobBtn.classList.remove("pressed");
+        endThrowHold("touchlob", () => net.localLobPress());
+      }
+      function abortLobBtn(){
+        lobBtn.classList.remove("pressed");
+        throwHolds.delete("touchlob");
+      }
+      lobBtn.addEventListener("pointerup", releaseLobBtn);
+      lobBtn.addEventListener("pointercancel", abortLobBtn);
+      lobBtn.addEventListener("pointerleave", abortLobBtn);
 
       // emote button (Tier-1 batch): tap = one net.localEmotePress(), identical exactly-once
       // seq-publish path as the action/throw buttons — cycles bang -> heart -> sweat -> none.
@@ -7081,7 +7036,7 @@
     // counterTileGroups the exact same way gives the slot-index-aligned tile MESH for each slot,
     // letting the targeting highlight below light up the one physical tile a chef is standing at.
     const slotTileMesh = COUNTER_TILES.reduce((arr, t, idx) => {
-      if (!t.station || (t.station.type !== "bell" && t.station.type !== "spot")) arr.push(counterTileGroups[idx]);
+      arr.push(counterTileGroups[idx]);   // FIELD-CUSTOMER: every tile is highlightable now
       return arr;
     }, []);
     {
@@ -7428,14 +7383,12 @@
       customerAnimById.delete(id);
       delete custHopT[id];
       delete custPrevState[id];
-      delete custPrevQueuePos[id];
       const bubble = custBubbleEls.get(id);
       if (bubble){ bubble.remove(); custBubbleEls.delete(id); }
     }
 
     const custHopT = {};             // customer id -> seconds remaining of the happy-hop boost
     const custPrevState = {};        // customer id -> state last frame (diff basis for the hop trigger)
-    const custPrevQueuePos = {};     // customer id -> queuePos last frame (diff basis for the shuffle-step hop)
     function syncCustomerVisuals(dt){
       const seen = new Set();
       for (const c of G.customers){
@@ -7448,16 +7401,12 @@
         if (custPrevState[c.id] !== "leaving_happy" && c.state === "leaving_happy"){
           custHopT[c.id] = 0.7;   // ~2 bounces at the boosted hop rate below
         }
-        custPrevState[c.id] = c.state;
-
-        // Juice pass: queue shuffle-step — a smaller one-shot hop (reuses custHopT, same as the
-        // happy-delivery hop but shorter) the instant this customer's queuePos drops (the line
-        // advanced and they step forward), so waiting in line reads as a series of little
-        // "budge forward" beats rather than a single continuous glide.
-        if (c.state === "queueing" && custPrevQueuePos[c.id] != null && c.queuePos < custPrevQueuePos[c.id]){
-          custHopT[c.id] = Math.max(custHopT[c.id] || 0, 0.3);
+        // FIELD-CUSTOMER REWORK: a little excited hop the moment they claim a dish and trot off.
+        // (Checked BEFORE custPrevState is overwritten below, or the transition is never seen.)
+        if (custPrevState[c.id] !== "fetching" && c.state === "fetching"){
+          custHopT[c.id] = Math.max(custHopT[c.id] || 0, 0.35);
         }
-        custPrevQueuePos[c.id] = c.state === "queueing" ? c.queuePos : null;
+        custPrevState[c.id] = c.state;
 
         // wobble-walk + idle bounce (juice) — same walk-bob pattern as chefs (chefWalkAnim),
         // scaled down for these smaller critters.
@@ -7526,7 +7475,7 @@
         }
         if (bubble){
           const recipe = RECIPES[c.dish] || RECIPES.salad;
-          bubble.lastChild.textContent = recipe.emoji + (c.state === "waiting" ? " " + c.spot : "");
+          bubble.lastChild.textContent = recipe.emoji;   // FIELD-CUSTOMER: the order floats overhead, no spot numbers
           const p = new THREE.Vector3(c.x, 1.05, c.z).project(camera);
           const stageRect = stage.getBoundingClientRect();
           const sx = (p.x * 0.5 + 0.5) * stageRect.width;
@@ -7761,8 +7710,9 @@
           const recipe = RECIPES[c.dish] || RECIPES.salad;
           const card = document.createElement("div");
           card.className = "orderCard";
+          // FIELD-CUSTOMER REWORK: no spot numbers — the card shows the customer's animal + dish
           card.innerHTML = '<div class="orderSpot"></div><div class="orderEmoji"></div><div class="orderBarTrack"><div class="orderBarFill"></div></div>';
-          card.querySelector(".orderSpot").textContent = String(c.spot);
+          card.querySelector(".orderSpot").textContent = CUSTOMER_EMOJI[c.kind] || "🐾";
           card.querySelector(".orderEmoji").textContent = recipe.emoji;
           orderRowEl.appendChild(card);
           orderCardEls.set(c.id, card);
@@ -7770,8 +7720,8 @@
         }
       }
 
-      // keep DOM order matching spot order (1, 2, 3) so cards don't jump around
-      for (const c of waitingNow.slice().sort((a, b) => a.spot - b.spot)){
+      // keep DOM order stable by customer id so cards don't jump around
+      for (const c of waitingNow.slice().sort((a, b) => a.id - b.id)){
         const el = orderCardEls.get(c.id);
         if (el && el.parentNode === orderRowEl) orderRowEl.appendChild(el);
       }
@@ -7967,7 +7917,12 @@
     // pot -> plate!"). One short line per level, cycled every few seconds via a local (non-G)
     // timer so it's purely a render-layer concern like the rest of the hint system. ----
     const TEACH_HINTS = {
-      1: ["Salad Days: chop tomato & lettuce, then plate them!"],
+      // FIELD-CUSTOMER REWORK: level 1 now teaches the LOB — the only way to deliver. (isTouchDevice
+      // is declared above this in module order, so reading it here at init time is safe.)
+      1: ["Salad Days: chop tomato & lettuce, then plate them!",
+          "Customers wait OUTSIDE the kitchen — look for their order bubble!",
+          isTouchDevice ? "Hold 🏀 to aim, let go to LOB the dish to them!"
+                        : "Hold V to aim, let go to LOB the dish to them!"],
       2: ["Soup: chop tomato, onion & potato...", "...then drop them in the pot!", "Hold WORK at the pot to stir it faster!", "Grab a plate from the stack by the sink, then collect the soup!"],
       3: ["Burger: put a raw patty on the pan to grill it!", "Chop lettuce & tomato while it grills!", "Bun + patty + lettuce + tomato — all on one plate!"],
       4: ["Pizza: place dough on a counter or the board!", "Add chopped tomato for sauce...", "...then chopped cheese, then bake it in the oven!"],
@@ -8039,9 +7994,12 @@
         // example wording: "Holding 3! Place some down!").
         msg = "Holding " + holdCount(chef) + "! Place some down!";
       } else if (holdingFinishedDish){
+        // FIELD-CUSTOMER REWORK: delivery = LOB the finished dish out to the waiting customer.
         const owner = G.customers.find(c => c.state === "waiting" && c.dish === top.dish);
-        const spotMsg = owner ? "Deliver to spot " + owner.spot + "!" : "Take the dish to its numbered spot!";
-        msg = urgentOrder ? "Quick — deliver the dish! ⏰" : spotMsg;
+        const lobKey = isTouchDevice ? "Tap 🏀" : "Press V";
+        const lobMsg = owner ? (lobKey + " to LOB it to the customer!")
+                             : "Hold it — a customer will want that soon!";
+        msg = urgentOrder ? ("Quick — " + lobKey + " to lob the dish! ⏰") : lobMsg;
       } else if (top && top.kind === "plate" && !top.dish){
         // Systems pass 3: bare empty plate — normally carried to the stove for soup collection.
         // Family playtest fix #3: a freshly WASHED plate can also be a plain empty plate in a
@@ -8124,9 +8082,8 @@
       flyBounces: new Map(),   // Family playtest fix #6: flyId -> last-seen bounce count
       floorIds: new Set(),     // floor-item ids already reacted to (drop FX fires once per landing)
       plateThrowHintId: 0,
-      orderedCount: G.stats.orderedCount || 0,   // bumped once per hostTakeOrder (Systems pass 2)
-      bellFullHintId: 0,
-      wrongSpotHintId: 0,
+      custCount: 0,       // FIELD-CUSTOMER: bell chirp when a new diner shows up
+      crowTakeId: 0,      // crow-took-an-unclaimed-dish event
       refusalHintId: 0,   // Systems pass 3: generic refusal-hint event counter
       // ---- Systems pass 4: dish washing ----
       noCleanPlateHintId: 0,
@@ -8190,13 +8147,10 @@
       // (shouldn't happen, but be defensive) only ever plays the happy sound.
       if (G.stats.served > sndPrev.served){
         Snd.chaChing();
-        flashServingWindow(lastDeliveryInfo.spot);
-        showDeliveryPopup(lastDeliveryInfo.price, lastDeliveryInfo.tip, lastDeliveryInfo.airMail, lastDeliveryInfo.airBonus,
-                          lastDeliveryInfo.bankShot, lastDeliveryInfo.bankBonus);
-        spawnCoinBurstFX(lastDeliveryInfo.spot);
+        showDeliveryPopup(lastDeliveryInfo.price, lastDeliveryInfo.tip, lastDeliveryInfo.airMail, lastDeliveryInfo.airBonus);
+        spawnCoinBurstFX({ x: lastDeliveryInfo.custX, z: lastDeliveryInfo.custZ });
         if (lastDeliveryInfo.tip > 0) Snd.tipSparkle();
-        if (lastDeliveryInfo.airMail) Snd.whoosh();   // extra flourish on top of the cha-ching
-        if (lastDeliveryInfo.bankShot) Snd.boing();   // reuse the bounce "boing" as the bank-shot flourish
+        if (lastDeliveryInfo.airMail) Snd.whoosh();   // BULLSEYE flourish on top of the cha-ching
       } else if (G.stats.missed > sndPrev.missed){
         Snd.miss();
       }
@@ -8205,22 +8159,18 @@
       sndPrev.money = G.money;
       sndPrev.tips = G.stats.tips;
 
-      // TAKE ORDER: bell ding once per new order taken (event counter, mirrors served/missed).
-      const orderedCount = G.stats.orderedCount || 0;
-      if (orderedCount > sndPrev.orderedCount) Snd.bell();
-      sndPrev.orderedCount = orderedCount;
+      // FIELD-CUSTOMER REWORK: a new customer arriving rings the bell (their order is visible
+      // immediately) — reuses the bell chirp so "someone's hungry" still has a sound.
+      const custCount = G.customers.length;
+      if (custCount > (sndPrev.custCount || 0)) Snd.bell();
+      sndPrev.custCount = custCount;
 
-      // bell-full / wrong-spot hints: gentle transient hint text for the chef who tried it.
-      if (G.bellFullHintId > sndPrev.bellFullHintId && G.bellFullHintChef === net.myChefId){
-        showTransientHint("The window's full right now! 🪟", 1.6);
+      // crow-took-a-dish event: gentle caw-adjacent poof feedback on both screens.
+      if ((G.crowTakeId || 0) > (sndPrev.crowTakeId || 0)){
+        showTransientHint("A crow took it! 🐦‍⬛ Lob closer next time!", 1.8);
+        Snd.miss();
       }
-      sndPrev.bellFullHintId = G.bellFullHintId || 0;
-      if (G.wrongSpotHintId > sndPrev.wrongSpotHintId && G.wrongSpotHintChef === net.myChefId){
-        const cust = G.customers.find(c => c.state === "waiting" && topForSound && c.dish === topForSound.dish);
-        showTransientHint(cust ? "That's spot " + cust.spot + "'s order!" : "Wrong spot — try another!", 1.5);
-        wobble(net.myChefId);
-      }
-      sndPrev.wrongSpotHintId = G.wrongSpotHintId || 0;
+      sndPrev.crowTakeId = G.crowTakeId || 0;
 
       // Systems pass 3: generic gentle refusal hints (wrong soup ingredient, hot patty, floppy
       // pizza, pan/oven busy, etc — see refuse() in the action layer) — same event-counter +
@@ -8392,9 +8342,8 @@
       sndPrev.flyBounces = new Map(G.flying.map(f => [f.id, f.bounces || 0]));
       sndPrev.floorIds = new Set(G.floorItems.map(it => it.id));
       sndPrev.plateThrowHintId = G.plateThrowHintId;
-      sndPrev.orderedCount = G.stats.orderedCount || 0;
-      sndPrev.bellFullHintId = G.bellFullHintId || 0;
-      sndPrev.wrongSpotHintId = G.wrongSpotHintId || 0;
+      sndPrev.custCount = G.customers.length;
+      sndPrev.crowTakeId = G.crowTakeId || 0;
       sndPrev.refusalHintId = G.refusalHintId || 0;
       // ---- Systems pass 4 ----
       sndPrev.noCleanPlateHintId = G.noCleanPlateHintId || 0;
@@ -8824,14 +8773,13 @@
     // Every queued/waiting customer does a synchronized wave-hop, staggered 80ms per the design
     // doc — reuses the exact same custHopT mechanism syncCustomerVisuals already drives the
     // happy-delivery hop with, just triggered from here instead of a state-transition diff.
-    // Ordered by queuePos/spot so the wave visibly ripples down the line rather than popping at
-    // random.
+    // FIELD-CUSTOMER REWORK: ordered clockwise around the kitchen so the wave visibly ripples
+    // around the field rather than popping at random.
     function triggerCustomerWaveHop(){
       const ordered = G.customers
-        .filter(c => c.state === "queueing" || c.state === "ordering" || c.state === "waiting")
+        .filter(c => c.state === "arriving" || c.state === "waiting" || c.state === "fetching")
         .slice()
-        .sort((a, b) => (a.state === "waiting" ? (a.spot || 0) : 100 + (a.queuePos || 0)) -
-                         (b.state === "waiting" ? (b.spot || 0) : 100 + (b.queuePos || 0)));
+        .sort((a, b) => Math.atan2(a.x, a.z) - Math.atan2(b.x, b.z));
       ordered.forEach((c, i) => {
         setTimeout(() => { custHopT[c.id] = 0.6; }, i * 80);
       });
@@ -8930,6 +8878,7 @@
       inputCd: 0,            // guest-side: seconds until next throttled input publish
       myActSeq: 0,           // guest-side: local action sequence counter
       myThrowSeq: 0,         // guest-side: local throw sequence counter (Systems pass 1)
+      myLobSeq: 0,           // guest-side: local LOB sequence counter (FIELD-CUSTOMER REWORK)
       myEmoteSeq: 0,         // guest-side: local emote sequence counter (Tier-1 batch)
       // ---- family lobby integration ----
       roomCode: null,        // Playroom.getRoomCode() once resolved (host or guest) — null in solo
@@ -8981,7 +8930,8 @@
         // Systems pass 2: customers replace the old anonymous orders array — carried compactly,
         // lerped on the guest exactly like chef positions (see applySnapshot below).
         customers: G.customers.map(c => ({
-          id: c.id, kind: c.kind, state: c.state, spot: c.spot, dish: c.dish,
+          id: c.id, kind: c.kind, state: c.state, dish: c.dish,
+          spotX: c.spotX, spotZ: c.spotZ, fetchItemId: c.fetchItemId || null,
           patience: c.patience, patienceMax: c.patienceMax, x: c.x, z: c.z
         })),
         nextCustomerId: G.nextCustomerId,
@@ -9004,10 +8954,7 @@
         }),
         plateThrowHintId: G.plateThrowHintId,
         plateThrowHintChef: G.plateThrowHintChef,
-        bellFullHintId: G.bellFullHintId,
-        bellFullHintChef: G.bellFullHintChef,
-        wrongSpotHintId: G.wrongSpotHintId,
-        wrongSpotHintChef: G.wrongSpotHintChef,
+        // (FIELD-CUSTOMER REWORK: bellFullHint/wrongSpotHint fields retired with the checkout window.)
         // ---- Systems pass 3: cooking stations + level/progression ----
         pot: { contents: G.pot.contents, cookT: G.pot.cookT, state: G.pot.state, stirringChefId: G.pot.stirringChefId || null },
         pan: { item: G.pan.item, cookT: G.pan.cookT, state: G.pan.state },
@@ -9029,6 +8976,8 @@
         // full plate/pizza payload below. ----
         airMailId: G.airMailId || 0, airMailSpot: G.airMailSpot || 1,
         trashSwishId: G.trashSwishId || 0,
+        crowTakeId: G.crowTakeId || 0, crowTakeX: G.crowTakeX || 0, crowTakeZ: G.crowTakeZ || 0,
+        lobId: G.lobId || 0,
         titleOpen: G.titleOpen,
         levelIntroId: G.levelIntroId,
         levelIntroLevel: G.levelIntroLevel,
@@ -9084,10 +9033,6 @@
       }
       G.plateThrowHintId = snap.plateThrowHintId || 0;
       G.plateThrowHintChef = snap.plateThrowHintChef || null;
-      G.bellFullHintId = snap.bellFullHintId || 0;
-      G.bellFullHintChef = snap.bellFullHintChef || null;
-      G.wrongSpotHintId = snap.wrongSpotHintId || 0;
-      G.wrongSpotHintChef = snap.wrongSpotHintChef || null;
 
       // ---- Systems pass 3: cooking stations + level/progression ----
       if (snap.pot) G.pot = { contents: snap.pot.contents.map(c => ({ ...c })), cookT: snap.pot.cookT, state: snap.pot.state, stirringChefId: snap.pot.stirringChefId || null };
@@ -9118,6 +9063,8 @@
       G.noCleanPlateHintChef = snap.noCleanPlateHintChef || null;
       G.airMailId = snap.airMailId || 0; G.airMailSpot = snap.airMailSpot || 1;
       G.trashSwishId = snap.trashSwishId || 0;
+      G.crowTakeId = snap.crowTakeId || 0; G.crowTakeX = snap.crowTakeX || 0; G.crowTakeZ = snap.crowTakeZ || 0;
+      G.lobId = snap.lobId || 0;
       if (typeof snap.titleOpen === "boolean") G.titleOpen = snap.titleOpen;
       G.levelIntroId = snap.levelIntroId || 0;
       G.levelIntroLevel = snap.levelIntroLevel || 0;
@@ -9159,7 +9106,8 @@
           c.x += (rc.x - c.x) * t;
           c.z += (rc.z - c.z) * t;
         }
-        c.state = rc.state; c.spot = rc.spot; c.dish = rc.dish;
+        c.state = rc.state; c.dish = rc.dish;
+        c.spotX = rc.spotX; c.spotZ = rc.spotZ; c.fetchItemId = rc.fetchItemId || null;
         c.patience = rc.patience; c.patienceMax = rc.patienceMax; c.kind = rc.kind;
       }
       for (let i = G.customers.length - 1; i >= 0; i--){
@@ -9298,7 +9246,7 @@
         // happens — is never silently swallowed; see the #8c note on player.onQuit below for the
         // other half of this fix (why the entry must survive a spurious quit/rejoin instead of
         // being deleted and reseeded here).
-        const st = net.remoteInput[chefId] || (net.remoteInput[chefId] = { lastSeq: 0, lastThrowSeq: 0, lastEmoteSeq: 0 });
+        const st = net.remoteInput[chefId] || (net.remoteInput[chefId] = { lastSeq: 0, lastThrowSeq: 0, lastLobSeq: 0, lastEmoteSeq: 0 });
         if (seq !== st.lastSeq){
           st.lastSeq = seq;
           tryAction(chefId);
@@ -9311,6 +9259,14 @@
         if (throwSeq !== st.lastThrowSeq){
           st.lastThrowSeq = throwSeq;
           tryThrow(chefId);
+        }
+
+        // LOB: same exactly-once seq pattern (FIELD-CUSTOMER REWORK). `|| 0` also covers the
+        // seeded-entry case: a lobSeq that's already >0 on the host's first read fires once.
+        const lobSeq = p.getState("lobSeq") || 0;
+        if (lobSeq !== (st.lastLobSeq || 0)){
+          st.lastLobSeq = lobSeq;
+          tryLob(chefId);
         }
 
         // emote: same exactly-once seq pattern (Tier-1 batch).
@@ -9349,6 +9305,14 @@
         tryThrow(net.myChefId);
       } else {
         net.myThrowSeq++;
+      }
+    };
+    // ---- LOB counterpart (FIELD-CUSTOMER REWORK) — identical exactly-once seq pattern ----
+    net.localLobPress = function(){
+      if (net.isHost){
+        tryLob(net.myChefId);
+      } else {
+        net.myLobSeq++;
       }
     };
     // ---- Systems pass 4: chef picker — sets OUR OWN chef's model choice, both in G (so the
@@ -9558,6 +9522,7 @@
             // throwSeq exactly like the design doc asks — GRAB's actSeq semantics are untouched.
             net.localPlayer.setState("workHold", workHold, false);
             net.localPlayer.setState("throwSeq", net.myThrowSeq, true);
+            net.localPlayer.setState("lobSeq", net.myLobSeq, true);       // FIELD-CUSTOMER REWORK
             net.localPlayer.setState("emoteSeq", net.myEmoteSeq, true);   // Tier-1 batch: emotes
             // Systems pass 4: chef picker — publish our own model choice so the host mirrors it
             // into its G.chefs[chefId].chefModel (see hostApplyRemoteInputs) and it rides along
