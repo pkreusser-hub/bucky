@@ -1536,19 +1536,20 @@
       { type: "trash", c: 10, r: 10 },                  { type: "crate", kind: "cheese", c: 10, r: 14 }
     ];
     // SOLO COMPACT KITCHEN: the 10×8 solo layout (level 1 test). All required stations present
-    // (inactive ones render as plain countertops on L1, same as everywhere else). Salad flow:
-    // crates across the TOP, boards + sink across the BOTTOM, plates lower-LEFT, dirty bin
-    // lower-RIGHT — so the solo loop is "grab up top, throw down, finish at the bottom".
+    // (inactive ones render as plain countertops on L1, same as everywhere else). Crates across
+    // the TOP, boards + trash across the BOTTOM; the WASH LOOP faces itself across the kitchen
+    // (user playtest): dirty bin mid-RIGHT, sink directly opposite mid-LEFT — grab the dirty
+    // plate and THROW it clean across to the sink, plate stack right below the sink.
     const SOLO_L1_LAYOUT_ENTRIES = [
       { type: "crate", kind: "lettuce", c: 3, r: 1 }, { type: "crate", kind: "onion", c: 4, r: 1 },
       { type: "crate", kind: "potato", c: 5, r: 1 },  { type: "crate", kind: "tomato", c: 7, r: 1 },
       { type: "board", c: 3, r: 8 },  { type: "trash", c: 4, r: 8 },
-      { type: "board", c: 6, r: 8 },  { type: "sink", c: 8, r: 8 },
+      { type: "board", c: 6, r: 8 },  { type: "oven", c: 8, r: 8 },
       { type: "crate", kind: "patty", c: 1, r: 3 },   { type: "stove", c: 1, r: 4 },
-      { type: "oven", c: 1, r: 5 },                    { type: "plateStack", c: 1, r: 6 },
+      { type: "sink", c: 1, r: 5 },                    { type: "plateStack", c: 1, r: 6 },
       { type: "crate", kind: "dough", c: 10, r: 3 },  { type: "pan", c: 10, r: 4 },
-      { type: "crate", kind: "cheese", c: 10, r: 5 }, { type: "crate", kind: "bun", c: 10, r: 6 },
-      { type: "dirtyBin", c: 10, r: 7 }
+      { type: "dirtyBin", c: 10, r: 5 },               { type: "crate", kind: "cheese", c: 10, r: 6 },
+      { type: "crate", kind: "bun", c: 10, r: 7 }
     ];
     let layoutsMapJson = null;    // raw JSON of the custom layouts map (null = all defaults)
     let layoutsMap = {};          // parsed {levelId: entries[]} (invalid entries dropped at use)
@@ -2936,7 +2937,7 @@
     // Gathers every viable landing candidate for a thrown ingredient (kind/state) near (x,z),
     // each tagged with its raw distance and a type weight, then resolves ties per the scheme
     // above. Returns { type, apply } for the winner, or null if nothing is in range at all.
-    function resolveIngredientLanding(kind, state, x, z){
+    function resolveIngredientLanding(kind, state, x, z, dir){
       const candidates = [];
       // THROW-TARGET polish (user): a RAW ingredient thrown at ITS OWN (active) crate is simply
       // absorbed — back in the box, gone from play. Matching kind + raw state only: a chopped
@@ -3032,13 +3033,24 @@
       if (slot) candidates.push({ type: "slot", weight: 1, dist: slot.dist, anchor: { x: slot.slot.x, z: slot.slot.z }, apply(){ slot.slot.item = { kind, state }; } });
 
       if (candidates.length === 0) return null;
+      // THROW-DIRECTION filter (solo wash-loop fix, 2026-07-07): a candidate BEHIND the flight
+      // direction can't capture the item — without this, throwing a dirty plate from right
+      // beside the dirty bin re-absorbed it into the bin on the flight's first step (and a raw
+      // ingredient thrown from beside its own crate went straight back in the box). Small -0.35
+      // tolerance keeps captures of surfaces the item is directly over / just passing.
+      let pool = candidates;
+      if (typeof dir === "number"){
+        const sd = Math.sin(dir), cd = Math.cos(dir);
+        pool = candidates.filter(c => ((c.anchor.x - x) * sd + (c.anchor.z - z) * cd) > -0.35);
+        if (pool.length === 0) return null;
+      }
       // nearest-first as the baseline, then let a higher weight win ONLY if it's within
       // THROW_BIAS_TIE_R of the nearest candidate's own distance (a genuinely-closer candidate of
       // lower weight still wins outright outside that window).
-      candidates.sort((a, b) => a.dist - b.dist);
-      const nearest = candidates[0];
+      pool.sort((a, b) => a.dist - b.dist);
+      const nearest = pool[0];
       let winner = nearest;
-      for (const c of candidates){
+      for (const c of pool){
         if (c.dist - nearest.dist > THROW_BIAS_TIE_R) break;   // sorted by dist, so we can stop early
         if (c.weight > winner.weight) winner = c;
       }
@@ -3197,7 +3209,7 @@
         // (a clean plate/completed dish sailing over a board/plate doesn't make sense to "land"
         // there; it stays airborne toward window/trash instead).
         if (!isPlate && f.kind !== "pizzaDish"){
-          const landing = resolveIngredientLanding(f.kind, f.state, nx, nz);
+          const landing = resolveIngredientLanding(f.kind, f.state, nx, nz, f.dir);
           if (landing){
             landing.apply();
             G.flying.splice(i, 1);
@@ -3342,7 +3354,7 @@
           // `slotLanding.item = ...`/`board.item = ...`, both rendered at their owning station's
           // fixed position, never at the raw nx/nz the ball happened to be at that frame). Report
           // each candidate's actual anchor point so the preview never lies about where it lands.
-          const landing = resolveIngredientLanding(item.kind, item.state, nx, nz);
+          const landing = resolveIngredientLanding(item.kind, item.state, nx, nz, item.dir);
           if (landing){
             points.push({ x: nx, z: nz });
             // Family playtest fix #2's sink/bin candidates (dirtyPlate only) carry an anchor too;
@@ -3894,7 +3906,7 @@
     // pure host-side ticking, called every hostSim tick (incl. the hidden-tab heartbeat) so
     // cooking never stalls just because the host's rAF is suspended in a backgrounded tab.
     // ---- SOLO COMPACT KITCHEN (user, 2026-07-07): the solo multitask mechanic. An item that
-    // arrived at a cut/wash station BY THROW works itself at 50% of player speed — throw a
+    // arrived at a cut/wash station BY THROW works itself at 25% of player speed — throw a
     // tomato at a board and it chops itself slowly; throw a dirty plate at the sink and it
     // scrubs itself slowly. The player stepping in works at NORMAL speed (never additive):
     // boards yield to a manual chopper via manualHold (set each frame the player holds WORK);
@@ -3905,14 +3917,14 @@
       for (const b of G.boards){
         if (b.manualHold > 0){ b.manualHold--; continue; }   // player is chopping — normal speed only
         if (!b.auto || !b.item || b.item.state !== "raw" || !CHOPPABLE_KINDS.has(b.item.kind)) continue;
-        b.progress = Math.min(1, b.progress + dt * 0.5 * (upg("chop") ? 1.5 : 1) / CHOP_TIME);
+        b.progress = Math.min(1, b.progress + dt * 0.25 * (upg("chop") ? 1.5 : 1) / CHOP_TIME);
         if (b.progress >= 1){
           b.item.state = "chopped";
           b.auto = false;
         }
       }
       if ((G.sink.autoQueue || 0) > 0 && (G.sink.parked || 0) > 0 && !G.sink.washingChef){
-        G.sink.progress = Math.min(1, G.sink.progress + dt * 0.5 * (upg("wash") ? 2 : 1) / SINK_WASH_TIME);
+        G.sink.progress = Math.min(1, G.sink.progress + dt * 0.25 * (upg("wash") ? 2 : 1) / SINK_WASH_TIME);
         if (G.sink.progress >= 1){
           G.sink.parked--;
           G.sink.autoQueue--;
@@ -4194,7 +4206,9 @@
           // ENDLESS: the gap between diners shrinks relentlessly with the run clock.
           G.customerSpawnCd = endlessSpawnInterval(G.runT || 0);
         } else {
-          const spawnFactor = CURRENT_LEVEL.spawnFactor || 1;
+          // SOLO COMPACT KITCHEN (user playtest): the small kitchen is quicker to work, so
+          // customers come ~30% faster than the level's normal cadence.
+          const spawnFactor = (CURRENT_LEVEL.spawnFactor || 1) * (G.compact ? 0.7 : 1);
           G.customerSpawnCd = (CUSTOMER_SPAWN_MIN + Math.random() * (CUSTOMER_SPAWN_MAX - CUSTOMER_SPAWN_MIN)) * spawnFactor;
         }
       }

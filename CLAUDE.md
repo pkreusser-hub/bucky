@@ -721,3 +721,16 @@ farmgpt.html + netlify/functions/farmgpt.mjs (Claude API, model claude-sonnet-5)
       thrown dirty plate auto-washes (parked/queue/clean exact), hand-placed never autos,
       L2 solo + L1 couch stay full 16/48, L1 solo returns compact, real V-lob salad from
       center = +35 served. 0 pageerrors. NOT PUSHED (awaiting user preview).
+- [x] SOLO TUNING (2026-07-07, user playtest): auto-work 50% -> 25% of player speed (chop
+      ~6s, wash ~8s alone). Solo layout wash loop now faces itself ACROSS the kitchen:
+      sink LEFT r5 (x -4.5, z 0.5) directly opposite dirtyBin RIGHT r5 (x 4.5, z 0.5) —
+      grab dirty plate at the bin, throw it clean across to the sink; oven took the sink
+      old bottom c8 tile, cheese/bun shifted down the right wall. Compact spawns 30%
+      faster (spawnFactor × 0.7). BUGFIX exposed by the new loop: resolveIngredientLanding
+      now takes the flight dir and DROPS candidates BEHIND the throw (dot < -0.35 vs the
+      launch-relative anchor) — without it, throwing a dirty plate from beside the bin
+      re-absorbed it into the bin on the first flight step (and a raw ingredient thrown
+      from beside its own crate went straight back in the box). Both call sites (flight +
+      aim preview) pass dir. Verified: cross-kitchen dirty-plate throw parks at the sink,
+      auto rates measured at 25%, manual override still exactly 1x, full regression suite
+      green. NOT PUSHED.
