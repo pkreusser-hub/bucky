@@ -864,3 +864,17 @@ farmgpt.html + netlify/functions/farmgpt.mjs (Claude API, model claude-sonnet-5)
       trusting the report. index.html's script is type="module" — headless
       tests must drive real DOM clicks (page.evaluate can't reach module
       globals), which is also what catches paint/stacking bugs.
+- [x] HERD DUPLICATION incident + fix (2026-07-07, PUSHED 825106c): 34 goat dupes
+      (+1 resurrected "Raspberry") appeared 2026-07-06 18:33Z — root cause: the
+      cloud backend's one-time seeding ran on an EMPTY fromCache first snapshot
+      (fresh device/test browser, cold cache) and addDoc'd the seed herd into
+      the LIVE chores_fam2jan2g (write died mid-flight: 35 of 42 items landed,
+      no starter chores). FIX: seeding requires !snap.metadata.fromCache.
+      CLEANUP: 34 pristine seed copies (no photo/care) deleted via Firestore
+      REST DELETE w/ the web API key (rules are public); originals untouched;
+      user chose to KEEP Raspberry (previously deleted, now a bare record).
+      LESSON: any headless test that lets index.html reach production Firestore
+      with a fresh profile can trigger first-launch paths — ALWAYS block
+      /googleapis|firestore|firebase|gstatic/ in test browsers (gstatic serves
+      the SDK). Firestore REST audit one-liner lives in this session's
+      transcript; familyKey = roomId("amenfarms") = fam2jan2g.
