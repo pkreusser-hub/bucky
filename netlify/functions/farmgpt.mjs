@@ -157,7 +157,10 @@ const MODES = {
 const MAX_MESSAGES = 60;        // ~15-30 story chapters or a long research chat
 const MAX_CONTENT_CHARS = 12000; // per message
 const KEEP_HEAD = 2;             // always keep the story's world-setup turn(s)
-const KEEP_TAIL = 40;
+const KEEP_TAIL = 40;            // research: long homework threads keep deep context
+// Stories only need the setup + recent chapters to stay coherent — a shorter tail keeps
+// the re-sent (and cache-written) history from growing with every chapter.
+const KEEP_TAIL_STORY = 16;
 
 // ---------------- usage tracking ----------------
 // Every reply's exact token counts (reported by the API in the SSE stream) are aggregated
@@ -273,14 +276,19 @@ const MAX_IMAGES = 4;              // across the whole request
 // Content is either a plain string (both modes, unchanged) or an array of blocks —
 // {type:"text",text} and {type:"image",source:{type:"base64",media_type,data}} —
 // which the research photo flow sends. Returns null if anything is malformed.
-function sanitizeMessages(raw) {
+function sanitizeMessages(raw, mode) {
   if (!Array.isArray(raw) || raw.length === 0) return null;
   const msgs = [];
   for (const m of raw) {
     if (!m || (m.role !== "user" && m.role !== "assistant")) return null;
     if (typeof m.content === "string") {
       if (!m.content.trim()) return null;
-      msgs.push({ role: m.role, content: m.content.slice(0, MAX_CONTENT_CHARS) });
+      let content = m.content;
+      // Past illustrations are dead weight: the model never needs its own old SVGs to
+      // continue the story, but each one is ~2-3k tokens re-sent with every later chapter.
+      // The client keeps the art for display; the model sees art-free history.
+      if (mode === "story" && m.role === "assistant") content = content.replace(/\n?===ART===[\s\S]*$/, "").trimEnd() || content;
+      msgs.push({ role: m.role, content: content.slice(0, MAX_CONTENT_CHARS) });
     } else if (Array.isArray(m.content)) {
       const blocks = [];
       for (const b of m.content) {
@@ -318,8 +326,9 @@ function sanitizeMessages(raw) {
   if (msgs.length > MAX_MESSAGES) return null;
   // Trim long conversations: keep the head (world setup) + the recent tail. Must resume
   // on a user turn, so extend the tail boundary back to the nearest user message.
-  if (msgs.length > KEEP_HEAD + KEEP_TAIL) {
-    let tailStart = msgs.length - KEEP_TAIL;
+  const keepTail = mode === "story" ? KEEP_TAIL_STORY : KEEP_TAIL;
+  if (msgs.length > KEEP_HEAD + keepTail) {
+    let tailStart = msgs.length - keepTail;
     while (tailStart > KEEP_HEAD && msgs[tailStart].role !== "user") tailStart--;
     return msgs.slice(0, KEEP_HEAD).concat(msgs.slice(tailStart));
   }
@@ -354,7 +363,7 @@ export default async (req) => {
   const mode = MODES[body.mode];
   if (!mode) return jsonError(400, "mode must be \"story\" or \"research\"", jsonHeaders);
 
-  const messages = sanitizeMessages(body.messages);
+  const messages = sanitizeMessages(body.messages, body.mode);
   if (!messages) return jsonError(400, "Bad messages array", jsonHeaders);
 
   // Story illustrations: opt-in per request. Bump the token budget so the <svg> fits
