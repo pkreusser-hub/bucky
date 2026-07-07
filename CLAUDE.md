@@ -688,3 +688,36 @@ farmgpt.html + netlify/functions/farmgpt.mjs (Claude API, model claude-sonnet-5)
   FARMGPT_GOOGLE_TOKEN_URL (harness fakes Google token + Firestore commit/list with a
   generated RSA key). Verified: increments exact (3 story + 1 research -> 369/150/123/50),
   dashboard renders, stats 200.
+- [x] SOLO COMPACT KITCHEN + AUTO-WORK (2026-07-07, user: solo layout too large, nobody to
+      throw to): LEVEL 1 played ALONE (1 chef at hostStartLevel — no couch P2, no guest)
+      runs on a 10×8 grid (same width, HALF the depth). Kitchen depth is now DYNAMIC:
+      FLOOR_D/HALF_D/INNER_Z are lets switched by setKitchenDepth() inside
+      rebuildKitchenForLevel(levelId, compact); COUNTER_TILES regenerates in place; the
+      render layer gained rebuildKitchenGeometryVisuals() = rebuildFloorMeshes +
+      rebuildCounterTileMeshes (per-tile materials disposed) + rebuildSlotLayer (slot
+      groups + slotTileMesh, now a let); fitCamera far-wall depth reads live HALF_D (the
+      SCENE_HALF_D const remains only for boot-time ground/decor sizing). Every runtime
+      HALF_D consumer (moveChef clamps, throw bounces, landing clamps, field ring,
+      exterior checks, lob exit) adapts automatically. layoutCellToXZ maps r===FLOOR_D as
+      the bottom row / z = r-(HALF_D+0.5). SOLO_L1_LAYOUT_ENTRIES: crates across the top
+      (lettuce c3, onion c4, potato c5, tomato c7), board c3 + trash c4 + board c6 +
+      sink c8 across the bottom, patty/stove/oven/plates down the left, dough/pan/cheese/
+      bun/dirtyBin down the right (17 entries, all required stations present; inactive =
+      plain counters). Solo spawn: center-bottom (z = HALF_D-CT-1).
+      AUTO-WORK (compact only): an item that arrived at a cut/wash station BY THROW works
+      itself at 50% of player speed — thrown raw+choppable onto a board sets board.auto
+      (cleared on any HAND placement + on completion); thrown dirty plate parking at the
+      sink bumps G.sink.autoQueue (manual scrubs clamp it to parked). advanceAutoWork(dt)
+      in hostSim ticks boards (skipped while board.manualHold>0, set each frame the player
+      holds WORK — player = normal speed, never additive) and the sink (skipped while
+      washingChef set; completion parked--/autoQueue--/clean++). Progress bars render via
+      the existing fields untouched.
+      MP: G.compact synced in snapshots; guest applySnapshot rebuilds on compact change
+      (same path as level change, before cs applies); a guest joining mid-compact makes
+      hostAssignSeat RESTART the current level on the full grid (or quietly swap back if
+      on level-select/day-end). Verified headless: compact 8/32 tiles + camera 28.6→18.6,
+      all ACTIVE stations self-resolve (inactive→neighbor/slot is by design), thrown
+      tomato auto-chops in 3s, manual chop 0.5 progress @0.75s (normal, not stacked),
+      thrown dirty plate auto-washes (parked/queue/clean exact), hand-placed never autos,
+      L2 solo + L1 couch stay full 16/48, L1 solo returns compact, real V-lob salad from
+      center = +35 served. 0 pageerrors. NOT PUSHED (awaiting user preview).

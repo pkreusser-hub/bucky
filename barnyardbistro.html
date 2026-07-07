@@ -1207,6 +1207,7 @@
       runT: 0,                 // ENDLESS: run clock counting UP (unused on timed days)
       endlessMode: false,      // ENDLESS VARIANT: current day runs the ♾️ ruleset (synced)
       spawnSnapId: 0,          // bumps whenever the host snaps chefs to their zone sides (synced)
+      compact: false,          // SOLO COMPACT KITCHEN: 10×8 solo layout active (synced)
       xpLevel: 0,              // ENDLESS ROGUE-LIKE: upgrades earned this run (synced)
       upgrades: {},            // ENDLESS ROGUE-LIKE: owned upgrade ids (synced)
       upgradeChoice: null,     // ENDLESS ROGUE-LIKE: {options:[id,id,id]} while a pick is open (synced)
@@ -1358,8 +1359,19 @@
     // 3 spots) mid-RIGHT wall (customers now queue outside the RIGHT side), dirty bin lower-
     // right, boards + trash + pan on the BOTTOM wall. Tile centers: top/bottom x=-4.5..4.5,
     // left/right z=-6.5..6.5.
-    const FLOOR_W = 10, FLOOR_D = 16;
-    const HALF_W = FLOOR_W / 2, HALF_D = FLOOR_D / 2;   // 6.5, 4.5
+    // SOLO COMPACT KITCHEN (user, 2026-07-07): the 10×16 co-op kitchen is far too big for one
+    // chef with nobody to throw to — a SOLO level-1 day runs on a 10×8 grid instead (same width,
+    // half the depth). Kitchen DEPTH is therefore dynamic: FLOOR_D/HALF_D are lets, switched by
+    // setKitchenDepth() inside rebuildKitchenForLevel (which also regenerates COUNTER_TILES,
+    // slots and — via rebuildKitchenGeometryVisuals in the render layer — floor/tile meshes and
+    // the camera fit). Everything that reads HALF_D at RUNTIME (moveChef clamps, throw wall
+    // bounces, landing clamps, field-customer ring, exterior checks, lob exit range, fitCamera)
+    // picks the new value up automatically.
+    const FLOOR_W = 10;
+    const FLOOR_D_FULL = 16, FLOOR_D_COMPACT = 8;
+    let FLOOR_D = FLOOR_D_FULL;
+    const HALF_W = FLOOR_W / 2;      // 5
+    let HALF_D = FLOOR_D / 2;        // 8 full · 4 solo-compact
     const CT = 1.0;      // counter thickness/depth
     // Family playtest fix #7: counters cut to ~half height (1.1 -> 0.55) so the kitchen reads
     // Overcooked-waist-high and chefs are clearly visible above the counters from the camera.
@@ -1371,7 +1383,7 @@
     // clamped against the wall footprint in moveChef) so it's unaffected by height.
     const CH = 0.55;      // counter height
     const INNER_X = HALF_W - CT;   // inner playable edge in x
-    const INNER_Z = HALF_D - CT;   // inner playable edge in z
+    let INNER_Z = HALF_D - CT;     // inner playable edge in z (tracks the dynamic depth)
 
     // ---- serving window (Systems pass 2 REWORK): a WIDE 4-segment strip on the top wall —
     // one "ORDER HERE" bell segment (leftmost) + 3 numbered customer spots to its right. Each
@@ -1457,10 +1469,10 @@
     // storage/sync. (The old single-layout bb_layout_v1 key is retired, never shipped.)
     const REQUIRED_CRATES = ["tomato", "lettuce", "onion", "potato", "bun", "patty", "dough", "cheese"];
     function layoutCellToXZ(c, r){
-      if (r === 1)  return { x: c - 5.5, z: -HALF_D + CT/2 };
-      if (r === 16) return { x: c - 5.5, z:  HALF_D - CT/2 };
-      if (c === 1)  return { x: -HALF_W + CT/2, z: r - 8.5 };
-      if (c === 10) return { x:  HALF_W - CT/2, z: r - 8.5 };
+      if (r === 1)       return { x: c - 5.5, z: -HALF_D + CT/2 };
+      if (r === FLOOR_D) return { x: c - 5.5, z:  HALF_D - CT/2 };
+      if (c === 1)  return { x: -HALF_W + CT/2, z: r - (HALF_D + 0.5) };
+      if (c === 10) return { x:  HALF_W - CT/2, z: r - (HALF_D + 0.5) };
       return null;   // interior — invalid for a station
     }
     function stationsFromLayout(entries){
@@ -1523,6 +1535,21 @@
       { type: "crate", kind: "dough", c: 10, r: 3 },    { type: "trash", c: 10, r: 6 },
       { type: "trash", c: 10, r: 10 },                  { type: "crate", kind: "cheese", c: 10, r: 14 }
     ];
+    // SOLO COMPACT KITCHEN: the 10×8 solo layout (level 1 test). All required stations present
+    // (inactive ones render as plain countertops on L1, same as everywhere else). Salad flow:
+    // crates across the TOP, boards + sink across the BOTTOM, plates lower-LEFT, dirty bin
+    // lower-RIGHT — so the solo loop is "grab up top, throw down, finish at the bottom".
+    const SOLO_L1_LAYOUT_ENTRIES = [
+      { type: "crate", kind: "lettuce", c: 3, r: 1 }, { type: "crate", kind: "onion", c: 4, r: 1 },
+      { type: "crate", kind: "potato", c: 5, r: 1 },  { type: "crate", kind: "tomato", c: 7, r: 1 },
+      { type: "board", c: 3, r: 8 },  { type: "trash", c: 4, r: 8 },
+      { type: "board", c: 6, r: 8 },  { type: "sink", c: 8, r: 8 },
+      { type: "crate", kind: "patty", c: 1, r: 3 },   { type: "stove", c: 1, r: 4 },
+      { type: "oven", c: 1, r: 5 },                    { type: "plateStack", c: 1, r: 6 },
+      { type: "crate", kind: "dough", c: 10, r: 3 },  { type: "pan", c: 10, r: 4 },
+      { type: "crate", kind: "cheese", c: 10, r: 5 }, { type: "crate", kind: "bun", c: 10, r: 6 },
+      { type: "dirtyBin", c: 10, r: 7 }
+    ];
     let layoutsMapJson = null;    // raw JSON of the custom layouts map (null = all defaults)
     let layoutsMap = {};          // parsed {levelId: entries[]} (invalid entries dropped at use)
     try {
@@ -1547,12 +1574,26 @@
     // Applies a level's station layout to G + every derived structure. Safe to call any time a
     // level starts (day state is reset around it); the render layer's rebuildStationVisuals is
     // hoisted from the visuals section below. levelId is LEVELS[idx].id (1-based).
-    function rebuildKitchenForLevel(levelId){
-      G.stations = stationsForLevelId(levelId);
+    // SOLO COMPACT KITCHEN: switches the kitchen depth; regenerates COUNTER_TILES in place (the
+    // array binding is shared with the render layer). Returns true when the depth changed.
+    function setKitchenDepth(d){
+      if (FLOOR_D === d) return false;
+      FLOOR_D = d;
+      HALF_D = d / 2;
+      INNER_Z = HALF_D - CT;
+      COUNTER_TILES.length = 0;
+      COUNTER_TILES.push(...buildCounterTiles());
+      return true;
+    }
+    function rebuildKitchenForLevel(levelId, compact){
+      const depthChanged = setKitchenDepth(compact ? FLOOR_D_COMPACT : FLOOR_D_FULL);
+      G.stations = compact ? stationsFromLayout(SOLO_L1_LAYOUT_ENTRIES) : stationsForLevelId(levelId);
       TRASH_STATION_IDS = G.stations.filter(s => s.type === "trash").map(s => s.id);
       for (const t of COUNTER_TILES) t.station = stationCoveringTile(t.x, t.z);
       G.counterSlots = buildCounterSlots();
+      if (depthChanged && typeof rebuildKitchenGeometryVisuals === "function") rebuildKitchenGeometryVisuals();
       if (typeof rebuildStationVisuals === "function") rebuildStationVisuals();
+      if (depthChanged && typeof fitCamera === "function") fitCamera();
     }
     G.stations = stationsForLevelId(1);   // boot: L1's layout (visuals build below at module init)
 
@@ -1582,7 +1623,7 @@
           try { localStorage.removeItem(LAYOUTS_KEY); } catch (err) {}
         }
         // not mid-day -> apply immediately so the title-screen kitchen preview matches
-        if (G.titleOpen || G.levelSelectOpen) rebuildKitchenForLevel(CURRENT_LEVEL.id);
+        if (G.titleOpen || G.levelSelectOpen) rebuildKitchenForLevel(CURRENT_LEVEL.id, G.compact);
       } catch (err) { /* offline / rules — local cache remains authoritative */ }
     }
     fetchCloudLayouts();
@@ -2220,6 +2261,7 @@
           }
           if (top && top.kind === "cheese" && top.state === "chopped" && board.item.state === "sauced"){
             board.item = { kind: "pizza", state: "raw" };
+            board.auto = false;
             holdPop(chef);
             return;
           }
@@ -2238,11 +2280,13 @@
           const top = holdTop(chef);
           if (top && top.kind === "dough" && top.state === "raw" && !board.item){
             board.item = { kind: "pizzaBase", state: "raw" };
+            board.auto = false;
             holdPop(chef);
             return;
           }
           if (top && CHOPPABLE_KINDS.has(top.kind) && top.state === "raw" && !board.item){
             board.item = { kind: top.kind, state: "raw" };
+            board.auto = false;   // hand-placed: player chops it themselves (no solo auto-chop)
             board.progress = 0;
             holdPop(chef);
             return;
@@ -2569,6 +2613,7 @@
           // before.
           if ((G.sink.parked || 0) > 0) G.sink.parked--;   // parked plates consumed first, one per scrub
           else holdPop(chef);
+          if ((G.sink.autoQueue || 0) > (G.sink.parked || 0)) G.sink.autoQueue = G.sink.parked || 0;
           G.plates.clean++;
           G.sink.progress = 0;
           G.sink.washingChef = null;
@@ -2609,6 +2654,7 @@
       if (!st || st.type !== "board") return;
       const board = boardFor(st);
       if (!board.item || board.item.state !== "raw" || !CHOPPABLE_KINDS.has(board.item.kind)) return;
+      board.manualHold = 2;   // SOLO COMPACT: auto-chop yields to the player for the next 2 sim frames
       board.progress = Math.min(1, board.progress + dt * (upg("chop") ? 1.5 : 1) / CHOP_TIME);   // Ninja Knife
       if (board.progress >= 1){
         board.item.state = "chopped";
@@ -2925,7 +2971,11 @@
         const ds = Math.hypot(dxs, dzs);
         if (ds <= THROW_SINK_R && (G.sink.parked || 0) < SINK_PARK_MAX){
           candidates.push({ type: "sink", weight: 2, dist: ds, anchor: { x: sinkSt.x, z: sinkSt.z },
-            apply(){ G.sink.parked = (G.sink.parked || 0) + 1; } });
+            apply(){
+              G.sink.parked = (G.sink.parked || 0) + 1;
+              // SOLO COMPACT KITCHEN: a THROWN dirty plate starts auto-washing at half speed
+              if (G.compact) G.sink.autoQueue = (G.sink.autoQueue || 0) + 1;
+            } });
         }
         const binSt = stationById("dirtyBin");
         const dxb = Math.max(Math.abs(x - binSt.x) - binSt.w/2, 0);
@@ -2941,6 +2991,8 @@
         const board = findNearestEmptyBoard(x, z, true);
         if (board) candidates.push({ type: "board", weight: 2, dist: board.dist, anchor: { x: board.st.x, z: board.st.z }, apply(){
           board.board.item = { kind, state }; board.board.progress = 0;
+          // SOLO COMPACT KITCHEN: a THROWN ingredient starts auto-chopping at half speed
+          board.board.auto = !!G.compact;
         } });
       } else {
         const plate = findNearestPlateInPath(x, z, true);
@@ -3841,6 +3893,35 @@
     // Advances the pot/pan/oven cook timers exactly like advanceFlyingItems/advanceCustomers —
     // pure host-side ticking, called every hostSim tick (incl. the hidden-tab heartbeat) so
     // cooking never stalls just because the host's rAF is suspended in a backgrounded tab.
+    // ---- SOLO COMPACT KITCHEN (user, 2026-07-07): the solo multitask mechanic. An item that
+    // arrived at a cut/wash station BY THROW works itself at 50% of player speed — throw a
+    // tomato at a board and it chops itself slowly; throw a dirty plate at the sink and it
+    // scrubs itself slowly. The player stepping in works at NORMAL speed (never additive):
+    // boards yield to a manual chopper via manualHold (set each frame the player holds WORK);
+    // the sink yields via the existing washingChef claim. Auto progress uses the same fields
+    // the manual path uses, so the progress bars/completions render identically on their own.
+    function advanceAutoWork(dt){
+      if (!G.compact) return;
+      for (const b of G.boards){
+        if (b.manualHold > 0){ b.manualHold--; continue; }   // player is chopping — normal speed only
+        if (!b.auto || !b.item || b.item.state !== "raw" || !CHOPPABLE_KINDS.has(b.item.kind)) continue;
+        b.progress = Math.min(1, b.progress + dt * 0.5 * (upg("chop") ? 1.5 : 1) / CHOP_TIME);
+        if (b.progress >= 1){
+          b.item.state = "chopped";
+          b.auto = false;
+        }
+      }
+      if ((G.sink.autoQueue || 0) > 0 && (G.sink.parked || 0) > 0 && !G.sink.washingChef){
+        G.sink.progress = Math.min(1, G.sink.progress + dt * 0.5 * (upg("wash") ? 2 : 1) / SINK_WASH_TIME);
+        if (G.sink.progress >= 1){
+          G.sink.parked--;
+          G.sink.autoQueue--;
+          G.plates.clean++;
+          G.sink.progress = 0;
+        }
+      }
+    }
+
     function advanceCookingStations(dt){
       dt = dt * (upg("cook") ? 1.35 : 1);   // ENDLESS upgrade: Hot Flames
       if (G.pot.state === "cooking"){
@@ -4073,6 +4154,9 @@
       // guarantee — a soup left cooking while the host tab is hidden still finishes on time.
       advanceCookingStations(dt);
 
+      // SOLO COMPACT KITCHEN: thrown-to stations work by themselves at half speed.
+      advanceAutoWork(dt);
+
       // Systems pass 4: dirty-plate return timers, same heartbeat guarantee.
       advanceDishWashing(dt);
 
@@ -4189,6 +4273,17 @@
         // (guest position is otherwise guest-authoritative, which used to silently defeat these
         // snaps — the guest just republished its old spot and dragged itself back).
         G.spawnSnapId = (G.spawnSnapId || 0) + 1;
+      } else if (G.compact){
+        // SOLO COMPACT KITCHEN: park the solo chef mid-kitchen near the bottom finish row —
+        // the old 16-deep spawn points sit inside (or beyond) the compact kitchen's walls.
+        for (const id in G.chefs){
+          const c = G.chefs[id];
+          c.x = 0;
+          c.z = HALF_D - CT - 1.0;
+          c.dir = 0;
+          c.posHold = 0.9;
+        }
+        G.spawnSnapId = (G.spawnSnapId || 0) + 1;
       }
       for (const s of G.counterSlots) s.item = null;
       G.flying = [];
@@ -4237,7 +4332,10 @@
       CURRENT_LEVEL = lvl;
       G.level = levelIndex;
       G.endlessMode = !!endlessMode;        // ENDLESS VARIANT: any level can run as Endless Rush
-      rebuildKitchenForLevel(lvl.id);       // PER-LEVEL LAYOUTS: stations/slots/visuals for THIS level
+      // SOLO COMPACT KITCHEN (user): level 1 played ALONE (no couch P2, no online guest) runs on
+      // the 10×8 solo grid with auto-working thrown stations. Any second chef at start = full grid.
+      G.compact = lvl.id === 1 && Object.keys(G.chefs).length === 1;
+      rebuildKitchenForLevel(lvl.id, G.compact);   // PER-LEVEL LAYOUTS: stations/slots/visuals for THIS level
       G.levelSelectOpen = false;
       hostResetDayState();
       publishSnapshotNow();
@@ -4561,7 +4659,7 @@
       const DZ_NEAR = HALF_D + FIELD_VIEW_MARGIN;   // bottom wall + the visible field band (diners stand there too)
       const distForV = Math.max(
         distNearV(0, DZ_NEAR), distNearV(CH, DZ_NEAR),
-        distFarV(0, SCENE_HALF_D), distFarV(CH, SCENE_HALF_D)
+        distFarV(0, HALF_D + FIELD_VIEW_MARGIN), distFarV(CH, HALF_D + FIELD_VIEW_MARGIN)
       );
       // USER-DRAWN GRID: the customer queue lives outside the RIGHT wall now, so width framing
       // is ASYMMETRIC — tight against the kitchen on the west (especially on portrait phones),
@@ -4590,7 +4688,7 @@
       camera.updateProjectionMatrix();
       // ISO FOLLOW CAM: remember this fit so the zoomed follow camera can scale from it.
       camFit = { dist, camXShift, vFovDeg: camera.fov, angle,
-                 sceneHalfW, sceneHalfD: (DZ_NEAR + SCENE_HALF_D) / 2 };
+                 sceneHalfW, sceneHalfD: (DZ_NEAR + HALF_D + FIELD_VIEW_MARGIN) / 2 };
     }
     window.addEventListener("resize", fitCamera);
 
@@ -4639,20 +4737,24 @@
     const TILE = 1.0;
     const floorGroup = new THREE.Group();
     scene.add(floorGroup);
-    {
+    // SOLO COMPACT KITCHEN: floor rebuilds when the kitchen depth changes. Materials + geometry
+    // are shared across rebuilds (only Mesh objects are recreated) so this stays leak-flat.
+    const floorTanA = mat(0xf0dcb0), floorTanB = mat(0xe0c48c);
+    const floorTileGeo = new THREE.BoxGeometry(TILE, 0.1, TILE);
+    function rebuildFloorMeshes(){
+      floorGroup.clear();
       const nx = Math.ceil(FLOOR_W / TILE), nz = Math.ceil(FLOOR_D / TILE);
-      const tanA = mat(0xf0dcb0), tanB = mat(0xe0c48c);
-      const tileGeo = new THREE.BoxGeometry(TILE, 0.1, TILE);
       for (let ix = 0; ix < nx; ix++){
         for (let iz = 0; iz < nz; iz++){
           const x = -HALF_W + TILE/2 + ix * TILE;
           const z = -HALF_D + TILE/2 + iz * TILE;
-          const t = new THREE.Mesh(tileGeo, (ix + iz) % 2 === 0 ? tanA : tanB);
+          const t = new THREE.Mesh(floorTileGeo, (ix + iz) % 2 === 0 ? floorTanA : floorTanB);
           t.position.set(x, -0.05, z);
           floorGroup.add(t);
         }
       }
     }
+    rebuildFloorMeshes();
 
     // ---- Individual-counter-tiles pass: the border used to be 4 continuous boxes (one per
     // wall) with an independently-sampled slot grid laid on top — kids couldn't tell which parts
@@ -4685,20 +4787,29 @@
     const counterGroup = new THREE.Group();
     scene.add(counterGroup);
     const counterTileGroups = [];   // index-aligned with COUNTER_TILES — used by the tile-highlight system below
-    COUNTER_TILES.forEach((t, idx) => {
-      const g = new THREE.Group();
-      g.position.set(t.x, 0, t.z);
-      const tw = Math.max(0.1, t.w - TILE_GAP), td = Math.max(0.1, t.d - TILE_GAP);
-      // non-square tiles (shouldn't happen at TILE_STEP===CT, but stay robust if constants ever
-      // change) get their own geometry instead of the shared square one.
-      const geo = (Math.abs(tw - (CT - TILE_GAP)) < 1e-6 && Math.abs(td - (CT - TILE_GAP)) < 1e-6)
-        ? counterTileGeo : new THREE.BoxGeometry(tw, CH, td);
-      const top = new THREE.Mesh(geo, mat(COUNTER_TILE_TOP_COLOR, true));
-      top.position.y = CH / 2;
-      g.add(top);
-      counterGroup.add(g);
-      counterTileGroups.push(g);
-    });
+    // SOLO COMPACT KITCHEN: the border tile meshes rebuild when the kitchen depth changes. Each
+    // tile's material is unique (per-tile highlight, see the comment above counterTileGeo) so
+    // old materials are disposed on rebuild; geometry is the shared counterTileGeo (kept).
+    function rebuildCounterTileMeshes(){
+      for (const g of counterTileGroups) g.traverse((o) => { if (o.isMesh && o.material) o.material.dispose(); });
+      counterGroup.clear();
+      counterTileGroups.length = 0;
+      COUNTER_TILES.forEach((t, idx) => {
+        const g = new THREE.Group();
+        g.position.set(t.x, 0, t.z);
+        const tw = Math.max(0.1, t.w - TILE_GAP), td = Math.max(0.1, t.d - TILE_GAP);
+        // non-square tiles (shouldn't happen at TILE_STEP===CT, but stay robust if constants ever
+        // change) get their own geometry instead of the shared square one.
+        const geo = (Math.abs(tw - (CT - TILE_GAP)) < 1e-6 && Math.abs(td - (CT - TILE_GAP)) < 1e-6)
+          ? counterTileGeo : new THREE.BoxGeometry(tw, CH, td);
+        const top = new THREE.Mesh(geo, mat(COUNTER_TILE_TOP_COLOR, true));
+        top.position.y = CH / 2;
+        g.add(top);
+        counterGroup.add(g);
+        counterTileGroups.push(g);
+      });
+    }
+    rebuildCounterTileMeshes();
     // Cleanup pass (user): sink/stove/oven REPLACE their counter tile — but only while ACTIVE
     // this level. On levels where the stove/oven aren't used, their tile shows as a plain
     // countertop (user-requested). Called at boot + from rebuildStationVisuals on level change.
@@ -7666,19 +7777,29 @@
     // fix #3 now includes crate/stove/pan/oven tiles too, only excluding bell/spot) — so filtering
     // counterTileGroups the exact same way gives the slot-index-aligned tile MESH for each slot,
     // letting the targeting highlight below light up the one physical tile a chef is standing at.
-    const slotTileMesh = COUNTER_TILES.reduce((arr, t, idx) => {
-      arr.push(counterTileGroups[idx]);   // FIELD-CUSTOMER: every tile is highlightable now
-      return arr;
-    }, []);
-    {
-      const slotLayer = new THREE.Group();
-      scene.add(slotLayer);
+    let slotTileMesh = [];
+    const slotLayer = new THREE.Group();
+    scene.add(slotLayer);
+    // SOLO COMPACT KITCHEN: slot groups + the slot->tile-mesh mapping rebuild with the depth
+    // (slot count changes between the 10×16 and 10×8 grids).
+    function rebuildSlotLayer(){
+      slotTileMesh = COUNTER_TILES.map((t, idx) => counterTileGroups[idx]);   // FIELD-CUSTOMER: every tile is highlightable
+      slotLayer.clear();
+      counterSlotGroups.length = 0;
       for (const s of G.counterSlots){
         const g = new THREE.Group();
         g.position.set(s.x, CH + 0.06, s.z);
         slotLayer.add(g);
         counterSlotGroups.push(g);
       }
+    }
+    rebuildSlotLayer();
+    // Called by rebuildKitchenForLevel when the depth changed (before rebuildStationVisuals,
+    // which refreshes station meshes + appliance-tile visibility on the new grid).
+    function rebuildKitchenGeometryVisuals(){
+      rebuildFloorMeshes();
+      rebuildCounterTileMeshes();
+      rebuildSlotLayer();
     }
     function syncCounterSlotVisuals(){
       G.counterSlots.forEach((s, i) => {
@@ -9736,6 +9857,7 @@
         upgrades: G.upgrades || {},
         upgradeChoice: G.upgradeChoice || null,
         endlessMode: !!G.endlessMode,   // ENDLESS VARIANT of the current level
+        compact: !!G.compact,           // SOLO COMPACT KITCHEN: guests rebuild to the same grid
         // (FIELD-CUSTOMER REWORK: bellFullHint/wrongSpotHint fields retired with the checkout window.)
         // ---- Systems pass 3: cooking stations + level/progression ----
         pot: { contents: G.pot.contents, cookT: G.pot.cookT, state: G.pot.state, stirringChefId: G.pot.stirringChefId || null },
@@ -9844,11 +9966,17 @@
       G.refusalHintId = snap.refusalHintId || 0;
       G.refusalHintChef = snap.refusalHintChef || null;
       G.refusalHintMsg = snap.refusalHintMsg || "";
-      if (typeof snap.level === "number" && snap.level !== G.level){
-        G.level = snap.level;
-        CURRENT_LEVEL = LEVELS[snap.level] || LEVELS[0];   // keep the guest's recipe/station-
-                                                             // visibility pointer in sync with the host
-        rebuildKitchenForLevel(CURRENT_LEVEL.id);            // PER-LEVEL LAYOUTS: guest rebuilds too
+      // SOLO COMPACT KITCHEN: adopt the host's grid choice — a change (either direction)
+      // rebuilds the guest's kitchen exactly like a level change does.
+      const compactChanged = typeof snap.compact === "boolean" && !!G.compact !== snap.compact;
+      if (typeof snap.compact === "boolean") G.compact = snap.compact;
+      if ((typeof snap.level === "number" && snap.level !== G.level) || compactChanged){
+        if (typeof snap.level === "number"){
+          G.level = snap.level;
+          CURRENT_LEVEL = LEVELS[snap.level] || LEVELS[0];   // keep the guest's recipe/station-
+                                                               // visibility pointer in sync with the host
+        }
+        rebuildKitchenForLevel(CURRENT_LEVEL.id, G.compact);   // PER-LEVEL LAYOUTS: guest rebuilds too
       }
       if (typeof snap.endlessMode === "boolean") G.endlessMode = snap.endlessMode;
       G.xpLevel = snap.xpLevel || 0;
@@ -10023,6 +10151,18 @@
           name: ""                // family lobby: default until the joining player's own choreUser name arrives
         };
         ensureChefVisual(chefId, G.chefs[chefId].color, G.chefs[chefId].chefModel);
+      // SOLO COMPACT KITCHEN: a guest just joined a solo-compact session — the 10×8 grid has no
+      // room (or barrier zones) for two chefs, so restart the CURRENT level on the full co-op
+      // grid. Mid-level-select we just quietly swap the kitchen back without stealing the pick.
+      if (G.compact){
+        if (G.phase === "playing" && !G.levelSelectOpen){
+          hostStartLevel(G.level, G.endlessMode);   // recomputes compact (now 2 chefs -> false)
+        } else {
+          G.compact = false;
+          rebuildKitchenForLevel(CURRENT_LEVEL.id, false);
+          publishSnapshotNow();
+        }
+      }
       // CO-OP BARRIER (user): the fence just appeared — put P1 (blue) TOP and P2 (red) BOTTOM
       // immediately (same rule as the day-start snap in hostResetDayState).
       if (barrierActive()){
