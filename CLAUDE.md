@@ -661,3 +661,16 @@ farmgpt.html + netlify/functions/farmgpt.mjs (Claude API, model claude-sonnet-5)
   renderMathInElement typesets in-DOM (throwOnError:false). System prompt now tells the
   model to always write LaTeX math. Verified: display+inline math typeset, no raw $$,
   subscripts un-mangled.
+- TUTOR POLICY (2026-07-07, user: learn the material, don't do their homework):
+  RESEARCH_SYSTEM rewritten around "concepts are free, their assignment is theirs".
+  Tutor moves: parallel example w/ different numbers then hand theirs back ·
+  invite/diagnose their attempt (never present the corrected version) · graduated
+  hints (never flat refusal, never answer on first ask) · holds the line warmly
+  under "just give me the answer" pressure (never caves) · writing = outline/
+  brainstorm/feedback only, never submittable prose · ends with a now-you-try.
+  CODING: only on explicitly coding questions (never volunteered elsewhere);
+  concept snippets fine, build-X assignments get skeletons/TODOs not programs,
+  debugging points at the bug. Live-probed all 5 behaviors on deployed Sonnet 5:
+  solve-for-me → method on a different quadratic + hands it back (roots never
+  given, even under pressure); essay request → outline coaching; no code on a
+  math question; concept questions still fully taught.
