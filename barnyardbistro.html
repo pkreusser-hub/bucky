@@ -1535,22 +1535,77 @@
       { type: "crate", kind: "dough", c: 10, r: 3 },    { type: "trash", c: 10, r: 6 },
       { type: "trash", c: 10, r: 10 },                  { type: "crate", kind: "cheese", c: 10, r: 14 }
     ];
-    // SOLO COMPACT KITCHEN: the 10×8 solo layout (level 1 test). All required stations present
-    // (inactive ones render as plain countertops on L1, same as everywhere else). Crates across
-    // the TOP, boards + trash across the BOTTOM; the WASH LOOP faces itself across the kitchen
-    // (user playtest): dirty bin mid-RIGHT, sink directly opposite mid-LEFT — grab the dirty
-    // plate and THROW it clean across to the sink, plate stack right below the sink.
-    const SOLO_L1_LAYOUT_ENTRIES = [
-      { type: "crate", kind: "lettuce", c: 3, r: 1 }, { type: "crate", kind: "onion", c: 4, r: 1 },
-      { type: "crate", kind: "potato", c: 5, r: 1 },  { type: "crate", kind: "tomato", c: 7, r: 1 },
-      { type: "board", c: 3, r: 8 },  { type: "trash", c: 4, r: 8 },
-      { type: "board", c: 6, r: 8 },  { type: "oven", c: 8, r: 8 },
-      { type: "crate", kind: "patty", c: 1, r: 3 },   { type: "stove", c: 1, r: 4 },
-      { type: "sink", c: 1, r: 5 },                    { type: "plateStack", c: 1, r: 6 },
-      { type: "crate", kind: "dough", c: 10, r: 3 },  { type: "pan", c: 10, r: 4 },
-      { type: "dirtyBin", c: 10, r: 5 },               { type: "crate", kind: "cheese", c: 10, r: 6 },
-      { type: "crate", kind: "bun", c: 10, r: 7 }
-    ];
+    // SOLO COMPACT KITCHEN: per-level 10×8 layouts. Design principle (user): the level's core
+    // flows THROW ACROSS the kitchen — ingredients on one wall, their processing station on the
+    // opposite wall — and the wash loop always faces itself (sink LEFT directly opposite the
+    // dirty bin RIGHT). All required stations present on every layout (inactive = countertops).
+    const SOLO_LAYOUT_ENTRIES = {
+      // L1 Salad Days: veg TOP -> boards BOTTOM; sink L5 <-> bin R5.
+      1: [
+        { type: "crate", kind: "lettuce", c: 3, r: 1 }, { type: "crate", kind: "onion", c: 4, r: 1 },
+        { type: "crate", kind: "potato", c: 5, r: 1 },  { type: "crate", kind: "tomato", c: 7, r: 1 },
+        { type: "board", c: 3, r: 8 },  { type: "trash", c: 4, r: 8 },
+        { type: "board", c: 6, r: 8 },  { type: "oven", c: 8, r: 8 },
+        { type: "crate", kind: "patty", c: 1, r: 3 },   { type: "stove", c: 1, r: 4 },
+        { type: "sink", c: 1, r: 5 },                   { type: "plateStack", c: 1, r: 6 },
+        { type: "crate", kind: "dough", c: 10, r: 3 },  { type: "pan", c: 10, r: 4 },
+        { type: "dirtyBin", c: 10, r: 5 },              { type: "crate", kind: "cheese", c: 10, r: 6 },
+        { type: "crate", kind: "bun", c: 10, r: 7 }
+      ],
+      // L2 Soup's On: veg TOP -> boards BOTTOM -> chopped thrown BACK UP to the pot (stove top
+      // right) — a full ping-pong. Sink L4 <-> bin R4, plates under the sink.
+      2: [
+        { type: "crate", kind: "tomato", c: 3, r: 1 },  { type: "crate", kind: "onion", c: 4, r: 1 },
+        { type: "crate", kind: "potato", c: 5, r: 1 },  { type: "stove", c: 8, r: 1 },
+        { type: "board", c: 3, r: 8 },  { type: "trash", c: 5, r: 8 },  { type: "board", c: 7, r: 8 },
+        { type: "crate", kind: "lettuce", c: 1, r: 3 }, { type: "sink", c: 1, r: 4 },
+        { type: "plateStack", c: 1, r: 5 },             { type: "oven", c: 1, r: 6 },
+        { type: "crate", kind: "patty", c: 10, r: 2 },  { type: "crate", kind: "dough", c: 10, r: 3 },
+        { type: "dirtyBin", c: 10, r: 4 },              { type: "pan", c: 10, r: 5 },
+        { type: "crate", kind: "cheese", c: 10, r: 6 }, { type: "crate", kind: "bun", c: 10, r: 7 }
+      ],
+      // L3 Burger Barn: the signature cross — patty crate LEFT r2 directly opposite the pan
+      // RIGHT r2 (throw the patty clean across to the grill). Veg TOP -> boards BOTTOM,
+      // sink L4 <-> bin R4, bun by the plates.
+      3: [
+        { type: "crate", kind: "lettuce", c: 3, r: 1 }, { type: "crate", kind: "tomato", c: 5, r: 1 },
+        { type: "crate", kind: "bun", c: 7, r: 1 },     { type: "stove", c: 9, r: 1 },
+        { type: "board", c: 3, r: 8 },  { type: "trash", c: 5, r: 8 },
+        { type: "board", c: 7, r: 8 },  { type: "oven", c: 9, r: 8 },
+        { type: "crate", kind: "patty", c: 1, r: 2 },   { type: "sink", c: 1, r: 4 },
+        { type: "plateStack", c: 1, r: 5 },             { type: "crate", kind: "onion", c: 1, r: 6 },
+        { type: "pan", c: 10, r: 2 },                   { type: "dirtyBin", c: 10, r: 4 },
+        { type: "crate", kind: "dough", c: 10, r: 5 },  { type: "crate", kind: "cheese", c: 10, r: 6 },
+        { type: "crate", kind: "potato", c: 10, r: 7 }
+      ],
+      // L4 Pizza Night: dough/tomato/cheese TOP -> boards BOTTOM (assemble at the board), the
+      // oven right beside the boards (pizzaBase can't be thrown — short carry to bake).
+      // Sink L4 <-> bin R4.
+      4: [
+        { type: "crate", kind: "dough", c: 3, r: 1 },   { type: "crate", kind: "tomato", c: 5, r: 1 },
+        { type: "crate", kind: "cheese", c: 7, r: 1 },  { type: "stove", c: 9, r: 1 },
+        { type: "trash", c: 2, r: 8 },  { type: "board", c: 4, r: 8 },
+        { type: "board", c: 6, r: 8 },  { type: "oven", c: 8, r: 8 },
+        { type: "crate", kind: "lettuce", c: 1, r: 3 }, { type: "sink", c: 1, r: 4 },
+        { type: "plateStack", c: 1, r: 5 },             { type: "crate", kind: "onion", c: 1, r: 6 },
+        { type: "crate", kind: "patty", c: 10, r: 3 },  { type: "dirtyBin", c: 10, r: 4 },
+        { type: "crate", kind: "potato", c: 10, r: 5 }, { type: "crate", kind: "bun", c: 10, r: 6 },
+        { type: "pan", c: 10, r: 7 }
+      ],
+      // L5 Feast Night: everything active. Veg + dough TOP -> boards BOTTOM; patty L2 <-> pan R2
+      // and stove L3 <-> oven R3 (proteins/cookers face off); sink L5 <-> bin R5.
+      5: [
+        { type: "crate", kind: "tomato", c: 3, r: 1 },  { type: "crate", kind: "lettuce", c: 4, r: 1 },
+        { type: "crate", kind: "onion", c: 5, r: 1 },   { type: "crate", kind: "potato", c: 6, r: 1 },
+        { type: "crate", kind: "dough", c: 8, r: 1 },
+        { type: "board", c: 3, r: 8 },  { type: "trash", c: 5, r: 8 },  { type: "board", c: 7, r: 8 },
+        { type: "crate", kind: "patty", c: 1, r: 2 },   { type: "stove", c: 1, r: 3 },
+        { type: "sink", c: 1, r: 5 },                   { type: "plateStack", c: 1, r: 6 },
+        { type: "pan", c: 10, r: 2 },                   { type: "oven", c: 10, r: 3 },
+        { type: "dirtyBin", c: 10, r: 5 },              { type: "crate", kind: "cheese", c: 10, r: 6 },
+        { type: "crate", kind: "bun", c: 10, r: 7 }
+      ]
+    };
     let layoutsMapJson = null;    // raw JSON of the custom layouts map (null = all defaults)
     let layoutsMap = {};          // parsed {levelId: entries[]} (invalid entries dropped at use)
     try {
@@ -1588,7 +1643,7 @@
     }
     function rebuildKitchenForLevel(levelId, compact){
       const depthChanged = setKitchenDepth(compact ? FLOOR_D_COMPACT : FLOOR_D_FULL);
-      G.stations = compact ? stationsFromLayout(SOLO_L1_LAYOUT_ENTRIES) : stationsForLevelId(levelId);
+      G.stations = compact ? stationsFromLayout(SOLO_LAYOUT_ENTRIES[levelId] || SOLO_LAYOUT_ENTRIES[1]) : stationsForLevelId(levelId);
       TRASH_STATION_IDS = G.stations.filter(s => s.type === "trash").map(s => s.id);
       for (const t of COUNTER_TILES) t.station = stationCoveringTile(t.x, t.z);
       G.counterSlots = buildCounterSlots();
@@ -3667,6 +3722,8 @@
     const FIELD_BAND_MIN = 1.0, FIELD_BAND_MAX = 1.9;   // stand-off distance outside the walls
     const CUSTOMER_MAX_WAITING = 3;
     const UNCLAIMED_DISH_TTL = 5;   // seconds a dish may rest OUTSIDE with NO racer before the crow takes it
+    const PLATE_RECOVERY_TTL = 3;   // seconds before a NON-dish exterior item (empty/partial/dirty plate,
+                                    // stray ingredient) is swept back — plates return via the dirty bin
 
     function customerTargetXZ(c){
       if (c.state === "fetching"){
@@ -3854,10 +3911,17 @@
           if (racers > 0){ f.outsideT = 0; continue; }
         }
         f.outsideT = (f.outsideT || 0) + dt;
-        if (f.outsideT >= UNCLAIMED_DISH_TTL * (upg("scarecrow") ? 2 : 1)){   // Scarecrow
-          // crow takes it — plate returns dirty so nothing is ever permanently lost
+        // Plate-recovery fix (user, solo playtest): dirty/empty/incomplete plates lobbed outside
+        // used to be a soft-lock — a dirtyPlate was crow-poofed WITHOUT a pendingReturns entry
+        // (plate permanently lost; lob all 3 out and the day is unwinnable). Now anything
+        // plate-ish that is NOT a claimable completed dish comes back on a short fuse
+        // (PLATE_RECOVERY_TTL), and dirtyPlate rides pendingReturns exactly like plate does.
+        const plateIsh = f.kind === "plate" || f.kind === "dirtyPlate";
+        const ttl = dish ? UNCLAIMED_DISH_TTL * (upg("scarecrow") ? 2 : 1) : PLATE_RECOVERY_TTL;
+        if (f.outsideT >= ttl){
+          // crow takes it — plates ALWAYS return dirty so nothing is ever permanently lost
           G.floorItems.splice(i, 1);
-          if (f.kind === "plate") G.plates.pendingReturns.push({ t: 0.5 });
+          if (plateIsh) G.plates.pendingReturns.push({ t: 0.5 });
           G.crowTakeId = (G.crowTakeId || 0) + 1;
           G.crowTakeX = f.x; G.crowTakeZ = f.z;
           publishSnapshotNow();
@@ -4346,9 +4410,9 @@
       CURRENT_LEVEL = lvl;
       G.level = levelIndex;
       G.endlessMode = !!endlessMode;        // ENDLESS VARIANT: any level can run as Endless Rush
-      // SOLO COMPACT KITCHEN (user): level 1 played ALONE (no couch P2, no online guest) runs on
-      // the 10×8 solo grid with auto-working thrown stations. Any second chef at start = full grid.
-      G.compact = lvl.id === 1 && Object.keys(G.chefs).length === 1;
+      // SOLO COMPACT KITCHEN (user): ANY level played ALONE (no couch P2, no online guest) runs
+      // on its 10×8 solo grid with auto-working thrown stations. A second chef = full grid.
+      G.compact = Object.keys(G.chefs).length === 1;
       rebuildKitchenForLevel(lvl.id, G.compact);   // PER-LEVEL LAYOUTS: stations/slots/visuals for THIS level
       G.levelSelectOpen = false;
       hostResetDayState();

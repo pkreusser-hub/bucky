@@ -734,3 +734,21 @@ farmgpt.html + netlify/functions/farmgpt.mjs (Claude API, model claude-sonnet-5)
       aim preview) pass dir. Verified: cross-kitchen dirty-plate throw parks at the sink,
       auto rates measured at 25%, manual override still exactly 1x, full regression suite
       green. NOT PUSHED.
+- [x] SOLO MODE ALL LEVELS + PLATE RECOVERY (2026-07-07, user): G.compact now = solo on ANY
+      level (was L1-only). SOLO_LAYOUT_ENTRIES = per-level 10×8 maps designed around the
+      THROW-ACROSS principle (sink LEFT always directly opposite dirtyBin RIGHT):
+      L2 Soup ping-pong — veg TOP → boards BOTTOM → chopped thrown back UP to the pot
+      (stove top c8); L3 Burger signature cross — patty crate L r2 directly opposite the
+      pan R r2 (throw the patty clean across to the grill), veg top → boards bottom;
+      L4 Pizza — dough/tomato/cheese top → boards bottom, oven bottom c8 beside the
+      boards (pizzaBase is not throwable → short carry); L5 Feast — all active, veg+dough
+      top, patty L2↔pan R2 AND stove L3↔oven R3 face-offs. All 17 entries/level, all
+      required stations present. Verified per level: compact 8-deep, sink↔bin opposite,
+      every ACTIVE station self-resolves (L5: 0 fails with everything active), L3 patty
+      cross-throw lands in the pan cooking, L2 chopped tomato throw lands in the pot.
+      PLATE RECOVERY (user: lobbing dishes out = fail state): hostResolveClaims now uses
+      PLATE_RECOVERY_TTL=3s for any exterior item WITHOUT a completed dish (empty/partial
+      plates, stray ingredients) — and the crow return includes kind dirtyPlate (was
+      plate-only: a lobbed dirty plate was PERMANENTLY lost → soft-lock with all 3 out).
+      Completed dishes keep the 5s claimable crow TTL. Verified: dirtyPlate + empty +
+      partial plate lobbed outside all back in dirtyQueue ~4s later. NOT PUSHED.
