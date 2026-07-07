@@ -731,7 +731,7 @@ farmgpt.html + netlify/functions/farmgpt.mjs (Claude API, model claude-sonnet-5)
       tomato auto-chops in 3s, manual chop 0.5 progress @0.75s (normal, not stacked),
       thrown dirty plate auto-washes (parked/queue/clean exact), hand-placed never autos,
       L2 solo + L1 couch stay full 16/48, L1 solo returns compact, real V-lob salad from
-      center = +35 served. 0 pageerrors. NOT PUSHED (awaiting user preview).
+      center = +35 served. 0 pageerrors. PUSHED 94f72bf.
 - [x] SOLO TUNING (2026-07-07, user playtest): auto-work 50% -> 25% of player speed (chop
       ~6s, wash ~8s alone). Solo layout wash loop now faces itself ACROSS the kitchen:
       sink LEFT r5 (x -4.5, z 0.5) directly opposite dirtyBin RIGHT r5 (x 4.5, z 0.5) —
@@ -744,7 +744,7 @@ farmgpt.html + netlify/functions/farmgpt.mjs (Claude API, model claude-sonnet-5)
       from beside its own crate went straight back in the box). Both call sites (flight +
       aim preview) pass dir. Verified: cross-kitchen dirty-plate throw parks at the sink,
       auto rates measured at 25%, manual override still exactly 1x, full regression suite
-      green. NOT PUSHED.
+      green. PUSHED 94f72bf.
 - [x] SOLO MODE ALL LEVELS + PLATE RECOVERY (2026-07-07, user): G.compact now = solo on ANY
       level (was L1-only). SOLO_LAYOUT_ENTRIES = per-level 10×8 maps designed around the
       THROW-ACROSS principle (sink LEFT always directly opposite dirtyBin RIGHT):
@@ -762,7 +762,7 @@ farmgpt.html + netlify/functions/farmgpt.mjs (Claude API, model claude-sonnet-5)
       plates, stray ingredients) — and the crow return includes kind dirtyPlate (was
       plate-only: a lobbed dirty plate was PERMANENTLY lost → soft-lock with all 3 out).
       Completed dishes keep the 5s claimable crow TTL. Verified: dirtyPlate + empty +
-      partial plate lobbed outside all back in dirtyQueue ~4s later. NOT PUSHED.
+      partial plate lobbed outside all back in dirtyQueue ~4s later. PUSHED 94f72bf.
 - [x] CHEF BUCKY — first fully in-house Blender chef (2026-07-07, user request): modeled,
       rigged AND animated from scratch via the Blender MCP bridge (official Blender Lab
       MCP addon, installed via CLI: lab repo zip -> extension install-file -> enable +
@@ -784,4 +784,31 @@ farmgpt.html + netlify/functions/farmgpt.mjs (Claude API, model claude-sonnet-5)
       (~19KB each, Tinker pattern). Game: GLB_CHEF_IDS + picker card 🐐 Chef Bucky (5th).
       Fur brightened at the source (dark under kitchen lights, same as Tinker lesson).
       Verified in-game headless: picker, GLB-backed, idle/run/chop/throw via real keys,
-      carry pose, scale 0.974. 0 pageerrors. NOT PUSHED.
+      carry pose, scale 0.974. 0 pageerrors. PUSHED 94f72bf.
+- [x] CARRY ANIM + ARM-STOMP FIX (2026-07-07): Blender "carry" clip (16f walk cycle,
+      arms locked in a world-space-solved tray pose euler (-72,±0.6,±0.8), f1 =
+      passing pose) -> chef-bucky-carry.glb (mesh-less). Game: optional per-model
+      6th clip via GLB_CHEF_EXTRA_CLIPS; holding+moving+a.carry -> animState "carry"
+      (run timeScale rules); heldSlot raised to (0,0.80,0.42) so items rest ON the
+      outstretched hands. CRITICAL FIX found during wiring: the hold-pose blend wrote
+      bone.rotation.x every frame, which rebuilds the quaternion from STALE euler y/z
+      and silently FROZE all GLB chefs' arm animation in-game — now a post-mixer
+      additive quaternion delta applied only while blend>0.01 (verified: arm quat
+      delta 1.73/frame mid-chop vs 0 before).
+- [x] NEW 3-CHARACTER CAST (2026-07-07, PUSHED 94f72bf): Otis 🐶 (white golden
+      retriever: cream fur, blue band/belt, floppy hanging ears — goat ears rotated
+      72° about an inner-top pivot — fluffy tail, black nose) and Boots 🐱 (grey cat:
+      WHITE paws/feet, pink nose, brick-red band, new 4-vert-cone pointy ears, long
+      thin upturned tail) — both dissected from the ChefBucky mesh via loose-part
+      separation (identify parts by material+bbox center; horns/beard deleted) and
+      REJOINED ON THE SAME ChefBuckyRig in assets/blender/chefbucky.blend. Shared
+      skeleton = shared clips: chef-otis.glb / chef-boots.glb are BASE-ONLY (361KB);
+      all 6 clips load from chef-bucky-*.glb via GLB_CHEF_CLIP_SRC — new rig anims
+      automatically work for the whole cast. Picker = exactly bucky/otis/boots; old
+      chefs (farmer/grandma/kid/steampunk Tinker) REMOVED incl all 24 Meshy GLBs
+      (~30MB, in git history); default/legacy chefModel ids -> bucky; couch P2
+      default otis. GOTCHAS: Blender MCP render_viewport_to_path renders from the
+      scene CAMERA and ignores hide_set/hide_viewport (use hide_render or move
+      objects apart — overlapping chars z-fight into a chimera that reads as wrong
+      materials); .blend1 backups must not be committed; export with everyone at
+      the origin (export_apply bakes object transforms).
