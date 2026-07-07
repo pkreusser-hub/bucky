@@ -837,3 +837,13 @@ farmgpt.html + netlify/functions/farmgpt.mjs (Claude API, model claude-sonnet-5)
       (with marker) stays in researchMsgs so the model sees its own protocol.
       Verified E2E vs real handler + fake Anthropic SSE. Live Sonnet 5 protocol
       adherence still to be spot-checked post-deploy ("give me a practice problem").
+- [x] MC WRONG-ANSWER REWORK + ENDLESS REBALANCE (2026-07-07, PUSHED a5d2d05):
+      research practice problems — wrong answer now = reveal the correct option +
+      explain why + the picked distractor's mistake, then a NEW same-concept
+      problem (different numbers) with fresh ===ANSWERS=== buttons in the SAME
+      message (the same-problem-retry design + 🔁 Answer choices fallback chip
+      were removed — didn't land in live testing). Endless Rush all levels:
+      endlessSpawnInterval = max(5, 20*0.5^(t/180)) (was max(2.5, 18*0.5^(t/90)))
+      and endlessMaxWaiting = min(7, 3+floor(t/90)) (was min(8, 3+floor(t/45)))
+      — peak pressure halved and ~3x later; user asked for "a good bit" easier
+      with a smoother ramp.
