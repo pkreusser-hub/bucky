@@ -878,3 +878,19 @@ farmgpt.html + netlify/functions/farmgpt.mjs (Claude API, model claude-sonnet-5)
       /googleapis|firestore|firebase|gstatic/ in test browsers (gstatic serves
       the SDK). Firestore REST audit one-liner lives in this session's
       transcript; familyKey = roomId("amenfarms") = fam2jan2g.
+- [x] ILLUSTRATED STORIES + HOMEWORK CAMERA (2026-07-07, PUSHED 1b37ee0, built by
+      an opus subagent from a Fable spec): story chapters can end ===ART=== +
+      inline SVG (client DOMPurify svg profile + FORBID script/foreignObject/
+      image/href — server prompt bans them too); 🎨 frequency seg on story
+      setup (every / every3 DEFAULT / first / off, localStorage farmgpt_illust);
+      illustrate:true requests get maxTokens 3000, plain stay 1200; art streams
+      after text+choices; bookshelf saves >300KB strip art oldest-first.
+      Research 📷: photo -> ≤1280px JPEG client-side -> vision image block;
+      sanitizeMessages accepts text/image block arrays (jpeg/png/webp, ≤2.8M
+      b64 chars, ≤4 imgs/request oldest-stripped); RESEARCH_SYSTEM PHOTOS block
+      (coach photographed worksheets, never answer-sheet); saveResearch stores
+      thumb (≤200px) + "[photo shared earlier]" placeholder, NEVER full b64
+      (in-memory keeps full image for same-session follow-ups — storage copies,
+      don't mutate, or the in-flight request loses its image). TODO next: live
+      story on every3 -> read real ¢/illustration off the usage dashboard and
+      tune default frequency/art prompt.
