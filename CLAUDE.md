@@ -592,3 +592,30 @@ levels; full order→cook→deliver flow on the right-wall window passes.
       facing, camera pans then clamps at maxCamX while the chef keeps
       going, toggle round-trip persists, couch forces overview + hides
       the button. 0 pageerrors.
+- [x] STEAMPUNK CHEF "TINKER" (2026-07-06, user's Meshy model from Downloads):
+      Meshy_AI_Adventurous_Steampunk_*.glb had NO rig (raw texture-stage
+      export, 595k tris) and wasn't in the API account's task list (made in
+      the web workspace) — so: local diet (meshopt simplify 0.3 → 178k tris
+      under the rig endpoint's 300k-face cap, tex 1024 JPEG, normal/metallic
+      dropped) → uploaded as a data: model_url to /openapi/v1/rigging
+      (height 1.3, 5 credits; walk+run FREE with the rig) → 3 animate calls
+      idle=0 / Charged_Axe_Chop=237 / baseball_pitching=393 (9 credits;
+      action IDs from docs.meshy.ai/en/api/animation-library). Final diet:
+      base chef-steampunk.glb 2.0MB (simplify 0.2 → 35.7k tris, 24 bones);
+      the 5 anim GLBs are MESH-LESS (nodes+clips only, 27-112KB each —
+      PropertyBinding binds tracks by node name against the base clone, so
+      the game's clips-only loader doesn't need the mesh; whole chef 2.3MB
+      vs farmer's 12.4MB). Game: USE_GLB_CHEFS replaced by per-model
+      GLB_CHEF_IDS=["steampunk"] (farmer/grandma/kid stay procedural),
+      4th picker card ⚙️ Tinker, chefModelFor fallback look. GOTCHAS:
+      Meshy rig output ships metallicFactor 1 + NO MR texture → renders
+      near-BLACK under the kitchen lights (set 0); loadChefTemplate now
+      swaps all GLB-chef materials to MeshLambertMaterial (skinning:true
+      REQUIRED in r128 or the skinned mesh freezes in bind pose); base
+      texture rebaked +18% brightness (her palette is darker than the toon
+      props); camera framing in tests must use bone world positions (the
+      0.01-armature Box3 gotcha). Verified in-game headless: picker →
+      GLB-backed visual, idle/run/chop(progress)/throw states via real
+      keys, carry pose (arm bones forward, held mesh at chest), farmer
+      template absent. 0 pageerrors. Rig task id (reusable for more clips):
+      019f3a43-924f-71d1-9877-bdec6a56bb7c.

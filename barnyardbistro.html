@@ -5462,10 +5462,11 @@
     // (buildChef's callers, ensureChefVisual, syncChefVisual) stays untouched by that swap.
     const CHEF_COLORS = { blue: 0x3a5fc4, red: 0xd6432a };
     // ---- Family playtest fix #1: GLB chefs loaded inconsistently across the family's devices
-    // (network/device variance). Flip this to true to re-enable the Meshy rigged-chef path once
-    // that's sorted out — the GLB loader/builder code below is left fully intact, just unreached
-    // while this is false. Customers and props are UNAFFECTED (they keep their own GLB paths).
-    const USE_GLB_CHEFS = false;
+    // (network/device variance), so farmer/grandma/kid stay procedural. The GLB path is now
+    // PER-MODEL instead of a global switch: models listed here load their Meshy rigged GLBs
+    // (6 files: base + walk/run/chop/throw/idle) with the procedural look as a fallback while
+    // loading/failed. Customers and props are UNAFFECTED (they keep their own GLB paths).
+    const GLB_CHEF_IDS = ["steampunk"];
     // ---- Systems pass 4: chef picker mapping — farmer (straw hat, blue overalls, exactly
     // today's look), grandma (red dress-tone body + a gray "bun" hair blob replacing the straw
     // hat), kid (green body + an oversized hat via a bigger brim/top scale). Pure data — the
@@ -5475,6 +5476,7 @@
     function chefModelFor(modelId){
       switch (modelId){
         case "grandma": return { bodyColor: 0xd6432a, hatColor: 0xb0b0b0, hatScale: 1, hairBun: true, hatBrimScale: 1 };
+        case "steampunk": return { bodyColor: 0x2f5f9e, hatColor: 0x7fa8d9, hatScale: 1, hairBun: true, hatBrimScale: 1 };
         case "kid":     return { bodyColor: 0x4a9a3a, hatColor: 0xffffff, hatScale: 1.35, hairBun: false, hatBrimScale: 1.25 };
         case "farmer":
         default:        return { bodyColor: 0x3a5fc4, hatColor: 0xffffff, hatScale: 1, hairBun: false, hatBrimScale: 1 };
@@ -5518,7 +5520,7 @@
     // loaded; absent/partial entries mean "still loading or failed" — buildChef() below falls
     // back to the procedural look for that modelId until (if ever) it appears here.
     const CHEF_TEMPLATES = {};
-    const CHEF_MODEL_IDS = ["farmer", "grandma", "kid"];
+    const CHEF_MODEL_IDS = ["farmer", "grandma", "kid", "steampunk"];
     function loadChefTemplate(modelId){
       const base = "assets/chef-" + modelId;
       let scene = null;
@@ -5527,6 +5529,17 @@
       function maybeReady(){
         if (!scene) return;
         for (const k of need) if (!clips[k]) return;
+        // Meshy PBR (MeshStandardMaterial) reads DARK under the kitchen's hemi+dir lights next to
+        // the bright Lambert props — swap to MeshLambertMaterial with the same texture. skinning
+        // MUST be re-enabled on the replacement (r128: it's a material flag, and a fresh material
+        // defaults to false — without it the skinned mesh renders in bind pose at the origin).
+        scene.traverse((o) => {
+          if (!o.isMesh || !o.material) return;
+          const src = o.material;
+          o.material = new THREE.MeshLambertMaterial({ map: src.map || null,
+            color: src.color ? src.color.clone() : 0xffffff, skinning: !!o.isSkinnedMesh });
+          src.dispose();
+        });
         scene.updateMatrixWorld(true);
         const box = computeBoneWorldBox(scene);
         const size = new THREE.Vector3(); box.getSize(size);
@@ -5549,7 +5562,7 @@
         }, undefined, (err) => console.warn(base + "-" + k + ".glb failed to load — using the built-in procedural chef", err));
       }
     }
-    if (USE_GLB_CHEFS) for (const id of CHEF_MODEL_IDS) loadChefTemplate(id);
+    for (const id of GLB_CHEF_IDS) loadChefTemplate(id);
     function buildChefProcedural(color, chefModel){
       const g = new THREE.Group();
       const look = chefModelFor(chefModel);
@@ -5674,7 +5687,7 @@
     }
     function buildChef(color, chefModel){
       const modelId = chefModel || "farmer";
-      const template = USE_GLB_CHEFS ? CHEF_TEMPLATES[modelId] : null;
+      const template = GLB_CHEF_IDS.includes(modelId) ? CHEF_TEMPLATES[modelId] : null;
       if (template) return buildChefGLB(template, color, modelId);
       return buildChefProcedural(color, modelId);
     }
@@ -5716,7 +5729,7 @@
     // lands — same "upgradePlayerIfWaiting" pattern as pasturepanic.html, generalized to every
     // live chef currently on that modelId (both players may be waiting on the same template).
     function upgradeChefsWaitingOn(modelId){
-      if (!USE_GLB_CHEFS) return;
+      if (!GLB_CHEF_IDS.includes(modelId)) return;
       for (const chefId in chefVisuals){
         const vis = chefVisuals[chefId];
         if (vis.mixer) continue;              // already GLB-backed
@@ -9339,7 +9352,8 @@
     const CHEF_MODELS = [
       { id: "farmer", emoji: "👨‍🌾", name: "Farmer" },
       { id: "grandma", emoji: "👵", name: "Grandma" },
-      { id: "kid", emoji: "🧒", name: "Kid" }
+      { id: "kid", emoji: "🧒", name: "Kid" },
+      { id: "steampunk", emoji: "⚙️", name: "Tinker" }
     ];
     const chefCardEls = [];   // index-aligned with CHEF_MODELS
     CHEF_MODELS.forEach((cm, idx) => {
