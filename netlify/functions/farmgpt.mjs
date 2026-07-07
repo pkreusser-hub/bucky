@@ -134,6 +134,94 @@ const MAX_CONTENT_CHARS = 12000; // per message
 const KEEP_HEAD = 2;             // always keep the story's world-setup turn(s)
 const KEEP_TAIL = 40;
 
+// ---------------- usage tracking ----------------
+// Every reply's exact token counts (reported by the API in the SSE stream) are aggregated
+// into ONE Firestore doc per day: farmgpt_usage/<YYYY-MM-DD> with per-mode increments
+// (s_in/s_out/s_req for story, r_in/r_out/r_req for research). Reuses the same
+// FIREBASE_SERVICE_ACCOUNT the notify function already has; auth token is minted by
+// hand-signing a JWT (zero-dependency, same technique as notify.mjs) and cached across
+// warm invocations. Logging failures NEVER break a reply. mode:"stats" returns the docs.
+const PROJECT_ID = "amen-farms-app";
+const FIRESTORE_BASE = process.env.FARMGPT_FIRESTORE_BASE ||
+  `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
+const GOOGLE_TOKEN_URL = process.env.FARMGPT_GOOGLE_TOKEN_URL || "https://oauth2.googleapis.com/token";
+const USAGE_COLLECTION = "farmgpt_usage";
+
+let cachedGoogleToken = null;   // { token, exp(ms) } — survives across warm invocations
+
+function base64url(input) {
+  const buf = Buffer.isBuffer(input) ? input : Buffer.from(input);
+  return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function getGoogleAccessToken() {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (!raw) return null;
+  if (cachedGoogleToken && Date.now() < cachedGoogleToken.exp - 60000) return cachedGoogleToken.token;
+  const sa = JSON.parse(raw);
+  const crypto = await import("node:crypto");
+  const nowSec = Math.floor(Date.now() / 1000);
+  const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const claims = base64url(JSON.stringify({
+    iss: sa.client_email,
+    scope: "https://www.googleapis.com/auth/datastore",
+    aud: "https://oauth2.googleapis.com/token",
+    iat: nowSec,
+    exp: nowSec + 3600,
+  }));
+  const signer = crypto.createSign("RSA-SHA256");
+  signer.update(header + "." + claims);
+  const jwt = header + "." + claims + "." + base64url(signer.sign(sa.private_key));
+  const resp = await fetch(GOOGLE_TOKEN_URL, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: jwt }),
+  });
+  if (!resp.ok) return null;
+  const j = await resp.json();
+  cachedGoogleToken = { token: j.access_token, exp: Date.now() + (j.expires_in || 3600) * 1000 };
+  return cachedGoogleToken.token;
+}
+
+// Farm-local calendar date (Central time), so "today" matches the family's day.
+function farmDate() {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+}
+
+async function logUsage(modeName, inTok, outTok) {
+  try {
+    const token = await getGoogleAccessToken();
+    if (!token) return;
+    const key = modeName === "story" ? "s" : "r";
+    const doc = `projects/${PROJECT_ID}/databases/(default)/documents/${USAGE_COLLECTION}/${farmDate()}`;
+    const tf = (f, n) => ({ fieldPath: f, increment: { integerValue: String(n) } });
+    await fetch(`${FIRESTORE_BASE}:commit`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        writes: [{ transform: { document: doc, fieldTransforms: [tf(key + "_in", inTok), tf(key + "_out", outTok), tf(key + "_req", 1)] } }],
+      }),
+    });
+  } catch { /* usage logging must never break a reply */ }
+}
+
+async function readUsage() {
+  const token = await getGoogleAccessToken();
+  if (!token) return null;
+  const resp = await fetch(`${FIRESTORE_BASE}/${USAGE_COLLECTION}?pageSize=1000`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) return null;
+  const j = await resp.json();
+  return (j.documents || [])
+    .map((d) => {
+      const f = d.fields || {};
+      const n = (k) => parseInt((f[k] && f[k].integerValue) || "0", 10);
+      return { date: d.name.split("/").pop(), s_in: n("s_in"), s_out: n("s_out"), s_req: n("s_req"), r_in: n("r_in"), r_out: n("r_out"), r_req: n("r_req") };
+    })
+    .sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+
 function corsHeaders(origin, contentType) {
   const allowOrigin = ALLOWED_ORIGINS.has(origin) ? origin : "https://amenfarms.netlify.app";
   return {
@@ -188,6 +276,13 @@ export default async (req) => {
 
   if (!body || body.secret !== familySecret) return jsonError(401, "Wrong family password", jsonHeaders);
 
+  // Usage dashboard: returns the per-day token/request aggregates.
+  if (body.mode === "stats") {
+    const days = await readUsage();
+    if (!days) return jsonError(500, "Usage tracking isn't configured on the server", jsonHeaders);
+    return new Response(JSON.stringify({ days }), { status: 200, headers: jsonHeaders });
+  }
+
   const mode = MODES[body.mode];
   if (!mode) return jsonError(400, "mode must be \"story\" or \"research\"", jsonHeaders);
 
@@ -238,6 +333,7 @@ export default async (req) => {
       let buf = "";
       let sentAnyText = false;
       let stopReason = null;
+      let inTok = 0, outTok = 0;
       try {
         for (;;) {
           const { done, value } = await reader.read();
@@ -255,8 +351,11 @@ export default async (req) => {
             if (ev.type === "content_block_delta" && ev.delta && ev.delta.type === "text_delta" && ev.delta.text) {
               sentAnyText = true;
               controller.enqueue(encoder.encode(ev.delta.text));
-            } else if (ev.type === "message_delta" && ev.delta && ev.delta.stop_reason) {
-              stopReason = ev.delta.stop_reason;
+            } else if (ev.type === "message_start" && ev.message && ev.message.usage) {
+              inTok = ev.message.usage.input_tokens || 0;
+            } else if (ev.type === "message_delta") {
+              if (ev.delta && ev.delta.stop_reason) stopReason = ev.delta.stop_reason;
+              if (ev.usage && ev.usage.output_tokens) outTok = ev.usage.output_tokens;
             } else if (ev.type === "error") {
               controller.enqueue(encoder.encode("\n\n(Sorry — something went wrong on the AI's end. Try that again!)"));
             }
@@ -268,6 +367,8 @@ export default async (req) => {
       } catch {
         // Upstream connection dropped mid-stream — end what we have; the client keeps the partial.
       } finally {
+        // Log before closing so the lambda stays alive for the write (fails silently).
+        if (inTok || outTok) await logUsage(body.mode, inTok, outTok);
         controller.close();
       }
     },

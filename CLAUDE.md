@@ -674,3 +674,17 @@ farmgpt.html + netlify/functions/farmgpt.mjs (Claude API, model claude-sonnet-5)
   solve-for-me → method on a different quadratic + hands it back (roots never
   given, even under pressure); essay request → outline coaching; no code on a
   math question; concept questions still fully taught.
+- USAGE TRACKING (2026-07-07, user request): every reply exact token counts (SSE
+  message_start input_tokens / message_delta usage.output_tokens) are aggregated into ONE
+  Firestore doc per day - farmgpt_usage/<YYYY-MM-DD America/Chicago>, per-mode increment
+  fields s_in/s_out/s_req + r_in/r_out/r_req via documents:commit fieldTransforms
+  (creates-if-missing; no per-request docs, storage stays ~1 doc/day). Auth reuses
+  FIREBASE_SERVICE_ACCOUNT w/ hand-signed JWT (notify.mjs technique), token cached across
+  warm invocations; logging awaited in the stream finally (lambda stays alive) and can
+  NEVER break a reply. mode:stats returns the day docs (secret-gated). Page: 📊 API
+  usage link on FarmGPT home -> month estimate + all-time, story/research split, 21-day
+  table; cost estimated at Sonnet 5 list price (USD 3 in / 15 out per MTok; labeled
+  estimate, may read high vs intro pricing). Test env overrides: FARMGPT_FIRESTORE_BASE +
+  FARMGPT_GOOGLE_TOKEN_URL (harness fakes Google token + Firestore commit/list with a
+  generated RSA key). Verified: increments exact (3 story + 1 research -> 369/150/123/50),
+  dashboard renders, stats 200.
