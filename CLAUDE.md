@@ -688,6 +688,17 @@ farmgpt.html + netlify/functions/farmgpt.mjs (Claude API, model claude-sonnet-5)
   FARMGPT_GOOGLE_TOKEN_URL (harness fakes Google token + Firestore commit/list with a
   generated RSA key). Verified: increments exact (3 story + 1 research -> 369/150/123/50),
   dashboard renders, stats 200.
+- PROMPT CACHING (2026-07-07, PUSHED 948c9b5; user cost concern: $0.71/29 story reqs —
+  the growing story history was re-sent at full input price every chapter): top-level
+  cache_control ephemeral on the API request (auto-places on the last cacheable block;
+  system+history re-read at 0.1x within the 5-min TTL; prefixes <2048 tokens silently
+  skip caching on Sonnet 5 — fine, kicks in a few chapters deep). Usage tracking also
+  logs cache tokens (s_cw/s_cr + r_cw/r_cr daily increments; legacy docs read 0) and
+  the dashboard prices them (writes 1.25x in-rate, reads 0.1x) + "cached 💰" split line.
+  DECISIONS: Max subscription can NOT fund API calls (asked 2026-07-07) — FarmGPT stays
+  on Console pay-as-you-go; both modes stay on Sonnet 5 (Haiku-for-story offered,
+  declined). Verified: real handler in-process vs fake Anthropic SSE + fake Firestore,
+  7/7 (cache_control on wire, cache tokens committed, stats returns new fields).
 - [x] SOLO COMPACT KITCHEN + AUTO-WORK (2026-07-07, user: solo layout too large, nobody to
       throw to): LEVEL 1 played ALONE (1 chef at hostStartLevel — no couch P2, no guest)
       runs on a 10×8 grid (same width, HALF the depth). Kitchen depth is now DYNAMIC:
