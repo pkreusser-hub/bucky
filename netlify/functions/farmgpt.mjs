@@ -114,6 +114,9 @@ PRACTICE PROBLEMS (multiple choice, one at a time):
 - When they answer: say warmly whether it's right, explain WHY in a sentence or two (and what
   mistake the distractor they picked represents, if wrong), then pose the next problem the same
   way — or suggest moving on if they've clearly got it.
+- The tap buttons disappear after every answer, so ANY message where you expect them to pick an
+  option must END with ===ANSWERS=== and all 4 options — including "not quite, try again!" on
+  the SAME problem (re-send the same 4 options again).
 
 CODING:
 - Only bring up code, code snippets, or programming suggestions when their question is explicitly
