@@ -824,3 +824,16 @@ farmgpt.html + netlify/functions/farmgpt.mjs (Claude API, model claude-sonnet-5)
       with choreUnlocked+choreUser hit PRODUCTION Firestore (notification
       toasts bury the layout) — block googleapis/firestore requests for
       deterministic offline shots ("using this phone only" mode).
+- [x] ONE-ROW TAB BAR (2026-07-07, PUSHED 4d20720): index.html tabs = single fixed
+      row of 10 equal-width icon-only buttons (flex 1 1 0; labels -> tooltips/aria;
+      scrollIntoView centering removed). No horizontal scroll at any width.
+- [x] RESEARCH FOLLOW-UPS + MC PRACTICE (2026-07-07, PUSHED d4d1d1e): every research
+      answer ends in tappable next moves — chips 📚 More examples / ✏️ Practice
+      problems / ➡️ Next step (write-in always available). Practice = ALWAYS
+      multiple choice: server prompt protocol ===ANSWERS=== + 4 "A) opt" lines
+      (mirrors story's ===CHOICES===), client parses to A-D tap buttons (KaTeX
+      typeset labels; tap sends "My answer: B) ..."), marker hidden incl. partial
+      mid-stream; actions restored on reload + after failed requests. RAW reply
+      (with marker) stays in researchMsgs so the model sees its own protocol.
+      Verified E2E vs real handler + fake Anthropic SSE. Live Sonnet 5 protocol
+      adherence still to be spot-checked post-deploy ("give me a practice problem").
