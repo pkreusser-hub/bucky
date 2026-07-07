@@ -619,3 +619,38 @@ levels; full order→cook→deliver flow on the right-wall window passes.
       keys, carry pose (arm bones forward, held mesh at chest), farmer
       template absent. 0 pageerrors. Rig task id (reusable for more clips):
       019f3a43-924f-71d1-9877-bdec6a56bb7c.
+
+---
+
+# 🌾 FarmGPT — family AI: story time + research (2026-07-07)
+
+farmgpt.html + netlify/functions/farmgpt.mjs (Claude API, model claude-sonnet-5).
+- ARCHITECTURE: static page → POST /.netlify/functions/farmgpt {secret, mode, messages}
+  → function stamps the per-mode GUARDRAIL SYSTEM PROMPT server-side (browser can never
+  override), streams Sonnet 5 text back as plain chunks. Zero-dependency raw fetch +
+  hand-parsed SSE (house convention, same as notify.mjs). Secret = the existing
+  BUCKY_NOTIFY_SECRET / FAMILY_PASSWORD pair; NEW Netlify env var required:
+  ANTHROPIC_API_KEY (function 500s with a clear message until set).
+  ANTHROPIC_BASE_URL env override exists for testing against a fake server.
+- GUARDRAILS (user spec, both modes share FAMILY_RULES): no swearing / graphic violence /
+  sexual content; combat non-detailed ("he slew the dragon"), deaths OK but gentle;
+  nothing political; nothing on gender identity / sexual orientation; restricted topics →
+  story redirects in-story without lecturing, research suggests asking a parent/teacher.
+- STORY MODE: first message = world+situation (setup screen w/ example chips); model must
+  end every chapter with ===CHOICES=== + exactly 3 numbered choices (client parses into
+  buttons; marker hidden during stream incl. partial-marker trim) or ===THE END=== for the
+  finale (~8-15 chapters). Write-in input always available. thinking disabled (speed),
+  max_tokens 1200. Bookshelf: localStorage farmgpt_stories_v1 (20 cap, resume/delete;
+  resume with trailing user turn auto-continues).
+- RESEARCH MODE: teen homework+coding chat; markdown via marked+DOMPurify CDN; adaptive
+  thinking (default) w/ "Thinking…" indicator, max_tokens 4096; localStorage
+  farmgpt_research_v1 (50 msgs; user msg saved BEFORE the reply streams so a mid-stream
+  close keeps the exchange).
+- Server-side caps: ≤60 messages, ≤12k chars each, long convos trimmed head(2)+tail(40)
+  re-aligned to a user turn. Refusal stop w/ no text → friendly stand-in line.
+- games.html: 🌾 FarmGPT tile added.
+- Verified E2E headless (REAL function handler in-process + fake Anthropic SSE server):
+  401/400 paths, progressive streaming, choices parse, THE END, bookshelf resume,
+  research markdown+persist+clear, request shape (model/stream/thinking/guardrails),
+  mobile 375px layout. 0 pageerrors. NOT yet tested against the real API (needs
+  ANTHROPIC_API_KEY in Netlify) — set env var, redeploy, then live-test both modes.
