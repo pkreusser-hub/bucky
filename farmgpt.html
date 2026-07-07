@@ -682,25 +682,6 @@
     const el = document.getElementById("chatActions");
     if (el) el.remove();
   }
-  // Mid-quiz safety net: if the student just tapped an answer and the tutor's reply carries no
-  // fresh ===ANSWERS=== block (e.g. "not quite — try again!" without re-sending the options),
-  // surface the SAME problem's options behind a 🔁 chip so they're never stranded.
-  function retryOptions() {
-    const n = researchMsgs.length;
-    if (!n || researchMsgs[n - 1].role !== "assistant") return [];
-    if (parseResearchReply(researchMsgs[n - 1].content).answers.length) return [];
-    // walk back through consecutive ("My answer: ..." / reply) pairs — the same quiz streak —
-    // to the most recent reply that actually carried options (handles repeated wrong answers)
-    let i = n - 1;
-    while (i >= 2 && researchMsgs[i].role === "assistant" &&
-           researchMsgs[i - 1].role === "user" && /^my answer:/i.test(researchMsgs[i - 1].content) &&
-           researchMsgs[i - 2].role === "assistant") {
-      const a = parseResearchReply(researchMsgs[i - 2].content).answers;
-      if (a.length) return a;
-      i -= 2;
-    }
-    return [];
-  }
   function showChatActions(answers) {
     clearChatActions();
     const wrap = document.createElement("div");
@@ -730,13 +711,6 @@
     } else {
       const row = document.createElement("div");
       row.className = "chipRow";
-      const retry = retryOptions();
-      if (retry.length) {
-        const b = document.createElement("button");
-        b.className = "chip"; b.type = "button"; b.textContent = "🔁 Answer choices";
-        b.addEventListener("click", () => showChatActions(retry));   // local re-render, no API call
-        row.appendChild(b);
-      }
       const CHIPS = [
         ["📚 More examples", "Show me more examples of this."],
         ["✏️ Practice problems", "Give me a practice problem on this."],
