@@ -230,6 +230,32 @@
   #victoryOverlay.show{ display:flex; pointer-events:auto; }
   #victoryCard{ background:rgba(255,252,244,.97); border-radius:26px; padding:30px 40px 34px; text-align:center;
                 box-shadow:0 14px 40px rgba(0,0,0,.4); max-width:92vw; }
+  /* ---- ENDLESS ROGUE-LIKE: level-up choice overlay ---- */
+  #upgradeOverlay{ position:absolute; inset:0; z-index:52; display:none; align-items:center;
+    justify-content:center; background:rgba(20,30,16,.45); pointer-events:none; }
+  #upgradeOverlay.show{ display:flex; pointer-events:auto; }
+  #upgradeCard{ background:#fff8e6; border-radius:20px; padding:20px 22px 18px; text-align:center;
+    box-shadow:0 12px 40px rgba(0,0,0,.4); max-width:min(92vw, 640px); }
+  #upgradeTitle{ font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:32px; color:#5a3ea8;
+    text-shadow:0 2px 0 rgba(0,0,0,.12); }
+  #upgradeSub{ font-size:13px; color:#7a6a55; font-weight:700; margin:2px 0 14px; }
+  #upgradeRow{ display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
+  .upgChoice{ width:170px; background:#fff; border:4px solid #e8c882; border-radius:14px;
+    padding:14px 10px 12px; cursor:pointer; box-shadow:0 5px 0 #c9a55c;
+    transition:transform .08s; }
+  .upgChoice:hover{ transform:translateY(-3px); border-color:#5a3ea8; }
+  .upgChoice:active{ transform:translateY(2px); box-shadow:0 2px 0 #c9a55c; }
+  .upgChoice .ue{ font-size:34px; line-height:1.1; }
+  .upgChoice .un{ font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:15px; color:#2a2620; margin:6px 0 4px; }
+  .upgChoice .ud{ font-size:11.5px; color:#5a5245; line-height:1.35; font-weight:600; }
+  #upgradeWaiting{ font-size:14px; font-weight:800; color:#7a6a55; }
+  @media (max-width:520px){
+    #upgradeTitle{ font-size:24px; }
+    .upgChoice{ width:130px; padding:10px 8px; }
+    .upgChoice .ue{ font-size:26px; }
+    .upgChoice .un{ font-size:12px; }
+    .upgChoice .ud{ font-size:10px; }
+  }
   #victoryTitle{ font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:40px; color:#b31942;
                  text-shadow:0 2px 0 rgba(0,0,0,.15); letter-spacing:1px; margin-bottom:6px; }
   /* 3 big stars (Systems pass 2): each pops+chimes in one at a time as updateVictoryOverlay
@@ -547,6 +573,14 @@
       <div id="sinkDishBadge" class="dishBadge">🍽 1</div>
       <div id="binDishBadge" class="dishBadge">🍽 1</div>
       <div id="screenLiteWrap"></div>
+      <div id="upgradeOverlay">
+        <div id="upgradeCard">
+          <div id="upgradeTitle">LEVEL UP! ⬆️</div>
+          <div id="upgradeSub">pick a power-up — the kitchen is paused</div>
+          <div id="upgradeRow"></div>
+          <div id="upgradeWaiting" style="display:none;">Chef 1 is picking a power-up! ⏳</div>
+        </div>
+      </div>
       <div id="victoryOverlay">
         <div id="victoryCard">
           <div id="victoryTitle">DAY COMPLETE! 🎉</div>
@@ -1003,15 +1037,19 @@
     // competent solo run lands solidly mid-2-star (~63-65% through the 2-star band) — two
     // coordinating kids clear 3 stars, a first solo run lands 1.
     const LEVELS = [
+      // Balance (user): spawnFactor 1.5 -> 0.85 — the old cadence could never reach the
+      // 300-coin 3-star bar in a 180s day; ~9 diners now fit, tips deciding the 3rd star.
       { id: 1, name: "Salad Days", emoji: "🥗", recipes: ["salad"], extraRecipes: [], starMoney: [80, 150, 300],
-        spawnFactor: 1.5, patienceMax: 100,
+        spawnFactor: 0.85, patienceMax: 90,
         stations: ["cuttingBoard", "cuttingBoard2", ...DISH_WASH_STATIONS], crates: ["tomato", "lettuce"] },
       { id: 2, name: "Soup's On", emoji: "🍲", recipes: ["soup"], extraRecipes: [{ id: "salad", chance: 0.2 }],
         starMoney: [50, 100, 200], spawnFactor: 1.1, patienceMax: 78,
         stations: ["cuttingBoard", "cuttingBoard2", "stove", ...DISH_WASH_STATIONS],
         crates: ["tomato", "lettuce", "onion", "potato"] },
+      // Balance (user): burgers are the slowest dish — longer patience, slightly slower spawns,
+      // gentler 3-star threshold.
       { id: 3, name: "Burger Barn", emoji: "🍔", recipes: ["burger"], extraRecipes: [{ id: "salad", chance: 0.2 }],
-        starMoney: [55, 110, 210], spawnFactor: 1.05, patienceMax: 70,
+        starMoney: [50, 100, 180], spawnFactor: 1.2, patienceMax: 85,
         stations: ["cuttingBoard", "cuttingBoard2", "pan", ...DISH_WASH_STATIONS],
         crates: ["tomato", "lettuce", "bun", "patty"] },
       { id: 4, name: "Pizza Night", emoji: "🍕", recipes: ["pizza"], extraRecipes: [{ id: "soup", chance: 0.2 }],
@@ -1035,6 +1073,50 @@
       try { return JSON.parse(localStorage.getItem(ENDLESS_BEST_KEY) || "{}") || {}; } catch (err) { return {}; }
     }
     function endlessBestFor(levelId){ return loadEndlessBest()[levelId] || 0; }
+    // ---- ENDLESS ROGUE-LIKE (user design): money doubles as XP. Each level-up freezes the
+    // whole sim (a built-in breather!) and offers 3 random power-ups from this pool — the host
+    // picks, everyone benefits. One copy of each per run; all effects read G.upgrades live so
+    // they sync to guests through the ordinary snapshot.
+    const UPGRADE_POOL = [
+      { id: "split",     emoji: "🍽️✨", name: "Double Delivery", desc: "A delivered dish feeds a 2nd matching customer for free!" },
+      { id: "speed",     emoji: "👟",  name: "Speedy Boots",     desc: "Both chefs run 28% faster!" },
+      { id: "chop",      emoji: "🔪",  name: "Ninja Knife",      desc: "Chopping is 50% faster!" },
+      { id: "wash",      emoji: "🧼",  name: "Power Washer",     desc: "Dishes wash twice as fast!" },
+      { id: "cook",      emoji: "🔥",  name: "Hot Flames",       desc: "Pot, pan & oven run 35% faster!" },
+      { id: "tips",      emoji: "💝",  name: "Charm School",     desc: "Tips are 50% bigger!" },
+      { id: "patience",  emoji: "🧘",  name: "Cozy Seating",     desc: "New customers wait 25% longer!" },
+      { id: "snack",     emoji: "🥕",  name: "Snack Toss",       desc: "Lob a raw veggie near a customer — munching pauses their timer!" },
+      { id: "magnet",    emoji: "🧲",  name: "Magnet Boots",     desc: "Scoop floor items from twice as far!" },
+      { id: "plate",     emoji: "🍽️",  name: "Bonus Plate",      desc: "One extra plate joins the kitchen right now!" },
+      { id: "scarecrow", emoji: "🎃",  name: "Scarecrow",        desc: "The crow waits twice as long before stealing food!" }
+    ];
+    function upgradeById(id){ return UPGRADE_POOL.find(u => u.id === id); }
+    function upg(id){ return !!(G.upgrades && G.upgrades[id]); }
+    // XP thresholds: 50, 125, 225, 350, 500, ... (each level needs 25 more than the last)
+    function xpNeededFor(level){ return 25 * level * (level + 3) / 2; }
+    // HOST: open a 3-choice level-up (freezes hostSim until picked; see the guard there)
+    function hostMaybeLevelUp(){
+      if (!G.endlessMode || G.upgradeChoice) return;
+      if (G.money < xpNeededFor((G.xpLevel || 0) + 1)) return;
+      const unowned = UPGRADE_POOL.filter(u => !upg(u.id)).map(u => u.id);
+      if (unowned.length === 0){ G.xpLevel = (G.xpLevel || 0) + 1; return; }   // pool exhausted
+      const options = [];
+      while (options.length < Math.min(3, unowned.length)){
+        const pick = unowned[Math.floor(Math.random() * unowned.length)];
+        if (!options.includes(pick)) options.push(pick);
+      }
+      G.upgradeChoice = { options };
+      publishSnapshotNow();
+    }
+    function hostPickUpgrade(id){
+      if (!net.isHost || !G.upgradeChoice || !G.upgradeChoice.options.includes(id)) return;
+      G.upgrades = G.upgrades || {};
+      G.upgrades[id] = true;
+      if (id === "plate") G.plates.clean++;   // one-time effect: 4th plate enters circulation
+      G.xpLevel = (G.xpLevel || 0) + 1;
+      G.upgradeChoice = null;
+      publishSnapshotNow();
+    }
     function saveEndlessBestIfImproved(levelId, money){
       try {
         const all = loadEndlessBest();
@@ -1120,6 +1202,9 @@
       runT: 0,                 // ENDLESS: run clock counting UP (unused on timed days)
       endlessMode: false,      // ENDLESS VARIANT: current day runs the ♾️ ruleset (synced)
       spawnSnapId: 0,          // bumps whenever the host snaps chefs to their zone sides (synced)
+      xpLevel: 0,              // ENDLESS ROGUE-LIKE: upgrades earned this run (synced)
+      upgrades: {},            // ENDLESS ROGUE-LIKE: owned upgrade ids (synced)
+      upgradeChoice: null,     // ENDLESS ROGUE-LIKE: {options:[id,id,id]} while a pick is open (synced)
       stats: { served: 0, missed: 0, thrown: 0, caught: 0, floorDrops: 0, tips: 0, orderedCount: 0 },
       chefs: {
         // seeded with a single local chef so solo play (and the instant before Playroom
@@ -1812,7 +1897,7 @@
     function moveChef(chefId, dx, dz, dt){
       const chef = G.chefs[chefId];
       if (!chef || G.phase !== "playing" || G.levelSelectOpen) return;
-      const speed = 5;
+      const speed = upg("speed") ? 6.4 : 5;   // ENDLESS upgrade: Speedy Boots
       let mx = dx, mz = dz;
       const len = Math.hypot(mx, mz);
       if (len > 1e-4){ mx /= len; mz /= len; }
@@ -1950,7 +2035,7 @@
         const f = G.floorItems[i];
         for (const cid in G.chefs){
           const c = G.chefs[cid];
-          if (Math.hypot(c.x - f.x, c.z - f.z) > WALKOVER_PICKUP_R) continue;
+          if (Math.hypot(c.x - f.x, c.z - f.z) > (upg("magnet") ? 1.35 : WALKOVER_PICKUP_R)) continue;   // Magnet Boots
           let item;
           if (f.kind === "plate")         item = { kind: "plate", contents: (f.contents || []).map(x => ({ ...x })), dish: f.dish || null };
           else if (f.kind === "pizzaDish") item = { kind: "pizzaDish", state: f.state, dish: f.dish || null };
@@ -2469,7 +2554,7 @@
           return;   // someone else is already scrubbing at this sink — wait your turn, no progress
         }
         G.sink.washingChef = chefId;
-        G.sink.progress = Math.min(1, G.sink.progress + dt / SINK_WASH_TIME);
+        G.sink.progress = Math.min(1, G.sink.progress + dt * (upg("wash") ? 2 : 1) / SINK_WASH_TIME);   // Power Washer
         if (G.sink.progress >= 1){
           // Family playtest fix #3: the cleaned plate deposits straight onto the adjacent plate
           // stack (no separate tray trip) — the chef's hands go empty, ready to grab something
@@ -2519,7 +2604,7 @@
       if (!st || st.type !== "board") return;
       const board = boardFor(st);
       if (!board.item || board.item.state !== "raw" || !CHOPPABLE_KINDS.has(board.item.kind)) return;
-      board.progress = Math.min(1, board.progress + dt / CHOP_TIME);
+      board.progress = Math.min(1, board.progress + dt * (upg("chop") ? 1.5 : 1) / CHOP_TIME);   // Ninja Knife
       if (board.progress >= 1){
         board.item.state = "chopped";
       }
@@ -3085,19 +3170,9 @@
         // (FIELD-CUSTOMER REWORK: the serving-window air-delivery branch is gone — regular
         // throws stay inside the kitchen; only LOBS (handled above) reach the customers.)
 
-        // e) trash bins (one per zone, user-drawn co-op grid): anything thrown into either
-        // vanishes with a "swish!" (dirty plates included — Family playtest fix #2 rule 2).
-        let trashed = false;
-        for (const tid of TRASH_STATION_IDS){
-          const trashSt = stationById(tid);
-          if (Math.hypot(nx - trashSt.x, nz - trashSt.z) <= THROW_TRASH_R){
-            G.trashSwishId = (G.trashSwishId || 0) + 1;
-            G.flying.splice(i, 1);
-            trashed = true;
-            break;
-          }
-        }
-        if (trashed) continue;
+        // (Balance pass, user: "don't let the trash accept thrown items" — the thrown-into-the-
+        // bin swish is GONE; only walking up and PLACING an item trashes it. Thrown items now
+        // fly past the cans and land like anywhere else.)
 
         // f) landing: user-reported forgiving-landing fix (#4, retained) — nearest EMPTY counter
         // slot within THROW_LAND_R. Plates/completed dishes can land in an empty slot too (a
@@ -3229,15 +3304,7 @@
 
         // (FIELD-CUSTOMER REWORK: no window branch — completed dishes bounce/slot/floor inside
         // the kitchen exactly like everything else; delivery is the LOB's job.)
-        let trashHit = false;
-        for (const tid of TRASH_STATION_IDS){
-          const trashSt = stationById(tid);
-          if (Math.hypot(nx - trashSt.x, nz - trashSt.z) <= THROW_TRASH_R){ trashHit = true; break; }
-        }
-        if (trashHit){
-          points.push({ x: nx, z: nz });
-          return { points, landing: { x: nx, z: nz }, bounced: sim.bounces > 0 };
-        }
+        // (trash no longer catches thrown items — see the flight branch note)
 
         const slotLanding = findNearestEmptySlot(nx, nz);
         if (slotLanding){
@@ -3573,7 +3640,7 @@
     }
     function spawnCustomer(){
       const kind = CUSTOMER_KINDS[Math.floor(Math.random() * CUSTOMER_KINDS.length)];
-      const patienceMax = levelPatienceMax();
+      const patienceMax = levelPatienceMax() * (upg("patience") ? 1.25 : 1);   // Cozy Seating
       const spot = randomFieldSpot();
       // keep spots from stacking: nudge along the wall while too close to another customer
       for (let tries = 0; tries < 6; tries++){
@@ -3637,6 +3704,7 @@
     function tickCustomerPatience(dt){
       for (const c of G.customers){
         if (c.state !== "waiting") continue;
+        if ((c.munchT || 0) > 0){ c.munchT -= dt; continue; }   // Snack Toss: munching pauses the clock
         c.patience = Math.max(0, c.patience - dt);
         if (c.patience <= 0){
           c.state = "leaving_sad";
@@ -3677,6 +3745,22 @@
         const f = G.floorItems[i];
         if (!isOutsideKitchen(f.x, f.z)) continue;
         const dish = dishIdOf(f);
+        // ENDLESS upgrade: Snack Toss — a lobbed plain ingredient near a waiting customer
+        // becomes a snack: they munch it and their patience timer PAUSES for a bit.
+        if (!dish && upg("snack") && !["plate", "pizzaDish", "dirtyPlate", "soupTrash"].includes(f.kind)){
+          let bestC = null, bestD = CLAIM_R;
+          for (const c of G.customers){
+            if (c.state !== "waiting" || (c.munchT || 0) > 0) continue;
+            const d = Math.hypot(c.x - f.x, c.z - f.z);
+            if (d <= bestD){ bestD = d; bestC = c; }
+          }
+          if (bestC){
+            bestC.munchT = 6;
+            G.floorItems.splice(i, 1);
+            publishSnapshotNow();
+            continue;
+          }
+        }
         // Round-4 fix: the crow TTL now applies to EVERY exterior floor item, dish or not — a
         // lobbed stray ingredient or an incomplete plate resting in the field must never sit
         // there forever (plates still ride back in via pendingReturns below). Only the CLAIM
@@ -3701,7 +3785,7 @@
           if (racers > 0){ f.outsideT = 0; continue; }
         }
         f.outsideT = (f.outsideT || 0) + dt;
-        if (f.outsideT >= UNCLAIMED_DISH_TTL){
+        if (f.outsideT >= UNCLAIMED_DISH_TTL * (upg("scarecrow") ? 2 : 1)){   // Scarecrow
           // crow takes it — plate returns dirty so nothing is ever permanently lost
           G.floorItems.splice(i, 1);
           if (f.kind === "plate") G.plates.pendingReturns.push({ t: 0.5 });
@@ -3719,6 +3803,19 @@
       c.fetchItemId = null;
       completeDelivery(c.dish, c, bullseye);
       if (bullseye){ G.airMailId = (G.airMailId || 0) + 1; G.airMailSpot = c.id; }
+      // ENDLESS upgrade: Double Delivery — one dish feeds a 2nd matching waiting customer
+      // (no extra dirty plate: only one physical plate was used).
+      if (upg("split")){
+        let best = null, bestD = Infinity;
+        for (const o of G.customers){
+          // "fetching" counts too: the claim RACE flips every nearby matching customer to
+          // fetching the moment a dish lands, so a waiting-only search would never match.
+          if (o === c || (o.state !== "waiting" && o.state !== "fetching") || o.dish !== c.dish) continue;
+          const d = Math.hypot(o.x - c.x, o.z - c.z);
+          if (d < bestD){ bestD = d; best = o; }
+        }
+        if (best){ best.fetchItemId = null; completeDelivery(best.dish, best, false, true); }
+      }
     }
 
     // =====================================================================================
@@ -3740,6 +3837,7 @@
     // pure host-side ticking, called every hostSim tick (incl. the hidden-tab heartbeat) so
     // cooking never stalls just because the host's rAF is suspended in a backgrounded tab.
     function advanceCookingStations(dt){
+      dt = dt * (upg("cook") ? 1.35 : 1);   // ENDLESS upgrade: Hot Flames
       if (G.pot.state === "cooking"){
         // NEW: stirring (WORK-hold at the stove, see holdAction) speeds cooking 1.5x — works for
         // either chef, host-authoritative off G.pot.stirringChefId (set/cleared in holdAction).
@@ -3946,6 +4044,10 @@
 
       // day countdown — host-ticked only; at 0 the day ends and gameplay freezes everywhere
       // via the G.phase !== "playing" guards already in moveChef/tryAction/holdAction.
+      // ENDLESS ROGUE-LIKE: an open upgrade choice freezes the ENTIRE kitchen (customers,
+      // patience, cooking, flights) — a built-in breather while the crew picks a power-up.
+      if (G.upgradeChoice) return;
+      hostMaybeLevelUp();
       if (G.endlessMode){
         G.runT = (G.runT || 0) + dt;   // endless: the clock counts UP; the run ends on a miss
       } else if (G.dayLeft > 0){
@@ -4015,12 +4117,12 @@
     // resolved in hostResolveClaims/advanceCustomers above. completeDelivery remains the one
     // shared payout core, now anchored on the CUSTOMER (isBullseye = the dish landed right in
     // their hooves — instant catch + style bonus, the spiritual successor of AIR MAIL).
-    function completeDelivery(dishId, customer, isBullseye){
+    function completeDelivery(dishId, customer, isBullseye, skipPlateReturn){
       const recipe = RECIPES[dishId];
       const elapsed = customer.patienceMax - customer.patience;
       const tipFrac = Math.max(0, 1 - Math.max(0, elapsed - customer.patienceMax * TIP_FULL_FRACTION) /
                                      (customer.patienceMax * (1 - TIP_FULL_FRACTION)));
-      const tip = Math.round(TIP_FULL_AMOUNT * tipFrac);
+      const tip = Math.round(TIP_FULL_AMOUNT * tipFrac * (upg("tips") ? 1.5 : 1));   // Charm School
       const airBonus = isBullseye ? BULLSEYE_BONUS : 0;
       G.money += recipe.price + tip + airBonus;
       G.stats.tips += tip;
@@ -4031,7 +4133,7 @@
       spawnDeliveryFX(customer);
       // Plated dishes (salad/soup/burger) leave a dirty plate behind — queued to pop at the
       // dirty bin ~5s later. Pizza is plateless (needsPlate === false): no dirty plate.
-      if (recipe.needsPlate) queueDirtyPlateReturn();
+      if (recipe.needsPlate && !skipPlateReturn) queueDirtyPlateReturn();   // split serves: only ONE real plate exists
       // Delivery streak: every successful delivery from ANY chef extends the shared streak.
       G.streak = (G.streak || 0) + 1;
       if (STREAK_TIERS.includes(G.streak)){
@@ -4056,6 +4158,7 @@
       G.phase = "playing";
       G.money = 0;
       G.dayLeft = G.endlessMode ? 999999 : DAY_LENGTH;   // endless: countdown guards never trip
+      G.xpLevel = 0; G.upgrades = {}; G.upgradeChoice = null;   // ENDLESS ROGUE-LIKE: fresh run
       G.runT = 0;                                                 // endless: run clock counts UP
       G.stats = { served: 0, missed: 0, thrown: 0, caught: 0, floorDrops: 0, tips: 0, orderedCount: 0 };
       G.boards = [{ item: null, progress: 0 }, { item: null, progress: 0 }];
@@ -7941,7 +8044,8 @@
         }
         if (bubble){
           const recipe = RECIPES[c.dish] || RECIPES.salad;
-          bubble.querySelector("span").textContent = recipe.emoji;   // FIELD-CUSTOMER: the order floats overhead
+          // Snack Toss: while munching, the bubble shows 😋 (timer visibly frozen underneath)
+          bubble.querySelector("span").textContent = (c.munchT || 0) > 0 ? "😋" : recipe.emoji;
           // patience bar: fill + card-matching color thresholds (waiting only; arriving shows full)
           const barEl = bubble.querySelector(".custBubbleBar");
           if (barEl){
@@ -8020,7 +8124,16 @@
       const g = new THREE.Group();
       const bodyGroup = new THREE.Group();
       g.add(bodyGroup);
-      bodyGroup.add(cloneStaticProp(PROP_TEMPLATES.babygoat));
+      const buckyClone = cloneStaticProp(PROP_TEMPLATES.babygoat);
+      // Polish (user): the white goat vanished against the pale kitchen floor — tint him a warm
+      // brown. Materials are cloned per-instance here so the shared template stays pristine.
+      buckyClone.traverse(o => {
+        if (o.isMesh && o.material){
+          o.material = o.material.clone();
+          o.material.color = new THREE.Color(0x8a5c36);
+        }
+      });
+      bodyGroup.add(buckyClone);
       const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.4, 16),
         new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25 }));
       shadow.rotation.x = -Math.PI/2;
@@ -8304,7 +8417,8 @@
       const endless = !!G.endlessMode;
       const t = endless ? Math.floor(G.runT || 0) : Math.max(0, Math.ceil(G.dayLeft));
       const m = Math.floor(t / 60), s = t % 60;
-      clockNumEl.textContent = (endless ? "♾ " : "") + m + ":" + String(s).padStart(2, "0");
+      clockNumEl.textContent = (endless ? "♾ " : "") + m + ":" + String(s).padStart(2, "0") +
+        (endless && (G.xpLevel || 0) > 0 ? " · ⬆" + G.xpLevel : "");
       sunClockEl.classList.toggle("amber", !endless && G.dayLeft < 30);
 
       if (endless || G.dayLeft > 35) windDownChimePlayed = false;   // re-arm once a fresh day is well underway
@@ -8912,6 +9026,35 @@
       } catch (err) { return stars; }
     }
 
+    // ---- ENDLESS ROGUE-LIKE: level-up overlay (host picks; guests see the options + a note).
+    // Re-rendered only when the open choice changes; a chime fires once per opening. ----
+    const upgradeOverlayEl = document.getElementById("upgradeOverlay");
+    const upgradeRowEl = document.getElementById("upgradeRow");
+    const upgradeWaitingEl = document.getElementById("upgradeWaiting");
+    let upgradeShownSig = null;
+    function updateUpgradeOverlay(){
+      const choice = G.upgradeChoice;
+      upgradeOverlayEl.classList.toggle("show", !!choice);
+      if (!choice){ upgradeShownSig = null; return; }
+      const sig = choice.options.join(",") + ":" + (net.isHost ? "h" : "g");
+      if (sig === upgradeShownSig) return;
+      upgradeShownSig = sig;
+      Snd.fanfare ? Snd.fanfare() : Snd.victory();
+      upgradeRowEl.innerHTML = "";
+      for (const id of choice.options){
+        const u = upgradeById(id);
+        if (!u) continue;
+        const card = document.createElement("div");
+        card.className = "upgChoice";
+        card.innerHTML = '<div class="ue">' + u.emoji + '</div><div class="un">' + u.name +
+                         '</div><div class="ud">' + u.desc + '</div>';
+        if (net.isHost) card.addEventListener("click", () => { hostPickUpgrade(id); Snd.starChime(1); });
+        else card.style.cursor = "default";
+        upgradeRowEl.appendChild(card);
+      }
+      upgradeWaitingEl.style.display = net.isHost ? "none" : "";
+    }
+
     let victoryShown = false;   // local-only flag so the sound/confetti/star-reveal fire exactly once per day_end
     let wasDayEnd = false;      // local-only, used to catch the day_end -> playing reset transition
     function updateVictoryOverlay(){
@@ -9482,7 +9625,7 @@
         // Systems pass 2: customers replace the old anonymous orders array — carried compactly,
         // lerped on the guest exactly like chef positions (see applySnapshot below).
         customers: G.customers.map(c => ({
-          id: c.id, kind: c.kind, state: c.state, dish: c.dish,
+          id: c.id, kind: c.kind, state: c.state, dish: c.dish, munchT: c.munchT || 0,
           spotX: c.spotX, spotZ: c.spotZ, fetchItemId: c.fetchItemId || null,
           patience: c.patience, patienceMax: c.patienceMax, x: c.x, z: c.z
         })),
@@ -9511,6 +9654,9 @@
         // once as room state "layoutsV2"); a mismatched guest adopts + reloads once.
         layoutSig: layoutsHash(),
         spawnSnapId: G.spawnSnapId || 0,
+        xpLevel: G.xpLevel || 0,
+        upgrades: G.upgrades || {},
+        upgradeChoice: G.upgradeChoice || null,
         endlessMode: !!G.endlessMode,   // ENDLESS VARIANT of the current level
         // (FIELD-CUSTOMER REWORK: bellFullHint/wrongSpotHint fields retired with the checkout window.)
         // ---- Systems pass 3: cooking stations + level/progression ----
@@ -9627,6 +9773,9 @@
         rebuildKitchenForLevel(CURRENT_LEVEL.id);            // PER-LEVEL LAYOUTS: guest rebuilds too
       }
       if (typeof snap.endlessMode === "boolean") G.endlessMode = snap.endlessMode;
+      G.xpLevel = snap.xpLevel || 0;
+      G.upgrades = snap.upgrades || {};
+      G.upgradeChoice = snap.upgradeChoice || null;
       if (typeof snap.levelSelectOpen === "boolean") G.levelSelectOpen = snap.levelSelectOpen;
       if (typeof snap.teachT === "number") G.teachT = snap.teachT;
 
@@ -9686,7 +9835,7 @@
           c.x += (rc.x - c.x) * t;
           c.z += (rc.z - c.z) * t;
         }
-        c.state = rc.state; c.dish = rc.dish;
+        c.state = rc.state; c.dish = rc.dish; c.munchT = rc.munchT || 0;
         c.spotX = rc.spotX; c.spotZ = rc.spotZ; c.fetchItemId = rc.fetchItemId || null;
         c.patience = rc.patience; c.patienceMax = rc.patienceMax; c.kind = rc.kind;
       }
@@ -10209,6 +10358,7 @@
       updateSoundReactions();
       updateServingFlash(dt);
       updateVictoryOverlay();
+      updateUpgradeOverlay();   // ENDLESS ROGUE-LIKE
       updateLevelSelectOverlay();
       updateTitleScreen();
       updateLevelIntroBanner();

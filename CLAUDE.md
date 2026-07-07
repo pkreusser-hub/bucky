@@ -8,6 +8,36 @@ self-contained: its own `<script>`, its own render loop, no shared JS between pa
 
 ---
 
+# 🗺 Farm3D — real-terrain 3D map of the actual farm (2026-07-06)
+
+`farm3d.html` — interactive 3D viewer of the real property (727 Co Rd 80, Woodville AL;
+geocoded 34.686537,-86.210417, ground elev ~201 m). UNTRACKED pending user preview.
+- **Data** (baked into `assets/farm3d/`): Esri World Imagery — 5 km context z16
+  (`sat_ctx.jpg` 2048²) + 1.26 km core z19 (`sat_core.jpg` 4096²); USGS 3DEP via AWS
+  terrarium z15 → `height_terrarium.png` (1536², lossless; elev = R*256+G+B/256−32768,
+  page subtracts farm-center E0). In-page `GEO` block = exact tile-grid mercator bounds.
+  Scene units meters: +X east, +Z south. Download/stitch pipeline (tiles.mjs,
+  stitch_sat.ps1, stitch_ter.mjs) lives in the session scratchpad — rerun to refresh.
+- **Coordinates**: everything hand-placed in `sat_core.jpg` 4096-px coords via `P(px,py)`
+  (0.307 m/px). `placeAt(g,px,py,rot,sink,r)` seats objects on the MIN terrain height
+  sampled over footprint radius r — the anti-float-on-slope rule; pads (pool deck,
+  basketball) are thick buried boxes instead.
+- **Why 3D models**: the Esri drape predates the family's 2022-23 buildout, so the
+  current farm is modeled on top: house/brick porch, pool + black fence ON the deck +
+  pavilion + gambrel shed, green-roof shop + hoop pad + arbor, white barn, green cabin,
+  pond (water/fountain/dock/shed), garden (white net fence, beds, hooped bed, stone
+  rings, coop+run, greenhouse, tan shed), goat pen (red barn, shade sails, 3 goats),
+  PIRATE SHIP (sail/flag/wheel), swing set, fire pit, picnic, trees.
+- **Photo pins**: 9 family photos in `assets/farm3d/photos/` (EXIF GPS was stripped →
+  hand-placed), polaroid sprites w/ distance-adaptive scale, click = lightbox.
+- **Photo mode**: `?photo=1&view=home|far|yard|top` (or custom `px/py/dist/az/el`) sets
+  `window.__photoReady` — `tools/photobooth.js --url` works on this page (that's the
+  ONLY way to screenshot it in-session: the Launch preview tab is `document.hidden`, so
+  rAF/WebGL never paint there). Interaction smoke test: scratchpad farm3d_interact.mjs
+  (13 checks). Not linked from games.html yet.
+
+---
+
 # 🍅 Barnyard Bistro — co-op cooking game (ACTIVE PROJECT)
 
 ## Goal / feel
@@ -495,6 +525,29 @@ levels; full order→cook→deliver flow on the right-wall window passes.
       {"1":23} + chip trophy. 0 pageerrors. NOTE: inactive stations
       resolving to "slot" in sweeps is CORRECT (their tiles are usable
       counters by design).
+- [x] ROGUE-LIKE ENDLESS + balance batch (2026-07-06): L1 spawnFactor
+      1.5→0.85 / patience 90 (3-star 300 was unreachable); L3 easier
+      (spawnFactor 1.2, patience 85, 3-star 180). TRASH accepts only
+      PLACED items (thrown-swish removed from flight + preview). Bucky
+      tinted brown 0x8a5c36 (per-instance material clones). ENDLESS
+      ROGUE-LIKE: money = XP, thresholds xpNeededFor(n)=25n(n+3)/2
+      (50/125/225/…); level-up FREEZES the whole sim (G.upgradeChoice
+      guard at top of hostSim = built-in breather) + 3-card overlay
+      (host picks via hostPickUpgrade, guests see options + waiting
+      note; synced xpLevel/upgrades/upgradeChoice + customers.munchT).
+      Pool of 11 (one copy each/run): split (Double Delivery — 2nd
+      matching customer served free, MUST also match state "fetching"
+      because the claim race converts nearby waiters instantly; no 2nd
+      dirty plate via completeDelivery's skipPlateReturn param), speed
+      (moveChef 5→6.4), chop ×1.5, wash ×2, cook ×1.35 (dt-scaled in
+      advanceCookingStations — overdone windows also faster, intended),
+      tips ×1.5, patience ×1.25, snack (raw ingredient lobbed near a
+      waiting customer → munchT 6s pauses patience, bubble 😋), magnet
+      (walk-over 0.62→1.35), plate (+1 clean, one-time), scarecrow
+      (crow TTL ×2). HUD: endless clock shows \" · ⬆N\". Verified: freeze
+      (runT+patience static 1.5s), pick applies + speed measured
+      2.54→3.25/0.5s, snack munch freeze + 😋, split serves 2 from one
+      dish (+65). 0 pageerrors.
 - [x] CLEANUP PASS 2 (2026-07-06, then pushed): 🚪 EXIT button bottom-left
       (in-game only, two-tap confirm "SURE?" 2.5s, reload w/o hash → title;
       host exit ends the shared session as ever). SINK parks up to
