@@ -1068,11 +1068,13 @@
     ];
     // ---- ENDLESS RUSH — a VARIANT of every level (user rework): each level card offers a ♾️
     // mode using that level's own menu/kitchen but NO day timer — the run ends the moment ONE
-    // order is missed. Spawn gap halves every 90s (18s -> 9s -> 4.5s -> floor 2.5s) while the
-    // concurrent-diner cap climbs from 3 toward 8 — gentle start, doomed ending. Best money
-    // per LEVEL persists in localStorage bb_endless_best_v2 = {levelId: money}. ----
-    function endlessSpawnInterval(runT){ return Math.max(2.5, 18 * Math.pow(0.5, runT / 90)); }
-    function endlessMaxWaiting(runT){ return Math.min(8, 3 + Math.floor(runT / 45)); }
+    // order is missed. Difficulty rebalance (user: "pull back a good bit, smoother ramp"):
+    // spawn gap halves every 3 MINUTES (20s -> 14s @3min -> 10s @6min -> floor 5s ~12min) and
+    // the concurrent-diner cap climbs one step per 90s from 3 toward 7 — a long, smooth climb
+    // instead of the old 90s-half-life cliff (18s->4.5s in 3min, floor 2.5s, cap 8 @ ~4min).
+    // Best money per LEVEL persists in localStorage bb_endless_best_v2 = {levelId: money}. ----
+    function endlessSpawnInterval(runT){ return Math.max(5, 20 * Math.pow(0.5, runT / 180)); }
+    function endlessMaxWaiting(runT){ return Math.min(7, 3 + Math.floor(runT / 90)); }
     const ENDLESS_BEST_KEY = "bb_endless_best_v2";
     function loadEndlessBest(){
       try { return JSON.parse(localStorage.getItem(ENDLESS_BEST_KEY) || "{}") || {}; } catch (err) { return {}; }
