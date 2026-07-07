@@ -654,3 +654,10 @@ farmgpt.html + netlify/functions/farmgpt.mjs (Claude API, model claude-sonnet-5)
   research markdown+persist+clear, request shape (model/stream/thinking/guardrails),
   mobile 375px layout. 0 pageerrors. NOT yet tested against the real API (needs
   ANTHROPIC_API_KEY in Netlify) — set env var, redeploy, then live-test both modes.
+- MATH RENDERING (2026-07-07, user report: raw $$ formulas): research mode typesets
+  LaTeX via KaTeX CDN (auto-render). mdToHtml STASHES math segments ($$..$$, [..],
+  (..), $..$) behind ❢N❢ placeholders BEFORE marked.parse (else underscores in
+  subscripts become <em>), restores them HTML-escaped after DOMPurify, then
+  renderMathInElement typesets in-DOM (throwOnError:false). System prompt now tells the
+  model to always write LaTeX math. Verified: display+inline math typeset, no raw $$,
+  subscripts un-mangled.

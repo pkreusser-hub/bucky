@@ -10,6 +10,10 @@
 <!-- markdown rendering for research mode (model output is still sanitized before render) -->
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.5/dist/purify.min.js"></script>
+<!-- KaTeX: renders the LaTeX math ($...$ / $$...$$) the model writes for math & science -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/contrib/auto-render.min.js"></script>
 <style>
   :root {
     --bg: #eef2fa;
@@ -162,6 +166,8 @@
   .msg.ai .bubble h1, .msg.ai .bubble h2, .msg.ai .bubble h3 { font-size: 1.08em; margin: .8em 0 .35em; }
   .msg.ai .bubble table { border-collapse: collapse; }
   .msg.ai .bubble td, .msg.ai .bubble th { border: 1px solid var(--line); padding: 4px 9px; font-size: 13.5px; }
+  .msg.ai .bubble .katex-display { overflow-x: auto; overflow-y: hidden; padding: 4px 0; margin: .6em 0; }
+  .msg.ai .bubble .katex { font-size: 1.08em; }
   .thinkingDots { color: var(--muted); font-size: 14px; }
   .thinkingDots::after { content: "…"; animation: dots 1.2s steps(4) infinite; }
   @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
@@ -558,8 +564,38 @@
   // RESEARCH MODE
   // =====================================================================
   marked.setOptions({ breaks: true });
+  function escapeHtml(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  // Markdown -> sanitized HTML, with LaTeX protected from the markdown parser (underscores
+  // and backslashes inside $...$ would otherwise turn into <em> etc.). Math segments are
+  // stashed behind placeholder tokens, restored escaped, then KaTeX typesets them in-DOM.
   function mdToHtml(text) {
-    return DOMPurify.sanitize(marked.parse(text));
+    const math = [];
+    const stash = (m) => "❢" + (math.push(m) - 1) + "❢";
+    const t = text
+      .replace(/\$\$[\s\S]+?\$\$/g, stash)
+      .replace(/\\\[[\s\S]+?\\\]/g, stash)
+      .replace(/\\\([\s\S]+?\\\)/g, stash)
+      .replace(/\$[^$\n]+?\$/g, stash);
+    let html = DOMPurify.sanitize(marked.parse(t));
+    html = html.replace(/❢(\d+)❢/g, (_, i) => escapeHtml(math[+i]));
+    return html;
+  }
+  // Renders an AI reply into a bubble: markdown first, then KaTeX over the result.
+  function renderAiInto(el, text) {
+    el.innerHTML = mdToHtml(text);
+    if (window.renderMathInElement) {
+      renderMathInElement(el, {
+        delimiters: [
+          { left: "$$", right: "$$", display: true },
+          { left: "\\[", right: "\\]", display: true },
+          { left: "\\(", right: "\\)", display: false },
+          { left: "$", right: "$", display: false },
+        ],
+        throwOnError: false,
+      });
+    }
   }
 
   function loadResearch() {
@@ -593,7 +629,10 @@
       $("chatScroll").appendChild(hint);
       return;
     }
-    for (const m of researchMsgs) addMsgEl(m.role, m.role === "user" ? m.content : mdToHtml(m.content));
+    for (const m of researchMsgs) {
+      if (m.role === "user") addMsgEl("user", m.content);
+      else renderAiInto(addMsgEl("ai", ""), m.content);
+    }
     scrollChat();
   }
 
@@ -612,10 +651,10 @@
     scrollChat();
     try {
       const full = await callFarmGPT("research", researchMsgs, (sofar) => {
-        aiBubble.innerHTML = mdToHtml(sofar);
+        renderAiInto(aiBubble, sofar);
         scrollChat();
       });
-      aiBubble.innerHTML = mdToHtml(full);
+      renderAiInto(aiBubble, full);
       researchMsgs.push({ role: "assistant", content: full });
       saveResearch();
     } catch (err) {
