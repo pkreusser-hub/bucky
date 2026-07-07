@@ -573,3 +573,22 @@ levels; full order→cook→deliver flow on the right-wall window passes.
       "device 2"; doc deleted after). NOTE: bistro3p.html (Minecraft-style
       3P camera + tank-controls experiment) exists UNTRACKED/local-only —
       deliberately never committed.
+- [x] ZOOMED ISO FOLLOW CAMERA (2026-07-06, testers rejected the live 3P
+      mode): the third-person camera + tank controls are REMOVED from
+      barnyardbistro.html (driveMyChef/tankMove/FOLLOW/bb_cam3p all gone;
+      both frame() movement sites back to classic screen-relative
+      moveChef). Replacement: same 55° isometric view but ZOOMED
+      (ISO_FOLLOW_ZOOM 0.62 × the fitCamera fit distance) and PANNING
+      after your own chef — fitCamera stores its fit in camFit
+      {dist,camXShift,vFovDeg,angle,sceneHalfW,sceneHalfD}; per-frame
+      updateIsoFollowCamera lerps a clamped target (clamp extent =
+      halfExtent×(1−zoom) around camXShift, so the zoomed window never
+      shows past what the full fit frames; lerp min(1,dt*5)). 🎥 button
+      is now 🔍 FOLLOW / 🗺 TOP, persisted in localStorage bb_camfollow
+      (NEW key, default ON — bb_cam3p may hold stale tester opt-outs).
+      Follow is skipped on title/couch (couch = both chefs, one screen)
+      and toggling off snaps straight back via fitCamera(). Verified
+      headless: dist ratio 0.62 exact, W = screen-north regardless of
+      facing, camera pans then clamps at maxCamX while the chef keeps
+      going, toggle round-trip persists, couch forces overview + hides
+      the button. 0 pageerrors.

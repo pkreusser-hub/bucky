@@ -4507,6 +4507,7 @@
     // own comment on distForV/distForH for the actual fix.)
     const PORTRAIT_HFOV_TARGET = 46;   // degrees — keep the kitchen's on-screen WIDTH framing familiar
     const PORTRAIT_VFOV_MAX = 92;      // degrees — ceiling so extreme aspects don't fish-eye
+    let camFit = null;   // last full-fit params, written by fitCamera (read by the iso follow cam)
     function fitCamera(){
       const w = stage.clientWidth, h = stage.clientHeight;
       renderer.setSize(w, h);
@@ -4587,68 +4588,50 @@
       camera.position.set(camXShift, dist * Math.sin(angle), dist * Math.cos(angle) + 2.4);
       camera.lookAt(camXShift, 0, -0.6);
       camera.updateProjectionMatrix();
+      // ISO FOLLOW CAM: remember this fit so the zoomed follow camera can scale from it.
+      camFit = { dist, camXShift, vFovDeg: camera.fov, angle,
+                 sceneHalfW, sceneHalfD: (DZ_NEAR + SCENE_HALF_D) / 2 };
     }
     window.addEventListener("resize", fitCamera);
 
-    // ==================== THIRD-PERSON CAMERA (user: promote the bistro3p experiment) ====================
-    // Minecraft/Roblox-style follow camera behind YOUR chef + tank controls (A/D turn smoothly,
-    // W forward, S backpedals without turning). Toggleable via the 🎥 HUD button (persisted in
-    // localStorage) so anyone can hop back to the classic overview. COUCH mode always uses the
-    // overview — one camera can't follow two local chefs. Title screen keeps the overview too.
-    const CAM3P_KEY = "bb_cam3p";
-    let cam3pEnabled = true;
-    try { cam3pEnabled = localStorage.getItem(CAM3P_KEY) !== "0"; } catch (err) {}
-    const FOLLOW = { yaw: Math.PI, dist: 5.4, height: 3.3, fov: 62, active: false };
-    function angleLerpF(a, b, t){
-      const d = ((b - a + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-      return a + d * t;
-    }
-    function updateFollowCamera(dt){
+    // ==================== ZOOMED ISO FOLLOW CAMERA (user: 3P wasn't a hit — same classic
+    // isometric view, just closer, PANNING after YOUR chef instead of holding everything in
+    // frame). Controls stay screen-relative everywhere. The 🔍/🗺 HUD button flips between the
+    // follow zoom and the classic full overview (persisted per device). COUCH always uses the
+    // overview (one camera, two local chefs); the title keeps its own framing.
+    const CAMF_KEY = "bb_camfollow";
+    let camFollowEnabled = true;
+    try { camFollowEnabled = localStorage.getItem(CAMF_KEY) !== "0"; } catch (err) {}
+    const ISO_FOLLOW_ZOOM = 0.62;          // fraction of the full-fit camera distance
+    const isoFollow = { active: false, tx: 0, tz: 0 };
+    function updateIsoFollowCamera(dt){
       const chef = G.chefs[net.myChefId] || G.chefs[LOCAL_SOLO_ID];
-      const wanted = chef && !G.titleOpen && cam3pEnabled && !G.couchMode;
+      const wanted = chef && !G.titleOpen && camFollowEnabled && !G.couchMode && camFit;
       if (!wanted){
-        if (FOLLOW.active){ FOLLOW.active = false; fitCamera(); }
+        if (isoFollow.active){ isoFollow.active = false; fitCamera(); }
         return;
       }
-      if (!FOLLOW.active){ FOLLOW.active = true; FOLLOW.yaw = chef.dir; }
-      camera.fov = FOLLOW.fov;
+      if (!isoFollow.active){ isoFollow.active = true; isoFollow.tx = chef.x; isoFollow.tz = chef.z; }
+      // pan target = the chef, clamped so the zoomed window never scrolls past what the full
+      // fit would show (clamp range = extent * (1 - zoom): at zoom 1 the camera never moves).
+      const clampX = Math.max(0, camFit.sceneHalfW * (1 - ISO_FOLLOW_ZOOM));
+      const clampZ = Math.max(0, camFit.sceneHalfD * (1 - ISO_FOLLOW_ZOOM));
+      const gx = clamp(chef.x, camFit.camXShift - clampX, camFit.camXShift + clampX);
+      const gz = clamp(chef.z, -clampZ, clampZ);
+      const t = Math.min(1, dt * 5);
+      isoFollow.tx += (gx - isoFollow.tx) * t;
+      isoFollow.tz += (gz - isoFollow.tz) * t;
+      const dist = camFit.dist * ISO_FOLLOW_ZOOM;
+      camera.fov = camFit.vFovDeg;
       camera.aspect = stage.clientWidth / stage.clientHeight;
       camera.updateProjectionMatrix();
-      FOLLOW.yaw = angleLerpF(FOLLOW.yaw, chef.dir, Math.min(1, dt * 4.5));
       camera.position.set(
-        chef.x - Math.sin(FOLLOW.yaw) * FOLLOW.dist,
-        FOLLOW.height,
-        chef.z - Math.cos(FOLLOW.yaw) * FOLLOW.dist
+        isoFollow.tx,
+        dist * Math.sin(camFit.angle),
+        isoFollow.tz + dist * Math.cos(camFit.angle) + 2.4 * ISO_FOLLOW_ZOOM
       );
-      camera.lookAt(chef.x + Math.sin(FOLLOW.yaw) * 1.2, 1.05, chef.z + Math.cos(FOLLOW.yaw) * 1.2);
-    }
-    // Tank movement for MY chef while the follow cam is on: A/D turn in place or carve arcs,
-    // W runs along the facing, S backpedals slightly slower WITHOUT flipping around. Falls back
-    // to the classic screen-relative moveChef whenever the follow cam is off.
-    const TURN_RATE = 3.4;        // radians/second of A/D turning
-    const BACKPEDAL_MULT = 0.85;  // S is a little slower than forward, Minecraft-style
-    function tankMove(chefId, ix, iz, dt){
-      const chef = G.chefs[chefId];
-      if (!chef || G.phase !== "playing" || G.levelSelectOpen) return;
-      if (ix) chef.dir = ((chef.dir - ix * TURN_RATE * dt + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-      if (iz){
-        const fwd = -Math.sign(iz) * (iz > 0 ? BACKPEDAL_MULT : 1) * Math.min(1, Math.abs(iz));
-        const speed = upg("speed") ? 6.4 : 5;   // Speedy Boots applies here too
-        const nx = chef.x + Math.sin(chef.dir) * fwd * speed * dt;
-        let nz = chef.z + Math.cos(chef.dir) * fwd * speed * dt;
-        if (barrierActive()){
-          if (chef.z < 0) nz = Math.min(nz, -BARRIER_Z_HALF - CHEF_R);
-          else            nz = Math.max(nz,  BARRIER_Z_HALF + CHEF_R);
-        }
-        chef.x = clamp(nx, -HALF_W + CT + CHEF_R, HALF_W - CT - CHEF_R);
-        chef.z = clamp(nz, -HALF_D + CT + CHEF_R, HALF_D - CT - CHEF_R);
-      }
-    }
-    function driveMyChef(dx, dz, dt){
-      if (FOLLOW.active) tankMove(net.myChefId, dx, dz, dt);
-      else moveChef(net.myChefId, dx, dz, dt);
-    }
-    fitCamera();
+      camera.lookAt(isoFollow.tx, 0, isoFollow.tz - 0.6);
+    }    fitCamera();
 
     const mat = (color, flat) => new THREE.MeshPhongMaterial({ color, flatShading: !!flat, shininess: 10 });
 
@@ -8582,14 +8565,14 @@
     // persisted per device. Hidden in couch mode (overview is forced there anyway).
     const camBtnEl = document.getElementById("camBtn");
     camBtnEl.addEventListener("click", () => {
-      cam3pEnabled = !cam3pEnabled;
-      try { localStorage.setItem(CAM3P_KEY, cam3pEnabled ? "1" : "0"); } catch (err) {}
-      if (!cam3pEnabled) fitCamera();   // snap straight back to the overview
+      camFollowEnabled = !camFollowEnabled;
+      try { localStorage.setItem(CAMF_KEY, camFollowEnabled ? "1" : "0"); } catch (err) {}
+      if (!camFollowEnabled) fitCamera();   // snap straight back to the overview
     });
     function syncExitButton(){
       exitBtnEl.style.display = G.titleOpen ? "none" : "block";
       camBtnEl.style.display = (G.titleOpen || G.couchMode) ? "none" : "block";
-      camBtnEl.textContent = cam3pEnabled ? "🎥 3RD" : "🗺 TOP";
+      camBtnEl.textContent = camFollowEnabled ? "🔍 FOLLOW" : "🗺 TOP";
     }
 
     // ================== HUD text ==================
@@ -10333,7 +10316,7 @@
       // CO-OP BARRIER: fence appears the moment a second chef exists (guest join / couch P2),
       // disappears if they leave — pure G-derived render state, identical on host and guest.
       hayFenceGroup.visible = barrierActive();
-      updateFollowCamera(dt);   // THIRD-PERSON CAMERA (no-op when toggled off / couch / title)
+      updateIsoFollowCamera(dt);   // ZOOMED ISO FOLLOW (no-op when toggled off / couch / title)
       syncExitButton();   // cleanup pass 2: EXIT shows whenever we're past the title screen
       document.body.classList.toggle("titleUp", !!G.titleOpen);   // TITLE POLISH: hide HUD on title
 
@@ -10349,7 +10332,7 @@
       } else if (net.isHost){
         // host drives its own chef straight from local keys, drives every guest chef from
         // their published input, then runs the full authoritative sim.
-        driveMyChef(dx, dz, dt);
+        moveChef(net.myChefId, dx, dz, dt);
         if (workHold) holdAction(net.myChefId, dt);
         // Tier-1 batch: couch co-op — local2 is driven through the EXACT SAME per-frame seam as
         // any other chef (moveChef/holdAction), just fed P2's own independently-read input vector
@@ -10368,7 +10351,7 @@
         // immediately; publish our resulting position (guest-authoritative) plus discrete
         // action input for the host to execute on its authoritative copy; apply the latest
         // snapshot for everything else (lerped in applySnapshot).
-        driveMyChef(dx, dz, dt);
+        moveChef(net.myChefId, dx, dz, dt);
 
         net.inputCd -= dt;
         if (net.inputCd <= 0 && net.localPlayer){
