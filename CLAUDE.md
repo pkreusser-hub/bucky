@@ -812,3 +812,15 @@ farmgpt.html + netlify/functions/farmgpt.mjs (Claude API, model claude-sonnet-5)
       objects apart — overlapping chars z-fight into a chimera that reads as wrong
       materials); .blend1 backups must not be committed; export with everyone at
       the origin (export_apply bakes object transforms).
+- [x] HOME POLISH + DAD JOKES V2 (2026-07-07, PUSHED 59f83e7): dashboard tiles
+      2-col cards -> compact 3x3 grid (42px icon circles, descs hidden <560px);
+      greeting + joke card tightened. FIT GUARANTEE: on 375x812 the greeting,
+      all 9 section tiles, AND the full dad-joke card are visible with zero
+      scrolling (joke bottom 620/812; desktop 1280x800 also fits w/ descs).
+      Folded in the parallel session's work: assets/dadjokes.js 723-joke DB
+      (window.DAD_JOKES + inline fallback, joke-of-day keyed to date, ➜ bonus
+      jokes), pill-style scrollable top tab bar, header gradient, FarmGPT
+      no-auto-scroll-while-streaming. TEST GOTCHA: headless index.html tests
+      with choreUnlocked+choreUser hit PRODUCTION Firestore (notification
+      toasts bury the layout) — block googleapis/firestore requests for
+      deterministic offline shots ("using this phone only" mode).
