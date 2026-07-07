@@ -494,9 +494,10 @@
     setStoryControls({ choices: [], ended: false, busyNow: true });
     const el = addChapterEl("");
     try {
+      // No auto-scroll while streaming — the reader can scroll and read at their
+      // own pace as the chapter arrives (scrollStory only fires on the user's turn).
       const full = await callFarmGPT("story", story.messages, (sofar) => {
         el.textContent = visibleDuringStream(sofar);
-        scrollStory();
       });
       const { text, choices, ended } = parseChapter(full);
       el.textContent = text;
@@ -510,7 +511,6 @@
       saveStory();
       busy = false;
       setStoryControls({ choices, ended, busyNow: false });
-      scrollStory();
     } catch (err) {
       el.remove();
       story.messages.pop();                       // roll back the user turn so it can be retried
@@ -679,9 +679,10 @@
     const aiBubble = addMsgEl("ai", "<span class='thinkingDots'>Thinking</span>");
     scrollChat();
     try {
+      // No auto-scroll while streaming — the reader can scroll and read at their
+      // own pace as the answer arrives (scrollChat only fires on the user's turn).
       const full = await callFarmGPT("research", researchMsgs, (sofar) => {
         renderAiInto(aiBubble, sofar);
-        scrollChat();
       });
       renderAiInto(aiBubble, full);
       researchMsgs.push({ role: "assistant", content: full });
@@ -693,7 +694,6 @@
     }
     busy = false;
     $("chatSend").disabled = false;
-    scrollChat();
   }
 
   $("chatSend").addEventListener("click", sendResearch);
