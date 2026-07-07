@@ -763,3 +763,25 @@ farmgpt.html + netlify/functions/farmgpt.mjs (Claude API, model claude-sonnet-5)
       plate-only: a lobbed dirty plate was PERMANENTLY lost → soft-lock with all 3 out).
       Completed dishes keep the 5s claimable crow TTL. Verified: dirtyPlate + empty +
       partial plate lobbed outside all back in dirtyQueue ~4s later. NOT PUSHED.
+- [x] CHEF BUCKY — first fully in-house Blender chef (2026-07-07, user request): modeled,
+      rigged AND animated from scratch via the Blender MCP bridge (official Blender Lab
+      MCP addon, installed via CLI: lab repo zip -> extension install-file -> enable +
+      use_autostart; server localhost:9876, works whenever Blender is open). SOURCE OF
+      TRUTH: assets/blender/chefbucky.blend (186KB) — 29-part chunky low-poly upright
+      goat mascot chef (brown fur, toque, apron, blaze, droopy ears, horn nubs, beard),
+      faces -Y in Blender = +Z in glTF. Rig: 7 deform bones (Hips/Chest/Head/LeftArm/
+      RightArm/LeftLeg/RightLeg — Left/RightArm names are what buildChefGLB carry-pose
+      regex needs) + 3 LEAF bones (feet + HeadTop) added because the game scales chefs by
+      the JOINT-ORIGIN bounding box (computeBoneWorldBox) — without leaves the 7 origins
+      spanned 0.58-1.22 and scaleTo came out 2.34 (giant chef); with leaves 0.04-1.58 ->
+      0.974. Skinning: RIGID per part (each object vertex-grouped 100% to one bone before
+      join — no auto-weight bleed; bevel modifiers applied pre-join since join discards
+      them). Anims hand-keyed at 24fps as 5 Blender actions (idle 48f breathe/sway, walk
+      16f, run 12f + lean, chop 14f raise-slam loop, throw 18f windup-snap-follow); sign
+      conventions: -X = forward swing, empty-dict frames are SKIPPED by the keyframe
+      helper (idle loop-close needed explicit neutral keys). Export: glTF ACTIONS mode ->
+      one GLB -> gltf-transform split into chef-bucky.glb (419KB) + 5 MESH-LESS clip GLBs
+      (~19KB each, Tinker pattern). Game: GLB_CHEF_IDS + picker card 🐐 Chef Bucky (5th).
+      Fur brightened at the source (dark under kitchen lights, same as Tinker lesson).
+      Verified in-game headless: picker, GLB-backed, idle/run/chop/throw via real keys,
+      carry pose, scale 0.974. 0 pageerrors. NOT PUSHED.

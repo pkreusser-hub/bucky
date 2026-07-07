@@ -5655,7 +5655,7 @@
     // PER-MODEL instead of a global switch: models listed here load their Meshy rigged GLBs
     // (6 files: base + walk/run/chop/throw/idle) with the procedural look as a fallback while
     // loading/failed. Customers and props are UNAFFECTED (they keep their own GLB paths).
-    const GLB_CHEF_IDS = ["steampunk"];
+    const GLB_CHEF_IDS = ["steampunk", "bucky"];   // bucky: hand-modeled + hand-rigged in Blender (assets/blender/chefbucky.blend)
     // ---- Systems pass 4: chef picker mapping — farmer (straw hat, blue overalls, exactly
     // today's look), grandma (red dress-tone body + a gray "bun" hair blob replacing the straw
     // hat), kid (green body + an oversized hat via a bigger brim/top scale). Pure data — the
@@ -5666,6 +5666,7 @@
       switch (modelId){
         case "grandma": return { bodyColor: 0xd6432a, hatColor: 0xb0b0b0, hatScale: 1, hairBun: true, hatBrimScale: 1 };
         case "steampunk": return { bodyColor: 0x2f5f9e, hatColor: 0x7fa8d9, hatScale: 1, hairBun: true, hatBrimScale: 1 };
+        case "bucky":     return { bodyColor: 0x8a5c36, hatColor: 0xffffff, hatScale: 1.1, hairBun: false, hatBrimScale: 1 };
         case "kid":     return { bodyColor: 0x4a9a3a, hatColor: 0xffffff, hatScale: 1.35, hairBun: false, hatBrimScale: 1.25 };
         case "farmer":
         default:        return { bodyColor: 0x3a5fc4, hatColor: 0xffffff, hatScale: 1, hairBun: false, hatBrimScale: 1 };
@@ -5709,7 +5710,7 @@
     // loaded; absent/partial entries mean "still loading or failed" — buildChef() below falls
     // back to the procedural look for that modelId until (if ever) it appears here.
     const CHEF_TEMPLATES = {};
-    const CHEF_MODEL_IDS = ["farmer", "grandma", "kid", "steampunk"];
+    const CHEF_MODEL_IDS = ["farmer", "grandma", "kid", "steampunk", "bucky"];
     function loadChefTemplate(modelId){
       const base = "assets/chef-" + modelId;
       let scene = null;
@@ -9552,7 +9553,8 @@
       { id: "farmer", emoji: "👨‍🌾", name: "Farmer" },
       { id: "grandma", emoji: "👵", name: "Grandma" },
       { id: "kid", emoji: "🧒", name: "Kid" },
-      { id: "steampunk", emoji: "⚙️", name: "Tinker" }
+      { id: "steampunk", emoji: "⚙️", name: "Tinker" },
+      { id: "bucky", emoji: "🐐", name: "Chef Bucky" }
     ];
     const chefCardEls = [];   // index-aligned with CHEF_MODELS
     CHEF_MODELS.forEach((cm, idx) => {
