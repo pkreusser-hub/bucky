@@ -105,28 +105,27 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .status.live .dot { background: #8ff0a4; }
   .status.local .dot { background: #ffb3b3; }
 
-  /* Tab bar: labeled pills in a horizontally scrollable row — full-size tap targets
-     that fit ANY phone width (a clipped pill at the edge is the scroll affordance).
-     On wide screens the row wraps instead so everything is visible at once. */
+  /* Tab bar: ONE fixed row, no scrolling — every tab is an equal-width icon button
+     that always fits, on any phone. Labels live in the dashboard tiles (and in each
+     tab's tooltip/aria-label); the active tab pops in green. */
   .tabs {
-    display: flex; flex-wrap: nowrap; gap: 8px; padding: 12px 12px 4px; max-width: 760px; margin: 0 auto;
-    overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
-    scroll-padding: 0 12px;
+    display: flex; flex-wrap: nowrap; gap: 6px; padding: 10px 12px 4px; max-width: 760px; margin: 0 auto;
   }
-  .tabs::-webkit-scrollbar { display: none; }
   .tab {
-    flex: 0 0 auto; display: flex; align-items: center; gap: 7px;
+    flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: center;
     border: 1px solid var(--line); background: var(--card);
-    color: var(--ink); padding: 13px 15px; border-radius: 999px;
-    font-size: 13.5px; font-weight: 700; line-height: 1; white-space: nowrap;
-    cursor: pointer; box-shadow: var(--shadow);
+    color: var(--ink); padding: 11px 0; border-radius: 12px;
+    line-height: 1; cursor: pointer; box-shadow: var(--shadow);
     transition: background .15s ease, color .15s ease, transform .1s ease;
   }
-  .tab:active { transform: scale(.96); }
-  .tab .ti { font-size: 17px; line-height: 1; }
-  .tab.active { background: var(--green); color: #fff; border-color: var(--green); }
+  .tab:active { transform: scale(.94); }
+  .tab .ti { font-size: 18px; line-height: 1; }
+  .tab .tl { display: none; }
+  .tab.active { background: var(--green); border-color: var(--green); }
   @media (min-width: 700px) {
-    .tabs { flex-wrap: wrap; overflow-x: visible; }
+    .tabs { gap: 8px; }
+    .tab { padding: 13px 0; border-radius: 14px; }
+    .tab .ti { font-size: 21px; }
   }
 
   main { max-width: 760px; margin: 0 auto; padding: 12px; }
@@ -3731,8 +3730,6 @@ async function deleteChore(){
 function syncTabsUI(){
   document.querySelectorAll("#tabs .tab").forEach(t=>{
     t.classList.toggle("active", t.dataset.freq === currentTab);
-    if (t.dataset.freq === currentTab && t.scrollIntoView)
-      t.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
   });
 }
 
@@ -3750,7 +3747,8 @@ function buildTabs(){
     b.dataset.freq = t.key;
     b.title = t.name; b.setAttribute("aria-label", t.name);
     const ico = document.createElement("span"); ico.className = "ti"; ico.textContent = t.ico;
-    b.append(ico, document.createTextNode(t.name));
+    const tl = document.createElement("span"); tl.className = "tl"; tl.textContent = t.name;
+    b.append(ico, tl);
     b.onclick = () => {
       if (t.url){ location.href = t.url; return; }   // external game — navigate away
       currentTab = t.key; syncTabsUI(); render();
