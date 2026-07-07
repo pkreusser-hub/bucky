@@ -719,8 +719,14 @@
   // USAGE DASHBOARD
   // =====================================================================
   // Estimated at Sonnet 5 list pricing; actual billing is at console.anthropic.com.
+  // Cache writes bill at 1.25x the input rate, cache reads at 0.1x (that's the whole
+  // point of caching). Older usage docs predate cache tracking; those fields read 0.
   const IN_RATE = 3, OUT_RATE = 15;   // $ per million tokens
-  const dayCost = (d) => ((d.s_in + d.r_in) * IN_RATE + (d.s_out + d.r_out) * OUT_RATE) / 1e6;
+  const cw = (d, k) => d[k] || 0;
+  const dayCost = (d) => ((d.s_in + d.r_in) * IN_RATE
+    + (cw(d, "s_cw") + cw(d, "r_cw")) * IN_RATE * 1.25
+    + (cw(d, "s_cr") + cw(d, "r_cr")) * IN_RATE * 0.1
+    + (d.s_out + d.r_out) * OUT_RATE) / 1e6;
   const fmt$ = (v) => "$" + (v < 0.10 ? v.toFixed(3) : v.toFixed(2));
   const fmtTok = (n) => n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n);
 
@@ -759,15 +765,16 @@
 
     const split = document.createElement("div");
     split.id = "usageSplit";
-    for (const [icon, name, rq, ti, to] of [
-      ["📖", "Story", sum(monthDays, "s_req"), sum(monthDays, "s_in"), sum(monthDays, "s_out")],
-      ["🔬", "Research", sum(monthDays, "r_req"), sum(monthDays, "r_in"), sum(monthDays, "r_out")],
+    for (const [icon, name, rq, ti, to, tc] of [
+      ["📖", "Story", sum(monthDays, "s_req"), sum(monthDays, "s_in"), sum(monthDays, "s_out"), sum(monthDays, "s_cw") + sum(monthDays, "s_cr")],
+      ["🔬", "Research", sum(monthDays, "r_req"), sum(monthDays, "r_in"), sum(monthDays, "r_out"), sum(monthDays, "r_cw") + sum(monthDays, "r_cr")],
     ]) {
       const el = document.createElement("div");
       el.className = "usplit";
       el.innerHTML = `<div class="un"></div><div class="ud"></div>`;
       el.querySelector(".un").textContent = icon + " " + name;
-      el.querySelector(".ud").innerHTML = rq + " requests this month<br>" + fmtTok(ti) + " in · " + fmtTok(to) + " out";
+      el.querySelector(".ud").innerHTML = rq + " requests this month<br>" + fmtTok(ti) + " in · " + fmtTok(to) + " out" +
+        (tc ? "<br>" + fmtTok(tc) + " cached 💰" : "");
       split.appendChild(el);
     }
     body.appendChild(split);
@@ -777,7 +784,7 @@
     table.innerHTML = "<tr><th>Day</th><th>📖</th><th>🔬</th><th>Tokens</th><th>Est. cost</th></tr>";
     for (const d of days.slice(0, 21)) {
       const tr = document.createElement("tr");
-      const cells = [d.date, d.s_req, d.r_req, fmtTok(d.s_in + d.s_out + d.r_in + d.r_out), fmt$(dayCost(d))];
+      const cells = [d.date, d.s_req, d.r_req, fmtTok(d.s_in + d.s_out + d.r_in + d.r_out + cw(d, "s_cw") + cw(d, "s_cr") + cw(d, "r_cw") + cw(d, "r_cr")), fmt$(dayCost(d))];
       for (const c of cells) { const td = document.createElement("td"); td.textContent = c; tr.appendChild(td); }
       table.appendChild(tr);
     }
@@ -786,7 +793,8 @@
     const note = document.createElement("div");
     note.id = "usageNote";
     note.textContent = "Estimated at Sonnet 5 list pricing ($" + IN_RATE + " in / $" + OUT_RATE +
-      " out per million tokens). Exact billing is at console.anthropic.com — this may read slightly high during promotional pricing.";
+      " out per million tokens; cached tokens 💰 re-read at 10% of the input rate). " +
+      "Exact billing is at console.anthropic.com — this may read slightly high during promotional pricing.";
     body.appendChild(note);
   }
 

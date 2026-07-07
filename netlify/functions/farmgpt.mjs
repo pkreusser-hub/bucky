@@ -188,7 +188,7 @@ function farmDate() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
 }
 
-async function logUsage(modeName, inTok, outTok) {
+async function logUsage(modeName, inTok, outTok, cacheWriteTok = 0, cacheReadTok = 0) {
   try {
     const token = await getGoogleAccessToken();
     if (!token) return;
@@ -199,7 +199,11 @@ async function logUsage(modeName, inTok, outTok) {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({
-        writes: [{ transform: { document: doc, fieldTransforms: [tf(key + "_in", inTok), tf(key + "_out", outTok), tf(key + "_req", 1)] } }],
+        writes: [{ transform: { document: doc, fieldTransforms: [
+          tf(key + "_in", inTok), tf(key + "_out", outTok), tf(key + "_req", 1),
+          // cache writes (~1.25x input rate) and cache reads (~0.1x input rate)
+          tf(key + "_cw", cacheWriteTok), tf(key + "_cr", cacheReadTok),
+        ] } }],
       }),
     });
   } catch { /* usage logging must never break a reply */ }
@@ -217,7 +221,7 @@ async function readUsage() {
     .map((d) => {
       const f = d.fields || {};
       const n = (k) => parseInt((f[k] && f[k].integerValue) || "0", 10);
-      return { date: d.name.split("/").pop(), s_in: n("s_in"), s_out: n("s_out"), s_req: n("s_req"), r_in: n("r_in"), r_out: n("r_out"), r_req: n("r_req") };
+      return { date: d.name.split("/").pop(), s_in: n("s_in"), s_out: n("s_out"), s_req: n("s_req"), s_cw: n("s_cw"), s_cr: n("s_cr"), r_in: n("r_in"), r_out: n("r_out"), r_req: n("r_req"), r_cw: n("r_cw"), r_cr: n("r_cr") };
     })
     .sort((a, b) => (a.date < b.date ? 1 : -1));
 }
@@ -296,6 +300,11 @@ export default async (req) => {
     system: mode.system,
     messages,
     stream: true,
+    // Prompt caching: auto-places a breakpoint on the last cacheable block, so each
+    // turn re-reads the system prompt + prior conversation at ~10% of input price
+    // (5-minute TTL — covers back-to-back story chapters). Below ~2048 prefix tokens
+    // Sonnet 5 silently skips caching, which is fine.
+    cache_control: { type: "ephemeral" },
   };
   if (mode.thinking) apiReq.thinking = mode.thinking;
 
@@ -333,7 +342,7 @@ export default async (req) => {
       let buf = "";
       let sentAnyText = false;
       let stopReason = null;
-      let inTok = 0, outTok = 0;
+      let inTok = 0, outTok = 0, cacheWriteTok = 0, cacheReadTok = 0;
       try {
         for (;;) {
           const { done, value } = await reader.read();
@@ -352,7 +361,11 @@ export default async (req) => {
               sentAnyText = true;
               controller.enqueue(encoder.encode(ev.delta.text));
             } else if (ev.type === "message_start" && ev.message && ev.message.usage) {
+              // input_tokens is the UNCACHED remainder only; cached tokens are reported
+              // (and billed) separately: writes ~1.25x input rate, reads ~0.1x.
               inTok = ev.message.usage.input_tokens || 0;
+              cacheWriteTok = ev.message.usage.cache_creation_input_tokens || 0;
+              cacheReadTok = ev.message.usage.cache_read_input_tokens || 0;
             } else if (ev.type === "message_delta") {
               if (ev.delta && ev.delta.stop_reason) stopReason = ev.delta.stop_reason;
               if (ev.usage && ev.usage.output_tokens) outTok = ev.usage.output_tokens;
@@ -368,7 +381,7 @@ export default async (req) => {
         // Upstream connection dropped mid-stream — end what we have; the client keeps the partial.
       } finally {
         // Log before closing so the lambda stays alive for the write (fails silently).
-        if (inTok || outTok) await logUsage(body.mode, inTok, outTok);
+        if (inTok || outTok || cacheWriteTok || cacheReadTok) await logUsage(body.mode, inTok, outTok, cacheWriteTok, cacheReadTok);
         controller.close();
       }
     },
