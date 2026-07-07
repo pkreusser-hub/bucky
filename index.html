@@ -4195,8 +4195,11 @@ async function makeCloudBackend(){
     dataReady = true;
     render(); refreshGoatDetail();
     setStatus("live", "Synced with your family");
-    // One-time: if this family's database is empty, load the starter data + goat herd
-    if (!seedChecked){
+    // One-time: if this family's database is empty, load the starter data + goat herd.
+    // ONLY on a server-confirmed snapshot: a fresh device with no cache and a slow/blocked
+    // connection gets an EMPTY fromCache snapshot first, and seeding on that duplicated the
+    // whole live herd once (2026-07-06 — 35 seed-copy goat docs). fromCache must be false.
+    if (!seedChecked && !snap.metadata.fromCache){
       seedChecked = true;
       const flag = "buckySeeded_" + familyKey;
       if (snap.empty && seedData().length && !localStorage.getItem(flag)){
