@@ -215,7 +215,7 @@
 
 <header>
   <div id="bar">
-    <a href="games.html" id="backLink">← BUCKY</a>
+    <a href="index.html" id="backLink">← BUCKY</a>
     <span class="t" id="barTitle">🌾 FarmGPT</span>
     <button id="clearChatBtn" style="display:none">🧹 Clear</button>
   </div>
@@ -328,7 +328,7 @@
     currentView = name;
     for (const k in views) views[k].classList.toggle("on", k === name);
     $("backLink").textContent = name === "home" ? "← BUCKY" : "← Back";
-    $("backLink").href = name === "home" ? "games.html" : "javascript:void 0";
+    $("backLink").href = name === "home" ? "index.html" : "javascript:void 0";
     $("barTitle").textContent =
       name === "research" ? "🔬 FarmGPT Research" :
       name === "usage" ? "📊 API Usage" :
