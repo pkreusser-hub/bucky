@@ -190,6 +190,15 @@
   .thinkingDots { color: var(--muted); font-size: 14px; }
   .thinkingDots::after { content: "…"; animation: dots 1.2s steps(4) infinite; }
   @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+  /* Research follow-up actions: suggestion chips after every answer, and tappable
+     multiple-choice answer buttons when the tutor poses a practice problem. */
+  #chatActions { display: flex; flex-direction: column; gap: 8px; margin: 2px 0 8px 2px; max-width: 94%; }
+  #chatActions .chipRow { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    background: var(--card); border: 2px solid var(--line); border-radius: 999px; box-shadow: var(--shadow);
+    padding: 9px 14px; font-family: inherit; font-size: 14px; font-weight: 700; color: var(--ink); cursor: pointer;
+  }
+  .chip:active { border-color: var(--green); background: #f2f6fd; }
   #chatInputRow { flex: 0 0 auto; display: flex; gap: 8px; padding-top: 8px; }
   #chatInput {
     flex: 1; min-width: 0; font-family: inherit; font-size: 15px; border: 2px solid var(--line);
@@ -649,6 +658,75 @@
   }
   function scrollChat() { const s = $("chatScroll"); s.scrollTop = s.scrollHeight; }
 
+  // ---- Research follow-up actions ----
+  // Every completed answer offers tappable next moves (like story mode's choices): suggestion
+  // chips normally, or A-D answer buttons when the tutor posed a multiple-choice practice
+  // problem (the reply ends with ===ANSWERS=== + 4 options; see the server system prompt).
+  const ANSWERS_MARK = "===ANSWERS===";
+  function parseResearchReply(raw) {
+    const i = raw.indexOf(ANSWERS_MARK);
+    if (i === -1) return { text: raw.trim(), answers: [] };
+    const block = raw.slice(i + ANSWERS_MARK.length);
+    const m = block.match(/^\s*[A-D][).]\s*(.+)$/gm) || [];
+    const answers = m.map((l) => l.replace(/^\s*[A-D][).]\s*/, "").trim()).filter(Boolean).slice(0, 4);
+    return { text: raw.slice(0, i).trim(), answers };
+  }
+  // Streaming twin of story mode's visibleDuringStream: hide the marker + everything after it,
+  // including a partial marker still arriving (a trailing "===ANSW").
+  function researchVisibleDuringStream(raw) {
+    const i = raw.indexOf(ANSWERS_MARK);
+    if (i !== -1) return raw.slice(0, i);
+    return raw.replace(/=+[A-Z ]*$/, "");
+  }
+  function clearChatActions() {
+    const el = document.getElementById("chatActions");
+    if (el) el.remove();
+  }
+  function showChatActions(answers) {
+    clearChatActions();
+    const wrap = document.createElement("div");
+    wrap.id = "chatActions";
+    if (answers && answers.length) {
+      answers.forEach((a, i) => {
+        const letter = "ABCD"[i];
+        const b = document.createElement("button");
+        b.className = "choiceBtn";
+        const n = document.createElement("span"); n.className = "n"; n.textContent = letter + ")";
+        const t = document.createElement("span"); t.textContent = a;
+        b.append(n, t);
+        b.addEventListener("click", () => submitResearch("My answer: " + letter + ") " + a));
+        wrap.appendChild(b);
+      });
+      // typeset any LaTeX in the option labels (the sent message keeps the raw text)
+      if (window.renderMathInElement) {
+        renderMathInElement(wrap, {
+          delimiters: [
+            { left: "$$", right: "$$", display: false },
+            { left: "\\(", right: "\\)", display: false },
+            { left: "$", right: "$", display: false },
+          ],
+          throwOnError: false,
+        });
+      }
+    } else {
+      const row = document.createElement("div");
+      row.className = "chipRow";
+      const CHIPS = [
+        ["📚 More examples", "Show me more examples of this."],
+        ["✏️ Practice problems", "Give me a practice problem on this."],
+        ["➡️ Next step", "Let's move on to the next step."],
+      ];
+      for (const [label, msg] of CHIPS) {
+        const b = document.createElement("button");
+        b.className = "chip"; b.type = "button"; b.textContent = label;
+        b.addEventListener("click", () => submitResearch(msg));
+        row.appendChild(b);
+      }
+      wrap.appendChild(row);
+    }
+    $("chatScroll").appendChild(wrap);
+  }
+
   function renderResearch() {
     $("chatScroll").innerHTML = "";
     if (!researchMsgs.length) {
@@ -660,18 +738,19 @@
     }
     for (const m of researchMsgs) {
       if (m.role === "user") addMsgEl("user", m.content);
-      else renderAiInto(addMsgEl("ai", ""), m.content);
+      else renderAiInto(addMsgEl("ai", ""), parseResearchReply(m.content).text);
     }
+    // re-offer the last reply's follow-up actions (answer buttons or chips) after a reload
+    const last = researchMsgs[researchMsgs.length - 1];
+    if (last && last.role === "assistant") showChatActions(parseResearchReply(last.content).answers);
     scrollChat();
   }
 
-  async function sendResearch() {
-    const v = $("chatInput").value.trim();
+  async function submitResearch(v) {
     if (!v || busy) return;
     busy = true;
-    $("chatInput").value = "";
-    autoGrow();
     $("chatSend").disabled = true;
+    clearChatActions();
     if (!researchMsgs.length) $("chatScroll").innerHTML = "";   // clear the empty-state hint
     researchMsgs.push({ role: "user", content: v });
     saveResearch();   // persist the question now — a mid-stream tab close keeps the exchange
@@ -682,18 +761,32 @@
       // No auto-scroll while streaming — the reader can scroll and read at their
       // own pace as the answer arrives (scrollChat only fires on the user's turn).
       const full = await callFarmGPT("research", researchMsgs, (sofar) => {
-        renderAiInto(aiBubble, sofar);
+        renderAiInto(aiBubble, researchVisibleDuringStream(sofar));
       });
-      renderAiInto(aiBubble, full);
-      researchMsgs.push({ role: "assistant", content: full });
+      const { text, answers } = parseResearchReply(full);
+      renderAiInto(aiBubble, text);
+      researchMsgs.push({ role: "assistant", content: full });   // raw kept — model sees its own marker
       saveResearch();
+      busy = false;
+      $("chatSend").disabled = false;
+      showChatActions(answers);
     } catch (err) {
       aiBubble.parentElement.remove();
       researchMsgs.pop();
+      busy = false;
+      $("chatSend").disabled = false;
+      // restore the previous reply's actions so the buttons survive a failed request
+      const last = researchMsgs[researchMsgs.length - 1];
+      if (last && last.role === "assistant") showChatActions(parseResearchReply(last.content).answers);
       toast("😵 " + err.message);
     }
-    busy = false;
-    $("chatSend").disabled = false;
+  }
+  function sendResearch() {
+    const v = $("chatInput").value.trim();
+    if (!v || busy) return;
+    $("chatInput").value = "";
+    autoGrow();
+    submitResearch(v);
   }
 
   $("chatSend").addEventListener("click", sendResearch);
