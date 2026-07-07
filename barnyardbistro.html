@@ -5656,6 +5656,9 @@
     // (6 files: base + walk/run/chop/throw/idle) with the procedural look as a fallback while
     // loading/failed. Customers and props are UNAFFECTED (they keep their own GLB paths).
     const GLB_CHEF_IDS = ["steampunk", "bucky"];   // bucky: hand-modeled + hand-rigged in Blender (assets/blender/chefbucky.blend)
+    const GLB_CHEF_EXTRA_CLIPS = { bucky: ["carry"] };   // walking-while-holding (hands out, item on top)
+    const HOLD_POSE_AXIS = new THREE.Vector3(1, 0, 0);   // shared temps for the post-mixer hold-pose arm delta
+    const HOLD_POSE_Q = new THREE.Quaternion();
     // ---- Systems pass 4: chef picker mapping — farmer (straw hat, blue overalls, exactly
     // today's look), grandma (red dress-tone body + a gray "bun" hair blob replacing the straw
     // hat), kid (green body + an oversized hat via a bigger brim/top scale). Pure data — the
@@ -5715,7 +5718,10 @@
       const base = "assets/chef-" + modelId;
       let scene = null;
       const clips = {};
+      // "carry" is optional per model (only Blender-authored chefs have it): the state machine
+      // falls back to run + the arm-bend blend when a.carry is absent.
       const need = ["walk", "run", "chop", "throw", "idle"];
+      if (GLB_CHEF_EXTRA_CLIPS[modelId]) need.push(...GLB_CHEF_EXTRA_CLIPS[modelId]);
       function maybeReady(){
         if (!scene) return;
         for (const k of need) if (!clips[k]) return;
@@ -5852,7 +5858,10 @@
       // the same fallback this GLB path already had when no hand bone was found) — consistent,
       // camera-facing placement regardless of whatever the current animation clip's arm pose is.
       const heldSlot = new THREE.Group();
-      heldSlot.position.set(0, 0.58, 0.56);
+      // bucky's carry clip holds both hands out front at ~y0.8/z0.4 (world, post-scale) — the
+      // slot sits right on top of them so the item reads as resting on the outstretched hands.
+      if ((chefModel || "") === "bucky") heldSlot.position.set(0, 0.80, 0.42);
+      else heldSlot.position.set(0, 0.58, 0.56);
       g.add(heldSlot);
 
       // both-upper-arms-forward "holding pose" blend: the idle clip is a casual strut (known
@@ -5870,9 +5879,7 @@
       scene.add(g);
       return {
         group: g, heldSlot, heldMeshes: [], chefModel: chefModel || "farmer",
-        mixer, actions, animState: "idle", leftArmBone, rightArmBone,
-        leftArmRestX: leftArmBone ? leftArmBone.rotation.x : 0,
-        rightArmRestX: rightArmBone ? rightArmBone.rotation.x : 0
+        mixer, actions, animState: "idle", leftArmBone, rightArmBone
       };
     }
     function buildChef(color, chefModel){
@@ -7360,6 +7367,9 @@
           else {
             vis.stillFor = moving ? 0 : (vis.stillFor || 0) + dt;
             want = (moving || vis.stillFor < 0.12) ? "run" : "idle";
+            // walking-while-holding: models that ship a dedicated carry clip (hands out front,
+            // item resting on top) use it instead of run whenever hands are full.
+            if (want === "run" && a.carry && chef.holding.length > 0) want = "carry";
           }
           if (want !== vis.animState){
             const prev = vis.animState;
@@ -7370,6 +7380,7 @@
             else for (const k in a) if (k !== want) a[k].fadeOut(fadeDur);
           }
           if (vis.animState === "run") a.run.timeScale = Math.max(0.6, Math.min(1.8, anim.speed / 4));
+          if (vis.animState === "carry") a.carry.timeScale = Math.max(0.6, Math.min(1.8, anim.speed / 4));
           // chop/washing: comedic charged-axe-chop clip looped fast (~1.6x) per the design doc —
           // "playing it fast reads as enthusiastic kitchen work."
           if (vis.animState === "chop") a.chop.timeScale = 1.6;
@@ -7378,14 +7389,20 @@
         // both-arms-forward "holding" pose blend: the idle clip is a casual strut with the arms
         // relaxed at the sides, which reads oddly while carrying an ingredient/plate — nudge the
         // upper-arm bones toward the front whenever hands are full. Skipped entirely while the
-        // chop/throw clips are active (their own arm motion should read clearly, un-fought).
+        // chop/throw clips are active (their own arm motion should read clearly, un-fought), and
+        // while a dedicated carry clip owns the arms. Applied as a POST-MIXER quaternion delta:
+        // assigning bone.rotation.x here would rebuild the quaternion from the euler's stale
+        // y/z components and stomp the mixer's arm animation every frame (arms frozen at rest
+        // during run/chop/throw whenever hands were empty).
         if (vis.leftArmBone && vis.rightArmBone){
-          const wantHoldPose = chef.holding.length > 0 && vis.animState !== "chop" && vis.animState !== "throw";
+          const wantHoldPose = chef.holding.length > 0 && vis.animState !== "chop" && vis.animState !== "throw" && vis.animState !== "carry";
           vis.holdPoseBlend = vis.holdPoseBlend || 0;
           vis.holdPoseBlend += ((wantHoldPose ? 1 : 0) - vis.holdPoseBlend) * Math.min(1, dt * 8);
-          const bend = 0.6 * vis.holdPoseBlend;
-          vis.leftArmBone.rotation.x = vis.leftArmRestX - bend;
-          vis.rightArmBone.rotation.x = vis.rightArmRestX - bend;
+          if (vis.holdPoseBlend > 0.01){
+            HOLD_POSE_Q.setFromAxisAngle(HOLD_POSE_AXIS, -0.6 * vis.holdPoseBlend);
+            vis.leftArmBone.quaternion.multiply(HOLD_POSE_Q);
+            vis.rightArmBone.quaternion.multiply(HOLD_POSE_Q);
+          }
         }
       }
 
