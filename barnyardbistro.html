@@ -4565,7 +4565,14 @@
       const leftExt = aspect < 1 ? SCENE_LEFT_EXTENT_PORTRAIT : SCENE_LEFT_EXTENT_LANDSCAPE;
       const sceneHalfW = (leftExt + SCENE_RIGHT_EXTENT) / 2;
       const camXShift = (SCENE_RIGHT_EXTENT - leftExt) / 2;
-      const distForHAt = (y) => sceneHalfW * aspect / tanHalfV + y * sinA + DZ_NEAR * cosA;
+      // Desktop-zoom fix (user: "much too zoomed out on PC"): this line MULTIPLIED by aspect,
+      // but the horizontal frustum half-tangent is tanHalfV * aspect, so the depth needed to fit
+      // a half-width is x / (tanHalfV * ASPECT) — dividing. The old form inflated the camera
+      // distance ~aspect² on wide windows (a widescreen monitor nearly doubled it), which is
+      // exactly the "tiny kitchen swimming in grass" report. Portrait is unaffected in practice
+      // (its hFov target makes the vertical solve dominate), but the corrected form is right
+      // there too.
+      const distForHAt = (y) => sceneHalfW / (tanHalfV * aspect) + y * sinA + DZ_NEAR * cosA;
       const distForH = Math.max(distForHAt(0), distForHAt(CH));
       // User-reported fix ("zoom in a bit"): kept the tight 1.0 safety-margin multiplier / +1 flat
       // add-on from that earlier pass — the near/far-corner solve above already has its own small
