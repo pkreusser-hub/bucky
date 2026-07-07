@@ -847,3 +847,20 @@ farmgpt.html + netlify/functions/farmgpt.mjs (Claude API, model claude-sonnet-5)
       and endlessMaxWaiting = min(7, 3+floor(t/90)) (was min(8, 3+floor(t/45)))
       — peak pressure halved and ~3x later; user asked for "a good bit" easier
       with a smoother ramp.
+- [x] GOAT RECORD FIELDS (2026-07-07, PUSHED 1805d41, first sonnet-delegated task):
+      Goats tab adds breed (datalist: Nigerian Dwarf / Mini LaMancha), regnum
+      ("Registration #"), horns (select Disbudded/Horned/Polled), freshenings
+      (number) — editable in the goat sheet, detail shows breed always + others
+      when set. goatBreed(g) name-fallback (Archie/Graffi/Steffi/Oakley/Annie/
+      Peyton -> Mini LaMancha, else Nigerian Dwarf) covers the LIVE Firestore
+      herd; BUCKY_SEED backfilled via JSON transform. Also fixed pre-existing
+      bug: #goatOverlay now z-index 41 (edit sheet used to open UNDER the
+      detail overlay -> Save unclickable from the detail-view Edit path).
+      DELEGATION LESSONS (policy re-enabled 2026-07-07, see memory): sonnet
+      agents may hallucinate "I've launched a background agent" and stop after
+      1 tool call (can chain!) — every delegation prompt needs an explicit
+      "do ALL work yourself with Read/Edit/Bash; do NOT use the Agent tool"
+      ground rule, and check `git diff --stat` on every completion before
+      trusting the report. index.html's script is type="module" — headless
+      tests must drive real DOM clicks (page.evaluate can't reach module
+      globals), which is also what catches paint/stacking bugs.
