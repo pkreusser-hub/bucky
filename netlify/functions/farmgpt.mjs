@@ -73,6 +73,11 @@ HOW A STORY WORKS:
 ===THE END===
 ${FAMILY_RULES}`;
 
+// Appended to STORY_SYSTEM only when the request asks for an illustration (maxTokens
+// bumped alongside). The <svg> is sanitized hard on the client before it ever renders.
+const STORY_ILLUSTRATION = `
+ILLUSTRATION: After the choices (or after ===THE END===), add a line containing exactly ===ART=== followed by a single complete <svg> illustration of this chapter's most visual moment. Rules: viewBox="0 0 400 300" and no width/height attributes; flat cheerful storybook style; simple geometric shapes and soft colors; at most ~80 elements total; NO <script>, NO event attributes, NO external references or hrefs, NO <image> tags, NO <text> words. Never mention the illustration in the story text.`;
+
 const RESEARCH_SYSTEM = `You are FarmGPT, the Amen Farms family AI, in research mode. Your users
 are teenagers doing schoolwork. You are a TUTOR, not a homework machine — your job (set by their
 parents) is that they LEARN the material, not that you produce their deliverables.
@@ -136,6 +141,8 @@ FORMAT & FACTS:
 - Historical and scientific facts needed for school are fine — present them neutrally and
   factually. Current politics and political controversy are off-limits per the rules below.
 - Be encouraging but honest. If you're not sure about a fact, say so.
+
+PHOTOS: Students may attach a photo of a worksheet, textbook page, or their own handwritten work. Read it carefully and reference specific problems by number. The tutor rules apply unchanged to photographed assignments: teach the method on a parallel example, coach them through THEIR problems one step at a time, diagnose their handwritten steps warmly — never produce the full answer sheet for a photographed worksheet. If the photo is too blurry or cropped to read, say exactly what you need re-shot.
 ${FAMILY_RULES}`;
 
 // Per-mode request tuning. Story turns are short and snappy (thinking off for speed);
@@ -258,17 +265,56 @@ function jsonError(status, message, headers) {
   return new Response(JSON.stringify({ error: message }), { status, headers });
 }
 
+const IMG_MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const MAX_IMAGE_DATA = 2_800_000;  // base64 chars (~2 MB)
+const MAX_IMAGES = 4;              // across the whole request
+
 // Validates and normalizes the client-sent conversation into Anthropic messages.
-// Returns null if anything is malformed.
+// Content is either a plain string (both modes, unchanged) or an array of blocks —
+// {type:"text",text} and {type:"image",source:{type:"base64",media_type,data}} —
+// which the research photo flow sends. Returns null if anything is malformed.
 function sanitizeMessages(raw) {
   if (!Array.isArray(raw) || raw.length === 0) return null;
   const msgs = [];
   for (const m of raw) {
     if (!m || (m.role !== "user" && m.role !== "assistant")) return null;
-    if (typeof m.content !== "string" || !m.content.trim()) return null;
-    msgs.push({ role: m.role, content: m.content.slice(0, MAX_CONTENT_CHARS) });
+    if (typeof m.content === "string") {
+      if (!m.content.trim()) return null;
+      msgs.push({ role: m.role, content: m.content.slice(0, MAX_CONTENT_CHARS) });
+    } else if (Array.isArray(m.content)) {
+      const blocks = [];
+      for (const b of m.content) {
+        if (!b || typeof b !== "object") continue;
+        if (b.type === "text" && typeof b.text === "string") {
+          blocks.push({ type: "text", text: b.text.slice(0, MAX_CONTENT_CHARS) });
+        } else if (b.type === "image" && b.source && b.source.type === "base64" &&
+                   IMG_MEDIA_TYPES.has(b.source.media_type) &&
+                   typeof b.source.data === "string" && b.source.data.length <= MAX_IMAGE_DATA &&
+                   /^[A-Za-z0-9+/=]+$/.test(b.source.data)) {
+          blocks.push({ type: "image", source: { type: "base64", media_type: b.source.media_type, data: b.source.data } });
+        }
+        // non-conforming blocks are dropped
+      }
+      if (!blocks.length) return null;
+      msgs.push({ role: m.role, content: blocks });
+    } else return null;
   }
   if (msgs[0].role !== "user") return null;
+  // Cap total image blocks: strip from the OLDEST messages first (replace each image
+  // with a "[photo removed]" text placeholder) until at most MAX_IMAGES remain.
+  let imgCount = 0;
+  for (const m of msgs) if (Array.isArray(m.content)) for (const b of m.content) if (b.type === "image") imgCount++;
+  if (imgCount > MAX_IMAGES) {
+    let toRemove = imgCount - MAX_IMAGES;
+    for (const m of msgs) {
+      if (toRemove <= 0) break;
+      if (!Array.isArray(m.content)) continue;
+      m.content = m.content.map((b) => {
+        if (b.type === "image" && toRemove > 0) { toRemove--; return { type: "text", text: "[photo removed]" }; }
+        return b;
+      });
+    }
+  }
   if (msgs.length > MAX_MESSAGES) return null;
   // Trim long conversations: keep the head (world setup) + the recent tail. Must resume
   // on a user turn, so extend the tail boundary back to the nearest user message.
@@ -311,11 +357,17 @@ export default async (req) => {
   const messages = sanitizeMessages(body.messages);
   if (!messages) return jsonError(400, "Bad messages array", jsonHeaders);
 
+  // Story illustrations: opt-in per request. Bump the token budget so the <svg> fits
+  // after the chapter + choices without truncating either. Research ignores the flag.
+  const illustrate = body.mode === "story" && body.illustrate === true;
+  const system = illustrate ? mode.system + "\n" + STORY_ILLUSTRATION : mode.system;
+  const maxTokens = illustrate ? 3000 : mode.maxTokens;
+
   const apiBase = process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com";
   const apiReq = {
     model: MODEL,
-    max_tokens: mode.maxTokens,
-    system: mode.system,
+    max_tokens: maxTokens,
+    system,
     messages,
     stream: true,
     // Prompt caching: auto-places a breakpoint on the last cacheable block, so each

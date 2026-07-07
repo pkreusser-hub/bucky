@@ -104,6 +104,14 @@
     font-size: 12.5px; font-weight: 600; padding: 7px 12px; cursor: pointer;
   }
   .chip:active { background: #dfe9fa; }
+  /* story setup: illustration-frequency segmented control */
+  .segLabel { font-size: 13px; font-weight: 700; color: var(--muted); margin: 14px 0 6px; }
+  .seg { display: flex; gap: 6px; background: #eef3fc; border: 1px solid var(--line); border-radius: 12px; padding: 4px; }
+  .seg button {
+    flex: 1; border: 0; background: none; font-family: inherit; font-size: 12.5px; font-weight: 700;
+    color: var(--muted); padding: 9px 4px; border-radius: 9px; cursor: pointer;
+  }
+  .seg button.on { background: var(--card); color: var(--green); box-shadow: var(--shadow); }
   .goBtn {
     display: block; width: 100%; margin-top: 12px; background: var(--red); color: #fff; border: 0;
     border-radius: 12px; font-family: inherit; font-weight: 800; font-size: 17px; padding: 14px; cursor: pointer;
@@ -131,6 +139,12 @@
     font-family: Georgia, "Times New Roman", serif; font-size: 16.5px; line-height: 1.65;
     color: #33280f; white-space: pre-wrap; margin: 0 0 14px;
   }
+  #storyScroll .chapterArt {
+    margin: 0 0 16px; padding: 8px; background: #fffdf6;
+    border: 1px solid var(--paper-line); border-radius: 14px;
+    box-shadow: inset 0 0 0 1px #fff, var(--shadow);
+  }
+  #storyScroll .chapterArt svg { width: 100%; height: auto; border-radius: 12px; display: block; }
   #storyScroll .picked {
     font-style: italic; color: #8a7a4d; font-size: 13.5px; margin: 0 0 14px; padding-left: 10px;
     border-left: 3px solid var(--paper-line);
@@ -199,7 +213,20 @@
     padding: 9px 14px; font-family: inherit; font-size: 14px; font-weight: 700; color: var(--ink); cursor: pointer;
   }
   .chip:active { border-color: var(--green); background: #f2f6fd; }
+  /* research: pending-photo preview chip above the input row */
+  #photoChip { display: none; align-items: center; gap: 8px; padding: 6px 2px 0; }
+  #photoChip img { width: 56px; height: 56px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); }
+  #photoChip button {
+    border: 0; background: #eef3fc; color: var(--muted); border-radius: 8px; width: 26px; height: 26px;
+    font-size: 15px; font-weight: 800; cursor: pointer; font-family: inherit;
+  }
   #chatInputRow { flex: 0 0 auto; display: flex; gap: 8px; padding-top: 8px; }
+  #photoBtn {
+    flex: 0 0 auto; background: #eef3fc; color: var(--green); border: 2px solid var(--line); border-radius: 12px;
+    font-size: 18px; padding: 0 12px; cursor: pointer; font-family: inherit;
+  }
+  #photoBtn:disabled { opacity: .5; }
+  .msg.user .bubble img.photo { max-width: 160px; border-radius: 10px; display: block; margin-bottom: 6px; }
   #chatInput {
     flex: 1; min-width: 0; font-family: inherit; font-size: 15px; border: 2px solid var(--line);
     border-radius: 12px; padding: 11px 12px; background: var(--card); resize: none; max-height: 130px;
@@ -269,6 +296,13 @@
       <textarea id="worldInput" maxlength="2000"
         placeholder="Example: I'm a young starship captain on my first mission, and something strange just appeared on the scanner..."></textarea>
       <div class="chips" id="worldChips"></div>
+      <div class="segLabel">🎨 Illustrations</div>
+      <div class="seg" id="illustSeg">
+        <button data-v="every">Every chapter</button>
+        <button data-v="every3">Every 3rd</button>
+        <button data-v="first">First only</button>
+        <button data-v="off">Off</button>
+      </div>
       <button class="goBtn" id="beginBtn">Begin the story! ✨</button>
     </div>
     <div id="bookshelf"></div>
@@ -293,7 +327,10 @@
   <!-- ============ RESEARCH ============ -->
   <div class="view" id="viewResearch">
     <div id="chatScroll"></div>
+    <div id="photoChip"><img id="photoChipImg" alt="" /><button id="photoChipX" title="Remove photo">✕</button></div>
     <div id="chatInputRow">
+      <button id="photoBtn" title="Attach a photo">📷</button>
+      <input id="photoFile" type="file" accept="image/*" capture="environment" style="display:none" />
       <textarea id="chatInput" rows="1" maxlength="6000" placeholder="Ask a research or coding question…"></textarea>
       <button id="chatSend">Send</button>
     </div>
@@ -316,6 +353,8 @@
   const RESEARCH_KEY = "farmgpt_research_v1";
   const CHOICES_MARK = "===CHOICES===";
   const END_MARK = "===THE END===";
+  const ART_MARK = "===ART===";
+  const ILLUST_KEY = "farmgpt_illust";
 
   const $ = (id) => document.getElementById(id);
   const views = { home: $("viewHome"), storySetup: $("viewStorySetup"), story: $("viewStory"), research: $("viewResearch"), usage: $("viewUsage") };
@@ -323,7 +362,8 @@
   let currentView = "home";
   let busy = false;                 // one in-flight request at a time, app-wide
   let story = null;                 // {id,title,created,messages:[{role,content}],done}
-  let researchMsgs = [];            // [{role,content}]
+  let researchMsgs = [];            // [{role,content,thumb?}]
+  let pendingPhoto = null;          // { media_type, data(full b64), thumb(small dataURL) }
 
   function toast(msg) {
     const t = $("toast");
@@ -355,11 +395,11 @@
 
   // ---------------- shared streaming call ----------------
   // POSTs the conversation, streams plain-text chunks to onChunk, resolves with full text.
-  async function callFarmGPT(mode, messages, onChunk) {
+  async function callFarmGPT(mode, messages, onChunk, opts) {
     const resp = await fetch(API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ secret: FAMILY_PASSWORD, mode, messages }),
+      body: JSON.stringify({ secret: FAMILY_PASSWORD, mode, messages, ...(opts || {}) }),
     });
     if (!resp.ok) {
       let msg = "Request failed (" + resp.status + ")";
@@ -390,6 +430,27 @@
     "🕵️ A detective solving the case of the missing blueberry pie",
     "🏝 Shipwrecked on a mysterious island full of secrets",
   ];
+  // Illustration frequency (setup segmented control, persisted).
+  function illustSetting() {
+    const v = localStorage.getItem(ILLUST_KEY);
+    return (v === "every" || v === "every3" || v === "first" || v === "off") ? v : "every3";
+  }
+  function paintIllustSeg() {
+    const cur = illustSetting();
+    for (const b of $("illustSeg").children) b.classList.toggle("on", b.dataset.v === cur);
+  }
+  for (const b of $("illustSeg").children) {
+    b.addEventListener("click", () => { localStorage.setItem(ILLUST_KEY, b.dataset.v); paintIllustSeg(); });
+  }
+  paintIllustSeg();
+  // Decide whether to illustrate the chapter about to be requested. Chapter N = (assistant
+  // messages so far) + 1; the current story.messages ends on the user turn we're sending.
+  function shouldIllustrate() {
+    const n = story.messages.filter((m) => m.role === "assistant").length + 1;
+    const s = illustSetting();
+    return s === "every" || (s === "every3" && (n - 1) % 3 === 0) || (s === "first" && n === 1);
+  }
+
   const chipsEl = $("worldChips");
   for (const c of WORLD_CHIPS) {
     const b = document.createElement("button");
@@ -401,11 +462,24 @@
   function loadStories() {
     try { return JSON.parse(localStorage.getItem(STORIES_KEY)) || []; } catch { return []; }
   }
+  // Strips the ===ART=== block (svg only — text/choices untouched) off an assistant reply.
+  function stripArt(content) {
+    const i = content.indexOf(ART_MARK);
+    return i === -1 ? content : content.slice(0, i).replace(/\s+$/, "");
+  }
   function saveStory() {
     if (!story) return;
     const all = loadStories().filter((s) => s.id !== story.id);
     all.unshift(story);
     while (all.length > 20) all.pop();               // bookshelf cap
+    // Size guard: SVG art is decorative and bulky. If the shelf JSON blows past ~300KB,
+    // drop art from the OLDEST assistant messages first until it fits (never text/choices).
+    if (JSON.stringify(all).length > 300000) {
+      for (const m of story.messages) {
+        if (JSON.stringify(all).length <= 300000) break;
+        if (m.role === "assistant" && m.content.includes(ART_MARK)) m.content = stripArt(m.content);
+      }
+    }
     try { localStorage.setItem(STORIES_KEY, JSON.stringify(all)); } catch { /* full — story survives in memory */ }
   }
 
@@ -439,28 +513,61 @@
     }
   }
 
-  // Splits a raw assistant reply into { text, choices, ended }.
+  // Pulls a single <svg>…</svg> out of an ===ART=== block. Tolerates prose/whitespace
+  // around it; returns null if there's no complete pair (so junk never renders).
+  function extractArt(raw) {
+    const a = raw.indexOf(ART_MARK);
+    if (a === -1) return null;
+    const after = raw.slice(a + ART_MARK.length);
+    const start = after.indexOf("<svg");
+    const end = after.lastIndexOf("</svg>");
+    if (start === -1 || end === -1 || end < start) return null;
+    return after.slice(start, end + 6);
+  }
+  // Splits a raw assistant reply into { text, choices, ended, art }.
   function parseChapter(raw) {
-    let text = raw, choices = [], ended = false;
-    const endIdx = raw.indexOf(END_MARK);
-    const chIdx = raw.indexOf(CHOICES_MARK);
-    if (endIdx !== -1) { text = raw.slice(0, endIdx); ended = true; }
+    const art = extractArt(raw);
+    // Strip the ===ART=== block off before finding the text/choice boundaries.
+    const aIdx = raw.indexOf(ART_MARK);
+    const body = aIdx === -1 ? raw : raw.slice(0, aIdx);
+    let text = body, choices = [], ended = false;
+    const endIdx = body.indexOf(END_MARK);
+    const chIdx = body.indexOf(CHOICES_MARK);
+    if (endIdx !== -1) { text = body.slice(0, endIdx); ended = true; }
     else if (chIdx !== -1) {
-      text = raw.slice(0, chIdx);
-      const block = raw.slice(chIdx + CHOICES_MARK.length);
+      text = body.slice(0, chIdx);
+      const block = body.slice(chIdx + CHOICES_MARK.length);
       const m = block.match(/^\s*\d[.)]\s*(.+)$/gm) || [];
       choices = m.map((l) => l.replace(/^\s*\d[.)]\s*/, "").trim()).filter(Boolean).slice(0, 3);
     }
-    return { text: text.trim(), choices, ended };
+    return { text: text.trim(), choices, ended, art };
   }
   // While streaming, hide the marker and everything after it (including a partial marker
-  // that's still arriving, e.g. a trailing "===CHO").
+  // that's still arriving, e.g. a trailing "===CHO" or "===ART" + the svg source).
   function visibleDuringStream(raw) {
-    for (const mark of [CHOICES_MARK, END_MARK]) {
+    for (const mark of [CHOICES_MARK, END_MARK, ART_MARK]) {
       const i = raw.indexOf(mark);
       if (i !== -1) return raw.slice(0, i);
     }
     return raw.replace(/=+[A-Z ]*$/, "");
+  }
+  // Sanitizes model SVG hard before it touches the DOM (SVG profile, no scripts/links/images).
+  function sanitizeArt(svg) {
+    if (!svg) return null;
+    const clean = DOMPurify.sanitize(svg, {
+      USE_PROFILES: { svg: true, svgFilters: true },
+      FORBID_TAGS: ["script", "foreignObject", "image"],
+      FORBID_ATTR: ["href", "xlink:href"],
+    });
+    return /<svg[\s\S]*<\/svg>/i.test(clean) ? clean : null;
+  }
+  function addArtEl(svg) {
+    const clean = sanitizeArt(svg);
+    if (!clean) return;
+    const el = document.createElement("div");
+    el.className = "chapterArt";
+    el.innerHTML = clean;
+    $("storyScroll").appendChild(el);
   }
 
   function addChapterEl(text) {
@@ -507,9 +614,16 @@
       // own pace as the chapter arrives (scrollStory only fires on the user's turn).
       const full = await callFarmGPT("story", story.messages, (sofar) => {
         el.textContent = visibleDuringStream(sofar);
-      });
-      const { text, choices, ended } = parseChapter(full);
+      }, { illustrate: shouldIllustrate() });
+      const { text, choices, ended, art } = parseChapter(full);
       el.textContent = text;
+      const cleanArt = sanitizeArt(art);
+      if (cleanArt) {                              // art sits ABOVE this chapter's text
+        const artEl = document.createElement("div");
+        artEl.className = "chapterArt";
+        artEl.innerHTML = cleanArt;
+        el.parentNode.insertBefore(artEl, el);
+      }
       story.messages.push({ role: "assistant", content: full });
       if (ended) {
         story.done = true;
@@ -566,6 +680,7 @@
       if (m.role === "user") addPickedEl(i === 0 ? m.content : m.content);
       else {
         const p = parseChapter(m.content);
+        addArtEl(p.art);              // decorative — above the chapter text
         addChapterEl(p.text);
         lastParsed = p;
       }
@@ -643,7 +758,17 @@
     // keep the stored transcript bounded
     while (researchMsgs.length > 50) researchMsgs.shift();
     if (researchMsgs.length && researchMsgs[0].role !== "user") researchMsgs.shift();
-    try { localStorage.setItem(RESEARCH_KEY, JSON.stringify(researchMsgs)); } catch { /* ignore */ }
+    // NEVER persist full-size base64 photos. Replace each image block with a placeholder
+    // (so the API history after a reload just references it) but keep the small display
+    // thumb on msg.thumb. In-memory researchMsgs KEEP the full image this session, so
+    // follow-up questions about the photo still reach the model — build storage copies.
+    const forStore = researchMsgs.map((m) => {
+      if (!Array.isArray(m.content)) return m;
+      const content = m.content.map((b) =>
+        b.type === "image" ? { type: "text", text: "[photo shared earlier]" } : b);
+      return { role: m.role, content, ...(m.thumb ? { thumb: m.thumb } : {}) };
+    });
+    try { localStorage.setItem(RESEARCH_KEY, JSON.stringify(forStore)); } catch { /* ignore */ }
   }
 
   function addMsgEl(role, html) {
@@ -655,6 +780,40 @@
     wrap.appendChild(b);
     $("chatScroll").appendChild(wrap);
     return b;
+  }
+  // A message's content is either a plain string or an array of {type:"text"|"image"} blocks
+  // (research photo flow). textOf pulls just the text — used by everything that reasons about
+  // what the user "said" (marker tests, resends).
+  function textOf(content) {
+    if (typeof content === "string") return content;
+    if (Array.isArray(content)) {
+      const t = content.find((b) => b.type === "text");
+      return t ? t.text : "";
+    }
+    return "";
+  }
+  // Renders a user message that may carry a photo thumbnail above its text.
+  function addUserMsg(msg) {
+    const wrap = document.createElement("div");
+    wrap.className = "msg user";
+    const b = document.createElement("div");
+    b.className = "bubble";
+    const thumb = msg.thumb || imageDataUrlOf(msg.content);
+    if (thumb) {
+      const img = document.createElement("img");
+      img.className = "photo"; img.src = thumb; img.alt = "";
+      b.appendChild(img);
+    }
+    b.appendChild(document.createTextNode(textOf(msg.content)));
+    wrap.appendChild(b);
+    $("chatScroll").appendChild(wrap);
+    return b;
+  }
+  // Data URL of the first image block (full-size, in-session only), or null.
+  function imageDataUrlOf(content) {
+    if (!Array.isArray(content)) return null;
+    const img = content.find((b) => b.type === "image" && b.source && b.source.data);
+    return img ? "data:" + img.source.media_type + ";base64," + img.source.data : null;
   }
   function scrollChat() { const s = $("chatScroll"); s.scrollTop = s.scrollHeight; }
 
@@ -737,7 +896,7 @@
       return;
     }
     for (const m of researchMsgs) {
-      if (m.role === "user") addMsgEl("user", m.content);
+      if (m.role === "user") addUserMsg(m);
       else renderAiInto(addMsgEl("ai", ""), parseResearchReply(m.content).text);
     }
     // re-offer the last reply's follow-up actions (answer buttons or chips) after a reload
@@ -746,15 +905,23 @@
     scrollChat();
   }
 
-  async function submitResearch(v) {
-    if (!v || busy) return;
+  // content is a string (text/chip/answer sends) or an array of blocks (photo send).
+  // thumb (photo send only) is a small dataURL kept for display after full images are
+  // stripped from storage.
+  async function submitResearch(content, thumb) {
+    const hasText = typeof content === "string" ? !!content : !!textOf(content);
+    const hasImg = Array.isArray(content) && content.some((b) => b.type === "image");
+    if ((!hasText && !hasImg) || busy) return;
     busy = true;
     $("chatSend").disabled = true;
+    $("photoBtn").disabled = true;
     clearChatActions();
     if (!researchMsgs.length) $("chatScroll").innerHTML = "";   // clear the empty-state hint
-    researchMsgs.push({ role: "user", content: v });
+    const msg = { role: "user", content };
+    if (thumb) msg.thumb = thumb;
+    researchMsgs.push(msg);
     saveResearch();   // persist the question now — a mid-stream tab close keeps the exchange
-    addMsgEl("user", v);
+    addUserMsg(msg);
     const aiBubble = addMsgEl("ai", "<span class='thinkingDots'>Thinking</span>");
     scrollChat();
     try {
@@ -769,12 +936,14 @@
       saveResearch();
       busy = false;
       $("chatSend").disabled = false;
+      $("photoBtn").disabled = false;
       showChatActions(answers);
     } catch (err) {
       aiBubble.parentElement.remove();
       researchMsgs.pop();
       busy = false;
       $("chatSend").disabled = false;
+      $("photoBtn").disabled = false;
       // restore the previous reply's actions so the buttons survive a failed request
       const last = researchMsgs[researchMsgs.length - 1];
       if (last && last.role === "assistant") showChatActions(parseResearchReply(last.content).answers);
@@ -782,12 +951,63 @@
     }
   }
   function sendResearch() {
+    if (busy) return;
     const v = $("chatInput").value.trim();
-    if (!v || busy) return;
+    if (pendingPhoto) {
+      const photo = pendingPhoto;
+      const content = [
+        { type: "image", source: { type: "base64", media_type: photo.media_type, data: photo.data } },
+        { type: "text", text: v || "Here's a photo of my work." },
+      ];
+      clearPendingPhoto();
+      $("chatInput").value = ""; autoGrow();
+      submitResearch(content, photo.thumb);
+      return;
+    }
+    if (!v) return;
     $("chatInput").value = "";
     autoGrow();
     submitResearch(v);
   }
+
+  // ---- research photo attach ----
+  // Read the picked file, downscale (max dim ≤1280) to a JPEG q0.8 for the API, and a tiny
+  // thumb (max dim ≤200 q0.6) for display/storage. One pending photo at a time.
+  function clearPendingPhoto() {
+    pendingPhoto = null;
+    $("photoChip").style.display = "none";
+    $("photoChipImg").src = "";
+    $("photoFile").value = "";
+  }
+  function scaleToJpeg(img, maxDim, quality) {
+    let { width: w, height: h } = img;
+    if (Math.max(w, h) > maxDim) {
+      const s = maxDim / Math.max(w, h);
+      w = Math.round(w * s); h = Math.round(h * s);
+    }
+    const c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    c.getContext("2d").drawImage(img, 0, 0, w, h);
+    return c.toDataURL("image/jpeg", quality);
+  }
+  function handlePhotoFile(file) {
+    if (!file || !file.type.startsWith("image/")) return;
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const full = scaleToJpeg(img, 1280, 0.8);
+      const thumb = scaleToJpeg(img, 200, 0.6);
+      URL.revokeObjectURL(url);
+      pendingPhoto = { media_type: "image/jpeg", data: full.split(",")[1], thumb };
+      $("photoChipImg").src = thumb;
+      $("photoChip").style.display = "flex";
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); toast("Couldn't read that image."); };
+    img.src = url;
+  }
+  $("photoBtn").addEventListener("click", () => { if (!busy) $("photoFile").click(); });
+  $("photoFile").addEventListener("change", (e) => { handlePhotoFile(e.target.files[0]); });
+  $("photoChipX").addEventListener("click", clearPendingPhoto);
 
   $("chatSend").addEventListener("click", sendResearch);
   $("chatInput").addEventListener("keydown", (e) => {
@@ -804,6 +1024,7 @@
     if (busy) return;
     if (researchMsgs.length && !confirm("Clear this conversation?")) return;
     researchMsgs = [];
+    clearPendingPhoto();
     saveResearch();
     renderResearch();
   });
