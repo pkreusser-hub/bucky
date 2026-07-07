@@ -66,6 +66,12 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["-y", "http-server", "-p", "8839", "-c-1"],
       "port": 8839
+    },
+    {
+      "name": "bucky-8841",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["-y", "http-server", "-p", "8841", "-c-1"],
+      "port": 8841
     }
   ]
 }
