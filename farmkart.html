@@ -581,13 +581,11 @@
   // Every consumer (kart, camera, ground mesh, ribbon layers) reads terrain height from here.
   // = a smooth blend of (a) the flat track surface (nearest-centerline elevation, valid within
   // half-width) into (b) gentle value-noise ground hills, over heightBlendMargin.
-  function groundHills(x, z){
-    const amp = TUNE.groundHillAmp, wl = TUNE.groundHillWave || 60;
-    return amp * (
-      0.60*Math.sin(x/wl*1.3 + z/wl*0.7) +
-      0.40*Math.sin(x/wl*0.5 - z/wl*1.1 + 2.1)
-    );
-  }
+  // TERRAIN MATH now lives in the shared FK_TRACK module (so farmkart-editor.html renders identical
+  // grass/hills). These thin wrappers pass the live TUNE values in; results are bit-identical to the
+  // old inline versions. terrainOpts() reads TUNE each call (amp is tunable at runtime).
+  function terrainOpts(){ return { amp:TUNE.groundHillAmp, wave:TUNE.groundHillWave, margin:TUNE.heightBlendMargin }; }
+  function groundHills(x, z){ return FK_TRACK.groundHills(x, z, terrainOpts()); }
   // nearest dense-centerline info at (x,z): {idx, dist} (dist = PROJECTED perpendicular distance in
   // XZ). Delegates to FK_TRACK.nearestOnCenter (shared, interpolated). Correct anywhere (camera /
   // far off-track). The projected dist is smoother than the old nearest-sample dist near samples.
@@ -595,20 +593,7 @@
     const info = FK_TRACK.nearestOnCenter(_sampled, x, z);
     return { idx:info.idx, dist:info.dist };
   }
-  function sampleHeight(x, z){
-    const half = TRACK_WIDTH/2;
-    const margin = Math.max(0.5, TUNE.heightBlendMargin);
-    // K2.5 STAIRS FIX: interpolate the on-track height along the centerline segment (no stair-step)
-    // and use the PROJECTED perpendicular distance for the blend band (both from FK_TRACK).
-    const info = FK_TRACK.nearestOnCenter(_sampled, x, z);
-    const trackY = info.y, dist = info.dist;
-    if (dist <= half) return trackY;                 // flat across the road width
-    const gy = groundHills(x, z);
-    if (dist >= half + margin) return gy;            // pure ground hills off-track
-    const t = (dist - half) / margin;                // 0..1 across the blend band
-    const s = t*t*(3 - 2*t);                         // smoothstep
-    return trackY*(1 - s) + gy*s;
-  }
+  function sampleHeight(x, z){ return FK_TRACK.sampleHeight(_sampled, x, z, TRACK_WIDTH, terrainOpts()); }
   // K7 TRACK-OVERLAP FIX: height-AWARE terrain sample. Identical to sampleHeight on a non-crossing
   // track; at a self-crossing it prefers the branch whose elevation is closest to the seed cy (the
   // kart's own p.y) so trackY never flips level as the kart crosses -> no spurious airborne launch.
@@ -632,35 +617,7 @@
   // high bridge crosses a low road, the ground stays at the low road and the bridge ribbon floats
   // above it -> open air. On a normal (single-branch) section this is identical to sampleHeight.
   // Used ONLY by the displaced ground grid; kart/camera keep sampleHeight/sampleHeightAtY.
-  function groundSampleHeight(x, z){
-    const half = TRACK_WIDTH/2;
-    const margin = Math.max(0.5, TUNE.heightBlendMargin);
-    const C = _sampled.centerPts, N = _sampled.samples;
-    const band = half + margin, band2 = band*band;
-    let underY = Infinity;                 // lowest road surface directly above this point (dist<=half)
-    let bandY = Infinity, bandDist = Infinity;   // lowest-surface branch within the blend band + its dist
-    // distance to each centerline SEGMENT (not just sample points): the resample is uniform-in-t, so a
-    // long control segment (e.g. a bridge's under-branch on a long straight) is sparsely sampled and a
-    // point-only search would miss it. Segment projection + interpolated Y finds it reliably.
-    for (let i=0;i<N;i++){
-      const a=C[i], bpt=C[(i+1)%N];
-      const abx=bpt.x-a.x, abz=bpt.z-a.z, L2=abx*abx+abz*abz || 1;
-      let t=((x-a.x)*abx+(z-a.z)*abz)/L2; if (t<0) t=0; else if (t>1) t=1;
-      const px=a.x+abx*t, pz=a.z+abz*t, d2=(x-px)*(x-px)+(z-pz)*(z-pz);
-      if (d2 > band2) continue;
-      const d=Math.sqrt(d2), y=a.y+(bpt.y-a.y)*t;
-      if (d <= half && y < underY) underY = y;
-      if (y < bandY){ bandY = y; bandDist = d; }
-    }
-    if (underY < Infinity) return underY;                 // under a road -> low branch; any higher bridge floats
-    const gy = groundHills(x, z);
-    if (bandY < Infinity){
-      const t = Math.min(1, Math.max(0, (bandDist - half)/margin));
-      const s = t*t*(3 - 2*t);
-      return bandY*(1 - s) + gy*s;
-    }
-    return gy;
-  }
+  function groundSampleHeight(x, z){ return FK_TRACK.groundSampleHeight(_sampled, x, z, TRACK_WIDTH, terrainOpts()); }
 
   // K7 CORRIDOR: effective wall margin = per-track wallMargin if set, else the live TUNE fallback.
   function effWallMargin(){
@@ -672,30 +629,14 @@
   scene.add(FK_TRACK.buildRibbonGeometry(_sampled, TRACK_WIDTH, THREE));
 
   // ---------- displaced ground grid (K2) ----------
-  // Replaces the old flat green plane. A grid over the track's bounding box + margin, each
-  // vertex dropped to sampleHeight(x,z) so off-track is rolling hills that meet the road flush
-  // (under the road sampleHeight == trackY, and the ribbon sits ~0.08 proud → no z-fight, no void).
-  {
-    let minX=1e9,maxX=-1e9,minZ=1e9,maxZ=-1e9;
-    for (const c of centerPts){ if(c.x<minX)minX=c.x; if(c.x>maxX)maxX=c.x; if(c.z<minZ)minZ=c.z; if(c.z>maxZ)maxZ=c.z; }
-    const M = 55; minX-=M; maxX+=M; minZ-=M; maxZ+=M;
-    const seg = 4;
-    const nx = Math.ceil((maxX-minX)/seg), nz = Math.ceil((maxZ-minZ)/seg);
-    const pos = [], idx = [];
-    for (let j=0;j<=nz;j++) for (let i=0;i<=nx;i++){
-      const x = minX + i*seg, z = minZ + j*seg;
-      pos.push(x, groundSampleHeight(x, z), z);
-    }
-    for (let j=0;j<nz;j++) for (let i=0;i<nx;i++){
-      const a = j*(nx+1)+i, b = a+1, c = a+(nx+1), d = c+1;
-      idx.push(a, c, b,  b, c, d);   // CCW seen from +Y → upward normals
-    }
-    const gg = new THREE.BufferGeometry();
-    gg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    gg.setIndex(idx);
-    gg.computeVertexNormals();
-    scene.add(new THREE.Mesh(gg, new THREE.MeshLambertMaterial({ color:0x6fae54, side:THREE.DoubleSide })));
-  }
+  // The grass+hills mesh (grid over the track bbox + margin, each vertex at groundSampleHeight).
+  // Built by the shared FK_TRACK.buildGroundMesh so farmkart-editor.html renders the identical mesh.
+  scene.add(FK_TRACK.buildGroundMesh(_sampled, TRACK_WIDTH, THREE, terrainOpts()));
+
+  // ---------- P2: placed world objects (blockout massing) ----------
+  // Empty/absent -> nothing added (the live game is unchanged for tracks without objects). Visual-
+  // first: no collision yet. Same FK_TRACK.buildObjectMesh the editor uses, so what you place = what races.
+  for (const o of (ACTIVE_TRACK.objects || [])) scene.add(FK_TRACK.buildObjectMesh(o, THREE));
 
   // ---------- start/finish line (checkered strip across main straight) ----------
   // Placed near the main straight at ~z=20, spanning the track width.

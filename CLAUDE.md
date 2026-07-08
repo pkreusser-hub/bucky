@@ -1095,3 +1095,43 @@ GATOR KART MODEL (2026-07-08, untracked local test): user Meshy "6x4 John Deere 
       (opposite), half-slide -0.23 (~⅓ = analog), ring block during drag → none on
       release, 0 pageerrors; mobile screenshot shows ring+knob. Kept steering method as a
       single default (no tilt/wheel toggle) per the user's pick.
+
+## WORLD EDITOR (2026-07-08, user: flesh out tracks → needs a more powerful editor). Multi-phase
+plan (user chose: WYSIWYG-terrain FIRST, objects VISUAL-first/collide-later): P1 WYSIWYG terrain ·
+P2 objects+tag+gizmo (tag a rectangle → I design a barn there) · P3 free terrain sculpting · P4
+paint + water · P5 fence tool + real props. All ADDITIVE + safe for the LIVE game (empty world =
+today's render). World data model will extend the track format (terrain heightfield + paint grid +
+water[] + objects[{id,tag,type,transform}] + fences[]), saved via the same localStorage + cloud
+layout sync.
+- [x] P1 WYSIWYG TERRAIN (2026-07-08): promoted the game's terrain math into the shared
+      FK_TRACK module so the editor renders byte-identical grass/hills. Added FK_TRACK.groundHills/
+      sampleHeight/groundSampleHeight/buildGroundMesh (parameterized by opts={amp,wave,margin}
+      instead of the game's TUNE globals; buildGroundMesh also accepts groundMargin/seg/color +
+      an optional vertexColorFn for P4 paint). GAME refactor: groundHills/sampleHeight/
+      groundSampleHeight are now thin wrappers → FK_TRACK.*(_sampled,...,terrainOpts()), and the
+      inline ground-grid block → FK_TRACK.buildGroundMesh(_sampled,TRACK_WIDTH,THREE,terrainOpts());
+      terrainOpts() reads live TUNE. VERIFIED BYTE-IDENTICAL: captured 837 sampleHeight+
+      groundSampleHeight points pre-refactor, re-checked post — max diff 0.0, 0 mismatches, game
+      boots + grass renders + 0 pageerrors. EDITOR: rebuildTerrain() builds the same mesh
+      (TERRAIN={amp:3.4,wave:60,margin:9} = TUNE_DEFAULTS), DEBOUNCED 140ms so point drags stay
+      smooth; 🌾 terrain ON/OFF toggle (hides the reference grid when on). Verified: editor renders
+      terrain (default + Royal Raceway w/ elevation skirts), toggle works, 0 pageerrors. NOTE terrain
+      params are still global (TUNE_DEFAULTS) not per-track — P3 sculpting will add per-track terrain.
+- [x] P2 OBJECTS + TAG + GIZMO (2026-07-08): place/move/rotate/scale/tag world objects. DATA:
+      track.objects=[{id,tag,type,x,y,z,rotY,sx,sy,sz,color}] where (x,y,z)=CENTER, (sx,sy,sz)=box
+      dims; added to FK_TRACK.sanitize (absent→omitted, empty world = live game unchanged) +
+      FK_TRACK.buildObjectMesh (shared: a THREE.Group w/ a unit box scaled/positioned/yaw'd; type
+      "block" for now, opts.ghost=translucent for the editor). EDITOR: TransformControls gizmo
+      (examples/js addon) — 🧊 objects mode, ＋ add block (spawns at the orbit target on the terrain,
+      auto-selects), click-to-select, move/rotate/scale buttons + G/R/S keys, tag input + floating
+      canvas-sprite label per object (shows the tag), object list (select/delete), duplicate, Del to
+      delete. gizmo.enabled/visible gated to object mode so it never steals clicks from point editing;
+      'dragging-changed'→disable OrbitControls; 'objectChange'→writeBackSelected() (reads group
+      pos/scale/rotY back into the data + moves the label). Load paths (loadById/import/boot/
+      loadTrack) call rebuildObjects(); objects live in their own group so point-drag rebuild()s don't
+      touch them. GAME: renders ACTIVE_TRACK.objects via the same buildObjectMesh (solid, no collision
+      yet — "visual first" per the user). Verified headless: add→1 obj selected, transform writes back
+      exact (40,12,-30/14,8,20/0.6), tag persists through save→empty-load→reload, gizmo attaches,
+      game renders the box on a ?track= with objects, 0 pageerrors editor+game. Mode row → flex-wrap
+      (5 buttons overflowed 250px). WORKFLOW UNLOCKED: user tags a rectangle → tells me what to
+      build there → I add a real type case to buildObjectMesh keyed off that footprint.

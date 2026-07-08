@@ -27,8 +27,8 @@
   .btn.on{ background:#3a7d3a; }
   .btn.warn{ background:#8a3a3a; }
   .btn.wide{ display:block; width:100%; margin:5px 0 0; }
-  .row{ display:flex; gap:6px; }
-  .row .btn{ flex:1; text-align:center; }
+  .row{ display:flex; gap:6px; flex-wrap:wrap; }
+  .row .btn{ flex:1 1 auto; text-align:center; }
 
   #info{ top:10px; right:10px; width:240px; }
   #info .k{ color:#7fd0ff; }
@@ -66,6 +66,7 @@
       <label style="flex:1;">wallMargin (grass)<input type="number" id="wallInp" step="0.5" min="2" max="20" placeholder="7"></label>
     </div>
     <button class="btn wide" id="corridorBtn">▦ show corridor bounds</button>
+    <button class="btn wide on" id="terrainBtn">🌾 terrain: ON</button>
 
     <div class="sec">Mode</div>
     <div class="row">
@@ -73,6 +74,7 @@
       <button class="btn" id="mInsert">＋ insert</button>
       <button class="btn" id="mItem">🎁 item</button>
       <button class="btn" id="mBoost">⚡ boost</button>
+      <button class="btn" id="mObject">🧊 objects</button>
     </div>
     <button class="btn wide warn" id="delBtn">🗑 delete point (Del)</button>
     <button class="btn wide" id="revBtn">⟲ reverse direction</button>
@@ -82,6 +84,20 @@
 
     <div class="sec">Boost pads (s · lane)</div>
     <div id="boostList"></div>
+
+    <div class="sec">🧊 Objects <span style="color:#7fd0ff;font-weight:400;text-transform:none;">(tag → I build it)</span></div>
+    <div class="row">
+      <button class="btn" id="addObjBtn">＋ add block</button>
+      <button class="btn" id="dupObjBtn">⧉ duplicate</button>
+    </div>
+    <div class="row" id="gizmoRow" style="margin-top:3px;">
+      <button class="btn on" id="gMove">✥ move</button>
+      <button class="btn" id="gRot">⟳ rotate</button>
+      <button class="btn" id="gScale">⤢ scale</button>
+    </div>
+    <label style="margin-top:6px;">tag / name of selected</label>
+    <input type="text" id="objTag" placeholder="e.g. big red barn" autocomplete="off">
+    <div id="objList" style="margin-top:6px;"></div>
 
     <div class="sec">Save / share</div>
     <div class="row">
@@ -107,6 +123,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
   <script src="assets/farmkart-track.js"></script>
   <script>
   "use strict";
@@ -165,6 +182,106 @@
 
   let sampled = null;   // last FK_TRACK.resample result (centerPts/tangents for item placement)
 
+  // ---- WYSIWYG terrain: the SAME grass+hills mesh the game builds (shared FK_TRACK.buildGroundMesh).
+  // Terrain params match the game's TUNE_DEFAULTS (amp/wave/margin) so what you see = what races.
+  // Heavy to rebuild (grid over the whole track bbox), so it's DEBOUNCED — it resolves ~140ms after
+  // you stop dragging, keeping point edits smooth.
+  const TERRAIN = { amp:3.4, wave:60, margin:9 };
+  let terrainMesh = null, terrainTimer = null, showTerrain = true;
+  function rebuildTerrain(){
+    if (terrainMesh){ scene.remove(terrainMesh); terrainMesh.geometry.dispose(); terrainMesh.material.dispose(); terrainMesh = null; }
+    grid.visible = !showTerrain;   // reference grid only matters when terrain is hidden
+    if (!showTerrain || !sampled) return;
+    terrainMesh = FK_TRACK.buildGroundMesh(sampled, track.width, THREE, TERRAIN);
+    scene.add(terrainMesh);
+  }
+  function scheduleTerrain(){ if (terrainTimer) clearTimeout(terrainTimer); terrainTimer = setTimeout(rebuildTerrain, 140); }
+
+  // ================= P2: WORLD OBJECTS (place / move / rotate / scale / tag) =================
+  const objectGroup = new THREE.Group(), labelGroup = new THREE.Group();
+  scene.add(objectGroup); scene.add(labelGroup);
+  const objMeshes = {};                 // obj.id -> THREE.Group
+  let selObjId = null, objSeq = 0;
+
+  const gizmo = new THREE.TransformControls(camera, renderer.domElement);
+  gizmo.setSize(0.9); gizmo.enabled = false; gizmo.visible = false;
+  gizmo.addEventListener('dragging-changed', e => { controls.enabled = !e.value; });
+  gizmo.addEventListener('objectChange', writeBackSelected);
+  scene.add(gizmo);
+
+  function terrainHeightAt(x, z){ return sampled ? FK_TRACK.groundSampleHeight(sampled, x, z, track.width, TERRAIN) : 0; }
+  function roundRect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+  function makeLabel(text){
+    const cv=document.createElement('canvas'); cv.width=256; cv.height=64; const ctx=cv.getContext('2d');
+    ctx.fillStyle='rgba(10,16,24,.82)'; roundRect(ctx,4,4,248,56,12); ctx.fill();
+    ctx.font='bold 30px -apple-system,Segoe UI,Roboto,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillStyle=text?'#ffe27a':'#9ab'; ctx.fillText((text||'(untitled)').slice(0,18),128,34);
+    const tex=new THREE.CanvasTexture(cv); tex.anisotropy=4;
+    const spr=new THREE.Sprite(new THREE.SpriteMaterial({ map:tex, depthTest:false, transparent:true }));
+    spr.scale.set(22,5.5,1); return spr;
+  }
+  function positionLabel(lbl,o){ lbl.position.set(o.x, o.y + (o.sy||1)/2 + 4, o.z); }
+  function rebuildObjects(){
+    while (objectGroup.children.length){ const o=objectGroup.children[0]; objectGroup.remove(o); o.traverse(c=>{ if(c.geometry)c.geometry.dispose(); if(c.material)c.material.dispose(); }); }
+    while (labelGroup.children.length){ const o=labelGroup.children[0]; labelGroup.remove(o); if(o.material){ if(o.material.map)o.material.map.dispose(); o.material.dispose(); } }
+    for (const k in objMeshes) delete objMeshes[k];
+    let maxSeq=0;
+    for (const o of (track.objects||[])){
+      const m=String(o.id||'').match(/(\d+)$/); if(m) maxSeq=Math.max(maxSeq,+m[1]);
+      const g=FK_TRACK.buildObjectMesh(o, THREE, { ghost:true }); objectGroup.add(g); objMeshes[o.id]=g;
+      const lbl=makeLabel(o.tag); positionLabel(lbl,o); labelGroup.add(lbl); g.userData.label=lbl;
+    }
+    objSeq=Math.max(objSeq,maxSeq);
+    if (selObjId && objMeshes[selObjId]) gizmo.attach(objMeshes[selObjId]); else { gizmo.detach(); if(!objMeshes[selObjId]) selObjId=null; }
+    refreshObjList();
+  }
+  function writeBackSelected(){
+    if (!selObjId) return;
+    const o=(track.objects||[]).find(x=>x.id===selObjId), g=objMeshes[selObjId]; if(!o||!g) return;
+    o.x=+g.position.x.toFixed(2); o.y=+g.position.y.toFixed(2); o.z=+g.position.z.toFixed(2);
+    o.sx=+Math.max(0.2,g.scale.x).toFixed(2); o.sy=+Math.max(0.2,g.scale.y).toFixed(2); o.sz=+Math.max(0.2,g.scale.z).toFixed(2);
+    o.rotY=+g.rotation.y.toFixed(3);
+    if (g.userData.label) positionLabel(g.userData.label,o);
+  }
+  function selectObject(id){
+    selObjId=id;
+    if (id && objMeshes[id]) gizmo.attach(objMeshes[id]); else gizmo.detach();
+    const o=id?(track.objects||[]).find(x=>x.id===id):null;
+    $('objTag').value=o?(o.tag||''):''; refreshObjList();
+  }
+  function addObject(){
+    track.objects=track.objects||[];
+    const cx=+controls.target.x.toFixed(2), cz=+controls.target.z.toFixed(2), sy=6;
+    const o={ id:'obj_'+(++objSeq), tag:'', type:'block', x:cx, y:+(terrainHeightAt(cx,cz)+sy/2).toFixed(2), z:cz, rotY:0, sx:10, sy:sy, sz:10, color:0xc8a06a };
+    track.objects.push(o); rebuildObjects(); selectObject(o.id); setGizmo('translate');
+    toast('added block — drag the gizmo to place, name it below');
+  }
+  function duplicateObject(){
+    const o=selObjId?(track.objects||[]).find(x=>x.id===selObjId):null; if(!o){ toast('select an object first'); return; }
+    const c=JSON.parse(JSON.stringify(o)); c.id='obj_'+(++objSeq); c.x+=8; c.z+=8;
+    (track.objects=track.objects||[]).push(c); rebuildObjects(); selectObject(c.id);
+  }
+  function deleteObject(){
+    if (!selObjId) return;
+    track.objects=(track.objects||[]).filter(x=>x.id!==selObjId);
+    gizmo.detach(); selObjId=null; rebuildObjects(); toast('deleted object');
+  }
+  function setGizmo(m){ gizmo.setMode(m); $('gMove').classList.toggle('on',m==='translate'); $('gRot').classList.toggle('on',m==='rotate'); $('gScale').classList.toggle('on',m==='scale'); }
+  function refreshObjList(){
+    const box=$('objList'); box.innerHTML='';
+    const objs=track.objects||[];
+    if(!objs.length){ box.innerHTML='<div style="color:#8aa;font-size:12px;">none — ＋ add block, place it, then name it</div>'; return; }
+    objs.forEach(o=>{
+      const row=document.createElement('div');
+      row.style.cssText='display:flex;align-items:center;gap:6px;margin:2px 0;font-family:monospace;font-size:12px;border-radius:6px;padding:2px 4px;'+(o.id===selObjId?'background:rgba(90,160,255,.25);':'');
+      const nm=document.createElement('span'); nm.style.cssText='flex:1;cursor:pointer;color:'+(o.tag?'#ffe27a':'#9ab')+';';
+      nm.textContent=o.tag||'(untitled)'; nm.onclick=()=>selectObject(o.id);
+      const del=document.createElement('button'); del.textContent='×'; del.style.cssText='background:#8a3a3a;border:0;color:#fff;border-radius:5px;cursor:pointer;padding:1px 7px;';
+      del.onclick=()=>{ selObjId=o.id; deleteObject(); };
+      row.appendChild(nm); row.appendChild(del); box.appendChild(row);
+    });
+  }
+
   function rebuild(){
     // ribbon
     if (ribbonGroup){ scene.remove(ribbonGroup); ribbonGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); }
@@ -184,6 +301,7 @@
     rebuildItemMarkers();
     rebuildBoostMarkers();
     rebuildCorridorViz();
+    scheduleTerrain();      // WYSIWYG grass/hills (debounced)
     refreshInfo();
     refreshValidation();
     refreshItemList();
@@ -289,23 +407,44 @@
   }
 
   // ---- modes ----
-  let mode = 'select'; // select | insert | item | boost
+  let mode = 'select'; // select | insert | item | boost | object
   function setMode(m){
     mode = m;
     $('mSelect').classList.toggle('on', m==='select');
     $('mInsert').classList.toggle('on', m==='insert');
     $('mItem').classList.toggle('on', m==='item');
     $('mBoost').classList.toggle('on', m==='boost');
+    $('mObject').classList.toggle('on', m==='object');
+    // gizmo only lives in object mode (otherwise it would steal clicks from point editing)
+    gizmo.enabled = (m==='object'); gizmo.visible = (m==='object') && !!selObjId;
+    if (m==='object' && selObjId && objMeshes[selObjId]) gizmo.attach(objMeshes[selObjId]);
     $('hint').textContent = m==='insert' ? 'click the road to INSERT a point on the nearest segment'
                           : m==='item'   ? 'click the road to drop an ITEM ROW (s-fraction)'
                           : m==='boost'  ? 'click the road to drop a BOOST PAD (s + lane)'
+                          : m==='object' ? 'click an object to select · gizmo = move/rotate/scale (G/R/S) · ＋ add block · name it below'
                           : 'drag spheres = move · Shift+drag = elevation · drag empty = orbit · wheel = zoom';
   }
   $('mSelect').addEventListener('click', ()=>setMode('select'));
   $('mInsert').addEventListener('click', ()=>setMode('insert'));
   $('mItem').addEventListener('click', ()=>setMode('item'));
   $('mBoost').addEventListener('click', ()=>setMode('boost'));
+  $('mObject').addEventListener('click', ()=>setMode('object'));
+  $('addObjBtn').addEventListener('click', ()=>{ setMode('object'); addObject(); });
+  $('dupObjBtn').addEventListener('click', duplicateObject);
+  $('gMove').addEventListener('click', ()=>setGizmo('translate'));
+  $('gRot').addEventListener('click', ()=>setGizmo('rotate'));
+  $('gScale').addEventListener('click', ()=>setGizmo('scale'));
+  $('objTag').addEventListener('input', ()=>{
+    if (!selObjId) return;
+    const o=(track.objects||[]).find(x=>x.id===selObjId); if(!o) return;
+    o.tag=$('objTag').value.slice(0,60);
+    const g=objMeshes[selObjId];
+    if (g && g.userData.label){ labelGroup.remove(g.userData.label); const l=makeLabel(o.tag); positionLabel(l,o); labelGroup.add(l); g.userData.label=l; }
+    refreshObjList();
+  });
   $('corridorBtn').addEventListener('click', ()=>{ showCorridor=!showCorridor; $('corridorBtn').classList.toggle('on', showCorridor); rebuildCorridorViz(); });
+  $('terrainBtn').addEventListener('click', ()=>{ showTerrain=!showTerrain; $('terrainBtn').classList.toggle('on', showTerrain);
+    $('terrainBtn').textContent = showTerrain ? '🌾 terrain: ON' : '🌾 terrain: OFF'; grid.visible = !showTerrain; rebuildTerrain(); });
 
   // ---- raycasting / pointer interaction ----
   const raycaster = new THREE.Raycaster();
@@ -323,6 +462,16 @@
 
   renderer.domElement.addEventListener('pointerdown', e=>{
     if (e.button !== 0){ return; } // left button only for editing; RMB/MMB -> orbit/pan
+    if (mode === 'object'){
+      if (gizmo.axis) return;                 // pressing a gizmo handle -> TransformControls owns it
+      setNdc(e);
+      const hits = raycaster.intersectObjects(objectGroup.children, true);
+      if (hits.length){
+        let g = hits[0].object; while (g && g.userData.objId===undefined) g = g.parent;
+        if (g){ selectObject(g.userData.objId); controls.enabled = false; }  // endDrag re-enables on up
+      }
+      return;                                  // no point/sphere editing in object mode
+    }
     setNdc(e);
     if (mode === 'insert'){
       const hit = pickRibbon();
@@ -427,7 +576,17 @@
     rebuild(); toast('deleted');
   }
   $('delBtn').addEventListener('click', deleteSelected);
-  addEventListener('keydown', e=>{ if ((e.key==='Delete'||e.key==='Backspace') && selected>=0 && document.activeElement.tagName!=='INPUT' && document.activeElement.tagName!=='TEXTAREA'){ deleteSelected(); e.preventDefault(); } });
+  addEventListener('keydown', e=>{
+    const inField = document.activeElement.tagName==='INPUT' || document.activeElement.tagName==='TEXTAREA';
+    if (inField) return;
+    if (e.key==='Delete'||e.key==='Backspace'){
+      if (mode==='object' && selObjId){ deleteObject(); e.preventDefault(); }
+      else if (selected>=0){ deleteSelected(); e.preventDefault(); }
+    } else if (mode==='object'){
+      const k=e.key.toLowerCase();
+      if (k==='g'){ setGizmo('translate'); } else if (k==='r'){ setGizmo('rotate'); } else if (k==='s'){ setGizmo('scale'); }
+    }
+  });
   $('revBtn').addEventListener('click', ()=>{ track = FK_TRACK.reverse(track); selected=-1; syncFields(); rebuild(); toast('reversed direction'); });
 
   // ---- name / width / laps fields ----
@@ -468,7 +627,7 @@
       const data = JSON.parse($('io').value);
       const clean = FK_TRACK.sanitize(data);
       if (!clean){ toast('import failed: invalid JSON/track'); return; }
-      track = clean; selected=-1; currentId=null; syncFields(); rebuild(); toast('imported');
+      track = clean; selected=-1; currentId=null; selObjId=null; syncFields(); rebuild(); rebuildObjects(); toast('imported');
     }catch(e){ toast('import failed: not JSON'); }
   });
 
@@ -498,7 +657,7 @@
     let data = id ? ((loadMap()[id]) || (FK_TRACK.BUILTIN_TRACKS && FK_TRACK.BUILTIN_TRACKS[id]))
                   : JSON.parse(JSON.stringify(FK_TRACK.DEFAULT_TRACK));
     const c = FK_TRACK.sanitize(data); if(!c){ toast('load failed'); return; }
-    track=c; currentId=id||null; selected=-1; syncFields(); rebuild(); frameCamera(); populateLoad();
+    track=c; currentId=id||null; selected=-1; selObjId=null; syncFields(); rebuild(); rebuildObjects(); frameCamera(); populateLoad();
   }
   $('loadSel').addEventListener('change', ()=>{ const o=$('loadSel').selectedOptions[0]; loadById($('loadSel').value); toast('loaded "'+(o?o.textContent:'')+'"'); });
 
@@ -514,6 +673,7 @@
   // ---- boot ----
   syncFields();
   rebuild();
+  rebuildObjects();
   populateLoad();
   frameCamera();
 
@@ -528,7 +688,12 @@
     setPointY:(i,y)=>{ track.points[i].y=y; rebuild(); },
     setWallMargin:(m)=>{ track.wallMargin=m; syncFields(); rebuildCorridorViz(); },
     toggleCorridor:()=>{ showCorridor=!showCorridor; $('corridorBtn').classList.toggle('on', showCorridor); rebuildCorridorViz(); return showCorridor; },
-    loadTrack:(t)=>{ const c=FK_TRACK.sanitize(t); if(c){ track=c; selected=-1; currentId=null; syncFields(); rebuild(); } return !!c; }
+    loadTrack:(t)=>{ const c=FK_TRACK.sanitize(t); if(c){ track=c; selected=-1; selObjId=null; syncFields(); rebuild(); rebuildObjects(); } return !!c; },
+    // P2 object hooks (for headless tests)
+    get objects(){ return track.objects||[]; }, get selObjId(){ return selObjId; }, objMeshes, gizmo,
+    addObject, duplicateObject, deleteObject, selectObject, setGizmo, rebuildObjects,
+    setObjTag:(t)=>{ if(selObjId){ const o=(track.objects||[]).find(x=>x.id===selObjId); if(o){ o.tag=t; const g=objMeshes[selObjId]; if(g&&g.userData.label){ labelGroup.remove(g.userData.label); const l=makeLabel(o.tag); positionLabel(l,o); labelGroup.add(l); g.userData.label=l; } refreshObjList(); } } },
+    transformSelected:(pos,scl,rotY)=>{ const g=selObjId?objMeshes[selObjId]:null; if(!g)return; if(pos)g.position.set(pos[0],pos[1],pos[2]); if(scl)g.scale.set(scl[0],scl[1],scl[2]); if(rotY!=null)g.rotation.y=rotY; writeBackSelected(); }
   };
   </script>
 </body>

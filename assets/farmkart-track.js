@@ -275,8 +275,49 @@
         }
         if (pads.length) out.boostPads = pads;
       }
+      // WORLD OBJECTS [{id,tag,type,x,y,z,rotY,sx,sy,sz,color}] — placed massing / blockouts (P2).
+      // (x,y,z)=CENTER, (sx,sy,sz)=box dimensions, rotY=yaw. Absent/garbage -> omitted (empty world
+      // = the game renders exactly as before). type "block" = a box; future types add real models.
+      if (Array.isArray(data.objects)){
+        const objs = [];
+        for (const o of data.objects){
+          if (!o || typeof o !== 'object') continue;
+          const x=+o.x, y=+o.y, z=+o.z;
+          if (!isFinite(x)||!isFinite(y)||!isFinite(z)) continue;
+          const num=(v,d)=> isFinite(+v) ? +v : d;
+          objs.push({
+            id:   (typeof o.id==='string' && o.id)   ? o.id.slice(0,40) : ('obj_'+(objs.length+1)),
+            tag:  (typeof o.tag==='string')          ? o.tag.slice(0,60) : '',
+            type: (typeof o.type==='string' && o.type)? o.type.slice(0,24) : 'block',
+            x, y, z,
+            rotY: num(o.rotY, 0),
+            sx: Math.max(0.2, num(o.sx, 6)), sy: Math.max(0.2, num(o.sy, 6)), sz: Math.max(0.2, num(o.sz, 6)),
+            color: (typeof o.color==='number') ? o.color : (typeof o.color==='string' ? o.color : 0xc8a06a)
+          });
+        }
+        if (objs.length) out.objects = objs;
+      }
       return out;
     }catch(e){ return null; }
+  }
+
+  // ---- buildObjectMesh: one placed world object -> a THREE.Group at its CENTER, scaled + yaw'd.
+  // Shared so the editor and game render identical massing. type "block" = a box; add cases here as
+  // real props (barn/house/fence...) get designed. opts.ghost = translucent (editor placeholder look).
+  function buildObjectMesh(obj, THREE, opts){
+    opts = opts || {};
+    const g = new THREE.Group();
+    let color = obj.color;
+    if (typeof color === 'string') color = parseInt(String(color).replace('#','0x'));
+    if (!isFinite(color)) color = 0xc8a06a;
+    const mat = new THREE.MeshLambertMaterial({ color, transparent: !!opts.ghost, opacity: opts.ghost ? 0.5 : 1 });
+    const box = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), mat);   // unit cube centered at local origin
+    g.add(box);
+    g.position.set(obj.x, obj.y, obj.z);
+    g.scale.set(obj.sx||1, obj.sy||1, obj.sz||1);
+    g.rotation.y = obj.rotY || 0;
+    g.userData.objId = obj.id;
+    return g;
   }
 
   // ---- validate: advisory warnings for the EDITOR (bowtie / self-intersection / spacing) ----
@@ -353,9 +394,94 @@
     return t;
   }
 
+  // ================= TERRAIN (shared so the editor renders byte-identical to the game) =================
+  // These were inline in farmkart.html; promoted here (parameterized by opts instead of the game's
+  // TUNE globals) so the editor's WYSIWYG view uses the exact same math. opts = {amp, wave, margin}.
+  // groundHills: procedural rolling grass hills.
+  function groundHills(x, z, opts){
+    const amp = opts.amp, wl = opts.wave || 60;
+    return amp * (
+      0.60*Math.sin(x/wl*1.3 + z/wl*0.7) +
+      0.40*Math.sin(x/wl*0.5 - z/wl*1.1 + 2.1)
+    );
+  }
+  // sampleHeight: flat across the road width, smoothstep-blended out to the ground hills. This is
+  // what the kart / camera / entities read (nearest-branch on-track height).
+  function sampleHeight(sampled, x, z, width, opts){
+    const half = width/2;
+    const margin = Math.max(0.5, opts.margin);
+    const info = nearestOnCenter(sampled, x, z);
+    const trackY = info.y, dist = info.dist;
+    if (dist <= half) return trackY;
+    const gy = groundHills(x, z, opts);
+    if (dist >= half + margin) return gy;
+    const t = (dist - half) / margin;
+    const s = t*t*(3 - 2*t);
+    return trackY*(1 - s) + gy*s;
+  }
+  // groundSampleHeight: the DISPLACED-GROUND-MESH height. Under a road it follows the LOWEST branch
+  // (a higher bridge floats above it = open air); elsewhere it blends to the ground hills.
+  function groundSampleHeight(sampled, x, z, width, opts){
+    const half = width/2;
+    const margin = Math.max(0.5, opts.margin);
+    const C = sampled.centerPts, N = sampled.samples;
+    const band = half + margin, band2 = band*band;
+    let underY = Infinity;
+    let bandY = Infinity, bandDist = Infinity;
+    for (let i=0;i<N;i++){
+      const a=C[i], bpt=C[(i+1)%N];
+      const abx=bpt.x-a.x, abz=bpt.z-a.z, L2=abx*abx+abz*abz || 1;
+      let t=((x-a.x)*abx+(z-a.z)*abz)/L2; if (t<0) t=0; else if (t>1) t=1;
+      const px=a.x+abx*t, pz=a.z+abz*t, d2=(x-px)*(x-px)+(z-pz)*(z-pz);
+      if (d2 > band2) continue;
+      const d=Math.sqrt(d2), y=a.y+(bpt.y-a.y)*t;
+      if (d <= half && y < underY) underY = y;
+      if (y < bandY){ bandY = y; bandDist = d; }
+    }
+    if (underY < Infinity) return underY;
+    const gy = groundHills(x, z, opts);
+    if (bandY < Infinity){
+      const t = Math.min(1, Math.max(0, (bandDist - half)/margin));
+      const s = t*t*(3 - 2*t);
+      return bandY*(1 - s) + gy*s;
+    }
+    return gy;
+  }
+  // buildGroundMesh: the displaced ground grid (grass + hills). Byte-identical to the game's inline
+  // block (grid over the track bbox + margin, each vertex dropped to groundSampleHeight). opts may
+  // add groundMargin(55) / seg(4) / color(0x6fae54); vertexColorFn(x,z,h)->[r,g,b] optional (paint).
+  function buildGroundMesh(sampled, width, THREE, opts){
+    const centerPts = sampled.centerPts;
+    let minX=1e9,maxX=-1e9,minZ=1e9,maxZ=-1e9;
+    for (const c of centerPts){ if(c.x<minX)minX=c.x; if(c.x>maxX)maxX=c.x; if(c.z<minZ)minZ=c.z; if(c.z>maxZ)maxZ=c.z; }
+    const M = (opts.groundMargin!=null)?opts.groundMargin:55; minX-=M; maxX+=M; minZ-=M; maxZ+=M;
+    const seg = opts.seg || 4;
+    const nx = Math.ceil((maxX-minX)/seg), nz = Math.ceil((maxZ-minZ)/seg);
+    const pos = [], idx = [], colors = [];
+    const cfn = opts.vertexColorFn || null;
+    for (let j=0;j<=nz;j++) for (let i=0;i<=nx;i++){
+      const x = minX + i*seg, z = minZ + j*seg;
+      const h = groundSampleHeight(sampled, x, z, width, opts);
+      pos.push(x, h, z);
+      if (cfn){ const c = cfn(x, z, h); colors.push(c[0], c[1], c[2]); }
+    }
+    for (let j=0;j<nz;j++) for (let i=0;i<nx;i++){
+      const a = j*(nx+1)+i, b = a+1, c = a+(nx+1), d = c+1;
+      idx.push(a, c, b,  b, c, d);
+    }
+    const gg = new THREE.BufferGeometry();
+    gg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    if (cfn) gg.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    gg.setIndex(idx);
+    gg.computeVertexNormals();
+    const color = (opts.color!=null)?opts.color:0x6fae54;
+    return new THREE.Mesh(gg, new THREE.MeshLambertMaterial({ color, side:THREE.DoubleSide, vertexColors: !!cfn }));
+  }
+
   window.FK_TRACK = {
     VERSION:1, SAMPLES,
     DEFAULT_TRACK, BUILTIN_TRACKS,
-    resample, buildRibbonGeometry, sanitize, validate, reverse, nearestOnCenter, nearestOnCenterAtY
+    resample, buildRibbonGeometry, sanitize, validate, reverse, nearestOnCenter, nearestOnCenterAtY,
+    groundHills, sampleHeight, groundSampleHeight, buildGroundMesh, buildObjectMesh
   };
 })();
