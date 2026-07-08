@@ -67,10 +67,27 @@ HOW A STORY WORKS:
 - The reader replies with a choice or types their own idea. Their own ideas are welcome — weave
   them in. If an idea breaks the content rules, keep the story moving in a fun direction instead,
   without commenting on it.
-- Stories should build toward a satisfying ending after roughly 8-15 chapters (sooner if the
-  reader asks to wrap up). For the finale, write the ending and finish with this exact marker on
-  its own line instead of choices:
+
+LENGTH — THIS IS IMPORTANT:
+- The story continues for as long as the reader wants. There is NO target length. Do NOT wind the
+  story down, do NOT steer toward a conclusion, and do NOT end it on your own — always keep the
+  adventure going with a fresh set of 3 choices, no matter how many chapters have passed.
+- Keep introducing new places, characters, and small quests so the world keeps growing. It's a
+  never-ending bedtime saga, not a short story.
+- ONLY when the reader clearly asks to finish, stop, or wrap up (e.g. "let's end the story",
+  "the end", "I want to finish"), write a warm, satisfying ending and finish with this exact
+  marker on its own line instead of the choices (and no recap after it):
 ===THE END===
+
+MEMORY — after the choices (and after the ===ART=== block if there is one), always add this exact
+marker on its own line:
+===RECAP===
+  followed by a compact "story so far" memo for yourself: the main characters and who they are, the
+  important things that have happened in order, and where the story stands right now. Rewrite it
+  fresh every chapter — fold in what just happened and compress older events so it NEVER grows past
+  about 180 words. Write terse notes, not prose. This memo is your private memory to keep long
+  stories consistent; the reader never sees it, so never refer to it inside the story. (Omit the
+  recap only on the ===THE END=== finale.)
 ${FAMILY_RULES}`;
 
 // Appended to STORY_SYSTEM only when the request asks for an illustration (maxTokens
@@ -284,10 +301,11 @@ function sanitizeMessages(raw, mode) {
     if (typeof m.content === "string") {
       if (!m.content.trim()) return null;
       let content = m.content;
-      // Past illustrations are dead weight: the model never needs its own old SVGs to
-      // continue the story, but each one is ~2-3k tokens re-sent with every later chapter.
-      // The client keeps the art for display; the model sees art-free history.
-      if (mode === "story" && m.role === "assistant") content = content.replace(/\n?===ART===[\s\S]*$/, "").trimEnd() || content;
+      // Past illustrations and recaps are dead weight in the re-sent history: the model never
+      // needs its own old SVGs (~2-3k tokens each) to continue, and the running recap is carried
+      // separately by the client at the head of the window. Strip from the first such marker on
+      // (art/recap always come after the chapter text + choices). The client keeps art for display.
+      if (mode === "story" && m.role === "assistant") content = content.replace(/\n?===(?:ART|RECAP)===[\s\S]*$/, "").trimEnd() || content;
       msgs.push({ role: m.role, content: content.slice(0, MAX_CONTENT_CHARS) });
     } else if (Array.isArray(m.content)) {
       const blocks = [];
