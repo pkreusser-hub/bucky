@@ -894,3 +894,18 @@ farmgpt.html + netlify/functions/farmgpt.mjs (Claude API, model claude-sonnet-5)
       don't mutate, or the in-flight request loses its image). TODO next: live
       story on every3 -> read real ¢/illustration off the usage dashboard and
       tune default frequency/art prompt.
+
+---
+
+# 🏁 Farm Kart — kart racer feel prototype (ACTIVE, 2026-07-07)
+
+farmkart.html — UNTRACKED (never commit/push until the user calls it mature; farm3d
+precedent). MKW-mechanism physics (Kinoko-derived, see farmkart-physics-notes.md), user's
+tune approved. Live TUNE slider panel (fk_tune_v2) + window.__KART__ hook are load-bearing —
+keep both. GOTCHAS: renderer.setSize must keep updateStyle=true (dPR>1 canvas-crop bug —
+always test at deviceScaleFactor 1.5); R-reset must snap camHeading/camPos; camStiff slider
+= rest-vs-speed camera gap (~speed/camStiff).
+NEXT: the full build plan + stage specs for Opus 4.8 execution live in **farmkart-plan.md**
+(untracked, repo root): K1 race format + G-state restructure → K2 terrain height → K3 track
+data + 3D editor → K4 power-ups → K5 Playroom 4-player MP → K6 polish. One stage per agent
+run, user playtests between stages, feel regressions are never acceptable.
