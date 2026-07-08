@@ -624,24 +624,54 @@ levels; full order→cook→deliver flow on the right-wall window passes.
 
 # 🌾 FarmGPT — family AI: story time + research (2026-07-07)
 
-farmgpt.html + netlify/functions/farmgpt.mjs. PER-MODE PROVIDER (2026-07-08): STORY + its
-background SUMMARY run on Google Gemini 2.5 Flash (FREE tier — cost 0); RESEARCH stays on
-Anthropic claude-sonnet-5 (stronger homework/coding reasoning). Chosen after a 3-way side-
-by-side (Sonnet vs Gemini 2.5 Flash vs Groq Llama-3.3-70b) on the exact STORY_SYSTEM prompt
-— Gemini matched Sonnet closely on kid-story quality/format, present-tense + canon-accurate,
-and free; Groq drifted to past tense. NEW Netlify env var: GEMINI_API_KEY (AI Studio key
-from a NO-BILLING project = free tier; gemini-2.0-flash's free quota can read 0 on a
-project, 2.5-flash works). Flip story back with STORY_PROVIDER=anthropic. Gemini path in
-the function = :streamGenerateContent?alt=sse w/ system_instruction + user/model contents +
-thinkingBudget 0; toGeminiContent() maps the Anthropic-shaped messages. GOTCHA (a debug
-cycle): Gemini SSE delimits events with CRLF (\r\n\r\n) while Anthropic uses bare LF (\n\n)
-— the hand-parser now strips all raw \r so one "\n\n" split serves both. Gemini refusals
-(finishReason SAFETY/RECITATION/OTHER or promptFeedback.blockReason) map to the shared
-"refusal" stand-in. Usage dashboard prices story/summary as free ($0) and only research at
-Sonnet rates. Verified in-process vs REAL Gemini: routing (500s name the right key),
-streamed chapter + exactly-3 ===CHOICES===, never self-ends, ===ART=== illustration,
-guardrail redirect (gore steer → gentle in-story, no lecture), summary continuity.
-GEMINI_BASE_URL env override exists for fake-server tests.
+farmgpt.html + netlify/functions/farmgpt.mjs. PER-MODE MODEL (2026-07-08): STORY + its
+background SUMMARY run on Anthropic claude-haiku-4-5 ($1/$5 MTok); RESEARCH stays on
+claude-sonnet-5 ($3/$15, stronger homework/coding). STORY_PROVIDER env = "haiku" (default) |
+"gemini" | "sonnet" flips story without a code change (resolves provider+model near the
+upstream fetch; RESEARCH_MODEL/STORY_MODEL/GEMINI_MODEL consts). WHY HAIKU over the earlier
+Gemini plan: the Gemini 2.5 Flash FREE tier turned out to be capped at ~20 requests/DAY on
+this project (quotaId GenerateRequestsPerDayPerProjectPerModel-FreeTier=20 — the free tier is
+unusable for a family story app; gemini-2.0-flash's free quota also reads 0, only 2.5-flash
+had any). Haiku wins on: reuses the existing ANTHROPIC_API_KEY + Anthropic request/SSE path
+(no new vendor/key), no rate-limit cliff, reliable ===CHOICES===/===CHAPTER===/guardrail
+adherence (Claude family), ~pennies (still ~4x Gemini-paid but negligible at family volume —
+cost + Gemini's bigger context are both non-factors here since the summary system keeps every
+request tiny). 3-way quality test (Haiku vs Sonnet vs Gemini 2.5 Flash on the exact prompt):
+Haiku ≈ Gemini for kids' chapters, both a notch below Sonnet. HAIKU QUIRK fixed: Haiku added a
+Markdown "# Title" heading → STORY_SYSTEM now says "write plain story prose only, no Markdown,
+titles come only from ===CHAPTER===". The GEMINI PATH is still in the function (kept for the
+STORY_PROVIDER=gemini escape hatch): :streamGenerateContent?alt=sse, system_instruction +
+user/model contents + thinkingBudget 0, toGeminiContent() maps messages; GOTCHA — Gemini SSE
+delimits events with CRLF (\r\n\r\n) vs Anthropic's bare LF, so the hand-parser strips all raw
+\r; Gemini refusals (finishReason SAFETY/RECITATION/OTHER or promptFeedback.blockReason) map
+to the shared "refusal" stand-in; GEMINI_API_KEY only needed when STORY_PROVIDER=gemini.
+Usage dashboard prices story/summary at Haiku ($1/$5) and research at Sonnet ($3/$15) w/ cache
+(1.25x write / 0.1x read). Verified in-process vs REAL Haiku+Sonnet: story→Haiku (===CHAPTER===
+title, exactly-3 ===CHOICES===, no Markdown heading), close→===CHAPTER END===, summary
+continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-server tests.
+- SLOW-BURN PACING (2026-07-08): STORY_SYSTEM rewritten to fix "world ends by sentence 3" — new
+  PACING & TONE section (start small in ordinary life, build stakes slowly over many chapters, one
+  thread at a time, no world-ending stakes early, calm moments valued); choices reframed from
+  "genuinely different directions" → "natural next steps that fit the moment"; intro dropped the
+  "exciting" pressure. Verified on the Star Trek scenario: 3 chapters stayed grounded (a flickering
+  conduit), zero chaos words.
+- CHAPTER SYSTEM + shelving (2026-07-08): stories are now an endless serialized NOVEL told in
+  young-adult-length CHAPTERS (the ===THE END===/finish button is GONE; END_MARK kept only so
+  legacy finished stories still resume). Each assistant reply is a "scene" ending in ===CHOICES===
+  as before; the CLIENT tracks words in the open chapter (CHAPTER_TARGET_WORDS=1600) and, once over,
+  sends endChapter:true so the next scene CLOSES the chapter with ===CHAPTER END=== (no choices) →
+  UI shows "Read the next chapter →" / "📚 Shelve for now". Shelve saves to the existing bookshelf;
+  resume rebuilds chapter dividers + restores the chapter-end prompt. "Next chapter" pushes a
+  NEXT_CHAPTER_MSG sentinel (never rendered as a picked choice) with newChapter:true → model opens
+  a ===CHAPTER=== <title> scene and MAY switch POV (multi-protagonist saga). New markers CHAPTER_MARK
+  / CHAPTER_END_MARK; parseChapter returns {title, chapterEnd}; story.chapter + story.closing (latch)
+  persisted. KEY LESSON: a CLOSE-chapter directive placed in the SYSTEM prompt loses to the base
+  "end EVERY scene with ===CHOICES===" rule — Gemini kept emitting choices. FIX: the server injects
+  the new/close directive onto the LAST USER TURN (models follow the immediate user instruction far
+  more reliably); confirmed live (===CHAPTER END=== with a gentle close). The client latches
+  story.closing so it keeps asking until the model complies. Tunable: CHAPTER_TARGET_WORDS. Verified:
+  25/25 headless UI checks (divider, threshold→close, chapter-end UI, shelve, resume incl. chapter-end
+  state, next-chapter POV, sentinel not shown, 0 pageerrors) + both directives live on real Gemini.
 - ARCHITECTURE: static page → POST /.netlify/functions/farmgpt {secret, mode, messages}
   → function stamps the per-mode GUARDRAIL SYSTEM PROMPT server-side (browser can never
   override), streams the model's text back as plain chunks. Zero-dependency raw fetch +
@@ -999,3 +1029,29 @@ GATOR KART MODEL (2026-07-08, untracked local test): user Meshy "6x4 John Deere 
       assets/farmkart-track.js, farmkart-plan.md, farmkart-physics-notes.md) —
       user decides when it goes live. Backups of every stage in the session
       scratchpad (farmkart-pre-k*-backup.html).
+- [x] CAMERA-UNDER-GRASS FIX (2026-07-08, user playtest, several failed guesses first):
+      the symptom ("both cam AND kart under the grass") was NOT the flat-ground clamp.
+      Real cause: near an ELEVATED span (hairpin crest +5.5, ~8.6u above the ground
+      beside it) the kart tips off the raised outer edge into the pit at its base; the
+      low/close chase cam (camDist 3, camHeight 2.4) drops BELOW the elevated ground lip
+      and looks up into the ground mesh's UNLIT BACKFACE (DoubleSide MeshLambert → the
+      near-black wall in the screenshot, sky through the gap). The old clamp only checked
+      the thin cam->kart LINE, missing a lip beside/ahead of the camera. FIX (frame(),
+      the terrain-clamp block): sample the ACTUAL mesh fn groundSampleHeight (not
+      sampleHeight) at (a) the sight-line, (b) a ring around the camera, and (c) the LOOK
+      direction out to 18u — if terrain there towers >1.6u over the camera (pit/underside
+      case) lift the camera to ~crest height so it looks ACROSS the crest, not up into the
+      backside; clearance now also covers the near plane (near 0.5->0.3). The >1.6 gate
+      means ordinary rolling hills in normal play never nudge the camera. KEY DEBUGGING
+      LESSON: could NOT reproduce headless for a long time because (1) the persisted live
+      tune lives in localStorage fk_tune_v2 and OVERRIDES the baked TUNE_DEFAULTS at load
+      — fresh headless browsers use the gentle baked amp, not the user's, and (2) centered
+      pure-pursuit driving never reaches the elevated OUTER RIM where it happens. Pulled
+      the user's actual screenshot out of the session .jsonl (node readline → base64
+      decode) to see it, then reproduced the exact crest-pit pose. Verified: the exact
+      broken pose renders clean post-fix; 6 crest poses clean; full-lap normal driving =
+      cam never below mesh + NO abnormal lift (feel intact) + 0 pageerrors; K1-K6
+      regression all pass. GOTCHA on the mass black-pixel scan: teleporting the kart
+      through 200+ poses back-to-back WITHOUT forceRace-resetting drives the game into a
+      degenerate state (9-min lap timer, camera jams into the kart) → false "black"
+      positives; render each suspect pose in a FRESH race to judge it. STILL UNTRACKED.

@@ -175,6 +175,18 @@
     text-align: center; font-family: Georgia, serif; font-size: 22px; font-weight: 700; color: #8a6d1a;
     margin: 18px 0 4px;
   }
+  #storyScroll .chapterDivider { text-align: center; margin: 8px 0 18px; }
+  #storyScroll .chapterDivider .cn {
+    font-family: Georgia, serif; font-size: 11.5px; letter-spacing: .16em; text-transform: uppercase;
+    color: #b08d2e; font-weight: 700;
+  }
+  #storyScroll .chapterDivider .ct {
+    font-family: Georgia, serif; font-size: 19px; font-weight: 700; color: #6d5410; margin-top: 3px;
+    line-height: 1.3;
+  }
+  #storyScroll .chapterDivider::after {
+    content: ""; display: block; width: 58px; height: 2px; background: var(--paper-line); margin: 11px auto 0;
+  }
   #storyControls { flex: 0 0 auto; margin-top: 10px; }
   #choiceBtns { display: flex; flex-direction: column; gap: 8px; }
   .choiceBtn {
@@ -197,13 +209,17 @@
   .writeRow button:disabled { opacity: .5; }
   #storyBusy, #newStoryRow { margin-top: 10px; }
   #newStoryRow .goBtn { margin-top: 0; }
-  #finishRow { margin-top: 10px; text-align: center; }
-  #finishBtn {
+  #chapterEndRow { margin-top: 12px; text-align: center; }
+  #chapterEndRow .chEndNote {
+    font-family: Georgia, serif; font-style: italic; color: #8a6d1a; font-size: 15px; margin-bottom: 10px;
+  }
+  #chapterEndRow .goBtn { margin-top: 0; }
+  #shelveBtn {
     background: none; border: none; color: var(--muted); font: inherit; font-size: 14px;
-    cursor: pointer; padding: 6px 10px; border-radius: 8px; text-decoration: underline;
+    cursor: pointer; padding: 6px 10px; margin-top: 10px; border-radius: 8px; text-decoration: underline;
     text-underline-offset: 3px;
   }
-  #finishBtn:hover { color: var(--red); }
+  #shelveBtn:hover { color: var(--red); }
 
   /* ---------- research ---------- */
   #chatScroll { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 2px 10px; }
@@ -358,7 +374,7 @@
 
       <div class="segLabel">🎨 Illustrations</div>
       <div class="seg" id="illustSeg">
-        <button data-v="every">Every chapter</button>
+        <button data-v="every">Every scene</button>
         <button data-v="every3">Every 3rd</button>
         <button data-v="first">First only</button>
         <button data-v="off">Off</button>
@@ -378,8 +394,10 @@
         <input id="writeInput" maxlength="400" placeholder="…or write what YOU do next!" />
         <button id="writeSend">Go</button>
       </div>
-      <div id="finishRow" style="display:none">
-        <button id="finishBtn" type="button">🌙 Finish the story</button>
+      <div id="chapterEndRow" style="display:none">
+        <div class="chEndNote">🌙 End of the chapter</div>
+        <button class="goBtn" id="nextChapterBtn">Read the next chapter →</button>
+        <button id="shelveBtn" type="button">📚 Shelve for now</button>
       </div>
       <div id="newStoryRow" style="display:none">
         <button class="goBtn" id="newStoryBtn">📖 Start a new story</button>
@@ -415,10 +433,19 @@
   const STORIES_KEY = "farmgpt_stories_v1";
   const RESEARCH_KEY = "farmgpt_research_v1";
   const CHOICES_MARK = "===CHOICES===";
-  const END_MARK = "===THE END===";
+  const END_MARK = "===THE END===";              // legacy — old finished stories still parse/resume
   const ART_MARK = "===ART===";
   const RECAP_MARK = "===RECAP===";
+  const CHAPTER_MARK = "===CHAPTER===";          // opens a titled chapter (may switch POV)
+  const CHAPTER_END_MARK = "===CHAPTER END===";  // closes a chapter (replaces the choices)
   const ILLUST_KEY = "farmgpt_illust";
+  // Chapter length is a WINDOW, not a hard cut (a typical young-adult chapter runs ~1500-3000 words):
+  //  · past SOFT words → the storyteller MAY end the chapter at the next natural beat (its choice)
+  //  · past HARD words → force a close, so a chapter can't run away. Both tunable.
+  const CHAPTER_SOFT_WORDS = 1400;
+  const CHAPTER_HARD_WORDS = 2200;
+  // Sentinel user turn that advances to the next chapter (not shown as a picked choice).
+  const NEXT_CHAPTER_MSG = "(Continue to the next chapter.)";
 
   const $ = (id) => document.getElementById(id);
   const views = { home: $("viewHome"), storySetup: $("viewStorySetup"), story: $("viewStory"), research: $("viewResearch"), usage: $("viewUsage") };
@@ -588,12 +615,15 @@
     const bar = "=".repeat(56);
     const out = [bar, "STORY: " + s.title,
       "Started " + new Date(s.created).toLocaleString() + (s.done ? "  ·  finished" : "  ·  in progress"), bar];
+    let chapterNo = 0;
     s.messages.forEach((m, i) => {
       if (m.role === "user") {
+        if (m.content === NEXT_CHAPTER_MSG) return;
         const t = typeof m.content === "string" ? m.content : textOf(m.content);
         out.push("", i === 0 ? "[The world] " + t : "➤ (You chose) " + t);
       } else {
         const p = parseChapter(m.content);
+        if (beatOpensChapter(s.messages, i)) { chapterNo++; out.push("", "— Chapter " + chapterNo + (p.title ? ": " + p.title : "") + " —"); }
         out.push("", p.text);
         if (p.ended) out.push("", "*** THE END ***");
       }
@@ -635,7 +665,8 @@
       const st = document.createElement("div"); st.className = "st";
       const sn = document.createElement("div"); sn.className = "sn"; sn.textContent = s.title;
       const sd = document.createElement("div"); sd.className = "sd";
-      sd.textContent = (s.done ? "finished · " : "in progress · ") + new Date(s.created).toLocaleDateString();
+      const where = s.done ? "finished" : "Chapter " + (s.chapter || countChapters(s));
+      sd.textContent = where + " · " + new Date(s.created).toLocaleDateString();
       st.append(sn, sd);
       const del = document.createElement("button"); del.className = "del"; del.textContent = "🗑";
       del.addEventListener("click", (e) => {
@@ -667,7 +698,10 @@
     const i = raw.indexOf(RECAP_MARK);
     return i === -1 ? "" : raw.slice(i + RECAP_MARK.length).trim();
   }
-  // Splits a raw assistant reply into { text, choices, ended, art, recap }.
+  // Splits a raw assistant reply into { title, text, choices, ended, chapterEnd, art, recap }.
+  //  title      — set when the reply OPENS a chapter (leading ===CHAPTER=== line)
+  //  chapterEnd — set when the reply CLOSES a chapter (===CHAPTER END===, no choices)
+  //  ended      — legacy ===THE END=== (old finished stories only)
   function parseChapter(raw) {
     const recap = extractRecap(raw);
     // Drop the recap block (always last) before any other parsing.
@@ -676,27 +710,63 @@
     const art = extractArt(raw);
     // Strip the ===ART=== block off before finding the text/choice boundaries.
     const aIdx = raw.indexOf(ART_MARK);
-    const body = aIdx === -1 ? raw : raw.slice(0, aIdx);
-    let text = body, choices = [], ended = false;
+    let body = aIdx === -1 ? raw : raw.slice(0, aIdx);
+    // A leading ===CHAPTER=== <title> line opens a chapter — lift the title out of the body.
+    let title = "";
+    const bs = body.replace(/^\s+/, "");
+    if (bs.startsWith(CHAPTER_MARK)) {
+      const nl = bs.indexOf("\n");
+      title = (nl === -1 ? bs.slice(CHAPTER_MARK.length) : bs.slice(CHAPTER_MARK.length, nl)).trim();
+      body = nl === -1 ? "" : bs.slice(nl + 1);
+    }
+    let text = body, choices = [], ended = false, chapterEnd = false;
+    const ceIdx = body.indexOf(CHAPTER_END_MARK);
     const endIdx = body.indexOf(END_MARK);
     const chIdx = body.indexOf(CHOICES_MARK);
-    if (endIdx !== -1) { text = body.slice(0, endIdx); ended = true; }
+    if (ceIdx !== -1) { text = body.slice(0, ceIdx); chapterEnd = true; }
+    else if (endIdx !== -1) { text = body.slice(0, endIdx); ended = true; }
     else if (chIdx !== -1) {
       text = body.slice(0, chIdx);
       const block = body.slice(chIdx + CHOICES_MARK.length);
       const m = block.match(/^\s*\d[.)]\s*(.+)$/gm) || [];
       choices = m.map((l) => l.replace(/^\s*\d[.)]\s*/, "").trim()).filter(Boolean).slice(0, 3);
     }
-    return { text: text.trim(), choices, ended, art, recap };
+    return { title, text: text.trim(), choices, ended, chapterEnd, art, recap };
   }
-  // While streaming, hide the marker and everything after it (including a partial marker
-  // that's still arriving, e.g. a trailing "===CHO" or "===ART" + the svg source).
-  function visibleDuringStream(raw) {
-    for (const mark of [CHOICES_MARK, END_MARK, ART_MARK, RECAP_MARK]) {
-      const i = raw.indexOf(mark);
-      if (i !== -1) return raw.slice(0, i);
+  const countWords = (s) => ((s || "").trim().match(/\S+/g) || []).length;
+  // Words of prose in the currently-open chapter (sum of scenes since the last ===CHAPTER END===).
+  function wordsInCurrentChapter() {
+    let total = 0;
+    for (let i = story.messages.length - 1; i >= 0; i--) {
+      const m = story.messages[i];
+      if (m.role !== "assistant") continue;
+      const p = parseChapter(m.content);
+      if (p.chapterEnd) break;              // boundary — the open chapter starts after here
+      total += countWords(p.text);
     }
-    return raw.replace(/=+[A-Z ]*$/, "");
+    return total;
+  }
+  // Does the assistant reply at index idx OPEN a chapter? (has a title, is the first scene, or the
+  // previous scene closed a chapter). Used for chapter dividers + numbering on render/resume.
+  function beatOpensChapter(msgs, idx) {
+    if (parseChapter(msgs[idx].content).title) return true;
+    for (let j = idx - 1; j >= 0; j--) if (msgs[j].role === "assistant") return parseChapter(msgs[j].content).chapterEnd;
+    return true;                            // no earlier scene → this is the first chapter
+  }
+  function countChapters(s) {
+    let n = 0;
+    s.messages.forEach((m, i) => { if (m.role === "assistant" && beatOpensChapter(s.messages, i)) n++; });
+    return Math.max(1, n);
+  }
+  // While streaming, hide the markers and everything after them (including a partial marker still
+  // arriving, e.g. a trailing "===CHO"), plus a leading ===CHAPTER=== title line (shown as a divider).
+  function visibleDuringStream(raw) {
+    let s = raw.replace(/^\s*===CHAPTER===[^\n]*\n?/, "");
+    for (const mark of [CHOICES_MARK, CHAPTER_END_MARK, END_MARK, ART_MARK, RECAP_MARK]) {
+      const i = s.indexOf(mark);
+      if (i !== -1) s = s.slice(0, i);
+    }
+    return s.replace(/=+[A-Z ]*$/, "");
   }
   // Sanitizes model SVG hard before it touches the DOM (SVG profile, no scripts/links/images).
   function sanitizeArt(svg) {
@@ -724,6 +794,17 @@
     $("storyScroll").appendChild(el);
     return el;
   }
+  // A "Chapter N — Title" divider between chapters. Returns the element so the title can fill in
+  // once the opening scene finishes streaming.
+  function addChapterDivider(n, title) {
+    const el = document.createElement("div");
+    el.className = "chapterDivider";
+    const cn = document.createElement("div"); cn.className = "cn"; cn.textContent = "Chapter " + n;
+    const ct = document.createElement("div"); ct.className = "ct"; ct.textContent = title || "";
+    el.append(cn, ct);
+    $("storyScroll").appendChild(el);
+    return el;
+  }
   function addPickedEl(text) {
     const el = document.createElement("div");
     el.className = "picked";
@@ -732,11 +813,13 @@
   }
   function scrollStory() { const s = $("storyScroll"); s.scrollTop = s.scrollHeight; }
 
-  function setStoryControls({ choices, ended, busyNow }) {
+  function setStoryControls({ choices = [], ended = false, chapterEnd = false, busyNow = false }) {
     $("storyBusy").style.display = busyNow ? "block" : "none";
     const btns = $("choiceBtns");
     btns.innerHTML = "";
-    if (!busyNow && !ended) {
+    // Mid-chapter: choices + write box. At a chapter end: the next/shelve prompt instead.
+    const interactive = !busyNow && !ended && !chapterEnd;
+    if (interactive) {
       choices.forEach((c, i) => {
         const b = document.createElement("button");
         b.className = "choiceBtn";
@@ -747,11 +830,9 @@
         btns.appendChild(b);
       });
     }
-    $("writeRow").style.display = (!busyNow && !ended) ? "flex" : "none";
-    // Offer "finish" only once the story has some substance (≥3 chapters in), so a kid can't
-    // accidentally end it on chapter one.
-    const deep = story && story.messages.filter((m) => m.role === "assistant").length >= 3;
-    $("finishRow").style.display = (!busyNow && !ended && deep) ? "block" : "none";
+    $("writeRow").style.display = interactive ? "flex" : "none";
+    $("chapterEndRow").style.display = (!busyNow && chapterEnd) ? "block" : "none";
+    if (!busyNow && chapterEnd) $("nextChapterBtn").textContent = "Read Chapter " + (((story && story.chapter) || 1) + 1) + " →";
     $("newStoryRow").style.display = (!busyNow && ended) ? "block" : "none";
   }
 
@@ -798,7 +879,12 @@
     for (let i = fromIdx; i < story.messages.length; i++) {
       const m = story.messages[i];
       const t = typeof m.content === "string" ? m.content : textOf(m.content);
-      out.push(m.role === "user" ? "Reader chose: " + t : parseChapter(t).text);
+      if (m.role === "user") {
+        out.push(t === NEXT_CHAPTER_MSG ? "(A new chapter begins.)" : "Reader chose: " + t);
+      } else {
+        const p = parseChapter(t);
+        out.push((p.title ? "[New chapter — " + p.title + "] " : "") + p.text);
+      }
     }
     return out.join("\n\n");
   }
@@ -824,28 +910,43 @@
     summarizing = false;
   }
 
-  // Requests the next chapter given story.messages (last entry must be a user turn).
-  async function streamChapter() {
+  // Requests the next scene given story.messages (last entry must be a user turn).
+  // opts.newChapter — this scene OPENS a chapter (titled, may switch POV).
+  // Otherwise, if the open chapter has passed CHAPTER_TARGET_WORDS, ask the model to CLOSE it.
+  async function streamChapter(opts = {}) {
+    const newChapter = !!opts.newChapter;
+    // Chapter close is a window: past SOFT the model MAY end at a natural beat; past HARD (or once
+    // we've latched a forced close) it must. story.closing latches only on the hard cap.
+    let endChapter = false, endChapterSoft = false;
+    if (!newChapter) {
+      const words = wordsInCurrentChapter();
+      if (story.closing || words >= CHAPTER_HARD_WORDS) { endChapter = true; story.closing = true; }
+      else if (words >= CHAPTER_SOFT_WORDS) endChapterSoft = true;
+    }
     busy = true;
-    setStoryControls({ choices: [], ended: false, busyNow: true });
+    setStoryControls({ busyNow: true });
+    // A new chapter gets its divider immediately; the title fills in once the scene is parsed.
+    const divider = newChapter ? addChapterDivider(story.chapter || 1, "") : null;
+    if (divider) scrollStory();
     const el = addChapterEl("");
     try {
-      // No auto-scroll while streaming — the reader can scroll and read at their
-      // own pace as the chapter arrives (scrollStory only fires on the user's turn).
+      // No auto-scroll while streaming — the reader reads at their own pace as the scene arrives.
       const full = await callFarmGPT("story", buildSendMessages(), (sofar) => {
         el.textContent = visibleDuringStream(sofar);
-      }, { illustrate: shouldIllustrate() });
-      const { text, choices, ended, art } = parseChapter(full);
-      el.textContent = text;
-      const cleanArt = sanitizeArt(art);
-      if (cleanArt) {                              // art sits ABOVE this chapter's text
+      }, { illustrate: shouldIllustrate(), newChapter, endChapter, endChapterSoft });
+      const p = parseChapter(full);
+      el.textContent = p.text;
+      if (divider) divider.querySelector(".ct").textContent = p.title || "";
+      const cleanArt = sanitizeArt(p.art);
+      if (cleanArt) {                              // art sits ABOVE this scene's text
         const artEl = document.createElement("div");
         artEl.className = "chapterArt";
         artEl.innerHTML = cleanArt;
         el.parentNode.insertBefore(artEl, el);
       }
       story.messages.push({ role: "assistant", content: full });
-      if (ended) {
+      if (p.chapterEnd) story.closing = false;     // chapter closed cleanly — reset the latch
+      if (p.ended) {                               // legacy safety (new stories never self-end)
         story.done = true;
         const fin = document.createElement("div");
         fin.className = "theEnd"; fin.textContent = "🌟 The End 🌟";
@@ -853,15 +954,17 @@
       }
       saveStory();
       busy = false;
-      setStoryControls({ choices, ended, busyNow: false });
-      maybeSummarize();                            // background: fold new chapters into the memory note
+      setStoryControls({ choices: p.choices, ended: p.ended, chapterEnd: p.chapterEnd, busyNow: false });
+      if (p.chapterEnd) scrollStory();             // bring the "next chapter / shelve" prompt into view
+      maybeSummarize();                            // background: fold new scenes into the memory note
     } catch (err) {
       el.remove();
-      story.messages.pop();                       // roll back the user turn so it can be retried
+      if (divider) divider.remove();
+      story.messages.pop();                        // roll back the user turn so it can be retried
       busy = false;
       const last = story.messages[story.messages.length - 1];
-      const prev = last && last.role === "assistant" ? parseChapter(last.content) : { choices: [], ended: false };
-      setStoryControls({ choices: prev.choices, ended: prev.ended, busyNow: false });
+      const prev = last && last.role === "assistant" ? parseChapter(last.content) : { choices: [], ended: false, chapterEnd: false };
+      setStoryControls({ choices: prev.choices, ended: prev.ended, chapterEnd: prev.chapterEnd, busyNow: false });
       toast("😵 " + err.message);
     }
   }
@@ -893,40 +996,48 @@
       title: title.length > 46 ? title.slice(0, 46) + "…" : title,
       created: Date.now(),
       messages: [{ role: "user", content: seed }],
+      chapter: 1,          // current chapter number
+      closing: false,      // latched true while we're asking the model to close the chapter
       done: false,
     };
     $("storyScroll").innerHTML = "";
     addPickedEl(seed);
     show("story");
-    streamChapter();
+    streamChapter({ newChapter: true });   // chapter 1 opens with a title
   });
 
   function resumeStory(s) {
     if (busy) return;
     story = s;
+    if (typeof story.closing !== "boolean") story.closing = false;   // migrate older saves
     const scroll = $("storyScroll");
     scroll.innerHTML = "";
-    let lastParsed = { choices: [], ended: s.done };
+    let chapterNo = 0;
+    let lastParsed = { choices: [], ended: s.done, chapterEnd: false };
     s.messages.forEach((m, i) => {
-      if (m.role === "user") addPickedEl(i === 0 ? m.content : m.content);
-      else {
+      if (m.role === "user") {
+        if (m.content === NEXT_CHAPTER_MSG) return;   // sentinel — the divider comes from the next scene
+        addPickedEl(textOf(m.content));
+      } else {
         const p = parseChapter(m.content);
-        addArtEl(p.art);              // decorative — above the chapter text
+        if (beatOpensChapter(s.messages, i)) { chapterNo++; addChapterDivider(chapterNo, p.title); }
+        addArtEl(p.art);              // decorative — above the scene text
         addChapterEl(p.text);
-        if (p.recap) story.recap = p.recap;   // recover the running memory from the latest chapter
+        if (p.recap) story.recap = p.recap;   // recover the running memory from the latest scene
         lastParsed = p;
       }
     });
+    story.chapter = Math.max(chapterNo, story.chapter || 1);   // keep numbering in sync (migrate legacy)
     if (s.done) {
       const fin = document.createElement("div");
       fin.className = "theEnd"; fin.textContent = "🌟 The End 🌟";
       scroll.appendChild(fin);
     }
     show("story");
-    setStoryControls({ choices: lastParsed.choices, ended: s.done, busyNow: false });
+    setStoryControls({ choices: lastParsed.choices, ended: s.done, chapterEnd: lastParsed.chapterEnd, busyNow: false });
     // A story saved mid-request ends on a user turn — pick up where it left off.
     const last = s.messages[s.messages.length - 1];
-    if (!s.done && last && last.role === "user") streamChapter();
+    if (!s.done && last && last.role === "user") streamChapter({ newChapter: last.content === NEXT_CHAPTER_MSG });
     scrollStory();
   }
 
@@ -936,17 +1047,21 @@
     $("writeInput").value = "";
     takeTurn(v);
   });
-  // The reader chooses when the story ends — this asks the storyteller for a finale.
-  $("finishBtn").addEventListener("click", () => {
+  // At a chapter's end, the reader keeps going into the next chapter…
+  $("nextChapterBtn").addEventListener("click", () => {
     if (busy || !story || story.done) return;
-    if (!confirm("Bring the story to a happy ending? You can always start a new one after.")) return;
-    addPickedEl("Let's bring the story to an end 🌙");
-    scrollStory();
-    story.messages.push({
-      role: "user",
-      content: "I'd like to finish the story now. Please write a warm, satisfying ending that wraps up our adventure.",
-    });
-    streamChapter();
+    story.chapter = (story.chapter || 1) + 1;
+    story.closing = false;
+    story.messages.push({ role: "user", content: NEXT_CHAPTER_MSG });
+    streamChapter({ newChapter: true });
+  });
+  // …or shelves the book to pick up later.
+  $("shelveBtn").addEventListener("click", () => {
+    if (busy || !story) return;
+    saveStory();
+    toast("📚 Saved to your shelf — pick it up anytime!");
+    renderBookshelf();
+    show("storySetup");
   });
   $("writeInput").addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); $("writeSend").click(); }
@@ -1277,16 +1392,16 @@
   // =====================================================================
   // USAGE DASHBOARD
   // =====================================================================
-  // Story (s = chapters, u = summaries) runs on Gemini 2.5 Flash's FREE tier → $0. Only
-  // research (r) hits Sonnet 5, estimated at its list pricing (actual billing at
-  // console.anthropic.com). Cache writes bill at 1.25x input, reads at 0.1x. Older usage
-  // docs predate cache tracking; those fields read 0.
-  const IN_RATE = 3, OUT_RATE = 15;   // $ per million tokens (Sonnet 5, research only)
+  // Estimated at list pricing (actual billing at console.anthropic.com). Story (s = chapters,
+  // u = summaries) runs on Haiku 4.5 ($1/$5 per MTok); research (r) on Sonnet 5 ($3/$15). Cache
+  // writes bill at 1.25x input, reads at 0.1x. Older usage docs predate cache tracking (0).
+  const S_IN = 1, S_OUT = 5;    // $/MTok — Haiku 4.5 (story + summary)
+  const R_IN = 3, R_OUT = 15;   // $/MTok — Sonnet 5 (research)
   const cw = (d, k) => d[k] || 0;
-  const rowCost = (d) => (cw(d, "r_in") * IN_RATE
-    + cw(d, "r_cw") * IN_RATE * 1.25
-    + cw(d, "r_cr") * IN_RATE * 0.1
-    + cw(d, "r_out") * OUT_RATE) / 1e6;
+  // Cost of one prefix at rate r: in + 1.25x cache-write + 0.1x cache-read, out at out-rate.
+  const priced = (d, p, inR, outR) => cw(d, p + "_in") * inR + cw(d, p + "_cw") * inR * 1.25
+    + cw(d, p + "_cr") * inR * 0.1 + cw(d, p + "_out") * outR;
+  const rowCost = (d) => (priced(d, "s", S_IN, S_OUT) + priced(d, "u", S_IN, S_OUT) + priced(d, "r", R_IN, R_OUT)) / 1e6;
   const dayCost = rowCost;
   const fmt$ = (v) => "$" + (v < 0.10 ? v.toFixed(3) : v.toFixed(2));
   const fmtTok = (n) => n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n);
@@ -1327,17 +1442,17 @@
 
     const split = document.createElement("div");
     split.id = "usageSplit";
-    for (const [icon, name, rq, ti, to, tc, free] of [
-      ["📖", "Story chapters", sum(monthDays, "s_req"), sum(monthDays, "s_in"), sum(monthDays, "s_out"), sum(monthDays, "s_cw") + sum(monthDays, "s_cr"), true],
-      ["📝", "Story recaps", sum(monthDays, "u_req"), sum(monthDays, "u_in"), sum(monthDays, "u_out"), sum(monthDays, "u_cw") + sum(monthDays, "u_cr"), true],
-      ["🔬", "Research", sum(monthDays, "r_req"), sum(monthDays, "r_in"), sum(monthDays, "r_out"), sum(monthDays, "r_cw") + sum(monthDays, "r_cr"), false],
+    for (const [icon, name, rq, ti, to, tc, note] of [
+      ["📖", "Story chapters", sum(monthDays, "s_req"), sum(monthDays, "s_in"), sum(monthDays, "s_out"), sum(monthDays, "s_cw") + sum(monthDays, "s_cr"), "Haiku 4.5"],
+      ["📝", "Story recaps", sum(monthDays, "u_req"), sum(monthDays, "u_in"), sum(monthDays, "u_out"), sum(monthDays, "u_cw") + sum(monthDays, "u_cr"), "Haiku 4.5"],
+      ["🔬", "Research", sum(monthDays, "r_req"), sum(monthDays, "r_in"), sum(monthDays, "r_out"), sum(monthDays, "r_cw") + sum(monthDays, "r_cr"), "Sonnet 5"],
     ]) {
       const el = document.createElement("div");
       el.className = "usplit";
       el.innerHTML = `<div class="un"></div><div class="ud"></div>`;
-      el.querySelector(".un").textContent = icon + " " + name + (free ? " · free ✨" : "");
+      el.querySelector(".un").textContent = icon + " " + name + " · " + note;
       el.querySelector(".ud").innerHTML = rq + " requests this month<br>" + fmtTok(ti) + " in · " + fmtTok(to) + " out" +
-        (free ? "<br><span style=\"opacity:.7\">Gemini free tier — $0</span>" : tc ? "<br>" + fmtTok(tc) + " cached 💰" : "");
+        (tc ? "<br>" + fmtTok(tc) + " cached 💰" : "");
       split.appendChild(el);
     }
     body.appendChild(split);
@@ -1375,9 +1490,9 @@
 
     const note = document.createElement("div");
     note.id = "usageNote";
-    note.textContent = "Estimated at Sonnet 5 list pricing ($" + IN_RATE + " in / $" + OUT_RATE +
-      " out per million tokens; cached tokens 💰 re-read at 10% of the input rate). " +
-      "Exact billing is at console.anthropic.com — this may read slightly high during promotional pricing.";
+    note.textContent = "Estimated at list pricing — story on Haiku 4.5 ($" + S_IN + " in / $" + S_OUT +
+      " out per MTok), research on Sonnet 5 ($" + R_IN + " in / $" + R_OUT + " out); cached tokens 💰 " +
+      "re-read at 10% of the input rate. Exact billing is at console.anthropic.com.";
     body.appendChild(note);
   }
 

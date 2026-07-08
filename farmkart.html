@@ -1,0 +1,3432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>BUCKY — Farm Kart (feel prototype)</title>
+<style>
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; height:100%; background:#7ec0ee; color:#fff; font-family:-apple-system,Segoe UI,Roboto,sans-serif; overflow:hidden; }
+  #stage{ position:absolute; inset:0; }
+  canvas{ display:block; touch-action:none; }
+
+  /* ---- HUD (bottom-left) ---- */
+  #hud{ position:absolute; left:12px; bottom:12px; z-index:10; font-family:'Consolas',monospace;
+        background:rgba(0,0,0,.42); border-radius:12px; padding:10px 14px; min-width:200px;
+        pointer-events:none; user-select:none; }
+  #hud .row{ display:flex; justify-content:space-between; gap:14px; font-size:14px; line-height:1.5; }
+  #hud .big{ font-size:22px; font-weight:800; }
+  #hud .lbl{ color:#bfe0ff; }
+  #hud .val{ color:#fff; font-weight:700; }
+  #surf{ font-weight:800; }
+  #surf.track{ color:#8effa0; }
+  #surf.grass{ color:#ffe27a; }
+  #surf.air{ color:#8ecbff; }
+  #chargeWrap{ margin-top:6px; height:10px; border-radius:6px; background:rgba(255,255,255,.15); overflow:hidden; }
+  #chargeBar{ height:100%; width:0%; background:#6cf; transition:width .06s linear, background .1s linear; }
+
+  /* ---- Gamepad toast ---- */
+  #padToast{ position:absolute; left:50%; top:16px; transform:translateX(-50%); z-index:20;
+             background:rgba(0,0,0,.55); padding:8px 16px; border-radius:20px; font-weight:700;
+             font-family:monospace; opacity:0; transition:opacity .3s; pointer-events:none; }
+  #padToast.show{ opacity:1; }
+
+  /* ---- Tuning panel (top-right) ---- */
+  #tune{ position:absolute; top:10px; right:10px; z-index:25; width:270px; max-height:94vh; overflow-y:auto;
+         background:rgba(12,20,28,.9); border:1px solid rgba(255,255,255,.15); border-radius:12px;
+         padding:8px 10px 12px; font-family:'Consolas',monospace; font-size:12px; }
+  #tune.collapsed .body{ display:none; }
+  #tune.hidden{ display:none; }   /* hidden by default for the live/family build; ` reveals it (dev) */
+  #tune .hdr{ display:flex; align-items:center; justify-content:space-between; cursor:pointer; user-select:none;
+              font-weight:800; font-size:13px; letter-spacing:.04em; }
+  #tune .hdr .hint{ color:#7fa; font-weight:400; font-size:10px; }
+  #tune .body{ margin-top:8px; }
+  #tune .trow{ margin:5px 0; }
+  #tune .trow label{ display:flex; justify-content:space-between; color:#cde; }
+  #tune .trow .tv{ color:#8ef; font-weight:700; }
+  #tune input[type=range]{ width:100%; height:16px; margin:2px 0 0; }
+  #tune .trow label .lft{ display:flex; align-items:center; gap:5px; }
+  #tune .trow label .info{ cursor:pointer; color:#7fdcb0; font-weight:700; font-size:12px; line-height:1;
+        border:1px solid rgba(127,220,176,.5); border-radius:50%; width:15px; height:15px; display:inline-flex;
+        align-items:center; justify-content:center; user-select:none; }
+  #tune .trow label .info:hover{ color:#d6fff0; border-color:#d6fff0; background:rgba(127,220,176,.15); }
+  #tune .thelp{ display:none; color:rgba(255,255,255,.8); font-size:11px; line-height:1.4; margin:4px 1px 2px;
+        padding:6px 8px; background:rgba(127,220,176,.08); border-left:2px solid #3a7d3a; border-radius:4px; }
+  #tune .thelp.show{ display:block; }
+  #tune .btns{ display:flex; gap:6px; margin-top:10px; }
+  #tune button{ flex:1; padding:7px 4px; border:0; border-radius:8px; font-family:monospace; font-weight:800;
+                font-size:12px; cursor:pointer; background:#25506e; color:#fff; }
+  #tune button:hover{ background:#2f6d97; }
+  #tune button.copy{ background:#3a7d3a; }
+  #help{ position:absolute; left:50%; bottom:14px; transform:translateX(-50%); z-index:10;
+         font-family:monospace; font-size:12px; color:rgba(255,255,255,.75); background:rgba(0,0,0,.35);
+         padding:5px 12px; border-radius:10px; pointer-events:none; white-space:nowrap; }
+
+  /* ---- Race overlays (K1) ---- */
+  #startOverlay, #results{ position:absolute; inset:0; z-index:30; display:flex; flex-direction:column;
+        align-items:center; justify-content:center; background:rgba(6,14,22,.55); text-align:center;
+        font-family:-apple-system,Segoe UI,Roboto,sans-serif; }
+  #startOverlay .logo, #results .rtitle{ font-size:52px; font-weight:900; letter-spacing:.03em;
+        text-shadow:0 3px 0 rgba(0,0,0,.35); }
+  #startOverlay .sub{ margin-top:14px; font-size:20px; font-weight:700; color:#ffe27a;
+        animation:pulse 1.4s ease-in-out infinite; }
+  #startOverlay .tpick{ margin-top:24px; display:flex; gap:8px; align-items:center;
+        font-family:'Consolas',monospace; font-size:14px; color:#bfe0ff; }
+  #startOverlay .tpick select{ padding:6px 10px; border-radius:8px; border:1px solid rgba(255,255,255,.25);
+        background:rgba(12,22,32,.92); color:#fff; font-family:monospace; font-size:14px; cursor:pointer; }
+  #startOverlay .tpick a{ color:#7fd0ff; text-decoration:none; font-size:12px; opacity:.8; }
+  #startOverlay .botpick{ margin-top:14px; display:flex; gap:8px; align-items:center;
+        font-family:'Consolas',monospace; font-size:14px; color:#bfe0ff; }
+  #startOverlay .botpick button{ width:34px; height:32px; margin-left:4px; border:1px solid rgba(255,255,255,.25);
+        border-radius:8px; background:rgba(12,22,32,.92); color:#fff; font-family:monospace; font-size:15px;
+        font-weight:800; cursor:pointer; }
+  #startOverlay .botpick button.on{ background:#3a7d3a; border-color:#8fe08f; }
+  /* ---- K5 multiplayer menu bits ---- */
+  #startOverlay .mppick{ margin-top:18px; display:flex; flex-direction:column; align-items:center; gap:8px;
+        font-family:'Consolas',monospace; font-size:14px; color:#bfe0ff; }
+  #startOverlay .mppick button.mpbtn{ padding:9px 18px; border:1px solid rgba(255,255,255,.28); border-radius:10px;
+        background:#1c4a6e; color:#fff; font-family:monospace; font-weight:800; font-size:15px; cursor:pointer; }
+  #startOverlay .mppick button.mpbtn:hover{ background:#2668a0; }
+  #mpBox{ display:none; margin-top:6px; background:rgba(6,16,26,.7); border:1px solid rgba(255,255,255,.18);
+        border-radius:10px; padding:10px 14px; max-width:400px; }
+  #mpBox .mplink{ display:flex; gap:6px; align-items:center; margin-top:4px; }
+  #mpBox input{ width:230px; padding:6px 8px; border-radius:7px; border:1px solid rgba(255,255,255,.25);
+        background:rgba(12,22,32,.92); color:#8ef; font-family:monospace; font-size:12px; }
+  #mpBox button.copylink{ padding:6px 10px; border:0; border-radius:7px; background:#3a7d3a; color:#fff;
+        font-family:monospace; font-weight:800; cursor:pointer; }
+  #mpRoster{ margin-top:8px; font-size:13px; color:#cde; }
+  #mpRoster .pr{ display:inline-block; margin:2px 5px; font-weight:700; }
+  #mpNote{ margin-top:6px; font-size:12px; color:#ffe27a; }
+  /* Current place — big, top-left corner, live during a race */
+  #placeHud{ position:absolute; left:14px; top:12px; z-index:15; display:none; font-family:'Consolas',monospace;
+        font-size:30px; font-weight:900; color:#ffd45e; text-shadow:0 2px 6px rgba(0,0,0,.6); user-select:none; }
+  #placeHud .of{ font-size:16px; font-weight:700; color:#fff; opacity:.85; }
+  /* MP places overlay (top-left corner, under the big place, live during a race) */
+  #mpPlaces{ position:absolute; left:12px; top:52px; z-index:14; display:none; font-family:'Consolas',monospace;
+        background:rgba(0,0,0,.42); border-radius:10px; padding:6px 10px; font-size:13px; min-width:130px; }
+  #mpPlaces .pl{ display:flex; justify-content:space-between; gap:10px; line-height:1.5; }
+  #mpPlaces .pl .pp{ color:#ffd45e; width:26px; }
+  #mpPlaces .pl .pnm{ flex:1; }
+  #mpPlaces .pl.me{ font-weight:800; }
+  /* ---- HUD item slot (top-center) ---- */
+  #itemSlot{ position:absolute; left:50%; top:14px; transform:translateX(-50%); z-index:12; width:76px; height:76px; border-radius:16px;
+        background:rgba(0,0,0,.42); border:2px solid rgba(255,255,255,.25); display:flex; align-items:center;
+        justify-content:center; user-select:none; pointer-events:none; }
+  #itemSlot.rolling{ border-color:#ffe27a; animation:pulse .5s ease-in-out infinite; }
+  #itemSlot.filled{ border-color:#8effa0; }
+  #itemIcon{ font-size:44px; line-height:1; }
+  @keyframes pulse{ 0%,100%{opacity:.55} 50%{opacity:1} }
+  #results{ display:none; }
+  #results .card{ background:rgba(12,22,32,.9); border:2px solid rgba(255,255,255,.18); border-radius:18px;
+        padding:26px 40px; min-width:280px; }
+  #results .rtitle{ font-size:40px; margin-bottom:4px; }
+  #results .place{ font-size:64px; font-weight:900; color:#ffd45e; margin:6px 0 14px; }
+  #results .rrow{ display:flex; justify-content:space-between; gap:30px; font-size:18px; margin:6px 0;
+        font-family:'Consolas',monospace; }
+  #results .rrow .rl{ color:#bfe0ff; }
+  #results .rsub{ margin-top:18px; font-size:15px; color:#ffe27a; font-weight:700;
+        animation:pulse 1.4s ease-in-out infinite; }
+  #rStandings{ display:none; margin-top:16px; border-top:1px solid rgba(255,255,255,.15); padding-top:10px;
+        font-family:'Consolas',monospace; }
+  #rStandings .srow{ display:flex; justify-content:space-between; gap:14px; font-size:15px; margin:4px 0; opacity:.85; }
+  #rStandings .srow.me{ opacity:1; font-weight:800; }
+  #rStandings .srow .sp{ width:44px; text-align:left; color:#ffd45e; }
+  #rStandings .srow .sn{ flex:1; text-align:left; }
+  #rStandings .srow .st{ color:#bfe0ff; }
+  #countdown{ position:absolute; inset:0; z-index:28; display:none; align-items:center; justify-content:center;
+        pointer-events:none; }
+  #countdown .num{ font-size:150px; font-weight:900; color:#fff; text-shadow:0 4px 0 rgba(0,0,0,.4);
+        font-family:-apple-system,Segoe UI,Roboto,sans-serif; }
+  #countdown .num.go{ color:#8effa0; font-size:120px; }
+  #wrongway{ position:absolute; left:50%; top:64px; transform:translateX(-50%); z-index:24; display:none;
+        background:rgba(190,30,30,.85); padding:8px 20px; border-radius:14px; font-weight:900; font-size:20px;
+        font-family:-apple-system,Segoe UI,Roboto,sans-serif; letter-spacing:.03em; }
+  #wrongway.show{ display:block; animation:pulse .7s ease-in-out infinite; }
+
+  /* ======================= K6 POLISH ======================= */
+  /* ---- barn-sign FARM KART title (CSS/canvas only, no image files) ---- */
+  #startOverlay .logo.barnsign{ font-size:60px; padding:16px 46px 22px; border-radius:12px; color:#ffe9c2;
+    background-image:repeating-linear-gradient(92deg, rgba(0,0,0,.10) 0 3px, rgba(255,255,255,.05) 3px 7px),
+                     linear-gradient(180deg,#9a6737,#5f3b1c);
+    border:6px solid #3d2812;
+    box-shadow:0 12px 0 rgba(0,0,0,.32), inset 0 3px 8px rgba(255,255,255,.18), inset 0 -6px 10px rgba(0,0,0,.35);
+    text-shadow:0 2px 0 #5f3617, 0 5px 8px rgba(0,0,0,.55); position:relative; }
+  #startOverlay .logo.barnsign::before, #startOverlay .logo.barnsign::after{
+    content:''; position:absolute; top:9px; width:9px; height:9px; border-radius:50%;
+    background:radial-gradient(circle at 35% 35%, #e9d9b8, #7a6338); box-shadow:0 1px 2px rgba(0,0,0,.6); }
+  #startOverlay .logo.barnsign::before{ left:13px; }
+  #startOverlay .logo.barnsign::after{ right:13px; }
+  #startOverlay .tagline{ margin-top:12px; font-size:15px; font-weight:700; color:#ffdf9a; letter-spacing:.08em; opacity:.92; }
+  #startOverlay .menucard{ margin-top:20px; background:rgba(6,16,26,.5); border:1px solid rgba(255,255,255,.14);
+    border-radius:14px; padding:12px 18px; display:flex; flex-direction:column; gap:11px; align-items:center; }
+  #startOverlay .menucard .tpick, #startOverlay .menucard .botpick{ margin-top:0; }
+  /* ---- mute toggle (top-left) ---- */
+  #muteBtn{ position:absolute; left:12px; top:12px; z-index:22; width:38px; height:38px; border-radius:10px;
+    border:1px solid rgba(255,255,255,.22); background:rgba(0,0,0,.42); color:#fff; font-size:18px; cursor:pointer;
+    font-family:monospace; padding:0; line-height:38px; }
+  #muteBtn:hover{ background:rgba(0,0,0,.6); }
+  #muteBtn.muted{ color:#ff8a8a; }
+  /* ---- controls hint restyle ---- */
+  #help{ background:rgba(10,18,28,.55); border:1px solid rgba(255,255,255,.12); color:rgba(255,255,255,.82);
+    border-radius:12px; letter-spacing:.02em; }
+  /* ---- results podium: medals + per-player best lap ---- */
+  #results .place .medal{ margin-right:8px; }
+  #rStandings .srow .sb{ width:78px; text-align:right; color:#8effb0; }
+  #rStandings .srow .sp{ width:62px; white-space:nowrap; }
+  #rStandings .srow .sp .medal{ margin-right:2px; }
+</style>
+</head>
+<body>
+  <div id="stage"></div>
+  <button id="muteBtn" title="mute / unmute sound">🔊</button>
+
+  <div id="hud">
+    <div class="row"><span class="lbl">speed</span><span class="val big" id="speedV">0</span></div>
+    <div id="chargeWrap"><div id="chargeBar"></div></div>
+    <div class="row"><span class="lbl">surface</span><span id="surf" class="track">TRACK</span></div>
+    <div class="row"><span class="lbl">lap</span><span class="val" id="lapNV">—</span></div>
+    <div class="row"><span class="lbl">race</span><span class="val" id="clockV">0.00s</span></div>
+    <div class="row"><span class="lbl">lap time</span><span class="val" id="lapV">—</span></div>
+    <div class="row"><span class="lbl">best</span><span class="val" id="bestV">—</span></div>
+  </div>
+
+  <div id="placeHud"></div>
+  <div id="padToast">🎮 connected</div>
+
+  <div id="itemSlot"><div id="itemIcon">·</div></div>
+
+  <div id="startOverlay">
+    <div class="logo barnsign">🏁 FARM KART</div>
+    <div class="tagline">CO-OP KART RACING ON THE FARM</div>
+    <div class="sub">Press ENTER or tap to start</div>
+    <div class="menucard">
+    <div class="tpick">
+      <span>track</span>
+      <select id="trackSel"></select>
+      <a id="editLink" href="farmkart-editor.html" target="_blank" title="open the track editor">✎ edit</a>
+    </div>
+    <div class="botpick">
+      <span>🤖 bots</span>
+      <span id="botBtns">
+        <button data-n="0">0</button><button data-n="1">1</button><button data-n="2">2</button><button data-n="3">3</button>
+      </span>
+    </div>
+    </div>
+    <div class="mppick">
+      <button class="mpbtn" id="familyRaceBtn">🌐 FAMILY RACE</button>
+      <div id="mpBox">
+        <div id="mpBoxTitle">Share this link to invite up to 3 more:</div>
+        <div class="mplink">
+          <input id="mpLink" readonly value="">
+          <button class="copylink" id="copyLinkBtn">📋 copy</button>
+        </div>
+        <div id="mpRoster"></div>
+        <div id="mpNote"></div>
+      </div>
+    </div>
+  </div>
+  <div id="mpPlaces"></div>
+  <div id="countdown"><div class="num" id="cdNum">3</div></div>
+  <div id="wrongway">⟲ TURN AROUND</div>
+  <div id="results">
+    <div class="card">
+      <div class="rtitle">FINISH!</div>
+      <div class="place" id="rPlace">1st</div>
+      <div class="rrow"><span class="rl">total time</span><span id="rTime">—</span></div>
+      <div class="rrow"><span class="rl">best lap</span><span id="rBest">—</span></div>
+      <div id="rStandings"></div>
+      <div class="rsub">Press ENTER or tap to race again</div>
+    </div>
+  </div>
+
+  <div id="tune" class="hidden">
+    <div class="hdr" id="tuneHdr"><span>⚙ TUNE</span><span class="hint">` toggle</span></div>
+    <div class="body" id="tuneBody"></div>
+    <div class="btns" style="padding:0 0;">
+      <button id="resetTune">reset defaults</button>
+      <button id="copyTune" class="copy">📋 copy</button>
+    </div>
+  </div>
+
+  <div id="help">WASD/arrows drive · Space/Shift drift · X use item · R reset · ` tuning · 🎮 supported</div>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+  <script src="https://unpkg.com/playroomkit@0.0.96/multiplayer.full.umd.js"></script>
+  <script src="assets/farmkart-track.js"></script>
+  <script>
+  "use strict";
+  /* ============================================================================
+     FARM KART — a kart-racing FEEL prototype. Standalone, solo, never pushed.
+     window.__KART__ = { state, TUNE } is exposed on purpose (test hook + live
+     tuning aid) — DO NOT REMOVE.
+     ========================================================================== */
+
+  // ---------- TUNE (all feel constants live here; edited live via the panel) ----------
+  // Defaults = the user's tuned settings from the 2026-07-07 feel session, migrated to the
+  // MKW-mechanism model (2026-07-07). Non-physics values (accel/maxSpeed/steer*/cam*/etc.)
+  // are UNCHANGED; the swapped mechanisms use new keys calibrated to match the old feel.
+  //
+  // CALIBRATION NOTES (old exponential grip -> fixed angular step):
+  //   Old grip did k=1-exp(-grip*dt); per frame the slip angle closed by k*slip. At grip=7.5,
+  //   dt=1/60, k=0.1175, so at a typical slip of ~0.2 rad the angle closed ~0.0235 rad/frame
+  //   = ~1.4 rad/s. gripRate=1.4 rad/s reproduces that mid-range closing speed with a linear
+  //   step (faster than exp at big slip, slower at tiny slip — MKW's characteristic feel).
+  //   Old driftGrip=1.1 -> k=0.0182, at slip 0.2 closes ~0.22 rad/s -> driftGripRate=0.28 rad/s.
+  const TUNE_DEFAULTS = {
+    // --- unchanged, non-mechanism ---
+    accel:15.5, maxSpeed:30, steerRate:1.75, steerLerp:9,
+    driftSteerMin:0.35, driftSteerMax:0.95, minDriftSpeed:17,
+    camDist:3, camHeight:2.4, camLag:5, camStiff:15, fov:62,
+    // --- 1. GRIP: fixed angular step (rad/s), replaces exponential grip 7.5 / driftGrip 1.1 ---
+    gripRate:1.4, driftGripRate:0.28,
+    // --- 2. TURN CURVE: ramp 0.4->1.0 up to turnPeakSpeed, taper 1.0->turnHighFrac to maxSpeed ---
+    turnPeakSpeed:13.5, turnHighFrac:0.55,   // peak default ~ maxSpeed*0.45
+    // --- 3. DRIFT ANGLE: target-seeking + clamp (radians) ---
+    driftAngleTarget:0.5, driftAngleMax:0.9, driftAngleMin:0.25, driftAngleRate:3,
+    driftAngleSteerFeed:0.35,
+    // --- 4. MINI-TURBO + BOOST (points model) ---
+    mtChargeBase:120, mtChargeBonus:180, mtTier1:270,
+    boostMult:0.2, boostAccel:50, boostT1:1,
+    // --- 5. RACE FORMAT (K1, additive — old saved tunes lack these so they take these defaults) ---
+    laps:3,                 // race distance
+    countdownBeat:0.9,      // seconds per 3-2-1 beat
+    startBoostWindow:0.3,   // press throttle within this many s of GO -> start boost
+    startStallEarly:0.6,    // press throttle earlier than this (s before GO) -> jump-start stall
+    startBoostT:0.7,        // start-boost duration (s), fed through the boost pipeline (tier1)
+    startStallT:0.6,        // jump-start stall duration (s)
+    // --- 6. TERRAIN (K2, additive) — old saved tunes lack these so they take these defaults ---
+    grassDecel:9,           // grass slowdown drag (/s) at FULL depth — smooth bog-down, not a 1-frame cliff
+    grassRamp:6,            // metres into the grass before the full slowdown applies (road edge = gentle)
+    grassResponse:6,        // /s smoothing of the grass factor (a momentary excursion barely registers)
+    groundHillAmp:3.4,      // amplitude (m) of the off-track value-noise ground hills
+    groundHillWave:60,      // wavelength (world units) of those hills
+    heightBlendMargin:9,    // width (m) over which the flat track surface blends into ground hills
+    slopeAccel:6,           // downhill speed reward / uphill penalty (units/s^2 at full grade)
+    normalSmooth:10,        // /s smoothing of the surface normal the kart tilts to (anti-jitter)
+    // --- 7. AIRBORNE (K2.5, additive) — old saved tunes lack these so they take these defaults ---
+    // gravity default lowered 28 -> 18 (K2.5 playtest fix: 28 felt too heavy off jumps; the old
+    // 28 was a WRONG default. A saved fk_tune_v2 holding exactly 28 is migrated to 18 once on load.)
+    gravity:18,             // downward accel (units/s^2) while airborne
+    airControl:0.3,         // steering authority multiplier while airborne
+    airGrip:0.2,            // grip (rad/s) while airborne — MKW's ~0.2°/frame airborne grip
+    // --- 8. AI OPPONENT (K3.5, additive) — pure-pursuit bots stepped by the same stepKart ---
+    botLookahead:8,         // base lookahead distance (u) on the centerline; +speed*0.25 at speed
+    botCornerGrip:1.05,     // lateral-grip factor -> corner target speed = sqrt(botLatBase*grip/curv)
+    botSkill:0.9,           // 0..1 overall target-speed scale (rubber-band family setting)
+    botTopSpeedMul:1.18,    // bots' top speed = maxSpeed*this (helps on straights where they don't
+                            //   mini-turbo; a boosting human still exceeds it)
+    botRubberband:0.06,     // +-fraction of target speed when >25u behind/ahead of the human
+    botSkillVar:0.15,       // per-bot random spread in pace (added to botSkill at spawn) so they don't match paces
+    botLaneSpread:0.5,      // per-bot preferred lane, as a fraction of half-width, so the field fans across the track
+    // --- 8b. SMARTER BOTS (racing line + drifting) ---
+    botDrift:1,             // 1 = bots drift corners to earn mini-turbo boosts (like a skilled player); 0 = off
+    botDriftCurv:0.015,     // min curvature (1/radius) a corner needs before a bot bothers drifting it;
+                            //   an auto upper bound (drift-holdable curvature) keeps the tightest hairpins gripped
+    botDriftGripMul:3.5,    // bots' drift grip = driftGripRate * this — lets their drifts hold the line
+                            //   (player feel untouched). Higher = bots drift tighter corners cleanly
+    botLineInside:0.38,     // racing line: how far toward a corner's inside a bot aims (x half-width)
+    botLineGain:16,         // how fast that inside (apex) bias ramps up with curvature
+    // --- 9. POWER-UPS (K4, additive) ---
+    spinT:1,              // spin-out lock duration (s) — input ignored, kart spins 720deg
+    // no sliders (kept out of TUNE_RANGE) but live in TUNE so the panel/copy stays complete:
+    // --- GLB kart wheels (live tuning) ---
+    wheelSize:1.06,          // scale of the procedural wheels
+    wheelWidth:1.0,         // extra fatness along the axle (tire width)
+    wheelSpin:1,          // spin-rate multiplier (visual only)
+    wheelY:0,             // vertical nudge of the wheels (fix clip / ground contact)
+    wheelSpread:1.02,        // lateral (sideways) position multiplier — push wheels out/in
+    brake:22, drag:0.8,
+    slopeDeadzoneGrad:0.07, // below ~4deg grade (or speed<1) slope-accel is OFF (no rest slide)
+    camGroundClear:0.6,     // camera is raised so it never sits within this of the terrain
+    // K2.5 airborne constants (no sliders):
+    launchMinSpeed:6,       // below this speed a crest never launches (parked-on-slope safe)
+    launchHyst:1.1,         // launch needs reqAccel < -gravity*this (spline-noise hysteresis)
+    landSquashT:0.16,       // landing squash-and-stretch duration (s)
+    landMinAirT:0.25,       // min airtime (s) before a landing fires squash+thump (anti micro-hop spam)
+    landMinImpact:4,        // OR min downward impact speed to fire landing effects
+    camVertLerp:4,          // /s smoothing of the camera's vertical (kart-y) tracking -> jumps float
+    // K3.5 bot constants (no sliders):
+    botSteerGain:1.6,       // heading-error -> steer input gain (pure pursuit)
+    botLatBase:16,          // base lateral accel; corner speed = sqrt(botLatBase*botCornerGrip/curv)
+    botCurvWindow:25,       // u of spline ahead scanned for max curvature -> corner braking
+    // K4 item constants (no sliders):
+    itemBoxRadius:2.4,      // pickup radius around an item box
+    itemBoxRespawn:3,     // per-box respawn delay (s) after a pickup
+    itemRollT:0.8,          // HUD roll-animation duration (s) before the item settles
+    tomatoSpeed:18,         // tomato launch speed ADDED to the firer's speed
+    tomatoLife:4,         // tomato lifetime (s)
+    hazardMax:6,            // max live hay bales (oldest despawns)
+    // --- 10. K7 (additive) — collisions / corridor walls / boost pads ---
+    kartRadius:0.9,         // half-width for kart-vs-kart separation (contact at 2*this)
+    wallMargin:7,           // FALLBACK grass width beyond the road edge before a FIRM wall
+                            //   (a per-track wallMargin overrides this)
+    boostPadStrength:6,     // instant forward speed kick (units) when a boost pad fires
+    boostPadT:0.6,          // sustained boost window (s) a pad grants (tier-1 strength)
+    wallHeight:1.2,         // height (u) of the continuous ribbon wall along the corridor edges (no slider)
+    // K7 constants (no sliders):
+    kartBumpCap:6,          // max speed (units/s) a single bump can transfer -> can't fling off-track
+    boostPadRadius:2.2,     // drive-over radius around a boost pad
+    boostPadCooldown:1.4    // per-kart-per-pad cooldown (s) so a pad fires ONCE per pass
+  };
+  // slider ranges [min,max,step]
+  const TUNE_RANGE = {
+    accel:[2,40,0.5], maxSpeed:[8,60,1],
+    gripRate:[0.2,6,0.02], driftGripRate:[0.05,3,0.01],
+    steerRate:[0.5,6,0.05], steerLerp:[1,25,0.5],
+    turnPeakSpeed:[3,40,0.5], turnHighFrac:[0.2,1,0.01],
+    driftSteerMin:[0,1.5,0.05], driftSteerMax:[0.5,3,0.05], minDriftSpeed:[2,30,0.5],
+    driftAngleTarget:[0.1,1.2,0.01], driftAngleMax:[0.3,1.5,0.01], driftAngleMin:[0,0.8,0.01],
+    driftAngleRate:[0.5,10,0.1], driftAngleSteerFeed:[0,1.5,0.01],
+    mtChargeBase:[20,300,5], mtChargeBonus:[0,400,5], mtTier1:[100,600,5],
+    boostMult:[0,0.6,0.01], boostAccel:[10,120,1], boostT1:[0.3,3,0.05],
+    laps:[1,5,1], countdownBeat:[0.4,1.6,0.05], startBoostWindow:[0.1,0.6,0.02],
+    startStallEarly:[0.3,1.2,0.05], startBoostT:[0.2,1.5,0.05], startStallT:[0.2,1.5,0.05],
+    grassDecel:[2,25,0.5], grassRamp:[1,15,0.5], grassResponse:[1,15,0.5],
+    groundHillAmp:[0,8,0.1], groundHillWave:[20,140,2], heightBlendMargin:[2,24,0.5],
+    slopeAccel:[0,16,0.25], normalSmooth:[2,25,0.5],
+    gravity:[10,60,1], airControl:[0,1,0.02], airGrip:[0.05,2,0.01],
+    botLookahead:[3,20,0.5], botCornerGrip:[0.3,1.8,0.05], botSkill:[0,1,0.05], botRubberband:[0,0.2,0.01],
+    botTopSpeedMul:[1,1.6,0.02], botLatBase:[8,32,0.5], botCurvWindow:[10,45,1], botSteerGain:[0.8,3,0.05],
+    botSkillVar:[0,0.5,0.01], botLaneSpread:[0,0.9,0.05],
+    botDrift:[0,1,1], botDriftCurv:[0.005,0.06,0.005], botDriftGripMul:[1,4,0.1], botLineInside:[0,0.9,0.05], botLineGain:[4,40,1],
+    kartRadius:[0.4,2,0.05], wallMargin:[2,20,0.5], boostPadStrength:[0,16,0.5], boostPadT:[0.2,1.5,0.05],
+    wheelSize:[0.5,1.8,0.02], wheelWidth:[0.5,2.5,0.05], wheelSpin:[0,3,0.05], wheelY:[-0.5,0.5,0.02], wheelSpread:[0.6,1.5,0.02],
+    camDist:[3,18,0.25], camHeight:[1,12,0.1], camLag:[1,20,0.5], camStiff:[2,25,0.5], fov:[40,95,1]
+  };
+  // plain-English explanation for each slider (shown by the ⓘ button in the tune panel)
+  const TUNE_HELP = {
+    accel:"How quickly a kart speeds up from a standstill. Higher = snappier launches.",
+    maxSpeed:"Top speed on the track before any boost. Higher = faster overall.",
+    gripRate:"How fast the kart's motion follows where it's pointed while driving normally. Higher = tighter, less sliding.",
+    driftGripRate:"The same grip but WHILE drifting. Lower = the kart slides out wider in a drift.",
+    steerRate:"How sharply the kart turns for a given steering input. Higher = tighter turns.",
+    steerLerp:"How quickly steering ramps in when you press left/right. Higher = more instant and twitchy.",
+    turnPeakSpeed:"The speed at which the kart turns its sharpest. You corner best around this speed.",
+    turnHighFrac:"How much turning you keep at very high speed (0–1). Higher = still turns well when flat-out.",
+    driftSteerMin:"Turn-in during a drift when you're NOT pushing into it. Higher = drifts curve more on their own.",
+    driftSteerMax:"Turn-in during a drift when you push hard into it. Higher = tighter drift arcs.",
+    minDriftSpeed:"Minimum speed needed to start a drift. Below this, pressing drift does nothing.",
+    driftAngleTarget:"How sideways the kart naturally sits in a drift. Higher = a more dramatic slide.",
+    driftAngleMax:"The most sideways a drift is ever allowed to get (caps wild slides).",
+    driftAngleMin:"The least sideways a drift can be (a floor on the slide angle).",
+    driftAngleRate:"How fast the kart swings into its drift angle. Higher = snaps sideways quicker.",
+    driftAngleSteerFeed:"How much your steering widens or tightens the slide. Higher = more control of the drift.",
+    mtChargeBase:"How fast a mini-turbo (drift boost) charges just by holding a drift. Higher = boost sooner.",
+    mtChargeBonus:"Extra charge speed when you steer hard into the drift. Higher = rewards committing to deep drifts.",
+    mtTier1:"How much charge is needed to earn the first drift boost. Lower = boosts come easier.",
+    boostMult:"How much OVER top speed a boost lets you go, as a fraction. Higher = bigger boost surge.",
+    boostAccel:"How hard a boost shoves you up to that speed. Higher = snappier, more instant boost.",
+    boostT1:"How long a mini-turbo boost lasts, in seconds.",
+    laps:"Number of laps in a race.",
+    countdownBeat:"Seconds between each start-line beat (3… 2… 1… GO).",
+    startBoostWindow:"The timing window right at GO where hitting the gas gives a launch boost.",
+    startStallEarly:"Hit the gas earlier than this before GO and you stall (spin the wheels).",
+    startBoostT:"How long the start-line launch boost lasts, in seconds.",
+    startStallT:"How long a too-early start stalls you, in seconds.",
+    grassDecel:"How hard grass slows you at full depth. Higher = grass bogs you down more.",
+    grassRamp:"How far into the grass before the FULL slowdown hits. Higher = clipping the edge barely hurts.",
+    grassResponse:"How quickly the grass slowdown fades in and out. Lower = a quick brush of grass is forgiven.",
+    groundHillAmp:"How tall the rolling hills are OFF the track, in metres. 0 = flat ground.",
+    groundHillWave:"How spread-out those off-track hills are. Higher = broader, gentler hills.",
+    heightBlendMargin:"How wide the smooth blend is where the flat road meets the ground hills.",
+    slopeAccel:"How much downhill speeds you up and uphill slows you. Higher = hills matter more.",
+    normalSmooth:"How smoothly the kart tilts to match the ground. Higher = less jitter on bumpy terrain.",
+    gravity:"How fast you fall when airborne off a jump. Higher = heavier kart, shorter hops.",
+    airControl:"How much you can steer while in the air (0–1).",
+    airGrip:"How much your heading follows your steering in mid-air. Higher = more air control.",
+    botLookahead:"How far ahead the AI bots aim on the track. Higher = smoother lines, less last-second turning.",
+    botCornerGrip:"How boldly bots take corners. Higher = they brake less and carry more speed through turns.",
+    botSkill:"Overall bot pace (0–1). Higher = faster, tougher opponents.",
+    botRubberband:"How much bots speed up when behind (or ease off when ahead) to keep races close.",
+    botSkillVar:"How much bot paces vary from each other (random spread added at the start). Higher = a wider mix of fast and slow bots.",
+    botLaneSpread:"How far apart bots sit across the track (each picks its own lane). Higher = the field fans out side-by-side instead of trailing in one line.",
+    botTopSpeedMul:"Bots' top speed vs yours — they don't drift, so this keeps them competitive. Higher = faster bots.",
+    botLatBase:"The grip bots assume when picking a corner speed. Higher = bots corner faster.",
+    botCurvWindow:"How far ahead bots look for corners to slow down for. Higher = they brake earlier.",
+    botSteerGain:"How aggressively bots steer back toward their racing line. Higher = sharper corrections.",
+    botDrift:"Whether bots drift through corners to earn mini-turbo boosts, like a skilled player. Off = they only steer.",
+    botDriftCurv:"How sharp a corner must be before a bot drifts it (curvature = 1/turn-radius). Higher = only sharper corners; lower = bots drift gentler bends too.",
+    botDriftGripMul:"Extra grip bots get WHILE drifting so their slides hold the corner instead of washing wide (players never feel this). Higher = bots drift tighter corners cleanly.",
+    botLineInside:"How far toward a corner's inside (the apex) bots aim, as a fraction of the road's half-width. Higher = they cut corners tighter.",
+    botLineGain:"How quickly bots swing onto that inside line as a corner sharpens. Higher = they commit to the apex sooner.",
+    kartRadius:"How big a kart is for bumping. Bigger = karts push apart from farther away.",
+    wallMargin:"How much grass sits beyond the road edge before you hit a solid wall.",
+    boostPadStrength:"The speed kick you get from driving over a boost pad.",
+    boostPadT:"How long a boost-pad boost lasts, in seconds.",
+    camDist:"How far behind the kart the camera sits. Higher = more zoomed out.",
+    camHeight:"How high above the kart the camera sits.",
+    camLag:"How loosely the camera trails the kart. Higher = floatier, laggier follow.",
+    camStiff:"How firmly the camera holds its distance. Higher = snappier, less rubber-banding.",
+    fov:"Camera field of view in degrees. Higher = wider view and more sense of speed."
+  };
+  let TUNE = Object.assign({}, TUNE_DEFAULTS);
+  try {
+    // fk_tune_v2 (bumped from v1 — semantics changed with the MKW rewrite).
+    const saved = JSON.parse(localStorage.getItem('fk_tune_v2') || 'null');
+    if (saved && typeof saved === 'object'){
+      for (const k in TUNE_DEFAULTS) if (typeof saved[k] === 'number') TUNE[k] = saved[k];
+      // ONE-TIME MIGRATION (K2.5 fix): the old bad gravity default was 28. If a saved tune still
+      // holds exactly 28, bump it to the corrected 18 and re-persist so the fix sticks.
+      if (saved.gravity === 28){
+        TUNE.gravity = 18;
+        try{ saved.gravity = 18; localStorage.setItem('fk_tune_v2', JSON.stringify(saved)); }catch(e){}
+      }
+    }
+  } catch(e){}
+  function saveTune(){ try{ localStorage.setItem('fk_tune_v2', JSON.stringify(TUNE)); }catch(e){} }
+
+  // ---------- ACTIVE TRACK (K3: data-driven, shared FK_TRACK module) ----------
+  // The circuit geometry now lives as DATA in assets/farmkart-track.js (window.FK_TRACK),
+  // shared byte-for-byte with farmkart-editor.html. The game boots FK_TRACK.DEFAULT_TRACK;
+  // ?track=<id> loads a saved track from localStorage fk_tracks_v1 with SILENT fallback to
+  // the default on ANY invalid data (a bad save can never brick — bistro editor precedent).
+  function loadActiveTrack(){
+    try{
+      const id = new URLSearchParams(location.search).get('track');
+      if (id){
+        const map = JSON.parse(localStorage.getItem('fk_tracks_v1') || 'null');
+        if (map && map[id]){
+          const t = FK_TRACK.sanitize(map[id]);
+          if (t) return { track:t, id };
+        }
+        // built-in converted courses (Mario Raceway, ...) — a user save with the same id wins above.
+        if (FK_TRACK.BUILTIN_TRACKS && FK_TRACK.BUILTIN_TRACKS[id]){
+          const t = FK_TRACK.sanitize(FK_TRACK.BUILTIN_TRACKS[id]);
+          if (t) return { track:t, id };
+        }
+      }
+    }catch(e){}
+    return { track:FK_TRACK.DEFAULT_TRACK, id:null };
+  }
+  const _active = loadActiveTrack();
+  const ACTIVE_TRACK = _active.track;
+  const ACTIVE_TRACK_ID = _active.id;   // null = default
+  const TRACK_WIDTH = ACTIVE_TRACK.width;
+
+  // ---------- K6: best lap is stored PER TRACK ID (fk_best_<id>, default = 'default') ----------
+  // Migrated from a single global fk_best (which conflated every track's best). One-time: on the
+  // DEFAULT track, if no per-track record exists yet, adopt the legacy global fk_best.
+  const BEST_LAP_KEY = 'fk_best_' + (ACTIVE_TRACK_ID || 'default');
+  function loadBestLap(){
+    let b = parseFloat(localStorage.getItem(BEST_LAP_KEY));
+    if (!isFinite(b) && ACTIVE_TRACK_ID === null){
+      const legacy = parseFloat(localStorage.getItem('fk_best'));
+      if (isFinite(legacy)) b = legacy;
+    }
+    return isFinite(b) ? b : 0;
+  }
+
+  // ---------- three.js scene ----------
+  const stage = document.getElementById('stage');
+  const scene = new THREE.Scene();
+  const renderer = new THREE.WebGLRenderer({ antialias:true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio||1, 2));
+  renderer.setClearColor(0x7ec0ee, 1); // sky blue
+  stage.appendChild(renderer.domElement);
+
+  const camera = new THREE.PerspectiveCamera(TUNE.fov, 1, 0.3, 800); // tight-ish depth range = better z precision for the near-coplanar road layers (near 0.3 gives the ground-clear clamp a smaller front face to keep out of the mesh)
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x557040, 0.85));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.75);
+  sun.position.set(40, 80, 20);
+  scene.add(sun);
+
+  // (ground plane is built LATER, once sampleHeight() exists — it is now a displaced grid.)
+
+  // ---------- build track ribbon from centerline ----------
+  // Dense-sampled centerline for nearest-point + smooth ribbon. Catmull-Rom closed, in 3D
+  // (per-point elevation y). K3: geometry sampling lives in FK_TRACK.resample so the game and
+  // the editor share ONE code path — no duplicated geometry.
+  const _sampled = FK_TRACK.resample(ACTIVE_TRACK, THREE);
+  const SAMPLES = _sampled.samples;
+  const centerPts = _sampled.centerPts;  // {x,y,z} dense samples (y = track surface elevation)
+  const tangents = _sampled.tangents;    // unit tangent in XZ (heading) at each sample
+
+  // ---------- ONE HEIGHT AUTHORITY: sampleHeight(x,z) ----------
+  // Every consumer (kart, camera, ground mesh, ribbon layers) reads terrain height from here.
+  // = a smooth blend of (a) the flat track surface (nearest-centerline elevation, valid within
+  // half-width) into (b) gentle value-noise ground hills, over heightBlendMargin.
+  function groundHills(x, z){
+    const amp = TUNE.groundHillAmp, wl = TUNE.groundHillWave || 60;
+    return amp * (
+      0.60*Math.sin(x/wl*1.3 + z/wl*0.7) +
+      0.40*Math.sin(x/wl*0.5 - z/wl*1.1 + 2.1)
+    );
+  }
+  // nearest dense-centerline info at (x,z): {idx, dist} (dist = PROJECTED perpendicular distance in
+  // XZ). Delegates to FK_TRACK.nearestOnCenter (shared, interpolated). Correct anywhere (camera /
+  // far off-track). The projected dist is smoother than the old nearest-sample dist near samples.
+  function nearestCenterInfo(x, z){
+    const info = FK_TRACK.nearestOnCenter(_sampled, x, z);
+    return { idx:info.idx, dist:info.dist };
+  }
+  function sampleHeight(x, z){
+    const half = TRACK_WIDTH/2;
+    const margin = Math.max(0.5, TUNE.heightBlendMargin);
+    // K2.5 STAIRS FIX: interpolate the on-track height along the centerline segment (no stair-step)
+    // and use the PROJECTED perpendicular distance for the blend band (both from FK_TRACK).
+    const info = FK_TRACK.nearestOnCenter(_sampled, x, z);
+    const trackY = info.y, dist = info.dist;
+    if (dist <= half) return trackY;                 // flat across the road width
+    const gy = groundHills(x, z);
+    if (dist >= half + margin) return gy;            // pure ground hills off-track
+    const t = (dist - half) / margin;                // 0..1 across the blend band
+    const s = t*t*(3 - 2*t);                         // smoothstep
+    return trackY*(1 - s) + gy*s;
+  }
+  // K7 TRACK-OVERLAP FIX: height-AWARE terrain sample. Identical to sampleHeight on a non-crossing
+  // track; at a self-crossing it prefers the branch whose elevation is closest to the seed cy (the
+  // kart's own p.y) so trackY never flips level as the kart crosses -> no spurious airborne launch.
+  // ONLY the kart's own height-follow / slope / tilt / launch use this (seeded with p.y); every
+  // context-free caller (ground mesh, camera clamp, item/entity placement) keeps plain sampleHeight.
+  function sampleHeightAtY(x, z, cy){
+    const half = TRACK_WIDTH/2;
+    const margin = Math.max(0.5, TUNE.heightBlendMargin);
+    const info = FK_TRACK.nearestOnCenterAtY(_sampled, x, z, cy, TRACK_WIDTH);
+    const trackY = info.y, dist = info.dist;
+    if (dist <= half) return trackY;
+    const gy = groundHills(x, z);
+    if (dist >= half + margin) return gy;
+    const t = (dist - half) / margin;
+    const s = t*t*(3 - 2*t);
+    return trackY*(1 - s) + gy*s;
+  }
+  // GROUND-MESH height (bridges = open air). sampleHeight lifts the ground to the NEAREST road
+  // branch, so under an elevated bridge span the terrain rises to meet it (steep grass skirt, no
+  // air gap). The ground instead follows the LOWEST road branch overlapping this point: where a
+  // high bridge crosses a low road, the ground stays at the low road and the bridge ribbon floats
+  // above it -> open air. On a normal (single-branch) section this is identical to sampleHeight.
+  // Used ONLY by the displaced ground grid; kart/camera keep sampleHeight/sampleHeightAtY.
+  function groundSampleHeight(x, z){
+    const half = TRACK_WIDTH/2;
+    const margin = Math.max(0.5, TUNE.heightBlendMargin);
+    const C = _sampled.centerPts, N = _sampled.samples;
+    const band = half + margin, band2 = band*band;
+    let underY = Infinity;                 // lowest road surface directly above this point (dist<=half)
+    let bandY = Infinity, bandDist = Infinity;   // lowest-surface branch within the blend band + its dist
+    // distance to each centerline SEGMENT (not just sample points): the resample is uniform-in-t, so a
+    // long control segment (e.g. a bridge's under-branch on a long straight) is sparsely sampled and a
+    // point-only search would miss it. Segment projection + interpolated Y finds it reliably.
+    for (let i=0;i<N;i++){
+      const a=C[i], bpt=C[(i+1)%N];
+      const abx=bpt.x-a.x, abz=bpt.z-a.z, L2=abx*abx+abz*abz || 1;
+      let t=((x-a.x)*abx+(z-a.z)*abz)/L2; if (t<0) t=0; else if (t>1) t=1;
+      const px=a.x+abx*t, pz=a.z+abz*t, d2=(x-px)*(x-px)+(z-pz)*(z-pz);
+      if (d2 > band2) continue;
+      const d=Math.sqrt(d2), y=a.y+(bpt.y-a.y)*t;
+      if (d <= half && y < underY) underY = y;
+      if (y < bandY){ bandY = y; bandDist = d; }
+    }
+    if (underY < Infinity) return underY;                 // under a road -> low branch; any higher bridge floats
+    const gy = groundHills(x, z);
+    if (bandY < Infinity){
+      const t = Math.min(1, Math.max(0, (bandDist - half)/margin));
+      const s = t*t*(3 - 2*t);
+      return bandY*(1 - s) + gy*s;
+    }
+    return gy;
+  }
+
+  // K7 CORRIDOR: effective wall margin = per-track wallMargin if set, else the live TUNE fallback.
+  function effWallMargin(){
+    const m = ACTIVE_TRACK.wallMargin;
+    return (isFinite(m) && m > 0) ? m : TUNE.wallMargin;
+  }
+
+  // K3: ribbon built by the shared module (identical geometry, editor uses the same call).
+  scene.add(FK_TRACK.buildRibbonGeometry(_sampled, TRACK_WIDTH, THREE));
+
+  // ---------- displaced ground grid (K2) ----------
+  // Replaces the old flat green plane. A grid over the track's bounding box + margin, each
+  // vertex dropped to sampleHeight(x,z) so off-track is rolling hills that meet the road flush
+  // (under the road sampleHeight == trackY, and the ribbon sits ~0.08 proud → no z-fight, no void).
+  {
+    let minX=1e9,maxX=-1e9,minZ=1e9,maxZ=-1e9;
+    for (const c of centerPts){ if(c.x<minX)minX=c.x; if(c.x>maxX)maxX=c.x; if(c.z<minZ)minZ=c.z; if(c.z>maxZ)maxZ=c.z; }
+    const M = 55; minX-=M; maxX+=M; minZ-=M; maxZ+=M;
+    const seg = 4;
+    const nx = Math.ceil((maxX-minX)/seg), nz = Math.ceil((maxZ-minZ)/seg);
+    const pos = [], idx = [];
+    for (let j=0;j<=nz;j++) for (let i=0;i<=nx;i++){
+      const x = minX + i*seg, z = minZ + j*seg;
+      pos.push(x, groundSampleHeight(x, z), z);
+    }
+    for (let j=0;j<nz;j++) for (let i=0;i<nx;i++){
+      const a = j*(nx+1)+i, b = a+1, c = a+(nx+1), d = c+1;
+      idx.push(a, c, b,  b, c, d);   // CCW seen from +Y → upward normals
+    }
+    const gg = new THREE.BufferGeometry();
+    gg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    gg.setIndex(idx);
+    gg.computeVertexNormals();
+    scene.add(new THREE.Mesh(gg, new THREE.MeshLambertMaterial({ color:0x6fae54, side:THREE.DoubleSide })));
+  }
+
+  // ---------- start/finish line (checkered strip across main straight) ----------
+  // Placed near the main straight at ~z=20, spanning the track width.
+  const FINISH = (function(){
+    // find sample nearest to (0,20) on the main straight to anchor the line & direction
+    let best=0, bestD=1e9;
+    for (let i=0;i<SAMPLES;i++){ const c=centerPts[i]; const d=(c.x-0)*(c.x-0)+(c.z-20)*(c.z-20); if(d<bestD){bestD=d;best=i;} }
+    const c = centerPts[best], t = tangents[best];
+    const nx = -t.z, nz = t.x;
+    return { cx:c.x, cz:c.z, tx:t.x, tz:t.z, nx, nz, idx:best };
+  })();
+
+  // ---------- arc-length parameterization (K1: progress / checkpoints / laps) ----------
+  // Cumulative arc length s over the dense centerline (closed loop). progressS = nearest-point
+  // s, searched in a window around the last index each frame (perf + anti-teleport-cheat).
+  const arcS = _sampled.arcS;
+  const TRACK_LEN = _sampled.trackLen;
+  const FINISH_S = arcS[FINISH.idx];
+  // 2x2 starting grid: rows stacked BEHIND the start line along -tangent, two lanes ±across.
+  function gridSlotPose(slot){
+    const row = Math.floor(slot/2), col = slot%2;
+    const back = 4 + row*4.6;                 // distance behind the start line
+    const lat  = (col===0 ? -1 : 1) * 4.4;    // lane offset across the track
+    return {
+      x: FINISH.cx - FINISH.tx*back + FINISH.nx*lat,
+      z: FINISH.cz - FINISH.tz*back + FINISH.nz*lat,
+      theta: Math.atan2(FINISH.tx, FINISH.tz)
+    };
+  }
+  {
+    const hw = TRACK_WIDTH/2;
+    const grp = new THREE.Group();
+    const cols = 8, rows = 2, cellW = TRACK_WIDTH/cols, cellL = 0.9;
+    for (let r=0;r<rows;r++) for (let cc=0;cc<cols;cc++){
+      if ((r+cc)%2===0) continue;
+      const geo = new THREE.PlaneGeometry(cellW, cellL);
+      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color:0xffffff }));
+      m.rotation.x = -Math.PI/2;
+      // offset along normal (across track) and along tangent (line depth)
+      const acr = -hw + cellW*(cc+0.5);
+      const dep = (r-0.5)*cellL;
+      const gx = FINISH.cx + FINISH.nx*acr + FINISH.tx*dep;
+      const gz = FINISH.cz + FINISH.nz*acr + FINISH.tz*dep;
+      m.position.set(
+        gx,
+        sampleHeight(gx, gz) + 0.14, // on the terrain, above asphalt + curb layers
+        gz
+      );
+      m.rotation.z = Math.atan2(FINISH.nx, FINISH.nz);
+      grp.add(m);
+    }
+    scene.add(grp);
+  }
+
+  // ---------- kart meshes (K3.5: one VIEW per player id, built from shared geometry) ----------
+  // Views are LOCAL-only render state (outside G), keyed by player id like G.players. The local
+  // player's group keeps name 'kart' (test hook + camera). Each view owns its own smoothed surface
+  // normal + last-airborne latch so bots tilt/thump independently.
+  // ---- procedural spinning wheels (clean cylinders — replace the fused-mesh tires, no wobble/holes) ----
+  // Tire = LatheGeometry with a rounded cross-section (flat tread + rounded shoulders like a real
+  // tire), revolved about the axle (local Z). Smaller than the first pass so it doesn't clip the body.
+  const _TIRE_ROUT = 0.26, _TIRE_HUBR = 0.11, _TIRE_HW = 0.11, _TIRE_SH = 0.07;
+  function _makeTireGeo(){
+    const V = THREE.Vector2, p = [], Rout=_TIRE_ROUT, Rin=_TIRE_HUBR, hw=_TIRE_HW, sh=_TIRE_SH;
+    p.push(new V(Rin, -hw));
+    for (let k=0;k<=4;k++){ const t=k/4*Math.PI/2; p.push(new V(Rout-sh+Math.sin(t)*sh, -hw+sh-Math.cos(t)*sh)); }  // bottom shoulder
+    for (let k=0;k<=4;k++){ const t=k/4*Math.PI/2; p.push(new V(Rout-sh+Math.cos(t)*sh, hw-sh+Math.sin(t)*sh)); }   // top shoulder
+    p.push(new V(Rin, hw));
+    const g = new THREE.LatheGeometry(p, 22); g.rotateX(Math.PI/2); g.computeVertexNormals(); return g;   // axle -> local Z
+  }
+  const _WHEEL_TIRE = _makeTireGeo();
+  const _WHEEL_HUB  = new THREE.CylinderGeometry(_TIRE_HUBR, _TIRE_HUBR, _TIRE_HW*2*0.95, 12); _WHEEL_HUB.rotateX(Math.PI/2);
+  const _WHEEL_LUG  = new THREE.BoxGeometry(0.05, 0.075, _TIRE_HW*2*0.9);   // knobby tread block (spans tire width in Z)
+  const _WHEEL_TIRE_MAT = new THREE.MeshLambertMaterial({ color:0x161616 });
+  const _WHEEL_HUB_MAT  = new THREE.MeshLambertMaterial({ color:0xf2c200 });   // John Deere yellow hub
+  function buildProcWheel(){
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(_WHEEL_TIRE, _WHEEL_TIRE_MAT));
+    g.add(new THREE.Mesh(_WHEEL_HUB, _WHEEL_HUB_MAT));
+    // knobby tread lugs around the circumference — these make the spin unmistakable when moving.
+    const N=12, r=_TIRE_ROUT+0.01;
+    for (let i=0;i<N;i++){ const a=i/N*Math.PI*2; const lug=new THREE.Mesh(_WHEEL_LUG,_WHEEL_TIRE_MAT);
+      lug.position.set(Math.cos(a)*r, Math.sin(a)*r, 0); lug.rotation.z=a; g.add(lug); }
+    return g;
+  }
+  // wheel mount points in the GLB's local space (6x4 Gator: front/mid/rear × left/right). Axle along Z.
+  const KART_WHEEL_POS = [['FL',-0.64,-0.20,-0.45],['FR',-0.64,-0.20,0.45],['ML',0,-0.20,-0.45],['MR',0,-0.20,0.45],['RL',0.64,-0.20,-0.45],['RR',0.64,-0.20,0.45]];
+  const _KART_UNDERBODY = new THREE.BoxGeometry(1.7, 0.22, 0.82);   // dark belly plate to cap the wheel wells
+  const KART_BODY_GEO   = new THREE.BoxGeometry(1.1, 0.6, 1.6);
+  const KART_CYL_GEO    = new THREE.CylinderGeometry(0.28, 0.28, 0.55, 12);
+  const KART_CAP_GEO    = new THREE.SphereGeometry(0.28, 12, 10);
+  const KART_SHADOW_GEO = new THREE.CircleGeometry(1.05, 20);
+  const kartViews = {};   // id -> { group, bounce, bodyMat, shadow, shadowMat, kartNormal, lastAirborne }
+
+  function makeNameSprite(text, colorHex){
+    const cv = document.createElement('canvas'); cv.width = 256; cv.height = 64;
+    const ctx = cv.getContext('2d');
+    ctx.font = 'bold 34px Segoe UI, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(0,0,0,.65)'; ctx.strokeText(text, 128, 34);
+    ctx.fillStyle = '#'+colorHex.toString(16).padStart(6,'0'); ctx.fillText(text, 128, 34);
+    const tex = new THREE.CanvasTexture(cv); tex.needsUpdate = true;
+    const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map:tex, transparent:true, depthTest:false }));
+    spr.scale.set(6, 1.5, 1); spr.position.set(0, 3.1, 0);
+    return spr;
+  }
+  // ---- Meshy kart model (John Deere Gator GLB, dieted). When loaded it REPLACES the box+capsule
+  //   placeholder (no driver — just the kart). Transform params kept tweakable for the fit pass. ----
+  const KART_GLB = { template:null };      // { scene, scl, minY } once loaded
+  let KART_GLB_ROT_Y = Math.PI/2;          // yaw so the model faces +Z (game forward)
+  const KART_GLB_TARGET_LEN = 2.0;         // scale so the longest footprint dim ≈ this (units)
+  function loadKartGLB(){
+    new THREE.GLTFLoader().load('assets/farmkart-kart.glb', (gltf)=>{
+      const s = gltf.scene;
+      // Meshy PBR renders dark under the game's simple lights -> swap to Lambert, keep the base map.
+      s.traverse(o=>{ if(o.isMesh && o.material){ const src=o.material;
+        o.material = new THREE.MeshLambertMaterial({ map:src.map||null, color:src.color?src.color.clone():0xffffff }); } });
+      s.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(s); const size = new THREE.Vector3(); box.getSize(size);
+      const scl = KART_GLB_TARGET_LEN / Math.max(size.x, size.z, 0.001);
+      KART_GLB.template = { scene:s, scl, minY:box.min.y };
+      for (const id in kartViews) fillKartModel(kartViews[id]);   // upgrade any karts already built
+    }, undefined, (e)=>console.warn('farmkart-kart.glb failed to load — using placeholder', e));
+  }
+  // Clone the kart model into a view's modelSlot and hide the placeholder. Idempotent.
+  function fillKartModel(view){
+    if (!KART_GLB.template || !view.modelSlot) return;
+    while (view.modelSlot.children.length) view.modelSlot.remove(view.modelSlot.children[0]);
+    const t = KART_GLB.template;
+    const m = t.scene.clone(true);
+    m.scale.setScalar(t.scl);
+    m.rotation.y = KART_GLB_ROT_Y;
+    m.position.y = -t.minY * t.scl;   // seat the model's bottom on the ground plane
+    view.modelSlot.add(m);
+    view.placeholder.visible = false;
+    // build PROCEDURAL wheels at the mount points (the fused-mesh tires were deleted in Blender —
+    // clean cylinders spin dead-center with no wobble or holes). Axle = local Z; front pair steers.
+    view.wheels = [];
+    for (const [nm,x,y,z] of KART_WHEEL_POS){
+      const w = buildProcWheel();
+      w.userData.bx = x; w.userData.by = y; w.userData.bz = z;   // base pos (live wheelY/wheelSpread apply off these)
+      w.userData.roll = 0; w.userData.front = (x < -0.3);
+      m.add(w);
+      view.wheels.push(w);
+    }
+    view.wheelR = _TIRE_ROUT * t.scl;   // world tire radius (local R × model scale) — drives spin rate
+    // underbody panel — caps the empty wheel wells (where the molded tires were deleted) from below.
+    const ub = new THREE.Mesh(_KART_UNDERBODY, _WHEEL_TIRE_MAT);
+    ub.position.set(0, -0.12, 0); m.add(ub);
+  }
+  function buildKartView(id, bodyColor, isLocal, name){
+    const group = new THREE.Group(); group.name = isLocal ? 'kart' : ('kart_'+id);
+    const bounce = new THREE.Group(); group.add(bounce);
+    // placeholder box+capsule (shown until/unless the GLB model loads)
+    const placeholder = new THREE.Group(); bounce.add(placeholder);
+    const bodyMat = new THREE.MeshLambertMaterial({ color:bodyColor, emissive:0x000000 });
+    const body = new THREE.Mesh(KART_BODY_GEO, bodyMat); body.position.y = 0.5; placeholder.add(body);
+    const racerMat = new THREE.MeshLambertMaterial({ color:0xf3ead0 });
+    const racer = new THREE.Group();
+    const cyl = new THREE.Mesh(KART_CYL_GEO, racerMat);
+    const capT = new THREE.Mesh(KART_CAP_GEO, racerMat); capT.position.y = 0.275;
+    const capB = new THREE.Mesh(KART_CAP_GEO, racerMat); capB.position.y = -0.275;
+    racer.add(cyl, capT, capB); racer.position.set(0, 1.15, -0.05); placeholder.add(racer);
+    const modelSlot = new THREE.Group(); bounce.add(modelSlot);   // GLB model goes here when ready
+    if (!isLocal && name){ bounce.add(makeNameSprite(name, bodyColor)); }
+    scene.add(group);
+    // soft shadow disc — SCENE-level (not a kart child) so it stays on the GROUND and detaches in air
+    const shadowMat = new THREE.MeshBasicMaterial({ color:0x000000, transparent:true, opacity:0.28 });
+    const shadow = new THREE.Mesh(KART_SHADOW_GEO, shadowMat); shadow.rotation.x = -Math.PI/2; scene.add(shadow);
+    const view = { group, bounce, bodyMat, shadow, shadowMat, placeholder, modelSlot, kartNormal:new THREE.Vector3(0,1,0), lastAirborne:false };
+    kartViews[id] = view;
+    fillKartModel(view);   // swap in the GLB kart if it's already loaded
+    return view;
+  }
+  function removeKartView(id){
+    const v = kartViews[id]; if (!v) return;
+    scene.remove(v.group); scene.remove(v.shadow);
+    v.bodyMat.dispose(); v.shadowMat.dispose();
+    v.group.traverse(o=>{ if (o.isSprite && o.material){ if (o.material.map) o.material.map.dispose(); o.material.dispose(); } });
+    delete kartViews[id];
+  }
+  buildKartView('local', 0xd6352b, true, null);
+  loadKartGLB();   // async — upgrades all kart views to the Gator model when ready
+
+  // ---------- STATE (K1: ALL race-mutable state lives in one G object; local-only concerns
+  //   — camera, meshes, input, tune — stay OUTSIDE G, so a future Playroom sync is a thin
+  //   layer over G.players, not a rewrite. Solo = a single player id "local".) ----------
+  function makePlayer(id){
+    return {
+      id,
+      // --- physics core (was the old flat `state`) ---
+      pos:{ x:0, z:0 },
+      theta:0,               // heading
+      v:{ x:0, z:0 },        // velocity vector
+      steer:0,               // smoothed steer input [-1,1]
+      drift:{ active:false, dir:0, charge:0 }, // charge in POINTS (MKW model)
+      driftAngle:0,          // signed drift angle state (rad)
+      boostT:0,              // remaining boost time (s)
+      boostTier:0,           // 1 or 2 while boosting
+      hop:0,                 // remaining hop time
+      // --- K2.5 vertical / airborne state ---
+      y:0,                   // world height of the kart (grounded = sampleHeight, airborne = ballistic)
+      vy:0,                  // vertical velocity (grounded = terrain-follow rate, airborne = ballistic)
+      airborne:false,        // off the ground?
+      airT:0,                // K2.5: accumulated airtime this hop (gates landing effects)
+      landT:0,               // remaining landing-squash time (s)
+      landImpact:0,          // downward speed at the last landing (for thump loudness)
+      landFx:false,          // K2.5: one-shot flag — landing passed the effect gate (render fires thump)
+      surface:'track',
+      // --- race / progress ---
+      lap:0,                 // completed laps
+      checkpoint:0,          // intermediate checkpoints cleared THIS lap (need 3 for a valid lap)
+      progressS:0,           // arc-length position along centerline
+      prevProgressS:0,
+      lastSampleIdx:0,       // windowed nearest-sample search anchor
+      wrongWayT:0,           // seconds of persistent backward progress
+      finished:false,
+      finishTime:0,          // total race time at finish (s)
+      place:1,
+      lapStart:0,            // ms timestamp of current lap start
+      lapLast:0, lapBest:0,  // this-race lap times (s)
+      finishDebounce:0,      // seconds until a re-cross of the finish line counts
+      prevSide:0,            // side of finish line last frame
+      // --- start / stall / MP-shaped placeholders ---
+      startPressT:null,      // countdownT remaining when throttle first pressed (start boost)
+      stallT:0,              // jump-start stall countdown
+      // --- K4 power-ups ---
+      itemHeld:null,         // held item kind: 'boost' | 'tomato' | 'hay' | null
+      itemRollT:0,           // HUD roll-animation countdown (item lands when it hits 0)
+      itemHoldT:0,           // bot use-delay timer (random hold before using hay/boost)
+      spinT:0,               // spin-out lock countdown (input ignored, kart spins 720deg)
+      // --- K3.5 bot identity (isBot=false => the human/local) ---
+      isBot:false, botName:null, botColor:null, botSkill:0.75,
+      gridSlot:0
+    };
+  }
+  const G = {
+    phase:'menu',            // "menu" | "countdown" | "racing" | "finished"
+    players:{ local:makePlayer('local') },
+    lapsTotal:3,
+    countdownT:0,
+    lastBeat:99,             // last countdown integer beeped
+    goFlashT:0,              // GO! overlay hold after racing starts
+    raceClock:0,             // seconds since GO
+    results:null,
+    // K3.5 bots + K4 power-up entities (all race-mutable -> live in G, host-authoritative-shaped)
+    botCount:(function(){ const n=parseInt(localStorage.getItem('fk_bots'),10); return (n>=0&&n<=3)?n:0; })(),
+    itemBoxes:[],            // {x,z, active, respawnT}
+    boostPads:[],            // K7: {x,z, s, lane, idx, tx, tz}
+    projectiles:[],          // {x,z,y, vx,vz, life, bounced, owner}
+    hazards:[],              // {x,z,y, owner, ownerGraceT}
+    raceOver:false,          // K5 MP: true once every kart has finished (host stops the world)
+    raceGen:0,               // K5 MP: bumped each countdown so guests re-seat on host restart
+    bestLap:loadBestLap()
+  };
+
+  // chase-camera state (LOCAL-only, outside G) — declared before resetKart (which snaps it)
+  let camHeading = 0;
+  const camPos = new THREE.Vector3(0, TUNE.camHeight, -TUNE.camDist);
+  let camFov = TUNE.fov;
+  let camKartY = 0;   // K2.5: smoothed kart-y the camera tracks (jumps read as FLOAT)
+  // K2: reusable math temporaries (per-view surface normals now live on each kart view)
+  const _tmpN = new THREE.Vector3(), _tmpF = new THREE.Vector3(), _tmpR = new THREE.Vector3(), _tmpM = new THREE.Matrix4();
+  const _wqRoll = new THREE.Quaternion(), _wqSteer = new THREE.Quaternion();   // GLB wheel spin/steer temps
+  const _AXLE_Z = new THREE.Vector3(0,0,1), _WUP_Y = new THREE.Vector3(0,1,0);
+
+  // reset a player's per-race progress fields (does NOT move it)
+  function resetRaceFields(p){
+    p.lap = 0; p.checkpoint = 0; p.wrongWayT = 0;
+    p.finished = false; p.finishTime = 0; p.place = 1;
+    p.lapLast = 0; p.lapBest = 0; p.startPressT = null; p.stallT = 0;
+    p.spinT = 0; p.itemHeld = null; p.itemRollT = 0; p.itemHoldT = 0;
+  }
+  // seat a player at a grid slot (pre-race pose), zeroing motion + progress baseline
+  function placeAtGrid(p, slot){
+    const g = gridSlotPose(slot);
+    p.gridSlot = slot;
+    p.pos.x = g.x; p.pos.z = g.z; p.theta = g.theta;
+    p.v.x = 0; p.v.z = 0; p.steer = 0;
+    p.drift.active = false; p.drift.dir = 0; p.drift.charge = 0;
+    p.driftAngle = 0; p.boostT = 0; p.boostTier = 0; p.hop = 0;
+    p.y = sampleHeight(p.pos.x, p.pos.z); p.vy = 0; p.airborne = false; p.landT = 0;
+    p.airT = 0; p.landFx = false; p.spinT = 0; p.itemHeld = null; p.itemRollT = 0; p.itemHoldT = 0;
+    p.finishDebounce = 5;
+    // progress baseline
+    p.lastSampleIdx = nearestSampleIdxFull(p.pos.x, p.pos.z);
+    p.progressS = arcS[p.lastSampleIdx]; p.prevProgressS = p.progressS;
+    // grid is behind the start line -> prevSide negative so the first forward cross registers
+    const rx = p.pos.x - FINISH.cx, rz = p.pos.z - FINISH.cz;
+    p.prevSide = (rx*FINISH.tx + rz*FINISH.tz) >= 0 ? 1 : -1;
+    if (p === G.players.local) snapCameraBehind(p);
+  }
+  function snapCameraBehind(p){
+    camHeading = p.theta;
+    camKartY = p.y;   // no vertical easing on a hard snap
+    camPos.set(p.pos.x - Math.sin(camHeading)*TUNE.camDist,
+               p.y + TUNE.camHeight,
+               p.pos.z - Math.cos(camHeading)*TUNE.camDist);
+  }
+  // R reset (dev): drop the local kart back on the centerline at sample 0, keep current phase.
+  function resetKart(){
+    const p = G.players.local;
+    const t0 = tangents[0];
+    p.pos.x = centerPts[0].x; p.pos.z = centerPts[0].z;
+    p.theta = Math.atan2(t0.x, t0.z);
+    p.v.x = 0; p.v.z = 0; p.steer = 0;
+    p.drift.active = false; p.drift.dir = 0; p.drift.charge = 0;
+    p.driftAngle = 0; p.boostT = 0; p.boostTier = 0; p.hop = 0; p.stallT = 0;
+    p.y = sampleHeight(p.pos.x, p.pos.z); p.vy = 0; p.airborne = false; p.landT = 0;
+    p.lapStart = performance.now();
+    p.finishDebounce = 5;
+    p.lastSampleIdx = 0; p.progressS = arcS[0]; p.prevProgressS = arcS[0];
+    const rx = p.pos.x - FINISH.cx, rz = p.pos.z - FINISH.cz;
+    p.prevSide = (rx*FINISH.tx + rz*FINISH.tz) >= 0 ? 1 : -1;
+    snapCameraBehind(p);
+  }
+  // full nearest-sample search (used for baselines; per-frame uses a windowed search)
+  function nearestSampleIdxFull(x, z){
+    let bi=0, bd=1e18;
+    for (let i=0;i<SAMPLES;i++){ const c=centerPts[i]; const dx=x-c.x, dz=z-c.z; const d=dx*dx+dz*dz; if(d<bd){bd=d;bi=i;} }
+    return bi;
+  }
+  // boot: park the kart on the grid (item boxes are seeded later, once their geometry consts exist)
+  placeAtGrid(G.players.local, 0);
+
+  // ---------- INPUT ----------
+  const keys = {};
+  addEventListener('keydown', e=>{
+    if (e.key === '`') { toggleTune(); e.preventDefault(); return; }
+    keys[e.key.toLowerCase()] = true;
+    if ([' ','arrowup','arrowdown','arrowleft','arrowright'].includes(e.key.toLowerCase())) e.preventDefault();
+  });
+  addEventListener('keyup', e=>{ keys[e.key.toLowerCase()] = false; });
+  addEventListener('blur', ()=>{ for (const k in keys) keys[k]=false; });
+
+  // gamepad
+  let padSeen = false;
+  addEventListener('gamepadconnected', ()=>{ showPad(); });
+  function showPad(){
+    if (padSeen) return; padSeen = true;
+    const t = document.getElementById('padToast'); t.classList.add('show');
+    setTimeout(()=>t.classList.remove('show'), 2200);
+  }
+  function readPad(){
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    let pad = null;
+    for (const p of pads) if (p) { pad = p; break; }
+    if (!pad) return null;
+    if (!padSeen) showPad();
+    const dz = v => Math.abs(v) < 0.12 ? 0 : v;
+    let steer = dz(pad.axes[0] || 0);
+    // triggers: buttons 7 (RT) / 6 (LT); fallback to axes if not present
+    let thr = pad.buttons[7] ? pad.buttons[7].value : 0;
+    let brk = pad.buttons[6] ? pad.buttons[6].value : 0;
+    const drift = pad.buttons[0] && pad.buttons[0].pressed;
+    const reset = pad.buttons[1] && pad.buttons[1].pressed;
+    const item  = pad.buttons[2] && pad.buttons[2].pressed;   // X button = use item
+    return { steer, thr, brk, drift, reset, item };
+  }
+
+  // ---------- nearest centerline distance (PROJECTED, shared source) ----------
+  function nearestCenterDist(x, z){
+    return FK_TRACK.nearestOnCenter(_sampled, x, z).dist;
+  }
+
+  // ---------- turn authority vs speed (MKW ramp-then-taper, replaces sqrt curve) ----------
+  function turnAuthority(speed){
+    const peak = TUNE.turnPeakSpeed;
+    const hi = TUNE.turnHighFrac;
+    if (speed <= 0) return 0.4;
+    if (speed < peak){
+      // ramp 0.4 -> 1.0
+      return 0.4 + 0.6 * (speed / peak);
+    }
+    if (speed < TUNE.maxSpeed){
+      // taper 1.0 -> hi
+      const t = (speed - peak) / Math.max(0.001, (TUNE.maxSpeed - peak));
+      return 1.0 + (hi - 1.0) * Math.min(t, 1);
+    }
+    return hi; // flat above maxSpeed
+  }
+
+  // ---------- physics step (K1: pure-ish — operates on a player entry p, no globals beyond
+  //   TUNE/track. Solo behavior is byte-identical to the old step(); only `state.` -> `p.`
+  //   and the lap/finish bookkeeping moved out into updateRaceProgress().) ----------
+  function stepKart(p, inp, dt){
+    // inp: { steer:[-1,1], throttle:[0,1], brake:[0,1], drift:bool }
+    // K4 SPIN-OUT: input fully ignored while spinning; the kart coasts (drag only) and the 720deg
+    // visual spin is rendered from spinT. speed was already knocked down once at the hit (applySpinOut).
+    if (p.spinT > 0){
+      p.spinT = Math.max(0, p.spinT - dt);
+      inp = { steer:0, throttle:0, brake:0, drift:false };
+    }
+    // jump-start stall: input ignored + strong drag while stallT>0 (gentle, brief)
+    if (p.stallT > 0){
+      p.stallT = Math.max(0, p.stallT - dt);
+      inp = { steer:0, throttle:0, brake:0, drift:false };
+      p.v.x *= Math.exp(-6*dt); p.v.z *= Math.exp(-6*dt);
+    }
+    const forward = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
+    let speed = Math.hypot(p.v.x, p.v.z);
+    const dirSign = (p.v.x*forward.x + p.v.z*forward.z) >= 0 ? 1 : -1; // moving fwd/back
+    const signedSpeed = speed * dirSign;
+
+    // ---- surface ----
+    const cdist = nearestCenterDist(p.pos.x, p.pos.z);
+    const half = TRACK_WIDTH/2;
+    const onGrass = cdist > half;
+    // RAMPED grass penalty (no cliff): strength grows with how DEEP into the grass you are
+    // (0 at the road edge -> 1 by grassRamp metres in) and is smoothed over ~1/grassResponse s,
+    // so clipping the edge or a momentary excursion barely slows you; only committing to the
+    // grass bogs you down. gf drives both the accel/top-speed cut and the drag below.
+    const gTarget = onGrass ? Math.min(1, (cdist - half)/Math.max(0.5, TUNE.grassRamp)) : 0;
+    p.grassF = (p.grassF||0) + (gTarget - (p.grassF||0)) * Math.min(1, dt*TUNE.grassResponse);
+    const gf = p.grassF;
+    p.surface = gf > 0.35 ? 'grass' : 'track';
+
+    // K2.5: airborne? (set at the END of the previous frame's vertical integration)
+    const air = p.airborne;
+
+    // boost active? (MKW STEP model: while boosting, target speed = maxSpeed*(1+boostMult),
+    // reached via a strong FORCED acceleration boostAccel — no ramped kick, no artificial
+    // bleed on release; normal drag brings speed back down for a clean surge-then-settle.)
+    const boosting = p.boostT > 0;
+    // bots don't drift/mini-turbo, so their cruising cap is raised (botTopSpeedMul) to compensate;
+    // a boosting human still exceeds it. Boost (pads/items) uses the normal boostMult surge for both.
+    const botCap = p.isBot ? (TUNE.botTopSpeedMul || 1) : 1;
+    let effMax = TUNE.maxSpeed * (boosting ? Math.max(botCap, 1 + TUNE.boostMult) : botCap);
+    let effAccel = TUNE.accel;
+    if (gf > 0){ effAccel *= (1 - 0.55*gf); effMax *= (1 - 0.5*gf); }
+
+    // ---- throttle / brake along forward ----
+    // K2.5: NO throttle accel and NO coasting drag while airborne — horizontal velocity persists.
+    if (air){
+      /* airborne: horizontal velocity coasts untouched (no engine, no drag) */
+    } else if (boosting){
+      const target = effMax;
+      if (signedSpeed < target){
+        const add = Math.min(TUNE.boostAccel * dt, target - signedSpeed);
+        p.v.x += forward.x * add;
+        p.v.z += forward.z * add;
+      }
+    } else if (inp.throttle > 0){
+      const target = effMax;
+      if (signedSpeed < target){
+        const add = effAccel * inp.throttle * dt;
+        p.v.x += forward.x * add;
+        p.v.z += forward.z * add;
+      }
+    } else if (inp.brake > 0){
+      if (signedSpeed > -TUNE.maxSpeed*0.4){
+        const dec = TUNE.brake * inp.brake * dt;
+        p.v.x -= forward.x * dec;
+        p.v.z -= forward.z * dec;
+      }
+    } else {
+      const dragF = Math.exp(-TUNE.drag * dt);
+      p.v.x *= dragF; p.v.z *= dragF;
+    }
+
+    // ---- SLOPE ACCEL (K2 feel): downhill rewards, uphill slows. Add slopeAccel*dot(downhill,
+    //   forward) along forward each frame. Deadzone: below ~4deg grade OR speed<1 it is OFF, so a
+    //   parked kart never slides and gentle straights (grade < slopeDeadzoneGrad) feel unchanged.
+    //   K2.5: no slope accel while airborne. ----
+    if (!air){
+      const e = 1.5;
+      const cy = p.y;   // K7: sample the branch the kart is ON (height-aware) at a self-crossing
+      const dHdx = (sampleHeightAtY(p.pos.x+e, p.pos.z, cy) - sampleHeightAtY(p.pos.x-e, p.pos.z, cy)) / (2*e);
+      const dHdz = (sampleHeightAtY(p.pos.x, p.pos.z+e, cy) - sampleHeightAtY(p.pos.x, p.pos.z-e, cy)) / (2*e);
+      const gradMag = Math.hypot(dHdx, dHdz);
+      const spd = Math.hypot(p.v.x, p.v.z);
+      if (gradMag > TUNE.slopeDeadzoneGrad && spd >= 1){
+        const downhillDotFwd = -(dHdx*forward.x + dHdz*forward.z); // >0 when heading downhill
+        const add = TUNE.slopeAccel * downhillDotFwd * dt;
+        p.v.x += forward.x * add;
+        p.v.z += forward.z * add;
+      }
+    }
+
+    // ---- GRIP: rotate v's DIRECTION toward heading by a FIXED angular step (MKW §5) ----
+    speed = Math.hypot(p.v.x, p.v.z);
+    if (speed > 0.001){
+      // BOTS get extra grip WHILE DRIFTING (botDriftGripMul) so their slides actually hold the corner
+      // instead of washing wide — a driving-aid the player never feels (their driftGripRate is untouched).
+      const driftGrip = TUNE.driftGripRate * (p.isBot ? (TUNE.botDriftGripMul || 1) : 1);
+      let rate = air ? TUNE.airGrip : (p.drift.active ? driftGrip : TUNE.gripRate);
+      if (!air && onGrass) rate *= 2; // sticky grass reconciles velocity to heading faster
+      const sgn = (p.v.x*forward.x + p.v.z*forward.z) >= 0 ? 1 : -1;
+      const vAng = Math.atan2(p.v.x, p.v.z);
+      const desiredAng = Math.atan2(forward.x*sgn, forward.z*sgn);
+      let dA = desiredAng - vAng;
+      while (dA > Math.PI) dA -= Math.PI*2;
+      while (dA < -Math.PI) dA += Math.PI*2;
+      const st = Math.sign(dA) * Math.min(Math.abs(dA), rate * dt);
+      const na = vAng + st;
+      p.v.x = Math.sin(na) * speed;
+      p.v.z = Math.cos(na) * speed;
+    }
+
+    // clamp to effMax (gradual boost tail-off; grass cap bites immediately) — see original notes
+    speed = Math.hypot(p.v.x, p.v.z);
+    if (speed > effMax && !boosting){
+      // Decay toward effMax rather than snapping. On GRASS the old code scaled velocity straight
+      // to the cap in ONE frame (30->15 = a 15u/s cliff), and the chase camera — which trails by
+      // ~speed/camStiff — lurched forward when that trailing distance instantly collapsed. That
+      // one-frame velocity discontinuity read as a screen "teleport" the moment you touched grass.
+      // grassDecel is a firm exponential drag: grass still bogs you down within ~0.3s, but smoothly.
+      // Lerp drag->grassDecel by the ramped grass factor so a shallow/edge excursion barely drags.
+      const rate = TUNE.drag + (TUNE.grassDecel - TUNE.drag) * gf;
+      const over = speed - effMax;
+      const newSpeed = effMax + over * Math.exp(-rate * dt);
+      const s = newSpeed / speed;
+      p.v.x *= s; p.v.z *= s;
+    }
+
+    // ---- STEERING ----
+    const steerTarget = inp.steer;
+    const sl = 1 - Math.exp(-TUNE.steerLerp * dt);
+    p.steer += (steerTarget - p.steer) * sl;
+
+    speed = Math.hypot(p.v.x, p.v.z);
+    const speedFactor = turnAuthority(speed);
+    const reversing = (p.v.x*forward.x + p.v.z*forward.z) < -0.01;
+    let steerEff;
+    if (p.drift.active){
+      const d = p.drift.dir;
+      const tight = (p.steer * d + 1) / 2; // 0..1
+      const mag = TUNE.driftSteerMin + (TUNE.driftSteerMax - TUNE.driftSteerMin) * Math.min(Math.max(tight,0),1);
+      steerEff = d * mag * TUNE.steerRate * speedFactor;
+      if (!air){   // K2.5: drift CHARGE frozen while airborne (a held drift survives the hop)
+        let chargeRate = TUNE.mtChargeBase;
+        if (p.steer * d > 0.4) chargeRate += TUNE.mtChargeBonus;
+        p.drift.charge += chargeRate * dt;
+      }
+    } else {
+      steerEff = p.steer * TUNE.steerRate * speedFactor;
+      if (reversing) steerEff = -steerEff;
+    }
+    if (air) steerEff *= TUNE.airControl;   // reduced steering authority mid-air
+    p.theta += steerEff * dt;
+
+    // ---- DRIFT ANGLE state (target-seeking + hard clamp, relaxes to 0 on release) ----
+    if (p.drift.active){
+      const d = p.drift.dir;
+      const into = p.steer * d;
+      let targetMag = TUNE.driftAngleTarget;
+      if (into > 0)      targetMag = TUNE.driftAngleTarget + (TUNE.driftAngleMax - TUNE.driftAngleTarget) * Math.min(into,1);
+      else if (into < 0) targetMag = TUNE.driftAngleTarget + (TUNE.driftAngleMin - TUNE.driftAngleTarget) * Math.min(-into,1);
+      const target = d * targetMag;
+      const dAng = target - p.driftAngle;
+      const stepA = Math.sign(dAng) * Math.min(Math.abs(dAng), TUNE.driftAngleRate * dt);
+      p.driftAngle += stepA;
+      p.driftAngle = Math.max(-TUNE.driftAngleMax, Math.min(TUNE.driftAngleMax, p.driftAngle));
+      p.theta += p.driftAngle * TUNE.driftAngleSteerFeed * dt;
+    } else if (p.driftAngle !== 0){
+      const stepA = Math.sign(-p.driftAngle) * Math.min(Math.abs(p.driftAngle), TUNE.driftAngleRate * dt);
+      p.driftAngle += stepA;
+    }
+
+    // ---- DRIFT start / stop ---- (K2.5: frozen while airborne — drift persists through a hop)
+    if (!air){
+      const wantDrift = inp.drift;
+      if (!p.drift.active){
+        if (wantDrift && speed > TUNE.minDriftSpeed && Math.abs(p.steer) > 0.15){
+          p.drift.active = true;
+          p.drift.dir = p.steer >= 0 ? 1 : -1;
+          p.drift.charge = 0;
+          p.hop = 0.18; // visual hop
+        }
+      } else {
+        if (speed < TUNE.minDriftSpeed*0.7){ endDrift(p, false); }
+        else if (!wantDrift){ endDrift(p, true); }
+      }
+    }
+
+    // ---- integrate position ----
+    p.pos.x += p.v.x * dt;
+    p.pos.z += p.v.z * dt;
+
+    // ---- K7 CORRIDOR WALL (ribbon) ----
+    // A FIRM, un-passable wall at edge+margin (the drivable corridor). Bounds = distance to the
+    // NEAREST centerline (union of corridors) so a self-overlap is in-bounds on EITHER branch. The
+    // kart POSITION is hard-clamped back to the wall line (can NEVER tunnel across the grass to cut
+    // the course). For FEEL we no longer REFLECT (a one-frame bounce lurched the camera, same class
+    // as the grass-cliff bug just fixed): we only DAMP the outward-normal velocity component and
+    // leave the ALONG-wall component intact — so you SLIDE smoothly along the ribbon. Grass (road
+    // edge..edge+margin) keeps the existing slowdown.
+    {
+      const wallAt = half + effWallMargin();
+      const winfo = FK_TRACK.nearestOnCenter(_sampled, p.pos.x, p.pos.z);  // freshly on the integrated pos
+      if (winfo.dist > wallAt){
+        const c = centerPts[winfo.idx];
+        let inx = c.x - p.pos.x, inz = c.z - p.pos.z;    // inward (toward the road)
+        const il = Math.hypot(inx, inz) || 1; inx/=il; inz/=il;
+        const over = winfo.dist - wallAt;
+        p.pos.x += inx * over; p.pos.z += inz * over;    // clamp EXACTLY to the wall line (no tunnel)
+        const vn = p.v.x*inx + p.v.z*inz;                // inward velocity component (<0 = driving OUT into the wall)
+        if (vn < 0){
+          // SLIDE: strip ONLY the into-wall (outward-normal) part; along-wall speed is preserved.
+          p.v.x -= vn*inx; p.v.z -= vn*inz;
+          // debounced firm-hit bonk: fires once on a fresh HARD contact, never during a slide
+          if (!p._inWall && -vn > 6 && p === G.players.local) bonkSound();
+          p._inWall = true;
+        }
+      } else {
+        p._inWall = false;                               // left the wall -> re-arm the bonk
+      }
+    }
+
+    // ---- VERTICAL / AIRBORNE (K2.5) ----
+    // sampleHeight still OWNS the ground; p.y is the kart's actual height. Grounded: p.y follows the
+    // surface and p.vy = the terrain-follow rate (slope · horizontal speed). LAUNCH: when the surface
+    // falls away faster than gravity could pull the glued kart down (required downward accel < −gravity)
+    // AND we're moving, go ballistic carrying the PRE-crest vertical velocity — fast crests = real arcs.
+    {
+      const cy = p.y;   // K7: seed height-aware sampling with the kart's own level (self-crossings)
+      const groundYnew = sampleHeightAtY(p.pos.x, p.pos.z, cy);
+      const spd = Math.hypot(p.v.x, p.v.z);
+      // terrain-follow vertical rate at the current position (slope · horizontal velocity). Computed
+      // for BOTH branches so a landing can seat p.vy on the surface's follow-rate (see fix below).
+      const e = 1.5;
+      const dHdx = (sampleHeightAtY(p.pos.x+e, p.pos.z, cy) - sampleHeightAtY(p.pos.x-e, p.pos.z, cy)) / (2*e);
+      const dHdz = (sampleHeightAtY(p.pos.x, p.pos.z+e, cy) - sampleHeightAtY(p.pos.x, p.pos.z-e, cy)) / (2*e);
+      const terrainVY = dHdx*p.v.x + dHdz*p.v.z;
+      if (p.airborne){
+        p.airT += dt;                        // accumulate airtime (gates landing effects)
+        p.vy -= TUNE.gravity * dt;
+        p.y += p.vy * dt;
+        if (p.y <= groundYnew){
+          p.landImpact = Math.max(0, -p.vy); // downward speed at touchdown (thump loudness)
+          p.y = groundYnew; p.airborne = false;
+          // DECLINE-BOUNCE FIX: seat vy on the surface's follow-rate, NOT 0. Zeroing it made the very
+          // next grounded frame compute reqAccel = (terrainVY − 0)/dt — a huge spurious spike on any
+          // decline — which re-launched instantly, so a kart bounced the whole way down a slope
+          // (airborne = no steering + no throttle/slope accel = the "capped speed + no steering" bug).
+          // Gluing vy to terrainVY makes the next reqAccel ≈ curvature only, so only real crests launch.
+          p.vy = terrainVY;
+          // SQUASH-SPAM FIX (K2.5): only fire squash + thump for a REAL jump — enough airtime OR a
+          // hard impact. Micro launch/land cycles from spline curvature still happen, but silently.
+          if (p.airT >= TUNE.landMinAirT || p.landImpact >= TUNE.landMinImpact){
+            p.landT = TUNE.landSquashT;
+            p.landFx = true;                 // one-shot; render layer fires the thump then clears it
+          }
+          p.airT = 0;
+        }
+      } else {
+        const reqAccel = (terrainVY - p.vy) / Math.max(dt, 1e-4); // accel needed to stay glued
+        // LAUNCH HYSTERESIS (K2.5): require the crest to beat gravity by a margin (launchHyst) so
+        // spline noise near a flat crest doesn't flicker the airborne state on/off. Because p.vy holds
+        // last frame's terrainVY (grounded) or the follow-rate at landing, reqAccel measures CURVATURE
+        // (how fast the required follow-rate is changing) — a sustained steep decline no longer launches.
+        if (reqAccel < -TUNE.gravity*TUNE.launchHyst && spd > TUNE.launchMinSpeed){
+          p.airborne = true; p.airT = 0;   // p.vy already holds the previous frame's terrainVY = pre-crest carry
+        } else {
+          p.y = groundYnew; p.vy = terrainVY;
+        }
+      }
+    }
+    if (p.landT > 0) p.landT = Math.max(0, p.landT - dt);
+
+    // ---- boost timer & hop ----
+    if (p.boostT > 0){
+      p.boostT = Math.max(0, p.boostT - dt);
+      if (p.boostT === 0) p.boostTier = 0;
+    }
+    if (p.hop > 0) p.hop = Math.max(0, p.hop - dt);
+  }
+
+  function endDrift(p, allowBoost){
+    if (p.drift.active && allowBoost){
+      const tier = driftTier(p.drift.charge);
+      if (tier >= 1){
+        p.boostT = TUNE.boostT1 * (tier === 2 ? 3 : 1);
+        p.boostTier = tier;
+        if (p === G.players.local) boostWhoosh();   // K6: mini-turbo release whoosh (local kart only)
+      }
+    }
+    p.drift.active = false; p.drift.dir = 0; p.drift.charge = 0;
+  }
+  function driftTier(charge){
+    if (charge >= 2*TUNE.mtTier1) return 2;
+    if (charge >= TUNE.mtTier1) return 1;
+    return 0;
+  }
+
+  // ---------- K4: spin-out (shared hazard result) ----------
+  // Gentle, kid-friendly: input locked for spinT, kart visibly spins 720deg, speed knocked to 35%
+  // ONCE at the hit, drift + boost cancelled. Re-hitting an already-spinning kart does nothing.
+  function applySpinOut(p){
+    if (p.spinT > 0) return;
+    // MP: the host DECLARES spins; a remote human's client applies it to their own kart. So on
+    // the host, a hit on a guest kart bumps that guest's spin seq instead of spinning the host's
+    // adopted copy (which the guest would just overwrite next publish).
+    if (net.mp && net.isHost && p._remote && !p.isBot && p._remotePid){
+      net.spins[p._remotePid] = (net.spins[p._remotePid] || 0) + 1;
+      publishNetSnapshotNow();
+      return;
+    }
+    p.spinT = TUNE.spinT;
+    const sp = Math.hypot(p.v.x, p.v.z);
+    const s = sp > 0.01 ? (sp*0.35)/sp : 0;
+    p.v.x *= s; p.v.z *= s;
+    p.drift.active = false; p.drift.dir = 0; p.drift.charge = 0; p.driftAngle *= 0.5;
+    p.boostT = 0; p.boostTier = 0;
+    spinSound();
+  }
+
+  // ---------- K3.5: pure-pursuit BOT input synthesis ----------
+  // A bot is a normal player stepped by the SAME stepKart with these synthesized inputs.
+  function curvatureAt(a, b, c){
+    // discrete curvature ~ 1/circumradius of three consecutive centerline samples (XZ)
+    const abx=b.x-a.x, abz=b.z-a.z, bcx=c.x-b.x, bcz=c.z-b.z, acx=c.x-a.x, acz=c.z-a.z;
+    const A=Math.hypot(abx,abz), B=Math.hypot(bcx,bcz), C=Math.hypot(acx,acz);
+    const area = Math.abs(abx*bcz - abz*bcx)/2;
+    if (area < 1e-6 || A<1e-6 || B<1e-6 || C<1e-6) return 0;
+    const R = (A*B*C)/(4*area);
+    return 1/R;
+  }
+  function botTargetSpeed(p, idx){
+    const C = centerPts, N = SAMPLES;
+    let maxCurv = 0, ai = idx, acc = 0;
+    while (acc < TUNE.botCurvWindow){
+      const curv = curvatureAt(C[(ai-1+N)%N], C[ai], C[(ai+1)%N]);
+      if (curv > maxCurv) maxCurv = curv;
+      const j = (ai+1)%N; acc += Math.hypot(C[j].x-C[ai].x, C[j].z-C[ai].z); ai = j;
+      if (ai === idx) break;
+    }
+    const botTop = TUNE.maxSpeed * (TUNE.botTopSpeedMul || 1);   // bots may exceed base max (no drift/MT)
+    let tv = botTop;
+    if (maxCurv > 1e-4) tv = Math.sqrt((TUNE.botLatBase * TUNE.botCornerGrip) / maxCurv);
+    tv = Math.min(tv, botTop);
+    tv *= (0.75 + 0.25 * (p.botSkill != null ? p.botSkill : TUNE.botSkill)); // skill scales pace
+    // light rubber-band: nudge target speed toward the human to keep family races close
+    const human = G.players.local;
+    if (human && human !== p){
+      const gap = totalProgress(human) - totalProgress(p);   // >0 = bot behind the human
+      if (gap > 25) tv *= (1 + TUNE.botRubberband);
+      else if (gap < -25) tv *= (1 - TUNE.botRubberband);
+    }
+    return tv;
+  }
+  // corner lookahead: the aim sample, the SHARPEST curvature within the scan window (maxCurv = 1/radius,
+  // same measure as botTargetSpeed), and the corner's INSIDE direction (centripetal = tangent change at
+  // the sharpest point — sign-convention-free, the tangent rotates toward the apex side).
+  function cornerAhead(idx, speed, lookMul){
+    const C = centerPts, N = SAMPLES;
+    const lookDist = (TUNE.botLookahead + speed*0.25) * (lookMul || 1);
+    let ai = idx, acc = 0;
+    while (acc < lookDist){ const j=(ai+1)%N; acc += Math.hypot(C[j].x-C[ai].x, C[j].z-C[ai].z); ai=j; if(ai===idx)break; }
+    // sharpest curvature within botCurvWindow ahead of the aim point
+    let bestI = ai, maxCurv = 0, a2 = 0, k = ai;
+    while (a2 < TUNE.botCurvWindow){
+      const curv = curvatureAt(C[(k-1+N)%N], C[k], C[(k+1)%N]);
+      if (curv > maxCurv){ maxCurv = curv; bestI = k; }
+      const j=(k+1)%N; a2 += Math.hypot(C[j].x-C[k].x, C[j].z-C[k].z); k=j; if(k===ai)break;
+    }
+    const t0 = tangents[(bestI-2+N)%N], t1 = tangents[(bestI+2)%N];
+    let inx = t1.x - t0.x, inz = t1.z - t0.z; const tm = Math.hypot(inx, inz);
+    if (tm > 1e-4){ inx/=tm; inz/=tm; }
+    return { ai, inx, inz, maxCurv };
+  }
+  function botInput(p){
+    const C = centerPts;
+    const idx = p.lastSampleIdx;
+    const speed = Math.hypot(p.v.x, p.v.z);
+    const { ai, inx, inz, maxCurv } = cornerAhead(idx, speed, p.botLookMul || 1);
+    const skill = (p.botSkill != null ? p.botSkill : TUNE.botSkill);
+    // A drift has LOW grip, so its path can't bend tighter than ~driftSpeed/driftGripRate (radius). Only
+    // drift a corner gentle enough that the slide stays on the road (maxCurv <= holdable); tighter
+    // corners/hairpins are gripped. Auto-derived from the live drift physics so a tune change tracks it.
+    const driftSpeed = TUNE.minDriftSpeed * 1.1;
+    const botDriftGrip = TUNE.driftGripRate * (TUNE.botDriftGripMul || 1);
+    const holdableCurv = (botDriftGrip / driftSpeed) * 0.7;   // safety margin so the slide stays on-road
+    const wantDrift = !!TUNE.botDrift && skill > 0.15
+                      && maxCurv > TUNE.botDriftCurv && maxCurv <= holdableCurv;
+    // RACING LINE: bias the aim toward the inside/apex (0 on straights, up to botLineInside*hw), scaled
+    // by this bot's own apex aggression (botLineMul).
+    const half = TRACK_WIDTH/2;
+    const maxOff = half * (TUNE.botLineInside || 0);
+    const off = Math.min(maxCurv * (TUNE.botLineGain || 0), 1) * maxOff * (p.botLineMul != null ? p.botLineMul : 1);
+    // PER-BOT LANE: shift the aim laterally to this bot's preferred lane so the field spreads across the
+    // track instead of trailing in one line. Faded out in corners so the apex line still wins there.
+    const tn = tangents[ai]; const nx = -tn.z, nz = tn.x;   // left normal
+    const cornerFade = Math.min(1, maxCurv / 0.03);
+    const lane = (p.laneBias || 0) * (TUNE.botLaneSpread || 0) * half * (1 - 0.75*cornerFade);
+    const target = { x: C[ai].x + inx*off + nx*lane, z: C[ai].z + inz*off + nz*lane };
+    const dx = target.x - p.pos.x, dz = target.z - p.pos.z;
+    let dTheta = Math.atan2(dx, dz) - p.theta;
+    while (dTheta > Math.PI) dTheta -= Math.PI*2;
+    while (dTheta < -Math.PI) dTheta += Math.PI*2;
+    let steer = Math.max(-1, Math.min(1, dTheta * TUNE.botSteerGain));
+    // target speed — while drifting a driftable corner, hold just above the drift minimum (never brake
+    // the drift dead), but tight hairpins still slow normally via botTargetSpeed.
+    let tv = botTargetSpeed(p, idx);
+    if (wantDrift || p.drift.active) tv = Math.max(tv, driftSpeed);   // carry enough to sustain the drift
+    let throttle = 0, brake = 0;
+    if (speed < tv - 0.5) throttle = 1;
+    else if (speed > tv + 1.5) brake = 1;
+    else throttle = 0.45;
+    // DRIFTING: SHORT, tightly-committed bursts — start on a driftable corner, hold only until the first
+    // mini-turbo is banked (tier-1 charge) OR the corner opens, then release (boost fires, grip returns).
+    // A short, hard-committed drift rotates the kart through the apex without the low-grip slide wandering
+    // off; the rest of the corner (and any tight hairpin) is driven gripping.
+    let drift = false;
+    if (TUNE.botDrift){
+      if (p.drift.active){
+        const d = p.drift.dir;
+        const banked = p.drift.charge >= TUNE.mtTier1;            // first mini-turbo earned -> cash it in
+        const cornerOpen = maxCurv < TUNE.botDriftCurv*0.5;       // corner straightening -> exit
+        drift = !banked && !cornerOpen && speed > TUNE.minDriftSpeed*0.85;
+        if (drift && steer*d < 0.55) steer = d*0.55;              // commit into the drift to build charge
+      } else if (wantDrift && speed > TUNE.minDriftSpeed && speed < driftSpeed*1.15){
+        // only INITIATE once slowed near drift speed — starting a drift while still fast makes the
+        // slide radius (speed/driftGrip) too wide and washes the kart off on entry.
+        drift = true;
+        if (Math.abs(steer) < 0.3 && steer !== 0) steer = Math.sign(steer)*0.4;   // ensure the drift starts
+      }
+    }
+    if (drift){ brake = 0; throttle = Math.max(throttle, 0.5); }
+    return { steer, throttle, brake, drift };
+  }
+  // bot item policy (situational): tomato -> fire at a rival ahead in range; hay -> drop when a rival
+  // is close BEHIND (in their path); boost -> save it for a straight. itemHoldT is a fallback so an
+  // item is never hoarded forever (set to 1-3s on pickup).
+  function botUseItems(p, dt){
+    if (!p.itemHeld || p.itemRollT > 0 || p.spinT > 0) return;
+    p.itemHoldT -= dt;
+    const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
+    const held = p.itemHeld;
+    if (held === 'tomato'){
+      for (const id in G.players){
+        const q = G.players[id]; if (q === p) continue;
+        const rx = q.pos.x - p.pos.x, rz = q.pos.z - p.pos.z;
+        const ahead = rx*f.x + rz*f.z, lat = Math.abs(rx*(-f.z) + rz*f.x);
+        if (ahead > 2 && ahead < 34 && lat < 7){ useItem(p); return; }   // rival in the firing line
+      }
+      if (p.itemHoldT <= 0) useItem(p);
+    } else if (held === 'hay'){
+      for (const id in G.players){
+        const q = G.players[id]; if (q === p) continue;
+        const rx = q.pos.x - p.pos.x, rz = q.pos.z - p.pos.z;
+        const behind = -(rx*f.x + rz*f.z), lat = Math.abs(rx*(-f.z) + rz*f.x);
+        if (behind > 2 && behind < 16 && lat < 6){ useItem(p); return; }  // drop in a chaser's path
+      }
+      if (p.itemHoldT <= 0) useItem(p);
+    } else {   // boost: spend it where it pays off — a straight ahead (low curvature)
+      const { maxCurv } = cornerAhead(p.lastSampleIdx, Math.hypot(p.v.x, p.v.z));
+      if (maxCurv < 0.015 || p.itemHoldT <= 0) useItem(p);
+    }
+  }
+
+  // ---------- K4: items ----------
+  const ITEM_KINDS = ['boost','tomato','hay'];
+  function rollItem(){ return ITEM_KINDS[(Math.random()*ITEM_KINDS.length)|0]; }
+  function useItem(p){
+    const kind = p.itemHeld;
+    if (!kind || p.itemRollT > 0) return;
+    p.itemHeld = null;
+    if (kind === 'boost'){
+      p.boostT = TUNE.boostT1 * 3; p.boostTier = 2;   // instant tier-2-equivalent (reuse boost pipeline)
+      boostWhoosh();
+    } else if (kind === 'tomato'){
+      fireTomato(p); itemFireSound();
+    } else if (kind === 'hay'){
+      dropHay(p); itemFireSound();
+    }
+  }
+  function fireTomato(p){
+    const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
+    const sp = Math.hypot(p.v.x, p.v.z) + TUNE.tomatoSpeed;
+    const x = p.pos.x + f.x*2.2, z = p.pos.z + f.z*2.2;
+    G.projectiles.push({ x, z, y:sampleHeight(x,z)+0.6, vx:f.x*sp, vz:f.z*sp, life:TUNE.tomatoLife, bounced:false, owner:p.id });
+  }
+  function dropHay(p){
+    const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
+    const x = p.pos.x - f.x*2.4, z = p.pos.z - f.z*2.4;
+    G.hazards.push({ x, z, y:sampleHeight(x,z)+0.4, owner:p.id, ownerGraceT:0.7 });
+    while (G.hazards.length > TUNE.hazardMax) G.hazards.shift();   // oldest despawns (render reconciles)
+  }
+  function advanceProjectiles(dt){
+    const half = TRACK_WIDTH/2;
+    for (const pr of G.projectiles){
+      pr.x += pr.vx*dt; pr.z += pr.vz*dt;
+      pr.y = sampleHeight(pr.x, pr.z) + 0.6;
+      pr.life -= dt;
+      // bounce off the soft wall ONCE (reflect velocity back toward the nearest centerline point)
+      const info = FK_TRACK.nearestOnCenter(_sampled, pr.x, pr.z);
+      if (!pr.bounced && info.dist > half + 4){
+        const c = centerPts[info.idx];
+        let nx = c.x - pr.x, nz = c.z - pr.z; const nl = Math.hypot(nx,nz)||1; nx/=nl; nz/=nl;
+        const dot = pr.vx*nx + pr.vz*nz;
+        pr.vx = pr.vx - 2*dot*nx; pr.vz = pr.vz - 2*dot*nz;   // reflect
+        // ensure it heads inward
+        if (pr.vx*nx + pr.vz*nz < 0){ pr.vx = nx*Math.hypot(pr.vx,pr.vz); pr.vz = nz*Math.hypot(pr.vx,pr.vz); }
+        pr.bounced = true;
+      }
+      // hit karts (not the firer)
+      for (const id in G.players){
+        const q = G.players[id]; if (id === pr.owner) continue;
+        if (q.spinT <= 0 && Math.hypot(q.pos.x-pr.x, q.pos.z-pr.z) < 1.5){ applySpinOut(q); pr.life = 0; break; }
+      }
+    }
+    if (G.projectiles.some(pr=>pr.life<=0)) G.projectiles = G.projectiles.filter(pr=>pr.life>0);
+  }
+  function advanceHazards(dt){
+    for (const hz of G.hazards){
+      if (hz.ownerGraceT > 0) hz.ownerGraceT -= dt;
+      for (const id in G.players){
+        const q = G.players[id];
+        if (id === hz.owner && hz.ownerGraceT > 0) continue;
+        if (q.spinT <= 0 && Math.hypot(q.pos.x-hz.x, q.pos.z-hz.z) < 1.6){ applySpinOut(q); hz.dead = true; break; }
+      }
+    }
+    if (G.hazards.some(hz=>hz.dead)) G.hazards = G.hazards.filter(hz=>!hz.dead);
+  }
+  // item boxes: pickup + per-box respawn
+  function updateItemBoxes(dt){
+    for (const box of G.itemBoxes){
+      if (!box.active){ box.respawnT -= dt; if (box.respawnT <= 0){ box.active = true; } continue; }
+      for (const id in G.players){
+        const p = G.players[id];
+        if (p._remote && !p.isBot) continue;           // K5: remote guests roll via the host GRANT map
+        if (p.itemHeld || p.itemRollT > 0) continue;   // holding one already -> box does nothing
+        if (Math.hypot(p.pos.x-box.x, p.pos.z-box.z) < TUNE.itemBoxRadius){
+          box.active = false; box.respawnT = TUNE.itemBoxRespawn;
+          p.itemRollT = TUNE.itemRollT;                // start the roll; item settles when it hits 0
+          itemRollSound();
+          break;
+        }
+      }
+    }
+  }
+  function updateItemRolls(dt){
+    for (const id in G.players){
+      const p = G.players[id];
+      if (p._remote && !p.isBot) continue;   // K5: guests own their own roll settle (via host grants)
+      if (p.itemRollT > 0){
+        p.itemRollT = Math.max(0, p.itemRollT - dt);
+        if (p.itemRollT === 0){ p.itemHeld = rollItem(); if (p.isBot) p.itemHoldT = 1 + Math.random()*2; }
+      }
+    }
+  }
+
+  // ---------- K7: KART-VS-KART COLLISION (local separation pass) ----------
+  // Each frame, over ALL karts present locally (own + bots + interpolated remotes): if two are
+  // closer than kartRadius*2, push them apart to just-touching and exchange a LIGHT, capped bit of
+  // momentum so a bump reads as a bump (not a wall) and can never fling a kart off the track. In MP
+  // this stays local-authoritative on the OWN kart (bistro/plan model) — we never move a kart we
+  // don't own (a remote we only interpolate), so there is NO new synced state.
+  const _contactPairs = new Set();     // pair keys in contact last frame (fresh-contact bonk gate)
+  function ownedLocally(p){ return !p._remote; }   // local + solo/host bots are owned; adopted remotes are not
+  function resolveKartCollisions(){
+    const r = TUNE.kartRadius, minD = r*2, cap = TUNE.kartBumpCap;
+    const ids = Object.keys(G.players);
+    const nowContacts = new Set();
+    for (let i=0;i<ids.length;i++) for (let j=i+1;j<ids.length;j++){
+      const a = G.players[ids[i]], b = G.players[ids[j]];
+      let dx = a.pos.x-b.pos.x, dz = a.pos.z-b.pos.z;
+      let d = Math.hypot(dx, dz);
+      if (d >= minD || d < 1e-5) continue;
+      if (Math.abs((a.y||0)-(b.y||0)) > 1.4) continue;   // one is jumping clean OVER the other
+      const nx = dx/d, nz = dz/d, overlap = minD - d;
+      const aOwn = ownedLocally(a), bOwn = ownedLocally(b);
+      if (!aOwn && !bOwn) continue;                      // neither owned -> nothing to move
+      // positional separation (split the overlap between owned karts; for a remote pair push only ours)
+      if (aOwn && bOwn){
+        a.pos.x += nx*overlap/2; a.pos.z += nz*overlap/2;
+        b.pos.x -= nx*overlap/2; b.pos.z -= nz*overlap/2;
+      } else if (aOwn){ a.pos.x += nx*overlap; a.pos.z += nz*overlap; }
+      else            { b.pos.x -= nx*overlap; b.pos.z -= nz*overlap; }
+      // light momentum exchange along the normal (elastic ~0.4, capped so it can't fling off-track)
+      const va = a.v.x*nx + a.v.z*nz, vb = b.v.x*nx + b.v.z*nz, rel = va - vb;
+      if (rel < 0){                                      // approaching -> transfer a capped impulse
+        let imp = -rel * 0.4;
+        imp = Math.max(0, Math.min(cap, imp));
+        if (aOwn){ a.v.x += nx*imp; a.v.z += nz*imp; }
+        if (bOwn){ b.v.x -= nx*imp; b.v.z -= nz*imp; }
+      }
+      // fresh-contact bonk (debounced via the contact set) — only when the LOCAL kart is involved
+      const keyc = ids[i]+'|'+ids[j];
+      nowContacts.add(keyc);
+      if (!_contactPairs.has(keyc) && (a===G.players.local || b===G.players.local)) bonkSound();
+    }
+    _contactPairs.clear();
+    for (const k of nowContacts) _contactPairs.add(k);
+  }
+
+  // ---------- K7: BOOST PADS (drive over -> short boost via the existing pipeline) ----------
+  // G.boostPads: [{x,z, s, lane}] built from ACTIVE_TRACK.boostPads. Drive-over (own or bot within
+  // boostPadRadius, per-kart-per-pad cooldown elapsed) grants boostPadT of tier-1 boost + an instant
+  // forward kick (boostPadStrength). Bots benefit automatically (same G.players loop).
+  function buildBoostPads(){
+    G.boostPads = [];
+    const pads = Array.isArray(ACTIVE_TRACK.boostPads) ? ACTIVE_TRACK.boostPads : [];
+    for (const pd of pads){
+      const targetS = Math.max(0, Math.min(1, pd.s)) * TRACK_LEN;
+      let bi = 0; for (let i=0;i<SAMPLES;i++){ if (arcS[i] >= targetS){ bi = i; break; } bi = i; }
+      const c = centerPts[bi], t = tangents[bi];
+      const nx = -t.z, nz = t.x;
+      const lat = Math.max(-1, Math.min(1, pd.lane||0)) * (TRACK_WIDTH*0.42);
+      G.boostPads.push({ x:c.x + nx*lat, z:c.z + nz*lat, s:pd.s, lane:pd.lane||0, idx:bi,
+                         tx:t.x, tz:t.z });
+    }
+  }
+  function firePadBoost(p){
+    p.boostT = Math.max(p.boostT, TUNE.boostPadT);
+    p.boostTier = Math.max(p.boostTier, 1);
+    const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
+    const kick = TUNE.boostPadStrength;
+    p.v.x += f.x*kick; p.v.z += f.z*kick;
+    if (p === G.players.local) boostWhoosh();
+  }
+  function updateBoostPads(dt){
+    if (!G.boostPads || !G.boostPads.length) return;
+    const R2 = TUNE.boostPadRadius*TUNE.boostPadRadius;
+    for (const id in G.players){
+      const p = G.players[id];
+      if (!ownedLocally(p)) continue;            // guests fire their own pad locally (feel)
+      if (!p._padCd) p._padCd = {};
+      for (let i=0;i<G.boostPads.length;i++){
+        if (p._padCd[i] > 0){ p._padCd[i] = Math.max(0, p._padCd[i]-dt); continue; }
+        const pad = G.boostPads[i];
+        const dx = p.pos.x-pad.x, dz = p.pos.z-pad.z;
+        if (dx*dx+dz*dz <= R2){ firePadBoost(p); p._padCd[i] = TUNE.boostPadCooldown; }
+      }
+    }
+  }
+  function bonkSound(){ tone(140, 0.08, { type:'square', vol:0.11, slideTo:90 }); }
+
+  // ---------- K3.5: bot roster ----------
+  const BOT_NAMES  = ['Hay Bill', 'Cluck Norris', 'Baler Swift'];
+  const BOT_COLORS = [0x4caf50, 0x3f7fe0, 0xf2c53d];   // green / blue / yellow
+  function setupRoster(){
+    // remove any existing bots + their views
+    for (const id in G.players){ if (G.players[id].isBot){ removeKartView(id); delete G.players[id]; } }
+    const n = Math.max(0, Math.min(3, G.botCount|0));
+    for (let i=0;i<n;i++){
+      const id = 'bot'+i;
+      const p = makePlayer(id);
+      p.isBot = true; p.botName = BOT_NAMES[i]; p.botColor = BOT_COLORS[i];
+      // PER-BOT PERSONALITY (so they don't drive one identical line in a train): a slightly different
+      // pace, a preferred LANE spread across the track (base-spaced by seat + jitter), and a different
+      // apex aggression. Set once at spawn; the host owns bots so this never needs syncing.
+      p.botSkill   = Math.max(0.4, Math.min(1, TUNE.botSkill + (Math.random()-0.5)*(TUNE.botSkillVar||0)));
+      const laneBase = n>1 ? (i/(n-1))*2 - 1 : 0;                       // seat spread: -1 .. +1
+      p.laneBias   = Math.max(-1, Math.min(1, laneBase + (Math.random()-0.5)*0.7));
+      p.botLineMul = 0.65 + Math.random()*0.7;                         // 0.65 .. 1.35 apex aggression
+      p.botLookMul = 0.85 + Math.random()*0.4;                         // 0.85 .. 1.25 lookahead
+      G.players[id] = p;
+      buildKartView(id, p.botColor, false, p.botName);
+    }
+  }
+  function placeAllAtGrid(){
+    let slot = 0;
+    placeAtGrid(G.players.local, slot++);
+    for (const id in G.players){ if (G.players[id].isBot) placeAtGrid(G.players[id], slot++); }
+  }
+  // TEST HELPER: drop a stationary non-bot kart into G.players (K4 hazard-target dummy).
+  function addTestKart(id, x, z, color){
+    const p = makePlayer(id);
+    p.pos.x = x; p.pos.z = z; p.theta = 0; p.y = sampleHeight(x, z);
+    p.lastSampleIdx = nearestSampleIdxFull(x, z); p.progressS = arcS[p.lastSampleIdx]; p.prevProgressS = p.progressS;
+    const rx = x - FINISH.cx, rz = z - FINISH.cz; p.prevSide = (rx*FINISH.tx + rz*FINISH.tz) >= 0 ? 1 : -1;
+    p.finishDebounce = 5;
+    G.players[id] = p;
+    buildKartView(id, color!=null?color:0x8844cc, false, id);
+    return p;
+  }
+
+  // ---------- K4: item-entity VISUALS (render-only, reconciled from G each frame) ----------
+  // '?' decal texture for the spinning item boxes.
+  const _qTex = (function(){
+    const cv = document.createElement('canvas'); cv.width = cv.height = 64;
+    const c = cv.getContext('2d');
+    c.fillStyle = 'rgba(255,255,255,0)'; c.fillRect(0,0,64,64);
+    c.fillStyle = '#fff'; c.font = 'bold 46px Segoe UI, sans-serif'; c.textAlign='center'; c.textBaseline='middle';
+    c.fillText('?', 32, 34);
+    const t = new THREE.CanvasTexture(cv); t.needsUpdate = true; return t;
+  })();
+  const ITEMBOX_GEO = new THREE.BoxGeometry(1.5, 1.5, 1.5);
+  const TOMATO_GEO  = new THREE.SphereGeometry(0.55, 12, 10);
+  const HAY_GEO     = new THREE.CylinderGeometry(0.7, 0.7, 0.95, 10);
+  const _boxMeshes = [];   // persistent, one per G.itemBoxes entry
+  const _projPool = [];    // pooled tomato meshes
+  const _hazPool  = [];    // pooled hay-bale meshes
+
+  function buildItemBoxes(){
+    // clear any prior boxes (track reload etc.)
+    for (const m of _boxMeshes){ scene.remove(m); }
+    _boxMeshes.length = 0;
+    G.itemBoxes = [];
+    const rows = (ACTIVE_TRACK.itemRows && ACTIVE_TRACK.itemRows.length) ? ACTIVE_TRACK.itemRows : [0.12,0.40,0.68];
+    for (const sf of rows){
+      const targetS = Math.max(0, Math.min(1, sf)) * TRACK_LEN;
+      let bi = 0; for (let i=0;i<SAMPLES;i++){ if (arcS[i] >= targetS){ bi = i; break; } bi = i; }
+      const c = centerPts[bi], t = tangents[bi];
+      const nx = -t.z, nz = t.x;
+      for (let k=-1;k<=1;k++){
+        const lat = k * (TRACK_WIDTH*0.28);
+        const x = c.x + nx*lat, z = c.z + nz*lat;
+        G.itemBoxes.push({ x, z, active:true, respawnT:0 });
+        const mat = new THREE.MeshLambertMaterial({ color:0xffe27a, emissive:0x554400, transparent:true, opacity:0.72, map:_qTex });
+        const m = new THREE.Mesh(ITEMBOX_GEO, mat);
+        m.position.set(x, sampleHeight(x,z) + 1.0, z);
+        scene.add(m); _boxMeshes.push(m);
+      }
+    }
+  }
+  // ---------- K7: BOOST PAD chevrons (glowing forward arrows on the road, subtle pulse) ----------
+  const _chevTex = (function(){
+    const cv = document.createElement('canvas'); cv.width = cv.height = 128;
+    const c = cv.getContext('2d');
+    c.clearRect(0,0,128,128);
+    c.strokeStyle = '#fff'; c.lineWidth = 14; c.lineCap = 'round'; c.lineJoin = 'round';
+    for (let k=0;k<3;k++){ const y = 30 + k*34; c.beginPath(); c.moveTo(24, y+26); c.lineTo(64, y); c.lineTo(104, y+26); c.stroke(); }
+    const t = new THREE.CanvasTexture(cv); t.needsUpdate = true; return t;
+  })();
+  const CHEV_GEO = new THREE.PlaneGeometry(TRACK_WIDTH*0.3, TRACK_WIDTH*0.42);
+  const _padMeshes = [];   // one per G.boostPads entry
+  function buildBoostPadVisuals(){
+    for (const m of _padMeshes){ scene.remove(m); if (m.material) m.material.dispose(); }
+    _padMeshes.length = 0;
+    for (const pad of (G.boostPads||[])){
+      const mat = new THREE.MeshBasicMaterial({ color:0x6cf0ff, transparent:true, opacity:0.85, map:_chevTex, depthWrite:false });
+      const m = new THREE.Mesh(CHEV_GEO, mat);
+      m.rotation.x = -Math.PI/2;
+      m.rotation.z = Math.atan2(pad.tx, pad.tz);   // arrows point along the driving direction
+      m.position.set(pad.x, sampleHeight(pad.x, pad.z) + 0.16, pad.z);
+      m.renderOrder = 3;
+      scene.add(m); _padMeshes.push(m);
+    }
+  }
+  // ---------- K7: CORRIDOR WALL (continuous striped red/white RIBBON along BOTH corridor edges) ----------
+  // Replaces the old discrete fence posts (testers found them confusing) with ONE merged
+  // BufferGeometry: a solid vertical curb-wall standing along each corridor edge, its BASE following
+  // the terrain height under every edge vertex. A quad is emitted for a segment only if BOTH its
+  // endpoints sit OUTSIDE every OTHER segment's corridor — so a legal self-overlap crossing has a
+  // clean GAP in the wall (the union of corridors is the drivable area; a wall there would block the
+  // legal crossing). One mesh, name 'corridorFence' (kept for the scene lookup + __KART__ hook).
+  function buildCorridorFence(){
+    // dispose any prior wall (rebuilds are cheap; keeps the scene clean if ever called twice)
+    const prior = scene.children.find(o=>o.name==='corridorFence');
+    if (prior){ scene.remove(prior); if(prior.geometry) prior.geometry.dispose(); if(prior.material) prior.material.dispose(); }
+
+    const half = TRACK_WIDTH/2, margin = effWallMargin();
+    const edge = half + margin;
+    const meanSeg = TRACK_LEN / SAMPLES;
+    // index window covering "the same continuous road" near an edge point so only a DIFFERENT branch
+    // (a real overlap) can suppress it. Covers ~2 corridor-widths of arc length.
+    const idxWin = Math.max(6, Math.ceil((2*edge)/Math.max(0.5, meanSeg)));
+    function otherBranchNear(x, z, atIdx){
+      let bd = 1e18;
+      for (let i=0;i<SAMPLES;i++){
+        const di = Math.min((i-atIdx+SAMPLES)%SAMPLES, (atIdx-i+SAMPLES)%SAMPLES);
+        if (di < idxWin) continue;              // skip this point's OWN branch
+        const c = centerPts[i]; const dx=x-c.x, dz=z-c.z; const d=dx*dx+dz*dz; if(d<bd)bd=d;
+      }
+      return Math.sqrt(bd);
+    }
+    const wallH  = (isFinite(TUNE.wallHeight) && TUNE.wallHeight>0) ? TUNE.wallHeight : 1.2;
+    const thick  = 0.5;                          // wall thickness (u), extruded OUTWARD from the edge
+    const sink   = 0.35;                         // bury the base this far so it never floats on a slope
+    const RED = [0.85,0.16,0.13], WHITE = [0.94,0.94,0.90];
+    const positions = [], colors = [];
+    function tri(a,b,c,col){
+      positions.push(a[0],a[1],a[2], b[0],b[1],b[2], c[0],c[1],c[2]);
+      for (let k=0;k<3;k++) colors.push(col[0],col[1],col[2]);
+    }
+    function quad(p1,p2,p3,p4,col){ tri(p1,p2,p3,col); tri(p1,p3,p4,col); }
+    for (let side=-1; side<=1; side+=2){
+      // precompute edge points + outward dir + gap flags for the whole loop on this side
+      const E = [], gap = [];
+      for (let i=0;i<SAMPLES;i++){
+        const c = centerPts[i], t = tangents[i];
+        const nx = -t.z, nz = t.x;               // left-hand normal (unit)
+        const ox = nx*side, oz = nz*side;        // OUTWARD from the road on this side
+        const px = c.x + ox*edge, pz = c.z + oz*edge;
+        E.push({ x:px, z:pz, ox, oz });
+        gap.push(otherBranchNear(px, pz, i) <= edge);   // inside another corridor -> leave a wall gap
+      }
+      for (let i=0;i<SAMPLES;i++){
+        const j = (i+1)%SAMPLES;
+        if (gap[i] || gap[j]) continue;          // GAP at overlaps (legal crossing stays open)
+        const a = E[i], b = E[j];
+        const ay = sampleHeight(a.x, a.z) - sink, by = sampleHeight(b.x, b.z) - sink;   // base follows terrain
+        const axo = a.x + a.ox*thick, azo = a.z + a.oz*thick;   // outer face (extruded)
+        const bxo = b.x + b.ox*thick, bzo = b.z + b.oz*thick;
+        // 8 corners: Inner/Outer × a/b × Bottom/Top
+        const IAB=[a.x,ay,a.z],       IAT=[a.x,ay+wallH,a.z];
+        const IBB=[b.x,by,b.z],       IBT=[b.x,by+wallH,b.z];
+        const OAB=[axo,ay,azo],       OAT=[axo,ay+wallH,azo];
+        const OBB=[bxo,by,bzo],       OBT=[bxo,by+wallH,bzo];
+        const col = (Math.floor(arcS[i]/2.2)%2===0) ? RED : WHITE;   // ~2.2u red/white curb stripes
+        quad(IAB, IAT, IBT, IBB, col);           // inner face (toward the road)
+        quad(OBB, OBT, OAT, OAB, col);           // outer face
+        quad(IAT, OAT, OBT, IBT, col);           // top cap
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('color',    new THREE.Float32BufferAttribute(colors, 3));
+    geo.computeVertexNormals();
+    const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors:true, side:THREE.DoubleSide }));
+    mesh.name = 'corridorFence';
+    scene.add(mesh);
+    return positions.length/9;                   // triangle count (9 floats/tri)
+  }
+  function syncEntityMeshes(dt){
+    // K7 boost pads: subtle emissive pulse (opacity breathes)
+    for (let i=0;i<(G.boostPads?G.boostPads.length:0);i++){
+      const m = _padMeshes[i]; if (!m) continue;
+      m.material.opacity = 0.6 + 0.35*(0.5 + 0.5*Math.sin(performance.now()*0.006 + i));
+    }
+    // item boxes: spin + hide while respawning
+    for (let i=0;i<G.itemBoxes.length;i++){
+      const b = G.itemBoxes[i], m = _boxMeshes[i]; if (!m) continue;
+      m.visible = b.active;
+      m.rotation.y += dt*1.6; m.rotation.x += dt*0.7;
+    }
+    // tomatoes
+    for (let i=0;i<G.projectiles.length;i++){
+      let m = _projPool[i];
+      if (!m){ m = new THREE.Mesh(TOMATO_GEO, new THREE.MeshLambertMaterial({ color:0xe23b2e, emissive:0x300000 })); scene.add(m); _projPool[i] = m; }
+      const pr = G.projectiles[i]; m.visible = true; m.position.set(pr.x, pr.y, pr.z);
+    }
+    for (let i=G.projectiles.length;i<_projPool.length;i++) _projPool[i].visible = false;
+    // hay bales
+    for (let i=0;i<G.hazards.length;i++){
+      let m = _hazPool[i];
+      if (!m){ m = new THREE.Mesh(HAY_GEO, new THREE.MeshLambertMaterial({ color:0xcaa24a })); m.rotation.z = Math.PI/2; scene.add(m); _hazPool[i] = m; }
+      const hz = G.hazards[i]; m.visible = true; m.position.set(hz.x, hz.y, hz.z);
+    }
+    for (let i=G.hazards.length;i<_hazPool.length;i++) _hazPool[i].visible = false;
+  }
+
+  // ---------- race progress: arc-length s, ordered checkpoints, laps, wrong-way, places ----------
+  function updateProgressS(p){
+    // windowed nearest-sample search around the last index (perf + resists teleport jumps)
+    const W = 45;
+    let bi = p.lastSampleIdx, bd = 1e18;
+    for (let k=-W;k<=W;k++){
+      const i = ((p.lastSampleIdx + k) % SAMPLES + SAMPLES) % SAMPLES;
+      const c = centerPts[i]; const dx = p.pos.x-c.x, dz = p.pos.z-c.z; const d = dx*dx + dz*dz;
+      if (d < bd){ bd = d; bi = i; }
+    }
+    p.lastSampleIdx = bi;
+    p.progressS = arcS[bi];
+  }
+  function updateRaceProgress(p, dt){
+    if (p.finished) return;
+    updateProgressS(p);
+    // ordered checkpoints: lap fraction u measured forward from the finish line; require the
+    // kart to enter sectors 1,2,3 in order (checkpoint count) before a finish cross counts.
+    const u = ((((p.progressS - FINISH_S) % TRACK_LEN) + TRACK_LEN) % TRACK_LEN) / TRACK_LEN; // 0..1
+    const sector = Math.min(3, Math.floor(u * 4));
+    if (sector === p.checkpoint + 1 && p.checkpoint < 3) p.checkpoint++;
+    // wrong-way: persistent backward progress (>2s) — wrap-aware delta
+    let ds = p.progressS - p.prevProgressS;
+    if (ds > TRACK_LEN/2) ds -= TRACK_LEN;
+    if (ds < -TRACK_LEN/2) ds += TRACK_LEN;
+    if (ds < -0.15) p.wrongWayT += dt; else if (ds > 0.05) p.wrongWayT = 0;
+    p.prevProgressS = p.progressS;
+    if (p.finishDebounce > 0) p.finishDebounce = Math.max(0, p.finishDebounce - dt);
+    checkFinishGate(p);
+  }
+  function checkFinishGate(p){
+    const rx = p.pos.x - FINISH.cx, rz = p.pos.z - FINISH.cz;
+    const along = rx*FINISH.tx + rz*FINISH.tz;
+    const across = rx*FINISH.nx + rz*FINISH.nz;
+    const side = along >= 0 ? 1 : -1;
+    if (p.prevSide < 0 && side > 0 && Math.abs(across) <= TRACK_WIDTH/2 + 1){
+      const vFwd = p.v.x*FINISH.tx + p.v.z*FINISH.tz;
+      // anti-cheat: only a lap with all 3 intermediate checkpoints cleared counts
+      if (vFwd > 0 && p.finishDebounce <= 0 && p.checkpoint >= 3){
+        const now = performance.now();
+        const lap = (now - p.lapStart) / 1000;
+        p.lapLast = lap;
+        if (p.lapBest === 0 || lap < p.lapBest) p.lapBest = lap;
+        if (G.bestLap === 0 || lap < G.bestLap){ G.bestLap = lap; try{ localStorage.setItem(BEST_LAP_KEY, String(lap)); }catch(e){} }
+        p.lapStart = now;
+        p.lap++;
+        p.checkpoint = 0;
+        p.finishDebounce = 5;
+        if (p.lap >= G.lapsTotal) finishRace(p);
+      }
+    }
+    p.prevSide = side;
+  }
+  // total signed progress used for live position ordering
+  function totalProgress(p){
+    const u = ((((p.progressS - FINISH_S) % TRACK_LEN) + TRACK_LEN) % TRACK_LEN);
+    return p.lap * TRACK_LEN + u;
+  }
+  function computePlace(p){
+    const others = Object.values(G.players);
+    let place = 1;
+    for (const o of others){
+      if (o === p) continue;
+      if (o.finished && p.finished){ if (o.finishTime < p.finishTime) place++; }
+      else if (o.finished && !p.finished) place++;
+      else if (!o.finished && !p.finished){ if (totalProgress(o) > totalProgress(p)) place++; }
+    }
+    return place;
+  }
+  // final standings across all players (finished by time, still-racing by live progress)
+  function computeStandings(){
+    const ps = Object.values(G.players);
+    ps.sort((a,b)=>{
+      if (a.finished && b.finished) return a.finishTime - b.finishTime;
+      if (a.finished) return -1;
+      if (b.finished) return 1;
+      return totalProgress(b) - totalProgress(a);
+    });
+    return ps.map((p,i)=>({ name:p.isBot ? p.botName : 'You', place:i+1, isLocal:p===G.players.local,
+                            finished:p.finished, time:p.finishTime, best:p.lapBest, color:p.isBot?p.botColor:0xd6352b }));
+  }
+  function finishRace(p){
+    p.finished = true;
+    p.finishTime = G.raceClock;
+    p.place = computePlace(p);
+    if (p === G.players.local){
+      if (net.mp){
+        // MP: the local player sees results without stopping the shared world (host keeps
+        // simulating for still-racing guests; guests keep reading the host snapshot).
+        if (!net.localResultsShown){
+          net.localResultsShown = true;
+          G.results = { place:p.place, totalTime:p.finishTime, bestLap:p.lapBest, standings:computeStandings() };
+          showResults();
+        }
+      } else {
+        G.phase = 'finished';
+        G.results = { place:p.place, totalTime:p.finishTime, bestLap:p.lapBest, standings:computeStandings() };
+        showResults();
+      }
+    }
+  }
+
+  // ---------- gather input each frame ----------
+  function gatherInput(){
+    // SIGN CONVENTION: positive steer increases theta, and with forward=(sin t, cos t) +
+    // this chase camera, +theta turns the kart toward screen-LEFT. So RIGHT inputs (D /
+    // ArrowRight / stick x>0) map to NEGATIVE steer — the handedness flip lives HERE and
+    // only here; driftDir, tightness, visual yaw and camera swing all derive from steer.
+    let steer = 0, throttle = 0, brake = 0, drift = false;
+    if (keys['a'] || keys['arrowleft']) steer += 1;
+    if (keys['d'] || keys['arrowright']) steer -= 1;
+    if (keys['w'] || keys['arrowup']) throttle = 1;
+    if (keys['s'] || keys['arrowdown']) brake = 1;
+    if (keys[' '] || keys['shift']) drift = true;
+
+    const pad = readPad();
+    let padItem = false;
+    if (pad){
+      if (pad.steer) steer = -pad.steer; // stick right (+x) = screen right = negative steer
+      if (pad.thr > 0.05) throttle = Math.max(throttle, pad.thr);
+      if (pad.brk > 0.05) brake = Math.max(brake, pad.brk);
+      if (pad.drift) drift = true;
+      if (pad.reset && G.phase === 'racing') resetKart();
+      padItem = pad.item;
+    }
+    if (keys['r'] && G.phase === 'racing') resetKart();
+    // K4 item use: X key or gamepad button 2 (X). Edge-triggered (fire once per press, not per frame).
+    const itemDown = !!(keys['x'] || padItem);
+    const item = itemDown && !itemKeyPrev;
+    itemKeyPrev = itemDown;
+    // clamp steer
+    steer = Math.max(-1, Math.min(1, steer));
+    return { steer, throttle, brake, drift, item };
+  }
+  let itemKeyPrev = false;
+
+  // ---------- K6: pooled particle system (drift dust · boost puffs · landing poof · spin stars) ----------
+  // Fixed pool, allocated once. Each particle owns a material (recolored, never re-created) so there
+  // is ZERO per-frame allocation. Billboarded to the camera each frame.
+  const PARTICLE_GEO = new THREE.PlaneGeometry(1, 1);
+  const MAX_PARTICLES = 160;
+  const particles = [];
+  for (let i=0;i<MAX_PARTICLES;i++){
+    const mat = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0, depthWrite:false });
+    const m = new THREE.Mesh(PARTICLE_GEO, mat); m.visible = false; m.renderOrder = 5; scene.add(m);
+    particles.push({ m, mat, live:false, life:0, maxLife:1, vx:0, vy:0, vz:0, grav:0, size:0.5, grow:0, spin:0, startOp:0.8 });
+  }
+  let _pIdx = 0;
+  function spawnParticle(x, y, z, o){
+    const p = particles[_pIdx]; _pIdx = (_pIdx + 1) % MAX_PARTICLES;
+    p.m.position.set(x, y, z); p.m.visible = true; p.live = true;
+    p.mat.color.setHex(o.color != null ? o.color : 0xffffff);
+    p.startOp = o.opacity != null ? o.opacity : 0.8; p.mat.opacity = p.startOp;
+    p.life = 0; p.maxLife = o.life || 0.4;
+    p.vx = o.vx || 0; p.vy = o.vy || 0; p.vz = o.vz || 0; p.grav = o.grav || 0;
+    p.size = o.size || 0.5; p.grow = o.grow || 0; p.spin = o.spin || 0;
+    p.m.scale.setScalar(p.size); p.m.rotation.z = Math.random()*Math.PI;
+  }
+  function updateParticles(dt){
+    for (const p of particles){
+      if (!p.live) continue;
+      p.life += dt;
+      if (p.life >= p.maxLife){ p.live = false; p.m.visible = false; continue; }
+      const f = p.life / p.maxLife;
+      p.vy -= p.grav * dt;
+      p.m.position.x += p.vx*dt; p.m.position.y += p.vy*dt; p.m.position.z += p.vz*dt;
+      p.mat.opacity = p.startOp * (1 - f);
+      p.m.scale.setScalar(Math.max(0.02, p.size + p.grow*f));
+      p.m.quaternion.copy(camera.quaternion);
+      if (p.spin) p.m.rotateZ(p.spin*dt);
+    }
+  }
+  function particleActiveCount(){ let n = 0; for (const p of particles) if (p.live) n++; return n; }
+  // juice spawners (called per kart per frame from syncKartView; time-accumulated => no per-frame alloc)
+  function spawnDriftDust(p, view, gy, dt){
+    view._dustAcc = (view._dustAcc || 0) + dt;
+    const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
+    const r = { x:Math.cos(p.theta), z:-Math.sin(p.theta) };
+    while (view._dustAcc > 0.028){
+      view._dustAcc -= 0.028;
+      const side = Math.random() < 0.5 ? -1 : 1;
+      const rx = p.pos.x - f.x*0.9 + r.x*side*0.55, rz = p.pos.z - f.z*0.9 + r.z*side*0.55;
+      spawnParticle(rx, gy + 0.15, rz, { color:0xcdb98a, opacity:0.55, life:0.4,
+        vx:r.x*side*1.1 - f.x*1.2 + (Math.random()-0.5), vy:1.1 + Math.random()*0.6, vz:r.z*side*1.1 - f.z*1.2 + (Math.random()-0.5),
+        grav:1.2, size:0.35, grow:0.7 });
+    }
+  }
+  function spawnBoostPuff(p, view, gy, dt){
+    view._puffAcc = (view._puffAcc || 0) + dt;
+    const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
+    while (view._puffAcc > 0.035){
+      view._puffAcc -= 0.035;
+      const rx = p.pos.x - f.x*1.1 + (Math.random()-0.5)*0.5, rz = p.pos.z - f.z*1.1 + (Math.random()-0.5)*0.5;
+      spawnParticle(rx, (p.y || gy) + 0.5, rz, { color: Math.random()<0.5 ? 0xff9a2e : 0xffe27a, opacity:0.7, life:0.32,
+        vx:-f.x*3 + (Math.random()-0.5), vy:0.4, vz:-f.z*3 + (Math.random()-0.5), size:0.45, grow:0.5 });
+    }
+  }
+  function spawnLandingPoof(p, gy){
+    const n = 10;
+    for (let i=0;i<n;i++){
+      const a = (i/n)*Math.PI*2 + Math.random()*0.4;
+      spawnParticle(p.pos.x + Math.cos(a)*0.5, gy + 0.12, p.pos.z + Math.sin(a)*0.5, { color:0xd8c9a0, opacity:0.6, life:0.45,
+        vx:Math.cos(a)*(2.2 + Math.random()), vy:0.8 + Math.random()*0.5, vz:Math.sin(a)*(2.2 + Math.random()),
+        grav:2.5, size:0.4, grow:0.8 });
+    }
+  }
+  function spawnSpinStars(p, view, dt){
+    view._starAcc = (view._starAcc || 0) + dt;
+    while (view._starAcc > 0.09){
+      view._starAcc -= 0.09;
+      const a = Math.random()*Math.PI*2, rad = 0.7;
+      spawnParticle(p.pos.x + Math.cos(a)*rad, (p.y || 0) + 1.5, p.pos.z + Math.sin(a)*rad, { color:0xffe45e, opacity:0.95, life:0.5,
+        vx:Math.cos(a)*0.6, vy:1.2, vz:Math.sin(a)*0.6, size:0.42, spin:6, grow:-0.15 });
+    }
+  }
+
+  // ---------- render sync ----------
+  function syncKartView(p, view, dt){
+    // K2.5: seat the kart at its ACTUAL height p.y (ballistic while airborne); tilt to the surface normal.
+    const gy = sampleHeightAtY(p.pos.x, p.pos.z, p.y);   // K7: branch the kart is on (shadow rides this)
+    // ANTI-CLIP: on the ground, seat the VISUAL kart above the HIGHEST terrain under its footprint
+    // (not just the center point) so the body/wheels don't sink into a grass bump on rolling hills.
+    // Physics p.y is untouched; airborne uses p.y directly (ballistic).
+    let seatY = p.y;
+    if (!p.airborne){
+      const fx = Math.sin(p.theta), fz = Math.cos(p.theta);   // forward
+      let mx = gy;
+      for (const [fl, rw] of [[0.95,0.62],[0.95,-0.62],[-0.95,0.62],[-0.95,-0.62]]){
+        const sx = p.pos.x + fx*fl + fz*rw, sz = p.pos.z + fz*fl - fx*rw;   // footprint corner (right = (fz,-fx))
+        const h = sampleHeightAtY(sx, sz, p.y); if (h > mx) mx = h;
+      }
+      seatY = Math.max(p.y, mx + 0.04);
+    }
+    view.group.position.set(p.pos.x, seatY, p.pos.z);
+    // shadow stays on the ground and shrinks as the kart climbs -> reads as a detached jump shadow
+    const alt = Math.max(0, p.y - gy);
+    view.shadow.position.set(p.pos.x, gy + 0.05, p.pos.z);
+    const shScale = 1 / (1 + alt*0.18);
+    view.shadow.scale.set(shScale, shScale, shScale);
+    view.shadowMat.opacity = 0.28 * Math.max(0.25, shScale);
+    // landing thump only when the landing passed the effect gate (K2.5 squash-spam fix)
+    if (view.lastAirborne && !p.airborne){ if (p.landFx){ landThump(p.landImpact); spawnLandingPoof(p, gy); p.landFx = false; } }
+    view.lastAirborne = p.airborne;
+    // K6 juice: drift dust · boost puffs · spin stars (pooled, spawned from live state)
+    if (G.phase === 'racing'){
+      const spd = Math.hypot(p.v.x, p.v.z);
+      if (p.drift.active && spd > 2.5 && !p.airborne) spawnDriftDust(p, view, gy, dt);
+      if (p.boostT > 0) spawnBoostPuff(p, view, gy, dt);
+      if (p.spinT > 0) spawnSpinStars(p, view, dt);
+    }
+    const e = 1.5;
+    const dHdx = (sampleHeightAtY(p.pos.x+e, p.pos.z, p.y) - sampleHeightAtY(p.pos.x-e, p.pos.z, p.y)) / (2*e);
+    const dHdz = (sampleHeightAtY(p.pos.x, p.pos.z+e, p.y) - sampleHeightAtY(p.pos.x, p.pos.z-e, p.y)) / (2*e);
+    const targetN = _tmpN.set(-dHdx, 1, -dHdz).normalize();
+    const kk = 1 - Math.exp(-TUNE.normalSmooth * (dt || 0.016));
+    const kn = view.kartNormal;
+    kn.lerp(targetN, kk);
+    if (kn.lengthSq() < 1e-6) kn.set(0,1,0); else kn.normalize();
+    // orientation: up = smoothed normal, forward = heading (theta+driftAngle+spin) flattened onto it.
+    const spinYaw = p.spinT > 0 ? (1 - p.spinT/TUNE.spinT) * Math.PI*4 : 0;   // K4: 720deg visual spin
+    const yaw = p.theta + p.driftAngle + spinYaw;
+    const up = kn;
+    _tmpF.set(Math.sin(yaw), 0, Math.cos(yaw));
+    _tmpF.addScaledVector(up, -_tmpF.dot(up));
+    if (_tmpF.lengthSq() < 1e-6) _tmpF.set(Math.sin(yaw), 0, Math.cos(yaw));
+    _tmpF.normalize();
+    _tmpR.crossVectors(up, _tmpF).normalize();   // right = up × fwd (right-handed X = Y×Z)
+    _tmpM.makeBasis(_tmpR, up, _tmpF);
+    view.group.quaternion.setFromRotationMatrix(_tmpM);
+    // ---- spinning wheels (GLB kart): roll about the tire's local Z (axle), steer the front pair ----
+    if (view.wheels && view.wheels.length){
+      const signedSpeed = p.v.x*Math.sin(p.theta) + p.v.z*Math.cos(p.theta);   // +forward / -reverse
+      const dRoll = p.airborne ? 0 : (signedSpeed * (dt||0.016)) / Math.max(0.05, view.wheelR) * TUNE.wheelSpin;
+      const steerAng = -(p.steer || 0) * 0.5;   // visual front-wheel steer
+      const sz = TUNE.wheelSize, spr = TUNE.wheelSpread, wy = TUNE.wheelY;
+      for (const w of view.wheels){
+        w.scale.set(sz, sz, sz*TUNE.wheelWidth);   // Z = axle -> wheelWidth fattens the tire
+        w.position.set(w.userData.bx, w.userData.by + wy, w.userData.bz * spr);   // live size/height/spread
+        w.userData.roll += dRoll;
+        _wqRoll.setFromAxisAngle(_AXLE_Z, w.userData.roll);
+        if (w.userData.front){ _wqSteer.setFromAxisAngle(_WUP_Y, steerAng); w.quaternion.copy(_wqSteer).multiply(_wqRoll); }
+        else w.quaternion.copy(_wqRoll);
+      }
+    }
+    // hop bounce
+    let by = 0;
+    if (p.hop > 0){
+      const f = 1 - p.hop/0.18; // 0..1
+      by = Math.sin(f*Math.PI) * 0.25;
+    }
+    view.bounce.position.y = by;
+    // K2.5: landing squash-and-stretch (flatten + widen, easing back over landSquashT)
+    if (p.landT > 0){
+      const f = Math.sin((p.landT / TUNE.landSquashT) * Math.PI); // 0..1..0
+      view.bounce.scale.set(1 + 0.28*f, 1 - 0.34*f, 1 + 0.28*f);
+    } else {
+      view.bounce.scale.set(1, 1, 1);
+    }
+    // edge glow by drift tier (keyed to the POINT thresholds)
+    const bodyMat = view.bodyMat;
+    const tier = p.drift.active ? driftTier(p.drift.charge) : 0;
+    if (tier === 2) bodyMat.emissive.setHex(0xff7a1a);        // red = SMT ready
+    else if (tier === 1) bodyMat.emissive.setHex(0x18b6ff);   // cyan = MT ready
+    else if (p.boostT > 0) bodyMat.emissive.setHex(0xff7a1a); // boosting glow
+    else bodyMat.emissive.setHex(0x000000);
+  }
+  function syncKart(dt){
+    for (const id in G.players){
+      const p = G.players[id], view = kartViews[id];
+      if (view) syncKartView(p, view, dt);
+    }
+    syncEntityMeshes(dt);
+  }
+
+  // ---------- camera ----------
+  // (chase-camera state vars are declared above resetKart, which snaps them on reset)
+  function updateCamera(dt){
+    // debug/screenshot override: window.__freeCam = {x,y,z, lx,ly,lz, fov?} pins the camera
+    if (window.__freeCam){
+      const f = window.__freeCam;
+      camera.position.set(f.x, f.y, f.z);
+      camera.up.set(0, 0, -1);
+      camera.lookAt(new THREE.Vector3(f.lx, f.ly, f.lz));
+      if (f.fov){ camera.fov = f.fov; camera.updateProjectionMatrix(); }
+      return;
+    }
+    camera.up.set(0, 1, 0);
+    const p = G.players.local;
+    // camera swings partway into the drift, keyed off the live drift-angle state (half of it).
+    const driftBias = p.driftAngle * 0.5;
+    const targetHeading = p.theta + driftBias;
+    // lerp camera heading toward target
+    let dh = targetHeading - camHeading;
+    while (dh > Math.PI) dh -= Math.PI*2;
+    while (dh < -Math.PI) dh += Math.PI*2;
+    camHeading += dh * (1 - Math.exp(-TUNE.camLag * dt));
+    const cf = { x:Math.sin(camHeading), z:Math.cos(camHeading) };
+    // K2.5: the camera tracks a SMOOTHED kart-y (eases after p.y) so jumps read as FLOAT — the kart
+    // rises in frame while the camera lags up after it. camHeight is height ABOVE that smoothed y.
+    camKartY += (p.y - camKartY) * (1 - Math.exp(-TUNE.camVertLerp * dt));
+    const kartY = camKartY;
+    const targetPos = new THREE.Vector3(
+      p.pos.x - cf.x*TUNE.camDist,
+      kartY + TUNE.camHeight,
+      p.pos.z - cf.z*TUNE.camDist
+    );
+    camPos.lerp(targetPos, 1 - Math.exp(-TUNE.camStiff * dt));   // position follow stiffness: the rest-vs-speed distance gap is ~speed/camStiff
+    // never let the camera clip into / drop below terrain. Sample the ACTUAL ground-mesh height
+    // (groundSampleHeight — the exact surface the grid renders) at two families of points and lift
+    // the camera above the highest:
+    //   (a) along the camera->kart sight-line, so a hill BETWEEN them can't poke the near plane;
+    //   (b) a RING around the camera's own xz, so an ELEVATED track lip beside/above the camera
+    //       (e.g. the kart tipped off a raised crest and the camera dropped to the skirt base)
+    //       can't swallow the camera and render its dark backface. The line-only check missed (b).
+    let maxGround = -Infinity;
+    // (a) along the sight-line, EXTENDED ~1.7x past the kart: catches elevated terrain the camera is
+    // looking toward (an elevated crest just beyond the kart whose dark underside would fill the view
+    // when the camera sits in a pit at its base). Also a ring around the camera for lips to the side.
+    for (let s=0; s<=1.001; s+=0.15){
+      const gx = camPos.x + (p.pos.x - camPos.x)*s, gz = camPos.z + (p.pos.z - camPos.z)*s;
+      const gh = groundSampleHeight(gx, gz); if (gh > maxGround) maxGround = gh;
+    }
+    const ringR = Math.max(2.5, camera.near + 2.0);
+    for (let a = 0; a < 6.2832; a += Math.PI/4){
+      const gx = camPos.x + Math.cos(a)*ringR, gz = camPos.z + Math.sin(a)*ringR;
+      const gh = groundSampleHeight(gx, gz); if (gh > maxGround) maxGround = gh;
+    }
+    // (a) hard floor: never sit inside/below terrain along the sight-line or right around us. The near
+    // plane must clear too, so the frustum's front face never ends up inside the mesh.
+    const minCamY = maxGround + Math.max(TUNE.camGroundClear, camera.near + 0.6);
+    if (camPos.y < minCamY) camPos.y = minCamY;
+    // (b) anti-underside: an ELEVATED span AHEAD (e.g. a raised crest the kart tipped off, now looming
+    // in front) renders its unlit dark backface when viewed from below. Sample the ground along the
+    // camera's LOOK direction out to ~18u; if it towers well above the camera we're staring up into a
+    // backside — lift the camera to roughly the crest height so we look ACROSS it. Gated on a real
+    // wall (>1.6u over the camera) so ordinary rolling hills in normal play never nudge the camera.
+    {
+      const lookX = p.pos.x - camPos.x, lookZ = p.pos.z - camPos.z;
+      const ll = Math.hypot(lookX, lookZ) || 1; const ux = lookX/ll, uz = lookZ/ll;
+      let aheadMax = -Infinity;
+      for (let d = 4; d <= 18.001; d += 2){
+        const gh = groundSampleHeight(camPos.x + ux*d, camPos.z + uz*d);
+        if (gh > aheadMax) aheadMax = gh;
+      }
+      if (aheadMax > camPos.y + 1.6){
+        const lift = aheadMax + Math.max(TUNE.camGroundClear, camera.near + 0.6);
+        if (camPos.y < lift) camPos.y = lift;
+      }
+    }
+    camera.position.copy(camPos);
+    const fwd = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
+    const look = new THREE.Vector3(
+      p.pos.x + fwd.x*4 + p.v.x*0.25,
+      kartY + 1.0,
+      p.pos.z + fwd.z*4 + p.v.z*0.25
+    );
+    camera.lookAt(look);
+    // FOV read
+    const speed = Math.hypot(p.v.x, p.v.z);
+    let targetFov = TUNE.fov;
+    if (p.boostT > 0) targetFov = TUNE.fov + 10;
+    else if (speed > TUNE.maxSpeed*0.95) targetFov = TUNE.fov + 4;
+    camFov += (targetFov - camFov) * (1 - Math.exp(-6*dt));
+    camera.fov = camFov;
+    camera.updateProjectionMatrix();
+  }
+
+  // ---------- HUD ----------
+  const speedV = document.getElementById('speedV');
+  const surfEl = document.getElementById('surf');
+  const chargeBar = document.getElementById('chargeBar');
+  const lapV = document.getElementById('lapV');
+  const bestV = document.getElementById('bestV');
+  const posV = document.getElementById('placeHud');
+  const lapNV = document.getElementById('lapNV');
+  const clockV = document.getElementById('clockV');
+  const wrongwayEl = document.getElementById('wrongway');
+  function fmtTime(s){ if(!s) return '—'; const m=Math.floor(s/60), r=(s%60).toFixed(2); return (m>0?m+':':'')+(m>0?r.padStart(5,'0'):r)+'s'; }
+  const ORD = ['—','1st','2nd','3rd','4th'];
+  const MEDAL = { 1:'🥇', 2:'🥈', 3:'🥉' };   // K6: podium medals
+  function updateHUD(){
+    const p = G.players.local;
+    const speed = Math.hypot(p.v.x, p.v.z);
+    speedV.textContent = speed.toFixed(0);
+    if (p.airborne){ surfEl.textContent = '✈ AIR'; surfEl.className = 'air'; }
+    else { surfEl.textContent = p.surface.toUpperCase(); surfEl.className = p.surface; }
+    // charge bar (points / tier2 threshold)
+    const tier2 = 2*TUNE.mtTier1;
+    const frac = Math.min(p.drift.charge / tier2, 1);
+    chargeBar.style.width = (frac*100).toFixed(0)+'%';
+    let col = '#6cf';
+    if (p.drift.charge >= tier2) col = '#ff7a1a';
+    else if (p.drift.charge >= TUNE.mtTier1) col = '#18b6ff';
+    else if (!p.drift.active) col = '#6cf';
+    chargeBar.style.background = p.drift.active || p.boostT>0 ? col : 'rgba(120,180,255,.4)';
+    // race HUD
+    const racing = G.phase === 'racing' || G.phase === 'finished';
+    const place = racing ? computePlace(p) : 0;
+    posV.style.display = racing ? 'block' : 'none';
+    if (racing) posV.innerHTML = (ORD[place] || (place+'th')) + '<span class="of"> / ' + Object.keys(G.players).length + '</span>';
+    lapNV.textContent = racing ? Math.min(p.lap + (p.finished?0:1), G.lapsTotal) + '/' + G.lapsTotal : '—';
+    clockV.textContent = fmtTime(G.raceClock) === '—' ? '0.00s' : fmtTime(G.raceClock);
+    // live lap time
+    const live = (G.phase==='racing') ? (performance.now() - p.lapStart)/1000 : 0;
+    lapV.textContent = live ? fmtTime(live) : '—';
+    bestV.textContent = G.bestLap ? fmtTime(G.bestLap) : '—';
+    // wrong-way indicator
+    if (G.phase==='racing' && p.wrongWayT > 2) wrongwayEl.classList.add('show');
+    else wrongwayEl.classList.remove('show');
+    // K4 item slot: roll animation (cycling icons) then the settled item
+    updateItemSlot(p);
+    // K5 MP: live places leaderboard + menu roster refresh
+    updateMpUI();
+  }
+  // K5: MP places overlay (names + live order) and menu roster
+  let _mpRosterTick = 0;
+  function updateMpUI(){
+    if (!net.mp){ mpPlacesEl.style.display='none'; return; }
+    if (G.phase === 'menu'){
+      mpPlacesEl.style.display='none';
+      if ((_mpRosterTick = (_mpRosterTick+1)%30) === 0) refreshMpMenu();   // ~2Hz name refresh
+      return;
+    }
+    // during a race: show every kart ordered by live progress with names + places
+    const ps = Object.values(G.players).slice().sort((a,b)=>{
+      if (a.finished && b.finished) return a.finishTime - b.finishTime;
+      if (a.finished) return -1; if (b.finished) return 1;
+      return totalProgress(b) - totalProgress(a);
+    });
+    if (ps.length <= 1){ mpPlacesEl.style.display='none'; return; }
+    mpPlacesEl.style.display='block';
+    const nameFor = (q)=> q===G.players.local ? (net.myName||'You') : (q.isBot ? q.botName : (q._dispName || 'Racer'));
+    mpPlacesEl.innerHTML = ps.map((q,i)=>{
+      const me = q===G.players.local ? ' me' : '';
+      const col = '#'+((q._slotCol!=null?q._slotCol:(q.isBot?q.botColor:0xd6352b)).toString(16).padStart(6,'0'));
+      return '<div class="pl'+me+'"><span class="pp">'+(ORD[i+1]||(i+1)+'th')+'</span>'+
+             '<span class="pnm" style="color:'+col+'">'+nameFor(q)+'</span></div>';
+    }).join('');
+  }
+  const itemSlot = document.getElementById('itemSlot');
+  const itemIcon = document.getElementById('itemIcon');
+  const ITEM_ICON = { boost:'⚡', tomato:'🍅', hay:'🌾' };
+  function updateItemSlot(p){
+    const racing = G.phase === 'racing' || G.phase === 'finished';
+    itemSlot.style.display = racing ? 'flex' : 'none';
+    if (!racing) return;
+    if (p.itemRollT > 0){
+      itemSlot.className = 'rolling';
+      // cycle the three icons fast for the anticipation
+      const k = ITEM_KINDS[Math.floor(performance.now()/90) % ITEM_KINDS.length];
+      itemIcon.textContent = ITEM_ICON[k];
+    } else if (p.itemHeld){
+      itemSlot.className = 'filled';
+      itemIcon.textContent = ITEM_ICON[p.itemHeld] || '·';
+    } else {
+      itemSlot.className = '';
+      itemIcon.textContent = '·';
+    }
+  }
+
+  // ---------- TUNING PANEL ----------
+  const tuneEl = document.getElementById('tune');
+  const tuneBody = document.getElementById('tuneBody');
+  const tuneInputs = {};
+  function buildTunePanel(){
+    tuneBody.innerHTML = '';
+    for (const k in TUNE_DEFAULTS){
+      if (!TUNE_RANGE[k]) continue; // brake/drag are constants, no slider
+      const [mn,mx,st] = TUNE_RANGE[k];
+      const row = document.createElement('div'); row.className = 'trow';
+      const lab = document.createElement('label');
+      const left = document.createElement('span'); left.className = 'lft';
+      const name = document.createElement('span'); name.textContent = k;
+      const helpText = TUNE_HELP[k] || 'No description yet.';
+      const info = document.createElement('span'); info.className = 'info'; info.textContent = 'i';
+      info.title = helpText;   // hover tooltip (desktop) in addition to click
+      left.appendChild(name); left.appendChild(info);
+      const valS = document.createElement('span'); valS.className = 'tv'; valS.textContent = TUNE[k];
+      lab.appendChild(left); lab.appendChild(valS);
+      const inp = document.createElement('input');
+      inp.type = 'range'; inp.min = mn; inp.max = mx; inp.step = st; inp.value = TUNE[k];
+      inp.addEventListener('input', ()=>{
+        TUNE[k] = parseFloat(inp.value);
+        valS.textContent = TUNE[k];
+        if (k === 'fov'){ camera.fov = TUNE.fov; camera.updateProjectionMatrix(); }
+        saveTune();
+      });
+      const help = document.createElement('div'); help.className = 'thelp'; help.textContent = helpText;
+      info.addEventListener('click', (e)=>{ e.stopPropagation(); help.classList.toggle('show'); });
+      row.appendChild(lab); row.appendChild(inp); row.appendChild(help);
+      tuneBody.appendChild(row);
+      tuneInputs[k] = { inp, valS };
+    }
+  }
+  buildTunePanel();
+  function refreshTunePanel(){ for (const k in tuneInputs){ tuneInputs[k].inp.value = TUNE[k]; tuneInputs[k].valS.textContent = TUNE[k]; } }
+  function toggleTune(){ tuneEl.classList.toggle('hidden'); }   // ` shows/hides the whole dev panel (hidden by default)
+  document.getElementById('tuneHdr').addEventListener('click', toggleTune);
+  document.getElementById('resetTune').addEventListener('click', ()=>{
+    TUNE = Object.assign({}, TUNE_DEFAULTS); saveTune(); refreshTunePanel();
+    camera.fov = TUNE.fov; camera.updateProjectionMatrix();
+  });
+  document.getElementById('copyTune').addEventListener('click', ()=>{
+    const txt = JSON.stringify(TUNE, null, 2);
+    const btn = document.getElementById('copyTune');
+    const done = ()=>{ btn.textContent='✓ copied'; setTimeout(()=>btn.textContent='📋 copy',1200); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done, done);
+    else done();
+  });
+
+  // ---------- resize ----------
+  function resize(){
+    const w = stage.clientWidth, h = stage.clientHeight;
+    // updateStyle MUST stay true: with setPixelRatio > 1 (Windows display scaling), the
+    // drawing buffer is dPR× larger than the stage — without CSS sizing the canvas element
+    // takes the buffer's size, overflows the window, and the view becomes a top-left crop
+    // (kart appears stuck at ~75% bottom-right on a 150% display).
+    renderer.setSize(w, h);
+    camera.aspect = w/h; camera.updateProjectionMatrix();
+  }
+  addEventListener('resize', resize); resize();
+
+  // ============================================================================
+  //  K6 — REACTIVE WEBAUDIO SOUND SET (bistro pattern: no audio files; every sound
+  //  is a render-layer REACTION to G-state — continuous ones follow the local kart,
+  //  discrete ones fire on state transitions — so MP hears shared events for free).
+  //  ALL sound routes through masterGain so the 🔊 mute (localStorage fk_muted) is a
+  //  single kill switch. Reads happen even while the ctx is 'suspended' (headless has
+  //  no user gesture) — oscillator.frequency is inspectable regardless of playback.
+  // ============================================================================
+  let audioCtx = null, masterGain = null;
+  let engineOsc = null, engineFilter = null, engineGain = null;   // continuous engine hum
+  let driftNoise = null, driftGain = null;                        // continuous drift scritch
+  let audioMuted = false; try{ audioMuted = localStorage.getItem('fk_muted') === '1'; }catch(e){}
+  let _fanfareCount = 0;                                          // test hook: finish fanfares fired
+  const _aud = { tier:0, chargeTickT:0, rollTickT:0, chimes:0 };  // reactive diff state
+  function ensureAudio(){
+    if (!audioCtx){
+      try{ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){ return null; }
+    }
+    if (audioCtx.state === 'suspended'){ try{ audioCtx.resume(); }catch(e){} }
+    if (!masterGain){
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = audioMuted ? 0 : 1;
+      masterGain.connect(audioCtx.destination);
+    }
+    return audioCtx;
+  }
+  // generic one-shot tone -> masterGain
+  function tone(freq, dur, opts){
+    opts = opts || {};
+    const ctx = ensureAudio(); if (!ctx || !masterGain) return;
+    try{
+      const t = ctx.currentTime, d = dur || 0.18;
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = opts.type || 'square'; o.frequency.setValueAtTime(freq, t);
+      if (opts.slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(1,opts.slideTo), t + d);
+      const vol = opts.vol != null ? opts.vol : 0.12;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      o.connect(g); g.connect(masterGain);
+      o.start(t); o.stop(t + d + 0.02);
+    }catch(e){}
+  }
+  function beep(freq, dur){ tone(freq, dur || 0.18, { type:'square', vol:0.14 }); }
+  // K2.5: soft landing thump — low sine pop whose loudness scales with impact (downward) speed.
+  function landThump(impact){
+    const ctx = ensureAudio(); if (!ctx || !masterGain) return;
+    try{
+      const t = ctx.currentTime;
+      const vol = Math.min(0.22, 0.05 + (impact||0)*0.012);
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine'; o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(60, t + 0.18);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+      o.connect(g); g.connect(masterGain);
+      o.start(t); o.stop(t + 0.26);
+    }catch(e){}
+  }
+  // MT tier chime: cyan (tier1) = two-note up, orange (tier2) = higher + triumphant
+  function mtChime(tier){
+    if (tier === 1){ tone(660,0.10,{type:'triangle',vol:0.10}); setTimeout(()=>tone(990,0.12,{type:'triangle',vol:0.10}),70); }
+    else { tone(880,0.10,{type:'triangle',vol:0.12}); setTimeout(()=>tone(1320,0.14,{type:'triangle',vol:0.12}),70); }
+    _aud.chimes++;
+  }
+  // boost whoosh: a bandpass-swept noise burst + a rising tone layer
+  function boostWhoosh(){
+    const ctx = ensureAudio(); if (!ctx || !masterGain) return;
+    try{
+      const t = ctx.currentTime;
+      const src = ctx.createBufferSource();
+      const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate*0.3), ctx.sampleRate);
+      const d = buf.getChannelData(0); for (let i=0;i<d.length;i++) d[i] = Math.random()*2-1;
+      src.buffer = buf;
+      const bp = ctx.createBiquadFilter(); bp.type='bandpass'; bp.Q.value=1.2;
+      bp.frequency.setValueAtTime(400, t); bp.frequency.exponentialRampToValueAtTime(2600, t + 0.28);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.16, t + 0.03); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+      src.connect(bp); bp.connect(g); g.connect(masterGain);
+      src.start(t); src.stop(t + 0.32);
+    }catch(e){}
+    tone(300, 0.28, { type:'sawtooth', vol:0.07, slideTo:820 });
+  }
+  // spin-out: hit thud + a dizzy warble (LFO-wobbled triangle)
+  function spinSound(){
+    const ctx = ensureAudio(); if (!ctx || !masterGain) return;
+    try{
+      const t = ctx.currentTime;
+      const o1 = ctx.createOscillator(), g1 = ctx.createGain();     // thud
+      o1.type='sine'; o1.frequency.setValueAtTime(180,t); o1.frequency.exponentialRampToValueAtTime(70,t+0.12);
+      g1.gain.setValueAtTime(0.0001,t); g1.gain.exponentialRampToValueAtTime(0.18,t+0.01); g1.gain.exponentialRampToValueAtTime(0.0001,t+0.16);
+      o1.connect(g1); g1.connect(masterGain); o1.start(t); o1.stop(t+0.18);
+      const o2 = ctx.createOscillator(), g2 = ctx.createGain(), lfo = ctx.createOscillator(), lg = ctx.createGain(); // warble
+      o2.type='triangle'; o2.frequency.value=340;
+      lfo.type='sine'; lfo.frequency.value=11; lg.gain.value=120; lfo.connect(lg); lg.connect(o2.frequency);
+      g2.gain.setValueAtTime(0.0001,t+0.05); g2.gain.exponentialRampToValueAtTime(0.09,t+0.1); g2.gain.exponentialRampToValueAtTime(0.0001,t+0.9);
+      o2.connect(g2); g2.connect(masterGain); o2.start(t+0.05); o2.stop(t+0.95); lfo.start(t+0.05); lfo.stop(t+0.95);
+    }catch(e){}
+  }
+  function itemFireSound(){ tone(700, 0.08, { type:'square', vol:0.13 }); }
+  function itemRollSound(){ tone(880, 0.06, { type:'square', vol:0.12 }); setTimeout(()=>tone(990,0.06,{type:'square',vol:0.12}),80); }
+  // finish fanfare: podium-worthy triumphant run for 1st; a warm short flourish for others
+  function finishFanfare(place){
+    _fanfareCount++;
+    if (place === 1){
+      const notes = [523,659,784,1047,784,1047], times = [0,120,240,380,560,700];
+      notes.forEach((n,i)=>setTimeout(()=>tone(n, i>=4?0.34:0.2, { type:'triangle', vol:0.13 }), times[i]));
+    } else {
+      const notes = [440,554,659], times = [0,140,300];
+      notes.forEach((n,i)=>setTimeout(()=>tone(n, 0.24, { type:'triangle', vol:0.11 }), times[i]));
+    }
+  }
+  // continuous nodes (engine hum + drift scritch) — built once, gain-gated per frame
+  function startContinuousAudio(){
+    if (!ensureAudio() || engineOsc) return;
+    const ctx = audioCtx;
+    try{
+      engineOsc = ctx.createOscillator(); engineOsc.type='sawtooth'; engineOsc.frequency.value=55;
+      engineFilter = ctx.createBiquadFilter(); engineFilter.type='lowpass'; engineFilter.frequency.value=400;
+      engineGain = ctx.createGain(); engineGain.gain.value=0;
+      engineOsc.connect(engineFilter); engineFilter.connect(engineGain); engineGain.connect(masterGain);
+      engineOsc.start();
+      driftNoise = ctx.createBufferSource();
+      const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate*0.5), ctx.sampleRate);
+      const dd = buf.getChannelData(0); for (let i=0;i<dd.length;i++) dd[i] = Math.random()*2-1;
+      driftNoise.buffer = buf; driftNoise.loop = true;
+      const df = ctx.createBiquadFilter(); df.type='bandpass'; df.frequency.value=2700; df.Q.value=0.7;
+      driftGain = ctx.createGain(); driftGain.gain.value=0;
+      driftNoise.connect(df); df.connect(driftGain); driftGain.connect(masterGain);
+      driftNoise.start();
+    }catch(e){}
+  }
+  // per-frame reactive audio: engine pitch/vol, drift scritch, MT chimes/ticks (diff-based)
+  function updateAudio(dt){
+    if (G.phase === 'racing' || G.phase === 'countdown'){ ensureAudio(); startContinuousAudio(); }
+    if (!audioCtx) return;
+    const p = G.players.local;
+    const spd = Math.hypot(p.v.x, p.v.z);
+    const racing = G.phase === 'racing';
+    if (engineOsc){
+      const targetFreq = 52 + spd*6.2 + (p.boostT>0 ? 45 : 0);   // pitch follows own-kart speed
+      engineOsc.frequency.value += (targetFreq - engineOsc.frequency.value) * Math.min(1, dt*9);
+      engineFilter.frequency.value = 320 + spd*24;               // low-pass opens with speed
+      const tg = racing ? 0.045 : 0;
+      engineGain.gain.value += (tg - engineGain.gain.value) * Math.min(1, dt*6);
+    }
+    if (driftGain){
+      const on = p.drift.active && spd > 2.5 && !p.airborne;
+      const tg = on ? 0.05 : 0;
+      driftGain.gain.value += (tg - driftGain.gain.value) * Math.min(1, dt*12);
+    }
+    // MT tier chime on the rising edge of the local kart's drift tier
+    const tier = p.drift.active ? driftTier(p.drift.charge) : 0;
+    if (tier > _aud.tier) mtChime(tier);
+    _aud.tier = tier;
+    // MT charge tick while building charge (below tier2)
+    if (p.drift.active && !p.airborne && tier < 2){
+      _aud.chargeTickT -= dt;
+      if (_aud.chargeTickT <= 0){ tone(1400, 0.02, { type:'square', vol:0.03 }); _aud.chargeTickT = 0.11; }
+    } else _aud.chargeTickT = 0;
+    // item roll tick during the HUD roll
+    if (p.itemRollT > 0){
+      _aud.rollTickT -= dt;
+      if (_aud.rollTickT <= 0){ tone(1150, 0.02, { type:'square', vol:0.035 }); _aud.rollTickT = 0.07; }
+    } else _aud.rollTickT = 0;
+  }
+  // 🔊 mute toggle (persisted; masterGain is the single kill switch)
+  function applyMute(){
+    const btn = document.getElementById('muteBtn');
+    if (btn){ btn.textContent = audioMuted ? '🔇' : '🔊'; btn.classList.toggle('muted', audioMuted); }
+    if (masterGain) masterGain.gain.value = audioMuted ? 0 : 1;
+  }
+  function setMuted(v){ audioMuted = !!v; try{ localStorage.setItem('fk_muted', audioMuted ? '1' : '0'); }catch(e){} applyMute(); }
+  function toggleMute(){ setMuted(!audioMuted); }
+  document.getElementById('muteBtn').addEventListener('click', e=>{ e.stopPropagation(); ensureAudio(); toggleMute(); });
+  applyMute();
+
+  // ---------- phase machine (K1) ----------
+  const startOverlay = document.getElementById('startOverlay');
+  const countdownEl  = document.getElementById('countdown');
+  const cdNum        = document.getElementById('cdNum');
+  const resultsEl    = document.getElementById('results');
+  // clear power-up entities + re-arm every item box (start of a race / return to menu)
+  function resetEntities(){
+    G.projectiles.length = 0; G.hazards.length = 0;
+    for (const b of G.itemBoxes){ b.active = true; b.respawnT = 0; }
+  }
+  function toMenu(){
+    G.phase = 'menu';
+    // remove bots so the menu shows just the local kart on the grid
+    for (const id in G.players){ if (G.players[id].isBot){ removeKartView(id); delete G.players[id]; } }
+    resetRaceFields(G.players.local);
+    placeAtGrid(G.players.local, 0);
+    resetEntities();
+    startOverlay.style.display = 'flex';
+    countdownEl.style.display = 'none';
+    resultsEl.style.display = 'none';
+  }
+  function startCountdown(){
+    if (G.phase !== 'menu' && G.phase !== 'finished') return;
+    // MP: only the HOST starts a race. Guests wait for the host's snapshot (guestApply seats them).
+    if (net.mp && !net.isHost) return;
+    G.lapsTotal = Math.max(1, Math.round(TUNE.laps));
+    setupRoster();
+    if (net.mp){
+      // MP host: seat local + guests + bots by join order (trims bots over MAX_KARTS), place
+      // local + bots on the grid (remote humans self-seat from the roster), publish the snapshot.
+      mpAssignSeats();
+      net.spins = {}; net.grants = {}; net.remote = {}; G.raceOver = false; net.localResultsShown = false;
+      G.raceGen = (G.raceGen||0) + 1;
+      for (const id in G.players) resetRaceFields(G.players[id]);
+      for (const id in G.players){
+        const p = G.players[id];
+        if (p._remote && !p.isBot){ // baseline (overwritten by their own publish)
+          placeAtGrid(p, p.gridSlot);
+        } else {
+          placeAtGrid(p, p.gridSlot);
+          p._slotCol = KART_COLORS[p.gridSlot%4];
+          if (kartViews[id]) kartViews[id].bodyMat.color.setHex(p._slotCol);
+        }
+      }
+      kartViews.local.bodyMat.color.setHex(G.players.local._slotCol);
+    } else {
+      for (const id in G.players) resetRaceFields(G.players[id]);
+      placeAllAtGrid();
+    }
+    resetEntities();
+    G.phase = 'countdown';
+    G.countdownT = TUNE.countdownBeat * 3;
+    G.lastBeat = 99;
+    G.goFlashT = 0;
+    G.raceClock = 0;
+    startOverlay.style.display = 'none';
+    resultsEl.style.display = 'none';
+    countdownEl.style.display = 'flex';
+    beep(440); // "3"
+    G.lastBeat = 3;
+    if (net.mp && net.isHost) publishNetSnapshotNow();
+  }
+  function startRacing(inp){
+    const p = G.players.local;
+    // MKW-style start: throttle press timed to GO. startPressT = countdownT remaining at press.
+    const held = inp.throttle > 0.5;
+    if (held && p.startPressT !== null){
+      if (p.startPressT <= TUNE.startBoostWindow){        // pressed in the last window before GO
+        p.boostT = TUNE.startBoostT; p.boostTier = 1; beep(660, 0.25);
+      } else if (p.startPressT > TUNE.startStallEarly){   // jumped the start -> brief stall
+        p.stallT = TUNE.startStallT;
+      }
+    }
+    // bots use the start boost with slight timing randomness (a few jump the start and stall)
+    for (const id in G.players){
+      const b = G.players[id]; if (!b.isBot) continue;
+      const r = Math.random();
+      if (r < 0.6){ b.boostT = TUNE.startBoostT; b.boostTier = 1; }
+      else if (r > 0.9){ b.stallT = TUNE.startStallT; }
+    }
+    G.phase = 'racing';
+    G.raceClock = 0;
+    G.goFlashT = 0.6;
+    for (const id in G.players) G.players[id].lapStart = performance.now();
+    for (const id in G.players) G.players[id].finishDebounce = 1.0; // grid->start-line crossing must not count
+    cdNum.textContent = 'GO!'; cdNum.classList.add('go');
+    beep(880, 0.3);
+  }
+  function updatePhase(dt, inp){
+    if (G.phase === 'countdown'){
+      const p = G.players.local;
+      // record first throttle press timing for the start boost/stall
+      if (inp.throttle > 0.5 && p.startPressT === null) p.startPressT = G.countdownT;
+      G.countdownT -= dt;
+      if (G.countdownT > 0){
+        const beat = Math.max(1, Math.ceil(G.countdownT / TUNE.countdownBeat)); // 3,2,1
+        if (beat < G.lastBeat){ G.lastBeat = beat; beep(440); }
+        cdNum.textContent = String(beat); cdNum.classList.remove('go');
+      } else {
+        startRacing(inp);
+      }
+    } else if (G.phase === 'racing'){
+      if (G.goFlashT > 0){
+        G.goFlashT = Math.max(0, G.goFlashT - dt);
+        if (G.goFlashT === 0){ countdownEl.style.display = 'none'; cdNum.classList.remove('go'); }
+      }
+    }
+  }
+  function showResults(){
+    const r = G.results;
+    const bigMedal = MEDAL[r.place] || '';
+    document.getElementById('rPlace').innerHTML = (bigMedal ? '<span class="medal">'+bigMedal+'</span>' : '') + (ORD[r.place] || (r.place + 'th'));
+    document.getElementById('rTime').textContent = fmtTime(r.totalTime);
+    document.getElementById('rBest').textContent = r.bestLap ? fmtTime(r.bestLap) : '—';
+    // standings leaderboard (shown only when there are bots)
+    const sEl = document.getElementById('rStandings');
+    if (r.standings && r.standings.length > 1){
+      sEl.innerHTML = '';
+      for (const row of r.standings){
+        const div = document.createElement('div'); div.className = 'srow' + (row.isLocal ? ' me' : '');
+        const col = '#'+row.color.toString(16).padStart(6,'0');
+        const med = MEDAL[row.place] || '';
+        div.innerHTML = '<span class="sp">'+(med ? '<span class="medal">'+med+'</span>' : '')+(ORD[row.place]||(row.place+'th'))+'</span>'+
+                        '<span class="sn" style="color:'+col+'">'+row.name+'</span>'+
+                        '<span class="sb">'+(row.best ? fmtTime(row.best) : '—')+'</span>'+
+                        '<span class="st">'+(row.finished ? fmtTime(row.time) : '—')+'</span>';
+        sEl.appendChild(div);
+      }
+      sEl.style.display = 'block';
+    } else sEl.style.display = 'none';
+    resultsEl.style.display = 'flex';
+    countdownEl.style.display = 'none';
+    finishFanfare(r.place);   // K6: podium fanfare for 1st, warm flourish otherwise
+  }
+  // menu / results advance = Enter or tap
+  function advance(){
+    if (net.mp && !net.isHost) return;   // guests never start/restart — the host drives it
+    if (net.mp && net.isHost){
+      // host: from the menu, or after the race is over, (re)start a countdown
+      if (G.phase === 'menu' || G.raceOver || G.players.local.finished){
+        G.raceOver = false; resultsEl.style.display='none'; G.phase = 'menu';
+        startCountdown();
+      }
+      return;
+    }
+    if (G.phase === 'menu') startCountdown();
+    else if (G.phase === 'finished') startCountdown();
+  }
+  addEventListener('keydown', e=>{ if (e.key === 'Enter'){ advance(); } });
+  stage.addEventListener('pointerdown', ()=>{ if (G.phase==='menu' || G.phase==='finished') advance(); });
+
+  // ---------- track picker (K3) ----------
+  // Lists DEFAULT_TRACK + every saved track in fk_tracks_v1. Changing it reloads the page at
+  // ?track=<id> (default = no param) — a full reload rebuilds the whole scene cleanly.
+  const trackSel = document.getElementById('trackSel');
+  (function populateTrackPicker(){
+    const opts = [{ id:'', name:FK_TRACK.DEFAULT_TRACK.name + ' (default)' }];
+    const seen = {};
+    try{
+      // built-in converted courses first
+      const b = FK_TRACK.BUILTIN_TRACKS || {};
+      for (const id in b){ const t = FK_TRACK.sanitize(b[id]); if (t){ opts.push({ id, name:t.name || id }); seen[id]=1; } }
+      const map = JSON.parse(localStorage.getItem('fk_tracks_v1') || 'null');
+      if (map && typeof map === 'object'){
+        for (const id in map){ if (seen[id]) continue; const t = FK_TRACK.sanitize(map[id]); if (t) opts.push({ id, name:t.name || id }); }
+      }
+    }catch(e){}
+    trackSel.innerHTML = '';
+    for (const o of opts){
+      const el = document.createElement('option'); el.value = o.id; el.textContent = o.name; trackSel.appendChild(el);
+    }
+    trackSel.value = ACTIVE_TRACK_ID || '';
+  })();
+  // the ✎ edit link opens the currently-selected track in the editor (built-ins included).
+  const editLink = document.getElementById('editLink');
+  function syncEditLink(){ const id = trackSel.value; editLink.href = id ? ('farmkart-editor.html?track=' + encodeURIComponent(id)) : 'farmkart-editor.html'; }
+  syncEditLink();
+  trackSel.addEventListener('change', ()=>{
+    syncEditLink();
+    const id = trackSel.value;
+    location.href = id ? ('farmkart.html?track=' + encodeURIComponent(id)) : 'farmkart.html';
+  });
+  // ---------- bot-count picker (K3.5) ----------
+  const botBtns = document.getElementById('botBtns');
+  function refreshBotBtns(){
+    for (const b of botBtns.querySelectorAll('button')) b.classList.toggle('on', parseInt(b.dataset.n,10) === G.botCount);
+  }
+  botBtns.addEventListener('pointerdown', e=>e.stopPropagation());
+  botBtns.addEventListener('click', e=>{
+    const b = e.target.closest('button'); if (!b) return;
+    G.botCount = Math.max(0, Math.min(3, parseInt(b.dataset.n,10)));
+    try{ localStorage.setItem('fk_bots', String(G.botCount)); }catch(err){}
+    refreshBotBtns();
+  });
+  refreshBotBtns();
+  // keep picker interactions from starting the race
+  document.querySelector('#startOverlay .tpick').addEventListener('pointerdown', e=>e.stopPropagation());
+  document.querySelector('#startOverlay .botpick').addEventListener('pointerdown', e=>e.stopPropagation());
+  // tapping the overlay (but not the picker) starts, matching "tap to start"
+  startOverlay.addEventListener('pointerdown', ()=>{ if (G.phase==='menu' || G.phase==='finished') advance(); });
+
+  // ============================================================================
+  //  K5 — MULTIPLAYER (Playroom Kit, up to 4). Model: each client is authoritative
+  //  over its OWN kart (position + physics + own lap/progress, published ~18Hz);
+  //  the HOST is authoritative over phase/countdown, BOTS, item boxes/rolls,
+  //  projectile/hazard spawns + hit resolution (spin-outs), and standings. Copied
+  //  patterns from barnyardbistro.html (skipLobby, #r= hash parse/clear before
+  //  insertCoin, roomCode explicit, solo fallback, hidden-tab heartbeat, exactly-
+  //  once seq events). SOLO IS THE FALLBACK: when net.mp is false (no room / Playroom
+  //  unreachable / not requested) the main loop runs the ORIGINAL single-player path
+  //  byte-for-byte — nothing below touches solo.
+  // ============================================================================
+  const KART_COLORS = [0xd6352b, 0x3f7fe0, 0xf2c53d, 0x4caf50]; // slot 0..3: red/blue/yellow/green
+  const MAX_KARTS = 4;
+  const net = {
+    ready:false,        // insertCoin resolved OR fallback engaged
+    mp:false,           // a real Playroom room is active (else = pure solo path)
+    isHost:true,        // solo/fallback defaults to host (runs the whole sim)
+    myId:'local',       // Playroom id of the local player (or 'local' solo)
+    localPlayer:null,
+    players:[],         // ALL Playroom player objects (join order) — maintained on every client
+    roomCode:null,
+    myName:'',
+    snapCd:0, inputCd:0, // publish throttles (host snapshot / guest input)
+    useSeq:0,           // guest-side item-use exactly-once counter
+    pendingUse:false,   // guest-side: suppress re-adopting held item until host clears the grant
+    remote:{},          // host-side: pid -> { lastUseSeq }
+    spins:{},           // host-side authored: pid -> seq (host declares a spin on a guest)
+    lastSpinApplied:0,  // guest-side: last spin seq we applied to our own kart
+    localResultsShown:false,
+    startedCountdown:false // guest-side: obeyed the current countdown's grid-place once
+  };
+  window.__net = net;   // test hook
+
+  function speedOf(p){ return Math.hypot(p.v.x, p.v.z); }
+  function myName(){
+    try{ return localStorage.getItem('choreUser') || ''; }catch(e){ return ''; }
+  }
+
+  // ---- serialize the LOCAL kart for publishing ('k' player state) ----
+  function serializeKart(p, name, col){
+    return {
+      x:p.pos.x, z:p.pos.z, y:p.y, th:p.theta, da:p.driftAngle, sp:speedOf(p),
+      lap:p.lap, cp:p.checkpoint, ps:p.progressS, spin:p.spinT, air:p.airborne,
+      it:p.itemHeld, roll:p.itemRollT, fin:p.finished, ft:p.finishTime,
+      dact:p.drift.active, dtier:(p.drift.active?driftTier(p.drift.charge):0), bo:(p.boostT>0?1:0),
+      nm:name||'', col:col
+    };
+  }
+  // ---- write a received kart snapshot into a G.players entry (create + interpolate) ----
+  function adoptKart(key, ks, dt, remotePid, isBot){
+    let p = G.players[key];
+    if (!p){
+      p = makePlayer(key);
+      p.pos.x = ks.x; p.pos.z = ks.z; p.y = ks.y; p.theta = ks.th;
+      p._remotePid = remotePid || null; p._remote = true; p.isBot = !!isBot;
+      G.players[key] = p;
+      if (!kartViews[key]) buildKartView(key, ks.col!=null?ks.col:0x8844cc, false, ks.nm || 'Racer');
+    }
+    // spatial: interpolate (~120ms), snap on a big error (>8u) to avoid a long glide
+    const err = Math.hypot(ks.x - p.pos.x, ks.z - p.pos.z);
+    if (err > 8){ p.pos.x = ks.x; p.pos.z = ks.z; p.y = ks.y; p.theta = ks.th; }
+    else {
+      const t = 1 - Math.exp(-8.3 * (dt||0.016));   // ~120ms time constant
+      p.pos.x += (ks.x - p.pos.x) * t;
+      p.pos.z += (ks.z - p.pos.z) * t;
+      p.y     += (ks.y - p.y) * t;
+      let dth = ks.th - p.theta; while(dth>Math.PI)dth-=Math.PI*2; while(dth<-Math.PI)dth+=Math.PI*2;
+      p.theta += dth * t;
+    }
+    p._dispName = ks.nm || p._dispName; if (ks.col!=null) p._slotCol = ks.col;
+    // non-spatial: take directly
+    p.driftAngle = ks.da; p.v.x = Math.sin(ks.th)*ks.sp; p.v.z = Math.cos(ks.th)*ks.sp;
+    p.lap = ks.lap; p.checkpoint = ks.cp; p.progressS = ks.ps; p.spinT = ks.spin; p.airborne = ks.air;
+    p.itemHeld = ks.it; p.itemRollT = ks.roll || 0; p.finished = ks.fin; p.finishTime = ks.ft;
+    // glow reconstruction for the render layer (drift tier / boosting)
+    p.drift.active = ks.dact;
+    p.drift.charge = ks.dtier>=2 ? 2*TUNE.mtTier1 : (ks.dtier>=1 ? TUNE.mtTier1 : 0);
+    p.boostT = ks.bo ? 0.1 : 0;
+    return p;
+  }
+
+  // ---- host: build the authoritative room snapshot ----
+  function buildRoster(){
+    const r = [];
+    for (const id in G.players){
+      const p = G.players[id];
+      r.push({ key:id, pid:p._remotePid || (id==='local'?net.myId:null), slot:p.gridSlot,
+               col:p._slotCol!=null?p._slotCol:(p.isBot?p.botColor:0xd6352b),
+               nm:p._dispName || (p.isBot?p.botName:(net.myName||'You')), bot:!!p.isBot });
+    }
+    return r;
+  }
+  function buildNetSnapshot(){
+    // ONLY the BOTS travel in the snapshot 'karts' map (the host integrates them). Every HUMAN —
+    // the host included — publishes its own kart peer-to-peer via its Playroom player 'k' state, so
+    // the host is just another remote human from a guest's point of view (no double source).
+    const karts = {};
+    for (const id in G.players){
+      const p = G.players[id];
+      if (!p.isBot) continue;
+      karts[id] = serializeKart(p, p.botName, p._slotCol!=null?p._slotCol:p.botColor);
+    }
+    return {
+      phase:G.phase, countdownT:G.countdownT, raceClock:G.raceClock, laps:G.lapsTotal,
+      goFlashT:G.goFlashT, cdBeat:G.lastBeat, raceGen:G.raceGen||0,
+      roster:buildRoster(),
+      karts,
+      boxes:G.itemBoxes.map(b=>b.active?1:0),
+      proj:G.projectiles.map(pr=>({x:pr.x,y:pr.y,z:pr.z})),
+      haz:G.hazards.map(hz=>({x:hz.x,y:hz.y,z:hz.z})),
+      grants:net.grants || {},
+      spins:net.spins,
+      raceOver:!!G.raceOver
+    };
+  }
+  function publishNetSnapshotNow(){
+    if (!net.mp || !net.isHost || !net.localPlayer) return;
+    try{ Playroom.setState('snap', buildNetSnapshot(), true); }catch(e){}
+  }
+
+  // ---- host: seat colors + slots for the current roster (local + guests + bots) ----
+  function mpAssignSeats(){
+    // humans first (host seat 0, then guests in join order), then bots fill up to MAX_KARTS
+    let slot = 0;
+    const assign = (p, col)=>{ p.gridSlot = slot; p._slotCol = KART_COLORS[slot%4]; slot++; };
+    // host's own kart
+    const localP = G.players.local; localP.gridSlot = 0; localP._slotCol = KART_COLORS[0];
+    localP._dispName = net.myName || 'You'; slot = 1;
+    // remote humans (adopted 'r_' entries), in net.players join order
+    for (const pl of net.players){
+      if (pl.id === net.myId) continue;
+      const key = 'r_'+pl.id, p = G.players[key];
+      if (p && slot < MAX_KARTS){ p.gridSlot = slot; p._slotCol = KART_COLORS[slot%4];
+        p._dispName = (pl.getState && pl.getState('name')) || 'Racer'; slot++; }
+    }
+    // bots fill the rest
+    for (const id in G.players){
+      const p = G.players[id];
+      if (!p.isBot) continue;
+      if (slot >= MAX_KARTS){ removeKartView(id); delete G.players[id]; continue; }
+      p.gridSlot = slot; p._slotCol = KART_COLORS[slot%4]; slot++;
+    }
+  }
+
+  // ---- guest: reconcile remote karts (other humans peer-to-peer + host's karts/bots from snap) ----
+  function guestSyncRemotes(snap, dt){
+    const seen = {};
+    // other humans (incl. host) from their own published 'k'
+    for (const pl of net.players){
+      if (pl.id === net.myId) continue;
+      let ks = null; try{ ks = pl.getState('k'); }catch(e){}
+      if (!ks) continue;
+      const key = 'r_'+pl.id; seen[key] = 1;
+      adoptKart(key, ks, dt, pl.id, false);
+    }
+    // bots from the snapshot 'karts' map (only the host integrates them)
+    if (snap && snap.karts){
+      for (const key in snap.karts){
+        const ks = snap.karts[key];
+        seen[key] = 1;
+        adoptKart(key, ks, dt, null, true);
+      }
+    }
+    // drop remotes that vanished
+    for (const id in G.players){
+      if (id === 'local') continue;
+      if (!seen[id]){ removeKartView(id); delete G.players[id]; }
+    }
+  }
+  // ---- host: adopt remote guests' published karts + consume their input events ----
+  function hostAdoptRemotes(dt){
+    const seen = {};
+    for (const pl of net.players){
+      if (pl.id === net.myId) continue;
+      const key = 'r_'+pl.id; seen[pl.id] = 1;
+      let ks = null; try{ ks = pl.getState('k'); }catch(e){}
+      if (ks) adoptKart(key, ks, dt, pl.id, false);
+      // item-use events (exactly-once)
+      let useSeq = 0; try{ useSeq = pl.getState('useSeq') || 0; }catch(e){}
+      const st = net.remote[pl.id] || (net.remote[pl.id] = { lastUseSeq:0 });
+      if (useSeq !== st.lastUseSeq){ st.lastUseSeq = useSeq; hostConsumeGuestUse(pl.id); }
+    }
+  }
+  // host executes a guest's item use against the host-authored grant
+  function hostConsumeGuestUse(pid){
+    net.grants = net.grants || {};
+    const g = net.grants[pid];
+    if (!g || !g.held) return;
+    const kind = g.held; net.grants[pid] = { held:null, roll:0 };
+    const p = G.players['r_'+pid];
+    if (!p) return;
+    p.itemHeld = kind;                 // momentary so fireTomato/dropHay read the right owner/pose
+    if (kind === 'boost'){ /* the guest applies its own boost locally (feel) */ }
+    else if (kind === 'tomato'){ fireTomato(p); }
+    else if (kind === 'hay'){ dropHay(p); }
+    p.itemHeld = null;
+    publishNetSnapshotNow();
+  }
+  // host: item-box pickups also feed the per-guest GRANT map (guests can't roll their own)
+  function hostGrantItems(){
+    net.grants = net.grants || {};
+    for (const box of G.itemBoxes){
+      if (!box.active) continue;
+      for (const id in G.players){
+        const p = G.players[id];
+        if (!p._remote || p.isBot) continue;       // only remote HUMAN guests use grants
+        const pid = p._remotePid;
+        const g = net.grants[pid];
+        if (g && (g.held || g.roll>0)) continue;    // already holds/rolling
+        if (Math.hypot(p.pos.x-box.x, p.pos.z-box.z) < TUNE.itemBoxRadius){
+          box.active = false; box.respawnT = TUNE.itemBoxRespawn;
+          net.grants[pid] = { held:null, roll:TUNE.itemRollT };
+          break;
+        }
+      }
+    }
+    // advance grant rolls -> settle into a held item (host owns the roll)
+    for (const pid in net.grants){
+      const g = net.grants[pid];
+      if (g.roll > 0){ g.roll = Math.max(0, g.roll - (net._grantDt||0)); if (g.roll===0) g.held = rollItem(); }
+    }
+  }
+
+  // ---- guest: apply the host snapshot (phase machine + world + own grant/spin) ----
+  function guestApply(snap, dt, inp){
+    if (!snap) return;
+    G.lapsTotal = snap.laps || G.lapsTotal;
+    if (typeof snap.countdownT === 'number') G.countdownT = snap.countdownT;   // mirror for HUD/tests
+    // NEW COUNTDOWN generation from the host -> allow re-seating (host restarted the race)
+    if (typeof snap.raceGen === 'number' && snap.raceGen !== net.seenGen){
+      net.seenGen = snap.raceGen; net.startedCountdown = false;
+    }
+    // ROSTER: find our own slot/color
+    let mine = null;
+    if (snap.roster) mine = snap.roster.find(r => r.pid === net.myId);
+    // PHASE MACHINE (guest obeys the host to ENTER countdown/racing; owns its OWN finish after GO)
+    if (snap.phase === 'countdown' && !net.startedCountdown){
+      net.startedCountdown = true; net.localResultsShown = false; net.lastSpinApplied = 0;
+      const p = G.players.local;
+      resetRaceFields(p);
+      placeAtGrid(p, mine ? mine.slot : 0);
+      if (mine){ p._slotCol = mine.col; kartViews.local.bodyMat.color.setHex(mine.col); }
+      G.phase = 'countdown'; p.startPressT = null;
+      startOverlay.style.display='none'; resultsEl.style.display='none'; countdownEl.style.display='flex';
+    }
+    if (G.phase === 'countdown'){
+      // record our own throttle timing for the start boost (against the host's synced clock)
+      const p = G.players.local;
+      if (inp.throttle > 0.5 && p.startPressT === null) p.startPressT = snap.countdownT;
+      const beat = Math.max(1, Math.ceil(snap.countdownT / TUNE.countdownBeat));
+      if (snap.countdownT > 0){ cdNum.textContent = String(beat); cdNum.classList.remove('go'); }
+      // host flipped to racing -> run our OWN start (boost/stall) once, then race locally
+      if (snap.phase === 'racing'){
+        guestStartRacing(p);
+      }
+    }
+    if (snap.phase === 'menu' && G.phase !== 'menu' && !G.players.local.finished){
+      // host returned to menu -> follow
+      net.startedCountdown = false; net.localResultsShown = false;
+      toMenuGuest();
+    }
+    // WORLD (host-authoritative) — item boxes, projectiles, hazards, remote karts
+    if (snap.boxes) for (let i=0;i<G.itemBoxes.length;i++){ if (G.itemBoxes[i]) G.itemBoxes[i].active = !!snap.boxes[i]; }
+    G.projectiles = (snap.proj||[]).map(pr=>({x:pr.x,y:pr.y,z:pr.z,life:1,owner:''}));
+    G.hazards = (snap.haz||[]).map(hz=>({x:hz.x,y:hz.y,z:hz.z,owner:''}));
+    // OUR grant (host rolled it) -> local held item for HUD + use logic
+    const g = snap.grants && snap.grants[net.myId];
+    if (g){
+      if (net.pendingUse){ if (!g.held) net.pendingUse = false; }
+      else { G.players.local.itemHeld = g.held || null; G.players.local.itemRollT = g.roll || 0; }
+    }
+    // SPIN event from the host (we own applying it to our own kart)
+    const sp = snap.spins && snap.spins[net.myId];
+    if (typeof sp === 'number' && sp !== net.lastSpinApplied){ net.lastSpinApplied = sp; applySpinOut(G.players.local); }
+    guestSyncRemotes(snap, dt);
+  }
+  function guestStartRacing(p){
+    // MKW start: apply our own boost/stall from the throttle timing we recorded during countdown
+    if (p.startPressT !== null){
+      if (p.startPressT <= TUNE.startBoostWindow){ p.boostT = TUNE.startBoostT; p.boostTier = 1; beep(660,0.25); }
+      else if (p.startPressT > TUNE.startStallEarly){ p.stallT = TUNE.startStallT; }
+    }
+    G.phase = 'racing'; G.raceClock = 0; G.goFlashT = 0.6;
+    p.lapStart = performance.now(); p.finishDebounce = 1.0;
+    cdNum.textContent='GO!'; cdNum.classList.add('go'); beep(880,0.3);
+  }
+  function toMenuGuest(){
+    G.phase = 'menu';
+    resetRaceFields(G.players.local); placeAtGrid(G.players.local, 0);
+    startOverlay.style.display='flex'; countdownEl.style.display='none'; resultsEl.style.display='none';
+  }
+
+  // ---- guest item use: bump the seq (host spawns entities); boost applied locally for feel ----
+  function netLocalUseItem(){
+    const p = G.players.local;
+    if (net.isHost){ useItem(p); return; }
+    if (!p.itemHeld || p.itemRollT>0 || p.spinT>0) return;
+    const kind = p.itemHeld;
+    p.itemHeld = null; net.pendingUse = true; net.useSeq++;
+    if (kind === 'boost'){ p.boostT = TUNE.boostT1*3; p.boostTier = 2; boostWhoosh(); }
+    else itemFireSound();
+  }
+
+  // ---- FAMILY RACE menu wiring ----
+  const familyRaceBtn = document.getElementById('familyRaceBtn');
+  const mpBox = document.getElementById('mpBox');
+  const mpLinkInput = document.getElementById('mpLink');
+  const mpRoster = document.getElementById('mpRoster');
+  const mpNote = document.getElementById('mpNote');
+  const mpPlacesEl = document.getElementById('mpPlaces');
+  familyRaceBtn.addEventListener('pointerdown', e=>e.stopPropagation());
+  familyRaceBtn.addEventListener('click', async (e)=>{
+    e.stopPropagation();
+    familyRaceBtn.disabled = true; familyRaceBtn.textContent = 'connecting…';
+    await initNet(null);
+    if (net.mp){
+      familyRaceBtn.style.display = 'none';
+      mpBox.style.display = 'block';
+      const url = location.origin + location.pathname + (ACTIVE_TRACK_ID?('?track='+encodeURIComponent(ACTIVE_TRACK_ID)):'') + '#r=' + net.roomCode;
+      mpLinkInput.value = url;
+    } else {
+      familyRaceBtn.disabled = false; familyRaceBtn.textContent = '🌐 FAMILY RACE';
+      mpNote.textContent = 'Online unavailable — playing solo.'; mpBox.style.display='block';
+    }
+  });
+  document.querySelector('#startOverlay .mppick').addEventListener('pointerdown', e=>e.stopPropagation());
+  document.getElementById('copyLinkBtn').addEventListener('click', e=>{
+    e.stopPropagation();
+    const b = e.target;
+    const done = ()=>{ b.textContent='✓'; setTimeout(()=>b.textContent='📋 copy',1200); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(mpLinkInput.value).then(done,done);
+    else { mpLinkInput.select(); done(); }
+  });
+  function refreshMpMenu(){
+    if (!net.mp){ return; }
+    const names = net.players.map(pl => pl.id===net.myId ? (net.myName||'You')+' (you)' : ((pl.getState&&pl.getState('name'))||'Racer'));
+    mpRoster.innerHTML = names.map(n=>'<span class="pr">🏎 '+n+'</span>').join('');
+    mpNote.textContent = net.isHost ? 'You are host — press ENTER / tap to start when everyone\'s in.'
+                                    : 'Waiting for the host to start the race…';
+  }
+
+  // ---- init: parse+clear our #r= hash BEFORE insertCoin (Playroom reads #r itself in a
+  //   different format that would win over roomCode); solo fallback on any failure. ----
+  function readAndClearRoomCodeFromHash(){
+    const m = /(?:^|&)r=([^&]+)/.exec(location.hash.slice(1));
+    const code = m ? decodeURIComponent(m[1]) : null;
+    if (code) history.replaceState(null, '', location.pathname + location.search);
+    return code;
+  }
+  let netInitStarted = false;
+  async function initNet(deepCodeArg){
+    if (netInitStarted) return; netInitStarted = true;
+    if (typeof Playroom === 'undefined' || !Playroom.insertCoin){
+      console.warn('Farm Kart: Playroom Kit unavailable — solo only.'); net.ready = true; net.mp = false; return;
+    }
+    try{
+      const deep = (deepCodeArg !== undefined) ? deepCodeArg : readAndClearRoomCodeFromHash();
+      await Playroom.insertCoin({ maxPlayersPerRoom: MAX_KARTS, skipLobby:true, roomCode: deep || undefined });
+      net.isHost = Playroom.isHost();
+      net.localPlayer = Playroom.myPlayer();
+      net.myId = net.localPlayer.id;
+      net.myName = myName();
+      try{ net.roomCode = Playroom.getRoomCode(); }catch(e){ net.roomCode = deep || null; }
+      net.players = [net.localPlayer];
+      net.mp = true;
+      net.ready = true;
+      // publish our name immediately so rosters read a real name
+      try{ net.localPlayer.setState('name', net.myName, true); }catch(e){}
+      Playroom.onPlayerJoin((player)=>{
+        if (!net.players.find(p=>p.id===player.id)) net.players.push(player);
+        if (net.isHost && player.id !== net.myId){
+          // create an adopted kart entry for the new guest (position arrives via its 'k')
+          const key = 'r_'+player.id;
+          if (!G.players[key]){
+            const p = makePlayer(key); p._remote = true; p._remotePid = player.id;
+            p.pos.x = gridSlotPose(1).x; p.pos.z = gridSlotPose(1).z;
+            p.y = sampleHeight(p.pos.x, p.pos.z);
+            G.players[key] = p;
+          }
+        }
+        refreshMpMenu();
+        if (net.isHost) publishNetSnapshotNow();
+        player.onQuit(()=>{
+          net.players = net.players.filter(p=>p.id!==player.id);
+          const key = 'r_'+player.id;
+          if (G.players[key]){ removeKartView(key); delete G.players[key]; }
+          refreshMpMenu();
+          if (net.isHost) publishNetSnapshotNow();
+        });
+      });
+      // guest that deep-linked in: hide the FAMILY RACE button, show waiting box
+      if (deep && !net.isHost){
+        familyRaceBtn.style.display='none'; mpBox.style.display='block';
+        mpLinkInput.parentElement.style.display='none'; document.getElementById('mpBoxTitle').style.display='none';
+      } else if (net.isHost && deep){
+        // we asked to join a room but became host (room was empty/new) — still show link
+      }
+      refreshMpMenu();
+    }catch(err){
+      console.warn('Farm Kart: Playroom connection failed — solo only.', err);
+      net.ready = true; net.mp = false; net.isHost = true; net.myId = 'local';
+    }
+  }
+  // auto-join if the page was opened via a #r= deep link
+  (function(){
+    const m = /(?:^|&)r=([^&]+)/.exec(location.hash.slice(1));
+    if (m){ const code = decodeURIComponent(m[1]); history.replaceState(null,'',location.pathname+location.search); initNet(code); }
+  })();
+
+  // ---- host: hidden-tab heartbeat so the shared race keeps ticking while the host tab is hidden ----
+  let lastBgTick = performance.now();
+  setInterval(()=>{
+    const now = performance.now();
+    const dt = Math.min(1.1, (now - lastBgTick)/1000);
+    lastBgTick = now;
+    if (!document.hidden || !net.mp || !net.isHost) return;
+    hostMpTick(dt, { steer:0, throttle:0, brake:0, drift:false, item:false });
+  }, 250);
+
+  // ---- host authoritative tick (shared by rAF + heartbeat) ----
+  function hostMpTick(dt, inp){
+    updatePhase(dt, inp);
+    if (dt > 0 && (G.phase === 'racing')){
+      net._grantDt = dt;
+      hostAdoptRemotes(dt);
+      for (const id in G.players){
+        const p = G.players[id];
+        if (p._remote && !p.isBot) continue;   // guests integrate themselves
+        const pinp = p.isBot ? botInput(p) : inp;
+        stepKart(p, pinp, dt);
+        updateRaceProgress(p, dt);
+        if (p.isBot) botUseItems(p, dt);
+      }
+      if (inp.item) useItem(G.players.local);
+      updateItemBoxes(dt);
+      updateItemRolls(dt);
+      hostGrantItems();
+      advanceProjectiles(dt);
+      advanceHazards(dt);
+      updateBoostPads(dt);          // K7: boost pads (host kart + bots; guests fire their own)
+      resolveKartCollisions();      // K7: local separation (own kart authoritative; remotes not moved)
+      G.raceClock += dt;
+      // race fully over? (all karts finished) -> stop the world
+      const all = Object.values(G.players);
+      if (all.length && all.every(p=>p.finished)) G.raceOver = true;
+    }
+    net.snapCd -= dt;
+    if (net.snapCd <= 0){ publishNetSnapshotNow(); net.snapCd = 1/12; }
+  }
+
+  // ---------- main loop ----------
+  let last = performance.now();
+  function frame(now){
+    let dt = (now - last)/1000; last = now;
+    if (dt > 0.05) dt = 0.05; // clamp
+    if (dt < 0) dt = 0;
+    const inp = gatherInput();
+
+    if (!net.mp){
+      // ===== SOLO / FALLBACK PATH — byte-identical to the original single-player loop =====
+      updatePhase(dt, inp);
+      if (dt > 0 && G.phase === 'racing'){
+        // step EVERY kart (human + bots) through the SAME stepKart, then its race progress
+        for (const id in G.players){
+          const p = G.players[id];
+          const pinp = p.isBot ? botInput(p) : inp;
+          stepKart(p, pinp, dt);
+          updateRaceProgress(p, dt);
+          if (p.isBot) botUseItems(p, dt);
+          if (G.phase !== 'racing') break;   // local finished mid-frame -> stop
+        }
+        // local item use (edge-triggered in gatherInput)
+        if (inp.item) useItem(G.players.local);
+        // K4 world updates: pickups, rolls, projectiles, hazards
+        updateItemBoxes(dt);
+        updateItemRolls(dt);
+        advanceProjectiles(dt);
+        advanceHazards(dt);
+        updateBoostPads(dt);          // K7: boost pads (own + bots)
+        resolveKartCollisions();      // K7: kart-vs-kart separation (own + bots)
+        G.raceClock += dt;
+      }
+    } else if (net.isHost){
+      // ===== MP HOST: drive phase, local kart, bots, and the whole world; adopt guests =====
+      if (!document.hidden) hostMpTick(dt, inp);   // heartbeat drives it while hidden (item use handled inside)
+    } else {
+      // ===== MP GUEST: obey the host phase/world, integrate + publish our OWN kart =====
+      let snap = null; try{ snap = Playroom.getState('snap'); }catch(e){}
+      guestApply(snap, dt, inp);
+      if (G.phase === 'racing'){
+        const p = G.players.local;
+        stepKart(p, inp, dt);
+        updateRaceProgress(p, dt);
+        if (inp.item) netLocalUseItem();
+        updateBoostPads(dt);          // K7: guest fires its own pad boost locally (feel)
+        resolveKartCollisions();      // K7: separate only OUR kart from interpolated remotes
+        if (G.goFlashT > 0){ G.goFlashT = Math.max(0, G.goFlashT - dt); if (G.goFlashT===0){ countdownEl.style.display='none'; cdNum.classList.remove('go'); } }
+        G.raceClock += dt;
+      }
+      // publish our own kart + input ~18Hz
+      net.inputCd -= dt;
+      if (net.inputCd <= 0 && net.localPlayer){
+        try{
+          net.localPlayer.setState('k', serializeKart(G.players.local, net.myName || 'Racer', G.players.local._slotCol!=null?G.players.local._slotCol:0xd6352b), false);
+          net.localPlayer.setState('useSeq', net.useSeq, true);
+        }catch(e){}
+        net.inputCd = 1/18;
+      }
+    }
+
+    // MP host also publishes its own kart via 'k' so guests read it peer-to-peer
+    if (net.mp && net.isHost && net.localPlayer){
+      net.inputCd -= dt;
+      if (net.inputCd <= 0){
+        try{ net.localPlayer.setState('k', serializeKart(G.players.local, net.myName || 'Racer', G.players.local._slotCol!=null?G.players.local._slotCol:KART_COLORS[0]), false); }catch(e){}
+        net.inputCd = 1/18;
+      }
+    }
+
+    syncKart(dt);
+    updateCamera(dt);
+    updateHUD();
+    updateParticles(dt);   // K6: advance the pooled juice particles
+    updateAudio(dt);       // K6: reactive engine hum / drift scritch / MT chimes
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // boot into the menu (seed item boxes now that all item geometry consts are initialized)
+  buildItemBoxes();
+  buildBoostPads(); buildBoostPadVisuals();   // K7: boost pads from ACTIVE_TRACK.boostPads
+  buildCorridorFence();                       // K7: visible fence along both corridor edges (gap at overlaps)
+  toMenu();
+
+  // ---------- K7 TEST HELPER: a ready-made SELF-CROSSING (figure-8) track with the two branches at
+  //   different elevations. The harness writes this into fk_tracks_v1 then opens ?track=<id> to drive
+  //   the crossing and verify the overlap big-jump is gone. ----------
+  function makeSelfCrossTrack(){
+    const A = 95, B = 72, C = 6.5, n = 24, pts = [];
+    for (let i=0;i<n;i++){
+      const t = i/n * Math.PI*2;
+      pts.push({ x:Math.round(A*Math.sin(2*t)*10)/10, z:Math.round(B*Math.sin(t)*10)/10,
+                 y:Math.round(C*(1 - Math.cos(t))/2*100)/100 });   // t=0 pass low (y≈0), t=π pass high (y≈C)
+    }
+    return { v:1, name:'Figure 8 (bridge)', width:16, laps:3, gridSide:'left',
+             itemRows:[], boostPads:[], points:pts };
+  }
+
+  // ---------- TEST / TUNING HOOK (leave in — prototype) ----------
+  window.__KART__ = {
+    G, resetKart, centerPts, FINISH, scene, camera, renderer,
+    arcS, TRACK_LEN, FINISH_S, gridSlotPose,
+    sampleHeight, sampleHeightAtY, groundSampleHeight, nearestCenterInfo, TRACK_WIDTH,
+    // K7: collisions / corridor walls / overlap fix / boost pads
+    resolveKartCollisions, updateBoostPads, buildBoostPads, buildBoostPadVisuals, buildCorridorFence,
+    firePadBoost, effWallMargin, makeSelfCrossTrack, ownedLocally,
+    nearestOnCenterAtY:(x,z,cy)=>FK_TRACK.nearestOnCenterAtY(_sampled, x, z, cy, TRACK_WIDTH),
+    get boostPads(){ return G.boostPads; },
+    startCountdown, toMenu,
+    ACTIVE_TRACK, ACTIVE_TRACK_ID,   // K3: which track data is live
+    // K3.5 / K4 API (bots + power-ups; also exposed for the headless harness)
+    setupRoster, placeAllAtGrid, botInput, botTargetSpeed, botUseItems, addTestKart, buildItemBoxes,
+    applySpinOut, useItem, fireTomato, dropHay, totalProgress,
+    // K5 multiplayer (also exposed for the headless harness / unit-style codepath tests)
+    net, serializeKart, adoptKart, buildNetSnapshot, publishNetSnapshotNow, guestApply,
+    guestSyncRemotes, mpAssignSeats, hostGrantItems, hostConsumeGuestUse, netLocalUseItem,
+    readAndClearRoomCodeFromHash, removeKartView, buildKartView, makePlayer, kartViews,
+    // K6 polish (audio + particles + best-lap key; exposed for the headless harness)
+    BEST_LAP_KEY, setMuted, toggleMute, particleActiveCount,
+    audioState:()=>({ muted:audioMuted, masterGain: masterGain ? masterGain.gain.value : null,
+      engineFreq: engineOsc ? engineOsc.frequency.value : null, engineGainV: engineGain ? engineGain.gain.value : null,
+      driftGainV: driftGain ? driftGain.gain.value : null, ctx: audioCtx ? audioCtx.state : 'none',
+      fanfares:_fanfareCount, mtChimes:_aud.chimes }),
+    // jump straight into racing at sample 0, SOLO (physics-regression harness entry point)
+    forceRace:()=>{
+                    for (const id in G.players){ if (G.players[id].isBot || id!=='local'){ removeKartView(id); delete G.players[id]; } }
+                    G.projectiles.length = 0; G.hazards.length = 0;
+                    for (const b of G.itemBoxes){ b.active = true; b.respawnT = 0; }
+                    G.phase = 'racing'; G.goFlashT = 0;
+                    countdownEl.style.display='none'; startOverlay.style.display='none'; resultsEl.style.display='none';
+                    resetRaceFields(G.players.local); resetKart();
+                    G.players.local.finishDebounce = 5; G.raceClock = 0; },
+    _setKeys:(k,v)=>{ keys[k]=v; }
+  };
+  // back-compat: window.__KART__.state -> the local player entry
+  Object.defineProperty(window.__KART__, 'state', { get(){ return G.players.local; } });
+  // K2/K2.5: kartNormal now lives per-view -> expose the LOCAL kart's normal (test check 16)
+  Object.defineProperty(window.__KART__, 'kartNormal', { get(){ return kartViews.local.kartNormal; } });
+  // TUNE is reassigned by the reset button, so expose it via a live getter.
+  Object.defineProperty(window.__KART__, 'TUNE', { get(){ return TUNE; } });
+  </script>
+</body>
+</html>

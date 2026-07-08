@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BUCKY — Farm Kart Track Editor</title>
+<style>
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; height:100%; background:#7ec0ee; color:#fff; font-family:-apple-system,Segoe UI,Roboto,sans-serif; overflow:hidden; }
+  #stage{ position:absolute; inset:0; }
+  canvas{ display:block; touch-action:none; }
+
+  /* panels share the game's HUD look: dark translucent, monospace, cyan labels */
+  .panel{ position:absolute; z-index:10; background:rgba(12,20,28,.9); border:1px solid rgba(255,255,255,.15);
+          border-radius:12px; padding:10px 12px; font-family:'Consolas',monospace; font-size:12px; }
+  #tools{ top:10px; left:10px; width:250px; max-height:96vh; overflow-y:auto; }
+  #tools h1{ font-size:15px; margin:0 0 8px; letter-spacing:.03em; }
+  #tools .sec{ margin:10px 0 4px; color:#7fd0ff; font-weight:800; font-size:11px; letter-spacing:.05em; text-transform:uppercase; }
+  #tools label{ display:block; color:#cde; margin:4px 0 2px; }
+  #tools input[type=text], #tools input[type=number]{ width:100%; padding:6px 8px; border-radius:7px; border:1px solid rgba(255,255,255,.2);
+          background:rgba(0,0,0,.35); color:#fff; font-family:monospace; font-size:12px; }
+  #tools textarea{ width:100%; height:90px; padding:6px 8px; border-radius:7px; border:1px solid rgba(255,255,255,.2);
+          background:rgba(0,0,0,.35); color:#dfe; font-family:monospace; font-size:11px; resize:vertical; }
+  .btn{ display:inline-block; padding:7px 8px; border:0; border-radius:8px; font-family:monospace; font-weight:800;
+        font-size:12px; cursor:pointer; background:#25506e; color:#fff; margin:3px 3px 0 0; }
+  .btn:hover{ background:#2f6d97; }
+  .btn.on{ background:#3a7d3a; }
+  .btn.warn{ background:#8a3a3a; }
+  .btn.wide{ display:block; width:100%; margin:5px 0 0; }
+  .row{ display:flex; gap:6px; }
+  .row .btn{ flex:1; text-align:center; }
+
+  #info{ top:10px; right:10px; width:240px; }
+  #info .k{ color:#7fd0ff; }
+  #info .rd{ margin:3px 0; display:flex; justify-content:space-between; }
+  #valid{ margin-top:8px; padding:7px 8px; border-radius:8px; font-size:11px; line-height:1.5; }
+  #valid.ok{ background:rgba(40,110,50,.35); color:#bfffc4; }
+  #valid.bad{ background:rgba(150,40,40,.4); color:#ffcaca; }
+  #itemList{ margin-top:4px; }
+  #itemList .ir{ display:flex; justify-content:space-between; align-items:center; padding:2px 0; color:#cde; }
+  #itemList .ir button{ background:#8a3a3a; border:0; color:#fff; border-radius:6px; font-family:monospace; cursor:pointer; padding:2px 7px; }
+  #hint{ position:absolute; left:50%; bottom:12px; transform:translateX(-50%); z-index:10;
+         font-family:monospace; font-size:12px; color:rgba(255,255,255,.82); background:rgba(0,0,0,.4);
+         padding:6px 14px; border-radius:10px; pointer-events:none; white-space:nowrap; }
+  #toast{ position:absolute; left:50%; top:14px; transform:translateX(-50%); z-index:20; background:rgba(0,0,0,.6);
+          padding:8px 16px; border-radius:20px; font-weight:700; font-family:monospace; opacity:0; transition:opacity .3s; pointer-events:none; }
+  #toast.show{ opacity:1; }
+</style>
+</head>
+<body>
+  <div id="stage"></div>
+
+  <div id="tools" class="panel">
+    <h1>🏁 TRACK EDITOR</h1>
+
+    <div class="sec">Track</div>
+    <label>load existing</label>
+    <select id="loadSel" style="width:100%;margin-bottom:6px;"></select>
+    <label>name</label>
+    <input type="text" id="nameInp" placeholder="My Track">
+    <div class="row" style="margin-top:5px;">
+      <label style="flex:1;">width<input type="number" id="widthInp" step="1" min="6" max="40"></label>
+      <label style="flex:1;">laps<input type="number" id="lapsInp" step="1" min="1" max="5"></label>
+    </div>
+    <div class="row" style="margin-top:5px;">
+      <label style="flex:1;">wallMargin (grass)<input type="number" id="wallInp" step="0.5" min="2" max="20" placeholder="7"></label>
+    </div>
+    <button class="btn wide" id="corridorBtn">▦ show corridor bounds</button>
+
+    <div class="sec">Mode</div>
+    <div class="row">
+      <button class="btn on" id="mSelect">◉ move</button>
+      <button class="btn" id="mInsert">＋ insert</button>
+      <button class="btn" id="mItem">🎁 item</button>
+      <button class="btn" id="mBoost">⚡ boost</button>
+    </div>
+    <button class="btn wide warn" id="delBtn">🗑 delete point (Del)</button>
+    <button class="btn wide" id="revBtn">⟲ reverse direction</button>
+
+    <div class="sec">Item rows (s-fraction)</div>
+    <div id="itemList"></div>
+
+    <div class="sec">Boost pads (s · lane)</div>
+    <div id="boostList"></div>
+
+    <div class="sec">Save / share</div>
+    <div class="row">
+      <button class="btn" id="saveBtn">💾 save</button>
+      <button class="btn" id="testBtn">▶ test</button>
+    </div>
+    <button class="btn wide" id="expBtn">📋 export JSON</button>
+    <textarea id="io" placeholder="paste track JSON here, then Import"></textarea>
+    <button class="btn wide" id="impBtn">⬇ import from box</button>
+  </div>
+
+  <div id="info" class="panel">
+    <div class="rd"><span class="k">points</span><span id="nPts">—</span></div>
+    <div class="rd"><span class="k">selected</span><span id="selIdx">none</span></div>
+    <div class="rd"><span class="k">x</span><span id="selX">—</span></div>
+    <div class="rd"><span class="k">z</span><span id="selZ">—</span></div>
+    <div class="rd"><span class="k">y (elev)</span><span id="selY">—</span></div>
+    <div id="valid" class="ok">✓ valid</div>
+  </div>
+
+  <div id="hint">drag spheres = move · Shift+drag = elevation · drag empty = orbit · wheel = zoom · RMB = pan</div>
+  <div id="toast"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="assets/farmkart-track.js"></script>
+  <script>
+  "use strict";
+  // ============================================================================
+  // FARM KART — track editor. Shares ALL geometry with the game via FK_TRACK.
+  // ============================================================================
+
+  // ---- working track (v1). Load ?track=<id> from fk_tracks_v1 (a saved edit wins) or a built-in
+  // converted course; else the default. ----
+  function loadInitial(){
+    try{
+      const id = new URLSearchParams(location.search).get('track');
+      if (id){
+        const map = JSON.parse(localStorage.getItem('fk_tracks_v1')||'null');
+        if (map && map[id]){ const t = FK_TRACK.sanitize(map[id]); if (t) return { track:t, id }; }
+        const b = FK_TRACK.BUILTIN_TRACKS && FK_TRACK.BUILTIN_TRACKS[id];
+        if (b){ const t = FK_TRACK.sanitize(b); if (t) return { track:t, id }; }
+      }
+    }catch(e){}
+    return { track:FK_TRACK.sanitize(JSON.parse(JSON.stringify(FK_TRACK.DEFAULT_TRACK))), id:null };
+  }
+  let { track, id:currentId } = loadInitial();
+
+  // ---- scene ----
+  const stage = document.getElementById('stage');
+  const scene = new THREE.Scene();
+  const renderer = new THREE.WebGLRenderer({ antialias:true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio||1, 2));
+  renderer.setClearColor(0x7ec0ee, 1);
+  stage.appendChild(renderer.domElement);
+
+  const camera = new THREE.PerspectiveCamera(55, 1, 0.5, 4000);
+  camera.position.set(0, 220, 260);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x557040, 0.9));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.7); sun.position.set(80, 160, 40); scene.add(sun);
+
+  // ground reference grid + faint plane at y=0
+  const grid = new THREE.GridHelper(600, 60, 0x3a5a44, 0x2c4636); grid.position.y = -0.02; scene.add(grid);
+
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true; controls.dampingFactor = 0.1;
+  controls.screenSpacePanning = false;
+
+  // ---- editor render groups (rebuilt on each edit) ----
+  let ribbonGroup = null, sphereGroup = new THREE.Group(), itemGroup = new THREE.Group();
+  let boostGroup = new THREE.Group(), corridorGroup = new THREE.Group();
+  scene.add(sphereGroup); scene.add(itemGroup); scene.add(boostGroup); scene.add(corridorGroup);
+  const spheres = [];        // control-point handle meshes, index-aligned to track.points
+  let selected = -1;
+  let showCorridor = false;  // K7: corridor-bounds visualization toggle
+
+  const SPH_GEO = new THREE.SphereGeometry(2.2, 16, 12);
+  const matNormal = new THREE.MeshLambertMaterial({ color:0xffd23f });
+  const matSelected = new THREE.MeshLambertMaterial({ color:0xff5a3a, emissive:0x551000 });
+  const matStart = new THREE.MeshLambertMaterial({ color:0x36c85a, emissive:0x0a3312 }); // point 0 = start line
+
+  let sampled = null;   // last FK_TRACK.resample result (centerPts/tangents for item placement)
+
+  function rebuild(){
+    // ribbon
+    if (ribbonGroup){ scene.remove(ribbonGroup); ribbonGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); }
+    sampled = FK_TRACK.resample(track, THREE);
+    ribbonGroup = FK_TRACK.buildRibbonGeometry(sampled, track.width, THREE);
+    scene.add(ribbonGroup);
+    // spheres
+    while (sphereGroup.children.length) sphereGroup.remove(sphereGroup.children[0]);
+    spheres.length = 0;
+    track.points.forEach((p,i)=>{
+      const mat = i===selected ? matSelected : (i===0 ? matStart : matNormal);
+      const s = new THREE.Mesh(SPH_GEO, mat);
+      s.position.set(p.x, (p.y||0)+0.5, p.z);
+      s.userData.idx = i;
+      sphereGroup.add(s); spheres.push(s);
+    });
+    rebuildItemMarkers();
+    rebuildBoostMarkers();
+    rebuildCorridorViz();
+    refreshInfo();
+    refreshValidation();
+    refreshItemList();
+    refreshBoostList();
+  }
+
+  function rebuildItemMarkers(){
+    while (itemGroup.children.length) itemGroup.remove(itemGroup.children[0]);
+    const hw = track.width/2, N = sampled.samples;
+    for (const s of (track.itemRows||[])){
+      const i = Math.max(0, Math.min(N-1, Math.round(s*N)));
+      const c = sampled.centerPts[i], t = sampled.tangents[i];
+      const nx = -t.z, nz = t.x;
+      // three item boxes across the width
+      for (let k=-1;k<=1;k++){
+        const off = k*(hw*0.55);
+        const box = new THREE.Mesh(new THREE.BoxGeometry(2.2,2.2,2.2),
+          new THREE.MeshLambertMaterial({ color:0x9b5cff, transparent:true, opacity:0.85 }));
+        box.position.set(c.x + nx*off, (c.y||0)+2.4, c.z + nz*off);
+        itemGroup.add(box);
+      }
+    }
+  }
+
+  // ---- K7: boost-pad markers (glowing cyan chevron plates on the road) ----
+  function effWallMargin(){ return (isFinite(track.wallMargin)&&track.wallMargin>0) ? track.wallMargin : 7; }
+  function rebuildBoostMarkers(){
+    while (boostGroup.children.length) boostGroup.remove(boostGroup.children[0]);
+    const hw = track.width/2, N = sampled.samples;
+    for (const pd of (track.boostPads||[])){
+      const i = Math.max(0, Math.min(N-1, Math.round((pd.s||0)*N)));
+      const c = sampled.centerPts[i], t = sampled.tangents[i];
+      const nx = -t.z, nz = t.x;
+      const lat = Math.max(-1,Math.min(1,pd.lane||0))*(hw*0.84);
+      const m = new THREE.Mesh(new THREE.BoxGeometry(track.width*0.28, 0.6, track.width*0.4),
+        new THREE.MeshLambertMaterial({ color:0x2ad0ff, emissive:0x0a5566 }));
+      m.position.set(c.x + nx*lat, (c.y||0)+0.4, c.z + nz*lat);
+      m.rotation.y = Math.atan2(t.x, t.z);
+      boostGroup.add(m);
+    }
+  }
+  // ---- K7: corridor-bounds visualization (two offset outlines showing where the walls sit) ----
+  function rebuildCorridorViz(){
+    while (corridorGroup.children.length){ const o=corridorGroup.children[0]; corridorGroup.remove(o); if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }
+    if (!showCorridor || !sampled) return;
+    const edge = track.width/2 + effWallMargin();
+    const C = sampled.centerPts, T = sampled.tangents, N = sampled.samples;
+    for (let side=-1; side<=1; side+=2){
+      const pos = [];
+      for (let i=0;i<=N;i++){
+        const k=i%N; const c=C[k], t=T[k]; const nx=-t.z, nz=t.x;
+        pos.push(c.x + nx*edge*side, (c.y||0)+0.3, c.z + nz*edge*side);
+      }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
+      corridorGroup.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color:0xff5a3a })));
+    }
+  }
+
+  // ---- info / validation panels ----
+  const $ = id=>document.getElementById(id);
+  function refreshInfo(){
+    $('nPts').textContent = track.points.length;
+    if (selected>=0 && selected<track.points.length){
+      const p = track.points[selected];
+      $('selIdx').textContent = selected + (selected===0?' (start)':'');
+      $('selX').textContent = p.x.toFixed(1); $('selZ').textContent = p.z.toFixed(1); $('selY').textContent = (p.y||0).toFixed(2);
+    } else {
+      $('selIdx').textContent = 'none'; $('selX').textContent='—'; $('selZ').textContent='—'; $('selY').textContent='—';
+    }
+  }
+  function refreshValidation(){
+    const v = FK_TRACK.validate(track);
+    const el = $('valid');
+    // K7: notes (e.g. "overlap OK (bridge)") are advisory — shown but never flip the panel to bad.
+    const noteHtml = (v.notes && v.notes.length) ? '<br>ⓘ ' + v.notes.map(w=>w.replace(/</g,'&lt;')).join('<br>ⓘ ') : '';
+    if (v.ok){ el.className='ok'; el.innerHTML = '✓ valid track' + noteHtml; }
+    else { el.className='bad'; el.innerHTML = '⚠ ' + v.warnings.map(w=>w.replace(/</g,'&lt;')).join('<br>⚠ ') + noteHtml; }
+    return v;
+  }
+  function refreshBoostList(){
+    const el = $('boostList'); el.innerHTML='';
+    const pads = (track.boostPads||[]);
+    if (!pads.length){ el.innerHTML = '<div style="color:#889;">none — use ⚡ boost mode, click the road</div>'; return; }
+    pads.forEach((pd,i)=>{
+      const d = document.createElement('div'); d.className='ir';
+      const span = document.createElement('span'); span.textContent = 's='+pd.s.toFixed(3)+' · lane='+(pd.lane||0).toFixed(2);
+      const btn = document.createElement('button'); btn.textContent='✕';
+      btn.addEventListener('click', ()=>{ track.boostPads.splice(i,1); rebuildBoostMarkers(); refreshBoostList(); });
+      d.appendChild(span); d.appendChild(btn); el.appendChild(d);
+    });
+  }
+  function refreshItemList(){
+    const el = $('itemList'); el.innerHTML='';
+    const rows = (track.itemRows||[]);
+    if (!rows.length){ el.innerHTML = '<div style="color:#889;">none — use 🎁 item mode, click the road</div>'; return; }
+    rows.forEach((s,i)=>{
+      const d = document.createElement('div'); d.className='ir';
+      const span = document.createElement('span'); span.textContent = 's = ' + s.toFixed(3);
+      const btn = document.createElement('button'); btn.textContent='✕';
+      btn.addEventListener('click', ()=>{ track.itemRows.splice(i,1); rebuildItemMarkers(); refreshItemList(); });
+      d.appendChild(span); d.appendChild(btn); el.appendChild(d);
+    });
+  }
+
+  // ---- modes ----
+  let mode = 'select'; // select | insert | item | boost
+  function setMode(m){
+    mode = m;
+    $('mSelect').classList.toggle('on', m==='select');
+    $('mInsert').classList.toggle('on', m==='insert');
+    $('mItem').classList.toggle('on', m==='item');
+    $('mBoost').classList.toggle('on', m==='boost');
+    $('hint').textContent = m==='insert' ? 'click the road to INSERT a point on the nearest segment'
+                          : m==='item'   ? 'click the road to drop an ITEM ROW (s-fraction)'
+                          : m==='boost'  ? 'click the road to drop a BOOST PAD (s + lane)'
+                          : 'drag spheres = move · Shift+drag = elevation · drag empty = orbit · wheel = zoom';
+  }
+  $('mSelect').addEventListener('click', ()=>setMode('select'));
+  $('mInsert').addEventListener('click', ()=>setMode('insert'));
+  $('mItem').addEventListener('click', ()=>setMode('item'));
+  $('mBoost').addEventListener('click', ()=>setMode('boost'));
+  $('corridorBtn').addEventListener('click', ()=>{ showCorridor=!showCorridor; $('corridorBtn').classList.toggle('on', showCorridor); rebuildCorridorViz(); });
+
+  // ---- raycasting / pointer interaction ----
+  const raycaster = new THREE.Raycaster();
+  const ndc = new THREE.Vector2();
+  function setNdc(e){
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((e.clientX - r.left)/r.width)*2 - 1;
+    ndc.y = -((e.clientY - r.top)/r.height)*2 + 1;
+    raycaster.setFromCamera(ndc, camera);
+  }
+  function pickSphere(){ const hits = raycaster.intersectObjects(spheres, false); return hits.length ? hits[0].object.userData.idx : -1; }
+  function pickRibbon(){ const hits = ribbonGroup ? raycaster.intersectObjects(ribbonGroup.children, false) : []; return hits.length ? hits[0].point : null; }
+
+  let dragging = -1, dragShift = false, lastY = 0;
+
+  renderer.domElement.addEventListener('pointerdown', e=>{
+    if (e.button !== 0){ return; } // left button only for editing; RMB/MMB -> orbit/pan
+    setNdc(e);
+    if (mode === 'insert'){
+      const hit = pickRibbon();
+      if (hit){ insertNear(hit); controls.enabled = false; }
+      return;
+    }
+    if (mode === 'item'){
+      const hit = pickRibbon();
+      if (hit){ addItemAt(hit); controls.enabled = false; }
+      return;
+    }
+    if (mode === 'boost'){
+      const hit = pickRibbon();
+      if (hit){ addBoostAt(hit); controls.enabled = false; }
+      return;
+    }
+    // select/move
+    const idx = pickSphere();
+    if (idx >= 0){
+      selected = idx; dragging = idx; dragShift = e.shiftKey; lastY = e.clientY;
+      controls.enabled = false;
+      rebuild();
+    }
+  }, true); // capture: run before OrbitControls' own handler so controls.enabled takes effect
+
+  renderer.domElement.addEventListener('pointermove', e=>{
+    if (dragging < 0) return;
+    const p = track.points[dragging];
+    if (dragShift || e.shiftKey){
+      // elevation drag: vertical pointer motion changes y
+      const dy = (lastY - e.clientY) * 0.12; lastY = e.clientY;
+      p.y = Math.round(((p.y||0) + dy)*100)/100;
+    } else {
+      // XZ drag: intersect the ray with the horizontal plane at this point's y
+      setNdc(e);
+      const plane = new THREE.Plane(new THREE.Vector3(0,1,0), -(p.y||0));
+      const hit = new THREE.Vector3();
+      if (raycaster.ray.intersectPlane(plane, hit)){
+        p.x = Math.round(hit.x*10)/10; p.z = Math.round(hit.z*10)/10;
+      }
+    }
+    rebuild();
+  });
+
+  function endDrag(){ if (dragging>=0){ dragging=-1; } controls.enabled = true; }
+  renderer.domElement.addEventListener('pointerup', endDrag, true);
+  renderer.domElement.addEventListener('pointerleave', endDrag);
+
+  // insert a control point on the nearest polygon segment to the clicked ribbon point
+  function insertNear(hit){
+    const pts = track.points, n = pts.length;
+    let best = 0, bd = Infinity, bt = 0.5;
+    for (let i=0;i<n;i++){
+      const a = pts[i], b = pts[(i+1)%n];
+      const abx=b.x-a.x, abz=b.z-a.z, L2=abx*abx+abz*abz||1;
+      let t = ((hit.x-a.x)*abx + (hit.z-a.z)*abz)/L2; t=Math.max(0,Math.min(1,t));
+      const px=a.x+abx*t, pz=a.z+abz*t;
+      const d=(hit.x-px)**2 + (hit.z-pz)**2;
+      if (d<bd){ bd=d; best=i; bt=t; }
+    }
+    const a = pts[best], b = pts[(best+1)%n];
+    const np = { x:Math.round((a.x+(b.x-a.x)*bt)*10)/10, z:Math.round((a.z+(b.z-a.z)*bt)*10)/10,
+                 y:Math.round(((a.y||0)+((b.y||0)-(a.y||0))*bt)*100)/100 };
+    pts.splice(best+1, 0, np);
+    selected = best+1;
+    rebuild();
+    toast('inserted point '+(best+1));
+  }
+  function addItemAt(hit){
+    // nearest centerline sample -> s-fraction
+    const C = sampled.centerPts, N = sampled.samples;
+    let bi=0, bd=Infinity;
+    for (let i=0;i<N;i++){ const c=C[i]; const d=(c.x-hit.x)**2+(c.z-hit.z)**2; if(d<bd){bd=d;bi=i;} }
+    const s = Math.round((bi/N)*1000)/1000;
+    track.itemRows = track.itemRows || [];
+    if (!track.itemRows.some(v=>Math.abs(v-s)<0.02)){ track.itemRows.push(s); track.itemRows.sort((a,b)=>a-b); }
+    rebuildItemMarkers(); refreshItemList();
+    toast('item row @ s='+s.toFixed(3));
+  }
+  // K7: drop a BOOST PAD at the clicked ribbon point -> nearest s-fraction + lateral lane (-1..1)
+  function addBoostAt(hit){
+    const C = sampled.centerPts, T = sampled.tangents, N = sampled.samples;
+    let bi=0, bd=Infinity;
+    for (let i=0;i<N;i++){ const c=C[i]; const d=(c.x-hit.x)**2+(c.z-hit.z)**2; if(d<bd){bd=d;bi=i;} }
+    const c=C[bi], t=T[bi]; const nx=-t.z, nz=t.x;
+    // lateral offset of the click across the road, normalized to [-1,1] (0 = center)
+    const lane = Math.max(-1, Math.min(1, ((hit.x-c.x)*nx + (hit.z-c.z)*nz) / (track.width/2)));
+    const s = Math.round((bi/N)*1000)/1000;
+    track.boostPads = track.boostPads || [];
+    track.boostPads.push({ s, lane:Math.round(lane*100)/100 });
+    track.boostPads.sort((a,b)=>a.s-b.s);
+    rebuildBoostMarkers(); refreshBoostList();
+    toast('boost pad @ s='+s.toFixed(3)+' lane='+lane.toFixed(2));
+  }
+
+  // ---- delete / reverse ----
+  function deleteSelected(){
+    if (selected < 0) return;
+    if (track.points.length <= 8){ toast('min 8 points'); return; }
+    track.points.splice(selected, 1);
+    selected = Math.min(selected, track.points.length-1);
+    rebuild(); toast('deleted');
+  }
+  $('delBtn').addEventListener('click', deleteSelected);
+  addEventListener('keydown', e=>{ if ((e.key==='Delete'||e.key==='Backspace') && selected>=0 && document.activeElement.tagName!=='INPUT' && document.activeElement.tagName!=='TEXTAREA'){ deleteSelected(); e.preventDefault(); } });
+  $('revBtn').addEventListener('click', ()=>{ track = FK_TRACK.reverse(track); selected=-1; syncFields(); rebuild(); toast('reversed direction'); });
+
+  // ---- name / width / laps fields ----
+  function syncFields(){ $('nameInp').value = track.name||''; $('widthInp').value = track.width; $('lapsInp').value = track.laps;
+    $('wallInp').value = (isFinite(track.wallMargin)&&track.wallMargin>0) ? track.wallMargin : ''; }
+  $('nameInp').addEventListener('input', ()=>{ track.name = $('nameInp').value; });
+  $('widthInp').addEventListener('input', ()=>{ const w=+$('widthInp').value; if(isFinite(w)&&w>0){ track.width=w; rebuild(); } });
+  $('lapsInp').addEventListener('input', ()=>{ const l=Math.round(+$('lapsInp').value); if(isFinite(l)&&l>=1){ track.laps=l; } });
+  // K7: wallMargin (grass room). Blank -> unset (game uses its TUNE fallback).
+  $('wallInp').addEventListener('input', ()=>{ const s=$('wallInp').value.trim();
+    if (s===''){ delete track.wallMargin; } else { const m=+s; if(isFinite(m)&&m>0) track.wallMargin=m; }
+    rebuildCorridorViz(); });
+
+  // ---- save / test / export / import ----
+  function slug(s){ return (s||'track').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,40) || 'track'; }
+  function loadMap(){ try{ return JSON.parse(localStorage.getItem('fk_tracks_v1')||'{}') || {}; }catch(e){ return {}; } }
+  function doSave(){
+    const clean = FK_TRACK.sanitize(track);
+    if (!clean){ toast('cannot save: invalid'); return null; }
+    const map = loadMap();
+    if (!currentId) currentId = slug(track.name);
+    map[currentId] = clean;
+    try{ localStorage.setItem('fk_tracks_v1', JSON.stringify(map)); }catch(e){ toast('save failed'); return null; }
+    toast('saved as "'+currentId+'"');
+    populateLoad();
+    return currentId;
+  }
+  $('saveBtn').addEventListener('click', doSave);
+  $('testBtn').addEventListener('click', ()=>{ const id = doSave(); if (id) window.open('farmkart.html?track='+encodeURIComponent(id), '_blank'); });
+  $('expBtn').addEventListener('click', ()=>{
+    const txt = JSON.stringify(FK_TRACK.sanitize(track), null, 2);
+    $('io').value = txt;
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(()=>toast('copied to clipboard'), ()=>toast('exported to box'));
+    else toast('exported to box');
+  });
+  $('impBtn').addEventListener('click', ()=>{
+    try{
+      const data = JSON.parse($('io').value);
+      const clean = FK_TRACK.sanitize(data);
+      if (!clean){ toast('import failed: invalid JSON/track'); return; }
+      track = clean; selected=-1; currentId=null; syncFields(); rebuild(); toast('imported');
+    }catch(e){ toast('import failed: not JSON'); }
+  });
+
+  // ---- load existing (default + built-in converted courses + saved tracks) ----
+  function pickerEntries(){
+    const seen={}, out=[{ id:'', name:FK_TRACK.DEFAULT_TRACK.name+' (default)' }];
+    const b = FK_TRACK.BUILTIN_TRACKS || {};
+    for (const id in b){ const t=FK_TRACK.sanitize(b[id]); if(t){ out.push({ id, name:t.name||id }); seen[id]=1; } }
+    const map = loadMap();
+    for (const id in map){ if(seen[id]) continue; const t=FK_TRACK.sanitize(map[id]); if(t) out.push({ id, name:(t.name||id)+' (saved)' }); }
+    return out;
+  }
+  function populateLoad(){
+    const sel=$('loadSel'); sel.innerHTML='';
+    for (const o of pickerEntries()){ const el=document.createElement('option'); el.value=o.id; el.textContent=o.name; sel.appendChild(el); }
+    sel.value = currentId || '';
+  }
+  function frameCamera(){
+    let minX=1e9,maxX=-1e9,minZ=1e9,maxZ=-1e9;
+    for (const p of track.points){ minX=Math.min(minX,p.x);maxX=Math.max(maxX,p.x);minZ=Math.min(minZ,p.z);maxZ=Math.max(maxZ,p.z); }
+    const cx=(minX+maxX)/2, cz=(minZ+maxZ)/2, span=Math.max(maxX-minX, maxZ-minZ);
+    controls.target.set(cx, 0, cz);
+    camera.position.set(cx, span*0.9+80, cz + span*0.9+60);
+    controls.update();
+  }
+  function loadById(id){
+    let data = id ? ((loadMap()[id]) || (FK_TRACK.BUILTIN_TRACKS && FK_TRACK.BUILTIN_TRACKS[id]))
+                  : JSON.parse(JSON.stringify(FK_TRACK.DEFAULT_TRACK));
+    const c = FK_TRACK.sanitize(data); if(!c){ toast('load failed'); return; }
+    track=c; currentId=id||null; selected=-1; syncFields(); rebuild(); frameCamera(); populateLoad();
+  }
+  $('loadSel').addEventListener('change', ()=>{ const o=$('loadSel').selectedOptions[0]; loadById($('loadSel').value); toast('loaded "'+(o?o.textContent:'')+'"'); });
+
+  // ---- toast ----
+  let toastT = null;
+  function toast(msg){ const el=$('toast'); el.textContent=msg; el.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove('show'),1600); }
+
+  // ---- resize + loop ----
+  function resize(){ const w=stage.clientWidth,h=stage.clientHeight; renderer.setSize(w,h); camera.aspect=w/h; camera.updateProjectionMatrix(); }
+  addEventListener('resize', resize); resize();
+  (function loop(){ controls.update(); renderer.render(scene, camera); requestAnimationFrame(loop); })();
+
+  // ---- boot ----
+  syncFields();
+  rebuild();
+  populateLoad();
+  frameCamera();
+
+  // ---- TEST HOOK (mirrors the game's __KART__ pattern) ----
+  window.__EDITOR__ = {
+    get track(){ return track; }, get selected(){ return selected; }, get mode(){ return mode; },
+    get showCorridor(){ return showCorridor; },
+    setMode, rebuild, insertNear, addItemAt, addBoostAt, deleteSelected, doSave,
+    scene, camera, spheres, boostGroup, corridorGroup, refreshValidation,
+    setSelected:(i)=>{ selected=i; rebuild(); },
+    dragPointTo:(i,x,z)=>{ track.points[i].x=x; track.points[i].z=z; selected=i; rebuild(); },
+    setPointY:(i,y)=>{ track.points[i].y=y; rebuild(); },
+    setWallMargin:(m)=>{ track.wallMargin=m; syncFields(); rebuildCorridorViz(); },
+    toggleCorridor:()=>{ showCorridor=!showCorridor; $('corridorBtn').classList.toggle('on', showCorridor); rebuildCorridorViz(); return showCorridor; },
+    loadTrack:(t)=>{ const c=FK_TRACK.sanitize(t); if(c){ track=c; selected=-1; currentId=null; syncFields(); rebuild(); } return !!c; }
+  };
+  </script>
+</body>
+</html>
