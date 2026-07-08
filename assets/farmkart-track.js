@@ -297,6 +297,18 @@
         }
         if (objs.length) out.objects = objs;
       }
+      // TERRAIN SCULPT FIELD (P3): sparse heightfield { cell, cells:{"i,j":delta} }. Absent/empty ->
+      // omitted (empty world = the game's terrain is exactly the procedural hills, unchanged).
+      if (data.terrain && typeof data.terrain==='object' && data.terrain.cells && typeof data.terrain.cells==='object'){
+        const cell = (isFinite(+data.terrain.cell) && +data.terrain.cell > 0) ? +data.terrain.cell : 6;
+        const cells = {}; let n = 0;
+        for (const k in data.terrain.cells){
+          if (!/^-?\d+,-?\d+$/.test(k)) continue;
+          const v = +data.terrain.cells[k];
+          if (isFinite(v) && Math.abs(v) >= 0.01){ cells[k] = Math.round(v*100)/100; n++; }
+        }
+        if (n) out.terrain = { cell, cells };
+      }
       return out;
     }catch(e){ return null; }
   }
@@ -397,13 +409,28 @@
   // ================= TERRAIN (shared so the editor renders byte-identical to the game) =================
   // These were inline in farmkart.html; promoted here (parameterized by opts instead of the game's
   // TUNE globals) so the editor's WYSIWYG view uses the exact same math. opts = {amp, wave, margin}.
-  // groundHills: procedural rolling grass hills.
+  // sampleField (P3): bilinear read of the user SCULPT heightfield — a sparse world-anchored grid
+  // { cell, cells:{"i,j":delta} } where grid point (i,j) is at world (i*cell, j*cell). Missing = 0.
+  // Additive delta on top of the procedural hills; absent -> 0 (empty world = unchanged terrain).
+  function sampleField(field, x, z){
+    if (!field || !field.cells) return 0;
+    const C = field.cell || 6, c = field.cells;
+    const fx = x/C, fz = z/C;
+    const i0 = Math.floor(fx), j0 = Math.floor(fz);
+    const tx = fx - i0, tz = fz - j0;
+    const h00 = c[i0+','+j0]||0, h10 = c[(i0+1)+','+j0]||0, h01 = c[i0+','+(j0+1)]||0, h11 = c[(i0+1)+','+(j0+1)]||0;
+    const a = h00 + (h10-h00)*tx, b = h01 + (h11-h01)*tx;
+    return a + (b-a)*tz;
+  }
+  // groundHills: procedural rolling grass hills + the user sculpt field (opts.field, if any).
   function groundHills(x, z, opts){
     const amp = opts.amp, wl = opts.wave || 60;
-    return amp * (
+    let h = amp * (
       0.60*Math.sin(x/wl*1.3 + z/wl*0.7) +
       0.40*Math.sin(x/wl*0.5 - z/wl*1.1 + 2.1)
     );
+    if (opts.field) h += sampleField(opts.field, x, z);
+    return h;
   }
   // sampleHeight: flat across the road width, smoothstep-blended out to the ground hills. This is
   // what the kart / camera / entities read (nearest-branch on-track height).
@@ -482,6 +509,6 @@
     VERSION:1, SAMPLES,
     DEFAULT_TRACK, BUILTIN_TRACKS,
     resample, buildRibbonGeometry, sanitize, validate, reverse, nearestOnCenter, nearestOnCenterAtY,
-    groundHills, sampleHeight, groundSampleHeight, buildGroundMesh, buildObjectMesh
+    groundHills, sampleHeight, groundSampleHeight, buildGroundMesh, buildObjectMesh, sampleField
   };
 })();

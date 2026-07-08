@@ -584,7 +584,7 @@
   // TERRAIN MATH now lives in the shared FK_TRACK module (so farmkart-editor.html renders identical
   // grass/hills). These thin wrappers pass the live TUNE values in; results are bit-identical to the
   // old inline versions. terrainOpts() reads TUNE each call (amp is tunable at runtime).
-  function terrainOpts(){ return { amp:TUNE.groundHillAmp, wave:TUNE.groundHillWave, margin:TUNE.heightBlendMargin }; }
+  function terrainOpts(){ return { amp:TUNE.groundHillAmp, wave:TUNE.groundHillWave, margin:TUNE.heightBlendMargin, field:ACTIVE_TRACK.terrain }; }
   function groundHills(x, z){ return FK_TRACK.groundHills(x, z, terrainOpts()); }
   // nearest dense-centerline info at (x,z): {idx, dist} (dist = PROJECTED perpendicular distance in
   // XZ). Delegates to FK_TRACK.nearestOnCenter (shared, interpolated). Correct anywhere (camera /

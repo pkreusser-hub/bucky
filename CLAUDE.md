@@ -1135,3 +1135,20 @@ layout sync.
       game renders the box on a ?track= with objects, 0 pageerrors editor+game. Mode row → flex-wrap
       (5 buttons overflowed 250px). WORKFLOW UNLOCKED: user tags a rectangle → tells me what to
       build there → I add a real type case to buildObjectMesh keyed off that footprint.
+- [x] P3 TERRAIN SCULPTING (2026-07-08): raise/lower grass hills+dips independent of the track.
+      DATA: track.terrain = { cell:6, cells:{"i,j":delta} } — a SPARSE world-anchored heightfield
+      (grid point i,j at world i*cell,j*cell), sanitized (absent/empty→omitted = live game terrain
+      unchanged, re-verified byte-identical 0.0 diff). FK_TRACK.sampleField() bilinear-reads it;
+      injected INTO groundHills (h += sampleField(opts.field)) so every consumer — kart physics,
+      camera, ground mesh, both editor+game — sees the sculpt via opts.field (game terrainOpts()
+      adds field:ACTIVE_TRACK.terrain; editor edTerrainOpts() adds field:track.terrain). The road is
+      UNAFFECTED: on-track height = trackY (the skirt blend overrides the field), verified
+      onTrackChange=0. EDITOR: ⛰ sculpt mode, raise/lower toggle (or hold Shift = lower), brush
+      size+strength sliders, clear-all; drag the grass → applyBrush() bumps cells in radius w/
+      smoothstep falloff; live throttled rebuild (110ms — debounce would never fire mid-drag),
+      full exact rebuild on pointerup; pickGround() raycasts the terrain mesh. Verified headless:
+      raise +12 / lower -12 at grass points, road unaffected, mesh bbox deforms (maxY 19.4 hill /
+      minY -14.6 dip), persists save→empty→reload (height exact), game sampleHeight at a sculpted
+      bump = 7.16 vs flat 0.77, 0 pageerrors editor+game. NOTE sculpts only render where the ground
+      MESH reaches (track bbox + 55 margin); sculpting past that edits data w/ no visible mesh.
+      All P1-P3 still LOCAL (not pushed) per the user's "keep it local, link per phase" workflow.
