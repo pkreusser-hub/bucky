@@ -76,19 +76,23 @@ LENGTH — THIS IS IMPORTANT:
   never-ending bedtime saga, not a short story.
 - ONLY when the reader clearly asks to finish, stop, or wrap up (e.g. "let's end the story",
   "the end", "I want to finish"), write a warm, satisfying ending and finish with this exact
-  marker on its own line instead of the choices (and no recap after it):
+  marker on its own line instead of the choices:
 ===THE END===
 
-MEMORY — after the choices (and after the ===ART=== block if there is one), always add this exact
-marker on its own line:
-===RECAP===
-  followed by a compact "story so far" memo for yourself: the main characters and who they are, the
-  important things that have happened in order, and where the story stands right now. Rewrite it
-  fresh every chapter — fold in what just happened and compress older events so it NEVER grows past
-  about 180 words. Write terse notes, not prose. This memo is your private memory to keep long
-  stories consistent; the reader never sees it, so never refer to it inside the story. (Omit the
-  recap only on the ===THE END=== finale.)
+CONTINUITY: the message history you receive may open with a "STORY SO FAR" note — that is a memory
+of everything that happened earlier in this same adventure. Treat it as true past events and keep
+names, places, and running threads consistent with it. Never mention or quote the note itself.
 ${FAMILY_RULES}`;
+
+// A tiny, single-purpose model call: compress the story so far into terse continuity notes. Its
+// own job IS the summary, so (unlike a marker tacked onto a chapter, which the model emitted only
+// ~half the time) it reliably produces one.
+const SUMMARY_SYSTEM = `You keep continuity notes for an ongoing children's choose-your-own-adventure
+story. You will be given the earlier notes (if any) and the newest part of the story. Rewrite the
+notes so they capture the WHOLE story so far: the main characters and who they are, the important
+events in the order they happened, and where things stand right now. Compress older details so the
+notes stay under about 180 words. Output ONLY the notes as terse bullet-style lines — no preamble,
+no headings, no commentary.`;
 
 // Appended to STORY_SYSTEM only when the request asks for an illustration (maxTokens
 // bumped alongside). The <svg> is sanitized hard on the client before it ever renders.
@@ -168,6 +172,7 @@ ${FAMILY_RULES}`;
 const MODES = {
   story:    { system: STORY_SYSTEM,    maxTokens: 1200, thinking: { type: "disabled" } },
   research: { system: RESEARCH_SYSTEM, maxTokens: 4096, thinking: undefined },
+  summary:  { system: SUMMARY_SYSTEM,  maxTokens: 400,  thinking: { type: "disabled" } },
 };
 
 // Server-side history caps — the client is untrusted, so bound everything here.
@@ -237,7 +242,8 @@ async function logUsage(modeName, inTok, outTok, cacheWriteTok = 0, cacheReadTok
   try {
     const token = await getGoogleAccessToken();
     if (!token) return;
-    const key = modeName === "story" ? "s" : "r";
+    // summary calls are part of the story feature's cost → bucket them under story ("s").
+    const key = (modeName === "story" || modeName === "summary") ? "s" : "r";
     const doc = `projects/${PROJECT_ID}/databases/(default)/documents/${USAGE_COLLECTION}/${farmDate()}`;
     const tf = (f, n) => ({ fieldPath: f, increment: { integerValue: String(n) } });
     await fetch(`${FIRESTORE_BASE}:commit`, {
@@ -301,11 +307,11 @@ function sanitizeMessages(raw, mode) {
     if (typeof m.content === "string") {
       if (!m.content.trim()) return null;
       let content = m.content;
-      // Past illustrations and recaps are dead weight in the re-sent history: the model never
-      // needs its own old SVGs (~2-3k tokens each) to continue, and the running recap is carried
-      // separately by the client at the head of the window. Strip from the first such marker on
-      // (art/recap always come after the chapter text + choices). The client keeps art for display.
-      if (mode === "story" && m.role === "assistant") content = content.replace(/\n?===(?:ART|RECAP)===[\s\S]*$/, "").trimEnd() || content;
+      // Past illustrations are dead weight: the model never needs its own old SVGs (~2-3k tokens
+      // each) to continue the story. Strip the ===ART=== block from re-sent history; the client
+      // keeps the art for display. Long-term memory rides in the "STORY SO FAR" note the client
+      // prepends (see the summary mode), not in the raw transcript.
+      if (mode === "story" && m.role === "assistant") content = content.replace(/\n?===ART===[\s\S]*$/, "").trimEnd() || content;
       msgs.push({ role: m.role, content: content.slice(0, MAX_CONTENT_CHARS) });
     } else if (Array.isArray(m.content)) {
       const blocks = [];

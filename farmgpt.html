@@ -630,36 +630,72 @@
   }
 
   // Strips a stored assistant reply down to just the chapter text + choices for re-sending
-  // (drops the bulky ===ART=== svg and the ===RECAP=== memo — those don't need to travel in the
-  // window; the running recap rides at the head instead).
+  // (drops the bulky ===ART=== svg — it doesn't need to travel in the window).
   function strippedForSend(m) {
     if (m.role !== "assistant" || typeof m.content !== "string") return m;
-    for (const mark of [ART_MARK, RECAP_MARK]) {
-      const i = m.content.indexOf(mark);
-      if (i !== -1) m = { role: m.role, content: m.content.slice(0, i).trimEnd() };
-    }
-    return m;
+    const i = m.content.indexOf(ART_MARK);
+    return i === -1 ? m : { role: m.role, content: m.content.slice(0, i).trimEnd() };
   }
   // Builds the compact message list actually sent to the API. Instead of re-sending the whole
-  // (ever-growing) transcript, we send: the world setup + the running recap folded in, then only
-  // the last few chapters verbatim. This keeps every chapter coherent with the WHOLE story while
-  // holding per-request cost roughly FLAT no matter how long the story gets. The full transcript
-  // still lives in story.messages for the on-screen story + bookshelf.
-  const SEND_CHAPTERS = 3;                          // how many recent chapters to send verbatim
+  // (ever-growing) transcript, we send: the world setup + a "STORY SO FAR" note (the running
+  // memory, maintained by the separate summary call below) + only the last few chapters verbatim.
+  // This keeps every chapter coherent with the WHOLE story while holding per-request cost roughly
+  // FLAT no matter how long the story gets. The full transcript still lives in story.messages for
+  // the on-screen story + bookshelf.
+  const SEND_CHAPTERS = 4;      // recent chapters sent verbatim (≥ SUMMARIZE_EVERY, so nothing
+                                //   leaves the window before it's folded into the memory note)
   function buildSendMessages() {
     const msgs = story.messages;
     const asstIdx = msgs.map((m, i) => (m.role === "assistant" ? i : -1)).filter((i) => i >= 0);
-    // Short story, or no recap yet: send the whole thing (art/recap stripped to stay lean).
+    // Short story, or no memory note yet: send the whole thing (art stripped to stay lean).
     if (asstIdx.length <= SEND_CHAPTERS || !story.recap) return msgs.map(strippedForSend);
-    // Fold the latest recap into the world-setup turn so the model remembers the dropped middle.
     const head = {
       role: "user",
       content: textOf(msgs[0].content) +
-        "\n\n(STORY SO FAR — your private memory of everything that has happened; keep it consistent, don't quote it: " +
+        "\n\n(STORY SO FAR — everything that has happened earlier in this adventure; keep it consistent, never quote it: " +
         story.recap + ")",
     };
-    const cut = asstIdx[asstIdx.length - SEND_CHAPTERS];  // start at the 3rd-from-last chapter
+    const cut = asstIdx[asstIdx.length - SEND_CHAPTERS];  // start at the Nth-from-last chapter
     return [head, ...msgs.slice(cut).map(strippedForSend)];
+  }
+
+  // ---- Running memory via a dedicated summary call ----
+  // The chapter model only emitted an inline recap ~half the time, so instead we keep the memory
+  // in a separate tiny call whose sole job is to summarize — which it does reliably. Every few
+  // chapters we fold the newest part of the story into story.recap. It runs in the background and
+  // can NEVER break the story (failures just keep the previous note; the verbatim window covers
+  // recent chapters meanwhile).
+  const SUMMARIZE_EVERY = 3;
+  let summarizing = false;
+  function transcriptFrom(fromIdx) {
+    const out = [];
+    for (let i = fromIdx; i < story.messages.length; i++) {
+      const m = story.messages[i];
+      const t = typeof m.content === "string" ? m.content : textOf(m.content);
+      out.push(m.role === "user" ? "Reader chose: " + t : parseChapter(t).text);
+    }
+    return out.join("\n\n");
+  }
+  async function maybeSummarize() {
+    if (summarizing || !story || story.done) return;
+    const fromIdx = story.summarizedIdx || 0;
+    const newChapters = story.messages.slice(fromIdx).filter((m) => m.role === "assistant").length;
+    if (newChapters < SUMMARIZE_EVERY) return;
+    summarizing = true;
+    const upto = story.messages.length;
+    const prompt =
+      "EARLIER NOTES:\n" + (story.recap || "(none yet — this is the beginning)") +
+      "\n\nNEWEST PART OF THE STORY:\n" + transcriptFrom(fromIdx) +
+      "\n\nRewrite the continuity notes now.";
+    try {
+      const notes = await callFarmGPT("summary", [{ role: "user", content: prompt }], () => {}, {});
+      if (notes && notes.trim()) {
+        story.recap = notes.trim();
+        story.summarizedIdx = upto;                // everything up to here is now in the memory note
+        saveStory();
+      }
+    } catch { /* keep the previous note — a failed summary must never disrupt the story */ }
+    summarizing = false;
   }
 
   // Requests the next chapter given story.messages (last entry must be a user turn).
@@ -673,8 +709,7 @@
       const full = await callFarmGPT("story", buildSendMessages(), (sofar) => {
         el.textContent = visibleDuringStream(sofar);
       }, { illustrate: shouldIllustrate() });
-      const { text, choices, ended, art, recap } = parseChapter(full);
-      if (recap) story.recap = recap;              // freshest running memory for the next turn
+      const { text, choices, ended, art } = parseChapter(full);
       el.textContent = text;
       const cleanArt = sanitizeArt(art);
       if (cleanArt) {                              // art sits ABOVE this chapter's text
@@ -693,6 +728,7 @@
       saveStory();
       busy = false;
       setStoryControls({ choices, ended, busyNow: false });
+      maybeSummarize();                            // background: fold new chapters into the memory note
     } catch (err) {
       el.remove();
       story.messages.pop();                       // roll back the user turn so it can be retried
