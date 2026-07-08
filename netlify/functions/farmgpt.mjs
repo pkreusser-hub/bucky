@@ -195,7 +195,8 @@ const PROJECT_ID = "amen-farms-app";
 const FIRESTORE_BASE = process.env.FARMGPT_FIRESTORE_BASE ||
   `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
 const GOOGLE_TOKEN_URL = process.env.FARMGPT_GOOGLE_TOKEN_URL || "https://oauth2.googleapis.com/token";
-const USAGE_COLLECTION = "farmgpt_usage";
+const USAGE_COLLECTION = "farmgpt_usage";               // one doc per Central-time day
+const USAGE_COLLECTION_HOURLY = "farmgpt_usage_hourly"; // one doc per Central-time hour
 
 let cachedGoogleToken = null;   // { token, exp(ms) } — survives across warm invocations
 
@@ -237,45 +238,68 @@ async function getGoogleAccessToken() {
 function farmDate() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
 }
+// Farm-local hour bucket, "YYYY-MM-DD-HH" (Central, 24h), for finer-grained analysis.
+function farmHour() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", hour12: false,
+  }).formatToParts(new Date());
+  const g = (t) => parts.find((p) => p.type === t).value;
+  const hh = g("hour") === "24" ? "00" : g("hour");   // en-CA reports midnight as "24"
+  return `${g("year")}-${g("month")}-${g("day")}-${hh}`;
+}
 
 async function logUsage(modeName, inTok, outTok, cacheWriteTok = 0, cacheReadTok = 0) {
   try {
     const token = await getGoogleAccessToken();
     if (!token) return;
-    // summary calls are part of the story feature's cost → bucket them under story ("s").
-    const key = (modeName === "story" || modeName === "summary") ? "s" : "r";
-    const doc = `projects/${PROJECT_ID}/databases/(default)/documents/${USAGE_COLLECTION}/${farmDate()}`;
+    // Field prefix per mode: story "s", story-summary "u" (separate so chapter vs summary cost is
+    // visible), research "r".
+    const key = modeName === "story" ? "s" : modeName === "summary" ? "u" : "r";
+    const base = `projects/${PROJECT_ID}/databases/(default)/documents`;
     const tf = (f, n) => ({ fieldPath: f, increment: { integerValue: String(n) } });
+    const fields = [
+      tf(key + "_in", inTok), tf(key + "_out", outTok), tf(key + "_req", 1),
+      // cache writes (~1.25x input rate) and cache reads (~0.1x input rate)
+      tf(key + "_cw", cacheWriteTok), tf(key + "_cr", cacheReadTok),
+    ];
+    // One commit increments both the daily rollup and the hourly bucket.
     await fetch(`${FIRESTORE_BASE}:commit`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({
-        writes: [{ transform: { document: doc, fieldTransforms: [
-          tf(key + "_in", inTok), tf(key + "_out", outTok), tf(key + "_req", 1),
-          // cache writes (~1.25x input rate) and cache reads (~0.1x input rate)
-          tf(key + "_cw", cacheWriteTok), tf(key + "_cr", cacheReadTok),
-        ] } }],
+        writes: [
+          { transform: { document: `${base}/${USAGE_COLLECTION}/${farmDate()}`, fieldTransforms: fields } },
+          { transform: { document: `${base}/${USAGE_COLLECTION_HOURLY}/${farmHour()}`, fieldTransforms: fields } },
+        ],
       }),
     });
   } catch { /* usage logging must never break a reply */ }
 }
 
-async function readUsage() {
+// Maps one Firestore usage doc → a flat row. `label` is "date" (daily) or "hour" (hourly).
+function usageRow(d, label) {
+  const f = d.fields || {};
+  const n = (k) => parseInt((f[k] && f[k].integerValue) || "0", 10);
+  const row = { [label]: d.name.split("/").pop() };
+  // s = story chapters, u = story summaries, r = research
+  for (const p of ["s", "u", "r"]) for (const m of ["in", "out", "req", "cw", "cr"]) row[`${p}_${m}`] = n(`${p}_${m}`);
+  return row;
+}
+async function readCollection(collection, label, cap) {
   const token = await getGoogleAccessToken();
   if (!token) return null;
-  const resp = await fetch(`${FIRESTORE_BASE}/${USAGE_COLLECTION}?pageSize=1000`, {
+  const resp = await fetch(`${FIRESTORE_BASE}/${collection}?pageSize=1000`, {
     headers: { authorization: `Bearer ${token}` },
   });
   if (!resp.ok) return null;
-  const j = await resp.json();
-  return (j.documents || [])
-    .map((d) => {
-      const f = d.fields || {};
-      const n = (k) => parseInt((f[k] && f[k].integerValue) || "0", 10);
-      return { date: d.name.split("/").pop(), s_in: n("s_in"), s_out: n("s_out"), s_req: n("s_req"), s_cw: n("s_cw"), s_cr: n("s_cr"), r_in: n("r_in"), r_out: n("r_out"), r_req: n("r_req"), r_cw: n("r_cw"), r_cr: n("r_cr") };
-    })
-    .sort((a, b) => (a.date < b.date ? 1 : -1));
+  const rows = ((await resp.json()).documents || [])
+    .map((d) => usageRow(d, label))
+    .sort((a, b) => (a[label] < b[label] ? 1 : -1));   // newest first
+  return cap ? rows.slice(0, cap) : rows;
 }
+const readUsage = () => readCollection(USAGE_COLLECTION, "date");
+const readHourly = () => readCollection(USAGE_COLLECTION_HOURLY, "hour", 72);  // last ~3 days of hours
 
 function corsHeaders(origin, contentType) {
   const allowOrigin = ALLOWED_ORIGINS.has(origin) ? origin : "https://amenfarms.netlify.app";
@@ -377,11 +401,12 @@ export default async (req) => {
 
   if (!body || body.secret !== familySecret) return jsonError(401, "Wrong family password", jsonHeaders);
 
-  // Usage dashboard: returns the per-day token/request aggregates.
+  // Usage dashboard: per-day rollups + recent per-hour buckets (story chapters s_*, story
+  // summaries u_*, research r_*).
   if (body.mode === "stats") {
-    const days = await readUsage();
+    const [days, hours] = await Promise.all([readUsage(), readHourly()]);
     if (!days) return jsonError(500, "Usage tracking isn't configured on the server", jsonHeaders);
-    return new Response(JSON.stringify({ days }), { status: 200, headers: jsonHeaders });
+    return new Response(JSON.stringify({ days, hours: hours || [] }), { status: 200, headers: jsonHeaders });
   }
 
   const mode = MODES[body.mode];

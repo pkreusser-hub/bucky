@@ -666,6 +666,25 @@ farmgpt.html + netlify/functions/farmgpt.mjs (Claude API, model claude-sonnet-5)
   Verified vs the REAL API post-deploy: 6 chapters + 2 summary calls, coherent memory note
   stored, no auto-end, finish→THE END, no marker leak, 0 pageerrors. Tunable: SEND_CHAPTERS
   (verbatim depth), SUMMARIZE_EVERY (summary cadence).
+- USAGE TRACKING v2 (2026-07-08): (1) summary calls now log to their OWN field prefix "u"
+  (u_in/u_out/u_req/u_cw/u_cr) instead of being bucketed under story "s" — chapter vs recap cost
+  is now separable; logUsage key = story→s, summary→u, research→r. (2) HOURLY granularity: every
+  logUsage commit now increments BOTH the daily doc (farmgpt_usage/<date>) AND an hourly doc
+  (farmgpt_usage_hourly/<YYYY-MM-DD-HH> Central via farmHour()) in ONE :commit (two writes, one
+  network call). readCollection() shared mapper (usageRow) reads s/u/r × in/out/req/cw/cr;
+  readHourly caps at 72 rows. mode:stats now returns {days, hours}. Dashboard: 3-way split
+  (📖 Story chapters / 📝 Story recaps / 🔬 Research), rowCost() counts all three, daily table
+  gained a 📝 column, new "🕐 Recent hours" table. NOTE hourly docs accumulate ~24/day forever
+  (no TTL yet — fine for now, revisit if the collection grows huge). Old day docs pre-v2 read
+  u_*=0 (summary cost is retro-mixed into their s_*, unavoidable).
+- STORY TRANSCRIPT EXPORT (2026-07-08): '⬇ Export all' button on the bookshelf header
+  (renderBookshelf) → exportStories() downloads a readable .txt of ALL saved stories on THIS
+  device (storyToText strips ===CHOICES/RECAP/ART=== and the private recap notes; shows [The
+  world], chapter prose, '➤ (You chose) …', '*** THE END ***'). IMPORTANT REALITY: stories live
+  ONLY in per-device localStorage farmgpt_stories_v1 — there is NO server-side story store, so
+  transcripts can't be pulled centrally/server-side; each device exports its own. Verified
+  headless (createObjectURL hook): 2 stories, titles/world/chapters/choices/THE END present, no
+  markers or recap notes leaked, 0 pageerrors.
 - RESEARCH MODE: teen homework+coding chat; markdown via marked+DOMPurify CDN; adaptive
   thinking (default) w/ "Thinking…" indicator, max_tokens 4096; localStorage
   farmgpt_research_v1 (50 msgs; user msg saved BEFORE the reply streams so a mid-stream
@@ -939,7 +958,7 @@ track-overlap jump fix (FK_TRACK.nearestOnCenterAtY keeps the kart on ITS level 
 bridges legal, "Figure 8 (bridge)" demo track; editor overlap = advisory not error), boost
 pads (per-track boostPads[{s,lane}], editor ⚡ mode, drive-over boost once/pass). Plus the
 decline-bounce fix (landing seats vy=terrainVY so a sustained decline no longer re-launches).
-All farmkart files STILL UNTRACKED. Stage backups in session scratchpad (farmkart-pre-k*).
+GATOR KART MODEL (2026-07-08, untracked local test): user Meshy "6x4 John Deere Gator" GLB (1.18M tris/43MB) dieted via Blender DECIMATE collapse 0.047 -> 55k (NOT meshopt simplify — 0.02 left shard artifacts; Blender collapse is clean), 6 wheels split by fixed-seed radial + origin at X-Z-bounds-midpoint (true axle, no wobble), spin about local Z by speed + front-pair steer (assets/farmkart-kart.glb, GLTFLoader script added, buildKartView modelSlot + fillKartModel + syncKartView wheel loop). GOTCHA: Blender headless FIRST bpy.ops.mesh.separate grabs a STALE full selection regardless of what you set — burn it with a throwaway separate+rejoin before the real loop, else the first-processed part is mangled. Full physics regression NOT yet re-run since the kart-view changes. All farmkart files STILL UNTRACKED. Stage backups in session scratchpad (farmkart-pre-k*).
 - [x] FARM KART K1-K6 COMPLETE (2026-07-08, all six stages by opus agents from the
       farmkart-plan.md specs, Fable review between stages): K1 race format +
       G.players restructure (grid/countdown/start-boost-or-stall/checkpoint laps/

@@ -134,6 +134,12 @@
   }
   .goBtn:disabled { opacity: .5; cursor: default; }
   #bookshelf { margin-top: 14px; }
+  .shelfHead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 16px 2px 2px; }
+  .exportBtn {
+    flex: 0 0 auto; background: #eef3fc; border: 1px solid var(--line); color: var(--green);
+    font-family: inherit; font-weight: 700; font-size: 12.5px; padding: 7px 12px; border-radius: 999px; cursor: pointer;
+  }
+  .exportBtn:active { background: #dfe9fa; }
   .shelfItem {
     display: flex; align-items: center; gap: 10px; background: var(--card); border: 1px solid var(--line);
     border-left: 5px solid var(--green); border-radius: 12px; box-shadow: var(--shadow);
@@ -577,13 +583,50 @@
     try { localStorage.setItem(STORIES_KEY, JSON.stringify(all)); } catch { /* full — story survives in memory */ }
   }
 
+  // Turns one saved story into a readable transcript (setup, chapters, and the choices taken).
+  function storyToText(s) {
+    const bar = "=".repeat(56);
+    const out = [bar, "STORY: " + s.title,
+      "Started " + new Date(s.created).toLocaleString() + (s.done ? "  ·  finished" : "  ·  in progress"), bar];
+    s.messages.forEach((m, i) => {
+      if (m.role === "user") {
+        const t = typeof m.content === "string" ? m.content : textOf(m.content);
+        out.push("", i === 0 ? "[The world] " + t : "➤ (You chose) " + t);
+      } else {
+        const p = parseChapter(m.content);
+        out.push("", p.text);
+        if (p.ended) out.push("", "*** THE END ***");
+      }
+    });
+    return out.join("\n");
+  }
+  function exportStories() {
+    const all = loadStories();
+    if (!all.length) { toast("No stories to export yet!"); return; }
+    const text = "FarmGPT — Story transcripts (this device)\nExported " + new Date().toLocaleString() +
+      "\n" + all.length + " " + (all.length === 1 ? "story" : "stories") + "\n\n\n" +
+      all.map(storyToText).join("\n\n\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+    a.download = "farmgpt-stories-" + new Date().toISOString().slice(0, 10) + ".txt";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    toast("📄 Exported " + all.length + " " + (all.length === 1 ? "story" : "stories"));
+  }
+
   function renderBookshelf() {
     const shelf = $("bookshelf");
     shelf.innerHTML = "";
     const all = loadStories();
     if (!all.length) return;
     const h = document.createElement("div");
-    h.className = "panelTitle"; h.style.margin = "16px 2px 2px"; h.textContent = "📚 Your bookshelf";
+    h.className = "shelfHead";
+    const title = document.createElement("div");
+    title.className = "panelTitle"; title.style.margin = "0"; title.textContent = "📚 Your bookshelf";
+    const exp = document.createElement("button");
+    exp.className = "exportBtn"; exp.textContent = "⬇ Export all";
+    exp.addEventListener("click", exportStories);
+    h.append(title, exp);
     shelf.appendChild(h);
     for (const s of all) {
       const item = document.createElement("div");
@@ -1239,17 +1282,19 @@
   // point of caching). Older usage docs predate cache tracking; those fields read 0.
   const IN_RATE = 3, OUT_RATE = 15;   // $ per million tokens
   const cw = (d, k) => d[k] || 0;
-  const dayCost = (d) => ((d.s_in + d.r_in) * IN_RATE
-    + (cw(d, "s_cw") + cw(d, "r_cw")) * IN_RATE * 1.25
-    + (cw(d, "s_cr") + cw(d, "r_cr")) * IN_RATE * 0.1
-    + (d.s_out + d.r_out) * OUT_RATE) / 1e6;
+  // s = story chapters, u = story summaries, r = research — all three counted.
+  const rowCost = (d) => ((cw(d, "s_in") + cw(d, "u_in") + cw(d, "r_in")) * IN_RATE
+    + (cw(d, "s_cw") + cw(d, "u_cw") + cw(d, "r_cw")) * IN_RATE * 1.25
+    + (cw(d, "s_cr") + cw(d, "u_cr") + cw(d, "r_cr")) * IN_RATE * 0.1
+    + (cw(d, "s_out") + cw(d, "u_out") + cw(d, "r_out")) * OUT_RATE) / 1e6;
+  const dayCost = rowCost;
   const fmt$ = (v) => "$" + (v < 0.10 ? v.toFixed(3) : v.toFixed(2));
   const fmtTok = (n) => n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n);
 
   async function loadUsage() {
     const body = $("usageBody");
     body.textContent = "Loading…";
-    let days;
+    let days, hours = [];
     try {
       const resp = await fetch(API_URL, {
         method: "POST",
@@ -1257,7 +1302,8 @@
         body: JSON.stringify({ secret: FAMILY_PASSWORD, mode: "stats" }),
       });
       if (!resp.ok) throw new Error((await resp.json()).error || "Request failed (" + resp.status + ")");
-      days = (await resp.json()).days;
+      const j = await resp.json();
+      days = j.days; hours = j.hours || [];
     } catch (err) {
       body.textContent = "😵 " + err.message;
       return;
@@ -1282,7 +1328,8 @@
     const split = document.createElement("div");
     split.id = "usageSplit";
     for (const [icon, name, rq, ti, to, tc] of [
-      ["📖", "Story", sum(monthDays, "s_req"), sum(monthDays, "s_in"), sum(monthDays, "s_out"), sum(monthDays, "s_cw") + sum(monthDays, "s_cr")],
+      ["📖", "Story chapters", sum(monthDays, "s_req"), sum(monthDays, "s_in"), sum(monthDays, "s_out"), sum(monthDays, "s_cw") + sum(monthDays, "s_cr")],
+      ["📝", "Story recaps", sum(monthDays, "u_req"), sum(monthDays, "u_in"), sum(monthDays, "u_out"), sum(monthDays, "u_cw") + sum(monthDays, "u_cr")],
       ["🔬", "Research", sum(monthDays, "r_req"), sum(monthDays, "r_in"), sum(monthDays, "r_out"), sum(monthDays, "r_cw") + sum(monthDays, "r_cr")],
     ]) {
       const el = document.createElement("div");
@@ -1297,14 +1344,34 @@
 
     const table = document.createElement("table");
     table.id = "usageTable";
-    table.innerHTML = "<tr><th>Day</th><th>📖</th><th>🔬</th><th>Tokens</th><th>Est. cost</th></tr>";
+    const tokTotal = (d) => ["s", "u", "r"].reduce((a, p) =>
+      a + cw(d, p + "_in") + cw(d, p + "_out") + cw(d, p + "_cw") + cw(d, p + "_cr"), 0);
+    table.innerHTML = "<tr><th>Day</th><th>📖</th><th>📝</th><th>🔬</th><th>Tokens</th><th>Est. cost</th></tr>";
     for (const d of days.slice(0, 21)) {
       const tr = document.createElement("tr");
-      const cells = [d.date, d.s_req, d.r_req, fmtTok(d.s_in + d.s_out + d.r_in + d.r_out + cw(d, "s_cw") + cw(d, "s_cr") + cw(d, "r_cw") + cw(d, "r_cr")), fmt$(dayCost(d))];
+      const cells = [d.date, d.s_req, cw(d, "u_req"), d.r_req, fmtTok(tokTotal(d)), fmt$(dayCost(d))];
       for (const c of cells) { const td = document.createElement("td"); td.textContent = c; tr.appendChild(td); }
       table.appendChild(tr);
     }
     body.appendChild(table);
+
+    // Recent-hours breakdown (Central time). Hour ids are "YYYY-MM-DD-HH".
+    if (hours && hours.length) {
+      const hHead = document.createElement("div");
+      hHead.className = "panelTitle"; hHead.style.margin = "22px 2px 2px"; hHead.textContent = "🕐 Recent hours";
+      body.appendChild(hHead);
+      const ht = document.createElement("table");
+      ht.id = "usageTable";
+      ht.innerHTML = "<tr><th>Hour (CT)</th><th>📖</th><th>📝</th><th>🔬</th><th>Tokens</th><th>Est. cost</th></tr>";
+      for (const h of hours.slice(0, 18)) {
+        const tr = document.createElement("tr");
+        const label = h.hour.replace(/^(\d{4})-(\d{2})-(\d{2})-(\d{2})$/, "$2/$3 $4:00");
+        const cells = [label, h.s_req, cw(h, "u_req"), h.r_req, fmtTok(tokTotal(h)), fmt$(rowCost(h))];
+        for (const c of cells) { const td = document.createElement("td"); td.textContent = c; tr.appendChild(td); }
+        ht.appendChild(tr);
+      }
+      body.appendChild(ht);
+    }
 
     const note = document.createElement("div");
     note.id = "usageNote";
