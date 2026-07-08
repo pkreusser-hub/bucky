@@ -98,12 +98,28 @@
     border: 2px solid var(--line); border-radius: 12px; padding: 12px; color: var(--ink); background: #fbfcff;
   }
   #worldInput:focus { outline: none; border-color: var(--green); }
-  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 2px; }
   .chip {
     background: #eef3fc; border: 1px solid var(--line); color: var(--ink); border-radius: 999px;
-    font-size: 12.5px; font-weight: 600; padding: 7px 12px; cursor: pointer;
+    font-size: 12.5px; font-weight: 600; padding: 7px 12px; cursor: pointer; user-select: none;
   }
   .chip:active { background: #dfe9fa; }
+  .chip.sel { background: var(--green); border-color: var(--green); color: #fff; }
+  /* story builder: OR divider + fields */
+  .orDiv {
+    display: flex; align-items: center; text-align: center; gap: 10px;
+    color: var(--muted); font-weight: 800; font-size: 12px; letter-spacing: .08em;
+    text-transform: uppercase; margin: 16px 0 12px;
+  }
+  .orDiv::before, .orDiv::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  .field { margin: 0 0 12px; }
+  .fieldLabel { display: block; font-size: 13.5px; font-weight: 700; color: var(--ink); margin: 0 0 6px; }
+  .fieldLabel .opt { font-weight: 500; color: var(--muted); font-size: 12px; }
+  .fieldInput {
+    width: 100%; font-family: inherit; font-size: 15px; color: var(--ink); background: #fbfcff;
+    border: 2px solid var(--line); border-radius: 12px; padding: 11px 12px;
+  }
+  .fieldInput:focus { outline: none; border-color: var(--green); }
   /* story setup: illustration-frequency segmented control */
   .segLabel { font-size: 13px; font-weight: 700; color: var(--muted); margin: 14px 0 6px; }
   .seg { display: flex; gap: 6px; background: #eef3fc; border: 1px solid var(--line); border-radius: 12px; padding: 4px; }
@@ -299,10 +315,41 @@
   <!-- ============ STORY: SETUP ============ -->
   <div class="view" id="viewStorySetup">
     <div class="panel">
-      <div class="panelTitle">📖 Describe your world and the situation!</div>
+      <div class="panelTitle">📖 Describe your story!</div>
       <textarea id="worldInput" maxlength="2000"
-        placeholder="Example: I'm a young starship captain on my first mission, and something strange just appeared on the scanner..."></textarea>
-      <div class="chips" id="worldChips"></div>
+        placeholder="Tell me your idea in your own words… Example: I'm a young starship captain on my first mission, and something strange just appeared on the scanner!"></textarea>
+
+      <div class="orDiv"><span>OR build one</span></div>
+
+      <div class="field">
+        <label class="fieldLabel" for="bWorld">🌍 World <span class="opt">(any world you like)</span></label>
+        <input id="bWorld" class="fieldInput" maxlength="120"
+          placeholder="Minecraft · Star Trek · How to Train Your Dragon · a candy kingdom…" />
+      </div>
+
+      <div class="field">
+        <div class="fieldLabel">🎭 Genre</div>
+        <div class="chips" id="genreChips"></div>
+      </div>
+
+      <div class="field">
+        <label class="fieldLabel" for="bHero">🦸 Who are you? <span class="opt">(optional)</span></label>
+        <input id="bHero" class="fieldInput" maxlength="120"
+          placeholder="a brave knight · a clever fox · a robot inventor · yourself…" />
+      </div>
+
+      <div class="field">
+        <label class="fieldLabel" for="bSidekick">🐐 A sidekick or friend <span class="opt">(optional)</span></label>
+        <input id="bSidekick" class="fieldInput" maxlength="120"
+          placeholder="a talking goat · a tiny dragon · a robot dog…" />
+      </div>
+
+      <div class="field">
+        <label class="fieldLabel" for="bQuest">🎯 The mission or goal <span class="opt">(optional)</span></label>
+        <input id="bQuest" class="fieldInput" maxlength="160"
+          placeholder="find the lost treasure · save the kingdom · win the big race…" />
+      </div>
+
       <div class="segLabel">🎨 Illustrations</div>
       <div class="seg" id="illustSeg">
         <button data-v="every">Every chapter</button>
@@ -434,13 +481,8 @@
   // =====================================================================
   // STORY MODE
   // =====================================================================
-  const WORLD_CHIPS = [
-    "🚀 A space adventure on a starship exploring the unknown",
-    "🐐 A mystery on Amen Farms — and Bucky the goat knows something",
-    "🏰 A young knight's quest in a kingdom of dragons",
-    "🕵️ A detective solving the case of the missing blueberry pie",
-    "🏝 Shipwrecked on a mysterious island full of secrets",
-  ];
+  const GENRES = ["🚀 Sci-Fi", "🐉 Fantasy", "😂 Comedy", "🗺️ Adventure", "🕵️ Mystery", "🎲 Surprise me"];
+  let selectedGenre = "";   // "" = none picked
   // Illustration frequency (setup segmented control, persisted).
   function illustSetting() {
     const v = localStorage.getItem(ILLUST_KEY);
@@ -462,12 +504,53 @@
     return s === "every" || (s === "every3" && (n - 1) % 3 === 0) || (s === "first" && n === 1);
   }
 
-  const chipsEl = $("worldChips");
-  for (const c of WORLD_CHIPS) {
+  // Genre picker (single-select chips).
+  const genreEl = $("genreChips");
+  for (const g of GENRES) {
     const b = document.createElement("button");
-    b.className = "chip"; b.textContent = c;
-    b.addEventListener("click", () => { $("worldInput").value = c.replace(/^\S+\s/, ""); });
-    chipsEl.appendChild(b);
+    b.className = "chip"; b.textContent = g; b.dataset.g = g;
+    b.addEventListener("click", () => {
+      const already = selectedGenre === g;
+      selectedGenre = already ? "" : g;
+      for (const c of genreEl.children) c.classList.toggle("sel", !already && c.dataset.g === g);
+    });
+    genreEl.appendChild(b);
+  }
+  const bldVal = (id) => $(id).value.trim();
+  const bldGenreWord = () => {
+    const g = selectedGenre.replace(/^\S+\s/, "");   // strip the emoji
+    return (g && g !== "Surprise me") ? g.toLowerCase() : "";
+  };
+  // Any builder field filled? (genre alone counts.)
+  function hasBuilder() {
+    return !!(bldVal("bWorld") || selectedGenre || bldVal("bHero") || bldVal("bSidekick") || bldVal("bQuest"));
+  }
+  // Turn the builder fields into the story's opening prompt (the model's first "world+situation").
+  function buildPromptFromFields() {
+    const world = bldVal("bWorld"), hero = bldVal("bHero"), side = bldVal("bSidekick"), quest = bldVal("bQuest");
+    const genre = bldGenreWord();
+    let opener = "Tell me an interactive" + (genre ? " " + genre : "") + " story";
+    if (world) opener += " set in the world of " + world;
+    opener += ".";
+    const parts = [opener];
+    if (hero) parts.push("I am " + hero + ".");
+    if (side) parts.push("My sidekick is " + side + ".");
+    if (quest) parts.push("Our goal: " + quest + ".");
+    if (selectedGenre === "🎲 Surprise me") parts.push("Surprise me with the genre!");
+    parts.push("Begin the very first chapter now.");
+    return parts.join(" ");
+  }
+  // A short, friendly bookshelf title from the builder fields.
+  function titleFromFields() {
+    const world = bldVal("bWorld");
+    const g = selectedGenre && selectedGenre !== "🎲 Surprise me" ? selectedGenre.replace(/^\S+\s/, "") : "";
+    if (world && g) return world + " · " + g;
+    return world || (g ? g + " story" : bldVal("bQuest") || bldVal("bHero") || "My story");
+  }
+  function clearBuilder() {
+    for (const id of ["bWorld", "bHero", "bSidekick", "bQuest"]) $(id).value = "";
+    selectedGenre = "";
+    for (const c of genreEl.children) c.classList.remove("sel");
   }
 
   function loadStories() {
@@ -749,18 +832,28 @@
   }
 
   $("beginBtn").addEventListener("click", () => {
-    const world = $("worldInput").value.trim();
-    if (!world) { toast("Describe your world first!"); return; }
     if (busy) return;
+    const typed = $("worldInput").value.trim();
+    let seed, title;
+    if (typed) {                                   // the open-ended box wins if it's filled
+      seed = typed;
+      title = typed.length > 46 ? typed.slice(0, 46) + "…" : typed;
+    } else if (hasBuilder()) {                      // otherwise assemble from the builder fields
+      seed = buildPromptFromFields();
+      title = titleFromFields();
+    } else {
+      toast("Tell me your idea up top, or fill in a few boxes below!");
+      return;
+    }
     story = {
       id: "s" + Date.now(),
-      title: world.length > 46 ? world.slice(0, 46) + "…" : world,
+      title: title.length > 46 ? title.slice(0, 46) + "…" : title,
       created: Date.now(),
-      messages: [{ role: "user", content: world }],
+      messages: [{ role: "user", content: seed }],
       done: false,
     };
     $("storyScroll").innerHTML = "";
-    addPickedEl(world);
+    addPickedEl(seed);
     show("story");
     streamChapter();
   });
@@ -817,6 +910,7 @@
   });
   $("newStoryBtn").addEventListener("click", () => {
     $("worldInput").value = "";
+    clearBuilder();
     renderBookshelf();
     show("storySetup");
   });
