@@ -177,17 +177,25 @@
   /* ---- MOBILE on-screen thumb controls (shown only on touch devices, during countdown+racing) ---- */
   #touchCtl{ position:absolute; inset:0; z-index:20; display:none; pointer-events:none; }
   body.mobile #touchCtl.on{ display:block; }
-  #touchCtl .tbtn{ position:absolute; pointer-events:auto; user-select:none; -webkit-user-select:none;
+  #touchCtl .tbtn{ position:absolute; z-index:3; pointer-events:auto; user-select:none; -webkit-user-select:none;
     -webkit-tap-highlight-color:transparent; touch-action:none; display:flex; align-items:center;
     justify-content:center; border-radius:50%; background:rgba(0,0,0,.34); border:2px solid rgba(255,255,255,.32);
     color:#fff; font-weight:900; box-shadow:0 3px 10px rgba(0,0,0,.35); }
   #touchCtl .tbtn.press{ background:rgba(255,255,255,.36); transform:scale(.93); }
-  #tcLeft{  left:20px;  bottom:24px; width:80px; height:80px; font-size:36px; }
-  #tcRight{ left:112px; bottom:24px; width:80px; height:80px; font-size:36px; }
+  /* DRAG-TO-STEER: a full-area layer (under the buttons) — touch & slide left/right to steer
+     proportionally, Mario-Kart-Tour style. A ring at the touch origin + a knob show the steer. */
+  #tcSteer{ position:absolute; inset:0; z-index:1; pointer-events:auto; touch-action:none; }
+  #steerRing{ position:absolute; z-index:2; width:64px; height:64px; margin:-32px 0 0 -32px; border-radius:50%;
+    border:3px solid rgba(255,255,255,.5); background:rgba(0,0,0,.14); pointer-events:none; display:none; }
+  #steerKnob{ position:absolute; z-index:2; width:30px; height:30px; margin:-15px 0 0 -15px; border-radius:50%;
+    background:rgba(255,255,255,.82); box-shadow:0 2px 7px rgba(0,0,0,.45); pointer-events:none; display:none; }
   #tcDrift{ right:20px;  bottom:24px; width:104px; height:104px; font-size:19px; letter-spacing:.02em;
     background:rgba(40,92,168,.5); border-color:rgba(150,200,255,.55); }
   #tcItem{  right:140px; bottom:44px; width:76px; height:76px; font-size:38px; }
   #tcReset{ right:14px; top:54px; width:44px; height:44px; font-size:20px; background:rgba(0,0,0,.44); }
+  #tcSteerHint{ position:absolute; left:0; right:0; bottom:118px; z-index:2; text-align:center; pointer-events:none;
+    color:rgba(255,255,255,.9); font-family:-apple-system,Segoe UI,Roboto,sans-serif; font-weight:800; font-size:15px;
+    text-shadow:0 2px 6px rgba(0,0,0,.6); transition:opacity .4s; }
   /* free the thumb zones on phones: drop the dev stats panel + the keyboard hint */
   body.mobile #hud, body.mobile #help{ display:none !important; }
 </style>
@@ -212,8 +220,10 @@
   <div id="itemSlot"><div id="itemIcon">·</div></div>
 
   <div id="touchCtl">
-    <div class="tbtn" id="tcLeft">◀</div>
-    <div class="tbtn" id="tcRight">▶</div>
+    <div id="tcSteer"></div>
+    <div id="steerRing"></div>
+    <div id="steerKnob"></div>
+    <div id="tcSteerHint">slide anywhere to steer</div>
     <div class="tbtn" id="tcItem">🎁</div>
     <div class="tbtn" id="tcDrift">DRIFT</div>
     <div class="tbtn" id="tcReset" title="reset to track">♻</div>
@@ -1029,10 +1039,12 @@
   addEventListener('keyup', e=>{ keys[e.key.toLowerCase()] = false; });
   addEventListener('blur', ()=>{ for (const k in keys) keys[k]=false; });
 
-  // ---------- TOUCH (mobile on-screen thumb controls) ----------
-  // Held buttons set flags that gatherInput() folds in exactly like the gamepad. On mobile the
-  // throttle is auto (see gatherInput) so the right thumb is free for DRIFT/item while the left steers.
-  const touch = { left:false, right:false, drift:false, item:false };
+  // ---------- TOUCH (mobile on-screen controls) ----------
+  // DRAG-TO-STEER (Mario-Kart-Tour style): touch & slide left/right anywhere on the steer layer;
+  // touch.steer is analog in [-1,1] (+1 = left, matching the keyboard sign). DRIFT/item are held
+  // buttons. Throttle is auto while racing (see gatherInput), so no gas button. gatherInput() folds
+  // touch.steer + touch.drift + touch.item in exactly like the gamepad.
+  const touch = { steer:0, drift:false, item:false };
   function bindHold(id, on){
     const el = document.getElementById(id); if (!el) return;
     const set = v => e => { e.preventDefault(); on(v); el.classList.toggle('press', v); };
@@ -1042,10 +1054,42 @@
     el.addEventListener('pointerleave', set(false));
     el.addEventListener('lostpointercapture', set(false));
   }
+  // full-lock displacement (px): slide this far from where you touched down = 100% turn.
+  function steerRangePx(){ return Math.min(150, Math.max(90, innerWidth * 0.24)); }
+  function setupDragSteer(){
+    const zone = document.getElementById('tcSteer');
+    const ring = document.getElementById('steerRing'), knob = document.getElementById('steerKnob');
+    const hint = document.getElementById('tcSteerHint');
+    let pid = null, startX = 0, cy = 0;
+    const showAt = (x,y)=>{ ring.style.left=x+'px'; ring.style.top=y+'px'; ring.style.display='block';
+      knob.style.top=y+'px'; knob.style.left=x+'px'; knob.style.display='block'; };
+    const end = e => {
+      if (e && pid !== null && e.pointerId !== pid) return;
+      pid = null; touch.steer = 0; ring.style.display='none'; knob.style.display='none';
+    };
+    zone.addEventListener('pointerdown', e => {
+      if (pid !== null) return;              // one steering finger; extra fingers hit the buttons
+      pid = e.pointerId; startX = e.clientX; cy = e.clientY;
+      try { zone.setPointerCapture(e.pointerId); } catch(_){}
+      showAt(startX, cy);
+      if (hint) hint.style.opacity = '0';    // fade the "slide to steer" hint on first touch
+      e.preventDefault();
+    });
+    zone.addEventListener('pointermove', e => {
+      if (e.pointerId !== pid) return;
+      const rng = steerRangePx();
+      const s = Math.max(-1, Math.min(1, (e.clientX - startX) / rng));
+      touch.steer = -s;                      // slide right (s>0) => steer right (negative)
+      knob.style.left = (startX + s*rng) + 'px';
+      e.preventDefault();
+    });
+    zone.addEventListener('pointerup', end);
+    zone.addEventListener('pointercancel', end);
+    zone.addEventListener('lostpointercapture', end);
+  }
   if (IS_MOBILE){
     document.body.classList.add('mobile');
-    bindHold('tcLeft',  v => touch.left  = v);
-    bindHold('tcRight', v => touch.right = v);
+    setupDragSteer();
     bindHold('tcDrift', v => touch.drift = v);
     bindHold('tcItem',  v => touch.item  = v);
     const rb = document.getElementById('tcReset');
@@ -2061,8 +2105,9 @@
     // ArrowRight / stick x>0) map to NEGATIVE steer — the handedness flip lives HERE and
     // only here; driftDir, tightness, visual yaw and camera swing all derive from steer.
     let steer = 0, throttle = 0, brake = 0, drift = false;
-    if (keys['a'] || keys['arrowleft']  || touch.left)  steer += 1;
-    if (keys['d'] || keys['arrowright'] || touch.right) steer -= 1;
+    if (keys['a'] || keys['arrowleft'])  steer += 1;
+    if (keys['d'] || keys['arrowright']) steer -= 1;
+    steer += touch.steer;   // analog drag-to-steer (mobile), +left / -right
     if (keys['w'] || keys['arrowup']) throttle = 1;
     if (keys['s'] || keys['arrowdown']) brake = 1;
     if (keys[' '] || keys['shift'] || touch.drift) drift = true;

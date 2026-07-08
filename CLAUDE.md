@@ -1080,3 +1080,18 @@ GATOR KART MODEL (2026-07-08, untracked local test): user Meshy "6x4 John Deere 
       1.3) vs desktop 3.0/2.4 unchanged, touchCtl display:none on desktop, 0 pageerrors
       both. Mobile screenshot clean. GOTCHA: puppeteer's emulateMediaFeatures rejects
       'pointer' in this Chrome — stub window.matchMedia via evaluateOnNewDocument.
+- [x] MOBILE STEERING → DRAG-TO-STEER (2026-07-08, user: the ◀▶ buttons "aren't really
+      doing it"; researched Mario Kart Tour/Asphalt — they use ANALOG drag/tilt, not
+      on/off buttons). Replaced the two steer buttons with a full-area #tcSteer drag
+      layer (z1, under the z3 buttons so DRIFT/item/reset still capture their taps):
+      touch down anywhere = neutral, slide left/right = proportional steer; a #steerRing
+      at the origin + #steerKnob show it; release straightens. touch.steer is analog
+      [-1,1] (+left, matching keyboard sign; slide-right = -steer = turn right),
+      gatherInput does `steer += touch.steer`. One steering pointer (pid latch) so a 2nd
+      finger on DRIFT/item doesn't disturb it; setPointerCapture wrapped in try/catch
+      (throws on synthetic pointers but the full-screen zone gets the moves anyway).
+      steerRangePx = clamp(innerWidth*0.24, 90..150) = px slide for full lock. Auto-accel
+      + DRIFT/item/reset unchanged. Verified headless: slide right Δθ -0.79 / left +0.70
+      (opposite), half-slide -0.23 (~⅓ = analog), ring block during drag → none on
+      release, 0 pageerrors; mobile screenshot shows ring+knob. Kept steering method as a
+      single default (no tilt/wheel toggle) per the user's pick.
