@@ -174,6 +174,22 @@
   #rStandings .srow .sb{ width:78px; text-align:right; color:#8effb0; }
   #rStandings .srow .sp{ width:62px; white-space:nowrap; }
   #rStandings .srow .sp .medal{ margin-right:2px; }
+  /* ---- MOBILE on-screen thumb controls (shown only on touch devices, during countdown+racing) ---- */
+  #touchCtl{ position:absolute; inset:0; z-index:20; display:none; pointer-events:none; }
+  body.mobile #touchCtl.on{ display:block; }
+  #touchCtl .tbtn{ position:absolute; pointer-events:auto; user-select:none; -webkit-user-select:none;
+    -webkit-tap-highlight-color:transparent; touch-action:none; display:flex; align-items:center;
+    justify-content:center; border-radius:50%; background:rgba(0,0,0,.34); border:2px solid rgba(255,255,255,.32);
+    color:#fff; font-weight:900; box-shadow:0 3px 10px rgba(0,0,0,.35); }
+  #touchCtl .tbtn.press{ background:rgba(255,255,255,.36); transform:scale(.93); }
+  #tcLeft{  left:20px;  bottom:24px; width:80px; height:80px; font-size:36px; }
+  #tcRight{ left:112px; bottom:24px; width:80px; height:80px; font-size:36px; }
+  #tcDrift{ right:20px;  bottom:24px; width:104px; height:104px; font-size:19px; letter-spacing:.02em;
+    background:rgba(40,92,168,.5); border-color:rgba(150,200,255,.55); }
+  #tcItem{  right:140px; bottom:44px; width:76px; height:76px; font-size:38px; }
+  #tcReset{ right:14px; top:54px; width:44px; height:44px; font-size:20px; background:rgba(0,0,0,.44); }
+  /* free the thumb zones on phones: drop the dev stats panel + the keyboard hint */
+  body.mobile #hud, body.mobile #help{ display:none !important; }
 </style>
 </head>
 <body>
@@ -194,6 +210,14 @@
   <div id="padToast">🎮 connected</div>
 
   <div id="itemSlot"><div id="itemIcon">·</div></div>
+
+  <div id="touchCtl">
+    <div class="tbtn" id="tcLeft">◀</div>
+    <div class="tbtn" id="tcRight">▶</div>
+    <div class="tbtn" id="tcItem">🎁</div>
+    <div class="tbtn" id="tcDrift">DRIFT</div>
+    <div class="tbtn" id="tcReset" title="reset to track">♻</div>
+  </div>
 
   <div id="startOverlay">
     <div class="logo barnsign">🏁 FARM KART</div>
@@ -917,9 +941,18 @@
     bestLap:loadBestLap()
   };
 
+  // MOBILE: a touch device on a smallish screen. Pull the chase camera back (a phone's narrow
+  // viewport shows much less track than a monitor) and enable the on-screen thumb controls.
+  // Applied as a MULTIPLIER on the live tune so the user's tuned camDist/camHeight stay the source.
+  const IS_MOBILE = (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches)
+                    && Math.min(innerWidth, innerHeight) < 900;
+  const MOBILE_CAM_DIST_MULT = 1.7, MOBILE_CAM_HEIGHT_MULT = 1.3;
+  function camDistEff(){ return TUNE.camDist * (IS_MOBILE ? MOBILE_CAM_DIST_MULT : 1); }
+  function camHeightEff(){ return TUNE.camHeight * (IS_MOBILE ? MOBILE_CAM_HEIGHT_MULT : 1); }
+
   // chase-camera state (LOCAL-only, outside G) — declared before resetKart (which snaps it)
   let camHeading = 0;
-  const camPos = new THREE.Vector3(0, TUNE.camHeight, -TUNE.camDist);
+  const camPos = new THREE.Vector3(0, camHeightEff(), -camDistEff());
   let camFov = TUNE.fov;
   let camKartY = 0;   // K2.5: smoothed kart-y the camera tracks (jumps read as FLOAT)
   // K2: reusable math temporaries (per-view surface normals now live on each kart view)
@@ -956,9 +989,9 @@
   function snapCameraBehind(p){
     camHeading = p.theta;
     camKartY = p.y;   // no vertical easing on a hard snap
-    camPos.set(p.pos.x - Math.sin(camHeading)*TUNE.camDist,
-               p.y + TUNE.camHeight,
-               p.pos.z - Math.cos(camHeading)*TUNE.camDist);
+    camPos.set(p.pos.x - Math.sin(camHeading)*camDistEff(),
+               p.y + camHeightEff(),
+               p.pos.z - Math.cos(camHeading)*camDistEff());
   }
   // R reset (dev): drop the local kart back on the centerline at sample 0, keep current phase.
   function resetKart(){
@@ -995,6 +1028,29 @@
   });
   addEventListener('keyup', e=>{ keys[e.key.toLowerCase()] = false; });
   addEventListener('blur', ()=>{ for (const k in keys) keys[k]=false; });
+
+  // ---------- TOUCH (mobile on-screen thumb controls) ----------
+  // Held buttons set flags that gatherInput() folds in exactly like the gamepad. On mobile the
+  // throttle is auto (see gatherInput) so the right thumb is free for DRIFT/item while the left steers.
+  const touch = { left:false, right:false, drift:false, item:false };
+  function bindHold(id, on){
+    const el = document.getElementById(id); if (!el) return;
+    const set = v => e => { e.preventDefault(); on(v); el.classList.toggle('press', v); };
+    el.addEventListener('pointerdown', set(true));
+    el.addEventListener('pointerup', set(false));
+    el.addEventListener('pointercancel', set(false));
+    el.addEventListener('pointerleave', set(false));
+    el.addEventListener('lostpointercapture', set(false));
+  }
+  if (IS_MOBILE){
+    document.body.classList.add('mobile');
+    bindHold('tcLeft',  v => touch.left  = v);
+    bindHold('tcRight', v => touch.right = v);
+    bindHold('tcDrift', v => touch.drift = v);
+    bindHold('tcItem',  v => touch.item  = v);
+    const rb = document.getElementById('tcReset');
+    if (rb) rb.addEventListener('pointerdown', e => { e.preventDefault(); if (G.phase === 'racing') resetKart(); });
+  }
 
   // gamepad
   let padSeen = false;
@@ -2005,11 +2061,15 @@
     // ArrowRight / stick x>0) map to NEGATIVE steer — the handedness flip lives HERE and
     // only here; driftDir, tightness, visual yaw and camera swing all derive from steer.
     let steer = 0, throttle = 0, brake = 0, drift = false;
-    if (keys['a'] || keys['arrowleft']) steer += 1;
-    if (keys['d'] || keys['arrowright']) steer -= 1;
+    if (keys['a'] || keys['arrowleft']  || touch.left)  steer += 1;
+    if (keys['d'] || keys['arrowright'] || touch.right) steer -= 1;
     if (keys['w'] || keys['arrowup']) throttle = 1;
     if (keys['s'] || keys['arrowdown']) brake = 1;
-    if (keys[' '] || keys['shift']) drift = true;
+    if (keys[' '] || keys['shift'] || touch.drift) drift = true;
+    // MOBILE auto-accelerate: once the race is live the kart drives itself so the player only
+    // steers + drifts. Throttle turns on exactly at GO (phase->racing), which also earns the
+    // start boost; during the countdown throttle stays off so there's no early-start stall.
+    if (IS_MOBILE && G.phase === 'racing') throttle = 1;
 
     const pad = readPad();
     let padItem = false;
@@ -2023,7 +2083,7 @@
     }
     if (keys['r'] && G.phase === 'racing') resetKart();
     // K4 item use: X key or gamepad button 2 (X). Edge-triggered (fire once per press, not per frame).
-    const itemDown = !!(keys['x'] || padItem);
+    const itemDown = !!(keys['x'] || padItem || touch.item);
     const item = itemDown && !itemKeyPrev;
     itemKeyPrev = itemDown;
     // clamp steer
@@ -2238,9 +2298,9 @@
     camKartY += (p.y - camKartY) * (1 - Math.exp(-TUNE.camVertLerp * dt));
     const kartY = camKartY;
     const targetPos = new THREE.Vector3(
-      p.pos.x - cf.x*TUNE.camDist,
-      kartY + TUNE.camHeight,
-      p.pos.z - cf.z*TUNE.camDist
+      p.pos.x - cf.x*camDistEff(),
+      kartY + camHeightEff(),
+      p.pos.z - cf.z*camDistEff()
     );
     camPos.lerp(targetPos, 1 - Math.exp(-TUNE.camStiff * dt));   // position follow stiffness: the rest-vs-speed distance gap is ~speed/camStiff
     // never let the camera clip into / drop below terrain. Sample the ACTUAL ground-mesh height
@@ -2310,6 +2370,7 @@
   const lapV = document.getElementById('lapV');
   const bestV = document.getElementById('bestV');
   const posV = document.getElementById('placeHud');
+  const touchCtlEl = document.getElementById('touchCtl');
   const lapNV = document.getElementById('lapNV');
   const clockV = document.getElementById('clockV');
   const wrongwayEl = document.getElementById('wrongway');
@@ -2347,6 +2408,9 @@
     else wrongwayEl.classList.remove('show');
     // K4 item slot: roll animation (cycling icons) then the settled item
     updateItemSlot(p);
+    // MOBILE thumb controls: on during the countdown (so you can time the start) + the race.
+    // The .on class only renders under body.mobile, so this is a no-op on desktop.
+    touchCtlEl.classList.toggle('on', G.phase === 'countdown' || G.phase === 'racing');
     // K5 MP: live places leaderboard + menu roster refresh
     updateMpUI();
   }

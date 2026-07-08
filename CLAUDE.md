@@ -1055,3 +1055,28 @@ GATOR KART MODEL (2026-07-08, untracked local test): user Meshy "6x4 John Deere 
       through 200+ poses back-to-back WITHOUT forceRace-resetting drives the game into a
       degenerate state (9-min lap timer, camera jams into the kart) → false "black"
       positives; render each suspect pose in a FRESH race to judge it. STILL UNTRACKED.
+- [x] WENT LIVE (2026-07-08, commit 7c56c29): farmkart.html + assets/farmkart-track.js
+      + assets/farmkart-kart.glb + farmkart-editor.html committed & pushed; linked from
+      games.html (🏁 tile). Shipped together with the other session's FarmGPT story
+      update (Haiku + chapters + slow-burn). (farm3d, bistro3p, tools/mk64-to-farmkart
+      still deliberately untracked.)
+- [x] MOBILE CONTROLS + camera pullback (2026-07-08, user: "forgot mobile controls,
+      probably need a farther camera on mobile"): IS_MOBILE = matchMedia('(pointer:
+      coarse)') && min(innerW,innerH)<900. On-screen thumb layer #touchCtl (shown via
+      body.mobile + .on class, toggled to countdown+racing phases; a no-op on desktop
+      since CSS gates on body.mobile): ◀▶ steer bottom-left, DRIFT + 🎁 item bottom-
+      right, ♻ reset top-right. bindHold() wires pointerdown/up/cancel/leave/
+      lostpointercapture → a `touch` flag object that gatherInput() folds in exactly
+      like the gamepad. MOBILE AUTO-ACCELERATE: throttle=1 whenever G.phase==='racing'
+      (frees a thumb; throttle turning on exactly at GO also earns the start boost;
+      countdown stays throttle-off so no early-start stall) — so there's no gas button.
+      Camera pullback via camDistEff()/camHeightEff() = TUNE.camDist/Height ×
+      (IS_MOBILE ? 1.7/1.3 : 1), applied at all 3 camera sites (init, snapCameraBehind,
+      frame targetPos) — MULTIPLIER on the live tune so the user's tuned values stay the
+      source. Stats #hud + keyboard #help hidden on mobile to free the thumb zones
+      (place top-left + itemSlot top-center stay). Verified headless (matchMedia stub +
+      small viewport): body.mobile set, 5 buttons, touch ◀ → steer=1, auto-accel drove
+      the kart (spd 19.8, no gas btn), rest cam dist 5.1 (=3×1.7) / height 3.12 (=2.4×
+      1.3) vs desktop 3.0/2.4 unchanged, touchCtl display:none on desktop, 0 pageerrors
+      both. Mobile screenshot clean. GOTCHA: puppeteer's emulateMediaFeatures rejects
+      'pointer' in this Chrome — stub window.matchMedia via evaluateOnNewDocument.
