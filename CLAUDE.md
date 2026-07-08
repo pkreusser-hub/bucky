@@ -929,10 +929,17 @@ tune approved. Live TUNE slider panel (fk_tune_v2) + window.__KART__ hook are lo
 keep both. GOTCHAS: renderer.setSize must keep updateStyle=true (dPR>1 canvas-crop bug —
 always test at deviceScaleFactor 1.5); R-reset must snap camHeading/camPos; camStiff slider
 = rest-vs-speed camera gap (~speed/camStiff).
-NEXT: the full build plan + stage specs for Opus 4.8 execution live in **farmkart-plan.md**
-(untracked, repo root): K1 race format + G-state restructure → K2 terrain height → K3 track
-data + 3D editor → K4 power-ups → K5 Playroom 4-player MP → K6 polish. One stage per agent
-run, user playtests between stages, feel regressions are never acceptable.
+Full stage specs live in **farmkart-plan.md** (untracked, repo root): K1 race format +
+G-state restructure → K2 terrain height → K3 track data + 3D editor → K4 power-ups →
+K5 Playroom 4-player MP → K6 polish → K7 collisions/walls/overlap/boost-pads. One stage per
+agent run, user playtests between stages, feel regressions are never acceptable.
+K7 DONE (2026-07-08): kart-vs-kart collision (radial split + capped bump), corridor walls +
+visible fence (per-track wallMargin, editor field + corridor-viz toggle, gaps at overlaps),
+track-overlap jump fix (FK_TRACK.nearestOnCenterAtY keeps the kart on ITS level → figure-8s/
+bridges legal, "Figure 8 (bridge)" demo track; editor overlap = advisory not error), boost
+pads (per-track boostPads[{s,lane}], editor ⚡ mode, drive-over boost once/pass). Plus the
+decline-bounce fix (landing seats vy=terrainVY so a sustained decline no longer re-launches).
+All farmkart files STILL UNTRACKED. Stage backups in session scratchpad (farmkart-pre-k*).
 - [x] FARM KART K1-K6 COMPLETE (2026-07-08, all six stages by opus agents from the
       farmkart-plan.md specs, Fable review between stages): K1 race format +
       G.players restructure (grid/countdown/start-boost-or-stall/checkpoint laps/
