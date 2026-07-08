@@ -11,13 +11,21 @@
 // Zero-dependency by design, same as notify.mjs: raw fetch against the Anthropic Messages
 // API (SSE streaming parsed by hand below), so Netlify's bundler has nothing to pull in.
 //
+// Provider routing: STORY mode (and its background summary) run on Google Gemini 2.5 Flash
+// — free tier, fast, quality-verified against Sonnet for kids' chapters. RESEARCH mode stays
+// on Anthropic's Sonnet 5 (stronger reasoning for homework/coding).
+//
 // Required environment variables (set in Netlify site settings):
-//   ANTHROPIC_API_KEY    - Anthropic API key (console.anthropic.com)
+//   ANTHROPIC_API_KEY    - Anthropic API key (console.anthropic.com) — used by research mode
+//   GEMINI_API_KEY       - Google AI Studio API key (aistudio.google.com/apikey) — story mode
 //   BUCKY_NOTIFY_SECRET  - shared family passphrase (same one notify.mjs already uses)
 // Optional:
-//   ANTHROPIC_BASE_URL   - override for local testing against a fake server
+//   STORY_PROVIDER       - "gemini" (default) or "anthropic" to flip story back to Sonnet
+//   ANTHROPIC_BASE_URL   - override for local testing against a fake Anthropic server
+//   GEMINI_BASE_URL      - override for local testing against a fake Gemini server
 
-const MODEL = "claude-sonnet-5";
+const MODEL = "claude-sonnet-5";           // research mode (Anthropic)
+const GEMINI_MODEL = "gemini-2.5-flash";   // story + summary (Gemini free tier)
 
 const ALLOWED_ORIGINS = new Set([
   "https://amenfarms.netlify.app",
@@ -383,6 +391,20 @@ function sanitizeMessages(raw, mode) {
   return msgs;
 }
 
+// Anthropic-shaped message → Gemini "contents" entry. Roles: assistant→model, user→user.
+// Story/summary content is always a plain string; the array/image branch is defensive only
+// (research photos never reach Gemini).
+function toGeminiContent(m) {
+  const role = m.role === "assistant" ? "model" : "user";
+  if (typeof m.content === "string") return { role, parts: [{ text: m.content }] };
+  const parts = [];
+  for (const b of m.content) {
+    if (b.type === "text") parts.push({ text: b.text });
+    else if (b.type === "image" && b.source) parts.push({ inline_data: { mime_type: b.source.media_type, data: b.source.data } });
+  }
+  return { role, parts: parts.length ? parts : [{ text: "" }] };
+}
+
 export default async (req) => {
   const origin = req.headers.get("origin") || "";
   const textHeaders = corsHeaders(origin, "text/plain; charset=utf-8");
@@ -391,10 +413,9 @@ export default async (req) => {
   if (req.method === "OPTIONS") return new Response("", { status: 204, headers: jsonHeaders });
   if (req.method !== "POST") return jsonError(405, "POST only", jsonHeaders);
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
   const familySecret = process.env.BUCKY_NOTIFY_SECRET;
-  if (!apiKey) return jsonError(500, "Server misconfigured: ANTHROPIC_API_KEY is not set", jsonHeaders);
   if (!familySecret) return jsonError(500, "Server misconfigured: BUCKY_NOTIFY_SECRET is not set", jsonHeaders);
+  // The AI key is checked per-provider below, once we know the mode (stats needs neither).
 
   let body;
   try { body = await req.json(); } catch { return jsonError(400, "Invalid JSON", jsonHeaders); }
@@ -421,41 +442,68 @@ export default async (req) => {
   const system = illustrate ? mode.system + "\n" + STORY_ILLUSTRATION : mode.system;
   const maxTokens = illustrate ? 3000 : mode.maxTokens;
 
-  const apiBase = process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com";
-  const apiReq = {
-    model: MODEL,
-    max_tokens: maxTokens,
-    system,
-    messages,
-    stream: true,
-    // Prompt caching: auto-places a breakpoint on the last cacheable block, so each
-    // turn re-reads the system prompt + prior conversation at ~10% of input price
-    // (5-minute TTL — covers back-to-back story chapters). Below ~2048 prefix tokens
-    // Sonnet 5 silently skips caching, which is fine.
-    cache_control: { type: "ephemeral" },
-  };
-  if (mode.thinking) apiReq.thinking = mode.thinking;
+  // Provider routing: story + its background summary → Gemini; research → Anthropic.
+  // STORY_PROVIDER=anthropic flips story back to Sonnet without any code change.
+  const STORY_PROVIDER = (process.env.STORY_PROVIDER || "gemini").toLowerCase();
+  const provider = (body.mode === "story" || body.mode === "summary") ? STORY_PROVIDER : "anthropic";
 
   let upstream;
-  try {
-    upstream = await fetch(`${apiBase}/v1/messages`, {
-      method: "POST",
-      headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(apiReq),
-    });
-  } catch (err) {
-    return jsonError(502, "Could not reach the AI service: " + String((err && err.message) || err), jsonHeaders);
+  if (provider === "gemini") {
+    const geminiKey = process.env.GEMINI_API_KEY;
+    if (!geminiKey) return jsonError(500, "Server misconfigured: GEMINI_API_KEY is not set", jsonHeaders);
+    const geminiBase = process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com";
+    // Gemini shape: system prompt → system_instruction; user/assistant → user/model turns.
+    // thinkingBudget 0 keeps story turns snappy (matches Sonnet's thinking-off story config).
+    const geminiReq = {
+      system_instruction: { parts: [{ text: system }] },
+      contents: messages.map(toGeminiContent),
+      generationConfig: { maxOutputTokens: maxTokens, thinkingConfig: { thinkingBudget: 0 } },
+    };
+    try {
+      upstream = await fetch(`${geminiBase}/v1beta/models/${GEMINI_MODEL}:streamGenerateContent?alt=sse`, {
+        method: "POST",
+        headers: { "x-goog-api-key": geminiKey, "content-type": "application/json" },
+        body: JSON.stringify(geminiReq),
+      });
+    } catch (err) {
+      return jsonError(502, "Could not reach the AI service: " + String((err && err.message) || err), jsonHeaders);
+    }
+  } else {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) return jsonError(500, "Server misconfigured: ANTHROPIC_API_KEY is not set", jsonHeaders);
+    const apiBase = process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com";
+    const apiReq = {
+      model: MODEL,
+      max_tokens: maxTokens,
+      system,
+      messages,
+      stream: true,
+      // Prompt caching: auto-places a breakpoint on the last cacheable block, so each
+      // turn re-reads the system prompt + prior conversation at ~10% of input price
+      // (5-minute TTL). Below ~2048 prefix tokens Sonnet 5 silently skips caching.
+      cache_control: { type: "ephemeral" },
+    };
+    if (mode.thinking) apiReq.thinking = mode.thinking;
+    try {
+      upstream = await fetch(`${apiBase}/v1/messages`, {
+        method: "POST",
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(apiReq),
+      });
+    } catch (err) {
+      return jsonError(502, "Could not reach the AI service: " + String((err && err.message) || err), jsonHeaders);
+    }
   }
 
   if (!upstream.ok) {
     const detail = await upstream.text().catch(() => "");
     // Don't leak upstream internals to the browser beyond the status + error type.
     let msg = `AI service error (${upstream.status})`;
-    try { msg += ": " + (JSON.parse(detail).error?.type || ""); } catch { /* keep generic */ }
+    try { const j = JSON.parse(detail); msg += ": " + (j.error?.type || j.error?.status || ""); } catch { /* keep generic */ }
     return jsonError(502, msg, jsonHeaders);
   }
 
@@ -464,6 +512,7 @@ export default async (req) => {
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
   const reader = upstream.body.getReader();
+  const isGemini = provider === "gemini";
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -475,7 +524,10 @@ export default async (req) => {
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
-          buf += decoder.decode(value, { stream: true });
+          // Strip CR so both SSE dialects normalize to "\n\n"-delimited events: Anthropic
+          // uses bare LF, Gemini uses CRLF. (Raw CR only appears as SSE line endings — CRs
+          // inside the JSON payload are escaped as "\r", not literal 0x0D.)
+          buf += decoder.decode(value, { stream: true }).replace(/\r/g, "");
           // SSE events are separated by a blank line
           let sep;
           while ((sep = buf.indexOf("\n\n")) !== -1) {
@@ -485,7 +537,22 @@ export default async (req) => {
             if (!dataLine) continue;
             let ev;
             try { ev = JSON.parse(dataLine.slice(5).trim()); } catch { continue; }
-            if (ev.type === "content_block_delta" && ev.delta && ev.delta.type === "text_delta" && ev.delta.text) {
+            if (isGemini) {
+              // Gemini streamGenerateContent (alt=sse): each event carries an incremental
+              // text chunk in candidates[0].content.parts and a running usageMetadata.
+              const cand = ev.candidates && ev.candidates[0];
+              if (cand && cand.content && cand.content.parts) {
+                const t = cand.content.parts.map((p) => p.text || "").join("");
+                if (t) { sentAnyText = true; controller.enqueue(encoder.encode(t)); }
+              }
+              // A safety/recitation block with no text → friendly stand-in (shared handler below).
+              if (cand && (cand.finishReason === "SAFETY" || cand.finishReason === "RECITATION" || cand.finishReason === "OTHER")) stopReason = "refusal";
+              if (ev.promptFeedback && ev.promptFeedback.blockReason) stopReason = "refusal";
+              if (ev.usageMetadata) {
+                inTok = ev.usageMetadata.promptTokenCount || inTok;
+                outTok = ev.usageMetadata.candidatesTokenCount || outTok;
+              }
+            } else if (ev.type === "content_block_delta" && ev.delta && ev.delta.type === "text_delta" && ev.delta.text) {
               sentAnyText = true;
               controller.enqueue(encoder.encode(ev.delta.text));
             } else if (ev.type === "message_start" && ev.message && ev.message.usage) {

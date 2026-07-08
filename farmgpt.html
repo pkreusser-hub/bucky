@@ -1277,16 +1277,16 @@
   // =====================================================================
   // USAGE DASHBOARD
   // =====================================================================
-  // Estimated at Sonnet 5 list pricing; actual billing is at console.anthropic.com.
-  // Cache writes bill at 1.25x the input rate, cache reads at 0.1x (that's the whole
-  // point of caching). Older usage docs predate cache tracking; those fields read 0.
-  const IN_RATE = 3, OUT_RATE = 15;   // $ per million tokens
+  // Story (s = chapters, u = summaries) runs on Gemini 2.5 Flash's FREE tier → $0. Only
+  // research (r) hits Sonnet 5, estimated at its list pricing (actual billing at
+  // console.anthropic.com). Cache writes bill at 1.25x input, reads at 0.1x. Older usage
+  // docs predate cache tracking; those fields read 0.
+  const IN_RATE = 3, OUT_RATE = 15;   // $ per million tokens (Sonnet 5, research only)
   const cw = (d, k) => d[k] || 0;
-  // s = story chapters, u = story summaries, r = research — all three counted.
-  const rowCost = (d) => ((cw(d, "s_in") + cw(d, "u_in") + cw(d, "r_in")) * IN_RATE
-    + (cw(d, "s_cw") + cw(d, "u_cw") + cw(d, "r_cw")) * IN_RATE * 1.25
-    + (cw(d, "s_cr") + cw(d, "u_cr") + cw(d, "r_cr")) * IN_RATE * 0.1
-    + (cw(d, "s_out") + cw(d, "u_out") + cw(d, "r_out")) * OUT_RATE) / 1e6;
+  const rowCost = (d) => (cw(d, "r_in") * IN_RATE
+    + cw(d, "r_cw") * IN_RATE * 1.25
+    + cw(d, "r_cr") * IN_RATE * 0.1
+    + cw(d, "r_out") * OUT_RATE) / 1e6;
   const dayCost = rowCost;
   const fmt$ = (v) => "$" + (v < 0.10 ? v.toFixed(3) : v.toFixed(2));
   const fmtTok = (n) => n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n);
@@ -1327,17 +1327,17 @@
 
     const split = document.createElement("div");
     split.id = "usageSplit";
-    for (const [icon, name, rq, ti, to, tc] of [
-      ["📖", "Story chapters", sum(monthDays, "s_req"), sum(monthDays, "s_in"), sum(monthDays, "s_out"), sum(monthDays, "s_cw") + sum(monthDays, "s_cr")],
-      ["📝", "Story recaps", sum(monthDays, "u_req"), sum(monthDays, "u_in"), sum(monthDays, "u_out"), sum(monthDays, "u_cw") + sum(monthDays, "u_cr")],
-      ["🔬", "Research", sum(monthDays, "r_req"), sum(monthDays, "r_in"), sum(monthDays, "r_out"), sum(monthDays, "r_cw") + sum(monthDays, "r_cr")],
+    for (const [icon, name, rq, ti, to, tc, free] of [
+      ["📖", "Story chapters", sum(monthDays, "s_req"), sum(monthDays, "s_in"), sum(monthDays, "s_out"), sum(monthDays, "s_cw") + sum(monthDays, "s_cr"), true],
+      ["📝", "Story recaps", sum(monthDays, "u_req"), sum(monthDays, "u_in"), sum(monthDays, "u_out"), sum(monthDays, "u_cw") + sum(monthDays, "u_cr"), true],
+      ["🔬", "Research", sum(monthDays, "r_req"), sum(monthDays, "r_in"), sum(monthDays, "r_out"), sum(monthDays, "r_cw") + sum(monthDays, "r_cr"), false],
     ]) {
       const el = document.createElement("div");
       el.className = "usplit";
       el.innerHTML = `<div class="un"></div><div class="ud"></div>`;
-      el.querySelector(".un").textContent = icon + " " + name;
+      el.querySelector(".un").textContent = icon + " " + name + (free ? " · free ✨" : "");
       el.querySelector(".ud").innerHTML = rq + " requests this month<br>" + fmtTok(ti) + " in · " + fmtTok(to) + " out" +
-        (tc ? "<br>" + fmtTok(tc) + " cached 💰" : "");
+        (free ? "<br><span style=\"opacity:.7\">Gemini free tier — $0</span>" : tc ? "<br>" + fmtTok(tc) + " cached 💰" : "");
       split.appendChild(el);
     }
     body.appendChild(split);

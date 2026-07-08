@@ -624,10 +624,27 @@ levels; full order→cook→deliver flow on the right-wall window passes.
 
 # 🌾 FarmGPT — family AI: story time + research (2026-07-07)
 
-farmgpt.html + netlify/functions/farmgpt.mjs (Claude API, model claude-sonnet-5).
+farmgpt.html + netlify/functions/farmgpt.mjs. PER-MODE PROVIDER (2026-07-08): STORY + its
+background SUMMARY run on Google Gemini 2.5 Flash (FREE tier — cost 0); RESEARCH stays on
+Anthropic claude-sonnet-5 (stronger homework/coding reasoning). Chosen after a 3-way side-
+by-side (Sonnet vs Gemini 2.5 Flash vs Groq Llama-3.3-70b) on the exact STORY_SYSTEM prompt
+— Gemini matched Sonnet closely on kid-story quality/format, present-tense + canon-accurate,
+and free; Groq drifted to past tense. NEW Netlify env var: GEMINI_API_KEY (AI Studio key
+from a NO-BILLING project = free tier; gemini-2.0-flash's free quota can read 0 on a
+project, 2.5-flash works). Flip story back with STORY_PROVIDER=anthropic. Gemini path in
+the function = :streamGenerateContent?alt=sse w/ system_instruction + user/model contents +
+thinkingBudget 0; toGeminiContent() maps the Anthropic-shaped messages. GOTCHA (a debug
+cycle): Gemini SSE delimits events with CRLF (\r\n\r\n) while Anthropic uses bare LF (\n\n)
+— the hand-parser now strips all raw \r so one "\n\n" split serves both. Gemini refusals
+(finishReason SAFETY/RECITATION/OTHER or promptFeedback.blockReason) map to the shared
+"refusal" stand-in. Usage dashboard prices story/summary as free ($0) and only research at
+Sonnet rates. Verified in-process vs REAL Gemini: routing (500s name the right key),
+streamed chapter + exactly-3 ===CHOICES===, never self-ends, ===ART=== illustration,
+guardrail redirect (gore steer → gentle in-story, no lecture), summary continuity.
+GEMINI_BASE_URL env override exists for fake-server tests.
 - ARCHITECTURE: static page → POST /.netlify/functions/farmgpt {secret, mode, messages}
   → function stamps the per-mode GUARDRAIL SYSTEM PROMPT server-side (browser can never
-  override), streams Sonnet 5 text back as plain chunks. Zero-dependency raw fetch +
+  override), streams the model's text back as plain chunks. Zero-dependency raw fetch +
   hand-parsed SSE (house convention, same as notify.mjs). Secret = the existing
   BUCKY_NOTIFY_SECRET / FAMILY_PASSWORD pair; NEW Netlify env var required:
   ANTHROPIC_API_KEY (function 500s with a clear message until set).
