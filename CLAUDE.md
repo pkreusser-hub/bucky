@@ -641,24 +641,31 @@ farmgpt.html + netlify/functions/farmgpt.mjs (Claude API, model claude-sonnet-5)
   buttons; marker hidden during stream incl. partial-marker trim). Write-in input always
   available. thinking disabled (speed), max_tokens 1200. Bookshelf: localStorage
   farmgpt_stories_v1 (20 cap, resume/delete; resume with trailing user turn auto-continues).
-- ENDLESS STORIES via ROLLING RECAP (2026-07-08, PUSHED 6e63d6a; top user complaint was
-  the arbitrary ~8-15-chapter auto-ending). Two root causes fixed: the prompt told the model
-  to "build toward an ending after 8-15 chapters", AND KEEP_TAIL_STORY=16 deleted the story's
-  MIDDLE (head(2)+tail(16)) so it forgot the arc and wrapped up. Now: (1) prompt says the story
-  NEVER self-ends — always 3 fresh choices — and only writes ===THE END=== when the reader asks
-  to finish; (2) model maintains a compact ≤180-word ===RECAP=== marker each chapter (LAST block,
-  after choices/art) = its private running memory, hidden from the reader (parseChapter extracts
-  +strips it; visibleDuringStream hides it; server strips ===(ART|RECAP)=== from re-sent
-  assistant turns). Client no longer sends the whole transcript: buildSendMessages() sends
-  world-setup + latest recap folded into the head user turn + last 3 chapters verbatim
-  (strippedForSend drops art/recap; windowing kicks in once >3 assistant msgs & a recap exists;
-  short stories still send full). Per-chapter cost is now FLAT regardless of length (~7 msgs at
-  ch.9 or ch.90). story.recap persisted in the bookshelf; resumeStory recovers it from the last
-  chapter. Kid-facing '🌙 Finish the story' button (#finishBtn, appears at ≥3 chapters, confirm
-  → requests finale). Tradeoff: perfect memory of last 3 chapters + summarized memory of the
-  rest (SEND_CHAPTERS=3, tunable). Verified headless w/ a FAKE api (no real cost): 9 chapters no
-  auto-end, no marker leak, 7-msg windowed sends carry recap, finish-on-request → THE END, 0
-  pageerrors. NOT yet run against the real API post-deploy.
+- ENDLESS STORIES (2026-07-08, PUSHED ba3183d; top user complaint was the arbitrary
+  ~8-15-chapter auto-ending). Two root causes fixed: the prompt told the model to "build toward
+  an ending after 8-15 chapters", AND KEEP_TAIL_STORY=16 deleted the story's MIDDLE
+  (head(2)+tail(16)) so it forgot the arc and wrapped up. TWO independent parts:
+  (A) ENDINGS: prompt now says the story NEVER self-ends — always 3 fresh choices — and only
+  writes ===THE END=== when the reader asks to finish. Kid-facing '🌙 Finish the story' button
+  (#finishBtn, appears at ≥3 chapters, confirm → pushes a "wrap up now" user turn → finale).
+  (B) MEMORY / FLAT COST via a DEDICATED SUMMARY CALL. NOTE: the first attempt (commit 6e63d6a)
+  had the CHAPTER model emit an inline ===RECAP=== marker each turn — real-API testing showed it
+  complied only ~HALF the time (stochastic, not caused by the recap-stripping; A/B-confirmed
+  live), so story.recap often never set. REPLACED with MODES.summary (SUMMARY_SYSTEM, maxTokens
+  400, thinking off) — a tiny single-purpose call whose only job is to compress the story so far
+  into ≤180-word continuity notes, which it does reliably. Client: buildSendMessages() sends
+  world-setup + story.recap folded into the head user turn as a "STORY SO FAR" note + last
+  SEND_CHAPTERS=4 chapters verbatim (strippedForSend drops only ===ART===; windows once >4
+  assistant msgs & a recap exists, else sends full). maybeSummarize() runs in the BACKGROUND
+  after each chapter, folding new chapters into story.recap every SUMMARIZE_EVERY=3 (4≥3 so
+  nothing leaves the verbatim window un-summarized); wrapped in try/catch — a failed summary
+  keeps the prior note and never disrupts the story. story.recap + story.summarizedIdx persisted
+  in the bookshelf. Per-chapter cost FLAT regardless of length (~9-msg sends at ch.9 or ch.90);
+  summary calls add ~15-20%, bucketed under story ("s") in the usage dashboard. Server prompt has
+  a CONTINUITY clause telling the model to treat the "STORY SO FAR" note as true past events.
+  Verified vs the REAL API post-deploy: 6 chapters + 2 summary calls, coherent memory note
+  stored, no auto-end, finish→THE END, no marker leak, 0 pageerrors. Tunable: SEND_CHAPTERS
+  (verbatim depth), SUMMARIZE_EVERY (summary cadence).
 - RESEARCH MODE: teen homework+coding chat; markdown via marked+DOMPurify CDN; adaptive
   thinking (default) w/ "Thinking…" indicator, max_tokens 4096; localStorage
   farmgpt_research_v1 (50 msgs; user msg saved BEFORE the reply streams so a mid-stream
