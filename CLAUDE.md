@@ -909,3 +909,26 @@ NEXT: the full build plan + stage specs for Opus 4.8 execution live in **farmkar
 (untracked, repo root): K1 race format + G-state restructure → K2 terrain height → K3 track
 data + 3D editor → K4 power-ups → K5 Playroom 4-player MP → K6 polish. One stage per agent
 run, user playtests between stages, feel regressions are never acceptable.
+- [x] FARM KART K1-K6 COMPLETE (2026-07-08, all six stages by opus agents from the
+      farmkart-plan.md specs, Fable review between stages): K1 race format +
+      G.players restructure (grid/countdown/start-boost-or-stall/checkpoint laps/
+      results) · K2 terrain height (sampleHeight authority, slope accel, hairpin
+      crest +5.5) · K2.5 airborne (ballistic launch when reqAccel < -gravity,
+      air control/grip, landing squash, camera float; playtest fixes: landing FX
+      gated on airtime, height sampling INTERPOLATED between spline samples —
+      stairs bug, gravity 28->18 w/ one-time saved-tune migration) · K3 shared
+      assets/farmkart-track.js + farmkart-editor.html (orbit view, drag points,
+      Shift-drag elevation, validation, fk_tracks_v1, ?track= w/ silent fallback)
+      · K3.5 bots (pure-pursuit via same stepKart, botSkill + rubber-band, 0-3
+      from menu) · K4 items (boxes from itemRows, roll HUD, ⚡🍅🌾, 1s spin-outs,
+      bots use items) · K5 Playroom MP (client-authoritative own kart @18Hz,
+      host: countdown/bots/item rolls/hit rulings @12Hz snap, ~120ms interp,
+      exactly-once useSeq/spin seq, live 2-browser verified incl. cross-screen
+      spin + hidden-host heartbeat + disconnect cleanup; family-lobby substage
+      deliberately deferred) · K6 polish (reactive WebAudio set + fk_muted,
+      pooled particles, barn-sign title, medal podium, per-track best fk_best_<id>).
+      Final suite 161/161 @ dPR 1.5, 0 pageerrors across 6 page contexts. ALL
+      FARMKART FILES STILL UNTRACKED (farmkart.html, farmkart-editor.html,
+      assets/farmkart-track.js, farmkart-plan.md, farmkart-physics-notes.md) —
+      user decides when it goes live. Backups of every stage in the session
+      scratchpad (farmkart-pre-k*-backup.html).
