@@ -97,6 +97,20 @@ tokens (no framework); regroup the 9 sections into ~5 areas.
   farm=[goathooves,goatcare]); segmented sub-nav tightened (font 13px, padding 9px 3px)
   so 4 Tasks chips fit at 390px with 0 clipped. Verified headless 14/14, 0 pageerrors.
   Test: p7_fixes.mjs (injects buckyData1 to control chores/jobs/goats).
+- **CHORE/BANK AUDIENCE GATING + "Open Work Orders"** (2026-07-09, user): Home "Jobs"
+  stat renamed → "Open Work Orders". CHORES + FARM BANK now only show for
+  `CHORE_BANK_USERS = ["Eleanor","Isaac","Dad"]` (via `seesChoreBank()`); everyone else
+  (Mom, guests) gets a farm-focused Home. Gated: the hero chore RING ("bubble" top-right),
+  the "Today's chores" listing, the Bank + Streak stats, the Farm Bank bento (→ "The herd"
+  mini instead), the **Bank bottom-nav area** (`navGroupVisible`), and the Tasks **Chores
+  chip** (`navKeyVisible`). Non-allowed stat row = Open Work Orders / Goats / Care due
+  (grid-template-columns set to statDefs.length). `navGroup` skips hidden sections (Tasks
+  lands on Jobs when Chores is hidden); `render()` bounces a non-allowed user off chores/
+  farmbank → dashboard; nav rebuilt on profile switch (buildBottomNav+syncTabsUI added to
+  the meBtn handler). NOTE the Tasks sub-nav chip for work orders stays short ("Jobs") —
+  "Open Work Orders" only fits on the Home stat card (wraps to 2 lines there, fine).
+  Verified headless 19/19 (Eleanor full vs Mom gated) + p7 regression 14/14, 0 pageerrors.
+  Test: p8_gate.mjs.
 
 ---
 
