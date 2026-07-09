@@ -1152,3 +1152,18 @@ layout sync.
       bump = 7.16 vs flat 0.77, 0 pageerrors editor+game. NOTE sculpts only render where the ground
       MESH reaches (track bbox + 55 margin); sculpting past that edits data w/ no visible mesh.
       All P1-P3 still LOCAL (not pushed) per the user's "keep it local, link per phase" workflow.
+- [x] P4 PAINT + WATER (2026-07-08): terrain color painting + water bodies. PAINT: sparse color
+      grid track.paint={cell,cells:{"i,j":0xRRGGBB}} sanitized like the sculpt field; FK_TRACK.
+      sampleColor() bilinear-blends it (unpainted cells fall back to base grass 0x6fae54 so patches
+      feather smoothly). buildGroundMesh derives a vertexColorFn from opts.paint when non-empty →
+      per-vertex colors, material forced WHITE (it multiplies vertex color); absent → no color attr,
+      mesh byte-identical (re-verified 0.0). Editor 🎨 paint mode: 8-swatch palette (grass/dark/dry/
+      dirt/sand/path/red-clay/snow), brush-size slider, clear-all, drag-to-paint (sets cells in
+      radius, throttled live rebuild). game+editor terrainOpts add paint:track.paint. WATER: a new
+      object type "water" (reuses ALL P2 object machinery — place/gizmo/move/scale/rotate/list/save/
+      game-render) rendered by buildObjectMesh as a translucent blue slab (opacity .72, depthWrite
+      false, renderOrder 3); 💧 add water button spawns {type:water, sx/sz 30, sy .6, blue} at the
+      view center on the terrain, then gizmo it into a sculpted dip. Verified headless: paint 137
+      cells → mesh gains color attr, water obj added, both persist save→empty→reload, game renders
+      painted dirt swath + translucent pond, road unaffected, 0 pageerrors editor+game. All P1-P4
+      still LOCAL.

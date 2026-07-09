@@ -309,6 +309,18 @@
         }
         if (n) out.terrain = { cell, cells };
       }
+      // TERRAIN PAINT FIELD (P4): sparse color grid { cell, cells:{"i,j":0xRRGGBB} }. Absent/empty ->
+      // omitted (unpainted = plain grass mesh, byte-identical).
+      if (data.paint && typeof data.paint==='object' && data.paint.cells && typeof data.paint.cells==='object'){
+        const cell = (isFinite(+data.paint.cell) && +data.paint.cell > 0) ? +data.paint.cell : 6;
+        const cells = {}; let n = 0;
+        for (const k in data.paint.cells){
+          if (!/^-?\d+,-?\d+$/.test(k)) continue;
+          const v = +data.paint.cells[k];
+          if (isFinite(v) && v>=0 && v<=0xffffff){ cells[k] = Math.round(v); n++; }
+        }
+        if (n) out.paint = { cell, cells };
+      }
       return out;
     }catch(e){ return null; }
   }
@@ -319,11 +331,18 @@
   function buildObjectMesh(obj, THREE, opts){
     opts = opts || {};
     const g = new THREE.Group();
+    const isWater = obj.type === 'water';
     let color = obj.color;
     if (typeof color === 'string') color = parseInt(String(color).replace('#','0x'));
-    if (!isFinite(color)) color = 0xc8a06a;
-    const mat = new THREE.MeshLambertMaterial({ color, transparent: !!opts.ghost, opacity: opts.ghost ? 0.5 : 1 });
+    if (!isFinite(color)) color = isWater ? 0x2f6fb0 : 0xc8a06a;
+    const mat = new THREE.MeshLambertMaterial({
+      color,
+      transparent: isWater || !!opts.ghost,
+      opacity: isWater ? 0.72 : (opts.ghost ? 0.5 : 1),
+      depthWrite: !isWater
+    });
     const box = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), mat);   // unit cube centered at local origin
+    if (isWater) box.renderOrder = 3;                                // water blends over terrain
     g.add(box);
     g.position.set(obj.x, obj.y, obj.z);
     g.scale.set(obj.sx||1, obj.sy||1, obj.sz||1);
@@ -422,6 +441,19 @@
     const a = h00 + (h10-h00)*tx, b = h01 + (h11-h01)*tx;
     return a + (b-a)*tz;
   }
+  // sampleColor (P4): bilinear read of the user PAINT field — a sparse world-anchored grid
+  // { cell, cells:{"i,j":0xRRGGBB} }. Unpainted cells fall back to baseRGB so painted patches blend
+  // smoothly into the grass. Returns [r,g,b] in 0..1.
+  function _rgb(hex){ return [((hex>>16)&255)/255, ((hex>>8)&255)/255, (hex&255)/255]; }
+  function sampleColor(field, x, z, baseRGB){
+    if (!field || !field.cells) return baseRGB;
+    const C = field.cell || 6, c = field.cells;
+    const fx=x/C, fz=z/C, i0=Math.floor(fx), j0=Math.floor(fz), tx=fx-i0, tz=fz-j0;
+    const g=(i,j)=>{ const v=c[i+','+j]; return (v==null) ? baseRGB : _rgb(v); };
+    const c00=g(i0,j0), c10=g(i0+1,j0), c01=g(i0,j0+1), c11=g(i0+1,j0+1), out=[0,0,0];
+    for (let k=0;k<3;k++){ const a=c00[k]+(c10[k]-c00[k])*tx, b=c01[k]+(c11[k]-c01[k])*tx; out[k]=a+(b-a)*tz; }
+    return out;
+  }
   // groundHills: procedural rolling grass hills + the user sculpt field (opts.field, if any).
   function groundHills(x, z, opts){
     const amp = opts.amp, wl = opts.wave || 60;
@@ -485,7 +517,13 @@
     const seg = opts.seg || 4;
     const nx = Math.ceil((maxX-minX)/seg), nz = Math.ceil((maxZ-minZ)/seg);
     const pos = [], idx = [], colors = [];
-    const cfn = opts.vertexColorFn || null;
+    // P4 paint: if a non-empty paint field is present, colour each vertex by sampling it (unpainted
+    // -> base grass, so patches blend). Absent -> no color attribute (mesh byte-identical to before).
+    const BASE_GRASS = 0x6fae54, baseRGB = _rgb(BASE_GRASS);
+    let cfn = opts.vertexColorFn || null;
+    if (!cfn && opts.paint && opts.paint.cells && Object.keys(opts.paint.cells).length){
+      cfn = (x,z)=>sampleColor(opts.paint, x, z, baseRGB);
+    }
     for (let j=0;j<=nz;j++) for (let i=0;i<=nx;i++){
       const x = minX + i*seg, z = minZ + j*seg;
       const h = groundSampleHeight(sampled, x, z, width, opts);
@@ -501,7 +539,8 @@
     if (cfn) gg.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     gg.setIndex(idx);
     gg.computeVertexNormals();
-    const color = (opts.color!=null)?opts.color:0x6fae54;
+    // when vertex colours drive the look, the material must be WHITE (it multiplies the vertex color).
+    const color = cfn ? 0xffffff : ((opts.color!=null)?opts.color:BASE_GRASS);
     return new THREE.Mesh(gg, new THREE.MeshLambertMaterial({ color, side:THREE.DoubleSide, vertexColors: !!cfn }));
   }
 
@@ -509,6 +548,6 @@
     VERSION:1, SAMPLES,
     DEFAULT_TRACK, BUILTIN_TRACKS,
     resample, buildRibbonGeometry, sanitize, validate, reverse, nearestOnCenter, nearestOnCenterAtY,
-    groundHills, sampleHeight, groundSampleHeight, buildGroundMesh, buildObjectMesh, sampleField
+    groundHills, sampleHeight, groundSampleHeight, buildGroundMesh, buildObjectMesh, sampleField, sampleColor
   };
 })();

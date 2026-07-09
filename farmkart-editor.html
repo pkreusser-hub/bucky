@@ -76,6 +76,14 @@
       <button class="btn" id="mBoost">⚡ boost</button>
       <button class="btn" id="mObject">🧊 objects</button>
       <button class="btn" id="mSculpt">⛰ sculpt</button>
+      <button class="btn" id="mPaint">🎨 paint</button>
+    </div>
+    <div id="paintTools" style="display:none;margin-top:6px;padding:8px;background:rgba(60,50,40,.3);border-radius:8px;">
+      <div id="swatches" style="display:flex;flex-wrap:wrap;gap:5px;"></div>
+      <label style="margin-top:6px;">brush size <span id="pRadV" style="color:#7fd0ff;">20</span></label>
+      <input type="range" id="pRad" min="6" max="60" step="1" value="20" style="width:100%;">
+      <button class="btn wide warn" id="pReset" style="margin-top:6px;">🧹 clear all paint</button>
+      <div style="color:#9ab;font-size:11px;margin-top:4px;">drag the grass to paint · painted cells: <span id="pCells">0</span></div>
     </div>
     <div id="sculptTools" style="display:none;margin-top:6px;padding:8px;background:rgba(40,80,50,.28);border-radius:8px;">
       <div class="row">
@@ -101,6 +109,7 @@
     <div class="sec">🧊 Objects <span style="color:#7fd0ff;font-weight:400;text-transform:none;">(tag → I build it)</span></div>
     <div class="row">
       <button class="btn" id="addObjBtn">＋ add block</button>
+      <button class="btn" id="addWaterBtn">💧 add water</button>
       <button class="btn" id="dupObjBtn">⧉ duplicate</button>
     </div>
     <div class="row" id="gizmoRow" style="margin-top:3px;">
@@ -201,7 +210,7 @@
   // you stop dragging, keeping point edits smooth.
   const TERRAIN = { amp:3.4, wave:60, margin:9 };
   // include the live sculpt field so the WYSIWYG mesh + height reads reflect raised/lowered terrain.
-  function edTerrainOpts(){ return { amp:TERRAIN.amp, wave:TERRAIN.wave, margin:TERRAIN.margin, field:track.terrain }; }
+  function edTerrainOpts(){ return { amp:TERRAIN.amp, wave:TERRAIN.wave, margin:TERRAIN.margin, field:track.terrain, paint:track.paint }; }
   let terrainMesh = null, terrainTimer = null, showTerrain = true;
   function rebuildTerrain(){
     if (terrainMesh){ scene.remove(terrainMesh); terrainMesh.geometry.dispose(); terrainMesh.material.dispose(); terrainMesh = null; }
@@ -234,6 +243,24 @@
     }
   }
   function terrainCellCount(){ return track.terrain ? Object.keys(track.terrain.cells).length : 0; }
+
+  // ---- PAINT brush (P4): set the sparse color field (grass/dirt/sand/...) ----
+  const PALETTE = [
+    {name:'grass',    hex:0x6fae54},{name:'dark grass',hex:0x4c7d38},{name:'dry',     hex:0xb7b04a},
+    {name:'dirt',     hex:0x8a5a34},{name:'sand',      hex:0xd9c48a},{name:'path',    hex:0x9a938a},
+    {name:'red clay', hex:0xb3542f},{name:'snow',      hex:0xeef2f5}
+  ];
+  const PAINT = { radius: 20, color: 0x8a5a34 };
+  function applyPaint(bx, bz){
+    track.paint = track.paint || { cell: 6, cells: {} };
+    const C = track.paint.cell, cells = track.paint.cells, R = PAINT.radius, col = PAINT.color;
+    const i0=Math.floor((bx-R)/C), i1=Math.ceil((bx+R)/C), j0=Math.floor((bz-R)/C), j1=Math.ceil((bz+R)/C);
+    for (let i=i0;i<=i1;i++) for (let j=j0;j<=j1;j++){
+      if (Math.hypot(i*C-bx, j*C-bz) > R) continue;
+      cells[i+','+j] = col;
+    }
+  }
+  function paintCellCount(){ return track.paint ? Object.keys(track.paint.cells).length : 0; }
   function scheduleTerrain(){ if (terrainTimer) clearTimeout(terrainTimer); terrainTimer = setTimeout(rebuildTerrain, 140); }
 
   // ================= P2: WORLD OBJECTS (place / move / rotate / scale / tag) =================
@@ -455,17 +482,21 @@
     $('mBoost').classList.toggle('on', m==='boost');
     $('mObject').classList.toggle('on', m==='object');
     $('mSculpt').classList.toggle('on', m==='sculpt');
+    $('mPaint').classList.toggle('on', m==='paint');
     $('sculptTools').style.display = (m==='sculpt') ? 'block' : 'none';
+    $('paintTools').style.display = (m==='paint') ? 'block' : 'none';
     if (m==='sculpt') $('scCells').textContent = terrainCellCount();
+    if (m==='paint') $('pCells').textContent = paintCellCount();
     // gizmo only lives in object mode (otherwise it would steal clicks from point editing)
     gizmo.enabled = (m==='object'); gizmo.visible = (m==='object') && !!selObjId;
     if (m==='object' && selObjId && objMeshes[selObjId]) gizmo.attach(objMeshes[selObjId]);
-    if (m==='sculpt' && showTerrain===false){ showTerrain=true; $('terrainBtn').classList.add('on'); $('terrainBtn').textContent='🌾 terrain: ON'; rebuildTerrain(); }
+    if ((m==='sculpt'||m==='paint') && showTerrain===false){ showTerrain=true; $('terrainBtn').classList.add('on'); $('terrainBtn').textContent='🌾 terrain: ON'; rebuildTerrain(); }
     $('hint').textContent = m==='insert' ? 'click the road to INSERT a point on the nearest segment'
                           : m==='item'   ? 'click the road to drop an ITEM ROW (s-fraction)'
                           : m==='boost'  ? 'click the road to drop a BOOST PAD (s + lane)'
                           : m==='object' ? 'click an object to select · gizmo = move/rotate/scale (G/R/S) · ＋ add block · name it below'
                           : m==='sculpt' ? 'drag the GRASS to raise it · hold Shift to lower · the road stays put'
+                          : m==='paint'  ? 'pick a color, then drag the GRASS to paint it (dirt, sand, path...)'
                           : 'drag spheres = move · Shift+drag = elevation · drag empty = orbit · wheel = zoom';
   }
   $('mSelect').addEventListener('click', ()=>setMode('select'));
@@ -479,6 +510,29 @@
   $('scRad').addEventListener('input', ()=>{ SCULPT.radius=+$('scRad').value; $('scRadV').textContent=SCULPT.radius; });
   $('scStr').addEventListener('input', ()=>{ SCULPT.strength=+$('scStr').value; $('scStrV').textContent=SCULPT.strength.toFixed(1); });
   $('scReset').addEventListener('click', ()=>{ track.terrain={ cell:6, cells:{} }; $('scCells').textContent='0'; rebuildTerrain(); toast('terrain cleared'); });
+  // paint
+  $('mPaint').addEventListener('click', ()=>setMode('paint'));
+  (function buildSwatches(){
+    const box=$('swatches');
+    PALETTE.forEach((p,idx)=>{
+      const s=document.createElement('button');
+      s.title=p.name; s.dataset.hex=p.hex;
+      s.style.cssText='width:30px;height:26px;border-radius:6px;cursor:pointer;border:2px solid '+(p.hex===PAINT.color?'#fff':'rgba(255,255,255,.25)')+';background:#'+p.hex.toString(16).padStart(6,'0')+';';
+      s.onclick=()=>{ PAINT.color=p.hex; [...box.children].forEach(c=>c.style.borderColor='rgba(255,255,255,.25)'); s.style.borderColor='#fff'; };
+      box.appendChild(s);
+    });
+  })();
+  $('pRad').addEventListener('input', ()=>{ PAINT.radius=+$('pRad').value; $('pRadV').textContent=PAINT.radius; });
+  $('pReset').addEventListener('click', ()=>{ track.paint={ cell:6, cells:{} }; $('pCells').textContent='0'; rebuildTerrain(); toast('paint cleared'); });
+  // water = an object with type "water" (reuses all the object machinery)
+  function addWater(){
+    track.objects=track.objects||[];
+    const cx=+controls.target.x.toFixed(2), cz=+controls.target.z.toFixed(2);
+    const o={ id:'obj_'+(++objSeq), tag:'', type:'water', x:cx, y:+(terrainHeightAt(cx,cz)+0.3).toFixed(2), z:cz, rotY:0, sx:30, sy:0.6, sz:30, color:0x2f6fb0 };
+    track.objects.push(o); rebuildObjects(); selectObject(o.id); setGizmo('translate');
+    toast('added water — move/scale with the gizmo, drop it into a dip');
+  }
+  $('addWaterBtn').addEventListener('click', ()=>{ setMode('object'); addWater(); });
   $('addObjBtn').addEventListener('click', ()=>{ setMode('object'); addObject(); });
   $('dupObjBtn').addEventListener('click', duplicateObject);
   $('gMove').addEventListener('click', ()=>setGizmo('translate'));
@@ -513,7 +567,7 @@
     if (terrainMesh){ const hits = raycaster.intersectObject(terrainMesh, false); if (hits.length) return hits[0].point; }
     const hit = new THREE.Vector3(); return raycaster.ray.intersectPlane(_groundPlane, hit) ? hit : null;
   }
-  let sculpting = false;
+  let sculpting = false, painting = false;
 
   let dragging = -1, dragShift = false, lastY = 0;
 
@@ -532,6 +586,11 @@
     if (mode === 'sculpt'){
       setNdc(e); const h = pickGround();
       if (h){ sculpting = true; controls.enabled = false; applyBrush(h.x, h.z, e.shiftKey?-1:SCULPT.dir); liveTerrain(); }
+      return;
+    }
+    if (mode === 'paint'){
+      setNdc(e); const h = pickGround();
+      if (h){ painting = true; controls.enabled = false; applyPaint(h.x, h.z); liveTerrain(); }
       return;
     }
     setNdc(e);
@@ -561,6 +620,7 @@
 
   renderer.domElement.addEventListener('pointermove', e=>{
     if (sculpting){ setNdc(e); const h=pickGround(); if(h){ applyBrush(h.x, h.z, e.shiftKey?-1:SCULPT.dir); liveTerrain(); } return; }
+    if (painting){ setNdc(e); const h=pickGround(); if(h){ applyPaint(h.x, h.z); liveTerrain(); } return; }
     if (dragging < 0) return;
     const p = track.points[dragging];
     if (dragShift || e.shiftKey){
@@ -581,6 +641,7 @@
 
   function endDrag(){
     if (sculpting){ sculpting=false; rebuildTerrain(); $('scCells').textContent = terrainCellCount(); }
+    if (painting){ painting=false; rebuildTerrain(); $('pCells').textContent = paintCellCount(); }
     if (dragging>=0){ dragging=-1; }
     controls.enabled = true;
   }
@@ -765,7 +826,12 @@
     get terrain(){ return track.terrain; }, get terrainCells(){ return terrainCellCount(); },
     sculptAt:(x,z,sign)=>{ SCULPT.radius=SCULPT.radius; applyBrush(x,z,sign); rebuildTerrain(); return terrainCellCount(); },
     setSculpt:(radius,strength)=>{ if(radius!=null)SCULPT.radius=radius; if(strength!=null)SCULPT.strength=strength; },
-    heightAt:(x,z)=>terrainHeightAt(x,z), rebuildTerrain
+    heightAt:(x,z)=>terrainHeightAt(x,z), rebuildTerrain,
+    // P4 paint + water hooks
+    get paint(){ return track.paint; }, get paintCells(){ return paintCellCount(); },
+    setPaint:(hex,radius)=>{ if(hex!=null)PAINT.color=hex; if(radius!=null)PAINT.radius=radius; },
+    paintAt:(x,z)=>{ applyPaint(x,z); rebuildTerrain(); return paintCellCount(); },
+    addWater
   };
   </script>
 </body>
