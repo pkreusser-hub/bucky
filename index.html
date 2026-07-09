@@ -3,16 +3,17 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<meta name="theme-color" content="#0a3161" />
+<meta name="theme-color" content="#233357" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<!-- BUCKY redesign (local build) -->
 <title>BUCKY</title>
 <!-- Add-to-home-screen icon: BUCKY (bucky.png + manifest.webmanifest live alongside this file) -->
-<link rel="icon" href="bucky.png" />
-<link rel="apple-touch-icon" href="bucky.png" />
-<link rel="manifest" href="manifest.webmanifest" />
-<script src="push-client.js" defer></script>
-<script src="assets/dadjokes.js"></script>
+<link rel="icon" href="/bucky.png" />
+<link rel="apple-touch-icon" href="/bucky.png" />
+<link rel="manifest" href="/manifest.webmanifest" />
+<script src="/push-client.js" defer></script>
+<script src="/assets/dadjokes.js"></script>
 <script>
 /* Goat herd + starter chores, baked in so it can never be lost. */
 window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","target":1,"order":1,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"s2","name":"Collect eggs","frequency":"daily","target":1,"order":2,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"s3","name":"Refill water troughs","frequency":"daily","target":2,"order":3,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"s4","name":"Muck out the barn","frequency":"weekly","order":4,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"s5","name":"Pay feed supplier","frequency":"monthly","order":5,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"s6","name":"Renew livestock insurance","frequency":"yearly","order":6,"lastPeriod":"","lastBy":"","lastAt":0},{"id":"g-archie","name":"Archie","frequency":"goathooves","type":"buck","dob":"2023-02-21","weight":"","sire":"","dam":"","care":{},"order":1,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Mini LaMancha","regnum":"","horns":"","freshenings":""},{"id":"g-tua","name":"Tua","frequency":"goathooves","type":"buck","dob":"2023-02-21","weight":"","sire":"","dam":"","care":{"cdt":{"at":1741953600000,"by":""}},"order":2,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-kaboom","name":"Kaboom","frequency":"goathooves","type":"buck","dob":"2021-05-22","weight":"","sire":"","dam":"","care":{},"order":3,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-oscar","name":"Oscar","frequency":"goathooves","type":"buck","dob":"2021-05-22","weight":"","sire":"","dam":"","care":{},"order":4,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-latte","name":"Latte","frequency":"goathooves","type":"doe","dob":"2021-05-22","weight":"","sire":"","dam":"","care":{},"order":5,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-truffy","name":"Truffy","frequency":"goathooves","type":"doe","dob":"2022-02-22","weight":"","sire":"","dam":"","care":{},"order":6,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-monkey","name":"Monkey","frequency":"goathooves","type":"doe","dob":"2023-03-07","weight":"","sire":"","dam":"","care":{},"order":7,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-chichi","name":"ChiChi","frequency":"goathooves","type":"doe","dob":"2023-02-16","weight":"","sire":"","dam":"","care":{},"order":8,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-cauli","name":"Cauli","frequency":"goathooves","type":"doe","dob":"2023-03-07","weight":"","sire":"","dam":"","care":{"dewormed":{"at":1742040000000,"by":""}},"order":9,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-daisy","name":"Daisy","frequency":"goathooves","type":"doe","dob":"2023-02-16","weight":"","sire":"","dam":"","care":{"dewormed":{"at":1742040000000,"by":""}},"order":10,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-steffi","name":"Steffi","frequency":"goathooves","type":"doe","dob":"2023-02-21","weight":"","sire":"","dam":"","care":{},"order":11,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Mini LaMancha","regnum":"","horns":"","freshenings":""},{"id":"g-graffi","name":"Graffi","frequency":"goathooves","type":"doe","dob":"2023-02-21","weight":"","sire":"","dam":"","care":{},"order":12,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Mini LaMancha","regnum":"","horns":"","freshenings":""},{"id":"g-montana","name":"Montana","frequency":"goathooves","type":"wether","dob":"2025-02-20","weight":"","sire":"Tua","dam":"Truffy","care":{},"order":13,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-oakley","name":"Oakley","frequency":"goathooves","type":"doe","dob":"2025-02-21","weight":"","sire":"Archie","dam":"Steffi","care":{"cdt":{"at":1740744000000,"by":""}},"order":14,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Mini LaMancha","regnum":"","horns":"","freshenings":""},{"id":"g-peyton","name":"Peyton","frequency":"goathooves","type":"buck","dob":"2025-02-22","weight":"","sire":"Archie","dam":"Graffi","care":{"cdt":{"at":1740744000000,"by":""}},"order":15,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Mini LaMancha","regnum":"","horns":"","freshenings":""},{"id":"g-annie","name":"Annie","frequency":"goathooves","type":"doe","dob":"2025-02-22","weight":"","sire":"Archie","dam":"Graffi","care":{"cdt":{"at":1740744000000,"by":""}},"order":16,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Mini LaMancha","regnum":"","horns":"","freshenings":""},{"id":"g-hyperion","name":"Hyperion","frequency":"goathooves","type":"wether","dob":"2025-02-23","weight":"","sire":"Tua","dam":"Monkey","care":{},"order":17,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-caya","name":"Caya","frequency":"goathooves","type":"doe","dob":"2025-02-23","weight":"","sire":"Tua","dam":"Monkey","care":{},"order":18,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-lavender","name":"Lavender","frequency":"goathooves","type":"doe","dob":"2025-02-25","weight":"","sire":"Tua","dam":"Daisy","care":{},"order":19,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-marigold","name":"Marigold","frequency":"goathooves","type":"doe","dob":"2025-02-25","weight":"","sire":"Tua","dam":"Daisy","care":{},"order":20,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-jalen","name":"Jalen","frequency":"goathooves","type":"wether","dob":"2025-02-25","weight":"","sire":"Tua","dam":"Daisy","care":{},"order":21,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-champ","name":"Champ","frequency":"goathooves","type":"buck","dob":"2025-02-25","weight":"","sire":"Tua","dam":"Daisy","care":{},"order":22,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-jj","name":"JJ","frequency":"goathooves","type":"buck","dob":"2025-02-25","weight":"","sire":"Tua","dam":"Daisy","care":{},"order":23,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-hazel","name":"Hazel","frequency":"goathooves","type":"doe","dob":"2025-03-11","weight":"","sire":"Tua","dam":"ChiChi","care":{},"order":24,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-cocoa","name":"Cocoa","frequency":"goathooves","type":"doe","dob":"2025-03-11","weight":"","sire":"Tua","dam":"ChiChi","care":{},"order":25,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-moose","name":"Moose","frequency":"goathooves","type":"wether","dob":"2025-03-11","weight":"","sire":"Tua","dam":"Monkey","care":{},"order":26,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-juniper","name":"Juniper","frequency":"goathooves","type":"doe","dob":"2026-03-09","weight":"","sire":"Kaboom","dam":"Cauli","care":{},"order":27,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-gusgus","name":"GusGus","frequency":"goathooves","type":"wether","dob":"2026-03-09","weight":"","sire":"Kaboom","dam":"Cauli","care":{},"order":28,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-raspberry","name":"Raspberry","frequency":"goathooves","type":"doe","dob":"2026-03-09","weight":"","sire":"Kaboom","dam":"Cauli","care":{},"order":29,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-tippy","name":"Tippy","frequency":"goathooves","type":"doe","dob":"2026-01-31","weight":"","sire":"Tua","dam":"Monkey","care":{},"order":30,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-cookie-dough","name":"Cookie Dough","frequency":"goathooves","type":"wether","dob":"2026-01-31","weight":"","sire":"Tua","dam":"Monkey","care":{},"order":31,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-hershey","name":"Hershey","frequency":"goathooves","type":"wether","dob":"2026-01-31","weight":"","sire":"Tua","dam":"Monkey","care":{},"order":32,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-bo","name":"Bo","frequency":"goathooves","type":"wether","dob":"2026-01-31","weight":"","sire":"Oscar","dam":"Daisy","care":{},"order":33,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-nix","name":"Nix","frequency":"goathooves","type":"wether","dob":"2026-01-31","weight":"","sire":"Oscar","dam":"Daisy","care":{},"order":34,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-skunkworks","name":"Skunkworks","frequency":"goathooves","type":"wether","dob":"2026-01-31","weight":"","sire":"Oscar","dam":"Daisy","care":{},"order":35,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""},{"id":"g-primrose","name":"Primrose","frequency":"goathooves","type":"doe","dob":"2026-01-31","weight":"","sire":"Oscar","dam":"Daisy","care":{},"order":36,"lastPeriod":"","lastBy":"","lastAt":0,"breed":"Nigerian Dwarf","regnum":"","horns":"","freshenings":""}];
@@ -23,12 +24,12 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
     --card: #ffffff;
     --ink: #15233f;
     --muted: #5d6b86;
-    --green: #0a3161;     /* Old Glory navy — primary (name kept to limit churn) */
-    --green-d: #07223f;
-    --red: #b31942;       /* Old Glory red — accent */
+    --green: #233357;     /* Old Glory navy — primary (name kept to limit churn) */
+    --green-d: #18233b;
+    --red: #ba303e;       /* Old Glory red — accent */
     --line: #d7e0f0;
     --done: #e7eefb;
-    --shadow: 0 1px 3px rgba(10,49,97,.10), 0 6px 16px rgba(10,49,97,.06);
+    --shadow: 0 1px 3px rgba(35,51,87,.10), 0 6px 16px rgba(35,51,87,.06);
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; padding: 0; }
@@ -36,7 +37,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     background: var(--bg);
     color: var(--ink);
-    padding-bottom: 110px;   /* clears the 58px FAB + its shadow at full scroll */
+    padding-bottom: calc(env(safe-area-inset-bottom) + 130px);   /* clears the fixed bottom nav + the FAB above it */
     -webkit-font-smoothing: antialiased;
   }
   header {
@@ -47,7 +48,9 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
     box-shadow: var(--shadow);
   }
   .titlerow { display: flex; align-items: center; gap: 10px; }
-  .titlerow h1 { flex: 1; min-width: 0; font-size: 18px; margin: 0; font-weight: 800; letter-spacing: .2px; line-height: 1.1; }
+  .titletext { flex: 1; min-width: 0; }
+  .titlerow h1 { font-size: 18px; margin: 0; font-weight: 800; letter-spacing: .2px; line-height: 1.1; }
+  .subtitle { font-size: 11.5px; font-weight: 600; color: rgba(255,255,255,.72); letter-spacing: .4px; line-height: 1.2; margin-top: 1px; }
   .logo { width: 40px; height: 40px; flex: 0 0 auto; border-radius: 9px; object-fit: cover; }
   .stripes {
     height: 6px; margin: 10px -16px -14px;
@@ -128,6 +131,79 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
     .tab .ti { font-size: 21px; }
   }
 
+  /* P2 nav: the legacy top icon row + the header flag-stripe are replaced by a
+     fixed 5-tab bottom bar. Both are kept in the DOM (syncTabsUI still touches the
+     hidden #tabs so deep-links stay coherent) but hidden. */
+  #tabs { display: none; }
+  .stripes { display: none; }
+
+  /* Bottom navigation — 5 grouped areas (Home / Tasks / Bank / Farm / Play).
+     Frosted card that floats over content; the active area lifts in navy. */
+  #bnav {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    display: flex; gap: 2px;
+    background: rgba(255,255,255,.9);
+    -webkit-backdrop-filter: saturate(1.3) blur(14px);
+    backdrop-filter: saturate(1.3) blur(14px);
+    border-top: 1px solid var(--line);
+    padding: 6px 8px calc(env(safe-area-inset-bottom) + 6px);
+    box-shadow: 0 -2px 16px rgba(35,51,87,.08);
+  }
+  .bnav-btn {
+    flex: 1 1 0; min-width: 0; border: 0; background: transparent; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 7px 0 5px; border-radius: 13px; color: var(--muted);
+    transition: color .15s ease, background .15s ease, transform .1s ease;
+  }
+  .bnav-btn .bico { font-size: 22px; line-height: 1; filter: grayscale(.4) opacity(.75); transition: filter .15s ease, transform .12s ease; }
+  .bnav-btn .blabel { font-size: 11px; font-weight: 700; letter-spacing: .2px; }
+  .bnav-btn:active { transform: scale(.93); }
+  .bnav-btn.active { color: var(--green); background: var(--done); }
+  .bnav-btn.active .bico { filter: none; transform: translateY(-1px) scale(1.08); }
+  /* On wide screens the frosted bar still spans full width, but cluster the 5 items
+     toward the center so they line up under the centered content column. */
+  @media (min-width: 700px) {
+    #bnav { justify-content: center; gap: 6px; }
+    .bnav-btn { flex: 0 1 132px; }
+  }
+
+  /* Sub-nav: a segmented pill control shown only for the multi-section areas
+     (Tasks, Farm). Single-section areas (Home, Bank, Play) hide it. */
+  #subnav { display: none; margin: 2px 2px 14px; }
+  #subnav.on { display: flex; }
+  .subseg {
+    display: flex; gap: 4px; width: 100%; background: var(--done);
+    border: 1px solid var(--line); border-radius: 13px; padding: 4px;
+  }
+  .subseg button {
+    flex: 1 1 0; min-width: 0; border: 0; background: transparent; cursor: pointer;
+    color: var(--muted); font-size: 13.5px; font-weight: 700; padding: 9px 6px;
+    border-radius: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transition: background .15s ease, color .15s ease;
+  }
+  .subseg button.sel { background: var(--card); color: var(--ink); box-shadow: var(--shadow); }
+  .subseg button .semoji { margin-right: 5px; }
+
+  /* Play area — in-app menu of the two external hubs (Games + FarmGPT). */
+  .playmenu { display: grid; gap: 14px; margin-top: 4px; }
+  .playcard {
+    display: flex; align-items: center; gap: 15px; text-align: left; width: 100%;
+    background: var(--card); border: 1px solid var(--line); border-radius: 18px;
+    padding: 18px; box-shadow: var(--shadow); cursor: pointer; color: inherit;
+    transition: transform .1s ease, box-shadow .15s ease;
+  }
+  .playcard:active { transform: scale(.98); }
+  .playcard .pcico {
+    flex: 0 0 auto; width: 54px; height: 54px; border-radius: 15px; font-size: 28px;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(180deg, #0d3d76 0%, var(--green) 100%); color: #fff;
+  }
+  .playcard.gpt .pcico { background: linear-gradient(180deg, #c9414f 0%, var(--red) 100%); }
+  .playcard .pctext { display: flex; flex-direction: column; min-width: 0; }
+  .playcard .pctitle { font-size: 17px; font-weight: 800; }
+  .playcard .pcdesc { font-size: 13px; color: var(--muted); margin-top: 3px; }
+  .playcard .pcarrow { margin-left: auto; color: var(--muted); font-size: 20px; flex: 0 0 auto; }
+
   main { max-width: 760px; margin: 0 auto; padding: 12px; }
   .progress { font-size: 13px; color: var(--muted); margin: 6px 2px 12px; }
   .bar { height: 8px; background: var(--line); border-radius: 999px; overflow: hidden; margin-top: 6px; }
@@ -204,29 +280,29 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   li.wo.done { opacity: .6; }
   li.wo.done .name { text-decoration: line-through; }
   li.wo.wo-pending { border: 2px solid #e0a610; box-shadow: 0 0 0 1px #e0a610 inset; background: #fffdf5; }
-  .wo-top { display: flex; align-items: center; gap: 10px; padding: 12px 14px 6px; }
-  .wo-top .name { flex: 1; min-width: 0; font-size: 16px; font-weight: 700; }
-  .wo-thumb { width: 44px; height: 44px; border-radius: 10px; object-fit: cover; flex: 0 0 auto; background: #e9e7dd; }
+  .wo-top { display: flex; align-items: center; gap: 9px; padding: 8px 12px 3px; }
+  .wo-top .name { flex: 1; min-width: 0; font-size: 15px; font-weight: 700; line-height: 1.25; }
+  .wo-thumb { width: 34px; height: 34px; border-radius: 8px; object-fit: cover; flex: 0 0 auto; background: #e9e7dd; }
   .wo-status { flex: 0 0 auto; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; padding: 3px 9px; border-radius: 999px; }
   .wo-status.open { background: #fff1c2; color: #8a6d1a; }
   .wo-status.done { background: #e7eefb; color: var(--green); }
   .wo-status.pending { background: #f0d98a; color: #6b4e00; text-transform: none; letter-spacing: 0; }
-  .wo-meta { padding: 0 14px 8px; font-size: 13px; color: var(--muted); }
+  .wo-meta { padding: 0 12px 5px; font-size: 12.5px; color: var(--muted); }
   .wo-meta .due.overdue { color: var(--red); font-weight: 700; }
   .wo-money { font-weight: 700; color: var(--green); }
   li.wo.wo-hasvalue { border: 2px solid #1c8a4a; box-shadow: 0 0 0 1px #1c8a4a inset; }
   .wo-badge { margin-left: 8px; min-width: 20px; height: 20px; padding: 0 6px; background: var(--red); color: #fff;
     border-radius: 999px; font-size: 12px; font-weight: 800; line-height: 20px; text-align: center; letter-spacing: 0; box-sizing: border-box; }
-  .wo-desc { padding: 0 14px 10px; font-size: 13.5px; color: var(--ink); white-space: pre-wrap; }
+  .wo-desc { padding: 0 12px 7px; font-size: 13px; color: var(--ink); white-space: pre-wrap; }
   /* flex-wrap + nowrap labels: on narrow phones the close button drops to its own
      full-width row instead of squeezing its label onto two lines */
-  .wo-actions { padding: 10px 14px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .wo-close-btn { flex: 1 1 150px; padding: 11px; border: 0; border-radius: 10px; background: var(--green); color: #fff; font-weight: 700; font-size: 14px; cursor: pointer; white-space: nowrap; }
+  .wo-actions { padding: 7px 12px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .wo-close-btn { flex: 1 1 150px; padding: 9px; border: 0; border-radius: 10px; background: var(--green); color: #fff; font-weight: 700; font-size: 14px; cursor: pointer; white-space: nowrap; }
   .donephoto { width: 42px; height: 42px; border-radius: 8px; object-fit: cover; flex: 0 0 auto; }
   li.chore.wo-row { background: #fff8e1; border-color: #f0d98a; }
 
   /* Work-order progress milestones */
-  .wo-progress-wrap { padding: 0 14px 8px; }
+  .wo-progress-wrap { padding: 0 12px 6px; }
   .wo-progress-bar { height: 8px; background: var(--line); border-radius: 999px; overflow: hidden; }
   .wo-progress-bar > span { display: block; height: 100%; background: var(--green); border-radius: 999px; transition: width .25s ease; }
   .wo-progress-label { font-size: 12px; color: var(--muted); margin-top: 3px; font-weight: 700; }
@@ -236,10 +312,10 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   input[type=range].fat-slider::-moz-range-track { height: 12px; border-radius: 999px; background: var(--line); }
   input[type=range].fat-slider::-webkit-slider-thumb {
     -webkit-appearance: none; margin-top: -14px; width: 38px; height: 38px; border-radius: 50%;
-    background: var(--green); border: 4px solid #fff; box-shadow: 0 2px 8px rgba(10,49,97,.4);
+    background: var(--green); border: 4px solid #fff; box-shadow: 0 2px 8px rgba(35,51,87,.4);
   }
   input[type=range].fat-slider::-moz-range-thumb {
-    width: 38px; height: 38px; border-radius: 50%; background: var(--green); border: 4px solid #fff; box-shadow: 0 2px 8px rgba(10,49,97,.4);
+    width: 38px; height: 38px; border-radius: 50%; background: var(--green); border: 4px solid #fff; box-shadow: 0 2px 8px rgba(35,51,87,.4);
   }
   .slider-pct { text-align: center; font-size: 34px; font-weight: 800; color: var(--green); margin: 6px 0 2px; }
   .milestone-row { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--line); }
@@ -330,29 +406,6 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
     text-transform: uppercase; letter-spacing: .7px;
   }
 
-  /* Dashboard launcher — compact 3-across tiles so the greeting, EVERY section
-     tile, and the dad joke all fit on one phone screen without scrolling.
-     Descriptions come back on wider screens where there's room to breathe. */
-  li.dash-grid { background: transparent; border: 0; box-shadow: none; padding: 2px 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
-  .dash-tile {
-    background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
-    padding: 10px 6px 9px; cursor: pointer; display: flex; flex-direction: column; gap: 4px;
-    align-items: center; text-align: center;
-    transition: transform .12s ease, box-shadow .12s ease;
-  }
-  .dash-tile:active { transform: scale(.96); background: var(--done); }
-  .dash-ico {
-    font-size: 22px; line-height: 1; width: 42px; height: 42px; border-radius: 50%;
-    background: var(--done); display: flex; align-items: center; justify-content: center;
-  }
-  .dash-name { font-weight: 800; font-size: 12.5px; color: var(--ink); }
-  .dash-desc { display: none; font-size: 12px; color: var(--muted); line-height: 1.35; }
-  @media (min-width: 560px) {
-    .dash-desc { display: block; }
-    .dash-tile { padding: 14px 10px 13px; gap: 5px; }
-    .dash-ico { width: 52px; height: 52px; font-size: 26px; }
-    .dash-name { font-size: 14px; }
-  }
   /* Home greeting */
   .progress.greet { margin: 6px 2px 10px; }
   .greet-hi { font-size: 19px; font-weight: 800; color: var(--ink); line-height: 1.2; }
@@ -382,8 +435,73 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .joke-q { font-size: 14px; color: var(--ink); }
   .joke-a { font-size: 14px; color: var(--green); font-weight: 700; margin-top: 5px; }
 
+  /* ---- P3 personalized Home ---- */
+  .home-sec { background: transparent; border: 0; box-shadow: none; padding: 0; }
+  .home-stack { display: flex; flex-direction: column; gap: 12px; }
+
+  /* Hero: today's chore progress with an SVG completion ring */
+  .hero {
+    display: flex; align-items: center; gap: 16px; width: 100%; text-align: left;
+    background: var(--card); border: 1px solid var(--line); border-radius: 18px;
+    padding: 16px 18px; box-shadow: var(--shadow); cursor: pointer; color: inherit;
+    transition: transform .1s ease;
+  }
+  .hero:active { transform: scale(.985); }
+  .hero.alldone { background: linear-gradient(180deg, #0d3d76 0%, var(--green) 100%); border-color: var(--green); color: #fff; }
+  .ring-wrap { position: relative; flex: 0 0 auto; width: 66px; height: 66px; }
+  .ring { width: 66px; height: 66px; transform: rotate(-90deg); }
+  .ring-bg { fill: none; stroke: var(--line); stroke-width: 5; }
+  .ring-fg { fill: none; stroke: var(--red); stroke-width: 5; stroke-linecap: round; transition: stroke-dashoffset .4s ease; }
+  .hero.alldone .ring-bg { stroke: rgba(255,255,255,.25); }
+  .hero.alldone .ring-fg { stroke: #8ff0a4; }
+  .ring-num { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 800; color: var(--ink); }
+  .hero.alldone .ring-num { color: #fff; font-size: 22px; }
+  .hero-txt { flex: 1 1 auto; min-width: 0; }
+  .hero-title { font-size: 16px; font-weight: 800; }
+  .hero-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .hero.alldone .hero-sub { color: rgba(255,255,255,.85); }
+  .hero-arrow { margin-left: auto; color: var(--muted); font-size: 20px; flex: 0 0 auto; }
+  .hero.alldone .hero-arrow { color: rgba(255,255,255,.7); }
+
+  /* 2×2 stat grid */
+  .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .stat-card {
+    position: relative; display: flex; flex-direction: column; gap: 8px; text-align: left;
+    background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+    padding: 14px; box-shadow: var(--shadow); cursor: pointer; color: inherit;
+    transition: transform .1s ease, background .15s ease;
+  }
+  .stat-card:active { transform: scale(.97); background: var(--done); }
+  .stat-ico {
+    width: 38px; height: 38px; border-radius: 11px; font-size: 20px; flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--done); color: var(--green);
+  }
+  .stat-card.alert .stat-ico { background: #fde4e8; color: var(--red); }
+  .stat-num { font-size: 22px; font-weight: 800; color: var(--ink); line-height: 1; }
+  .stat-num .unit { font-size: 14px; font-weight: 700; color: var(--muted); }
+  .stat-label { font-size: 12.5px; color: var(--muted); margin-top: -3px; }
+  .stat-badge {
+    position: absolute; top: 12px; right: 12px; min-width: 20px; height: 20px; padding: 0 6px;
+    background: var(--red); color: #fff; border-radius: 999px; font-size: 11px; font-weight: 800;
+    line-height: 20px; text-align: center;
+  }
+
+  /* Quick-access pills for the lighter sections */
+  .quick-row { display: flex; gap: 10px; }
+  .quick-pill {
+    flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 5px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 12px 6px; box-shadow: var(--shadow); cursor: pointer; color: inherit;
+    transition: transform .1s ease, background .15s ease;
+  }
+  .quick-pill:active { transform: scale(.96); background: var(--done); }
+  .quick-pill .qico { font-size: 21px; line-height: 1; }
+  .quick-pill .qlabel { font-size: 12px; font-weight: 700; color: var(--ink); }
+  .quick-pill .qcount { font-size: 11px; color: var(--muted); }
+
   .fab {
-    position: fixed; right: 18px; bottom: calc(env(safe-area-inset-bottom) + 18px);
+    position: fixed; right: 18px; bottom: calc(env(safe-area-inset-bottom) + 82px);
     background: var(--red); color: #fff; border: 0; width: 58px; height: 58px; border-radius: 50%;
     font-size: 30px; box-shadow: 0 6px 18px rgba(179,25,66,.45); cursor: pointer; z-index: 30;
   }
@@ -397,6 +515,9 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .sheet {
     background: var(--bg); width: 100%; max-width: 760px; margin: 0 auto; border-radius: 18px 18px 0 0;
     padding: 18px 16px calc(env(safe-area-inset-bottom) + 18px); box-shadow: 0 -8px 30px rgba(0,0,0,.2);
+    /* Tall forms (e.g. Edit goat) can exceed the screen — cap the height and scroll inside the
+       sheet instead of letting the top run off above the viewport. */
+    max-height: calc(100dvh - 16px); overflow-y: auto; -webkit-overflow-scrolling: touch;
   }
   .sheet h2 { margin: 4px 0 14px; font-size: 18px; }
   label { display: block; font-size: 13px; color: var(--muted); margin: 12px 2px 6px; font-weight: 600; }
@@ -425,7 +546,8 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .lock.hidden { display: none; }
   .lockcard { background: var(--card); border-radius: 18px; padding: 28px 22px; max-width: 360px; width: 100%; text-align: center; box-shadow: var(--shadow); }
   .lockicon { font-size: 46px; line-height: 1; }
-  .lockcard h2 { margin: 8px 0 4px; font-size: 20px; }
+  .lockcard h2 { margin: 8px 0 2px; font-size: 22px; }
+  .lockhub { color: var(--red); font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 12px; }
   .lockcard p { color: var(--muted); font-size: 14px; margin: 0 0 16px; }
   .lockerr { color: #c0392b; font-size: 13px; min-height: 16px; margin-top: 8px; }
 </style>
@@ -438,8 +560,9 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
 <!-- Family password lock screen -->
 <div class="lock" id="lockScreen">
   <div class="lockcard">
-    <div class="lockicon"><img src="bucky.png" width="76" height="76" alt="BUCKY" style="border-radius:16px;" /></div>
-    <h2>BUCKY</h2>
+    <div class="lockicon"><img src="/bucky.png" width="76" height="76" alt="Bucky" style="border-radius:16px;" /></div>
+    <h2>Bucky</h2>
+    <div class="lockhub">Family Farm Hub</div>
     <p>Enter the family password to continue.</p>
     <input type="password" id="lockInput" placeholder="Family password" autocomplete="current-password" />
     <div class="lockerr" id="lockErr"></div>
@@ -450,8 +573,11 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
 <header>
   <div class="titlerow">
     <div id="homeBtn" title="Back to dashboard">
-      <img class="logo" src="bucky.png" alt="BUCKY" />
-      <h1>BUCKY</h1>
+      <img class="logo" src="/bucky.png" alt="Bucky" />
+      <div class="titletext">
+        <h1>Bucky</h1>
+        <div class="subtitle">Family Farm Hub</div>
+      </div>
     </div>
     <button class="bell" id="bellBtn" title="Notifications">🔔<span class="bell-badge" id="bellBadge" style="display:none;">0</span></button>
     <button class="who" id="whoBtn">👤 <span id="whoName">Set name</span></button>
@@ -463,6 +589,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
 <div class="tabs" id="tabs"><!-- tabs generated from SECTIONS in script --></div>
 
 <main>
+  <div id="subnav"><!-- segmented sub-nav for grouped areas (Tasks / Farm), built in script --></div>
   <div class="progress" id="progress">
     <span id="progressText">No chores yet</span>
     <div class="bar"><span id="progressBar"></span></div>
@@ -476,6 +603,8 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
 </main>
 
 <button class="fab" id="addFab" title="Add chore">+</button>
+
+<nav id="bnav"><!-- 5-area bottom navigation, built from NAV_GROUPS in script --></nav>
 
 <!-- Add / edit chore sheet -->
 <div class="overlay" id="sheetOverlay">
@@ -875,9 +1004,35 @@ const SECTIONS = [
 // Deep-link support: games.html sends players to index.html#game / #catgame so the
 // in-app games (which have no page of their own) still open directly from the games hub.
 // workorders/farmbank are here too so email "View in BUCKY" buttons can land on the right tab.
-const DEEP_LINK_TABS = ["game", "catgame", "workorders", "farmbank"];
+// Every tab is deep-linkable via index.html#<key> so the persistent icon nav on the
+// FarmGPT/Games pages can land you directly on any section here.
+const DEEP_LINK_TABS = ["dashboard", "chores", "workorders", "print3d", "shopping", "farmbank", "goathooves", "goatcare", "game", "catgame"];
 const initialHashTab = DEEP_LINK_TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "dashboard";
 let currentTab = initialHashTab;
+
+// P2 navigation model: the 9 sections are regrouped into 5 bottom-bar AREAS. Each
+// area maps to one or more section keys (`members`); the first-shown section is
+// `def`. Multi-section areas (Tasks, Farm) also render a segmented sub-nav so you
+// can switch between their members. Play is an in-app menu (renderPlay) that links
+// out to the Games + FarmGPT hubs; the in-app deep-link games (game/catgame) also
+// live under Play so they highlight the right bottom tab.
+const NAV_GROUPS = [
+  { id:"home",  ico:"🏠", name:"Home",  def:"dashboard", members:["dashboard"] },
+  { id:"tasks", ico:"✅", name:"Tasks", def:"chores",    members:["chores","workorders","shopping"] },
+  { id:"bank",  ico:"💰", name:"Bank",  def:"farmbank",  members:["farmbank"] },
+  { id:"farm",  ico:"🐐", name:"Farm",  def:"goathooves",members:["goathooves","goatcare","print3d"] },
+  { id:"play",  ico:"🎮", name:"Play",  def:"play",      members:["play","game","catgame"] },
+];
+const SECTION_BY_KEY = Object.fromEntries(SECTIONS.map(s => [s.key, s]));
+// Short chip labels for the segmented sub-nav (the full section names like
+// "Work Orders" / "3D Prints" would truncate in a 3-up segmented control).
+const SUBNAV_LABEL = { chores:"Chores", workorders:"Jobs", shopping:"Shopping", goathooves:"Goats", goatcare:"Care", print3d:"Prints" };
+// Remembers the last section visited within a multi-section area so tapping the
+// bottom tab returns you where you were (only tracked for Tasks/Farm sub-nav).
+const groupLast = {};
+function groupForTab(tab){
+  return NAV_GROUPS.find(g => g.members.includes(tab)) || NAV_GROUPS[0];
+}
 let careView = "hooves";    // which activity the Goat Care tab is updating
 const expandedGoats = new Set();  // ids of goats expanded on the Goats tab
 const collapsedGroups = new Set();  // collapsed group headers (Goats by type, Work Orders by assignee)
@@ -1328,11 +1483,13 @@ function render(){
   checkNotifications();
   ensureKidSeeds();
   ensureDailyAllowance();
+  renderSubnav();   // keep the Tasks/Farm sub-nav in sync no matter who changed currentTab
   const cf = document.getElementById("careFilter");
   if (cf) cf.style.display = currentTab === "goatcare" ? "block" : "none";
-  document.getElementById("addFab").style.display = (currentTab === "dashboard" || currentTab === "goatcare" || currentTab === "shopping" || currentTab === "print3d" || currentTab === "game" || currentTab === "catgame" || currentTab === "farmbank") ? "none" : "";
+  document.getElementById("addFab").style.display = (currentTab === "dashboard" || currentTab === "goatcare" || currentTab === "shopping" || currentTab === "print3d" || currentTab === "game" || currentTab === "catgame" || currentTab === "farmbank" || currentTab === "play") ? "none" : "";
   document.getElementById("progress").classList.remove("greet");   // greeting styling is dashboard-only
   if (currentTab === "dashboard") return renderDashboard();
+  if (currentTab === "play") return renderPlay();
   if (currentTab === "catgame") return renderCatGame();
   if (currentTab === "farmbank") return renderFarmBank();
   if (currentTab === "goathooves") return renderGoats();
@@ -1344,6 +1501,35 @@ function render(){
   renderChores();
 }
 
+// Play area: an in-app menu that links out to the two external hubs.
+function renderPlay(){
+  document.querySelector(".bar").style.display = "none";
+  document.getElementById("empty").style.display = "none";
+  document.getElementById("progressText").textContent = "Games & AI";
+  const list = document.getElementById("list");
+  list.innerHTML = "";
+  const wrap = document.createElement("li");
+  wrap.style.cssText = "background:transparent;border:0;box-shadow:none;padding:0;";
+  const menu = document.createElement("div"); menu.className = "playmenu";
+  const cards = [
+    { cls:"",    ico:"🎮", title:"Games",   desc:"Farm Kart, Bistro, Baby Bucky & more", url:"games.html" },
+    { cls:"gpt", ico:"🌾", title:"FarmGPT",  desc:"Story time & homework helper AI",     url:"farmgpt.html" },
+  ];
+  for (const c of cards){
+    const a = document.createElement("button");
+    a.className = "playcard " + c.cls;
+    a.innerHTML = `<span class="pcico">${c.ico}</span>`
+      + `<span class="pctext"><span class="pctitle"></span><span class="pcdesc"></span></span>`
+      + `<span class="pcarrow">›</span>`;
+    a.querySelector(".pctitle").textContent = c.title;
+    a.querySelector(".pcdesc").textContent = c.desc;
+    a.onclick = () => { location.href = c.url; };
+    menu.appendChild(a);
+  }
+  wrap.appendChild(menu);
+  list.appendChild(wrap);
+}
+
 let jokeExtra = 0;   // how many times the "next joke" arrow was clicked (resets on reload → back to joke of the day)
 function jokeOfDay(){
   const day = Math.floor(Date.now() / 86400000);   // same joke for everyone on a given day
@@ -1351,6 +1537,15 @@ function jokeOfDay(){
   // clicks) jump around the database instead of walking it in fetch order.
   return DAD_JOKES[((day + jokeExtra) * 397) % DAD_JOKES.length];
 }
+// Navigate to a section from anywhere (dashboard cards, etc.): switches the tab,
+// remembers it within its bottom-bar area so the sub-nav lands right, and re-renders.
+function goTo(tab){
+  currentTab = tab;
+  const g = groupForTab(tab);
+  if (SECTION_BY_KEY[tab]) groupLast[g.id] = tab;
+  syncTabsUI(); renderSubnav(); render();
+}
+
 function renderDashboard(){
   document.querySelector(".bar").style.display = "none";
   document.getElementById("empty").style.display = "none";
@@ -1366,19 +1561,92 @@ function renderDashboard(){
   document.querySelector("#progressText .greet-date").textContent = dateStr;
   const list = document.getElementById("list");
   list.innerHTML = "";
-  const grid = document.createElement("li");
-  grid.className = "dash-grid";
-  for (const t of SECTIONS){
+
+  // ---- Live data for the personalized cards ----
+  const isBankKid = BANK_KIDS.includes(who);
+  const allChores = chores.filter(c => FREQS.includes(c.frequency));
+  const choreTotal = allChores.length;
+  const choreDone  = allChores.filter(isDone).length;
+  const pct        = choreTotal ? choreDone / choreTotal : 0;
+  const allDone    = choreTotal > 0 && choreDone === choreTotal;
+  const openWos    = chores.filter(c => c.frequency === "workorder" && !c.done).length;
+  const payoutPend = chores.filter(c => c.frequency === "workorder" && c.payoutPending).length;
+  const goats      = chores.filter(c => c.frequency === "goathooves");
+  const goatCount  = goats.length;
+  const hoovesDue  = goats.filter(g => { const n = daysSince(careAt(g, "hooves")); return n === null || n >= 60; }).length;
+  const bankVal    = isBankKid ? kidBalance(who) : BANK_KIDS.reduce((s, k) => s + kidBalance(k), 0);
+  const shopOpen   = chores.filter(c => c.frequency === "shopping" && !c.gotAt).length;
+  const printOpen  = chores.filter(c => c.frequency === "print3d" && c.status !== "done").length;
+
+  const wrap = document.createElement("li");
+  wrap.className = "home-sec";
+  const stack = document.createElement("div"); stack.className = "home-stack";
+  wrap.appendChild(stack);
+
+  // Hero: today's chores with a completion ring
+  const C = 2 * Math.PI * 19;   // ring circumference (r=19)
+  const hero = document.createElement("button");
+  hero.className = "hero" + (allDone ? " alldone" : "");
+  const ringNum = allDone ? "🎉" : (choreTotal ? `${choreDone}/${choreTotal}` : "—");
+  const heroTitle = choreTotal
+    ? (allDone ? "All chores done!" : "Today's chores")
+    : "No chores yet";
+  const heroSub = choreTotal
+    ? (allDone ? "Nice work — everything's checked off." : `${choreTotal - choreDone} still to do`)
+    : "Tap + on the Tasks tab to add one.";
+  hero.innerHTML =
+    `<div class="ring-wrap">
+       <svg class="ring" viewBox="0 0 44 44">
+         <circle class="ring-bg" cx="22" cy="22" r="19"></circle>
+         <circle class="ring-fg" cx="22" cy="22" r="19"
+           stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${(C * (1 - pct)).toFixed(1)}"></circle>
+       </svg>
+       <div class="ring-num"></div>
+     </div>
+     <div class="hero-txt"><div class="hero-title"></div><div class="hero-sub"></div></div>
+     <span class="hero-arrow">›</span>`;
+  hero.querySelector(".ring-num").textContent = ringNum;
+  hero.querySelector(".hero-title").textContent = heroTitle;
+  hero.querySelector(".hero-sub").textContent = heroSub;
+  hero.onclick = () => goTo("chores");
+  stack.appendChild(hero);
+
+  // 2×2 stat grid
+  const statGrid = document.createElement("div"); statGrid.className = "stat-grid";
+  const stat = (opts) => {
     const b = document.createElement("button");
-    b.className = "dash-tile";
-    const ico = document.createElement("div"); ico.className = "dash-ico"; ico.textContent = t.ico;
-    const nm = document.createElement("div"); nm.className = "dash-name"; nm.textContent = t.name;
-    const ds = document.createElement("div"); ds.className = "dash-desc"; ds.textContent = t.desc;
-    b.append(ico, nm, ds);
-    b.onclick = () => { if (t.url){ location.href = t.url; return; } currentTab = t.key; syncTabsUI(); render(); };
-    grid.appendChild(b);
-  }
-  list.appendChild(grid);
+    b.className = "stat-card" + (opts.alert ? " alert" : "");
+    b.innerHTML =
+      `<div class="stat-ico">${opts.ico}</div>
+       <div class="stat-num">${opts.num}</div>
+       <div class="stat-label"></div>
+       ${opts.badge ? `<span class="stat-badge">${opts.badge}</span>` : ""}`;
+    b.querySelector(".stat-label").textContent = opts.label;
+    b.onclick = opts.onClick;
+    statGrid.appendChild(b);
+  };
+  stat({ ico:"💰", num:`<span class="unit">$</span>${bankVal}`, label: isBankKid ? "Your balance" : "Kids' savings", onClick:()=>goTo("farmbank") });
+  stat({ ico:"🐐", num: goatCount, label: goatCount === 1 ? "goat in the herd" : "goats in the herd", onClick:()=>goTo("goathooves") });
+  stat({ ico:"🛠️", num: openWos, label: openWos === 1 ? "open work order" : "open work orders", badge: payoutPend || 0, onClick:()=>goTo("workorders") });
+  stat({ ico:"🩺", num: hoovesDue, label:"hooves due", alert: hoovesDue > 0, onClick:()=>goTo("goatcare") });
+  stack.appendChild(statGrid);
+
+  // Quick-access pills for the lighter sections
+  const quick = document.createElement("div"); quick.className = "quick-row";
+  const pill = (ico, label, count, onClick) => {
+    const b = document.createElement("button"); b.className = "quick-pill";
+    b.innerHTML = `<span class="qico">${ico}</span><span class="qlabel"></span><span class="qcount"></span>`;
+    b.querySelector(".qlabel").textContent = label;
+    b.querySelector(".qcount").textContent = count;
+    b.onclick = onClick;
+    quick.appendChild(b);
+  };
+  pill("🛒", "Shopping", shopOpen ? `${shopOpen} to buy` : "all set", () => goTo("shopping"));
+  pill("🖨️", "3D Prints", printOpen ? `${printOpen} open` : "none open", () => goTo("print3d"));
+  pill("🎮", "Play", "games & AI", () => goTo("play"));
+  stack.appendChild(quick);
+
+  list.appendChild(wrap);
 
   // Dad joke of the day (arrow serves up more from the database)
   const card = document.createElement("li");
@@ -1675,7 +1943,7 @@ function renderFamilyTree(){
   for (const g of goats){
     const cp = pos[g.id]; if (!cp) continue;
     const cx = cp.x + W/2, cy = cp.y;
-    for (const [pname, color] of [[g.sire, "#0a3161"], [g.dam, "#b31942"]]){
+    for (const [pname, color] of [[g.sire, "#233357"], [g.dam, "#ba303e"]]){
       const p = byName(pname); if (!p || !pos[p.id]) continue;
       const px = pos[p.id].x + W/2, py = pos[p.id].y + H, midY = (py + cy) / 2;
       svg.appendChild(el("path", { d: `M ${px} ${py} C ${px} ${midY} ${cx} ${midY} ${cx} ${cy}`, fill: "none", stroke: color, "stroke-width": "1.6", "stroke-opacity": "0.5" }));
@@ -2103,7 +2371,7 @@ function openCareSheet(g, key, label){
   document.getElementById("careTitle").textContent = `${g.name}: ${label}`;
   const at = careAt(g, key);
   const inp = document.getElementById("careDate");
-  inp.value = toInputDate(at || Date.now());
+  inp.value = at ? toInputDate(at) : "";   // blank when never logged (don't pre-fill today — that looked like a real date)
   inp.max = toInputDate(Date.now());   // can't be a future date
   document.getElementById("careOverlay").classList.add("open");
 }
@@ -3027,7 +3295,10 @@ function renderFarmBank(){
   document.getElementById("empty").style.display = "none";
   const li = document.createElement("li");
   li.style.cssText = "background:transparent;border:0;box-shadow:none;padding:0;";
-  for (const kid of BANK_KIDS) li.appendChild(buildBankCard(kid));
+  // A kid logged in on this device sees only their OWN account; Dad (the banker) sees all.
+  const me = myName();
+  const showKids = BANK_KIDS.includes(me) ? [me] : BANK_KIDS;
+  for (const kid of showKids) li.appendChild(buildBankCard(kid));
   list.appendChild(li);
   document.getElementById("progressText").textContent = "Farm Bank";
 }
@@ -3373,7 +3644,7 @@ function drawGame(){
     ctx.textAlign = "left";
   }
   if (g.state !== "running"){
-    ctx.fillStyle = "rgba(10,49,97,.07)"; ctx.fillRect(0, 0, g.W, g.H);
+    ctx.fillStyle = "rgba(35,51,87,.07)"; ctx.fillRect(0, 0, g.W, g.H);
     ctx.fillStyle = "#15233f"; ctx.font = "bold 18px sans-serif"; ctx.textAlign = "center";
     ctx.fillText(g.state === "ready" ? "Tap or press Space to start" : ("Game over — tap to play again  (score " + Math.floor(g.score) + ")"), g.W/2, g.H/2);
     ctx.textAlign = "left";
@@ -3799,9 +4070,65 @@ async function deleteChore(){
 }
 
 function syncTabsUI(){
+  const gid = groupForTab(currentTab).id;
+  document.querySelectorAll("#bnav .bnav-btn").forEach(b=>{
+    b.classList.toggle("active", b.dataset.gid === gid);
+  });
+  // legacy hidden top row — kept coherent so deep-links/other code stays valid
   document.querySelectorAll("#tabs .tab").forEach(t=>{
     t.classList.toggle("active", t.dataset.freq === currentTab);
   });
+}
+
+// Build the fixed 5-area bottom bar from NAV_GROUPS.
+function buildBottomNav(){
+  const nav = document.getElementById("bnav");
+  nav.innerHTML = "";
+  for (const g of NAV_GROUPS){
+    const b = document.createElement("button");
+    b.className = "bnav-btn";
+    b.dataset.gid = g.id;
+    b.setAttribute("aria-label", g.name);
+    const ico = document.createElement("span"); ico.className = "bico"; ico.textContent = g.ico;
+    const lbl = document.createElement("span"); lbl.className = "blabel"; lbl.textContent = g.name;
+    b.append(ico, lbl);
+    b.onclick = () => navGroup(g.id);
+    nav.appendChild(b);
+  }
+}
+
+// Switch to a bottom area: land on the remembered member (Tasks/Farm) or the area default.
+function navGroup(gid){
+  const g = NAV_GROUPS.find(x => x.id === gid); if (!g) return;
+  currentTab = groupLast[gid] || g.def || g.members[0];
+  syncTabsUI(); renderSubnav(); render();
+}
+
+// Segmented sub-nav for the multi-section areas (Tasks, Farm). Hidden otherwise.
+function renderSubnav(){
+  const el = document.getElementById("subnav");
+  if (!el) return;
+  const g = groupForTab(currentTab);
+  const subs = g.members.filter(k => SECTION_BY_KEY[k]);   // only real sections get a chip
+  if (subs.length < 2){ el.className = ""; el.innerHTML = ""; return; }
+  el.className = "on";
+  el.innerHTML = "";
+  const seg = document.createElement("div"); seg.className = "subseg";
+  for (const key of subs){
+    const s = SECTION_BY_KEY[key];
+    const btn = document.createElement("button");
+    btn.className = "sub" + (key === currentTab ? " sel" : "");
+    btn.dataset.key = key;
+    btn.innerHTML = `<span class="semoji">${s.ico}</span>`;
+    btn.appendChild(document.createTextNode(SUBNAV_LABEL[key] || s.name));
+    btn.onclick = () => {
+      currentTab = key;
+      groupLast[g.id] = key;   // remember within-area position
+      syncTabsUI(); renderSubnav(); render();
+    };
+    seg.appendChild(btn);
+  }
+  el.appendChild(seg);
 }
 
 // Build the top tab bar from SECTIONS (Home first, then every section). Adding a
@@ -3830,7 +4157,9 @@ function buildTabs(){
 
 // ---- Wire up UI ----
 buildTabs();
-document.getElementById("homeBtn").onclick = () => { currentTab = "dashboard"; syncTabsUI(); render(); };
+buildBottomNav();
+syncTabsUI();
+document.getElementById("homeBtn").onclick = () => { currentTab = "dashboard"; syncTabsUI(); renderSubnav(); render(); };
 document.querySelectorAll("#freqSeg button").forEach(b=>{
   b.onclick = () => { sheetFreq = b.dataset.freq;
     document.querySelectorAll("#freqSeg button").forEach(x=>x.classList.toggle("sel", x===b));
@@ -4008,7 +4337,7 @@ async function uploadPhotoForEmailAttempt(dataUrl){
 }
 function photoFallbackBlock(){
   return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:18px 0;">
-    <tr><td style="background:#0a3161;border-radius:10px;">
+    <tr><td style="background:#233357;border-radius:10px;">
       <a href="https://amenfarms.netlify.app" style="display:inline-block;padding:12px 20px;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;">📷 View the photo in BUCKY</a>
     </td></tr>
   </table>`;
@@ -4025,7 +4354,7 @@ function buildDetailsBlock(fields){
 function buildCtaBlock(label, hash){
   const url = "https://amenfarms.netlify.app" + (hash ? "#" + hash : "");
   return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:22px 0 4px;">
-    <tr><td style="background:#b31942;border-radius:10px;">
+    <tr><td style="background:#ba303e;border-radius:10px;">
       <a href="${escapeHtml(url)}" style="display:inline-block;padding:14px 24px;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;">${escapeHtml(label)}</a>
     </td></tr>
   </table>`;

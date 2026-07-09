@@ -8,6 +8,68 @@ self-contained: its own `<script>`, its own render loop, no shared JS between pa
 
 ---
 
+# 🎨 UI REDESIGN — modern app shell for index.html (ACTIVE, 2026-07-09)
+
+Total UI overhaul of the main app "to conform with best practice modern app design"
+built as `redesign/index.html` (a full COPY of the live `index.html`) so it NEVER
+interferes with the live files. STRATEGY = re-skin, not rewrite: index.html is
+token-based (~10 CSS custom properties) and all logic (Firebase backend, render
+dispatch, sheets) is reused unchanged; only tokens + shell + Home get redesigned.
+Final step: flip `index.html` to the finished redesign and push (ONE push, only when
+the WHOLE project is done — user: "lets finish the project before we push to live").
+DESIGN DECISIONS (user): red-white-blue "Old Glory" palette; keep the name **Bucky**
+with subtext "Family Farm Hub"; goat logo top-left (`/bucky.png`); LIGHT MODE default;
+colors extracted from the Bucky logo — **red #ba303e, navy #233357**; vanilla + design
+tokens (no framework); regroup the 9 sections into ~5 areas.
+- **P1 DONE — recolor**: copied index.html → redesign/index.html, global hex swap to the
+  logo palette (#0a3161→#233357, #b31942→#ba303e, etc.), asset paths made root-absolute
+  (`/bucky.png`, `/assets/dadjokes.js`, `/push-client.js`, `/manifest.webmanifest`).
+- **P2 DONE — navigation** (2026-07-09): replaced the top 10-icon row with a fixed
+  **5-area bottom tab bar** (`#bnav`, built from `NAV_GROUPS`): Home / Tasks / Bank /
+  Farm / Play. Areas map to section keys — Home→dashboard · Tasks→[chores,workorders,
+  shopping] · Bank→[farmbank] · Farm→[goathooves,goatcare,print3d] · Play→[play,game,
+  catgame]. Multi-section areas (Tasks, Farm) render a segmented **sub-nav** (`#subnav`,
+  `renderSubnav()`) whose chips switch `currentTab`; `groupLast[gid]` remembers the last
+  sub-section so re-tapping the area returns there. `groupForTab()` maps currentTab→area;
+  `syncTabsUI()` now highlights the bottom bar (still touches the hidden legacy `#tabs`
+  for deep-link coherence). New pseudo-tab **"play"** → `renderPlay()` = in-app menu with
+  2 cards linking out to games.html + farmgpt.html. Legacy top `#tabs` and header
+  `.stripes` hidden via CSS; FAB lifted above the bar; body bottom-padding clears it.
+  Desktop (≥700px): bar spans full width but clusters its 5 items centered under the
+  760px content column. Verified headless (Firebase/gstatic BLOCKED per goat-dup lesson)
+  23/23 nav checks on 390px + desktop 1280px; 0 JS pageerrors (only file:// asset-404
+  console noise, resolves on the real host). Test: scratchpad/p2_nav_test.mjs.
+- **P3 DONE — personalized Home** (2026-07-09): replaced the 9-tile grid with a
+  data-driven dashboard (`renderDashboard`): greeting + a **hero card** (today's chore
+  progress as an SVG completion ring, celebratory when all done) + a **2×2 stat grid**
+  (Bank / Goats / open Work Orders + payout badge / hooves-due, red-alert when >0) +
+  a **quick-pill row** (Shopping/3D Prints/Play with live counts) + the dad joke.
+  Personalized by `myName()`: a BANK_KID sees their OWN balance ("Your balance"); a
+  parent sees the kids' combined savings. Cards navigate via new `goTo(tab)` (sets
+  currentTab + `groupLast` so the sub-nav lands right). Data pulled live from the
+  existing model (isDone/kidBalance/careAt/daysSince); nothing new persisted.
+- **P4 DONE — section polish** (2026-07-09): the section views already came through the
+  P1 re-skin cohesive (token-based cards), so P4 was light — added short segmented
+  sub-nav labels (`SUBNAV_LABEL`: Chores/Jobs/Shopping · Goats/Care/Prints; "Work
+  Orders"/"3D Prints" were truncating in the 3-up control) and removed the now-dead
+  `.dash-grid`/`.dash-tile` CSS. Also added the **"Family Farm Hub" subtitle** (missing
+  from the P1 copy — only the mockup had it): header title is now "Bucky" + subtitle,
+  and the lock card shows "Bucky" + red-uppercase "FAMILY FARM HUB".
+- **P5 — DONE + WENT LIVE** (2026-07-09): full headless sweep (Firebase/gstatic BLOCKED)
+  all green — lock→unlock 6/6, P2 nav 23/23, P3 home 14/14 (parent + kid), P4 sub-nav 0
+  clipped, 0 JS pageerrors on mobile 390px + desktop 1280px. Before flipping, VERIFIED
+  redesign/index.html was a clean SUPERSET of the live index.html: a parallel session had
+  5 uncommitted "UI FIX BATCH" fixes in index.html (compact WO cards · .sheet scroll cap ·
+  expanded DEEP_LINK_TABS · goat-care blank-when-never-logged · bank privacy showKids) and
+  all 5 were already present in the redesign copy (P1 `cp` was taken after that batch), so
+  the flip preserved them. FLIP = `cp redesign/index.html index.html`; the redundant
+  redesign/index.html was then `git rm`'d (redesign IS index.html now). Committed +
+  pushed index.html + CLAUDE.md ONLY (left the parallel session's farmgpt.html/games.html/
+  farmkart.html/launch.json changes untouched/uncommitted). THE UI REDESIGN IS LIVE.
+  Tests in scratchpad: p2_nav_test / p3_home_test / p4_verify / p5_qa .mjs.
+
+---
+
 # 🗺 Farm3D — real-terrain 3D map of the actual farm (2026-07-06)
 
 `farm3d.html` — interactive 3D viewer of the real property (727 Co Rd 80, Woodville AL;
@@ -717,6 +779,21 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   KNOWN GAP: banking data still lives in public Firestore (rules unchanged) — the lock hides the
   admin UI, not the raw data; true server enforcement would need the "server-enforced" option
   (DAD_PASSWORD env var) the user declined.
+- UI FIX BATCH (2026-07-09, index.html + games.html + farmgpt.html): (1) Farm Bank shows only the
+  logged-in kid's account (renderFarmBank: a BANK_KID sees just their card; Dad sees all). (2) Work-
+  order cards compacted (tighter .wo-top/.wo-meta/.wo-desc/.wo-actions padding + 34px thumb) to fit
+  more per screen. (3) .sheet gets max-height:calc(100dvh-16px)+overflow-y:auto so the tall Edit-goat
+  form scrolls instead of running off the top. (4) Goat-care "never logged" confusion FIXED: the care
+  editor pre-filled TODAY when nothing was logged (toInputDate(at || Date.now())) — looked like a real
+  date next to the tab's "Never logged"; now blank when at===0 (careAt/daysSince already treat 0 as
+  never; no data bug). (5) PERSISTENT NAV: the index tab bar vanished on the FarmGPT/Games pages (they
+  navigate away). Added a .buckyNav row (10 icon <a> links, self-highlight) to farmgpt.html (between
+  header + main flex children — layout-safe) and games.html; in-app tabs link to index.html#<key>, and
+  DEEP_LINK_TABS expanded to every section key so those hashes open the right tab (was game/catgame/
+  workorders/farmbank only). Verified headless (Firestore blocked→local backend): index bank-filter +
+  deep-link + care-blank 7/7; nav renders 10 icons/active/hrefs on both pages; farmgpt clienttest 17/17
+  + storyloguitest 18/18 unaffected. TEST GOTCHA: puppeteer page.goto to a hash-only-different URL is a
+  same-document nav (no reload) so initialHashTab never re-reads — add a ?n=<nonce> to force a full load.
 - ARCHITECTURE: static page → POST /.netlify/functions/farmgpt {secret, mode, messages}
   → function stamps the per-mode GUARDRAIL SYSTEM PROMPT server-side (browser can never
   override), streams the model's text back as plain chunks. Zero-dependency raw fetch +
@@ -1274,3 +1351,16 @@ layout sync.
       sculpts) w/ a 🌱 tufts toggle (paired with 🌾 terrain), 3200 count. Verified: game tufts off the
       road + seated on grass, editor 3200 instances + toggle clears them, heights byte-identical, 0
       pageerrors. Tunables: buildGrassTufts opts.count/band/size. Still LOCAL.
+
+# 🏁 Farm Kart — Chef Bucky driver (2026-07-09)
+
+Chef Bucky (`assets/chef-bucky.glb`, same Blender ChefBuckyRig as Bistro) now sits in the
+Gator as the local/bot driver. Visual-only (no physics change):
+- `loadDriverGLB` + `fillKartDriver` / `syncKartDriver` parent a SkeletonUtils clone under the
+  kart GLB; Hips measured so the seat point is the hip, not the standing feet.
+- Seated bind pose every frame (quaternion, not euler.rotation — Bistro hold-pose lesson).
+- Procedural green steering wheel (Gator Body is one mesh so the baked wheel can't be hidden)
+  rotates with `steer`; arms follow the rim angle.
+- Chest leans into turns/drifts (`driverLeanSteer` / `driverLeanDrift`); hips stay planted.
+- Live TUNE sliders: driverX/Y/Z/Scale, lean*, steerWheel*. Press \` in-game to nudge fit.
+  SkeletonUtils CDN added alongside GLTFLoader. Verify: tools/_verify-driver.cjs → shots/fk-driver-*.png.
