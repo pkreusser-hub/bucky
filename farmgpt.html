@@ -1698,6 +1698,19 @@
     renderResearch();
     show("research");
   });
+
+  // Deep-link from the app's Home research bar: farmgpt.html?ask=<question> opens Research
+  // and asks it right away. Clean the URL afterward so a refresh doesn't re-ask.
+  (function handleAskParam(){
+    let q = "";
+    try { q = (new URLSearchParams(location.search).get("ask") || "").trim(); } catch {}
+    if (!q) return;
+    try { history.replaceState(null, "", "farmgpt.html"); } catch {}
+    researchMsgs = loadResearch();
+    renderResearch();
+    show("research");
+    submitResearch(q);
+  })();
 })();
 </script>
 </body>

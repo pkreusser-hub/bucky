@@ -111,6 +111,17 @@ tokens (no framework); regroup the 9 sections into ~5 areas.
   "Open Work Orders" only fits on the Home stat card (wraps to 2 lines there, fine).
   Verified headless 19/19 (Eleanor full vs Mom gated) + p7 regression 14/14, 0 pageerrors.
   Test: p8_gate.mjs.
+- **HOME REWORK: lists + FarmGPT ask bar** (2026-07-09, user): removed the 2×2 bento grid
+  from renderDashboard. Home is now hero + stat row + a **FarmGPT research ask bar** +
+  the **Today's chores** scroll list (chore/bank users only, ~4 rows) + an **Open work
+  orders** scroll list (`.rows.short`, ~3 rows, the logged-in user's open WOs sorted by due
+  date; each row = 🛠 name · "Due <date>"/"Open" · $value; taps → workorders) + dad joke.
+  The ask bar submits to `farmgpt.html?ask=<q>`; farmgpt.html's new `handleAskParam()` reads
+  `?ask=`, opens Research (`show("research")` + `submitResearch(q)`), and `replaceState`s the
+  URL clean so a refresh doesn't re-ask. New CSS `.home2 .askbar/.wo-ic/.wo-amt/.chev` +
+  `.rows.short`; dead bento CSS removed; empty2 selector fixed (`.home2 .empty2`). Verified
+  headless 15/15 (layout + handoff + farmgpt opens Research) + p7 14/14 + p8 19/19, 0 real
+  pageerrors. Test: p9_home2.mjs (routes farmgpt.html to capture the ?ask handoff).
 
 ---
 

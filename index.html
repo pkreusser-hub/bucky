@@ -482,28 +482,33 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .home2 .chd h2 { margin: 0; font-size: 15px; font-weight: 800; letter-spacing: -.1px; color: var(--ink); }
   .home2 .chd .more { margin-left: auto; font-size: 12.5px; font-weight: 800; color: var(--green-d); text-decoration: none; cursor: pointer; background: none; border: 0; }
   .home2 .rows { display: flex; flex-direction: column; max-height: 216px; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+  .home2 .rows.short { max-height: 162px; }   /* work-order list: ~3 rows then scroll */
   .home2 .crow { display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-top: 1px solid var(--line-2); cursor: pointer; text-align: left; background: none; width: 100%; color: inherit; }
   .home2 .crow:first-child { border-top: 0; }
+  .home2 .crow:active { background: var(--surface-2); }
   .home2 .crow .cbody { flex: 1; min-width: 0; }
-  .home2 .crow .cbody .t { font-size: 14.5px; font-weight: 700; color: var(--ink); }
+  .home2 .crow .cbody .t { font-size: 14.5px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .home2 .crow .cbody .s { font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 1px; }
   .home2 .crow .cbody .t.done { color: var(--muted); text-decoration: line-through; }
   .home2 .hcheck { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--line); background: var(--card); flex: 0 0 auto; display: grid; place-items: center; color: #fff; font-size: 14px; transition: .15s; }
   .home2 .crow.checked .hcheck { background: var(--good); border-color: var(--good); }
-  .home2 .crow .empty2 { padding: 16px 14px; color: var(--muted); font-size: 13px; font-weight: 600; }
+  .home2 .crow .wo-ic { width: 30px; height: 30px; border-radius: 9px; background: var(--navy-soft); display: grid; place-items: center; font-size: 15px; flex: 0 0 auto; }
+  .home2 .crow .wo-amt { font-weight: 800; font-size: 14px; color: var(--good-d); flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+  .home2 .crow .chev { color: var(--muted); font-size: 18px; flex: 0 0 auto; }
+  .home2 .empty2 { padding: 16px 14px; color: var(--muted); font-size: 13px; font-weight: 600; }
 
   .home2 .pill { font-size: 11px; font-weight: 800; padding: 3px 9px; border-radius: 999px; letter-spacing: .2px; flex: 0 0 auto; }
   .home2 .pill.reward { background: var(--good-soft); color: var(--good-d); }
   .home2 .pill.due { background: var(--red-soft); color: var(--red); }
 
-  /* 2×2 bento */
-  .home2 .bento { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .home2 .mini { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 13px; cursor: pointer; color: inherit; text-align: left; display: flex; flex-direction: column; gap: 6px; min-height: 104px; transition: transform .1s ease, background .15s ease; }
-  .home2 .mini:active { transform: scale(.97); background: var(--done); }
-  .home2 .mini .mh { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 800; color: var(--muted); }
-  .home2 .mini .mh .i { width: 24px; height: 24px; border-radius: 8px; display: grid; place-items: center; font-size: 14px; }
-  .home2 .mini .mv { font-size: 17px; font-weight: 800; letter-spacing: -.2px; color: var(--ink); }
-  .home2 .mini .ms { font-size: 12px; color: var(--ink-2); font-weight: 600; margin-top: auto; }
+  /* FarmGPT research ask bar */
+  .home2 .askbar { display: flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 6px 6px 6px 12px; }
+  .home2 .askbar .askico { font-size: 17px; flex: 0 0 auto; }
+  .home2 .askbar .askinput { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font-size: 15px; padding: 8px 0; }
+  .home2 .askbar .askinput:focus { outline: none; }
+  .home2 .askbar .askinput::placeholder { color: var(--muted); }
+  .home2 .askbar .askgo { flex: 0 0 auto; width: 38px; height: 38px; border: 0; border-radius: 10px; background: var(--green); color: #fff; font-size: 18px; font-weight: 800; cursor: pointer; display: grid; place-items: center; }
+  .home2 .askbar .askgo:active { transform: scale(.94); }
 
   /* dad joke */
   .home2 .joke2 { background: linear-gradient(150deg, var(--navy-soft), var(--card)); border: 1px solid var(--line); border-radius: 18px; padding: 15px 15px 13px; box-shadow: var(--shadow); }
@@ -1706,6 +1711,19 @@ function renderDashboard(){
   for (const [k, v, fn] of statDefs) mkStat(k, v, fn);
   home.appendChild(stats);
 
+  // ---- FarmGPT research ask bar → hands the question to farmgpt.html Research ----
+  const ask = document.createElement("form"); ask.className = "askbar";
+  ask.innerHTML =
+    `<span class="askico">🔬</span>
+     <input class="askinput" type="text" placeholder="Ask FarmGPT research…" enterkeyhint="search" aria-label="Ask FarmGPT research" />
+     <button class="askgo" type="submit" aria-label="Ask">→</button>`;
+  ask.onsubmit = (e) => {
+    e.preventDefault();
+    const q = ask.querySelector(".askinput").value.trim();
+    if (q) location.href = "farmgpt.html?ask=" + encodeURIComponent(q);
+  };
+  home.appendChild(ask);
+
   // ---- Today's chores card (interactive) — chore/bank users only ----
   if (showCB){
     const card2 = document.createElement("div"); card2.className = "card2";
@@ -1735,28 +1753,35 @@ function renderDashboard(){
     home.appendChild(card2);
   }
 
-  // ---- 2×2 bento ----
-  const bento = document.createElement("div"); bento.className = "bento";
-  const mkMini = (bg, ico, head, val, subline, onClick) => {
-    const b = document.createElement("button"); b.className = "mini";
-    b.innerHTML = `<div class="mh"><span class="i" style="background:${bg}">${ico}</span> ${head}</div>
-      <div class="mv"></div><div class="ms"></div>`;
-    b.querySelector(".mv").textContent = val;
-    b.querySelector(".ms").textContent = subline;
-    b.onclick = onClick; bento.appendChild(b);
-  };
-  if (showCB){
-    mkMini("var(--good-soft)", "💰", "Farm Bank", money2(bankVal),
-      `${weekDelta >= 0 ? "+" : "−"}${money2(weekDelta)} this week`, () => goTo("farmbank"));
+  // ---- Open work orders list (mine) — shows ~3, scrolls for the rest ----
+  const myWos = chores.filter(c => c.frequency === "workorder" && !c.done && (!who || (c.assignee || "") === who))
+    .sort((a,b) => (a.due || "￿").localeCompare(b.due || "￿") || (b.createdAt || 0) - (a.createdAt || 0));
+  const woCard = document.createElement("div"); woCard.className = "card2";
+  const woHd = document.createElement("div"); woHd.className = "chd";
+  woHd.innerHTML = `<h2>Open work orders</h2><button class="more">See all →</button>`;
+  woHd.querySelector(".more").onclick = () => goTo("workorders");
+  woCard.appendChild(woHd);
+  const woRows = document.createElement("div"); woRows.className = "rows short";
+  if (!myWos.length){
+    const e = document.createElement("div"); e.className = "empty2";
+    e.textContent = "No open work orders 🎉";
+    woRows.appendChild(e);
   } else {
-    mkMini("var(--good-soft)", "🐐", "The herd", `${goats.length} goats`, "View & records", () => goTo("goathooves"));
+    for (const w of myWos){
+      const r = document.createElement("button"); r.className = "crow";
+      const dueTxt = w.due ? "Due " + new Date(w.due + "T00:00").toLocaleDateString(undefined, { month:"short", day:"numeric" }) : "Open";
+      r.innerHTML =
+        `<div class="wo-ic">🛠️</div>
+         <div class="cbody"><div class="t"></div><div class="s"></div></div>
+         ${w.value ? `<span class="wo-amt">$${w.value}</span>` : `<span class="chev">›</span>`}`;
+      r.querySelector(".t").textContent = w.name;
+      r.querySelector(".s").textContent = dueTxt;
+      r.onclick = () => goTo("workorders");
+      woRows.appendChild(r);
+    }
   }
-  mkMini("var(--red-soft)", "🐐", "Needs care", careGoat ? careGoat.name : "All good",
-    careGoat ? "Due for a hoof trim" : "Hooves up to date", () => goTo("goatcare"));
-  mkMini("var(--navy-soft)", "🖨️", "3D prints", printOpen ? `${printOpen} waiting` : "None waiting",
-    printOpen ? "Dad to approve" : "All caught up", () => goTo("print3d"));
-  mkMini("var(--surface-2)", "🎮", "Play", "Games & AI", "Farm Kart, Bistro…", () => goTo("play"));
-  home.appendChild(bento);
+  woCard.appendChild(woRows);
+  home.appendChild(woCard);
 
   // ---- dad joke ----
   const joke = document.createElement("div"); joke.className = "joke2";
