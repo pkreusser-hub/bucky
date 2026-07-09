@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#233357">
+<title>Bucky — Family Farm Hub</title>
+<link rel="icon" href="/bucky.png">
+<link rel="apple-touch-icon" href="/bucky.png">
+</head>
+<body>
+<style>
+  /* ============ BUCKY — red/white/blue redesign mockup ============
+     Tokens: --navy (brand), --red (accent), --good (semantic positive), warm-cool neutrals. */
+  :root{
+    --ground:#eef2fa; --surface:#ffffff; --surface-2:#f4f7fd; --raise:#ffffff;
+    --ink:#15233f; --ink-2:#3f4d6b; --muted:#6b7794; --line:#d9e2f0; --line-2:#e6ecf7;
+    --navy:#233357; --navy-d:#18233b; --navy-soft:#e9ebee;
+    --red:#ba303e; --red-d:#912530; --red-soft:#f8eaec;
+    --good:#2f8f4e; --good-d:#237a3f; --good-soft:#e3f2e8;
+    --shadow:0 1px 2px rgba(35,51,87,.07), 0 8px 22px rgba(35,51,87,.08);
+    --shadow-lg:0 2px 6px rgba(35,51,87,.10), 0 18px 40px rgba(35,51,87,.14);
+    --r-card:18px; --r-btn:13px; --r-pill:999px; color-scheme:light;
+  }
+  :root[data-theme="light"]{
+    --ground:#eef2fa; --surface:#ffffff; --surface-2:#f4f7fd; --raise:#ffffff;
+    --ink:#15233f; --ink-2:#3f4d6b; --muted:#6b7794; --line:#d9e2f0; --line-2:#e6ecf7;
+    --navy:#233357; --navy-d:#18233b; --navy-soft:#e9ebee;
+    --red:#ba303e; --red-d:#912530; --red-soft:#f8eaec;
+    --good:#2f8f4e; --good-d:#237a3f; --good-soft:#e3f2e8;
+    --shadow:0 1px 2px rgba(35,51,87,.07), 0 8px 22px rgba(35,51,87,.08);
+    --shadow-lg:0 2px 6px rgba(35,51,87,.10), 0 18px 40px rgba(35,51,87,.14);
+    color-scheme:light;
+  }
+  :root[data-theme="dark"]{
+    --ground:#0a1120; --surface:#14203a; --surface-2:#0f1a30; --raise:#1a2846;
+    --ink:#e8eefb; --ink-2:#b7c3dd; --muted:#8391b0; --line:#26355a; --line-2:#1e2c4c;
+    --navy:#7f899e; --navy-d:#616c86; --navy-soft:#11192e;
+    --red:#d37b83; --red-d:#c95e68; --red-soft:#340d11;
+    --good:#54b473; --good-d:#43a05f; --good-soft:#16301f;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 26px rgba(0,0,0,.5);
+    --shadow-lg:0 2px 6px rgba(0,0,0,.5), 0 22px 46px rgba(0,0,0,.6);
+    color-scheme:dark;
+  }
+
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; }
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--ground); color:var(--ink); -webkit-font-smoothing:antialiased;
+    display:flex; justify-content:center; min-height:100dvh;
+  }
+  @media (prefers-reduced-motion:reduce){ *{ animation:none!important; transition:none!important; } }
+
+  .app{ width:100%; max-width:452px; background:var(--surface-2); min-height:100dvh;
+    display:flex; flex-direction:column; position:relative; overflow:hidden; }
+  @media(min-width:500px){
+    body{ align-items:center; padding:22px 0; }
+    .app{ min-height:auto; height:900px; max-height:94dvh; border-radius:30px; box-shadow:var(--shadow-lg);
+      outline:8px solid var(--raise); outline-offset:-1px; }
+  }
+
+  /* app bar + identity stripe */
+  .bar{ display:flex; align-items:center; gap:11px; padding:14px 16px 10px; background:var(--surface);
+    position:sticky; top:0; z-index:8; }
+  .brand{ display:flex; align-items:center; gap:9px; margin-right:auto; }
+  .brandmark{ width:38px; height:38px; border-radius:11px; overflow:hidden; background:var(--surface-2); box-shadow:0 1px 2px rgba(35,51,87,.15), inset 0 0 0 1px var(--line); flex:0 0 auto; }
+  .brandmark img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .brandtxt{ line-height:1.05; }
+  .brandtxt b{ font-size:16px; font-weight:800; letter-spacing:.3px; }
+  .brandtxt span{ display:block; font-size:10.5px; color:var(--muted); font-weight:700; letter-spacing:.4px; text-transform:uppercase; }
+  .icobtn{ width:38px; height:38px; border-radius:11px; border:1px solid var(--line); background:var(--surface);
+    color:var(--ink); font-size:17px; display:grid; place-items:center; cursor:pointer; position:relative; }
+  .icobtn:active{ background:var(--surface-2); }
+  .dot{ position:absolute; top:8px; right:9px; width:8px; height:8px; border-radius:50%; background:var(--red); border:2px solid var(--surface); }
+  .ava{ width:38px; height:38px; border-radius:50%; display:grid; place-items:center; color:#fff; font-weight:800;
+    font-size:15px; cursor:pointer; box-shadow:inset 0 -2px 4px rgba(0,0,0,.15); border:2px solid var(--surface); }
+
+  .scroll{ flex:1; overflow-y:auto; overflow-x:hidden; padding:14px 14px 96px; scroll-behavior:smooth; }
+  .screen{ display:none; flex-direction:column; gap:14px; animation:fade .28s ease; }
+  .screen.on{ display:flex; }
+  @keyframes fade{ from{ opacity:0; transform:translateY(6px); } to{ opacity:1; transform:none; } }
+
+  /* greeting hero */
+  .hero{ background:
+      radial-gradient(120% 90% at 85% -20%, var(--navy-soft), transparent 60%),
+      linear-gradient(160deg,var(--surface),var(--raise));
+    border:1px solid var(--line); border-radius:22px; box-shadow:var(--shadow); padding:16px 16px 15px;
+    display:flex; align-items:center; gap:14px; }
+  .hero .txt{ flex:1; min-width:0; }
+  .eyebrow{ font-size:11px; font-weight:800; letter-spacing:.6px; text-transform:uppercase; color:var(--muted); }
+  .hero h1{ margin:3px 0 4px; font-size:23px; font-weight:800; letter-spacing:-.2px; text-wrap:balance; line-height:1.1; }
+  .hero p{ margin:0; font-size:13.5px; color:var(--ink-2); font-weight:600; }
+  .hero p b{ color:var(--navy-d); }
+  .ring{ position:relative; width:70px; height:70px; flex:0 0 auto; }
+  .ring svg{ transform:rotate(-90deg); }
+  .ring .val{ position:absolute; inset:0; display:grid; place-items:center; font-weight:800; font-size:16px; font-variant-numeric:tabular-nums; }
+  .ring .val small{ font-size:10px; color:var(--muted); font-weight:700; }
+
+  .stats{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .stat{ background:var(--surface); border:1px solid var(--line); border-radius:15px; padding:11px 10px; box-shadow:var(--shadow); }
+  .stat .k{ font-size:11px; color:var(--muted); font-weight:700; display:flex; align-items:center; gap:5px; }
+  .stat .v{ font-size:19px; font-weight:800; margin-top:3px; font-variant-numeric:tabular-nums; letter-spacing:-.3px; }
+  .stat .v small{ font-size:12px; color:var(--muted); font-weight:700; }
+
+  .card{ background:var(--surface); border:1px solid var(--line); border-radius:var(--r-card); box-shadow:var(--shadow); overflow:hidden; }
+  .card.pad{ padding:14px; }
+  .chd{ display:flex; align-items:center; gap:8px; padding:13px 14px 4px; }
+  .chd h2{ margin:0; font-size:15px; font-weight:800; letter-spacing:-.1px; }
+  .chd .more{ margin-left:auto; font-size:12.5px; font-weight:800; color:var(--navy-d); text-decoration:none; cursor:pointer; }
+
+  .rows{ display:flex; flex-direction:column; }
+  .row{ display:flex; align-items:center; gap:12px; padding:11px 14px; border-top:1px solid var(--line-2); cursor:pointer; }
+  .row:first-child{ border-top:0; }
+  .row .lead{ width:34px; height:34px; border-radius:10px; display:grid; place-items:center; font-size:17px; flex:0 0 auto; background:var(--surface-2); }
+  .row .body{ flex:1; min-width:0; }
+  .row .body .t{ font-size:14.5px; font-weight:700; }
+  .row .body .s{ font-size:12px; color:var(--muted); font-weight:600; margin-top:1px; }
+  .row .body .t.done{ color:var(--muted); text-decoration:line-through; }
+  .check{ width:26px; height:26px; border-radius:50%; border:2px solid var(--line); background:var(--surface); flex:0 0 auto;
+    display:grid; place-items:center; color:#fff; font-size:14px; transition:.15s; }
+  .row.checked .check{ background:var(--good); border-color:var(--good); }
+  .row .amt{ font-weight:800; font-variant-numeric:tabular-nums; font-size:14.5px; }
+  .amt.pos{ color:var(--good-d); } .amt.neg{ color:var(--red); }
+  .chev{ color:var(--muted); font-size:16px; }
+
+  .pill{ font-size:11px; font-weight:800; padding:3px 9px; border-radius:var(--r-pill); letter-spacing:.2px; }
+  .pill.reward{ background:var(--good-soft); color:var(--good-d); }
+  .pill.good{ background:var(--good-soft); color:var(--good-d); }
+  .pill.due{ background:var(--red-soft); color:var(--red-d); }
+
+  .btn{ font:inherit; font-weight:800; font-size:14px; border:0; border-radius:var(--r-btn); padding:11px 15px; cursor:pointer;
+    display:inline-flex; align-items:center; justify-content:center; gap:7px; }
+  .btn.primary{ background:var(--navy); color:#fff; box-shadow:0 4px 12px rgba(35,51,87,.30); }
+  .btn.accent{ background:var(--red); color:#fff; box-shadow:0 4px 12px rgba(186,48,62,.30); }
+  .btn.ghost{ background:var(--surface-2); color:var(--ink); border:1px solid var(--line); }
+  .btn:active{ transform:translateY(1px); }
+  .btn.block{ width:100%; }
+
+  .bento{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .mini{ background:var(--surface); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow); padding:13px; cursor:pointer;
+    display:flex; flex-direction:column; gap:6px; min-height:104px; }
+  .mini .mh{ display:flex; align-items:center; gap:7px; font-size:12px; font-weight:800; color:var(--muted); }
+  .mini .mh .i{ width:24px; height:24px; border-radius:8px; display:grid; place-items:center; font-size:14px; }
+  .mini .mv{ font-size:17px; font-weight:800; letter-spacing:-.2px; }
+  .mini .ms{ font-size:12px; color:var(--ink-2); font-weight:600; margin-top:auto; }
+
+  .joke{ background:linear-gradient(150deg,var(--navy-soft),var(--surface)); border:1px solid var(--line); border-radius:18px;
+    padding:15px 15px 13px; box-shadow:var(--shadow); }
+  .joke .lab{ font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.6px; color:var(--red-d); }
+  .joke .q{ font-size:15px; font-weight:700; margin:6px 0 3px; line-height:1.35; text-wrap:balance; }
+  .joke .a{ font-size:14px; color:var(--ink-2); font-weight:600; }
+  .joke .again{ margin-top:10px; font-size:12.5px; font-weight:800; color:var(--red-d); background:none; border:0; cursor:pointer; padding:0; }
+
+  .phead{ padding:2px 2px 0; }
+  .phead h1{ margin:0; font-size:24px; font-weight:800; letter-spacing:-.4px; }
+  .phead p{ margin:4px 0 0; font-size:13.5px; color:var(--muted); font-weight:600; }
+
+  .tiles{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .tile{ background:var(--surface); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow); padding:16px 12px;
+    display:flex; flex-direction:column; align-items:center; gap:5px; text-align:center; cursor:pointer; }
+  .tile .ti{ font-size:30px; } .tile .tn{ font-weight:800; font-size:14px; } .tile .td{ font-size:11.5px; color:var(--muted); font-weight:600; }
+
+  .acct{ display:flex; align-items:center; gap:13px; padding:14px; }
+  .acct .bal{ margin-left:auto; text-align:right; }
+  .acct .bal .b{ font-size:20px; font-weight:800; font-variant-numeric:tabular-nums; }
+  .acct .bal .g{ font-size:11.5px; color:var(--good-d); font-weight:800; }
+
+  .tabbar{ position:absolute; left:0; right:0; bottom:0; display:flex; padding:8px 8px calc(8px + env(safe-area-inset-bottom));
+    background:color-mix(in srgb, var(--surface) 88%, transparent); backdrop-filter:blur(12px);
+    border-top:1px solid var(--line); z-index:9; }
+  .tab{ flex:1; background:none; border:0; cursor:pointer; color:var(--muted); display:flex; flex-direction:column; align-items:center; gap:3px;
+    padding:5px 0 3px; font:inherit; border-radius:12px; }
+  .tab .ti{ font-size:21px; line-height:1; filter:grayscale(.4) opacity(.75); transition:.15s; }
+  .tab .tl{ font-size:10.5px; font-weight:800; letter-spacing:.2px; }
+  .tab.on{ color:var(--navy-d); }
+  .tab.on .ti{ filter:none; transform:translateY(-1px); }
+  .tab.on .tl{ color:var(--navy-d); }
+
+  .foot{ text-align:center; font-size:11px; color:var(--muted); padding:6px 0 2px; font-weight:600; }
+</style>
+
+<div class="app" id="app">
+  <div class="bar">
+    <div class="brand">
+      <div class="brandmark"><img src="/bucky.png" alt="Bucky the goat"></div>
+      <div class="brandtxt"><b>Bucky</b><span>Family Farm Hub</span></div>
+    </div>
+    <button class="icobtn" id="themeBtn" title="Light / dark" aria-label="Toggle theme">🌙</button>
+    <button class="icobtn" title="Notifications" aria-label="Notifications">🔔<span class="dot"></span></button>
+    <button class="ava" id="ava" style="background:linear-gradient(150deg,var(--red),var(--red-d))" title="Switch profile">E</button>
+  </div>
+
+  <div class="scroll" id="scroll">
+    <!-- ============ HOME ============ -->
+    <section class="screen on" data-screen="home">
+      <div class="hero">
+        <div class="txt">
+          <div class="eyebrow">Wednesday · July 9</div>
+          <h1>Morning, Eleanor ☀️</h1>
+          <p><b>2 chores</b> left before dinner — nice pace!</p>
+        </div>
+        <div class="ring" aria-label="3 of 5 chores done">
+          <svg width="70" height="70">
+            <circle cx="35" cy="35" r="30" fill="none" stroke="var(--line)" stroke-width="7"></circle>
+            <circle cx="35" cy="35" r="30" fill="none" stroke="var(--navy)" stroke-width="7" stroke-linecap="round"
+              stroke-dasharray="188.4" stroke-dashoffset="75.4"></circle>
+          </svg>
+          <div class="val">3<small>/5</small></div>
+        </div>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><div class="k">💰 Bank</div><div class="v">$14<small>.50</small></div></div>
+        <div class="stat"><div class="k">🔥 Streak</div><div class="v">6<small>d</small></div></div>
+        <div class="stat"><div class="k">🛠 Jobs</div><div class="v">1</div></div>
+      </div>
+
+      <div class="card">
+        <div class="chd"><h2>Today's chores</h2><a class="more" data-go="tasks">See all →</a></div>
+        <div class="rows" id="choreRows">
+          <div class="row checked"><div class="check">✓</div><div class="body"><div class="t done">Feed the goats</div><div class="s">Barn · morning</div></div></div>
+          <div class="row checked"><div class="check">✓</div><div class="body"><div class="t done">Collect eggs</div><div class="s">Coop</div></div></div>
+          <div class="row checked"><div class="check">✓</div><div class="body"><div class="t done">Make your bed</div><div class="s">Anytime</div></div></div>
+          <div class="row"><div class="check"></div><div class="body"><div class="t">Sweep the porch</div><div class="s">Reward chore</div></div><span class="pill reward">+$1</span></div>
+          <div class="row"><div class="check"></div><div class="body"><div class="t">Water the garden</div><div class="s">Before dinner</div></div><span class="pill reward">+$1</span></div>
+        </div>
+      </div>
+
+      <div class="bento">
+        <div class="mini" data-go="bank">
+          <div class="mh"><span class="i" style="background:var(--good-soft)">💰</span> Farm Bank</div>
+          <div class="mv">$14.50</div>
+          <div class="ms">+$3.00 this week</div>
+        </div>
+        <div class="mini" data-go="farm">
+          <div class="mh"><span class="i" style="background:var(--red-soft)">🐐</span> Needs care</div>
+          <div class="mv">Archie</div>
+          <div class="ms">Due for a hoof trim</div>
+        </div>
+        <div class="mini" data-go="play">
+          <div class="mh"><span class="i" style="background:var(--navy-soft)">🏁</span> Continue</div>
+          <div class="mv">Farm Kart</div>
+          <div class="ms">Best lap 6.05s</div>
+        </div>
+        <div class="mini" data-go="tasks">
+          <div class="mh"><span class="i" style="background:var(--surface-2)">🖨️</span> 3D print</div>
+          <div class="mv">1 waiting</div>
+          <div class="ms">Dad to approve</div>
+        </div>
+      </div>
+
+      <div class="joke">
+        <div class="lab">🌽 Dad joke of the day</div>
+        <div class="q" id="jokeQ">Why did the scarecrow win an award?</div>
+        <div class="a" id="jokeA">Because he was outstanding in his field.</div>
+        <button class="again" id="jokeBtn">Tell me another →</button>
+      </div>
+      <div class="foot">Bucky · new Home — deeper pages use the current app for now</div>
+    </section>
+
+    <!-- ============ TASKS ============ -->
+    <section class="screen" data-screen="tasks">
+      <div class="phead"><h1>Tasks</h1><p>Chores, jobs &amp; things to fetch</p></div>
+      <div class="stats">
+        <div class="stat"><div class="k">✅ Chores</div><div class="v">3<small>/5</small></div></div>
+        <div class="stat"><div class="k">🛠 Jobs</div><div class="v">1</div></div>
+        <div class="stat"><div class="k">🛒 List</div><div class="v">8</div></div>
+      </div>
+      <div class="card">
+        <div class="chd"><h2>🛠 Work orders</h2></div>
+        <div class="rows">
+          <div class="row"><div class="lead">🚜</div><div class="body"><div class="t">Muck out the barn stalls</div><div class="s">Assigned by Dad · due Sat</div></div><span class="pill reward">$8</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="chd"><h2>🛒 Shopping — Feed Store</h2><a class="more">Edit</a></div>
+        <div class="rows">
+          <div class="row"><div class="check"></div><div class="body"><div class="t">Goat mineral bucket</div></div></div>
+          <div class="row"><div class="check"></div><div class="body"><div class="t">Chick starter (25 lb)</div></div></div>
+          <div class="row checked"><div class="check">✓</div><div class="body"><div class="t done">Fly spray</div></div></div>
+        </div>
+      </div>
+      <button class="btn primary block">＋ New task</button>
+    </section>
+
+    <!-- ============ BANK ============ -->
+    <section class="screen" data-screen="bank">
+      <div class="phead"><h1>Farm Bank</h1><p>Everybody's savings</p></div>
+      <div class="card acct">
+        <div class="ava" style="width:44px;height:44px;background:linear-gradient(150deg,var(--red),var(--red-d))">E</div>
+        <div><div style="font-weight:800;font-size:15px">Eleanor</div><div style="font-size:12px;color:var(--muted);font-weight:600">Your account</div></div>
+        <div class="bal"><div class="b">$14.50</div><div class="g">▲ $3.00 wk</div></div>
+      </div>
+      <div class="card">
+        <div class="chd"><h2>Recent</h2></div>
+        <div class="rows">
+          <div class="row"><div class="lead" style="background:var(--good-soft)">＋</div><div class="body"><div class="t">Weekly allowance</div><div class="s">Mon · from Dad</div></div><span class="amt pos">+$5.00</span></div>
+          <div class="row"><div class="lead" style="background:var(--good-soft)">🧹</div><div class="body"><div class="t">Extra chore — porch</div><div class="s">Tue</div></div><span class="amt pos">+$1.00</span></div>
+          <div class="row"><div class="lead" style="background:var(--red-soft)">🛍️</div><div class="body"><div class="t">Sticker pack</div><div class="s">Sun</div></div><span class="amt neg">−$2.50</span></div>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px"><button class="btn accent block">Request payout</button><button class="btn ghost block">Add money</button></div>
+    </section>
+
+    <!-- ============ FARM ============ -->
+    <section class="screen" data-screen="farm">
+      <div class="phead"><h1>The Farm</h1><p>Herd, care log &amp; the shop</p></div>
+      <div class="card">
+        <div class="chd"><h2>🐐 Goats</h2><a class="more">All 14 →</a></div>
+        <div class="rows">
+          <div class="row"><div class="lead" style="background:var(--red-soft)">🐐</div><div class="body"><div class="t">Archie</div><div class="s">Mini LaMancha · wether</div></div><span class="pill due">Hoof trim</span></div>
+          <div class="row"><div class="lead" style="background:var(--good-soft)">🐐</div><div class="body"><div class="t">Peyton</div><div class="s">Nigerian Dwarf · doe</div></div><span class="pill good">Healthy</span></div>
+          <div class="row"><div class="lead" style="background:var(--good-soft)">🐐</div><div class="body"><div class="t">Oakley</div><div class="s">Mini LaMancha · doe</div></div><span class="pill good">Healthy</span></div>
+        </div>
+      </div>
+      <div class="bento">
+        <div class="mini"><div class="mh"><span class="i" style="background:var(--good-soft)">🩺</span> Log care</div><div class="mv">Quick log</div><div class="ms">Hooves · meds · weight</div></div>
+        <div class="mini"><div class="mh"><span class="i" style="background:var(--surface-2)">🖨️</span> 3D shop</div><div class="mv">1 request</div><div class="ms">Waiting on Dad</div></div>
+      </div>
+      <button class="btn primary block">🩺 Log a care event</button>
+    </section>
+
+    <!-- ============ PLAY ============ -->
+    <section class="screen" data-screen="play">
+      <div class="phead"><h1>Play</h1><p>Games &amp; FarmGPT</p></div>
+      <div class="joke">
+        <div class="lab" style="color:var(--navy-d)">🌾 FarmGPT</div>
+        <div class="q">Story time or homework help?</div>
+        <div class="a">Pick up your saga, or get a hand with tonight's math.</div>
+        <div style="display:flex;gap:9px;margin-top:11px"><button class="btn primary">📖 Story</button><button class="btn ghost">🔬 Research</button></div>
+      </div>
+      <div class="chd" style="padding-left:2px"><h2>Games</h2></div>
+      <div class="tiles">
+        <div class="tile"><div class="ti">🏁</div><div class="tn">Farm Kart</div><div class="td">kart racing</div></div>
+        <div class="tile"><div class="ti">🍅</div><div class="tn">Barnyard Bistro</div><div class="td">2-chef co-op</div></div>
+        <div class="tile"><div class="ti">🐐</div><div class="tn">Baby Bucky</div><div class="td">raise a goat</div></div>
+        <div class="tile"><div class="ti">🌽</div><div class="tn">Pasture Panic</div><div class="td">survive the stampede</div></div>
+      </div>
+    </section>
+  </div>
+
+  <nav class="tabbar" id="tabbar">
+    <button class="tab on" data-screen="home"><span class="ti">🏠</span><span class="tl">Home</span></button>
+    <button class="tab" data-screen="tasks"><span class="ti">✅</span><span class="tl">Tasks</span></button>
+    <button class="tab" data-screen="bank"><span class="ti">💰</span><span class="tl">Bank</span></button>
+    <button class="tab" data-screen="farm"><span class="ti">🐐</span><span class="tl">Farm</span></button>
+    <button class="tab" data-screen="play"><span class="ti">🎮</span><span class="tl">Play</span></button>
+  </nav>
+</div>
+
+<script>
+  // default to LIGHT mode (beats the viewer's OS/host theme); the 🌙 button still flips to dark
+  document.documentElement.setAttribute('data-theme','light');
+  const scroll = document.getElementById('scroll');
+  const ROUTES={ tasks:'/index.html#chores', bank:'/index.html#farmbank', farm:'/index.html#goathooves', play:'/games.html' };
+  function nav(name){ if(ROUTES[name]){ location.href=ROUTES[name]; } else { go(name); } }
+  function go(name){
+    document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('on', s.dataset.screen===name));
+    document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on', t.dataset.screen===name));
+    scroll.scrollTop = 0;
+  }
+  document.getElementById('tabbar').addEventListener('click', e=>{ const t=e.target.closest('.tab'); if(t) nav(t.dataset.screen); });
+  document.querySelectorAll('[data-go]').forEach(el=> el.addEventListener('click', ()=> nav(el.dataset.go)));
+
+  const ring = document.querySelector('.ring circle:last-child');
+  const ringVal = document.querySelector('.ring .val');
+  const CIRC = 188.4, TOTAL = 5;
+  function refreshRing(){
+    const done = document.querySelectorAll('#choreRows .row.checked').length;
+    ring.style.strokeDashoffset = (CIRC*(1-done/TOTAL)).toFixed(1);
+    ringVal.firstChild.textContent = done;
+    const left = TOTAL-done;
+    document.querySelector('.hero p').innerHTML = left ? ('<b>'+left+' chore'+(left>1?'s':'')+'</b> left before dinner — nice pace!') : '<b>All done</b> — go play! 🎉';
+  }
+  document.getElementById('choreRows').addEventListener('click', e=>{
+    const r=e.target.closest('.row'); if(!r) return;
+    r.classList.toggle('checked'); r.querySelector('.check').textContent = r.classList.contains('checked')?'✓':'';
+    r.querySelector('.t').classList.toggle('done', r.classList.contains('checked'));
+    refreshRing();
+  });
+
+  const tb = document.getElementById('themeBtn');
+  tb.addEventListener('click', ()=>{
+    const cur = document.documentElement.getAttribute('data-theme')
+      || (matchMedia('(prefers-color-scheme:dark)').matches ? 'dark':'light');
+    const next = cur==='dark'?'light':'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    tb.textContent = next==='dark' ? '☀️' : '🌙';
+  });
+
+  const JOKES = [
+    ['Why did the scarecrow win an award?','Because he was outstanding in his field.'],
+    ['What do you call a cow with no legs?','Ground beef.'],
+    ['Why did the farmer plant seeds in his pond?','He wanted to grow a water-melon.'],
+    ['How do you fix a broken tomato?','With tomato paste.'],
+    ['What did the baby corn say to the mama corn?','"Where’s pop-corn?"']
+  ];
+  let ji=0;
+  document.getElementById('jokeBtn').addEventListener('click', ()=>{
+    ji=(ji+1)%JOKES.length;
+    document.getElementById('jokeQ').textContent = JOKES[ji][0];
+    document.getElementById('jokeA').textContent = JOKES[ji][1];
+  });
+
+  document.getElementById('ava').addEventListener('click', ()=> alert('Switch profile — Dad · Mom · Eleanor  (mockup)'));
+</script>
+
+</body>
+</html>
