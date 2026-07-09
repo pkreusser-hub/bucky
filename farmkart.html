@@ -633,6 +633,9 @@
   // The grass+hills mesh (grid over the track bbox + margin, each vertex at groundSampleHeight).
   // Built by the shared FK_TRACK.buildGroundMesh so farmkart-editor.html renders the identical mesh.
   scene.add(FK_TRACK.buildGroundMesh(_sampled, TRACK_WIDTH, THREE, terrainOpts()));
+  // 3D grass tufts scattered along the track corridor (fewer on phones). Static instanced mesh.
+  { const mobile = (typeof matchMedia==='function' && matchMedia('(pointer: coarse)').matches);
+    scene.add(FK_TRACK.buildGrassTufts(_sampled, TRACK_WIDTH, THREE, { heightFn:(x,z)=>sampleHeight(x,z), count: mobile?2200:4600 })); }
 
   // ---------- P2: placed world objects (blockout massing) ----------
   // Empty/absent -> nothing added (the live game is unchanged for tracks without objects). Visual-

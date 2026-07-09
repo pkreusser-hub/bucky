@@ -66,7 +66,10 @@
       <label style="flex:1;">wallMargin (grass)<input type="number" id="wallInp" step="0.5" min="2" max="20" placeholder="7"></label>
     </div>
     <button class="btn wide" id="corridorBtn">▦ show corridor bounds</button>
-    <button class="btn wide on" id="terrainBtn">🌾 terrain: ON</button>
+    <div class="row">
+      <button class="btn on" id="terrainBtn" style="flex:1;">🌾 terrain</button>
+      <button class="btn on" id="tuftsBtn" style="flex:1;">🌱 tufts</button>
+    </div>
 
     <div class="sec">Mode</div>
     <div class="row">
@@ -235,13 +238,18 @@
   const TERRAIN = { amp:3.4, wave:60, margin:9 };
   // include the live sculpt field so the WYSIWYG mesh + height reads reflect raised/lowered terrain.
   function edTerrainOpts(){ return { amp:TERRAIN.amp, wave:TERRAIN.wave, margin:TERRAIN.margin, field:track.terrain, paint:track.paint }; }
-  let terrainMesh = null, terrainTimer = null, showTerrain = true;
+  let terrainMesh = null, tuftsMesh = null, terrainTimer = null, showTerrain = true, showTufts = true;
   function rebuildTerrain(){
     if (terrainMesh){ scene.remove(terrainMesh); terrainMesh.geometry.dispose(); terrainMesh.material.dispose(); terrainMesh = null; }
+    if (tuftsMesh){ scene.remove(tuftsMesh); tuftsMesh.material.dispose(); tuftsMesh = null; }
     grid.visible = !showTerrain;   // reference grid only matters when terrain is hidden
     if (!showTerrain || !sampled) return;
     terrainMesh = FK_TRACK.buildGroundMesh(sampled, track.width, THREE, edTerrainOpts());
     scene.add(terrainMesh);
+    if (showTufts){
+      tuftsMesh = FK_TRACK.buildGrassTufts(sampled, track.width, THREE, { heightFn:(x,z)=>terrainHeightAt(x,z), count:3200 });
+      scene.add(tuftsMesh);
+    }
   }
   // throttled live rebuild during a sculpt drag (debounce would never fire mid-drag).
   let _lastTerr = 0, _terrPend = false;
@@ -588,7 +596,7 @@
     // gizmo only lives in object mode (otherwise it would steal clicks from point editing)
     gizmo.enabled = (m==='object'); gizmo.visible = (m==='object') && !!selObjId;
     if (m==='object' && selObjId && objMeshes[selObjId]) gizmo.attach(objMeshes[selObjId]);
-    if ((m==='sculpt'||m==='paint'||m==='fence') && showTerrain===false){ showTerrain=true; $('terrainBtn').classList.add('on'); $('terrainBtn').textContent='🌾 terrain: ON'; rebuildTerrain(); }
+    if ((m==='sculpt'||m==='paint'||m==='fence') && showTerrain===false){ showTerrain=true; $('terrainBtn').classList.add('on'); rebuildTerrain(); }
     $('hint').textContent = m==='insert' ? 'click the road to INSERT a point on the nearest segment'
                           : m==='item'   ? 'click the road to drop an ITEM ROW (s-fraction)'
                           : m==='boost'  ? 'click the road to drop a BOOST PAD (s + lane)'
@@ -657,8 +665,8 @@
     refreshObjList();
   });
   $('corridorBtn').addEventListener('click', ()=>{ showCorridor=!showCorridor; $('corridorBtn').classList.toggle('on', showCorridor); rebuildCorridorViz(); });
-  $('terrainBtn').addEventListener('click', ()=>{ showTerrain=!showTerrain; $('terrainBtn').classList.toggle('on', showTerrain);
-    $('terrainBtn').textContent = showTerrain ? '🌾 terrain: ON' : '🌾 terrain: OFF'; grid.visible = !showTerrain; rebuildTerrain(); });
+  $('terrainBtn').addEventListener('click', ()=>{ showTerrain=!showTerrain; $('terrainBtn').classList.toggle('on', showTerrain); grid.visible = !showTerrain; rebuildTerrain(); });
+  $('tuftsBtn').addEventListener('click', ()=>{ showTufts=!showTufts; $('tuftsBtn').classList.toggle('on', showTufts); rebuildTerrain(); });
 
   // ---- raycasting / pointer interaction ----
   const raycaster = new THREE.Raycaster();

@@ -1215,5 +1215,17 @@ layout sync.
       map. KEY: the texture is grayscale so it fluffs ANY colour — grass green AND painted dirt/sand
       both gain blade detail (paint = sampleColor × patch × texture). Zero per-frame cost (texture made
       once). Heights UNTOUCHED (re-verified byte-identical 0.0 — physics identical; purely a visual
-      change). Verified: game + paint render fluffy, 0 pageerrors. Still LOCAL. Bigger fluff (instanced
-      3D grass tufts near the track) is an available follow-up if the flat-texture read isn't enough.
+      change). Verified: game + paint render fluffy, 0 pageerrors. Still LOCAL.
+- [x] 3D GRASS TUFTS (2026-07-08, user: "lets try the grass tufts also"): FK_TRACK.buildGrassTufts —
+      ONE InstancedMesh of crossed-quad tufts (cached geo + a white-blade alpha CanvasTexture, per-
+      instance green tint via setColorAt, alphaTest cutout so no transparency sorting, MeshLambert +
+      emissive lift). Scattered along the track CORRIDOR (random centerline sample × side × off in
+      [half+3.5, half+3.5+band] + tangent jitter), seated on terrain via opts.heightFn (game
+      sampleHeight, editor terrainHeightAt). GOTCHAS FIXED: (1) first pass tufts were HUGE (size 2.4 →
+      towering over the kart) — dropped to size 0.62, small ground tufts; (2) the track LOOPS so a tuft
+      offset from sample k can still land on the road elsewhere — per-instance nearestOnCenter road
+      check hides it (zero scale) if dist < half+2.5. Game: ~4600 tufts (2200 on mobile — matchMedia
+      coarse), built once at boot, frustumCulled off. Editor: rebuilt in rebuildTerrain (follows
+      sculpts) w/ a 🌱 tufts toggle (paired with 🌾 terrain), 3200 count. Verified: game tufts off the
+      road + seated on grass, editor 3200 instances + toggle clears them, heights byte-identical, 0
+      pageerrors. Tunables: buildGrassTufts opts.count/band/size. Still LOCAL.

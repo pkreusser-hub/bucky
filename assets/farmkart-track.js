@@ -656,10 +656,66 @@
     }));
   }
 
+  // ---- GRASS TUFTS (3D fluff): one InstancedMesh of crossed-quad tufts scattered in a band along
+  // the track corridor (where the camera looks), seated on the terrain. Cheap: ~1 draw call, static
+  // (no per-frame cost). Cached blade geometry + a white-blade alpha texture tinted per-instance. ----
+  let _tuftGeo = null, _tuftTex = null;
+  function _makeTuftGeo(THREE){
+    if (_tuftGeo) return _tuftGeo;
+    const w=1, h=1.4, v=[], uv=[], idx=[];
+    const quad=(nx,nz)=>{ const b=v.length/3;
+      v.push(-nx*w/2,0,-nz*w/2,  nx*w/2,0,nz*w/2,  nx*w/2,h,nz*w/2,  -nx*w/2,h,-nz*w/2);
+      uv.push(0,0, 1,0, 1,1, 0,1); idx.push(b,b+1,b+2, b,b+2,b+3); };
+    quad(1,0); quad(0,1);                       // two crossed quads -> reads 3D from any angle
+    const g=new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(v,3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv,2));
+    g.setIndex(idx); g.computeVertexNormals(); _tuftGeo=g; return g;
+  }
+  function _makeTuftTex(THREE){
+    if (_tuftTex !== null) return _tuftTex || null;
+    if (typeof document === 'undefined'){ _tuftTex=false; return null; }
+    const S=64, cv=document.createElement('canvas'); cv.width=cv.height=S; const ctx=cv.getContext('2d');
+    ctx.clearRect(0,0,S,S);
+    const blades=[[10,-5],[18,3],[26,-3],[33,4],[40,-4],[48,2],[55,-3]];   // [baseX, lean]
+    for (const [bx,lean] of blades){ ctx.fillStyle='rgba(255,255,255,0.92)';
+      ctx.beginPath(); ctx.moveTo(bx-3,S); ctx.lineTo(bx+3,S); ctx.lineTo(bx+lean, 8+(bx%14)); ctx.closePath(); ctx.fill(); }
+    const tex=new THREE.CanvasTexture(cv); tex.needsUpdate=true; _tuftTex=tex; return tex;
+  }
+  function buildGrassTufts(sampled, width, THREE, opts){
+    opts = opts || {};
+    const hfn = opts.heightFn || (()=>0);
+    const half = width/2, band = opts.band || 40, size = opts.size || 0.62;
+    const C = sampled.centerPts, T = sampled.tangents, N = sampled.samples;
+    const count = Math.min(opts.count || 4200, 14000);
+    const mat = new THREE.MeshLambertMaterial({ color:0xffffff, map:_makeTuftTex(THREE), alphaTest:0.5, side:THREE.DoubleSide, transparent:false, emissive:0x2c3c1d });
+    const mesh = new THREE.InstancedMesh(_makeTuftGeo(THREE), mat, count);
+    const m=new THREE.Matrix4(), q=new THREE.Quaternion(), up=new THREE.Vector3(0,1,0), p=new THREE.Vector3(), sc=new THREE.Vector3(), col=new THREE.Color();
+    let s = 987654321;
+    const rnd = ()=>{ s=(s*1103515245+12345)&0x7fffffff; return s/0x7fffffff; };
+    for (let i=0;i<count;i++){
+      const k=Math.floor(rnd()*N), c=C[k], t=T[k], nx=-t.z, nz=t.x;
+      const side = rnd()<0.5?-1:1, off = half+3.5 + rnd()*band, along = (rnd()-0.5)*6;
+      const x = c.x + nx*off*side + t.x*along, z = c.z + nz*off*side + t.z*along;
+      const sw = size*(0.8+rnd()*0.5);           // small ground tufts (knee-high at most)
+      // the track LOOPS, so a tuft offset from sample k can still land on the road elsewhere — hide it
+      // (zero scale) if it's within a road-width of ANY centerline branch.
+      const onRoad = nearestOnCenter(sampled, x, z).dist < half + 2.5;
+      p.set(x, hfn(x,z), z);
+      if (onRoad) sc.set(0,0,0); else sc.set(sw, sw*(0.85+rnd()*0.45), sw);
+      q.setFromAxisAngle(up, rnd()*6.2832);
+      m.compose(p,q,sc); mesh.setMatrixAt(i,m);
+      const g=0.4+rnd()*0.24; col.setRGB(g*0.72, g, g*0.42); mesh.setColorAt(i,col);
+    }
+    mesh.instanceMatrix.needsUpdate = true; if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    mesh.frustumCulled = false;
+    return mesh;
+  }
+
   window.FK_TRACK = {
     VERSION:1, SAMPLES,
     DEFAULT_TRACK, BUILTIN_TRACKS,
     resample, buildRibbonGeometry, sanitize, validate, reverse, nearestOnCenter, nearestOnCenterAtY,
-    groundHills, sampleHeight, groundSampleHeight, buildGroundMesh, buildObjectMesh, buildFenceMesh, sampleField, sampleColor
+    groundHills, sampleHeight, groundSampleHeight, buildGroundMesh, buildObjectMesh, buildFenceMesh, buildGrassTufts, sampleField, sampleColor
   };
 })();
