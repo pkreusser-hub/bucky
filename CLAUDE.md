@@ -1621,6 +1621,14 @@ WebAudio-only SFX pass (no asset files; mute = `fk_muted` → masterGain 0 + spe
   squawk on fire + softer chirp on hit; hay keeps generic fire beep.
 Kept: boost whoosh, spin warble, bonk, land thump, item-roll ticks, finish fanfare.
 Verify: `node tools/_verify-audio.cjs`.
+- **2026-07-09 (user requests)**: mobile chase-camera pulled closer — `MOBILE_CAM.camDist`
+  6.5→5.35 (camHeight/camLag/fov and the desktop `TUNE.camDist` untouched). Drift scrape
+  SFX REMOVED entirely (user didn't like it): `driftNoise/driftNoise2/driftFilter/
+  driftFilter2/driftGain` nodes deleted from `startContinuousAudio()`, the per-frame gain/
+  filter modulation block deleted from `updateAudio()`, `driftGainV` dropped from the
+  `audioState()` debug hook. Drifting physics/visuals/particles and the rest of this SFX
+  batch (engine growl, countdown voice, item sounds, boost/spin/bonk/fanfare, MT charge
+  ticks/tier chimes) are untouched. Verified: scratchpad/fk_camdrift.mjs.
 
 # 🌤️ Weather — Woodville / Amen Farms (2026-07-09)
 

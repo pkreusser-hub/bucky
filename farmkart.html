@@ -1400,7 +1400,8 @@
   // TUNE / fk_tune_v2 stay the desktop source of truth — Eff helpers never write mobile values back.
   const IS_MOBILE = (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches)
                     && Math.min(innerWidth, innerHeight) < 900;
-  const MOBILE_CAM = { camDist:6.5, camHeight:3.2, camLag:14, fov:74 };
+  // camDist pulled closer 2026-07-09 (user: mobile camera too far back) — was 6.5.
+  const MOBILE_CAM = { camDist:5.35, camHeight:3.2, camLag:14, fov:74 };
   function camDistEff(){ return IS_MOBILE ? MOBILE_CAM.camDist : TUNE.camDist; }
   function camHeightEff(){ return IS_MOBILE ? MOBILE_CAM.camHeight : TUNE.camHeight; }
   function camLagEff(){ return IS_MOBILE ? MOBILE_CAM.camLag : TUNE.camLag; }
@@ -3444,7 +3445,6 @@
   // ============================================================================
   let audioCtx = null, masterGain = null;
   let engineOsc = null, engineOsc2 = null, engineFilter = null, engineGain = null; // car-like engine
-  let driftNoise = null, driftNoise2 = null, driftFilter = null, driftFilter2 = null, driftGain = null;
   let audioMuted = false; try{ audioMuted = localStorage.getItem('fk_muted') === '1'; }catch(e){}
   let _fanfareCount = 0;                                          // test hook: finish fanfares fired
   let _cdVoiceCount = 0;                                          // test hook: countdown voice/stinger calls
@@ -3649,7 +3649,7 @@
       notes.forEach((n,i)=>setTimeout(()=>tone(n, 0.24, { type:'triangle', vol:0.11 }), times[i]));
     }
   }
-  // continuous nodes: deeper car-like engine (saw+square through lowpass) + looping tire scrape
+  // continuous nodes: deeper car-like engine (saw+square through lowpass)
   function startContinuousAudio(){
     if (!ensureAudio() || engineOsc) return;
     const ctx = audioCtx;
@@ -3666,22 +3666,9 @@
       engineOsc2.connect(eg2); eg2.connect(engineFilter);
       engineFilter.connect(engineGain); engineGain.connect(masterGain);
       engineOsc.start(); engineOsc2.start();
-
-      driftGain = ctx.createGain(); driftGain.gain.value = 0;
-      const noiseBuf = makeNoiseBuf(0.55);
-      driftNoise = ctx.createBufferSource(); driftNoise.buffer = noiseBuf; driftNoise.loop = true;
-      driftFilter = ctx.createBiquadFilter(); driftFilter.type = 'bandpass'; driftFilter.frequency.value = 1600; driftFilter.Q.value = 1.1;
-      driftNoise.connect(driftFilter); driftFilter.connect(driftGain);
-      // second layer: higher squeal that opens with MT tier
-      driftNoise2 = ctx.createBufferSource(); driftNoise2.buffer = noiseBuf; driftNoise2.loop = true;
-      driftFilter2 = ctx.createBiquadFilter(); driftFilter2.type = 'bandpass'; driftFilter2.frequency.value = 3200; driftFilter2.Q.value = 2.2;
-      const dg2 = ctx.createGain(); dg2.gain.value = 0.45;
-      driftNoise2.connect(driftFilter2); driftFilter2.connect(dg2); dg2.connect(driftGain);
-      driftGain.connect(masterGain);
-      driftNoise.start(); driftNoise2.start();
     }catch(e){}
   }
-  // per-frame reactive audio: engine RPM/vol, drift scrape (tier intensifies), MT chimes/ticks
+  // per-frame reactive audio: engine RPM/vol, MT chimes/ticks
   function updateAudio(dt){
     if (G.phase === 'racing' || G.phase === 'countdown'){ ensureAudio(); startContinuousAudio(); }
     if (!audioCtx) return;
@@ -3701,14 +3688,6 @@
       engineGain.gain.value += (tg - engineGain.gain.value) * Math.min(1, dt * 5);
     }
     const tier = p.drift.active ? driftTier(p.drift.charge) : 0;
-    if (driftGain){
-      const on = p.drift.active && spd > 2.5 && !p.airborne;
-      // continuous scrape; louder + brighter as MT tier climbs
-      const tg = on ? (0.045 + tier * 0.028 + Math.min(0.03, spd * 0.0012)) : 0;
-      driftGain.gain.value += (tg - driftGain.gain.value) * Math.min(1, dt * 10);
-      if (driftFilter) driftFilter.frequency.value = 1200 + tier * 500 + spd * 8;
-      if (driftFilter2) driftFilter2.frequency.value = 2600 + tier * 900;
-    }
     // MT tier chime on the rising edge of the local kart's drift tier
     if (tier > _aud.tier) mtChime(tier);
     _aud.tier = tier;
@@ -4531,7 +4510,7 @@
     updateCamera(dt);
     updateHUD();
     updateParticles(dt);   // K6: advance the pooled juice particles
-    updateAudio(dt);       // K6: reactive engine hum / drift scritch / MT chimes
+    updateAudio(dt);       // K6: reactive engine hum / MT chimes
     renderer.render(scene, camera);
     requestAnimationFrame(frame);
   }
@@ -4592,7 +4571,7 @@
       engineHarmonic: engineOsc2 ? engineOsc2.frequency.value : null,
       engineGainV: engineGain ? engineGain.gain.value : null,
       engineFilterHz: engineFilter ? engineFilter.frequency.value : null,
-      driftGainV: driftGain ? driftGain.gain.value : null, ctx: audioCtx ? audioCtx.state : 'none',
+      ctx: audioCtx ? audioCtx.state : 'none',
       fanfares:_fanfareCount, mtChimes:_aud.chimes, cdVoices:_cdVoiceCount }),
     // SFX hooks for headless audio-graph checks (mute still gates audible output)
     tomatoFireSound, tomatoSplatSound, chickenSquawkSound, countdownVoice, cancelSpeech,
