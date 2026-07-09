@@ -132,9 +132,12 @@ tokens (no framework); regroup the 9 sections into ~5 areas.
   `wxFetch()` caches to localStorage `bucky_wx` (refetch if >3h), paints a 3-col strip
   (Today/Wkday, WMO-code→emoji via `wxIcon`, hi°/lo° °F, America/Chicago), background-refresh
   only repaints while still on dashboard. Card sits between the stat row and the ask bar,
-  shown for everyone. Verified: real API returns Woodville data; headless 17/17 (7 tabs, no
-  clip, Tasks sub=chores/print3d, wo/shop tabs, weather 3 days + temps, Mom 6 tabs) + p7/p8/
-  p9 regressions updated & green. Test: p10_navwx.mjs (mocks open-meteo).
+  shown for everyone. Verified: real API returns Woodville data; headless (7 tabs, no clip,
+  Tasks sub=chores/print3d, wo/shop tabs, Mom 6 tabs) + p7/p8/p9 regressions updated & green.
+  Test: p10_navwx.mjs (mocks open-meteo). UPDATED to **5-day + precip %** (user): daily adds
+  `precipitation_probability_max`, forecast_days=5, cache key bumped to `bucky_wx2` (old
+  3-day shape ignored); each cell now day/emoji/hi°/lo°/💧%; `.wxdays` = 5 cols, tighter
+  cells (emoji 21px, temps nowrap) — fits 390px with 0 clip. p10 now 19/19.
 
 ---
 

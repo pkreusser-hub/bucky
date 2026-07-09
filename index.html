@@ -504,13 +504,14 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   /* 3-day weather */
   .home2 .wxcard { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 12px 14px; }
   .home2 .wxhead { font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px; }
-  .home2 .wxdays { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  .home2 .wxday { display: flex; flex-direction: column; align-items: center; gap: 3px; background: var(--surface-2); border-radius: 12px; padding: 9px 4px; }
-  .home2 .wxd { font-size: 12px; font-weight: 700; color: var(--ink); }
-  .home2 .wxi { font-size: 25px; line-height: 1; }
-  .home2 .wxt { font-size: 13px; font-variant-numeric: tabular-nums; }
+  .home2 .wxdays { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
+  .home2 .wxday { display: flex; flex-direction: column; align-items: center; gap: 2px; background: var(--surface-2); border-radius: 11px; padding: 8px 2px; }
+  .home2 .wxd { font-size: 11px; font-weight: 700; color: var(--ink); }
+  .home2 .wxi { font-size: 21px; line-height: 1; margin: 1px 0; }
+  .home2 .wxt { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .home2 .wxt b { color: var(--ink); font-weight: 800; }
-  .home2 .wxt span { color: var(--muted); margin-left: 5px; }
+  .home2 .wxt span { color: var(--muted); margin-left: 3px; }
+  .home2 .wxp { font-size: 10.5px; font-weight: 700; color: #3574d4; font-variant-numeric: tabular-nums; }
   .home2 .wxload { font-size: 13px; color: var(--muted); padding: 6px 0; }
 
   /* FarmGPT research ask bar */
@@ -1641,21 +1642,25 @@ function choreStreak(total, done){
 
 // ---- 3-day weather for the farm (Woodville, AL) via Open-Meteo (free, no key, CORS ok) ----
 const WX_URL = "https://api.open-meteo.com/v1/forecast?latitude=34.6865&longitude=-86.2104"
-  + "&daily=weather_code,temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit"
-  + "&timezone=America%2FChicago&forecast_days=3";
-let wxData = null;   // { ts, days:[{date,code,hi,lo}] }
+  + "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"
+  + "&temperature_unit=fahrenheit&timezone=America%2FChicago&forecast_days=5";
+let wxData = null;   // { ts, days:[{date,code,hi,lo,pp}] }
 function wxCached(){
   if (wxData) return wxData;
-  try { const c = JSON.parse(localStorage.getItem("bucky_wx")); if (c && c.ts && Array.isArray(c.days)) { wxData = c; return c; } } catch {}
+  try { const c = JSON.parse(localStorage.getItem("bucky_wx2")); if (c && c.ts && Array.isArray(c.days)) { wxData = c; return c; } } catch {}
   return null;
 }
 async function wxFetch(){
   const r = await fetch(WX_URL);
   if (!r.ok) throw new Error("wx " + r.status);
   const d = (await r.json()).daily;
-  const days = d.time.map((date, i) => ({ date, code: d.weather_code[i], hi: Math.round(d.temperature_2m_max[i]), lo: Math.round(d.temperature_2m_min[i]) }));
+  const days = d.time.map((date, i) => ({
+    date, code: d.weather_code[i],
+    hi: Math.round(d.temperature_2m_max[i]), lo: Math.round(d.temperature_2m_min[i]),
+    pp: d.precipitation_probability_max ? (d.precipitation_probability_max[i] ?? 0) : 0
+  }));
   wxData = { ts: Date.now(), days };
-  try { localStorage.setItem("bucky_wx", JSON.stringify(wxData)); } catch {}
+  try { localStorage.setItem("bucky_wx2", JSON.stringify(wxData)); } catch {}
   return wxData;
 }
 // WMO weather code → emoji
@@ -1671,13 +1676,15 @@ function wxIcon(code){
   return "⛈️";   // 95-99 thunderstorm
 }
 function wxDayName(dateStr, i){ return i === 0 ? "Today" : new Date(dateStr + "T12:00:00").toLocaleDateString(undefined, { weekday: "short" }); }
-const WX_HEAD = `<div class="wxhead">🌤️ Woodville, AL · 3-day</div>`;
+const WX_HEAD = `<div class="wxhead">🌤️ Woodville, AL · 5-day</div>`;
 function paintWx(el, data){
   el.innerHTML = WX_HEAD + `<div class="wxdays"></div>`;
   const row = el.querySelector(".wxdays");
   data.days.forEach((d, i) => {
     const c = document.createElement("div"); c.className = "wxday";
-    c.innerHTML = `<div class="wxd"></div><div class="wxi">${wxIcon(d.code)}</div><div class="wxt"><b>${d.hi}°</b><span>${d.lo}°</span></div>`;
+    c.innerHTML = `<div class="wxd"></div><div class="wxi">${wxIcon(d.code)}</div>`
+      + `<div class="wxt"><b>${d.hi}°</b><span>${d.lo}°</span></div>`
+      + `<div class="wxp">💧${d.pp || 0}%</div>`;
     c.querySelector(".wxd").textContent = wxDayName(d.date, i);
     row.appendChild(c);
   });
