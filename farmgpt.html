@@ -71,10 +71,32 @@
   #homeIntro { text-align: center; color: var(--muted); font-size: 14px; margin-top: 22px; }
   #homeIntro .bigIco { font-size: 54px; }
   #usageLink { text-align: center; margin-top: 18px; }
-  #usageLink button {
+  #storyLogLink { text-align: center; margin-top: 8px; }
+  #dadUnlockLink { text-align: center; margin-top: 18px; }
+  #usageLink button, #storyLogLink button, #dadUnlockLink button {
     background: none; border: 0; color: var(--muted); font-family: inherit; font-size: 13px;
     font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px;
   }
+  /* Story Log (Dad monitoring) */
+  #storyLogBody .slDay { margin: 0 0 8px; }
+  #storyLogBody .slDayHead {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    border-bottom: 2px solid #c9a227; padding-bottom: 4px; margin: 20px 0 8px;
+  }
+  #storyLogBody .slDayHead .d { font-weight: 800; font-size: 15px; color: var(--ink); }
+  #storyLogBody .slClear {
+    border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px;
+    cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
+  }
+  #storyLogBody .slClear:hover { color: var(--red); }
+  #storyLogBody .slUser { font-weight: 700; font-size: 14px; margin: 12px 0 2px; }
+  #storyLogBody .slStory { font-family: Georgia, serif; font-weight: 700; color: #6d5410; margin: 8px 0 2px; }
+  #storyLogBody .slChap { text-align: center; color: #b08d2e; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; margin: 8px 0 2px; }
+  #storyLogBody .slSetup { background: #f6f2e6; border-radius: 6px; padding: 5px 9px; font-size: 13px; margin: 4px 0; }
+  #storyLogBody .slChoice { color: #8a6d1a; font-style: italic; font-size: 13px; margin: 8px 0 2px; }
+  #storyLogBody .slProse { font-family: Georgia, serif; font-size: 14px; line-height: 1.55; white-space: pre-wrap; color: #33280f; margin: 2px 0; }
+  #storyLogBody .slOffered { color: var(--muted); font-size: 12px; margin: 2px 0 8px; }
+  #storyLogBody .slEmpty { color: var(--muted); text-align: center; padding: 20px; }
 
   /* ---------- usage ---------- */
   #usageBig { text-align: center; margin: 8px 0 2px; }
@@ -324,6 +346,8 @@
       </div>
     </div>
     <div id="usageLink"><button id="usageBtn">📊 API usage &amp; cost</button></div>
+    <div id="storyLogLink"><button id="storyLogBtn">📖 Story Log &mdash; kids' reading</button></div>
+    <div id="dadUnlockLink"><button id="dadUnlockBtn">🔒 Unlock Dad tools</button></div>
   </div>
 
   <!-- ============ USAGE ============ -->
@@ -331,6 +355,14 @@
     <div class="panel">
       <div class="panelTitle">📊 Claude API usage</div>
       <div id="usageBody">Loading…</div>
+    </div>
+  </div>
+
+  <!-- ============ STORY LOG (Dad only) ============ -->
+  <div class="view" id="viewStoryLog">
+    <div class="panel">
+      <div class="panelTitle">📖 Story Log — what the kids are reading</div>
+      <div id="storyLogBody">Loading…</div>
     </div>
   </div>
 
@@ -448,7 +480,7 @@
   const NEXT_CHAPTER_MSG = "(Continue to the next chapter.)";
 
   const $ = (id) => document.getElementById(id);
-  const views = { home: $("viewHome"), storySetup: $("viewStorySetup"), story: $("viewStory"), research: $("viewResearch"), usage: $("viewUsage") };
+  const views = { home: $("viewHome"), storySetup: $("viewStorySetup"), story: $("viewStory"), research: $("viewResearch"), usage: $("viewUsage"), storylog: $("viewStoryLog") };
 
   let currentView = "home";
   let busy = false;                 // one in-flight request at a time, app-wide
@@ -472,8 +504,38 @@
     $("barTitle").textContent =
       name === "research" ? "🔬 FarmGPT Research" :
       name === "usage" ? "📊 API Usage" :
+      name === "storylog" ? "📖 Story Log" :
       (name === "story" || name === "storySetup") ? "📖 Story Time" : "🌾 FarmGPT";
     $("clearChatBtn").style.display = name === "research" ? "block" : "none";
+  }
+
+  // ---------------- Dad account lock ----------------
+  // The Dad-only surfaces (usage, Story Log) require a PIN. The PIN hash is created in the main
+  // app (index.html) and mirrored to localStorage["dadPinHash"]; unlocking sets a session flag
+  // that's shared across pages on this origin (so unlocking in the main app unlocks here too).
+  // Soft gate (client-side) — stops the kids; the real protection is that they don't know the PIN.
+  async function sha256Hex(s) {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+    return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  const dadPinHash = () => localStorage.getItem("dadPinHash") || "";
+  const dadConfigured = () => !!dadPinHash();
+  const dadUnlocked = () => sessionStorage.getItem("dadUnlocked") === "1";
+  const isDadName = () => (localStorage.getItem("choreUser") || "") === "Dad";
+  const isDad = () => isDadName() && dadUnlocked();
+  async function tryUnlockDad(pin) {
+    if (!dadConfigured() || !pin) return false;
+    const ok = (await sha256Hex(pin + ":" + FAMILY_PASSWORD)) === dadPinHash();
+    if (ok) sessionStorage.setItem("dadUnlocked", "1");
+    return ok;
+  }
+  // Show/hide the Dad-only links based on unlock state.
+  function refreshDadUI() {
+    const unlocked = isDad();
+    $("usageLink").style.display = unlocked ? "" : "none";
+    $("storyLogLink").style.display = unlocked ? "" : "none";
+    // A Dad who's locked this session (PIN already synced locally) can unlock right here.
+    $("dadUnlockLink").style.display = (isDadName() && !unlocked && dadConfigured()) ? "" : "none";
   }
 
   $("backLink").addEventListener("click", (e) => {
@@ -929,11 +991,22 @@
     const divider = newChapter ? addChapterDivider(story.chapter || 1, "") : null;
     if (divider) scrollStory();
     const el = addChapterEl("");
+    // Parent-monitoring identity: the backend logs each scene keyed by kid + story (Dad's own
+    // stories are skipped server-side). sceneIdx = scenes so far; choice = the kid's last input.
+    const lastMsg = story.messages[story.messages.length - 1];
+    const rawChoice = lastMsg && lastMsg.role === "user" ? textOf(lastMsg.content) : "";
+    const logOpts = {
+      user: localStorage.getItem("choreUser") || "",
+      storyId: story.id,
+      storyTitle: story.title,
+      sceneIdx: story.messages.filter((m) => m.role === "assistant").length,
+      choice: (rawChoice === NEXT_CHAPTER_MSG ? "▶ Next chapter" : rawChoice).slice(0, 2000),
+    };
     try {
       // No auto-scroll while streaming — the reader reads at their own pace as the scene arrives.
       const full = await callFarmGPT("story", buildSendMessages(), (sofar) => {
         el.textContent = visibleDuringStream(sofar);
-      }, { illustrate: shouldIllustrate(), newChapter, endChapter, endChapterSoft });
+      }, { illustrate: shouldIllustrate(), newChapter, endChapter, endChapterSoft, ...logOpts });
       const p = parseChapter(full);
       el.textContent = p.text;
       if (divider) divider.querySelector(".ct").textContent = p.title || "";
@@ -1497,6 +1570,80 @@
   }
 
   $("usageBtn").addEventListener("click", () => { show("usage"); loadUsage(); });
+  $("storyLogBtn").addEventListener("click", () => { show("storylog"); loadStoryLog(); });
+  // The usage dashboard AND the Story Log are Dad-only and PIN-locked (kids shouldn't see spend or
+  // each other's reading). The endpoints are also family-password gated; this is the client gate.
+  $("dadUnlockBtn").addEventListener("click", async () => {
+    const pin = prompt("Enter your Dad PIN to unlock:");
+    if (pin == null) return;
+    if (await tryUnlockDad(pin)) { toast("🔓 Dad tools unlocked"); refreshDadUI(); }
+    else toast("❌ Wrong PIN");
+  });
+  refreshDadUI();
+
+  // ---------------- Story Log (Dad monitoring) ----------------
+  // Reads the kids' logged story scenes through the function (server-side Firestore), groups them
+  // by day → reader → story, and renders each scene with the existing parseChapter(). A per-day
+  // "clear" prunes that day from the database.
+  async function fetchLog(extra) {
+    const resp = await fetch(API_URL, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ secret: FAMILY_PASSWORD, ...extra }),
+    });
+    if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error || ("Request failed (" + resp.status + ")"));
+    return resp.json();
+  }
+  async function loadStoryLog() {
+    const body = $("storyLogBody");
+    body.textContent = "Loading…";
+    let entries;
+    try { entries = (await fetchLog({ mode: "storylog" })).entries || []; }
+    catch (err) { body.textContent = "😵 " + err.message; return; }
+    if (!entries.length) { body.innerHTML = '<div class="slEmpty">No story reading logged yet. Check back after the kids play Story Time.<br><span style="font-size:12px">(Logs older than 30 days are cleared automatically.)</span></div>'; return; }
+    // Group: date → user → storyId → { title, scenes[] } (entries already sorted date desc, idx asc)
+    const days = [];
+    const dayMap = {};
+    for (const e of entries) {
+      let day = dayMap[e.date];
+      if (!day) { day = dayMap[e.date] = { date: e.date, users: [], userMap: {} }; days.push(day); }
+      let u = day.userMap[e.user];
+      if (!u) { u = day.userMap[e.user] = { user: e.user, stories: [], storyMap: {} }; day.users.push(u); }
+      let s = u.storyMap[e.storyId];
+      if (!s) { s = u.storyMap[e.storyId] = { title: e.title, scenes: [] }; u.stories.push(s); }
+      s.scenes.push(e);
+    }
+    body.innerHTML = "";
+    for (const day of days) {
+      const dWrap = document.createElement("div"); dWrap.className = "slDay";
+      const head = document.createElement("div"); head.className = "slDayHead";
+      const d = document.createElement("div"); d.className = "d"; d.textContent = "📅 " + day.date;
+      const clr = document.createElement("button"); clr.className = "slClear"; clr.textContent = "🗑 clear this day";
+      clr.addEventListener("click", () => clearStoryDay(day.date));
+      head.append(d, clr); dWrap.appendChild(head);
+      for (const u of day.users) {
+        const uEl = document.createElement("div"); uEl.className = "slUser"; uEl.textContent = "👤 " + u.user;
+        dWrap.appendChild(uEl);
+        for (const s of u.stories) {
+          const sEl = document.createElement("div"); sEl.className = "slStory"; sEl.textContent = "“" + s.title + "”";
+          dWrap.appendChild(sEl);
+          for (const sc of s.scenes) {
+            const p = parseChapter(sc.scene);
+            if (p.title) { const c = document.createElement("div"); c.className = "slChap"; c.textContent = "Chapter — " + p.title; dWrap.appendChild(c); }
+            if (sc.idx === 0 && sc.choice) { const w = document.createElement("div"); w.className = "slSetup"; w.textContent = "The world: " + sc.choice; dWrap.appendChild(w); }
+            else if (sc.choice) { const ch = document.createElement("div"); ch.className = "slChoice"; ch.textContent = "▸ " + sc.choice; dWrap.appendChild(ch); }
+            const pr = document.createElement("div"); pr.className = "slProse"; pr.textContent = p.text; dWrap.appendChild(pr);
+            if (p.choices.length) { const o = document.createElement("div"); o.className = "slOffered"; o.textContent = "Choices offered: " + p.choices.map((c, i) => (i + 1) + ") " + c).join("   "); dWrap.appendChild(o); }
+          }
+        }
+      }
+      body.appendChild(dWrap);
+    }
+  }
+  async function clearStoryDay(date) {
+    if (!confirm("Delete the logged reading for " + date + "? (This can't be undone.)")) return;
+    try { await fetchLog({ mode: "storylog_clear", date }); toast("🗑 Cleared " + date); loadStoryLog(); }
+    catch (err) { toast("😵 " + err.message); }
+  }
 
   // ---------------- home wiring ----------------
   $("cardStory").addEventListener("click", () => { renderBookshelf(); show("storySetup"); });

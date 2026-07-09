@@ -672,6 +672,51 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   story.closing so it keeps asking until the model complies. Tunable: CHAPTER_TARGET_WORDS. Verified:
   25/25 headless UI checks (divider, threshold→close, chapter-end UI, shelve, resume incl. chapter-end
   state, next-chapter POV, sentinel not shown, 0 pageerrors) + both directives live on real Gemini.
+- PARENT MONITORING (2026-07-09): (1) the 📊 API-usage-&-cost link in FarmGPT is now Dad-only —
+  gated on localStorage["choreUser"]==="Dad" (same identity as index.html PRINT_ADMIN; NOT a hard
+  lock — the stats endpoint is still family-password gated — just keeps spend out of the kids'
+  sight). (2) STORY CONTENT LOG so Dad can review what the kids read: the FUNCTION logs every story
+  scene to Firestore collection farmgpt_story_log (server-side, kids can't bypass), keyed by kid +
+  Central day; deterministic doc id `<date>__<user>__<storyId>__<idx>` (retries overwrite, never
+  dup). The client sends user(choreUser)/storyId/storyTitle/sceneIdx/choice on story requests;
+  logStoryReq gate skips research/summary AND user==="Dad"; ===ART=== SVG stripped before store;
+  logged in the stream finally (never breaks a reply). DELIVERY = an IN-APP Dad-only "📖 Story Log"
+  page in FarmGPT (NOT a local file / not emailed — user iterated through all three; the browser
+  page needs no Windows Task Scheduler and works on any device). New secret-gated function actions:
+  mode:"storylog" → readStoryLog() lists the collection server-side (service account), AUTO-PRUNES
+  anything older than STORY_LOG_RETENTION_DAYS=30 (bounds public-Firestore exposure w/o a scheduler),
+  returns {entries} sorted date-desc/idx-asc; mode:"storylog_clear" {date} → clearStoryLog() deletes
+  a day (via :commit delete writes). Client Story Log view groups entries date→user→story and
+  renders each scene with the EXISTING parseChapter() (world/setup line, chapter title, prose,
+  choices offered + the one taken) + a per-day 🗑 clear. Button + view gated on choreUser==="Dad"
+  (UI-hidden only; endpoints are family-password gated like stats). WHY route the browser read
+  through the function (not Firestore-direct): dodges browser CORS, reuses the server-side service
+  account, keeps the public key off a third page. Verified: backend storylog read excludes Dad +
+  prunes 30-day-old docs + clear empties + 401 on bad secret (fake Firestore + REAL Haiku); UI
+  renders grouped/parsed w/ Dad-gating + clear, 0 pageerrors. (Retention gotcha: .slChap CSS
+  uppercases the chapter label, so innerText reads it uppercased in tests.)
+- DAD ACCOUNT LOCK (2026-07-09, app-wide — index.html + farmgpt.html): the Dad profile is now
+  PIN-protected (sensitive stuff moved to it — banking, API cost, kids' Story Log). In-app PIN
+  (user chose "no server setup"): created the first time Dad is selected, hashed sha256(pin +
+  ":" + FAMILY_PASSWORD) — never stored plaintext — saved to Firestore settings_<familyKey>/
+  dadAuth.pinHash AND mirrored to localStorage["dadPinHash"] so farmgpt.html (no Firebase SDK)
+  can verify it too. Unlock = sessionStorage["dadUnlocked"]="1", which is ORIGIN-WIDE so unlocking
+  in one page unlocks the other. Shared helper names identical in both files: sha256Hex,
+  dadPinHash(), dadConfigured(), dadUnlocked(), gateDad()/tryUnlockDad(). index.html: added
+  backend.getSetting/setSetting (a settings_<fam> doc, kept OUT of the chores collection; local
+  backend uses localStorage "setting_<id>"); meBtn (profile switch) → gateDad() when name==="Dad"
+  (create-or-verify; leaving Dad clears the unlock); afterBackendReady() syncs the hash + auto-
+  prompts if Dad-but-locked on load; the two banking gates (payout confirm buttons + kid bank
+  admin chips) changed myName()===BANK_ADMIN → bankAdmin()= name && dadUnlocked(). farmgpt.html:
+  usage + Story Log links gated on isDad()=name && dadUnlocked(); a "🔒 Unlock Dad tools" link
+  (shown when Dad-but-locked & PIN synced locally) prompts + verifies against the local hash. SOFT
+  client gate (a devtools kid could set the session flag; the real strength is not knowing the
+  PIN) — consistent with the app's existing choreUser-identity posture. Verified headless: farmgpt
+  gating + PIN unlock reveals the Dad links (18/18); index.html create-PIN/verify/reject-wrong/
+  auto-prompt-on-load, banking untouched, Firestore blocked → local backend, 0 pageerrors (10/10).
+  KNOWN GAP: banking data still lives in public Firestore (rules unchanged) — the lock hides the
+  admin UI, not the raw data; true server enforcement would need the "server-enforced" option
+  (DAD_PASSWORD env var) the user declined.
 - ARCHITECTURE: static page → POST /.netlify/functions/farmgpt {secret, mode, messages}
   → function stamps the per-mode GUARDRAIL SYSTEM PROMPT server-side (browser can never
   override), streams the model's text back as plain chunks. Zero-dependency raw fetch +

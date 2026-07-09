@@ -359,6 +359,92 @@ async function readCollection(collection, label, cap) {
 const readUsage = () => readCollection(USAGE_COLLECTION, "date");
 const readHourly = () => readCollection(USAGE_COLLECTION_HOURLY, "hour", 72);  // last ~3 days of hours
 
+// ---------------- story content log (parent monitoring) ----------------
+// Every story scene the model generates is written to Firestore, keyed by kid + day, so Dad
+// can review what the kids are reading. Capture is 100% server-side (the kids can't turn it
+// off); the nightly story-digest scheduled function emails Dad a Word transcript and clears
+// the day's docs. Dad's own stories are NOT logged. Deterministic doc id → retries overwrite,
+// never duplicate. Failures here must NEVER break a story reply.
+const STORY_LOG_COLLECTION = "farmgpt_story_log";
+const sv = (s) => ({ stringValue: String(s == null ? "" : s).slice(0, 24000) });
+const iv = (n) => ({ integerValue: String((n | 0)) });
+const sanId = (s) => String(s == null ? "" : s).replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 90);
+
+async function logStory({ user, storyId, title, idx, choice, scene }) {
+  try {
+    const token = await getGoogleAccessToken();
+    if (!token) return;
+    const date = farmDate();
+    const base = `projects/${PROJECT_ID}/databases/(default)/documents`;
+    const docId = `${date}__${sanId(user)}__${sanId(storyId)}__${idx | 0}`;
+    const fields = {
+      date: sv(date), user: sv(user), storyId: sv(storyId), title: sv(title),
+      idx: iv(idx), choice: sv(choice), scene: sv(scene), ts: sv(new Date().toISOString()),
+    };
+    await fetch(`${FIRESTORE_BASE}:commit`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ writes: [{ update: { name: `${base}/${STORY_LOG_COLLECTION}/${docId}`, fields } }] }),
+    });
+  } catch { /* content logging must never break a reply */ }
+}
+
+const STORY_LOG_RETENTION_DAYS = 30;   // logs older than this are pruned on read (bounds public exposure)
+
+// List every farmgpt_story_log doc (paginated) → [{id, date, user, storyId, title, idx, choice, scene}].
+async function listStoryLog(token) {
+  const out = [];
+  let pageToken = "";
+  for (let g = 0; g < 50; g++) {
+    const url = `${FIRESTORE_BASE}/${STORY_LOG_COLLECTION}?pageSize=300` + (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : "");
+    const r = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
+    if (!r.ok) return out;
+    const j = await r.json();
+    for (const d of (j.documents || [])) {
+      const f = d.fields || {};
+      const s = (k) => (f[k] && f[k].stringValue) || "";
+      out.push({ id: d.name.split("/").pop(), date: s("date"), user: s("user"), storyId: s("storyId"),
+        title: s("title"), idx: parseInt((f.idx && f.idx.integerValue) || "0", 10), choice: s("choice"), scene: s("scene") });
+    }
+    if (!j.nextPageToken) break;
+    pageToken = j.nextPageToken;
+  }
+  return out;
+}
+async function deleteStoryDocs(token, ids) {
+  const base = `projects/${PROJECT_ID}/databases/(default)/documents`;
+  for (let i = 0; i < ids.length; i += 400) {
+    const writes = ids.slice(i, i + 400).map((id) => ({ delete: `${base}/${STORY_LOG_COLLECTION}/${id}` }));
+    await fetch(`${FIRESTORE_BASE}:commit`, {
+      method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ writes }),
+    }).catch(() => {});
+  }
+}
+// Returns { entries } (newest day first) after pruning anything older than the retention window.
+async function readStoryLog() {
+  const token = await getGoogleAccessToken();
+  if (!token) return null;
+  const all = await listStoryLog(token);
+  const cutoff = new Date(Date.now() - STORY_LOG_RETENTION_DAYS * 864e5).toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+  const stale = all.filter((e) => e.date && e.date < cutoff).map((e) => e.id);
+  if (stale.length) await deleteStoryDocs(token, stale);
+  const entries = all.filter((e) => !e.date || e.date >= cutoff)
+    .sort((a, b) => (a.date !== b.date ? (a.date < b.date ? 1 : -1)
+      : a.user !== b.user ? a.user.localeCompare(b.user)
+      : a.storyId !== b.storyId ? a.storyId.localeCompare(b.storyId) : a.idx - b.idx));
+  return { entries };
+}
+// Delete one day's docs (or all logs if date is falsy). Returns the count removed.
+async function clearStoryLog(date) {
+  const token = await getGoogleAccessToken();
+  if (!token) return 0;
+  const all = await listStoryLog(token);
+  const ids = all.filter((e) => !date || e.date === date).map((e) => e.id);
+  if (ids.length) await deleteStoryDocs(token, ids);
+  return ids.length;
+}
+
 function corsHeaders(origin, contentType) {
   const allowOrigin = ALLOWED_ORIGINS.has(origin) ? origin : "https://amenfarms.netlify.app";
   return {
@@ -480,6 +566,18 @@ export default async (req) => {
     return new Response(JSON.stringify({ days, hours: hours || [] }), { status: 200, headers: jsonHeaders });
   }
 
+  // Parent-monitoring Story Log (Dad-only in the UI; secret-gated here like stats). Read returns
+  // recent logged scenes (auto-pruning anything past the retention window); clear deletes a day.
+  if (body.mode === "storylog") {
+    const data = await readStoryLog();
+    if (!data) return jsonError(500, "Story log isn't configured on the server", jsonHeaders);
+    return new Response(JSON.stringify(data), { status: 200, headers: jsonHeaders });
+  }
+  if (body.mode === "storylog_clear") {
+    const cleared = await clearStoryLog(typeof body.date === "string" ? body.date : "");
+    return new Response(JSON.stringify({ cleared }), { status: 200, headers: jsonHeaders });
+  }
+
   const mode = MODES[body.mode];
   if (!mode) return jsonError(400, "mode must be \"story\" or \"research\"", jsonHeaders);
 
@@ -585,12 +683,16 @@ export default async (req) => {
   const decoder = new TextDecoder();
   const reader = upstream.body.getReader();
   const isGemini = provider === "gemini";
+  // Parent-monitoring: log this scene's text to Firestore (story mode, a named non-Dad kid).
+  const logStoryReq = body.mode === "story" && typeof body.user === "string" && body.user &&
+    body.user !== "Dad" && typeof body.storyId === "string" && !!body.storyId;
 
   const stream = new ReadableStream({
     async start(controller) {
       let buf = "";
       let sentAnyText = false;
       let stopReason = null;
+      let replyText = "";   // accumulated scene text, for the content log (story mode only)
       let inTok = 0, outTok = 0, cacheWriteTok = 0, cacheReadTok = 0;
       try {
         for (;;) {
@@ -615,7 +717,7 @@ export default async (req) => {
               const cand = ev.candidates && ev.candidates[0];
               if (cand && cand.content && cand.content.parts) {
                 const t = cand.content.parts.map((p) => p.text || "").join("");
-                if (t) { sentAnyText = true; controller.enqueue(encoder.encode(t)); }
+                if (t) { sentAnyText = true; if (logStoryReq) replyText += t; controller.enqueue(encoder.encode(t)); }
               }
               // A safety/recitation block with no text → friendly stand-in (shared handler below).
               if (cand && (cand.finishReason === "SAFETY" || cand.finishReason === "RECITATION" || cand.finishReason === "OTHER")) stopReason = "refusal";
@@ -626,6 +728,7 @@ export default async (req) => {
               }
             } else if (ev.type === "content_block_delta" && ev.delta && ev.delta.type === "text_delta" && ev.delta.text) {
               sentAnyText = true;
+              if (logStoryReq) replyText += ev.delta.text;
               controller.enqueue(encoder.encode(ev.delta.text));
             } else if (ev.type === "message_start" && ev.message && ev.message.usage) {
               // input_tokens is the UNCACHED remainder only; cached tokens are reported
@@ -647,8 +750,15 @@ export default async (req) => {
       } catch {
         // Upstream connection dropped mid-stream — end what we have; the client keeps the partial.
       } finally {
-        // Log before closing so the lambda stays alive for the write (fails silently).
+        // Log before closing so the lambda stays alive for the writes (both fail silently).
         if (inTok || outTok || cacheWriteTok || cacheReadTok) await logUsage(body.mode, inTok, outTok, cacheWriteTok, cacheReadTok);
+        if (logStoryReq && sentAnyText) {
+          await logStory({
+            user: body.user, storyId: body.storyId, title: body.storyTitle || "Untitled",
+            idx: body.sceneIdx | 0, choice: body.choice || "",
+            scene: replyText.replace(/\n?===ART===[\s\S]*$/, "").trim(),   // drop the bulky SVG
+          });
+        }
         controller.close();
       }
     },

@@ -805,6 +805,35 @@ const PRINT_ADMIN = "Dad";
 const BANK_ADMIN = "Dad";
 const BANK_KIDS = ["Isaac", "Eleanor"];
 
+/* ---- Dad account lock: the Dad profile (banking, and FarmGPT's usage + kids' Story Log) is
+   PIN-protected. The PIN is created in-app the first time, hashed (never stored in the clear),
+   synced to Firestore (settings_<familyKey>/dadAuth.pinHash) + mirrored to localStorage so
+   farmgpt.html can verify it too. Unlocking sets a session flag shared across pages on this
+   origin. Soft client gate — its real strength is that the kids don't know the PIN. ---- */
+async function sha256Hex(s){ const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)); return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join(""); }
+const dadPinHash    = () => localStorage.getItem("dadPinHash") || "";
+const dadConfigured = () => !!dadPinHash();
+const dadUnlocked   = () => sessionStorage.getItem("dadUnlocked") === "1";
+const isDadName     = () => (localStorage.getItem("choreUser") || "") === BANK_ADMIN;   // "Dad"
+const bankAdmin     = () => isDadName() && dadUnlocked();                                // gate for Dad-only UI
+async function setDadPin(pin){ const h = await sha256Hex(pin + ":" + FAMILY_PASSWORD); localStorage.setItem("dadPinHash", h); try { await backend?.setSetting?.("dadAuth", { pinHash: h }); } catch {} }
+async function syncDadPin(){ try { const s = await backend?.getSetting?.("dadAuth"); if (s && s.pinHash) localStorage.setItem("dadPinHash", s.pinHash); } catch {} }
+// Create-or-verify the Dad PIN; sets the session unlock on success. Returns true if unlocked.
+async function gateDad(){
+  if (!dadConfigured()){
+    const p1 = prompt("Set a Dad PIN — kids won't be able to open Dad tools (banking, story logs) without it:");
+    if (p1 == null || !p1.trim()) return false;
+    const p2 = prompt("Re-enter the PIN to confirm:");
+    if (p2 == null) return false;
+    if (p1 !== p2){ alert("PINs didn't match — try again."); return false; }
+    await setDadPin(p1.trim()); sessionStorage.setItem("dadUnlocked", "1"); return true;
+  }
+  const pin = prompt("Enter your Dad PIN:");
+  if (pin == null) return false;
+  if ((await sha256Hex(pin + ":" + FAMILY_PASSWORD)) === dadPinHash()){ sessionStorage.setItem("dadUnlocked", "1"); return true; }
+  alert("Wrong PIN."); return false;
+}
+
 /* ---- Email alerts (EmailJS) — see the setup guide, "Work-order email alerts".
    Leave as PASTE_HERE until you've set up EmailJS; the app works fine without it,
    it just won't send emails yet. ---- */
@@ -2230,7 +2259,7 @@ function buildWoCard(w){
     const head = document.createElement("div"); head.className = "payout-head";
     head.textContent = `💰 Confirm: ${w.doneBy} finished "${w.name}" ($${w.value})`;
     pc.appendChild(head);
-    if (myName() === BANK_ADMIN){
+    if (bankAdmin()){
       const pa = document.createElement("div"); pa.className = "payout-actions";
       const conf = document.createElement("button"); conf.className = "payout-confirm-btn";
       conf.textContent = `Confirm $${w.value} → ${w.doneBy} 💰`;
@@ -2900,7 +2929,7 @@ function buildBankCard(kid){
   const balEl = document.createElement("div"); balEl.className = "bank-balance" + (bal < 0 ? " neg" : ""); balEl.textContent = "$" + bal.toFixed(2).replace(/\.00$/, "");
   card.appendChild(balEl);
 
-  const isAdmin = myName() === BANK_ADMIN;
+  const isAdmin = bankAdmin();
   if (isAdmin){
     const chips = document.createElement("div"); chips.className = "bank-chips";
     for (const amt of [1, 5, 10]){
@@ -3855,7 +3884,13 @@ function renderFamilyList(){
     info.append(nm, em);
     const meBtn = document.createElement("button"); meBtn.className = "iconbtn"; meBtn.style.fontSize = "13px";
     meBtn.textContent = m.name === me ? "✓ You" : "This is me";
-    meBtn.onclick = () => { localStorage.setItem("choreUser", m.name); refreshName(); renderFamilyList(); render(); };
+    meBtn.onclick = async () => {
+      // Becoming "Dad" requires the Dad PIN (create it the first time). Clicking Dad while already
+      // Dad-but-locked re-runs the gate to unlock this session.
+      if (m.name === BANK_ADMIN){ if (!(await gateDad())) return; }
+      else { sessionStorage.removeItem("dadUnlocked"); }   // leaving Dad re-locks
+      localStorage.setItem("choreUser", m.name); refreshName(); renderFamilyList(); render();
+    };
     const ed = document.createElement("button"); ed.className = "iconbtn"; ed.innerHTML = "✎";
     ed.onclick = () => { editingProfileId = m.id; document.getElementById("famName").value = m.name; document.getElementById("famEmail").value = m.email || ""; document.getElementById("famAddBtn").textContent = "Save"; document.getElementById("famFormLabel").textContent = "Edit family member"; };
     const del = document.createElement("button"); del.className = "iconbtn"; del.innerHTML = "🗑";
@@ -4176,7 +4211,9 @@ function makeLocalBackend(){
       else chores.push({ id, ...data });
       save();
       return id;
-    }
+    },
+    getSetting: async (docId) => { try { return JSON.parse(localStorage.getItem("setting_" + docId)) || null; } catch { return null; } },
+    setSetting: async (docId, data) => { localStorage.setItem("setting_" + docId, JSON.stringify(data)); }
   };
 }
 
@@ -4221,7 +4258,10 @@ async function makeCloudBackend(){
     // doc if it doesn't exist, or merges fields onto the existing one if it does — so N racing
     // writers (multiple devices, or multiple rapid onSnapshot-triggered calls on one device) all
     // converge on the SAME single doc instead of each minting a new one via addDoc.
-    set: async (id, data) => { await fs.setDoc(fs.doc(col, id), data, { merge: true }); return id; }
+    set: async (id, data) => { await fs.setDoc(fs.doc(col, id), data, { merge: true }); return id; },
+    // Small key/value settings docs kept OUT of the chores collection (e.g. the Dad PIN hash).
+    getSetting: async (docId) => { const d = await fs.getDoc(fs.doc(db, "settings_" + familyKey, docId)); return d.exists() ? d.data() : null; },
+    setSetting: async (docId, data) => { await fs.setDoc(fs.doc(db, "settings_" + familyKey, docId), data, { merge: true }); }
   };
 }
 
@@ -4232,6 +4272,7 @@ async function bootApp(){
     try {
       setStatus("", "Connecting…");
       backend = await makeCloudBackend();   // onSnapshot will render + set status
+      afterBackendReady();                  // pull the Dad PIN hash + authenticate Dad this session
       return;
     } catch (e){
       console.error(e);
@@ -4242,6 +4283,16 @@ async function bootApp(){
   }
   backend = makeLocalBackend();
   render();
+  afterBackendReady();
+}
+// Once the backend is up: sync the Dad PIN hash to this device, and if the current user is Dad
+// but locked this session, prompt to unlock (or set a PIN the first time). Never blocks boot.
+async function afterBackendReady(){
+  await syncDadPin();
+  if (isDadName() && !dadUnlocked()){
+    await gateDad();
+    render();   // reflect the unlock in the banking UI
+  }
 }
 
 // ---- Family password gate ----
