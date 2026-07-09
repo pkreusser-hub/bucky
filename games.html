@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<meta name="theme-color" content="#0a3161" />
+<meta name="theme-color" content="#233357" />
 <title>BUCKY — Games</title>
 <link rel="icon" href="bucky.png" />
 <link rel="apple-touch-icon" href="bucky.png" />
@@ -13,11 +13,11 @@
     --card: #ffffff;
     --ink: #15233f;
     --muted: #5d6b86;
-    --green: #0a3161;     /* Old Glory navy — primary */
-    --green-d: #07223f;
-    --red: #b31942;       /* Old Glory red — accent */
+    --green: #233357;     /* Old Glory navy — primary */
+    --green-d: #18233b;
+    --red: #ba303e;       /* Old Glory red — accent */
     --line: #d7e0f0;
-    --shadow: 0 1px 3px rgba(10,49,97,.10), 0 6px 16px rgba(10,49,97,.06);
+    --shadow: 0 1px 3px rgba(35,51,87,.10), 0 6px 16px rgba(35,51,87,.06);
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; padding: 0; }
@@ -41,10 +41,8 @@
     background: rgba(255,255,255,.16); padding: 7px 12px; border-radius: 9px; flex: 0 0 auto;
   }
   #bar .t { font-size: 18px; font-weight: 800; letter-spacing: .2px; }
-  .stripes {
-    height: 6px; margin: 10px -16px -14px;
-    background: repeating-linear-gradient(90deg, var(--red) 0 18px, #fff 18px 36px);
-  }
+  /* candy stripe retired with the 2026-07 app-shell redesign (index.html dropped it too) */
+  .stripes { display: none; }
   main { max-width: 760px; margin: 0 auto; padding: 12px; }
   .progress { font-size: 13px; color: var(--muted); margin: 14px 2px 12px; }
   ul.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
@@ -76,7 +74,7 @@
 
 <header>
   <div id="bar">
-    <a href="index.html">← BUCKY</a>
+    <a href="index.html">← Bucky</a>
     <span class="t">🎮 Games</span>
   </div>
   <div class="stripes"></div>
@@ -109,9 +107,20 @@
 <nav id="buckyNav" aria-label="BUCKY sections"></nav>
 <script>
 (function () {
-  // 5 areas matching index.html's bottom bar (NAV_GROUPS). Both farmgpt + games live
-  // under "Play", so Play is the active tab on both pages.
-  var NAV = [["🏠","index.html#dashboard","Home"],["✅","index.html#chores","Tasks"],["💰","index.html#farmbank","Bank"],["🐐","index.html#goathooves","Farm"],["🎮","games.html","Play"]];
+  // 7 areas matching index.html's bottom bar (NAV_GROUPS). Both farmgpt + games live
+  // under "Play", so Play is the active tab on both pages. Bank is family-only —
+  // same BANK_USERS gate as index.html (keep the two lists in sync).
+  var BANK_USERS = ["Eleanor", "Isaac", "Dad", "Mom"];
+  var me = localStorage.getItem("choreUser") || "";
+  var NAV = [
+    ["🏠","index.html#dashboard","Home"],
+    ["✅","index.html#chores","Chores"],
+    ["🛠️","index.html#workorders","Jobs"],
+    ["🛒","index.html#shopping","Shop"],
+    ["💰","index.html#farmbank","Bank"],
+    ["🐐","index.html#goathooves","Farm"],
+    ["🎮","games.html","Play"]
+  ].filter(function (n) { return n[2] !== "Bank" || BANK_USERS.indexOf(me) >= 0; });
   var here = "games.html", el = document.getElementById("buckyNav");
   NAV.forEach(function (n) {
     var a = document.createElement("a"); a.href = n[1];
@@ -126,7 +135,7 @@
 
 <main>
   <div id="lobbyBanners"></div>
-  <div class="progress">Pick your poison</div>
+  <div class="progress">Pick a game!</div>
   <ul class="list">
     <li class="dash-grid" id="gamesGrid"></li>
   </ul>

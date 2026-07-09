@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<meta name="theme-color" content="#0a3161" />
+<meta name="theme-color" content="#233357" />
 <title>BUCKY — FarmGPT</title>
 <link rel="icon" href="bucky.png" />
 <link rel="apple-touch-icon" href="bucky.png" />
@@ -20,11 +20,11 @@
     --card: #ffffff;
     --ink: #15233f;
     --muted: #5d6b86;
-    --green: #0a3161;     /* Old Glory navy — primary */
-    --green-d: #07223f;
-    --red: #b31942;       /* Old Glory red — accent */
+    --green: #233357;     /* Old Glory navy — primary */
+    --green-d: #18233b;
+    --red: #ba303e;       /* Old Glory red — accent */
     --line: #d7e0f0;
-    --shadow: 0 1px 3px rgba(10,49,97,.10), 0 6px 16px rgba(10,49,97,.06);
+    --shadow: 0 1px 3px rgba(35,51,87,.10), 0 6px 16px rgba(35,51,87,.06);
     --paper: #fdf8ec;     /* story-book parchment */
     --paper-line: #e8ddc2;
   }
@@ -49,8 +49,8 @@
     border: 0; cursor: pointer; font-family: inherit; flex: 0 0 auto;
   }
   #bar .t { font-size: 18px; font-weight: 800; letter-spacing: .2px; flex: 1; }
-  .stripes { height: 6px; margin: 10px -16px -12px;
-    background: repeating-linear-gradient(90deg, var(--red) 0 18px, #fff 18px 36px); }
+  /* candy stripe retired with the 2026-07 app-shell redesign (index.html dropped it too) */
+  .stripes { display: none; }
 
   main { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; max-width: 820px; width: 100%; margin: 0 auto; padding: 12px 12px 16px; }
   .view { display: none; flex: 1; min-height: 0; flex-direction: column; }
@@ -300,7 +300,8 @@
   }
   #chatInput:focus { outline: none; border-color: var(--green); }
   #chatSend {
-    flex: 0 0 auto; background: var(--red); color: #fff; border: 0; border-radius: 12px;
+    /* navy = the app-wide primary-action color (red is reserved for accents) */
+    flex: 0 0 auto; background: var(--green); color: #fff; border: 0; border-radius: 12px;
     font-family: inherit; font-weight: 800; font-size: 15px; padding: 0 18px; cursor: pointer;
   }
   #chatSend:disabled { opacity: .5; }
@@ -318,7 +319,7 @@
 
 <header>
   <div id="bar">
-    <a href="index.html" id="backLink">← BUCKY</a>
+    <a href="index.html" id="backLink">← Bucky</a>
     <span class="t" id="barTitle">🌾 FarmGPT</span>
     <button id="clearChatBtn" style="display:none">🧹 Clear</button>
   </div>
@@ -472,7 +473,7 @@
     <div id="chatInputRow">
       <button id="photoBtn" title="Attach a photo">📷</button>
       <input id="photoFile" type="file" accept="image/*" capture="environment" style="display:none" />
-      <textarea id="chatInput" rows="1" maxlength="6000" placeholder="Ask a research or coding question…"></textarea>
+      <textarea id="chatInput" rows="1" maxlength="6000" placeholder="Ask me anything…"></textarea>
       <button id="chatSend">Send</button>
     </div>
   </div>
@@ -481,9 +482,20 @@
 <nav id="buckyNav" aria-label="BUCKY sections"></nav>
 <script>
 (function () {
-  // 5 areas matching index.html's bottom bar (NAV_GROUPS). Both farmgpt + games live
-  // under "Play", so Play is the active tab on both pages.
-  var NAV = [["🏠","index.html#dashboard","Home"],["✅","index.html#chores","Tasks"],["💰","index.html#farmbank","Bank"],["🐐","index.html#goathooves","Farm"],["🎮","games.html","Play"]];
+  // 7 areas matching index.html's bottom bar (NAV_GROUPS). Both farmgpt + games live
+  // under "Play", so Play is the active tab on both pages. Bank is family-only —
+  // same BANK_USERS gate as index.html (keep the two lists in sync).
+  var BANK_USERS = ["Eleanor", "Isaac", "Dad", "Mom"];
+  var me = localStorage.getItem("choreUser") || "";
+  var NAV = [
+    ["🏠","index.html#dashboard","Home"],
+    ["✅","index.html#chores","Chores"],
+    ["🛠️","index.html#workorders","Jobs"],
+    ["🛒","index.html#shopping","Shop"],
+    ["💰","index.html#farmbank","Bank"],
+    ["🐐","index.html#goathooves","Farm"],
+    ["🎮","games.html","Play"]
+  ].filter(function (n) { return n[2] !== "Bank" || BANK_USERS.indexOf(me) >= 0; });
   var here = "games.html", el = document.getElementById("buckyNav");
   NAV.forEach(function (n) {
     var a = document.createElement("a"); a.href = n[1];
@@ -545,7 +557,7 @@
   function show(name) {
     currentView = name;
     for (const k in views) views[k].classList.toggle("on", k === name);
-    $("backLink").textContent = name === "home" ? "← BUCKY" : "← Back";
+    $("backLink").textContent = name === "home" ? "← Bucky" : "← Back";
     $("backLink").href = name === "home" ? "index.html" : "javascript:void 0";
     $("barTitle").textContent =
       name === "research" ? "🔬 FarmGPT Research" :

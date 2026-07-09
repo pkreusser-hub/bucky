@@ -110,7 +110,8 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
     animation: toast-in .25s ease;
   }
   @keyframes toast-in { from { transform: translateY(-16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-  .status { font-size: 12px; opacity: .9; margin-top: 4px; min-height: 16px; }
+  .status { font-size: 12px; opacity: .9; margin-top: 4px; min-height: 16px; overflow: hidden; transition: max-height .4s ease, opacity .4s ease, margin-top .4s ease; max-height: 20px; }
+  .status.tucked { max-height: 0; min-height: 0; opacity: 0; margin-top: 0; }
   .status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle; background: #ffd24a; }
   .status.live .dot { background: #8ff0a4; }
   .status.local .dot { background: #ffb3b3; }
@@ -208,6 +209,18 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .playcard.gpt .pcico { background: linear-gradient(180deg, #c9414f 0%, var(--red) 100%); }
   .playcard .pctext { display: flex; flex-direction: column; min-width: 0; }
   .playcard .pctitle { font-size: 17px; font-weight: 800; }
+  /* inline arcade shelf (mirrors games.html's tile look) */
+  .pgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .ptile {
+    background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow);
+    padding: 16px 10px 14px; cursor: pointer; display: flex; flex-direction: column; gap: 4px;
+    align-items: center; text-align: center; color: inherit; transition: transform .1s ease, background .15s ease;
+  }
+  .ptile:active { transform: scale(.97); background: var(--done); }
+  .ptile .pico { font-size: 30px; line-height: 1; }
+  .ptile .pname { font-weight: 800; font-size: 15px; color: var(--ink); }
+  .ptile .pdesc { font-size: 12px; color: var(--muted); }
+  .playhub { border: 0; background: transparent; color: var(--green); font-size: 13.5px; font-weight: 800; padding: 8px 0 2px; cursor: pointer; text-align: center; }
   .playcard .pcdesc { font-size: 13px; color: var(--muted); margin-top: 3px; }
   .playcard .pcarrow { margin-left: auto; color: var(--muted); font-size: 20px; flex: 0 0 auto; }
 
@@ -291,19 +304,24 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .wo-top .name { flex: 1; min-width: 0; font-size: 15px; font-weight: 700; line-height: 1.25; }
   .wo-thumb { width: 34px; height: 34px; border-radius: 8px; object-fit: cover; flex: 0 0 auto; background: #e9e7dd; }
   .wo-status { flex: 0 0 auto; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; padding: 3px 9px; border-radius: 999px; }
-  .wo-status.open { background: #fff1c2; color: #8a6d1a; }
+  .wo-status.open { background: var(--red-soft); color: var(--red); }
   .wo-status.done { background: #e7eefb; color: var(--green); }
   .wo-status.pending { background: #f0d98a; color: #6b4e00; text-transform: none; letter-spacing: 0; }
   .wo-meta { padding: 0 12px 5px; font-size: 12.5px; color: var(--muted); }
   .wo-meta .due.overdue { color: var(--red); font-weight: 700; }
   .wo-money { font-weight: 700; color: var(--green); }
-  li.wo.wo-hasvalue { border: 2px solid #1c8a4a; box-shadow: 0 0 0 1px #1c8a4a inset; }
+  /* money jobs get a quiet green accent stripe instead of the old full green outline */
+  li.wo.wo-hasvalue { border-left: 4px solid var(--good); }
   .wo-badge { margin-left: 8px; min-width: 20px; height: 20px; padding: 0 6px; background: var(--red); color: #fff;
     border-radius: 999px; font-size: 12px; font-weight: 800; line-height: 20px; text-align: center; letter-spacing: 0; box-sizing: border-box; }
   .wo-desc { padding: 0 12px 7px; font-size: 13px; color: var(--ink); white-space: pre-wrap; }
   /* flex-wrap + nowrap labels: on narrow phones the close button drops to its own
      full-width row instead of squeezing its label onto two lines */
   .wo-actions { padding: 7px 12px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  /* secondary text actions (Reassign/Claim/Copy/Reopen) — real ghost buttons, not bare gray text */
+  .wo-ghost-btn { border: 1px solid var(--line); background: var(--card); color: var(--ink-2); font-size: 13px; font-weight: 700; padding: 8px 12px; border-radius: 10px; cursor: pointer; }
+  .wo-ghost-btn:active { background: var(--done); }
+  .wo-ghost-btn.claim { color: var(--green); border-color: var(--green); }
   .wo-close-btn { flex: 1 1 150px; padding: 9px; border: 0; border-radius: 10px; background: var(--green); color: #fff; font-weight: 700; font-size: 14px; cursor: pointer; white-space: nowrap; }
   .donephoto { width: 42px; height: 42px; border-radius: 8px; object-fit: cover; flex: 0 0 auto; }
   li.chore.wo-row { background: #fff8e1; border-color: #f0d98a; }
@@ -470,10 +488,11 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
 
   /* 3-up stat row */
   .home2 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-  .home2 .stat { background: var(--card); border: 1px solid var(--line); border-radius: 15px; padding: 11px 10px; box-shadow: var(--shadow); cursor: pointer; color: inherit; text-align: left; transition: transform .1s ease, background .15s ease; }
+  .home2 .stat { background: var(--card); border: 1px solid var(--line); border-radius: 15px; padding: 11px 10px; box-shadow: var(--shadow); cursor: pointer; color: inherit; text-align: left; transition: transform .1s ease, background .15s ease; display: flex; flex-direction: column; }
   .home2 .stat:active { transform: scale(.96); background: var(--done); }
-  .home2 .stat .k { font-size: 11px; color: var(--muted); font-weight: 700; display: flex; align-items: center; gap: 5px; }
-  .home2 .stat .v { font-size: 19px; font-weight: 800; margin-top: 3px; font-variant-numeric: tabular-nums; letter-spacing: -.3px; color: var(--ink); }
+  .home2 .stat .k { font-size: 11px; color: var(--muted); font-weight: 700; display: flex; align-items: flex-start; gap: 5px; }
+  /* values bottom-align so the four numbers form one line even when labels wrap ("Open Work Orders") */
+  .home2 .stat .v { font-size: 19px; font-weight: 800; margin-top: auto; padding-top: 3px; font-variant-numeric: tabular-nums; letter-spacing: -.3px; color: var(--ink); }
   .home2 .stat .v small { font-size: 12px; color: var(--muted); font-weight: 700; }
 
   /* Today's chores card */
@@ -1421,12 +1440,15 @@ function closeNotifPanel(){
 // ---- Live toast ----
 function showToast(text, onClick){
   const wrap = document.getElementById("toastWrap");
+  // Cap the stack at 2 — a burst of notifications otherwise buries the greeting/hero.
+  // The bell keeps the full list; toasts are just a heads-up.
+  while (wrap.children.length >= 2) wrap.firstChild.remove();
   const t = document.createElement("div");
   t.className = "toast";
   t.textContent = text;
   t.onclick = () => { t.remove(); if (onClick) onClick(); };
   wrap.appendChild(t);
-  setTimeout(() => t.remove(), 5000);
+  setTimeout(() => t.remove(), 4000);
 }
 function notifDestination(n){
   if (n.type === "print_request" || n.type === "print_done") return goToPrint3D;
@@ -1550,7 +1572,20 @@ function render(){
   renderChores();
 }
 
-// Play area: an in-app menu that links out to the two external hubs.
+// Play area: FarmGPT up top, then the whole arcade inline (tiles mirror games.html's
+// GAMES list — keep the two in sync when a game is added). The games hub link stays at
+// the bottom because it's where live family-lobby JOIN cards appear.
+const PLAY_GAMES = [
+  { ico:"🐐", name:"Bucky Jump",      desc:"Jump the fences",              url:"index.html#game" },
+  { ico:"🐱", name:"Cat Rescue",      desc:"Save the barn cats",           url:"index.html#catgame" },
+  { ico:"🚜", name:"Hay Haul",        desc:"Snake, but tractor & hay",     url:"hayhaul.html" },
+  { ico:"🪵", name:"Branch Manager",  desc:"Tetris, but with branches",    url:"branchmanager.html" },
+  { ico:"🛶", name:"Varmint Wars",    desc:"Pond artillery battles",       url:"varmintwars.html" },
+  { ico:"🌽", name:"Pasture Panic",   desc:"3D survive-the-stampede",      url:"pasturepanic.html" },
+  { ico:"🐐", name:"Baby Bucky",      desc:"Raise a baby goat",            url:"goatcare.html" },
+  { ico:"🍅", name:"Barnyard Bistro", desc:"Cook together — 2-chef co-op", url:"barnyardbistro.html" },
+  { ico:"🏁", name:"Farm Kart",       desc:"Kart racing on the farm",      url:"farmkart.html" }
+];
 function renderPlay(){
   document.querySelector(".bar").style.display = "none";
   document.getElementById("empty").style.display = "none";
@@ -1560,21 +1595,42 @@ function renderPlay(){
   const wrap = document.createElement("li");
   wrap.style.cssText = "background:transparent;border:0;box-shadow:none;padding:0;";
   const menu = document.createElement("div"); menu.className = "playmenu";
-  const cards = [
-    { cls:"",    ico:"🎮", title:"Games",   desc:"Farm Kart, Bistro, Baby Bucky & more", url:"games.html" },
-    { cls:"gpt", ico:"🌾", title:"FarmGPT",  desc:"Story time & homework helper AI",     url:"farmgpt.html" },
-  ];
-  for (const c of cards){
-    const a = document.createElement("button");
-    a.className = "playcard " + c.cls;
-    a.innerHTML = `<span class="pcico">${c.ico}</span>`
-      + `<span class="pctext"><span class="pctitle"></span><span class="pcdesc"></span></span>`
-      + `<span class="pcarrow">›</span>`;
-    a.querySelector(".pctitle").textContent = c.title;
-    a.querySelector(".pcdesc").textContent = c.desc;
-    a.onclick = () => { location.href = c.url; };
-    menu.appendChild(a);
+
+  // FarmGPT feature card
+  const gpt = document.createElement("button");
+  gpt.className = "playcard gpt";
+  gpt.innerHTML = `<span class="pcico">🌾</span>`
+    + `<span class="pctext"><span class="pctitle"></span><span class="pcdesc"></span></span>`
+    + `<span class="pcarrow">›</span>`;
+  gpt.querySelector(".pctitle").textContent = "FarmGPT";
+  gpt.querySelector(".pcdesc").textContent = "Story time & homework helper AI";
+  gpt.onclick = () => { location.href = "farmgpt.html"; };
+  menu.appendChild(gpt);
+
+  // the arcade shelf
+  const grid = document.createElement("div"); grid.className = "pgrid";
+  for (const g of PLAY_GAMES){
+    const t = document.createElement("button");
+    t.className = "ptile";
+    t.innerHTML = `<span class="pico">${g.ico}</span><span class="pname"></span><span class="pdesc"></span>`;
+    t.querySelector(".pname").textContent = g.name;
+    t.querySelector(".pdesc").textContent = g.desc;
+    t.onclick = () => {
+      const hash = g.url.startsWith("index.html#") ? g.url.split("#")[1] : null;
+      if (hash) goTo(hash);              // in-app games stay in-app
+      else location.href = g.url;
+    };
+    grid.appendChild(t);
   }
+  menu.appendChild(grid);
+
+  // full hub link (live family-lobby JOIN cards appear there)
+  const hub = document.createElement("button");
+  hub.className = "playhub";
+  hub.textContent = "Open the games hub — join a family lobby →";
+  hub.onclick = () => { location.href = "games.html"; };
+  menu.appendChild(hub);
+
   wrap.appendChild(menu);
   list.appendChild(wrap);
 }
@@ -2750,13 +2806,13 @@ function buildWoCard(w){
     info.textContent = `Completed${w.doneBy ? " by " + w.doneBy : ""}${w.doneAt ? " · " + fmtDate(w.doneAt) : ""}`;
     actions.appendChild(info);
     if (w.donePhoto){ const im = document.createElement("img"); im.className = "donephoto"; im.src = w.donePhoto; im.alt = ""; im.style.cursor = "pointer"; im.onclick = () => openPhoto(w.donePhoto); actions.appendChild(im); }
-    const cp = document.createElement("button"); cp.className = "iconbtn"; cp.textContent = "Copy"; cp.style.fontSize = "13px"; cp.title = "Create a new work order from this one"; cp.onclick = () => openCopySheet(w); actions.appendChild(cp);
-    const re = document.createElement("button"); re.className = "iconbtn"; re.textContent = "Reopen"; re.style.fontSize = "13px"; re.onclick = () => reopenWorkOrder(w); actions.appendChild(re);
+    const cp = document.createElement("button"); cp.className = "wo-ghost-btn"; cp.textContent = "Copy"; cp.title = "Create a new work order from this one"; cp.onclick = () => openCopySheet(w); actions.appendChild(cp);
+    const re = document.createElement("button"); re.className = "wo-ghost-btn"; re.textContent = "Reopen"; re.onclick = () => reopenWorkOrder(w); actions.appendChild(re);
   } else {
     if ((w.assignee || "").trim()){
-      const re = document.createElement("button"); re.className = "iconbtn"; re.textContent = "Reassign"; re.style.fontSize = "13px"; re.onclick = () => reassignWorkOrder(w); actions.appendChild(re);
+      const re = document.createElement("button"); re.className = "wo-ghost-btn"; re.textContent = "Reassign"; re.onclick = () => reassignWorkOrder(w); actions.appendChild(re);
     } else {
-      const claim = document.createElement("button"); claim.className = "iconbtn"; claim.textContent = "Claim"; claim.style.cssText = "font-size:13px;color:var(--green);font-weight:700;"; claim.onclick = () => claimWorkOrder(w); actions.appendChild(claim);
+      const claim = document.createElement("button"); claim.className = "wo-ghost-btn claim"; claim.textContent = "Claim"; claim.onclick = () => claimWorkOrder(w); actions.appendChild(claim);
     }
     if (w.assignee === myName()){
       const prog = document.createElement("button"); prog.className = "wo-progress-btn"; prog.textContent = "Update progress";
@@ -4188,10 +4244,15 @@ window.addEventListener("keyup", e=>{
   if (currentTab === "catgame" && catGame && (e.code === "ArrowLeft" || e.code === "ArrowRight")) catGame.dir = 0;
 });
 
+let statusHideTimer = null;
 function setStatus(kind, text){
   const el = document.getElementById("status");
   el.className = "status " + kind;
   document.getElementById("statusText").textContent = text;
+  // When everything's healthy the line is just noise — tuck it away after a moment
+  // (buys back a header row on every page). Any non-live status brings it right back.
+  clearTimeout(statusHideTimer);
+  if (kind === "live") statusHideTimer = setTimeout(() => { el.classList.add("tucked"); }, 4000);
 }
 
 // ---- Actions ----

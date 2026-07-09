@@ -153,6 +153,25 @@ tokens (no framework); regroup the 9 sections into ~5 areas.
   (4-stat row + shopping count, no Chores sub-nav, Jobs sub=workorders/print3d, Mom full w/
   bank, Grandma 6 tabs + ring + no bank), p7 13/13 / p8 18/18 / p9 15/15 updated to the new
   spec. 0 pageerrors.
+- **TASTE-TEST FIX BATCH** (2026-07-09, Fable design sweep of all 14 screens; shots in
+  scratchpad/taste/): (1) **FarmGPT + Games shell parity** — their #buckyNav arrays updated
+  to the 7-tab set (Home/Chores/Jobs/Shop/Bank/Farm/Play) with the SAME BANK_USERS gate as
+  index (duplicated list — keep all three in sync); candy `.stripes` hidden on both pages;
+  "← BUCKY" → "← Bucky" (games markup + farmgpt markup AND its show() fn); AND both pages'
+  token blocks were still the OLD palette — completed the P1 hex swap (#0a3161→#233357,
+  #07223f→#18233b, #b31942→#ba303e incl. theme-color metas). (2) Home stat values BOTTOM-
+  ALIGN (.stat flex column + .v margin-top:auto) so the 4 numbers form one line despite
+  wrapped labels. (3) STATUS LINE auto-tucks 4s after a healthy "live" connect (.status.tucked
+  max-height:0 transition; any non-live setStatus brings it back). (4) JOBS restyle: money
+  cards' full green outline → 4px left accent stripe (li.wo has NO base border — 0px top is
+  correct); OPEN pill mustard → red-soft/red; Reassign/Claim/Copy/Reopen switched from bare
+  .iconbtn text to a real `.wo-ghost-btn` (bordered; .claim = navy). (5) TOASTS capped at 2
+  (oldest evicted) + lifetime 5s→4s. (6) PLAY TAB furnished: FarmGPT card + inline 9-game
+  `.pgrid/.ptile` arcade (PLAY_GAMES const MIRRORS games.html's GAMES list — keep in sync;
+  in-app games route via goTo(game/catgame)) + a "games hub" link (lobby JOIN cards live
+  there). (7) farmgpt chatInput placeholder shortened ("Ask me anything…" — old one clipped),
+  Send button red→navy primary; games "Pick your poison"→"Pick a game!". Verified p11 24/24 +
+  p7/p8/p9/p10 all green. Test: p11_taste.mjs.
 
 ---
 
@@ -1503,3 +1522,10 @@ bridges keep open air. Ribbon remains a separate visual (+0.08). Verified:
 `tools/_verify-terrain-auth.cjs` (default maxDiff 0; Royal keeps bridge gaps) + slope-conform
 PASS. Stage B (later): bake road into one heightfield / ribbon from same verts. Stage C:
 optional mesh raycast seating.
+
+# 🏁 Farm Kart — race minimap (2026-07-09)
+
+Top-right `#minimap` canvas (north-up): corridor outline from `centerPts`/`TRACK_WIDTH`,
+live dots for every `G.players` entry (local = white-ringed facing wedge; others use
+`_slotCol` / `botColor`). Shown in countdown/racing/finished; hidden on menu. Safe-area
+aware; mobile ♻ reset shifted below it. Verify: `node tools/_verify-minimap.cjs`.
