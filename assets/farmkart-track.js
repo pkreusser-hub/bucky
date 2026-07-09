@@ -588,9 +588,31 @@
     }
     return gy;
   }
-  // buildGroundMesh: the displaced ground grid (grass + hills). Byte-identical to the game's inline
-  // block (grid over the track bbox + margin, each vertex dropped to groundSampleHeight). opts may
-  // add groundMargin(55) / seg(4) / color(0x6fae54); vertexColorFn(x,z,h)->[r,g,b] optional (paint).
+  // FLUFFY GRASS: a cached GRAYSCALE blade-noise texture that MODULATES the ground vertex colour, so
+  // grass reads as soft mown turf (and painted dirt/sand keep their hue but gain the same fluff). No
+  // per-frame cost — generated once. Falls back to null off-DOM.
+  let _grassTex = null;
+  function _grassTexture(THREE){
+    if (_grassTex !== null) return _grassTex || null;
+    if (typeof document === 'undefined'){ _grassTex = false; return null; }
+    const S = 256, cv = document.createElement('canvas'); cv.width = cv.height = S;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = 'rgb(244,244,244)'; ctx.fillRect(0,0,S,S);            // base ~0.96 (barely darkens)
+    for (let i=0;i<44;i++){ const x=(i*79.7)%S, y=(i*131.3)%S, r=18+((i*53)%46); // soft tonal blotches
+      const g = (i%2) ? 210 : 255; ctx.fillStyle='rgba('+g+','+g+','+g+',0.09)';
+      ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill(); }
+    let s = 1234567;                                                       // deterministic PRNG (stable tiles)
+    const rnd = ()=>{ s = (s*1103515245 + 12345) & 0x7fffffff; return s/0x7fffffff; };
+    for (let i=0;i<5200;i++){ const x=rnd()*S, y=rnd()*S, h=2+rnd()*4, v=Math.floor(188+rnd()*72);
+      ctx.strokeStyle='rgb('+v+','+v+','+v+')'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+(rnd()-0.5)*1.5, y-h); ctx.stroke(); }
+    const tex = new THREE.CanvasTexture(cv); tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.needsUpdate = true; _grassTex = tex; return tex;
+  }
+  // buildGroundMesh: the displaced ground grid (grass + hills). Grid over the track bbox + margin,
+  // each vertex dropped to groundSampleHeight; a soft muted-green base (+ gentle tonal patches) is
+  // vertex-coloured and a grayscale blade texture (world-tiled UVs) modulates it for a fluffy look.
+  // opts may add groundMargin(55) / seg(4) / color; vertexColorFn(x,z,h)->[r,g,b] (paint) overrides.
   function buildGroundMesh(sampled, width, THREE, opts){
     const centerPts = sampled.centerPts;
     let minX=1e9,maxX=-1e9,minZ=1e9,maxZ=-1e9;
@@ -598,19 +620,25 @@
     const M = (opts.groundMargin!=null)?opts.groundMargin:55; minX-=M; maxX+=M; minZ-=M; maxZ+=M;
     const seg = opts.seg || 4;
     const nx = Math.ceil((maxX-minX)/seg), nz = Math.ceil((maxZ-minZ)/seg);
-    const pos = [], idx = [], colors = [];
-    // P4 paint: if a non-empty paint field is present, colour each vertex by sampling it (unpainted
-    // -> base grass, so patches blend). Absent -> no color attribute (mesh byte-identical to before).
-    const BASE_GRASS = 0x6fae54, baseRGB = _rgb(BASE_GRASS);
-    let cfn = opts.vertexColorFn || null;
-    if (!cfn && opts.paint && opts.paint.cells && Object.keys(opts.paint.cells).length){
-      cfn = (x,z)=>sampleColor(opts.paint, x, z, baseRGB);
-    }
+    const pos = [], idx = [], colors = [], uvs = [];
+    // softer, muted grass green (the old flat 0x6fae54 read too sharp). Gentle low-freq brightness
+    // "patch" variation keeps large areas from looking uniformly flat.
+    const BASE_GRASS = (opts.color!=null) ? opts.color : 0x86a862, baseRGB = _rgb(BASE_GRASS);
+    const patch = (x,z)=> 0.9 + 0.1*(0.5 + 0.5*Math.sin(x*0.021 + z*0.013)*Math.cos(z*0.017 - x*0.009));
+    const paintOn = !!(opts.paint && opts.paint.cells && Object.keys(opts.paint.cells).length);
+    const ext = opts.vertexColorFn || null;
+    const UVT = 5;   // texture tiles every 5 world units (blade scale)
     for (let j=0;j<=nz;j++) for (let i=0;i<=nx;i++){
       const x = minX + i*seg, z = minZ + j*seg;
       const h = groundSampleHeight(sampled, x, z, width, opts);
       pos.push(x, h, z);
-      if (cfn){ const c = cfn(x, z, h); colors.push(c[0], c[1], c[2]); }
+      uvs.push(x/UVT, z/UVT);
+      let c;
+      if (ext) c = ext(x, z, h);                                   // external override (rare)
+      else { const m = patch(x,z);
+        const base = paintOn ? sampleColor(opts.paint, x, z, baseRGB) : baseRGB;
+        c = [base[0]*m, base[1]*m, base[2]*m]; }                   // grass/paint colour, patch-modulated
+      colors.push(c[0], c[1], c[2]);
     }
     for (let j=0;j<nz;j++) for (let i=0;i<nx;i++){
       const a = j*(nx+1)+i, b = a+1, c = a+(nx+1), d = c+1;
@@ -618,12 +646,14 @@
     }
     const gg = new THREE.BufferGeometry();
     gg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    if (cfn) gg.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    gg.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    gg.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
     gg.setIndex(idx);
     gg.computeVertexNormals();
-    // when vertex colours drive the look, the material must be WHITE (it multiplies the vertex color).
-    const color = cfn ? 0xffffff : ((opts.color!=null)?opts.color:BASE_GRASS);
-    return new THREE.Mesh(gg, new THREE.MeshLambertMaterial({ color, side:THREE.DoubleSide, vertexColors: !!cfn }));
+    // white material (vertex colour carries the hue); the grayscale blade texture modulates it fluffy.
+    return new THREE.Mesh(gg, new THREE.MeshLambertMaterial({
+      color:0xffffff, map:_grassTexture(THREE), vertexColors:true, side:THREE.DoubleSide
+    }));
   }
 
   window.FK_TRACK = {

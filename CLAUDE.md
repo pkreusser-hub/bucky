@@ -1207,3 +1207,13 @@ layout sync.
       persists save→reload, game renders barn/silo/trees/rock with CORRECT colors (sRGB fix) + 0
       pageerrors. Kenney License.txt kept in props/. Still LOCAL. NEXT: user tags/places → I can also
       hand-build bespoke models, and CC-BY animals/vehicles are available if a credits line is OK.
+- [x] FLUFFY GRASS (2026-07-08, user: grass too flat + color too sharp): buildGroundMesh reworked —
+      base green softened 0x6fae54→0x86a862 (muted), gentle low-freq "patch" brightness variation
+      (±10%, two sines) so big areas aren't uniform, world-tiled UVs (every 5u), and a CACHED 256px
+      GRAYSCALE blade-noise CanvasTexture (5200 short strokes via a deterministic PRNG + soft blotches,
+      RepeatWrapping) that MODULATES the vertex colour. Material now always vertexColors + white +
+      map. KEY: the texture is grayscale so it fluffs ANY colour — grass green AND painted dirt/sand
+      both gain blade detail (paint = sampleColor × patch × texture). Zero per-frame cost (texture made
+      once). Heights UNTOUCHED (re-verified byte-identical 0.0 — physics identical; purely a visual
+      change). Verified: game + paint render fluffy, 0 pageerrors. Still LOCAL. Bigger fluff (instanced
+      3D grass tufts near the track) is an available follow-up if the flat-texture read isn't enough.
