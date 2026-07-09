@@ -67,6 +67,23 @@ tokens (no framework); regroup the 9 sections into ~5 areas.
   pushed index.html + CLAUDE.md ONLY (left the parallel session's farmgpt.html/games.html/
   farmkart.html/launch.json changes untouched/uncommitted). THE UI REDESIGN IS LIVE.
   Tests in scratchpad: p2_nav_test / p3_home_test / p4_verify / p5_qa .mjs.
+- **HOME REBUILD to match the approved mockup** (2026-07-09, post-launch): the P3 Home I
+  first shipped (ring + 2×2 stat grid + pills) DID NOT match the polished mockup the user
+  had approved (scratchpad/redesign_home.html) — user: "isn't what I see on the current home
+  page." Rebuilt renderDashboard to faithfully port the mockup, wired to real data: hero
+  (eyebrow date + "Morning/Afternoon/Evening, <name>" + "N chores left today" + navy progress
+  ring), a 3-up stat row (💰 Bank / 🔥 Streak / 🛠 Jobs), an INTERACTIVE "Today's chores" card
+  (real chores; tapping a row toggles done via setSlot → ring updates), a 2×2 bento (Farm Bank
+  + this-week delta · Needs care = first goat overdue on hooves · 3D prints · Play), styled
+  dad-joke card + footer. Mockup class names scoped under `.home2` to avoid colliding with the
+  app's global .check/.card/.row. New :root tokens (--ink-2/--line-2/--surface-2/--navy-soft/
+  --red-soft/--good*). New helpers: bankMarkup, money2, homeChoreSub, toggleHomeChore,
+  weeklyBankDelta, choreStreak (honest per-person localStorage consecutive-all-done-days
+  counter), dayKey. #progress hidden on Home (greeting is in the hero), restored in render()
+  for other tabs. Dropped the mockup's per-chore "+$1" reward chips — no per-chore reward field
+  exists (only work orders have `value`). Verified headless (Firebase blocked): 20/20 across two
+  suites, card nav routes correct, interactive toggle 0/6→1/6, 0 JS errors, mobile + desktop.
+  Tests: p6_home / p6_nav .mjs.
 
 ---
 

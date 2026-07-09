@@ -30,6 +30,13 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
     --line: #d7e0f0;
     --done: #e7eefb;
     --shadow: 0 1px 3px rgba(35,51,87,.10), 0 6px 16px rgba(35,51,87,.06);
+    /* extra tokens for the personalized Home (ported from the approved mockup) */
+    --ink-2: #3f4d6b;
+    --line-2: #e6ecf7;
+    --surface-2: #f4f7fd;
+    --navy-soft: #e9ebee;
+    --red-soft: #f8eaec;
+    --good: #2f8f4e; --good-d: #237a3f; --good-soft: #e3f2e8;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; padding: 0; }
@@ -435,70 +442,76 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .joke-q { font-size: 14px; color: var(--ink); }
   .joke-a { font-size: 14px; color: var(--green); font-weight: 700; margin-top: 5px; }
 
-  /* ---- P3 personalized Home ---- */
-  .home-sec { background: transparent; border: 0; box-shadow: none; padding: 0; }
-  .home-stack { display: flex; flex-direction: column; gap: 12px; }
+  /* ---- Personalized Home (ported from the approved mockup; all selectors scoped
+        under .home2 so the mockup class names never collide with the app's globals
+        like .check / .card / .row) ---- */
+  .home2 { display: flex; flex-direction: column; gap: 14px; }
 
-  /* Hero: today's chore progress with an SVG completion ring */
-  .hero {
-    display: flex; align-items: center; gap: 16px; width: 100%; text-align: left;
-    background: var(--card); border: 1px solid var(--line); border-radius: 18px;
-    padding: 16px 18px; box-shadow: var(--shadow); cursor: pointer; color: inherit;
-    transition: transform .1s ease;
+  /* greeting hero + progress ring */
+  .home2 .hero {
+    background:
+      radial-gradient(120% 90% at 85% -20%, var(--navy-soft), transparent 60%),
+      linear-gradient(160deg, var(--card), #fff);
+    border: 1px solid var(--line); border-radius: 22px; box-shadow: var(--shadow);
+    padding: 16px 16px 15px; display: flex; align-items: center; gap: 14px; width: 100%;
+    text-align: left; cursor: pointer; color: inherit; transition: transform .1s ease;
   }
-  .hero:active { transform: scale(.985); }
-  .hero.alldone { background: linear-gradient(180deg, #0d3d76 0%, var(--green) 100%); border-color: var(--green); color: #fff; }
-  .ring-wrap { position: relative; flex: 0 0 auto; width: 66px; height: 66px; }
-  .ring { width: 66px; height: 66px; transform: rotate(-90deg); }
-  .ring-bg { fill: none; stroke: var(--line); stroke-width: 5; }
-  .ring-fg { fill: none; stroke: var(--red); stroke-width: 5; stroke-linecap: round; transition: stroke-dashoffset .4s ease; }
-  .hero.alldone .ring-bg { stroke: rgba(255,255,255,.25); }
-  .hero.alldone .ring-fg { stroke: #8ff0a4; }
-  .ring-num { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 800; color: var(--ink); }
-  .hero.alldone .ring-num { color: #fff; font-size: 22px; }
-  .hero-txt { flex: 1 1 auto; min-width: 0; }
-  .hero-title { font-size: 16px; font-weight: 800; }
-  .hero-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
-  .hero.alldone .hero-sub { color: rgba(255,255,255,.85); }
-  .hero-arrow { margin-left: auto; color: var(--muted); font-size: 20px; flex: 0 0 auto; }
-  .hero.alldone .hero-arrow { color: rgba(255,255,255,.7); }
+  .home2 .hero:active { transform: scale(.99); }
+  .home2 .hero .htxt { flex: 1; min-width: 0; }
+  .home2 .eyebrow { font-size: 11px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+  .home2 .hero h1 { margin: 3px 0 4px; font-size: 23px; font-weight: 800; letter-spacing: -.2px; text-wrap: balance; line-height: 1.1; color: var(--ink); }
+  .home2 .hero .hsub { margin: 0; font-size: 13.5px; color: var(--ink-2); font-weight: 600; }
+  .home2 .hero .hsub b { color: var(--green-d); }
+  .home2 .ring { position: relative; width: 70px; height: 70px; flex: 0 0 auto; }
+  .home2 .ring svg { transform: rotate(-90deg); }
+  .home2 .ring .ringfg { transition: stroke-dashoffset .45s ease; }
+  .home2 .ring .val { position: absolute; inset: 0; display: grid; place-items: center; font-weight: 800; font-size: 16px; font-variant-numeric: tabular-nums; color: var(--ink); }
+  .home2 .ring .val small { font-size: 10px; color: var(--muted); font-weight: 700; }
 
-  /* 2×2 stat grid */
-  .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-  .stat-card {
-    position: relative; display: flex; flex-direction: column; gap: 8px; text-align: left;
-    background: var(--card); border: 1px solid var(--line); border-radius: 16px;
-    padding: 14px; box-shadow: var(--shadow); cursor: pointer; color: inherit;
-    transition: transform .1s ease, background .15s ease;
-  }
-  .stat-card:active { transform: scale(.97); background: var(--done); }
-  .stat-ico {
-    width: 38px; height: 38px; border-radius: 11px; font-size: 20px; flex: 0 0 auto;
-    display: flex; align-items: center; justify-content: center;
-    background: var(--done); color: var(--green);
-  }
-  .stat-card.alert .stat-ico { background: #fde4e8; color: var(--red); }
-  .stat-num { font-size: 22px; font-weight: 800; color: var(--ink); line-height: 1; }
-  .stat-num .unit { font-size: 14px; font-weight: 700; color: var(--muted); }
-  .stat-label { font-size: 12.5px; color: var(--muted); margin-top: -3px; }
-  .stat-badge {
-    position: absolute; top: 12px; right: 12px; min-width: 20px; height: 20px; padding: 0 6px;
-    background: var(--red); color: #fff; border-radius: 999px; font-size: 11px; font-weight: 800;
-    line-height: 20px; text-align: center;
-  }
+  /* 3-up stat row */
+  .home2 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .home2 .stat { background: var(--card); border: 1px solid var(--line); border-radius: 15px; padding: 11px 10px; box-shadow: var(--shadow); cursor: pointer; color: inherit; text-align: left; transition: transform .1s ease, background .15s ease; }
+  .home2 .stat:active { transform: scale(.96); background: var(--done); }
+  .home2 .stat .k { font-size: 11px; color: var(--muted); font-weight: 700; display: flex; align-items: center; gap: 5px; }
+  .home2 .stat .v { font-size: 19px; font-weight: 800; margin-top: 3px; font-variant-numeric: tabular-nums; letter-spacing: -.3px; color: var(--ink); }
+  .home2 .stat .v small { font-size: 12px; color: var(--muted); font-weight: 700; }
 
-  /* Quick-access pills for the lighter sections */
-  .quick-row { display: flex; gap: 10px; }
-  .quick-pill {
-    flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 5px;
-    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
-    padding: 12px 6px; box-shadow: var(--shadow); cursor: pointer; color: inherit;
-    transition: transform .1s ease, background .15s ease;
-  }
-  .quick-pill:active { transform: scale(.96); background: var(--done); }
-  .quick-pill .qico { font-size: 21px; line-height: 1; }
-  .quick-pill .qlabel { font-size: 12px; font-weight: 700; color: var(--ink); }
-  .quick-pill .qcount { font-size: 11px; color: var(--muted); }
+  /* Today's chores card */
+  .home2 .card2 { background: var(--card); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); overflow: hidden; }
+  .home2 .chd { display: flex; align-items: center; gap: 8px; padding: 13px 14px 4px; }
+  .home2 .chd h2 { margin: 0; font-size: 15px; font-weight: 800; letter-spacing: -.1px; color: var(--ink); }
+  .home2 .chd .more { margin-left: auto; font-size: 12.5px; font-weight: 800; color: var(--green-d); text-decoration: none; cursor: pointer; background: none; border: 0; }
+  .home2 .rows { display: flex; flex-direction: column; }
+  .home2 .crow { display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-top: 1px solid var(--line-2); cursor: pointer; text-align: left; background: none; width: 100%; color: inherit; }
+  .home2 .crow:first-child { border-top: 0; }
+  .home2 .crow .cbody { flex: 1; min-width: 0; }
+  .home2 .crow .cbody .t { font-size: 14.5px; font-weight: 700; color: var(--ink); }
+  .home2 .crow .cbody .s { font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 1px; }
+  .home2 .crow .cbody .t.done { color: var(--muted); text-decoration: line-through; }
+  .home2 .hcheck { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--line); background: var(--card); flex: 0 0 auto; display: grid; place-items: center; color: #fff; font-size: 14px; transition: .15s; }
+  .home2 .crow.checked .hcheck { background: var(--good); border-color: var(--good); }
+  .home2 .crow .empty2 { padding: 16px 14px; color: var(--muted); font-size: 13px; font-weight: 600; }
+
+  .home2 .pill { font-size: 11px; font-weight: 800; padding: 3px 9px; border-radius: 999px; letter-spacing: .2px; flex: 0 0 auto; }
+  .home2 .pill.reward { background: var(--good-soft); color: var(--good-d); }
+  .home2 .pill.due { background: var(--red-soft); color: var(--red); }
+
+  /* 2×2 bento */
+  .home2 .bento { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .home2 .mini { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 13px; cursor: pointer; color: inherit; text-align: left; display: flex; flex-direction: column; gap: 6px; min-height: 104px; transition: transform .1s ease, background .15s ease; }
+  .home2 .mini:active { transform: scale(.97); background: var(--done); }
+  .home2 .mini .mh { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 800; color: var(--muted); }
+  .home2 .mini .mh .i { width: 24px; height: 24px; border-radius: 8px; display: grid; place-items: center; font-size: 14px; }
+  .home2 .mini .mv { font-size: 17px; font-weight: 800; letter-spacing: -.2px; color: var(--ink); }
+  .home2 .mini .ms { font-size: 12px; color: var(--ink-2); font-weight: 600; margin-top: auto; }
+
+  /* dad joke */
+  .home2 .joke2 { background: linear-gradient(150deg, var(--navy-soft), var(--card)); border: 1px solid var(--line); border-radius: 18px; padding: 15px 15px 13px; box-shadow: var(--shadow); }
+  .home2 .joke2 .lab { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .6px; color: var(--red); }
+  .home2 .joke2 .q { font-size: 15px; font-weight: 700; margin: 6px 0 3px; line-height: 1.35; text-wrap: balance; color: var(--ink); }
+  .home2 .joke2 .a { font-size: 14px; color: var(--ink-2); font-weight: 600; }
+  .home2 .joke2 .again { margin-top: 10px; font-size: 12.5px; font-weight: 800; color: var(--red); background: none; border: 0; cursor: pointer; padding: 0; }
+  .home2 .hfoot { text-align: center; font-size: 11px; color: var(--muted); padding: 4px 0 2px; font-weight: 600; }
 
   .fab {
     position: fixed; right: 18px; bottom: calc(env(safe-area-inset-bottom) + 82px);
@@ -1488,6 +1501,7 @@ function render(){
   if (cf) cf.style.display = currentTab === "goatcare" ? "block" : "none";
   document.getElementById("addFab").style.display = (currentTab === "dashboard" || currentTab === "goatcare" || currentTab === "shopping" || currentTab === "print3d" || currentTab === "game" || currentTab === "catgame" || currentTab === "farmbank" || currentTab === "play") ? "none" : "";
   document.getElementById("progress").classList.remove("greet");   // greeting styling is dashboard-only
+  document.getElementById("progress").style.display = "";          // restored here; Home hides it (greeting is in the hero)
   if (currentTab === "dashboard") return renderDashboard();
   if (currentTab === "play") return renderPlay();
   if (currentTab === "catgame") return renderCatGame();
@@ -1546,132 +1560,181 @@ function goTo(tab){
   syncTabsUI(); renderSubnav(); render();
 }
 
+// ---- Home helpers ----
+function dayKey(d){ return d.getFullYear() + "-" + (d.getMonth()+1) + "-" + d.getDate(); }
+// Net change across the kids' bank ledgers over the last 7 days (for the "this week" line).
+function weeklyBankDelta(kids){
+  const since = Date.now() - 7*86400000;
+  return chores.filter(c => c.frequency === "kidbank" && kids.includes(c.kid) && (c.at||0) >= since)
+    .reduce((s,c)=> s + (Number(c.amount)||0), 0);
+}
+// "$14" or "$14<small>.50</small>" — cents only shown when non-zero (for the stat row).
+function bankMarkup(v){
+  const neg = v < 0, a = Math.abs(v), whole = Math.floor(a), cents = Math.round((a - whole) * 100);
+  return `${neg?"−":""}$${whole}` + (cents ? `<small>.${String(cents).padStart(2,"0")}</small>` : "");
+}
+function money2(n){ return "$" + Math.abs(n).toFixed(2); }
+// Subtitle under a chore on the Home list (time of day for dailies, else the frequency).
+function homeChoreSub(c){
+  if (c.frequency === "daily") return { morning:"Morning", noon:"Noon", night:"Night" }[c.timeOfDay || "morning"];
+  return FREQ_LABEL[c.frequency] || "";
+}
+// Tap a Home chore row: complete the next slot, or clear it if already fully done.
+function toggleHomeChore(c){
+  if (isDone(c)) setSlot(c, 0);
+  else setSlot(c, curPeriodLog(c).length);
+}
+// Honest consecutive-day streak: counts days where EVERY chore was completed. Per device +
+// per person (localStorage). Advances at most once/day, only when today is fully done.
+function choreStreak(total, done){
+  const key = "bucky_streak_" + (myName() || "x");
+  let st; try { st = JSON.parse(localStorage.getItem(key) || "{}"); } catch { st = {}; }
+  const todayK = dayKey(new Date());
+  const yK = dayKey(new Date(Date.now() - 86400000));
+  if (total > 0 && done === total && st.lastDay !== todayK){
+    st.count = (st.lastDay === yK) ? (st.count||0) + 1 : 1;
+    st.lastDay = todayK;
+    try { localStorage.setItem(key, JSON.stringify(st)); } catch {}
+  }
+  if (st.lastDay === todayK || st.lastDay === yK) return st.count || 0;   // alive today or yesterday
+  return 0;   // broken
+}
+
 function renderDashboard(){
   document.querySelector(".bar").style.display = "none";
   document.getElementById("empty").style.display = "none";
-  // Time-of-day greeting instead of a generic welcome line
-  const h = new Date().getHours();
-  const part = h < 12 ? ["Good morning", "☀️"] : h < 17 ? ["Good afternoon", "🌤️"] : ["Good evening", "🌙"];
+  document.getElementById("progress").style.display = "none";   // greeting lives in the hero now
+
   const who = myName();
-  const dateStr = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
-  document.getElementById("progress").classList.add("greet");
-  document.getElementById("progressText").innerHTML =
-    `<div class="greet-hi"></div><div class="greet-date"></div>`;
-  document.querySelector("#progressText .greet-hi").textContent = `${part[0]}${who ? ", " + who : ""}! ${part[1]}`;
-  document.querySelector("#progressText .greet-date").textContent = dateStr;
+  const isBankKid = BANK_KIDS.includes(who);
+  const h = new Date().getHours();
+  const part = h < 12 ? ["Morning","☀️"] : h < 17 ? ["Afternoon","🌤️"] : ["Evening","🌙"];
+  const eyebrow = new Date().toLocaleDateString(undefined, { weekday:"long", month:"long", day:"numeric" }).toUpperCase();
+
+  // ---- live data ----
+  const dayChores = chores.filter(c => FREQS.includes(c.frequency)).sort((a,b)=> (a.order||0)-(b.order||0));
+  const total = dayChores.length;
+  const done  = dayChores.filter(isDone).length;
+  const left  = total - done;
+  const openWos = chores.filter(c => c.frequency === "workorder" && !c.done).length;
+  const goats   = chores.filter(c => c.frequency === "goathooves");
+  const bankVal = isBankKid ? kidBalance(who) : BANK_KIDS.reduce((s,k)=> s + kidBalance(k), 0);
+  const weekDelta = weeklyBankDelta(isBankKid ? [who] : BANK_KIDS);
+  const printOpen = chores.filter(c => c.frequency === "print3d" && c.status !== "done").length;
+  const careGoat  = goats.find(g => { const n = daysSince(careAt(g,"hooves")); return n === null || n >= 60; });
+  const streak    = choreStreak(total, done);
+
   const list = document.getElementById("list");
   list.innerHTML = "";
+  const li = document.createElement("li");
+  li.style.cssText = "background:transparent;border:0;box-shadow:none;padding:0;";
+  const home = document.createElement("div"); home.className = "home2";
+  li.appendChild(home);
 
-  // ---- Live data for the personalized cards ----
-  const isBankKid = BANK_KIDS.includes(who);
-  const allChores = chores.filter(c => FREQS.includes(c.frequency));
-  const choreTotal = allChores.length;
-  const choreDone  = allChores.filter(isDone).length;
-  const pct        = choreTotal ? choreDone / choreTotal : 0;
-  const allDone    = choreTotal > 0 && choreDone === choreTotal;
-  const openWos    = chores.filter(c => c.frequency === "workorder" && !c.done).length;
-  const payoutPend = chores.filter(c => c.frequency === "workorder" && c.payoutPending).length;
-  const goats      = chores.filter(c => c.frequency === "goathooves");
-  const goatCount  = goats.length;
-  const hoovesDue  = goats.filter(g => { const n = daysSince(careAt(g, "hooves")); return n === null || n >= 60; }).length;
-  const bankVal    = isBankKid ? kidBalance(who) : BANK_KIDS.reduce((s, k) => s + kidBalance(k), 0);
-  const shopOpen   = chores.filter(c => c.frequency === "shopping" && !c.gotAt).length;
-  const printOpen  = chores.filter(c => c.frequency === "print3d" && c.status !== "done").length;
-
-  const wrap = document.createElement("li");
-  wrap.className = "home-sec";
-  const stack = document.createElement("div"); stack.className = "home-stack";
-  wrap.appendChild(stack);
-
-  // Hero: today's chores with a completion ring
-  const C = 2 * Math.PI * 19;   // ring circumference (r=19)
-  const hero = document.createElement("button");
-  hero.className = "hero" + (allDone ? " alldone" : "");
-  const ringNum = allDone ? "🎉" : (choreTotal ? `${choreDone}/${choreTotal}` : "—");
-  const heroTitle = choreTotal
-    ? (allDone ? "All chores done!" : "Today's chores")
-    : "No chores yet";
-  const heroSub = choreTotal
-    ? (allDone ? "Nice work — everything's checked off." : `${choreTotal - choreDone} still to do`)
-    : "Tap + on the Tasks tab to add one.";
+  // ---- hero: greeting + progress ring ----
+  const CIRC = 2 * Math.PI * 30, pct = total ? done/total : 0;   // r=30
+  const hero = document.createElement("button"); hero.className = "hero";
+  const sub = total
+    ? (left ? `<b>${left} chore${left>1?"s":""}</b> left today — nice pace!` : "<b>All done</b> — go play! 🎉")
+    : "No chores today 🌻";
   hero.innerHTML =
-    `<div class="ring-wrap">
-       <svg class="ring" viewBox="0 0 44 44">
-         <circle class="ring-bg" cx="22" cy="22" r="19"></circle>
-         <circle class="ring-fg" cx="22" cy="22" r="19"
-           stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${(C * (1 - pct)).toFixed(1)}"></circle>
-       </svg>
-       <div class="ring-num"></div>
+    `<div class="htxt">
+       <div class="eyebrow"></div>
+       <h1></h1>
+       <p class="hsub">${sub}</p>
      </div>
-     <div class="hero-txt"><div class="hero-title"></div><div class="hero-sub"></div></div>
-     <span class="hero-arrow">›</span>`;
-  hero.querySelector(".ring-num").textContent = ringNum;
-  hero.querySelector(".hero-title").textContent = heroTitle;
-  hero.querySelector(".hero-sub").textContent = heroSub;
+     <div class="ring" aria-label="${done} of ${total} chores done">
+       <svg width="70" height="70">
+         <circle cx="35" cy="35" r="30" fill="none" stroke="var(--line)" stroke-width="7"></circle>
+         <circle class="ringfg" cx="35" cy="35" r="30" fill="none" stroke="var(--green)" stroke-width="7"
+           stroke-linecap="round" stroke-dasharray="${CIRC.toFixed(1)}" stroke-dashoffset="${(CIRC*(1-pct)).toFixed(1)}"></circle>
+       </svg>
+       <div class="val">${done}<small>/${total}</small></div>
+     </div>`;
+  hero.querySelector(".eyebrow").textContent = eyebrow;
+  hero.querySelector("h1").textContent = `${part[0]}${who ? ", " + who : ""} ${part[1]}`;
   hero.onclick = () => goTo("chores");
-  stack.appendChild(hero);
+  home.appendChild(hero);
 
-  // 2×2 stat grid
-  const statGrid = document.createElement("div"); statGrid.className = "stat-grid";
-  const stat = (opts) => {
-    const b = document.createElement("button");
-    b.className = "stat-card" + (opts.alert ? " alert" : "");
-    b.innerHTML =
-      `<div class="stat-ico">${opts.ico}</div>
-       <div class="stat-num">${opts.num}</div>
-       <div class="stat-label"></div>
-       ${opts.badge ? `<span class="stat-badge">${opts.badge}</span>` : ""}`;
-    b.querySelector(".stat-label").textContent = opts.label;
-    b.onclick = opts.onClick;
-    statGrid.appendChild(b);
+  // ---- 3-up stat row ----
+  const stats = document.createElement("div"); stats.className = "stats";
+  const mkStat = (k, v, onClick) => {
+    const b = document.createElement("button"); b.className = "stat";
+    b.innerHTML = `<div class="k">${k}</div><div class="v">${v}</div>`;
+    b.onclick = onClick; stats.appendChild(b);
   };
-  stat({ ico:"💰", num:`<span class="unit">$</span>${bankVal}`, label: isBankKid ? "Your balance" : "Kids' savings", onClick:()=>goTo("farmbank") });
-  stat({ ico:"🐐", num: goatCount, label: goatCount === 1 ? "goat in the herd" : "goats in the herd", onClick:()=>goTo("goathooves") });
-  stat({ ico:"🛠️", num: openWos, label: openWos === 1 ? "open work order" : "open work orders", badge: payoutPend || 0, onClick:()=>goTo("workorders") });
-  stat({ ico:"🩺", num: hoovesDue, label:"hooves due", alert: hoovesDue > 0, onClick:()=>goTo("goatcare") });
-  stack.appendChild(statGrid);
+  mkStat("💰 Bank",   bankMarkup(bankVal),        () => goTo("farmbank"));
+  mkStat("🔥 Streak", `${streak}<small>d</small>`, () => goTo("chores"));
+  mkStat("🛠 Jobs",   `${openWos}`,               () => goTo("workorders"));
+  home.appendChild(stats);
 
-  // Quick-access pills for the lighter sections
-  const quick = document.createElement("div"); quick.className = "quick-row";
-  const pill = (ico, label, count, onClick) => {
-    const b = document.createElement("button"); b.className = "quick-pill";
-    b.innerHTML = `<span class="qico">${ico}</span><span class="qlabel"></span><span class="qcount"></span>`;
-    b.querySelector(".qlabel").textContent = label;
-    b.querySelector(".qcount").textContent = count;
-    b.onclick = onClick;
-    quick.appendChild(b);
+  // ---- Today's chores card (interactive) ----
+  const card2 = document.createElement("div"); card2.className = "card2";
+  const chd = document.createElement("div"); chd.className = "chd";
+  chd.innerHTML = `<h2>Today's chores</h2><button class="more">See all →</button>`;
+  chd.querySelector(".more").onclick = () => goTo("chores");
+  card2.appendChild(chd);
+  const rows = document.createElement("div"); rows.className = "rows";
+  if (!dayChores.length){
+    const e = document.createElement("div"); e.className = "empty2";
+    e.textContent = "No chores yet — tap + on Tasks to add one.";
+    rows.appendChild(e);
+  } else {
+    for (const c of dayChores.slice(0, 6)){
+      const isD = isDone(c);
+      const r = document.createElement("button"); r.className = "crow" + (isD ? " checked" : "");
+      r.innerHTML =
+        `<div class="hcheck">${isD ? "✓" : ""}</div>
+         <div class="cbody"><div class="t${isD ? " done" : ""}"></div><div class="s"></div></div>`;
+      r.querySelector(".t").textContent = c.name;
+      r.querySelector(".s").textContent = homeChoreSub(c);
+      r.onclick = () => toggleHomeChore(c);
+      rows.appendChild(r);
+    }
+  }
+  card2.appendChild(rows);
+  home.appendChild(card2);
+
+  // ---- 2×2 bento ----
+  const bento = document.createElement("div"); bento.className = "bento";
+  const mkMini = (bg, ico, head, val, subline, onClick) => {
+    const b = document.createElement("button"); b.className = "mini";
+    b.innerHTML = `<div class="mh"><span class="i" style="background:${bg}">${ico}</span> ${head}</div>
+      <div class="mv"></div><div class="ms"></div>`;
+    b.querySelector(".mv").textContent = val;
+    b.querySelector(".ms").textContent = subline;
+    b.onclick = onClick; bento.appendChild(b);
   };
-  pill("🛒", "Shopping", shopOpen ? `${shopOpen} to buy` : "all set", () => goTo("shopping"));
-  pill("🖨️", "3D Prints", printOpen ? `${printOpen} open` : "none open", () => goTo("print3d"));
-  pill("🎮", "Play", "games & AI", () => goTo("play"));
-  stack.appendChild(quick);
+  mkMini("var(--good-soft)", "💰", "Farm Bank", money2(bankVal),
+    `${weekDelta >= 0 ? "+" : "−"}${money2(weekDelta)} this week`, () => goTo("farmbank"));
+  mkMini("var(--red-soft)", "🐐", "Needs care", careGoat ? careGoat.name : "All good",
+    careGoat ? "Due for a hoof trim" : "Hooves up to date", () => goTo("goatcare"));
+  mkMini("var(--navy-soft)", "🖨️", "3D prints", printOpen ? `${printOpen} waiting` : "None waiting",
+    printOpen ? "Dad to approve" : "All caught up", () => goTo("print3d"));
+  mkMini("var(--surface-2)", "🎮", "Play", "Games & AI", "Farm Kart, Bistro…", () => goTo("play"));
+  home.appendChild(bento);
 
-  list.appendChild(wrap);
-
-  // Dad joke of the day (arrow serves up more from the database)
-  const card = document.createElement("li");
-  card.style.cssText = "background:transparent;border:0;box-shadow:none;padding:0;";
-  const inner = document.createElement("div"); inner.className = "joke-card";
-  const headRow = document.createElement("div"); headRow.className = "joke-head-row";
-  const head = document.createElement("div"); head.className = "joke-head";
-  const next = document.createElement("button");
-  next.className = "joke-next"; next.type = "button"; next.textContent = "➜";
-  next.title = "Another one!"; next.setAttribute("aria-label", "Next dad joke");
-  headRow.append(head, next);
-  const body = document.createElement("div");
-  inner.append(headRow, body);
+  // ---- dad joke ----
+  const joke = document.createElement("div"); joke.className = "joke2";
+  const jl = document.createElement("div"); jl.className = "lab";
+  const jq = document.createElement("div"); jq.className = "q";
+  const ja = document.createElement("div"); ja.className = "a";
+  const jb = document.createElement("button"); jb.className = "again"; jb.textContent = "Tell me another →";
+  joke.append(jl, jq, ja, jb);
   const showJoke = () => {
-    head.textContent = jokeExtra ? "😂 Bonus Dad Joke" : "😂 Dad Joke of the Day";
+    jl.textContent = jokeExtra ? "🌽 Bonus dad joke" : "🌽 Dad joke of the day";
     const j = jokeOfDay();
-    body.innerHTML = "";
-    const q = document.createElement("div"); q.className = "joke-q"; q.textContent = j.q;
-    body.appendChild(q);
-    if (j.a){ const a = document.createElement("div"); a.className = "joke-a"; a.textContent = j.a; body.appendChild(a); }
+    jq.textContent = j.q; ja.textContent = j.a || "";
   };
-  next.onclick = () => { jokeExtra++; showJoke(); };
+  jb.onclick = () => { jokeExtra++; showJoke(); };
   showJoke();
-  card.appendChild(inner);
-  list.appendChild(card);
+  home.appendChild(joke);
+
+  const foot = document.createElement("div"); foot.className = "hfoot";
+  foot.textContent = "Bucky · Family Farm Hub";
+  home.appendChild(foot);
+
+  list.appendChild(li);
 }
 
 function buildChoreLi(c){
