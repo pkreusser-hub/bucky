@@ -8,6 +8,29 @@ self-contained: its own `<script>`, its own render loop, no shared JS between pa
 
 ---
 
+# 📱 MOBILE PREVIEW (daily testing)
+
+Reliable phone viewport for pages + games — prefer this over one-off DevTools tips.
+
+```bash
+node tools/mobile-preview.mjs --picker          # phone picker (or double-click Mobile Preview.bat)
+node tools/mobile-preview.mjs farmkart.html     # visible Chrome @ 390×844
+node tools/mobile-preview.mjs index.html --shot # → shots/mobile-index.png
+node tools/mobile-preview.mjs --all             # smoke shots of common pages
+node tools/mobile-preview.mjs --list            # pages + device presets
+```
+
+- **One-click:** double-click `Mobile Preview.bat` (repo root) or Cursor **Run Task → Mobile Preview**.
+- Serves/reuses **http://localhost:8790** (Launch `bucky-static` / photobooth port).
+- Default device **iphone14** 390×844, `--dpr 2`; also `se` / `pixel` / `ipad`.
+- Stubs `matchMedia('(pointer: coarse)')` so Farm Kart `IS_MOBILE` + `#touchCtl` appear
+  (desktop Chrome never reports coarse pointer — DevTools device mode alone is not enough).
+- Never `file://` — assets break. Cursor Launch preview tabs can be `document.hidden`
+  (WebGL/rAF stall); this CLI opens real Chrome / headless for shots.
+- Details: `tools/README.md`.
+
+---
+
 # 🎨 UI REDESIGN — modern app shell for index.html (ACTIVE, 2026-07-09)
 
 Total UI overhaul of the main app "to conform with best practice modern app design"
@@ -172,6 +195,32 @@ tokens (no framework); regroup the 9 sections into ~5 areas.
   there). (7) farmgpt chatInput placeholder shortened ("Ask me anything…" — old one clipped),
   Send button red→navy primary; games "Pick your poison"→"Pick a game!". Verified p11 24/24 +
   p7/p8/p9/p10 all green. Test: p11_taste.mjs.
+- **POLISH BATCH 2** (2026-07-09, user playtest): (1) farmgpt.html DOCUMENT SCROLL LOCK — the
+  bottom `#buckyNav` (an in-flow flex child, not `position:fixed`) could be dragged up on phones
+  because `html,body` had no `overflow:hidden`/`overscroll-behavior:none`; a rubber-band drag
+  chained past `main`'s/`#chatScroll`'s inner scrollers up to the document itself, moving the
+  whole flex column. Fixed: `html,body{overflow:hidden;overscroll-behavior:none}` + added
+  `overscroll-behavior:contain` to `main`, `#chatScroll`, `#storyScroll` so each scroller stops
+  the chain at its own edge instead of bubbling up. (2) Home "Today's chores" card now hides
+  DONE chores and sorts the rest daily-by-time-of-day (morning→noon→night) then any weekly/
+  monthly/yearly chores, then `c.order` (`visibleChores` derived from `dayChores`; hero ring
+  still counts done/total across ALL of today's chores unchanged); all-done state shows the
+  reused `.empty2` row "All done — go play! 🎉". (3) Stat row cards are icon-only (`.k` = just
+  the emoji, 17px, no label text) with `title` + `aria-label` set to the full name (Bank/Streak/
+  Open Work Orders/Shopping) for accessibility; `.v` values stay bottom-aligned. (4) Hero ring
+  numerator/denominator: `.val` switched from `display:grid;place-items:center` (which stacked
+  the number and `<small>/total</small>` as two grid rows) to `display:flex;align-items:baseline;
+  justify-content:center` + `small{margin-left:1px}` so "3/6" reads on one baseline, still
+  centered in the ring. Updated STALE test assertions: p8_gate.mjs and p10_navwx.mjs switched
+  their `.home2 .stat .k` textContent checks to `.home2 .stat` `aria-label` (icon-only `.k` no
+  longer carries the label text); p7_fixes.mjs seeded chores all-not-done (unchanged) and gained
+  a new check that tapping a row hides it (8→7) and increments the ring (0/8→1/8); p11_taste.mjs
+  needed no changes (its `.v` bottom-alignment check still holds). New suite p12_polish.mjs
+  (26 checks: done-chore hiding + tod sort + all-done empty state + ring-count-unchanged, icon-
+  only stats + title/aria-label + font-size + alignment, ring single-baseline overlap, farmgpt
+  document-scroll-lock on home + research incl. injected tall content + internal #chatScroll
+  scroll + composer visibility above the nav). Verified: p7 15/15, p8 18/18, p9 15/15, p10
+  30/30, p11 24/24, p12 26/26 — 128/128, 0 pageerrors.
 
 ---
 
@@ -1572,3 +1621,17 @@ WebAudio-only SFX pass (no asset files; mute = `fk_muted` → masterGain 0 + spe
   squawk on fire + softer chirp on hit; hay keeps generic fire beep.
 Kept: boost whoosh, spin warble, bonk, land thump, item-roll ticks, finish fanfare.
 Verify: `node tools/_verify-audio.cjs`.
+
+# 🌤️ Weather — Woodville / Amen Farms (2026-07-09)
+
+`weather.html` — dedicated farm weather page (no API keys). Lat/lon 34.686537,
+-86.210417 (727 Co Rd 80, Woodville AL).
+- **Forecast:** Open-Meteo (current + 7-day daily hi/lo/precip%/WMO emoji). Friendly
+  error if fetch fails — page never blank.
+- **Radar:** RainViewer Weather Maps API (`api.rainviewer.com/public/weather-maps.json`)
+  + Leaflet OSM basemap. Past ~2h frames (10-min steps); nowcast appended when the API
+  returns any (free tier often empty). Play/Pause + scrubber; farm pin on the map.
+  Attribution: RainViewer + Open-Meteo + OSM.
+- **Nav:** same 7-tab `#buckyNav` as games/farmgpt (Farm tab active). Home's weather
+  card is a button → `weather.html` ("Radar & 7-day →").
+- Smoke: `node tools/_verify-weather.cjs` (local http-server; network for real APIs).

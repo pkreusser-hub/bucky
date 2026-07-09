@@ -483,15 +483,15 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .home2 .ring { position: relative; width: 70px; height: 70px; flex: 0 0 auto; }
   .home2 .ring svg { transform: rotate(-90deg); }
   .home2 .ring .ringfg { transition: stroke-dashoffset .45s ease; }
-  .home2 .ring .val { position: absolute; inset: 0; display: grid; place-items: center; font-weight: 800; font-size: 16px; font-variant-numeric: tabular-nums; color: var(--ink); }
-  .home2 .ring .val small { font-size: 10px; color: var(--muted); font-weight: 700; }
+  .home2 .ring .val { position: absolute; inset: 0; display: flex; align-items: baseline; justify-content: center; font-weight: 800; font-size: 16px; font-variant-numeric: tabular-nums; color: var(--ink); }
+  .home2 .ring .val small { font-size: 10px; color: var(--muted); font-weight: 700; margin-left: 1px; }
 
   /* 3-up stat row */
   .home2 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
   .home2 .stat { background: var(--card); border: 1px solid var(--line); border-radius: 15px; padding: 11px 10px; box-shadow: var(--shadow); cursor: pointer; color: inherit; text-align: left; transition: transform .1s ease, background .15s ease; display: flex; flex-direction: column; }
   .home2 .stat:active { transform: scale(.96); background: var(--done); }
-  .home2 .stat .k { font-size: 11px; color: var(--muted); font-weight: 700; display: flex; align-items: flex-start; gap: 5px; }
-  /* values bottom-align so the four numbers form one line even when labels wrap ("Open Work Orders") */
+  .home2 .stat .k { font-size: 17px; line-height: 1; }
+  /* values bottom-align so the four numbers form one line even with icon-only labels above them */
   .home2 .stat .v { font-size: 19px; font-weight: 800; margin-top: auto; padding-top: 3px; font-variant-numeric: tabular-nums; letter-spacing: -.3px; color: var(--ink); }
   .home2 .stat .v small { font-size: 12px; color: var(--muted); font-weight: 700; }
 
@@ -520,9 +520,11 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .home2 .pill.reward { background: var(--good-soft); color: var(--good-d); }
   .home2 .pill.due { background: var(--red-soft); color: var(--red); }
 
-  /* 3-day weather */
-  .home2 .wxcard { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 12px 14px; }
-  .home2 .wxhead { font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px; }
+  /* 5-day weather (taps through to weather.html full page) */
+  .home2 .wxcard { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 12px 14px; cursor: pointer; text-align: left; width: 100%; font: inherit; color: inherit; display: block; }
+  .home2 .wxcard:active { background: var(--done, #e7eefb); }
+  .home2 .wxhead { font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .home2 .wxhead .wxmore { color: var(--green); font-weight: 800; text-transform: none; letter-spacing: 0; font-size: 12px; }
   .home2 .wxdays { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
   .home2 .wxday { display: flex; flex-direction: column; align-items: center; gap: 2px; background: var(--surface-2); border-radius: 11px; padding: 8px 2px; }
   .home2 .wxd { font-size: 11px; font-weight: 700; color: var(--ink); }
@@ -1725,7 +1727,7 @@ function wxIcon(code){
   return "⛈️";   // 95-99 thunderstorm
 }
 function wxDayName(dateStr, i){ return i === 0 ? "Today" : new Date(dateStr + "T12:00:00").toLocaleDateString(undefined, { weekday: "short" }); }
-const WX_HEAD = `<div class="wxhead">🌤️ Woodville, AL · 5-day</div>`;
+const WX_HEAD = `<div class="wxhead"><span>🌤️ Woodville, AL · 5-day</span><span class="wxmore">Radar &amp; 7-day →</span></div>`;
 function paintWx(el, data){
   el.innerHTML = WX_HEAD + `<div class="wxdays"></div>`;
   const row = el.querySelector(".wxdays");
@@ -1806,23 +1808,28 @@ function renderDashboard(){
   home.appendChild(hero);
 
   // ---- stat row: Bank (family only) / Streak / Open Work Orders / Shopping ----
+  // Icon-only cards (no label text, cleaner) — full name still exposed via title + aria-label.
   const stats = document.createElement("div"); stats.className = "stats";
-  const mkStat = (k, v, onClick) => {
+  const mkStat = (icon, label, v, onClick) => {
     const b = document.createElement("button"); b.className = "stat";
-    b.innerHTML = `<div class="k">${k}</div><div class="v">${v}</div>`;
+    b.title = label; b.setAttribute("aria-label", label);
+    b.innerHTML = `<div class="k">${icon}</div><div class="v">${v}</div>`;
     b.onclick = onClick; stats.appendChild(b);
   };
   const statDefs = [];
-  if (showBank) statDefs.push(["💰 Bank", bankMarkup(bankVal), () => goTo("farmbank")]);
-  statDefs.push(["🔥 Streak", `${streak}<small>d</small>`,  () => goTo("chores")]);
-  statDefs.push(["🛠 Open Work Orders", `${openWos}`, () => goTo("workorders")]);
-  statDefs.push(["🛒 Shopping", `${shopOpen}`, () => goTo("shopping")]);
+  if (showBank) statDefs.push(["💰", "Bank", bankMarkup(bankVal), () => goTo("farmbank")]);
+  statDefs.push(["🔥", "Streak", `${streak}<small>d</small>`,  () => goTo("chores")]);
+  statDefs.push(["🛠", "Open Work Orders", `${openWos}`, () => goTo("workorders")]);
+  statDefs.push(["🛒", "Shopping", `${shopOpen}`, () => goTo("shopping")]);
   stats.style.gridTemplateColumns = `repeat(${statDefs.length}, 1fr)`;
-  for (const [k, v, fn] of statDefs) mkStat(k, v, fn);
+  for (const [icon, label, v, fn] of statDefs) mkStat(icon, label, v, fn);
   home.appendChild(stats);
 
-  // ---- 3-day weather for the farm ----
-  const wx = document.createElement("div"); wx.className = "wxcard";
+  // ---- 5-day weather for the farm (opens full weather.html: 7-day + radar) ----
+  const wx = document.createElement("button"); wx.className = "wxcard";
+  wx.type = "button";
+  wx.setAttribute("aria-label", "Open Woodville weather and radar");
+  wx.onclick = () => { location.href = "weather.html"; };
   home.appendChild(wx);
   renderWxInto(wx);
 
@@ -1840,6 +1847,20 @@ function renderDashboard(){
   home.appendChild(ask);
 
   // ---- Today's chores card (interactive, everyone) ----
+  // Only NOT-done chores show here (the hero ring above still counts done/total across ALL of
+  // today's chores) — sorted daily-by-time-of-day (morning→noon→night) first, then any
+  // weekly/monthly/yearly chores due today, then by c.order within each group.
+  const TOD_RANK = { morning: 0, noon: 1, night: 2 };
+  const visibleChores = dayChores.filter(c => !isDone(c)).sort((a, b) => {
+    const aDaily = a.frequency === "daily", bDaily = b.frequency === "daily";
+    if (aDaily !== bDaily) return aDaily ? -1 : 1;
+    if (aDaily){
+      const ar = TOD_RANK[a.timeOfDay || "morning"] ?? 0;
+      const br = TOD_RANK[b.timeOfDay || "morning"] ?? 0;
+      if (ar !== br) return ar - br;
+    }
+    return (a.order || 0) - (b.order || 0);
+  });
   const card2 = document.createElement("div"); card2.className = "card2";
   const chd = document.createElement("div"); chd.className = "chd";
   chd.innerHTML = `<h2>Today's chores</h2><button class="more">See all →</button>`;
@@ -1850,8 +1871,12 @@ function renderDashboard(){
     const e = document.createElement("div"); e.className = "empty2";
     e.textContent = "No chores yet — tap + on Chores to add one.";
     rows.appendChild(e);
+  } else if (!visibleChores.length){
+    const e = document.createElement("div"); e.className = "empty2";
+    e.textContent = "All done — go play! 🎉";
+    rows.appendChild(e);
   } else {
-    for (const c of dayChores){   // all of them; the list scrolls (capped to ~4 rows tall in CSS)
+    for (const c of visibleChores){   // scrolls (capped to ~4 rows tall in CSS)
       const isD = isDone(c);
       const r = document.createElement("button"); r.className = "crow" + (isD ? " checked" : "");
       r.innerHTML =
