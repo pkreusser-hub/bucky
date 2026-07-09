@@ -1490,9 +1490,11 @@
 
   // ---------- TOUCH (mobile on-screen controls) ----------
   // DRAG-TO-STEER (Mario-Kart-Tour style): touch & slide left/right anywhere on the steer layer;
-  // touch.steer is analog in [-1,1] (+1 = left, matching the keyboard sign). DRIFT/item are held
-  // buttons. Throttle is auto while racing (see gatherInput), so no gas button. gatherInput() folds
-  // touch.steer + touch.drift + touch.item in exactly like the gamepad.
+  // touch.steer is BINARY full-lock in {-1,0,1} (+1 = left, matching the keyboard sign) — any
+  // drag past DEADZONE_PX snaps to full steer, no proportional in-between (2026-07-09: analog
+  // drag felt "too tricky" for the user). DRIFT/item are held buttons. Throttle is auto while
+  // racing (see gatherInput), so no gas button. gatherInput() folds touch.steer + touch.drift +
+  // touch.item in exactly like the gamepad.
   const touch = { steer:0, drift:false, item:false };
   function bindHold(id, on){
     const el = document.getElementById(id); if (!el) return;
@@ -1505,6 +1507,8 @@
   }
   // full-lock displacement (px): slide this far from where you touched down = 100% turn.
   function steerRangePx(){ return Math.min(150, Math.max(90, innerWidth * 0.24)); }
+  // 2026-07-09: any drag past this many px snaps straight to full steer lock (binary, not analog).
+  const DEADZONE_PX = 12;
   function setupDragSteer(){
     const zone = document.getElementById('tcSteer');
     const ring = document.getElementById('steerRing'), knob = document.getElementById('steerKnob');
@@ -1527,9 +1531,13 @@
     zone.addEventListener('pointermove', e => {
       if (e.pointerId !== pid) return;
       const rng = steerRangePx();
-      const s = Math.max(-1, Math.min(1, (e.clientX - startX) / rng));
+      const dx = e.clientX - startX;
+      // BINARY full-lock steering (2026-07-09): any drag past DEADZONE_PX snaps to full
+      // deflection — no proportional in-between — per user feedback that analog drag was
+      // "too tricky". s is now one of -1 / 0 / 1 (never fractional).
+      const s = Math.abs(dx) <= DEADZONE_PX ? 0 : Math.sign(dx);
       touch.steer = -s;                      // slide right (s>0) => steer right (negative)
-      knob.style.left = (startX + s*rng) + 'px';
+      knob.style.left = (startX + s*rng) + 'px';   // knob snaps center/full-left/full-right
       e.preventDefault();
     });
     zone.addEventListener('pointerup', end);
@@ -2111,14 +2119,14 @@
       return;
     }
     if (kind === 'tomato' || kind === 'tomato3'){
-      fireTomato(p); itemFireSound();
+      fireTomato(p); tomatoFireSound();
       p.itemCount = Math.max(0, (p.itemCount||1) - 1);
       if (p.itemCount <= 0) clearItem(p);
       else if (kind === 'tomato3' && p.itemCount === 1){ p.itemHeld = 'tomato'; } // last shot looks like a single
       return;
     }
     if (kind === 'chicken' || kind === 'chicken3'){
-      fireChicken(p); itemFireSound();
+      fireChicken(p); chickenSquawkSound(false);
       p.itemCount = Math.max(0, (p.itemCount||1) - 1);
       if (p.itemCount <= 0) clearItem(p);
       else if (kind === 'chicken3' && p.itemCount === 1){ p.itemHeld = 'chicken'; }
@@ -2182,8 +2190,17 @@
     return true;
   }
   function hitKartWithProjectile(q, pr){
-    if (tryAbsorbWithTrail(q, pr.x, pr.z)){ pr.life = 0; return true; }
-    if (q.spinT <= 0){ applySpinOut(q); pr.life = 0; return true; }
+    if (tryAbsorbWithTrail(q, pr.x, pr.z)){
+      if (pr.kind === 'tomato') tomatoSplatSound(true);
+      else if (pr.kind === 'chicken') chickenSquawkSound(true);
+      pr.life = 0; return true;
+    }
+    if (q.spinT <= 0){
+      applySpinOut(q);
+      if (pr.kind === 'tomato') tomatoSplatSound(false);
+      else if (pr.kind === 'chicken') chickenSquawkSound(true);
+      pr.life = 0; return true;
+    }
     return false;
   }
   function advanceProjectiles(dt){
@@ -2226,6 +2243,7 @@
           pr.vx = pr.vx - 2*dot*nx; pr.vz = pr.vz - 2*dot*nz;
           if (pr.vx*nx + pr.vz*nz < 0){ pr.vx = nx*Math.hypot(pr.vx,pr.vz); pr.vz = nz*Math.hypot(pr.vx,pr.vz); }
           pr.bounced = true;
+          if (pr.kind === 'tomato') tomatoSplatSound(true);
         }
       }
       const hitR = pr.kind === 'chicken' ? TUNE.chickenHitR : 1.5;
@@ -2789,7 +2807,7 @@
     let steer = 0, throttle = 0, brake = 0, drift = false;
     if (keys['a'] || keys['arrowleft'])  steer += 1;
     if (keys['d'] || keys['arrowright']) steer -= 1;
-    steer += touch.steer;   // analog drag-to-steer (mobile), +left / -right
+    steer += touch.steer;   // binary full-lock drag-to-steer (mobile), +left / -right
     if (keys['w'] || keys['arrowup']) throttle = 1;
     if (keys['s'] || keys['arrowdown']) brake = 1;
     if (keys[' '] || keys['shift'] || touch.drift) drift = true;
@@ -3419,15 +3437,17 @@
   //  K6 — REACTIVE WEBAUDIO SOUND SET (bistro pattern: no audio files; every sound
   //  is a render-layer REACTION to G-state — continuous ones follow the local kart,
   //  discrete ones fire on state transitions — so MP hears shared events for free).
-  //  ALL sound routes through masterGain so the 🔊 mute (localStorage fk_muted) is a
-  //  single kill switch. Reads happen even while the ctx is 'suspended' (headless has
-  //  no user gesture) — oscillator.frequency is inspectable regardless of playback.
+  //  ALL WebAudio routes through masterGain so the 🔊 mute (localStorage fk_muted) is a
+  //  single kill switch; mute also cancels speechSynthesis. Reads happen even while the
+  //  ctx is 'suspended' (headless has no user gesture) — oscillator.frequency is
+  //  inspectable regardless of playback.
   // ============================================================================
   let audioCtx = null, masterGain = null;
-  let engineOsc = null, engineFilter = null, engineGain = null;   // continuous engine hum
-  let driftNoise = null, driftGain = null;                        // continuous drift scritch
+  let engineOsc = null, engineOsc2 = null, engineFilter = null, engineGain = null; // car-like engine
+  let driftNoise = null, driftNoise2 = null, driftFilter = null, driftFilter2 = null, driftGain = null;
   let audioMuted = false; try{ audioMuted = localStorage.getItem('fk_muted') === '1'; }catch(e){}
   let _fanfareCount = 0;                                          // test hook: finish fanfares fired
+  let _cdVoiceCount = 0;                                          // test hook: countdown voice/stinger calls
   const _aud = { tier:0, chargeTickT:0, rollTickT:0, chimes:0 };  // reactive diff state
   function ensureAudio(){
     if (!audioCtx){
@@ -3440,6 +3460,36 @@
       masterGain.connect(audioCtx.destination);
     }
     return audioCtx;
+  }
+  function makeNoiseBuf(secs){
+    const ctx = audioCtx; if (!ctx) return null;
+    const n = Math.max(1, Math.floor(ctx.sampleRate * secs));
+    const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i=0;i<n;i++) d[i] = Math.random()*2-1;
+    return buf;
+  }
+  function noiseBurst(dur, opts){
+    opts = opts || {};
+    const ctx = ensureAudio(); if (!ctx || !masterGain) return;
+    try{
+      const t = ctx.currentTime, d = dur || 0.2;
+      const src = ctx.createBufferSource();
+      src.buffer = makeNoiseBuf(Math.max(0.05, d + 0.05));
+      const f = ctx.createBiquadFilter();
+      f.type = opts.filter || 'bandpass';
+      f.Q.value = opts.Q != null ? opts.Q : 1.1;
+      const f0 = opts.freq || 1200, f1 = opts.freqTo != null ? opts.freqTo : f0;
+      f.frequency.setValueAtTime(f0, t);
+      if (f1 !== f0) f.frequency.exponentialRampToValueAtTime(Math.max(40, f1), t + d);
+      const g = ctx.createGain();
+      const vol = opts.vol != null ? opts.vol : 0.12;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(vol, t + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      src.connect(f); f.connect(g); g.connect(masterGain);
+      src.start(t); src.stop(t + d + 0.02);
+    }catch(e){}
   }
   // generic one-shot tone -> masterGain
   function tone(freq, dur, opts){
@@ -3459,6 +3509,47 @@
     }catch(e){}
   }
   function beep(freq, dur){ tone(freq, dur || 0.18, { type:'square', vol:0.14 }); }
+  // Countdown: SpeechSynthesis "3/2/1/GO!" when available + unmuted; always a MK-style
+  // WebAudio stinger underneath (or alone as fallback). Mute cancels speech.
+  function countdownStinger(word){
+    const ctx = ensureAudio(); if (!ctx || !masterGain) return;
+    const go = (word === 'GO' || word === 'GO!');
+    if (go){
+      tone(523, 0.12, { type:'square', vol:0.14 });
+      setTimeout(()=>tone(784, 0.14, { type:'square', vol:0.15 }), 70);
+      setTimeout(()=>tone(1047, 0.28, { type:'triangle', vol:0.16 }), 150);
+      noiseBurst(0.18, { filter:'bandpass', freq:900, freqTo:2200, Q:0.8, vol:0.08 });
+    } else {
+      const n = parseInt(word, 10) || 3;
+      const base = n === 3 ? 392 : n === 2 ? 440 : 494;
+      tone(base, 0.22, { type:'square', vol:0.15 });
+      tone(base*1.5, 0.18, { type:'triangle', vol:0.07 });
+    }
+  }
+  function countdownVoice(word){
+    _cdVoiceCount++;
+    const label = (word === 'GO' || word === 'GO!') ? 'GO!' : String(word);
+    countdownStinger(label === 'GO!' ? 'GO' : label);
+    if (audioMuted) return;
+    try{
+      const syn = window.speechSynthesis;
+      if (!syn || typeof SpeechSynthesisUtterance === 'undefined') return;
+      syn.cancel();
+      const u = new SpeechSynthesisUtterance(label === 'GO!' ? 'Go!' : label);
+      u.rate = 1.2; u.pitch = 1.05; u.volume = 1;
+      // Prefer a clear English voice when the browser has loaded any
+      try{
+        const voices = syn.getVoices ? syn.getVoices() : [];
+        const pick = voices.find(v => /en(-|_)?(US|GB)?/i.test(v.lang) && /female|samantha|google|zira|karen|moira/i.test(v.name))
+                  || voices.find(v => /^en/i.test(v.lang));
+        if (pick) u.voice = pick;
+      }catch(e){}
+      syn.speak(u);
+    }catch(e){}
+  }
+  function cancelSpeech(){
+    try{ if (window.speechSynthesis) window.speechSynthesis.cancel(); }catch(e){}
+  }
   // K2.5: soft landing thump — low sine pop whose loudness scales with impact (downward) speed.
   function landThump(impact){
     const ctx = ensureAudio(); if (!ctx || !masterGain) return;
@@ -3486,9 +3577,7 @@
     try{
       const t = ctx.currentTime;
       const src = ctx.createBufferSource();
-      const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate*0.3), ctx.sampleRate);
-      const d = buf.getChannelData(0); for (let i=0;i<d.length;i++) d[i] = Math.random()*2-1;
-      src.buffer = buf;
+      src.buffer = makeNoiseBuf(0.3);
       const bp = ctx.createBiquadFilter(); bp.type='bandpass'; bp.Q.value=1.2;
       bp.frequency.setValueAtTime(400, t); bp.frequency.exponentialRampToValueAtTime(2600, t + 0.28);
       const g = ctx.createGain();
@@ -3514,7 +3603,39 @@
       o2.connect(g2); g2.connect(masterGain); o2.start(t+0.05); o2.stop(t+0.95); lfo.start(t+0.05); lfo.stop(t+0.95);
     }catch(e){}
   }
-  function itemFireSound(){ tone(700, 0.08, { type:'square', vol:0.13 }); }
+  // Tomato: distinct fire (soft whoosh + pop) vs wet splat on impact / wall bounce
+  function tomatoFireSound(){
+    noiseBurst(0.12, { filter:'bandpass', freq:1400, freqTo:600, Q:0.9, vol:0.11 });
+    tone(520, 0.09, { type:'triangle', vol:0.10, slideTo:280 });
+  }
+  function tomatoSplatSound(soft){
+    noiseBurst(soft ? 0.12 : 0.22, { filter:'lowpass', freq:soft?900:1400, freqTo:180, Q:0.6, vol:soft?0.08:0.16 });
+    tone(soft ? 160 : 120, soft ? 0.1 : 0.16, { type:'sine', vol:soft?0.07:0.12, slideTo:50 });
+  }
+  // Chicken: short squawk (pitch-bent triangle + noise) on fire; softer chirp on hit
+  function chickenSquawkSound(hit){
+    const ctx = ensureAudio(); if (!ctx || !masterGain) return;
+    try{
+      const t = ctx.currentTime;
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sawtooth';
+      if (hit){
+        o.frequency.setValueAtTime(720, t);
+        o.frequency.exponentialRampToValueAtTime(380, t + 0.12);
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.09, t+0.01); g.gain.exponentialRampToValueAtTime(0.0001, t+0.14);
+        o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+0.16);
+      } else {
+        o.frequency.setValueAtTime(480, t);
+        o.frequency.exponentialRampToValueAtTime(980, t + 0.05);
+        o.frequency.exponentialRampToValueAtTime(420, t + 0.16);
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.14, t+0.012); g.gain.exponentialRampToValueAtTime(0.0001, t+0.2);
+        o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+0.22);
+        tone(640, 0.06, { type:'square', vol:0.05, slideTo:900 });
+        noiseBurst(0.1, { filter:'bandpass', freq:2200, freqTo:1100, Q:1.4, vol:0.06 });
+      }
+    }catch(e){}
+  }
+  function itemFireSound(){ tone(700, 0.08, { type:'square', vol:0.13 }); } // hay / generic
   function itemRollSound(){ tone(880, 0.06, { type:'square', vol:0.12 }); setTimeout(()=>tone(990,0.06,{type:'square',vol:0.12}),80); }
   function itemBlockSound(){ tone(320, 0.1, { type:'triangle', vol:0.16 }); setTimeout(()=>tone(480,0.08,{type:'triangle',vol:0.12}),70); }
   // finish fanfare: podium-worthy triumphant run for 1st; a warm short flourish for others
@@ -3528,47 +3649,67 @@
       notes.forEach((n,i)=>setTimeout(()=>tone(n, 0.24, { type:'triangle', vol:0.11 }), times[i]));
     }
   }
-  // continuous nodes (engine hum + drift scritch) — built once, gain-gated per frame
+  // continuous nodes: deeper car-like engine (saw+square through lowpass) + looping tire scrape
   function startContinuousAudio(){
     if (!ensureAudio() || engineOsc) return;
     const ctx = audioCtx;
     try{
-      engineOsc = ctx.createOscillator(); engineOsc.type='sawtooth'; engineOsc.frequency.value=55;
-      engineFilter = ctx.createBiquadFilter(); engineFilter.type='lowpass'; engineFilter.frequency.value=400;
-      engineGain = ctx.createGain(); engineGain.gain.value=0;
-      engineOsc.connect(engineFilter); engineFilter.connect(engineGain); engineGain.connect(masterGain);
-      engineOsc.start();
-      driftNoise = ctx.createBufferSource();
-      const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate*0.5), ctx.sampleRate);
-      const dd = buf.getChannelData(0); for (let i=0;i<dd.length;i++) dd[i] = Math.random()*2-1;
-      driftNoise.buffer = buf; driftNoise.loop = true;
-      const df = ctx.createBiquadFilter(); df.type='bandpass'; df.frequency.value=2700; df.Q.value=0.7;
-      driftGain = ctx.createGain(); driftGain.gain.value=0;
-      driftNoise.connect(df); df.connect(driftGain); driftGain.connect(masterGain);
-      driftNoise.start();
+      engineGain = ctx.createGain(); engineGain.gain.value = 0;
+      engineFilter = ctx.createBiquadFilter();
+      engineFilter.type = 'lowpass'; engineFilter.frequency.value = 280; engineFilter.Q.value = 0.85;
+      // fundamental saw (deep) + slightly detuned square for harmonic body
+      engineOsc = ctx.createOscillator(); engineOsc.type = 'sawtooth'; engineOsc.frequency.value = 42;
+      engineOsc2 = ctx.createOscillator(); engineOsc2.type = 'square'; engineOsc2.frequency.value = 84;
+      const eg1 = ctx.createGain(); eg1.gain.value = 0.55;
+      const eg2 = ctx.createGain(); eg2.gain.value = 0.28;
+      engineOsc.connect(eg1); eg1.connect(engineFilter);
+      engineOsc2.connect(eg2); eg2.connect(engineFilter);
+      engineFilter.connect(engineGain); engineGain.connect(masterGain);
+      engineOsc.start(); engineOsc2.start();
+
+      driftGain = ctx.createGain(); driftGain.gain.value = 0;
+      const noiseBuf = makeNoiseBuf(0.55);
+      driftNoise = ctx.createBufferSource(); driftNoise.buffer = noiseBuf; driftNoise.loop = true;
+      driftFilter = ctx.createBiquadFilter(); driftFilter.type = 'bandpass'; driftFilter.frequency.value = 1600; driftFilter.Q.value = 1.1;
+      driftNoise.connect(driftFilter); driftFilter.connect(driftGain);
+      // second layer: higher squeal that opens with MT tier
+      driftNoise2 = ctx.createBufferSource(); driftNoise2.buffer = noiseBuf; driftNoise2.loop = true;
+      driftFilter2 = ctx.createBiquadFilter(); driftFilter2.type = 'bandpass'; driftFilter2.frequency.value = 3200; driftFilter2.Q.value = 2.2;
+      const dg2 = ctx.createGain(); dg2.gain.value = 0.45;
+      driftNoise2.connect(driftFilter2); driftFilter2.connect(dg2); dg2.connect(driftGain);
+      driftGain.connect(masterGain);
+      driftNoise.start(); driftNoise2.start();
     }catch(e){}
   }
-  // per-frame reactive audio: engine pitch/vol, drift scritch, MT chimes/ticks (diff-based)
+  // per-frame reactive audio: engine RPM/vol, drift scrape (tier intensifies), MT chimes/ticks
   function updateAudio(dt){
     if (G.phase === 'racing' || G.phase === 'countdown'){ ensureAudio(); startContinuousAudio(); }
     if (!audioCtx) return;
     const p = G.players.local;
     const spd = Math.hypot(p.v.x, p.v.z);
     const racing = G.phase === 'racing';
+    const maxSp = Math.max(8, TUNE.maxSpeed || 28);
+    const rpm = Math.min(1.15, spd / maxSp);                       // 0..~1.15 car-like RPM ratio
     if (engineOsc){
-      const targetFreq = 52 + spd*6.2 + (p.boostT>0 ? 45 : 0);   // pitch follows own-kart speed
-      engineOsc.frequency.value += (targetFreq - engineOsc.frequency.value) * Math.min(1, dt*9);
-      engineFilter.frequency.value = 320 + spd*24;               // low-pass opens with speed
-      const tg = racing ? 0.045 : 0;
-      engineGain.gain.value += (tg - engineGain.gain.value) * Math.min(1, dt*6);
+      // deeper fundamental (~38 idle → ~95 at top) + octave harmonic; boost revs it up
+      const fund = 38 + rpm * 58 + (p.boostT > 0 ? 18 : 0) + (p.stallT > 0 ? 12 : 0);
+      engineOsc.frequency.value += (fund - engineOsc.frequency.value) * Math.min(1, dt * 7);
+      if (engineOsc2) engineOsc2.frequency.value = engineOsc.frequency.value * 2.02;
+      // lowpass opens with RPM so idle stays muffled and top speed gets growl
+      if (engineFilter) engineFilter.frequency.value = 220 + rpm * 520 + (p.boostT > 0 ? 180 : 0);
+      const tg = racing ? (0.028 + rpm * 0.038) : 0;
+      engineGain.gain.value += (tg - engineGain.gain.value) * Math.min(1, dt * 5);
     }
+    const tier = p.drift.active ? driftTier(p.drift.charge) : 0;
     if (driftGain){
       const on = p.drift.active && spd > 2.5 && !p.airborne;
-      const tg = on ? 0.05 : 0;
-      driftGain.gain.value += (tg - driftGain.gain.value) * Math.min(1, dt*12);
+      // continuous scrape; louder + brighter as MT tier climbs
+      const tg = on ? (0.045 + tier * 0.028 + Math.min(0.03, spd * 0.0012)) : 0;
+      driftGain.gain.value += (tg - driftGain.gain.value) * Math.min(1, dt * 10);
+      if (driftFilter) driftFilter.frequency.value = 1200 + tier * 500 + spd * 8;
+      if (driftFilter2) driftFilter2.frequency.value = 2600 + tier * 900;
     }
     // MT tier chime on the rising edge of the local kart's drift tier
-    const tier = p.drift.active ? driftTier(p.drift.charge) : 0;
     if (tier > _aud.tier) mtChime(tier);
     _aud.tier = tier;
     // MT charge tick while building charge (below tier2)
@@ -3582,11 +3723,12 @@
       if (_aud.rollTickT <= 0){ tone(1150, 0.02, { type:'square', vol:0.035 }); _aud.rollTickT = 0.07; }
     } else _aud.rollTickT = 0;
   }
-  // 🔊 mute toggle (persisted; masterGain is the single kill switch)
+  // 🔊 mute toggle (persisted; masterGain + speech cancel)
   function applyMute(){
     const btn = document.getElementById('muteBtn');
     if (btn){ btn.textContent = audioMuted ? '🔇' : '🔊'; btn.classList.toggle('muted', audioMuted); }
     if (masterGain) masterGain.gain.value = audioMuted ? 0 : 1;
+    if (audioMuted) cancelSpeech();
   }
   function setMuted(v){ audioMuted = !!v; try{ localStorage.setItem('fk_muted', audioMuted ? '1' : '0'); }catch(e){} applyMute(); }
   function toggleMute(){ setMuted(!audioMuted); }
@@ -3651,7 +3793,7 @@
     startOverlay.style.display = 'none';
     resultsEl.style.display = 'none';
     countdownEl.style.display = 'flex';
-    beep(440); // "3"
+    countdownVoice('3');
     G.lastBeat = 3;
     if (net.mp && net.isHost) publishNetSnapshotNow();
   }
@@ -3679,7 +3821,7 @@
     for (const id in G.players) G.players[id].lapStart = performance.now();
     for (const id in G.players) G.players[id].finishDebounce = 1.0; // grid->start-line crossing must not count
     cdNum.textContent = 'GO!'; cdNum.classList.add('go');
-    beep(880, 0.3);
+    countdownVoice('GO');
   }
   function updatePhase(dt, inp){
     if (G.phase === 'countdown'){
@@ -3689,7 +3831,7 @@
       G.countdownT -= dt;
       if (G.countdownT > 0){
         const beat = Math.max(1, Math.ceil(G.countdownT / TUNE.countdownBeat)); // 3,2,1
-        if (beat < G.lastBeat){ G.lastBeat = beat; beep(440); }
+        if (beat < G.lastBeat){ G.lastBeat = beat; countdownVoice(String(beat)); }
         cdNum.textContent = String(beat); cdNum.classList.remove('go');
       } else {
         startRacing(inp);
@@ -4060,7 +4202,7 @@
       resetRaceFields(p);
       placeAtGrid(p, mine ? mine.slot : 0);
       if (mine){ p._slotCol = mine.col; kartViews.local.bodyMat.color.setHex(mine.col); }
-      G.phase = 'countdown'; p.startPressT = null;
+      G.phase = 'countdown'; p.startPressT = null; G.lastBeat = 99;
       startOverlay.style.display='none'; resultsEl.style.display='none'; countdownEl.style.display='flex';
     }
     if (G.phase === 'countdown'){
@@ -4068,7 +4210,10 @@
       const p = G.players.local;
       if (inp.throttle > 0.5 && p.startPressT === null) p.startPressT = snap.countdownT;
       const beat = Math.max(1, Math.ceil(snap.countdownT / TUNE.countdownBeat));
-      if (snap.countdownT > 0){ cdNum.textContent = String(beat); cdNum.classList.remove('go'); }
+      if (snap.countdownT > 0){
+        cdNum.textContent = String(beat); cdNum.classList.remove('go');
+        if (beat < G.lastBeat){ G.lastBeat = beat; countdownVoice(String(beat)); }
+      }
       // host flipped to racing -> run our OWN start (boost/stall) once, then race locally
       if (snap.phase === 'racing'){
         guestStartRacing(p);
@@ -4110,7 +4255,7 @@
     }
     G.phase = 'racing'; G.raceClock = 0; G.goFlashT = 0.6;
     p.lapStart = performance.now(); p.finishDebounce = 1.0;
-    cdNum.textContent='GO!'; cdNum.classList.add('go'); beep(880,0.3);
+    cdNum.textContent='GO!'; cdNum.classList.add('go'); countdownVoice('GO');
   }
   function toMenuGuest(){
     G.phase = 'menu';
@@ -4151,7 +4296,9 @@
       } else {
         clearItem(p);
       }
-      itemFireSound();
+      if (kind === 'tomato' || kind === 'tomato3') tomatoFireSound();
+      else if (kind === 'chicken' || kind === 'chicken3') chickenSquawkSound(false);
+      else itemFireSound();
     }
     net.pendingUse = true; net.useSeq++;
     try{ net.localPlayer && net.localPlayer.setState('useAct', 'fire', true); }catch(e){}
@@ -4441,9 +4588,15 @@
     // K6 polish (audio + particles + best-lap key; exposed for the headless harness)
     BEST_LAP_KEY, setMuted, toggleMute, particleActiveCount,
     audioState:()=>({ muted:audioMuted, masterGain: masterGain ? masterGain.gain.value : null,
-      engineFreq: engineOsc ? engineOsc.frequency.value : null, engineGainV: engineGain ? engineGain.gain.value : null,
+      engineFreq: engineOsc ? engineOsc.frequency.value : null,
+      engineHarmonic: engineOsc2 ? engineOsc2.frequency.value : null,
+      engineGainV: engineGain ? engineGain.gain.value : null,
+      engineFilterHz: engineFilter ? engineFilter.frequency.value : null,
       driftGainV: driftGain ? driftGain.gain.value : null, ctx: audioCtx ? audioCtx.state : 'none',
-      fanfares:_fanfareCount, mtChimes:_aud.chimes }),
+      fanfares:_fanfareCount, mtChimes:_aud.chimes, cdVoices:_cdVoiceCount }),
+    // SFX hooks for headless audio-graph checks (mute still gates audible output)
+    tomatoFireSound, tomatoSplatSound, chickenSquawkSound, countdownVoice, cancelSpeech,
+    startContinuousAudio, updateAudio, ensureAudio,
     // jump straight into racing at sample 0, SOLO (physics-regression harness entry point)
     forceRace:()=>{
                     for (const id in G.players){ if (G.players[id].isBot || id!=='local'){ removeKartView(id); delete G.players[id]; } }

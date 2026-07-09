@@ -1365,6 +1365,12 @@ GATOR KART MODEL (2026-07-08, untracked local test): user Meshy "6x4 John Deere 
       (opposite), half-slide -0.23 (~⅓ = analog), ring block during drag → none on
       release, 0 pageerrors; mobile screenshot shows ring+knob. Kept steering method as a
       single default (no tilt/wheel toggle) per the user's pick.
+      BINARY FULL-LOCK (2026-07-09, user: analog drag was "too tricky" — "lets have it be
+      full turning speed no matter how little or much you drag the touch"): pointermove now
+      quantizes past a DEADZONE_PX=12 deadzone straight to touch.steer = ±1 (Math.sign(dx)),
+      no proportional in-between; same slide-right=turn-right sign convention preserved.
+      #steerKnob snaps to one of 3 positions (center / full-left / full-right at ±steerRangePx)
+      instead of tracking the finger. Ring position/behavior unchanged.
 
 ## WORLD EDITOR (2026-07-08, user: flesh out tracks → needs a more powerful editor). Multi-phase
 plan (user chose: WYSIWYG-terrain FIRST, objects VISUAL-first/collide-later): P1 WYSIWYG terrain ·
@@ -1551,3 +1557,18 @@ Extended K4 item pool (weighted roll — triples rarer):
   tap again while trailing = fire. Mobile: same hold on the 🎁 button.
 HUD shows ×N for triples and 🛡 when trailing. Bots fire chickens/tomatoes at rivals ahead
 and trail when threatened from behind. Verify: `node tools/_verify-items.cjs`.
+
+# 🏁 Farm Kart — audio redesign (2026-07-09)
+
+WebAudio-only SFX pass (no asset files; mute = `fk_muted` → masterGain 0 + speech cancel):
+- **Engine** — deeper car growl: saw fundamental + detuned square harmonic through a
+  lowpass that opens with RPM (`spd/maxSpeed`); idle ~38 Hz → top ~95 Hz (was thin
+  single-saw ~52+spd*6).
+- **Drift** — looping dual bandpass tire scrape while `drift.active`; gain + brightness
+  climb with MT tier (plus existing charge ticks / tier chimes).
+- **Countdown** — `countdownVoice(3/2/1/GO)`: SpeechSynthesis when unmuted + available,
+  always backed by MK-style WebAudio stingers (works headless / muted / no speech).
+- **Items** — tomato fire whoosh+pop + wet splat on kart hit / wall bounce; chicken
+  squawk on fire + softer chirp on hit; hay keeps generic fire beep.
+Kept: boost whoosh, spin warble, bonk, land thump, item-roll ticks, finish fanfare.
+Verify: `node tools/_verify-audio.cjs`.
