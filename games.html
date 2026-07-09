@@ -25,7 +25,7 @@
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     background: var(--bg);
     color: var(--ink);
-    padding-bottom: 40px;
+    padding-bottom: calc(env(safe-area-inset-bottom) + 78px);   /* clears the fixed bottom nav */
     -webkit-font-smoothing: antialiased;
   }
   header {
@@ -81,6 +81,48 @@
   </div>
   <div class="stripes"></div>
 </header>
+
+<!-- Persistent BUCKY bottom nav — mirrors index.html's 5-area bar (Old Glory palette) -->
+<style>
+  #buckyNav {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    display: flex; gap: 2px;
+    background: rgba(255,255,255,.9);
+    -webkit-backdrop-filter: saturate(1.3) blur(14px); backdrop-filter: saturate(1.3) blur(14px);
+    border-top: 1px solid #d7e0f0;
+    padding: 6px 8px calc(env(safe-area-inset-bottom) + 6px);
+    box-shadow: 0 -2px 16px rgba(35,51,87,.08);
+  }
+  #buckyNav a {
+    flex: 1 1 0; min-width: 0; text-decoration: none; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 7px 0 5px; border-radius: 13px; color: #5d6b86;
+    transition: color .15s ease, background .15s ease, transform .1s ease;
+  }
+  #buckyNav a .bico { font-size: 22px; line-height: 1; filter: grayscale(.4) opacity(.75); transition: filter .15s ease, transform .12s ease; }
+  #buckyNav a .blabel { font-size: 11px; font-weight: 700; letter-spacing: .2px; }
+  #buckyNav a:active { transform: scale(.93); }
+  #buckyNav a.active { color: #233357; background: #e7eefb; }
+  #buckyNav a.active .bico { filter: none; transform: translateY(-1px) scale(1.08); }
+  @media (min-width: 700px) { #buckyNav { justify-content: center; gap: 6px; } #buckyNav a { flex: 0 1 132px; } }
+</style>
+<nav id="buckyNav" aria-label="BUCKY sections"></nav>
+<script>
+(function () {
+  // 5 areas matching index.html's bottom bar (NAV_GROUPS). Both farmgpt + games live
+  // under "Play", so Play is the active tab on both pages.
+  var NAV = [["🏠","index.html#dashboard","Home"],["✅","index.html#chores","Tasks"],["💰","index.html#farmbank","Bank"],["🐐","index.html#goathooves","Farm"],["🎮","games.html","Play"]];
+  var here = "games.html", el = document.getElementById("buckyNav");
+  NAV.forEach(function (n) {
+    var a = document.createElement("a"); a.href = n[1];
+    var ico = document.createElement("span"); ico.className = "bico"; ico.textContent = n[0];
+    var lbl = document.createElement("span"); lbl.className = "blabel"; lbl.textContent = n[2];
+    a.append(ico, lbl); a.title = n[2]; a.setAttribute("aria-label", n[2]);
+    if (n[1] === here) a.className = "active";
+    el.appendChild(a);
+  });
+})();
+</script>
 
 <main>
   <div id="lobbyBanners"></div>

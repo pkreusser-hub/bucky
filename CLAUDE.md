@@ -787,13 +787,34 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   editor pre-filled TODAY when nothing was logged (toInputDate(at || Date.now())) — looked like a real
   date next to the tab's "Never logged"; now blank when at===0 (careAt/daysSince already treat 0 as
   never; no data bug). (5) PERSISTENT NAV: the index tab bar vanished on the FarmGPT/Games pages (they
-  navigate away). Added a .buckyNav row (10 icon <a> links, self-highlight) to farmgpt.html (between
-  header + main flex children — layout-safe) and games.html; in-app tabs link to index.html#<key>, and
-  DEEP_LINK_TABS expanded to every section key so those hashes open the right tab (was game/catgame/
-  workorders/farmbank only). Verified headless (Firestore blocked→local backend): index bank-filter +
-  deep-link + care-blank 7/7; nav renders 10 icons/active/hrefs on both pages; farmgpt clienttest 17/17
-  + storyloguitest 18/18 unaffected. TEST GOTCHA: puppeteer page.goto to a hash-only-different URL is a
-  same-document nav (no reload) so initialHashTab never re-reads — add a ?n=<nonce> to force a full load.
+  navigate away). Added a persistent #buckyNav to farmgpt.html + games.html; in-app tabs link to
+  index.html#<key>, and DEEP_LINK_TABS expanded to every section key so those hashes open the right tab
+  (was game/catgame/workorders/farmbank only). Fixes (1)-(4) + DEEP_LINK_TABS all landed in index.html
+  while the PARALLEL UI-redesign session was copying index.html→redesign/index.html, so the flip-to-live
+  CAPTURED THEM — they shipped inside the redesign commit d7336b5 and are LIVE (verified present:
+  showKids 3300, .wo-top 283, .sheet max-height 520, care-blank 2374, DEEP_LINK_TABS 1009). Do NOT
+  re-apply to index.html.
+  NAV REDONE 2026-07-09 to match the redesign: the first pass was a 10-icon GREEN top row, but the live
+  redesign replaced index's top row with a 5-AREA BOTTOM BAR (#bnav / NAV_GROUPS: Home/Tasks/Bank/Farm/
+  Play) in the Old Glory navy/red palette. So the farmgpt/games #buckyNav was rebuilt as the SAME fixed
+  bottom bar (5 areas, navy #233357 active on #e7eefb, frosted blur, icon+label), Play active on both
+  pages (both live under the Play area; Play→games.html). Colors HARDCODED (not var-based) so each
+  page's own tokens can't drift it. LAYOUT differs by page because their body layouts differ:
+  · games.html (simple BLOCK flow, no bottom composer) → the bar is position:fixed + body padding-bottom
+    calc(safe-area+78px). Fine — block containers honor padding-bottom for scroll.
+  · farmgpt.html (full-height FLEX column: header + main flex:1 + composer) → the bar is an IN-FLOW flex
+    child placed AFTER </main> (flex:0 0 auto), NOT fixed. main got overflow-y:auto so the story-setup
+    view scrolls INSIDE main. WHY not fixed: a fixed bar covered the flex-pinned research composer AND
+    the story-setup "Begin" button; padding-bottom on a flex SCROLL container is NOT honored at
+    scroll-end (button stayed under the bar even at max scroll). As an in-flow last child the bar takes
+    real layout space, main shrinks to fit, and content can never hide behind it. #toast lifted to
+    bottom safe-area+84px so transient toasts float above the bar.
+  Verified headless (scratchpad/navtest2.mjs, CDNs allowed): 25/25 — 5 areas + labels + Play-active +
+  hrefs on both pages, bar at viewport bottom, farmgpt research composer AND story-setup Begin button
+  both clear the bar (mainscroll.mjs: btn reachable at main max-scroll), games bar fixed, 0 pageerrors.
+  Regression: clienttest 17/17 + storyloguitest 18/18 still green with the nav added. TEST GOTCHA:
+  puppeteer page.goto to a hash-only-different URL is a same-document nav (no reload) so initialHashTab
+  never re-reads — add a ?n=<nonce> to force a full load.
 - ARCHITECTURE: static page → POST /.netlify/functions/farmgpt {secret, mode, messages}
   → function stamps the per-mode GUARDRAIL SYSTEM PROMPT server-side (browser can never
   override), streams the model's text back as plain chunks. Zero-dependency raw fetch +
