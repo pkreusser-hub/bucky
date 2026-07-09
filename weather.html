@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#233357" />
+<title>BUCKY — Weather · Woodville, AL</title>
+<link rel="icon" href="bucky.png" />
+<link rel="apple-touch-icon" href="bucky.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Source+Sans+3:wght@500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzR2X1ZPc1j0VpBBWcxCP7T6Ao=" crossorigin="" />
+<style>
+  :root {
+    --navy: #233357;
+    --navy-d: #18233b;
+    --red: #ba303e;
+    --ink: #15233f;
+    --ink-2: #3a4a66;
+    --muted: #5d6b86;
+    --line: #c9d6ea;
+    --card: rgba(255,255,255,.88);
+    --sky-top: #7eb6e8;
+    --sky-mid: #b8d4f0;
+    --sky-bot: #e8f0f8;
+    --shadow: 0 1px 3px rgba(35,51,87,.10), 0 8px 24px rgba(35,51,87,.08);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "Source Sans 3", system-ui, sans-serif;
+    color: var(--ink);
+    min-height: 100dvh;
+    background:
+      radial-gradient(120% 80% at 50% -10%, #fff8e8 0%, transparent 45%),
+      linear-gradient(180deg, var(--sky-top) 0%, var(--sky-mid) 28%, var(--sky-bot) 55%, #eef2fa 100%);
+    background-attachment: fixed;
+    padding-bottom: calc(env(safe-area-inset-bottom) + 88px);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  header {
+    background: linear-gradient(160deg, var(--navy) 0%, var(--navy-d) 100%);
+    color: #fff;
+    padding: calc(env(safe-area-inset-top) + 14px) 16px 16px;
+    position: sticky; top: 0; z-index: 30;
+    box-shadow: 0 4px 20px rgba(24,35,59,.28);
+  }
+  #bar { display: flex; align-items: center; gap: 10px; }
+  #bar a {
+    color: #fff; text-decoration: none; font-weight: 800; font-size: 14px;
+    background: rgba(255,255,255,.16); padding: 7px 12px; border-radius: 9px; flex: 0 0 auto;
+  }
+  #bar .t {
+    font-family: Fraunces, Georgia, serif;
+    font-size: 20px; font-weight: 700; letter-spacing: .2px;
+  }
+  .subloc {
+    margin: 8px 0 0;
+    font-size: 13px; font-weight: 600; color: rgba(255,255,255,.78);
+  }
+
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 16px 14px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .now {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px 16px;
+    align-items: end;
+    padding: 4px 2px 2px;
+  }
+  .now .place {
+    font-family: Fraunces, Georgia, serif;
+    font-size: clamp(26px, 6vw, 34px);
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -.02em;
+    color: var(--navy-d);
+  }
+  .now .area {
+    grid-column: 1;
+    font-size: 14px; font-weight: 600; color: var(--ink-2);
+  }
+  .now .temp {
+    grid-row: 1 / span 2;
+    grid-column: 2;
+    font-family: Fraunces, Georgia, serif;
+    font-size: clamp(52px, 14vw, 72px);
+    font-weight: 700;
+    line-height: .9;
+    letter-spacing: -.04em;
+    color: var(--navy);
+    text-align: right;
+  }
+  .now .cond {
+    grid-column: 1 / -1;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
+    margin-top: 6px;
+    font-size: 16px; font-weight: 700; color: var(--ink);
+  }
+  .now .cond .ico { font-size: 28px; line-height: 1; }
+  .now .meta {
+    grid-column: 1 / -1;
+    display: flex; flex-wrap: wrap; gap: 8px 14px;
+    font-size: 14px; font-weight: 600; color: var(--ink-2);
+  }
+  .now .meta span { white-space: nowrap; }
+  .now.err .place { font-size: 22px; }
+  .now .err-msg { color: var(--red); font-weight: 700; }
+
+  .section-label {
+    font-size: 12px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: .55px;
+    color: var(--navy); margin: 0 0 10px 2px;
+  }
+
+  .forecast {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x mandatory;
+    padding: 2px 2px 8px;
+    margin: 0 -2px;
+  }
+  .forecast::-webkit-scrollbar { height: 4px; }
+  .forecast::-webkit-scrollbar-thumb { background: #a8bdd8; border-radius: 4px; }
+  .fday {
+    flex: 0 0 auto;
+    width: calc((100% - 48px) / 7);
+    min-width: 72px;
+    scroll-snap-align: start;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 12px 6px 10px;
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .fday.today { border-color: var(--navy); box-shadow: 0 0 0 2px rgba(35,51,87,.18), var(--shadow); }
+  .fday .d { font-size: 12px; font-weight: 800; color: var(--navy); }
+  .fday .i { font-size: 26px; line-height: 1; margin: 2px 0; }
+  .fday .t { font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .fday .t b { font-weight: 800; color: var(--ink); }
+  .fday .t span { color: var(--muted); margin-left: 3px; font-weight: 600; }
+  .fday .p { font-size: 11px; font-weight: 700; color: #2f6fc4; font-variant-numeric: tabular-nums; }
+  .fload, .ferr {
+    font-size: 14px; font-weight: 600; color: var(--muted);
+    padding: 14px 4px;
+  }
+  .ferr { color: var(--red); }
+
+  .radar-block {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .radar-block .section-label { margin: 14px 14px 8px; }
+  #map {
+    height: min(52vh, 420px);
+    width: 100%;
+    background: #c5d6e8;
+    z-index: 1;
+  }
+  .radar-ctl {
+    padding: 12px 14px 14px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .radar-row {
+    display: flex; align-items: center; gap: 10px;
+  }
+  #playBtn {
+    flex: 0 0 auto;
+    width: 52px; height: 52px;
+    border: 0; border-radius: 14px;
+    background: var(--navy); color: #fff;
+    font-size: 22px; font-weight: 800;
+    cursor: pointer;
+    display: grid; place-items: center;
+    box-shadow: 0 2px 8px rgba(35,51,87,.25);
+  }
+  #playBtn:active { transform: scale(.94); }
+  #playBtn.playing { background: var(--red); }
+  #playBtn:disabled { opacity: .45; cursor: default; }
+  .scrub-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  #frameTime {
+    font-size: 13px; font-weight: 700; color: var(--ink-2);
+    font-variant-numeric: tabular-nums;
+  }
+  #frameTime .tag {
+    display: inline-block;
+    margin-left: 6px;
+    font-size: 11px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: .3px;
+    color: var(--red);
+  }
+  #scrub {
+    width: 100%;
+    height: 36px;
+    margin: 0;
+    accent-color: var(--navy);
+    cursor: pointer;
+  }
+  #scrub:disabled { opacity: .4; cursor: default; }
+  .radar-hint {
+    font-size: 12px; font-weight: 600; color: var(--muted);
+    line-height: 1.35;
+  }
+  .radar-hint a { color: var(--navy); font-weight: 700; }
+  .radar-err {
+    padding: 16px 14px;
+    font-size: 14px; font-weight: 700; color: var(--red);
+  }
+
+  .farm-pin {
+    background: transparent; border: 0;
+  }
+  .farm-pin span {
+    display: block;
+    width: 14px; height: 14px;
+    background: var(--red);
+    border: 2.5px solid #fff;
+    border-radius: 50%;
+    box-shadow: 0 1px 6px rgba(0,0,0,.35);
+  }
+
+  /* Bottom Bucky nav — same pattern as games.html / farmgpt.html */
+  #buckyNav {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    display: flex; gap: 2px;
+    background: rgba(255,255,255,.9);
+    -webkit-backdrop-filter: saturate(1.3) blur(14px); backdrop-filter: saturate(1.3) blur(14px);
+    border-top: 1px solid #d7e0f0;
+    padding: 6px 8px calc(env(safe-area-inset-bottom) + 6px);
+    box-shadow: 0 -2px 16px rgba(35,51,87,.08);
+  }
+  #buckyNav a {
+    flex: 1 1 0; min-width: 0; text-decoration: none; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 7px 0 5px; border-radius: 13px; color: #5d6b86;
+    transition: color .15s ease, background .15s ease, transform .1s ease;
+  }
+  #buckyNav a .bico { font-size: 22px; line-height: 1; filter: grayscale(.4) opacity(.75); transition: filter .15s ease, transform .12s ease; }
+  #buckyNav a .blabel { font-size: 11px; font-weight: 700; letter-spacing: .2px; }
+  #buckyNav a:active { transform: scale(.93); }
+  #buckyNav a.active { color: #233357; background: #e7eefb; }
+  #buckyNav a.active .bico { filter: none; transform: translateY(-1px) scale(1.08); }
+  @media (min-width: 700px) {
+    #buckyNav { justify-content: center; gap: 6px; }
+    #buckyNav a { flex: 0 1 132px; }
+    .fday { width: calc((100% - 56px) / 7); min-width: 0; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div id="bar">
+    <a href="index.html">← Bucky</a>
+    <span class="t">Weather</span>
+  </div>
+  <p class="subloc">Woodville, AL · Amen Farms area</p>
+</header>
+
+<main>
+  <section id="now" class="now" aria-live="polite">
+    <div class="place">Woodville, AL</div>
+    <div class="temp" id="nowTemp">—°</div>
+    <div class="area">Amen Farms · 727 Co Rd 80</div>
+    <div class="cond" id="nowCond"><span class="ico">⏳</span> Loading…</div>
+    <div class="meta" id="nowMeta"></div>
+  </section>
+
+  <section aria-labelledby="fcLabel">
+    <h2 class="section-label" id="fcLabel">7-day forecast</h2>
+    <div id="forecast" class="forecast" role="list">
+      <div class="fload">Loading forecast…</div>
+    </div>
+  </section>
+
+  <section class="radar-block" aria-labelledby="radarLabel">
+    <h2 class="section-label" id="radarLabel">Weather radar</h2>
+    <div id="map" role="img" aria-label="Radar map centered on Amen Farms"></div>
+    <div class="radar-ctl">
+      <div class="radar-row">
+        <button type="button" id="playBtn" aria-label="Play radar animation" disabled>▶</button>
+        <div class="scrub-wrap">
+          <div id="frameTime">Loading radar…</div>
+          <input type="range" id="scrub" min="0" max="0" value="0" step="1"
+            aria-label="Scrub radar timeline" disabled />
+        </div>
+      </div>
+      <p class="radar-hint">
+        Scrub the slider or press Play to animate the last ~2 hours of radar.
+        Nowcast frames appear when RainViewer provides them.
+        Radar by <a href="https://www.rainviewer.com/" target="_blank" rel="noopener">RainViewer</a>
+        · Forecast by <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>.
+      </p>
+    </div>
+  </section>
+</main>
+
+<nav id="buckyNav" aria-label="BUCKY sections"></nav>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+(function () {
+  // ---- Bucky bottom nav (mirrors games.html / farmgpt.html) ----
+  var BANK_USERS = ["Eleanor", "Isaac", "Dad", "Mom"];
+  var me = localStorage.getItem("choreUser") || "";
+  var NAV = [
+    ["🏠", "index.html#dashboard", "Home"],
+    ["✅", "index.html#chores", "Chores"],
+    ["🛠️", "index.html#workorders", "Jobs"],
+    ["🛒", "index.html#shopping", "Shop"],
+    ["💰", "index.html#farmbank", "Bank"],
+    ["🐐", "index.html#goathooves", "Farm"],
+    ["🎮", "games.html", "Play"]
+  ].filter(function (n) { return n[2] !== "Bank" || BANK_USERS.indexOf(me) >= 0; });
+  var el = document.getElementById("buckyNav");
+  NAV.forEach(function (n) {
+    var a = document.createElement("a");
+    a.href = n[1];
+    // Highlight Farm — weather is a farm utility page
+    if (n[2] === "Farm") a.className = "active";
+    var ico = document.createElement("span"); ico.className = "bico"; ico.textContent = n[0];
+    var lbl = document.createElement("span"); lbl.className = "blabel"; lbl.textContent = n[2];
+    a.append(ico, lbl);
+    a.title = n[2];
+    a.setAttribute("aria-label", n[2]);
+    el.appendChild(a);
+  });
+})();
+</script>
+<script>
+(function () {
+  "use strict";
+
+  var LAT = 34.686537;
+  var LON = -86.210417;
+  var TZ = "America/Chicago";
+
+  var FORECAST_URL =
+    "https://api.open-meteo.com/v1/forecast"
+    + "?latitude=" + LAT + "&longitude=" + LON
+    + "&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,apparent_temperature"
+    + "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"
+    + "&temperature_unit=fahrenheit&wind_speed_unit=mph"
+    + "&timezone=America%2FChicago&forecast_days=7";
+
+  var RADAR_API = "https://api.rainviewer.com/public/weather-maps.json";
+  var TILE_SIZE = (window.devicePixelRatio || 1) >= 2 ? 512 : 256;
+  var ANIM_MS = 450;
+
+  // Expose for headless smoke tests
+  window.__WX__ = { ready: false, forecastOk: false, radarOk: false, frames: 0 };
+
+  function wxIcon(code) {
+    if (code === 0) return "☀️";
+    if (code <= 2) return "🌤️";
+    if (code === 3) return "☁️";
+    if (code <= 48) return "🌫️";
+    if (code <= 67) return "🌧️";
+    if (code <= 77) return "❄️";
+    if (code <= 82) return "🌦️";
+    if (code <= 86) return "🌨️";
+    return "⛈️";
+  }
+
+  function wxLabel(code) {
+    if (code === 0) return "Clear";
+    if (code === 1) return "Mostly clear";
+    if (code === 2) return "Partly cloudy";
+    if (code === 3) return "Overcast";
+    if (code <= 48) return "Foggy";
+    if (code <= 55) return "Drizzle";
+    if (code <= 57) return "Freezing drizzle";
+    if (code <= 65) return "Rain";
+    if (code <= 67) return "Freezing rain";
+    if (code <= 77) return "Snow";
+    if (code <= 82) return "Showers";
+    if (code <= 86) return "Snow showers";
+    if (code <= 99) return "Thunderstorm";
+    return "Weather";
+  }
+
+  function dayName(dateStr, i) {
+    if (i === 0) return "Today";
+    if (i === 1) return "Tomorrow";
+    return new Date(dateStr + "T12:00:00").toLocaleDateString(undefined, { weekday: "short" });
+  }
+
+  // ---- Forecast ----
+  async function loadForecast() {
+    var nowEl = document.getElementById("now");
+    var fcEl = document.getElementById("forecast");
+    try {
+      var r = await fetch(FORECAST_URL);
+      if (!r.ok) throw new Error("forecast " + r.status);
+      var data = await r.json();
+      paintNow(data.current);
+      paintForecast(data.daily);
+      window.__WX__.forecastOk = true;
+    } catch (e) {
+      nowEl.classList.add("err");
+      document.getElementById("nowTemp").textContent = "—°";
+      document.getElementById("nowCond").innerHTML =
+        '<span class="err-msg">Couldn’t load current conditions. Check your connection and try again.</span>';
+      document.getElementById("nowMeta").textContent = "";
+      fcEl.innerHTML = '<div class="ferr">Forecast unavailable right now.</div>';
+    }
+  }
+
+  function paintNow(c) {
+    if (!c) return;
+    document.getElementById("nowTemp").textContent = Math.round(c.temperature_2m) + "°";
+    var ico = wxIcon(c.weather_code);
+    document.getElementById("nowCond").innerHTML =
+      '<span class="ico">' + ico + "</span>" + wxLabel(c.weather_code);
+    var bits = [];
+    if (c.apparent_temperature != null) bits.push("Feels " + Math.round(c.apparent_temperature) + "°");
+    if (c.relative_humidity_2m != null) bits.push("Humidity " + Math.round(c.relative_humidity_2m) + "%");
+    if (c.wind_speed_10m != null) bits.push("Wind " + Math.round(c.wind_speed_10m) + " mph");
+    document.getElementById("nowMeta").innerHTML = bits.map(function (b) {
+      return "<span>" + b + "</span>";
+    }).join("");
+  }
+
+  function paintForecast(d) {
+    var fcEl = document.getElementById("forecast");
+    if (!d || !d.time || !d.time.length) {
+      fcEl.innerHTML = '<div class="ferr">No forecast days returned.</div>';
+      return;
+    }
+    fcEl.innerHTML = "";
+    d.time.forEach(function (date, i) {
+      var card = document.createElement("div");
+      card.className = "fday" + (i === 0 ? " today" : "");
+      card.setAttribute("role", "listitem");
+      var hi = Math.round(d.temperature_2m_max[i]);
+      var lo = Math.round(d.temperature_2m_min[i]);
+      var pp = d.precipitation_probability_max ? (d.precipitation_probability_max[i] ?? 0) : 0;
+      card.innerHTML =
+        '<div class="d"></div>'
+        + '<div class="i">' + wxIcon(d.weather_code[i]) + "</div>"
+        + '<div class="t"><b>' + hi + "°</b><span>" + lo + "°</span></div>"
+        + '<div class="p">💧' + pp + "%</div>";
+      card.querySelector(".d").textContent = dayName(date, i);
+      fcEl.appendChild(card);
+    });
+  }
+
+  // ---- Radar (Leaflet + RainViewer) ----
+  var map = null;
+  var radarHost = "";
+  var frames = [];       // { time, path, kind: 'past'|'nowcast' }
+  var frameIdx = 0;
+  var playing = false;
+  var animTimer = null;
+  var layerCache = {};
+  var currentLayer = null;
+
+  var playBtn = document.getElementById("playBtn");
+  var scrub = document.getElementById("scrub");
+  var frameTime = document.getElementById("frameTime");
+
+  function initMap() {
+    map = L.map("map", {
+      zoomControl: true,
+      attributionControl: true
+    }).setView([LAT, LON], 10);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 18,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
+    }).addTo(map);
+
+    var icon = L.divIcon({
+      className: "farm-pin",
+      html: "<span></span>",
+      iconSize: [14, 14],
+      iconAnchor: [7, 7]
+    });
+    L.marker([LAT, LON], { icon: icon, interactive: false })
+      .addTo(map)
+      .bindTooltip("Amen Farms", { permanent: false, direction: "top" });
+  }
+
+  function tileUrl(frame) {
+    // color scheme 2 = Universal Blue (free-tier allowed); options 1_1 = smooth + snow
+    return radarHost + frame.path + "/" + TILE_SIZE + "/{z}/{x}/{y}/2/1_1.png";
+  }
+
+  function createLayer(frame) {
+    var key = frame.path;
+    if (layerCache[key]) return layerCache[key];
+    var layer = L.tileLayer(tileUrl(frame), {
+      opacity: 0,
+      zIndex: 10,
+      maxNativeZoom: 7,
+      maxZoom: 12
+    });
+    layerCache[key] = layer;
+    return layer;
+  }
+
+  function clearLayerCache() {
+    Object.keys(layerCache).forEach(function (k) {
+      try { map.removeLayer(layerCache[k]); } catch (_) {}
+    });
+    layerCache = {};
+    currentLayer = null;
+  }
+
+  function formatFrameTime(ts, kind) {
+    var d = new Date(ts * 1000);
+    var t = d.toLocaleString(undefined, {
+      timeZone: TZ,
+      weekday: "short",
+      hour: "numeric",
+      minute: "2-digit"
+    });
+    var tag = kind === "nowcast" ? '<span class="tag">Forecast</span>' : "";
+    // Mark the newest past frame as "Now"
+    var lastPast = -1;
+    for (var i = frames.length - 1; i >= 0; i--) {
+      if (frames[i].kind === "past") { lastPast = i; break; }
+    }
+    if (kind === "past" && frames[frameIdx] && frames[frameIdx].time === ts && frameIdx === lastPast) {
+      tag = '<span class="tag">Now</span>';
+    }
+    return t + tag;
+  }
+
+  function showFrame(i) {
+    if (!frames.length) return;
+    i = Math.max(0, Math.min(frames.length - 1, i | 0));
+    frameIdx = i;
+    scrub.value = String(i);
+
+    var frame = frames[i];
+    frameTime.innerHTML = formatFrameTime(frame.time, frame.kind);
+
+    var next = createLayer(frame);
+    next.addTo(map);
+    next.setOpacity(0.75);
+
+    if (currentLayer && currentLayer !== next) {
+      try { map.removeLayer(currentLayer); } catch (_) {}
+    }
+    currentLayer = next;
+  }
+
+  function stopAnim() {
+    playing = false;
+    if (animTimer) { clearTimeout(animTimer); animTimer = null; }
+    playBtn.classList.remove("playing");
+    playBtn.textContent = "▶";
+    playBtn.setAttribute("aria-label", "Play radar animation");
+  }
+
+  function playStep() {
+    if (!playing) return;
+    var next = frameIdx + 1;
+    if (next >= frames.length) next = 0;
+    showFrame(next);
+    animTimer = setTimeout(playStep, ANIM_MS);
+  }
+
+  function startAnim() {
+    if (frames.length < 2) return;
+    playing = true;
+    playBtn.classList.add("playing");
+    playBtn.textContent = "⏸";
+    playBtn.setAttribute("aria-label", "Pause radar animation");
+    // Hold the current frame briefly, then step — don't skip on Play
+    animTimer = setTimeout(playStep, ANIM_MS);
+  }
+
+  function togglePlay() {
+    if (playing) stopAnim();
+    else startAnim();
+  }
+
+  async function loadRadar() {
+    try {
+      var r = await fetch(RADAR_API);
+      if (!r.ok) throw new Error("radar " + r.status);
+      var api = await r.json();
+      if (!api || !api.host || !api.radar || !Array.isArray(api.radar.past) || !api.radar.past.length) {
+        throw new Error("no radar frames");
+      }
+      radarHost = api.host;
+      frames = [];
+      api.radar.past.forEach(function (f) {
+        frames.push({ time: f.time, path: f.path, kind: "past" });
+      });
+      if (Array.isArray(api.radar.nowcast)) {
+        api.radar.nowcast.forEach(function (f) {
+          frames.push({ time: f.time, path: f.path, kind: "nowcast" });
+        });
+      }
+
+      scrub.min = "0";
+      scrub.max = String(Math.max(0, frames.length - 1));
+      scrub.disabled = false;
+      playBtn.disabled = frames.length < 2;
+
+      // Start on the latest past frame ("now")
+      var start = frames.length - 1;
+      for (var i = frames.length - 1; i >= 0; i--) {
+        if (frames[i].kind === "past") { start = i; break; }
+      }
+      showFrame(start);
+
+      window.__WX__.radarOk = true;
+      window.__WX__.frames = frames.length;
+    } catch (e) {
+      frameTime.textContent = "Radar unavailable right now.";
+      scrub.disabled = true;
+      playBtn.disabled = true;
+      var ctl = document.querySelector(".radar-ctl");
+      var err = document.createElement("div");
+      err.className = "radar-err";
+      err.textContent = "Couldn’t load RainViewer radar. The map still works — try again in a bit.";
+      ctl.insertBefore(err, ctl.firstChild);
+    }
+  }
+
+  playBtn.addEventListener("click", togglePlay);
+  scrub.addEventListener("input", function () {
+    stopAnim();
+    showFrame(parseInt(scrub.value, 10) || 0);
+  });
+  // Pause animation while dragging the map so tiles stay coherent
+  // (rebuilt after moveend via cache clear + current frame)
+
+  initMap();
+  map.on("movestart", function () {
+    // Keep current frame; clear unused cached layers on move to save memory
+  });
+  map.on("moveend", function () {
+    // Drop off-screen cached layers except the current one
+    Object.keys(layerCache).forEach(function (k) {
+      if (currentLayer && layerCache[k] === currentLayer) return;
+      try { map.removeLayer(layerCache[k]); } catch (_) {}
+      delete layerCache[k];
+    });
+  });
+
+  Promise.all([loadForecast(), loadRadar()]).then(function () {
+    window.__WX__.ready = true;
+  });
+})();
+</script>
+</body>
+</html>
