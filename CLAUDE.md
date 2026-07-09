@@ -138,6 +138,21 @@ tokens (no framework); regroup the 9 sections into ~5 areas.
   `precipitation_probability_max`, forecast_days=5, cache key bumped to `bucky_wx2` (old
   3-day shape ignored); each cell now day/emoji/hi°/lo°/💧%; `.wxdays` = 5 cols, tighter
   cells (emoji 21px, temps nowrap) — fits 390px with 0 clip. p10 now 19/19.
+- **AUDIENCE REWORK: chores for all, Mom banks, Prints→Jobs, Shopping stat** (2026-07-09,
+  user): (1) CHORES UNGATED — the chores gate is fully reversed: every user (incl. guests)
+  gets the hero ring, Today's-chores card, Streak stat, and the Chores tab; `CHORE_BANK_USERS/
+  seesChoreBank` → `BANK_USERS = ["Eleanor","Isaac","Dad","Mom"]` / `seesBank()` gating ONLY
+  Farm Bank (bank stat, Bank nav area, farmbank bounce). (2) MOM = family (in BANK_USERS →
+  sees Bank; 7 tabs). Guests (e.g. Grandma): 6 tabs, no Bank stat. (3) HOME STAT ROW is now
+  universal: 💰 Bank (family) / 🔥 Streak / 🛠 Open Work Orders / 🛒 **Shopping** (open
+  shopping-list items — replaces the old goat/care-due guest stats; the goat counter is GONE
+  per user request; "Open Work Orders" wraps 3 lines at 4-up, acceptable). (4) 3D PRINTS
+  moved from Tasks → the **Jobs** area (wo members=[workorders,print3d] → Jobs gets a
+  Jobs/Prints sub-nav); the tasks area holds only chores so its bottom label was renamed
+  **"Chores"**. Dead helpers weeklyBankDelta/money2 removed. Verified headless: p10 30/30
+  (4-stat row + shopping count, no Chores sub-nav, Jobs sub=workorders/print3d, Mom full w/
+  bank, Grandma 6 tabs + ring + no bank), p7 13/13 / p8 18/18 / p9 15/15 updated to the new
+  spec. 0 pageerrors.
 
 ---
 
@@ -1475,3 +1490,16 @@ Replaced the fused Meshy Gator + Chef Bucky GLB with all-procedural three.js:
   toque). Hands parented to wheel grip anchors (turn with the rim); feet parented to pedals;
   upper/lower arm & leg segments stretch shoulder↔hand / hip↔foot each frame; torso leans
   into steer/drift. `kartBuild:3` migrates fit TUNE keys. Verify: `node tools/_verify-driver.cjs`.
+
+# 🏁 Farm Kart — Stage A terrain authority unify (2026-07-09)
+
+Root cause of road↔ground weirdness: **two height functions**. Kart/entities used
+`sampleHeight` (XZ-nearest branch + blend skirt); grass mesh used `groundSampleHeight`
+(lowest-branch walk) — they disagreed at road edges even on single-level tracks, so the
+ribbon and displaced ground skirt fought and `rideHeight = max(both)` was a band-aid.
+Stage A: `groundSampleHeight` now **equals `sampleHeight`** except under true multi-level
+overlaps (`_isMultiLevelRoad`, Y gap >1.5m) where the mesh stays on the lowest branch so
+bridges keep open air. Ribbon remains a separate visual (+0.08). Verified:
+`tools/_verify-terrain-auth.cjs` (default maxDiff 0; Royal keeps bridge gaps) + slope-conform
+PASS. Stage B (later): bake road into one heightfield / ribbon from same verts. Stage C:
+optional mesh raycast seating.

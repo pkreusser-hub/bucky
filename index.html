@@ -964,11 +964,11 @@ const PRINT_ADMIN = "Dad";
    Must match profile names EXACTLY (same rule as PRINT_ADMIN above). ---- */
 const BANK_ADMIN = "Dad";
 const BANK_KIDS = ["Isaac", "Eleanor"];
-// Chores + Farm Bank are only relevant to the kids and Dad — other family members (Mom,
-// grandparents, guests) don't see them. Gates the Home chore ring + chore list + bank stat/
-// card, the Bank bottom-nav area, and the Tasks "Chores" chip. Must match profile names.
-const CHORE_BANK_USERS = ["Eleanor", "Isaac", "Dad"];
-function seesChoreBank(){ return CHORE_BANK_USERS.includes(myName()); }
+// Farm Bank is family-only (kids + parents) — grandparents/guests don't see it. Gates the
+// Home bank stat, the Bank bottom-nav area, and the farmbank section. Chores are visible to
+// EVERYONE (2026-07-09 user decision, reversing the earlier chores gate). Must match profile names.
+const BANK_USERS = ["Eleanor", "Isaac", "Dad", "Mom"];
+function seesBank(){ return BANK_USERS.includes(myName()); }
 
 /* ---- Dad account lock: the Dad profile (banking, and FarmGPT's usage + kids' Story Log) is
    PIN-protected. The PIN is created in-app the first time, hashed (never stored in the clear),
@@ -1053,13 +1053,13 @@ let currentTab = initialHashTab;
 // out to the Games + FarmGPT hubs; the in-app deep-link games (game/catgame) also
 // live under Play so they highlight the right bottom tab.
 const NAV_GROUPS = [
-  { id:"home",  ico:"🏠",  name:"Home",  def:"dashboard",  members:["dashboard"] },
-  { id:"tasks", ico:"✅",  name:"Tasks", def:"chores",     members:["chores","print3d"] },
-  { id:"wo",    ico:"🛠️",  name:"Jobs",  def:"workorders", members:["workorders"] },
-  { id:"shop",  ico:"🛒",  name:"Shop",  def:"shopping",   members:["shopping"] },
-  { id:"bank",  ico:"💰",  name:"Bank",  def:"farmbank",   members:["farmbank"] },
-  { id:"farm",  ico:"🐐",  name:"Farm",  def:"goathooves", members:["goathooves","goatcare"] },
-  { id:"play",  ico:"🎮",  name:"Play",  def:"play",       members:["play","game","catgame"] },
+  { id:"home",  ico:"🏠",  name:"Home",   def:"dashboard",  members:["dashboard"] },
+  { id:"tasks", ico:"✅",  name:"Chores", def:"chores",     members:["chores"] },
+  { id:"wo",    ico:"🛠️",  name:"Jobs",   def:"workorders", members:["workorders","print3d"] },
+  { id:"shop",  ico:"🛒",  name:"Shop",   def:"shopping",   members:["shopping"] },
+  { id:"bank",  ico:"💰",  name:"Bank",   def:"farmbank",   members:["farmbank"] },
+  { id:"farm",  ico:"🐐",  name:"Farm",   def:"goathooves", members:["goathooves","goatcare"] },
+  { id:"play",  ico:"🎮",  name:"Play",   def:"play",       members:["play","game","catgame"] },
 ];
 const SECTION_BY_KEY = Object.fromEntries(SECTIONS.map(s => [s.key, s]));
 // Short chip labels for the segmented sub-nav (the full section names like
@@ -1071,9 +1071,9 @@ const groupLast = {};
 function groupForTab(tab){
   return NAV_GROUPS.find(g => g.members.includes(tab)) || NAV_GROUPS[0];
 }
-// Chores + Farm Bank are hidden from the nav for non-{Eleanor,Isaac,Dad} users.
-function navKeyVisible(key){ return seesChoreBank() || (key !== "chores" && key !== "farmbank"); }
-function navGroupVisible(gid){ return seesChoreBank() || gid !== "bank"; }
+// Farm Bank is hidden from the nav for non-family users; everything else is visible to all.
+function navKeyVisible(key){ return seesBank() || key !== "farmbank"; }
+function navGroupVisible(gid){ return seesBank() || gid !== "bank"; }
 let careView = "hooves";    // which activity the Goat Care tab is updating
 const expandedGoats = new Set();  // ids of goats expanded on the Goats tab
 const collapsedGroups = new Set();  // collapsed group headers (Goats by type, Work Orders by assignee)
@@ -1528,9 +1528,9 @@ function render(){
   checkNotifications();
   ensureKidSeeds();
   ensureDailyAllowance();
-  // Chores + Farm Bank are hidden for non-{Eleanor,Isaac,Dad}; bounce them to Home if they
-  // somehow land on those sections (stale tab after a profile switch, an old deep-link, etc.).
-  if (!seesChoreBank() && (currentTab === "chores" || currentTab === "farmbank")) currentTab = "dashboard";
+  // Farm Bank is hidden for non-family users; bounce them to Home if they somehow land on it
+  // (stale tab after a profile switch, an old deep-link, etc.).
+  if (!seesBank() && currentTab === "farmbank") currentTab = "dashboard";
   renderSubnav();   // keep the Tasks/Farm sub-nav in sync no matter who changed currentTab
   const cf = document.getElementById("careFilter");
   if (cf) cf.style.display = currentTab === "goatcare" ? "block" : "none";
@@ -1602,18 +1602,11 @@ function goTo(tab, push = true){
 
 // ---- Home helpers ----
 function dayKey(d){ return d.getFullYear() + "-" + (d.getMonth()+1) + "-" + d.getDate(); }
-// Net change across the kids' bank ledgers over the last 7 days (for the "this week" line).
-function weeklyBankDelta(kids){
-  const since = Date.now() - 7*86400000;
-  return chores.filter(c => c.frequency === "kidbank" && kids.includes(c.kid) && (c.at||0) >= since)
-    .reduce((s,c)=> s + (Number(c.amount)||0), 0);
-}
 // "$14" or "$14<small>.50</small>" — cents only shown when non-zero (for the stat row).
 function bankMarkup(v){
   const neg = v < 0, a = Math.abs(v), whole = Math.floor(a), cents = Math.round((a - whole) * 100);
   return `${neg?"−":""}$${whole}` + (cents ? `<small>.${String(cents).padStart(2,"0")}</small>` : "");
 }
-function money2(n){ return "$" + Math.abs(n).toFixed(2); }
 // Subtitle under a chore on the Home list (time of day for dailies, else the frequency).
 function homeChoreSub(c){
   if (c.frequency === "daily") return { morning:"Morning", noon:"Noon", night:"Night" }[c.timeOfDay || "morning"];
@@ -1718,12 +1711,9 @@ function renderDashboard(){
   const left  = total - done;
   // Jobs stat = MY open work orders only (assigned to the logged-in person). No name set → all open.
   const openWos = chores.filter(c => c.frequency === "workorder" && !c.done && (!who || (c.assignee || "") === who)).length;
-  const goats   = chores.filter(c => c.frequency === "goathooves");
   const bankVal = isBankKid ? kidBalance(who) : BANK_KIDS.reduce((s,k)=> s + kidBalance(k), 0);
-  const weekDelta = weeklyBankDelta(isBankKid ? [who] : BANK_KIDS);
-  const printOpen = chores.filter(c => c.frequency === "print3d" && c.status !== "done").length;
-  const careGoat  = goats.find(g => { const n = daysSince(careAt(g,"hooves")); return n === null || n >= 60; });
-  const streak    = choreStreak(total, done);
+  const shopOpen = chores.filter(c => c.frequency === "shopping" && !c.gotAt).length;
+  const streak   = choreStreak(total, done);
 
   const list = document.getElementById("list");
   list.innerHTML = "";
@@ -1732,40 +1722,34 @@ function renderDashboard(){
   const home = document.createElement("div"); home.className = "home2";
   li.appendChild(home);
 
-  // Chores + Farm Bank only appear for the kids + Dad; everyone else gets a farm-focused Home.
-  const showCB = seesChoreBank();
-  const careDueCount = goats.filter(g => { const n = daysSince(careAt(g, "hooves")); return n === null || n >= 60; }).length;
+  const showBank = seesBank();   // Farm Bank stays family-only; chores are for everyone
 
-  // ---- hero: greeting (+ chore progress ring, only for chore/bank users) ----
+  // ---- hero: greeting + chore progress ring ----
   const CIRC = 2 * Math.PI * 30, pct = total ? done/total : 0;   // r=30
   const hero = document.createElement("button"); hero.className = "hero";
-  const sub = !showCB
-    ? "Welcome to the farm 🌻"
-    : (total
-        ? (left ? `<b>${left} chore${left>1?"s":""}</b> left today — nice pace!` : "<b>All done</b> — go play! 🎉")
-        : "No chores today 🌻");
-  const ringHTML = showCB
-    ? `<div class="ring" aria-label="${done} of ${total} chores done">
-         <svg width="70" height="70">
-           <circle cx="35" cy="35" r="30" fill="none" stroke="var(--line)" stroke-width="7"></circle>
-           <circle class="ringfg" cx="35" cy="35" r="30" fill="none" stroke="var(--green)" stroke-width="7"
-             stroke-linecap="round" stroke-dasharray="${CIRC.toFixed(1)}" stroke-dashoffset="${(CIRC*(1-pct)).toFixed(1)}"></circle>
-         </svg>
-         <div class="val">${done}<small>/${total}</small></div>
-       </div>`
-    : "";
+  const sub = total
+    ? (left ? `<b>${left} chore${left>1?"s":""}</b> left today — nice pace!` : "<b>All done</b> — go play! 🎉")
+    : "No chores today 🌻";
   hero.innerHTML =
     `<div class="htxt">
        <div class="eyebrow"></div>
        <h1></h1>
        <p class="hsub">${sub}</p>
-     </div>${ringHTML}`;
+     </div>
+     <div class="ring" aria-label="${done} of ${total} chores done">
+       <svg width="70" height="70">
+         <circle cx="35" cy="35" r="30" fill="none" stroke="var(--line)" stroke-width="7"></circle>
+         <circle class="ringfg" cx="35" cy="35" r="30" fill="none" stroke="var(--green)" stroke-width="7"
+           stroke-linecap="round" stroke-dasharray="${CIRC.toFixed(1)}" stroke-dashoffset="${(CIRC*(1-pct)).toFixed(1)}"></circle>
+       </svg>
+       <div class="val">${done}<small>/${total}</small></div>
+     </div>`;
   hero.querySelector(".eyebrow").textContent = eyebrow;
   hero.querySelector("h1").textContent = `${part[0]}${who ? ", " + who : ""} ${part[1]}`;
-  hero.onclick = () => goTo(showCB ? "chores" : "goathooves");
+  hero.onclick = () => goTo("chores");
   home.appendChild(hero);
 
-  // ---- stat row (Bank + Streak only for chore/bank users; Open Work Orders always) ----
+  // ---- stat row: Bank (family only) / Streak / Open Work Orders / Shopping ----
   const stats = document.createElement("div"); stats.className = "stats";
   const mkStat = (k, v, onClick) => {
     const b = document.createElement("button"); b.className = "stat";
@@ -1773,15 +1757,10 @@ function renderDashboard(){
     b.onclick = onClick; stats.appendChild(b);
   };
   const statDefs = [];
-  if (showCB){
-    statDefs.push(["💰 Bank",   bankMarkup(bankVal),          () => goTo("farmbank")]);
-    statDefs.push(["🔥 Streak", `${streak}<small>d</small>`,  () => goTo("chores")]);
-  }
+  if (showBank) statDefs.push(["💰 Bank", bankMarkup(bankVal), () => goTo("farmbank")]);
+  statDefs.push(["🔥 Streak", `${streak}<small>d</small>`,  () => goTo("chores")]);
   statDefs.push(["🛠 Open Work Orders", `${openWos}`, () => goTo("workorders")]);
-  if (!showCB){   // fill the row with farm-relevant stats instead of Bank/Streak
-    statDefs.push(["🐐 Goats", `${goats.length}`, () => goTo("goathooves")]);
-    statDefs.push(["🩺 Care due", `${careDueCount}`, () => goTo("goatcare")]);
-  }
+  statDefs.push(["🛒 Shopping", `${shopOpen}`, () => goTo("shopping")]);
   stats.style.gridTemplateColumns = `repeat(${statDefs.length}, 1fr)`;
   for (const [k, v, fn] of statDefs) mkStat(k, v, fn);
   home.appendChild(stats);
@@ -1804,34 +1783,32 @@ function renderDashboard(){
   };
   home.appendChild(ask);
 
-  // ---- Today's chores card (interactive) — chore/bank users only ----
-  if (showCB){
-    const card2 = document.createElement("div"); card2.className = "card2";
-    const chd = document.createElement("div"); chd.className = "chd";
-    chd.innerHTML = `<h2>Today's chores</h2><button class="more">See all →</button>`;
-    chd.querySelector(".more").onclick = () => goTo("chores");
-    card2.appendChild(chd);
-    const rows = document.createElement("div"); rows.className = "rows";
-    if (!dayChores.length){
-      const e = document.createElement("div"); e.className = "empty2";
-      e.textContent = "No chores yet — tap + on Tasks to add one.";
-      rows.appendChild(e);
-    } else {
-      for (const c of dayChores){   // all of them; the list scrolls (capped to ~4 rows tall in CSS)
-        const isD = isDone(c);
-        const r = document.createElement("button"); r.className = "crow" + (isD ? " checked" : "");
-        r.innerHTML =
-          `<div class="hcheck">${isD ? "✓" : ""}</div>
-           <div class="cbody"><div class="t${isD ? " done" : ""}"></div><div class="s"></div></div>`;
-        r.querySelector(".t").textContent = c.name;
-        r.querySelector(".s").textContent = homeChoreSub(c);
-        r.onclick = () => toggleHomeChore(c);
-        rows.appendChild(r);
-      }
+  // ---- Today's chores card (interactive, everyone) ----
+  const card2 = document.createElement("div"); card2.className = "card2";
+  const chd = document.createElement("div"); chd.className = "chd";
+  chd.innerHTML = `<h2>Today's chores</h2><button class="more">See all →</button>`;
+  chd.querySelector(".more").onclick = () => goTo("chores");
+  card2.appendChild(chd);
+  const rows = document.createElement("div"); rows.className = "rows";
+  if (!dayChores.length){
+    const e = document.createElement("div"); e.className = "empty2";
+    e.textContent = "No chores yet — tap + on Chores to add one.";
+    rows.appendChild(e);
+  } else {
+    for (const c of dayChores){   // all of them; the list scrolls (capped to ~4 rows tall in CSS)
+      const isD = isDone(c);
+      const r = document.createElement("button"); r.className = "crow" + (isD ? " checked" : "");
+      r.innerHTML =
+        `<div class="hcheck">${isD ? "✓" : ""}</div>
+         <div class="cbody"><div class="t${isD ? " done" : ""}"></div><div class="s"></div></div>`;
+      r.querySelector(".t").textContent = c.name;
+      r.querySelector(".s").textContent = homeChoreSub(c);
+      r.onclick = () => toggleHomeChore(c);
+      rows.appendChild(r);
     }
-    card2.appendChild(rows);
-    home.appendChild(card2);
   }
+  card2.appendChild(rows);
+  home.appendChild(card2);
 
   // ---- Open work orders list (mine) — shows ~3, scrolls for the rest ----
   const myWos = chores.filter(c => c.frequency === "workorder" && !c.done && (!who || (c.assignee || "") === who))
