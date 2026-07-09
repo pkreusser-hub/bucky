@@ -637,6 +637,8 @@
   // Empty/absent -> nothing added (the live game is unchanged for tracks without objects). Visual-
   // first: no collision yet. Same FK_TRACK.buildObjectMesh the editor uses, so what you place = what races.
   for (const o of (ACTIVE_TRACK.objects || [])) scene.add(FK_TRACK.buildObjectMesh(o, THREE));
+  // P5: cattle fences (posts + rails that follow the terrain via sampleHeight)
+  for (const f of (ACTIVE_TRACK.fences || [])) scene.add(FK_TRACK.buildFenceMesh(f, THREE, { heightFn:(x,z)=>sampleHeight(x,z) }));
 
   // ---------- start/finish line (checkered strip across main straight) ----------
   // Placed near the main straight at ~z=20, spanning the track width.

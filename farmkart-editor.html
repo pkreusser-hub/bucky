@@ -77,6 +77,15 @@
       <button class="btn" id="mObject">🧊 objects</button>
       <button class="btn" id="mSculpt">⛰ sculpt</button>
       <button class="btn" id="mPaint">🎨 paint</button>
+      <button class="btn" id="mFence">🔗 fence</button>
+    </div>
+    <div id="fenceTools" style="display:none;margin-top:6px;padding:8px;background:rgba(70,55,35,.3);border-radius:8px;">
+      <div class="row">
+        <button class="btn" id="fUndo">↶ undo point</button>
+        <button class="btn on" id="fFinish">✓ finish fence</button>
+      </div>
+      <div style="color:#9ab;font-size:11px;margin-top:5px;">click the ground to drop fence posts along a line · finish to start a new run</div>
+      <div id="fenceList" style="margin-top:6px;"></div>
     </div>
     <div id="paintTools" style="display:none;margin-top:6px;padding:8px;background:rgba(60,50,40,.3);border-radius:8px;">
       <div id="swatches" style="display:flex;flex-wrap:wrap;gap:5px;"></div>
@@ -119,6 +128,14 @@
     </div>
     <label style="margin-top:6px;">tag / name of selected</label>
     <input type="text" id="objTag" placeholder="e.g. big red barn" autocomplete="off">
+    <label style="margin-top:5px;">type of selected</label>
+    <select id="objType" style="width:100%;padding:5px;border-radius:6px;background:rgba(0,0,0,.35);color:#fff;border:1px solid rgba(255,255,255,.2);font-family:monospace;">
+      <option value="block">block (blockout)</option>
+      <option value="barn">🏚 barn</option>
+      <option value="silo">🥫 silo</option>
+      <option value="tree">🌳 tree</option>
+      <option value="water">💧 water</option>
+    </select>
     <div id="objList" style="margin-top:6px;"></div>
 
     <div class="sec">Save / share</div>
@@ -261,6 +278,51 @@
     }
   }
   function paintCellCount(){ return track.paint ? Object.keys(track.paint.cells).length : 0; }
+
+  // ---- FENCES (P5): click to drop posts along a line; posts+rails follow the terrain ----
+  const fenceGroup = new THREE.Group(); scene.add(fenceGroup);
+  let curFence = null, fenceSeq = 0, fenceDown = null;
+  function rebuildFences(){
+    while (fenceGroup.children.length){ const o=fenceGroup.children[0]; fenceGroup.remove(o); o.traverse(c=>{ if(c.geometry)c.geometry.dispose(); if(c.material)c.material.dispose(); }); }
+    let maxSeq=0;
+    for (const f of (track.fences||[])){
+      const m=String(f.id||'').match(/(\d+)$/); if(m) maxSeq=Math.max(maxSeq,+m[1]);
+      if (f.points.length>=2) fenceGroup.add(FK_TRACK.buildFenceMesh(f, THREE, { heightFn:(x,z)=>terrainHeightAt(x,z) }));
+      // in-progress marker dots for the points (so a 1-point start is visible)
+      for (const p of f.points){ const d=new THREE.Mesh(new THREE.SphereGeometry(0.8,8,6), new THREE.MeshBasicMaterial({color:0xffe27a})); d.position.set(p.x, terrainHeightAt(p.x,p.z)+1, p.z); fenceGroup.add(d); }
+    }
+    fenceSeq=Math.max(fenceSeq,maxSeq); refreshFenceList();
+  }
+  function addFencePoint(x,z){
+    track.fences=track.fences||[];
+    if (!curFence){ curFence={ id:'fence_'+(++fenceSeq), tag:'', points:[], height:2.2, postGap:6 }; track.fences.push(curFence); }
+    curFence.points.push({ x:Math.round(x*10)/10, z:Math.round(z*10)/10 });
+    rebuildFences();
+  }
+  function undoFencePoint(){
+    const f = curFence || (track.fences && track.fences[track.fences.length-1]);
+    if (!f || !f.points.length) return;
+    f.points.pop();
+    if (!f.points.length){ track.fences=track.fences.filter(x=>x!==f); if(curFence===f) curFence=null; }
+    rebuildFences();
+  }
+  function finishFence(){
+    if (curFence && curFence.points.length<2) track.fences=track.fences.filter(f=>f!==curFence);
+    curFence=null; rebuildFences(); toast('fence finished — click to start a new one');
+  }
+  function refreshFenceList(){
+    const box=$('fenceList'); if(!box) return; box.innerHTML='';
+    const fs=track.fences||[];
+    if(!fs.length){ box.innerHTML='<div style="color:#8aa;font-size:12px;">no fences yet</div>'; return; }
+    fs.forEach((f,i)=>{
+      const row=document.createElement('div'); row.style.cssText='display:flex;gap:6px;margin:2px 0;font-family:monospace;font-size:12px;';
+      const nm=document.createElement('span'); nm.style.cssText='flex:1;color:#d9c8a8;'; nm.textContent=(f===curFence?'▶ ':'')+(f.tag||('fence '+(i+1)))+' ('+f.points.length+'pt)';
+      const del=document.createElement('button'); del.textContent='×'; del.style.cssText='background:#8a3a3a;border:0;color:#fff;border-radius:5px;cursor:pointer;padding:1px 7px;';
+      del.onclick=()=>{ track.fences=track.fences.filter(x=>x!==f); if(curFence===f)curFence=null; rebuildFences(); };
+      row.appendChild(nm); row.appendChild(del); box.appendChild(row);
+    });
+  }
+  function fenceCount(){ return (track.fences||[]).length; }
   function scheduleTerrain(){ if (terrainTimer) clearTimeout(terrainTimer); terrainTimer = setTimeout(rebuildTerrain, 140); }
 
   // ================= P2: WORLD OBJECTS (place / move / rotate / scale / tag) =================
@@ -313,7 +375,7 @@
     selObjId=id;
     if (id && objMeshes[id]) gizmo.attach(objMeshes[id]); else gizmo.detach();
     const o=id?(track.objects||[]).find(x=>x.id===id):null;
-    $('objTag').value=o?(o.tag||''):''; refreshObjList();
+    $('objTag').value=o?(o.tag||''):''; if(o) $('objType').value=o.type||'block'; refreshObjList();
   }
   function addObject(){
     track.objects=track.objects||[];
@@ -483,20 +545,24 @@
     $('mObject').classList.toggle('on', m==='object');
     $('mSculpt').classList.toggle('on', m==='sculpt');
     $('mPaint').classList.toggle('on', m==='paint');
+    $('mFence').classList.toggle('on', m==='fence');
     $('sculptTools').style.display = (m==='sculpt') ? 'block' : 'none';
     $('paintTools').style.display = (m==='paint') ? 'block' : 'none';
+    $('fenceTools').style.display = (m==='fence') ? 'block' : 'none';
     if (m==='sculpt') $('scCells').textContent = terrainCellCount();
     if (m==='paint') $('pCells').textContent = paintCellCount();
+    if (m==='fence') refreshFenceList();
     // gizmo only lives in object mode (otherwise it would steal clicks from point editing)
     gizmo.enabled = (m==='object'); gizmo.visible = (m==='object') && !!selObjId;
     if (m==='object' && selObjId && objMeshes[selObjId]) gizmo.attach(objMeshes[selObjId]);
-    if ((m==='sculpt'||m==='paint') && showTerrain===false){ showTerrain=true; $('terrainBtn').classList.add('on'); $('terrainBtn').textContent='🌾 terrain: ON'; rebuildTerrain(); }
+    if ((m==='sculpt'||m==='paint'||m==='fence') && showTerrain===false){ showTerrain=true; $('terrainBtn').classList.add('on'); $('terrainBtn').textContent='🌾 terrain: ON'; rebuildTerrain(); }
     $('hint').textContent = m==='insert' ? 'click the road to INSERT a point on the nearest segment'
                           : m==='item'   ? 'click the road to drop an ITEM ROW (s-fraction)'
                           : m==='boost'  ? 'click the road to drop a BOOST PAD (s + lane)'
                           : m==='object' ? 'click an object to select · gizmo = move/rotate/scale (G/R/S) · ＋ add block · name it below'
                           : m==='sculpt' ? 'drag the GRASS to raise it · hold Shift to lower · the road stays put'
                           : m==='paint'  ? 'pick a color, then drag the GRASS to paint it (dirt, sand, path...)'
+                          : m==='fence'  ? 'click the ground to drop fence posts along a line · finish to start a new run · drag = orbit'
                           : 'drag spheres = move · Shift+drag = elevation · drag empty = orbit · wheel = zoom';
   }
   $('mSelect').addEventListener('click', ()=>setMode('select'));
@@ -534,6 +600,17 @@
   }
   $('addWaterBtn').addEventListener('click', ()=>{ setMode('object'); addWater(); });
   $('addObjBtn').addEventListener('click', ()=>{ setMode('object'); addObject(); });
+  // object type dropdown -> retype the selected object into a real prop (barn/silo/tree/...)
+  $('objType').addEventListener('change', ()=>{
+    if (!selObjId) return; const o=(track.objects||[]).find(x=>x.id===selObjId); if(!o) return;
+    o.type=$('objType').value;
+    if (o.type==='water' && (!isFinite(o.color) || o.color===0xc8a06a)) o.color=0x2f6fb0;
+    rebuildObjects();
+  });
+  // fence
+  $('mFence').addEventListener('click', ()=>setMode('fence'));
+  $('fUndo').addEventListener('click', undoFencePoint);
+  $('fFinish').addEventListener('click', finishFence);
   $('dupObjBtn').addEventListener('click', duplicateObject);
   $('gMove').addEventListener('click', ()=>setGizmo('translate'));
   $('gRot').addEventListener('click', ()=>setGizmo('rotate'));
@@ -593,6 +670,7 @@
       if (h){ painting = true; controls.enabled = false; applyPaint(h.x, h.z); liveTerrain(); }
       return;
     }
+    if (mode === 'fence'){ fenceDown = { x:e.clientX, y:e.clientY }; return; }  // add on click-up (drag = orbit)
     setNdc(e);
     if (mode === 'insert'){
       const hit = pickRibbon();
@@ -647,6 +725,13 @@
   }
   renderer.domElement.addEventListener('pointerup', endDrag, true);
   renderer.domElement.addEventListener('pointerleave', endDrag);
+  // fence: a CLICK (down+up without much drag) drops a fence post; a drag orbits instead
+  renderer.domElement.addEventListener('pointerup', e=>{
+    if (mode==='fence' && fenceDown){
+      const moved = Math.hypot(e.clientX-fenceDown.x, e.clientY-fenceDown.y); fenceDown=null;
+      if (moved < 6){ setNdc(e); const h=pickGround(); if(h) addFencePoint(h.x, h.z); }
+    }
+  });
 
   // insert a control point on the nearest polygon segment to the clicked ribbon point
   function insertNear(hit){
@@ -755,7 +840,7 @@
       const data = JSON.parse($('io').value);
       const clean = FK_TRACK.sanitize(data);
       if (!clean){ toast('import failed: invalid JSON/track'); return; }
-      track = clean; selected=-1; currentId=null; selObjId=null; syncFields(); rebuild(); rebuildObjects(); toast('imported');
+      track = clean; selected=-1; currentId=null; selObjId=null; curFence=null; syncFields(); rebuild(); rebuildObjects(); rebuildFences(); toast("imported");
     }catch(e){ toast('import failed: not JSON'); }
   });
 
@@ -785,7 +870,7 @@
     let data = id ? ((loadMap()[id]) || (FK_TRACK.BUILTIN_TRACKS && FK_TRACK.BUILTIN_TRACKS[id]))
                   : JSON.parse(JSON.stringify(FK_TRACK.DEFAULT_TRACK));
     const c = FK_TRACK.sanitize(data); if(!c){ toast('load failed'); return; }
-    track=c; currentId=id||null; selected=-1; selObjId=null; syncFields(); rebuild(); rebuildObjects(); frameCamera(); populateLoad();
+    track=c; currentId=id||null; selected=-1; selObjId=null; curFence=null; syncFields(); rebuild(); rebuildObjects(); rebuildFences(); frameCamera(); populateLoad();
   }
   $('loadSel').addEventListener('change', ()=>{ const o=$('loadSel').selectedOptions[0]; loadById($('loadSel').value); toast('loaded "'+(o?o.textContent:'')+'"'); });
 
@@ -802,6 +887,7 @@
   syncFields();
   rebuild();
   rebuildObjects();
+  rebuildFences();
   populateLoad();
   frameCamera();
 
@@ -816,7 +902,7 @@
     setPointY:(i,y)=>{ track.points[i].y=y; rebuild(); },
     setWallMargin:(m)=>{ track.wallMargin=m; syncFields(); rebuildCorridorViz(); },
     toggleCorridor:()=>{ showCorridor=!showCorridor; $('corridorBtn').classList.toggle('on', showCorridor); rebuildCorridorViz(); return showCorridor; },
-    loadTrack:(t)=>{ const c=FK_TRACK.sanitize(t); if(c){ track=c; selected=-1; selObjId=null; syncFields(); rebuild(); rebuildObjects(); } return !!c; },
+    loadTrack:(t)=>{ const c=FK_TRACK.sanitize(t); if(c){ track=c; selected=-1; selObjId=null; curFence=null; syncFields(); rebuild(); rebuildObjects(); rebuildFences(); } return !!c; },
     // P2 object hooks (for headless tests)
     get objects(){ return track.objects||[]; }, get selObjId(){ return selObjId; }, objMeshes, gizmo,
     addObject, duplicateObject, deleteObject, selectObject, setGizmo, rebuildObjects,
@@ -831,7 +917,11 @@
     get paint(){ return track.paint; }, get paintCells(){ return paintCellCount(); },
     setPaint:(hex,radius)=>{ if(hex!=null)PAINT.color=hex; if(radius!=null)PAINT.radius=radius; },
     paintAt:(x,z)=>{ applyPaint(x,z); rebuildTerrain(); return paintCellCount(); },
-    addWater
+    addWater,
+    // P5 fence + prop hooks
+    get fences(){ return track.fences||[]; }, get fenceCount(){ return fenceCount(); },
+    addFencePoint, finishFence, rebuildFences,
+    setObjType:(t)=>{ if(selObjId){ const o=(track.objects||[]).find(x=>x.id===selObjId); if(o){ o.type=t; rebuildObjects(); } } }
   };
   </script>
 </body>

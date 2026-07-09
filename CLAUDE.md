@@ -1167,3 +1167,21 @@ layout sync.
       cells → mesh gains color attr, water obj added, both persist save→empty→reload, game renders
       painted dirt swath + translucent pond, road unaffected, 0 pageerrors editor+game. All P1-P4
       still LOCAL.
+- [x] P5 FENCE TOOL + REAL PROPS (2026-07-08): cattle fences + the blockout→real-model pattern.
+      FENCES: track.fences=[{id,tag,points:[{x,z}],height,postGap}] sanitized; FK_TRACK.buildFenceMesh
+      builds terrain-following posts + 3 rails (walks each segment at 2.5u steps, samples opts.heightFn
+      per point — game passes sampleHeight, editor terrainHeightAt; rails oriented by quaternion
+      setFromUnitVectors so they pitch along slopes). Editor 🔗 fence mode: CLICK the ground to drop
+      posts (down+up<6px = click, else drag orbits — fenceDown tracks it), ↶ undo point, ✓ finish
+      (starts a new run), fence list w/ delete, yellow point-marker dots. REAL PROPS: buildObjectMesh
+      switched on obj.type — added barn (red walls + 2-plane gable roof + door), silo (cylinder +
+      hemisphere dome), tree (trunk + canopy sphere); all authored to a UNIT box (base y=-0.5) so the
+      group (x,y,z)=center + (sx,sy,sz) scale + gizmo work uniformly like block/water. Editor: an
+      object TYPE dropdown (block/barn/silo/tree/water) retypes the SELECTED object → a tagged
+      blockout becomes a real model on the spot. Game renders ACTIVE_TRACK.fences via buildFenceMesh.
+      Verified headless: fence 3pts renders mesh + persists, retype block→barn persists, game loads
+      4 props (barn/silo/2 trees) + 1 fence and renders them all, byte-identical when empty, 0
+      pageerrors editor+game. THE WORLD-EDITOR PLAN (P1 WYSIWYG terrain · P2 objects+tag · P3 sculpt ·
+      P4 paint+water · P5 fence+props) IS COMPLETE — all LOCAL, never pushed. WORKFLOW: user tags a
+      blockout / names a spot → I add a bespoke type case to buildObjectMesh (barn/house/etc.) keyed
+      to that footprint. Model polish (nicer barn roof, more prop types) is per-request from here.

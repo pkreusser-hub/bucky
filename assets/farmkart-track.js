@@ -321,6 +321,24 @@
         }
         if (n) out.paint = { cell, cells };
       }
+      // FENCES (P5): [{id, tag, points:[{x,z}], height, postGap}]. Absent/garbage -> omitted.
+      if (Array.isArray(data.fences)){
+        const fences = [];
+        for (const f of data.fences){
+          if (!f || !Array.isArray(f.points) || f.points.length < 2) continue;
+          const pts = [];
+          for (const p of f.points){ const x=+p.x, z=+p.z; if (isFinite(x)&&isFinite(z)) pts.push({x,z}); }
+          if (pts.length < 2) continue;
+          fences.push({
+            id:  (typeof f.id==='string' && f.id) ? f.id.slice(0,40) : ('fence_'+(fences.length+1)),
+            tag: (typeof f.tag==='string') ? f.tag.slice(0,60) : '',
+            points: pts,
+            height:  (isFinite(+f.height) && +f.height>0) ? +f.height : 2.2,
+            postGap: (isFinite(+f.postGap) && +f.postGap>1) ? +f.postGap : 6
+          });
+        }
+        if (fences.length) out.fences = fences;
+      }
       return out;
     }catch(e){ return null; }
   }
@@ -331,23 +349,73 @@
   function buildObjectMesh(obj, THREE, opts){
     opts = opts || {};
     const g = new THREE.Group();
-    const isWater = obj.type === 'water';
+    const type = obj.type || 'block';
+    const ghost = !!opts.ghost;
     let color = obj.color;
     if (typeof color === 'string') color = parseInt(String(color).replace('#','0x'));
-    if (!isFinite(color)) color = isWater ? 0x2f6fb0 : 0xc8a06a;
-    const mat = new THREE.MeshLambertMaterial({
-      color,
-      transparent: isWater || !!opts.ghost,
-      opacity: isWater ? 0.72 : (opts.ghost ? 0.5 : 1),
-      depthWrite: !isWater
-    });
-    const box = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), mat);   // unit cube centered at local origin
-    if (isWater) box.renderOrder = 3;                                // water blends over terrain
-    g.add(box);
+    // All models are authored to fill a UNIT box centered at origin, base at y=-0.5 (so the group's
+    // (x,y,z)=CENTER + scale (sx,sy,sz) place/size them uniformly; the gizmo transforms the group).
+    const lam = (c, o)=> new THREE.MeshLambertMaterial({ color:c, transparent: ghost || (o!=null && o<1), opacity: (o!=null?o:(ghost?0.5:1)), depthWrite: !(o!=null && o<1) });
+    const put = (geo, c, x,y,z, o)=>{ const m=new THREE.Mesh(geo, lam(c,o)); m.position.set(x||0, y||0, z||0); g.add(m); return m; };
+    if (type === 'water'){
+      const m = put(new THREE.BoxGeometry(1,1,1), isFinite(color)?color:0x2f6fb0, 0,0,0, 0.72); m.renderOrder = 3;
+    } else if (type === 'barn'){
+      const body = isFinite(color)?color:0xb3402f;
+      put(new THREE.BoxGeometry(1,0.6,1), body, 0,-0.2,0);                         // walls  (y -0.5..0.1)
+      const rl = put(new THREE.BoxGeometry(0.74,0.05,1.02), 0x7a3b2a, -0.19,0.29,0); rl.rotation.z =  0.72;  // roof L
+      const rr = put(new THREE.BoxGeometry(0.74,0.05,1.02), 0x7a3b2a,  0.19,0.29,0); rr.rotation.z = -0.72;  // roof R
+      put(new THREE.BoxGeometry(0.28,0.34,0.04), 0xe9e4d8, 0,-0.33,0.5);           // door (front)
+    } else if (type === 'silo'){
+      put(new THREE.CylinderGeometry(0.42,0.42,0.8,16), isFinite(color)?color:0xc9ccce, 0,-0.1,0);
+      put(new THREE.SphereGeometry(0.42,16,8,0,Math.PI*2,0,Math.PI/2), 0xaeb3b6, 0,0.3,0);
+    } else if (type === 'tree'){
+      put(new THREE.CylinderGeometry(0.09,0.12,0.5,8), 0x6b4a2b, 0,-0.25,0);       // trunk
+      put(new THREE.SphereGeometry(0.4,12,10), isFinite(color)?color:0x4f8f3a, 0,0.15,0);   // canopy
+    } else { // "block" (default) — tagged blockout massing
+      if (!isFinite(color)) color = 0xc8a06a;
+      put(new THREE.BoxGeometry(1,1,1), color, 0,0,0);
+    }
     g.position.set(obj.x, obj.y, obj.z);
     g.scale.set(obj.sx||1, obj.sy||1, obj.sz||1);
     g.rotation.y = obj.rotY || 0;
     g.userData.objId = obj.id;
+    return g;
+  }
+
+  // ---- buildFenceMesh (P5): a cattle-fence polyline -> posts + 3 rails that FOLLOW the terrain.
+  // fence = { points:[{x,z}], height, postGap }. opts.heightFn(x,z) seats it on the ground (game
+  // passes sampleHeight, editor passes its terrain height). Shared so editor + game render identical.
+  function buildFenceMesh(fence, THREE, opts){
+    const g = new THREE.Group();
+    const pts = fence.points; if (!pts || pts.length < 2) return g;
+    const hfn = (opts && opts.heightFn) || (()=>0);
+    const H = fence.height || 2.2, postGap = fence.postGap || 6, step = 2.5;
+    const postMat = new THREE.MeshLambertMaterial({ color:0x6b4a2b });
+    const railMat = new THREE.MeshLambertMaterial({ color:0x9a7a4e });
+    const railFracs = [0.4, 0.68, 0.95];
+    // dense terrain-following path along all segments
+    const path = [];
+    for (let s=0;s<pts.length-1;s++){
+      const a=pts[s], b=pts[s+1], dx=b.x-a.x, dz=b.z-a.z, len=Math.hypot(dx,dz), n=Math.max(1,Math.round(len/step));
+      for (let i=0;i<n;i++){ const t=i/n, x=a.x+dx*t, z=a.z+dz*t; path.push({x,z,y:hfn(x,z)}); }
+    }
+    const last=pts[pts.length-1]; path.push({x:last.x,z:last.z,y:hfn(last.x,last.z)});
+    const Z = new THREE.Vector3(0,0,1);
+    for (let i=0;i<path.length-1;i++){
+      const p=path[i], q=path[i+1];
+      for (const f of railFracs){
+        const dir = new THREE.Vector3(q.x-p.x, (q.y+H*f)-(p.y+H*f), q.z-p.z); const L=dir.length()||0.01; dir.normalize();
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(0.1,0.13,L), railMat);
+        rail.position.set((p.x+q.x)/2, (p.y+q.y)/2 + H*f, (p.z+q.z)/2);
+        rail.quaternion.setFromUnitVectors(Z, dir);
+        g.add(rail);
+      }
+    }
+    let acc=0, next=0;
+    for (let i=0;i<path.length;i++){
+      if (i>0) acc += Math.hypot(path[i].x-path[i-1].x, path[i].z-path[i-1].z);
+      if (acc>=next || i===path.length-1){ const p=path[i]; const post=new THREE.Mesh(new THREE.BoxGeometry(0.2,H,0.2), postMat); post.position.set(p.x, p.y+H/2, p.z); g.add(post); next+=postGap; }
+    }
     return g;
   }
 
@@ -548,6 +616,6 @@
     VERSION:1, SAMPLES,
     DEFAULT_TRACK, BUILTIN_TRACKS,
     resample, buildRibbonGeometry, sanitize, validate, reverse, nearestOnCenter, nearestOnCenterAtY,
-    groundHills, sampleHeight, groundSampleHeight, buildGroundMesh, buildObjectMesh, sampleField, sampleColor
+    groundHills, sampleHeight, groundSampleHeight, buildGroundMesh, buildObjectMesh, buildFenceMesh, sampleField, sampleColor
   };
 })();
