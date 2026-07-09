@@ -285,7 +285,7 @@
           const x=+o.x, y=+o.y, z=+o.z;
           if (!isFinite(x)||!isFinite(y)||!isFinite(z)) continue;
           const num=(v,d)=> isFinite(+v) ? +v : d;
-          objs.push({
+          const oo = {
             id:   (typeof o.id==='string' && o.id)   ? o.id.slice(0,40) : ('obj_'+(objs.length+1)),
             tag:  (typeof o.tag==='string')          ? o.tag.slice(0,60) : '',
             type: (typeof o.type==='string' && o.type)? o.type.slice(0,24) : 'block',
@@ -293,7 +293,9 @@
             rotY: num(o.rotY, 0),
             sx: Math.max(0.2, num(o.sx, 6)), sy: Math.max(0.2, num(o.sy, 6)), sz: Math.max(0.2, num(o.sz, 6)),
             color: (typeof o.color==='number') ? o.color : (typeof o.color==='string' ? o.color : 0xc8a06a)
-          });
+          };
+          if (oo.type==='glb' && typeof o.model==='string' && o.model) oo.model = o.model.slice(0,60);  // downloaded prop id
+          objs.push(oo);
         }
         if (objs.length) out.objects = objs;
       }
@@ -371,6 +373,18 @@
     } else if (type === 'tree'){
       put(new THREE.CylinderGeometry(0.09,0.12,0.5,8), 0x6b4a2b, 0,-0.25,0);       // trunk
       put(new THREE.SphereGeometry(0.4,12,10), isFinite(color)?color:0x4f8f3a, 0,0.15,0);   // canopy
+    } else if (type === 'glb'){
+      // a downloaded CC0 prop, normalized into the unit box at load (opts.propCache[obj.model]).
+      const entry = opts.propCache && opts.propCache[obj.model];
+      if (entry){
+        const clone = entry.scene.clone(true);
+        clone.scale.setScalar(entry.norm.s);
+        clone.position.set(entry.norm.ox, entry.norm.oy, entry.norm.oz);
+        if (ghost) clone.traverse(o=>{ if(o.isMesh && o.material){ o.material = o.material.clone(); o.material.transparent = true; o.material.opacity = 0.6; } });
+        g.add(clone);
+      } else {
+        put(new THREE.BoxGeometry(1,1,1), 0x99a0a8, 0,0,0, 0.4);   // placeholder until the model loads
+      }
     } else { // "block" (default) — tagged blockout massing
       if (!isFinite(color)) color = 0xc8a06a;
       put(new THREE.BoxGeometry(1,1,1), color, 0,0,0);

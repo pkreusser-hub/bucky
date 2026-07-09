@@ -138,6 +138,11 @@
     </select>
     <div id="objList" style="margin-top:6px;"></div>
 
+    <div class="sec">🌲 Scenery <span style="color:#7fd0ff;font-weight:400;text-transform:none;">(free CC0 models)</span></div>
+    <select id="propCat" style="width:100%;padding:5px;border-radius:6px;background:rgba(0,0,0,.35);color:#fff;border:1px solid rgba(255,255,255,.2);font-family:monospace;"></select>
+    <div id="propList" style="margin-top:5px;max-height:180px;overflow-y:auto;display:flex;flex-wrap:wrap;gap:4px;"></div>
+    <div style="color:#9ab;font-size:11px;margin-top:3px;" id="propStatus">loading models…</div>
+
     <div class="sec">Save / share</div>
     <div class="row">
       <button class="btn" id="saveBtn">💾 save</button>
@@ -163,7 +168,9 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
   <script src="assets/farmkart-track.js"></script>
+  <script src="assets/farmkart-props.js"></script>
   <script>
   "use strict";
   // ============================================================================
@@ -330,6 +337,7 @@
   scene.add(objectGroup); scene.add(labelGroup);
   const objMeshes = {};                 // obj.id -> THREE.Group
   let selObjId = null, objSeq = 0;
+  let propCache = {};                    // id -> loaded+normalized GLB (filled async at boot)
 
   const gizmo = new THREE.TransformControls(camera, renderer.domElement);
   gizmo.setSize(0.9); gizmo.enabled = false; gizmo.visible = false;
@@ -356,7 +364,7 @@
     let maxSeq=0;
     for (const o of (track.objects||[])){
       const m=String(o.id||'').match(/(\d+)$/); if(m) maxSeq=Math.max(maxSeq,+m[1]);
-      const g=FK_TRACK.buildObjectMesh(o, THREE, { ghost:true }); objectGroup.add(g); objMeshes[o.id]=g;
+      const g=FK_TRACK.buildObjectMesh(o, THREE, { ghost:true, propCache }); objectGroup.add(g); objMeshes[o.id]=g;
       const lbl=makeLabel(o.tag); positionLabel(lbl,o); labelGroup.add(lbl); g.userData.label=lbl;
     }
     objSeq=Math.max(objSeq,maxSeq);
@@ -408,6 +416,31 @@
       del.onclick=()=>{ selObjId=o.id; deleteObject(); };
       row.appendChild(nm); row.appendChild(del); box.appendChild(row);
     });
+  }
+  // ---- P6: place a downloaded CC0 prop (type "glb") ----
+  function addProp(id){
+    const def = (window.FK_PROPS||[]).find(p=>p.id===id); if(!def) return;
+    track.objects=track.objects||[];
+    const cx=+controls.target.x.toFixed(2), cz=+controls.target.z.toFixed(2), s=def.size||6;
+    const o={ id:'obj_'+(++objSeq), tag:'', type:'glb', model:id, x:cx, y:+(terrainHeightAt(cx,cz)+s*0.5).toFixed(2), z:cz, rotY:0, sx:s, sy:s, sz:s, color:0 };
+    track.objects.push(o); setMode('object'); rebuildObjects(); selectObject(o.id); setGizmo('translate');
+    toast('placed '+def.name);
+  }
+  const PROP_CATS={tree:'🌳 trees',rock:'🪨 rocks & stones',plant:'🌱 plants & flowers',crop:'🌽 crops',log:'🪵 logs & stumps',fence:'🚧 fences',building:'🏚 farm buildings',prop:'🎪 props'};
+  function renderPropList(cat){
+    const box=$('propList'); if(!box) return; box.innerHTML='';
+    (window.FK_PROPS||[]).filter(p=>cat==='all'||p.cat===cat).forEach(p=>{
+      const b=document.createElement('button'); b.textContent=p.name; b.title=p.name;
+      b.style.cssText='font-size:11px;padding:4px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.2);background:#274b34;color:#dfe;cursor:pointer;flex:0 0 auto;';
+      b.onclick=()=>addProp(p.id); box.appendChild(b);
+    });
+  }
+  function buildPropPicker(){
+    const props=window.FK_PROPS||[]; const sel=$('propCat'); if(!sel) return; sel.innerHTML='';
+    const all=document.createElement('option'); all.value='all'; all.textContent='all ('+props.length+')'; sel.appendChild(all);
+    [...new Set(props.map(p=>p.cat))].forEach(c=>{ const o=document.createElement('option'); o.value=c; o.textContent=(PROP_CATS[c]||c)+' ('+props.filter(p=>p.cat===c).length+')'; sel.appendChild(o); });
+    sel.onchange=()=>renderPropList(sel.value);
+    sel.value='tree'; renderPropList('tree');
   }
 
   function rebuild(){
@@ -890,6 +923,15 @@
   rebuildFences();
   populateLoad();
   frameCamera();
+
+  // P6: preload the CC0 prop library (async) — placeholders swap to real models when ready
+  buildPropPicker();
+  if (window.FK_loadProps){
+    const total=(window.FK_PROPS||[]).length; let done=0;
+    FK_loadProps(null, THREE, 'assets/farmkart/props/', ()=>{ done++; const s=$('propStatus'); if(s)s.textContent='loading models… '+done+'/'+total; })
+      .then(c=>{ propCache=c; const s=$('propStatus'); if(s)s.textContent=total+' CC0 models ready — pick one to place'; rebuildObjects(); })
+      .catch(()=>{ const s=$('propStatus'); if(s)s.textContent='model load failed'; });
+  }
 
   // ---- TEST HOOK (mirrors the game's __KART__ pattern) ----
   window.__EDITOR__ = {

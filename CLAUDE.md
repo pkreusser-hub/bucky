@@ -1185,3 +1185,25 @@ layout sync.
       P4 paint+water · P5 fence+props) IS COMPLETE — all LOCAL, never pushed. WORKFLOW: user tags a
       blockout / names a spot → I add a bespoke type case to buildObjectMesh (barn/house/etc.) keyed
       to that footprint. Model polish (nicer barn roof, more prop types) is per-request from here.
+- [x] P6 FREE CC0 SCENERY MODELS (2026-07-08, user: "get some free scenery models online"): 57 CC0
+      GLBs downloaded into assets/farmkart/props/ (Kenney Nature Kit selection — 48: trees/rocks/
+      stones/plants/flowers/crops/logs/stumps/fences/mushrooms + Quaternius Farm Buildings — 9: barn/
+      big_barn/small_barn/open_barn/silo/silo_house/windmill/chickencoop/fence). All PUBLIC DOMAIN/CC0
+      (no attribution). SOURCING: Kenney = one direct zip (kenney.nl/media/.../kenney_nature-kit.zip,
+      329 .glb inside); Poly Pizza = per-model GLB at static.poly.pizza/<uuid>.glb (model page /m/<id>
+      has the uuid + a "Title" JSON field + license — Poly Pizza MIXES CC0 and CC-BY, verified each;
+      animals/vehicles searched were mostly CC-BY so SKIPPED to stay attribution-free). NEW module
+      assets/farmkart-props.js: window.FK_PROPS manifest [{id,name,file,cat,size}] + FK_loadProps(ids,
+      THREE,base,onOne) → loads each GLB, CONVERTS materials (see [[gltf-linear-color-gotcha]]:
+      MeshStandard→MeshLambert, white base when textured/vertex-colored, convertLinearToSRGB on solid
+      colors, emissive≈base×0.34 — otherwise they render near-black), NORMALIZES into a unit box (base
+      y=-0.5, centered XZ), caches for cloning. buildObjectMesh type "glb" clones from opts.propCache
+      (placeholder box until loaded); sanitize preserves the .model field. EDITOR: GLTFLoader+props.js
+      added; 🌲 Scenery section = category dropdown + scrollable prop buttons; picking one places a
+      type:glb object sized per category; all 57 preloaded at boot (propStatus counter), propCache
+      passed to rebuildObjects. GAME: non-glb objects render sync, glb props async-load only the models
+      the track references then pop in (empty track = no load = byte-identical, re-verified 0.0).
+      Verified headless: 57 loaded, picker 13 tree btns, place→real mesh (0 placeholders), model field
+      persists save→reload, game renders barn/silo/trees/rock with CORRECT colors (sRGB fix) + 0
+      pageerrors. Kenney License.txt kept in props/. Still LOCAL. NEXT: user tags/places → I can also
+      hand-build bespoke models, and CC-BY animals/vehicles are available if a credits line is OK.

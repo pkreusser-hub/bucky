@@ -288,6 +288,7 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
   <script src="https://unpkg.com/playroomkit@0.0.96/multiplayer.full.umd.js"></script>
   <script src="assets/farmkart-track.js"></script>
+  <script src="assets/farmkart-props.js"></script>
   <script>
   "use strict";
   /* ============================================================================
@@ -636,7 +637,15 @@
   // ---------- P2: placed world objects (blockout massing) ----------
   // Empty/absent -> nothing added (the live game is unchanged for tracks without objects). Visual-
   // first: no collision yet. Same FK_TRACK.buildObjectMesh the editor uses, so what you place = what races.
-  for (const o of (ACTIVE_TRACK.objects || [])) scene.add(FK_TRACK.buildObjectMesh(o, THREE));
+  // non-GLB objects render immediately; GLB props (downloaded CC0 models) pop in after an async load.
+  for (const o of (ACTIVE_TRACK.objects || [])) if (o.type !== 'glb') scene.add(FK_TRACK.buildObjectMesh(o, THREE));
+  const _glbObjs = (ACTIVE_TRACK.objects || []).filter(o => o.type === 'glb' && o.model);
+  if (_glbObjs.length && window.FK_loadProps){
+    const ids = [...new Set(_glbObjs.map(o => o.model))];
+    FK_loadProps(ids, THREE, 'assets/farmkart/props/').then(cache => {
+      for (const o of _glbObjs) scene.add(FK_TRACK.buildObjectMesh(o, THREE, { propCache:cache }));
+    }).catch(()=>{});
+  }
   // P5: cattle fences (posts + rails that follow the terrain via sampleHeight)
   for (const f of (ACTIVE_TRACK.fences || [])) scene.add(FK_TRACK.buildFenceMesh(f, THREE, { heightFn:(x,z)=>sampleHeight(x,z) }));
 
