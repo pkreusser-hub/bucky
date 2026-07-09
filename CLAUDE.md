@@ -1128,6 +1128,28 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
       /googleapis|firestore|firebase|gstatic/ in test browsers (gstatic serves
       the SDK). Firestore REST audit one-liner lives in this session's
       transcript; familyKey = roomId("amenfarms") = fam2jan2g.
+- [x] HERD DUPLICATION RECURRENCE + hardening (2026-07-09): 36 goat dupes + 2 daily
+      chores ("Feed the goats"/"Collect eggs") re-appeared in ONE burst 2026-07-08
+      00:50Z (BEFORE that day's redesign push — unrelated to it). All bare seed copies
+      (no photo/care) matching BUCKY_SEED; the 06-29 originals (photos+care) survived
+      underneath. The batch = seed items {1,2,7-42} (2 chores + all 36 goats, skipping
+      chores 3-6) = the same partial-concurrent-write signature as the 07-06 incident,
+      i.e. a re-seed/herd-load path fired against the live DB. The 07-06 fromCache guard
+      only closed ONE door; TWO re-seed paths remained: (a) the cloud auto-seed looped 42
+      NON-awaited addDocs (partial-write prone); (b) the "Load the goat herd" button
+      (importHerd) dumps the WHOLE herd if tapped while the in-memory list is empty (fresh
+      device / a headless test hitting production before sync — there ARE un-blocked
+      index.html test scripts in this session's scratchpad: verify-dash.js/verify-wiring.js/
+      verify-tray.js/etc.; MY p2-p6 tests all block Firebase). CLEANUP (Firestore REST,
+      public rules): scratchpad/goat_cleanup.mjs merged one stray care log (Daisy dewormed)
+      onto its original then deleted all 36 dupes → 38 goats, 0 dups; the 2 daily chores
+      were KEPT (each had a completion). HARDENING (index.html): new `serverConfirmed` flag
+      (true on the local backend always; on cloud only when a NON-fromCache snapshot
+      arrives) — importHerd now REFUSES to run until serverConfirmed (can't dump the herd
+      pre-sync); the cloud-seed loop now name+frequency dedupes against present docs AND
+      awaits each addDoc (no more partial writes). Verified headless 20/20, 0 pageerrors.
+      REMINDER (again): headless index.html tests MUST block /googleapis|firestore|firebase|
+      gstatic/ — old scratchpad scripts that don't are how this keeps happening.
 - [x] ILLUSTRATED STORIES + HOMEWORK CAMERA (2026-07-07, PUSHED 1b37ee0, built by
       an opus subagent from a Fable spec): story chapters can end ===ART=== +
       inline SVG (client DOMPurify svg profile + FORBID script/foreignObject/
@@ -1390,15 +1412,12 @@ layout sync.
       road + seated on grass, editor 3200 instances + toggle clears them, heights byte-identical, 0
       pageerrors. Tunables: buildGrassTufts opts.count/band/size. Still LOCAL.
 
-# 🏁 Farm Kart — Chef Bucky driver (2026-07-09)
+# 🏁 Farm Kart — custom Bucky Kart + Chef Bucky driver (2026-07-09)
 
-Chef Bucky (`assets/chef-bucky.glb`, same Blender ChefBuckyRig as Bistro) now sits in the
-Gator as the local/bot driver. Visual-only (no physics change):
-- `loadDriverGLB` + `fillKartDriver` / `syncKartDriver` parent a SkeletonUtils clone under the
-  kart GLB; Hips measured so the seat point is the hip, not the standing feet.
-- Seated bind pose every frame (quaternion, not euler.rotation — Bistro hold-pose lesson).
-- Procedural green steering wheel (Gator Body is one mesh so the baked wheel can't be hidden)
-  rotates with `steer`; arms follow the rim angle.
-- Chest leans into turns/drifts (`driverLeanSteer` / `driverLeanDrift`); hips stay planted.
-- Live TUNE sliders: driverX/Y/Z/Scale, lean*, steerWheel*. Press \` in-game to nudge fit.
-  SkeletonUtils CDN added alongside GLTFLoader. Verify: tools/_verify-driver.cjs → shots/fk-driver-*.png.
+Replaced the fused Meshy Gator GLB with a **procedural three.js Bucky Kart**
+(`buildCustomKart`) built in game-forward space (+Z front): chunky accent body, cream cargo
+bed + hay, roll hoop, grill/lights, 4 knobby tires, separate seat + steering wheel. No GLB
+needed for the vehicle (works even on file:// for the body; Bucky still needs chef-bucky.glb
+over http). Chef Bucky sits in the left seat: hips-anchored seated pose, arms follow the
+wheel rim, Chest leans into steer/drift. `kartBuild:2` migrates old Gator-space driver TUNE
+keys once. Verify: `node tools/_verify-driver.cjs` → `shots/fk-driver-*.png`.

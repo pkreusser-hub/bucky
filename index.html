@@ -1064,6 +1064,10 @@ const STORES = [
 let shopAddStore = "";  // which store the add-item sheet is targeting
 let chores = [];          // [{id, name, frequency, order, lastPeriod, lastBy, lastAt}]
 let dataReady = false;    // true once the backend has delivered chores at least once (guards checkNotifications from the async cloud-load race)
+// True only once we've seen the AUTHORITATIVE herd — the local backend (always), or a
+// SERVER-confirmed (non-fromCache) cloud snapshot. Guards the "Load the goat herd" import
+// so a fresh device (empty in-memory list) can never re-add the whole herd as duplicates.
+let serverConfirmed = false;
 let editingId = null;     // null = adding new
 let sheetFreq = "daily";
 let sheetTod = "morning";
@@ -1939,6 +1943,13 @@ async function exportData(){
 // Write the built-in herd into the current backend (cloud or local). Skips goats already present.
 async function importHerd(){
   const ib = document.getElementById("importHerdBtn");
+  // GUARD: never import until we've seen the authoritative herd. On a fresh device the
+  // in-memory list is momentarily empty; importing then would re-add the ENTIRE herd as
+  // duplicates (root cause of the 2026-07-06 and 2026-07-08 goat-duplication incidents).
+  if (!serverConfirmed){
+    if (ib){ ib.textContent = "Still syncing… try again in a moment"; setTimeout(()=>{ if (ib) ib.textContent = "Load the goat herd"; }, 2500); }
+    return;
+  }
   if (ib){ ib.disabled = true; ib.textContent = "Loading herd…"; }
   try {
     const have = new Set(chores.filter(c => c.frequency === "goathooves").map(g => g.name));
@@ -4590,6 +4601,7 @@ function makeLocalBackend(){
     save();
   }
   dataReady = true;
+  serverConfirmed = true;   // local storage IS the authoritative herd on this device
   return {
     add: async (data) => { const id = "c" + Date.now(); chores.push({ id, ...data }); save(); return id; },
     update: async (id, patch) => { const c = chores.find(x=>x.id===id); if(c) Object.assign(c, patch); save(); },
@@ -4619,9 +4631,10 @@ async function makeCloudBackend(){
 
   // Live listener: whenever anyone changes a chore, everyone's list updates
   let seedChecked = false;
-  fs.onSnapshot(col, (snap)=>{
+  fs.onSnapshot(col, async (snap)=>{
     chores = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     dataReady = true;
+    if (!snap.metadata.fromCache) serverConfirmed = true;   // we've now seen the real, server-side herd
     render(); refreshGoatDetail();
     setStatus("live", "Synced with your family");
     // One-time: if this family's database is empty, load the starter data + goat herd.
@@ -4633,7 +4646,18 @@ async function makeCloudBackend(){
       const flag = "buckySeeded_" + familyKey;
       if (snap.empty && seedData().length && !localStorage.getItem(flag)){
         localStorage.setItem(flag, "1");
-        for (const item of seedData()){ const { id, ...data } = item; fs.addDoc(col, data); }
+        // Defense-in-depth against a re-seed dumping duplicates into a live herd (2026-07-08:
+        // 36 goats + 2 chores re-appeared): dedupe by name+frequency against whatever docs are
+        // present, and AWAIT each write so a mid-flight tab close can't leave a partial herd
+        // that later reads as "not seeded". snap.empty already gates this; these are backstops.
+        const seen = new Set(chores.map(c => (c.frequency||"") + "|" + (c.name||"")));
+        for (const item of seedData()){
+          const { id, ...data } = item;
+          const key = (data.frequency||"") + "|" + (data.name||"");
+          if (seen.has(key)) continue;
+          seen.add(key);
+          await fs.addDoc(col, data);
+        }
       }
     }
     // Second, lightweight listener (bucky-lobby shim) — only after the main one connects.
