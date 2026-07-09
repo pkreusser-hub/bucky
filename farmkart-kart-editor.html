@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>🏎️ Farm Kart — Kart Editor</title>
+<style>
+  html,body{ margin:0; height:100%; background:#0f1622; color:#eef; font-family:-apple-system,Segoe UI,Roboto,sans-serif; overflow:hidden; }
+  #stage{ position:absolute; inset:0; }
+  #panel{ position:absolute; top:0; right:0; width:300px; max-height:100vh; overflow-y:auto; z-index:5;
+          background:rgba(10,18,28,.92); border-left:1px solid rgba(255,255,255,.12); padding:12px 14px; }
+  #panel h1{ font-size:16px; margin:0 0 2px; }
+  #panel .sub{ color:#8ea; font-size:11px; margin:0 0 10px; }
+  .sec{ margin:12px 0 4px; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:#7fb3ff; border-bottom:1px solid rgba(255,255,255,.10); padding-bottom:3px; }
+  .row{ margin:7px 0; }
+  .row label{ display:flex; justify-content:space-between; font-size:12px; color:#cde; align-items:center; }
+  .row .v{ color:#8ef; font-weight:700; font-variant-numeric:tabular-nums; }
+  input[type=range]{ width:100%; height:16px; margin:2px 0 0; }
+  input[type=color]{ width:38px; height:24px; border:1px solid #345; border-radius:5px; background:#0a1018; padding:0; cursor:pointer; }
+  .colrow{ display:flex; align-items:center; justify-content:space-between; margin:6px 0; font-size:12px; color:#cde; }
+  .btns{ display:flex; gap:6px; margin-top:12px; flex-wrap:wrap; }
+  button{ flex:1 1 46%; padding:8px 6px; border:0; border-radius:8px; font-family:inherit; font-weight:800; font-size:12px; cursor:pointer; background:#25506e; color:#fff; }
+  button:hover{ background:#2f6d97; }
+  button.save{ background:#2f8a3f; } button.save:hover{ background:#37a24b; }
+  button.reset{ background:#7a3a3a; } button.reset:hover{ background:#984848; }
+  .toggle{ display:flex; align-items:center; gap:8px; font-size:12px; color:#cde; margin:6px 0; }
+  #toast{ position:absolute; bottom:16px; left:16px; background:rgba(12,22,32,.95); padding:8px 14px; border-radius:10px;
+          font-size:13px; opacity:0; transition:opacity .2s; z-index:9; }
+  #toast.show{ opacity:1; }
+  #hint{ position:absolute; bottom:10px; left:50%; transform:translateX(-50%); color:rgba(255,255,255,.5);
+         font-size:12px; z-index:4; background:rgba(0,0,0,.3); padding:5px 12px; border-radius:14px; }
+</style>
+</head>
+<body>
+  <div id="stage"></div>
+  <div id="panel">
+    <h1>🏎️ Kart Editor</h1>
+    <p class="sub">Tweak the kart & rider. Wheels spin live. Save to use in the game.</p>
+    <div id="controls"></div>
+    <div class="btns">
+      <button class="save" id="saveBtn">💾 Save</button>
+      <button id="copyBtn">📋 Copy JSON</button>
+      <button class="reset" id="resetBtn">↺ Reset</button>
+    </div>
+  </div>
+  <div id="hint">drag to orbit · scroll to zoom</div>
+  <div id="toast"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/environments/RoomEnvironment.js"></script>
+  <script>
+  "use strict";
+  // ============================================================================
+  // FARM KART — Kart editor. Loads the purpose-built kart GLB + Chef Bucky, lets
+  // you tune scale / wheels / colours / rider live, and saves a config the game reads.
+  // ============================================================================
+  const KART_URL = 'assets/farmkart-kart-v2.glb';
+  const DRIVER_URL = 'assets/chef-bucky.glb';
+  const CFG_KEY = 'fk_kart_cfg_v1';
+
+  // ---- config schema: {key, label, min, max, step, default} ----
+  const SLIDERS = [
+    { sec:'Kart' },
+    { k:'kartScale',  label:'Overall scale',   min:0.5, max:2.0, step:0.02, def:1.0 },
+    { k:'rideHeight', label:'Ride height',     min:-0.25, max:0.35, step:0.01, def:0.0 },
+    { sec:'Wheels' },
+    { k:'wheelScale', label:'Wheel size',      min:0.5, max:1.8, step:0.02, def:1.0 },
+    { k:'wheelSpread',label:'Track (spread)',  min:0.7, max:1.5, step:0.02, def:1.0 },
+    { k:'wheelBase',  label:'Wheelbase',       min:0.7, max:1.4, step:0.02, def:1.0 },
+    { k:'wheelSpin',  label:'Preview spin',    min:0,   max:3,   step:0.05, def:1.0 },
+    { sec:'Rider' },
+    { k:'driverX',    label:'Rider ← →',       min:-0.5, max:0.5, step:0.01, def:0.0 },
+    { k:'driverY',    label:'Rider ↑ ↓',       min:-0.35, max:0.5, step:0.01, def:0.0 },
+    { k:'driverZ',    label:'Rider fwd/back',  min:-0.5, max:0.5, step:0.01, def:0.0 },
+    { k:'driverScale',label:'Rider size',      min:0.4, max:1.4, step:0.02, def:0.72 },
+    { sec:'Steering wheel' },
+    { k:'steerScale', label:'Wheel size',      min:0.4, max:1.8, step:0.02, def:1.0 },
+    { k:'steerX',     label:'Wheel ← →',       min:-0.4, max:0.4, step:0.01, def:0.0 },
+    { k:'steerY',     label:'Wheel ↑ ↓',       min:-0.4, max:0.5, step:0.01, def:0.10 },
+    { k:'steerZ',     label:'Wheel fwd/back',  min:-0.4, max:0.5, step:0.01, def:0.26 },
+    { k:'steerTurn',  label:'Preview turn',    min:-1,  max:1,   step:0.02, def:0.0 },
+  ];
+  const COLORS = [
+    { k:'bodyColor', label:'Body',  mat:'BodyPaint', def:'#2a8534' },
+    { k:'rimColor',  label:'Rims',  mat:'Rim',       def:'#f0cc12' },
+    { k:'tireColor', label:'Tires', mat:'Tire',      def:'#0b0b0d' },
+    { k:'seatColor', label:'Seat',  mat:'Seat',      def:'#161616' },
+    { k:'metalColor',label:'Metal', mat:'Metal',     def:'#9aa0a8' },
+  ];
+  function defaults(){
+    const c = {};
+    for (const s of SLIDERS) if (s.k) c[s.k] = s.def;
+    for (const c2 of COLORS) c[c2.k] = c2.def;
+    return c;
+  }
+  let CFG = defaults();
+  try { const saved = JSON.parse(localStorage.getItem(CFG_KEY) || 'null'); if (saved) Object.assign(CFG, saved); } catch(e){}
+
+  // ---- three.js scene ----
+  const stage = document.getElementById('stage');
+  const renderer = new THREE.WebGLRenderer({ antialias:true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio||1, 2));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.95;
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  stage.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x1b2735);
+  // soft studio environment for polished PBR reflections
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
+
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.05, 100);
+  camera.position.set(2.6, 1.7, 3.0);
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true; controls.dampingFactor = 0.08;
+  controls.target.set(0, 0.5, 0); controls.minDistance = 1.2; controls.maxDistance = 12;
+
+  scene.add(new THREE.HemisphereLight(0xbcd6ff, 0x36302a, 0.55));
+  const key = new THREE.DirectionalLight(0xffffff, 1.7);
+  key.position.set(3, 5, 3); key.castShadow = true;
+  key.shadow.mapSize.set(1024,1024); key.shadow.camera.near=1; key.shadow.camera.far=20;
+  key.shadow.camera.left=-3; key.shadow.camera.right=3; key.shadow.camera.top=3; key.shadow.camera.bottom=-3;
+  key.shadow.bias = -0.0004; scene.add(key);
+  const fill = new THREE.DirectionalLight(0xbfd0ff, 0.4); fill.position.set(-4,2,-2); scene.add(fill);
+
+  // ground
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(6, 48),
+      new THREE.MeshStandardMaterial({ color:0x2b3a2c, roughness:0.95, metalness:0 }));
+  ground.rotation.x = -Math.PI/2; ground.receiveShadow = true; scene.add(ground);
+  const grid = new THREE.GridHelper(12, 24, 0x3a5a44, 0x243a2c); grid.position.y = 0.001; scene.add(grid);
+
+  // ---- kart root ----
+  const kartRoot = new THREE.Group(); scene.add(kartRoot);   // holds the kart model; we scale/rotate this
+  const kart = { body:null, wheels:{}, steer:null, mats:{}, wheelHome:{}, steerHome:null, loaded:false };
+  let driver = { root:null, inner:null, bones:null, scaleTo:1, seatHome:new THREE.Vector3() };
+
+  // Blender built +Y-forward; glTF yup makes the nose face -Z. Rotate 180° so the nose faces +Z (game fwd).
+  kartRoot.rotation.y = Math.PI;
+
+  function collectMaterials(obj){
+    obj.traverse(o=>{
+      if (o.isMesh && o.material){
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const m of mats){ if (m.name){ (kart.mats[m.name] = kart.mats[m.name] || []).push(m); } }
+        o.castShadow = true; o.receiveShadow = true;
+      }
+    });
+  }
+
+  function loadKart(){
+    new THREE.GLTFLoader().load(KART_URL, (gltf)=>{
+      const s = gltf.scene;
+      s.traverse(o=>{
+        if (o.name === 'KartBody') kart.body = o;
+        else if (/^Wheel(FL|FR|RL|RR)$/.test(o.name)) kart.wheels[o.name] = o;
+        else if (o.name === 'SteerWheel') kart.steer = o;
+      });
+      collectMaterials(s);
+      // remember home transforms so sliders offset from them
+      for (const id in kart.wheels){ const w = kart.wheels[id]; kart.wheelHome[id] = w.position.clone(); }
+      if (kart.steer){ kart.steerHome = { pos:kart.steer.position.clone(), scl:kart.steer.scale.clone(), rot:kart.steer.rotation.clone() }; }
+      kartRoot.add(s);
+      kart.scene = s; kart.loaded = true;
+      seatDriverIfReady();
+      applyConfig();
+      frameCamera();
+    }, undefined, e=>{ toast('kart GLB failed to load'); console.error(e); });
+  }
+
+  // ---- driver (Chef Bucky) seated, reusing the game's bind pose ----
+  function computeBoneWorldBox(object){
+    const box = new THREE.Box3(); let saw=false;
+    object.traverse(o=>{ if (o.isSkinnedMesh && o.skeleton){ saw=true; for (const b of o.skeleton.bones) box.expandByPoint(b.getWorldPosition(new THREE.Vector3())); } });
+    if (!saw) box.setFromObject(object); return box;
+  }
+  const _e = new THREE.Euler();
+  function applySeatedBindPose(b){
+    if (!b) return;
+    const S=(bo,x,y,z)=>{ if(!bo)return; _e.set(x,y,z,'XYZ'); bo.quaternion.setFromEuler(_e); };
+    S(b.Hips,0.34,0,0); S(b.Chest,0.10,0,0); S(b.Head,-0.16,0,0);
+    S(b.LeftLeg,-1.62,0.20,0.24); S(b.RightLeg,-1.62,-0.20,-0.24);
+    S(b.LeftFoot,0.85,0,0); S(b.RightFoot,0.85,0,0);
+    S(b.LeftArm,-1.28,0.05,1.30); S(b.RightArm,-1.28,-0.05,-1.30);
+  }
+  function cacheBones(root){
+    const out={};
+    root.traverse(o=>{ if (o.isSkinnedMesh && o.skeleton){ for (const bn of o.skeleton.bones){
+      if (/^(Hips|Chest|Head|LeftArm|RightArm|LeftLeg|RightLeg|LeftFoot|RightFoot|HeadTop)$/.test(bn.name)) out[bn.name]=bn; }
+      out._skeleton=o.skeleton; } });
+    return out;
+  }
+  let DRIVER_TPL = null;
+  function loadDriver(){
+    new THREE.GLTFLoader().load(DRIVER_URL, (gltf)=>{
+      const s = gltf.scene;
+      s.traverse(o=>{ if (o.isMesh && o.material){ const src=o.material;
+        o.material = new THREE.MeshLambertMaterial({ map:src.map||null, color:src.color?src.color.clone():0xffffff, skinning:!!o.isSkinnedMesh }); src.dispose(); } });
+      s.updateMatrixWorld(true);
+      const box = computeBoneWorldBox(s); const size = new THREE.Vector3(); box.getSize(size);
+      DRIVER_TPL = { scene:s, scaleTo: 1.5/(size.y||1) };
+      seatDriverIfReady();
+    }, undefined, e=>{ console.warn('chef-bucky.glb failed', e); });
+  }
+  function seatDriverIfReady(){
+    if (!DRIVER_TPL || !kart.loaded || driver.root) return;
+    const clone = THREE.SkeletonUtils.clone(DRIVER_TPL.scene);
+    const root = new THREE.Group(); root.name='driver';
+    const inner = new THREE.Group(); inner.add(clone);
+    inner.rotation.y = Math.PI;                  // chef faces the nose (-Z in kart-local; front is -X)
+    inner.scale.setScalar(DRIVER_TPL.scaleTo);
+    root.add(inner);
+    root.updateMatrixWorld(true);
+    const bones = cacheBones(clone);
+    if (bones.Hips){ const hp=new THREE.Vector3(); bones.Hips.getWorldPosition(hp); root.worldToLocal(hp); inner.position.y -= hp.y; inner.position.z += 0.04; }
+    applySeatedBindPose(bones); if (bones._skeleton) bones._skeleton.update();
+    // seat home: on the kart's seat (kart-local). +Z after the kartRoot 180° flip = toward the seat/rear.
+    driver.seatHome.set(0, 0.40, 0.02);
+    kart.scene.add(root);
+    driver.root = root; driver.inner = inner; driver.bones = bones;
+    applyConfig();
+  }
+
+  // ---- apply config to the scene ----
+  function applyConfig(){
+    kartRoot.scale.setScalar(CFG.kartScale);
+    kartRoot.position.y = CFG.rideHeight;
+    // wheels: scale + spread (X) + wheelbase (Z), offset from home
+    for (const id in kart.wheels){
+      const w = kart.wheels[id], home = kart.wheelHome[id]; if (!home) continue;
+      w.scale.setScalar(CFG.wheelScale);
+      w.position.x = home.x * CFG.wheelSpread;
+      w.position.z = home.z * CFG.wheelBase;
+    }
+    // steering wheel size + position offset (align it to the driver's hands)
+    if (kart.steer && kart.steerHome){
+      kart.steer.scale.copy(kart.steerHome.scl).multiplyScalar(CFG.steerScale);
+      kart.steer.position.set(kart.steerHome.pos.x + (CFG.steerX||0), kart.steerHome.pos.y + (CFG.steerY||0), kart.steerHome.pos.z + (CFG.steerZ||0));
+    }
+    // driver placement
+    if (driver.root){
+      driver.root.position.copy(driver.seatHome).add(new THREE.Vector3(CFG.driverX, CFG.driverY, CFG.driverZ));
+      driver.root.scale.setScalar(CFG.driverScale);
+    }
+    // colours
+    for (const c of COLORS){ const arr = kart.mats[c.mat]; if (arr){ const col = new THREE.Color(CFG[c.k]); for (const m of arr){ m.color.copy(col); } } }
+  }
+
+  // ---- build control panel ----
+  const controlsEl = document.getElementById('controls');
+  const inputs = {};
+  function buildPanel(){
+    controlsEl.innerHTML = '';
+    for (const s of SLIDERS){
+      if (s.sec){ const h=document.createElement('div'); h.className='sec'; h.textContent=s.sec; controlsEl.appendChild(h); continue; }
+      const row=document.createElement('div'); row.className='row';
+      const lab=document.createElement('label'); const nm=document.createElement('span'); nm.textContent=s.label;
+      const v=document.createElement('span'); v.className='v'; v.textContent=(+CFG[s.k]).toFixed(2);
+      lab.appendChild(nm); lab.appendChild(v);
+      const inp=document.createElement('input'); inp.type='range'; inp.min=s.min; inp.max=s.max; inp.step=s.step; inp.value=CFG[s.k];
+      inp.addEventListener('input', ()=>{ CFG[s.k]=parseFloat(inp.value); v.textContent=(+CFG[s.k]).toFixed(2); applyConfig(); });
+      row.appendChild(lab); row.appendChild(inp); controlsEl.appendChild(row);
+      inputs[s.k]={inp,v};
+    }
+    const ch=document.createElement('div'); ch.className='sec'; ch.textContent='Colours'; controlsEl.appendChild(ch);
+    for (const c of COLORS){
+      const r=document.createElement('div'); r.className='colrow';
+      const nm=document.createElement('span'); nm.textContent=c.label;
+      const inp=document.createElement('input'); inp.type='color'; inp.value=CFG[c.k];
+      inp.addEventListener('input', ()=>{ CFG[c.k]=inp.value; applyConfig(); });
+      r.appendChild(nm); r.appendChild(inp); controlsEl.appendChild(r); inputs[c.k]={inp};
+    }
+  }
+  function refreshPanel(){ for (const k in inputs){ const i=inputs[k]; i.inp.value=CFG[k]; if (i.v) i.v.textContent=(+CFG[k]).toFixed(2); } }
+
+  // ---- save / copy / reset ----
+  function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('show'),1600); }
+  document.getElementById('saveBtn').addEventListener('click', ()=>{ try{ localStorage.setItem(CFG_KEY, JSON.stringify(CFG)); toast('Saved — the game will use this kart'); }catch(e){ toast('save failed'); } });
+  document.getElementById('copyBtn').addEventListener('click', ()=>{ const t=JSON.stringify(CFG,null,2); (navigator.clipboard&&navigator.clipboard.writeText)?navigator.clipboard.writeText(t).then(()=>toast('config copied')):toast('copy unavailable'); });
+  document.getElementById('resetBtn').addEventListener('click', ()=>{ CFG=defaults(); refreshPanel(); applyConfig(); toast('reset to defaults'); });
+
+  // ---- camera framing ----
+  function frameCamera(){
+    const box=new THREE.Box3().setFromObject(kartRoot); const c=new THREE.Vector3(),sz=new THREE.Vector3();
+    box.getCenter(c); box.getSize(sz);
+    controls.target.copy(c);
+    const r=Math.max(sz.x,sz.y,sz.z); camera.position.set(c.x+r*1.4, c.y+r*0.9, c.z+r*1.7); controls.update();
+  }
+
+  // ---- loop ----
+  let steerPhase=0;
+  function resize(){ const w=stage.clientWidth,h=stage.clientHeight; renderer.setSize(w,h); camera.aspect=w/h; camera.updateProjectionMatrix(); }
+  addEventListener('resize', resize);
+  let last=performance.now();
+  function loop(){
+    const now=performance.now(); const dt=Math.min(0.05,(now-last)/1000); last=now;
+    // spin wheels about their axle (local X)
+    if (kart.loaded){
+      const spin = CFG.wheelSpin * dt * 6;
+      for (const id in kart.wheels){ kart.wheels[id].rotateX(spin); }
+      // steering: front wheels yaw + steering wheel turn (preview slider, or gentle auto if 0)
+      const steer = CFG.steerTurn;
+      const fY = steer * 0.5;
+      if (kart.wheels.WheelFL) kart.wheels.WheelFL.rotation.y = fY;
+      if (kart.wheels.WheelFR) kart.wheels.WheelFR.rotation.y = fY;
+      if (kart.steer && kart.steerHome){ kart.steer.rotation.copy(kart.steerHome.rot); kart.steer.rotateZ(-steer*1.2); }
+    }
+    controls.update();
+    renderer.render(scene, camera);
+    requestAnimationFrame(loop);
+  }
+
+  // ---- boot ----
+  buildPanel();
+  resize();
+  loadKart();
+  loadDriver();
+  loop();
+  window.__KARTED__ = { CFG, kart, get driver(){return driver;}, applyConfig, scene, camera, renderer,
+    probe(){ // report arm-bone (shoulder) + wheel positions in kart-local space, to align the wheel to the hands
+      const b = driver.bones; if (!b || !kart.steer || !kart.scene) return null;
+      const f3=v=>[+v.x.toFixed(3),+v.y.toFixed(3),+v.z.toFixed(3)];
+      // shoulders
+      const L=new THREE.Vector3(), R=new THREE.Vector3();
+      b.LeftArm.getWorldPosition(L); b.RightArm.getWorldPosition(R);
+      // estimate hands: extend down the posed arm bone (bones run along local +Y) ~0.24 model units
+      const hL=b.LeftArm.localToWorld(new THREE.Vector3(0,0.24,0));
+      const hR=b.RightArm.localToWorld(new THREE.Vector3(0,0.24,0));
+      const handMid=hL.clone().add(hR).multiplyScalar(0.5);
+      // actual visible centre of the steering-wheel geometry
+      const wc=new THREE.Box3().setFromObject(kart.steer).getCenter(new THREE.Vector3());
+      const wcL=kart.scene.worldToLocal(wc.clone());
+      const hmL=kart.scene.worldToLocal(handMid.clone());
+      kart.scene.worldToLocal(L); kart.scene.worldToLocal(R);
+      kart.scene.worldToLocal(hL); kart.scene.worldToLocal(hR);
+      return { leftArm:f3(L), rightArm:f3(R), handL:f3(hL), handR:f3(hR), handMid:f3(hmL),
+               wheelCenter:f3(wcL), needOffset:f3(hmL.clone().sub(wcL)) }; } };
+  </script>
+</body>
+</html>

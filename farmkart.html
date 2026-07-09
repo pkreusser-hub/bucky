@@ -10,14 +10,8 @@
   #stage{ position:absolute; inset:0; }
   canvas{ display:block; touch-action:none; }
 
-  /* ---- HUD (bottom-left) ---- */
-  #hud{ position:absolute; left:12px; bottom:12px; z-index:10; font-family:'Consolas',monospace;
-        background:rgba(0,0,0,.42); border-radius:12px; padding:10px 14px; min-width:200px;
-        pointer-events:none; user-select:none; }
-  #hud .row{ display:flex; justify-content:space-between; gap:14px; font-size:14px; line-height:1.5; }
-  #hud .big{ font-size:22px; font-weight:800; }
-  #hud .lbl{ color:#bfe0ff; }
-  #hud .val{ color:#fff; font-weight:700; }
+  /* ---- HUD (bottom-left) — hidden; race timing lives in #placeHud ---- */
+  #hud{ display:none !important; }
   #surf{ font-weight:800; }
   #surf.track{ color:#8effa0; }
   #surf.grass{ color:#ffe27a; }
@@ -97,13 +91,28 @@
   #mpRoster{ margin-top:8px; font-size:13px; color:#cde; }
   #mpRoster .pr{ display:inline-block; margin:2px 5px; font-weight:700; }
   #mpNote{ margin-top:6px; font-size:12px; color:#ffe27a; }
-  /* Current place — big, top-left corner, live during a race */
-  #placeHud{ position:absolute; left:14px; top:12px; z-index:15; display:none; font-family:'Consolas',monospace;
-        font-size:30px; font-weight:900; color:#ffd45e; text-shadow:0 2px 6px rgba(0,0,0,.6); user-select:none; }
-  #placeHud .of{ font-size:16px; font-weight:700; color:#fff; opacity:.85; }
-  /* MP places overlay (top-left corner, under the big place, live during a race) */
-  #mpPlaces{ position:absolute; left:12px; top:52px; z-index:14; display:none; font-family:'Consolas',monospace;
-        background:rgba(0,0,0,.42); border-radius:10px; padding:6px 10px; font-size:13px; min-width:130px; }
+  /* Place + race times — large top-left stack (below mute), live during a race */
+  #placeHud{ position:absolute; left:max(12px, env(safe-area-inset-left, 0px));
+        top:calc(12px + env(safe-area-inset-top, 0px) + 44px); z-index:15; display:none;
+        font-family:'Consolas',monospace; text-shadow:0 2px 8px rgba(0,0,0,.65); user-select:none;
+        pointer-events:none; line-height:1.05; }
+  #placeHud .place{ font-size:64px; font-weight:900; color:#ffd45e; letter-spacing:-.02em; }
+  #placeHud .of{ font-size:28px; font-weight:700; color:#fff; opacity:.85; }
+  #placeHud .times{ margin-top:10px; display:flex; flex-direction:column; gap:4px; }
+  #placeHud .trow{ display:flex; align-items:baseline; gap:10px; font-size:26px; font-weight:800; color:#fff; }
+  #placeHud .trow .lbl{ font-size:14px; font-weight:700; color:#bfe0ff; text-transform:uppercase;
+        letter-spacing:.04em; min-width:4.6em; opacity:.9; }
+  #placeHud .trow .val{ font-variant-numeric:tabular-nums; }
+  body.mobile #placeHud .place{ font-size:48px; }
+  body.mobile #placeHud .of{ font-size:22px; }
+  body.mobile #placeHud .trow{ font-size:20px; }
+  body.mobile #placeHud .trow .lbl{ font-size:12px; min-width:4.2em; }
+  /* MP places overlay (under the place/times stack) */
+  #mpPlaces{ position:absolute; left:max(12px, env(safe-area-inset-left, 0px));
+        top:calc(12px + env(safe-area-inset-top, 0px) + 220px); z-index:14; display:none;
+        font-family:'Consolas',monospace; background:rgba(0,0,0,.42); border-radius:10px;
+        padding:6px 10px; font-size:13px; min-width:130px; }
+  body.mobile #mpPlaces{ top:calc(12px + env(safe-area-inset-top, 0px) + 185px); }
   #mpPlaces .pl{ display:flex; justify-content:space-between; gap:10px; line-height:1.5; }
   #mpPlaces .pl .pp{ color:#ffd45e; width:26px; }
   #mpPlaces .pl .pnm{ flex:1; }
@@ -114,7 +123,18 @@
         justify-content:center; user-select:none; pointer-events:none; }
   #itemSlot.rolling{ border-color:#ffe27a; animation:pulse .5s ease-in-out infinite; }
   #itemSlot.filled{ border-color:#8effa0; }
-  #itemIcon{ font-size:44px; line-height:1; }
+  #itemSlot.filled.trail{ border-color:#7ec8ff; box-shadow:0 0 12px rgba(100,180,255,.45); }
+  #itemIcon{ font-size:36px; line-height:1; text-align:center; padding:0 4px; }
+  /* ---- Minimap (top-right; free of place/item HUD) ---- */
+  #minimap{ position:absolute; top:max(12px, env(safe-area-inset-top, 0px));
+        right:max(12px, env(safe-area-inset-right, 0px)); z-index:15;
+        width:128px; height:128px; border-radius:14px; display:none;
+        background:rgba(8,18,12,.55); border:2px solid rgba(255,255,255,.28);
+        box-shadow:0 4px 14px rgba(0,0,0,.35); pointer-events:none; user-select:none; }
+  #minimap.on{ display:block; }
+  body.mobile #minimap{ width:110px; height:110px; }
+  /* keep ♻ reset clear of the minimap on phones */
+  body.mobile #tcReset{ top:calc(12px + env(safe-area-inset-top, 0px) + 110px + 10px); }
   @keyframes pulse{ 0%,100%{opacity:.55} 50%{opacity:1} }
   #results{ display:none; }
   #results .card{ background:rgba(12,22,32,.9); border:2px solid rgba(255,255,255,.18); border-radius:18px;
@@ -196,8 +216,8 @@
   #tcSteerHint{ position:absolute; left:0; right:0; bottom:118px; z-index:2; text-align:center; pointer-events:none;
     color:rgba(255,255,255,.9); font-family:-apple-system,Segoe UI,Roboto,sans-serif; font-weight:800; font-size:15px;
     text-shadow:0 2px 6px rgba(0,0,0,.6); transition:opacity .4s; }
-  /* free the thumb zones on phones: drop the dev stats panel + the keyboard hint */
-  body.mobile #hud, body.mobile #help{ display:none !important; }
+  /* free the thumb zones on phones: keyboard hint off (stats #hud already hidden) */
+  body.mobile #help{ display:none !important; }
 </style>
 </head>
 <body>
@@ -218,6 +238,7 @@
   <div id="padToast">🎮 connected</div>
 
   <div id="itemSlot"><div id="itemIcon">·</div></div>
+  <canvas id="minimap" width="256" height="256" aria-label="Track minimap"></canvas>
 
   <div id="touchCtl">
     <div id="tcSteer"></div>
@@ -282,7 +303,7 @@
     </div>
   </div>
 
-  <div id="help">WASD/arrows drive · Space/Shift drift · X use item · R reset · ` tuning · 🎮 supported</div>
+  <div id="help">WASD/arrows drive · Space/Shift drift · X tap=fire item · hold X=trail behind (🍅🐔🌾) · R reset · ` tuning</div>
 
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
@@ -338,7 +359,7 @@
     groundHillWave:60,      // wavelength (world units) of those hills
     heightBlendMargin:9,    // width (m) over which the flat track surface blends into ground hills
     slopeAccel:6,           // downhill speed reward / uphill penalty (units/s^2 at full grade)
-    normalSmooth:10,        // /s smoothing of the surface normal the kart tilts to (anti-jitter)
+    normalSmooth:16,        // /s smoothing of the surface normal the kart tilts to (anti-jitter)
     // --- 7. AIRBORNE (K2.5, additive) — old saved tunes lack these so they take these defaults ---
     // gravity default lowered 28 -> 18 (K2.5 playtest fix: 28 felt too heavy off jumps; the old
     // 28 was a WRONG default. A saved fk_tune_v2 holding exactly 28 is migrated to 18 once on load.)
@@ -371,6 +392,19 @@
     wheelSpin:1,          // spin-rate multiplier (visual only)
     wheelY:0,             // vertical nudge of the wheels (fix clip / ground contact)
     wheelSpread:1.02,        // lateral (sideways) position multiplier — push wheels out/in
+    // --- Procedural humanoid-goat driver (visual only) ---
+    // Game-forward space: +Z front, +Y up, +X right. Centered seat (X=0).
+    // Hands snap to wheel grips; feet snap to pedals; limbs stretch between joints.
+    driverX:0, driverY:0.78, driverZ:-0.08,
+    driverScale:1.0,
+    driverLeanSteer:0.40,
+    driverLeanDrift:0.50,
+    driverLeanSmooth:12,
+    steerWheelX:0, steerWheelY:1.00, steerWheelZ:0.36,
+    steerWheelScale:1.05,
+    steerWheelTurn:1.35,
+    pedalX:0, pedalY:0.42, pedalZ:0.55,   // center between L/R pedals
+    pedalSpread:0.16,                      // half-gap left/right
     brake:22, drag:0.8,
     slopeDeadzoneGrad:0.07, // below ~4deg grade (or speed<1) slope-accel is OFF (no rest slide)
     camGroundClear:0.6,     // camera is raised so it never sits within this of the terrain
@@ -389,8 +423,13 @@
     itemBoxRadius:2.4,      // pickup radius around an item box
     itemBoxRespawn:3,     // per-box respawn delay (s) after a pickup
     itemRollT:0.8,          // HUD roll-animation duration (s) before the item settles
-    tomatoSpeed:18,         // tomato launch speed ADDED to the firer's speed
+    tomatoSpeed:36,         // tomato launch speed ADDED to the firer's speed
     tomatoLife:4,         // tomato lifetime (s)
+    chickenSpeed:32,        // homing chicken launch speed ADDED to firer speed
+    chickenLife:5.5,        // chicken lifetime (s)
+    chickenTurn:2.4,        // max turn rate (rad/s) while seeking — dodgeable
+    chickenHitR:1.55,       // chicken hit radius (slightly bigger than tomato)
+    itemTrailHoldMs:250,    // hold item button this long to trail behind (ms)
     hazardMax:6,            // max live hay bales (oldest despawns)
     // --- 10. K7 (additive) — collisions / corridor walls / boost pads ---
     kartRadius:0.9,         // half-width for kart-vs-kart separation (contact at 2*this)
@@ -427,6 +466,11 @@
     botDrift:[0,1,1], botDriftCurv:[0.005,0.06,0.005], botDriftGripMul:[1,4,0.1], botLineInside:[0,0.9,0.05], botLineGain:[4,40,1],
     kartRadius:[0.4,2,0.05], wallMargin:[2,20,0.5], boostPadStrength:[0,16,0.5], boostPadT:[0.2,1.5,0.05],
     wheelSize:[0.5,1.8,0.02], wheelWidth:[0.5,2.5,0.05], wheelSpin:[0,3,0.05], wheelY:[-0.5,0.5,0.02], wheelSpread:[0.6,1.5,0.02],
+    driverX:[-0.6,0.8,0.02], driverY:[0,1.2,0.02], driverZ:[-0.5,0.5,0.02], driverScale:[0.3,1.2,0.02],
+    driverLeanSteer:[0,1.2,0.02], driverLeanDrift:[0,1.5,0.02], driverLeanSmooth:[1,25,0.5],
+    steerWheelX:[-0.8,0.4,0.02], steerWheelY:[0.2,1.2,0.02], steerWheelZ:[-0.4,0.4,0.02],
+    steerWheelScale:[0.3,1.5,0.02], steerWheelTurn:[0.2,2.5,0.05],
+    pedalX:[-0.5,0.5,0.02], pedalY:[0.2,0.8,0.02], pedalZ:[0.1,1.0,0.02], pedalSpread:[0.08,0.35,0.01],
     camDist:[3,18,0.25], camHeight:[1,12,0.1], camLag:[1,20,0.5], camStiff:[2,25,0.5], fov:[40,95,1]
   };
   // plain-English explanation for each slider (shown by the ⓘ button in the tune panel)
@@ -489,6 +533,27 @@
     wallMargin:"How much grass sits beyond the road edge before you hit a solid wall.",
     boostPadStrength:"The speed kick you get from driving over a boost pad.",
     boostPadT:"How long a boost-pad boost lasts, in seconds.",
+    wheelSize:"How big the kart's tires are.",
+    wheelWidth:"How fat the tires are along the axle.",
+    wheelSpin:"How fast the tires visually spin for a given speed.",
+    wheelY:"Nudge the tires up or down (fix ground clipping).",
+    wheelSpread:"Push the tires out or in sideways.",
+    driverX:"Slide Bucky left/right in the seat (0 = centered).",
+    driverY:"Raise or lower Bucky in the seat.",
+    driverZ:"Slide Bucky left/right in the seat.",
+    driverScale:"How big Bucky is relative to the Gator.",
+    driverLeanSteer:"How much Bucky leans into a turn from steering alone.",
+    driverLeanDrift:"Extra lean when the kart is sideways in a drift.",
+    driverLeanSmooth:"How quickly Bucky eases into a lean. Higher = snappier.",
+    steerWheelX:"Steering-wheel hub forward/back in the cabin.",
+    steerWheelY:"Steering-wheel hub height.",
+    steerWheelZ:"Steering-wheel hub left/right.",
+    steerWheelScale:"How big the steering wheel is.",
+    steerWheelTurn:"How far the wheel rim turns at full steer.",
+    pedalX:"Left/right of the pedal pair under the dash.",
+    pedalY:"Height of the pedals.",
+    pedalZ:"Forward/back of the pedals (toward the nose).",
+    pedalSpread:"How far apart the left and right pedals sit.",
     camDist:"How far behind the kart the camera sits. Higher = more zoomed out.",
     camHeight:"How high above the kart the camera sits.",
     camLag:"How loosely the camera trails the kart. Higher = floatier, laggier follow.",
@@ -507,15 +572,50 @@
         TUNE.gravity = 18;
         try{ saved.gravity = 18; localStorage.setItem('fk_tune_v2', JSON.stringify(saved)); }catch(e){}
       }
+      // ONE-TIME MIGRATION (item speed 2x 2026-07-09): old launch defaults were 18/16.
+      if (saved.itemSpeedBuild !== 1){
+        TUNE.tomatoSpeed = TUNE_DEFAULTS.tomatoSpeed;
+        TUNE.chickenSpeed = TUNE_DEFAULTS.chickenSpeed;
+        try{
+          saved.itemSpeedBuild = 1;
+          saved.tomatoSpeed = TUNE.tomatoSpeed;
+          saved.chickenSpeed = TUNE.chickenSpeed;
+          localStorage.setItem('fk_tune_v2', JSON.stringify(saved));
+        }catch(e){}
+      }
+      // ONE-TIME MIGRATION (custom Bucky Kart 2026-07-09): old Gator-space driver/wheel
+      // coords (model-local +X rear) don't map onto the new game-forward kart. If the saved
+      // tune still has a Gator-era driverY (<0.6) or missing kartBuild flag, reset those keys.
+      // kartBuild 4 = centered driver/wheel + green body (resets driver/wheel/pedal fit keys)
+      if (saved.kartBuild !== 4){
+        for (const k of ['driverX','driverY','driverZ','driverScale','driverLeanSteer','driverLeanDrift','driverLeanSmooth','steerWheelX','steerWheelY','steerWheelZ','steerWheelScale','steerWheelTurn','pedalX','pedalY','pedalZ','pedalSpread']){
+          TUNE[k] = TUNE_DEFAULTS[k];
+        }
+        try{
+          saved.kartBuild = 4;
+          for (const k of ['driverX','driverY','driverZ','driverScale','driverLeanSteer','driverLeanDrift','driverLeanSmooth','steerWheelX','steerWheelY','steerWheelZ','steerWheelScale','steerWheelTurn','pedalX','pedalY','pedalZ','pedalSpread']) saved[k] = TUNE_DEFAULTS[k];
+          localStorage.setItem('fk_tune_v2', JSON.stringify(saved));
+        }catch(e){}
+      }
     }
   } catch(e){}
-  function saveTune(){ try{ localStorage.setItem('fk_tune_v2', JSON.stringify(TUNE)); }catch(e){} }
+  function saveTune(){ try{ TUNE.kartBuild = 4; TUNE.itemSpeedBuild = 1; localStorage.setItem('fk_tune_v2', JSON.stringify(TUNE)); }catch(e){} }
 
   // ---------- ACTIVE TRACK (K3: data-driven, shared FK_TRACK module) ----------
   // The circuit geometry now lives as DATA in assets/farmkart-track.js (window.FK_TRACK),
-  // shared byte-for-byte with farmkart-editor.html. The game boots FK_TRACK.DEFAULT_TRACK;
-  // ?track=<id> loads a saved track from localStorage fk_tracks_v1 with SILENT fallback to
-  // the default on ANY invalid data (a bad save can never brick — bistro editor precedent).
+  // shared byte-for-byte with farmkart-editor.html. Boot default = Wario Stadium (builtin);
+  // ?track=<id> loads a saved track from localStorage fk_tracks_v1, a builtin, or Amen Farms
+  // via amen-farms/default. SILENT fallback on ANY invalid data (a bad save can never brick).
+  const BOOT_TRACK_ID = 'wario-stadium';
+  const AMEN_TRACK_IDS = { 'amen-farms':1, 'default':1 };
+  function loadBuiltinOrAmen(id){
+    if (AMEN_TRACK_IDS[id]) return { track:FK_TRACK.DEFAULT_TRACK, id:'amen-farms' };
+    if (FK_TRACK.BUILTIN_TRACKS && FK_TRACK.BUILTIN_TRACKS[id]){
+      const t = FK_TRACK.sanitize(FK_TRACK.BUILTIN_TRACKS[id]);
+      if (t) return { track:t, id };
+    }
+    return null;
+  }
   function loadActiveTrack(){
     try{
       const id = new URLSearchParams(location.search).get('track');
@@ -525,13 +625,12 @@
           const t = FK_TRACK.sanitize(map[id]);
           if (t) return { track:t, id };
         }
-        // built-in converted courses (Mario Raceway, ...) — a user save with the same id wins above.
-        if (FK_TRACK.BUILTIN_TRACKS && FK_TRACK.BUILTIN_TRACKS[id]){
-          const t = FK_TRACK.sanitize(FK_TRACK.BUILTIN_TRACKS[id]);
-          if (t) return { track:t, id };
-        }
+        const hit = loadBuiltinOrAmen(id);
+        if (hit) return hit;
       }
     }catch(e){}
+    const boot = loadBuiltinOrAmen(BOOT_TRACK_ID);
+    if (boot) return boot;
     return { track:FK_TRACK.DEFAULT_TRACK, id:null };
   }
   const _active = loadActiveTrack();
@@ -579,12 +678,9 @@
   const tangents = _sampled.tangents;    // unit tangent in XZ (heading) at each sample
 
   // ---------- ONE HEIGHT AUTHORITY: sampleHeight(x,z) ----------
-  // Every consumer (kart, camera, ground mesh, ribbon layers) reads terrain height from here.
-  // = a smooth blend of (a) the flat track surface (nearest-centerline elevation, valid within
-  // half-width) into (b) gentle value-noise ground hills, over heightBlendMargin.
-  // TERRAIN MATH now lives in the shared FK_TRACK module (so farmkart-editor.html renders identical
-  // grass/hills). These thin wrappers pass the live TUNE values in; results are bit-identical to the
-  // old inline versions. terrainOpts() reads TUNE each call (amp is tunable at runtime).
+  // Kart physics, entities, fences, and (Stage A) the grass mesh on non-bridge spans all read this.
+  // = smooth blend of (a) flat track surface (nearest-centerline elev within half-width) into
+  // (b) ground hills over heightBlendMargin. Math lives in FK_TRACK; terrainOpts() passes live TUNE.
   function terrainOpts(){ return { amp:TUNE.groundHillAmp, wave:TUNE.groundHillWave, margin:TUNE.heightBlendMargin, field:ACTIVE_TRACK.terrain, paint:ACTIVE_TRACK.paint }; }
   function groundHills(x, z){ return FK_TRACK.groundHills(x, z, terrainOpts()); }
   // nearest dense-centerline info at (x,z): {idx, dist} (dist = PROJECTED perpendicular distance in
@@ -612,12 +708,9 @@
     const s = t*t*(3 - 2*t);
     return trackY*(1 - s) + gy*s;
   }
-  // GROUND-MESH height (bridges = open air). sampleHeight lifts the ground to the NEAREST road
-  // branch, so under an elevated bridge span the terrain rises to meet it (steep grass skirt, no
-  // air gap). The ground instead follows the LOWEST road branch overlapping this point: where a
-  // high bridge crosses a low road, the ground stays at the low road and the bridge ribbon floats
-  // above it -> open air. On a normal (single-branch) section this is identical to sampleHeight.
-  // Used ONLY by the displaced ground grid; kart/camera keep sampleHeight/sampleHeightAtY.
+  // GROUND-MESH height. Stage A: equals sampleHeight except under true multi-level bridges, where
+  // it stays on the LOWEST branch so the high ribbon floats in open air. Camera anti-clip samples
+  // this (the surface the grid actually draws).
   function groundSampleHeight(x, z){ return FK_TRACK.groundSampleHeight(_sampled, x, z, TRACK_WIDTH, terrainOpts()); }
 
   // K7 CORRIDOR: effective wall margin = per-track wallMargin if set, else the live TUNE fallback.
@@ -736,14 +829,83 @@
       lug.position.set(Math.cos(a)*r, Math.sin(a)*r, 0); lug.rotation.z=a; g.add(lug); }
     return g;
   }
-  // wheel mount points in the GLB's local space (6x4 Gator: front/mid/rear × left/right). Axle along Z.
-  const KART_WHEEL_POS = [['FL',-0.64,-0.20,-0.45],['FR',-0.64,-0.20,0.45],['ML',0,-0.20,-0.45],['MR',0,-0.20,0.45],['RL',0.64,-0.20,-0.45],['RR',0.64,-0.20,0.45]];
-  const _KART_UNDERBODY = new THREE.BoxGeometry(1.7, 0.22, 0.82);   // dark belly plate to cap the wheel wells
+  // Custom Bucky Kart — game-forward space: +Z front, +Y up, +X right. 4 wheels.
+  // (Replaces the fused Meshy Gator; parts are separate so seat/wheel/tires animate cleanly.)
+  // Axle Y is overwritten each frame to plant the tire tread at kart-local y=0 (see syncKartView).
+  const KART_WHEEL_POS = [
+    ['FL', -0.58, _TIRE_ROUT,  0.62],
+    ['FR',  0.58, _TIRE_ROUT,  0.62],
+    ['RL', -0.58, _TIRE_ROUT, -0.58],
+    ['RR',  0.58, _TIRE_ROUT, -0.58]
+  ];
+  // Wheel contact patches (forward, right) — matches KART_WHEEL_POS XZ.
+  const KART_WHEEL_XZ = [
+    [ 0.62, -0.58], // FL
+    [ 0.62,  0.58], // FR
+    [-0.58, -0.58], // RL
+    [-0.58,  0.58]  // RR
+  ];
+  // Rideable height: the branch the kart is on (sampleHeightAtY). Stage A made the grass mesh
+  // match sampleHeight on non-bridges, so a max() with groundSampleHeight is only needed under
+  // true overlaps (keeps the kart on the high deck, not the low ground under a bridge).
+  function rideHeight(sx, sz, seedY){
+    return Math.max(sampleHeightAtY(sx, sz, seedY), groundSampleHeight(sx, sz));
+  }
+  // 4-wheel plane fit: ride height + normal from the wheel rectangle.
+  // Conforms to slopes / road→hill transitions. Gradient is clamped so a sharp
+  // road-edge cliff can't tip the kart onto its nose (~29° max).
+  const _KART_MAX_SLOPE = 0.55;
+  function sampleKartPlane(x, z, theta, seedY){
+    const fx = Math.sin(theta), fz = Math.cos(theta);
+    const hs = [];
+    let ySum = 0, yMax = -Infinity;
+    for (let i=0;i<4;i++){
+      const fl = KART_WHEEL_XZ[i][0], rw = KART_WHEEL_XZ[i][1];
+      const sx = x + fx*fl + fz*rw, sz = z + fz*fl - fx*rw;
+      const h = rideHeight(sx, sz, seedY);
+      hs.push(h); ySum += h; if (h > yMax) yMax = h;
+    }
+    // hs: FL, FR, RL, RR
+    const yL = (hs[0]+hs[2])*0.5, yR = (hs[1]+hs[3])*0.5;   // left / right mid
+    const yF = (hs[0]+hs[1])*0.5, yB = (hs[2]+hs[3])*0.5;   // front / rear mid
+    const trackW = 1.16, wheelBase = 1.20;
+    let dH_right = (yR - yL) / trackW;
+    let dH_fwd   = (yF - yB) / wheelBase;
+    // World gradient: right=(fz,-fx), forward=(fx,fz)
+    let dHdx = dH_fwd*fx + dH_right*fz;
+    let dHdz = dH_fwd*fz - dH_right*fx;
+    const mag = Math.hypot(dHdx, dHdz);
+    if (mag > _KART_MAX_SLOPE){ const s = _KART_MAX_SLOPE/mag; dHdx*=s; dHdz*=s; }
+    const n = new THREE.Vector3(-dHdx, 1, -dHdz);
+    if (n.lengthSq() < 1e-8) n.set(0,1,0); else n.normalize();
+    // Soft ride: mostly the average (follows the plane) with a light bias toward the
+    // high wheel so we don't dig the uphill tire into a crest.
+    const yAvg = ySum * 0.25;
+    const y = yAvg + (yMax - yAvg) * 0.22;
+    return { y, normal: n, dHdx, dHdz, yAvg, yMax };
+  }
+  // Back-compat helper (tests / debug): highest point under a coarse footprint
+  function maxHeightUnderKart(x, z, theta, seedY){
+    const fx = Math.sin(theta), fz = Math.cos(theta);
+    let mx = rideHeight(x, z, seedY);
+    for (const [fl, rw] of KART_WHEEL_XZ){
+      const h = rideHeight(x + fx*fl + fz*rw, z + fz*fl - fx*rw, seedY); if (h > mx) mx = h;
+    }
+    return mx;
+  }
   const KART_BODY_GEO   = new THREE.BoxGeometry(1.1, 0.6, 1.6);
   const KART_CYL_GEO    = new THREE.CylinderGeometry(0.28, 0.28, 0.55, 12);
   const KART_CAP_GEO    = new THREE.SphereGeometry(0.28, 12, 10);
-  const KART_SHADOW_GEO = new THREE.CircleGeometry(1.05, 20);
-  const kartViews = {};   // id -> { group, bounce, bodyMat, shadow, shadowMat, kartNormal, lastAirborne }
+  // Shared mats/geos for the custom kart (cloned per-view only where color differs)
+  const _KART_MAT = {
+    cream:  new THREE.MeshLambertMaterial({ color:0xf3e6c8 }),
+    dark:   new THREE.MeshLambertMaterial({ color:0x2a2a2a }),
+    yellow: new THREE.MeshLambertMaterial({ color:0xf2c200 }),
+    chrome: new THREE.MeshLambertMaterial({ color:0xb8c0c8 }),
+    seat:   new THREE.MeshLambertMaterial({ color:0xf2c200 }),
+    grill:  new THREE.MeshLambertMaterial({ color:0x1a1a1a }),
+  };
+  const kartViews = {};   // id -> { group, bounce, bodyMat, kartNormal, lastAirborne }
 
   function makeNameSprite(text, colorHex){
     const cv = document.createElement('canvas'); cv.width = 256; cv.height = 64;
@@ -756,83 +918,408 @@
     spr.scale.set(6, 1.5, 1); spr.position.set(0, 3.1, 0);
     return spr;
   }
-  // ---- Meshy kart model (John Deere Gator GLB, dieted). When loaded it REPLACES the box+capsule
-  //   placeholder (no driver — just the kart). Transform params kept tweakable for the fit pass. ----
-  const KART_GLB = { template:null };      // { scene, scl, minY } once loaded
-  let KART_GLB_ROT_Y = Math.PI/2;          // yaw so the model faces +Z (game forward)
-  const KART_GLB_TARGET_LEN = 2.0;         // scale so the longest footprint dim ≈ this (units)
-  function loadKartGLB(){
-    new THREE.GLTFLoader().load('assets/farmkart-kart.glb', (gltf)=>{
-      const s = gltf.scene;
-      // Meshy PBR renders dark under the game's simple lights -> swap to Lambert, keep the base map.
-      s.traverse(o=>{ if(o.isMesh && o.material){ const src=o.material;
-        o.material = new THREE.MeshLambertMaterial({ map:src.map||null, color:src.color?src.color.clone():0xffffff }); } });
-      s.updateMatrixWorld(true);
-      const box = new THREE.Box3().setFromObject(s); const size = new THREE.Vector3(); box.getSize(size);
-      const scl = KART_GLB_TARGET_LEN / Math.max(size.x, size.z, 0.001);
-      KART_GLB.template = { scene:s, scl, minY:box.min.y };
-      for (const id in kartViews) fillKartModel(kartViews[id]);   // upgrade any karts already built
-    }, undefined, (e)=>console.warn('farmkart-kart.glb failed to load — using placeholder', e));
-  }
-  // Clone the kart model into a view's modelSlot and hide the placeholder. Idempotent.
-  function fillKartModel(view){
-    if (!KART_GLB.template || !view.modelSlot) return;
-    while (view.modelSlot.children.length) view.modelSlot.remove(view.modelSlot.children[0]);
-    const t = KART_GLB.template;
-    const m = t.scene.clone(true);
-    m.scale.setScalar(t.scl);
-    m.rotation.y = KART_GLB_ROT_Y;
-    m.position.y = -t.minY * t.scl;   // seat the model's bottom on the ground plane
-    view.modelSlot.add(m);
-    view.placeholder.visible = false;
-    // build PROCEDURAL wheels at the mount points (the fused-mesh tires were deleted in Blender —
-    // clean cylinders spin dead-center with no wobble or holes). Axle = local Z; front pair steers.
-    view.wheels = [];
-    for (const [nm,x,y,z] of KART_WHEEL_POS){
-      const w = buildProcWheel();
-      w.userData.bx = x; w.userData.by = y; w.userData.bz = z;   // base pos (live wheelY/wheelSpread apply off these)
-      w.userData.roll = 0; w.userData.front = (x < -0.3);
-      m.add(w);
-      view.wheels.push(w);
+  // ---- Custom Bucky Kart + procedural humanoid-goat driver (all three.js, no GLB) ----
+  // Kart + driver built in GAME space (+Z forward). Hands parent to wheel grips; feet to pedals;
+  // limb segments stretch between joints each frame so grip/pedal contact stays locked.
+  const _drvTmpV = new THREE.Vector3();
+  const _drvTmpV2 = new THREE.Vector3();
+  const _drvTmpV3 = new THREE.Vector3();
+  const _GOAT = {
+    fur:   new THREE.MeshLambertMaterial({ color:0x8a5c36 }),
+    cream: new THREE.MeshLambertMaterial({ color:0xf3e6c8 }),
+    dark:  new THREE.MeshLambertMaterial({ color:0x2a2218 }),
+    horn:  new THREE.MeshLambertMaterial({ color:0xe8d8b0 }),
+    nose:  new THREE.MeshLambertMaterial({ color:0x3a2a20 }),
+    eye:   new THREE.MeshLambertMaterial({ color:0x1a1410 }),
+    shirt: new THREE.MeshLambertMaterial({ color:0xffffff }),
+  };
+  // Steering wheel: hub + rim + 3 spokes. Rim rotates about local Z (faces the driver).
+  function buildSteerWheel(){
+    const g = new THREE.Group();
+    const hubMat = new THREE.MeshLambertMaterial({ color:0x2a2a2a });
+    const rimMat = new THREE.MeshLambertMaterial({ color:0x1a1a1a });
+    const spokeMat = new THREE.MeshLambertMaterial({ color:0x444444 });
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.035, 10), hubMat);
+    hub.rotation.x = Math.PI/2; g.add(hub);
+    const rim = new THREE.Group(); g.add(rim);
+    rim.add(new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.022, 8, 18), rimMat));
+    for (let i=0;i<3;i++){
+      const holder = new THREE.Group(); holder.rotation.z = i * (Math.PI*2/3);
+      const sp = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.14, 0.016), spokeMat);
+      sp.position.y = 0.07; holder.add(sp); rim.add(holder);
     }
-    view.wheelR = _TIRE_ROUT * t.scl;   // world tire radius (local R × model scale) — drives spin rate
-    // underbody panel — caps the empty wheel wells (where the molded tires were deleted) from below.
-    const ub = new THREE.Mesh(_KART_UNDERBODY, _WHEEL_TIRE_MAT);
-    ub.position.set(0, -0.12, 0); m.add(ub);
+    // Grip anchors — hands are parented here so they ride the rim as it turns
+    const gripL = new THREE.Object3D(); gripL.position.set(-0.15, 0.04, 0.01); rim.add(gripL);
+    const gripR = new THREE.Object3D(); gripR.position.set( 0.15, 0.04, 0.01); rim.add(gripR);
+    g.userData.rim = rim; g.userData.gripL = gripL; g.userData.gripR = gripR;
+    return g;
+  }
+  // Pedal pair under the dash (visual + foot anchors)
+  function buildPedals(){
+    const g = new THREE.Group();
+    const mat = new THREE.MeshLambertMaterial({ color:0x222222 });
+    const padL = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.03, 0.14), mat);
+    const padR = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.03, 0.14), mat);
+    g.add(padL, padR);
+    const footL = new THREE.Object3D(); footL.position.set(-0.16, 0.02, 0); g.add(footL);
+    const footR = new THREE.Object3D(); footR.position.set( 0.16, 0.02, 0); g.add(footR);
+    g.userData.padL = padL; g.userData.padR = padR;
+    g.userData.footL = footL; g.userData.footR = footR;
+    return g;
+  }
+  // ---- Custom Bucky Kart builder (chunky farm racer, matches Bucky's blocky look) ----
+  // bodyColor = per-player accent (green local / bot colors). Returns { root, bodyMat }.
+  function buildCustomKart(bodyColor){
+    const root = new THREE.Group();
+    root.name = 'buckyKart';
+    const accent = new THREE.MeshLambertMaterial({ color:bodyColor, emissive:0x000000 });
+    const hayMat = new THREE.MeshLambertMaterial({ color:0xd4a84b });
+    const M = _KART_MAT;
+    const box = (w,h,d, mat, x,y,z) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat);
+      m.position.set(x,y,z); root.add(m); return m;
+    };
+
+    // Chassis
+    box(1.10, 0.16, 1.60, M.dark, 0, 0.26, 0.02);
+    // Main cabin tub
+    box(1.02, 0.42, 0.90, accent, 0, 0.55, 0.00);
+    // Side skirts / fenders
+    for (const sx of [-1, 1]){
+      box(0.16, 0.30, 1.55, accent, sx*0.54, 0.44, 0.02);
+      box(0.10, 0.18, 0.40, M.dark, sx*0.58, 0.30, 0.62);
+      box(0.10, 0.18, 0.40, M.dark, sx*0.58, 0.30, -0.58);
+    }
+    // Hood / nose (slightly taller front for a tractor-kart read)
+    box(0.95, 0.36, 0.58, accent, 0, 0.54, 0.78);
+    box(0.50, 0.12, 0.30, M.dark, 0, 0.76, 0.72);          // scoop
+    box(0.72, 0.24, 0.07, M.grill, 0, 0.44, 1.08);          // grill
+    box(1.08, 0.12, 0.14, M.chrome, 0, 0.28, 1.10);         // bumper
+    for (const sx of [-1, 1]){
+      const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.06, 10), M.yellow);
+      lamp.rotation.x = Math.PI/2; lamp.position.set(sx*0.34, 0.52, 1.10); root.add(lamp);
+    }
+    // Cargo bed / trunk + rails + stacked hay (same green as body)
+    box(0.98, 0.10, 0.52, accent, 0, 0.50, -0.78);
+    for (const sx of [-1, 1]) box(0.06, 0.32, 0.52, accent, sx*0.46, 0.70, -0.78);
+    box(0.98, 0.32, 0.06, accent, 0, 0.70, -1.02);
+    box(0.42, 0.22, 0.28, hayMat, -0.12, 0.68, -0.78);
+    box(0.36, 0.18, 0.24, hayMat,  0.18, 0.66, -0.72);
+    // Centered driver seat (taller back so Bucky reads)
+    box(0.40, 0.14, 0.38, M.seat, 0, 0.78, -0.06);
+    box(0.40, 0.42, 0.10, M.seat, 0, 1.02, -0.28);
+    // Dash + tiny windshield bar
+    box(0.88, 0.14, 0.24, M.dark, 0, 0.84, 0.34);
+    box(0.80, 0.04, 0.04, M.chrome, 0, 1.05, 0.42);
+    // Exhaust
+    const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.50, 8), M.chrome);
+    exhaust.rotation.x = Math.PI/2; exhaust.position.set(0.58, 0.38, -0.50); root.add(exhaust);
+    // Nose badge
+    box(0.30, 0.18, 0.04, M.cream, 0, 0.66, 1.09);
+
+    return { root, bodyMat: accent };
+  }
+  // ---- Procedural humanoid goat driver ----
+  // Hierarchy: hips → torso/chest/head + shoulder pivots; hands live on wheel grips;
+  // feet live on pedals. Each frame, upper/lower arm & leg segments stretch between
+  // shoulder↔hand and hip↔foot so contact stays locked while the wheel turns / body leans.
+  function buildGoatDriver(){
+    const G = _GOAT;
+    const root = new THREE.Group(); root.name = 'goatDriver';
+    // Hips = seat anchor (y=0 of driverRoot). Everything else hangs off this.
+    const hips = new THREE.Group(); root.add(hips);
+    const pelvis = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.16, 0.28), G.fur);
+    pelvis.position.y = 0.08; hips.add(pelvis);
+
+    // Torso (leans into turns)
+    const torso = new THREE.Group(); torso.position.y = 0.16; hips.add(torso);
+    const chest = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.38, 0.26), G.shirt);
+    chest.position.y = 0.22; torso.add(chest);
+    // Apron stripe
+    const apron = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.28, 0.04), G.cream);
+    apron.position.set(0, 0.18, 0.14); torso.add(apron);
+
+    // Head (goat) — chunky silhouette that reads from the chase cam
+    const head = new THREE.Group(); head.position.y = 0.48; torso.add(head);
+    const skull = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.30, 0.30), G.fur);
+    head.add(skull);
+    // Narrow facial blaze (keep small — a big forehead block reads as a hat from behind)
+    const blaze = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.12, 0.03), G.cream);
+    blaze.position.set(0, 0.04, 0.155); head.add(blaze);
+    const snout = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.13, 0.18), G.cream);
+    snout.position.set(0, -0.05, 0.20); head.add(snout);
+    const nose = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.07, 0.07), G.nose);
+    nose.position.set(0, -0.05, 0.30); head.add(nose);
+    for (const sx of [-1, 1]){
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.055, 0.04), G.eye);
+      eye.position.set(sx*0.09, 0.07, 0.16); head.add(eye);
+    }
+    // Nigerian Dwarf ears: small, stick straight out horizontally from the sides.
+    for (const sx of [-1, 1]){
+      const ear = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.07, 0.04), G.fur);
+      ear.position.set(sx * 0.22, 0.04, 0.02);
+      head.add(ear);
+      const inner = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.045, 0.015), G.cream);
+      inner.position.set(sx * 0.22, 0.04, 0.04);
+      head.add(inner);
+    }
+    const beard = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 0.06), G.cream);
+    beard.position.set(0, -0.18, 0.14); head.add(beard);
+
+    // Shoulders (limb stretch origins)
+    const shoulderL = new THREE.Object3D(); shoulderL.position.set(-0.22, 0.34, 0.02); torso.add(shoulderL);
+    const shoulderR = new THREE.Object3D(); shoulderR.position.set( 0.22, 0.34, 0.02); torso.add(shoulderR);
+    // Hip sockets for legs
+    const hipL = new THREE.Object3D(); hipL.position.set(-0.12, 0.02, 0.04); hips.add(hipL);
+    const hipR = new THREE.Object3D(); hipR.position.set( 0.12, 0.02, 0.04); hips.add(hipR);
+
+    // Limb segments (stretched each frame between joint ↔ hand/foot)
+    function makeLimbSeg(len, thick, mat){
+      const m = new THREE.Mesh(new THREE.BoxGeometry(thick, len, thick), mat);
+      m.geometry.translate(0, -len/2, 0);   // pivot at top
+      return m;
+    }
+    const upperArmL = makeLimbSeg(0.22, 0.08, G.fur);
+    const lowerArmL = makeLimbSeg(0.20, 0.07, G.fur);
+    const upperArmR = makeLimbSeg(0.22, 0.08, G.fur);
+    const lowerArmR = makeLimbSeg(0.20, 0.07, G.fur);
+    const upperLegL = makeLimbSeg(0.24, 0.10, G.fur);
+    const lowerLegL = makeLimbSeg(0.22, 0.08, G.fur);
+    const upperLegR = makeLimbSeg(0.24, 0.10, G.fur);
+    const lowerLegR = makeLimbSeg(0.22, 0.08, G.fur);
+    // Keep limb meshes in the driver root (world-updated via lookAt each frame)
+    root.add(upperArmL, lowerArmL, upperArmR, lowerArmR, upperLegL, lowerLegL, upperLegR, lowerLegR);
+
+    // Hands (parented to wheel grips later)
+    function makeHand(){
+      const h = new THREE.Group();
+      const palm = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.04, 0.10), G.cream);
+      h.add(palm);
+      // Three chunky fingers
+      for (let i=-1;i<=1;i++){
+        const f = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.03, 0.06), G.cream);
+        f.position.set(i*0.025, 0.01, 0.07); h.add(f);
+      }
+      return h;
+    }
+    const handL = makeHand();
+    const handR = makeHand();
+
+    // Feet (parented to pedals later)
+    function makeFoot(){
+      const f = new THREE.Group();
+      const sole = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.05, 0.16), G.dark);
+      sole.position.z = 0.02; f.add(sole);
+      // Hoof tip
+      const tip = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.04, 0.05), G.horn);
+      tip.position.set(0, -0.01, 0.10); f.add(tip);
+      return f;
+    }
+    const footL = makeFoot();
+    const footR = makeFoot();
+
+    return {
+      root, hips, torso, head,
+      shoulderL, shoulderR, hipL, hipR,
+      upperArmL, lowerArmL, upperArmR, lowerArmR,
+      upperLegL, lowerLegL, upperLegR, lowerLegR,
+      handL, handR, footL, footR
+    };
+  }
+  // Point + stretch a limb segment from world A → world B.
+  // Mesh is parented under the kart; we convert to parent-local. Geometry pivot is at the
+  // top (y=0) and extends along local -Y by restLen (via geometry.translate).
+  const _drvNegY = new THREE.Vector3(0, -1, 0);
+  function stretchLimb(mesh, fromW, toW, restLen){
+    const parent = mesh.parent; if (!parent) return;
+    _drvTmpV.copy(fromW); parent.worldToLocal(_drvTmpV);
+    _drvTmpV2.copy(toW);  parent.worldToLocal(_drvTmpV2);
+    _drvTmpV3.copy(_drvTmpV2).sub(_drvTmpV);
+    const dist = _drvTmpV3.length();
+    if (dist < 1e-4){ mesh.visible = false; return; }
+    mesh.visible = true;
+    mesh.position.copy(_drvTmpV);
+    _drvTmpV3.normalize();
+    mesh.quaternion.setFromUnitVectors(_drvNegY, _drvTmpV3);
+    mesh.scale.set(1, dist / Math.max(0.05, restLen), 1);
+  }
+  // Midpoint helper for elbow/knee (simple bend offset)
+  function limbMid(fromW, toW, bendSide, bendAmt, out){
+    out.copy(fromW).add(toW).multiplyScalar(0.5);
+    // Bend sideways + a touch "out" so elbows/knees read
+    out.x += bendSide * bendAmt;
+    out.y += bendAmt * 0.15;
+    return out;
+  }
+  function fillKartDriver(view){
+    if (!view.kartRoot) return;
+    const kartMesh = view.kartRoot;
+    if (view.driverRoot && view.driverRoot.parent) view.driverRoot.parent.remove(view.driverRoot);
+    if (view.steerWheel && view.steerWheel.parent) view.steerWheel.parent.remove(view.steerWheel);
+    if (view.pedals && view.pedals.parent) view.pedals.parent.remove(view.pedals);
+
+    const sw = buildSteerWheel();
+    kartMesh.add(sw);
+    view.steerWheel = sw;
+
+    const pedals = buildPedals();
+    kartMesh.add(pedals);
+    view.pedals = pedals;
+
+    const goat = buildGoatDriver();
+    // Hands ride the wheel grips (turn with the rim)
+    sw.userData.gripL.add(goat.handL);
+    sw.userData.gripR.add(goat.handR);
+    goat.handL.rotation.set(0.4, 0, 0.2);
+    goat.handR.rotation.set(0.4, 0, -0.2);
+    // Feet ride the pedals
+    pedals.userData.footL.add(goat.footL);
+    pedals.userData.footR.add(goat.footR);
+
+    kartMesh.add(goat.root);
+    view.driverRoot = goat.root;
+    view.goat = goat;
+    view.driverLean = 0;
+    // Limb meshes are children of goat.root but positioned in WORLD space each frame —
+    // detach them to the kart so world coords match hand/foot world positions.
+    for (const m of [goat.upperArmL, goat.lowerArmL, goat.upperArmR, goat.lowerArmR,
+                     goat.upperLegL, goat.lowerLegL, goat.upperLegR, goat.lowerLegR]){
+      goat.root.remove(m);
+      kartMesh.add(m);
+    }
+    syncDriverPlacement(view);
+  }
+  function syncDriverPlacement(view){
+    if (view.driverRoot){
+      view.driverRoot.position.set(TUNE.driverX, TUNE.driverY, TUNE.driverZ);
+      view.driverRoot.scale.setScalar(TUNE.driverScale);
+      view.driverRoot.rotation.set(0, 0, 0);
+    }
+    if (view.steerWheel){
+      view.steerWheel.position.set(TUNE.steerWheelX, TUNE.steerWheelY, TUNE.steerWheelZ);
+      view.steerWheel.scale.setScalar(TUNE.steerWheelScale);
+      view.steerWheel.rotation.set(-0.55, 0, 0);
+    }
+    if (view.pedals){
+      view.pedals.position.set(TUNE.pedalX, TUNE.pedalY, TUNE.pedalZ);
+      const ud = view.pedals.userData;
+      if (ud.footL){
+        ud.footL.position.set(-TUNE.pedalSpread, 0.02, 0);
+        ud.footR.position.set( TUNE.pedalSpread, 0.02, 0);
+        if (ud.padL){ ud.padL.position.set(-TUNE.pedalSpread, 0, 0); ud.padR.position.set(TUNE.pedalSpread, 0, 0); }
+      }
+    }
+  }
+  function syncKartDriver(p, view, dt){
+    if (!view.driverRoot) fillKartDriver(view);
+    if (!view.driverRoot || !view.goat) return;
+    syncDriverPlacement(view);
+    const g = view.goat;
+    const st = p.steer || 0;
+    const driftLean = (p.driftAngle || 0) * TUNE.driverLeanDrift;
+    const targetLean = st * TUNE.driverLeanSteer + driftLean;
+    const k = 1 - Math.exp(-TUNE.driverLeanSmooth * (dt || 0.016));
+    view.driverLean += (targetLean - view.driverLean) * k;
+    // Lean torso into the turn; hips stay planted
+    g.torso.rotation.z = -view.driverLean;
+    g.head.rotation.z = view.driverLean * 0.35;
+    g.head.rotation.x = -0.08;
+    // Steering wheel rim
+    const rimAngle = -st * TUNE.steerWheelTurn;
+    if (view.steerWheel && view.steerWheel.userData.rim){
+      view.steerWheel.userData.rim.rotation.z = rimAngle;
+    }
+    // Need world matrices for limb stretch (shoulders/hands/feet → world → kart-local)
+    view.kartRoot.updateMatrixWorld(true);
+    if (!view._limbW){
+      view._limbW = {
+        shL:new THREE.Vector3(), shR:new THREE.Vector3(),
+        hpL:new THREE.Vector3(), hpR:new THREE.Vector3(),
+        hdL:new THREE.Vector3(), hdR:new THREE.Vector3(),
+        ftL:new THREE.Vector3(), ftR:new THREE.Vector3(),
+        mid:new THREE.Vector3()
+      };
+    }
+    const W = view._limbW;
+    g.shoulderL.getWorldPosition(W.shL);
+    g.shoulderR.getWorldPosition(W.shR);
+    g.hipL.getWorldPosition(W.hpL);
+    g.hipR.getWorldPosition(W.hpR);
+    g.handL.getWorldPosition(W.hdL);
+    g.handR.getWorldPosition(W.hdR);
+    g.footL.getWorldPosition(W.ftL);
+    g.footR.getWorldPosition(W.ftR);
+
+    // Arms: shoulder → elbow mid → hand
+    limbMid(W.shL, W.hdL, -1, 0.08, W.mid);
+    stretchLimb(g.upperArmL, W.shL, W.mid, 0.22);
+    stretchLimb(g.lowerArmL, W.mid, W.hdL, 0.20);
+    limbMid(W.shR, W.hdR,  1, 0.08, W.mid);
+    stretchLimb(g.upperArmR, W.shR, W.mid, 0.22);
+    stretchLimb(g.lowerArmR, W.mid, W.hdR, 0.20);
+    // Legs: hip → knee mid → foot (knees drop for a seated look)
+    limbMid(W.hpL, W.ftL, -1, 0.06, W.mid); W.mid.y -= 0.05;
+    stretchLimb(g.upperLegL, W.hpL, W.mid, 0.24);
+    stretchLimb(g.lowerLegL, W.mid, W.ftL, 0.22);
+    limbMid(W.hpR, W.ftR,  1, 0.06, W.mid); W.mid.y -= 0.05;
+    stretchLimb(g.upperLegR, W.hpR, W.mid, 0.24);
+    stretchLimb(g.lowerLegR, W.mid, W.ftR, 0.22);
+  }
+  // Build the custom Bucky Kart into a view (sync — no GLB wait). Idempotent rebuild.
+  function fillKartModel(view){
+    if (!view.modelSlot) return;
+    while (view.modelSlot.children.length) view.modelSlot.remove(view.modelSlot.children[0]);
+    const built = buildCustomKart(view.bodyMat.color.getHex());
+    // Keep bodyMat identity for boost emissive (syncKartView writes view.bodyMat.emissive)
+    built.bodyMat.emissive = view.bodyMat.emissive;
+    // Swap: use the accent mat we already track on the view so glow still works
+    built.root.traverse((o) => {
+      if (o.isMesh && o.material === built.bodyMat) o.material = view.bodyMat;
+    });
+    view.modelSlot.add(built.root);
+    view.kartRoot = built.root;
+    view.placeholder.visible = false;
+    // 4 procedural tires. buildProcWheel axle = local Z; we put it in a mount whose +X is the
+    // axle (left-right) so sync can roll about X / steer about Y without fighting a baked yaw.
+    view.wheels = [];
+    for (const [nm, x, y, z] of KART_WHEEL_POS){
+      const mount = new THREE.Group();
+      const tire = buildProcWheel();
+      tire.rotation.y = Math.PI/2;   // tire axle Z -> mount X
+      mount.add(tire);
+      mount.userData.bx = x; mount.userData.by = y; mount.userData.bz = z;
+      mount.userData.roll = 0; mount.userData.front = (z > 0);
+      built.root.add(mount);
+      view.wheels.push(mount);
+    }
+    view.wheelR = _TIRE_ROUT;
+    fillKartDriver(view);
   }
   function buildKartView(id, bodyColor, isLocal, name){
     const group = new THREE.Group(); group.name = isLocal ? 'kart' : ('kart_'+id);
     const bounce = new THREE.Group(); group.add(bounce);
-    // placeholder box+capsule (shown until/unless the GLB model loads)
+    // Tiny placeholder (hidden as soon as fillKartModel runs — kept for back-compat)
     const placeholder = new THREE.Group(); bounce.add(placeholder);
     const bodyMat = new THREE.MeshLambertMaterial({ color:bodyColor, emissive:0x000000 });
     const body = new THREE.Mesh(KART_BODY_GEO, bodyMat); body.position.y = 0.5; placeholder.add(body);
-    const racerMat = new THREE.MeshLambertMaterial({ color:0xf3ead0 });
-    const racer = new THREE.Group();
-    const cyl = new THREE.Mesh(KART_CYL_GEO, racerMat);
-    const capT = new THREE.Mesh(KART_CAP_GEO, racerMat); capT.position.y = 0.275;
-    const capB = new THREE.Mesh(KART_CAP_GEO, racerMat); capB.position.y = -0.275;
-    racer.add(cyl, capT, capB); racer.position.set(0, 1.15, -0.05); placeholder.add(racer);
-    const modelSlot = new THREE.Group(); bounce.add(modelSlot);   // GLB model goes here when ready
+    const modelSlot = new THREE.Group(); bounce.add(modelSlot);
     if (!isLocal && name){ bounce.add(makeNameSprite(name, bodyColor)); }
     scene.add(group);
-    // soft shadow disc — SCENE-level (not a kart child) so it stays on the GROUND and detaches in air
-    const shadowMat = new THREE.MeshBasicMaterial({ color:0x000000, transparent:true, opacity:0.28 });
-    const shadow = new THREE.Mesh(KART_SHADOW_GEO, shadowMat); shadow.rotation.x = -Math.PI/2; scene.add(shadow);
-    const view = { group, bounce, bodyMat, shadow, shadowMat, placeholder, modelSlot, kartNormal:new THREE.Vector3(0,1,0), lastAirborne:false };
+    // No ground blob shadow — flat discs clip through undulating grass even when
+    // plane-tilted; real projected shadows aren't worth it for this look.
+    const view = { group, bounce, bodyMat, placeholder, modelSlot, kartRoot:null, kartNormal:new THREE.Vector3(0,1,0), lastAirborne:false };
     kartViews[id] = view;
-    fillKartModel(view);   // swap in the GLB kart if it's already loaded
+    fillKartModel(view);
     return view;
   }
   function removeKartView(id){
     const v = kartViews[id]; if (!v) return;
-    scene.remove(v.group); scene.remove(v.shadow);
-    v.bodyMat.dispose(); v.shadowMat.dispose();
+    scene.remove(v.group);
+    v.bodyMat.dispose();
     v.group.traverse(o=>{ if (o.isSprite && o.material){ if (o.material.map) o.material.map.dispose(); o.material.dispose(); } });
     delete kartViews[id];
   }
-  buildKartView('local', 0xd6352b, true, null);
-  loadKartGLB();   // async — upgrades all kart views to the Gator model when ready
+  buildKartView('local', 0x3d8b3d, true, null);
 
   // ---------- STATE (K1: ALL race-mutable state lives in one G object; local-only concerns
   //   — camera, meshes, input, tune — stay OUTSIDE G, so a future Playroom sync is a thin
@@ -877,7 +1364,9 @@
       startPressT:null,      // countdownT remaining when throttle first pressed (start boost)
       stallT:0,              // jump-start stall countdown
       // --- K4 power-ups ---
-      itemHeld:null,         // held item kind: 'boost' | 'tomato' | 'hay' | null
+      itemHeld:null,         // 'boost'|'tomato'|'hay'|'chicken'|'tomato3'|'chicken3'|null
+      itemCount:0,           // remaining shots for triples (1 for singles)
+      itemTrail:false,       // single tomato/chicken/hay held behind as a rear shield
       itemRollT:0,           // HUD roll-animation countdown (item lands when it hits 0)
       itemHoldT:0,           // bot use-delay timer (random hold before using hay/boost)
       spinT:0,               // spin-out lock countdown (input ignored, kart spins 720deg)
@@ -896,7 +1385,7 @@
     raceClock:0,             // seconds since GO
     results:null,
     // K3.5 bots + K4 power-up entities (all race-mutable -> live in G, host-authoritative-shaped)
-    botCount:(function(){ const n=parseInt(localStorage.getItem('fk_bots'),10); return (n>=0&&n<=3)?n:0; })(),
+    botCount:(function(){ const n=parseInt(localStorage.getItem('fk_bots'),10); return (n>=0&&n<=3)?n:3; })(),
     itemBoxes:[],            // {x,z, active, respawnT}
     boostPads:[],            // K7: {x,z, s, lane, idx, tx, tz}
     projectiles:[],          // {x,z,y, vx,vz, life, bounced, owner}
@@ -906,31 +1395,36 @@
     bestLap:loadBestLap()
   };
 
-  // MOBILE: a touch device on a smallish screen. Pull the chase camera back (a phone's narrow
-  // viewport shows much less track than a monitor) and enable the on-screen thumb controls.
-  // Applied as a MULTIPLIER on the live tune so the user's tuned camDist/camHeight stay the source.
+  // MOBILE: a touch device on a smallish screen. Enable on-screen thumb controls and use FIXED
+  // chase-camera defaults (not multipliers on TUNE) so phones get a consistent pulled-back view.
+  // TUNE / fk_tune_v2 stay the desktop source of truth — Eff helpers never write mobile values back.
   const IS_MOBILE = (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches)
                     && Math.min(innerWidth, innerHeight) < 900;
-  const MOBILE_CAM_DIST_MULT = 1.7, MOBILE_CAM_HEIGHT_MULT = 1.3;
-  function camDistEff(){ return TUNE.camDist * (IS_MOBILE ? MOBILE_CAM_DIST_MULT : 1); }
-  function camHeightEff(){ return TUNE.camHeight * (IS_MOBILE ? MOBILE_CAM_HEIGHT_MULT : 1); }
+  const MOBILE_CAM = { camDist:6.5, camHeight:3.2, camLag:14, fov:74 };
+  function camDistEff(){ return IS_MOBILE ? MOBILE_CAM.camDist : TUNE.camDist; }
+  function camHeightEff(){ return IS_MOBILE ? MOBILE_CAM.camHeight : TUNE.camHeight; }
+  function camLagEff(){ return IS_MOBILE ? MOBILE_CAM.camLag : TUNE.camLag; }
+  function fovEff(){ return IS_MOBILE ? MOBILE_CAM.fov : TUNE.fov; }
+  // camera was constructed before IS_MOBILE existed — snap FOV to the effective default now
+  camera.fov = fovEff(); camera.updateProjectionMatrix();
 
   // chase-camera state (LOCAL-only, outside G) — declared before resetKart (which snaps it)
   let camHeading = 0;
   const camPos = new THREE.Vector3(0, camHeightEff(), -camDistEff());
-  let camFov = TUNE.fov;
+  let camFov = fovEff();
   let camKartY = 0;   // K2.5: smoothed kart-y the camera tracks (jumps read as FLOAT)
   // K2: reusable math temporaries (per-view surface normals now live on each kart view)
   const _tmpN = new THREE.Vector3(), _tmpF = new THREE.Vector3(), _tmpR = new THREE.Vector3(), _tmpM = new THREE.Matrix4();
-  const _wqRoll = new THREE.Quaternion(), _wqSteer = new THREE.Quaternion();   // GLB wheel spin/steer temps
-  const _AXLE_Z = new THREE.Vector3(0,0,1), _WUP_Y = new THREE.Vector3(0,1,0);
+  const _wqRoll = new THREE.Quaternion(), _wqSteer = new THREE.Quaternion();   // wheel spin/steer temps
+  // Custom kart: tire mount axle = local X; steer = local Y
+  const _AXLE_X = new THREE.Vector3(1,0,0), _WUP_Y = new THREE.Vector3(0,1,0);
 
   // reset a player's per-race progress fields (does NOT move it)
   function resetRaceFields(p){
     p.lap = 0; p.checkpoint = 0; p.wrongWayT = 0;
     p.finished = false; p.finishTime = 0; p.place = 1;
     p.lapLast = 0; p.lapBest = 0; p.startPressT = null; p.stallT = 0;
-    p.spinT = 0; p.itemHeld = null; p.itemRollT = 0; p.itemHoldT = 0;
+    p.spinT = 0; p.itemHeld = null; p.itemCount = 0; p.itemTrail = false; p.itemRollT = 0; p.itemHoldT = 0;
   }
   // seat a player at a grid slot (pre-race pose), zeroing motion + progress baseline
   function placeAtGrid(p, slot){
@@ -940,8 +1434,8 @@
     p.v.x = 0; p.v.z = 0; p.steer = 0;
     p.drift.active = false; p.drift.dir = 0; p.drift.charge = 0;
     p.driftAngle = 0; p.boostT = 0; p.boostTier = 0; p.hop = 0;
-    p.y = sampleHeight(p.pos.x, p.pos.z); p.vy = 0; p.airborne = false; p.landT = 0;
-    p.airT = 0; p.landFx = false; p.spinT = 0; p.itemHeld = null; p.itemRollT = 0; p.itemHoldT = 0;
+    p.y = rideHeight(p.pos.x, p.pos.z, sampleHeight(p.pos.x, p.pos.z)); p.vy = 0; p.airborne = false; p.landT = 0;
+    p.airT = 0; p.landFx = false; p.spinT = 0; p.itemHeld = null; p.itemCount = 0; p.itemTrail = false; p.itemRollT = 0; p.itemHoldT = 0;
     p.finishDebounce = 5;
     // progress baseline
     p.lastSampleIdx = nearestSampleIdxFull(p.pos.x, p.pos.z);
@@ -967,7 +1461,7 @@
     p.v.x = 0; p.v.z = 0; p.steer = 0;
     p.drift.active = false; p.drift.dir = 0; p.drift.charge = 0;
     p.driftAngle = 0; p.boostT = 0; p.boostTier = 0; p.hop = 0; p.stallT = 0;
-    p.y = sampleHeight(p.pos.x, p.pos.z); p.vy = 0; p.airborne = false; p.landT = 0;
+    p.y = rideHeight(p.pos.x, p.pos.z, sampleHeight(p.pos.x, p.pos.z)); p.vy = 0; p.airborne = false; p.landT = 0;
     p.lapStart = performance.now();
     p.finishDebounce = 5;
     p.lastSampleIdx = 0; p.progressS = arcS[0]; p.prevProgressS = arcS[0];
@@ -1297,21 +1791,21 @@
 
     // ---- K7 CORRIDOR WALL (ribbon) ----
     // A FIRM, un-passable wall at edge+margin (the drivable corridor). Bounds = distance to the
-    // NEAREST centerline (union of corridors) so a self-overlap is in-bounds on EITHER branch. The
-    // kart POSITION is hard-clamped back to the wall line (can NEVER tunnel across the grass to cut
-    // the course). For FEEL we no longer REFLECT (a one-frame bounce lurched the camera, same class
-    // as the grass-cliff bug just fixed): we only DAMP the outward-normal velocity component and
-    // leave the ALONG-wall component intact — so you SLIDE smoothly along the ribbon. Grass (road
-    // edge..edge+margin) keeps the existing slowdown.
+    // NEAREST centerline (union of corridors) so a self-overlap is in-bounds on EITHER branch.
+    // Clamp the CENTER to (wallLine − kart half-width) so the BODY stays outside the ribbon —
+    // clamping to the wall line itself let ~kartRadius of chassis sink into the fence.
+    // Slide feel: damp only the outward-normal velocity; along-wall speed is preserved.
     {
-      const wallAt = half + effWallMargin();
+      const wallLine = half + effWallMargin();
+      const wallPad = Math.max(0.55, TUNE.kartRadius);   // body/fender half-width clearance
+      const wallAt = wallLine - wallPad;
       const winfo = FK_TRACK.nearestOnCenter(_sampled, p.pos.x, p.pos.z);  // freshly on the integrated pos
       if (winfo.dist > wallAt){
         const c = centerPts[winfo.idx];
         let inx = c.x - p.pos.x, inz = c.z - p.pos.z;    // inward (toward the road)
         const il = Math.hypot(inx, inz) || 1; inx/=il; inz/=il;
         const over = winfo.dist - wallAt;
-        p.pos.x += inx * over; p.pos.z += inz * over;    // clamp EXACTLY to the wall line (no tunnel)
+        p.pos.x += inx * over; p.pos.z += inz * over;    // clamp so body clears the ribbon
         const vn = p.v.x*inx + p.v.z*inz;                // inward velocity component (<0 = driving OUT into the wall)
         if (vn < 0){
           // SLIDE: strip ONLY the into-wall (outward-normal) part; along-wall speed is preserved.
@@ -1326,27 +1820,26 @@
     }
 
     // ---- VERTICAL / AIRBORNE (K2.5) ----
-    // sampleHeight still OWNS the ground; p.y is the kart's actual height. Grounded: p.y follows the
-    // surface and p.vy = the terrain-follow rate (slope · horizontal speed). LAUNCH: when the surface
-    // falls away faster than gravity could pull the glued kart down (required downward accel < −gravity)
-    // AND we're moving, go ballistic carrying the PRE-crest vertical velocity — fast crests = real arcs.
+    // Grounded: p.y follows the AVERAGE of the 4 wheel contact heights (sampleKartPlane) so the
+    // kart rides the slope plane instead of pinning to the highest corner. LAUNCH: when the
+    // surface falls away faster than gravity could pull the glued kart down, go ballistic.
     {
       const cy = p.y;   // K7: seed height-aware sampling with the kart's own level (self-crossings)
-      const groundYnew = sampleHeightAtY(p.pos.x, p.pos.z, cy);
+      const plane = sampleKartPlane(p.pos.x, p.pos.z, p.theta, cy);
+      const groundYcenter = sampleHeightAtY(p.pos.x, p.pos.z, cy);
+      // Airborne touchdown uses center; grounded ride uses the wheel-plane average.
+      const groundYnew = p.airborne ? groundYcenter : plane.y;
       const spd = Math.hypot(p.v.x, p.v.z);
-      // terrain-follow vertical rate at the current position (slope · horizontal velocity). Computed
-      // for BOTH branches so a landing can seat p.vy on the surface's follow-rate (see fix below).
-      const e = 1.5;
-      const dHdx = (sampleHeightAtY(p.pos.x+e, p.pos.z, cy) - sampleHeightAtY(p.pos.x-e, p.pos.z, cy)) / (2*e);
-      const dHdz = (sampleHeightAtY(p.pos.x, p.pos.z+e, cy) - sampleHeightAtY(p.pos.x, p.pos.z-e, cy)) / (2*e);
-      const terrainVY = dHdx*p.v.x + dHdz*p.v.z;
+      // terrain-follow vertical rate from the wheel-plane gradient (matches the tilt we render).
+      const terrainVY = plane.dHdx*p.v.x + plane.dHdz*p.v.z;
       if (p.airborne){
         p.airT += dt;                        // accumulate airtime (gates landing effects)
         p.vy -= TUNE.gravity * dt;
         p.y += p.vy * dt;
         if (p.y <= groundYnew){
           p.landImpact = Math.max(0, -p.vy); // downward speed at touchdown (thump loudness)
-          p.y = groundYnew; p.airborne = false;
+          // Seat on the wheel-plane average so we land into the slope, not a corner spike.
+          p.y = sampleKartPlane(p.pos.x, p.pos.z, p.theta, cy).y; p.airborne = false;
           // DECLINE-BOUNCE FIX: seat vy on the surface's follow-rate, NOT 0. Zeroing it made the very
           // next grounded frame compute reqAccel = (terrainVY − 0)/dt — a huge spurious spike on any
           // decline — which re-launched instantly, so a kart bounced the whole way down a slope
@@ -1537,20 +2030,31 @@
     if (drift){ brake = 0; throttle = Math.max(throttle, 0.5); }
     return { steer, throttle, brake, drift };
   }
-  // bot item policy (situational): tomato -> fire at a rival ahead in range; hay -> drop when a rival
-  // is close BEHIND (in their path); boost -> save it for a straight. itemHoldT is a fallback so an
-  // item is never hoarded forever (set to 1-3s on pickup).
+  // bot item policy (situational): tomato/chicken -> fire at a rival ahead; hay -> drop/trail when
+  // a rival is close BEHIND; boost -> save for a straight. itemHoldT is a fallback so an item is
+  // never hoarded forever (set to 1-3s on pickup).
   function botUseItems(p, dt){
     if (!p.itemHeld || p.itemRollT > 0 || p.spinT > 0) return;
     p.itemHoldT -= dt;
     const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
     const held = p.itemHeld;
-    if (held === 'tomato'){
+    const canTrail = isTrailable(held) && !isTriple(held);
+    // trail when threatened from behind (single tomato/chicken/hay only)
+    if (canTrail && !p.itemTrail){
+      for (const id in G.players){
+        const q = G.players[id]; if (q === p) continue;
+        const rx = q.pos.x - p.pos.x, rz = q.pos.z - p.pos.z;
+        const behind = -(rx*f.x + rz*f.z), lat = Math.abs(rx*(-f.z) + rz*f.x);
+        if (behind > 1.5 && behind < 14 && lat < 5){ setItemTrail(p, true); return; }
+      }
+    }
+    if (held === 'tomato' || held === 'tomato3' || held === 'chicken' || held === 'chicken3'){
       for (const id in G.players){
         const q = G.players[id]; if (q === p) continue;
         const rx = q.pos.x - p.pos.x, rz = q.pos.z - p.pos.z;
         const ahead = rx*f.x + rz*f.z, lat = Math.abs(rx*(-f.z) + rz*f.x);
-        if (ahead > 2 && ahead < 34 && lat < 7){ useItem(p); return; }   // rival in the firing line
+        const range = (held === 'chicken' || held === 'chicken3') ? 48 : 34;
+        if (ahead > 2 && ahead < range && lat < 8){ useItem(p); return; }
       }
       if (p.itemHoldT <= 0) useItem(p);
     } else if (held === 'hay'){
@@ -1568,26 +2072,90 @@
   }
 
   // ---------- K4: items ----------
-  const ITEM_KINDS = ['boost','tomato','hay'];
-  function rollItem(){ return ITEM_KINDS[(Math.random()*ITEM_KINDS.length)|0]; }
+  // Weighted roll pool (triples are rarer). HUD cycle uses unique kinds for the roll animation.
+  const ITEM_ROLL_WEIGHTS = [
+    ['boost', 22], ['tomato', 22], ['hay', 18], ['chicken', 18],
+    ['tomato3', 10], ['chicken3', 10]
+  ];
+  const ITEM_KINDS = ITEM_ROLL_WEIGHTS.map(w => w[0]);
+  const ITEM_ROLL_TOTAL = ITEM_ROLL_WEIGHTS.reduce((s,w)=>s+w[1], 0);
+  function rollItem(){
+    let r = Math.random() * ITEM_ROLL_TOTAL;
+    for (const [k,w] of ITEM_ROLL_WEIGHTS){ r -= w; if (r <= 0) return k; }
+    return 'tomato';
+  }
+  function isTriple(kind){ return kind === 'tomato3' || kind === 'chicken3'; }
+  function isTrailable(kind){ return kind === 'tomato' || kind === 'chicken' || kind === 'hay'; }
+  function itemShotCount(kind){ return isTriple(kind) ? 3 : 1; }
+  function clearItem(p){ p.itemHeld = null; p.itemCount = 0; p.itemTrail = false; }
+  function grantHeldItem(p, kind){
+    p.itemHeld = kind;
+    p.itemCount = itemShotCount(kind);
+    p.itemTrail = false;
+  }
+  function setItemTrail(p, on){
+    if (!p.itemHeld || p.itemRollT > 0) return;
+    if (!isTrailable(p.itemHeld) || isTriple(p.itemHeld)) return;
+    p.itemTrail = !!on;
+  }
+  // Tap = fire forward (or drop hay). Hold-to-trail is handled in gatherInput / tryLocalItemInput.
   function useItem(p){
     const kind = p.itemHeld;
     if (!kind || p.itemRollT > 0) return;
-    p.itemHeld = null;
+    // firing while trailing cancels the trail and launches/drops forward/behind as normal
+    p.itemTrail = false;
     if (kind === 'boost'){
-      p.boostT = TUNE.boostT1 * 3; p.boostTier = 2;   // instant tier-2-equivalent (reuse boost pipeline)
+      clearItem(p);
+      p.boostT = TUNE.boostT1 * 3; p.boostTier = 2;
       boostWhoosh();
-    } else if (kind === 'tomato'){
+      return;
+    }
+    if (kind === 'tomato' || kind === 'tomato3'){
       fireTomato(p); itemFireSound();
-    } else if (kind === 'hay'){
+      p.itemCount = Math.max(0, (p.itemCount||1) - 1);
+      if (p.itemCount <= 0) clearItem(p);
+      else if (kind === 'tomato3' && p.itemCount === 1){ p.itemHeld = 'tomato'; } // last shot looks like a single
+      return;
+    }
+    if (kind === 'chicken' || kind === 'chicken3'){
+      fireChicken(p); itemFireSound();
+      p.itemCount = Math.max(0, (p.itemCount||1) - 1);
+      if (p.itemCount <= 0) clearItem(p);
+      else if (kind === 'chicken3' && p.itemCount === 1){ p.itemHeld = 'chicken'; }
+      return;
+    }
+    if (kind === 'hay'){
       dropHay(p); itemFireSound();
+      clearItem(p);
     }
   }
   function fireTomato(p){
     const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
     const sp = Math.hypot(p.v.x, p.v.z) + TUNE.tomatoSpeed;
     const x = p.pos.x + f.x*2.2, z = p.pos.z + f.z*2.2;
-    G.projectiles.push({ x, z, y:sampleHeight(x,z)+0.6, vx:f.x*sp, vz:f.z*sp, life:TUNE.tomatoLife, bounced:false, owner:p.id });
+    G.projectiles.push({ kind:'tomato', x, z, y:sampleHeight(x,z)+0.6, vx:f.x*sp, vz:f.z*sp,
+      life:TUNE.tomatoLife, bounced:false, owner:p.id, target:null });
+  }
+  // Homing chicken: seeks the racer AHEAD by race progress (not raw distance). Gentle turn rate.
+  function findKartAhead(p){
+    const myProg = totalProgress(p);
+    let best = null, bestGap = 1e18;
+    for (const id in G.players){
+      const q = G.players[id]; if (q === p || q.finished) continue;
+      let gap = totalProgress(q) - myProg;
+      // wrap: if somehow negative but they're "ahead" on a short track, skip — only positive gap
+      if (gap <= 0.5) continue;
+      if (gap < bestGap){ bestGap = gap; best = q; }
+    }
+    return best;
+  }
+  function fireChicken(p){
+    const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
+    const sp = Math.hypot(p.v.x, p.v.z) + TUNE.chickenSpeed;
+    const x = p.pos.x + f.x*2.2, z = p.pos.z + f.z*2.2;
+    const tgt = findKartAhead(p);
+    G.projectiles.push({ kind:'chicken', x, z, y:sampleHeight(x,z)+0.7, vx:f.x*sp, vz:f.z*sp,
+      life:TUNE.chickenLife, bounced:false, owner:p.id, target:tgt ? tgt.id : null });
   }
   function dropHay(p){
     const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
@@ -1595,27 +2163,75 @@
     G.hazards.push({ x, z, y:sampleHeight(x,z)+0.4, owner:p.id, ownerGraceT:0.7 });
     while (G.hazards.length > TUNE.hazardMax) G.hazards.shift();   // oldest despawns (render reconciles)
   }
+  // World position of a trailed item (behind the kart). Used by hit absorption + visuals.
+  function trailWorldPos(p){
+    const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
+    const x = p.pos.x - f.x*2.35, z = p.pos.z - f.z*2.35;
+    return { x, z, y:(p.y||sampleHeight(x,z)) + 0.55, fx:f.x, fz:f.z };
+  }
+  // Absorb a hit from the rear hemisphere with a trailed item. Returns true if absorbed.
+  function tryAbsorbWithTrail(q, fromX, fromZ){
+    if (!q.itemTrail || !isTrailable(q.itemHeld) || isTriple(q.itemHeld)) return false;
+    const f = { x:Math.sin(q.theta), z:Math.cos(q.theta) };
+    const dx = fromX - q.pos.x, dz = fromZ - q.pos.z;
+    const ahead = dx*f.x + dz*f.z;
+    if (ahead > 0.15) return false;   // only rear hemisphere
+    // destroy the trailed shield
+    clearItem(q);
+    itemBlockSound();
+    return true;
+  }
+  function hitKartWithProjectile(q, pr){
+    if (tryAbsorbWithTrail(q, pr.x, pr.z)){ pr.life = 0; return true; }
+    if (q.spinT <= 0){ applySpinOut(q); pr.life = 0; return true; }
+    return false;
+  }
   function advanceProjectiles(dt){
     const half = TRACK_WIDTH/2;
+    const turn = TUNE.chickenTurn;
     for (const pr of G.projectiles){
-      pr.x += pr.vx*dt; pr.z += pr.vz*dt;
-      pr.y = sampleHeight(pr.x, pr.z) + 0.6;
-      pr.life -= dt;
-      // bounce off the soft wall ONCE (reflect velocity back toward the nearest centerline point)
-      const info = FK_TRACK.nearestOnCenter(_sampled, pr.x, pr.z);
-      if (!pr.bounced && info.dist > half + 4){
-        const c = centerPts[info.idx];
-        let nx = c.x - pr.x, nz = c.z - pr.z; const nl = Math.hypot(nx,nz)||1; nx/=nl; nz/=nl;
-        const dot = pr.vx*nx + pr.vz*nz;
-        pr.vx = pr.vx - 2*dot*nx; pr.vz = pr.vz - 2*dot*nz;   // reflect
-        // ensure it heads inward
-        if (pr.vx*nx + pr.vz*nz < 0){ pr.vx = nx*Math.hypot(pr.vx,pr.vz); pr.vz = nz*Math.hypot(pr.vx,pr.vz); }
-        pr.bounced = true;
+      // homing: gently steer toward the target kart (re-resolve if missing / finished)
+      if (pr.kind === 'chicken'){
+        let tgt = pr.target ? G.players[pr.target] : null;
+        if (!tgt || tgt.finished){
+          const owner = G.players[pr.owner];
+          tgt = owner ? findKartAhead(owner) : null;
+          pr.target = tgt ? tgt.id : null;
+        }
+        if (tgt){
+          const dx = tgt.pos.x - pr.x, dz = tgt.pos.z - pr.z;
+          const want = Math.atan2(dx, dz);
+          let cur = Math.atan2(pr.vx, pr.vz);
+          let d = want - cur;
+          while (d > Math.PI) d -= Math.PI*2;
+          while (d < -Math.PI) d += Math.PI*2;
+          const maxStep = turn * dt;
+          d = Math.max(-maxStep, Math.min(maxStep, d));
+          cur += d;
+          const sp = Math.hypot(pr.vx, pr.vz) || (TUNE.chickenSpeed + 16);
+          pr.vx = Math.sin(cur) * sp;
+          pr.vz = Math.cos(cur) * sp;
+        }
       }
-      // hit karts (not the firer)
+      pr.x += pr.vx*dt; pr.z += pr.vz*dt;
+      pr.y = sampleHeight(pr.x, pr.z) + (pr.kind === 'chicken' ? 0.7 : 0.6);
+      pr.life -= dt;
+      // bounce off the soft wall ONCE (tomatoes only — chickens keep seeking)
+      if (pr.kind !== 'chicken'){
+        const info = FK_TRACK.nearestOnCenter(_sampled, pr.x, pr.z);
+        if (!pr.bounced && info.dist > half + 4){
+          const c = centerPts[info.idx];
+          let nx = c.x - pr.x, nz = c.z - pr.z; const nl = Math.hypot(nx,nz)||1; nx/=nl; nz/=nl;
+          const dot = pr.vx*nx + pr.vz*nz;
+          pr.vx = pr.vx - 2*dot*nx; pr.vz = pr.vz - 2*dot*nz;
+          if (pr.vx*nx + pr.vz*nz < 0){ pr.vx = nx*Math.hypot(pr.vx,pr.vz); pr.vz = nz*Math.hypot(pr.vx,pr.vz); }
+          pr.bounced = true;
+        }
+      }
+      const hitR = pr.kind === 'chicken' ? TUNE.chickenHitR : 1.5;
       for (const id in G.players){
         const q = G.players[id]; if (id === pr.owner) continue;
-        if (q.spinT <= 0 && Math.hypot(q.pos.x-pr.x, q.pos.z-pr.z) < 1.5){ applySpinOut(q); pr.life = 0; break; }
+        if (Math.hypot(q.pos.x-pr.x, q.pos.z-pr.z) < hitR){ hitKartWithProjectile(q, pr); break; }
       }
     }
     if (G.projectiles.some(pr=>pr.life<=0)) G.projectiles = G.projectiles.filter(pr=>pr.life>0);
@@ -1626,7 +2242,10 @@
       for (const id in G.players){
         const q = G.players[id];
         if (id === hz.owner && hz.ownerGraceT > 0) continue;
-        if (q.spinT <= 0 && Math.hypot(q.pos.x-hz.x, q.pos.z-hz.z) < 1.6){ applySpinOut(q); hz.dead = true; break; }
+        if (Math.hypot(q.pos.x-hz.x, q.pos.z-hz.z) < 1.6){
+          if (tryAbsorbWithTrail(q, hz.x, hz.z)){ hz.dead = true; break; }
+          if (q.spinT <= 0){ applySpinOut(q); hz.dead = true; break; }
+        }
       }
     }
     if (G.hazards.some(hz=>hz.dead)) G.hazards = G.hazards.filter(hz=>!hz.dead);
@@ -1654,7 +2273,10 @@
       if (p._remote && !p.isBot) continue;   // K5: guests own their own roll settle (via host grants)
       if (p.itemRollT > 0){
         p.itemRollT = Math.max(0, p.itemRollT - dt);
-        if (p.itemRollT === 0){ p.itemHeld = rollItem(); if (p.isBot) p.itemHoldT = 1 + Math.random()*2; }
+        if (p.itemRollT === 0){
+          grantHeldItem(p, rollItem());
+          if (p.isBot) p.itemHoldT = 1 + Math.random()*2;
+        }
       }
     }
   }
@@ -1799,8 +2421,42 @@
   const TOMATO_GEO  = new THREE.SphereGeometry(0.55, 12, 10);
   const HAY_GEO     = new THREE.CylinderGeometry(0.7, 0.7, 0.95, 10);
   const _boxMeshes = [];   // persistent, one per G.itemBoxes entry
-  const _projPool = [];    // pooled tomato meshes
+  const _projPool = [];    // pooled projectile meshes (tomato OR chicken group)
   const _hazPool  = [];    // pooled hay-bale meshes
+  const _orbitPool = {};   // pid -> [mesh,mesh,mesh] orbiting held triples / trail
+  const _orbitAng = {};    // pid -> current orbit angle
+
+  // Chunk procedural chicken (body + head + comb + beak) — kid-readable blob.
+  function buildChickenMesh(){
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.42, 10, 8),
+      new THREE.MeshLambertMaterial({ color:0xf5f0e6, emissive:0x222018 }));
+    body.scale.set(1, 0.85, 1.15); g.add(body);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 6),
+      new THREE.MeshLambertMaterial({ color:0xfff8ee }));
+    head.position.set(0, 0.28, 0.32); g.add(head);
+    const comb = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 5),
+      new THREE.MeshLambertMaterial({ color:0xe23b2e, emissive:0x300000 }));
+    comb.position.set(0, 0.48, 0.28); comb.scale.set(0.7, 1.2, 0.5); g.add(comb);
+    const beak = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.18, 6),
+      new THREE.MeshLambertMaterial({ color:0xffa020 }));
+    beak.rotation.x = Math.PI/2; beak.position.set(0, 0.24, 0.48); g.add(beak);
+    return g;
+  }
+  function makeProjMesh(kind){
+    if (kind === 'chicken') return buildChickenMesh();
+    return new THREE.Mesh(TOMATO_GEO, new THREE.MeshLambertMaterial({ color:0xe23b2e, emissive:0x300000 }));
+  }
+  function makeOrbitBit(kind){
+    if (kind === 'chicken' || kind === 'chicken3') return buildChickenMesh();
+    if (kind === 'hay'){
+      const m = new THREE.Mesh(HAY_GEO, new THREE.MeshLambertMaterial({ color:0xcaa24a }));
+      m.rotation.z = Math.PI/2; m.scale.setScalar(0.55); return m;
+    }
+    // tomato / tomato3
+    const m = new THREE.Mesh(TOMATO_GEO, new THREE.MeshLambertMaterial({ color:0xe23b2e, emissive:0x300000 }));
+    m.scale.setScalar(0.72); return m;
+  }
 
   function buildItemBoxes(){
     // clear any prior boxes (track reload etc.)
@@ -1935,11 +2591,21 @@
       m.visible = b.active;
       m.rotation.y += dt*1.6; m.rotation.x += dt*0.7;
     }
-    // tomatoes
+    // projectiles (tomato sphere or chicken group)
     for (let i=0;i<G.projectiles.length;i++){
+      const pr = G.projectiles[i];
       let m = _projPool[i];
-      if (!m){ m = new THREE.Mesh(TOMATO_GEO, new THREE.MeshLambertMaterial({ color:0xe23b2e, emissive:0x300000 })); scene.add(m); _projPool[i] = m; }
-      const pr = G.projectiles[i]; m.visible = true; m.position.set(pr.x, pr.y, pr.z);
+      const want = pr.kind || 'tomato';
+      if (!m || m.userData.kind !== want){
+        if (m){ scene.remove(m); }
+        m = makeProjMesh(want); m.userData.kind = want; scene.add(m); _projPool[i] = m;
+      }
+      m.visible = true; m.position.set(pr.x, pr.y, pr.z);
+      if (want === 'chicken'){
+        const yaw = Math.atan2(pr.vx, pr.vz);
+        m.rotation.y = yaw;
+        m.position.y += 0.15 * Math.sin(performance.now()*0.012 + i);
+      }
     }
     for (let i=G.projectiles.length;i<_projPool.length;i++) _projPool[i].visible = false;
     // hay bales
@@ -1949,6 +2615,67 @@
       const hz = G.hazards[i]; m.visible = true; m.position.set(hz.x, hz.y, hz.z);
     }
     for (let i=G.hazards.length;i<_hazPool.length;i++) _hazPool[i].visible = false;
+    // orbit / trail visuals around each kart that holds a triple or trails a single
+    syncOrbitMeshes(dt);
+  }
+  function ensureOrbitSlots(pid, kind, n){
+    let arr = _orbitPool[pid];
+    if (!arr){ arr = []; _orbitPool[pid] = arr; }
+    while (arr.length < n){
+      const m = makeOrbitBit(kind); m.visible = false; scene.add(m); arr.push(m);
+    }
+    // retype if kind changed
+    for (let i=0;i<arr.length;i++){
+      if (arr[i].userData.okind !== kind){
+        scene.remove(arr[i]);
+        arr[i] = makeOrbitBit(kind); arr[i].userData.okind = kind; scene.add(arr[i]);
+      }
+    }
+    return arr;
+  }
+  function syncOrbitMeshes(dt){
+    const seen = {};
+    for (const id in G.players){
+      const p = G.players[id];
+      if (!p.itemHeld || p.itemRollT > 0) continue;
+      const triple = isTriple(p.itemHeld);
+      const trail = !!p.itemTrail && isTrailable(p.itemHeld) && !triple;
+      if (!triple && !trail) continue;
+      seen[id] = 1;
+      const n = triple ? Math.max(1, p.itemCount || 3) : 1;
+      const arr = ensureOrbitSlots(id, p.itemHeld, n);
+      _orbitAng[id] = (_orbitAng[id] || 0) + dt * (trail ? 0 : 2.8);
+      const base = _orbitAng[id];
+      const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
+      const r = { x:Math.cos(p.theta), z:-Math.sin(p.theta) };
+      const py = (p.y != null ? p.y : sampleHeight(p.pos.x, p.pos.z)) + 0.85;
+      for (let i=0;i<arr.length;i++){
+        const m = arr[i];
+        if (i >= n){ m.visible = false; continue; }
+        m.visible = true;
+        if (trail){
+          const tw = trailWorldPos(p);
+          m.position.set(tw.x, tw.y, tw.z);
+          m.scale.setScalar(p.itemHeld === 'hay' ? 0.7 : 0.85);
+        } else {
+          const a = base + (i / n) * Math.PI * 2;
+          const rad = 1.35;
+          const ox = Math.cos(a)*rad, oz = Math.sin(a)*rad;
+          // orbit in kart-local XZ (right/forward plane)
+          m.position.set(
+            p.pos.x + r.x*ox + f.x*oz,
+            py + 0.15*Math.sin(a*2),
+            p.pos.z + r.z*ox + f.z*oz
+          );
+          m.scale.setScalar(0.75);
+        }
+      }
+    }
+    // hide orbits for karts that no longer need them
+    for (const id in _orbitPool){
+      if (seen[id]) continue;
+      for (const m of _orbitPool[id]) m.visible = false;
+    }
   }
 
   // ---------- race progress: arc-length s, ordered checkpoints, laps, wrong-way, places ----------
@@ -2030,7 +2757,7 @@
       return totalProgress(b) - totalProgress(a);
     });
     return ps.map((p,i)=>({ name:p.isBot ? p.botName : 'You', place:i+1, isLocal:p===G.players.local,
-                            finished:p.finished, time:p.finishTime, best:p.lapBest, color:p.isBot?p.botColor:0xd6352b }));
+                            finished:p.finished, time:p.finishTime, best:p.lapBest, color:p.isBot?p.botColor:0x3d8b3d }));
   }
   function finishRace(p){
     p.finished = true;
@@ -2082,15 +2809,47 @@
       padItem = pad.item;
     }
     if (keys['r'] && G.phase === 'racing') resetKart();
-    // K4 item use: X key or gamepad button 2 (X). Edge-triggered (fire once per press, not per frame).
+    // K4 item use: X / gamepad X / touch 🎁.
+    //   TAP  = fire forward (or drop hay)
+    //   HOLD ≥ itemTrailHoldMs on a single tomato/chicken/hay = trail behind as a rear shield
+    //   Release while trailing does nothing (shield stays); tap again while trailing = fire
+    //   Triples never trail (orbit IS the hold) — tap fires one at a time.
     const itemDown = !!(keys['x'] || padItem || touch.item);
-    const item = itemDown && !itemKeyPrev;
+    let item = false, itemTrailToggle = false;
+    if (itemDown && !itemKeyPrev){
+      itemPressT = performance.now();
+      itemHoldArmed = false;
+    }
+    if (itemDown && itemPressT > 0 && !itemHoldArmed){
+      const heldMs = performance.now() - itemPressT;
+      if (heldMs >= (TUNE.itemTrailHoldMs || 250)){
+        itemHoldArmed = true;
+        itemTrailToggle = true;   // edge: crossed the hold threshold
+      }
+    }
+    if (!itemDown && itemKeyPrev){
+      // release: if we never crossed the hold threshold, it's a tap-fire
+      if (!itemHoldArmed && itemPressT > 0) item = true;
+      itemPressT = 0; itemHoldArmed = false;
+    }
     itemKeyPrev = itemDown;
     // clamp steer
     steer = Math.max(-1, Math.min(1, steer));
-    return { steer, throttle, brake, drift, item };
+    return { steer, throttle, brake, drift, item, itemTrailToggle };
   }
   let itemKeyPrev = false;
+  let itemPressT = 0;
+  let itemHoldArmed = false;
+
+  // Local human item input (solo + host). Guests use netLocalUseItem / netLocalTrail.
+  function applyLocalItemInput(p, inp){
+    if (!p || p.spinT > 0 || p.itemRollT > 0) return;
+    if (inp.itemTrailToggle && isTrailable(p.itemHeld) && !isTriple(p.itemHeld)){
+      setItemTrail(p, !p.itemTrail);
+      return;
+    }
+    if (inp.item) useItem(p);
+  }
 
   // ---------- K6: pooled particle system (drift dust · boost puffs · landing poof · spin stars) ----------
   // Fixed pool, allocated once. Each particle owns a material (recolored, never re-created) so there
@@ -2134,13 +2893,19 @@
     view._dustAcc = (view._dustAcc || 0) + dt;
     const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
     const r = { x:Math.cos(p.theta), z:-Math.sin(p.theta) };
-    while (view._dustAcc > 0.028){
-      view._dustAcc -= 0.028;
+    // Drift-tier color lives on the SPARKS (not the kart body): dust → cyan MT → orange SMT
+    const tier = driftTier(p.drift.charge);
+    const col = tier === 2 ? 0xff7a1a : (tier === 1 ? 0x18b6ff : 0xcdb98a);
+    const op = tier === 0 ? 0.55 : 0.85;
+    const sz = tier === 0 ? 0.35 : (tier === 1 ? 0.42 : 0.48);
+    const rate = tier === 0 ? 0.028 : (tier === 1 ? 0.020 : 0.014);
+    while (view._dustAcc > rate){
+      view._dustAcc -= rate;
       const side = Math.random() < 0.5 ? -1 : 1;
       const rx = p.pos.x - f.x*0.9 + r.x*side*0.55, rz = p.pos.z - f.z*0.9 + r.z*side*0.55;
-      spawnParticle(rx, gy + 0.15, rz, { color:0xcdb98a, opacity:0.55, life:0.4,
+      spawnParticle(rx, gy + 0.15, rz, { color:col, opacity:op, life:0.4,
         vx:r.x*side*1.1 - f.x*1.2 + (Math.random()-0.5), vy:1.1 + Math.random()*0.6, vz:r.z*side*1.1 - f.z*1.2 + (Math.random()-0.5),
-        grav:1.2, size:0.35, grow:0.7 });
+        grav:1.2, size:sz, grow:0.7 });
     }
   }
   function spawnBoostPuff(p, view, gy, dt){
@@ -2174,47 +2939,16 @@
 
   // ---------- render sync ----------
   function syncKartView(p, view, dt){
-    // K2.5: seat the kart at its ACTUAL height p.y (ballistic while airborne); tilt to the surface normal.
-    const gy = sampleHeightAtY(p.pos.x, p.pos.z, p.y);   // K7: branch the kart is on (shadow rides this)
-    // ANTI-CLIP: on the ground, seat the VISUAL kart above the HIGHEST terrain under its footprint
-    // (not just the center point) so the body/wheels don't sink into a grass bump on rolling hills.
-    // Physics p.y is untouched; airborne uses p.y directly (ballistic).
-    let seatY = p.y;
-    if (!p.airborne){
-      const fx = Math.sin(p.theta), fz = Math.cos(p.theta);   // forward
-      let mx = gy;
-      for (const [fl, rw] of [[0.95,0.62],[0.95,-0.62],[-0.95,0.62],[-0.95,-0.62]]){
-        const sx = p.pos.x + fx*fl + fz*rw, sz = p.pos.z + fz*fl - fx*rw;   // footprint corner (right = (fz,-fx))
-        const h = sampleHeightAtY(sx, sz, p.y); if (h > mx) mx = h;
-      }
-      seatY = Math.max(p.y, mx + 0.04);
-    }
-    view.group.position.set(p.pos.x, seatY, p.pos.z);
-    // shadow stays on the ground and shrinks as the kart climbs -> reads as a detached jump shadow
-    const alt = Math.max(0, p.y - gy);
-    view.shadow.position.set(p.pos.x, gy + 0.05, p.pos.z);
-    const shScale = 1 / (1 + alt*0.18);
-    view.shadow.scale.set(shScale, shScale, shScale);
-    view.shadowMat.opacity = 0.28 * Math.max(0.25, shScale);
-    // landing thump only when the landing passed the effect gate (K2.5 squash-spam fix)
-    if (view.lastAirborne && !p.airborne){ if (p.landFx){ landThump(p.landImpact); spawnLandingPoof(p, gy); p.landFx = false; } }
-    view.lastAirborne = p.airborne;
-    // K6 juice: drift dust · boost puffs · spin stars (pooled, spawned from live state)
-    if (G.phase === 'racing'){
-      const spd = Math.hypot(p.v.x, p.v.z);
-      if (p.drift.active && spd > 2.5 && !p.airborne) spawnDriftDust(p, view, gy, dt);
-      if (p.boostT > 0) spawnBoostPuff(p, view, gy, dt);
-      if (p.spinT > 0) spawnSpinStars(p, view, dt);
-    }
-    const e = 1.5;
-    const dHdx = (sampleHeightAtY(p.pos.x+e, p.pos.z, p.y) - sampleHeightAtY(p.pos.x-e, p.pos.z, p.y)) / (2*e);
-    const dHdz = (sampleHeightAtY(p.pos.x, p.pos.z+e, p.y) - sampleHeightAtY(p.pos.x, p.pos.z-e, p.y)) / (2*e);
-    const targetN = _tmpN.set(-dHdx, 1, -dHdz).normalize();
+    // Seat at p.y (ballistic while airborne). Tilt to the 4-wheel plane so the kart CONFORMS to
+    // slopes / road→hill transitions instead of sitting flat on a high corner.
+    const gy = sampleHeightAtY(p.pos.x, p.pos.z, p.y);   // K7: branch the kart is on (FX / landing)
+    const plane = sampleKartPlane(p.pos.x, p.pos.z, p.theta, p.y);
+    _tmpN.copy(plane.normal);
     const kk = 1 - Math.exp(-TUNE.normalSmooth * (dt || 0.016));
     const kn = view.kartNormal;
-    kn.lerp(targetN, kk);
+    kn.lerp(_tmpN, kk);
     if (kn.lengthSq() < 1e-6) kn.set(0,1,0); else kn.normalize();
-    // orientation: up = smoothed normal, forward = heading (theta+driftAngle+spin) flattened onto it.
+    // orientation: up = smoothed wheel-plane normal, forward = heading flattened onto it.
     const spinYaw = p.spinT > 0 ? (1 - p.spinT/TUNE.spinT) * Math.PI*4 : 0;   // K4: 720deg visual spin
     const yaw = p.theta + p.driftAngle + spinYaw;
     const up = kn;
@@ -2225,21 +2959,54 @@
     _tmpR.crossVectors(up, _tmpF).normalize();   // right = up × fwd (right-handed X = Y×Z)
     _tmpM.makeBasis(_tmpR, up, _tmpF);
     view.group.quaternion.setFromRotationMatrix(_tmpM);
-    // ---- spinning wheels (GLB kart): roll about the tire's local Z (axle), steer the front pair ----
+    // Near-ground: ride the wheel plane + small clearance. Soft per-wheel lift only when a
+    // tire would dig in AFTER tilt — capped so we stay on the slope (not yanked to the crest).
+    const nearGround = (p.y - plane.y) < 0.55;
+    let seatY = p.y;
+    if (nearGround){
+      seatY = Math.max(p.y, plane.y) + 0.05;
+      let lift = 0;
+      for (const [fl, rw] of KART_WHEEL_XZ){
+        const wx = p.pos.x + _tmpR.x*rw + _tmpF.x*fl;
+        const wz = p.pos.z + _tmpR.z*rw + _tmpF.z*fl;
+        const wy = seatY + _tmpR.y*rw + _tmpF.y*fl;
+        const gh = rideHeight(wx, wz, p.y);
+        const need = (gh + 0.03) - wy;
+        if (need > lift) lift = need;
+      }
+      if (lift > 0) seatY += Math.min(lift, 0.28);
+    }
+    view.group.position.set(p.pos.x, seatY, p.pos.z);
+    // landing thump only when the landing passed the effect gate (K2.5 squash-spam fix)
+    if (view.lastAirborne && !p.airborne){ if (p.landFx){ landThump(p.landImpact); spawnLandingPoof(p, gy); p.landFx = false; } }
+    view.lastAirborne = p.airborne;
+    // K6 juice: drift dust · boost puffs · spin stars (pooled, spawned from live state)
+    if (G.phase === 'racing'){
+      const spd = Math.hypot(p.v.x, p.v.z);
+      if (p.drift.active && spd > 2.5 && !p.airborne) spawnDriftDust(p, view, gy, dt);
+      if (p.boostT > 0) spawnBoostPuff(p, view, gy, dt);
+      if (p.spinT > 0) spawnSpinStars(p, view, dt);
+    }
+    // ---- spinning wheels (custom kart): roll about mount X (axle), steer front pair about Y ----
     if (view.wheels && view.wheels.length){
       const signedSpeed = p.v.x*Math.sin(p.theta) + p.v.z*Math.cos(p.theta);   // +forward / -reverse
       const dRoll = p.airborne ? 0 : (signedSpeed * (dt||0.016)) / Math.max(0.05, view.wheelR) * TUNE.wheelSpin;
       const steerAng = -(p.steer || 0) * 0.5;   // visual front-wheel steer
       const sz = TUNE.wheelSize, spr = TUNE.wheelSpread, wy = TUNE.wheelY;
+      // Plant tread at kart-local y=0 for any wheelSize (scale grows from axle center).
+      // +0.02 covers the knobby lugs that stick past _TIRE_ROUT.
+      const axleY = (_TIRE_ROUT + 0.02) * sz + wy;
       for (const w of view.wheels){
-        w.scale.set(sz, sz, sz*TUNE.wheelWidth);   // Z = axle -> wheelWidth fattens the tire
-        w.position.set(w.userData.bx, w.userData.by + wy, w.userData.bz * spr);   // live size/height/spread
+        w.scale.set(sz * TUNE.wheelWidth, sz, sz);   // X = axle -> wheelWidth fattens the tire
+        w.position.set(w.userData.bx * spr, axleY, w.userData.bz);
         w.userData.roll += dRoll;
-        _wqRoll.setFromAxisAngle(_AXLE_Z, w.userData.roll);
+        _wqRoll.setFromAxisAngle(_AXLE_X, w.userData.roll);
         if (w.userData.front){ _wqSteer.setFromAxisAngle(_WUP_Y, steerAng); w.quaternion.copy(_wqSteer).multiply(_wqRoll); }
         else w.quaternion.copy(_wqRoll);
       }
     }
+    // Chef Bucky driver: lean into turns, rotate steering wheel, hands on the rim
+    syncKartDriver(p, view, dt);
     // hop bounce
     let by = 0;
     if (p.hop > 0){
@@ -2254,12 +3021,10 @@
     } else {
       view.bounce.scale.set(1, 1, 1);
     }
-    // edge glow by drift tier (keyed to the POINT thresholds)
+    // Body stays its paint color while drifting — tier feedback is on wheel sparks (spawnDriftDust).
+    // Soft orange only while actually boosting (separate from drift charge).
     const bodyMat = view.bodyMat;
-    const tier = p.drift.active ? driftTier(p.drift.charge) : 0;
-    if (tier === 2) bodyMat.emissive.setHex(0xff7a1a);        // red = SMT ready
-    else if (tier === 1) bodyMat.emissive.setHex(0x18b6ff);   // cyan = MT ready
-    else if (p.boostT > 0) bodyMat.emissive.setHex(0xff7a1a); // boosting glow
+    if (p.boostT > 0) bodyMat.emissive.setHex(0xff7a1a);
     else bodyMat.emissive.setHex(0x000000);
   }
   function syncKart(dt){
@@ -2291,7 +3056,7 @@
     let dh = targetHeading - camHeading;
     while (dh > Math.PI) dh -= Math.PI*2;
     while (dh < -Math.PI) dh += Math.PI*2;
-    camHeading += dh * (1 - Math.exp(-TUNE.camLag * dt));
+    camHeading += dh * (1 - Math.exp(-camLagEff() * dt));
     const cf = { x:Math.sin(camHeading), z:Math.cos(camHeading) };
     // K2.5: the camera tracks a SMOOTHED kart-y (eases after p.y) so jumps read as FLOAT — the kart
     // rises in frame while the camera lags up after it. camHeight is height ABOVE that smoothed y.
@@ -2353,11 +3118,12 @@
       p.pos.z + fwd.z*4 + p.v.z*0.25
     );
     camera.lookAt(look);
-    // FOV read
+    // FOV read (mobile uses fixed fovEff base; boost/speed still bump a little)
     const speed = Math.hypot(p.v.x, p.v.z);
-    let targetFov = TUNE.fov;
-    if (p.boostT > 0) targetFov = TUNE.fov + 10;
-    else if (speed > TUNE.maxSpeed*0.95) targetFov = TUNE.fov + 4;
+    const baseFov = fovEff();
+    let targetFov = baseFov;
+    if (p.boostT > 0) targetFov = baseFov + 10;
+    else if (speed > TUNE.maxSpeed*0.95) targetFov = baseFov + 4;
     camFov += (targetFov - camFov) * (1 - Math.exp(-6*dt));
     camera.fov = camFov;
     camera.updateProjectionMatrix();
@@ -2374,6 +3140,112 @@
   const lapNV = document.getElementById('lapNV');
   const clockV = document.getElementById('clockV');
   const wrongwayEl = document.getElementById('wrongway');
+  const minimapEl = document.getElementById('minimap');
+  const mmCtx = minimapEl.getContext('2d');
+  // North-up world→canvas map (world +X → canvas right, world +Z → canvas down).
+  // Built once from centerPts; track is fixed for the page lifetime.
+  const _mm = (()=>{
+    let minX=Infinity, maxX=-Infinity, minZ=Infinity, maxZ=-Infinity;
+    for (let i=0;i<SAMPLES;i++){
+      const c=centerPts[i];
+      if(c.x<minX)minX=c.x; if(c.x>maxX)maxX=c.x;
+      if(c.z<minZ)minZ=c.z; if(c.z>maxZ)maxZ=c.z;
+    }
+    const pad = TRACK_WIDTH * 0.85 + 4;
+    minX-=pad; maxX+=pad; minZ-=pad; maxZ+=pad;
+    const W = minimapEl.width, H = minimapEl.height, inset = 14;
+    const spanX = Math.max(1, maxX-minX), spanZ = Math.max(1, maxZ-minZ);
+    const scale = Math.min((W-inset*2)/spanX, (H-inset*2)/spanZ);
+    const ox = (W - spanX*scale)*0.5, oy = (H - spanZ*scale)*0.5;
+    const toX = (x)=> ox + (x-minX)*scale;
+    const toY = (z)=> oy + (z-minZ)*scale;
+    // Pre-bake corridor outline (left + right edges, closed) for a readable track ribbon.
+    const half = TRACK_WIDTH * 0.5;
+    const left=[], right=[];
+    for (let i=0;i<SAMPLES;i++){
+      const c=centerPts[i], t=tangents[i];
+      const nx=-t.z, nz=t.x; // left normal in XZ
+      left.push(toX(c.x+nx*half), toY(c.z+nz*half));
+      right.push(toX(c.x-nx*half), toY(c.z-nz*half));
+    }
+    return { toX, toY, left, right, scale, W, H };
+  })();
+  function playerMinimapColor(q){
+    const hex = q._slotCol!=null ? q._slotCol : (q.isBot ? q.botColor : 0x3d8b3d);
+    return '#' + ((hex>>>0)&0xffffff).toString(16).padStart(6,'0');
+  }
+  function updateMinimap(){
+    const live = G.phase === 'countdown' || G.phase === 'racing' || G.phase === 'finished';
+    minimapEl.classList.toggle('on', live);
+    if (!live) return;
+    const ctx = mmCtx, W = _mm.W, H = _mm.H;
+    ctx.clearRect(0, 0, W, H);
+    // soft grass fill
+    ctx.fillStyle = 'rgba(70,110,55,.55)';
+    ctx.fillRect(0, 0, W, H);
+    // track corridor (filled ribbon)
+    const L=_mm.left, R=_mm.right, n=SAMPLES;
+    ctx.beginPath();
+    ctx.moveTo(L[0], L[1]);
+    for (let i=1;i<n;i++) ctx.lineTo(L[i*2], L[i*2+1]);
+    for (let i=n-1;i>=0;i--) ctx.lineTo(R[i*2], R[i*2+1]);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(55,55,60,.92)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.55)';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+    // faint centerline
+    ctx.beginPath();
+    ctx.moveTo(_mm.toX(centerPts[0].x), _mm.toY(centerPts[0].z));
+    for (let i=1;i<n;i++) ctx.lineTo(_mm.toX(centerPts[i].x), _mm.toY(centerPts[i].z));
+    ctx.closePath();
+    ctx.strokeStyle = 'rgba(255,226,122,.35)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([6, 5]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // players: others first, local on top with facing wedge
+    const local = G.players.local;
+    for (const id in G.players){
+      const q = G.players[id];
+      if (q === local) continue;
+      const x=_mm.toX(q.pos.x), y=_mm.toY(q.pos.z);
+      ctx.beginPath();
+      ctx.arc(x, y, 7, 0, Math.PI*2);
+      ctx.fillStyle = playerMinimapColor(q);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,.55)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    {
+      const x=_mm.toX(local.pos.x), y=_mm.toY(local.pos.z);
+      // facing wedge: world fwd=(sinθ,+cosθ); canvas Y grows with +Z, but canvas
+      // rotate() is clockwise — negate θ so tip tracks world heading.
+      const tip = 16, base = 9;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(-local.theta);
+      ctx.beginPath();
+      ctx.moveTo(0, tip);
+      ctx.lineTo(-base*0.7, -base*0.55);
+      ctx.lineTo(base*0.7, -base*0.55);
+      ctx.closePath();
+      ctx.fillStyle = playerMinimapColor(local);
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      ctx.restore();
+      // white ring so "you" reads clearly among same-color bots
+      ctx.beginPath();
+      ctx.arc(x, y, 11, 0, Math.PI*2);
+      ctx.strokeStyle = 'rgba(255,255,255,.85)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+  }
   function fmtTime(s){ if(!s) return '—'; const m=Math.floor(s/60), r=(s%60).toFixed(2); return (m>0?m+':':'')+(m>0?r.padStart(5,'0'):r)+'s'; }
   const ORD = ['—','1st','2nd','3rd','4th'];
   const MEDAL = { 1:'🥇', 2:'🥈', 3:'🥉' };   // K6: podium medals
@@ -2392,16 +3264,27 @@
     else if (p.drift.charge >= TUNE.mtTier1) col = '#18b6ff';
     else if (!p.drift.active) col = '#6cf';
     chargeBar.style.background = p.drift.active || p.boostT>0 ? col : 'rgba(120,180,255,.4)';
-    // race HUD
+    // race HUD — big top-left place + lap/race times (#hud bottom panel is hidden)
     const racing = G.phase === 'racing' || G.phase === 'finished';
     const place = racing ? computePlace(p) : 0;
-    posV.style.display = racing ? 'block' : 'none';
-    if (racing) posV.innerHTML = (ORD[place] || (place+'th')) + '<span class="of"> / ' + Object.keys(G.players).length + '</span>';
-    lapNV.textContent = racing ? Math.min(p.lap + (p.finished?0:1), G.lapsTotal) + '/' + G.lapsTotal : '—';
-    clockV.textContent = fmtTime(G.raceClock) === '—' ? '0.00s' : fmtTime(G.raceClock);
-    // live lap time
+    const lapStr = racing ? Math.min(p.lap + (p.finished?0:1), G.lapsTotal) + '/' + G.lapsTotal : '—';
+    const raceStr = fmtTime(G.raceClock) === '—' ? '0.00s' : fmtTime(G.raceClock);
     const live = (G.phase==='racing') ? (performance.now() - p.lapStart)/1000 : 0;
-    lapV.textContent = live ? fmtTime(live) : '—';
+    const lapTimeStr = live ? fmtTime(live) : '—';
+    posV.style.display = racing ? 'block' : 'none';
+    if (racing){
+      posV.innerHTML =
+        '<div class="place">'+(ORD[place] || (place+'th'))+'<span class="of"> / '+Object.keys(G.players).length+'</span></div>'+
+        '<div class="times">'+
+          '<div class="trow"><span class="lbl">lap time</span><span class="val">'+lapTimeStr+'</span></div>'+
+          '<div class="trow"><span class="lbl">lap</span><span class="val">'+lapStr+'</span></div>'+
+          '<div class="trow"><span class="lbl">race</span><span class="val">'+raceStr+'</span></div>'+
+        '</div>';
+    }
+    // keep hidden #hud nodes in sync (dev / __KART__ harness)
+    lapNV.textContent = lapStr;
+    clockV.textContent = raceStr;
+    lapV.textContent = lapTimeStr;
     bestV.textContent = G.bestLap ? fmtTime(G.bestLap) : '—';
     // wrong-way indicator
     if (G.phase==='racing' && p.wrongWayT > 2) wrongwayEl.classList.add('show');
@@ -2413,6 +3296,7 @@
     touchCtlEl.classList.toggle('on', G.phase === 'countdown' || G.phase === 'racing');
     // K5 MP: live places leaderboard + menu roster refresh
     updateMpUI();
+    updateMinimap();
   }
   // K5: MP places overlay (names + live order) and menu roster
   let _mpRosterTick = 0;
@@ -2434,26 +3318,35 @@
     const nameFor = (q)=> q===G.players.local ? (net.myName||'You') : (q.isBot ? q.botName : (q._dispName || 'Racer'));
     mpPlacesEl.innerHTML = ps.map((q,i)=>{
       const me = q===G.players.local ? ' me' : '';
-      const col = '#'+((q._slotCol!=null?q._slotCol:(q.isBot?q.botColor:0xd6352b)).toString(16).padStart(6,'0'));
+      const col = '#'+((q._slotCol!=null?q._slotCol:(q.isBot?q.botColor:0x3d8b3d)).toString(16).padStart(6,'0'));
       return '<div class="pl'+me+'"><span class="pp">'+(ORD[i+1]||(i+1)+'th')+'</span>'+
              '<span class="pnm" style="color:'+col+'">'+nameFor(q)+'</span></div>';
     }).join('');
   }
   const itemSlot = document.getElementById('itemSlot');
   const itemIcon = document.getElementById('itemIcon');
-  const ITEM_ICON = { boost:'⚡', tomato:'🍅', hay:'🌾' };
+  const ITEM_ICON = {
+    boost:'⚡', tomato:'🍅', hay:'🌾', chicken:'🐔',
+    tomato3:'🍅×3', chicken3:'🐔×3'
+  };
   function updateItemSlot(p){
     const racing = G.phase === 'racing' || G.phase === 'finished';
     itemSlot.style.display = racing ? 'flex' : 'none';
     if (!racing) return;
     if (p.itemRollT > 0){
       itemSlot.className = 'rolling';
-      // cycle the three icons fast for the anticipation
       const k = ITEM_KINDS[Math.floor(performance.now()/90) % ITEM_KINDS.length];
-      itemIcon.textContent = ITEM_ICON[k];
+      itemIcon.textContent = ITEM_ICON[k] || '·';
     } else if (p.itemHeld){
-      itemSlot.className = 'filled';
-      itemIcon.textContent = ITEM_ICON[p.itemHeld] || '·';
+      itemSlot.className = 'filled' + (p.itemTrail ? ' trail' : '');
+      let icon = ITEM_ICON[p.itemHeld] || '·';
+      if (isTriple(p.itemHeld) && p.itemCount > 0){
+        const base = p.itemHeld === 'chicken3' ? '🐔' : '🍅';
+        icon = base + '×' + p.itemCount;
+      } else if (p.itemTrail){
+        icon = '🛡' + (ITEM_ICON[p.itemHeld] || '');
+      }
+      itemIcon.textContent = icon;
     } else {
       itemSlot.className = '';
       itemIcon.textContent = '·';
@@ -2484,7 +3377,7 @@
       inp.addEventListener('input', ()=>{
         TUNE[k] = parseFloat(inp.value);
         valS.textContent = TUNE[k];
-        if (k === 'fov'){ camera.fov = TUNE.fov; camera.updateProjectionMatrix(); }
+        if (k === 'fov'){ camera.fov = fovEff(); camFov = fovEff(); camera.updateProjectionMatrix(); }
         saveTune();
       });
       const help = document.createElement('div'); help.className = 'thelp'; help.textContent = helpText;
@@ -2500,7 +3393,7 @@
   document.getElementById('tuneHdr').addEventListener('click', toggleTune);
   document.getElementById('resetTune').addEventListener('click', ()=>{
     TUNE = Object.assign({}, TUNE_DEFAULTS); saveTune(); refreshTunePanel();
-    camera.fov = TUNE.fov; camera.updateProjectionMatrix();
+    camFov = fovEff(); camera.fov = camFov; camera.updateProjectionMatrix();
   });
   document.getElementById('copyTune').addEventListener('click', ()=>{
     const txt = JSON.stringify(TUNE, null, 2);
@@ -2623,6 +3516,7 @@
   }
   function itemFireSound(){ tone(700, 0.08, { type:'square', vol:0.13 }); }
   function itemRollSound(){ tone(880, 0.06, { type:'square', vol:0.12 }); setTimeout(()=>tone(990,0.06,{type:'square',vol:0.12}),80); }
+  function itemBlockSound(){ tone(320, 0.1, { type:'triangle', vol:0.16 }); setTimeout(()=>tone(480,0.08,{type:'triangle',vol:0.12}),70); }
   // finish fanfare: podium-worthy triumphant run for 1st; a warm short flourish for others
   function finishFanfare(place){
     _fanfareCount++;
@@ -2851,14 +3745,14 @@
   stage.addEventListener('pointerdown', ()=>{ if (G.phase==='menu' || G.phase==='finished') advance(); });
 
   // ---------- track picker (K3) ----------
-  // Lists DEFAULT_TRACK + every saved track in fk_tracks_v1. Changing it reloads the page at
-  // ?track=<id> (default = no param) — a full reload rebuilds the whole scene cleanly.
+  // Lists Amen Farms + builtins + saved tracks. Changing reloads at ?track=<id>
+  // (bare URL / missing id boots Wario Stadium). Full reload rebuilds the scene cleanly.
   const trackSel = document.getElementById('trackSel');
   (function populateTrackPicker(){
-    const opts = [{ id:'', name:FK_TRACK.DEFAULT_TRACK.name + ' (default)' }];
-    const seen = {};
+    const opts = [{ id:'amen-farms', name:FK_TRACK.DEFAULT_TRACK.name }];
+    const seen = { 'amen-farms':1 };
     try{
-      // built-in converted courses first
+      // built-in converted courses first (Wario Stadium is the boot default)
       const b = FK_TRACK.BUILTIN_TRACKS || {};
       for (const id in b){ const t = FK_TRACK.sanitize(b[id]); if (t){ opts.push({ id, name:t.name || id }); seen[id]=1; } }
       const map = JSON.parse(localStorage.getItem('fk_tracks_v1') || 'null');
@@ -2870,16 +3764,19 @@
     for (const o of opts){
       const el = document.createElement('option'); el.value = o.id; el.textContent = o.name; trackSel.appendChild(el);
     }
-    trackSel.value = ACTIVE_TRACK_ID || '';
+    trackSel.value = ACTIVE_TRACK_ID || BOOT_TRACK_ID;
   })();
   // the ✎ edit link opens the currently-selected track in the editor (built-ins included).
   const editLink = document.getElementById('editLink');
-  function syncEditLink(){ const id = trackSel.value; editLink.href = id ? ('farmkart-editor.html?track=' + encodeURIComponent(id)) : 'farmkart-editor.html'; }
+  function syncEditLink(){
+    const id = trackSel.value;
+    editLink.href = (!id || AMEN_TRACK_IDS[id]) ? 'farmkart-editor.html' : ('farmkart-editor.html?track=' + encodeURIComponent(id));
+  }
   syncEditLink();
   trackSel.addEventListener('change', ()=>{
     syncEditLink();
-    const id = trackSel.value;
-    location.href = id ? ('farmkart.html?track=' + encodeURIComponent(id)) : 'farmkart.html';
+    const id = trackSel.value || BOOT_TRACK_ID;
+    location.href = 'farmkart.html?track=' + encodeURIComponent(id);
   });
   // ---------- bot-count picker (K3.5) ----------
   const botBtns = document.getElementById('botBtns');
@@ -2911,7 +3808,7 @@
   //  unreachable / not requested) the main loop runs the ORIGINAL single-player path
   //  byte-for-byte — nothing below touches solo.
   // ============================================================================
-  const KART_COLORS = [0xd6352b, 0x3f7fe0, 0xf2c53d, 0x4caf50]; // slot 0..3: red/blue/yellow/green
+  const KART_COLORS = [0x3d8b3d, 0x3f7fe0, 0xf2c53d, 0xd6352b]; // slot 0..3: green/blue/yellow/red
   const MAX_KARTS = 4;
   const net = {
     ready:false,        // insertCoin resolved OR fallback engaged
@@ -2943,7 +3840,7 @@
     return {
       x:p.pos.x, z:p.pos.z, y:p.y, th:p.theta, da:p.driftAngle, sp:speedOf(p),
       lap:p.lap, cp:p.checkpoint, ps:p.progressS, spin:p.spinT, air:p.airborne,
-      it:p.itemHeld, roll:p.itemRollT, fin:p.finished, ft:p.finishTime,
+      it:p.itemHeld, ic:p.itemCount||0, tr:p.itemTrail?1:0, roll:p.itemRollT, fin:p.finished, ft:p.finishTime,
       dact:p.drift.active, dtier:(p.drift.active?driftTier(p.drift.charge):0), bo:(p.boostT>0?1:0),
       nm:name||'', col:col
     };
@@ -2973,7 +3870,8 @@
     // non-spatial: take directly
     p.driftAngle = ks.da; p.v.x = Math.sin(ks.th)*ks.sp; p.v.z = Math.cos(ks.th)*ks.sp;
     p.lap = ks.lap; p.checkpoint = ks.cp; p.progressS = ks.ps; p.spinT = ks.spin; p.airborne = ks.air;
-    p.itemHeld = ks.it; p.itemRollT = ks.roll || 0; p.finished = ks.fin; p.finishTime = ks.ft;
+    p.itemHeld = ks.it; p.itemCount = ks.ic || (ks.it ? itemShotCount(ks.it) : 0);
+    p.itemTrail = !!ks.tr; p.itemRollT = ks.roll || 0; p.finished = ks.fin; p.finishTime = ks.ft;
     // glow reconstruction for the render layer (drift tier / boosting)
     p.drift.active = ks.dact;
     p.drift.charge = ks.dtier>=2 ? 2*TUNE.mtTier1 : (ks.dtier>=1 ? TUNE.mtTier1 : 0);
@@ -2987,7 +3885,7 @@
     for (const id in G.players){
       const p = G.players[id];
       r.push({ key:id, pid:p._remotePid || (id==='local'?net.myId:null), slot:p.gridSlot,
-               col:p._slotCol!=null?p._slotCol:(p.isBot?p.botColor:0xd6352b),
+               col:p._slotCol!=null?p._slotCol:(p.isBot?p.botColor:0x3d8b3d),
                nm:p._dispName || (p.isBot?p.botName:(net.myName||'You')), bot:!!p.isBot });
     }
     return r;
@@ -3008,7 +3906,7 @@
       roster:buildRoster(),
       karts,
       boxes:G.itemBoxes.map(b=>b.active?1:0),
-      proj:G.projectiles.map(pr=>({x:pr.x,y:pr.y,z:pr.z})),
+      proj:G.projectiles.map(pr=>({x:pr.x,y:pr.y,z:pr.z,k:pr.kind||'tomato',vx:pr.vx,vz:pr.vz})),
       haz:G.hazards.map(hz=>({x:hz.x,y:hz.y,z:hz.z})),
       grants:net.grants || {},
       spins:net.spins,
@@ -3080,22 +3978,36 @@
       // item-use events (exactly-once)
       let useSeq = 0; try{ useSeq = pl.getState('useSeq') || 0; }catch(e){}
       const st = net.remote[pl.id] || (net.remote[pl.id] = { lastUseSeq:0 });
-      if (useSeq !== st.lastUseSeq){ st.lastUseSeq = useSeq; hostConsumeGuestUse(pl.id); }
+      if (useSeq !== st.lastUseSeq){
+        st.lastUseSeq = useSeq;
+        let act = 'fire'; try{ act = pl.getState('useAct') || 'fire'; }catch(e){}
+        hostConsumeGuestUse(pl.id, act);
+      }
     }
   }
   // host executes a guest's item use against the host-authored grant
-  function hostConsumeGuestUse(pid){
+  function hostConsumeGuestUse(pid, act){
     net.grants = net.grants || {};
     const g = net.grants[pid];
     if (!g || !g.held) return;
-    const kind = g.held; net.grants[pid] = { held:null, roll:0 };
     const p = G.players['r_'+pid];
     if (!p) return;
-    p.itemHeld = kind;                 // momentary so fireTomato/dropHay read the right owner/pose
-    if (kind === 'boost'){ /* the guest applies its own boost locally (feel) */ }
-    else if (kind === 'tomato'){ fireTomato(p); }
-    else if (kind === 'hay'){ dropHay(p); }
-    p.itemHeld = null;
+    act = act || 'fire';
+    // trail toggle (guest held the button) — no consume
+    if (act === 'trail'){
+      p.itemHeld = g.held; p.itemCount = g.ic || itemShotCount(g.held);
+      setItemTrail(p, !p.itemTrail);
+      net.grants[pid] = { held:g.held, ic:p.itemCount, roll:0, tr:p.itemTrail?1:0 };
+      publishNetSnapshotNow();
+      return;
+    }
+    // fire / drop
+    const kind = g.held;
+    p.itemHeld = kind; p.itemCount = g.ic || itemShotCount(kind); p.itemTrail = !!g.tr;
+    if (kind === 'boost'){ clearItem(p); }
+    else useItem(p);
+    if (p.itemHeld) net.grants[pid] = { held:p.itemHeld, ic:p.itemCount, roll:0, tr:0 };
+    else net.grants[pid] = { held:null, ic:0, roll:0, tr:0 };
     publishNetSnapshotNow();
   }
   // host: item-box pickups also feed the per-guest GRANT map (guests can't roll their own)
@@ -3111,7 +4023,7 @@
         if (g && (g.held || g.roll>0)) continue;    // already holds/rolling
         if (Math.hypot(p.pos.x-box.x, p.pos.z-box.z) < TUNE.itemBoxRadius){
           box.active = false; box.respawnT = TUNE.itemBoxRespawn;
-          net.grants[pid] = { held:null, roll:TUNE.itemRollT };
+          net.grants[pid] = { held:null, ic:0, roll:TUNE.itemRollT, tr:0 };
           break;
         }
       }
@@ -3119,7 +4031,13 @@
     // advance grant rolls -> settle into a held item (host owns the roll)
     for (const pid in net.grants){
       const g = net.grants[pid];
-      if (g.roll > 0){ g.roll = Math.max(0, g.roll - (net._grantDt||0)); if (g.roll===0) g.held = rollItem(); }
+      if (g.roll > 0){
+        g.roll = Math.max(0, g.roll - (net._grantDt||0));
+        if (g.roll===0){
+          const kind = rollItem();
+          g.held = kind; g.ic = itemShotCount(kind); g.tr = 0;
+        }
+      }
     }
   }
 
@@ -3163,13 +4081,21 @@
     }
     // WORLD (host-authoritative) — item boxes, projectiles, hazards, remote karts
     if (snap.boxes) for (let i=0;i<G.itemBoxes.length;i++){ if (G.itemBoxes[i]) G.itemBoxes[i].active = !!snap.boxes[i]; }
-    G.projectiles = (snap.proj||[]).map(pr=>({x:pr.x,y:pr.y,z:pr.z,life:1,owner:''}));
+    G.projectiles = (snap.proj||[]).map(pr=>({
+      kind:pr.k||'tomato', x:pr.x, y:pr.y, z:pr.z,
+      vx:pr.vx||0, vz:pr.vz||0, life:1, owner:'', bounced:false, target:null
+    }));
     G.hazards = (snap.haz||[]).map(hz=>({x:hz.x,y:hz.y,z:hz.z,owner:''}));
     // OUR grant (host rolled it) -> local held item for HUD + use logic
     const g = snap.grants && snap.grants[net.myId];
     if (g){
-      if (net.pendingUse){ if (!g.held) net.pendingUse = false; }
-      else { G.players.local.itemHeld = g.held || null; G.players.local.itemRollT = g.roll || 0; }
+      if (net.pendingUse){ if (!g.held || (g.ic||0) < (net.pendingIc||0)) net.pendingUse = false; }
+      if (!net.pendingUse){
+        G.players.local.itemHeld = g.held || null;
+        G.players.local.itemCount = g.ic || (g.held ? itemShotCount(g.held) : 0);
+        G.players.local.itemTrail = !!g.tr;
+        G.players.local.itemRollT = g.roll || 0;
+      }
     }
     // SPIN event from the host (we own applying it to our own kart)
     const sp = snap.spins && snap.spins[net.myId];
@@ -3193,14 +4119,49 @@
   }
 
   // ---- guest item use: bump the seq (host spawns entities); boost applied locally for feel ----
-  function netLocalUseItem(){
+  function netLocalUseItem(act){
     const p = G.players.local;
-    if (net.isHost){ useItem(p); return; }
+    if (net.isHost){
+      if (act === 'trail'){ setItemTrail(p, !p.itemTrail); return; }
+      useItem(p); return;
+    }
     if (!p.itemHeld || p.itemRollT>0 || p.spinT>0) return;
+    if (act === 'trail'){
+      if (!isTrailable(p.itemHeld) || isTriple(p.itemHeld)) return;
+      // optimistic local trail flip; host confirms via grant.tr (no pendingUse — still holding)
+      setItemTrail(p, !p.itemTrail);
+      net.useSeq++;
+      try{ net.localPlayer && net.localPlayer.setState('useAct', 'trail', true); }catch(e){}
+      return;
+    }
     const kind = p.itemHeld;
-    p.itemHeld = null; net.pendingUse = true; net.useSeq++;
-    if (kind === 'boost'){ p.boostT = TUNE.boostT1*3; p.boostTier = 2; boostWhoosh(); }
-    else itemFireSound();
+    // optimistic: fire one locally for HUD feel on triples; host is authoritative for world
+    if (kind === 'boost'){
+      clearItem(p); p.boostT = TUNE.boostT1*3; p.boostTier = 2; boostWhoosh();
+    } else {
+      // leave itemHeld until host grant updates (pendingUse suppresses overwrite until ic drops)
+      net.pendingIc = p.itemCount;
+      if (isTriple(kind) || kind === 'tomato' || kind === 'chicken'){
+        // optimistic count tick for HUD
+        p.itemCount = Math.max(0, (p.itemCount||1) - 1);
+        p.itemTrail = false;
+        if (p.itemCount <= 0) clearItem(p);
+        else if (kind === 'tomato3' && p.itemCount === 1) p.itemHeld = 'tomato';
+        else if (kind === 'chicken3' && p.itemCount === 1) p.itemHeld = 'chicken';
+      } else {
+        clearItem(p);
+      }
+      itemFireSound();
+    }
+    net.pendingUse = true; net.useSeq++;
+    try{ net.localPlayer && net.localPlayer.setState('useAct', 'fire', true); }catch(e){}
+  }
+  function applyLocalItemInputNet(p, inp){
+    if (!p || p.spinT > 0 || p.itemRollT > 0) return;
+    if (inp.itemTrailToggle && isTrailable(p.itemHeld) && !isTriple(p.itemHeld)){
+      netLocalUseItem('trail'); return;
+    }
+    if (inp.item) netLocalUseItem('fire');
   }
 
   // ---- FAMILY RACE menu wiring ----
@@ -3218,7 +4179,7 @@
     if (net.mp){
       familyRaceBtn.style.display = 'none';
       mpBox.style.display = 'block';
-      const url = location.origin + location.pathname + (ACTIVE_TRACK_ID?('?track='+encodeURIComponent(ACTIVE_TRACK_ID)):'') + '#r=' + net.roomCode;
+      const url = location.origin + location.pathname + '?track=' + encodeURIComponent(ACTIVE_TRACK_ID || BOOT_TRACK_ID) + '#r=' + net.roomCode;
       mpLinkInput.value = url;
     } else {
       familyRaceBtn.disabled = false; familyRaceBtn.textContent = '🌐 FAMILY RACE';
@@ -3333,7 +4294,7 @@
         updateRaceProgress(p, dt);
         if (p.isBot) botUseItems(p, dt);
       }
-      if (inp.item) useItem(G.players.local);
+      if (inp.item || inp.itemTrailToggle) applyLocalItemInput(G.players.local, inp);
       updateItemBoxes(dt);
       updateItemRolls(dt);
       hostGrantItems();
@@ -3371,8 +4332,8 @@
           if (p.isBot) botUseItems(p, dt);
           if (G.phase !== 'racing') break;   // local finished mid-frame -> stop
         }
-        // local item use (edge-triggered in gatherInput)
-        if (inp.item) useItem(G.players.local);
+        // local item use (tap fire / hold trail)
+        if (inp.item || inp.itemTrailToggle) applyLocalItemInput(G.players.local, inp);
         // K4 world updates: pickups, rolls, projectiles, hazards
         updateItemBoxes(dt);
         updateItemRolls(dt);
@@ -3393,7 +4354,7 @@
         const p = G.players.local;
         stepKart(p, inp, dt);
         updateRaceProgress(p, dt);
-        if (inp.item) netLocalUseItem();
+        if (inp.item || inp.itemTrailToggle) applyLocalItemInputNet(G.players.local, inp);
         updateBoostPads(dt);          // K7: guest fires its own pad boost locally (feel)
         resolveKartCollisions();      // K7: separate only OUR kart from interpolated remotes
         if (G.goFlashT > 0){ G.goFlashT = Math.max(0, G.goFlashT - dt); if (G.goFlashT===0){ countdownEl.style.display='none'; cdNum.classList.remove('go'); } }
@@ -3403,7 +4364,7 @@
       net.inputCd -= dt;
       if (net.inputCd <= 0 && net.localPlayer){
         try{
-          net.localPlayer.setState('k', serializeKart(G.players.local, net.myName || 'Racer', G.players.local._slotCol!=null?G.players.local._slotCol:0xd6352b), false);
+          net.localPlayer.setState('k', serializeKart(G.players.local, net.myName || 'Racer', G.players.local._slotCol!=null?G.players.local._slotCol:0x3d8b3d), false);
           net.localPlayer.setState('useSeq', net.useSeq, true);
         }catch(e){}
         net.inputCd = 1/18;
@@ -3461,13 +4422,22 @@
     get boostPads(){ return G.boostPads; },
     startCountdown, toMenu,
     ACTIVE_TRACK, ACTIVE_TRACK_ID,   // K3: which track data is live
+    IS_MOBILE, MOBILE_CAM, camDistEff, camHeightEff, camLagEff, fovEff,
     // K3.5 / K4 API (bots + power-ups; also exposed for the headless harness)
     setupRoster, placeAllAtGrid, botInput, botTargetSpeed, botUseItems, addTestKart, buildItemBoxes,
-    applySpinOut, useItem, fireTomato, dropHay, totalProgress,
+    applySpinOut, useItem, fireTomato, fireChicken, dropHay, findKartAhead, totalProgress,
+    setItemTrail, tryAbsorbWithTrail, grantHeldItem, clearItem, isTriple, isTrailable, rollItem,
     // K5 multiplayer (also exposed for the headless harness / unit-style codepath tests)
     net, serializeKart, adoptKart, buildNetSnapshot, publishNetSnapshotNow, guestApply,
     guestSyncRemotes, mpAssignSeats, hostGrantItems, hostConsumeGuestUse, netLocalUseItem,
+    applyLocalItemInput, applyLocalItemInputNet,
     readAndClearRoomCodeFromHash, removeKartView, buildKartView, makePlayer, kartViews,
+    // Custom Bucky Kart + procedural goat driver
+    fillKartModel, fillKartDriver, syncKartDriver, syncKartView, buildCustomKart, buildGoatDriver,
+    sampleHeight, groundSampleHeight, maxHeightUnderKart, sampleKartPlane, rideHeight,
+    driftTier, particles,
+    // Minimap (top-right race HUD)
+    updateMinimap, minimapEl, _mm,
     // K6 polish (audio + particles + best-lap key; exposed for the headless harness)
     BEST_LAP_KEY, setMuted, toggleMute, particleActiveCount,
     audioState:()=>({ muted:audioMuted, masterGain: masterGain ? masterGain.gain.value : null,

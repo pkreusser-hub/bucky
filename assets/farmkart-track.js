@@ -547,7 +547,7 @@
     return h;
   }
   // sampleHeight: flat across the road width, smoothstep-blended out to the ground hills. This is
-  // what the kart / camera / entities read (nearest-branch on-track height).
+  // the SINGLE height authority for the kart, entities, and (on non-bridge spans) the grass mesh.
   function sampleHeight(sampled, x, z, width, opts){
     const half = width/2;
     const margin = Math.max(0.5, opts.margin);
@@ -560,9 +560,12 @@
     const s = t*t*(3 - 2*t);
     return trackY*(1 - s) + gy*s;
   }
-  // groundSampleHeight: the DISPLACED-GROUND-MESH height. Under a road it follows the LOWEST branch
-  // (a higher bridge floats above it = open air); elsewhere it blends to the ground hills.
-  function groundSampleHeight(sampled, x, z, width, opts){
+  // Bridge gap (m): if two road branches under the same XZ differ by more than this, treat as a
+  // real over/under and keep open air under the high span. Below this = sampling noise / same level.
+  const BRIDGE_Y_GAP = 1.5;
+  // Lowest-branch height (legacy groundSampleHeight). Only used under true multi-level overlaps so
+  // a bridge ribbon can float above the grass instead of dragging a steep skirt up to the deck.
+  function _lowestBranchHeight(sampled, x, z, width, opts){
     const half = width/2;
     const margin = Math.max(0.5, opts.margin);
     const C = sampled.centerPts, N = sampled.samples;
@@ -587,6 +590,32 @@
       return bandY*(1 - s) + gy*s;
     }
     return gy;
+  }
+  // True multi-level road under (x,z)? Two centerline projections within the road half-width whose
+  // elevations differ by > BRIDGE_Y_GAP (figure-8 / bridge). Same-level loops don't count.
+  function _isMultiLevelRoad(sampled, x, z, width){
+    const half = width/2, half2 = half*half;
+    const C = sampled.centerPts, N = sampled.samples;
+    let yMin = Infinity, yMax = -Infinity, hits = 0;
+    for (let i=0;i<N;i++){
+      const a=C[i], bpt=C[(i+1)%N];
+      const abx=bpt.x-a.x, abz=bpt.z-a.z, L2=abx*abx+abz*abz || 1;
+      let t=((x-a.x)*abx+(z-a.z)*abz)/L2; if (t<0) t=0; else if (t>1) t=1;
+      const px=a.x+abx*t, pz=a.z+abz*t, d2=(x-px)*(x-px)+(z-pz)*(z-pz);
+      if (d2 > half2) continue;
+      const y=a.y+(bpt.y-a.y)*t;
+      if (y < yMin) yMin = y; if (y > yMax) yMax = y; hits++;
+    }
+    return hits >= 2 && (yMax - yMin) > BRIDGE_Y_GAP;
+  }
+  // groundSampleHeight: what the DISPLACED GRASS MESH uses.
+  // Stage A (2026-07-09): match sampleHeight everywhere EXCEPT true bridge overlaps, where the
+  // mesh stays on the LOWEST branch so the high ribbon floats in open air. Previously this always
+  // used a different nearest/lowest walk than sampleHeight, so road-edge skirts disagreed with the
+  // kart and buried/floated the body even on single-level tracks.
+  function groundSampleHeight(sampled, x, z, width, opts){
+    if (_isMultiLevelRoad(sampled, x, z, width)) return _lowestBranchHeight(sampled, x, z, width, opts);
+    return sampleHeight(sampled, x, z, width, opts);
   }
   // FLUFFY GRASS: a cached GRAYSCALE blade-noise texture that MODULATES the ground vertex colour, so
   // grass reads as soft mown turf (and painted dirt/sand keep their hue but gain the same fluff). No
@@ -618,7 +647,9 @@
     let minX=1e9,maxX=-1e9,minZ=1e9,maxZ=-1e9;
     for (const c of centerPts){ if(c.x<minX)minX=c.x; if(c.x>maxX)maxX=c.x; if(c.z<minZ)minZ=c.z; if(c.z>maxZ)maxZ=c.z; }
     const M = (opts.groundMargin!=null)?opts.groundMargin:55; minX-=M; maxX+=M; minZ-=M; maxZ+=M;
-    const seg = opts.seg || 4;
+    // Denser grid (was 4) so rolling hills don't bulge above sampleHeight between verts
+    // and bury the kart. Slightly heavier mesh; still fine on phones.
+    const seg = opts.seg || 2.5;
     const nx = Math.ceil((maxX-minX)/seg), nz = Math.ceil((maxZ-minZ)/seg);
     const pos = [], idx = [], colors = [], uvs = [];
     // softer, muted grass green (the old flat 0x6fae54 read too sharp). Gentle low-freq brightness

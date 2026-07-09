@@ -1529,3 +1529,25 @@ Top-right `#minimap` canvas (north-up): corridor outline from `centerPts`/`TRACK
 live dots for every `G.players` entry (local = white-ringed facing wedge; others use
 `_slotCol` / `botColor`). Shown in countdown/racing/finished; hidden on menu. Safe-area
 aware; mobile ♻ reset shifted below it. Verify: `node tools/_verify-minimap.cjs`.
+
+# 🏁 Farm Kart — defaults + race HUD (2026-07-09)
+
+Boot default course = **Wario Stadium** (`?track=wario-stadium` / bare URL); Amen Farms
+via `?track=amen-farms`. Default bots = **3** (`fk_bots` unset → 3). Race HUD: large
+top-left `#placeHud` stack (place + lap time / lap / race); bottom-left `#hud` hidden.
+Mobile camera = fixed Eff defaults (camDist 6.5 / camHeight 3.2 / camLag 14 / fov 74) —
+never written into `fk_tune_v2` (desktop tune stays the persisted source). Verify:
+`node tools/_verify-hud-defaults.cjs`.
+
+# 🏁 Farm Kart — new items (2026-07-09)
+
+Extended K4 item pool (weighted roll — triples rarer):
+- **🐔 Homing chicken** — seeks the racer ahead by `totalProgress` (race position), gentle
+  `chickenTurn` so it can be dodged; same spin-out on hit as tomato.
+- **🍅×3 / 🐔×3** — three orbit the kart; each tap fires one (straight tomato / homing chicken).
+- **Hold-behind trail** — hold item button ≥`itemTrailHoldMs` (~250ms) on a **single**
+  tomato/chicken/hay to trail it behind as a rear shield (absorbs one rear-hemisphere hit
+  from projectiles/hay). Triples never trail (orbit is the hold). Tap = fire; hold = trail;
+  tap again while trailing = fire. Mobile: same hold on the 🎁 button.
+HUD shows ×N for triples and 🛡 when trailing. Bots fire chickens/tomatoes at rivals ahead
+and trail when threatened from behind. Verify: `node tools/_verify-items.cjs`.
