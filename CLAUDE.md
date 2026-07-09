@@ -84,6 +84,19 @@ tokens (no framework); regroup the 9 sections into ~5 areas.
   exists (only work orders have `value`). Verified headless (Firebase blocked): 20/20 across two
   suites, card nav routes correct, interactive toggle 0/6→1/6, 0 JS errors, mobile + desktop.
   Tests: p6_home / p6_nav .mjs.
+- **HOME + NAV FIX BATCH** (2026-07-09, user playtest): (1) BACK BUTTON — in-app tab
+  changes now `history.pushState({buckyTab})` (goTo is the single navigator; navGroup/
+  sub-nav/homeBtn/legacy-tabs all route through it, push=false when restoring); the
+  existing WO-sheet popstate guard kept as branch (1), new branch (2) restores the tab
+  from history.state.buckyTab so phone Back walks Home←Tasks←Bank instead of jumping out
+  to the last external page (FarmGPT/Games); baseline `history.replaceState` seeded at
+  boot. (2) Today's chores render ALL chores but the `.rows` list is capped to ~4 rows
+  (max-height 216px, overflow-y auto). (3) Jobs stat = the LOGGED-IN user's OPEN work
+  orders only (`!done && assignee===myName()`; all-open if no name). (4) 3D Prints moved
+  from the Farm area to Tasks (NAV_GROUPS: tasks=[chores,workorders,shopping,print3d],
+  farm=[goathooves,goatcare]); segmented sub-nav tightened (font 13px, padding 9px 3px)
+  so 4 Tasks chips fit at 390px with 0 clipped. Verified headless 14/14, 0 pageerrors.
+  Test: p7_fixes.mjs (injects buckyData1 to control chores/jobs/goats).
 
 ---
 
@@ -1412,12 +1425,12 @@ layout sync.
       road + seated on grass, editor 3200 instances + toggle clears them, heights byte-identical, 0
       pageerrors. Tunables: buildGrassTufts opts.count/band/size. Still LOCAL.
 
-# 🏁 Farm Kart — custom Bucky Kart + Chef Bucky driver (2026-07-09)
+# 🏁 Farm Kart — custom Bucky Kart + procedural goat driver (2026-07-09)
 
-Replaced the fused Meshy Gator GLB with a **procedural three.js Bucky Kart**
-(`buildCustomKart`) built in game-forward space (+Z front): chunky accent body, cream cargo
-bed + hay, roll hoop, grill/lights, 4 knobby tires, separate seat + steering wheel. No GLB
-needed for the vehicle (works even on file:// for the body; Bucky still needs chef-bucky.glb
-over http). Chef Bucky sits in the left seat: hips-anchored seated pose, arms follow the
-wheel rim, Chest leans into steer/drift. `kartBuild:2` migrates old Gator-space driver TUNE
-keys once. Verify: `node tools/_verify-driver.cjs` → `shots/fk-driver-*.png`.
+Replaced the fused Meshy Gator + Chef Bucky GLB with all-procedural three.js:
+- **Kart** (`buildCustomKart`): game-forward (+Z), chunky accent body, cream bed + hay, roll
+  hoop, grill/lights, 4 knobby tires, separate seat + steering wheel + pedals.
+- **Driver** (`buildGoatDriver`): humanoid goat (fur, snout, droopy ears, horn nubs, chef
+  toque). Hands parented to wheel grip anchors (turn with the rim); feet parented to pedals;
+  upper/lower arm & leg segments stretch shoulder↔hand / hip↔foot each frame; torso leans
+  into steer/drift. `kartBuild:3` migrates fit TUNE keys. Verify: `node tools/_verify-driver.cjs`.

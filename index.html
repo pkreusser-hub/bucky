@@ -179,17 +179,17 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   #subnav { display: none; margin: 2px 2px 14px; }
   #subnav.on { display: flex; }
   .subseg {
-    display: flex; gap: 4px; width: 100%; background: var(--done);
-    border: 1px solid var(--line); border-radius: 13px; padding: 4px;
+    display: flex; gap: 3px; width: 100%; background: var(--done);
+    border: 1px solid var(--line); border-radius: 13px; padding: 3px;
   }
   .subseg button {
     flex: 1 1 0; min-width: 0; border: 0; background: transparent; cursor: pointer;
-    color: var(--muted); font-size: 13.5px; font-weight: 700; padding: 9px 6px;
+    color: var(--muted); font-size: 13px; font-weight: 700; padding: 9px 3px;
     border-radius: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     transition: background .15s ease, color .15s ease;
   }
   .subseg button.sel { background: var(--card); color: var(--ink); box-shadow: var(--shadow); }
-  .subseg button .semoji { margin-right: 5px; }
+  .subseg button .semoji { margin-right: 4px; font-size: .95em; }
 
   /* Play area — in-app menu of the two external hubs (Games + FarmGPT). */
   .playmenu { display: grid; gap: 14px; margin-top: 4px; }
@@ -481,7 +481,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .home2 .chd { display: flex; align-items: center; gap: 8px; padding: 13px 14px 4px; }
   .home2 .chd h2 { margin: 0; font-size: 15px; font-weight: 800; letter-spacing: -.1px; color: var(--ink); }
   .home2 .chd .more { margin-left: auto; font-size: 12.5px; font-weight: 800; color: var(--green-d); text-decoration: none; cursor: pointer; background: none; border: 0; }
-  .home2 .rows { display: flex; flex-direction: column; }
+  .home2 .rows { display: flex; flex-direction: column; max-height: 216px; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
   .home2 .crow { display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-top: 1px solid var(--line-2); cursor: pointer; text-align: left; background: none; width: 100%; color: inherit; }
   .home2 .crow:first-child { border-top: 0; }
   .home2 .crow .cbody { flex: 1; min-width: 0; }
@@ -1031,9 +1031,9 @@ let currentTab = initialHashTab;
 // live under Play so they highlight the right bottom tab.
 const NAV_GROUPS = [
   { id:"home",  ico:"🏠", name:"Home",  def:"dashboard", members:["dashboard"] },
-  { id:"tasks", ico:"✅", name:"Tasks", def:"chores",    members:["chores","workorders","shopping"] },
+  { id:"tasks", ico:"✅", name:"Tasks", def:"chores",    members:["chores","workorders","shopping","print3d"] },
   { id:"bank",  ico:"💰", name:"Bank",  def:"farmbank",  members:["farmbank"] },
-  { id:"farm",  ico:"🐐", name:"Farm",  def:"goathooves",members:["goathooves","goatcare","print3d"] },
+  { id:"farm",  ico:"🐐", name:"Farm",  def:"goathooves",members:["goathooves","goatcare"] },
   { id:"play",  ico:"🎮", name:"Play",  def:"play",      members:["play","game","catgame"] },
 ];
 const SECTION_BY_KEY = Object.fromEntries(SECTIONS.map(s => [s.key, s]));
@@ -1555,13 +1555,18 @@ function jokeOfDay(){
   // clicks) jump around the database instead of walking it in fetch order.
   return DAD_JOKES[((day + jokeExtra) * 397) % DAD_JOKES.length];
 }
-// Navigate to a section from anywhere (dashboard cards, etc.): switches the tab,
-// remembers it within its bottom-bar area so the sub-nav lands right, and re-renders.
-function goTo(tab){
+// Navigate to a section from anywhere (dashboard cards, bottom nav, sub-nav): switches the
+// tab, remembers it within its bottom-bar area so the sub-nav lands right, re-renders, and
+// (unless we're restoring from a Back press) pushes a history entry so the phone's Back
+// button walks back through the in-app screens instead of jumping straight out to the last
+// external page (FarmGPT/Games). push=false is used by the popstate handler.
+function goTo(tab, push = true){
+  const changed = tab !== currentTab;
   currentTab = tab;
   const g = groupForTab(tab);
   if (SECTION_BY_KEY[tab]) groupLast[g.id] = tab;
   syncTabsUI(); renderSubnav(); render();
+  if (push && changed){ try { history.pushState({ buckyTab: tab }, ""); } catch {} }
 }
 
 // ---- Home helpers ----
@@ -1620,7 +1625,8 @@ function renderDashboard(){
   const total = dayChores.length;
   const done  = dayChores.filter(isDone).length;
   const left  = total - done;
-  const openWos = chores.filter(c => c.frequency === "workorder" && !c.done).length;
+  // Jobs stat = MY open work orders only (assigned to the logged-in person). No name set → all open.
+  const openWos = chores.filter(c => c.frequency === "workorder" && !c.done && (!who || (c.assignee || "") === who)).length;
   const goats   = chores.filter(c => c.frequency === "goathooves");
   const bankVal = isBankKid ? kidBalance(who) : BANK_KIDS.reduce((s,k)=> s + kidBalance(k), 0);
   const weekDelta = weeklyBankDelta(isBankKid ? [who] : BANK_KIDS);
@@ -1684,7 +1690,7 @@ function renderDashboard(){
     e.textContent = "No chores yet — tap + on Tasks to add one.";
     rows.appendChild(e);
   } else {
-    for (const c of dayChores.slice(0, 6)){
+    for (const c of dayChores){   // all of them; the list scrolls (capped to ~4 rows tall in CSS)
       const isD = isDone(c);
       const r = document.createElement("button"); r.className = "crow" + (isD ? " checked" : "");
       r.innerHTML =
@@ -2831,19 +2837,28 @@ document.getElementById("woOverlay").onclick = (e)=>{ if(e.target.id==="woOverla
 // so this never interferes with #game/#catgame hash deep-link routing (which only reads
 // location.hash once at load time and doesn't use pushState/popstate).
 window.addEventListener("popstate", (e)=>{
-  if (!document.getElementById("woOverlay").classList.contains("open")) return;
-  if (!woHistoryPushed) return;   // sheet open but no sentinel (shouldn't happen) — nothing to guard
-  if (woIsDirty()){
-    // Undo the back navigation by re-pushing the sentinel, then ask.
-    history.pushState({ woSheet: true }, "");
-    confirmDialog("Discard this work order?", "Discard").then(ok => {
-      if (ok) closeWorkOrderSheet();   // consumes the re-pushed sentinel via its normal history.back()
-    });
-  } else {
-    woHistoryPushed = false;
-    document.getElementById("woOverlay").classList.remove("open");
-    woInitialSnapshot = null;
+  // (1) Work-order sheet open → keep the existing unsaved-edits guard.
+  if (document.getElementById("woOverlay").classList.contains("open") && woHistoryPushed){
+    if (woIsDirty()){
+      // Undo the back navigation by re-pushing the sentinel, then ask.
+      history.pushState({ woSheet: true }, "");
+      confirmDialog("Discard this work order?", "Discard").then(ok => {
+        if (ok) closeWorkOrderSheet();   // consumes the re-pushed sentinel via its normal history.back()
+      });
+    } else {
+      woHistoryPushed = false;
+      document.getElementById("woOverlay").classList.remove("open");
+      woInitialSnapshot = null;
+    }
+    return;
   }
+  // (2) Otherwise restore the in-app tab from the history entry we pushed — this is what
+  // makes the phone Back button walk back through screens (Home ← Tasks ← Bank …) instead
+  // of leaving straight to the last external page. Falls back to the hash deep-link / Home.
+  const st = e.state;
+  const tab = (st && st.buckyTab) ? st.buckyTab
+            : (DEEP_LINK_TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "dashboard");
+  goTo(tab, false);
 });
 document.getElementById("woPhotoInput").addEventListener("change", e=>{
   const f = e.target.files && e.target.files[0];
@@ -4174,8 +4189,7 @@ function buildBottomNav(){
 // Switch to a bottom area: land on the remembered member (Tasks/Farm) or the area default.
 function navGroup(gid){
   const g = NAV_GROUPS.find(x => x.id === gid); if (!g) return;
-  currentTab = groupLast[gid] || g.def || g.members[0];
-  syncTabsUI(); renderSubnav(); render();
+  goTo(groupLast[gid] || g.def || g.members[0]);
 }
 
 // Segmented sub-nav for the multi-section areas (Tasks, Farm). Hidden otherwise.
@@ -4195,11 +4209,7 @@ function renderSubnav(){
     btn.dataset.key = key;
     btn.innerHTML = `<span class="semoji">${s.ico}</span>`;
     btn.appendChild(document.createTextNode(SUBNAV_LABEL[key] || s.name));
-    btn.onclick = () => {
-      currentTab = key;
-      groupLast[g.id] = key;   // remember within-area position
-      syncTabsUI(); renderSubnav(); render();
-    };
+    btn.onclick = () => goTo(key);   // goTo remembers within-area position + pushes history
     seg.appendChild(btn);
   }
   el.appendChild(seg);
@@ -4223,7 +4233,7 @@ function buildTabs(){
     b.append(ico, tl);
     b.onclick = () => {
       if (t.url){ location.href = t.url; return; }   // external game — navigate away
-      currentTab = t.key; syncTabsUI(); render();
+      goTo(t.key);
     };
     tabsEl.appendChild(b);
   }
@@ -4233,7 +4243,9 @@ function buildTabs(){
 buildTabs();
 buildBottomNav();
 syncTabsUI();
-document.getElementById("homeBtn").onclick = () => { currentTab = "dashboard"; syncTabsUI(); renderSubnav(); render(); };
+document.getElementById("homeBtn").onclick = () => goTo("dashboard");
+// Seed the history baseline so the first Back press returns to the initial tab (not straight out).
+try { history.replaceState({ buckyTab: currentTab }, ""); } catch {}
 document.querySelectorAll("#freqSeg button").forEach(b=>{
   b.onclick = () => { sheetFreq = b.dataset.freq;
     document.querySelectorAll("#freqSeg button").forEach(x=>x.classList.toggle("sel", x===b));
