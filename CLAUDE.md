@@ -122,6 +122,19 @@ tokens (no framework); regroup the 9 sections into ~5 areas.
   `.rows.short`; dead bento CSS removed; empty2 selector fixed (`.home2 .empty2`). Verified
   headless 15/15 (layout + handoff + farmgpt opens Research) + p7 14/14 + p8 19/19, 0 real
   pageerrors. Test: p9_home2.mjs (routes farmgpt.html to capture the ?ask handoff).
+- **7-TAB BOTTOM NAV + WEATHER WIDGET** (2026-07-09, user): bottom bar now has 7 areas —
+  Home · Tasks · **Jobs (🛠 workorders)** · **Shop (🛒 shopping)** · Bank · Farm · Play.
+  Shopping + Work Orders are their OWN areas now (pulled OUT of Tasks; Tasks = [chores,
+  print3d]). `groupForTab` resolves workorders→wo / shopping→shop (each in exactly one
+  group). Non-allowed users (Mom) still drop Bank → 6 tabs. 7 short labels fit 390px with 0
+  clipped. WEATHER: a 3-day forecast card for the farm (Woodville, AL 34.6865,-86.2104) via
+  **Open-Meteo** (free, no key, CORS ok — no CSP on the site so the client fetch works):
+  `wxFetch()` caches to localStorage `bucky_wx` (refetch if >3h), paints a 3-col strip
+  (Today/Wkday, WMO-code→emoji via `wxIcon`, hi°/lo° °F, America/Chicago), background-refresh
+  only repaints while still on dashboard. Card sits between the stat row and the ask bar,
+  shown for everyone. Verified: real API returns Woodville data; headless 17/17 (7 tabs, no
+  clip, Tasks sub=chores/print3d, wo/shop tabs, weather 3 days + temps, Mom 6 tabs) + p7/p8/
+  p9 regressions updated & green. Test: p10_navwx.mjs (mocks open-meteo).
 
 ---
 

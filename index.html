@@ -501,6 +501,18 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .home2 .pill.reward { background: var(--good-soft); color: var(--good-d); }
   .home2 .pill.due { background: var(--red-soft); color: var(--red); }
 
+  /* 3-day weather */
+  .home2 .wxcard { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 12px 14px; }
+  .home2 .wxhead { font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px; }
+  .home2 .wxdays { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .home2 .wxday { display: flex; flex-direction: column; align-items: center; gap: 3px; background: var(--surface-2); border-radius: 12px; padding: 9px 4px; }
+  .home2 .wxd { font-size: 12px; font-weight: 700; color: var(--ink); }
+  .home2 .wxi { font-size: 25px; line-height: 1; }
+  .home2 .wxt { font-size: 13px; font-variant-numeric: tabular-nums; }
+  .home2 .wxt b { color: var(--ink); font-weight: 800; }
+  .home2 .wxt span { color: var(--muted); margin-left: 5px; }
+  .home2 .wxload { font-size: 13px; color: var(--muted); padding: 6px 0; }
+
   /* FarmGPT research ask bar */
   .home2 .askbar { display: flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 6px 6px 6px 12px; }
   .home2 .askbar .askico { font-size: 17px; flex: 0 0 auto; }
@@ -1040,11 +1052,13 @@ let currentTab = initialHashTab;
 // out to the Games + FarmGPT hubs; the in-app deep-link games (game/catgame) also
 // live under Play so they highlight the right bottom tab.
 const NAV_GROUPS = [
-  { id:"home",  ico:"🏠", name:"Home",  def:"dashboard", members:["dashboard"] },
-  { id:"tasks", ico:"✅", name:"Tasks", def:"chores",    members:["chores","workorders","shopping","print3d"] },
-  { id:"bank",  ico:"💰", name:"Bank",  def:"farmbank",  members:["farmbank"] },
-  { id:"farm",  ico:"🐐", name:"Farm",  def:"goathooves",members:["goathooves","goatcare"] },
-  { id:"play",  ico:"🎮", name:"Play",  def:"play",      members:["play","game","catgame"] },
+  { id:"home",  ico:"🏠",  name:"Home",  def:"dashboard",  members:["dashboard"] },
+  { id:"tasks", ico:"✅",  name:"Tasks", def:"chores",     members:["chores","print3d"] },
+  { id:"wo",    ico:"🛠️",  name:"Jobs",  def:"workorders", members:["workorders"] },
+  { id:"shop",  ico:"🛒",  name:"Shop",  def:"shopping",   members:["shopping"] },
+  { id:"bank",  ico:"💰",  name:"Bank",  def:"farmbank",   members:["farmbank"] },
+  { id:"farm",  ico:"🐐",  name:"Farm",  def:"goathooves", members:["goathooves","goatcare"] },
+  { id:"play",  ico:"🎮",  name:"Play",  def:"play",       members:["play","game","catgame"] },
 ];
 const SECTION_BY_KEY = Object.fromEntries(SECTIONS.map(s => [s.key, s]));
 // Short chip labels for the segmented sub-nav (the full section names like
@@ -1625,6 +1639,60 @@ function choreStreak(total, done){
   return 0;   // broken
 }
 
+// ---- 3-day weather for the farm (Woodville, AL) via Open-Meteo (free, no key, CORS ok) ----
+const WX_URL = "https://api.open-meteo.com/v1/forecast?latitude=34.6865&longitude=-86.2104"
+  + "&daily=weather_code,temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit"
+  + "&timezone=America%2FChicago&forecast_days=3";
+let wxData = null;   // { ts, days:[{date,code,hi,lo}] }
+function wxCached(){
+  if (wxData) return wxData;
+  try { const c = JSON.parse(localStorage.getItem("bucky_wx")); if (c && c.ts && Array.isArray(c.days)) { wxData = c; return c; } } catch {}
+  return null;
+}
+async function wxFetch(){
+  const r = await fetch(WX_URL);
+  if (!r.ok) throw new Error("wx " + r.status);
+  const d = (await r.json()).daily;
+  const days = d.time.map((date, i) => ({ date, code: d.weather_code[i], hi: Math.round(d.temperature_2m_max[i]), lo: Math.round(d.temperature_2m_min[i]) }));
+  wxData = { ts: Date.now(), days };
+  try { localStorage.setItem("bucky_wx", JSON.stringify(wxData)); } catch {}
+  return wxData;
+}
+// WMO weather code → emoji
+function wxIcon(code){
+  if (code === 0) return "☀️";
+  if (code <= 2) return "🌤️";
+  if (code === 3) return "☁️";
+  if (code <= 48) return "🌫️";
+  if (code <= 67) return "🌧️";
+  if (code <= 77) return "❄️";
+  if (code <= 82) return "🌦️";
+  if (code <= 86) return "🌨️";
+  return "⛈️";   // 95-99 thunderstorm
+}
+function wxDayName(dateStr, i){ return i === 0 ? "Today" : new Date(dateStr + "T12:00:00").toLocaleDateString(undefined, { weekday: "short" }); }
+const WX_HEAD = `<div class="wxhead">🌤️ Woodville, AL · 3-day</div>`;
+function paintWx(el, data){
+  el.innerHTML = WX_HEAD + `<div class="wxdays"></div>`;
+  const row = el.querySelector(".wxdays");
+  data.days.forEach((d, i) => {
+    const c = document.createElement("div"); c.className = "wxday";
+    c.innerHTML = `<div class="wxd"></div><div class="wxi">${wxIcon(d.code)}</div><div class="wxt"><b>${d.hi}°</b><span>${d.lo}°</span></div>`;
+    c.querySelector(".wxd").textContent = wxDayName(d.date, i);
+    row.appendChild(c);
+  });
+}
+// Paint from cache immediately, then refresh in the background if the cache is stale (>3h).
+function renderWxInto(el){
+  const cached = wxCached();
+  if (cached) paintWx(el, cached);
+  else el.innerHTML = WX_HEAD + `<div class="wxload">Loading forecast…</div>`;
+  if (!cached || (Date.now() - cached.ts) > 3 * 3600 * 1000){
+    wxFetch().then(d => { const cur = document.querySelector(".wxcard"); if (cur && currentTab === "dashboard") paintWx(cur, d); })
+      .catch(() => { if (!cached){ const cur = document.querySelector(".wxcard"); if (cur) cur.innerHTML = WX_HEAD + `<div class="wxload">Forecast unavailable</div>`; } });
+  }
+}
+
 function renderDashboard(){
   document.querySelector(".bar").style.display = "none";
   document.getElementById("empty").style.display = "none";
@@ -1710,6 +1778,11 @@ function renderDashboard(){
   stats.style.gridTemplateColumns = `repeat(${statDefs.length}, 1fr)`;
   for (const [k, v, fn] of statDefs) mkStat(k, v, fn);
   home.appendChild(stats);
+
+  // ---- 3-day weather for the farm ----
+  const wx = document.createElement("div"); wx.className = "wxcard";
+  home.appendChild(wx);
+  renderWxInto(wx);
 
   // ---- FarmGPT research ask bar → hands the question to farmgpt.html Research ----
   const ask = document.createElement("form"); ask.className = "askbar";

@@ -72,6 +72,19 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["-y", "http-server", "-p", "8841", "-c-1"],
       "port": 8841
+    },
+    {
+      "name": "amenfarms-site",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["-y", "http-server", "C:/Users/pkreu/OneDrive/Documents/amenfarms-site", "-p", "8843", "-c-1"],
+      "port": 8843
+    },
+    {
+      "name": "bucky-preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["-y", "http-server", "-c-1"],
+      "port": 8852,
+      "autoPort": true
     }
   ]
 }
