@@ -1641,11 +1641,20 @@ function renderPlay(){
 }
 
 let jokeExtra = 0;   // how many times the "next joke" arrow was clicked (resets on reload → back to joke of the day)
+let lastBonusJoke = null;   // avoid serving the same bonus joke twice in a row
 function jokeOfDay(){
   const day = Math.floor(Date.now() / 86400000);   // same joke for everyone on a given day
-  // Stride 397 is coprime with the list length, so consecutive days (and arrow
-  // clicks) jump around the database instead of walking it in fetch order.
-  return DAD_JOKES[((day + jokeExtra) * 397) % DAD_JOKES.length];
+  // Stride 397 is coprime with the list length, so consecutive days jump around
+  // the database instead of walking it in fetch order.
+  const daily = DAD_JOKES[(day * 397) % DAD_JOKES.length];
+  if (!jokeExtra) return daily;
+  // Bonus jokes ("Tell me another") are RANDOM picks from the whole list — re-rolling
+  // until it differs from what's on screen so every tap visibly serves a new joke.
+  let j;
+  do { j = DAD_JOKES[Math.floor(Math.random() * DAD_JOKES.length)]; }
+  while (DAD_JOKES.length > 1 && j === (lastBonusJoke || daily));
+  lastBonusJoke = j;
+  return j;
 }
 // Navigate to a section from anywhere (dashboard cards, bottom nav, sub-nav): switches the
 // tab, remembers it within its bottom-bar area so the sub-nav lands right, re-renders, and
