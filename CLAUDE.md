@@ -1029,6 +1029,74 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   transcripts can't be pulled centrally/server-side; each device exports its own. Verified
   headless (createObjectURL hook): 2 stories, titles/world/chapters/choices/THE END present, no
   markers or recap notes leaked, 0 pageerrors.
+- STORY DAILY CAP + LONGER CHAPTERS + HOME CAMERA→RESEARCH + RING FIX (2026-07-09, user: story
+  time "getting too much use"): (1) DAILY CAP — server-enforced (kids can't bypass): on mode
+  "story" requests (not research/summary), before calling the model, countStoryToday(user) runs a
+  Firestore structuredQuery (:runQuery, two EQUALITY filters on date+user against
+  farmgpt_story_log — no composite index needed) counting today's logged scenes; at/over
+  STORY_DAILY_CAP=30 the function returns 200 + JSON {capped:true, message} WITHOUT ever calling
+  the model (never a scary error). Dad and any unnamed session pass through uncapped (same
+  condition logStoryReq already used to skip logging them — nothing new to count). Fails OPEN: a
+  runQuery failure (network/auth/infra) returns null and the request proceeds normally — the cap
+  must never break story time. Mirrored client-side (farmgpt.html) as a cheap pre-check +
+  UX: localStorage farmgpt_story_count_v1 = {day (Central, en-CA format — matches the server's
+  farmDate()), user, count}, bumped after each successful scene; guardStoryCap() short-circuits
+  beginBtn/takeTurn/nextChapterBtn/resume-continue before ever hitting the network once local
+  count hits 30, resets automatically on a new Central day (day mismatch = fresh state). If the
+  server disagrees (says capped when the local counter didn't), callFarmGPT detects the JSON
+  {capped:true} response (vs the normal text/plain stream) via content-type, throws a tagged
+  err.capped, and streamChapter's catch syncs the local counter up to 30. UI: new #storyCappedRow
+  ("📚 Wow, you've read a LOT today! … come back tomorrow…") replaces choices+write-in
+  (setStoryControls computes `capped` and it wins over chapterEnd); shelving (doShelveStory,
+  shared by #shelveBtn/#shelveCappedBtn) and the whole bookshelf stay fully usable. Research mode
+  untouched. (2) CHAPTER LENGTH raised for an average ~3500 words/chapter (was ~1600):
+  CHAPTER_SOFT_WORDS 1400→2800, CHAPTER_HARD_WORDS 2200→4200 (client word-count window that
+  decides when to ask the model to close a chapter — chapters are still built from several ~900-
+  word scenes since server maxTokens for story stays 1200). STORY_SYSTEM gained a line asking for
+  full, unhurried, multi-paragraph scenes so length comes from richer scenes, not just more of
+  them; also found (and fixed) that the model COULD self-close a chapter by emitting
+  ===CHAPTER END=== unprompted (parseChapter honors the marker wherever it appears) — added an
+  explicit "never write ===CHAPTER END=== unless a message explicitly instructs you to close the
+  chapter right now" line to STORY_SYSTEM. (3) HOME CAMERA→RESEARCH: index.html's Home ask bar
+  (.askbar) 🔬 icon replaced with a tappable 📷 button (.askcam, aria-label "Snap a photo for
+  research") wired to a hidden <input type=file accept="image/*" capture="environment"> — picking
+  a photo reuses resizeImage(file,1280,cb) (same helper the goat/work-order photo pickers use) to
+  downscale to a JPEG dataURL, stashes it in sessionStorage["farmgpt_ask_photo"], then navigates
+  to farmgpt.html?ask=<typed text>&photo=1. farmgpt.html's handleAskParam() extended: on photo=1
+  it pops (reads + removes) that sessionStorage key, opens Research, and sends it through the
+  SAME research photo pathway as the in-app 📷 attach flow (image content block + scaleToJpeg
+  thumb via submitResearch) — text defaults to "Can you help me with this?" when nothing was
+  typed. URL cleaned via replaceState either way so a refresh never re-asks/re-sends. Typed-text-
+  only submits (no photo) are unchanged. Story cap does not apply to research. (4) RING CENTERING:
+  .home2 .ring .val had been switched to display:flex;align-items:baseline (to get the "3/6"
+  numerator+denominator on one baseline) which broke vertical centering inside the absolutely-
+  positioned inset:0 box. Fixed by splitting the concerns: outer .val back to
+  display:grid;place-items:center (true 2-axis centering) wrapping a new inner <span> that does
+  display:flex;align-items:baseline (renderDashboard's hero template now emits
+  `<span>${done}<small>/${total}</small></span>` inside .val). TESTS (scratchpad, new
+  sessions must recreate the fake-service pattern — none of this hits real
+  Anthropic/Firestore): p13_server.mjs (in-process farmgpt.mjs harness — fake Google
+  token/Firestore/Anthropic http servers; 20/20: under-cap allowed, capped at 30 blocks the model,
+  29 still allowed, query-failure fails open, research/summary unaffected, Dad/no-name pass
+  through, runQuery filter shape, STORY_SYSTEM source checks), p13_client.mjs (playwright,
+  farmgpt.html served over local http — file:// pages can't fetch() a root-relative path at all,
+  so route-mocked fetch tests need a real scheme; 31/31: normal flow, local pre-cap blocks Begin
+  with a toast, mid-story local cap replaces choices/composer while bookshelf stays usable
+  (shelve+resume), server-side capped response syncs the local counter, stale-day rollover, research
+  unaffected, raised word constants), p13_camera_ring.mjs (playwright, index.html + farmgpt.html
+  both served over the same local http origin — file:// throws SecurityError on session/
+  localStorage, and an ABORTED top-level navigation replaces the document with Chromium's
+  network-error interstitial (also opaque-origin) which broke a naive "abort and then inspect
+  sessionStorage" test — fix was to leave the intercepted navigation request pending instead of
+  aborting it, so the original document stays alive to inspect; 21/21: camera button + hidden
+  input wiring, sessionStorage payload + URL handoff (with and without typed text), farmgpt.html
+  photo=1 pathway sends a real image block + text (typed and default-text cases), sessionStorage
+  cleared + URL cleaned, typed-text-only regression, ring "3/6" centered within a fraction of a
+  px on both axes). Regression note: this session's scratchpad happened to retain
+  p9_home2.mjs/p10_navwx.mjs/p11_taste.mjs/p12_polish.mjs from earlier sessions (scratchpad
+  persistence isn't guaranteed) — re-ran p12_polish.mjs (26/26) as a spot-check that the ring
+  markup/CSS change didn't regress the rest of Home; didn't re-run p9/p10/p11 since none of them
+  touch the ring/askbar/chapter code paths this batch changed.
 - RESEARCH MODE: teen homework+coding chat; markdown via marked+DOMPurify CDN; adaptive
   thinking (default) w/ "Thinking…" indicator, max_tokens 4096; localStorage
   farmgpt_research_v1 (50 msgs; user msg saved BEFORE the reply streams so a mid-stream

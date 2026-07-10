@@ -483,7 +483,8 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .home2 .ring { position: relative; width: 70px; height: 70px; flex: 0 0 auto; }
   .home2 .ring svg { transform: rotate(-90deg); }
   .home2 .ring .ringfg { transition: stroke-dashoffset .45s ease; }
-  .home2 .ring .val { position: absolute; inset: 0; display: flex; align-items: baseline; justify-content: center; font-weight: 800; font-size: 16px; font-variant-numeric: tabular-nums; color: var(--ink); }
+  .home2 .ring .val { position: absolute; inset: 0; display: grid; place-items: center; font-weight: 800; font-size: 16px; font-variant-numeric: tabular-nums; color: var(--ink); }
+  .home2 .ring .val span { display: flex; align-items: baseline; }
   .home2 .ring .val small { font-size: 10px; color: var(--muted); font-weight: 700; margin-left: 1px; }
 
   /* 3-up stat row */
@@ -538,6 +539,8 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   /* FarmGPT research ask bar */
   .home2 .askbar { display: flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 6px 6px 6px 12px; }
   .home2 .askbar .askico { font-size: 17px; flex: 0 0 auto; }
+  .home2 .askbar .askcam { font-size: 18px; flex: 0 0 auto; border: 0; background: transparent; cursor: pointer; padding: 4px; line-height: 1; color: var(--ink); }
+  .home2 .askbar .askcam:active { transform: scale(.92); }
   .home2 .askbar .askinput { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font-size: 15px; padding: 8px 0; }
   .home2 .askbar .askinput:focus { outline: none; }
   .home2 .askbar .askinput::placeholder { color: var(--muted); }
@@ -1800,7 +1803,7 @@ function renderDashboard(){
          <circle class="ringfg" cx="35" cy="35" r="30" fill="none" stroke="var(--green)" stroke-width="7"
            stroke-linecap="round" stroke-dasharray="${CIRC.toFixed(1)}" stroke-dashoffset="${(CIRC*(1-pct)).toFixed(1)}"></circle>
        </svg>
-       <div class="val">${done}<small>/${total}</small></div>
+       <div class="val"><span>${done}<small>/${total}</small></span></div>
      </div>`;
   hero.querySelector(".eyebrow").textContent = eyebrow;
   hero.querySelector("h1").textContent = `${part[0]}${who ? ", " + who : ""} ${part[1]}`;
@@ -1833,10 +1836,15 @@ function renderDashboard(){
   home.appendChild(wx);
   renderWxInto(wx);
 
-  // ---- FarmGPT research ask bar → hands the question to farmgpt.html Research ----
+  // ---- FarmGPT research ask bar → hands the question (and optionally a photo) to
+  // farmgpt.html Research. The 📷 button snaps/picks a photo, downscales it client-side
+  // (reusing resizeImage — same helper the goat/work-order photo pickers use), stashes it
+  // in sessionStorage, then hands off via ?ask=<text>&photo=1 (farmgpt.html's
+  // handleAskParam pops + clears the sessionStorage key and cleans the URL after reading it).
   const ask = document.createElement("form"); ask.className = "askbar";
   ask.innerHTML =
-    `<span class="askico">🔬</span>
+    `<button type="button" class="askcam" aria-label="Snap a photo for research">📷</button>
+     <input class="askphoto" type="file" accept="image/*" capture="environment" style="display:none" />
      <input class="askinput" type="text" placeholder="Ask FarmGPT research…" enterkeyhint="search" aria-label="Ask FarmGPT research" />
      <button class="askgo" type="submit" aria-label="Ask">→</button>`;
   ask.onsubmit = (e) => {
@@ -1844,6 +1852,18 @@ function renderDashboard(){
     const q = ask.querySelector(".askinput").value.trim();
     if (q) location.href = "farmgpt.html?ask=" + encodeURIComponent(q);
   };
+  const askPhotoInput = ask.querySelector(".askphoto");
+  ask.querySelector(".askcam").onclick = () => askPhotoInput.click();
+  askPhotoInput.addEventListener("change", (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    resizeImage(f, 1280, (durl) => {
+      try { sessionStorage.setItem("farmgpt_ask_photo", durl); } catch {}
+      const q = ask.querySelector(".askinput").value.trim();
+      location.href = "farmgpt.html?ask=" + encodeURIComponent(q) + "&photo=1";
+    });
+  });
   home.appendChild(ask);
 
   // ---- Today's chores card (interactive, everyone) ----

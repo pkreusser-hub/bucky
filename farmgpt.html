@@ -463,6 +463,11 @@
         <button class="goBtn" id="nextChapterBtn">Read the next chapter →</button>
         <button id="shelveBtn" type="button">📚 Shelve for now</button>
       </div>
+      <div id="storyCappedRow" style="display:none">
+        <div class="chEndNote">📚 Wow, you've read a LOT today! The story will be waiting for you
+          tomorrow — come back then to find out what happens next! 🌙</div>
+        <button id="shelveCappedBtn" type="button">📚 Shelve for now</button>
+      </div>
       <div id="newStoryRow" style="display:none">
         <button class="goBtn" id="newStoryBtn">📖 Start a new story</button>
       </div>
@@ -535,10 +540,44 @@
   // Chapter length is a WINDOW, not a hard cut (a typical young-adult chapter runs ~1500-3000 words):
   //  · past SOFT words → the storyteller MAY end the chapter at the next natural beat (its choice)
   //  · past HARD words → force a close, so a chapter can't run away. Both tunable.
-  const CHAPTER_SOFT_WORDS = 1400;
-  const CHAPTER_HARD_WORDS = 2200;
+  // Target ~3500 words/chapter on average (was ~1600) — a chapter is built from several scenes
+  // (each scene ~900 words max, capped by the server's story maxTokens), so this window controls
+  // how many scenes accumulate before the storyteller is asked to close the chapter.
+  const CHAPTER_SOFT_WORDS = 2800;
+  const CHAPTER_HARD_WORDS = 4200;
   // Sentinel user turn that advances to the next chapter (not shown as a picked choice).
   const NEXT_CHAPTER_MSG = "(Continue to the next chapter.)";
+
+  // ---- daily response cap (client-side pre-check + UX; the SERVER is the real enforcement) ----
+  // A cheap local counter (per user, per Central calendar day — same "farmDay" the server uses)
+  // so a capped kid never even burns a request, and the UI can show/hide the notice instantly.
+  // The server's own count (from farmgpt_story_log) is the source of truth — see the `capped`
+  // error path in callFarmGPT below, which syncs this counter up if the server disagrees.
+  const STORY_DAILY_CAP = 30;
+  const STORY_COUNT_KEY = "farmgpt_story_count_v1";
+  function centralDay() {
+    try { return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date()); }
+    catch { return new Date().toISOString().slice(0, 10); }
+  }
+  function storyCountState() {
+    let s;
+    try { s = JSON.parse(localStorage.getItem(STORY_COUNT_KEY)) || {}; } catch { s = {}; }
+    const day = centralDay(), user = localStorage.getItem("choreUser") || "";
+    if (s.day !== day || s.user !== user) s = { day, user, count: 0 };
+    return s;
+  }
+  function storyCountSave(s) { try { localStorage.setItem(STORY_COUNT_KEY, JSON.stringify(s)); } catch {} }
+  function storyCapped() { return storyCountState().count >= STORY_DAILY_CAP; }
+  function bumpStoryCount() { const s = storyCountState(); s.count++; storyCountSave(s); return s.count; }
+  function forceStoryCapped() { const s = storyCountState(); s.count = STORY_DAILY_CAP; storyCountSave(s); }
+  // Call at the top of every user-initiated story action. Returns true (and shows the gentle
+  // notice, or a toast if we're not on the reading view yet) if capped — the caller must stop.
+  function guardStoryCap() {
+    if (!storyCapped()) return false;
+    if (currentView === "story") setStoryControls({ choices: [], ended: false, chapterEnd: false, busyNow: false });
+    else toast("📚 You've read a LOT today! Come back tomorrow to keep the story going. 🌙");
+    return true;
+  }
 
   const $ = (id) => document.getElementById(id);
   const views = { home: $("viewHome"), storySetup: $("viewStorySetup"), story: $("viewStory"), research: $("viewResearch"), usage: $("viewUsage"), storylog: $("viewStoryLog") };
@@ -619,6 +658,20 @@
       let msg = "Request failed (" + resp.status + ")";
       try { msg = (await resp.json()).error || msg; } catch { /* keep generic */ }
       throw new Error(msg);
+    }
+    // Daily story cap: the server answers with 200 + JSON (never a stream) when this user has
+    // hit STORY_DAILY_CAP scenes today. Distinguishable from the normal text/plain stream by
+    // content-type. Everything else (including normal story/research replies) stays plain text.
+    const ct = resp.headers.get("content-type") || "";
+    if (ct.includes("application/json")) {
+      let data = null;
+      try { data = await resp.json(); } catch { /* fall through to the generic error below */ }
+      if (data && data.capped) {
+        const err = new Error(data.message || "You've read a lot today — come back tomorrow!");
+        err.capped = true;
+        throw err;
+      }
+      throw new Error("Unexpected response from the server");
     }
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
@@ -940,8 +993,11 @@
     $("storyBusy").style.display = busyNow ? "block" : "none";
     const btns = $("choiceBtns");
     btns.innerHTML = "";
-    // Mid-chapter: choices + write box. At a chapter end: the next/shelve prompt instead.
-    const interactive = !busyNow && !ended && !chapterEnd;
+    // Daily cap takes priority over everything except "busy"/"the story already ended": no more
+    // choices or write-in until the next Central day — the bookshelf (shelve) stays available.
+    const capped = !busyNow && !ended && storyCapped();
+    // Mid-chapter: choices + write box. At a chapter end (or capped): the next-step prompt instead.
+    const interactive = !busyNow && !ended && !chapterEnd && !capped;
     if (interactive) {
       choices.forEach((c, i) => {
         const b = document.createElement("button");
@@ -954,7 +1010,8 @@
       });
     }
     $("writeRow").style.display = interactive ? "flex" : "none";
-    $("chapterEndRow").style.display = (!busyNow && chapterEnd) ? "block" : "none";
+    $("storyCappedRow").style.display = capped ? "block" : "none";
+    $("chapterEndRow").style.display = (!busyNow && chapterEnd && !capped) ? "block" : "none";
     if (!busyNow && chapterEnd) $("nextChapterBtn").textContent = "Read Chapter " + (((story && story.chapter) || 1) + 1) + " →";
     $("newStoryRow").style.display = (!busyNow && ended) ? "block" : "none";
   }
@@ -1087,6 +1144,7 @@
         $("storyScroll").appendChild(fin);
       }
       saveStory();
+      bumpStoryCount();                             // one more scene read today (mirrors the server's log)
       busy = false;
       setStoryControls({ choices: p.choices, ended: p.ended, chapterEnd: p.chapterEnd, busyNow: false });
       if (p.chapterEnd) scrollStory();             // bring the "next chapter / shelve" prompt into view
@@ -1096,6 +1154,13 @@
       if (divider) divider.remove();
       story.messages.pop();                        // roll back the user turn so it can be retried
       busy = false;
+      if (err && err.capped) {
+        // The server is the source of truth — sync the local counter so future taps short-circuit
+        // instantly instead of round-tripping again, then paint the gentle notice.
+        forceStoryCapped();
+        setStoryControls({ choices: [], ended: false, chapterEnd: false, busyNow: false });
+        return;
+      }
       const last = story.messages[story.messages.length - 1];
       const prev = last && last.role === "assistant" ? parseChapter(last.content) : { choices: [], ended: false, chapterEnd: false };
       setStoryControls({ choices: prev.choices, ended: prev.ended, chapterEnd: prev.chapterEnd, busyNow: false });
@@ -1105,6 +1170,7 @@
 
   function takeTurn(userText) {
     if (busy || !story || story.done) return;
+    if (guardStoryCap()) return;
     addPickedEl(userText);
     scrollStory();
     story.messages.push({ role: "user", content: userText });
@@ -1113,6 +1179,7 @@
 
   $("beginBtn").addEventListener("click", () => {
     if (busy) return;
+    if (guardStoryCap()) return;
     const typed = $("worldInput").value.trim();
     let seed, title;
     if (typed) {                                   // the open-ended box wins if it's filled
@@ -1169,9 +1236,10 @@
     }
     show("story");
     setStoryControls({ choices: lastParsed.choices, ended: s.done, chapterEnd: lastParsed.chapterEnd, busyNow: false });
-    // A story saved mid-request ends on a user turn — pick up where it left off.
+    // A story saved mid-request ends on a user turn — pick up where it left off (unless capped;
+    // setStoryControls above already painted the gentle notice in that case).
     const last = s.messages[s.messages.length - 1];
-    if (!s.done && last && last.role === "user") streamChapter({ newChapter: last.content === NEXT_CHAPTER_MSG });
+    if (!s.done && last && last.role === "user" && !storyCapped()) streamChapter({ newChapter: last.content === NEXT_CHAPTER_MSG });
     scrollStory();
   }
 
@@ -1184,19 +1252,23 @@
   // At a chapter's end, the reader keeps going into the next chapter…
   $("nextChapterBtn").addEventListener("click", () => {
     if (busy || !story || story.done) return;
+    if (guardStoryCap()) return;
     story.chapter = (story.chapter || 1) + 1;
     story.closing = false;
     story.messages.push({ role: "user", content: NEXT_CHAPTER_MSG });
     streamChapter({ newChapter: true });
   });
-  // …or shelves the book to pick up later.
-  $("shelveBtn").addEventListener("click", () => {
+  // …or shelves the book to pick up later. Shared by the normal chapter-end row AND the daily-cap
+  // notice — the bookshelf stays fully usable even after the cap is hit.
+  function doShelveStory() {
     if (busy || !story) return;
     saveStory();
     toast("📚 Saved to your shelf — pick it up anytime!");
     renderBookshelf();
     show("storySetup");
-  });
+  }
+  $("shelveCappedBtn").addEventListener("click", doShelveStory);
+  $("shelveBtn").addEventListener("click", doShelveStory);
   $("writeInput").addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); $("writeSend").click(); }
   });
@@ -1715,16 +1787,41 @@
   });
 
   // Deep-link from the app's Home research bar: farmgpt.html?ask=<question> opens Research
-  // and asks it right away. Clean the URL afterward so a refresh doesn't re-ask.
+  // and asks it right away. ?photo=1 means the Home 📷 button stashed a downscaled photo in
+  // sessionStorage["farmgpt_ask_photo"] (see index.html's askbar) — pop (read + remove) it and
+  // send it through the SAME research photo pathway (image block + thumb) as the in-app 📷
+  // attach flow, defaulting the text to a friendly prompt when nothing was typed. Clean the
+  // URL afterward either way so a refresh never re-asks / re-sends.
   (function handleAskParam(){
-    let q = "";
-    try { q = (new URLSearchParams(location.search).get("ask") || "").trim(); } catch {}
-    if (!q) return;
+    let params;
+    try { params = new URLSearchParams(location.search); } catch { return; }
+    const q = (params.get("ask") || "").trim();
+    const wantsPhoto = params.get("photo") === "1";
+    if (!q && !wantsPhoto) return;
     try { history.replaceState(null, "", "farmgpt.html"); } catch {}
     researchMsgs = loadResearch();
     renderResearch();
     show("research");
-    submitResearch(q);
+    if (wantsPhoto) {
+      let durl = "";
+      try { durl = sessionStorage.getItem("farmgpt_ask_photo") || ""; sessionStorage.removeItem("farmgpt_ask_photo"); } catch {}
+      if (durl) {
+        const img = new Image();
+        img.onload = () => {
+          const thumb = scaleToJpeg(img, 200, 0.6);
+          const data = durl.split(",")[1] || "";
+          const content = [
+            { type: "image", source: { type: "base64", media_type: "image/jpeg", data } },
+            { type: "text", text: q || "Can you help me with this?" },
+          ];
+          submitResearch(content, thumb);
+        };
+        img.onerror = () => { if (q) submitResearch(q); };
+        img.src = durl;
+        return;
+      }
+    }
+    if (q) submitResearch(q);
   })();
 })();
 </script>

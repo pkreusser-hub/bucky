@@ -73,9 +73,12 @@ HOW A STORY WORKS:
 - Write plain story prose only. Do NOT add a title or heading of your own, and do NOT use any
   Markdown formatting (no #, *, _, bullet lists) — chapter titles come only from the ===CHAPTER===
   marker when you are asked to open a chapter.
-- Each chapter is 2-4 paragraphs, unhurried — it's perfectly fine to spend a whole chapter on a
-  single scene, conversation, or small discovery. Keep vocabulary friendly for ages 8-12 unless
-  the reader's own writing suggests older; then you may raise it slightly.
+- Write each scene full and unhurried — several rich paragraphs, not a quick summary. Take the
+  time to let the reader see, hear, and feel the moment (setting details, dialogue, small
+  character beats) so a chapter, built from a few of these scenes, adds up to a satisfying,
+  meaty length rather than feeling rushed or thin. It's perfectly fine to spend a whole scene on
+  a single moment, conversation, or small discovery. Keep vocabulary friendly for ages 8-12
+  unless the reader's own writing suggests older; then you may raise it slightly.
 - End EVERY chapter with this exact marker on its own line:
 ===CHOICES===
   followed by exactly 3 numbered choices (1., 2., 3.), each ONE short sentence. Each should be a
@@ -114,7 +117,8 @@ LENGTH — THIS IS IMPORTANT:
 CHAPTERS — the saga is told in chapters, like a novel:
 - A single chapter unfolds across SEVERAL of your replies. Each reply is one scene that ends with
   ===CHOICES=== as described above. You never decide on your own to end a chapter — keep the scenes
-  and choices flowing until a message explicitly tells you the chapter is closing.
+  and choices flowing until a message explicitly tells you the chapter is closing. Never write the
+  ===CHAPTER END=== marker unless a message explicitly instructs you to close the chapter right now.
 - When a message tells you to CLOSE THE CHAPTER, bring the current scene to a gentle, satisfying
   pause (a small resolution or a soft cliffhanger) and end with ===CHAPTER END=== instead of
   choices — no choices that time.
@@ -391,6 +395,46 @@ async function logStory({ user, storyId, title, idx, choice, scene }) {
 
 const STORY_LOG_RETENTION_DAYS = 30;   // logs older than this are pruned on read (bounds public exposure)
 
+// ---------------- daily response cap ----------------
+// Story time was getting heavy use — cap each kid to STORY_DAILY_CAP scenes/day (Central
+// calendar day), enforced HERE (the server), not just in the page, so it can't be bypassed.
+// Counts today's farmgpt_story_log docs for this user via a Firestore structured query (two
+// equality filters need no composite index). Dad is never logged (see logStoryReq below) and a
+// request with no name can't be counted either — both simply pass through uncapped, which is
+// fine: Dad is the parent, and an unnamed session has nothing to attribute a cap to anyway.
+// Fails OPEN: any query failure (network/infra/auth) returns null, and the cap is skipped —
+// story time must never break because of a monitoring query.
+const STORY_DAILY_CAP = 30;
+async function countStoryToday(user) {
+  try {
+    const token = await getGoogleAccessToken();
+    if (!token) return null;
+    const resp = await fetch(`${FIRESTORE_BASE}:runQuery`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        structuredQuery: {
+          from: [{ collectionId: STORY_LOG_COLLECTION }],
+          where: {
+            compositeFilter: {
+              op: "AND",
+              filters: [
+                { fieldFilter: { field: { fieldPath: "date" }, op: "EQUAL", value: { stringValue: farmDate() } } },
+                { fieldFilter: { field: { fieldPath: "user" }, op: "EQUAL", value: { stringValue: user } } },
+              ],
+            },
+          },
+          limit: 500,
+        },
+      }),
+    });
+    if (!resp.ok) return null;
+    const rows = await resp.json();
+    if (!Array.isArray(rows)) return null;
+    return rows.filter((r) => r && r.document).length;
+  } catch { return null; }
+}
+
 // List every farmgpt_story_log doc (paginated) → [{id, date, user, storyId, title, idx, choice, scene}].
 async function listStoryLog(token) {
   const out = [];
@@ -580,6 +624,18 @@ export default async (req) => {
 
   const mode = MODES[body.mode];
   if (!mode) return jsonError(400, "mode must be \"story\" or \"research\"", jsonHeaders);
+
+  // Daily response cap — story mode only, before the model is ever called. A gentle 200/JSON
+  // response (never a scary error) the client recognizes and turns into a kid-friendly notice.
+  if (body.mode === "story" && typeof body.user === "string" && body.user && body.user !== "Dad") {
+    const count = await countStoryToday(body.user);
+    if (count !== null && count >= STORY_DAILY_CAP) {
+      return new Response(JSON.stringify({
+        capped: true,
+        message: "You've read a LOT today! The story will be waiting for you tomorrow — come back then to find out what happens next!",
+      }), { status: 200, headers: jsonHeaders });
+    }
+  }
 
   const messages = sanitizeMessages(body.messages, body.mode);
   if (!messages) return jsonError(400, "Bad messages array", jsonHeaders);
