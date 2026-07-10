@@ -209,12 +209,53 @@
     text-transform: uppercase; letter-spacing: .3px;
     color: var(--red);
   }
+  .timeline { position: relative; height: 36px; display: flex; align-items: center; }
+  .timeline-track {
+    position: absolute; left: 6px; right: 6px; top: 50%; transform: translateY(-50%);
+    height: 6px; border-radius: 3px; overflow: hidden; display: flex;
+    background: var(--line); pointer-events: none;
+  }
+  .timeline-track .seg-past { height: 100%; background: var(--navy); }
+  .timeline-track .seg-future {
+    height: 100%;
+    background: repeating-linear-gradient(135deg, var(--red) 0 4px, rgba(186,48,62,.32) 4px 8px);
+  }
+  .now-marker {
+    position: absolute; top: 2px; bottom: 2px; width: 3px; margin-left: -1.5px;
+    background: var(--red); border-radius: 2px;
+    box-shadow: 0 0 0 2px #fff;
+    pointer-events: none; z-index: 2; display: none;
+  }
+  .now-marker::after {
+    content: "NOW"; position: absolute; top: -15px; left: 50%; transform: translateX(-50%);
+    font-size: 9px; font-weight: 800; letter-spacing: .3px; color: var(--red); white-space: nowrap;
+  }
   #scrub {
+    position: relative; z-index: 3;
+    -webkit-appearance: none; appearance: none;
     width: 100%;
     height: 36px;
     margin: 0;
+    background: transparent;
     accent-color: var(--navy);
     cursor: pointer;
+  }
+  /* Fully strip native track chrome so the colored .timeline-track underneath
+     (past/future segments) shows through instead of the browser's own pill fill. */
+  #scrub::-webkit-slider-runnable-track {
+    -webkit-appearance: none;
+    background: transparent; height: 6px; border-radius: 3px; border: 0; box-shadow: none;
+  }
+  #scrub::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 20px; height: 20px; margin-top: -7px;
+    border-radius: 50%; background: var(--navy); border: 2px solid #fff;
+    box-shadow: 0 1px 5px rgba(35,51,87,.4); cursor: pointer;
+  }
+  #scrub::-moz-range-track { background: transparent; height: 6px; border-radius: 3px; border: 0; }
+  #scrub::-moz-range-thumb {
+    width: 18px; height: 18px; border-radius: 50%; background: var(--navy);
+    border: 2px solid #fff; box-shadow: 0 1px 5px rgba(35,51,87,.4); cursor: pointer;
   }
   #scrub:disabled { opacity: .4; cursor: default; }
   .radar-hint {
@@ -301,18 +342,30 @@
         <button type="button" id="playBtn" aria-label="Play radar animation" disabled>▶</button>
         <div class="scrub-wrap">
           <div id="frameTime">Loading radar…</div>
-          <input type="range" id="scrub" min="0" max="0" value="0" step="1"
-            aria-label="Scrub radar timeline" disabled />
+          <div class="timeline" id="timeline">
+            <div class="timeline-track">
+              <div class="seg-past" id="segPast"></div>
+              <div class="seg-future" id="segFuture"></div>
+            </div>
+            <div class="now-marker" id="nowMarker" title="Now"></div>
+            <input type="range" id="scrub" min="0" max="0" value="0" step="1"
+              aria-label="Scrub radar timeline, past to forecast" disabled />
+          </div>
         </div>
       </div>
       <p class="radar-hint">
-        Scrub the slider or press Play to animate the last ~2 hours of radar.
-        Nowcast frames appear when RainViewer provides them.
+        The solid navy segment is <b>live radar</b> (past ~2 hours). The striped red
+        segment is a <b>NOAA HRRR model forecast</b> (next ~2 hours) — a computer
+        prediction, not live conditions. Scrub or press Play to animate the whole timeline.
         Radar by <a href="https://www.rainviewer.com/" target="_blank" rel="noopener">RainViewer</a>
-        · Forecast by <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>.
+        · Forecast model by <a href="https://www.rapidrefresh.noaa.gov/hrrr/" target="_blank" rel="noopener">NOAA HRRR</a>
+        via <a href="https://mesonet.agron.iastate.edu/" target="_blank" rel="noopener">Iowa State Mesonet</a>
+        · Point forecast by <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>.
       </p>
     </div>
   </section>
+
+  <div id="farmRainLine" class="farm-rain hidden" aria-live="polite"></div>
 </main>
 
 <nav id="buckyNav" aria-label="BUCKY sections"></nav>
@@ -368,8 +421,20 @@
   var TILE_SIZE = (window.devicePixelRatio || 1) >= 2 ? 512 : 256;
   var ANIM_MS = 450;
 
+  var HRRR_STEPS = [15, 30, 45, 60, 75, 90, 105, 120]; // minutes ahead, 15-min cadence
+  var HRRR_PROBE_ZOOM = 6;
+
+  var RAIN_URL =
+    "https://api.open-meteo.com/v1/forecast"
+    + "?latitude=" + LAT + "&longitude=" + LON
+    + "&minutely_15=precipitation&forecast_minutely_15=8"
+    + "&timezone=" + encodeURIComponent(TZ);
+
   // Expose for headless smoke tests
-  window.__WX__ = { ready: false, forecastOk: false, radarOk: false, frames: 0 };
+  window.__WX__ = {
+    ready: false, forecastOk: false, radarOk: false, frames: 0,
+    futureFrames: 0, nowIdx: -1, rainLineOk: false
+  };
 
   function wxIcon(code) {
     if (code === 0) return "☀️";
@@ -466,11 +531,12 @@
     });
   }
 
-  // ---- Radar (Leaflet + RainViewer) ----
+  // ---- Radar (Leaflet + RainViewer past + IEM/NOAA HRRR future) ----
   var map = null;
   var radarHost = "";
-  var frames = [];       // { time, path, kind: 'past'|'nowcast' }
+  var frames = [];       // { time, path, kind: 'past' } or { time, offsetMin, kind: 'future' }
   var frameIdx = 0;
+  var nowIdx = -1;       // index of the last 'past' frame — the timeline's "now" boundary
   var playing = false;
   var animTimer = null;
   var layerCache = {};
@@ -502,18 +568,44 @@
       .bindTooltip("Amen Farms", { permanent: false, direction: "top" });
   }
 
+  // Iowa State Mesonet cache tile server — NOAA HRRR simulated reflectivity.
+  // Layer name MUST be "hrrr::REFD-F<mmmm>-<runstamp>" (uppercase REFD, "-0"
+  // for "latest processed run"); the lowercase "hrrr::refd-fNNNN" form silently
+  // 200s with a baked-in "Invalid TMS Request" error image instead of erroring —
+  // learned the hard way probing this, see CLAUDE.md.
+  function hrrrLayerName(offsetMin) {
+    return "hrrr::REFD-F" + String(offsetMin).padStart(4, "0") + "-0";
+  }
+  function hrrrTileUrl(offsetMin) {
+    return "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/"
+      + hrrrLayerName(offsetMin) + "/{z}/{x}/{y}.png";
+  }
+  function hrrrProbeUrl(offsetMin, z, x, y) {
+    return "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/"
+      + hrrrLayerName(offsetMin) + "/" + z + "/" + x + "/" + y + ".png";
+  }
+
+  function lonLatToTile(lon, lat, z) {
+    var n = Math.pow(2, z);
+    var x = Math.floor((lon + 180) / 360 * n);
+    var latRad = lat * Math.PI / 180;
+    var y = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
+    return { x: Math.max(0, Math.min(n - 1, x)), y: Math.max(0, Math.min(n - 1, y)) };
+  }
+
   function tileUrl(frame) {
+    if (frame.kind === "future") return hrrrTileUrl(frame.offsetMin);
     // color scheme 2 = Universal Blue (free-tier allowed); options 1_1 = smooth + snow
     return radarHost + frame.path + "/" + TILE_SIZE + "/{z}/{x}/{y}/2/1_1.png";
   }
 
   function createLayer(frame) {
-    var key = frame.path;
+    var key = frame.kind === "future" ? "hrrr-" + frame.offsetMin : frame.path;
     if (layerCache[key]) return layerCache[key];
     var layer = L.tileLayer(tileUrl(frame), {
       opacity: 0,
       zIndex: 10,
-      maxNativeZoom: 7,
+      maxNativeZoom: frame.kind === "future" ? HRRR_PROBE_ZOOM + 4 : 7,
       maxZoom: 12
     });
     layerCache[key] = layer;
@@ -528,24 +620,41 @@
     currentLayer = null;
   }
 
-  function formatFrameTime(ts, kind) {
-    var d = new Date(ts * 1000);
+  function formatFrameTime(frame, i) {
+    if (frame.kind === "future") {
+      return "+" + frame.offsetMin + " min &middot; <span class=\"tag\">forecast</span>";
+    }
+    var d = new Date(frame.time * 1000);
     var t = d.toLocaleString(undefined, {
       timeZone: TZ,
       weekday: "short",
       hour: "numeric",
       minute: "2-digit"
     });
-    var tag = kind === "nowcast" ? '<span class="tag">Forecast</span>' : "";
-    // Mark the newest past frame as "Now"
-    var lastPast = -1;
-    for (var i = frames.length - 1; i >= 0; i--) {
-      if (frames[i].kind === "past") { lastPast = i; break; }
-    }
-    if (kind === "past" && frames[frameIdx] && frames[frameIdx].time === ts && frameIdx === lastPast) {
-      tag = '<span class="tag">Now</span>';
-    }
+    var tag = (i === nowIdx) ? '<span class="tag">Now</span>' : "";
     return t + tag;
+  }
+
+  function updateTimelineTrack() {
+    var segPast = document.getElementById("segPast");
+    var segFuture = document.getElementById("segFuture");
+    var marker = document.getElementById("nowMarker");
+    var len = frames.length;
+    if (len < 2) {
+      segPast.style.width = (len === 1 && nowIdx === 0) ? "100%" : "0%";
+      segFuture.style.width = (len === 1 && nowIdx !== 0) ? "100%" : "0%";
+      marker.style.display = "none";
+      return;
+    }
+    var pastPct = nowIdx >= 0 ? (nowIdx / (len - 1)) * 100 : 0;
+    segPast.style.width = pastPct + "%";
+    segFuture.style.width = (100 - pastPct) + "%";
+    if (nowIdx >= 0) {
+      marker.style.left = pastPct + "%";
+      marker.style.display = "block";
+    } else {
+      marker.style.display = "none";
+    }
   }
 
   function showFrame(i) {
@@ -555,7 +664,7 @@
     scrub.value = String(i);
 
     var frame = frames[i];
-    frameTime.innerHTML = formatFrameTime(frame.time, frame.kind);
+    frameTime.innerHTML = formatFrameTime(frame, i);
 
     var next = createLayer(frame);
     next.addTo(map);
@@ -598,48 +707,139 @@
     else startAnim();
   }
 
+  async function loadPastFrames() {
+    var r = await fetch(RADAR_API);
+    if (!r.ok) throw new Error("radar " + r.status);
+    var api = await r.json();
+    if (!api || !api.host || !api.radar || !Array.isArray(api.radar.past) || !api.radar.past.length) {
+      throw new Error("no radar frames");
+    }
+    radarHost = api.host;
+    // Note: RainViewer's own nowcast is intentionally NOT used — unreliable/short
+    // (often 0 frames). The future segment comes from NOAA HRRR instead.
+    return api.radar.past.map(function (f) {
+      return { time: f.time, path: f.path, kind: "past" };
+    });
+  }
+
+  // Gently probe which HRRR forecast steps exist for the latest model run —
+  // sequential requests (not a burst), skip any step that fails.
+  async function probeHrrrFrames() {
+    var xy = lonLatToTile(LON, LAT, HRRR_PROBE_ZOOM);
+    var found = [];
+    for (var i = 0; i < HRRR_STEPS.length; i++) {
+      var m = HRRR_STEPS[i];
+      var url = hrrrProbeUrl(m, HRRR_PROBE_ZOOM, xy.x, xy.y);
+      try {
+        var r = await fetch(url, { cache: "no-store" });
+        if (r.ok) found.push(m);
+      } catch (e) { /* skip this step */ }
+    }
+    return found;
+  }
+
+  async function loadFutureFrames() {
+    var steps = await probeHrrrFrames();
+    var nowSec = Math.floor(Date.now() / 1000);
+    return steps.map(function (m) {
+      return { time: nowSec + m * 60, offsetMin: m, kind: "future" };
+    });
+  }
+
   async function loadRadar() {
-    try {
-      var r = await fetch(RADAR_API);
-      if (!r.ok) throw new Error("radar " + r.status);
-      var api = await r.json();
-      if (!api || !api.host || !api.radar || !Array.isArray(api.radar.past) || !api.radar.past.length) {
-        throw new Error("no radar frames");
-      }
-      radarHost = api.host;
-      frames = [];
-      api.radar.past.forEach(function (f) {
-        frames.push({ time: f.time, path: f.path, kind: "past" });
-      });
-      if (Array.isArray(api.radar.nowcast)) {
-        api.radar.nowcast.forEach(function (f) {
-          frames.push({ time: f.time, path: f.path, kind: "nowcast" });
-        });
-      }
+    var pastFrames = [];
+    var futureFrames = [];
+    var pastErr = null;
 
-      scrub.min = "0";
-      scrub.max = String(Math.max(0, frames.length - 1));
-      scrub.disabled = false;
-      playBtn.disabled = frames.length < 2;
+    try { pastFrames = await loadPastFrames(); } catch (e) { pastErr = e; }
+    try { futureFrames = await loadFutureFrames(); } catch (e) { /* future stays empty */ }
 
-      // Start on the latest past frame ("now")
-      var start = frames.length - 1;
-      for (var i = frames.length - 1; i >= 0; i--) {
-        if (frames[i].kind === "past") { start = i; break; }
-      }
-      showFrame(start);
+    frames = pastFrames.concat(futureFrames);
 
-      window.__WX__.radarOk = true;
-      window.__WX__.frames = frames.length;
-    } catch (e) {
+    if (!frames.length) {
       frameTime.textContent = "Radar unavailable right now.";
       scrub.disabled = true;
       playBtn.disabled = true;
       var ctl = document.querySelector(".radar-ctl");
       var err = document.createElement("div");
       err.className = "radar-err";
-      err.textContent = "Couldn’t load RainViewer radar. The map still works — try again in a bit.";
+      err.textContent = "Couldn’t load radar right now. The map still works — try again in a bit.";
       ctl.insertBefore(err, ctl.firstChild);
+      window.__WX__.radarOk = false;
+      return;
+    }
+
+    nowIdx = -1;
+    for (var i = frames.length - 1; i >= 0; i--) {
+      if (frames[i].kind === "past") { nowIdx = i; break; }
+    }
+
+    scrub.min = "0";
+    scrub.max = String(Math.max(0, frames.length - 1));
+    scrub.disabled = false;
+    playBtn.disabled = frames.length < 2;
+
+    updateTimelineTrack();
+
+    // Default position on load: "now" (last past frame), or the first future
+    // frame if live radar is unavailable but the forecast loaded.
+    var start = nowIdx >= 0 ? nowIdx : 0;
+    showFrame(start);
+
+    window.__WX__.radarOk = true;
+    window.__WX__.frames = frames.length;
+    window.__WX__.futureFrames = futureFrames.length;
+    window.__WX__.nowIdx = nowIdx;
+
+    if (pastErr && futureFrames.length) {
+      var noteCtl = document.querySelector(".radar-ctl");
+      var note = document.createElement("div");
+      note.className = "radar-err";
+      note.style.color = "var(--muted)";
+      note.textContent = "Live radar is unavailable right now — showing the HRRR forecast only.";
+      noteCtl.insertBefore(note, noteCtl.firstChild);
+    }
+  }
+
+  // ---- Farm rain line (Open-Meteo minutely_15) ----
+  function formatLocalIsoTime(iso) {
+    // Open-Meteo returns local wall-clock time for the requested timezone with
+    // no offset suffix (e.g. "2026-07-10T15:15") — parse the fields directly
+    // rather than through Date() to avoid double timezone conversion.
+    var m = /T(\d{2}):(\d{2})/.exec(String(iso));
+    if (!m) return String(iso);
+    var h = parseInt(m[1], 10);
+    var min = m[2];
+    var ampm = h >= 12 ? "PM" : "AM";
+    var h12 = h % 12; if (h12 === 0) h12 = 12;
+    return h12 + ":" + min + " " + ampm;
+  }
+
+  async function loadFarmRain() {
+    var el = document.getElementById("farmRainLine");
+    try {
+      var r = await fetch(RAIN_URL);
+      if (!r.ok) throw new Error("rain " + r.status);
+      var data = await r.json();
+      var m15 = data && data.minutely_15;
+      if (!m15 || !Array.isArray(m15.time) || !Array.isArray(m15.precipitation)) {
+        throw new Error("no minutely data");
+      }
+      var hitIdx = -1;
+      for (var i = 0; i < m15.precipitation.length; i++) {
+        if ((m15.precipitation[i] || 0) > 0) { hitIdx = i; break; }
+      }
+      if (hitIdx === -1) {
+        el.textContent = "☀️ No rain expected at the farm in the next 2 hours.";
+      } else {
+        el.textContent = "🌧 Rain could reach the farm around " + formatLocalIsoTime(m15.time[hitIdx]) + ".";
+      }
+      el.classList.remove("hidden");
+      window.__WX__.rainLineOk = true;
+    } catch (e) {
+      el.classList.add("hidden");
+      el.textContent = "";
+      window.__WX__.rainLineOk = false;
     }
   }
 
@@ -664,7 +864,7 @@
     });
   });
 
-  Promise.all([loadForecast(), loadRadar()]).then(function () {
+  Promise.all([loadForecast(), loadRadar(), loadFarmRain()]).then(function () {
     window.__WX__.ready = true;
   });
 })();

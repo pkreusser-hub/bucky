@@ -1805,3 +1805,61 @@ avoid collisions with the game's own `net`/`Lobby`-adjacent names.
   real network: 0 pageerrors, radar tiles load + render, play advances frames over time, pause
   halts, scrub jumps to a chosen frame and updates `#frameTime`; desktop + 390×844 screenshots
   confirm the map, farm pin, and unobstructed play/scrub controls.
+- **FUTURE RADAR: −2h → now → +2h TIMELINE w/ NOAA HRRR (2026-07-09)**: the radar animation
+  used to stop at "now" (RainViewer past frames only). Extended into the future with NOAA
+  HRRR simulated-reflectivity model tiles, on ONE continuous scrubber. RainViewer's own
+  nowcast is intentionally NOT used for the future segment (probed live: unreliable, often 0
+  frames, ≤30 min when present) — dropped entirely; the server response's `radar.nowcast`
+  array is no longer read.
+  - **HRRR tile source + GOTCHA**: Iowa State Mesonet (`mesonet.agron.iastate.edu`) serves
+    HRRR simulated reflectivity as Leaflet-compatible XYZ tiles at
+    `/cache/tile.py/1.0.0/<layer>/{z}/{x}/{y}.png`. The layer name MUST be
+    `hrrr::REFD-F<mmmm>-0` — **uppercase** `REFD`, and a trailing `-0` meaning "latest
+    processed run" (`hrrrLayerName()` in weather.html). The lowercase form
+    `hrrr::refd-fNNNN` (what seemed obviously right and is what got probed/shipped first)
+    silently returns HTTP 200 for EVERY request with a fixed baked-in "Invalid TMS Request"
+    error image (always exactly 20229 bytes at every z/x/y) — a false-positive trap for any
+    `r.ok`-only probe. Verified real forecast steps exist every 15 min from f0000 through at
+    least f0180 (HRRR's reflectivity product goes out further; untested steps not divisible
+    by 15 min, e.g. f0500, correctly 503). `probeHrrrFrames()` in weather.html gently
+    sequential-probes (not a burst) offsets 15/30/45/60/75/90/105/120 min against one tile at
+    a low probe zoom (z=6, `lonLatToTile()`) and only adds steps that respond 200 — with the
+    corrected layer name this is now a genuine existence check, not just status-200 theater.
+  - **Timeline UX**: `frames` is now `past.concat(future)` (RainViewer past + HRRR future) as
+    ONE array; `nowIdx` = index of the last past frame = the "now" boundary. A custom
+    `.timeline-track` overlay (`#segPast` navy solid / `#segFuture` red diagonal-striped,
+    widths set by `updateTimelineTrack()`) sits BEHIND `#scrub` and a `#nowMarker` tick+"NOW"
+    label sits at the boundary — required stripping ALL native range-input chrome
+    (`-webkit-appearance:none` on both the input AND `::-webkit-slider-runnable-track`, custom
+    `::-webkit-slider-thumb`/`::-moz-range-thumb`) because Chrome's default track pill paints
+    OVER a merely-`background:transparent` override and hides the custom colors underneath —
+    found by comparing a rendered screenshot against `getComputedStyle` (the gradient WAS
+    applied but invisible). `#frameTime` shows past frames as today's clock time + a "Now" tag
+    on the boundary frame, future frames as `+N min · FORECAST` (no clock time — HRRR run
+    timestamps aren't fetched, offsets are relative to page-load time). `playStep()` needed NO
+    change — it already wraps 0..frames.length-1, so play now naturally traverses the whole
+    past→future timeline and loops.
+  - **Farm rain line**: new `#farmRainLine` strip under the radar card, from Open-Meteo
+    `minutely_15` (`forecast_minutely_15=8` = 2h of 15-min slots). First slot with
+    precipitation>0 → "🌧 Rain could reach the farm around 3:15 PM"; all-zero → "☀️ No rain
+    expected...". Time parsed directly from the ISO string's `T HH:MM` (Open-Meteo returns
+    local wall-clock for the requested `timezone`, no offset suffix) rather than through
+    `Date()`, to avoid a double timezone conversion. **Hidden entirely** (not an error message)
+    on fetch failure — `el.classList.add("hidden")` + empty text, no stale content.
+  - **Degradation**: HRRR probe failing → `futureFrames:0`, timeline is past-only exactly as
+    before (verified — the independent node-side reachability probe in
+    `tools/_verify-weather.cjs` gates which branch the test expects). RainViewer failing but
+    HRRR up → future-only timeline + an inline "Live radar is unavailable... showing HRRR
+    forecast only" note. Both failing → the original full radar-err message. Page never blank.
+  - **Verify**: `tools/_verify-weather.cjs` rewritten with 2 browser passes — mobile (full
+    suite incl. future-frame presence gated on an independent IEM reachability probe, scrub-
+    into-future swaps to a real loaded `mesonet.agron.iastate.edu` tile + `#frameTime` says
+    "forecast", play traverses past the `nowIdx` boundary, now-marker visible, mobile
+    timeline/nav non-overlap) and desktop (screenshot + a REQUEST-INTERCEPTION-blocked
+    Open-Meteo `minutely_15` route to prove the rain line hides gracefully rather than
+    aborting the page — request must stay pending-not-aborted-then-inspected per the
+    farmgpt camera-ring lesson doesn't apply here since it's a fetch not a navigation, plain
+    `req.abort()` is fine for a fetch). Screenshots `shots/wx_future_desktop.png` +
+    `shots/wx_future_mobile.png` (scrubbed to a future frame first). Verified live against
+    real RainViewer + real IEM + real Open-Meteo: 21 total frames (13 past + 8 future),
+    nowIdx 12, all future steps 15–120 min found, 0 pageerrors both passes.
