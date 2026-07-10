@@ -1927,21 +1927,22 @@ swapped to Hayhem.
   win banner; Stage 1 aim/carve preserved. Verify: `node tools/_verify-hayhem.cjs`.
   **Paused for user playtest — do not start Stage 3 until approved.**
 
-## hayhem2.html — INDEPENDENT parallel build (Fable session, 2026-07-10)
-`hayhem2.html` + `tools/_verify-hayhem2.cjs` (both UNTRACKED, not linked from games.html):
-a second, from-scratch Hayhem the user requested to A/B against hayhem.html. Do NOT merge
-or reconcile the two files — the user will pick one after playtesting. Differences by
-design: full turn system (alternating teams, unit cycling, settle-wait, active-shooter
-arrow + name labels), EAST AI that shoots back (accuracy ramps per round), slingshot
-drag-aim (pull back, release fires; 40% arc preview), per-turn X-axis wind (HUD arrow,
-preview integrator matches flight), WebAudio SFX (mute in localStorage hh2_muted).
-Camera (user-requested rework): 3rd-person behind-the-shoulder pose while aiming (player
-AND AI turns), ~3s whole-island overview interlude between shots, smooth 0.8s lerps,
-per-frame terrain clearance floor. Also fixes review findings vs hayhem.html: water plane
-ABOVE pond bed (waterY 2.20 > bedTop 1.65), direct hits detonate on critters (HIT_R 0.62,
-shooter + 0.6u arm-clear exempt), speed-scaled substeps ≤0.22u (no tunneling at any
-power), portrait 390×844 framing (overview fits all 6 spawns), HUD below the 46px bar.
-Tuning: GRAV 18, MAX_POWER 26, carve r 1.5 / knock r 2.9. Debug hook window.__HAYHEM2__
-(fireAt/aimDrag/forceCamMode/camInfo/waterInfo/setWind/aiFireNow…). Verify: `node
-tools/_verify-hayhem2.cjs` (54 integration checks, incl. camera-flow + wind honesty +
-anti-tunnel + pond correctness). **Awaiting user playtest verdict (hayhem vs hayhem2).**
+## Hayhem A/B VERDICT (2026-07-10): hayhem2 WON — its build now IS hayhem.html
+The user playtested both and picked hayhem2 (the independent Fable-session build): full
+turn system (alternating teams, unit cycling, settle-wait, active-shooter arrow + name
+labels), EAST AI that shoots back (accuracy ramps per round), slingshot drag-aim (pull
+back, release fires; 40% arc preview), per-turn X-axis wind (HUD arrow, preview integrator
+matches flight), WebAudio SFX (mute key localStorage hh2_muted — kept), 3rd-person
+behind-the-shoulder aim camera + ~3s island-overview interlude between shots, water plane
+above pond bed, direct-hit detonation (HIT_R 0.62), speed-scaled substeps (no tunneling),
+portrait 390×844 framing, ammo system. Tuning: GRAV 18, MAX_POWER 26, carve r 1.5 /
+knock r 2.9. CONSOLIDATION: winner content moved to hayhem.html (games/Play tiles needed
+no change); v1 + hayhem2.html DELETED; debug hook renamed __HAYHEM2__ → __HAYHEM__
+(fireAt/aimDrag/forceCamMode/camInfo/waterInfo/setWind/aiFireNow…); the winner's suite
+replaced the old verify as `node tools/_verify-hayhem.cjs` — now 90 checks (grew past the
+original 54 with ammo/camera-orbit/tap-aim sections), 90/90 PASS post-consolidation.
+GOTCHA from the consolidation itself: OneDrive settled two agents' writes OUT OF ORDER
+(page + verify script briefly held mismatched hook names; a stale http-server squatted the
+suite's port 8862) — after any cross-file rename in this repo, re-grep BOTH files for
+consistency before trusting a verify run, and kill port squatters by PID (never
+taskkill-all-node: it nukes the other agent's processes).
