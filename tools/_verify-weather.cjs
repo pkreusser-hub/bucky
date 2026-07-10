@@ -63,6 +63,11 @@ async function main() {
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e.message || e)));
 
+  const tileResponses = [];
+  page.on("response", (r) => {
+    if (/tilecache\.rainviewer\.com/i.test(r.url())) tileResponses.push({ url: r.url(), status: r.status() });
+  });
+
   await page.goto(BASE + "/weather.html", { waitUntil: "domcontentloaded", timeout: 60000 });
 
   // Structural checks (no network required)
@@ -82,6 +87,10 @@ async function main() {
       farmActive,
       place: (document.querySelector(".now .place") || {}).textContent || "",
       leaflet: typeof window.L !== "undefined",
+      leafletCssLoaded: Array.from(document.styleSheets).some(function (ss) {
+        try { return ss.href && ss.href.indexOf("leaflet.css") >= 0 && ss.cssRules && ss.cssRules.length > 0; }
+        catch (e) { return false; }
+      }),
     };
   });
 
@@ -96,6 +105,7 @@ async function main() {
   assert(struct.farmActive, "Farm tab active");
   assert(/Woodville/i.test(struct.place), "Woodville label");
   assert(struct.leaflet, "Leaflet loaded");
+  assert(struct.leafletCssLoaded, "leaflet.css stylesheet actually applied (SRI hash valid, not blocked)");
 
   // Wait for APIs (or friendly failure) — up to 20s
   await page.waitForFunction(
@@ -131,6 +141,24 @@ async function main() {
   if (wx.radarOk) {
     assert(wx.frames >= 1, "radar frames loaded");
     assert(!wx.scrubDisabled, "scrubber enabled");
+
+    // Radar overlay actually mounted on the map (not just fetched)
+    const radarLayer = await page.evaluate(() => {
+      const mapEl = document.getElementById("map");
+      const tileImgs = Array.from(mapEl.querySelectorAll("img.leaflet-tile"));
+      const radarImgs = tileImgs.filter((img) => /tilecache\.rainviewer\.com/i.test(img.src));
+      const loaded = radarImgs.filter((img) => img.complete && img.naturalWidth > 0);
+      return { radarTileCount: radarImgs.length, radarTileLoaded: loaded.length };
+    });
+    assert(radarLayer.radarTileCount >= 1, "at least one radar tile <img> mounted on the map");
+    assert(radarLayer.radarTileLoaded >= 1, "at least one radar tile actually loaded (naturalWidth>0)");
+
+    // Real tile HTTP status sample
+    await new Promise((r) => setTimeout(r, 500));
+    const okTiles = tileResponses.filter((t) => t.status === 200);
+    assert(tileResponses.length >= 1, "radar tile HTTP request observed");
+    assert(okTiles.length >= 1, "radar tile HTTP request returned 200 (sample: " +
+      (tileResponses[0] && tileResponses[0].status) + " " + (tileResponses[0] && tileResponses[0].url) + ")");
   } else {
     const rerr = await page.evaluate(() =>
       /unavailable|Couldn/i.test(document.getElementById("frameTime").textContent +
@@ -140,20 +168,35 @@ async function main() {
 
   // Play/pause + scrub smoke when radar works
   if (wx.radarOk && wx.frames >= 2) {
-    const playState = await page.evaluate(() => {
-      const btn = document.getElementById("playBtn");
-      btn.click();
-      const playing = btn.classList.contains("playing");
-      btn.click();
-      const paused = !btn.classList.contains("playing");
+    // Play must actually advance the frame index over real time (not just toggle a class)
+    const startIdx = await page.evaluate(() => parseInt(document.getElementById("scrub").value, 10));
+    await page.click("#playBtn");
+    const playingNow = await page.evaluate(() => document.getElementById("playBtn").classList.contains("playing"));
+    assert(playingNow, "play starts animation (playing class set)");
+    await new Promise((r) => setTimeout(r, 1600)); // ANIM_MS=450, so several steps should fire
+    const midIdx = await page.evaluate(() => parseInt(document.getElementById("scrub").value, 10));
+    assert(midIdx !== startIdx, "frame index advanced while playing (start=" + startIdx + " mid=" + midIdx + ")");
+
+    await page.click("#playBtn");
+    const pausedNow = await page.evaluate(() => document.getElementById("playBtn").classList.contains("playing"));
+    assert(!pausedNow, "pause stops animation");
+    const afterPauseIdx = await page.evaluate(() => parseInt(document.getElementById("scrub").value, 10));
+    await new Promise((r) => setTimeout(r, 900));
+    const stillIdx = await page.evaluate(() => parseInt(document.getElementById("scrub").value, 10));
+    assert(stillIdx === afterPauseIdx, "frame index does not drift after pause");
+
+    // Scrubber input changes the displayed frame (frameTime text updates)
+    const scrubResult = await page.evaluate(() => {
       const s = document.getElementById("scrub");
+      const before = document.getElementById("frameTime").textContent;
       s.value = "0";
       s.dispatchEvent(new Event("input", { bubbles: true }));
-      return { playing, paused, scrub: s.value };
+      const after = document.getElementById("frameTime").textContent;
+      return { before, after, val: s.value };
     });
-    assert(playState.playing, "play starts animation");
-    assert(playState.paused, "pause stops animation");
-    assert(playState.scrub === "0", "scrubber moves to 0");
+    assert(scrubResult.val === "0", "scrubber value set to 0");
+    assert(scrubResult.before !== scrubResult.after || wx.frames === 1,
+      "scrubbing changes the displayed frame time (before=\"" + scrubResult.before + "\" after=\"" + scrubResult.after + "\")");
   }
 
   const realErrors = errors.filter((e) => !/favicon|Failed to load/i.test(e));
@@ -165,6 +208,8 @@ async function main() {
     frames: wx.frames,
     days: wx.dayCount,
     nav: struct.navLinks,
+    leafletCssLoaded: struct.leafletCssLoaded,
+    tileResponses: tileResponses.length,
   });
 
   await browser.close();

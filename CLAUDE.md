@@ -1716,3 +1716,24 @@ avoid collisions with the game's own `net`/`Lobby`-adjacent names.
 - **Nav:** same 7-tab `#buckyNav` as games/farmgpt (Farm tab active). Home's weather
   card is a button → `weather.html` ("Radar & 7-day →").
 - Smoke: `node tools/_verify-weather.cjs` (local http-server; network for real APIs).
+- **RADAR MAP + PLAY-BAR BUG FIX (2026-07-09)**: user reported the radar map "not displaying
+  properly" and the play bar "not working". Root cause: the `leaflet.css` `<link>`'s SRI
+  `integrity` hash was WRONG (stale/typo'd), so Chrome silently BLOCKED the stylesheet
+  (SRI mismatch — no visible error without opening DevTools). Without Leaflet's CSS,
+  `.leaflet-*` panes/controls lose their `position:absolute` rules and render in normal
+  document flow — the zoom control block pushed/overlapped content and tile panes stacked
+  incorrectly, which also silently displaced the play/scrub row so clicks landed on the wrong
+  spot (looked like "the play bar isn't working" but the click handler itself was fine).
+  RainViewer's tile URL scheme (`host` field from `weather-maps.json` + `frame.path` +
+  `/{size}/{z}/{x}/{y}/2/1_1.png`) was already correct — not the bug. FIX: corrected the CSS
+  integrity hash to `sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=` (recomputed via
+  `openssl dgst -sha256 -binary leaflet.css | openssl base64`; the JS `<script>` hash was
+  already correct, untouched). `tools/_verify-weather.cjs` hardened to catch this class of bug
+  again: asserts the stylesheet actually has `cssRules` (not just that the `<link>` tag exists),
+  asserts ≥1 radar `<img class="leaflet-tile">` is mounted+loaded on the map, samples a real
+  RainViewer tile HTTP response for 200, and the play/pause check now waits ~1.6s and asserts
+  the scrub value actually ADVANCES (previously only checked the `.playing` CSS class toggled,
+  which passed even during this SRI-block regression — a false-passing test). Verified fixed vs
+  real network: 0 pageerrors, radar tiles load + render, play advances frames over time, pause
+  halts, scrub jumps to a chosen frame and updates `#frameTime`; desktop + 390×844 screenshots
+  confirm the map, farm pin, and unobstructed play/scrub controls.
