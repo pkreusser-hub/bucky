@@ -1688,6 +1688,20 @@ avoid collisions with the game's own `net`/`Lobby`-adjacent names.
   `tools/_verify-hud-defaults.cjs` similarly has one pre-existing failure (expects mobile
   camDist 6.5, code now correctly reads 5.35 per the same-day mobile-camera pullback) —
   neither pre-existing failure is caused by or related to the lobby port.
+- **HOST-SIDE INVISIBLE-GUEST FIX (2026-07-09)**: on the host, `Playroom.onPlayerJoin`
+  pre-creates `G.players['r_'+player.id]` (grid pose only) the moment a guest joins, so the
+  `if (!p)` new-entry branch in `adoptKart` — the only place that called `buildKartView` —
+  never ran for that key; guest karts synced position/hits but had no mesh (host saw an
+  empty track, guest saw everyone fine). Fixed by hoisting the `buildKartView` call out of
+  the `if (!p)` branch so it runs on every `adoptKart` tick for any player missing a view
+  (idempotent via the existing `kartViews[key]` guard). Quit cleanup was already correct
+  (`onPlayerJoin`'s `player.onQuit` calls `removeKartView` + deletes the `G.players` entry) —
+  no change needed there. Verified live vs the real Playroom backend (2 real Chrome
+  instances): guest-joins-on-menu-then-race-starts and guest-joins-mid-race both end with
+  the host's `r_<id>` entry `hasView:true`/`inScene:true`/tracking world position, exactly
+  one `kartViews` entry per player, 0 pageerrors; host screenshot shows the guest's kart +
+  name label. Regression: solo race boots/drives with Playroom blocked (0 pageerrors),
+  `tools/_verify-items.cjs` 24/24, `_verify-audio.cjs` 18/18, `_verify-hud-defaults.cjs` PASS.
 
 # 🌤️ Weather — Woodville / Amen Farms (2026-07-09)
 

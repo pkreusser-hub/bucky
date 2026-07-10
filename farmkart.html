@@ -4114,8 +4114,13 @@
       p.pos.x = ks.x; p.pos.z = ks.z; p.y = ks.y; p.theta = ks.th;
       p._remotePid = remotePid || null; p._remote = true; p.isBot = !!isBot;
       G.players[key] = p;
-      if (!kartViews[key]) buildKartView(key, ks.col!=null?ks.col:0x8844cc, false, ks.nm || 'Racer');
     }
+    // Build the view for ANY adopted entry missing one — not just brand-new ones. On the host,
+    // Playroom.onPlayerJoin pre-creates G.players['r_'+id] (grid pose only, no view) the moment a
+    // guest joins, so by the time this fn ran the `if (!p)` branch above was already false and the
+    // view build never happened — guest karts synced state/hits but had no mesh (2026-07-09 bug).
+    // buildKartView is idempotent (kartViews[key] guard) so this is safe to call every tick.
+    if (!kartViews[key]) buildKartView(key, ks.col!=null?ks.col:0x8844cc, false, ks.nm || 'Racer');
     // spatial: interpolate (~120ms), snap on a big error (>8u) to avoid a long glide
     const err = Math.hypot(ks.x - p.pos.x, ks.z - p.pos.z);
     if (err > 8){ p.pos.x = ks.x; p.pos.z = ks.z; p.y = ks.y; p.theta = ks.th; }
