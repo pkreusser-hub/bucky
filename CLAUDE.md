@@ -933,6 +933,33 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   KNOWN GAP: banking data still lives in public Firestore (rules unchanged) — the lock hides the
   admin UI, not the raw data; true server enforcement would need the "server-enforced" option
   (DAD_PASSWORD env var) the user declined.
+- ROSTER-EDIT PIN GATE (2026-07-10, index.html): a kid discovered the FarmGPT 30/day story cap
+  is per-choreUser-identity and beat it by renaming their own profile in the Family sheet (new
+  name = fresh identity = fresh cap). Family-sheet roster MUTATIONS (add member, save an edit,
+  delete a member) are now gated behind `gateDadForRoster()` — a wrapper around the existing
+  `gateDad()` (create-or-verify PIN prompt) called at every mutation point: `saveFamilyMember()`
+  (covers both Add and Save-edit — the single mutation path for both), the ✎ edit-entry `onclick`
+  (gated too, for early friction — the ✎ button just loads the form, so double-gating it is free),
+  and the 🗑 delete `onclick`. "This is me" (selecting an EXISTING profile) stays ungated except
+  the pre-existing Dad-profile gate. A muted hint line was added under the form: "🔒 Dad's PIN is
+  needed to change the family list". SUBTLETY CAUGHT: `gateDad()` sets the SESSION-WIDE
+  `sessionStorage["dadUnlocked"]` flag on success, and that same flag also gates banking admin UI
+  via `bankAdmin() = isDadName() && dadUnlocked()`. Traced every `dadUnlocked()` call site (3:
+  `bankAdmin()`, the payout-confirm/kid-bank-admin-chip gate, and the Dad-but-locked auto-prompt in
+  `render()`) — all of them ALSO require `isDadName()` (current profile === "Dad"), so a kid's
+  session having `dadUnlocked=1` while `choreUser` is still the kid's own name does NOT by itself
+  unlock banking (and re-selecting "This is me" → Dad still forces a fresh `gateDad()` prompt
+  regardless of the flag). Handled defensively anyway per the task spec: `gateDadForRoster()`
+  clears `sessionStorage["dadUnlocked"]` right after a successful gate IF the current profile is
+  NOT Dad, so a kid's session never carries the flag past the roster edit; if the current profile
+  IS Dad, the unlock is left in place (a legitimate Dad session, matches existing behavior).
+  Verified headless (scratchpad p14_roster_gate.mjs, window.prompt stubbed via addInitScript with a
+  scriptable answer queue since gateDad uses prompt()/alert()): 10/10 — fresh family + cancel PIN
+  creation → no member added; wrong PIN at the ✎ entry gate → form not populated; wrong PIN at the
+  save gate → rename rejected; right PIN at both → rename applies; add-with-right-PIN succeeds;
+  "This is me" on a non-Dad profile calls prompt() 0 times; post-edit sessionStorage.dadUnlocked is
+  null for a kid session; 0 pageerrors. Regressions unaffected (profile-switch flows exercised
+  there call no roster mutations): p7_fixes.mjs 15/15, p8_gate.mjs 18/18.
 - UI FIX BATCH (2026-07-09, index.html + games.html + farmgpt.html): (1) Farm Bank shows only the
   logged-in kid's account (renderFarmBank: a BANK_KID sees just their card; Dad sees all). (2) Work-
   order cards compacted (tighter .wo-top/.wo-meta/.wo-desc/.wo-actions padding + 34px thumb) to fit

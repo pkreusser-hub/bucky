@@ -795,6 +795,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
     <label for="famName" id="famFormLabel" style="margin-top:14px;">Add a family member</label>
     <input type="text" id="famName" placeholder="Name" autocomplete="off" />
     <input type="email" id="famEmail" placeholder="Email (for work-order alerts)" autocomplete="off" style="margin-top:8px;" />
+    <div style="color:var(--muted);font-size:11.5px;margin-top:6px;">🔒 Dad's PIN is needed to change the family list</div>
     <div class="sheet-actions">
       <button class="btn ghost" id="famCloseBtn">Close</button>
       <button class="btn primary" id="famAddBtn">Add member</button>
@@ -1021,6 +1022,15 @@ async function gateDad(){
   if (pin == null) return false;
   if ((await sha256Hex(pin + ":" + FAMILY_PASSWORD)) === dadPinHash()){ sessionStorage.setItem("dadUnlocked", "1"); return true; }
   alert("Wrong PIN."); return false;
+}
+// Gate for roster mutations (add/edit/delete family members) — anyone can trigger this (kids
+// included), so it must NOT leave the session-wide dadUnlocked flag set for a non-Dad user
+// afterward (that flag also gates banking admin UI via bankAdmin()). If the CURRENT profile is
+// Dad, leave the unlock in place (a legitimate Dad session). Otherwise clear it right after.
+async function gateDadForRoster(){
+  const ok = await gateDad();
+  if (ok && !isDadName()) sessionStorage.removeItem("dadUnlocked");
+  return ok;
 }
 
 /* ---- Email alerts (EmailJS) — see the setup guide, "Work-order email alerts".
@@ -4545,9 +4555,9 @@ function renderFamilyList(){
       renderFamilyList(); render();
     };
     const ed = document.createElement("button"); ed.className = "iconbtn"; ed.innerHTML = "✎";
-    ed.onclick = () => { editingProfileId = m.id; document.getElementById("famName").value = m.name; document.getElementById("famEmail").value = m.email || ""; document.getElementById("famAddBtn").textContent = "Save"; document.getElementById("famFormLabel").textContent = "Edit family member"; };
+    ed.onclick = async () => { if (!(await gateDadForRoster())) return; editingProfileId = m.id; document.getElementById("famName").value = m.name; document.getElementById("famEmail").value = m.email || ""; document.getElementById("famAddBtn").textContent = "Save"; document.getElementById("famFormLabel").textContent = "Edit family member"; };
     const del = document.createElement("button"); del.className = "iconbtn"; del.innerHTML = "🗑";
-    del.onclick = async () => { chores = chores.filter(c=>c.id!==m.id); await backend.remove(m.id); renderFamilyList(); };
+    del.onclick = async () => { if (!(await gateDadForRoster())) return; chores = chores.filter(c=>c.id!==m.id); await backend.remove(m.id); renderFamilyList(); };
     row.append(info, meBtn, ed, del);
     wrap.appendChild(row);
   }
@@ -4565,6 +4575,7 @@ function closeFamilySheet(){ document.getElementById("familyOverlay").classList.
 async function saveFamilyMember(){
   const name = document.getElementById("famName").value.trim();
   if (!name){ document.getElementById("famName").focus(); return; }
+  if (!(await gateDadForRoster())) return;
   const email = document.getElementById("famEmail").value.trim();
   if (editingProfileId){
     const p = chores.find(c=>c.id===editingProfileId);
