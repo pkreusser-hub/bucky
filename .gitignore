@@ -13,3 +13,6 @@ shots/
 netlify/functions/node_modules/
 tools/.env
 *.key
+
+# farm life dev dependencies (dist IS committed - static deploy)
+farmlife/node_modules/

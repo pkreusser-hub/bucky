@@ -1,0 +1,1768 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#233357">
+<title>BUCKY — Hayhem</title>
+<link rel="icon" href="bucky.png">
+<style>
+  :root {
+    --navy: #233357;
+    --navy-d: #18233b;
+    --red: #ba303e;
+    --cream: #f4efe4;
+    --ink: #15233f;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: linear-gradient(180deg, #7eb8e8 0%, #c5e4f5 45%, #8fb86a 100%);
+    color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  #bar {
+    position: fixed; top: 0; left: 0; right: 0; height: 46px; z-index: 40;
+    display: flex; align-items: center; gap: 10px; padding: 0 12px;
+    background: var(--navy); box-shadow: 0 2px 10px rgba(0,0,0,.25);
+  }
+  #bar a {
+    color: #fff; text-decoration: none; font-weight: 800; font-size: 15px;
+    background: rgba(255,255,255,.15); padding: 7px 12px; border-radius: 9px;
+  }
+  #bar .t { font-weight: 800; letter-spacing: .3px; }
+  #stage { position: absolute; top: 46px; left: 0; right: 0; bottom: 0; }
+  #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+
+  #title {
+    position: absolute; inset: 0; z-index: 20;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background:
+      radial-gradient(ellipse at 50% 20%, rgba(255,255,255,.35), transparent 55%),
+      linear-gradient(180deg, #6aa8d8 0%, #b7d9a0 55%, #6e9a4a 100%);
+    text-align: center; padding: 24px 18px calc(env(safe-area-inset-bottom) + 24px);
+  }
+  #title.hidden { display: none; }
+  .logo {
+    font-size: clamp(42px, 12vw, 72px); font-weight: 900; letter-spacing: 1px;
+    color: #fff; text-shadow: 0 3px 0 var(--navy-d), 0 8px 18px rgba(0,0,0,.35);
+    margin: 0 0 6px;
+  }
+  .sub {
+    margin: 0 0 22px; font-size: 15px; font-weight: 700; color: var(--navy);
+    background: rgba(255,255,255,.55); padding: 6px 14px; border-radius: 999px;
+  }
+  .playBtn {
+    appearance: none; border: 0; cursor: pointer;
+    background: var(--red); color: #fff; font-weight: 900; font-size: 20px;
+    padding: 14px 36px; border-radius: 16px;
+    box-shadow: 0 4px 0 #7a1f28, 0 10px 24px rgba(0,0,0,.25);
+  }
+  .playBtn:active { transform: translateY(2px); box-shadow: 0 2px 0 #7a1f28, 0 6px 14px rgba(0,0,0,.2); }
+  .hint {
+    margin-top: 18px; max-width: 340px; font-size: 13px; line-height: 1.45;
+    color: var(--navy-d); font-weight: 600; opacity: .9;
+  }
+
+  #hud {
+    position: absolute; inset: 0; z-index: 12; pointer-events: none;
+    display: none;
+  }
+  #hud.on { display: block; }
+  #toast {
+    position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+    background: rgba(35,51,87,.82); color: #fff; font-weight: 800; font-size: 14px;
+    padding: 8px 14px; border-radius: 12px; opacity: 0; transition: opacity .2s;
+    white-space: nowrap; max-width: 90vw; overflow: hidden; text-overflow: ellipsis;
+  }
+  #toast.show { opacity: 1; }
+  #scoreboard {
+    position: absolute; top: 14px; left: 12px; right: 12px;
+    display: flex; justify-content: space-between; gap: 10px;
+    pointer-events: none;
+  }
+  .teamCard {
+    background: rgba(35,51,87,.78); border-radius: 12px; padding: 8px 12px;
+    min-width: 118px; border: 2px solid rgba(255,255,255,.18);
+  }
+  .teamCard.east { background: rgba(186,48,62,.82); }
+  .teamCard .lab { font-size: 11px; font-weight: 800; opacity: .9; letter-spacing: .3px; }
+  .teamCard .val { font-size: 18px; font-weight: 900; margin-top: 2px; }
+  #aimControls {
+    position: absolute; left: 12px; bottom: calc(env(safe-area-inset-bottom) + 18px);
+    width: min(200px, 46vw); pointer-events: auto;
+    display: flex; flex-direction: column; gap: 10px;
+    background: rgba(35,51,87,.78); border-radius: 14px; padding: 10px 12px;
+    border: 2px solid rgba(255,255,255,.18);
+  }
+  #aimControls .sliderRow { display: flex; flex-direction: column; gap: 4px; }
+  #aimControls label {
+    font-size: 11px; font-weight: 800; letter-spacing: .4px;
+    text-shadow: 0 1px 3px rgba(0,0,0,.45);
+  }
+  #aimControls input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 18px; border-radius: 999px;
+    background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.22);
+    outline: none; touch-action: none; cursor: pointer;
+  }
+  #aimControls input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 28px; height: 28px; border-radius: 50%;
+    background: #ffd23f; border: 3px solid #fff;
+    box-shadow: 0 2px 6px rgba(0,0,0,.35); cursor: pointer;
+  }
+  #aimControls input[type="range"]::-moz-range-thumb {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: #ffd23f; border: 3px solid #fff;
+    box-shadow: 0 2px 6px rgba(0,0,0,.35); cursor: pointer;
+  }
+  #heightSlider { accent-color: #7eb8e8; }
+  #powerSlider { accent-color: #ba303e; }
+  #fireBtn {
+    position: absolute; right: 14px; bottom: calc(env(safe-area-inset-bottom) + 18px);
+    width: 88px; height: 88px; border-radius: 50%;
+    border: 3px solid #fff; background: var(--red); color: #fff;
+    font-weight: 900; font-size: 16px; letter-spacing: .5px;
+    box-shadow: 0 6px 0 #7a1f28, 0 12px 28px rgba(0,0,0,.35);
+    pointer-events: auto; display: block; touch-action: manipulation; cursor: pointer;
+  }
+  #fireBtn:active { transform: translateY(3px); box-shadow: 0 3px 0 #7a1f28, 0 8px 16px rgba(0,0,0,.3); }
+  #aimHint {
+    position: absolute; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 118px);
+    transform: translateX(-50%); font-size: 12px; font-weight: 700;
+    text-shadow: 0 1px 4px rgba(0,0,0,.7); opacity: .85; text-align: center;
+    max-width: 70vw; pointer-events: none;
+  }
+  #winBanner {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    background: rgba(24,35,59,.55); pointer-events: auto; z-index: 15;
+  }
+  #winBanner.on { display: flex; }
+  #winBanner .card {
+    background: #fff; color: var(--navy); border-radius: 18px; padding: 22px 28px;
+    text-align: center; box-shadow: 0 12px 40px rgba(0,0,0,.35); max-width: 90vw;
+  }
+  #winBanner h2 { margin: 0 0 8px; font-size: 28px; }
+  #winBanner p { margin: 0 0 16px; font-weight: 700; color: #445; }
+  #winBanner button {
+    appearance: none; border: 0; background: var(--navy); color: #fff;
+    font-weight: 900; font-size: 16px; padding: 12px 22px; border-radius: 12px; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+  <div id="bar">
+    <a href="games.html">← Bucky</a>
+    <span class="t">🎃 Hayhem</span>
+  </div>
+
+  <div id="stage"></div>
+
+  <div id="title">
+    <div class="logo">HAYHEM</div>
+    <p class="sub">Farmyard artillery mayhem</p>
+    <button class="playBtn" id="playBtn" type="button">PLAY</button>
+    <p class="hint">Click to lock aim, set height &amp; power, then FIRE (or Space). Blast critters into the pond — Stage 2 ragdoll flop!</p>
+  </div>
+
+  <div id="hud">
+    <div id="scoreboard">
+      <div class="teamCard west">
+        <div class="lab">WEST · GOATS</div>
+        <div class="val" id="westOuts">3 in</div>
+      </div>
+      <div class="teamCard east">
+        <div class="lab">EAST · ARMADILLOS</div>
+        <div class="val" id="eastOuts">3 in</div>
+      </div>
+    </div>
+    <div id="toast"></div>
+    <div id="aimControls">
+      <div class="sliderRow">
+        <label for="heightSlider">HEIGHT</label>
+        <input type="range" id="heightSlider" min="0" max="100" value="45" aria-label="Shot height">
+      </div>
+      <div class="sliderRow">
+        <label for="powerSlider">POWER</label>
+        <input type="range" id="powerSlider" min="0" max="100" value="55" aria-label="Shot power">
+      </div>
+    </div>
+    <div id="aimHint">Click to lock aim · height &amp; power · FIRE / Space</div>
+    <button id="fireBtn" type="button">FIRE</button>
+    <div id="winBanner">
+      <div class="card">
+        <h2 id="winTitle">Yard wins!</h2>
+        <p id="winSub">Everyone else went for a swim.</p>
+        <button type="button" id="againBtn">PLAY AGAIN</button>
+      </div>
+    </div>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script type="module">
+import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js";
+
+(() => {
+  "use strict";
+
+  // ─── device ───────────────────────────────────────────────────────────────
+  const IS_MOBILE = !!(window.matchMedia &&
+    window.matchMedia("(pointer: coarse)").matches &&
+    Math.min(window.innerWidth, window.innerHeight) < 900);
+  if (IS_MOBILE) document.body.classList.add("mobile");
+
+  // ─── G: ALL shared gameplay state (MP-ready from day one) ─────────────────
+  const G = {
+    phase: "title",          // title | aim | flying | won
+    activeTeam: 0,
+    activeUnit: 0,
+    teams: [
+      { id: 0, name: "West Yard", color: 0x233357, kind: "goat" },
+      { id: 1, name: "East Yard", color: 0xba303e, kind: "armadillo" }
+    ],
+    spawns: [
+      { team: 0, x: -11.5, z: -3.5 },
+      { team: 0, x: -12.2, z: 0.0 },
+      { team: 0, x: -11.5, z: 3.5 },
+      { team: 1, x: 11.5, z: -3.5 },
+      { team: 1, x: 12.2, z: 0.0 },
+      { team: 1, x: 11.5, z: 3.5 }
+    ],
+    units: [],
+    projectile: null,
+    voxels: null,
+    voxelCount: 0,
+    lastCarve: 0,
+    shotCount: 0,
+    winner: null,
+    outs: { 0: 0, 1: 0 }
+  };
+
+  const UNIT_NAMES = {
+    0: ["Bucky", "Nanny", "Kid"],
+    1: ["Shell", "Rollie", "Pip"]
+  };
+
+  // ─── voxel grid ───────────────────────────────────────────────────────────
+  const CELL = 0.55;
+  const GX = 56, GY = 14, GZ = 32;
+  const OX = -(GX * CELL) / 2;
+  const OY = -0.2;
+  const OZ = -(GZ * CELL) / 2;
+  const CHUNK = 8;
+  const CX = Math.ceil(GX / CHUNK);
+  const CY = Math.ceil(GY / CHUNK);
+  const CZ = Math.ceil(GZ / CHUNK);
+  const WATER_Y = OY + CELL * 1.35;
+  const POND_X = 3.2;
+  const POND_Z = 7.0;
+  const WATER_OUT_T = 0.55;
+
+  const MAT = {
+    1: 0xa67c52,
+    2: 0x6fae54,
+    3: 0x8a8f96
+  };
+
+  function vi(ix, iy, iz) { return ix + GX * (iy + GY * iz); }
+  function inBounds(ix, iy, iz) {
+    return ix >= 0 && iy >= 0 && iz >= 0 && ix < GX && iy < GY && iz < GZ;
+  }
+  function worldToCell(x, y, z) {
+    return {
+      ix: Math.floor((x - OX) / CELL),
+      iy: Math.floor((y - OY) / CELL),
+      iz: Math.floor((z - OZ) / CELL)
+    };
+  }
+  function cellCenter(ix, iy, iz) {
+    return {
+      x: OX + (ix + 0.5) * CELL,
+      y: OY + (iy + 0.5) * CELL,
+      z: OZ + (iz + 0.5) * CELL
+    };
+  }
+  function inPondXZ(x, z) {
+    return Math.abs(x) < POND_X && Math.abs(z) < POND_Z;
+  }
+
+  function yardHeight(ix, iz) {
+    const wx = OX + (ix + 0.5) * CELL;
+    const wz = OZ + (iz + 0.5) * CELL;
+    const pond = Math.abs(wx) < 3.4 && Math.abs(wz) < 7.2;
+    if (pond) return 1;
+    let h = 5;
+    if (Math.abs(wx) < 5.2) h = 3 + Math.floor((Math.abs(wx) - 3.4) * 1.1);
+    if (Math.abs(wz) > 6.5) h = Math.max(2, h - 1);
+    const bump = ((ix * 17 + iz * 31) % 7 === 0) ? 1 : 0;
+    return Math.min(GY - 1, h + bump);
+  }
+
+  function buildVoxelField() {
+    const vox = new Uint8Array(GX * GY * GZ);
+    let count = 0;
+    for (let iz = 0; iz < GZ; iz++) {
+      for (let ix = 0; ix < GX; ix++) {
+        const h = yardHeight(ix, iz);
+        const wx = OX + (ix + 0.5) * CELL;
+        const inPond = Math.abs(wx) < 3.4 && Math.abs(OZ + (iz + 0.5) * CELL) < 7.2;
+        for (let iy = 0; iy <= h; iy++) {
+          let t = 1;
+          if (iy === h && !inPond) t = 2;
+          if (iy === 0) t = 3;
+          if (inPond && iy === h) t = 3;
+          vox[vi(ix, iy, iz)] = t;
+          count++;
+        }
+      }
+    }
+    G.voxels = vox;
+    G.voxelCount = count;
+  }
+
+  // ─── three.js scene ───────────────────────────────────────────────────────
+  const stage = document.getElementById("stage");
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, IS_MOBILE ? 1.5 : 2));
+  renderer.setClearColor(0x87b8e0, 1);
+  stage.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(0x9ec8e8, 28, 70);
+
+  const camera = new THREE.PerspectiveCamera(42, 1, 0.2, 120);
+  const camTarget = new THREE.Vector3(0, 2.2, 0);
+  camera.position.set(0, 18, 22);
+  camera.lookAt(camTarget);
+
+  const hemi = new THREE.HemisphereLight(0xe8f4ff, 0x6a7a4a, 0.85);
+  scene.add(hemi);
+  const sun = new THREE.DirectionalLight(0xfff2d6, 0.75);
+  sun.position.set(-12, 22, 8);
+  scene.add(sun);
+
+  const skyGeo = new THREE.SphereGeometry(80, 16, 12);
+  const skyMat = new THREE.MeshBasicMaterial({ color: 0x7eb8e8, side: THREE.BackSide });
+  scene.add(new THREE.Mesh(skyGeo, skyMat));
+
+  const water = new THREE.Mesh(
+    new THREE.PlaneGeometry(6.6, 14.2),
+    new THREE.MeshLambertMaterial({
+      color: 0x3a8fc4, transparent: true, opacity: 0.72, depthWrite: false
+    })
+  );
+  water.rotation.x = -Math.PI / 2;
+  water.position.set(0, WATER_Y, 0);
+  water.renderOrder = 2;
+  scene.add(water);
+
+  const bed = new THREE.Mesh(
+    new THREE.PlaneGeometry(6.4, 14),
+    new THREE.MeshLambertMaterial({ color: 0x5a6e3a })
+  );
+  bed.rotation.x = -Math.PI / 2;
+  bed.position.set(0, OY + CELL * 0.4, 0);
+  scene.add(bed);
+
+  const boxGeo = new THREE.BoxGeometry(CELL * 0.98, CELL * 0.98, CELL * 0.98);
+  const chunkMeshes = [];
+  const chunkMap = new Map();
+
+  function chunkKey(cx, cy, cz) { return cx + "|" + cy + "|" + cz; }
+
+  function rebuildChunk(cx, cy, cz) {
+    const key = chunkKey(cx, cy, cz);
+    const old = chunkMap.get(key);
+    if (old) {
+      scene.remove(old.mesh);
+      old.mesh.geometry.dispose();
+      chunkMap.delete(key);
+      const idx = chunkMeshes.indexOf(old);
+      if (idx >= 0) chunkMeshes.splice(idx, 1);
+    }
+
+    const x0 = cx * CHUNK, y0 = cy * CHUNK, z0 = cz * CHUNK;
+    const cells = [];
+    for (let iz = 0; iz < CHUNK; iz++) {
+      const gz = z0 + iz; if (gz >= GZ) continue;
+      for (let iy = 0; iy < CHUNK; iy++) {
+        const gy = y0 + iy; if (gy >= GY) continue;
+        for (let ix = 0; ix < CHUNK; ix++) {
+          const gx = x0 + ix; if (gx >= GX) continue;
+          const t = G.voxels[vi(gx, gy, gz)];
+          if (t) cells.push({ gx, gy, gz, t });
+        }
+      }
+    }
+    if (!cells.length) return;
+
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: false });
+    const mesh = new THREE.InstancedMesh(boxGeo, mat, cells.length);
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    const dummy = new THREE.Object3D();
+    const col = new THREE.Color();
+    for (let i = 0; i < cells.length; i++) {
+      const c = cells[i];
+      const p = cellCenter(c.gx, c.gy, c.gz);
+      dummy.position.set(p.x, p.y, p.z);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+      col.setHex(MAT[c.t] || 0x888888);
+      col.offsetHSL(0, 0, ((c.gx * 3 + c.gz * 5) % 5) * 0.012 - 0.02);
+      mesh.setColorAt(i, col);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    mesh.frustumCulled = false;
+    scene.add(mesh);
+    const entry = { mesh, key, cx, cy, cz };
+    chunkMap.set(key, entry);
+    chunkMeshes.push(entry);
+  }
+
+  function rebuildAllChunks() {
+    for (const e of [...chunkMeshes]) {
+      scene.remove(e.mesh);
+      e.mesh.geometry.dispose();
+    }
+    chunkMeshes.length = 0;
+    chunkMap.clear();
+    for (let cz = 0; cz < CZ; cz++)
+      for (let cy = 0; cy < CY; cy++)
+        for (let cx = 0; cx < CX; cx++)
+          rebuildChunk(cx, cy, cz);
+  }
+
+  function markDirtyAround(ix, iy, iz, rCells) {
+    const dirty = new Set();
+    const r = Math.ceil(rCells) + 1;
+    for (let dz = -r; dz <= r; dz++)
+      for (let dy = -r; dy <= r; dy++)
+        for (let dx = -r; dx <= r; dx++) {
+          const x = ix + dx, y = iy + dy, z = iz + dz;
+          if (!inBounds(x, y, z)) continue;
+          dirty.add(chunkKey(Math.floor(x / CHUNK), Math.floor(y / CHUNK), Math.floor(z / CHUNK)));
+        }
+    return dirty;
+  }
+
+  function carveSphere(wx, wy, wz, radius) {
+    const { ix, iy, iz } = worldToCell(wx, wy, wz);
+    const rCells = radius / CELL;
+    let removed = 0;
+    const r2 = radius * radius;
+    const span = Math.ceil(rCells) + 1;
+    for (let dz = -span; dz <= span; dz++) {
+      for (let dy = -span; dy <= span; dy++) {
+        for (let dx = -span; dx <= span; dx++) {
+          const x = ix + dx, y = iy + dy, z = iz + dz;
+          if (!inBounds(x, y, z)) continue;
+          const i = vi(x, y, z);
+          if (!G.voxels[i]) continue;
+          const c = cellCenter(x, y, z);
+          const d2 = (c.x - wx) ** 2 + (c.y - wy) ** 2 + (c.z - wz) ** 2;
+          if (d2 <= r2) {
+            G.voxels[i] = 0;
+            removed++;
+          }
+        }
+      }
+    }
+    if (removed) {
+      G.voxelCount -= removed;
+      G.lastCarve = removed;
+      const dirty = markDirtyAround(ix, iy, iz, rCells);
+      for (const key of dirty) {
+        const [cx, cy, cz] = key.split("|").map(Number);
+        rebuildChunk(cx, cy, cz);
+      }
+    }
+    return removed;
+  }
+
+  function groundYAt(x, z) {
+    if (inPondXZ(x, z)) return WATER_Y - 0.85;
+    const { ix, iz } = worldToCell(x, 0, z);
+    if (!inBounds(ix, 0, iz)) return OY;
+    for (let iy = GY - 1; iy >= 0; iy--) {
+      if (G.voxels[vi(ix, iy, iz)]) {
+        return OY + (iy + 1) * CELL;
+      }
+    }
+    return OY + CELL;
+  }
+
+  // ─── cannon-es world (ragdoll only — no per-voxel colliders) ──────────────
+  const physWorld = new CANNON.World({
+    gravity: new CANNON.Vec3(0, -22, 0)
+  });
+  physWorld.broadphase = new CANNON.SAPBroadphase(physWorld);
+  physWorld.allowSleep = true;
+  physWorld.defaultContactMaterial.friction = 0.55;
+  physWorld.defaultContactMaterial.restitution = 0.15;
+
+  // soft catch floor under the whole farm (prevents infinite fall)
+  const floorBody = new CANNON.Body({
+    type: CANNON.Body.STATIC,
+    shape: new CANNON.Plane()
+  });
+  floorBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+  floorBody.position.set(0, OY - 0.5, 0);
+  physWorld.addBody(floorBody);
+
+  // ─── critter visuals + ragdoll (local, outside G) ─────────────────────────
+  /** @type {Array<{group:THREE.Group, parts:Object, bodies:Object, constraints:CANNON.Constraint[], bodyList:CANNON.Body[]}>} */
+  const critters = [];
+  const spawnMarkers = [];
+
+  const BODY_KEYS = ["torso", "head", "legFL", "legFR", "legBL", "legBR"];
+
+  function makePartMesh(sx, sy, sz, color) {
+    return new THREE.Mesh(
+      new THREE.BoxGeometry(sx, sy, sz),
+      new THREE.MeshLambertMaterial({ color })
+    );
+  }
+
+  function buildCritterVisual(kind, team) {
+    const g = new THREE.Group();
+    const fur = team === 0 ? 0x8a5c36 : 0xc4a070;
+    const accent = team === 0 ? 0x233357 : 0xba303e;
+    const shell = 0x9a7a52;
+    const parts = {};
+
+    if (kind === "goat") {
+      parts.torso = makePartMesh(0.55, 0.42, 0.85, fur);
+      parts.head = makePartMesh(0.38, 0.34, 0.38, fur);
+      const snout = makePartMesh(0.22, 0.16, 0.28, 0xb8845a);
+      snout.position.set(0, -0.04, 0.22);
+      parts.head.add(snout);
+      const earL = makePartMesh(0.1, 0.18, 0.06, fur);
+      earL.position.set(-0.2, 0.14, 0);
+      earL.rotation.z = 0.4;
+      parts.head.add(earL);
+      const earR = earL.clone();
+      earR.position.x = 0.2;
+      earR.rotation.z = -0.4;
+      parts.head.add(earR);
+      const hornL = makePartMesh(0.07, 0.16, 0.07, 0xe8dcc8);
+      hornL.position.set(-0.1, 0.22, -0.02);
+      parts.head.add(hornL);
+      const hornR = hornL.clone();
+      hornR.position.x = 0.1;
+      parts.head.add(hornR);
+      const band = makePartMesh(0.58, 0.1, 0.18, accent);
+      band.position.set(0, 0.02, 0);
+      parts.torso.add(band);
+    } else {
+      // armadillo — blocky shell plates
+      parts.torso = makePartMesh(0.62, 0.38, 0.9, shell);
+      const plate = makePartMesh(0.66, 0.12, 0.7, 0x7a6040);
+      plate.position.set(0, 0.18, 0);
+      parts.torso.add(plate);
+      parts.head = makePartMesh(0.32, 0.28, 0.42, fur);
+      const nose = makePartMesh(0.14, 0.12, 0.22, 0xb8845a);
+      nose.position.set(0, -0.02, 0.26);
+      parts.head.add(nose);
+      const band = makePartMesh(0.64, 0.08, 0.16, accent);
+      band.position.set(0, -0.02, 0);
+      parts.torso.add(band);
+    }
+
+    const legCol = kind === "goat" ? fur : 0x6a5040;
+    parts.legFL = makePartMesh(0.16, 0.38, 0.16, legCol);
+    parts.legFR = makePartMesh(0.16, 0.38, 0.16, legCol);
+    parts.legBL = makePartMesh(0.16, 0.38, 0.16, legCol);
+    parts.legBR = makePartMesh(0.16, 0.38, 0.16, legCol);
+
+    for (const k of BODY_KEYS) g.add(parts[k]);
+    return { group: g, parts };
+  }
+
+  function poseOffsets(facing) {
+    // local offsets relative to feet contact (unit.y = ground)
+    // facing: +1 = +X (west team), -1 = -X (east team)
+    const f = facing;
+    return {
+      torso: { x: 0, y: 0.55, z: 0 },
+      head:  { x: 0.28 * f, y: 0.88, z: 0 },
+      legFL: { x: 0.18 * f, y: 0.2, z: 0.18 },
+      legFR: { x: 0.18 * f, y: 0.2, z: -0.18 },
+      legBL: { x: -0.22 * f, y: 0.2, z: 0.18 },
+      legBR: { x: -0.22 * f, y: 0.2, z: -0.18 }
+    };
+  }
+
+  function createRagdollBodies(x, y, z, facing) {
+    const bodies = {};
+    const constraints = [];
+    const half = {
+      torso: new CANNON.Vec3(0.26, 0.2, 0.38),
+      head:  new CANNON.Vec3(0.16, 0.15, 0.16),
+      leg:   new CANNON.Vec3(0.08, 0.18, 0.08)
+    };
+    const mass = { torso: 2.2, head: 0.55, leg: 0.35 };
+    const offs = poseOffsets(facing);
+
+    function mk(key, hx, hy, hz, m) {
+      const b = new CANNON.Body({
+        mass: m,
+        shape: new CANNON.Box(new CANNON.Vec3(hx, hy, hz)),
+        linearDamping: 0.28,
+        angularDamping: 0.35,
+        allowSleep: true
+      });
+      b.position.set(x + offs[key].x, y + offs[key].y, z + offs[key].z);
+      // face pond: rotate yaw so long axis points toward ±X
+      b.quaternion.setFromEuler(0, facing > 0 ? 0 : Math.PI, 0);
+      bodies[key] = b;
+      return b;
+    }
+
+    mk("torso", half.torso.x, half.torso.y, half.torso.z, mass.torso);
+    mk("head", half.head.x, half.head.y, half.head.z, mass.head);
+    mk("legFL", half.leg.x, half.leg.y, half.leg.z, mass.leg);
+    mk("legFR", half.leg.x, half.leg.y, half.leg.z, mass.leg);
+    mk("legBL", half.leg.x, half.leg.y, half.leg.z, mass.leg);
+    mk("legBR", half.leg.x, half.leg.y, half.leg.z, mass.leg);
+
+    function link(a, b, pivotA, pivotB) {
+      const c = new CANNON.PointToPointConstraint(
+        bodies[a], new CANNON.Vec3(pivotA.x, pivotA.y, pivotA.z),
+        bodies[b], new CANNON.Vec3(pivotB.x, pivotB.y, pivotB.z)
+      );
+      constraints.push(c);
+    }
+
+    // soft neck + hips (satisfying flop without exploding)
+    link("torso", "head",
+      { x: 0.22 * facing, y: 0.18, z: 0 },
+      { x: 0, y: -0.14, z: 0 });
+    link("torso", "legFL",
+      { x: 0.16 * facing, y: -0.18, z: 0.16 },
+      { x: 0, y: 0.16, z: 0 });
+    link("torso", "legFR",
+      { x: 0.16 * facing, y: -0.18, z: -0.16 },
+      { x: 0, y: 0.16, z: 0 });
+    link("torso", "legBL",
+      { x: -0.2 * facing, y: -0.18, z: 0.16 },
+      { x: 0, y: 0.16, z: 0 });
+    link("torso", "legBR",
+      { x: -0.2 * facing, y: -0.18, z: -0.16 },
+      { x: 0, y: 0.16, z: 0 });
+
+    return { bodies, constraints, bodyList: BODY_KEYS.map(k => bodies[k]) };
+  }
+
+  function setBodiesMode(crit, mode) {
+    for (const b of crit.bodyList) {
+      if (mode === "stiff") {
+        b.type = CANNON.Body.KINEMATIC;
+        b.velocity.set(0, 0, 0);
+        b.angularVelocity.set(0, 0, 0);
+        b.sleep();
+      } else {
+        b.wakeUp();
+        b.type = CANNON.Body.DYNAMIC;
+      }
+    }
+  }
+
+  function resetCritterPose(crit, unit) {
+    const facing = unit.team === 0 ? 1 : -1;
+    const offs = poseOffsets(facing);
+    const yaw = facing > 0 ? 0 : Math.PI;
+    for (const k of BODY_KEYS) {
+      const b = crit.bodies[k];
+      const o = offs[k];
+      b.position.set(unit.x + o.x, unit.y + o.y, unit.z + o.z);
+      b.velocity.set(0, 0, 0);
+      b.angularVelocity.set(0, 0, 0);
+      b.quaternion.setFromEuler(0, yaw, 0);
+    }
+    syncMeshesFromBodies(crit);
+  }
+
+  function syncMeshesFromBodies(crit) {
+    for (const k of BODY_KEYS) {
+      const b = crit.bodies[k];
+      const m = crit.parts[k];
+      m.position.copy(b.position);
+      m.quaternion.copy(b.quaternion);
+    }
+  }
+
+  function makeSpawnFlag(team) {
+    const g = new THREE.Group();
+    const pole = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.04, 0.05, 1.4, 6),
+      new THREE.MeshLambertMaterial({ color: 0xddd8cc })
+    );
+    pole.position.y = 0.7;
+    g.add(pole);
+    const flag = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.55, 0.35),
+      new THREE.MeshLambertMaterial({
+        color: team === 0 ? 0x233357 : 0xba303e,
+        side: THREE.DoubleSide
+      })
+    );
+    flag.position.set(0.28, 1.2, 0);
+    g.add(flag);
+    return g;
+  }
+
+  function clearCritters() {
+    for (const c of critters) {
+      scene.remove(c.group);
+      for (const b of c.bodyList) physWorld.removeBody(b);
+      for (const con of c.constraints) physWorld.removeConstraint(con);
+    }
+    critters.length = 0;
+    for (const m of spawnMarkers) scene.remove(m);
+    spawnMarkers.length = 0;
+  }
+
+  function placeUnitsAndMarkers() {
+    clearCritters();
+    G.units = [];
+    G.outs = { 0: 0, 1: 0 };
+    G.winner = null;
+
+    G.spawns.forEach((sp, i) => {
+      const y = groundYAt(sp.x, sp.z);
+      const flag = makeSpawnFlag(sp.team);
+      flag.position.set(sp.x, y, sp.z);
+      scene.add(flag);
+      spawnMarkers.push(flag);
+
+      const teamSpawns = G.spawns.filter(s => s.team === sp.team);
+      const localIdx = teamSpawns.indexOf(sp);
+      const kind = sp.team === 0 ? "goat" : "armadillo";
+      const name = UNIT_NAMES[sp.team][localIdx] || ("Critter " + (localIdx + 1));
+      const unit = {
+        id: i,
+        team: sp.team,
+        spawn: localIdx,
+        name,
+        kind,
+        x: sp.x, y, z: sp.z,
+        alive: true,
+        out: false,
+        active: sp.team === 0 && localIdx === 0,
+        mode: "stiff",
+        waterT: 0,
+        dummy: sp.team === 1
+      };
+      G.units.push(unit);
+
+      const vis = buildCritterVisual(kind, sp.team);
+      const facing = sp.team === 0 ? 1 : -1;
+      const rag = createRagdollBodies(sp.x, y, sp.z, facing);
+      for (const b of rag.bodyList) physWorld.addBody(b);
+      for (const con of rag.constraints) physWorld.addConstraint(con);
+
+      const crit = {
+        group: vis.group,
+        parts: vis.parts,
+        bodies: rag.bodies,
+        constraints: rag.constraints,
+        bodyList: rag.bodyList
+      };
+      // parts live in world space (synced from bodies) — group is a container
+      scene.add(vis.group);
+      setBodiesMode(crit, "stiff");
+      resetCritterPose(crit, unit);
+      critters.push(crit);
+    });
+    updateScoreboard();
+  }
+
+  // ─── projectile visual ────────────────────────────────────────────────────
+  let pumpkinMesh = null;
+  const trailDots = [];
+  const TRAIL_N = 18;
+  for (let i = 0; i < TRAIL_N; i++) {
+    const d = new THREE.Mesh(
+      new THREE.SphereGeometry(0.08, 6, 6),
+      new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.55 })
+    );
+    d.visible = false;
+    scene.add(d);
+    trailDots.push(d);
+  }
+
+  function ensurePumpkin() {
+    if (pumpkinMesh) return pumpkinMesh;
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(
+      new THREE.SphereGeometry(0.28, 12, 10),
+      new THREE.MeshLambertMaterial({ color: 0xe0862c })
+    );
+    g.add(body);
+    const stem = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.04, 0.05, 0.16, 6),
+      new THREE.MeshLambertMaterial({ color: 0x4a7a32 })
+    );
+    stem.position.y = 0.28;
+    g.add(stem);
+    g.visible = false;
+    scene.add(g);
+    pumpkinMesh = g;
+    return g;
+  }
+
+  const AIM_COL_FREE = 0xfff3c0;   // unlocked — soft cream (follows mouse)
+  const AIM_COL_LOCK = 0xba303e;   // locked — Bucky red
+  const AIM_COL_LOCK_RING = 0x5ec8ff; // locked outer ring — bright cyan lock cue
+  const aimLineMat = new THREE.LineBasicMaterial({ color: AIM_COL_FREE, transparent: true, opacity: 0.85 });
+  const aimPositions = new Float32Array(40 * 3);
+  const aimGeo = new THREE.BufferGeometry();
+  aimGeo.setAttribute("position", new THREE.BufferAttribute(aimPositions, 3));
+  const aimLine = new THREE.Line(aimGeo, aimLineMat);
+  aimLine.frustumCulled = false;
+  aimLine.visible = false;
+  scene.add(aimLine);
+
+  // World-space aim reticle (same dir as arc / fire) — sits along the shot vector
+  const aimReticle = new THREE.Group();
+  const aimRingMat = new THREE.MeshBasicMaterial({
+    color: AIM_COL_FREE, side: THREE.DoubleSide, transparent: true, opacity: 0.9, depthTest: false
+  });
+  const aimHubMat = new THREE.MeshBasicMaterial({ color: 0xba303e, depthTest: false });
+  const aimLockRingMat = new THREE.MeshBasicMaterial({
+    color: AIM_COL_LOCK_RING, side: THREE.DoubleSide, transparent: true, opacity: 0, depthTest: false
+  });
+  {
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.34, 20), aimRingMat);
+    ring.rotation.x = -Math.PI / 2;
+    aimReticle.add(ring);
+    const lockRing = new THREE.Mesh(new THREE.RingGeometry(0.38, 0.46, 24), aimLockRingMat);
+    lockRing.rotation.x = -Math.PI / 2;
+    aimReticle.add(lockRing);
+    const hub = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 8), aimHubMat);
+    aimReticle.add(hub);
+  }
+  aimReticle.visible = false;
+  aimReticle.renderOrder = 5;
+  scene.add(aimReticle);
+
+  const particles = [];
+  function burst(x, y, z, n) {
+    for (let i = 0; i < n; i++) {
+      const m = new THREE.Mesh(
+        new THREE.BoxGeometry(0.12, 0.12, 0.12),
+        new THREE.MeshLambertMaterial({ color: Math.random() > 0.5 ? 0xe0862c : 0xa67c52 })
+      );
+      m.position.set(x, y, z);
+      const sp = 2 + Math.random() * 4;
+      const a = Math.random() * Math.PI * 2;
+      const elev = 0.4 + Math.random() * 0.9;
+      particles.push({
+        mesh: m,
+        vx: Math.cos(a) * sp,
+        vy: elev * sp,
+        vz: Math.sin(a) * sp,
+        life: 0.55 + Math.random() * 0.4
+      });
+      scene.add(m);
+    }
+  }
+
+  // ─── aim / fire ───────────────────────────────────────────────────────────
+  // ONE shared aim vector + power drives: reticle, arc preview, and fire velocity.
+  // Crosshair = horizontal yaw; HEIGHT slider = pitch; POWER slider = speed.
+  // Preview dry-runs the same ballisticStep integrator, but only DRAWS the first
+  // 40% of the arc by path length (landing stays uncertain).
+  const GRAV = 18;
+  const BLAST_R = 1.55;
+  const BLAST_UNIT_R = BLAST_R + 1.35;
+  const MAX_POWER = 44; // was 22 — +100% (doubled)
+  const AIM_BALLISTIC_DT = 1 / 60;
+  const PREVIEW_FRAC = 0.4; // show first 40% of simulated path length
+  const MIN_PITCH = (5 * Math.PI) / 180;
+  const MAX_PITCH = (70 * Math.PI) / 180;
+  const AIM_SIM_STEPS = 80;
+
+  let aiming = false; // true while a pointer is down on the canvas
+  let aimPointerId = null;
+  let aimLocked = false; // click locks yaw; mouse move ignored until next click relocates
+  let crosshairClient = null; // {x,y} screen aim point (null until first place)
+  let aimDir = new THREE.Vector3(1, 0.55, 0);
+  let aimPower = 0;
+  let aimPitch = (MIN_PITCH + MAX_PITCH) * 0.5;
+
+  const heightSlider = document.getElementById("heightSlider");
+  const powerSlider = document.getElementById("powerSlider");
+
+  const _aimRight = new THREE.Vector3();
+  const _aimUp = new THREE.Vector3();
+  const _aimBack = new THREE.Vector3();
+  const _aimProj = new THREE.Vector3();
+  const _aimNdc = new THREE.Vector3();
+  const _aimNear = new THREE.Vector3();
+  const _aimFar = new THREE.Vector3();
+  const _aimRayDir = new THREE.Vector3();
+  const _muzzleClient = { x: 0, y: 0 };
+
+  function activeUnit() {
+    return G.units.find(u => u.active && u.alive && !u.out) ||
+      G.units.find(u => u.team === G.activeTeam && u.alive && !u.out);
+  }
+
+  function muzzleOf(u) {
+    return { x: u.x + (u.team === 0 ? 0.55 : -0.55), y: u.y + 0.85, z: u.z };
+  }
+
+  function worldToClient(wx, wy, wz, out) {
+    _aimProj.set(wx, wy, wz).project(camera);
+    const el = renderer.domElement;
+    const rect = el.getBoundingClientRect();
+    out.x = (_aimProj.x * 0.5 + 0.5) * rect.width + rect.left;
+    out.y = (-_aimProj.y * 0.5 + 0.5) * rect.height + rect.top;
+    return out;
+  }
+
+  function sliderT(el) {
+    return Math.max(0, Math.min(1, (Number(el.value) || 0) / 100));
+  }
+
+  function readSliders() {
+    aimPitch = MIN_PITCH + sliderT(heightSlider) * (MAX_PITCH - MIN_PITCH);
+    aimPower = sliderT(powerSlider) * MAX_POWER;
+  }
+
+  /** Shared velocity from the live aim state (preview + fire must match). */
+  function aimVelocity() {
+    return {
+      vx: aimDir.x * aimPower,
+      vy: aimDir.y * aimPower,
+      vz: aimDir.z * aimPower
+    };
+  }
+
+  /**
+   * Crosshair → horizontal yaw (ray ∩ muzzle-height plane), HEIGHT → pitch,
+   * POWER → speed. Same aimDir/aimPower used by reticle, preview, and fire.
+   */
+  function recomputeAim() {
+    const u = activeUnit();
+    if (!u) return;
+    readSliders();
+    const origin = muzzleOf(u);
+    const face = u.team === 0 ? 1 : -1;
+
+    let dx = face;
+    let dz = 0;
+
+    if (crosshairClient) {
+      const el = renderer.domElement;
+      const rect = el.getBoundingClientRect();
+      const nx = ((crosshairClient.x - rect.left) / Math.max(1, rect.width)) * 2 - 1;
+      const ny = -(((crosshairClient.y - rect.top) / Math.max(1, rect.height)) * 2 - 1);
+      camera.updateMatrixWorld(true);
+      _aimNdc.set(nx, ny, 0.5);
+      _aimNdc.unproject(camera);
+      _aimNear.set(nx, ny, -1).unproject(camera);
+      _aimFar.set(nx, ny, 1).unproject(camera);
+      _aimRayDir.subVectors(_aimFar, _aimNear).normalize();
+      // Intersect ray with horizontal plane at muzzle Y
+      const denom = _aimRayDir.y;
+      if (Math.abs(denom) > 1e-5) {
+        const t = (origin.y - _aimNear.y) / denom;
+        if (t > 0.05) {
+          const hx = _aimNear.x + _aimRayDir.x * t;
+          const hz = _aimNear.z + _aimRayDir.z * t;
+          dx = hx - origin.x;
+          dz = hz - origin.z;
+        }
+      }
+      // Fallback: camera-basis horizontal from muzzle→crosshair screen delta
+      if (Math.hypot(dx, dz) < 0.15) {
+        worldToClient(origin.x, origin.y, origin.z, _muzzleClient);
+        const sx = crosshairClient.x - _muzzleClient.x;
+        const sy = crosshairClient.y - _muzzleClient.y;
+        camera.matrixWorld.extractBasis(_aimRight, _aimUp, _aimBack);
+        _aimProj.set(0, 0, 0)
+          .addScaledVector(_aimRight, sx)
+          .addScaledVector(_aimUp, -sy);
+        _aimProj.y = 0;
+        if (_aimProj.lengthSq() > 1e-6) {
+          dx = _aimProj.x;
+          dz = _aimProj.z;
+        } else {
+          dx = face;
+          dz = 0;
+        }
+      }
+    }
+
+    const hLen = Math.hypot(dx, dz) || 1;
+    const cosP = Math.cos(aimPitch);
+    const sinP = Math.sin(aimPitch);
+    aimDir.set((dx / hLen) * cosP, sinP, (dz / hLen) * cosP).normalize();
+  }
+
+  function ballisticStep(st, h) {
+    st.vy -= GRAV * h;
+    st.x += st.vx * h;
+    st.y += st.vy * h;
+    st.z += st.vz * h;
+  }
+
+  function simulateArc(origin, dir, power, steps) {
+    const pts = [];
+    const st = {
+      x: origin.x, y: origin.y, z: origin.z,
+      vx: dir.x * power, vy: dir.y * power, vz: dir.z * power
+    };
+    for (let i = 0; i < steps; i++) {
+      pts.push({ x: st.x, y: st.y, z: st.z });
+      ballisticStep(st, AIM_BALLISTIC_DT);
+      if (st.y < OY - 2) break;
+      const c = worldToCell(st.x, st.y, st.z);
+      if (inBounds(c.ix, c.iy, c.iz) && G.voxels[vi(c.ix, c.iy, c.iz)]) break;
+    }
+    return pts;
+  }
+
+  /** Cumulative path length of a point list. */
+  function arcPathLength(pts) {
+    let len = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i];
+      len += Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
+    }
+    return len;
+  }
+
+  /**
+   * Keep only the first PREVIEW_FRAC of the arc by path length.
+   * Full sim still runs so the visible stub matches the real shot's early flight.
+   */
+  function trimPreviewPts(pts, frac) {
+    if (pts.length <= 1) return pts.slice();
+    const total = arcPathLength(pts);
+    if (total < 1e-6) return pts.slice(0, 1);
+    const cutoff = total * frac;
+    const out = [pts[0]];
+    let acc = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i];
+      const seg = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
+      if (acc + seg >= cutoff) {
+        const t = (cutoff - acc) / Math.max(1e-8, seg);
+        out.push({
+          x: a.x + (b.x - a.x) * t,
+          y: a.y + (b.y - a.y) * t,
+          z: a.z + (b.z - a.z) * t
+        });
+        break;
+      }
+      acc += seg;
+      out.push(b);
+    }
+    return out;
+  }
+
+  function hideAimVisuals() {
+    aimLine.visible = false;
+    aimReticle.visible = false;
+  }
+
+  function syncAimLockVisual() {
+    if (aimLocked) {
+      aimLineMat.color.setHex(AIM_COL_LOCK);
+      aimRingMat.color.setHex(AIM_COL_LOCK);
+      aimHubMat.color.setHex(0xfff3c0);
+      aimLockRingMat.opacity = 0.95;
+      aimLockRingMat.color.setHex(AIM_COL_LOCK_RING);
+    } else {
+      aimLineMat.color.setHex(AIM_COL_FREE);
+      aimRingMat.color.setHex(AIM_COL_FREE);
+      aimHubMat.color.setHex(0xba303e);
+      aimLockRingMat.opacity = 0;
+    }
+  }
+
+  function updateAimPreview() {
+    const u = activeUnit();
+    if (!u || aimPower < 0.5) {
+      hideAimVisuals();
+      return;
+    }
+    const origin = muzzleOf(u);
+    const full = simulateArc(origin, aimDir, aimPower, AIM_SIM_STEPS);
+    const pts = trimPreviewPts(full, PREVIEW_FRAC);
+    const arr = aimGeo.attributes.position.array;
+    const n = Math.min(40, pts.length);
+    for (let i = 0; i < 40; i++) {
+      const p = pts[Math.min(i, Math.max(0, n - 1))] || origin;
+      arr[i * 3] = p.x; arr[i * 3 + 1] = p.y; arr[i * 3 + 2] = p.z;
+    }
+    aimGeo.attributes.position.needsUpdate = true;
+    aimGeo.setDrawRange(0, n);
+    aimLine.visible = n > 1;
+
+    // Reticle along the same aim vector (matches arc tangent at the muzzle)
+    const rd = 2.4 + aimPower * 0.08;
+    aimReticle.position.set(
+      origin.x + aimDir.x * rd,
+      origin.y + aimDir.y * rd,
+      origin.z + aimDir.z * rd
+    );
+    syncAimLockVisual();
+    aimReticle.visible = true;
+  }
+
+  function refreshAim() {
+    if (G.phase !== "aim") return;
+    recomputeAim();
+    updateAimPreview();
+  }
+
+  function ensureDefaultCrosshair() {
+    if (crosshairClient) return;
+    const u = activeUnit();
+    if (!u) return;
+    const o = muzzleOf(u);
+    const face = u.team === 0 ? 1 : -1;
+    // Seed crosshair toward the far yard so the first preview is readable
+    worldToClient(o.x + face * 8, o.y + 1.2, o.z, _muzzleClient);
+    crosshairClient = { x: _muzzleClient.x, y: _muzzleClient.y };
+  }
+
+  function firePumpkin(skipRecompute) {
+    if (G.phase !== "aim") return;
+    const u = activeUnit();
+    if (!u) return;
+    if (!skipRecompute) {
+      readSliders();
+      recomputeAim();
+    }
+    if (aimPower < 1.2) {
+      showToast("Turn up POWER!");
+      return;
+    }
+    const o = muzzleOf(u);
+    const v = aimVelocity();
+    G.projectile = {
+      x: o.x, y: o.y, z: o.z,
+      vx: v.vx, vy: v.vy, vz: v.vz,
+      r: 0.28,
+      kind: "pumpkin",
+      age: 0
+    };
+    G.phase = "flying";
+    G.shotCount++;
+    hideAimVisuals();
+    aiming = false;
+    const mesh = ensurePumpkin();
+    mesh.visible = true;
+    mesh.position.set(o.x, o.y, o.z);
+    showToast("Pumpkin away!");
+  }
+
+  function enableRagdoll(unitIdx) {
+    const u = G.units[unitIdx];
+    const crit = critters[unitIdx];
+    if (!u || !crit || u.out || !u.alive) return;
+    if (u.mode === "ragdoll") return;
+    u.mode = "ragdoll";
+    setBodiesMode(crit, "ragdoll");
+  }
+
+  function applyBlastImpulse(wx, wy, wz, radius) {
+    let hit = 0;
+    for (let i = 0; i < G.units.length; i++) {
+      const u = G.units[i];
+      if (!u.alive || u.out) continue;
+      const crit = critters[i];
+      if (!crit) continue;
+      const tx = crit.bodies.torso.position.x;
+      const ty = crit.bodies.torso.position.y;
+      const tz = crit.bodies.torso.position.z;
+      const dx = tx - wx, dy = ty - wy, dz = tz - wz;
+      const d = Math.hypot(dx, dy, dz);
+      if (d > radius || d < 0.01) continue;
+      enableRagdoll(i);
+      const fall = 1 - d / radius;
+      const impulse = 9.5 * fall;
+      const ix = (dx / d) * impulse;
+      const iy = Math.max(3.2, (dy / d) * impulse + 4.5);
+      const iz = (dz / d) * impulse;
+      const imp = new CANNON.Vec3(ix, iy, iz);
+      crit.bodies.torso.applyImpulse(imp);
+      crit.bodies.head.applyImpulse(new CANNON.Vec3(ix * 0.45, iy * 0.55, iz * 0.45));
+      // slight spin for a satisfying flop
+      crit.bodies.torso.angularVelocity.set(
+        (Math.random() - 0.5) * 6,
+        (Math.random() - 0.5) * 4,
+        (Math.random() - 0.5) * 6
+      );
+      hit++;
+    }
+    return hit;
+  }
+
+  function updateScoreboard() {
+    const westAlive = G.units.filter(u => u.team === 0 && !u.out).length;
+    const eastAlive = G.units.filter(u => u.team === 1 && !u.out).length;
+    G.outs[0] = 3 - westAlive;
+    G.outs[1] = 3 - eastAlive;
+    const wEl = document.getElementById("westOuts");
+    const eEl = document.getElementById("eastOuts");
+    if (wEl) wEl.textContent = westAlive + " in · " + G.outs[0] + " out";
+    if (eEl) eEl.textContent = eastAlive + " in · " + G.outs[1] + " out";
+  }
+
+  function checkWin() {
+    const westLeft = G.units.filter(u => u.team === 0 && !u.out).length;
+    const eastLeft = G.units.filter(u => u.team === 1 && !u.out).length;
+    if (eastLeft === 0) {
+      G.winner = 0;
+      G.phase = "won";
+      document.getElementById("winTitle").textContent = "West Yard wins!";
+      document.getElementById("winSub").textContent = "The armadillos all went for a swim. Nice lobbing!";
+      document.getElementById("winBanner").classList.add("on");
+      showToast("West Yard wins! 🎉");
+      return true;
+    }
+    if (westLeft === 0) {
+      G.winner = 1;
+      G.phase = "won";
+      document.getElementById("winTitle").textContent = "East Yard wins!";
+      document.getElementById("winSub").textContent = "Your goats took a dip — try again!";
+      document.getElementById("winBanner").classList.add("on");
+      showToast("East Yard wins!");
+      return true;
+    }
+    return false;
+  }
+
+  function markOut(unitIdx) {
+    const u = G.units[unitIdx];
+    const crit = critters[unitIdx];
+    if (!u || u.out) return;
+    u.out = true;
+    u.alive = false;
+    u.active = false;
+    u.mode = "out";
+    u.waterT = 0;
+    if (crit) {
+      setBodiesMode(crit, "stiff");
+      // sink visual a bit under water
+      for (const k of BODY_KEYS) {
+        const b = crit.bodies[k];
+        b.position.y = Math.min(b.position.y, WATER_Y - 0.15);
+        crit.parts[k].visible = true;
+        crit.parts[k].material.transparent = true;
+        crit.parts[k].material.opacity = 0.45;
+      }
+      syncMeshesFromBodies(crit);
+    }
+    const side = u.team === 0 ? "West" : "East";
+    showToast("🌊 " + u.name + " (" + side + ") went for a swim!");
+    updateScoreboard();
+    // pick next active shooter on west if needed
+    if (u.team === 0) {
+      const next = G.units.find(x => x.team === 0 && !x.out);
+      if (next) {
+        G.units.forEach(x => { if (x.team === 0) x.active = x.id === next.id; });
+        G.activeUnit = next.spawn;
+      }
+    }
+    checkWin();
+  }
+
+  function endProjectile(hitX, hitY, hitZ, carved, ragHits) {
+    G.projectile = null;
+    if (pumpkinMesh) pumpkinMesh.visible = false;
+    for (const d of trailDots) d.visible = false;
+    if (G.phase === "won") return;
+    if (ragHits > 0) showToast(ragHits === 1 ? "Nice flop!" : "Ragdoll party!");
+    else if (carved > 0) showToast(`💥 Hole punched! (−${carved} dirt)`);
+    else showToast("Splash!");
+    setTimeout(() => {
+      if (G.phase === "flying" || G.phase === "aim") {
+        G.phase = "aim";
+        ensureDefaultCrosshair();
+        refreshAim();
+      }
+    }, 450);
+    if (G.phase !== "won") G.phase = "aim";
+  }
+
+  function stepProjectile(dt) {
+    const p = G.projectile;
+    if (!p) return;
+    p.age = (p.age || 0) + dt;
+    if (p.age > 6) {
+      endProjectile(p.x, p.y, p.z, 0, 0);
+      return;
+    }
+    const steps = Math.max(1, Math.ceil(dt / AIM_BALLISTIC_DT));
+    const h = dt / steps;
+    for (let s = 0; s < steps; s++) {
+      ballisticStep(p, h);
+
+      if (Math.abs(p.x) < 3.3 && Math.abs(p.z) < 7.1 && p.y <= WATER_Y + 0.15) {
+        burst(p.x, WATER_Y + 0.2, p.z, 10);
+        endProjectile(p.x, p.y, p.z, 0, 0);
+        return;
+      }
+
+      const c = worldToCell(p.x, p.y, p.z);
+      if (inBounds(c.ix, c.iy, c.iz) && G.voxels[vi(c.ix, c.iy, c.iz)]) {
+        const removed = carveSphere(p.x, p.y, p.z, BLAST_R);
+        const ragHits = applyBlastImpulse(p.x, p.y, p.z, BLAST_UNIT_R);
+        burst(p.x, p.y, p.z, 22);
+        endProjectile(p.x, p.y, p.z, removed, ragHits);
+        return;
+      }
+      if (p.y < OY - 1 || Math.abs(p.x) > 22 || Math.abs(p.z) > 14) {
+        endProjectile(p.x, p.y, p.z, 0, 0);
+        return;
+      }
+    }
+    if (pumpkinMesh) {
+      pumpkinMesh.position.set(p.x, p.y, p.z);
+      pumpkinMesh.rotation.x += dt * 8;
+      pumpkinMesh.rotation.z += dt * 5;
+    }
+  }
+
+  function settleBodyOnTerrain(body, halfH) {
+    const x = body.position.x;
+    const z = body.position.z;
+    const gy = groundYAt(x, z);
+    const minY = gy + halfH;
+    if (body.position.y < minY) {
+      body.position.y = minY;
+      if (body.velocity.y < 0) body.velocity.y = 0;
+      body.velocity.x *= 0.92;
+      body.velocity.z *= 0.92;
+    }
+  }
+
+  function stepPhysics(dt) {
+    const anyRag = G.units.some(u => u.mode === "ragdoll");
+    if (anyRag) {
+      physWorld.step(1 / 60, dt, 3);
+    }
+
+    for (let i = 0; i < G.units.length; i++) {
+      const u = G.units[i];
+      const crit = critters[i];
+      if (!crit) continue;
+
+      if (u.out) {
+        syncMeshesFromBodies(crit);
+        continue;
+      }
+
+      if (u.mode === "stiff") {
+        // keep kinematic pose planted on terrain (yards can carve under feet later)
+        const gy = groundYAt(u.x, u.z);
+        u.y = gy;
+        resetCritterPose(crit, u);
+        continue;
+      }
+
+      // ragdoll: terrain settle + water-out
+      settleBodyOnTerrain(crit.bodies.torso, 0.2);
+      settleBodyOnTerrain(crit.bodies.head, 0.14);
+      settleBodyOnTerrain(crit.bodies.legFL, 0.16);
+      settleBodyOnTerrain(crit.bodies.legFR, 0.16);
+      settleBodyOnTerrain(crit.bodies.legBL, 0.16);
+      settleBodyOnTerrain(crit.bodies.legBR, 0.16);
+
+      const tp = crit.bodies.torso.position;
+      u.x = tp.x;
+      u.y = tp.y - 0.55;
+      u.z = tp.z;
+
+      if (inPondXZ(tp.x, tp.z) && tp.y < WATER_Y + 0.2) {
+        // gentle water drag
+        crit.bodies.torso.velocity.scale(0.88);
+        u.waterT += dt;
+        if (u.waterT >= WATER_OUT_T) {
+          markOut(i);
+        }
+      } else {
+        u.waterT = 0;
+      }
+
+      // rest → re-stiff if nearly still on solid ground (not pond)
+      if (u.mode === "ragdoll" && !u.out) {
+        const spd = crit.bodies.torso.velocity.length();
+        if (spd < 0.35 && !inPondXZ(tp.x, tp.z) && tp.y <= groundYAt(tp.x, tp.z) + 0.75) {
+          u.mode = "stiff";
+          u.x = tp.x;
+          u.z = tp.z;
+          u.y = groundYAt(u.x, u.z);
+          setBodiesMode(crit, "stiff");
+          resetCritterPose(crit, u);
+        }
+      }
+
+      syncMeshesFromBodies(crit);
+    }
+  }
+
+  // ─── input ────────────────────────────────────────────────────────────────
+  // Unlocked: mouse hover moves crosshair. Left-click / tap locks aim at that
+  // point (mouse move ignored). Next click relocates the locked aim. HEIGHT +
+  // POWER sliders set pitch & speed. FIRE button or Space fires.
+  const canvas = renderer.domElement;
+
+  function ptrPos(e) {
+    return { x: e.clientX, y: e.clientY };
+  }
+
+  function placeCrosshair(e) {
+    crosshairClient = ptrPos(e);
+    refreshAim();
+  }
+
+  /** Click/tap: set aim to this point and lock (mouse move no longer follows). */
+  function lockAimAt(e) {
+    crosshairClient = ptrPos(e);
+    aimLocked = true;
+    refreshAim();
+  }
+
+  function onDown(e) {
+    if (G.phase !== "aim") return;
+    if (e.target && (e.target.id === "fireBtn" || e.target.closest("#aimControls"))) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    if (aiming) return;
+    e.preventDefault();
+    aiming = true;
+    aimPointerId = e.pointerId;
+    // Each click/tap sets + locks aim at that point (next click relocates)
+    lockAimAt(e);
+    try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+  }
+  function onMove(e) {
+    if (G.phase !== "aim") return;
+    // Desktop hover: follow mouse only while unlocked
+    if (!aiming && e.pointerType === "mouse" && e.buttons === 0) {
+      if (!aimLocked) placeCrosshair(e);
+      return;
+    }
+    if (!aiming) return;
+    if (aimPointerId != null && e.pointerId !== aimPointerId) return;
+    // While locked, drag does not re-aim — only a fresh click relocates
+    if (aimLocked) return;
+    e.preventDefault();
+    placeCrosshair(e);
+  }
+  function onUp(e) {
+    if (!aiming) return;
+    if (aimPointerId != null && e.pointerId !== aimPointerId) return;
+    e.preventDefault();
+    // Keep locked aim from pointerdown; don't chase release position
+    aiming = false;
+    const pid = aimPointerId;
+    aimPointerId = null;
+    if (pid != null) {
+      try {
+        if (canvas.hasPointerCapture && canvas.hasPointerCapture(pid)) {
+          canvas.releasePointerCapture(pid);
+        }
+      } catch (_) {}
+    }
+  }
+  function onLostCapture(e) {
+    if (!aiming) return;
+    if (aimPointerId != null && e.pointerId !== aimPointerId) return;
+    aiming = false;
+    aimPointerId = null;
+  }
+
+  canvas.addEventListener("pointerdown", onDown, { passive: false });
+  canvas.addEventListener("pointermove", onMove, { passive: false });
+  canvas.addEventListener("pointerup", onUp, { passive: false });
+  canvas.addEventListener("pointercancel", onUp, { passive: false });
+  canvas.addEventListener("lostpointercapture", onLostCapture);
+
+  heightSlider.addEventListener("input", () => refreshAim());
+  powerSlider.addEventListener("input", () => refreshAim());
+
+  document.getElementById("fireBtn").addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    firePumpkin();
+  });
+
+  window.addEventListener("keydown", (e) => {
+    if (e.code !== "Space" && e.key !== " ") return;
+    if (e.repeat) return;
+    const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : "";
+    if (tag === "input" || tag === "textarea" || tag === "select" || (e.target && e.target.isContentEditable)) {
+      return;
+    }
+    e.preventDefault();
+    if (G.phase !== "aim") return;
+    firePumpkin();
+  });
+
+  // ─── UI helpers ───────────────────────────────────────────────────────────
+  let toastTimer = 0;
+  function showToast(msg) {
+    const el = document.getElementById("toast");
+    el.textContent = msg;
+    el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("show"), 1800);
+  }
+
+  function startMatch() {
+    document.getElementById("title").classList.add("hidden");
+    document.getElementById("hud").classList.add("on");
+    document.getElementById("winBanner").classList.remove("on");
+    document.getElementById("aimHint").textContent =
+      "Click to lock aim · height & power · FIRE / Space";
+    buildVoxelField();
+    rebuildAllChunks();
+    placeUnitsAndMarkers();
+    G.phase = "aim";
+    G.activeTeam = 0;
+    G.activeUnit = 0;
+    G.projectile = null;
+    G.shotCount = 0;
+    G.winner = null;
+    crosshairClient = null;
+    aiming = false;
+    aimPointerId = null;
+    aimLocked = false;
+    ensureDefaultCrosshair();
+    refreshAim();
+    showToast("Knock the armadillos into the pond!");
+    fit();
+  }
+
+  document.getElementById("playBtn").addEventListener("click", startMatch);
+  document.getElementById("againBtn").addEventListener("click", startMatch);
+
+  function fit() {
+    const w = stage.clientWidth || window.innerWidth;
+    const h = stage.clientHeight || Math.max(1, window.innerHeight - 46);
+    renderer.setSize(w, h, true);
+    camera.aspect = w / Math.max(1, h);
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener("resize", fit);
+  fit();
+
+  let last = performance.now();
+  function tickSim(dt) {
+    if (G.phase === "flying") stepProjectile(dt);
+    if (G.phase === "aim" || G.phase === "flying" || G.phase === "won") stepPhysics(dt);
+  }
+  // If rAF stalls (headless load / background), keep pumpkin + ragdoll moving
+  setInterval(() => {
+    if (G.phase === "title") return;
+    const now = performance.now();
+    if (now - last < 100) return;
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    tickSim(dt);
+  }, 50);
+
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+
+    if (G.phase !== "title") {
+      const t = now * 0.00025;
+      camera.position.x = Math.sin(t) * 1.2;
+      camera.position.z = 22 + Math.cos(t * 0.7) * 0.6;
+      camera.lookAt(camTarget);
+    }
+
+    // Keep arc + reticle locked to live crosshair / sliders (camera sways)
+    if (G.phase === "aim") {
+      ensureDefaultCrosshair();
+      refreshAim();
+    }
+
+    tickSim(dt);
+
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.life -= dt;
+      p.vy -= GRAV * 0.55 * dt;
+      p.mesh.position.x += p.vx * dt;
+      p.mesh.position.y += p.vy * dt;
+      p.mesh.position.z += p.vz * dt;
+      if (p.life <= 0) {
+        scene.remove(p.mesh);
+        p.mesh.geometry.dispose();
+        p.mesh.material.dispose();
+        particles.splice(i, 1);
+      }
+    }
+
+    if (G.projectile && pumpkinMesh) {
+      for (let i = trailDots.length - 1; i > 0; i--) {
+        trailDots[i].position.copy(trailDots[i - 1].position);
+        trailDots[i].visible = trailDots[i - 1].visible;
+      }
+      trailDots[0].position.copy(pumpkinMesh.position);
+      trailDots[0].visible = true;
+    }
+
+    water.material.opacity = 0.68 + Math.sin(now * 0.002) * 0.06;
+
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // ─── debug / verify hook ──────────────────────────────────────────────────
+  window.__HAYHEM__ = {
+    G,
+    startMatch,
+    carveSphere,
+    applyBlastImpulse,
+    enableRagdoll,
+    markOut,
+    fireAt(power, dirX, dirY, dirZ) {
+      const u = activeUnit();
+      if (!u) return false;
+      if (G.phase === "title") startMatch();
+      aimDir.set(dirX, dirY, dirZ).normalize();
+      aimPower = power;
+      const pitch = Math.asin(Math.max(-1, Math.min(1, aimDir.y)));
+      heightSlider.value = String(Math.round(Math.max(0, Math.min(100,
+        ((pitch - MIN_PITCH) / (MAX_PITCH - MIN_PITCH)) * 100
+      ))));
+      powerSlider.value = String(Math.round(Math.max(0, Math.min(100,
+        (power / MAX_POWER) * 100
+      ))));
+      G.phase = "aim";
+      firePumpkin(true); // keep forced dir/power (don't recompute from crosshair)
+      return true;
+    },
+    /** Set HEIGHT (0–1) and POWER (0–1) sliders and refresh aim. */
+    setSliders(heightT, powerT) {
+      if (heightT != null) {
+        heightSlider.value = String(Math.round(Math.max(0, Math.min(1, heightT)) * 100));
+      }
+      if (powerT != null) {
+        powerSlider.value = String(Math.round(Math.max(0, Math.min(1, powerT)) * 100));
+      }
+      refreshAim();
+      return {
+        heightT: sliderT(heightSlider),
+        powerT: sliderT(powerSlider),
+        pitch: aimPitch,
+        power: aimPower,
+        maxPower: MAX_POWER
+      };
+    },
+    /** Live aim state for input tests. */
+    getAim() {
+      return {
+        aiming,
+        aimLocked,
+        power: aimPower,
+        pitch: aimPitch,
+        dir: [aimDir.x, aimDir.y, aimDir.z],
+        pointerId: aimPointerId,
+        maxPower: MAX_POWER,
+        previewFrac: PREVIEW_FRAC,
+        velocity: aimVelocity(),
+        reticleVisible: aimReticle.visible,
+        arcVisible: aimLine.visible,
+        lockRingOpacity: aimLockRingMat.opacity,
+        crosshair: crosshairClient ? { x: crosshairClient.x, y: crosshairClient.y } : null,
+        heightT: sliderT(heightSlider),
+        powerT: sliderT(powerSlider)
+      };
+    },
+    /**
+     * Place crosshair at a screen point, optionally set sliders, return preview
+     * vs fire velocity alignment + preview path-length fraction check.
+     * Pass lock=true to lock aim (same as a click).
+     */
+    setAimFromScreen(clientX, clientY, heightT, powerT, lock) {
+      const u = activeUnit();
+      if (!u) return null;
+      if (G.phase === "title") startMatch();
+      G.phase = "aim";
+      crosshairClient = { x: clientX, y: clientY };
+      if (lock) aimLocked = true;
+      if (heightT != null || powerT != null) {
+        this.setSliders(heightT == null ? sliderT(heightSlider) : heightT,
+          powerT == null ? sliderT(powerSlider) : powerT);
+      } else {
+        refreshAim();
+      }
+      const origin = muzzleOf(u);
+      const v = aimVelocity();
+      const full = simulateArc(origin, aimDir, aimPower, AIM_SIM_STEPS);
+      const trimmed = trimPreviewPts(full, PREVIEW_FRAC);
+      const fullLen = arcPathLength(full);
+      const trimLen = arcPathLength(trimmed);
+      const dt = AIM_BALLISTIC_DT;
+      let align = null;
+      let previewDir = null;
+      if (full.length >= 2) {
+        previewDir = {
+          x: (full[1].x - full[0].x) / dt,
+          y: (full[1].y - full[0].y) / dt + GRAV * dt,
+          z: (full[1].z - full[0].z) / dt
+        };
+        align = Math.hypot(previewDir.x - v.vx, previewDir.y - v.vy, previewDir.z - v.vz);
+      }
+      return {
+        power: aimPower,
+        pitch: aimPitch,
+        dir: [aimDir.x, aimDir.y, aimDir.z],
+        velocity: v,
+        previewDir,
+        align,
+        arcVisible: aimLine.visible,
+        reticleVisible: aimReticle.visible,
+        aimLocked,
+        fullPts: full.length,
+        previewPts: trimmed.length,
+        pathFrac: fullLen > 1e-6 ? trimLen / fullLen : 0,
+        previewFrac: PREVIEW_FRAC,
+        maxPower: MAX_POWER
+      };
+    },
+    voxelCount() { return G.voxelCount; },
+    forceCarve(x, y, z, r) {
+      if (!G.voxels) { buildVoxelField(); rebuildAllChunks(); }
+      return carveSphere(x, y, z, r || BLAST_R);
+    },
+    forceRagdoll(unitId) {
+      enableRagdoll(unitId);
+      return G.units[unitId] && G.units[unitId].mode === "ragdoll";
+    },
+    forceWaterOut(unitId) {
+      markOut(unitId);
+      return !!(G.units[unitId] && G.units[unitId].out);
+    },
+    ragdollBodyCount(unitId) {
+      const c = critters[unitId == null ? 0 : unitId];
+      return c ? c.bodyList.length : 0;
+    },
+    blastNear(unitId, impulseScale) {
+      const u = G.units[unitId];
+      if (!u) return 0;
+      const s = impulseScale == null ? 1 : impulseScale;
+      return applyBlastImpulse(u.x, u.y + 0.5, u.z - 0.2, BLAST_UNIT_R * s);
+    },
+    get phase() { return G.phase; },
+    get critters() { return critters; }
+  };
+})();
+</script>
+</body>
+</html>

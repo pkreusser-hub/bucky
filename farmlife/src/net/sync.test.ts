@@ -1,0 +1,335 @@
+import { describe, expect, it } from "vitest";
+import {
+  REGION_SIZE,
+  regionKeyForTile,
+  regionKeyForTileKey,
+  parseTileKey,
+  playerDocId,
+  isRegionDocId,
+  isPlayerDocId,
+  toWireTile,
+  fromWireTile,
+  groupTileWritesByRegion,
+  diffTiles,
+  toWirePlayer,
+  applyWirePlayer,
+  buildFarmStateFromDocs,
+  collectionIsEmpty,
+  extractPlayerFields,
+  mergeLocalDirty,
+  toWireDecor,
+  sanitizeDecor,
+  buildDecorFromDocs,
+  diffDecor,
+  buildMetaFromDocs,
+  emptyMetaState,
+  type RawDoc,
+} from "./sync";
+import type { DecorRecord } from "../world/decor";
+import { defaultFarmState, type FarmState, type TileRecord } from "../farm/store";
+
+describe("region/tile key math", () => {
+  it("maps tiles inside one region for the 12x12 field", () => {
+    for (let gx = 0; gx < 12; gx++) {
+      for (let gz = 0; gz < 12; gz++) {
+        expect(regionKeyForTile(gx, gz)).toBe("region_0_0");
+      }
+    }
+  });
+
+  it("REGION_SIZE splits farther-out tiles into distinct regions", () => {
+    expect(regionKeyForTile(0, 0)).toBe("region_0_0");
+    expect(regionKeyForTile(REGION_SIZE, 0)).toBe("region_1_0");
+    expect(regionKeyForTile(0, REGION_SIZE)).toBe("region_0_1");
+    expect(regionKeyForTile(-1, 0)).toBe("region_-1_0"); // floor(-1/16) = -1
+  });
+
+  it("regionKeyForTileKey round-trips through parseTileKey", () => {
+    expect(regionKeyForTileKey("t_6_6")).toBe("region_0_0");
+    expect(regionKeyForTileKey("t_20_3")).toBe("region_1_0");
+    expect(regionKeyForTileKey("bogus")).toBeNull();
+  });
+
+  it("parseTileKey rejects malformed keys", () => {
+    expect(parseTileKey("t_6_6")).toEqual({ gx: 6, gz: 6 });
+    expect(parseTileKey("t_-2_3")).toEqual({ gx: -2, gz: 3 });
+    expect(parseTileKey("nope")).toBeNull();
+    expect(parseTileKey("t_a_b")).toBeNull();
+  });
+
+  it("playerDocId sanitizes names but stays readable", () => {
+    expect(playerDocId("Eleanor")).toBe("player_Eleanor");
+    expect(playerDocId("  Isaac  ")).toBe("player_Isaac");
+    expect(playerDocId("a/b c")).toBe("player_a_b_c");
+    expect(playerDocId("")).toBe("player_Farmer");
+  });
+
+  it("doc id classifiers", () => {
+    expect(isRegionDocId("region_0_0")).toBe(true);
+    expect(isRegionDocId("region_-1_2")).toBe(true);
+    expect(isRegionDocId("player_Dad")).toBe(false);
+    expect(isRegionDocId("world")).toBe(false);
+    expect(isPlayerDocId("player_Dad")).toBe(true);
+    expect(isPlayerDocId("region_0_0")).toBe(false);
+  });
+});
+
+describe("tile wire (de)serialization", () => {
+  it("toWireTile omits undefined fields for a bare tilled tile", () => {
+    expect(toWireTile({})).toEqual({});
+  });
+
+  it("toWireTile round-trips a planted tile through fromWireTile", () => {
+    const rec: TileRecord = { crop: "turnip", plantedAt: 1000, accruedMs: 500, lastWatered: 1200 };
+    const wire = toWireTile(rec);
+    expect(wire).toEqual({ crop: "turnip", plantedAt: 1000, accruedMs: 500, lastWatered: 1200 });
+    expect(fromWireTile(wire)).toEqual(rec);
+  });
+
+  it("fromWireTile is defensive against garbage", () => {
+    expect(fromWireTile(null)).toEqual({});
+    expect(fromWireTile("nope")).toEqual({});
+    expect(fromWireTile({ crop: "not-a-crop" })).toEqual({});
+    expect(fromWireTile({ crop: "corn" })).toEqual({ crop: "corn", plantedAt: 0, accruedMs: 0, lastWatered: 0 });
+  });
+});
+
+describe("diffTiles — the snapshot-diff function", () => {
+  it("returns nothing for identical maps", () => {
+    const a = { t_1_1: { crop: "turnip" as const, plantedAt: 1, accruedMs: 0, lastWatered: 1 } };
+    const b = { t_1_1: { crop: "turnip" as const, plantedAt: 1, accruedMs: 0, lastWatered: 1 } };
+    expect(diffTiles(a, b)).toEqual([]);
+  });
+
+  it("detects an added tile", () => {
+    expect(diffTiles({}, { t_2_2: {} })).toEqual(["t_2_2"]);
+  });
+
+  it("detects a removed tile", () => {
+    expect(diffTiles({ t_2_2: {} }, {})).toEqual(["t_2_2"]);
+  });
+
+  it("detects a changed field (e.g. watering) without flagging untouched tiles", () => {
+    const prev = {
+      t_1_1: { crop: "turnip" as const, plantedAt: 1, accruedMs: 0, lastWatered: 1 },
+      t_2_2: { crop: "corn" as const, plantedAt: 1, accruedMs: 0, lastWatered: 1 },
+    };
+    const next = {
+      t_1_1: { crop: "turnip" as const, plantedAt: 1, accruedMs: 100, lastWatered: 50 },
+      t_2_2: { crop: "corn" as const, plantedAt: 1, accruedMs: 0, lastWatered: 1 },
+    };
+    expect(diffTiles(prev, next)).toEqual(["t_1_1"]);
+  });
+
+  it("is symmetric-key-order safe (Set-based)", () => {
+    const prev = { t_5_5: {} };
+    const next = { t_9_9: {}, t_5_5: {} };
+    expect(diffTiles(prev, next).sort()).toEqual(["t_9_9"]);
+  });
+});
+
+describe("groupTileWritesByRegion", () => {
+  it("groups changed keys by region and wire-encodes each tile", () => {
+    const tiles: Record<string, TileRecord> = {
+      t_1_1: {},
+      t_1_2: { crop: "turnip", plantedAt: 5, accruedMs: 0, lastWatered: 5 },
+      t_30_1: {}, // region_1_0 (floor(30/16)=1)
+    };
+    const groups = groupTileWritesByRegion(tiles, Object.keys(tiles));
+    expect([...groups.keys()].sort()).toEqual(["region_0_0", "region_1_0"]);
+    expect(groups.get("region_0_0")).toEqual({
+      t_1_1: {},
+      t_1_2: { crop: "turnip", plantedAt: 5, accruedMs: 0, lastWatered: 5 },
+    });
+    expect(groups.get("region_1_0")).toEqual({ t_30_1: {} });
+  });
+
+  it("skips malformed keys", () => {
+    const groups = groupTileWritesByRegion({}, ["not-a-tile-key"]);
+    expect(groups.size).toBe(0);
+  });
+});
+
+describe("player wire", () => {
+  it("toWirePlayer/applyWirePlayer round-trip", () => {
+    const state = defaultFarmState();
+    state.coins = 250;
+    state.seeds.corn = 3;
+    state.crops.pumpkin = 2;
+    state.tank = 4;
+    state.selectedTool = "can";
+    state.selectedCrop = "corn";
+    const wire = toWirePlayer(state);
+    const base = defaultFarmState();
+    const applied = applyWirePlayer(base, wire);
+    expect(applied.coins).toBe(250);
+    expect(applied.seeds.corn).toBe(3);
+    expect(applied.crops.pumpkin).toBe(2);
+    expect(applied.tank).toBe(4);
+    expect(applied.selectedTool).toBe("can");
+    expect(applied.selectedCrop).toBe("corn");
+    expect(applied.tiles).toBe(base.tiles); // tiles are NOT touched by player wire
+  });
+
+  it("applyWirePlayer is defensive against garbage", () => {
+    const base = defaultFarmState();
+    const applied = applyWirePlayer(base, { coins: -5, selectedTool: "laser" });
+    expect(applied.coins).toBe(base.coins);
+    expect(applied.selectedTool).toBe(base.selectedTool);
+  });
+});
+
+describe("buildFarmStateFromDocs / collectionIsEmpty", () => {
+  it("merges tiles from every region doc, and only MY player doc", () => {
+    const docs: RawDoc[] = [
+      { id: "region_0_0", data: { t_1_1: { crop: "turnip", plantedAt: 1, accruedMs: 0, lastWatered: 1 } } },
+      { id: "region_1_0", data: { t_20_2: {} } },
+      { id: "player_Eleanor", data: { coins: 40, seeds: { turnip: 2 } } },
+      { id: "player_Isaac", data: { coins: 999 } }, // someone else's — must NOT leak in
+      { id: "meta", data: { name: "Amen Farms" } },
+      { id: "world", data: { data: "default" } },
+    ];
+    const state = buildFarmStateFromDocs(docs, "player_Eleanor");
+    expect(Object.keys(state.tiles).sort()).toEqual(["t_1_1", "t_20_2"]);
+    expect(state.tiles.t_1_1.crop).toBe("turnip");
+    expect(state.coins).toBe(40);
+    expect(state.seeds.turnip).toBe(2);
+  });
+
+  it("collectionIsEmpty is true only with no tiles and no player docs", () => {
+    expect(collectionIsEmpty([])).toBe(true);
+    expect(collectionIsEmpty([{ id: "meta", data: {} }])).toBe(true);
+    expect(collectionIsEmpty([{ id: "region_0_0", data: {} }])).toBe(true);
+    expect(collectionIsEmpty([{ id: "region_0_0", data: { t_1_1: {} } }])).toBe(false);
+    expect(collectionIsEmpty([{ id: "player_Dad", data: { coins: 5 } }])).toBe(false);
+  });
+});
+
+describe("mergeLocalDirty — echo-during-debounce guard (Fix 1)", () => {
+  // Simulate a harvest: local FarmState has crops.turnip = 1 and the tile
+  // cleared to bare soil; the just-arrived snapshot echo still shows the
+  // PRE-harvest server state (crops 0, turnip still growing). The old guard
+  // froze to last-SENT (pre-harvest) values, reverting the harvest and then
+  // re-sending it = data loss. mergeLocalDirty must keep the local values.
+  function preHarvestSnapshot(): FarmState {
+    const s = defaultFarmState();
+    s.tiles = { t_6_6: { crop: "turnip", plantedAt: 0, accruedMs: 0, lastWatered: 0 } };
+    s.coins = 10;
+    s.crops.turnip = 0;
+    return s;
+  }
+
+  it("no dirty state -> snapshot passes through untouched", () => {
+    const fresh = preHarvestSnapshot();
+    const out = mergeLocalDirty(fresh, null, null);
+    expect(out.crops.turnip).toBe(0);
+    expect(out.tiles.t_6_6.crop).toBe("turnip");
+  });
+
+  it("dirty player fields WIN over a stale echo (harvest is never reverted)", () => {
+    const localPlayer = extractPlayerFields(
+      Object.assign(defaultFarmState(), {
+        coins: 15,
+        crops: { turnip: 1, potato: 0, corn: 0, pumpkin: 0, strawberry: 0, carrot: 0, tomato: 0, sunflower: 0 },
+      })
+    );
+    const out = mergeLocalDirty(preHarvestSnapshot(), localPlayer, null);
+    expect(out.crops.turnip).toBe(1); // local harvest preserved, NOT reverted to 0
+    expect(out.coins).toBe(15);
+  });
+
+  it("dirty tile keys WIN over a stale echo (harvested tile stays bare)", () => {
+    const out = mergeLocalDirty(preHarvestSnapshot(), null, { t_6_6: {} });
+    expect(out.tiles.t_6_6).toEqual({}); // bare tilled soil, not the echo's growing turnip
+  });
+
+  it("only the dirty tile is overridden — a co-op player's other tile stays live", () => {
+    const fresh = preHarvestSnapshot();
+    fresh.tiles.t_2_2 = { crop: "corn", plantedAt: 5, accruedMs: 0, lastWatered: 5 }; // another player just planted
+    const out = mergeLocalDirty(fresh, null, { t_6_6: {} });
+    expect(out.tiles.t_6_6).toEqual({});
+    expect(out.tiles.t_2_2.crop).toBe("corn"); // remote tile still applied live
+  });
+
+  it("extractPlayerFields deep-copies the seed/crop maps (immune to later edits)", () => {
+    const s = defaultFarmState();
+    s.crops.turnip = 3;
+    const snap = extractPlayerFields(s);
+    s.crops.turnip = 99; // later in-place mutation of the live state
+    expect(snap.crops.turnip).toBe(3); // protected copy unchanged
+  });
+});
+
+// ---- P5: decor wire (de)serialization + sanitizer ---------------------------
+describe("decor wire", () => {
+  const rec: DecorRecord = { id: "d_abc123", type: "bench", x: 5, z: -3, rotY: 0.5, placedBy: "Eleanor", placedAt: 1000 };
+
+  it("toWireDecor omits the id (it's the field key) and keeps defined fields", () => {
+    expect(toWireDecor(rec)).toEqual({ type: "bench", x: 5, z: -3, rotY: 0.5, placedBy: "Eleanor", placedAt: 1000 });
+  });
+
+  it("sanitizeDecor round-trips a good field value", () => {
+    expect(sanitizeDecor("d_abc123", toWireDecor(rec))).toEqual(rec);
+  });
+
+  it("sanitizeDecor is defensive against garbage / unknown types / bad keys", () => {
+    expect(sanitizeDecor("d_abc123", null)).toBeNull();
+    expect(sanitizeDecor("d_abc123", { type: "not-a-decor" })).toBeNull();
+    expect(sanitizeDecor("bogus-key", toWireDecor(rec))).toBeNull();
+    // missing numeric fields default to 0, still a valid record
+    expect(sanitizeDecor("d_x1", { type: "gnome" })).toEqual({
+      id: "d_x1",
+      type: "gnome",
+      x: 0,
+      z: 0,
+      rotY: 0,
+      placedBy: "",
+      placedAt: 0,
+    });
+  });
+
+  it("buildDecorFromDocs reads the decor doc, skipping null (removed) fields", () => {
+    const docs: RawDoc[] = [
+      { id: "decor", data: { d_a: toWireDecor(rec), d_b: null, junk: 5 } },
+      { id: "region_0_0", data: {} },
+    ];
+    const map = buildDecorFromDocs(docs);
+    expect(Object.keys(map)).toEqual(["d_a"]);
+    expect(map.d_a.type).toBe("bench");
+  });
+
+  it("buildDecorFromDocs returns {} when the decor doc is absent (normal empty state)", () => {
+    expect(buildDecorFromDocs([{ id: "region_0_0", data: {} }])).toEqual({});
+  });
+
+  it("diffDecor detects add / remove / transform changes", () => {
+    const a = { d_a: rec };
+    const moved: DecorRecord = { ...rec, x: 9 };
+    expect(diffDecor(a, { d_a: moved })).toEqual(["d_a"]);
+    expect(diffDecor({}, { d_a: rec })).toEqual(["d_a"]);
+    expect(diffDecor(a, {})).toEqual(["d_a"]);
+    expect(diffDecor(a, { d_a: rec })).toEqual([]);
+  });
+});
+
+// ---- P5: meta doc ----------------------------------------------------------
+describe("meta doc", () => {
+  it("buildMetaFromDocs parses shipped_/milestone_/farmName/foundedAt", () => {
+    const docs: RawDoc[] = [
+      {
+        id: "meta",
+        data: { shipped_turnip: 12, shipped_milk: 3, milestone_tenTurnips: 555, farmName: "Amen Acres", foundedAt: 100, junk: "x" },
+      },
+    ];
+    const m = buildMetaFromDocs(docs);
+    expect(m.shipped.turnip).toBe(12);
+    expect(m.shipped.milk).toBe(3);
+    expect(m.milestones.tenTurnips).toBe(555);
+    expect(m.farmName).toBe("Amen Acres");
+    expect(m.foundedAt).toBe(100);
+  });
+
+  it("buildMetaFromDocs returns an empty state when the meta doc is absent", () => {
+    expect(buildMetaFromDocs([])).toEqual(emptyMetaState());
+  });
+});

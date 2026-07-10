@@ -1890,3 +1890,58 @@ avoid collisions with the game's own `net`/`Lobby`-adjacent names.
     `shots/wx_future_mobile.png` (scrubbed to a future frame first). Verified live against
     real RainViewer + real IEM + real Open-Meteo: 21 total frames (13 past + 8 future),
     nowIdx 12, all future steps 15–120 min found, 0 pageerrors both passes.
+
+# 🎃 Hayhem — farmyard artillery (ACTIVE, 2026-07-10)
+
+`hayhem.html` — Worms-style **1v1** farm artillery (Playroom Kit later). Terrain fantasy =
+two farmyards with a pond between (NOT open dig-everything). Cast = Bucky animals only.
+Team size 3/side. Old `varmintwars.html` DELETED; games.html + index PLAY_GAMES tile
+swapped to Hayhem.
+
+## Locked decisions
+- Name: **Hayhem** · MP: 1v1 online, same arch as Farm Kart + Bistro (Playroom,
+  host-authoritative, G-state) — Stage 4 · Stage 1 = solo/local feel
+- three.js r128 CDN · custom chunked voxel grid (InstancedMesh) · ballistic pumpkin +
+  carve blast · G object from day one · Bucky navy/red accents · mobile drag-aim + FIRE
+
+## Build order (pause after each stage for playtest)
+0. Scrap/relink VW · stub title + Bucky nav/back · games + PLAY_GAMES tiles
+1. 3D voxel island (two yards + pond) + camera + drag-aim + one projectile + carve
+2. Ragdoll critters + water-out win · dummy opponents (cannon-es)
+3. Weapons / wind / juice
+4. Playroom 1v1
+5. Polish
+
+## Current progress
+- [x] **Stage 0** (2026-07-10): deleted `varmintwars.html`; removed VW from games.html +
+  index.html `PLAY_GAMES`; added 🎃 Hayhem tiles → `hayhem.html`; title screen + ← Bucky
+  bar; photobooth skill example updated.
+- [x] **Stage 1** (2026-07-10): chunked voxel island (dirt/grass/stone, pond channel +
+  translucent water), fixed overview camera, drag-aim arc preview + pumpkin ballistic,
+  sphere carve rebuilds dirty chunks, 3 spawn flags + animal stubs per side (1 active
+  shooter), rigid knockback, mobile FIRE button. Debug hook `window.__HAYHEM__`.
+- [x] **Stage 2** (2026-07-10): cannon-es ragdolls (6 bodies: torso/head/4 legs) —
+  stiff/kinematic while idle, soft PointToPoint + DYNAMIC on blast impulse; procedural
+  blocky goats (west) + armadillos (east dummies); water-out when torso stays under the
+  pond line (~0.55s) → gentle toast + team outs; win when one side all out; scoreboard +
+  win banner; Stage 1 aim/carve preserved. Verify: `node tools/_verify-hayhem.cjs`.
+  **Paused for user playtest — do not start Stage 3 until approved.**
+
+## hayhem2.html — INDEPENDENT parallel build (Fable session, 2026-07-10)
+`hayhem2.html` + `tools/_verify-hayhem2.cjs` (both UNTRACKED, not linked from games.html):
+a second, from-scratch Hayhem the user requested to A/B against hayhem.html. Do NOT merge
+or reconcile the two files — the user will pick one after playtesting. Differences by
+design: full turn system (alternating teams, unit cycling, settle-wait, active-shooter
+arrow + name labels), EAST AI that shoots back (accuracy ramps per round), slingshot
+drag-aim (pull back, release fires; 40% arc preview), per-turn X-axis wind (HUD arrow,
+preview integrator matches flight), WebAudio SFX (mute in localStorage hh2_muted).
+Camera (user-requested rework): 3rd-person behind-the-shoulder pose while aiming (player
+AND AI turns), ~3s whole-island overview interlude between shots, smooth 0.8s lerps,
+per-frame terrain clearance floor. Also fixes review findings vs hayhem.html: water plane
+ABOVE pond bed (waterY 2.20 > bedTop 1.65), direct hits detonate on critters (HIT_R 0.62,
+shooter + 0.6u arm-clear exempt), speed-scaled substeps ≤0.22u (no tunneling at any
+power), portrait 390×844 framing (overview fits all 6 spawns), HUD below the 46px bar.
+Tuning: GRAV 18, MAX_POWER 26, carve r 1.5 / knock r 2.9. Debug hook window.__HAYHEM2__
+(fireAt/aimDrag/forceCamMode/camInfo/waterInfo/setWind/aiFireNow…). Verify: `node
+tools/_verify-hayhem2.cjs` (54 integration checks, incl. camera-flow + wind honesty +
+anti-tunnel + pond correctness). **Awaiting user playtest verdict (hayhem vs hayhem2).**

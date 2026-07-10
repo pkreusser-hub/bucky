@@ -1,0 +1,57 @@
+Farm Life — 3D model assets
+============================
+
+All models are low-poly, in the Quaternius CC0 studio style, cherry-picked from
+the Quaternius asset family (crops, animated farm animals, farm buildings). Only
+the specific models the game uses are shipped here (not whole packs).
+
+CROPS  (public/models/crops/)  — Quaternius "Ultimate Crops" family, CC0
+  turnip.glb      Quaternius "Turnip"            https://poly.pizza/m/taMEmsQCye  (exact)
+  potato.glb      Quaternius "Plant"             https://poly.pizza/m/s0joFFrQoy  (leafy bush ≈ potato plant)
+  corn.glb        Quaternius "Corn"              https://poly.pizza/m/IhhB7kGaAQ  (exact)
+  pumpkin.glb     Quaternius "Pumpkin"           https://poly.pizza/m/bvLvqnU1jX  (exact)
+  strawberry.glb  Quaternius "Small Plant"       https://poly.pizza/m/MZdeiQApSb  (small leafy plant ≈ strawberry)
+  carrot.glb      Quaternius "Carrot"            https://poly.pizza/m/l4YmYv8hFK  (exact)
+  tomato.glb      Quaternius "Tomato"            https://poly.pizza/m/ByggGxctjw  (fruit ≈ tomato plant)
+  sunflower.glb   Quaternius "Flowers"           https://poly.pizza/m/NBUxHir6FJ  (flower cluster ≈ sunflower)
+
+CHARACTER  (public/models/character/)  — Quaternius "Ultimate Modular Men Pack" / rig
+           shared with the "Ultimate Animated Character Pack", CC0
+  farmer.glb      Quaternius "Farmer"           https://poly.pizza/m/7pn3R6hPvE  (exact)
+                  The PLAYER + all remote avatars. Fully rigged 62-bone humanoid
+                  (CharacterArmature) with 24 embedded animation clips. The game
+                  uses: Idle · Walk · Run (locomotion crossfade) · Sword_Slash
+                  (mapped to the hoe swing) · Interact (plant / harvest scoop /
+                  pet). The watering-can POUR, the harvest HOLD-UP beat, the REFILL
+                  dip, and the JUMP tuck/landing squash are layered PROCEDURALLY on
+                  top of the mixer (no stock clip reads for them). Remote players
+                  get a per-player shirt/outfit TINT (clothing materials multiplied
+                  toward a deterministic colour; skin/eyes kept natural). Falls back
+                  to the original procedural straw-hat farmer if the GLB fails to
+                  load (offline/404) — never a blank avatar.
+
+ANIMALS  (public/models/animals/)
+  chicken.glb     Quaternius "Chicken" (ANIMATED, skeletal Idle/Walk/Jump)  CC0
+                  https://poly.pizza/m/ineV9pU5VL
+  goat.glb        "Goat" by Poly by Google       https://poly.pizza/m/d7dImmjtF8E
+                  LICENSE: CC-BY 4.0 (Creative Commons Attribution) — see NOTE below.
+
+BUILDINGS  (public/models/buildings/)  — Quaternius "Farm Buildings" pack, CC0
+  (copied from assets/farmkart/props/, same CC0 Quaternius pack)
+  barn.glb        Quaternius Barn        (= farm_barn.glb)
+  shed.glb        Quaternius Small Barn  (= farm_small_barn.glb, used as the shed)
+  silo.glb        Quaternius Silo        (= farm_silo.glb)
+  farmhouse.glb   Quaternius Silo House  (= farm_silo_house.glb, used as the farmhouse)
+
+Distributed via poly.pizza (https://poly.pizza), a CC0/CC-BY 3D model host.
+
+NOTE on goat.glb (the one non-CC0 asset):
+  No CC0 goat exists in the Quaternius family (the Quaternius CC0 animated
+  farm animals are cow/sheep/chicken/pig — no goat), and every goat on
+  poly.pizza is either CC-BY or static+textured. Since the farm's animals are
+  named goats (🐐 Clover / Buttons — a goat farm is the game's identity), the
+  goat model is kept as an actual goat: "Goat" by Poly by Google, licensed
+  CC-BY 4.0. ATTRIBUTION REQUIRED: "Goat by Poly by Google, CC-BY 4.0"
+  (https://poly.pizza/m/d7dImmjtF8E). It is static (no rig) and is animated
+  procedurally in-game (bob / walk / hop). The chicken carries the full
+  skeletal AnimationMixer pipeline.

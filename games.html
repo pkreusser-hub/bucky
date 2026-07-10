@@ -148,11 +148,12 @@
     { ico:"🐱", name:"Cat Rescue",     desc:"Save the barn cats",           url:"index.html#catgame" },
     { ico:"🚜", name:"Hay Haul",       desc:"Snake, but tractor & hay",     url:"hayhaul.html" },
     { ico:"🪵", name:"Branch Manager", desc:"Tetris, but with branches",    url:"branchmanager.html" },
-    { ico:"🛶", name:"Varmint Wars",   desc:"Pond artillery battles",       url:"varmintwars.html" },
+    { ico:"🎃", name:"Hayhem",         desc:"farmyard artillery mayhem",    url:"hayhem.html" },
     { ico:"🌽", name:"Pasture Panic",  desc:"3D survive-the-stampede",      url:"pasturepanic.html" },
     { ico:"🐐", name:"Baby Bucky",     desc:"raise & care for a baby goat", url:"goatcare.html" },
     { ico:"🍅", name:"Barnyard Bistro", desc:"cook together — 2-chef co-op", url:"barnyardbistro.html" },
-    { ico:"🏁", name:"Farm Kart",      desc:"kart racing on the farm",       url:"farmkart.html" }
+    { ico:"🏁", name:"Farm Kart",      desc:"kart racing on the farm",       url:"farmkart.html" },
+    { ico:"🌱", name:"Farm Life",      desc:"one family farm, always growing", url:"farmlife/dist/" }
   ];
   const grid = document.getElementById("gamesGrid");
   for (const g of GAMES){
@@ -204,6 +205,14 @@
     farmkart: {
       open: (d) => `🏁 ${d.hostName || "Someone"}'s race is forming! · ${d.playerCount || 1}/${d.maxPlayers || 4} racers`,
       started: (d) => `🏁 ${d.hostName || "Someone"}'s race is mid-race!`
+    },
+    farmlife: {
+      open: (d) => `🌱 ${d.hostName || "Someone"} is on the farm! · ${d.playerCount || 1} farming`,
+      started: (d) => `🌱 ${d.hostName || "Someone"} is on the farm! · ${d.playerCount || 1} farming`,
+      // Farm Life lives at /farmlife/dist/ and derives its room from the family
+      // key — no #r= room hash. bistro/farmkart omit `href` and keep the
+      // default `<game>.html#r=<roomCode>` join link below.
+      href: () => `farmlife/dist/`
     }
   };
   function lobbyText(data, cooking){
@@ -212,6 +221,14 @@
     return cooking
       ? `${data.hostName || "Someone"} is hosting ${data.gameName || data.game}!`
       : `${data.hostName || "Someone"} is hosting ${data.gameName || data.game}! · ${data.playerCount || 1}/${data.maxPlayers || 2}`;
+  }
+  // Per-game JOIN href. A game may supply `LOBBY_TEXT[game].href(data)`; every
+  // other game (bistro/farmkart/unknown) falls back to the original
+  // `<game>.html#r=<roomCode>` scheme, so this change touches only farmlife.
+  function lobbyHref(data){
+    const t = LOBBY_TEXT[data.game];
+    if (t && typeof t.href === "function") return t.href(data);
+    return `${data.game}.html#r=${encodeURIComponent(data.roomCode || "")}`;
   }
 
   function renderLobbies(docs, fs, col){
@@ -245,7 +262,7 @@
       if (live){
         const a = document.createElement("a");
         a.className = "lobby-card";
-        a.href = `${data.game}.html#r=${encodeURIComponent(data.roomCode || "")}`;
+        a.href = lobbyHref(data);
         const ico = document.createElement("span"); ico.className = "lobby-ico"; ico.textContent = data.ico || "🎮";
         const text = document.createElement("span"); text.className = "lobby-text";
         text.textContent = lobbyText(data, false);
