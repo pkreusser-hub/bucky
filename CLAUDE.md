@@ -1630,6 +1630,65 @@ Verify: `node tools/_verify-audio.cjs`.
   batch (engine growl, countdown voice, item sounds, boost/spin/bonk/fanfare, MT charge
   ticks/tier chimes) are untouched. Verified: scratchpad/fk_camdrift.mjs.
 
+# 🏁 Farm Kart — family lobby port (2026-07-09)
+
+Hosting a race used to be discoverable only via copy/paste link. Ported Barnyard Bistro's
+proven family-lobby system (see barnyardbistro.html ~line 730-898, the reference this
+mirrors closely) into farmkart.html so hosting registers a Firestore doc that games.html's
+already-generic `renderLobbies()` shows as a live JOIN card. House convention: Firebase
+config/helpers DUPLICATED inline (no shared JS module in this repo), all `fk`-prefixed to
+avoid collisions with the game's own `net`/`Lobby`-adjacent names.
+- **farmkart.html**: new block right after `myName()` — `fkFirebaseConfig`/
+  `FK_FAMILY_PASSWORD`/`fkRoomId`/`fkFamilyKey` (with `?fam=` test override), lazy Firebase
+  ESM import (`fkInitLobbyBackend`/`fkLobbyBackendReady`), `Lobby` state object,
+  `ensureLobbyDoc`/`updateLobbyDoc`/`deleteLobbyDoc`, 15s heartbeat, pagehide/beforeunload
+  cleanup, 60s hidden-tab delete + recreate-on-visible — same shape/timings as Bistro.
+  Doc id `lobbies_<familyKey>/fk_<roomCode>`. Fields: `game:"farmkart"`,
+  `gameName:"Farm Kart"`, `ico:"🏁"`, `hostName` (localStorage `choreUser`), `roomCode`,
+  `createdAt`/`updatedAt`, `status` ("open"|"started"), `playerCount` (live count of HUMAN
+  Playroom players, never bots — `net.players.length`), `maxPlayers: MAX_KARTS` (4).
+  WIRING: `ensureLobbyDoc()` called at the end of `initNet()`'s success path (covers both
+  the FAMILY RACE button and a deep-link guest who becomes host because the room was
+  empty/new — its own `isHost` guard no-ops the latter); `updateLobbyDoc({playerCount})` on
+  every guest join/quit; `startCountdown()` flips `status:'started'` when the host actually
+  starts a race; the host's per-frame race-over check flips `status:'open'` again the
+  instant all karts finish (edge-triggered via `!G.raceOver`, so a race that's over but not
+  yet re-started shows as joinable). Guests never write (every entry point gated on
+  `net.mp && net.isHost`); solo/Playroom-unreachable never touches Firestore. UI: `#mpBox`
+  gained `#mpLiveNote` — host-only "✅ Race is live in the Games tab — family can tap JOIN"
+  under the existing copy-link box (copy-link kept as a secondary/manual path). Debug hook
+  `window.__fkLobby = { ensureLobbyDoc, deleteLobbyDoc, updateLobbyDoc, get state() }`
+  (mirrors the existing `window.__KART__`/`window.__net` convention).
+- **games.html**: `renderLobbies()`'s card-text is now looked up per `data.game` via a new
+  `LOBBY_TEXT` map (`lobbyText(data, cooking)`) instead of hardcoded Bistro wording —
+  `barnyardbistro` keeps its exact original "...'s kitchen is open! · n/m chefs" text,
+  `farmkart` reads "🏁 <host>'s race is forming! · n/4 racers" (open) / "🏁 <host>'s race is
+  mid-race!" (started), anything else falls back to a neutral "<host> is hosting
+  <gameName>!" so a future game doesn't need a games.html change just to show a card. Also
+  added the same `?fam=` override `familyKey` already supports on the other pages (needed
+  so tests never touch the production `lobbies_fam2jan2g` collection — games.html had no
+  override before this).
+- **Verification**: scratchpad `fk_lobby.cjs` (`.cjs` not `.mjs` — puppeteer-core here is
+  CommonJS, matching the `tools/_verify-*.cjs` convention; uses `tools/node_modules/
+  puppeteer-core`, real Chrome). Real Playroom WAS reachable from this environment — full
+  live flow verified against it (no stub fallback needed): host registers
+  `lobbies_famtestfk/fk_<code>` with the exact doc shape, games.html renders the JOIN card
+  (icon/text/href all correct), a real guest follows the card's href into the SAME Playroom
+  room, playerCount live-ticks 1→2, `startCountdown()` flips status→started and games.html
+  swaps to the static in-progress card (no JOIN link), closing the host tab deleted the doc
+  (pagehide fired reliably in headless Chrome). Degradation checked separately: with
+  googleapis/firestore/gstatic all blocked, FAMILY RACE hosting still works (`net.mp` true,
+  `Lobby.available` false, 0 pageerrors); solo play with Playroom+Firestore both blocked is
+  unchanged (0 pageerrors, `forceRace()` still drives the kart). All Firestore calls in the
+  test target `?fam=famtestfk` only; every doc the test creates is deleted via the
+  Firestore REST API afterward and the collection is confirmed empty (0 remaining). Regression:
+  `tools/_verify-items.cjs` 24/24 and 16/18 on `tools/_verify-audio.cjs` (both pre-existing
+  drift-gain failures — `driftGainV` was removed in the same-day "remove drift scrape SFX"
+  commit above; that test file predates the removal and wasn't in this task's edit scope).
+  `tools/_verify-hud-defaults.cjs` similarly has one pre-existing failure (expects mobile
+  camDist 6.5, code now correctly reads 5.35 per the same-day mobile-camera pullback) —
+  neither pre-existing failure is caused by or related to the lobby port.
+
 # 🌤️ Weather — Woodville / Amen Farms (2026-07-09)
 
 `weather.html` — dedicated farm weather page (no API keys). Lat/lon 34.686537,

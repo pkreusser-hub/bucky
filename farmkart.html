@@ -91,6 +91,7 @@
   #mpRoster{ margin-top:8px; font-size:13px; color:#cde; }
   #mpRoster .pr{ display:inline-block; margin:2px 5px; font-weight:700; }
   #mpNote{ margin-top:6px; font-size:12px; color:#ffe27a; }
+  #mpLiveNote{ margin-top:6px; font-size:12px; color:#8ef2a0; font-weight:700; }
   /* Place + race times — large top-left stack (below mute), live during a race */
   #placeHud{ position:absolute; left:max(12px, env(safe-area-inset-left, 0px));
         top:calc(12px + env(safe-area-inset-top, 0px) + 44px); z-index:15; display:none;
@@ -277,6 +278,7 @@
         </div>
         <div id="mpRoster"></div>
         <div id="mpNote"></div>
+        <div id="mpLiveNote"></div>
       </div>
     </div>
   </div>
@@ -3774,7 +3776,7 @@
     countdownEl.style.display = 'flex';
     countdownVoice('3');
     G.lastBeat = 3;
-    if (net.mp && net.isHost) publishNetSnapshotNow();
+    if (net.mp && net.isHost){ publishNetSnapshotNow(); updateLobbyDoc({ status:'started' }); }   // family lobby: host-only, online-mode-only (no-op otherwise)
   }
   function startRacing(inp){
     const p = G.players.local;
@@ -3955,6 +3957,144 @@
   function myName(){
     try{ return localStorage.getItem('choreUser') || ''; }catch(e){ return ''; }
   }
+
+  // ============================================================================
+  //  FAMILY LOBBY (2026-07-09) — ported from barnyardbistro.html's proven family-lobby
+  //  system (see that file, ~line 730-898, for the reference implementation this mirrors
+  //  closely). House convention: Firebase config/helpers are DUPLICATED inline per page
+  //  (no shared JS module in this repo) rather than imported — kept in sync by hand.
+  //  Hosting a Farm Kart race now registers a Firestore doc that games.html's ALREADY-
+  //  GENERIC renderLobbies() renders as a live JOIN card — no changes needed there beyond
+  //  the card-text lookup. Entirely additive: solo play and Playroom-unreachable fallback
+  //  never touch Firestore (every entry point below is gated on net.mp && net.isHost).
+  // ============================================================================
+  const fkFirebaseConfig = {
+    apiKey: "AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU",
+    authDomain: "amen-farms-app.firebaseapp.com",
+    projectId: "amen-farms-app",
+    storageBucket: "amen-farms-app.firebasestorage.app",
+    messagingSenderId: "321230755979",
+    appId: "1:321230755979:web:d362c56aaf7e50b4ab5c8e"
+  };
+  const FK_FAMILY_PASSWORD = "amenfarms";
+  function fkRoomId(pw){
+    let h = 0;
+    for (const ch of pw.toLowerCase()) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return "fam" + h.toString(36);
+  }
+  // ?fam= override: dev/test hook so automated verification can target a scratch family
+  // collection instead of production (memory: test familyKey for automated writes).
+  const fkFamilyKey = (new URLSearchParams(location.search).get('fam')) || fkRoomId(FK_FAMILY_PASSWORD);
+  const FK_LOBBY_HEARTBEAT_MS = 15 * 1000;
+  const FK_LOBBY_HIDDEN_DELETE_MS = 60 * 1000;
+
+  const Lobby = {
+    available: false,
+    db: null,
+    fs: null,
+    lobbyDocRef: null,
+    heartbeatTimer: null,
+    unloadHooked: false,
+    visibilityHooked: false,
+    hiddenTimer: null,
+    hiddenDeletedDoc: false
+  };
+  async function fkInitLobbyBackend(){
+    try{
+      const appMod = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js');
+      const fs = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js');
+      const app = appMod.initializeApp(fkFirebaseConfig, 'bucky-lobby');
+      Lobby.db = fs.getFirestore(app);
+      Lobby.fs = fs;
+      Lobby.available = true;
+    }catch(err){
+      console.warn('Farm Kart: family lobby backend unavailable (Firestore failed to load) — lobby doc/JOIN cards disabled, game unaffected.', err);
+      Lobby.available = false;
+    }
+  }
+  const fkLobbyBackendReady = fkInitLobbyBackend();
+
+  // ---- host-only: lobby doc lifecycle (only ever called when net.isHost && net.roomCode,
+  // i.e. a real Playroom room exists — solo/fallback never reaches here). ----
+  async function ensureLobbyDoc(){
+    if (!Lobby.available || !net.mp || !net.isHost || !net.roomCode) return;
+    await fkLobbyBackendReady;
+    if (!Lobby.available) return;
+    const { doc, setDoc } = Lobby.fs;
+    const ref = doc(Lobby.db, 'lobbies_' + fkFamilyKey, 'fk_' + net.roomCode);
+    Lobby.lobbyDocRef = ref;
+    try{
+      await setDoc(ref, {
+        game: 'farmkart',
+        gameName: 'Farm Kart',
+        ico: '🏁',
+        hostName: myName() || 'Someone',
+        roomCode: net.roomCode,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        status: 'open',
+        playerCount: net.players.length || 1,
+        maxPlayers: MAX_KARTS
+      });
+      startLobbyHeartbeat();
+      hookUnloadCleanup();
+      hookVisibilityLifecycle();
+    }catch(err){
+      console.warn('Farm Kart: could not create lobby doc (continuing without it).', err);
+    }
+  }
+  async function updateLobbyDoc(patch){
+    if (!Lobby.available || !Lobby.lobbyDocRef) return;
+    try{ await Lobby.fs.setDoc(Lobby.lobbyDocRef, { ...patch, updatedAt: Date.now() }, { merge:true }); }
+    catch(err){ /* best-effort — a missed update just ages out via games.html's liveness window */ }
+  }
+  function startLobbyHeartbeat(){
+    if (Lobby.heartbeatTimer) return;
+    Lobby.heartbeatTimer = setInterval(() => {
+      if (!Lobby.lobbyDocRef) return;
+      updateLobbyDoc({ playerCount: net.players.length || 1 });
+    }, FK_LOBBY_HEARTBEAT_MS);
+  }
+  async function deleteLobbyDoc(){
+    if (!Lobby.available || !Lobby.lobbyDocRef) return;
+    const ref = Lobby.lobbyDocRef;
+    Lobby.lobbyDocRef = null;
+    if (Lobby.heartbeatTimer){ clearInterval(Lobby.heartbeatTimer); Lobby.heartbeatTimer = null; }
+    try{ await Lobby.fs.deleteDoc(ref); }catch(err){ /* best-effort */ }
+  }
+  function hookUnloadCleanup(){
+    if (Lobby.unloadHooked) return;
+    Lobby.unloadHooked = true;
+    const cleanup = () => { if (Lobby.lobbyDocRef) deleteLobbyDoc(); };
+    window.addEventListener('pagehide', cleanup);
+    window.addEventListener('beforeunload', cleanup);
+  }
+  // Same hardening as Barnyard Bistro: a host tab backgrounded for a long time without ever
+  // formally closing (kid switches apps) would otherwise leave a stale JOIN card up to the
+  // full liveness window even though the heartbeat itself is throttled/suspended while hidden.
+  function hookVisibilityLifecycle(){
+    if (Lobby.visibilityHooked) return;
+    Lobby.visibilityHooked = true;
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden){
+        if (Lobby.hiddenTimer) return;
+        Lobby.hiddenTimer = setTimeout(() => {
+          Lobby.hiddenTimer = null;
+          if (Lobby.lobbyDocRef){ Lobby.hiddenDeletedDoc = true; deleteLobbyDoc(); }
+        }, FK_LOBBY_HIDDEN_DELETE_MS);
+      } else {
+        if (Lobby.hiddenTimer){ clearTimeout(Lobby.hiddenTimer); Lobby.hiddenTimer = null; }
+        if (Lobby.hiddenDeletedDoc){
+          Lobby.hiddenDeletedDoc = false;
+          ensureLobbyDoc();   // re-checks isHost/roomCode itself — silent no-op if no longer host
+        }
+      }
+    });
+  }
+  window.__fkLobby = {
+    ensureLobbyDoc, deleteLobbyDoc, updateLobbyDoc,
+    get state(){ return Lobby; }
+  };
 
   // ---- serialize the LOCAL kart for publishing ('k' player state) ----
   function serializeKart(p, name, col){
@@ -4307,6 +4447,10 @@
       mpBox.style.display = 'block';
       const url = location.origin + location.pathname + '?track=' + encodeURIComponent(ACTIVE_TRACK_ID || BOOT_TRACK_ID) + '#r=' + net.roomCode;
       mpLinkInput.value = url;
+      // family lobby: tell the truth — the Games tab JOIN card is now the primary discovery
+      // path; the copy-link box stays as a secondary/manual fallback.
+      const liveNoteEl = document.getElementById('mpLiveNote');
+      if (liveNoteEl && net.isHost) liveNoteEl.textContent = '✅ Race is live in the Games tab — family can tap JOIN';
     } else {
       familyRaceBtn.disabled = false; familyRaceBtn.textContent = '🌐 FAMILY RACE';
       mpNote.textContent = 'Online unavailable — playing solo.'; mpBox.style.display='block';
@@ -4368,13 +4512,13 @@
           }
         }
         refreshMpMenu();
-        if (net.isHost) publishNetSnapshotNow();
+        if (net.isHost){ publishNetSnapshotNow(); updateLobbyDoc({ playerCount: net.players.length }); }   // family lobby: live count, no-op otherwise
         player.onQuit(()=>{
           net.players = net.players.filter(p=>p.id!==player.id);
           const key = 'r_'+player.id;
           if (G.players[key]){ removeKartView(key); delete G.players[key]; }
           refreshMpMenu();
-          if (net.isHost) publishNetSnapshotNow();
+          if (net.isHost){ publishNetSnapshotNow(); updateLobbyDoc({ playerCount: net.players.length }); }   // family lobby: live count, no-op otherwise
         });
       });
       // guest that deep-linked in: hide the FAMILY RACE button, show waiting box
@@ -4385,6 +4529,10 @@
         // we asked to join a room but became host (room was empty/new) — still show link
       }
       refreshMpMenu();
+      // family lobby: create the lobby doc now that we know we're really an online host (no-op
+      // for guests — ensureLobbyDoc's own isHost guard covers both the button-hosted path and
+      // this auto-join-becomes-host path uniformly).
+      ensureLobbyDoc();
     }catch(err){
       console.warn('Farm Kart: Playroom connection failed — solo only.', err);
       net.ready = true; net.mp = false; net.isHost = true; net.myId = 'local';
@@ -4431,7 +4579,10 @@
       G.raceClock += dt;
       // race fully over? (all karts finished) -> stop the world
       const all = Object.values(G.players);
-      if (all.length && all.every(p=>p.finished)) G.raceOver = true;
+      if (all.length && all.every(p=>p.finished) && !G.raceOver){
+        G.raceOver = true;
+        updateLobbyDoc({ status:'open' });   // family lobby: race over, next race hasn't started — reopen for joins
+      }
     }
     net.snapCd -= dt;
     if (net.snapCd <= 0){ publishNetSnapshotNow(); net.snapCd = 1/12; }

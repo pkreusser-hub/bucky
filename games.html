@@ -185,11 +185,34 @@
     for (const ch of pw.toLowerCase()) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
     return "fam" + h.toString(36);
   }
-  const familyKey = roomId(FAMILY_PASSWORD);
+  // ?fam= override: dev/test hook so automated verification can watch a scratch family
+  // collection instead of production (memory: test familyKey for automated writes).
+  const familyKey = (new URLSearchParams(location.search).get("fam")) || roomId(FAMILY_PASSWORD);
 
   const OPEN_LIVE_MS = 45 * 1000;      // "open" lobby heartbeat is every 15s now — 45s window = 3 missed beats before we call it stale
   const STARTED_LIVE_MS = 90 * 1000;   // "started" (mid-game) cards keep the old, more forgiving window
   const STALE_MS = 3 * 60 * 1000;      // lazy-delete docs older than this (dropped from 10min — stale cards were sticking around too long)
+
+  // Per-game card text (2026-07-09: Farm Kart family lobby port). Bistro keeps its original
+  // kitchen/chef wording; unknown future games get a neutral generic fallback so a new game
+  // doesn't need a games.html change just to appear here.
+  const LOBBY_TEXT = {
+    barnyardbistro: {
+      open: (d) => `${d.hostName || "Someone"}'s kitchen is open! · ${d.playerCount || 1}/${d.maxPlayers || 2} chefs`,
+      started: (d) => `🍳 ${d.hostName || "Someone"} is cooking with ${d.playerCount || 1} chefs`
+    },
+    farmkart: {
+      open: (d) => `🏁 ${d.hostName || "Someone"}'s race is forming! · ${d.playerCount || 1}/${d.maxPlayers || 4} racers`,
+      started: (d) => `🏁 ${d.hostName || "Someone"}'s race is mid-race!`
+    }
+  };
+  function lobbyText(data, cooking){
+    const t = LOBBY_TEXT[data.game];
+    if (t) return cooking ? t.started(data) : t.open(data);
+    return cooking
+      ? `${data.hostName || "Someone"} is hosting ${data.gameName || data.game}!`
+      : `${data.hostName || "Someone"} is hosting ${data.gameName || data.game}! · ${data.playerCount || 1}/${data.maxPlayers || 2}`;
+  }
 
   function renderLobbies(docs, fs, col){
     const wrap = document.getElementById("lobbyBanners");
@@ -225,7 +248,7 @@
         a.href = `${data.game}.html#r=${encodeURIComponent(data.roomCode || "")}`;
         const ico = document.createElement("span"); ico.className = "lobby-ico"; ico.textContent = data.ico || "🎮";
         const text = document.createElement("span"); text.className = "lobby-text";
-        text.textContent = `${data.hostName || "Someone"}'s kitchen is open! · ${data.playerCount || 1}/${data.maxPlayers || 2} chefs`;
+        text.textContent = lobbyText(data, false);
         const join = document.createElement("span"); join.className = "lobby-join"; join.textContent = "JOIN";
         a.append(ico, text, join);
         wrap.appendChild(a);
@@ -234,7 +257,7 @@
         card.className = "lobby-card static";
         const ico = document.createElement("span"); ico.className = "lobby-ico"; ico.textContent = data.ico || "🎮";
         const text = document.createElement("span"); text.className = "lobby-text";
-        text.textContent = `🍳 ${data.hostName || "Someone"} is cooking with ${data.playerCount || 1} chefs`;
+        text.textContent = lobbyText(data, true);
         card.append(ico, text);
         wrap.appendChild(card);
       }

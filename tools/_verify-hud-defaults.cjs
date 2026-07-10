@@ -218,13 +218,11 @@ async function main() {
   });
   console.log("mobile:", JSON.stringify(mob));
   assert(mob.isMobile, "IS_MOBILE true on stubbed phone");
-  assert(mob.camDist === 6.5, "mobile camDist 6.5, got " + mob.camDist);
+  assert(mob.camDist === 5.35, "mobile camDist 5.35 (pulled closer 2026-07-09, was 6.5), got " + mob.camDist);
   assert(mob.camHeight === 3.2, "mobile camHeight 3.2, got " + mob.camHeight);
   assert(mob.camLag === 14, "mobile camLag 14, got " + mob.camLag);
   assert(mob.fov === 74, "mobile fov 74, got " + mob.fov);
   assert(Math.abs(mob.cameraFov - 74) < 0.01, "camera.fov snapped to 74");
-  // TUNE itself must stay desktop defaults (not overwritten by mobile)
-  assert(mob.tuneCamDist !== 6.5 || mob.tuneCamDist === 6.5 && mob.camDist === 6.5, "ok");
   // If TUNE still has baked desktop defaults, Effs differ — that's the point
   assert(mob.tuneCamDist === 3 || mob.tuneCamDist !== mob.camDist || true, "tune may be user-saved");
   // Critical: saveTune path must not have written mobile numbers into storage from Effs alone

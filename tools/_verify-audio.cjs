@@ -98,15 +98,14 @@ async function main() {
     check("engine gain while racing", typeof a0.engineGainV === "number" && a0.engineGainV > 0.01, a0.engineGainV);
     check("unmuted masterGain 1", a0.masterGain === 1, a0.masterGain);
 
-    // drift scrape loop
+    // drift scrape REMOVED 2026-07-09 (user request) — drifting must run clean with no scrape node
     p.drift.active = true; p.drift.charge = 0.9; p.airborne = false;
     for (let i = 0; i < 20; i++) K.updateAudio(1 / 60);
     const aDrift = K.audioState();
-    check("drift gain while drifting", typeof aDrift.driftGainV === "number" && aDrift.driftGainV > 0.02, aDrift.driftGainV);
+    check("drift scrape removed (no driftGainV)", aDrift.driftGainV === undefined, aDrift.driftGainV);
+    check("engine stays live while drifting", typeof aDrift.engineGainV === "number" && aDrift.engineGainV > 0.01, aDrift.engineGainV);
     p.drift.active = false;
     for (let i = 0; i < 25; i++) K.updateAudio(1 / 60);
-    const aOff = K.audioState();
-    check("drift gain fades off", typeof aOff.driftGainV === "number" && aOff.driftGainV < 0.015, aOff.driftGainV);
 
     // discrete SFX hooks (must not throw; counters / graph stay healthy)
     const beforeCd = K.audioState().cdVoices || 0;
