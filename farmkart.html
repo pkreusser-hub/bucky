@@ -182,6 +182,16 @@
   body.mobile #wrongway{ font-size:20px; padding:7px 16px;
         top:calc(140px + env(safe-area-inset-top, 0px)); }
 
+  /* ---- BOOST FLARE: MK-style radial speed-lines during a boost FOV kick. opacity is driven
+     per-frame from boostFlareT; costs ~nothing at idle (opacity:0 → compositor skips it), never
+     intercepts pointer events. A radial mask keeps the streaks at the periphery (clear center). */
+  #boostFlare{ position:fixed; inset:0; z-index:26; pointer-events:none; opacity:0; will-change:opacity;
+    background:
+      repeating-conic-gradient(from 0deg at 50% 50%, rgba(255,255,255,.11) 0deg 1.1deg, transparent 1.1deg 5deg),
+      radial-gradient(ellipse at center, transparent 44%, rgba(150,200,255,.30) 100%);
+    -webkit-mask-image:radial-gradient(ellipse at center, transparent 40%, #000 90%);
+    mask-image:radial-gradient(ellipse at center, transparent 40%, #000 90%); }
+
   /* ======================= K6 POLISH ======================= */
   /* ---- barn-sign FARM KART title (CSS/canvas only, no image files) ---- */
   #startOverlay .logo.barnsign{ font-size:60px; padding:16px 46px 22px; border-radius:12px; color:#ffe9c2;
@@ -223,7 +233,23 @@
     font-family:monospace; padding:0; line-height:38px; }
   #musicBtn:hover{ background:rgba(0,0,0,.6); }
   #musicBtn.muted{ color:#ff8a8a; }
-  /* ---- controls hint restyle ---- */
+  /* ---- PAUSE button (top-left, next to mute/music; clear of the top-right minimap + mobile ♻ reset).
+     Only shown in countdown/racing/finished (toggled from updateHUD). ---- */
+  #pauseBtn{ position:absolute; left:100px; top:12px; z-index:22; width:38px; height:38px; border-radius:10px;
+    border:1px solid rgba(255,255,255,.22); background:rgba(0,0,0,.42); color:#fff; font-size:17px; cursor:pointer;
+    font-family:monospace; padding:0; line-height:38px; display:none; }
+  #pauseBtn:hover{ background:rgba(0,0,0,.6); }
+  #pauseBtn.on{ display:block; }
+  body.mobile #pauseBtn{ width:44px; height:44px; line-height:44px; font-size:20px; }
+  /* ---- PAUSE overlay (dark scrim + big kid-friendly barn-sign buttons) ---- */
+  #pauseOverlay{ position:absolute; inset:0; z-index:45; display:none; flex-direction:column; align-items:center;
+    justify-content:center; gap:18px; background:rgba(4,10,18,.78); backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px); }
+  #pauseOverlay.on{ display:flex; }
+  #pauseOverlay .ptitle{ font-size:46px; font-weight:900; color:#ffe9c2; letter-spacing:.04em;
+    text-shadow:0 3px 0 #3d2410, 0 6px 10px rgba(0,0,0,.55); margin-bottom:6px; }
+  #pauseOverlay .pbtns{ display:flex; flex-direction:column; gap:16px; width:100%; max-width:320px; padding:0 16px; box-sizing:border-box; }
+  body.mobile #pauseOverlay .ptitle{ font-size:36px; }
+  /* ======= results ======= */
   #help{ background:rgba(10,18,28,.55); border:1px solid rgba(255,255,255,.12); color:rgba(255,255,255,.82);
     border-radius:12px; letter-spacing:.02em; }
   /* ---- results podium: medals + per-player best lap ---- */
@@ -301,6 +327,19 @@
   .mfGrid.courses{ grid-template-columns:repeat(3, 1fr); }
   .mfGrid.cups{ grid-template-columns:repeat(2, 1fr); }
   .mfGrid.racers{ grid-template-columns:repeat(4, 1fr); }
+  /* ---- LOADOUT v2 picker: driver + kart + color (racer / mp-wait screens) ---- */
+  .mfLoadout{ display:flex; flex-direction:column; gap:11px; width:100%; max-width:400px;
+    max-height:58vh; overflow-y:auto; padding:2px 2px 6px; -webkit-overflow-scrolling:touch; }
+  .mfLoadout .lsec{ display:flex; flex-direction:column; gap:6px; }
+  .mfLoadout .lsec .lh{ font-size:12px; font-weight:900; color:#ffe27a; letter-spacing:.05em; text-align:center; }
+  .mfPickGrid{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .mfPickGrid .mfCard{ padding:9px 4px 7px; gap:3px; }
+  .mfPickGrid .mfCard .pico{ font-size:30px; line-height:1; }
+  .mfColors{ display:flex; flex-wrap:wrap; gap:9px; justify-content:center; }
+  .mfSwatch{ width:36px; height:36px; border-radius:9px; cursor:pointer; border:3px solid rgba(255,255,255,.22);
+    box-shadow:inset 0 2px 5px rgba(255,255,255,.25), 0 2px 5px rgba(0,0,0,.4); transition:transform .07s, border-color .1s; }
+  .mfSwatch:hover{ border-color:rgba(255,255,255,.6); }
+  .mfSwatch.on{ border-color:#fff; box-shadow:0 0 0 2px rgba(255,255,255,.55), inset 0 2px 5px rgba(255,255,255,.3); transform:scale(1.1); }
   .mfCard{ background:rgba(10,22,34,.72); border:2px solid rgba(255,255,255,.16); border-radius:12px;
     padding:8px 6px 7px; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:5px;
     transition:border-color .1s, background .1s; }
@@ -339,12 +378,35 @@
   body.mobile #menuTagline{ font-size:12px; }
   /* cup points standings (reuses #rStandings styling; adds a points column) */
   #rStandings .srow .spts{ width:52px; text-align:right; color:#ffd45e; font-weight:800; }
+  /* explicit continue button on the results / GP-interstitial card (tap/ENTER still work) */
+  #rContinue{ margin-top:16px; background-image:linear-gradient(180deg,#4caf50,#2e7d32); border:3px solid #1c5220;
+    color:#fff; border-radius:12px; padding:12px 26px; font-weight:900; font-size:19px; cursor:pointer;
+    letter-spacing:.03em; text-shadow:0 2px 0 #163f18; box-shadow:0 5px 0 rgba(0,0,0,.3), inset 0 2px 6px rgba(255,255,255,.2);
+    font-family:-apple-system,Segoe UI,Roboto,sans-serif; display:none; }
+  #rContinue.on{ display:inline-block; }
+  #rContinue:hover{ filter:brightness(1.08); }
+  /* LANDSCAPE / SHORT viewport (e.g. 844×390): the GP standings card must fit with no clipping —
+     shrink fonts/padding/medals, tighten rows, and let a long 12-row standings scroll internally. */
+  @media (max-height:500px){
+    #results .card{ padding:12px 22px; min-width:0; max-width:min(94vw,560px); max-height:92vh;
+      overflow-y:auto; -webkit-overflow-scrolling:touch; }
+    #results .rtitle{ font-size:22px; margin-bottom:2px; }
+    #results .place{ font-size:34px; margin:2px 0 6px; }
+    #results .place .medal{ margin-right:5px; }
+    #results .rrow{ font-size:14px; margin:3px 0; gap:20px; }
+    #rStandings{ margin-top:8px; padding-top:6px; max-height:44vh; overflow-y:auto; }
+    #rStandings .srow{ font-size:12px; margin:2px 0; }
+    #results .rsub{ margin-top:8px; font-size:12px; }
+    #rContinue{ margin-top:9px; padding:8px 20px; font-size:16px; }
+  }
 </style>
 </head>
 <body>
   <div id="stage"></div>
+  <div id="boostFlare"></div>
   <button id="muteBtn" title="mute / unmute sound">🔊</button>
   <button id="musicBtn" title="music on / off">🎵</button>
+  <button id="pauseBtn" title="pause (Esc / P)">⏸</button>
 
   <div id="hud">
     <div class="row"><span class="lbl">speed</span><span class="val big" id="speedV">0</span></div>
@@ -427,6 +489,15 @@
       <div class="rrow"><span class="rl">best lap</span><span id="rBest">—</span></div>
       <div id="rStandings"></div>
       <div class="rsub">Press ENTER or tap to race again</div>
+      <button id="rContinue">RACE AGAIN →</button>
+    </div>
+  </div>
+
+  <div id="pauseOverlay">
+    <div class="ptitle">⏸ PAUSED</div>
+    <div class="pbtns">
+      <button class="mfRace" id="pauseResume">▶ CONTINUE</button>
+      <button class="mfBtn" id="pauseExit">🚪 EXIT TO MENU</button>
     </div>
   </div>
 
@@ -1181,6 +1252,45 @@
   function racerById(id){ return FK_RACER_BY_ID[normalizeRacerId(id)]; }
   function loadRacerId(){ try{ return normalizeRacerId(localStorage.getItem('fk_racer')); }catch(e){ return 'sunny'; } }
 
+  // ---------- LOADOUT v2 (2026-07-11): driver × kart × color chosen INDEPENDENTLY ----------
+  //  The racer-select screen is now three distinct picks (WHO'S DRIVING / PICK YOUR KART / color).
+  //  Persisted as fk_racer JSON {driverId,kartId,color}; a legacy string racer-id migrates to its
+  //  FK_RACERS preset. MP publishes the loadout in both the 'pick' (waiting room) and 'k' (in-race
+  //  kd/dd/col) states, so remote karts render the right driver+kart+color. Bots keep their own
+  //  spread (randomKartId/randomDriverId + BOT_COLORS). FK_RACERS stays for migration + swatches.
+  const RACER_COLORS = [0xf2c53d, 0x4caf50, 0x3f7fe0, 0xff8ab0, 0xd6352b, 0xe08a2b, 0x8a5cc8, 0x2bb0a6];
+  function normalizeColor(c){
+    if (typeof c === 'string'){ c = c.charAt(0)==='#' ? parseInt(c.slice(1),16) : parseInt(c,10); }
+    c = c|0;
+    return (isFinite(c) && c >= 0) ? (c & 0xffffff) : RACER_COLORS[0];
+  }
+  function defaultLoadout(){ return { driverId:'bucky', kartId:'bucky', color:RACER_COLORS[0] }; }
+  function loadLoadout(){
+    let raw = null; try{ raw = localStorage.getItem('fk_racer'); }catch(e){}
+    if (raw){
+      // v2 object shape
+      try{
+        const o = JSON.parse(raw);
+        if (o && typeof o === 'object' && (o.driverId != null || o.kartId != null || o.color != null))
+          return { driverId:normalizeDriverId(o.driverId), kartId:normalizeKartId(o.kartId), color:normalizeColor(o.color) };
+      }catch(e){}
+      // legacy string racer-id → its preset
+      if (FK_RACER_BY_ID[raw]){ const r = FK_RACER_BY_ID[raw];
+        return { driverId:normalizeDriverId(r.driverId), kartId:normalizeKartId(r.kartId), color:normalizeColor(r.color) }; }
+    }
+    // no fk_racer → fall back to legacy fk_driver / fk_kart if present, else default
+    return { driverId:loadDriverId(), kartId:loadKartId(), color:RACER_COLORS[0] };
+  }
+  function saveLoadout(l){
+    try{ localStorage.setItem('fk_racer', JSON.stringify(l)); }catch(e){}
+    // keep the legacy single-value keys in sync so any old code path still reads a sane value
+    try{ localStorage.setItem('fk_driver', l.driverId); localStorage.setItem('fk_kart', l.kartId); }catch(e){}
+  }
+  function normalizeLoadout(l){
+    l = l || {};
+    return { driverId:normalizeDriverId(l.driverId), kartId:normalizeKartId(l.kartId), color:normalizeColor(l.color) };
+  }
+
   // FK_CUPS: 4 placeholder Grand Prix cups (user: "pick random courses that we will replace
   //   later"). Each = { id, name, ico, trackIds[4] } over the builtin/amen-farms track ids —
   //   trivially editable here. Cup racing is session-scoped (nothing persisted beyond fk_best).
@@ -1842,8 +1952,13 @@
   const IS_MOBILE = (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches)
                     && Math.min(innerWidth, innerHeight) < 900;
   // camDist pulled closer 2026-07-09 (user: mobile camera too far back) — was 6.5.
+  // MOBILE_CAM.camDist is the LANDSCAPE distance; portrait pulls back to MOBILE_CAM_PORTRAIT_DIST.
   const MOBILE_CAM = { camDist:3.5, camHeight:3.2, camLag:14, fov:74 };
-  function camDistEff(){ return IS_MOBILE ? MOBILE_CAM.camDist : TUNE.camDist; }
+  const MOBILE_CAM_PORTRAIT_DIST = 5.35;
+  // ORIENTATION-AWARE: evaluated LIVE (read innerWidth/innerHeight each call) so a device
+  // rotation re-reads it — never cached at boot. Portrait (taller than wide) → pull back 5.35;
+  // landscape → the closer 3.5. Desktop TUNE.camDist is untouched.
+  function camDistEff(){ return IS_MOBILE ? (innerHeight > innerWidth ? MOBILE_CAM_PORTRAIT_DIST : MOBILE_CAM.camDist) : TUNE.camDist; }
   function camHeightEff(){ return IS_MOBILE ? MOBILE_CAM.camHeight : TUNE.camHeight; }
   function camLagEff(){ return IS_MOBILE ? MOBILE_CAM.camLag : TUNE.camLag; }
   function fovEff(){ return IS_MOBILE ? MOBILE_CAM.fov : TUNE.fov; }
@@ -1854,6 +1969,15 @@
   let camHeading = 0;
   const camPos = new THREE.Vector3(0, camHeightEff(), -camDistEff());
   let camFov = fovEff();
+  // PAUSE (⏸): frozen sim (solo) / overlay-only (MP). Declared here — gatherInput (defined below)
+  // reads it to zero local input while paused.
+  let paused = false;
+  // BOOST FLARE: transient camera FOV kick + radial speed-lines on every boost trigger.
+  let boostFlareT = 0;               // flare lifetime timer (s), eased out
+  let _prevLocalBoostT = 0;          // rising-edge detector for the local kart's boostT
+  const BOOST_FLARE_DUR = 0.6;       // flare duration
+  const BOOST_FLARE_FOV = 12;        // peak extra FOV degrees at the spike
+  const boostFlareEl = document.getElementById('boostFlare');
   let camKartY = 0;   // K2.5: smoothed kart-y the camera tracks (jumps read as FLOAT)
   let camFloorY = -Infinity;   // SMOOTHED anti-clip floor (raw per-frame sampling jitters on hills)
   // K2: reusable math temporaries (per-view surface normals now live on each kart view)
@@ -2915,6 +3039,9 @@
     return Math.max(1, n);
   }
   function accentColorFor(p){
+    // an explicitly-chosen racer color wins over everything (incl. the tractor red override) so the
+    // player's picked kart color always shows on their own kart, whatever the body variant.
+    if (p && p._racerCol != null) return p._racerCol;
     if (p && normalizeKartId(p.kartId) === 'tractor') return TRACTOR_RED;
     if (p && p._slotCol != null) return p._slotCol;
     if (p && p.botColor != null) return p.botColor;
@@ -3555,6 +3682,8 @@
       itemPressT = 0; itemHoldArmed = false;
     }
     itemKeyPrev = itemDown;
+    // PAUSE: zero all local input while paused (solo also freezes the sim; MP just coasts the kart).
+    if (paused) return { steer:0, throttle:0, brake:0, drift:false, item:false, itemTrailToggle:false };
     // clamp steer
     steer = Math.max(-1, Math.min(1, steer));
     return { steer, throttle, brake, drift, item, itemTrailToggle };
@@ -3862,7 +3991,21 @@
     if (p.boostT > 0) targetFov = baseFov + 10;
     else if (speed > TUNE.maxSpeed*0.95) targetFov = baseFov + 4;
     camFov += (targetFov - camFov) * (1 - Math.exp(-6*dt));
-    camera.fov = camFov;
+    // BOOST FLARE: a short, sharp FOV kick layered ON TOP of the smoothed base fov (never mutates
+    // the tune). A rising edge of the local kart's boostT (re)arms it — that single detector covers
+    // every boost site (start boost, mini-turbo release, boost pads / ramp-entry, ⚡ mushroom).
+    // Re-boosting while already flaring just refreshes the timer (no stacking).
+    const lb = p.boostT;
+    if (lb > _prevLocalBoostT + 0.01) boostFlareT = BOOST_FLARE_DUR;
+    _prevLocalBoostT = lb;
+    let flareFov = 0, flareK = 0;
+    if (boostFlareT > 0){
+      flareK = boostFlareT / BOOST_FLARE_DUR;          // 1 -> 0
+      flareFov = BOOST_FLARE_FOV * flareK * flareK;    // quadratic ease-out spike
+      boostFlareT = Math.max(0, boostFlareT - dt);
+    }
+    if (boostFlareEl) boostFlareEl.style.opacity = flareK > 0 ? (0.6 * flareK).toFixed(3) : '0';
+    camera.fov = camFov + flareFov;
     camera.updateProjectionMatrix();
   }
 
@@ -3992,6 +4135,8 @@
   const MEDAL = { 1:'🥇', 2:'🥈', 3:'🥉' };   // K6: podium medals
   function updateHUD(){
     const p = G.players.local;
+    // PAUSE button visible only during a race (countdown/racing/finished)
+    if (pauseBtnEl) pauseBtnEl.classList.toggle('on', pausable());
     const speed = Math.hypot(p.v.x, p.v.z);
     speedV.textContent = speed.toFixed(0);
     if (p.airborne){ surfEl.textContent = '✈ AIR'; surfEl.className = 'air'; }
@@ -4537,6 +4682,15 @@
         return r.arrayBuffer();
       }).then(ab=>ctx.decodeAudioData(ab)).then(b=>{
         audioBuffers[name] = b; _buffersLoaded++;
+        // LATE-DECODE RETRY (music silence fix): the big music files (~1-2MB) almost always lose
+        // the race against the first tap, so setMusicPhase() already ran and its start fn no-op'd
+        // (buffer wasn't ready) — and nothing retried. Now that THIS buffer is in: if a gesture has
+        // happened AND the current phase wants this track, (re)start it. The start fns are idempotent
+        // via their !src guards, so calling them again only creates the source that was missing.
+        if (_audioGestured){
+          if (musicPhase === 'menu' && (name === 'fk-music-menu' || name === 'fk-ambient-farm')) startMenuTracks();
+          else if (musicPhase === 'race' && name === 'fk-music-race') startRaceTrack();
+        }
       }).catch(()=>{ audioBuffers[name] = null; });  // blocked/failed -> falsy forever, synth keeps covering it
     });
   }
@@ -4718,9 +4872,16 @@
   applyMusicToggleUI();
   // Browser autoplay: only START playback after the first real user gesture (ctx itself may
   // already exist from loadAudioBuffers() below — decoding needs no gesture, only playback does).
+  let _audioGestured = false;   // set on the first real gesture; gates the late-decode music retry
   function _firstGestureAudioUnlock(){
+    _audioGestured = true;
     ensureAudio();
-    if (G.phase === 'menu') setMusicPhase('menu');
+    // musicPhase may ALREADY be 'menu' (boot's toMenu() set it) with no source created yet — because
+    // buffers weren't decoded at boot. setMusicPhase() would then early-return on its phase-equality
+    // guard and never create the source. So call the (idempotent) start fn DIRECTLY after setting the
+    // phase, so a gesture-after-buffers-ready reliably starts the music.
+    if (G.phase === 'menu'){ setMusicPhase('menu'); startMenuTracks(); }
+    else if (G.phase === 'countdown' || G.phase === 'racing'){ setMusicPhase('race'); startRaceTrack(); }
   }
   addEventListener('pointerdown', _firstGestureAudioUnlock, { once:true, passive:true });
   addEventListener('keydown', _firstGestureAudioUnlock, { once:true });
@@ -4862,6 +5023,8 @@
     } else sEl.style.display = 'none';
     resultsEl.style.display = 'flex';
     countdownEl.style.display = 'none';
+    // explicit continue button — hidden for MP guests (only the host advances)
+    setResultsContinue('RACE AGAIN →', !(net.mp && !net.isHost));
     finishFanfare(r.place);   // K6: podium fanfare for 1st, warm flourish otherwise (sample-aware)
     musicRaceEnd();           // 2026-07-10: fade race music out, one-shot win jingle
   }
@@ -4882,8 +5045,56 @@
     // the finished screen routes through the flow-aware "race again" (cup / trial / normal).
     if (G.phase === 'finished'){ if (window.MenuFlow) MenuFlow.raceAgain(); else startCountdown(); }
   }
-  addEventListener('keydown', e=>{ if (e.key === 'Enter'){ advance(); } });
-  stage.addEventListener('pointerdown', ()=>{ if (G.phase==='menu' || G.phase==='finished') advance(); });
+  addEventListener('keydown', e=>{ if (e.key === 'Enter'){ if (paused) return; advance(); } });
+  stage.addEventListener('pointerdown', ()=>{ if (paused) return; if (G.phase==='menu' || G.phase==='finished') advance(); });
+
+  // ---------- PAUSE (⏸ button + Esc / P) ----------
+  //  SOLO: freezes the sim (frame loop skips stepKart/timers/bots while `paused`; the frozen scene
+  //        still renders; the frame clock is reset on resume so there's no dt jump). Engine ducked.
+  //  MP:   never freezes the shared world (others keep racing) — overlay only, local input zeroed
+  //        (gatherInput returns neutral while paused).
+  const pauseBtnEl = document.getElementById('pauseBtn');
+  const pauseOverlayEl = document.getElementById('pauseOverlay');
+  function pausable(){ return G.phase==='countdown' || G.phase==='racing' || G.phase==='finished'; }
+  function setPaused(v){
+    v = !!v;
+    if (v && !pausable()) v = false;
+    if (v === paused) return;
+    paused = v;
+    pauseOverlayEl.classList.toggle('on', paused);
+    if (paused){
+      ensureAudio();
+      // duck the engine/drift loops immediately so a frozen (solo) / coasting (MP) kart is quiet
+      if (engLowGain) engLowGain.gain.value = 0;
+      if (engMidGain) engMidGain.gain.value = 0;
+      if (engHighGain) engHighGain.gain.value = 0;
+      if (driftLoopGain) driftLoopGain.gain.value = 0;
+    } else {
+      last = performance.now();   // resume: reset the frame clock so the paused span isn't one huge dt
+    }
+  }
+  function togglePause(){ if (paused) setPaused(false); else setPaused(true); }
+  function exitToMenu(){
+    setPaused(false);
+    if (net.mp){ location.href = 'farmkart.html'; return; }   // MP: clean leave = reload without the #r= room hash
+    toMenu();   // SOLO: back to the MenuFlow home screen
+  }
+  pauseBtnEl.addEventListener('pointerdown', e=>e.stopPropagation());
+  pauseBtnEl.addEventListener('click', e=>{ e.stopPropagation(); ensureAudio(); togglePause(); });
+  document.getElementById('pauseResume').addEventListener('pointerdown', e=>e.stopPropagation());
+  document.getElementById('pauseResume').addEventListener('click', e=>{ e.stopPropagation(); setPaused(false); });
+  document.getElementById('pauseExit').addEventListener('pointerdown', e=>e.stopPropagation());
+  document.getElementById('pauseExit').addEventListener('click', e=>{ e.stopPropagation(); exitToMenu(); });
+  addEventListener('keydown', e=>{
+    const k = (e.key||'').toLowerCase();
+    if (k==='escape' || k==='p'){ if (pausable() || paused){ e.preventDefault(); togglePause(); } }
+  });
+
+  // ---------- results / GP-interstitial CONTINUE button (tap/ENTER still work in parallel) ----------
+  const rContinueEl = document.getElementById('rContinue');
+  function setResultsContinue(label, show){ rContinueEl.textContent = label; rContinueEl.classList.toggle('on', !!show); }
+  rContinueEl.addEventListener('pointerdown', e=>e.stopPropagation());
+  rContinueEl.addEventListener('click', e=>{ e.stopPropagation(); advance(); });
 
   // ---------- track picker (K3) ----------
   // Lists Amen Farms + builtins + saved tracks. Changing reloads at ?track=<id>
@@ -4982,15 +5193,27 @@
   // local kart's model + its in-race body color (stored on the player as _racerCol; seat
   // functions prefer it over the grid-slot color). Persisted as fk_racer.
   function setLocalRacer(id){
+    // back-compat entry (resume paths pass a racer id string): map preset → loadout.
     const r = racerById(id);
+    applyLocalLoadout({ driverId:r.driverId, kartId:r.kartId, color:r.color });
     G.players.local.racerId = r.id;
-    G.players.local._racerCol = r.color;
-    try{ localStorage.setItem('fk_racer', r.id); }catch(e){}
-    setLocalKart(r.kartId);
-    setLocalDriver(r.driverId);
-    // color override for the menu preview (seat functions re-apply it at race start)
-    G.players.local._slotCol = r.color;
-    paintKartAccent('local');
+  }
+  // LOADOUT v2: apply an independent {driverId,kartId,color} pick to the local kart + persist it.
+  function applyLocalLoadout(l){
+    l = normalizeLoadout(l);
+    const p = G.players.local;
+    p.driverId = l.driverId; p.kartId = l.kartId;
+    p._racerCol = l.color;
+    p._slotCol = l.color;                         // menu preview (seat fns re-apply at race start)
+    p.racerId = null;                             // free-form loadout is no longer a named preset
+    applyKartLoadout(kartViews.local, l.kartId, l.driverId);
+    paintKartAccent('local');                     // _racerCol wins in accentColorFor
+    saveLoadout(l);
+    return l;
+  }
+  function setLocalColor(hex){
+    const l = normalizeLoadout({ driverId:G.players.local.driverId, kartId:G.players.local.kartId, color:hex });
+    applyLocalLoadout(l);
   }
   (function buildLoadoutPicker(){
     kartPickEl.innerHTML = '';
@@ -5774,6 +5997,9 @@
 
     if (!net.mp){
       // ===== SOLO / FALLBACK PATH — byte-identical to the original single-player loop =====
+      // PAUSE freezes the solo sim entirely (no phase/step/timer/bot advance); the frozen scene
+      // still renders below. dt is discarded this frame; the frame clock is reset on resume.
+      if (!paused){
       updatePhase(dt, inp);
       if (dt > 0 && G.phase === 'racing'){
         // step EVERY kart (human + bots) through the SAME stepKart, then its race progress
@@ -5796,6 +6022,7 @@
         resolveKartCollisions();      // K7: kart-vs-kart separation (own + bots)
         G.raceClock += dt;
       }
+      } // end if(!paused)
     } else if (net.isHost){
       // ===== MP HOST: drive phase, local kart, bots, and the whole world; adopt guests =====
       if (!document.hidden) hostMpTick(dt, inp);   // heartbeat drives it while hidden (item use handled inside)
@@ -5879,7 +6106,7 @@
     let histStack = [];
     let mpPollTimer = null;
     // selection state
-    const st = { spMode:'trial', selCourse:null, selCup:null, bots:11, racerId:loadRacerId(),
+    const st = { spMode:'trial', selCourse:null, selCup:null, bots:11, loadout:loadLoadout(),
                  mpKind:null /* 'race'|'cup' */, mpFromHost:false };
     let cup = null;   // active cup session { cupId, raceIdx, points, racerId }
 
@@ -6041,40 +6268,67 @@
     })();
     function openCups(){ show('gp-cup'); }
 
-    // ================= RACER SELECT (shared) =================
+    // ================= LOADOUT v2: driver + kart + color picker (shared builder) =================
+    //  Three distinct choices — WHO'S DRIVING? / PICK YOUR KART / KART COLOR — writing into
+    //  st.loadout and applying live to the local kart. Reused by the RACER screen (has RACE) and
+    //  the MP waiting room (publishes on change).
+    function buildLoadoutSections(host, onChange){
+      host.className='mfLoadout'; host.addEventListener('pointerdown', stop);
+      const drvCards={}, kartCards={}, colSwatches={};
+      function section(title, kinds, cardMap, pickKey){
+        const sec=el('div','lsec'); sec.appendChild(el('div','lh', title));
+        const grid=document.createElement('div'); grid.className='mfPickGrid';
+        for (const k of kinds){
+          const c=document.createElement('div'); c.className='mfCard'; c.dataset.id=k.id;
+          c.appendChild(el('div','pico', k.ico)); c.appendChild(el('div','cn', k.name));
+          c.addEventListener('pointerdown',stop);
+          c.addEventListener('click', ()=>{ st.loadout[pickKey]=k.id; apply(); });
+          grid.appendChild(c); cardMap[k.id]=c;
+        }
+        sec.appendChild(grid); host.appendChild(sec);
+      }
+      section('WHO’S DRIVING?', DRIVER_KINDS, drvCards, 'driverId');
+      section('PICK YOUR KART',    KART_KINDS,   kartCards, 'kartId');
+      const csec=el('div','lsec'); csec.appendChild(el('div','lh','KART COLOR'));
+      const crow=document.createElement('div'); crow.className='mfColors';
+      for (const col of RACER_COLORS){
+        const sw=document.createElement('div'); sw.className='mfSwatch'; sw.dataset.col=col;
+        sw.style.background='#'+col.toString(16).padStart(6,'0');
+        sw.addEventListener('pointerdown',stop);
+        sw.addEventListener('click', ()=>{ st.loadout.color=col; apply(); });
+        crow.appendChild(sw); colSwatches[col]=sw;
+      }
+      csec.appendChild(crow); host.appendChild(csec);
+      function sync(){
+        st.loadout = normalizeLoadout(st.loadout);
+        for (const id in drvCards)  drvCards[id].classList.toggle('on', id===st.loadout.driverId);
+        for (const id in kartCards) kartCards[id].classList.toggle('on', id===st.loadout.kartId);
+        for (const col in colSwatches) colSwatches[col].classList.toggle('on', (+col)===st.loadout.color);
+      }
+      function apply(){ applyLocalLoadout(st.loadout); sync(); if (onChange) onChange(); }
+      return { sync, apply };
+    }
+
+    // ================= RACER SELECT (single-player) =================
     const racerScreen = (function(){ const s=makeScreen('racer');
-      const head=el('div','mfHead','PICK YOUR RACER'); s.appendChild(head);
-      const grid=document.createElement('div'); grid.className='mfGrid racers'; grid.addEventListener('pointerdown',stop);
-      s.appendChild(grid);
+      const head=el('div','mfHead','BUILD YOUR RACER'); s.appendChild(head);
+      const host=document.createElement('div'); s.appendChild(host);
+      const picker=buildLoadoutSections(host, null);
       const race=btn('mfRace','RACE ▶', ()=>onRacerConfirm());
       const bar=document.createElement('div'); bar.className='mfBar';
       bar.appendChild(btn('mfBack','‹ Back', ()=>back()));
       bar.appendChild(race); s.appendChild(bar);
-      // populate cards once
-      const cards={};
-      for (const r of FK_RACERS){
-        const card=document.createElement('div'); card.className='mfCard'; card.dataset.id=r.id;
-        const cv=document.createElement('canvas'); cv.width=72; cv.height=56; card.appendChild(cv);
-        drawRacerSwatch(cv, r);
-        card.appendChild(el('div','cn', r.name));
-        card.addEventListener('pointerdown',stop);
-        card.addEventListener('click', ()=>{ st.racerId=r.id; setLocalRacer(r.id); mark(); if (racerScreen.onpick) racerScreen.onpick(r.id); });
-        grid.appendChild(card); cards[r.id]=card;
-      }
-      function mark(){ for (const id in cards) cards[id].classList.toggle('on', id===st.racerId); }
-      return { grid, race, head, cards, mark, mode:'trial', onpick:null };
+      return { race, head, sync:picker.sync };
     })();
     let racerConfirmMode='trial';
     function openRacerSelect(mode){
       racerConfirmMode=mode;
-      racerScreen.head.textContent = mode==='mp' ? 'PICK YOUR RACER' : 'PICK YOUR RACER';
-      st.racerId = normalizeRacerId(st.racerId); setLocalRacer(st.racerId); racerScreen.mark();
+      st.loadout = normalizeLoadout(st.loadout); applyLocalLoadout(st.loadout); racerScreen.sync();
       racerScreen.race.style.display = (mode==='mp') ? 'none' : '';
-      racerScreen.onpick = (mode==='mp') ? (id=>publishPick()) : null;
       show('racer');
     }
     function onRacerConfirm(){
-      setLocalRacer(st.racerId);
+      st.loadout = applyLocalLoadout(st.loadout);
       if (racerConfirmMode==='trial') launchTrialRace();
       else if (racerConfirmMode==='cup') launchCup();
     }
@@ -6084,7 +6338,7 @@
       setRaceMode('trial');
       if (st.selCourse && st.selCourse !== (ACTIVE_TRACK_ID||BOOT_TRACK_ID)){
         // needs a different track → reload, then resume straight into the trial race
-        try{ sessionStorage.setItem('fk_flow_pending', JSON.stringify({ kind:'trial', racerId:st.racerId })); }catch(e){}
+        try{ sessionStorage.setItem('fk_flow_pending', JSON.stringify({ kind:'trial', loadout:st.loadout })); }catch(e){}
         location.href = 'farmkart.html?track=' + encodeURIComponent(st.selCourse);
         return;
       }
@@ -6093,7 +6347,7 @@
     // ---- launch a Grand Prix cup (session-scoped; races 4 tracks via reloads) ----
     function launchCup(){
       const c = FK_CUP_BY_ID[st.selCup]; if (!c) return;
-      cup = { cupId:c.id, raceIdx:0, points:{}, racerId:st.racerId };
+      cup = { cupId:c.id, raceIdx:0, points:{}, loadout:normalizeLoadout(st.loadout) };
       persistCup();
       loadCupRace();   // reload into track 0, autostart
     }
@@ -6104,7 +6358,7 @@
       persistCup();
       if (tid !== (ACTIVE_TRACK_ID||BOOT_TRACK_ID)){ location.href='farmkart.html?track='+encodeURIComponent(tid); return; }
       // already on the right track → start now
-      setRaceMode('prix'); setLocalRacer(cup.racerId); setLocalRacer(cup.racerId); startCountdown();
+      setRaceMode('prix'); applyLocalLoadout(cup.loadout); startCountdown();
     }
     function cupActive(){ return !!cup; }
     function onCupRaceFinished(results){
@@ -6137,6 +6391,7 @@
       });
       sEl.style.display='block';
       document.querySelector('#results .rsub').textContent = final ? 'Tap / ENTER for the menu' : 'Tap / ENTER for the next race';
+      setResultsContinue(final ? '🏁 FINISH →' : 'NEXT RACE →', true);
       resultsEl.style.display='flex'; countdownEl.style.display='none';
     }
     function raceAgain(){
@@ -6223,7 +6478,7 @@
     async function beginHost(){
       mpGrid.go.disabled=true;
       await initNet(null);   // create a Playroom room as host (also registers the lobby doc)
-      setRaceMode('prix'); setLocalRacer(st.racerId);
+      setRaceMode('prix'); applyLocalLoadout(st.loadout);
       openRacerSelect('mp');   // host picks its racer, then the waiting room
       // switch to waiting after a moment (host also uses the racer grid but with a Done → waiting)
       st.mpFromHost = net.mp && net.isHost;
@@ -6231,21 +6486,13 @@
     }
     function goWaiting(){ publishPick(); show('mp-wait'); }
 
-    // ---- MP waiting room (host + guests): pick racer + ready, see everyone live ----
+    // ---- MP waiting room (host + guests): pick driver/kart/color + ready, see everyone live ----
     const waitScreen = (function(){ const s=makeScreen('mp-wait');
       s.appendChild(el('div','mfHead','DRIVER SELECT'));
-      s.appendChild(el('div','mfSub','Pick your racer, then Ready up.'));
-      const grid=document.createElement('div'); grid.className='mfGrid racers'; grid.addEventListener('pointerdown',stop);
-      const cards={};
-      for (const r of FK_RACERS){
-        const card=document.createElement('div'); card.className='mfCard'; card.dataset.id=r.id;
-        const cv=document.createElement('canvas'); cv.width=64; cv.height=50; card.appendChild(cv); drawRacerSwatch(cv,r);
-        card.appendChild(el('div','cn', r.name));
-        card.addEventListener('pointerdown',stop);
-        card.addEventListener('click', ()=>{ st.racerId=r.id; setLocalRacer(r.id); myReady=false; markW(); publishPick(); });
-        grid.appendChild(card); cards[r.id]=card;
-      }
-      s.appendChild(grid);
+      s.appendChild(el('div','mfSub','Build your racer, then Ready up.'));
+      const host=document.createElement('div'); s.appendChild(host);
+      // any loadout change un-readies you + republishes
+      const picker=buildLoadoutSections(host, ()=>{ myReady=false; markW(); publishPick(); });
       const list=document.createElement('div'); list.id='mfPickList'; s.appendChild(list);
       const note=el('div','','',{id:'mfMpNote'}); s.appendChild(note);
       const bar=document.createElement('div'); bar.className='mfBar';
@@ -6256,22 +6503,30 @@
       start.id='mfStartBtn'; start.disabled=true; start.style.display='none';
       bar.appendChild(ready); bar.appendChild(start);
       s.appendChild(bar);
-      function markW(){ for (const id in cards) cards[id].classList.toggle('on', id===st.racerId);
+      function markW(){ picker.sync();
         ready.textContent = myReady ? '✔ READY ✓' : '✔ READY'; ready.classList.toggle('on', myReady); }
-      return { list, note, ready, start, markW, cards };
+      return { list, note, ready, start, markW, sync:picker.sync };
     })();
     let myReady=false;
+    // NAME both a driver + kart from a published loadout for the roster line
+    function loadoutLabel(l){
+      if (!l) return '—';
+      const d=DRIVER_KINDS.find(k=>k.id===l.driverId), k=KART_KINDS.find(x=>x.id===l.kartId);
+      return (d?d.name:'?') + ' · ' + (k?k.name:'?');
+    }
     function publishPick(){
       if (!net.mp || !net.localPlayer) return;
-      try{ net.localPlayer.setState('pick', { racerId:st.racerId, ready:myReady }, true); }catch(e){}
+      const l = normalizeLoadout(st.loadout);
+      try{ net.localPlayer.setState('pick', { driverId:l.driverId, kartId:l.kartId, color:l.color, ready:myReady }, true); }catch(e){}
     }
     function allPicks(){
       const out=[];
       for (const pl of net.players){
-        let pk=null; try{ pk = pl.id===net.myId ? { racerId:st.racerId, ready:myReady } : (pl.getState&&pl.getState('pick')); }catch(e){}
-        pk = pk || { racerId:null, ready:false };
+        let pk=null; try{ pk = pl.id===net.myId ? Object.assign({}, normalizeLoadout(st.loadout), { ready:myReady }) : (pl.getState&&pl.getState('pick')); }catch(e){}
+        pk = pk || {};
+        const l = (pk.driverId!=null||pk.kartId!=null||pk.color!=null) ? normalizeLoadout(pk) : null;
         let nm='Racer'; try{ nm = pl.id===net.myId ? (net.myName||'You') : ((pl.getState&&pl.getState('name'))||'Racer'); }catch(e){}
-        out.push({ id:pl.id, me:pl.id===net.myId, name:nm, racerId:pk.racerId, ready:!!pk.ready });
+        out.push({ id:pl.id, me:pl.id===net.myId, name:nm, loadout:l, ready:!!pk.ready });
       }
       return out;
     }
@@ -6280,12 +6535,11 @@
       const picks=allPicks();
       waitScreen.list.innerHTML='';
       for (const p of picks){
-        const r = p.racerId ? racerById(p.racerId) : null;
-        const col = r ? '#'+r.color.toString(16).padStart(6,'0') : '#556';
+        const col = p.loadout ? '#'+p.loadout.color.toString(16).padStart(6,'0') : '#556';
         const row=document.createElement('div'); row.className='mfPickRow';
         row.innerHTML='<span class="sw" style="background:'+col+'"></span>'+
           '<span class="nm">'+p.name+(p.me?' (you)':'')+'</span>'+
-          '<span class="rc">'+(r?r.name:'—')+'</span>'+
+          '<span class="rc">'+loadoutLabel(p.loadout)+'</span>'+
           '<span class="rd '+(p.ready?'ok':'no')+'">'+(p.ready?'READY':'…')+'</span>';
         waitScreen.list.appendChild(row);
       }
@@ -6368,17 +6622,18 @@
       // 2) resume a pending single-player flow across a track reload
       let pend=null; try{ pend=JSON.parse(sessionStorage.getItem('fk_flow_pending')||'null'); }catch(e){}
       if (pend){ try{ sessionStorage.removeItem('fk_flow_pending'); }catch(e){}
-        if (pend.kind==='trial'){ st.racerId=normalizeRacerId(pend.racerId); setLocalRacer(st.racerId); setRaceMode('trial'); startCountdown(); return; }
+        if (pend.kind==='trial'){ st.loadout=normalizeLoadout(pend.loadout||st.loadout); applyLocalLoadout(st.loadout); setRaceMode('trial'); startCountdown(); return; }
         if (pend.kind==='mphost'){ histStack=['home']; beginHost(); return; }
       }
       // 3) resume a Grand Prix cup session
       let cs=null; try{ cs=JSON.parse(sessionStorage.getItem('fk_cup_session')||'null'); }catch(e){}
-      if (cs && FK_CUP_BY_ID[cs.cupId]){ cup=cs; st.racerId=normalizeRacerId(cs.racerId);
+      if (cs && FK_CUP_BY_ID[cs.cupId]){ cup=cs;
+        if (cup.loadout) st.loadout=normalizeLoadout(cup.loadout);   // migrate old cup.racerId sessions gracefully (loadout absent → keep current)
         // if we're on the right track, autostart; else load it
         loadCupRace(); return; }
       // 4) generic ?track= deep-link (editor test buttons) → boot straight into a race
       const qtrack = new URLSearchParams(location.search).get('track');
-      if (qtrack){ st.racerId=loadRacerId(); setLocalRacer(st.racerId); startCountdown(); return; }
+      if (qtrack){ st.loadout=loadLoadout(); applyLocalLoadout(st.loadout); startCountdown(); return; }
       // 5) normal boot → home
       histStack=['home']; show('home',false);
     }
@@ -6393,7 +6648,12 @@
              // test hooks
              _openCourseGrid:openCourseGrid, _openCups:openCups, _openRacer:openRacerSelect,
              _startTrial:startTrial, _launchCup:launchCup, _beginHost:beginHost, _publishPick:publishPick,
-             _setRacer:(id)=>{ st.racerId=id; setLocalRacer(id); }, _selCourse:(id)=>{ st.selCourse=id; },
+             // back-compat: seed the loadout from a legacy preset id
+             _setRacer:(id)=>{ setLocalRacer(id); st.loadout=loadLoadout(); if(racerScreen&&racerScreen.sync)racerScreen.sync(); },
+             // v2 loadout hooks (driver × kart × color)
+             _setLoadout:(l)=>{ st.loadout=applyLocalLoadout(l); if(racerScreen&&racerScreen.sync)racerScreen.sync(); },
+             _getLoadout:()=>Object.assign({}, st.loadout),
+             _selCourse:(id)=>{ st.selCourse=id; },
              _selCup:(id)=>{ st.selCup=id; } };
   })();
   window.MenuFlow = MenuFlow;
@@ -6432,7 +6692,10 @@
     get glbPropCache(){ return _glbCache; },
     startCountdown, toMenu,
     ACTIVE_TRACK, ACTIVE_TRACK_ID,   // K3: which track data is live
-    IS_MOBILE, MOBILE_CAM, camDistEff, camHeightEff, camLagEff, fovEff,
+    IS_MOBILE, MOBILE_CAM, MOBILE_CAM_PORTRAIT_DIST, camDistEff, camHeightEff, camLagEff, fovEff,
+    // pause + boost-flare (headless harness)
+    togglePause, setPaused, exitToMenu, pausable, get paused(){ return paused; },
+    get boostFlareT(){ return boostFlareT; }, BOOST_FLARE_DUR, BOOST_FLARE_FOV,
     // K3.5 / K4 API (bots + power-ups; also exposed for the headless harness)
     setupRoster, placeAllAtGrid, botInput, botTargetSpeed, botUseItems, addTestKart, buildItemBoxes,
     applySpinOut, useItem, fireTomato, fireChicken, dropHay, findKartAhead, totalProgress,
@@ -6471,6 +6734,12 @@
       engineMix:{ low:_engineMix.low, mid:_engineMix.mid, high:_engineMix.high, rate:_engineMix.rate },
       engineSampleReady: engineSampleReady(),
       musicTrack: musicPhase, musicOff, musicGainV: musicBus ? musicBus.gain.value : null,
+      // per-track source presence + gain (music late-decode retry test)
+      menuMusicOn: !!menuMusicSrc, ambientOn: !!ambientSrc, raceMusicOn: !!raceMusicSrc,
+      menuMusicGainV: menuMusicGain ? menuMusicGain.gain.value : null,
+      ambientGainV: ambientGain ? ambientGain.gain.value : null,
+      raceMusicGainV: raceMusicGain ? raceMusicGain.gain.value : null,
+      audioGestured: _audioGestured,
       driftLoopGainV: driftLoopGain ? driftLoopGain.gain.value : null,
       sfxPlays: Object.assign({}, _sfxPlays),
       // 2026-07-10: proximity audio debug — last gainAt() call's {name,dist,mul}
