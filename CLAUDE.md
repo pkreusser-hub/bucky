@@ -1677,6 +1677,46 @@ layout sync.
       path; a second agent has unrelated concurrent farmkart.html changes in the working tree —
       confirmed via `git diff -- farmkart.html` that tunnels are the only hunk this task touched).
       Still LOCAL/untracked-in-spirit (farmkart.html itself is committed, but no push happened here).
+- [x] TUNNEL PLAYTEST-FIX BATCH (2026-07-10, user playtest of the tunnel feature): three bugs.
+      (1) EDITOR OBJECT-ADDER GREY SQUARES ("all the objects come in as big grey squares") — ROOT
+      CAUSE found with a headless repro (holding one `.glb` request open forever via request
+      interception, no response): the P6 prop preloader called `FK_loadProps(null,...)` ONCE for
+      all 57 CC0 models via a single `Promise.all`, and `propCache`/`rebuildObjects()` only fired
+      after EVERY one of the 57 settled. `GLTFLoader`'s `.load()` has no built-in request timeout,
+      so a genuinely STALLED fetch (flaky wifi, a dropped connection, a CDN hiccup — anything short
+      of an outright network error, which DOES call `onError` and resolve) never settles — the whole
+      batch hangs forever, `propCache` never gets assigned, and EVERY placed object (even ones whose
+      own model already downloaded fine) stays on the grey `0x99a0a8` placeholder box permanently.
+      Confirmed: with `tree_default.glb` held open, `propStatus` froze at "56/57" and two already-
+      placed unrelated props (barn, rock) stayed grey 8s+ later. FIX (farmkart-editor.html only —
+      `assets/farmkart-props.js`'s shared `FK_loadProps` fn itself is untouched, still used by the
+      game): the editor now calls `FK_loadProps([id],...)` ONCE PER MODEL, each raced against a 10s
+      `Promise.race` timeout, merging into `propCache` and calling `rebuildObjects()` as each one
+      lands — one stuck request now only leaves ITS OWN model greyed out (status shows "(N failed to
+      load)") instead of wedging every other prop for the whole session. (2) TUNNEL PLACEMENT WAS
+      NOT START-AT-CLICK — `addTunnelAt` computed `s = bi/N` (nearest sample's INDEX fraction), but
+      `buildTunnelMesh` treats `tn.s` as an ARC-LENGTH fraction (`startArc = s*trackLen`, walked via
+      `arcS[]`). `centerPts` are sampled uniform in CURVE PARAMETER (`t=i/N`), not arc length, so on
+      uneven curves `bi/N` and `arcS[bi]/L` diverge by tens of world units — confirmed via a diag
+      script (click at z=90 landed the tunnel start at z=48.5). Fix: `s = arcS[bi]/L` — the tunnel
+      now starts within one sample step of the actual click (re-verified: click z=90 -> start
+      z=89.37). (3) WALLS DIDN'T REACH THE GROUND ON SLOPES/EMBANKMENTS — the arch profile's two
+      wall-leg base points sat at `v=0` (road height, same for both legs since `ringAt`'s shared `y`
+      comes from the CENTERLINE height only); on a sloped span the terrain drops away laterally
+      beside the road while the base stayed pinned to centerline height, showing a gap/floating edge.
+      Fix: `assets/farmkart-track.js`'s `profile()` now bottoms both legs at `TUNNEL_BURY_DEPTH=2.5`
+      below the seat height (fence-post style — extends DOWN only, interior clearance/arch/wallH
+      unchanged). Verified on wario-stadium's steepest span (Δy≈4.7 over ~30u): wall-base y <=
+      roadY-2 at 3 sampled rings (20/50/80% through the span), both walls, exact vertex lookup via
+      the mesh's raw position buffer (had to disambiguate top-vs-base — both share identical (x,z),
+      only `v`/height differs — by taking the LOWEST-y vertex within a small XZ radius rather than
+      nearest-XZ-any-y). Test suite `fk_tunnels.cjs` extended 40->63 checks (start-at-click distance
+      assert, 57/57 prop-load + 0-placeholder assert after placing tree+barn, a dedicated stuck-
+      request regression proving the root-cause fix, 3-ring buried-wall assert on a sloped builtin
+      track) — 63/63 green, 0 pageerrors. New screenshots `fk_objects_fixed.png` (tree+barn render
+      as real GLB models, not boxes) and `fk_tunnel_buried.png` (tunnel shell meeting sloped
+      terrain with no under-wall gap). Regressions: tools/_verify-hud-defaults.cjs PASS,
+      tools/_verify-items.cjs 24/24. Byte-identical no-tunnel sanitize output re-confirmed unchanged.
 - [x] FLUFFY GRASS (2026-07-08, user: grass too flat + color too sharp): buildGroundMesh reworked —
       base green softened 0x6fae54→0x86a862 (muted), gentle low-freq "patch" brightness variation
       (±10%, two sines) so big areas aren't uniform, world-tiled UVs (every 5u), and a CACHED 256px

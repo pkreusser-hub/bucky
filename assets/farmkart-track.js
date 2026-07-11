@@ -573,14 +573,22 @@
     // arch cross-section profile (local u=lateral offset, v=height above the road), open at the
     // bottom: bottom-left -> top of left wall -> rounded arc across the ceiling -> top of right wall
     // -> bottom-right. segs interior arc points -> segs+4 total points (7-9 for the default sizes).
+    // 2026-07-11 BURY FIX: the wall legs used to bottom out AT v=0 (road height) — on a sloped or
+    // embanked stretch the terrain drops away laterally beside the road while the ring's shared base
+    // y stays pinned to the CENTERLINE height (see ringAt below: y = hfn(centerline x,z), same for
+    // every column), so the wall base floated above the real ground and showed a gap/seam under the
+    // shell. Extending both leg bottoms DOWN by TUNNEL_BURY_DEPTH (fence-post style — buried, not
+    // taller) keeps the interior clearance (wallH/arch) untouched while guaranteeing the base always
+    // reaches well below anything the terrain does within the tunnel's footprint.
+    const TUNNEL_BURY_DEPTH = 2.5;
     function profile(hw, wallH, segs){
       const archR = hw;
-      const pts = [[-hw,0],[-hw,wallH]];
+      const pts = [[-hw,-TUNNEL_BURY_DEPTH],[-hw,wallH]];
       for (let i=1;i<=segs;i++){
         const a = Math.PI * (1 - i/(segs+1));
         pts.push([archR*Math.cos(a), wallH+archR*Math.sin(a)]);
       }
-      pts.push([hw,wallH],[hw,0]);
+      pts.push([hw,wallH],[hw,-TUNNEL_BURY_DEPTH]);
       return pts;
     }
     for (const tn of tunnels){

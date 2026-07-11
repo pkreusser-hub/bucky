@@ -480,10 +480,17 @@
     refreshTunnelList();
   }
   function addTunnelAt(hit){
-    const C = sampled.centerPts, N = sampled.samples;
+    // 2026-07-11: s must be the ARC-LENGTH fraction of the clicked point (buildTunnelMesh treats
+    // tn.s as start-of-tunnel via startArc = s*trackLen, walked through arcS[]) — centerPts are
+    // sampled uniform in CURVE PARAMETER (t=i/N), not arc length, so bi/N and arcS[bi]/L can differ
+    // by many world units on uneven curves. Using bi/N was the root cause of clicks landing the
+    // tunnel start far from where the user clicked (reported as "centered on the click"). Fix:
+    // find the nearest sample as before, then convert its index to an arc-length fraction so the
+    // tunnel's START (not any midpoint) lands exactly at the clicked point.
+    const C = sampled.centerPts, N = sampled.samples, arcS = sampled.arcS, L = sampled.trackLen;
     let bi=0, bd=Infinity;
     for (let i=0;i<N;i++){ const c=C[i]; const d=(c.x-hit.x)**2+(c.z-hit.z)**2; if(d<bd){bd=d;bi=i;} }
-    const s = Math.round((bi/N)*1000)/1000;
+    const s = Math.round((arcS[bi]/L)*1000)/1000;
     track.tunnels = track.tunnels || [];
     const tn = { id:'tunnel_'+(++tunnelSeq), tag:'', s, len:18, h:6, w:track.width+3 };
     track.tunnels.push(tn);
@@ -1572,13 +1579,34 @@
   frameCamera();
   fkEdPullCloud();   // background: pull the family's saved tracks so this device is up to date
 
-  // P6: preload the CC0 prop library (async) — placeholders swap to real models when ready
+  // P6: preload the CC0 prop library (async) — placeholders swap to real models when ready.
+  // 2026-07-11 FIX ("all the objects come in as big grey squares"): FK_loadProps used to be called
+  // ONCE for all 57 ids via a single Promise.all, and propCache/rebuildObjects only ran after EVERY
+  // single one settled. GLTFLoader has no built-in request timeout, so if even ONE of the 57 .glb
+  // fetches stalls (flaky wifi, a dropped connection, an extension/CDN hiccup — anything short of an
+  // outright network error, which DOES call onError and resolve) the whole Promise.all hangs FOREVER:
+  // propCache never gets assigned, so EVERY placed object — including ones whose own model already
+  // downloaded fine — stays on the grey 0x99a0a8 placeholder box permanently. Reproduced headless by
+  // holding one .glb request open with no response: propStatus froze at "56/57" and two already-
+  // placed props (different models, unaffected by the stall) stayed grey boxes 8s+ later. Fix: load
+  // each prop INDEPENDENTLY (still via the shared FK_loadProps, one id at a time) raced against a
+  // 10s per-model timeout, merging into propCache and re-rendering as each one lands — one stuck
+  // request now only leaves ITS OWN model greyed out instead of wedging the whole session.
   buildPropPicker();
   if (window.FK_loadProps){
-    const total=(window.FK_PROPS||[]).length; let done=0;
-    FK_loadProps(null, THREE, 'assets/farmkart/props/', ()=>{ done++; const s=$('propStatus'); if(s)s.textContent='loading models… '+done+'/'+total; })
-      .then(c=>{ propCache=c; const s=$('propStatus'); if(s)s.textContent=total+' CC0 models ready — pick one to place'; rebuildObjects(); })
-      .catch(()=>{ const s=$('propStatus'); if(s)s.textContent='model load failed'; });
+    const ids=(window.FK_PROPS||[]).map(p=>p.id), total=ids.length, PROP_TIMEOUT_MS=10000;
+    let done=0, failed=0;
+    const setStatus=()=>{ const s=$('propStatus'); if(!s) return;
+      s.textContent = (done>=total) ? (total+' CC0 models ready — pick one to place'+(failed?(' ('+failed+' failed to load)'):'')) : ('loading models… '+done+'/'+total); };
+    ids.forEach(id=>{
+      const timeout = new Promise(res=>setTimeout(()=>res(null), PROP_TIMEOUT_MS));
+      const load = FK_loadProps([id], THREE, 'assets/farmkart/props/').catch(()=>null);
+      Promise.race([load, timeout]).then(c=>{
+        done++;
+        if (c && c[id]){ propCache[id]=c[id]; rebuildObjects(); } else { failed++; }
+        setStatus();
+      });
+    });
   }
 
   // ---- TEST HOOK (mirrors the game's __KART__ pattern) ----
