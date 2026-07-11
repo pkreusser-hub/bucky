@@ -1842,7 +1842,7 @@
   const IS_MOBILE = (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches)
                     && Math.min(innerWidth, innerHeight) < 900;
   // camDist pulled closer 2026-07-09 (user: mobile camera too far back) — was 6.5.
-  const MOBILE_CAM = { camDist:5.35, camHeight:3.2, camLag:14, fov:74 };
+  const MOBILE_CAM = { camDist:3.5, camHeight:3.2, camLag:14, fov:74 };
   function camDistEff(){ return IS_MOBILE ? MOBILE_CAM.camDist : TUNE.camDist; }
   function camHeightEff(){ return IS_MOBILE ? MOBILE_CAM.camHeight : TUNE.camHeight; }
   function camLagEff(){ return IS_MOBILE ? MOBILE_CAM.camLag : TUNE.camLag; }
@@ -1879,7 +1879,7 @@
     p.driftAngle = 0; p.boostT = 0; p.boostTier = 0; p.hop = 0;
     p.y = rideHeight(p.pos.x, p.pos.z, sampleHeight(p.pos.x, p.pos.z)); p.vy = 0; p.airborne = false; p.landT = 0;
     p.airT = 0; p.landFx = false; p.spinT = 0; p.itemHeld = null; p.itemCount = 0; p.itemTrail = false; p.itemRollT = 0; p.itemHoldT = 0;
-    p.onRamp = false; p._rampSy = 0; p._rampF = 0; p._rampY = 0; p.rampJumped = false;
+    p.onRamp = false; p._rampSy = 0; p._rampF = 0; p._rampY = 0; p.rampJumped = false; p._rampBoosted = false;
     p.finishDebounce = 5;
     // progress baseline
     p.lastSampleIdx = nearestSampleIdxFull(p.pos.x, p.pos.z);
@@ -1907,6 +1907,7 @@
     p.drift.active = false; p.drift.dir = 0; p.drift.charge = 0;
     p.driftAngle = 0; p.boostT = 0; p.boostTier = 0; p.hop = 0; p.stallT = 0;
     p.y = rideHeight(p.pos.x, p.pos.z, sampleHeight(p.pos.x, p.pos.z)); p.vy = 0; p.airborne = false; p.landT = 0;
+    p.onRamp = false; p._rampBoosted = false; p.rampJumped = false;
     p.lapStart = performance.now();
     p.finishDebounce = 5;
     p.lastSampleIdx = 0; p.progressS = arcS[0]; p.prevProgressS = arcS[0];
@@ -2287,15 +2288,21 @@
       const spd = Math.hypot(p.v.x, p.v.z);
       // terrain-follow vertical rate from the wheel-plane gradient (matches the tilt we render).
       const terrainVY = plane.dHdx*p.v.x + plane.dHdz*p.v.z;
+      // RAMP ENTRY BOOST — fires once when you first drive onto a ramp (start of the slope),
+      // not at jump-off. Exit still launches airborne, but without a second boost.
+      if (!p.airborne && rampSup && !p.onRamp && !p._rampBoosted){
+        firePadBoost(p);           // kick along track at the foot of the ramp
+        p._rampBoosted = true;
+      }
+      if (!rampSup) p._rampBoosted = false;
       // EXPLICIT RAMP LAUNCH — fires for ANY kart the frame it leaves the TOP of a ramp (was on it last
       // frame in its upper half, now off). Deterministic, so BOTS launch too (they often approach too
-      // slow to trip the terrain-crest reqAccel test below). Every ramp is also a BOOST (firePadBoost).
+      // slow to trip the terrain-crest reqAccel test below).
       if (!p.airborne && p.onRamp && !rampSup && p._rampF > 0.5 && spd > TUNE.launchMinSpeed){
         const steepF = Math.min(1, (p._rampSy||1) / RAMP_FULL_HEIGHT);
         p.airborne = true; p.airT = 0;
         p.y = Math.max(p.y, p._rampY);   // seat at the ramp TOP — undo the nose-off-the-edge pitch drop
         p.vy = Math.min(RAMP_LAUNCH_MAX, RAMP_LAUNCH_BASE*steepF + spd*RAMP_LAUNCH_SPEEDF);
-        firePadBoost(p);           // ramp = boost
         p.rampJumped = true;       // one-shot for the whoosh + FX
       }
       // Airborne touchdown uses center; grounded ride uses the wheel-plane average.
