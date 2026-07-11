@@ -153,13 +153,14 @@
       <div class="row">
         <button class="btn on" id="scRaise">▲ raise</button>
         <button class="btn" id="scLower">▼ lower</button>
+        <button class="btn" id="scLevel" title="flattens the area to the height where you first clicked (key: L)">▬ level</button>
       </div>
       <label style="margin-top:6px;">brush size <span id="scRadV" style="color:#7fd0ff;">22</span></label>
       <input type="range" id="scRad" min="6" max="70" step="1" value="22" style="width:100%;">
       <label>strength <span id="scStrV" style="color:#7fd0ff;">1.4</span></label>
       <input type="range" id="scStr" min="0.2" max="4" step="0.1" value="1.4" style="width:100%;">
       <button class="btn wide warn" id="scReset" style="margin-top:6px;">🧹 clear all terrain</button>
-      <div style="color:#9ab;font-size:11px;margin-top:4px;">drag the grass to raise · hold Shift to lower · cells: <span id="scCells">0</span></div>
+      <div style="color:#9ab;font-size:11px;margin-top:4px;">drag the grass to raise · hold Shift to lower · L = level brush (flattens to the click height) · cells: <span id="scCells">0</span></div>
     </div>
     <button class="btn wide warn" id="delBtn">🗑 delete point (Del)</button>
     <button class="btn wide" id="revBtn">⟲ reverse direction</button>
@@ -402,7 +403,7 @@
     else if (!_terrPend){ _terrPend = true; setTimeout(()=>{ _terrPend=false; _lastTerr=performance.now(); rebuildTerrain(); }, 110); }
   }
   // ---- SCULPT brush (P3): raise/lower the sparse world-anchored heightfield ----
-  const SCULPT = { radius: 22, strength: 1.4, dir: 1 };   // dir +1 raise, -1 lower
+  const SCULPT = { radius: 22, strength: 1.4, dir: 1, mode: 'raise' };   // dir +1 raise, -1 lower; mode: raise|lower|level
   function applyBrush(bx, bz, sign){
     track.terrain = track.terrain || { cell: 6, cells: {} };
     const C = track.terrain.cell, cells = track.terrain.cells, R = SCULPT.radius, str = SCULPT.strength * (sign!=null?sign:SCULPT.dir);
@@ -418,6 +419,90 @@
     }
   }
   function terrainCellCount(){ return track.terrain ? Object.keys(track.terrain.cells).length : 0; }
+  // ---- LEVEL brush (2026-07-10): a 3rd sculpt sub-mode. On stroke START the height under the click
+  // becomes the stroke's TARGET; every cell touched thereafter is lerped toward the DELTA that would
+  // put its actual (procedural + field) height at that target, so sustained brushing flattens an area
+  // to the initial click height regardless of the underlying procedural rolling-hill noise.
+  function procHeightAt(x, z){ return FK_TRACK.groundHills(x, z, { amp:TERRAIN.amp, wave:TERRAIN.wave }); }
+  let levelTarget = null;
+  function applyLevelBrush(bx, bz){
+    if (levelTarget == null) return;
+    track.terrain = track.terrain || { cell: 6, cells: {} };
+    const C = track.terrain.cell, cells = track.terrain.cells, R = SCULPT.radius;
+    const rate = Math.min(1, SCULPT.strength * 0.14);   // per-call convergence toward the target delta
+    const i0=Math.floor((bx-R)/C), i1=Math.ceil((bx+R)/C), j0=Math.floor((bz-R)/C), j1=Math.ceil((bz+R)/C);
+    for (let i=i0;i<=i1;i++) for (let j=j0;j<=j1;j++){
+      const wx=i*C, wz=j*C, d=Math.hypot(wx-bx, wz-bz);
+      if (d > R) continue;
+      const t=1-d/R, fall=t*t*(3-2*t);
+      const key=i+','+j;
+      const cur = cells[key]||0;
+      const targetDelta = levelTarget - procHeightAt(wx, wz);
+      let v = cur + (targetDelta - cur) * rate * fall;
+      v = Math.round(v*100)/100;
+      if (Math.abs(v) < 0.01) delete cells[key]; else cells[key]=v;
+    }
+  }
+  function setSculptMode(m){
+    SCULPT.mode = m; SCULPT.dir = (m==='lower') ? -1 : 1;
+    $('scRaise').classList.toggle('on', m==='raise');
+    $('scLower').classList.toggle('on', m==='lower');
+    $('scLevel').classList.toggle('on', m==='level');
+    refreshRing(SCULPT.radius);
+  }
+
+  // ---- BRUSH PREVIEW RING (2026-07-10, user: "you get a preview... so you know how big your brush
+  // is"): a thin annulus draped over the live terrain, following the cursor in sculpt + paint mode.
+  // Colour language: sculpt-raise = green, sculpt-lower (incl. Shift held) = red, level = cyan,
+  // paint = the selected swatch. Rebuilt on pointermove (real per-event cost, not per-frame — cheap:
+  // ~28 bilinear height samples) and whenever the brush-size slider or color changes.
+  const RING_SEGS = 28;
+  let ringMesh = null, ringCx = 0, ringCz = 0, ringRadius = 0, ringLastShift = false;
+  function ensureRingMesh(){
+    if (ringMesh) return ringMesh;
+    const n = RING_SEGS, positions = new Float32Array(n*2*3), indices = [];
+    for (let i=0;i<n;i++){ const a=i*2, b=((i+1)%n)*2; indices.push(a,b,a+1, b,b+1,a+1); }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setIndex(indices);
+    const mat = new THREE.MeshBasicMaterial({ color:0x39d15a, transparent:true, opacity:0.55, depthWrite:false, side:THREE.DoubleSide });
+    ringMesh = new THREE.Mesh(geo, mat);
+    ringMesh.renderOrder = 6; ringMesh.visible = false; ringMesh.frustumCulled = false;
+    scene.add(ringMesh);
+    return ringMesh;
+  }
+  function ringColorHex(shiftHeld){
+    if (mode==='paint') return PAINT.color;
+    if (mode==='sculpt'){
+      if (SCULPT.mode==='level') return 0x29e0ff;
+      return (shiftHeld || SCULPT.mode==='lower') ? 0xff4d4d : 0x39d15a;
+    }
+    return 0x39d15a;
+  }
+  function updateRing(cx, cz, radius, shiftHeld){
+    const m = ensureRingMesh();
+    ringLastShift = !!shiftHeld;
+    const pos = m.geometry.attributes.position.array;
+    const hw = Math.min(1.0, Math.max(0.22, radius*0.045));   // ring band half-width, thin relative to radius
+    for (let i=0;i<RING_SEGS;i++){
+      const ang = i/RING_SEGS*Math.PI*2, cos=Math.cos(ang), sin=Math.sin(ang);
+      const ox=cx+(radius+hw)*cos, oz=cz+(radius+hw)*sin;
+      const ix=cx+(radius-hw)*cos, iz=cz+(radius-hw)*sin;
+      pos[i*6+0]=ox; pos[i*6+1]=terrainHeightAt(ox,oz)+0.25; pos[i*6+2]=oz;
+      pos[i*6+3]=ix; pos[i*6+4]=terrainHeightAt(ix,iz)+0.25; pos[i*6+5]=iz;
+    }
+    m.geometry.attributes.position.needsUpdate = true;
+    m.geometry.computeBoundingSphere();
+    m.material.color.setHex(ringColorHex(ringLastShift));
+    m.visible = true;
+    ringCx=cx; ringCz=cz; ringRadius=radius;
+  }
+  function hideRing(){ if (ringMesh) ringMesh.visible = false; }
+  // called after a slider/swatch change so the ring reflects it immediately, without waiting for the
+  // next pointermove (uses the last known cursor position; no-ops if the ring isn't showing).
+  function refreshRing(newRadius){
+    if (ringMesh && ringMesh.visible) updateRing(ringCx, ringCz, newRadius!=null ? newRadius : ringRadius, ringLastShift);
+  }
 
   // ---- PAINT brush (P4): set the sparse color field (grass/dirt/sand/...) ----
   const PALETTE = [
@@ -927,6 +1012,7 @@
   let mode = 'select'; // select | insert | item | boost | object
   function setMode(m){
     if (pendingPlace){ pendingPlace=null; clearGhost(); }   // leaving/changing mode ends click-to-stamp
+    if (m!=='sculpt' && m!=='paint') hideRing();            // brush preview ring only lives in those two modes
     mode = m;
     $('mSelect').classList.toggle('on', m==='select');
     $('mInsert').classList.toggle('on', m==='insert');
@@ -981,9 +1067,10 @@
   $('brDel').addEventListener('click', ()=>{ const br=selectedBridge(); if(!br) return; track.bridges=track.bridges.filter(x=>x!==br); selBridgeId=null; rebuildBridges(); commitHistory(); });
   $('mObject').addEventListener('click', ()=>setMode('object'));
   $('mSculpt').addEventListener('click', ()=>setMode('sculpt'));
-  $('scRaise').addEventListener('click', ()=>{ SCULPT.dir=1; $('scRaise').classList.add('on'); $('scLower').classList.remove('on'); });
-  $('scLower').addEventListener('click', ()=>{ SCULPT.dir=-1; $('scLower').classList.add('on'); $('scRaise').classList.remove('on'); });
-  $('scRad').addEventListener('input', ()=>{ SCULPT.radius=+$('scRad').value; $('scRadV').textContent=SCULPT.radius; });
+  $('scRaise').addEventListener('click', ()=>setSculptMode('raise'));
+  $('scLower').addEventListener('click', ()=>setSculptMode('lower'));
+  $('scLevel').addEventListener('click', ()=>setSculptMode('level'));
+  $('scRad').addEventListener('input', ()=>{ SCULPT.radius=+$('scRad').value; $('scRadV').textContent=SCULPT.radius; refreshRing(SCULPT.radius); });
   $('scStr').addEventListener('input', ()=>{ SCULPT.strength=+$('scStr').value; $('scStrV').textContent=SCULPT.strength.toFixed(1); });
   $('scReset').addEventListener('click', ()=>{ track.terrain={ cell:6, cells:{} }; $('scCells').textContent='0'; rebuildTerrain(); toast('terrain cleared'); });
   // paint
@@ -994,11 +1081,11 @@
       const s=document.createElement('button');
       s.title=p.name; s.dataset.hex=p.hex;
       s.style.cssText='width:30px;height:26px;border-radius:6px;cursor:pointer;border:2px solid '+(p.hex===PAINT.color?'#fff':'rgba(255,255,255,.25)')+';background:#'+p.hex.toString(16).padStart(6,'0')+';';
-      s.onclick=()=>{ PAINT.color=p.hex; [...box.children].forEach(c=>c.style.borderColor='rgba(255,255,255,.25)'); s.style.borderColor='#fff'; };
+      s.onclick=()=>{ PAINT.color=p.hex; [...box.children].forEach(c=>c.style.borderColor='rgba(255,255,255,.25)'); s.style.borderColor='#fff'; refreshRing(); };
       box.appendChild(s);
     });
   })();
-  $('pRad').addEventListener('input', ()=>{ PAINT.radius=+$('pRad').value; $('pRadV').textContent=PAINT.radius; });
+  $('pRad').addEventListener('input', ()=>{ PAINT.radius=+$('pRad').value; $('pRadV').textContent=PAINT.radius; refreshRing(PAINT.radius); });
   $('pReset').addEventListener('click', ()=>{ track.paint={ cell:6, cells:{} }; $('pCells').textContent='0'; rebuildTerrain(); toast('paint cleared'); });
   // water = an object with type "water" (reuses all the object machinery)
   function addWater(){ startPlacing({ type:'water', sx:30, sy:0.6, sz:30, color:0x2f6fb0 }, 'water'); }
@@ -1092,7 +1179,12 @@
     }
     if (mode === 'sculpt'){
       setNdc(e); const h = pickGround();
-      if (h){ sculpting = true; controls.enabled = false; applyBrush(h.x, h.z, e.shiftKey?-1:SCULPT.dir); liveTerrain(); }
+      if (h){
+        sculpting = true; controls.enabled = false;
+        if (SCULPT.mode==='level'){ levelTarget = terrainHeightAt(h.x, h.z); applyLevelBrush(h.x, h.z); }
+        else applyBrush(h.x, h.z, e.shiftKey?-1:SCULPT.dir);
+        liveTerrain();
+      }
       return;
     }
     if (mode === 'paint'){
@@ -1145,9 +1237,20 @@
   }, true); // capture: run before OrbitControls' own handler so controls.enabled takes effect
 
   renderer.domElement.addEventListener('pointermove', e=>{
+    // brush preview ring + the sculpt/paint stroke itself share one raycast per event.
+    if (mode==='sculpt' || mode==='paint'){
+      setNdc(e); const h = pickGround();
+      if (h){
+        updateRing(h.x, h.z, mode==='sculpt' ? SCULPT.radius : PAINT.radius, e.shiftKey);
+        if (sculpting){
+          if (SCULPT.mode==='level') applyLevelBrush(h.x, h.z);
+          else applyBrush(h.x, h.z, e.shiftKey?-1:SCULPT.dir);
+          liveTerrain();
+        } else if (painting){ applyPaint(h.x, h.z); liveTerrain(); }
+      } else hideRing();   // cursor off the terrain
+      return;
+    }
     if (pendingPlace && mode==='object'){ setNdc(e); const h=pickGround(); if(h) moveGhost(h.x, h.z); return; }  // ghost follows cursor
-    if (sculpting){ setNdc(e); const h=pickGround(); if(h){ applyBrush(h.x, h.z, e.shiftKey?-1:SCULPT.dir); liveTerrain(); } return; }
-    if (painting){ setNdc(e); const h=pickGround(); if(h){ applyPaint(h.x, h.z); liveTerrain(); } return; }
     if (dragging < 0) return;
     const p = track.points[dragging];
     if (dragShift || e.shiftKey){
@@ -1168,14 +1271,14 @@
 
   function endDrag(){
     let mutated = false;
-    if (sculpting){ sculpting=false; rebuildTerrain(); $('scCells').textContent = terrainCellCount(); mutated = true; }
+    if (sculpting){ sculpting=false; levelTarget=null; rebuildTerrain(); $('scCells').textContent = terrainCellCount(); mutated = true; }
     if (painting){ painting=false; rebuildTerrain(); $('pCells').textContent = paintCellCount(); mutated = true; }
     if (dragging>=0){ dragging=-1; mutated = true; }
     controls.enabled = true;
     if (mutated) commitHistory();   // ONE snapshot at stroke/drag END, not per-frame
   }
   renderer.domElement.addEventListener('pointerup', endDrag, true);
-  renderer.domElement.addEventListener('pointerleave', endDrag);
+  renderer.domElement.addEventListener('pointerleave', ()=>{ endDrag(); hideRing(); });
   // fence: a CLICK (down+up without much drag) drops a fence post; a drag orbits instead
   renderer.domElement.addEventListener('pointerup', e=>{
     if (mode==='fence' && fenceDown){
@@ -1288,6 +1391,8 @@
     } else if (mode==='object'){
       const k=e.key.toLowerCase();
       if (k==='g'){ setGizmo('translate'); } else if (k==='r'){ setGizmo('rotate'); } else if (k==='s'){ setGizmo('scale'); }
+    } else if (mode==='sculpt' && e.key.toLowerCase()==='l'){
+      e.preventDefault(); setSculptMode(SCULPT.mode==='level' ? 'raise' : 'level');
     }
   });
   $('revBtn').addEventListener('click', ()=>{ track = FK_TRACK.reverse(track); selected=-1; syncFields(); rebuild(); commitHistory(); toast('reversed direction'); });
@@ -1947,6 +2052,15 @@
     sculptAt:(x,z,sign)=>{ SCULPT.radius=SCULPT.radius; applyBrush(x,z,sign); rebuildTerrain(); return terrainCellCount(); },
     setSculpt:(radius,strength)=>{ if(radius!=null)SCULPT.radius=radius; if(strength!=null)SCULPT.strength=strength; },
     heightAt:(x,z)=>terrainHeightAt(x,z), rebuildTerrain,
+    // LEVEL brush hooks (2026-07-10, for headless tests)
+    setSculptMode, get sculptMode(){ return SCULPT.mode; }, get levelTarget(){ return levelTarget; },
+    levelStartAt:(x,z)=>{ levelTarget = terrainHeightAt(x,z); applyLevelBrush(x,z); rebuildTerrain(); return levelTarget; },
+    levelDragTo:(x,z)=>{ applyLevelBrush(x,z); rebuildTerrain(); return terrainCellCount(); },
+    // brush preview ring hooks (2026-07-10, for headless tests)
+    hoverAt:(x,z,shiftHeld)=>{ updateRing(x, z, mode==='sculpt'?SCULPT.radius:PAINT.radius, !!shiftHeld); },
+    hideRing, get ringVisible(){ return !!(ringMesh && ringMesh.visible); },
+    get ringRadius(){ return ringRadius; }, get ringPos(){ return { x:ringCx, z:ringCz }; },
+    get ringColor(){ return ringMesh ? '#'+ringMesh.material.color.getHexString() : null; },
     // P4 paint + water hooks
     get paint(){ return track.paint; }, get paintCells(){ return paintCellCount(); },
     setPaint:(hex,radius)=>{ if(hex!=null)PAINT.color=hex; if(radius!=null)PAINT.radius=radius; },

@@ -1819,6 +1819,29 @@ layout sync.
       model (not the grey placeholder box) with correctly-lit (not near-black) materials, 0
       pageerrors. Still LOCAL/untracked per the existing Farm Kart convention (user decides when any
       of this ships).
+- [x] SCULPT BRUSH: preview ring + LEVEL sub-mode (2026-07-10, user: "you get a preview of your land
+      sculpting so you know how big your brush is"): (1) BRUSH PREVIEW RING — a thin terrain-draped
+      annulus (28-seg strip mesh, ~28 bilinear height samples/update, not a THREE.Line — linewidth is
+      ignored on Windows ANGLE/SwiftShader) follows the cursor in 🎨 paint AND ⛰ sculpt mode, resizing
+      live with the brush-size slider and colored by what the brush would DO: green=raise, red=lower
+      (incl. momentary Shift-held-to-lower), cyan=level, swatch color=paint. One shared raycast per
+      pointermove drives both the ring and the actual stroke (no duplicate picks). Hides on mode exit
+      and on pointerleave (`hideRing()`); `refreshRing()` re-renders it immediately after a slider/
+      swatch change without waiting for the next mouse move. (2) LEVEL BRUSH — a 3rd sculpt sub-mode
+      (raise/lower/level 3-way, key **L** toggles level⇄raise while in sculpt mode) alongside the
+      existing raise/lower. On stroke start the height under the click becomes the TARGET; while
+      dragging, `applyLevelBrush` lerps each touched grid cell's stored delta toward `target −
+      procHeightAt(cell)` (procHeightAt = `FK_TRACK.groundHills` WITHOUT the user field — the pure
+      procedural noise) at a smoothstep-falloff, per-call rate of `min(1, strength*0.14)`, so sustained
+      brushing flattens an area to the initial click height regardless of the underlying rolling-hill
+      noise. Reuses the exact same one-snapshot-per-stroke undo commit as raise/lower (no history
+      changes needed — `applyBrush`'s signature/behavior is untouched, so the pre-existing `sculptAt`
+      test hook still works unmodified). Verified headless (scratchpad fk_sculpt.cjs, 29/29): ring
+      visible/hidden/follows/resizes/recolors correctly across both modes + Shift + level, a raised
+      bump levels toward a captured target with shrinking (~monotonic) variance across 3 sample points,
+      undo reverts a whole level stroke in ONE step, raise/lower behavior unchanged; regression
+      fk_ux_pass.cjs 69/69 (undo/redo incl. the sculpt-stroke-is-one-commit case) unaffected. Screens:
+      scratchpad/shots/fk_ring_small.png, fk_ring_large.png, fk_level_before.png, fk_level_after.png.
 
 # 🏁 Farm Kart — custom Bucky Kart + procedural goat driver (2026-07-09)
 
