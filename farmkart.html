@@ -169,10 +169,18 @@
   #countdown .num{ font-size:150px; font-weight:900; color:#fff; text-shadow:0 4px 0 rgba(0,0,0,.4);
         font-family:-apple-system,Segoe UI,Roboto,sans-serif; }
   #countdown .num.go{ color:#8effa0; font-size:120px; }
-  #wrongway{ position:absolute; left:50%; top:64px; transform:translateX(-50%); z-index:24; display:none;
-        background:rgba(190,30,30,.85); padding:8px 20px; border-radius:14px; font-weight:900; font-size:20px;
-        font-family:-apple-system,Segoe UI,Roboto,sans-serif; letter-spacing:.03em; }
-  #wrongway.show{ display:block; animation:pulse .7s ease-in-out infinite; }
+  /* 2026-07-10: WRONG-WAY indicator — big, center-top, same HUD family (Consolas/monospace,
+     heavy text-shadow) as #placeHud; sits below #itemSlot (top 14-90px) and above the track,
+     clear of the top-right #minimap and the bottom-edge mobile #touchCtl buttons. */
+  #wrongway{ position:absolute; left:50%; top:calc(104px + env(safe-area-inset-top, 0px));
+        transform:translateX(-50%); z-index:24; display:none; text-align:center;
+        background:rgba(196,26,26,.9); padding:10px 26px; border-radius:14px; font-weight:900; font-size:30px;
+        font-family:'Consolas',monospace; letter-spacing:.03em; color:#fff;
+        text-shadow:0 2px 8px rgba(0,0,0,.65); border:2px solid rgba(255,255,255,.32);
+        pointer-events:none; user-select:none; white-space:nowrap; }
+  #wrongway.show{ display:block; animation:pulse .55s ease-in-out infinite; }
+  body.mobile #wrongway{ font-size:20px; padding:7px 16px;
+        top:calc(140px + env(safe-area-inset-top, 0px)); }
 
   /* ======================= K6 POLISH ======================= */
   /* ---- barn-sign FARM KART title (CSS/canvas only, no image files) ---- */
@@ -319,7 +327,7 @@
   </div>
   <div id="mpPlaces"></div>
   <div id="countdown"><div class="num" id="cdNum">3</div></div>
-  <div id="wrongway">⟲ TURN AROUND</div>
+  <div id="wrongway">⚠ WRONG WAY</div>
   <div id="results">
     <div class="card">
       <div class="rtitle">FINISH!</div>
@@ -2242,7 +2250,7 @@
     p.v.x *= s; p.v.z *= s;
     p.drift.active = false; p.drift.dir = 0; p.drift.charge = 0; p.driftAngle *= 0.5;
     p.boostT = 0; p.boostTier = 0;
-    spinSound();
+    spinSound(p.pos);   // 2026-07-10: proximity audio (spun kart may be a bot far across the track)
   }
 
   // ---------- K3.5: pure-pursuit BOT input synthesis ----------
@@ -2436,25 +2444,25 @@
     if (kind === 'boost'){
       clearItem(p);
       p.boostT = TUNE.boostT1 * 3; p.boostTier = 2;
-      boostWhoosh();
+      boostWhoosh(p.pos);   // 2026-07-10: proximity audio (bots/remote guests fire boosts too)
       return;
     }
     if (kind === 'tomato' || kind === 'tomato3'){
-      fireTomato(p); tomatoFireSound();
+      fireTomato(p); tomatoFireSound(p.pos);
       p.itemCount = Math.max(0, (p.itemCount||1) - 1);
       if (p.itemCount <= 0) clearItem(p);
       else if (kind === 'tomato3' && p.itemCount === 1){ p.itemHeld = 'tomato'; } // last shot looks like a single
       return;
     }
     if (kind === 'chicken' || kind === 'chicken3'){
-      fireChicken(p); chickenSquawkSound(false);
+      fireChicken(p); chickenSquawkSound(false, p.pos);
       p.itemCount = Math.max(0, (p.itemCount||1) - 1);
       if (p.itemCount <= 0) clearItem(p);
       else if (kind === 'chicken3' && p.itemCount === 1){ p.itemHeld = 'chicken'; }
       return;
     }
     if (kind === 'hay'){
-      dropHay(p); haySound();
+      dropHay(p); haySound(p.pos);
       clearItem(p);
     }
   }
@@ -2528,21 +2536,22 @@
     const tw = trailWorldPos(q);
     spawnItemExplode(tw.x, tw.y, tw.z, q.itemHeld);
     clearItem(q);
-    itemBlockSound();
+    itemBlockSound(tw);   // 2026-07-10: proximity audio (the shield may belong to a distant kart)
     return true;
   }
   function hitKartWithProjectile(q, pr){
     if (tryAbsorbWithTrail(q, pr.x, pr.z)){
       spawnItemExplode(pr.x, pr.y, pr.z, pr.kind);
-      if (pr.kind === 'tomato') tomatoSplatSound(true);
-      else if (pr.kind === 'chicken') chickenSquawkSound(true);
+      // 2026-07-10: proximity audio — pr is the hit's world position, any kart can be hit
+      if (pr.kind === 'tomato') tomatoSplatSound(true, pr);
+      else if (pr.kind === 'chicken') chickenSquawkSound(true, pr);
       pr.life = 0; return true;
     }
     if (q.spinT <= 0){
       applySpinOut(q);
       spawnItemExplode(pr.x, pr.y, pr.z, pr.kind);
-      if (pr.kind === 'tomato') tomatoSplatSound(false);
-      else if (pr.kind === 'chicken') chickenSquawkSound(true);
+      if (pr.kind === 'tomato') tomatoSplatSound(false, pr);
+      else if (pr.kind === 'chicken') chickenSquawkSound(true, pr);
       pr.life = 0; return true;
     }
     return false;
@@ -2581,7 +2590,7 @@
         const wall = FK_TRACK.fenceCollide(RACE_FENCES, pr.x, pr.z, 0.55);
         if (wall){
           spawnItemExplode(pr.x, pr.y, pr.z, 'chicken');
-          chickenSquawkSound(true);
+          chickenSquawkSound(true, pr);   // 2026-07-10: proximity audio
           pr.life = 0;
           continue;
         }
@@ -2605,7 +2614,7 @@
             spawnItemExplode(hz.x, hz.y, hz.z, 'hay');
             hz.dead = true; break;
           }
-          if (q.spinT <= 0){ applySpinOut(q); haySound(); hz.dead = true; break; }
+          if (q.spinT <= 0){ applySpinOut(q); haySound(hz); hz.dead = true; break; }   // 2026-07-10: proximity audio
         }
       }
     }
@@ -2622,7 +2631,7 @@
         if (Math.hypot(p.pos.x-box.x, p.pos.z-box.z) < TUNE.itemBoxRadius){
           box.active = false; box.respawnT = TUNE.itemBoxRespawn;
           p.itemRollT = TUNE.itemRollT;                // start the roll; item settles when it hits 0
-          itemRollSound();
+          itemRollSound(box);   // 2026-07-10: proximity audio (any kart incl. bots can trigger a box)
           break;
         }
       }
@@ -3251,7 +3260,11 @@
     const u = ((((p.progressS - FINISH_S) % TRACK_LEN) + TRACK_LEN) % TRACK_LEN) / TRACK_LEN; // 0..1
     const sector = Math.min(3, Math.floor(u * 4));
     if (sector === p.checkpoint + 1 && p.checkpoint < 3) p.checkpoint++;
-    // wrong-way: persistent backward progress (>2s) — wrap-aware delta
+    // wrong-way (2026-07-10, user request): sustained backward arc-length progress — wrap-aware
+    // delta so a lap-boundary crossing never reads as reversing. A brief backward NUDGE (spin-out
+    // knockback, a bump) never accumulates past WRONG_WAY_SHOW_T because it self-clears the instant
+    // ds goes forward again; only a REAL sustained reverse (turned around, driving backward) holds
+    // long enough to cross the threshold.
     let ds = p.progressS - p.prevProgressS;
     if (ds > TRACK_LEN/2) ds -= TRACK_LEN;
     if (ds < -TRACK_LEN/2) ds += TRACK_LEN;
@@ -3530,7 +3543,7 @@
     }
     view.group.position.set(p.pos.x, seatY, p.pos.z);
     // landing thump only when the landing passed the effect gate (K2.5 squash-spam fix)
-    if (view.lastAirborne && !p.airborne){ if (p.landFx){ landThump(p.landImpact); spawnLandingPoof(p, gy); p.landFx = false; } }
+    if (view.lastAirborne && !p.airborne){ if (p.landFx){ landThump(p.landImpact, p.pos); spawnLandingPoof(p, gy); p.landFx = false; } }   // 2026-07-10: proximity audio (this runs per-kart, incl. bots/remotes)
     // ramp-jump whoosh (one-shot) — a satisfying launch cue for the local kart
     if (p.rampJumped){ if (p === G.players.local) boostWhoosh(); p.rampJumped = false; }
     view.lastAirborne = p.airborne;
@@ -3813,6 +3826,10 @@
       ctx.stroke();
     }
   }
+  // 2026-07-10: wrong-way HUD threshold — show after WRONG_WAY_SHOW_T sustained seconds (must
+  // survive a brief spin/knockback reversal without false-triggering); hides the instant
+  // wrongWayT resets to 0 (progress turns forward again) — well under the ~0.5s hide budget.
+  const WRONG_WAY_SHOW_T = 0.8;
   function fmtTime(s){ if(!s) return '—'; const m=Math.floor(s/60), r=(s%60).toFixed(2); return (m>0?m+':':'')+(m>0?r.padStart(5,'0'):r)+'s'; }
   const ORD = ['—','1st','2nd','3rd','4th'];
   const MEDAL = { 1:'🥇', 2:'🥈', 3:'🥉' };   // K6: podium medals
@@ -3854,7 +3871,7 @@
     lapV.textContent = lapTimeStr;
     bestV.textContent = G.bestLap ? fmtTime(G.bestLap) : '—';
     // wrong-way indicator
-    if (G.phase==='racing' && p.wrongWayT > 2) wrongwayEl.classList.add('show');
+    if (G.phase==='racing' && p.wrongWayT > WRONG_WAY_SHOW_T) wrongwayEl.classList.add('show');
     else wrongwayEl.classList.remove('show');
     // K4 item slot: roll animation (cycling icons) then the settled item
     updateItemSlot(p);
@@ -3997,6 +4014,30 @@
   let _fanfareCount = 0;                                          // test hook: finish fanfares fired
   let _cdVoiceCount = 0;                                          // test hook: countdown voice/stinger calls
   const _aud = { tier:0, chargeTickT:0, rollTickT:0, chimes:0 };  // reactive diff state
+
+  // ---- PROXIMITY AUDIO (2026-07-10, user request) --------------------------------------------
+  // Sounds triggered BY another kart (bots, host-simulated remote guests) fall off with distance
+  // from the LOCAL kart, so a battle happening across the far side of the track doesn't blare at
+  // the same volume as one right next to you. Cheap 2D (XZ) distance gain only — no PannerNodes.
+  // A sound fired at the local kart's OWN position is distance 0 -> always full gain, so callers
+  // can pass a kart's pos unconditionally (including the local kart's own events) without needing
+  // a separate "is this me" branch at every call site.
+  const PROX_FULL_R = 8, PROX_ZERO_R = 55, PROX_FLOOR = 0.12;
+  const _prox = { name:null, dist:0, mul:1 };   // test hook: last proximity-scaled sound
+  function gainAt(pos, name){
+    let mul = 1, dist = 0;
+    if (pos){
+      const local = G.players && G.players.local;
+      if (local && local.pos){
+        dist = Math.hypot(pos.x - local.pos.x, pos.z - local.pos.z);
+        if (dist <= PROX_FULL_R) mul = 1;
+        else if (dist >= PROX_ZERO_R) mul = PROX_FLOOR;
+        else mul = 1 - ((dist - PROX_FULL_R) / (PROX_ZERO_R - PROX_FULL_R)) * (1 - PROX_FLOOR);
+      }
+    }
+    _prox.name = name || _prox.name; _prox.dist = dist; _prox.mul = mul;
+    return mul;
+  }
   function ensureAudio(){
     if (!audioCtx){
       try{ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){ return null; }
@@ -4031,7 +4072,7 @@
       f.frequency.setValueAtTime(f0, t);
       if (f1 !== f0) f.frequency.exponentialRampToValueAtTime(Math.max(40, f1), t + d);
       const g = ctx.createGain();
-      const vol = opts.vol != null ? opts.vol : 0.12;
+      const vol = (opts.vol != null ? opts.vol : 0.12) * (opts.mul != null ? opts.mul : 1);
       g.gain.setValueAtTime(0.0001, t);
       g.gain.exponentialRampToValueAtTime(vol, t + 0.012);
       g.gain.exponentialRampToValueAtTime(0.0001, t + d);
@@ -4039,7 +4080,8 @@
       src.start(t); src.stop(t + d + 0.02);
     }catch(e){}
   }
-  // generic one-shot tone -> masterGain
+  // generic one-shot tone -> masterGain. opts.mul (2026-07-10, proximity audio) is a cheap
+  // extra gain multiplier so distance-scaled SFX can share the same synth-fallback code path.
   function tone(freq, dur, opts){
     opts = opts || {};
     const ctx = ensureAudio(); if (!ctx || !masterGain) return;
@@ -4048,7 +4090,7 @@
       const o = ctx.createOscillator(), g = ctx.createGain();
       o.type = opts.type || 'square'; o.frequency.setValueAtTime(freq, t);
       if (opts.slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(1,opts.slideTo), t + d);
-      const vol = opts.vol != null ? opts.vol : 0.12;
+      const vol = (opts.vol != null ? opts.vol : 0.12) * (opts.mul != null ? opts.mul : 1);
       g.gain.setValueAtTime(0.0001, t);
       g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
       g.gain.exponentialRampToValueAtTime(0.0001, t + d);
@@ -4101,11 +4143,15 @@
     try{ if (window.speechSynthesis) window.speechSynthesis.cancel(); }catch(e){}
   }
   // K2.5: soft landing thump — low sine pop whose loudness scales with impact (downward) speed.
-  function landThump(impact){
+  // pos (2026-07-10, proximity audio, optional): world {x,z} of the landing kart — syncKartView
+  // runs for EVERY kart's view (local + bots + remotes), so without this every landing anywhere
+  // on the track thumped at full volume; now only nearby landings are audible at full strength.
+  function landThump(impact, pos){
+    const mul = gainAt(pos, 'land');
     const ctx = ensureAudio(); if (!ctx || !masterGain) return;
     try{
       const t = ctx.currentTime;
-      const vol = Math.min(0.22, 0.05 + (impact||0)*0.012);
+      const vol = Math.min(0.22, 0.05 + (impact||0)*0.012) * mul;
       const o = ctx.createOscillator(), g = ctx.createGain();
       o.type = 'sine'; o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(60, t + 0.18);
       g.gain.setValueAtTime(0.0001, t);
@@ -4121,8 +4167,12 @@
     else { tone(880,0.10,{type:'triangle',vol:0.12}); setTimeout(()=>tone(1320,0.14,{type:'triangle',vol:0.12}),70); }
     _aud.chimes++;
   }
-  // boost whoosh: a bandpass-swept noise burst + a rising tone layer
-  function boostWhoosh(){
+  // boost whoosh: a bandpass-swept noise burst + a rising tone layer.
+  // pos (2026-07-10, proximity audio, optional): world {x,z} of the kart that boosted — distance-
+  // scaled so a bot/remote-guest boost across the track is faint; omit for the local kart's own
+  // gated call sites (unchanged behavior, full volume).
+  function boostWhoosh(pos){
+    const mul = gainAt(pos, 'boost');
     const ctx = ensureAudio(); if (!ctx || !masterGain) return;
     try{
       const t = ctx.currentTime;
@@ -4131,43 +4181,51 @@
       const bp = ctx.createBiquadFilter(); bp.type='bandpass'; bp.Q.value=1.2;
       bp.frequency.setValueAtTime(400, t); bp.frequency.exponentialRampToValueAtTime(2600, t + 0.28);
       const g = ctx.createGain();
-      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.16, t + 0.03); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.16*mul, t + 0.03); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
       src.connect(bp); bp.connect(g); g.connect(masterGain);
       src.start(t); src.stop(t + 0.32);
     }catch(e){}
-    tone(300, 0.28, { type:'sawtooth', vol:0.07, slideTo:820 });
+    tone(300, 0.28, { type:'sawtooth', vol:0.07, slideTo:820, mul });
   }
-  // spin-out: hit thud + a dizzy warble (LFO-wobbled triangle)
-  function spinSound(){
+  // spin-out: hit thud + a dizzy warble (LFO-wobbled triangle). pos (proximity audio, optional):
+  // world {x,z} of the kart that got spun (bots/remote get faded by distance from the local kart).
+  function spinSound(pos){
+    const mul = gainAt(pos, 'spin');
     const ctx = ensureAudio(); if (!ctx || !masterGain) return;
     try{
       const t = ctx.currentTime;
       const o1 = ctx.createOscillator(), g1 = ctx.createGain();     // thud
       o1.type='sine'; o1.frequency.setValueAtTime(180,t); o1.frequency.exponentialRampToValueAtTime(70,t+0.12);
-      g1.gain.setValueAtTime(0.0001,t); g1.gain.exponentialRampToValueAtTime(0.18,t+0.01); g1.gain.exponentialRampToValueAtTime(0.0001,t+0.16);
+      g1.gain.setValueAtTime(0.0001,t); g1.gain.exponentialRampToValueAtTime(0.18*mul,t+0.01); g1.gain.exponentialRampToValueAtTime(0.0001,t+0.16);
       o1.connect(g1); g1.connect(masterGain); o1.start(t); o1.stop(t+0.18);
       const o2 = ctx.createOscillator(), g2 = ctx.createGain(), lfo = ctx.createOscillator(), lg = ctx.createGain(); // warble
       o2.type='triangle'; o2.frequency.value=340;
       lfo.type='sine'; lfo.frequency.value=11; lg.gain.value=120; lfo.connect(lg); lg.connect(o2.frequency);
-      g2.gain.setValueAtTime(0.0001,t+0.05); g2.gain.exponentialRampToValueAtTime(0.09,t+0.1); g2.gain.exponentialRampToValueAtTime(0.0001,t+0.9);
+      g2.gain.setValueAtTime(0.0001,t+0.05); g2.gain.exponentialRampToValueAtTime(0.09*mul,t+0.1); g2.gain.exponentialRampToValueAtTime(0.0001,t+0.9);
       o2.connect(g2); g2.connect(masterGain); o2.start(t+0.05); o2.stop(t+0.95); lfo.start(t+0.05); lfo.stop(t+0.95);
     }catch(e){}
   }
-  // Tomato: distinct fire (soft whoosh + pop) vs wet splat on impact / wall bounce
-  function tomatoFireSound(){
-    noiseBurst(0.12, { filter:'bandpass', freq:1400, freqTo:600, Q:0.9, vol:0.11 });
-    tone(520, 0.09, { type:'triangle', vol:0.10, slideTo:280 });
+  // Tomato: distinct fire (soft whoosh + pop) vs wet splat on impact / wall bounce.
+  // pos (proximity audio, optional): world {x,z} where it happened — bots/remote-guest fires and
+  // hits fade with distance from the local kart; the local kart's own fire/hit stays full volume.
+  function tomatoFireSound(pos){
+    const mul = gainAt(pos, 'tomatoFire');
+    noiseBurst(0.12, { filter:'bandpass', freq:1400, freqTo:600, Q:0.9, vol:0.11, mul });
+    tone(520, 0.09, { type:'triangle', vol:0.10, slideTo:280, mul });
   }
-  function tomatoSplatSound(soft){
+  function tomatoSplatSound(soft, pos){
+    const mul = gainAt(pos, 'tomatoSplat');
     // 2026-07-10: sample swap on impact (fire keeps the synth whoosh, unchanged)
-    if (playSample('fk-sfx-splat', { gain: soft ? 0.5 : 0.85 })){ _sfxPlays.splat++; return; }
-    noiseBurst(soft ? 0.12 : 0.22, { filter:'lowpass', freq:soft?900:1400, freqTo:180, Q:0.6, vol:soft?0.08:0.16 });
-    tone(soft ? 160 : 120, soft ? 0.1 : 0.16, { type:'sine', vol:soft?0.07:0.12, slideTo:50 });
+    if (playSample('fk-sfx-splat', { gain: (soft ? 0.5 : 0.85) * mul })){ _sfxPlays.splat++; return; }
+    noiseBurst(soft ? 0.12 : 0.22, { filter:'lowpass', freq:soft?900:1400, freqTo:180, Q:0.6, vol:soft?0.08:0.16, mul });
+    tone(soft ? 160 : 120, soft ? 0.1 : 0.16, { type:'sine', vol:soft?0.07:0.12, slideTo:50, mul });
   }
-  // Chicken: short squawk (pitch-bent triangle + noise) on fire; softer chirp on hit
-  function chickenSquawkSound(hit){
+  // Chicken: short squawk (pitch-bent triangle + noise) on fire; softer chirp on hit. pos (proximity
+  // audio, optional): see tomatoFireSound above — same distance-fade rule.
+  function chickenSquawkSound(hit, pos){
+    const mul = gainAt(pos, 'chickenSquawk');
     // 2026-07-10: sample swap (fk-sfx-squawk-fire / fk-sfx-squawk-hit)
-    if (playSample(hit ? 'fk-sfx-squawk-hit' : 'fk-sfx-squawk-fire', { gain:0.85 })){
+    if (playSample(hit ? 'fk-sfx-squawk-hit' : 'fk-sfx-squawk-fire', { gain:0.85 * mul })){
       if (hit) _sfxPlays.squawkHit++; else _sfxPlays.squawkFire++;
       return;
     }
@@ -4179,34 +4237,38 @@
       if (hit){
         o.frequency.setValueAtTime(720, t);
         o.frequency.exponentialRampToValueAtTime(380, t + 0.12);
-        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.09, t+0.01); g.gain.exponentialRampToValueAtTime(0.0001, t+0.14);
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.09*mul, t+0.01); g.gain.exponentialRampToValueAtTime(0.0001, t+0.14);
         o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+0.16);
       } else {
         o.frequency.setValueAtTime(480, t);
         o.frequency.exponentialRampToValueAtTime(980, t + 0.05);
         o.frequency.exponentialRampToValueAtTime(420, t + 0.16);
-        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.14, t+0.012); g.gain.exponentialRampToValueAtTime(0.0001, t+0.2);
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.14*mul, t+0.012); g.gain.exponentialRampToValueAtTime(0.0001, t+0.2);
         o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+0.22);
-        tone(640, 0.06, { type:'square', vol:0.05, slideTo:900 });
-        noiseBurst(0.1, { filter:'bandpass', freq:2200, freqTo:1100, Q:1.4, vol:0.06 });
+        tone(640, 0.06, { type:'square', vol:0.05, slideTo:900, mul });
+        noiseBurst(0.1, { filter:'bandpass', freq:2200, freqTo:1100, Q:1.4, vol:0.06, mul });
       }
     }catch(e){}
   }
-  function itemFireSound(){ tone(700, 0.08, { type:'square', vol:0.13 }); } // generic (non-hay) fallback
-  // hay bale fire/drop AND hit both use the same sample (2026-07-10); synth fallback unchanged
-  function haySound(){
-    if (playSample('fk-sfx-haybale', { gain:0.8 })){ _sfxPlays.haybale++; return; }
-    itemFireSound();
+  function itemFireSound(pos){ tone(700, 0.08, { type:'square', vol:0.13, mul:gainAt(pos,'itemFire') }); } // generic (non-hay) fallback
+  // hay bale fire/drop AND hit both use the same sample (2026-07-10); synth fallback unchanged.
+  // pos (proximity audio, optional): world {x,z} of the bale/hit.
+  function haySound(pos){
+    const mul = gainAt(pos, 'hay');
+    if (playSample('fk-sfx-haybale', { gain:0.8 * mul })){ _sfxPlays.haybale++; return; }
+    itemFireSound(pos);
   }
-  function itemRollSound(){
+  function itemRollSound(pos){
+    const mul = gainAt(pos, 'itemRoll');
     // 2026-07-10: item box pickup sample swap
-    if (playSample('fk-sfx-itembox', { gain:0.85 })){ _sfxPlays.itembox++; return; }
-    tone(880, 0.06, { type:'square', vol:0.12 }); setTimeout(()=>tone(990,0.06,{type:'square',vol:0.12}),80);
+    if (playSample('fk-sfx-itembox', { gain:0.85 * mul })){ _sfxPlays.itembox++; return; }
+    tone(880, 0.06, { type:'square', vol:0.12, mul }); setTimeout(()=>tone(990,0.06,{type:'square',vol:0.12,mul}),80);
   }
-  function itemBlockSound(){
+  function itemBlockSound(pos){
+    const mul = gainAt(pos, 'itemBlock');
     // 2026-07-10: trail-shield deploy sample swap
-    if (playSample('fk-sfx-shield', { gain:0.85 })){ _sfxPlays.shield++; return; }
-    tone(320, 0.1, { type:'triangle', vol:0.16 }); setTimeout(()=>tone(480,0.08,{type:'triangle',vol:0.12}),70);
+    if (playSample('fk-sfx-shield', { gain:0.85 * mul })){ _sfxPlays.shield++; return; }
+    tone(320, 0.1, { type:'triangle', vol:0.16, mul }); setTimeout(()=>tone(480,0.08,{type:'triangle',vol:0.12,mul}),70);
   }
   // finish fanfare: podium-worthy triumphant run for 1st; a warm short flourish for others
   function finishFanfare(place){
@@ -4321,7 +4383,9 @@
       }).catch(()=>{ audioBuffers[name] = null; });  // blocked/failed -> falsy forever, synth keeps covering it
     });
   }
-  // one-shot sample -> masterGain (or a custom dest, e.g. musicBus for the win jingle)
+  // one-shot sample -> masterGain (or a custom dest, e.g. musicBus for the win jingle).
+  // opts.at (2026-07-10, proximity audio): a {x,z} world pos -> scales gain via gainAt();
+  // opts.mul is a pre-computed multiplier (caller already called gainAt) — at wins if both given.
   function playSample(name, opts){
     opts = opts || {};
     const b = buf(name); if (!b) return false;
@@ -4329,7 +4393,8 @@
     try{
       const src = ctx.createBufferSource(); src.buffer = b;
       if (opts.rate) src.playbackRate.value = opts.rate;
-      const g = ctx.createGain(); g.gain.value = opts.gain != null ? opts.gain : 1;
+      const mul = opts.at ? gainAt(opts.at, name) : (opts.mul != null ? opts.mul : 1);
+      const g = ctx.createGain(); g.gain.value = (opts.gain != null ? opts.gain : 1) * mul;
       src.connect(g); g.connect(opts.dest || masterGain);
       src.start(ctx.currentTime + (opts.delay || 0));
       return true;
@@ -4370,9 +4435,14 @@
     const midW  = trapezoid(rpm,  0.12, 0.3,  0.62, 0.85);   // dominant 0.25 -> 0.7 (approx)
     const highW = trapezoid(rpm,  0.55, 0.72, 1.2,  1.25);   // dominant 0.6 -> 1.0
     const on = racing ? 1 : 0;
-    const tgtLow  = on * lowW  * (0.11 + rpm*0.02);
-    const tgtMid  = on * midW  * (0.12 + rpm*0.03);
-    const tgtHigh = on * highW * (0.13 + rpm*0.04);
+    // 2026-07-10 (user: engine too quiet) — flat level bump on the sample engine only (drift loop /
+    // music / masterGain headroom untouched); the base per-band formula + crossover weights are the
+    // same as before, just scaled up so nearby engines read louder without clipping (peak combined
+    // mix stays well under masterGain=1 even with all 3 bands overlapping mid-crossfade).
+    const ENGINE_LEVEL_MUL = 1.75;
+    const tgtLow  = on * lowW  * (0.11 + rpm*0.02) * ENGINE_LEVEL_MUL;
+    const tgtMid  = on * midW  * (0.12 + rpm*0.03) * ENGINE_LEVEL_MUL;
+    const tgtHigh = on * highW * (0.13 + rpm*0.04) * ENGINE_LEVEL_MUL;
     engLowGain.gain.value  += (tgtLow  - engLowGain.gain.value)  * Math.min(1, dt*6);
     engMidGain.gain.value  += (tgtMid  - engMidGain.gain.value)  * Math.min(1, dt*6);
     engHighGain.gain.value += (tgtHigh - engHighGain.gain.value) * Math.min(1, dt*6);
@@ -5662,7 +5732,14 @@
       engineSampleReady: engineSampleReady(),
       musicTrack: musicPhase, musicOff, musicGainV: musicBus ? musicBus.gain.value : null,
       driftLoopGainV: driftLoopGain ? driftLoopGain.gain.value : null,
-      sfxPlays: Object.assign({}, _sfxPlays) }),
+      sfxPlays: Object.assign({}, _sfxPlays),
+      // 2026-07-10: proximity audio debug — last gainAt() call's {name,dist,mul}
+      prox: Object.assign({}, _prox) }),
+    // 2026-07-10: proximity audio hooks (headless harness)
+    gainAt, PROX_FULL_R, PROX_ZERO_R, PROX_FLOOR,
+    // 2026-07-10: wrong-way HUD hooks (headless harness — deterministic control over the
+    // progress-vs-time signal without needing to drive real physics/input backward)
+    WRONG_WAY_SHOW_T, updateRaceProgress, updateHUD,
     // SFX hooks for headless audio-graph checks (mute still gates audible output)
     tomatoFireSound, tomatoSplatSound, chickenSquawkSound, countdownVoice, cancelSpeech,
     startContinuousAudio, updateAudio, ensureAudio,

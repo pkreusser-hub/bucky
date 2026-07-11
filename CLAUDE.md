@@ -1780,6 +1780,45 @@ layout sync.
       sculpts) w/ a 🌱 tufts toggle (paired with 🌾 terrain), 3200 count. Verified: game tufts off the
       road + seated on grass, editor 3200 instances + toggle clears them, heights byte-identical, 0
       pageerrors. Tunables: buildGrassTufts opts.count/band/size. Still LOCAL.
+- [x] PROP LIBRARY EXPANSION (2026-07-10, user: "bigger prop library, need all sorts of props for
+      building levels"): grew assets/farmkart/props/ from 57 → **200** CC0/Public Domain GLBs, all
+      manifested in assets/farmkart-props.js (unchanged loader/normalize/material-conversion code —
+      see [[gltf-linear-color-gotcha]] — just a bigger FK_PROPS array). SOURCES (all verified CC0
+      before inclusion): (1) Kenney Nature Kit full zip (kenney.nl/assets/nature-kit, 329 GLBs total,
+      cherry-picked 74 new ones beyond the original 48 — cliffs, bridges, more crops/fences/flowers/
+      mushrooms, ground paths, rivers, platforms, statues, extra trees/rocks/stones/stumps/logs/
+      tents/campfires); (2) Kenney Racing Kit (kenney.nl/assets/racing-kit, 46 picked, id prefix
+      `race_`, new cat "race") — banner towers, barriers, billboards, grandstands (5 variants), track
+      lights, overhead gantries, pit garages/offices, pylon, radar, guardrail/fence, trackside tents,
+      trees — perfect kart-track dressing; (3) Kenney Survival Kit (kenney.nl/assets/survival-kit, 23
+      picked, id prefix `surv_`, new cats "clutter"/"structures") — barrels, crates/chests, tools,
+      workbenches, canvas/metal structures, campfire, signposts. Existing 57 (48 Nature + 9 Quaternius
+      Farm Buildings via poly.pizza) untouched. LICENSE VERIFICATION METHOD: fetched each kit's asset
+      page (kenney.nl/assets/<kit>) to confirm the "Public Domain (CC0)" license text + grab the exact
+      zip URL (kenney.nl's zip links carry a rotating hash, hardcoding an old one 404s — always re-
+      resolve from the assets page), then extracted each kit's own License.txt into
+      assets/farmkart/props/License-<kit>.txt (nature/racing/survival) alongside a written
+      License-quaternius-farmbuildings.txt citing the poly.pizza bundle page's per-model "Licence:
+      Public Domain (CC0)" listings for the pre-existing farm_* buildings. NEW CATEGORIES added to the
+      editor's PROP_CATS label map (farmkart-editor.html): cliff/bridge/path/water/structures/race/
+      clutter (existing tree/rock/plant/crop/log/fence/building/prop kept); #propList max-height
+      180px→260px so bigger categories (race=46, tree=23, rock=19, plant=20) scroll comfortably.
+      GOTCHA FOUND + FIXED: all 23 Survival Kit GLBs shipped with an EXTERNAL texture reference
+      (`images[0].uri: "Textures/colormap.png"`, not embedded in the .glb binary buffer like every
+      other kit here) — they loaded fine as JSON/geometry but every material failed decode ("The
+      source image could not be decoded") because that relative path 404'd. Fixed by extracting the
+      shared Textures/colormap.png from the survival-kit zip to assets/farmkart/props/Textures/
+      colormap.png (the same relative path every surv_*.glb expects) — no manifest/loader change
+      needed, all 23 load clean once the texture file exists alongside. Per-category final counts:
+      tree 23 · rock 19 · plant 20 · crop 10 · log 8 · fence 9 · building 8 · prop 14 · cliff 8 ·
+      bridge 4 · path 5 · water 3 · structures 8 · race 46 · clutter 15 = 200 total, 3.38MB on disk
+      (well under the no-build-step page-weight comfort zone — average ~17KB/model). Verified headless
+      (scratchpad fk_props_expand.cjs, own throwaway static server on :8793): manifest parses/0 dupe
+      ids/0 missing files/0 files >2MB, editor loads all 200 with 0 load failures (propStatus "200 CC0
+      models ready"), one real button-click placement per category (all 15) lands a real multi-mesh
+      model (not the grey placeholder box) with correctly-lit (not near-black) materials, 0
+      pageerrors. Still LOCAL/untracked per the existing Farm Kart convention (user decides when any
+      of this ships).
 
 # 🏁 Farm Kart — custom Bucky Kart + procedural goat driver (2026-07-09)
 
@@ -2045,6 +2084,66 @@ through one Firestore doc — same house pattern as `leveleditor.html`'s `bistro
   reload loop; otherwise (mid-race, MP, or already adopted this session) it just updates
   localStorage silently and re-runs `populateTrackPicker()` — applies on the next navigation.
   Test key `famtestfk` used for all Firestore-touching verification (never `fam2jan2g`).
+
+# 🏁 Farm Kart — proximity audio, louder engine, wrong-way HUD (2026-07-10)
+
+Three user-requested audio/HUD passes, all in `farmkart.html` only.
+- **PROXIMITY AUDIO** (user: "you don't hear other carts' sounds at the same volume as your
+  own"): new `gainAt(pos, name)` — cheap 2D (XZ) distance gain from the LOCAL kart, no
+  PannerNodes. `PROX_FULL_R=8` (full volume) → linear falloff → `PROX_ZERO_R=55` →
+  `PROX_FLOOR=0.12` (never fully silent). A sound fired AT the local kart's own position is
+  distance 0 → always full gain, so every call site can pass a kart's `pos` unconditionally —
+  no separate "is this me" branch needed. `playSample()` gained `opts.at` (world pos, calls
+  `gainAt` internally) / `opts.mul` (pre-computed multiplier); `tone()`/`noiseBurst()` gained
+  `opts.mul` so synth fallbacks share the same distance-fade. Routed through: `boostWhoosh`,
+  `spinSound`, `tomatoFireSound`, `tomatoSplatSound`, `chickenSquawkSound`, `haySound`/
+  `itemFireSound`, `itemRollSound`, `itemBlockSound`, `landThump` (all now take an optional
+  trailing `pos`/kart-object param — every non-local call site was audited and updated:
+  `useItem()`'s boost/tomato/chicken/hay branches (fires for bots AND host-simulated remote
+  guests via `hostConsumeGuestUse`), `applySpinOut()`, `hitKartWithProjectile()`/
+  `tryAbsorbWithTrail()` (any kart can be hit), the hazard-hit path in `advanceHazards()`, the
+  item-box pickup in `updateItemBoxes()`, and — a real pre-existing bug, not just a tuning
+  gap — `landThump()` in `syncKartView()`, which runs once per rendered kart (local + bots +
+  remotes) every frame and previously always thumped at full volume regardless of which kart
+  landed). Existing local-only-gated call sites (mini-turbo release, boost-pad kick,
+  ramp-jump whoosh) were left untouched — they already only fire for the local kart, and
+  `gainAt(undefined)` still resolves to full gain so their behavior is unchanged. Debug hook:
+  `audioState().prox = {name,dist,mul}` (last proximity-scaled call); `gainAt`/`PROX_FULL_R`/
+  `PROX_ZERO_R`/`PROX_FLOOR` exposed on `window.__KART__`.
+- **ENGINE LOUDER** (user: local sample engine too quiet): `updateSampleEngine()`'s three
+  band-gain targets (`tgtLow`/`tgtMid`/`tgtHigh`) multiplied by a new `ENGINE_LEVEL_MUL = 1.75`
+  — same per-band formula/crossover weights as before, just scaled up. Drift loop, music bus,
+  and masterGain headroom untouched (peak combined engine mix stays comfortably under
+  masterGain=1 even mid-crossfade). Synth-fallback engine gain (blocked-buffers path) NOT
+  changed — the user's complaint was specifically about the sample engine.
+- **WRONG-WAY HUD**: an indicator (`#wrongway`) already existed (text "⟲ TURN AROUND",
+  2s threshold) driven by a pre-existing, untouched signal — `p.wrongWayT` accumulates in
+  `updateRaceProgress()` off the WRAP-AWARE arc-length delta `ds = progressS - prevProgressS`
+  (handles the lap-boundary wrap so crossing the finish line never reads as reversing);
+  resets to 0 the instant `ds` goes forward again. This session: (1) text → "⚠ WRONG WAY",
+  (2) threshold constant `WRONG_WAY_SHOW_T` extracted and lowered 2s → **0.8s**, (3) CSS
+  restyled to the `#placeHud` family (Consolas/monospace, heavy text-shadow, big 30px/20px-
+  mobile red pulse badge) and repositioned to clear `#itemSlot` (top 14-90px), the top-right
+  `#minimap`, and the mobile `#touchCtl` thumb buttons (`top: calc(104px + safe-area)` desktop,
+  `140px` mobile). Hide-on-correct is inherently instant (next forward-progress frame resets
+  `wrongWayT` to 0), well under the ~0.5s budget. A brief knockback/spin never reaches 0.8s
+  of *sustained* reversal so it never false-positives; a spin-out only scales kart speed
+  (same direction), so it doesn't perturb the sign of `ds` either. `updateRaceProgress`/
+  `updateHUD` exposed on `window.__KART__` for deterministic headless testing (drives the
+  signal by moving the kart's position along `centerPts` rather than simulating real
+  keyboard input).
+- **Verify**: `tools/_verify-audio.cjs` extended in place (was 71 checks incl. the K6 sample-
+  audio suite, now 102: +1 engine-level-bump assertion in the SAMPLES pass, +13 proximity-gain
+  checks per pass incl. a live bot-kart near/far comparison via `addTestKart`). New scratchpad
+  suite `fk_wrongway.cjs` (48 checks, desktop + mobile passes: forward/no-indicator, sustained-
+  reverse/shows, correct/hides-fast, brief-knock/never-shows, spin-out/never-shows, styling
+  family, bbox non-overlap with touch controls + minimap + item slot). Regression:
+  `tools/_verify-items.cjs` 24/24 clean. `tools/_verify-hud-defaults.cjs` has ONE pre-existing
+  failure unrelated to this batch — mobile `camDist` expects 5.35, reads 3.5 (a parallel
+  Cursor session's live edit to `MOBILE_CAM`, per its own dated comment "pulled closer
+  2026-07-09... was 6.5" then further to 3.5 — left untouched per this task's scope; not
+  caused by or related to the proximity/engine/wrong-way work). 0 new JS pageerrors in either
+  suite.
 
 # 🌤️ Weather — Woodville / Amen Farms (2026-07-09)
 

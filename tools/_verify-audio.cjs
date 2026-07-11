@@ -119,6 +119,10 @@ async function runPass(browser, { blockAudio }) {
     } else {
       check("synth engine SILENCED when sample engine active", aLow.engineGainV < 0.005, aLow.engineGainV);
       check("engine mix low-dominant at low speed", aLow.engineMix.low > aLow.engineMix.high, JSON.stringify(aLow.engineMix));
+      // 2026-07-10 (user: engine too quiet) — sample engine level bumped ~1.75x (ENGINE_LEVEL_MUL).
+      // Old formula at this low-rpm settle point was low~0.11+rpm*0.02 (<=~0.115); assert the new
+      // mix is at least 1.6x that pre-bump ceiling (0.115*1.6 = 0.184), i.e. the absolute bump landed.
+      check("engine low band bumped >=1.6x old level", aLow.engineMix.low >= 0.184, aLow.engineMix.low);
     }
 
     p.v.x = 0; p.v.z = 22; // near top speed
@@ -229,6 +233,56 @@ async function runPass(browser, { blockAudio }) {
     K.grantHeldItem(p, "chicken");
     K.useItem(p);
     check("chicken projectile spawned", K.G.projectiles.some(pr => pr.kind === "chicken"), K.G.projectiles.length);
+
+    // ---- 2026-07-10: PROXIMITY AUDIO — non-local kart sounds fall off with distance from the
+    // local kart (gainAt), local kart's own events (pos == local's own pos) stay full volume ----
+    p.pos.x = 0; p.pos.z = 0;
+    check("gainAt at own position is full", K.gainAt({ x: 0, z: 0 }) === 1, K.gainAt({ x: 0, z: 0 }));
+    check("gainAt within full radius is full", K.gainAt({ x: 0, z: K.PROX_FULL_R - 0.5 }) === 1,
+      K.gainAt({ x: 0, z: K.PROX_FULL_R - 0.5 }));
+    const gMid = K.gainAt({ x: 0, z: (K.PROX_FULL_R + K.PROX_ZERO_R) / 2 });
+    check("gainAt mid-distance is between floor and full", gMid > K.PROX_FLOOR && gMid < 1, gMid);
+    check("gainAt far away hits the floor", K.gainAt({ x: 0, z: K.PROX_ZERO_R + 40 }) === K.PROX_FLOOR,
+      K.gainAt({ x: 0, z: K.PROX_ZERO_R + 40 }));
+    check("gainAt with no pos = full (unchanged local-only call sites)", K.gainAt(undefined) === 1, K.gainAt(undefined));
+
+    // trigger the SAME sfx near vs far and read back the last computed proximity multiplier —
+    // every non-local-triggered sound function now routes through gainAt(pos) before playing.
+    K.tomatoSplatSound(false, { x: 0, z: 0 });
+    const nearMul = K.audioState().prox.mul;
+    check("near tomato splat: full gain", nearMul === 1, nearMul);
+    K.tomatoSplatSound(false, { x: 0, z: K.PROX_ZERO_R + 40 });
+    const farMul = K.audioState().prox.mul;
+    check("far tomato splat: floor gain", farMul === K.PROX_FLOOR, farMul);
+    check("far sound is much quieter than near", farMul < nearMul * 0.2, farMul + " vs " + nearMul);
+
+    K.chickenSquawkSound(true, { x: 0, z: K.PROX_ZERO_R + 40 });
+    check("far chicken squawk-hit floored", K.audioState().prox.mul === K.PROX_FLOOR, K.audioState().prox.mul);
+    K.haySound({ x: 0, z: 0 });
+    check("near hay full gain", K.audioState().prox.mul === 1, K.audioState().prox.mul);
+    K.itemRollSound({ x: 0, z: 30 });
+    const rollMid = K.audioState().prox.mul;
+    check("mid-distance item-roll between floor and full", rollMid > K.PROX_FLOOR && rollMid < 1, rollMid);
+    K.itemBlockSound({ x: 0, z: K.PROX_ZERO_R + 10 });
+    check("far item-block floored", K.audioState().prox.mul === K.PROX_FLOOR, K.audioState().prox.mul);
+
+    // useItem()/applySpinOut() route the ACTING kart's own position through gainAt automatically —
+    // a bot far from the local kart should compute a floored multiplier for its fire sound.
+    const bot = K.addTestKart ? K.addTestKart("proxBot", 0, K.PROX_ZERO_R + 50, 0x8844cc) : null;
+    if (bot) {
+      K.grantHeldItem(bot, "tomato");
+      K.useItem(bot);
+      check("distant bot tomato fire is floored", K.audioState().prox.mul === K.PROX_FLOOR, K.audioState().prox.mul);
+      bot.spinT = 0;
+      K.applySpinOut(bot);
+      check("distant bot spin-out is floored", K.audioState().prox.mul === K.PROX_FLOOR, K.audioState().prox.mul);
+      bot.pos.x = 0; bot.pos.z = 1; // right next to the local kart (which sits at 0,0)
+      K.grantHeldItem(bot, "tomato");
+      K.useItem(bot);
+      check("nearby bot tomato fire is full", K.audioState().prox.mul === 1, K.audioState().prox.mul);
+    } else {
+      check("addTestKart hook available for proximity bot test", false, "missing");
+    }
 
     return out;
   }, blockAudio);
