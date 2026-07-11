@@ -394,6 +394,27 @@
         }
         if (tuns.length) out.tunnels = tuns;
       }
+      // BRIDGES (2026-07-10): [{id,tag,s,len,style}] mirrors tunnels exactly — s=0..1 start fraction
+      // along the centerline arc length, len=world-unit span. style is a free-form label (default
+      // "wood") reserved for future material variants; buildBridgeMesh currently renders one warm-wood
+      // look regardless. Absent/garbage -> omitted (empty world = the game renders exactly as before —
+      // byte-identical for a track without bridges, same convention as tunnels).
+      if (Array.isArray(data.bridges)){
+        const brs = [];
+        for (const br of data.bridges){
+          if (!br || typeof br !== 'object') continue;
+          const s = +br.s, len = +br.len;
+          if (!isFinite(s) || s<0 || s>1 || !isFinite(len) || len<=0) continue;
+          const o = {
+            id:  (typeof br.id==='string' && br.id) ? br.id.slice(0,40) : ('bridge_'+(brs.length+1)),
+            tag: (typeof br.tag==='string') ? br.tag.slice(0,60) : '',
+            s, len: Math.max(4, Math.min(400, len))
+          };
+          if (typeof br.style === 'string' && br.style) o.style = br.style.slice(0,24);
+          brs.push(o);
+        }
+        if (brs.length) out.bridges = brs;
+      }
       return out;
     }catch(e){ return null; }
   }
@@ -640,6 +661,123 @@
       const mesh = new THREE.Mesh(geo, mat);
       mesh.userData.tunnelId = tn.id;
       grp.add(mesh);
+    }
+    return grp;
+  }
+
+  // ---- buildBridgeMesh (2026-07-10): a wooden bridge over a span of the ROAD ----
+  // Mirrors buildTunnelMesh's architecture exactly: bridges = ACTIVE_TRACK.bridges [{s,len,style}]
+  // (s=0..1 start fraction along the centerline arc length, len=world-unit span). Seated on the ROAD
+  // height (opts.heightFn — same seat convention as tunnels, NOT raw terrain) so the deck follows the
+  // road exactly. Renders side rails (posts + two horizontal rails each side, same construction as
+  // buildFenceMesh's "rail" style), a slight raised deck lip along both road edges, and vertical
+  // SUPPORT PILLARS at ~6u intervals from the road underside down to opts.groundFn(x,z) — the terrain
+  // height WITHOUT road influence (the game/editor pass groundSampleHeight, which stays on the lowest
+  // branch under a true multi-level overlap — exactly the classic use case: the raised half of a
+  // figure-8). Pillars are skipped where the gap is under ~1.5u (an at-grade span needs no support).
+  // Warm wood-brown materials with an emissive lift (house convention, see buildTunnelMesh/
+  // [[gltf-linear-color-gotcha]]) so the undersides don't render flat black. Purely visual — no
+  // collision/physics change (matches tunnels). opts.heightFn/groundFn absent -> y=0.
+  function buildBridgeMesh(sampled, bridges, trackWidth, THREE, opts){
+    const grp = new THREE.Group();
+    if (!Array.isArray(bridges) || !bridges.length) return grp;
+    opts = opts || {};
+    const hfn = opts.heightFn || (()=>0);
+    const gfn = opts.groundFn || hfn;
+    const L = sampled.trackLen, arcS = sampled.arcS, C = sampled.centerPts, T = sampled.tangents, N = sampled.samples;
+    function sampleAtArc(a){
+      a = a % L; if (a < 0) a += L;
+      let i = 0;
+      for (; i<N-1; i++){ if (arcS[i+1] > a) break; }
+      const i0 = i, i1 = (i+1)%N;
+      const segLen = (i1===0) ? (L - arcS[i0]) : (arcS[i1]-arcS[i0]);
+      const t = segLen > 1e-6 ? (a-arcS[i0])/segLen : 0;
+      const c0=C[i0], c1=C[i1], t0=T[i0], t1=T[i1];
+      const x = c0.x+(c1.x-c0.x)*t, z = c0.z+(c1.z-c0.z)*t, y = c0.y+(c1.y-c0.y)*t;
+      let tx = t0.x+(t1.x-t0.x)*t, tz = t0.z+(t1.z-t0.z)*t; const tl = Math.hypot(tx,tz)||1;
+      return { x, y, z, tx:tx/tl, tz:tz/tl };
+    }
+    const postMat   = new THREE.MeshLambertMaterial({ color:0x5a3d24, emissive:0x241708 });
+    const railMat   = new THREE.MeshLambertMaterial({ color:0x8a6239, emissive:0x362717 });
+    const lipMat    = new THREE.MeshLambertMaterial({ color:0x9a7245, emissive:0x3c2d1a });
+    const pillarMat = new THREE.MeshLambertMaterial({ color:0x6b4a2e, emissive:0x2a1d12 });
+    const Z = new THREE.Vector3(0,0,1);
+    const RAIL_FRACS = [0.42, 0.9], RAIL_H = 1.35;
+    const POST_GAP = 6, PILLAR_GAP = 6, MIN_PILLAR_GAP_Y = 1.5, PILLAR_FOOT = 0.6, DECK_THICK = 0.3;
+    for (const br of bridges){
+      const startArc = Math.max(0, Math.min(1, br.s)) * L;
+      const len = Math.max(4, br.len || 18);
+      const hw = trackWidth/2;
+      const step = 2.0, steps = Math.max(2, Math.ceil(len/step));
+      const path = [];
+      for (let s=0;s<=steps;s++){
+        const a = startArc + len*(s/steps);
+        const p = sampleAtArc(a);
+        const y = hfn(p.x, p.z);
+        const nx = -p.tz, nz = p.tx;
+        path.push({ x:p.x, y, z:p.z, nx, nz });
+      }
+      // deck lip: a thin raised strip along each road edge
+      for (const side of [1,-1]){
+        for (let i=0;i<path.length-1;i++){
+          const a=path[i], b=path[i+1];
+          const ax=a.x+a.nx*hw*side, az=a.z+a.nz*hw*side, ay=a.y+0.1;
+          const bx=b.x+b.nx*hw*side, bz=b.z+b.nz*hw*side, by=b.y+0.1;
+          const dir=new THREE.Vector3(bx-ax, by-ay, bz-az); const dl=dir.length()||0.01; dir.normalize();
+          const lip=new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, dl), lipMat);
+          lip.position.set((ax+bx)/2, (ay+by)/2, (az+bz)/2);
+          lip.quaternion.setFromUnitVectors(Z, dir);
+          grp.add(lip);
+        }
+      }
+      // side rails + posts (mirrors buildFenceMesh's "rail" style, run down each road edge)
+      for (const side of [1,-1]){
+        for (let i=0;i<path.length-1;i++){
+          const a=path[i], b=path[i+1];
+          for (const f of RAIL_FRACS){
+            const ax=a.x+a.nx*hw*side, az=a.z+a.nz*hw*side, ay=a.y+RAIL_H*f;
+            const bx=b.x+b.nx*hw*side, bz=b.z+b.nz*hw*side, by=b.y+RAIL_H*f;
+            const dir=new THREE.Vector3(bx-ax, by-ay, bz-az); const dl=dir.length()||0.01; dir.normalize();
+            const rail=new THREE.Mesh(new THREE.BoxGeometry(0.1,0.13,dl), railMat);
+            rail.position.set((ax+bx)/2, (ay+by)/2, (az+bz)/2);
+            rail.quaternion.setFromUnitVectors(Z, dir);
+            grp.add(rail);
+          }
+        }
+        let acc=0, next=0;
+        for (let i=0;i<path.length;i++){
+          if (i>0) acc += Math.hypot(path[i].x-path[i-1].x, path[i].z-path[i-1].z);
+          if (acc>=next || i===path.length-1){
+            const p=path[i];
+            const px=p.x+p.nx*hw*side, pz=p.z+p.nz*hw*side;
+            const post=new THREE.Mesh(new THREE.BoxGeometry(0.2, RAIL_H, 0.2), postMat);
+            post.position.set(px, p.y+RAIL_H/2, pz);
+            grp.add(post);
+            next += POST_GAP;
+          }
+        }
+      }
+      // support pillars: from the road underside down to the terrain (groundFn), skipping short gaps
+      let acc2=0, next2=0;
+      for (let i=0;i<path.length;i++){
+        if (i>0) acc2 += Math.hypot(path[i].x-path[i-1].x, path[i].z-path[i-1].z);
+        if (acc2>=next2 || i===path.length-1){
+          const p=path[i];
+          const groundY = gfn(p.x, p.z);
+          const deckUnderside = p.y - DECK_THICK;
+          const gap = deckUnderside - groundY;
+          if (gap >= MIN_PILLAR_GAP_Y){
+            const bottom = groundY - PILLAR_FOOT, height = deckUnderside - bottom;
+            const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.6, height, 0.6), pillarMat);
+            pillar.position.set(p.x, bottom + height/2, p.z);
+            grp.add(pillar);
+            const foot = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.28, 1.15), pillarMat);
+            foot.position.set(p.x, groundY - 0.05, p.z);
+            grp.add(foot);
+          }
+          next2 += PILLAR_GAP;
+        }
+      }
     }
     return grp;
   }
@@ -1049,11 +1187,31 @@
     return mesh;
   }
 
+  // ---- trackDirectionAt: unit XZ tangent of the racing line nearest (x,z). Used so boost pads and
+  // ramps ALWAYS face the driving direction (low→high for ramps = track forward).
+  function trackDirectionAt(sampled, x, z){
+    if (!sampled || !sampled.centerPts) return { x:0, z:1, yaw:0 };
+    const n = nearestOnCenter(sampled, x, z);
+    const t = sampled.tangents[n.idx] || { x:0, z:1 };
+    const hl = Math.hypot(t.x, t.z) || 1;
+    const tx = t.x / hl, tz = t.z / hl;
+    return { x:tx, z:tz, yaw:Math.atan2(tx, tz) };
+  }
+  // Force every type:"ramp" object's rotY so local +Z (uphill) matches the track tangent at its center.
+  // Mutates objects in place; safe to call at game boot and on every editor rebuild.
+  function alignRampsToTrack(track, sampled){
+    if (!track || !Array.isArray(track.objects) || !sampled) return;
+    for (const o of track.objects){
+      if (!o || o.type !== 'ramp') continue;
+      o.rotY = trackDirectionAt(sampled, o.x, o.z).yaw;
+    }
+  }
+
   window.FK_TRACK = {
     VERSION:1, SAMPLES,
     DEFAULT_TRACK, BUILTIN_TRACKS,
     resample, buildRibbonGeometry, sanitize, validate, reverse, nearestOnCenter, nearestOnCenterAtY,
     groundHills, sampleHeight, groundSampleHeight, buildGroundMesh, buildObjectMesh, buildFenceMesh, buildGrassTufts, sampleField, sampleColor,
-    fenceCollide, corridorFences, rampSurfaceY, buildTunnelMesh
+    fenceCollide, corridorFences, rampSurfaceY, buildTunnelMesh, buildBridgeMesh, trackDirectionAt, alignRampsToTrack
   };
 })();

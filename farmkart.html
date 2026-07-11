@@ -923,6 +923,16 @@
   const TUNNEL_GROUP = FK_TRACK.buildTunnelMesh(_sampled, ACTIVE_TRACK.tunnels || [], TRACK_WIDTH, THREE, { heightFn:(x,z)=>sampleHeight(x,z) });
   scene.add(TUNNEL_GROUP);
 
+  // BRIDGES (2026-07-10): wooden bridges drawn in the editor. Purely visual (matches tunnels — the
+  // existing corridor walls already constrain karts). Rails/pillars follow the ROAD height
+  // (sampleHeight); support pillars reach down to groundSampleHeight (terrain WITHOUT road
+  // influence — stays on the LOWEST branch under a true multi-level overlap, e.g. the raised half
+  // of a figure-8), so pillars land on the ground below rather than floating at the deck's own level.
+  const BRIDGE_GROUP = FK_TRACK.buildBridgeMesh(_sampled, ACTIVE_TRACK.bridges || [], TRACK_WIDTH, THREE, {
+    heightFn:(x,z)=>sampleHeight(x,z), groundFn:(x,z)=>groundSampleHeight(x,z)
+  });
+  scene.add(BRIDGE_GROUP);
+
   // ---------- start/finish line (checkered strip across main straight) ----------
   // Placed near the main straight at ~z=20, spanning the track width.
   const FINISH = (function(){
@@ -6438,6 +6448,8 @@
     updateMinimap, minimapEl, _mm,
     // Tunnels (2026-07-10, for headless tests)
     TUNNEL_GROUP,
+    // Bridges (2026-07-10, for headless tests)
+    BRIDGE_GROUP,
     // K6 polish (audio + particles + best-lap key; exposed for the headless harness)
     BEST_LAP_KEY, setMuted, toggleMute, particleActiveCount,
     audioState:()=>({ muted:audioMuted, masterGain: masterGain ? masterGain.gain.value : null,

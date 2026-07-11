@@ -2366,3 +2366,113 @@ GOTCHA from the consolidation itself: OneDrive settled two agents' writes OUT OF
 suite's port 8862) — after any cross-file rename in this repo, re-grep BOTH files for
 consistency before trusting a verify run, and kill port squatters by PID (never
 taskkill-all-node: it nukes the other agent's processes).
+
+# 🏁 Farm Kart — EDITOR UX PASS + BRIDGES (2026-07-10)
+
+Usability/simplicity pass on `farmkart-editor.html` (user: "run a pass on the track editor
+for usability, simplicity, ui — anything that makes building a track easier and smoother").
+Files touched: `farmkart-editor.html` (all the UI/UX work), `assets/farmkart-track.js`
+(bridges data model + shared builder), `farmkart.html` (bridge rendering only — same
+pattern as tunnels).
+
+- **UNDO/REDO** (the #1-priority ask): whole-track snapshot history — `history` is a
+  linear array of JSON clones of `track` with `histIndex` pointing at the current entry;
+  `commitHistory()` runs at the END of every mutating action (point move/insert/delete,
+  item/boost placement, object add/move/delete, sculpt/paint STROKE END — not per-frame,
+  fence point/finish-from-edges/delete, tunnel/bridge add/change/delete, field edits on
+  `change` not `input` so typing doesn't spam entries), capped at 50 (oldest dropped, index
+  shifted). A NEW action after an undo truncates any redo tail before appending (standard
+  semantics). `Ctrl+Z`/`Ctrl+Shift+Z`/`Ctrl+Y` (Cmd on Mac) + small `↶ ↷` buttons in the
+  title bar (auto-disable at the ends). Restore reuses the same rebuild path as
+  `loadTrack`/`loadById` (`rebuild()+rebuildObjects()+rebuildFences()+rebuildBridges()`);
+  `histSuspended` guards the restore's own field writes from re-entering `commitHistory`.
+  Boot/import/load-track reset the history to a single fresh entry (loading a track is
+  never itself an undo step). Gizmo object-drags commit ONE entry on `dragging-changed`
+  release (not per-frame `objectChange`).
+- **PROP SEARCH**: `#propSearch` text box above the 200-prop button list (grown past the
+  original 57 since a later CC0-expansion session — `renderPropList(cat, q)` now takes an
+  optional search term; non-empty search matches name OR category across ALL props
+  (ignores the category dropdown — no need to guess the right category first), shows a
+  "N matches" count, updates live on `input`).
+- **PANEL DECLUTTER**: wallMargin/world-size/corridor-bounds/terrain+tufts toggles/follow-
+  terrain moved into a collapsible **"⚙ advanced"** section (`#advBody`), collapsed by
+  default, open/closed state remembered in `localStorage['fk_ed_advanced_open']`. Fixed
+  the known overlap (hint bar vs delete-point button in tight viewports): `#tools` max-
+  height changed `96vh` → `calc(100vh - 20px)` (was leaving a sliver where the SAME
+  z-index hint bar could paint over the panel's last row) and `#hint` dropped to
+  `z-index:9` (below the panel) + wraps (`white-space:normal;max-width:64vw`) instead of
+  a fixed nowrap line that could stretch wide on long mode hints. Verified 0 overlaps at
+  1280×800 AND 1024×768 (bbox checks: hint vs delete button, hint vs save button, panel
+  bottom inside the viewport).
+- **SAVE HYGIENE**: `dirty` flag — `markDirty()`/`clearDirty()`; a `●` dot on the Save
+  button (`#dirtyDot`) shows when there are unsaved changes (set by every `commitHistory`
+  call) and clears in `doSave()`. `Ctrl+S` triggers `doSave()`. `beforeunload` warns on an
+  unsaved close/refresh. Save + **"🏁 Test drive"** (renamed from "▶ test") both got a
+  `.prominent` style (green Save / red Test drive) — Test drive already saved-then-opened
+  (`doSave()` then `window.open('farmkart.html?track=...')`), unchanged, just restyled.
+- **BRIDGES** (the requested new feature) — mirrors the tunnel architecture exactly:
+  - Data: `track.bridges = [{id, tag, s, len, style?}]` (same `s`=arc-length start
+    fraction, `len`=world-unit span convention as tunnels/boost pads). `sanitize()`
+    validates + OMITS when empty — re-verified byte-identical output for bridge-less
+    tracks (DEFAULT_TRACK + wario-stadium, old vs new module).
+  - Shared builder `FK_TRACK.buildBridgeMesh(sampled, bridges, trackWidth, THREE, opts)`
+    in `assets/farmkart-track.js`: side RAILS (posts + two horizontal rails each side,
+    same construction as `buildFenceMesh`'s "rail" style) along both road edges, a thin
+    raised DECK LIP strip along each edge, and vertical SUPPORT PILLARS at ~6u intervals
+    from the road underside (`opts.heightFn`, seated on the ROAD height like tunnels) down
+    to `opts.groundFn` (defaults to `heightFn` if omitted; game/editor pass
+    `groundSampleHeight` — the terrain height WITHOUT road influence, which stays on the
+    LOWEST branch under a true multi-level overlap) — pillars are SKIPPED where the gap is
+    under ~1.5u (an at-grade span needs no support) and each gets a small buried footing
+    box. Warm wood-brown `MeshLambertMaterial`s with an emissive lift (house convention —
+    unlit undersides don't render flat black, same lesson as tunnels/
+    `[[gltf-linear-color-gotcha]]`).
+  - Editor: 🌉 bridge mode mirrors 🚇 tunnel mode exactly (click the road = bridge STARTS
+    at the click; `#bridgeList` w/ select/delete; length slider; live throttled rebuild;
+    `bridgeGroup` renders via the shared builder). Hooked into `rebuild()` alongside
+    `rebuildTunnels()`.
+  - Game (`farmkart.html`): renders `ACTIVE_TRACK.bridges` via `BRIDGE_GROUP` right next
+    to `TUNNEL_GROUP`, passing `sampleHeight`/`groundSampleHeight` as heightFn/groundFn.
+    Purely visual — no collision/physics change (matches tunnels).
+  - TESTED CAVEAT: a real self-crossing figure-8 track's overlap is a single XZ point (not
+    a sustained span), so it doesn't reliably exercise the pillar-count/skip logic on its
+    own — the rigorous pillar test is a synthetic straight `sampled` with controlled
+    `heightFn`/`groundFn` (elevated-span case: sane pillar count, pillars reach the
+    terrain; at-grade case: zero pillars, rails/lip still render). The figure-8 integration
+    test stays as a lighter "does it render without crashing on the real self-crossing
+    track" smoke check + the requested screenshot.
+- **SMALL EXTRAS**: arrow-key nudge for the selected point OR object (0.5u, Shift = 2u,
+  commits one history entry per nudge); `Ctrl+D` duplicates the selected object (only
+  active in object mode with a selection — mirrors the existing `⧉ duplicate` button);
+  `Escape` now ALSO exits the current placement MODE back to `select` (previously only
+  ended an armed click-to-stamp `pendingPlace`).
+- **USER MID-TASK ADDITION — no more floating object-name labels in the 3D viewport**: the
+  editor used to render a canvas-sprite label ("(untitled)" etc.) floating above every
+  placed object (`makeLabel`/`positionLabel`/`labelGroup`) — cluttered the scene,
+  especially with several untitled objects. REMOVED entirely from the render path (the
+  dead helper functions + empty `labelGroup` are left in place, not ripped out, in case a
+  future "toggle labels" option wants them back). Object names/tags now live ONLY in the
+  sidebar `#objList`, which gained a per-type icon (🧊 block / 🏚 barn / 🥫 silo / 🌳 tree /
+  💧 water / 🛫 ramp / 🌲 glb prop) so several same-named/untitled objects still read at a
+  glance; the existing selection-highlight tint disambiguates exact identity. Clicking a
+  viewport object already routed through `selectObject()` (which calls `refreshObjList()`),
+  so viewport-click → list-highlight was already wired — no separate change needed there.
+- **SKIPPED / DEFERRED**: nothing from the brief was skipped — all 6 numbered items plus
+  the mid-task label-removal addendum landed.
+- Verified (scratchpad `fk_ux_pass.cjs`, 69/69): undo/redo across 5+ action types incl.
+  sculpt-stroke granularity (3 brush dabs mid-drag = 0 new entries, stroke end = exactly 1)
+  and redo-clear-on-new-action; prop search narrows/empties/clears correctly; advanced
+  section collapses by default and its open state survives a fresh page load; 0 UI overlaps
+  at 1280×800 and 1024×768; dirty dot appears on mutation, clears on save, Ctrl+S saves for
+  real (localStorage checked); bridge click-to-place lands within ~0.1 s-fraction of the
+  click, editable via the length slider, deletable; synthetic pillar-logic unit test (sane
+  count on a 40u elevated span, zero pillars on an at-grade span); bridge-less sanitize
+  byte-identical (DEFAULT_TRACK + wario-stadium); figure-8 integration render; game boots a
+  bridged track (`ACTIVE_TRACK.bridges`, `BRIDGE_GROUP`) and drives near the span with a
+  finite kart position; 0 pageerrors throughout both editor and game passes. Regression:
+  `fk_tunnels.cjs` 63/65 (2 pre-existing unrelated failures — a stale prop-count assertion
+  from before a later prop-library expansion, not touched by this pass) and `fk_objects.cjs`
+  25/25 (confirms the label removal didn't break anything) both still green. Screenshots:
+  `shots/before_desktop.png` / `shots/after_desktop.png` (panel before/after) and
+  `shots/fk_bridge_editor.png` / `shots/fk_bridge_game.png` (a placed bridge on an elevated
+  figure-8 span, editor + in-game).

@@ -13,9 +13,23 @@
   /* panels share the game's HUD look: dark translucent, monospace, cyan labels */
   .panel{ position:absolute; z-index:10; background:rgba(12,20,28,.9); border:1px solid rgba(255,255,255,.15);
           border-radius:12px; padding:10px 12px; font-family:'Consolas',monospace; font-size:12px; }
-  #tools{ top:10px; left:10px; width:250px; max-height:96vh; overflow-y:auto; }
-  #tools h1{ font-size:15px; margin:0 0 8px; letter-spacing:.03em; }
+  #tools{ top:10px; left:10px; width:250px; max-height:calc(100vh - 20px); overflow-y:auto; }
+  #tools h1{ font-size:15px; margin:0 0 8px; letter-spacing:.03em; display:flex; align-items:center; justify-content:space-between; gap:6px; }
+  #tools h1 .histBtns{ display:flex; gap:3px; }
+  #tools h1 .histBtns button{ font-family:monospace; font-size:13px; font-weight:800; border:1px solid rgba(255,255,255,.2); background:rgba(255,255,255,.08); color:#fff; border-radius:6px; padding:2px 7px; cursor:pointer; }
+  #tools h1 .histBtns button:disabled{ opacity:.3; cursor:default; }
+  #tools h1 .histBtns button:not(:disabled):hover{ background:rgba(255,255,255,.18); }
   #tools .sec{ margin:10px 0 4px; color:#7fd0ff; font-weight:800; font-size:11px; letter-spacing:.05em; text-transform:uppercase; }
+  #advToggle{ display:flex; align-items:center; justify-content:space-between; width:100%; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.15); border-radius:8px; padding:6px 9px; color:#9ab; font-family:monospace; font-size:12px; cursor:pointer; margin-top:8px; }
+  #advToggle:hover{ background:rgba(255,255,255,.12); }
+  #advBody{ margin-top:6px; }
+  #dirtyDot{ color:#ffcf5c; font-weight:900; margin-left:2px; display:none; }
+  #dirtyDot.on{ display:inline; }
+  #saveBtn.prominent, #testBtn.prominent{ font-size:13px; padding:9px 8px; }
+  #saveBtn.prominent{ background:#2f8d4a; }
+  #saveBtn.prominent:hover{ background:#3aa858; }
+  #testBtn.prominent{ background:#ba303e; }
+  #testBtn.prominent:hover{ background:#d43a49; }
   #tools label{ display:block; color:#cde; margin:4px 0 2px; }
   #tools input[type=text], #tools input[type=number]{ width:100%; padding:6px 8px; border-radius:7px; border:1px solid rgba(255,255,255,.2);
           background:rgba(0,0,0,.35); color:#fff; font-family:monospace; font-size:12px; }
@@ -39,9 +53,9 @@
   #itemList{ margin-top:4px; }
   #itemList .ir{ display:flex; justify-content:space-between; align-items:center; padding:2px 0; color:#cde; }
   #itemList .ir button{ background:#8a3a3a; border:0; color:#fff; border-radius:6px; font-family:monospace; cursor:pointer; padding:2px 7px; }
-  #hint{ position:absolute; left:50%; bottom:12px; transform:translateX(-50%); z-index:10;
+  #hint{ position:absolute; left:50%; bottom:12px; transform:translateX(-50%); z-index:9;
          font-family:monospace; font-size:12px; color:rgba(255,255,255,.82); background:rgba(0,0,0,.4);
-         padding:6px 14px; border-radius:10px; pointer-events:none; white-space:nowrap; }
+         padding:6px 14px; border-radius:10px; pointer-events:none; white-space:normal; text-align:center; max-width:64vw; }
   #toast{ position:absolute; left:50%; top:14px; transform:translateX(-50%); z-index:20; background:rgba(0,0,0,.6);
           padding:8px 16px; border-radius:20px; font-weight:700; font-family:monospace; opacity:0; transition:opacity .3s; pointer-events:none; }
   #toast.show{ opacity:1; }
@@ -51,7 +65,7 @@
   <div id="stage"></div>
 
   <div id="tools" class="panel">
-    <h1>🏁 TRACK EDITOR</h1>
+    <h1>🏁 TRACK EDITOR <span class="histBtns"><button id="undoBtn" title="Undo (Ctrl+Z)">↶</button><button id="redoBtn" title="Redo (Ctrl+Y)">↷</button></span></h1>
 
     <div class="sec">Track</div>
     <label>load existing</label>
@@ -62,17 +76,21 @@
       <label style="flex:1;">width<input type="number" id="widthInp" step="1" min="6" max="40"></label>
       <label style="flex:1;">laps<input type="number" id="lapsInp" step="1" min="1" max="5"></label>
     </div>
-    <div class="row" style="margin-top:5px;">
-      <label style="flex:1;">wallMargin (grass)<input type="number" id="wallInp" step="0.5" min="2" max="20" placeholder="7"></label>
-      <label style="flex:1;">world size<input type="number" id="worldInp" step="5" min="20" max="400" placeholder="55"></label>
-    </div>
-    <button class="btn wide" id="corridorBtn">▦ show corridor bounds</button>
-    <div class="row">
-      <button class="btn on" id="terrainBtn" style="flex:1;">🌾 terrain</button>
-      <button class="btn on" id="tuftsBtn" style="flex:1;">🌱 tufts</button>
-    </div>
-    <div class="row">
-      <button class="btn" id="drapeBtn" style="flex:1;" title="Road drapes over the hills + sculpt and tilts with the land (natural camber)">🏔 follow terrain</button>
+
+    <button id="advToggle"><span>⚙ advanced</span><span id="advCaret">▸</span></button>
+    <div id="advBody" style="display:none;">
+      <div class="row" style="margin-top:5px;">
+        <label style="flex:1;">wallMargin (grass)<input type="number" id="wallInp" step="0.5" min="2" max="20" placeholder="7"></label>
+        <label style="flex:1;">world size<input type="number" id="worldInp" step="5" min="20" max="400" placeholder="55"></label>
+      </div>
+      <button class="btn wide" id="corridorBtn">▦ show corridor bounds</button>
+      <div class="row">
+        <button class="btn on" id="terrainBtn" style="flex:1;">🌾 terrain</button>
+        <button class="btn on" id="tuftsBtn" style="flex:1;">🌱 tufts</button>
+      </div>
+      <div class="row">
+        <button class="btn" id="drapeBtn" style="flex:1;" title="Road drapes over the hills + sculpt and tilts with the land (natural camber)">🏔 follow terrain</button>
+      </div>
     </div>
 
     <div class="sec">Mode</div>
@@ -86,6 +104,7 @@
       <button class="btn" id="mPaint">🎨 paint</button>
       <button class="btn" id="mFence">🔗 fence</button>
       <button class="btn" id="mTunnel">🚇 tunnel</button>
+      <button class="btn" id="mBridge">🌉 bridge</button>
     </div>
     <div id="fenceTools" style="display:none;margin-top:6px;padding:8px;background:rgba(70,55,35,.3);border-radius:8px;">
       <div style="color:#9ab;font-size:11px;margin-bottom:3px;">style of new fences:</div>
@@ -112,6 +131,15 @@
         <label style="margin-top:4px;">inner width <span id="tnWV" style="color:#7fd0ff;">21</span></label>
         <input type="range" id="tnW" min="10" max="50" step="0.5" value="21" style="width:100%;">
         <button class="btn wide warn" id="tnDel" style="margin-top:6px;">🗑 delete tunnel</button>
+      </div>
+    </div>
+    <div id="bridgeTools" style="display:none;margin-top:6px;padding:8px;background:rgba(90,65,35,.3);border-radius:8px;">
+      <div style="color:#9ab;font-size:11px;margin-bottom:3px;">click the road to start a wooden BRIDGE</div>
+      <div id="bridgeList" style="margin-top:4px;"></div>
+      <div id="bridgeEdit" style="display:none;margin-top:6px;">
+        <label>length <span id="brLenV" style="color:#7fd0ff;">18</span></label>
+        <input type="range" id="brLen" min="6" max="120" step="1" value="18" style="width:100%;">
+        <button class="btn wide warn" id="brDel" style="margin-top:6px;">🗑 delete bridge</button>
       </div>
     </div>
     <div id="paintTools" style="display:none;margin-top:6px;padding:8px;background:rgba(60,50,40,.3);border-radius:8px;">
@@ -168,8 +196,10 @@
     <div id="objList" style="margin-top:6px;"></div>
 
     <div class="sec">🌲 Scenery <span style="color:#7fd0ff;font-weight:400;text-transform:none;">(free CC0 models)</span></div>
+    <input type="text" id="propSearch" placeholder="🔎 search props… (e.g. rock, barn)" autocomplete="off" style="margin-bottom:5px;">
     <select id="propCat" style="width:100%;padding:5px;border-radius:6px;background:rgba(0,0,0,.35);color:#fff;border:1px solid rgba(255,255,255,.2);font-family:monospace;"></select>
     <div id="propList" style="margin-top:5px;max-height:260px;overflow-y:auto;display:flex;flex-wrap:wrap;gap:4px;"></div>
+    <div id="propSearchCount" style="color:#9ab;font-size:11px;margin-top:2px;"></div>
     <div style="color:#9ab;font-size:11px;margin-top:3px;" id="propStatus">loading models…</div>
     <button id="propRetryBtn" style="display:none;margin-top:4px;font-size:11px;padding:4px 8px;border-radius:6px;border:1px solid rgba(255,180,120,.4);background:#5a3a1a;color:#ffd9a0;cursor:pointer;">🔄 retry failed models</button>
 
@@ -182,8 +212,8 @@
 
     <div class="sec">Save / share</div>
     <div class="row">
-      <button class="btn" id="saveBtn">💾 save</button>
-      <button class="btn" id="testBtn">▶ test</button>
+      <button class="btn prominent" id="saveBtn">💾 save<span id="dirtyDot">●</span></button>
+      <button class="btn prominent" id="testBtn">🏁 Test drive</button>
     </div>
     <button class="btn wide" id="expBtn">📋 export JSON</button>
     <textarea id="io" placeholder="paste track JSON here, then Import"></textarea>
@@ -428,6 +458,7 @@
     if (!curFence){ curFence={ id:'fence_'+(++fenceSeq), tag:'', style:fenceStyle, points:[], height:(fenceStyle==='ribbon'?1.2:2.2), postGap:6 }; track.fences.push(curFence); }
     curFence.points.push({ x:Math.round(x*10)/10, z:Math.round(z*10)/10 });
     rebuildFences();
+    commitHistory();
   }
   // materialize editable RIBBON fences from the track's corridor edges (the auto-convert path)
   function fencesFromEdges(silent){
@@ -436,10 +467,12 @@
     if (!gen.length){ if(!silent) toast('no corridor edges to trace'); return; }
     track.fences = (track.fences||[]).filter(f=>f.tag!=='corridor');   // replace any prior auto walls
     for (const f of gen){ f.id='fence_'+(++fenceSeq); track.fences.push(f); }
-    curFence=null; rebuildFences(); if(!silent) toast(gen.length+' ribbon wall(s) traced from the track edges');
+    curFence=null; rebuildFences(); if(!silent){ toast(gen.length+' ribbon wall(s) traced from the track edges'); commitHistory(); }
   }
   // on load: a track with NO drawn fences auto-converts its corridor to editable ribbon walls, so it's
   // never unbounded and the walls can be edited/deleted/replaced per stage (matches the game's runtime).
+  // (silent=true at boot/load — that auto-migration is not a user action, so it must not seed a
+  // spurious "undo" entry; only an explicit ⟲ button click commits.)
   function maybeAutoFences(){ if (!track.fences || !track.fences.length) fencesFromEdges(true); }
   function undoFencePoint(){
     const f = curFence || (track.fences && track.fences[track.fences.length-1]);
@@ -447,6 +480,7 @@
     f.points.pop();
     if (!f.points.length){ track.fences=track.fences.filter(x=>x!==f); if(curFence===f) curFence=null; }
     rebuildFences();
+    commitHistory();
   }
   function finishFence(){
     if (curFence && curFence.points.length<2) track.fences=track.fences.filter(f=>f!==curFence);
@@ -460,7 +494,7 @@
       const row=document.createElement('div'); row.style.cssText='display:flex;gap:6px;margin:2px 0;font-family:monospace;font-size:12px;';
       const nm=document.createElement('span'); nm.style.cssText='flex:1;color:#d9c8a8;'; nm.textContent=(f===curFence?'▶ ':'')+(f.style==='ribbon'?'🟥':'🪵')+' '+(f.tag||('fence '+(i+1)))+' ('+f.points.length+'pt)';
       const del=document.createElement('button'); del.textContent='×'; del.style.cssText='background:#8a3a3a;border:0;color:#fff;border-radius:5px;cursor:pointer;padding:1px 7px;';
-      del.onclick=()=>{ track.fences=track.fences.filter(x=>x!==f); if(curFence===f)curFence=null; rebuildFences(); };
+      del.onclick=()=>{ track.fences=track.fences.filter(x=>x!==f); if(curFence===f)curFence=null; rebuildFences(); commitHistory(); };
       row.appendChild(nm); row.appendChild(del); box.appendChild(row);
     });
   }
@@ -497,6 +531,7 @@
     track.tunnels.push(tn);
     selTunnelId = tn.id;
     rebuildTunnels();
+    commitHistory();
     toast('tunnel @ s='+s.toFixed(3));
   }
   function selectedTunnel(){ return (track.tunnels||[]).find(t=>t.id===selTunnelId) || null; }
@@ -533,6 +568,66 @@
   }
   function scheduleTerrain(){ if (terrainTimer) clearTimeout(terrainTimer); terrainTimer = setTimeout(rebuildTerrain, 140); }
 
+  // ---- BRIDGES (2026-07-10): mirrors the TUNNEL block exactly — click the road to drop a wooden
+  // bridge; select from the list to adjust its length via a slider, or delete. Rendered via the
+  // SAME FK_TRACK.buildBridgeMesh the game uses. Seated on the ROAD height (heightFn); pillars reach
+  // down to groundFn (groundSampleHeight — terrain WITHOUT road influence, stays on the lowest branch
+  // under a true multi-level overlap, exactly the figure-8/bridge case).
+  const bridgeGroup = new THREE.Group(); scene.add(bridgeGroup);
+  let selBridgeId = null, bridgeSeq = 0;
+  function bridgeOpts(){ return { heightFn:(x,z)=>roadHeightAt(x,z), groundFn:(x,z)=>FK_TRACK.groundSampleHeight(sampled, x, z, track.width, edTerrainOpts()) }; }
+  function rebuildBridges(){
+    while (bridgeGroup.children.length){ const o=bridgeGroup.children[0]; bridgeGroup.remove(o); o.traverse(c=>{ if(c.geometry)c.geometry.dispose(); if(c.material)c.material.dispose(); }); }
+    let maxSeq = 0;
+    for (const br of (track.bridges||[])){ const m=String(br.id||'').match(/(\d+)$/); if (m) maxSeq=Math.max(maxSeq,+m[1]); }
+    bridgeSeq = Math.max(bridgeSeq, maxSeq);
+    if (sampled) bridgeGroup.add(FK_TRACK.buildBridgeMesh(sampled, track.bridges||[], track.width, THREE, bridgeOpts()));
+    refreshBridgeList();
+  }
+  function addBridgeAt(hit){
+    const C = sampled.centerPts, N = sampled.samples, arcS = sampled.arcS, L = sampled.trackLen;
+    let bi=0, bd=Infinity;
+    for (let i=0;i<N;i++){ const c=C[i]; const d=(c.x-hit.x)**2+(c.z-hit.z)**2; if(d<bd){bd=d;bi=i;} }
+    const s = Math.round((arcS[bi]/L)*1000)/1000;
+    track.bridges = track.bridges || [];
+    const br = { id:'bridge_'+(++bridgeSeq), tag:'', s, len:18 };
+    track.bridges.push(br);
+    selBridgeId = br.id;
+    rebuildBridges();
+    commitHistory();
+    toast('bridge @ s='+s.toFixed(3));
+  }
+  function selectedBridge(){ return (track.bridges||[]).find(b=>b.id===selBridgeId) || null; }
+  function syncBridgeEdit(){
+    const br = selectedBridge(), box = $('bridgeEdit'); if (!box) return;
+    if (!br){ box.style.display='none'; return; }
+    box.style.display='block';
+    $('brLen').value = br.len; $('brLenV').textContent = br.len;
+  }
+  function refreshBridgeList(){
+    const el = $('bridgeList'); if (!el) return; el.innerHTML='';
+    const brs = track.bridges||[];
+    if (!brs.length){ el.innerHTML = '<div style="color:#889;">none — use 🌉 bridge mode, click the road</div>'; syncBridgeEdit(); return; }
+    brs.forEach((br)=>{
+      const d = document.createElement('div'); d.className='ir';
+      const span = document.createElement('span');
+      span.style.cssText='flex:1;cursor:pointer;'+(br.id===selBridgeId?'color:#7fd0ff;':'');
+      span.textContent = (br.id===selBridgeId?'▶ ':'') + '🌉 s='+br.s.toFixed(3)+' len='+br.len;
+      span.onclick = ()=>{ selBridgeId = br.id; refreshBridgeList(); };
+      const btn = document.createElement('button'); btn.textContent='✕';
+      btn.addEventListener('click', ()=>{ track.bridges = track.bridges.filter(x=>x!==br); if (selBridgeId===br.id) selBridgeId=null; rebuildBridges(); commitHistory(); });
+      d.appendChild(span); d.appendChild(btn); el.appendChild(d);
+    });
+    syncBridgeEdit();
+  }
+  // throttled live rebuild during a slider drag (debounce would never fire mid-drag).
+  let _lastBr = 0, _brPend = false;
+  function liveBridges(){
+    const now = performance.now();
+    if (now - _lastBr > 110){ _lastBr = now; rebuildBridges(); }
+    else if (!_brPend){ _brPend = true; setTimeout(()=>{ _brPend=false; _lastBr=performance.now(); rebuildBridges(); }, 110); }
+  }
+
   // ================= P2: WORLD OBJECTS (place / move / rotate / scale / tag) =================
   const objectGroup = new THREE.Group(), labelGroup = new THREE.Group();
   scene.add(objectGroup); scene.add(labelGroup);
@@ -542,7 +637,9 @@
 
   const gizmo = new THREE.TransformControls(camera, renderer.domElement);
   gizmo.setSize(0.9); gizmo.enabled = false; gizmo.visible = false;
-  gizmo.addEventListener('dragging-changed', e => { controls.enabled = !e.value; });
+  // history: ONE commit at the END of a gizmo drag (not per-frame — objectChange fires continuously
+  // while dragging). e.value goes true at drag-start, false at drag-end.
+  gizmo.addEventListener('dragging-changed', e => { controls.enabled = !e.value; if (!e.value && selObjId) commitHistory(); });
   gizmo.addEventListener('objectChange', writeBackSelected);
   scene.add(gizmo);
 
@@ -558,17 +655,21 @@
     spr.scale.set(22,5.5,1); return spr;
   }
   function positionLabel(lbl,o){ lbl.position.set(o.x, o.y + (o.sy||1)/2 + 4, o.z); }
+  // 2026-07-10 (user directive): object name/tag labels used to float above each placed object in
+  // the 3D viewport (a canvas-sprite via makeLabel/positionLabel) — cluttered the scene, especially
+  // with several untitled objects all showing "(untitled)". Names now live ONLY in the sidebar
+  // object list (#objList); the viewport shows the model itself with no text overlay. makeLabel/
+  // positionLabel/labelGroup are kept as dead-but-harmless (labelGroup stays in the scene, empty)
+  // rather than ripped out, in case a future "toggle labels" option wants them back.
   function rebuildObjects(){
     // Ramps always face the racing line (low→high = drive direction) — ignore hand-rotated yaw.
     if (sampled) FK_TRACK.alignRampsToTrack(track, sampled);
     while (objectGroup.children.length){ const o=objectGroup.children[0]; objectGroup.remove(o); o.traverse(c=>{ if(c.geometry)c.geometry.dispose(); if(c.material)c.material.dispose(); }); }
-    while (labelGroup.children.length){ const o=labelGroup.children[0]; labelGroup.remove(o); if(o.material){ if(o.material.map)o.material.map.dispose(); o.material.dispose(); } }
     for (const k in objMeshes) delete objMeshes[k];
     let maxSeq=0;
     for (const o of (track.objects||[])){
       const m=String(o.id||'').match(/(\d+)$/); if(m) maxSeq=Math.max(maxSeq,+m[1]);
       const g=FK_TRACK.buildObjectMesh(o, THREE, { ghost:true, propCache }); objectGroup.add(g); objMeshes[o.id]=g;
-      const lbl=makeLabel(o.tag); positionLabel(lbl,o); labelGroup.add(lbl); g.userData.label=lbl;
     }
     objSeq=Math.max(objSeq,maxSeq);
     if (selObjId && objMeshes[selObjId]) gizmo.attach(objMeshes[selObjId]); else { gizmo.detach(); if(!objMeshes[selObjId]) selObjId=null; }
@@ -586,7 +687,6 @@
     } else {
       o.rotY=+g.rotation.y.toFixed(3);
     }
-    if (g.userData.label) positionLabel(g.userData.label,o);
   }
   function selectObject(id){
     selObjId=id;
@@ -623,20 +723,24 @@
     const o={ id:'obj_'+(++objSeq), tag:'', type:tpl.type, x:+x.toFixed(2), y:+(terrainHeightAt(x,z)+tpl.sy/2).toFixed(2), z:+z.toFixed(2),
               rotY:+yaw.toFixed(3), sx:tpl.sx, sy:tpl.sy, sz:tpl.sz, color:tpl.color };
     if(tpl.type==='glb') o.model=tpl.model;
-    track.objects.push(o); rebuildObjects();   // keep pendingPlace active so more clicks = more copies
+    track.objects.push(o); rebuildObjects(); commitHistory();   // keep pendingPlace active so more clicks = more copies
   }
   function addObject(){ startPlacing({ type:'block', sx:10, sy:6, sz:10, color:0xc8a06a }, 'a block'); }
   function duplicateObject(){
     const o=selObjId?(track.objects||[]).find(x=>x.id===selObjId):null; if(!o){ toast('select an object first'); return; }
     const c=JSON.parse(JSON.stringify(o)); c.id='obj_'+(++objSeq); c.x+=8; c.z+=8;
-    (track.objects=track.objects||[]).push(c); rebuildObjects(); selectObject(c.id);
+    (track.objects=track.objects||[]).push(c); rebuildObjects(); selectObject(c.id); commitHistory();
   }
   function deleteObject(){
     if (!selObjId) return;
     track.objects=(track.objects||[]).filter(x=>x.id!==selObjId);
-    gizmo.detach(); selObjId=null; rebuildObjects(); toast('deleted object');
+    gizmo.detach(); selObjId=null; rebuildObjects(); commitHistory(); toast('deleted object');
   }
   function setGizmo(m){ gizmo.setMode(m); $('gMove').classList.toggle('on',m==='translate'); $('gRot').classList.toggle('on',m==='rotate'); $('gScale').classList.toggle('on',m==='scale'); }
+  // type -> icon shown in the sidebar list (the ONLY place object names/tags are shown now — 2026-07-10,
+  // no more floating 3D labels in the viewport). Lets several same-named/untitled objects still read
+  // at a glance by shape; the selection highlight (background tint) disambiguates exact identity.
+  const OBJ_TYPE_ICON = { block:'🧊', barn:'🏚', silo:'🥫', tree:'🌳', water:'💧', ramp:'🛫', glb:'🌲' };
   function refreshObjList(){
     const box=$('objList'); box.innerHTML='';
     const objs=track.objects||[];
@@ -645,7 +749,8 @@
       const row=document.createElement('div');
       row.style.cssText='display:flex;align-items:center;gap:6px;margin:2px 0;font-family:monospace;font-size:12px;border-radius:6px;padding:2px 4px;'+(o.id===selObjId?'background:rgba(90,160,255,.25);':'');
       const nm=document.createElement('span'); nm.style.cssText='flex:1;cursor:pointer;color:'+(o.tag?'#ffe27a':'#9ab')+';';
-      nm.textContent=o.tag||'(untitled)'; nm.onclick=()=>selectObject(o.id);
+      const icon = OBJ_TYPE_ICON[o.type] || '🧊';
+      nm.textContent=icon+' '+(o.tag||'(untitled)'); nm.title=(o.type||'block')+' · click to select'; nm.onclick=()=>selectObject(o.id);
       const del=document.createElement('button'); del.textContent='×'; del.style.cssText='background:#8a3a3a;border:0;color:#fff;border-radius:5px;cursor:pointer;padding:1px 7px;';
       del.onclick=()=>{ selObjId=o.id; deleteObject(); };
       row.appendChild(nm); row.appendChild(del); box.appendChild(row);
@@ -658,20 +763,33 @@
     startPlacing({ type:'glb', model:id, sx:s, sy:s, sz:s, color:0 }, def.name);
   }
   const PROP_CATS={tree:'🌳 trees',rock:'🪨 rocks & stones',plant:'🌱 plants & flowers',crop:'🌽 crops',log:'🪵 logs & stumps',fence:'🚧 fences',building:'🏚 farm buildings',prop:'🎪 props',cliff:'⛰ cliffs',bridge:'🌉 bridges',path:'🟫 paths',water:'🌊 rivers',structures:'🏛 structures',race:'🏁 race day',clutter:'📦 clutter'};
-  function renderPropList(cat){
+  // 2026-07-10 (usability pass): a text search box above the 200-prop list. Non-empty search
+  // matches name OR category across ALL props (ignores the category dropdown — searching should
+  // never require first guessing the right category); empty search falls back to the dropdown's
+  // selected category exactly as before. Updates live as you type + shows a result count.
+  function renderPropList(cat, q){
     const box=$('propList'); if(!box) return; box.innerHTML='';
-    (window.FK_PROPS||[]).filter(p=>cat==='all'||p.cat===cat).forEach(p=>{
+    q = (q||'').trim().toLowerCase();
+    const list = (window.FK_PROPS||[]).filter(p=>{
+      if (q) return p.name.toLowerCase().includes(q) || (p.cat||'').toLowerCase().includes(q) || (PROP_CATS[p.cat]||'').toLowerCase().includes(q);
+      return cat==='all'||p.cat===cat;
+    });
+    list.forEach(p=>{
       const b=document.createElement('button'); b.textContent=p.name; b.title=p.name;
       b.style.cssText='font-size:11px;padding:4px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.2);background:#274b34;color:#dfe;cursor:pointer;flex:0 0 auto;';
       b.onclick=()=>addProp(p.id); box.appendChild(b);
     });
+    const cnt=$('propSearchCount');
+    if (cnt) cnt.textContent = q ? (list.length+' match'+(list.length===1?'':'es')+' for "'+q+'"') : '';
   }
   function buildPropPicker(){
     const props=window.FK_PROPS||[]; const sel=$('propCat'); if(!sel) return; sel.innerHTML='';
     const all=document.createElement('option'); all.value='all'; all.textContent='all ('+props.length+')'; sel.appendChild(all);
     [...new Set(props.map(p=>p.cat))].forEach(c=>{ const o=document.createElement('option'); o.value=c; o.textContent=(PROP_CATS[c]||c)+' ('+props.filter(p=>p.cat===c).length+')'; sel.appendChild(o); });
-    sel.onchange=()=>renderPropList(sel.value);
-    sel.value='tree'; renderPropList('tree');
+    sel.onchange=()=>renderPropList(sel.value, $('propSearch') ? $('propSearch').value : '');
+    const search=$('propSearch');
+    if (search) search.addEventListener('input', ()=>renderPropList(sel.value, search.value));
+    sel.value='tree'; renderPropList('tree','');
   }
 
   function rebuild(){
@@ -698,6 +816,7 @@
     rebuildBoostMarkers();
     rebuildCorridorViz();
     rebuildTunnels();
+    rebuildBridges();
     scheduleTerrain();      // WYSIWYG grass/hills (debounced)
     refreshInfo();
     refreshValidation();
@@ -787,7 +906,7 @@
       const d = document.createElement('div'); d.className='ir';
       const span = document.createElement('span'); span.textContent = 's='+pd.s.toFixed(3)+' · lane='+(pd.lane||0).toFixed(2);
       const btn = document.createElement('button'); btn.textContent='✕';
-      btn.addEventListener('click', ()=>{ track.boostPads.splice(i,1); rebuildBoostMarkers(); refreshBoostList(); });
+      btn.addEventListener('click', ()=>{ track.boostPads.splice(i,1); rebuildBoostMarkers(); refreshBoostList(); commitHistory(); });
       d.appendChild(span); d.appendChild(btn); el.appendChild(d);
     });
   }
@@ -799,7 +918,7 @@
       const d = document.createElement('div'); d.className='ir';
       const span = document.createElement('span'); span.textContent = 's = ' + s.toFixed(3);
       const btn = document.createElement('button'); btn.textContent='✕';
-      btn.addEventListener('click', ()=>{ track.itemRows.splice(i,1); rebuildItemMarkers(); refreshItemList(); });
+      btn.addEventListener('click', ()=>{ track.itemRows.splice(i,1); rebuildItemMarkers(); refreshItemList(); commitHistory(); });
       d.appendChild(span); d.appendChild(btn); el.appendChild(d);
     });
   }
@@ -818,14 +937,17 @@
     $('mPaint').classList.toggle('on', m==='paint');
     $('mFence').classList.toggle('on', m==='fence');
     $('mTunnel').classList.toggle('on', m==='tunnel');
+    $('mBridge').classList.toggle('on', m==='bridge');
     $('sculptTools').style.display = (m==='sculpt') ? 'block' : 'none';
     $('paintTools').style.display = (m==='paint') ? 'block' : 'none';
     $('fenceTools').style.display = (m==='fence') ? 'block' : 'none';
     $('tunnelTools').style.display = (m==='tunnel') ? 'block' : 'none';
+    $('bridgeTools').style.display = (m==='bridge') ? 'block' : 'none';
     if (m==='sculpt') $('scCells').textContent = terrainCellCount();
     if (m==='paint') $('pCells').textContent = paintCellCount();
     if (m==='fence') refreshFenceList();
     if (m==='tunnel') refreshTunnelList();
+    if (m==='bridge') refreshBridgeList();
     // gizmo only lives in object mode (otherwise it would steal clicks from point editing)
     gizmo.enabled = (m==='object'); gizmo.visible = (m==='object') && !!selObjId;
     if (m==='object' && selObjId && objMeshes[selObjId]) gizmo.attach(objMeshes[selObjId]);
@@ -838,6 +960,7 @@
                           : m==='paint'  ? 'pick a color, then drag the GRASS to paint it (dirt, sand, path...)'
                           : m==='fence'  ? 'click the ground to drop fence posts along a line · finish to start a new run · drag = orbit'
                           : m==='tunnel' ? 'click the road to add a concrete TUNNEL · select one from the list to adjust len/height/width'
+                          : m==='bridge' ? 'click the road to add a wooden BRIDGE · select one from the list to adjust its length'
                           : 'drag arrows = move · Shift+drag = elevation · drag empty = orbit · wheel = zoom';
   }
   $('mSelect').addEventListener('click', ()=>setMode('select'));
@@ -848,7 +971,14 @@
   $('tnLen').addEventListener('input', ()=>{ const tn=selectedTunnel(); if(!tn) return; tn.len=+$('tnLen').value; $('tnLenV').textContent=tn.len; liveTunnels(); });
   $('tnH').addEventListener('input', ()=>{ const tn=selectedTunnel(); if(!tn) return; tn.h=+$('tnH').value; $('tnHV').textContent=tn.h; liveTunnels(); });
   $('tnW').addEventListener('input', ()=>{ const tn=selectedTunnel(); if(!tn) return; tn.w=+$('tnW').value; $('tnWV').textContent=tn.w; liveTunnels(); });
-  $('tnDel').addEventListener('click', ()=>{ const tn=selectedTunnel(); if(!tn) return; track.tunnels=track.tunnels.filter(x=>x!==tn); selTunnelId=null; rebuildTunnels(); });
+  $('tnLen').addEventListener('change', commitHistory);
+  $('tnH').addEventListener('change', commitHistory);
+  $('tnW').addEventListener('change', commitHistory);
+  $('tnDel').addEventListener('click', ()=>{ const tn=selectedTunnel(); if(!tn) return; track.tunnels=track.tunnels.filter(x=>x!==tn); selTunnelId=null; rebuildTunnels(); commitHistory(); });
+  $('mBridge').addEventListener('click', ()=>setMode('bridge'));
+  $('brLen').addEventListener('input', ()=>{ const br=selectedBridge(); if(!br) return; br.len=+$('brLen').value; $('brLenV').textContent=br.len; liveBridges(); });
+  $('brLen').addEventListener('change', commitHistory);
+  $('brDel').addEventListener('click', ()=>{ const br=selectedBridge(); if(!br) return; track.bridges=track.bridges.filter(x=>x!==br); selBridgeId=null; rebuildBridges(); commitHistory(); });
   $('mObject').addEventListener('click', ()=>setMode('object'));
   $('mSculpt').addEventListener('click', ()=>setMode('sculpt'));
   $('scRaise').addEventListener('click', ()=>{ SCULPT.dir=1; $('scRaise').classList.add('on'); $('scLower').classList.remove('on'); });
@@ -882,6 +1012,7 @@
     o.type=$('objType').value;
     if (o.type==='water' && (!isFinite(o.color) || o.color===0xc8a06a)) o.color=0x2f6fb0;
     rebuildObjects();
+    commitHistory();
   });
   // fence
   $('mFence').addEventListener('click', ()=>setMode('fence'));
@@ -892,7 +1023,7 @@
   $('fStyleRibbon').addEventListener('click', ()=>{ fenceStyle='ribbon'; $('fStyleRibbon').classList.add('on'); $('fStyleRail').classList.remove('on'); });
   $('worldInp').addEventListener('change', ()=>{ const v=parseFloat($('worldInp').value);
     if (isFinite(v)&&v>0){ track.groundMargin=Math.max(20,Math.min(400,v)); } else { delete track.groundMargin; }
-    rebuildTerrain(); });
+    rebuildTerrain(); commitHistory(); });
   $('dupObjBtn').addEventListener('click', duplicateObject);
   $('gMove').addEventListener('click', ()=>setGizmo('translate'));
   $('gRot').addEventListener('click', ()=>setGizmo('rotate'));
@@ -901,16 +1032,25 @@
     if (!selObjId) return;
     const o=(track.objects||[]).find(x=>x.id===selObjId); if(!o) return;
     o.tag=$('objTag').value.slice(0,60);
-    const g=objMeshes[selObjId];
-    if (g && g.userData.label){ labelGroup.remove(g.userData.label); const l=makeLabel(o.tag); positionLabel(l,o); labelGroup.add(l); g.userData.label=l; }
     refreshObjList();
   });
+  $('objTag').addEventListener('change', ()=>{ if (selObjId) commitHistory(); });
   $('corridorBtn').addEventListener('click', ()=>{ showCorridor=!showCorridor; $('corridorBtn').classList.toggle('on', showCorridor); rebuildCorridorViz(); });
   $('terrainBtn').addEventListener('click', ()=>{ showTerrain=!showTerrain; $('terrainBtn').classList.toggle('on', showTerrain); grid.visible = !showTerrain; rebuildTerrain(); });
   $('tuftsBtn').addEventListener('click', ()=>{ showTufts=!showTufts; $('tuftsBtn').classList.toggle('on', showTufts); rebuildTerrain(); });
   // 🏔 follow terrain: opt-in per-track drape. Sets track.followTerrain (deleted when off so old
   // saves stay clean) and rebuilds so the ribbon + ground + test-bot all pick up the terrain tilt.
-  $('drapeBtn').addEventListener('click', ()=>{ track.followTerrain = !track.followTerrain; if(!track.followTerrain) delete track.followTerrain; $('drapeBtn').classList.toggle('on', !!track.followTerrain); rebuild(); });
+  $('drapeBtn').addEventListener('click', ()=>{ track.followTerrain = !track.followTerrain; if(!track.followTerrain) delete track.followTerrain; $('drapeBtn').classList.toggle('on', !!track.followTerrain); rebuild(); commitHistory(); });
+
+  // ---- ⚙ advanced section: collapsed by default, remembered in localStorage (2026-07-10) ----
+  const ADV_KEY = 'fk_ed_advanced_open';
+  function setAdvOpen(open){
+    $('advBody').style.display = open ? 'block' : 'none';
+    $('advCaret').textContent = open ? '▾' : '▸';
+    try{ localStorage.setItem(ADV_KEY, open ? '1' : '0'); }catch(e){}
+  }
+  $('advToggle').addEventListener('click', ()=>{ setAdvOpen($('advBody').style.display !== 'block'); });
+  setAdvOpen(localStorage.getItem(ADV_KEY) === '1');
 
   // ---- raycasting / pointer interaction ----
   const raycaster = new THREE.Raycaster();
@@ -982,6 +1122,11 @@
       if (hit){ addTunnelAt(hit); controls.enabled = false; }
       return;
     }
+    if (mode === 'bridge'){
+      const hit = pickRibbon();
+      if (hit){ addBridgeAt(hit); controls.enabled = false; }
+      return;
+    }
     // select/move
     const idx = pickSphere();
     if (idx >= 0){
@@ -1022,10 +1167,12 @@
   });
 
   function endDrag(){
-    if (sculpting){ sculpting=false; rebuildTerrain(); $('scCells').textContent = terrainCellCount(); }
-    if (painting){ painting=false; rebuildTerrain(); $('pCells').textContent = paintCellCount(); }
-    if (dragging>=0){ dragging=-1; }
+    let mutated = false;
+    if (sculpting){ sculpting=false; rebuildTerrain(); $('scCells').textContent = terrainCellCount(); mutated = true; }
+    if (painting){ painting=false; rebuildTerrain(); $('pCells').textContent = paintCellCount(); mutated = true; }
+    if (dragging>=0){ dragging=-1; mutated = true; }
     controls.enabled = true;
+    if (mutated) commitHistory();   // ONE snapshot at stroke/drag END, not per-frame
   }
   renderer.domElement.addEventListener('pointerup', endDrag, true);
   renderer.domElement.addEventListener('pointerleave', endDrag);
@@ -1055,6 +1202,7 @@
     pts.splice(best+1, 0, np);
     selected = best+1;
     rebuild();
+    commitHistory();
     toast('inserted point '+(best+1));
   }
   function addItemAt(hit){
@@ -1066,6 +1214,7 @@
     track.itemRows = track.itemRows || [];
     if (!track.itemRows.some(v=>Math.abs(v-s)<0.02)){ track.itemRows.push(s); track.itemRows.sort((a,b)=>a-b); }
     rebuildItemMarkers(); refreshItemList();
+    commitHistory();
     toast('item row @ s='+s.toFixed(3));
   }
   // K7: drop a BOOST PAD at the clicked ribbon point -> nearest s-fraction + lateral lane (-1..1)
@@ -1081,6 +1230,7 @@
     track.boostPads.push({ s, lane:Math.round(lane*100)/100 });
     track.boostPads.sort((a,b)=>a.s-b.s);
     rebuildBoostMarkers(); refreshBoostList();
+    commitHistory();
     toast('boost pad @ s='+s.toFixed(3)+' lane='+lane.toFixed(2));
   }
 
@@ -1090,22 +1240,57 @@
     if (track.points.length <= 8){ toast('min 8 points'); return; }
     track.points.splice(selected, 1);
     selected = Math.min(selected, track.points.length-1);
-    rebuild(); toast('deleted');
+    rebuild(); commitHistory(); toast('deleted');
   }
   $('delBtn').addEventListener('click', deleteSelected);
+  // arrow-key nudge (0.5u, Shift = 2u): moves the selected control point (XZ) or the selected
+  // object (XZ, via the gizmo group so the gizmo + writeBackSelected stay in sync).
+  function nudgeSelected(dx, dz){
+    const step = dx?dx:dz;   // unused, kept for clarity — actual magnitude passed in already
+    if (mode==='object' && selObjId){
+      const g = objMeshes[selObjId]; if (!g) return false;
+      g.position.x += dx; g.position.z += dz; writeBackSelected();
+      return true;
+    }
+    if (selected>=0 && selected<track.points.length){
+      const p = track.points[selected];
+      p.x = Math.round((p.x+dx)*10)/10; p.z = Math.round((p.z+dz)*10)/10;
+      rebuild();
+      return true;
+    }
+    return false;
+  }
   addEventListener('keydown', e=>{
     const inField = document.activeElement.tagName==='INPUT' || document.activeElement.tagName==='TEXTAREA';
     if (inField) return;
-    if (e.key==='Escape'){ if(pendingPlace){ endPlacing(); e.preventDefault(); } return; }
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && e.key.toLowerCase()==='z'){ e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
+    if (mod && e.key.toLowerCase()==='y'){ e.preventDefault(); redo(); return; }
+    if (mod && e.key.toLowerCase()==='s'){ e.preventDefault(); doSave(); return; }
+    if (mod && e.key.toLowerCase()==='d'){
+      if (mode==='object' && selObjId){ e.preventDefault(); duplicateObject(); }
+      return;
+    }
+    if (e.key==='Escape'){
+      if (pendingPlace){ endPlacing(); e.preventDefault(); return; }
+      if (mode!=='select'){ setMode('select'); e.preventDefault(); }
+      return;
+    }
     if (e.key==='Delete'||e.key==='Backspace'){
       if (mode==='object' && selObjId){ deleteObject(); e.preventDefault(); }
       else if (selected>=0){ deleteSelected(); e.preventDefault(); }
+    } else if (e.key.startsWith('Arrow')){
+      const step = e.shiftKey ? 2 : 0.5;
+      let dx=0, dz=0;
+      if (e.key==='ArrowLeft') dx=-step; else if (e.key==='ArrowRight') dx=step;
+      else if (e.key==='ArrowUp') dz=-step; else if (e.key==='ArrowDown') dz=step;
+      if ((dx||dz) && nudgeSelected(dx,dz)){ e.preventDefault(); commitHistory(); }
     } else if (mode==='object'){
       const k=e.key.toLowerCase();
       if (k==='g'){ setGizmo('translate'); } else if (k==='r'){ setGizmo('rotate'); } else if (k==='s'){ setGizmo('scale'); }
     }
   });
-  $('revBtn').addEventListener('click', ()=>{ track = FK_TRACK.reverse(track); selected=-1; syncFields(); rebuild(); toast('reversed direction'); });
+  $('revBtn').addEventListener('click', ()=>{ track = FK_TRACK.reverse(track); selected=-1; syncFields(); rebuild(); commitHistory(); toast('reversed direction'); });
 
   // ---- name / width / laps fields ----
   function syncFields(){ $('nameInp').value = track.name||''; $('widthInp').value = track.width; $('lapsInp').value = track.laps;
@@ -1113,12 +1298,16 @@
     $('worldInp').value = (isFinite(track.groundMargin)&&track.groundMargin>0) ? track.groundMargin : '';
     $('drapeBtn').classList.toggle('on', !!track.followTerrain); }
   $('nameInp').addEventListener('input', ()=>{ track.name = $('nameInp').value; });
+  $('nameInp').addEventListener('change', commitHistory);
   $('widthInp').addEventListener('input', ()=>{ const w=+$('widthInp').value; if(isFinite(w)&&w>0){ track.width=w; rebuild(); } });
+  $('widthInp').addEventListener('change', commitHistory);
   $('lapsInp').addEventListener('input', ()=>{ const l=Math.round(+$('lapsInp').value); if(isFinite(l)&&l>=1){ track.laps=l; } });
+  $('lapsInp').addEventListener('change', commitHistory);
   // K7: wallMargin (grass room). Blank -> unset (game uses its TUNE fallback).
   $('wallInp').addEventListener('input', ()=>{ const s=$('wallInp').value.trim();
     if (s===''){ delete track.wallMargin; } else { const m=+s; if(isFinite(m)&&m>0) track.wallMargin=m; }
     rebuildCorridorViz(); });
+  $('wallInp').addEventListener('change', commitHistory);
 
   // ---- save / test / export / import ----
   function slug(s){ return (s||'track').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,40) || 'track'; }
@@ -1131,6 +1320,7 @@
     map[currentId] = clean;
     try{ localStorage.setItem('fk_tracks_v1', JSON.stringify(map)); }catch(e){ toast('save failed'); return null; }
     populateLoad();
+    clearDirty();
     const savedId = currentId;
     // CLOUD SYNC: push the WHOLE map so any device/version picks up the new track (user request).
     // Fire-and-forget — doSave() keeps returning the id synchronously for testBtn's window.open.
@@ -1158,7 +1348,7 @@
       const data = JSON.parse($('io').value);
       const clean = FK_TRACK.sanitize(data);
       if (!clean){ toast('import failed: invalid JSON/track'); return; }
-      track = clean; selected=-1; currentId=null; selObjId=null; curFence=null; syncFields(); rebuild(); rebuildObjects(); maybeAutoFences(); rebuildFences(); toast("imported");
+      track = clean; selected=-1; currentId=null; selObjId=null; curFence=null; syncFields(); rebuild(); rebuildObjects(); maybeAutoFences(); rebuildFences(); resetHistory(); markDirty(); toast("imported");
     }catch(e){ toast('import failed: not JSON'); }
   });
 
@@ -1196,12 +1386,72 @@
                   : JSON.parse(JSON.stringify(FK_TRACK.DEFAULT_TRACK));
     const c = FK_TRACK.sanitize(data); if(!c){ toast('load failed'); return; }
     track=c; currentId=id||null; selected=-1; selObjId=null; curFence=null; syncFields(); rebuild(); rebuildObjects(); maybeAutoFences(); rebuildFences(); frameCamera(); populateLoad();
+    resetHistory(); clearDirty();
   }
   $('loadSel').addEventListener('change', ()=>{ const o=$('loadSel').selectedOptions[0]; loadById($('loadSel').value); toast('loaded "'+(o?o.textContent:'')+'"'); });
 
   // ---- toast ----
   let toastT = null;
   function toast(msg, ms){ const el=$('toast'); el.textContent=msg; el.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove('show'), ms||1600); }
+
+  // ============================================================================
+  // UNDO / REDO (2026-07-10, user's #1-priority ask): whole-track snapshot history.
+  // `history` is a linear list of JSON clones of `track` with `histIndex` pointing at the CURRENT
+  // state. commitHistory() is called at the END of every mutating action (point move/insert/
+  // delete, item/boost placement, object add/move/delete, sculpt/paint stroke END — not per-frame,
+  // fence point, tunnel/bridge add/change/delete, field edits): it drops any redo tail past
+  // histIndex, pushes a fresh snapshot, and caps the list at HISTORY_MAX (oldest dropped, index
+  // shifted to match). undo()/redo() move histIndex and restore via restoreSnapshot(), which reuses
+  // the SAME rebuild path loadTrack/loadById use. histSuspended guards restoreSnapshot's own field
+  // writes from re-entering commitHistory (those are programmatic, not user edits).
+  // ============================================================================
+  const HISTORY_MAX = 50;
+  let history = [], histIndex = -1, histSuspended = false;
+  function snapshotTrack(){ return JSON.parse(JSON.stringify(track)); }
+  function resetHistory(){ history = [snapshotTrack()]; histIndex = 0; updateHistoryButtons(); }
+  function commitHistory(){
+    if (histSuspended) return;
+    if (!history.length){ resetHistory(); return; }   // safety net if called before boot seeds it
+    history = history.slice(0, histIndex+1);
+    history.push(snapshotTrack());
+    histIndex = history.length - 1;
+    if (history.length > HISTORY_MAX){ const drop = history.length - HISTORY_MAX; history = history.slice(drop); histIndex -= drop; }
+    markDirty();
+    updateHistoryButtons();
+  }
+  function restoreSnapshot(snap){
+    histSuspended = true;
+    const c = FK_TRACK.sanitize(snap);
+    track = c || snap;
+    selected = -1; selObjId = null; curFence = null; selTunnelId = null; selBridgeId = null;
+    gizmo.detach();
+    syncFields(); rebuild(); rebuildObjects(); rebuildFences(); rebuildBridges();
+    histSuspended = false;
+    updateHistoryButtons();
+  }
+  function undo(){
+    if (histIndex <= 0){ toast('nothing to undo'); return; }
+    histIndex--; restoreSnapshot(history[histIndex]); markDirty(); toast('↶ undo');
+  }
+  function redo(){
+    if (histIndex >= history.length-1){ toast('nothing to redo'); return; }
+    histIndex++; restoreSnapshot(history[histIndex]); markDirty(); toast('↷ redo');
+  }
+  function updateHistoryButtons(){
+    const u=$('undoBtn'), r=$('redoBtn');
+    if (u) u.disabled = histIndex<=0;
+    if (r) r.disabled = histIndex>=history.length-1;
+  }
+  $('undoBtn').addEventListener('click', undo);
+  $('redoBtn').addEventListener('click', redo);
+
+  // ---- SAVE HYGIENE (2026-07-10): a ● dot on the Save button when there are unsaved changes,
+  // cleared by doSave(); Ctrl+S saves (wired in the keydown handler above); beforeunload warns on
+  // an unsaved close/refresh. ----
+  let dirty = false;
+  function markDirty(){ dirty = true; const d=$('dirtyDot'); if (d) d.classList.add('on'); }
+  function clearDirty(){ dirty = false; const d=$('dirtyDot'); if (d) d.classList.remove('on'); }
+  addEventListener('beforeunload', e=>{ if (dirty){ e.preventDefault(); e.returnValue = ''; } });
 
   // ============================================================================
   // 🤖 TRACK-TEST BOT — a lone pure-pursuit driver that laps the LIVE track so the
@@ -1598,6 +1848,8 @@
   rebuildFences();
   populateLoad();
   frameCamera();
+  resetHistory();   // seed the undo stack with the just-loaded track (boot/load is never itself undoable)
+  clearDirty();
   fkEdPullCloud();   // background: pull the family's saved tracks so this device is up to date
 
   // P6: preload the CC0 prop library (async) — placeholders swap to real models when ready.
@@ -1688,7 +1940,7 @@
     addObject, duplicateObject, deleteObject, selectObject, setGizmo, rebuildObjects,
     startPlacing, stampAt, endPlacing, get pendingPlace(){ return pendingPlace; },
     get propFailedIds(){ return propFailedIds.slice(); }, propCache,
-    setObjTag:(t)=>{ if(selObjId){ const o=(track.objects||[]).find(x=>x.id===selObjId); if(o){ o.tag=t; const g=objMeshes[selObjId]; if(g&&g.userData.label){ labelGroup.remove(g.userData.label); const l=makeLabel(o.tag); positionLabel(l,o); labelGroup.add(l); g.userData.label=l; } refreshObjList(); } } },
+    setObjTag:(t)=>{ if(selObjId){ const o=(track.objects||[]).find(x=>x.id===selObjId); if(o){ o.tag=t; refreshObjList(); } } },
     transformSelected:(pos,scl,rotY)=>{ const g=selObjId?objMeshes[selObjId]:null; if(!g)return; if(pos)g.position.set(pos[0],pos[1],pos[2]); if(scl)g.scale.set(scl[0],scl[1],scl[2]); if(rotY!=null)g.rotation.y=rotY; writeBackSelected(); },
     // P3 sculpt hooks (for headless tests)
     get terrain(){ return track.terrain; }, get terrainCells(){ return terrainCellCount(); },
@@ -1713,7 +1965,21 @@
     startBot, stopBot, setFollow, get bot(){ return bot; }, get follow(){ return follow; },
     // cloud track-sync hooks (for headless tests)
     get cloudOk(){ return FkCloud.ok; }, get familyKey(){ return fkEdFamilyKey; },
-    pullCloud: fkEdPullCloud, get currentId(){ return currentId; }
+    pullCloud: fkEdPullCloud, get currentId(){ return currentId; },
+    // Bridge hooks (2026-07-10, mirrors the tunnel hooks — for headless tests)
+    get bridges(){ return track.bridges||[]; }, get selBridgeId(){ return selBridgeId; }, bridgeGroup,
+    addBridgeAt, rebuildBridges, selectBridge:(id)=>{ selBridgeId=id; refreshBridgeList(); },
+    setBridgeField:(field,v)=>{ const br=selectedBridge(); if(br){ br[field]=v; rebuildBridges(); } },
+    deleteBridge:(id)=>{ track.bridges=(track.bridges||[]).filter(b=>b.id!==id); if(selBridgeId===id) selBridgeId=null; rebuildBridges(); },
+    // Undo/redo + dirty-state hooks (2026-07-10, for headless tests)
+    undo, redo, commitHistory, resetHistory,
+    get histIndex(){ return histIndex; }, get histLength(){ return history.length; },
+    get canUndo(){ return histIndex>0; }, get canRedo(){ return histIndex<history.length-1; },
+    get dirty(){ return dirty; }, markDirty, clearDirty,
+    // prop search + advanced-section hooks
+    setPropSearch:(q)=>{ const el=$('propSearch'); if(el){ el.value=q; el.dispatchEvent(new Event('input')); } },
+    get advOpen(){ return $('advBody').style.display==='block'; }, setAdvOpen,
+    nudgeSelected
   };
   </script>
 </body>
