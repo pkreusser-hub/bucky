@@ -11,7 +11,11 @@
        itemRows:[sFraction...],     // DATA ONLY for now (K4 consumes); 0..1 along the lap
        gridSide:"left"|"right",
        wallMargin:Number,           // K7 OPTIONAL grass width beyond the road edge before a firm wall
-       boostPads:[{s,lane}...] }    // K7 OPTIONAL boost pads: s=0..1 lap fraction, lane=-1..1 across width
+       boostPads:[{s,lane}...],     // K7 OPTIONAL boost pads: s=0..1 lap fraction, lane=-1..1 across width
+       tunnels:[{id,tag,s,len,h,w}...] } // 2026-07-10 OPTIONAL concrete tunnels: s=0..1 start fraction
+                                     // (arc-length), len=world-unit span along the centerline,
+                                     // h=inner clearance height (default 6), w=inner width (default
+                                     // trackWidth+3). Follows the ROAD height, not raw terrain.
 
    These functions take THREE as a parameter so the module itself has no hard
    dependency (both pages load three.min.js before using FK_TRACK).
@@ -368,6 +372,28 @@
         }
         if (fences.length) out.fences = fences;
       }
+      // TUNNELS (2026-07-10): [{id,tag,s,len,h,w}] concrete arches over a span of the ROAD. s=0..1
+      // start fraction along the centerline arc length, len=world-unit span, h=optional inner
+      // clearance height (default 6, applied by buildTunnelMesh), w=optional inner width (default
+      // trackWidth+3). Absent/garbage -> omitted (empty world = the game renders exactly as before —
+      // re-verified byte-identical for a track without tunnels).
+      if (Array.isArray(data.tunnels)){
+        const tuns = [];
+        for (const tn of data.tunnels){
+          if (!tn || typeof tn !== 'object') continue;
+          const s = +tn.s, len = +tn.len;
+          if (!isFinite(s) || s<0 || s>1 || !isFinite(len) || len<=0) continue;
+          const o = {
+            id:  (typeof tn.id==='string' && tn.id) ? tn.id.slice(0,40) : ('tunnel_'+(tuns.length+1)),
+            tag: (typeof tn.tag==='string') ? tn.tag.slice(0,60) : '',
+            s, len: Math.max(4, Math.min(400, len))
+          };
+          if (isFinite(+tn.h) && +tn.h > 1) o.h = Math.min(40, +tn.h);
+          if (isFinite(+tn.w) && +tn.w > 2) o.w = Math.min(200, +tn.w);
+          tuns.push(o);
+        }
+        if (tuns.length) out.tunnels = tuns;
+      }
       return out;
     }catch(e){ return null; }
   }
@@ -506,6 +532,108 @@
       if (acc>=next || i===path.length-1){ const p=path[i]; const post=new THREE.Mesh(new THREE.BoxGeometry(0.2,H,0.2), postMat); post.position.set(p.x, p.y+H/2, p.z); g.add(post); next+=postGap; }
     }
     return g;
+  }
+
+  // ---- buildTunnelMesh (2026-07-10): concrete tunnel arches over a span of the ROAD ----
+  // tunnels = ACTIVE_TRACK.tunnels [{s,len,h,w}] (s=0..1 start fraction along the centerline arc
+  // length, len=world-unit span, h=inner clearance height default 6, w=inner width default
+  // trackWidth+3). Sweeps a rounded concrete-arch profile (open bottom — walls + ceiling only, no
+  // floor) along the centerline between s and s+len, seated on opts.heightFn(x,z) (game/editor pass
+  // sampleHeight/roadHeightAt so the tunnel follows the SAME y the ribbon uses at that s — NOT raw
+  // terrain, matching the fence pattern). Ends flare slightly (portal bulge) so entrances read
+  // clearly. Shared by editor + game so both render byte-identical tubes. opts.heightFn absent -> y=0.
+  function buildTunnelMesh(sampled, tunnels, trackWidth, THREE, opts){
+    const grp = new THREE.Group();
+    if (!Array.isArray(tunnels) || !tunnels.length) return grp;
+    opts = opts || {};
+    const hfn = opts.heightFn || (()=>0);
+    // CONCRETE look: the bore's interior faces get no directional light, so a plain MeshLambert
+    // falls back to the scene's ambient tint and reads dark olive. Same fix as FK_loadProps
+    // ([[gltf-linear-color-gotcha]]): an EMISSIVE lift ≈ base grey × ~0.37 keeps unlit interior
+    // faces reading as mid-grey concrete. Diffuse comes from PER-VERTEX colors (material color
+    // white) so the portal rings can be shaded a touch darker than the bore for contrast without
+    // needing a second material/mesh.
+    const mat = new THREE.MeshLambertMaterial({ color:0xffffff, vertexColors:true, emissive:0x3e3e3c, side:THREE.DoubleSide });
+    const BASE_R = 0xa8/255, BASE_G = 0xa8/255, BASE_B = 0xa2/255;   // warm light concrete 0xa8a8a2
+    const PORTAL_DARKEN = 0.78;                                      // portal ring diffuse multiplier
+    const L = sampled.trackLen, arcS = sampled.arcS, C = sampled.centerPts, T = sampled.tangents, N = sampled.samples;
+    // interpolated centerline sample at an ABSOLUTE arc-length position (wraps past the lap close).
+    function sampleAtArc(a){
+      a = a % L; if (a < 0) a += L;
+      let i = 0;
+      for (; i<N-1; i++){ if (arcS[i+1] > a) break; }
+      const i0 = i, i1 = (i+1)%N;
+      const segLen = (i1===0) ? (L - arcS[i0]) : (arcS[i1]-arcS[i0]);
+      const t = segLen > 1e-6 ? (a-arcS[i0])/segLen : 0;
+      const c0=C[i0], c1=C[i1], t0=T[i0], t1=T[i1];
+      const x = c0.x+(c1.x-c0.x)*t, z = c0.z+(c1.z-c0.z)*t, y = c0.y+(c1.y-c0.y)*t;
+      let tx = t0.x+(t1.x-t0.x)*t, tz = t0.z+(t1.z-t0.z)*t; const tl = Math.hypot(tx,tz)||1;
+      return { x, y, z, tx:tx/tl, tz:tz/tl };
+    }
+    // arch cross-section profile (local u=lateral offset, v=height above the road), open at the
+    // bottom: bottom-left -> top of left wall -> rounded arc across the ceiling -> top of right wall
+    // -> bottom-right. segs interior arc points -> segs+4 total points (7-9 for the default sizes).
+    function profile(hw, wallH, segs){
+      const archR = hw;
+      const pts = [[-hw,0],[-hw,wallH]];
+      for (let i=1;i<=segs;i++){
+        const a = Math.PI * (1 - i/(segs+1));
+        pts.push([archR*Math.cos(a), wallH+archR*Math.sin(a)]);
+      }
+      pts.push([hw,wallH],[hw,0]);
+      return pts;
+    }
+    for (const tn of tunnels){
+      const startArc = Math.max(0, Math.min(1, tn.s)) * L;
+      const len = Math.max(4, tn.len || 18);
+      const h = (isFinite(tn.h) && tn.h > 1) ? tn.h : 6;
+      const w = (isFinite(tn.w) && tn.w > 2) ? tn.w : (trackWidth + 3);
+      const hw = w/2;
+      const wallH = Math.max(0.5, h - hw);
+      const prof = profile(hw, wallH, 5);
+      const cols = prof.length;
+      const step = 2.5, steps = Math.max(2, Math.ceil(len/step));
+      const portalDepth = Math.min(2.5, len*0.3), portalBulge = 0.16;
+      function ringAt(a){
+        const p = sampleAtArc(a);
+        const y = hfn(p.x, p.z);
+        const nx = -p.tz, nz = p.tx;
+        const distFromStart = a - startArc, distFromEnd = (startArc+len) - a;
+        const nearEnd = Math.max(0, Math.min(distFromStart, distFromEnd));
+        const bulge = portalDepth > 0.01 ? (1 - Math.min(1, nearEnd/portalDepth)) : 0;
+        const scale = 1 + portalBulge*bulge;
+        const ring = new Array(cols);
+        for (let k=0;k<cols;k++){
+          const u = prof[k][0]*scale, v = prof[k][1]*scale;
+          ring[k] = [ p.x + nx*u, y + v, p.z + nz*u ];
+        }
+        ring.bulge = bulge;   // portal shading factor for this ring (0 = bore, 1 = portal lip)
+        return ring;
+      }
+      const positions = [], colors = [];
+      // per-vertex concrete tint: bore = base grey, portal rings darkened for contrast.
+      const shadeOf = (ring)=>{ const m = 1 - (1-PORTAL_DARKEN)*ring.bulge; return [BASE_R*m, BASE_G*m, BASE_B*m]; };
+      const pushV = (v, c)=>{ positions.push(v[0],v[1],v[2]); colors.push(c[0],c[1],c[2]); };
+      let prevRing = ringAt(startArc);
+      for (let s=1; s<=steps; s++){
+        const ring = ringAt(startArc + len*(s/steps));
+        const cPrev = shadeOf(prevRing), cRing = shadeOf(ring);
+        for (let k=0;k<cols-1;k++){
+          const A=prevRing[k], B=prevRing[k+1], Cc=ring[k], D=ring[k+1];
+          pushV(A,cPrev); pushV(B,cPrev); pushV(Cc,cRing);
+          pushV(B,cPrev); pushV(D,cRing); pushV(Cc,cRing);
+        }
+        prevRing = ring;
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geo.setAttribute('color',    new THREE.Float32BufferAttribute(colors, 3));
+      geo.computeVertexNormals();
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.userData.tunnelId = tn.id;
+      grp.add(mesh);
+    }
+    return grp;
   }
 
   // ---- rampSurfaceY: world height of a ramp's driving surface at (x,z), or null if outside its
@@ -918,6 +1046,6 @@
     DEFAULT_TRACK, BUILTIN_TRACKS,
     resample, buildRibbonGeometry, sanitize, validate, reverse, nearestOnCenter, nearestOnCenterAtY,
     groundHills, sampleHeight, groundSampleHeight, buildGroundMesh, buildObjectMesh, buildFenceMesh, buildGrassTufts, sampleField, sampleColor,
-    fenceCollide, corridorFences, rampSurfaceY
+    fenceCollide, corridorFences, rampSurfaceY, buildTunnelMesh
   };
 })();

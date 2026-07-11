@@ -85,6 +85,7 @@
       <button class="btn" id="mSculpt">⛰ sculpt</button>
       <button class="btn" id="mPaint">🎨 paint</button>
       <button class="btn" id="mFence">🔗 fence</button>
+      <button class="btn" id="mTunnel">🚇 tunnel</button>
     </div>
     <div id="fenceTools" style="display:none;margin-top:6px;padding:8px;background:rgba(70,55,35,.3);border-radius:8px;">
       <div style="color:#9ab;font-size:11px;margin-bottom:3px;">style of new fences:</div>
@@ -99,6 +100,19 @@
       <button class="btn wide" id="fFromEdges" style="margin-top:5px;">⟲ ribbon walls from track edges</button>
       <div style="color:#9ab;font-size:11px;margin-top:5px;">click the ground to drop fence posts along a line · finish to start a new run</div>
       <div id="fenceList" style="margin-top:6px;"></div>
+    </div>
+    <div id="tunnelTools" style="display:none;margin-top:6px;padding:8px;background:rgba(70,70,75,.3);border-radius:8px;">
+      <div style="color:#9ab;font-size:11px;margin-bottom:3px;">click the road to add a concrete tunnel</div>
+      <div id="tunnelList" style="margin-top:4px;"></div>
+      <div id="tunnelEdit" style="display:none;margin-top:6px;">
+        <label>length <span id="tnLenV" style="color:#7fd0ff;">18</span></label>
+        <input type="range" id="tnLen" min="6" max="120" step="1" value="18" style="width:100%;">
+        <label style="margin-top:4px;">height <span id="tnHV" style="color:#7fd0ff;">6</span></label>
+        <input type="range" id="tnH" min="3" max="16" step="0.5" value="6" style="width:100%;">
+        <label style="margin-top:4px;">inner width <span id="tnWV" style="color:#7fd0ff;">21</span></label>
+        <input type="range" id="tnW" min="10" max="50" step="0.5" value="21" style="width:100%;">
+        <button class="btn wide warn" id="tnDel" style="margin-top:6px;">🗑 delete tunnel</button>
+      </div>
     </div>
     <div id="paintTools" style="display:none;margin-top:6px;padding:8px;background:rgba(60,50,40,.3);border-radius:8px;">
       <div id="swatches" style="display:flex;flex-wrap:wrap;gap:5px;"></div>
@@ -450,6 +464,65 @@
     });
   }
   function fenceCount(){ return (track.fences||[]).length; }
+
+  // ---- TUNNELS (2026-07-10): click the road to drop a concrete tunnel; select from the list to
+  // adjust len/h/w via sliders, or delete. Rendered via the SAME FK_TRACK.buildTunnelMesh the game
+  // uses so the editor is a byte-parity preview. Seated on the ROAD height (not the grass mesh).
+  const tunnelGroup = new THREE.Group(); scene.add(tunnelGroup);
+  let selTunnelId = null, tunnelSeq = 0;
+  function roadHeightAt(x, z){ return sampled ? FK_TRACK.sampleHeight(sampled, x, z, track.width, edTerrainOpts()) : 0; }
+  function rebuildTunnels(){
+    while (tunnelGroup.children.length){ const o=tunnelGroup.children[0]; tunnelGroup.remove(o); o.traverse(c=>{ if(c.geometry)c.geometry.dispose(); if(c.material)c.material.dispose(); }); }
+    let maxSeq = 0;
+    for (const tn of (track.tunnels||[])){ const m=String(tn.id||'').match(/(\d+)$/); if (m) maxSeq=Math.max(maxSeq,+m[1]); }
+    tunnelSeq = Math.max(tunnelSeq, maxSeq);
+    if (sampled) tunnelGroup.add(FK_TRACK.buildTunnelMesh(sampled, track.tunnels||[], track.width, THREE, { heightFn:(x,z)=>roadHeightAt(x,z) }));
+    refreshTunnelList();
+  }
+  function addTunnelAt(hit){
+    const C = sampled.centerPts, N = sampled.samples;
+    let bi=0, bd=Infinity;
+    for (let i=0;i<N;i++){ const c=C[i]; const d=(c.x-hit.x)**2+(c.z-hit.z)**2; if(d<bd){bd=d;bi=i;} }
+    const s = Math.round((bi/N)*1000)/1000;
+    track.tunnels = track.tunnels || [];
+    const tn = { id:'tunnel_'+(++tunnelSeq), tag:'', s, len:18, h:6, w:track.width+3 };
+    track.tunnels.push(tn);
+    selTunnelId = tn.id;
+    rebuildTunnels();
+    toast('tunnel @ s='+s.toFixed(3));
+  }
+  function selectedTunnel(){ return (track.tunnels||[]).find(t=>t.id===selTunnelId) || null; }
+  function syncTunnelEdit(){
+    const tn = selectedTunnel(), box = $('tunnelEdit'); if (!box) return;
+    if (!tn){ box.style.display='none'; return; }
+    box.style.display='block';
+    $('tnLen').value = tn.len; $('tnLenV').textContent = tn.len;
+    $('tnH').value = tn.h||6; $('tnHV').textContent = (tn.h||6);
+    $('tnW').value = tn.w||(track.width+3); $('tnWV').textContent = (tn.w||(track.width+3));
+  }
+  function refreshTunnelList(){
+    const el = $('tunnelList'); if (!el) return; el.innerHTML='';
+    const tuns = track.tunnels||[];
+    if (!tuns.length){ el.innerHTML = '<div style="color:#889;">none — use 🚇 tunnel mode, click the road</div>'; syncTunnelEdit(); return; }
+    tuns.forEach((tn)=>{
+      const d = document.createElement('div'); d.className='ir';
+      const span = document.createElement('span');
+      span.style.cssText='flex:1;cursor:pointer;'+(tn.id===selTunnelId?'color:#7fd0ff;':'');
+      span.textContent = (tn.id===selTunnelId?'▶ ':'') + '🚇 s='+tn.s.toFixed(3)+' len='+tn.len;
+      span.onclick = ()=>{ selTunnelId = tn.id; refreshTunnelList(); };
+      const btn = document.createElement('button'); btn.textContent='✕';
+      btn.addEventListener('click', ()=>{ track.tunnels = track.tunnels.filter(x=>x!==tn); if (selTunnelId===tn.id) selTunnelId=null; rebuildTunnels(); });
+      d.appendChild(span); d.appendChild(btn); el.appendChild(d);
+    });
+    syncTunnelEdit();
+  }
+  // throttled live rebuild during a slider drag (debounce would never fire mid-drag).
+  let _lastTun = 0, _tunPend = false;
+  function liveTunnels(){
+    const now = performance.now();
+    if (now - _lastTun > 110){ _lastTun = now; rebuildTunnels(); }
+    else if (!_tunPend){ _tunPend = true; setTimeout(()=>{ _tunPend=false; _lastTun=performance.now(); rebuildTunnels(); }, 110); }
+  }
   function scheduleTerrain(){ if (terrainTimer) clearTimeout(terrainTimer); terrainTimer = setTimeout(rebuildTerrain, 140); }
 
   // ================= P2: WORLD OBJECTS (place / move / rotate / scale / tag) =================
@@ -605,6 +678,7 @@
     rebuildItemMarkers();
     rebuildBoostMarkers();
     rebuildCorridorViz();
+    rebuildTunnels();
     scheduleTerrain();      // WYSIWYG grass/hills (debounced)
     refreshInfo();
     refreshValidation();
@@ -723,12 +797,15 @@
     $('mSculpt').classList.toggle('on', m==='sculpt');
     $('mPaint').classList.toggle('on', m==='paint');
     $('mFence').classList.toggle('on', m==='fence');
+    $('mTunnel').classList.toggle('on', m==='tunnel');
     $('sculptTools').style.display = (m==='sculpt') ? 'block' : 'none';
     $('paintTools').style.display = (m==='paint') ? 'block' : 'none';
     $('fenceTools').style.display = (m==='fence') ? 'block' : 'none';
+    $('tunnelTools').style.display = (m==='tunnel') ? 'block' : 'none';
     if (m==='sculpt') $('scCells').textContent = terrainCellCount();
     if (m==='paint') $('pCells').textContent = paintCellCount();
     if (m==='fence') refreshFenceList();
+    if (m==='tunnel') refreshTunnelList();
     // gizmo only lives in object mode (otherwise it would steal clicks from point editing)
     gizmo.enabled = (m==='object'); gizmo.visible = (m==='object') && !!selObjId;
     if (m==='object' && selObjId && objMeshes[selObjId]) gizmo.attach(objMeshes[selObjId]);
@@ -740,12 +817,18 @@
                           : m==='sculpt' ? 'drag the GRASS to raise it · hold Shift to lower · the road stays put'
                           : m==='paint'  ? 'pick a color, then drag the GRASS to paint it (dirt, sand, path...)'
                           : m==='fence'  ? 'click the ground to drop fence posts along a line · finish to start a new run · drag = orbit'
+                          : m==='tunnel' ? 'click the road to add a concrete TUNNEL · select one from the list to adjust len/height/width'
                           : 'drag arrows = move · Shift+drag = elevation · drag empty = orbit · wheel = zoom';
   }
   $('mSelect').addEventListener('click', ()=>setMode('select'));
   $('mInsert').addEventListener('click', ()=>setMode('insert'));
   $('mItem').addEventListener('click', ()=>setMode('item'));
   $('mBoost').addEventListener('click', ()=>setMode('boost'));
+  $('mTunnel').addEventListener('click', ()=>setMode('tunnel'));
+  $('tnLen').addEventListener('input', ()=>{ const tn=selectedTunnel(); if(!tn) return; tn.len=+$('tnLen').value; $('tnLenV').textContent=tn.len; liveTunnels(); });
+  $('tnH').addEventListener('input', ()=>{ const tn=selectedTunnel(); if(!tn) return; tn.h=+$('tnH').value; $('tnHV').textContent=tn.h; liveTunnels(); });
+  $('tnW').addEventListener('input', ()=>{ const tn=selectedTunnel(); if(!tn) return; tn.w=+$('tnW').value; $('tnWV').textContent=tn.w; liveTunnels(); });
+  $('tnDel').addEventListener('click', ()=>{ const tn=selectedTunnel(); if(!tn) return; track.tunnels=track.tunnels.filter(x=>x!==tn); selTunnelId=null; rebuildTunnels(); });
   $('mObject').addEventListener('click', ()=>setMode('object'));
   $('mSculpt').addEventListener('click', ()=>setMode('sculpt'));
   $('scRaise').addEventListener('click', ()=>{ SCULPT.dir=1; $('scRaise').classList.add('on'); $('scLower').classList.remove('on'); });
@@ -872,6 +955,11 @@
     if (mode === 'boost'){
       const hit = pickRibbon();
       if (hit){ addBoostAt(hit); controls.enabled = false; }
+      return;
+    }
+    if (mode === 'tunnel'){
+      const hit = pickRibbon();
+      if (hit){ addTunnelAt(hit); controls.enabled = false; }
       return;
     }
     // select/move
@@ -1526,6 +1614,11 @@
     // P5 fence + prop hooks
     get fences(){ return track.fences||[]; }, get fenceCount(){ return fenceCount(); },
     addFencePoint, finishFence, rebuildFences,
+    // Tunnel hooks (2026-07-10, for headless tests)
+    get tunnels(){ return track.tunnels||[]; }, get selTunnelId(){ return selTunnelId; }, tunnelGroup,
+    addTunnelAt, rebuildTunnels, selectTunnel:(id)=>{ selTunnelId=id; refreshTunnelList(); },
+    setTunnelField:(field,v)=>{ const tn=selectedTunnel(); if(tn){ tn[field]=v; rebuildTunnels(); } },
+    deleteTunnel:(id)=>{ track.tunnels=(track.tunnels||[]).filter(t=>t.id!==id); if(selTunnelId===id) selTunnelId=null; rebuildTunnels(); },
     setObjType:(t)=>{ if(selObjId){ const o=(track.objects||[]).find(x=>x.id===selObjId); if(o){ o.type=t; rebuildObjects(); } } },
     // 🤖 track-test bot hooks (for headless tests)
     startBot, stopBot, setFollow, get bot(){ return bot; }, get follow(){ return follow; },

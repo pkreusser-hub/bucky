@@ -789,6 +789,12 @@
     : FK_TRACK.corridorFences(_sampled, TRACK_WIDTH, effWallMargin());
   for (const f of RACE_FENCES) scene.add(FK_TRACK.buildFenceMesh(f, THREE, { heightFn:(x,z)=>sampleHeight(x,z) }));
 
+  // TUNNELS (2026-07-10): concrete arches drawn in the editor. Purely visual — the existing corridor
+  // walls already constrain karts, so no physics change here. Follows the ROAD height (sampleHeight),
+  // not raw terrain, so the chase camera (rides inside camDist/camHeight of the kart) stays inside.
+  const TUNNEL_GROUP = FK_TRACK.buildTunnelMesh(_sampled, ACTIVE_TRACK.tunnels || [], TRACK_WIDTH, THREE, { heightFn:(x,z)=>sampleHeight(x,z) });
+  scene.add(TUNNEL_GROUP);
+
   // ---------- start/finish line (checkered strip across main straight) ----------
   // Placed near the main straight at ~z=20, spanning the track width.
   const FINISH = (function(){
@@ -5109,6 +5115,8 @@
     driftTier, particles,
     // Minimap (top-right race HUD)
     updateMinimap, minimapEl, _mm,
+    // Tunnels (2026-07-10, for headless tests)
+    TUNNEL_GROUP,
     // K6 polish (audio + particles + best-lap key; exposed for the headless harness)
     BEST_LAP_KEY, setMuted, toggleMute, particleActiveCount,
     audioState:()=>({ muted:audioMuted, masterGain: masterGain ? masterGain.gain.value : null,

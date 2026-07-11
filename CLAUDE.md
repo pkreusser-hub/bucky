@@ -1627,6 +1627,56 @@ layout sync.
       persists save→reload, game renders barn/silo/trees/rock with CORRECT colors (sRGB fix) + 0
       pageerrors. Kenney License.txt kept in props/. Still LOCAL. NEXT: user tags/places → I can also
       hand-build bespoke models, and CC-BY animals/vehicles are available if a credits line is OK.
+- [x] CONCRETE TUNNELS (2026-07-10, user: "add the ability to put concrete tunnels ... manipulate
+      them in the editor"): track.tunnels=[{id,tag,s,len,h,w}] — s=0..1 start fraction along the
+      centerline ARC LENGTH (same convention as boostPads' `s`), len=world-unit span, h=optional
+      inner clearance height (builder default 6), w=optional inner width (builder default
+      trackWidth+3); sanitize validates/clamps and OMITS the key entirely when absent/empty (re-
+      verified byte-identical sanitize output for tracks without tunnels). Shared builder
+      FK_TRACK.buildTunnelMesh(sampled, tunnels, trackWidth, THREE, opts) sweeps a 9-point concrete
+      arch profile (open bottom — walls + ceiling only, no floor) along the centerline in ~2.5u
+      steps via an arc-length interpolation helper (mirrors buildFenceMesh's terrain-walk pattern);
+      ends get a portal "bulge" (scaled-up profile within ~2.5u of each opening) so entrances read
+      clearly. Seated on opts.heightFn(x,z) — game/editor pass sampleHeight/roadHeightAt so tunnels
+      follow the ROAD height, not raw terrain (matches the fence heightFn convention). CONCRETE
+      MATERIAL (design-review fix): the bore's interior faces get no directional light, so a plain
+      grey MeshLambert fell back to the scene's ambient tint and read dark olive — same class of
+      bug as [[gltf-linear-color-gotcha]]. Fix: MeshLambert color WHITE + vertexColors (per-vertex
+      diffuse = warm concrete 0xa8a8a2; portal-ring vertices darkened ×0.78 for contrast) + an
+      EMISSIVE lift 0x3e3e3c (≈ base × 0.37) so unlit interior faces still read mid-grey concrete.
+      NOTE: when
+      the default inner width (trackWidth+3) exceeds the default height (6), the semicircular-arch
+      radius (=half-width) forces the straight side walls to clamp near 0 and the tube reads TALLER
+      than the nominal h (observed ~13.7 high for an 18-wide road) — harmless (only over-satisfies
+      camera clearance) but worth knowing before hand-tuning h/w on a track. GAME: rendered once at
+      boot alongside fences (`TUNNEL_GROUP`, exposed on `__KART__` for tests); purely visual, no
+      physics change — the existing corridor walls already constrain karts. EDITOR: new 🚇 tunnel
+      mode mirrors the ⚡ boost-pad pattern (click the road → `addTunnelAt` drops one at the nearest
+      centerline s, default len 18/h 6/w trackWidth+3) plus a tunnel list (select/delete) and, for
+      the SELECTED tunnel, len/height/inner-width sliders that live-rebuild (110ms-throttled, same
+      pattern as the P3 sculpt brush) the shared-builder preview mesh — byte-parity with the game.
+      Persists automatically through the existing doSave()/sanitize()/cloud-sync path (no new cloud
+      code needed). Verified (scratchpad fk_tunnels.cjs, cloud domains blocked throughout): 10
+      pure-Node sanitize-regression checks (byte-identical DEFAULT_TRACK + wario-stadium sanitize
+      vs the pre-change module loaded from `git show HEAD:...`, invalid entries dropped, valid
+      fields round-trip, h/w omitted when unset) + 22 editor checks (add via click → 1 mesh, len/h
+      sliders grow the bbox, delete clears the mesh, save→reload round-trips exact field values) +
+      game checks (boot renders the 1 saved tunnel with a real bbox, kart drives through the
+      span with finite/monotonic position — 0 collision weirdness since tunnels don't collide, a
+      mid-span camera-position sample stays within the tunnel's lateral+vertical envelope, and both
+      screenshots position-asserted before/inside the span) — 40/40 green, 0 pageerrors editor+game.
+      Screenshots fk_tunnel_outside.png (approaching, grey portal against the grass) /
+      fk_tunnel_inside.png (mid-bore, concrete walls + exit ahead) in the session scratchpad. TWO
+      TEST GOTCHAS caught here: (1) game centerPts are uniform in CURVE PARAMETER, not arc length —
+      converting a tunnel's s to a sample index via round(s*N) poses you PAST the tunnel on long
+      straights; convert through arcS instead. (2) posing the "inside" screenshot at the arc
+      midpoint of a wide (≈22u) tunnel puts the walls/arch OUTSIDE the 62° frustum near the exit —
+      the frame shows only the opening and reads as open road; pose ~30% into the bore so walls +
+      exit portal frame the shot. Regressions: tools/_verify-hud-defaults.cjs
+      PASS, tools/_verify-items.cjs 24/24 (both boot the game fine with the new TUNNEL_GROUP code
+      path; a second agent has unrelated concurrent farmkart.html changes in the working tree —
+      confirmed via `git diff -- farmkart.html` that tunnels are the only hunk this task touched).
+      Still LOCAL/untracked-in-spirit (farmkart.html itself is committed, but no push happened here).
 - [x] FLUFFY GRASS (2026-07-08, user: grass too flat + color too sharp): buildGroundMesh reworked —
       base green softened 0x6fae54→0x86a862 (muted), gentle low-freq "patch" brightness variation
       (±10%, two sines) so big areas aren't uniform, world-tiled UVs (every 5u), and a CACHED 256px
