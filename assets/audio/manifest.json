@@ -1,0 +1,152 @@
+[
+  {
+    "file": "fk-music-menu.mp3",
+    "kind": "music",
+    "target": "~60s",
+    "prompt": "upbeat farmyard bluegrass, banjo + fiddle + hand claps, sunny and playful, kids' kart-racing game title screen, medium tempo, seamless loop, instrumental",
+    "bytes": 960515,
+    "estDurationS": 60.03,
+    "api": "POST /v1/music (music_v1, force_instrumental=true, music_length_ms=60000)",
+    "notes": "output_format mp3_44100 default (auto); 44.1kHz confirmed via frame header parse"
+  },
+  {
+    "file": "fk-music-race.mp3",
+    "kind": "music",
+    "target": "~100-120s",
+    "prompt": "composition_plan (music_v1, 4 sections, no vocals): A 'Groove' 25s driving banjo picking groove w/ steady bass+light drums -> B 'Fiddle Lead' 25s fiddle takes the lead melody, banjo backs off -> C 'Breakdown Build' 20s half-time, hand claps + spoons percussion, rising build -> A' 'Full Band Peak' 30s full band banjo+fiddle together, joyful climax resolving back into the opening groove riff for a seamless loop",
+    "bytes": 1600410,
+    "estDurationS": 100.02,
+    "api": "POST /v1/music (music_v1, composition_plan.sections[4], no prompt/music_length_ms)",
+    "notes": "REPLACES the v1 single-loop-prompt track (was a repeating ~8-bar loop per user feedback). composition_plan.sections requires a 'lines' field per section even when empty ([]) - first call 422'd until added. Loop-edge energy check: start 65.56 / end 61.70 (ratio 0.94) - no hard fade at the seam."
+  },
+  {
+    "file": "fk-sfx-splat.mp3",
+    "kind": "sfx",
+    "target": "~1.0s",
+    "prompt": "juicy wet tomato splat on metal, cartoonish",
+    "bytes": 17180,
+    "estDurationS": 1.07,
+    "api": "POST /v1/sound-generation (duration_seconds=1.0, prompt_influence=0.7, loop=false)"
+  },
+  {
+    "file": "fk-sfx-squawk-fire.mp3",
+    "kind": "sfx",
+    "target": "~0.8s",
+    "prompt": "single startled chicken squawk, cartoon",
+    "bytes": 13836,
+    "estDurationS": 0.86,
+    "api": "POST /v1/sound-generation (duration_seconds=0.8, prompt_influence=0.7, loop=false)"
+  },
+  {
+    "file": "fk-sfx-squawk-hit.mp3",
+    "kind": "sfx",
+    "target": "~1.0s",
+    "prompt": "chicken squawk with feathery flutter impact, cartoon",
+    "bytes": 17180,
+    "estDurationS": 1.07,
+    "api": "POST /v1/sound-generation (duration_seconds=1.0, prompt_influence=0.7, loop=false)"
+  },
+  {
+    "file": "fk-sfx-haybale.mp3",
+    "kind": "sfx",
+    "target": "~0.8s",
+    "prompt": "heavy hay bale thump with straw rustle",
+    "bytes": 13836,
+    "estDurationS": 0.86,
+    "api": "POST /v1/sound-generation (duration_seconds=0.8, prompt_influence=0.65, loop=false)"
+  },
+  {
+    "file": "fk-sfx-itembox.mp3",
+    "kind": "sfx",
+    "target": "~0.7s",
+    "prompt": "magical sparkle pickup chime, bright, video game item box",
+    "bytes": 12164,
+    "estDurationS": 0.76,
+    "api": "POST /v1/sound-generation (duration_seconds=0.7, prompt_influence=0.7, loop=false)"
+  },
+  {
+    "file": "fk-sfx-shield.mp3",
+    "kind": "sfx",
+    "target": "~0.8s",
+    "prompt": "whoosh into a soft protective hum, video game shield deploy",
+    "bytes": 13836,
+    "estDurationS": 0.86,
+    "api": "POST /v1/sound-generation (duration_seconds=0.8, prompt_influence=0.65, loop=false)"
+  },
+  {
+    "file": "fk-sfx-go-cheer.mp3",
+    "kind": "sfx",
+    "target": "~1.5s",
+    "prompt": "small crowd cheering burst, outdoor, family",
+    "bytes": 24703,
+    "estDurationS": 1.54,
+    "api": "POST /v1/sound-generation (duration_seconds=1.5, prompt_influence=0.6, loop=false)"
+  },
+  {
+    "file": "fk-sfx-finish.mp3",
+    "kind": "sfx",
+    "target": "~2.5s",
+    "prompt": "crowd cheer with whistles and a short brass fanfare, race finish",
+    "bytes": 40586,
+    "estDurationS": 2.53,
+    "api": "POST /v1/sound-generation (duration_seconds=2.5, prompt_influence=0.6, loop=false)"
+  },
+  {
+    "file": "fk-sfx-win-jingle.mp3",
+    "kind": "sfx",
+    "target": "~3s",
+    "prompt": "triumphant playful country-western victory jingle, banjo and brass, video game podium",
+    "bytes": 48945,
+    "estDurationS": 3.06,
+    "api": "POST /v1/sound-generation (duration_seconds=3.0, prompt_influence=0.6, loop=false)"
+  },
+  {
+    "file": "fk-ambient-farm.mp3",
+    "kind": "ambience",
+    "target": "~12s, loop=true",
+    "prompt": "gentle farm ambience, songbirds, distant chickens, light breeze, morning",
+    "bytes": 193141,
+    "estDurationS": 12.07,
+    "api": "POST /v1/sound-generation (duration_seconds=12, prompt_influence=0.4, loop=true)"
+  },
+  {
+    "file": "fk-engine-low.mp3",
+    "kind": "sfx-loop",
+    "target": "~4s, loop=true",
+    "prompt": "small go-kart engine idling, low rpm, steady even putter, seamless loop",
+    "bytes": 65245,
+    "estDurationS": 4.08,
+    "api": "POST /v1/sound-generation (duration_seconds=4.0, prompt_influence=0.55, loop=true)",
+    "notes": "one of 3 parallel-prompted engine rpm loops (low/mid/high) for speed-reactive crossfade+pitch-shift in-game; kept prompt phrasing parallel across all 3 for timbre consistency. Loop-edge energy ratio 0.89 (no hard fade)."
+  },
+  {
+    "file": "fk-engine-mid.mp3",
+    "kind": "sfx-loop",
+    "target": "~4s, loop=true",
+    "prompt": "small go-kart engine cruising at medium rpm, steady smooth drone, seamless loop",
+    "bytes": 65245,
+    "estDurationS": 4.08,
+    "api": "POST /v1/sound-generation (duration_seconds=4.0, prompt_influence=0.55, loop=true)",
+    "notes": "one of 3 parallel-prompted engine rpm loops (low/mid/high). Loop-edge energy ratio 0.89 (no hard fade)."
+  },
+  {
+    "file": "fk-engine-high.mp3",
+    "kind": "sfx-loop",
+    "target": "~4s, loop=true",
+    "prompt": "small go-kart engine at high rpm, hard revving, steady intense buzz, seamless loop",
+    "bytes": 65245,
+    "estDurationS": 4.08,
+    "api": "POST /v1/sound-generation (duration_seconds=4.0, prompt_influence=0.55, loop=true)",
+    "notes": "one of 3 parallel-prompted engine rpm loops (low/mid/high). Loop-edge energy ratio 0.87 (no hard fade)."
+  },
+  {
+    "file": "fk-sfx-drift-loop.mp3",
+    "kind": "sfx-loop",
+    "target": "~3s, loop=true",
+    "prompt": "kart tires skidding and sliding on asphalt, continuous playful cartoon drift skid, steady, seamless loop",
+    "bytes": 48945,
+    "estDurationS": 3.06,
+    "api": "POST /v1/sound-generation (duration_seconds=3.0, prompt_influence=0.55, loop=true)",
+    "notes": "replaces the previously-hated synth scrape SFX; prompted for playful/energetic not harsh. Loop-edge energy ratio 0.91 (no hard fade)."
+  }
+]
