@@ -1798,6 +1798,47 @@ avoid collisions with the game's own `net`/`Lobby`-adjacent names.
   name label. Regression: solo race boots/drives with Playroom blocked (0 pageerrors),
   `tools/_verify-items.cjs` 24/24, `_verify-audio.cjs` 18/18, `_verify-hud-defaults.cjs` PASS.
 
+# 🏁 Farm Kart — cloud track sync (2026-07-10)
+
+User: "hitting save on the editor always pushes that new track to any device/version." Tracks
+used to live ONLY in per-device `localStorage fk_tracks_v1`. Now the WHOLE map also syncs
+through one Firestore doc — same house pattern as `leveleditor.html`'s `bistroLayouts`.
+- **Doc**: `settings_<familyKey>/fkTracks` — `{ tracks: JSON.stringify(fullMap), updatedAt }`
+  (every track is well under 10KB, so the whole map fits in one doc). `farmkart-editor.html`
+  gets its OWN small inline Firebase config/init (`fkEdFirebaseConfig`/`fkEdInitCloud`/
+  `FkCloud`/`fkEdFamilyKey`, `?fam=` override) — house convention is to duplicate config per
+  page rather than share a module. `farmkart.html` does NOT duplicate config: it reuses the
+  family-lobby `Lobby.db`/`Lobby.fs` handles + `fkFamilyKey` that already exist for the
+  race-lobby doc (`fkLobbyBackendReady`).
+- **Editor**: boot stays LOCAL-FIRST (`loadInitial()` unchanged, still reads localStorage
+  synchronously so there's no blank-screen wait on Firestore); `fkEdPullCloud()` runs in the
+  background right after boot — pulls the cloud map (3s race timeout), overwrites localStorage
+  on success, hot-reloads the track CURRENTLY open in the editor if its own cloud copy differs,
+  and refreshes the load-picker; silent no-op offline/on timeout. `doSave()` still does its
+  synchronous localStorage write + returns the id immediately (so `testBtn`'s
+  `window.open(...)` keeps working unchanged), then fires the cloud `setDoc` in the background
+  with HONEST toasts: "⏳ saving… to all devices" → "✔ saved … to ALL devices" / "✔ saved …
+  on THIS device only (offline)" / "…(cloud save failed)". `toast(msg, ms)` gained an optional
+  duration (save toasts run ~3s instead of the default 1.6s — too quick to read).
+  `pickerEntries()` no longer HIDES a saved override of a built-in track id — it keeps the
+  built-in option and appends "(edited)" to its label (the map copy already wins in
+  `loadById`, this was purely a visibility bug).
+- **Game**: `populateTrackPicker` (now a named function, not an IIFE, so the reconcile can
+  re-call it) gets the same "(edited)" labeling for any built-in/`amen-farms` id with a saved
+  override. `loadActiveTrack()`: when a `?track=<id>` resolves a map entry that FAILS
+  `sanitize()`, it used to fall through to the builtin/default silently — now it also sets
+  `window.__fkTrackLoadWarning = id`, surfaced on the start menu via a new small `#trackWarn`
+  note under the track picker ("⚠ Saved track '<id>' couldn't load — using default.").
+  `fkReconcileTracksCloud()` (background, fire-and-forget at boot, reuses `Lobby.*`): pulls
+  the cloud doc (3s timeout), and if the raw JSON differs from localStorage, writes it to
+  localStorage. If the CURRENTLY ACTIVE track's own entry in the map actually changed AND the
+  game is still on the start menu solo (`G.phase==='menu' && !net.mp` — never mid-race, never
+  MP-connected), it reloads the page ONCE via a `sessionStorage` guard (`fk_tracks_adopted`,
+  cleared at the top of every fresh page load) so the fresh track takes effect without a
+  reload loop; otherwise (mid-race, MP, or already adopted this session) it just updates
+  localStorage silently and re-runs `populateTrackPicker()` — applies on the next navigation.
+  Test key `famtestfk` used for all Firestore-touching verification (never `fam2jan2g`).
+
 # 🌤️ Weather — Woodville / Amen Farms (2026-07-09)
 
 `weather.html` — dedicated farm weather page (no API keys). Lat/lon 34.686537,

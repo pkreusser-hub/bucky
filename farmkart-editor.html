@@ -64,11 +64,15 @@
     </div>
     <div class="row" style="margin-top:5px;">
       <label style="flex:1;">wallMargin (grass)<input type="number" id="wallInp" step="0.5" min="2" max="20" placeholder="7"></label>
+      <label style="flex:1;">world size<input type="number" id="worldInp" step="5" min="20" max="400" placeholder="55"></label>
     </div>
     <button class="btn wide" id="corridorBtn">▦ show corridor bounds</button>
     <div class="row">
       <button class="btn on" id="terrainBtn" style="flex:1;">🌾 terrain</button>
       <button class="btn on" id="tuftsBtn" style="flex:1;">🌱 tufts</button>
+    </div>
+    <div class="row">
+      <button class="btn" id="drapeBtn" style="flex:1;" title="Road drapes over the hills + sculpt and tilts with the land (natural camber)">🏔 follow terrain</button>
     </div>
 
     <div class="sec">Mode</div>
@@ -83,10 +87,16 @@
       <button class="btn" id="mFence">🔗 fence</button>
     </div>
     <div id="fenceTools" style="display:none;margin-top:6px;padding:8px;background:rgba(70,55,35,.3);border-radius:8px;">
+      <div style="color:#9ab;font-size:11px;margin-bottom:3px;">style of new fences:</div>
       <div class="row">
+        <button class="btn on" id="fStyleRail" style="flex:1;">🪵 rail</button>
+        <button class="btn" id="fStyleRibbon" style="flex:1;">🟥 ribbon</button>
+      </div>
+      <div class="row" style="margin-top:5px;">
         <button class="btn" id="fUndo">↶ undo point</button>
         <button class="btn on" id="fFinish">✓ finish fence</button>
       </div>
+      <button class="btn wide" id="fFromEdges" style="margin-top:5px;">⟲ ribbon walls from track edges</button>
       <div style="color:#9ab;font-size:11px;margin-top:5px;">click the ground to drop fence posts along a line · finish to start a new run</div>
       <div id="fenceList" style="margin-top:6px;"></div>
     </div>
@@ -121,6 +131,7 @@
     <div class="sec">🧊 Objects <span style="color:#7fd0ff;font-weight:400;text-transform:none;">(tag → I build it)</span></div>
     <div class="row">
       <button class="btn" id="addObjBtn">＋ add block</button>
+      <button class="btn" id="addRampBtn">🛫 add ramp</button>
       <button class="btn" id="addWaterBtn">💧 add water</button>
       <button class="btn" id="dupObjBtn">⧉ duplicate</button>
     </div>
@@ -138,6 +149,7 @@
       <option value="silo">🥫 silo</option>
       <option value="tree">🌳 tree</option>
       <option value="water">💧 water</option>
+      <option value="ramp">🛫 ramp (jump)</option>
     </select>
     <div id="objList" style="margin-top:6px;"></div>
 
@@ -145,6 +157,13 @@
     <select id="propCat" style="width:100%;padding:5px;border-radius:6px;background:rgba(0,0,0,.35);color:#fff;border:1px solid rgba(255,255,255,.2);font-family:monospace;"></select>
     <div id="propList" style="margin-top:5px;max-height:180px;overflow-y:auto;display:flex;flex-wrap:wrap;gap:4px;"></div>
     <div style="color:#9ab;font-size:11px;margin-top:3px;" id="propStatus">loading models…</div>
+
+    <div class="sec">🤖 Preview <span style="color:#7fd0ff;font-weight:400;text-transform:none;">(watch a bot drive)</span></div>
+    <div class="row">
+      <button class="btn" id="botBtn" style="flex:2;">🤖 test-drive</button>
+      <button class="btn" id="followBtn" style="flex:1;">📷 follow</button>
+    </div>
+    <div style="color:#9ab;font-size:11px;margin-top:3px;">spawns a bot at the start line — it drives the racing line, jumps your ramps and bumps your fences. Toggle again to stop.</div>
 
     <div class="sec">Save / share</div>
     <div class="row">
@@ -165,7 +184,7 @@
     <div id="valid" class="ok">✓ valid</div>
   </div>
 
-  <div id="hint">drag spheres = move · Shift+drag = elevation · drag empty = orbit · wheel = zoom · RMB = pan</div>
+  <div id="hint">drag arrows = move · Shift+drag = elevation · drag empty = orbit · wheel = zoom · RMB = pan</div>
   <div id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
@@ -179,6 +198,73 @@
   // ============================================================================
   // FARM KART — track editor. Shares ALL geometry with the game via FK_TRACK.
   // ============================================================================
+
+  // ============================================================================
+  // CLOUD TRACK SYNC (2026-07-10, user: "hitting save always pushes to any device/version").
+  // Mirrors leveleditor.html's bistroLayouts pattern: ONE Firestore doc holds the WHOLE
+  // fk_tracks_v1 map (every track is well under 10KB — the whole map fits easily). Boot stays
+  // LOCAL-FIRST (loadInitial() below still reads localStorage synchronously so the editor never
+  // blocks on network before its first render — same "instant local, background reconcile"
+  // shape as the game's own Lobby.* handles it uses for the family-race lobby doc). Config
+  // duplicated inline (house convention — no shared JS module in this repo).
+  // ============================================================================
+  const fkEdFirebaseConfig = {
+    apiKey: "AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU",
+    authDomain: "amen-farms-app.firebaseapp.com",
+    projectId: "amen-farms-app",
+    storageBucket: "amen-farms-app.firebasestorage.app",
+    messagingSenderId: "321230755979",
+    appId: "1:321230755979:web:d362c56aaf7e50b4ab5c8e"
+  };
+  const FK_ED_FAMILY_PASSWORD = "amenfarms";
+  function fkEdRoomId(pw){
+    let h = 0;
+    for (const ch of pw.toLowerCase()) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return "fam" + h.toString(36);
+  }
+  // ?fam= override: dev/test hook so automated verification never touches production.
+  const fkEdFamilyKey = (new URLSearchParams(location.search).get('fam')) || fkEdRoomId(FK_ED_FAMILY_PASSWORD);
+  const FkCloud = { ok:false, db:null, fs:null };
+  async function fkEdInitCloud(){
+    try{
+      const appMod = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js');
+      const fsMod = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js');
+      FkCloud.db = fsMod.getFirestore(appMod.initializeApp(fkEdFirebaseConfig, 'bucky-editor-tracks'));
+      FkCloud.fs = fsMod; FkCloud.ok = true;
+    }catch(err){ FkCloud.ok = false; }
+  }
+  const fkEdCloudReady = fkEdInitCloud();
+  function fkTracksDocRef(){ return FkCloud.fs.doc(FkCloud.db, 'settings_' + fkEdFamilyKey, 'fkTracks'); }
+  // Background reconcile: pulls the cloud map, overwrites localStorage on success (silent on
+  // failure/offline — the local copy stays authoritative), refreshes the load-picker (so newly-
+  // synced/edited tracks show up), and hot-reloads the CURRENTLY-open track in place if the
+  // cloud copy of that same id differs (so an editor left open on another device picks up a
+  // fresh save without the user having to reselect it).
+  async function fkEdPullCloud(){
+    await fkEdCloudReady;
+    if (!FkCloud.ok) return;
+    try{
+      const snap = await Promise.race([
+        FkCloud.fs.getDoc(fkTracksDocRef()),
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')), 3000))
+      ]);
+      const raw = snap.exists() ? snap.data().tracks : null;
+      if (typeof raw !== 'string') return;
+      const localRaw = localStorage.getItem('fk_tracks_v1') || '{}';
+      if (raw === localRaw) return;
+      localStorage.setItem('fk_tracks_v1', raw);
+      if (currentId){
+        try{
+          const map = JSON.parse(raw);
+          if (map && map[currentId]){
+            const t = FK_TRACK.sanitize(map[currentId]);
+            if (t){ track=t; selected=-1; selObjId=null; curFence=null; syncFields(); rebuild(); rebuildObjects(); maybeAutoFences(); rebuildFences(); frameCamera(); }
+          }
+        }catch(e){}
+      }
+      populateLoad();
+    }catch(err){ /* offline/timeout — keep the local copy, no error surfaced */ }
+  }
 
   // ---- working track (v1). Load ?track=<id> from fk_tracks_v1 (a saved edit wins) or a built-in
   // converted course; else the default. ----
@@ -228,6 +314,18 @@
   const matNormal = new THREE.MeshLambertMaterial({ color:0xffd23f });
   const matSelected = new THREE.MeshLambertMaterial({ color:0xff5a3a, emissive:0x551000 });
   const matStart = new THREE.MeshLambertMaterial({ color:0x36c85a, emissive:0x0a3312 }); // point 0 = start line
+  // Direction ARROW for each control point — a flat arrow decal that points along the RACE direction
+  // (the tangent), so the intended lap direction reads at a glance. Single mesh (still drag-pickable).
+  const ARROW_GEO = (function(){
+    const s = new THREE.Shape();
+    s.moveTo(0, 4.5); s.lineTo(3.0, 0.5); s.lineTo(0.9, 0.5); s.lineTo(0.9, -4.5);
+    s.lineTo(-0.9, -4.5); s.lineTo(-0.9, 0.5); s.lineTo(-3.0, 0.5); s.lineTo(0, 4.5);
+    const g = new THREE.ShapeGeometry(s); g.rotateX(Math.PI/2);   // lie flat in XZ, pointing +Z
+    return g;
+  })();
+  const arrNormal   = new THREE.MeshBasicMaterial({ color:0xffd23f, side:THREE.DoubleSide });
+  const arrSelected = new THREE.MeshBasicMaterial({ color:0xff5a3a, side:THREE.DoubleSide });
+  const arrStart    = new THREE.MeshBasicMaterial({ color:0x36c85a, side:THREE.DoubleSide });
 
   let sampled = null;   // last FK_TRACK.resample result (centerPts/tangents for item placement)
 
@@ -237,7 +335,7 @@
   // you stop dragging, keeping point edits smooth.
   const TERRAIN = { amp:3.4, wave:60, margin:9 };
   // include the live sculpt field so the WYSIWYG mesh + height reads reflect raised/lowered terrain.
-  function edTerrainOpts(){ return { amp:TERRAIN.amp, wave:TERRAIN.wave, margin:TERRAIN.margin, field:track.terrain, paint:track.paint }; }
+  function edTerrainOpts(){ return { amp:TERRAIN.amp, wave:TERRAIN.wave, margin:TERRAIN.margin, field:track.terrain, paint:track.paint, groundMargin:track.groundMargin, followTerrain:track.followTerrain }; }
   let terrainMesh = null, tuftsMesh = null, terrainTimer = null, showTerrain = true, showTufts = true;
   function rebuildTerrain(){
     if (terrainMesh){ scene.remove(terrainMesh); terrainMesh.geometry.dispose(); terrainMesh.material.dispose(); terrainMesh = null; }
@@ -296,24 +394,38 @@
 
   // ---- FENCES (P5): click to drop posts along a line; posts+rails follow the terrain ----
   const fenceGroup = new THREE.Group(); scene.add(fenceGroup);
-  let curFence = null, fenceSeq = 0, fenceDown = null;
+  let curFence = null, fenceSeq = 0, fenceDown = null, fenceStyle = 'rail';   // style for NEW fences
   function rebuildFences(){
     while (fenceGroup.children.length){ const o=fenceGroup.children[0]; fenceGroup.remove(o); o.traverse(c=>{ if(c.geometry)c.geometry.dispose(); if(c.material)c.material.dispose(); }); }
     let maxSeq=0;
     for (const f of (track.fences||[])){
       const m=String(f.id||'').match(/(\d+)$/); if(m) maxSeq=Math.max(maxSeq,+m[1]);
       if (f.points.length>=2) fenceGroup.add(FK_TRACK.buildFenceMesh(f, THREE, { heightFn:(x,z)=>terrainHeightAt(x,z) }));
-      // in-progress marker dots for the points (so a 1-point start is visible)
-      for (const p of f.points){ const d=new THREE.Mesh(new THREE.SphereGeometry(0.8,8,6), new THREE.MeshBasicMaterial({color:0xffe27a})); d.position.set(p.x, terrainHeightAt(p.x,p.z)+1, p.z); fenceGroup.add(d); }
+      // point markers: only for the fence being DRAWN or short hand-drawn fences (dense migrated walls
+      // would bury the view in dots). The wall mesh itself shows the migrated fences fine.
+      if (f===curFence || f.points.length<=24)
+        for (const p of f.points){ const d=new THREE.Mesh(new THREE.SphereGeometry(0.8,8,6), new THREE.MeshBasicMaterial({color:0xffe27a})); d.position.set(p.x, terrainHeightAt(p.x,p.z)+1, p.z); fenceGroup.add(d); }
     }
     fenceSeq=Math.max(fenceSeq,maxSeq); refreshFenceList();
   }
   function addFencePoint(x,z){
     track.fences=track.fences||[];
-    if (!curFence){ curFence={ id:'fence_'+(++fenceSeq), tag:'', points:[], height:2.2, postGap:6 }; track.fences.push(curFence); }
+    if (!curFence){ curFence={ id:'fence_'+(++fenceSeq), tag:'', style:fenceStyle, points:[], height:(fenceStyle==='ribbon'?1.2:2.2), postGap:6 }; track.fences.push(curFence); }
     curFence.points.push({ x:Math.round(x*10)/10, z:Math.round(z*10)/10 });
     rebuildFences();
   }
+  // materialize editable RIBBON fences from the track's corridor edges (the auto-convert path)
+  function fencesFromEdges(silent){
+    if (!sampled) return;
+    const gen = FK_TRACK.corridorFences(sampled, track.width, (track.wallMargin>0?track.wallMargin:7));
+    if (!gen.length){ if(!silent) toast('no corridor edges to trace'); return; }
+    track.fences = (track.fences||[]).filter(f=>f.tag!=='corridor');   // replace any prior auto walls
+    for (const f of gen){ f.id='fence_'+(++fenceSeq); track.fences.push(f); }
+    curFence=null; rebuildFences(); if(!silent) toast(gen.length+' ribbon wall(s) traced from the track edges');
+  }
+  // on load: a track with NO drawn fences auto-converts its corridor to editable ribbon walls, so it's
+  // never unbounded and the walls can be edited/deleted/replaced per stage (matches the game's runtime).
+  function maybeAutoFences(){ if (!track.fences || !track.fences.length) fencesFromEdges(true); }
   function undoFencePoint(){
     const f = curFence || (track.fences && track.fences[track.fences.length-1]);
     if (!f || !f.points.length) return;
@@ -331,7 +443,7 @@
     if(!fs.length){ box.innerHTML='<div style="color:#8aa;font-size:12px;">no fences yet</div>'; return; }
     fs.forEach((f,i)=>{
       const row=document.createElement('div'); row.style.cssText='display:flex;gap:6px;margin:2px 0;font-family:monospace;font-size:12px;';
-      const nm=document.createElement('span'); nm.style.cssText='flex:1;color:#d9c8a8;'; nm.textContent=(f===curFence?'▶ ':'')+(f.tag||('fence '+(i+1)))+' ('+f.points.length+'pt)';
+      const nm=document.createElement('span'); nm.style.cssText='flex:1;color:#d9c8a8;'; nm.textContent=(f===curFence?'▶ ':'')+(f.style==='ribbon'?'🟥':'🪵')+' '+(f.tag||('fence '+(i+1)))+' ('+f.points.length+'pt)';
       const del=document.createElement('button'); del.textContent='×'; del.style.cssText='background:#8a3a3a;border:0;color:#fff;border-radius:5px;cursor:pointer;padding:1px 7px;';
       del.onclick=()=>{ track.fences=track.fences.filter(x=>x!==f); if(curFence===f)curFence=null; rebuildFences(); };
       row.appendChild(nm); row.appendChild(del); box.appendChild(row);
@@ -393,13 +505,35 @@
     const o=id?(track.objects||[]).find(x=>x.id===id):null;
     $('objTag').value=o?(o.tag||''):''; if(o) $('objType').value=o.type||'block'; refreshObjList();
   }
-  function addObject(){
-    track.objects=track.objects||[];
-    const cx=+controls.target.x.toFixed(2), cz=+controls.target.z.toFixed(2), sy=6;
-    const o={ id:'obj_'+(++objSeq), tag:'', type:'block', x:cx, y:+(terrainHeightAt(cx,cz)+sy/2).toFixed(2), z:cz, rotY:0, sx:10, sy:sy, sz:10, color:0xc8a06a };
-    track.objects.push(o); rebuildObjects(); selectObject(o.id); setGizmo('translate');
-    toast('added block — drag the gizmo to place, name it below');
+  // ---- CLICK-TO-STAMP placement: pick a piece, then click the ground to drop copies (bottom flush
+  // with the terrain at the click). A translucent GHOST follows the cursor until you place. ----
+  let pendingPlace = null, placeGhost = null;
+  function startPlacing(tpl, label){
+    setMode('object'); selectObject(null); clearGhost();   // setMode clears any prior pending — set AFTER
+    pendingPlace = tpl;
+    toast('click the ground to place '+(label||'it')+' — keep clicking for copies · Esc to stop');
   }
+  function endPlacing(){ if(!pendingPlace) return; pendingPlace=null; clearGhost(); toast('placement done'); }
+  function clearGhost(){ if(placeGhost){ scene.remove(placeGhost); placeGhost.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material){ if(o.material.map)o.material.map.dispose(); o.material.dispose(); } }); placeGhost=null; } }
+  function moveGhost(x,z){
+    const tpl=pendingPlace; if(!tpl) return;
+    if(!placeGhost || placeGhost.userData.tType!==tpl.type || placeGhost.userData.tModel!==tpl.model){
+      clearGhost();
+      placeGhost = FK_TRACK.buildObjectMesh({ ...tpl, x:0, y:0, z:0, rotY:0 }, THREE, { ghost:true, propCache });
+      placeGhost.userData.tType=tpl.type; placeGhost.userData.tModel=tpl.model;
+      scene.add(placeGhost);
+    }
+    placeGhost.position.set(x, terrainHeightAt(x,z)+tpl.sy/2, z);   // bottom flush with the terrain
+  }
+  function stampAt(x,z){
+    const tpl=pendingPlace; if(!tpl) return;
+    track.objects=track.objects||[];
+    const o={ id:'obj_'+(++objSeq), tag:'', type:tpl.type, x:+x.toFixed(2), y:+(terrainHeightAt(x,z)+tpl.sy/2).toFixed(2), z:+z.toFixed(2),
+              rotY:0, sx:tpl.sx, sy:tpl.sy, sz:tpl.sz, color:tpl.color };
+    if(tpl.type==='glb') o.model=tpl.model;
+    track.objects.push(o); rebuildObjects();   // keep pendingPlace active so more clicks = more copies
+  }
+  function addObject(){ startPlacing({ type:'block', sx:10, sy:6, sz:10, color:0xc8a06a }, 'a block'); }
   function duplicateObject(){
     const o=selObjId?(track.objects||[]).find(x=>x.id===selObjId):null; if(!o){ toast('select an object first'); return; }
     const c=JSON.parse(JSON.stringify(o)); c.id='obj_'+(++objSeq); c.x+=8; c.z+=8;
@@ -428,11 +562,8 @@
   // ---- P6: place a downloaded CC0 prop (type "glb") ----
   function addProp(id){
     const def = (window.FK_PROPS||[]).find(p=>p.id===id); if(!def) return;
-    track.objects=track.objects||[];
-    const cx=+controls.target.x.toFixed(2), cz=+controls.target.z.toFixed(2), s=def.size||6;
-    const o={ id:'obj_'+(++objSeq), tag:'', type:'glb', model:id, x:cx, y:+(terrainHeightAt(cx,cz)+s*0.5).toFixed(2), z:cz, rotY:0, sx:s, sy:s, sz:s, color:0 };
-    track.objects.push(o); setMode('object'); rebuildObjects(); selectObject(o.id); setGizmo('translate');
-    toast('placed '+def.name);
+    const s=def.size||6;
+    startPlacing({ type:'glb', model:id, sx:s, sy:s, sz:s, color:0 }, def.name);
   }
   const PROP_CATS={tree:'🌳 trees',rock:'🪨 rocks & stones',plant:'🌱 plants & flowers',crop:'🌽 crops',log:'🪵 logs & stumps',fence:'🚧 fences',building:'🏚 farm buildings',prop:'🎪 props'};
   function renderPropList(cat){
@@ -455,15 +586,19 @@
     // ribbon
     if (ribbonGroup){ scene.remove(ribbonGroup); ribbonGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); }
     sampled = FK_TRACK.resample(track, THREE);
-    ribbonGroup = FK_TRACK.buildRibbonGeometry(sampled, track.width, THREE);
+    ribbonGroup = FK_TRACK.buildRibbonGeometry(sampled, track.width, THREE, edTerrainOpts());
     scene.add(ribbonGroup);
     // spheres
     while (sphereGroup.children.length) sphereGroup.remove(sphereGroup.children[0]);
     spheres.length = 0;
+    const NP = track.points.length;
     track.points.forEach((p,i)=>{
-      const mat = i===selected ? matSelected : (i===0 ? matStart : matNormal);
-      const s = new THREE.Mesh(SPH_GEO, mat);
-      s.position.set(p.x, (p.y||0)+0.5, p.z);
+      const mat = i===selected ? arrSelected : (i===0 ? arrStart : arrNormal);
+      const s = new THREE.Mesh(ARROW_GEO, mat);
+      s.position.set(p.x, (p.y||0)+0.7, p.z);
+      // point the arrow along the RACE direction (central-difference tangent through this point)
+      const a = track.points[(i-1+NP)%NP], b = track.points[(i+1)%NP];
+      s.rotation.y = Math.atan2(b.x - a.x, b.z - a.z);
       s.userData.idx = i;
       sphereGroup.add(s); spheres.push(s);
     });
@@ -578,6 +713,7 @@
   // ---- modes ----
   let mode = 'select'; // select | insert | item | boost | object
   function setMode(m){
+    if (pendingPlace){ pendingPlace=null; clearGhost(); }   // leaving/changing mode ends click-to-stamp
     mode = m;
     $('mSelect').classList.toggle('on', m==='select');
     $('mInsert').classList.toggle('on', m==='insert');
@@ -604,7 +740,7 @@
                           : m==='sculpt' ? 'drag the GRASS to raise it · hold Shift to lower · the road stays put'
                           : m==='paint'  ? 'pick a color, then drag the GRASS to paint it (dirt, sand, path...)'
                           : m==='fence'  ? 'click the ground to drop fence posts along a line · finish to start a new run · drag = orbit'
-                          : 'drag spheres = move · Shift+drag = elevation · drag empty = orbit · wheel = zoom';
+                          : 'drag arrows = move · Shift+drag = elevation · drag empty = orbit · wheel = zoom';
   }
   $('mSelect').addEventListener('click', ()=>setMode('select'));
   $('mInsert').addEventListener('click', ()=>setMode('insert'));
@@ -632,14 +768,10 @@
   $('pRad').addEventListener('input', ()=>{ PAINT.radius=+$('pRad').value; $('pRadV').textContent=PAINT.radius; });
   $('pReset').addEventListener('click', ()=>{ track.paint={ cell:6, cells:{} }; $('pCells').textContent='0'; rebuildTerrain(); toast('paint cleared'); });
   // water = an object with type "water" (reuses all the object machinery)
-  function addWater(){
-    track.objects=track.objects||[];
-    const cx=+controls.target.x.toFixed(2), cz=+controls.target.z.toFixed(2);
-    const o={ id:'obj_'+(++objSeq), tag:'', type:'water', x:cx, y:+(terrainHeightAt(cx,cz)+0.3).toFixed(2), z:cz, rotY:0, sx:30, sy:0.6, sz:30, color:0x2f6fb0 };
-    track.objects.push(o); rebuildObjects(); selectObject(o.id); setGizmo('translate');
-    toast('added water — move/scale with the gizmo, drop it into a dip');
-  }
+  function addWater(){ startPlacing({ type:'water', sx:30, sy:0.6, sz:30, color:0x2f6fb0 }, 'water'); }
+  function addRamp(){ startPlacing({ type:'ramp', sx:12, sy:3.5, sz:18, color:0xb8863f }, 'a ramp (rotate it after to aim the low end)'); }
   $('addWaterBtn').addEventListener('click', ()=>{ setMode('object'); addWater(); });
+  $('addRampBtn').addEventListener('click', ()=>{ setMode('object'); addRamp(); });
   $('addObjBtn').addEventListener('click', ()=>{ setMode('object'); addObject(); });
   // object type dropdown -> retype the selected object into a real prop (barn/silo/tree/...)
   $('objType').addEventListener('change', ()=>{
@@ -652,6 +784,12 @@
   $('mFence').addEventListener('click', ()=>setMode('fence'));
   $('fUndo').addEventListener('click', undoFencePoint);
   $('fFinish').addEventListener('click', finishFence);
+  $('fFromEdges').addEventListener('click', fencesFromEdges);
+  $('fStyleRail').addEventListener('click', ()=>{ fenceStyle='rail'; $('fStyleRail').classList.add('on'); $('fStyleRibbon').classList.remove('on'); });
+  $('fStyleRibbon').addEventListener('click', ()=>{ fenceStyle='ribbon'; $('fStyleRibbon').classList.add('on'); $('fStyleRail').classList.remove('on'); });
+  $('worldInp').addEventListener('change', ()=>{ const v=parseFloat($('worldInp').value);
+    if (isFinite(v)&&v>0){ track.groundMargin=Math.max(20,Math.min(400,v)); } else { delete track.groundMargin; }
+    rebuildTerrain(); });
   $('dupObjBtn').addEventListener('click', duplicateObject);
   $('gMove').addEventListener('click', ()=>setGizmo('translate'));
   $('gRot').addEventListener('click', ()=>setGizmo('rotate'));
@@ -667,6 +805,9 @@
   $('corridorBtn').addEventListener('click', ()=>{ showCorridor=!showCorridor; $('corridorBtn').classList.toggle('on', showCorridor); rebuildCorridorViz(); });
   $('terrainBtn').addEventListener('click', ()=>{ showTerrain=!showTerrain; $('terrainBtn').classList.toggle('on', showTerrain); grid.visible = !showTerrain; rebuildTerrain(); });
   $('tuftsBtn').addEventListener('click', ()=>{ showTufts=!showTufts; $('tuftsBtn').classList.toggle('on', showTufts); rebuildTerrain(); });
+  // 🏔 follow terrain: opt-in per-track drape. Sets track.followTerrain (deleted when off so old
+  // saves stay clean) and rebuilds so the ribbon + ground + test-bot all pick up the terrain tilt.
+  $('drapeBtn').addEventListener('click', ()=>{ track.followTerrain = !track.followTerrain; if(!track.followTerrain) delete track.followTerrain; $('drapeBtn').classList.toggle('on', !!track.followTerrain); rebuild(); });
 
   // ---- raycasting / pointer interaction ----
   const raycaster = new THREE.Raycaster();
@@ -692,13 +833,18 @@
   renderer.domElement.addEventListener('pointerdown', e=>{
     if (e.button !== 0){ return; } // left button only for editing; RMB/MMB -> orbit/pan
     if (mode === 'object'){
-      if (gizmo.axis) return;                 // pressing a gizmo handle -> TransformControls owns it
       setNdc(e);
+      // CLICK-TO-STAMP: a piece is armed -> drop a copy on the ground (keep armed for more).
+      if (pendingPlace){ const h = pickGround(); if (h) stampAt(h.x, h.z); controls.enabled=false; e.stopImmediatePropagation(); return; }
       const hits = raycaster.intersectObjects(objectGroup.children, true);
-      if (hits.length){
-        let g = hits[0].object; while (g && g.userData.objId===undefined) g = g.parent;
-        if (g){ selectObject(g.userData.objId); controls.enabled = false; }  // endDrag re-enables on up
-      }
+      let hitId = null;
+      if (hits.length){ let g = hits[0].object; while (g && g.userData.objId===undefined) g = g.parent; hitId = g ? g.userData.objId : null; }
+      // Clicking a DIFFERENT object ALWAYS selects it — even if the current selection's gizmo handle
+      // overlaps the cursor (that occlusion is why "I can't select my other objects" happens). We stop
+      // the event so TransformControls doesn't hijack the press to drag the old selection instead.
+      if (hitId && hitId !== selObjId){ selectObject(hitId); controls.enabled = false; e.stopImmediatePropagation(); return; }
+      if (gizmo.axis) return;                  // pressing a handle of the CURRENT selection -> gizmo owns it
+      if (hitId){ selectObject(hitId); controls.enabled = false; }   // re-press the selected object's body
       return;                                  // no point/sphere editing in object mode
     }
     if (mode === 'sculpt'){
@@ -734,10 +880,19 @@
       selected = idx; dragging = idx; dragShift = e.shiftKey; lastY = e.clientY;
       controls.enabled = false;
       rebuild();
+      return;
+    }
+    // no track point under the cursor -> if an OBJECT is there, select it (and hop into object mode so
+    // the gizmo shows). Lets you grab objects without first switching to 🧊 objects mode.
+    const oh = raycaster.intersectObjects(objectGroup.children, true);
+    if (oh.length){
+      let g = oh[0].object; while (g && g.userData.objId===undefined) g = g.parent;
+      if (g){ setMode('object'); selectObject(g.userData.objId); controls.enabled = false; e.stopImmediatePropagation(); }
     }
   }, true); // capture: run before OrbitControls' own handler so controls.enabled takes effect
 
   renderer.domElement.addEventListener('pointermove', e=>{
+    if (pendingPlace && mode==='object'){ setNdc(e); const h=pickGround(); if(h) moveGhost(h.x, h.z); return; }  // ghost follows cursor
     if (sculpting){ setNdc(e); const h=pickGround(); if(h){ applyBrush(h.x, h.z, e.shiftKey?-1:SCULPT.dir); liveTerrain(); } return; }
     if (painting){ setNdc(e); const h=pickGround(); if(h){ applyPaint(h.x, h.z); liveTerrain(); } return; }
     if (dragging < 0) return;
@@ -833,6 +988,7 @@
   addEventListener('keydown', e=>{
     const inField = document.activeElement.tagName==='INPUT' || document.activeElement.tagName==='TEXTAREA';
     if (inField) return;
+    if (e.key==='Escape'){ if(pendingPlace){ endPlacing(); e.preventDefault(); } return; }
     if (e.key==='Delete'||e.key==='Backspace'){
       if (mode==='object' && selObjId){ deleteObject(); e.preventDefault(); }
       else if (selected>=0){ deleteSelected(); e.preventDefault(); }
@@ -845,7 +1001,9 @@
 
   // ---- name / width / laps fields ----
   function syncFields(){ $('nameInp').value = track.name||''; $('widthInp').value = track.width; $('lapsInp').value = track.laps;
-    $('wallInp').value = (isFinite(track.wallMargin)&&track.wallMargin>0) ? track.wallMargin : ''; }
+    $('wallInp').value = (isFinite(track.wallMargin)&&track.wallMargin>0) ? track.wallMargin : '';
+    $('worldInp').value = (isFinite(track.groundMargin)&&track.groundMargin>0) ? track.groundMargin : '';
+    $('drapeBtn').classList.toggle('on', !!track.followTerrain); }
   $('nameInp').addEventListener('input', ()=>{ track.name = $('nameInp').value; });
   $('widthInp').addEventListener('input', ()=>{ const w=+$('widthInp').value; if(isFinite(w)&&w>0){ track.width=w; rebuild(); } });
   $('lapsInp').addEventListener('input', ()=>{ const l=Math.round(+$('lapsInp').value); if(isFinite(l)&&l>=1){ track.laps=l; } });
@@ -864,9 +1022,20 @@
     if (!currentId) currentId = slug(track.name);
     map[currentId] = clean;
     try{ localStorage.setItem('fk_tracks_v1', JSON.stringify(map)); }catch(e){ toast('save failed'); return null; }
-    toast('saved as "'+currentId+'"');
     populateLoad();
-    return currentId;
+    const savedId = currentId;
+    // CLOUD SYNC: push the WHOLE map so any device/version picks up the new track (user request).
+    // Fire-and-forget — doSave() keeps returning the id synchronously for testBtn's window.open.
+    (async ()=>{
+      await fkEdCloudReady;
+      if (!FkCloud.ok){ toast('✔ saved "'+savedId+'" on THIS device only (offline)', 3000); return; }
+      toast('⏳ saving "'+savedId+'" to all devices…', 3000);
+      try{
+        await FkCloud.fs.setDoc(fkTracksDocRef(), { tracks: JSON.stringify(map), updatedAt: Date.now() });
+        toast('✔ saved "'+savedId+'" to ALL devices', 3000);
+      }catch(err){ toast('✔ saved "'+savedId+'" on THIS device only (cloud save failed)', 3000); }
+    })();
+    return savedId;
   }
   $('saveBtn').addEventListener('click', doSave);
   $('testBtn').addEventListener('click', ()=>{ const id = doSave(); if (id) window.open('farmkart.html?track='+encodeURIComponent(id), '_blank'); });
@@ -881,7 +1050,7 @@
       const data = JSON.parse($('io').value);
       const clean = FK_TRACK.sanitize(data);
       if (!clean){ toast('import failed: invalid JSON/track'); return; }
-      track = clean; selected=-1; currentId=null; selObjId=null; curFence=null; syncFields(); rebuild(); rebuildObjects(); rebuildFences(); toast("imported");
+      track = clean; selected=-1; currentId=null; selObjId=null; curFence=null; syncFields(); rebuild(); rebuildObjects(); maybeAutoFences(); rebuildFences(); toast("imported");
     }catch(e){ toast('import failed: not JSON'); }
   });
 
@@ -889,8 +1058,15 @@
   function pickerEntries(){
     const seen={}, out=[{ id:'', name:FK_TRACK.DEFAULT_TRACK.name+' (default)' }];
     const b = FK_TRACK.BUILTIN_TRACKS || {};
-    for (const id in b){ const t=FK_TRACK.sanitize(b[id]); if(t){ out.push({ id, name:t.name||id }); seen[id]=1; } }
     const map = loadMap();
+    // a saved map entry with the SAME id as a built-in is an OVERRIDE — keep listing the
+    // built-in option (loadById already prefers the map copy) but label it "(edited)" instead
+    // of hiding it, so the fact that it's been customized is visible in the picker.
+    for (const id in b){
+      const t=FK_TRACK.sanitize(b[id]); if(!t) continue;
+      out.push({ id, name:(t.name||id) + (map[id] ? ' (edited)' : '') });
+      seen[id]=1;
+    }
     for (const id in map){ if(seen[id]) continue; const t=FK_TRACK.sanitize(map[id]); if(t) out.push({ id, name:(t.name||id)+' (saved)' }); }
     return out;
   }
@@ -911,26 +1087,402 @@
     let data = id ? ((loadMap()[id]) || (FK_TRACK.BUILTIN_TRACKS && FK_TRACK.BUILTIN_TRACKS[id]))
                   : JSON.parse(JSON.stringify(FK_TRACK.DEFAULT_TRACK));
     const c = FK_TRACK.sanitize(data); if(!c){ toast('load failed'); return; }
-    track=c; currentId=id||null; selected=-1; selObjId=null; curFence=null; syncFields(); rebuild(); rebuildObjects(); rebuildFences(); frameCamera(); populateLoad();
+    track=c; currentId=id||null; selected=-1; selObjId=null; curFence=null; syncFields(); rebuild(); rebuildObjects(); maybeAutoFences(); rebuildFences(); frameCamera(); populateLoad();
   }
   $('loadSel').addEventListener('change', ()=>{ const o=$('loadSel').selectedOptions[0]; loadById($('loadSel').value); toast('loaded "'+(o?o.textContent:'')+'"'); });
 
   // ---- toast ----
   let toastT = null;
-  function toast(msg){ const el=$('toast'); el.textContent=msg; el.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove('show'),1600); }
+  function toast(msg, ms){ const el=$('toast'); el.textContent=msg; el.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove('show'), ms||1600); }
+
+  // ============================================================================
+  // 🤖 TRACK-TEST BOT — a lone pure-pursuit driver that laps the LIVE track so the
+  // user can watch how the racing line, fences and ramps actually play. FULLY ADDITIVE:
+  // when bot.active is false the loop is byte-identical to before (one `if` check), and
+  // the bot NEVER writes to `track` — it only READS track.width/objects/fences + `sampled`.
+  // AI + physics are a faithful port of farmkart.html's botInput / cornerAhead / botTargetSpeed /
+  // stepKart — including the REAL DRIFT model: a lateral VELOCITY vector, low grip while drifting
+  // (velocity lags heading = a visible slide), mini-turbo charge, and the boost released on drift
+  // end. Items / rubber-band / MP are omitted (single lone bot). NEVER touches farmkart.html.
+  // ============================================================================
+  // TUNE — copied from farmkart.html TUNE_DEFAULTS (drift-relevant subset). Named so they're tweakable.
+  const BT = {
+    accel:15.5, maxSpeed:30, steerRate:1.75, steerLerp:9, brake:22, drag:0.8,
+    turnPeakSpeed:13.5, turnHighFrac:0.55, airControl:0.3,
+    // grip / traction — LOW grip while drifting makes velocity lag heading = a visible slide
+    gripRate:1.4, driftGripRate:0.28, airGrip:0.2,
+    // drift angle (how sideways the kart sits) + mini-turbo charge + released boost
+    minDriftSpeed:17, driftSteerMin:0.35, driftSteerMax:0.95,
+    driftAngleTarget:0.5, driftAngleMax:0.9, driftAngleMin:0.25, driftAngleRate:3, driftAngleSteerFeed:0.35,
+    mtChargeBase:120, mtChargeBonus:180, mtTier1:270, boostMult:0.2, boostAccel:50, boostT1:1,
+    // surface + slope
+    grassRamp:6, grassResponse:6, grassDecel:9, slopeAccel:6, slopeDeadzoneGrad:0.07,
+    gravity:18, launchMinSpeed:6, kartRadius:0.9,
+    // AI (pure-pursuit + drift decision)
+    botLookahead:8, botCornerGrip:1.05, botSkill:0.9, botTopSpeedMul:1.18,
+    botLatBase:16, botCurvWindow:25, botSteerGain:1.6, botLineInside:0.38, botLineGain:16,
+    botDrift:1, botDriftCurv:0.015, botDriftGripMul:3.5,
+    RAMP_STEP:1.6, RAMP_LAUNCH_BASE:3.0, RAMP_LAUNCH_SPEEDF:0.35, RAMP_LAUNCH_MAX:16, RAMP_FULL_HEIGHT:3
+  };
+  // FULL lateral state — v = velocity VECTOR (not speed along heading). The slide is v lagging theta.
+  const bot = { active:false, x:0, z:0, y:0, theta:0, v:{x:0,z:0}, vy:0, airborne:false,
+                drift:{ active:false, dir:0, charge:0 }, driftAngle:0, steer:0, boostT:0, boostTier:0,
+                grassF:0, onRamp:false, _rampF:0, _rampY:0, _rampSy:0,
+                lastIdx:0, centerDist:0, slideAngle:0 };
+  function botSpeed(){ return Math.hypot(bot.v.x, bot.v.z); }
+  function botGroundH(x,z){ return FK_TRACK.sampleHeight(sampled, x, z, track.width, edTerrainOpts()); }
+  function botDriftTier(charge){ if (charge>=2*BT.mtTier1) return 2; if (charge>=BT.mtTier1) return 1; return 0; }
+  function botEndDrift(allowBoost){
+    if (bot.drift.active && allowBoost){
+      const tier=botDriftTier(bot.drift.charge);
+      if (tier>=1){ bot.boostT=BT.boostT1*(tier===2?3:1); bot.boostTier=tier; }
+    }
+    bot.drift.active=false; bot.drift.dir=0; bot.drift.charge=0;
+  }
+  let botMesh = null, botClock = 0, follow = false, _savedCam = null;
+
+  function botTurnAuthority(speed){
+    const peak = BT.turnPeakSpeed, hi = BT.turnHighFrac;
+    if (speed <= 0) return 0.4;
+    if (speed < peak) return 0.4 + 0.6*(speed/peak);
+    if (speed < BT.maxSpeed){ const t=(speed-peak)/Math.max(0.001,(BT.maxSpeed-peak)); return 1.0 + (hi-1.0)*Math.min(t,1); }
+    return hi;
+  }
+  function botCurvature(a,b,c){
+    const abx=b.x-a.x, abz=b.z-a.z, bcx=c.x-b.x, bcz=c.z-b.z, acx=c.x-a.x, acz=c.z-a.z;
+    const A=Math.hypot(abx,abz), B=Math.hypot(bcx,bcz), C=Math.hypot(acx,acz);
+    const area=Math.abs(abx*bcz - abz*bcx)/2;
+    if (area<1e-6 || A<1e-6 || B<1e-6 || C<1e-6) return 0;
+    return 1/((A*B*C)/(4*area));
+  }
+  function botTargetSpeed(idx){
+    const C=sampled.centerPts, N=sampled.samples;
+    let maxCurv=0, ai=idx, acc=0;
+    while (acc < BT.botCurvWindow){
+      const curv=botCurvature(C[(ai-1+N)%N], C[ai], C[(ai+1)%N]);
+      if (curv>maxCurv) maxCurv=curv;
+      const j=(ai+1)%N; acc+=Math.hypot(C[j].x-C[ai].x, C[j].z-C[ai].z); ai=j; if(ai===idx)break;
+    }
+    const botTop=BT.maxSpeed*BT.botTopSpeedMul;
+    let tv=botTop;
+    if (maxCurv>1e-4) tv=Math.sqrt((BT.botLatBase*BT.botCornerGrip)/maxCurv);
+    tv=Math.min(tv, botTop);
+    tv*=(0.75 + 0.25*BT.botSkill);
+    return tv;
+  }
+  function botCornerAhead(idx, speed){
+    const C=sampled.centerPts, T=sampled.tangents, N=sampled.samples;
+    const lookDist=BT.botLookahead + speed*0.25;
+    let ai=idx, acc=0;
+    while (acc<lookDist){ const j=(ai+1)%N; acc+=Math.hypot(C[j].x-C[ai].x, C[j].z-C[ai].z); ai=j; if(ai===idx)break; }
+    let bestI=ai, maxCurv=0, a2=0, k=ai;
+    while (a2<BT.botCurvWindow){
+      const curv=botCurvature(C[(k-1+N)%N], C[k], C[(k+1)%N]);
+      if (curv>maxCurv){ maxCurv=curv; bestI=k; }
+      const j=(k+1)%N; a2+=Math.hypot(C[j].x-C[k].x, C[j].z-C[k].z); k=j; if(k===ai)break;
+    }
+    const t0=T[(bestI-2+N)%N], t1=T[(bestI+2)%N];
+    let inx=t1.x-t0.x, inz=t1.z-t0.z; const tm=Math.hypot(inx,inz);
+    if (tm>1e-4){ inx/=tm; inz/=tm; }
+    return { ai, inx, inz, maxCurv };
+  }
+  function botInput(){
+    const C=sampled.centerPts;
+    const idx=bot.lastIdx, speed=botSpeed();
+    const { ai, inx, inz, maxCurv } = botCornerAhead(idx, speed);
+    const skill=BT.botSkill;
+    // A drift has LOW grip, so its slide radius can't bend tighter than ~driftSpeed/driftGrip. Only
+    // drift corners gentle enough that the slide stays on-road (maxCurv <= holdable); tighter corners
+    // are gripped. Auto-derived from the live drift physics (matches the game).
+    const driftSpeed=BT.minDriftSpeed*1.1;
+    const botDriftGrip=BT.driftGripRate*BT.botDriftGripMul;
+    const holdableCurv=(botDriftGrip/driftSpeed)*0.7;
+    const wantDrift=!!BT.botDrift && skill>0.15 && maxCurv>BT.botDriftCurv && maxCurv<=holdableCurv;
+    const half=track.width/2;
+    const maxOff=half*BT.botLineInside;
+    const off=Math.min(maxCurv*BT.botLineGain, 1)*maxOff;   // apex bias
+    const target={ x:C[ai].x + inx*off, z:C[ai].z + inz*off };
+    const dx=target.x-bot.x, dz=target.z-bot.z;
+    let dTheta=Math.atan2(dx,dz)-bot.theta;
+    while (dTheta>Math.PI) dTheta-=Math.PI*2;
+    while (dTheta<-Math.PI) dTheta+=Math.PI*2;
+    let steer=Math.max(-1, Math.min(1, dTheta*BT.botSteerGain));
+    let tv=botTargetSpeed(idx);
+    if (wantDrift || bot.drift.active) tv=Math.max(tv, driftSpeed);   // carry enough to sustain the drift
+    let throttle=0, brake=0;
+    if (speed < tv-0.5) throttle=1;
+    else if (speed > tv+1.5) brake=1;
+    else throttle=0.45;
+    // DRIFTING: SHORT, tightly-committed bursts — start on a driftable corner, hold only until the first
+    // mini-turbo is banked OR the corner opens, then release (boost fires, grip returns).
+    let drift=false;
+    if (BT.botDrift){
+      if (bot.drift.active){
+        const d=bot.drift.dir;
+        const banked=bot.drift.charge>=BT.mtTier1;          // first mini-turbo earned -> cash it in
+        const cornerOpen=maxCurv<BT.botDriftCurv*0.5;        // corner straightening -> exit
+        drift=!banked && !cornerOpen && speed>BT.minDriftSpeed*0.85;
+        if (drift && steer*d<0.55) steer=d*0.55;             // commit into the drift to build charge
+      } else if (wantDrift && speed>BT.minDriftSpeed && speed<driftSpeed*1.15){
+        drift=true;
+        if (Math.abs(steer)<0.3 && steer!==0) steer=Math.sign(steer)*0.4;   // ensure the drift starts
+      }
+    }
+    if (drift){ brake=0; throttle=Math.max(throttle, 0.5); }
+    return { steer, throttle, brake, drift };
+  }
+  // ramps live in track.objects (type "ramp"); read-only mirrors of the game's rampLift/rampSupport.
+  function botRampLift(x,z,cy){
+    const objs=track.objects; if(!objs) return -Infinity;
+    let best=-Infinity;
+    for (const o of objs){ if(o.type!=='ramp') continue; const y=FK_TRACK.rampSurfaceY(o,x,z);
+      if (y!=null && y>best && y<=cy+BT.RAMP_STEP) best=y; }
+    return best;
+  }
+  function botRampSupport(x,z,cy){
+    const objs=track.objects; if(!objs) return null;
+    let best=null, bestY=-Infinity;
+    for (const o of objs){ if(o.type!=='ramp') continue; const y=FK_TRACK.rampSurfaceY(o,x,z);
+      if (y!=null && y>bestY && y<=cy+BT.RAMP_STEP){ bestY=y; best=o; } }
+    if (!best) return null;
+    const sy=best.sy||1;
+    return { y:bestY, sy, f:Math.max(0, Math.min(1, (bestY-(best.y-sy/2))/sy)) };
+  }
+  function botRideHeight(x,z,cy){
+    return Math.max(FK_TRACK.sampleHeight(sampled, x, z, track.width, edTerrainOpts()), botRampLift(x,z,cy));
+  }
+  // faithful stepKart port: lateral velocity + grip/drift/boost. Reuses the ramp + fence blocks.
+  function stepBot(dt){
+    if (!sampled) return;
+    const p=bot;
+    const inp=botInput();
+    const forward={ x:Math.sin(p.theta), z:Math.cos(p.theta) };
+    let speed=Math.hypot(p.v.x, p.v.z);
+    const dirSign=(p.v.x*forward.x + p.v.z*forward.z)>=0 ? 1 : -1;
+    const signedSpeed=speed*dirSign;
+    // ---- surface (grass factor) ----
+    const cdist=FK_TRACK.nearestOnCenter(sampled, p.x, p.z).dist;
+    const half=track.width/2;
+    const onGrass=cdist>half;
+    const gTarget=onGrass ? Math.min(1, (cdist-half)/Math.max(0.5,BT.grassRamp)) : 0;
+    p.grassF=(p.grassF||0) + (gTarget-(p.grassF||0))*Math.min(1, dt*BT.grassResponse);
+    const gf=p.grassF, air=p.airborne;
+    const boosting=p.boostT>0;
+    const botCap=BT.botTopSpeedMul;   // bots don't drift a straight, so their cruise cap is raised
+    let effMax=BT.maxSpeed*(boosting ? Math.max(botCap, 1+BT.boostMult) : botCap);
+    let effAccel=BT.accel;
+    if (gf>0){ effAccel*=(1-0.55*gf); effMax*=(1-0.5*gf); }
+    // ---- throttle / brake / drag along forward (none while airborne) ----
+    if (air){ /* coast */ }
+    else if (boosting){ const target=effMax; if (signedSpeed<target){ const add=Math.min(BT.boostAccel*dt, target-signedSpeed); p.v.x+=forward.x*add; p.v.z+=forward.z*add; } }
+    else if (inp.throttle>0){ const target=effMax; if (signedSpeed<target){ const add=effAccel*inp.throttle*dt; p.v.x+=forward.x*add; p.v.z+=forward.z*add; } }
+    else if (inp.brake>0){ if (signedSpeed>-BT.maxSpeed*0.4){ const dec=BT.brake*inp.brake*dt; p.v.x-=forward.x*dec; p.v.z-=forward.z*dec; } }
+    else { const dragF=Math.exp(-BT.drag*dt); p.v.x*=dragF; p.v.z*=dragF; }
+    // ---- SLOPE ACCEL (downhill rewards / uphill slows) ----
+    if (!air){
+      const e=1.5;
+      const dHdx=(botGroundH(p.x+e,p.z)-botGroundH(p.x-e,p.z))/(2*e);
+      const dHdz=(botGroundH(p.x,p.z+e)-botGroundH(p.x,p.z-e))/(2*e);
+      const gradMag=Math.hypot(dHdx,dHdz), spd=Math.hypot(p.v.x,p.v.z);
+      if (gradMag>BT.slopeDeadzoneGrad && spd>=1){
+        const downhillDotFwd=-(dHdx*forward.x + dHdz*forward.z);
+        const add=BT.slopeAccel*downhillDotFwd*dt; p.v.x+=forward.x*add; p.v.z+=forward.z*add;
+      }
+    }
+    // ---- GRIP: rotate v's DIRECTION toward heading by a fixed angular step. LOW rate while drifting
+    // (velocity lags = visible slide); the bot gets botDriftGripMul so its slides hold the corner. ----
+    speed=Math.hypot(p.v.x, p.v.z);
+    if (speed>0.001){
+      const driftGrip=BT.driftGripRate*BT.botDriftGripMul;
+      let rate=air ? BT.airGrip : (p.drift.active ? driftGrip : BT.gripRate);
+      if (!air && onGrass) rate*=2;
+      const sgn=(p.v.x*forward.x + p.v.z*forward.z)>=0 ? 1 : -1;
+      const vAng=Math.atan2(p.v.x, p.v.z);
+      const desiredAng=Math.atan2(forward.x*sgn, forward.z*sgn);
+      let dA=desiredAng-vAng; while (dA>Math.PI) dA-=Math.PI*2; while (dA<-Math.PI) dA+=Math.PI*2;
+      const na=vAng + Math.sign(dA)*Math.min(Math.abs(dA), rate*dt);
+      p.v.x=Math.sin(na)*speed; p.v.z=Math.cos(na)*speed;
+    }
+    // ---- clamp to effMax (smooth decay, not a snap) ----
+    speed=Math.hypot(p.v.x, p.v.z);
+    if (speed>effMax && !boosting){
+      const rate=BT.drag + (BT.grassDecel-BT.drag)*gf;
+      const over=speed-effMax, newSpeed=effMax + over*Math.exp(-rate*dt), s=newSpeed/speed;
+      p.v.x*=s; p.v.z*=s;
+    }
+    // ---- STEERING (smoothed input) ----
+    p.steer += (inp.steer-p.steer)*(1-Math.exp(-BT.steerLerp*dt));
+    speed=Math.hypot(p.v.x, p.v.z);
+    const speedFactor=botTurnAuthority(speed);
+    const reversing=(p.v.x*forward.x + p.v.z*forward.z)<-0.01;
+    let steerEff;
+    if (p.drift.active){
+      const d=p.drift.dir;
+      const tight=(p.steer*d+1)/2;
+      const mag=BT.driftSteerMin + (BT.driftSteerMax-BT.driftSteerMin)*Math.min(Math.max(tight,0),1);
+      steerEff=d*mag*BT.steerRate*speedFactor;
+      if (!air){ let chargeRate=BT.mtChargeBase; if (p.steer*d>0.4) chargeRate+=BT.mtChargeBonus; p.drift.charge+=chargeRate*dt; }
+    } else {
+      steerEff=p.steer*BT.steerRate*speedFactor;
+      if (reversing) steerEff=-steerEff;
+    }
+    if (air) steerEff*=BT.airControl;
+    p.theta+=steerEff*dt;
+    // ---- DRIFT ANGLE state (target-seeking + clamp, relaxes to 0 on release) ----
+    if (p.drift.active){
+      const d=p.drift.dir, into=p.steer*d;
+      let targetMag=BT.driftAngleTarget;
+      if (into>0)      targetMag=BT.driftAngleTarget + (BT.driftAngleMax-BT.driftAngleTarget)*Math.min(into,1);
+      else if (into<0) targetMag=BT.driftAngleTarget + (BT.driftAngleMin-BT.driftAngleTarget)*Math.min(-into,1);
+      const target=d*targetMag, dAng=target-p.driftAngle;
+      p.driftAngle += Math.sign(dAng)*Math.min(Math.abs(dAng), BT.driftAngleRate*dt);
+      p.driftAngle=Math.max(-BT.driftAngleMax, Math.min(BT.driftAngleMax, p.driftAngle));
+      p.theta += p.driftAngle*BT.driftAngleSteerFeed*dt;
+    } else if (p.driftAngle!==0){
+      p.driftAngle += Math.sign(-p.driftAngle)*Math.min(Math.abs(p.driftAngle), BT.driftAngleRate*dt);
+    }
+    // ---- DRIFT start / stop (frozen while airborne) ----
+    if (!air){
+      const wantDrift=inp.drift;
+      if (!p.drift.active){
+        if (wantDrift && speed>BT.minDriftSpeed && Math.abs(p.steer)>0.15){
+          p.drift.active=true; p.drift.dir=p.steer>=0?1:-1; p.drift.charge=0;
+        }
+      } else {
+        if (speed<BT.minDriftSpeed*0.7) botEndDrift(false);
+        else if (!wantDrift) botEndDrift(true);
+      }
+    }
+    // ---- integrate position ----
+    const px=p.x, pz=p.z;
+    p.x += p.v.x*dt; p.z += p.v.z*dt;
+    // ---- FENCE COLLISION (swept push-out + slide: strip only the into-fence velocity) ----
+    {
+      const rad=Math.max(0.6, BT.kartRadius)+0.28;
+      const moved=Math.hypot(p.x-px, p.z-pz);
+      const steps=Math.max(1, Math.ceil(moved/(rad*0.5)));
+      for (let si=1; si<=steps; si++){
+        const f=si/steps, tx=px+(p.x-px)*f, tz=pz+(p.z-pz)*f;
+        const hit=FK_TRACK.fenceCollide(track.fences, tx, tz, rad);
+        if (hit){
+          p.x=tx+hit.nx*hit.over; p.z=tz+hit.nz*hit.over;   // seat clear of the fence
+          const vn=p.v.x*hit.nx + p.v.z*hit.nz;
+          if (vn<0){ p.v.x-=vn*hit.nx; p.v.z-=vn*hit.nz; }  // SLIDE along the barrier
+          break;
+        }
+      }
+    }
+    // ---- VERTICAL / RAMP LAUNCH ----
+    {
+      const cy=p.y;
+      const rideY=botRideHeight(p.x, p.z, cy);
+      const rampSup=botRampSupport(p.x, p.z, cy);
+      const spd=Math.hypot(p.v.x, p.v.z);
+      if (!p.airborne && p.onRamp && !rampSup && p._rampF>0.5 && spd>BT.launchMinSpeed){
+        const steepF=Math.min(1, (p._rampSy||1)/BT.RAMP_FULL_HEIGHT);
+        p.airborne=true; p.y=Math.max(p.y, p._rampY);
+        p.vy=Math.min(BT.RAMP_LAUNCH_MAX, BT.RAMP_LAUNCH_BASE*steepF + spd*BT.RAMP_LAUNCH_SPEEDF);
+      }
+      if (p.airborne){
+        p.vy -= BT.gravity*dt; p.y += p.vy*dt;
+        if (p.y <= rideY){ p.y=rideY; p.airborne=false; p.vy=0; }
+      } else { p.y=rideY; p.vy=0; }
+      p.onRamp=!!rampSup; p._rampSy=rampSup?rampSup.sy:0; p._rampF=rampSup?rampSup.f:0;
+      if (rampSup) p._rampY=rampSup.y;
+    }
+    // ---- boost timer ----
+    if (p.boostT>0){ p.boostT=Math.max(0, p.boostT-dt); if (p.boostT===0) p.boostTier=0; }
+    // ---- centerline index + slide-angle readout (|angle between heading and velocity|) ----
+    const info=FK_TRACK.nearestOnCenter(sampled, p.x, p.z);
+    p.lastIdx=info.idx; p.centerDist=info.dist;
+    const vsp=Math.hypot(p.v.x, p.v.z);
+    if (vsp>0.5){ let a=Math.atan2(p.v.x,p.v.z)-p.theta; while(a>Math.PI)a-=Math.PI*2; while(a<-Math.PI)a+=Math.PI*2; p.slideAngle=Math.abs(a); }
+    else p.slideAngle=0;
+  }
+  function buildBotKart(){
+    const g=new THREE.Group();
+    const body=new THREE.Mesh(new THREE.BoxGeometry(3, 1.4, 4.6), new THREE.MeshLambertMaterial({ color:0xba303e }));
+    body.position.y=1.15; g.add(body);
+    const cab=new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.0, 2.0), new THREE.MeshLambertMaterial({ color:0x233357 }));
+    cab.position.set(0, 2.0, -0.4); g.add(cab);
+    // bright nose marker (points +Z = forward) so heading always reads
+    const nose=new THREE.Mesh(new THREE.ConeGeometry(0.75, 1.7, 14), new THREE.MeshLambertMaterial({ color:0xffe14d, emissive:0x554400 }));
+    nose.rotation.x=Math.PI/2; nose.position.set(0, 1.15, 2.9); g.add(nose);
+    const wg=new THREE.CylinderGeometry(0.9, 0.9, 0.8, 14), wm=new THREE.MeshLambertMaterial({ color:0x161616 });
+    for (const [wx,wz] of [[1.5,-1.6],[1.5,1.6],[-1.5,-1.6],[-1.5,1.6]]){
+      const w=new THREE.Mesh(wg, wm); w.rotation.z=Math.PI/2; w.position.set(wx, 0.65, wz); g.add(w);
+    }
+    return g;
+  }
+  function startBot(){
+    if (!sampled) return;
+    const C=sampled.centerPts, T=sampled.tangents;
+    const c=C[0], t=T[0];
+    bot.active=true; bot.x=c.x; bot.z=c.z; bot.theta=Math.atan2(t.x, t.z);
+    bot.v.x=0; bot.v.z=0; bot.vy=0; bot.airborne=false; bot.onRamp=false;
+    bot.drift.active=false; bot.drift.dir=0; bot.drift.charge=0; bot.driftAngle=0;
+    bot.boostT=0; bot.boostTier=0; bot.grassF=0; bot.slideAngle=0;
+    bot._rampF=0; bot._rampY=0; bot._rampSy=0; bot.lastIdx=0; bot.steer=0;
+    bot.y=botRideHeight(c.x, c.z, c.y||0);
+    if (!botMesh) botMesh=buildBotKart();
+    botMesh.position.set(bot.x, bot.y, bot.z); botMesh.rotation.set(0, bot.theta, 0);
+    scene.add(botMesh);
+    botClock=performance.now();
+    $('botBtn').classList.add('on'); $('botBtn').textContent='⏹ stop bot';
+    toast('bot driving — watch it lap the course');
+  }
+  function stopBot(){
+    bot.active=false;
+    if (botMesh) scene.remove(botMesh);
+    if (follow) setFollow(false);
+    $('botBtn').classList.remove('on'); $('botBtn').textContent='🤖 test-drive';
+  }
+  function setFollow(on){
+    on=!!on;
+    if (on && !follow){ _savedCam={ pos:camera.position.clone(), target:controls.target.clone() }; controls.enabled=false; }
+    else if (!on && follow){ controls.enabled=true; if (_savedCam){ camera.position.copy(_savedCam.pos); controls.target.copy(_savedCam.target); controls.update(); _savedCam=null; } }
+    follow=on; $('followBtn').classList.toggle('on', follow);
+  }
+  function updateFollowCam(dt){
+    const b=bot, fx=Math.sin(b.theta), fz=Math.cos(b.theta);
+    const dist=16, height=10;
+    const tx=b.x - fx*dist, ty=b.y+height, tz=b.z - fz*dist, k=Math.min(1, dt*4);
+    camera.position.x += (tx-camera.position.x)*k;
+    camera.position.y += (ty-camera.position.y)*k;
+    camera.position.z += (tz-camera.position.z)*k;
+    camera.lookAt(b.x, b.y+2, b.z);
+  }
+  $('botBtn').addEventListener('click', ()=>{ bot.active ? stopBot() : startBot(); });
+  $('followBtn').addEventListener('click', ()=>{ setFollow(!follow); if(follow && !bot.active) startBot(); });
 
   // ---- resize + loop ----
   function resize(){ const w=stage.clientWidth,h=stage.clientHeight; renderer.setSize(w,h); camera.aspect=w/h; camera.updateProjectionMatrix(); }
   addEventListener('resize', resize); resize();
-  (function loop(){ controls.update(); renderer.render(scene, camera); requestAnimationFrame(loop); })();
+  (function loop(){
+    if (bot.active){
+      const now=performance.now();
+      let dt=(now-botClock)/1000; botClock=now; dt=Math.min(0.05, Math.max(0, dt));
+      stepBot(dt);
+      if (botMesh){
+        botMesh.position.set(bot.x, bot.y, bot.z);
+        // pitch from vertical speed, YAW = heading (theta), roll banks INTO the drift/steer for read
+        const roll = -(bot.driftAngle*0.5 + bot.steer*0.1);
+        botMesh.rotation.set(-Math.max(-0.4, Math.min(0.4, bot.vy*0.03)), bot.theta, Math.max(-0.6, Math.min(0.6, roll)));
+      }
+      if (follow) updateFollowCam(dt); else controls.update();
+    } else controls.update();
+    renderer.render(scene, camera); requestAnimationFrame(loop);
+  })();
 
   // ---- boot ----
   syncFields();
   rebuild();
   rebuildObjects();
+  maybeAutoFences();
   rebuildFences();
   populateLoad();
   frameCamera();
+  fkEdPullCloud();   // background: pull the family's saved tracks so this device is up to date
 
   // P6: preload the CC0 prop library (async) — placeholders swap to real models when ready
   buildPropPicker();
@@ -945,6 +1497,8 @@
   window.__EDITOR__ = {
     get track(){ return track; }, get selected(){ return selected; }, get mode(){ return mode; },
     get showCorridor(){ return showCorridor; },
+    get ribbonGroup(){ return ribbonGroup; },   // draped-ribbon bbox check (followTerrain test)
+    toggleFollow:()=>{ track.followTerrain=!track.followTerrain; if(!track.followTerrain) delete track.followTerrain; $('drapeBtn').classList.toggle('on', !!track.followTerrain); rebuild(); return !!track.followTerrain; },
     setMode, rebuild, insertNear, addItemAt, addBoostAt, deleteSelected, doSave,
     scene, camera, spheres, boostGroup, corridorGroup, refreshValidation,
     setSelected:(i)=>{ selected=i; rebuild(); },
@@ -952,10 +1506,11 @@
     setPointY:(i,y)=>{ track.points[i].y=y; rebuild(); },
     setWallMargin:(m)=>{ track.wallMargin=m; syncFields(); rebuildCorridorViz(); },
     toggleCorridor:()=>{ showCorridor=!showCorridor; $('corridorBtn').classList.toggle('on', showCorridor); rebuildCorridorViz(); return showCorridor; },
-    loadTrack:(t)=>{ const c=FK_TRACK.sanitize(t); if(c){ track=c; selected=-1; selObjId=null; curFence=null; syncFields(); rebuild(); rebuildObjects(); rebuildFences(); } return !!c; },
+    loadTrack:(t)=>{ const c=FK_TRACK.sanitize(t); if(c){ track=c; selected=-1; selObjId=null; curFence=null; syncFields(); rebuild(); rebuildObjects(); maybeAutoFences(); rebuildFences(); } return !!c; },
     // P2 object hooks (for headless tests)
     get objects(){ return track.objects||[]; }, get selObjId(){ return selObjId; }, objMeshes, gizmo,
     addObject, duplicateObject, deleteObject, selectObject, setGizmo, rebuildObjects,
+    startPlacing, stampAt, endPlacing, get pendingPlace(){ return pendingPlace; },
     setObjTag:(t)=>{ if(selObjId){ const o=(track.objects||[]).find(x=>x.id===selObjId); if(o){ o.tag=t; const g=objMeshes[selObjId]; if(g&&g.userData.label){ labelGroup.remove(g.userData.label); const l=makeLabel(o.tag); positionLabel(l,o); labelGroup.add(l); g.userData.label=l; } refreshObjList(); } } },
     transformSelected:(pos,scl,rotY)=>{ const g=selObjId?objMeshes[selObjId]:null; if(!g)return; if(pos)g.position.set(pos[0],pos[1],pos[2]); if(scl)g.scale.set(scl[0],scl[1],scl[2]); if(rotY!=null)g.rotation.y=rotY; writeBackSelected(); },
     // P3 sculpt hooks (for headless tests)
@@ -971,7 +1526,12 @@
     // P5 fence + prop hooks
     get fences(){ return track.fences||[]; }, get fenceCount(){ return fenceCount(); },
     addFencePoint, finishFence, rebuildFences,
-    setObjType:(t)=>{ if(selObjId){ const o=(track.objects||[]).find(x=>x.id===selObjId); if(o){ o.type=t; rebuildObjects(); } } }
+    setObjType:(t)=>{ if(selObjId){ const o=(track.objects||[]).find(x=>x.id===selObjId); if(o){ o.type=t; rebuildObjects(); } } },
+    // 🤖 track-test bot hooks (for headless tests)
+    startBot, stopBot, setFollow, get bot(){ return bot; }, get follow(){ return follow; },
+    // cloud track-sync hooks (for headless tests)
+    get cloudOk(){ return FkCloud.ok; }, get familyKey(){ return fkEdFamilyKey; },
+    pullCloud: fkEdPullCloud, get currentId(){ return currentId; }
   };
   </script>
 </body>

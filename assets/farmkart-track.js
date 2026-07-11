@@ -211,23 +211,40 @@
 
   // ---- buildRibbonGeometry: THREE.Group of asphalt + two curb-stripe ribbons ----
   // Byte-identical to the game's original closedRibbon builder so terrain/feel don't shift.
-  function buildRibbonGeometry(sampled, width, THREE){
+  // opts (OPTIONAL 4th arg): when opts.followTerrain, EACH ribbon vertex's y is set to
+  // groundHills at its OWN XZ (left edge, centerline, right edge independent) so the road drapes
+  // over the land AND tilts across its width (natural camber). Absent/false -> byte-identical.
+  function buildRibbonGeometry(sampled, width, THREE, opts){
+    opts = opts || {};
+    const follow = !!opts.followTerrain;
     const centerPts = sampled.centerPts, tangents = sampled.tangents, N = sampled.samples;
     const hw = width/2, curbW = 0.55;
-    function closedRibbon(offL, offR, color, layerY){
-      const pos = [];
+    // Draped roads need extra vertical clearance so the coarser GROUND mesh (which interpolates the
+    // same hills over ~4u cells) can't poke through in valleys, and width SUBDIVISION so the surface
+    // conforms across the road (a single 18u-wide flat quad cuts through a hill's cross-section).
+    const followLift = follow ? 0.22 : 0;
+    function closedRibbon(offL, offR, color, layerY, wseg){
+      wseg = follow ? (wseg||8) : 1;             // flat = 1 span (byte-identical); draped = subdivided
+      const cols = wseg + 1, pos = [];
       for (let i=0;i<N;i++){
         const c = centerPts[i], t = tangents[i];
         const nx = -t.z, nz = t.x; // left normal in XZ
-        const y = c.y + layerY;
-        pos.push(c.x + nx*offL, y, c.z + nz*offL);
-        pos.push(c.x + nx*offR, y, c.z + nz*offR);
+        for (let w=0; w<=wseg; w++){
+          const off = offL + (offR-offL)*(w/wseg);
+          const x = c.x + nx*off, z = c.z + nz*off;
+          // flat: the control-point elevation (unchanged). draped: sample the terrain at THIS vertex's
+          // own XZ so the road conforms + cambers, plus followLift so the grass never poke-throughs.
+          const y = (follow ? groundHills(x, z, opts) + followLift : c.y) + layerY;
+          pos.push(x, y, z);
+        }
       }
       const idx = [];
       for (let i=0;i<N;i++){
         const j = (i+1)%N;
-        const Li=i*2, Ri=i*2+1, Lj=j*2, Rj=j*2+1;
-        idx.push(Li, Ri, Lj); idx.push(Ri, Rj, Lj);
+        for (let w=0; w<wseg; w++){
+          const A=i*cols+w, B=i*cols+w+1, C=j*cols+w, D=j*cols+w+1;
+          idx.push(A, B, C); idx.push(B, D, C);
+        }
       }
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -235,9 +252,9 @@
       return new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color, side:THREE.DoubleSide }));
     }
     const grp = new THREE.Group();
-    grp.add(closedRibbon(+hw, -hw, 0x33373d, 0.08));
-    grp.add(closedRibbon(+hw, +(hw - curbW), 0xdfe4ea, 0.12));
-    grp.add(closedRibbon(-(hw - curbW), -hw, 0xdfe4ea, 0.12));
+    grp.add(closedRibbon(+hw, -hw, 0x33373d, 0.08, 8));                 // road bed — subdivided across width
+    grp.add(closedRibbon(+hw, +(hw - curbW), 0xdfe4ea, 0.12, 1));       // curbs are thin -> 1 span is enough
+    grp.add(closedRibbon(-(hw - curbW), -hw, 0xdfe4ea, 0.12, 1));
     return grp;
   }
 
@@ -264,6 +281,14 @@
       // game falls back to TUNE.wallMargin, so old saved tracks are undisturbed.
       const out = { v:1, name, width, laps, gridSide, itemRows, points };
       if (isFinite(+data.wallMargin) && +data.wallMargin > 0) out.wallMargin = +data.wallMargin;
+      // FOLLOW TERRAIN (opt-in per track): the road DRAPES over the procedural hills + sculpt field
+      // and tilts with the land, instead of being flat at the authored control-point elevations with
+      // the terrain displaced to meet it. Absent/false -> omitted, so every existing track is unchanged.
+      // NOTE: this is a SINGLE surface — do not combine with multi-level bridge tracks.
+      if (data.followTerrain === true) out.followTerrain = true;
+      // WORLD SIZE: how far the grass/terrain mesh extends past the track bbox (editor-tunable). Absent
+      // -> buildGroundMesh's default 55. Clamped so a huge value can't blow up the vertex count.
+      if (isFinite(+data.groundMargin) && +data.groundMargin > 0) out.groundMargin = Math.min(400, +data.groundMargin);
       // K7 OPTIONAL: boostPads [{s:0..1, lane:-1..1}]. Absent/garbage -> omitted (empty behavior).
       if (Array.isArray(data.boostPads)){
         const pads = [];
@@ -331,11 +356,13 @@
           const pts = [];
           for (const p of f.points){ const x=+p.x, z=+p.z; if (isFinite(x)&&isFinite(z)) pts.push({x,z}); }
           if (pts.length < 2) continue;
+          const style = (f.style === 'ribbon') ? 'ribbon' : 'rail';
           fences.push({
             id:  (typeof f.id==='string' && f.id) ? f.id.slice(0,40) : ('fence_'+(fences.length+1)),
             tag: (typeof f.tag==='string') ? f.tag.slice(0,60) : '',
+            style,
             points: pts,
-            height:  (isFinite(+f.height) && +f.height>0) ? +f.height : 2.2,
+            height:  (isFinite(+f.height) && +f.height>0) ? +f.height : (style==='ribbon' ? 1.2 : 2.2),
             postGap: (isFinite(+f.postGap) && +f.postGap>1) ? +f.postGap : 6
           });
         }
@@ -373,6 +400,20 @@
     } else if (type === 'tree'){
       put(new THREE.CylinderGeometry(0.09,0.12,0.5,8), 0x6b4a2b, 0,-0.25,0);       // trunk
       put(new THREE.SphereGeometry(0.4,12,10), isFinite(color)?color:0x4f8f3a, 0,0.15,0);   // canopy
+    } else if (type === 'ramp'){
+      // a jump WEDGE: low edge at -Z (base), rising to full height at +Z. Centered unit box so the
+      // group's (x,y,z)=CENTRE + (sx,sy,sz) scale place/size it like every other object; rampSurfaceY
+      // (the kart height sampler) uses the SAME geometry so what you see is what you launch off of.
+      const col = isFinite(color)?color:0xb8863f;                 // wood/dirt ramp
+      const L0=[-.5,-.5,-.5],L1=[.5,-.5,-.5],B0=[-.5,-.5,.5],B1=[.5,-.5,.5],T0=[-.5,.5,.5],T1=[.5,.5,.5];
+      const tris=[ [L0,L1,T1],[L0,T1,T0],   // sloped driving surface
+                   [L0,B1,B0],[L0,L1,B1],   // flat bottom
+                   [B0,B1,T1],[B0,T1,T0],   // vertical back
+                   [L0,T0,B0],              // left triangle
+                   [L1,B1,T1] ];            // right triangle
+      const pos=[]; for (const t of tris) for (const v of t) pos.push(v[0],v[1],v[2]);
+      const geo=new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos,3)); geo.computeVertexNormals();
+      const m=new THREE.Mesh(geo, lam(col)); m.material.side=THREE.DoubleSide; g.add(m);
     } else if (type === 'glb'){
       // a downloaded CC0 prop, normalized into the unit box at load (opts.propCache[obj.model]).
       const entry = opts.propCache && opts.propCache[obj.model];
@@ -396,24 +437,58 @@
     return g;
   }
 
-  // ---- buildFenceMesh (P5): a cattle-fence polyline -> posts + 3 rails that FOLLOW the terrain.
-  // fence = { points:[{x,z}], height, postGap }. opts.heightFn(x,z) seats it on the ground (game
-  // passes sampleHeight, editor passes its terrain height). Shared so editor + game render identical.
+  // ---- buildFenceMesh (P5): a fence polyline -> a barrier that FOLLOWS the terrain.
+  // fence = { points:[{x,z}], height, postGap, style }. opts.heightFn(x,z) seats it on the ground
+  // (game passes sampleHeight, editor passes its terrain height). Shared so editor + game render
+  // identical. style "rail" (default) = wooden posts + 3 rails; style "ribbon" = a solid striped
+  // red/white curb-wall (the look of the old auto corridor wall, now a drawable per-stage fence).
+  // BOTH styles collide identically in-game (collision reads fence.points via fenceCollide).
   function buildFenceMesh(fence, THREE, opts){
     const g = new THREE.Group();
     const pts = fence.points; if (!pts || pts.length < 2) return g;
     const hfn = (opts && opts.heightFn) || (()=>0);
-    const H = fence.height || 2.2, postGap = fence.postGap || 6, step = 2.5;
-    const postMat = new THREE.MeshLambertMaterial({ color:0x6b4a2b });
-    const railMat = new THREE.MeshLambertMaterial({ color:0x9a7a4e });
-    const railFracs = [0.4, 0.68, 0.95];
-    // dense terrain-following path along all segments
+    const step = 2.5;
+    // dense terrain-following path + running arc length (shared by both styles)
     const path = [];
     for (let s=0;s<pts.length-1;s++){
       const a=pts[s], b=pts[s+1], dx=b.x-a.x, dz=b.z-a.z, len=Math.hypot(dx,dz), n=Math.max(1,Math.round(len/step));
       for (let i=0;i<n;i++){ const t=i/n, x=a.x+dx*t, z=a.z+dz*t; path.push({x,z,y:hfn(x,z)}); }
     }
     const last=pts[pts.length-1]; path.push({x:last.x,z:last.z,y:hfn(last.x,last.z)});
+
+    if (fence.style === 'ribbon'){
+      // one merged BufferGeometry: a thin vertical wall centred on the polyline, striped by arc length.
+      const H = fence.height || 1.2, ht = 0.28, sink = 0.35;   // ht = half thickness (extrude both sides)
+      const RED = [0.85,0.16,0.13], WHITE = [0.94,0.94,0.90];
+      const positions = [], colors = [];
+      const tri = (a,b,c,col)=>{ positions.push(a[0],a[1],a[2], b[0],b[1],b[2], c[0],c[1],c[2]); for(let k=0;k<3;k++) colors.push(col[0],col[1],col[2]); };
+      const quad = (p1,p2,p3,p4,col)=>{ tri(p1,p2,p3,col); tri(p1,p3,p4,col); };
+      let acc = 0;
+      for (let i=0;i<path.length-1;i++){
+        const a=path[i], b=path[i+1];
+        let nx = -(b.z-a.z), nz = (b.x-a.x); const nl = Math.hypot(nx,nz)||1; nx/=nl; nz/=nl;  // segment normal (XZ)
+        const ay = a.y - sink, by = b.y - sink;
+        const aLx=a.x+nx*ht, aLz=a.z+nz*ht, aRx=a.x-nx*ht, aRz=a.z-nz*ht;
+        const bLx=b.x+nx*ht, bLz=b.z+nz*ht, bRx=b.x-nx*ht, bRz=b.z-nz*ht;
+        const col = (Math.floor(acc/2.2)%2===0) ? RED : WHITE;
+        quad([aLx,ay,aLz],[aLx,ay+H,aLz],[bLx,by+H,bLz],[bLx,by,bLz], col);   // left face
+        quad([bRx,by,bRz],[bRx,by+H,bRz],[aRx,ay+H,aRz],[aRx,ay,aRz], col);   // right face
+        quad([aLx,ay+H,aLz],[aRx,ay+H,aRz],[bRx,by+H,bRz],[bLx,by+H,bLz], col); // top cap
+        acc += Math.hypot(b.x-a.x, b.z-a.z);
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geo.setAttribute('color',    new THREE.Float32BufferAttribute(colors, 3));
+      geo.computeVertexNormals();
+      g.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors:true, side:THREE.DoubleSide })));
+      return g;
+    }
+
+    // default "rail" style — wooden posts + 3 rails
+    const H = fence.height || 2.2, postGap = fence.postGap || 6;
+    const postMat = new THREE.MeshLambertMaterial({ color:0x6b4a2b });
+    const railMat = new THREE.MeshLambertMaterial({ color:0x9a7a4e });
+    const railFracs = [0.4, 0.68, 0.95];
     const Z = new THREE.Vector3(0,0,1);
     for (let i=0;i<path.length-1;i++){
       const p=path[i], q=path[i+1];
@@ -431,6 +506,95 @@
       if (acc>=next || i===path.length-1){ const p=path[i]; const post=new THREE.Mesh(new THREE.BoxGeometry(0.2,H,0.2), postMat); post.position.set(p.x, p.y+H/2, p.z); g.add(post); next+=postGap; }
     }
     return g;
+  }
+
+  // ---- rampSurfaceY: world height of a ramp's driving surface at (x,z), or null if outside its
+  // footprint. Ramp = a wedge object (type "ramp"): low edge at local -Z rising to full height (sy) at
+  // local +Z, across width sx, rotated by rotY. The game folds this into the kart's height sampling so
+  // driving up the slope lifts the kart and driving off the top edge launches it (K2.5 airborne).
+  function rampSurfaceY(obj, x, z){
+    const dx=x-obj.x, dz=z-obj.z;
+    const c=Math.cos(obj.rotY||0), s=Math.sin(obj.rotY||0);
+    const lx=dx*c - dz*s, lz=dx*s + dz*c;             // world -> ramp-local (undo rotY)
+    const hw=(obj.sx||1)/2, hl=(obj.sz||1)/2;
+    if (lx<-hw || lx>hw || lz<-hl || lz>hl) return null;
+    const f=(lz+hl)/(2*hl);                            // 0 at low end (-Z) -> 1 at high end (+Z)
+    return (obj.y||0) - (obj.sy||1)/2 + f*(obj.sy||1); // base (obj.y - sy/2) rising by f*sy
+  }
+
+  // ---- fenceCollide: kart-vs-fence push-out across ALL fence polylines (2D, in XZ). Returns the
+  // deepest {nx,nz,over} (nx,nz = unit direction to push the kart AWAY from the fence) or null.
+  // radius = kart half-width + fence half-thickness. Style-independent (posts and ribbon both use
+  // the same polyline). Gaps in a polyline (separate fences) are naturally open — no segment, no wall.
+  function fenceCollide(fences, x, z, radius){
+    if (!fences || !fences.length) return null;
+    let best = null, bestOver = 0;
+    for (const f of fences){
+      const pts = f.points; if (!pts || pts.length < 2) continue;
+      for (let i=0;i<pts.length-1;i++){
+        const a=pts[i], b=pts[i+1];
+        const abx=b.x-a.x, abz=b.z-a.z, L2=abx*abx+abz*abz || 1e-6;
+        let t=((x-a.x)*abx+(z-a.z)*abz)/L2; if(t<0)t=0; else if(t>1)t=1;
+        const cx=a.x+abx*t, cz=a.z+abz*t, dx=x-cx, dz=z-cz;
+        const d=Math.hypot(dx,dz), over=radius-d;
+        if (over>0 && over>bestOver){
+          let nx, nz;
+          if (d > 1e-3){ nx=dx/d; nz=dz/d; }                 // push directly away from the contact point
+          else { const sl=Math.hypot(abx,abz)||1; nx=-abz/sl; nz=abx/sl; }  // dead-on the line -> segment perpendicular
+          best={nx, nz, over}; bestOver=over;
+        }
+      }
+    }
+    return best;
+  }
+
+  // ---- corridorFences: derive editable RIBBON fences from a track's corridor edges (the migration
+  // path that replaces the old automatic corridor wall). Walks both road edges at half+margin, breaks
+  // the polyline wherever another branch of the road overlaps (so legal self-crossings stay open), and
+  // returns one ribbon fence per continuous edge run. Same geometry the old buildCorridorFence drew,
+  // now as data the editor can edit/delete/replace. sampled = FK_TRACK.resample output.
+  function corridorFences(sampled, width, margin){
+    const C = sampled.centerPts, T = sampled.tangents, N = sampled.samples;
+    const half = width/2, edge = half + (margin>0?margin:7);
+    const meanSeg = sampled.trackLen / N;
+    const idxWin = Math.max(6, Math.ceil((2*edge)/Math.max(0.5, meanSeg)));
+    function otherBranchNear(x, z, atIdx){
+      let bd = 1e18;
+      for (let i=0;i<N;i++){
+        const di = Math.min((i-atIdx+N)%N, (atIdx-i+N)%N);
+        if (di < idxWin) continue;
+        const c = C[i]; const dx=x-c.x, dz=z-c.z; const d=dx*dx+dz*dz; if(d<bd)bd=d;
+      }
+      return Math.sqrt(bd);
+    }
+    // decimate a dense edge run to ~one point per `spacing` units of arc (keeps endpoints) so the
+    // resulting fence has a manageable, editable number of control points (the mesh re-densifies).
+    const spacing = Math.max(9, edge);
+    function decimate(pts){
+      if (pts.length <= 2) return pts;
+      const o = [pts[0]]; let acc = 0;
+      for (let i=1;i<pts.length-1;i++){ acc += Math.hypot(pts[i].x-pts[i-1].x, pts[i].z-pts[i-1].z); if (acc>=spacing){ o.push(pts[i]); acc=0; } }
+      o.push(pts[pts.length-1]); return o;
+    }
+    const out = [];
+    for (let side=-1; side<=1; side+=2){
+      const E = [], open = [];
+      for (let i=0;i<N;i++){
+        const c=C[i], t=T[i]; const nx=-t.z*side, nz=t.x*side;   // outward on this side
+        const px=c.x+nx*edge, pz=c.z+nz*edge;
+        E.push({x:px, z:pz}); open.push(otherBranchNear(px,pz,i) > edge);   // true = solid wall here
+      }
+      // extract maximal runs of consecutive open==true edge points into separate polylines
+      let run = [];
+      const flush = ()=>{ if (run.length>=2) out.push({ id:'wall_'+(out.length+1), tag:'corridor', style:'ribbon', height:1.2, points:decimate(run) }); run=[]; };
+      for (let i=0;i<=N;i++){
+        const k=i%N;
+        if (i<N && open[k]) run.push({x:E[k].x, z:E[k].z});
+        else flush();
+      }
+      flush();
+    }
+    return out;
   }
 
   // ---- validate: advisory warnings for the EDITOR (bowtie / self-intersection / spacing) ----
@@ -549,6 +713,9 @@
   // sampleHeight: flat across the road width, smoothstep-blended out to the ground hills. This is
   // the SINGLE height authority for the kart, entities, and (on non-bridge spans) the grass mesh.
   function sampleHeight(sampled, x, z, width, opts){
+    // FOLLOW TERRAIN: the road drapes on the land — height is just the ground everywhere (no flat
+    // trackY, no skirt blend). The ribbon mesh + kart plane pick up the terrain tilt from this.
+    if (opts.followTerrain) return groundHills(x, z, opts);
     const half = width/2;
     const margin = Math.max(0.5, opts.margin);
     const info = nearestOnCenter(sampled, x, z);
@@ -614,6 +781,9 @@
   // used a different nearest/lowest walk than sampleHeight, so road-edge skirts disagreed with the
   // kart and buried/floated the body even on single-level tracks.
   function groundSampleHeight(sampled, x, z, width, opts){
+    // FOLLOW TERRAIN is a single surface: the grass mesh IS the ground everywhere (no bridge branch,
+    // no double-apply). Explicit early return keeps _isMultiLevelRoad from firing on authored y's.
+    if (opts.followTerrain) return groundHills(x, z, opts);
     if (_isMultiLevelRoad(sampled, x, z, width)) return _lowestBranchHeight(sampled, x, z, width, opts);
     return sampleHeight(sampled, x, z, width, opts);
   }
@@ -747,6 +917,7 @@
     VERSION:1, SAMPLES,
     DEFAULT_TRACK, BUILTIN_TRACKS,
     resample, buildRibbonGeometry, sanitize, validate, reverse, nearestOnCenter, nearestOnCenterAtY,
-    groundHills, sampleHeight, groundSampleHeight, buildGroundMesh, buildObjectMesh, buildFenceMesh, buildGrassTufts, sampleField, sampleColor
+    groundHills, sampleHeight, groundSampleHeight, buildGroundMesh, buildObjectMesh, buildFenceMesh, buildGrassTufts, sampleField, sampleColor,
+    fenceCollide, corridorFences, rampSurfaceY
   };
 })();

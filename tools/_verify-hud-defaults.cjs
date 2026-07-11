@@ -67,10 +67,10 @@ async function main() {
     if (/playroom|googleapis|firestore|firebase|gstatic/i.test(u)) return req.abort();
     req.continue();
   });
-  // clear fk_bots so default-3 path is exercised
+  // clear fk_mode so default Grand Prix path is exercised
   await page.goto("about:blank");
   await page.evaluateOnNewDocument(() => {
-    try { localStorage.removeItem("fk_bots"); } catch (e) {}
+    try { localStorage.removeItem("fk_mode"); localStorage.removeItem("fk_bots"); } catch (e) {}
   });
   await page.goto(BASE + "/farmkart.html", { waitUntil: "networkidle0", timeout: 60000 });
   await page.waitForFunction(() => !!(window.__KART__ && window.__KART__.ACTIVE_TRACK), { timeout: 20000 });
@@ -80,13 +80,13 @@ async function main() {
     const hud = document.getElementById("hud");
     const place = document.getElementById("placeHud");
     const sel = document.getElementById("trackSel");
-    const botOn = [...document.querySelectorAll("#botBtns button")].find((b) => b.classList.contains("on"));
+    const modeOn = [...document.querySelectorAll("#modeBtns button")].find((b) => b.classList.contains("on"));
     return {
       trackId: K.ACTIVE_TRACK_ID,
       trackName: K.ACTIVE_TRACK && K.ACTIVE_TRACK.name,
-      botCount: K.G.botCount,
+      raceMode: K.G.raceMode,
       trackSel: sel && sel.value,
-      botBtn: botOn && botOn.dataset.n,
+      modeBtn: modeOn && modeOn.dataset.mode,
       hudDisplay: getComputedStyle(hud).display,
       placeDisplay: place.style.display || getComputedStyle(place).display,
       isMobile: K.IS_MOBILE,
@@ -101,9 +101,9 @@ async function main() {
   console.log("boot:", JSON.stringify(boot));
   assert(boot.trackId === "wario-stadium", "boot track id = wario-stadium, got " + boot.trackId);
   assert(boot.trackName === "Wario Stadium", "boot track name, got " + boot.trackName);
-  assert(boot.botCount === 3, "default bots = 3, got " + boot.botCount);
+  assert(boot.raceMode === "prix", "default race mode = prix, got " + boot.raceMode);
   assert(boot.trackSel === "wario-stadium", "menu select = wario-stadium, got " + boot.trackSel);
-  assert(boot.botBtn === "3", "bot button 3 on, got " + boot.botBtn);
+  assert(boot.modeBtn === "prix", "mode button prix on, got " + boot.modeBtn);
   assert(boot.hudDisplay === "none", "#hud must be hidden, got " + boot.hudDisplay);
   assert(!boot.isMobile, "desktop page should not be IS_MOBILE");
   assert(boot.camDist === boot.tuneCamDist, "desktop camDistEff = TUNE.camDist");
@@ -113,7 +113,7 @@ async function main() {
   await page.evaluate(() => {
     const K = window.__KART__;
     K.forceRace();
-    K.G.botCount = 3;
+    K.setRaceMode("prix");
     K.setupRoster();
     K.placeAllAtGrid();
     K.G.raceClock = 12.34;
@@ -150,8 +150,8 @@ async function main() {
   console.log("hud:", JSON.stringify(hudLayout));
   assert(hudLayout.display !== "none", "placeHud visible in race");
   assert(hudLayout.placeFs >= 50, "place font large (>=50px), got " + hudLayout.placeFs);
-  assert(/\d+(st|nd|rd|th)\s*\/\s*4/.test(hudLayout.placeText), "place N / 4, got " + hudLayout.placeText);
-  assert(hudLayout.playerCount === 4, "3 bots + local = 4, got " + hudLayout.playerCount);
+  assert(/\d+(st|nd|rd|th)\s*\/\s*12/.test(hudLayout.placeText), "place N / 12 (prix roster), got " + hudLayout.placeText);
+  assert(hudLayout.playerCount === 12, "prix roster: 11 bots + local = 12, got " + hudLayout.playerCount);
   assert(hudLayout.rows.length === 3, "3 time rows");
   assert(hudLayout.rows[0].lbl === "lap time", "row0 lap time");
   assert(hudLayout.rows[1].lbl === "lap", "row1 lap");
@@ -187,7 +187,7 @@ async function main() {
       }
       return real(q);
     };
-    try { localStorage.removeItem("fk_bots"); } catch (e) {}
+    try { localStorage.removeItem("fk_mode"); localStorage.removeItem("fk_bots"); } catch (e) {}
   });
   await pageM.setRequestInterception(true);
   pageM.on("request", (req) => {
