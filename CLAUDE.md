@@ -2044,6 +2044,79 @@ avoid collisions with the game's own `net`/`Lobby`-adjacent names.
   name label. Regression: solo race boots/drives with Playroom blocked (0 pageerrors),
   `tools/_verify-items.cjs` 24/24, `_verify-audio.cjs` 18/18, `_verify-hud-defaults.cjs` PASS.
 
+# 🏁 Farm Kart — MENU OVERHAUL (2026-07-10, farmkart.html only; still LOCAL/unpushed)
+
+Reworked the home page from the old one-screen quick-menu (track `<select>` + mode buttons +
+bots picker + FAMILY RACE) into a proper multi-screen flow. Everything lives inside
+`#startOverlay > #menuFlow`; the LEGACY controls (`trackSel`/`modeBtns`/`kartPick`/`drvPick`/
+`familyRaceBtn`/`mpBox`) are KEPT in the DOM but hidden in `#legacyMenu` so all their original
+wiring stays valid — the new flow calls those same functions (`setRaceMode`/`setLocal*`/
+`startCountdown`/`initNet`). The whole thing is the `MenuFlow` IIFE module (`window.MenuFlow`)
+inserted right before the boot `toMenu()`/`MenuFlow.init()`.
+- **FLOW MAP**: home → SINGLE PLAYER → TIME TRIAL → course grid → RACER SELECT → RACE (0 bots) ·
+  or GRAND PRIX → cup select → RACER SELECT → 4-track cup sequence. MULTIPLAYER → HOST → RACE →
+  SINGLE RACE → course → MP DRIVER SELECT (waiting room) · or JOIN (enabled only when a fresh
+  open family lobby exists). Screens are `.mfScreen[data-name]` toggled by `MenuFlow.show()`;
+  `histStack`/`back()` give a Back button on every deep screen. Menu music (`setMusicPhase`)
+  keeps playing across all screens; race music on race start.
+- **FK_RACERS** (8): `{ id, name, color, kartId, driverId }` — a "racer" is just a PRESET over the
+  EXISTING procedural builders (no new characters modeled). `setLocalRacer(id)` applies
+  kart+driver+color, persists `localStorage fk_racer`, stamps `player._racerCol`. In-race the
+  local kart uses `_racerCol` (seat funcs in `startCountdown`/`placeAllAtGrid` assign a grid-slot
+  color, then the racer color WINS for the human you control). NOTE: the tractor kart always paints
+  `TRACTOR_RED`, so tractor-based racers read red regardless of `color`. Sunny/Clover/Rusty/Daisy/
+  Pepper/Biscuit/Maple/Turbo.
+- **FK_CUPS** (4 placeholder cups, trivially editable): `{ id, name, ico, trackIds[4] }` over the
+  builtin/amen-farms track ids — 🌽 Corn / 🐐 Goat / 🚜 Tractor / 🌟 Star. Points = `FK_CUP_POINTS`
+  `[15,12,10,9,8,7,6,5,4,3,2,1]` (MK-ish, 12-kart field). Cup is SESSION-SCOPED (nothing persisted
+  beyond `fk_best`): `cup = { cupId, raceIdx, points, racerId }` in `sessionStorage fk_cup_session`.
+  Because switching tracks requires a full page RELOAD (the scene/`centerPts`/`arcS`/fences are
+  built once from `ACTIVE_TRACK` at load), the cup drives its 4 races by reloading to each
+  `?track=<id>` and resuming from `sessionStorage`; after each race `onCupRaceFinished()` awards
+  cumulative points (keyed by name — bot names are DETERMINISTIC `BOT_NAMES[i]` so they persist
+  across reloads) and renders a 12-row standings screen (reuses `#results`/`#rStandings` + a `.spts`
+  points column); `raceAgain()`/tap advances to the next track; after race 4 = final cup podium.
+- **Track previews**: `drawTrackPreview(canvas, track)` reuses the minimap corridor approach —
+  `FK_TRACK.resample(track, THREE, 140)` → fit the closed centerline into a small canvas (thick
+  dim corridor + bright racing line + start dot). Course grid = amen-farms + all `BUILTIN_TRACKS` +
+  saved-map extras (≥14 cards). `drawRacerSwatch()` draws a top-down kart glyph in the racer color.
+- **MP READY PROTOCOL**: every connected player publishes Playroom player state
+  `pick = { racerId, ready }` (`publishPick()`); the waiting room polls `net.players` `getState('pick')`
+  (600ms) and renders every player's swatch/name/ready live (`renderWaiting`/`allPicks`). The host's
+  START RACE (`#mfStartBtn` / `mpTryStart()`) enables ONLY when every player is ready; guests never
+  start. Each player's own racer color publishes via `serializeKart`'s `col` (= `_racerCol`), so
+  remote karts render each player's OWN colors (verified both directions). `beginHost()` calls
+  `initNet(null)` (creates the room + `ensureLobbyDoc`); the lobby doc now also carries a `track`
+  field so the in-page JOIN builds `?track=<hostTrack>[&fam=…]#r=<code>` (reuses the deep-link path).
+  MP CUP + BATTLE are shown but DISABLED "coming soon 🚧" (cross-track cups need per-race reloads,
+  incompatible with a live Playroom room; battle mode isn't built).
+- **JOIN**: `subscribeLobbies()` `onSnapshot(lobbies_<familyKey>)`; `refreshJoin()` enables the button
+  only for the freshest lobby with `game==='farmkart'`, `status!=='started'`, `updatedAt` <45s (the
+  games-hub liveness rule), labeled "JOIN <host>'s race". Firestore unreachable → disabled + a
+  subtle "No lobbies found / unavailable" note. `?fam=` override preserved through the join nav.
+- **DEEP-LINK BACK-COMPAT**: `MenuFlow.init()` precedence — (1) `#r=` guest (`window.__fkDeepGuest`)
+  → MP waiting room; (2) `sessionStorage fk_flow_pending` (a TT course or MP-host course that needed
+  a track reload) → resume; (3) `fk_cup_session` → resume the cup; (4) a plain `?track=<id>` (editor
+  test buttons / lobby links w/o `#r=`) → boot STRAIGHT into a race; (5) bare URL → home. The old
+  blanket "tap/Enter anywhere on the menu starts a race" is GONE (`advance()` no longer starts from
+  the `menu` phase — explicit RACE buttons drive it); the finished screen routes tap/Enter through
+  `MenuFlow.raceAgain()` (cup-aware).
+- **VERIFIED**: `scratchpad/fk_menuflow.cjs` OFFLINE 41/41 (home SP/MP, TT course grid ≥13 cards w/
+  canvas previews + names, racer select 8 racers, 0-bot trial race, GP 4 cups, cup race 1 → 12-row
+  points standings → race 2 loads cup track[1], MP JOIN disabled + note, MP HOST BATTLE + MP CUP
+  disabled, `?track=` auto-race, racer persistence across reload, mobile 390×844 no h-scroll, 0
+  pageerrors). `scratchpad/fk_menu_mp.cjs` LIVE 22/22 vs REAL Playroom + REAL Firestore
+  (`?fam=famtestfk`, all docs deleted after, collection confirmed empty): host reaches driver-select
+  + lobby doc registered (w/ `track`), guest MP→JOIN sees the live lobby + host name + joins the same
+  room, both see 2 pick rows live, host START disabled until guest readies then enabled, race starts
+  for both, guest's kart on host = turbo blue / host's kart on guest = sunny yellow (colors sync both
+  ways). Regressions: `_verify-items.cjs` 24/24, `_verify-audio.cjs` 102/102, `fk_wrongway.cjs` 48/48,
+  `fk_tunnels.cjs` game-side 0 pageerrors (its 2 failures are the props-manifest count 200-vs-57 in
+  `assets/farmkart-props.js`, editor-side, pre-existing/out of scope). `_verify-hud-defaults.cjs`
+  still reads the hidden `trackSel`/`modeBtns` fine; its ONLY failure is Cursor's WIP `MOBILE_CAM`
+  `camDist:3.5`-vs-expected-5.35 (untouched per the task — Cursor owns those lines). All farmkart
+  files STILL UNTRACKED/UNPUSHED.
+
 # 🏁 Farm Kart — cloud track sync (2026-07-10)
 
 User: "hitting save on the editor always pushes that new track to any device/version." Tracks
