@@ -6,17 +6,14 @@ import { loadModel, instantiateSized, findClip, modelUrl, type LoadedModel } fro
 // The player farmer (Stage 2 art swap). Two interchangeable implementations
 // behind ONE stable `Farmer` interface:
 //
-//   • RIGGED (default when the GLB is available): "Sunny"
-//     (public/models/character/sunny.glb) — the user's Meshy-generated, Blender-
-//     colored, Meshy-rigged chibi girl (24-bone Mixamo-style rig, one SkinnedMesh
-//     with 6 flat FL_* material slots, embedded Idle/Walk/Run/HoeChop clips). An
-//     AnimationMixer crossfades Idle/Walk/Run by speed (the Stage-1 chicken
-//     pattern, scaled up; walk/run timeScaled to plant the feet at the game's fast
-//     move speeds). The HOE action plays a SUBRANGE of the long HoeChop clip
-//     (raise→slam) fitted into the input-block window; every OTHER tool gesture
-//     (water POUR, refill DIP, plant scatter, harvest scoop + HOLD-UP, pet, the
-//     JUMP tuck) is procedural bone animation layered ON TOP of the mixer (Sunny
-//     ships no generic Interact clip).
+//   • RIGGED (default when the GLB is available): the Quaternius CC0 "Farmer"
+//     (public/models/character/farmer.glb) — a 62-bone humanoid with 24 embedded
+//     clips. An AnimationMixer crossfades Idle/Walk/Run by speed (the Stage-1
+//     chicken pattern, scaled up). Tool-use actions play a mapped one-shot clip
+//     (Sword_Slash → hoe swing, Interact → plant/harvest/pet) fitted into the
+//     input-block window, and where NO stock clip reads (watering POUR, the
+//     harvest HOLD-UP beat, the REFILL dip, the JUMP tuck) procedural bone
+//     animation is layered ON TOP of the mixer.
 //
 //   • PROCEDURAL (fallback when the GLB fails to load — offline/404, and the
 //     boot state before the async load resolves): the original chunky straw-hat
@@ -101,11 +98,10 @@ function smooth01(a: number, b: number, x: number): number {
 }
 
 export interface FarmerOptions {
-  /** Shirt/outfit tint. Undefined → the LOCAL player (Sunny's natural blue-
-   * overalls / yellow-sleeves palette). Defined → a REMOTE avatar (P3 presence):
-   * her FL_Overall + FL_Shirt materials are multiplied toward this deterministic
-   * per-player colour so players read as distinct (skin/hair stay natural). The
-   * procedural fallback uses it as the shirt colour. */
+  /** Shirt/outfit tint. Undefined → the LOCAL player (natural Quaternius farmer
+   * colours). Defined → a REMOTE avatar (P3 presence): clothing materials are
+   * multiplied toward this deterministic per-player colour so players read as
+   * distinct. The procedural fallback uses it as the shirt colour. */
   shirt?: string;
 }
 
@@ -460,33 +456,19 @@ function buildProceduralImpl(opts: FarmerOptions): AvatarImpl {
 // overlays.
 // ===========================================================================
 
-const CHAR_HEIGHT = 1.75; // world units, ≈ the procedural farmer (fences/doors eyeball).
-// Sunny's native GLB is 0.9 units tall (max bbox dim) → instantiateSized scales
-// her ×1.94 to this game height.
-// Sunny faces +Z natively (the "headfront" node sits at +Z in bone space, and the
-// Armature scale is +0.01 so no axis flip) = the game's forward (movement
-// direction, matching the procedural farmer). Verified via the -idle screenshot
-// (camera north-looking-south sees her FACE). No rotation.
+const CHAR_HEIGHT = 1.75; // world units, ≈ the procedural farmer (fences/doors eyeball)
+// CharacterArmature faces +Z natively = the game's forward (movement direction,
+// matching the procedural farmer): at heading 0 the farmer faces +Z, so the
+// default behind-camera (south) sees the BACK while walking forward. No rotation.
 const MODEL_YAW = 0;
 
-// HoeChop subrange — Sunny's HoeChop clip is a 7.67s charged-chop PERFORMANCE
-// (several sweeps). Full-skeleton FK of the RightHand world-Y over the clip
-// found the cleanest single raise→slam beat: the hand rises to its high point at
-// t≈4.00s (y≈0.79) then chops DOWN to its low point at t≈4.50s (y≈0.44), settling
-// by 4.55. We play just [START,END] fitted into the ANIM_DUR.hoe input-block
-// window via AnimationAction.time offsets + timeScale — reads as a decisive hoe
-// swing (short raise + slam) without the surrounding idle-charge frames.
-const HOE_CLIP_START = 3.7;
-const HOE_CLIP_END = 4.55;
-
 // Which stock clip (if any) plays under each tool action. null → the gesture is
-// carried entirely by the procedural overlay below. Sunny ships only Idle/Walk/
-// Run/HoeChop, so ONLY the hoe rides a clip; every other action is procedural.
+// carried entirely by the procedural overlay below.
 const TOOL_CLIP: Record<ToolAnimKind, string | null> = {
-  hoe: "HoeChop", // charged-chop subrange (see HOE_CLIP_START/END) reads as a hoe swing
-  plant: null, // bend/reach scatter — procedural
-  harvest: null, // reach-down scoop + overhead HOLD-UP — procedural
-  pet: null, // gentle reach toward the animal — procedural
+  hoe: "Sword_Slash", // overhead diagonal chop reads as a hoe swing
+  plant: "Interact", // bend/reach — reads as scattering seeds
+  harvest: "Interact", // reach-down scoop; hold-up beat is the overlay
+  pet: "Interact", // gentle reach toward the animal
   water: null, // POUR — procedural (raise + tilt the can)
   refill: null, // DIP — procedural (crouch + dip at the pond)
 };
@@ -567,11 +549,9 @@ function buildRiggedImpl(opts: FarmerOptions, tpl: LoadedModel): AvatarImpl {
   // ---- per-instance material clone + optional outfit tint -------------------
   // SkeletonUtils.clone shares materials across clones; clone them here so a
   // tint on one avatar never bleeds to another. Then, for a REMOTE avatar
-  // (opts.shirt set), multiply Sunny's two CLOTHING materials (FL_Overall +
-  // FL_Shirt) toward the player colour so players read as distinct — her skin,
-  // hair, shoes and dark trim (FL_Skin/FL_Hair/FL_Shoe/FL_Dark) stay natural so
-  // she still reads as the same girl.
-  const TINT_MATS = /overall|shirt/i;
+  // (opts.shirt set), multiply every CLOTHING material toward the player colour
+  // (skin/eyes/brows kept natural) so players read as distinct.
+  const KEEP_NATURAL = /skin|eye|brow|hair|tooth|teeth/i;
   const tint = opts.shirt ? new THREE.Color(opts.shirt) : null;
   modelGroup.traverse((o) => {
     const mesh = o as THREE.Mesh;
@@ -579,7 +559,7 @@ function buildRiggedImpl(opts: FarmerOptions, tpl: LoadedModel): AvatarImpl {
     const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     const cloned = mats.map((mat) => {
       const c = mat.clone() as THREE.MeshLambertMaterial;
-      if (tint && TINT_MATS.test(mat.name || "")) {
+      if (tint && !KEEP_NATURAL.test(mat.name || "")) {
         // blend toward the tint (keeps a hint of the original for variation)
         c.color.lerp(tint, 0.62);
         if (c.emissive) c.emissive.copy(c.color).multiplyScalar(0.12);
@@ -606,31 +586,19 @@ function buildRiggedImpl(opts: FarmerOptions, tpl: LoadedModel): AvatarImpl {
   if (idleAct) idleAct.setEffectiveWeight(1);
   let wIdle = 1, wWalk = 0, wRun = 0;
 
-  // Anti-skate: Sunny's game move speeds (walk 5.2 / run ~9.9 m/s) are fast for
-  // her small stride, so the walk/run clips are timeScaled UP to plant the feet.
-  // Natural world speed of each clip at this render scale, measured via full-
-  // skeleton FK of the toe over one cycle: Walk ≈ 1.13 m/s, Run ≈ 2.19 m/s.
-  // playbackRate = commanded worldSpeed / natural, clamped so the legs never
-  // whirl. At the default 5.2/9.9 speeds this lands ~4.5× (feet planted).
-  const WALK_NATURAL = 1.13, RUN_NATURAL = 2.19;
-  const clampR = (n: number, lo: number, hi: number) => (n < lo ? lo : n > hi ? hi : n);
-
   // ---- one-shot tool-action clip --------------------------------------------
   let action: { kind: ToolAnimKind; t: number; dur: number } | null = null;
   let actClip: THREE.AnimationAction | null = null;
   let actW = 0;
 
   // ---- bones for overlays + anchors -----------------------------------------
-  // Sunny's rig uses Mixamo-style bone names (no dots): RightArm/RightForeArm/
-  // RightHand for the right arm chain, Left*/Right*UpLeg for legs, Spine02 for the
-  // upper chest, Head. (The old Quaternius "UpperArm.R"/"Chest" names are gone.)
-  const bUpperR = findBone(modelGroup, "RightArm");
-  const bLowerR = findBone(modelGroup, "RightForeArm");
-  const bWristR = findBone(modelGroup, "RightHand");
-  const bUpperL = findBone(modelGroup, "LeftArm");
-  const bLegL = findBone(modelGroup, "LeftUpLeg");
-  const bLegR = findBone(modelGroup, "RightUpLeg");
-  const bChest = findBone(modelGroup, "Spine02") ?? findBone(modelGroup, "Spine");
+  const bUpperR = findBone(modelGroup, "UpperArm.R");
+  const bLowerR = findBone(modelGroup, "LowerArm.R");
+  const bWristR = findBone(modelGroup, "Wrist.R");
+  const bUpperL = findBone(modelGroup, "UpperArm.L");
+  const bLegL = findBone(modelGroup, "UpperLeg.L");
+  const bLegR = findBone(modelGroup, "UpperLeg.R");
+  const bChest = findBone(modelGroup, "Chest");
   const bHead = findBone(modelGroup, "Head");
   // Root-motion strip: several clips (Sword_Slash/Interact lunge, Run drifts)
   // TRANSLATE the character forward via the root/spine bones — which slides the
@@ -653,18 +621,16 @@ function buildRiggedImpl(opts: FarmerOptions, tpl: LoadedModel): AvatarImpl {
     if (b) boneByName.set(b.name, b);
   }
 
-  // hand anchor — a child of the right wrist bone (RightHand) that holds the tool.
+  // hand anchor — a child of the right wrist bone that holds the tool.
   //
-  // CAUTION (this rig's bind-matrix trap): Sunny's Armature node has scale 0.01
-  // (the INVERSE of the Quaternius farmer's ×100 — the skeleton is authored in a
-  // ×100-larger internal space that the 0.01 Armature scale collapses back to the
-  // mesh's real 0.9-unit size). So the wrist bone's WORLD scale is ~0.01 and its
-  // local frame is ×100 magnified. The generic fix used for both rigs still
-  // applies unchanged: find where the VISIBLE hand actually renders (via three's
+  // CAUTION (this rig's bind-matrix trap): the CharacterArmature node has
+  // scale 100 and a matching inverse-bind, so the SKELETON lives in a large,
+  // OFFSET space — the wrist bone's world origin sits ~5 m below the visible
+  // hand. Parenting a tool straight to the bone (the usual trick) buries it
+  // underground. So we find where the VISIBLE hand actually renders (via three's
   // own skinning, applyBoneTransform on a wrist-weighted vertex), express that as
-  // a constant offset in the wrist bone's local frame (rigid → valid every pose),
-  // and counter the bone's world scale (handAnchor.scale = 1/ws ≈ 100 here, ≈0.01
-  // on the farmer) so the tool renders life-size. Self-correcting either way.
+  // a constant offset in the wrist bone's local frame (rigid → valid every
+  // pose), and counter the bone's world scale so the tool renders life-size.
   const handAnchor = new THREE.Group();
   handAnchor.name = "handAnchor";
   const armPivotFallback = new THREE.Group();
@@ -726,40 +692,30 @@ function buildRiggedImpl(opts: FarmerOptions, tpl: LoadedModel): AvatarImpl {
     if (!action) return;
     const p = clamp01(action.t / action.dur);
     const env = Math.sin(clamp01(p) * Math.PI); // 0→1→0 ease for standalone gestures
-    // NOTE on Sunny's arm axes (measured via FK on the RightArm bone): its local
-    // frame is oblique — +Y is the dominant RAISE axis (hand up), −Z swings the
-    // arm FORWARD, +X drops it slightly. Overlays below use that convention.
     if (action.kind === "water") {
-      // raise the right arm up-and-forward and tilt the wrist to pour
-      overlay(bUpperR, -0.25 * env, 1.25 * env, -0.35 * env);
-      overlay(bLowerR, -0.7 * env, 0, 0);
-      overlay(bWristR, 0.6 * env, 0, 0.4 * env);
+      // raise the right arm and tilt the wrist forward to pour
+      overlay(bUpperR, -1.15 * env, 0, 0);
+      overlay(bLowerR, -0.5 * env, 0, 0);
+      overlay(bWristR, 0.7 * env, 0, 0.4 * env);
       overlay(bChest, 0.06 * env, 0, 0);
     } else if (action.kind === "refill") {
-      // crouch + dip the can low toward the pond (reach DOWN-forward = −Y/+X)
+      // crouch + dip the can low toward the pond
       const dip = env;
       squashGroup.position.y = -0.18 * dip;
       overlay(bLegL, 0.5 * dip, 0, 0);
       overlay(bLegR, 0.5 * dip, 0, 0);
       overlay(bChest, 0.35 * dip, 0, 0);
-      overlay(bUpperR, 0.45 * dip, -0.7 * dip, 0);
+      overlay(bUpperR, 0.7 * dip, 0, 0);
     } else if (action.kind === "harvest") {
-      // reach DOWN to scoop in the first half, then RAISE both arms overhead so
-      // the held produce (fixed produceAnchor) reads as lifted high — the HM beat.
-      const reach = smooth01(0, 0.45, p);
-      const lift = smooth01(0.5, 1, p);
-      overlay(bUpperR, 0.35 * reach, -0.55 * reach + 2.1 * lift, 0);
-      overlay(bUpperL, 0.35 * reach, 0.55 * reach - 2.1 * lift, 0); // mirror (left raise ≈ −Y)
-      overlay(bChest, 0.24 * reach - 0.12 * lift, 0, 0);
+      // scoop clip runs under; in the second half RAISE both arms overhead so
+      // the held produce (produceAnchor) reads as lifted high — the HM beat.
+      const lift = smooth01(0.45, 1, p);
+      overlay(bUpperR, -2.4 * lift, 0, -0.2 * lift);
+      overlay(bUpperL, -2.4 * lift, 0, 0.2 * lift);
+      overlay(bChest, -0.12 * lift, 0, 0);
     } else if (action.kind === "plant") {
-      // bend + scatter: sweep the right arm forward-and-down over the tile
-      overlay(bUpperR, 0.5 * env, -0.5 * env, 0);
-      overlay(bLowerR, -0.5 * env, 0, 0);
       overlay(bChest, 0.28 * env, 0, 0);
     } else if (action.kind === "pet") {
-      // gentle crouch + reach the right arm forward toward the animal
-      overlay(bUpperR, 0.4 * env, -0.45 * env, 0);
-      overlay(bLowerR, -0.35 * env, 0, 0);
       overlay(bChest, 0.14 * env, 0, 0);
       overlay(bLegL, 0.25 * env, 0, 0);
       overlay(bLegR, 0.25 * env, 0, 0);
@@ -821,9 +777,6 @@ function buildRiggedImpl(opts: FarmerOptions, tpl: LoadedModel): AvatarImpl {
       if (walkAct) walkAct.setEffectiveWeight(wWalk * locoScale);
       if (runAct) runAct.setEffectiveWeight((runAct === walkAct ? 0 : wRun) * locoScale);
       if (actClip) actClip.setEffectiveWeight(actW);
-      // anti-skate: match clip cadence to commanded ground speed
-      if (walkAct && walkAct !== idleAct) walkAct.timeScale = clampR(speed / WALK_NATURAL, 0.7, 4.8);
-      if (runAct && runAct !== walkAct) runAct.timeScale = clampR(speed / RUN_NATURAL, 0.7, 4.8);
 
       mixer.update(dt);
       // strip root motion (horizontal for all; vertical for the root bone), then overlays
@@ -873,17 +826,7 @@ function buildRiggedImpl(opts: FarmerOptions, tpl: LoadedModel): AvatarImpl {
           a.reset();
           a.setLoop(THREE.LoopOnce, 1);
           a.clampWhenFinished = true;
-          if (kind === "hoe") {
-            // Play only the raise→slam SUBRANGE of the long HoeChop performance.
-            // Start the action clock at HOE_CLIP_START and scale so it advances
-            // exactly (END−START) of clip time across the `dur`-second window —
-            // it lands on END right as the input block releases (END < clip
-            // length, so LoopOnce never wraps back to the idle-charge frames).
-            a.time = HOE_CLIP_START;
-            a.timeScale = (HOE_CLIP_END - HOE_CLIP_START) / dur;
-          } else {
-            a.timeScale = clip.duration / dur; // fit the whole gesture into the window
-          }
+          a.timeScale = clip.duration / dur; // fit the gesture into the block window
           a.setEffectiveWeight(0);
           a.play();
           actClip = a;
@@ -985,7 +928,7 @@ let characterTemplate: LoadedModel | null = null;
 let characterPreloaded = false;
 
 export function preloadCharacterModel(): Promise<LoadedModel | null> {
-  return loadModel(modelUrl("character/sunny.glb")).then((mdl) => {
+  return loadModel(modelUrl("character/farmer.glb")).then((mdl) => {
     characterTemplate = mdl;
     characterPreloaded = true;
     return mdl;

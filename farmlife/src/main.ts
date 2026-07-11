@@ -74,7 +74,7 @@ import {
   type DoorState,
   type EggRecord,
 } from "./farm/pasture";
-import { buildBarnScene, preloadBarnModel, type BarnScene } from "./world/barn3d";
+import { buildBarnScene, type BarnScene } from "./world/barn3d";
 import { farmhouseWindows, FARMHOUSE_POS, preloadSceneryModels, sceneryModelsUsed } from "./world/scenery";
 import { skyAt, centralHour } from "./world/daynight";
 import { WeatherStation, weatherEmoji, RAIN_AUTO_WATER_INTERVAL_MS } from "./world/weather";
@@ -270,9 +270,6 @@ farmStore.load().then((loaded) => {
 const barnScene: BarnScene = buildBarnScene(sampleHeight);
 scene.add(barnScene.group);
 barnScene.onCreak = () => audio.hoe(); // creak-adjacent synth click on toggle
-// beauty-pass art swap: bespoke Blender barn2.glb replaces the procedural
-// walls/roof/floor/nests/door slab in place (fallback stays if it can't load).
-void preloadBarnModel(barnScene);
 
 const animalField = new AnimalField(STARTER_HERD.map((s) => ({ id: s.id, type: s.type })));
 scene.add(animalField.group);
@@ -2389,7 +2386,6 @@ flHook.barn = {
   isCloud: () => barnStore === cloudBarn,
   ready: () => (cloudBarnCtor ? cloudBarnCtor.ready : Promise.resolve(false)),
   flushSave: () => barnStore.flush?.(),
-  usesModel: () => barnScene.usesModel(),
 };
 
 // ---- P5: decoration + meta test/debug hooks ---------------------------------

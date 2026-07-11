@@ -1,18 +1,14 @@
 #!/usr/bin/env node
 "use strict";
 /**
- * Headless verification for Farm Life STAGE 2 art swap — the PLAYER CHARACTER.
- * As of the Sunny rework the loaded avatar is the user's Meshy-generated,
- * Blender-colored, Meshy-rigged girl "Sunny" (public/models/character/sunny.glb,
- * Mixamo-style 24-bone rig, embedded Idle/Walk/Run/HoeChop clips) driven by an
- * AnimationMixer (Idle/Walk/Run crossfade + HoeChop swing SUBRANGE) plus the
- * procedural additive-overlay system for water/refill/plant/harvest/pet.
- * Serves the REPO ROOT, loads /farmlife/dist/index.html. Network ON for the model
- * GLB (same-origin static); Firebase/Playroom BLOCKED (goat-dup house rule). A
- * final section BLOCKS the character URL to prove the procedural fallback + 0
- * pageerrors.
+ * Headless verification for Farm Life STAGE 2 art swap — the PLAYER CHARACTER
+ * (procedural farmer → Quaternius CC0 rigged "Farmer" GLB, AnimationMixer +
+ * procedural overlays). Serves the REPO ROOT, loads /farmlife/dist/index.html.
+ * Network ON for the model GLB (same-origin static); Firebase/Playroom BLOCKED
+ * (goat-dup house rule). A final section BLOCKS the character URL to prove the
+ * procedural fallback + 0 pageerrors.
  *
- * Screenshots: shots/farmlife-sunny-{idle,hoeswing,holdup,two-tints,family}.png
+ * Screenshots: shots/farmlife-p9-{farmer,action,holdup,two-players,family}.png
  *
  * Run:  node farmlife/verify-p9.cjs        (from repo root)
  */
@@ -98,7 +94,7 @@ async function main() {
   check("rig skeleton exposes named bones", names.length > 20, `bones=${names.length} e.g. ${names.slice(0, 6).join(",")}`);
   const idleMove = await page.evaluate(async () => {
     const QANG = (a, b) => { let d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]; d = Math.min(1, Math.abs(d)); return 2 * Math.acos(d); };
-    const BN = ["Hips", "Spine", "Spine01", "Spine02", "Head", "neck", "RightArm", "LeftArm"];
+    const BN = ["Hips", "Spine", "Chest", "Head", "Neck", "UpperArm.R", "UpperArm.L"];
     const base = {}; BN.forEach((n) => (base[n] = window.__FL__.avatar.boneQuat(n)));
     let maxA = 0;
     for (let i = 0; i < 90; i++) {
@@ -129,7 +125,7 @@ async function main() {
       const QANG = (a, b) => { let d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]; d = Math.min(1, Math.abs(d)); return 2 * Math.acos(d); };
       while (window.__FL__.avatar.isBusy()) await new Promise((r) => requestAnimationFrame(r));
       await new Promise((r) => setTimeout(r, 120));
-      const idle = window.__FL__.avatar.boneQuat("RightArm");
+      const idle = window.__FL__.avatar.boneQuat("UpperArm.R");
       window.__FL__.avatar.playAnim(kind);
       // busy iff progress<1 — tied to the animation duration, framerate-independent.
       const busyStart = window.__FL__.avatar.isBusy();
@@ -137,7 +133,7 @@ async function main() {
       let maxA = 0, midBusy = false, sawEnd = false;
       for (let i = 0; i < 120; i++) {
         await new Promise((r) => requestAnimationFrame(r));
-        maxA = Math.max(maxA, QANG(idle, window.__FL__.avatar.boneQuat("RightArm")));
+        maxA = Math.max(maxA, QANG(idle, window.__FL__.avatar.boneQuat("UpperArm.R")));
         const pr = window.__FL__.avatar.actionProgress();
         if (pr > 0.2 && pr < 0.85 && window.__FL__.avatar.isBusy()) midBusy = true;
         if (!window.__FL__.avatar.isBusy()) { sawEnd = window.__FL__.avatar.actionProgress() === -1; break; }
@@ -238,30 +234,26 @@ async function main() {
   const diff = [...set1].filter((c) => !set2.has(c)).length + [...set2].filter((c) => !set1.has(c)).length;
   check("two shirt tints produce DIFFERENT material colours (distinct players)", diff >= 2 && tint.c1.length > 0, `distinctColours=${diff} n1=${tint.c1.length}`);
 
-  // TWO-TINTS screenshot (visual tint distinctness). Sunny + two tinted remotes
-  // at heading 0 (facing +Z); camera to the NORTH (yaw π) looking south so we see
-  // their fronts + the FL_Overall/FL_Shirt tints. Also the facing-verification shot.
-  await equip(page, "hands");
+  // FAMILY / TWO-PLAYER screenshots (visual tint distinctness + cohesion). All
+  // three at heading 0 (facing +Z); camera to the NORTH (yaw π) looking south so
+  // we see their fronts + tints.
   await page.evaluate(() => {
     window.__FL__.farm.teleport(16, 34); window.__FL__.farm.setHeading(0);
     window.__FL__._setYaw(Math.PI); window.__FL__._setPitch(0.22); window.__FL__._snapCam();
   });
   await sleep(500);
-  await page.screenshot({ path: path.join(SHOTS, "farmlife-sunny-two-tints.png") });
+  await page.screenshot({ path: path.join(SHOTS, "farmlife-p9-two-players.png") });
 
-  // IDLE hero (front view, hands, no tool) — the north-star read: orange pigtails,
-  // blue overalls, yellow sleeves; confirms facing (+Z, we see her face).
-  await page.evaluate(() => { window.__FL__.farm.teleport(16, 34); window.__FL__.farm.setHeading(0); window.__FL__._setYaw(Math.PI); window.__FL__._setPitch(0.24); window.__FL__._snapCam(); });
-  await sleep(400);
-  await page.screenshot({ path: path.join(SHOTS, "farmlife-sunny-idle.png") });
-
-  // HOE SWING — mid-swing (front hero, holding the hoe)
+  // close farmer holding a hoe (front hero view)
   await equip(page, "hoe");
   await page.evaluate(() => { window.__FL__.farm.teleport(16, 34); window.__FL__.farm.setHeading(0); window.__FL__._setYaw(Math.PI); window.__FL__._setPitch(0.26); window.__FL__._snapCam(); });
-  await sleep(300);
+  await sleep(400);
+  await page.screenshot({ path: path.join(SHOTS, "farmlife-p9-farmer.png") });
+
+  // mid-swing action
   await page.evaluate(() => { window.__FL__.avatar.playAnim("hoe"); });
-  await sleep(260); // ~47% through the 0.55s block → near the top of the raise/into the slam
-  await page.screenshot({ path: path.join(SHOTS, "farmlife-sunny-hoeswing.png") });
+  await sleep(220);
+  await page.screenshot({ path: path.join(SHOTS, "farmlife-p9-action.png") });
   await waitIdle(page);
 
   // holdup shot: re-harvest another tile quickly for the beat
@@ -282,13 +274,13 @@ async function main() {
     window.__FL__.farm.action();
   });
   await sleep(340);
-  await page.screenshot({ path: path.join(SHOTS, "farmlife-sunny-holdup.png") });
+  await page.screenshot({ path: path.join(SHOTS, "farmlife-p9-holdup.png") });
   await waitIdle(page);
 
-  // wide FAMILY shot: Sunny + animals + Blender barn (does the new art cohere?)
+  // wide FAMILY shot: farmer + animals + barn (does it cohere?)
   await page.evaluate(() => { window.__FL__.farm.teleport(9, 46); window.__FL__.farm.setHeading(Math.PI); window.__FL__._snapCam(); window.__FL__._setYaw(Math.PI); window.__FL__._setPitch(0.42); });
   await sleep(500);
-  await page.screenshot({ path: path.join(SHOTS, "farmlife-sunny-family.png") });
+  await page.screenshot({ path: path.join(SHOTS, "farmlife-p9-family.png") });
 
   const realErr = errors.filter((e) => !/favicon|Failed to load resource/i.test(e));
   check("A-F: 0 pageerrors (model on)", realErr.length === 0, realErr.join(" | "));
@@ -324,7 +316,7 @@ async function main() {
 
   const passed = results.filter((r) => r.ok).length;
   console.log(`\n==== P9 RESULT: ${passed}/${results.length} passed ====`);
-  console.log("shots: shots/farmlife-sunny-{idle,hoeswing,holdup,two-tints,family}.png");
+  console.log("shots: shots/farmlife-p9-{farmer,action,holdup,two-players,family}.png");
   process.exit(passed === results.length ? 0 : 1);
 }
 main().catch((e) => { console.error(e); process.exit(1); });

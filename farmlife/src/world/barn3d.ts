@@ -63,10 +63,11 @@ interface BarnSceneInternal extends BarnScene {
 const DOOR_OPEN_ANGLE = -1.95; // rad, swings outward (south) about the left jamb (procedural fallback)
 // The bespoke GLB's Door node lives inside a barn assembly that gets rotated
 // 180° about Y at placement time (see preloadBarnModel) so its authored
-// front (+Z local) faces game-south. Its local rotation.y therefore swings
-// the SAME physical (world) direction as -DOOR_OPEN_ANGLE for a given open
-// progress (verified via render — see the report), which is exactly what
-// setAngleImmediate applies below (glbDoorNode.rotation.y = -doorAngle).
+// front (+Z local) faces game-south. A door local rotation.y of the SAME
+// magnitude swings the panel the matching physical direction (verified via
+// render — see the report); the two pivots use different local frames so the
+// signs legitimately differ from the procedural fallback's.
+const GLB_DOOR_OPEN_ANGLE = 1.95;
 
 export function buildBarnScene(sampleHeight: (x: number, z: number) => number): BarnScene {
   const group = new THREE.Group();
@@ -257,21 +258,13 @@ export function buildBarnScene(sampleHeight: (x: number, z: number) => number): 
   };
 
   // ---- door swing state ----
-  // `doorAngle` is the single shared "progress" value (procedural convention,
-  // negative = open) driving BOTH visuals: the fallback doorPivot directly,
-  // and — once loaded — the GLB Door node with the sign flipped (its local
-  // frame sits inside the barn assembly's 180°-Y placement rotation, see
-  // preloadBarnModel; verified via render which sign swings outward/south).
   let doorOpen = false;
-  let doorAngle = 0; // current rendered angle (procedural sign convention)
-  let glbDoorNode: THREE.Object3D | null = null;
-  let usingModel = false;
+  let doorAngle = 0; // current rendered angle
   const setAngleImmediate = () => {
     doorPivot.rotation.y = doorAngle;
-    if (glbDoorNode) glbDoorNode.rotation.y = -doorAngle;
   };
 
-  const scene: BarnSceneInternal = {
+  const scene: BarnScene = {
     group,
     barnRoot,
     baseY,
@@ -291,41 +284,12 @@ export function buildBarnScene(sampleHeight: (x: number, z: number) => number): 
     doorAngle() {
       return doorAngle;
     },
-    usesModel() {
-      return usingModel;
-    },
     update(dt) {
       const target = doorOpen ? DOOR_OPEN_ANGLE : 0;
       if (Math.abs(doorAngle - target) > 1e-3) {
         doorAngle += (target - doorAngle) * Math.min(1, dt * 6);
         setAngleImmediate();
       }
-    },
-    _swapToModel(barnAndDoorRoot, doorNode) {
-      // tear down the procedural walls/roof/lintel/gables (barnRoot's entire
-      // child list is procedural-only up to this point) + the floor/straw/
-      // door-slab fallback group, then seat the GLB in their place.
-      for (const c of [...barnRoot.children]) {
-        barnRoot.remove(c);
-        c.traverse((o) => {
-          const mesh = o as THREE.Mesh;
-          if (mesh.geometry) mesh.geometry.dispose();
-          const mm = mesh.material as THREE.Material | THREE.Material[] | undefined;
-          if (Array.isArray(mm)) mm.forEach((x) => x.dispose());
-          else if (mm) mm.dispose();
-        });
-      }
-      group.remove(procVisual);
-      procVisual.traverse((o) => {
-        const mesh = o as THREE.Mesh;
-        if (mesh.geometry) mesh.geometry.dispose();
-        const mm = mesh.material as THREE.Material | undefined;
-        if (mm) mm.dispose();
-      });
-      barnRoot.add(barnAndDoorRoot);
-      glbDoorNode = doorNode;
-      usingModel = true;
-      setAngleImmediate(); // re-apply the current swing state to the new door node
     },
     syncEggs(eggs) {
       const want = new Set<string>();
@@ -355,61 +319,4 @@ export function buildBarnScene(sampleHeight: (x: number, z: number) => number): 
     },
   };
   return scene;
-}
-
-// ---------------------------------------------------------------------------
-// Bespoke barn2.glb swap (P11 follow-up beauty pass) — a hand-authored
-// Blender model ("Barn": walls incl. gambrel roof/gables/trim/interior
-// floor+3 nests; "Door": an X-braced panel, origin at the LEFT jamb, ground
-// level) replaces the procedural walls/roof/floor/nests/door slab in place.
-// Procedural stays as the offline/load-failure fallback (P8/P9 pattern:
-// fallback first, swap on load; never throws, never a blank barn).
-//
-// PLACEMENT: the model is authored at true world scale with its own local
-// origin near the barn's own centre (NOT normalized — see
-// gltfAssets.instantiateWorldScale). Its front (door) face points +Z in the
-// model's local space, which is GAME SOUTH once rotated: the whole assembly
-// gets a single rigid 180°-about-Y placement (Barn AND Door share one
-// transform — they stay exactly as authored relative to each other, so the
-// door panel always sits flush in its own baked frame), then translated so
-// the model's own bounding-box CENTER lands on the BARN rect's centre
-// (footprint/roof stay symmetric and the walls line up with the fixed player
-// colliders, which are NOT derived from the model and are never touched).
-//
-// KNOWN DEVIATION (documented, see the report): the model's door sits ~dead
-// centre on its own front face, but the game's DOOR gap (pasture.ts) is
-// intentionally off-centre within the south wall (x0=36.4..x1=39.6, wall
-// centre 37.5 vs door-gap centre 38.0, a pre-existing ~0.5m asymmetry). A
-// single rigid transform cannot satisfy "walls exactly on the colliders" AND
-// "door exactly on the gap" at once without either editing the source mesh
-// (out of scope here) or visually shifting the whole barn off its fixed
-// footprint colliders (worse — an uneven roof overhang AND a wall/collider
-// seam on the far side). Footprint-centred placement was chosen because the
-// funnel/walk waypoint (DOOR_CENTER, x=38.0) still lands comfortably inside
-// the model's visual opening either way, so the walk-through/interaction
-// feel is unaffected; only a fraction-of-a-metre door-panel/gap offset
-// remains, well inside the ~3m-wide opening.
-export function preloadBarnModel(scene: BarnScene): Promise<void> {
-  return loadModel(modelUrl("buildings/barn2.glb"))
-    .then((m) => {
-      if (!m) return; // offline / 404 — keep the procedural barn
-      const inst = instantiateWorldScale(m);
-      const wrapper = inst.root; // contains the cloned "Barn"+"Door" scene as its one child
-      wrapper.rotation.y = Math.PI; // authored front (+Z local) -> game south
-      wrapper.updateMatrixWorld(true);
-      const box = new THREE.Box3().setFromObject(wrapper);
-      if (!isFinite(box.min.x) || !isFinite(box.max.x)) return; // malformed/empty — keep fallback
-      const center = box.getCenter(new THREE.Vector3());
-      const targetCx = (BARN.minX + BARN.maxX) / 2;
-      const targetCz = (BARN.minZ + BARN.maxZ) / 2;
-      wrapper.position.x += targetCx - center.x;
-      wrapper.position.z += targetCz - center.z;
-      wrapper.position.y += scene.baseY - box.min.y; // seat the (ground-level-authored) base on terrain
-      wrapper.updateMatrixWorld(true);
-      const barnNode = wrapper.getObjectByName("Barn");
-      const doorNode = wrapper.getObjectByName("Door");
-      if (!barnNode) return; // contract violated (renamed/missing node) — keep fallback
-      (scene as BarnSceneInternal)._swapToModel(wrapper, doorNode ?? null);
-    })
-    .catch(() => {});
 }
