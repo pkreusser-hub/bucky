@@ -1693,7 +1693,48 @@ layout sync.
       game): the editor now calls `FK_loadProps([id],...)` ONCE PER MODEL, each raced against a 10s
       `Promise.race` timeout, merging into `propCache` and calling `rebuildObjects()` as each one
       lands — one stuck request now only leaves ITS OWN model greyed out (status shows "(N failed to
-      load)") instead of wedging every other prop for the whole session. (2) TUNNEL PLACEMENT WAS
+      load)") instead of wedging every other prop for the whole session.
+      GREY-BOX FOLLOW-UP (2026-07-11, second report: "the grey object boxes are still a problem").
+      Exhaustively re-tested the ABOVE per-model fix via real UI events (not shortcut calls) — click
+      the 🧊 objects mode button, click the propCat dropdown, click a real prop button across 4
+      categories (tree/building/rock/plant), click the canvas to place; also placed immediately at
+      page load (before the 57-model preload settles) and reloaded a saved track with glb objects in
+      both the editor AND the game. ALL of these paths rendered real models with zero placeholder
+      boxes — the 2026-07-10 fix was correct and complete for the happy path (script:
+      scratchpad fk_objects.cjs, 25/25). Two REAL gaps were found instead, neither a "grey forever"
+      regression of the original bug but both genuine reliability gaps worth closing: (a) a model
+      that GENUINELY fails (real timeout/404/parse error, not just a slow queue) was marked failed
+      after exactly ONE 10s attempt with NO retry and no way to recover short of a full page reload —
+      a transient hiccup (a brief OneDrive sync lock, an antivirus scan touching the file, a dev-
+      server hiccup under the 57-request simultaneous burst) permanently greys that model's
+      placements for the rest of the session; (b) `farmkart.html` (the GAME) never received the
+      2026-07-10 fix at all — it still called `FK_loadProps(ids,...)` ONCE per track via a single
+      `Promise.all`/`.then`, so if even one glb id a track references genuinely fails, NONE of that
+      track's glb scenery ever renders in the game (worse than the editor: no placeholder shown
+      either — the objects just silently never appear). FIX: (1) `farmkart-editor.html`'s per-model
+      loader now retries up to 3 attempts (10s timeout each) before giving up, tracks failed ids in
+      `propFailedIds`, and shows a "🔄 retry N failed models" button (`#propRetryBtn`, exposed on
+      `window.__EDITOR__.propFailedIds`) that re-runs the same loader for just the failed set — no
+      more silent permanent failures, and no full reload needed to recover from a transient blip.
+      (2) `farmkart.html` ported the SAME per-model-independent-render pattern (own `_loadGlbWithRetry`
+      helper, `_glbCache` exposed on `window.__KART__.glbPropCache`): each glb id loads on its own
+      timeline and is added to the scene the moment ITS OWN model lands, so one stuck model in a
+      track's object list no longer blocks every other prop on that track. TEST-BUG NOTE for future
+      sessions: the first investigation pass surfaced 3 false failures that were bugs in the TEST
+      HARNESS, not the product — worth remembering since they're easy traps: `a && b && c` in JS
+      yields `undefined` (not `false`) when a non-Mesh `Object3D`/`Group`'s `.isMesh` short-circuits
+      the chain, and `JSON.stringify`/puppeteer's structured-clone serialization silently DROPS
+      `undefined`-valued object keys — always seed a boolean explicitly (`!!(...)`) when a check's
+      result crosses an `evaluate()` boundary. `fk_tracks_v1` in localStorage is a MAP keyed by track
+      id (`{[id]: track}`), not an array — seeding it as an array silently no-ops every lookup.
+      `FK_TRACK.sanitize()` rejects (`return null`) any track with under 8 `points`, dropping the
+      WHOLE track (including its `objects`) with no error surfaced to a test that doesn't check the
+      return value. `loadById(id)` is a closure-local editor function, NOT exposed on
+      `window.__EDITOR__` — the test hook only exposes `loadTrack(trackObject)`, which takes the
+      track data directly. Regression fk_tunnels.cjs's stuck-request stall test now waits 32s (was
+      12s) to stay past the new 3×10s retry ceiling before asserting the model is marked failed;
+      fk_tunnels.cjs 65/65, fk_objects.cjs 25/25 (new, scratchpad), tools/_verify-items.cjs full
+      pass, 0 pageerrors across every pass. (2) TUNNEL PLACEMENT WAS
       NOT START-AT-CLICK — `addTunnelAt` computed `s = bi/N` (nearest sample's INDEX fraction), but
       `buildTunnelMesh` treats `tn.s` as an ARC-LENGTH fraction (`startArc = s*trackLen`, walked via
       `arcS[]`). `centerPts` are sampled uniform in CURVE PARAMETER (`t=i/N`), not arc length, so on

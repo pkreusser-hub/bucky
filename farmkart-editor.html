@@ -171,6 +171,7 @@
     <select id="propCat" style="width:100%;padding:5px;border-radius:6px;background:rgba(0,0,0,.35);color:#fff;border:1px solid rgba(255,255,255,.2);font-family:monospace;"></select>
     <div id="propList" style="margin-top:5px;max-height:180px;overflow-y:auto;display:flex;flex-wrap:wrap;gap:4px;"></div>
     <div style="color:#9ab;font-size:11px;margin-top:3px;" id="propStatus">loading models…</div>
+    <button id="propRetryBtn" style="display:none;margin-top:4px;font-size:11px;padding:4px 8px;border-radius:6px;border:1px solid rgba(255,180,120,.4);background:#5a3a1a;color:#ffd9a0;cursor:pointer;">🔄 retry failed models</button>
 
     <div class="sec">🤖 Preview <span style="color:#7fd0ff;font-weight:400;text-transform:none;">(watch a bot drive)</span></div>
     <div class="row">
@@ -558,6 +559,8 @@
   }
   function positionLabel(lbl,o){ lbl.position.set(o.x, o.y + (o.sy||1)/2 + 4, o.z); }
   function rebuildObjects(){
+    // Ramps always face the racing line (low→high = drive direction) — ignore hand-rotated yaw.
+    if (sampled) FK_TRACK.alignRampsToTrack(track, sampled);
     while (objectGroup.children.length){ const o=objectGroup.children[0]; objectGroup.remove(o); o.traverse(c=>{ if(c.geometry)c.geometry.dispose(); if(c.material)c.material.dispose(); }); }
     while (labelGroup.children.length){ const o=labelGroup.children[0]; labelGroup.remove(o); if(o.material){ if(o.material.map)o.material.map.dispose(); o.material.dispose(); } }
     for (const k in objMeshes) delete objMeshes[k];
@@ -576,7 +579,13 @@
     const o=(track.objects||[]).find(x=>x.id===selObjId), g=objMeshes[selObjId]; if(!o||!g) return;
     o.x=+g.position.x.toFixed(2); o.y=+g.position.y.toFixed(2); o.z=+g.position.z.toFixed(2);
     o.sx=+Math.max(0.2,g.scale.x).toFixed(2); o.sy=+Math.max(0.2,g.scale.y).toFixed(2); o.sz=+Math.max(0.2,g.scale.z).toFixed(2);
-    o.rotY=+g.rotation.y.toFixed(3);
+    if (o.type === 'ramp' && sampled){
+      // Snap yaw to track — move/scale OK, free rotate is ignored for ramps
+      o.rotY = FK_TRACK.trackDirectionAt(sampled, o.x, o.z).yaw;
+      g.rotation.y = o.rotY;
+    } else {
+      o.rotY=+g.rotation.y.toFixed(3);
+    }
     if (g.userData.label) positionLabel(g.userData.label,o);
   }
   function selectObject(id){
@@ -597,19 +606,22 @@
   function clearGhost(){ if(placeGhost){ scene.remove(placeGhost); placeGhost.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material){ if(o.material.map)o.material.map.dispose(); o.material.dispose(); } }); placeGhost=null; } }
   function moveGhost(x,z){
     const tpl=pendingPlace; if(!tpl) return;
+    const yaw = (tpl.type==='ramp' && sampled) ? FK_TRACK.trackDirectionAt(sampled, x, z).yaw : (tpl.rotY||0);
     if(!placeGhost || placeGhost.userData.tType!==tpl.type || placeGhost.userData.tModel!==tpl.model){
       clearGhost();
-      placeGhost = FK_TRACK.buildObjectMesh({ ...tpl, x:0, y:0, z:0, rotY:0 }, THREE, { ghost:true, propCache });
+      placeGhost = FK_TRACK.buildObjectMesh({ ...tpl, x:0, y:0, z:0, rotY:yaw }, THREE, { ghost:true, propCache });
       placeGhost.userData.tType=tpl.type; placeGhost.userData.tModel=tpl.model;
       scene.add(placeGhost);
     }
     placeGhost.position.set(x, terrainHeightAt(x,z)+tpl.sy/2, z);   // bottom flush with the terrain
+    if (tpl.type==='ramp') placeGhost.rotation.y = yaw;
   }
   function stampAt(x,z){
     const tpl=pendingPlace; if(!tpl) return;
     track.objects=track.objects||[];
+    const yaw = (tpl.type==='ramp' && sampled) ? FK_TRACK.trackDirectionAt(sampled, x, z).yaw : 0;
     const o={ id:'obj_'+(++objSeq), tag:'', type:tpl.type, x:+x.toFixed(2), y:+(terrainHeightAt(x,z)+tpl.sy/2).toFixed(2), z:+z.toFixed(2),
-              rotY:0, sx:tpl.sx, sy:tpl.sy, sz:tpl.sz, color:tpl.color };
+              rotY:+yaw.toFixed(3), sx:tpl.sx, sy:tpl.sy, sz:tpl.sz, color:tpl.color };
     if(tpl.type==='glb') o.model=tpl.model;
     track.objects.push(o); rebuildObjects();   // keep pendingPlace active so more clicks = more copies
   }
@@ -724,6 +736,7 @@
       const m = new THREE.Mesh(new THREE.BoxGeometry(track.width*0.28, 0.6, track.width*0.4),
         new THREE.MeshLambertMaterial({ color:0x2ad0ff, emissive:0x0a5566 }));
       m.position.set(c.x + nx*lat, (c.y||0)+0.4, c.z + nz*lat);
+      // Long axis of the box is Z — yaw so it points along the racing line
       m.rotation.y = Math.atan2(t.x, t.z);
       boostGroup.add(m);
     }
@@ -859,7 +872,7 @@
   $('pReset').addEventListener('click', ()=>{ track.paint={ cell:6, cells:{} }; $('pCells').textContent='0'; rebuildTerrain(); toast('paint cleared'); });
   // water = an object with type "water" (reuses all the object machinery)
   function addWater(){ startPlacing({ type:'water', sx:30, sy:0.6, sz:30, color:0x2f6fb0 }, 'water'); }
-  function addRamp(){ startPlacing({ type:'ramp', sx:12, sy:3.5, sz:18, color:0xb8863f }, 'a ramp (rotate it after to aim the low end)'); }
+  function addRamp(){ startPlacing({ type:'ramp', sx:12, sy:3.5, sz:18, color:0xb8863f }, 'a ramp (auto-aims uphill along the track)'); }
   $('addWaterBtn').addEventListener('click', ()=>{ setMode('object'); addWater(); });
   $('addRampBtn').addEventListener('click', ()=>{ setMode('object'); addRamp(); });
   $('addObjBtn').addEventListener('click', ()=>{ setMode('object'); addObject(); });
@@ -1222,7 +1235,7 @@
   // FULL lateral state — v = velocity VECTOR (not speed along heading). The slide is v lagging theta.
   const bot = { active:false, x:0, z:0, y:0, theta:0, v:{x:0,z:0}, vy:0, airborne:false,
                 drift:{ active:false, dir:0, charge:0 }, driftAngle:0, steer:0, boostT:0, boostTier:0,
-                grassF:0, onRamp:false, _rampF:0, _rampY:0, _rampSy:0,
+                grassF:0, onRamp:false, _rampF:0, _rampY:0, _rampSy:0, _rampBoosted:false,
                 lastIdx:0, centerDist:0, slideAngle:0 };
   function botSpeed(){ return Math.hypot(bot.v.x, bot.v.z); }
   function botGroundH(x,z){ return FK_TRACK.sampleHeight(sampled, x, z, track.width, edTerrainOpts()); }
@@ -1473,6 +1486,14 @@
       const rideY=botRideHeight(p.x, p.z, cy);
       const rampSup=botRampSupport(p.x, p.z, cy);
       const spd=Math.hypot(p.v.x, p.v.z);
+      // Entry boost (once) at the foot of the ramp — same as the game
+      if (!p.airborne && rampSup && !p.onRamp && !p._rampBoosted){
+        p.boostT=Math.max(p.boostT||0, 0.6); p.boostTier=Math.max(p.boostTier||0, 1);
+        const dir=FK_TRACK.trackDirectionAt(sampled, p.x, p.z);
+        p.v.x+=dir.x*6; p.v.z+=dir.z*6;
+        p._rampBoosted=true;
+      }
+      if (!rampSup) p._rampBoosted=false;
       if (!p.airborne && p.onRamp && !rampSup && p._rampF>0.5 && spd>BT.launchMinSpeed){
         const steepF=Math.min(1, (p._rampSy||1)/BT.RAMP_FULL_HEIGHT);
         p.airborne=true; p.y=Math.max(p.y, p._rampY);
@@ -1517,7 +1538,7 @@
     bot.v.x=0; bot.v.z=0; bot.vy=0; bot.airborne=false; bot.onRamp=false;
     bot.drift.active=false; bot.drift.dir=0; bot.drift.charge=0; bot.driftAngle=0;
     bot.boostT=0; bot.boostTier=0; bot.grassF=0; bot.slideAngle=0;
-    bot._rampF=0; bot._rampY=0; bot._rampSy=0; bot.lastIdx=0; bot.steer=0;
+    bot._rampF=0; bot._rampY=0; bot._rampSy=0; bot._rampBoosted=false; bot.lastIdx=0; bot.steer=0;
     bot.y=botRideHeight(c.x, c.z, c.y||0);
     if (!botMesh) botMesh=buildBotKart();
     botMesh.position.set(bot.x, bot.y, bot.z); botMesh.rotation.set(0, bot.theta, 0);
@@ -1592,22 +1613,61 @@
   // each prop INDEPENDENTLY (still via the shared FK_loadProps, one id at a time) raced against a
   // 10s per-model timeout, merging into propCache and re-rendering as each one lands — one stuck
   // request now only leaves ITS OWN model greyed out instead of wedging the whole session.
+  // 2026-07-11 FOLLOW-UP ("grey boxes are STILL a problem" — second report): the fix above only
+  // covers the EDITOR's INITIAL preload. Two real gaps remained even after it, both confirmed via
+  // headless UI-driven placement + saved-track-load testing (real click events on real prop buttons,
+  // not shortcut calls): (a) a model that genuinely fails (times out at 10s, 404s, or errors) was
+  // marked failed ONCE with NO retry — a transient hiccup (a brief OneDrive sync lock, an antivirus
+  // scan touching the file, a dev-server hiccup under the 57-request burst) permanently greys that
+  // model's placements for the rest of the session, with no way to recover short of a full reload;
+  // (b) farmkart.html (the GAME) never got the per-model fix at all — it still awaited ONE big
+  // Promise.all for every glb id a track references, so a single stuck model there blocks ALL of that
+  // track's scenery from ever appearing (worse than the editor: no placeholder shown either, they just
+  // silently never render). Fix: (1) each model gets up to 3 attempts (10s timeout each) before being
+  // marked failed, feeding the SAME per-model race+merge+rebuild loop; (2) failedIds are tracked and a
+  // "🔄 retry failed models" button appears whenever any remain, re-running the same loader for just
+  // those ids; (3) farmkart.html (see the P2 GLB block below the ground-mesh build) now uses the
+  // identical per-model timeout+retry+independent-render helper instead of a single Promise.all.
   buildPropPicker();
-  if (window.FK_loadProps){
-    const ids=(window.FK_PROPS||[]).map(p=>p.id), total=ids.length, PROP_TIMEOUT_MS=10000;
+  const PROP_TIMEOUT_MS = 10000, PROP_MAX_ATTEMPTS = 3;
+  let propFailedIds = [];
+  function loadOnePropWithRetry(id, attempt){
+    attempt = attempt || 1;
+    const timeout = new Promise(res=>setTimeout(()=>res(null), PROP_TIMEOUT_MS));
+    const load = FK_loadProps([id], THREE, 'assets/farmkart/props/').catch(()=>null);
+    return Promise.race([load, timeout]).then(c=>{
+      if (c && c[id]) return c[id];
+      if (attempt < PROP_MAX_ATTEMPTS) return loadOnePropWithRetry(id, attempt+1);
+      return null;
+    });
+  }
+  function updatePropRetryBtn(){
+    const b=$('propRetryBtn'); if(!b) return;
+    b.style.display = propFailedIds.length ? 'block' : 'none';
+    b.textContent = '🔄 retry '+propFailedIds.length+' failed model'+(propFailedIds.length===1?'':'s');
+  }
+  function loadPropSet(ids, isRetry){
+    if (!window.FK_loadProps || !ids.length) return;
+    const total = isRetry ? ids.length : (window.FK_PROPS||[]).length;
     let done=0, failed=0;
     const setStatus=()=>{ const s=$('propStatus'); if(!s) return;
-      s.textContent = (done>=total) ? (total+' CC0 models ready — pick one to place'+(failed?(' ('+failed+' failed to load)'):'')) : ('loading models… '+done+'/'+total); };
+      s.textContent = (done>=ids.length) ? (total+' CC0 models ready — pick one to place'+(failed?(' ('+failed+' failed to load)'):'')) : ((isRetry?'retrying… ':'loading models… ')+done+'/'+ids.length); };
+    setStatus();
     ids.forEach(id=>{
-      const timeout = new Promise(res=>setTimeout(()=>res(null), PROP_TIMEOUT_MS));
-      const load = FK_loadProps([id], THREE, 'assets/farmkart/props/').catch(()=>null);
-      Promise.race([load, timeout]).then(c=>{
+      loadOnePropWithRetry(id).then(entry=>{
         done++;
-        if (c && c[id]){ propCache[id]=c[id]; rebuildObjects(); } else { failed++; }
-        setStatus();
+        propFailedIds = propFailedIds.filter(x=>x!==id);
+        if (entry){ propCache[id]=entry; rebuildObjects(); } else { failed++; propFailedIds.push(id); }
+        setStatus(); updatePropRetryBtn();
       });
     });
   }
+  loadPropSet((window.FK_PROPS||[]).map(p=>p.id), false);
+  const propRetryBtnEl = $('propRetryBtn');
+  if (propRetryBtnEl) propRetryBtnEl.addEventListener('click', ()=>{
+    const toRetry = propFailedIds.slice(); propFailedIds = []; updatePropRetryBtn();
+    loadPropSet(toRetry, true);
+  });
 
   // ---- TEST HOOK (mirrors the game's __KART__ pattern) ----
   window.__EDITOR__ = {
@@ -1627,6 +1687,7 @@
     get objects(){ return track.objects||[]; }, get selObjId(){ return selObjId; }, objMeshes, gizmo,
     addObject, duplicateObject, deleteObject, selectObject, setGizmo, rebuildObjects,
     startPlacing, stampAt, endPlacing, get pendingPlace(){ return pendingPlace; },
+    get propFailedIds(){ return propFailedIds.slice(); }, propCache,
     setObjTag:(t)=>{ if(selObjId){ const o=(track.objects||[]).find(x=>x.id===selObjId); if(o){ o.tag=t; const g=objMeshes[selObjId]; if(g&&g.userData.label){ labelGroup.remove(g.userData.label); const l=makeLabel(o.tag); positionLabel(l,o); labelGroup.add(l); g.userData.label=l; } refreshObjList(); } } },
     transformSelected:(pos,scl,rotY)=>{ const g=selObjId?objMeshes[selObjId]:null; if(!g)return; if(pos)g.position.set(pos[0],pos[1],pos[2]); if(scl)g.scale.set(scl[0],scl[1],scl[2]); if(rotY!=null)g.rotation.y=rotY; writeBackSelected(); },
     // P3 sculpt hooks (for headless tests)

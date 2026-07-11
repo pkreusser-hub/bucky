@@ -777,14 +777,37 @@
   // ---------- P2: placed world objects (blockout massing) ----------
   // Empty/absent -> nothing added (the live game is unchanged for tracks without objects). Visual-
   // first: no collision yet. Same FK_TRACK.buildObjectMesh the editor uses, so what you place = what races.
+  // Ramps are auto-yaw'd to the racing-line tangent so the slope always climbs in the drive direction.
+  FK_TRACK.alignRampsToTrack(ACTIVE_TRACK, _sampled);
   // non-GLB objects render immediately; GLB props (downloaded CC0 models) pop in after an async load.
   for (const o of (ACTIVE_TRACK.objects || [])) if (o.type !== 'glb') scene.add(FK_TRACK.buildObjectMesh(o, THREE));
   const _glbObjs = (ACTIVE_TRACK.objects || []).filter(o => o.type === 'glb' && o.model);
+  // 2026-07-11: this used to be ONE Promise.all over every id the track references — GLTFLoader has
+  // no built-in timeout, so a single stuck/slow model (same class of bug as the editor's "grey boxes"
+  // report — see farmkart-editor.html's boot-time preload comment) meant NONE of that track's glb
+  // scenery ever rendered, even for models that had already downloaded fine. Loads each id
+  // INDEPENDENTLY, raced against a 10s timeout with up to 3 attempts, adding that object to the scene
+  // the moment ITS OWN model lands — one stuck request now only costs its own props, not the whole track.
+  const _glbCache = {};
+  function _loadGlbWithRetry(id, attempt){
+    attempt = attempt || 1;
+    const timeout = new Promise(res=>setTimeout(()=>res(null), 10000));
+    const load = FK_loadProps([id], THREE, 'assets/farmkart/props/').catch(()=>null);
+    return Promise.race([load, timeout]).then(c=>{
+      if (c && c[id]) return c[id];
+      if (attempt < 3) return _loadGlbWithRetry(id, attempt+1);
+      return null;
+    });
+  }
   if (_glbObjs.length && window.FK_loadProps){
     const ids = [...new Set(_glbObjs.map(o => o.model))];
-    FK_loadProps(ids, THREE, 'assets/farmkart/props/').then(cache => {
-      for (const o of _glbObjs) scene.add(FK_TRACK.buildObjectMesh(o, THREE, { propCache:cache }));
-    }).catch(()=>{});
+    ids.forEach(id => {
+      _loadGlbWithRetry(id).then(entry => {
+        if (!entry) return;   // genuinely failed after 3 attempts — leave this model's objects unrendered (no placeholder in-game), everything else unaffected
+        _glbCache[id] = entry;
+        for (const o of _glbObjs) if (o.model === id) scene.add(FK_TRACK.buildObjectMesh(o, THREE, { propCache: _glbCache }));
+      });
+    });
   }
   // FENCES = the track's barriers (drawn per-stage in the editor). These REPLACE the old automatic
   // corridor wall: they render AND collide (fenceCollide in stepKart). A track with no drawn fences
@@ -5598,6 +5621,7 @@
     firePadBoost, effWallMargin, makeSelfCrossTrack, ownedLocally, get raceFences(){ return RACE_FENCES; },
     nearestOnCenterAtY:(x,z,cy)=>FK_TRACK.nearestOnCenterAtY(_sampled, x, z, cy, TRACK_WIDTH),
     get boostPads(){ return G.boostPads; },
+    get glbPropCache(){ return _glbCache; },
     startCountdown, toMenu,
     ACTIVE_TRACK, ACTIVE_TRACK_ID,   // K3: which track data is live
     IS_MOBILE, MOBILE_CAM, camDistEff, camHeightEff, camLagEff, fovEff,
