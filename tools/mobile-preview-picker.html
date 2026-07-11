@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Mobile Preview</title>
+<style>
+  :root {
+    --navy: #233357;
+    --navy-deep: #18233b;
+    --red: #ba303e;
+    --ink: #1a2233;
+    --muted: #5a6578;
+    --line: #d5dce8;
+    --bg: #eef2f8;
+    --card: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    background:
+      radial-gradient(120% 80% at 10% -10%, #f7d6db 0%, transparent 45%),
+      radial-gradient(100% 70% at 100% 0%, #d6e0f5 0%, transparent 40%),
+      var(--bg);
+    color: var(--ink);
+  }
+  main {
+    max-width: 420px;
+    margin: 0 auto;
+    padding: 20px 16px calc(24px + env(safe-area-inset-bottom));
+  }
+  header {
+    text-align: center;
+    margin-bottom: 18px;
+  }
+  .logo {
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
+    object-fit: cover;
+    box-shadow: 0 4px 14px rgba(35, 51, 87, 0.18);
+  }
+  h1 {
+    margin: 10px 0 4px;
+    font-size: 1.35rem;
+    letter-spacing: -0.02em;
+    color: var(--navy);
+  }
+  .sub {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .grid {
+    display: grid;
+    gap: 10px;
+  }
+  a.btn {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    min-height: 64px;
+    text-decoration: none;
+    color: var(--ink);
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: 0 1px 2px rgba(35, 51, 87, 0.06);
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.12s ease, border-color 0.12s ease;
+  }
+  a.btn:active {
+    transform: scale(0.98);
+    border-color: var(--navy);
+  }
+  .ic {
+    flex: 0 0 40px;
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    font-size: 1.25rem;
+    background: #e7eefb;
+  }
+  .txt { flex: 1; min-width: 0; }
+  .name {
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: var(--navy-deep);
+  }
+  .hint {
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .chev {
+    color: var(--muted);
+    font-size: 1.1rem;
+  }
+  footer {
+    margin-top: 18px;
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img class="logo" src="/bucky.png" alt="Bucky" width="56" height="56" />
+    <h1>Mobile Preview</h1>
+    <p class="sub">Tap a page · phone viewport · coarse pointer on</p>
+  </header>
+  <nav class="grid" aria-label="Bucky pages">
+    <a class="btn" href="/index.html"><span class="ic">🏠</span><span class="txt"><span class="name">Home</span><span class="hint">index.html</span></span><span class="chev">›</span></a>
+    <a class="btn" href="/farmkart.html"><span class="ic">🏁</span><span class="txt"><span class="name">Farm Kart</span><span class="hint">farmkart.html</span></span><span class="chev">›</span></a>
+    <a class="btn" href="/weather.html"><span class="ic">🌤️</span><span class="txt"><span class="name">Weather</span><span class="hint">weather.html</span></span><span class="chev">›</span></a>
+    <a class="btn" href="/games.html"><span class="ic">🎮</span><span class="txt"><span class="name">Games</span><span class="hint">games.html</span></span><span class="chev">›</span></a>
+    <a class="btn" href="/farmgpt.html"><span class="ic">🌾</span><span class="txt"><span class="name">FarmGPT</span><span class="hint">farmgpt.html</span></span><span class="chev">›</span></a>
+    <a class="btn" href="/barnyardbistro.html"><span class="ic">🍅</span><span class="txt"><span class="name">Barnyard Bistro</span><span class="hint">barnyardbistro.html</span></span><span class="chev">›</span></a>
+    <a class="btn" href="/goatcare.html"><span class="ic">🐐</span><span class="txt"><span class="name">Goat Care</span><span class="hint">goatcare.html</span></span><span class="chev">›</span></a>
+    <a class="btn" href="/pasturepanic.html"><span class="ic">🌾</span><span class="txt"><span class="name">Pasture Panic</span><span class="hint">pasturepanic.html</span></span><span class="chev">›</span></a>
+  </nav>
+  <footer>Close the Chrome window when done</footer>
+</main>
+</body>
+</html>

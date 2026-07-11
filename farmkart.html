@@ -334,7 +334,7 @@
     </div>
   </div>
 
-  <div id="help">WASD/arrows drive · Space/Shift drift · X tap=fire item · hold X=trail behind (🍅🐔🌾) · R reset · ` tuning</div>
+  <div id="help">WASD/arrows drive · Space/Shift drift · X tap=fire item · hold X=trail behind (🥬🐔🌾) · R reset · ` tuning</div>
 
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
@@ -404,7 +404,7 @@
     botTopSpeedMul:1.18,    // bots' top speed = maxSpeed*this (helps on straights where they don't
                             //   mini-turbo; a boosting human still exceeds it)
     botRubberband:0.06,     // +-fraction of target speed when >25u behind/ahead of the human
-    botSkillVar:0.15,       // per-bot random spread in pace (added to botSkill at spawn) so they don't match paces
+    botSkillVar:0.28,       // per-bot random spread in pace (added to botSkill at spawn) so they don't match paces
     botLaneSpread:0.5,      // per-bot preferred lane, as a fraction of half-width, so the field fans across the track
     // --- 8b. SMARTER BOTS (racing line + drifting) ---
     botDrift:1,             // 1 = bots drift corners to earn mini-turbo boosts (like a skilled player); 0 = off
@@ -1558,7 +1558,7 @@
     const bodyMat = new THREE.MeshLambertMaterial({ color:bodyColor, emissive:0x000000 });
     const body = new THREE.Mesh(KART_BODY_GEO, bodyMat); body.position.y = 0.5; placeholder.add(body);
     const modelSlot = new THREE.Group(); bounce.add(modelSlot);
-    if (!isLocal && name){ bounce.add(makeNameSprite(name, bodyColor)); }
+    if (!isLocal && name && !(opts && opts.noName)){ bounce.add(makeNameSprite(name, bodyColor)); }
     scene.add(group);
     const kartId = normalizeKartId(opts.kartId != null ? opts.kartId : (isLocal ? loadKartId() : 'bucky'));
     const driverId = normalizeDriverId(opts.driverId != null ? opts.driverId : (isLocal ? loadDriverId() : 'bucky'));
@@ -1916,9 +1916,12 @@
     const boosting = p.boostT > 0;
     // bots don't drift/mini-turbo, so their cruising cap is raised (botTopSpeedMul) to compensate;
     // a boosting human still exceeds it. Boost (pads/items) uses the normal boostMult surge for both.
-    const botCap = p.isBot ? (TUNE.botTopSpeedMul || 1) : 1;
+    const botCap = p.isBot
+      ? ((TUNE.botTopSpeedMul || 1) * (p.botTopMul != null ? p.botTopMul : 1))
+      : 1;
     let effMax = TUNE.maxSpeed * (boosting ? Math.max(botCap, 1 + TUNE.boostMult) : botCap);
     let effAccel = TUNE.accel;
+    if (p.isBot) effAccel *= (p.botAccelMul != null ? p.botAccelMul : 1);
     if (gf > 0){ effAccel *= (1 - 0.55*gf); effMax *= (1 - 0.5*gf); }
 
     // ---- throttle / brake along forward ----
@@ -2233,7 +2236,7 @@
       const j = (ai+1)%N; acc += Math.hypot(C[j].x-C[ai].x, C[j].z-C[ai].z); ai = j;
       if (ai === idx) break;
     }
-    const botTop = TUNE.maxSpeed * (TUNE.botTopSpeedMul || 1);   // bots may exceed base max (no drift/MT)
+    const botTop = TUNE.maxSpeed * (TUNE.botTopSpeedMul || 1) * (p.botTopMul != null ? p.botTopMul : 1);
     let tv = botTop;
     if (maxCurv > 1e-4) tv = Math.sqrt((TUNE.botLatBase * TUNE.botCornerGrip) / maxCurv);
     tv = Math.min(tv, botTop);
@@ -2460,32 +2463,55 @@
     G.hazards.push({ x, z, y:sampleHeight(x,z)+0.4, owner:p.id, ownerGraceT:0.7 });
     while (G.hazards.length > TUNE.hazardMax) G.hazards.shift();   // oldest despawns (render reconciles)
   }
+  // Burst of leaf/feather/hay bits when a projectile or trailed shield is destroyed.
+  function spawnItemExplode(x, y, z, kind){
+    const cols = (kind === 'chicken' || kind === 'chicken3')
+      ? [0xf5f0e6, 0xe23b2e, 0xffa020, 0xfff8ee]
+      : (kind === 'hay')
+        ? [0xcaa24a, 0xd4a84b, 0xe8c878]
+        : [0x4a9a3a, 0x7ac26a, 0x2a6a24, 0xc8e8a0]; // tomato item = lettuce visuals
+    for (let i=0;i<12;i++){
+      const a = Math.random() * Math.PI * 2;
+      const sp = 2.2 + Math.random() * 5.5;
+      spawnParticle(x, y + 0.1, z, {
+        color: cols[(Math.random() * cols.length) | 0],
+        opacity: 0.95,
+        life: 0.28 + Math.random() * 0.32,
+        vx: Math.cos(a) * sp, vy: 2.5 + Math.random() * 5, vz: Math.sin(a) * sp,
+        grav: 14, size: 0.18 + Math.random() * 0.22, grow: 0.15, spin: (Math.random()-0.5)*8
+      });
+    }
+  }
   // World position of a trailed item (behind the kart). Used by hit absorption + visuals.
   function trailWorldPos(p){
     const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
     const x = p.pos.x - f.x*2.35, z = p.pos.z - f.z*2.35;
     return { x, z, y:(p.y||sampleHeight(x,z)) + 0.55, fx:f.x, fz:f.z };
   }
-  // Absorb a hit from the rear hemisphere with a trailed item. Returns true if absorbed.
+  // Absorb a hit from the rear hemisphere with a trailed item. One-time save: shield EXPLODES
+  // (destroyed) and the incoming projectile is consumed by the caller.
   function tryAbsorbWithTrail(q, fromX, fromZ){
     if (!q.itemTrail || !isTrailable(q.itemHeld) || isTriple(q.itemHeld)) return false;
     const f = { x:Math.sin(q.theta), z:Math.cos(q.theta) };
     const dx = fromX - q.pos.x, dz = fromZ - q.pos.z;
     const ahead = dx*f.x + dz*f.z;
     if (ahead > 0.15) return false;   // only rear hemisphere
-    // destroy the trailed shield
+    const tw = trailWorldPos(q);
+    spawnItemExplode(tw.x, tw.y, tw.z, q.itemHeld);
     clearItem(q);
     itemBlockSound();
     return true;
   }
   function hitKartWithProjectile(q, pr){
     if (tryAbsorbWithTrail(q, pr.x, pr.z)){
+      spawnItemExplode(pr.x, pr.y, pr.z, pr.kind);
       if (pr.kind === 'tomato') tomatoSplatSound(true);
       else if (pr.kind === 'chicken') chickenSquawkSound(true);
       pr.life = 0; return true;
     }
     if (q.spinT <= 0){
       applySpinOut(q);
+      spawnItemExplode(pr.x, pr.y, pr.z, pr.kind);
       if (pr.kind === 'tomato') tomatoSplatSound(false);
       else if (pr.kind === 'chicken') chickenSquawkSound(true);
       pr.life = 0; return true;
@@ -2493,7 +2519,6 @@
     return false;
   }
   function advanceProjectiles(dt){
-    const half = TRACK_WIDTH/2;
     const turn = TUNE.chickenTurn;
     for (const pr of G.projectiles){
       // homing: gently steer toward the target kart (re-resolve if missing / finished)
@@ -2522,7 +2547,16 @@
       pr.x += pr.vx*dt; pr.z += pr.vz*dt;
       pr.y = sampleHeight(pr.x, pr.z) + (pr.kind === 'chicken' ? 0.7 : 0.6);
       pr.life -= dt;
-      // (no corridor wall anymore — thrown items simply fly their range, then expire)
+      // Homing chickens EXPLODE on fence/wall hit (tomatoes fly past / expire on life)
+      if (pr.kind === 'chicken' && pr.life > 0){
+        const wall = FK_TRACK.fenceCollide(RACE_FENCES, pr.x, pr.z, 0.55);
+        if (wall){
+          spawnItemExplode(pr.x, pr.y, pr.z, 'chicken');
+          chickenSquawkSound(true);
+          pr.life = 0;
+          continue;
+        }
+      }
       const hitR = pr.kind === 'chicken' ? TUNE.chickenHitR : 1.5;
       for (const id in G.players){
         const q = G.players[id]; if (id === pr.owner) continue;
@@ -2538,7 +2572,10 @@
         const q = G.players[id];
         if (id === hz.owner && hz.ownerGraceT > 0) continue;
         if (Math.hypot(q.pos.x-hz.x, q.pos.z-hz.z) < 1.6){
-          if (tryAbsorbWithTrail(q, hz.x, hz.z)){ hz.dead = true; break; }
+          if (tryAbsorbWithTrail(q, hz.x, hz.z)){
+            spawnItemExplode(hz.x, hz.y, hz.z, 'hay');
+            hz.dead = true; break;
+          }
           if (q.spinT <= 0){ applySpinOut(q); hz.dead = true; break; }
         }
       }
@@ -2710,7 +2747,10 @@
       const id = 'bot'+i;
       const p = makePlayer(id);
       p.isBot = true; p.botName = BOT_NAMES[i % BOT_NAMES.length]; p.botColor = BOT_COLORS[i % BOT_COLORS.length];
-      p.botSkill   = Math.max(0.4, Math.min(1, TUNE.botSkill + (Math.random()-0.5)*(TUNE.botSkillVar||0)));
+      p.botSkill   = Math.max(0.35, Math.min(1, TUNE.botSkill + (Math.random()-0.5)*((TUNE.botSkillVar||0.25)*2)));
+      // Per-bot engine: some feel "better" (faster top + snappier accel), some lag
+      p.botTopMul  = 0.82 + Math.random() * 0.38;   // 0.82 .. 1.20 × bot top-speed cap
+      p.botAccelMul= 0.70 + Math.random() * 0.60;   // 0.70 .. 1.30 × accel
       const laneBase = n>1 ? (i/(n-1))*2 - 1 : 0;
       p.laneBias   = Math.max(-1, Math.min(1, laneBase + (Math.random()-0.5)*0.7));
       p.botLineMul = 0.65 + Math.random()*0.7;
@@ -2718,7 +2758,7 @@
       p.kartId = randomKartId();
       p.driverId = randomDriverId();
       G.players[id] = p;
-      buildKartView(id, accentColorFor(p), false, p.botName, { kartId:p.kartId, driverId:p.driverId });
+      buildKartView(id, accentColorFor(p), false, p.botName, { kartId:p.kartId, driverId:p.driverId, noName:true });
       paintKartAccent(id);
     }
   }
@@ -2748,54 +2788,260 @@
   }
 
   // ---------- K4: item-entity VISUALS (render-only, reconciled from G each frame) ----------
-  // '?' decal texture for the spinning item boxes.
-  const _qTex = (function(){
-    const cv = document.createElement('canvas'); cv.width = cv.height = 64;
+  // Cardboard item crates — kraft texture + packing-tape cross, slow yaw spin + bob.
+  const _cardboardTex = (function(){
+    const cv = document.createElement('canvas'); cv.width = cv.height = 128;
     const c = cv.getContext('2d');
-    c.fillStyle = 'rgba(255,255,255,0)'; c.fillRect(0,0,64,64);
-    c.fillStyle = '#fff'; c.font = 'bold 46px Segoe UI, sans-serif'; c.textAlign='center'; c.textBaseline='middle';
-    c.fillText('?', 32, 34);
+    // kraft cardboard (brown, not yellow)
+    c.fillStyle = '#a67c4a'; c.fillRect(0,0,128,128);
+    // corrugation grain
+    for (let y=0;y<128;y+=3){
+      c.fillStyle = (y%6===0) ? 'rgba(50,30,10,0.12)' : 'rgba(255,230,190,0.06)';
+      c.fillRect(0, y, 128, 1.5);
+    }
+    // packing-tape cross (amber, not neon)
+    c.fillStyle = 'rgba(196,160,50,0.75)';
+    c.fillRect(54, 0, 20, 128);
+    c.fillRect(0, 54, 128, 20);
+    // soft stamp
+    c.fillStyle = 'rgba(60,35,15,0.45)';
+    c.font = 'bold 44px Segoe UI, sans-serif';
+    c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText('?', 64, 70);
+    // box edge / flap crease
+    c.strokeStyle = 'rgba(50,30,10,0.55)'; c.lineWidth = 5; c.strokeRect(3,3,122,122);
+    c.strokeStyle = 'rgba(50,30,10,0.25)'; c.lineWidth = 2;
+    c.beginPath(); c.moveTo(64, 3); c.lineTo(64, 125); c.stroke();
     const t = new THREE.CanvasTexture(cv); t.needsUpdate = true; return t;
   })();
-  const ITEMBOX_GEO = new THREE.BoxGeometry(1.5, 1.5, 1.5);
-  const TOMATO_GEO  = new THREE.SphereGeometry(0.55, 12, 10);
+  const ITEMBOX_GEO = new THREE.BoxGeometry(1.35, 1.15, 1.35);
+  const ITEMBOX_TAPE_GEO = new THREE.BoxGeometry(0.16, 0.045, 1.37);
+  const _itemBoxMat = new THREE.MeshLambertMaterial({ map:_cardboardTex, color:0xffffff });
+  const _itemTapeMat = new THREE.MeshLambertMaterial({ color:0xc4a032 });
+  function buildCardboardItemBox(){
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(ITEMBOX_GEO, _itemBoxMat));
+    const tapeA = new THREE.Mesh(ITEMBOX_TAPE_GEO, _itemTapeMat);
+    tapeA.position.y = 0.575; g.add(tapeA);
+    const tapeB = new THREE.Mesh(ITEMBOX_TAPE_GEO, _itemTapeMat);
+    tapeB.position.y = 0.575; tapeB.rotation.y = Math.PI/2; g.add(tapeB);
+    return g;
+  }
+  const TOMATO_GEO  = new THREE.SphereGeometry(0.55, 12, 10); // fallback if lettuce GLB missing
   const HAY_GEO     = new THREE.CylinderGeometry(0.7, 0.7, 0.95, 10);
-  const _boxMeshes = [];   // persistent, one per G.itemBoxes entry
-  const _projPool = [];    // pooled projectile meshes (tomato OR chicken group)
+  const _boxMeshes = [];   // persistent Groups, one per G.itemBoxes entry
+  const _projPool = [];    // pooled projectile meshes (lettuce GLB / chicken GLB / hay)
   const _hazPool  = [];    // pooled hay-bale meshes
   const _orbitPool = {};   // pid -> [mesh,mesh,mesh] orbiting held triples / trail
   const _orbitAng = {};    // pid -> current orbit angle
 
-  // Chunk procedural chicken (body + head + comb + beak) — kid-readable blob.
-  function buildChickenMesh(){
+  // Projectile GLBs (assets/farmkart/):
+  //   lettuce — Kay Lousberg CC0 leafy ingredient (Bistro's assets/lettuce.glb is a near-sphere
+  //             textured blob that reads as a green ball at race speed)
+  //   chicken — Quaternius CC0 low-poly animal (textured atlas; farmlife chicken was untextured)
+  // Fallback procedural meshes until load finishes; pools hot-swap when templates land.
+  const _projTpl = { lettuce:null, chicken:null };
+  let _projTplVer = 0;
+  function _lambertFrom(src, geo, opts){
+    const hasVC = !!(geo && geo.attributes && geo.attributes.color);
+    const hasMap = !!(src && src.map);
+    const baseCol = (hasVC || hasMap) ? new THREE.Color(0xffffff)
+      : ((src && src.color) ? src.color.clone() : new THREE.Color(0xcccccc));
+    if (!hasVC && !hasMap) baseCol.convertLinearToSRGB();
+    return new THREE.MeshLambertMaterial({
+      color: baseCol, map: hasMap ? src.map : null, vertexColors: hasVC,
+      emissive: baseCol.clone().multiplyScalar(0.34),
+      emissiveMap: hasMap ? src.map : null,
+      transparent: !!(src && src.transparent),
+      opacity: (src && src.opacity!=null) ? src.opacity : 1,
+      side: (opts && opts.doubleSide) ? THREE.DoubleSide : ((src && src.side) || THREE.FrontSide)
+    });
+  }
+  // Flatten skinned Quaternius animals to a static Mesh (bind-pose geometry) so clone() is safe
+  // and we don't need SkeletonUtils / skinning materials for a flying projectile.
+  function _staticizeSkinned(root){
+    const toSwap = [];
+    root.updateMatrixWorld(true);
+    root.traverse(o=>{
+      if (!o.isSkinnedMesh) return;
+      let mat;
+      if (Array.isArray(o.material)){
+        mat = o.material.map(m => _lambertFrom(m, o.geometry, null));
+      } else {
+        mat = _lambertFrom(o.material, o.geometry, null);
+      }
+      const plain = new THREE.Mesh(o.geometry, mat);
+      plain.name = o.name || 'skinned';
+      o.matrixWorld.decompose(plain.position, plain.quaternion, plain.scale);
+      toSwap.push({ old:o, plain });
+    });
+    for (const { old, plain } of toSwap){
+      const parent = old.parent || root;
+      parent.add(plain);
+      parent.remove(old);
+    }
+    // Drop leftover armature/bone empties — keep only meshes under a clean group
+    const meshes = [];
+    root.traverse(o=>{ if (o.isMesh) meshes.push(o); });
     const g = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.SphereGeometry(0.42, 10, 8),
-      new THREE.MeshLambertMaterial({ color:0xf5f0e6, emissive:0x222018 }));
-    body.scale.set(1, 0.85, 1.15); g.add(body);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 6),
-      new THREE.MeshLambertMaterial({ color:0xfff8ee }));
-    head.position.set(0, 0.28, 0.32); g.add(head);
-    const comb = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 5),
-      new THREE.MeshLambertMaterial({ color:0xe23b2e, emissive:0x300000 }));
-    comb.position.set(0, 0.48, 0.28); comb.scale.set(0.7, 1.2, 0.5); g.add(comb);
-    const beak = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.18, 6),
-      new THREE.MeshLambertMaterial({ color:0xffa020 }));
-    beak.rotation.x = Math.PI/2; beak.position.set(0, 0.24, 0.48); g.add(beak);
+    for (const m of meshes){
+      m.updateMatrixWorld(true);
+      const w = new THREE.Mesh(m.geometry, m.material);
+      m.matrixWorld.decompose(w.position, w.quaternion, w.scale);
+      g.add(w);
+    }
     return g;
   }
+  function _toLambertScene(root, opts){
+    root.traverse(o=>{
+      if (!o.isMesh || !o.material) return;
+      if (o.isSkinnedMesh) return; // handled by _staticizeSkinned
+      if (Array.isArray(o.material)){
+        // Multi-primitive animals (e.g. Quaternius Chicken_Blob) keep comb/beak/eye mats
+        o.material = o.material.map(m => _lambertFrom(m, o.geometry, opts));
+      } else {
+        o.material = _lambertFrom(o.material, o.geometry, opts);
+      }
+    });
+  }
+  function _normProjTpl(root, maxDim, opts){
+    _toLambertScene(root, opts);
+    root.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(root);
+    const sx=box.max.x-box.min.x, sy=box.max.y-box.min.y, sz=box.max.z-box.min.z;
+    const s = maxDim / Math.max(sx, sy, sz, 1e-3);
+    const cx=(box.min.x+box.max.x)/2, cy=(box.min.y+box.max.y)/2, cz=(box.min.z+box.max.z)/2;
+    root.position.set(-cx*s, -cy*s, -cz*s);
+    root.scale.setScalar(s);
+    const wrap = new THREE.Group();
+    wrap.add(root);
+    wrap.userData.tplVer = _projTplVer;
+    wrap.userData.hasMap = false;
+    wrap.traverse(o=>{ if (o.isMesh && o.material && o.material.map) wrap.userData.hasMap = true; });
+    return wrap;
+  }
+  function _invalidateProjPools(){
+    _projTplVer++;
+    for (const m of _projPool){ if (m) scene.remove(m); }
+    _projPool.length = 0;
+    for (const pid of Object.keys(_orbitPool)){
+      for (const m of _orbitPool[pid]){ if (m) scene.remove(m); }
+      delete _orbitPool[pid];
+    }
+  }
+  (function loadProjectileModels(){
+    if (!THREE.GLTFLoader) return;
+    const loader = new THREE.GLTFLoader();
+    loader.load('assets/farmkart/lettuce.glb', gltf=>{
+      _projTpl.lettuce = _normProjTpl(gltf.scene.clone(true), 1.15, { doubleSide:true });
+      _invalidateProjPools();
+    }, undefined, (err)=>{ console.warn('[fk] lettuce.glb failed', err); });
+    loader.load('assets/farmkart/chicken.glb', gltf=>{
+      // Organic Quaternius Chicken_Blob (multi-material). Pixel variant kept as chicken-pixel.glb.
+      // If skinned, bake bind pose; otherwise just lambert-convert (preserves comb/beak/eye mats).
+      let raw = gltf.scene.clone(true);
+      let hasSkin = false;
+      raw.traverse(o=>{ if (o.isSkinnedMesh) hasSkin = true; });
+      if (hasSkin) raw = _staticizeSkinned(raw);
+      raw.rotation.y = Math.PI; // face +Z
+      _projTpl.chicken = _normProjTpl(raw, 1.45, null);
+      _invalidateProjPools();
+    }, undefined, (err)=>{ console.warn('[fk] chicken.glb failed', err); });
+  })();
+
+  // Readable chunky chicken (matches Farm Kart's blocky kart aesthetic). The free CC0
+  // chicken GLBs available are either Minecraft-pixel or a near-sphere "blob" — neither
+  // reads well at race speed. Optional GLB override still loads into _projTpl.chicken if
+  // you drop a better model at assets/farmkart/chicken.glb (textured / multi-mat).
+  function buildChickenMesh(){
+    const g = new THREE.Group();
+    g.userData.tplVer = 0;
+    g.userData.fallback = true;
+    const fur = new THREE.MeshLambertMaterial({ color:0xf2ebe0, emissive:0x2a2418 });
+    const comb = new THREE.MeshLambertMaterial({ color:0xe23b2e, emissive:0x401008 });
+    const beak = new THREE.MeshLambertMaterial({ color:0xffa020, emissive:0x402000 });
+    const eye  = new THREE.MeshLambertMaterial({ color:0x1a1a1a });
+    const leg  = new THREE.MeshLambertMaterial({ color:0xe09030, emissive:0x301800 });
+    // body
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.38, 12, 10), fur);
+    body.scale.set(1.05, 0.92, 1.25); body.position.set(0, 0.38, 0); g.add(body);
+    // tail puff
+    const tail = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 6), fur);
+    tail.scale.set(0.7, 0.85, 0.55); tail.position.set(0, 0.48, -0.42); g.add(tail);
+    // head
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 10, 8), fur);
+    head.position.set(0, 0.72, 0.32); g.add(head);
+    // comb (3 blobs)
+    for (let i=0;i<3;i++){
+      const c = new THREE.Mesh(new THREE.SphereGeometry(0.08, 6, 5), comb);
+      c.scale.set(0.7, 1.15, 0.65);
+      c.position.set(0, 0.92 + i*0.02, 0.22 + i*0.08); g.add(c);
+    }
+    // wattle
+    const wat = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 5), comb);
+    wat.scale.set(0.6, 1.1, 0.5); wat.position.set(0, 0.58, 0.48); g.add(wat);
+    // beak
+    const bk = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.16, 6), beak);
+    bk.rotation.x = Math.PI/2; bk.position.set(0, 0.68, 0.52); g.add(bk);
+    // eyes
+    const eL = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 5), eye);
+    eL.position.set(-0.12, 0.76, 0.48); g.add(eL);
+    const eR = eL.clone(); eR.position.x = 0.12; g.add(eR);
+    // wings
+    const wingGeo = new THREE.SphereGeometry(0.18, 8, 6);
+    const wL = new THREE.Mesh(wingGeo, fur);
+    wL.scale.set(0.35, 0.7, 1.0); wL.position.set(-0.38, 0.40, 0.02); wL.rotation.z = 0.35; g.add(wL);
+    const wR = wL.clone(); wR.position.x = 0.38; wR.rotation.z = -0.35; g.add(wR);
+    // legs + feet
+    const legGeo = new THREE.CylinderGeometry(0.035, 0.04, 0.22, 5);
+    const footGeo = new THREE.BoxGeometry(0.12, 0.04, 0.16);
+    for (const side of [-1, 1]){
+      const lg = new THREE.Mesh(legGeo, leg);
+      lg.position.set(side*0.12, 0.12, 0.05); g.add(lg);
+      const ft = new THREE.Mesh(footGeo, leg);
+      ft.position.set(side*0.12, 0.02, 0.10); g.add(ft);
+    }
+    // normalize to ~1.2 tall like the GLB path
+    g.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(g);
+    const sy = box.max.y - box.min.y;
+    const s = 1.2 / Math.max(sy, 1e-3);
+    const cx=(box.min.x+box.max.x)/2, cy=(box.min.y+box.max.y)/2, cz=(box.min.z+box.max.z)/2;
+    const wrap = new THREE.Group();
+    g.position.set(-cx*s, -cy*s, -cz*s);
+    g.scale.setScalar(s);
+    wrap.add(g);
+    wrap.userData.fallback = true;
+    return wrap;
+  }
   function makeProjMesh(kind){
-    if (kind === 'chicken') return buildChickenMesh();
-    return new THREE.Mesh(TOMATO_GEO, new THREE.MeshLambertMaterial({ color:0xe23b2e, emissive:0x300000 }));
+    if (kind === 'chicken'){
+      // Prefer a real GLB only when it has a texture atlas (reads as a chicken at distance).
+      // Untextured blob GLBs look worse than the procedural chunky chicken.
+      if (_projTpl.chicken && _projTpl.chicken.userData && _projTpl.chicken.userData.hasMap){
+        const m = _projTpl.chicken.clone(true); m.userData.tplVer = _projTplVer; return m;
+      }
+      return buildChickenMesh();
+    }
+    // tomato / tomato3 projectiles render as leafy lettuce
+    if (_projTpl.lettuce){ const m = _projTpl.lettuce.clone(true); m.userData.tplVer = _projTplVer; return m; }
+    const m = new THREE.Mesh(TOMATO_GEO, new THREE.MeshLambertMaterial({ color:0x4a9a3a, emissive:0x1a3010 }));
+    m.userData.fallback = true; m.userData.tplVer = 0; return m;
   }
   function makeOrbitBit(kind){
-    if (kind === 'chicken' || kind === 'chicken3') return buildChickenMesh();
+    if (kind === 'chicken' || kind === 'chicken3'){
+      if (_projTpl.chicken && _projTpl.chicken.userData && _projTpl.chicken.userData.hasMap){
+        const m = _projTpl.chicken.clone(true); m.scale.multiplyScalar(0.85); m.userData.tplVer = _projTplVer; return m;
+      }
+      const m = buildChickenMesh(); m.scale.multiplyScalar(0.85); return m;
+    }
     if (kind === 'hay'){
       const m = new THREE.Mesh(HAY_GEO, new THREE.MeshLambertMaterial({ color:0xcaa24a }));
       m.rotation.z = Math.PI/2; m.scale.setScalar(0.55); return m;
     }
-    // tomato / tomato3
-    const m = new THREE.Mesh(TOMATO_GEO, new THREE.MeshLambertMaterial({ color:0xe23b2e, emissive:0x300000 }));
-    m.scale.setScalar(0.72); return m;
+    if (_projTpl.lettuce){ const m = _projTpl.lettuce.clone(true); m.scale.multiplyScalar(0.85); m.userData.tplVer = _projTplVer; return m; }
+    const m = new THREE.Mesh(TOMATO_GEO, new THREE.MeshLambertMaterial({ color:0x4a9a3a, emissive:0x1a3010 }));
+    m.scale.setScalar(0.72); m.userData.fallback = true; return m;
   }
 
   function buildItemBoxes(){
@@ -2813,9 +3059,11 @@
         const lat = k * (TRACK_WIDTH*0.28);
         const x = c.x + nx*lat, z = c.z + nz*lat;
         G.itemBoxes.push({ x, z, active:true, respawnT:0 });
-        const mat = new THREE.MeshLambertMaterial({ color:0xffe27a, emissive:0x554400, transparent:true, opacity:0.72, map:_qTex });
-        const m = new THREE.Mesh(ITEMBOX_GEO, mat);
-        m.position.set(x, sampleHeight(x,z) + 1.0, z);
+        const m = buildCardboardItemBox();
+        m.userData.baseY = sampleHeight(x,z) + 1.05;
+        m.userData.phase = _boxMeshes.length * 1.7;
+        m.position.set(x, m.userData.baseY, z);
+        m.rotation.y = _boxMeshes.length * 0.7;
         scene.add(m); _boxMeshes.push(m);
       }
     }
@@ -2852,20 +3100,27 @@
       const m = _padMeshes[i]; if (!m) continue;
       m.material.opacity = 0.6 + 0.35*(0.5 + 0.5*Math.sin(performance.now()*0.006 + i));
     }
-    // item boxes: spin + hide while respawning
+    // item boxes: slow yaw spin + gentle bob; hide while respawning
+    const now = performance.now() * 0.001;
     for (let i=0;i<G.itemBoxes.length;i++){
       const b = G.itemBoxes[i], m = _boxMeshes[i]; if (!m) continue;
       m.visible = b.active;
-      m.rotation.y += dt*1.6; m.rotation.x += dt*0.7;
+      if (!b.active) continue;
+      m.rotation.y += dt * 0.55;
+      m.rotation.x = 0; m.rotation.z = 0;
+      const baseY = sampleHeight(b.x, b.z) + 1.05;
+      m.userData.baseY = baseY;
+      m.position.y = baseY + Math.sin(now * 1.35 + (m.userData.phase || i)) * 0.22;
     }
-    // projectiles (tomato sphere or chicken group)
+    // projectiles (lettuce GLB / chicken GLB — remake when template version bumps after load)
     for (let i=0;i<G.projectiles.length;i++){
       const pr = G.projectiles[i];
       let m = _projPool[i];
       const want = pr.kind || 'tomato';
-      if (!m || m.userData.kind !== want){
+      if (!m || m.userData.kind !== want || m.userData.tplVer !== _projTplVer){
         if (m){ scene.remove(m); }
-        m = makeProjMesh(want); m.userData.kind = want; scene.add(m); _projPool[i] = m;
+        m = makeProjMesh(want); m.userData.kind = want; m.userData.tplVer = _projTplVer;
+        scene.add(m); _projPool[i] = m;
       }
       m.visible = true; m.position.set(pr.x, pr.y, pr.z);
       if (want === 'chicken'){
@@ -2891,11 +3146,12 @@
     while (arr.length < n){
       const m = makeOrbitBit(kind); m.visible = false; scene.add(m); arr.push(m);
     }
-    // retype if kind changed
+    // retype if kind changed OR projectile GLBs finished loading
     for (let i=0;i<arr.length;i++){
-      if (arr[i].userData.okind !== kind){
+      if (arr[i].userData.okind !== kind || arr[i].userData.tplVer !== _projTplVer){
         scene.remove(arr[i]);
-        arr[i] = makeOrbitBit(kind); arr[i].userData.okind = kind; scene.add(arr[i]);
+        arr[i] = makeOrbitBit(kind); arr[i].userData.okind = kind;
+        arr[i].userData.tplVer = _projTplVer; scene.add(arr[i]);
       }
     }
     return arr;
@@ -3608,8 +3864,8 @@
   const itemSlot = document.getElementById('itemSlot');
   const itemIcon = document.getElementById('itemIcon');
   const ITEM_ICON = {
-    boost:'⚡', tomato:'🍅', hay:'🌾', chicken:'🐔',
-    tomato3:'🍅×3', chicken3:'🐔×3'
+    boost:'⚡', tomato:'🥬', hay:'🌾', chicken:'🐔',
+    tomato3:'🥬×3', chicken3:'🐔×3'
   };
   function updateItemSlot(p){
     const racing = G.phase === 'racing' || G.phase === 'finished';
@@ -3623,7 +3879,7 @@
       itemSlot.className = 'filled' + (p.itemTrail ? ' trail' : '');
       let icon = ITEM_ICON[p.itemHeld] || '·';
       if (isTriple(p.itemHeld) && p.itemCount > 0){
-        const base = p.itemHeld === 'chicken3' ? '🐔' : '🍅';
+        const base = p.itemHeld === 'chicken3' ? '🐔' : '🥬';
         icon = base + '×' + p.itemCount;
       } else if (p.itemTrail){
         icon = '🛡' + (ITEM_ICON[p.itemHeld] || '');
@@ -5100,6 +5356,7 @@
     setupRoster, placeAllAtGrid, botInput, botTargetSpeed, botUseItems, addTestKart, buildItemBoxes,
     applySpinOut, useItem, fireTomato, fireChicken, dropHay, findKartAhead, totalProgress,
     setItemTrail, tryAbsorbWithTrail, grantHeldItem, clearItem, isTriple, isTrailable, rollItem,
+    spawnItemExplode, makeProjMesh, buildChickenMesh, get projTpl(){ return _projTpl; }, get projTplVer(){ return _projTplVer; },
     // K5 multiplayer (also exposed for the headless harness / unit-style codepath tests)
     net, serializeKart, adoptKart, buildNetSnapshot, publishNetSnapshotNow, guestApply,
     guestSyncRemotes, mpAssignSeats, hostGrantItems, hostConsumeGuestUse, netLocalUseItem,

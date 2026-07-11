@@ -16,3 +16,11 @@ tools/.env
 
 # farm life dev dependencies (dist IS committed - static deploy)
 farmlife/node_modules/
+
+# blender backups + tool output noise + local editor config + root test scratch
+*.blend1
+*.blend.bak
+tools/_inspect-*.txt
+tools/_verify-out.txt
+.vscode/
+scratchpad/

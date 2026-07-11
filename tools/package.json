@@ -6,7 +6,9 @@
   "type": "commonjs",
   "main": "photobooth.js",
   "scripts": {
-    "photobooth": "node photobooth.js"
+    "photobooth": "node photobooth.js",
+    "mobile": "node mobile-preview.mjs",
+    "mobile:all": "node mobile-preview.mjs --all"
   },
   "dependencies": {
     "puppeteer-core": "^25.3.0",

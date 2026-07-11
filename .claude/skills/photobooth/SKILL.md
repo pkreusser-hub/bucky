@@ -100,7 +100,7 @@ node tools/photobooth.js --params "pose=eat&hour=8&rot=2.1&x=-1&z=0.3&cam=closeu
 ## Adding photo mode to a new game
 
 Only `goatcare.html` has photo mode today. To add it to another game
-(`pasturepanic.html`, `hayhaul.html`, `varmintwars.html`, etc.), follow
+(`pasturepanic.html`, `hayhaul.html`, `hayhem.html`, etc.), follow
 `goatcare.html`'s pattern:
 
 1. Parse `new URLSearchParams(location.search)` near the top of the IIFE; read
