@@ -169,7 +169,7 @@
 
     <div class="sec">🌲 Scenery <span style="color:#7fd0ff;font-weight:400;text-transform:none;">(free CC0 models)</span></div>
     <select id="propCat" style="width:100%;padding:5px;border-radius:6px;background:rgba(0,0,0,.35);color:#fff;border:1px solid rgba(255,255,255,.2);font-family:monospace;"></select>
-    <div id="propList" style="margin-top:5px;max-height:180px;overflow-y:auto;display:flex;flex-wrap:wrap;gap:4px;"></div>
+    <div id="propList" style="margin-top:5px;max-height:260px;overflow-y:auto;display:flex;flex-wrap:wrap;gap:4px;"></div>
     <div style="color:#9ab;font-size:11px;margin-top:3px;" id="propStatus">loading models…</div>
     <button id="propRetryBtn" style="display:none;margin-top:4px;font-size:11px;padding:4px 8px;border-radius:6px;border:1px solid rgba(255,180,120,.4);background:#5a3a1a;color:#ffd9a0;cursor:pointer;">🔄 retry failed models</button>
 
@@ -657,7 +657,7 @@
     const s=def.size||6;
     startPlacing({ type:'glb', model:id, sx:s, sy:s, sz:s, color:0 }, def.name);
   }
-  const PROP_CATS={tree:'🌳 trees',rock:'🪨 rocks & stones',plant:'🌱 plants & flowers',crop:'🌽 crops',log:'🪵 logs & stumps',fence:'🚧 fences',building:'🏚 farm buildings',prop:'🎪 props'};
+  const PROP_CATS={tree:'🌳 trees',rock:'🪨 rocks & stones',plant:'🌱 plants & flowers',crop:'🌽 crops',log:'🪵 logs & stumps',fence:'🚧 fences',building:'🏚 farm buildings',prop:'🎪 props',cliff:'⛰ cliffs',bridge:'🌉 bridges',path:'🟫 paths',water:'🌊 rivers',structures:'🏛 structures',race:'🏁 race day',clutter:'📦 clutter'};
   function renderPropList(cat){
     const box=$('propList'); if(!box) return; box.innerHTML='';
     (window.FK_PROPS||[]).filter(p=>cat==='all'||p.cat===cat).forEach(p=>{

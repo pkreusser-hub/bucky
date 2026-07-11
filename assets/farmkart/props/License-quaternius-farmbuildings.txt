@@ -1,0 +1,4 @@
+Quaternius Farm Buildings Bundle (farm_*.glb)
+Source: https://poly.pizza/bundle/Farm-Buildings-Bundle-ppbnhEfNEt
+License: CC0 / Public Domain (per poly.pizza bundle page, each model listed "Licence: Public Domain (CC0)")
+Attribution not required; credit "Quaternius" appreciated.
