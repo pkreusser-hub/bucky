@@ -1,4 +1,4 @@
-import { FIELD } from "../world/terrain";
+import { FIELD } from "../world/terrainConst";
 
 // 12x12 grid of 2m tiles filling the fenced field exactly (FIELD.half*2 = 24m).
 

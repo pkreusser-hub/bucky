@@ -9,7 +9,7 @@ import { CROP_ORDER, type CropId } from "../farm/growth";
 import { TOOL_ORDER, type ToolId } from "../farm/action";
 import { defaultFarmState, type FarmState, type TileRecord } from "../farm/store";
 import { STARTER_HERD, sanitizeAnimal, PRODUCE_ORDER, type AnimalRecord, type ProduceId } from "../farm/animals";
-import { isDecorType, type DecorRecord } from "../world/decor";
+import { isDecorType, type DecorRecord } from "../world/decorConst";
 import { defaultDoorState, type DoorState, type EggRecord } from "../farm/pasture";
 
 /** Tiles are grouped into fixed regions so a doc stays far under Firestore's

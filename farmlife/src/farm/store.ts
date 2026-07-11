@@ -1,7 +1,7 @@
 import { CROP_ORDER, CropId } from "./growth";
 import { TOOL_ORDER, type ToolId } from "./action";
 import { STARTER_HERD, sanitizeAnimal, starterHerd, PRODUCE_ORDER, type AnimalRecord, type ProduceId } from "./animals";
-import { isDecorType, type DecorRecord } from "../world/decor";
+import { isDecorType, type DecorRecord } from "../world/decorConst";
 import { defaultDoorState, type DoorState, type EggRecord } from "./pasture";
 // type-only import (erased at build) so there is no runtime store<->sync cycle.
 import { DEFAULT_FARM_NAME, type MetaState } from "../net/sync";

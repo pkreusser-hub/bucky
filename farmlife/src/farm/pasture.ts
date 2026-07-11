@@ -217,15 +217,21 @@ export function doorWaitSpot(id: string): { x: number; z: number } {
 /** Chicken ids in herd order (for deterministic nest layout). */
 export const CHICKEN_IDS = STARTER_HERD.filter((s) => s.type === "chicken").map((s) => s.id);
 
+/** Local X offsets (from the barn's centre) of the 3 straw nests baked into
+ * the barn2.glb model, against the back (north) wall — see world/barn3d.ts's
+ * preloadBarnModel for the placement math these must agree with. */
+const NEST_LOCAL_X = [-2.6, 0, 2.6];
+
 /** A fixed nest spot on the barn floor for a chicken (its egg materializes
- * here). Laid out along the north interior wall, evenly spaced. */
+ * here). Matches the GLB's baked nest positions exactly (local x -2.6/0/+2.6
+ * from the barn centre, against the north interior wall) so eggs appear to
+ * sit IN the model's nests whether the GLB or the procedural fallback barn
+ * is showing. */
 export function nestSpot(chickenId: string): { x: number; z: number } {
   const idx = CHICKEN_IDS.indexOf(chickenId);
-  const n = Math.max(1, CHICKEN_IDS.length);
-  const ix0 = BARN.minX + BARN_WALL + 1.1, ix1 = BARN.maxX - BARN_WALL - 1.1;
-  const i = idx < 0 ? 0 : idx;
-  const t = n === 1 ? 0.5 : i / (n - 1);
-  return { x: ix0 + t * (ix1 - ix0), z: BARN.maxZ - BARN_WALL - 1.0 };
+  const cx = (BARN.minX + BARN.maxX) / 2;
+  const i = idx < 0 ? 0 : Math.min(idx, NEST_LOCAL_X.length - 1);
+  return { x: cx + NEST_LOCAL_X[i], z: BARN.maxZ - BARN_WALL - 1.0 };
 }
 
 /** Deterministic egg id for a chicken's current produce cycle. One cycle (one

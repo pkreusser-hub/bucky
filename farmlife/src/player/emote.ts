@@ -1,19 +1,15 @@
 import * as THREE from "three";
+import { EMOTES, type EmoteKind } from "./emoteConst";
 
 // ---------------------------------------------------------------------------
-// Emotes (P3): a small, kid-friendly set. A tapped emote pops a bubble sprite
-// above the farmer's head for ~2s and syncs to everyone via presence state
-// (exactly-once emoteSeq, so repeating the same emote re-triggers). Shared by
-// the LOCAL player and every REMOTE avatar.
+// Emotes (P3) — THREE sprite/texture builders ONLY. The emote SET + kinds moved
+// to emoteConst.ts (THREE-free) so the 2D bundle imports them from there; this
+// module (emojiTexture / makeEmoteBubble) is the DEPRECATED 3D bubble path and
+// is not reachable from the 2D render core. emoteConst re-exported below so any
+// legacy importer of emote.ts is unchanged.
 // ---------------------------------------------------------------------------
 
-export type EmoteKind = "wave" | "heart" | "laugh";
-export const EMOTE_ORDER: EmoteKind[] = ["wave", "heart", "laugh"];
-export const EMOTES: Record<EmoteKind, string> = {
-  wave: "👋",
-  heart: "❤️",
-  laugh: "😄",
-};
+export * from "./emoteConst";
 
 const BUBBLE_MS = 2000;
 

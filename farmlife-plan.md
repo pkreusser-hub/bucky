@@ -445,7 +445,59 @@ watering resumes it. No punishment mechanics anywhere.
       hoe, overlays for other tools, RightHand tool anchor, FL_Overall/FL_Shirt tint).
       NOTE for the family: Sunny is currently THE avatar for everyone — a boy variant
       (Isaac) would be another cheap Meshy round when wanted.
-- STATUS: ALL LOCAL/UNCOMMITTED. Awaiting user playtest + preview approval before
+- [x] **ART DIRECTION FINAL: 2D MODERN PIXEL** (2026-07-11, user decision after a
+      full fresh-start exploration): user rejected soft-chibi 3D, voxel (basic AND
+      duck-grade premium), Meshy-flat, Meshy-textured, and the hybrid Ellie. Fresh
+      3-proposal round (research: Fall Guys mannequin design, cozy-trend) produced
+      3D plush-bean (vinyl look-dev won its round) vs 2D flat-vector vs 2D pixel;
+      user picked CLASSIC PIXEL pushed to MODERN fidelity (Fields-of-Mistria class:
+      320×240-ish native, 4-5 shade hue-shifted ramps, selective outlines, lush
+      ground detail, 28px farmer). Approved mockup: shots/2d-modern-pixel.png,
+      source scratchpad 2d-modern-pixel.html (canvas-drawn — sprites-as-code is the
+      asset pipeline). ANIMATION = puppet-over-pixel-parts (Dead-Cells technique):
+      parts authored once, tweened in code — same economics as the bean, no frame
+      sheets. COSMETICS = layered part sprites on anchors (hat/hair/outfit) + tints.
+      **THE 2D PIVOT**: replaces the three.js render layer with a Canvas2D
+      integer-scaled pixel renderer (bundle sheds three.js ~500KB); top-down world
+      mapped from the existing farm layout (field/pasture/barn/pond/stations
+      preserved in 2D coords); jump becomes a cosmetic hop (shadow squash); 3D world
+      editor + sculpt/paint DEPRECATED for now (2D tile editor = future follow-up);
+      GLB/Quaternius/Blender-model pipeline retired for farmlife (barn2.glb etc.
+      stay on disk; Blender remains for other games). ALL simulation/sync layers
+      survive untouched: growth/action/animals pure logic, FarmState/stores,
+      Firestore region docs, presence (x,z → 2D), lobby, HUD systems, weather,
+      day/night phase (renders as palette tint now). Conversion runs R1 renderer
+      core → R2 gameplay parity → R3 MP/mobile/QA; many verify suites need 2D
+      rewrites (unit tests survive).
+- [x] **THE 2D CONVERSION, R1-R4 — COMPLETE** (2026-07-11, four opus rounds):
+      R1 renderer core (Canvas2D integer-scaled ~480×270, sprites-as-code atlas,
+      tilemap world preserving the farm geography, puppet farmer 4-dir + hop,
+      tile collision, day/night as capped-readable tint; 28/28). R2 gameplay parity
+      (8 crops × 4 states at mockup fidelity, held tools + tween use-anims incl. the
+      hold-up beat, click/tap walk-then-act, barn roof-fade cutaway interior w/ warm
+      light pool, upgraded stations + coin-arc, pixel rain/snow + puddle glints,
+      all 8 decor sprites + placement mode, map re-sourced; 39/39). R3 MP/mobile/QA
+      (remote farmers = tinted pixel puppets + pixel name tags + anim/emote replay —
+      wire format UNCHANGED (3D/2D clients interop); analog joystick + tap-vs-drag
+      (12px/260ms discrimination); THREE structurally out of the module graph
+      (161→160 modules — tree-shaking had already stripped ~99%, now guaranteed);
+      QA rebuilt: verify-2d-r1/r2/r3 + one-command verify-2d-all, stale 3D suites →
+      farmlife/legacy-verify/; perf ~0.8ms/frame; 51/51 incl. live 2-process
+      Playroom + famtestfl cloud, cleanup verified). R4 user-feedback round
+      (MEASURED SCALE PASS: buildings to genre ratios as billboards over unchanged
+      footprints — farmhouse 1.9×→5.5× farmer, silo 5.2×, trees 2.6-3.9×, doors
+      ≥1.43×; barn kept 4.8× cutaway deliberately — its door faces the herd;
+      INTERIOR SCENE SYSTEM: scenes.ts stack, door ⏎ prompt → 280ms fade →
+      farmhouse cozy room (fireplace/bed/rug/day-night windows), exit mat back,
+      MP publishes door coords while inside (no wire change), map 🚪 markers,
+      future rooms = data + draw fn; AUTO-TILING: blob-style terrainCoverage +
+      Bayer 4×4 dither for path/field-edge/pond-bank/barn-door-wear transitions;
+      29/29). **TOTAL: verify-2d-all 115/115, npm test 180/180.** Punch-list:
+      fastGrow still ON (ship-blocker), audio first-gesture hint, barn roof beauty
+      pass, interiors decorative (bed/storage = future), 2D tile editor = future.
+      FEATURE ROADMAP written from the Stardew/Mistria/Harvest-Moon research →
+      **farmlife-roadmap.md** (9 tracks, M1-M6 build order, tractor = signature).
+- STATUS: ALL LOCAL/UNCOMMITTED. AWAITING USER PLAYTEST of the 2D game. Awaiting user playtest + preview approval before
   any commit/push. Playtest notes: night may be TOO DARK (min-ambient TUNE tweak?),
   audio needs first tap (no hint shown), goat model crude-but-cute, verify touch
   buttons on a real phone, occlusion-faded trees still cast shadows (intentional).

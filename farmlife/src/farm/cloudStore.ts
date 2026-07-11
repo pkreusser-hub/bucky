@@ -55,7 +55,7 @@ import { currentPlayerName } from "../net/firebase";
 import { defaultFarmState, type FarmState, type FarmStore, type TileRecord, type AnimalStore, type DecorStore, type MetaStore, type BarnStore, type BarnData } from "./store";
 import { CROP_ORDER } from "./growth";
 import { starterHerd, type AnimalRecord } from "./animals";
-import type { DecorRecord } from "../world/decor";
+import type { DecorRecord } from "../world/decorConst";
 import type { DoorState, EggRecord } from "./pasture";
 
 export interface LiveFarmStore extends FarmStore {

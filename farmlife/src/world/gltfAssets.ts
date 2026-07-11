@@ -73,6 +73,7 @@ function convertMaterials(scene: THREE.Object3D): void {
       opacity: src.opacity != null ? src.opacity : 1,
       side: src.side ?? THREE.FrontSide,
     });
+    lam.name = src.name; // preserve the authored name (e.g. Sunny's FL_Overall/FL_Shirt) for tint lookups
     mesh.material = lam;
     mesh.castShadow = true;
     mesh.receiveShadow = true;

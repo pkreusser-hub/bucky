@@ -1,75 +1,21 @@
 import * as THREE from "three";
+import { DECOR, type DecorRecord } from "./decorConst";
 
 // ---------------------------------------------------------------------------
-// Decorations (P5) — kid-placeable cosmetic accents (scarecrow, gnome, bench,
-// flower bed, stone path, bird bath, flag banner, pinwheel). DELIBERATELY
-// SEPARATE from the world-editor's WorldData/props system: those are Dad's
-// authored world; these are shared, family-placeable ornaments that ride their
-// own `decor` Firestore doc (see net/sync.ts). Meshes are chunky low-poly in
-// the props.ts house style (boxes / cylinders / cones / spheres, no textures).
+// Decorations (P5) — THREE mesh builders + DecorField ONLY. The registry, types
+// and id helper moved to decorConst.ts (THREE-free) so the 2D bundle imports
+// them from there and never pulls this module. decorConst re-exported below so
+// legacy 3D importers of decor.ts are unchanged. This file (buildDecorMesh /
+// DecorField / tintGhost) is DEPRECATED for the 2D conversion — render2d/decor2d
+// is the live path — and is not reachable from the 2D render core.
 //
 // COLLISION POSTURE (deliberate): decor is COSMETIC and WALK-THROUGH — it never
 // registers a global collider. `collide`/`cr` are used ONLY as the placement
-// FOOTPRINT radius (how much clear space a new piece needs, and how far apart
-// two pieces must sit). This avoids the props-system's stale-collider-on-remove
-// limitation entirely (a kid removing a bench never leaves an invisible wall),
-// at the cost of being able to walk through a placed bench — fine for ornaments.
+// FOOTPRINT radius. This avoids the props-system's stale-collider-on-remove
+// limitation entirely, at the cost of being able to walk through a placed piece.
 // ---------------------------------------------------------------------------
 
-export type DecorCollide = "none" | "circle";
-
-export interface DecorDef {
-  label: string;
-  emoji: string;
-  cost: number;
-  collide: DecorCollide;
-  /** Placement footprint radius (m). Circle types use this; "none" types get a
-   * tiny footprint so flat pieces (paths, flower beds) can pack close together. */
-  cr: number;
-}
-
-export const DECOR: Record<string, DecorDef> = {
-  scarecrow: { label: "Scarecrow", emoji: "🌾", cost: 60, collide: "circle", cr: 0.45 },
-  gnome: { label: "Garden Gnome", emoji: "🧙", cost: 35, collide: "circle", cr: 0.3 },
-  bench: { label: "Bench", emoji: "🪑", cost: 50, collide: "circle", cr: 0.7 },
-  flowerbed: { label: "Flower Bed", emoji: "🌷", cost: 25, collide: "none", cr: 0.55 },
-  pathtile: { label: "Stone Path", emoji: "⬜", cost: 10, collide: "none", cr: 0.5 },
-  birdbath: { label: "Bird Bath", emoji: "🕊️", cost: 45, collide: "circle", cr: 0.45 },
-  flag: { label: "Flag Banner", emoji: "🚩", cost: 30, collide: "none", cr: 0.3 },
-  pinwheel: { label: "Pinwheel", emoji: "🎡", cost: 20, collide: "none", cr: 0.3 },
-};
-
-export const DECOR_ORDER: string[] = [
-  "scarecrow",
-  "gnome",
-  "bench",
-  "flowerbed",
-  "pathtile",
-  "birdbath",
-  "flag",
-  "pinwheel",
-];
-
-export function isDecorType(t: string): boolean {
-  return Object.prototype.hasOwnProperty.call(DECOR, t);
-}
-
-/** Persisted decoration — one Firestore field on the shared `decor` doc. */
-export interface DecorRecord {
-  id: string;
-  type: string;
-  x: number;
-  z: number;
-  rotY: number;
-  placedBy: string;
-  placedAt: number;
-}
-
-/** Client-generated stable id (astronomically collision-unlikely, no server
- * round-trip needed — matches the "client-assigned id" note in the P5 brief). */
-export function newDecorId(): string {
-  return `d_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-}
+export * from "./decorConst";
 
 function lam(color: number, ghost: boolean, opacity?: number): THREE.MeshLambertMaterial {
   const transparent = ghost || (opacity != null && opacity < 1);

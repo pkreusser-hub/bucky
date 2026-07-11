@@ -27,8 +27,8 @@ import { insertCoin, onPlayerJoin, myPlayer, getRoomCode, type PlayerState } fro
 import { resolveFamilyKey, currentPlayerName } from "./firebase";
 import { roomCodeFromFamily } from "./presenceUtil";
 import type { ToolId } from "../farm/action";
-import type { ToolAnimKind } from "../player/player";
-import type { EmoteKind } from "../player/emote";
+import type { ToolAnimKind } from "../player/player"; // type-only (erased at build); no pure home without editing the 3D player module
+import type { EmoteKind } from "../player/emoteConst";
 
 const PUBLISH_HZ = 10;
 const PUBLISH_MS = 1000 / PUBLISH_HZ;

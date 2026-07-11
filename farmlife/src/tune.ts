@@ -26,9 +26,11 @@ export interface Tune {
 export type NumericTuneKey = { [K in keyof Tune]: Tune[K] extends number ? K : never }[keyof Tune];
 
 export const TUNE_DEFAULTS: Tune = {
-  moveSpeed: 5.2,
-  runMult: 1.9,
-  turnRate: 9.0,
+  // Re-tuned for the 2D top-down tile scale (PPM 8): a brisk-but-controllable
+  // walk that crosses the 24 m field in a few seconds; run ~1.8×.
+  moveSpeed: 4.6,
+  runMult: 1.8,
+  turnRate: 9.0, // inert in 2D (facing snaps to movement); kept for type/editor compat
   camDist: 8.5,
   camHeight: 4.2,
   camLag: 6.0,

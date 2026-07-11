@@ -1,7 +1,7 @@
 import { CROP_ORDER, CROPS, CropId } from "../farm/growth";
 import { TOOL_ORDER, TOOL_META, type ToolId } from "../farm/action";
-import { EMOTE_ORDER, EMOTES, type EmoteKind } from "../player/emote";
-import { DECOR, DECOR_ORDER } from "../world/decor";
+import { EMOTE_ORDER, EMOTES, type EmoteKind } from "../player/emoteConst";
+import { DECOR, DECOR_ORDER } from "../world/decorConst";
 
 /** Farm Book (P5) content, assembled by main.ts from the meta doc. */
 export interface FarmBookData {

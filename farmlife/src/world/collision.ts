@@ -1,4 +1,4 @@
-import { EDGE } from "./terrain";
+import { EDGE } from "./terrainConst";
 
 // Simple circle-vs-obstacle pushback. Nothing fancy (plan: "circle-vs-obstacle
 // pushback is fine"). Obstacles: circles (pond, rocks, trees), AABBs (house),

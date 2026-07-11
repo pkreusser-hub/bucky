@@ -12,9 +12,12 @@ export default defineConfig({
     emptyOutDir: true,
     target: "es2020",
     rollupOptions: {
+      // 2D conversion (R1): only the game is built. The 3D world editor
+      // (editor.html + src/editor/) is DEPRECATED for now (a 2D tile editor is a
+      // future follow-up) and dropped from the build so three.js leaves the
+      // bundle entirely; the files stay on disk (tsc still typechecks them).
       input: {
         main: "index.html",
-        editor: "editor.html",
       },
     },
   },

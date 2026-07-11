@@ -25,7 +25,7 @@ import {
   emptyMetaState,
   type RawDoc,
 } from "./sync";
-import type { DecorRecord } from "../world/decor";
+import type { DecorRecord } from "../world/decorConst";
 import { defaultFarmState, type FarmState, type TileRecord } from "../farm/store";
 
 describe("region/tile key math", () => {

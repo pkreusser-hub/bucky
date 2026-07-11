@@ -54,6 +54,7 @@ export interface FarmMapSnapshot {
   objects: MapEmojiDot[]; // world-editor props
   decor: MapEmojiDot[]; // kid-placed decorations
   stations: MapEmojiDot[]; // seed stand / shipping bin / farmhouse
+  doors?: MapEmojiDot[]; // enterable-building door markers (🚪)
   tiles: MapTileCell[]; // farming field grid, per-tile state
   animals: MapEmojiDot[];
   players: MapPlayerDot[];
@@ -216,6 +217,8 @@ export function drawFarmMap(ctx: CanvasRenderingContext2D, size: number, snap: F
   for (const d of snap.decor) drawEmoji(d, size * 0.032);
   for (const s of snap.stations) drawEmoji(s, size * 0.05);
   for (const a of snap.animals) drawEmoji(a, size * 0.038);
+  // enterable-building door markers
+  if (snap.doors) for (const d of snap.doors) drawEmoji(d, size * 0.03);
 
   // barn door state + eggs waiting (live) — a small marker at the door + a count
   if (snap.barn) {
