@@ -210,6 +210,11 @@
     font-family:monospace; padding:0; line-height:38px; }
   #muteBtn:hover{ background:rgba(0,0,0,.6); }
   #muteBtn.muted{ color:#ff8a8a; }
+  #musicBtn{ position:absolute; left:56px; top:12px; z-index:22; width:38px; height:38px; border-radius:10px;
+    border:1px solid rgba(255,255,255,.22); background:rgba(0,0,0,.42); color:#fff; font-size:18px; cursor:pointer;
+    font-family:monospace; padding:0; line-height:38px; }
+  #musicBtn:hover{ background:rgba(0,0,0,.6); }
+  #musicBtn.muted{ color:#ff8a8a; }
   /* ---- controls hint restyle ---- */
   #help{ background:rgba(10,18,28,.55); border:1px solid rgba(255,255,255,.12); color:rgba(255,255,255,.82);
     border-radius:12px; letter-spacing:.02em; }
@@ -247,6 +252,7 @@
 <body>
   <div id="stage"></div>
   <button id="muteBtn" title="mute / unmute sound">🔊</button>
+  <button id="musicBtn" title="music on / off">🎵</button>
 
   <div id="hud">
     <div class="row"><span class="lbl">speed</span><span class="val big" id="speedV">0</span></div>
@@ -2425,7 +2431,7 @@
       return;
     }
     if (kind === 'hay'){
-      dropHay(p); itemFireSound();
+      dropHay(p); haySound();
       clearItem(p);
     }
   }
@@ -2576,7 +2582,7 @@
             spawnItemExplode(hz.x, hz.y, hz.z, 'hay');
             hz.dead = true; break;
           }
-          if (q.spinT <= 0){ applySpinOut(q); hz.dead = true; break; }
+          if (q.spinT <= 0){ applySpinOut(q); haySound(); hz.dead = true; break; }
         }
       }
     }
@@ -4049,6 +4055,8 @@
     _cdVoiceCount++;
     const label = (word === 'GO' || word === 'GO!') ? 'GO!' : String(word);
     countdownStinger(label === 'GO!' ? 'GO' : label);
+    // 2026-07-10: GO moment gets a crowd-cheer sample LAYERED over the existing stinger (not a swap)
+    if (label === 'GO!' && playSample('fk-sfx-go-cheer', { gain:0.7 })) _sfxPlays.goCheer++;
     if (audioMuted) return;
     try{
       const syn = window.speechSynthesis;
@@ -4128,11 +4136,18 @@
     tone(520, 0.09, { type:'triangle', vol:0.10, slideTo:280 });
   }
   function tomatoSplatSound(soft){
+    // 2026-07-10: sample swap on impact (fire keeps the synth whoosh, unchanged)
+    if (playSample('fk-sfx-splat', { gain: soft ? 0.5 : 0.85 })){ _sfxPlays.splat++; return; }
     noiseBurst(soft ? 0.12 : 0.22, { filter:'lowpass', freq:soft?900:1400, freqTo:180, Q:0.6, vol:soft?0.08:0.16 });
     tone(soft ? 160 : 120, soft ? 0.1 : 0.16, { type:'sine', vol:soft?0.07:0.12, slideTo:50 });
   }
   // Chicken: short squawk (pitch-bent triangle + noise) on fire; softer chirp on hit
   function chickenSquawkSound(hit){
+    // 2026-07-10: sample swap (fk-sfx-squawk-fire / fk-sfx-squawk-hit)
+    if (playSample(hit ? 'fk-sfx-squawk-hit' : 'fk-sfx-squawk-fire', { gain:0.85 })){
+      if (hit) _sfxPlays.squawkHit++; else _sfxPlays.squawkFire++;
+      return;
+    }
     const ctx = ensureAudio(); if (!ctx || !masterGain) return;
     try{
       const t = ctx.currentTime;
@@ -4154,12 +4169,27 @@
       }
     }catch(e){}
   }
-  function itemFireSound(){ tone(700, 0.08, { type:'square', vol:0.13 }); } // hay / generic
-  function itemRollSound(){ tone(880, 0.06, { type:'square', vol:0.12 }); setTimeout(()=>tone(990,0.06,{type:'square',vol:0.12}),80); }
-  function itemBlockSound(){ tone(320, 0.1, { type:'triangle', vol:0.16 }); setTimeout(()=>tone(480,0.08,{type:'triangle',vol:0.12}),70); }
+  function itemFireSound(){ tone(700, 0.08, { type:'square', vol:0.13 }); } // generic (non-hay) fallback
+  // hay bale fire/drop AND hit both use the same sample (2026-07-10); synth fallback unchanged
+  function haySound(){
+    if (playSample('fk-sfx-haybale', { gain:0.8 })){ _sfxPlays.haybale++; return; }
+    itemFireSound();
+  }
+  function itemRollSound(){
+    // 2026-07-10: item box pickup sample swap
+    if (playSample('fk-sfx-itembox', { gain:0.85 })){ _sfxPlays.itembox++; return; }
+    tone(880, 0.06, { type:'square', vol:0.12 }); setTimeout(()=>tone(990,0.06,{type:'square',vol:0.12}),80);
+  }
+  function itemBlockSound(){
+    // 2026-07-10: trail-shield deploy sample swap
+    if (playSample('fk-sfx-shield', { gain:0.85 })){ _sfxPlays.shield++; return; }
+    tone(320, 0.1, { type:'triangle', vol:0.16 }); setTimeout(()=>tone(480,0.08,{type:'triangle',vol:0.12}),70);
+  }
   // finish fanfare: podium-worthy triumphant run for 1st; a warm short flourish for others
   function finishFanfare(place){
     _fanfareCount++;
+    // 2026-07-10: sample swap (replaces the synth tone sequence when loaded)
+    if (playSample('fk-sfx-finish', { gain:0.9 })){ _sfxPlays.finish++; return; }
     if (place === 1){
       const notes = [523,659,784,1047,784,1047], times = [0,120,240,380,560,700];
       notes.forEach((n,i)=>setTimeout(()=>tone(n, i>=4?0.34:0.2, { type:'triangle', vol:0.13 }), times[i]));
@@ -4196,6 +4226,7 @@
     const racing = G.phase === 'racing';
     const maxSp = Math.max(8, TUNE.maxSpeed || 28);
     const rpm = Math.min(1.15, spd / maxSp);                       // 0..~1.15 car-like RPM ratio
+    const sampleEngineOn = engineSampleReady();
     if (engineOsc){
       // deeper fundamental (~38 idle → ~95 at top) + octave harmonic; boost revs it up
       const fund = 38 + rpm * 58 + (p.boostT > 0 ? 18 : 0) + (p.stallT > 0 ? 12 : 0);
@@ -4203,10 +4234,13 @@
       if (engineOsc2) engineOsc2.frequency.value = engineOsc.frequency.value * 2.02;
       // lowpass opens with RPM so idle stays muffled and top speed gets growl
       if (engineFilter) engineFilter.frequency.value = 220 + rpm * 520 + (p.boostT > 0 ? 180 : 0);
-      const tg = racing ? (0.028 + rpm * 0.038) : 0;
+      // sample engine loaded -> silence the synth engine (graph stays alive, just muted)
+      const tg = (racing && !sampleEngineOn) ? (0.028 + rpm * 0.038) : 0;
       engineGain.gain.value += (tg - engineGain.gain.value) * Math.min(1, dt * 5);
     }
+    updateSampleEngine(dt, rpm, racing, p);   // 2026-07-10: real engine loops crossfaded by speed
     const tier = p.drift.active ? driftTier(p.drift.charge) : 0;
+    updateDriftLoopSample(dt, p, tier);       // 2026-07-10: approved drift sample (replaces the scrape)
     // MT tier chime on the rising edge of the local kart's drift tier
     if (tier > _aud.tier) mtChime(tier);
     _aud.tier = tier;
@@ -4233,6 +4267,216 @@
   document.getElementById('muteBtn').addEventListener('click', e=>{ e.stopPropagation(); ensureAudio(); toggleMute(); });
   applyMute();
 
+  // ============================================================================
+  //  2026-07-10 — GENERATED AUDIO SAMPLES (assets/audio/, ElevenLabs) layered ON
+  //  TOP of the K6 synth above. The synth is the graceful fallback: every sample-
+  //  aware fn below checks its buffer first and falls straight back to the ORIGINAL
+  //  synth call whenever a buffer hasn't decoded yet (slow network, blocked request,
+  //  fetch/decode failure) — nothing here can brick playback, and no synth code was
+  //  deleted. Every sample routes through masterGain (SFX/engine/drift) or through
+  //  musicBus->masterGain (music/ambience) so 🔊 mute remains a single kill switch.
+  // ============================================================================
+  const AUDIO_BASE = 'assets/audio/';
+  const AUDIO_FILES = [
+    'fk-music-menu','fk-music-race','fk-ambient-farm',
+    'fk-engine-low','fk-engine-mid','fk-engine-high','fk-sfx-drift-loop',
+    'fk-sfx-splat','fk-sfx-squawk-fire','fk-sfx-squawk-hit','fk-sfx-haybale',
+    'fk-sfx-itembox','fk-sfx-shield','fk-sfx-go-cheer','fk-sfx-finish','fk-sfx-win-jingle'
+  ];
+  const audioBuffers = {};             // name -> AudioBuffer once decoded; null = failed (stays synth-only)
+  let _buffersLoaded = 0;
+  function buf(name){ return audioBuffers[name] || null; }
+  function loadAudioBuffers(){
+    const ctx = ensureAudio(); if (!ctx) return;   // no WebAudio at all -> synth-only forever, harmless
+    AUDIO_FILES.forEach(name=>{
+      if (name in audioBuffers) return;            // already loaded or already failed
+      fetch(AUDIO_BASE + name + '.mp3').then(r=>{
+        if (!r.ok) throw new Error('http '+r.status);
+        return r.arrayBuffer();
+      }).then(ab=>ctx.decodeAudioData(ab)).then(b=>{
+        audioBuffers[name] = b; _buffersLoaded++;
+      }).catch(()=>{ audioBuffers[name] = null; });  // blocked/failed -> falsy forever, synth keeps covering it
+    });
+  }
+  // one-shot sample -> masterGain (or a custom dest, e.g. musicBus for the win jingle)
+  function playSample(name, opts){
+    opts = opts || {};
+    const b = buf(name); if (!b) return false;
+    const ctx = ensureAudio(); if (!ctx || !masterGain) return false;
+    try{
+      const src = ctx.createBufferSource(); src.buffer = b;
+      if (opts.rate) src.playbackRate.value = opts.rate;
+      const g = ctx.createGain(); g.gain.value = opts.gain != null ? opts.gain : 1;
+      src.connect(g); g.connect(opts.dest || masterGain);
+      src.start(ctx.currentTime + (opts.delay || 0));
+      return true;
+    }catch(e){ return false; }
+  }
+  const _sfxPlays = { splat:0, squawkFire:0, squawkHit:0, haybale:0, itembox:0, shield:0, goCheer:0, finish:0, winJingle:0 };
+
+  // ---- ENGINE: 3 always-running loop sources, per-frame gain crossfade + pitch by speed ----
+  let engLowSrc=null, engMidSrc=null, engHighSrc=null, engLowGain=null, engMidGain=null, engHighGain=null;
+  function engineSampleReady(){ return !!(buf('fk-engine-low') && buf('fk-engine-mid') && buf('fk-engine-high')); }
+  function startSampleEngine(){
+    if (engLowSrc || !audioCtx || !masterGain || !engineSampleReady()) return;
+    try{
+      engLowGain = audioCtx.createGain(); engLowGain.gain.value = 0; engLowGain.connect(masterGain);
+      engMidGain = audioCtx.createGain(); engMidGain.gain.value = 0; engMidGain.connect(masterGain);
+      engHighGain = audioCtx.createGain(); engHighGain.gain.value = 0; engHighGain.connect(masterGain);
+      engLowSrc = audioCtx.createBufferSource(); engLowSrc.buffer = buf('fk-engine-low'); engLowSrc.loop = true;
+      engLowSrc.connect(engLowGain); engLowSrc.start();
+      engMidSrc = audioCtx.createBufferSource(); engMidSrc.buffer = buf('fk-engine-mid'); engMidSrc.loop = true;
+      engMidSrc.connect(engMidGain); engMidSrc.start();
+      engHighSrc = audioCtx.createBufferSource(); engHighSrc.buffer = buf('fk-engine-high'); engHighSrc.loop = true;
+      engHighSrc.connect(engHighGain); engHighSrc.start();
+    }catch(e){}
+  }
+  // trapezoid ramp: 0 outside [a,d], ramps up a->b, full b->c, ramps down c->d
+  function trapezoid(x,a,b,c,d){
+    if (x<=a || x>=d) return 0;
+    if (x<b) return (x-a)/Math.max(1e-6,(b-a));
+    if (x<=c) return 1;
+    return 1-(x-c)/Math.max(1e-6,(d-c));
+  }
+  const _engineMix = { low:0, mid:0, high:0, rate:0 };
+  function updateSampleEngine(dt, rpm, racing, p){
+    if (!engineSampleReady()) return;
+    startSampleEngine();
+    if (!engLowSrc) return;
+    const lowW  = trapezoid(rpm, -0.05, 0,    0.3,  0.5);    // dominant 0 -> 0.3
+    const midW  = trapezoid(rpm,  0.12, 0.3,  0.62, 0.85);   // dominant 0.25 -> 0.7 (approx)
+    const highW = trapezoid(rpm,  0.55, 0.72, 1.2,  1.25);   // dominant 0.6 -> 1.0
+    const on = racing ? 1 : 0;
+    const tgtLow  = on * lowW  * (0.11 + rpm*0.02);
+    const tgtMid  = on * midW  * (0.12 + rpm*0.03);
+    const tgtHigh = on * highW * (0.13 + rpm*0.04);
+    engLowGain.gain.value  += (tgtLow  - engLowGain.gain.value)  * Math.min(1, dt*6);
+    engMidGain.gain.value  += (tgtMid  - engMidGain.gain.value)  * Math.min(1, dt*6);
+    engHighGain.gain.value += (tgtHigh - engHighGain.gain.value) * Math.min(1, dt*6);
+    const baseRate = 0.85 + Math.min(1, rpm) * 0.45;         // ~0.85 -> 1.3 across the band
+    engLowSrc.playbackRate.value = baseRate;
+    engMidSrc.playbackRate.value = baseRate;
+    engHighSrc.playbackRate.value = (p && p.boostT > 0) ? Math.min(1.35, baseRate + 0.05) : baseRate;
+    _engineMix.low = engLowGain.gain.value; _engineMix.mid = engMidGain.gain.value;
+    _engineMix.high = engHighGain.gain.value; _engineMix.rate = baseRate;
+  }
+
+  // ---- DRIFT LOOP (2026-07-10, USER-APPROVED sample replacing the removed synth scrape) ----
+  let driftLoopSrc=null, driftLoopGain=null;
+  function driftSampleReady(){ return !!buf('fk-sfx-drift-loop'); }
+  function startDriftLoopSample(){
+    if (driftLoopSrc || !audioCtx || !masterGain || !driftSampleReady()) return;
+    try{
+      driftLoopGain = audioCtx.createGain(); driftLoopGain.gain.value = 0; driftLoopGain.connect(masterGain);
+      driftLoopSrc = audioCtx.createBufferSource(); driftLoopSrc.buffer = buf('fk-sfx-drift-loop'); driftLoopSrc.loop = true;
+      driftLoopSrc.connect(driftLoopGain); driftLoopSrc.start();
+    }catch(e){}
+  }
+  function updateDriftLoopSample(dt, p, tier){
+    if (!driftSampleReady()) return;
+    startDriftLoopSample();
+    if (!driftLoopGain) return;
+    const spd = Math.hypot(p.v.x, p.v.z);
+    const active = p.drift.active && !p.airborne && spd > 2.5;
+    const target = active ? (0.20 + tier*0.06) : 0;
+    const tc = active ? 0.08 : 0.15;   // quick attack, ~0.15s release fade
+    driftLoopGain.gain.value += (target - driftLoopGain.gain.value) * Math.min(1, dt / tc);
+  }
+
+  // ---- MUSIC state machine: menu (+quiet ambience underneath) <-> race, podium win-jingle ----
+  let musicOff = false; try{ musicOff = localStorage.getItem('fk_music_off') === '1'; }catch(e){}
+  const MUSIC_LEVEL = 0.35;
+  let musicBus = null;                 // overall music+ambience level; independent of masterGain mute
+  let menuMusicSrc=null, menuMusicGain=null, ambientSrc=null, ambientGain=null, raceMusicSrc=null, raceMusicGain=null;
+  let musicPhase = null;               // 'menu' | 'race' | null (silent, e.g. results screen)
+  function ensureMusicBus(){
+    const ctx = ensureAudio(); if (!ctx || !masterGain) return null;
+    if (!musicBus){ musicBus = ctx.createGain(); musicBus.gain.value = musicOff ? 0 : MUSIC_LEVEL; musicBus.connect(masterGain); }
+    return musicBus;
+  }
+  function fadeGainTo(node, target, dur){
+    if (!node || !audioCtx) return;
+    try{
+      const t = audioCtx.currentTime;
+      node.gain.cancelScheduledValues(t);
+      node.gain.setValueAtTime(node.gain.value, t);
+      node.gain.linearRampToValueAtTime(target, t + Math.max(0.02, dur || 0.5));
+    }catch(e){}
+  }
+  function silenceTrack(node){ if (node) fadeGainTo(node, 0, 0.5); }
+  function startMenuTracks(){
+    const bus = ensureMusicBus(); if (!bus) return;
+    if (!menuMusicSrc && buf('fk-music-menu')){
+      menuMusicGain = audioCtx.createGain(); menuMusicGain.gain.value = 0; menuMusicGain.connect(bus);
+      menuMusicSrc = audioCtx.createBufferSource(); menuMusicSrc.buffer = buf('fk-music-menu'); menuMusicSrc.loop = true;
+      menuMusicSrc.connect(menuMusicGain); menuMusicSrc.start();
+    }
+    if (!ambientSrc && buf('fk-ambient-farm')){
+      ambientGain = audioCtx.createGain(); ambientGain.gain.value = 0; ambientGain.connect(bus);
+      ambientSrc = audioCtx.createBufferSource(); ambientSrc.buffer = buf('fk-ambient-farm'); ambientSrc.loop = true;
+      ambientSrc.connect(ambientGain); ambientSrc.start();
+    }
+    if (menuMusicGain) fadeGainTo(menuMusicGain, 1, 0.5);
+    if (ambientGain) fadeGainTo(ambientGain, 0.25, 0.5);   // ~25% of music volume, under the menu tune
+  }
+  function startRaceTrack(){
+    const bus = ensureMusicBus(); if (!bus) return;
+    if (!raceMusicSrc && buf('fk-music-race')){
+      raceMusicGain = audioCtx.createGain(); raceMusicGain.gain.value = 0; raceMusicGain.connect(bus);
+      raceMusicSrc = audioCtx.createBufferSource(); raceMusicSrc.buffer = buf('fk-music-race'); raceMusicSrc.loop = true;
+      raceMusicSrc.connect(raceMusicGain); raceMusicSrc.start();
+    }
+    if (raceMusicGain) fadeGainTo(raceMusicGain, 1, 0.5);
+  }
+  function setMusicPhase(next){
+    if (musicPhase === next) return;
+    musicPhase = next;
+    ensureMusicBus();
+    if (next === 'menu'){
+      silenceTrack(raceMusicGain);
+      startMenuTracks();
+    } else if (next === 'race'){
+      silenceTrack(menuMusicGain); silenceTrack(ambientGain);
+      startRaceTrack();
+    } else {
+      silenceTrack(menuMusicGain); silenceTrack(ambientGain); silenceTrack(raceMusicGain);
+    }
+  }
+  // podium: fade race music out, go silent, one-shot win jingle; menu music resumes via toMenu()/toMenuGuest()
+  function musicRaceEnd(){
+    ensureMusicBus();
+    silenceTrack(raceMusicGain);
+    musicPhase = null;
+    if (playSample('fk-sfx-win-jingle', { gain:0.9, dest: musicBus || masterGain })) _sfxPlays.winJingle++;
+  }
+  function applyMusicToggleUI(){
+    const btn = document.getElementById('musicBtn');
+    if (btn) btn.classList.toggle('muted', musicOff);
+  }
+  function setMusicOff(v){
+    musicOff = !!v;
+    try{ localStorage.setItem('fk_music_off', musicOff ? '1' : '0'); }catch(e){}
+    // instant (not a fade) -- this is an explicit on/off toggle, not a phase transition
+    if (musicBus){
+      try{ if (audioCtx) musicBus.gain.cancelScheduledValues(audioCtx.currentTime); }catch(e){}
+      musicBus.gain.value = musicOff ? 0 : MUSIC_LEVEL;
+    }
+    applyMusicToggleUI();
+  }
+  function toggleMusicOff(){ setMusicOff(!musicOff); }
+  document.getElementById('musicBtn').addEventListener('click', e=>{ e.stopPropagation(); ensureAudio(); toggleMusicOff(); });
+  applyMusicToggleUI();
+  // Browser autoplay: only START playback after the first real user gesture (ctx itself may
+  // already exist from loadAudioBuffers() below — decoding needs no gesture, only playback does).
+  function _firstGestureAudioUnlock(){
+    ensureAudio();
+    if (G.phase === 'menu') setMusicPhase('menu');
+  }
+  addEventListener('pointerdown', _firstGestureAudioUnlock, { once:true, passive:true });
+  addEventListener('keydown', _firstGestureAudioUnlock, { once:true });
+  addEventListener('touchstart', _firstGestureAudioUnlock, { once:true, passive:true });
+  loadAudioBuffers();
+
   // ---------- phase machine (K1) ----------
   const startOverlay = document.getElementById('startOverlay');
   const countdownEl  = document.getElementById('countdown');
@@ -4253,6 +4497,7 @@
     startOverlay.style.display = 'flex';
     countdownEl.style.display = 'none';
     resultsEl.style.display = 'none';
+    setMusicPhase('menu');   // 2026-07-10: back to menu music (+ ambience) once the menu returns
   }
   function startCountdown(){
     if (G.phase !== 'menu' && G.phase !== 'finished') return;
@@ -4288,6 +4533,7 @@
     startOverlay.style.display = 'none';
     resultsEl.style.display = 'none';
     countdownEl.style.display = 'flex';
+    setMusicPhase('race');   // 2026-07-10: fade menu music out, start the race track
     countdownVoice('3');
     G.lastBeat = 3;
     if (net.mp && net.isHost){ publishNetSnapshotNow(); updateLobbyDoc({ status:'started' }); }   // family lobby: host-only, online-mode-only (no-op otherwise)
@@ -4362,7 +4608,8 @@
     } else sEl.style.display = 'none';
     resultsEl.style.display = 'flex';
     countdownEl.style.display = 'none';
-    finishFanfare(r.place);   // K6: podium fanfare for 1st, warm flourish otherwise
+    finishFanfare(r.place);   // K6: podium fanfare for 1st, warm flourish otherwise (sample-aware)
+    musicRaceEnd();           // 2026-07-10: fade race music out, one-shot win jingle
   }
   // menu / results advance = Enter or tap
   function advance(){
@@ -4975,6 +5222,7 @@
       if (mine){ p._slotCol = mine.col; kartViews.local.bodyMat.color.setHex(mine.col); }
       G.phase = 'countdown'; p.startPressT = null; G.lastBeat = 99;
       startOverlay.style.display='none'; resultsEl.style.display='none'; countdownEl.style.display='flex';
+      setMusicPhase('race');   // 2026-07-10: guest follows the same music state machine
     }
     if (G.phase === 'countdown'){
       // record our own throttle timing for the start boost (against the host's synced clock)
@@ -5032,6 +5280,7 @@
     G.phase = 'menu';
     resetRaceFields(G.players.local); placeAtGrid(G.players.local, 0);
     startOverlay.style.display='flex'; countdownEl.style.display='none'; resultsEl.style.display='none';
+    setMusicPhase('menu');   // 2026-07-10: back to menu music once the menu returns
   }
 
   // ---- guest item use: bump the seq (host spawns entities); boost applied locally for feel ----
@@ -5069,7 +5318,7 @@
       }
       if (kind === 'tomato' || kind === 'tomato3') tomatoFireSound();
       else if (kind === 'chicken' || kind === 'chicken3') chickenSquawkSound(false);
-      else itemFireSound();
+      else haySound();
     }
     net.pendingUse = true; net.useSeq++;
     try{ net.localPlayer && net.localPlayer.setState('useAct', 'fire', true); }catch(e){}
@@ -5382,10 +5631,20 @@
       engineGainV: engineGain ? engineGain.gain.value : null,
       engineFilterHz: engineFilter ? engineFilter.frequency.value : null,
       ctx: audioCtx ? audioCtx.state : 'none',
-      fanfares:_fanfareCount, mtChimes:_aud.chimes, cdVoices:_cdVoiceCount }),
+      fanfares:_fanfareCount, mtChimes:_aud.chimes, cdVoices:_cdVoiceCount,
+      // 2026-07-10: sample-audio integration debug fields
+      buffersLoaded:_buffersLoaded, buffersTotal:AUDIO_FILES.length,
+      engineMix:{ low:_engineMix.low, mid:_engineMix.mid, high:_engineMix.high, rate:_engineMix.rate },
+      engineSampleReady: engineSampleReady(),
+      musicTrack: musicPhase, musicOff, musicGainV: musicBus ? musicBus.gain.value : null,
+      driftLoopGainV: driftLoopGain ? driftLoopGain.gain.value : null,
+      sfxPlays: Object.assign({}, _sfxPlays) }),
     // SFX hooks for headless audio-graph checks (mute still gates audible output)
     tomatoFireSound, tomatoSplatSound, chickenSquawkSound, countdownVoice, cancelSpeech,
     startContinuousAudio, updateAudio, ensureAudio,
+    // 2026-07-10: sample-audio hooks for the headless harness
+    haySound, itemRollSound, itemBlockSound, finishFanfare,
+    loadAudioBuffers, buf, playSample, setMusicOff, toggleMusicOff, setMusicPhase, musicRaceEnd,
     // jump straight into racing at sample 0, SOLO (physics-regression harness entry point)
     forceRace:()=>{
                     for (const id in G.players){ if (G.players[id].isBot || id!=='local'){ removeKartView(id); delete G.players[id]; } }
@@ -5394,7 +5653,8 @@
                     G.phase = 'racing'; G.goFlashT = 0;
                     countdownEl.style.display='none'; startOverlay.style.display='none'; resultsEl.style.display='none';
                     resetRaceFields(G.players.local); resetKart();
-                    G.players.local.finishDebounce = 5; G.raceClock = 0; },
+                    G.players.local.finishDebounce = 5; G.raceClock = 0;
+                    setMusicPhase('race'); },
     _setKeys:(k,v)=>{ keys[k]=v; }
   };
   // back-compat: window.__KART__.state -> the local player entry

@@ -1815,6 +1815,82 @@ Verify: `node tools/_verify-audio.cjs`.
   batch (engine growl, countdown voice, item sounds, boost/spin/bonk/fanfare, MT charge
   ticks/tier chimes) are untouched. Verified: scratchpad/fk_camdrift.mjs.
 
+# 🏁 Farm Kart — generated audio samples wired in (2026-07-10)
+
+`assets/audio/` (ElevenLabs-generated, manifest.json, ~3MB/16 files) is now layered ON TOP
+of the K6 WebAudio synth above — the synth was NOT deleted, it's the graceful fallback.
+Every sample-aware path checks its buffer first and falls straight back to the exact
+original synth call when a buffer hasn't decoded (blocked/slow/failed fetch) — nothing can
+brick playback. Everything still routes through `masterGain` (SFX/engine/drift, one 🔊
+kill switch) or `musicBus`→`masterGain` (music/ambience, plus its own 🎵 kill switch).
+- **Loading**: `loadAudioBuffers()` fetches + `decodeAudioData`s all 16 files at boot
+  (no gesture needed — only *playback* needs a gesture, decoding doesn't) into `audioBuffers`
+  map keyed by filename-sans-extension; failures land `null` (stays synth-only forever).
+  `audioState().buffersLoaded`/`buffersTotal` for tests. `playSample(name, {gain,rate,dest,
+  delay})` = one-shot through masterGain (or a custom dest); returns `false` when the buffer
+  isn't ready so call sites can fall back inline.
+- **Engine crossfade**: 3 always-running loop sources (`fk-engine-low/mid/high`) with
+  per-frame gain crossfade by `rpm = spd/maxSpeed` via a `trapezoid(x,a,b,c,d)` ramp helper
+  (low dominant 0→0.3, mid ~0.25→0.7, high 0.6→1.0, overlapping) PLUS `playbackRate`
+  modulation ~0.85→1.3 across the full range (boost nudges the high source to ~1.35). The
+  OLD synth engine graph keeps running unchanged underneath but its gain target is forced to
+  0 whenever `engineSampleReady()` (all 3 buffers loaded) — silenced, not removed, so a
+  losing a buffer mid-session would still have live oscillators to fall back to next frame.
+  `audioState().engineMix = {low,mid,high,rate}` for tests.
+- **Drift loop** (2026-07-10, USER-APPROVED sample — the synth scrape was removed
+  2026-07-09 for being hated; this replaces it): `fk-sfx-drift-loop` loops silently from
+  first use, gain ramps to ~0.20+tier while `drift.active && !airborne && speed>2.5`, fades
+  to 0 over ~0.15s on release/airborne. `audioState().driftLoopGainV`.
+  - **SFX swaps** (sample when loaded, else the untouched original synth): tomato splat/hit
+  (`fk-sfx-splat`, fire keeps the synth whoosh unchanged), chicken fire/hit (`fk-sfx-squawk-
+  fire`/`-hit`), hay fire+hit — new `haySound()` wraps both the drop call sites and the
+  hazard-hit call site (`fk-sfx-haybale`), item-box pickup (`fk-sfx-itembox`), trail-shield
+  deploy (`fk-sfx-shield`), race finish/podium fanfare (`fk-sfx-finish`, replaces the synth
+  tone sequence regardless of place). GO moment LAYERS `fk-sfx-go-cheer` OVER the existing
+  synth stinger (not a swap) inside `countdownVoice()`. Kept 100% synth per spec: countdown
+  number stingers + speech, boost whoosh, spin warble, bonk, land thump, MT ticks/chimes,
+  item-roll ticks, tomato FIRE whoosh.
+- **Music state machine**: `musicPhase` ('menu'|'race'|null) driven from the existing phase
+  transitions — `startCountdown()` (host + solo) and the guest's countdown-entry block in
+  `guestApply` both call `setMusicPhase('race')`; `toMenu()`/`toMenuGuest()` call
+  `setMusicPhase('menu')`; `showResults()` calls new `musicRaceEnd()` (fades race music,
+  goes silent, fires `fk-sfx-win-jingle` once through `musicBus`) — menu music/ambience only
+  resume when the player actually returns to the menu, per spec. Menu phase starts
+  `fk-music-menu` (loop) + `fk-ambient-farm` (loop, faded to only 25% of the menu track's
+  gain) together; race phase crossfades to `fk-music-race` (loop). All fades are 0.5s linear
+  ramps via a shared `fadeGainTo()` helper; `musicBus` sits at a flat 0.35 gain under SFX.
+  Autoplay: playback only starts after the first real gesture — `_firstGestureAudioUnlock()`
+  is a `{once:true}` listener on `pointerdown`/`keydown`/`touchstart` that resumes the ctx and
+  starts menu music IF still on the menu (a tap that also advances menu→countdown, e.g. the
+  existing tap-to-start UX, naturally lands on race music instead — both are "engaged").
+- **🎵 music toggle**: new button next to 🔊 (`#musicBtn`, same visual style, `localStorage
+  fk_music_off`). Toggling sets `musicBus.gain.value` INSTANTLY (not a fade — this is a
+  discrete on/off, unlike the phase-transition fades) to 0 or 0.35; only affects music+
+  ambience, never SFX; the 🔊 master mute still zeroes everything via `masterGain`.
+- **Debug hook**: `audioState()` gained `buffersLoaded/buffersTotal`, `engineMix`,
+  `engineSampleReady`, `musicTrack`, `musicOff`, `musicGainV`, `driftLoopGainV`, and
+  `sfxPlays` (per-sample play counters: splat/squawkFire/squawkHit/haybale/itembox/shield/
+  goCheer/finish/winJingle — only increment when the SAMPLE actually played, not the synth
+  fallback) — all for headless assertions.
+- Verified: `tools/_verify-audio.cjs` REWRITTEN as a two-pass suite — BLOCKED (assets/audio/*
+  aborted via request interception: 0 buffers load, `engineSampleReady:false`, synth engine
+  drives audibly, no sample SFX counters tick, 0 pageerrors) and SAMPLES (all 16 decode,
+  engine crossfades low→high with rising rate as speed ramps 0→top, synth engine gain forced
+  to ~0, drift loop rises/falls, every sample SFX counter ticks exactly once per call, GO
+  layers the cheer on top of the stinger, music phase machine walks menu→race→(silent after
+  `musicRaceEnd`, win jingle counted)→menu, 🎵 toggle zeroes/restores `musicGainV` instantly
+  and persists the flag, 🔊 mute still zeroes `masterGain` and gates speech) — 71/71 PASS, 0
+  pageerrors both passes. `tools/_verify-items.cjs` 24/24 (untouched — item mechanics
+  unchanged, only their sound side-effects gained sample paths). Mobile pass (scratchpad
+  fk_audiowire.cjs, matchMedia coarse-pointer stub, 390×844): `body.mobile` set, first touch
+  engages the music system (menu or race depending on where the tap landed — the existing
+  tap-anywhere-to-start UX), 0 pageerrors.
+  **KNOWN OUT-OF-SCOPE ISSUE** (not caused by this batch): `tools/_verify-hud-defaults.cjs`
+  fails on `MOBILE_CAM.camDist` — a concurrent Cursor-agent edit landed in `farmkart.html`
+  mid-session (see the "Cursor agent shares this repo" memory note) that reverted
+  `camDist:5.35`→`3.5` (contradicting its own adjacent comment) and touched an unrelated
+  wheel-steer line; left untouched since it's the other agent's live WIP, not mine to revert.
+
 # 🏁 Farm Kart — family lobby port (2026-07-09)
 
 Hosting a race used to be discoverable only via copy/paste link. Ported Barnyard Bistro's
