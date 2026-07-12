@@ -502,6 +502,26 @@
         }
         if (chs.length) out.chickens = chs;
       }
+      // TRAINS (2026-07-12): [{id, points:[{x,z}...], speed, cars}] — a CLOSED-LOOP railroad. Renders
+      // procedural rail track (ties + twin rails, terrain-seated) plus a moving locomotive + `cars`
+      // boxcars/flatcars circling the loop at `speed` world-units/sec. Purely visual (no collision).
+      // Needs >=3 points to close a loop. Absent/garbage -> omitted (byte-identical for tracks without it).
+      if (Array.isArray(data.trains)){
+        const trains = [];
+        for (const tr of data.trains){
+          if (!tr || typeof tr !== 'object' || !Array.isArray(tr.points) || tr.points.length < 3) continue;
+          const pts = [];
+          for (const p of tr.points){ const x=+p.x, z=+p.z; if (isFinite(x)&&isFinite(z)) pts.push({x,z}); }
+          if (pts.length < 3) continue;
+          trains.push({
+            id:    (typeof tr.id==='string' && tr.id) ? tr.id.slice(0,40) : ('train_'+(trains.length+1)),
+            points: pts,
+            speed: (isFinite(+tr.speed) && +tr.speed>0) ? Math.min(60, +tr.speed) : 7,
+            cars:  (isFinite(+tr.cars) && +tr.cars>=0) ? Math.min(12, Math.round(+tr.cars)) : 3
+          });
+        }
+        if (trains.length) out.trains = trains;
+      }
       // SKY preset (2026-07-12): one of 'clouds'|'snow'|'sun'|'night'. 'day'/absent/garbage -> omitted
       // (the game's default sky/lighting, byte-identical for every existing track).
       if (typeof data.sky === 'string' && (data.sky==='clouds'||data.sky==='snow'||data.sky==='sun'||data.sky==='night')) out.sky = data.sky;
@@ -1685,12 +1705,234 @@
     return grp;
   }
 
+  // ============================================================================
+  // MOVING TRAINS (2026-07-12) — railroad track + a circling procedural train.
+  // buildTrainsMesh(trains, THREE, opts) -> a THREE.Group with userData.update(dt) that advances
+  // every train along its loop. Each train entry {points,speed,cars} gets: a smooth closed rail path
+  // (CatmullRom over the authored points), procedural TRACK (ties + twin steel rails + gravel ballast,
+  // all terrain-seated via opts.heightFn like buildFenceMesh), and a moving TRAIN (blocky loco with a
+  // cow-catcher, boiler, cab, smokestack that puffs smoke every ~0.5s + big wheels) pulling `cars`
+  // boxcar/flatcar cars (warm wood; flatcars carry hay bales). Purely visual — no collision. Scale is
+  // anchored to the kart (~2u long): a car reads ~1.5-2 kart lengths, the loco a touch taller.
+  // Rail track uses InstancedMesh (2-3 draw calls total regardless of loop length). opts.heightFn(x,z)
+  // seats everything on the ground (game/editor pass sampleHeight); absent -> y=0.
+  // ============================================================================
+  const RAIL_GAUGE = 2.4;        // distance between the two rails (reads wider than a 1.1u-wide kart)
+  const TIE_SPACING = 1.9;       // world-units between railroad ties
+  function _buildSmokeTexture(THREE){ return _softDiscTexture(THREE, 'trainsmoke', 'rgba(210,210,214,0.95)', 'rgba(150,150,156,0.35)'); }
+  function _buildOneTrain(tr, THREE, hfn){
+    const group = new THREE.Group();
+    // ---- 1. smooth closed loop path, resampled uniformly by arc length ----
+    const curve = new THREE.CatmullRomCurve3(tr.points.map(p=>new THREE.Vector3(p.x,0,p.z)), true, 'catmullrom', 0.5);
+    const N0 = Math.max(200, tr.points.length*40);
+    const raw = [];
+    for (let i=0;i<N0;i++){ const p = curve.getPoint(i/N0); raw.push({x:p.x, z:p.z}); }
+    // cumulative arc over the raw dense samples (closed)
+    let L = 0; const cum = [0];
+    for (let i=1;i<N0;i++){ L += Math.hypot(raw[i].x-raw[i-1].x, raw[i].z-raw[i-1].z); cum.push(L); }
+    L += Math.hypot(raw[0].x-raw[N0-1].x, raw[0].z-raw[N0-1].z);   // close the loop
+    // resample to M nodes spaced exactly d = L/M (~TIE_SPACING) -> O(1) arc lookup
+    const M = Math.max(8, Math.round(L/TIE_SPACING));
+    const d = L/M;
+    const node = [];   // {x,z,y}
+    let ri = 0;
+    for (let k=0;k<M;k++){
+      const target = k*d;
+      while (ri < N0-1 && cum[ri+1] < target) ri++;
+      const a = raw[ri], b = raw[(ri+1)%N0];
+      const segLen = ((ri+1>=N0) ? L-cum[N0-1] : cum[ri+1]-cum[ri]) || 1e-6;
+      const t = Math.max(0, Math.min(1, (target-cum[ri])/segLen));
+      const x = a.x+(b.x-a.x)*t, z = a.z+(b.z-a.z)*t;
+      node.push({ x, z, y: hfn(x, z) });
+    }
+    // per-node tangent (central difference, closed)
+    for (let k=0;k<M;k++){
+      const a = node[(k-1+M)%M], b = node[(k+1)%M];
+      let tx = b.x-a.x, tz = b.z-a.z; const tl = Math.hypot(tx,tz)||1;
+      node[k].tx = tx/tl; node[k].tz = tz/tl;
+    }
+    // arc lookup at absolute distance a (wraps)
+    function at(a){
+      a = a % L; if (a < 0) a += L;
+      const fi = a/d; let i0 = Math.floor(fi)%M; if (i0<0) i0+=M; const i1 = (i0+1)%M; const f = fi-Math.floor(fi);
+      const A = node[i0], B = node[i1];
+      let tx = A.tx+(B.tx-A.tx)*f, tz = A.tz+(B.tz-A.tz)*f; const tl=Math.hypot(tx,tz)||1;
+      return { x:A.x+(B.x-A.x)*f, y:A.y+(B.y-A.y)*f, z:A.z+(B.z-A.z)*f, tx:tx/tl, tz:tz/tl };
+    }
+
+    // ---- 2. rail TRACK via InstancedMesh (ties + 2 rails + ballast) ----
+    const mtx = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0,1,0), pv = new THREE.Vector3(), sc = new THREE.Vector3(1,1,1);
+    // ballast (gravel bed): flat box under the ties
+    const ballastGeo = new THREE.BoxGeometry(RAIL_GAUGE+1.9, 0.16, d*1.02);
+    const ballast = new THREE.InstancedMesh(ballastGeo, new THREE.MeshLambertMaterial({ color:0x9c8b6a }), M);
+    // ties (dark creosote wood, laid across the rails)
+    const tieGeo = new THREE.BoxGeometry(RAIL_GAUGE+0.95, 0.2, 0.5);
+    const ties = new THREE.InstancedMesh(tieGeo, new THREE.MeshLambertMaterial({ color:0x4a3423 }), M);
+    // rails (steel), two instances per node segment
+    const railGeo = new THREE.BoxGeometry(0.16, 0.2, d*1.04);
+    const rails = new THREE.InstancedMesh(railGeo, new THREE.MeshLambertMaterial({ color:0x6b7079, emissive:0x202226 }), M*2);
+    let ri2 = 0;
+    for (let k=0;k<M;k++){
+      const A = node[k], B = node[(k+1)%M];
+      const yaw = Math.atan2(A.tx, A.tz);                  // local +Z along the tangent
+      const perpX = -A.tz, perpZ = A.tx;                    // left normal
+      // ballast + tie at the node
+      q.setFromAxisAngle(up, yaw);
+      pv.set(A.x, A.y+0.06, A.z); mtx.compose(pv, q, sc); ballast.setMatrixAt(k, mtx);
+      pv.set(A.x, A.y+0.19, A.z); mtx.compose(pv, q, sc); ties.setMatrixAt(k, mtx);
+      // two rails at the segment midpoint, offset laterally by +/- gauge/2
+      const mx = (A.x+B.x)/2, mz = (A.z+B.z)/2, my = (A.y+B.y)/2 + 0.33;
+      const segYaw = Math.atan2(B.x-A.x, B.z-A.z); q.setFromAxisAngle(up, segYaw);
+      for (const s of [-1, 1]){
+        pv.set(mx + perpX*(RAIL_GAUGE/2)*s, my, mz + perpZ*(RAIL_GAUGE/2)*s);
+        mtx.compose(pv, q, sc); rails.setMatrixAt(ri2++, mtx);
+      }
+    }
+    ballast.instanceMatrix.needsUpdate = ties.instanceMatrix.needsUpdate = rails.instanceMatrix.needsUpdate = true;
+    ballast.frustumCulled = ties.frustumCulled = rails.frustumCulled = false;
+    group.add(ballast); group.add(ties); group.add(rails);
+
+    // ---- 3. the TRAIN (loco + cars) ----
+    const box = (parent, w,h,dp, color, x,y,z, emissive)=>{ const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,dp), new THREE.MeshLambertMaterial({ color, emissive:emissive||0x000000 })); m.position.set(x,y,z); parent.add(m); return m; };
+    const cyl = (parent, rt,rb,h, color, x,y,z, rotX, rotZ)=>{ const m = new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,h,14), new THREE.MeshLambertMaterial({ color })); m.position.set(x,y,z); if(rotX)m.rotation.x=rotX; if(rotZ)m.rotation.z=rotZ; parent.add(m); return m; };
+    const wheelSets = [];   // {mesh} spun by distance
+    function addWheels(parent, positions, radius){
+      const wg = new THREE.CylinderGeometry(radius, radius, 0.24, 14);
+      const wmat = new THREE.MeshLambertMaterial({ color:0x1b1b1f });
+      const rmat = new THREE.MeshLambertMaterial({ color:0x8a2b22 });   // red hub/rim
+      for (const [wx,wy,wz] of positions){
+        for (const side of [-1, 1]){
+          const w = new THREE.Mesh(wg, wmat); w.rotation.z = Math.PI/2; w.position.set(side*(RAIL_GAUGE/2), wy, wz); parent.add(w); wheelSets.push(w);
+          const hub = new THREE.Mesh(new THREE.CylinderGeometry(radius*0.42, radius*0.42, 0.26, 10), rmat); hub.rotation.z = Math.PI/2; hub.position.set(side*(RAIL_GAUGE/2), wy, wz); parent.add(hub); wheelSets.push(hub);
+        }
+      }
+    }
+    // LOCOMOTIVE (points +Z forward). ~4.9u long, 2.4 wide, boiler ~2.9 tall, stack tops ~3.8.
+    const loco = new THREE.Group();
+    const BLACK = 0x22242a, DARK = 0x2c2f36, TRIM = 0x7a2b22;
+    addWheels(loco, [[0,0.6,1.5],[0,0.6,0.1],[0,0.6,-1.3]], 0.6);
+    box(loco, 2.4, 0.42, 4.8, DARK, 0, 0.95, 0.1);                       // underframe
+    cyl(loco, 0.98, 0.98, 3.1, BLACK, 0, 1.85, 1.05, Math.PI/2);          // boiler (lying along Z)
+    box(loco, 2.06, 0.5, 0.5, TRIM, 0, 1.85, 2.62);                       // smokebox front band
+    // cab (rear)
+    box(loco, 2.3, 1.7, 1.7, 0x3a2b20, 0, 2.05, -1.75);
+    box(loco, 2.36, 0.3, 1.85, 0x241a12, 0, 3.0, -1.75);                  // cab roof
+    box(loco, 0.5, 0.62, 0.06, 0x8fb8d8, 0.72, 2.15, -0.92);             // cab window (side hint)
+    box(loco, 0.5, 0.62, 0.06, 0x8fb8d8, -0.72, 2.15, -0.92);
+    // smokestack (front-top) + flared cap
+    cyl(loco, 0.34, 0.4, 1.15, 0x191a1e, 0, 3.05, 1.75);
+    cyl(loco, 0.56, 0.4, 0.28, 0x101014, 0, 3.66, 1.75);
+    // steam dome + sand dome on the boiler
+    cyl(loco, 0.34, 0.4, 0.5, 0x9a8446, 0, 2.75, 0.55);
+    const domeCap = new THREE.Mesh(new THREE.SphereGeometry(0.34,12,8,0,Math.PI*2,0,Math.PI/2), new THREE.MeshLambertMaterial({ color:0xb59a52 })); domeCap.position.set(0,3.0,0.55); loco.add(domeCap);
+    cyl(loco, 0.24, 0.28, 0.42, 0x141416, 0, 2.7, -0.35);
+    // headlamp
+    box(loco, 0.4, 0.4, 0.2, 0xf4e08a, 0, 2.2, 2.72, 0x555033);
+    // cow-catcher (angled wedge at the front)
+    const cw = new THREE.Group();
+    const L0=[-1.0,-.5,-.5],L1=[1.0,-.5,-.5],B0=[-.35,-.5,.9],B1=[.35,-.5,.9],T0=[-1.0,.5,-.5],T1=[1.0,.5,-.5];
+    const tris=[[L0,L1,T1],[L0,T1,T0],[L0,B0,B1],[L0,B1,L1],[T0,T1,B1],[T0,B1,B0],[L0,T0,B0],[L1,B1,T1]];
+    const cp=[]; for(const t of tris) for(const v of t) cp.push(v[0],v[1],v[2]);
+    const cgeo=new THREE.BufferGeometry(); cgeo.setAttribute('position', new THREE.Float32BufferAttribute(cp,3)); cgeo.computeVertexNormals();
+    const cmesh=new THREE.Mesh(cgeo, new THREE.MeshLambertMaterial({ color:TRIM, side:THREE.DoubleSide })); cmesh.scale.set(1.05,0.9,1.3); cmesh.position.set(0,1.0,3.05); cw.add(cmesh); loco.add(cw);
+    const vehicles = new THREE.Group(); vehicles.add(loco); group.add(vehicles);
+
+    // CARS: alternate boxcar / flatcar-with-hay. ~3.8u long, 2.3 wide.
+    function buildCar(kind){
+      const c = new THREE.Group();
+      addWheels(c, [[0,0.5,1.1],[0,0.5,-1.1]], 0.5);
+      box(c, 2.3, 0.36, 3.9, 0x33261a, 0, 0.86, 0);                      // flat frame
+      if (kind === 'flat'){
+        box(c, 2.2, 0.16, 3.7, 0x6b4d30, 0, 1.06, 0);                    // deck
+        for (let i=0;i<3;i++){                                            // hay bales
+          const hb = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,1.9,12), new THREE.MeshLambertMaterial({ color:0xcaa64a }));
+          hb.rotation.z = Math.PI/2; hb.position.set(0, 1.6, 1.1 - i*1.1); c.add(hb);
+        }
+      } else {
+        const wood = 0x8a5a2e;
+        box(c, 2.16, 1.7, 3.5, wood, 0, 2.0, 0);                          // boxcar body
+        box(c, 2.28, 0.28, 3.7, 0x5e3d20, 0, 2.92, 0);                    // roof overhang
+        box(c, 0.1, 1.3, 1.0, 0x6b4523, 1.09, 1.95, 0);                   // side door frame
+        box(c, 0.1, 1.3, 1.0, 0x6b4523, -1.09, 1.95, 0);
+        box(c, 2.18, 0.12, 3.52, 0x6f4826, 0, 1.5, 0);                    // plank band
+      }
+      return c;
+    }
+    const vehLen = [4.9];   // loco
+    for (let i=0;i<tr.cars;i++){ vehicles.add(buildCar(i%2===1 ? 'flat' : 'box')); vehLen.push(3.9); }
+    const kids = vehicles.children;   // [loco, car1, car2, ...]
+    // center-to-center offsets down the train (with couplers ~0.55u)
+    const gap = 0.55, offs = [0];
+    for (let k=1;k<vehLen.length;k++) offs.push(offs[k-1] + vehLen[k-1]/2 + gap + vehLen[k]/2);
+    // wheel roll: track each vehicle's wheels; approximate via a shared spin accumulator
+    const wheelR = 0.55;
+
+    // ---- 4. smoke puffs (world-space pool at the loco stack) ----
+    const smokeTex = _buildSmokeTexture(THREE);
+    const PUFFS = 14; const puffs = [];
+    for (let i=0;i<PUFFS;i++){
+      const sp = smokeTex
+        ? new THREE.Sprite(new THREE.SpriteMaterial({ map:smokeTex, transparent:true, depthWrite:false, opacity:0, fog:false }))
+        : new THREE.Mesh(new THREE.SphereGeometry(0.5,8,6), new THREE.MeshLambertMaterial({ color:0xb0b0b4, transparent:true, opacity:0, depthWrite:false }));
+      sp.visible = false; group.add(sp); puffs.push({ sp, life:1e9 });
+    }
+    let puffI = 0, puffT = 0;
+    const stackLocal = new THREE.Vector3(0, 3.7, 1.75), stackWorld = new THREE.Vector3();
+
+    // ---- update: advance the train, seat + orient each vehicle, spin wheels, puff smoke ----
+    let head = 0, spin = 0;
+    function update(dt){
+      if (!isFinite(dt) || dt<=0) dt = 0.016;
+      head = (head + tr.speed*dt) % L;
+      spin += (tr.speed*dt)/wheelR;
+      for (let k=0;k<kids.length;k++){
+        const s = at(head - offs[k]);
+        kids[k].position.set(s.x, s.y + 0.42, s.z);
+        kids[k].rotation.y = Math.atan2(s.tx, s.tz);
+      }
+      for (const w of wheelSets) w.rotation.x = spin;   // roll (cheap, shared phase)
+      // smoke: emit from the loco stack every ~0.45s
+      loco.updateMatrixWorld();
+      stackWorld.copy(stackLocal).applyMatrix4(loco.matrixWorld);
+      puffT += dt;
+      if (puffT >= 0.45){
+        puffT = 0;
+        const p = puffs[puffI]; puffI = (puffI+1)%PUFFS;
+        p.life = 0; p.sp.visible = true;
+        p.sp.position.copy(stackWorld);
+        p.vx = (Math.random()-0.5)*0.6; p.vz = (Math.random()-0.5)*0.6;
+      }
+      for (const p of puffs){
+        if (p.life > 2.4){ p.sp.visible = false; continue; }
+        p.life += dt;
+        p.sp.position.y += dt*2.4;
+        p.sp.position.x += (p.vx||0)*dt; p.sp.position.z += (p.vz||0)*dt;
+        const f = p.life/2.4, sz = 1.0 + f*3.4;
+        if (p.sp.scale) p.sp.scale.set(sz, sz, sz);
+        const op = 0.72*(1-f);
+        if (p.sp.material) p.sp.material.opacity = op;
+      }
+    }
+    return { group, update };
+  }
+  function buildTrainsMesh(trains, THREE, opts){
+    const grp = new THREE.Group();
+    grp.userData.update = ()=>{};
+    if (!Array.isArray(trains) || !trains.length) return grp;
+    opts = opts || {};
+    const hfn = opts.heightFn || (()=>0);
+    const ups = [];
+    for (const tr of trains){ const built = _buildOneTrain(tr, THREE, hfn); grp.add(built.group); ups.push(built.update); }
+    grp.userData.update = (dt)=>{ for (const u of ups) u(dt); };
+    return grp;
+  }
+
   window.FK_TRACK = {
     VERSION:1, SAMPLES,
     DEFAULT_TRACK, BUILTIN_TRACKS,
     resample, buildRibbonGeometry, sanitize, validate, reverse, nearestOnCenter, nearestOnCenterAtY,
     groundHills, sampleHeight, groundSampleHeight, buildGroundMesh, buildObjectMesh, buildFenceMesh, buildGrassTufts, buildPaintedTufts, sampleField, sampleColor,
     fenceCollide, corridorFences, rampSurfaceY, buildTunnelMesh, buildBridgeMesh, buildBridgeEdges, bridgeCollide, trackDirectionAt, alignRampsToTrack,
-    floodFillWater, buildWaterMesh, SKY_PRESETS, buildSkyObjects
+    floodFillWater, buildWaterMesh, SKY_PRESETS, buildSkyObjects, buildTrainsMesh
   };
 })();

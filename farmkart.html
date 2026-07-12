@@ -1063,6 +1063,12 @@
     return null;
   }
 
+  // TRAINS (2026-07-12): a closed-loop railroad with a moving loco+cars train. Renders rail track
+  // (ties/rails/ballast, terrain-seated) + the train, advanced by TRAIN_GROUP.userData.update(dt)
+  // per frame below. Purely visual — no collision. Empty for tracks without a `trains` array.
+  const TRAIN_GROUP = FK_TRACK.buildTrainsMesh(ACTIVE_TRACK.trains || [], THREE, { heightFn:(x,z)=>sampleHeight(x,z) });
+  scene.add(TRAIN_GROUP);
+
   // SKY PRESETS (2026-07-12): a per-track sky (clouds/snow/sun/night). 'day'/absent = the exact
   // current defaults (untouched below), so existing tracks render byte-identical. setSky applies the
   // shared FK_TRACK.SKY_PRESETS descriptor to bg/fog/lights + builds the shared scene objects
@@ -6554,6 +6560,7 @@
     syncChickenViews();    // 2026-07-12: position/animate road-crossing chicken meshes
     if (WATER_GROUP.userData.animate) WATER_GROUP.userData.animate(now*0.001);   // water waves
     if (SKY_OBJ && SKY_OBJ.userData.update) SKY_OBJ.userData.update(dt, camera);  // cloud drift / snow / celestial
+    if (TRAIN_GROUP.userData.update) TRAIN_GROUP.userData.update(dt);             // moving trains
     renderer.render(scene, camera);
     requestAnimationFrame(frame);
   }
@@ -7218,8 +7225,8 @@
     get WATER_LOOKUP(){ return WATER_LOOKUP; }, waterAt, waterSplashSound, spawnWaterSplash,
     advanceChickens, resetChickens, spawnCrossingChicken, scatterChicken, syncChickenViews,
     get chickens(){ return G.chickens; }, get chickenViews(){ return _chickenViews; }, CHICKEN_HIT_R,
-    // Waters + sky (2026-07-12, for headless tests)
-    WATER_GROUP, setSky, get SKY_OBJ(){ return SKY_OBJ; }, get sky(){ return ACTIVE_TRACK.sky || 'day'; },
+    // Waters + sky + trains (2026-07-12, for headless tests)
+    WATER_GROUP, TRAIN_GROUP, setSky, get SKY_OBJ(){ return SKY_OBJ; }, get sky(){ return ACTIVE_TRACK.sky || 'day'; },
     get hemiLight(){ return hemi; }, get sunLight(){ return sun; },
     // K6 polish (audio + particles + best-lap key; exposed for the headless harness)
     BEST_LAP_KEY, setMuted, toggleMute, particleActiveCount,

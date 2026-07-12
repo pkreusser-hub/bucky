@@ -871,6 +871,15 @@
   // bowl and water fills up to the click height. Stores {id,x,z,y} where y = terrain height at the
   // click (so later sculpts don't move the shoreline). Rendered via the SAME FK_TRACK.buildWaterMesh
   // the game uses. Clicking an existing water's region selects it (rather than double-filling).
+  // TRAINS (2026-07-12): read-only render of the railroad + moving train (authored by hand in JSON;
+  // no in-editor authoring UI). Rendered via the SAME FK_TRACK.buildTrainsMesh the game uses so the
+  // designer sees the true rail path + train scale; animated in the loop below.
+  const trainGroup = new THREE.Group(); scene.add(trainGroup);
+  let builtTrainGroup = null;
+  function rebuildTrains(){
+    if (builtTrainGroup){ trainGroup.remove(builtTrainGroup); builtTrainGroup.traverse(c=>{ if(c.geometry)c.geometry.dispose(); if(c.material){ if(c.material.map)c.material.map.dispose(); c.material.dispose(); } }); builtTrainGroup=null; }
+    if (sampled && (track.trains||[]).length){ builtTrainGroup = FK_TRACK.buildTrainsMesh(track.trains, THREE, { heightFn:(x,z)=>terrainHeightAt(x,z) }); trainGroup.add(builtTrainGroup); }
+  }
   const waterGroup = new THREE.Group(); scene.add(waterGroup);
   let selWaterId = null, waterSeq = 0, builtWaterGroup = null;
   function waterOpts(){ return { heightFn:(x,z)=>terrainHeightAt(x,z), groundMargin:track.groundMargin }; }
@@ -1204,6 +1213,7 @@
     rebuildTunnels();
     rebuildBridges();
     rebuildWaters();
+    rebuildTrains();
     rebuildChickenMarkers();
     applyEdSky();
     scheduleTerrain();      // WYSIWYG grass/hills (debounced)
@@ -2494,6 +2504,7 @@
     } else controls.update();
     if (builtWaterGroup && builtWaterGroup.userData.animate) builtWaterGroup.userData.animate(performance.now()*0.001);
     if (edSkyGroup && edSkyGroup.userData.update) edSkyGroup.userData.update(0.016, camera);
+    if (builtTrainGroup && builtTrainGroup.userData.update) builtTrainGroup.userData.update(0.016);
     renderer.render(scene, camera); requestAnimationFrame(loop);
   })();
 
