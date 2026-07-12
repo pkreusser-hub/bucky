@@ -886,7 +886,8 @@
 
   const camera = new THREE.PerspectiveCamera(TUNE.fov, 1, 0.3, 800); // tight-ish depth range = better z precision for the near-coplanar road layers (near 0.3 gives the ground-clear clamp a smaller front face to keep out of the mesh)
 
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x557040, 0.85));
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x557040, 0.85);
+  scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xffffff, 0.75);
   sun.position.set(40, 80, 20);
   scene.add(sun);
@@ -1018,6 +1019,36 @@
     heightFn:(x,z)=>sampleHeight(x,z), groundFn:(x,z)=>groundSampleHeight(x,z)
   });
   scene.add(BRIDGE_GROUP);
+
+  // WATERS (2026-07-12): flood-fill ponds. Region flood-filled from each seed up to its stored level;
+  // realistic translucent surface with depth tint + shore foam + animated waves (WATER_GROUP.userData
+  // .animate(t), called per frame below). Visual only — no physics (driving in = today's behavior).
+  // Terrain height read from groundSampleHeight (incl. the sculpt field). Empty -> nothing added.
+  const WATER_GROUP = FK_TRACK.buildWaterMesh(ACTIVE_TRACK.waters || [], _sampled, TRACK_WIDTH, THREE, {
+    heightFn:(x,z)=>groundSampleHeight(x,z), groundMargin:ACTIVE_TRACK.groundMargin
+  });
+  scene.add(WATER_GROUP);
+
+  // SKY PRESETS (2026-07-12): a per-track sky (clouds/snow/sun/night). 'day'/absent = the exact
+  // current defaults (untouched below), so existing tracks render byte-identical. setSky applies the
+  // shared FK_TRACK.SKY_PRESETS descriptor to bg/fog/lights + builds the shared scene objects
+  // (drifting clouds / recycling snow / stars+moon / sun disc); SKY_OBJ.userData.update runs per frame.
+  let SKY_OBJ = null;
+  function setSky(preset){
+    preset = FK_TRACK.SKY_PRESETS[preset] ? preset : 'day';
+    const c = FK_TRACK.SKY_PRESETS[preset];
+    renderer.setClearColor(c.bg, 1);
+    scene.background = (preset === 'day') ? null : new THREE.Color(c.bg);
+    scene.fog = c.fog ? new THREE.Fog(c.fog.color, c.fog.near, c.fog.far) : null;
+    hemi.color.setHex(c.hemi.sky); hemi.groundColor.setHex(c.hemi.ground); hemi.intensity = c.hemi.intensity;
+    sun.color.setHex(c.sun.color); sun.intensity = c.sun.intensity; sun.position.set(c.sun.pos[0], c.sun.pos[1], c.sun.pos[2]);
+    if (SKY_OBJ){ scene.remove(SKY_OBJ); SKY_OBJ.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material){ if(o.material.map)o.material.map.dispose(); o.material.dispose(); } }); }
+    SKY_OBJ = FK_TRACK.buildSkyObjects(preset, THREE, { mobile:(typeof matchMedia==='function' && matchMedia('(pointer: coarse)').matches) });
+    scene.add(SKY_OBJ);
+    return SKY_OBJ;
+  }
+  // only depart from the byte-identical default path when a track actually specifies a non-day sky
+  if (ACTIVE_TRACK.sky && ACTIVE_TRACK.sky !== 'day') setSky(ACTIVE_TRACK.sky);
 
   // ---------- start/finish line (checkered strip across main straight) ----------
   // Placed near the main straight at ~z=20, spanning the track width.
@@ -6288,6 +6319,8 @@
     updateHUD();
     updateParticles(dt);   // K6: advance the pooled juice particles
     updateAudio(dt);       // K6: reactive engine hum / MT chimes
+    if (WATER_GROUP.userData.animate) WATER_GROUP.userData.animate(now*0.001);   // water waves
+    if (SKY_OBJ && SKY_OBJ.userData.update) SKY_OBJ.userData.update(dt, camera);  // cloud drift / snow / celestial
     renderer.render(scene, camera);
     requestAnimationFrame(frame);
   }
@@ -6948,6 +6981,9 @@
     TUNNEL_GROUP,
     // Bridges (2026-07-10, for headless tests)
     BRIDGE_GROUP,
+    // Waters + sky (2026-07-12, for headless tests)
+    WATER_GROUP, setSky, get SKY_OBJ(){ return SKY_OBJ; }, get sky(){ return ACTIVE_TRACK.sky || 'day'; },
+    get hemiLight(){ return hemi; }, get sunLight(){ return sun; },
     // K6 polish (audio + particles + best-lap key; exposed for the headless harness)
     BEST_LAP_KEY, setMuted, toggleMute, particleActiveCount,
     audioState:()=>({ muted:audioMuted, masterGain: masterGain ? masterGain.gain.value : null,

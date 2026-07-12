@@ -91,6 +91,14 @@
       <div class="row">
         <button class="btn" id="drapeBtn" style="flex:1;" title="Road drapes over the hills + sculpt and tilts with the land (natural camber)">🏔 follow terrain</button>
       </div>
+      <label style="margin-top:6px;">🌤 sky</label>
+      <select id="skySel" style="width:100%;padding:5px;border-radius:6px;background:rgba(0,0,0,.35);color:#fff;border:1px solid rgba(255,255,255,.2);font-family:monospace;">
+        <option value="day">☀️ day (default)</option>
+        <option value="clouds">☁️ cloudy</option>
+        <option value="snow">❄️ snow</option>
+        <option value="sun">🌅 sunny</option>
+        <option value="night">🌙 night</option>
+      </select>
     </div>
 
     <div class="sec">Mode</div>
@@ -105,6 +113,11 @@
       <button class="btn" id="mFence">🔗 fence</button>
       <button class="btn" id="mTunnel">🚇 tunnel</button>
       <button class="btn" id="mBridge">🌉 bridge</button>
+      <button class="btn" id="mWater">💧 water</button>
+    </div>
+    <div id="waterTools" style="display:none;margin-top:6px;padding:8px;background:rgba(30,70,95,.32);border-radius:8px;">
+      <div style="color:#9ab;font-size:11px;margin-bottom:3px;">sculpt a bowl, then click INSIDE it — water fills up to the click height (like pouring it in)</div>
+      <div id="waterList" style="margin-top:4px;"></div>
     </div>
     <div id="fenceTools" style="display:none;margin-top:6px;padding:8px;background:rgba(70,55,35,.3);border-radius:8px;">
       <div style="color:#9ab;font-size:11px;margin-bottom:3px;">style of new fences:</div>
@@ -175,7 +188,7 @@
     <div class="row">
       <button class="btn" id="addObjBtn">＋ add block</button>
       <button class="btn" id="addRampBtn">🛫 add ramp</button>
-      <button class="btn" id="addWaterBtn">💧 add water</button>
+      <button class="btn" id="addWaterBtn">💧 water fill</button>
       <button class="btn" id="dupObjBtn">⧉ duplicate</button>
     </div>
     <div class="row" id="gizmoRow" style="margin-top:3px;">
@@ -338,7 +351,7 @@
 
   const camera = new THREE.PerspectiveCamera(55, 1, 0.5, 4000);
   camera.position.set(0, 220, 260);
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x557040, 0.9));
+  const edHemi = new THREE.HemisphereLight(0xffffff, 0x557040, 0.9); scene.add(edHemi);
   const sun = new THREE.DirectionalLight(0xffffff, 0.7); sun.position.set(80, 160, 40); scene.add(sun);
 
   // ground reference grid + faint plane at y=0
@@ -713,6 +726,84 @@
     else if (!_brPend){ _brPend = true; setTimeout(()=>{ _brPend=false; _lastBr=performance.now(); rebuildBridges(); }, 110); }
   }
 
+  // ---- WATERS (2026-07-12): flood-fill ponds. In 💧 water mode, click the terrain inside a sculpted
+  // bowl and water fills up to the click height. Stores {id,x,z,y} where y = terrain height at the
+  // click (so later sculpts don't move the shoreline). Rendered via the SAME FK_TRACK.buildWaterMesh
+  // the game uses. Clicking an existing water's region selects it (rather than double-filling).
+  const waterGroup = new THREE.Group(); scene.add(waterGroup);
+  let selWaterId = null, waterSeq = 0, builtWaterGroup = null;
+  function waterOpts(){ return { heightFn:(x,z)=>terrainHeightAt(x,z), groundMargin:track.groundMargin }; }
+  function rebuildWaters(){
+    if (builtWaterGroup){ waterGroup.remove(builtWaterGroup); builtWaterGroup.traverse(c=>{ if(c.geometry)c.geometry.dispose(); if(c.material){ if(c.material.map)c.material.map.dispose(); c.material.dispose(); } }); builtWaterGroup=null; }
+    let maxSeq=0; for (const w of (track.waters||[])){ const m=String(w.id||'').match(/(\d+)$/); if(m) maxSeq=Math.max(maxSeq,+m[1]); }
+    waterSeq = Math.max(waterSeq, maxSeq);
+    if (sampled){ builtWaterGroup = FK_TRACK.buildWaterMesh(track.waters||[], sampled, track.width, THREE, waterOpts()); waterGroup.add(builtWaterGroup); }
+    refreshWaterList();
+  }
+  // which existing water region (if any) contains the click point? -> its id, or null.
+  function waterRegionAt(x, z){
+    if (!builtWaterGroup) return null;
+    for (const mesh of builtWaterGroup.children){
+      const f = mesh.userData.fill, keys = mesh.userData.cellKeys; if (!f || !keys) continue;
+      const i = Math.floor((x-f.originX)/f.cell), j = Math.floor((z-f.originZ)/f.cell);
+      if (keys.has(i+','+j)) return mesh.userData.waterId;
+    }
+    return null;
+  }
+  function addWaterAt(hit){
+    const existing = waterRegionAt(hit.x, hit.z);
+    if (existing){ selWaterId = existing; refreshWaterList(); toast('selected existing pond'); return; }
+    const level = terrainHeightAt(hit.x, hit.z);
+    const fill = FK_TRACK.floodFillWater(hit.x, hit.z, level, sampled, track.width, waterOpts());
+    if (!fill.count){ toast('click LOWER, or dig a deeper bowl first (nothing below the click)'); return; }
+    track.waters = track.waters || [];
+    const w = { id:'water_'+(++waterSeq), x:+hit.x.toFixed(2), z:+hit.z.toFixed(2), y:+level.toFixed(3) };
+    track.waters.push(w);
+    selWaterId = w.id;
+    rebuildWaters();
+    commitHistory();
+    toast(fill.overflow ? '⚠ water spilled past the terrain edge — dig a deeper bowl or click lower' : 'pond filled ('+fill.count+' cells)');
+  }
+  function selectedWater(){ return (track.waters||[]).find(w=>w.id===selWaterId) || null; }
+  function refreshWaterList(){
+    const el = $('waterList'); if (!el) return; el.innerHTML='';
+    const ws = track.waters||[];
+    if (!ws.length){ el.innerHTML = '<div style="color:#889;">none — use 💧 water mode, click a sculpted low spot</div>'; return; }
+    ws.forEach((w)=>{
+      const d = document.createElement('div'); d.className='ir';
+      const span = document.createElement('span');
+      span.style.cssText='flex:1;cursor:pointer;'+(w.id===selWaterId?'color:#7fd0ff;':'');
+      span.textContent = (w.id===selWaterId?'▶ ':'') + '💧 y='+w.y.toFixed(2)+' @('+Math.round(w.x)+','+Math.round(w.z)+')';
+      span.onclick = ()=>{ selWaterId = w.id; refreshWaterList(); };
+      const btn = document.createElement('button'); btn.textContent='✕';
+      btn.addEventListener('click', ()=>{ track.waters = track.waters.filter(x=>x!==w); if (selWaterId===w.id) selWaterId=null; rebuildWaters(); commitHistory(); });
+      d.appendChild(span); d.appendChild(btn); el.appendChild(d);
+    });
+  }
+
+  // ---- SKY presets (2026-07-12): a per-track sky, live-previewed in the editor viewport via the SAME
+  // FK_TRACK.SKY_PRESETS descriptor + buildSkyObjects the game uses. Applies bg/fog/lights to the
+  // editor's own scene and swaps the shared sky-object group. 'day' = the editor's default look.
+  let edSkyGroup = null;
+  function applyEdSky(){
+    const preset = FK_TRACK.SKY_PRESETS[track.sky] ? track.sky : 'day';
+    if (edSkyGroup){ scene.remove(edSkyGroup); edSkyGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material){ if(o.material.map)o.material.map.dispose(); o.material.dispose(); } }); edSkyGroup=null; }
+    if (preset === 'day'){   // restore the editor's OWN default look
+      renderer.setClearColor(0x7ec0ee, 1); scene.background = null; scene.fog = null;
+      edHemi.color.setHex(0xffffff); edHemi.groundColor.setHex(0x557040); edHemi.intensity = 0.9;
+      sun.color.setHex(0xffffff); sun.intensity = 0.7; sun.position.set(80,160,40);
+      return;
+    }
+    const c = FK_TRACK.SKY_PRESETS[preset];
+    renderer.setClearColor(c.bg, 1);
+    scene.background = new THREE.Color(c.bg);
+    scene.fog = c.fog ? new THREE.Fog(c.fog.color, c.fog.near, c.fog.far) : null;
+    edHemi.color.setHex(c.hemi.sky); edHemi.groundColor.setHex(c.hemi.ground); edHemi.intensity = c.hemi.intensity;
+    sun.color.setHex(c.sun.color); sun.intensity = c.sun.intensity; sun.position.set(c.sun.pos[0], c.sun.pos[1], c.sun.pos[2]);
+    edSkyGroup = FK_TRACK.buildSkyObjects(preset, THREE, {});
+    scene.add(edSkyGroup);
+  }
+
   // ================= P2: WORLD OBJECTS (place / move / rotate / scale / tag) =================
   const objectGroup = new THREE.Group(), labelGroup = new THREE.Group();
   scene.add(objectGroup); scene.add(labelGroup);
@@ -902,6 +993,8 @@
     rebuildCorridorViz();
     rebuildTunnels();
     rebuildBridges();
+    rebuildWaters();
+    applyEdSky();
     scheduleTerrain();      // WYSIWYG grass/hills (debounced)
     refreshInfo();
     refreshValidation();
@@ -1024,20 +1117,23 @@
     $('mFence').classList.toggle('on', m==='fence');
     $('mTunnel').classList.toggle('on', m==='tunnel');
     $('mBridge').classList.toggle('on', m==='bridge');
+    $('mWater').classList.toggle('on', m==='water');
     $('sculptTools').style.display = (m==='sculpt') ? 'block' : 'none';
     $('paintTools').style.display = (m==='paint') ? 'block' : 'none';
     $('fenceTools').style.display = (m==='fence') ? 'block' : 'none';
     $('tunnelTools').style.display = (m==='tunnel') ? 'block' : 'none';
     $('bridgeTools').style.display = (m==='bridge') ? 'block' : 'none';
+    $('waterTools').style.display = (m==='water') ? 'block' : 'none';
     if (m==='sculpt') $('scCells').textContent = terrainCellCount();
     if (m==='paint') $('pCells').textContent = paintCellCount();
     if (m==='fence') refreshFenceList();
     if (m==='tunnel') refreshTunnelList();
     if (m==='bridge') refreshBridgeList();
+    if (m==='water') refreshWaterList();
     // gizmo only lives in object mode (otherwise it would steal clicks from point editing)
     gizmo.enabled = (m==='object'); gizmo.visible = (m==='object') && !!selObjId;
     if (m==='object' && selObjId && objMeshes[selObjId]) gizmo.attach(objMeshes[selObjId]);
-    if ((m==='sculpt'||m==='paint'||m==='fence') && showTerrain===false){ showTerrain=true; $('terrainBtn').classList.add('on'); rebuildTerrain(); }
+    if ((m==='sculpt'||m==='paint'||m==='fence'||m==='water') && showTerrain===false){ showTerrain=true; $('terrainBtn').classList.add('on'); rebuildTerrain(); }
     $('hint').textContent = m==='insert' ? 'click the road to INSERT a point on the nearest segment'
                           : m==='item'   ? 'click the road to drop an ITEM ROW (s-fraction)'
                           : m==='boost'  ? 'click the road to drop a BOOST PAD (s + lane)'
@@ -1047,6 +1143,7 @@
                           : m==='fence'  ? 'click the ground to drop fence posts along a line · finish to start a new run · drag = orbit'
                           : m==='tunnel' ? 'click the road to add a concrete TUNNEL · select one from the list to adjust len/height/width'
                           : m==='bridge' ? 'click the road to add a wooden BRIDGE · select one from the list to adjust its length'
+                          : m==='water'  ? 'sculpt a bowl first, then click INSIDE the low spot — water fills up to the click height'
                           : 'drag arrows = move · Shift+drag = elevation · drag empty = orbit · wheel = zoom';
   }
   $('mSelect').addEventListener('click', ()=>setMode('select'));
@@ -1065,6 +1162,13 @@
   $('brLen').addEventListener('input', ()=>{ const br=selectedBridge(); if(!br) return; br.len=+$('brLen').value; $('brLenV').textContent=br.len; liveBridges(); });
   $('brLen').addEventListener('change', commitHistory);
   $('brDel').addEventListener('click', ()=>{ const br=selectedBridge(); if(!br) return; track.bridges=track.bridges.filter(x=>x!==br); selBridgeId=null; rebuildBridges(); commitHistory(); });
+  $('mWater').addEventListener('click', ()=>setMode('water'));
+  // 🌤 sky preset dropdown — live preview + save with the track (day => unset key, so byte-identical)
+  $('skySel').addEventListener('change', ()=>{
+    const v = $('skySel').value;
+    if (v==='day' || !FK_TRACK.SKY_PRESETS[v]) delete track.sky; else track.sky = v;
+    applyEdSky(); commitHistory();
+  });
   $('mObject').addEventListener('click', ()=>setMode('object'));
   $('mSculpt').addEventListener('click', ()=>setMode('sculpt'));
   $('scRaise').addEventListener('click', ()=>setSculptMode('raise'));
@@ -1090,7 +1194,8 @@
   // water = an object with type "water" (reuses all the object machinery)
   function addWater(){ startPlacing({ type:'water', sx:30, sy:0.6, sz:30, color:0x2f6fb0 }, 'water'); }
   function addRamp(){ startPlacing({ type:'ramp', sx:12, sy:3.5, sz:18, color:0xb8863f }, 'a ramp (auto-aims uphill along the track)'); }
-  $('addWaterBtn').addEventListener('click', ()=>{ setMode('object'); addWater(); });
+  // 💧 button now arms flood-fill water mode (no longer creates slabs; legacy slab objects still editable)
+  $('addWaterBtn').addEventListener('click', ()=>{ setMode('water'); });
   $('addRampBtn').addEventListener('click', ()=>{ setMode('object'); addRamp(); });
   $('addObjBtn').addEventListener('click', ()=>{ setMode('object'); addObject(); });
   // object type dropdown -> retype the selected object into a real prop (barn/silo/tree/...)
@@ -1217,6 +1322,11 @@
     if (mode === 'bridge'){
       const hit = pickRibbon();
       if (hit){ addBridgeAt(hit); controls.enabled = false; }
+      return;
+    }
+    if (mode === 'water'){
+      const hit = pickGround();
+      if (hit){ addWaterAt(hit); controls.enabled = false; }
       return;
     }
     // select/move
@@ -1401,7 +1511,8 @@
   function syncFields(){ $('nameInp').value = track.name||''; $('widthInp').value = track.width; $('lapsInp').value = track.laps;
     $('wallInp').value = (isFinite(track.wallMargin)&&track.wallMargin>0) ? track.wallMargin : '';
     $('worldInp').value = (isFinite(track.groundMargin)&&track.groundMargin>0) ? track.groundMargin : '';
-    $('drapeBtn').classList.toggle('on', !!track.followTerrain); }
+    $('drapeBtn').classList.toggle('on', !!track.followTerrain);
+    { const s=$('skySel'); if (s) s.value = FK_TRACK.SKY_PRESETS[track.sky] ? track.sky : 'day'; } }
   $('nameInp').addEventListener('input', ()=>{ track.name = $('nameInp').value; });
   $('nameInp').addEventListener('change', commitHistory);
   $('widthInp').addEventListener('input', ()=>{ const w=+$('widthInp').value; if(isFinite(w)&&w>0){ track.width=w; rebuild(); } });
@@ -1528,7 +1639,7 @@
     histSuspended = true;
     const c = FK_TRACK.sanitize(snap);
     track = c || snap;
-    selected = -1; selObjId = null; curFence = null; selTunnelId = null; selBridgeId = null;
+    selected = -1; selObjId = null; curFence = null; selTunnelId = null; selBridgeId = null; selWaterId = null;
     gizmo.detach();
     syncFields(); rebuild(); rebuildObjects(); rebuildFences(); rebuildBridges();
     histSuspended = false;
@@ -1942,6 +2053,8 @@
       }
       if (follow) updateFollowCam(dt); else controls.update();
     } else controls.update();
+    if (builtWaterGroup && builtWaterGroup.userData.animate) builtWaterGroup.userData.animate(performance.now()*0.001);
+    if (edSkyGroup && edSkyGroup.userData.update) edSkyGroup.userData.update(0.016, camera);
     renderer.render(scene, camera); requestAnimationFrame(loop);
   })();
 
@@ -2080,6 +2193,14 @@
     // cloud track-sync hooks (for headless tests)
     get cloudOk(){ return FkCloud.ok; }, get familyKey(){ return fkEdFamilyKey; },
     pullCloud: fkEdPullCloud, get currentId(){ return currentId; },
+    // Water flood-fill hooks (2026-07-12, for headless tests)
+    get waters(){ return track.waters||[]; }, get selWaterId(){ return selWaterId; },
+    get waterGroup(){ return builtWaterGroup; }, addWaterAt, rebuildWaters, waterRegionAt,
+    selectWater:(id)=>{ selWaterId=id; refreshWaterList(); },
+    deleteWater:(id)=>{ track.waters=(track.waters||[]).filter(w=>w.id!==id); if(selWaterId===id) selWaterId=null; rebuildWaters(); commitHistory(); },
+    // Sky preset hooks (2026-07-12, for headless tests)
+    get sky(){ return track.sky||'day'; }, applyEdSky, get edSkyGroup(){ return edSkyGroup; },
+    setSky:(v)=>{ if(v==='day'||!FK_TRACK.SKY_PRESETS[v]) delete track.sky; else track.sky=v; const s=$('skySel'); if(s) s.value=track.sky||'day'; applyEdSky(); commitHistory(); },
     // Bridge hooks (2026-07-10, mirrors the tunnel hooks — for headless tests)
     get bridges(){ return track.bridges||[]; }, get selBridgeId(){ return selBridgeId; }, bridgeGroup,
     addBridgeAt, rebuildBridges, selectBridge:(id)=>{ selBridgeId=id; refreshBridgeList(); },

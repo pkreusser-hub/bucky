@@ -461,6 +461,24 @@
         }
         if (brs.length) out.bridges = brs;
       }
+      // WATERS (2026-07-12, flood-fill ponds): [{id,x,z,y}] — (x,z) the clicked seed point, y the
+      // stored water LEVEL (terrain height at the click at placement time; stored so later sculpts
+      // don't silently move the shoreline). The region is flood-filled at render time from (x,z) up
+      // to y (buildWaterMesh). Distinct from the legacy objects[{type:'water'}] slabs, which keep
+      // rendering exactly as before. Absent/garbage -> omitted (byte-identical for tracks without it).
+      if (Array.isArray(data.waters)){
+        const ws = [];
+        for (const w of data.waters){
+          if (!w || typeof w !== 'object') continue;
+          const x=+w.x, z=+w.z, y=+w.y;
+          if (!isFinite(x) || !isFinite(z) || !isFinite(y)) continue;
+          ws.push({ id:(typeof w.id==='string' && w.id) ? w.id.slice(0,40) : ('water_'+(ws.length+1)), x, z, y });
+        }
+        if (ws.length) out.waters = ws;
+      }
+      // SKY preset (2026-07-12): one of 'clouds'|'snow'|'sun'|'night'. 'day'/absent/garbage -> omitted
+      // (the game's default sky/lighting, byte-identical for every existing track).
+      if (typeof data.sky === 'string' && (data.sky==='clouds'||data.sky==='snow'||data.sky==='sun'||data.sky==='night')) out.sky = data.sky;
       return out;
     }catch(e){ return null; }
   }
@@ -1253,11 +1271,253 @@
     }
   }
 
+  // ============================================================================
+  // FLOOD-FILL WATER (2026-07-12) — pour water into a sculpted depression.
+  // floodFillWater: from a seed (x,z), 4-connected BFS over a sampling grid collecting cells whose
+  // TERRAIN height (opts.heightFn — the full groundSampleHeight incl. the sculpt field) is BELOW the
+  // water level y. Bounded to the ground-mesh extent (track bbox + groundMargin) and hard-capped so a
+  // click on a flat plain can't flood the world. If the fill reaches the cap OR runs into the mesh
+  // edge it still returns what it collected, with overflow:true so the editor can warn.
+  // ============================================================================
+  const WATER_CELL = 1.75;   // grid cell size (m) — ~1.5-2u per the design
+  const WATER_CAP = 20000;   // hard cap on cells collected
+  function _waterBounds(sampled, opts){
+    const C = sampled.centerPts;
+    let minX=1e9,maxX=-1e9,minZ=1e9,maxZ=-1e9;
+    for (const c of C){ if(c.x<minX)minX=c.x; if(c.x>maxX)maxX=c.x; if(c.z<minZ)minZ=c.z; if(c.z>maxZ)maxZ=c.z; }
+    const M = (opts && opts.groundMargin!=null) ? opts.groundMargin : 55;
+    return { minX:minX-M, maxX:maxX+M, minZ:minZ-M, maxZ:maxZ+M };
+  }
+  function floodFillWater(seedX, seedZ, level, sampled, width, opts){
+    opts = opts || {};
+    const hfn = opts.heightFn || (()=>0);
+    const b = _waterBounds(sampled, opts);
+    const cell = WATER_CELL;
+    const originX = b.minX, originZ = b.minZ;
+    const nx = Math.max(1, Math.ceil((b.maxX-b.minX)/cell));
+    const nz = Math.max(1, Math.ceil((b.maxZ-b.minZ)/cell));
+    const cellX = (x)=> Math.floor((x-originX)/cell);
+    const cellZ = (z)=> Math.floor((z-originZ)/cell);
+    const cx0 = cellX(seedX), cz0 = cellZ(seedZ);
+    const cells = new Set();     // "i,j" keys of filled cells
+    let overflow = false;
+    // seed must itself be under water (a click on high ground just makes a puddle at that one cell)
+    const cw = (i,j)=> ({ x: originX + (i+0.5)*cell, z: originZ + (j+0.5)*cell });
+    if (cx0<0||cx0>=nx||cz0<0||cz0>=nz) return { cells, cell, originX, originZ, nx, nz, level, overflow:true, count:0 };
+    const start = cx0+','+cz0;
+    const stack = [[cx0,cz0,true]];   // [i,j, isSeed] — the seed cell is always included (it's where you poured);
+    const seen = new Set([start]);    // neighbors must be strictly below the water level to fill.
+    while (stack.length){
+      const [i,j,isSeed] = stack.pop();
+      const w = cw(i,j);
+      if (!isSeed && hfn(w.x, w.z) >= level) continue;   // terrain here is above the water surface -> shore, don't fill
+      cells.add(i+','+j);
+      if (cells.size >= WATER_CAP){ overflow = true; break; }
+      const nbrs = [[i+1,j],[i-1,j],[i,j+1],[i,j-1]];
+      for (const [ni,nj] of nbrs){
+        if (ni<0||ni>=nx||nj<0||nj>=nz){ overflow = true; continue; }   // hit the mesh edge -> water spilled out
+        const k = ni+','+nj;
+        if (seen.has(k)) continue;
+        seen.add(k); stack.push([ni,nj]);
+      }
+    }
+    return { cells, cell, originX, originZ, nx, nz, level, overflow, count:cells.size };
+  }
+
+  // buildWaterMesh: one THREE.Group of realistic-but-cheap water surfaces, one per waters[] entry.
+  // Each surface is a continuous grid mesh over the flood-filled cells at y=level: shared corner
+  // vertices (smooth waves), per-vertex depth tint (darker where the terrain is deeper below the
+  // surface), shore-foam tint on edge corners, and a per-frame vertex ripple. Translucent blue-green
+  // Phong (low-cost specular glint) with an emissive lift so it reads in shade; depthWrite off,
+  // renderOrder above terrain. group.userData.animate(t) advances the waves (game calls it per frame;
+  // the editor can leave it static). Each mesh.userData carries the filled-cell set for editor hit-tests.
+  function buildWaterMesh(waters, sampled, width, THREE, opts){
+    const grp = new THREE.Group();
+    if (!Array.isArray(waters) || !waters.length || !sampled) return grp;
+    opts = opts || {};
+    const hfn = opts.heightFn || (()=>0);
+    const anims = [];
+    const SHALLOW = [0.32,0.72,0.74], DEEP = [0.03,0.20,0.42], FOAM = [0.80,0.92,0.95];
+    for (const w of waters){
+      const level = w.y;
+      const fill = floodFillWater(w.x, w.z, level, sampled, width, opts);
+      if (!fill.count) continue;
+      const { cells, cell, originX, originZ } = fill;
+      // unique corner vertices for every corner touched by a filled cell
+      const cornerIdx = new Map();   // "ci,cj" -> vertex index
+      const cornerList = [];         // [ci,cj]
+      const cornerOf = (ci,cj)=>{ const k=ci+','+cj; let v=cornerIdx.get(k); if(v===undefined){ v=cornerList.length; cornerIdx.set(k,v); cornerList.push([ci,cj]); } return v; };
+      const idx = [];
+      cells.forEach(key=>{
+        const p = key.split(','), i=+p[0], j=+p[1];
+        const a=cornerOf(i,j), b=cornerOf(i+1,j), c=cornerOf(i,j+1), d=cornerOf(i+1,j+1);
+        idx.push(a,c,b, b,c,d);
+      });
+      const nV = cornerList.length;
+      const pos = new Float32Array(nV*3), basePos = new Float32Array(nV*3), col = new Float32Array(nV*3), phase = new Float32Array(nV);
+      for (let v=0; v<nV; v++){
+        const ci=cornerList[v][0], cj=cornerList[v][1];
+        const x = originX + ci*cell, z = originZ + cj*cell;
+        pos[v*3]=x; pos[v*3+1]=level; pos[v*3+2]=z;
+        basePos[v*3]=x; basePos[v*3+1]=level; basePos[v*3+2]=z;
+        phase[v] = x*0.35 + z*0.27;
+        // depth tint: how far the terrain sits below the surface here
+        const depth = Math.max(0, level - hfn(x, z));
+        // a corner is "shore" if any of its 4 adjacent cells is NOT filled (water edge) -> foam tint
+        let shore = false;
+        for (const [oi,oj] of [[ci-1,cj-1],[ci,cj-1],[ci-1,cj],[ci,cj]]) if (!cells.has(oi+','+oj)) { shore = true; break; }
+        const t = Math.min(1, depth/4.5);
+        let r = SHALLOW[0]+(DEEP[0]-SHALLOW[0])*t, g = SHALLOW[1]+(DEEP[1]-SHALLOW[1])*t, bl = SHALLOW[2]+(DEEP[2]-SHALLOW[2])*t;
+        if (shore){ r=r*0.4+FOAM[0]*0.6; g=g*0.4+FOAM[1]*0.6; bl=bl*0.4+FOAM[2]*0.6; }
+        col[v*3]=r; col[v*3+1]=g; col[v*3+2]=bl;
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+      geo.setAttribute('color', new THREE.BufferAttribute(col,3));
+      geo.setIndex(idx);
+      geo.computeVertexNormals();
+      const mat = new THREE.MeshPhongMaterial({ color:0xffffff, vertexColors:true, transparent:true, opacity:0.82,
+        shininess:90, specular:0x6fb8d0, emissive:0x0a2a3a, depthWrite:false, side:THREE.DoubleSide });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.renderOrder = 4;
+      mesh.userData.waterId = w.id;
+      mesh.userData.cellKeys = cells;   // for editor region hit-testing
+      mesh.userData.fill = { cell, originX, originZ };
+      grp.add(mesh);
+      anims.push({ geo, pos, basePos, phase, level, nV });
+    }
+    grp.userData.animate = function(t){
+      for (const a of anims){
+        const { pos, basePos, phase, nV, geo } = a;
+        for (let v=0; v<nV; v++){
+          const ph = phase[v];
+          pos[v*3+1] = basePos[v*3+1] + 0.10*Math.sin(ph + t*1.5) + 0.05*Math.sin(ph*1.7 - t*2.1);
+        }
+        geo.attributes.position.needsUpdate = true;
+        geo.computeVertexNormals();
+      }
+    };
+    return grp;
+  }
+
+  // ============================================================================
+  // SKY PRESETS (2026-07-12). SKY_PRESETS[preset] is a plain descriptor each page applies to its own
+  // scene/lights (bg color, fog, hemisphere + sun light), and buildSkyObjects builds the shared
+  // scene objects (drifting clouds / recycling snow / stars+moon / sun disc) with a userData.update
+  // hook the page calls per frame. 'day' = the game's EXACT current defaults (bg 0x7ec0ee, hemi
+  // 0xffffff/0x557040 @0.85, sun 0xffffff @0.75 at (40,80,20), no fog) so an absent sky key is
+  // byte-identical to before. All presets are instanced/billboarded — no per-frame allocation.
+  // ============================================================================
+  const SKY_PRESETS = {
+    day:    { bg:0x7ec0ee, fog:null, hemi:{sky:0xffffff, ground:0x557040, intensity:0.85}, sun:{color:0xffffff, intensity:0.75, pos:[40,80,20]}, objects:null },
+    clouds: { bg:0x9cc3e2, fog:{color:0xbcd4e6, near:180, far:820}, hemi:{sky:0xf0f6ff, ground:0x5a6a55, intensity:0.78}, sun:{color:0xfff6e6, intensity:0.55, pos:[40,80,20]}, objects:'clouds' },
+    snow:   { bg:0xccd6dd, fog:{color:0xccd6dd, near:90, far:520}, hemi:{sky:0xdfe7ee, ground:0x9fb0bd, intensity:0.62}, sun:{color:0xdfe6ee, intensity:0.42, pos:[30,80,30]}, objects:'snow' },
+    sun:    { bg:0x86cdf0, fog:null, hemi:{sky:0xfff4e0, ground:0x6a6040, intensity:0.92}, sun:{color:0xfff0cc, intensity:1.15, pos:[60,70,-10]}, objects:'sun' },
+    night:  { bg:0x0a1430, fog:{color:0x0a1430, near:220, far:900}, hemi:{sky:0x24304f, ground:0x10131f, intensity:0.40}, sun:{color:0x9db4e8, intensity:0.55, pos:[-40,90,30]}, objects:'night' }
+  };
+  // cheap radial-gradient sprite texture (soft white puff / glow disc), cached per key.
+  const _skyTexCache = {};
+  function _softDiscTexture(THREE, key, inner, outer){
+    if (_skyTexCache[key]) return _skyTexCache[key];
+    if (typeof document === 'undefined') return null;
+    const S=128, cv=document.createElement('canvas'); cv.width=cv.height=S; const ctx=cv.getContext('2d');
+    const g=ctx.createRadialGradient(S/2,S/2,0,S/2,S/2,S/2);
+    g.addColorStop(0, inner); g.addColorStop(0.5, outer); g.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.fillStyle=g; ctx.fillRect(0,0,S,S);
+    const t=new THREE.CanvasTexture(cv); t.needsUpdate=true; _skyTexCache[key]=t; return t;
+  }
+  function buildSkyObjects(preset, THREE, opts){
+    const grp = new THREE.Group();
+    grp.userData.update = ()=>{};
+    const cfg = SKY_PRESETS[preset];
+    if (!cfg || !cfg.objects) return grp;
+    opts = opts || {};
+    if (cfg.objects === 'clouds'){
+      const tex = _softDiscTexture(THREE,'cloud','rgba(255,255,255,0.95)','rgba(255,255,255,0.55)');
+      const puffs = [];
+      let s = 424242; const rnd=()=>{ s=(s*1103515245+12345)&0x7fffffff; return s/0x7fffffff; };
+      const SPAN = 1400, Y0 = 220;
+      for (let i=0;i<16;i++){
+        const grpC = new THREE.Group();
+        const cx = (rnd()-0.5)*SPAN, cz = (rnd()-0.5)*SPAN, cy = Y0 + rnd()*120;
+        const scale = 60 + rnd()*70;
+        for (let k=0;k<4;k++){
+          const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map:tex, transparent:true, depthWrite:false, opacity:0.9, fog:false }));
+          sp.position.set((rnd()-0.5)*scale*1.6, (rnd()-0.5)*scale*0.4, (rnd()-0.5)*scale*1.2);
+          sp.scale.set(scale*(0.7+rnd()*0.6), scale*(0.5+rnd()*0.3), 1);
+          grpC.add(sp);
+        }
+        grpC.position.set(cx, cy, cz);
+        grpC.userData.speed = 6 + rnd()*8;
+        grp.add(grpC); puffs.push(grpC);
+      }
+      grp.userData.update = (dt)=>{ for (const p of puffs){ p.position.x += p.userData.speed*dt; if (p.position.x > SPAN/2) p.position.x -= SPAN; } };
+    } else if (cfg.objects === 'snow'){
+      const N = opts.mobile ? 400 : 800, BOX = 260, TOP = 140;
+      const tex = _softDiscTexture(THREE,'flake','rgba(255,255,255,1)','rgba(255,255,255,0.6)');
+      const geo = new THREE.PlaneGeometry(1,1);
+      const mat = new THREE.MeshBasicMaterial({ map:tex, transparent:true, depthWrite:false, opacity:0.92, side:THREE.DoubleSide, fog:false });
+      const mesh = new THREE.InstancedMesh(geo, mat, N);
+      const m=new THREE.Matrix4(), q=new THREE.Quaternion(), sc=new THREE.Vector3();
+      const P = new Float32Array(N*3), V = new Float32Array(N*2);
+      let s=97531; const rnd=()=>{ s=(s*1103515245+12345)&0x7fffffff; return s/0x7fffffff; };
+      for (let i=0;i<N;i++){
+        P[i*3]=(rnd()-0.5)*BOX; P[i*3+1]=rnd()*TOP; P[i*3+2]=(rnd()-0.5)*BOX;
+        V[i*2]=2+rnd()*3; V[i*2+1]=(rnd()-0.5)*2;
+        const sz=0.5+rnd()*0.8; sc.set(sz,sz,sz);
+        m.compose({x:P[i*3],y:P[i*3+1],z:P[i*3+2]}, q, sc); mesh.setMatrixAt(i,m);
+      }
+      mesh.instanceMatrix.needsUpdate = true; mesh.frustumCulled = false;
+      grp.add(mesh);
+      grp.userData.update = (dt, camera)=>{
+        const cxp = camera ? camera.position.x : 0, czp = camera ? camera.position.z : 0, cyp = camera ? camera.position.y : 0;
+        for (let i=0;i<N;i++){
+          P[i*3+1] -= V[i*2]*dt*6;                 // fall
+          P[i*3]   += V[i*2+1]*dt*2;               // drift
+          // recycle inside a box that follows the camera in XZ
+          if (P[i*3+1] < cyp-10){ P[i*3+1] = cyp + TOP; P[i*3] = cxp + (rnd()-0.5)*BOX; P[i*3+2] = czp + (rnd()-0.5)*BOX; }
+          if (P[i*3]   > cxp+BOX/2) P[i*3] -= BOX; else if (P[i*3] < cxp-BOX/2) P[i*3] += BOX;
+          if (P[i*3+2] > czp+BOX/2) P[i*3+2] -= BOX; else if (P[i*3+2] < czp-BOX/2) P[i*3+2] += BOX;
+          const sz=0.6; sc.set(sz,sz,sz);
+          m.compose({x:P[i*3],y:P[i*3+1],z:P[i*3+2]}, q, sc); mesh.setMatrixAt(i,m);
+        }
+        mesh.instanceMatrix.needsUpdate = true;
+      };
+    } else if (cfg.objects === 'night'){
+      // stars (points on a far dome) + a moon disc with a soft glow sprite
+      const N = opts.mobile ? 350 : 600;
+      const sp = new Float32Array(N*3); let s=13579; const rnd=()=>{ s=(s*1103515245+12345)&0x7fffffff; return s/0x7fffffff; };
+      const R=900;
+      for (let i=0;i<N;i++){
+        const th=rnd()*Math.PI*2, ph=0.12+rnd()*0.75;   // upper dome only
+        sp[i*3]=R*Math.sin(ph)*Math.cos(th); sp[i*3+1]=R*Math.cos(ph)*0.6+120; sp[i*3+2]=R*Math.sin(ph)*Math.sin(th);
+      }
+      const sg=new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.BufferAttribute(sp,3));
+      const stars=new THREE.Points(sg, new THREE.PointsMaterial({ color:0xffffff, size:2.6, sizeAttenuation:false, transparent:true, opacity:0.9, fog:false }));
+      stars.frustumCulled=false; grp.add(stars);
+      const glow = _softDiscTexture(THREE,'moonglow','rgba(220,232,255,0.9)','rgba(180,200,255,0.35)');
+      const moonGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map:glow, transparent:true, depthWrite:false, opacity:0.8, fog:false }));
+      moonGlow.scale.set(220,220,1); moonGlow.position.set(-260, 320, -420); grp.add(moonGlow);
+      const moon = new THREE.Mesh(new THREE.CircleGeometry(46,32), new THREE.MeshBasicMaterial({ color:0xf2f4ff, fog:false }));
+      moon.position.set(-260, 320, -415); moon.userData.faceCamera=true; grp.add(moon);
+      grp.userData.update = (dt, camera)=>{ if (camera) moon.lookAt(camera.position); };
+    } else if (cfg.objects === 'sun'){
+      const glow = _softDiscTexture(THREE,'sunglow','rgba(255,244,214,0.95)','rgba(255,210,120,0.4)');
+      const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map:glow, transparent:true, depthWrite:false, opacity:0.9, fog:false, blending:THREE.AdditiveBlending }));
+      sunGlow.scale.set(340,340,1); sunGlow.position.set(360, 300, -520); grp.add(sunGlow);
+      const disc = new THREE.Mesh(new THREE.CircleGeometry(58,32), new THREE.MeshBasicMaterial({ color:0xfff3cf, fog:false }));
+      disc.position.set(360, 300, -515); grp.add(disc);
+      grp.userData.update = (dt, camera)=>{ if (camera) disc.lookAt(camera.position); };
+    }
+    return grp;
+  }
+
   window.FK_TRACK = {
     VERSION:1, SAMPLES,
     DEFAULT_TRACK, BUILTIN_TRACKS,
     resample, buildRibbonGeometry, sanitize, validate, reverse, nearestOnCenter, nearestOnCenterAtY,
     groundHills, sampleHeight, groundSampleHeight, buildGroundMesh, buildObjectMesh, buildFenceMesh, buildGrassTufts, sampleField, sampleColor,
-    fenceCollide, corridorFences, rampSurfaceY, buildTunnelMesh, buildBridgeMesh, trackDirectionAt, alignRampsToTrack
+    fenceCollide, corridorFences, rampSurfaceY, buildTunnelMesh, buildBridgeMesh, trackDirectionAt, alignRampsToTrack,
+    floodFillWater, buildWaterMesh, SKY_PRESETS, buildSkyObjects
   };
 })();
