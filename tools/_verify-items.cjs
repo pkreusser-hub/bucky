@@ -174,7 +174,9 @@ async function main() {
     K.G.projectiles.length = 0;
     K.grantHeldItem(local, "tomato");
     K.setItemTrail(local, true);
-    check("trail on", local.itemTrail === true && local.itemHeld === "tomato");
+    // 2026-07-11: trail is now SEPARATE from the held slot (pickup-while-trailing). Deploying a trail
+    // moves the held single into p.trailKind and FREES the held slot (itemHeld -> null).
+    check("trail on", local.trailKind === "tomato" && local.itemHeld === null);
     // spawn a tomato from behind
     const f = { x: Math.sin(local.theta), z: Math.cos(local.theta) };
     const hx = local.pos.x - f.x * 1.2, hz = local.pos.z - f.z * 1.2;
@@ -183,20 +185,21 @@ async function main() {
       life: 2, bounced: false, owner: "enemy", target: null,
     });
     const absorbed = K.tryAbsorbWithTrail(local, hx, hz);
-    check("trail absorbs rear hit", absorbed === true && local.itemHeld === null && local.itemTrail === false);
+    // 2026-07-11: absorb clears p.trailKind (not itemHeld — the held slot is independent now).
+    check("trail absorbs rear hit", absorbed === true && local.trailKind === null);
 
     // trail does NOT absorb from front
     K.grantHeldItem(local, "hay");
     K.setItemTrail(local, true);
     const frontX = local.pos.x + f.x * 2, frontZ = local.pos.z + f.z * 2;
     const frontAbs = K.tryAbsorbWithTrail(local, frontX, frontZ);
-    check("trail ignores front", frontAbs === false && local.itemTrail === true);
+    check("trail ignores front", frontAbs === false && local.trailKind === "hay");
 
     // triples cannot trail
-    K.clearItem(local);
+    K.clearItem(local); local.trailKind = null;
     K.grantHeldItem(local, "tomato3");
     K.setItemTrail(local, true);
-    check("triple no trail", local.itemTrail === false);
+    check("triple no trail", !local.trailKind && local.itemHeld === "tomato3");
 
     // help text mentions trail
     const help = (document.getElementById("help") || {}).textContent || "";

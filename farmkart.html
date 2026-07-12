@@ -191,6 +191,9 @@
       radial-gradient(ellipse at center, transparent 44%, rgba(150,200,255,.30) 100%);
     -webkit-mask-image:radial-gradient(ellipse at center, transparent 40%, #000 90%);
     mask-image:radial-gradient(ellipse at center, transparent 40%, #000 90%); }
+  /* ⛈ barn-storm zap: a brief white flash when the LOCAL kart is caught by a storm. */
+  #stormFlash{ position:fixed; inset:0; z-index:27; pointer-events:none; opacity:0; will-change:opacity;
+    background:radial-gradient(ellipse at center, rgba(210,235,255,.5) 0%, rgba(150,190,255,.35) 60%, transparent 100%); }
 
   /* ======================= K6 POLISH ======================= */
   /* ---- barn-sign FARM KART title (CSS/canvas only, no image files) ---- */
@@ -274,7 +277,8 @@
     background:rgba(255,255,255,.82); box-shadow:0 2px 7px rgba(0,0,0,.45); pointer-events:none; display:none; }
   #tcDrift{ right:20px;  bottom:24px; width:104px; height:104px; font-size:19px; letter-spacing:.02em;
     background:rgba(40,92,168,.5); border-color:rgba(150,200,255,.55); }
-  #tcItem{  right:140px; bottom:44px; width:76px; height:76px; font-size:38px; }
+  #tcItem{  right:140px; bottom:44px; width:76px; height:76px; font-size:22px; font-weight:900;
+    letter-spacing:.01em; line-height:1; }
   #tcReset{ right:14px; top:54px; width:44px; height:44px; font-size:20px; background:rgba(0,0,0,.44); }
   #tcSteerHint{ position:absolute; left:0; right:0; bottom:118px; z-index:2; text-align:center; pointer-events:none;
     color:rgba(255,255,255,.9); font-family:-apple-system,Segoe UI,Roboto,sans-serif; font-weight:800; font-size:15px;
@@ -404,6 +408,7 @@
 <body>
   <div id="stage"></div>
   <div id="boostFlare"></div>
+  <div id="stormFlash"></div>
   <button id="muteBtn" title="mute / unmute sound">🔊</button>
   <button id="musicBtn" title="music on / off">🎵</button>
   <button id="pauseBtn" title="pause (Esc / P)">⏸</button>
@@ -429,7 +434,7 @@
     <div id="steerRing"></div>
     <div id="steerKnob"></div>
     <div id="tcSteerHint">slide anywhere to steer</div>
-    <div class="tbtn" id="tcItem">🎁</div>
+    <div class="tbtn" id="tcItem">FIRE!</div>
     <div class="tbtn" id="tcDrift">DRIFT</div>
     <div class="tbtn" id="tcReset" title="reset to track">♻</div>
   </div>
@@ -638,6 +643,16 @@
     chickenHitR:1.55,       // chicken hit radius (slightly bigger than tomato)
     itemTrailHoldMs:250,    // hold item button this long to trail behind (ms)
     hazardMax:6,            // max live hay bales (oldest despawns)
+    // --- new items (2026-07-11) ---
+    eggSpeed:40,            // 🥚 golden egg launch speed ADDED to firer speed (fast)
+    eggLife:10,             // egg lifetime before it despawns (s)
+    eggTurn:5.0,            // egg homing turn rate (rad/s) — much stronger than the chicken (hard to dodge)
+    eggSpinMul:1.8,         // egg hit spin duration = spinT * this (longer than tomato)
+    starT:6,                // 🌻 sunflower star invincibility duration (s)
+    starSpeedMul:1.18,      // +18% top speed while starred
+    bullT:4,                // 🐂 bull rush autopilot duration (s)
+    bullSpeedMul:1.55,      // bull top-speed multiplier (charges fast)
+    stormSpinMul:0.6,       // ⛈ barn-storm spin duration = spinT * this (brief)
     // --- 10. K7 (additive) — collisions / corridor walls / boost pads ---
     kartRadius:0.9,         // half-width for kart-vs-kart separation (contact at 2*this)
     wallMargin:7,           // FALLBACK grass width beyond the road edge before a FIRM wall
@@ -1908,6 +1923,10 @@
       itemTrail:false,       // single tomato/chicken/hay held behind as a rear shield
       itemRollT:0,           // HUD roll-animation countdown (item lands when it hits 0)
       itemHoldT:0,           // bot use-delay timer (random hold before using hay/boost)
+      trailKind:null,        // item held BEHIND as a rear shield (separate from the held slot)
+      starT:0,               // 🌻 sunflower star invincibility countdown (s)
+      bullT:0,               // 🐂 bull rush autopilot countdown (s)
+      stormFlashT:0,         // ⛈ barn-storm screen-flash countdown (local FX)
       spinT:0,               // spin-out lock countdown (input ignored, kart spins 720deg)
       // --- K3.5 bot identity (isBot=false => the human/local) ---
       isBot:false, botName:null, botColor:null, botSkill:0.75,
@@ -1972,12 +1991,18 @@
   // PAUSE (⏸): frozen sim (solo) / overlay-only (MP). Declared here — gatherInput (defined below)
   // reads it to zero local input while paused.
   let paused = false;
-  // BOOST FLARE: transient camera FOV kick + radial speed-lines on every boost trigger.
-  let boostFlareT = 0;               // flare lifetime timer (s), eased out
-  let _prevLocalBoostT = 0;          // rising-edge detector for the local kart's boostT
-  const BOOST_FLARE_DUR = 0.6;       // flare duration
-  const BOOST_FLARE_FOV = 12;        // peak extra FOV degrees at the spike
+  // BOOST FLARE: a camera FOV kick + radial speed-lines that hold for the WHOLE boost. Driven by an
+  // envelope that eases IN (~0.15s) while the local kart is boosting (boostT>0) and eases OUT (~0.4s)
+  // once the boost ends. Chained/re-boosts just keep the envelope pinned at 1 (no stacking).
+  let boostFlareEnv = 0;             // 0..1 envelope (intensity)
+  const BOOST_FLARE_IN = 0.15;       // ease-in time to full (s)
+  const BOOST_FLARE_OUT = 0.4;       // ease-out time back to 0 (s)
+  const BOOST_FLARE_FOV = 12;        // peak extra FOV degrees at full envelope
+  // back-compat aliases for older tooling/tests
+  let boostFlareT = 0;               // legacy mirror (kept for __KART__ hook)
+  const BOOST_FLARE_DUR = 0.6;       // legacy const (unused by the envelope)
   const boostFlareEl = document.getElementById('boostFlare');
+  const stormFlashEl = document.getElementById('stormFlash');
   let camKartY = 0;   // K2.5: smoothed kart-y the camera tracks (jumps read as FLOAT)
   let camFloorY = -Infinity;   // SMOOTHED anti-clip floor (raw per-frame sampling jitters on hills)
   // K2: reusable math temporaries (per-view surface normals now live on each kart view)
@@ -1992,6 +2017,7 @@
     p.finished = false; p.finishTime = 0; p.place = 1;
     p.lapLast = 0; p.lapBest = 0; p.startPressT = null; p.stallT = 0;
     p.spinT = 0; p.itemHeld = null; p.itemCount = 0; p.itemTrail = false; p.itemRollT = 0; p.itemHoldT = 0;
+    p.trailKind = null; p.starT = 0; p.bullT = 0; p.stormFlashT = 0;
   }
   // seat a player at a grid slot (pre-race pose), zeroing motion + progress baseline
   function placeAtGrid(p, slot){
@@ -2003,6 +2029,7 @@
     p.driftAngle = 0; p.boostT = 0; p.boostTier = 0; p.hop = 0;
     p.y = rideHeight(p.pos.x, p.pos.z, sampleHeight(p.pos.x, p.pos.z)); p.vy = 0; p.airborne = false; p.landT = 0;
     p.airT = 0; p.landFx = false; p.spinT = 0; p.itemHeld = null; p.itemCount = 0; p.itemTrail = false; p.itemRollT = 0; p.itemHoldT = 0;
+    p.trailKind = null; p.starT = 0; p.bullT = 0; p.stormFlashT = 0;
     p.onRamp = false; p._rampSy = 0; p._rampF = 0; p._rampY = 0; p.rampJumped = false; p._rampBoosted = false;
     p.finishDebounce = 5;
     // progress baseline
@@ -2177,6 +2204,10 @@
     // inp: { steer:[-1,1], throttle:[0,1], brake:[0,1], drift:bool }
     // K4 SPIN-OUT: input fully ignored while spinning; the kart coasts (drag only) and the 720deg
     // visual spin is rendered from spinT. speed was already knocked down once at the hit (applySpinOut).
+    // 🌻 star / ⛈ storm-flash timers tick down regardless of drive state (star also grants immunity
+    // via applySpinOut). 🐂 bull rush OVERRIDES input with a centerline autopilot while active.
+    if (p.starT > 0) p.starT = Math.max(0, p.starT - dt);
+    if (p.stormFlashT > 0) p.stormFlashT = Math.max(0, p.stormFlashT - dt);
     if (p.spinT > 0){
       p.spinT = Math.max(0, p.spinT - dt);
       inp = { steer:0, throttle:0, brake:0, drift:false };
@@ -2186,6 +2217,10 @@
       p.stallT = Math.max(0, p.stallT - dt);
       inp = { steer:0, throttle:0, brake:0, drift:false };
       p.v.x *= Math.exp(-6*dt); p.v.z *= Math.exp(-6*dt);
+    }
+    if (p.bullT > 0){
+      p.bullT = Math.max(0, p.bullT - dt);
+      inp = bullInput(p);   // autopilot: charge the centerline at full grip (immune via applySpinOut)
     }
     const forward = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
     let speed = Math.hypot(p.v.x, p.v.z);
@@ -2211,13 +2246,16 @@
     // boost active? (MKW STEP model: while boosting, target speed = maxSpeed*(1+boostMult),
     // reached via a strong FORCED acceleration boostAccel — no ramped kick, no artificial
     // bleed on release; normal drag brings speed back down for a clean surge-then-settle.)
-    const boosting = p.boostT > 0;
+    // boosting = ⚡ boost OR 🐂 bull rush (both use the forced-accel surge path, no artificial bleed).
+    const boosting = p.boostT > 0 || p.bullT > 0;
     // bots don't drift/mini-turbo, so their cruising cap is raised (botTopSpeedMul) to compensate;
     // a boosting human still exceeds it. Boost (pads/items) uses the normal boostMult surge for both.
     const botCap = p.isBot
       ? ((TUNE.botTopSpeedMul || 1) * (p.botTopMul != null ? p.botTopMul : 1))
       : 1;
     let effMax = TUNE.maxSpeed * (boosting ? Math.max(botCap, 1 + TUNE.boostMult) : botCap);
+    if (p.bullT > 0) effMax = Math.max(effMax, TUNE.maxSpeed * TUNE.bullSpeedMul);   // 🐂 charges fast
+    else if (p.starT > 0) effMax *= TUNE.starSpeedMul;                                // 🌻 +18% top speed
     let effAccel = TUNE.accel;
     if (p.isBot) effAccel *= (p.botAccelMul != null ? p.botAccelMul : 1);
     if (gf > 0){ effAccel *= (1 - 0.55*gf); effMax *= (1 - 0.5*gf); }
@@ -2278,6 +2316,7 @@
       const driftGrip = TUNE.driftGripRate * (p.isBot ? (TUNE.botDriftGripMul || 1) : 1);
       let rate = air ? TUNE.airGrip : (p.drift.active ? driftGrip : TUNE.gripRate);
       if (!air && onGrass) rate *= 2; // sticky grass reconciles velocity to heading faster
+      if (p.bullT > 0) rate = Math.max(rate, TUNE.gripRate * 3);   // 🐂 full grip — velocity snaps to heading
       const sgn = (p.v.x*forward.x + p.v.z*forward.z) >= 0 ? 1 : -1;
       const vAng = Math.atan2(p.v.x, p.v.z);
       const desiredAng = Math.atan2(forward.x*sgn, forward.z*sgn);
@@ -2501,8 +2540,10 @@
   // ---------- K4: spin-out (shared hazard result) ----------
   // Gentle, kid-friendly: input locked for spinT, kart visibly spins 720deg, speed knocked to 35%
   // ONCE at the hit, drift + boost cancelled. Re-hitting an already-spinning kart does nothing.
-  function applySpinOut(p){
+  function applySpinOut(p, mult){
     if (p.spinT > 0) return;
+    if (p.starT > 0 || p.bullT > 0) return;   // 🌻/🐂 invincible — no spin
+    const dur = TUNE.spinT * (mult || 1);
     // MP: the host DECLARES spins; a remote human's client applies it to their own kart. So on
     // the host, a hit on a guest kart bumps that guest's spin seq instead of spinning the host's
     // adopted copy (which the guest would just overwrite next publish).
@@ -2511,7 +2552,7 @@
       publishNetSnapshotNow();
       return;
     }
-    p.spinT = TUNE.spinT;
+    p.spinT = dur;
     const sp = Math.hypot(p.v.x, p.v.z);
     const s = sp > 0.01 ? (sp*0.35)/sp : 0;
     p.v.x *= s; p.v.z *= s;
@@ -2634,6 +2675,18 @@
     if (drift){ brake = 0; throttle = Math.max(throttle, 0.5); }
     return { steer, throttle, brake, drift };
   }
+  // 🐂 BULL RUSH autopilot input: aim at a centerline point ~8u ahead, full throttle, no drift. Runs
+  // on the OWNER's client for their own kart (same client-authoritative pattern as normal driving).
+  function bullInput(p){
+    const C = centerPts, N = SAMPLES;
+    let ai = p.lastSampleIdx, acc = 0;
+    while (acc < 8){ const j=(ai+1)%N; acc += Math.hypot(C[j].x-C[ai].x, C[j].z-C[ai].z); ai=j; if(ai===p.lastSampleIdx)break; }
+    const t = C[ai];
+    let dTheta = Math.atan2(t.x - p.pos.x, t.z - p.pos.z) - p.theta;
+    while (dTheta > Math.PI) dTheta -= Math.PI*2;
+    while (dTheta < -Math.PI) dTheta += Math.PI*2;
+    return { steer: Math.max(-1, Math.min(1, dTheta * 3)), throttle:1, brake:0, drift:false };
+  }
   // bot item policy (situational): tomato/chicken -> fire at a rival ahead; hay -> drop/trail when
   // a rival is close BEHIND; boost -> save for a straight. itemHoldT is a fallback so an item is
   // never hoarded forever (set to 1-3s on pickup).
@@ -2642,9 +2695,18 @@
     p.itemHoldT -= dt;
     const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
     const held = p.itemHeld;
+    // ---- new items ----
+    // star / bull: use PROMPTLY (they're pure upside — get moving)
+    if (held === 'star' || held === 'bull'){ useItem(p); return; }
+    // egg / storm: fire when trailing the pack (a leader/ahead-karts exist to punish), else on timeout
+    if (held === 'egg' || held === 'storm'){
+      const place = computePlace(p), n = Object.keys(G.players).length;
+      if (place > Math.max(1, n*0.4) || p.itemHoldT <= 0) useItem(p);
+      return;
+    }
     const canTrail = isTrailable(held) && !isTriple(held);
     // trail when threatened from behind (single tomato/chicken/hay only)
-    if (canTrail && !p.itemTrail){
+    if (canTrail && !p.trailKind){
       for (const id in G.players){
         const q = G.players[id]; if (q === p) continue;
         const rx = q.pos.x - p.pos.x, rz = q.pos.z - p.pos.z;
@@ -2676,43 +2738,88 @@
   }
 
   // ---------- K4: items ----------
-  // Weighted roll pool (triples are rarer). HUD cycle uses unique kinds for the roll animation.
-  const ITEM_ROLL_WEIGHTS = [
-    ['boost', 22], ['tomato', 22], ['hay', 18], ['chicken', 18],
-    ['tomato3', 10], ['chicken3', 10]
+  // POSITION-WEIGHTED roll pool (catch-up, MK-style). Each item's weight = base + slope*placeFrac,
+  // clamped >=0, where placeFrac = (place-1)/(fieldSize-1) so 0 = leading, 1 = dead last (scales to
+  // ANY field size). Leaders get plain hay/tomato/single-boost (egg/bull/storm/star all base 0 =
+  // impossible up front); the back third heavily favors the power items. Tune it all in one table.
+  const ITEM_ROLL_TABLE = [
+    // kind        base   slope
+    ['boost',      22,    -6],
+    ['tomato',     20,    -8],
+    ['hay',        16,    -6],
+    ['chicken',     6,     8],
+    ['tomato3',     2,    12],
+    ['chicken3',    1,    12],
+    ['egg',         0,    14],   // 🥚 golden egg (blue shell) — back only
+    ['star',        0,    12],   // 🌻 sunflower star
+    ['bull',        0,    12],   // 🐂 bull rush
+    ['storm',       0,    10],   // ⛈ barn storm (lightning)
   ];
-  const ITEM_KINDS = ITEM_ROLL_WEIGHTS.map(w => w[0]);
-  const ITEM_ROLL_TOTAL = ITEM_ROLL_WEIGHTS.reduce((s,w)=>s+w[1], 0);
-  function rollItem(){
-    let r = Math.random() * ITEM_ROLL_TOTAL;
-    for (const [k,w] of ITEM_ROLL_WEIGHTS){ r -= w; if (r <= 0) return k; }
+  // every kind that can appear (roll-animation cycle + validation)
+  const ITEM_KINDS = ITEM_ROLL_TABLE.map(w => w[0]);
+  // weights at a given place fraction (0..1). Exposed on __KART__ for distribution tests.
+  function computeRollWeights(placeFrac){
+    const pf = Math.max(0, Math.min(1, placeFrac || 0));
+    return ITEM_ROLL_TABLE.map(([k, base, slope]) => [k, Math.max(0, base + slope*pf)]);
+  }
+  function placeFracOf(p){
+    const n = Object.keys(G.players).length;
+    if (n <= 1) return 0;
+    return (computePlace(p) - 1) / (n - 1);
+  }
+  // roll one item for kart p (catch-up weighted). Falls back to the leading pool if p is missing.
+  function rollItem(p){
+    const weights = computeRollWeights(p ? placeFracOf(p) : 0);
+    const total = weights.reduce((s,w)=>s+w[1], 0) || 1;
+    let r = Math.random() * total;
+    for (const [k,w] of weights){ r -= w; if (r <= 0) return k; }
     return 'tomato';
   }
   function isTriple(kind){ return kind === 'tomato3' || kind === 'chicken3'; }
   function isTrailable(kind){ return kind === 'tomato' || kind === 'chicken' || kind === 'hay'; }
   function itemShotCount(kind){ return isTriple(kind) ? 3 : 1; }
-  function clearItem(p){ p.itemHeld = null; p.itemCount = 0; p.itemTrail = false; }
+  function clearItem(p){ p.itemHeld = null; p.itemCount = 0; }   // clears the HELD SLOT only (trail is separate)
   function grantHeldItem(p, kind){
     p.itemHeld = kind;
     p.itemCount = itemShotCount(kind);
-    p.itemTrail = false;
+    // NOTE: the trail (p.trailKind) is a SEPARATE state — a new pickup lands in the empty held slot
+    // and does NOT disturb an item already trailing behind (2026-07-11: pickup-while-trailing).
   }
+  // Deploy the currently-held single trailable item BEHIND the kart as a rear shield. The held slot
+  // is freed (so a fresh box pickup can fill it) while the trail persists until absorbed. Returns true
+  // if a trail was newly deployed. `on` kept for call-site back-compat (falsey = no-op).
   function setItemTrail(p, on){
-    if (!p.itemHeld || p.itemRollT > 0) return;
-    if (!isTrailable(p.itemHeld) || isTriple(p.itemHeld)) return;
-    p.itemTrail = !!on;
+    if (on === false) return false;
+    if (p.trailKind) return false;                                   // already trailing — one at a time
+    if (!p.itemHeld || p.itemRollT > 0) return false;
+    if (!isTrailable(p.itemHeld) || isTriple(p.itemHeld)) return false;
+    p.trailKind = p.itemHeld;
+    clearItem(p);
+    return true;
   }
-  // Tap = fire forward (or drop hay). Hold-to-trail is handled in gatherInput / tryLocalItemInput.
+  // Tap = fire forward (or drop hay / activate). Hold-to-trail handled in gatherInput / apply*ItemInput.
+  // NOTE: firing the held item does NOT touch p.trailKind — the trail is independent state now.
   function useItem(p){
     const kind = p.itemHeld;
     if (!kind || p.itemRollT > 0) return;
-    // firing while trailing cancels the trail and launches/drops forward/behind as normal
-    p.itemTrail = false;
     if (kind === 'boost'){
       clearItem(p);
       p.boostT = TUNE.boostT1 * 3; p.boostTier = 2;
       boostWhoosh(p.pos);   // 2026-07-10: proximity audio (bots/remote guests fire boosts too)
       return;
+    }
+    // ---- new items (Mario-Kart equivalents, farm-themed) ----
+    if (kind === 'egg'){    // 🥚 golden egg = blue shell: hunts the race leader
+      clearItem(p); fireGoldenEgg(p); eggFireSound(p.pos); return;
+    }
+    if (kind === 'star'){   // 🌻 sunflower star: ~6s invincibility + speed
+      clearItem(p); p.starT = TUNE.starT; starSound(p.pos); return;
+    }
+    if (kind === 'bull'){   // 🐂 bull rush = bullet bill: ~4s autopilot charge
+      clearItem(p); p.bullT = TUNE.bullT; bullSound(p.pos); return;
+    }
+    if (kind === 'storm'){  // ⛈ barn storm = lightning: zap everyone ahead
+      clearItem(p); barnStormStrike(p); return;
     }
     if (kind === 'tomato' || kind === 'tomato3'){
       fireTomato(p); tomatoFireSound(p.pos);
@@ -2767,6 +2874,45 @@
     G.hazards.push({ x, z, y:sampleHeight(x,z)+0.4, owner:p.id, ownerGraceT:0.7 });
     while (G.hazards.length > TUNE.hazardMax) G.hazards.shift();   // oldest despawns (render reconciles)
   }
+  // ---- new items ----
+  // Race leader = furthest-along kart (finished karts are already "done" — exclude them).
+  function findLeader(){
+    let best = null, bestProg = -1e18;
+    for (const id in G.players){
+      const q = G.players[id]; if (q.finished) continue;
+      const pr = totalProgress(q);
+      if (pr > bestProg){ bestProg = pr; best = q; }
+    }
+    return best;
+  }
+  // 🥚 GOLDEN EGG (blue-shell equivalent): a fast, strongly-homing projectile aimed at the race
+  // LEADER. If the firer IS the leader there's no target — it just flies forward and hits the first
+  // kart it meets (or despawns after eggLife).
+  function fireGoldenEgg(p){
+    const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
+    const sp = Math.hypot(p.v.x, p.v.z) + TUNE.eggSpeed;
+    const x = p.pos.x + f.x*2.4, z = p.pos.z + f.z*2.4;
+    const leader = findLeader();
+    const tgt = (leader && leader !== p) ? leader : null;
+    G.projectiles.push({ kind:'egg', x, z, y:sampleHeight(x,z)+0.8, vx:f.x*sp, vz:f.z*sp,
+      life:TUNE.eggLife, bounced:false, owner:p.id, target:tgt ? tgt.id : null });
+  }
+  // ⛈ BARN STORM (lightning equivalent): every kart AHEAD of the firer spins out briefly and loses
+  // its held triple down to a single (or loses its trail). Firer unaffected; already-spinning or
+  // starred/bull karts are immune. Screen flash for affected karts.
+  function barnStormStrike(p){
+    const myProg = totalProgress(p);
+    for (const id in G.players){
+      const q = G.players[id]; if (q === p) continue;
+      if (totalProgress(q) <= myProg) continue;                 // only karts AHEAD
+      if (q.spinT > 0 || q.starT > 0 || q.bullT > 0) continue;  // immune (spinning / starred / bull)
+      applySpinOut(q, TUNE.stormSpinMul);
+      if (isTriple(q.itemHeld)){ q.itemCount = 1; q.itemHeld = (q.itemHeld === 'chicken3' ? 'chicken' : 'tomato'); }
+      else if (q.trailKind){ q.trailKind = null; }
+      q.stormFlashT = 0.55;                                     // screen flash (local FX if it's the local kart)
+    }
+    stormSound(p.pos);
+  }
   // Burst of leaf/feather/hay bits when a projectile or trailed shield is destroyed.
   function spawnItemExplode(x, y, z, kind){
     const cols = (kind === 'chicken' || kind === 'chicken3')
@@ -2795,18 +2941,20 @@
   // Absorb a hit from the rear hemisphere with a trailed item. One-time save: shield EXPLODES
   // (destroyed) and the incoming projectile is consumed by the caller.
   function tryAbsorbWithTrail(q, fromX, fromZ){
-    if (!q.itemTrail || !isTrailable(q.itemHeld) || isTriple(q.itemHeld)) return false;
+    if (!q.trailKind) return false;                 // trail is its own state now (separate from held slot)
     const f = { x:Math.sin(q.theta), z:Math.cos(q.theta) };
     const dx = fromX - q.pos.x, dz = fromZ - q.pos.z;
     const ahead = dx*f.x + dz*f.z;
     if (ahead > 0.15) return false;   // only rear hemisphere
     const tw = trailWorldPos(q);
-    spawnItemExplode(tw.x, tw.y, tw.z, q.itemHeld);
-    clearItem(q);
+    spawnItemExplode(tw.x, tw.y, tw.z, q.trailKind);
+    q.trailKind = null;               // destroy the shield (held slot untouched)
     itemBlockSound(tw);   // 2026-07-10: proximity audio (the shield may belong to a distant kart)
     return true;
   }
   function hitKartWithProjectile(q, pr){
+    // 🌻/🐂 invincible karts ignore projectiles entirely (no absorb, projectile passes/expires)
+    if (q.starT > 0 || q.bullT > 0){ pr.life = 0; return true; }
     if (tryAbsorbWithTrail(q, pr.x, pr.z)){
       spawnItemExplode(pr.x, pr.y, pr.z, pr.kind);
       // 2026-07-10: proximity audio — pr is the hit's world position, any kart can be hit
@@ -2815,23 +2963,28 @@
       pr.life = 0; return true;
     }
     if (q.spinT <= 0){
-      applySpinOut(q);
+      applySpinOut(q, pr.kind === 'egg' ? TUNE.eggSpinMul : 1);
       spawnItemExplode(pr.x, pr.y, pr.z, pr.kind);
       if (pr.kind === 'tomato') tomatoSplatSound(false, pr);
       else if (pr.kind === 'chicken') chickenSquawkSound(true, pr);
+      else if (pr.kind === 'egg'){ eggHitSound(pr); spawnParticle(pr.x, pr.y+0.4, pr.z, { color:0xfff2a0, opacity:1, life:0.5, vx:0, vy:6, vz:0, grav:10, size:0.9, grow:1.2, spin:5 }); }
       pr.life = 0; return true;
     }
     return false;
   }
   function advanceProjectiles(dt){
-    const turn = TUNE.chickenTurn;
     for (const pr of G.projectiles){
-      // homing: gently steer toward the target kart (re-resolve if missing / finished)
-      if (pr.kind === 'chicken'){
+      // homing: steer toward the target kart (chicken = racer ahead; egg = race LEADER, re-resolved)
+      if (pr.kind === 'chicken' || pr.kind === 'egg'){
         let tgt = pr.target ? G.players[pr.target] : null;
         if (!tgt || tgt.finished){
-          const owner = G.players[pr.owner];
-          tgt = owner ? findKartAhead(owner) : null;
+          if (pr.kind === 'egg'){
+            const leader = findLeader();
+            tgt = (leader && leader.id !== pr.owner) ? leader : null;
+          } else {
+            const owner = G.players[pr.owner];
+            tgt = owner ? findKartAhead(owner) : null;
+          }
           pr.target = tgt ? tgt.id : null;
         }
         if (tgt){
@@ -2841,6 +2994,9 @@
           let d = want - cur;
           while (d > Math.PI) d -= Math.PI*2;
           while (d < -Math.PI) d += Math.PI*2;
+          // egg: generous homing that TIGHTENS in the final approach (near-unavoidable up close)
+          let turn = pr.kind === 'egg' ? TUNE.eggTurn : TUNE.chickenTurn;
+          if (pr.kind === 'egg' && Math.hypot(dx, dz) < 12) turn *= 2.2;
           const maxStep = turn * dt;
           d = Math.max(-maxStep, Math.min(maxStep, d));
           cur += d;
@@ -2850,7 +3006,7 @@
         }
       }
       pr.x += pr.vx*dt; pr.z += pr.vz*dt;
-      pr.y = sampleHeight(pr.x, pr.z) + (pr.kind === 'chicken' ? 0.7 : 0.6);
+      pr.y = sampleHeight(pr.x, pr.z) + (pr.kind === 'chicken' ? 0.7 : (pr.kind === 'egg' ? 0.8 : 0.6));
       pr.life -= dt;
       // Homing chickens EXPLODE on fence/wall hit (tomatoes fly past / expire on life)
       if (pr.kind === 'chicken' && pr.life > 0){
@@ -2862,9 +3018,12 @@
           continue;
         }
       }
-      const hitR = pr.kind === 'chicken' ? TUNE.chickenHitR : 1.5;
+      const hitR = pr.kind === 'chicken' ? TUNE.chickenHitR : (pr.kind === 'egg' ? 2.1 : 1.5);
       for (const id in G.players){
         const q = G.players[id]; if (id === pr.owner) continue;
+        // an egg WITH a target only detonates on that leader; a target-less egg (firer was 1st) hits
+        // the first kart it meets.
+        if (pr.kind === 'egg' && pr.target && id !== pr.target) continue;
         if (Math.hypot(q.pos.x-pr.x, q.pos.z-pr.z) < hitR){ hitKartWithProjectile(q, pr); break; }
       }
     }
@@ -2911,7 +3070,7 @@
       if (p.itemRollT > 0){
         p.itemRollT = Math.max(0, p.itemRollT - dt);
         if (p.itemRollT === 0){
-          grantHeldItem(p, rollItem());
+          grantHeldItem(p, rollItem(p));
           if (p.isBot) p.itemHoldT = 1 + Math.random()*2;
         }
       }
@@ -2936,6 +3095,11 @@
       let d = Math.hypot(dx, dz);
       if (d >= minD || d < 1e-5) continue;
       if (Math.abs((a.y||0)-(b.y||0)) > 1.4) continue;   // one is jumping clean OVER the other
+      // 🌻 star / 🐂 bull: on contact the invincible kart knocks the OTHER aside (spin). applySpinOut
+      // guards the immune (starred/bull) victim, and routes host-authoritatively for remote guests.
+      const aAgg = (a.starT>0 || a.bullT>0), bAgg = (b.starT>0 || b.bullT>0);
+      if (aAgg && !bAgg) applySpinOut(b, 0.8);
+      else if (bAgg && !aAgg) applySpinOut(a, 0.8);
       const nx = dx/d, nz = dz/d, overlap = minD - d;
       const aOwn = ownedLocally(a), bOwn = ownedLocally(b);
       if (!aOwn && !bOwn) continue;                      // neither owned -> nothing to move
@@ -3330,7 +3494,17 @@
     wrap.userData.fallback = true;
     return wrap;
   }
+  // 🥚 golden egg projectile: a shiny gold egg with an emissive glow (sparkle trail via particles).
+  const EGG_GEO = new THREE.SphereGeometry(0.6, 14, 12);
+  function buildEggMesh(){
+    const g = new THREE.Group();
+    const shell = new THREE.Mesh(EGG_GEO, new THREE.MeshLambertMaterial({ color:0xffd23a, emissive:0x8a6a00 }));
+    shell.scale.set(0.85, 1.15, 0.85);   // egg-ish
+    g.add(shell);
+    return g;
+  }
   function makeProjMesh(kind){
+    if (kind === 'egg') return buildEggMesh();
     if (kind === 'chicken'){
       // Prefer a real GLB only when it has a texture atlas (reads as a chicken at distance).
       // Untextured blob GLBs look worse than the procedural chunky chicken.
@@ -3446,6 +3620,10 @@
         const yaw = Math.atan2(pr.vx, pr.vz);
         m.rotation.y = yaw;
         m.position.y += 0.15 * Math.sin(performance.now()*0.012 + i);
+      } else if (want === 'egg'){
+        m.rotation.y += dt * 6;                       // spin
+        m.position.y += 0.35 + 0.12 * Math.sin(performance.now()*0.01 + i);
+        if (Math.random() < 0.6) spawnParticle(pr.x, pr.y+0.3, pr.z, { color:0xfff2a0, opacity:0.95, life:0.35, vx:(Math.random()-0.5)*2, vy:1+Math.random()*2, vz:(Math.random()-0.5)*2, grav:6, size:0.22, grow:-0.3, spin:4 });   // sparkle trail
       }
     }
     for (let i=G.projectiles.length;i<_projPool.length;i++) _projPool[i].visible = false;
@@ -3479,41 +3657,39 @@
     const seen = {};
     for (const id in G.players){
       const p = G.players[id];
-      if (!p.itemHeld || p.itemRollT > 0) continue;
-      const triple = isTriple(p.itemHeld);
-      const trail = !!p.itemTrail && isTrailable(p.itemHeld) && !triple;
-      if (!triple && !trail) continue;
-      seen[id] = 1;
-      const n = triple ? Math.max(1, p.itemCount || 3) : 1;
-      const arr = ensureOrbitSlots(id, p.itemHeld, n);
-      _orbitAng[id] = (_orbitAng[id] || 0) + dt * (trail ? 0 : 2.8);
-      const base = _orbitAng[id];
-      const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
-      const r = { x:Math.cos(p.theta), z:-Math.sin(p.theta) };
-      const py = (p.y != null ? p.y : sampleHeight(p.pos.x, p.pos.z)) + 0.85;
-      for (let i=0;i<arr.length;i++){
-        const m = arr[i];
-        if (i >= n){ m.visible = false; continue; }
-        m.visible = true;
-        if (trail){
-          const tw = trailWorldPos(p);
-          m.position.set(tw.x, tw.y, tw.z);
-          m.scale.setScalar(p.itemHeld === 'hay' ? 0.7 : 0.85);
-        } else {
+      // HELD TRIPLE: N orbit bits around the kart (separate channel `id`)
+      if (p.itemHeld && p.itemRollT <= 0 && isTriple(p.itemHeld)){
+        seen[id] = 1;
+        const n = Math.max(1, p.itemCount || 3);
+        const arr = ensureOrbitSlots(id, p.itemHeld, n);
+        _orbitAng[id] = (_orbitAng[id] || 0) + dt * 2.8;
+        const base = _orbitAng[id];
+        const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
+        const r = { x:Math.cos(p.theta), z:-Math.sin(p.theta) };
+        const py = (p.y != null ? p.y : sampleHeight(p.pos.x, p.pos.z)) + 0.85;
+        for (let i=0;i<arr.length;i++){
+          const m = arr[i];
+          if (i >= n){ m.visible = false; continue; }
+          m.visible = true;
           const a = base + (i / n) * Math.PI * 2;
           const rad = 1.35;
           const ox = Math.cos(a)*rad, oz = Math.sin(a)*rad;
-          // orbit in kart-local XZ (right/forward plane)
-          m.position.set(
-            p.pos.x + r.x*ox + f.x*oz,
-            py + 0.15*Math.sin(a*2),
-            p.pos.z + r.z*ox + f.z*oz
-          );
+          m.position.set(p.pos.x + r.x*ox + f.x*oz, py + 0.15*Math.sin(a*2), p.pos.z + r.z*ox + f.z*oz);
           m.scale.setScalar(0.75);
         }
       }
+      // TRAIL: one shield bit behind the kart (separate channel `id+'_trail'` — coexists with a held item)
+      if (p.trailKind){
+        const tid = id + '_trail'; seen[tid] = 1;
+        const arr = ensureOrbitSlots(tid, p.trailKind, 1);
+        const tw = trailWorldPos(p);
+        arr[0].visible = true;
+        arr[0].position.set(tw.x, tw.y, tw.z);
+        arr[0].scale.setScalar(p.trailKind === 'hay' ? 0.7 : 0.85);
+        for (let i=1;i<arr.length;i++) arr[i].visible = false;
+      }
     }
-    // hide orbits for karts that no longer need them
+    // hide orbits for channels that no longer need them
     for (const id in _orbitPool){
       if (seen[id]) continue;
       for (const m of _orbitPool[id]) m.visible = false;
@@ -3695,8 +3871,8 @@
   // Local human item input (solo + host). Guests use netLocalUseItem / netLocalTrail.
   function applyLocalItemInput(p, inp){
     if (!p || p.spinT > 0 || p.itemRollT > 0) return;
-    if (inp.itemTrailToggle && isTrailable(p.itemHeld) && !isTriple(p.itemHeld)){
-      setItemTrail(p, !p.itemTrail);
+    if (inp.itemTrailToggle && isTrailable(p.itemHeld) && !isTriple(p.itemHeld) && !p.trailKind){
+      setItemTrail(p, true);   // deploy the held single as a trail (frees the slot for a new pickup)
       return;
     }
     if (inp.item) useItem(p);
@@ -3878,8 +4054,18 @@
     // Body stays its paint color while drifting — tier feedback is on wheel sparks (spawnDriftDust).
     // Soft orange only while actually boosting (separate from drift charge).
     const bodyMat = view.bodyMat;
-    if (p.boostT > 0) bodyMat.emissive.setHex(0xff7a1a);
-    else bodyMat.emissive.setHex(0x000000);
+    if (p.starT > 0){
+      // 🌻 rainbow pulse — cycle hue fast while invincible
+      const hue = (performance.now()*0.0016) % 1;
+      bodyMat.emissive.setHSL(hue, 0.9, 0.5);
+    } else if (p.bullT > 0){
+      // 🐂 charging bull — hot red-orange glow
+      bodyMat.emissive.setHex(0xd83010);
+    } else if (p.boostT > 0){
+      bodyMat.emissive.setHex(0xff7a1a);
+    } else {
+      bodyMat.emissive.setHex(0x000000);
+    }
   }
   function syncKart(dt){
     for (const id in G.players){
@@ -3991,20 +4177,18 @@
     if (p.boostT > 0) targetFov = baseFov + 10;
     else if (speed > TUNE.maxSpeed*0.95) targetFov = baseFov + 4;
     camFov += (targetFov - camFov) * (1 - Math.exp(-6*dt));
-    // BOOST FLARE: a short, sharp FOV kick layered ON TOP of the smoothed base fov (never mutates
-    // the tune). A rising edge of the local kart's boostT (re)arms it — that single detector covers
-    // every boost site (start boost, mini-turbo release, boost pads / ramp-entry, ⚡ mushroom).
-    // Re-boosting while already flaring just refreshes the timer (no stacking).
-    const lb = p.boostT;
-    if (lb > _prevLocalBoostT + 0.01) boostFlareT = BOOST_FLARE_DUR;
-    _prevLocalBoostT = lb;
-    let flareFov = 0, flareK = 0;
-    if (boostFlareT > 0){
-      flareK = boostFlareT / BOOST_FLARE_DUR;          // 1 -> 0
-      flareFov = BOOST_FLARE_FOV * flareK * flareK;    // quadratic ease-out spike
-      boostFlareT = Math.max(0, boostFlareT - dt);
-    }
-    if (boostFlareEl) boostFlareEl.style.opacity = flareK > 0 ? (0.6 * flareK).toFixed(3) : '0';
+    // BOOST FLARE: an FOV kick + speed-lines layered ON TOP of the smoothed base fov (never mutates
+    // the tune). The envelope tracks the WHOLE boost: while the local kart is boosting (boostT>0) it
+    // eases IN toward 1; once the boost ends it eases OUT to 0. Chained boosts keep it pinned at 1
+    // (clamped — no stacking). Covers every boost site (start, mini-turbo, pads/ramps, ⚡ mushroom,
+    // and the new star/bull speed states) via the single boostT>0 test.
+    const flareActive = p.boostT > 0 || p.starT > 0 || p.bullT > 0;
+    if (flareActive) boostFlareEnv = Math.min(1, boostFlareEnv + dt / BOOST_FLARE_IN);
+    else             boostFlareEnv = Math.max(0, boostFlareEnv - dt / BOOST_FLARE_OUT);
+    const flareK = boostFlareEnv;                       // 0..1 envelope
+    const flareFov = BOOST_FLARE_FOV * flareK;          // +12deg at full
+    boostFlareT = flareK;                               // legacy mirror
+    if (boostFlareEl) boostFlareEl.style.opacity = flareK > 0.001 ? (0.6 * flareK).toFixed(3) : '0';
     camera.fov = camFov + flareFov;
     camera.updateProjectionMatrix();
   }
@@ -4177,6 +4361,8 @@
     else wrongwayEl.classList.remove('show');
     // K4 item slot: roll animation (cycling icons) then the settled item
     updateItemSlot(p);
+    // ⛈ barn-storm screen flash for the local kart (stormFlashT set when it's caught)
+    if (stormFlashEl){ const sf = p.stormFlashT > 0 ? Math.min(1, p.stormFlashT/0.55) : 0; stormFlashEl.style.opacity = sf > 0.001 ? (0.85*sf).toFixed(3) : '0'; }
     // MOBILE thumb controls: on during the countdown (so you can time the start) + the race.
     // The .on class only renders under body.mobile, so this is a no-op on desktop.
     touchCtlEl.classList.toggle('on', G.phase === 'countdown' || G.phase === 'racing');
@@ -4213,26 +4399,30 @@
   const itemIcon = document.getElementById('itemIcon');
   const ITEM_ICON = {
     boost:'⚡', tomato:'🥬', hay:'🌾', chicken:'🐔',
-    tomato3:'🥬×3', chicken3:'🐔×3'
+    tomato3:'🥬×3', chicken3:'🐔×3',
+    egg:'🥚', star:'🌻', bull:'🐂', storm:'⛈'
   };
   function updateItemSlot(p){
     const racing = G.phase === 'racing' || G.phase === 'finished';
     itemSlot.style.display = racing ? 'flex' : 'none';
     if (!racing) return;
+    const trailBadge = p.trailKind ? '🛡' + (ITEM_ICON[p.trailKind] || '') : '';
     if (p.itemRollT > 0){
-      itemSlot.className = 'rolling';
+      itemSlot.className = 'rolling' + (p.trailKind ? ' trail' : '');
       const k = ITEM_KINDS[Math.floor(performance.now()/90) % ITEM_KINDS.length];
-      itemIcon.textContent = ITEM_ICON[k] || '·';
+      itemIcon.textContent = (ITEM_ICON[k] || '·') + (trailBadge ? ' ' + trailBadge : '');
     } else if (p.itemHeld){
-      itemSlot.className = 'filled' + (p.itemTrail ? ' trail' : '');
+      // held slot + (independent) trail badge — a fresh pickup while trailing shows BOTH
+      itemSlot.className = 'filled' + (p.trailKind ? ' trail' : '');
       let icon = ITEM_ICON[p.itemHeld] || '·';
       if (isTriple(p.itemHeld) && p.itemCount > 0){
-        const base = p.itemHeld === 'chicken3' ? '🐔' : '🥬';
-        icon = base + '×' + p.itemCount;
-      } else if (p.itemTrail){
-        icon = '🛡' + (ITEM_ICON[p.itemHeld] || '');
+        icon = (p.itemHeld === 'chicken3' ? '🐔' : '🥬') + '×' + p.itemCount;
       }
-      itemIcon.textContent = icon;
+      itemIcon.textContent = icon + (trailBadge ? ' ' + trailBadge : '');
+    } else if (p.trailKind){
+      // trailing only (held slot empty)
+      itemSlot.className = 'filled trail';
+      itemIcon.textContent = trailBadge;
     } else {
       itemSlot.className = '';
       itemIcon.textContent = '·';
@@ -4571,6 +4761,32 @@
     // 2026-07-10: trail-shield deploy sample swap
     if (playSample('fk-sfx-shield', { gain:0.85 * mul })){ _sfxPlays.shield++; return; }
     tone(320, 0.1, { type:'triangle', vol:0.16, mul }); setTimeout(()=>tone(480,0.08,{type:'triangle',vol:0.12,mul}),70);
+  }
+  // ---- new-item sounds (synth-only; proximity-faded) ----
+  function eggFireSound(pos){   // 🥚 golden egg launch — rising shimmer whoosh
+    const mul = gainAt(pos, 'eggFire');
+    tone(520, 0.22, { type:'sawtooth', vol:0.10, slideTo:1400, mul });
+    noiseBurst(0.2, { filter:'bandpass', freq:1800, freqTo:3200, Q:1.4, vol:0.06, mul });
+  }
+  function eggHitSound(pos){    // 🥚 detonation — bright metallic clang
+    const mul = gainAt(pos, 'eggHit');
+    tone(880, 0.14, { type:'square', vol:0.14, slideTo:220, mul });
+    setTimeout(()=>tone(1320, 0.12, { type:'triangle', vol:0.10, mul }), 40);
+  }
+  function starSound(pos){      // 🌻 star pickup/activate — cheerful ascending arpeggio (no music-bus fight)
+    const mul = gainAt(pos, 'star');
+    const notes = [660, 880, 990, 1320];
+    notes.forEach((n,i)=>setTimeout(()=>tone(n, 0.16, { type:'triangle', vol:0.11, mul }), i*80));
+  }
+  function bullSound(pos){      // 🐂 bull rush — deep revving horn
+    const mul = gainAt(pos, 'bull');
+    tone(90, 0.5, { type:'sawtooth', vol:0.16, slideTo:150, mul });
+    tone(60, 0.5, { type:'square', vol:0.10, slideTo:120, mul });
+  }
+  function stormSound(pos){     // ⛈ barn storm — thunderclap crack + rumble
+    const mul = gainAt(pos, 'storm');
+    noiseBurst(0.4, { filter:'lowpass', freq:2600, freqTo:120, Q:0.5, vol:0.2, mul });
+    tone(70, 0.45, { type:'sine', vol:0.14, slideTo:40, mul });
   }
   // finish fanfare: podium-worthy triumphant run for 1st; a warm short flourish for others
   function finishFanfare(place){
@@ -5483,7 +5699,7 @@
     return {
       x:p.pos.x, z:p.pos.z, y:p.y, th:p.theta, da:p.driftAngle, sp:speedOf(p),
       lap:p.lap, cp:p.checkpoint, ps:p.progressS, spin:p.spinT, air:p.airborne,
-      it:p.itemHeld, ic:p.itemCount||0, tr:p.itemTrail?1:0, roll:p.itemRollT, fin:p.finished, ft:p.finishTime,
+      it:p.itemHeld, ic:p.itemCount||0, trk:p.trailKind||'', st:p.starT||0, bl:p.bullT||0, roll:p.itemRollT, fin:p.finished, ft:p.finishTime,
       dact:p.drift.active, dtier:(p.drift.active?driftTier(p.drift.charge):0), bo:(p.boostT>0?1:0),
       nm:name||'', col:col,
       kd:p.kartId||'bucky', dd:p.driverId||'bucky'
@@ -5524,7 +5740,8 @@
     p.driftAngle = ks.da; p.v.x = Math.sin(ks.th)*ks.sp; p.v.z = Math.cos(ks.th)*ks.sp;
     p.lap = ks.lap; p.checkpoint = ks.cp; p.progressS = ks.ps; p.spinT = ks.spin; p.airborne = ks.air;
     p.itemHeld = ks.it; p.itemCount = ks.ic || (ks.it ? itemShotCount(ks.it) : 0);
-    p.itemTrail = !!ks.tr; p.itemRollT = ks.roll || 0; p.finished = ks.fin; p.finishTime = ks.ft;
+    p.trailKind = ks.trk || null; p.starT = ks.st || 0; p.bullT = ks.bl || 0;
+    p.itemRollT = ks.roll || 0; p.finished = ks.fin; p.finishTime = ks.ft;
     // glow reconstruction for the render layer (drift tier / boosting)
     p.drift.active = ks.dact;
     p.drift.charge = ks.dtier>=2 ? 2*TUNE.mtTier1 : (ks.dtier>=1 ? TUNE.mtTier1 : 0);
@@ -5648,21 +5865,20 @@
     const p = G.players['r_'+pid];
     if (!p) return;
     act = act || 'fire';
-    // trail toggle (guest held the button) — no consume
+    // trail deploy (guest held the button): move the held single into the trail slot, free the slot
     if (act === 'trail'){
-      p.itemHeld = g.held; p.itemCount = g.ic || itemShotCount(g.held);
-      setItemTrail(p, !p.itemTrail);
-      net.grants[pid] = { held:g.held, ic:p.itemCount, roll:0, tr:p.itemTrail?1:0 };
+      p.itemHeld = g.held; p.itemCount = g.ic || itemShotCount(g.held); p.trailKind = g.trk||null;
+      setItemTrail(p, true);
+      net.grants[pid] = { held:p.itemHeld||null, ic:p.itemCount||0, roll:0, trk:p.trailKind||'' };
       publishNetSnapshotNow();
       return;
     }
-    // fire / drop
+    // fire / drop / activate (host runs the effect; guest applied boost/star/bull locally for feel)
     const kind = g.held;
-    p.itemHeld = kind; p.itemCount = g.ic || itemShotCount(kind); p.itemTrail = !!g.tr;
+    p.itemHeld = kind; p.itemCount = g.ic || itemShotCount(kind); p.trailKind = g.trk||null;
     if (kind === 'boost'){ clearItem(p); }
     else useItem(p);
-    if (p.itemHeld) net.grants[pid] = { held:p.itemHeld, ic:p.itemCount, roll:0, tr:0 };
-    else net.grants[pid] = { held:null, ic:0, roll:0, tr:0 };
+    net.grants[pid] = { held:p.itemHeld||null, ic:p.itemCount||0, roll:0, trk:p.trailKind||'' };
     publishNetSnapshotNow();
   }
   // host: item-box pickups also feed the per-guest GRANT map (guests can't roll their own)
@@ -5678,7 +5894,8 @@
         if (g && (g.held || g.roll>0)) continue;    // already holds/rolling
         if (Math.hypot(p.pos.x-box.x, p.pos.z-box.z) < TUNE.itemBoxRadius){
           box.active = false; box.respawnT = TUNE.itemBoxRespawn;
-          net.grants[pid] = { held:null, ic:0, roll:TUNE.itemRollT, tr:0 };
+          // preserve any active trail (pickup-while-trailing): only the held slot rolls fresh
+          net.grants[pid] = { held:null, ic:0, roll:TUNE.itemRollT, trk:(g&&g.trk)||'' };
           break;
         }
       }
@@ -5689,8 +5906,9 @@
       if (g.roll > 0){
         g.roll = Math.max(0, g.roll - (net._grantDt||0));
         if (g.roll===0){
-          const kind = rollItem();
-          g.held = kind; g.ic = itemShotCount(kind); g.tr = 0;
+          const p = G.players['r_'+pid];
+          const kind = rollItem(p);
+          g.held = kind; g.ic = itemShotCount(kind);   // g.trk (trail) preserved across the roll
         }
       }
     }
@@ -5755,7 +5973,7 @@
       if (!net.pendingUse){
         G.players.local.itemHeld = g.held || null;
         G.players.local.itemCount = g.ic || (g.held ? itemShotCount(g.held) : 0);
-        G.players.local.itemTrail = !!g.tr;
+        G.players.local.trailKind = g.trk || null;
         G.players.local.itemRollT = g.roll || 0;
       }
     }
@@ -5785,29 +6003,31 @@
   function netLocalUseItem(act){
     const p = G.players.local;
     if (net.isHost){
-      if (act === 'trail'){ setItemTrail(p, !p.itemTrail); return; }
+      if (act === 'trail'){ setItemTrail(p, true); return; }
       useItem(p); return;
     }
     if (!p.itemHeld || p.itemRollT>0 || p.spinT>0) return;
     if (act === 'trail'){
-      if (!isTrailable(p.itemHeld) || isTriple(p.itemHeld)) return;
-      // optimistic local trail flip; host confirms via grant.tr (no pendingUse — still holding)
-      setItemTrail(p, !p.itemTrail);
+      if (!isTrailable(p.itemHeld) || isTriple(p.itemHeld) || p.trailKind) return;
+      // optimistic local trail deploy; host confirms via grant.trk (no pendingUse — still holding)
+      setItemTrail(p, true);
       net.useSeq++;
       try{ net.localPlayer && net.localPlayer.setState('useAct', 'trail', true); }catch(e){}
       return;
     }
     const kind = p.itemHeld;
-    // optimistic: fire one locally for HUD feel on triples; host is authoritative for world
+    // optimistic: fire one locally for HUD feel on triples; host is authoritative for the world
     if (kind === 'boost'){
       clearItem(p); p.boostT = TUNE.boostT1*3; p.boostTier = 2; boostWhoosh();
+    } else if (kind === 'star'){
+      clearItem(p); p.starT = TUNE.starT; starSound();          // applied LOCALLY (client-authoritative feel)
+    } else if (kind === 'bull'){
+      clearItem(p); p.bullT = TUNE.bullT; bullSound();          // autopilot runs on our own kart locally
     } else {
-      // leave itemHeld until host grant updates (pendingUse suppresses overwrite until ic drops)
+      // egg / storm / tomato / chicken / hay: host runs the world effect; free the slot optimistically
       net.pendingIc = p.itemCount;
       if (isTriple(kind) || kind === 'tomato' || kind === 'chicken'){
-        // optimistic count tick for HUD
-        p.itemCount = Math.max(0, (p.itemCount||1) - 1);
-        p.itemTrail = false;
+        p.itemCount = Math.max(0, (p.itemCount||1) - 1);        // optimistic count tick for HUD
         if (p.itemCount <= 0) clearItem(p);
         else if (kind === 'tomato3' && p.itemCount === 1) p.itemHeld = 'tomato';
         else if (kind === 'chicken3' && p.itemCount === 1) p.itemHeld = 'chicken';
@@ -5816,14 +6036,17 @@
       }
       if (kind === 'tomato' || kind === 'tomato3') tomatoFireSound();
       else if (kind === 'chicken' || kind === 'chicken3') chickenSquawkSound(false);
+      else if (kind === 'egg') eggFireSound();
+      else if (kind === 'storm') stormSound();
       else haySound();
+      net.pendingUse = true;
     }
-    net.pendingUse = true; net.useSeq++;
+    net.useSeq++;
     try{ net.localPlayer && net.localPlayer.setState('useAct', 'fire', true); }catch(e){}
   }
   function applyLocalItemInputNet(p, inp){
     if (!p || p.spinT > 0 || p.itemRollT > 0) return;
-    if (inp.itemTrailToggle && isTrailable(p.itemHeld) && !isTriple(p.itemHeld)){
+    if (inp.itemTrailToggle && isTrailable(p.itemHeld) && !isTriple(p.itemHeld) && !p.trailKind){
       netLocalUseItem('trail'); return;
     }
     if (inp.item) netLocalUseItem('fire');
@@ -6695,11 +6918,16 @@
     IS_MOBILE, MOBILE_CAM, MOBILE_CAM_PORTRAIT_DIST, camDistEff, camHeightEff, camLagEff, fovEff,
     // pause + boost-flare (headless harness)
     togglePause, setPaused, exitToMenu, pausable, get paused(){ return paused; },
-    get boostFlareT(){ return boostFlareT; }, BOOST_FLARE_DUR, BOOST_FLARE_FOV,
+    get boostFlareT(){ return boostFlareT; }, get boostFlareEnv(){ return boostFlareEnv; },
+    BOOST_FLARE_DUR, BOOST_FLARE_FOV, BOOST_FLARE_IN, BOOST_FLARE_OUT,
     // K3.5 / K4 API (bots + power-ups; also exposed for the headless harness)
     setupRoster, placeAllAtGrid, botInput, botTargetSpeed, botUseItems, addTestKart, buildItemBoxes,
     applySpinOut, useItem, fireTomato, fireChicken, dropHay, findKartAhead, totalProgress,
     setItemTrail, tryAbsorbWithTrail, grantHeldItem, clearItem, isTriple, isTrailable, rollItem,
+    // new items (2026-07-11): golden egg / sunflower star / bull rush / barn storm
+    computeRollWeights, placeFracOf, computePlace, findLeader, fireGoldenEgg, barnStormStrike, bullInput,
+    advanceProjectiles, advanceHazards, stepKart,
+    ITEM_ROLL_TABLE, ITEM_KINDS, ITEM_ICON,
     spawnItemExplode, makeProjMesh, buildChickenMesh, get projTpl(){ return _projTpl; }, get projTplVer(){ return _projTplVer; },
     // K5 multiplayer (also exposed for the headless harness / unit-style codepath tests)
     net, serializeKart, adoptKart, buildNetSnapshot, publishNetSnapshotNow, guestApply,
