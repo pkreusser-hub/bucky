@@ -959,7 +959,11 @@
   scene.add(FK_TRACK.buildGroundMesh(_sampled, TRACK_WIDTH, THREE, terrainOpts()));
   // 3D grass tufts scattered along the track corridor (fewer on phones). Static instanced mesh.
   { const mobile = (typeof matchMedia==='function' && matchMedia('(pointer: coarse)').matches);
-    scene.add(FK_TRACK.buildGrassTufts(_sampled, TRACK_WIDTH, THREE, { heightFn:(x,z)=>sampleHeight(x,z), count: mobile?2200:4600 })); }
+    scene.add(FK_TRACK.buildGrassTufts(_sampled, TRACK_WIDTH, THREE, { heightFn:(x,z)=>sampleHeight(x,z), count: mobile?2200:4600 }));
+    // PAINTED tufts (2026-07-12): editor-brushed low/high density cells, scattered ON TOP of the
+    // automatic corridor tufts. Absent -> nothing added (byte-identical for tracks without them).
+    const _ptufts = FK_TRACK.buildPaintedTufts(ACTIVE_TRACK.tufts, _sampled, TRACK_WIDTH, THREE, { heightFn:(x,z)=>sampleHeight(x,z) });
+    if (_ptufts) scene.add(_ptufts); }
 
   // ---------- P2: placed world objects (blockout massing) ----------
   // Empty/absent -> nothing added (the live game is unchanged for tracks without objects). Visual-
@@ -1027,6 +1031,13 @@
     heightFn:(x,z)=>sampleHeight(x,z), groundFn:(x,z)=>groundSampleHeight(x,z)
   });
   scene.add(BRIDGE_GROUP);
+  // BRIDGE WALL COLLISION (2026-07-12): the plank side walls now PHYSICALLY BLOCK — karts used to
+  // drive straight off the deck edge. The two deck-edge polylines (centerline ± half-width over each
+  // bridge span, at deck height) collide via FK_TRACK.bridgeCollide in stepKart. Height-aware: a kart
+  // passing UNDER a bridge (figure-8 lower branch) is NOT blocked. Empty for tracks without bridges.
+  const BRIDGE_EDGES = FK_TRACK.buildBridgeEdges(_sampled, ACTIVE_TRACK.bridges || [], TRACK_WIDTH, THREE, {
+    heightFn:(x,z)=>sampleHeight(x,z)
+  });
 
   // WATERS (2026-07-12): flood-fill ponds. Region flood-filled from each seed up to its stored level;
   // realistic translucent surface with depth tint + shore foam + animated waves (WATER_GROUP.userData
@@ -1036,6 +1047,21 @@
     heightFn:(x,z)=>groundSampleHeight(x,z), groundMargin:ACTIVE_TRACK.groundMargin
   });
   scene.add(WATER_GROUP);
+  // WATER SPLASH lookup (2026-07-12): a per-water-body Set of filled cell keys so a kart's point-in-
+  // water test is O(1) (no per-frame flood-fill). A kart is "in water" when its (x,z) cell is filled
+  // AND the terrain there is below the water level (guaranteed by the fill). Splash FX only (no physics
+  // change). Empty for tracks without waters.
+  const WATER_LOOKUP = (ACTIVE_TRACK.waters || []).map(w=>{
+    const f = FK_TRACK.floodFillWater(w.x, w.z, w.y, _sampled, TRACK_WIDTH, { heightFn:(x,z)=>groundSampleHeight(x,z), groundMargin:ACTIVE_TRACK.groundMargin });
+    return { cells:f.cells, cell:f.cell, originX:f.originX, originZ:f.originZ, level:w.y };
+  });
+  function waterAt(x, z){
+    for (const w of WATER_LOOKUP){
+      const i = Math.floor((x-w.originX)/w.cell), j = Math.floor((z-w.originZ)/w.cell);
+      if (w.cells.has(i+','+j)) return w;
+    }
+    return null;
+  }
 
   // SKY PRESETS (2026-07-12): a per-track sky (clouds/snow/sun/night). 'day'/absent = the exact
   // current defaults (untouched below), so existing tracks render byte-identical. setSky applies the
@@ -1999,6 +2025,7 @@
     boostPads:[],            // K7: {x,z, s, lane, idx, tx, tz}
     projectiles:[],          // {x,z,y, vx,vz, life, bounced, owner}
     hazards:[],              // {x,z,y, owner, ownerGraceT}
+    chickens:[],             // 2026-07-12: road-crossing chickens (host-authoritative in MP)
     raceOver:false,          // K5 MP: true once every kart has finished (host stops the world)
     raceGen:0,               // K5 MP: bumped each countdown so guests re-seat on host restart
     bestLap:loadBestLap()
@@ -2477,6 +2504,33 @@
         }
       }
       if (!resolved) p._inWall = false;                     // clear path this frame -> re-arm the bonk
+    }
+
+    // ---- BRIDGE DECK-EDGE COLLISION (2026-07-12) ----
+    // The plank side walls of a bridge span physically block, exactly like a fence, but HEIGHT-GATED
+    // (bridgeCollide only pushes when the kart's y is near the deck) so a kart under the bridge passes.
+    // Same swept sub-step + slide-only-into-wall behavior as the fence block above.
+    if (BRIDGE_EDGES.length){
+      const rad = Math.max(0.6, TUNE.kartRadius) + 0.28;
+      const px = p.pos.x - p.v.x*dt, pz = p.pos.z - p.v.z*dt;
+      const moved = Math.hypot(p.pos.x-px, p.pos.z-pz);
+      const steps = Math.max(1, Math.ceil(moved / (rad*0.5)));
+      let resolved = false;
+      for (let si=1; si<=steps; si++){
+        const f = si/steps, tx = px + (p.pos.x-px)*f, tz = pz + (p.pos.z-pz)*f;
+        const hit = FK_TRACK.bridgeCollide(BRIDGE_EDGES, tx, tz, p.y, rad, 2.5);
+        if (hit){
+          p.pos.x = tx + hit.nx*hit.over; p.pos.z = tz + hit.nz*hit.over;
+          const vn = p.v.x*hit.nx + p.v.z*hit.nz;
+          if (vn < 0){
+            p.v.x -= vn*hit.nx; p.v.z -= vn*hit.nz;
+            if (!p._inBridgeWall && -vn > 6 && p === G.players.local) bonkSound();
+            p._inBridgeWall = true;
+          }
+          resolved = true; break;
+        }
+      }
+      if (!resolved) p._inBridgeWall = false;
     }
 
     // ---- VERTICAL / AIRBORNE (K2.5) ----
@@ -3085,6 +3139,88 @@
       }
     }
     if (G.hazards.some(hz=>hz.dead)) G.hazards = G.hazards.filter(hz=>!hz.dead);
+  }
+
+  // ---------- 🐔 CHICKEN CROSSINGS (2026-07-12) ----------
+  // Each track crossing (ACTIVE_TRACK.chickens[{id,s}]) periodically sends a chicken walking ACROSS the
+  // road perpendicular to the centerline. A kart within CHICKEN_HIT_R spins out (existing applySpinOut,
+  // star/bull immune) and the chicken flutters away in a puff of feathers; that crossing goes quiet for
+  // a few seconds. HOST-authoritative in MP (host runs advanceChickens + spin rulings; guests render
+  // from the snapshot). Bots do NOT dodge (comedy). Solo/offline runs fully.
+  const CHICKEN_HIT_R = 0.8, CHICKEN_SPAN_PAD = 4;
+  function _chickenRnd(){ return Math.random(); }
+  function chickenInterval(){ return 6 + _chickenRnd()*8; }        // 6-14s between crossings
+  function resetChickens(){
+    G.chickens = (ACTIVE_TRACK.chickens || []).map((c, i)=>{
+      const N = SAMPLES, si = Math.max(0, Math.min(N-1, Math.round((c.s||0)*N)));
+      const cp = centerPts[si], t = tangents[si];
+      const nx = -t.z, nz = t.x;   // road normal (cross direction)
+      const span = TRACK_WIDTH/2 + CHICKEN_SPAN_PAD;
+      return { i, s:c.s, ax:cp.x, az:cp.z, nx, nz, span,
+               active:false, off:0, dir:1, speed:3, walkT:0,
+               timer:2 + _chickenRnd()*3,   // first crossing 2-5s after the race starts
+               quietT:0, x:cp.x, z:cp.z };
+    });
+  }
+  function spawnCrossingChicken(ch){
+    ch.dir = _chickenRnd() < 0.5 ? 1 : -1;
+    ch.off = -ch.dir * ch.span;                 // enter from one verge, walk to the far one
+    ch.speed = 2.5 + _chickenRnd()*1.5;         // 2.5-4 u/s
+    ch.active = true; ch.walkT = 0;
+    ch.x = ch.ax + ch.nx*ch.off; ch.z = ch.az + ch.nz*ch.off;
+  }
+  function scatterChicken(ch){
+    // feather puff + a quick fly-off, then the crossing goes quiet.
+    for (let k=0;k<12;k++){
+      const a = Math.random()*Math.PI*2;
+      spawnParticle(ch.x + Math.cos(a)*0.3, (ch.y||sampleHeight(ch.x,ch.z)) + 0.6, ch.z + Math.sin(a)*0.3,
+        { color: Math.random()<0.5 ? 0xffffff : 0xf2ebe0, opacity:0.9, life:0.7,
+          vx:Math.cos(a)*(2+Math.random()*2), vy:2.5 + Math.random()*2, vz:Math.sin(a)*(2+Math.random()*2),
+          grav:3.5, size:0.34, spin:5, grow:-0.05 });
+    }
+    ch.active = false; ch.quietT = 3 + _chickenRnd()*2; ch.timer = chickenInterval();
+  }
+  function advanceChickens(dt){
+    for (const ch of G.chickens){
+      if (ch.quietT > 0) ch.quietT -= dt;
+      if (!ch.active){
+        if (ch.quietT <= 0){ ch.timer -= dt; if (ch.timer <= 0) spawnCrossingChicken(ch); }
+        continue;
+      }
+      ch.off += ch.dir * ch.speed * dt;
+      ch.walkT += dt;
+      ch.x = ch.ax + ch.nx*ch.off; ch.z = ch.az + ch.nz*ch.off;
+      ch.y = sampleHeight(ch.x, ch.z);
+      // collision: any kart within CHICKEN_HIT_R spins (star/bull immune, handled in applySpinOut) and
+      // scatters the chicken regardless (starred karts still send it fluttering).
+      let hit = false;
+      for (const id in G.players){
+        const q = G.players[id];
+        if (Math.hypot(q.pos.x - ch.x, q.pos.z - ch.z) < CHICKEN_HIT_R){ hit = true; applySpinOut(q); break; }
+      }
+      if (hit){ chickenSquawkSound(true, ch); scatterChicken(ch); continue; }
+      // reached the far verge -> despawn, schedule the next crossing
+      if ((ch.dir > 0 && ch.off >= ch.span) || (ch.dir < 0 && ch.off <= -ch.span)){
+        ch.active = false; ch.timer = chickenInterval();
+      }
+    }
+  }
+  // pooled render meshes, keyed by crossing index. Waddle bob + head-peck while walking.
+  const _chickenViews = {};
+  function syncChickenViews(){
+    for (const ch of G.chickens){
+      let v = _chickenViews[ch.i];
+      if (ch.active){
+        if (!v){ v = buildChickenMesh(); v.scale.setScalar(0.9); scene.add(v); _chickenViews[ch.i] = v; }
+        v.visible = true;
+        const bob = Math.abs(Math.sin(ch.walkT*9)) * 0.09;         // waddle bob
+        v.position.set(ch.x, (ch.y || sampleHeight(ch.x, ch.z)) + bob, ch.z);
+        v.rotation.y = Math.atan2(ch.dir*ch.nx, ch.dir*ch.nz);      // face the walking direction
+        v.rotation.z = Math.sin(ch.walkT*11) * 0.12;                // side-to-side waddle
+        const inner = v.children[0];                                // head-peck via a small pitch wobble
+        if (inner) inner.rotation.x = Math.max(0, Math.sin(ch.walkT*6)) * 0.22;
+      } else if (v){ v.visible = false; }
+    }
   }
   // item boxes: pickup + per-box respawn
   function updateItemBoxes(dt){
@@ -3994,6 +4130,43 @@
         grav:2.5, size:0.4, grow:0.8 });
     }
   }
+  // ---- WATER SPLASH (2026-07-12): white spray at the wheels while a kart crosses a water body ----
+  // Entry (dry->wet): a ring/wake of white spray + a growing splash disc + a proximity splash sound.
+  // While in water at speed: mild continuous wheel spray. No physics change. Runs for EVERY kart
+  // (local/bots/remotes) from syncKartView, so proximity audio + FX read correctly for all.
+  function spawnWaterSplash(p, view, dt){
+    if (typeof waterAt !== 'function') return;
+    const inW = !!waterAt(p.pos.x, p.pos.z);
+    const wy = inW ? waterAt(p.pos.x, p.pos.z).level : 0;
+    const spd = Math.hypot(p.v.x, p.v.z);
+    if (inW && !view._inWater){
+      // ENTRY splash: a burst ring of spray + a flat growing splash disc + the entry sound.
+      const n = 14;
+      for (let i=0;i<n;i++){
+        const a = (i/n)*Math.PI*2 + Math.random()*0.4;
+        spawnParticle(p.pos.x + Math.cos(a)*0.7, wy + 0.15, p.pos.z + Math.sin(a)*0.7,
+          { color:0xeaf6ff, opacity:0.85, life:0.5, vx:Math.cos(a)*(3 + Math.random()*2), vy:2.2 + Math.random()*1.4,
+            vz:Math.sin(a)*(3 + Math.random()*2), grav:6.5, size:0.4, grow:0.5 });
+      }
+      spawnParticle(p.pos.x, wy + 0.05, p.pos.z, { color:0xdff2ff, opacity:0.5, life:0.45, size:0.6, grow:5.5 });  // wake ring
+      waterSplashSound(p.pos);
+    }
+    if (inW && spd > 3){
+      // continuous wheel spray while crossing at speed (time-accumulated -> no per-frame alloc storm)
+      view._sprayAcc = (view._sprayAcc || 0) + dt;
+      const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
+      const r = { x:Math.cos(p.theta), z:-Math.sin(p.theta) };
+      while (view._sprayAcc > 0.03){
+        view._sprayAcc -= 0.03;
+        const side = Math.random() < 0.5 ? -1 : 1;
+        const rx = p.pos.x - f.x*0.7 + r.x*side*0.7, rz = p.pos.z - f.z*0.7 + r.z*side*0.7;
+        spawnParticle(rx, wy + 0.2, rz, { color:0xf0faff, opacity:0.7, life:0.34,
+          vx:r.x*side*1.4 - f.x*1.5 + (Math.random()-0.5), vy:1.6 + Math.random()*0.9, vz:r.z*side*1.4 - f.z*1.5 + (Math.random()-0.5),
+          grav:5, size:0.32, grow:0.4 });
+      }
+    } else view._sprayAcc = 0;
+    view._inWater = inW;
+  }
   function spawnSpinStars(p, view, dt){
     view._starAcc = (view._starAcc || 0) + dt;
     while (view._starAcc > 0.09){
@@ -4055,6 +4228,7 @@
       if (p.drift.active && spd > 2.5 && !p.airborne) spawnDriftDust(p, view, gy, dt);
       if (p.boostT > 0) spawnBoostPuff(p, view, gy, dt);
       if (p.spinT > 0) spawnSpinStars(p, view, dt);
+      spawnWaterSplash(p, view, dt);   // 2026-07-12: spray + entry sound while crossing water
     }
     // ---- spinning wheels (custom kart): roll about mount X (axle), steer front pair about Y ----
     if (view.wheels && view.wheels.length){
@@ -4792,6 +4966,13 @@
     }catch(e){}
   }
   function itemFireSound(pos){ tone(700, 0.08, { type:'square', vol:0.13, mul:gainAt(pos,'itemFire') }); } // generic (non-hay) fallback
+  // Water splash: a wet, watery burst on ENTRY (one-shot). Synth (lowpassed noise + a soft plip),
+  // proximity-faded so a bot/remote splash across the track is quiet. pos = the kart's world {x,z}.
+  function waterSplashSound(pos){
+    const mul = gainAt(pos, 'waterSplash');
+    noiseBurst(0.26, { filter:'lowpass', freq:1600, freqTo:300, Q:0.7, vol:0.13, mul });
+    tone(340, 0.14, { type:'sine', vol:0.07, slideTo:150, mul });
+  }
   // hay bale fire/drop AND hit both use the same sample (2026-07-10); synth fallback unchanged.
   // pos (proximity audio, optional): world {x,z} of the bale/hit.
   function haySound(pos){
@@ -5161,6 +5342,7 @@
   // clear power-up entities + re-arm every item box (start of a race / return to menu)
   function resetEntities(){
     G.projectiles.length = 0; G.hazards.length = 0;
+    resetChickens();   // 2026-07-12: re-arm road-crossing chickens (first crossing 2-5s after GO)
     for (const b of G.itemBoxes){ b.active = true; b.respawnT = 0; }
   }
   function toMenu(){
@@ -5827,6 +6009,7 @@
       boxes:G.itemBoxes.map(b=>b.active?1:0),
       proj:G.projectiles.map(pr=>({x:pr.x,y:pr.y,z:pr.z,k:pr.kind||'tomato',vx:pr.vx,vz:pr.vz})),
       haz:G.hazards.map(hz=>({x:hz.x,y:hz.y,z:hz.z})),
+      chick:G.chickens.filter(c=>c.active).map(c=>({ i:c.i, x:c.x, z:c.z, d:c.dir, w:c.walkT })),
       grants:net.grants || {},
       spins:net.spins,
       raceOver:!!G.raceOver
@@ -6015,6 +6198,12 @@
       vx:pr.vx||0, vz:pr.vz||0, life:1, owner:'', bounced:false, target:null
     }));
     G.hazards = (snap.haz||[]).map(hz=>({x:hz.x,y:hz.y,z:hz.z,owner:''}));
+    // chickens: host-authoritative — render from the snapshot (guest never simulates them).
+    for (const ch of G.chickens) ch.active = false;
+    for (const sc of (snap.chick||[])){
+      const ch = G.chickens[sc.i]; if (!ch) continue;
+      ch.active = true; ch.x = sc.x; ch.z = sc.z; ch.dir = sc.d||1; ch.walkT = sc.w||0; ch.y = sampleHeight(sc.x, sc.z);
+    }
     // OUR grant (host rolled it) -> local held item for HUD + use logic
     const g = snap.grants && snap.grants[net.myId];
     if (g){
@@ -6245,6 +6434,7 @@
       hostGrantItems();
       advanceProjectiles(dt);
       advanceHazards(dt);
+      advanceChickens(dt);          // 2026-07-12: road-crossing chickens (host-authoritative)
       updateBoostPads(dt);          // K7: boost pads (host kart + bots; guests fire their own)
       resolveKartCollisions();      // K7: local separation (own kart authoritative; remotes not moved)
       G.raceClock += dt;
@@ -6290,6 +6480,7 @@
         updateItemRolls(dt);
         advanceProjectiles(dt);
         advanceHazards(dt);
+        advanceChickens(dt);          // 2026-07-12: road-crossing chickens (solo)
         updateBoostPads(dt);          // K7: boost pads (own + bots)
         resolveKartCollisions();      // K7: kart-vs-kart separation (own + bots)
         G.raceClock += dt;
@@ -6337,6 +6528,7 @@
     updateHUD();
     updateParticles(dt);   // K6: advance the pooled juice particles
     updateAudio(dt);       // K6: reactive engine hum / MT chimes
+    syncChickenViews();    // 2026-07-12: position/animate road-crossing chicken meshes
     if (WATER_GROUP.userData.animate) WATER_GROUP.userData.animate(now*0.001);   // water waves
     if (SKY_OBJ && SKY_OBJ.userData.update) SKY_OBJ.userData.update(dt, camera);  // cloud drift / snow / celestial
     renderer.render(scene, camera);
@@ -6997,8 +7189,12 @@
     updateMinimap, minimapEl, _mm,
     // Tunnels (2026-07-10, for headless tests)
     TUNNEL_GROUP,
-    // Bridges (2026-07-10, for headless tests)
-    BRIDGE_GROUP,
+    // Bridges (2026-07-10 / walls 2026-07-12, for headless tests)
+    BRIDGE_GROUP, get BRIDGE_EDGES(){ return BRIDGE_EDGES; },
+    // Water splash + chicken crossings (2026-07-12, for headless tests)
+    get WATER_LOOKUP(){ return WATER_LOOKUP; }, waterAt, waterSplashSound, spawnWaterSplash,
+    advanceChickens, resetChickens, spawnCrossingChicken, scatterChicken, syncChickenViews,
+    get chickens(){ return G.chickens; }, get chickenViews(){ return _chickenViews; }, CHICKEN_HIT_R,
     // Waters + sky (2026-07-12, for headless tests)
     WATER_GROUP, setSky, get SKY_OBJ(){ return SKY_OBJ; }, get sky(){ return ACTIVE_TRACK.sky || 'day'; },
     get hemiLight(){ return hemi; }, get sunLight(){ return sun; },
@@ -7040,7 +7236,7 @@
     // jump straight into racing at sample 0, SOLO (physics-regression harness entry point)
     forceRace:()=>{
                     for (const id in G.players){ if (G.players[id].isBot || id!=='local'){ removeKartView(id); delete G.players[id]; } }
-                    G.projectiles.length = 0; G.hazards.length = 0;
+                    G.projectiles.length = 0; G.hazards.length = 0; resetChickens();
                     for (const b of G.itemBoxes){ b.active = true; b.respawnT = 0; }
                     G.phase = 'racing'; G.goFlashT = 0;
                     countdownEl.style.display='none'; startOverlay.style.display='none'; resultsEl.style.display='none';

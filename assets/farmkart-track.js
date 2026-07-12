@@ -476,6 +476,32 @@
         }
         if (ws.length) out.waters = ws;
       }
+      // PAINTED GRASS TUFTS (2026-07-12): sparse density grid { cell, cells:{"i,j":1|2} } where 1=low,
+      // 2=high. Extra 3D grass-tuft instances scattered per painted cell (in ADDITION to the automatic
+      // corridor-band tufts). Absent/empty -> omitted (byte-identical for tracks without it).
+      if (data.tufts && typeof data.tufts==='object' && data.tufts.cells && typeof data.tufts.cells==='object'){
+        const cell = (isFinite(+data.tufts.cell) && +data.tufts.cell > 0) ? +data.tufts.cell : 6;
+        const cells = {}; let n = 0;
+        for (const k in data.tufts.cells){
+          if (!/^-?\d+,-?\d+$/.test(k)) continue;
+          const v = Math.round(+data.tufts.cells[k]);
+          if (v === 1 || v === 2){ cells[k] = v; n++; }
+        }
+        if (n) out.tufts = { cell, cells };
+      }
+      // CHICKEN CROSSINGS (2026-07-12): [{id, s}] — s=0..1 fraction along the centerline where a
+      // chicken periodically walks across the road perpendicular to the racing line. Absent/garbage ->
+      // omitted (byte-identical for tracks without it).
+      if (Array.isArray(data.chickens)){
+        const chs = [];
+        for (const c of data.chickens){
+          if (!c || typeof c !== 'object') continue;
+          const s = +c.s;
+          if (!isFinite(s) || s<0 || s>1) continue;
+          chs.push({ id:(typeof c.id==='string' && c.id) ? c.id.slice(0,40) : ('chicken_'+(chs.length+1)), s });
+        }
+        if (chs.length) out.chickens = chs;
+      }
       // SKY preset (2026-07-12): one of 'clouds'|'snow'|'sun'|'night'. 'day'/absent/garbage -> omitted
       // (the game's default sky/lighting, byte-identical for every existing track).
       if (typeof data.sky === 'string' && (data.sky==='clouds'||data.sky==='snow'||data.sky==='sun'||data.sky==='night')) out.sky = data.sky;
@@ -863,6 +889,80 @@
       }
     }
     return grp;
+  }
+
+  // ---- buildBridgeEdges (2026-07-12): the two deck-edge collision polylines for each bridge span,
+  // so the plank walls PHYSICALLY BLOCK (karts used to drive straight off the deck edge). Mirrors the
+  // buildBridgeMesh sweep: for each bridge, walk the span and emit centerline ± trackWidth/2 (the deck
+  // edge) on each side, carrying the deck height y (opts.heightFn = the ROAD height, same seat as the
+  // visual wall). Returns [{ points:[{x,z,y}...] }...] (2 per bridge). Consumed by bridgeCollide, which
+  // is HEIGHT-AWARE so a kart passing UNDER the bridge (a figure-8 lower branch, y far below the deck)
+  // is not blocked. Purely derived from the bridge data — works on every existing bridged track. ----
+  function buildBridgeEdges(sampled, bridges, trackWidth, opts){
+    const out = [];
+    if (!Array.isArray(bridges) || !bridges.length) return out;
+    opts = opts || {};
+    const hfn = opts.heightFn || (()=>0);
+    const L = sampled.trackLen, arcS = sampled.arcS, C = sampled.centerPts, T = sampled.tangents, N = sampled.samples;
+    function sampleAtArc(a){
+      a = a % L; if (a < 0) a += L;
+      let i = 0;
+      for (; i<N-1; i++){ if (arcS[i+1] > a) break; }
+      const i0 = i, i1 = (i+1)%N;
+      const segLen = (i1===0) ? (L - arcS[i0]) : (arcS[i1]-arcS[i0]);
+      const t = segLen > 1e-6 ? (a-arcS[i0])/segLen : 0;
+      const c0=C[i0], c1=C[i1], t0=T[i0], t1=T[i1];
+      const x = c0.x+(c1.x-c0.x)*t, z = c0.z+(c1.z-c0.z)*t;
+      let tx = t0.x+(t1.x-t0.x)*t, tz = t0.z+(t1.z-t0.z)*t; const tl = Math.hypot(tx,tz)||1;
+      return { x, z, tx:tx/tl, tz:tz/tl };
+    }
+    const hw = trackWidth/2;
+    for (const br of bridges){
+      const startArc = Math.max(0, Math.min(1, br.s)) * L;
+      const len = Math.max(4, br.len || 18);
+      const step = 2.0, steps = Math.max(2, Math.ceil(len/step));
+      for (const side of [1,-1]){
+        const pts = [];
+        for (let s=0;s<=steps;s++){
+          const a = startArc + len*(s/steps);
+          const p = sampleAtArc(a);
+          const y = hfn(p.x, p.z);
+          const nx = -p.tz, nz = p.tx;
+          pts.push({ x:p.x+nx*hw*side, z:p.z+nz*hw*side, y });
+        }
+        out.push({ points:pts });
+      }
+    }
+    return out;
+  }
+  // bridgeCollide: kart-vs-bridge-edge push-out (2D XZ) with a HEIGHT GATE. edges = buildBridgeEdges
+  // output. Only blocks when the kart's y is within yTol of the deck edge height at the contact point,
+  // so a kart driving UNDER a bridge (much lower y) sails through. Returns the deepest {nx,nz,over}
+  // (push the kart back onto the deck) or null. Same slide/bonk semantics as fenceCollide.
+  function bridgeCollide(edges, x, z, y, radius, yTol){
+    if (!edges || !edges.length) return null;
+    yTol = (yTol == null) ? 2.5 : yTol;
+    let best = null, bestOver = 0;
+    for (const e of edges){
+      const pts = e.points; if (!pts || pts.length < 2) continue;
+      for (let i=0;i<pts.length-1;i++){
+        const a=pts[i], b=pts[i+1];
+        const abx=b.x-a.x, abz=b.z-a.z, L2=abx*abx+abz*abz || 1e-6;
+        let t=((x-a.x)*abx+(z-a.z)*abz)/L2; if(t<0)t=0; else if(t>1)t=1;
+        const cx=a.x+abx*t, cz=a.z+abz*t, dx=x-cx, dz=z-cz;
+        const d=Math.hypot(dx,dz), over=radius-d;
+        if (over<=0 || over<=bestOver) continue;
+        if (y != null && isFinite(y)){
+          const edgeY = a.y + (b.y-a.y)*t;
+          if (Math.abs(y - edgeY) > yTol) continue;   // kart under/over the deck -> not on this bridge
+        }
+        let nx, nz;
+        if (d > 1e-3){ nx=dx/d; nz=dz/d; }
+        else { const sl=Math.hypot(abx,abz)||1; nx=-abz/sl; nz=abx/sl; }
+        best={nx, nz, over}; bestOver=over;
+      }
+    }
+    return best;
   }
 
   // ---- rampSurfaceY: world height of a ramp's driving surface at (x,z), or null if outside its
@@ -1270,6 +1370,55 @@
     return mesh;
   }
 
+  // ---- PAINTED GRASS TUFTS (2026-07-12): extra tufts scattered per painted-density cell, on TOP of
+  // the automatic corridor-band buildGrassTufts. field = track.tufts { cell, cells:{"i,j":1|2} } (1=low
+  // ~2-3 tufts/cell, 2=high ~6-8). Deterministic per-cell PRNG (seeded from cell indices) so a cell
+  // scatters the same tufts every rebuild. Seated on opts.heightFn; hidden (zero-scale) if a tuft lands
+  // on the road corridor (same road-check as buildGrassTufts). Reuses the cached tuft geo/texture.
+  // Total instances hard-capped (opts.cap, default 8000) with a one-time console warn if truncated. ----
+  function buildPaintedTufts(field, sampled, width, THREE, opts){
+    opts = opts || {};
+    if (!field || !field.cells) return null;
+    const C = field.cell || 6, cells = field.cells, half = width/2, size = opts.size || 0.62;
+    const hfn = opts.heightFn || (()=>0);
+    const CAP = opts.cap || 8000;
+    // collect placements first so the InstancedMesh is sized exactly.
+    const placements = [];   // [x, z, sizeRnd, rotRnd, hScale, onRoad]
+    let truncated = false;
+    const keys = Object.keys(cells);
+    outer:
+    for (const key of keys){
+      const m = key.match(/^(-?\d+),(-?\d+)$/); if (!m) continue;
+      const ci = +m[1], cj = +m[2], val = cells[key];
+      let s = (((ci*73856093) ^ (cj*19349663)) >>> 0) || 1;
+      const rnd = ()=>{ s = (s*1103515245 + 12345) & 0x7fffffff; return s/0x7fffffff; };
+      const count = (val >= 2) ? (6 + Math.floor(rnd()*3)) : (2 + Math.floor(rnd()*2));   // high 6-8 / low 2-3
+      for (let k=0;k<count;k++){
+        const x = (ci + rnd()) * C, z = (cj + rnd()) * C;
+        const onRoad = nearestOnCenter(sampled, x, z).dist < half + 2.5;
+        placements.push([x, z, rnd(), rnd(), rnd(), onRoad]);
+        if (placements.length >= CAP){ truncated = true; break outer; }
+      }
+    }
+    if (truncated && typeof console !== 'undefined') console.warn('[fk] painted tufts capped at '+CAP+' instances');
+    if (!placements.length) return null;
+    const mat = new THREE.MeshLambertMaterial({ color:0xffffff, map:_makeTuftTex(THREE), alphaTest:0.5, side:THREE.DoubleSide, transparent:false, emissive:0x2c3c1d });
+    const mesh = new THREE.InstancedMesh(_makeTuftGeo(THREE), mat, placements.length);
+    const mtx=new THREE.Matrix4(), q=new THREE.Quaternion(), up=new THREE.Vector3(0,1,0), p=new THREE.Vector3(), sc=new THREE.Vector3(), col=new THREE.Color();
+    for (let i=0;i<placements.length;i++){
+      const [x, z, szR, rotR, hR, onRoad] = placements[i];
+      const sw = size*(0.8 + szR*0.5);
+      p.set(x, hfn(x, z), z);
+      if (onRoad) sc.set(0,0,0); else sc.set(sw, sw*(0.85 + hR*0.45), sw);
+      q.setFromAxisAngle(up, rotR*6.2832);
+      mtx.compose(p, q, sc); mesh.setMatrixAt(i, mtx);
+      const g = 0.4 + szR*0.24; col.setRGB(g*0.72, g, g*0.42); mesh.setColorAt(i, col);
+    }
+    mesh.instanceMatrix.needsUpdate = true; if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    mesh.frustumCulled = false;
+    return mesh;
+  }
+
   // ---- trackDirectionAt: unit XZ tangent of the racing line nearest (x,z). Used so boost pads and
   // ramps ALWAYS face the driving direction (low→high for ramps = track forward).
   function trackDirectionAt(sampled, x, z){
@@ -1535,8 +1684,8 @@
     VERSION:1, SAMPLES,
     DEFAULT_TRACK, BUILTIN_TRACKS,
     resample, buildRibbonGeometry, sanitize, validate, reverse, nearestOnCenter, nearestOnCenterAtY,
-    groundHills, sampleHeight, groundSampleHeight, buildGroundMesh, buildObjectMesh, buildFenceMesh, buildGrassTufts, sampleField, sampleColor,
-    fenceCollide, corridorFences, rampSurfaceY, buildTunnelMesh, buildBridgeMesh, trackDirectionAt, alignRampsToTrack,
+    groundHills, sampleHeight, groundSampleHeight, buildGroundMesh, buildObjectMesh, buildFenceMesh, buildGrassTufts, buildPaintedTufts, sampleField, sampleColor,
+    fenceCollide, corridorFences, rampSurfaceY, buildTunnelMesh, buildBridgeMesh, buildBridgeEdges, bridgeCollide, trackDirectionAt, alignRampsToTrack,
     floodFillWater, buildWaterMesh, SKY_PRESETS, buildSkyObjects
   };
 })();

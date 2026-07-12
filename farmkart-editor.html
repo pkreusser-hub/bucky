@@ -119,6 +119,23 @@
       <button class="btn" id="mTunnel">🚇 tunnel</button>
       <button class="btn" id="mBridge">🌉 bridge</button>
       <button class="btn" id="mWater">💧 water</button>
+      <button class="btn" id="mTufts">🌱 tufts</button>
+      <button class="btn" id="mChicken">🐔 chicken</button>
+    </div>
+    <div id="tuftsTools" style="display:none;margin-top:6px;padding:8px;background:rgba(40,80,50,.28);border-radius:8px;">
+      <div class="row">
+        <button class="btn on" id="tfLow">🌿 low</button>
+        <button class="btn" id="tfHigh">🌾 high</button>
+        <button class="btn" id="tfErase">🧽 erase</button>
+      </div>
+      <label style="margin-top:6px;">brush size <span id="tfRadV" style="color:#7fd0ff;">18</span></label>
+      <input type="range" id="tfRad" min="6" max="60" step="1" value="18" style="width:100%;">
+      <button class="btn wide warn" id="tfReset" style="margin-top:6px;">🧹 clear all tufts</button>
+      <div style="color:#9ab;font-size:11px;margin-top:4px;">drag the grass to paint extra grass tufts (low/high density) · painted cells: <span id="tfCells">0</span></div>
+    </div>
+    <div id="chickenTools" style="display:none;margin-top:6px;padding:8px;background:rgba(90,80,35,.3);border-radius:8px;">
+      <div style="color:#9ab;font-size:11px;margin-bottom:3px;">click the road to add a 🐔 chicken crossing — it periodically walks a chicken across the road</div>
+      <div id="chickenList" style="margin-top:4px;"></div>
     </div>
     <div id="waterTools" style="display:none;margin-top:6px;padding:8px;background:rgba(30,70,95,.32);border-radius:8px;">
       <div style="color:#9ab;font-size:11px;margin-bottom:3px;">sculpt a bowl, then click INSIDE it — water fills up to the click height (like pouring it in)</div>
@@ -402,18 +419,25 @@
   const TERRAIN = { amp:3.4, wave:60, margin:9 };
   // include the live sculpt field so the WYSIWYG mesh + height reads reflect raised/lowered terrain.
   function edTerrainOpts(){ return { amp:TERRAIN.amp, wave:TERRAIN.wave, margin:TERRAIN.margin, field:track.terrain, paint:track.paint, groundMargin:track.groundMargin, followTerrain:track.followTerrain, offroad:track.offroad }; }
-  let terrainMesh = null, tuftsMesh = null, terrainTimer = null, showTerrain = true, showTufts = true;
+  let terrainMesh = null, tuftsMesh = null, paintedTuftsMesh = null, terrainTimer = null, showTerrain = true, showTufts = true;
+  function rebuildPaintedTufts(){
+    if (paintedTuftsMesh){ scene.remove(paintedTuftsMesh); paintedTuftsMesh.material.dispose(); paintedTuftsMesh = null; }
+    if (!showTerrain || !sampled || !track.tufts) return;
+    paintedTuftsMesh = FK_TRACK.buildPaintedTufts(track.tufts, sampled, track.width, THREE, { heightFn:(x,z)=>terrainHeightAt(x,z) });
+    if (paintedTuftsMesh) scene.add(paintedTuftsMesh);
+  }
   function rebuildTerrain(){
     if (terrainMesh){ scene.remove(terrainMesh); terrainMesh.geometry.dispose(); terrainMesh.material.dispose(); terrainMesh = null; }
     if (tuftsMesh){ scene.remove(tuftsMesh); tuftsMesh.material.dispose(); tuftsMesh = null; }
     grid.visible = !showTerrain;   // reference grid only matters when terrain is hidden
-    if (!showTerrain || !sampled) return;
+    if (!showTerrain || !sampled){ rebuildPaintedTufts(); return; }
     terrainMesh = FK_TRACK.buildGroundMesh(sampled, track.width, THREE, edTerrainOpts());
     scene.add(terrainMesh);
     if (showTufts){
       tuftsMesh = FK_TRACK.buildGrassTufts(sampled, track.width, THREE, { heightFn:(x,z)=>terrainHeightAt(x,z), count:3200 });
       scene.add(tuftsMesh);
     }
+    rebuildPaintedTufts();   // brushed low/high-density tufts (in ADDITION to the auto corridor tufts)
   }
   // throttled live rebuild during a sculpt drag (debounce would never fire mid-drag).
   let _lastTerr = 0, _terrPend = false;
@@ -493,6 +517,7 @@
   }
   function ringColorHex(shiftHeld){
     if (mode==='paint') return PAINT.color;
+    if (mode==='tufts') return TUFT.mode==='erase' ? 0xff4d4d : 0x66d060;
     if (mode==='sculpt'){
       if (SCULPT.mode==='level') return 0x29e0ff;
       return (shiftHeld || SCULPT.mode==='lower') ? 0xff4d4d : 0x39d15a;
@@ -556,6 +581,88 @@
     }
   }
   function paintCellCount(){ return track.paint ? Object.keys(track.paint.cells).length : 0; }
+
+  // ---- TUFTS brush (2026-07-12): paint low/high grass-tuft density into a sparse cell grid ----
+  // { cell, cells:{"i,j":1|2} } (1=low, 2=high). Extra 3D tufts scattered per painted cell IN ADDITION
+  // to the automatic corridor-band tufts. Brush modes: 'low' (1), 'high' (2), 'erase' (delete).
+  const TUFT = { radius: 18, mode: 'low' };
+  function tuftVal(){ return TUFT.mode==='high' ? 2 : (TUFT.mode==='low' ? 1 : 0); }
+  function applyTufts(bx, bz){
+    track.tufts = track.tufts || { cell: 6, cells: {} };
+    const C = track.tufts.cell, cells = track.tufts.cells, R = TUFT.radius, val = tuftVal();
+    const i0=Math.floor((bx-R)/C), i1=Math.ceil((bx+R)/C), j0=Math.floor((bz-R)/C), j1=Math.ceil((bz+R)/C);
+    for (let i=i0;i<=i1;i++) for (let j=j0;j<=j1;j++){
+      const cxw=(i+0.5)*C, czw=(j+0.5)*C, d=Math.hypot(cxw-bx, czw-bz);
+      if (d > R) continue;
+      const key=i+','+j;
+      if (val===0) delete cells[key]; else cells[key]=val;
+    }
+  }
+  function tuftCellCount(){ return track.tufts ? Object.keys(track.tufts.cells).length : 0; }
+  function setTuftMode(m){
+    TUFT.mode = m;
+    $('tfLow').classList.toggle('on', m==='low');
+    $('tfHigh').classList.toggle('on', m==='high');
+    $('tfErase').classList.toggle('on', m==='erase');
+    refreshRing(TUFT.radius);
+  }
+  // throttled live tuft rebuild during a brush drag (debounce would never fire mid-drag).
+  let _lastTuft = 0, _tuftPend = false;
+  function liveTufts(){
+    const now = performance.now();
+    if (now - _lastTuft > 110){ _lastTuft = now; rebuildPaintedTufts(); }
+    else if (!_tuftPend){ _tuftPend = true; setTimeout(()=>{ _tuftPend=false; _lastTuft=performance.now(); rebuildPaintedTufts(); }, 110); }
+  }
+
+  // ---- 🐔 CHICKEN CROSSINGS (2026-07-12): click the road to add a crossing (like boost pads) ----
+  const chickenGroup = new THREE.Group(); scene.add(chickenGroup);
+  let chickenSeq = 0, selChickenId = null;
+  function rebuildChickenMarkers(){
+    while (chickenGroup.children.length){ const o=chickenGroup.children[0]; chickenGroup.remove(o); o.traverse(c=>{ if(c.geometry)c.geometry.dispose(); if(c.material)c.material.dispose(); }); }
+    if (!sampled) return;
+    const N = sampled.samples;
+    let maxSeq = 0;
+    for (const ch of (track.chickens||[])){ const m=String(ch.id||'').match(/(\d+)$/); if (m) maxSeq=Math.max(maxSeq,+m[1]); }
+    chickenSeq = Math.max(chickenSeq, maxSeq);
+    for (const ch of (track.chickens||[])){
+      const i = Math.max(0, Math.min(N-1, Math.round((ch.s||0)*N)));
+      const c = sampled.centerPts[i];
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.SphereGeometry(1.1, 10, 8), new THREE.MeshLambertMaterial({ color:0xf5efe3, emissive:0x2a2418 }));
+      body.scale.set(1, 0.9, 1.15); g.add(body);
+      const comb = new THREE.Mesh(new THREE.ConeGeometry(0.4, 0.7, 6), new THREE.MeshLambertMaterial({ color:0xe23b2e, emissive:0x401008 }));
+      comb.position.set(0, 1.1, 0.2); g.add(comb);
+      g.position.set(c.x, (c.y||0)+1.4, c.z);
+      g.userData.chickenId = ch.id;
+      chickenGroup.add(g);
+    }
+    refreshChickenList();
+  }
+  function addChickenAt(hit){
+    const C = sampled.centerPts, N = sampled.samples;
+    let bi=0, bd=Infinity;
+    for (let i=0;i<N;i++){ const c=C[i]; const d=(c.x-hit.x)**2+(c.z-hit.z)**2; if(d<bd){bd=d;bi=i;} }
+    const s = Math.round((bi/N)*1000)/1000;
+    track.chickens = track.chickens || [];
+    const ch = { id:'chicken_'+(++chickenSeq), s };
+    track.chickens.push(ch);
+    selChickenId = ch.id;
+    rebuildChickenMarkers();
+    commitHistory();
+    toast('chicken crossing @ s='+s.toFixed(3));
+  }
+  function refreshChickenList(){
+    const el = $('chickenList'); if (!el) return; el.innerHTML='';
+    const chs = track.chickens||[];
+    if (!chs.length){ el.innerHTML = '<div style="color:#889;">none — use 🐔 chicken mode, click the road</div>'; return; }
+    chs.forEach((ch)=>{
+      const d = document.createElement('div'); d.className='ir';
+      const span = document.createElement('span'); span.style.cssText='flex:1;'; span.textContent = '🐔 s='+ch.s.toFixed(3);
+      const btn = document.createElement('button'); btn.textContent='✕';
+      btn.addEventListener('click', ()=>{ track.chickens = track.chickens.filter(x=>x!==ch); if (selChickenId===ch.id) selChickenId=null; rebuildChickenMarkers(); commitHistory(); });
+      d.appendChild(span); d.appendChild(btn); el.appendChild(d);
+    });
+  }
 
   // ---- FENCES (P5): click to drop posts along a line; posts+rails follow the terrain ----
   const fenceGroup = new THREE.Group(); scene.add(fenceGroup);
@@ -837,12 +944,48 @@
   const objMeshes = {};                 // obj.id -> THREE.Group
   let selObjId = null, objSeq = 0;
   let propCache = {};                    // id -> loaded+normalized GLB (filled async at boot)
+  // MULTI-SELECT (2026-07-12, forest-building): a Set of object ids highlighted with cyan boxes.
+  // Shift+click adds/removes; Ctrl+C copies the whole group; Ctrl+V pastes it preserving each
+  // object's rotation/scale AND relative positions, centered at the cursor's ground point; Delete
+  // removes all; Escape clears. The single-select gizmo still attaches to the last-clicked object.
+  const multiSel = new Set();
+  const multiSelGroup = new THREE.Group(); scene.add(multiSelGroup);
+  function clearMultiSelHighlight(){ while (multiSelGroup.children.length){ const o=multiSelGroup.children[0]; multiSelGroup.remove(o); if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); } }
+  function refreshMultiSelHighlight(){
+    clearMultiSelHighlight();
+    for (const id of multiSel){
+      const g = objMeshes[id]; if (!g) continue;
+      const box = new THREE.Box3().setFromObject(g);
+      if (box.isEmpty()) continue;
+      multiSelGroup.add(new THREE.Box3Helper(box, 0x66ccff));
+    }
+  }
+  function clearMultiSel(){ multiSel.clear(); clearMultiSelHighlight(); }
+  // effective selection = the multi-set if non-empty, else the single selection.
+  function effectiveSelIds(){ return multiSel.size ? [...multiSel] : (selObjId ? [selObjId] : []); }
+  // Shift+click an object: seed the set with the current single selection (so the first shift-click
+  // grows a group of 2), then toggle the clicked id. Keeps selObjId on the clicked one (gizmo).
+  function shiftToggleObject(id){
+    if (!id) return;
+    if (!multiSel.size && selObjId) multiSel.add(selObjId);
+    if (multiSel.has(id)) multiSel.delete(id); else multiSel.add(id);
+    selObjId = id;
+    if (objMeshes[id]) gizmo.attach(objMeshes[id]);
+    refreshMultiSelHighlight(); refreshObjList();
+  }
 
   const gizmo = new THREE.TransformControls(camera, renderer.domElement);
   gizmo.setSize(0.9); gizmo.enabled = false; gizmo.visible = false;
   // history: ONE commit at the END of a gizmo drag (not per-frame — objectChange fires continuously
   // while dragging). e.value goes true at drag-start, false at drag-end.
-  gizmo.addEventListener('dragging-changed', e => { controls.enabled = !e.value; if (!e.value && selObjId) commitHistory(); });
+  gizmo.addEventListener('dragging-changed', e => { controls.enabled = !e.value;
+    if (!e.value && selObjId){
+      // SCALE RESEAT (2026-07-12): after a scale drag, drop the object so its BOTTOM sits on the
+      // terrain again (same seating math as initial placement). Move/rotate keep their own behavior.
+      if (gizmo.getMode() === 'scale') reseatSelectedOnGround();
+      commitHistory();
+    }
+  });
   gizmo.addEventListener('objectChange', writeBackSelected);
   scene.add(gizmo);
 
@@ -876,6 +1019,9 @@
     }
     objSeq=Math.max(objSeq,maxSeq);
     if (selObjId && objMeshes[selObjId]) gizmo.attach(objMeshes[selObjId]); else { gizmo.detach(); if(!objMeshes[selObjId]) selObjId=null; }
+    // drop any multi-selection ids whose objects no longer exist, then re-draw the highlight boxes
+    for (const id of [...multiSel]) if (!objMeshes[id]) multiSel.delete(id);
+    refreshMultiSelHighlight();
     refreshObjList();
   }
   function writeBackSelected(){
@@ -891,8 +1037,23 @@
       o.rotY=+g.rotation.y.toFixed(3);
     }
   }
+  // SCALE RESEAT (2026-07-12): set the selected object's y so its BOTTOM (center.y - sy/2, the model
+  // being authored to a unit box with base at -0.5) rests on the terrain at its (x,z). Same math as
+  // stampAt/pasteObject's initial seating. Used after any scale change (gizmo scale drag, numeric).
+  function reseatObjectOnGround(o){
+    const g = objMeshes[o.id]; if (!g) return;
+    o.y = +(terrainHeightAt(o.x, o.z) + (o.sy||1)/2).toFixed(2);
+    g.position.y = o.y;
+  }
+  function reseatSelectedOnGround(){
+    if (!selObjId) return;
+    const o=(track.objects||[]).find(x=>x.id===selObjId); if(!o) return;
+    writeBackSelected();            // ensure o.x/z/sy reflect the just-finished gizmo drag
+    reseatObjectOnGround(o);
+  }
   function selectObject(id){
     selObjId=id;
+    clearMultiSel();   // a plain (non-shift) selection replaces any multi-selection
     if (id && objMeshes[id]) gizmo.attach(objMeshes[id]); else gizmo.detach();
     const o=id?(track.objects||[]).find(x=>x.id===id):null;
     $('objTag').value=o?(o.tag||''):''; if(o) $('objType').value=o.type||'block'; refreshObjList();
@@ -1036,6 +1197,7 @@
     rebuildTunnels();
     rebuildBridges();
     rebuildWaters();
+    rebuildChickenMarkers();
     applyEdSky();
     scheduleTerrain();      // WYSIWYG grass/hills (debounced)
     refreshInfo();
@@ -1147,7 +1309,7 @@
   let mode = 'select'; // select | insert | item | boost | object
   function setMode(m){
     if (pendingPlace){ pendingPlace=null; clearGhost(); }   // leaving/changing mode ends click-to-stamp
-    if (m!=='sculpt' && m!=='paint') hideRing();            // brush preview ring only lives in those two modes
+    if (m!=='sculpt' && m!=='paint' && m!=='tufts') hideRing();   // brush preview ring lives in these modes
     mode = m;
     $('mSelect').classList.toggle('on', m==='select');
     $('mInsert').classList.toggle('on', m==='insert');
@@ -1160,22 +1322,28 @@
     $('mTunnel').classList.toggle('on', m==='tunnel');
     $('mBridge').classList.toggle('on', m==='bridge');
     $('mWater').classList.toggle('on', m==='water');
+    $('mTufts').classList.toggle('on', m==='tufts');
+    $('mChicken').classList.toggle('on', m==='chicken');
     $('sculptTools').style.display = (m==='sculpt') ? 'block' : 'none';
     $('paintTools').style.display = (m==='paint') ? 'block' : 'none';
     $('fenceTools').style.display = (m==='fence') ? 'block' : 'none';
     $('tunnelTools').style.display = (m==='tunnel') ? 'block' : 'none';
     $('bridgeTools').style.display = (m==='bridge') ? 'block' : 'none';
     $('waterTools').style.display = (m==='water') ? 'block' : 'none';
+    $('tuftsTools').style.display = (m==='tufts') ? 'block' : 'none';
+    $('chickenTools').style.display = (m==='chicken') ? 'block' : 'none';
     if (m==='sculpt') $('scCells').textContent = terrainCellCount();
     if (m==='paint') $('pCells').textContent = paintCellCount();
+    if (m==='tufts') $('tfCells').textContent = tuftCellCount();
     if (m==='fence') refreshFenceList();
     if (m==='tunnel') refreshTunnelList();
     if (m==='bridge') refreshBridgeList();
     if (m==='water') refreshWaterList();
+    if (m==='chicken') refreshChickenList();
     // gizmo only lives in object mode (otherwise it would steal clicks from point editing)
     gizmo.enabled = (m==='object'); gizmo.visible = (m==='object') && !!selObjId;
     if (m==='object' && selObjId && objMeshes[selObjId]) gizmo.attach(objMeshes[selObjId]);
-    if ((m==='sculpt'||m==='paint'||m==='fence'||m==='water') && showTerrain===false){ showTerrain=true; $('terrainBtn').classList.add('on'); rebuildTerrain(); }
+    if ((m==='sculpt'||m==='paint'||m==='fence'||m==='water'||m==='tufts') && showTerrain===false){ showTerrain=true; $('terrainBtn').classList.add('on'); rebuildTerrain(); }
     $('hint').textContent = m==='insert' ? 'click the road to INSERT a point on the nearest segment'
                           : m==='item'   ? 'click the road to drop an ITEM ROW (s-fraction)'
                           : m==='boost'  ? 'click the road to drop a BOOST PAD (s + lane)'
@@ -1186,6 +1354,8 @@
                           : m==='tunnel' ? 'click the road to add a concrete TUNNEL · select one from the list to adjust len/height/width'
                           : m==='bridge' ? 'click the road to add a wooden BRIDGE · select one from the list to adjust its length'
                           : m==='water'  ? 'sculpt a bowl first, then click INSIDE the low spot — water fills up to the click height'
+                          : m==='tufts'  ? 'drag the GRASS to paint extra grass tufts (low / high density) · erase to remove'
+                          : m==='chicken'? 'click the road to add a 🐔 chicken crossing (a chicken periodically walks across)'
                           : 'drag arrows = move · Shift+drag = elevation · drag empty = orbit · wheel = zoom';
   }
   $('mSelect').addEventListener('click', ()=>setMode('select'));
@@ -1205,6 +1375,15 @@
   $('brLen').addEventListener('change', commitHistory);
   $('brDel').addEventListener('click', ()=>{ const br=selectedBridge(); if(!br) return; track.bridges=track.bridges.filter(x=>x!==br); selBridgeId=null; rebuildBridges(); commitHistory(); });
   $('mWater').addEventListener('click', ()=>setMode('water'));
+  // 🌱 tufts brush
+  $('mTufts').addEventListener('click', ()=>setMode('tufts'));
+  $('tfLow').addEventListener('click', ()=>setTuftMode('low'));
+  $('tfHigh').addEventListener('click', ()=>setTuftMode('high'));
+  $('tfErase').addEventListener('click', ()=>setTuftMode('erase'));
+  $('tfRad').addEventListener('input', ()=>{ TUFT.radius=+$('tfRad').value; $('tfRadV').textContent=TUFT.radius; refreshRing(TUFT.radius); });
+  $('tfReset').addEventListener('click', ()=>{ track.tufts={ cell:6, cells:{} }; $('tfCells').textContent='0'; rebuildPaintedTufts(); commitHistory(); toast('tufts cleared'); });
+  // 🐔 chicken crossings
+  $('mChicken').addEventListener('click', ()=>setMode('chicken'));
   // 🌤 sky preset dropdown — live preview + save with the track (day => unset key, so byte-identical)
   $('skySel').addEventListener('change', ()=>{
     const v = $('skySel').value;
@@ -1309,7 +1488,7 @@
     if (terrainMesh){ const hits = raycaster.intersectObject(terrainMesh, false); if (hits.length) return hits[0].point; }
     const hit = new THREE.Vector3(); return raycaster.ray.intersectPlane(_groundPlane, hit) ? hit : null;
   }
-  let sculpting = false, painting = false;
+  let sculpting = false, painting = false, tufting = false;
   // Ctrl+C / Ctrl+V object copy-paste (2026-07-12): objClipboard holds ALL fields of the copied
   // object; lastPointerEvt tracks the cursor so a paste lands under it when it's over the terrain.
   let objClipboard = null, lastPointerEvt = null;
@@ -1325,6 +1504,8 @@
       const hits = raycaster.intersectObjects(objectGroup.children, true);
       let hitId = null;
       if (hits.length){ let g = hits[0].object; while (g && g.userData.objId===undefined) g = g.parent; hitId = g ? g.userData.objId : null; }
+      // SHIFT+CLICK: add/remove the object from the multi-selection (forest-building).
+      if (hitId && e.shiftKey){ shiftToggleObject(hitId); controls.enabled = false; e.stopImmediatePropagation(); return; }
       // Clicking a DIFFERENT object ALWAYS selects it — even if the current selection's gizmo handle
       // overlaps the cursor (that occlusion is why "I can't select my other objects" happens). We stop
       // the event so TransformControls doesn't hijack the press to drag the old selection instead.
@@ -1346,6 +1527,16 @@
     if (mode === 'paint'){
       setNdc(e); const h = pickGround();
       if (h){ painting = true; controls.enabled = false; applyPaint(h.x, h.z); liveTerrain(); }
+      return;
+    }
+    if (mode === 'tufts'){
+      setNdc(e); const h = pickGround();
+      if (h){ tufting = true; controls.enabled = false; applyTufts(h.x, h.z); liveTufts(); }
+      return;
+    }
+    if (mode === 'chicken'){
+      setNdc(e); const hit = pickRibbon();
+      if (hit){ addChickenAt(hit); controls.enabled = false; }
       return;
     }
     if (mode === 'fence'){ fenceDown = { x:e.clientX, y:e.clientY }; return; }  // add on click-up (drag = orbit)
@@ -1399,16 +1590,18 @@
 
   renderer.domElement.addEventListener('pointermove', e=>{
     lastPointerEvt = e;   // remembered so a Ctrl+V paste can land under the cursor
-    // brush preview ring + the sculpt/paint stroke itself share one raycast per event.
-    if (mode==='sculpt' || mode==='paint'){
+    // brush preview ring + the sculpt/paint/tufts stroke itself share one raycast per event.
+    if (mode==='sculpt' || mode==='paint' || mode==='tufts'){
       setNdc(e); const h = pickGround();
       if (h){
-        updateRing(h.x, h.z, mode==='sculpt' ? SCULPT.radius : PAINT.radius, e.shiftKey);
+        const rad = mode==='sculpt' ? SCULPT.radius : (mode==='tufts' ? TUFT.radius : PAINT.radius);
+        updateRing(h.x, h.z, rad, e.shiftKey);
         if (sculpting){
           if (SCULPT.mode==='level') applyLevelBrush(h.x, h.z);
           else applyBrush(h.x, h.z, e.shiftKey?-1:SCULPT.dir);
           liveTerrain();
         } else if (painting){ applyPaint(h.x, h.z); liveTerrain(); }
+        else if (tufting){ applyTufts(h.x, h.z); liveTufts(); }
       } else hideRing();   // cursor off the terrain
       return;
     }
@@ -1435,6 +1628,7 @@
     let mutated = false;
     if (sculpting){ sculpting=false; levelTarget=null; rebuildTerrain(); $('scCells').textContent = terrainCellCount(); mutated = true; }
     if (painting){ painting=false; rebuildTerrain(); $('pCells').textContent = paintCellCount(); mutated = true; }
+    if (tufting){ tufting=false; rebuildPaintedTufts(); $('tfCells').textContent = tuftCellCount(); mutated = true; }
     if (dragging>=0){ dragging=-1; mutated = true; }
     controls.enabled = true;
     if (mutated) commitHistory();   // ONE snapshot at stroke/drag END, not per-frame
@@ -1526,13 +1720,66 @@
     return false;
   }
   // ---- Ctrl+C / Ctrl+V object copy-paste (object mode) ----
+  // objGroupClipboard = a multi-object copy: full field data + each object's offset from the group's
+  // (x,z) centroid, so a paste re-lays them out around the cursor preserving relative positions.
+  let objGroupClipboard = null;
   function copySelectedObject(){
-    const o = selObjId ? (track.objects||[]).find(x=>x.id===selObjId) : null;
+    const ids = effectiveSelIds();
+    if (!ids.length) return false;
+    if (ids.length > 1){
+      const objs = ids.map(id=>(track.objects||[]).find(x=>x.id===id)).filter(Boolean);
+      if (!objs.length) return false;
+      const cx = objs.reduce((s,o)=>s+o.x,0)/objs.length, cz = objs.reduce((s,o)=>s+o.z,0)/objs.length;
+      objGroupClipboard = objs.map(o=>({ type:o.type, model:o.model, tag:o.tag||'', color:o.color,
+        sx:o.sx, sy:o.sy, sz:o.sz, rotY:o.rotY||0, dx:o.x-cx, dz:o.z-cz }));
+      objClipboard = null;
+      toast('copied '+objGroupClipboard.length+' objects');
+      return true;
+    }
+    const o = (track.objects||[]).find(x=>x.id===ids[0]);
     if (!o){ return false; }
     objClipboard = { type:o.type, model:o.model, tag:o.tag||'', color:o.color,
                      sx:o.sx, sy:o.sy, sz:o.sz, rotY:o.rotY||0 };
+    objGroupClipboard = null;
     toast('copied object'+(o.tag?' "'+o.tag+'"':''));
     return true;
+  }
+  // paste the whole copied group: centroid lands at the cursor's ground point (else +6u offset), each
+  // object keeps its rotation/scale + relative offset, and is re-seated on the terrain at its own (x,z).
+  function pasteGroup(){
+    if (!objGroupClipboard || !objGroupClipboard.length) return;
+    setMode('object');
+    let px, pz;
+    if (lastPointerEvt){ setNdc(lastPointerEvt); const h = pickGround(); if (h){ px=h.x; pz=h.z; } }
+    if (px==null){ px = 6; pz = 6; }
+    track.objects = track.objects || [];
+    const pastedIds = [];
+    for (const cb of objGroupClipboard){
+      const ox = px + cb.dx, oz = pz + cb.dz;
+      const yaw = (cb.type==='ramp' && sampled) ? FK_TRACK.trackDirectionAt(sampled, ox, oz).yaw : (cb.rotY||0);
+      const o = { id:'obj_'+(++objSeq), tag:cb.tag, type:cb.type,
+        x:+ox.toFixed(2), y:+(terrainHeightAt(ox,oz)+cb.sy/2).toFixed(2), z:+oz.toFixed(2),
+        rotY:+yaw.toFixed(3), sx:cb.sx, sy:cb.sy, sz:cb.sz, color:cb.color };
+      if (cb.type==='glb' && cb.model) o.model = cb.model;
+      track.objects.push(o); pastedIds.push(o.id);
+    }
+    rebuildObjects();
+    // the pasted group becomes the new multi-selection (so repeat Ctrl+V duplicates it again)
+    clearMultiSel();
+    for (const id of pastedIds) multiSel.add(id);
+    selObjId = pastedIds[pastedIds.length-1];
+    if (objMeshes[selObjId]) gizmo.attach(objMeshes[selObjId]);
+    refreshMultiSelHighlight(); refreshObjList();
+    commitHistory();
+    toast('pasted '+pastedIds.length+' objects');
+  }
+  // Delete the whole effective selection (multi-set or single). One history entry.
+  function deleteSelection(){
+    const ids = effectiveSelIds(); if (!ids.length) return;
+    const set = new Set(ids);
+    track.objects = (track.objects||[]).filter(x=>!set.has(x.id));
+    gizmo.detach(); selObjId = null; clearMultiSel();
+    rebuildObjects(); commitHistory(); toast('deleted '+ids.length+' object'+(ids.length===1?'':'s'));
   }
   function pasteObject(){
     if (!objClipboard) return;
@@ -1562,11 +1809,12 @@
     // copy that instead). inField already returned above, so this only fires with focus off any input.
     if (mod && e.key.toLowerCase()==='c'){
       const sel = (window.getSelection && String(window.getSelection())) || '';
-      if (!sel && mode==='object' && selObjId){ if (copySelectedObject()) e.preventDefault(); }
+      if (!sel && mode==='object' && effectiveSelIds().length){ if (copySelectedObject()) e.preventDefault(); }
       return;
     }
     if (mod && e.key.toLowerCase()==='v'){
-      if (objClipboard){ e.preventDefault(); pasteObject(); }
+      if (objGroupClipboard){ e.preventDefault(); pasteGroup(); }
+      else if (objClipboard){ e.preventDefault(); pasteObject(); }
       return;
     }
     if (mod && e.key.toLowerCase()==='d'){
@@ -1575,11 +1823,12 @@
     }
     if (e.key==='Escape'){
       if (pendingPlace){ endPlacing(); e.preventDefault(); return; }
+      if (multiSel.size){ clearMultiSel(); refreshObjList(); e.preventDefault(); return; }
       if (mode!=='select'){ setMode('select'); e.preventDefault(); }
       return;
     }
     if (e.key==='Delete'||e.key==='Backspace'){
-      if (mode==='object' && selObjId){ deleteObject(); e.preventDefault(); }
+      if (mode==='object' && effectiveSelIds().length){ deleteSelection(); e.preventDefault(); }
       else if (selected>=0){ deleteSelected(); e.preventDefault(); }
     } else if (e.key.startsWith('Arrow')){
       const step = e.shiftKey ? 2 : 0.5;
@@ -2350,7 +2599,21 @@
     setPaintIntensity:(pct)=>{ PAINT.intensity = Math.max(0.05, Math.min(1, pct/100)); const el=$('pInt'); if(el){ el.value=pct; $('pIntV').textContent=pct; } },
     get paintIntensity(){ return PAINT.intensity; },
     copySelectedObject, pasteObject, get objClipboard(){ return objClipboard; },
-    setLastPointer:(clientX, clientY)=>{ lastPointerEvt = { clientX, clientY }; }
+    setLastPointer:(clientX, clientY)=>{ lastPointerEvt = { clientX, clientY }; },
+    // SCALE RESEAT (2026-07-12)
+    reseatSelectedOnGround, reseatObjectOnGround,
+    // MULTI-SELECT + group copy/paste/delete (2026-07-12)
+    shiftToggleObject, clearMultiSel, effectiveSelIds, pasteGroup, deleteSelection,
+    get multiSel(){ return [...multiSel]; }, get objGroupClipboard(){ return objGroupClipboard; },
+    get multiSelHighlightCount(){ return multiSelGroup.children.length; },
+    // TUFTS painting (2026-07-12)
+    get tufts(){ return track.tufts; }, get tuftCells(){ return tuftCellCount(); },
+    setTuftMode, get tuftMode(){ return TUFT.mode; }, setTuftRadius:(r)=>{ TUFT.radius=r; },
+    tuftAt:(x,z)=>{ applyTufts(x,z); rebuildPaintedTufts(); return tuftCellCount(); },
+    get paintedTuftsMesh(){ return paintedTuftsMesh; }, rebuildPaintedTufts,
+    // CHICKEN crossings (2026-07-12)
+    get chickens(){ return track.chickens||[]; }, addChickenAt, rebuildChickenMarkers, get chickenGroup(){ return chickenGroup; },
+    deleteChicken:(id)=>{ track.chickens=(track.chickens||[]).filter(c=>c.id!==id); rebuildChickenMarkers(); commitHistory(); }
   };
   </script>
 </body>
