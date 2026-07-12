@@ -148,5 +148,137 @@
     "estDurationS": 3.06,
     "api": "POST /v1/sound-generation (duration_seconds=3.0, prompt_influence=0.55, loop=true)",
     "notes": "replaces the previously-hated synth scrape SFX; prompted for playful/energetic not harsh. Loop-edge energy ratio 0.91 (no hard fade)."
+  },
+  {
+    "file": "fk-music-race-barn-burner.mp3",
+    "kind": "race-music",
+    "displayName": "Barn Burner",
+    "target": "~90-110s",
+    "prompt": "composition_plan (music_v1, 4 sections, instrumental): fast bluegrass banjo+fiddle hoedown — Hoedown Kickoff (banjo rolls, claps) -> Fiddle Flight (blazing fiddle lead) -> Stomp Break (half-time claps/spoons build) -> Full Barn Finish (full band peak resolving back to the opening banjo roll for a seamless loop)",
+    "bytes": 1537298,
+    "estDurationS": 96.08,
+    "api": "POST /v1/music (music_v1, composition_plan.sections[4], instrumental, no prompt/music_length_ms)",
+    "notes": "Themed race-music library entry (2026-07-12). Barn Burner: fast bluegrass banjo+fiddle hoedown (farm). Duration measured via WebAudio decode; loop-friendly outro resolves toward the intro."
+  },
+  {
+    "file": "fk-music-race-western-showdown.mp3",
+    "kind": "race-music",
+    "displayName": "Western Showdown",
+    "target": "~90-110s",
+    "prompt": "composition_plan (music_v1, 4 sections, instrumental): spaghetti-western gallop — Desert Gallop Intro (clip-clop percussion, twangy guitar) -> Whistle Duel (whistling lead, trumpet accents) -> Canyon Chase (tremolo build) -> Showdown Return (peak resolving back to the opening gallop riff for a seamless loop)",
+    "bytes": 1537298,
+    "estDurationS": 96.08,
+    "api": "POST /v1/music (music_v1, composition_plan.sections[4], instrumental, no prompt/music_length_ms)",
+    "notes": "Themed race-music library entry (2026-07-12). Western Showdown: spaghetti-western gallop with whistling lead (desert). Duration measured via WebAudio decode; loop-friendly outro resolves toward the intro."
+  },
+  {
+    "file": "fk-music-race-city-rush.mp3",
+    "kind": "race-music",
+    "displayName": "City Rush",
+    "target": "~90-110s",
+    "prompt": "composition_plan (music_v1, 4 sections, instrumental): funky city driving groove — Downtown Kickoff (brass stab hook, wah guitar) -> Traffic Weave (funky bass lead, horn riffs) -> Rooftop Lift (congas/clav build) -> Rush Hour Peak (full funk peak resolving back to the opening brass hook for a seamless loop)",
+    "bytes": 1537298,
+    "estDurationS": 96.08,
+    "api": "POST /v1/music (music_v1, composition_plan.sections[4], instrumental, no prompt/music_length_ms)",
+    "notes": "Themed race-music library entry (2026-07-12). City Rush: funky driving city groove with brass stabs (city). Duration measured via WebAudio decode; loop-friendly outro resolves toward the intro."
+  },
+  {
+    "file": "fk-music-race-snow-sprint.mp3",
+    "kind": "race-music",
+    "displayName": "Snow Sprint",
+    "target": "~90-110s",
+    "prompt": "composition_plan (music_v1, 4 sections, instrumental): sleigh-bell driving pop-orchestral — Sleigh Bell Sprint (bells + chime melody) -> Icy Slalom (soaring strings, warm brass) -> Snowdrift Build (glockenspiel build) -> Powder Finish (full orchestra peak resolving back to the opening chime melody for a seamless loop)",
+    "bytes": 1537298,
+    "estDurationS": 96.08,
+    "api": "POST /v1/music (music_v1, composition_plan.sections[4], instrumental, no prompt/music_length_ms)",
+    "notes": "Themed race-music library entry (2026-07-12). Snow Sprint: sleigh-bell driving pop-orchestral (snow). Duration measured via WebAudio decode; loop-friendly outro resolves toward the intro."
+  },
+  {
+    "file": "fk-music-race-jungle-drums.mp3",
+    "kind": "race-music",
+    "displayName": "Jungle Drums",
+    "target": "~90-110s",
+    "prompt": "composition_plan (music_v1, 4 sections, instrumental): percussion-heavy tribal groove — Drum Circle Ignite (tribal drums, marimba riff) -> Canopy Run (pan flute lead) -> Vine Swing Break (call-and-answer drum build) -> Wild Sprint Home (full percussion+marimba peak resolving back to the opening drum groove for a seamless loop)",
+    "bytes": 1537298,
+    "estDurationS": 96.08,
+    "api": "POST /v1/music (music_v1, composition_plan.sections[4], instrumental, no prompt/music_length_ms)",
+    "notes": "Themed race-music library entry (2026-07-12). Jungle Drums: percussion-heavy tribal groove with marimba and pan flutes (jungle). Duration measured via WebAudio decode; loop-friendly outro resolves toward the intro."
+  },
+  {
+    "file": "fk-music-race-moonlight-run.mp3",
+    "kind": "race-music",
+    "displayName": "Moonlight Run",
+    "target": "~90-110s",
+    "prompt": "composition_plan (music_v1, 4 sections, instrumental): night-race synthwave-meets-fiddle — Neon Dusk Intro (pulsing synth bass, pads) -> Fiddle Under Stars (fiddle lead over synthwave) -> Midnight Build (arpeggio/filter-sweep build) -> Moonlit Finish (synth+fiddle peak resolving back to the opening synth pulse for a seamless loop)",
+    "bytes": 1537298,
+    "estDurationS": 96.08,
+    "api": "POST /v1/music (music_v1, composition_plan.sections[4], instrumental, no prompt/music_length_ms)",
+    "notes": "Themed race-music library entry (2026-07-12). Moonlight Run: cool synthwave-meets-fiddle night race (night). Duration measured via WebAudio decode; loop-friendly outro resolves toward the intro."
+  },
+  {
+    "file": "fk-music-race-tractor-rock.mp3",
+    "kind": "race-music",
+    "displayName": "Tractor Rock",
+    "target": "~90-110s",
+    "prompt": "composition_plan (music_v1, 4 sections, instrumental): chunky farm rock — Diesel Riff Intro (palm-muted riff, cowbell, claps) -> Full Throttle Verse (guitar lead licks) -> Hay Loft Break (claps/cowbell breakdown build) -> Barnyard Encore (full band peak resolving back to the opening riff for a seamless loop)",
+    "bytes": 1537298,
+    "estDurationS": 96.08,
+    "api": "POST /v1/music (music_v1, composition_plan.sections[4], instrumental, no prompt/music_length_ms)",
+    "notes": "Themed race-music library entry (2026-07-12). Tractor Rock: chunky farm rock with cowbell and hand claps (farm/off-road). Duration measured via WebAudio decode; loop-friendly outro resolves toward the intro."
+  },
+  {
+    "file": "fk-music-race-county-fair.mp3",
+    "kind": "race-music",
+    "displayName": "County Fair",
+    "target": "~90-110s",
+    "prompt": "composition_plan (music_v1, 4 sections, instrumental): fast carnival fairground romp — Midway Merry-Go (calliope organ, oom-pah tuba) -> Tilt-a-Whirl (woodwind lead) -> Funhouse Build (xylophone + drum-roll build) -> Grand Parade Finish (organ+brass peak resolving back to the opening calliope melody for a seamless loop)",
+    "bytes": 1537298,
+    "estDurationS": 96.08,
+    "api": "POST /v1/music (music_v1, composition_plan.sections[4], instrumental, no prompt/music_length_ms)",
+    "notes": "Themed race-music library entry (2026-07-12). County Fair: fast carnival fairground organ romp (fair). Duration measured via WebAudio decode; loop-friendly outro resolves toward the intro."
+  },
+  {
+    "file": "fk-music-race-thunder-road.mp3",
+    "kind": "race-music",
+    "displayName": "Thunder Road",
+    "target": "~90-110s",
+    "prompt": "composition_plan (music_v1, 4 sections, instrumental): dramatic storm-race orchestral-rock (exciting not scary) — Storm Front Intro (timpani, staccato strings, guitar riff) -> Lightning Sprint (heroic brass over rock drums) -> Eye of the Storm (pizzicato build) -> Thunder Finish (triumphant peak resolving back to the opening string ostinato for a seamless loop)",
+    "bytes": 1537298,
+    "estDurationS": 96.08,
+    "api": "POST /v1/music (music_v1, composition_plan.sections[4], instrumental, no prompt/music_length_ms)",
+    "notes": "Themed race-music library entry (2026-07-12). Thunder Road: dramatic storm-race orchestral-rock hybrid (storm). Duration measured via WebAudio decode; loop-friendly outro resolves toward the intro."
+  },
+  {
+    "file": "fk-music-race-dirt-dash.mp3",
+    "kind": "race-music",
+    "displayName": "Dirt Dash",
+    "target": "~90-110s",
+    "prompt": "composition_plan (music_v1, 4 sections, instrumental): off-road southern stomp — Mud Flap Stomp (kick+claps, slide guitar riff) -> Harmonica Highway (wailing harmonica lead) -> Gravel Pit Break (stomp-and-clap build) -> Checkered Mud Finish (harmonica+slide peak resolving back to the opening stomp riff for a seamless loop)",
+    "bytes": 1537298,
+    "estDurationS": 96.08,
+    "api": "POST /v1/music (music_v1, composition_plan.sections[4], instrumental, no prompt/music_length_ms)",
+    "notes": "Themed race-music library entry (2026-07-12). Dirt Dash: off-road stomp with slide guitar and harmonica (off-road). Duration measured via WebAudio decode; loop-friendly outro resolves toward the intro."
+  },
+  {
+    "file": "fk-music-race-golden-fields.mp3",
+    "kind": "race-music",
+    "displayName": "Golden Fields",
+    "target": "~90-110s",
+    "prompt": "composition_plan (music_v1, 4 sections, instrumental): soaring feel-good country-pop cruiser — Sunrise Cruise (acoustic strumming, warm piano) -> Open Road Melody (soaring electric guitar lead) -> Golden Hour Lift (mandolin-sparkle build) -> Homestretch Glow (full band peak resolving back to the opening acoustic groove for a seamless loop)",
+    "bytes": 1537298,
+    "estDurationS": 96.08,
+    "api": "POST /v1/music (music_v1, composition_plan.sections[4], instrumental, no prompt/music_length_ms)",
+    "notes": "Themed race-music library entry (2026-07-12). Golden Fields: soaring feel-good country-pop cruiser (farm/fields). Duration measured via WebAudio decode; loop-friendly outro resolves toward the intro."
+  },
+  {
+    "file": "fk-music-race-final-lap-frenzy.mp3",
+    "kind": "race-music",
+    "displayName": "Final Lap Frenzy",
+    "target": "~90-110s",
+    "prompt": "composition_plan (music_v1, 4 sections, instrumental): maximum-intensity finale — Alarm Bell Sprint (urgent hook, banjo shred) -> Key Change Climb (melody rises a key) -> Everything At Once (another key up, full ensemble frenzy) -> Photo Finish Loop (peak resolving cleanly back to the opening hook key for a seamless loop)",
+    "bytes": 1505116,
+    "estDurationS": 94.07,
+    "api": "POST /v1/music (music_v1, composition_plan.sections[4], instrumental, no prompt/music_length_ms)",
+    "notes": "Themed race-music library entry (2026-07-12). Final Lap Frenzy: maximum-intensity finale with rising key changes (final lap). Duration measured via WebAudio decode; loop-friendly outro resolves toward the intro."
   }
 ]
