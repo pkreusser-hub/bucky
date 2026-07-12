@@ -1,0 +1,162 @@
+[
+  {
+    "file": "bb-sfx-chop-impact.mp3",
+    "kind": "sfx",
+    "prompt": "sharp knife chopping on a wooden cutting board, single crisp impact, cartoonish kitchen game",
+    "target": "0.6s",
+    "loop": false,
+    "bytes": 10493,
+    "estDurationS": 0.66,
+    "api": "POST /v1/sound-generation (duration_seconds=0.6, prompt_influence=0.7, loop=false)"
+  },
+  {
+    "file": "bb-music-menu.mp3",
+    "kind": "music",
+    "prompt": "cozy warm acoustic kitchen ditty, gentle guitar and ukulele, playful farmyard restaurant title screen, relaxed medium-slow tempo, seamless loop, instrumental, no vocals",
+    "target": "65s",
+    "loop": false,
+    "bytes": 520404,
+    "estDurationS": 65.05,
+    "api": "POST /v1/music (music_v1, force_instrumental=true, music_length_ms=65000)"
+  },
+  {
+    "file": "bb-sfx-sizzle-start.mp3",
+    "kind": "sfx",
+    "prompt": "food dropped onto a hot frying pan, quick sizzling burst starting up, cartoon kitchen",
+    "target": "1.2s",
+    "loop": false,
+    "bytes": 20106,
+    "estDurationS": 1.26,
+    "api": "POST /v1/sound-generation (duration_seconds=1.2, prompt_influence=0.65, loop=false)"
+  },
+  {
+    "file": "bb-sfx-pot-bubble-loop.mp3",
+    "kind": "sfx",
+    "prompt": "soup gently bubbling and simmering in a pot, soft cartoon cooking loop, seamless loop",
+    "target": "4s",
+    "loop": true,
+    "bytes": 65245,
+    "estDurationS": 4.08,
+    "api": "POST /v1/sound-generation (duration_seconds=4, prompt_influence=0.45, loop=true)"
+  },
+  {
+    "file": "bb-sfx-plate-clatter.mp3",
+    "kind": "sfx",
+    "prompt": "light ceramic plate clatter, food placed on a plate, cartoon kitchen game",
+    "target": "0.6s",
+    "loop": false,
+    "bytes": 10493,
+    "estDurationS": 0.66,
+    "api": "POST /v1/sound-generation (duration_seconds=0.6, prompt_influence=0.7, loop=false)"
+  },
+  {
+    "file": "bb-sfx-dish-serve.mp3",
+    "kind": "sfx",
+    "prompt": "cheerful bright bell chime, dish served at a restaurant window, warm and friendly, video game",
+    "target": "1s",
+    "loop": false,
+    "bytes": 17180,
+    "estDurationS": 1.07,
+    "api": "POST /v1/sound-generation (duration_seconds=1, prompt_influence=0.65, loop=false)"
+  },
+  {
+    "file": "bb-sfx-throw-whoosh.mp3",
+    "kind": "sfx",
+    "prompt": "quick soft whoosh of a small object being tossed through the air, cartoon kitchen game",
+    "target": "0.5s",
+    "loop": false,
+    "bytes": 8821,
+    "estDurationS": 0.55,
+    "api": "POST /v1/sound-generation (duration_seconds=0.5, prompt_influence=0.7, loop=false)"
+  },
+  {
+    "file": "bb-sfx-trash-swish.mp3",
+    "kind": "sfx",
+    "prompt": "quick bright swish sound, something tossed into a bin, cartoon video game",
+    "target": "0.5s",
+    "loop": false,
+    "bytes": 8821,
+    "estDurationS": 0.55,
+    "api": "POST /v1/sound-generation (duration_seconds=0.5, prompt_influence=0.7, loop=false)"
+  },
+  {
+    "file": "bb-sfx-splash.mp3",
+    "kind": "sfx",
+    "prompt": "small gentle water splash, washing a dish in a sink, cartoon kitchen game",
+    "target": "0.7s",
+    "loop": false,
+    "bytes": 12164,
+    "estDurationS": 0.76,
+    "api": "POST /v1/sound-generation (duration_seconds=0.7, prompt_influence=0.65, loop=false)"
+  },
+  {
+    "file": "bb-sfx-catch-thump.mp3",
+    "kind": "sfx",
+    "prompt": "soft gentle thump catching a small soft object in two hands, cartoon, satisfying not harsh",
+    "target": "0.5s",
+    "loop": false,
+    "bytes": 8821,
+    "estDurationS": 0.55,
+    "api": "POST /v1/sound-generation (duration_seconds=0.5, prompt_influence=0.7, loop=false)"
+  },
+  {
+    "file": "bb-sfx-coin.mp3",
+    "kind": "sfx",
+    "prompt": "cheerful cha-ching coin reward chime, bright and friendly, video game money pickup",
+    "target": "0.8s",
+    "loop": false,
+    "bytes": 13836,
+    "estDurationS": 0.86,
+    "api": "POST /v1/sound-generation (duration_seconds=0.8, prompt_influence=0.65, loop=false)"
+  },
+  {
+    "file": "bb-sfx-gentle-miss.mp3",
+    "kind": "sfx",
+    "prompt": "soft gentle sad trombone-like descending womp, kid-friendly, not harsh, video game miss",
+    "target": "0.9s",
+    "loop": false,
+    "bytes": 15090,
+    "estDurationS": 0.94,
+    "api": "POST /v1/sound-generation (duration_seconds=0.9, prompt_influence=0.6, loop=false)"
+  },
+  {
+    "file": "bb-sfx-crowd-cheer.mp3",
+    "kind": "sfx",
+    "prompt": "small warm crowd cheering and clapping burst, friendly outdoor family gathering, video game celebration",
+    "target": "1.6s",
+    "loop": false,
+    "bytes": 26793,
+    "estDurationS": 1.67,
+    "api": "POST /v1/sound-generation (duration_seconds=1.6, prompt_influence=0.6, loop=false)"
+  },
+  {
+    "file": "bb-sfx-customer-munch.mp3",
+    "kind": "sfx",
+    "prompt": "cute cartoon animal munching and chewing food happily, a few quick friendly bites",
+    "target": "1s",
+    "loop": false,
+    "bytes": 17180,
+    "estDurationS": 1.07,
+    "api": "POST /v1/sound-generation (duration_seconds=1, prompt_influence=0.65, loop=false)"
+  },
+  {
+    "file": "bb-music-cook.mp3",
+    "kind": "music",
+    "prompt": "upbeat playful cooking-game theme, bouncy pizzicato strings, marimba and light percussion, cheerful and energetic kitchen bustle, instrumental, no vocals, seamless loop",
+    "target": "80s",
+    "loop": false,
+    "bytes": 640776,
+    "estDurationS": 80.1,
+    "api": "POST /v1/music (music_v1, force_instrumental=true, music_length_ms=80000)"
+  },
+  {
+    "file": "bb-music-rush.mp3",
+    "kind": "music",
+    "prompt": "faster upbeat playful cooking-game theme, same bouncy pizzicato strings and marimba as a cheerful kitchen bustle track but higher energy and quicker tempo for a final countdown rush, instrumental, no vocals, seamless loop",
+    "target": "70s",
+    "loop": false,
+    "bytes": 560319,
+    "estDurationS": 70.04,
+    "api": "POST /v1/music (music_v1, force_instrumental=true, music_length_ms=70000)"
+  }
+]

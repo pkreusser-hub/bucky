@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 "use strict";
 /**
- * Integration smoke test: Hayhem2 — turn system, slingshot aim, wind, AI,
- * direct hits, anti-tunnel, pond correctness, water-outs, framing.
+ * Integration smoke test: Hayhem "Tower Bay" — turn system, slingshot aim,
+ * wind, AI, direct hits, anti-tunnel, map-wide sea + tower spawns, water-outs,
+ * tower-demolition kills, framing, camera orbit, ammo invariance.
  */
 const path = require("path");
 const net = require("net");
@@ -114,39 +115,35 @@ async function main() {
   check(ci.dist < 10, "aim camera within 10 of the shooter (dist " + ci.dist.toFixed(1) + ")");
   check(ci.dot > 0.5, "camera looks toward the enemy yard (dot " + ci.dot.toFixed(2) + ")");
 
-  // ── 2) POND correctness + splash (no carve) ──
-  console.log("\n[2] pond / splash");
+  // ── 2) SEA correctness + splash anywhere over open water (no carve) ──
+  console.log("\n[2] sea / splash");
   const wi = await page.evaluate(() => window.__HAYHEM__.waterInfo());
   check(wi.waterY > wi.bedTopY, `waterY(${wi.waterY.toFixed(2)}) > bedTopY(${wi.bedTopY.toFixed(2)})`);
   check(wi.waterVisible, "water mesh visible");
+  check(wi.pondHalfX > 20 && wi.pondHalfZ > 12, "sea spans the playfield (" + wi.pondHalfX + "×" + wi.pondHalfZ + ")");
   const splash = await page.evaluate(() => {
     const H = window.__HAYHEM__;
     const before = H.voxelCount();
-    // lob from west muzzle to land in pond center: aim up+toward center, tuned power
-    const u = H.G.units.find(x => x.id === H.activeUnitId);
-    const o = H.muzzleOf(u.id);
-    // pick a dir/power that peaks and drops into pond center (~x 0). Search:
+    // find a shot whose HONEST sim ends in a splash over open mid-bay water
     let best = null;
-    for (let pw = 8; pw <= 22; pw += 0.5) {
+    for (let pw = 8; pw <= 22 && !best; pw += 0.5) {
       for (let p = 25; p <= 65; p += 5) {
         const pit = p * Math.PI / 180;
         const dir = [Math.cos(pit), Math.sin(pit), 0];
-        const pts = H.simulate(pw, dir[0], dir[1], dir[2]);
-        const end = pts[pts.length - 1];
-        if (Math.abs(end.x) < 2.5 && Math.abs(end.z) < 5 && end.y < 3) { best = { pw, dir }; break; }
+        const ps = H.previewShot(pw, dir[0], dir[1], dir[2]);
+        if (ps.endKind === "splash" && Math.abs(ps.end.x) < 8) { best = { pw, dir }; break; }
       }
-      if (best) break;
     }
     return { before, best };
   });
-  check(!!splash.best, "found a lob into the pond");
+  check(!!splash.best, "found a lob into open bay water");
   await page.evaluate((b) => window.__HAYHEM__.fireAt(b.pw, b.dir[0], b.dir[1], b.dir[2]), splash.best);
   await page.waitForFunction(() => window.__HAYHEM__.G.lastImpact != null, { timeout: 15000 });
   const splashRes = await page.evaluate((before) => {
     const H = window.__HAYHEM__;
     return { kind: H.G.lastImpact.kind, after: H.voxelCount(), before };
   }, splash.before);
-  check(splashRes.kind === "splash", "pumpkin into pond → splash (kind=" + splashRes.kind + ")");
+  check(splashRes.kind === "splash", "pumpkin into the bay → splash (kind=" + splashRes.kind + ")");
   check(splashRes.after === splashRes.before, "splash carved 0 voxels (" + splashRes.before + "→" + splashRes.after + ")");
   await waitResolve(page);
 
@@ -205,8 +202,9 @@ async function main() {
   const tun = await page.evaluate(() => {
     const H = window.__HAYHEM__;
     H.startMatch();
-    // Find a HIGH-power arc that ends on solid terrain (a bank/yard wall) — the
-    // meaningful tunnel case. Substepping (≤0.22 < CELL) must catch the wall.
+    // Find a HIGH-power arc that ends on an east TOWER wall/top (the only solid
+    // above-water terrain) — the meaningful tunnel case at max speed.
+    // Substepping (≤0.22 < CELL) must catch the wall.
     let best = null;
     for (let pw = 26; pw >= 20; pw -= 0.5) {
       for (let pd = 20; pd <= 60; pd += 1.5) {
@@ -214,10 +212,8 @@ async function main() {
         const dir = [Math.cos(pit), Math.sin(pit), 0];
         const pts = H.simulate(pw, dir[0], dir[1], dir[2]);
         const end = pts[pts.length - 1];
-        const inPond = Math.abs(end.x) < 3.0 && Math.abs(end.z) < 6.3;
-        // terrain break on the near-side east bank (past pond, BEFORE the east
-        // critters at x~11.6) so we exercise a pure terrain hit at high speed
-        if (!inPond && end.y > 1.5 && end.x > 3.4 && end.x < 9.5) { best = { pw, dir, end }; break; }
+        // a stop above water in the east tower band = a voxel (tower) hit
+        if (end.y > 2.3 && end.x > 9.5 && end.x < 14.2) { best = { pw, dir, end }; break; }
       }
       if (best) break;
     }
@@ -225,7 +221,7 @@ async function main() {
     if (best) H.fireAt(best.pw, best.dir[0], best.dir[1], best.dir[2]);
     return { before, best, power: best && best.pw };
   });
-  check(!!tun.best, "found a high-power shot that lands on the far bank (pw=" + (tun.power || 0) + ")");
+  check(!!tun.best, "found a high-power shot that lands on an east tower (pw=" + (tun.power || 0) + ")");
   await page.waitForFunction(() => window.__HAYHEM__.G.lastImpact != null, { timeout: 15000 });
   const tunRes = await page.evaluate((before) => {
     const H = window.__HAYHEM__;
@@ -491,7 +487,8 @@ async function main() {
         for (let pd = 24; pd <= 60; pd += 2) {
           const pit = pd * Math.PI / 180, dir = [Math.cos(pit), Math.sin(pit), 0];
           const ps = H.previewShot(pw, dir[0], dir[1], dir[2]);
-          if (ps.endKind === "carve" && ps.end.x > 3.4 && ps.end.x < 10) { best = { pw, dir }; break; }
+          // carve target = an east tower wall/top (only solid above-water terrain)
+          if (ps.endKind === "carve" && ps.end.x > 9.5 && ps.end.x < 14.2) { best = { pw, dir }; break; }
         }
       }
       if (!best) return null;
@@ -638,8 +635,83 @@ async function main() {
   const clr = await page.evaluate(() => window.__clrMin);
   check(clr > 0.5, "camera stayed above terrain through the full west+east cycle (min clearance " + clr.toFixed(2) + ")");
 
-  // ── 13) PLAYER CAMERA ORBIT + ammo-switch invariance ──
-  console.log("\n[13] camera orbit + ammo-switch invariance");
+  // ── 13) TOWER BAY: tower spawns · near-miss knock-off · demolition kill ──
+  console.log("\n[13] tower bay");
+  await page.evaluate(() => window.__HAYHEM__.startMatch());
+  await page.waitForFunction(() => window.__HAYHEM__.camMode === "aim", { timeout: 9000 });
+  // (a) every unit spawns centered on a tower top, well above water; staggered heights
+  const spawnInfo = await page.evaluate(() => {
+    const H = window.__HAYHEM__;
+    return {
+      waterY: H.waterInfo().waterY,
+      tw: H.towers(),
+      us: H.G.units.map(u => ({ team: u.team, x: u.x, z: u.z, y: u.y, gy: H.groundAt(u.x, u.z) }))
+    };
+  });
+  check(spawnInfo.us.every(u => u.y > spawnInfo.waterY + 1), "all 6 units spawn well above water (min +" +
+    Math.min(...spawnInfo.us.map(u => u.y - spawnInfo.waterY)).toFixed(2) + ")");
+  check(spawnInfo.us.every(u => Math.abs(u.y - u.gy) < 1e-6), "each unit rests exactly on its column top (u.y == groundYAt)");
+  check(spawnInfo.us.every((u, i) => {
+    const t = spawnInfo.tw[i];
+    return Math.abs(u.x - t.x) < 1e-6 && Math.abs(u.z - t.z) < 1e-6 && Math.abs(u.gy - t.topY) < 1e-6;
+  }), "spawns centered on their towers at the declared heights");
+  const westTops = new Set(spawnInfo.us.filter(u => u.team === 0).map(u => u.gy.toFixed(2)));
+  const eastTops = new Set(spawnInfo.us.filter(u => u.team === 1).map(u => u.gy.toFixed(2)));
+  check(westTops.size >= 2 && eastTops.size >= 2,
+    "tower heights STAGGERED per side (west " + [...westTops].join("/") + " · east " + [...eastTops].join("/") + ")");
+
+  // (b) REAL near-miss blast on the same tower shoves the critter off → water → out
+  const knock = await page.evaluate(() => {
+    const H = window.__HAYHEM__;
+    H.setWind(0);
+    H.setAmmo("melon");
+    const tp = H.critters[3].bodies.torso.position;   // east front tower critter
+    const o = H.muzzleOf(H.activeUnitId);
+    const bearing = Math.atan2(tp.z - o.z, tp.x - o.x);
+    let best = null;
+    for (let pw = 8; pw <= 26; pw += 0.4) {
+      for (let pd = 16; pd <= 70; pd += 1.5) {
+        for (let daz = -0.06; daz <= 0.061; daz += 0.03) {
+          const pit = pd * Math.PI / 180, az = bearing + daz;
+          const dir = [Math.cos(pit) * Math.cos(az), Math.sin(pit), Math.cos(pit) * Math.sin(az)];
+          const ps = H.previewShot(pw, dir[0], dir[1], dir[2]);
+          if (ps.endKind !== "carve") continue;   // near-miss TERRAIN hit only, never a direct hit
+          const d = Math.hypot(ps.end.x - tp.x, ps.end.y - tp.y, ps.end.z - tp.z);
+          if (!best || d < best.d) best = { d, pw, dir };
+        }
+      }
+    }
+    if (best && best.d < 2.2) H.fireAt(best.pw, best.dir[0], best.dir[1], best.dir[2]);
+    return best;
+  });
+  check(knock && knock.d < 2.2, "found a same-tower NEAR-MISS carve shot (d=" + (knock ? knock.d.toFixed(2) : "none") + " from the critter)");
+  await page.waitForFunction(() => window.__HAYHEM__.G.units[3].out, { timeout: 15000 });
+  const knockRes = await page.evaluate(() => {
+    const t = window.__HAYHEM__.critters[3].bodies.torso.position;
+    return { out: window.__HAYHEM__.G.units[3].out, y: t.y };
+  });
+  check(knockRes.out, "near-miss blast knocked the critter off its tower → water-out");
+  check(knockRes.y < 2.4, "the knocked critter ended IN the water, not on the tower (y=" + knockRes.y.toFixed(2) + ")");
+  await waitResolve(page, 25000);
+
+  // (c) TOWER DEMOLITION: carve the column under a critter → it drops and drowns
+  await page.evaluate(() => window.__HAYHEM__.startMatch());
+  await waitPhase(page, "aim");
+  const demo = await page.evaluate(() => {
+    const H = window.__HAYHEM__;
+    const u = H.G.units[5];             // east back tower (11.6, 4.4)
+    const before = { gy: H.groundAt(u.x, u.z) };
+    H.forceCarve(u.x, 3.0, u.z, 2.2);   // chew the whole column above water
+    H.forceCarve(u.x, 4.6, u.z, 2.2);
+    return { before, gyAfter: H.groundAt(u.x, u.z) };
+  });
+  check(demo.before.gy > 2.2, "victim started on a tower (gy=" + demo.before.gy.toFixed(2) + ")");
+  check(demo.gyAfter < 2.2, "column fully demolished — groundYAt now BELOW water (" + demo.gyAfter.toFixed(2) + ")");
+  await page.waitForFunction(() => window.__HAYHEM__.G.units[5].out, { timeout: 12000 });
+  check(true, "critter dropped off the demolished column and drowned (demolition kill path)");
+
+  // ── 14) PLAYER CAMERA ORBIT + ammo-switch invariance ──
+  console.log("\n[14] camera orbit + ammo-switch invariance");
   await page.evaluate(() => window.__HAYHEM__.startMatch());
   await page.waitForFunction(() => { const H = window.__HAYHEM__; return H.camMode === "aim" && H.activeTeam === 0; }, { timeout: 9000 });
   await sleep(140);
@@ -801,11 +873,11 @@ async function main() {
   check(Math.abs(resetRes.dirty) > 0.5 && resetRes.after.az === 0 && resetRes.after.el === 0,
     "orbit offset resets for the next unit's turn (camera returns to default pose)");
 
-  // ── 14) 0 pageerrors ──
-  console.log("\n[14] errors");
+  // ── 15) 0 pageerrors ──
+  console.log("\n[15] errors");
   check(errors.length === 0, "0 pageerrors" + (errors.length ? ": " + errors.join("; ") : ""));
 
-  console.log("\nHayhem2 integration smoke: PASS (" + PASS + " checks)");
+  console.log("\nHayhem (Tower Bay) integration smoke: PASS (" + PASS + " checks)");
   await browser.close();
   if (server) server.kill();
   process.exit(0);

@@ -3765,7 +3765,156 @@ function drawGrainBag(ctx, x, y, w, h){
   ctx.fillStyle = "rgba(255,255,255,.55)";
   ctx.beginPath(); ctx.ellipse(cx - w*0.18, cy - h*0.15, w*0.12, h*0.08, -0.4, 0, Math.PI*2); ctx.fill();
 }
+// ---- MiniAudio: lazy ElevenLabs-generated SFX/music for Bucky Jump ("game") and
+// Cat Rescue ("catgame") only. Hub-safe by construction: creating the AudioContext AND
+// fetching assets/audio/minis/* both wait for the player's first real gesture inside one
+// of these two game tabs (unlock() is called from gameInput()/catInput(), which are only
+// ever invoked by a click/touchstart/keydown on that game's own canvas) — the chores/bank/
+// home tabs never touch this module. Music is stopped the instant the tab is left (checked
+// inline in each game's own render loop) plus a lightweight backup watchdog below, so audio
+// never bleeds across tabs. Per-game 🔊 mute persists in localStorage (bj_muted / cr_muted).
+const MiniAudio = (() => {
+  const BASE = "assets/audio/minis/";
+  const MUTE_KEY = { bj: "bj_muted", cr: "cr_muted" };
+  const TAB_FOR = { bj: "game", cr: "catgame" };
+  let ctx = null, masterGain = null, musicGain = null;
+  let buffers = {}, loadPromise = null;
+  let musicSrc = null, musicKey = null, activeGame = null, pendingMusicKey = null;
+  const counters = { ctxCreated: 0, filesFetched: 0, played: {}, musicStarts: 0, musicStops: 0 };
+
+  function ensureCtx(){
+    if (ctx) return ctx;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    try {
+      ctx = new AC();
+      masterGain = ctx.createGain(); masterGain.gain.value = 1; masterGain.connect(ctx.destination);
+      musicGain = ctx.createGain(); musicGain.gain.value = 0.45; musicGain.connect(masterGain);
+      counters.ctxCreated++;
+    } catch(e){ ctx = null; }
+    return ctx;
+  }
+  function loadAll(){
+    if (loadPromise) return loadPromise;
+    loadPromise = (async () => {
+      try {
+        const res = await fetch(BASE + "manifest.json");
+        const manifest = await res.json();
+        await Promise.all(manifest.files.map(async (f) => {
+          try {
+            const r = await fetch(BASE + f.file);
+            const ab = await r.arrayBuffer();
+            counters.filesFetched++;
+            buffers[f.key] = await ctx.decodeAudioData(ab);
+          } catch(e){ buffers[f.key] = null; }
+        }));
+      } catch(e){ /* manifest unreachable/blocked — both games stay fully playable, just silent */ }
+      tryStartPendingMusic();   // the run may already have started while buffers were still fetching
+    })();
+    return loadPromise;
+  }
+  // Called from the game's own input handler on first tap/click/key — gesture-gated
+  // AudioContext creation + the one-time buffer fetch/decode.
+  function unlock(gameKey){
+    activeGame = gameKey;
+    if (!ensureCtx()) return;
+    if (ctx.state === "suspended") ctx.resume().catch(()=>{});
+    loadAll();
+  }
+  function isMuted(gameKey){ return localStorage.getItem(MUTE_KEY[gameKey]) === "1"; }
+  function setMuted(gameKey, v){
+    localStorage.setItem(MUTE_KEY[gameKey], v ? "1" : "0");
+    if (gameKey === activeGame) applyMusicGain();
+  }
+  function play(key, opts){
+    opts = opts || {};
+    if (!ctx || isMuted(activeGame)) return false;
+    if (!buffers[key]){
+      // Buffer may still be mid-decode (a beat fired the same tick as the unlocking
+      // gesture, e.g. Cat Rescue's very first cat launches on frame 1). Retry once,
+      // after loading settles, but only if the player is still on that same game.
+      if (loadPromise && buffers[key] !== null){
+        const forGame = activeGame;
+        loadPromise.then(() => { if (activeGame === forGame && buffers[key]) play(key, opts); });
+      }
+      return false;
+    }
+    try {
+      const src = ctx.createBufferSource();
+      src.buffer = buffers[key];
+      src.playbackRate.value = opts.rate || 1;
+      const g = ctx.createGain(); g.gain.value = opts.gain != null ? opts.gain : 1;
+      src.connect(g); g.connect(masterGain);
+      src.start();
+      counters.played[key] = (counters.played[key] || 0) + 1;
+      return true;
+    } catch(e){ return false; }
+  }
+  function applyMusicGain(){
+    if (!musicGain) return;
+    musicGain.gain.value = (activeGame && isMuted(activeGame)) ? 0 : 0.45;
+  }
+  // The buffer fetch/decode is async but a run can start the very same tick as the
+  // unlocking gesture, so "start music" just records intent — tryStartPendingMusic()
+  // actually starts it, retried once loadAll()'s fetch finishes if it wasn't ready yet.
+  function startMusic(key){
+    pendingMusicKey = key;
+    tryStartPendingMusic();
+  }
+  function tryStartPendingMusic(){
+    const key = pendingMusicKey;
+    if (!key || !ctx || !buffers[key]) return;
+    if (musicKey === key && musicSrc) return;
+    stopMusicOnly();
+    try {
+      const src = ctx.createBufferSource();
+      src.buffer = buffers[key]; src.loop = true;
+      src.connect(musicGain); src.start();
+      musicSrc = src; musicKey = key;
+      applyMusicGain();
+      counters.musicStarts++;
+      pendingMusicKey = null;
+    } catch(e){}
+  }
+  function stopMusicOnly(){
+    if (musicSrc){ try{ musicSrc.stop(); }catch(e){} try{ musicSrc.disconnect(); }catch(e){} musicSrc = null; counters.musicStops++; }
+    musicKey = null;
+  }
+  function stopMusic(){
+    pendingMusicKey = null;
+    stopMusicOnly();
+  }
+  function enterGame(gameKey){ activeGame = gameKey; }
+  function leaveGame(gameKey){ if (activeGame === gameKey){ activeGame = null; stopMusic(); } }
+  // Backup watchdog only — the games' own render loops already stop music the instant they
+  // notice currentTab changed; this just covers the (idle, no-raf-loop) ready/over states.
+  setInterval(() => {
+    if (!activeGame) return;
+    if (typeof currentTab === "undefined") return;
+    if (currentTab !== TAB_FOR[activeGame]) leaveGame(activeGame);
+  }, 400);
+
+  window.__MINIS_AUDIO__ = {
+    get state(){
+      return {
+        ctxCreated: !!ctx, filesFetched: counters.filesFetched, activeGame, musicKey,
+        musicStarts: counters.musicStarts, musicStops: counters.musicStops,
+        played: Object.assign({}, counters.played),
+        bjMuted: isMuted("bj"), crMuted: isMuted("cr")
+      };
+    }
+  };
+  return { unlock, play, startMusic, stopMusic, enterGame, leaveGame, isMuted, setMuted };
+})();
+// Read-only test hook (no mutation) so headless verification can watch live game state to
+// time real DOM input correctly, without reaching into the module's private closures.
+window.__MINI_GAMES_TEST__ = {
+  get bj(){ return (typeof game !== "undefined" && game) ? { state: game.state, score: game.score, onGround: game.goat.onGround, doubleJumpCharges: game.doubleJumpCharges, goatX: game.goat.x, obstacles: game.obstacles.map(o => ({ x:o.x, w:o.w, y:o.y, h:o.h, type:o.type })) } : null; },
+  get cr(){ return (typeof catGame !== "undefined" && catGame) ? { state: catGame.state, score: catGame.score, lives: catGame.lives, cx: catGame.cx, cats: catGame.cats.map(c => ({ x:c.x, y:c.y, vy:c.vy })) } : null; }
+};
+
 function renderGame(){
+  MiniAudio.enterGame("bj");
   document.querySelector(".bar").style.display = "none";
   document.getElementById("empty").style.display = "none";
   document.getElementById("progressText").textContent = "Bucky Jump";
@@ -3786,7 +3935,13 @@ function renderGame(){
   hint.textContent = "Tap the field or the box below — or press Space — to jump.";
   const high = document.createElement("div");
   high.id = "gameHigh"; high.style.cssText = "text-align:center;font-weight:700;color:var(--green);";
-  wrap.append(canvas, tap, hint, high);
+  const muteBtn = document.createElement("button");
+  muteBtn.id = "bjMuteBtn"; muteBtn.className = "btn";
+  muteBtn.style.cssText = "align-self:center;margin-top:2px;padding:6px 14px;font-size:12px;font-weight:600;background:#f0eee6;color:var(--muted);border:0;border-radius:8px;cursor:pointer;flex:none;";
+  const syncBjMute = () => { muteBtn.textContent = MiniAudio.isMuted("bj") ? "🔇 Sound off" : "🔊 Sound on"; };
+  muteBtn.onclick = () => { MiniAudio.setMuted("bj", !MiniAudio.isMuted("bj")); syncBjMute(); };
+  syncBjMute();
+  wrap.append(canvas, tap, hint, muteBtn, high);
   list.appendChild(wrap);
   canvas.addEventListener("click", gameInput);
   canvas.addEventListener("touchstart", (e)=>{ e.preventDefault(); gameInput(); }, { passive:false });
@@ -3854,11 +4009,12 @@ function spawnObstacle(g){
 }
 function gameInput(){
   if (!game) return;
+  MiniAudio.unlock("bj");
   if (game.state === "ready" || game.state === "over"){ startRun(); return; }
   if (game.state !== "running") return;
   const goat = game.goat;
-  if (goat.onGround){ goat.vy = -10.5; goat.onGround = false; game.doubleJumpUsed = false; }
-  else if (game.doubleJumpCharges > 0 && !game.doubleJumpUsed){ game.doubleJumpCharges--; game.doubleJumpUsed = true; goat.vy = -10.5; }
+  if (goat.onGround){ goat.vy = -10.5; goat.onGround = false; game.doubleJumpUsed = false; MiniAudio.play("bjJump"); }
+  else if (game.doubleJumpCharges > 0 && !game.doubleJumpUsed){ game.doubleJumpCharges--; game.doubleJumpUsed = true; goat.vy = -10.5; MiniAudio.play("bjJump", { rate:1.18, gain:0.9 }); }
 }
 function startRun(){
   const g = game;
@@ -3870,10 +4026,11 @@ function startRun(){
   g.state = "running";
   cancelAnimationFrame(g.raf);
   g.raf = requestAnimationFrame(loopGame);
+  MiniAudio.startMusic("bjMusic");
 }
 function loopGame(ts){
   const g = game; if (!g) return;
-  if (currentTab !== "game"){ cancelAnimationFrame(g.raf); return; }   // stop when leaving the tab
+  if (currentTab !== "game"){ cancelAnimationFrame(g.raf); MiniAudio.leaveGame("bj"); return; }   // stop when leaving the tab
   if (g.state !== "running") return;
   // Fixed-timestep: run physics at a steady 60 steps/sec regardless of the screen's refresh rate
   if (!g._last) g._last = ts || 0;
@@ -3889,9 +4046,13 @@ function loopGame(ts){
 }
 function stepGame(g){
   const goat = g.goat, groundTop = g.groundY - goat.h;
+  const wasOnGround = goat.onGround;
   goat.vy += 0.45; goat.y += goat.vy;   // gentler gravity = slower, floatier jump
   if (goat.y >= groundTop){ goat.y = groundTop; goat.vy = 0; goat.onGround = true; }
+  if (!wasOnGround && goat.onGround) MiniAudio.play("bjLand", { gain:0.75 });
+  const prevScore = g.score;
   g.score += 0.2;
+  if (Math.floor(g.score/100) > Math.floor(prevScore/100)) MiniAudio.play("sharedChime", { gain:0.8 });
   g.speed = 2.8 + g.score * 0.004;   // faster start, no cap — keeps speeding up forever
   g.frame++;
   for (const c of g.clouds){ c.x -= g.speed * 0.25; if (c.x < -70){ c.x = g.W + 20 + Math.random()*80; c.y = 16 + Math.random()*55; c.s = 0.7 + Math.random()*0.6; } }
@@ -3901,7 +4062,8 @@ function stepGame(g){
   for (const o of g.obstacles) o.x -= g.speed;
   g.obstacles = g.obstacles.filter(o => o.x + o.w > -10);
   for (const o of g.obstacles){
-    if (goat.x < o.x + o.w && goat.x + goat.w > o.x && goat.y < o.y + o.h && goat.y + goat.h > o.y){ endGame(); break; }
+    if (!o._passed && o.x + o.w < goat.x){ o._passed = true; MiniAudio.play("bjTick", { gain:0.5 }); }
+    if (goat.x < o.x + o.w && goat.x + goat.w > o.x && goat.y < o.y + o.h && goat.y + goat.h > o.y){ MiniAudio.play("bjStumble", { gain:0.85 }); endGame(); break; }
   }
   if (g.score >= g.nextGrainScore){
     const h = 22, y = 55 + Math.floor(Math.random()*55);
@@ -3915,6 +4077,7 @@ function stepGame(g){
     if (hit){
       g.doubleJumpCharges = Math.min(MAX_DOUBLE_JUMP_CHARGES, g.doubleJumpCharges + 1);
       g.grainMsgFrames = 60;
+      MiniAudio.play(Math.random() < 0.5 ? "bjBleat1" : "bjBleat2", { gain:0.85 });
     }
     return !hit;
   });
@@ -3978,6 +4141,8 @@ function drawGame(){
 }
 function endGame(){
   const g = game; g.state = "over"; cancelAnimationFrame(g.raf);
+  MiniAudio.stopMusic();
+  MiniAudio.play("sharedWomp", { gain:0.8 });
   const myScore = Math.floor(g.score);
   const lb = leaderboard("bucky");
   if (lb.length < 5 || myScore > (lb[4] ? lb[4].score : 0)) saveScore(myScore, myName() || "Someone", "bucky");
@@ -4061,6 +4226,7 @@ const catImg = new Image(); catImg.src = "cat.png";   // leaping cat silhouette 
 const CAT_DW = 18, CAT_DH = 9;                         // on-screen size of the cat sprite (70%)
 
 function renderCatGame(){
+  MiniAudio.enterGame("cr");
   document.querySelector(".bar").style.display = "none";
   document.getElementById("empty").style.display = "none";
   document.getElementById("progressText").textContent = "Cat Rescue";
@@ -4078,7 +4244,13 @@ function renderCatGame(){
   ctrls.append(leftBtn, rightBtn);
   const hint = document.createElement("div"); hint.style.cssText = "text-align:center;font-size:13px;color:var(--muted);"; hint.textContent = "Hold ◀ ▶ to move the trampoline. Juggle each cat toward the window — more cats join the longer you last! Tap to start.";
   const high = document.createElement("div"); high.id = "catHigh"; high.style.cssText = "text-align:center;font-weight:700;color:var(--green);";
-  wrap.append(canvas, ctrls, hint, high);
+  const muteBtn = document.createElement("button");
+  muteBtn.id = "crMuteBtn"; muteBtn.className = "btn";
+  muteBtn.style.cssText = "align-self:center;margin-top:2px;padding:6px 14px;font-size:12px;font-weight:600;background:#f0eee6;color:var(--muted);border:0;border-radius:8px;cursor:pointer;flex:none;";
+  const syncCrMute = () => { muteBtn.textContent = MiniAudio.isMuted("cr") ? "🔇 Sound off" : "🔊 Sound on"; };
+  muteBtn.onclick = () => { MiniAudio.setMuted("cr", !MiniAudio.isMuted("cr")); syncCrMute(); };
+  syncCrMute();
+  wrap.append(canvas, ctrls, hint, muteBtn, high);
   list.appendChild(wrap);
 
   canvas.addEventListener("click", catInput);
@@ -4115,12 +4287,14 @@ function initCat(canvas){
 }
 function catInput(){
   if (!catGame) return;
+  MiniAudio.unlock("cr");
   if (catGame.state === "ready" || catGame.state === "over") startCat();
 }
 function startCat(){
   const g = catGame;
   g.cats = []; g.runaways = []; g.waveRemaining = 0; g.launchTimer = 0; g.elapsed = 0; g.score = 0; g.lives = 5; g.cx = 200; g.dir = 0; g._last = 0; g._acc = 0; g.state = "running";
   cancelAnimationFrame(g.raf); g.raf = requestAnimationFrame(loopCat);
+  MiniAudio.startMusic("crMusic");
 }
 function newCat(g){
   // floats down high off the mountain toward the trampoline (constant speed; a little spread)
@@ -4128,7 +4302,7 @@ function newCat(g){
 }
 function loopCat(ts){
   const g = catGame; if (!g) return;
-  if (currentTab !== "catgame"){ cancelAnimationFrame(g.raf); return; }
+  if (currentTab !== "catgame"){ cancelAnimationFrame(g.raf); MiniAudio.leaveGame("cr"); return; }
   if (g.state !== "running") return;
   // Fixed-timestep: run physics at a steady 60 steps/sec regardless of the screen's refresh rate
   if (!g._last) g._last = ts || 0;
@@ -4168,6 +4342,7 @@ function stepCat(g){
     for (const c of g.cats){ if (Math.abs(catLandTime(g, c.y, c.vy) - tNew) < 20){ clear = false; break; } }
     if (clear){
       g.cats.push(newCat(g));
+      MiniAudio.play(Math.random() < 0.5 ? "crMeow1" : "crMeow2", { gain:0.65 });
       g.launchTimer = Math.max(30, gap * (0.5 + Math.random() * 1.3));   // wide random variation (0.5x–1.8x) so timing is unpredictable
     }
   }
@@ -4188,14 +4363,18 @@ function stepCat(g){
       c.vx = Math.max(-3, Math.min(3, step / airtime));     // never points away from the window
       c.spinV = (c.vx <= 0 ? -1 : 1) * 0.075;               // start a tumble when bounced (25% faster spin)
       c.bounces++;
+      MiniAudio.play("crPop", { gain:0.55 });
     }
     const w = g.win;
     if (c.x < w.x + w.w && c.x + c.w > w.x && c.y < w.y + w.h && c.y + c.h > w.y){
       c._gone = "win"; g.score += 1; removed = true;        // bounced into the window — rescued!
+      MiniAudio.play("sharedChime", { gain:0.85 });
     } else if (bottom >= g.groundY){
       c._gone = "ground"; g.lives -= 1; c.runaway = true; c.y = g.groundY - c.h; c.vy = 0; c.spin = 0; c.spinV = 0; g.runaways.push(c); removed = true;
+      if (g.lives === 1) MiniAudio.play("crDanger", { gain:0.85 });
     } else if (c.x + c.w < -2 || c.x > g.W + 2){
       c._gone = "side"; g.lives -= 1; removed = true;       // flew off the side
+      if (g.lives === 1) MiniAudio.play("crDanger", { gain:0.85 });
     }
   }
   if (removed) g.cats = g.cats.filter(c => !c._gone);
@@ -4209,6 +4388,9 @@ function endCat(){
   const g = catGame; g.state = "over"; cancelAnimationFrame(g.raf);
   const s = Math.floor(g.score);
   const lb = leaderboard("cat");
+  const prevBest = lb.length ? lb[0].score : 0;
+  MiniAudio.stopMusic();
+  MiniAudio.play(s > 0 && s > prevBest ? "crFanfare" : "sharedWomp", { gain:0.85 });
   if (lb.length < 5 || s > (lb[4] ? lb[4].score : 0)) saveScore(s, myName() || "Someone", "cat");
   drawCatScene();
 }

@@ -1,0 +1,226 @@
+[
+  {
+    "file": "pp-sfx-corn-fire.mp3",
+    "kind": "sfx",
+    "target": "~0.6s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, quick cartoon pop-thwip of a kernel of corn shooting out of a toy cannon",
+    "bytes": 10493,
+    "api": "POST /v1/sound-generation (duration_seconds=0.6, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-pumpkin-blast.mp3",
+    "kind": "sfx",
+    "target": "~1.1s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, playful pumpkin splat-boom explosion, soft and squishy, cartoon",
+    "bytes": 18434,
+    "api": "POST /v1/sound-generation (duration_seconds=1.1, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-cat-pounce.mp3",
+    "kind": "sfx",
+    "target": "~0.8s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, a cute cat meow-hiss pounce whoosh, playful",
+    "bytes": 13836,
+    "api": "POST /v1/sound-generation (duration_seconds=0.8, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-scarecrow-plant.mp3",
+    "kind": "sfx",
+    "target": "~0.7s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, soft straw rustle thud, a scarecrow plants into the ground, cartoon",
+    "bytes": 12164,
+    "api": "POST /v1/sound-generation (duration_seconds=0.7, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-bee-sting.mp3",
+    "kind": "sfx",
+    "target": "~0.5s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, quick cartoon bee buzz-zip sting",
+    "bytes": 8821,
+    "api": "POST /v1/sound-generation (duration_seconds=0.5, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-sprinkler-spray.mp3",
+    "kind": "sfx",
+    "target": "~0.7s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, light playful water sprinkler spray hiss-pop, cartoon",
+    "bytes": 12164,
+    "api": "POST /v1/sound-generation (duration_seconds=0.7, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-fork-throw.mp3",
+    "kind": "sfx",
+    "target": "~0.8s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, whoosh throw and thunk landing of a pitchfork, cartoon farm sound",
+    "bytes": 13836,
+    "api": "POST /v1/sound-generation (duration_seconds=0.8, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-bolt-zap.mp3",
+    "kind": "sfx",
+    "target": "~0.9s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, cartoon lightning zap crackle boom, playful not scary",
+    "bytes": 15090,
+    "api": "POST /v1/sound-generation (duration_seconds=0.9, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-varmint-pop.mp3",
+    "kind": "sfx",
+    "target": "~0.5s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, tiny cute cartoon poof pop, a little critter vanishing",
+    "bytes": 8821,
+    "api": "POST /v1/sound-generation (duration_seconds=0.5, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-elite-pop.mp3",
+    "kind": "sfx",
+    "target": "~0.7s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, bigger crunchy cartoon pop burst, a tougher critter defeated",
+    "bytes": 12164,
+    "api": "POST /v1/sound-generation (duration_seconds=0.7, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-boss-roar.mp3",
+    "kind": "sfx",
+    "target": "~1.4s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, big comic cartoon animal roar telegraph, silly and bold not scary",
+    "bytes": 23031,
+    "api": "POST /v1/sound-generation (duration_seconds=1.4, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-boss-death.mp3",
+    "kind": "sfx",
+    "target": "~1.6s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, big cartoon explosion burst with sparkle twinkle, a boss defeated, triumphant",
+    "bytes": 26793,
+    "api": "POST /v1/sound-generation (duration_seconds=1.6, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-combine-roar.mp3",
+    "kind": "sfx",
+    "target": "~1.6s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, cartoon tractor combine harvester engine roar rumble, comic and bold not scary",
+    "bytes": 26793,
+    "api": "POST /v1/sound-generation (duration_seconds=1.6, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-xp-collect.mp3",
+    "kind": "sfx",
+    "target": "~0.5s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, bright cheerful chime ding, collecting a glowing orb",
+    "bytes": 8821,
+    "api": "POST /v1/sound-generation (duration_seconds=0.5, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-coin-pickup.mp3",
+    "kind": "sfx",
+    "target": "~0.5s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, cheerful coin jingle pop pickup sound",
+    "bytes": 8821,
+    "api": "POST /v1/sound-generation (duration_seconds=0.5, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-milk-pickup.mp3",
+    "kind": "sfx",
+    "target": "~0.9s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, warm gentle healing chime sparkle, soft and soothing",
+    "bytes": 15090,
+    "api": "POST /v1/sound-generation (duration_seconds=0.9, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-magnet-pickup.mp3",
+    "kind": "sfx",
+    "target": "~0.6s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, quick magnetic whoosh vacuum suction sound, cartoon",
+    "bytes": 10493,
+    "api": "POST /v1/sound-generation (duration_seconds=0.6, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-boom-pickup.mp3",
+    "kind": "sfx",
+    "target": "~1.1s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, big cartoon boom pop explosion, playful and fun not violent",
+    "bytes": 18434,
+    "api": "POST /v1/sound-generation (duration_seconds=1.1, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-chest-open.mp3",
+    "kind": "sfx",
+    "target": "~1.2s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, wooden treasure chest creak open with a sparkle twinkle",
+    "bytes": 20106,
+    "api": "POST /v1/sound-generation (duration_seconds=1.2, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-evolution.mp3",
+    "kind": "sfx",
+    "target": "~1.6s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, magical sparkle rising fanfare, an item powering up, triumphant and bright",
+    "bytes": 26793,
+    "api": "POST /v1/sound-generation (duration_seconds=1.6, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-levelup.mp3",
+    "kind": "sfx",
+    "target": "~1.1s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, cheerful short level-up fanfare ding, video game style, bright",
+    "bytes": 18434,
+    "api": "POST /v1/sound-generation (duration_seconds=1.1, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-player-hurt.mp3",
+    "kind": "sfx",
+    "target": "~0.6s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, gentle cartoon 'oof' grunt thud, light and not painful sounding",
+    "bytes": 10493,
+    "api": "POST /v1/sound-generation (duration_seconds=0.6, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-wave-horn.mp3",
+    "kind": "sfx",
+    "target": "~1.2s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, playful farm alert horn blast, a warning that more critters are coming, bold not scary",
+    "bytes": 20106,
+    "api": "POST /v1/sound-generation (duration_seconds=1.2, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-victory.mp3",
+    "kind": "sfx",
+    "target": "~2.2s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, short triumphant victory fanfare, brass and bells, joyful",
+    "bytes": 36406,
+    "api": "POST /v1/sound-generation (duration_seconds=2.2, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-defeat.mp3",
+    "kind": "sfx",
+    "target": "~1.6s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, gentle comic sad trombone descending womp womp, silly not sad",
+    "bytes": 26793,
+    "api": "POST /v1/sound-generation (duration_seconds=1.6, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-ui-click.mp3",
+    "kind": "sfx",
+    "target": "~0.5s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, light soft UI button click pop, simple and clean",
+    "bytes": 8821,
+    "api": "POST /v1/sound-generation (duration_seconds=0.5, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-music-menu.mp3",
+    "kind": "music",
+    "target": "~60s",
+    "prompt": "gentle pastoral morning farm theme, acoustic guitar and soft whistle with light birdsong feel, warm and welcoming, sunny title screen music for a kids' farm game, seamless loop, instrumental",
+    "bytes": 960515,
+    "api": "POST /v1/music (music_v1, force_instrumental=true, music_length_ms=60000)"
+  },
+  {
+    "file": "pp-music-play.mp3",
+    "kind": "music",
+    "target": "~75s",
+    "prompt": "light bouncy upbeat farm survival adventure theme, playful banjo and pizzicato strings, energetic but friendly, driving rhythm for a wave-survival kids' game, seamless loop, instrumental",
+    "bytes": 1201259,
+    "api": "POST /v1/music (music_v1, force_instrumental=true, music_length_ms=75000)"
+  }
+]

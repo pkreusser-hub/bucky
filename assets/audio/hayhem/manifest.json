@@ -1,0 +1,137 @@
+[
+  {
+    "file": "hh-sfx-boing.mp3",
+    "kind": "sfx",
+    "target": "~0.6s",
+    "prompt": "comedic cartoon boing spring bounce, ragdoll character bonk",
+    "bytes": 10493,
+    "estDurationS": 0.66,
+    "api": "POST /v1/sound-generation (duration_seconds=0.6, prompt_influence=0.75, loop=false)"
+  },
+  {
+    "file": "hh-sfx-turnchime.mp3",
+    "kind": "sfx",
+    "target": "~0.5s",
+    "prompt": "short bright friendly chime bell, turn notification, cheerful game UI",
+    "bytes": 8821,
+    "estDurationS": 0.55,
+    "api": "POST /v1/sound-generation (duration_seconds=0.5, prompt_influence=0.7, loop=false)"
+  },
+  {
+    "file": "hh-sfx-stretch.mp3",
+    "kind": "sfx",
+    "target": "~2s",
+    "prompt": "slow creaking wooden slingshot band stretching under tension, cartoon farm toy, no impact",
+    "bytes": 37242,
+    "estDurationS": 2.33,
+    "api": "POST /v1/sound-generation (duration_seconds=2, prompt_influence=0.6, loop=true)"
+  },
+  {
+    "file": "hh-sfx-launch.mp3",
+    "kind": "sfx",
+    "target": "~0.5s",
+    "prompt": "quick cartoon thwip whoosh, slingshot release launching a projectile",
+    "bytes": 8821,
+    "estDurationS": 0.55,
+    "api": "POST /v1/sound-generation (duration_seconds=0.5, prompt_influence=0.75, loop=false)"
+  },
+  {
+    "file": "hh-sfx-whistle.mp3",
+    "kind": "sfx",
+    "target": "~2s",
+    "prompt": "cartoon falling whistle, projectile arcing through the air, comical",
+    "bytes": 37242,
+    "estDurationS": 2.33,
+    "api": "POST /v1/sound-generation (duration_seconds=2, prompt_influence=0.65, loop=true)"
+  },
+  {
+    "file": "hh-sfx-explosion.mp3",
+    "kind": "sfx",
+    "target": "~1s",
+    "prompt": "soft cartoon boom thump, kid-friendly playful explosion, no debris rattle, gentle not scary",
+    "bytes": 17180,
+    "estDurationS": 1.07,
+    "api": "POST /v1/sound-generation (duration_seconds=1, prompt_influence=0.75, loop=false)"
+  },
+  {
+    "file": "hh-sfx-crumble.mp3",
+    "kind": "sfx",
+    "target": "~1s",
+    "prompt": "dirt and soil crumbling and collapsing, cartoon terrain destruction, soft rumble",
+    "bytes": 17180,
+    "estDurationS": 1.07,
+    "api": "POST /v1/sound-generation (duration_seconds=1, prompt_influence=0.7, loop=false)"
+  },
+  {
+    "file": "hh-sfx-splash.mp3",
+    "kind": "sfx",
+    "target": "~1s",
+    "prompt": "small playful cartoon water splash into a pond",
+    "bytes": 17180,
+    "estDurationS": 1.07,
+    "api": "POST /v1/sound-generation (duration_seconds=1, prompt_influence=0.75, loop=false)"
+  },
+  {
+    "file": "hh-sfx-windgust.mp3",
+    "kind": "sfx",
+    "target": "~1.5s",
+    "prompt": "brief gentle gust of wind whoosh, outdoor farm ambience, subtle",
+    "bytes": 24703,
+    "estDurationS": 1.54,
+    "api": "POST /v1/sound-generation (duration_seconds=1.5, prompt_influence=0.6, loop=false)"
+  },
+  {
+    "file": "hh-sfx-victory.mp3",
+    "kind": "sfx",
+    "target": "~3s",
+    "prompt": "short cheerful victory fanfare, triumphant brass toy trumpet, kids game win",
+    "bytes": 48945,
+    "estDurationS": 3.06,
+    "api": "POST /v1/sound-generation (duration_seconds=3, prompt_influence=0.7, loop=false)"
+  },
+  {
+    "file": "hh-sfx-trombone.mp3",
+    "kind": "sfx",
+    "target": "~2s",
+    "prompt": "gentle short sad trombone wah-wah, comedic mild disappointment, not harsh",
+    "bytes": 33062,
+    "estDurationS": 2.07,
+    "api": "POST /v1/sound-generation (duration_seconds=2, prompt_influence=0.7, loop=false)"
+  },
+  {
+    "file": "hh-sfx-gasp.mp3",
+    "kind": "sfx",
+    "target": "~1s",
+    "prompt": "small crowd gasp of surprise, short group intake of breath, cartoon audience",
+    "bytes": 17180,
+    "estDurationS": 1.07,
+    "api": "POST /v1/sound-generation (duration_seconds=1, prompt_influence=0.7, loop=false)"
+  },
+  {
+    "file": "hh-music-victory.mp3",
+    "kind": "music",
+    "target": "~8s",
+    "prompt": "short triumphant western banjo victory sting, playful and celebratory, kids game win jingle, instrumental, no vocals",
+    "bytes": 128358,
+    "estDurationS": 8.02,
+    "api": "POST /v1/music (music_v1, force_instrumental=true, music_length_ms=8000)"
+  },
+  {
+    "file": "hh-music-menu.mp3",
+    "kind": "music",
+    "target": "~70s",
+    "prompt": "playful banjo and jug-band mischief theme, farmyard hoedown, washboard percussion, comedic and lighthearted, kids artillery game title screen, medium tempo, seamless loop, instrumental, no vocals",
+    "bytes": 1121011,
+    "estDurationS": 70.06,
+    "api": "POST /v1/music (music_v1, force_instrumental=true, music_length_ms=70000)"
+  },
+  {
+    "file": "hh-music-battle.mp3",
+    "kind": "music",
+    "target": "~75s",
+    "prompt": "playful tension western standoff theme, twangy guitar plucks, light percussion building suspense, comedic showdown energy for a kids farm artillery duel, medium tempo, seamless loop, instrumental, no vocals",
+    "bytes": 1201259,
+    "estDurationS": 75.08,
+    "api": "POST /v1/music (music_v1, force_instrumental=true, music_length_ms=75000)"
+  }
+]

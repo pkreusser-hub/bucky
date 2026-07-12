@@ -14,7 +14,10 @@
   #bar{ position:fixed; top:0; left:0; right:0; height:46px; display:flex; align-items:center; gap:10px; padding:0 12px;
         background:var(--navy); z-index:30; }
   #bar a{ color:#fff; text-decoration:none; font-weight:800; font-size:15px; background:rgba(255,255,255,.15); padding:7px 12px; border-radius:9px; }
-  #bar .t{ font-weight:800; letter-spacing:.5px; }
+  #bar .t{ font-weight:800; letter-spacing:.5px; flex:1; }
+  #bar .audBtn{ color:#fff; background:rgba(255,255,255,.15); border:0; border-radius:9px; font-size:15px;
+                padding:7px 10px; cursor:pointer; line-height:1; }
+  #bar .audBtn.muted{ opacity:.45; }
   #stage{ position:absolute; top:46px; left:0; right:0; bottom:0; }
   canvas{ display:block; touch-action:none; }
 
@@ -258,7 +261,10 @@
 </style>
 </head>
 <body>
-  <div id="bar"><a href="index.html">← BUCKY</a><span class="t">🌽 Pasture Panic</span></div>
+  <div id="bar"><a href="index.html">← BUCKY</a><span class="t">🌽 Pasture Panic</span>
+    <button class="audBtn" id="musicBtn" title="Toggle music">🎵</button>
+    <button class="audBtn" id="muteBtn" title="Toggle sound">🔊</button>
+  </div>
   <div id="stage">
     <div id="hud">
       <div class="hudCluster" id="hudTopLeft">
@@ -2470,6 +2476,7 @@
       const bar = document.getElementById("bossBar");
       bar.style.display = "block";
       document.getElementById("bossName").textContent = "🚜 THE COMBINE";
+      if (playSample('pp-sfx-combine-roar', { gain:0.85 })) _sfxPlays.combineRoar++;
       ring(mesh.position.x, mesh.position.z, 0xb32424, 14, 0.8);
       puff(mesh.position.x, 3, mesh.position.z, 0x9aa5ad, 24);
     }
@@ -2487,15 +2494,19 @@
       const px = player.position.x, pz = player.position.z;
       if (p.type === "coin"){
         bonusCoins += 10;
+        if (playSample('pp-sfx-coin-pickup', { gain:0.6 })) _sfxPlays.coinPickup++;
         puff(px, 1.4, pz, 0xffd23f, 6);
       } else if (p.type === "milk"){
         hp = Math.min(stats.maxhp, hp + stats.maxhp * 0.3);
+        if (playSample('pp-sfx-milk-pickup', { gain:0.7 })) _sfxPlays.milkPickup++;
         puff(px, 1.4, pz, 0xf2f2ee, 8);
         ring(px, pz, 0x7df58a, 3, 0.4);
       } else if (p.type === "magnet"){
         for (const o of orbs) o.vac = true;
+        if (playSample('pp-sfx-magnet-pickup', { gain:0.65 })) _sfxPlays.magnetPickup++;
         ring(px, pz, 0x2b52e8, 12, 0.6);
       } else { // boom — the whole pasture erupts (no blood, just a mighty pop)
+        if (playSample('pp-sfx-boom-pickup', { gain:0.85 })) _sfxPlays.boomPickup++;
         ring(px, pz, 0xffffff, 22, 0.7);
         ring(px, pz, 0xe0862c, 16, 0.55);
         puff(px, 2, pz, 0xffd23f, 26);
@@ -2536,6 +2547,7 @@
       const bar = document.getElementById("bossBar");
       bar.style.display = "block";
       document.getElementById("bossName").textContent = def.ico + " " + def.name;
+      if (playSample('pp-sfx-boss-roar', { gain:0.8 })) _sfxPlays.bossRoar++;
       puff(mesh.position.x, 2, mesh.position.z, 0xffffff, 20);
       ring(mesh.position.x, mesh.position.z, def.tint, 10, 0.6);
     }
@@ -2576,6 +2588,7 @@
       const rec = EVOLUTIONS[w.id];
       w.evolved = true; w.evoIco = rec.ico; w.evoName = rec.name;
       rec.apply(w);
+      if (playSample('pp-sfx-evolution', { gain:0.85 })) _sfxPlays.evolution++;
       // fanfare — the pasture should know
       const b = document.getElementById("waveBanner");
       b.textContent = `✨ ${rec.name.toUpperCase()}! ✨`;
@@ -2680,6 +2693,7 @@
         // (facing is movement-driven only — shooting never turns the character)
         const mz = player.position.clone().setY(1.35).addScaledVector(dir, 1.1);
         puff(mz.x, mz.y, mz.z, 0xffe27a, 2);
+        if (playSample('pp-sfx-corn-fire', { gain:0.5 })) _sfxPlays.cornFire++;
         return true;
       }
       if (w.id === "pumpkin"){
@@ -2710,6 +2724,7 @@
           scene.add(mesh);
           cats.push({ mesh, dir, target: t, speed: 13, life: 3.5, dmg: wDmg(w) });
         }
+        if (playSample('pp-sfx-cat-pounce', { gain:0.55 })) _sfxPlays.catPounce++;
         return true;
       }
       if (w.id === "fork"){
@@ -2726,6 +2741,7 @@
           scene.add(mesh);
           forks.push({ mesh, dir, speed: 19, dmg: wDmg(w), hitSet: new Set() });
         }
+        if (playSample('pp-sfx-fork-throw', { gain:0.55 })) _sfxPlays.forkThrow++;
         return true;
       }
       if (w.id === "bolt"){
@@ -2740,6 +2756,7 @@
           beam.position.set(bx, 11, bz);
           scene.add(beam);
           boltsFx.push({ mesh: beam, life: 0, maxLife: 0.28 });
+          if (playThrottled('pp-sfx-bolt-zap', 'boltZap', 0.08, { gain:0.6 })) _sfxPlays.boltZap++;
           ring(bx, bz, 0xfff2a8, 3.4, 0.35);
           puff(bx, 1.2, bz, 0xfff2a8, 8);
           damageEnemy(t, wDmg(w), new THREE.Vector3(0, 0, 0));
@@ -2772,6 +2789,7 @@
             scene.add(mesh);
             turrets.push({ mesh, life: WEAPON_SPECS.scarecrow.life, fireTimer: 0.4, w });
             puff(mesh.position.x, 0.5, mesh.position.z, 0xdcc27e, 6);
+            if (playSample('pp-sfx-scarecrow-plant', { gain:0.6 })) _sfxPlays.scarecrowPlant++;
           }
           continue;
         }
@@ -2850,6 +2868,7 @@
           e.sprkCd = 0.4;
           const dir = new THREE.Vector3(ex, 0, ez).normalize();
           damageEnemy(e, dmg, dir.multiplyScalar(0.4));
+          if (playThrottled('pp-sfx-sprinkler-spray', 'sprinklerSpray', 0.35, { gain:0.35 })) _sfxPlays.sprinklerSpray++;
           if (w.slows) e.slowT = Math.max(e.slowT || 0, 1.3);
         }
       }
@@ -2891,6 +2910,7 @@
             if (d < e.r + 1.0){
               damageEnemy(e, wDmg(w), new THREE.Vector3(e.mesh.position.x - player.position.x, 0, e.mesh.position.z - player.position.z).normalize());
               puff(b.mesh.position.x, b.mesh.position.y, b.mesh.position.z, 0xf2c531, 2);
+              if (playThrottled('pp-sfx-bee-sting', 'beeSting', 0.3, { gain:0.4 })) _sfxPlays.beeSting++;
               b.cd = 0.4;
               break;
             }
@@ -3093,6 +3113,7 @@
         if (e.isBoss){
           if (e.isFinal){
             // THE COMBINE goes down — that's the win
+            if (playSample('pp-sfx-boss-death', { gain:0.85 })) _sfxPlays.bossDeath++;
             for (let i = 0; i < 3; i++) ring(e.mesh.position.x, e.mesh.position.z, [0xffe27a,0xb32424,0xffffff][i], 14 + i*6, 0.8);
             puff(e.mesh.position.x, 3, e.mesh.position.z, 0xffe27a, 34);
             chunkBurst(e.mesh.position.x, 2.5, e.mesh.position.z, 0xb32424, 16);
@@ -3104,6 +3125,7 @@
             return;
           }
           // regular bosses erupt and leave a feed-sack chest behind
+          if (playSample('pp-sfx-boss-death', { gain:0.8 })) _sfxPlays.bossDeath++;
           puff(e.mesh.position.x, 2, e.mesh.position.z, 0xffe27a, 30);
           puff(e.mesh.position.x, 2, e.mesh.position.z, 0xffffff, 18);
           ring(e.mesh.position.x, e.mesh.position.z, 0xffe27a, 18, 0.7);
@@ -3118,6 +3140,7 @@
         }
         if (e.elite){
           // elites pop big and scatter a spray of kernels
+          if (playThrottled('pp-sfx-elite-pop', 'elitePop', 0.05, { gain:0.6 })) _sfxPlays.elitePop++;
           puff(e.mesh.position.x, 1.1, e.mesh.position.z, 0xd8cfa8, 16);
           puff(e.mesh.position.x, 1.1, e.mesh.position.z, 0x3a1050, 10);
           for (let i = 0; i < 3; i++){
@@ -3125,6 +3148,7 @@
             dropOrb(e.mesh.position.x + Math.cos(a) * 1.4, e.mesh.position.z + Math.sin(a) * 1.4, e.xp);
           }
         } else {
+          if (playThrottled('pp-sfx-varmint-pop', 'varmintPop', 0.04, { gain:0.4 })) _sfxPlays.varmintPop++;
           puff(e.mesh.position.x, 0.7, e.mesh.position.z, 0xd8cfa8, 7);
           dropOrb(e.mesh.position.x, e.mesh.position.z, e.xp);
         }
@@ -3170,6 +3194,7 @@
     }
 
     function openLevelUp(){
+      if (playSample('pp-sfx-levelup', { gain:0.75 })) _sfxPlays.levelup++;
       document.getElementById("levelupTitle").textContent = "⭐ Level Up!";
       document.getElementById("levelupDesc").textContent = "Pick one upgrade — 🌐 = all weapons, weapon icons = that weapon only:";
       const avail = UPGRADES.filter(u => (!u.weapon || weaponById(u.weapon)) && (stats.taken[u.id] || 0) < u.max && !banished.has(u.id));
@@ -3218,6 +3243,7 @@
     }
 
     function openWeaponPick(){
+      if (playSample('pp-sfx-levelup', { gain:0.75 })) _sfxPlays.levelup++;
       document.getElementById("levelupTitle").textContent = "🧰 New Weapon!";
       document.getElementById("levelupDesc").textContent = "Choose a weapon for your next slot:";
       document.getElementById("lvlTools").style.display = "none";
@@ -3327,6 +3353,7 @@
     // open a boss chest: exactly one guaranteed epic upgrade
     function openChest(chest){
       freeMesh(chest.mesh); chests.splice(chests.indexOf(chest), 1);
+      if (playSample('pp-sfx-chest-open', { gain:0.75 })) _sfxPlays.chestOpen++;
       state = "chest";
       const rewards = [];
       // one reward only: a guaranteed EPIC, favoring a weapon-specific upgrade when any remain
@@ -3387,6 +3414,8 @@
         return;
       }
       state = "over";
+      if (victory){ if (playSample('pp-sfx-victory', { gain:0.9 })) _sfxPlays.victory++; }
+      else { if (playSample('pp-sfx-defeat', { gain:0.75 })) _sfxPlays.defeat++; }
       const secs = Math.floor(elapsed);
       const payMult = (1 + metaLvl("greed") * 0.12) * (1 + curse * 0.2);
       const coins = Math.floor((kills + secs * 0.5) * payMult) + bonusCoins + (victory ? Math.floor(400 * payMult) : 0);
@@ -3508,6 +3537,7 @@
       if (waveIdx < WAVES.length && elapsed >= WAVES[waveIdx].t){
         const w = WAVES[waveIdx++];
         const b = document.getElementById("waveBanner");
+        if (playSample('pp-sfx-wave-horn', { gain:0.7 })) _sfxPlays.waveHorn++;
         b.textContent = w.txt; b.style.opacity = 1; bannerTimer = 2.4;
         b.classList.remove("pop"); void b.offsetWidth; b.classList.add("pop");
         w.f();
@@ -3637,6 +3667,7 @@
       // pumpkins — lobbed arcs; explode on landing, or early if they come down into a bale
       function pumpkinBoom(p, bx, bz){
         const R = WEAPON_SPECS.pumpkin.blast * p.w.blastMul;
+        if (playThrottled('pp-sfx-pumpkin-blast', 'pumpkinBlast', 0.08, { gain:0.7 })) _sfxPlays.pumpkinBlast++;
         ring(bx, bz, 0xffb347, R * 1.9, 0.45);
         puff(bx, 0.6, bz, 0xe0862c, 14);
         puff(bx, 0.9, bz, 0xffd23f, 8);
@@ -3720,6 +3751,7 @@
           const target = nearestEnemy(t.mesh.position, WEAPON_SPECS.scarecrow.range);
           if (target){
             fireKernels(t.mesh.position, target, 1, wDmg(t.w), 0);
+            if (playThrottled('pp-sfx-corn-fire', 'turretFire', 0.12, { gain:0.35 })) _sfxPlays.cornFire++;
             t.fireTimer = 1 / wRate(t.w);
             t.kick = 1;
             t.mesh.rotation.y = Math.atan2(target.mesh.position.x - t.mesh.position.x, target.mesh.position.z - t.mesh.position.z);
@@ -3746,6 +3778,7 @@
           if (dist < e.r + 0.9 && e.hitCd <= 0){
             e.hitCd = 0.8;
             hp -= e.dmg;
+            if (playThrottled('pp-sfx-player-hurt', 'playerHurt', 0.2, { gain:0.55 })) _sfxPlays.playerHurt++;
             puff(player.position.x, 1.4, player.position.z, 0xffffff, 4);
             updateHud();
             if (hp <= 0){ gameOver(); return; }
@@ -3849,6 +3882,7 @@
         if (dist < e.r + 0.9 && e.hitCd <= 0){
           e.hitCd = 0.8;
           hp -= e.dmg;
+          if (playThrottled('pp-sfx-player-hurt', 'playerHurt', 0.2, { gain:0.55 })) _sfxPlays.playerHurt++;
           puff(player.position.x, 1.2, player.position.z, 0xffffff, 4);
           updateHud();
           if (hp <= 0){ gameOver(); return; }
@@ -3894,6 +3928,7 @@
         if (d < 1.3){
           scene.remove(o.mesh);
           orbs.splice(orbs.indexOf(o), 1);
+          if (playThrottled('pp-sfx-xp-collect', 'xpCollect', 0.05, { gain:0.35 })) _sfxPlays.xpCollect++;
           gainXp(o.amount);
         }
       }
@@ -4201,6 +4236,200 @@
       }
     }
 
+    // ============================================================================
+    //  AUDIO — ElevenLabs-generated samples (assets/audio/pasture/), Farm Kart house
+    //  pattern (see CLAUDE.md "Farm Kart — generated audio samples wired in"): decode
+    //  the whole manifest at boot (no gesture needed for decoding), everything routes
+    //  through masterGain (SFX) or musicBus->masterGain (music), 🔊/🎵 buttons persist
+    //  to localStorage, playback only starts after the first real user gesture. This
+    //  game had NO prior audio at all, so there is no synth fallback layer to lean on —
+    //  playSample() simply no-ops (returns false) when a buffer isn't ready yet, which
+    //  keeps the game 100% playable with 0 pageerrors even if assets/audio is blocked.
+    // ============================================================================
+    let audioCtx = null, masterGain = null, musicBus = null;
+    let audioMuted = false; try{ audioMuted = localStorage.getItem('pp_muted') === '1'; }catch(e){}
+    let musicOff = false; try{ musicOff = localStorage.getItem('pp_music_off') === '1'; }catch(e){}
+    const MUSIC_LEVEL = 0.4;
+    function ensureAudio(){
+      if (!audioCtx){ try{ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){ return null; } }
+      if (audioCtx.state === 'suspended'){ try{ audioCtx.resume(); }catch(e){} }
+      if (!masterGain){ masterGain = audioCtx.createGain(); masterGain.gain.value = audioMuted ? 0 : 1; masterGain.connect(audioCtx.destination); }
+      if (!musicBus){ musicBus = audioCtx.createGain(); musicBus.gain.value = musicOff ? 0 : MUSIC_LEVEL; musicBus.connect(masterGain); }
+      return audioCtx;
+    }
+    const AUDIO_BASE = 'assets/audio/pasture/';
+    const AUDIO_FILES = [
+      'pp-music-menu','pp-music-play',
+      'pp-sfx-corn-fire','pp-sfx-pumpkin-blast','pp-sfx-cat-pounce','pp-sfx-scarecrow-plant',
+      'pp-sfx-bee-sting','pp-sfx-sprinkler-spray','pp-sfx-fork-throw','pp-sfx-bolt-zap',
+      'pp-sfx-varmint-pop','pp-sfx-elite-pop','pp-sfx-boss-roar','pp-sfx-boss-death','pp-sfx-combine-roar',
+      'pp-sfx-xp-collect','pp-sfx-coin-pickup','pp-sfx-milk-pickup','pp-sfx-magnet-pickup','pp-sfx-boom-pickup',
+      'pp-sfx-chest-open','pp-sfx-evolution','pp-sfx-levelup','pp-sfx-player-hurt','pp-sfx-wave-horn',
+      'pp-sfx-victory','pp-sfx-defeat','pp-sfx-ui-click'
+    ];
+    const audioBuffers = {};   // name -> AudioBuffer once decoded; null = failed (stays silent forever)
+    let _buffersLoaded = 0;
+    function buf(name){ return audioBuffers[name] || null; }
+    function loadAudioBuffers(){
+      const ctx = ensureAudio(); if (!ctx) return;   // no WebAudio at all -> silent forever, harmless
+      AUDIO_FILES.forEach(name => {
+        if (name in audioBuffers) return;
+        fetch(AUDIO_BASE + name + '.mp3').then(r => {
+          if (!r.ok) throw new Error('http ' + r.status);
+          return r.arrayBuffer();
+        }).then(ab => ctx.decodeAudioData(ab)).then(b => {
+          audioBuffers[name] = b; _buffersLoaded++;
+          // late-decode retry: if a gesture already happened and we're still on the phase
+          // this buffer belongs to, (re)start it — start fns are idempotent via !src guards.
+          if (_audioGestured){
+            if (musicPhase === 'menu' && name === 'pp-music-menu') startMenuMusic();
+            else if (musicPhase === 'play' && name === 'pp-music-play') startPlayMusic();
+          }
+        }).catch(() => { audioBuffers[name] = null; });
+      });
+    }
+    // one-shot sample -> masterGain (or a custom dest). Returns false (no-op) if the buffer
+    // isn't ready — every call site is written to tolerate that silently.
+    function playSample(name, opts){
+      opts = opts || {};
+      const b = buf(name); if (!b) return false;
+      const ctx = ensureAudio(); if (!ctx || !masterGain) return false;
+      try{
+        const src = ctx.createBufferSource(); src.buffer = b;
+        if (opts.rate) src.playbackRate.value = opts.rate;
+        const g = ctx.createGain(); g.gain.value = opts.gain != null ? opts.gain : 1;
+        src.connect(g); g.connect(opts.dest || masterGain);
+        src.start(ctx.currentTime + (opts.delay || 0));
+        return true;
+      }catch(e){ return false; }
+    }
+    const _sfxPlays = { cornFire:0, pumpkinBlast:0, catPounce:0, scarecrowPlant:0, beeSting:0, sprinklerSpray:0,
+      forkThrow:0, boltZap:0, varmintPop:0, elitePop:0, bossRoar:0, bossDeath:0, combineRoar:0,
+      xpCollect:0, coinPickup:0, milkPickup:0, magnetPickup:0, boomPickup:0, chestOpen:0, evolution:0,
+      levelup:0, playerHurt:0, waveHorn:0, victory:0, defeat:0, uiClick:0 };
+    // small per-sound cooldown gates so a dense swarm frame (many bees stinging, many enemies
+    // touching the player, an xp-orb frenzy) can't stack dozens of overlapping one-shots at once
+    const _sfxCd = {};
+    function playThrottled(name, key, cooldown, opts){
+      const t = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
+      if (_sfxCd[key] && t - _sfxCd[key] < cooldown) return false;
+      _sfxCd[key] = t;
+      return playSample(name, opts);
+    }
+
+    // ---- music: menu (title/barn/char-select) <-> play (the run itself) ----
+    let menuMusicSrc = null, menuMusicGain = null, playMusicSrc = null, playMusicGain = null;
+    let musicPhase = null;   // 'menu' | 'play' | null
+    function fadeGainTo(node, target, dur){
+      if (!node || !audioCtx) return;
+      try{
+        const t = audioCtx.currentTime;
+        node.gain.cancelScheduledValues(t);
+        node.gain.setValueAtTime(node.gain.value, t);
+        node.gain.linearRampToValueAtTime(target, t + Math.max(0.02, dur || 0.5));
+      }catch(e){}
+    }
+    function silenceTrack(node){ if (node) fadeGainTo(node, 0, 0.6); }
+    // NOTE: the source (menuMusicSrc/playMusicSrc) is created ONCE and left running forever
+    // (looping); "stopping" a track just fades its gain to 0 via silenceTrack(). So the
+    // create-if-missing step and the fade-up step are two SEPARATE conditions below — a
+    // re-entry after being silenced must still re-fade up even though the source already exists.
+    function startMenuMusic(){
+      if (!ensureAudio() || !musicBus) return;
+      if (!menuMusicSrc && buf('pp-music-menu')){
+        menuMusicGain = audioCtx.createGain(); menuMusicGain.gain.value = 0; menuMusicGain.connect(musicBus);
+        menuMusicSrc = audioCtx.createBufferSource(); menuMusicSrc.buffer = buf('pp-music-menu'); menuMusicSrc.loop = true;
+        menuMusicSrc.connect(menuMusicGain); menuMusicSrc.start();
+      }
+      if (menuMusicGain) fadeGainTo(menuMusicGain, 1, 0.6);
+    }
+    function startPlayMusic(){
+      if (!ensureAudio() || !musicBus) return;
+      if (!playMusicSrc && buf('pp-music-play')){
+        playMusicGain = audioCtx.createGain(); playMusicGain.gain.value = 0; playMusicGain.connect(musicBus);
+        playMusicSrc = audioCtx.createBufferSource(); playMusicSrc.buffer = buf('pp-music-play'); playMusicSrc.loop = true;
+        playMusicSrc.connect(playMusicGain); playMusicSrc.start();
+      }
+      if (playMusicGain) fadeGainTo(playMusicGain, 1, 0.6);
+    }
+    function setMusicPhase(next){
+      if (musicPhase === next) return;
+      musicPhase = next;
+      ensureAudio();
+      if (next === 'menu'){ silenceTrack(playMusicGain); startMenuMusic(); }
+      else if (next === 'play'){ silenceTrack(menuMusicGain); startPlayMusic(); }
+      else { silenceTrack(menuMusicGain); silenceTrack(playMusicGain); }
+    }
+    // menu music resumes automatically the next time musicPhaseForState() is polled (see loop())
+    function musicPhaseForState(){
+      // barn/char-select/pact overlays never change `state` (they layer on top of "title"/"over"),
+      // so both of those naturally keep menu music playing underneath them — no extra case needed.
+      return (state === 'title' || state === 'over') ? 'menu'
+           : (state === 'playing' || state === 'levelup' || state === 'paused' || state === 'chest') ? 'play'
+           : null;
+    }
+
+    // ---- 🔊 mute / 🎵 music toggle buttons ----
+    function applyMute(){
+      const btn = document.getElementById('muteBtn');
+      if (btn){ btn.textContent = audioMuted ? '🔇' : '🔊'; btn.classList.toggle('muted', audioMuted); }
+      if (masterGain) masterGain.gain.value = audioMuted ? 0 : 1;
+    }
+    function setMuted(v){ audioMuted = !!v; try{ localStorage.setItem('pp_muted', audioMuted ? '1' : '0'); }catch(e){} applyMute(); }
+    function toggleMuted(){ setMuted(!audioMuted); }
+    document.getElementById('muteBtn').addEventListener('click', e => { e.stopPropagation(); ensureAudio(); toggleMuted(); });
+    applyMute();
+    function applyMusicToggleUI(){
+      const btn = document.getElementById('musicBtn');
+      if (btn) btn.classList.toggle('muted', musicOff);
+    }
+    function setMusicOff(v){
+      musicOff = !!v;
+      try{ localStorage.setItem('pp_music_off', musicOff ? '1' : '0'); }catch(e){}
+      if (musicBus){
+        try{ if (audioCtx) musicBus.gain.cancelScheduledValues(audioCtx.currentTime); }catch(e){}
+        musicBus.gain.value = musicOff ? 0 : MUSIC_LEVEL;
+      }
+      applyMusicToggleUI();
+    }
+    document.getElementById('musicBtn').addEventListener('click', e => { e.stopPropagation(); ensureAudio(); setMusicOff(!musicOff); });
+    applyMusicToggleUI();
+
+    // first real gesture unlocks playback (decoding needs no gesture, only starting a source does)
+    let _audioGestured = false;
+    function _firstGestureAudioUnlock(){
+      _audioGestured = true;
+      ensureAudio();
+      const want = musicPhaseForState();
+      if (want) setMusicPhase(want);
+    }
+    addEventListener('pointerdown', _firstGestureAudioUnlock, { once:true, passive:true });
+    addEventListener('keydown', _firstGestureAudioUnlock, { once:true });
+    addEventListener('touchstart', _firstGestureAudioUnlock, { once:true, passive:true });
+    loadAudioBuffers();
+
+    // ---- generic UI click: any button / upgrade / chest / character card ----
+    document.addEventListener('click', (e) => {
+      const el = e.target.closest('button, .card, .charcard, .barnrow .bbuy');
+      if (!el || el.disabled) return;
+      if (playSample('pp-sfx-ui-click', { gain:0.55 })) _sfxPlays.uiClick++;
+    });
+
+    // debug hook for headless verification
+    window.__PASTURE_AUDIO__ = {
+      audioState: () => ({
+        muted: audioMuted, musicOff, ctxState: audioCtx ? audioCtx.state : null,
+        buffersLoaded: _buffersLoaded, buffersTotal: AUDIO_FILES.length,
+        musicPhase, menuMusicGainV: menuMusicGain ? menuMusicGain.gain.value : null,
+        playMusicGainV: playMusicGain ? playMusicGain.gain.value : null,
+        masterGainV: masterGain ? masterGain.gain.value : null,
+        musicBusV: musicBus ? musicBus.gain.value : null,
+        sfxPlays: Object.assign({}, _sfxPlays), gestured: _audioGestured
+      }),
+      gesture: () => _firstGestureAudioUnlock(),
+      setMusicPhase, playSample, loadAudioBuffers
+    };
+
     // ================== main loop ==================
     document.getElementById("titleCoins").textContent = meta.coins;
     renderPact();
@@ -4214,6 +4443,9 @@
       let dt = (ts - last) / 1000;
       last = ts;
       if (dt > 0.05) dt = 0.05;
+      // menu music vs run music — polled once/frame (cheap; setMusicPhase no-ops when unchanged)
+      // rather than threaded through every "state = ..." assignment in the file.
+      if (_audioGestured) setMusicPhase(musicPhaseForState());
       update(dt);
       ambientUpdate(dt);
       // clouds drift and wrap
@@ -4237,6 +4469,23 @@
       requestAnimationFrame(loop);
     }
     requestAnimationFrame(loop);
+
+    // ---- minimal test hook (headless verification only — no gameplay behavior depends on it) ----
+    window.__PP__ = {
+      get state(){ return state; },
+      get player(){ return player; },
+      get enemies(){ return enemies; },
+      get weapons(){ return weapons; },
+      get orbs(){ return orbs; },
+      get pickups(){ return pickups; },
+      get chests(){ return chests; },
+      get hp(){ return hp; }, set hp(v){ hp = v; },
+      get boss(){ return boss; },
+      get pumpkins(){ return pumpkins; },
+      startGame, gameOver, spawnEnemy, spawnBoss, spawnFinalBoss, damageEnemy,
+      gainXp, dropPickup, applyPickup, openChest, evolveWeapon, fireWeapon,
+      weaponById, togglePause, openLevelUp
+    };
   })();
   </script>
 </body>

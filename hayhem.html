@@ -172,6 +172,14 @@
     color:#fff; font-size:18px; pointer-events:auto; cursor:pointer;
     display:flex; align-items:center; justify-content:center;
   }
+  #musicBtn{
+    position:absolute; top:112px; right:58px;
+    width:40px; height:40px; border-radius:50%;
+    border:2px solid rgba(255,255,255,.3); background:rgba(35,51,87,.8);
+    color:#fff; font-size:18px; pointer-events:auto; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+  }
+  #musicBtn.muted{ opacity:.5; }
 
   #win{
     position:absolute; inset:0; display:none; align-items:center; justify-content:center;
@@ -204,8 +212,8 @@
     <div class="logo"><span class="pk">🎃</span> HAYHEM</div>
     <p class="sub">Farmyard artillery mayhem</p>
     <button class="playBtn" id="playBtn" type="button">PLAY</button>
-    <p class="hint" id="titleHint">Tap the battlefield to aim, set height &amp; power, then FIRE!
-      Splash the other farmyard's critters into the pond to win.</p>
+    <p class="hint" id="titleHint">Tap a tower to aim, set height &amp; power, then FIRE!
+      Blast the other team's critters off their towers into the bay to win.</p>
   </div>
 
   <div id="hud">
@@ -239,6 +247,7 @@
     </div>
     <button id="fireBtn" type="button">FIRE</button>
     <button id="mute" type="button" aria-label="Mute">🔊</button>
+    <button id="musicBtn" type="button" aria-label="Toggle music">🎵</button>
     <div id="win">
       <div class="card">
         <h2 id="winTitle">West Yard wins!</h2>
@@ -263,7 +272,9 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
   if (IS_MOBILE) document.body.classList.add("mobile");
 
   // ─────────────────────────────────────────────────────────────────────────
-  // POND / WORLD CONSTANTS — ONE source of truth, used everywhere
+  // "TOWER BAY" / WORLD CONSTANTS — ONE source of truth, used everywhere.
+  // Open water spans the WHOLE playfield; six stone towers (one per critter)
+  // + two low rock islets rise out of it. Anything in the water can drown.
   // ─────────────────────────────────────────────────────────────────────────
   const CELL = 0.55;
   const GX = 56, GY = 14, GZ = 32;
@@ -273,19 +284,37 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
   const CHUNK = 8;
   const CX = Math.ceil(GX / CHUNK), CY = Math.ceil(GY / CHUNK), CZ = Math.ceil(GZ / CHUNK);
 
-  const POND_HALF_X = 3.0;          // world units
-  const POND_HALF_Z = 6.3;
-  const POND_BED_TOP = 2;           // top filled cell index inside pond
-  const YARD_TOP = 7;               // nominal yard surface cell
-  const WATER_LEVEL_CELLS = 4.0;    // between bed top (3) and yard top (8) worlds
-  const WATER_Y = OY + WATER_LEVEL_CELLS * CELL;             // 2.20
-  const BED_TOP_Y = OY + (POND_BED_TOP + 1) * CELL;          // 1.65  (< WATER_Y ✔)
+  const SEA_HALF_X = 23;            // splash/drown extent — matches projectile OOB bounds
+  const SEA_HALF_Z = 14.5;
+  const BED_TOP = 2;                // sea-bed top cell (below water everywhere)
+  const WATER_LEVEL_CELLS = 4.0;
+  const WATER_Y = OY + WATER_LEVEL_CELLS * CELL;   // 2.20
+  const BED_TOP_Y = OY + (BED_TOP + 1) * CELL;     // 1.65  (< WATER_Y ✔)
   const WATER_OUT_T = 0.6;
 
-  const CONTENT_HALF_X = 14.5;      // camera framing target (spawns at ±11.6)
+  // Deterministic tower layout (NO Math.random): first 3 west, last 3 east —
+  // spawns are centered on these. STAGGERED tops per side (front low → middle
+  // tall → back mid) so height matters; tops ~3-4 cells across (2.1 world):
+  // standable, but a near-miss blast (knockR 2.9-3.8) shoves critters off.
+  const TOWER_HALF = 1.05;          // world half-extent of a tower footprint
+  const TOWERS = [
+    { x: -11.6, z: -4.4, top: 6 },  // west front  (top y 3.85)
+    { x: -12.1, z:  0.0, top: 9 },  // west middle (top y 5.50)
+    { x: -11.6, z:  4.4, top: 7 },  // west back   (top y 4.40)
+    { x:  11.6, z: -4.4, top: 6 },  // east front
+    { x:  12.1, z:  0.0, top: 9 },  // east middle
+    { x:  11.6, z:  4.4, top: 7 }   // east back
+  ];
+  // low neutral rock islets mid-bay (no units) — bank-shot cover variety
+  const ISLETS = [
+    { x: -1.2, z:  2.6, top: 4, half: 0.85 },   // top y 2.75, 0.55 above water
+    { x:  1.4, z: -2.8, top: 4, half: 0.85 }
+  ];
+
+  const CONTENT_HALF_X = 14.5;      // camera framing target (towers at ±12.1)
   const CONTENT_HALF_Z = 8.5;
 
-  const MAT = { 1: 0xa9713f /*dirt*/, 2: 0x74b054 /*grass*/, 3: 0x8a8f96 /*stone*/, 4: 0x5c6b7a /*pondbed*/ };
+  const MAT = { 1: 0xa9713f /*dirt*/, 2: 0x74b054 /*grass*/, 3: 0x8a8f96 /*stone*/, 4: 0x5c6b7a /*seabed*/ };
 
   const GRAV = 18;
   const MAX_POWER = 26;
@@ -316,12 +345,12 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
     teamTurnCount: [0, 0],
     roundNum: 1,
     spawns: [
-      { team: 0, x: -11.6, z: -3.3 },
+      { team: 0, x: -11.6, z: -4.4 },   // centered on TOWERS[0..5] tops
       { team: 0, x: -12.1, z: 0.0 },
-      { team: 0, x: -11.6, z: 3.3 },
-      { team: 1, x: 11.6, z: -3.3 },
+      { team: 0, x: -11.6, z: 4.4 },
+      { team: 1, x: 11.6, z: -4.4 },
       { team: 1, x: 12.1, z: 0.0 },
-      { team: 1, x: 11.6, z: 3.3 }
+      { team: 1, x: 11.6, z: 4.4 }
     ],
     units: [],
     projectiles: [],
@@ -351,20 +380,21 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
   function cellCenter(ix, iy, iz) {
     return { x: OX + (ix + 0.5) * CELL, y: OY + (iy + 0.5) * CELL, z: OZ + (iz + 0.5) * CELL };
   }
-  function inPondXZ(x, z) { return Math.abs(x) < POND_HALF_X && Math.abs(z) < POND_HALF_Z; }
+  /** the whole bay is water — anything that dips under WATER_Y here can drown */
+  function inSeaXZ(x, z) { return Math.abs(x) < SEA_HALF_X && Math.abs(z) < SEA_HALF_Z; }
 
-  // deterministic terrain (no Math.random)
+  // deterministic terrain (no Math.random): sea bed everywhere, towers + islets
+  function columnInfo(wx, wz) {
+    for (const t of TOWERS) {
+      if (Math.abs(wx - t.x) <= TOWER_HALF && Math.abs(wz - t.z) <= TOWER_HALF) return { top: t.top, kind: "tower" };
+    }
+    for (const s of ISLETS) {
+      if (Math.abs(wx - s.x) <= s.half && Math.abs(wz - s.z) <= s.half) return { top: s.top, kind: "islet" };
+    }
+    return { top: BED_TOP, kind: "bed" };
+  }
   function terrainTopCell(ix, iz) {
-    const wx = OX + (ix + 0.5) * CELL;
-    const wz = OZ + (iz + 0.5) * CELL;
-    if (Math.abs(wx) < POND_HALF_X && Math.abs(wz) < POND_HALF_Z) return POND_BED_TOP;
-    let h = YARD_TOP;
-    const edgeX = Math.abs(wx) - POND_HALF_X;      // >0 outside pond in X
-    if (edgeX < 2.6) h = 3 + Math.max(0, Math.round(edgeX * 1.4)); // gentle bank rising from pond
-    const bump = Math.round(1.1 * Math.sin(wx * 0.5 + 1.3) + 0.85 * Math.cos(wz * 0.72 + 0.4));
-    h += bump;
-    if (Math.abs(wz) > POND_HALF_Z + 0.4) h += 0; // yards flank pond
-    return clamp(h, 3, GY - 2);
+    return columnInfo(OX + (ix + 0.5) * CELL, OZ + (iz + 0.5) * CELL).top;
   }
 
   function buildVoxelField() {
@@ -374,12 +404,13 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
       for (let ix = 0; ix < GX; ix++) {
         const wx = OX + (ix + 0.5) * CELL;
         const wz = OZ + (iz + 0.5) * CELL;
-        const pond = Math.abs(wx) < POND_HALF_X && Math.abs(wz) < POND_HALF_Z;
-        const h = terrainTopCell(ix, iz);
+        const info = columnInfo(wx, wz);
+        const h = info.top;
         for (let iy = 0; iy <= h; iy++) {
-          let t = 1;                       // dirt
-          if (iy === 0) t = 3;             // stone base
-          if (iy === h) t = pond ? 4 : 2;  // pondbed or grass
+          let t;
+          if (info.kind === "tower") t = iy === h ? 2 : 3;         // grass cap on stone sides
+          else if (info.kind === "islet") t = 3;                   // bare rock
+          else t = iy === h ? 4 : (iy === 0 ? 3 : 1);              // seabed cap on dirt/stone
           vox[vi(ix, iy, iz)] = t;
           count++;
         }
@@ -424,18 +455,18 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
   );
   scene.add(sky);
 
-  // pond bed (darker plane under the water so it reads as depth)
+  // sea bed (darker plane under the water so the whole bay reads as depth)
   const bed = new THREE.Mesh(
-    new THREE.PlaneGeometry(POND_HALF_X * 2 + 0.6, POND_HALF_Z * 2 + 0.6),
+    new THREE.PlaneGeometry(SEA_HALF_X * 2 + 2, SEA_HALF_Z * 2 + 2),
     new THREE.MeshLambertMaterial({ color: 0x2f4a52 })
   );
   bed.rotation.x = -Math.PI / 2;
   bed.position.set(0, BED_TOP_Y + 0.05, 0);
   scene.add(bed);
 
-  // translucent water plane — sits ABOVE the bed, BELOW the yards
+  // translucent water plane — ONE bay across the whole playfield, BELOW the towers
   const water = new THREE.Mesh(
-    new THREE.PlaneGeometry(POND_HALF_X * 2, POND_HALF_Z * 2),
+    new THREE.PlaneGeometry(SEA_HALF_X * 2, SEA_HALF_Z * 2),
     new THREE.MeshLambertMaterial({ color: 0x2f8fce, transparent: true, opacity: 0.72, depthWrite: false })
   );
   water.rotation.x = -Math.PI / 2;
@@ -467,7 +498,11 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
     for (let iz = 0; iz < CHUNK; iz++) { const gz = z0 + iz; if (gz >= GZ) continue;
       for (let iy = 0; iy < CHUNK; iy++) { const gy = y0 + iy; if (gy >= GY) continue;
         for (let ix = 0; ix < CHUNK; ix++) { const gx = x0 + ix; if (gx >= GX) continue;
-          const t = G.voxels[vi(gx, gy, gz)]; if (t) cells.push({ gx, gy, gz, t });
+          const t = G.voxels[vi(gx, gy, gz)]; if (!t) continue;
+          // open-water BED columns are physics-only: the flat bed plane is the
+          // visual (per-voxel gaps read as dashed seams through the water)
+          if (columnInfo(OX + (gx + 0.5) * CELL, OZ + (gz + 0.5) * CELL).kind === "bed") continue;
+          cells.push({ gx, gy, gz, t });
         } } }
     if (!cells.length) return;
     const mesh = new THREE.InstancedMesh(boxGeo, voxMat, cells.length);
@@ -856,7 +891,7 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
   function setAimPoint(x, z) {
     // keep aim points on the island (grazing rays can land way beyond it)
     x = clamp(x, -14.8, 14.8); z = clamp(z, -8.6, 8.6);
-    const y = inPondXZ(x, z) ? WATER_Y : groundYAt(x, z);
+    const y = Math.max(groundYAt(x, z), WATER_Y);   // tower top, or the water surface
     aim.point = { x, y, z };
     refreshAim();
   }
@@ -889,7 +924,7 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
     const step = 0.3;
     for (let t = step; t < 140; t += step) {
       _rayP.copy(_rayA).addScaledVector(dir, t);
-      const gy = inPondXZ(_rayP.x, _rayP.z) ? WATER_Y : groundYAt(_rayP.x, _rayP.z);
+      const gy = Math.max(groundYAt(_rayP.x, _rayP.z), WATER_Y);  // tower surface or the bay
       if (_rayP.y <= gy) return { x: _rayP.x, y: gy, z: _rayP.z };
     }
     if (Math.abs(dir.y) > 1e-4) { // fallback: water-level plane
@@ -907,7 +942,7 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
     }
     recomputeAim();
     // tap-target flag (re-seated every frame — terrain can be carved under it)
-    const fy = inPondXZ(aim.point.x, aim.point.z) ? WATER_Y : groundYAt(aim.point.x, aim.point.z);
+    const fy = Math.max(groundYAt(aim.point.x, aim.point.z), WATER_Y);
     aimFlag.position.set(aim.point.x, fy, aim.point.z);
     aimFlag.visible = true;
     if (aim.power < 0.6) { setArcDotsVisible(false); return; }
@@ -974,8 +1009,8 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
         }
         if (hit >= 0) { pts.push({ x: st.x, y: st.y, z: st.z }); endKind = "hit"; hitUnitId = hit; break; }
       }
-      // 2) water splash
-      if (inPondXZ(st.x, st.z) && st.y <= WATER_Y + 0.15) { pts.push({ x: st.x, y: st.y, z: st.z }); endKind = "splash"; break; }
+      // 2) water splash — the bay spans the whole playfield
+      if (inSeaXZ(st.x, st.z) && st.y <= WATER_Y + 0.15) { pts.push({ x: st.x, y: st.y, z: st.z }); endKind = "splash"; break; }
       // 3) voxel hit
       const c = worldToCell(st.x, st.y, st.z);
       if (inBounds(c.ix, c.iy, c.iz) && G.voxels[vi(c.ix, c.iy, c.iz)]) { pts.push({ x: st.x, y: st.y, z: st.z }); endKind = "carve"; break; }
@@ -1024,7 +1059,8 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
     setArcDotsVisible(false); aimFlag.visible = false;
     arrowGroup.visible = false;
     updateAmmoChips();
-    sfx.fire();
+    fireSound();
+    startWhistleLoop();
     return true;
   }
 
@@ -1042,7 +1078,7 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
       });
     }
     burst(p.x, p.y, p.z, 8, 0xf6f0dc, 0xffd23f);
-    sfx.turn();
+    turnChimeSound();
   }
 
   function enableRagdoll(id) {
@@ -1081,14 +1117,17 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
     const a = AMMO[p.type];
     const removed = carveSphere(p.x, p.y, p.z, a.carveR * (kind === "hit" ? 0.8 : 1));
     const hits = applyBlast(p.x, p.y, p.z, a.knockR, a.impF);
-    if (p.type === "melon") { burst(p.x, p.y, p.z, 36, 0x3f7a2f, 0xa9713f); sfx.blastBig(); camShake(0.85); }
-    else if (p.type === "egg") { burst(p.x, p.y, p.z, 12, 0xf6f0dc, 0xa9713f); sfx.splat(); camShake(0.25); }
-    else { burst(p.x, p.y, p.z, 24, 0xe0862c, 0xa67c52); sfx.blast(); camShake(0.55); }
+    if (p.type === "melon") { burst(p.x, p.y, p.z, 36, 0x3f7a2f, 0xa9713f); explosionSound("melon"); camShake(0.85); }
+    else if (p.type === "egg") { burst(p.x, p.y, p.z, 12, 0xf6f0dc, 0xa9713f); explosionSound("egg"); camShake(0.25); }
+    else { burst(p.x, p.y, p.z, 24, 0xe0862c, 0xa67c52); explosionSound("pumpkin"); camShake(0.55); }
+    if (removed > 0) crumbleSound();
+    if (hits > 0) boingSound();
     noteImpact(p, kind, removed, hits);
   }
 
   /** all projectiles done → aftermath camera hold, then settling drives the turn */
   function resolveShot() {
+    stopWhistleLoop();
     for (const d of trail) d.visible = false;
     const imps = G.shotImpacts || [];
     const best = imps.find(i => i.kind === "hit") || imps.find(i => i.kind === "carve") ||
@@ -1150,10 +1189,10 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
           }
         }
         if (dead) break;
-        // 2) water splash
-        if (inPondXZ(p.x, p.z) && p.y <= WATER_Y + 0.15) {
+        // 2) water splash — anywhere on the bay
+        if (inSeaXZ(p.x, p.z) && p.y <= WATER_Y + 0.15) {
           burst(p.x, WATER_Y + 0.15, p.z, 12, 0xbfe6ff, 0x7fc4ea);
-          ripple(p.x, p.z); sfx.splash();
+          ripple(p.x, p.z); splashSound();
           noteImpact(p, "splash", 0, 0); list.splice(pi, 1); dead = true; break;
         }
         // 3) voxel hit → carve + blast
@@ -1186,16 +1225,21 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
       const u = G.units[i], crit = critters[i]; if (!crit) continue;
       if (u.out) { syncMeshes(crit); continue; }
       if (u.mode === "stiff") {
-        u.y = groundYAt(u.x, u.z); resetPose(crit, u); continue;
+        const gy = groundYAt(u.x, u.z);
+        // column demolished under a standing critter → it DROPS into the bay
+        // (never left standing on the sea floor — tower demolition is a kill)
+        if (gy < WATER_Y - 0.01) { enableRagdoll(i); }
+        else { u.y = gy; resetPose(crit, u); continue; }
       }
-      // ragdoll
+      // ragdoll — clamp on terrain only where the column tops out ABOVE water
+      // (tower/islet); over open water bodies sink freely so knock-offs drown
       for (const k of BODY_KEYS) {
         const t = crit.bodies[k].position;
-        if (!inPondXZ(t.x, t.z)) settleOnTerrain(crit.bodies[k], HALF_H[k]);
+        if (groundYAt(t.x, t.z) > WATER_Y) settleOnTerrain(crit.bodies[k], HALF_H[k]);
       }
       const tp = crit.bodies.torso.position;
       u.x = tp.x; u.y = tp.y - 0.62; u.z = tp.z;
-      if (inPondXZ(tp.x, tp.z) && tp.y < WATER_Y + 0.2) {
+      if (inSeaXZ(tp.x, tp.z) && tp.y < WATER_Y + 0.2) {
         crit.bodies.torso.velocity.scale(0.9);
         u.waterT += dt;
         if (u.waterT >= WATER_OUT_T) markOut(i);
@@ -1224,7 +1268,7 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
     }
     const side = u.team === 0 ? "West" : "East";
     showToast("🌊 " + u.name + " went for a swim!");
-    sfx.bloop();
+    waterOutSound();
     // if the active shooter drowned mid-cycle, hand off to next living teammate
     if (u.id === G.activeUnitId) {
       const next = livingUnits(u.team)[0];
@@ -1257,7 +1301,8 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
       cam.aftermath = null;
       camGoto("overview");
       cam.wantAim = false;
-      if (westWon) sfx.win(); else sfx.lose();
+      if (westWon) winSound(); else loseSound();
+      musicMatchEnd();
       return true;
     }
     return false;
@@ -1271,6 +1316,7 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
     const r = Math.random();
     if (r < 0.3) G.wind = (Math.random() - 0.5) * 0.6;
     else G.wind = (Math.random() * 2 - 1) * 2.2;
+    windGustSound(G.wind);
   }
   function updateWindHud() {
     const arrow = document.getElementById("windArrow"), pips = document.getElementById("windPips");
@@ -1313,7 +1359,7 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
     if (nu && G.shotCount > 0) showToast("🎯 Next up — " + nu.name + "!");
     // AI think delay runs in PARALLEL with the interlude + camera transition
     if (team === 1) G.aiTimer = 1.0 + Math.random() * 0.6;
-    else sfx.turn();
+    else turnChimeSound();
   }
 
   function finishTurn() {
@@ -1362,10 +1408,12 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
     if (have.length && Math.random() < 0.25) ammoType = have[Math.floor(Math.random() * have.length)];
     G.selAmmo[1] = ammoType;
     const sol = solveFiringSolution(shooter, target, AMMO[ammoType].velF);
-    // aim error shrinks as rounds progress (round 1 sloppy → round 4+ scary)
+    // aim error shrinks as rounds progress (round 1 sloppy → round 5+ scary).
+    // Tower Bay: near-misses are usually LETHAL (knock-off = drown), so the
+    // ramp is gentler than the old yards map (0.62→0.7, az err 0.34→0.4).
     const round = G.teamTurnCount[1];
-    const errScale = Math.pow(0.62, round - 1); // 1, .62, .38, .24…
-    const azErr = (Math.random() - 0.5) * 0.34 * errScale;
+    const errScale = Math.pow(0.7, round - 1); // 1, .7, .49, .34…
+    const azErr = (Math.random() - 0.5) * 0.4 * errScale;
     const pErr = 1 + (Math.random() - 0.5) * 0.28 * errScale;
     aim.az = sol.az + azErr;
     aim.pitch = clamp(sol.pitch, MIN_PITCH, MAX_PITCH);
@@ -1485,7 +1533,7 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
     releaseCap(pid);
     if (moved > 14 || !playerCanAim()) return;  // a swipe is not a tap
     const hit = raycastGround(e.clientX, e.clientY);
-    if (hit) { setAimPoint(hit.x, hit.z); sfx.turn(); }
+    if (hit) { setAimPoint(hit.x, hit.z); turnChimeSound(); }
   }
   function onCancel(e) {
     if (e && e.pointerType === "touch") touchPts.delete(e.pointerId);
@@ -1510,6 +1558,18 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
   });
   heightSlider.addEventListener("input", () => refreshAim());
   powerSlider.addEventListener("input", () => refreshAim());
+  // slingshot "pull-back" stretch loop — plays while a slider is actively being dragged,
+  // gain scaled by the power slider's current value (kids pulling harder = louder creak)
+  function aimDragStart() { initAudio(); aimDragging = true; }
+  function aimDragEnd() { aimDragging = false; }
+  [heightSlider, powerSlider].forEach(el => {
+    el.addEventListener("pointerdown", aimDragStart);
+    el.addEventListener("touchstart", aimDragStart, { passive: true });
+  });
+  addEventListener("pointerup", aimDragEnd);
+  addEventListener("pointercancel", aimDragEnd);
+  addEventListener("touchend", aimDragEnd, { passive: true });
+  addEventListener("touchcancel", aimDragEnd, { passive: true });
 
   // ammo chip selector (player team)
   function updateAmmoChips() {
@@ -1533,7 +1593,7 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
       G.selAmmo[0] = type;
       updateAmmoChips();
       refreshAim();          // preview uses the selected ammo's physics
-      sfx.turn();
+      turnChimeSound();
     });
   }
 
@@ -1562,7 +1622,7 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // audio — WebAudio synth (no files)
+  // audio — WebAudio synth (no files) — the graceful, always-on fallback layer
   // ─────────────────────────────────────────────────────────────────────────
   let actx = null, master = null;
   let muted = localStorage.getItem("hh2_muted") === "1";
@@ -1572,6 +1632,11 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
       actx = new (window.AudioContext || window.webkitAudioContext)();
       master = actx.createGain(); master.gain.value = muted ? 0 : 0.5; master.connect(actx.destination);
     } catch (_) { actx = null; }
+  }
+  function ensureAudio() {
+    initAudio();
+    if (actx && actx.state === "suspended") { try { actx.resume(); } catch (_) {} }
+    return actx;
   }
   function tone(freq, dur, type, gain, slideTo, delay) {
     if (!actx || muted) return;
@@ -1597,7 +1662,8 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
   const sfx = {
     fire() { tone(300, 0.28, "sawtooth", 0.22, 620); },
     blast() { noiseBurst(0.4, 0.5, 900); tone(90, 0.35, "square", 0.3, 40); },
-    splash() { noiseBurst(0.35, 0.35, 2600); tone(700, 0.2, "sine", 0.15, 300); },
+    // splashes are FREQUENT on the bay map — softer + slightly varied each time
+    splash() { noiseBurst(0.3, 0.22, 2000 + Math.random() * 1100); tone(560 + Math.random() * 240, 0.18, "sine", 0.1, 240 + Math.random() * 120); },
     bloop() { tone(500, 0.18, "sine", 0.3, 180); },
     blastBig() { noiseBurst(0.6, 0.65, 600); tone(60, 0.5, "square", 0.38, 28); },   // melon: deeper thump
     splat() { noiseBurst(0.18, 0.28, 1800); tone(320, 0.12, "triangle", 0.2, 140); }, // egg: light splat
@@ -1613,6 +1679,250 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
     if (master) master.gain.value = muted ? 0 : 0.5;
     initAudio();
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 2026-07-12 — GENERATED AUDIO SAMPLES (assets/audio/hayhem/, ElevenLabs),
+  // layered ON TOP of the synth above (Farm Kart house pattern). The synth is
+  // the graceful fallback: every wrapper below tries its sample FIRST and
+  // falls straight back to the ORIGINAL synth call the instant a buffer
+  // hasn't decoded (blocked/slow/failed fetch) — nothing here can brick
+  // playback, and no synth code was deleted. Every sample routes through
+  // `master` (SFX) or `musicBus`→`master` (music) so the 🔊 mute stays one
+  // kill switch for everything.
+  // ─────────────────────────────────────────────────────────────────────────
+  const AUDIO_BASE = "assets/audio/hayhem/";
+  const AUDIO_FILES = [
+    "hh-sfx-stretch", "hh-sfx-launch", "hh-sfx-whistle", "hh-sfx-explosion",
+    "hh-sfx-crumble", "hh-sfx-splash", "hh-sfx-boing", "hh-sfx-windgust",
+    "hh-sfx-turnchime", "hh-sfx-victory", "hh-sfx-trombone", "hh-sfx-gasp",
+    "hh-music-menu", "hh-music-battle", "hh-music-victory"
+  ];
+  const audioBuffers = {};     // name -> AudioBuffer once decoded; null = failed (stays synth-only)
+  let _buffersLoaded = 0;
+  function buf(name) { return audioBuffers[name] || null; }
+  function loadAudioBuffers() {
+    const ctx = ensureAudio(); if (!ctx) return;  // no WebAudio at all -> synth-only forever, harmless
+    AUDIO_FILES.forEach(name => {
+      if (name in audioBuffers) return;           // already loaded or already failed
+      fetch(AUDIO_BASE + name + ".mp3").then(r => {
+        if (!r.ok) throw new Error("http " + r.status);
+        return r.arrayBuffer();
+      }).then(ab => ctx.decodeAudioData(ab)).then(b => {
+        audioBuffers[name] = b; _buffersLoaded++;
+        // late-decode retry: big music files often lose the race against the first tap
+        if (_audioGestured) {
+          if (musicPhase === "menu" && name === "hh-music-menu") startMenuTrack();
+          else if (musicPhase === "battle" && name === "hh-music-battle") startBattleTrack();
+        }
+      }).catch(() => { audioBuffers[name] = null; });  // blocked/failed -> falsy forever
+    });
+  }
+  // one-shot sample -> master (or a custom dest, e.g. musicBus for the victory jingle)
+  function playSample(name, opts) {
+    opts = opts || {};
+    const b = buf(name); if (!b) return false;
+    const ctx = ensureAudio(); if (!ctx || !master) return false;
+    if (muted) return true;  // buffer exists + would have played -> counts as "sample path taken"
+    try {
+      const src = ctx.createBufferSource(); src.buffer = b;
+      if (opts.rate) src.playbackRate.value = opts.rate;
+      const g = ctx.createGain(); g.gain.value = opts.gain != null ? opts.gain : 1;
+      src.connect(g); g.connect(opts.dest || master);
+      src.start(ctx.currentTime + (opts.delay || 0));
+      return true;
+    } catch (_) { return false; }
+  }
+  const _sfxPlays = {
+    launch: 0, whistleStarts: 0, explosion: 0, crumble: 0, splash: 0, splashOut: 0,
+    boing: 0, windgust: 0, turnchime: 0, victory: 0, victoryJingle: 0, trombone: 0, gasp: 0, stretchStarts: 0
+  };
+
+  // ---- sample-first wrappers around each existing sound cue (exact synth fallback) ----
+  function fireSound() {
+    if (playSample("hh-sfx-launch", { gain: 0.85 })) _sfxPlays.launch++;
+    else sfx.fire();
+  }
+  function explosionSound(kind) {
+    const gain = kind === "melon" ? 1.0 : kind === "egg" ? 0.5 : 0.8;
+    if (playSample("hh-sfx-explosion", { gain })) _sfxPlays.explosion++;
+    else if (kind === "melon") sfx.blastBig();
+    else if (kind === "egg") sfx.splat();
+    else sfx.blast();
+  }
+  function splashSound() {
+    if (playSample("hh-sfx-splash", { gain: 0.7, rate: 0.94 + Math.random() * 0.12 })) _sfxPlays.splash++;
+    else sfx.splash();
+  }
+  function waterOutSound() {
+    if (playSample("hh-sfx-splash", { gain: 0.85 })) _sfxPlays.splashOut++;
+    else sfx.bloop();
+    gaspSound();
+  }
+  function winSound() {
+    sfx.win();  // keep the existing synth fanfare flair regardless of sample availability
+    if (playSample("hh-sfx-victory", { gain: 0.9 })) _sfxPlays.victory++;
+  }
+  function loseSound() {
+    if (playSample("hh-sfx-trombone", { gain: 0.8 })) _sfxPlays.trombone++;
+    else sfx.lose();
+  }
+  function turnChimeSound() {
+    if (playSample("hh-sfx-turnchime", { gain: 0.55 })) _sfxPlays.turnchime++;
+    else sfx.turn();
+  }
+  // ---- brand-new cues (no prior synth equivalent — light synth substitute so a
+  // blocked-audio session still gets SOME feedback, not silence) ----
+  function crumbleSound() {
+    if (playSample("hh-sfx-crumble", { gain: 0.55 })) _sfxPlays.crumble++;
+    else noiseBurst(0.3, 0.16, 500);
+  }
+  function boingSound() {
+    if (playSample("hh-sfx-boing", { gain: 0.75 })) _sfxPlays.boing++;
+    else { tone(220, 0.18, "sine", 0.22, 640); }
+  }
+  function gaspSound() {
+    if (playSample("hh-sfx-gasp", { gain: 0.55 })) _sfxPlays.gasp++;
+    else tone(720, 0.14, "sine", 0.12, 900);
+  }
+  function windGustSound(wind) {
+    const mag = Math.min(1, Math.abs(wind) / 2.2);
+    if (mag < 0.12) return;  // near-calm turns stay silent — "subtle" per spec
+    if (playSample("hh-sfx-windgust", { gain: 0.12 + mag * 0.22 })) _sfxPlays.windgust++;
+    else noiseBurst(0.4, 0.05 + mag * 0.08, 2400);
+  }
+
+  // ---- LOOPING cues (slingshot stretch while aiming, pumpkin whistle while airborne) —
+  // each is a single always-decoded loop source whose GAIN is lerped toward a per-frame
+  // target (bistro/farmkart drift-loop pattern); sample-only (ambience layer, no synth
+  // substitute needed — silence is a harmless no-op when the buffer hasn't loaded). ----
+  let aimDragging = false;   // set by the height/power slider pointer handlers below
+  let stretchSrc = null, stretchGain = null;
+  function stretchSampleReady() { return !!buf("hh-sfx-stretch"); }
+  function startStretchLoop() {
+    if (stretchSrc || !actx || !master || !stretchSampleReady()) return;
+    try {
+      stretchGain = actx.createGain(); stretchGain.gain.value = 0; stretchGain.connect(master);
+      stretchSrc = actx.createBufferSource(); stretchSrc.buffer = buf("hh-sfx-stretch"); stretchSrc.loop = true;
+      stretchSrc.connect(stretchGain); stretchSrc.start();
+      _sfxPlays.stretchStarts++;
+    } catch (_) {}
+  }
+  function updateStretchLoop(dt) {
+    if (!stretchSampleReady()) return;
+    startStretchLoop();
+    if (!stretchGain) return;
+    const pull = clamp((Number(powerSlider.value) || 0) / 100, 0, 1);
+    const target = (aimDragging && !muted) ? (0.12 + pull * 0.28) : 0;
+    stretchGain.gain.value += (target - stretchGain.gain.value) * Math.min(1, dt / 0.1);
+  }
+  let whistleSrc = null, whistleGain = null;
+  function whistleSampleReady() { return !!buf("hh-sfx-whistle"); }
+  function startWhistleLoop() {
+    if (whistleSrc || !actx || !master || !whistleSampleReady()) return;
+    try {
+      whistleGain = actx.createGain(); whistleGain.gain.value = 0; whistleGain.connect(master);
+      whistleSrc = actx.createBufferSource(); whistleSrc.buffer = buf("hh-sfx-whistle"); whistleSrc.loop = true;
+      whistleSrc.connect(whistleGain); whistleSrc.start();
+      _sfxPlays.whistleStarts++;
+    } catch (_) {}
+    whistleWanted = true;
+  }
+  function stopWhistleLoop() { whistleWanted = false; }
+  let whistleWanted = false;
+  function updateWhistleLoop(dt) {
+    if (!whistleSampleReady()) return;
+    if (whistleWanted) startWhistleLoop();
+    if (!whistleGain) return;
+    const target = (whistleWanted && G.projectiles.length && !muted) ? 0.5 : 0;
+    whistleGain.gain.value += (target - whistleGain.gain.value) * Math.min(1, dt / (target ? 0.08 : 0.2));
+  }
+
+  // ---- MUSIC state machine: title/menu <-> battle, short victory sting on match end ----
+  let musicOff = false; try { musicOff = localStorage.getItem("hh_music_off") === "1"; } catch (_) {}
+  const MUSIC_LEVEL = 0.35;
+  let musicBus = null;
+  let menuMusicSrc = null, menuMusicGain = null, battleMusicSrc = null, battleMusicGain = null;
+  let musicPhase = null;   // "menu" | "battle" | null (silent)
+  function ensureMusicBus() {
+    const ctx = ensureAudio(); if (!ctx || !master) return null;
+    if (!musicBus) { musicBus = ctx.createGain(); musicBus.gain.value = musicOff ? 0 : MUSIC_LEVEL; musicBus.connect(master); }
+    return musicBus;
+  }
+  function fadeGainTo(node, target, dur) {
+    if (!node || !actx) return;
+    try {
+      const t = actx.currentTime;
+      node.gain.cancelScheduledValues(t);
+      node.gain.setValueAtTime(node.gain.value, t);
+      node.gain.linearRampToValueAtTime(target, t + Math.max(0.02, dur || 0.5));
+    } catch (_) {}
+  }
+  function silenceTrack(node) { if (node) fadeGainTo(node, 0, 0.5); }
+  function startMenuTrack() {
+    const bus = ensureMusicBus(); if (!bus) return;
+    if (!menuMusicSrc && buf("hh-music-menu")) {
+      menuMusicGain = actx.createGain(); menuMusicGain.gain.value = 0; menuMusicGain.connect(bus);
+      menuMusicSrc = actx.createBufferSource(); menuMusicSrc.buffer = buf("hh-music-menu"); menuMusicSrc.loop = true;
+      menuMusicSrc.connect(menuMusicGain); menuMusicSrc.start();
+    }
+    if (menuMusicGain) fadeGainTo(menuMusicGain, 1, 0.5);
+  }
+  function startBattleTrack() {
+    const bus = ensureMusicBus(); if (!bus) return;
+    if (!battleMusicSrc && buf("hh-music-battle")) {
+      battleMusicGain = actx.createGain(); battleMusicGain.gain.value = 0; battleMusicGain.connect(bus);
+      battleMusicSrc = actx.createBufferSource(); battleMusicSrc.buffer = buf("hh-music-battle"); battleMusicSrc.loop = true;
+      battleMusicSrc.connect(battleMusicGain); battleMusicSrc.start();
+    }
+    if (battleMusicGain) fadeGainTo(battleMusicGain, 1, 0.5);
+  }
+  function setMusicPhase(next) {
+    if (musicPhase === next) return;
+    musicPhase = next;
+    ensureMusicBus();
+    if (next === "menu") { silenceTrack(battleMusicGain); startMenuTrack(); }
+    else if (next === "battle") { silenceTrack(menuMusicGain); startBattleTrack(); }
+    else { silenceTrack(menuMusicGain); silenceTrack(battleMusicGain); }
+  }
+  // match end: fade battle music out, go silent, one-shot victory sting; "Play Again"
+  // starts a fresh battle track directly (there's no title screen to return to)
+  function musicMatchEnd() {
+    ensureMusicBus();
+    silenceTrack(battleMusicGain);
+    musicPhase = null;
+    if (playSample("hh-music-victory", { gain: 0.9, dest: musicBus || master })) _sfxPlays.victoryJingle++;
+  }
+  function applyMusicToggleUI() {
+    const btn = document.getElementById("musicBtn");
+    if (btn) btn.classList.toggle("muted", musicOff);
+  }
+  function setMusicOff(v) {
+    musicOff = !!v;
+    try { localStorage.setItem("hh_music_off", musicOff ? "1" : "0"); } catch (_) {}
+    if (musicBus) {
+      try { if (actx) musicBus.gain.cancelScheduledValues(actx.currentTime); } catch (_) {}
+      musicBus.gain.value = musicOff ? 0 : MUSIC_LEVEL;
+    }
+    applyMusicToggleUI();
+  }
+  function toggleMusicOff() { setMusicOff(!musicOff); }
+  const musicBtn = document.getElementById("musicBtn");
+  musicBtn.addEventListener("click", (e) => { e.stopPropagation(); ensureAudio(); toggleMusicOff(); });
+  applyMusicToggleUI();
+
+  // Browser autoplay: only START playback after the first real user gesture.
+  let _audioGestured = false;
+  function _firstGestureAudioUnlock() {
+    _audioGestured = true;
+    ensureAudio();
+    if (G.phase === "title") { setMusicPhase("menu"); startMenuTrack(); }
+    else if (G.phase !== "won") { setMusicPhase("battle"); startBattleTrack(); }
+  }
+  addEventListener("pointerdown", _firstGestureAudioUnlock, { once: true, passive: true });
+  addEventListener("keydown", _firstGestureAudioUnlock, { once: true });
+  addEventListener("touchstart", _firstGestureAudioUnlock, { once: true, passive: true });
+  loadAudioBuffers();
+  setMusicPhase("menu");   // boot on the title screen — starts audibly once a gesture lands
 
   // ─────────────────────────────────────────────────────────────────────────
   // UI helpers
@@ -1638,8 +1948,9 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
   const CAM_FLY_T = 0.8;        // transition seconds
   const CAM_HOLD_START = 1.4;   // overview beat at match start
   const CAM_HOLD_TURN = 2.6;    // overview interlude after each shot resolves
-  const AIM_POSE          = { back: 6.0, up: 3.2, lat: 1.7, lookAhead: 9,  lookY: 2.4 };
-  const AIM_POSE_PORTRAIT = { back: 7.6, up: 4.6, lat: 1.2, lookAhead: 10, lookY: 2.2 };
+  // shooter stands on a tower now — higher/farther pose so far towers stay visible
+  const AIM_POSE          = { back: 6.6, up: 3.6, lat: 1.7, lookAhead: 9,  lookY: 3.0 };
+  const AIM_POSE_PORTRAIT = { back: 8.4, up: 5.2, lat: 1.2, lookAhead: 10, lookY: 2.8 };
 
   // ── PLAYER CAMERA ORBIT (aim mode only): right-drag / two-finger swing the eye
   //    around the shooter. Offset relative to the default behind-shoulder pose,
@@ -1820,7 +2131,7 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
     const vFov = 50 * DEG, vHalf = vFov / 2;
     const hHalf = Math.atan(Math.tan(vHalf) * aspect);
     const distW = CONTENT_HALF_X / Math.tan(hHalf);
-    const halfVScreen = CONTENT_HALF_Z * Math.sin(TILT) + 3.0 * Math.cos(TILT);
+    const halfVScreen = CONTENT_HALF_Z * Math.sin(TILT) + 3.8 * Math.cos(TILT);  // 3.8 = tall-tower headroom
     const distV = halfVScreen / Math.tan(vHalf);
     let d = Math.max(distW, distV) * 1.12;
     d = Math.max(16, d);
@@ -1854,6 +2165,8 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
     // camera itself is driven inside tickSim (works with the heartbeat too);
     // preview stays live whenever the player can aim (tap point + sliders)
     updatePreview();
+    updateStretchLoop(dt);
+    updateWhistleLoop(dt);
 
     tickSim(dt);
     syncProjMeshes(dt);
@@ -1909,6 +2222,7 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
   // ─────────────────────────────────────────────────────────────────────────
   function startMatch() {
     initAudio();
+    setMusicPhase("battle");
     document.getElementById("title").classList.add("hidden");
     document.getElementById("hud").classList.add("on");
     document.getElementById("win").classList.remove("on");
@@ -1916,6 +2230,7 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
     rebuildAllChunks();
     placeUnits();
     G.projectiles = []; G.shotImpacts = []; G.flightLog = []; G.shotCount = 0; G.winner = null;
+    aimDragging = false; whistleWanted = false;
     G.teamTurnCount = [0, 0]; G.roundNum = 1; G.lastImpact = null; G.settleT = 0; G.aiTimer = 0;
     G.ammo = { 0: { melon: 3, egg: 3 }, 1: { melon: 3, egg: 3 } };   // limited ammo resets per match
     G.selAmmo = { 0: "pumpkin", 1: "pumpkin" };
@@ -1926,7 +2241,7 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
     cam.holdT = CAM_HOLD_START;     // …for a beat, then flies behind shooter 1
     cam.wantAim = false;
     beginTurn(0);
-    showToast("Splash the armadillos into the pond!");
+    showToast("Knock the armadillos off their towers!");
   }
   document.getElementById("playBtn").addEventListener("click", startMatch);
   document.getElementById("againBtn").addEventListener("click", startMatch);
@@ -1951,7 +2266,8 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
     get muted() { return muted; },
     get critters() { return critters; },
     voxelCount() { return G.voxelCount; },
-    waterInfo() { return { waterY: WATER_Y, bedTopY: BED_TOP_Y, pondHalfX: POND_HALF_X, pondHalfZ: POND_HALF_Z, waterVisible: water.visible && water.material.opacity > 0.05 }; },
+    waterInfo() { return { waterY: WATER_Y, bedTopY: BED_TOP_Y, pondHalfX: SEA_HALF_X, pondHalfZ: SEA_HALF_Z, waterVisible: water.visible && water.material.opacity > 0.05 }; },
+    towers() { return TOWERS.map(t => ({ x: t.x, z: t.z, topY: OY + (t.top + 1) * CELL })); },
     setWind(w) { G.wind = w; updateWindHud(); return G.wind; },
     camInfo() {
       const f = new THREE.Vector3(); camera.getWorldDirection(f);
@@ -2084,7 +2400,28 @@ import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cann
       return worldToClient(t.x, t.y, t.z);
     },
     muzzleOf(id) { const u = G.units[id]; return u ? muzzleOf(u) : null; },
-    ragdollBodyCount(id) { const c = critters[id == null ? 0 : id]; return c ? c.bodyList.length : 0; }
+    ragdollBodyCount(id) { const c = critters[id == null ? 0 : id]; return c ? c.bodyList.length : 0; },
+    // 2026-07-12 — generated-audio hooks (headless harness)
+    ensureAudio, loadAudioBuffers, buf, playSample,
+    setMusicOff, toggleMusicOff, setMusicPhase, musicMatchEnd,
+    fireSound, explosionSound, splashSound, waterOutSound, winSound, loseSound,
+    turnChimeSound, crumbleSound, boingSound, gaspSound, windGustSound,
+    startWhistleLoop, stopWhistleLoop, startStretchLoop,
+    setAimDragging(v) { aimDragging = !!v; return aimDragging; },
+    get aimDragging() { return aimDragging; },
+    audioState: () => ({
+      muted, ctx: actx ? actx.state : "none",
+      masterGain: master ? master.gain.value : null,
+      buffersLoaded: _buffersLoaded, buffersTotal: AUDIO_FILES.length,
+      musicPhase, musicOff, musicGainV: musicBus ? musicBus.gain.value : null,
+      menuMusicOn: !!menuMusicSrc, battleMusicOn: !!battleMusicSrc,
+      menuMusicGainV: menuMusicGain ? menuMusicGain.gain.value : null,
+      battleMusicGainV: battleMusicGain ? battleMusicGain.gain.value : null,
+      audioGestured: _audioGestured,
+      whistleGainV: whistleGain ? whistleGain.gain.value : null,
+      stretchGainV: stretchGain ? stretchGain.gain.value : null,
+      sfxPlays: Object.assign({}, _sfxPlays)
+    })
   };
 })();
 </script>

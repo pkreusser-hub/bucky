@@ -64,6 +64,13 @@
   #muteBtn{ position:absolute; top:14px; right:14px; width:34px; height:34px; border-radius:50%;
             background:rgba(0,0,0,.35); border:none; font-size:18px; line-height:34px; text-align:center;
             padding:0; cursor:pointer; pointer-events:auto; z-index:31; }
+  /* 2026-07-12: music on/off toggle, same pill styling, sits just left of the mute button.
+     Independent of #muteBtn — mute silences everything (masterGain), this only silences
+     music+ambience (musicBus) so a family can keep SFX but skip the soundtrack. */
+  #musicBtn{ position:absolute; top:14px; right:54px; width:34px; height:34px; border-radius:50%;
+             background:rgba(0,0,0,.35); border:none; font-size:18px; line-height:34px; text-align:center;
+             padding:0; cursor:pointer; pointer-events:auto; z-index:31; }
+  #musicBtn.muted{ opacity:.55; }
   /* score shifts down slightly to make room for the mute button above it */
   #scoreWrap{ top:54px; }
   /* Tier-1 batch: streak chip — small subtitle under the money chip, shown only when streak >= 2 */
@@ -84,6 +91,7 @@
   @media (max-width:520px){
     #sunClock{ font-size:17px; top:8px; left:8px; padding:3px 10px 3px 8px; }
     #muteBtn{ width:28px; height:28px; font-size:14px; line-height:28px; top:9px; right:9px; }
+    #musicBtn{ width:24px; height:24px; font-size:12px; line-height:24px; top:11px; right:41px; }
     #streakChip{ top:64px; font-size:12px; right:8px; }
     #scoreWrap{ top:42px; }
   }
@@ -547,6 +555,7 @@
     .touchAware #sunClock{ font-size:15px; padding:3px 9px 3px 7px; }
     .touchAware #scoreWrap{ top:36px; font-size:20px; }
     .touchAware #muteBtn{ width:26px; height:26px; font-size:13px; line-height:26px; }
+    .touchAware #musicBtn{ width:22px; height:22px; font-size:11px; line-height:22px; right:38px; }
   }
 </style>
 </head>
@@ -556,6 +565,7 @@
     <div id="hud">
       <div id="sunClock">☀️ <span id="clockNum">3:00</span></div>
       <button id="muteBtn" title="Mute/unmute sounds">🔊</button>
+      <button id="musicBtn" title="Music on/off">🎵</button>
       <div id="scoreWrap"><span id="coinIcon">🪙</span> <span id="scoreNum">0</span></div>
       <div id="streakChip" style="display:none;">🔥 <span id="streakNum">0</span> in a row!</div>
       <!-- ---- Change #4: recipe-of-the-day card — pinned under the sun clock, top-left. Shows
@@ -4463,12 +4473,156 @@
       }
       // browsers require a user gesture before audio can play — unlock once on first
       // pointerdown/keydown, harmless to call more than once.
+      let gestured = false;
       function unlock(){
+        gestured = true;
         const c = ensureCtx();
         if (c && c.state === "suspended") c.resume().catch(() => {});
       }
       window.addEventListener("pointerdown", unlock, { once: true });
       window.addEventListener("keydown", unlock, { once: true });
+
+      // =====================================================================================
+      // 2026-07-12 — GENERATED AUDIO SAMPLES (assets/audio/bistro/, ElevenLabs) layered ON TOP
+      // of the synth module above. The synth stays the graceful fallback: every sample-aware
+      // method below tries its buffer first and falls straight back to the ORIGINAL synth call
+      // whenever a buffer hasn't decoded yet (slow network, blocked request, decode failure) —
+      // nothing here can brick playback, and no synth code above was deleted. Every one-shot/
+      // loop routes through `master` (same node the 🔊 mute already zeroes) or through
+      // `musicBus` -> `master` (music), so mute stays a single kill switch for everything.
+      // =====================================================================================
+      const AUDIO_BASE = "assets/audio/bistro/";
+      const AUDIO_FILES = [
+        "bb-sfx-chop-impact", "bb-sfx-sizzle-start", "bb-sfx-pot-bubble-loop", "bb-sfx-plate-clatter",
+        "bb-sfx-dish-serve", "bb-sfx-throw-whoosh", "bb-sfx-catch-thump", "bb-sfx-trash-swish",
+        "bb-sfx-splash", "bb-sfx-coin", "bb-sfx-gentle-miss", "bb-sfx-crowd-cheer", "bb-sfx-customer-munch",
+        "bb-music-menu", "bb-music-cook", "bb-music-rush"
+      ];
+      const audioBuffers = {};   // name -> AudioBuffer once decoded; missing key = not loaded/failed
+      let buffersLoaded = 0;
+      const sfxPlays = { chopImpact: 0, sizzleStart: 0, plateClatter: 0, dishServe: 0, throwWhoosh: 0,
+        catchThump: 0, trashSwish: 0, splash: 0, coin: 0, gentleMiss: 0, crowdCheer: 0, customerMunch: 0 };
+      function loadBuffers(){
+        const c = ensureCtx(); if (!c) return;   // no WebAudio at all -> synth-only forever, harmless
+        AUDIO_FILES.forEach(name => {
+          if (name in audioBuffers) return;
+          fetch(AUDIO_BASE + name + ".mp3").then(r => {
+            if (!r.ok) throw new Error("http " + r.status);
+            return r.arrayBuffer();
+          }).then(ab => c.decodeAudioData(ab)).then(b => {
+            audioBuffers[name] = b; buffersLoaded++;
+          }).catch(() => { audioBuffers[name] = null; });   // blocked/failed -> synth keeps covering it
+        });
+      }
+      // one-shot sample -> master (or a custom dest). Returns the started source (truthy) on
+      // success, false on any failure/missing-buffer so callers can fall back to the synth.
+      function playSample(name, opts){
+        opts = opts || {};
+        if (muted) return false;
+        const b = audioBuffers[name];
+        if (!b) return false;
+        const c = ensureCtx();
+        if (!c || c.state !== "running") return false;
+        try {
+          const src = c.createBufferSource();
+          src.buffer = b;
+          if (opts.rate) src.playbackRate.value = opts.rate;
+          const gain = c.createGain();
+          gain.gain.value = opts.vol != null ? opts.vol : 0.5;
+          src.connect(gain); gain.connect(opts.dest || master);
+          src.start(c.currentTime + (opts.delay || 0));
+          if (opts.counter) sfxPlays[opts.counter] = (sfxPlays[opts.counter] || 0) + 1;
+          return src;
+        } catch (err) { return false; }
+      }
+      function fadeGain(node, target, dur){
+        if (!node || !ctx) return;
+        try {
+          const t = ctx.currentTime;
+          node.gain.cancelScheduledValues(t);
+          node.gain.setValueAtTime(node.gain.value, t);
+          node.gain.linearRampToValueAtTime(target, t + Math.max(0.02, dur || 0.5));
+        } catch (err) {}
+      }
+
+      // ---- POT BUBBLE LOOP (2026-07-12): while G.pot.state === "cooking", a soft simmering
+      // loop fades in/out. Sample-first (bb-sfx-pot-bubble-loop); if the buffer never loads, a
+      // gentle periodic synth "blub" tick fills in so cooking never goes silent. ----
+      let potSrc = null, potGain = null, potFallbackCd = 0;
+      function updatePotBubble(active, dt){
+        if (audioBuffers["bb-sfx-pot-bubble-loop"]){
+          const c = ensureCtx();
+          if (c && c.state === "running"){
+            if (!potSrc){
+              potGain = c.createGain(); potGain.gain.value = 0; potGain.connect(master);
+              potSrc = c.createBufferSource(); potSrc.buffer = audioBuffers["bb-sfx-pot-bubble-loop"];
+              potSrc.loop = true; potSrc.connect(potGain); potSrc.start();
+            }
+            fadeGain(potGain, muted ? 0 : (active ? 0.3 : 0), 0.4);
+          }
+          return;
+        }
+        // synth fallback: soft periodic "blub" while the pot is actively cooking.
+        if (!active){ potFallbackCd = 0; return; }
+        potFallbackCd -= (dt || 0);
+        if (potFallbackCd <= 0){
+          tone(180 + Math.random() * 40, 0.14, { type: "sine", vol: 0.12, glideTo: 260 });
+          potFallbackCd = 1.1 + Math.random() * 0.5;
+        }
+      }
+
+      // ---- MUSIC state machine (2026-07-12): menu <-> cook <-> rush, silence on day_end (the
+      // existing synth victory() fanfare plays over the silence, layered not replaced). ----
+      let musicOff = false;
+      try { musicOff = localStorage.getItem("bb_music_off") === "1"; } catch (err) {}
+      const MUSIC_LEVEL = 0.32;
+      let musicBus = null;
+      let musicPhase = null;   // "menu" | "cook" | "rush" | null
+      const tracks = {
+        menu: { file: "bb-music-menu", src: null, gain: null },
+        cook: { file: "bb-music-cook", src: null, gain: null },
+        rush: { file: "bb-music-rush", src: null, gain: null }
+      };
+      function ensureMusicBus(){
+        const c = ensureCtx(); if (!c || !master) return null;
+        if (!musicBus){ musicBus = c.createGain(); musicBus.gain.value = musicOff ? 0 : MUSIC_LEVEL; musicBus.connect(master); }
+        return musicBus;
+      }
+      function startTrack(key){
+        const t = tracks[key];
+        const bus = ensureMusicBus(); if (!bus) return;
+        const c = ctx;
+        if (!c || c.state !== "running") return;
+        if (!t.src && audioBuffers[t.file]){
+          t.gain = c.createGain(); t.gain.gain.value = 0; t.gain.connect(bus);
+          t.src = c.createBufferSource(); t.src.buffer = audioBuffers[t.file]; t.src.loop = true;
+          t.src.connect(t.gain); t.src.start();
+        }
+        if (t.gain) fadeGain(t.gain, 1, 0.5);
+      }
+      function silenceTrack(key){ const t = tracks[key]; if (t.gain) fadeGain(t.gain, 0, 0.5); }
+      function setMusicPhase(next){
+        if (musicPhase === next) return;
+        musicPhase = next;
+        ensureMusicBus();
+        for (const key of Object.keys(tracks)){
+          if (key === next) startTrack(key); else silenceTrack(key);
+        }
+      }
+      function applyMusicBtnUI(){
+        const btn = document.getElementById("musicBtn");
+        if (btn) btn.classList.toggle("muted", musicOff);
+      }
+      function setMusicOff(v){
+        musicOff = !!v;
+        try { localStorage.setItem("bb_music_off", musicOff ? "1" : "0"); } catch (err) {}
+        if (musicBus){
+          try { if (ctx) musicBus.gain.cancelScheduledValues(ctx.currentTime); } catch (err) {}
+          musicBus.gain.value = musicOff ? 0 : MUSIC_LEVEL;
+        }
+        applyMusicBtnUI();
+      }
+      applyMusicBtnUI();
 
       // one soft sine/triangle blip: freq envelope + gain envelope, auto-disconnects when done.
       function tone(freq, dur, opts){
@@ -4524,46 +4678,70 @@
       return {
         setMuted(v){ muted = !!v; try { localStorage.setItem("bb_muted", muted ? "1" : "0"); } catch (err) {} },
         isMuted(){ return muted; },
-        // quick soft "pop" — sine blip, ~80ms, pitch glides upward
+        // quick soft "pop" — sine blip, ~80ms, pitch glides upward (no sample assigned — kept synth-only)
         grab(){ tone(340, 0.08, { type: "sine", vol: 0.4, glideTo: 520 }); },
-        // gentle filtered-noise "tock" for placing an item on board/plate
-        place(){ noiseTock(); },
-        // rhythmic soft tick while chopping, slight pitch variation per call (~5/sec from caller)
-        chopTick(){ tone(500 + Math.random() * 90, 0.045, { type: "triangle", vol: 0.28 }); },
-        // brighter "ta-da" tick when a chop completes
+        // 2026-07-12: sample-first plate-clatter for placing an item on board/plate; falls back
+        // to the original gentle "tock".
+        place(){
+          if (playSample("bb-sfx-plate-clatter", { vol: 0.42, counter: "plateClatter" })) return;
+          noiseTock();
+        },
+        // 2026-07-12: sample-first chop-impact tick while chopping; falls back to the original
+        // pitch-varied triangle tick. (Sink-scrub ticks use washTick() below, NOT this one, so
+        // chopping and washing keep their own distinct sounds even though both used to share
+        // this same synth call.)
+        chopTick(){
+          if (playSample("bb-sfx-chop-impact", { vol: 0.34, rate: 0.95 + Math.random() * 0.1, counter: "chopImpact" })) return;
+          tone(500 + Math.random() * 90, 0.045, { type: "triangle", vol: 0.28 });
+        },
+        // brighter "ta-da" tick when a chop completes (no sample assigned — kept synth-only, it's
+        // already a distinct, well-liked cue).
         chopDone(){
           tone(700, 0.09, { type: "triangle", vol: 0.32, glideTo: 900 });
           setTimeout(() => tone(980, 0.12, { type: "triangle", vol: 0.3 }), 60);
         },
-        // cheerful 3-note major arpeggio on delivery (~0.35s total)
+        // cheerful 3-note major arpeggio — kept for compatibility but not currently called
+        // anywhere (delivery uses chaChing() below); left untouched.
         deliver(){
           tone(523.25, 0.14, { type: "sine", vol: 0.4 });          // C5
           setTimeout(() => tone(659.25, 0.14, { type: "sine", vol: 0.4 }), 90);   // E5
           setTimeout(() => tone(783.99, 0.2, { type: "sine", vol: 0.42 }), 180);  // G5
         },
-        // soft descending two-note "aww" — gentle, cute, not sad-trombone
+        // 2026-07-12: sample-first gentle-miss (soft kid-friendly sad-trombone-ish womp); falls
+        // back to the original descending two-note "aww".
         miss(){
+          if (playSample("bb-sfx-gentle-miss", { vol: 0.45, counter: "gentleMiss" })) return;
           tone(392, 0.18, { type: "sine", vol: 0.32 });            // G4
           setTimeout(() => tone(329.63, 0.26, { type: "sine", vol: 0.3 }), 140);  // E4
         },
         // ---- Systems pass 2: customer flow sounds ----
-        // cheerful little "ding" when a chef takes an order at the bell — bright single bell tone.
+        // cheerful little "ding" when a chef takes an order at the bell (no sample assigned).
         bell(){ tone(1318.5, 0.16, { type: "triangle", vol: 0.36, glideTo: 1318.5 }); },
-        // soft "cha-ching" coin sound on payment — two quick bright blips layered with a tock.
+        // 2026-07-12: delivery now layers TWO samples — the bright dish-serve chime (the
+        // "order's up!" cue) plus the coin reward chime a beat later (the "cha-ching" money
+        // cue) — matching both "deliver -> dish-serve chime" and "money/tips -> coin" from the
+        // audio spec at their single shared call site. Falls back to the original synth
+        // two-blip-plus-tock whenever NEITHER sample is ready (a partially-loaded state where
+        // only one sample is ready still plays fine on its own).
         chaChing(){
+          const gotDish = playSample("bb-sfx-dish-serve", { vol: 0.48, counter: "dishServe" });
+          const gotCoin = playSample("bb-sfx-coin", { vol: 0.42, delay: 0.12, counter: "coin" });
+          if (gotDish || gotCoin) return;
           tone(1046.5, 0.09, { type: "triangle", vol: 0.3 });
           setTimeout(() => tone(1568, 0.14, { type: "triangle", vol: 0.32 }), 60);
           noiseTock();
         },
-        // tiny upward sparkle tinkle when a tip lands on top of the base payment.
+        // tiny upward sparkle tinkle when a tip lands (no sample assigned — kept synth-only).
         tipSparkle(){
           for (let i = 0; i < 3; i++){
             setTimeout(() => tone(1600 + i * 220, 0.1, { type: "sine", vol: 0.22 }), i * 55);
           }
         },
-        // single warm chime per earned star on the victory overlay, pitch rising per star index.
+        // single warm chime per earned star on the victory overlay (no sample assigned).
         starChime(i){ tone(880 + i * 220, 0.28, { type: "sine", vol: 0.38, glideTo: 1100 + i * 220 }); },
-        // short happy fanfare (4-5 notes) + sparkle tinkles for the victory screen
+        // short happy fanfare for the victory screen. 2026-07-12: unchanged and ALWAYS still
+        // plays (layer, don't replace) — the music state machine already fades the day's
+        // cook/rush track to silence on day_end so this fanfare is heard clearly on top.
         victory(){
           const notes = [523.25, 659.25, 783.99, 1046.5];   // C5 E5 G5 C6
           notes.forEach((f, i) => setTimeout(() => tone(f, 0.22, { type: "sine", vol: 0.4 }), i * 130));
@@ -4573,48 +4751,116 @@
             }
           }, notes.length * 130);
         },
-        // quick downward-glide "whoosh" for a throw wind-up/release — soft sawtooth-free sine sweep.
-        // Family playtest fix #4: pitchMul varies the whoosh by throw distance (a short flick
-        // reads a bit higher/quicker, a long cross-kitchen bomb a bit lower/longer) — purely juice.
+        // 2026-07-12: sample-first throw-whoosh; falls back to the original downward-glide sine
+        // sweep. pitchMul (Family playtest fix #4) maps onto sample playbackRate so short flicks
+        // still read a touch higher/quicker than long cross-kitchen bombs.
         whoosh(pitchMul){
           const p = pitchMul || 1;
+          if (playSample("bb-sfx-throw-whoosh", { vol: 0.4, rate: Math.max(0.6, Math.min(1.5, p)), counter: "throwWhoosh" })) return;
           tone(620 * p, 0.16 / p, { type: "sine", vol: 0.22, glideTo: 260 * p });
         },
-        // soft round "bop" when a thrown item is caught — gentle, satisfying, not startling
-        bop(){ tone(460, 0.11, { type: "triangle", vol: 0.34, glideTo: 620 }); },
-        // gentle low "plop" thud when a thrown item lands on the floor
+        // 2026-07-12: sample-first catch-thump; falls back to the original triangle "bop".
+        bop(){
+          if (playSample("bb-sfx-catch-thump", { vol: 0.48, counter: "catchThump" })) return;
+          tone(460, 0.11, { type: "triangle", vol: 0.34, glideTo: 620 });
+        },
+        // gentle low "plop" thud when a thrown item lands on the floor (no sample assigned).
         plop(){
           tone(200, 0.13, { type: "sine", vol: 0.3, glideTo: 110 });
           noiseTock();
         },
-        // Juice pass: soft two-note descending "day winding down" chime at the 0:30 mark — warm
-        // and calm (never alarming), same gentle sine-tone building block as miss()/deliver().
+        // Juice pass: soft two-note "day winding down" chime (no sample assigned — kept synth-only).
         windDownChime(){
           tone(784, 0.22, { type: "sine", vol: 0.26 });             // G5
           setTimeout(() => tone(659.25, 0.32, { type: "sine", vol: 0.24 }), 220);   // E5
         },
         // ---- Tier-1 batch ----
-        // soft synth "meeeh" bleat — startled Bucky moving off, gentle wobbly two-tone warble.
+        // soft synth "meeeh" bleat — Bucky, no sample assigned, kept synth-only (it's a goat, not
+        // one of the 13 generated cues).
         bleat(){
           tone(330, 0.1, { type: "sawtooth", vol: 0.16, glideTo: 260 });
           setTimeout(() => tone(300, 0.16, { type: "sawtooth", vol: 0.14, glideTo: 220 }), 90);
         },
-        // bright ascending 4-note flourish for a streak-tier celebration — more excited than the
-        // regular delivery arpeggio, still gentle/kid-friendly (no harsh transients).
+        // 2026-07-12: delivery-streak celebration now LAYERS the warm crowd-cheer sample on top
+        // of the existing ascending flourish (layer, don't replace — same convention as
+        // finishFanfare in Farm Kart). Silent no-op if the buffer isn't ready yet.
         streak(){
+          playSample("bb-sfx-crowd-cheer", { vol: 0.4, counter: "crowdCheer" });
           const notes = [587.33, 659.25, 739.99, 880];   // D5 E5 F#5 A5
           notes.forEach((f, i) => setTimeout(() => tone(f, 0.16, { type: "triangle", vol: 0.36 }), i * 90));
         },
-        // quick cheerful chirp for an emote pop-in — tiny, unobtrusive.
+        // quick cheerful chirp for an emote pop-in (no sample assigned).
         emotePop(){ tone(1200, 0.07, { type: "sine", vol: 0.22, glideTo: 1500 }); },
         // ---- Family playtest fix #4: throwing v2 new-outcome sounds ----
-        // Floor-plates pass: clink()/splat() (the old "shattered!" sounds) are gone — a missed
-        // air-delivery now lands intact on the floor via dropToFloor, which already plays the
-        // gentle plop() below (see the floorDrops diff in updateSoundReactions).
-        // quick bright "swish!" — anything thrown into the trash bin, satisfying not gross.
-        swish(){ tone(1100, 0.1, { type: "sine", vol: 0.24, glideTo: 1700 }); },
-        // Family playtest fix #6: soft "boing" — a quick up-then-down glide, one per bounce.
-        boing(){ tone(300, 0.09, { type: "triangle", vol: 0.26, glideTo: 520 }); }
+        // 2026-07-12: sample-first trash-swish; falls back to the original bright glide.
+        swish(){
+          if (playSample("bb-sfx-trash-swish", { vol: 0.42, counter: "trashSwish" })) return;
+          tone(1100, 0.1, { type: "sine", vol: 0.24, glideTo: 1700 });
+        },
+        // Family playtest fix #6: soft "boing" per bounce (no sample assigned).
+        boing(){ tone(300, 0.09, { type: "triangle", vol: 0.26, glideTo: 520 }); },
+        // ---- 2026-07-12: sink washing gets its OWN sample-aware sounds (splash) instead of
+        // reusing chopTick/chopDone — chopping and washing now sound distinct even in the synth
+        // fallback (a slightly different tone shape) as well as in the sampled case. ----
+        washTick(){
+          if (playSample("bb-sfx-splash", { vol: 0.22, rate: 1.1 + Math.random() * 0.15, counter: "splash" })) return;
+          tone(420 + Math.random() * 60, 0.05, { type: "sine", vol: 0.16, glideTo: 260 });
+        },
+        washDone(){
+          if (playSample("bb-sfx-splash", { vol: 0.5, counter: "splash" })) return;
+          tone(700, 0.09, { type: "triangle", vol: 0.32, glideTo: 900 });
+          setTimeout(() => tone(980, 0.12, { type: "triangle", vol: 0.3 }), 60);
+        },
+        // 2026-07-12: sizzle when an item is placed onto the hot pan (no prior synth equivalent
+        // existed for this — small bright noise burst as the graceful fallback).
+        sizzleStart(){
+          if (playSample("bb-sfx-sizzle-start", { vol: 0.4, counter: "sizzleStart" })) return;
+          const c = ensureCtx();
+          if (!c || c.state !== "running" || muted) return;
+          try {
+            const t0 = c.currentTime, dur = 0.35;
+            const bufSize = Math.floor(c.sampleRate * dur);
+            const buf = c.createBuffer(1, bufSize, c.sampleRate);
+            const data = buf.getChannelData(0);
+            for (let i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / bufSize);
+            const src = c.createBufferSource(); src.buffer = buf;
+            const filt = c.createBiquadFilter(); filt.type = "highpass"; filt.frequency.value = 2200;
+            const gain = c.createGain();
+            gain.gain.setValueAtTime(0.16, t0);
+            gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+            src.connect(filt); filt.connect(gain); gain.connect(master);
+            src.start(t0); src.stop(t0 + dur + 0.02);
+          } catch (err) {}
+        },
+        // 2026-07-12: cute munch when a customer starts eating a snack (Snack Toss). Sample-first
+        // (bb-sfx-customer-munch); synth fallback is a couple of quick low chomp blips.
+        munch(){
+          if (playSample("bb-sfx-customer-munch", { vol: 0.4, counter: "customerMunch" })) return;
+          tone(220, 0.06, { type: "square", vol: 0.14, glideTo: 160 });
+          setTimeout(() => tone(200, 0.06, { type: "square", vol: 0.12, glideTo: 150 }), 90);
+        },
+        // 2026-07-12: pot-bubble simmering loop — called every frame with (active, dt); see
+        // updatePotBubble() above for the sample-loop / synth-fallback-tick logic.
+        updatePotBubble(active, dt){ updatePotBubble(active, dt); },
+        // 2026-07-12: kick off buffer loading (call once at boot; safe to call more than once).
+        loadBuffers(){ loadBuffers(); },
+        // 2026-07-12: music state machine controls.
+        setMusicPhase(next){ setMusicPhase(next); },
+        setMusicOff(v){ setMusicOff(v); },
+        toggleMusicOff(){ setMusicOff(!musicOff); },
+        isMusicOff(){ return musicOff; },
+        // 2026-07-12: debug/test hook — mirrors Farm Kart's audioState() convention.
+        audioState(){
+          return {
+            muted, masterGain: master ? master.gain.value : null,
+            ctx: ctx ? ctx.state : "none", gestured,
+            buffersLoaded, buffersTotal: AUDIO_FILES.length,
+            sfxPlays: Object.assign({}, sfxPlays),
+            musicOff, musicTrack: musicPhase,
+            musicGainV: musicBus ? musicBus.gain.value : null,
+            potLoopOn: !!potSrc, potGainV: potGain ? potGain.gain.value : null
+          };
+        }
       };
     })();
 
@@ -4628,6 +4874,19 @@
         refreshMuteBtn();
       });
     }
+
+    // wire the music button (2026-07-12) — independent of mute, only affects the music/ambience bus.
+    {
+      const musicBtn = document.getElementById("musicBtn");
+      musicBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        Snd.toggleMusicOff();
+      });
+    }
+    // decode generated audio samples in the background — no gesture required to START loading,
+    // only to actually hear playback (browser autoplay policy). Buffers that fail/are blocked
+    // simply never populate and every sample-aware Snd.* method keeps using its synth fallback.
+    Snd.loadBuffers();
 
     // =====================================================================================
     // RENDER LAYER — everything below reads G each frame and drives three.js. No gameplay
@@ -9012,9 +9271,12 @@
       buckyBleatId: 0,
       streakCelebId: 0,
       // ---- Family playtest fix #4: throwing v2 new-outcome event counters ----
-      airMailId: 0, trashSwishId: 0
+      airMailId: 0, trashSwishId: 0,
+      // ---- 2026-07-12: generated-audio reactions ----
+      panState: G.pan.state,          // sizzle-start fires when this transitions -> "cooking"
+      custMunch: new Map()            // customer id -> last-seen munchT (rising 0->N fires munch())
     };
-    function updateSoundReactions(){
+    function updateSoundReactions(dt){
       const chef = G.chefs[net.myChefId];
       // Family playtest fix #5: tracks the TOP of the stack — grab/place sounds react to
       // whatever the next action would actually touch, same as every other holdTop() read.
@@ -9194,13 +9456,15 @@
       const iAmWashing = G.sink.washingChef === net.myChefId;
       if (iAmWashing && G.sink.progress > 0){
         sndScrubTickCd -= 1;
-        if (sndScrubTickCd <= 0){ Snd.chopTick(); sndScrubTickCd = SND_TICK_EVERY; }
+        // 2026-07-12: washTick() (splash sample, own synth fallback) instead of chopTick(), so
+        // washing sounds distinct from chopping instead of sharing the same generic tick.
+        if (sndScrubTickCd <= 0){ Snd.washTick(); sndScrubTickCd = SND_TICK_EVERY; }
       }
       // wash complete: clean-plate count went up without a delivery just having happened —
       // simplest reliable signal is G.plates.clean rising while sink progress just reset to 0
       // after having been > 0 last frame (avoids double-firing on the day-reset's clean:3 jump).
       if (G.plates.clean > sndPrev.cleanPlates && sndPrev.sinkWashingLastFrame){
-        Snd.chopDone();
+        Snd.washDone();   // 2026-07-12: splash sample instead of chopDone()
       }
       sndPrev.cleanPlates = G.plates.clean;
       sndPrev.sinkWashingLastFrame = iAmWashing;
@@ -9232,6 +9496,40 @@
         showStreakCelebration(G.streakCelebTier);
       }
       sndPrev.streakCelebId = G.streakCelebId || 0;
+
+      // ---- 2026-07-12: generated-audio reactions (pan sizzle, customer munch, pot bubble loop,
+      // music state machine) — same event-diff pattern as everything else in this function, so
+      // BOTH screens react identically off shared G state. ----
+      // sizzle: an item just landed in the pan (state transitioned into "cooking").
+      if (G.pan.state === "cooking" && sndPrev.panState !== "cooking"){
+        Snd.sizzleStart();
+      }
+      sndPrev.panState = G.pan.state;
+      // customer munch: any customer's munchT rose from <=0 to >0 (Snack Toss landed on them).
+      const seenMunchIds = new Set();
+      for (const c of G.customers){
+        seenMunchIds.add(c.id);
+        const prevMunch = sndPrev.custMunch.get(c.id) || 0;
+        const curMunch = c.munchT || 0;
+        if (curMunch > 0 && prevMunch <= 0) Snd.munch();
+        sndPrev.custMunch.set(c.id, curMunch);
+      }
+      for (const id of sndPrev.custMunch.keys()){
+        if (!seenMunchIds.has(id)) sndPrev.custMunch.delete(id);
+      }
+      // pot bubble loop: active exactly while the pot is cooking.
+      Snd.updatePotBubble(G.pot.state === "cooking", dt || 0);
+      // music phase: title/level-select -> menu; playing -> cook (or rush in the last 30s of a
+      // timed, non-endless day); day_end -> silence (the existing victory() fanfare plays over
+      // the silence, unchanged — layered not replaced).
+      let phase = "menu";
+      if (G.phase === "playing" && !G.titleOpen && !G.levelSelectOpen){
+        const endless = !!G.endlessMode;
+        phase = (!endless && G.dayLeft <= 30 && G.dayLeft > 0) ? "rush" : "cook";
+      } else if (G.phase === "day_end"){
+        phase = null;
+      }
+      Snd.setMusicPhase(phase);
     }
     let sndTickCd = 0;
     let sndScrubTickCd = 0;   // Systems pass 4: same throttle pattern, own counter for sink scrubbing
@@ -9270,6 +9568,9 @@
       sndPrev.buckyIntroId = G.buckyIntroId || 0;
       sndPrev.buckyBleatId = G.buckyBleatId || 0;
       sndPrev.streakCelebId = G.streakCelebId || 0;
+      // ---- 2026-07-12: generated-audio reaction baselines ----
+      sndPrev.panState = G.pan.state;
+      sndPrev.custMunch = new Map(G.customers.map(c => [c.id, c.munchT || 0]));
     }
 
     // ================== victory / day-complete overlay ==================
@@ -10668,7 +10969,7 @@
       updateHUD(dt);
       updateSunClock();
       updateRecipeCard();
-      updateSoundReactions();
+      updateSoundReactions(dt);
       updateServingFlash(dt);
       updateVictoryOverlay();
       updateUpgradeOverlay();   // ENDLESS ROGUE-LIKE
@@ -10686,6 +10987,17 @@
       requestAnimationFrame(frame);
     }
     requestAnimationFrame(frame);
+
+    // ---- 2026-07-12: minimal debug/test hook (this file had none before) — mirrors Farm
+    // Kart's window.__KART__ convention just enough for the audio verify suite to drive the
+    // real game loop deterministically (mutate G, let the next rAF tick react naturally) and
+    // read back Snd.audioState(). Intentionally small — not a general test API.
+    window.__BB_AUDIO__ = {
+      get G(){ return G; },
+      get net(){ return net; },
+      Snd,
+      hostStartLevel
+    };
   })();
   </script>
 </body>
