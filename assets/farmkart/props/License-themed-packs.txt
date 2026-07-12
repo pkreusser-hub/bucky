@@ -1,0 +1,79 @@
+FARM KART — THEMED PROP PACKS: LICENSES & ATTRIBUTION
+=====================================================
+Farm Kart is a private, non-commercial family project (never published/sold), so
+CC0, CC-BY, and CC-BY-NC assets are all acceptable. Attribution is recorded below as
+good hygiene even where not strictly required. Every model was verified against its
+source page's stated license before inclusion.
+
+Prefixes: city_ = CITY, snow_ = SNOW, jgl_ = JUNGLE, west_ = WESTERN.
+
+
+CITY PACK (30 models, id prefix "city_")  —  ALL CC0 (Public Domain)
+--------------------------------------------------------------------
+Source: Kenney.nl asset kits, blanket CC0 (see each kit's bundled License.txt).
+  * Kenney "City Kit (Commercial)"  https://kenney.nl/assets/city-kit-commercial
+      city_building_a/c/e/g/i/k/m, city_skyscraper_a/b/c, city_awning, city_parasol
+  * Kenney "City Kit (Suburban)"    https://kenney.nl/assets/city-kit-suburban
+      city_house_a/e/k/p, city_planter, city_tree_large, city_tree_small,
+      city_fence, city_path, city_driveway
+  * Kenney "Car Kit"                https://kenney.nl/assets/car-kit
+      city_car_sedan, city_car_suv, city_car_taxi, city_car_van, city_car_police,
+      city_car_delivery, city_car_firetruck, city_cone
+License: Creative Commons CC0 1.0 Universal (https://creativecommons.org/publicdomain/zero/1.0/)
+
+
+SNOW PACK (24 models, id prefix "snow_")  —  ALL CC0 (Public Domain)
+--------------------------------------------------------------------
+Source: Kenney "Holiday Kit"  https://kenney.nl/assets/holiday-kit  (blanket CC0)
+  snow_pine_a/b/c, snow_pine_plain, snow_tree_decorated, snow_snowman, snow_snowman_hat,
+  snow_pile, snow_flat, snow_flat_large, snow_fort, snow_sled, snow_sled_long,
+  snow_ice_rocks_large/medium/small, snow_lantern, snow_lantern_hanging, snow_bench,
+  snow_present, snow_present_round, snow_candycane, snow_wreath, snow_gingerbread
+License: Creative Commons CC0 1.0 Universal
+
+
+JUNGLE PACK (23 models, id prefix "jgl_")  —  ALL CC0 (Public Domain)
+---------------------------------------------------------------------
+Source: Kenney "Nature Kit"  https://kenney.nl/assets/nature-kit  (blanket CC0)
+  jgl_palm, jgl_palm_bend, jgl_palm_tall, jgl_palm_short, jgl_palm_slim,
+  jgl_bamboo_a, jgl_bamboo_b, jgl_bush_large, jgl_bush_broad, jgl_fern, jgl_plant_tall,
+  jgl_vines, jgl_lily, jgl_mushroom, jgl_mushroom_group, jgl_flower_red, jgl_flower_purple,
+  jgl_idol (statue_head), jgl_ruin_column (statue_columnDamaged), jgl_ruin_arch (statue_ring),
+  jgl_waterfall (cliff_waterfall_rock), jgl_river_rocks (ground_riverRocks),
+  jgl_stone_bridge (bridge_stoneRound)
+License: Creative Commons CC0 1.0 Universal
+
+
+WESTERN PACK (20 models, id prefix "west_")  —  MIX of CC0 and CC-BY 3.0
+-----------------------------------------------------------------------
+A) Kenney "Nature Kit" (CC0)  https://kenney.nl/assets/nature-kit
+     west_cactus_short (cactus_short), west_cactus_tall (cactus_tall),
+     west_desert_ground (ground_pathRocks)
+   License: Creative Commons CC0 1.0 Universal
+
+B) poly.pizza individual models. GLBs downloaded from static.poly.pizza; large 2048px
+   textures were resized to 512px (via .NET System.Drawing) to keep each file <2MB.
+   License / author per model (all Creative Commons Attribution 3.0 unless noted CC0):
+
+   west_saloon         "Saloon"              Poly by Google      CC-BY-3.0  https://poly.pizza/m/82JBTSsWag4
+   west_barn           "Barn"                Poly by Google      CC-BY-3.0  https://poly.pizza/m/0QTh_KUZRYE
+   west_hut            "Hut"                 Poly by Google      CC-BY-3.0  https://poly.pizza/m/5KNeQg_znOu
+   west_well           "Well"                Poly by Google      CC-BY-3.0  https://poly.pizza/m/3SVPY3nu1G9
+   west_windmill       "Windmill"            Poly by Google      CC-BY-3.0  https://poly.pizza/m/4Y4tjjVXFFD
+   west_sheriff_star   "Sheriff star"        Poly by Google      CC-BY-3.0  https://poly.pizza/m/3FnJ30d950W
+   west_tumbleweed     "Tumbleweed"          Poly by Google      CC-BY-3.0  https://poly.pizza/m/0ySmwTitJrP
+   west_cactus_prickly "Prickly pear cactus" Poly by Google      CC-BY-3.0  https://poly.pizza/m/47Af27jQemx
+   west_cactus_barrel  "Barrel cactus"       Poly by Google      CC-BY-3.0  https://poly.pizza/m/5-hrumGDq1K
+   west_cactus2        "Cactus"              Poly by Google      CC-BY-3.0  https://poly.pizza/m/1_3Ur2-LAs8
+   west_haystack       "Haystack"            Poly by Google      CC-BY-3.0  https://poly.pizza/m/6LeCqyw00RK
+   west_cow            "Cow"                 Poly by Google      CC-BY-3.0  https://poly.pizza/m/0OToIgkcVM7
+   west_railcar        "Railway carriage"    Poly by Google      CC-BY-3.0  https://poly.pizza/m/1EHZsD3ja38
+   west_railtrack      "train track 2 black" Jeremy Eyring       CC-BY-3.0  https://poly.pizza/m/0LrARHcOWtE
+   west_sign           "Roadsign"            Mathias Sollested   CC-BY-3.0  https://poly.pizza/m/2CTZcykMj28
+   west_skull          "Skull"               Alex Safayan        CC-BY-3.0  https://poly.pizza/m/52a7EEFzFWi
+   west_barrel         "Exploding Barrel"    Quaternius          CC0        https://poly.pizza/m/1orHe0kCc1
+
+Notes:
+- CC-BY 3.0 requires crediting the author; the credits above satisfy that.
+- Textures on the Poly-by-Google western pieces (saloon/barn/cacti/haystack) were the
+  models' original baseColor atlases, downscaled to 512px only (no recolor).
