@@ -5110,12 +5110,21 @@
   //  musicBus->masterGain (music/ambience) so 🔊 mute remains a single kill switch.
   // ============================================================================
   const AUDIO_BASE = 'assets/audio/';
+  // PER-TRACK RACE MUSIC (2026-07-12): a track may pick a custom race theme via ACTIVE_TRACK.music
+  // (slug) -> file fk-music-race-<slug>.mp3. Resolve it once; buf falls back to the default theme
+  // when the custom slug's file is missing/blocked/failed to decode.
+  const RACE_MUSIC_NAME = ACTIVE_TRACK.music ? 'fk-music-race-' + ACTIVE_TRACK.music : 'fk-music-race';
   const AUDIO_FILES = [
     'fk-music-menu','fk-music-race','fk-ambient-farm',
     'fk-engine-low','fk-engine-mid','fk-engine-high','fk-sfx-drift-loop',
     'fk-sfx-splat','fk-sfx-squawk-fire','fk-sfx-squawk-hit','fk-sfx-haybale',
     'fk-sfx-itembox','fk-sfx-shield','fk-sfx-go-cheer','fk-sfx-finish','fk-sfx-win-jingle'
   ];
+  // Add only THIS track's custom theme to the boot load set (never blanket-load all 13 — mobile
+  // bandwidth). The default 'fk-music-race' is always present above as the guaranteed fallback.
+  if (RACE_MUSIC_NAME !== 'fk-music-race') AUDIO_FILES.push(RACE_MUSIC_NAME);
+  // The buffer name the race track actually plays: custom slug if it decoded, else the default.
+  function raceMusicBufName(){ return buf(RACE_MUSIC_NAME) ? RACE_MUSIC_NAME : 'fk-music-race'; }
   const audioBuffers = {};             // name -> AudioBuffer once decoded; null = failed (stays synth-only)
   let _buffersLoaded = 0;
   function buf(name){ return audioBuffers[name] || null; }
@@ -5135,7 +5144,7 @@
         // via their !src guards, so calling them again only creates the source that was missing.
         if (_audioGestured){
           if (musicPhase === 'menu' && (name === 'fk-music-menu' || name === 'fk-ambient-farm')) startMenuTracks();
-          else if (musicPhase === 'race' && name === 'fk-music-race') startRaceTrack();
+          else if (musicPhase === 'race' && (name === 'fk-music-race' || name === RACE_MUSIC_NAME)) startRaceTrack();
         }
       }).catch(()=>{ audioBuffers[name] = null; });  // blocked/failed -> falsy forever, synth keeps covering it
     });
@@ -5269,12 +5278,26 @@
     if (menuMusicGain) fadeGainTo(menuMusicGain, 1, 0.5);
     if (ambientGain) fadeGainTo(ambientGain, 0.25, 0.5);   // ~25% of music volume, under the menu tune
   }
+  let raceMusicSrcName = null;   // which buffer name raceMusicSrc is currently playing
   function startRaceTrack(){
     const bus = ensureMusicBus(); if (!bus) return;
-    if (!raceMusicSrc && buf('fk-music-race')){
-      raceMusicGain = audioCtx.createGain(); raceMusicGain.gain.value = 0; raceMusicGain.connect(bus);
-      raceMusicSrc = audioCtx.createBufferSource(); raceMusicSrc.buffer = buf('fk-music-race'); raceMusicSrc.loop = true;
+    // Resolve the buffer by the active track's slug, falling back to the default theme when the
+    // custom slug's file is missing/blocked/undecoded (raceMusicBufName picks the default then).
+    const want = raceMusicBufName();
+    // UPGRADE: if race music already started on the DEFAULT because the custom slug lost the boot
+    // decode race, and the custom is now decoded, tear the default source down and restart on the
+    // custom so the intended per-track theme wins.
+    if (raceMusicSrc && raceMusicSrcName !== want && want === RACE_MUSIC_NAME && buf(want)){
+      try{ raceMusicSrc.stop(); }catch(e){}
+      try{ raceMusicSrc.disconnect(); }catch(e){}
+      raceMusicSrc = null;   // (keep raceMusicGain so the fade node persists)
+    }
+    const rmBuf = buf(want);
+    if (!raceMusicSrc && rmBuf){
+      if (!raceMusicGain){ raceMusicGain = audioCtx.createGain(); raceMusicGain.gain.value = 0; raceMusicGain.connect(bus); }
+      raceMusicSrc = audioCtx.createBufferSource(); raceMusicSrc.buffer = rmBuf; raceMusicSrc.loop = true;
       raceMusicSrc.connect(raceMusicGain); raceMusicSrc.start();
+      raceMusicSrcName = want;
     }
     if (raceMusicGain) fadeGainTo(raceMusicGain, 1, 0.5);
   }
@@ -7214,6 +7237,9 @@
       musicTrack: musicPhase, musicOff, musicGainV: musicBus ? musicBus.gain.value : null,
       // per-track source presence + gain (music late-decode retry test)
       menuMusicOn: !!menuMusicSrc, ambientOn: !!ambientSrc, raceMusicOn: !!raceMusicSrc,
+      // PER-TRACK MUSIC (2026-07-12): the buffer name the race source is actually playing, the
+      // resolved fallback name, and this track's requested custom file name (or default).
+      raceMusicSrcName, raceMusicResolved: raceMusicBufName(), raceMusicWant: RACE_MUSIC_NAME,
       menuMusicGainV: menuMusicGain ? menuMusicGain.gain.value : null,
       ambientGainV: ambientGain ? ambientGain.gain.value : null,
       raceMusicGainV: raceMusicGain ? raceMusicGain.gain.value : null,

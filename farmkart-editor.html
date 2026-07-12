@@ -104,6 +104,13 @@
         <option value="sun">🌅 sunny</option>
         <option value="night">🌙 night</option>
       </select>
+      <label style="margin-top:6px;">🎵 music</label>
+      <div style="display:flex;gap:5px;align-items:stretch;">
+        <select id="musicSel" style="flex:1;min-width:0;padding:5px;border-radius:6px;background:rgba(0,0,0,.35);color:#fff;border:1px solid rgba(255,255,255,.2);font-family:monospace;">
+          <option value="default">🎵 default theme</option>
+        </select>
+        <button class="btn" id="musicPreview" title="Preview the selected race theme" style="flex:0 0 auto;padding:5px 9px;">▶</button>
+      </div>
     </div>
 
     <div class="sec">Mode</div>
@@ -1308,6 +1315,7 @@
   // ---- modes ----
   let mode = 'select'; // select | insert | item | boost | object
   function setMode(m){
+    if (typeof stopMusicPreview==='function') stopMusicPreview();   // leaving the mode stops music preview
     if (pendingPlace){ pendingPlace=null; clearGhost(); }   // leaving/changing mode ends click-to-stamp
     if (m!=='sculpt' && m!=='paint' && m!=='tufts') hideRing();   // brush preview ring lives in these modes
     mode = m;
@@ -1389,6 +1397,64 @@
     const v = $('skySel').value;
     if (v==='day' || !FK_TRACK.SKY_PRESETS[v]) delete track.sky; else track.sky = v;
     applyEdSky(); commitHistory();
+  });
+  // 🎵 PER-TRACK RACE MUSIC (2026-07-12): populate the dropdown from the audio manifest (any file
+  // tagged kind:"race-music" — so future generated themes appear automatically), fall back to a
+  // hardcoded slug list if the fetch fails. 'default' => unset key (byte-identical). ▶ previews the
+  // selected theme through a plain HTMLAudioElement.
+  const MUSIC_FALLBACK = [
+    ['barn-burner','Barn Burner'],['western-showdown','Western Showdown'],['city-rush','City Rush'],
+    ['snow-sprint','Snow Sprint'],['jungle-drums','Jungle Drums'],['moonlight-run','Moonlight Run'],
+    ['tractor-rock','Tractor Rock'],['county-fair','County Fair'],['thunder-road','Thunder Road'],
+    ['dirt-dash','Dirt Dash'],['golden-fields','Golden Fields'],['final-lap-frenzy','Final Lap Frenzy']
+  ];
+  let musicOptions = [];   // [ [slug, displayName], ... ] excluding 'default'
+  function musicFileForSlug(slug){ return 'assets/audio/fk-music-race-' + slug + '.mp3'; }
+  function fillMusicSel(){
+    const sel = $('musicSel'); if (!sel) return;
+    sel.innerHTML = '<option value="default">🎵 default theme</option>' +
+      musicOptions.map(([slug,name])=>'<option value="'+slug+'">'+name.replace(/</g,'&lt;')+'</option>').join('');
+    syncMusicSel();
+  }
+  function syncMusicSel(){ const sel=$('musicSel'); if (sel) sel.value = track.music || 'default'; }
+  (function loadMusicManifest(){
+    fetch('assets/audio/manifest.json').then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); }).then(m=>{
+      // manifest may be an array of entries or an object of {name:entry}; normalize to entries.
+      const entries = Array.isArray(m) ? m : (m && typeof m==='object' ? Object.values(m) : []);
+      const opts = [];
+      for (const e of entries){
+        if (!e || e.kind !== 'race-music') continue;
+        // derive the slug from the filename fk-music-race-<slug>.mp3; skip the plain default.
+        const fn = (e.file || e.filename || e.name || '').replace(/\.mp3$/,'');
+        const mm = /^fk-music-race-(.+)$/.exec(fn);
+        if (!mm) continue;   // the plain 'fk-music-race' default has no slug -> not an option
+        opts.push([mm[1], e.displayName || e.name || mm[1]]);
+      }
+      musicOptions = opts.length ? opts : MUSIC_FALLBACK.slice();
+    }).catch(()=>{ musicOptions = MUSIC_FALLBACK.slice(); }).then(fillMusicSel);
+  })();
+  $('musicSel').addEventListener('change', ()=>{
+    stopMusicPreview();
+    const v = $('musicSel').value;
+    if (v==='default'){ delete track.music; } else { track.music = v; }
+    commitHistory();
+  });
+  // ▶ preview via a plain HTMLAudioElement (independent of the game's WebAudio graph).
+  let _musicPreviewEl = null;
+  function stopMusicPreview(){
+    if (_musicPreviewEl){ try{ _musicPreviewEl.pause(); }catch(e){} _musicPreviewEl = null; }
+    const b=$('musicPreview'); if (b){ b.textContent='▶'; b.classList.remove('on'); }
+  }
+  $('musicPreview').addEventListener('click', ()=>{
+    if (_musicPreviewEl){ stopMusicPreview(); return; }   // toggle off
+    const slug = $('musicSel').value;
+    const file = slug==='default' ? 'assets/audio/fk-music-race.mp3' : musicFileForSlug(slug);
+    const el = new Audio(file); el.loop = false;
+    el.addEventListener('ended', stopMusicPreview);
+    el.addEventListener('error', ()=>{ stopMusicPreview(); toast('preview unavailable'); });
+    _musicPreviewEl = el;
+    const b=$('musicPreview'); b.textContent='⏹'; b.classList.add('on');
+    el.play().catch(()=>{ stopMusicPreview(); });
   });
   $('mObject').addEventListener('click', ()=>setMode('object'));
   $('mSculpt').addEventListener('click', ()=>setMode('sculpt'));
@@ -1852,7 +1918,8 @@
     $('drapeBtn').classList.toggle('on', !!track.followTerrain);
     $('offroadBtn').classList.toggle('on', !!track.offroad);
     syncWallStyleBtn();
-    { const s=$('skySel'); if (s) s.value = FK_TRACK.SKY_PRESETS[track.sky] ? track.sky : 'day'; } }
+    { const s=$('skySel'); if (s) s.value = FK_TRACK.SKY_PRESETS[track.sky] ? track.sky : 'day'; }
+    syncMusicSel(); }
   $('nameInp').addEventListener('input', ()=>{ track.name = $('nameInp').value; });
   $('nameInp').addEventListener('change', commitHistory);
   $('widthInp').addEventListener('input', ()=>{ const w=+$('widthInp').value; if(isFinite(w)&&w>0){ track.width=w; rebuild(); } });
@@ -2039,6 +2106,7 @@
   function markDirty(){ dirty = true; const d=$('dirtyDot'); if (d) d.classList.add('on'); }
   function clearDirty(){ dirty = false; const d=$('dirtyDot'); if (d) d.classList.remove('on'); }
   addEventListener('beforeunload', e=>{ if (dirty){ e.preventDefault(); e.returnValue = ''; } });
+  addEventListener('pagehide', ()=>{ if (typeof stopMusicPreview==='function') stopMusicPreview(); });   // leaving the page stops preview
 
   // ============================================================================
   // 🤖 TRACK-TEST BOT — a lone pure-pursuit driver that laps the LIVE track so the
@@ -2613,7 +2681,14 @@
     get paintedTuftsMesh(){ return paintedTuftsMesh; }, rebuildPaintedTufts,
     // CHICKEN crossings (2026-07-12)
     get chickens(){ return track.chickens||[]; }, addChickenAt, rebuildChickenMarkers, get chickenGroup(){ return chickenGroup; },
-    deleteChicken:(id)=>{ track.chickens=(track.chickens||[]).filter(c=>c.id!==id); rebuildChickenMarkers(); commitHistory(); }
+    deleteChicken:(id)=>{ track.chickens=(track.chickens||[]).filter(c=>c.id!==id); rebuildChickenMarkers(); commitHistory(); },
+    // PER-TRACK MUSIC (2026-07-12, for headless tests)
+    get music(){ return track.music || 'default'; },
+    get musicOptionCount(){ return musicOptions.length; },
+    setMusicSel:(slug)=>{ const s=$('musicSel'); if(s){ s.value=slug; s.dispatchEvent(new Event('change')); } },
+    clickMusicPreview:()=>{ $('musicPreview').click(); },
+    get musicPreviewPlaying(){ return !!_musicPreviewEl; },
+    get musicSelOptionCount(){ return $('musicSel').options.length; }
   };
   </script>
 </body>

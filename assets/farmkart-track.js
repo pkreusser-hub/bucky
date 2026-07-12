@@ -505,6 +505,11 @@
       // SKY preset (2026-07-12): one of 'clouds'|'snow'|'sun'|'night'. 'day'/absent/garbage -> omitted
       // (the game's default sky/lighting, byte-identical for every existing track).
       if (typeof data.sky === 'string' && (data.sky==='clouds'||data.sky==='snow'||data.sky==='sun'||data.sky==='night')) out.sky = data.sky;
+      // PER-TRACK RACE MUSIC (2026-07-12): a slug picking a race theme file fk-music-race-<slug>.mp3.
+      // 'default'/absent/garbage -> omitted (byte-identical for every existing track; the game then
+      // plays the original fk-music-race.mp3). Validated as a safe filename fragment so a future
+      // generated theme slug works without touching this list.
+      if (typeof data.music === 'string' && data.music !== 'default' && /^[a-z0-9-]{1,40}$/.test(data.music)) out.music = data.music;
       // OFF-ROAD COURSE (2026-07-12): the whole ground drives like road (full grip everywhere), no
       // road ribbon, no corridor walls — kart height comes from pure terrain (design such courses
       // with the centerline points at y=0 so the flat racing line sits on the terrain). Lap/checkpoint
