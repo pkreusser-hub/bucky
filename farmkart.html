@@ -907,7 +907,7 @@
   // Kart physics, entities, fences, and (Stage A) the grass mesh on non-bridge spans all read this.
   // = smooth blend of (a) flat track surface (nearest-centerline elev within half-width) into
   // (b) ground hills over heightBlendMargin. Math lives in FK_TRACK; terrainOpts() passes live TUNE.
-  function terrainOpts(){ return { amp:TUNE.groundHillAmp, wave:TUNE.groundHillWave, margin:TUNE.heightBlendMargin, field:ACTIVE_TRACK.terrain, paint:ACTIVE_TRACK.paint, groundMargin:ACTIVE_TRACK.groundMargin, followTerrain:ACTIVE_TRACK.followTerrain }; }
+  function terrainOpts(){ return { amp:TUNE.groundHillAmp, wave:TUNE.groundHillWave, margin:TUNE.heightBlendMargin, field:ACTIVE_TRACK.terrain, paint:ACTIVE_TRACK.paint, groundMargin:ACTIVE_TRACK.groundMargin, followTerrain:ACTIVE_TRACK.followTerrain, offroad:ACTIVE_TRACK.offroad }; }
   function groundHills(x, z){ return FK_TRACK.groundHills(x, z, terrainOpts()); }
   // nearest dense-centerline info at (x,z): {idx, dist} (dist = PROJECTED perpendicular distance in
   // XZ). Delegates to FK_TRACK.nearestOnCenter (shared, interpolated). Correct anywhere (camera /
@@ -923,9 +923,9 @@
   // ONLY the kart's own height-follow / slope / tilt / launch use this (seeded with p.y); every
   // context-free caller (ground mesh, camera clamp, item/entity placement) keeps plain sampleHeight.
   function sampleHeightAtY(x, z, cy){
-    // FOLLOW TERRAIN: single draped surface — the kart rides + tilts on the land (no branch pick,
-    // no skirt). The 4-wheel plane fit then produces natural camber tilt from this.
-    if (ACTIVE_TRACK.followTerrain) return groundHills(x, z);
+    // FOLLOW TERRAIN / OFF-ROAD: single pure-terrain surface — the kart rides + tilts on the land
+    // (no branch pick, no skirt). The 4-wheel plane fit then produces natural camber tilt from this.
+    if (ACTIVE_TRACK.followTerrain || ACTIVE_TRACK.offroad) return groundHills(x, z);
     const half = TRACK_WIDTH/2;
     const margin = Math.max(0.5, TUNE.heightBlendMargin);
     const info = FK_TRACK.nearestOnCenterAtY(_sampled, x, z, cy, TRACK_WIDTH);
@@ -950,7 +950,8 @@
 
   // K3: ribbon built by the shared module (identical geometry, editor uses the same call).
   // terrainOpts passes followTerrain so a draped track's ribbon undulates + cambers over the land.
-  scene.add(FK_TRACK.buildRibbonGeometry(_sampled, TRACK_WIDTH, THREE, terrainOpts()));
+  // OFF-ROAD COURSE: no road ribbon at all — the whole ground is the driving surface (full grip).
+  if (!ACTIVE_TRACK.offroad) scene.add(FK_TRACK.buildRibbonGeometry(_sampled, TRACK_WIDTH, THREE, terrainOpts()));
 
   // ---------- displaced ground grid (K2) ----------
   // The grass+hills mesh (grid over the track bbox + margin, each vertex at groundSampleHeight).
@@ -999,9 +1000,16 @@
   // corridor wall: they render AND collide (fenceCollide in stepKart). A track with no drawn fences
   // yet auto-migrates to editable ribbon fences derived from the corridor edges, so no track is ever
   // left unbounded. Rail or ribbon style both collide (collision reads fence.points).
-  const RACE_FENCES = (ACTIVE_TRACK.fences && ACTIVE_TRACK.fences.length)
-    ? ACTIVE_TRACK.fences
-    : FK_TRACK.corridorFences(_sampled, TRACK_WIDTH, effWallMargin());
+  // OFF-ROAD COURSE: NO corridor walls at all — karts roam free (RACE_FENCES empty -> no mesh, and
+  // fenceCollide([]) returns null so nothing blocks). Otherwise use drawn fences, else auto-migrated
+  // corridor ribbon walls. WALL STYLE 'fence': the solid ribbon corridor walls render as post+rail
+  // fences instead (collision reads fence.points either way -> physics unchanged).
+  let RACE_FENCES = ACTIVE_TRACK.offroad ? []
+    : (ACTIVE_TRACK.fences && ACTIVE_TRACK.fences.length)
+      ? ACTIVE_TRACK.fences
+      : FK_TRACK.corridorFences(_sampled, TRACK_WIDTH, effWallMargin());
+  if (ACTIVE_TRACK.wallStyle === 'fence')
+    RACE_FENCES = RACE_FENCES.map(f => f.style === 'ribbon' ? { ...f, style:'rail', height:2.2 } : f);
   for (const f of RACE_FENCES) scene.add(FK_TRACK.buildFenceMesh(f, THREE, { heightFn:(x,z)=>sampleHeight(x,z) }));
 
   // TUNNELS (2026-07-10): concrete arches drawn in the editor. Purely visual — the existing corridor
@@ -2261,7 +2269,8 @@
     // ---- surface ----
     const cdist = nearestCenterDist(p.pos.x, p.pos.z);
     const half = TRACK_WIDTH/2;
-    const onGrass = cdist > half;
+    // OFF-ROAD COURSE: every surface is full-grip road (no grass penalty anywhere).
+    const onGrass = !ACTIVE_TRACK.offroad && cdist > half;
     // RAMPED grass penalty (no cliff): strength grows with how DEEP into the grass you are
     // (0 at the road edge -> 1 by grassRamp metres in) and is smoothed over ~1/grassResponse s,
     // so clipping the edge or a momentary excursion barely slows you; only committing to the
@@ -4278,18 +4287,27 @@
     // soft grass fill
     ctx.fillStyle = 'rgba(70,110,55,.55)';
     ctx.fillRect(0, 0, W, H);
-    // track corridor (filled ribbon)
+    // track corridor. OFF-ROAD: no real road, so draw the intended route as a DASHED/ghosted outline
+    // (the corridor edges, not filled) so the racing line still reads. Normal: filled ribbon.
     const L=_mm.left, R=_mm.right, n=SAMPLES;
     ctx.beginPath();
     ctx.moveTo(L[0], L[1]);
     for (let i=1;i<n;i++) ctx.lineTo(L[i*2], L[i*2+1]);
     for (let i=n-1;i>=0;i--) ctx.lineTo(R[i*2], R[i*2+1]);
     ctx.closePath();
-    ctx.fillStyle = 'rgba(55,55,60,.92)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,.55)';
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
+    if (ACTIVE_TRACK.offroad){
+      ctx.strokeStyle = 'rgba(255,255,255,.4)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    } else {
+      ctx.fillStyle = 'rgba(55,55,60,.92)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,.55)';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    }
     // faint centerline
     ctx.beginPath();
     ctx.moveTo(_mm.toX(centerPts[0].x), _mm.toY(centerPts[0].z));

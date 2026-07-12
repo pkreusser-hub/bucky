@@ -479,6 +479,16 @@
       // SKY preset (2026-07-12): one of 'clouds'|'snow'|'sun'|'night'. 'day'/absent/garbage -> omitted
       // (the game's default sky/lighting, byte-identical for every existing track).
       if (typeof data.sky === 'string' && (data.sky==='clouds'||data.sky==='snow'||data.sky==='sun'||data.sky==='night')) out.sky = data.sky;
+      // OFF-ROAD COURSE (2026-07-12): the whole ground drives like road (full grip everywhere), no
+      // road ribbon, no corridor walls — kart height comes from pure terrain (design such courses
+      // with the centerline points at y=0 so the flat racing line sits on the terrain). Lap/checkpoint
+      // progress, wrong-way, standings, bots and the minimap ghost route all still work off the
+      // centerline. Absent/falsy -> omitted (byte-identical for every existing track).
+      if (data.offroad === true) out.offroad = true;
+      // WALL STYLE (2026-07-12): 'fence' builds the corridor boundary as post+rail FENCES instead of
+      // the solid ribbon walls (visual swap only — collision reads fence.points either way). Absent or
+      // 'ribbon' -> omitted (byte-identical for every existing track).
+      if (data.wallStyle === 'fence') out.wallStyle = 'fence';
       return out;
     }catch(e){ return null; }
   }
@@ -761,13 +771,18 @@
       let tx = t0.x+(t1.x-t0.x)*t, tz = t0.z+(t1.z-t0.z)*t; const tl = Math.hypot(tx,tz)||1;
       return { x, y, z, tx:tx/tl, tz:tz/tl };
     }
-    const postMat   = new THREE.MeshLambertMaterial({ color:0x5a3d24, emissive:0x241708 });
-    const railMat   = new THREE.MeshLambertMaterial({ color:0x8a6239, emissive:0x362717 });
     const lipMat    = new THREE.MeshLambertMaterial({ color:0x9a7245, emissive:0x3c2d1a });
     const pillarMat = new THREE.MeshLambertMaterial({ color:0x6b4a2e, emissive:0x2a1d12 });
+    // SOLID SIDE WALLS (2026-07-12, replaces the old post+rail fence): one merged, vertex-coloured
+    // wood-planked panel per road edge (continuous ribbon-style wall, like the corridor ribbon), warm
+    // brown with a slightly darker top cap, striped by plank shading along arc length. Same height as
+    // the old rails (WALL_H). Emissive lift so the unlit undersides don't render flat black (house
+    // convention — see buildTunnelMesh / [[gltf-linear-color-gotcha]]).
+    const wallMat = new THREE.MeshLambertMaterial({ color:0xffffff, vertexColors:true, emissive:0x241708, side:THREE.DoubleSide });
     const Z = new THREE.Vector3(0,0,1);
-    const RAIL_FRACS = [0.42, 0.9], RAIL_H = 1.35;
-    const POST_GAP = 6, PILLAR_GAP = 6, MIN_PILLAR_GAP_Y = 1.5, PILLAR_FOOT = 0.6, DECK_THICK = 0.3;
+    const WALL_H = 1.35, WALL_HT = 0.14;    // wall height; half-thickness (extrude both sides of the edge)
+    const WOOD_A = [0.42,0.28,0.16], WOOD_B = [0.34,0.22,0.12], WOOD_CAP = [0.28,0.19,0.11];  // two plank shades + top cap
+    const PILLAR_GAP = 6, MIN_PILLAR_GAP_Y = 1.5, PILLAR_FOOT = 0.6, DECK_THICK = 0.3;
     for (const br of bridges){
       const startArc = Math.max(0, Math.min(1, br.s)) * L;
       const len = Math.max(4, br.len || 18);
@@ -794,32 +809,36 @@
           grp.add(lip);
         }
       }
-      // side rails + posts (mirrors buildFenceMesh's "rail" style, run down each road edge)
+      // SOLID wood side walls: a continuous planked panel along each road edge (outer face, inner
+      // face, top cap) — merged per side into ONE mesh (no per-post/per-rail boxes). Same height as
+      // the old rails, following the deck.
       for (const side of [1,-1]){
+        const positions = [], colors = [];
+        const tri=(a,b,c,col)=>{ positions.push(a[0],a[1],a[2], b[0],b[1],b[2], c[0],c[1],c[2]); for(let k=0;k<3;k++) colors.push(col[0],col[1],col[2]); };
+        const quad=(p1,p2,p3,p4,col)=>{ tri(p1,p2,p3,col); tri(p1,p3,p4,col); };
+        let acc=0;
         for (let i=0;i<path.length-1;i++){
           const a=path[i], b=path[i+1];
-          for (const f of RAIL_FRACS){
-            const ax=a.x+a.nx*hw*side, az=a.z+a.nz*hw*side, ay=a.y+RAIL_H*f;
-            const bx=b.x+b.nx*hw*side, bz=b.z+b.nz*hw*side, by=b.y+RAIL_H*f;
-            const dir=new THREE.Vector3(bx-ax, by-ay, bz-az); const dl=dir.length()||0.01; dir.normalize();
-            const rail=new THREE.Mesh(new THREE.BoxGeometry(0.1,0.13,dl), railMat);
-            rail.position.set((ax+bx)/2, (ay+by)/2, (az+bz)/2);
-            rail.quaternion.setFromUnitVectors(Z, dir);
-            grp.add(rail);
-          }
+          const eax=a.x+a.nx*hw*side, eaz=a.z+a.nz*hw*side, eay=a.y;
+          const ebx=b.x+b.nx*hw*side, ebz=b.z+b.nz*hw*side, eby=b.y;
+          // segment normal (XZ) to extrude the wall thickness both ways off the edge line
+          let nx2=-(ebz-eaz), nz2=(ebx-eax); const nl2=Math.hypot(nx2,nz2)||1; nx2/=nl2; nz2/=nl2;
+          const aLx=eax+nx2*WALL_HT, aLz=eaz+nz2*WALL_HT, aRx=eax-nx2*WALL_HT, aRz=eaz-nz2*WALL_HT;
+          const bLx=ebx+nx2*WALL_HT, bLz=ebz+nz2*WALL_HT, bRx=ebx-nx2*WALL_HT, bRz=ebz-nz2*WALL_HT;
+          const col = (Math.floor(acc/1.6)%2===0) ? WOOD_A : WOOD_B;
+          quad([aLx,eay,aLz],[aLx,eay+WALL_H,aLz],[bLx,eby+WALL_H,bLz],[bLx,eby,bLz], col);        // outer face
+          quad([bRx,eby,bRz],[bRx,eby+WALL_H,bRz],[aRx,eay+WALL_H,aRz],[aRx,eay,aRz], col);        // inner face
+          quad([aLx,eay+WALL_H,aLz],[aRx,eay+WALL_H,aRz],[bRx,eby+WALL_H,bRz],[bLx,eby+WALL_H,bLz], WOOD_CAP); // top cap
+          acc += Math.hypot(ebx-eax, ebz-eaz);
         }
-        let acc=0, next=0;
-        for (let i=0;i<path.length;i++){
-          if (i>0) acc += Math.hypot(path[i].x-path[i-1].x, path[i].z-path[i-1].z);
-          if (acc>=next || i===path.length-1){
-            const p=path[i];
-            const px=p.x+p.nx*hw*side, pz=p.z+p.nz*hw*side;
-            const post=new THREE.Mesh(new THREE.BoxGeometry(0.2, RAIL_H, 0.2), postMat);
-            post.position.set(px, p.y+RAIL_H/2, pz);
-            grp.add(post);
-            next += POST_GAP;
-          }
-        }
+        if (!positions.length) continue;
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(positions,3));
+        geo.setAttribute('color',    new THREE.Float32BufferAttribute(colors,3));
+        geo.computeVertexNormals();
+        const wall = new THREE.Mesh(geo, wallMat);
+        wall.userData.bridgeWall = true;
+        grp.add(wall);
       }
       // support pillars: from the road underside down to the terrain (groundFn), skipping short gaps
       let acc2=0, next2=0;
@@ -1051,9 +1070,9 @@
   // sampleHeight: flat across the road width, smoothstep-blended out to the ground hills. This is
   // the SINGLE height authority for the kart, entities, and (on non-bridge spans) the grass mesh.
   function sampleHeight(sampled, x, z, width, opts){
-    // FOLLOW TERRAIN: the road drapes on the land — height is just the ground everywhere (no flat
-    // trackY, no skirt blend). The ribbon mesh + kart plane pick up the terrain tilt from this.
-    if (opts.followTerrain) return groundHills(x, z, opts);
+    // FOLLOW TERRAIN / OFF-ROAD: height is just the ground everywhere (no flat trackY, no skirt
+    // blend). Draped roads pick up the tilt from this; off-road courses drive on pure terrain.
+    if (opts.followTerrain || opts.offroad) return groundHills(x, z, opts);
     const half = width/2;
     const margin = Math.max(0.5, opts.margin);
     const info = nearestOnCenter(sampled, x, z);
@@ -1119,9 +1138,9 @@
   // used a different nearest/lowest walk than sampleHeight, so road-edge skirts disagreed with the
   // kart and buried/floated the body even on single-level tracks.
   function groundSampleHeight(sampled, x, z, width, opts){
-    // FOLLOW TERRAIN is a single surface: the grass mesh IS the ground everywhere (no bridge branch,
-    // no double-apply). Explicit early return keeps _isMultiLevelRoad from firing on authored y's.
-    if (opts.followTerrain) return groundHills(x, z, opts);
+    // FOLLOW TERRAIN / OFF-ROAD is a single surface: the grass mesh IS the ground everywhere (no
+    // bridge branch, no double-apply). Explicit early return keeps _isMultiLevelRoad from firing.
+    if (opts.followTerrain || opts.offroad) return groundHills(x, z, opts);
     if (_isMultiLevelRoad(sampled, x, z, width)) return _lowestBranchHeight(sampled, x, z, width, opts);
     return sampleHeight(sampled, x, z, width, opts);
   }

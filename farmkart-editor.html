@@ -68,6 +68,7 @@
     <h1>🏁 TRACK EDITOR <span class="histBtns"><button id="undoBtn" title="Undo (Ctrl+Z)">↶</button><button id="redoBtn" title="Redo (Ctrl+Y)">↷</button></span></h1>
 
     <div class="sec">Track</div>
+    <button class="btn wide" id="newCourseBtn" style="margin-bottom:6px;">＋ New course</button>
     <label>load existing</label>
     <select id="loadSel" style="width:100%;margin-bottom:6px;"></select>
     <label>name</label>
@@ -90,6 +91,10 @@
       </div>
       <div class="row">
         <button class="btn" id="drapeBtn" style="flex:1;" title="Road drapes over the hills + sculpt and tilts with the land (natural camber)">🏔 follow terrain</button>
+      </div>
+      <div class="row">
+        <button class="btn" id="offroadBtn" style="flex:1;" title="No road ribbon or walls — the whole terrain is full-grip drivable; design the centerline at y=0. The ribbon shows as a faint ghost guide.">🏜 off-road course</button>
+        <button class="btn" id="wallStyleBtn" style="flex:1;" title="Corridor boundary style: solid ribbon walls (default) or post+rail fences">🧱 ribbon walls</button>
       </div>
       <label style="margin-top:6px;">🌤 sky</label>
       <select id="skySel" style="width:100%;padding:5px;border-radius:6px;background:rgba(0,0,0,.35);color:#fff;border:1px solid rgba(255,255,255,.2);font-family:monospace;">
@@ -159,6 +164,8 @@
       <div id="swatches" style="display:flex;flex-wrap:wrap;gap:5px;"></div>
       <label style="margin-top:6px;">brush size <span id="pRadV" style="color:#7fd0ff;">20</span></label>
       <input type="range" id="pRad" min="6" max="60" step="1" value="20" style="width:100%;">
+      <label style="margin-top:4px;">intensity <span id="pIntV" style="color:#7fd0ff;">100</span>%</label>
+      <input type="range" id="pInt" min="5" max="100" step="5" value="100" style="width:100%;">
       <button class="btn wide warn" id="pReset" style="margin-top:6px;">🧹 clear all paint</button>
       <div style="color:#9ab;font-size:11px;margin-top:4px;">drag the grass to paint · painted cells: <span id="pCells">0</span></div>
     </div>
@@ -394,7 +401,7 @@
   // you stop dragging, keeping point edits smooth.
   const TERRAIN = { amp:3.4, wave:60, margin:9 };
   // include the live sculpt field so the WYSIWYG mesh + height reads reflect raised/lowered terrain.
-  function edTerrainOpts(){ return { amp:TERRAIN.amp, wave:TERRAIN.wave, margin:TERRAIN.margin, field:track.terrain, paint:track.paint, groundMargin:track.groundMargin, followTerrain:track.followTerrain }; }
+  function edTerrainOpts(){ return { amp:TERRAIN.amp, wave:TERRAIN.wave, margin:TERRAIN.margin, field:track.terrain, paint:track.paint, groundMargin:track.groundMargin, followTerrain:track.followTerrain, offroad:track.offroad }; }
   let terrainMesh = null, tuftsMesh = null, terrainTimer = null, showTerrain = true, showTufts = true;
   function rebuildTerrain(){
     if (terrainMesh){ scene.remove(terrainMesh); terrainMesh.geometry.dispose(); terrainMesh.material.dispose(); terrainMesh = null; }
@@ -523,14 +530,29 @@
     {name:'dirt',     hex:0x8a5a34},{name:'sand',      hex:0xd9c48a},{name:'path',    hex:0x9a938a},
     {name:'red clay', hex:0xb3542f},{name:'snow',      hex:0xeef2f5}
   ];
-  const PAINT = { radius: 20, color: 0x8a5a34 };
+  // 2026-07-12 BLENDING: each brush application LERPS a cell's current color (existing painted color,
+  // else the base grass 0x86a862 — the game's buildGroundMesh BASE_GRASS) toward the swatch by
+  // intensity × the smoothstep falloff, so soft edges feather and repeated strokes accumulate toward
+  // the swatch. Data format unchanged (cells still store a hex int); blending happens at paint time.
+  const PAINT_BASE_GRASS = 0x86a862;
+  const PAINT = { radius: 20, color: 0x8a5a34, intensity: 1 };   // intensity 0..1 (slider 5-100%)
+  function _lerpHex(a, b, t){
+    const ar=(a>>16)&255, ag=(a>>8)&255, ab=a&255, br=(b>>16)&255, bg=(b>>8)&255, bb=b&255;
+    const r=Math.round(ar+(br-ar)*t), g=Math.round(ag+(bg-ag)*t), bl=Math.round(ab+(bb-ab)*t);
+    return (r<<16)|(g<<8)|bl;
+  }
   function applyPaint(bx, bz){
     track.paint = track.paint || { cell: 6, cells: {} };
-    const C = track.paint.cell, cells = track.paint.cells, R = PAINT.radius, col = PAINT.color;
+    const C = track.paint.cell, cells = track.paint.cells, R = PAINT.radius, col = PAINT.color, inten = PAINT.intensity;
     const i0=Math.floor((bx-R)/C), i1=Math.ceil((bx+R)/C), j0=Math.floor((bz-R)/C), j1=Math.ceil((bz+R)/C);
     for (let i=i0;i<=i1;i++) for (let j=j0;j<=j1;j++){
-      if (Math.hypot(i*C-bx, j*C-bz) > R) continue;
-      cells[i+','+j] = col;
+      const d = Math.hypot(i*C-bx, j*C-bz);
+      if (d > R) continue;
+      const t=1-d/R, fall=t*t*(3-2*t);              // smoothstep falloff
+      const amt = Math.max(0, Math.min(1, inten*fall));
+      const key=i+','+j;
+      const cur = (cells[key]!=null) ? cells[key] : PAINT_BASE_GRASS;
+      cells[key] = _lerpHex(cur, col, amt);
     }
   }
   function paintCellCount(){ return track.paint ? Object.keys(track.paint.cells).length : 0; }
@@ -540,10 +562,15 @@
   let curFence = null, fenceSeq = 0, fenceDown = null, fenceStyle = 'rail';   // style for NEW fences
   function rebuildFences(){
     while (fenceGroup.children.length){ const o=fenceGroup.children[0]; fenceGroup.remove(o); o.traverse(c=>{ if(c.geometry)c.geometry.dispose(); if(c.material)c.material.dispose(); }); }
+    // OFF-ROAD courses have no corridor walls in-game — hide them in the editor too (WYSIWYG).
+    fenceGroup.visible = !track.offroad;
     let maxSeq=0;
     for (const f of (track.fences||[])){
       const m=String(f.id||'').match(/(\d+)$/); if(m) maxSeq=Math.max(maxSeq,+m[1]);
-      if (f.points.length>=2) fenceGroup.add(FK_TRACK.buildFenceMesh(f, THREE, { heightFn:(x,z)=>terrainHeightAt(x,z) }));
+      // WALL STYLE 'fence' preview: render ribbon corridor walls as post+rail fences WITHOUT mutating
+      // the saved data (the game does the same swap at load) — matches what will actually race.
+      const fm = (track.wallStyle==='fence' && f.style==='ribbon') ? { ...f, style:'rail', height:2.2 } : f;
+      if (f.points.length>=2) fenceGroup.add(FK_TRACK.buildFenceMesh(fm, THREE, { heightFn:(x,z)=>terrainHeightAt(x,z) }));
       // point markers: only for the fence being DRAWN or short hand-drawn fences (dense migrated walls
       // would bury the view in dots). The wall mesh itself shows the migrated fences fine.
       if (f===curFence || f.points.length<=24)
@@ -883,10 +910,18 @@
   function moveGhost(x,z){
     const tpl=pendingPlace; if(!tpl) return;
     const yaw = (tpl.type==='ramp' && sampled) ? FK_TRACK.trackDirectionAt(sampled, x, z).yaw : (tpl.rotY||0);
-    if(!placeGhost || placeGhost.userData.tType!==tpl.type || placeGhost.userData.tModel!==tpl.model){
+    // EXACT-MODEL PREVIEW (2026-07-12): render the ACTUAL model/mesh (buildObjectMesh ghost:false),
+    // then clone + lightly tint its materials so the preview reads as a placement guide AND clearGhost
+    // can dispose without corrupting the shared propCache. A GLB prop that hasn't finished downloading
+    // falls back to the faint ghost placeholder and rebuilds the instant its model lands in propCache
+    // (wasCached flips true on the next cursor move). What you see = what you place.
+    const cached = (tpl.type!=='glb') || !!(propCache && propCache[tpl.model]);
+    const need = !placeGhost || placeGhost.userData.tType!==tpl.type || placeGhost.userData.tModel!==tpl.model || placeGhost.userData.wasCached!==cached;
+    if (need){
       clearGhost();
-      placeGhost = FK_TRACK.buildObjectMesh({ ...tpl, x:0, y:0, z:0, rotY:yaw }, THREE, { ghost:true, propCache });
-      placeGhost.userData.tType=tpl.type; placeGhost.userData.tModel=tpl.model;
+      placeGhost = FK_TRACK.buildObjectMesh({ ...tpl, x:0, y:0, z:0, rotY:yaw }, THREE, { ghost:!cached, propCache });
+      if (cached) placeGhost.traverse(o=>{ if(o.isMesh && o.material){ o.material=o.material.clone(); o.material.transparent=true; o.material.opacity=0.9; o.material.depthWrite=false; } });
+      placeGhost.userData.tType=tpl.type; placeGhost.userData.tModel=tpl.model; placeGhost.userData.wasCached=cached;
       scene.add(placeGhost);
     }
     placeGhost.position.set(x, terrainHeightAt(x,z)+tpl.sy/2, z);   // bottom flush with the terrain
@@ -972,7 +1007,14 @@
     // ribbon
     if (ribbonGroup){ scene.remove(ribbonGroup); ribbonGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); }
     sampled = FK_TRACK.resample(track, THREE);
-    ribbonGroup = FK_TRACK.buildRibbonGeometry(sampled, track.width, THREE, edTerrainOpts());
+    if (track.offroad){
+      // OFF-ROAD: no real road in-game — show the intended route as a faint GHOST ribbon draped on the
+      // terrain so the designer still sees the racing line (the whole terrain is drivable in-game).
+      ribbonGroup = FK_TRACK.buildRibbonGeometry(sampled, track.width, THREE, { ...edTerrainOpts(), followTerrain:true });
+      ribbonGroup.traverse(o=>{ if(o.material){ o.material.transparent=true; o.material.opacity=0.3; o.material.depthWrite=false; } });
+    } else {
+      ribbonGroup = FK_TRACK.buildRibbonGeometry(sampled, track.width, THREE, edTerrainOpts());
+    }
     scene.add(ribbonGroup);
     // spheres
     while (sphereGroup.children.length) sphereGroup.remove(sphereGroup.children[0]);
@@ -1137,7 +1179,7 @@
     $('hint').textContent = m==='insert' ? 'click the road to INSERT a point on the nearest segment'
                           : m==='item'   ? 'click the road to drop an ITEM ROW (s-fraction)'
                           : m==='boost'  ? 'click the road to drop a BOOST PAD (s + lane)'
-                          : m==='object' ? 'click an object to select · gizmo = move/rotate/scale (G/R/S) · ＋ add block · name it below'
+                          : m==='object' ? 'click an object to select · gizmo = move/rotate/scale (G/R/S) · Ctrl+C copy · Ctrl+V paste · ＋ add block · name it below'
                           : m==='sculpt' ? 'drag the GRASS to raise it · hold Shift to lower · the road stays put'
                           : m==='paint'  ? 'pick a color, then drag the GRASS to paint it (dirt, sand, path...)'
                           : m==='fence'  ? 'click the ground to drop fence posts along a line · finish to start a new run · drag = orbit'
@@ -1190,6 +1232,7 @@
     });
   })();
   $('pRad').addEventListener('input', ()=>{ PAINT.radius=+$('pRad').value; $('pRadV').textContent=PAINT.radius; refreshRing(PAINT.radius); });
+  $('pInt').addEventListener('input', ()=>{ PAINT.intensity=(+$('pInt').value)/100; $('pIntV').textContent=$('pInt').value; });
   $('pReset').addEventListener('click', ()=>{ track.paint={ cell:6, cells:{} }; $('pCells').textContent='0'; rebuildTerrain(); toast('paint cleared'); });
   // water = an object with type "water" (reuses all the object machinery)
   function addWater(){ startPlacing({ type:'water', sx:30, sy:0.6, sz:30, color:0x2f6fb0 }, 'water'); }
@@ -1233,6 +1276,11 @@
   // 🏔 follow terrain: opt-in per-track drape. Sets track.followTerrain (deleted when off so old
   // saves stay clean) and rebuilds so the ribbon + ground + test-bot all pick up the terrain tilt.
   $('drapeBtn').addEventListener('click', ()=>{ track.followTerrain = !track.followTerrain; if(!track.followTerrain) delete track.followTerrain; $('drapeBtn').classList.toggle('on', !!track.followTerrain); rebuild(); commitHistory(); });
+  // 🏜 off-road course: whole terrain drivable, no ribbon/walls (ribbon shows as a ghost guide).
+  $('offroadBtn').addEventListener('click', ()=>{ track.offroad = !track.offroad; if(!track.offroad) delete track.offroad; $('offroadBtn').classList.toggle('on', !!track.offroad); rebuild(); rebuildFences(); commitHistory(); });
+  // 🧱 wall style: solid ribbon walls (default) <-> post+rail fences (visual swap only).
+  function syncWallStyleBtn(){ const on = track.wallStyle==='fence'; const b=$('wallStyleBtn'); if(b){ b.classList.toggle('on', on); b.textContent = on ? '🪵 fence walls' : '🧱 ribbon walls'; } }
+  $('wallStyleBtn').addEventListener('click', ()=>{ track.wallStyle = (track.wallStyle==='fence') ? undefined : 'fence'; if(!track.wallStyle) delete track.wallStyle; syncWallStyleBtn(); rebuildFences(); commitHistory(); });
 
   // ---- ⚙ advanced section: collapsed by default, remembered in localStorage (2026-07-10) ----
   const ADV_KEY = 'fk_ed_advanced_open';
@@ -1262,6 +1310,9 @@
     const hit = new THREE.Vector3(); return raycaster.ray.intersectPlane(_groundPlane, hit) ? hit : null;
   }
   let sculpting = false, painting = false;
+  // Ctrl+C / Ctrl+V object copy-paste (2026-07-12): objClipboard holds ALL fields of the copied
+  // object; lastPointerEvt tracks the cursor so a paste lands under it when it's over the terrain.
+  let objClipboard = null, lastPointerEvt = null;
 
   let dragging = -1, dragShift = false, lastY = 0;
 
@@ -1347,6 +1398,7 @@
   }, true); // capture: run before OrbitControls' own handler so controls.enabled takes effect
 
   renderer.domElement.addEventListener('pointermove', e=>{
+    lastPointerEvt = e;   // remembered so a Ctrl+V paste can land under the cursor
     // brush preview ring + the sculpt/paint stroke itself share one raycast per event.
     if (mode==='sculpt' || mode==='paint'){
       setNdc(e); const h = pickGround();
@@ -1473,6 +1525,32 @@
     }
     return false;
   }
+  // ---- Ctrl+C / Ctrl+V object copy-paste (object mode) ----
+  function copySelectedObject(){
+    const o = selObjId ? (track.objects||[]).find(x=>x.id===selObjId) : null;
+    if (!o){ return false; }
+    objClipboard = { type:o.type, model:o.model, tag:o.tag||'', color:o.color,
+                     sx:o.sx, sy:o.sy, sz:o.sz, rotY:o.rotY||0 };
+    toast('copied object'+(o.tag?' "'+o.tag+'"':''));
+    return true;
+  }
+  function pasteObject(){
+    if (!objClipboard) return;
+    const cb = objClipboard;
+    setMode('object');
+    // paste at the cursor's ground point if it's over the terrain, else offset +2u from the source.
+    let px, pz;
+    if (lastPointerEvt){ setNdc(lastPointerEvt); const h = pickGround(); if (h){ px=h.x; pz=h.z; } }
+    if (px==null){ const src=(track.objects||[]).find(x=>x.id===selObjId); px=(src?src.x:0)+2; pz=(src?src.z:0)+2; }
+    const yaw = (cb.type==='ramp' && sampled) ? FK_TRACK.trackDirectionAt(sampled, px, pz).yaw : (cb.rotY||0);
+    const o = { id:'obj_'+(++objSeq), tag:cb.tag, type:cb.type,
+                x:+px.toFixed(2), y:+(terrainHeightAt(px,pz)+cb.sy/2).toFixed(2), z:+pz.toFixed(2),
+                rotY:+yaw.toFixed(3), sx:cb.sx, sy:cb.sy, sz:cb.sz, color:cb.color };
+    if (cb.type==='glb' && cb.model) o.model = cb.model;
+    (track.objects=track.objects||[]).push(o);
+    rebuildObjects(); selectObject(o.id); commitHistory();   // each paste = one history entry
+    toast('pasted object');
+  }
   addEventListener('keydown', e=>{
     const inField = document.activeElement.tagName==='INPUT' || document.activeElement.tagName==='TEXTAREA';
     if (inField) return;
@@ -1480,6 +1558,17 @@
     if (mod && e.key.toLowerCase()==='z'){ e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
     if (mod && e.key.toLowerCase()==='y'){ e.preventDefault(); redo(); return; }
     if (mod && e.key.toLowerCase()==='s'){ e.preventDefault(); doSave(); return; }
+    // Ctrl+C: copy the selected object — but NOT while the user has a text selection (let the browser
+    // copy that instead). inField already returned above, so this only fires with focus off any input.
+    if (mod && e.key.toLowerCase()==='c'){
+      const sel = (window.getSelection && String(window.getSelection())) || '';
+      if (!sel && mode==='object' && selObjId){ if (copySelectedObject()) e.preventDefault(); }
+      return;
+    }
+    if (mod && e.key.toLowerCase()==='v'){
+      if (objClipboard){ e.preventDefault(); pasteObject(); }
+      return;
+    }
     if (mod && e.key.toLowerCase()==='d'){
       if (mode==='object' && selObjId){ e.preventDefault(); duplicateObject(); }
       return;
@@ -1512,6 +1601,8 @@
     $('wallInp').value = (isFinite(track.wallMargin)&&track.wallMargin>0) ? track.wallMargin : '';
     $('worldInp').value = (isFinite(track.groundMargin)&&track.groundMargin>0) ? track.groundMargin : '';
     $('drapeBtn').classList.toggle('on', !!track.followTerrain);
+    $('offroadBtn').classList.toggle('on', !!track.offroad);
+    syncWallStyleBtn();
     { const s=$('skySel'); if (s) s.value = FK_TRACK.SKY_PRESETS[track.sky] ? track.sky : 'day'; } }
   $('nameInp').addEventListener('input', ()=>{ track.name = $('nameInp').value; });
   $('nameInp').addEventListener('change', commitHistory);
@@ -1605,6 +1696,37 @@
     resetHistory(); clearDirty();
   }
   $('loadSel').addEventListener('change', ()=>{ const o=$('loadSel').selectedOptions[0]; loadById($('loadSel').value); toast('loaded "'+(o?o.textContent:'')+'"'); });
+
+  // ---- ＋ New course (2026-07-12): a fresh, simple oval loop with a unique id, switched into the
+  // editor. Guards against losing unsaved work (confirm when dirty), resets history to one snapshot,
+  // and stays dirty until saved. Reuses the SAME load/rebuild path as loadById. ----
+  function uniqueTrackId(base){
+    const map = loadMap(), b = FK_TRACK.BUILTIN_TRACKS || {};
+    const taken = id => (id==='' ) || (map[id]!=null) || (b[id]!=null);
+    let id = base || 'track'; if (!taken(id)) return id;
+    for (let n=2;n<9999;n++){ const cand = base+'-'+n; if (!taken(cand)) return cand; }
+    return base+'-'+Date.now();
+  }
+  function freshOvalTrack(name){
+    // a simple sensible oval (16 points, y=0, flat racing line) sized like the default circuit.
+    const rx=62, rz=104, pts=[];
+    for (let i=0;i<16;i++){ const a=i/16*Math.PI*2; pts.push({ x:+(rx*Math.sin(a)).toFixed(1), z:+(rz*Math.cos(a)).toFixed(1), y:0 }); }
+    return FK_TRACK.sanitize({ v:1, name:name||'New Course', width:18, laps:3, gridSide:'left', itemRows:[0.15,0.45,0.75], points:pts });
+  }
+  function newCourse(){
+    if (dirty && !confirm('You have unsaved changes. Start a new course and discard them?')) return;
+    let name = prompt('Name for the new course:', 'New Course');
+    if (name === null) return;   // cancelled
+    name = (name.trim() || 'New Course').slice(0,60);
+    const t = freshOvalTrack(name); if (!t){ toast('could not create course'); return; }
+    track = t; currentId = uniqueTrackId(slug(name));
+    selected=-1; selObjId=null; curFence=null; selTunnelId=null; selBridgeId=null; selWaterId=null;
+    gizmo.detach();
+    syncFields(); rebuild(); rebuildObjects(); maybeAutoFences(); rebuildFences(); frameCamera(); populateLoad();
+    resetHistory(); markDirty();   // dirty until the user saves
+    toast('new course "'+name+'" — save to keep it');
+  }
+  $('newCourseBtn').addEventListener('click', newCourse);
 
   // ---- toast ----
   let toastT = null;
@@ -2214,7 +2336,21 @@
     // prop search + advanced-section hooks
     setPropSearch:(q)=>{ const el=$('propSearch'); if(el){ el.value=q; el.dispatchEvent(new Event('input')); } },
     get advOpen(){ return $('advBody').style.display==='block'; }, setAdvOpen,
-    nudgeSelected
+    nudgeSelected,
+    // NEW-COURSE, off-road, wall-style hooks (2026-07-12)
+    newCourse,
+    get offroad(){ return !!track.offroad; },
+    setOffroad:(v)=>{ track.offroad = !!v; if(!track.offroad) delete track.offroad; $('offroadBtn').classList.toggle('on', !!track.offroad); rebuild(); rebuildFences(); commitHistory(); },
+    get wallStyle(){ return track.wallStyle || 'ribbon'; },
+    setWallStyle:(v)=>{ track.wallStyle = (v==='fence') ? 'fence' : undefined; if(!track.wallStyle) delete track.wallStyle; syncWallStyleBtn(); rebuildFences(); commitHistory(); },
+    get fenceGroup(){ return fenceGroup; },
+    // exact-model placement-preview hooks (2026-07-12)
+    moveGhost, get placeGhost(){ return placeGhost; },
+    // paint intensity + copy/paste hooks (2026-07-12)
+    setPaintIntensity:(pct)=>{ PAINT.intensity = Math.max(0.05, Math.min(1, pct/100)); const el=$('pInt'); if(el){ el.value=pct; $('pIntV').textContent=pct; } },
+    get paintIntensity(){ return PAINT.intensity; },
+    copySelectedObject, pasteObject, get objClipboard(){ return objClipboard; },
+    setLastPointer:(clientX, clientY)=>{ lastPointerEvt = { clientX, clientY }; }
   };
   </script>
 </body>
