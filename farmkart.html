@@ -840,19 +840,23 @@
   }
   function loadActiveTrack(){
     try{
-      const id = new URLSearchParams(location.search).get('track');
-      if (id){
-        const map = JSON.parse(localStorage.getItem('fk_tracks_v1') || 'null');
-        if (map && map[id]){
-          const t = FK_TRACK.sanitize(map[id]);
-          if (t) return { track:t, id };
-          // a saved entry existed but failed sanitize — don't fail silently, surface it on the
-          // start menu once the DOM/boot is ready (window.__fkTrackLoadWarning read there).
-          window.__fkTrackLoadWarning = id;
-        }
-        const hit = loadBuiltinOrAmen(id);
-        if (hit) return hit;
+      // Effective id: an explicit ?track=<id>, else the boot default. BOTH must honor a saved
+      // fk_tracks_v1 override — a cloud/editor-decorated copy of a builtin id (e.g. a dressed-up
+      // 'wario-stadium') wins over the bare builtin. Consulting the map ONLY on the ?track= path
+      // was the bug: a bare-URL boot (the default) loaded the bare builtin, so the cloud reconcile
+      // could reload all day and never surface the override.
+      const urlId = new URLSearchParams(location.search).get('track');
+      const id = urlId || BOOT_TRACK_ID;
+      const map = JSON.parse(localStorage.getItem('fk_tracks_v1') || 'null');
+      if (map && map[id]){
+        const t = FK_TRACK.sanitize(map[id]);
+        if (t) return { track:t, id };
+        // a saved entry existed but failed sanitize — don't fail silently, surface it on the
+        // start menu once the DOM/boot is ready (window.__fkTrackLoadWarning read there).
+        window.__fkTrackLoadWarning = id;
       }
+      const hit = loadBuiltinOrAmen(id);
+      if (hit) return hit;
     }catch(e){}
     const boot = loadBuiltinOrAmen(BOOT_TRACK_ID);
     if (boot) return boot;
@@ -5935,8 +5939,12 @@
       try{ oldMap = JSON.parse(oldRaw) || {}; }catch(e){}
       try{ newMap = JSON.parse(raw) || {}; }catch(e){}
       localStorage.setItem('fk_tracks_v1', raw);
-      const activeChanged = !!ACTIVE_TRACK_ID && !!newMap[ACTIVE_TRACK_ID] &&
-        JSON.stringify(oldMap[ACTIVE_TRACK_ID]) !== JSON.stringify(newMap[ACTIVE_TRACK_ID]);
+      // "changed" MUST include the fresh-device case where there was no local entry at all
+      // (oldEntry === undefined) — that's exactly how a family device first learns of the
+      // cloud-decorated override and needs a one-time reload to adopt it.
+      const oldEntry = oldMap[ACTIVE_TRACK_ID], newEntry = newMap[ACTIVE_TRACK_ID];
+      const activeChanged = !!ACTIVE_TRACK_ID && !!newEntry &&
+        (oldEntry === undefined || JSON.stringify(oldEntry) !== JSON.stringify(newEntry));
       const onMenuSolo = G.phase === 'menu' && !net.mp;
       if (activeChanged && onMenuSolo){
         let adopted = false;
@@ -6829,11 +6837,22 @@
       else if (racerConfirmMode==='cup') launchCup();
     }
 
+    // A course start needs a full reload (so loadActiveTrack re-resolves fk_tracks_v1) when the
+    // target course differs from the loaded one OR when a saved override EXISTS for it. The
+    // override case matters even for the same id: the loaded ACTIVE_TRACK can predate a cloud
+    // reconcile that landed (into localStorage) after boot but couldn't reload in time — reloading
+    // via ?track= guarantees the decorated copy actually races instead of the stale bare builtin.
+    function courseNeedsReload(id){
+      if (!id) return false;
+      if (id !== (ACTIVE_TRACK_ID||BOOT_TRACK_ID)) return true;
+      try{ const m = JSON.parse(localStorage.getItem('fk_tracks_v1')||'null'); return !!(m && m[id]); }catch(e){ return false; }
+    }
     // ---- launch a Time Trial (0 bots) ----
     function launchTrialRace(){
       setRaceMode('trial');
-      if (st.selCourse && st.selCourse !== (ACTIVE_TRACK_ID||BOOT_TRACK_ID)){
-        // needs a different track → reload, then resume straight into the trial race
+      if (courseNeedsReload(st.selCourse)){
+        // reload, then resume straight into the trial race (init() consumes fk_flow_pending →
+        // startCountdown directly, so this never re-enters launchTrialRace → no reload loop)
         try{ sessionStorage.setItem('fk_flow_pending', JSON.stringify({ kind:'trial', loadout:st.loadout })); }catch(e){}
         location.href = 'farmkart.html?track=' + encodeURIComponent(st.selCourse);
         return;
