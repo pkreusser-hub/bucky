@@ -481,6 +481,11 @@
           };
           if (isFinite(+tn.h) && +tn.h > 1) o.h = Math.min(40, +tn.h);
           if (isFinite(+tn.w) && +tn.w > 2) o.w = Math.min(200, +tn.w);
+          // STYLE (2026-07-13): 'natural' = a carved earth/rock CAVE where the hill continues over the
+          // road (buildTunnelMesh renders a rocky bore; the ground mesh keeps the hill over the span via
+          // naturalTunnelCoverAt). Only 'natural' is persisted; concrete/absent OMIT the key so every
+          // existing track sanitizes byte-identical.
+          if (tn.style === 'natural') o.style = 'natural';
           tuns.push(o);
         }
         if (tuns.length) out.tunnels = tuns;
@@ -836,6 +841,12 @@
     const mat = new THREE.MeshLambertMaterial({ color:0xffffff, vertexColors:true, emissive:0x3e3e3c, side:THREE.DoubleSide });
     const BASE_R = 0xa8/255, BASE_G = 0xa8/255, BASE_B = 0xa2/255;   // warm light concrete 0xa8a8a2
     const PORTAL_DARKEN = 0.78;                                      // portal ring diffuse multiplier
+    // NATURAL (cave) look: warm dark earth/rock with a STRONGER emissive lift than concrete so the
+    // unlit hewn interior stays readable (kids play this) without going black. Separate material so
+    // concrete + cave tunnels can coexist on one track. Diffuse rock tone comes from per-vertex colors.
+    const rockMat = new THREE.MeshLambertMaterial({ color:0xffffff, vertexColors:true, emissive:0x2b2117, side:THREE.DoubleSide });
+    const ROCK_R = 0x6b/255, ROCK_G = 0x57/255, ROCK_B = 0x42/255;  // warm earth/rock 0x6b5742
+    let _boulderGeo = null;   // shared irregular-rock geo, lazily built once (only if a cave exists)
     const L = sampled.trackLen, arcS = sampled.arcS, C = sampled.centerPts, T = sampled.tangents, N = sampled.samples;
     // interpolated centerline sample at an ABSOLUTE arc-length position (wraps past the lap close).
     function sampleAtArc(a){
@@ -872,16 +883,26 @@
       return pts;
     }
     for (const tn of tunnels){
+      const natural = tn.style === 'natural';
       const startArc = Math.max(0, Math.min(1, tn.s)) * L;
       const len = Math.max(4, tn.len || 18);
       const h = (isFinite(tn.h) && tn.h > 1) ? tn.h : 6;
       const w = (isFinite(tn.w) && tn.w > 2) ? tn.w : (trackWidth + 3);
       const hw = w/2;
       const wallH = Math.max(0.5, h - hw);
-      const prof = profile(hw, wallH, 5);
+      // Cave bores use more arch segments (rounder + rougher when jittered); concrete keeps 5.
+      const prof = profile(hw, wallH, natural ? 8 : 5);
       const cols = prof.length;
-      const step = 2.5, steps = Math.max(2, Math.ceil(len/step));
-      const portalDepth = Math.min(2.5, len*0.3), portalBulge = 0.16;
+      // Cave bores step finer so the longitudinal jitter reads as hewn rock, not facets.
+      const step = natural ? 1.6 : 2.5, steps = Math.max(2, Math.ceil(len/step));
+      // caves flare a bolder rock rim at the mouth so the opening reads as dug into the hillside.
+      const portalDepth = natural ? Math.min(4, len*0.4) : Math.min(2.5, len*0.3);
+      const portalBulge = natural ? 0.30 : 0.16;
+      // deterministic smooth wall-roughness (a function of the arch column k and arc position a) — a
+      // hewn, irregular bore without per-vertex randomness that would spike the normals.
+      function roughness(k, a){
+        return 0.5*Math.sin(k*1.7 + a*0.16) + 0.28*Math.sin(k*3.3 - a*0.27 + 1.1);
+      }
       function ringAt(a){
         const p = sampleAtArc(a);
         const y = hfn(p.x, p.z);
@@ -891,25 +912,42 @@
         const bulge = portalDepth > 0.01 ? (1 - Math.min(1, nearEnd/portalDepth)) : 0;
         const scale = 1 + portalBulge*bulge;
         const ring = new Array(cols);
+        ring.col = new Array(cols);
         for (let k=0;k<cols;k++){
-          const u = prof[k][0]*scale, v = prof[k][1]*scale;
+          let u = prof[k][0]*scale, v = prof[k][1]*scale;
+          if (natural && v > 0.2){
+            // jitter only ABOVE the road (leave the open bottom + buried legs clean) so the ceiling
+            // and upper walls read as carved rock; radial expand/contract + a little vertical wobble.
+            const r = roughness(k, a);
+            u += u*0.11*r;
+            v += v*0.06*r + hw*0.05*Math.sin(k*2.1 + a*0.4);
+          }
           ring[k] = [ p.x + nx*u, y + v, p.z + nz*u ];
+          // per-vertex tint: bore = base, portal rings darkened for contrast; cave gets extra tonal
+          // variation + slight ambient-occlusion darkening toward the ceiling crown.
+          const pd = 1 - (1-PORTAL_DARKEN)*bulge;
+          if (natural){
+            const tone = 0.80 + 0.20*(0.5 + 0.5*Math.sin(k*2.3 + a*0.5));
+            const crown = (v > wallH*scale) ? 0.86 : 1.0;   // dim the ceiling crown a touch
+            const m = pd*tone*crown;
+            ring.col[k] = [ROCK_R*m, ROCK_G*m, ROCK_B*m];
+          } else {
+            ring.col[k] = [BASE_R*pd, BASE_G*pd, BASE_B*pd];
+          }
         }
-        ring.bulge = bulge;   // portal shading factor for this ring (0 = bore, 1 = portal lip)
+        ring.bulge = bulge;
         return ring;
       }
       const positions = [], colors = [];
-      // per-vertex concrete tint: bore = base grey, portal rings darkened for contrast.
-      const shadeOf = (ring)=>{ const m = 1 - (1-PORTAL_DARKEN)*ring.bulge; return [BASE_R*m, BASE_G*m, BASE_B*m]; };
       const pushV = (v, c)=>{ positions.push(v[0],v[1],v[2]); colors.push(c[0],c[1],c[2]); };
       let prevRing = ringAt(startArc);
       for (let s=1; s<=steps; s++){
         const ring = ringAt(startArc + len*(s/steps));
-        const cPrev = shadeOf(prevRing), cRing = shadeOf(ring);
         for (let k=0;k<cols-1;k++){
           const A=prevRing[k], B=prevRing[k+1], Cc=ring[k], D=ring[k+1];
-          pushV(A,cPrev); pushV(B,cPrev); pushV(Cc,cRing);
-          pushV(B,cPrev); pushV(D,cRing); pushV(Cc,cRing);
+          const cA=prevRing.col[k], cB=prevRing.col[k+1], cC=ring.col[k], cD=ring.col[k+1];
+          pushV(A,cA); pushV(B,cB); pushV(Cc,cC);
+          pushV(B,cB); pushV(D,cD); pushV(Cc,cC);
         }
         prevRing = ring;
       }
@@ -917,7 +955,38 @@
       geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
       geo.setAttribute('color',    new THREE.Float32BufferAttribute(colors, 3));
       geo.computeVertexNormals();
-      const mesh = new THREE.Mesh(geo, mat);
+      // CAVE DRESSING: a rock rim + a couple of boulders at each portal so the mouth reads as dug
+      // into the hill, plus a few hanging rocks from the ceiling mid-span. Cheap (≤ ~11 small meshes
+      // per cave, never per-segment) and only built for natural tunnels.
+      if (natural){
+        if (!_boulderGeo) _boulderGeo = new THREE.IcosahedronGeometry(1, 0);
+        const addRock = (px,py,pz, sx,sy,sz, shade)=>{
+          const m = new THREE.Mesh(_boulderGeo, rockMat.clone());
+          m.material.vertexColors = false; m.material.color.setRGB(ROCK_R*shade, ROCK_G*shade, ROCK_B*shade);
+          m.position.set(px,py,pz); m.scale.set(sx,sy,sz);
+          m.rotation.set((px%1.3), (pz%1.7), (py%0.9));
+          grp.add(m);
+        };
+        for (const endA of [startArc, startArc+len]){
+          const p = sampleAtArc(endA), y = hfn(p.x, p.z), nx=-p.tz, nz=p.tx;
+          // boulders flanking the mouth (just outside each wall) + a lintel rock over the crown
+          for (const side of [-1, 1]){
+            const off = hw*1.02;
+            addRock(p.x+nx*off*side, y+0.9, p.z+nz*off*side, 1.7, 1.9+ (side>0?0.4:0), 1.6, 0.9);
+            addRock(p.x+nx*off*side*0.86, y+2.6, p.z+nz*off*side*0.86, 1.2, 1.3, 1.1, 1.05);
+          }
+          addRock(p.x, y+wallH+hw*0.72, p.z, hw*0.5, 1.2, 1.3, 0.82);   // crown lintel
+        }
+        // hanging ceiling rocks (stalactite-ish) at a few points along the bore
+        const nHang = Math.min(4, Math.max(1, Math.floor(len/12)));
+        for (let i=0;i<nHang;i++){
+          const a = startArc + len*((i+0.5)/nHang);
+          const p = sampleAtArc(a), y=hfn(p.x,p.z), nx=-p.tz, nz=p.tx;
+          const off = (i%2? 1:-1)*hw*0.34;
+          addRock(p.x+nx*off, y + wallH + hw*0.55, p.z+nz*off, 0.55, 0.9, 0.55, 0.72);
+        }
+      }
+      const mesh = new THREE.Mesh(geo, natural ? rockMat : mat);
       mesh.userData.tunnelId = tn.id;
       grp.add(mesh);
     }
@@ -1437,6 +1506,35 @@
     }
     return hits >= 2 && (yMax - yMin) > BRIDGE_Y_GAP;
   }
+  // NATURAL TUNNELS (2026-07-13): a cave-style tunnel where the LAND CONTINUES OVER THE ROAD. Given
+  // (x,z), returns a 0..1 cover factor for any tunnel with style:'natural' whose ARC-LENGTH span the
+  // point projects into: 1 = inside the span (the grass mesh should keep the full hill height over the
+  // road), 0 = outside (normal road cut / open sky). Feathered over NAT_FEATHER world-units of arc
+  // JUST OUTSIDE each portal so the earth mounds smoothly down to road level (no notch inside the
+  // span). The KART authority (sampleHeight) is unaffected — only the MESH sampler reads this (via
+  // opts.naturalTunnels), so the road stays the lower branch the kart drives on, exactly like a bridge.
+  const NAT_FEATHER = 5;
+  function naturalTunnelCoverAt(sampled, x, z, tunnels){
+    if (!tunnels || !tunnels.length) return 0;
+    const L = sampled.trackLen, arcS = sampled.arcS;
+    const info = nearestOnCenter(sampled, x, z);
+    const a = arcS[info.idx];
+    let best = 0;
+    for (const tn of tunnels){
+      if (!tn || tn.style !== 'natural') continue;
+      const startArc = Math.max(0, Math.min(1, tn.s)) * L;
+      const len = Math.max(4, tn.len || 18);
+      // wrap-aware: measure the arc query against the span at a, a+L, a-L; `into` >= 0 means inside.
+      let into = -Infinity;
+      for (const aa of [a, a+L, a-L]) into = Math.max(into, Math.min(aa - startArc, (startArc+len) - aa));
+      let c;
+      if (into >= 0) c = 1;
+      else if (into <= -NAT_FEATHER) c = 0;
+      else { const t = 1 + into/NAT_FEATHER; c = t*t*(3 - 2*t); }   // smoothstep up to the portal
+      if (c > best) best = c;
+    }
+    return best;
+  }
   // groundSampleHeight: what the DISPLACED GRASS MESH uses.
   // Stage A (2026-07-09): match sampleHeight everywhere EXCEPT true bridge overlaps, where the
   // mesh stays on the LOWEST branch so the high ribbon floats in open air. Previously this always
@@ -1447,7 +1545,31 @@
     // bridge branch, no double-apply). Explicit early return keeps _isMultiLevelRoad from firing.
     if (opts.followTerrain || opts.offroad) return groundHills(x, z, opts);
     if (_isMultiLevelRoad(sampled, x, z, width)) return _lowestBranchHeight(sampled, x, z, width, opts);
-    return sampleHeight(sampled, x, z, width, opts);
+    const base = sampleHeight(sampled, x, z, width, opts);
+    // NATURAL-TUNNEL COVER: only the MESH build passes opts.naturalTunnels (game meshTerrainOpts /
+    // editor edMeshTerrainOpts). Every other caller (kart physics via the game's road-based
+    // groundSampleHeight, the terrain-auth harness) passes no naturalTunnels -> base is returned
+    // unchanged -> byte-identical for all tracks without a cave tunnel. Inside a span the mesh blends
+    // from the road-cut height up to the full procedural hill so the land literally continues overhead.
+    if (opts.naturalTunnels && opts.naturalTunnels.length){
+      let cover = naturalTunnelCoverAt(sampled, x, z, opts.naturalTunnels);
+      if (cover > 0){
+        // Lateral gate: OVER THE ROAD keep the approach OPEN (road level) until the portal so you can
+        // see straight into the cave mouth — the sharp road-height step at the portal is hidden by the
+        // bore. OFF the road the feather stays smooth so the hillsides mound up and flank the approach.
+        const half = width/2;
+        const info = nearestOnCenter(sampled, x, z);
+        if (info.dist <= half) cover = (cover >= 0.999) ? 1 : 0;   // corridor: sharp at the portal
+        else if (info.dist < half + Math.max(0.5, opts.margin)){    // road-edge skirt: ramp the gate out
+          const t = (info.dist - half) / Math.max(0.5, opts.margin);
+          const s = t*t*(3 - 2*t);
+          const corridorCover = (cover >= 0.999) ? 1 : 0;
+          cover = corridorCover + (cover - corridorCover)*s;
+        }
+        if (cover > 0){ const gy = groundHills(x, z, opts); return base + (gy - base)*cover; }
+      }
+    }
+    return base;
   }
   // FLUFFY GRASS: a cached GRAYSCALE blade-noise texture that MODULATES the ground vertex colour, so
   // grass reads as soft mown turf (and painted dirt/sand keep their hue but gain the same fluff). No
@@ -1490,12 +1612,41 @@
     const patch = (x,z)=> 0.9 + 0.1*(0.5 + 0.5*Math.sin(x*0.021 + z*0.013)*Math.cos(z*0.017 - x*0.009));
     const paintOn = !!(opts.paint && opts.paint.cells && Object.keys(opts.paint.cells).length);
     const ext = opts.vertexColorFn || null;
+    // NATURAL-TUNNEL PORTAL HOLES (2026-07-13): a heightfield can't overhang, so where the cave cover
+    // jumps 0->1 at a portal the surface forms a near-vertical "membrane" wall spanning the road — the
+    // chase camera would have to pass THROUGH it entering/leaving the bore, and from inside the exit
+    // would read as a green wall instead of daylight. Fix: DROP the grid triangles over the corridor in
+    // a short window (~3.5u) just inside each portal. The gap hides inside the rock bore (the arch +
+    // portal rim conceal its edges) and the camera passes through open geometry. Absent naturalTunnels
+    // -> holePts stays null -> mesh byte-identical.
+    let holePts = null, holeR2 = 0;
+    if (opts.naturalTunnels && opts.naturalTunnels.length){
+      holePts = [];
+      const hr = width/2 + 1.8; holeR2 = hr*hr;
+      const L = sampled.trackLen, aS = sampled.arcS, C = sampled.centerPts, NN = sampled.samples;
+      const HOLE_IN = 3.6, HOLE_OUT = 1.2;   // window: 1.2u before the portal to 3.6u inside the span
+      for (const tn of opts.naturalTunnels){
+        if (!tn || tn.style !== 'natural') continue;
+        const s0 = Math.max(0, Math.min(1, tn.s)) * L, e0 = s0 + Math.max(4, tn.len || 18);
+        for (let i=0;i<NN;i++){
+          const a = aS[i];
+          for (const aa of [a, a+L, a-L]){
+            if ((aa > s0-HOLE_OUT && aa < s0+HOLE_IN) || (aa > e0-HOLE_IN && aa < e0+HOLE_OUT)){ holePts.push(C[i]); break; }
+          }
+        }
+      }
+      if (!holePts.length) holePts = null;
+    }
+    const holed = holePts ? new Uint8Array((nx+1)*(nz+1)) : null;
     const UVT = 5;   // texture tiles every 5 world units (blade scale)
     for (let j=0;j<=nz;j++) for (let i=0;i<=nx;i++){
       const x = minX + i*seg, z = minZ + j*seg;
       const h = groundSampleHeight(sampled, x, z, width, opts);
       pos.push(x, h, z);
       uvs.push(x/UVT, z/UVT);
+      if (holed){
+        for (const hp of holePts){ const dx=x-hp.x, dz=z-hp.z; if (dx*dx+dz*dz <= holeR2){ holed[j*(nx+1)+i] = 1; break; } }
+      }
       let c;
       if (ext) c = ext(x, z, h);                                   // external override (rare)
       else { const m = patch(x,z);
@@ -1505,6 +1656,7 @@
     }
     for (let j=0;j<nz;j++) for (let i=0;i<nx;i++){
       const a = j*(nx+1)+i, b = a+1, c = a+(nx+1), d = c+1;
+      if (holed && (holed[a] || holed[b] || holed[c] || holed[d])) continue;   // portal hole: skip quad
       idx.push(a, c, b,  b, c, d);
     }
     const gg = new THREE.BufferGeometry();
@@ -2189,7 +2341,7 @@
     VERSION:1, SAMPLES,
     DEFAULT_TRACK, BUILTIN_TRACKS,
     resample, buildRibbonGeometry, sanitize, validate, reverse, nearestOnCenter, nearestOnCenterAtY,
-    groundHills, sampleHeight, groundSampleHeight, buildGroundMesh, buildObjectMesh, buildFenceMesh, buildGrassTufts, buildPaintedTufts, sampleField, sampleColor,
+    groundHills, sampleHeight, groundSampleHeight, naturalTunnelCoverAt, buildGroundMesh, buildObjectMesh, buildFenceMesh, buildGrassTufts, buildPaintedTufts, sampleField, sampleColor,
     SURFACE_PAINTS, surfaceTypeAt,
     fenceCollide, corridorFences, rampSurfaceY, buildTunnelMesh, buildBridgeMesh, buildBridgeEdges, bridgeCollide, trackDirectionAt, alignRampsToTrack,
     floodFillWater, buildWaterMesh, buildSeaMesh, SKY_PRESETS, buildSkyObjects, buildTrainsMesh,

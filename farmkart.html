@@ -1134,6 +1134,13 @@
   // = smooth blend of (a) flat track surface (nearest-centerline elev within half-width) into
   // (b) ground hills over heightBlendMargin. Math lives in FK_TRACK; terrainOpts() passes live TUNE.
   function terrainOpts(){ return { amp:TUNE.groundHillAmp, wave:TUNE.groundHillWave, margin:TUNE.heightBlendMargin, field:ACTIVE_TRACK.terrain, paint:ACTIVE_TRACK.paint, groundMargin:ACTIVE_TRACK.groundMargin, followTerrain:ACTIVE_TRACK.followTerrain, offroad:ACTIVE_TRACK.offroad }; }
+  // NATURAL (cave) TUNNELS: the GROUND MESH keeps the hill height over the road across these spans so
+  // the land literally continues overhead. ONLY the mesh build reads this (meshTerrainOpts) — the
+  // kart/entity height authority (sampleHeight) and the game's groundSampleHeight() below deliberately
+  // do NOT carry naturalTunnels, so physics keeps the road as the driven (lower) surface, exactly like
+  // a bridge. Empty for every track without a style:'natural' tunnel -> mesh is byte-identical.
+  const NATURAL_TUNNELS = (ACTIVE_TRACK.tunnels || []).filter(t => t && t.style === 'natural');
+  function meshTerrainOpts(){ const o = terrainOpts(); if (NATURAL_TUNNELS.length) o.naturalTunnels = NATURAL_TUNNELS; return o; }
   function groundHills(x, z){ return FK_TRACK.groundHills(x, z, terrainOpts()); }
   // nearest dense-centerline info at (x,z): {idx, dist} (dist = PROJECTED perpendicular distance in
   // XZ). Delegates to FK_TRACK.nearestOnCenter (shared, interpolated). Correct anywhere (camera /
@@ -1182,7 +1189,7 @@
   // ---------- displaced ground grid (K2) ----------
   // The grass+hills mesh (grid over the track bbox + margin, each vertex at groundSampleHeight).
   // Built by the shared FK_TRACK.buildGroundMesh so farmkart-editor.html renders the identical mesh.
-  scene.add(FK_TRACK.buildGroundMesh(_sampled, TRACK_WIDTH, THREE, terrainOpts()));
+  scene.add(FK_TRACK.buildGroundMesh(_sampled, TRACK_WIDTH, THREE, meshTerrainOpts()));
   // 3D grass tufts scattered along the track corridor (fewer on phones). Static instanced mesh.
   { const mobile = (typeof matchMedia==='function' && matchMedia('(pointer: coarse)').matches);
     scene.add(FK_TRACK.buildGrassTufts(_sampled, TRACK_WIDTH, THREE, { heightFn:(x,z)=>sampleHeight(x,z), count: mobile?2200:4600 }));
@@ -2447,6 +2454,7 @@
   const stormFlashEl = document.getElementById('stormFlash');
   let camKartY = 0;   // K2.5: smoothed kart-y the camera tracks (jumps read as FLOAT)
   let camFloorY = -Infinity;   // SMOOTHED anti-clip floor (raw per-frame sampling jitters on hills)
+  let camTunnelK = 0;   // 0..1 eased "camera is in a natural (cave) tunnel" factor (pull in + relax lifts)
   // K2: reusable math temporaries (per-view surface normals now live on each kart view)
   const _tmpN = new THREE.Vector3(), _tmpF = new THREE.Vector3(), _tmpR = new THREE.Vector3(), _tmpM = new THREE.Matrix4();
   const _wqRoll = new THREE.Quaternion(), _wqSteer = new THREE.Quaternion();   // wheel spin/steer temps
@@ -5915,10 +5923,26 @@
     // rises in frame while the camera lags up after it. camHeight is height ABOVE that smoothed y.
     camKartY += (p.y - camKartY) * (1 - Math.exp(-TUNE.camVertLerp * dt));
     const kartY = camKartY;
+    // NATURAL-TUNNEL CAM: ease a 0..1 factor whenever the camera OR the kart is within a cave span
+    // (the ground mesh keeps the hill overhead there). While engaged, pull the follow camera closer +
+    // lower so it fits under the rock ceiling, and relax the ground-lift clamps below (which would
+    // otherwise try to shove the camera up as the hill mesh looms). Eased ~0.35s so entering/exiting
+    // a portal never pops. On tracks without cave tunnels tunK stays 0 -> camera behaves exactly as before.
+    let tunTarget = 0;
+    if (NATURAL_TUNNELS.length){
+      tunTarget = Math.max(
+        FK_TRACK.naturalTunnelCoverAt(_sampled, camPos.x, camPos.z, NATURAL_TUNNELS),
+        FK_TRACK.naturalTunnelCoverAt(_sampled, p.pos.x, p.pos.z, NATURAL_TUNNELS)
+      );
+    }
+    camTunnelK += (tunTarget - camTunnelK) * (1 - Math.exp(-7 * dt));
+    const tunK = camTunnelK;
+    const cDist = camDistEff() * (1 - 0.28*tunK);
+    const cHeight = camHeightEff() * (1 - 0.42*tunK);
     const targetPos = new THREE.Vector3(
-      p.pos.x - cf.x*camDistEff(),
-      kartY + camHeightEff(),
-      p.pos.z - cf.z*camDistEff()
+      p.pos.x - cf.x*cDist,
+      kartY + cHeight,
+      p.pos.z - cf.z*cDist
     );
     camPos.lerp(targetPos, 1 - Math.exp(-TUNE.camStiff * dt));   // position follow stiffness: the rest-vs-speed distance gap is ~speed/camStiff
     // never let the camera clip into / drop below terrain. Sample the ACTUAL ground-mesh height
@@ -5951,9 +5975,9 @@
       if (!isFinite(camFloorY)) camFloorY = rawFloor;
       const fRate = rawFloor > camFloorY ? 26 : 5;
       camFloorY += (rawFloor - camFloorY) * (1 - Math.exp(-fRate * dt));
-      if (camPos.y < camFloorY) camPos.y = camFloorY;
+      if (camPos.y < camFloorY) camPos.y += (camFloorY - camPos.y) * (1 - tunK);
     } else {
-      if (camPos.y < rawFloor) camPos.y = rawFloor;   // existing hard floor (flat tracks) — unchanged
+      if (camPos.y < rawFloor) camPos.y += (rawFloor - camPos.y) * (1 - tunK);   // hard floor (flat tracks); relaxed inside a cave
     }
     // (b) anti-underside: an ELEVATED span AHEAD (e.g. a raised crest the kart tipped off, now looming
     // in front) renders its unlit dark backface when viewed from below. Sample the ground along the
@@ -5972,7 +5996,7 @@
       }
       if (aheadMax > camPos.y + 1.6){
         const lift = aheadMax + Math.max(TUNE.camGroundClear, camera.near + 0.6);
-        if (camPos.y < lift) camPos.y = lift;
+        if (camPos.y < lift) camPos.y += (lift - camPos.y) * (1 - tunK);   // relaxed inside a cave (roof would otherwise shove us up)
       }
     }
     camera.position.copy(camPos);
@@ -10001,6 +10025,9 @@
     updateMinimap, minimapEl, _mm,
     // Tunnels (2026-07-10, for headless tests)
     TUNNEL_GROUP,
+    // Natural (cave) tunnels (2026-07-13, for headless tests)
+    NATURAL_TUNNELS, meshTerrainOpts, get camTunnelK(){ return camTunnelK; },
+    naturalCoverAt:(x,z)=>FK_TRACK.naturalTunnelCoverAt(_sampled, x, z, NATURAL_TUNNELS),
     // Bridges (2026-07-10 / walls 2026-07-12, for headless tests)
     BRIDGE_GROUP, get BRIDGE_EDGES(){ return BRIDGE_EDGES; },
     // Water splash + chicken crossings (2026-07-12, for headless tests)
