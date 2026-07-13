@@ -45,7 +45,10 @@
 </style>
 </head>
 <body>
-  <div id="bar"><a href="index.html">← BUCKY</a><span class="t">🪵 Branch Manager</span></div>
+  <div id="bar"><a href="index.html">← BUCKY</a><span class="t">🪵 Branch Manager</span>
+    <button id="muteBtn" title="mute / unmute sound" style="margin-left:auto;border:0;border-radius:9px;background:rgba(255,255,255,.15);color:#fff;font-size:17px;width:38px;height:32px;cursor:pointer;">🔊</button>
+    <button id="musicBtn" title="music on / off" style="border:0;border-radius:9px;background:rgba(255,255,255,.15);color:#fff;font-size:17px;width:38px;height:32px;cursor:pointer;">🎵</button>
+  </div>
   <div id="hud"><span id="scoreText">Score 0</span><span id="levelText">Level 0</span><span id="linesText">Lines 0</span></div>
   <div id="layout">
     <div id="boardStage"><canvas id="board"></canvas></div>
@@ -288,6 +291,9 @@
       overlay.classList.remove("show");
       startOverlay.classList.remove("show");
       setupState();
+      _audioGestured = true;       // the Start/Play-again click is itself a user gesture for audio
+      ensureAudio();
+      setMusicPhase("play");       // starts the sample loop, or the synth fallback if it isn't loaded yet
     }
 
     function updateHud(){
@@ -314,6 +320,7 @@
         const r = curRow + cell_.r, c = curCol + cell_.c;
         if (r >= 0) board[r][c] = curType;
       }
+      sfxLock();
       const cleared = [];
       for (let r = 0; r < ROWS; r++){ if (board[r].every(v => v)) cleared.push(r); }
       if (cleared.length){
@@ -325,11 +332,14 @@
 
     function finishClear(){
       const n = burnRows.length;
+      const prevLevel = level;
       burnRows.sort((a,b) => a-b).forEach(r => { board.splice(r, 1); board.unshift(Array(COLS).fill(null)); });
       score += lineScore(n, level);
       lines += n;
       level = Math.floor(lines / 5);   // level up every 5 lines (twice as fast as classic) for a quicker difficulty ramp
       updateHud();
+      sfxLineClear(n);
+      if (level > prevLevel) sfxLevelUp();
       burnRows = [];
       state = "playing";
       if (!spawnPiece()) return;
@@ -337,6 +347,10 @@
 
     function gameOver(){
       state = "over";
+      stopMusic();
+      setMusicPhase(null);         // stop + womp first (spec); menu music eases back in shortly after
+      sfxGameOver();
+      setTimeout(() => { if (state === "over") setMusicPhase("menu"); }, 900);
       saveScoreEntry(score);
       renderAllScores();
       overStat.textContent = `Score ${score}    Level ${level}    Lines ${lines}`;
@@ -346,10 +360,11 @@
     function handleDAS(){
       if (dasDir === 0) return;
       dasCounter++;
-      if (dasCounter >= DAS_DELAY && (dasCounter - DAS_DELAY) % ARR === 0) tryMove(0, dasDir);
+      if (dasCounter >= DAS_DELAY && (dasCounter - DAS_DELAY) % ARR === 0){ if (tryMove(0, dasDir)) sfxMove(); }
     }
 
     function stepFrame(){
+      updateDanger();
       if (state === "clearing"){
         burnTimer--;
         if (burnTimer <= 0) finishClear();
@@ -362,6 +377,7 @@
       if (dropCounter >= framesNeeded){
         dropCounter = 0;
         if (!tryMove(1, 0)) lockPiece();
+        else if (downHeld) sfxSoftDrop();
       }
     }
 
@@ -500,18 +516,18 @@
 
     // ---- shared control actions (used by both keyboard and on-screen touch buttons) ----
     function togglePause(){
-      if (state === "playing") state = "paused";
-      else if (state === "paused") state = "playing";
+      if (state === "playing"){ state = "paused"; pauseMusic(); }
+      else if (state === "paused"){ state = "playing"; resumeMusic(); }
       draw();
     }
-    function pressLeft(){ if (state !== "playing" || dasDir === -1) return; dasDir = -1; dasCounter = 0; tryMove(0,-1); draw(); }
-    function pressRight(){ if (state !== "playing" || dasDir === 1) return; dasDir = 1; dasCounter = 0; tryMove(0,1); draw(); }
+    function pressLeft(){ if (state !== "playing" || dasDir === -1) return; dasDir = -1; dasCounter = 0; if (tryMove(0,-1)) sfxMove(); draw(); }
+    function pressRight(){ if (state !== "playing" || dasDir === 1) return; dasDir = 1; dasCounter = 0; if (tryMove(0,1)) sfxMove(); draw(); }
     function releaseLeft(){ if (dasDir === -1){ dasDir = 0; dasCounter = 0; } }
     function releaseRight(){ if (dasDir === 1){ dasDir = 0; dasCounter = 0; } }
     function pressDown(){ if (state !== "playing") return; downHeld = true; }
     function releaseDown(){ downHeld = false; }
-    function pressRotateCW(){ if (state !== "playing") return; tryRotate(1); draw(); }
-    function pressRotateCCW(){ if (state !== "playing") return; tryRotate(-1); draw(); }
+    function pressRotateCW(){ if (state !== "playing") return; if (tryRotate(1)) sfxRotate(); draw(); }
+    function pressRotateCCW(){ if (state !== "playing") return; if (tryRotate(-1)) sfxRotate(); draw(); }
 
     // ---- keyboard input ----
     window.addEventListener("keydown", (e) => {
@@ -544,12 +560,448 @@
       }
     });
 
-    document.getElementById("startBtn").addEventListener("click", reset);
-    document.getElementById("againBtn").addEventListener("click", reset);
+    document.getElementById("startBtn").addEventListener("click", () => { sfxUi(); reset(); });
+    document.getElementById("againBtn").addEventListener("click", () => { sfxUi(); reset(); });
     document.getElementById("resetBtn").addEventListener("click", () => {
+      sfxUi();
       localStorage.removeItem(SCORES_KEY);
       renderAllScores();
     });
+
+    // =====================================================================
+    // AUDIO — generated ElevenLabs samples (assets/audio/branch/) layered on
+    // TOP of the original WebAudio synth (Farm Kart house pattern): every
+    // sample-aware path checks its buffer first and falls back to the exact
+    // original synth call when a buffer hasn't decoded, so nothing can brick
+    // playback. Everything routes through masterGain (SFX + music) so the
+    // 🔊 mute (bm_muted) is a single kill switch; music additionally routes
+    // through musicBus so 🎵 (bm_music_off) can silence just the score.
+    // =====================================================================
+    let audioCtx = null, masterGain = null;
+    let audioMuted = false; try{ audioMuted = localStorage.getItem("bm_muted") === "1"; }catch(e){}
+    function ensureAudio(){
+      if (!audioCtx){
+        try{ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){ return null; }
+      }
+      if (audioCtx.state === "suspended"){ try{ audioCtx.resume(); }catch(e){} }
+      if (!masterGain){
+        masterGain = audioCtx.createGain();
+        masterGain.gain.value = audioMuted ? 0 : 1;
+        masterGain.connect(audioCtx.destination);
+      }
+      return audioCtx;
+    }
+
+    // ---- SFX samples: fetch + decode at boot, played through masterGain ----
+    const AUDIO_BASE = "assets/audio/branch/";
+    // bm-music-play-alt.mp3 is intentionally NOT in this list — it's a kept-on-disk alternate
+    // take of the main gameplay loop, not wired (see assets/audio/branch/manifest.json).
+    const AUDIO_FILES = [
+      "bm-music-menu","bm-music-play","bm-music-danger",
+      "bm-sfx-move","bm-sfx-rotate","bm-sfx-lock","bm-sfx-lineclear","bm-sfx-tetris",
+      "bm-sfx-levelup","bm-sfx-gameover","bm-sfx-ui"
+    ];
+    const audioBuffers = {};    // name -> AudioBuffer once decoded; null = failed (stays synth-only)
+    let _buffersLoaded = 0;
+    function buf(name){ return audioBuffers[name] || null; }
+    function loadAudioBuffers(){
+      const ctx = ensureAudio(); if (!ctx) return;
+      AUDIO_FILES.forEach(name => {
+        if (name in audioBuffers) return;
+        fetch(AUDIO_BASE + name + ".mp3").then(r => {
+          if (!r.ok) throw new Error("http " + r.status);
+          return r.arrayBuffer();
+        }).then(ab => ctx.decodeAudioData(ab)).then(b => {
+          audioBuffers[name] = b; _buffersLoaded++;
+          // late-decode retry: the music files can lose the race against the first gesture, so
+          // if a gesture already happened and the current phase wants this track, (re)start it.
+          if (_audioGestured){
+            if (musicPhase === "menu" && name === "bm-music-menu") startMenuTrack();
+            else if (musicPhase === "play" && (name === "bm-music-play" || name === "bm-music-danger")) startPlayTracks();
+          }
+        }).catch(() => { audioBuffers[name] = null; });
+      });
+    }
+    // one-shot sample -> masterGain (or a custom dest). Returns false when the buffer isn't
+    // ready so call sites can fall back to a synth beep inline.
+    function playSample(name, opts){
+      opts = opts || {};
+      const b = buf(name); if (!b) return false;
+      const ctx = ensureAudio(); if (!ctx || !masterGain) return false;
+      try{
+        const src = ctx.createBufferSource(); src.buffer = b;
+        if (opts.rate) src.playbackRate.value = opts.rate;
+        const g = ctx.createGain(); g.gain.value = opts.gain != null ? opts.gain : 1;
+        src.connect(g); g.connect(opts.dest || masterGain);
+        src.start(ctx.currentTime + (opts.delay || 0));
+        return true;
+      }catch(e){ return false; }
+    }
+    // generic synth one-shot fallback (used when a sample buffer isn't ready yet).
+    function synthBeep(freq, dur, type, vol){
+      const ctx = ensureAudio(); if (!ctx || !masterGain) return;
+      try{
+        const t = ctx.currentTime, d = dur || 0.15;
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = type || "square"; o.frequency.setValueAtTime(freq, t);
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(vol || 0.15, t + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+        o.connect(g); g.connect(masterGain);
+        o.start(t); o.stop(t + d + 0.02);
+      }catch(e){}
+    }
+
+    // ---- per-sound throttle gates (Tetris-likes fire MANY move/rotate ticks; rapid input
+    // should never stack clicks into noise) ----
+    const _sfxPlays = { move:0, rotate:0, softDrop:0, lock:0, lineClear:0, tetris:0, levelUp:0, gameOver:0, ui:0 };
+    const _throttleT = {};
+    function playThrottled(tag, minMs, fn){
+      const now = performance.now();
+      if (_throttleT[tag] && now - _throttleT[tag] < minMs) return;
+      _throttleT[tag] = now;
+      fn();
+    }
+    function sfxMove(){
+      playThrottled("move", 55, () => {
+        _sfxPlays.move++;
+        if (!playSample("bm-sfx-move", { gain: 0.55 })) synthBeep(320, 0.05, "square", 0.06);
+      });
+    }
+    function sfxSoftDrop(){
+      playThrottled("softDrop", 55, () => {
+        _sfxPlays.softDrop++;
+        // reuse the move sample at a faster rate / lower gain rather than a near-duplicate asset
+        if (!playSample("bm-sfx-move", { gain: 0.32, rate: 1.5 })) synthBeep(220, 0.04, "square", 0.05);
+      });
+    }
+    function sfxRotate(){
+      playThrottled("rotate", 60, () => {
+        _sfxPlays.rotate++;
+        if (!playSample("bm-sfx-rotate", { gain: 0.65 })) synthBeep(500, 0.08, "triangle", 0.09);
+      });
+    }
+    function sfxLock(){
+      _sfxPlays.lock++;
+      if (!playSample("bm-sfx-lock", { gain: 0.7 })) synthBeep(140, 0.09, "square", 0.1);
+    }
+    function sfxLineClear(n){
+      if (n >= 4){
+        _sfxPlays.tetris++;
+        if (!playSample("bm-sfx-tetris", { gain: 0.9 })){
+          synthBeep(660, 0.12, "triangle", 0.14); setTimeout(() => synthBeep(880, 0.16, "triangle", 0.14), 90);
+        }
+      } else {
+        _sfxPlays.lineClear++;
+        if (!playSample("bm-sfx-lineclear", { gain: 0.8 })) synthBeep(600, 0.1, "triangle", 0.12);
+      }
+    }
+    function sfxLevelUp(){
+      _sfxPlays.levelUp++;
+      if (!playSample("bm-sfx-levelup", { gain: 0.85 })){
+        synthBeep(523, 0.1, "square", 0.12); setTimeout(() => synthBeep(784, 0.14, "square", 0.12), 90);
+      }
+    }
+    function sfxGameOver(){
+      _sfxPlays.gameOver++;
+      if (!playSample("bm-sfx-gameover", { gain: 0.75 })) synthBeep(196, 0.4, "sawtooth", 0.1);
+    }
+    function sfxUi(){
+      ensureAudio();
+      _sfxPlays.ui++;
+      if (!playSample("bm-sfx-ui", { gain: 0.5 })) synthBeep(700, 0.05, "square", 0.06);
+    }
+
+    // ---- DANGER: crossfade to the faster music variant while the woodpile is near the top ----
+    const DANGER_TOP_ROW = 6;   // any filled cell in rows 0..DANGER_TOP_ROW-1 (top ~30%) = danger
+    let dangerActive = false;
+    function computeDanger(){
+      if (!board) return false;
+      for (let r = 0; r < DANGER_TOP_ROW; r++){
+        for (let c = 0; c < COLS; c++){ if (board[r][c]) return true; }
+      }
+      return false;
+    }
+    function updateDanger(){
+      const now = computeDanger();
+      if (now === dangerActive) return;
+      dangerActive = now;
+      applyDangerCrossfade();
+    }
+
+    // =====================================================================
+    // MUSIC — Korobeiniki (the 19th-century Russian folk tune behind the
+    // classic Tetris theme; the melody itself is public domain), synth
+    // fallback played bluegrass-style: Karplus-Strong plucked "banjo"
+    // strings, a rolling 3-finger accompaniment, and the high-G drone of a
+    // banjo's 5th string. Used only while the generated bm-music-play.mp3
+    // sample hasn't decoded yet. 🎵 toggle persisted (bm_music_off).
+    // =====================================================================
+    const pluckCache = new Map();
+
+    const NOTE_OFFSETS = { C:-9, "C#":-8, D:-7, "D#":-6, E:-5, F:-4, "F#":-3, G:-2, "G#":-1, A:0, "A#":1, B:2 };
+    function noteFreq(name){          // "E5" → Hz (A4 = 440)
+      const m = name.match(/^([A-G]#?)(\d)$/);
+      return 440 * Math.pow(2, (NOTE_OFFSETS[m[1]] + (m[2] - 4) * 12) / 12);
+    }
+
+    // Karplus-Strong pluck rendered into a cached AudioBuffer: a noise burst
+    // circling a delay line with gentle averaging = a bright, twangy string.
+    function pluckBuffer(freq){
+      const key = Math.round(freq);
+      if (pluckCache.has(key)) return pluckCache.get(key);
+      const sr = audioCtx.sampleRate;
+      const N = Math.max(2, Math.round(sr / freq));
+      const len = Math.floor(sr * 0.9);
+      const b = audioCtx.createBuffer(1, len, sr);
+      const out = b.getChannelData(0);
+      const ring = new Float32Array(N);
+      for (let i = 0; i < N; i++) ring[i] = Math.random() * 2 - 1;
+      let idx = 0;
+      for (let n = 0; n < len; n++){
+        const next = (idx + 1) % N;
+        out[n] = ring[idx];
+        ring[idx] = 0.996 * 0.5 * (ring[idx] + ring[next]);   // 0.996 keeps it bright/banjo-y
+        idx = next;
+      }
+      pluckCache.set(key, b);
+      return b;
+    }
+    function pluckAt(freq, when, gain){
+      const src = audioCtx.createBufferSource();
+      src.buffer = pluckBuffer(freq);
+      const g = audioCtx.createGain();
+      g.gain.value = gain;
+      src.connect(g); g.connect(synthGain || masterGain);
+      src.start(when);
+    }
+
+    // Korobeiniki lead sheet: [note, eighth-note beats] (null = rest).
+    // A section (16 bars of melody as two 8-bar phrases) + the slower B section.
+    const MELODY = [
+      ["E5",2],["B4",1],["C5",1],["D5",2],["C5",1],["B4",1],
+      ["A4",2],["A4",1],["C5",1],["E5",2],["D5",1],["C5",1],
+      ["B4",3],["C5",1],["D5",2],["E5",2],
+      ["C5",2],["A4",2],["A4",4],
+      [null,1],["D5",2],["F5",1],["A5",2],["G5",1],["F5",1],
+      ["E5",3],["C5",1],["E5",2],["D5",1],["C5",1],
+      ["B4",2],["B4",1],["C5",1],["D5",2],["E5",2],
+      ["C5",2],["A4",2],["A4",2],[null,2],
+      // B section — long tones over the roll
+      ["E5",4],["C5",4], ["D5",4],["B4",4], ["C5",4],["A4",4], ["G#4",4],["B4",4],
+      ["E5",4],["C5",4], ["D5",4],["B4",4], ["C5",2],["E5",2],["A5",4], ["G#5",4],[null,4],
+    ];
+    // One chord per bar (root/3rd/5th feed the banjo roll).
+    const CHORD_TONES = {
+      Em: ["E3","G3","B3"], Am: ["A3","C4","E4"], B7: ["B3","D#4","F#4"], Dm: ["D3","F3","A3"],
+    };
+    const CHORDS = ["Em","Am","B7","Am","Dm","Am","B7","Am", "Am","B7","Am","B7","Am","B7","Am","B7"];
+    const EIGHTH = 0.18;                 // seconds per eighth note (~166 bpm bluegrass clip)
+    const BAR_EIGHTHS = 8;
+    const LOOP_EIGHTHS = CHORDS.length * BAR_EIGHTHS;
+    const DRONE = "G5";                  // the banjo's 5th string
+
+    // Flatten melody + roll into one repeating event list (slot = eighth note).
+    const songEvents = [];
+    (function buildSong(){
+      let slot = 0;
+      for (const [note, beats] of MELODY){
+        if (note) songEvents.push({ slot, freq: noteFreq(note), gain: 0.5 });
+        slot += beats;
+      }
+      // Roll: root · drone · 3rd · drone · 5th · drone · 3rd · drone, every bar.
+      for (let bar = 0; bar < CHORDS.length; bar++){
+        const [r, t3, t5] = CHORD_TONES[CHORDS[bar]].map(noteFreq);
+        const pattern = [r, noteFreq(DRONE), t3, noteFreq(DRONE), t5, noteFreq(DRONE), t3, noteFreq(DRONE)];
+        for (let i = 0; i < BAR_EIGHTHS; i++){
+          songEvents.push({ slot: bar * BAR_EIGHTHS + i, freq: pattern[i], gain: i % 2 ? 0.13 : 0.2 });
+        }
+      }
+      songEvents.sort((a, b) => a.slot - b.slot);
+    })();
+
+    let schedTimer = null, songStart = 0, nextEventIdx = 0, loopNum = 0;
+    function schedulerTick(){
+      const horizon = audioCtx.currentTime + 0.35;
+      for (;;){
+        const ev = songEvents[nextEventIdx];
+        const t = songStart + (loopNum * LOOP_EIGHTHS + ev.slot) * EIGHTH;
+        if (t >= horizon) break;
+        if (t >= audioCtx.currentTime - 0.05) pluckAt(ev.freq, t, ev.gain);
+        nextEventIdx++;
+        if (nextEventIdx >= songEvents.length){ nextEventIdx = 0; loopNum++; }
+      }
+    }
+    // synth fallback — only used for the 'play' phase, only while bm-music-play.mp3 hasn't decoded.
+    let synthGain = null;
+    function startMusic(){
+      const ctx = ensureAudio(); if (!ctx) return;
+      if (!synthGain){ synthGain = ctx.createGain(); synthGain.gain.value = 1; synthGain.connect(ensureMusicBus() || masterGain); }
+      stopMusic();
+      songStart = ctx.currentTime + 0.1;
+      nextEventIdx = 0; loopNum = 0;
+      schedTimer = setInterval(schedulerTick, 100);
+      schedulerTick();
+    }
+    function stopMusic(){
+      if (schedTimer){ clearInterval(schedTimer); schedTimer = null; }
+    }
+    // pause: suspending the whole ctx freezes currentTime -> both the sample sources AND the
+    // synth scheduler naturally halt together, and resume picks both back up in lockstep.
+    function pauseMusic(){ if (audioCtx && audioCtx.state === "running") audioCtx.suspend(); }
+    function resumeMusic(){ if (audioCtx && audioCtx.state === "suspended") audioCtx.resume(); }
+
+    // ---- MUSIC STATE MACHINE: menu <-> play, with a danger crossfade inside 'play' ----
+    let musicOff = false; try{ musicOff = localStorage.getItem("bm_music_off") === "1"; }
+      catch(e){}
+    try{ if (localStorage.getItem("bm_music_off") == null && localStorage.getItem("bm_music") === "off") musicOff = true; }
+      catch(e){}   // migrate the old pre-sample toggle's preference if the new key was never set
+    const MUSIC_LEVEL = 0.6;
+    let musicBus = null;
+    let musicPhase = null;   // 'menu' | 'play' | null
+    let menuGain = null, menuSrc = null, playGain = null, playSrc = null, dangerGain = null, dangerSrc = null;
+    function ensureMusicBus(){
+      const ctx = ensureAudio(); if (!ctx || !masterGain) return null;
+      if (!musicBus){ musicBus = ctx.createGain(); musicBus.gain.value = musicOff ? 0 : MUSIC_LEVEL; musicBus.connect(masterGain); }
+      return musicBus;
+    }
+    function fadeGainTo(node, target, dur){
+      if (!node || !audioCtx) return;
+      try{
+        const t = audioCtx.currentTime;
+        node.gain.cancelScheduledValues(t);
+        node.gain.setValueAtTime(node.gain.value, t);
+        node.gain.linearRampToValueAtTime(target, t + Math.max(0.02, dur || 0.5));
+      }catch(e){}
+    }
+    function startMenuTrack(){
+      const bus = ensureMusicBus(); if (!bus) return;
+      if (!menuSrc && buf("bm-music-menu")){
+        menuGain = audioCtx.createGain(); menuGain.gain.value = 0; menuGain.connect(bus);
+        menuSrc = audioCtx.createBufferSource(); menuSrc.buffer = buf("bm-music-menu"); menuSrc.loop = true;
+        menuSrc.connect(menuGain); menuSrc.start();
+      }
+      if (menuGain) fadeGainTo(menuGain, 1, 0.6);
+    }
+    function startPlayTracks(){
+      const bus = ensureMusicBus(); if (!bus) return;
+      if (buf("bm-music-play")){
+        if (!playSrc){
+          playGain = audioCtx.createGain(); playGain.gain.value = 0; playGain.connect(bus);
+          playSrc = audioCtx.createBufferSource(); playSrc.buffer = buf("bm-music-play"); playSrc.loop = true;
+          playSrc.connect(playGain); playSrc.start();
+        }
+        if (buf("bm-music-danger") && !dangerSrc){
+          dangerGain = audioCtx.createGain(); dangerGain.gain.value = 0; dangerGain.connect(bus);
+          dangerSrc = audioCtx.createBufferSource(); dangerSrc.buffer = buf("bm-music-danger"); dangerSrc.loop = true;
+          dangerSrc.connect(dangerGain); dangerSrc.start();
+        }
+        stopMusic();   // sample is ready — stop the synth fallback if it happened to be running
+        applyDangerCrossfade(true);
+      } else if (!schedTimer){
+        startMusic();   // no sample yet -> synth fallback covers the gameplay loop
+      }
+    }
+    function applyDangerCrossfade(snap){
+      if (!playGain) return;   // no-op while running on the synth fallback (no danger variant there)
+      const dur = snap ? 0.05 : 0.7;
+      fadeGainTo(playGain, dangerActive && dangerGain ? 0 : 1, dur);
+      if (dangerGain) fadeGainTo(dangerGain, dangerActive ? 1 : 0, dur);
+    }
+    function setMusicPhase(next){
+      if (musicPhase === next) return;
+      musicPhase = next;
+      ensureMusicBus();
+      if (next === "menu"){
+        fadeGainTo(playGain, 0, 0.5); fadeGainTo(dangerGain, 0, 0.5); stopMusic();
+        startMenuTrack();
+      } else if (next === "play"){
+        fadeGainTo(menuGain, 0, 0.5);
+        startPlayTracks();
+      } else {
+        fadeGainTo(menuGain, 0, 0.5); fadeGainTo(playGain, 0, 0.5); fadeGainTo(dangerGain, 0, 0.5); stopMusic();
+      }
+    }
+    function applyMusicToggleUI(){
+      const btn = document.getElementById("musicBtn");
+      if (btn) btn.textContent = musicOff ? "🔇" : "🎵";
+    }
+    function setMusicOff(v){
+      musicOff = !!v;
+      try{ localStorage.setItem("bm_music_off", musicOff ? "1" : "0"); }catch(e){}
+      if (musicBus){
+        try{ if (audioCtx) musicBus.gain.cancelScheduledValues(audioCtx.currentTime); }catch(e){}
+        musicBus.gain.value = musicOff ? 0 : MUSIC_LEVEL;
+      }
+      applyMusicToggleUI();
+    }
+    document.getElementById("musicBtn").addEventListener("click", e => {
+      e.stopPropagation(); ensureAudio(); setMusicOff(!musicOff);
+    });
+    applyMusicToggleUI();
+
+    // 🔊 master mute (persisted; masterGain kill switch — covers SFX + music together)
+    function applyMute(){
+      const btn = document.getElementById("muteBtn");
+      if (btn){ btn.textContent = audioMuted ? "🔇" : "🔊"; btn.classList.toggle("muted", audioMuted); }
+      if (masterGain) masterGain.gain.value = audioMuted ? 0 : 1;
+    }
+    function setMuted(v){
+      audioMuted = !!v;
+      try{ localStorage.setItem("bm_muted", audioMuted ? "1" : "0"); }catch(e){}
+      applyMute();
+    }
+    document.getElementById("muteBtn").addEventListener("click", e => {
+      e.stopPropagation(); ensureAudio(); setMuted(!audioMuted);
+    });
+    applyMute();
+
+    // browser autoplay: only START playback after the first real user gesture (decoding needs
+    // no gesture, only playback does — loadAudioBuffers() runs unconditionally below).
+    let _audioGestured = false;
+    function _firstGestureAudioUnlock(){
+      _audioGestured = true;
+      ensureAudio();
+      if (musicPhase === "menu") startMenuTrack();
+      else if (musicPhase === "play") startPlayTracks();
+    }
+    addEventListener("pointerdown", _firstGestureAudioUnlock, { once:true, passive:true });
+    addEventListener("keydown", _firstGestureAudioUnlock, { once:true });
+    addEventListener("touchstart", _firstGestureAudioUnlock, { once:true, passive:true });
+    loadAudioBuffers();
+
+    window.__BM_AUDIO__ = {
+      audioState(){
+        return {
+          muted: audioMuted, masterGain: masterGain ? masterGain.gain.value : null,
+          ctxState: audioCtx ? audioCtx.state : "none",
+          buffersLoaded: _buffersLoaded, buffersTotal: AUDIO_FILES.length,
+          musicTrack: musicPhase, musicOff, musicGainV: musicBus ? musicBus.gain.value : null,
+          menuOn: !!menuSrc, playOn: !!playSrc, dangerOn: !!dangerSrc,
+          menuGainV: menuGain ? menuGain.gain.value : null,
+          playGainV: playGain ? playGain.gain.value : null,
+          dangerGainV: dangerGain ? dangerGain.gain.value : null,
+          dangerActive, synthPlaying: !!schedTimer,
+          audioGestured: _audioGestured,
+          sfxPlays: Object.assign({}, _sfxPlays),
+        };
+      },
+      loadAudioBuffers, playSample, setMuted, setMusicOff, get buf(){ return buf; },
+      // ---- deterministic test hooks (headless verify only; mirror the house
+      // forceWaterOut()-style convention) — real code paths, just triggered directly
+      // instead of waiting on natural gravity/RNG timing. ----
+      _testLock: () => sfxLock(),
+      _testLineClear: (n) => sfxLineClear(n),
+      _testLevelUp: () => sfxLevelUp(),
+      _testGameOver: () => gameOver(),
+      _testStart: () => reset(),
+      // fills/clears the top danger row directly on the real board so the real per-frame
+      // computeDanger()/updateDanger() path (which would otherwise immediately overwrite any
+      // manually-poked dangerActive flag) drives the crossfade — exercises the genuine feature.
+      _testFillTop: () => { for (let c = 0; c < COLS; c++) board[0][c] = "I"; },
+      _testClearTop: () => { for (let c = 0; c < COLS; c++) board[0][c] = null; },
+      get dangerActive(){ return dangerActive; },
+    };
 
     window.addEventListener("resize", fitBoard);
     state = "ready";
@@ -558,6 +1010,7 @@
     renderAllScores();
     fitBoard();
     drawNext();
+    setMusicPhase("menu");   // title-screen music; actual playback waits for the first gesture
 
     let lastTime = null, frameAcc = 0, rafId = 0;
     function loop(ts){

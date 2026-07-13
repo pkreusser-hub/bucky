@@ -418,6 +418,16 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .photo-preview.placeholder { display: flex; align-items: center; justify-content: center; font-size: 30px; }
   .photo-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .photo-btn { flex: 0 0 auto; padding: 10px 14px; font-size: 14px; cursor: pointer; display: inline-block; }
+  /* goat photo gallery (up to 6) */
+  .goat-gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 4px 0 8px; }
+  .goat-gallery:empty { display: none; }
+  .gthumb { position: relative; aspect-ratio: 1; border-radius: 10px; background: #e9e7dd center/cover no-repeat; overflow: hidden; }
+  .gthumb .grm { position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; border: 0; border-radius: 999px;
+    background: rgba(0,0,0,.6); color: #fff; font-size: 15px; line-height: 24px; text-align: center; cursor: pointer; padding: 0; }
+  .gthumb .gcover { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,.55); color: #fff;
+    font-size: 10px; font-weight: 800; text-align: center; padding: 2px 0; letter-spacing: .5px; }
+  .gthumb .gmakecover { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,.4); color: #fff;
+    font-size: 10px; font-weight: 700; text-align: center; padding: 2px 0; cursor: pointer; border: 0; width: 100%; }
 
   .row-actions { display: flex; gap: 4px; }
   .iconbtn { border: 0; background: transparent; color: var(--muted); font-size: 18px; padding: 6px; cursor: pointer; border-radius: 8px; }
@@ -443,6 +453,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .goat-tile-photo { width: 100%; height: 130px; object-fit: cover; border-radius: 10px; background: #e9e7dd; }
   .goat-tile-photo.placeholder { display: flex; align-items: center; justify-content: center; font-size: 56px; }
   .goat-tile-name { font-weight: 700; font-size: 15px; color: var(--ink); text-align: center; }
+  .goat-tile-sale { font-weight: 800; font-size: 12px; color: #2e7d32; text-align: center; }
   #goatDetailBody .care-row:last-child { border-bottom: 0; }
 
   /* Family tree */
@@ -736,14 +747,24 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
     </select>
     <label for="goatFreshenings"># of Freshenings</label>
     <input type="number" id="goatFreshenings" min="0" step="1" placeholder="e.g. 2" autocomplete="off" />
-    <label>Photo</label>
-    <div class="photo-row">
-      <div id="goatPhotoPreview" class="photo-preview placeholder">🐐</div>
-      <div class="photo-actions">
-        <label for="goatPhotoInput" class="btn ghost photo-btn">Choose photo</label>
-        <input type="file" id="goatPhotoInput" accept="image/*" style="display:none" />
-        <button type="button" class="btn ghost photo-btn" id="goatPhotoRemove" style="display:none">Remove</button>
-      </div>
+    <label for="goatAbout">About me <span style="font-weight:400;color:var(--muted);font-size:13px;">(a paragraph or two — shows on the website)</span></label>
+    <textarea id="goatAbout" rows="4" placeholder="Tell this goat's story — personality, lineage, favorite things…" style="width:100%;font-family:inherit;"></textarea>
+    <label>For sale <span style="font-weight:400;color:var(--muted);font-size:13px;">(shows on the Amen Farms website)</span></label>
+    <div class="seg" id="saleSeg">
+      <button data-sale="no" class="sel">No</button>
+      <button data-sale="yes">Yes</button>
+    </div>
+    <div id="saleFields" style="display:none;">
+      <label for="goatPrice">Price ($)</label>
+      <input type="number" id="goatPrice" min="0" step="5" placeholder="e.g. 350" autocomplete="off" />
+      <label for="goatSaleNote">For-sale note <span style="font-weight:400;color:var(--muted);font-size:13px;">(optional blurb for the listing)</span></label>
+      <textarea id="goatSaleNote" rows="2" placeholder="e.g. Sweet, friendly doe from great milk lines." style="width:100%;font-family:inherit;"></textarea>
+    </div>
+    <label>Photos <span style="font-weight:400;color:var(--muted);font-size:13px;">(up to 6 — the first is the cover)</span></label>
+    <div id="goatGallery" class="goat-gallery"></div>
+    <div class="photo-actions">
+      <label for="goatPhotoInput" class="btn ghost photo-btn" id="goatAddPhotoBtn">Add photo</label>
+      <input type="file" id="goatPhotoInput" accept="image/*" multiple style="display:none" />
     </div>
     <div class="sheet-actions">
       <button class="btn danger" id="goatDeleteBtn" style="display:none">Delete</button>
@@ -2406,6 +2427,11 @@ function buildGoatTile(g){
   }
   const nm = document.createElement("div"); nm.className = "goat-tile-name"; nm.textContent = g.name;
   tile.appendChild(nm);
+  if (g.forSale){
+    const tag = document.createElement("div"); tag.className = "goat-tile-sale";
+    tag.textContent = "🏷️ For sale" + (g.price ? " · $" + Number(g.price).toLocaleString() : "");
+    tile.appendChild(tag);
+  }
   tile.onclick = () => openGoatDetail(g);
   return tile;
 }
@@ -2424,11 +2450,23 @@ function buildGoatDetail(g){
   top.append(name, badge, gedit);
   root.appendChild(top);
 
-  if (g.photo){
-    const im = document.createElement("img"); im.src = g.photo; im.alt = g.name;
-    im.style.cssText = "width:100%;max-height:260px;object-fit:cover;border-radius:12px;cursor:zoom-in;margin-bottom:10px;";
-    im.onclick = () => openPhoto(g.photo);
+  const gphotos = (Array.isArray(g.photos) && g.photos.length) ? g.photos : (g.photo ? [g.photo] : []);
+  if (gphotos.length){
+    const im = document.createElement("img"); im.src = gphotos[0]; im.alt = g.name;
+    im.style.cssText = "width:100%;max-height:260px;object-fit:cover;border-radius:12px;cursor:zoom-in;margin-bottom:8px;";
+    im.onclick = () => openPhoto(im.src);
     root.appendChild(im);
+    if (gphotos.length > 1){
+      const strip = document.createElement("div");
+      strip.style.cssText = "display:flex;gap:6px;overflow-x:auto;margin-bottom:10px;";
+      gphotos.forEach((src) => {
+        const th = document.createElement("img"); th.src = src;
+        th.style.cssText = "width:52px;height:52px;object-fit:cover;border-radius:8px;flex:0 0 auto;cursor:pointer;";
+        th.onclick = () => { im.src = src; };   // tap a thumb to swap the big image (tap big to zoom)
+        strip.appendChild(th);
+      });
+      root.appendChild(strip);
+    }
   }
 
   const age = ageYears(g.dob);
@@ -2446,7 +2484,24 @@ function buildGoatDetail(g){
   if (g.freshenings !== undefined && g.freshenings !== null && g.freshenings !== "") l3bits.push(`Freshenings: ${g.freshenings}`);
   l3.textContent = l3bits.join(" · ");
   info.append(l1, l2, l3);
+  if (g.forSale){
+    const sale = document.createElement("div");
+    sale.style.cssText = "margin-top:4px;font-weight:800;color:#2e7d32;";
+    sale.textContent = "🏷️ For sale" + (g.price ? " · $" + Number(g.price).toLocaleString() : "");
+    info.append(sale);
+    if (g.saleNote){
+      const note = document.createElement("div"); note.style.cssText = "font-style:italic;color:var(--ink);";
+      note.textContent = "“" + g.saleNote + "”"; info.append(note);
+    }
+  }
   root.appendChild(info);
+
+  if (g.about){
+    const about = document.createElement("div");
+    about.style.cssText = "font-size:14px;line-height:1.55;color:var(--ink);white-space:pre-wrap;margin-bottom:12px;";
+    about.textContent = g.about;
+    root.appendChild(about);
+  }
 
   const careWrap = document.createElement("div");
   careWrap.style.cssText = "border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:10px;";
@@ -2569,7 +2624,8 @@ function buildCareRow(g, key, label){
 }
 
 // ---- Add / edit goat ----
-let editingGoatId = null, sheetType = "doe", sheetReg = "no";
+let editingGoatId = null, sheetType = "doe", sheetReg = "no", sheetSale = "no";
+function syncSaleFields(){ document.getElementById("saleFields").style.display = sheetSale === "yes" ? "block" : "none"; }
 function openGoatSheet(g){
   editingGoatId = g ? g.id : null;
   document.getElementById("goatTitle").textContent = g ? "Edit goat" : "Add a goat";
@@ -2586,8 +2642,15 @@ function openGoatSheet(g){
   document.getElementById("goatRegnum").value = (g && g.regnum) ? g.regnum : "";
   document.getElementById("goatHorns").value = (g && g.horns) ? g.horns : "";
   document.getElementById("goatFreshenings").value = (g && g.freshenings !== undefined && g.freshenings !== null) ? g.freshenings : "";
-  goatPhoto = (g && g.photo) ? g.photo : "";
-  updatePhotoPreview();
+  sheetSale = (g && g.forSale) ? "yes" : "no";
+  document.querySelectorAll("#saleSeg button").forEach(b=> b.classList.toggle("sel", b.dataset.sale === sheetSale));
+  document.getElementById("goatPrice").value = (g && g.price !== undefined && g.price !== null && g.price !== 0) ? g.price : "";
+  document.getElementById("goatSaleNote").value = (g && g.saleNote) ? g.saleNote : "";
+  syncSaleFields();
+  document.getElementById("goatAbout").value = (g && g.about) ? g.about : "";
+  galleryPhotos = (g && Array.isArray(g.photos) && g.photos.length) ? g.photos.slice(0, MAX_GOAT_PHOTOS)
+                : (g && g.photo) ? [g.photo] : [];   // fall back to the legacy single photo
+  renderGallery();
   document.getElementById("goatDeleteBtn").style.display = g ? "block" : "none";
   document.getElementById("goatOverlay").classList.add("open");
   if (!g) setTimeout(()=>document.getElementById("goatName").focus(), 100);
@@ -2605,15 +2668,20 @@ async function saveGoat(){
   const regnum = document.getElementById("goatRegnum").value.trim();
   const horns = document.getElementById("goatHorns").value;
   const freshenings = document.getElementById("goatFreshenings").value.trim();
-  const photo = goatPhoto || "";
+  const photos = galleryPhotos.slice(0, MAX_GOAT_PHOTOS);
+  const photo = photos[0] || "";   // cover — kept inline so tiles/lists don't need the gallery
+  const about = document.getElementById("goatAbout").value.trim();
   const registered = sheetReg === "yes";
+  const forSale = sheetSale === "yes";
+  const price = forSale ? (parseInt(document.getElementById("goatPrice").value, 10) || 0) : 0;
+  const saleNote = forSale ? document.getElementById("goatSaleNote").value.trim() : "";
   if (editingGoatId){
     const g = chores.find(x=>x.id===editingGoatId);
-    Object.assign(g, { name, type: sheetType, dob, weight, sire, dam, breed, regnum, horns, freshenings, photo, registered });
-    await backend.update(editingGoatId, { name, type: sheetType, dob, weight, sire, dam, breed, regnum, horns, freshenings, photo, registered });
+    Object.assign(g, { name, type: sheetType, dob, weight, sire, dam, breed, regnum, horns, freshenings, photo, photos, about, registered, forSale, price, saleNote });
+    await backend.update(editingGoatId, { name, type: sheetType, dob, weight, sire, dam, breed, regnum, horns, freshenings, photo, photos, about, registered, forSale, price, saleNote });
   } else {
     const order = Date.now();
-    await backend.add({ name, frequency:"goathooves", type: sheetType, dob, weight, sire, dam, breed, regnum, horns, freshenings, photo, registered, order, care:{}, lastPeriod:"", lastBy:"", lastAt:0 });
+    await backend.add({ name, frequency:"goathooves", type: sheetType, dob, weight, sire, dam, breed, regnum, horns, freshenings, photo, photos, about, registered, forSale, price, saleNote, order, care:{}, lastPeriod:"", lastBy:"", lastAt:0 });
   }
   currentTab = "goathooves";
   syncTabsUI();
@@ -2636,26 +2704,37 @@ document.querySelectorAll("#regSeg button").forEach(b=>{
   b.onclick = () => { sheetReg = b.dataset.reg;
     document.querySelectorAll("#regSeg button").forEach(x=>x.classList.toggle("sel", x===b)); };
 });
+document.querySelectorAll("#saleSeg button").forEach(b=>{
+  b.onclick = () => { sheetSale = b.dataset.sale;
+    document.querySelectorAll("#saleSeg button").forEach(x=>x.classList.toggle("sel", x===b)); syncSaleFields(); };
+});
 document.getElementById("goatCancelBtn").onclick = closeGoatSheet;
 document.getElementById("goatSaveBtn").onclick = saveGoat;
 document.getElementById("goatDeleteBtn").onclick = deleteGoat;
 document.getElementById("goatOverlay").onclick = (e)=>{ if(e.target.id==="goatOverlay") closeGoatSheet(); };
 document.getElementById("goatName").addEventListener("keydown", e=>{ if(e.key==="Enter") saveGoat(); });
 
-// ---- Goat photo: shrink to a small thumbnail, then store as a data URL ----
-let goatPhoto = "";
-function updatePhotoPreview(){
-  const p = document.getElementById("goatPhotoPreview");
-  const rm = document.getElementById("goatPhotoRemove");
-  if (goatPhoto){
-    p.style.backgroundImage = `url(${goatPhoto})`;
-    p.textContent = ""; p.classList.remove("placeholder");
-    rm.style.display = "inline-block";
-  } else {
-    p.style.backgroundImage = "";
-    p.textContent = "🐐"; p.classList.add("placeholder");
-    rm.style.display = "none";
-  }
+// ---- Goat photos: up to 6 small JPEG thumbnails (data URLs). photos[0] is the cover. ----
+const MAX_GOAT_PHOTOS = 6;
+let galleryPhotos = [];
+function renderGallery(){
+  const wrap = document.getElementById("goatGallery");
+  wrap.innerHTML = "";
+  galleryPhotos.forEach((src, i) => {
+    const t = document.createElement("div"); t.className = "gthumb"; t.style.backgroundImage = `url(${src})`;
+    const rm = document.createElement("button"); rm.type = "button"; rm.className = "grm"; rm.textContent = "×"; rm.title = "Remove";
+    rm.onclick = () => { galleryPhotos.splice(i, 1); renderGallery(); };
+    t.appendChild(rm);
+    if (i === 0){
+      const c = document.createElement("div"); c.className = "gcover"; c.textContent = "★ COVER"; t.appendChild(c);
+    } else {
+      const mc = document.createElement("button"); mc.type = "button"; mc.className = "gmakecover"; mc.textContent = "Make cover";
+      mc.onclick = () => { const p = galleryPhotos.splice(i, 1)[0]; galleryPhotos.unshift(p); renderGallery(); };
+      t.appendChild(mc);
+    }
+    wrap.appendChild(t);
+  });
+  document.getElementById("goatAddPhotoBtn").style.display = galleryPhotos.length >= MAX_GOAT_PHOTOS ? "none" : "inline-block";
 }
 function resizeImage(file, maxDim, cb){
   const reader = new FileReader();
@@ -2674,11 +2753,13 @@ function resizeImage(file, maxDim, cb){
   reader.readAsDataURL(file);
 }
 document.getElementById("goatPhotoInput").addEventListener("change", e=>{
-  const f = e.target.files && e.target.files[0];
-  if (f) resizeImage(f, 500, durl => { goatPhoto = durl; updatePhotoPreview(); });
+  const files = e.target.files ? [...e.target.files] : [];
+  const room = MAX_GOAT_PHOTOS - galleryPhotos.length;
+  files.slice(0, room).forEach(f => resizeImage(f, 500, durl => {
+    if (galleryPhotos.length < MAX_GOAT_PHOTOS){ galleryPhotos.push(durl); renderGallery(); }
+  }));
   e.target.value = "";
 });
-document.getElementById("goatPhotoRemove").onclick = () => { goatPhoto = ""; updatePhotoPreview(); };
 
 // ---- Manually set the last-done date for a care activity ----
 let editingCare = null; // { goatId, key }

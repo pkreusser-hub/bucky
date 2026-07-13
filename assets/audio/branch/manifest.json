@@ -1,0 +1,104 @@
+[
+  {
+    "file": "bm-sfx-lineclear.mp3",
+    "kind": "sfx",
+    "prompt": "wood crackling burst with a bright magical chime, satisfying short wood-fire clear, no music",
+    "target": "~1s",
+    "bytes": 17180,
+    "api": "POST /v1/sound-generation (duration_seconds=1, prompt_influence=0.7, loop=false)"
+  },
+  {
+    "file": "bm-sfx-tetris.mp3",
+    "kind": "sfx",
+    "prompt": "big satisfying wood crackling explosion with a triumphant sparkling chime flourish, richer and bigger than a small clear, no music",
+    "target": "~1.4s",
+    "bytes": 23031,
+    "api": "POST /v1/sound-generation (duration_seconds=1.4, prompt_influence=0.7, loop=false)"
+  },
+  {
+    "file": "bm-sfx-levelup.mp3",
+    "kind": "sfx",
+    "prompt": "short cheerful fanfare, woodwind and bell chime, kid-friendly level-up game jingle, no music",
+    "target": "~1s",
+    "bytes": 17180,
+    "api": "POST /v1/sound-generation (duration_seconds=1, prompt_influence=0.65, loop=false)"
+  },
+  {
+    "file": "bm-sfx-gameover.mp3",
+    "kind": "sfx",
+    "prompt": "gentle low wooden womp, soft sad descending tone, kid-friendly not scary, no music",
+    "target": "~1.2s",
+    "bytes": 20106,
+    "api": "POST /v1/sound-generation (duration_seconds=1.2, prompt_influence=0.65, loop=false)"
+  },
+  {
+    "file": "bm-sfx-move.mp3",
+    "kind": "sfx",
+    "prompt": "soft wooden tap, small branch sliding on wood, subtle percussive click, no music",
+    "target": "~0.5s",
+    "bytes": 8821,
+    "api": "POST /v1/sound-generation (duration_seconds=0.5, prompt_influence=0.6, loop=false)",
+    "notes": "Also reused (throttled, lower gain + slightly slower playbackRate) for the soft-drop tick — the game has no separate hard-drop action, and a dedicated soft-drop asset would have duplicated this sound almost exactly."
+  },
+  {
+    "file": "bm-sfx-rotate.mp3",
+    "kind": "sfx",
+    "prompt": "quick wood creak whoosh with a soft click, branch twisting, no music",
+    "target": "~0.5s",
+    "bytes": 8821,
+    "api": "POST /v1/sound-generation (duration_seconds=0.5, prompt_influence=0.6, loop=false)"
+  },
+  {
+    "file": "bm-sfx-lock.mp3",
+    "kind": "sfx",
+    "prompt": "wooden clunk, a twig snapping down onto a woodpile, satisfying short thud, no music",
+    "target": "~0.5s",
+    "bytes": 8821,
+    "api": "POST /v1/sound-generation (duration_seconds=0.5, prompt_influence=0.7, loop=false)"
+  },
+  {
+    "file": "bm-sfx-ui.mp3",
+    "kind": "sfx",
+    "prompt": "simple soft wooden UI click, clean short tap, no music",
+    "target": "~0.5s",
+    "bytes": 8821,
+    "api": "POST /v1/sound-generation (duration_seconds=0.5, prompt_influence=0.6, loop=false)"
+  },
+  {
+    "file": "bm-music-menu.mp3",
+    "kind": "music",
+    "role": "menu (title screen + game-over overlay)",
+    "prompt": "relaxed front-porch banjo picking, slow easygoing bluegrass, warm acoustic guitar and banjo duet, gentle and welcoming, instrumental, seamless loop",
+    "targetMs": 62000,
+    "bytes": 993534,
+    "api": "POST /v1/music (music_v1, force_instrumental=true, music_length_ms=62000)"
+  },
+  {
+    "file": "bm-music-play.mp3",
+    "kind": "music",
+    "role": "PRIMARY — wired as the main gameplay loop",
+    "prompt": "Korobeiniki, traditional 19th-century Russian folk dance melody, energetic bluegrass banjo arrangement, driving 3-finger picking roll, upright bass and fiddle accents, minor key, instrumental, seamless loop",
+    "targetMs": 80000,
+    "bytes": 1281507,
+    "api": "POST /v1/music (music_v1, force_instrumental=true, music_length_ms=80000)"
+  },
+  {
+    "file": "bm-music-play-alt.mp3",
+    "kind": "music",
+    "role": "ALTERNATE — not wired. To swap in: rename to bm-music-play.mp3 (back up the original first) or edit the AUDIO file name in branchmanager.html's 'play' music state.",
+    "prompt": "Korobeiniki Russian folk melody reimagined as a fast bluegrass hoedown, banjo lead with fiddle harmony, foot-stomping energy, minor key, instrumental, seamless loop",
+    "targetMs": 78000,
+    "bytes": 1248907,
+    "api": "POST /v1/music (music_v1, force_instrumental=true, music_length_ms=78000)"
+  },
+  {
+    "file": "bm-music-danger.mp3",
+    "kind": "music",
+    "role": "danger crossfade — plays while the stack is near the top of the board",
+    "prompt": "A fast, frantic bluegrass banjo instrumental with tense, urgent, driving energy, featuring rapid picking in a minor key, designed as a seamless loop with an original melody inspired by traditional folk motifs.",
+    "targetMs": 52000,
+    "bytes": 833037,
+    "api": "POST /v1/music (music_v1, force_instrumental=true, music_length_ms=52000)",
+    "notes": "First prompt attempt (mentioning 'Korobeiniki melody sped way up') was rejected by ElevenLabs' prompt moderation as ToS-adjacent; the API's own suggested rewrite (used here, dropping the song-name reference) passed."
+  }
+]
