@@ -128,6 +128,7 @@
       <button class="btn" id="mWater">💧 water</button>
       <button class="btn" id="mTufts">🌱 tufts</button>
       <button class="btn" id="mChicken">🐔 chicken</button>
+      <button class="btn" id="mPasture">🐄 pasture</button>
     </div>
     <div id="tuftsTools" style="display:none;margin-top:6px;padding:8px;background:rgba(40,80,50,.28);border-radius:8px;">
       <div class="row">
@@ -153,6 +154,16 @@
         </select>
       </label>
       <div id="chickenList" style="margin-top:4px;"></div>
+    </div>
+    <div id="pastureTools" style="display:none;margin-top:6px;padding:8px;background:rgba(45,80,40,.3);border-radius:8px;">
+      <div style="color:#9ab;font-size:11px;margin-bottom:3px;">click the grass to drop a 🐄 pasture — cows graze + wander inside it (never onto the road)</div>
+      <div id="pastureEdit" style="display:none;margin-top:4px;">
+        <label>radius <span id="paRadV" style="color:#7fd0ff;">14</span></label>
+        <input type="range" id="paRad" min="6" max="80" step="1" value="14" style="width:100%;">
+        <label style="margin-top:4px;">cows <span id="paCntV" style="color:#7fd0ff;">3</span></label>
+        <input type="range" id="paCnt" min="1" max="6" step="1" value="3" style="width:100%;">
+      </div>
+      <div id="pastureList" style="margin-top:6px;"></div>
     </div>
     <div id="waterTools" style="display:none;margin-top:6px;padding:8px;background:rgba(30,70,95,.32);border-radius:8px;">
       <div style="color:#9ab;font-size:11px;margin-bottom:3px;">sculpt a bowl, then click INSIDE it — water fills up to the click height (like pouring it in)</div>
@@ -570,7 +581,10 @@
   const PALETTE = [
     {name:'grass',    hex:0x6fae54},{name:'dark grass',hex:0x4c7d38},{name:'dry',     hex:0xb7b04a},
     {name:'dirt',     hex:0x8a5a34},{name:'sand',      hex:0xd9c48a},{name:'path',    hex:0x9a938a},
-    {name:'red clay', hex:0xb3542f},{name:'snow',      hex:0xeef2f5}
+    {name:'red clay', hex:0xb3542f},{name:'snow',      hex:0xeef2f5},
+    // PHYSICS PAINTS (2026-07-13 R3): the GAME reads these two reserved markers as driving surfaces.
+    // Must match FK_TRACK.SURFACE_PAINTS exactly. Paint a patch full-strength for the effect to engage.
+    {name:'❄ ICE (slippery)', hex:0xa9e0f5, physics:'ice'},{name:'🟤 MUD (sludge)', hex:0x4b3826, physics:'mud'}
   ];
   // 2026-07-12 BLENDING: each brush application LERPS a cell's current color (existing painted color,
   // else the base grass 0x86a862 — the game's buildGroundMesh BASE_GRASS) toward the swatch by
@@ -692,6 +706,66 @@
       const span = document.createElement('span'); span.style.cssText='flex:1;'; span.textContent = CRITTER_META[kind].ico+' '+kind+' s='+ch.s.toFixed(3);
       const btn = document.createElement('button'); btn.textContent='✕';
       btn.addEventListener('click', ()=>{ track.chickens = track.chickens.filter(x=>x!==ch); if (selChickenId===ch.id) selChickenId=null; rebuildChickenMarkers(); commitHistory(); });
+      d.appendChild(span); d.appendChild(btn); el.appendChild(d);
+    });
+  }
+
+  // ---- PASTURES (2026-07-13 R3): click the grass to drop a grazing field of cows ----
+  const pastureGroup = new THREE.Group(); scene.add(pastureGroup);
+  let pastureSeq = 0, selPastureId = null;
+  function rebuildPastureMarkers(){
+    while (pastureGroup.children.length){ const o=pastureGroup.children[0]; pastureGroup.remove(o); o.traverse(c=>{ if(c.geometry)c.geometry.dispose(); if(c.material)c.material.dispose(); }); }
+    let maxSeq=0;
+    for (const pt of (track.pastures||[])){ const m=String(pt.id||'').match(/(\d+)$/); if(m) maxSeq=Math.max(maxSeq,+m[1]); }
+    pastureSeq = Math.max(pastureSeq, maxSeq);
+    for (const pt of (track.pastures||[])){
+      const g = new THREE.Group();
+      const sel = pt.id===selPastureId;
+      // radius ring (draped a touch above the terrain)
+      const seg=48, pos=[];
+      for (let i=0;i<=seg;i++){ const a=i/seg*Math.PI*2, x=pt.x+Math.cos(a)*pt.r, z=pt.z+Math.sin(a)*pt.r; pos.push(x, terrainHeightAt(x,z)+0.4, z); }
+      const rg=new THREE.BufferGeometry(); rg.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
+      g.add(new THREE.Line(rg, new THREE.LineBasicMaterial({ color: sel?0x9dff6a:0x5fae54 })));
+      // center marker post + label sphere (green when selected)
+      const cy = terrainHeightAt(pt.x, pt.z);
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.4,3,8), new THREE.MeshBasicMaterial({ color: sel?0x9dff6a:0x3d8b3d }));
+      post.position.set(pt.x, cy+1.5, pt.z); g.add(post);
+      const ball = new THREE.Mesh(new THREE.SphereGeometry(1.2,12,10), new THREE.MeshBasicMaterial({ color:0xffffff }));
+      ball.position.set(pt.x, cy+3.6, pt.z); g.add(ball);
+      const spot = new THREE.Mesh(new THREE.SphereGeometry(0.5,8,7), new THREE.MeshBasicMaterial({ color:0x222 }));
+      spot.position.set(pt.x+0.5, cy+3.9, pt.z); g.add(spot);
+      g.userData.pastureId = pt.id;
+      pastureGroup.add(g);
+    }
+    refreshPastureList();
+    syncPastureEdit();
+  }
+  function addPastureAt(h){
+    track.pastures = track.pastures || [];
+    const rad = +($('paRad') ? $('paRad').value : 14) || 14;
+    const cnt = +($('paCnt') ? $('paCnt').value : 3) || 3;
+    const pt = { id:'pasture_'+(++pastureSeq), x:Math.round(h.x*10)/10, z:Math.round(h.z*10)/10, r:rad, count:cnt };
+    track.pastures.push(pt); selPastureId = pt.id;
+    rebuildPastureMarkers(); commitHistory();
+    toast('🐄 pasture ('+cnt+' cows, r='+rad+')');
+  }
+  function selectedPasture(){ return (track.pastures||[]).find(p=>p.id===selPastureId) || null; }
+  function syncPastureEdit(){
+    const box = $('pastureEdit'); if (!box) return;
+    const pt = selectedPasture();
+    box.style.display = pt ? 'block' : 'none';
+    if (pt){ $('paRad').value=pt.r; $('paRadV').textContent=pt.r; $('paCnt').value=pt.count; $('paCntV').textContent=pt.count; }
+  }
+  function refreshPastureList(){
+    const el = $('pastureList'); if (!el) return; el.innerHTML='';
+    const ps = track.pastures||[];
+    if (!ps.length){ el.innerHTML = '<div style="color:#889;">none — click the grass to add a pasture</div>'; return; }
+    ps.forEach((pt)=>{
+      const d = document.createElement('div'); d.className='ir';
+      const span = document.createElement('span'); span.style.cssText='flex:1;cursor:pointer;'; span.textContent = (pt.id===selPastureId?'▶ ':'')+'🐄 '+pt.count+' cows · r='+pt.r;
+      span.addEventListener('click', ()=>{ selPastureId=pt.id; rebuildPastureMarkers(); });
+      const btn = document.createElement('button'); btn.textContent='✕';
+      btn.addEventListener('click', ()=>{ track.pastures = track.pastures.filter(x=>x!==pt); if (selPastureId===pt.id) selPastureId=null; rebuildPastureMarkers(); commitHistory(); });
       d.appendChild(span); d.appendChild(btn); el.appendChild(d);
     });
   }
@@ -1240,6 +1314,7 @@
     rebuildWaters();
     rebuildTrains();
     rebuildChickenMarkers();
+    rebuildPastureMarkers();
     applyEdSky();
     scheduleTerrain();      // WYSIWYG grass/hills (debounced)
     refreshInfo();
@@ -1367,6 +1442,8 @@
     $('mWater').classList.toggle('on', m==='water');
     $('mTufts').classList.toggle('on', m==='tufts');
     $('mChicken').classList.toggle('on', m==='chicken');
+    $('mPasture').classList.toggle('on', m==='pasture');
+    $('pastureTools').style.display = (m==='pasture') ? 'block' : 'none';
     $('sculptTools').style.display = (m==='sculpt') ? 'block' : 'none';
     $('paintTools').style.display = (m==='paint') ? 'block' : 'none';
     $('fenceTools').style.display = (m==='fence') ? 'block' : 'none';
@@ -1383,6 +1460,7 @@
     if (m==='bridge') refreshBridgeList();
     if (m==='water') refreshWaterList();
     if (m==='chicken') refreshChickenList();
+    if (m==='pasture'){ refreshPastureList(); syncPastureEdit(); if (showTerrain===false){ showTerrain=true; $('terrainBtn').classList.add('on'); rebuildTerrain(); } }
     // gizmo only lives in object mode (otherwise it would steal clicks from point editing)
     gizmo.enabled = (m==='object'); gizmo.visible = (m==='object') && !!selObjId;
     if (m==='object' && selObjId && objMeshes[selObjId]) gizmo.attach(objMeshes[selObjId]);
@@ -1399,6 +1477,7 @@
                           : m==='water'  ? 'sculpt a bowl first, then click INSIDE the low spot — water fills up to the click height'
                           : m==='tufts'  ? 'drag the GRASS to paint extra grass tufts (low / high density) · erase to remove'
                           : m==='chicken'? 'click the road to add a 🐔 chicken crossing (a chicken periodically walks across)'
+                          : m==='pasture'? 'click the grass to add a 🐄 pasture of cows · select one to adjust radius/count · drag = orbit'
                           : 'drag arrows = move · Shift+drag = elevation · drag empty = orbit · wheel = zoom';
   }
   $('mSelect').addEventListener('click', ()=>setMode('select'));
@@ -1427,6 +1506,12 @@
   $('tfReset').addEventListener('click', ()=>{ track.tufts={ cell:6, cells:{} }; $('tfCells').textContent='0'; rebuildPaintedTufts(); commitHistory(); toast('tufts cleared'); });
   // 🐔 chicken crossings
   $('mChicken').addEventListener('click', ()=>setMode('chicken'));
+  // 🐄 pastures (R3)
+  $('mPasture').addEventListener('click', ()=>setMode('pasture'));
+  $('paRad').addEventListener('input', ()=>{ const pt=selectedPasture(); $('paRadV').textContent=$('paRad').value; if(pt){ pt.r=+$('paRad').value; rebuildPastureMarkers(); } });
+  $('paRad').addEventListener('change', ()=>{ if(selectedPasture()) commitHistory(); });
+  $('paCnt').addEventListener('input', ()=>{ const pt=selectedPasture(); $('paCntV').textContent=$('paCnt').value; if(pt){ pt.count=+$('paCnt').value; refreshPastureList(); } });
+  $('paCnt').addEventListener('change', ()=>{ if(selectedPasture()) commitHistory(); });
   // 🌤 sky preset dropdown — live preview + save with the track (day => unset key, so byte-identical)
   $('skySel').addEventListener('change', ()=>{
     const v = $('skySel').value;
@@ -1670,6 +1755,11 @@
     if (mode === 'water'){
       const hit = pickGround();
       if (hit){ addWaterAt(hit); controls.enabled = false; }
+      return;
+    }
+    if (mode === 'pasture'){
+      const hit = pickGround();
+      if (hit){ addPastureAt(hit); controls.enabled = false; }
       return;
     }
     // select/move
@@ -2718,6 +2808,9 @@
     // CRITTER crossings (2026-07-12, multi-critter)
     get chickens(){ return track.chickens||[]; }, addChickenAt, rebuildChickenMarkers, get chickenGroup(){ return chickenGroup; },
     deleteChicken:(id)=>{ track.chickens=(track.chickens||[]).filter(c=>c.id!==id); rebuildChickenMarkers(); commitHistory(); },
+    get pastures(){ return track.pastures||[]; }, addPastureAt, rebuildPastureMarkers, get pastureGroup(){ return pastureGroup; },
+    get selPastureId(){ return selPastureId; }, set selPastureId(v){ selPastureId=v; }, selectedPasture,
+    deletePasture:(id)=>{ track.pastures=(track.pastures||[]).filter(p=>p.id!==id); if(selPastureId===id)selPastureId=null; rebuildPastureMarkers(); commitHistory(); },
     get critterKinds(){ return Object.keys(CRITTER_META); }, selectedCritterKind,
     setCritterKind:(k)=>{ const el=$('critterKind'); if (el && CRITTER_META[k]){ el.value=k; } },
     // PER-TRACK MUSIC (2026-07-12, for headless tests)

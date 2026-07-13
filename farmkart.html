@@ -1334,6 +1334,8 @@
   // per frame below. Purely visual — no collision. Empty for tracks without a `trains` array.
   const TRAIN_GROUP = FK_TRACK.buildTrainsMesh(ACTIVE_TRACK.trains || [], THREE, { heightFn:(x,z)=>sampleHeight(x,z) });
   scene.add(TRAIN_GROUP);
+  // R3: train level-crossing gates are built once at boot by buildTrainCrossings() (see below, after
+  // the TRAIN_CROSSINGS const is initialized — calling it here would hit that const's temporal dead zone).
 
   // SKY PRESETS (2026-07-12): a per-track sky (clouds/snow/sun/night). 'day'/absent = the exact
   // current defaults (untouched below), so existing tracks render byte-identical. setSky applies the
@@ -2307,6 +2309,8 @@
     projectiles:[],          // {x,z,y, vx,vz, life, bounced, owner}
     hazards:[],              // {x,z,y, owner, ownerGraceT}
     chickens:[],             // 2026-07-12: road-crossing chickens (host-authoritative in MP)
+    cows:[],                 // 2026-07-13 R3: wandering pasture cows (host-authoritative in MP)
+    battle:null,             // 2026-07-13 R3: balloon-battle state (null unless a battle arena is live)
     finishOrder:[],          // 2026-07-12: actual crossing order [{id,seq,time}] — results order = this
     finishSeq:0,             // monotonic counter stamped on each kart as it finishes
     localDone:false,         // 2026-07-12: local kart finished; solo keeps simulating (no freeze) until all done
@@ -2565,6 +2569,11 @@
     // visual spin is rendered from spinT. speed was already knocked down once at the hit (applySpinOut).
     // 🌻 star / ⛈ storm-flash timers tick down regardless of drive state (star also grants immunity
     // via applySpinOut). 🐂 bull rush OVERRIDES input with a centerline autopilot while active.
+    // BATTLE KO (R3): a knocked-out kart is parked — input ignored, coasts to a stop, no drift/steer.
+    if (p.ko){
+      inp = { steer:0, throttle:0, brake:0, drift:false };
+      p.v.x *= Math.exp(-4*dt); p.v.z *= Math.exp(-4*dt);
+    }
     if (p.starT > 0) p.starT = Math.max(0, p.starT - dt);
     if (p.stormFlashT > 0) p.stormFlashT = Math.max(0, p.stormFlashT - dt);
     if (p.spinT > 0){
@@ -2600,6 +2609,13 @@
     const gf = p.grassF;
     p.surface = gf > 0.35 ? 'grass' : 'track';
 
+    // PHYSICS PAINTS (2026-07-13 R3): sample the paint grid for the two reserved driving surfaces.
+    // ICE = drifty skating (grip + steer heavily cut, speed kept); MUD = bog (top-speed cap + sluggish
+    // accel + mud kicks). Applies to ALL karts incl. bots. Never while airborne (you're off the ground).
+    p.surfPaint = (!p.airborne && ACTIVE_TRACK.paint) ? FK_TRACK.surfaceTypeAt(ACTIVE_TRACK.paint, p.pos.x, p.pos.z) : null;
+    const onIce = p.surfPaint === 'ice';
+    const onMud = p.surfPaint === 'mud';
+
     // K2.5: airborne? (set at the END of the previous frame's vertical integration)
     const air = p.airborne;
 
@@ -2623,6 +2639,9 @@
     // R2 SPEED CLASS: global top-speed/accel multiplier (100cc/150cc/200cc) on ALL karts.
     const _cm = classMul(); effMax *= _cm; effAccel *= _cm;
     if (gf > 0){ effAccel *= (1 - 0.55*gf); effMax *= (1 - 0.5*gf); }
+    // MUD: hard top-speed cap ~55% + sluggish accel (a boosting kart still surges relative to its
+    // own capped max — boostMult multiplies effMax above, so mud stays sludgy even mid-boost).
+    if (onMud){ effMax *= 0.55; effAccel *= 0.5; }
 
     // ---- throttle / brake along forward ----
     // K2.5: NO throttle accel and NO coasting drag while airborne — horizontal velocity persists.
@@ -2680,6 +2699,7 @@
       const driftGrip = TUNE.driftGripRate * (p.isBot ? (TUNE.botDriftGripMul || 1) : 1);
       let rate = air ? TUNE.airGrip : (p.drift.active ? driftGrip : TUNE.gripRate);
       if (!air && onGrass) rate *= 2; // sticky grass reconciles velocity to heading faster
+      if (onIce) rate *= 0.28;       // ICE: velocity barely reconciles to heading -> skating (bull overrides below)
       if (p.bullT > 0) rate = Math.max(rate, TUNE.gripRate * 3);   // 🐂 full grip — velocity snaps to heading
       const sgn = (p.v.x*forward.x + p.v.z*forward.z) >= 0 ? 1 : -1;
       const vAng = Math.atan2(p.v.x, p.v.z);
@@ -2734,6 +2754,7 @@
       if (reversing) steerEff = -steerEff;
     }
     if (air) steerEff *= TUNE.airControl;   // reduced steering authority mid-air
+    if (onIce) steerEff *= 0.55;            // ICE: ~40% combined steer authority (with the grip cut above)
     p.theta += steerEff * dt;
 
     // ---- DRIFT ANGLE state (target-seeking + hard clamp, relaxes to 0 on release) ----
@@ -2945,6 +2966,19 @@
     if (p.spinT > 0) return;
     if (p.starT > 0 || p.bullT > 0) return;   // 🌻/🐂 invincible — no spin
     if (p.rescueT > 0 || p.rescueInvulnT > 0) return;   // being rescued / just dropped (gentle invuln)
+    // BATTLE MODE (R3): a hit that would spin you POPS A BALLOON instead (no spin, brief invuln flash).
+    // 0 balloons = you're already KO'd (out of the fight — no further pops). Host-authoritative pops for
+    // remote guests route through the same net.spins channel (guest pops its own balloon on receipt).
+    if (battleActive()){
+      if (p.ko || (p.battleInvulnT||0) > 0) return;
+      if (net.mp && net.isHost && p._remote && !p.isBot && p._remotePid){
+        net.spins[p._remotePid] = (net.spins[p._remotePid] || 0) + 1;
+        publishNetSnapshotNow();
+        return;
+      }
+      battlePopBalloon(p);
+      return;
+    }
     const dur = TUNE.spinT * (mult || 1);
     // MP: the host DECLARES spins; a remote human's client applies it to their own kart. So on
     // the host, a hit on a guest kart bumps that guest's spin seq instead of spinning the host's
@@ -2988,6 +3022,8 @@
     if (maxCurv > 1e-4) tv = Math.sqrt((TUNE.botLatBase * TUNE.botCornerGrip) / maxCurv);
     tv = Math.min(tv, botTop);
     tv *= (0.75 + 0.25 * (p.botSkill != null ? p.botSkill : TUNE.botSkill)); // skill scales pace
+    // MUD: pull the bot's target speed down so it doesn't just wall-grind a mud patch at full throttle.
+    if (ACTIVE_TRACK.paint && FK_TRACK.surfaceTypeAt(ACTIVE_TRACK.paint, p.pos.x, p.pos.z) === 'mud') tv *= 0.6;
     // light rubber-band: nudge target speed toward the human to keep family races close
     const human = G.players.local;
     if (human && human !== p){
@@ -3018,6 +3054,7 @@
     return { ai, inx, inz, maxCurv };
   }
   function botInput(p){
+    if (battleActive()) return battleBotInput(p);   // R3: in battle, bots hunt rivals instead of racing the line
     const C = centerPts;
     const idx = p.lastSampleIdx;
     const speed = Math.hypot(p.v.x, p.v.z);
@@ -3186,11 +3223,194 @@
   }
   // roll one item for kart p (catch-up weighted). Falls back to the leading pool if p is missing.
   function rollItem(p){
+    if (battleActive()) return rollItemBattle(p);   // R3: battle rolls by balloon count, not race place
     const weights = computeRollWeights(p ? placeFracOf(p) : 0);
     const total = weights.reduce((s,w)=>s+w[1], 0) || 1;
     let r = Math.random() * total;
     for (const [k,w] of weights){ r -= w; if (r <= 0) return k; }
     return 'tomato';
+  }
+  // ============================================================================
+  //  💥 BATTLE MODE (2026-07-13 R3) — balloon battle. Each kart starts with 3 balloons; any hit
+  //  that would spin you POPS a balloon instead (brief invuln flash, no spin). 0 balloons = KO
+  //  (kart parks, confetti pop, player watches). Last kart standing wins, or most balloons when
+  //  the 3:00 timer ends. No laps/checkpoints. Item rolls weight by balloon count (fewer = better).
+  // ============================================================================
+  const BATTLE_START_BALLOONS = 3, BATTLE_TIME = 180, BATTLE_INVULN = 1.6;
+  function battleActive(){ return !!(G.battle && G.battle.active && !G.battle.over); }
+  function startBattle(){
+    G.battle = { active:true, over:false, timeLeft:BATTLE_TIME, winner:null, koSeq:0, elapsed:0 };
+    for (const id in G.players){ const p = G.players[id]; p.balloons = BATTLE_START_BALLOONS; p.ko = false; p.battleInvulnT = 0; p.koOrder = 0; }
+  }
+  function battlePopBalloon(p){
+    if (p.ko || p.balloons <= 0) return;
+    p.balloons--; p.battleInvulnT = BATTLE_INVULN;
+    spawnBalloonBurst(p);
+    balloonPopSound(p.pos);
+    if (p === G.players.local) fkToast('🎈 Balloon popped! '+p.balloons+' left');
+    if (p.balloons <= 0) battleKO(p);
+  }
+  function battleKO(p){
+    if (p.ko) return;
+    p.ko = true; p.koOrder = ++G.battle.koSeq;
+    p.itemHeld = null; p.itemCount = 0; p.trailKind = null;
+    p.boostT = 0; p.spinT = 0; p.drift.active = false;
+    spawnConfetti(p); koSound(p.pos);
+    fkToast(p === G.players.local ? '💥 You are OUT!' : (nameOfKart(p)+' is out!'));
+  }
+  function nameOfKart(p){ return p === G.players.local ? (net.myName||'You') : (p.isBot ? (p.botName||'Bot') : (p._dispName||'Racer')); }
+  function kartHexColor(p){ const c = (p._slotCol!=null) ? p._slotCol : (p.isBot && p.botColor!=null ? p.botColor : 0x3d8b3d); return (typeof c==='number') ? c : 0x3d8b3d; }
+  function battleTick(dt){
+    const b = G.battle; if (!b || !b.active || b.over) return;
+    b.elapsed += dt;
+    for (const id in G.players){ const p = G.players[id]; if (p.battleInvulnT > 0) p.battleInvulnT = Math.max(0, p.battleInvulnT - dt); }
+    b.timeLeft = Math.max(0, b.timeLeft - dt);
+    const players = Object.values(G.players);
+    const alive = players.filter(p => !p.ko);
+    // last kart standing (needs >1 starter so a solo test doesn't insta-win)
+    if (players.length > 1 && alive.length <= 1){ battleEnd(alive[0] || null); return; }
+    if (b.timeLeft <= 0){
+      let best = null, bb = -1;
+      for (const p of players){ if (!p.ko && p.balloons > bb){ bb = p.balloons; best = p; } }
+      if (!best){ for (const p of players){ if (p.koOrder > (best?best.koOrder:-1)){ best = p; } } }  // all KO'd: last one out
+      battleEnd(best);
+    }
+  }
+  function battleEnd(winner){
+    const b = G.battle; if (b.over) return;
+    b.over = true; b.winner = winner ? winner.id : null;
+    // mark everyone finished so the solo/host tick's finish transition stops cleanly (every(finished)=true)
+    // instead of the 12s grace-timeout path calling forceFinishRemaining (which would clobber our results).
+    for (const id in G.players){ G.players[id].finished = true; }
+    G.phase = 'finished'; G.localDone = true; G.localFinishClock = G.raceClock; G.raceOver = true;
+    showBattleResults();
+    if (net.mp && net.isHost) publishNetSnapshotNow();
+  }
+  // battle standings: alive by balloons desc, then KO'd by LATER-out first (survived longer)
+  function battleStandings(){
+    const ps = Object.values(G.players);
+    return ps.slice().sort((a,c)=>{
+      if (a.ko !== c.ko) return a.ko ? 1 : -1;
+      if (!a.ko) return c.balloons - a.balloons;
+      return c.koOrder - a.koOrder;
+    });
+  }
+  function showBattleResults(){
+    const ranked = battleStandings();
+    const local = G.players.local;
+    const place = ranked.indexOf(local) + 1;
+    const iWon = ranked[0] === local;
+    G.results = { place, totalTime:(G.battle.elapsed||0), bestLap:0, standings:[], battle:true };
+    document.getElementById('rPlace').innerHTML = iWon ? '🏆 <span class="medal">🎈</span>WINNER' : (ORD[place] || (place+'th'));
+    const rt = document.getElementById('rTime'); if (rt) rt.textContent = iWon ? 'Last kart flying!' : (local.ko ? 'Knocked out' : local.balloons+' 🎈 left');
+    const rb = document.getElementById('rBest'); if (rb) rb.textContent = '';
+    // custom balloon standings into #rStandings
+    const sEl = document.getElementById('rStandings');
+    if (sEl){
+      sEl.innerHTML = '';
+      ranked.forEach((p,i)=>{
+        const div = document.createElement('div'); div.className = 'srow' + (p===local?' me':'');
+        const col = '#'+kartHexColor(p).toString(16).padStart(6,'0');
+        const balloons = p.ko ? '💥 OUT' : ('🎈'.repeat(Math.max(0,p.balloons)) || '—');
+        div.innerHTML = '<span class="sp">'+(MEDAL[i+1]?'<span class="medal">'+MEDAL[i+1]+'</span>':'')+(ORD[i+1]||(i+1)+'th')+'</span>'+
+                        '<span class="sn" style="color:'+col+'">'+nameOfKart(p)+'</span>'+
+                        '<span class="st" style="flex:1;text-align:right;">'+balloons+'</span>';
+        sEl.appendChild(div);
+      });
+      sEl.style.display = 'block';
+    }
+    resultsEl.style.display = 'flex'; countdownEl.style.display = 'none';
+    setResultsContinue('BATTLE AGAIN →', !(net.mp && !net.isHost));
+    finishFanfare(iWon ? 1 : 3);
+    musicRaceEnd();
+  }
+  // ROLL by balloon count (fewer balloons -> better items). Direct-combat pool (no egg/storm/mimic).
+  const BATTLE_ROLL_TABLE = [
+    ['tomato', 24, -6], ['boost', 16, -4], ['hay', 12, -4], ['chicken', 10, 6],
+    ['tomato3', 4, 12], ['chicken3', 3, 12], ['star', 2, 10], ['bull', 1, 8]
+  ];
+  function rollItemBattle(p){
+    const bal = p ? (p.balloons != null ? p.balloons : BATTLE_START_BALLOONS) : BATTLE_START_BALLOONS;
+    const bf = Math.max(0, Math.min(1, (BATTLE_START_BALLOONS - bal) / BATTLE_START_BALLOONS));
+    const weights = BATTLE_ROLL_TABLE.map(([k,base,slope]) => [k, Math.max(0, base + slope*bf)]);
+    const total = weights.reduce((s,w)=>s+w[1], 0) || 1;
+    let r = Math.random()*total;
+    for (const [k,w] of weights){ r -= w; if (r <= 0) return k; }
+    return 'tomato';
+  }
+  // BATTLE BOT AI: hunt the nearest non-KO rival (KO'd bots sit still).
+  function battleBotInput(p){
+    if (p.ko) return { steer:0, throttle:0, brake:0, drift:false };
+    let best = null, bd = 1e18;
+    for (const id in G.players){ const q = G.players[id]; if (q === p || q.ko) continue; const d = Math.hypot(q.pos.x-p.pos.x, q.pos.z-p.pos.z); if (d < bd){ bd = d; best = q; } }
+    if (!best) return { steer:0, throttle:0.3, brake:0, drift:false };
+    const dx = best.pos.x - p.pos.x, dz = best.pos.z - p.pos.z;
+    let dth = Math.atan2(dx, dz) - p.theta; while (dth>Math.PI) dth-=Math.PI*2; while (dth<-Math.PI) dth+=Math.PI*2;
+    const steer = Math.max(-1, Math.min(1, dth*1.7));
+    return { steer, throttle: bd > 5 ? 1 : 0.55, brake:0, drift:false };
+  }
+  // ---- battle FX: balloon burst + KO confetti + pop/ko sounds ----
+  function spawnBalloonBurst(p){
+    const y = (p.y || sampleHeight(p.pos.x,p.pos.z)) + 2.0;
+    const col = [0xff4757,0x2ed573,0x1e90ff][Math.max(0,p.balloons)] || 0xffdd55;
+    for (let k=0;k<14;k++){ const a=Math.random()*Math.PI*2;
+      spawnParticle(p.pos.x+Math.cos(a)*0.2, y, p.pos.z+Math.sin(a)*0.2, { color:col, opacity:0.95, life:0.5,
+        vx:Math.cos(a)*(2+Math.random()*3), vy:1+Math.random()*3, vz:Math.sin(a)*(2+Math.random()*3), grav:5, size:0.24, spin:6, grow:-0.1 }); }
+  }
+  function spawnConfetti(p){
+    const y = (p.y || sampleHeight(p.pos.x,p.pos.z)) + 1.2;
+    const cols=[0xff4757,0x2ed573,0x1e90ff,0xffd93b,0xff8ad8];
+    for (let k=0;k<24;k++){ const a=Math.random()*Math.PI*2;
+      spawnParticle(p.pos.x+Math.cos(a)*0.3, y, p.pos.z+Math.sin(a)*0.3, { color:cols[(Math.random()*cols.length)|0], opacity:0.95, life:1.0,
+        vx:Math.cos(a)*(2+Math.random()*4), vy:3+Math.random()*4, vz:Math.sin(a)*(2+Math.random()*4), grav:6, size:0.22, spin:8, grow:-0.05 }); }
+  }
+  function balloonPopSound(pos){ const mul=(typeof gainAt==='function')?gainAt(pos,'pop'):1; if(mul<=0.02)return; noiseBurst(0.09,{filter:'bandpass',freq:1800,freqTo:400,Q:0.8,vol:0.16,mul}); tone(520,0.06,{type:'square',vol:0.08,mul}); }
+  function koSound(pos){ const mul=(typeof gainAt==='function')?gainAt(pos,'ko'):1; tone(400,0.3,{type:'sawtooth',vol:0.14,slideTo:120,mul}); tone(300,0.35,{type:'sine',vol:0.1,slideTo:90,mul}); }
+  // ---- balloon render: up to 3 balloons bob above each non-KO kart ----
+  const _balloonViews = {}, BALLOON_COLS = [0xff4757,0x2ed573,0x1e90ff];
+  function ensureBalloonView(id){
+    if (_balloonViews[id]) return _balloonViews[id];
+    const group = new THREE.Group(); scene.add(group); const balloons = [];
+    for (let i=0;i<3;i++){
+      const b = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.32,12,10), new THREE.MeshLambertMaterial({ color:BALLOON_COLS[i], emissive:0x140404 }));
+      body.scale.set(1,1.25,1); b.add(body);
+      const knot = new THREE.Mesh(new THREE.ConeGeometry(0.07,0.13,6), new THREE.MeshLambertMaterial({ color:BALLOON_COLS[i] })); knot.position.y=-0.42; b.add(knot);
+      b.position.x = (i-1)*0.4; group.add(b); balloons.push(b);
+    }
+    _balloonViews[id] = { group, balloons }; return _balloonViews[id];
+  }
+  function updateBattleBalloons(){
+    if (!battleActive()){ for (const id in _balloonViews) _balloonViews[id].group.visible = false; return; }
+    const t = performance.now()*0.002;
+    for (const id in _balloonViews){ if (!G.players[id]) _balloonViews[id].group.visible = false; }
+    for (const id in G.players){
+      const p = G.players[id], v = ensureBalloonView(id);
+      if (p.ko || p.balloons <= 0){ v.group.visible = false; continue; }
+      v.group.visible = true;
+      const y = (p.y || sampleHeight(p.pos.x, p.pos.z));
+      v.group.position.set(p.pos.x, y + 1.95, p.pos.z);
+      // flash the whole rig during invuln
+      const flash = (p.battleInvulnT > 0) && (Math.floor(p.battleInvulnT*10)%2===0);
+      v.balloons.forEach((b,i)=>{ b.visible = (i < p.balloons) && !flash; b.position.y = Math.sin(t+i*1.3)*0.08; b.rotation.z = Math.sin(t*0.7+i)*0.18; });
+    }
+  }
+  // ---- battle HUD: big 3:00 timer + per-kart balloon standings (top-center) ----
+  const _battleHudEl = (function(){ const d = document.createElement('div'); d.id = 'battleHud';
+    d.style.cssText = 'position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:40;font-family:Consolas,monospace;color:#fff;text-align:center;pointer-events:none;display:none;text-shadow:0 2px 6px rgba(0,0,0,.7);';
+    document.body.appendChild(d); return d; })();
+  function updateBattleHUD(){
+    const b = G.battle; if (!b){ _battleHudEl.style.display='none'; return; }
+    const t = Math.max(0, Math.ceil(b.timeLeft)), mm = Math.floor(t/60), ss = (t%60).toString().padStart(2,'0');
+    const rows = battleStandings().map(p=>{
+      const col = '#'+kartHexColor(p).toString(16).padStart(6,'0');
+      const bal = p.ko ? '💥 OUT' : ('🎈'.repeat(Math.max(0,p.balloons)) || '·');
+      const me = p===G.players.local ? 'font-weight:700;' : '';
+      return '<div style="'+me+'display:flex;gap:6px;align-items:center;font-size:13px;"><span style="width:9px;height:9px;border-radius:50%;background:'+col+';display:inline-block;flex:0 0 auto;"></span><span style="flex:1;text-align:left;">'+nameOfKart(p)+'</span><span>'+bal+'</span></div>';
+    }).join('');
+    _battleHudEl.innerHTML = '<div style="font-size:26px;font-weight:800;letter-spacing:1px;">💥 '+mm+':'+ss+'</div>'+
+      '<div style="margin-top:4px;min-width:158px;background:rgba(18,22,30,.6);border-radius:8px;padding:5px 8px;">'+rows+'</div>';
+    _battleHudEl.style.display = 'block';
   }
   function isTriple(kind){ return kind === 'tomato3' || kind === 'chicken3'; }
   function isTrailable(kind){ return kind === 'tomato' || kind === 'chicken' || kind === 'hay' || kind === 'mimic'; }
@@ -3859,6 +4079,314 @@
     } else { const w = buildChickenMesh(); w.userData.kind = kind; return w; }
     return _normalizeCritter(g, kind);
   }
+
+  // ============================================================================
+  //  🐄 WANDERING COWS (2026-07-13 R3) — Moo Moo Meadows energy.
+  //  ACTIVE_TRACK.pastures[{id,x,z,r,count}] each spawn `count` blocky holstein cows that graze
+  //  head-down and lazily wander inside radius r, NEVER onto the road corridor (wander clamped).
+  //  Contact = the cow MOOS + SHOVES the kart aside (strong bounce, NO spin — cows are solid, not
+  //  hazards) and trots a few steps away. Movement is host-authoritative in MP (snapshot syncs
+  //  x/z/heading); the SHOVE is applied by each client to its OWN kart (like boost pads).
+  // ============================================================================
+  const COW_HIT_R = 1.7;        // shove reach from the cow center (cow body ~3u long)
+  const COW_ROAD_PAD = 3.5;     // keep cows this far off the road edge
+  const COW_WALK_SPEED = 2.2, COW_FLEE_SPEED = 6.5;
+  function _cowSpotOK(x, z, past){
+    const dx=x-past.x, dz=z-past.z;
+    if (dx*dx+dz*dz > past.r*past.r) return false;                                  // stay inside the pasture
+    if (!ACTIVE_TRACK.offroad && nearestCenterDist(x,z) < TRACK_WIDTH/2 + COW_ROAD_PAD) return false;  // off the road
+    return true;
+  }
+  function _randomCowSpot(past){
+    for (let i=0;i<14;i++){
+      const a=Math.random()*Math.PI*2, r=Math.sqrt(Math.random())*past.r*0.88;
+      const x=past.x+Math.cos(a)*r, z=past.z+Math.sin(a)*r;
+      if (_cowSpotOK(x,z,past)) return { x, z };
+    }
+    return { x:past.x, z:past.z };
+  }
+  function resetCows(){
+    G.cows = []; let idx = 0;
+    for (const past of (ACTIVE_TRACK.pastures || [])){
+      for (let k=0;k<past.count;k++){
+        const s = _randomCowSpot(past);
+        G.cows.push({ i:idx++, spot:past, x:s.x, z:s.z, y:sampleHeight(s.x,s.z),
+          heading:Math.random()*Math.PI*2, state:'graze', t:1+Math.random()*4,
+          tx:s.x, tz:s.z, walkT:0, chew:Math.random()*Math.PI*2, fleeCd:0, patchSeed:idx });
+      }
+    }
+  }
+  // shove one kart out of a cow (strong bounce, no spin). Applied by the OWNING client.
+  function cowShoveKart(cow, q, dt){
+    const rx = q.pos.x - cow.x, rz = q.pos.z - cow.z, d = Math.hypot(rx, rz);
+    const reach = COW_HIT_R + Math.max(0.6, TUNE.kartRadius) * 0.5;
+    if (d >= reach) return false;
+    const nx = d>1e-3 ? rx/d : Math.cos(cow.heading), nz = d>1e-3 ? rz/d : Math.sin(cow.heading);
+    q.pos.x += nx*(reach - d + 0.05); q.pos.z += nz*(reach - d + 0.05);   // push clear of the cow
+    const vn = q.v.x*nx + q.v.z*nz;                                        // into-cow velocity
+    if (vn < 0){ q.v.x -= vn*nx*1.8; q.v.z -= vn*nz*1.8; }                 // reflect + spring back
+    if (q === G.players.local) bonkSound();
+    return true;
+  }
+  // start a cow trotting away from a threatening kart (host/solo only — movement is authoritative)
+  function _cowFlee(cow, kx, kz){
+    if (cow.fleeCd > 0) return;
+    cow.fleeCd = 1.6; cow.state = 'flee'; cow.t = 1.1; cow.walkT = 0;
+    const ax = cow.x - kx, az = cow.z - kz, ad = Math.hypot(ax, az) || 1;
+    for (const dist of [6, 4, 2.5]){
+      const tx = cow.x + (ax/ad)*dist, tz = cow.z + (az/ad)*dist;
+      if (_cowSpotOK(tx, tz, cow.spot)){ cow.tx = tx; cow.tz = tz; return; }
+    }
+    const s = _randomCowSpot(cow.spot); cow.tx = s.x; cow.tz = s.z;   // fallback
+  }
+  // host/solo: advance cow AI + shove owned karts
+  function advanceCows(dt){
+    for (const cow of G.cows){
+      if (cow.fleeCd > 0) cow.fleeCd -= dt;
+      cow.t -= dt; cow.chew += dt;
+      if (cow.state === 'graze'){
+        if (cow.t <= 0){ const s=_randomCowSpot(cow.spot); cow.tx=s.x; cow.tz=s.z; cow.state='walk'; cow.walkT=0; cow.t=8; }
+      } else {
+        const dx=cow.tx-cow.x, dz=cow.tz-cow.z, d=Math.hypot(dx,dz);
+        const spd = cow.state==='flee' ? COW_FLEE_SPEED : COW_WALK_SPEED;
+        if (d < 0.5 || cow.t <= 0){ cow.state='graze'; cow.t = 3+Math.random()*5; }
+        else {
+          const nx=dx/d, nz=dz/d;
+          const stepx=cow.x+nx*spd*dt, stepz=cow.z+nz*spd*dt;
+          if (_cowSpotOK(stepx, stepz, cow.spot)){ cow.x=stepx; cow.z=stepz; }
+          else { cow.state='graze'; cow.t=2+Math.random()*3; }
+          let want=Math.atan2(nx,nz), dth=want-cow.heading;
+          while(dth>Math.PI)dth-=Math.PI*2; while(dth<-Math.PI)dth+=Math.PI*2;
+          cow.heading += dth*Math.min(1, dt*5); cow.walkT += dt;
+        }
+      }
+      cow.y = sampleHeight(cow.x, cow.z);
+      // contact: shove every OWNED kart, moo + trot away on a fresh bump
+      for (const id in G.players){
+        const q = G.players[id];
+        if (!ownedLocally(q)) continue;
+        if (cowShoveKart(cow, q, dt)){ cowMooSound(cow); _cowFlee(cow, q.pos.x, q.pos.z); }
+      }
+    }
+  }
+  // guest: cows are host-authoritative — positions come from the snapshot; only shove OUR own kart.
+  function guestCowContact(dt){
+    const local = G.players.local; if (!local) return;
+    for (const cow of G.cows){ if (cowShoveKart(cow, local, dt)) cowMooSound(cow); }
+  }
+  // MOO: a soft descending low bellow (proximity-scaled). Throttled per-cow so a sustained bump
+  // doesn't machine-gun the sound.
+  let _lastMooT = 0;
+  function cowMooSound(cow){
+    const now = performance.now();
+    if (now - _lastMooT < 350) return; _lastMooT = now;
+    const mul = (typeof gainAt === 'function') ? gainAt(cow, 'cow') : 1;
+    tone(220, 0.34, { type:'sawtooth', vol:0.16, slideTo:120, mul });
+    tone(160, 0.4, { type:'sine', vol:0.12, slideTo:95, mul });
+  }
+  // ---- procedural blocky holstein cow (~3u long, white body w/ black patches) ----
+  function buildCowMesh(seed){
+    const g = new THREE.Group();
+    const M = (c,e)=> new THREE.MeshLambertMaterial({ color:c, emissive:e!=null?e:0x000000 });
+    const WHITE = M(0xf4f2ee), BLACK = M(0x2a2622), PINK = M(0xf0a6ac, 0x3a1a1c), HOOF = M(0x2a2622);
+    // body (long box)
+    const body = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.25, 2.9), WHITE); body.position.y=1.35; g.add(body);
+    // black patches (deterministic per-seed so herds vary but stay stable)
+    let s = (seed||1)*9301 + 49297;
+    const rnd = ()=>{ s = (s*9301+49297)%233280; return s/233280; };
+    for (let k=0;k<4;k++){
+      const pw=0.5+rnd()*0.5, ph=0.4+rnd()*0.4, pd=0.5+rnd()*0.7;
+      const patch = new THREE.Mesh(new THREE.BoxGeometry(pw, ph, pd), BLACK);
+      const side = rnd()<0.5?1:-1;
+      patch.position.set(side*0.76, 1.1+rnd()*0.5, -1.0+rnd()*2.0); g.add(patch);
+    }
+    // head (down, grazing pose) at +Z front, tilted down
+    const neck = new THREE.Group(); neck.position.set(0,1.55,1.45); g.add(neck);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.85,0.8,1.0), WHITE); head.position.set(0,-0.35,0.5); neck.add(head);
+    const snout = new THREE.Mesh(new THREE.BoxGeometry(0.6,0.5,0.4), PINK); snout.position.set(0,-0.5,1.05); neck.add(snout);
+    for (const sd of [-1,1]){
+      const ear = new THREE.Mesh(new THREE.BoxGeometry(0.16,0.28,0.4), WHITE); ear.position.set(sd*0.5,-0.15,0.35); neck.add(ear);
+      const horn = new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.08,0.3,6), M(0xe9e1cf)); horn.position.set(sd*0.28,0.12,0.3); neck.add(horn);
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.07,7,6), M(0x111)); eye.position.set(sd*0.3,-0.28,0.9); neck.add(eye);
+    }
+    neck.rotation.x = 0.5;   // head tipped down toward grass
+    g.userData.neck = neck;
+    // legs (4), grouped for a walk sway
+    const legs = [];
+    for (const [lx,lz] of [[-0.55,1.0],[0.55,1.0],[-0.55,-1.0],[0.55,-1.0]]){
+      const leg = new THREE.Group(); leg.position.set(lx, 0.9, lz);
+      const shin = new THREE.Mesh(new THREE.BoxGeometry(0.3,0.95,0.3), WHITE); shin.position.y=-0.45; leg.add(shin);
+      const hoof = new THREE.Mesh(new THREE.BoxGeometry(0.34,0.2,0.34), HOOF); hoof.position.y=-0.9; leg.add(hoof);
+      g.add(leg); legs.push(leg);
+    }
+    g.userData.legs = legs;
+    // udder + tail
+    const udder = new THREE.Mesh(new THREE.SphereGeometry(0.34,10,8), PINK); udder.scale.set(1,0.7,1.1); udder.position.set(0,0.85,-0.7); g.add(udder);
+    const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.03,1.0,5), WHITE); tail.position.set(0,1.0,-1.5); tail.rotation.x=-0.4; g.add(tail);
+    const tuft = new THREE.Mesh(new THREE.SphereGeometry(0.12,7,6), BLACK); tuft.position.set(0,0.5,-1.75); g.add(tuft); g.userData.tail = tail;
+    g.scale.setScalar(1.05);
+    return g;
+  }
+  const _cowViews = {};
+  function syncCowViews(){
+    for (const cow of G.cows){
+      let v = _cowViews[cow.i];
+      if (!v){ v = buildCowMesh(cow.patchSeed); scene.add(v); _cowViews[cow.i] = v; }
+      v.visible = true;
+      v.position.set(cow.x, cow.y || sampleHeight(cow.x, cow.z), cow.z);
+      v.rotation.y = cow.heading;
+      const walking = cow.state === 'walk' || cow.state === 'flee';
+      // grazing = head bobs down + chews; walking = head up + legs sway
+      if (v.userData.neck) v.userData.neck.rotation.x = walking ? 0.05 : (0.5 + Math.sin(cow.chew*3)*0.06);
+      if (v.userData.legs){
+        const sw = walking ? Math.sin(cow.walkT*8)*0.4 : 0;
+        v.userData.legs.forEach((leg,li)=>{ leg.rotation.x = (li%2? -sw : sw)*((li<2)?1:-1); });
+      }
+      if (v.userData.tail) v.userData.tail.rotation.z = Math.sin((cow.chew||0)*2.2)*0.25;
+    }
+  }
+  // ============================================================================
+  //  🚂 TRAIN CROSSINGS (2026-07-13 R3) — where a train loop crosses the ROAD.
+  //  Detected at build time (train path samples within half-width+pad of the centerline). Each
+  //  crossing gets warning posts (two flashing red lights + bell) on both road edges + striped gate
+  //  arms that LOWER ~2.5s before the loco nose reaches the span and RAISE after the last car clears.
+  //  Gates are VISUAL ONLY (no collision — dodge the gap if you dare). Contact with a train car at an
+  //  occupied crossing = BIG spin (1.6x) + hefty bonk (host-ruled in MP via applySpinOut; star/bull
+  //  immune to the spin but still bounced). Train head is synced (state.head), so all clients agree.
+  // ============================================================================
+  const TRAIN_LEAD_T = 2.5;        // gates lower this many seconds before the nose reaches the span
+  const TRAIN_CAR_HIT_R = 2.4;     // kart spins if this close to a train car in an occupied crossing
+  const TRAIN_ZONE_PAD = 3;        // how far past the road edge counts as "at the crossing"
+  const TRAIN_CROSSINGS = [];
+  function _stripeMat(hex){ return new THREE.MeshLambertMaterial({ color:hex, emissive:hex===0xd82020?0x300000:0x000000 }); }
+  function buildCrossingGates(cross){
+    const g = new THREE.Group(); scene.add(g); cross.group = g;
+    const n = { x:-cross.rtz, z:cross.rtx };   // unit vector across the road (road-perp)
+    const half = TRACK_WIDTH/2;
+    cross.gates = [];
+    for (const side of [1, -1]){
+      const px = cross.cx + n.x*half*side, pz = cross.cz + n.z*half*side, py = sampleHeight(px, pz);
+      const post = new THREE.Group(); post.position.set(px, py, pz); g.add(post);
+      // orient the post so local +X points INWARD across the road (toward the crossing center)
+      const ix = -n.x*side, iz = -n.z*side;
+      post.rotation.y = Math.atan2(ix, iz) - Math.PI/2;   // local +X -> inward
+      // pole
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.18,3.0,8), new THREE.MeshLambertMaterial({ color:0xf2f2f2, emissive:0x161616 }));
+      pole.position.y = 1.5; post.add(pole);
+      // crossbuck X sign near the top
+      for (const rot of [0.7, -0.7]){
+        const cb = new THREE.Mesh(new THREE.BoxGeometry(1.0,0.18,0.05), new THREE.MeshLambertMaterial({ color:0xf4f4f4, emissive:0x222222 }));
+        cb.position.set(0, 2.7, 0.22); cb.rotation.z = rot; post.add(cb);
+      }
+      // two flashing red lights (materials swapped each flash)
+      const lights = [];
+      for (const lx of [-0.34, 0.34]){
+        const lm = new THREE.MeshLambertMaterial({ color:0x400000, emissive:0x200000 });
+        const lens = new THREE.Mesh(new THREE.SphereGeometry(0.13,10,8), lm);
+        lens.position.set(lx, 2.35, 0.24); post.add(lens); lights.push(lm);
+      }
+      // gate arm: a red/white striped bar, pivots at the post top. rotation.z = PI/2 raised (up) -> 0 lowered (inward)
+      const arm = new THREE.Group(); arm.position.set(0, 2.15, 0.05); post.add(arm);
+      const segN = 4, segL = (half*0.98)/segN;
+      for (let s=0;s<segN;s++){
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(segL*0.98, 0.18, 0.18), _stripeMat(s%2 ? 0xf4f4f4 : 0xd82020));
+        bar.position.x = segL*(s+0.5); arm.add(bar);
+      }
+      arm.rotation.z = Math.PI/2;   // start raised
+      cross.gates.push({ post, arm, lights });
+    }
+  }
+  function buildTrainCrossings(){
+    for (const cr of TRAIN_CROSSINGS){ if (cr.group){ scene.remove(cr.group); cr.group.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } }
+    TRAIN_CROSSINGS.length = 0;
+    const trains = (TRAIN_GROUP.userData && TRAIN_GROUP.userData.trains) || [];
+    const half = TRACK_WIDTH/2, pad = 5;
+    for (const t of trains){
+      const st = t.state, L = st.L; if (!L) continue;
+      const N = Math.max(16, Math.ceil(L/2.0));
+      const runs = []; let prevIn = false, runStart = 0;
+      for (let k=0;k<=N;k++){
+        const d = (k/N)*L, s = st.at(d % L);
+        const inside = nearestCenterDist(s.x, s.z) < half + pad;
+        if (inside && !prevIn) runStart = d;
+        if (!inside && prevIn) runs.push([runStart, d]);
+        prevIn = inside;
+      }
+      if (prevIn) runs.push([runStart, L]);
+      // merge a wrap run (first run starts near 0 AND last run ends near L -> same physical crossing)
+      if (runs.length >= 2 && runs[0][0] <= L/N*1.5 && runs[runs.length-1][1] >= L - L/N*1.5){
+        const last = runs.pop(); runs[0][0] = last[0] - L;
+      }
+      for (const [dS, dE] of runs){
+        const dMid = (((dS+dE)/2)%L+L)%L, s = st.at(dMid), ci = nearestCenterInfo(s.x, s.z);
+        const tan = tangents[ci.idx] || {x:1,z:0}, cp = centerPts[ci.idx];
+        const cross = { train:t, cx:cp.x, cz:cp.z, rtx:tan.x, rtz:tan.z, gateAng:0, litT:0, bellT:0, lowered:false };
+        buildCrossingGates(cross);
+        TRAIN_CROSSINGS.push(cross);
+      }
+    }
+    return TRAIN_CROSSINGS.length;
+  }
+  function crossingBellSound(cr){
+    const mul = (typeof gainAt === 'function') ? gainAt({ x:cr.cx, z:cr.cz }, 'bell') : 1;
+    if (mul <= 0.02) return;
+    tone(1150, 0.12, { type:'square', vol:0.06, mul });
+    tone(1550, 0.1, { type:'square', vol:0.045, mul });
+  }
+  // runs every frame on ALL clients (gate animation + lights + bell from the synced train head);
+  // the SPIN ruling only runs on the host/solo (guests get the spin via net.spins in applySpinOut).
+  function updateTrainCrossings(dt){
+    if (!TRAIN_CROSSINGS.length) return;
+    const canRule = (!net.mp || net.isHost) && G.phase === 'racing';
+    const zone = TRACK_WIDTH/2 + TRAIN_ZONE_PAD;
+    for (const cr of TRAIN_CROSSINGS){
+      const st = cr.train.state, L = st.L, head = st.head, spd = cr.train.speed;
+      // occupancy: which train cars are currently AT the crossing (their world pos inside the zone)
+      const cars = [];
+      for (let k=0;k<st.carOffs.length;k++){
+        const d = ((head - st.carOffs[k])%L+L)%L, p = st.at(d);
+        if (Math.hypot(p.x-cr.cx, p.z-cr.cz) < zone) cars.push(p);
+      }
+      const occupied = cars.length > 0;
+      // warning: where will the loco NOSE be in LEAD_T seconds? if that reaches the zone, lower now.
+      const pred = st.at((head + spd*TRAIN_LEAD_T)%L);
+      const warning = Math.hypot(pred.x-cr.cx, pred.z-cr.cz) < zone;
+      const shouldLower = occupied || warning;
+      cr.lowered = shouldLower;
+      // animate arms toward target (0 raised .. 1 lowered) over ~0.9s
+      cr.gateAng += ((shouldLower ? 1 : 0) - cr.gateAng) * Math.min(1, dt*3.4);
+      for (const gt of cr.gates) gt.arm.rotation.z = (1 - cr.gateAng) * Math.PI/2;
+      // flashing lights + bell while active
+      if (shouldLower){
+        cr.litT += dt;
+        const on = (Math.floor(cr.litT*3) % 2) === 0;
+        for (const gt of cr.gates){ gt.lights[0].emissive.setHex(on?0xff2020:0x200000); gt.lights[1].emissive.setHex(on?0x200000:0xff2020); }
+        cr.bellT -= dt; if (cr.bellT <= 0){ crossingBellSound(cr); cr.bellT = 0.5; }
+      } else {
+        for (const gt of cr.gates){ gt.lights[0].emissive.setHex(0x200000); gt.lights[1].emissive.setHex(0x200000); }
+      }
+      // CONTACT: kart within reach of an occupying car -> big spin + bonk (bounce owned karts)
+      if (canRule && occupied){
+        const reach = TRAIN_CAR_HIT_R + Math.max(0.6, TUNE.kartRadius)*0.5;
+        for (const id in G.players){
+          const q = G.players[id];
+          for (const cpos of cars){
+            const dx=q.pos.x-cpos.x, dz=q.pos.z-cpos.z, d=Math.hypot(dx,dz);
+            if (d < reach){
+              if (ownedLocally(q)){
+                const nx = d>1e-3?dx/d:1, nz = d>1e-3?dz/d:0;
+                q.pos.x += nx*(reach-d+0.1); q.pos.z += nz*(reach-d+0.1);
+                const vn = q.v.x*nx + q.v.z*nz; if (vn<0){ q.v.x -= vn*nx*1.7; q.v.z -= vn*nz*1.7; }
+                if (q === G.players.local) bonkSound();
+              }
+              applySpinOut(q, 1.6);   // star/bull immune to the spin (still bounced above)
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
   // item boxes: pickup + per-box respawn
   function updateItemBoxes(dt){
     for (const box of G.itemBoxes){
@@ -4088,7 +4616,8 @@
     // remove any existing bots + their views
     for (const id in G.players){ if (G.players[id].isBot){ removeKartView(id); delete G.players[id]; } }
     const humans = humanCount();
-    const field = G.raceMode === 'prix' ? MAX_RACERS : humans;
+    // BATTLE (R3): a fixed 4-kart arena (you + up to 3 bots; MP humans fill the slots first).
+    const field = ACTIVE_TRACK.battle ? 4 : (G.raceMode === 'prix' ? MAX_RACERS : humans);
     const n = Math.max(0, Math.min(MAX_RACERS - 1, field - humans));
     G.botCount = n; // keep for HUD / debug / older harnesses
     for (let i=0;i<n;i++){
@@ -4427,6 +4956,19 @@
     for (const m of _boxMeshes){ scene.remove(m); }
     _boxMeshes.length = 0;
     G.itemBoxes = [];
+    // BATTLE (R3): item boxes come from ACTIVE_TRACK.battleBoxes (scattered), not the racing itemRows.
+    if (ACTIVE_TRACK.battle){
+      for (const b of (ACTIVE_TRACK.battleBoxes || [])){
+        G.itemBoxes.push({ x:b.x, z:b.z, active:true, respawnT:0 });
+        const m = buildCardboardItemBox();
+        m.userData.baseY = sampleHeight(b.x, b.z) + 1.05;
+        m.userData.phase = _boxMeshes.length * 1.7;
+        m.position.set(b.x, m.userData.baseY, b.z);
+        m.rotation.y = _boxMeshes.length * 0.7;
+        scene.add(m); _boxMeshes.push(m);
+      }
+      return;
+    }
     const rows = (ACTIVE_TRACK.itemRows && ACTIVE_TRACK.itemRows.length) ? ACTIVE_TRACK.itemRows : [0.12,0.40,0.68];
     for (const sf of rows){
       const targetS = Math.max(0, Math.min(1, sf)) * TRACK_LEN;
@@ -4892,6 +5434,34 @@
         grav:tier===0?1.2:2.4, size:sz, grow:tier===0?0.7:0.2, spin:tier?5:0 });
     }
   }
+  // ---- SURFACE PAINT FX (2026-07-13 R3): subtle per-surface wheel kicks while driving on a
+  // painted physics surface. ICE = pale sparkle skids that flick up off the rear; MUD = dark-brown
+  // splats that spray low. Rate scales with speed; nothing spawns at a crawl. Pooled particles.
+  function spawnSurfacePaintFX(p, view, gy, dt){
+    const spd = Math.hypot(p.v.x, p.v.z);
+    if (spd < 3) return;
+    view._surfAcc = (view._surfAcc || 0) + dt;
+    const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
+    const r = { x:Math.cos(p.theta), z:-Math.sin(p.theta) };
+    const ice = p.surfPaint === 'ice';
+    const rate = ice ? 0.05 : 0.045;
+    while (view._surfAcc > rate){
+      view._surfAcc -= rate;
+      const side = Math.random() < 0.5 ? -1 : 1;
+      const rx = p.pos.x - f.x*0.9 + r.x*side*0.5, rz = p.pos.z - f.z*0.9 + r.z*side*0.5;
+      if (ice){
+        const col = Math.random()<0.5 ? 0xe8f6ff : 0xbfe6f7;
+        spawnParticle(rx, gy + 0.12, rz, { color:col, opacity:0.85, life:0.35,
+          vx:r.x*side*1.4 - f.x*1.0 + (Math.random()-0.5), vy:1.3 + Math.random()*0.9, vz:r.z*side*1.4 - f.z*1.0 + (Math.random()-0.5),
+          grav:2.6, size:0.16, grow:-0.1, spin:6 });
+      } else {
+        const col = Math.random()<0.5 ? 0x5a4028 : 0x3e2c1a;
+        spawnParticle(rx, gy + 0.08, rz, { color:col, opacity:0.9, life:0.4,
+          vx:-f.x*1.6 + (Math.random()-0.5)*1.6, vy:1.0 + Math.random()*0.8, vz:-f.z*1.6 + (Math.random()-0.5)*1.6,
+          grav:4.0, size:0.26, grow:0.2 });
+      }
+    }
+  }
   function spawnBoostPuff(p, view, gy, dt){
     view._puffAcc = (view._puffAcc || 0) + dt;
     const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
@@ -5137,6 +5707,7 @@
       if (p.boostT > 0) spawnBoostPuff(p, view, gy, dt);
       if (p.spinT > 0) spawnSpinStars(p, view, dt);
       spawnWaterSplash(p, view, dt);   // 2026-07-12: spray + entry sound while crossing water
+      if (p.surfPaint) spawnSurfacePaintFX(p, view, gy, dt);   // R3: ice sparkle skids / mud splats
     }
     // ---- spinning wheels (custom kart): roll about mount X (axle), steer front pair about Y ----
     if (view.wheels && view.wheels.length){
@@ -5481,8 +6052,11 @@
     const raceStr = fmtTime(G.raceClock) === '—' ? '0.00s' : fmtTime(G.raceClock);
     const live = (G.phase==='racing') ? (performance.now() - p.lapStart)/1000 : 0;
     const lapTimeStr = live ? fmtTime(live) : '—';
-    posV.style.display = racing ? 'block' : 'none';
-    if (racing){
+    // BATTLE (R3): swap the lap/place race panel for the timer + balloon standings HUD
+    const inBattle = !!(G.battle && (racing || G.battle.over));
+    if (inBattle){ updateBattleHUD(); posV.style.display = 'none'; }
+    else { _battleHudEl.style.display = 'none'; posV.style.display = racing ? 'block' : 'none'; }
+    if (racing && !inBattle){
       posV.innerHTML =
         '<div class="place">'+(ORD[place] || (place+'th'))+'<span class="of"> / '+Object.keys(G.players).length+'</span></div>'+
         '<div class="times">'+
@@ -6348,6 +6922,10 @@
   function resetEntities(){
     G.projectiles.length = 0; G.hazards.length = 0;
     resetChickens();   // 2026-07-12: re-arm road-crossing chickens (first crossing 2-5s after GO)
+    resetCows();       // 2026-07-13 R3: spawn/re-seat pasture cows
+    // BATTLE (R3): a battle arena starts the balloon fight (3 balloons each, 3:00 timer, no laps).
+    if (ACTIVE_TRACK.battle){ startBattle(); G.lapsTotal = 9999; }   // huge laps -> lap-finish never fires
+    else G.battle = null;
     for (const b of G.itemBoxes){ b.active = true; b.respawnT = 0; }
   }
   function toMenu(){
@@ -7005,7 +7583,8 @@
       dact:p.drift.active, dtier:(p.drift.active?driftTier(p.drift.charge):0), bo:(p.boostT>0?1:0),
       nm:name||'', col:col,
       kd:p.kartId||'bucky', dd:p.driverId||'bucky',
-      rsc:p.rescueT>0?1:0   // R1: remote crow-rescue visual flag
+      rsc:p.rescueT>0?1:0,   // R1: remote crow-rescue visual flag
+      bn:(p.balloons!=null?p.balloons:3), ko:p.ko?1:0   // R3: battle balloons + knocked-out flag
     };
   }
   // ---- write a received kart snapshot into a G.players entry (create + interpolate) ----
@@ -7046,6 +7625,7 @@
     p.itemHeld = ks.it; p.itemCount = ks.ic || (ks.it ? itemShotCount(ks.it) : 0);
     p.trailKind = ks.trk || null; p.starT = ks.st || 0; p.bullT = ks.bl || 0;
     p.itemRollT = ks.roll || 0; p.finished = ks.fin; p.finishTime = ks.ft;
+    if (ks.bn != null) p.balloons = ks.bn; if (ks.ko != null) p.ko = !!ks.ko;   // R3: battle state
     // glow reconstruction for the render layer (drift tier / boosting)
     p.drift.active = ks.dact;
     p.drift.charge = ks.dtier>=2 ? 2*TUNE.mtTier1 : (ks.dtier>=1 ? TUNE.mtTier1 : 0);
@@ -7083,6 +7663,9 @@
       proj:G.projectiles.map(pr=>({x:pr.x,y:pr.y,z:pr.z,k:pr.kind||'tomato',vx:pr.vx,vz:pr.vz})),
       haz:G.hazards.map(hz=>({x:hz.x,y:hz.y,z:hz.z,k:hz.kind||'hay'})),
       chick:G.chickens.filter(c=>c.active).map(c=>({ i:c.i, x:c.x, z:c.z, d:c.dir, w:c.walkT, r:c.roll })),
+      cows:G.cows.map(c=>({ x:c.x, z:c.z, h:c.heading, w:c.walkT, st:(c.state==='graze'?0:1), c:c.chew })),
+      trains:((TRAIN_GROUP.userData.trains)||[]).map(t=>Math.round(t.state.head*100)/100),   // R3: train head sync (gates/contact agree)
+      battle:G.battle ? { tl:G.battle.timeLeft, ov:G.battle.over?1:0, win:G.battle.winner } : null,   // R3: battle timer/over/winner (per-kart balloons ride in each kart's 'k'/snapshot serialize)
       grants:net.grants || {},
       spins:net.spins,
       raceOver:!!G.raceOver,
@@ -7288,6 +7871,21 @@
     for (const sc of (snap.chick||[])){
       const ch = G.chickens[sc.i]; if (!ch) continue;
       ch.active = true; ch.x = sc.x; ch.z = sc.z; ch.dir = sc.d||1; ch.walkT = sc.w||0; ch.roll = sc.r||0; ch.y = sampleHeight(sc.x, sc.z);
+    }
+    // trains: adopt the host's train head so gates + contact agree across clients (local advance smooths between snaps)
+    if (snap.trains) snap.trains.forEach((h,i)=>{ const t=(TRAIN_GROUP.userData.trains||[])[i]; if (t && isFinite(h)) t.state.head = h; });
+    // battle: adopt the host-authoritative timer/over; guest's own balloons/ko are driven locally (net.spins pops).
+    if (snap.battle){
+      if (!G.battle) G.battle = { active:true, over:false, timeLeft:snap.battle.tl, winner:snap.battle.win, koSeq:0, elapsed:0 };
+      G.battle.timeLeft = snap.battle.tl; G.battle.winner = snap.battle.win;
+      if (snap.battle.ov && !G.battle.over){ G.battle.over = true; G.battle.active = true; G.phase = 'finished'; showBattleResults(); }
+    }
+    // cows: host-authoritative movement — adopt positions from the snapshot (guest shoves its own kart)
+    const scows = snap.cows || [];
+    if (scows.length && G.cows.length !== scows.length) resetCows();   // build the guest's cow objects (count/mesh); positions overwritten below
+    for (let i=0;i<scows.length && i<G.cows.length;i++){
+      const cow=G.cows[i], sc=scows[i];
+      cow.x=sc.x; cow.z=sc.z; cow.heading=sc.h||0; cow.walkT=sc.w||0; cow.state=sc.st?'walk':'graze'; cow.chew=sc.c||0; cow.y=sampleHeight(sc.x,sc.z);
     }
     // OUR grant (host rolled it) -> local held item for HUD + use logic
     const g = snap.grants && snap.grants[net.myId];
@@ -7532,6 +8130,8 @@
       advanceProjectiles(dt);
       advanceHazards(dt);
       advanceChickens(dt);          // 2026-07-12: road-crossing chickens (host-authoritative)
+      advanceCows(dt);              // 2026-07-13 R3: wandering pasture cows (host-authoritative)
+      battleTick(dt);               // 2026-07-13 R3: balloon-battle timer + win check (host-authoritative)
       updateBoostPads(dt);          // K7: boost pads (host kart + bots; guests fire their own)
       updateSlipstream(dt);         // R1: draft boost (host kart + bots; guests compute their own)
       resolveKartCollisions();      // K7: local separation (own kart authoritative; remotes not moved)
@@ -7569,6 +8169,8 @@
     advanceProjectiles(dt);
     advanceHazards(dt);
     advanceChickens(dt);          // 2026-07-12: road-crossing chickens (solo)
+    advanceCows(dt);              // 2026-07-13 R3: wandering pasture cows (solo)
+    battleTick(dt);               // 2026-07-13 R3: balloon-battle timer + win check (solo)
     updateBoostPads(dt);          // K7: boost pads (own + bots)
     updateSlipstream(dt);         // R1: draft boost (own + bots)
     resolveKartCollisions();      // K7: kart-vs-kart separation (own + bots)
@@ -7785,6 +8387,7 @@
         if (inp.item || inp.itemTrailToggle) applyLocalItemInputNet(G.players.local, inp);
         updateBoostPads(dt);          // K7: guest fires its own pad boost locally (feel)
         updateSlipstream(dt);         // R1: guest drafts remotes/host locally (own kart only)
+        guestCowContact(dt);          // R3: cows are host-sim'd; guest shoves its OWN kart locally
         resolveKartCollisions();      // K7: separate only OUR kart from interpolated remotes
         if (G.goFlashT > 0){ G.goFlashT = Math.max(0, G.goFlashT - dt); if (G.goFlashT===0){ countdownEl.style.display='none'; cdNum.classList.remove('go'); } }
         G.raceClock += dt;
@@ -7817,15 +8420,19 @@
     updateParticles(dt);   // K6: advance the pooled juice particles
     updateAudio(dt);       // K6: reactive engine hum / MT chimes
     syncChickenViews();    // 2026-07-12: position/animate road-crossing chicken meshes
+    syncCowViews();        // 2026-07-13 R3: position/animate pasture cows
+    updateBattleBalloons(); // 2026-07-13 R3: balloons bob above each kart in battle
     updateLightningBolts(dt);   // ⚡ barn-storm bolts fade/despawn
     if (_skyFlashT > 0) _skyFlashT = Math.max(0, _skyFlashT - dt);
     if (WATER_GROUP.userData.animate) WATER_GROUP.userData.animate(now*0.001);   // water waves
     if (SKY_OBJ && SKY_OBJ.userData.update) SKY_OBJ.userData.update(dt, camera);  // cloud drift / snow / celestial
     if (TRAIN_GROUP.userData.update) TRAIN_GROUP.userData.update(dt);             // moving trains
+    updateTrainCrossings(dt);   // R3: level-crossing gates/lights/bell + train-vs-kart spin ruling
     renderer.render(scene, camera);
     if (_fps.on) fpsSample(now);   // perf HUD: sample AFTER render so renderer.info is this frame's
     requestAnimationFrame(frame);
   }
+  buildTrainCrossings();   // R3: level-crossing gates (after TRAIN_CROSSINGS const is initialized)
   requestAnimationFrame(frame);
 
   // ============================================================================
@@ -7883,8 +8490,10 @@
       for (const id in b) ids.push(id);
       let map=null; try{ map=JSON.parse(localStorage.getItem('fk_tracks_v1')||'null'); }catch(e){}
       if (map && typeof map==='object'){ for (const id in map){ if (ids.indexOf(id)<0 && id!=='default') ids.push(id); } }
-      return ids;
+      // BATTLE (R3): battle arenas are NOT racing courses — keep them out of the TT/GP/MP course grids.
+      return ids.filter(id=>{ const i=trackInfo(id); return !(i && i.track && i.track.battle); });
     }
+    const BATTLE_ARENA_ID = 'barnyard-brawl';
     // R2: bests/ghosts key per class+mirror (classMirrorSuffix() reflects the LIVE menu selection).
     function bestFor(id){ let b=parseFloat(localStorage.getItem('fk_best_'+id+classMirrorSuffix())); return isFinite(b)&&b>0 ? b : null; }
     function ghostFor(id){ try{ return !!localStorage.getItem('fk_ghost_'+id+classMirrorSuffix()); }catch(e){ return false; } }
@@ -8001,6 +8610,7 @@
       const w=document.createElement('div'); w.className='mfBig';
       w.appendChild(btn('mfBtn','<span class="ic">⏱</span><div>TIME TRIAL<small>solo · beat your best lap</small></div>', ()=>{ st.spMode='trial'; openCourseGrid('tt'); }));
       w.appendChild(btn('mfBtn','<span class="ic">🏆</span><div>GRAND PRIX<small>12 racers · 4-track cups</small></div>', ()=>{ st.spMode='prix'; openCups(); }));
+      w.appendChild(btn('mfBtn','<span class="ic">💥</span><div>BATTLE<small>balloon battle vs 3 bots</small></div>', ()=>{ st.spMode='battle'; openRacerSelect('battle'); }));
       s.appendChild(w); s.appendChild(backBar());
     })();
 
@@ -8144,6 +8754,15 @@
       st.loadout = applyLocalLoadout(st.loadout);
       if (racerConfirmMode==='trial') launchTrialRace();
       else if (racerConfirmMode==='cup') launchCup();
+      else if (racerConfirmMode==='battle') launchBattle();
+    }
+    // ---- launch a solo BATTLE (R3): balloon battle on the arena vs 3 bots (needs a track reload) ----
+    function launchBattle(){
+      if ((ACTIVE_TRACK_ID||BOOT_TRACK_ID) === BATTLE_ARENA_ID && !mirrorNeedsReload()){
+        setRaceMode('prix'); startCountdown(); return;   // already on the arena → start now
+      }
+      try{ sessionStorage.setItem('fk_flow_pending', JSON.stringify({ kind:'battle', loadout:st.loadout })); }catch(e){}
+      location.href = 'farmkart.html?track=' + encodeURIComponent(BATTLE_ARENA_ID);
     }
 
     // A course start needs a full reload (so loadActiveTrack re-resolves fk_tracks_v1) when the
@@ -8287,8 +8906,9 @@
       s.appendChild(el('div','mfHead','HOST'));
       const w=document.createElement('div'); w.className='mfBig';
       w.appendChild(btn('mfBtn','<span class="ic">🏁</span><div>RACE<small>single race or cup</small></div>', ()=>show('mp-race')));
-      const battle=btn('mfBtn','<span class="ic">💥</span><div>BATTLE<small>coming soon 🚧</small></div>', ()=>{});
-      battle.disabled=true; w.appendChild(battle);
+      // BATTLE (R3): host a balloon battle on the arena. Reuses the mphost waiting-room flow; the arena
+      // track being a battle:true course is what flips the shared race into battle for everyone.
+      w.appendChild(btn('mfBtn','<span class="ic">💥</span><div>BATTLE<small>balloon battle · up to 4 players</small></div>', ()=>hostBattle()));
       s.appendChild(w); s.appendChild(backBar());
     })();
     (function(){ const s=makeScreen('mp-race');
@@ -8354,6 +8974,12 @@
         location.href='farmkart.html?track='+encodeURIComponent(id); return;
       }
       await beginHost();
+    }
+    // ---- host a MP BATTLE (R3): reload onto the arena, then run the normal mphost waiting room ----
+    async function hostBattle(){
+      if ((ACTIVE_TRACK_ID||BOOT_TRACK_ID) === BATTLE_ARENA_ID){ await beginHost(); return; }
+      try{ sessionStorage.setItem('fk_flow_pending', JSON.stringify({ kind:'mphost', track:BATTLE_ARENA_ID })); }catch(e){}
+      location.href='farmkart.html?track='+encodeURIComponent(BATTLE_ARENA_ID);
     }
     async function beginHost(){
       mpGrid.go.disabled=true;
@@ -8724,6 +9350,7 @@
       let pend=null; try{ pend=JSON.parse(sessionStorage.getItem('fk_flow_pending')||'null'); }catch(e){}
       if (pend){ try{ sessionStorage.removeItem('fk_flow_pending'); }catch(e){}
         if (pend.kind==='trial'){ st.loadout=normalizeLoadout(pend.loadout||st.loadout); applyLocalLoadout(st.loadout); setRaceMode('trial'); startCountdown(); return; }
+        if (pend.kind==='battle'){ st.loadout=normalizeLoadout(pend.loadout||st.loadout); applyLocalLoadout(st.loadout); setRaceMode('prix'); startCountdown(); return; }   // R3: resume solo battle on the arena
         if (pend.kind==='mphost'){ histStack=['home']; beginHost(); return; }
       }
       // 3) resume a Grand Prix cup session
@@ -8860,8 +9487,17 @@
     get WATER_LOOKUP(){ return WATER_LOOKUP; }, waterAt, waterSplashSound, spawnWaterSplash,
     advanceChickens, resetChickens, spawnCrossingChicken, scatterChicken, syncChickenViews,
     get chickens(){ return G.chickens; }, get chickenViews(){ return _chickenViews; }, CHICKEN_HIT_R,
+    // R3 cows (test hooks)
+    advanceCows, resetCows, syncCowViews, buildCowMesh, cowShoveKart, COW_HIT_R,
+    get cows(){ return G.cows; }, get cowViews(){ return _cowViews; },
     // Waters + sky + trains (2026-07-12, for headless tests)
     WATER_GROUP, TRAIN_GROUP, setSky, get SKY_OBJ(){ return SKY_OBJ; }, get sky(){ return ACTIVE_TRACK.sky || 'day'; },
+    // R3 train crossings (test hooks)
+    buildTrainCrossings, updateTrainCrossings, get trainCrossings(){ return TRAIN_CROSSINGS; },
+    // R3 battle mode (test hooks)
+    battleActive, startBattle, battlePopBalloon, battleKO, battleTick, battleEnd, battleStandings,
+    rollItemBattle, battleBotInput, updateBattleBalloons, updateBattleHUD, showBattleResults,
+    get battle(){ return G.battle; }, BATTLE_START_BALLOONS, BATTLE_TIME,
     get hemiLight(){ return hemi; }, get sunLight(){ return sun; },
     // R2: speed class + mirror + ghost + podium (test hooks)
     SPEED_CLASSES, classMul, classMirrorSuffix, GHOST_KEY, mirrorTrack,
@@ -8911,7 +9547,7 @@
     // jump straight into racing at sample 0, SOLO (physics-regression harness entry point)
     forceRace:()=>{
                     for (const id in G.players){ if (G.players[id].isBot || id!=='local'){ removeKartView(id); delete G.players[id]; } }
-                    G.projectiles.length = 0; G.hazards.length = 0; resetChickens();
+                    G.projectiles.length = 0; G.hazards.length = 0; resetChickens(); resetCows();
                     for (const b of G.itemBoxes){ b.active = true; b.respawnT = 0; }
                     G.phase = 'racing'; G.goFlashT = 0;
                     countdownEl.style.display='none'; startOverlay.style.display='none'; resultsEl.style.display='none';
