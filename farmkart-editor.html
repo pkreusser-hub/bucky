@@ -166,7 +166,7 @@
       <div id="pastureList" style="margin-top:6px;"></div>
     </div>
     <div id="waterTools" style="display:none;margin-top:6px;padding:8px;background:rgba(30,70,95,.32);border-radius:8px;">
-      <div style="color:#9ab;font-size:11px;margin-bottom:3px;">sculpt a bowl, then click INSIDE it — water fills up to the click height (like pouring it in)</div>
+      <div style="color:#9ab;font-size:11px;margin-bottom:3px;">🌊 click a low spot to set the ocean height — everything below it fills across the whole map. Click again to move the water line.</div>
       <div id="waterList" style="margin-top:4px;"></div>
     </div>
     <div id="fenceTools" style="display:none;margin-top:6px;padding:8px;background:rgba(70,55,35,.3);border-radius:8px;">
@@ -989,6 +989,35 @@
     if (sampled){ builtWaterGroup = FK_TRACK.buildWaterMesh(track.waters||[], sampled, track.width, THREE, waterOpts()); waterGroup.add(builtWaterGroup); }
     refreshWaterList();
   }
+  // GLOBAL SEA (2026-07-13): 💧 water mode now authors a single ocean at track.seaLevel. Clicking the
+  // terrain REPLACES seaLevel with the click's terrain height (never appends -> no stacked sheets), and
+  // everything below it across the whole map fills. Rendered via the SAME FK_TRACK.buildSeaMesh the game
+  // uses. Legacy bounded `waters` ponds on a loaded track keep rendering (rebuildWaters above); only the
+  // click-authoring flow changed. builtSeaGroup animates in the render loop below.
+  const seaGroup = new THREE.Group(); scene.add(seaGroup);
+  let builtSeaGroup = null;
+  function rebuildSea(){
+    if (builtSeaGroup){ seaGroup.remove(builtSeaGroup); builtSeaGroup.traverse(c=>{ if(c.geometry)c.geometry.dispose(); if(c.material){ if(c.material.map)c.material.map.dispose(); c.material.dispose(); } }); builtSeaGroup=null; }
+    if (sampled && typeof track.seaLevel==='number' && isFinite(track.seaLevel)){
+      builtSeaGroup = FK_TRACK.buildSeaMesh(track.seaLevel, sampled, track.width, THREE, waterOpts());
+      seaGroup.add(builtSeaGroup);
+    }
+    refreshWaterList();
+  }
+  function setSeaAt(hit){
+    const y = terrainHeightAt(hit.x, hit.z);
+    track.seaLevel = +y.toFixed(2);
+    rebuildSea();
+    commitHistory();   // also marks dirty
+    toast('🌊 ocean set at y='+track.seaLevel.toFixed(1)+' — everything below fills');
+  }
+  function clearSea(){
+    if (track.seaLevel===undefined) return;
+    delete track.seaLevel;
+    rebuildSea();
+    commitHistory();
+    toast('ocean removed');
+  }
   // which existing water region (if any) contains the click point? -> its id, or null.
   function waterRegionAt(x, z){
     if (!builtWaterGroup) return null;
@@ -1016,18 +1045,36 @@
   function selectedWater(){ return (track.waters||[]).find(w=>w.id===selWaterId) || null; }
   function refreshWaterList(){
     const el = $('waterList'); if (!el) return; el.innerHTML='';
-    const ws = track.waters||[];
-    if (!ws.length){ el.innerHTML = '<div style="color:#889;">none — use 💧 water mode, click a sculpted low spot</div>'; return; }
-    ws.forEach((w)=>{
+    // --- SEA (primary authoring) ---
+    if (typeof track.seaLevel==='number' && isFinite(track.seaLevel)){
       const d = document.createElement('div'); d.className='ir';
       const span = document.createElement('span');
-      span.style.cssText='flex:1;cursor:pointer;'+(w.id===selWaterId?'color:#7fd0ff;':'');
-      span.textContent = (w.id===selWaterId?'▶ ':'') + '💧 y='+w.y.toFixed(2)+' @('+Math.round(w.x)+','+Math.round(w.z)+')';
-      span.onclick = ()=>{ selWaterId = w.id; refreshWaterList(); };
-      const btn = document.createElement('button'); btn.textContent='✕';
-      btn.addEventListener('click', ()=>{ track.waters = track.waters.filter(x=>x!==w); if (selWaterId===w.id) selWaterId=null; rebuildWaters(); commitHistory(); });
+      span.style.cssText='flex:1;color:#7fd0ff;';
+      span.textContent = '🌊 Sea level y='+track.seaLevel.toFixed(1);
+      const btn = document.createElement('button'); btn.textContent='✕'; btn.title='remove the ocean';
+      btn.addEventListener('click', clearSea);
       d.appendChild(span); d.appendChild(btn); el.appendChild(d);
-    });
+    } else {
+      const h = document.createElement('div');
+      h.style.cssText='color:#889;font-size:11px;';
+      h.textContent='no ocean — click a low spot to set the ocean height; everything below fills';
+      el.appendChild(h);
+    }
+    // --- legacy bounded ponds (kept from a loaded track; still selectable/deletable) ---
+    const ws = track.waters||[];
+    if (ws.length){
+      const hdr = document.createElement('div'); hdr.style.cssText='color:#889;font-size:10px;margin-top:7px;'; hdr.textContent='bounded ponds:'; el.appendChild(hdr);
+      ws.forEach((w)=>{
+        const d = document.createElement('div'); d.className='ir';
+        const span = document.createElement('span');
+        span.style.cssText='flex:1;cursor:pointer;'+(w.id===selWaterId?'color:#7fd0ff;':'');
+        span.textContent = (w.id===selWaterId?'▶ ':'') + '💧 y='+w.y.toFixed(2)+' @('+Math.round(w.x)+','+Math.round(w.z)+')';
+        span.onclick = ()=>{ selWaterId = w.id; refreshWaterList(); };
+        const btn = document.createElement('button'); btn.textContent='✕';
+        btn.addEventListener('click', ()=>{ track.waters = track.waters.filter(x=>x!==w); if (selWaterId===w.id) selWaterId=null; rebuildWaters(); commitHistory(); });
+        d.appendChild(span); d.appendChild(btn); el.appendChild(d);
+      });
+    }
   }
 
   // ---- SKY presets (2026-07-12): a per-track sky, live-previewed in the editor viewport via the SAME
@@ -1312,6 +1359,7 @@
     rebuildTunnels();
     rebuildBridges();
     rebuildWaters();
+    rebuildSea();
     rebuildTrains();
     rebuildChickenMarkers();
     rebuildPastureMarkers();
@@ -1474,7 +1522,7 @@
                           : m==='fence'  ? 'click the ground to drop fence posts along a line · finish to start a new run · drag = orbit'
                           : m==='tunnel' ? 'click the road to add a concrete TUNNEL · select one from the list to adjust len/height/width'
                           : m==='bridge' ? 'click the road to add a wooden BRIDGE · select one from the list to adjust its length'
-                          : m==='water'  ? 'sculpt a bowl first, then click INSIDE the low spot — water fills up to the click height'
+                          : m==='water'  ? '🌊 click a low spot to set the OCEAN height — everything below fills across the map · click again to move the water line'
                           : m==='tufts'  ? 'drag the GRASS to paint extra grass tufts (low / high density) · erase to remove'
                           : m==='chicken'? 'click the road to add a 🐔 chicken crossing (a chicken periodically walks across)'
                           : m==='pasture'? 'click the grass to add a 🐄 pasture of cows · select one to adjust radius/count · drag = orbit'
@@ -1754,7 +1802,7 @@
     }
     if (mode === 'water'){
       const hit = pickGround();
-      if (hit){ addWaterAt(hit); controls.enabled = false; }
+      if (hit){ setSeaAt(hit); controls.enabled = false; }   // GLOBAL SEA: click sets/replaces the ocean height
       return;
     }
     if (mode === 'pasture'){
@@ -2618,6 +2666,7 @@
       if (follow) updateFollowCam(dt); else controls.update();
     } else controls.update();
     if (builtWaterGroup && builtWaterGroup.userData.animate) builtWaterGroup.userData.animate(performance.now()*0.001);
+    if (builtSeaGroup && builtSeaGroup.userData.animate) builtSeaGroup.userData.animate(performance.now()*0.001);
     if (edSkyGroup && edSkyGroup.userData.update) edSkyGroup.userData.update(0.016, camera);
     if (builtTrainGroup && builtTrainGroup.userData.update) builtTrainGroup.userData.update(0.016);
     renderer.render(scene, camera); requestAnimationFrame(loop);
@@ -2711,7 +2760,7 @@
     get ribbonGroup(){ return ribbonGroup; },   // draped-ribbon bbox check (followTerrain test)
     toggleFollow:()=>{ track.followTerrain=!track.followTerrain; if(!track.followTerrain) delete track.followTerrain; $('drapeBtn').classList.toggle('on', !!track.followTerrain); rebuild(); return !!track.followTerrain; },
     setMode, rebuild, insertNear, addItemAt, addBoostAt, deleteSelected, doSave,
-    scene, camera, spheres, boostGroup, corridorGroup, refreshValidation,
+    scene, camera, controls, spheres, boostGroup, corridorGroup, refreshValidation,
     setSelected:(i)=>{ selected=i; rebuild(); },
     dragPointTo:(i,x,z)=>{ track.points[i].x=x; track.points[i].z=z; selected=i; rebuild(); },
     setPointY:(i,y)=>{ track.points[i].y=y; rebuild(); },
@@ -2763,6 +2812,9 @@
     get waterGroup(){ return builtWaterGroup; }, addWaterAt, rebuildWaters, waterRegionAt,
     selectWater:(id)=>{ selWaterId=id; refreshWaterList(); },
     deleteWater:(id)=>{ track.waters=(track.waters||[]).filter(w=>w.id!==id); if(selWaterId===id) selWaterId=null; rebuildWaters(); commitHistory(); },
+    // Global-sea hooks (2026-07-13, for headless tests)
+    get seaLevel(){ return track.seaLevel; }, get seaGroup(){ return builtSeaGroup; },
+    setSeaAt, rebuildSea, clearSea,
     // Sky preset hooks (2026-07-12, for headless tests)
     get sky(){ return track.sky||'day'; }, applyEdSky, get edSkyGroup(){ return edSkyGroup; },
     setSky:(v)=>{ if(v==='day'||!FK_TRACK.SKY_PRESETS[v]) delete track.sky; else track.sky=v; const s=$('skySel'); if(s) s.value=track.sky||'day'; applyEdSky(); commitHistory(); },

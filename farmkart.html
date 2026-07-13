@@ -1074,6 +1074,8 @@
       for (const k in g.cells){ const mm=/^(-?\d+),(-?\d+)$/.exec(k); if(!mm) continue; nc[(-(+mm[1]))+','+mm[2]] = g.cells[k]; }
       g.cells = nc; };
     flipGrid(m.terrain); flipGrid(m.paint); flipGrid(m.tufts);
+    // m.seaLevel (global-sea Y) is a scalar invariant under the L-R mirror — the JSON clone above
+    // already carried it; the sea mesh rebuilds over the symmetric extent, so nothing to flip.
     return m;
   }
   // ==========================================================================================
@@ -1334,6 +1336,17 @@
     heightFn:(x,z)=>groundSampleHeight(x,z), groundMargin:ACTIVE_TRACK.groundMargin
   });
   scene.add(WATER_GROUP);
+  // GLOBAL SEA (2026-07-13): a SINGLE ocean plane at ACTIVE_TRACK.seaLevel spanning the whole map.
+  // Terrain (opaque) occludes it, so it only shows where the land is sunk below the sea (beaches,
+  // basins). ONE plane, never stacked. Coexists with the bounded `waters` ponds above. Absent seaLevel
+  // -> empty group (byte-identical to before). Folded into waterAt() below so the rescue crow + entry
+  // splash treat sunken terrain as water. seaLevel is a scalar Y so it survives mirrorTrack's clone.
+  const SEA_LEVEL = (typeof ACTIVE_TRACK.seaLevel === 'number' && isFinite(ACTIVE_TRACK.seaLevel)) ? ACTIVE_TRACK.seaLevel : null;
+  const _SEA_WATER = SEA_LEVEL != null ? { sea:true, level:SEA_LEVEL } : null;
+  const SEA_GROUP = FK_TRACK.buildSeaMesh(SEA_LEVEL, _sampled, TRACK_WIDTH, THREE, {
+    heightFn:(x,z)=>groundSampleHeight(x,z), groundMargin:ACTIVE_TRACK.groundMargin
+  });
+  scene.add(SEA_GROUP);
   // WATER SPLASH lookup (2026-07-12): a per-water-body Set of filled cell keys so a kart's point-in-
   // water test is O(1) (no per-frame flood-fill). A kart is "in water" when its (x,z) cell is filled
   // AND the terrain there is below the water level (guaranteed by the fill). Splash FX only (no physics
@@ -1343,11 +1356,17 @@
     return { cells:f.cells, cell:f.cell, originX:f.originX, originZ:f.originZ, level:w.y };
   });
   function waterAt(x, z){
+    // Bounded ponds: keep the HIGHEST-level match (the controlling surface if ponds ever overlap).
+    let best = null;
     for (const w of WATER_LOOKUP){
       const i = Math.floor((x-w.originX)/w.cell), j = Math.floor((z-w.originZ)/w.cell);
-      if (w.cells.has(i+','+j)) return w;
+      if (w.cells.has(i+','+j) && (!best || w.level > best.level)) best = w;
     }
-    return null;
+    // GLOBAL SEA: terrain below the sea plane is water at SEA_LEVEL. If both a pond and the sea apply
+    // here, the deeper/controlling surface (higher level) wins. On single-level tracks groundSampleHeight
+    // == the road ride height, so a road above the clicked sea reads as terrain>sea -> dry (no false dunk).
+    if (SEA_LEVEL != null && groundSampleHeight(x, z) < SEA_LEVEL && (!best || SEA_LEVEL > best.level)) best = _SEA_WATER;
+    return best;
   }
   // ---- WATER OBJECTS (legacy type:"water" slabs, e.g. the Sunny Meadows mill pond) ----
   // These are placed OBJECTS (not `waters` flood-fill regions), so waterAt() doesn't see them.
@@ -8820,6 +8839,7 @@
     updateLightningBolts(dt);   // ⚡ barn-storm bolts fade/despawn
     if (_skyFlashT > 0) _skyFlashT = Math.max(0, _skyFlashT - dt);
     if (WATER_GROUP.userData.animate) WATER_GROUP.userData.animate(now*0.001);   // water waves
+    if (SEA_GROUP.userData.animate) SEA_GROUP.userData.animate(now*0.001);       // global-sea ripple
     if (SKY_OBJ && SKY_OBJ.userData.update) SKY_OBJ.userData.update(dt, camera);  // cloud drift / snow / celestial
     if (TRAIN_GROUP.userData.update) TRAIN_GROUP.userData.update(dt);             // moving trains
     updateTrainCrossings(dt);   // R3: level-crossing gates/lights/bell + train-vs-kart spin ruling
@@ -9991,7 +10011,7 @@
     advanceCows, resetCows, syncCowViews, buildCowMesh, cowShoveKart, COW_HIT_R,
     get cows(){ return G.cows; }, get cowViews(){ return _cowViews; },
     // Waters + sky + trains (2026-07-12, for headless tests)
-    WATER_GROUP, TRAIN_GROUP, setSky, get SKY_OBJ(){ return SKY_OBJ; }, get sky(){ return ACTIVE_TRACK.sky || 'day'; },
+    WATER_GROUP, SEA_GROUP, get SEA_LEVEL(){ return SEA_LEVEL; }, TRAIN_GROUP, setSky, get SKY_OBJ(){ return SKY_OBJ; }, get sky(){ return ACTIVE_TRACK.sky || 'day'; },
     // R3 train crossings (test hooks)
     buildTrainCrossings, updateTrainCrossings, get trainCrossings(){ return TRAIN_CROSSINGS; },
     // R3 battle mode (test hooks)

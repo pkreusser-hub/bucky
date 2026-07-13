@@ -625,6 +625,12 @@
       // the solid ribbon walls (visual swap only — collision reads fence.points either way). Absent or
       // 'ribbon' -> omitted (byte-identical for every existing track).
       if (data.wallStyle === 'fence') out.wallStyle = 'fence';
+      // GLOBAL SEA LEVEL (2026-07-13): a single world-Y ocean plane. Terrain below seaLevel is water
+      // at seaLevel across the WHOLE map; terrain above it occludes the sea (so water only shows in low
+      // spots — beaches, basins). ONE plane, never stacked. Distinct from — and coexists with — the
+      // bounded `waters` ponds above. A scalar Y, so it's invariant under the left-right mirror. Absent
+      // /non-finite -> omitted so every existing track serializes byte-identical.
+      if (typeof data.seaLevel === 'number' && isFinite(data.seaLevel)) out.seaLevel = data.seaLevel;
       return out;
     }catch(e){ return null; }
   }
@@ -1768,6 +1774,72 @@
   }
 
   // ============================================================================
+  // GLOBAL SEA (2026-07-13) — buildSeaMesh: ONE translucent water plane at y=seaLevel spanning the
+  // whole ground extent (track bbox + groundMargin, same bound as buildGroundMesh/buildWaterMesh via
+  // _waterBounds). NO per-cell flood fill, NO stacking — it's a single continuous grid. Terrain is
+  // opaque + depth-writing, so it OCCLUDES the sea where it's higher; the sea only shows over SUNKEN
+  // terrain (beaches, basins) for free. Subdivided (~1.5-2u cells, coarsened so total verts stay under
+  // ~12k on a huge map) so each vertex is DEPTH-TINTED — cyan/shallow where terrain sits just below the
+  // surface, deep navy where it's far below (opts.heightFn samples the terrain) — with shore foam near
+  // the waterline. Same translucent look + userData.animate(t) ripple as buildWaterMesh. Returns a
+  // THREE.Group (empty when seaLevel isn't a finite number). Used by the game (SEA_GROUP) + editor.
+  // ============================================================================
+  function buildSeaMesh(seaLevel, sampled, width, THREE, opts){
+    const grp = new THREE.Group();
+    if (typeof seaLevel !== 'number' || !isFinite(seaLevel) || !sampled) return grp;
+    opts = opts || {};
+    const hfn = opts.heightFn || (()=>0);
+    const b = _waterBounds(sampled, opts);
+    const spanX = Math.max(1, b.maxX - b.minX), spanZ = Math.max(1, b.maxZ - b.minZ);
+    // ~1.8u cells for a crisp depth gradient, but cap total verts ~12k -> coarsen the cell on big maps.
+    const MAXV = 12000; let cell = 1.8;
+    let nx = Math.ceil(spanX/cell), nz = Math.ceil(spanZ/cell);
+    while ((nx+1)*(nz+1) > MAXV){ cell *= 1.25; nx = Math.ceil(spanX/cell); nz = Math.ceil(spanZ/cell); }
+    const SHALLOW=[0.32,0.72,0.74], DEEP=[0.03,0.16,0.40], FOAM=[0.82,0.93,0.96];
+    const nV = (nx+1)*(nz+1);
+    const pos = new Float32Array(nV*3), basePos = new Float32Array(nV*3), col = new Float32Array(nV*3), phase = new Float32Array(nV);
+    const idx = [];
+    for (let j=0;j<=nz;j++) for (let i=0;i<=nx;i++){
+      const v = j*(nx+1)+i;
+      const x = b.minX + i*cell, z = b.minZ + j*cell;
+      pos[v*3]=x; pos[v*3+1]=seaLevel; pos[v*3+2]=z;
+      basePos[v*3]=x; basePos[v*3+1]=seaLevel; basePos[v*3+2]=z;
+      phase[v] = x*0.32 + z*0.26;
+      const depth = Math.max(0, seaLevel - hfn(x, z));   // how far terrain sits below the surface here
+      const t = Math.min(1, depth/6);
+      let r = SHALLOW[0]+(DEEP[0]-SHALLOW[0])*t, g = SHALLOW[1]+(DEEP[1]-SHALLOW[1])*t, bl = SHALLOW[2]+(DEEP[2]-SHALLOW[2])*t;
+      if (depth < 0.4){ const f = 1 - depth/0.4;    // shore foam at the waterline (terrain nearly breaks the surface)
+        r = r*(1-0.5*f)+FOAM[0]*0.5*f; g = g*(1-0.5*f)+FOAM[1]*0.5*f; bl = bl*(1-0.5*f)+FOAM[2]*0.5*f; }
+      col[v*3]=r; col[v*3+1]=g; col[v*3+2]=bl;
+    }
+    for (let j=0;j<nz;j++) for (let i=0;i<nx;i++){
+      const a = j*(nx+1)+i, bb = a+1, c = a+(nx+1), d = c+1;
+      idx.push(a, c, bb,  bb, c, d);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col,3));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    const mat = new THREE.MeshPhongMaterial({ color:0xffffff, vertexColors:true, transparent:true, opacity:0.82,
+      shininess:90, specular:0x6fb8d0, emissive:0x0a2a3a, depthWrite:false, side:THREE.DoubleSide });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.renderOrder = 4;              // draw after opaque terrain so the depth test occludes it correctly
+    mesh.userData.isSea = true;
+    grp.add(mesh);
+    grp.userData.seaLevel = seaLevel;
+    grp.userData.animate = function(tt){
+      for (let v=0; v<nV; v++){
+        const ph = phase[v];
+        pos[v*3+1] = basePos[v*3+1] + 0.10*Math.sin(ph + tt*1.4) + 0.05*Math.sin(ph*1.7 - tt*2.0);
+      }
+      geo.attributes.position.needsUpdate = true;
+      geo.computeVertexNormals();
+    };
+    return grp;
+  }
+
+  // ============================================================================
   // SKY PRESETS (2026-07-12). SKY_PRESETS[preset] is a plain descriptor each page applies to its own
   // scene/lights (bg color, fog, hemisphere + sun light), and buildSkyObjects builds the shared
   // scene objects (drifting clouds / recycling snow / stars+moon / sun disc) with a userData.update
@@ -2120,7 +2192,7 @@
     groundHills, sampleHeight, groundSampleHeight, buildGroundMesh, buildObjectMesh, buildFenceMesh, buildGrassTufts, buildPaintedTufts, sampleField, sampleColor,
     SURFACE_PAINTS, surfaceTypeAt,
     fenceCollide, corridorFences, rampSurfaceY, buildTunnelMesh, buildBridgeMesh, buildBridgeEdges, bridgeCollide, trackDirectionAt, alignRampsToTrack,
-    floodFillWater, buildWaterMesh, SKY_PRESETS, buildSkyObjects, buildTrainsMesh,
+    floodFillWater, buildWaterMesh, buildSeaMesh, SKY_PRESETS, buildSkyObjects, buildTrainsMesh,
     fitInstancedBoundingSphere
   };
 })();
