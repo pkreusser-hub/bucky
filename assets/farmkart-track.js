@@ -1024,9 +1024,13 @@
     return out;
   }
   // bridgeCollide: kart-vs-bridge-edge push-out (2D XZ) with a HEIGHT GATE. edges = buildBridgeEdges
-  // output. Only blocks when the kart's y is within yTol of the deck edge height at the contact point,
-  // so a kart driving UNDER a bridge (much lower y) sails through. Returns the deepest {nx,nz,over}
-  // (push the kart back onto the deck) or null. Same slide/bonk semantics as fenceCollide.
+  // output. Blocks when the kart is at deck level OR ABOVE it; only a kart well BELOW the deck (more than
+  // yTol under the edge — i.e. a figure-8 lower branch driving UNDER the bridge) sails through. The gate is
+  // ASYMMETRIC on purpose: a symmetric |y-edgeY|<=yTol test let a kart that launched AIRBORNE off an
+  // elevated deck (y momentarily well above the deck) escape over the rail, and let a kart whose sampled y
+  // sank toward a pit beside the deck slip out. A bridge deck is the TOP surface at its (x,z), so nothing
+  // legitimately passes ABOVE it — blocking at-or-above is safe and keeps karts on the deck at any speed.
+  // Returns the deepest {nx,nz,over} (push the kart back onto the deck) or null. Same slide/bonk as fences.
   function bridgeCollide(edges, x, z, y, radius, yTol){
     if (!edges || !edges.length) return null;
     yTol = (yTol == null) ? 2.5 : yTol;
@@ -1042,7 +1046,7 @@
         if (over<=0 || over<=bestOver) continue;
         if (y != null && isFinite(y)){
           const edgeY = a.y + (b.y-a.y)*t;
-          if (Math.abs(y - edgeY) > yTol) continue;   // kart under/over the deck -> not on this bridge
+          if (edgeY - y > yTol) continue;   // kart well BELOW the deck -> under the bridge, passes through
         }
         let nx, nz;
         if (d > 1e-3){ nx=dx/d; nz=dz/d; }

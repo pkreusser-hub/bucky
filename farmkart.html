@@ -1117,7 +1117,12 @@
   // drive straight off the deck edge. The two deck-edge polylines (centerline ± half-width over each
   // bridge span, at deck height) collide via FK_TRACK.bridgeCollide in stepKart. Height-aware: a kart
   // passing UNDER a bridge (figure-8 lower branch) is NOT blocked. Empty for tracks without bridges.
-  const BRIDGE_EDGES = FK_TRACK.buildBridgeEdges(_sampled, ACTIVE_TRACK.bridges || [], TRACK_WIDTH, THREE, {
+  // NOTE: buildBridgeEdges signature is (sampled, bridges, trackWidth, opts) — NO THREE arg. Passing THREE
+  // here (as it once did) shoved `opts` into an ignored 5th slot, so heightFn was undefined and EVERY edge
+  // point got y=0. The height gate in bridgeCollide (|kart.y - edgeY| <= yTol) then rejected all contacts on
+  // any elevated deck (deckY > 2.5) → karts sailed straight through the walls. Flat/near-flat test tracks
+  // masked it (edgeY 0 ≈ deckY 0). heightFn MUST be the ROAD height (sampleHeight), same seat as the walls.
+  const BRIDGE_EDGES = FK_TRACK.buildBridgeEdges(_sampled, ACTIVE_TRACK.bridges || [], TRACK_WIDTH, {
     heightFn:(x,z)=>sampleHeight(x,z)
   });
 
@@ -3279,12 +3284,23 @@
       ch.walkT += dt;
       ch.x = ch.ax + ch.nx*ch.off; ch.z = ch.az + ch.nz*ch.off;
       ch.y = sampleHeight(ch.x, ch.z);
-      // collision: any kart within CHICKEN_HIT_R spins (star/bull immune, handled in applySpinOut) and
-      // scatters the chicken regardless (starred karts still send it fluttering).
+      // collision: any kart whose SWEPT path this frame passes within (chicken reach + kart footprint) of
+      // the chicken spins (star/bull immune, handled in applySpinOut) and scatters the chicken. The old
+      // point-distance-vs-0.8 test ignored the ~0.9u kart footprint (a glancing pass at center-distance
+      // ~1.0 physically clips the bird but never registered) AND could tunnel a boosting kart clean over
+      // the 0.8 radius between frames. Swept segment (prev->cur) + footprint radius fixes both. (2026-07-12)
+      const hitR = CHICKEN_HIT_R + Math.max(0.6, TUNE.kartRadius) * 0.5;   // ~0.8 + 0.45 = 1.25u
       let hit = false;
       for (const id in G.players){
         const q = G.players[id];
-        if (Math.hypot(q.pos.x - ch.x, q.pos.z - ch.z) < CHICKEN_HIT_R){ hit = true; applySpinOut(q); break; }
+        // segment: where the kart was at the start of this frame -> where it is now
+        const ax = q.pos.x - q.v.x*dt, az = q.pos.z - q.v.z*dt;
+        const bx = q.pos.x,            bz = q.pos.z;
+        const abx = bx-ax, abz = bz-az, L2 = abx*abx + abz*abz;
+        let t = L2 > 1e-9 ? ((ch.x-ax)*abx + (ch.z-az)*abz) / L2 : 0;
+        if (t < 0) t = 0; else if (t > 1) t = 1;
+        const cxp = ax + abx*t, czp = az + abz*t;
+        if (Math.hypot(cxp - ch.x, czp - ch.z) < hitR){ hit = true; applySpinOut(q); break; }
       }
       if (hit){ chickenSquawkSound(true, ch); scatterChicken(ch); continue; }
       // reached the far verge -> despawn, schedule the next crossing
@@ -3302,7 +3318,10 @@
         if (!v){ v = buildChickenMesh(); v.scale.setScalar(0.9); scene.add(v); _chickenViews[ch.i] = v; }
         v.visible = true;
         const bob = Math.abs(Math.sin(ch.walkT*9)) * 0.09;         // waddle bob
-        v.position.set(ch.x, (ch.y || sampleHeight(ch.x, ch.z)) + bob, ch.z);
+        // seat FEET on the road surface (ch.y = sampleHeight, incl. road/skirt), not the bird's center:
+        // the mesh is center-origin, so lift by its measured foot offset scaled by the view scale.
+        const foot = (v.userData.footOffset || 0.54) * (v.scale.y || 1);
+        v.position.set(ch.x, (ch.y || sampleHeight(ch.x, ch.z)) + foot + bob, ch.z);
         v.rotation.y = Math.atan2(ch.dir*ch.nx, ch.dir*ch.nz);      // face the walking direction
         v.rotation.z = Math.sin(ch.walkT*11) * 0.12;                // side-to-side waddle
         const inner = v.children[0];                                // head-peck via a small pitch wobble
@@ -3756,6 +3775,12 @@
     g.scale.setScalar(s);
     wrap.add(g);
     wrap.userData.fallback = true;
+    // The wrap is CENTER-origin (feet ~halfH below y=0). Crossing chickens are rendered at the ROAD height,
+    // so store the distance from origin down to the feet — syncChickenViews adds it (× the view scale) to
+    // seat the feet ON the asphalt instead of burying half the bird. (2026-07-12 fix.)
+    wrap.updateMatrixWorld(true);
+    try { wrap.userData.footOffset = -(new THREE.Box3().setFromObject(wrap)).min.y; }
+    catch(e){ wrap.userData.footOffset = 0.6; }
     return wrap;
   }
   // 🥚 golden egg projectile: a shiny gold egg with an emissive glow (sparkle trail via particles).
