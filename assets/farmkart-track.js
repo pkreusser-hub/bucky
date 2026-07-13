@@ -493,12 +493,19 @@
       // chicken periodically walks across the road perpendicular to the racing line. Absent/garbage ->
       // omitted (byte-identical for tracks without it).
       if (Array.isArray(data.chickens)){
+        // 2026-07-12: crossings are now MULTI-CRITTER. Each entry gains an optional `kind`
+        // ('chicken' default). Back-compat: an absent/`chicken` kind is OMITTED so tracks
+        // authored before critters (or all-chicken tracks) serialize byte-identical.
+        const CRITTER_KINDS = ['chicken','tumbleweed','turtle','goat','snowman','crab'];
         const chs = [];
         for (const c of data.chickens){
           if (!c || typeof c !== 'object') continue;
           const s = +c.s;
           if (!isFinite(s) || s<0 || s>1) continue;
-          chs.push({ id:(typeof c.id==='string' && c.id) ? c.id.slice(0,40) : ('chicken_'+(chs.length+1)), s });
+          const entry = { id:(typeof c.id==='string' && c.id) ? c.id.slice(0,40) : ('chicken_'+(chs.length+1)), s };
+          const kind = (typeof c.kind === 'string' && CRITTER_KINDS.indexOf(c.kind) >= 0) ? c.kind : 'chicken';
+          if (kind !== 'chicken') entry.kind = kind;   // omit default -> byte-identical for all-chicken tracks
+          chs.push(entry);
         }
         if (chs.length) out.chickens = chs;
       }

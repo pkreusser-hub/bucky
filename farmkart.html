@@ -147,6 +147,8 @@
   #itemSlot.filled{ border-color:#8effa0; }
   #itemSlot.filled.trail{ border-color:#7ec8ff; box-shadow:0 0 12px rgba(100,180,255,.45); }
   #itemIcon{ font-size:36px; line-height:1; text-align:center; padding:0 4px; }
+  /* queued/locked item shown while trailing (tap fires the trail first) — dimmed + smaller */
+  #itemIcon .queued{ font-size:0.5em; opacity:0.4; vertical-align:super; }
   /* ---- Minimap (top-right; free of place/item HUD) ---- */
   #minimap{ position:absolute; top:max(12px, env(safe-area-inset-top, 0px));
         right:max(12px, env(safe-area-inset-right, 0px)); z-index:15;
@@ -667,6 +669,8 @@
     eggSpeed:40,            // 🥚 golden egg launch speed ADDED to firer speed (fast)
     eggLife:10,             // egg lifetime before it despawns (s)
     eggTurn:5.0,            // egg homing turn rate (rad/s) — much stronger than the chicken (hard to dodge)
+    eggPathSpeed:90,        // 🥚 golden egg centerline cruise speed (arc-units/s) as it chases the leader
+    eggHeight:2.6,          // 🥚 flight height above the road while cruising the centerline
     eggSpinMul:1.8,         // egg hit spin duration = spinT * this (longer than tomato)
     starT:6,                // 🌻 sunflower star invincibility duration (s)
     starSpeedMul:1.18,      // +18% top speed while starred
@@ -2084,6 +2088,7 @@
       trailKind:null,        // item held BEHIND as a rear shield (separate from the held slot)
       starT:0,               // 🌻 sunflower star invincibility countdown (s)
       bullT:0,               // 🐂 bull rush autopilot countdown (s)
+      bullScale:1,           // 🐂 render scale (eases up to ~2x while charging — RENDER-ONLY)
       stormFlashT:0,         // ⛈ barn-storm screen-flash countdown (local FX)
       spinT:0,               // spin-out lock countdown (input ignored, kart spins 720deg)
       // --- K3.5 bot identity (isBot=false => the human/local) ---
@@ -2119,6 +2124,10 @@
     projectiles:[],          // {x,z,y, vx,vz, life, bounced, owner}
     hazards:[],              // {x,z,y, owner, ownerGraceT}
     chickens:[],             // 2026-07-12: road-crossing chickens (host-authoritative in MP)
+    finishOrder:[],          // 2026-07-12: actual crossing order [{id,seq,time}] — results order = this
+    finishSeq:0,             // monotonic counter stamped on each kart as it finishes
+    localDone:false,         // 2026-07-12: local kart finished; solo keeps simulating (no freeze) until all done
+    localFinishClock:0,      // raceClock when the local finished (grace-timeout anchor)
     raceOver:false,          // K5 MP: true once every kart has finished (host stops the world)
     raceGen:0,               // K5 MP: bumped each countdown so guests re-seat on host restart
     bestLap:loadBestLap()
@@ -2173,10 +2182,10 @@
   // reset a player's per-race progress fields (does NOT move it)
   function resetRaceFields(p){
     p.lap = 0; p.checkpoint = 0; p.wrongWayT = 0;
-    p.finished = false; p.finishTime = 0; p.place = 1;
+    p.finished = false; p.finishTime = 0; p.place = 1; p.finishSeq = 0; p._finRecorded = false;
     p.lapLast = 0; p.lapBest = 0; p.startPressT = null; p.stallT = 0;
     p.spinT = 0; p.itemHeld = null; p.itemCount = 0; p.itemTrail = false; p.itemRollT = 0; p.itemHoldT = 0;
-    p.trailKind = null; p.starT = 0; p.bullT = 0; p.stormFlashT = 0;
+    p.trailKind = null; p.starT = 0; p.bullT = 0; p.bullScale = 1; p.stormFlashT = 0;
   }
   // seat a player at a grid slot (pre-race pose), zeroing motion + progress baseline
   function placeAtGrid(p, slot){
@@ -2188,7 +2197,7 @@
     p.driftAngle = 0; p.boostT = 0; p.boostTier = 0; p.hop = 0;
     p.y = rideHeight(p.pos.x, p.pos.z, sampleHeight(p.pos.x, p.pos.z)); p.vy = 0; p.airborne = false; p.landT = 0;
     p.airT = 0; p.landFx = false; p.spinT = 0; p.itemHeld = null; p.itemCount = 0; p.itemTrail = false; p.itemRollT = 0; p.itemHoldT = 0;
-    p.trailKind = null; p.starT = 0; p.bullT = 0; p.stormFlashT = 0;
+    p.trailKind = null; p.starT = 0; p.bullT = 0; p.bullScale = 1; p.stormFlashT = 0;
     p.onRamp = false; p._rampSy = 0; p._rampF = 0; p._rampY = 0; p.rampJumped = false; p._rampBoosted = false;
     p.finishDebounce = 5;
     // progress baseline
@@ -2880,6 +2889,13 @@
   function botUseItems(p, dt){
     if (!p.itemHeld || p.itemRollT > 0 || p.spinT > 0) return;
     p.itemHoldT -= dt;
+    // TRAIL-FIRE SEMANTICS (2026-07-12): a bot holding a NEW item while trailing is LOCKED just like the
+    // player — the held item can't be used until the trail is fired. Keep the shield up while the hold
+    // timer runs, then fire the trail to unlock the held item.
+    if (p.trailKind){
+      if (p.itemHoldT <= 0) fireTrail(p);
+      return;
+    }
     const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
     const held = p.itemHeld;
     // ---- new items ----
@@ -2940,7 +2956,7 @@
     ['egg',         0,    14],   // 🥚 golden egg (blue shell) — back only
     ['star',        0,    12],   // 🌻 sunflower star
     ['bull',        0,    12],   // 🐂 bull rush
-    ['storm',       0,    10],   // ⛈ barn storm (lightning)
+    ['storm',       0,     7],   // ⛈ barn storm (lightning) — 2026-07-12: weight ×0.7 (was base 0/slope 10)
   ];
   // every kind that can appear (roll-animation cycle + validation)
   const ITEM_KINDS = ITEM_ROLL_TABLE.map(w => w[0]);
@@ -3027,6 +3043,18 @@
       clearItem(p);
     }
   }
+  // 🛡→ FIRE THE TRAILED ITEM (2026-07-12 trail-fire semantics): while an item trails behind you, a
+  // TAP launches THAT trailed item forward as its normal projectile/drop, and the trail ends. Any
+  // item that was picked up while trailing (locked/queued in the held slot) then becomes active.
+  function fireTrail(p){
+    const kind = p.trailKind;
+    if (!kind) return false;
+    p.trailKind = null;
+    if (kind === 'tomato'){ fireTomato(p); tomatoFireSound(p.pos); }
+    else if (kind === 'chicken'){ fireChicken(p); chickenSquawkSound(false, p.pos); }
+    else if (kind === 'hay'){ dropHay(p); haySound(p.pos); }
+    return true;
+  }
   function fireTomato(p){
     const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
     const sp = Math.hypot(p.v.x, p.v.z) + TUNE.tomatoSpeed;
@@ -3072,17 +3100,35 @@
     }
     return best;
   }
-  // 🥚 GOLDEN EGG (blue-shell equivalent): a fast, strongly-homing projectile aimed at the race
-  // LEADER. If the firer IS the leader there's no target — it just flies forward and hits the first
-  // kart it meets (or despawns after eggLife).
+  // Map a "total progress" scalar (lap*TRACK_LEN + wrapped-u, the totalProgress metric) to the
+  // nearest centerline sample index. Used by the golden egg's path-following flight.
+  function sampleIdxAtTotalProgress(prog){
+    const u = ((prog % TRACK_LEN) + TRACK_LEN) % TRACK_LEN;   // 0..TRACK_LEN, offset from FINISH_S
+    const sArc = ((u + FINISH_S) % TRACK_LEN + TRACK_LEN) % TRACK_LEN;
+    let bi = 0; for (let i=0;i<SAMPLES;i++){ if (arcS[i] >= sArc){ bi = i; break; } bi = i; }
+    return bi;
+  }
+  // 🥚 GOLDEN EGG (blue-shell equivalent): flies ALONG THE TRACK CENTERLINE from the firer, sailing at
+  // a fixed height above the road and following the course FORWARD (passing everyone) until it reaches
+  // the current race LEADER, then dives and strikes them. If the firer IS the leader there's no one
+  // ahead — fall back to a fast straight homing shot (the old behavior).
   function fireGoldenEgg(p){
     const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
-    const sp = Math.hypot(p.v.x, p.v.z) + TUNE.eggSpeed;
-    const x = p.pos.x + f.x*2.4, z = p.pos.z + f.z*2.4;
     const leader = findLeader();
     const tgt = (leader && leader !== p) ? leader : null;
-    G.projectiles.push({ kind:'egg', x, z, y:sampleHeight(x,z)+0.8, vx:f.x*sp, vz:f.z*sp,
-      life:TUNE.eggLife, bounced:false, owner:p.id, target:tgt ? tgt.id : null });
+    if (tgt){
+      // path-follow chase: start at the firer's progress, cruise the centerline to the leader
+      const x = p.pos.x + f.x*2.4, z = p.pos.z + f.z*2.4;
+      G.projectiles.push({ kind:'egg', pathFollow:true, prog:totalProgress(p), diving:false,
+        x, z, y:sampleHeight(x,z)+TUNE.eggHeight, vx:0, vz:0,
+        life:TUNE.eggLife, bounced:false, owner:p.id, target:tgt.id });
+    } else {
+      // firer is 1st — straight fast shot (old fallback)
+      const sp = Math.hypot(p.v.x, p.v.z) + TUNE.eggSpeed;
+      const x = p.pos.x + f.x*2.4, z = p.pos.z + f.z*2.4;
+      G.projectiles.push({ kind:'egg', pathFollow:false, x, z, y:sampleHeight(x,z)+0.8, vx:f.x*sp, vz:f.z*sp,
+        life:TUNE.eggLife, bounced:false, owner:p.id, target:null });
+    }
   }
   // ⛈ BARN STORM (lightning equivalent): every kart AHEAD of the firer spins out briefly and loses
   // its held triple down to a single (or loses its trail). Firer unaffected; already-spinning or
@@ -3097,9 +3143,61 @@
       if (isTriple(q.itemHeld)){ q.itemCount = 1; q.itemHeld = (q.itemHeld === 'chicken3' ? 'chicken' : 'tomato'); }
       else if (q.trailKind){ q.trailKind = null; }
       q.stormFlashT = 0.55;                                     // screen flash (local FX if it's the local kart)
+      spawnLightningBolt(q.pos.x, (q.y||sampleHeight(q.pos.x,q.pos.z)) + 0.6, q.pos.z);  // ⚡ bolt from the sky
     }
+    stormSkyFlash();
     stormSound(p.pos);
   }
+  // ⚡ LIGHTNING BOLTS — a jagged bright bolt striking from the sky down onto each storm-hit kart,
+  // plus a full-screen sky flash. Purely local render FX (the spin ruling is host-authoritative; every
+  // client spawns its own bolts from its barnStormStrike call). Bolts are groups of thin cylinder
+  // segments (LineBasicMaterial width is ignored on Windows ANGLE, so real geometry reads far better).
+  const _lightningBolts = [];   // { group, t, maxT, mats:[] }
+  const _BOLT_UP = new THREE.Vector3(0,1,0);
+  function _boltSegment(ax, ay, az, bx, by, bz, r, mat){
+    const dx=bx-ax, dy=by-ay, dz=bz-az, len=Math.hypot(dx,dy,dz) || 1e-3;
+    const geo = new THREE.CylinderGeometry(r*0.5, r, len, 5);
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(ax+dx*0.5, ay+dy*0.5, az+dz*0.5);
+    m.quaternion.setFromUnitVectors(_BOLT_UP, new THREE.Vector3(dx/len, dy/len, dz/len));
+    return m;
+  }
+  function spawnLightningBolt(x, y, z){
+    const group = new THREE.Group();
+    const core = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:1 });
+    const glow = new THREE.MeshBasicMaterial({ color:0xbcd4ff, transparent:true, opacity:0.55 });
+    const topY = y + 30 + Math.random()*8, segs = 9;
+    let px=x + (Math.random()-0.5)*3, py=topY, pz=z + (Math.random()-0.5)*3;
+    for (let i=1;i<=segs;i++){
+      const f=i/segs, jitter=(1-f)*2.2;
+      const nx = x + (i===segs?0:(Math.random()-0.5)*jitter);
+      const ny = topY + (y-topY)*f;
+      const nz = z + (i===segs?0:(Math.random()-0.5)*jitter);
+      group.add(_boltSegment(px,py,pz, nx,ny,nz, 0.34, glow));   // fat soft glow
+      group.add(_boltSegment(px,py,pz, nx,ny,nz, 0.14, core));   // bright core
+      px=nx; py=ny; pz=nz;
+    }
+    scene.add(group);
+    _lightningBolts.push({ group, t:0, maxT:0.4, mats:[core, glow] });
+  }
+  function updateLightningBolts(dt){
+    for (let i=_lightningBolts.length-1;i>=0;i--){
+      const b=_lightningBolts[i]; b.t += dt;
+      const k = Math.max(0, 1 - b.t/b.maxT);
+      // strobe: full-bright first ~40%, then fade
+      const op = b.t < b.maxT*0.4 ? 1 : k;
+      b.mats[0].opacity = op; b.mats[1].opacity = 0.55*op;
+      if (b.t >= b.maxT){
+        scene.remove(b.group);
+        b.group.traverse(o=>{ if(o.geometry) o.geometry.dispose(); });
+        b.mats.forEach(m=>m.dispose());
+        _lightningBolts.splice(i,1);
+      }
+    }
+  }
+  // brief bright full-scene flash via the existing #stormFlash overlay (independent of a kart hit).
+  let _skyFlashT = 0;
+  function stormSkyFlash(){ _skyFlashT = 0.4; }
   // Burst of leaf/feather/hay bits when a projectile or trailed shield is destroyed.
   function spawnItemExplode(x, y, z, kind){
     const cols = (kind === 'chicken' || kind === 'chicken3')
@@ -3139,6 +3237,34 @@
     itemBlockSound(tw);   // 2026-07-10: proximity audio (the shield may belong to a distant kart)
     return true;
   }
+  // Shield hit radius (shield item ~0.7 + projectile ~0.5 + slack) — generous so a physical intercept
+  // always registers. A CRUISING path-follow egg flies ABOVE the pack and cannot be shielded.
+  const TRAIL_ABSORB_R = 1.5;
+  function sweptTrailAbsorb(pr, dt){
+    if (pr.kind === 'egg' && pr.pathFollow && !pr.diving) return false;   // still cruising overhead
+    const pax = pr.x - pr.vx*dt, paz = pr.z - pr.vz*dt;   // segment start (last frame's position)
+    const abx = pr.x-pax, abz = pr.z-paz, L2 = abx*abx + abz*abz;
+    const absorbR = TRAIL_ABSORB_R + (pr.kind==='egg'?0.5:0);
+    for (const id in G.players){
+      const q = G.players[id]; if (id === pr.owner) continue;
+      if (!q.trailKind) continue;
+      if (q.starT>0 || q.bullT>0) continue;             // invincible karts don't carry a live shield hit
+      const tw = trailWorldPos(q);
+      let t = L2 > 1e-9 ? ((tw.x-pax)*abx + (tw.z-paz)*abz)/L2 : 0;
+      if (t<0) t=0; else if (t>1) t=1;
+      const cx = pax + abx*t, cz = paz + abz*t;
+      if (Math.hypot(cx - tw.x, cz - tw.z) < absorbR){
+        spawnItemExplode(tw.x, tw.y, tw.z, q.trailKind);
+        q.trailKind = null; itemBlockSound(tw);
+        spawnItemExplode(pr.x, pr.y, pr.z, pr.kind);
+        if (pr.kind==='tomato') tomatoSplatSound(true, pr);
+        else if (pr.kind==='chicken') chickenSquawkSound(true, pr);
+        else if (pr.kind==='egg') eggHitSound(pr);
+        pr.life = 0; return true;
+      }
+    }
+    return false;
+  }
   function hitKartWithProjectile(q, pr){
     // 🌻/🐂 invincible karts ignore projectiles entirely (no absorb, projectile passes/expires)
     if (q.starT > 0 || q.bullT > 0){ pr.life = 0; return true; }
@@ -3161,6 +3287,37 @@
   }
   function advanceProjectiles(dt){
     for (const pr of G.projectiles){
+      // 🥚 PATH-FOLLOWING EGG (blue-shell): cruise along the centerline forward from the firer,
+      // flying at a fixed height over the road, passing everyone, until it reaches the LEADER — then
+      // it drops into a homing DIVE (falls through to the homing branch below). Purely visual over the
+      // pack; it does NOT collide while cruising (it's above them).
+      if (pr.kind === 'egg' && pr.pathFollow && !pr.diving){
+        let tgt = pr.target ? G.players[pr.target] : null;
+        if (!tgt || tgt.finished){
+          const nl = findLeader();
+          tgt = (nl && nl.id !== pr.owner) ? nl : null;
+          pr.target = tgt ? tgt.id : null;
+        }
+        pr.prog += TUNE.eggPathSpeed * dt;
+        const bi = sampleIdxAtTotalProgress(pr.prog);
+        const cp = centerPts[bi];
+        pr.x = cp.x; pr.z = cp.z; pr.y = sampleHeight(cp.x, cp.z) + TUNE.eggHeight;
+        if (Math.random() < 0.8) spawnParticle(pr.x, pr.y, pr.z, { color: Math.random()<0.5?0xffe873:0xfff6c0,
+          opacity:0.95, life:0.4, vx:(Math.random()-0.5)*1.2, vy:0.4+Math.random()*1.2, vz:(Math.random()-0.5)*1.2,
+          grav:2, size:0.24, grow:-0.2, spin:4 });
+        const caught = tgt && (pr.prog >= totalProgress(tgt) - 2 || Math.hypot(tgt.pos.x-pr.x, tgt.pos.z-pr.z) < 6);
+        if (caught || !tgt){
+          pr.diving = true;
+          if (tgt){ const dx=tgt.pos.x-pr.x, dz=tgt.pos.z-pr.z, m=Math.hypot(dx,dz)||1, sp=TUNE.eggSpeed;
+                    pr.vx=dx/m*sp; pr.vz=dz/m*sp; }
+          else { pr.vx=0; pr.vz=0; pr.life = Math.min(pr.life, 0.4); }   // leader vanished -> fizzle
+        }
+        // Do NOT expire while cruising — a blue-shell always reaches the leader. A safety guard fizzles
+        // it only if it somehow circles the track twice without catching (defends against a bad state).
+        pr.cruised = (pr.cruised||0) + TUNE.eggPathSpeed*dt;
+        if (pr.cruised > TRACK_LEN*2){ pr.life = 0; }
+        continue;   // no cruise-phase kart collision (flies over the pack)
+      }
       // homing: steer toward the target kart (chicken = racer ahead; egg = race LEADER, re-resolved)
       if (pr.kind === 'chicken' || pr.kind === 'egg'){
         let tgt = pr.target ? G.players[pr.target] : null;
@@ -3205,6 +3362,12 @@
           continue;
         }
       }
+      // TRAIL SHIELD — reliable, SWEPT absorb (2026-07-12): a projectile whose swept path this frame
+      // passes within TRAIL_ABSORB_R of ANY kart's shield point is consumed, every time — regardless of
+      // approach angle/speed. The old rear-hemisphere-at-kart-center test missed fast overtakes (the
+      // projectile tunneled past the shield sitting 2.35u behind the kart) and glancing angles. Testing
+      // against the SHIELD point (not the kart center) with a swept segment fixes both.
+      if (sweptTrailAbsorb(pr, dt)) continue;
       const hitR = pr.kind === 'chicken' ? TUNE.chickenHitR : (pr.kind === 'egg' ? 2.1 : 1.5);
       for (const id in G.players){
         const q = G.players[id]; if (id === pr.owner) continue;
@@ -3234,13 +3397,25 @@
     if (G.hazards.some(hz=>hz.dead)) G.hazards = G.hazards.filter(hz=>!hz.dead);
   }
 
-  // ---------- 🐔 CHICKEN CROSSINGS (2026-07-12) ----------
-  // Each track crossing (ACTIVE_TRACK.chickens[{id,s}]) periodically sends a chicken walking ACROSS the
-  // road perpendicular to the centerline. A kart within CHICKEN_HIT_R spins out (existing applySpinOut,
-  // star/bull immune) and the chicken flutters away in a puff of feathers; that crossing goes quiet for
-  // a few seconds. HOST-authoritative in MP (host runs advanceChickens + spin rulings; guests render
-  // from the snapshot). Bots do NOT dodge (comedy). Solo/offline runs fully.
+  // ---------- 🐔 CRITTER CROSSINGS (2026-07-12, generalized from chickens) ----------
+  // Each track crossing (ACTIVE_TRACK.chickens[{id,s,kind?}]) periodically sends a CRITTER walking/rolling
+  // ACROSS the road perpendicular to the centerline. A kart within reach spins out (existing applySpinOut,
+  // star/bull immune) and the critter flees in a puff (tumbleweed BURSTS into twigs); that crossing goes
+  // quiet for a few seconds. HOST-authoritative in MP (host runs advanceChickens + spin rulings; guests
+  // render from the snapshot). Bots do NOT dodge (comedy). Solo/offline runs fully. Mechanics are
+  // IDENTICAL across kinds — only the mesh, speed, animation + hit sound differ.
   const CHICKEN_HIT_R = 0.8, CHICKEN_SPAN_PAD = 4;
+  const CRITTER_KINDS = ['chicken','tumbleweed','turtle','goat','snowman','crab'];
+  // per-kind config: speedMul (× the base 2.5-4 walk speed), roll (spins instead of waddling),
+  // scuttle (faces sideways to travel), burst (particle theme on flee).
+  const CRITTER_CFG = {
+    chicken:   { speedMul:1.0,  roll:false, scuttle:false, burst:'feather' },
+    tumbleweed:{ speedMul:1.35, roll:true,  scuttle:false, burst:'twig'    },   // rolls, slightly faster
+    turtle:    { speedMul:0.45, roll:false, scuttle:false, burst:'shell'   },   // extra slow
+    goat:      { speedMul:0.95, roll:false, scuttle:false, burst:'dust'    },   // medium
+    snowman:   { speedMul:0.8,  roll:false, scuttle:false, burst:'snow'    },   // waddling
+    crab:      { speedMul:1.0,  roll:false, scuttle:true,  burst:'bubble'  },   // sideways scuttle
+  };
   function _chickenRnd(){ return Math.random(); }
   function chickenInterval(){ return 6 + _chickenRnd()*8; }        // 6-14s between crossings
   function resetChickens(){
@@ -3249,29 +3424,49 @@
       const cp = centerPts[si], t = tangents[si];
       const nx = -t.z, nz = t.x;   // road normal (cross direction)
       const span = TRACK_WIDTH/2 + CHICKEN_SPAN_PAD;
-      return { i, s:c.s, ax:cp.x, az:cp.z, nx, nz, span,
-               active:false, off:0, dir:1, speed:3, walkT:0,
+      const kind = (c.kind && CRITTER_CFG[c.kind]) ? c.kind : 'chicken';
+      return { i, s:c.s, kind, ax:cp.x, az:cp.z, nx, nz, span,
+               active:false, off:0, dir:1, speed:3, walkT:0, roll:0,
                timer:2 + _chickenRnd()*3,   // first crossing 2-5s after the race starts
                quietT:0, x:cp.x, z:cp.z };
     });
   }
   function spawnCrossingChicken(ch){
+    const cfg = CRITTER_CFG[ch.kind] || CRITTER_CFG.chicken;
     ch.dir = _chickenRnd() < 0.5 ? 1 : -1;
     ch.off = -ch.dir * ch.span;                 // enter from one verge, walk to the far one
-    ch.speed = 2.5 + _chickenRnd()*1.5;         // 2.5-4 u/s
-    ch.active = true; ch.walkT = 0;
+    ch.speed = (2.5 + _chickenRnd()*1.5) * cfg.speedMul;
+    ch.active = true; ch.walkT = 0; ch.roll = 0;
     ch.x = ch.ax + ch.nx*ch.off; ch.z = ch.az + ch.nz*ch.off;
   }
+  // per-kind flee particle palettes (matches CRITTER_CFG.burst)
+  const _BURST = {
+    feather:[0xffffff,0xf2ebe0], twig:[0x8a5a2a,0x6b4420,0xc9a86a], shell:[0x3f8f3a,0x2a6a24,0xe8d8a0],
+    dust:[0xe8dcc0,0xcbb890,0xffffff], snow:[0xffffff,0xdff0ff,0xbfe0ff], bubble:[0xbfe8ff,0xffffff,0xe23b2e]
+  };
   function scatterChicken(ch){
-    // feather puff + a quick fly-off, then the crossing goes quiet.
-    for (let k=0;k<12;k++){
+    const cfg = CRITTER_CFG[ch.kind] || CRITTER_CFG.chicken;
+    const cols = _BURST[cfg.burst] || _BURST.feather;
+    const n = cfg.burst === 'twig' ? 16 : 12;   // tumbleweed BURSTS into a bigger scatter of twigs
+    for (let k=0;k<n;k++){
       const a = Math.random()*Math.PI*2;
       spawnParticle(ch.x + Math.cos(a)*0.3, (ch.y||sampleHeight(ch.x,ch.z)) + 0.6, ch.z + Math.sin(a)*0.3,
-        { color: Math.random()<0.5 ? 0xffffff : 0xf2ebe0, opacity:0.9, life:0.7,
+        { color: cols[(Math.random()*cols.length)|0], opacity:0.9, life:0.7,
           vx:Math.cos(a)*(2+Math.random()*2), vy:2.5 + Math.random()*2, vz:Math.sin(a)*(2+Math.random()*2),
-          grav:3.5, size:0.34, spin:5, grow:-0.05 });
+          grav: cfg.burst==='snow'?1.5:3.5, size:0.34, spin:5, grow:-0.05 });
     }
     ch.active = false; ch.quietT = 3 + _chickenRnd()*2; ch.timer = chickenInterval();
+  }
+  // themed hit sound per critter (proximity-scaled). Reuses the synth helpers.
+  function critterHitSound(kind, pos){
+    if (kind === 'chicken'){ chickenSquawkSound(true, pos); return; }
+    const mul = (typeof gainAt === 'function') ? gainAt(pos, 'critter') : 1;
+    if (kind === 'tumbleweed') noiseBurst(0.28, { filter:'bandpass', freq:2600, freqTo:900, Q:0.7, vol:0.12, mul });
+    else if (kind === 'turtle') tone(150, 0.16, { type:'sine', vol:0.14, slideTo:90, mul });
+    else if (kind === 'goat'){ tone(360, 0.12, { type:'sawtooth', vol:0.13, slideTo:300, mul }); tone(300, 0.14, { type:'sawtooth', vol:0.1, slideTo:250, mul }); }
+    else if (kind === 'snowman') noiseBurst(0.22, { filter:'lowpass', freq:600, Q:0.5, vol:0.13, mul });
+    else if (kind === 'crab'){ tone(900, 0.05, { type:'square', vol:0.1, mul }); tone(1200, 0.05, { type:'square', vol:0.09, mul }); }
+    else chickenSquawkSound(true, pos);
   }
   function advanceChickens(dt){
     for (const ch of G.chickens){
@@ -3282,6 +3477,7 @@
       }
       ch.off += ch.dir * ch.speed * dt;
       ch.walkT += dt;
+      ch.roll += ch.speed * dt;   // tumbleweed rolling angle (distance/radius-ish)
       ch.x = ch.ax + ch.nx*ch.off; ch.z = ch.az + ch.nz*ch.off;
       ch.y = sampleHeight(ch.x, ch.z);
       // collision: any kart whose SWEPT path this frame passes within (chicken reach + kart footprint) of
@@ -3302,32 +3498,129 @@
         const cxp = ax + abx*t, czp = az + abz*t;
         if (Math.hypot(cxp - ch.x, czp - ch.z) < hitR){ hit = true; applySpinOut(q); break; }
       }
-      if (hit){ chickenSquawkSound(true, ch); scatterChicken(ch); continue; }
+      if (hit){ critterHitSound(ch.kind, ch); scatterChicken(ch); continue; }
       // reached the far verge -> despawn, schedule the next crossing
       if ((ch.dir > 0 && ch.off >= ch.span) || (ch.dir < 0 && ch.off <= -ch.span)){
         ch.active = false; ch.timer = chickenInterval();
       }
     }
   }
-  // pooled render meshes, keyed by crossing index. Waddle bob + head-peck while walking.
+  // pooled render meshes, keyed by crossing index. Per-kind walk/roll animation.
   const _chickenViews = {};
   function syncChickenViews(){
     for (const ch of G.chickens){
       let v = _chickenViews[ch.i];
+      const cfg = CRITTER_CFG[ch.kind] || CRITTER_CFG.chicken;
       if (ch.active){
-        if (!v){ v = buildChickenMesh(); v.scale.setScalar(0.9); scene.add(v); _chickenViews[ch.i] = v; }
+        if (!v || v.userData.kind !== ch.kind){
+          if (v) scene.remove(v);
+          v = buildCritterMesh(ch.kind); v.scale.setScalar(0.9); scene.add(v); _chickenViews[ch.i] = v;
+        }
         v.visible = true;
-        const bob = Math.abs(Math.sin(ch.walkT*9)) * 0.09;         // waddle bob
-        // seat FEET on the road surface (ch.y = sampleHeight, incl. road/skirt), not the bird's center:
-        // the mesh is center-origin, so lift by its measured foot offset scaled by the view scale.
+        const inner = v.children[0];
         const foot = (v.userData.footOffset || 0.54) * (v.scale.y || 1);
-        v.position.set(ch.x, (ch.y || sampleHeight(ch.x, ch.z)) + foot + bob, ch.z);
-        v.rotation.y = Math.atan2(ch.dir*ch.nx, ch.dir*ch.nz);      // face the walking direction
-        v.rotation.z = Math.sin(ch.walkT*11) * 0.12;                // side-to-side waddle
-        const inner = v.children[0];                                // head-peck via a small pitch wobble
-        if (inner) inner.rotation.x = Math.max(0, Math.sin(ch.walkT*6)) * 0.22;
+        const travelY = Math.atan2(ch.dir*ch.nx, ch.dir*ch.nz);
+        if (cfg.roll){
+          // TUMBLEWEED: rolls forward. The wrap origin is the ball's visual center (see _normalizeCritter),
+          // so spinning the WHOLE wrap about X rolls it in place while it travels; symmetric so the exact
+          // axis reads fine after the travel yaw.
+          v.position.set(ch.x, (ch.y || sampleHeight(ch.x, ch.z)) + foot, ch.z);
+          v.rotation.set(ch.roll * 1.6, travelY, 0);
+        } else if (cfg.scuttle){
+          // CRAB: scuttles SIDEWAYS — faces perpendicular to travel; quick side dip.
+          const bob = Math.abs(Math.sin(ch.walkT*12)) * 0.06;
+          v.position.set(ch.x, (ch.y || sampleHeight(ch.x, ch.z)) + foot + bob, ch.z);
+          v.rotation.set(0, travelY + Math.PI/2, Math.sin(ch.walkT*14)*0.1);
+          if (inner) inner.rotation.set(0, 0, 0);
+        } else {
+          // WALKERS (chicken/turtle/goat/snowman): waddle bob + side sway. Turtle/snowman gentler.
+          const gait = ch.kind==='turtle' ? 4 : (ch.kind==='snowman' ? 6 : 9);
+          const bob = Math.abs(Math.sin(ch.walkT*gait)) * (ch.kind==='turtle'?0.03:0.09);
+          v.position.set(ch.x, (ch.y || sampleHeight(ch.x, ch.z)) + foot + bob, ch.z);
+          v.rotation.y = travelY;
+          v.rotation.z = Math.sin(ch.walkT*(gait+2)) * (ch.kind==='snowman'?0.16:0.12);
+          if (inner) inner.rotation.x = Math.max(0, Math.sin(ch.walkT*(gait*0.65))) * (ch.kind==='chicken'?0.22:0.1);
+        }
       } else if (v){ v.visible = false; }
     }
+  }
+  // ---- procedural critter meshes (chicken-scale, ~1.2 tall, center-origin wrap w/ footOffset) ----
+  function _normalizeCritter(g, kind){
+    g.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(g);
+    const sy = box.max.y - box.min.y, s = 1.2 / Math.max(sy, 1e-3);
+    const cx=(box.min.x+box.max.x)/2, cy=(box.min.y+box.max.y)/2, cz=(box.min.z+box.max.z)/2;
+    const wrap = new THREE.Group();
+    g.position.set(-cx*s, -cy*s, -cz*s); g.scale.setScalar(s); wrap.add(g);
+    wrap.updateMatrixWorld(true);
+    try{ wrap.userData.footOffset = -(new THREE.Box3().setFromObject(wrap)).min.y; }
+    catch(e){ wrap.userData.footOffset = 0.6; }
+    wrap.userData.kind = kind;
+    return wrap;
+  }
+  function buildCritterMesh(kind){
+    if (kind === 'chicken'){ const w = buildChickenMesh(); w.userData.kind = 'chicken'; return w; }
+    const g = new THREE.Group();
+    const M = (c,e)=> new THREE.MeshLambertMaterial({ color:c, emissive:e!=null?e:0x000000 });
+    if (kind === 'tumbleweed'){
+      const brown = M(0x8a5a2a, 0x2a1808);
+      const ball = new THREE.Mesh(new THREE.IcosahedronGeometry(0.42, 0), brown);
+      ball.position.y = 0.42; g.add(ball);
+      for (let i=0;i<14;i++){
+        const a = Math.random()*Math.PI*2, b = Math.random()*Math.PI;
+        const tw = new THREE.Mesh(new THREE.CylinderGeometry(0.015,0.02,0.5,4), M(0x6b4420, 0x201004));
+        tw.position.set(Math.sin(b)*Math.cos(a)*0.36, 0.42+Math.cos(b)*0.36, Math.sin(b)*Math.sin(a)*0.36);
+        tw.rotation.set(Math.random()*3, Math.random()*3, Math.random()*3); g.add(tw);
+      }
+    } else if (kind === 'turtle'){
+      const shell = new THREE.Mesh(new THREE.SphereGeometry(0.42, 12, 8, 0, Math.PI*2, 0, Math.PI/2), M(0x3f8f3a, 0x123a10));
+      shell.scale.set(1, 0.62, 1.15); shell.position.y = 0.24; g.add(shell);
+      const belly = new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.4,0.1,12), M(0xe8d8a0, 0x403316)); belly.position.y = 0.2; g.add(belly);
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), M(0x66b95c, 0x1a4416)); head.position.set(0, 0.28, 0.5); g.add(head);
+      for (const [sx,sz] of [[-0.28,0.3],[0.28,0.3],[-0.28,-0.3],[0.28,-0.3]]){
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.14,0.14,0.2), M(0x66b95c, 0x1a4416)); leg.position.set(sx,0.12,sz); g.add(leg);
+      }
+      const tail = new THREE.Mesh(new THREE.ConeGeometry(0.07,0.2,5), M(0x66b95c, 0x1a4416)); tail.rotation.x=-Math.PI/2; tail.position.set(0,0.2,-0.5); g.add(tail);
+    } else if (kind === 'goat'){
+      const white = M(0xf2f2ee, 0x3a3a34);
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.32,10,8), white); body.scale.set(1.05,0.9,1.35); body.position.y=0.5; g.add(body);
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.2,8,7), white); head.position.set(0,0.72,0.42); g.add(head);
+      const snout = new THREE.Mesh(new THREE.BoxGeometry(0.14,0.12,0.16), M(0xdedcd4,0x333)); snout.position.set(0,0.66,0.58); g.add(snout);
+      for (const s of [-1,1]){
+        const horn = new THREE.Mesh(new THREE.ConeGeometry(0.05,0.16,5), M(0xd8c8a0,0x332)); horn.position.set(s*0.09,0.9,0.36); horn.rotation.x=-0.4; g.add(horn);
+        const ear = new THREE.Mesh(new THREE.BoxGeometry(0.16,0.05,0.1), white); ear.position.set(s*0.22,0.78,0.4); ear.rotation.z=s*0.5; g.add(ear);
+      }
+      for (const [sx,sz] of [[-0.16,0.28],[0.16,0.28],[-0.16,-0.28],[0.16,-0.28]]){
+        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.06,0.34,6), M(0xdedcd4,0x333)); leg.position.set(sx,0.17,sz); g.add(leg);
+      }
+      const tail = new THREE.Mesh(new THREE.ConeGeometry(0.06,0.14,5), white); tail.position.set(0,0.56,-0.5); g.add(tail);
+    } else if (kind === 'snowman'){
+      const snow = M(0xffffff, 0x9fbfe0);
+      const b = new THREE.Mesh(new THREE.SphereGeometry(0.36,12,10), snow); b.position.y=0.36; g.add(b);
+      const m = new THREE.Mesh(new THREE.SphereGeometry(0.27,12,10), snow); m.position.y=0.86; g.add(m);
+      const h = new THREE.Mesh(new THREE.SphereGeometry(0.2,12,10), snow); h.position.y=1.24; g.add(h);
+      const nose = new THREE.Mesh(new THREE.ConeGeometry(0.05,0.22,6), M(0xff8a1e,0x502000)); nose.rotation.x=Math.PI/2; nose.position.set(0,1.26,0.2); g.add(nose);
+      for (const s of [-1,1]){
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.035,6,5), M(0x1a1a1a)); eye.position.set(s*0.07,1.32,0.17); g.add(eye);
+        const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.02,0.025,0.42,4), M(0x6b4420,0x201004)); arm.position.set(s*0.3,0.9,0); arm.rotation.z=s*1.1; g.add(arm);
+      }
+      const hat = new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.16,0.2,10), M(0x222,0x111)); hat.position.y=1.44; g.add(hat);
+      const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.24,0.24,0.03,12), M(0x222,0x111)); brim.position.y=1.35; g.add(brim);
+    } else if (kind === 'crab'){
+      const red = M(0xe23b2e, 0x4a0d08);
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.34,12,8), red); body.scale.set(1.3,0.55,1); body.position.y=0.24; g.add(body);
+      for (const s of [-1,1]){
+        const st = new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,0.16,5), red); st.position.set(s*0.12,0.4,0.22); g.add(st);
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.06,7,6), M(0x111)); eye.position.set(s*0.12,0.5,0.22); g.add(eye);
+        // claws out to the sides (this is the scuttle axis after the +90° yaw)
+        const claw = new THREE.Mesh(new THREE.SphereGeometry(0.15,8,6), red); claw.scale.set(1.4,0.7,0.8); claw.position.set(s*0.52,0.22,0.14); g.add(claw);
+        for (let l=0;l<3;l++){
+          const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.02,0.02,0.28,4), red);
+          leg.position.set(s*0.36,0.1,-0.05 - l*0.14); leg.rotation.z=s*0.9; g.add(leg);
+        }
+      }
+    } else { const w = buildChickenMesh(); w.userData.kind = kind; return w; }
+    return _normalizeCritter(g, kind);
   }
   // item boxes: pickup + per-box respawn
   function updateItemBoxes(dt){
@@ -3369,11 +3662,15 @@
   const _contactPairs = new Set();     // pair keys in contact last frame (fresh-contact bonk gate)
   function ownedLocally(p){ return !p._remote; }   // local + solo/host bots are owned; adopted remotes are not
   function resolveKartCollisions(){
-    const r = TUNE.kartRadius, minD = r*2, cap = TUNE.kartBumpCap;
+    const r = TUNE.kartRadius, cap = TUNE.kartBumpCap;
     const ids = Object.keys(G.players);
     const nowContacts = new Set();
     for (let i=0;i<ids.length;i++) for (let j=i+1;j<ids.length;j++){
       const a = G.players[ids[i]], b = G.players[ids[j]];
+      // 🐂 a charging bull has a BIGGER collision reach (scaled to its swollen size) so the rampage
+      // shoves karts from farther out — matches the visual (BULL_SIZE) without reading render state.
+      const ra = r * (a.bullT>0 ? BULL_SIZE : 1), rb = r * (b.bullT>0 ? BULL_SIZE : 1);
+      const minD = ra + rb;
       let dx = a.pos.x-b.pos.x, dz = a.pos.z-b.pos.z;
       let d = Math.hypot(dx, dz);
       if (d >= minD || d < 1e-5) continue;
@@ -4052,17 +4349,27 @@
     let place = 1;
     for (const o of others){
       if (o === p) continue;
-      if (o.finished && p.finished){ if (o.finishTime < p.finishTime) place++; }
+      // finished karts are ranked by the ACTUAL crossing sequence (finishSeq), never raw finishTime
+      // (two karts crossing in the same frame share a raceClock but not a seq → stable, correct order).
+      if (o.finished && p.finished){ if ((o.finishSeq||0) < (p.finishSeq||0)) place++; }
       else if (o.finished && !p.finished) place++;
       else if (!o.finished && !p.finished){ if (totalProgress(o) > totalProgress(p)) place++; }
     }
     return place;
   }
-  // final standings across all players (finished by time, still-racing by live progress)
+  // Stamp the actual crossing order onto a kart the first time it finishes. Results order = this order
+  // for finished karts; still-racing karts fall in behind, ordered by live progress.
+  function recordFinish(p){
+    if (p._finRecorded) return;
+    p._finRecorded = true;
+    p.finishSeq = ++G.finishSeq;
+    G.finishOrder.push({ id:p.id, seq:p.finishSeq, time:p.finishTime });
+  }
+  // final standings across all players (finished by RECORDED crossing order, still-racing by live progress)
   function computeStandings(){
     const ps = Object.values(G.players);
     ps.sort((a,b)=>{
-      if (a.finished && b.finished) return a.finishTime - b.finishTime;
+      if (a.finished && b.finished) return (a.finishSeq||0) - (b.finishSeq||0);
       if (a.finished) return -1;
       if (b.finished) return 1;
       return totalProgress(b) - totalProgress(a);
@@ -4073,6 +4380,7 @@
   function finishRace(p){
     p.finished = true;
     p.finishTime = G.raceClock;
+    recordFinish(p);                 // stamp the crossing order BEFORE computing places
     p.place = computePlace(p);
     if (p === G.players.local){
       if (net.mp){
@@ -4083,15 +4391,38 @@
           G.results = { place:p.place, totalTime:p.finishTime, bestLap:p.lapBest, standings:computeStandings() };
           showResults();
         }
-      } else {
+      } else if (window.MenuFlow && MenuFlow.cupActive()){
+        // CUP: freeze on finish and award points immediately (its per-track reload flow fires once).
         G.phase = 'finished';
+        G.localDone = true; G.localFinishClock = G.raceClock;
         G.results = { place:p.place, totalTime:p.finishTime, bestLap:p.lapBest, standings:computeStandings() };
-        // MENU OVERHAUL: a Grand Prix CUP race shows a cumulative points standings screen
-        // (and advances to the next track) instead of the plain single-race results.
-        if (window.MenuFlow && MenuFlow.cupActive()){ MenuFlow.onCupRaceFinished(G.results); }
-        else showResults();
+        MenuFlow.onCupRaceFinished(G.results);
+      } else {
+        // SOLO race: do NOT freeze the world. Show the result immediately, but keep simulating so bots
+        // finish and the local kart COASTS (auto-driven) instead of dead-stopping at the line. The
+        // frame loop stops the sim once everyone's in (or after a grace timeout) and live-refreshes the
+        // standings as each bot crosses, so the displayed order always equals the true finish order.
+        G.localDone = true; G.localFinishClock = G.raceClock;
+        G.results = { place:p.place, totalTime:p.finishTime, bestLap:p.lapBest, standings:computeStandings() };
+        showResults();
       }
+    } else if (G.localDone && G.phase !== 'finished'){
+      // a bot crossed AFTER the local finished (solo, still simulating) — live-refresh the standings.
+      refreshResultsStandings();
     }
+  }
+  // Rank + force-finish everyone still racing (grace timeout / all-done sweep), in progress order.
+  function forceFinishRemaining(){
+    const rest = Object.values(G.players).filter(p=>!p.finished);
+    rest.sort((a,b)=> totalProgress(b) - totalProgress(a));
+    for (const p of rest){ p.finished = true; p.finishTime = G.raceClock; recordFinish(p); p.place = computePlace(p); }
+    refreshResultsStandings();
+  }
+  // re-render the #rStandings list from the current standings (used while a solo race is still finishing)
+  function refreshResultsStandings(){
+    if (!G.results) return;
+    G.results.standings = computeStandings();
+    if (resultsEl.style.display !== 'none') renderStandings(G.results.standings);
   }
 
   // ---------- gather input each frame ----------
@@ -4160,11 +4491,17 @@
   // Local human item input (solo + host). Guests use netLocalUseItem / netLocalTrail.
   function applyLocalItemInput(p, inp){
     if (!p || p.spinT > 0 || p.itemRollT > 0) return;
-    if (inp.itemTrailToggle && isTrailable(p.itemHeld) && !isTriple(p.itemHeld) && !p.trailKind){
-      setItemTrail(p, true);   // deploy the held single as a trail (frees the slot for a new pickup)
+    // HOLD = deploy the active held single as a trail (only when nothing is already trailing).
+    if (inp.itemTrailToggle && !p.trailKind && isTrailable(p.itemHeld) && !isTriple(p.itemHeld)){
+      setItemTrail(p, true);
       return;
     }
-    if (inp.item) useItem(p);
+    // TAP = fire. If something is trailing, the tap fires THE TRAIL first (the held item stays locked/
+    // queued); the NEXT tap then fires the (now-active) held item.
+    if (inp.item){
+      if (p.trailKind){ fireTrail(p); return; }
+      useItem(p);
+    }
   }
 
   // ---------- K6: pooled particle system (drift dust · boost puffs · landing poof · spin stars) ----------
@@ -4291,6 +4628,7 @@
   }
 
   // ---------- render sync ----------
+  const BULL_SIZE = 2.0;   // 🐂 bull-rush render scale (kart + driver swell to read as a rampage)
   function syncKartView(p, view, dt){
     // Seat at p.y (ballistic while airborne). Tilt to the 4-wheel plane so the kart CONFORMS to
     // slopes / road→hill transitions instead of sitting flat on a high corner.
@@ -4377,6 +4715,15 @@
       view.bounce.scale.set(1 + 0.28*f, 1 - 0.34*f, 1 + 0.28*f);
     } else {
       view.bounce.scale.set(1, 1, 1);
+    }
+    // 🐂 BULL RUSH: the whole kart + driver swells to a rampaging ~2x, quick ease-in/out. Eased render
+    // state (p.bullScale) so it grows/shrinks smoothly at the start/end of the charge (dt-scaled lerp).
+    {
+      const target = p.bullT > 0 ? BULL_SIZE : 1;
+      const rate = Math.min(1, (dt||0.016) * 9);   // ~ease over ~0.25s
+      p.bullScale += (target - p.bullScale) * rate;
+      if (Math.abs(p.bullScale - target) < 0.005) p.bullScale = target;
+      if (p.bullScale > 1.001){ view.bounce.scale.multiplyScalar(p.bullScale); }
     }
     // Body stays its paint color while drifting — tier feedback is on wheel sparks (spawnDriftDust).
     // Soft orange only while actually boosting (separate from drift charge).
@@ -4697,8 +5044,14 @@
     else wrongwayEl.classList.remove('show');
     // K4 item slot: roll animation (cycling icons) then the settled item
     updateItemSlot(p);
-    // ⛈ barn-storm screen flash for the local kart (stormFlashT set when it's caught)
-    if (stormFlashEl){ const sf = p.stormFlashT > 0 ? Math.min(1, p.stormFlashT/0.55) : 0; stormFlashEl.style.opacity = sf > 0.001 ? (0.85*sf).toFixed(3) : '0'; }
+    // ⛈ barn-storm screen flash for the local kart (stormFlashT set when it's caught) OR the sky flash
+    // fired whenever a storm strikes (even if the local kart isn't hit — the lightning lights the whole sky)
+    if (stormFlashEl){
+      const sf = p.stormFlashT > 0 ? Math.min(1, p.stormFlashT/0.55) : 0;
+      const sky = _skyFlashT > 0 ? Math.min(1, _skyFlashT/0.4) : 0;
+      const flash = Math.max(0.85*sf, 0.55*sky);
+      stormFlashEl.style.opacity = flash > 0.001 ? flash.toFixed(3) : '0';
+    }
     // MOBILE thumb controls: on during the countdown (so you can time the start) + the race.
     // The .on class only renders under body.mobile, so this is a no-op on desktop.
     touchCtlEl.classList.toggle('on', G.phase === 'countdown' || G.phase === 'racing');
@@ -4743,22 +5096,30 @@
     itemSlot.style.display = racing ? 'flex' : 'none';
     if (!racing) return;
     const trailBadge = p.trailKind ? '🛡' + (ITEM_ICON[p.trailKind] || '') : '';
-    if (p.itemRollT > 0){
-      itemSlot.className = 'rolling' + (p.trailKind ? ' trail' : '');
-      const k = ITEM_KINDS[Math.floor(performance.now()/90) % ITEM_KINDS.length];
-      itemIcon.textContent = (ITEM_ICON[k] || '·') + (trailBadge ? ' ' + trailBadge : '');
-    } else if (p.itemHeld){
-      // held slot + (independent) trail badge — a fresh pickup while trailing shows BOTH
-      itemSlot.className = 'filled' + (p.trailKind ? ' trail' : '');
+    const heldIconOf = ()=>{
       let icon = ITEM_ICON[p.itemHeld] || '·';
-      if (isTriple(p.itemHeld) && p.itemCount > 0){
-        icon = (p.itemHeld === 'chicken3' ? '🐔' : '🥬') + '×' + p.itemCount;
-      }
-      itemIcon.textContent = icon + (trailBadge ? ' ' + trailBadge : '');
-    } else if (p.trailKind){
-      // trailing only (held slot empty)
+      if (isTriple(p.itemHeld) && p.itemCount > 0) icon = (p.itemHeld === 'chicken3' ? '🐔' : '🥬') + '×' + p.itemCount;
+      return icon;
+    };
+    if (p.trailKind){
+      // TRAIL-FIRE (2026-07-12): the shield is what a TAP fires now, so it's the PRIMARY icon. Any item
+      // picked up while trailing is LOCKED/queued — shown dimmed after the shield until the trail fires.
       itemSlot.className = 'filled trail';
-      itemIcon.textContent = trailBadge;
+      let queued = '';
+      if (p.itemRollT > 0){
+        const k = ITEM_KINDS[Math.floor(performance.now()/90) % ITEM_KINDS.length];
+        queued = '<span class="queued">' + (ITEM_ICON[k] || '·') + '</span>';
+      } else if (p.itemHeld){
+        queued = '<span class="queued">' + heldIconOf() + '</span>';
+      }
+      itemIcon.innerHTML = trailBadge + (queued ? ' ' + queued : '');
+    } else if (p.itemRollT > 0){
+      itemSlot.className = 'rolling';
+      const k = ITEM_KINDS[Math.floor(performance.now()/90) % ITEM_KINDS.length];
+      itemIcon.textContent = (ITEM_ICON[k] || '·');
+    } else if (p.itemHeld){
+      itemSlot.className = 'filled';
+      itemIcon.textContent = heldIconOf();
     } else {
       itemSlot.className = '';
       itemIcon.textContent = '·';
@@ -5523,6 +5884,7 @@
     // above assigned a grid-slot color; the racer color wins for the human you control).
     if (G.players.local._racerCol != null){ G.players.local._slotCol = G.players.local._racerCol; paintKartAccent('local'); }
     resetEntities();
+    G.finishOrder = []; G.finishSeq = 0; G.localDone = false; G.localFinishClock = 0;
     G.phase = 'countdown';
     G.countdownT = TUNE.countdownBeat * 3;
     G.lastBeat = 99;
@@ -5582,17 +5944,12 @@
       }
     }
   }
-  function showResults(){
-    const r = G.results;
-    const bigMedal = MEDAL[r.place] || '';
-    document.getElementById('rPlace').innerHTML = (bigMedal ? '<span class="medal">'+bigMedal+'</span>' : '') + (ORD[r.place] || (r.place + 'th'));
-    document.getElementById('rTime').textContent = fmtTime(r.totalTime);
-    document.getElementById('rBest').textContent = r.bestLap ? fmtTime(r.bestLap) : '—';
-    // standings leaderboard (shown only when there are bots)
+  // render the standings leaderboard rows into #rStandings (shared by showResults + live refresh)
+  function renderStandings(standings){
     const sEl = document.getElementById('rStandings');
-    if (r.standings && r.standings.length > 1){
+    if (standings && standings.length > 1){
       sEl.innerHTML = '';
-      for (const row of r.standings){
+      for (const row of standings){
         const div = document.createElement('div'); div.className = 'srow' + (row.isLocal ? ' me' : '');
         const col = '#'+row.color.toString(16).padStart(6,'0');
         const med = MEDAL[row.place] || '';
@@ -5604,6 +5961,14 @@
       }
       sEl.style.display = 'block';
     } else sEl.style.display = 'none';
+  }
+  function showResults(){
+    const r = G.results;
+    const bigMedal = MEDAL[r.place] || '';
+    document.getElementById('rPlace').innerHTML = (bigMedal ? '<span class="medal">'+bigMedal+'</span>' : '') + (ORD[r.place] || (r.place + 'th'));
+    document.getElementById('rTime').textContent = fmtTime(r.totalTime);
+    document.getElementById('rBest').textContent = r.bestLap ? fmtTime(r.bestLap) : '—';
+    renderStandings(r.standings);
     resultsEl.style.display = 'flex';
     countdownEl.style.display = 'none';
     // explicit continue button — hidden for MP guests (only the host advances)
@@ -5625,11 +5990,16 @@
       return;
     }
     // SOLO: the menu never auto-starts on a stray tap/Enter (explicit RACE buttons drive it);
-    // the finished screen routes through the flow-aware "race again" (cup / trial / normal).
-    if (G.phase === 'finished'){ if (window.MenuFlow) MenuFlow.raceAgain(); else startCountdown(); }
+    // the finished screen routes through the flow-aware "race again" (cup / trial / normal). The local
+    // may still be COASTING while the last bots finish (G.localDone, phase still 'racing') — allow the
+    // restart then too, stopping the coast-down sim first.
+    if (G.phase === 'finished' || G.localDone){
+      G.localDone = false; G.phase = 'finished';
+      if (window.MenuFlow) MenuFlow.raceAgain(); else startCountdown();
+    }
   }
   addEventListener('keydown', e=>{ if (e.key === 'Enter'){ if (paused) return; advance(); } });
-  stage.addEventListener('pointerdown', ()=>{ if (paused) return; if (G.phase==='menu' || G.phase==='finished') advance(); });
+  stage.addEventListener('pointerdown', ()=>{ if (paused) return; if (G.phase==='menu' || G.phase==='finished' || G.localDone) advance(); });
 
   // ---------- PAUSE (⏸ button + Esc / P) ----------
   //  SOLO: freezes the sim (frame loop skips stepKart/timers/bots while `paused`; the frozen scene
@@ -6193,7 +6563,7 @@
       boxes:G.itemBoxes.map(b=>b.active?1:0),
       proj:G.projectiles.map(pr=>({x:pr.x,y:pr.y,z:pr.z,k:pr.kind||'tomato',vx:pr.vx,vz:pr.vz})),
       haz:G.hazards.map(hz=>({x:hz.x,y:hz.y,z:hz.z})),
-      chick:G.chickens.filter(c=>c.active).map(c=>({ i:c.i, x:c.x, z:c.z, d:c.dir, w:c.walkT })),
+      chick:G.chickens.filter(c=>c.active).map(c=>({ i:c.i, x:c.x, z:c.z, d:c.dir, w:c.walkT, r:c.roll })),
       grants:net.grants || {},
       spins:net.spins,
       raceOver:!!G.raceOver
@@ -6277,10 +6647,20 @@
   function hostConsumeGuestUse(pid, act){
     net.grants = net.grants || {};
     const g = net.grants[pid];
-    if (!g || !g.held) return;
     const p = G.players['r_'+pid];
     if (!p) return;
     act = act || 'fire';
+    // fire the TRAILED item (guest tapped while trailing): launch it forward, end the trail. Valid even
+    // with an empty held slot, so this is handled BEFORE the held-required gate.
+    if (act === 'firetrail'){
+      if (!g || !g.trk) return;
+      p.itemHeld = g.held || null; p.itemCount = g.ic || 0; p.trailKind = g.trk;
+      fireTrail(p);
+      net.grants[pid] = { held:p.itemHeld||null, ic:p.itemCount||0, roll:0, trk:'' };
+      publishNetSnapshotNow();
+      return;
+    }
+    if (!g || !g.held) return;
     // trail deploy (guest held the button): move the held single into the trail slot, free the slot
     if (act === 'trail'){
       p.itemHeld = g.held; p.itemCount = g.ic || itemShotCount(g.held); p.trailKind = g.trk||null;
@@ -6386,7 +6766,7 @@
     for (const ch of G.chickens) ch.active = false;
     for (const sc of (snap.chick||[])){
       const ch = G.chickens[sc.i]; if (!ch) continue;
-      ch.active = true; ch.x = sc.x; ch.z = sc.z; ch.dir = sc.d||1; ch.walkT = sc.w||0; ch.y = sampleHeight(sc.x, sc.z);
+      ch.active = true; ch.x = sc.x; ch.z = sc.z; ch.dir = sc.d||1; ch.walkT = sc.w||0; ch.roll = sc.r||0; ch.y = sampleHeight(sc.x, sc.z);
     }
     // OUR grant (host rolled it) -> local held item for HUD + use logic
     const g = snap.grants && snap.grants[net.myId];
@@ -6426,7 +6806,16 @@
     const p = G.players.local;
     if (net.isHost){
       if (act === 'trail'){ setItemTrail(p, true); return; }
+      if (act === 'firetrail'){ fireTrail(p); return; }
       useItem(p); return;
+    }
+    // fire the TRAILED item (guest): clear the shield optimistically; the host spawns the projectile.
+    if (act === 'firetrail'){
+      if (!p.trailKind || p.spinT>0) return;
+      p.trailKind = null;
+      net.useSeq++;
+      try{ net.localPlayer && net.localPlayer.setState('useAct', 'firetrail', true); }catch(e){}
+      return;
     }
     if (!p.itemHeld || p.itemRollT>0 || p.spinT>0) return;
     if (act === 'trail'){
@@ -6468,10 +6857,13 @@
   }
   function applyLocalItemInputNet(p, inp){
     if (!p || p.spinT > 0 || p.itemRollT > 0) return;
-    if (inp.itemTrailToggle && isTrailable(p.itemHeld) && !isTriple(p.itemHeld) && !p.trailKind){
+    if (inp.itemTrailToggle && !p.trailKind && isTrailable(p.itemHeld) && !isTriple(p.itemHeld)){
       netLocalUseItem('trail'); return;
     }
-    if (inp.item) netLocalUseItem('fire');
+    if (inp.item){
+      if (p.trailKind){ netLocalUseItem('firetrail'); return; }   // tap fires the trail first
+      netLocalUseItem('fire');
+    }
   }
 
   // ---- FAMILY RACE menu wiring ----
@@ -6633,6 +7025,39 @@
     if (net.snapCd <= 0){ publishNetSnapshotNow(); net.snapCd = 1/12; }
   }
 
+  // Solo race sim step (extracted so headless tests can drive full races deterministically). Byte-
+  // identical to the original inline solo loop body.
+  function soloRaceTick(dt, inp){
+    // step EVERY kart (human + bots) through the SAME stepKart, then its race progress. A FINISHED
+    // kart (incl. the local one, once it's done) auto-drives via botInput so it COASTS the cool-down
+    // lap instead of dead-stopping at the line. No mid-loop break: every kart crossing THIS frame
+    // must record its finish so the standings order equals the true crossing order.
+    for (const id in G.players){
+      const p = G.players[id];
+      const pinp = (p.isBot || p.finished) ? botInput(p) : inp;
+      stepKart(p, pinp, dt);
+      updateRaceProgress(p, dt);
+      if (p.isBot) botUseItems(p, dt);
+    }
+    // local item use (tap fire / hold trail) — only while the player still controls the kart
+    if (!G.players.local.finished && (inp.item || inp.itemTrailToggle)) applyLocalItemInput(G.players.local, inp);
+    // K4 world updates: pickups, rolls, projectiles, hazards
+    updateItemBoxes(dt);
+    updateItemRolls(dt);
+    advanceProjectiles(dt);
+    advanceHazards(dt);
+    advanceChickens(dt);          // 2026-07-12: road-crossing chickens (solo)
+    updateBoostPads(dt);          // K7: boost pads (own + bots)
+    resolveKartCollisions();      // K7: kart-vs-kart separation (own + bots)
+    G.raceClock += dt;
+    // FINISH TRANSITION (2026-07-12): once the local player has finished, keep simulating so the
+    // bots finish too (standings live-refresh as they cross), then stop the sim. A grace timeout
+    // force-finishes any straggler so a stuck bot can never hang the results.
+    if (G.localDone){
+      if (Object.values(G.players).every(p=>p.finished)) G.phase = 'finished';
+      else if (G.raceClock - G.localFinishClock > 12){ forceFinishRemaining(); G.phase = 'finished'; }
+    }
+  }
   // ---------- main loop ----------
   let last = performance.now();
   function frame(now){
@@ -6647,28 +7072,7 @@
       // still renders below. dt is discarded this frame; the frame clock is reset on resume.
       if (!paused){
       updatePhase(dt, inp);
-      if (dt > 0 && G.phase === 'racing'){
-        // step EVERY kart (human + bots) through the SAME stepKart, then its race progress
-        for (const id in G.players){
-          const p = G.players[id];
-          const pinp = p.isBot ? botInput(p) : inp;
-          stepKart(p, pinp, dt);
-          updateRaceProgress(p, dt);
-          if (p.isBot) botUseItems(p, dt);
-          if (G.phase !== 'racing') break;   // local finished mid-frame -> stop
-        }
-        // local item use (tap fire / hold trail)
-        if (inp.item || inp.itemTrailToggle) applyLocalItemInput(G.players.local, inp);
-        // K4 world updates: pickups, rolls, projectiles, hazards
-        updateItemBoxes(dt);
-        updateItemRolls(dt);
-        advanceProjectiles(dt);
-        advanceHazards(dt);
-        advanceChickens(dt);          // 2026-07-12: road-crossing chickens (solo)
-        updateBoostPads(dt);          // K7: boost pads (own + bots)
-        resolveKartCollisions();      // K7: kart-vs-kart separation (own + bots)
-        G.raceClock += dt;
-      }
+      if (dt > 0 && G.phase === 'racing') soloRaceTick(dt, inp);
       } // end if(!paused)
     } else if (net.isHost){
       // ===== MP HOST: drive phase, local kart, bots, and the whole world; adopt guests =====
@@ -6713,6 +7117,8 @@
     updateParticles(dt);   // K6: advance the pooled juice particles
     updateAudio(dt);       // K6: reactive engine hum / MT chimes
     syncChickenViews();    // 2026-07-12: position/animate road-crossing chicken meshes
+    updateLightningBolts(dt);   // ⚡ barn-storm bolts fade/despawn
+    if (_skyFlashT > 0) _skyFlashT = Math.max(0, _skyFlashT - dt);
     if (WATER_GROUP.userData.animate) WATER_GROUP.userData.animate(now*0.001);   // water waves
     if (SKY_OBJ && SKY_OBJ.userData.update) SKY_OBJ.userData.update(dt, camera);  // cloud drift / snow / celestial
     if (TRAIN_GROUP.userData.update) TRAIN_GROUP.userData.update(dt);             // moving trains
@@ -7366,6 +7772,14 @@
     setItemTrail, tryAbsorbWithTrail, grantHeldItem, clearItem, isTriple, isTrailable, rollItem,
     // new items (2026-07-11): golden egg / sunflower star / bull rush / barn storm
     computeRollWeights, placeFracOf, computePlace, findLeader, fireGoldenEgg, barnStormStrike, bullInput,
+    // 2026-07-12 batch: lightning bolts / trail-fire / critters
+    spawnLightningBolt, get lightningBolts(){ return _lightningBolts; }, get skyFlashT(){ return _skyFlashT; },
+    fireTrail, computeStandings, get finishOrder(){ return G.finishOrder; },
+    CRITTER_KINDS, CRITTER_CFG, buildCritterMesh, critterHitSound, sampleIdxAtTotalProgress,
+    soloRaceTick, updatePhase, finishRace, recordFinish, forceFinishRemaining,
+    sweptTrailAbsorb, trailWorldPos, TRAIL_ABSORB_R,
+    updateItemSlot, get itemIcon(){ return itemIcon; }, get itemSlot(){ return itemSlot; },
+    updateLightningBolts, BULL_SIZE,
     advanceProjectiles, advanceHazards, stepKart,
     ITEM_ROLL_TABLE, ITEM_KINDS, ITEM_ICON,
     spawnItemExplode, makeProjMesh, buildChickenMesh, get projTpl(){ return _projTpl; }, get projTplVer(){ return _projTplVer; },

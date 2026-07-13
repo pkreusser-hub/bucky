@@ -141,7 +141,17 @@
       <div style="color:#9ab;font-size:11px;margin-top:4px;">drag the grass to paint extra grass tufts (low/high density) · painted cells: <span id="tfCells">0</span></div>
     </div>
     <div id="chickenTools" style="display:none;margin-top:6px;padding:8px;background:rgba(90,80,35,.3);border-radius:8px;">
-      <div style="color:#9ab;font-size:11px;margin-bottom:3px;">click the road to add a 🐔 chicken crossing — it periodically walks a chicken across the road</div>
+      <div style="color:#9ab;font-size:11px;margin-bottom:3px;">pick a critter, then click the road to add a crossing — it periodically sends that critter across the road</div>
+      <label style="color:#cdd;font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:4px;">critter
+        <select id="critterKind" style="flex:1;">
+          <option value="chicken">🐔 chicken</option>
+          <option value="tumbleweed">🌾 tumbleweed</option>
+          <option value="turtle">🐢 turtle</option>
+          <option value="goat">🐐 goat</option>
+          <option value="snowman">⛄ snowman</option>
+          <option value="crab">🦀 crab</option>
+        </select>
+      </label>
       <div id="chickenList" style="margin-top:4px;"></div>
     </div>
     <div id="waterTools" style="display:none;margin-top:6px;padding:8px;background:rgba(30,70,95,.32);border-radius:8px;">
@@ -624,6 +634,17 @@
   // ---- 🐔 CHICKEN CROSSINGS (2026-07-12): click the road to add a crossing (like boost pads) ----
   const chickenGroup = new THREE.Group(); scene.add(chickenGroup);
   let chickenSeq = 0, selChickenId = null;
+  // 2026-07-12: multi-critter crossings. The designer picks which critter fits the course.
+  const CRITTER_META = {
+    chicken:   { ico:'🐔', col:0xf5efe3, emis:0x2a2418, accent:0xe23b2e },
+    tumbleweed:{ ico:'🌾', col:0x8a5a2a, emis:0x201004, accent:0x6b4420 },
+    turtle:    { ico:'🐢', col:0x3f8f3a, emis:0x123a10, accent:0x66b95c },
+    goat:      { ico:'🐐', col:0xf2f2ee, emis:0x3a3a34, accent:0xd8c8a0 },
+    snowman:   { ico:'⛄', col:0xffffff, emis:0x9fbfe0, accent:0xff8a1e },
+    crab:      { ico:'🦀', col:0xe23b2e, emis:0x4a0d08, accent:0x111111 },
+  };
+  function critterKindOf(ch){ return (ch.kind && CRITTER_META[ch.kind]) ? ch.kind : 'chicken'; }
+  function selectedCritterKind(){ const el=$('critterKind'); return (el && CRITTER_META[el.value]) ? el.value : 'chicken'; }
   function rebuildChickenMarkers(){
     while (chickenGroup.children.length){ const o=chickenGroup.children[0]; chickenGroup.remove(o); o.traverse(c=>{ if(c.geometry)c.geometry.dispose(); if(c.material)c.material.dispose(); }); }
     if (!sampled) return;
@@ -634,11 +655,12 @@
     for (const ch of (track.chickens||[])){
       const i = Math.max(0, Math.min(N-1, Math.round((ch.s||0)*N)));
       const c = sampled.centerPts[i];
+      const meta = CRITTER_META[critterKindOf(ch)];
       const g = new THREE.Group();
-      const body = new THREE.Mesh(new THREE.SphereGeometry(1.1, 10, 8), new THREE.MeshLambertMaterial({ color:0xf5efe3, emissive:0x2a2418 }));
+      const body = new THREE.Mesh(new THREE.SphereGeometry(1.1, 10, 8), new THREE.MeshLambertMaterial({ color:meta.col, emissive:meta.emis }));
       body.scale.set(1, 0.9, 1.15); g.add(body);
-      const comb = new THREE.Mesh(new THREE.ConeGeometry(0.4, 0.7, 6), new THREE.MeshLambertMaterial({ color:0xe23b2e, emissive:0x401008 }));
-      comb.position.set(0, 1.1, 0.2); g.add(comb);
+      const acc = new THREE.Mesh(new THREE.ConeGeometry(0.4, 0.7, 6), new THREE.MeshLambertMaterial({ color:meta.accent, emissive:0x201008 }));
+      acc.position.set(0, 1.1, 0.2); g.add(acc);
       g.position.set(c.x, (c.y||0)+1.4, c.z);
       g.userData.chickenId = ch.id;
       chickenGroup.add(g);
@@ -651,20 +673,23 @@
     for (let i=0;i<N;i++){ const c=C[i]; const d=(c.x-hit.x)**2+(c.z-hit.z)**2; if(d<bd){bd=d;bi=i;} }
     const s = Math.round((bi/N)*1000)/1000;
     track.chickens = track.chickens || [];
+    const kind = selectedCritterKind();
     const ch = { id:'chicken_'+(++chickenSeq), s };
+    if (kind !== 'chicken') ch.kind = kind;   // omit default -> byte-identical for all-chicken tracks
     track.chickens.push(ch);
     selChickenId = ch.id;
     rebuildChickenMarkers();
     commitHistory();
-    toast('chicken crossing @ s='+s.toFixed(3));
+    toast((CRITTER_META[kind].ico)+' '+kind+' crossing @ s='+s.toFixed(3));
   }
   function refreshChickenList(){
     const el = $('chickenList'); if (!el) return; el.innerHTML='';
     const chs = track.chickens||[];
-    if (!chs.length){ el.innerHTML = '<div style="color:#889;">none — use 🐔 chicken mode, click the road</div>'; return; }
+    if (!chs.length){ el.innerHTML = '<div style="color:#889;">none — pick a critter, then click the road</div>'; return; }
     chs.forEach((ch)=>{
+      const kind = critterKindOf(ch);
       const d = document.createElement('div'); d.className='ir';
-      const span = document.createElement('span'); span.style.cssText='flex:1;'; span.textContent = '🐔 s='+ch.s.toFixed(3);
+      const span = document.createElement('span'); span.style.cssText='flex:1;'; span.textContent = CRITTER_META[kind].ico+' '+kind+' s='+ch.s.toFixed(3);
       const btn = document.createElement('button'); btn.textContent='✕';
       btn.addEventListener('click', ()=>{ track.chickens = track.chickens.filter(x=>x!==ch); if (selChickenId===ch.id) selChickenId=null; rebuildChickenMarkers(); commitHistory(); });
       d.appendChild(span); d.appendChild(btn); el.appendChild(d);
@@ -2690,9 +2715,11 @@
     setTuftMode, get tuftMode(){ return TUFT.mode; }, setTuftRadius:(r)=>{ TUFT.radius=r; },
     tuftAt:(x,z)=>{ applyTufts(x,z); rebuildPaintedTufts(); return tuftCellCount(); },
     get paintedTuftsMesh(){ return paintedTuftsMesh; }, rebuildPaintedTufts,
-    // CHICKEN crossings (2026-07-12)
+    // CRITTER crossings (2026-07-12, multi-critter)
     get chickens(){ return track.chickens||[]; }, addChickenAt, rebuildChickenMarkers, get chickenGroup(){ return chickenGroup; },
     deleteChicken:(id)=>{ track.chickens=(track.chickens||[]).filter(c=>c.id!==id); rebuildChickenMarkers(); commitHistory(); },
+    get critterKinds(){ return Object.keys(CRITTER_META); }, selectedCritterKind,
+    setCritterKind:(k)=>{ const el=$('critterKind'); if (el && CRITTER_META[k]){ el.value=k; } },
     // PER-TRACK MUSIC (2026-07-12, for headless tests)
     get music(){ return track.music || 'default'; },
     get musicOptionCount(){ return musicOptions.length; },
