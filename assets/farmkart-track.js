@@ -544,6 +544,30 @@
     }catch(e){ return null; }
   }
 
+  // ---- fitInstancedBoundingSphere: give an InstancedMesh a CORRECT world-space bounding sphere so it
+  // frustum-culls properly. r128 has no InstancedMesh.boundingSphere and its Frustum.intersectsObject
+  // reads geometry.boundingSphere × matrixWorld (our instanced meshes sit at the origin, matrixWorld =
+  // identity), so writing the union of all instance boxes onto geometry.boundingSphere = correct culling.
+  // The mesh is culled only when EVERY instance is off-screen, so nothing ever pops (a partly-visible
+  // cloud renders all instances; the rasterizer clips the off-screen ones). This keeps batching's low
+  // draw-call count AND restores the per-object fill savings that frustumCulled=false throws away.
+  // NOTE: the geometry passed in must belong to this InstancedMesh alone (fence/bridge/block build fresh
+  // box geometry; the game clones shared GLB submesh geometry) or the sphere would be shared/clobbered.
+  function fitInstancedBoundingSphere(inst, THREE){
+    const geo = inst.geometry;
+    if (!inst.count){ inst.frustumCulled = false; return inst; }
+    if (!geo.boundingBox) geo.computeBoundingBox();
+    const box = new THREE.Box3(), tmp = new THREE.Box3(), m = new THREE.Matrix4();
+    box.makeEmpty();
+    for (let i=0;i<inst.count;i++){ inst.getMatrixAt(i,m); tmp.copy(geo.boundingBox).applyMatrix4(m); box.union(tmp); }
+    if (box.isEmpty()){ inst.frustumCulled = false; return inst; }
+    const c = new THREE.Vector3(), sz = new THREE.Vector3();
+    box.getCenter(c);
+    geo.boundingSphere = new THREE.Sphere(c.clone(), box.getSize(sz).length()/2);
+    inst.frustumCulled = true;
+    return inst;
+  }
+
   // ---- buildObjectMesh: one placed world object -> a THREE.Group at its CENTER, scaled + yaw'd.
   // Shared so the editor and game render identical massing. type "block" = a box; add cases here as
   // real props (barn/house/fence...) get designed. opts.ghost = translucent (editor placeholder look).
@@ -656,26 +680,45 @@
       return g;
     }
 
-    // default "rail" style — wooden posts + 3 rails
+    // default "rail" style — wooden posts + 3 rails.
+    // PERF (2026-07-12): a long decorated fence used to emit ONE Mesh per rail segment (3 per 2.5u
+    // step) + one per post — thousands of meshes / draw calls (the dominant cost on a dressed track:
+    // ~7400 fence meshes on Wario Gulch). Now each fence renders as exactly TWO InstancedMesh draw
+    // calls (rails + posts), visually byte-identical. frustumCulled=false (like the train rails) so a
+    // unit-box bounding sphere at the origin can't falsely cull the whole fence. Editor renders the
+    // same (it rebuilds the whole fence group per edit; selection is by fence.points, not by mesh).
     const H = fence.height || 2.2, postGap = fence.postGap || 6;
     const postMat = new THREE.MeshLambertMaterial({ color:0x6b4a2b });
     const railMat = new THREE.MeshLambertMaterial({ color:0x9a7a4e });
     const railFracs = [0.4, 0.68, 0.95];
     const Z = new THREE.Vector3(0,0,1);
-    for (let i=0;i<path.length-1;i++){
-      const p=path[i], q=path[i+1];
-      for (const f of railFracs){
-        const dir = new THREE.Vector3(q.x-p.x, (q.y+H*f)-(p.y+H*f), q.z-p.z); const L=dir.length()||0.01; dir.normalize();
-        const rail = new THREE.Mesh(new THREE.BoxGeometry(0.1,0.13,L), railMat);
-        rail.position.set((p.x+q.x)/2, (p.y+q.y)/2 + H*f, (p.z+q.z)/2);
-        rail.quaternion.setFromUnitVectors(Z, dir);
-        g.add(rail);
+    const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _pv = new THREE.Vector3(), _sc = new THREE.Vector3(), _dir = new THREE.Vector3();
+    const railN = Math.max(0, (path.length-1) * railFracs.length);
+    if (railN > 0){
+      const rails = new THREE.InstancedMesh(new THREE.BoxGeometry(0.1,0.13,1), railMat, railN);
+      let ri = 0;
+      for (let i=0;i<path.length-1;i++){
+        const p=path[i], q=path[i+1];
+        for (const f of railFracs){
+          _dir.set(q.x-p.x, (q.y+H*f)-(p.y+H*f), q.z-p.z); const L=_dir.length()||0.01; _dir.multiplyScalar(1/L);
+          _q.setFromUnitVectors(Z, _dir);
+          _pv.set((p.x+q.x)/2, (p.y+q.y)/2 + H*f, (p.z+q.z)/2); _sc.set(1,1,L);
+          _m.compose(_pv,_q,_sc); rails.setMatrixAt(ri++, _m);
+        }
       }
+      rails.instanceMatrix.needsUpdate = true; fitInstancedBoundingSphere(rails, THREE); g.add(rails);
     }
-    let acc=0, next=0;
-    for (let i=0;i<path.length;i++){
-      if (i>0) acc += Math.hypot(path[i].x-path[i-1].x, path[i].z-path[i-1].z);
-      if (acc>=next || i===path.length-1){ const p=path[i]; const post=new THREE.Mesh(new THREE.BoxGeometry(0.2,H,0.2), postMat); post.position.set(p.x, p.y+H/2, p.z); g.add(post); next+=postGap; }
+    const postPts = [];
+    { let acc=0, next=0;
+      for (let i=0;i<path.length;i++){
+        if (i>0) acc += Math.hypot(path[i].x-path[i-1].x, path[i].z-path[i-1].z);
+        if (acc>=next || i===path.length-1){ postPts.push(path[i]); next+=postGap; }
+      } }
+    if (postPts.length){
+      const posts = new THREE.InstancedMesh(new THREE.BoxGeometry(0.2,1,0.2), postMat, postPts.length);
+      _q.identity(); _sc.set(1,H,1);
+      for (let i=0;i<postPts.length;i++){ const p=postPts[i]; _pv.set(p.x, p.y+H/2, p.z); _m.compose(_pv,_q,_sc); posts.setMatrixAt(i,_m); }
+      posts.instanceMatrix.needsUpdate = true; fitInstancedBoundingSphere(posts, THREE); g.add(posts);
     }
     return g;
   }
@@ -834,6 +877,12 @@
     const WALL_H = 1.35, WALL_HT = 0.14;    // wall height; half-thickness (extrude both sides of the edge)
     const WOOD_A = [0.42,0.28,0.16], WOOD_B = [0.34,0.22,0.12], WOOD_CAP = [0.28,0.19,0.11];  // two plank shades + top cap
     const PILLAR_GAP = 6, MIN_PILLAR_GAP_Y = 1.5, PILLAR_FOOT = 0.6, DECK_THICK = 0.3;
+    // PERF (2026-07-12): deck-lip segments + support pillars/feet were one Mesh each (per 2u step /
+    // per pillar) — hundreds of meshes on a decorated track. Collect them here and emit ONE
+    // InstancedMesh per kind (lips / pillars / feet) across ALL bridges after the loop; walls stay
+    // as merged per-side meshes (already cheap). Visually byte-identical.
+    const lipInst = [], pillarInst = [], footInst = [];   // {px,py,pz,qx,qy,qz,qw,sz} / {x,y,z,h} / {x,y,z}
+    const _bq = new THREE.Quaternion(), _bd = new THREE.Vector3();
     for (const br of bridges){
       const startArc = Math.max(0, Math.min(1, br.s)) * L;
       const len = Math.max(4, br.len || 18);
@@ -853,11 +902,9 @@
           const a=path[i], b=path[i+1];
           const ax=a.x+a.nx*hw*side, az=a.z+a.nz*hw*side, ay=a.y+0.1;
           const bx=b.x+b.nx*hw*side, bz=b.z+b.nz*hw*side, by=b.y+0.1;
-          const dir=new THREE.Vector3(bx-ax, by-ay, bz-az); const dl=dir.length()||0.01; dir.normalize();
-          const lip=new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, dl), lipMat);
-          lip.position.set((ax+bx)/2, (ay+by)/2, (az+bz)/2);
-          lip.quaternion.setFromUnitVectors(Z, dir);
-          grp.add(lip);
+          _bd.set(bx-ax, by-ay, bz-az); const dl=_bd.length()||0.01; _bd.multiplyScalar(1/dl);
+          _bq.setFromUnitVectors(Z, _bd);
+          lipInst.push({ px:(ax+bx)/2, py:(ay+by)/2, pz:(az+bz)/2, qx:_bq.x, qy:_bq.y, qz:_bq.z, qw:_bq.w, sz:dl });
         }
       }
       // SOLID wood side walls: a continuous planked panel along each road edge (outer face, inner
@@ -902,16 +949,32 @@
           const gap = deckUnderside - groundY;
           if (gap >= MIN_PILLAR_GAP_Y){
             const bottom = groundY - PILLAR_FOOT, height = deckUnderside - bottom;
-            const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.6, height, 0.6), pillarMat);
-            pillar.position.set(p.x, bottom + height/2, p.z);
-            grp.add(pillar);
-            const foot = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.28, 1.15), pillarMat);
-            foot.position.set(p.x, groundY - 0.05, p.z);
-            grp.add(foot);
+            pillarInst.push({ x:p.x, y:bottom + height/2, z:p.z, h:height });
+            footInst.push({ x:p.x, y:groundY - 0.05, z:p.z });
           }
           next2 += PILLAR_GAP;
         }
       }
+    }
+    // emit the collected lips / pillars / feet as InstancedMeshes (frustumCulled=false — a unit-box
+    // bounding sphere at the origin would otherwise falsely cull the whole span).
+    const _bm = new THREE.Matrix4(), _bp = new THREE.Vector3(), _bs = new THREE.Vector3(), _bqi = new THREE.Quaternion();
+    if (lipInst.length){
+      const lips = new THREE.InstancedMesh(new THREE.BoxGeometry(0.22,0.22,1), lipMat, lipInst.length);
+      for (let i=0;i<lipInst.length;i++){ const L=lipInst[i]; _bp.set(L.px,L.py,L.pz); _bqi.set(L.qx,L.qy,L.qz,L.qw); _bs.set(1,1,L.sz); _bm.compose(_bp,_bqi,_bs); lips.setMatrixAt(i,_bm); }
+      lips.instanceMatrix.needsUpdate = true; fitInstancedBoundingSphere(lips, THREE); grp.add(lips);
+    }
+    if (pillarInst.length){
+      const pillars = new THREE.InstancedMesh(new THREE.BoxGeometry(0.6,1,0.6), pillarMat, pillarInst.length);
+      _bqi.identity();
+      for (let i=0;i<pillarInst.length;i++){ const P=pillarInst[i]; _bp.set(P.x,P.y,P.z); _bs.set(1,P.h,1); _bm.compose(_bp,_bqi,_bs); pillars.setMatrixAt(i,_bm); }
+      pillars.instanceMatrix.needsUpdate = true; fitInstancedBoundingSphere(pillars, THREE); grp.add(pillars);
+    }
+    if (footInst.length){
+      const feet = new THREE.InstancedMesh(new THREE.BoxGeometry(1.15,0.28,1.15), pillarMat, footInst.length);
+      _bqi.identity(); _bs.set(1,1,1);
+      for (let i=0;i<footInst.length;i++){ const F=footInst[i]; _bp.set(F.x,F.y,F.z); _bm.compose(_bp,_bqi,_bs); feet.setMatrixAt(i,_bm); }
+      feet.instanceMatrix.needsUpdate = true; fitInstancedBoundingSphere(feet, THREE); grp.add(feet);
     }
     return grp;
   }
@@ -1933,6 +1996,7 @@
     resample, buildRibbonGeometry, sanitize, validate, reverse, nearestOnCenter, nearestOnCenterAtY,
     groundHills, sampleHeight, groundSampleHeight, buildGroundMesh, buildObjectMesh, buildFenceMesh, buildGrassTufts, buildPaintedTufts, sampleField, sampleColor,
     fenceCollide, corridorFences, rampSurfaceY, buildTunnelMesh, buildBridgeMesh, buildBridgeEdges, bridgeCollide, trackDirectionAt, alignRampsToTrack,
-    floodFillWater, buildWaterMesh, SKY_PRESETS, buildSkyObjects, buildTrainsMesh
+    floodFillWater, buildWaterMesh, SKY_PRESETS, buildSkyObjects, buildTrainsMesh,
+    fitInstancedBoundingSphere
   };
 })();

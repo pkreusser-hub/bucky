@@ -118,6 +118,17 @@
   body.mobile #placeHud .of{ font-size:22px; }
   body.mobile #placeHud .trow{ font-size:20px; }
   body.mobile #placeHud .trow .lbl{ font-size:12px; min-width:4.2em; }
+  /* Perf HUD (fps / frame ms / draw calls / triangles) — dev overlay, top-left, right of the
+     mute/music/pause button row so it never covers the big place number. ?fps=1 · fk_fps · pause toggle. */
+  #fpsHud{ position:absolute; z-index:18; display:none;
+        top:calc(12px + env(safe-area-inset-top, 0px));
+        left:calc(max(12px, env(safe-area-inset-left, 0px)) + 148px);
+        font-family:'Consolas',monospace; font-size:12px; line-height:1.4; white-space:pre;
+        color:#cfe6ff; background:rgba(0,0,0,.46); border-radius:8px; padding:5px 9px;
+        text-shadow:0 1px 3px rgba(0,0,0,.7); pointer-events:none; user-select:none; min-width:120px; }
+  #fpsHud.on{ display:block; }
+  #fpsHud b{ color:#ffd45e; font-weight:800; }
+  body.mobile #fpsHud{ font-size:11px; left:calc(max(12px, env(safe-area-inset-left, 0px)) + 156px); }
   /* MP places overlay (under the place/times stack) */
   #mpPlaces{ position:absolute; left:max(12px, env(safe-area-inset-left, 0px));
         top:calc(12px + env(safe-area-inset-top, 0px) + 220px); z-index:14; display:none;
@@ -251,7 +262,14 @@
   #pauseOverlay .ptitle{ font-size:46px; font-weight:900; color:#ffe9c2; letter-spacing:.04em;
     text-shadow:0 3px 0 #3d2410, 0 6px 10px rgba(0,0,0,.55); margin-bottom:6px; }
   #pauseOverlay .pbtns{ display:flex; flex-direction:column; gap:16px; width:100%; max-width:320px; padding:0 16px; box-sizing:border-box; }
+  #pauseOverlay .prow{ display:flex; align-items:center; justify-content:space-between; gap:14px;
+    width:100%; max-width:320px; padding:8px 16px; box-sizing:border-box; color:#dbe8f5;
+    font-family:'Consolas',monospace; font-size:15px; }
+  #pauseOverlay .ptoggle{ min-width:64px; padding:7px 12px; border-radius:9px; border:1px solid rgba(255,255,255,.22);
+    background:rgba(255,255,255,.08); color:#cfe0ee; font-weight:800; font-size:14px; cursor:pointer; }
+  #pauseOverlay .ptoggle.on{ background:#2f7d3f; border-color:#3f9d52; color:#fff; }
   body.mobile #pauseOverlay .ptitle{ font-size:36px; }
+  body.mobile #pauseOverlay .ptoggle{ padding:11px 14px; min-width:74px; font-size:15px; }
   /* ======= results ======= */
   #help{ background:rgba(10,18,28,.55); border:1px solid rgba(255,255,255,.12); color:rgba(255,255,255,.82);
     border-radius:12px; letter-spacing:.02em; }
@@ -424,6 +442,7 @@
   </div>
 
   <div id="placeHud"></div>
+  <div id="fpsHud"></div>
   <div id="padToast">🎮 connected</div>
 
   <div id="itemSlot"><div id="itemIcon">·</div></div>
@@ -504,6 +523,7 @@
       <button class="mfRace" id="pauseResume">▶ CONTINUE</button>
       <button class="mfBtn" id="pauseExit">🚪 EXIT TO MENU</button>
     </div>
+    <div class="prow"><span>FPS overlay</span><button class="ptoggle" id="pauseFpsToggle">OFF</button></div>
   </div>
 
   <div id="tune" class="hidden">
@@ -971,11 +991,68 @@
 
   // ---------- P2: placed world objects (blockout massing) ----------
   // Empty/absent -> nothing added (the live game is unchanged for tracks without objects). Visual-
-  // first: no collision yet. Same FK_TRACK.buildObjectMesh the editor uses, so what you place = what races.
-  // Ramps are auto-yaw'd to the racing-line tangent so the slope always climbs in the drive direction.
+  // first: no collision yet (physics reads ACTIVE_TRACK.objects DATA, never these meshes). The editor
+  // still builds one selectable FK_TRACK.buildObjectMesh per object; the GAME STATIC-BATCHES instead
+  // (2026-07-12 perf): a decorated track had 200+ objects = ~500+ per-mesh draw calls (each GLB clone
+  // is a multi-mesh Group). Objects sharing a model (14 tumbleweeds, 12 cows…) or the plain block box
+  // collapse into InstancedMeshes — the draw-call count becomes the number of distinct submesh
+  // materials, not the object count. Transforms/colours are baked exactly, so it renders identically.
   FK_TRACK.alignRampsToTrack(ACTIVE_TRACK, _sampled);
-  // non-GLB objects render immediately; GLB props (downloaded CC0 models) pop in after an async load.
-  for (const o of (ACTIVE_TRACK.objects || [])) if (o.type !== 'glb') scene.add(FK_TRACK.buildObjectMesh(o, THREE));
+
+  // GAME-ONLY static batcher for repeated GLB props: one InstancedMesh per template submesh, instance
+  // matrix = objectGroupMatrix · cloneMatrix(norm scale+offset) · submeshLocalMatrix — the exact chain
+  // FK_TRACK.buildObjectMesh composes per clone (g.pos/scale/rotY, then clone at norm.s + norm offset).
+  const _mObj = new THREE.Matrix4(), _mTmp = new THREE.Matrix4();
+  const _vP = new THREE.Vector3(), _qR = new THREE.Quaternion(), _vS = new THREE.Vector3(), _eR = new THREE.Euler();
+  function _objGroupMatrix(o, out){
+    _vP.set(o.x, o.y, o.z); _eR.set(0, o.rotY || 0, 0); _qR.setFromEuler(_eR); _vS.set(o.sx||1, o.sy||1, o.sz||1);
+    return out.compose(_vP, _qR, _vS);
+  }
+  function _instanceGlbModel(entry, objs){
+    const grp = new THREE.Group();
+    if (!objs.length) return grp;
+    const root = entry.scene; root.updateMatrixWorld(true);
+    const cloneMat = new THREE.Matrix4().compose(
+      new THREE.Vector3(entry.norm.ox, entry.norm.oy, entry.norm.oz), new THREE.Quaternion(),
+      new THREE.Vector3(entry.norm.s, entry.norm.s, entry.norm.s));
+    const subs = [];   // {geo, mat, cs: cloneMat·submeshLocal}
+    root.traverse(o=>{
+      if (o.isMesh && o.geometry && o.material && !Array.isArray(o.material))
+        subs.push({ geo:o.geometry, mat:o.material, cs:new THREE.Matrix4().multiplyMatrices(cloneMat, o.matrixWorld) });
+    });
+    if (!subs.length) return grp;
+    const usedGeo = new Set();   // a submesh geo shared across template nodes gets its own clone so
+    for (const sub of subs){     // fitInstancedBoundingSphere doesn't clobber another mesh's world sphere
+      let geo = sub.geo;
+      if (usedGeo.has(geo)) geo = geo.clone(); else usedGeo.add(geo);
+      const inst = new THREE.InstancedMesh(geo, sub.mat, objs.length);
+      for (let i=0;i<objs.length;i++){ _objGroupMatrix(objs[i], _mObj); _mTmp.multiplyMatrices(_mObj, sub.cs); inst.setMatrixAt(i, _mTmp); }
+      inst.instanceMatrix.needsUpdate = true;
+      inst.castShadow = false; inst.receiveShadow = false;
+      FK_TRACK.fitInstancedBoundingSphere(inst, THREE);   // correct world sphere -> proper frustum cull
+      grp.add(inst);
+    }
+    return grp;
+  }
+  // plain 'block' boxes -> one InstancedMesh with per-instance colour (matches buildObjectMesh's lam()).
+  function _instanceBlocks(blocks){
+    const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshLambertMaterial({ color:0xffffff }), blocks.length);
+    const col = new THREE.Color();
+    for (let i=0;i<blocks.length;i++){
+      const o = blocks[i]; _objGroupMatrix(o, _mObj); inst.setMatrixAt(i, _mObj);
+      let c = o.color; if (typeof c === 'string') c = parseInt(String(c).replace('#','0x')); if (!isFinite(c)) c = 0xc8a06a;
+      col.setHex(c); inst.setColorAt(i, col);
+    }
+    inst.instanceMatrix.needsUpdate = true; if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+    FK_TRACK.fitInstancedBoundingSphere(inst, THREE);   // correct world sphere -> proper frustum cull
+    return inst;
+  }
+  // non-GLB: batch the common 'block' boxes; keep the rare multi-material procedural types (barn/silo/
+  // tree/ramp/water) as their own selectable-look mesh (few of them, mixed colours -> not worth batching).
+  { const nonGlb = (ACTIVE_TRACK.objects || []).filter(o => o.type !== 'glb');
+    const blocks = nonGlb.filter(o => (o.type || 'block') === 'block');
+    if (blocks.length) scene.add(_instanceBlocks(blocks));
+    for (const o of nonGlb) if ((o.type || 'block') !== 'block') scene.add(FK_TRACK.buildObjectMesh(o, THREE)); }
   const _glbObjs = (ACTIVE_TRACK.objects || []).filter(o => o.type === 'glb' && o.model);
   // 2026-07-11: this used to be ONE Promise.all over every id the track references — GLTFLoader has
   // no built-in timeout, so a single stuck/slow model (same class of bug as the editor's "grey boxes"
@@ -1000,7 +1077,8 @@
       _loadGlbWithRetry(id).then(entry => {
         if (!entry) return;   // genuinely failed after 3 attempts — leave this model's objects unrendered (no placeholder in-game), everything else unaffected
         _glbCache[id] = entry;
-        for (const o of _glbObjs) if (o.model === id) scene.add(FK_TRACK.buildObjectMesh(o, THREE, { propCache: _glbCache }));
+        // static-batch every object using this model into InstancedMeshes (one per template submesh)
+        scene.add(_instanceGlbModel(entry, _glbObjs.filter(o => o.model === id)));
       });
     });
   }
@@ -5570,6 +5648,50 @@
     if (k==='escape' || k==='p'){ if (pausable() || paused){ e.preventDefault(); togglePause(); } }
   });
 
+  // ---------- PERF HUD (fps / frame ms avg+worst / draw calls / triangles) ----------
+  // Dev overlay, top-left. Toggle: URL ?fps=1, localStorage fk_fps, or the pause-overlay row (the
+  // mobile-reachable path). ZERO cost when hidden — frame() only samples/writes DOM while _fps.on.
+  // Frame-time = raw rAF timestamp deltas (headless SwiftShader absolute fps isn't representative,
+  // but relative deltas are). avg + worst are over a rolling ~1s window (four 250ms buckets); the DOM
+  // is rewritten ~4x/s (on bucket flush), never per frame. renderer.info is read AFTER renderer.render.
+  const _fpsHudEl = document.getElementById('fpsHud');
+  const _fps = { on:false, prev:0, cur:{sum:0,n:0,max:0}, tBucket:0, buckets:[] };
+  function fpsEnabled(){
+    try{
+      if (new URLSearchParams(location.search).get('fps') === '1') return true;
+      return localStorage.getItem('fk_fps') === '1';
+    }catch(e){ return false; }
+  }
+  function setFps(on, persist){
+    _fps.on = !!on;
+    _fpsHudEl.classList.toggle('on', _fps.on);
+    const tog = document.getElementById('pauseFpsToggle');
+    if (tog){ tog.classList.toggle('on', _fps.on); tog.textContent = _fps.on ? 'ON' : 'OFF'; }
+    if (persist !== false){ try{ localStorage.setItem('fk_fps', _fps.on ? '1' : '0'); }catch(e){} }
+    if (_fps.on){ const n = performance.now(); _fps.prev = n; _fps.cur = {sum:0,n:0,max:0}; _fps.tBucket = n; _fps.buckets.length = 0; }
+  }
+  function fpsSample(now){
+    if (_fps.prev === 0){ _fps.prev = now; _fps.tBucket = now; return; }
+    const ms = now - _fps.prev; _fps.prev = now;
+    const c = _fps.cur; c.sum += ms; c.n++; if (ms > c.max) c.max = ms;
+    if (now - _fps.tBucket >= 250){
+      _fps.buckets.push(c); if (_fps.buckets.length > 4) _fps.buckets.shift();
+      _fps.cur = {sum:0,n:0,max:0}; _fps.tBucket = now;
+      let sum=0, n=0, worst=0;
+      for (const b of _fps.buckets){ sum+=b.sum; n+=b.n; if (b.max>worst) worst=b.max; }
+      const avg = n ? sum/n : 0, fps = avg>0 ? 1000/avg : 0;
+      const info = renderer.info.render;
+      const kTri = info.triangles >= 1000 ? (info.triangles/1000).toFixed(info.triangles>=100000?0:1)+'k' : String(info.triangles);
+      _fpsHudEl.innerHTML = '<b>'+fps.toFixed(0)+'</b> fps  '+avg.toFixed(1)+'/'+worst.toFixed(1)+' ms\n'
+                          + '<b>'+info.calls+'</b> draw calls\n'
+                          + kTri+' tris';
+    }
+  }
+  setFps(fpsEnabled(), false);
+  { const tog = document.getElementById('pauseFpsToggle');
+    if (tog){ tog.addEventListener('pointerdown', e=>e.stopPropagation());
+              tog.addEventListener('click', e=>{ e.stopPropagation(); setFps(!_fps.on); }); } }
+
   // ---------- results / GP-interstitial CONTINUE button (tap/ENTER still work in parallel) ----------
   const rContinueEl = document.getElementById('rContinue');
   function setResultsContinue(label, show){ rContinueEl.textContent = label; rContinueEl.classList.toggle('on', !!show); }
@@ -6570,6 +6692,7 @@
     if (SKY_OBJ && SKY_OBJ.userData.update) SKY_OBJ.userData.update(dt, camera);  // cloud drift / snow / celestial
     if (TRAIN_GROUP.userData.update) TRAIN_GROUP.userData.update(dt);             // moving trains
     renderer.render(scene, camera);
+    if (_fps.on) fpsSample(now);   // perf HUD: sample AFTER render so renderer.info is this frame's
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
@@ -7279,6 +7402,8 @@
     // 2026-07-10: wrong-way HUD hooks (headless harness — deterministic control over the
     // progress-vs-time signal without needing to drive real physics/input backward)
     WRONG_WAY_SHOW_T, updateRaceProgress, updateHUD,
+    // 2026-07-12: perf HUD (fps/frame-ms/draw-calls/tris) hooks for the headless harness
+    setFps, get fpsOn(){ return _fps.on; }, get fpsHudText(){ return _fpsHudEl.textContent; },
     // SFX hooks for headless audio-graph checks (mute still gates audible output)
     tomatoFireSound, tomatoSplatSound, chickenSquawkSound, countdownVoice, cancelSpeech,
     startContinuousAudio, updateAudio, ensureAudio,
