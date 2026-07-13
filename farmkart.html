@@ -209,6 +209,37 @@
         78%{ transform:scale(1); opacity:1; } 100%{ transform:scale(1.02); opacity:0; } }
   body.mobile #finalLap .fl{ font-size:56px; }
 
+  /* ---- R2: 👻 ghost chip (HUD), toast, podium ceremony overlay ---- */
+  #ghostChip{ position:absolute; left:50%; top:96px; transform:translateX(-50%); z-index:24;
+    display:none; padding:4px 12px; border-radius:14px; background:rgba(20,26,40,.72);
+    color:#e9eefc; font:700 14px/1.1 -apple-system,Segoe UI,Roboto,sans-serif;
+    letter-spacing:.02em; box-shadow:0 2px 10px rgba(0,0,0,.35); pointer-events:none;
+    border:1px solid rgba(150,170,220,.35); }
+  #ghostChip.on{ display:block; }
+  body.mobile #ghostChip{ top:132px; font-size:12px; }
+  #fkToast{ position:absolute; left:50%; top:38%; transform:translateX(-50%) scale(.7);
+    z-index:33; display:none; padding:12px 22px; border-radius:16px; text-align:center;
+    background:linear-gradient(180deg,#2b3a63,#1a2440); color:#fff; pointer-events:none;
+    font:800 22px/1.15 -apple-system,Segoe UI,Roboto,sans-serif; letter-spacing:-.01em;
+    box-shadow:0 8px 30px rgba(0,0,0,.5); border:2px solid #ffd45e; }
+  #fkToast.on{ display:block; animation:fktoast 2.6s ease-out forwards; }
+  @keyframes fktoast{ 0%{ transform:translateX(-50%) scale(.6); opacity:0; }
+    12%{ transform:translateX(-50%) scale(1.06); opacity:1; } 24%{ transform:translateX(-50%) scale(1); }
+    80%{ transform:translateX(-50%) scale(1); opacity:1; } 100%{ transform:translateX(-50%) scale(1.02); opacity:0; } }
+  body.mobile #fkToast{ font-size:17px; padding:10px 16px; }
+  #podiumOv{ position:absolute; inset:0; z-index:30; display:none; pointer-events:none;
+    flex-direction:column; align-items:center; justify-content:flex-end; padding-bottom:9%; }
+  #podiumOv.on{ display:flex; }
+  #podiumSub{ font:900 30px/1 -apple-system,Segoe UI,Roboto,sans-serif; color:#ffd45e;
+    text-shadow:0 3px 0 rgba(0,0,0,.4),0 0 24px rgba(255,190,60,.6); margin-top:14px; letter-spacing:-.01em; }
+  #podiumNames{ display:flex; gap:16px; align-items:flex-end; }
+  #podiumNames .pn{ background:rgba(15,20,34,.78); border:1px solid rgba(150,170,220,.4);
+    border-radius:12px; padding:8px 14px; text-align:center; color:#fff;
+    font:800 16px/1.2 -apple-system,Segoe UI,Roboto,sans-serif; }
+  #podiumNames .pn .pm{ font-size:24px; display:block; }
+  #podiumNames .pn .pp{ font-size:12px; color:#a9b8dd; font-weight:700; }
+  body.mobile #podiumSub{ font-size:20px; } body.mobile #podiumNames .pn{ font-size:13px; padding:6px 9px; }
+
   /* ---- BOOST FLARE: MK-style radial speed-lines during a boost FOV kick. opacity is driven
      per-frame from boostFlareT; costs ~nothing at idle (opacity:0 → compositor skips it), never
      intercepts pointer events. A radial mask keeps the streaks at the periphery (clear center). */
@@ -399,6 +430,19 @@
   .mfStatRow .sd i.on{ background:#ffd45e; }
   /* cup card mini track list */
   .mfCard.cupcard .ct{ font-size:9.5px; }
+  .mfCard .cmedal{ font-size:16px; line-height:1; margin-top:1px; }
+  .mfCard .cghost{ font-size:11px; }
+  /* R2 CLASS + MIRROR selector bar */
+  .mfClassBar{ display:flex; flex-direction:column; align-items:center; gap:5px; width:100%; max-width:340px; margin-top:2px; }
+  .mfClsHead{ font-size:10px; font-weight:800; color:#bfe0ff; letter-spacing:.08em; font-family:'Consolas',monospace; }
+  .mfClsRow{ display:flex; gap:7px; }
+  .mfCls{ display:flex; flex-direction:column; align-items:center; gap:1px; padding:6px 12px; border-radius:10px;
+    border:2px solid rgba(255,255,255,.18); background:rgba(10,22,34,.75); color:#eaf3ff; cursor:pointer; min-width:64px; }
+  .mfCls .ci{ font-size:22px; line-height:1; } .mfCls .cl{ font-size:10px; font-weight:800; font-family:'Consolas',monospace; color:#bfe0ff; }
+  .mfCls.on{ border-color:#8fe08f; background:rgba(30,60,40,.85); box-shadow:0 0 0 2px rgba(143,224,143,.35); }
+  .mfMirror{ padding:6px 16px; border-radius:10px; border:2px solid rgba(255,255,255,.18);
+    background:rgba(10,22,34,.75); color:#eaf3ff; font-weight:800; font-size:13px; cursor:pointer; }
+  .mfMirror.on{ border-color:#ffd45e; background:rgba(70,58,20,.8); color:#ffe27a; box-shadow:0 0 0 2px rgba(255,212,94,.3); }
   /* bots stepper on SP course/cup select */
   .mfOpt{ display:flex; gap:8px; align-items:center; font-size:13px; color:#bfe0ff; font-family:'Consolas',monospace; }
   .mfOpt button{ width:30px; height:28px; border-radius:7px; border:1px solid rgba(255,255,255,.25);
@@ -530,6 +574,9 @@
   <div id="countdown"><div class="num" id="cdNum">3</div></div>
   <div id="wrongway">⚠ WRONG WAY</div>
   <div id="finalLap"><div class="fl">FINAL LAP!</div></div>
+  <div id="ghostChip"></div>
+  <div id="fkToast"></div>
+  <div id="podiumOv"><div id="podiumNames"></div><div id="podiumSub">🏆 Champions!</div></div>
   <div id="results">
     <div class="card">
       <div class="rtitle">FINISH!</div>
@@ -926,7 +973,52 @@
     if (boot) return boot;
     return { track:FK_TRACK.DEFAULT_TRACK, id:null };
   }
+  // ===== SPEED CLASS + MIRROR MODE (2026-07-12 R2) ==========================================
+  //  A CLASS is a global top-speed/accel multiplier layered on top of the per-kart stats, applied
+  //  to EVERY kart (incl. bots — their target-speed / rubber-band references scale too so races
+  //  stay sane). MIRROR flips the whole course left-right at LOAD time (a deep-cloned, X-negated
+  //  copy of ACTIVE_TRACK) so the scene + physics build from mirrored data. Both persist in
+  //  localStorage and are boot-read; MP carries them as ?cls=/&mir= URL params (host reload + join
+  //  link) so everyone races the same config. Per-track bests/ghosts key per class+mirror so
+  //  records stay honest — the legacy fk_best_<id> IS the truck-class non-mirror record (no suffix).
+  const SPEED_CLASSES = {
+    tractor:{ mul:0.85, name:'Tractor', cc:'100cc', ico:'🚜' },
+    truck:  { mul:1.00, name:'Truck',   cc:'150cc', ico:'🛻' },
+    rocket: { mul:1.15, name:'Rocket',  cc:'200cc', ico:'🚀' },
+  };
+  function normalizeClass(c){ return SPEED_CLASSES[c] ? c : 'truck'; }
+  function loadClass(){
+    try{ const q = new URLSearchParams(location.search).get('cls'); if (q && SPEED_CLASSES[q]) return q; }catch(e){}
+    try{ return normalizeClass(localStorage.getItem('fk_class')); }catch(e){ return 'truck'; }
+  }
+  function loadMirror(){
+    try{ const q = new URLSearchParams(location.search).get('mir'); if (q==='1') return true; if (q==='0') return false; }catch(e){}
+    try{ return localStorage.getItem('fk_mirror') === '1'; }catch(e){ return false; }
+  }
+  let SPEED_CLASS = loadClass();
+  let MIRROR = loadMirror();
+  function classMul(){ return (SPEED_CLASSES[SPEED_CLASS] || SPEED_CLASSES.truck).mul; }
+  // Left-right mirror: deep-clone the track and negate world X of EVERY feature. Grid keys "i,j"
+  // map to world x=i*cell, so mirror by negating the i axis; lane offsets flip sign; yaw negates.
+  function mirrorTrack(t){
+    let m; try{ m = JSON.parse(JSON.stringify(t)); }catch(e){ return t; }
+    if (Array.isArray(m.points)) for (const p of m.points) p.x = -p.x;
+    if (m.gridSide) m.gridSide = (m.gridSide==='left' ? 'right' : 'left');
+    if (Array.isArray(m.boostPads)) for (const b of m.boostPads) b.lane = -(+b.lane || 0);
+    if (Array.isArray(m.objects)) for (const o of m.objects){ o.x = -(+o.x||0); if (isFinite(+o.rotY)) o.rotY = -(+o.rotY); }
+    if (Array.isArray(m.fences)) for (const f of m.fences) if (Array.isArray(f.points)) for (const p of f.points) p.x = -p.x;
+    if (Array.isArray(m.waters)) for (const w of m.waters) w.x = -(+w.x||0);
+    if (Array.isArray(m.trains)) for (const tr of m.trains) if (Array.isArray(tr.points)) for (const p of tr.points) p.x = -p.x;
+    const flipGrid = (g)=>{ if (!g || !g.cells) return; const nc={};
+      for (const k in g.cells){ const mm=/^(-?\d+),(-?\d+)$/.exec(k); if(!mm) continue; nc[(-(+mm[1]))+','+mm[2]] = g.cells[k]; }
+      g.cells = nc; };
+    flipGrid(m.terrain); flipGrid(m.paint); flipGrid(m.tufts);
+    return m;
+  }
+  // ==========================================================================================
+
   const _active = loadActiveTrack();
+  if (MIRROR) _active.track = mirrorTrack(_active.track);
   const ACTIVE_TRACK = _active.track;
   const ACTIVE_TRACK_ID = _active.id;   // null = default
   const TRACK_WIDTH = ACTIVE_TRACK.width;
@@ -934,7 +1026,10 @@
   // ---------- K6: best lap is stored PER TRACK ID (fk_best_<id>, default = 'default') ----------
   // Migrated from a single global fk_best (which conflated every track's best). One-time: on the
   // DEFAULT track, if no per-track record exists yet, adopt the legacy global fk_best.
-  const BEST_LAP_KEY = 'fk_best_' + (ACTIVE_TRACK_ID || 'default');
+  // R2: keyed per class+mirror — suffix '' for truck non-mirror (= legacy key), else _<class>[_m].
+  function classMirrorSuffix(){ let s=''; if (SPEED_CLASS!=='truck' || MIRROR){ s='_'+SPEED_CLASS; if (MIRROR) s+='_m'; } return s; }
+  const BEST_LAP_KEY = 'fk_best_' + (ACTIVE_TRACK_ID || 'default') + classMirrorSuffix();
+  const GHOST_KEY    = 'fk_ghost_' + (ACTIVE_TRACK_ID || 'default') + classMirrorSuffix();
   function loadBestLap(){
     let b = parseFloat(localStorage.getItem(BEST_LAP_KEY));
     if (!isFinite(b) && ACTIVE_TRACK_ID === null){
@@ -2525,6 +2620,8 @@
     else if (p.starT > 0) effMax *= TUNE.starSpeedMul;                                // 🌻 +18% top speed
     let effAccel = TUNE.accel * kst.accel;
     if (p.isBot) effAccel *= (p.botAccelMul != null ? p.botAccelMul : 1);
+    // R2 SPEED CLASS: global top-speed/accel multiplier (100cc/150cc/200cc) on ALL karts.
+    const _cm = classMul(); effMax *= _cm; effAccel *= _cm;
     if (gf > 0){ effAccel *= (1 - 0.55*gf); effMax *= (1 - 0.5*gf); }
 
     // ---- throttle / brake along forward ----
@@ -2886,7 +2983,7 @@
       const j = (ai+1)%N; acc += Math.hypot(C[j].x-C[ai].x, C[j].z-C[ai].z); ai = j;
       if (ai === idx) break;
     }
-    const botTop = TUNE.maxSpeed * (TUNE.botTopSpeedMul || 1) * (p.botTopMul != null ? p.botTopMul : 1);
+    const botTop = TUNE.maxSpeed * (TUNE.botTopSpeedMul || 1) * (p.botTopMul != null ? p.botTopMul : 1) * classMul();
     let tv = botTop;
     if (maxCurv > 1e-4) tv = Math.sqrt((TUNE.botLatBase * TUNE.botCornerGrip) / maxCurv);
     tv = Math.min(tv, botTop);
@@ -4612,9 +4709,11 @@
     p.place = computePlace(p);
     if (p === G.players.local){
       if (net.mp){
-        // MP: the local player sees results without stopping the shared world (host keeps
-        // simulating for still-racing guests; guests keep reading the host snapshot).
-        if (!net.localResultsShown){
+        // R2 MP GRAND PRIX: a cup race shows no per-player results card — the cup flow shows the
+        // shared interlude standings (host tallies points once everyone crosses) / final podium.
+        if (window.MenuFlow && MenuFlow.mpCupActive()){ /* cup poller handles interlude/finale */ }
+        else if (!net.localResultsShown){
+          // MP single race: local sees results without stopping the shared world.
           net.localResultsShown = true;
           G.results = { place:p.place, totalTime:p.finishTime, bestLap:p.lapBest, standings:computeStandings() };
           showResults();
@@ -4632,6 +4731,7 @@
         // standings as each bot crosses, so the displayed order always equals the true finish order.
         G.localDone = true; G.localFinishClock = G.raceClock;
         G.results = { place:p.place, totalTime:p.finishTime, bestLap:p.lapBest, standings:computeStandings() };
+        Ghost.onFinish(p.lapBest);   // R2: save the ghost if this TT run set a new best
         showResults();
       }
     } else if (G.localDone && G.phase !== 'finished'){
@@ -5031,7 +5131,7 @@
     if (p.rampJumped){ if (p === G.players.local) boostWhoosh(); p.rampJumped = false; }
     view.lastAirborne = p.airborne;
     // K6 juice: drift dust · boost puffs · spin stars (pooled, spawned from live state)
-    if (G.phase === 'racing'){
+    if (G.phase === 'racing' && !p._isGhost){   // R2: the translucent ghost never spawns FX/sound
       const spd = Math.hypot(p.v.x, p.v.z);
       if (p.drift.active && spd > 2.5 && !p.airborne) spawnDriftDust(p, view, gy, dt);
       if (p.boostT > 0) spawnBoostPuff(p, view, gy, dt);
@@ -6252,6 +6352,8 @@
   }
   function toMenu(){
     G.phase = 'menu';
+    if (window.__fkGhost) __fkGhost.stopPlay();   // R2: clear the ghost kart when leaving to menu
+    document.getElementById('ghostChip').classList.remove('on');
     // remove bots so the menu shows just the local kart on the grid
     for (const id in G.players){ if (G.players[id].isBot){ removeKartView(id); delete G.players[id]; } }
     resetRaceFields(G.players.local);
@@ -6305,6 +6407,7 @@
     setMusicPhase('race');   // 2026-07-10: fade menu music out, start the race track
     countdownVoice('3');
     G.lastBeat = 3;
+    Ghost.onCountdown();     // R2: reset the ghost recorder + load a saved ghost for playback (solo TT)
     if (net.mp && net.isHost){ publishNetSnapshotNow(); updateLobbyDoc({ status:'started' }); }   // family lobby: host-only, online-mode-only (no-op otherwise)
   }
   function startRacing(inp){
@@ -6387,6 +6490,11 @@
   }
   // menu / results advance = Enter or tap
   function advance(){
+    // R2 MP GRAND PRIX finale: dismissing the final standings returns EVERYONE (host + guests) to a
+    // clean menu (reload drops the #r= room hash + clears the cup session).
+    if (net.mp && window.MenuFlow && MenuFlow.mpCupActive() && MenuFlow.mpCup && MenuFlow.mpCup.phase==='done'){
+      MenuFlow._clearMpCup(); location.href='farmkart.html'; return;
+    }
     if (net.mp && !net.isHost) return;   // guests never start/restart — the host drives it
     if (net.mp && net.isHost){
       // MENU OVERHAUL: from the MP waiting room, Enter/tap tries the ready-gated start; after a
@@ -6407,8 +6515,8 @@
       if (window.MenuFlow) MenuFlow.raceAgain(); else startCountdown();
     }
   }
-  addEventListener('keydown', e=>{ if (e.key === 'Enter'){ if (paused) return; advance(); } });
-  stage.addEventListener('pointerdown', ()=>{ if (paused) return; if (G.phase==='menu' || G.phase==='finished' || G.localDone) advance(); });
+  addEventListener('keydown', e=>{ if (e.key === 'Enter'){ if (paused) return; if (Podium.active){ Podium.finish(); return; } advance(); } });
+  stage.addEventListener('pointerdown', ()=>{ if (paused) return; if (Podium.active){ Podium.finish(); return; } if (G.phase==='menu' || G.phase==='finished' || G.localDone) advance(); });
 
   // ---------- PAUSE (⏸ button + Esc / P) ----------
   //  SOLO: freezes the sim (frame loop skips stepKart/timers/bots while `paused`; the frozen scene
@@ -6977,7 +7085,8 @@
       chick:G.chickens.filter(c=>c.active).map(c=>({ i:c.i, x:c.x, z:c.z, d:c.dir, w:c.walkT, r:c.roll })),
       grants:net.grants || {},
       spins:net.spins,
-      raceOver:!!G.raceOver
+      raceOver:!!G.raceOver,
+      cls:SPEED_CLASS   // R2: host's speed class (guests adopt at runtime; mirror travels via reload URL)
     };
   }
   function publishNetSnapshotNow(){
@@ -7124,6 +7233,7 @@
   // ---- guest: apply the host snapshot (phase machine + world + own grant/spin) ----
   function guestApply(snap, dt, inp){
     if (!snap) return;
+    if (snap.cls && snap.cls !== SPEED_CLASS) SPEED_CLASS = normalizeClass(snap.cls);   // R2: adopt host's speed class
     G.lapsTotal = snap.laps || G.lapsTotal;
     if (typeof snap.countdownT === 'number') G.countdownT = snap.countdownT;   // mirror for HUD/tests
     // NEW COUNTDOWN generation from the host -> allow re-seating (host restarted the race)
@@ -7462,6 +7572,7 @@
     updateBoostPads(dt);          // K7: boost pads (own + bots)
     updateSlipstream(dt);         // R1: draft boost (own + bots)
     resolveKartCollisions();      // K7: kart-vs-kart separation (own + bots)
+    Ghost.record(dt);             // R2: sample the local kart for the time-trial ghost
     G.raceClock += dt;
     // FINISH TRANSITION (2026-07-12): once the local player has finished, keep simulating so the
     // bots finish too (standings live-refresh as they cross), then stop the sim. A grace timeout
@@ -7471,12 +7582,185 @@
       else if (G.raceClock - G.localFinishClock > 12){ forceFinishRemaining(); G.phase = 'finished'; }
     }
   }
+  // ---- R2: transient celebratory toast (ghost beaten, etc.) ----
+  const _fkToastEl = document.getElementById('fkToast');
+  let _fkToastHideT = null;
+  function fkToast(msg){
+    _fkToastEl.textContent = msg; _fkToastEl.classList.remove('on');
+    void _fkToastEl.offsetWidth;   // restart the CSS animation
+    _fkToastEl.classList.add('on');
+    if (_fkToastHideT) clearTimeout(_fkToastHideT);
+    _fkToastHideT = setTimeout(()=>{ _fkToastEl.classList.remove('on'); }, 2600);
+  }
+
+  // ============================================================================
+  //  R2 TIME-TRIAL GHOSTS — record the local kart at 10Hz during a solo Time Trial
+  //  (0 bots); on a new per-track best, persist to fk_ghost_<key> (keyed identically
+  //  to the best lap so class/mirror records stay separate). The next TT on that track
+  //  replays a translucent ghost of the saved run + a "👻 vs 1:23" HUD chip.
+  // ============================================================================
+  const Ghost = (function(){
+    const HZ = 10, MAX_SAMPLES = 2400;          // ~4 min cap (well over 3 laps); guards size too
+    let rec = null, play = null;
+    const chipEl = document.getElementById('ghostChip');
+    function isTT(){ return !net.mp && G.raceMode === 'trial'; }
+    const q = v => Math.round(v*100)/100;
+    function onCountdown(){
+      stopPlay(); rec = null; hideChip();
+      if (!isTT()) return;
+      rec = { s:[], t:0, nextT:0 };
+      let saved=null; try{ saved=JSON.parse(localStorage.getItem(GHOST_KEY)||'null'); }catch(e){}
+      if (saved && Array.isArray(saved.s) && saved.s.length>=10) startPlay(saved);
+    }
+    function record(dt){
+      if (!rec) return;
+      rec.t += dt;
+      while (rec.t >= rec.nextT && rec.s.length < MAX_SAMPLES*5){
+        const p = G.players.local;
+        rec.s.push(q(p.pos.x), q(p.pos.z), q(p.y), q(p.theta), q(p.driftAngle||0));
+        rec.nextT += 1/HZ;
+      }
+    }
+    function startPlay(saved){
+      const l = loadLoadout();
+      const view = buildKartView('__ghost', l.color, false, null, { kartId:l.kartId, driverId:l.driverId, noName:true });
+      view.group.traverse(o=>{ if (o.material){ o.material = o.material.clone(); o.material.transparent=true; o.material.opacity=0.42; o.material.depthWrite=false; } });
+      const gp = makePlayer('__ghostP'); gp._isGhost = true; delete G.players['__ghostP'];
+      play = { s:saved.s, best:saved.best||0, n:Math.floor(saved.s.length/5), t:0, view, p:gp };
+      showChip('👻 vs ' + (play.best ? fmtTime(play.best) : '—'));
+    }
+    function stopPlay(){ if (play){ removeKartView('__ghost'); play=null; } }
+    function update(dt){
+      if (!play || G.phase!=='racing') return;
+      play.t += dt;
+      const fi = play.t*HZ; let i = Math.floor(fi);
+      if (i > play.n-1) i = play.n-1;
+      const j = Math.min(i+1, play.n-1), f = Math.min(1, Math.max(0, fi-i));
+      const S = play.s, a=i*5, b=j*5, gp=play.p;
+      gp.pos.x = S[a]+(S[b]-S[a])*f;
+      gp.pos.z = S[a+1]+(S[b+1]-S[a+1])*f;
+      gp.y     = S[a+2]+(S[b+2]-S[a+2])*f;
+      let dth = S[b+3]-S[a+3]; while(dth>Math.PI)dth-=Math.PI*2; while(dth<-Math.PI)dth+=Math.PI*2;
+      gp.theta = S[a+3]+dth*f; gp.driftAngle = S[a+4]+(S[b+4]-S[a+4])*f;
+      gp.v.x = 0; gp.v.z = 0;
+      syncKartView(gp, play.view, dt);
+    }
+    function onFinish(runBest){
+      if (!rec || !isTT()) return;
+      const prior = play ? (play.best||0) : 0;
+      const beat = runBest > 0 && (prior===0 || runBest < prior);
+      if (beat && rec.s.length >= 10){
+        try{
+          const str = JSON.stringify({ best:runBest, s:rec.s.slice(0, MAX_SAMPLES*5) });
+          if (str.length < 300000){ localStorage.setItem(GHOST_KEY, str);
+            fkToast(prior>0 ? '👻 New ghost! You beat '+fmtTime(prior) : '👻 Ghost saved!'); }
+        }catch(e){}
+      }
+    }
+    function showChip(t){ chipEl.textContent=t; chipEl.classList.add('on'); }
+    function hideChip(){ chipEl.classList.remove('on'); }
+    return { onCountdown, record, update, onFinish, stopPlay,
+             get playing(){ return !!play; }, get recCount(){ return rec?Math.floor(rec.s.length/5):0; } };
+  })();
+  window.__fkGhost = Ghost;
+
+  // ============================================================================
+  //  R2 PODIUM CEREMONY — top-3 karts+drivers on a 1st/2nd/3rd stand, orbiting camera,
+  //  confetti + win jingle. Shown after a Grand Prix cup's FINAL race (solo AND MP).
+  //  Built on a platform placed far from any track geometry; camera orbits it, so the
+  //  race scene stays out of frame. done() → the caller shows the final standings.
+  // ============================================================================
+  const Podium = (function(){
+    const OX=6000, OY=40, OZ=6000, DUR=7.0;
+    const CONF = [0xff5b5b,0xffd45e,0x5bc0ff,0x6be08a,0xd98bff,0xff9e5b,0xffffff];
+    let group=null, active=false, t=0, doneCb=null, orbit=0, conf=[], karts=[];
+    const ovEl=document.getElementById('podiumOv'), namesEl=document.getElementById('podiumNames'), subEl=document.getElementById('podiumSub');
+    function teardown(){
+      for (const k of karts) removeKartView(k);
+      karts=[];
+      if (group){ scene.remove(group); group=null; }
+      conf=[];
+    }
+    function show(rows, cb){
+      teardown();
+      doneCb = cb || null;
+      const top = (rows||[]).slice(0,3);
+      group = new THREE.Group(); group.position.set(OX,OY,OZ); scene.add(group);
+      const plat = new THREE.Mesh(new THREE.CylinderGeometry(15,16,2,40), new THREE.MeshLambertMaterial({color:0x39466a}));
+      plat.position.y=-1; group.add(plat);
+      const bh=[3.4,2.4,1.6], bx=[0,-5.6,5.6], bcol=[0xe8c14a,0xd2d8e2,0xc78a4a];
+      for (let i=0;i<top.length;i++){
+        const r=top[i];
+        const blk=new THREE.Mesh(new THREE.BoxGeometry(4.4,bh[i],4.4), new THREE.MeshLambertMaterial({color:bcol[i]}));
+        blk.position.set(bx[i], bh[i]/2, 0); group.add(blk);
+        const id='__pod'+i;
+        const view=buildKartView(id, r.color!=null?r.color:0x3d8b3d, false, null, { kartId:r.kartId||'bucky', driverId:r.driverId||'bucky', noName:true });
+        const np=makePlayer('__podP'); np.theta=0; syncKartView(np, view, 0.1); delete G.players['__podP'];
+        view.group.position.set(OX+bx[i], OY+bh[i], OZ+1.6);
+        view.group.rotation.set(0,0,0);
+        karts.push(id);
+      }
+      // confetti
+      const cg=new THREE.Group(); group.add(cg);
+      for (let i=0;i<130;i++){
+        const m=new THREE.Mesh(GHOST_CONF_GEO, new THREE.MeshBasicMaterial({color:CONF[i%CONF.length], side:THREE.DoubleSide}));
+        m.position.set((Math.random()-0.5)*26, 5+Math.random()*13, (Math.random()-0.5)*18);
+        m.rotation.set(Math.random()*6.28,Math.random()*6.28,Math.random()*6.28);
+        cg.add(m); conf.push({ m, vy:-(1.6+Math.random()*2.8), sway:Math.random()*6.28, spin:(Math.random()-0.5)*7 });
+      }
+      // DOM overlay
+      const MED=['🥇','🥈','🥉'];
+      namesEl.innerHTML='';
+      for (let i=0;i<top.length;i++){ const r=top[i];
+        const d=document.createElement('div'); d.className='pn'+(i===0?' first':'');
+        d.innerHTML='<span class="pm">'+MED[i]+'</span>'+r.name+(r.pts!=null?'<span class="pp">'+r.pts+' pts</span>':'');
+        namesEl.appendChild(d); }
+      ovEl.classList.add('on');
+      document.getElementById('placeHud').style.display='none';
+      document.getElementById('minimap').style.display='none';
+      document.getElementById('itemSlot').style.display='none';
+      resultsEl.style.display='none'; countdownEl.style.display='none';
+      active=true; t=0; orbit=0;
+      musicRaceEnd();                          // win jingle + fade race music
+      finishFanfare(1);                        // celebratory fanfare
+    }
+    function update(dt, now){
+      if (!active) return;
+      t += dt; orbit += dt*0.35;
+      const r=20, cx=OX, cy=OY+5, cz=OZ;
+      camera.up.set(0,1,0);
+      camera.position.set(cx+Math.sin(orbit)*r, cy+7+Math.sin(orbit*0.5)*1.5, cz+Math.cos(orbit)*r);
+      camera.lookAt(cx, cy+1.5, cz);
+      for (const c of conf){
+        c.m.position.y += c.vy*dt; c.m.position.x += Math.sin(t*2+c.sway)*dt*1.2;
+        c.m.rotation.z += c.spin*dt;
+        if (c.m.position.y < -1){ c.m.position.y = 12+Math.random()*4; }
+      }
+      if (t > DUR) finish();
+    }
+    function finish(){
+      if (!active) return;
+      active=false;
+      ovEl.classList.remove('on');
+      document.getElementById('placeHud').style.display='';
+      document.getElementById('minimap').style.display='';
+      document.getElementById('itemSlot').style.display='';
+      teardown();
+      const cb=doneCb; doneCb=null; if (cb) cb();
+    }
+    return { show, update, finish, get active(){ return active; } };
+  })();
+  const GHOST_CONF_GEO = new THREE.PlaneGeometry(0.4,0.4);
+  window.__fkPodium = Podium;
+
   // ---------- main loop ----------
   let last = performance.now();
   function frame(now){
     let dt = (now - last)/1000; last = now;
     if (dt > 0.05) dt = 0.05; // clamp
     if (dt < 0) dt = 0;
+    // R2 PODIUM CEREMONY takes over the camera + render while active (race scene stays out of frame).
+    if (Podium.active){ Podium.update(dt, now); renderer.render(scene, camera); requestAnimationFrame(frame); return; }
     const inp = gatherInput();
 
     if (!net.mp){
@@ -7526,6 +7810,7 @@
     }
 
     syncKart(dt);
+    Ghost.update(dt);        // R2: replay the translucent time-trial ghost
     updateRescueCrows(dt);   // R1: crow lift-and-carry visual over any kart being rescued
     updateCamera(dt);
     updateHUD();
@@ -7600,7 +7885,40 @@
       if (map && typeof map==='object'){ for (const id in map){ if (ids.indexOf(id)<0 && id!=='default') ids.push(id); } }
       return ids;
     }
-    function bestFor(id){ let b=parseFloat(localStorage.getItem('fk_best_'+id)); return isFinite(b)&&b>0 ? b : null; }
+    // R2: bests/ghosts key per class+mirror (classMirrorSuffix() reflects the LIVE menu selection).
+    function bestFor(id){ let b=parseFloat(localStorage.getItem('fk_best_'+id+classMirrorSuffix())); return isFinite(b)&&b>0 ? b : null; }
+    function ghostFor(id){ try{ return !!localStorage.getItem('fk_ghost_'+id+classMirrorSuffix()); }catch(e){ return false; } }
+    function cupMedal(cupId){ try{ const m=JSON.parse(localStorage.getItem('fk_cups')||'{}'); return m[cupId+classMirrorSuffix()]||0; }catch(e){ return 0; } }
+
+    // ---- R2 CLASS + MIRROR selector bar (shared by TT course, GP cup, MP course screens) ----
+    let _mirrorAtBoot = MIRROR;   // the mirror the current page was LOADED with (geometry is baked)
+    function classBar(onChange){
+      const bar=el('div','mfClassBar'); bar.addEventListener('pointerdown',stop);
+      const clsRow=el('div','mfClsRow');
+      const clsBtns={};
+      for (const cid of ['tractor','truck','rocket']){
+        const c=SPEED_CLASSES[cid];
+        const b=btn('mfCls','<span class="ci">'+c.ico+'</span><span class="cl">'+c.cc+'</span>', ()=>{
+          SPEED_CLASS=cid; try{ localStorage.setItem('fk_class',cid); }catch(e){} sync(); if(onChange)onChange(); });
+        clsRow.appendChild(b); clsBtns[cid]=b;
+      }
+      bar.appendChild(el('div','mfClsHead','SPEED CLASS')); bar.appendChild(clsRow);
+      const mir=btn('mfMirror','🔁 MIRROR', ()=>{
+        MIRROR=!MIRROR; try{ localStorage.setItem('fk_mirror', MIRROR?'1':'0'); }catch(e){} sync(); if(onChange)onChange(); });
+      bar.appendChild(mir);
+      function sync(){
+        for (const cid in clsBtns) clsBtns[cid].classList.toggle('on', cid===SPEED_CLASS);
+        mir.classList.toggle('on', MIRROR);
+        mir.innerHTML = MIRROR ? '🔁 MIRROR ✓' : '🔁 MIRROR';
+      }
+      sync();
+      bar._sync = sync;
+      return bar;
+    }
+    // A launched race must RELOAD when MIRROR differs from what the page was built with (geometry
+    // is baked from ACTIVE_TRACK at load). Class is a runtime multiplier — no reload needed.
+    function mirrorNeedsReload(){ return MIRROR !== _mirrorAtBoot; }
+    function raceQuery(){ let q=''; if (SPEED_CLASS!=='truck') q+='&cls='+SPEED_CLASS; if (MIRROR) q+='&mir=1'; return q; }
 
     // ---- preview canvas: reuse the minimap corridor-drawing approach against a track's points ----
     function drawTrackPreview(canvas, track){
@@ -7691,6 +8009,7 @@
       s.appendChild(el('div','mfHead','CHOOSE YOUR COURSE'));
       const grid=document.createElement('div'); grid.className='mfGrid courses'; grid.addEventListener('pointerdown',stop);
       s.appendChild(grid);
+      s.appendChild(classBar(()=>repaintCourseCards()));
       const race=btn('mfRace','RACE ▶', ()=>startTrial());
       const bar=document.createElement('div'); bar.className='mfBar';
       bar.appendChild(btn('mfBack','‹ Back', ()=>back()));
@@ -7698,6 +8017,8 @@
       return { grid, race };
     })();
     let courseCards = {};
+    function courseBestLine(id){ const b=bestFor(id); return (b?('⏱ '+fmtTime(b)):'—') + (ghostFor(id)?' 👻':''); }
+    function repaintCourseCards(){ for (const id in courseCards){ const cb=courseCards[id].querySelector('.cb'); if (cb) cb.textContent=courseBestLine(id); } }
     function openCourseGrid(kind){
       ttGrid.grid.innerHTML=''; courseCards={};
       for (const id of courseIds()){
@@ -7706,7 +8027,7 @@
         const cv=document.createElement('canvas'); cv.width=104; cv.height=66; card.appendChild(cv);
         drawTrackPreview(cv, info.track);
         card.appendChild(el('div','cn', info.name));
-        const b=bestFor(id); card.appendChild(el('div','cb', b?('⏱ '+fmtTime(b)):'—'));
+        card.appendChild(el('div','cb', courseBestLine(id)));
         card.addEventListener('pointerdown',stop);
         card.addEventListener('click', ()=>{ st.selCourse=id; markCourse(); });
         ttGrid.grid.appendChild(card); courseCards[id]=card;
@@ -7724,6 +8045,7 @@
     }
 
     // ================= GRAND PRIX — cup select =================
+    const cupCards={};
     (function(){ const s=makeScreen('gp-cup');
       s.appendChild(el('div','mfHead','SELECT A CUP'));
       const grid=document.createElement('div'); grid.className='mfGrid cups'; grid.addEventListener('pointerdown',stop);
@@ -7733,13 +8055,18 @@
         card.appendChild(el('div','cn', c.name));
         const names=c.trackIds.map(id=>{ const i=trackInfo(id); return i?i.name:id; });
         card.appendChild(el('div','ct', names.join(' · ')));
+        card.appendChild(el('div','cmedal',''));   // R2: earned cup medal (per class+mirror)
         card.addEventListener('pointerdown',stop);
         card.addEventListener('click', ()=>{ st.selCup=c.id; for (const k of grid.children) k.classList.toggle('on', k.dataset.id===c.id); openRacerSelect('cup'); });
-        grid.appendChild(card);
+        grid.appendChild(card); cupCards[c.id]=card;
       }
-      s.appendChild(grid); s.appendChild(backBar());
+      s.appendChild(grid);
+      s.appendChild(classBar(()=>repaintCupCards()));
+      s.appendChild(backBar());
     })();
-    function openCups(){ show('gp-cup'); }
+    const MEDAL_ICO=['','🥇','🥈','🥉'];
+    function repaintCupCards(){ for (const id in cupCards){ const m=cupMedal(id); const el2=cupCards[id].querySelector('.cmedal'); if (el2) el2.textContent = MEDAL_ICO[m]||''; } }
+    function openCups(){ repaintCupCards(); show('gp-cup'); }
 
     // ================= LOADOUT v2: driver + kart + color picker (shared builder) =================
     //  Three distinct choices — WHO'S DRIVING? / PICK YOUR KART / KART COLOR — writing into
@@ -7832,11 +8159,13 @@
     // ---- launch a Time Trial (0 bots) ----
     function launchTrialRace(){
       setRaceMode('trial');
-      if (courseNeedsReload(st.selCourse)){
+      // R2: reload when the course differs OR the MIRROR toggle differs from what the page was
+      // built with (mirror bakes into the scene at load). Class is a runtime multiplier (no reload).
+      if (courseNeedsReload(st.selCourse) || mirrorNeedsReload()){
         // reload, then resume straight into the trial race (init() consumes fk_flow_pending →
         // startCountdown directly, so this never re-enters launchTrialRace → no reload loop)
         try{ sessionStorage.setItem('fk_flow_pending', JSON.stringify({ kind:'trial', loadout:st.loadout })); }catch(e){}
-        location.href = 'farmkart.html?track=' + encodeURIComponent(st.selCourse);
+        location.href = 'farmkart.html?track=' + encodeURIComponent(st.selCourse) + raceQuery();
         return;
       }
       startCountdown();
@@ -7853,7 +8182,7 @@
     function loadCupRace(){
       const c = FK_CUP_BY_ID[cup.cupId]; const tid = c.trackIds[cup.raceIdx];
       persistCup();
-      if (tid !== (ACTIVE_TRACK_ID||BOOT_TRACK_ID)){ location.href='farmkart.html?track='+encodeURIComponent(tid); return; }
+      if (tid !== (ACTIVE_TRACK_ID||BOOT_TRACK_ID) || mirrorNeedsReload()){ location.href='farmkart.html?track='+encodeURIComponent(tid)+raceQuery(); return; }
       // already on the right track → start now
       setRaceMode('prix'); applyLocalLoadout(cup.loadout); startCountdown();
     }
@@ -7865,7 +8194,42 @@
       for (const r of rows){ const pts = FK_CUP_POINTS[(r.place||99)-1] || 0;
         cup.points[r.name] = (cup.points[r.name]||0) + pts; r._pts = pts; }
       cup.raceIdx++; persistCup();
-      renderCupStandings(c, rows);
+      const final = cup.raceIdx >= 4;
+      if (final){
+        saveCupMedal(c);                                       // R2: persist gold/silver/bronze
+        Podium.show(podiumRowsFromCup(c), ()=> renderCupStandings(c, rows));   // R2: ceremony → standings
+      } else {
+        renderCupStandings(c, rows);
+      }
+    }
+    // R2: cumulative cup top-3 with each racer's kart/driver/color for the podium ceremony.
+    function cupTotalsSorted(){
+      const t = Object.keys(cup.points).map(nm=>({ name:nm, pts:cup.points[nm] }));
+      t.sort((a,b)=> b.pts-a.pts); return t;
+    }
+    function resolveRacerVisual(name){
+      const localName = net.myName || 'You';
+      if (name==='You' || (localName && name===localName)){ const l=normalizeLoadout(st.loadout); return { color:l.color, kartId:l.kartId, driverId:l.driverId }; }
+      for (const id in G.players){ const p=G.players[id]; if (p.isBot && p.botName===name) return { color:p.botColor, kartId:p.kartId||'bucky', driverId:p.driverId||'bucky' }; }
+      // MP: a remote human — look up by display name
+      for (const id in G.players){ const p=G.players[id]; if (p._remote && p._dispName===name) return { color:p._slotCol, kartId:p.kartId||'bucky', driverId:p.driverId||'bucky' }; }
+      return { color:0x9aa4b8, kartId:'bucky', driverId:'bucky' };
+    }
+    function podiumRowsFromCup(c){
+      return cupTotalsSorted().slice(0,3).map((t,i)=>{ const v=resolveRacerVisual(t.name);
+        return { name:t.name, place:i+1, pts:t.pts, color:v.color, kartId:v.kartId, driverId:v.driverId }; });
+    }
+    function saveCupMedal(c){
+      const totals = cupTotalsSorted();
+      const localName = net.myName || 'You';
+      const idx = totals.findIndex(t=> t.name==='You' || (localName && t.name===localName));
+      const place = idx>=0 ? idx+1 : 99;
+      if (place>=1 && place<=3){
+        let map={}; try{ map=JSON.parse(localStorage.getItem('fk_cups')||'{}')||{}; }catch(e){}
+        const key = c.id + classMirrorSuffix();
+        if (!map[key] || place < map[key]) map[key]=place;   // keep the best medal ever earned
+        try{ localStorage.setItem('fk_cups', JSON.stringify(map)); }catch(e){}
+      }
     }
     function renderCupStandings(c, rows){
       const final = cup.raceIdx >= 4;
@@ -7931,10 +8295,29 @@
       s.appendChild(el('div','mfHead','HOST A RACE'));
       const w=document.createElement('div'); w.className='mfBig';
       w.appendChild(btn('mfBtn','<span class="ic">🏎</span><div>SINGLE RACE<small>one course, everyone races</small></div>', ()=>{ st.mpKind='race'; openMpCourse(); }));
-      const c=btn('mfBtn','<span class="ic">🏆</span><div>CUP<small>coming soon 🚧</small></div>', ()=>{});
-      c.disabled=true; w.appendChild(c);
+      // R2: MULTIPLAYER GRAND PRIX — 4-track cup with synced reloads between races.
+      w.appendChild(btn('mfBtn','<span class="ic">🏆</span><div>GRAND PRIX<small>4-track cup · everyone reloads together</small></div>', ()=>{ st.mpKind='cup'; openMpCup(); }));
       s.appendChild(w); s.appendChild(backBar());
     })();
+    // ---- MP GRAND PRIX cup select (host) ----
+    (function(){ const s=makeScreen('mp-cup');
+      s.appendChild(el('div','mfHead','SELECT A CUP'));
+      const grid=document.createElement('div'); grid.className='mfGrid cups'; grid.addEventListener('pointerdown',stop);
+      for (const c of FK_CUPS){
+        const card=document.createElement('div'); card.className='mfCard cupcard'; card.dataset.id=c.id;
+        card.appendChild(el('div','ci', c.ico));
+        card.appendChild(el('div','cn', c.name));
+        const names=c.trackIds.map(id=>{ const i=trackInfo(id); return i?i.name:id; });
+        card.appendChild(el('div','ct', names.join(' · ')));
+        card.addEventListener('pointerdown',stop);
+        card.addEventListener('click', ()=>{ st.selCup=c.id; for (const k of grid.children) k.classList.toggle('on', k.dataset.id===c.id); beginHostCup(c.id); });
+        grid.appendChild(card);
+      }
+      s.appendChild(grid);
+      s.appendChild(classBar(null));
+      s.appendChild(backBar());
+    })();
+    function openMpCup(){ show('mp-cup'); }
     // MP course select (host) — reuses the same grid style
     const mpGrid = (function(){ const s=makeScreen('mp-course');
       s.appendChild(el('div','mfHead','CHOOSE THE COURSE'));
@@ -8028,6 +8411,9 @@
       return out;
     }
     function renderWaiting(){
+      // R2 CUP: auto-ready once per page load (kids don't re-tap after a synced reload). Robust to
+      // whichever resume path set up mpCup (sessionStorage resume OR the room-state poll adopting it).
+      if (mpCup && !_cupAutoReadied && net.mp){ _cupAutoReadied=true; myReady=true; publishPick(); }
       waitScreen.markW();
       const picks=allPicks();
       waitScreen.list.innerHTML='';
@@ -8041,22 +8427,224 @@
         waitScreen.list.appendChild(row);
       }
       const allReady = picks.length>0 && picks.every(p=>p.ready);
+      const inCup = !!mpCup;
       if (net.isHost){
-        waitScreen.start.style.display=''; waitScreen.start.disabled = !allReady;
-        waitScreen.note.textContent = allReady ? 'Everyone is ready — START when you are!' : 'Waiting for all racers to ready up…';
+        waitScreen.start.style.display='';
+        waitScreen.start.disabled = !allReady;
+        waitScreen.start.textContent = inCup ? (mpCup.raceIdx>0 ? 'RACE '+(mpCup.raceIdx+1)+'/4 ▶' : 'START CUP ▶') : 'START RACE ▶';
+        waitScreen.note.textContent = inCup
+          ? (allReady ? '🏆 '+(FK_CUP_BY_ID[mpCup.cupId]||{}).name+' — everyone ready! Auto-starting…' : 'Grand Prix — waiting for all racers to ready up…')
+          : (allReady ? 'Everyone is ready — START when you are!' : 'Waiting for all racers to ready up…');
+        // R2 CUP: auto-start once everyone present is ready (kids don't re-tap), or after a 45s
+        // straggler timeout since entering the waiting room.
+        if (inCup && !mpCup._starting){
+          const straggled = mpCupWaitStart && (Date.now()-mpCupWaitStart > 45000) && picks.length>0;
+          if (allReady || straggled){ mpCup._starting = true; mpCupStartRace(); }
+        }
       } else {
         waitScreen.start.style.display='none';
-        waitScreen.note.textContent = allReady ? 'All ready — waiting for the host to start…' : 'Pick a racer and ready up.';
+        waitScreen.note.textContent = inCup
+          ? (allReady ? '🏆 All ready — the race will start together…' : 'Grand Prix — pick a racer and ready up.')
+          : (allReady ? 'All ready — waiting for the host to start…' : 'Pick a racer and ready up.');
       }
     }
     function mpTryStart(){
       if (!net.mp || !net.isHost) return;
       const picks=allPicks();
       if (!(picks.length>0 && picks.every(p=>p.ready))) return;   // ready-gated
+      if (mpCup){ if (!mpCup._starting){ mpCup._starting=true; mpCupStartRace(); } return; }
       startCountdown();
     }
     function startMpPoll(){ if (mpPollTimer) return; mpPollTimer=setInterval(()=>{ if (screens['mp-wait'].classList.contains('on')) renderWaiting(); if (screens['join'].classList.contains('on')) refreshJoin(); }, 600); }
     function stopMpPoll(){ if (mpPollTimer){ clearInterval(mpPollTimer); mpPollTimer=null; } }
+
+    // ======================================================================
+    //  R2 MULTIPLAYER GRAND PRIX — a 4-track cup raced over Playroom via choreographed
+    //  synced reloads. The scene builds once from ACTIVE_TRACK, so switching tracks needs
+    //  a full reload; we coordinate all clients through Playroom room state `mpcup` + a
+    //  per-client sessionStorage `fk_mp_cup` carrier (survives the reload even if the room
+    //  state blips while everyone reloads at once). The HOST accumulates points and drives
+    //  advancement; guests follow the room state. Auto-ready on cup rejoin so kids don't
+    //  re-tap; 45s straggler timeout lets the host proceed without a missing racer.
+    // ======================================================================
+    let mpCup = null;                 // { cupId, raceIdx, gen, points:{}, class, mirror, trackId, roomCode, phase, lastStandings }
+    let mpCupWaitStart = 0;           // ms when the host entered the (cup) waiting room — 45s straggler timer
+    let mpCupReloadTimer = null;      // pending interlude→reload timer (host + guests)
+    let mpCupDoneShown = false;
+    let _cupAutoReadied = false;      // auto-ready-once guard (resets on page reload since the module reloads)
+    function saveMpCup(){ try{ if (mpCup) sessionStorage.setItem('fk_mp_cup', JSON.stringify(mpCup)); }catch(e){} }
+    function loadMpCupSS(){ try{ return JSON.parse(sessionStorage.getItem('fk_mp_cup')||'null'); }catch(e){ return null; } }
+    function clearMpCup(){ mpCup=null; try{ sessionStorage.removeItem('fk_mp_cup'); sessionStorage.removeItem('fk_mp_loaded_gen'); }catch(e){} }
+    function loadedGen(){ try{ return +(sessionStorage.getItem('fk_mp_loaded_gen')||0); }catch(e){ return 0; } }
+    function setLoadedGen(g){ try{ sessionStorage.setItem('fk_mp_loaded_gen', String(g)); }catch(e){} }
+    function mpKeyOf(p){ return p.isBot ? p.botName : (p===G.players.local ? (net.myName||'You') : (p._dispName||'Racer')); }
+    function mpCupQuery(){
+      let q='?track='+encodeURIComponent(mpCup.trackId);
+      if (mpCup.class && mpCup.class!=='truck') q+='&cls='+mpCup.class;
+      if (mpCup.mirror) q+='&mir=1';
+      const fam=new URLSearchParams(location.search).get('fam'); if(fam) q+='&fam='+encodeURIComponent(fam);
+      return q + '#r=' + encodeURIComponent(mpCup.roomCode || net.roomCode);
+    }
+    function publishMpCup(){
+      if (!net.mp || !net.isHost || !mpCup) return;
+      try{ Playroom.setState('mpcup', { cupId:mpCup.cupId, raceIdx:mpCup.raceIdx, gen:mpCup.gen,
+        trackId:mpCup.trackId, roomCode:mpCup.roomCode||net.roomCode, points:mpCup.points||{},
+        standings:mpCup.lastStandings||[], class:mpCup.class, mirror:mpCup.mirror, phase:mpCup.phase||'lobby' }, true); }catch(e){}
+    }
+    async function beginHostCup(cupId){
+      const c = FK_CUP_BY_ID[cupId]; if(!c) return;
+      await initNet(null);
+      if (!net.mp){ mpNote && (mpNote.textContent='Online unavailable.'); return; }
+      mpCup = { cupId, raceIdx:0, gen:1, points:{}, class:SPEED_CLASS, mirror:MIRROR,
+                trackId:c.trackIds[0], roomCode:net.roomCode, phase:'lobby', lastStandings:[] };
+      saveMpCup(); setLoadedGen(0);
+      setRaceMode('prix'); applyLocalLoadout(st.loadout);
+      publishMpCup();
+      mpCupWaitStart = Date.now();
+      openRacerSelect('mp'); goWaiting();
+    }
+    // host: kick off the CURRENT cup race. If everyone is already on this gen's track (i.e. we
+    // rejoined after the synced reload), just start the countdown; otherwise trigger the reload
+    // (initial cup start from a different track) so all clients load mpCup.trackId together.
+    function mpCupStartRace(){
+      if (!net.isHost || !mpCup) return;
+      const onTrack = (ACTIVE_TRACK_ID||BOOT_TRACK_ID) === mpCup.trackId && MIRROR === !!mpCup.mirror;
+      if (onTrack && loadedGen() >= mpCup.gen){
+        mpCup.phase='racing'; mpCup._advanced=false; saveMpCup(); publishMpCup();
+        setRaceMode('prix'); startCountdown();
+      } else {
+        mpCup.phase='loading'; saveMpCup(); publishMpCup(); mpCupDoReload();
+      }
+    }
+    function mpCupDoReload(){
+      if (!mpCup) return;
+      saveMpCup(); setLoadedGen(mpCup.gen);
+      location.href = 'farmkart.html' + mpCupQuery();
+    }
+    // host: race fully over → tally points, advance (interlude + next gen) or finish (podium).
+    function mpCupOnRaceOver(){
+      if (!net.isHost || !mpCup || mpCup._advanced) return;
+      mpCup._advanced = true;
+      const standings = mpComputeStandings();
+      for (const r of standings){ const pts = FK_CUP_POINTS[(r.place||99)-1] || 0; mpCup.points[r.key] = (mpCup.points[r.key]||0) + pts; }
+      mpCup.lastStandings = standings;
+      mpCup.raceIdx++;
+      if (mpCup.raceIdx >= 4){
+        mpCup.phase='done'; saveMpCup(); publishMpCup();
+        mpCupDoneShown = true;                 // host shows the finale directly; block the poller re-show
+        showMpCupFinale({ points:mpCup.points, standings });
+      } else {
+        mpCup.gen++; mpCup.trackId = FK_CUP_BY_ID[mpCup.cupId].trackIds[mpCup.raceIdx];
+        // NOTE: keep _advanced=true (not reset here) so the 400ms race-over poller can't re-advance
+        // during the interlude; the boot resume clears it once we reload into the next race.
+        mpCup.phase='interlude'; saveMpCup(); publishMpCup();
+        // host shows the interlude + schedules its own reload via the shared poll path
+        mpCupHandleInterlude({ points:mpCup.points, standings, raceIdx:mpCup.raceIdx, gen:mpCup.gen });
+      }
+    }
+    // standings for MP: order by finish seq (finished) then live progress; per-player key/name/visual.
+    function mpComputeStandings(){
+      const ps = Object.values(G.players).filter(p=>!p._isGhost && p.id.indexOf('__pod')<0);
+      ps.sort((a,b)=>{
+        if (a.finished && b.finished) return (a.finishSeq||0)-(b.finishSeq||0);
+        if (a.finished) return -1; if (b.finished) return 1;
+        return totalProgress(b)-totalProgress(a);
+      });
+      return ps.map((p,i)=>({ key:mpKeyOf(p), name:(p===G.players.local?(net.myName||'You'):mpKeyOf(p)),
+        place:i+1, isLocal:p===G.players.local, finished:!!p.finished, time:p.finishTime||0,
+        color:(p._slotCol!=null?p._slotCol:(p.isBot?p.botColor:0x3d8b3d)), kartId:p.kartId||'bucky', driverId:p.driverId||'bucky' }));
+    }
+    function mpCupTotalsSorted(points){ const t=Object.keys(points).map(k=>({ key:k, name:k, pts:points[k] })); t.sort((a,b)=>b.pts-a.pts); return t; }
+    // interlude standings screen (reuses #results / #rStandings with a points column) — host + guests
+    function mpCupHandleInterlude(info){
+      const c = FK_CUP_BY_ID[mpCup.cupId];
+      const totals = mpCupTotalsSorted(info.points||mpCup.points);
+      document.getElementById('rPlace').textContent='';
+      document.querySelector('#results .rtitle').textContent = c.ico+' '+c.name+' — Race '+(mpCup.raceIdx)+'/4 done';
+      document.getElementById('rTime').parentElement.style.display='none';
+      document.getElementById('rBest').parentElement.style.display='none';
+      const localName = net.myName||'You';
+      const sEl=document.getElementById('rStandings'); sEl.innerHTML='';
+      totals.forEach((t,i)=>{ const div=document.createElement('div'); div.className='srow'+((t.key==='You'||t.key===localName)?' me':'');
+        const med=MEDAL[i+1]||'';
+        div.innerHTML='<span class="sp">'+(med?'<span class="medal">'+med+'</span>':'')+(ORD[i+1]||(i+1)+'th')+'</span>'+
+                      '<span class="sn">'+t.name+'</span><span class="spts">'+t.pts+' pts</span>';
+        sEl.appendChild(div); });
+      sEl.style.display='block';
+      document.querySelector('#results .rsub').textContent='Next race loading…';
+      setResultsContinue('', false);
+      resultsEl.style.display='flex'; countdownEl.style.display='none';
+      // schedule the synced reload (host + guests) after a short look at the standings
+      if (!mpCupReloadTimer){ mpCupReloadTimer = setTimeout(()=>{ mpCupReloadTimer=null; mpCupDoReload(); }, 5000); }
+    }
+    // FINAL: podium ceremony (top-3 of the cup totals) then the final standings — host + guests.
+    function showMpCupFinale(info){
+      const c = FK_CUP_BY_ID[mpCup.cupId];
+      const totals = mpCupTotalsSorted(info.points||mpCup.points);
+      const top = totals.slice(0,3).map((t,i)=>{ const v=mpResolveVisual(t.key, info.standings);
+        return { name:t.name, place:i+1, pts:t.pts, color:v.color, kartId:v.kartId, driverId:v.driverId }; });
+      // persist a medal for the local player (best ever, per cup+class+mirror)
+      const localName = net.myName||'You';
+      const li = totals.findIndex(t=> t.key==='You' || t.key===localName);
+      if (li>=0 && li<3){ let map={}; try{ map=JSON.parse(localStorage.getItem('fk_cups')||'{}')||{}; }catch(e){}
+        const key=c.id+classMirrorSuffix(); if(!map[key]||(li+1)<map[key]) map[key]=li+1;
+        try{ localStorage.setItem('fk_cups', JSON.stringify(map)); }catch(e){} }
+      Podium.show(top, ()=> renderMpCupFinalStandings(c, totals));
+    }
+    function mpResolveVisual(key, standings){
+      const s=(standings||[]).find(r=>r.key===key);
+      if (s) return { color:s.color, kartId:s.kartId, driverId:s.driverId };
+      const localName=net.myName||'You';
+      if (key==='You'||key===localName){ const l=normalizeLoadout(st.loadout); return { color:l.color, kartId:l.kartId, driverId:l.driverId }; }
+      return { color:0x9aa4b8, kartId:'bucky', driverId:'bucky' };
+    }
+    function renderMpCupFinalStandings(c, totals){
+      const localName = net.myName||'You';
+      document.getElementById('rPlace').textContent='';
+      document.querySelector('#results .rtitle').textContent = c.ico+' '+c.name.toUpperCase()+' — FINAL';
+      document.getElementById('rTime').parentElement.style.display='none';
+      document.getElementById('rBest').parentElement.style.display='none';
+      const sEl=document.getElementById('rStandings'); sEl.innerHTML='';
+      totals.forEach((t,i)=>{ const div=document.createElement('div'); div.className='srow'+((t.key==='You'||t.key===localName)?' me':'');
+        const med=MEDAL[i+1]||'';
+        div.innerHTML='<span class="sp">'+(med?'<span class="medal">'+med+'</span>':'')+(ORD[i+1]||(i+1)+'th')+'</span>'+
+                      '<span class="sn">'+t.name+'</span><span class="spts">'+t.pts+' pts</span>';
+        sEl.appendChild(div); });
+      sEl.style.display='block';
+      document.querySelector('#results .rsub').textContent='Tap / ENTER for the menu';
+      setResultsContinue('🏁 FINISH →', true);
+      resultsEl.style.display='flex'; countdownEl.style.display='none';
+    }
+    // GLOBAL cup poller: watches room state; drives guest reloads + finale; runs whenever MP is live.
+    function mpCupPoll(){
+      if (!net.mp) return;
+      // The HOST drives its own advancement/interlude/reload directly (mpCupOnRaceOver) and would
+      // otherwise re-adopt its OWN published room-state here — wiping _advanced and double-advancing.
+      // The poll's adopt/reload/finale-follow path is for GUESTS only.
+      if (net.isHost) return;
+      let rc=null; try{ rc=Playroom.getState('mpcup'); }catch(e){}
+      if (!rc) return;
+      if (rc.phase==='done'){
+        if (!mpCupDoneShown){ mpCupDoneShown=true;
+          mpCup = mpCup || { cupId:rc.cupId, raceIdx:rc.raceIdx, gen:rc.gen, points:rc.points, class:rc.class, mirror:rc.mirror, roomCode:rc.roomCode };
+          showMpCupFinale({ points:rc.points, standings:rc.standings });
+        }
+        return;
+      }
+      // a queued race we haven't loaded yet → adopt state + reload (interlude shows briefly first)
+      if (rc.gen > loadedGen() && (rc.phase==='loading' || rc.phase==='interlude')){
+        mpCup = { cupId:rc.cupId, raceIdx:rc.raceIdx, gen:rc.gen, points:rc.points||{}, class:rc.class,
+                  mirror:rc.mirror, trackId:rc.trackId, roomCode:rc.roomCode||net.roomCode, phase:rc.phase };
+        saveMpCup();
+        if (!mpCupReloadTimer){
+          if (rc.phase==='interlude' && rc.standings && rc.standings.length){ mpCupHandleInterlude({ points:rc.points, standings:rc.standings, raceIdx:rc.raceIdx }); }
+          else { mpCupReloadTimer = setTimeout(()=>{ mpCupReloadTimer=null; mpCupDoReload(); }, 700); }
+        }
+      }
+    }
+    setInterval(mpCupPoll, 500);
+    // host: detect race-over each poll tick and advance the cup
+    setInterval(()=>{ if (net.mp && net.isHost && mpCup && G.raceOver && !mpCup._advanced && G.phase!=='menu'){ mpCupOnRaceOver(); } }, 400);
 
     // ---- JOIN: subscribe to the family lobby collection; enable only for a fresh open farmkart lobby ----
     const joinScreen = (function(){ const s=makeScreen('join');
@@ -8114,6 +8702,22 @@
     function init(){
       _booted=true;
       subscribeLobbies();
+      // 0) resume an MP GRAND PRIX across a synced reload — we deep-linked back into the room with
+      //    fk_mp_cup carrying the cup state. Auto-ready (kids don't re-tap) and wait for the host.
+      const mc = loadMpCupSS();
+      if (window.__fkDeepGuest && mc){
+        mpCup = mc; setLoadedGen(mc.gen);
+        setRaceMode('prix');
+        st.loadout = loadLoadout(); applyLocalLoadout(st.loadout);
+        myReady = true; mpCupWaitStart = Date.now(); mpCup._starting=false; mpCup._advanced=false;
+        // once connected: publish our pick (ready) + (if we became host) re-assert the cup state.
+        (async()=>{ for (let i=0;i<200 && !net.mp;i++) await new Promise(r=>setTimeout(r,50));
+          publishPick();
+          if (net.isHost){ mpCup.phase='lobby'; saveMpCup(); publishMpCup(); }
+        })();
+        histStack=['mp-wait']; show('mp-wait',false);
+        return;
+      }
       // 1) MP deep-link guest → waiting room
       if (window.__fkDeepGuest){ histStack=['mp-wait']; show('mp-wait',false); return; }
       // 2) resume a pending single-player flow across a track reload
@@ -8141,6 +8745,12 @@
 
     return { init, onMenu, show, back, cupActive, onCupRaceFinished, raceAgain, mpTryStart, renderWaiting,
              refreshJoin, get state(){ return st; }, get cup(){ return cup; },
+             // R2 MP Grand Prix hooks
+             mpCupActive:()=>!!mpCup, get mpCup(){ return mpCup; }, _beginHostCup:beginHostCup,
+             _mpCupOnRaceOver:mpCupOnRaceOver, _mpComputeStandings:mpComputeStandings,
+             _mpCupStartRace:mpCupStartRace, _showMpCupFinale:showMpCupFinale, _clearMpCup:clearMpCup,
+             _setMpCup:(o)=>{ mpCup=o; }, _mpCupPoll:mpCupPoll,
+             _openMpCup:openMpCup, podiumRowsFromCup, cupTotalsSorted,
              _screens:screens, _drawTrackPreview:drawTrackPreview, courseIds, FK_RACERS, FK_CUPS,
              // test hooks
              _openCourseGrid:openCourseGrid, _openCups:openCups, _openRacer:openRacerSelect,
@@ -8253,6 +8863,11 @@
     // Waters + sky + trains (2026-07-12, for headless tests)
     WATER_GROUP, TRAIN_GROUP, setSky, get SKY_OBJ(){ return SKY_OBJ; }, get sky(){ return ACTIVE_TRACK.sky || 'day'; },
     get hemiLight(){ return hemi; }, get sunLight(){ return sun; },
+    // R2: speed class + mirror + ghost + podium (test hooks)
+    SPEED_CLASSES, classMul, classMirrorSuffix, GHOST_KEY, mirrorTrack,
+    get SPEED_CLASS(){ return SPEED_CLASS; }, set SPEED_CLASS(v){ SPEED_CLASS=normalizeClass(v); },
+    get MIRROR(){ return MIRROR; },
+    get Ghost(){ return Ghost; }, get Podium(){ return Podium; }, fkToast,
     // K6 polish (audio + particles + best-lap key; exposed for the headless harness)
     BEST_LAP_KEY, setMuted, toggleMute, particleActiveCount, updateParticles, syncEntityMeshes,
     audioState:()=>({ muted:audioMuted, masterGain: masterGain ? masterGain.gain.value : null,
