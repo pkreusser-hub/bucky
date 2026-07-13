@@ -209,6 +209,28 @@
         78%{ transform:scale(1); opacity:1; } 100%{ transform:scale(1.02); opacity:0; } }
   body.mobile #finalLap .fl{ font-size:56px; }
 
+  /* ---- R4: photo-finish flash + banner · new-record flourish ---- */
+  #photoFlash{ position:fixed; inset:0; z-index:33; pointer-events:none; background:#fff; opacity:0;
+    transition:opacity .12s ease-out; }
+  #photoFlash.on{ opacity:.9; }
+  #photoFinish{ position:absolute; left:50%; top:38%; transform:translate(-50%,-50%) scale(.7); z-index:34;
+    display:none; text-align:center; color:#fff; font:900 52px/1 'Consolas',monospace;
+    letter-spacing:.01em; text-shadow:0 4px 0 rgba(0,0,0,.45),0 0 26px rgba(255,255,255,.65); pointer-events:none; }
+  #photoFinish.on{ display:block; animation:pfpop .5s ease-out forwards; }
+  #photoFinish #photoTimes{ margin-top:12px; font-size:23px; font-weight:800; color:#ffe27a;
+    text-shadow:0 2px 8px rgba(0,0,0,.7); letter-spacing:0; }
+  @keyframes pfpop{ 0%{ transform:translate(-50%,-50%) scale(.5); opacity:0; }
+    30%{ transform:translate(-50%,-50%) scale(1.06); opacity:1; } 100%{ transform:translate(-50%,-50%) scale(1); opacity:1; } }
+  body.mobile #photoFinish{ font-size:34px; } body.mobile #photoFinish #photoTimes{ font-size:18px; }
+  #newRecord{ position:absolute; left:50%; top:140px; transform:translateX(-50%); z-index:30;
+    display:none; text-align:center; color:#7cf39a; font:900 34px/1 'Consolas',monospace;
+    text-shadow:0 3px 0 rgba(0,0,0,.4),0 0 22px rgba(60,230,120,.65); pointer-events:none; }
+  #newRecord.show{ display:block; animation:nrpop 1.9s ease-out forwards; }
+  #newRecord #newRecordTime{ margin-top:6px; font-size:20px; color:#fff; text-shadow:0 2px 6px rgba(0,0,0,.7); }
+  @keyframes nrpop{ 0%{ transform:translateX(-50%) scale(.6); opacity:0; } 14%{ transform:translateX(-50%) scale(1.08); opacity:1; }
+    80%{ transform:translateX(-50%) scale(1); opacity:1; } 100%{ transform:translateX(-50%) scale(1); opacity:0; } }
+  body.mobile #newRecord{ font-size:24px; top:118px; }
+
   /* ---- R2: 👻 ghost chip (HUD), toast, podium ceremony overlay ---- */
   #ghostChip{ position:absolute; left:50%; top:96px; transform:translateX(-50%); z-index:24;
     display:none; padding:4px 12px; border-radius:14px; background:rgba(20,26,40,.72);
@@ -345,6 +367,9 @@
   #tcItem{  right:140px; bottom:44px; width:76px; height:76px; font-size:22px; font-weight:900;
     letter-spacing:.01em; line-height:1; }
   #tcReset{ right:14px; top:54px; width:44px; height:44px; font-size:20px; background:rgba(0,0,0,.44); }
+  /* Horn: bottom-LEFT, clear of the right-side DRIFT/FIRE cluster + top-right RESET (both orientations). */
+  #tcHorn{ left:20px; bottom:30px; width:70px; height:70px; font-size:26px; background:rgba(0,0,0,.42);
+    border-color:rgba(255,225,140,.5); }
   #tcSteerHint{ position:absolute; left:0; right:0; bottom:118px; z-index:2; text-align:center; pointer-events:none;
     color:rgba(255,255,255,.9); font-family:-apple-system,Segoe UI,Roboto,sans-serif; font-weight:800; font-size:15px;
     text-shadow:0 2px 6px rgba(0,0,0,.6); transition:opacity .4s; }
@@ -460,6 +485,38 @@
   .mfPickRow .rd.no{ color:#ffb27a; }
   #mfMpNote{ font-size:12px; color:#ffe27a; text-align:center; max-width:360px; }
   #mfJoinNote{ font-size:12px; color:#9fb4c8; text-align:center; }
+  /* R4: DIFFICULTY selector (SP screen) */
+  .mfDiffBar{ display:flex; flex-direction:column; align-items:center; gap:5px; margin-top:4px; }
+  .mfDiffHead{ font-size:10px; font-weight:800; color:#bfe0ff; letter-spacing:.08em; font-family:'Consolas',monospace; }
+  .mfDiffRow{ display:flex; gap:7px; }
+  .mfDiff{ padding:6px 15px; border-radius:10px; border:2px solid rgba(255,255,255,.18);
+    background:rgba(10,22,34,.75); color:#eaf3ff; font-weight:800; font-size:13px; cursor:pointer; font-family:'Consolas',monospace; }
+  .mfDiff.on{ border-color:#8fe08f; background:rgba(30,60,40,.85); box-shadow:0 0 0 2px rgba(143,224,143,.35); color:#c9ffcf; }
+  /* R4: RECORDS screen */
+  #mfRecords{ width:100%; max-width:400px; display:flex; flex-direction:column; gap:10px; align-items:center; }
+  .mfRecName{ font:900 22px/1 -apple-system,Segoe UI,Roboto,sans-serif; color:#ffe27a; text-shadow:0 2px 0 rgba(0,0,0,.35); }
+  .mfRecStats{ display:grid; grid-template-columns:repeat(4,1fr); gap:8px; width:100%; }
+  .mfRecStat{ background:rgba(10,22,34,.75); border:1px solid rgba(255,255,255,.14); border-radius:10px;
+    padding:9px 4px; text-align:center; }
+  .mfRecStat .v{ font:900 22px/1 'Consolas',monospace; color:#fff; } .mfRecStat .l{ font-size:9.5px; color:#bfe0ff; margin-top:3px; letter-spacing:.03em; }
+  .mfRecSub{ font-size:12px; font-weight:800; color:#bfe0ff; letter-spacing:.05em; align-self:flex-start; margin-top:2px; }
+  .mfMedalShelf{ display:flex; flex-wrap:wrap; gap:8px; width:100%; }
+  .mfMedalItem{ display:flex; align-items:center; gap:5px; background:rgba(10,22,34,.65); border-radius:8px;
+    padding:5px 9px; font-size:13px; color:#eaf3ff; } .mfMedalItem .mm{ font-size:19px; }
+  .mfBestList{ width:100%; display:flex; flex-direction:column; gap:3px; max-height:24vh; overflow-y:auto; }
+  .mfBestRow{ display:flex; justify-content:space-between; background:rgba(10,22,34,.55); border-radius:6px;
+    padding:4px 10px; font-size:13px; color:#eaf3ff; } .mfBestRow .bt{ color:#ffd45e; font-family:'Consolas',monospace; font-weight:800; }
+  /* R4: locked/unlockable swatches + hat cards on racer-select */
+  .mfSwatch.locked, .mfCard.locked{ opacity:.5; cursor:not-allowed; position:relative; filter:grayscale(.6); }
+  .mfSwatch.locked::after{ content:'🔒'; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:14px; }
+  .mfCard.locked .lockhint, .mfSwatch.locked .lockhint{ display:none; }
+  .mfHint{ font-size:11px; color:#ffb27a; text-align:center; min-height:14px; margin-top:3px; }
+  .mfHats{ display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }
+  .mfHat{ display:flex; flex-direction:column; align-items:center; gap:2px; padding:7px 11px; border-radius:10px;
+    border:2px solid rgba(255,255,255,.18); background:rgba(10,22,34,.75); color:#eaf3ff; cursor:pointer; min-width:62px; position:relative; }
+  .mfHat .hico{ font-size:22px; line-height:1; } .mfHat .hn{ font-size:9.5px; font-weight:800; font-family:'Consolas',monospace; }
+  .mfHat.on{ border-color:#8fe08f; background:rgba(30,60,40,.85); box-shadow:0 0 0 2px rgba(143,224,143,.35); }
+  .mfHat.locked{ opacity:.5; cursor:not-allowed; } .mfHat.locked::after{ content:'🔒'; position:absolute; top:3px; right:5px; font-size:12px; }
   body.mobile #menuFlow{ margin-top:12px; }
   body.mobile .mfBtn{ font-size:19px; padding:15px 16px; }
   body.mobile .mfGrid.racers{ grid-template-columns:repeat(3, 1fr); }
@@ -523,6 +580,7 @@
     <div id="tcSteerHint">slide anywhere to steer</div>
     <div class="tbtn" id="tcItem">FIRE!</div>
     <div class="tbtn" id="tcDrift">DRIFT</div>
+    <div class="tbtn" id="tcHorn" title="honk (H)">📯</div>
     <div class="tbtn" id="tcReset" title="reset to track">♻</div>
   </div>
 
@@ -573,6 +631,9 @@
   <div id="mpPlaces"></div>
   <div id="countdown"><div class="num" id="cdNum">3</div></div>
   <div id="wrongway">⚠ WRONG WAY</div>
+  <div id="photoFlash"></div>
+  <div id="photoFinish">📸 PHOTO FINISH!<div id="photoTimes"></div></div>
+  <div id="newRecord">⚡ NEW RECORD!<div id="newRecordTime"></div></div>
   <div id="finalLap"><div class="fl">FINAL LAP!</div></div>
   <div id="ghostChip"></div>
   <div id="fkToast"></div>
@@ -1618,7 +1679,10 @@
     c = c|0;
     return (isFinite(c) && c >= 0) ? (c & 0xffffff) : RACER_COLORS[0];
   }
-  function defaultLoadout(){ return { driverId:'bucky', kartId:'bucky', color:RACER_COLORS[0] }; }
+  // R4: hat id is validated against the known hat set only (NOT gated by unlock here — a remote
+  //  kart wears the hat THEY unlocked; the local pick is unlock-gated separately in applyLocalLoadout).
+  function normalizeHatId(h){ return (['straw','crown','helmet'].indexOf(h)>=0) ? h : 'none'; }
+  function defaultLoadout(){ return { driverId:'bucky', kartId:'bucky', color:RACER_COLORS[0], hatId:'none' }; }
   function loadLoadout(){
     let raw = null; try{ raw = localStorage.getItem('fk_racer'); }catch(e){}
     if (raw){
@@ -1626,14 +1690,14 @@
       try{
         const o = JSON.parse(raw);
         if (o && typeof o === 'object' && (o.driverId != null || o.kartId != null || o.color != null))
-          return { driverId:normalizeDriverId(o.driverId), kartId:normalizeKartId(o.kartId), color:normalizeColor(o.color) };
+          return { driverId:normalizeDriverId(o.driverId), kartId:normalizeKartId(o.kartId), color:normalizeColor(o.color), hatId:normalizeHatId(o.hatId) };
       }catch(e){}
       // legacy string racer-id → its preset
       if (FK_RACER_BY_ID[raw]){ const r = FK_RACER_BY_ID[raw];
-        return { driverId:normalizeDriverId(r.driverId), kartId:normalizeKartId(r.kartId), color:normalizeColor(r.color) }; }
+        return { driverId:normalizeDriverId(r.driverId), kartId:normalizeKartId(r.kartId), color:normalizeColor(r.color), hatId:'none' }; }
     }
     // no fk_racer → fall back to legacy fk_driver / fk_kart if present, else default
-    return { driverId:loadDriverId(), kartId:loadKartId(), color:RACER_COLORS[0] };
+    return { driverId:loadDriverId(), kartId:loadKartId(), color:RACER_COLORS[0], hatId:'none' };
   }
   function saveLoadout(l){
     try{ localStorage.setItem('fk_racer', JSON.stringify(l)); }catch(e){}
@@ -1642,7 +1706,7 @@
   }
   function normalizeLoadout(l){
     l = l || {};
-    return { driverId:normalizeDriverId(l.driverId), kartId:normalizeKartId(l.kartId), color:normalizeColor(l.color) };
+    return { driverId:normalizeDriverId(l.driverId), kartId:normalizeKartId(l.kartId), color:normalizeColor(l.color), hatId:normalizeHatId(l.hatId) };
   }
 
   // FK_CUPS: 4 placeholder Grand Prix cups (user: "pick random courses that we will replace
@@ -2065,6 +2129,8 @@
       kartMesh.add(m);
     }
     view._limbMeshes = limbs;
+    view._hatMesh = null;                          // rebuilt driver → old hat is gone with the old head
+    if (view.hatId && view.hatId !== 'none') setViewHat(view, view.hatId);   // R4: re-attach the hat on rebuild
     syncDriverPlacement(view);
   }
   function syncDriverPlacement(view){
@@ -2199,8 +2265,9 @@
     scene.add(group);
     const kartId = normalizeKartId(opts.kartId != null ? opts.kartId : (isLocal ? loadKartId() : 'bucky'));
     const driverId = normalizeDriverId(opts.driverId != null ? opts.driverId : (isLocal ? loadDriverId() : 'bucky'));
+    const hatId = normalizeHatId(opts.hatId != null ? opts.hatId : (isLocal ? (loadLoadout().hatId) : 'none'));
     const view = { group, bounce, bodyMat, placeholder, modelSlot, kartRoot:null, kartNormal:new THREE.Vector3(0,1,0),
-      lastAirborne:false, kartId, driverId };
+      lastAirborne:false, kartId, driverId, hatId };
     kartViews[id] = view;
     fillKartModel(view);
     return view;
@@ -2208,6 +2275,7 @@
   function removeKartView(id){
     const v = kartViews[id]; if (!v) return;
     scene.remove(v.group);
+    if (v.shadow){ scene.remove(v.shadow); if (v.shadow.material) v.shadow.material.dispose(); v.shadow=null; }   // R4
     v.bodyMat.dispose();
     v.group.traverse(o=>{ if (o.isSprite && o.material){ if (o.material.map) o.material.map.dispose(); o.material.dispose(); } });
     delete kartViews[id];
@@ -2505,6 +2573,8 @@
     bindHold('tcItem',  v => touch.item  = v);
     const rb = document.getElementById('tcReset');
     if (rb) rb.addEventListener('pointerdown', e => { e.preventDefault(); if (G.phase === 'racing') resetKart(); });
+    const hb = document.getElementById('tcHorn');   // R4: mobile horn button (bottom-left, clear of other controls)
+    if (hb) hb.addEventListener('pointerdown', e => { e.preventDefault(); if (G.phase === 'racing' && !paused) localHonk(); });
   }
 
   // gamepad
@@ -3027,9 +3097,10 @@
     // light rubber-band: nudge target speed toward the human to keep family races close
     const human = G.players.local;
     if (human && human !== p){
+      const rb = (p.rubberMul != null) ? p.rubberMul : TUNE.botRubberband;   // R4: persona + difficulty scaled
       const gap = totalProgress(human) - totalProgress(p);   // >0 = bot behind the human
-      if (gap > 25) tv *= (1 + TUNE.botRubberband);
-      else if (gap < -25) tv *= (1 - TUNE.botRubberband);
+      if (gap > 25) tv *= (1 + rb);
+      else if (gap < -25) tv *= (1 - rb);
     }
     return tv;
   }
@@ -3084,6 +3155,10 @@
     while (dTheta > Math.PI) dTheta -= Math.PI*2;
     while (dTheta < -Math.PI) dTheta += Math.PI*2;
     let steer = Math.max(-1, Math.min(1, dTheta * TUNE.botSteerGain));
+    // R4 personality: erratic bots (Oakley) wobble their line; clean racers (Steffi) don't. Faded in
+    // corners so it never washes a bot off a hairpin.
+    if (p.wobbleAmp){ const wob = Math.sin(performance.now()*0.004 + (p._wobPhase||0)) * p.wobbleAmp * 0.45 * (1 - Math.min(1, maxCurv/0.03));
+      steer = Math.max(-1, Math.min(1, steer + wob)); }
     // target speed — while drifting a driftable corner, hold just above the drift minimum (never brake
     // the drift dead), but tight hairpins still slow normally via botTargetSpeed.
     let tv = botTargetSpeed(p, idx);
@@ -3131,7 +3206,8 @@
   // never hoarded forever (set to 1-3s on pickup).
   function botUseItems(p, dt){
     if (!p.itemHeld || p.itemRollT > 0 || p.spinT > 0) return;
-    p.itemHoldT -= dt;
+    const aggro = p.aggroMul || 1;   // R4: aggressive bots (Archie) burn the hold faster → fire more often
+    p.itemHoldT -= dt * aggro;
     // TRAIL-FIRE SEMANTICS (2026-07-12): a bot holding a NEW item while trailing is LOCKED just like the
     // player — the held item can't be used until the trail is fired. Keep the shield up while the hold
     // timer runs, then fire the trail to unlock the held item.
@@ -3165,8 +3241,8 @@
         const q = G.players[id]; if (q === p) continue;
         const rx = q.pos.x - p.pos.x, rz = q.pos.z - p.pos.z;
         const ahead = rx*f.x + rz*f.z, lat = Math.abs(rx*(-f.z) + rz*f.x);
-        const range = (held === 'chicken' || held === 'chicken3') ? 48 : 34;
-        if (ahead > 2 && ahead < range && lat < 8){ useItem(p); return; }
+        const range = ((held === 'chicken' || held === 'chicken3') ? 48 : 34) * aggro;   // R4: wider firing cone when aggressive
+        if (ahead > 2 && ahead < range && lat < 8*aggro){ useItem(p); return; }
       }
       if (p.itemHoldT <= 0) useItem(p);
     } else if (held === 'hay'){
@@ -3300,6 +3376,7 @@
     const local = G.players.local;
     const place = ranked.indexOf(local) + 1;
     const iWon = ranked[0] === local;
+    recordProfileRace(place, { battle:true, balloons:Math.max(0, local.balloons||0) });   // R4: battle win → profile + crown unlock
     G.results = { place, totalTime:(G.battle.elapsed||0), bestLap:0, standings:[], battle:true };
     document.getElementById('rPlace').innerHTML = iWon ? '🏆 <span class="medal">🎈</span>WINNER' : (ORD[place] || (place+'th'));
     const rt = document.getElementById('rTime'); if (rt) rt.textContent = iWon ? 'Last kart flying!' : (local.ko ? 'Knocked out' : local.balloons+' 🎈 left');
@@ -3728,6 +3805,7 @@
     }
     if (q.spinT <= 0){
       applySpinOut(q, pr.kind === 'egg' ? TUNE.eggSpinMul : 1);
+      if (pr.owner === 'local' && q !== G.players.local) recordItemHit();   // R4: profile ledger
       spawnItemExplode(pr.x, pr.y, pr.z, pr.kind);
       if (pr.kind === 'tomato') tomatoSplatSound(false, pr);
       else if (pr.kind === 'chicken') chickenSquawkSound(true, pr);
@@ -4457,7 +4535,9 @@
       // light momentum exchange along the normal (elastic ~0.4, capped so it can't fling off-track)
       const va = a.v.x*nx + a.v.z*nz, vb = b.v.x*nx + b.v.z*nz, rel = va - vb;
       if (rel < 0){                                      // approaching -> transfer a capped impulse
-        let imp = -rel * 0.4;
+        // R4: aggressive-personality bots (Archie) bump harder — still hard-capped so it can't fling off-track.
+        const aggro = Math.max(a.aggroMul||1, b.aggroMul||1);
+        let imp = -rel * 0.4 * (aggro>1 ? Math.min(1.5, aggro) : 1);
         imp = Math.max(0, Math.min(cap, imp));
         if (aOwn){ a.v.x += nx*imp; a.v.z += nz*imp; }
         if (bOwn){ b.v.x -= nx*imp; b.v.z -= nz*imp; }
@@ -4575,9 +4655,11 @@
   // ---------- K3.5: bot roster (Grand Prix fills to MAX_RACERS; Time Trial = humans only) ----------
   const MAX_RACERS = 12;          // Grand Prix field size (solo = you + 11 bots)
   const MAX_MP_PLAYERS = 4;       // Playroom human seats (unchanged)
+  // R4: named after the family's goat herd, plus a couple of classic farm racers. Personalities
+  //  (BOT_PERSONA, defined in the R4 block) are keyed by these exact names.
   const BOT_NAMES = [
-    'Hay Bill', 'Cluck Norris', 'Baler Swift', 'Corn Dog', 'Goat Racer', 'Mud Bug',
-    'Silo Sam', 'Tractor Bea', 'Eggbert', 'Barnstorm', 'Daisy Duke', 'Pitchfork'
+    'Archie', 'Graffi', 'Steffi', 'Oakley', 'Annie', 'Peyton',
+    'Daisy', 'Raspberry', 'Hay Bill', 'Cluck Norris', 'Mud Bug', 'Silo Sam'
   ];
   const BOT_COLORS = [
     0x4caf50, 0x3f7fe0, 0xf2c53d, 0xe91e63, 0x9c27b0, 0x00bcd4,
@@ -4634,6 +4716,7 @@
       p.botLookMul = 0.85 + Math.random()*0.4;
       p.kartId = randomKartId();
       p.driverId = randomDriverId();
+      applyBotPersona(p);   // R4: per-name personality + global difficulty scaling
       G.players[id] = p;
       buildKartView(id, accentColorFor(p), false, p.botName, { kartId:p.kartId, driverId:p.driverId, noName:true });
       paintKartAccent(id);
@@ -5193,7 +5276,13 @@
         const lap = (now - p.lapStart) / 1000;
         p.lapLast = lap;
         if (p.lapBest === 0 || lap < p.lapBest) p.lapBest = lap;
+        const _oldBest = G.bestLap;
         if (G.bestLap === 0 || lap < G.bestLap){ G.bestLap = lap; try{ localStorage.setItem(BEST_LAP_KEY, String(lap)); }catch(e){} }
+        // R4: personal-best ledger + a "NEW RECORD!" flourish when the LOCAL kart beats its prior best.
+        if (p === G.players.local){
+          recordProfileBestLap(ACTIVE_TRACK_ID || 'default', lap);
+          if (_oldBest > 0 && lap < _oldBest) showNewRecord(lap);
+        }
         p.lapStart = now;
         p.lap++;
         p.checkpoint = 0;
@@ -5231,6 +5320,7 @@
     p._finRecorded = true;
     p.finishSeq = ++G.finishSeq;
     G.finishOrder.push({ id:p.id, seq:p.finishSeq, time:p.finishTime });
+    checkPhotoFinish();   // R4: 1st & 2nd within 0.4s → photo-finish freeze/flash/banner
   }
   // final standings across all players (finished by RECORDED crossing order, still-racing by live progress)
   function computeStandings(){
@@ -5250,6 +5340,7 @@
     recordFinish(p);                 // stamp the crossing order BEFORE computing places
     p.place = computePlace(p);
     if (p === G.players.local){
+      recordProfileRace(p.place, { battle:false });   // R4: per-profile stats ledger (races/wins/podiums)
       if (net.mp){
         // R2 MP GRAND PRIX: a cup race shows no per-player results card — the cup flow shows the
         // shared interlude standings (host tallies points once everyone crosses) / final podium.
@@ -5258,14 +5349,14 @@
           // MP single race: local sees results without stopping the shared world.
           net.localResultsShown = true;
           G.results = { place:p.place, totalTime:p.finishTime, bestLap:p.lapBest, standings:computeStandings() };
-          showResults();
+          revealResults(()=>showResults());   // R4: wait out any photo-finish freeze
         }
       } else if (window.MenuFlow && MenuFlow.cupActive()){
         // CUP: freeze on finish and award points immediately (its per-track reload flow fires once).
         G.phase = 'finished';
         G.localDone = true; G.localFinishClock = G.raceClock;
         G.results = { place:p.place, totalTime:p.finishTime, bestLap:p.lapBest, standings:computeStandings() };
-        MenuFlow.onCupRaceFinished(G.results);
+        revealResults(()=>MenuFlow.onCupRaceFinished(G.results));
       } else {
         // SOLO race: do NOT freeze the world. Show the result immediately, but keep simulating so bots
         // finish and the local kart COASTS (auto-driven) instead of dead-stopping at the line. The
@@ -5274,7 +5365,7 @@
         G.localDone = true; G.localFinishClock = G.raceClock;
         G.results = { place:p.place, totalTime:p.finishTime, bestLap:p.lapBest, standings:computeStandings() };
         Ghost.onFinish(p.lapBest);   // R2: save the ghost if this TT run set a new best
-        showResults();
+        revealResults(()=>showResults());   // R4: wait out any photo-finish freeze
       }
     } else if (G.localDone && G.phase !== 'finished'){
       // a bot crossed AFTER the local finished (solo, still simulating) — live-refresh the standings.
@@ -5695,6 +5786,7 @@
       if (lift > 0) seatY += Math.min(lift, 0.28);
     }
     view.group.position.set(p.pos.x, seatY, p.pos.z);
+    updateKartShadow(p, view);   // R4: soft terrain-following ellipse shadow under each kart
     // landing thump only when the landing passed the effect gate (K2.5 squash-spam fix)
     if (view.lastAirborne && !p.airborne){ if (p.landFx){ landThump(p.landImpact, p.pos); spawnLandingPoof(p, gy); p.landFx = false; } }   // 2026-07-10: proximity audio (this runs per-kart, incl. bots/remotes)
     // ramp-jump whoosh (one-shot) — a satisfying launch cue for the local kart
@@ -5703,7 +5795,7 @@
     // K6 juice: drift dust · boost puffs · spin stars (pooled, spawned from live state)
     if (G.phase === 'racing' && !p._isGhost){   // R2: the translucent ghost never spawns FX/sound
       const spd = Math.hypot(p.v.x, p.v.z);
-      if (p.drift.active && spd > 2.5 && !p.airborne) spawnDriftDust(p, view, gy, dt);
+      if (p.drift.active && spd > 2.5 && !p.airborne){ spawnDriftDust(p, view, gy, dt); spawnSkidTrail(p, view, gy, dt); }   // R4: rubber skid marks
       if (p.boostT > 0) spawnBoostPuff(p, view, gy, dt);
       if (p.spinT > 0) spawnSpinStars(p, view, dt);
       spawnWaterSplash(p, view, dt);   // 2026-07-12: spray + entry sound while crossing water
@@ -6974,6 +7066,7 @@
     resetEntities();
     resetFinalLap();   // R1: clear final-lap banner + music tempo for the new race
     G.finishOrder = []; G.finishSeq = 0; G.localDone = false; G.localFinishClock = 0;
+    G._photoResults = false; if (window.__fkPhotoFinish) __fkPhotoFinish.reset();   // R4: clear any prior photo-finish
     G.phase = 'countdown';
     G.countdownT = TUNE.countdownBeat * 3;
     G.lastBeat = 99;
@@ -7043,10 +7136,11 @@
         const div = document.createElement('div'); div.className = 'srow' + (row.isLocal ? ' me' : '');
         const col = '#'+row.color.toString(16).padStart(6,'0');
         const med = MEDAL[row.place] || '';
+        const tf = G._photoResults ? fmtTime3 : fmtTime;   // R4: show 3-decimal times after a photo finish
         div.innerHTML = '<span class="sp">'+(med ? '<span class="medal">'+med+'</span>' : '')+(ORD[row.place]||(row.place+'th'))+'</span>'+
                         '<span class="sn" style="color:'+col+'">'+row.name+'</span>'+
                         '<span class="sb">'+(row.best ? fmtTime(row.best) : '—')+'</span>'+
-                        '<span class="st">'+(row.finished ? fmtTime(row.time) : '—')+'</span>';
+                        '<span class="st">'+(row.finished ? tf(row.time) : '—')+'</span>';
         sEl.appendChild(div);
       }
       sEl.style.display = 'block';
@@ -7293,12 +7387,15 @@
   // LOADOUT v2: apply an independent {driverId,kartId,color} pick to the local kart + persist it.
   function applyLocalLoadout(l){
     l = normalizeLoadout(l);
+    if (!isHatUnlocked(l.hatId)) l.hatId = 'none';   // R4: never wear a locked hat on the local kart
     const p = G.players.local;
-    p.driverId = l.driverId; p.kartId = l.kartId;
+    p.driverId = l.driverId; p.kartId = l.kartId; p.hatId = l.hatId;
     p._racerCol = l.color;
     p._slotCol = l.color;                         // menu preview (seat fns re-apply at race start)
     p.racerId = null;                             // free-form loadout is no longer a named preset
-    applyKartLoadout(kartViews.local, l.kartId, l.driverId);
+    if (kartViews.local) kartViews.local.hatId = l.hatId;
+    applyKartLoadout(kartViews.local, l.kartId, l.driverId);   // rebuilds driver → fillKartDriver re-attaches the hat
+    setViewHat(kartViews.local, l.hatId);         // ensure the hat updates even when kart/driver didn't change
     paintKartAccent('local');                     // _racerCol wins in accentColorFor
     saveLoadout(l);
     return l;
@@ -7582,7 +7679,8 @@
       it:p.itemHeld, ic:p.itemCount||0, trk:p.trailKind||'', st:p.starT||0, bl:p.bullT||0, roll:p.itemRollT, fin:p.finished, ft:p.finishTime,
       dact:p.drift.active, dtier:(p.drift.active?driftTier(p.drift.charge):0), bo:(p.boostT>0?1:0),
       nm:name||'', col:col,
-      kd:p.kartId||'bucky', dd:p.driverId||'bucky',
+      kd:p.kartId||'bucky', dd:p.driverId||'bucky', ht:p.hatId||'none',   // R4: hat id
+      hn:p._hornSeq||0,      // R4: horn honk seq (remote plays it proximity-scaled on increment)
       rsc:p.rescueT>0?1:0,   // R1: remote crow-rescue visual flag
       bn:(p.balloons!=null?p.balloons:3), ko:p.ko?1:0   // R3: battle balloons + knocked-out flag
     };
@@ -7603,10 +7701,14 @@
     // buildKartView is idempotent (kartViews[key] guard) so this is safe to call every tick.
     p.kartId = normalizeKartId(ks.kd != null ? ks.kd : p.kartId);
     p.driverId = normalizeDriverId(ks.dd != null ? ks.dd : p.driverId);
+    p.hatId = normalizeHatId(ks.ht != null ? ks.ht : p.hatId);   // R4
     p._rescueVisual = !!ks.rsc;   // R1: show a crow over a remote kart being rescued
     if (!kartViews[key]) buildKartView(key, ks.col!=null?ks.col:0x8844cc, false, ks.nm || 'Racer',
-      { kartId:p.kartId, driverId:p.driverId });
-    else applyKartLoadout(kartViews[key], p.kartId, p.driverId);
+      { kartId:p.kartId, driverId:p.driverId, hatId:p.hatId });
+    else { applyKartLoadout(kartViews[key], p.kartId, p.driverId); if (kartViews[key].hatId !== p.hatId) setViewHat(kartViews[key], p.hatId); }
+    // R4: remote horn — play the honk (proximity-scaled) when the seq increments
+    if (ks.hn != null){ if (p._hornSeqSeen == null) p._hornSeqSeen = ks.hn;
+      else if (ks.hn > p._hornSeqSeen){ p._hornSeqSeen = ks.hn; hornHonk(p.driverId, p.pos); } }
     // spatial: interpolate (~120ms), snap on a big error (>8u) to avoid a long glide
     const err = Math.hypot(ks.x - p.pos.x, ks.z - p.pos.z);
     if (err > 8){ p.pos.x = ks.x; p.pos.z = ks.z; p.y = ks.y; p.theta = ks.th; }
@@ -8196,6 +8298,295 @@
   }
 
   // ============================================================================
+  //  R4 — RACER PROFILES · UNLOCKABLES · BOT PERSONALITIES + DIFFICULTY ·
+  //       HORN + PHOTO FINISH · SKID MARKS + JUICE   (farmkart.html only)
+  //  Identity = the family's shared profile name (localStorage choreUser), 'Guest' fallback.
+  // ============================================================================
+  function profileName(){ try{ const n=(localStorage.getItem('choreUser')||'').trim(); return n||'Guest'; }catch(e){ return 'Guest'; } }
+  function profileKey(n){ return 'fk_profile_'+(n||profileName()); }
+  function loadProfile(n){ let o=null; try{ o=JSON.parse(localStorage.getItem(profileKey(n))||'null'); }catch(e){}
+    o=o||{}; return { races:o.races|0, wins:o.wins|0, podiums:o.podiums|0, itemsHit:o.itemsHit|0,
+      balloonsWon:o.balloonsWon|0, battleWins:o.battleWins|0,
+      bestLaps:(o.bestLaps&&typeof o.bestLaps==='object')?o.bestLaps:{} }; }
+  function saveProfile(p, n){ try{ localStorage.setItem(profileKey(n), JSON.stringify(p)); }catch(e){} }
+  // Called once per finished race/battle for the LOCAL player (solo + MP + cup + battle).
+  function recordProfileRace(place, opts){ opts=opts||{}; const p=loadProfile(); p.races++;
+    if (place>=1 && place<=3) p.podiums++;
+    if (opts.battle){ if (place===1) p.battleWins++; if (opts.balloons>0) p.balloonsWon += opts.balloons; }
+    else { if (place===1) p.wins++; }
+    saveProfile(p); checkUnlocks(); return p; }
+  function recordItemHit(){ const p=loadProfile(); p.itemsHit++; saveProfile(p); }
+  function recordProfileBestLap(trackId, t){ if(!(t>0)) return; const p=loadProfile();
+    const k=(trackId||'default')+classMirrorSuffix(); if(!p.bestLaps[k] || t<p.bestLaps[k]){ p.bestLaps[k]=t; saveProfile(p); } }
+
+  // ---- UNLOCKABLES (device-wide, fk_unlocks) ----
+  const UNLOCK_COLORS = [
+    { id:'gold',       hex:0xF6C945, name:'Gold Chrome',  hint:'Win the Corn Cup!' },
+    { id:'galaxy',     hex:0x7A3FC8, name:'Galaxy Purple',hint:'Win the Goat Cup!' },
+    { id:'watermelon', hex:0xE94F5B, name:'Watermelon',   hint:'Win the Tractor Cup!' },
+    { id:'lightning',  hex:0xF7E017, name:'Lightning',    hint:'Win the Star Cup!' },
+  ];
+  const UNLOCK_COLOR_BY_ID = {}; for (const c of UNLOCK_COLORS) UNLOCK_COLOR_BY_ID[c.id]=c;
+  const CUP_COLOR_UNLOCK = { corn:'gold', goat:'galaxy', tractor:'watermelon', star:'lightning' };
+  const UNLOCK_HATS = [
+    { id:'straw',  name:'Straw Hat',     ico:'👒', hint:'Earn a 200cc cup medal!' },
+    { id:'crown',  name:'Crown',         ico:'👑', hint:'Win a Battle!' },
+    { id:'helmet', name:'Racing Helmet', ico:'⛑', hint:'Win 10 races!' },
+  ];
+  const UNLOCK_HAT_BY_ID = {}; for (const h of UNLOCK_HATS) UNLOCK_HAT_BY_ID[h.id]=h;
+  function loadUnlocks(){ let o=null; try{ o=JSON.parse(localStorage.getItem('fk_unlocks')||'null'); }catch(e){}
+    o=o||{}; return { colors:Array.isArray(o.colors)?o.colors.slice():[], hats:Array.isArray(o.hats)?o.hats.slice():[] }; }
+  function saveUnlocks(u){ try{ localStorage.setItem('fk_unlocks', JSON.stringify(u)); }catch(e){} }
+  function isColorUnlocked(id){ return loadUnlocks().colors.indexOf(id)>=0; }
+  function isHatUnlocked(id){ return id==='none' || loadUnlocks().hats.indexOf(id)>=0; }
+  // Evaluate every earn-rule against the current records + cup medals (fresh, idempotent).
+  function earnedUnlocks(){
+    const colors=[], hats=[];
+    let cups={}; try{ cups=JSON.parse(localStorage.getItem('fk_cups')||'{}')||{}; }catch(e){}
+    const cupGold={}; let rocketMedal=false;
+    for (const key in cups){ const medal=cups[key]; if (!(medal>=1 && medal<=3)) continue;
+      const base=key.split('_')[0];                 // cup ids have no '_'; suffix is the class/mirror tag
+      if (medal===1) cupGold[base]=true;
+      if (/_rocket(_m)?$/.test(key)) rocketMedal=true;   // any 200cc (rocket-class) cup medal
+    }
+    for (const cupId in CUP_COLOR_UNLOCK){ if (cupGold[cupId]) colors.push(CUP_COLOR_UNLOCK[cupId]); }
+    const prof=loadProfile();
+    if (prof.wins>=10) hats.push('helmet');
+    if (prof.battleWins>=1) hats.push('crown');
+    if (rocketMedal) hats.push('straw');
+    return { colors, hats };
+  }
+  function checkUnlocks(){
+    const earned=earnedUnlocks(), cur=loadUnlocks(), newly=[];
+    for (const c of earned.colors){ if (cur.colors.indexOf(c)<0){ cur.colors.push(c);
+      const m=UNLOCK_COLOR_BY_ID[c]; newly.push('🎨 '+(m?m.name:c)+' kart unlocked!'); } }
+    for (const h of earned.hats){ if (cur.hats.indexOf(h)<0){ cur.hats.push(h);
+      const m=UNLOCK_HAT_BY_ID[h]; newly.push((m?m.ico:'🎩')+' '+(m?m.name:h)+' unlocked!'); } }
+    if (newly.length){ saveUnlocks(cur);
+      newly.forEach((msg,i)=>{ setTimeout(()=>fkToast(msg), i*1500); }); }
+    return newly;
+  }
+
+  // ---- HATS: small procedural meshes attached to the driver's head group ----
+  function buildHatMesh(hatId){
+    const g = new THREE.Group();
+    if (hatId==='straw'){
+      const brim=new THREE.Mesh(new THREE.CylinderGeometry(0.30,0.30,0.03,16), new THREE.MeshLambertMaterial({color:0xe0c060}));
+      brim.position.y=0.20; g.add(brim);
+      const crown=new THREE.Mesh(new THREE.CylinderGeometry(0.15,0.18,0.16,14), new THREE.MeshLambertMaterial({color:0xd4b24a}));
+      crown.position.y=0.29; g.add(crown);
+      const band=new THREE.Mesh(new THREE.CylinderGeometry(0.155,0.185,0.05,14), new THREE.MeshLambertMaterial({color:0x8a4a2a}));
+      band.position.y=0.24; g.add(band);
+    } else if (hatId==='crown'){
+      const base=new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.19,0.11,12), new THREE.MeshLambertMaterial({color:0xffd24a, emissive:0x6a4e00}));
+      base.position.y=0.26; g.add(base);
+      for (let i=0;i<6;i++){ const a=(i/6)*Math.PI*2;
+        const spike=new THREE.Mesh(new THREE.ConeGeometry(0.045,0.11,6), new THREE.MeshLambertMaterial({color:0xffe27a, emissive:0x6a4e00}));
+        spike.position.set(Math.cos(a)*0.17, 0.35, Math.sin(a)*0.17); g.add(spike);
+        const jewel=new THREE.Mesh(new THREE.SphereGeometry(0.03,8,8), new THREE.MeshLambertMaterial({color:0xff4d6d, emissive:0x400010}));
+        jewel.position.set(Math.cos(a)*0.17, 0.31, Math.sin(a)*0.17); g.add(jewel); }
+    } else if (hatId==='helmet'){
+      const dome=new THREE.Mesh(new THREE.SphereGeometry(0.22,14,12,0,Math.PI*2,0,Math.PI*0.62), new THREE.MeshLambertMaterial({color:0xe23b2e}));
+      dome.position.y=0.16; g.add(dome);
+      const stripe=new THREE.Mesh(new THREE.BoxGeometry(0.05,0.14,0.44), new THREE.MeshLambertMaterial({color:0xffffff}));
+      stripe.position.y=0.24; g.add(stripe);
+      const visor=new THREE.Mesh(new THREE.BoxGeometry(0.30,0.07,0.10), new THREE.MeshLambertMaterial({color:0x1a2230}));
+      visor.position.set(0,0.12,0.19); g.add(visor);
+    } else { return null; }
+    return g;
+  }
+  // Attach/replace a hat on a built driver (goat.head). No-op safe for 'none'/missing.
+  function setViewHat(view, hatId){
+    if (!view) return;
+    view.hatId = hatId || 'none';
+    const g = view.goat || view.driver;
+    if (!g || !g.head) return;
+    if (view._hatMesh){ if (view._hatMesh.parent) view._hatMesh.parent.remove(view._hatMesh); view._hatMesh=null; }
+    if (!hatId || hatId==='none') return;
+    const hat = buildHatMesh(hatId); if (!hat) return;
+    g.head.add(hat); view._hatMesh = hat;
+  }
+
+  // ---- BOT PERSONALITIES (assigned deterministically by goat-herd name) + DIFFICULTY ----
+  const BOT_PERSONA = {
+    'Archie':      { aggression:1.7, skill:1.05, rubberband:1.0, wobble:0.15 },  // aggressive + bumps
+    'Daisy':       { aggression:1.0, skill:0.96, rubberband:2.0, wobble:0.10 },  // rubber-bands hard
+    'Steffi':      { aggression:0.45,skill:1.12, rubberband:0.9, wobble:0.00 },  // clean racer
+    'Oakley':      { aggression:1.1, skill:0.9,  rubberband:1.0, wobble:0.65 },  // erratic wobble
+    'Graffi':      { aggression:1.35,skill:1.0,  rubberband:1.1, wobble:0.2  },
+    'Annie':       { aggression:0.8, skill:1.02, rubberband:1.2, wobble:0.05 },
+    'Peyton':      { aggression:1.2, skill:0.98, rubberband:1.35,wobble:0.25 },
+    'Raspberry':   { aggression:1.45,skill:0.92, rubberband:1.5, wobble:0.4  },
+    'Hay Bill':    { aggression:0.9, skill:0.88, rubberband:1.0, wobble:0.2  },
+    'Cluck Norris':{ aggression:1.6, skill:1.08, rubberband:0.8, wobble:0.1  },
+    'Mud Bug':     { aggression:1.0, skill:0.85, rubberband:1.4, wobble:0.35 },
+    'Silo Sam':    { aggression:0.7, skill:0.95, rubberband:1.1, wobble:0.15 },
+  };
+  function personaFor(name){ return BOT_PERSONA[name] || { aggression:1, skill:1, rubberband:1, wobble:0.2 }; }
+  const DIFF_MUL = { easy:{ skill:0.80, rubber:1.35 }, normal:{ skill:1.0, rubber:1.0 }, hard:{ skill:1.15, rubber:0.75 } };
+  function loadDifficulty(){ try{ const d=localStorage.getItem('fk_difficulty'); return DIFF_MUL[d]?d:'normal'; }catch(e){ return 'normal'; } }
+  function saveDifficulty(d){ try{ localStorage.setItem('fk_difficulty', DIFF_MUL[d]?d:'normal'); }catch(e){} }
+  // MP keeps Normal for fairness unless the host carries a difficulty in room state (net.roomDiff).
+  function activeDifficulty(){
+    if (net.mp){ if (net.isHost) return loadDifficulty(); return net.roomDiff || 'normal'; }
+    return loadDifficulty();
+  }
+  function applyBotPersona(p){
+    const per=personaFor(p.botName); p.persona=per;
+    const diff=DIFF_MUL[activeDifficulty()] || DIFF_MUL.normal; p._diffName=activeDifficulty();
+    p.botSkill = Math.max(0.3, Math.min(1.2, (p.botSkill!=null?p.botSkill:TUNE.botSkill) * per.skill * diff.skill));
+    p.rubberMul = TUNE.botRubberband * per.rubberband * diff.rubber;
+    p.aggroMul = per.aggression;
+    p.wobbleAmp = per.wobble;
+    p._wobPhase = Math.random()*Math.PI*2;
+  }
+
+  // ---- HORN: signature honk per driver, 0.4s cooldown, proximity-scaled (MP via _hornSeq) ----
+  let _hornCd = 0;
+  const HORN_CFG = {
+    bucky: { f:[300,392], type:'sawtooth' },   // goat bleat-honk
+    otis:  { f:[180,247], type:'square'   },   // dog woof-honk
+    boots: { f:[540,680], type:'triangle' },   // cat meow-honk
+  };
+  function hornHonk(driverId, pos){
+    if (_hornCd > 0) return false;
+    _hornCd = 0.4;
+    const mul = (typeof gainAt==='function' && pos) ? gainAt(pos,'horn') : 1;
+    if (mul <= 0.02) return true;   // still on cooldown-wise "honked", just inaudible from here
+    const cfg = HORN_CFG[normalizeDriverId(driverId)] || HORN_CFG.bucky;
+    tone(cfg.f[0], 0.12, { type:cfg.type, vol:0.17, mul });
+    setTimeout(()=>tone(cfg.f[1], 0.16, { type:cfg.type, vol:0.17, mul }), 90);
+    const d = normalizeDriverId(driverId);
+    if (d==='boots') setTimeout(()=>tone(900,0.08,{type:'triangle',vol:0.09,mul}),150);
+    else if (d==='otis') noiseBurst(0.11,{filter:'lowpass',freq:520,vol:0.06,mul});
+    else setTimeout(()=>tone(cfg.f[1]*1.5,0.07,{type:'triangle',vol:0.07,mul}),150);
+    return true;
+  }
+  function localHonk(){
+    const p = G.players.local; if (!p) return;
+    ensureAudio();
+    if (hornHonk(p.driverId, null)){          // local always full volume (pos null → gain 1)
+      p._hornSeq = (p._hornSeq||0) + 1;        // MP: others read the bump + honk at our pos
+    }
+  }
+  addEventListener('keydown', e=>{ if ((e.key||'').toLowerCase()==='h'){ if (G.phase==='racing' && !paused) localHonk(); } });
+
+  // ---- PHOTO FINISH: 1st & 2nd within 0.4s → freeze + white flash + banner + zoom, 3-decimal times ----
+  function fmtTime3(s){ if(!(s>0)) return '0.000s'; const m=Math.floor(s/60), r=(s%60).toFixed(3); return (m>0?m+':':'')+(m>0?r.padStart(6,'0'):r)+'s'; }
+  const PHOTO_GAP = 0.4, PHOTO_DUR = 1.2;
+  const PhotoFinish = (function(){
+    const flashEl = document.getElementById('photoFlash');
+    const bannerEl = document.getElementById('photoFinish');
+    const timesEl = document.getElementById('photoTimes');
+    let active=false, t=0, pending=null;
+    function wouldTrigger(gap){ return gap>0 && gap<PHOTO_GAP; }
+    function trigger(a, b){
+      active=true; t=0; G._photoResults=true;
+      const t1=Math.min(a.time,b.time), t2=Math.max(a.time,b.time);
+      timesEl.textContent = '🥇 '+fmtTime3(t1)+'   🥈 '+fmtTime3(t2);
+      bannerEl.classList.remove('on'); void bannerEl.offsetWidth; bannerEl.classList.add('on');
+      flashEl.classList.add('on'); setTimeout(()=>flashEl.classList.remove('on'), 130);
+      try{ ensureAudio(); tone(2200,0.05,{type:'sine',vol:0.13}); setTimeout(()=>noiseBurst(0.06,{filter:'highpass',freq:3000,vol:0.05}),20); }catch(e){}
+      return true;
+    }
+    function onDone(fn){ if (active) pending=fn; else fn(); }
+    function update(dt){
+      if (!active) return;
+      t += dt;
+      // freeze camera on the line (zoomed) for the duration
+      const gy = (typeof sampleHeight==='function') ? sampleHeight(FINISH.cx, FINISH.cz) : 0;
+      camera.up.set(0,1,0);
+      camera.position.set(FINISH.cx - FINISH.nx*13 - FINISH.tx*2, gy+7.5, FINISH.cz - FINISH.nz*13 - FINISH.tz*2);
+      camera.lookAt(FINISH.cx, gy+1.0, FINISH.cz);
+      if (t >= PHOTO_DUR){ active=false; bannerEl.classList.remove('on'); const fn=pending; pending=null; if (fn) fn(); }
+    }
+    function reset(){ active=false; t=0; pending=null; bannerEl.classList.remove('on'); flashEl.classList.remove('on'); }
+    // headless test hook: stage two finish times and return whether the effect fired
+    function test(gap){ if (!wouldTrigger(gap)) return false; return trigger({time:10.000},{time:10.000+gap}); }
+    return { trigger, onDone, update, reset, wouldTrigger, test, get active(){ return active; } };
+  })();
+  window.__fkPhotoFinish = PhotoFinish;
+  // Detect the photo finish the moment the 2nd kart is recorded (called from recordFinish).
+  function checkPhotoFinish(){
+    if (battleActive()) return;
+    if (!G.finishOrder || G.finishOrder.length !== 2) return;
+    const a=G.finishOrder[0], b=G.finishOrder[1];
+    const gap = Math.abs((b.time||0)-(a.time||0));
+    if (PhotoFinish.wouldTrigger(gap)) PhotoFinish.trigger(a, b);
+  }
+  // Wrap a results-reveal so it waits out the photo-finish freeze.
+  function revealResults(fn){ PhotoFinish.onDone(fn); }
+
+  // ---- NEW RECORD flourish (personal best lap set mid-race) ----
+  const _newRecEl = document.getElementById('newRecord');
+  const _newRecTimeEl = document.getElementById('newRecordTime');
+  let _newRecHideT = 0;
+  function showNewRecord(lap){
+    _newRecTimeEl.textContent = fmtTime(lap);
+    _newRecEl.classList.remove('show'); void _newRecEl.offsetWidth; _newRecEl.classList.add('show');
+    if (_newRecHideT) clearTimeout(_newRecHideT);
+    _newRecHideT = setTimeout(()=>_newRecEl.classList.remove('show'), 1950);
+    try{ ensureAudio(); tone(784,0.10,{type:'triangle',vol:0.12}); setTimeout(()=>tone(1047,0.10,{type:'triangle',vol:0.12}),90);
+      setTimeout(()=>tone(1319,0.16,{type:'triangle',vol:0.13}),180); }catch(e){}
+  }
+
+  // ---- SKID MARKS (pooled fading decals while drifting) + soft kart shadows ----
+  const SKID_MAX = 120;
+  const _SKID_GEO = new THREE.PlaneGeometry(1, 1);
+  const _skids = [];
+  for (let i=0;i<SKID_MAX;i++){
+    const mat = new THREE.MeshBasicMaterial({ color:0x161616, transparent:true, opacity:0, depthWrite:false });
+    const m = new THREE.Mesh(_SKID_GEO, mat); m.rotation.x=-Math.PI/2; m.visible=false; m.renderOrder=2; scene.add(m);
+    _skids.push({ m, mat, live:false, life:0, maxLife:4.5, op0:0.5 });
+  }
+  let _skidIdx = 0;
+  function spawnSkid(x, y, z, yaw){
+    const s=_skids[_skidIdx]; _skidIdx=(_skidIdx+1)%SKID_MAX;
+    s.m.position.set(x, y+0.03, z); s.m.rotation.set(-Math.PI/2, 0, -yaw); s.m.scale.set(0.34, 0.9, 1);
+    s.live=true; s.life=0; s.op0=0.5; s.mat.opacity=0.5; s.m.visible=true;
+  }
+  function updateSkids(dt){
+    for (const s of _skids){ if (!s.live) continue; s.life+=dt;
+      if (s.life>=s.maxLife){ s.live=false; s.m.visible=false; continue; }
+      s.mat.opacity = s.op0 * (1 - s.life/s.maxLife); }
+  }
+  function skidCount(){ let n=0; for (const s of _skids) if (s.live) n++; return n; }
+  // per-kart drift skid emitter (distance-accumulated so it doesn't allocate per frame)
+  function spawnSkidTrail(p, view, gy, dt){
+    view._skidAcc = (view._skidAcc||0) + Math.hypot(p.v.x,p.v.z)*dt;
+    const yaw = p.theta + p.driftAngle;
+    const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
+    const r = { x:Math.cos(p.theta), z:-Math.sin(p.theta) };
+    while (view._skidAcc > 0.5){
+      view._skidAcc -= 0.5;
+      for (const side of [-1,1]){
+        const rx = p.pos.x - f.x*0.85 + r.x*side*0.42;
+        const rz = p.pos.z - f.z*0.85 + r.z*side*0.42;
+        spawnSkid(rx, gy, rz, yaw);
+      }
+    }
+  }
+  let _shadowGeo = null;
+  function shadowGeo(){ if (!_shadowGeo) _shadowGeo = new THREE.CircleGeometry(0.85, 18); return _shadowGeo; }
+  function ensureKartShadow(view){
+    if (view.shadow || view._noShadow) return view.shadow;
+    const m = new THREE.Mesh(shadowGeo(), new THREE.MeshBasicMaterial({ color:0x000000, transparent:true, opacity:0.28, depthWrite:false }));
+    m.rotation.x=-Math.PI/2; m.renderOrder=1; scene.add(m); view.shadow=m; return m;
+  }
+  function updateKartShadow(p, view){
+    const sh = ensureKartShadow(view); if (!sh) return;
+    const sgy = (typeof groundSampleHeight==='function') ? groundSampleHeight(p.pos.x, p.pos.z) : 0;
+    const air = Math.max(0, (p.y!=null?p.y:sgy) - sgy);
+    const fade = Math.max(0, 1 - air/3.5);
+    sh.visible = fade > 0.03;
+    if (!sh.visible) return;
+    sh.position.set(p.pos.x, sgy+0.04, p.pos.z);
+    sh.material.opacity = 0.3 * fade;
+    const grow = 1 + air*0.12;
+    sh.scale.set(1.25*grow, 1.55*grow, 1);
+  }
+
+  // ============================================================================
   //  R2 TIME-TRIAL GHOSTS — record the local kart at 10Hz during a solo Time Trial
   //  (0 bots); on a new per-track best, persist to fk_ghost_<key> (keyed identically
   //  to the best lap so class/mirror records stay separate). The next TT on that track
@@ -8296,7 +8687,8 @@
         const blk=new THREE.Mesh(new THREE.BoxGeometry(4.4,bh[i],4.4), new THREE.MeshLambertMaterial({color:bcol[i]}));
         blk.position.set(bx[i], bh[i]/2, 0); group.add(blk);
         const id='__pod'+i;
-        const view=buildKartView(id, r.color!=null?r.color:0x3d8b3d, false, null, { kartId:r.kartId||'bucky', driverId:r.driverId||'bucky', noName:true });
+        const view=buildKartView(id, r.color!=null?r.color:0x3d8b3d, false, null, { kartId:r.kartId||'bucky', driverId:r.driverId||'bucky', noName:true, hatId:r.hatId||'none' });
+        view._noShadow=true;   // R4: podium karts sit on the platform, no ground shadow
         const np=makePlayer('__podP'); np.theta=0; syncKartView(np, view, 0.1); delete G.players['__podP'];
         view.group.position.set(OX+bx[i], OY+bh[i], OZ+1.6);
         view.group.rotation.set(0,0,0);
@@ -8369,7 +8761,7 @@
       // ===== SOLO / FALLBACK PATH — byte-identical to the original single-player loop =====
       // PAUSE freezes the solo sim entirely (no phase/step/timer/bot advance); the frozen scene
       // still renders below. dt is discarded this frame; the frame clock is reset on resume.
-      if (!paused){
+      if (!paused && !PhotoFinish.active){   // R4: photo-finish freezes the solo sim for its duration
       updatePhase(dt, inp);
       if (dt > 0 && G.phase === 'racing') soloRaceTick(dt, inp);
       } // end if(!paused)
@@ -8418,6 +8810,9 @@
     updateCamera(dt);
     updateHUD();
     updateParticles(dt);   // K6: advance the pooled juice particles
+    updateSkids(dt);       // R4: fade the pooled drift skid marks
+    if (_hornCd > 0) _hornCd = Math.max(0, _hornCd - dt);   // R4: horn cooldown
+    if (PhotoFinish.active) PhotoFinish.update(dt);         // R4: freeze camera on the line + advance the banner timer
     updateAudio(dt);       // K6: reactive engine hum / MT chimes
     syncChickenViews();    // 2026-07-12: position/animate road-crossing chicken meshes
     syncCowViews();        // 2026-07-13 R3: position/animate pasture cows
@@ -8597,12 +8992,63 @@
     (function(){ const s=makeScreen('home'); const w=document.createElement('div'); w.className='mfBig';
       w.appendChild(btn('mfBtn','<span class="ic">🏁</span><div>SINGLE PLAYER<small>Time Trial · Grand Prix</small></div>', ()=>show('sp')));
       w.appendChild(btn('mfBtn blue','<span class="ic">🌐</span><div>MULTIPLAYER<small>Host or join a family race</small></div>', ()=>show('mp-home')));
+      w.appendChild(btn('mfBtn','<span class="ic">🏅</span><div>RECORDS<small>your wins, medals &amp; best laps</small></div>', ()=>openRecords()));   // R4
       s.appendChild(w);
       // Track Editor entry (2026-07-10, user: family members build levels from the live site).
       // Saved tracks cloud-sync to everyone (settings_<fam>/fkTracks), so editing is collaborative.
       const ed = btn('mfEditorLink','🛠 Track Editor <small>build your own course — best on a computer with a mouse</small>', ()=>{ location.href='farmkart-editor.html'; });
       s.appendChild(ed);
     })();
+
+    // ================= R4: RECORDS (per family-member profile) =================
+    let recordsBox=null;
+    (function(){ const s=makeScreen('records');
+      s.appendChild(el('div','mfHead','RECORDS'));
+      const box=document.createElement('div'); box.id='mfRecords'; box.addEventListener('pointerdown',stop); s.appendChild(box);
+      recordsBox=box;
+      s.appendChild(backBar());
+    })();
+    function openRecords(){ renderRecords(); show('records'); }
+    function renderRecords(){
+      if (!recordsBox) return;
+      const name=profileName(); const p=loadProfile();
+      recordsBox.innerHTML='';
+      recordsBox.appendChild(el('div','mfRecName','🐐 '+name));
+      const stats=document.createElement('div'); stats.className='mfRecStats';
+      const stat=(v,l)=>{ const d=el('div','mfRecStat'); d.appendChild(el('div','v',String(v))); d.appendChild(el('div','l',l)); return d; };
+      stats.appendChild(stat(p.races,'RACES'));
+      stats.appendChild(stat(p.wins,'WINS'));
+      stats.appendChild(stat(p.podiums,'PODIUMS'));
+      stats.appendChild(stat(p.battleWins,'BATTLE WINS'));
+      recordsBox.appendChild(stats);
+      const stats2=document.createElement('div'); stats2.className='mfRecStats'; stats2.style.gridTemplateColumns='repeat(2,1fr)';
+      stats2.appendChild(stat(p.itemsHit,'ITEMS HIT'));
+      stats2.appendChild(stat(p.balloonsWon,'BALLOONS'));
+      recordsBox.appendChild(stats2);
+      // medal shelf — best medal per cup across all classes
+      recordsBox.appendChild(el('div','mfRecSub','🏆 CUP MEDALS'));
+      let cups={}; try{ cups=JSON.parse(localStorage.getItem('fk_cups')||'{}')||{}; }catch(e){}
+      const cupBest={};
+      for (const key in cups){ const base=key.split('_')[0]; const m=cups[key];
+        if (m>=1&&m<=3 && (!cupBest[base]||m<cupBest[base])) cupBest[base]=m; }
+      const shelf=document.createElement('div'); shelf.className='mfMedalShelf';
+      let any=false;
+      for (const c of FK_CUPS){ const m=cupBest[c.id]; if (m){ any=true;
+        const it=el('div','mfMedalItem'); it.innerHTML='<span class="mm">'+(MEDAL_ICO[m]||'')+'</span>'+c.ico+' '+c.name; shelf.appendChild(it); } }
+      if (!any) shelf.appendChild(el('div','mfMedalItem','No cup medals yet — win a Grand Prix!'));
+      recordsBox.appendChild(shelf);
+      // best-lap list — device best laps for tracks with a record (profile ledger + fk_best_* keys)
+      recordsBox.appendChild(el('div','mfRecSub','⏱ BEST LAPS'));
+      const list=document.createElement('div'); list.className='mfBestList';
+      const seen={}; let anyLap=false;
+      for (const id of courseIds()){
+        const b=parseFloat(localStorage.getItem('fk_best_'+id+classMirrorSuffix()));
+        if (isFinite(b)&&b>0 && !seen[id]){ seen[id]=1; anyLap=true; const info=trackInfo(id);
+          const row=el('div','mfBestRow'); row.innerHTML='<span>'+(info?info.name:id)+'</span><span class="bt">'+fmtTime(b)+'</span>'; list.appendChild(row); }
+      }
+      if (!anyLap) list.appendChild(el('div','mfBestRow','Race a Time Trial to set a best lap!'));
+      recordsBox.appendChild(list);
+    }
 
     // ================= SINGLE PLAYER =================
     (function(){ const s=makeScreen('sp');
@@ -8611,8 +9057,23 @@
       w.appendChild(btn('mfBtn','<span class="ic">⏱</span><div>TIME TRIAL<small>solo · beat your best lap</small></div>', ()=>{ st.spMode='trial'; openCourseGrid('tt'); }));
       w.appendChild(btn('mfBtn','<span class="ic">🏆</span><div>GRAND PRIX<small>12 racers · 4-track cups</small></div>', ()=>{ st.spMode='prix'; openCups(); }));
       w.appendChild(btn('mfBtn','<span class="ic">💥</span><div>BATTLE<small>balloon battle vs 3 bots</small></div>', ()=>{ st.spMode='battle'; openRacerSelect('battle'); }));
-      s.appendChild(w); s.appendChild(backBar());
+      s.appendChild(w);
+      s.appendChild(diffBar());   // R4: Easy / Normal / Hard difficulty (persisted fk_difficulty)
+      s.appendChild(backBar());
     })();
+    // R4: difficulty selector bar (SP screens)
+    function diffBar(){
+      const bar=el('div','mfDiffBar'); bar.addEventListener('pointerdown',stop);
+      bar.appendChild(el('div','mfDiffHead','DIFFICULTY'));
+      const row=el('div','mfDiffRow'); const btns={};
+      for (const d of [['easy','😊 Easy'],['normal','🙂 Normal'],['hard','😤 Hard']]){
+        const b=btn('mfDiff', d[1], ()=>{ saveDifficulty(d[0]); sync(); });
+        row.appendChild(b); btns[d[0]]=b;
+      }
+      bar.appendChild(row);
+      function sync(){ const cur=loadDifficulty(); for (const k in btns) btns[k].classList.toggle('on', k===cur); }
+      sync(); bar._sync=sync; return bar;
+    }
 
     // ================= TIME TRIAL — course grid =================
     const ttGrid = (function(){ const s=makeScreen('tt-course');
@@ -8712,21 +9173,55 @@
       }
       section('WHO’S DRIVING?', DRIVER_KINDS, drvCards, 'driverId');
       section('PICK YOUR KART',    KART_KINDS,   kartCards, 'kartId', true);
+      const hint=el('div','mfHint','');   // shared hint line for locked items
+      function showHint(msg){ hint.textContent=msg||''; }
       const csec=el('div','lsec'); csec.appendChild(el('div','lh','KART COLOR'));
       const crow=document.createElement('div'); crow.className='mfColors';
       for (const col of RACER_COLORS){
         const sw=document.createElement('div'); sw.className='mfSwatch'; sw.dataset.col=col;
         sw.style.background='#'+col.toString(16).padStart(6,'0');
         sw.addEventListener('pointerdown',stop);
-        sw.addEventListener('click', ()=>{ st.loadout.color=col; apply(); });
+        sw.addEventListener('click', ()=>{ st.loadout.color=col; apply(); showHint(''); });
         crow.appendChild(sw); colSwatches[col]=sw;
       }
+      // R4: UNLOCKABLE colors (gold chrome / galaxy / watermelon / lightning) — locked → 🔒 + hint.
+      const unlockSw={};
+      for (const uc of UNLOCK_COLORS){
+        const sw=document.createElement('div'); sw.className='mfSwatch'; sw.dataset.unlock=uc.id;
+        sw.style.background='#'+uc.hex.toString(16).padStart(6,'0'); sw.title=uc.name;
+        sw.addEventListener('pointerdown',stop);
+        sw.addEventListener('click', ()=>{ if (isColorUnlocked(uc.id)){ st.loadout.color=uc.hex; apply(); showHint(''); }
+          else showHint('🔒 '+uc.name+' — '+uc.hint); });
+        crow.appendChild(sw); colSwatches['u:'+uc.id]=sw; unlockSw[uc.id]=sw;
+      }
       csec.appendChild(crow); host.appendChild(csec);
+      // R4: HATS section (straw / crown / helmet) — earned cosmetics attached to the driver's head.
+      const hsec=el('div','lsec'); hsec.appendChild(el('div','lh','HAT'));
+      const hrow=el('div','mfHats'); const hatCards={};
+      const noneCard=el('div','mfHat'); noneCard.dataset.hat='none';
+      noneCard.innerHTML='<span class="hico">🚫</span><span class="hn">No Hat</span>';
+      noneCard.addEventListener('pointerdown',stop); noneCard.addEventListener('click',()=>{ st.loadout.hatId='none'; apply(); showHint(''); });
+      hrow.appendChild(noneCard); hatCards['none']=noneCard;
+      for (const uh of UNLOCK_HATS){
+        const c=el('div','mfHat'); c.dataset.hat=uh.id;
+        c.innerHTML='<span class="hico">'+uh.ico+'</span><span class="hn">'+uh.name+'</span>';
+        c.addEventListener('pointerdown',stop);
+        c.addEventListener('click',()=>{ if (isHatUnlocked(uh.id)){ st.loadout.hatId=uh.id; apply(); showHint(''); }
+          else showHint('🔒 '+uh.name+' — '+uh.hint); });
+        hrow.appendChild(c); hatCards[uh.id]=c;
+      }
+      hsec.appendChild(hrow); host.appendChild(hsec);
+      host.appendChild(hint);
       function sync(){
         st.loadout = normalizeLoadout(st.loadout);
+        if (!isHatUnlocked(st.loadout.hatId)) st.loadout.hatId='none';
         for (const id in drvCards)  drvCards[id].classList.toggle('on', id===st.loadout.driverId);
         for (const id in kartCards) kartCards[id].classList.toggle('on', id===st.loadout.kartId);
-        for (const col in colSwatches) colSwatches[col].classList.toggle('on', (+col)===st.loadout.color);
+        for (const col of RACER_COLORS) colSwatches[col].classList.toggle('on', col===st.loadout.color);
+        for (const uc of UNLOCK_COLORS){ const sw=unlockSw[uc.id]; const unl=isColorUnlocked(uc.id);
+          sw.classList.toggle('locked', !unl); sw.classList.toggle('on', unl && uc.hex===st.loadout.color); }
+        for (const id in hatCards){ const unl=(id==='none')||isHatUnlocked(id);
+          hatCards[id].classList.toggle('locked', !unl); hatCards[id].classList.toggle('on', id===st.loadout.hatId); }
       }
       function apply(){ applyLocalLoadout(st.loadout); sync(); if (onChange) onChange(); }
       return { sync, apply };
@@ -8828,15 +9323,15 @@
     }
     function resolveRacerVisual(name){
       const localName = net.myName || 'You';
-      if (name==='You' || (localName && name===localName)){ const l=normalizeLoadout(st.loadout); return { color:l.color, kartId:l.kartId, driverId:l.driverId }; }
-      for (const id in G.players){ const p=G.players[id]; if (p.isBot && p.botName===name) return { color:p.botColor, kartId:p.kartId||'bucky', driverId:p.driverId||'bucky' }; }
+      if (name==='You' || (localName && name===localName)){ const l=normalizeLoadout(st.loadout); return { color:l.color, kartId:l.kartId, driverId:l.driverId, hatId:l.hatId }; }
+      for (const id in G.players){ const p=G.players[id]; if (p.isBot && p.botName===name) return { color:p.botColor, kartId:p.kartId||'bucky', driverId:p.driverId||'bucky', hatId:'none' }; }
       // MP: a remote human — look up by display name
-      for (const id in G.players){ const p=G.players[id]; if (p._remote && p._dispName===name) return { color:p._slotCol, kartId:p.kartId||'bucky', driverId:p.driverId||'bucky' }; }
-      return { color:0x9aa4b8, kartId:'bucky', driverId:'bucky' };
+      for (const id in G.players){ const p=G.players[id]; if (p._remote && p._dispName===name) return { color:p._slotCol, kartId:p.kartId||'bucky', driverId:p.driverId||'bucky', hatId:p.hatId||'none' }; }
+      return { color:0x9aa4b8, kartId:'bucky', driverId:'bucky', hatId:'none' };
     }
     function podiumRowsFromCup(c){
       return cupTotalsSorted().slice(0,3).map((t,i)=>{ const v=resolveRacerVisual(t.name);
-        return { name:t.name, place:i+1, pts:t.pts, color:v.color, kartId:v.kartId, driverId:v.driverId }; });
+        return { name:t.name, place:i+1, pts:t.pts, color:v.color, kartId:v.kartId, driverId:v.driverId, hatId:v.hatId }; });
     }
     function saveCupMedal(c){
       const totals = cupTotalsSorted();
@@ -8848,6 +9343,7 @@
         const key = c.id + classMirrorSuffix();
         if (!map[key] || place < map[key]) map[key]=place;   // keep the best medal ever earned
         try{ localStorage.setItem('fk_cups', JSON.stringify(map)); }catch(e){}
+        checkUnlocks();   // R4: cup gold → kart color; 200cc cup medal → straw hat
       }
     }
     function renderCupStandings(c, rows){
@@ -9023,7 +9519,7 @@
     function publishPick(){
       if (!net.mp || !net.localPlayer) return;
       const l = normalizeLoadout(st.loadout);
-      try{ net.localPlayer.setState('pick', { driverId:l.driverId, kartId:l.kartId, color:l.color, ready:myReady }, true); }catch(e){}
+      try{ net.localPlayer.setState('pick', { driverId:l.driverId, kartId:l.kartId, color:l.color, hatId:l.hatId, ready:myReady }, true); }catch(e){}
     }
     function allPicks(){
       const out=[];
@@ -9178,7 +9674,7 @@
       });
       return ps.map((p,i)=>({ key:mpKeyOf(p), name:(p===G.players.local?(net.myName||'You'):mpKeyOf(p)),
         place:i+1, isLocal:p===G.players.local, finished:!!p.finished, time:p.finishTime||0,
-        color:(p._slotCol!=null?p._slotCol:(p.isBot?p.botColor:0x3d8b3d)), kartId:p.kartId||'bucky', driverId:p.driverId||'bucky' }));
+        color:(p._slotCol!=null?p._slotCol:(p.isBot?p.botColor:0x3d8b3d)), kartId:p.kartId||'bucky', driverId:p.driverId||'bucky', hatId:p.hatId||'none' }));
     }
     function mpCupTotalsSorted(points){ const t=Object.keys(points).map(k=>({ key:k, name:k, pts:points[k] })); t.sort((a,b)=>b.pts-a.pts); return t; }
     // interlude standings screen (reuses #results / #rStandings with a points column) — host + guests
@@ -9214,15 +9710,15 @@
       const li = totals.findIndex(t=> t.key==='You' || t.key===localName);
       if (li>=0 && li<3){ let map={}; try{ map=JSON.parse(localStorage.getItem('fk_cups')||'{}')||{}; }catch(e){}
         const key=c.id+classMirrorSuffix(); if(!map[key]||(li+1)<map[key]) map[key]=li+1;
-        try{ localStorage.setItem('fk_cups', JSON.stringify(map)); }catch(e){} }
+        try{ localStorage.setItem('fk_cups', JSON.stringify(map)); }catch(e){} checkUnlocks(); }
       Podium.show(top, ()=> renderMpCupFinalStandings(c, totals));
     }
     function mpResolveVisual(key, standings){
       const s=(standings||[]).find(r=>r.key===key);
-      if (s) return { color:s.color, kartId:s.kartId, driverId:s.driverId };
+      if (s) return { color:s.color, kartId:s.kartId, driverId:s.driverId, hatId:s.hatId||'none' };
       const localName=net.myName||'You';
-      if (key==='You'||key===localName){ const l=normalizeLoadout(st.loadout); return { color:l.color, kartId:l.kartId, driverId:l.driverId }; }
-      return { color:0x9aa4b8, kartId:'bucky', driverId:'bucky' };
+      if (key==='You'||key===localName){ const l=normalizeLoadout(st.loadout); return { color:l.color, kartId:l.kartId, driverId:l.driverId, hatId:l.hatId }; }
+      return { color:0x9aa4b8, kartId:'bucky', driverId:'bucky', hatId:'none' };
     }
     function renderMpCupFinalStandings(c, totals){
       const localName = net.myName||'You';
@@ -9388,7 +9884,11 @@
              _setLoadout:(l)=>{ st.loadout=applyLocalLoadout(l); if(racerScreen&&racerScreen.sync)racerScreen.sync(); },
              _getLoadout:()=>Object.assign({}, st.loadout),
              _selCourse:(id)=>{ st.selCourse=id; },
-             _selCup:(id)=>{ st.selCup=id; } };
+             _selCup:(id)=>{ st.selCup=id; },
+             // R4 test/UI hooks
+             _openRecords:openRecords, _renderRecords:renderRecords, get _recordsBox(){ return recordsBox; },
+             _refreshRacer:()=>{ if(racerScreen&&racerScreen.sync) racerScreen.sync(); },
+             _openSp:()=>show('sp'), _openHome:()=>show('home') };
   })();
   window.MenuFlow = MenuFlow;
 
@@ -9445,7 +9945,7 @@
     sweptTrailAbsorb, trailWorldPos, TRAIL_ABSORB_R,
     updateItemSlot, get itemIcon(){ return itemIcon; }, get itemSlot(){ return itemSlot; },
     updateLightningBolts, BULL_SIZE,
-    advanceProjectiles, advanceHazards, stepKart,
+    advanceProjectiles, advanceHazards, stepKart, syncKartView,
     ITEM_ROLL_TABLE, ITEM_KINDS, ITEM_ICON,
     // ---- 2026-07-12 R1 (Feel & Fairness): six MK-inspired features ----
     // 1. rescue crow
@@ -9554,7 +10054,24 @@
                     resetRaceFields(G.players.local); resetKart();
                     G.players.local.finishDebounce = 5; G.raceClock = 0;
                     setMusicPhase('race'); },
-    _setKeys:(k,v)=>{ keys[k]=v; }
+    _setKeys:(k,v)=>{ keys[k]=v; },
+    // ---- R4 test/feature hooks ----
+    // profiles
+    profileName, loadProfile, saveProfile, recordProfileRace, recordItemHit, recordProfileBestLap,
+    // unlockables
+    UNLOCK_COLORS, UNLOCK_HATS, CUP_COLOR_UNLOCK, loadUnlocks, saveUnlocks, isColorUnlocked, isHatUnlocked,
+    earnedUnlocks, checkUnlocks,
+    // bot personalities + difficulty
+    BOT_NAMES, BOT_PERSONA, personaFor, applyBotPersona, loadDifficulty, saveDifficulty, activeDifficulty, DIFF_MUL,
+    setupRoster, botTargetSpeed, botUseItems, useItem, makePlayer, finishRace, battleEnd, recordFinish,
+    // horn
+    hornHonk, localHonk, HORN_CFG, get hornCd(){ return _hornCd; }, set hornCd(v){ _hornCd = v; },
+    // photo finish
+    PhotoFinish, checkPhotoFinish, fmtTime3, get photoResults(){ return !!G._photoResults; },
+    // skid marks + shadows + hats
+    spawnSkid, skidCount, updateSkids, setViewHat, buildHatMesh,
+    // records / new-record
+    showNewRecord, get newRecordShown(){ return _newRecEl.classList.contains('show'); }
   };
   // back-compat: window.__KART__.state -> the local player entry
   Object.defineProperty(window.__KART__, 'state', { get(){ return G.players.local; } });
