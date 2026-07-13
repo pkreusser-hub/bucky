@@ -206,6 +206,10 @@
       open: (d) => `🏁 ${d.hostName || "Someone"}'s race is forming! · ${d.playerCount || 1}/${d.maxPlayers || 4} racers`,
       started: (d) => `🏁 ${d.hostName || "Someone"}'s race is mid-race!`
     },
+    pasturepanic: {
+      open: (d) => `🐀 ${d.hostName || "Someone"}'s pasture is open! · ${d.playerCount || 1}/${d.maxPlayers || 2} farmers`,
+      started: (d) => `🐀 ${d.hostName || "Someone"} is surviving the stampede!`
+    },
     farmlife: {
       open: (d) => `🌱 ${d.hostName || "Someone"} is on the farm! · ${d.playerCount || 1} farming`,
       started: (d) => `🌱 ${d.hostName || "Someone"} is on the farm! · ${d.playerCount || 1} farming`,

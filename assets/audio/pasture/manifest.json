@@ -222,5 +222,69 @@
     "prompt": "light bouncy upbeat farm survival adventure theme, playful banjo and pizzicato strings, energetic but friendly, driving rhythm for a wave-survival kids' game, seamless loop, instrumental",
     "bytes": 1201259,
     "api": "POST /v1/music (music_v1, force_instrumental=true, music_length_ms=75000)"
+  },
+  {
+    "file": "pp-sfx-egg-splat.mp3",
+    "kind": "sfx",
+    "target": "~0.7s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, a cartoon egg cracking and a wet gloopy splat, playful, bright",
+    "bytes": 12164,
+    "api": "POST /v1/sound-generation (duration_seconds=0.7, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-chicken-peck.mp3",
+    "kind": "sfx",
+    "target": "~0.6s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, a quick flurry of cartoon chicken clucks and a snappy peck, silly barnyard hen",
+    "bytes": 10493,
+    "api": "POST /v1/sound-generation (duration_seconds=0.6, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-milk-splash.mp3",
+    "kind": "sfx",
+    "target": "~0.8s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, a cartoon milk jug splash with a soft glug, wet and bouncy, playful",
+    "bytes": 13836,
+    "api": "POST /v1/sound-generation (duration_seconds=0.8, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-hay-roll.mp3",
+    "kind": "sfx",
+    "target": "~0.8s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, a soft rolling straw whoosh, a round hay bale rumbling across grass, gentle",
+    "bytes": 13836,
+    "api": "POST /v1/sound-generation (duration_seconds=0.8, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-whistle.mp3",
+    "kind": "sfx",
+    "target": "~0.6s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, a cheerful farmer's shepherd whistle knockback pulse, bright and quick",
+    "bytes": 12164,
+    "api": "POST /v1/sound-generation (duration_seconds=0.6, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-ram-dash.mp3",
+    "kind": "sfx",
+    "target": "~0.4s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, a quick goat ram dash whoosh with a soft thud, punchy and playful",
+    "bytes": 8821,
+    "api": "POST /v1/sound-generation (duration_seconds=0.4, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-herd-bark.mp3",
+    "kind": "sfx",
+    "target": "~0.4s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, a cheerful collie herding bark that pulls a ring of xp orbs in, bright",
+    "bytes": 8821,
+    "api": "POST /v1/sound-generation (duration_seconds=0.4, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-sfx-dread.mp3",
+    "kind": "sfx",
+    "target": "~0.8s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, a gentle spooky-cute whoosh that makes varmints scurry away, playful not scary",
+    "bytes": 13836,
+    "api": "POST /v1/sound-generation (duration_seconds=0.8, prompt_influence=0.7)"
   }
 ]

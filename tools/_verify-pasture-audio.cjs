@@ -11,7 +11,7 @@
  *     call returns false and every sfxPlays counter stays 0. Game must still boot, start
  *     a run, and take core gameplay actions (fire weapons, kill enemies, collect pickups,
  *     level up, take damage, game over) with 0 pageerrors.
- *  2) SAMPLES — served normally. All 28 files decode, gesture-unlock starts menu music,
+ *  2) SAMPLES — served normally. All 36 files decode, gesture-unlock starts menu music,
  *     starting a run crossfades to play music, every gameplay beat's sfxPlays counter
  *     ticks, returning to the title screen crossfades back to menu music, and the
  *     🔊 mute / 🎵 music toggle buttons both work and persist.
@@ -94,7 +94,7 @@ async function runPass(browser, { blockAudio, label }) {
     check("audio ctx exists", a0.ctxState === "running" || a0.ctxState === "suspended", a0.ctxState);
     check("unmuted masterGain 1", a0.masterGainV === 1, a0.masterGainV);
     check("gesture registered", a0.gestured === true, a0.gestured);
-    check("buffersTotal is 28", a0.buffersTotal === 28, a0.buffersTotal);
+    check("buffersTotal is 36", a0.buffersTotal === 36, a0.buffersTotal);
     if (blockAudio) {
       check("no buffers loaded (blocked)", a0.buffersLoaded === 0, a0.buffersLoaded);
     } else {
