@@ -27,29 +27,44 @@ import type { WorldData } from "./world/worldData";
 import { installDebug, type PlayerState, type CamState } from "./debug";
 import { buildHud, type InventoryData } from "./ui/hud";
 import { buildTunePanel2d } from "./ui/tunePanel2d";
-import { drawFarmMap, invalidateFarmMapBackground, type FarmMapSnapshot, type MapTileCell } from "./ui/farmMap";
+import { drawFarmMap, invalidateFarmMapBackground, type FarmMapSnapshot, type MapPlantDot } from "./ui/farmMap";
 import { now as flNow, setTimeOffset, addTimeOffset } from "./farm/time";
-import { LocalFarmStore, defaultFarmState, sanitizeFarmState, type FarmState, type FarmStore, type TileRecord } from "./farm/store";
-import { tileKey, parseTileKey, tileCenter, worldToTile, GRID, TILE_SIZE } from "./farm/grid";
+import { LocalFarmStore, defaultFarmState, sanitizeFarmState, type FarmState, type FarmStore } from "./farm/store";
 import { CROPS, CROP_ORDER, type CropId, plantTile, waterTile, growthStage, needsWater, effectiveCrop, setFastGrow } from "./farm/growth";
+import {
+  newPlantId,
+  newPatchId,
+  spacingOk,
+  isTilledAt,
+  patchCoverageAt,
+  nearestPatch,
+  tillableAt,
+  growthTileOf,
+  BUILDINGS,
+  PATCH_RADIUS,
+  PATCH_GROW_STEP,
+  PATCH_MAX_R,
+  PLANT_CAP,
+  PATCH_CAP,
+  SPLASH_RADIUS,
+  type Plant,
+  type TilledPatch,
+} from "./farm/plots";
 import { FarmlifeSession } from "./net/session";
 import { Presence } from "./net/presence";
 import { FarmLobby } from "./net/lobby";
 import { EMOTE_ORDER, EMOTES, type EmoteKind } from "./player/emoteConst";
 import { CloudFarmStore, CloudAnimalStore, type LiveFarmStore, type LiveAnimalStore } from "./farm/cloudStore";
 import { CloudWorldStore } from "./world/cloudWorldStore";
-import { diffTiles } from "./net/sync";
+import { diffPlants, diffPatches } from "./net/sync";
 import { isEmptyWorldData } from "./world/worldData";
-import { findTargetTile, computeTileState } from "./farm/targeting";
 import {
-  resolveAction,
   tankConsume,
   tankRefill,
   TOOL_ORDER,
   TOOL_META,
   type ToolId,
   type Verb,
-  type ActionResolution,
 } from "./farm/action";
 import { shirtTint } from "./net/presenceUtil";
 import { LocalAnimalStore, LocalDecorStore, LocalMetaStore, LocalBarnStore, type AnimalStore, type DecorStore, type MetaStore, type BarnStore, type BarnData } from "./farm/store";
@@ -145,6 +160,9 @@ for (const runs of [world2d.fieldFence, world2d.pastureFence]) {
 
 // ---- farming field ----------------------------------------------------------
 const field = new Field2D();
+// bumped on ANY tilled-patch change (local or remote) → Field2D re-bakes the
+// organic soil-blob layer (it's dynamic, so it can't ride the static map).
+let patchVersion = 0;
 let farmStore: FarmStore = new LocalFarmStore();
 let farmState: FarmState = defaultFarmState();
 const hud = buildHud();
@@ -374,13 +392,26 @@ function applyRemoteBarn(data: BarnData): void {
   }
 }
 function applyRemoteFarm(remote: FarmState): void {
-  const changed = diffTiles(farmState.tiles, remote.tiles);
-  for (const key of changed) {
-    const p = parseTileKey(key);
-    if (!p) continue;
-    farmState.tiles[key] = remote.tiles[key];
-    const { x, z } = tileCenter(p.gx, p.gz);
-    field.spawnPop(x, 0, z, "✨");
+  // free-form plants: a family member planting/watering/harvesting shows a ✨ pop
+  for (const id of diffPlants(farmState.plants, remote.plants)) {
+    const next = remote.plants[id];
+    if (next) {
+      farmState.plants[id] = next;
+      field.spawnPop(next.x, 0, next.z, "✨");
+    } else {
+      const old = farmState.plants[id];
+      delete farmState.plants[id];
+      if (old) field.spawnPop(old.x, 0, old.z, "✨");
+    }
+  }
+  // tilled patches (re-bake the soil layer only if any changed)
+  const patchIds = diffPatches(farmState.patches, remote.patches);
+  if (patchIds.length) {
+    for (const id of patchIds) {
+      if (remote.patches[id]) farmState.patches[id] = remote.patches[id];
+      else delete farmState.patches[id];
+    }
+    patchVersion++;
   }
   let playerChanged = false;
   for (const id of CROP_ORDER) if (farmState.seeds[id] !== remote.seeds[id] || farmState.crops[id] !== remote.crops[id]) playerChanged = true;
@@ -439,7 +470,9 @@ async function initCloud(): Promise<void> {
     await cloud.migrateFromLocal(localSeed);
     const remoteFarm = await cloud.load();
     if (remoteFarm) {
-      farmState.tiles = remoteFarm.tiles;
+      farmState.plants = remoteFarm.plants;
+      farmState.patches = remoteFarm.patches;
+      patchVersion++;
       farmState.seeds = remoteFarm.seeds;
       farmState.crops = remoteFarm.crops;
       farmState.produce = remoteFarm.produce;
@@ -452,6 +485,10 @@ async function initCloud(): Promise<void> {
       farmStore = cloud;
       cloudFarm = cloud;
       cloud.subscribe((remote) => applyRemoteFarm(remote));
+      // one-time conversion of PRE-EXISTING cloud legacy `t_` tiles → free-form
+      // plants/patches (idempotent + marker-guarded; the live state already shows
+      // them via buildFarmStateFromDocs's in-memory conversion).
+      await cloud.migrateTiles();
     }
     const remoteWorld = await cloudWorld.load();
     if (!isEmptyWorldData(remoteWorld)) reconcileWorld(remoteWorld);
@@ -553,12 +590,25 @@ hud.onCloseBook(() => hud.hideFarmBook());
 hud.onRotate(() => rotatePlacement());
 hud.onCancelPlace(() => cancelPlacement());
 
-// ---- targeting + action -----------------------------------------------------
+// ---- targeting + action (FREE-FORM, R5) -------------------------------------
+// The 12×12 grid is gone: interactions are POINT-targeted. `pending` describes
+// what pressing action does at the aimed spot (till/plant here, water/harvest the
+// nearest matching plant) plus the non-farming targets (bin/animal/egg/door/…).
 interface Pending {
-  type: "tile" | "sell" | "refill" | "animal" | "removeDecor" | "door" | "egg" | "enter";
-  gx?: number;
-  gz?: number;
-  res?: ActionResolution;
+  type:
+    | "till"
+    | "plant"
+    | "plantHint" // can't-plant-here nudge (untilled / no seeds / too close)
+    | "waterPlant"
+    | "harvestPlant"
+    | "sell"
+    | "refill"
+    | "animal"
+    | "removeDecor"
+    | "door"
+    | "egg"
+    | "enter";
+  plantId?: string;
   animalId?: string;
   animalAction?: AnimalInteraction;
   decorId?: string;
@@ -568,17 +618,21 @@ interface Pending {
   color: string;
   worldX: number;
   worldZ: number;
+  invalid?: boolean; // red "too close" ghost marker
 }
 let pending: Pending | null = null;
 
 const ACT_REACH = 2.2;
 const STAND_DIST = 1.5;
+const AIM_DIST = 1.2; // how far in front the aimed spot sits (within reach)
+const PLANT_AIM_R = 1.1; // a water/harvest target plant must be this near the aim
+const TILL_MERGE_R = PATCH_RADIUS * 0.8; // re-hoe within this of a patch centre → extend it
 const AUTOWALK_ARRIVE = 0.22;
 const AUTOWALK_TIMEOUT_MS = 6000;
 const AUTOWALK_STUCK_MS = 650;
 interface AutoWalk {
-  gx: number;
-  gz: number;
+  tx: number; // action point (world)
+  tz: number;
   standX: number;
   standZ: number;
   startedAt: number;
@@ -590,8 +644,29 @@ function cancelAutoWalk(): void {
   autoWalk = null;
 }
 
-function tileRec(gx: number, gz: number): TileRecord | undefined {
-  return farmState.tiles[tileKey(gx, gz)];
+/** The point in front of the player the tools act on. */
+function aimAt(px: number, pz: number, heading: number): { x: number; z: number } {
+  return { x: px + Math.sin(heading) * AIM_DIST, z: pz + Math.cos(heading) * AIM_DIST };
+}
+function needsWaterPlant(p: Plant): boolean {
+  return needsWater(growthTileOf(p), effectiveCrop(CROPS[p.crop]), flNow());
+}
+function isReadyPlant(p: Plant): boolean {
+  return growthStage(growthTileOf(p), effectiveCrop(CROPS[p.crop]), flNow()) === "ready";
+}
+/** Nearest plant to (ax,az) within `maxDist` matching `pred` (null if none). */
+function nearestPlantTo(ax: number, az: number, maxDist: number, pred: (p: Plant) => boolean): Plant | null {
+  let best: Plant | null = null;
+  let bestD = maxDist;
+  for (const p of Object.values(farmState.plants)) {
+    if (!pred(p)) continue;
+    const d = Math.hypot(p.x - ax, p.z - az);
+    if (d < bestD) {
+      bestD = d;
+      best = p;
+    }
+  }
+  return best;
 }
 
 const VERB_COLOR: Record<Verb, string> = { till: "#c9a15f", plant: "#7fbf5a", water: "#5ab0e0", harvest: "#ffd35a" };
@@ -631,35 +706,59 @@ function nearestEgg(px: number, pz: number, heading: number): EggRecord | null {
   }
   return best;
 }
-function labelWithDroplet(text: string): string {
-  if (farmState.selectedTool === "can" && text) return `${text} · 💧${farmState.tank}`;
-  return text;
-}
 function distTo(px: number, pz: number, s: { x: number; z: number }): number {
   return Math.hypot(px - s.x, pz - s.z);
+}
+
+/** Resolve the equipped tool's free-form action at an aimed world point → a
+ * Pending (label + marker + verb/plant target), or null when there's nothing to
+ * do. Shared by updateTargeting (display) and doToolAt (click/walk-then-act). */
+function resolveFieldAim(aimX: number, aimZ: number): Pending | null {
+  const tool = farmState.selectedTool;
+  if (tool === "hoe") {
+    if (!tillableAt(aimX, aimZ)) return null;
+    return { type: "till", label: "Till", color: VERB_COLOR.till, worldX: aimX, worldZ: aimZ };
+  }
+  if (tool === "seeds") {
+    const crop = farmState.selectedCrop;
+    if (!isTilledAt(farmState.patches, aimX, aimZ)) {
+      // on tillable grass → a gentle nudge to hoe first; off-limits → nothing
+      return tillableAt(aimX, aimZ)
+        ? { type: "plantHint", label: "Till the ground first! 🌱", color: HINT_COLOR, worldX: aimX, worldZ: aimZ }
+        : null;
+    }
+    if (farmState.seeds[crop] <= 0) return { type: "plantHint", label: `No ${CROPS[crop].name} seeds`, color: HINT_COLOR, worldX: aimX, worldZ: aimZ };
+    if (!spacingOk(farmState.plants, aimX, aimZ)) return { type: "plantHint", label: "Too close — give it room 🌱", color: "#d64545", worldX: aimX, worldZ: aimZ, invalid: true };
+    return { type: "plant", label: `Plant ${CROPS[crop].name}`, color: VERB_COLOR.plant, worldX: aimX, worldZ: aimZ };
+  }
+  if (tool === "can") {
+    const pl = nearestPlantTo(aimX, aimZ, PLANT_AIM_R, needsWaterPlant);
+    if (!pl) return null;
+    if (farmState.tank <= 0) return { type: "plantHint", label: "Can empty — refill at the pond 💧", color: HINT_COLOR, worldX: pl.x, worldZ: pl.z };
+    return { type: "waterPlant", plantId: pl.id, label: `Water 🚿 · 💧${farmState.tank}`, color: VERB_COLOR.water, worldX: pl.x, worldZ: pl.z };
+  }
+  // hands → harvest the nearest ready plant near the aim
+  const pl = nearestPlantTo(aimX, aimZ, PLANT_AIM_R, isReadyPlant);
+  if (pl) return { type: "harvestPlant", plantId: pl.id, label: `Harvest ${CROPS[pl.crop].emoji}!`, color: VERB_COLOR.harvest, worldX: pl.x, worldZ: pl.z };
+  return null;
+}
+
+/** Set `pending` + the ground marker from a resolved field plan (or clear). */
+function applyFieldPlan(plan: Pending | null): void {
+  pending = plan;
+  if (plan) field.setGroundMarker(plan.worldX, plan.worldZ, parseInt(plan.color.slice(1), 16), !plan.invalid);
+  else field.setGroundMarker(null, null, 0);
 }
 
 function updateTargeting(px: number, pz: number, heading: number): void {
   if (placing) {
     // placement mode owns the on-screen prompt; suppress tile/station targeting
-    field.setHighlightTile(null, null, 0);
+    field.setGroundMarker(null, null, 0);
     pending = null;
     return;
   }
   if (autoWalk) {
-    const { gx, gz } = autoWalk;
-    const rec = tileRec(gx, gz);
-    const state = computeTileState(rec, flNow());
-    const res = resolveAction(state, farmState.selectedTool, "tool", {
-      selectedCrop: farmState.selectedCrop,
-      seedCount: farmState.seeds[farmState.selectedCrop],
-      tank: farmState.tank,
-      tileCrop: rec?.crop,
-    });
-    const { x, z } = tileCenter(gx, gz);
-    const color = res.verb ? VERB_COLOR[res.verb] : res.hint ? HINT_COLOR : "#9a9a9a";
-    field.setHighlightTile(gx, gz, parseInt(color.slice(1), 16));
-    pending = res.label ? { type: "tile", gx, gz, res, label: labelWithDroplet(res.label), color, worldX: x, worldZ: z } : null;
+    applyFieldPlan(resolveFieldAim(autoWalk.tx, autoWalk.tz));
     return;
   }
 
@@ -670,7 +769,7 @@ function updateTargeting(px: number, pz: number, heading: number): void {
       const toDoorZ = doorAnchor.z - pz;
       const facingBarn = Math.cos(heading) * Math.sign(toDoorZ || 1) > -0.3 || dDoor < 1.6;
       if (facingBarn) {
-        field.setHighlightTile(null, null, 0);
+        field.setGroundMarker(null, null, 0);
         pending = {
           type: "door",
           label: doorIsOpen() ? "Close the barn door 🚪" : "Open the barn door 🚪",
@@ -687,7 +786,7 @@ function updateTargeting(px: number, pz: number, heading: number): void {
   {
     const d = doorAt(px, pz, heading);
     if (d) {
-      field.setHighlightTile(null, null, 0);
+      field.setGroundMarker(null, null, 0);
       pending = { type: "enter", doorId: d.interiorId, label: `⏎ ${d.label}`, color: DOOR_COLOR, worldX: d.x, worldZ: d.z - 0.6 };
       return;
     }
@@ -696,7 +795,7 @@ function updateTargeting(px: number, pz: number, heading: number): void {
   if (farmState.selectedTool === "hands") {
     const egg = nearestEgg(px, pz, heading);
     if (egg) {
-      field.setHighlightTile(null, null, 0);
+      field.setGroundMarker(null, null, 0);
       pending = { type: "egg", eggId: egg.id, label: "Collect egg 🥚", color: EGG_COLOR, worldX: egg.x, worldZ: egg.z };
       return;
     }
@@ -706,7 +805,7 @@ function updateTargeting(px: number, pz: number, heading: number): void {
       if (a) {
         const def = ANIMAL_DEFS[a.type];
         const action = resolveAnimalAction(a, def, flNow());
-        field.setHighlightTile(null, null, 0);
+        field.setGroundMarker(null, null, 0);
         pending = {
           type: "animal",
           animalId: actor.id,
@@ -723,7 +822,7 @@ function updateTargeting(px: number, pz: number, heading: number): void {
     if (!nearStore) {
       const dec = decorField.nearestFacing(px, pz, heading, DECOR_REACH, DECOR_ANGLE);
       if (dec) {
-        field.setHighlightTile(null, null, 0);
+        field.setGroundMarker(null, null, 0);
         const armed = !!(removeArmed && removeArmed.id === dec.id && performance.now() < removeArmed.until);
         const label = DECOR[dec.type]?.label ?? "decoration";
         pending = {
@@ -751,7 +850,7 @@ function updateTargeting(px: number, pz: number, heading: number): void {
   if (farmState.selectedTool === "can") {
     const dPond = Math.hypot(px - world2d.pond.cx, pz - world2d.pond.cz);
     if (dPond <= world2d.pond.r + 3.0) {
-      field.setHighlightTile(null, null, 0);
+      field.setGroundMarker(null, null, 0);
       pending = farmState.tank < tankCap()
         ? { type: "refill", label: `Refill 🚿 (💧${farmState.tank}/${tankCap()})`, color: REFILL_COLOR, worldX: px, worldZ: pz }
         : null;
@@ -762,30 +861,14 @@ function updateTargeting(px: number, pz: number, heading: number): void {
   // shipping bin (sell)
   const heldCrops = CROP_ORDER.reduce((s, id) => s + farmState.crops[id], 0) + PRODUCE_ORDER.reduce((s, id) => s + farmState.produce[id], 0);
   if (distTo(px, pz, world2d.bin) <= world2d.bin.radius) {
-    field.setHighlightTile(null, null, 0);
+    field.setGroundMarker(null, null, 0);
     pending = heldCrops > 0 ? { type: "sell", label: `Sell all (${heldCrops}) 🪙`, color: SELL_COLOR, worldX: world2d.bin.x, worldZ: world2d.bin.z } : null;
     return;
   }
 
-  // field tile targeting
-  const target = findTargetTile(px, pz, heading);
-  if (!target) {
-    pending = null;
-    field.setHighlightTile(null, null, 0);
-    return;
-  }
-  const rec = tileRec(target.gx, target.gz);
-  const state = computeTileState(rec, flNow());
-  const res = resolveAction(state, farmState.selectedTool, "tool", {
-    selectedCrop: farmState.selectedCrop,
-    seedCount: farmState.seeds[farmState.selectedCrop],
-    tank: farmState.tank,
-    tileCrop: rec?.crop,
-  });
-  const { x, z } = tileCenter(target.gx, target.gz);
-  const color = res.verb ? VERB_COLOR[res.verb] : res.hint ? HINT_COLOR : "#9a9a9a";
-  field.setHighlightTile(target.gx, target.gz, parseInt(color.slice(1), 16));
-  pending = res.label ? { type: "tile", gx: target.gx, gz: target.gz, res, label: labelWithDroplet(res.label), color, worldX: x, worldZ: z } : null;
+  // FREE-FORM field target at the point in front of the player (hoe/seeds/can/hands)
+  const aim = aimAt(px, pz, heading);
+  applyFieldPlan(resolveFieldAim(aim.x, aim.z));
 }
 
 let lastHintAt = 0;
@@ -893,13 +976,29 @@ function doAction(): void {
     beBusy();
     return;
   }
-  const res = pending.res!;
-  if (res.hint) {
-    fireHint(res.label);
-    return;
+  // free-form field actions (till / plant / water / harvest / can't-plant nudge)
+  executeField(pending);
+}
+
+/** Run a resolved field plan (from resolveFieldAim). */
+function executeField(plan: Pending): void {
+  switch (plan.type) {
+    case "till":
+      doTill(plan.worldX, plan.worldZ);
+      break;
+    case "plant":
+      doPlant(plan.worldX, plan.worldZ);
+      break;
+    case "plantHint":
+      fireHint(plan.label);
+      break;
+    case "waterPlant":
+      if (plan.plantId) doWaterPlant(plan.plantId, plan.worldX, plan.worldZ);
+      break;
+    case "harvestPlant":
+      if (plan.plantId) doHarvestPlant(plan.plantId, plan.worldX, plan.worldZ);
+      break;
   }
-  if (!res.verb || pending.gx == null || pending.gz == null) return;
-  executeVerb(res.verb, pending.gx, pending.gz, res.cropId);
 }
 
 function doAnimalAction(id: string, action: AnimalInteraction, wx: number, wz: number): void {
@@ -932,97 +1031,129 @@ function doAnimalAction(id: string, action: AnimalInteraction, wx: number, wz: n
 }
 
 let lastHarvestCrop: CropId | null = null; // test hook
-function executeVerb(verb: Verb, gx: number, gz: number, cropId?: CropId): void {
-  const now = flNow();
-  const key = tileKey(gx, gz);
-  const { x, z } = tileCenter(gx, gz);
-  beBusy();
-  if (verb === "till") {
-    farmState.tiles[key] = {};
-    audio.hoe();
-    farmer.playAction("hoe");
-    presence.emitAnim("hoe", localPose());
-    field.spawnBurst(x, 0, z, 0x6b4a2c, 12, 1);
-  } else if (verb === "plant" && cropId) {
-    if (farmState.seeds[cropId] <= 0) return;
-    farmState.seeds[cropId] -= 1;
-    farmState.tiles[key] = { crop: cropId, ...plantTile(now) };
-    audio.plant();
-    farmer.playAction("plant");
-    presence.emitAnim("plant", localPose());
-    field.spawnBurst(x, 0, z, 0x6b8f3a, 8, 0.7);
-    refreshToolHud();
-  } else if (verb === "water") {
-    const rec = tileRec(gx, gz);
-    if (!rec || !rec.crop) return;
-    const crop = effectiveCrop(CROPS[rec.crop]);
-    const gt = waterTile({ plantedAt: rec.plantedAt ?? 0, accruedMs: rec.accruedMs ?? 0, lastWatered: rec.lastWatered ?? rec.plantedAt ?? 0 }, crop, now);
-    farmState.tiles[key] = { crop: rec.crop, ...gt };
-    farmState.tank = tankConsume(farmState.tank);
-    audio.water();
-    farmer.playAction("water");
-    presence.emitAnim("water", localPose());
-    field.spawnBurst(x, 0, z, 0x5ab0e0, 10, 0.5);
-    field.spawnPop(x, 0, z, "💧");
-    refreshToolHud();
-  } else if (verb === "harvest") {
-    const rec = tileRec(gx, gz);
-    if (!rec || !rec.crop) return;
-    const crop = CROPS[rec.crop];
-    farmState.crops[rec.crop] += 1;
-    lastHarvestCrop = rec.crop;
-    farmer.playAction("harvest", Sprites.crop(rec.crop, 3)); // hold-up beat with the crop
-    beBusy(660); // let the signature hold-up play out
-    farmState.tiles[key] = {};
-    audio.harvest();
-    presence.emitAnim("harvest", localPose());
-    hud.toast(`${crop.emoji} +1 ${crop.name} harvested!`);
-    field.spawnPop(x, 0, z, crop.emoji);
-    refreshToolHud();
-    recordMilestoneEvent({ harvestedEvent: true });
+
+// ---- free-form executors (mutation + FX + persist) --------------------------
+/** Dig / extend a tilled patch at (x,z). Re-hoeing on an existing patch grows it
+ * (organic blob); an empty spot drops a fresh circle. */
+function doTill(x: number, z: number): void {
+  if (!tillableAt(x, z)) {
+    fireHint("Can't till there — find open grass! 🌱");
+    return;
   }
+  const near = nearestPatch(farmState.patches, x, z, TILL_MERGE_R);
+  if (near) {
+    if (near.r < PATCH_MAX_R) farmState.patches[near.id] = { ...near, r: Math.min(PATCH_MAX_R, near.r + PATCH_GROW_STEP) };
+  } else {
+    if (Object.keys(farmState.patches).length >= PATCH_CAP) {
+      fireHint("That's a LOT of tilled ground! 🌱");
+      return;
+    }
+    const id = newPatchId();
+    farmState.patches[id] = { id, x, z, r: PATCH_RADIUS };
+  }
+  patchVersion++;
+  beBusy();
+  audio.hoe();
+  farmer.playAction("hoe");
+  presence.emitAnim("hoe", localPose());
+  field.spawnBurst(x, 0, z, 0x6b4a2c, 12, 1);
+  persistFarm();
+}
+/** Plant the selected crop at (x,z) — gates: tilled ground, seeds, spacing, cap. */
+function doPlant(x: number, z: number): void {
+  const crop = farmState.selectedCrop;
+  if (!isTilledAt(farmState.patches, x, z)) return;
+  if (farmState.seeds[crop] <= 0) return;
+  if (!spacingOk(farmState.plants, x, z)) {
+    fireHint("Too close — give it room 🌱");
+    return;
+  }
+  if (Object.keys(farmState.plants).length >= PLANT_CAP) {
+    fireHint("So many plants! Harvest a few first 🌱");
+    return;
+  }
+  farmState.seeds[crop] -= 1;
+  const id = newPlantId();
+  const gt = plantTile(flNow());
+  farmState.plants[id] = { id, x, z, crop, plantedAt: gt.plantedAt, accruedMs: gt.accruedMs, lastWatered: gt.lastWatered, waterings: 0 };
+  beBusy();
+  audio.plant();
+  farmer.playAction("plant");
+  presence.emitAnim("plant", localPose());
+  field.spawnBurst(x, 0, z, 0x6b8f3a, 8, 0.7);
+  refreshToolHud();
+  persistFarm();
+}
+/** Water the plant `plantId`; the splash also credits any plant within
+ * SPLASH_RADIUS (watering a cluster is pleasant). Consumes one tank unit. */
+function doWaterPlant(plantId: string, wx: number, wz: number): void {
+  const p = farmState.plants[plantId];
+  if (!p) return;
+  const now = flNow();
+  const waterOne = (pl: Plant): void => {
+    const gt = waterTile(growthTileOf(pl), effectiveCrop(CROPS[pl.crop]), now);
+    farmState.plants[pl.id] = { ...pl, accruedMs: gt.accruedMs, lastWatered: gt.lastWatered, waterings: pl.waterings + 1 };
+  };
+  waterOne(p);
+  for (const other of Object.values(farmState.plants)) {
+    if (other.id === p.id) continue;
+    if (Math.hypot(other.x - p.x, other.z - p.z) <= SPLASH_RADIUS) waterOne(other);
+  }
+  farmState.tank = tankConsume(farmState.tank);
+  beBusy();
+  audio.water();
+  farmer.playAction("water");
+  presence.emitAnim("water", localPose());
+  field.spawnBurst(wx, 0, wz, 0x5ab0e0, 10, 0.5);
+  field.spawnPop(wx, 0, wz, "💧");
+  refreshToolHud();
+  persistFarm();
+}
+/** Harvest the ready plant `plantId` (the hold-up beat is unchanged). */
+function doHarvestPlant(plantId: string, wx: number, wz: number): void {
+  const p = farmState.plants[plantId];
+  if (!p) return;
+  const crop = CROPS[p.crop];
+  farmState.crops[p.crop] += 1;
+  lastHarvestCrop = p.crop;
+  farmer.playAction("harvest", Sprites.crop(p.crop, 3)); // hold-up beat with the crop
+  beBusy(660);
+  delete farmState.plants[plantId];
+  audio.harvest();
+  presence.emitAnim("harvest", localPose());
+  hud.toast(`${crop.emoji} +1 ${crop.name} harvested!`);
+  field.spawnPop(wx, 0, wz, crop.emoji);
+  refreshToolHud();
+  recordMilestoneEvent({ harvestedEvent: true });
   persistFarm();
 }
 
-function actOnTile(gx: number, gz: number): void {
+/** Face + act with the equipped tool at an aimed world point (click / walk-then-act). */
+function doToolAt(aimX: number, aimZ: number): void {
   if (isBusy()) return;
-  const rec = tileRec(gx, gz);
-  const state = computeTileState(rec, flNow());
-  const res = resolveAction(state, farmState.selectedTool, "tool", {
-    selectedCrop: farmState.selectedCrop,
-    seedCount: farmState.seeds[farmState.selectedCrop],
-    tank: farmState.tank,
-    tileCrop: rec?.crop,
-  });
-  const c = tileCenter(gx, gz);
-  heading = Math.atan2(c.x - playerX, c.z - playerZ);
+  heading = Math.atan2(aimX - playerX, aimZ - playerZ);
   facing = facingFromHeading(heading, true, facing);
-  if (res.hint) {
-    fireHint(res.label);
-    return;
-  }
-  if (!res.verb) return;
-  executeVerb(res.verb, gx, gz, res.cropId);
+  const plan = resolveFieldAim(aimX, aimZ);
+  if (plan) executeField(plan);
 }
-function requestTileAction(gx: number, gz: number): void {
+/** Click / tap a world point → act now if in reach, else walk to a stand point then act. */
+function requestActionAt(wx: number, wz: number): void {
   cancelAutoWalk();
-  if (gx < 0 || gx >= GRID || gz < 0 || gz >= GRID) return;
-  const c = tileCenter(gx, gz);
-  const dist = Math.hypot(c.x - playerX, c.z - playerZ);
+  const dist = Math.hypot(wx - playerX, wz - playerZ);
   if (dist <= ACT_REACH) {
-    actOnTile(gx, gz);
+    doToolAt(wx, wz);
     return;
   }
-  const dx = playerX - c.x;
-  const dz = playerZ - c.z;
+  const dx = playerX - wx;
+  const dz = playerZ - wz;
   const d = Math.hypot(dx, dz) || 1;
-  let sx = c.x + (dx / d) * STAND_DIST;
-  let sz = c.z + (dz / d) * STAND_DIST;
+  let sx = wx + (dx / d) * STAND_DIST;
+  let sz = wz + (dz / d) * STAND_DIST;
   const rc = resolveCollision(sx, sz);
   sx = rc.x;
   sz = rc.z;
   const now = performance.now();
-  autoWalk = { gx, gz, standX: sx, standZ: sz, startedAt: now, lastProgressAt: now, lastDist: Infinity };
+  autoWalk = { tx: wx, tz: wz, standX: sx, standZ: sz, startedAt: now, lastProgressAt: now, lastDist: Infinity };
 }
 function stepAutoWalk(dt: number): number {
   if (!autoWalk) return 0;
@@ -1032,12 +1163,11 @@ function stepAutoWalk(dt: number): number {
     return 0;
   }
   const dToStand = Math.hypot(autoWalk.standX - playerX, autoWalk.standZ - playerZ);
-  const c = tileCenter(autoWalk.gx, autoWalk.gz);
-  const dToTile = Math.hypot(c.x - playerX, c.z - playerZ);
-  if (dToStand <= AUTOWALK_ARRIVE || dToTile <= ACT_REACH - 0.1) {
-    const { gx, gz } = autoWalk;
+  const dToTarget = Math.hypot(autoWalk.tx - playerX, autoWalk.tz - playerZ);
+  if (dToStand <= AUTOWALK_ARRIVE || dToTarget <= ACT_REACH - 0.1) {
+    const { tx, tz } = autoWalk;
     autoWalk = null;
-    actOnTile(gx, gz);
+    doToolAt(tx, tz);
     return 0;
   }
   if (dToStand < autoWalk.lastDist - 0.02) {
@@ -1172,15 +1302,13 @@ hud.setMapLegend([
 ]);
 function buildMapSnapshot(): FarmMapSnapshot {
   const nowMs = flNow();
-  const tiles: MapTileCell[] = [];
-  for (const key of Object.keys(farmState.tiles)) {
-    const p = parseTileKey(key);
-    if (!p) continue;
-    const st = computeTileState(farmState.tiles[key], nowMs);
-    if (st === "untouched") continue;
-    const { x, z } = tileCenter(p.gx, p.gz);
-    tiles.push({ x, z, size: TILE_SIZE, state: st });
-  }
+  // free-form: plants render as dots (gold when ready), patches as soil blobs.
+  const plants: MapPlantDot[] = Object.values(farmState.plants).map((p) => ({
+    x: p.x,
+    z: p.z,
+    ready: growthStage(growthTileOf(p), effectiveCrop(CROPS[p.crop]), nowMs) === "ready",
+  }));
+  const patches = Object.values(farmState.patches).map((p) => ({ x: p.x, z: p.z, r: p.r }));
   const animals = STARTER_HERD.map((s) => {
     const a = animalField.actorAt(s.id);
     return a ? { x: a.x, z: a.z, emoji: ANIMAL_DEFS[s.type].emoji } : null;
@@ -1206,7 +1334,8 @@ function buildMapSnapshot(): FarmMapSnapshot {
       { x: world2d.house.x, z: world2d.house.z, emoji: "🏠" },
     ],
     doors: EXTERIOR_DOORS.map((d) => ({ x: d.mapX, z: d.mapZ, emoji: "🚪" })),
-    tiles,
+    plants,
+    patches,
     animals,
     players,
     pasture: { minX: PASTURE.minX, maxX: PASTURE.maxX, minZ: PASTURE.minZ, maxZ: PASTURE.maxZ },
@@ -1254,6 +1383,18 @@ let playerZ = 34;
 let heading = 0;
 let facing: Facing = "up";
 const farmer = new Farmer2D();
+/** If the (saved) spawn now sits inside a collider — e.g. the R5 solid-building
+ * footprints grew over an old position — resolveCollision nudges the player to the
+ * nearest open spot (one-time, silent). */
+function nudgeFromCollider(): void {
+  const r = resolveCollision(playerX, playerZ);
+  if (Math.hypot(r.x - playerX, r.z - playerZ) > 0.01) {
+    playerX = r.x;
+    playerZ = r.z;
+    renderer.snapCamera(playerX, playerZ);
+  }
+}
+nudgeFromCollider();
 renderer.snapCamera(playerX, playerZ);
 
 // hop (cosmetic jump)
@@ -1332,7 +1473,7 @@ function enterInterior(door: ExteriorDoor): void {
     facing = it.spawn.facing;
     curSpeed = 0;
     pending = null;
-    field.setHighlightTile(null, null, 0);
+    field.setGroundMarker(null, null, 0);
     hud.hideShop();
     hud.showActionLabel(null, 0, 0, "#fff");
     renderer.setCamClamp(it.view);
@@ -1389,10 +1530,18 @@ function worldTapAt(clientX: number, clientY: number): void {
     confirmPlacement();
     return;
   }
-  cancelAutoWalk();
   const w = renderer.clientToWorld(clientX, clientY);
-  const t = worldToTile(w.x, w.z);
-  if (t) requestTileAction(t.gx, t.gz);
+  const tool = farmState.selectedTool;
+  // hoe/seeds free-form: walk-then-till/plant at the exact clicked point.
+  if (tool === "hoe" || tool === "seeds") {
+    requestActionAt(w.x, w.z);
+    return;
+  }
+  // can/hands: act on a plant near the click, else fall to the proximity target
+  // (bin / animal / egg / door) via doAction.
+  const pred = tool === "can" ? needsWaterPlant : isReadyPlant;
+  const pl = nearestPlantTo(w.x, w.z, 1.4, pred);
+  if (pl) requestActionAt(pl.x, pl.z);
   else doAction();
 }
 
@@ -1505,13 +1654,11 @@ const weather = new WeatherStation((snap) => {
 weatherRef = weather;
 function autoWaterFromRain(nowMs: number): number {
   let count = 0;
-  for (const key of Object.keys(farmState.tiles)) {
-    const rec = farmState.tiles[key];
-    if (!rec.crop) continue;
-    const crop = effectiveCrop(CROPS[rec.crop]);
-    const gt = { plantedAt: rec.plantedAt ?? 0, accruedMs: rec.accruedMs ?? 0, lastWatered: rec.lastWatered ?? rec.plantedAt ?? 0 };
-    if (!needsWater(gt, crop, nowMs)) continue;
-    farmState.tiles[key] = { crop: rec.crop, ...waterTile(gt, crop, nowMs) };
+  for (const p of Object.values(farmState.plants)) {
+    const crop = effectiveCrop(CROPS[p.crop]);
+    if (!needsWater(growthTileOf(p), crop, nowMs)) continue;
+    const gt = waterTile(growthTileOf(p), crop, nowMs);
+    farmState.plants[p.id] = { ...p, accruedMs: gt.accruedMs, lastWatered: gt.lastWatered, waterings: p.waterings + 1 };
     count++;
   }
   if (count > 0) persistFarm();
@@ -1602,27 +1749,64 @@ flHook.avatar = {
   barnCutaway: () => barnCutaway,
   barnDoorFrac: () => barnDoorFrac,
 };
+// test helpers: directly seed a free-form plant / patch (bypass targeting)
+function hookAddPatch(x: number, z: number, r = PATCH_RADIUS): string {
+  const id = newPatchId();
+  farmState.patches[id] = { id, x, z, r };
+  patchVersion++;
+  return id;
+}
+function hookPlantFresh(x: number, z: number, crop: CropId): string {
+  hookAddPatch(x, z);
+  const id = newPlantId();
+  const gt = plantTile(flNow());
+  farmState.plants[id] = { id, x, z, crop, plantedAt: gt.plantedAt, accruedMs: gt.accruedMs, lastWatered: gt.lastWatered, waterings: 0 };
+  return id;
+}
+function hookPlantStage(x: number, z: number, crop: CropId, stage: 0 | 1 | 2 | 3): string {
+  hookAddPatch(x, z);
+  const now = flNow();
+  const c = CROPS[crop];
+  const frac = stage === 0 ? 0.15 : stage === 1 ? 0.5 : stage === 2 ? 0.85 : 1.1;
+  const id = newPlantId();
+  farmState.plants[id] = { id, x, z, crop, plantedAt: now, accruedMs: c.growMs * frac, lastWatered: now, waterings: 0 };
+  return id;
+}
+function plantNear(x: number, z: number, maxDist = 1.0): Plant | null {
+  return nearestPlantTo(x, z, maxDist, () => true);
+}
 flHook.farm = {
-  gridSize: GRID,
   state: () => JSON.parse(JSON.stringify(farmState)) as FarmState,
+  plants: () => JSON.parse(JSON.stringify(farmState.plants)) as Record<string, Plant>,
+  patches: () => JSON.parse(JSON.stringify(farmState.patches)) as Record<string, TilledPatch>,
+  plantCount: () => Object.keys(farmState.plants).length,
+  patchCount: () => Object.keys(farmState.patches).length,
+  patchVersion: () => patchVersion,
+  patchCoverageAt: (x: number, z: number) => patchCoverageAt(farmState.patches, x, z),
+  tillableAt: (x: number, z: number) => tillableAt(x, z),
   target: () => {
     if (!pending) return null;
-    if (pending.type === "sell") return { kind: "sell", label: pending.label };
-    if (pending.type === "refill") return { kind: "refill", label: pending.label };
-    if (pending.type === "animal") return { kind: "animal", label: pending.label };
-    if (pending.type === "removeDecor") return { kind: "removeDecor", label: pending.label };
-    if (pending.type === "door") return { kind: "door", label: pending.label };
-    if (pending.type === "egg") return { kind: "egg", label: pending.label };
-    if (pending.type === "enter") return { kind: "enter", label: pending.label, doorId: pending.doorId };
-    const res = pending.res!;
-    return { kind: res.verb ?? (res.hint ? "hint" : "growing"), verb: res.verb, hint: res.hint, gx: pending.gx, gz: pending.gz, cropId: res.cropId, label: res.label };
+    const kindMap: Record<Pending["type"], string> = {
+      till: "till",
+      plant: "plant",
+      plantHint: "hint",
+      waterPlant: "water",
+      harvestPlant: "harvest",
+      sell: "sell",
+      refill: "refill",
+      animal: "animal",
+      removeDecor: "removeDecor",
+      door: "door",
+      egg: "egg",
+      enter: "enter",
+    };
+    return { kind: kindMap[pending.type], type: pending.type, label: pending.label, plantId: pending.plantId, doorId: pending.doorId, invalid: !!pending.invalid, worldX: pending.worldX, worldZ: pending.worldZ };
   },
-  tileAt: (gx: number, gz: number) => {
-    const rec = farmState.tiles[tileKey(gx, gz)];
-    if (!rec) return { present: false };
-    if (!rec.crop) return { present: true, tilled: true, crop: null };
-    const gt = { plantedAt: rec.plantedAt ?? 0, accruedMs: rec.accruedMs ?? 0, lastWatered: rec.lastWatered ?? 0 };
-    return { present: true, tilled: true, crop: rec.crop, stage: growthStage(gt, effectiveCrop(CROPS[rec.crop]), flNow()), lastWatered: gt.lastWatered };
+  /** Nearest plant to (x,z) within maxDist + its live growth stage (test read). */
+  plantInfoAt: (x: number, z: number, maxDist = 1.0) => {
+    const p = plantNear(x, z, maxDist);
+    if (!p) return { present: false };
+    return { present: true, id: p.id, crop: p.crop, x: p.x, z: p.z, stage: growthStage(growthTileOf(p), effectiveCrop(CROPS[p.crop]), flNow()), waterings: p.waterings, lastWatered: p.lastWatered };
   },
   action: () => doAction(),
   equip: (id: ToolId) => equipTool(id),
@@ -1649,16 +1833,36 @@ flHook.farm = {
   },
   lastHarvest: () => lastHarvestCrop,
   coinArcCount: () => coinArcs.length,
-  plantStage: (gx: number, gz: number, crop: CropId, stage: 0 | 1 | 2 | 3) => {
-    const now = flNow();
-    const c = CROPS[crop];
-    const frac = stage === 0 ? 0.15 : stage === 1 ? 0.5 : stage === 2 ? 0.85 : 1.1;
-    farmState.tiles[tileKey(gx, gz)] = { crop, plantedAt: now, accruedMs: c.growMs * frac, lastWatered: now };
+  // free-form seed helpers (world coords)
+  plantStageAt: (x: number, z: number, crop: CropId, stage: 0 | 1 | 2 | 3) => hookPlantStage(x, z, crop, stage),
+  plantFreshAt: (x: number, z: number, crop: CropId) => hookPlantFresh(x, z, crop),
+  addPatch: (x: number, z: number, r?: number) => hookAddPatch(x, z, r),
+  clearFarm: () => {
+    farmState.plants = {};
+    farmState.patches = {};
+    patchVersion++;
   },
-  // fresh plant (accruedMs 0, moist as of now) — for fastGrow/thirsty timing tests
-  plantFresh: (gx: number, gz: number, crop: CropId) => {
-    farmState.tiles[tileKey(gx, gz)] = { crop, ...plantTile(flNow()) };
+  // free-form ACTIONS (bypass the walk — act at a point immediately)
+  tillAt: (x: number, z: number) => doTill(x, z),
+  plantAt: (x: number, z: number, crop?: CropId) => {
+    if (crop) farmState.selectedCrop = crop;
+    doPlant(x, z);
   },
+  waterAt: (x: number, z: number) => {
+    const p = nearestPlantTo(x, z, PLANT_AIM_R, needsWaterPlant) ?? plantNear(x, z, PLANT_AIM_R);
+    if (p) doWaterPlant(p.id, p.x, p.z);
+  },
+  harvestAt: (x: number, z: number) => {
+    const p = nearestPlantTo(x, z, PLANT_AIM_R, isReadyPlant);
+    if (p) doHarvestPlant(p.id, p.x, p.z);
+  },
+  doToolAt: (x: number, z: number) => doToolAt(x, z),
+  requestActionAt: (x: number, z: number) => requestActionAt(x, z),
+  nudgeFromCollider: () => nudgeFromCollider(),
+  // authoritative live position (no frame-sync lag, unlike window.__FL__.player)
+  pos: () => ({ x: playerX, z: playerZ }),
+  /** Where a footprint at (x,z) resolves against colliders (probe solid buildings). */
+  resolveAt: (x: number, z: number) => resolveCollision(x, z),
   teleport: (x: number, z: number) => {
     playerX = x;
     playerZ = z;
@@ -1678,15 +1882,20 @@ flHook.farm = {
   flushSave: () => farmStore.flush?.(),
   fastGrow: () => tune.fastGrow,
   setFastGrow: (on: boolean) => applyFastGrow(on),
-  rightClickTile: (gx: number, gz: number) => requestTileAction(gx, gz),
-  autoWalk: () => (autoWalk ? { gx: autoWalk.gx, gz: autoWalk.gz, standX: autoWalk.standX, standZ: autoWalk.standZ } : null),
+  autoWalk: () => (autoWalk ? { tx: autoWalk.tx, tz: autoWalk.tz, standX: autoWalk.standX, standZ: autoWalk.standZ } : null),
   cancelAutoWalk: () => cancelAutoWalk(),
-  tileScreen: (gx: number, gz: number) => {
-    const { x, z } = tileCenter(gx, gz);
+  /** Client px of a world point (for real canvas clicks). */
+  worldScreen: (x: number, z: number) => {
     const left = parseFloat(renderer.canvas.style.left || "0");
     const top = parseFloat(renderer.canvas.style.top || "0");
     return { sx: left + renderer.sx(x) * renderer.scale, sy: top + renderer.sy(z) * renderer.scale };
   },
+};
+flHook.render = {
+  // fade-behind occlusion introspection (viewer-local)
+  fade: (key: string) => spriteFade.get(key) ?? 1,
+  trees: () => world2d.trees.map((t, i) => ({ i, x: t.x, z: t.z, size: t.size })),
+  buildingBoxes: () => BUILDINGS.map((b) => ({ ...b })),
 };
 flHook.animals = {
   ids: () => STARTER_HERD.map((s) => s.id),
@@ -1906,22 +2115,65 @@ interface Sortable {
   z: number;
   draw: () => void;
 }
-function drawWorld(now: number): void {
+// ---- FADE-BEHIND occlusion (R5) --------------------------------------------
+// A tall sprite (tree / tall decor — NEVER a building) whose sort baseline is IN
+// FRONT of the LOCAL player (higher z / lower on screen) and whose rect overlaps
+// the player's rect fades to FADE_OCCLUDED so the player is never hidden. The
+// fade is VIEWER-LOCAL: each client's own player drives it (a remote player
+// behind a tree on their screen doesn't fade it on yours). Per-sprite lerp state.
+const spriteFade = new Map<string, number>();
+const FADE_OCCLUDED = 0.45;
+const FADE_LERP_S = 0.15;
+const DECOR_FADE_MIN_H = 16; // tall decor fades; flat ground pieces (bench/bed/path) don't
+interface FRect {
+  l: number;
+  t: number;
+  r: number;
+  b: number;
+}
+function rectsOverlap(a: FRect, b: FRect): boolean {
+  return a.l < b.r && a.r > b.l && a.t < b.b && a.b > b.t;
+}
+function fadeAlphaFor(key: string, sprite: { canvas: HTMLCanvasElement; ax: number; ay: number }, wx: number, wz: number, pr: FRect, dt: number): number {
+  let target = 1;
+  if (wz > playerZ + 0.05) {
+    const l = renderer.sx(wx) - sprite.ax;
+    const t = renderer.sy(wz) - sprite.ay;
+    if (rectsOverlap({ l, t, r: l + sprite.canvas.width, b: t + sprite.canvas.height }, pr)) target = FADE_OCCLUDED;
+  }
+  const cur = spriteFade.get(key) ?? 1;
+  const next = cur + (target - cur) * Math.min(1, dt / FADE_LERP_S);
+  spriteFade.set(key, next);
+  return next;
+}
+
+function drawWorld(now: number, dt: number): void {
   const tSec = now / 1000;
   renderer.clear();
   renderer.blitMap(world2d.staticMap);
   drawPondShimmer(tSec);
-  field.drawSoil(renderer, farmState, flNow());
-  field.drawHighlight(renderer);
+  field.drawPatches(renderer, farmState.patches, patchVersion); // organic tilled-soil blobs
+  field.drawDamp(renderer, farmState.plants, flNow()); // damp ring under watered plants
+  field.drawGroundMarker(renderer); // aimed-point target marker
 
   const items: Sortable[] = [];
   const view = renderer.viewBounds();
   const vis = (x: number, z: number, pad = 6) => x > view.minX - pad && x < view.maxX + pad && z > view.minZ - pad && z < view.maxZ + pad;
 
+  // local player screen rect (for the fade-behind test)
+  const psx = renderer.sx(playerX);
+  const psy = renderer.sy(playerZ) - hopY * PPM;
+  const playerRect: FRect = { l: psx - 8, t: psy - 34, r: psx + 8, b: psy + 3 };
+
   const night = skyAt(flNow()).windowGlow > 0.35;
-  // static props
-  for (const t of world2d.trees) if (vis(t.x, t.z, 8)) items.push({ z: t.z, draw: () => renderer.drawSprite(Sprites.tree(t.size), t.x, t.z) });
+  // static props — trees FADE when the local player stands behind them
+  world2d.trees.forEach((t, i) => {
+    if (!vis(t.x, t.z, 8)) return;
+    const sp = Sprites.tree(t.size);
+    items.push({ z: t.z, draw: () => renderer.drawSprite(sp, t.x, t.z, 0, fadeAlphaFor("tree" + i, sp, t.x, t.z, playerRect, dt)) });
+  });
   for (const r of world2d.rocks) if (vis(r.x, r.z)) items.push({ z: r.z, draw: () => renderer.drawSprite(Sprites.rock(r.size), r.x, r.z) });
+  // BUILDINGS never fade (solid — the player can't get behind them).
   items.push({ z: world2d.house.z, draw: () => renderer.drawSprite(Sprites.farmhouse(night), world2d.house.x, world2d.house.z) });
   // barn: interior floor+nests behind everything inside (early z), roof+walls+door
   // in front (late z; fades to reveal the interior when the player walks in).
@@ -1937,12 +2189,17 @@ function drawWorld(now: number): void {
   for (const p of fencePosts) if (vis(p.x, p.z)) items.push({ z: p.z, draw: () => renderer.drawSprite(Sprites.fencePost(), p.x, p.z) });
   // eggs
   for (const e of Object.values(eggs)) if (!e.collectedBy) items.push({ z: e.z, draw: () => renderer.drawSprite(Sprites.egg(), e.x, e.z) });
-  // crops
-  for (const c of field.cropItems(farmState, flNow())) items.push({ z: c.z, draw: () => renderer.drawSprite(c.sprite, c.x, c.z) });
+  // crops (free-form plants)
+  for (const c of field.plantItems(farmState.plants, flNow())) items.push({ z: c.z, draw: () => renderer.drawSprite(c.sprite, c.x, c.z) });
   // animals
   for (const a of animalField.actors) if (vis(a.x, a.z)) items.push({ z: a.z, draw: () => animalField.drawActor(renderer, a) });
-  // decor
-  decorField.forEach((z, draw) => items.push({ z, draw: () => draw(renderer) }));
+  // decor — tall pieces FADE like trees; flat ground pieces never do
+  for (const rec of decorField.list()) {
+    if (!vis(rec.x, rec.z, 6)) continue;
+    const sp = Sprites.decor(rec.type);
+    const tall = sp.canvas.height >= DECOR_FADE_MIN_H;
+    items.push({ z: rec.z, draw: () => decorField.drawOne(renderer, rec.type, rec.x, rec.z, rec.rotY, tall ? fadeAlphaFor("decor" + rec.id, sp, rec.x, rec.z, playerRect, dt) : 1) });
+  }
   // remotes
   remotePlayers.forEach((z, draw) => items.push({ z, draw: () => draw(renderer) }));
   // local player
@@ -1966,7 +2223,7 @@ function drawWorld(now: number): void {
   }
 
   // overlays (above props)
-  const readyItems = field.cropItems(farmState, flNow());
+  const readyItems = field.plantItems(farmState.plants, flNow());
   field.drawEffects(renderer, readyItems);
   animalField.drawZzz(renderer);
   remotePlayers.drawOverlay(renderer);
@@ -2367,7 +2624,7 @@ function frame(now: number): void {
   }
   tickWeather(nowMs);
 
-  drawWorld(now);
+  drawWorld(now, dt);
   drawFade();
   requestAnimationFrame(frame);
 }

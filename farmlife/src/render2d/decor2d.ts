@@ -79,6 +79,11 @@ export class Decor2D {
     }
   }
 
+  /** The placed decorations (for the y-sort + fade-behind pass in main). */
+  list(): DecorRecord[] {
+    return [...this.records.values()];
+  }
+
   /** Draw one decoration (baked body + animated overlay for pinwheel/flag). */
   drawOne(rr: Renderer2D, type: string, x: number, z: number, rotY: number, alpha: number): void {
     const ctx = rr.ctx;

@@ -497,10 +497,74 @@ watering resumes it. No punishment mechanics anywhere.
       pass, interiors decorative (bed/storage = future), 2D tile editor = future.
       FEATURE ROADMAP written from the Stardew/Mistria/Harvest-Moon research →
       **farmlife-roadmap.md** (9 tracks, M1-M6 build order, tractor = signature).
-- STATUS: ALL LOCAL/UNCOMMITTED. AWAITING USER PLAYTEST of the 2D game. Awaiting user playtest + preview approval before
-  any commit/push. Playtest notes: night may be TOO DARK (min-ambient TUNE tweak?),
-  audio needs first tap (no hint shown), goat model crude-but-cute, verify touch
-  buttons on a real phone, occlusion-faded trees still cast shadows (intentional).
+- [x] **R5 — 3 PLAYTEST CHANGES (fade-behind · solid buildings · FREE-FORM farming)**
+      (2026-07-11): the user playtested the LIVE 2D game and asked for three things.
+      (1) FADE-BEHIND OCCLUSION (render2d + main): any TALL sprite — trees always,
+      placed decor ≥16 px tall (scarecrow/gnome/birdbath/flag/pinwheel; NOT flat
+      bench/bed/path, NEVER buildings) — whose sort baseline is IN FRONT of (higher z
+      than) the LOCAL player AND whose sprite rect overlaps the player's rect fades to
+      0.45 alpha over ~150 ms (per-sprite exponential lerp in `spriteFade`), restoring
+      when the player walks out. VIEWER-LOCAL by design: only the local player drives
+      it (a remote family member behind a tree on their screen doesn't fade it on
+      yours — documented; the fade is inherently per-client). `fadeAlphaFor()` in main,
+      `flHook.render.fade(key)` for tests. (2) SOLID BUILDINGS (Stardew rule):
+      `plots.BUILDINGS` = solid footprint boxes for farmhouse/silo/bin/stand (barn
+      UNTOUCHED — its cutaway + door-gap + pasture routing kept); each expands to ~the
+      full visual base so a player can never walk behind + vanish. Door approaches +
+      shop/sell proximity stay clear (south side kept open); the bin box was pulled
+      east of the adjacent FIELD GATE so the gate stays walkable (its south lane clear).
+      Boot-time `nudgeFromCollider()` slides a saved position that now sits inside a
+      collider to the nearest open tile (one-time, silent). (3) FREE-FORM FARMING — the
+      12×12 GRID IS GONE. New pure `farm/plots.ts`: `Plant {id,x,z (continuous),crop,
+      plantedAt,accruedMs,lastWatered,waterings}` (growth.ts math reused VERBATIM per
+      plant — `growthTileOf` adapter) + `TilledPatch {id,x,z,r}` organic soil circles.
+      HOE tills a patch at the aimed point (re-hoe within 0.72 m EXTENDS it up to
+      1.8 m; overlapping patches MERGE into one blob). SEEDS plant at the exact point
+      IF ≥0.7 m from every other plant (too close = red ✕ ghost + gentle hint, no
+      punishment). CAN waters the nearest plant + a SPLASH credits neighbours within
+      1.0 m (spec said 0.6, but that sits BELOW the 0.7 spacing → inert; bumped so a
+      min-spaced cluster actually gets watered together — documented). HANDS harvest
+      the exact ready plant (hold-up beat unchanged). RENDER: Field2D re-baked a
+      dithered soil-disc STAMP layer (dynamic analog of world2d's bake-time
+      terrainCoverage — patches change at runtime) blitted like the static map,
+      re-baked only on a `patchVersion` bump; plants y-sorted from `FarmState.plants`;
+      damp ring under watered plants; the tile-rect highlight → a small pulsing GROUND
+      MARKER at the point. The baked FIELD SOIL is GONE (the fenced field is grass now,
+      decorative starter geography, tillable like anywhere). WIRE (sync.ts): plants
+      (`p_<id>`) + patches (`tp_<id>`) ride the SAME region docs, keyed by WORLD POS
+      (`regionKeyForWorldPos`, 32 m regions); toWire/fromWire/diff for both; CloudFarm
+      store diffs+writes them by region (removals → null field, region from last-sent
+      coords) with the local-dirty echo guard extended. MIGRATION: legacy `t_<x>_<z>`
+      tiles → plants (at tile centres) + patches, DETERMINISTIC ids `p_mig_<gx>_<gz>` /
+      `tp_mig_<gx>_<gz>` (so concurrent devices / re-runs converge — the signature
+      dup-incident class), exactly-once. LOCAL: `sanitizeFarmState` migrates an
+      old-shape save + clears tiles. CLOUD: `buildFarmStateFromDocs` converts leftover
+      t_ in memory (same ids), `CloudFarmStore.migrateTiles()` persists p_/tp_ + clears
+      t_ (null) + sets a `mig_freeform` marker on region_0_0, serverConfirmed-gated.
+      MAP: plant DOTS (gold when ready) + soil blobs, tile-grid inset dropped, field →
+      faint outline. HUD/render/hooks/farmMap all switched off `.tiles`. VERIFIED: npm
+      test 206/206 (+26: plots.test.ts spacing/coverage/merge/migration/geometry; sync
+      plant/patch wire+region+diff+migration); verify-2d-all 142/142 offline (r1 "E
+      tills a patch", r2 full free-form loop + 8-crop distinct + click/walk-then-act at
+      points + map dots, r3 offline patch-till + free-form tap, r4 patch-edge dither
+      replaces the dead field-soil edge, NEW r5 27/27: fade behind→0.45→restore +
+      buildings-never-fade, solid-behind-blocked + door-open + nudge, free-form
+      loop incl. too-close ghost + splash + exact harvest, patch-merge blob, LOCAL
+      migration once/no-dup); full r3 cloud+MP 54/55 vs REAL famtestfl+Playroom (A
+      plants free-form → B sees it at the same coords; legacy t_ → p_mig_3_3 migrates
+      once, 2nd device no-dup; cleanup empty — the 1 fail is the PRE-EXISTING lobby
+      pagehide-delete race in net/lobby.ts, untouched, fails identically each run). 0
+      pageerrors desktop+mobile. Shots: farmlife-2d-r5-freeform (organic scattered
+      garden) / -fade / -solid. Changed-assertion list documented in the R5 report.
+      DEVIATIONS: splash 0.6→1.0 (see above); rocks excluded from fade (shorter than
+      the farmer); dead `farm/field.ts`/`targeting.ts` grid helpers left (tree-shaken).
+- STATUS: R5 LOCAL/UNCOMMITTED awaiting user preview + approval before push (the
+  R1-R4 2D conversion + Farm Kart batch went LIVE 2026-07-11, commit a7c5e27; R5
+  changes the save/wire shape via the free-form migration, so it ships only after
+  the user's look). Open punch list: fastGrow still ON live (ship-blocker for real
+  pacing), audio needs first tap (no hint shown), lobby pagehide-delete race in
+  net/lobby.ts (pre-existing, 1 flaky MP check), dead grid modules to delete,
+  plant-cap (400) untested headless.
 
 ## House rules that bind this project
 

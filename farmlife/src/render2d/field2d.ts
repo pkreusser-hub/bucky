@@ -1,21 +1,25 @@
 // ---------------------------------------------------------------------------
-// Field2D — the 2D replacement for Field3D's visuals. It renders the 12×12
-// gameplay grid straight from FarmState each frame (144 tiles max — cheap and
-// always correct, so an E-till or a remote edit repaints with zero bookkeeping;
-// the "bake into the static map + per-tile dirty redraw" optimisation is a
-// documented R2 hook). Also owns the tile HIGHLIGHT + the pop/burst juice.
-// Same method names as Field3D (syncTile/syncAll/tick/setHighlightTile/spawnPop/
-// spawnBurst/animate) so main.ts's wiring is unchanged; the sync/tick calls are
-// now no-ops (state is read live at draw time). Crop sprites are placeholders in
-// the mockup's sprout/soil language until R2.
+// Field2D — the FREE-FORM farming visuals (R5). The 12×12 grid is gone:
+//   · TILLED PATCHES render as organic dithered soil BLOBS. Every patch is a
+//     pre-baked soil-disc STAMP drawn into an offscreen MAP-resolution canvas;
+//     overlapping stamps UNION into one blob (the runtime analog of world2d's
+//     bake-time terrainCoverage dither — patches are dynamic so they can't ride
+//     the static map). The layer is re-baked only when patches change (a version
+//     counter), then blitted like the static map each frame.
+//   · PLANTS render from FarmState.plants — each a crop sprite at its continuous
+//     world point, y-sorted so the player can stand in front. Ready = gold pulse.
+//   · A recently-watered plant gets a damp darkened ring drawn under it.
+//   · The target HIGHLIGHT is now a small pulsing GROUND MARKER at a point (the
+//     aimed spot), valid (verb colour) or invalid (red "too close" ghost).
+// Keeps spawnPop / spawnBurst / animate / drawEffects so main's juice wiring is
+// unchanged.
 // ---------------------------------------------------------------------------
 
-import { TILE_SIZE, tileCenter } from "../farm/grid";
-import { CROPS, growthStage, effectiveCrop, type GrowthTile } from "../farm/growth";
-import type { FarmState, TileRecord } from "../farm/store";
+import { CROPS, growthStage, effectiveCrop } from "../farm/growth";
+import { growthTileOf, patchCoverageAt, type Plant, type TilledPatch, PATCH_MAX_R } from "../farm/plots";
 import { Sprites } from "./sprites";
 import { SOIL } from "./palette";
-import { PPM } from "./coords";
+import { PPM, MAP_PX } from "./coords";
 import type { Renderer2D } from "./renderer";
 
 interface Pop {
@@ -43,28 +47,78 @@ interface CropItem {
   ready: boolean;
 }
 
-function toGrowthTile(rec: TileRecord): GrowthTile | null {
-  if (rec.crop == null) return null;
-  return { plantedAt: rec.plantedAt ?? 0, accruedMs: rec.accruedMs ?? 0, lastWatered: rec.lastWatered ?? rec.plantedAt ?? 0 };
+// ---- soil-disc stamp (dithered edge, mottled interior) ----------------------
+const BAYER4 = [
+  [0, 8, 2, 10],
+  [12, 4, 14, 6],
+  [3, 11, 1, 9],
+  [15, 7, 13, 5],
+];
+function phash(x: number, y: number): number {
+  let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263)) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+function toRgb(hex: string): [number, number, number] {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+const SOIL_COLS = [toRgb(SOIL.base), toRgb(SOIL.dk), toRgb(SOIL.lt), toRgb(SOIL.ridge)];
+const STAMP_PX = Math.ceil(PATCH_MAX_R * 2 * PPM) + 4; // reference stamp side (px)
+
+let soilStamp: HTMLCanvasElement | null = null;
+function buildSoilStamp(): HTMLCanvasElement {
+  const cv = document.createElement("canvas");
+  cv.width = cv.height = STAMP_PX;
+  const ctx = cv.getContext("2d")!;
+  const img = ctx.createImageData(STAMP_PX, STAMP_PX);
+  const d = img.data;
+  const c = STAMP_PX / 2;
+  const R = STAMP_PX / 2 - 1.5;
+  for (let py = 0; py < STAMP_PX; py++) {
+    for (let px = 0; px < STAMP_PX; px++) {
+      const dist = Math.hypot(px - c + 0.5, py - c + 0.5);
+      if (dist > R) continue;
+      const frac = dist / R; // 0 core .. 1 edge
+      const cov = frac < 0.78 ? 1 : 1 - (frac - 0.78) / 0.22; // dither the outer 22%
+      const th = (BAYER4[py & 3][px & 3] + 0.5) / 16;
+      if (cov < th) continue; // dithered-out → transparent (organic edge)
+      const hh = phash(px, py);
+      const col = hh < 0.5 ? SOIL_COLS[0] : hh < 0.72 ? SOIL_COLS[1] : hh < 0.9 ? SOIL_COLS[3] : SOIL_COLS[2];
+      const i = (py * STAMP_PX + px) * 4;
+      d[i] = col[0];
+      d[i + 1] = col[1];
+      d[i + 2] = col[2];
+      d[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return cv;
 }
 
 export class Field2D {
-  private highlight: { gx: number; gz: number; color: string } | null = null;
+  private marker: { x: number; z: number; color: string; valid: boolean } | null = null;
   private pops: Pop[] = [];
   private bursts: Burst[] = [];
   private tSec = 0;
 
-  // no-op sync hooks (kept so main.ts's Field3D wiring is untouched) ----------
+  // offscreen patch (tilled soil) layer, re-baked only when patches change
+  private patchCanvas: HTMLCanvasElement | null = null;
+  private bakedVersion = -1;
+
+  // no-op sync hooks kept so any legacy wiring is untouched -------------------
   syncTile(): void {}
   syncAll(): void {}
   tick(): void {}
 
-  setHighlightTile(gx: number | null, gz: number | null, color: number): void {
-    if (gx == null || gz == null) {
-      this.highlight = null;
+  /** Set the small ground marker at the aimed point (null = hide). `valid=false`
+   * renders it red (the "too close to plant" ghost). */
+  setGroundMarker(x: number | null, z: number | null, color: number, valid = true): void {
+    if (x == null || z == null) {
+      this.marker = null;
       return;
     }
-    this.highlight = { gx, gz, color: "#" + (color >>> 0).toString(16).padStart(6, "0").slice(-6) };
+    this.marker = { x, z, color: "#" + (color >>> 0).toString(16).padStart(6, "0").slice(-6), valid };
   }
 
   spawnPop(x: number, _y: number, z: number, emoji: string): void {
@@ -76,17 +130,7 @@ export class Field2D {
     for (let i = 0; i < count; i++) {
       const a = Math.random() * Math.PI * 2;
       const spd = 0.4 + Math.random() * 0.7;
-      this.bursts.push({
-        x,
-        z,
-        vx: Math.cos(a) * spd,
-        vz: Math.sin(a) * spd,
-        vy: (1.2 + Math.random() * 1.2) * up,
-        y: 0.4,
-        color: c,
-        born: performance.now(),
-        life: 550 + Math.random() * 250,
-      });
+      this.bursts.push({ x, z, vx: Math.cos(a) * spd, vz: Math.sin(a) * spd, vy: (1.2 + Math.random() * 1.2) * up, y: 0.4, color: c, born: performance.now(), life: 550 + Math.random() * 250 });
     }
   }
 
@@ -94,82 +138,98 @@ export class Field2D {
     this.tSec = tSec;
   }
 
-  // ---- draws ----------------------------------------------------------------
-  /** Tilled/watered soil rects (flat ground overlay — drawn before y-sorted props). */
-  drawSoil(rr: Renderer2D, state: FarmState, now: number): void {
-    const ctx = rr.ctx;
-    const half = (TILE_SIZE * 0.92 * PPM) / 2;
-    for (const key of Object.keys(state.tiles)) {
-      const m = /^t_(\d+)_(\d+)$/.exec(key);
-      if (!m) continue;
-      const rec = state.tiles[key];
-      const { x, z } = tileCenter(parseInt(m[1], 10), parseInt(m[2], 10));
-      const cx = rr.sx(x);
-      const cy = rr.sy(z);
-      let damp = false;
-      if (rec.crop) {
-        const crop = effectiveCrop(CROPS[rec.crop]);
-        damp = now - (rec.lastWatered ?? 0) < crop.waterEveryMs * 0.4;
-      }
-      const base = damp ? SOIL.wet : SOIL.base;
-      const ridge = damp ? SOIL.wetridge : SOIL.ridge;
-      ctx.fillStyle = SOIL.dk2;
-      ctx.fillRect(Math.round(cx - half - 1), Math.round(cy - half - 1), Math.round(half * 2 + 2), Math.round(half * 2 + 2));
-      ctx.fillStyle = base;
-      ctx.fillRect(Math.round(cx - half), Math.round(cy - half), Math.round(half * 2), Math.round(half * 2));
-      // furrow ridges (top-lit lines + shadow line between = the mockup's rows)
-      ctx.fillStyle = ridge;
-      for (let ry = -half + 2; ry < half - 1; ry += 4) ctx.fillRect(Math.round(cx - half + 1), Math.round(cy + ry), Math.round(half * 2 - 2), 1);
-      ctx.fillStyle = SOIL.dk;
-      for (let ry = -half + 4; ry < half - 1; ry += 4) ctx.fillRect(Math.round(cx - half + 1), Math.round(cy + ry), Math.round(half * 2 - 2), 1);
-      // watered soil: subtle damp sheen dots (deterministic per tile, gentle shimmer)
-      if (damp) {
-        const seed = ((parseInt(m[1], 10) * 31 + parseInt(m[2], 10) * 17) & 15) / 15;
-        ctx.fillStyle = `rgba(150,190,225,${0.14 + 0.06 * Math.sin(this.tSec * 3 + seed * 6)})`;
-        for (let k = 0; k < 4; k++) {
-          const a = seed * 6.28 + k * 1.7;
-          const rx = Math.round(cx + Math.cos(a) * half * 0.55);
-          const ry = Math.round(cy + Math.sin(a) * half * 0.5);
-          ctx.fillRect(rx, ry, 1, 1);
-        }
-      }
+  // ---- tilled-soil blob layer -----------------------------------------------
+  private rebakePatches(patches: Record<string, TilledPatch>): void {
+    if (!soilStamp) soilStamp = buildSoilStamp();
+    if (!this.patchCanvas) {
+      this.patchCanvas = document.createElement("canvas");
+      this.patchCanvas.width = this.patchCanvas.height = MAP_PX;
+    }
+    const ctx = this.patchCanvas.getContext("2d")!;
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, MAP_PX, MAP_PX);
+    for (const p of Object.values(patches)) {
+      const rpx = p.r * PPM;
+      const cx = (p.x + 60) * PPM;
+      const cy = (p.z + 60) * PPM;
+      ctx.drawImage(soilStamp, Math.round(cx - rpx), Math.round(cy - rpx), Math.round(rpx * 2), Math.round(rpx * 2));
     }
   }
 
-  /** Crop sprites for the y-sorted pass (short plants; the player can stand in front). */
-  cropItems(state: FarmState, now: number): CropItem[] {
+  /** Blit the tilled-soil blob layer (re-bake only when `version` changed). */
+  drawPatches(rr: Renderer2D, patches: Record<string, TilledPatch>, version: number): void {
+    if (version !== this.bakedVersion) {
+      this.rebakePatches(patches);
+      this.bakedVersion = version;
+    }
+    if (!this.patchCanvas) return;
+    rr.ctx.drawImage(this.patchCanvas, rr.camMapX, rr.camMapY, rr.nativeW, rr.nativeH, 0, 0, rr.nativeW, rr.nativeH);
+  }
+
+  /** Damp darkened ring under each recently-watered plant (drawn over the soil,
+   * under the crop sprites). */
+  drawDamp(rr: Renderer2D, plants: Record<string, Plant>, now: number): void {
+    const ctx = rr.ctx;
+    ctx.save();
+    for (const p of Object.values(plants)) {
+      const crop = effectiveCrop(CROPS[p.crop]);
+      if (now - p.lastWatered >= crop.waterEveryMs * 0.4) continue;
+      const cx = rr.sx(p.x);
+      const cy = rr.sy(p.z);
+      const seed = (p.x * 31 + p.z * 17) & 15;
+      const a = 0.26 + 0.05 * Math.sin(this.tSec * 3 + seed);
+      ctx.fillStyle = `rgba(50,34,20,${a})`;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, 6, 3.4, 0, 0, 7);
+      ctx.fill();
+      ctx.fillStyle = `rgba(150,190,225,${0.12 + 0.05 * Math.sin(this.tSec * 3 + seed)})`;
+      ctx.fillRect(cx - 2, cy - 1, 1, 1);
+      ctx.fillRect(cx + 1, cy, 1, 1);
+    }
+    ctx.restore();
+  }
+
+  /** Crop sprites for the y-sorted pass, straight from FarmState.plants. */
+  plantItems(plants: Record<string, Plant>, now: number): CropItem[] {
     const out: CropItem[] = [];
-    for (const key of Object.keys(state.tiles)) {
-      const rec = state.tiles[key];
-      if (!rec.crop) continue;
-      const g = toGrowthTile(rec);
-      if (!g) continue;
-      const stage = growthStage(g, effectiveCrop(CROPS[rec.crop]), now);
+    for (const p of Object.values(plants)) {
+      const stage = growthStage(growthTileOf(p), effectiveCrop(CROPS[p.crop]), now);
       const vis: 0 | 1 | 2 | 3 = stage === "ready" ? 3 : stage;
-      const m = /^t_(\d+)_(\d+)$/.exec(key);
-      if (!m) continue;
-      const { x, z } = tileCenter(parseInt(m[1], 10), parseInt(m[2], 10));
-      out.push({ x, z, sprite: Sprites.crop(rec.crop, vis), ready: stage === "ready" });
+      out.push({ x: p.x, z: p.z, sprite: Sprites.crop(p.crop, vis), ready: stage === "ready" });
     }
     return out;
   }
 
-  /** Tile highlight rect on the currently targeted tile (drawn over the soil). */
-  drawHighlight(rr: Renderer2D): void {
-    if (!this.highlight) return;
-    const { x, z } = tileCenter(this.highlight.gx, this.highlight.gz);
-    const s = TILE_SIZE * 0.96 * PPM;
-    const cx = rr.sx(x);
-    const cy = rr.sy(z);
+  /** Small pulsing ground marker at the aimed point (replaces the tile rect). */
+  drawGroundMarker(rr: Renderer2D): void {
+    if (!this.marker) return;
     const ctx = rr.ctx;
+    const cx = rr.sx(this.marker.x);
+    const cy = rr.sy(this.marker.z);
+    const pulse = 0.5 + 0.5 * Math.sin(this.tSec * 5);
     ctx.save();
-    ctx.globalAlpha = 0.42 + 0.14 * Math.sin(this.tSec * 5);
-    ctx.strokeStyle = this.highlight.color;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(Math.round(cx - s / 2) + 0.5, Math.round(cy - s / 2) + 0.5, Math.round(s) - 1, Math.round(s) - 1);
-    ctx.globalAlpha = 0.16 + 0.08 * Math.sin(this.tSec * 5);
-    ctx.fillStyle = this.highlight.color;
-    ctx.fillRect(Math.round(cx - s / 2), Math.round(cy - s / 2), Math.round(s), Math.round(s));
+    // soft filled disc
+    ctx.globalAlpha = 0.18 + pulse * 0.12;
+    ctx.fillStyle = this.marker.color;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, 6, 3.2, 0, 0, 7);
+    ctx.fill();
+    // ring
+    ctx.globalAlpha = 0.6 + pulse * 0.3;
+    ctx.strokeStyle = this.marker.color;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.ellipse(cx + 0.5, cy + 0.5, 6, 3.2, 0, 0, 7);
+    ctx.stroke();
+    if (!this.marker.valid) {
+      // a little ✕ for the invalid (too-close) ghost
+      ctx.beginPath();
+      ctx.moveTo(cx - 3, cy - 2);
+      ctx.lineTo(cx + 3, cy + 2);
+      ctx.moveTo(cx + 3, cy - 2);
+      ctx.lineTo(cx - 3, cy + 2);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
@@ -177,14 +237,12 @@ export class Field2D {
   drawEffects(rr: Renderer2D, readyItems: CropItem[]): void {
     const ctx = rr.ctx;
     const now = performance.now();
-    // gold pulse + sparkle over ready crops (the "come harvest me!" beacon)
     for (const it of readyItems) {
       if (!it.ready) continue;
       const cx = rr.sx(it.x);
       const baseY = rr.sy(it.z);
       const topY = baseY - it.sprite.canvas.height + it.sprite.ay;
       const pulse = 0.5 + 0.5 * Math.sin(this.tSec * 3.5 + it.x);
-      // soft gold halo behind/around the ripe crop
       ctx.save();
       ctx.globalAlpha = 0.1 + pulse * 0.14;
       ctx.fillStyle = "#ffe07a";
@@ -192,14 +250,12 @@ export class Field2D {
       ctx.ellipse(cx, (topY + baseY) / 2, 7 + pulse * 2, (baseY - topY) / 2 + 2, 0, 0, 7);
       ctx.fill();
       ctx.restore();
-      // twinkle sparkle above
       const s = 1 + 0.6 * pulse;
       const sy = topY - 2;
       ctx.fillStyle = `rgba(255,246,180,${0.55 + 0.4 * pulse})`;
       ctx.fillRect(Math.round(cx - s), Math.round(sy), Math.round(s * 2), 1);
       ctx.fillRect(Math.round(cx), Math.round(sy - s), 1, Math.round(s * 2));
     }
-    // bursts
     this.bursts = this.bursts.filter((b) => {
       const age = now - b.born;
       if (age > b.life) return false;
@@ -216,7 +272,6 @@ export class Field2D {
       ctx.fillRect(Math.round(px), Math.round(py), sz, sz);
       return true;
     });
-    // pops (emoji rising + fading)
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.font = "10px system-ui, sans-serif";
@@ -235,4 +290,6 @@ export class Field2D {
   }
 }
 
+/** True if any patch covers this point (planting gate — re-exported for main). */
+export { patchCoverageAt };
 export type { CropItem };

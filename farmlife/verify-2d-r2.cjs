@@ -85,32 +85,33 @@ async function main() {
     const { page, errors } = await bootPage(browser, false);
     await P(page, () => { window.__FL__.animals.setPhase("day"); window.__FL__.weather.applySky(); window.__FL__.farm.setFastGrow(true); });
 
-    // ===================== 1. FULL LOOP =====================
-    // clear field, grant seeds/coins
+    // ===================== 1. FULL LOOP (FREE-FORM, R5) =====================
+    // The 12×12 grid is gone: tools act on the POINT ~1.2 m in front of the player.
+    // Target world point WT=(-7,5); face it from (-7, 3.8) heading 0 (+Z) → aim WT.
     await P(page, () => {
-      const s = window.__FL__.farm.state();
-      for (const k of Object.keys(s.tiles)) delete s.tiles[k];
+      window.__FL__.farm.clearFarm();
       window.__FL__.farm.setCoins(200);
       window.__FL__.farm.selectCrop("turnip");
     });
-    // TILL — face tile (5,5) center (-7,5) from the north (z=3.5, heading 0 = +Z)
-    await P(page, () => { window.__FL__.farm.equip("hoe"); window.__FL__.farm.teleport(-7, 3.4); window.__FL__.farm.setHeading(0); });
+    // TILL a patch at the aimed point
+    await P(page, () => { window.__FL__.farm.equip("hoe"); window.__FL__.farm.teleport(-7, 3.8); window.__FL__.farm.setHeading(0); });
     await sleep(250);
     const tillTgt = await P(page, () => window.__FL__.farm.target());
-    check("loop: hoe targets untouched tile (till verb + highlight)", tillTgt && tillTgt.verb === "till" && tillTgt.gx === 5 && tillTgt.gz === 5, JSON.stringify(tillTgt));
+    check("loop: hoe targets a point in front (till verb + marker)", tillTgt && tillTgt.kind === "till" && Math.abs(tillTgt.worldZ - 5.0) < 0.35, JSON.stringify(tillTgt));
     await P(page, () => window.__FL__.farm.action());
     await sleep(450); // clear the ~320ms action busy window
-    const tilled = await P(page, () => window.__FL__.farm.tileAt(5, 5));
-    check("loop: E tills → tile tilled", tilled.present && tilled.tilled && !tilled.crop, JSON.stringify(tilled));
-    // PLANT turnip
+    const tilled = await P(page, () => ({ n: window.__FL__.farm.patchCount(), covered: window.__FL__.farm.patchCoverageAt(-7, 5) > 0 }));
+    check("loop: E tills → a patch appears under the aimed point", tilled.n === 1 && tilled.covered, JSON.stringify(tilled));
+    // PLANT turnip at the same point
     await P(page, () => { window.__FL__.farm.equip("seeds"); window.__FL__.farm.setHeading(0); });
     await sleep(250);
     const seeds0 = await P(page, () => window.__FL__.farm.state().seeds.turnip);
+    const plantTgt = await P(page, () => window.__FL__.farm.target());
     await P(page, () => window.__FL__.farm.action());
     await sleep(450);
-    const planted = await P(page, () => window.__FL__.farm.tileAt(5, 5));
+    const planted = await P(page, () => window.__FL__.farm.plantInfoAt(-7, 5));
     const seeds1 = await P(page, () => window.__FL__.farm.state().seeds.turnip);
-    check("loop: plant turnip → tile has crop, seeds−1", planted.crop === "turnip" && seeds1 === seeds0 - 1, `crop=${planted.crop} seeds ${seeds0}→${seeds1}`);
+    check("loop: plant turnip → a plant at the point, seeds−1", plantTgt.kind === "plant" && planted.present && planted.crop === "turnip" && seeds1 === seeds0 - 1, `crop=${planted.crop} seeds ${seeds0}→${seeds1}`);
     // let the moisture grace carry it to halfway (fastGrow: ~30s → thirsty), then WATER
     await P(page, () => window.__FL__.farm._addTimeOffset(31000));
     await sleep(100);
@@ -121,17 +122,17 @@ async function main() {
     await P(page, () => window.__FL__.farm.action());
     await sleep(450);
     const tank1 = await P(page, () => window.__FL__.farm.tank());
-    check("loop: water a thirsty crop → tank decrements", tank1 === tank0 - 1 && waterTgt && waterTgt.verb === "water", `verb=${waterTgt && waterTgt.verb} tank ${tank0}→${tank1}`);
+    check("loop: water the thirsty plant → tank decrements", tank1 === tank0 - 1 && waterTgt && waterTgt.kind === "water", `kind=${waterTgt && waterTgt.kind} tank ${tank0}→${tank1}`);
     // FAST-GROW the watered crop the rest of the way to ready
     await P(page, () => window.__FL__.farm._addTimeOffset(31000));
     await sleep(200);
-    const ready = await P(page, () => window.__FL__.farm.tileAt(5, 5));
-    check("loop: watered crop matures to ready (fastGrow timeline)", ready.stage === "ready", JSON.stringify(ready.stage));
-    // highlight pulses on the ready tile (hands → harvest)
+    const ready = await P(page, () => window.__FL__.farm.plantInfoAt(-7, 5));
+    check("loop: watered plant matures to ready (fastGrow timeline)", ready.stage === "ready", JSON.stringify(ready.stage));
+    // hands → harvest the ready plant
     await P(page, () => { window.__FL__.farm.equip("hands"); window.__FL__.farm.setHeading(0); });
     await sleep(250);
     const harvTgt = await P(page, () => window.__FL__.farm.target());
-    check("loop: hands on ready tile → harvest target + highlight", harvTgt && harvTgt.verb === "harvest" && harvTgt.gx === 5, JSON.stringify(harvTgt));
+    check("loop: hands on the ready plant → harvest target + marker", harvTgt && harvTgt.kind === "harvest", JSON.stringify(harvTgt));
     // HARVEST + hold-up beat (acting + crop overhead render)
     const crops0 = await P(page, () => window.__FL__.farm.state().crops.turnip);
     await P(page, () => window.__FL__.farm.action());
@@ -139,8 +140,8 @@ async function main() {
     const acting = await P(page, () => window.__FL__.avatar.acting());
     const lastH = await P(page, () => window.__FL__.farm.lastHarvest());
     const crops1 = await P(page, () => window.__FL__.farm.state().crops.turnip);
-    const emptied = await P(page, () => window.__FL__.farm.tileAt(5, 5));
-    check("loop: harvest → +1 crop, tile emptied, lastHarvest=turnip", crops1 === crops0 + 1 && !emptied.crop && lastH === "turnip", `crops ${crops0}→${crops1}`);
+    const emptied = await P(page, () => window.__FL__.farm.plantInfoAt(-7, 5));
+    check("loop: harvest → +1 crop, plant removed, lastHarvest=turnip", crops1 === crops0 + 1 && !emptied.present && lastH === "turnip", `crops ${crops0}→${crops1} present=${emptied.present}`);
     check("loop: harvest plays the hold-up beat (farmer.isActing)", acting === true, `acting=${acting}`);
     await sleep(700); // let the hold-up beat finish before the next action
     // SELL at the bin → coins up + coin arc fired
@@ -168,49 +169,49 @@ async function main() {
     check("loop: buy potato seed → seeds+1, coins−cost", seedsA === seedsB + 1 && coinsA < coinsB, `seeds ${seedsB}→${seedsA} coins ${coinsB}→${coinsA}`);
     await P(page, () => window.__FL__.farm.closeShop());
 
-    // ===================== 2. 8 CROPS DISTINCT =====================
+    // ===================== 2. 8 CROPS DISTINCT (free-form row) =====================
+    // place ready crops at CONTINUOUS world coords in a row (no grid), sample each.
+    const ROWZ = 8;
+    const cropX = (i) => -14 + i * 3.4;
     await P(page, () => window.__FL__.farm.setFastGrow(false));
     await P(page, (crops) => {
-      const s = window.__FL__.farm.state();
-      for (const k of Object.keys(s.tiles)) delete s.tiles[k];
-      for (let i = 0; i < crops.length; i++) window.__FL__.farm.plantStage(i, 6, crops[i], 3); // ready, row gz=6
+      window.__FL__.farm.clearFarm();
+      for (let i = 0; i < crops.length; i++) window.__FL__.farm.plantStageAt(-14 + i * 3.4, 8, crops[i], 3); // ready
     }, CROPS);
-    await P(page, () => window.__FL__.farm.teleport(-9, 8));
+    await P(page, () => window.__FL__.farm.teleport(-2, 8));
     await sleep(500);
     // sample each ready crop's fruit band (a few px up from the soil) as a colour signature
-    const sigs = await P(page, (crops) => {
+    const sigs = await P(page, (data) => {
       const out = {};
-      const ctr = (gx, gz) => ({ x: -18 + 2 * (gx + 0.5), z: -6 + 2 * (gz + 0.5) });
-      for (let i = 0; i < crops.length; i++) {
-        const c = ctr(i, 6);
+      for (let i = 0; i < data.crops.length; i++) {
+        const cx = -14 + i * 3.4;
         const samples = [];
         for (const dy of [-6, -12, -20, -30]) {
-          const p = window.__FL__._pixelOff(c.x, c.z, 0, dy);
+          const p = window.__FL__._pixelOff(cx, data.z, 0, dy);
           if (p) samples.push(`${p.r >> 4},${p.g >> 4},${p.b >> 4}`);
         }
-        out[crops[i]] = samples.join("|");
+        out[data.crops[i]] = samples.join("|");
       }
       return out;
-    }, CROPS);
+    }, { crops: CROPS, z: ROWZ });
+    void cropX;
     const sigVals = CROPS.map((c) => sigs[c]);
     const distinct = new Set(sigVals).size;
     check("8 crops render distinct ready sprites (unique colour signatures)", distinct === 8, `${distinct}/8 distinct — ${JSON.stringify(sigs).slice(0, 200)}`);
     // each crop renders 4 distinct stage sprites (sample pumpkin 0..3 signatures)
     await P(page, () => {
       window.__FL__.farm.setFastGrow(false);
-      const s = window.__FL__.farm.state();
-      for (const k of Object.keys(s.tiles)) delete s.tiles[k];
-      for (let st = 0; st < 4; st++) window.__FL__.farm.plantStage(2 + st * 2, 4, "pumpkin", st); // spread on row gz=4
+      window.__FL__.farm.clearFarm();
+      for (let st = 0; st < 4; st++) window.__FL__.farm.plantStageAt(-10 + st * 3.4, 6, "pumpkin", st);
     });
-    await P(page, () => window.__FL__.farm.teleport(-6, 6));
+    await P(page, () => window.__FL__.farm.teleport(-4, 6));
     await sleep(400);
     const stageSigs = await P(page, () => {
-      const ctr = (gx, gz) => ({ x: -18 + 2 * (gx + 0.5), z: -6 + 2 * (gz + 0.5) });
       const out = [];
       for (let st = 0; st < 4; st++) {
-        const c = ctr(2 + st * 2, 4);
+        const cx = -10 + st * 3.4;
         const s = [];
-        for (const dy of [-2, -6, -10, -16, -22]) { const p = window.__FL__._pixelOff(c.x, c.z, 0, dy); if (p) s.push(`${p.r >> 4},${p.g >> 4},${p.b >> 4}`); }
+        for (const dy of [-2, -6, -10, -16, -22]) { const p = window.__FL__._pixelOff(cx, 6, 0, dy); if (p) s.push(`${p.r >> 4},${p.g >> 4},${p.b >> 4}`); }
         out.push(s.join("|"));
       }
       return out;
@@ -221,13 +222,12 @@ async function main() {
     // ===================== 3. CAN REFILL AT POND =====================
     await P(page, () => window.__FL__.farm.setFastGrow(true));
     await P(page, () => {
-      const s = window.__FL__.farm.state();
-      for (const k of Object.keys(s.tiles)) delete s.tiles[k];
-      window.__FL__.farm.plantFresh(5, 5, "turnip"); // waterable crop at tile (5,5) center (-7,5)
+      window.__FL__.farm.clearFarm();
+      window.__FL__.farm.plantFreshAt(-7, 5, "turnip"); // waterable plant at (-7,5)
       window.__FL__.farm._addTimeOffset(31000); // grace elapses → thirsty (waterable)
     });
-    // drain a unit by watering the thirsty crop, then refill at the pond
-    await P(page, () => { window.__FL__.farm.equip("can"); window.__FL__.farm.teleport(-7, 3.4); window.__FL__.farm.setHeading(0); });
+    // drain a unit by watering the thirsty plant (aim (-7,5) from (-7,3.8)), then refill
+    await P(page, () => { window.__FL__.farm.equip("can"); window.__FL__.farm.teleport(-7, 3.8); window.__FL__.farm.setHeading(0); });
     await sleep(250);
     const tankFull = await P(page, () => window.__FL__.farm.tank());
     await P(page, () => window.__FL__.farm.action()); // water thirsty crop → tank−1
@@ -243,33 +243,29 @@ async function main() {
     check("can refills to capacity at the pond edge", tankRefilled === cap && tankDrained < tankFull, `full=${tankFull} drained=${tankDrained} refilled=${tankRefilled}/${cap} (tgt=${refillTgt && refillTgt.kind})`);
 
     // ===================== 4. CLICK-TO-ACT + WALK-THEN-ACT =====================
-    await P(page, () => {
-      const s = window.__FL__.farm.state();
-      for (const k of Object.keys(s.tiles)) delete s.tiles[k];
-      window.__FL__.farm.equip("hoe");
-    });
-    // NEAR: a real left-CLICK on the canvas at a tile within reach → tilled now
+    await P(page, () => { window.__FL__.farm.clearFarm(); window.__FL__.farm.equip("hoe"); });
+    // NEAR: a real left-CLICK on the canvas at a point within reach → tilled now
     // (proves the button-0 pointer wiring, not just the internal hook)
-    await P(page, () => { window.__FL__.farm.teleport(-7, 3.4); window.__FL__.farm.setHeading(0); window.__FL__.farm.cancelAutoWalk(); });
+    await P(page, () => { window.__FL__.farm.teleport(-7, 3.8); window.__FL__.farm.setHeading(0); window.__FL__.farm.cancelAutoWalk(); });
     await sleep(250);
-    const near = await P(page, () => window.__FL__.farm.tileScreen(5, 5)); // on-screen (near the player)
+    const near = await P(page, () => window.__FL__.farm.worldScreen(-7, 5)); // on-screen point near the player
     await page.mouse.click(near.sx, near.sy, { button: "left" });
     await sleep(450);
-    const nearTilled = await P(page, () => window.__FL__.farm.tileAt(5, 5));
-    check("click-to-act: left-click a near tile tills it", nearTilled.present && nearTilled.tilled, JSON.stringify(nearTilled));
-    // FAR: request a distant tile → auto-walk starts, converges, then tills
-    await P(page, () => { window.__FL__.farm.teleport(-16, 16); window.__FL__.farm.cancelAutoWalk(); window.__FL__.farm.rightClickTile(9, 1); });
+    const nearTilled = await P(page, () => window.__FL__.farm.patchCoverageAt(-7, 5) > 0);
+    check("click-to-act: left-click a near point tills a patch there", nearTilled, `covered=${nearTilled}`);
+    // FAR: request a distant point → auto-walk starts, converges, then tills
+    await P(page, () => { window.__FL__.farm.teleport(-16, 16); window.__FL__.farm.cancelAutoWalk(); window.__FL__.farm.requestActionAt(1, -3); });
     await sleep(120);
     const walking = await P(page, () => window.__FL__.farm.autoWalk());
-    check("walk-then-act: distant target starts an auto-walk", walking && walking.gx === 9 && walking.gz === 1, JSON.stringify(walking));
+    check("walk-then-act: distant point starts an auto-walk", walking && Math.abs(walking.tx - 1) < 0.01 && Math.abs(walking.tz + 3) < 0.01, JSON.stringify(walking));
     // let it converge + act
     for (let i = 0; i < 40 && (await P(page, () => window.__FL__.farm.autoWalk())); i++) await sleep(100);
     await sleep(450);
-    const farTilled = await P(page, () => window.__FL__.farm.tileAt(9, 1));
-    const farPos = await P(page, () => ({ x: window.__FL__.player.x, z: window.__FL__.player.z }));
-    check("walk-then-act: player converges + tills the far tile", farTilled.present && farTilled.tilled, `${JSON.stringify(farTilled)} pos=${farPos.x.toFixed(1)},${farPos.z.toFixed(1)}`);
+    const farTilled = await P(page, () => window.__FL__.farm.patchCoverageAt(1, -3) > 0);
+    const farPos = await P(page, () => window.__FL__.farm.pos());
+    check("walk-then-act: player converges + tills the far point", farTilled, `covered=${farTilled} pos=${farPos.x.toFixed(1)},${farPos.z.toFixed(1)}`);
     // manual input cancels an auto-walk
-    await P(page, () => { window.__FL__.farm.teleport(-16, 16); window.__FL__.farm.cancelAutoWalk(); window.__FL__.farm.rightClickTile(9, 2); });
+    await P(page, () => { window.__FL__.farm.teleport(-16, 16); window.__FL__.farm.cancelAutoWalk(); window.__FL__.farm.requestActionAt(1, -1); });
     await sleep(120);
     const before = await P(page, () => !!window.__FL__.farm.autoWalk());
     await P(page, () => window.__FL__.setInput({ fwd: 1, strafe: 0 }));
@@ -358,13 +354,12 @@ async function main() {
     // fastGrow OFF so the crop stays genuinely thirsty (fastGrow would ripen it).
     await P(page, () => { window.__FL__.farm.setFastGrow(false); window.__FL__.animals.setPhase("day"); window.__FL__.weather.applySky(); });
     await P(page, () => {
-      const s = window.__FL__.farm.state();
-      for (const k of Object.keys(s.tiles)) delete s.tiles[k];
-      window.__FL__.farm.plantStage(4, 4, "turnip", 1); // real timeline, mid-grown
+      window.__FL__.farm.clearFarm();
+      window.__FL__.farm.plantStageAt(-10, 2, "turnip", 1); // real timeline, mid-grown
       window.__FL__.farm._addTimeOffset(2 * 3600 * 1000); // 2h > turnip 1h waterEvery → thirsty
     });
     await sleep(150);
-    const thirstyState = await P(page, () => window.__FL__.farm.tileAt(4, 4).stage);
+    const thirstyState = await P(page, () => window.__FL__.farm.plantInfoAt(-10, 2).stage);
     check("rain: crop is genuinely thirsty before rain (not ready)", thirstyState !== "ready", `stage=${thirstyState}`);
     await P(page, () => window.__FL__.weather._inject({ cond: "rain", code: 61, fetchedAt: Date.now(), tempF: 54 }));
     await sleep(300);
@@ -382,19 +377,19 @@ async function main() {
     // ===================== 8. MAP =====================
     await P(page, () => {
       window.__FL__.farm.setFastGrow(false); // so a stage-1 plant reads "growing", not instantly ready
-      const s = window.__FL__.farm.state();
-      for (const k of Object.keys(s.tiles)) delete s.tiles[k];
-      window.__FL__.farm.plantStage(1, 1, "corn", 1); // growing
-      window.__FL__.farm.plantStage(2, 2, "pumpkin", 3); // ready
+      window.__FL__.farm.clearFarm();
+      window.__FL__.farm.plantStageAt(-14, -4, "corn", 1); // growing
+      window.__FL__.farm.plantStageAt(-10, -2, "pumpkin", 3); // ready
     });
     await sleep(150);
     const snap = await P(page, () => window.__FL__.mapinv.mapSnapshot());
-    const hasReady = snap.tiles.some((t) => t.state === "ready");
-    const hasGrowing = snap.tiles.some((t) => t.state === "growing" || t.state === "thirsty");
+    const hasReady = snap.plants.some((p) => p.ready);
+    const hasGrowing = snap.plants.some((p) => !p.ready);
+    const hasPatches = (snap.patches || []).length >= 2;
     const animalsOk = snap.animals.length === 5 && snap.animals.every((a) => a.x > 20 && a.x < 54);
     const stationsOk = snap.stations.some((s) => s.emoji === "🏪") && snap.stations.some((s) => s.emoji === "📦") && snap.stations.some((s) => s.emoji === "🏠");
     const geomOk = snap.field && Math.abs(snap.field.cx + 6) < 0.01 && snap.barn && snap.pasture && snap.pond;
-    check("map: shows ready + growing tiles", hasReady && hasGrowing, `ready=${hasReady} growing=${hasGrowing}`);
+    check("map: shows ready + growing plant dots + tilled patches", hasReady && hasGrowing && hasPatches, `ready=${hasReady} growing=${hasGrowing} patches=${hasPatches}`);
     check("map: 5 animals at pasture coords", animalsOk, `n=${snap.animals.length}`);
     check("map: stations (stand/bin/house) + field/barn/pasture/pond geometry present", stationsOk && geomOk, `stations=${stationsOk} geom=${geomOk}`);
     await P(page, () => window.__FL__.mapinv.drawMapNow());
@@ -404,15 +399,15 @@ async function main() {
     // (the full loop above already proves fastGrow ripens a watered crop in ~60s.)
     // Here: the SAME fresh tile's interpreted growth accelerates when the toggle
     // is ON vs OFF — proving the client-side fastGrow scale is live in 2D.
-    await P(page, () => { const s = window.__FL__.farm.state(); for (const k of Object.keys(s.tiles)) delete s.tiles[k]; window.__FL__.farm.plantFresh(6, 6, "turnip"); });
+    await P(page, () => { window.__FL__.farm.clearFarm(); window.__FL__.farm.plantFreshAt(-5, 7, "turnip"); });
     await P(page, () => window.__FL__.farm.setFastGrow(false));
     await P(page, () => window.__FL__.farm._addTimeOffset(90000)); // 90s: nothing on the real 4h timeline
     await sleep(80);
-    const stOff = await P(page, () => window.__FL__.farm.tileAt(6, 6).stage);
+    const stOff = await P(page, () => window.__FL__.farm.plantInfoAt(-5, 7).stage);
     await P(page, () => window.__FL__.farm.setFastGrow(true)); // re-interpret the SAME elapsed time fast
     await sleep(80);
-    const stOn = await P(page, () => window.__FL__.farm.tileAt(6, 6).stage);
-    check("fastGrow toggle accelerates the same tile (off=stage0 → on=advanced)", stOff === 0 && stOn !== 0, `off=${stOff} on=${stOn}`);
+    const stOn = await P(page, () => window.__FL__.farm.plantInfoAt(-5, 7).stage);
+    check("fastGrow toggle accelerates the same plant (off=stage0 → on=advanced)", stOff === 0 && stOn !== 0, `off=${stOff} on=${stOn}`);
 
     await P(page, () => window.__FL__.farm.flushSave());
     await sleep(150);
@@ -425,14 +420,14 @@ async function main() {
     const mBody = await m.page.evaluate(() => document.body.classList.contains("fl-mobile"));
     const mSnap = await m.page.evaluate(() => window.__FL__._snap());
     check("mobile: touch layer active + world renders", mBody && mSnap.distinct > 12 && mSnap.stdev > 8, `body=${mBody} distinct=${mSnap.distinct}`);
-    // a full mini-loop on mobile: till a tile, plant, tank drains on water
-    await m.page.evaluate(() => { window.__FL__.farm.setFastGrow(true); const s = window.__FL__.farm.state(); for (const k of Object.keys(s.tiles)) delete s.tiles[k]; window.__FL__.farm.setCoins(200); });
-    await m.page.evaluate(() => { window.__FL__.farm.equip("hoe"); window.__FL__.farm.teleport(-7, 3.4); window.__FL__.farm.setHeading(0); });
+    // a mini free-form loop on mobile: till a patch at a point
+    await m.page.evaluate(() => { window.__FL__.farm.setFastGrow(true); window.__FL__.farm.clearFarm(); window.__FL__.farm.setCoins(200); });
+    await m.page.evaluate(() => { window.__FL__.farm.equip("hoe"); window.__FL__.farm.teleport(-7, 3.8); window.__FL__.farm.setHeading(0); });
     await sleep(150);
     await m.page.evaluate(() => window.__FL__.farm.action());
-    await sleep(120);
-    const mTilled = await m.page.evaluate(() => window.__FL__.farm.tileAt(5, 5));
-    check("mobile: till works", mTilled.present && mTilled.tilled, JSON.stringify(mTilled));
+    await sleep(150);
+    const mTilled = await m.page.evaluate(() => ({ n: window.__FL__.farm.patchCount(), covered: window.__FL__.farm.patchCoverageAt(-7, 5) > 0 }));
+    check("mobile: free-form till works", mTilled.n === 1 && mTilled.covered, JSON.stringify(mTilled));
     await m.page.screenshot({ path: path.join(SHOTS, "farmlife-2d-r2-mobile.png") });
     check("0 pageerrors (mobile)", m.errors.length === 0, m.errors.slice(0, 4).join(" | "));
     await m.page.close();

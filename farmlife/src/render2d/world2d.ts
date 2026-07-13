@@ -15,6 +15,7 @@
 
 import { MAP_HALF, FIELD, POND, DEFAULT_PATH_PTS, EDGE, isInField } from "../world/terrainConst";
 import { PASTURE, BARN, DOOR, SILO, GATE } from "../farm/pasture";
+import { BUILDINGS } from "../farm/plots";
 import { addCircle, addBox, addSegment } from "../world/collision";
 import { PPM, MAP_PX, worldToMap } from "./coords";
 import { G, PATH, POND_COL } from "./palette";
@@ -183,8 +184,6 @@ function buildPastureFenceRuns(): FenceRun[] {
 function registerColliders(trees: TreeSpot[], rocks: TreeSpot[], fieldFence: FenceRun[], pastureFence: FenceRun[]): void {
   // pond (matches scenery: POND.r + 0.6)
   addCircle(POND.cx, POND.cz, POND.r + 0.6);
-  // farmhouse box (8×6)
-  addBox(HOUSE_POS.x, HOUSE_POS.z, 4, 3);
   // trees + rocks
   for (const t of trees) addCircle(t.x, t.z, 0.5 * [0.85, 1.05, 1.35][t.size]);
   for (const r of rocks) addCircle(r.x, r.z, 0.55 * [0.5, 0.75, 1.0][r.size]);
@@ -192,8 +191,11 @@ function registerColliders(trees: TreeSpot[], rocks: TreeSpot[], fieldFence: Fen
   for (const r of fieldFence) addSegment(r.x1, r.z1, r.x2, r.z2, 0.28);
   // pasture fence rails (gate gap already excluded)
   for (const r of pastureFence) addSegment(r.x1, r.z1, r.x2, r.z2, 0.22);
-  // silo
-  addCircle(SILO.x, SILO.z, SILO.r);
+  // SOLID BUILDINGS (R5, Stardew rule): each footprint expands to its full visual
+  // base (farmhouse/silo/bin/stand) so a player can never walk behind + vanish.
+  // Door approaches + shop/sell proximity stay clear (south side). The BARN is
+  // deliberately NOT here — its cutaway + door gap + pasture routing are kept.
+  for (const b of BUILDINGS) addBox((b.minX + b.maxX) / 2, (b.minZ + b.maxZ) / 2, (b.maxX - b.minX) / 2, (b.maxZ - b.minZ) / 2);
   // barn walls (5 segments, DOOR opening left open for the player — pasture.ts)
   const wt = 0.3 * 0.6;
   addSegment(BARN.minX, BARN.maxZ, BARN.maxX, BARN.maxZ, wt); // north
@@ -201,9 +203,6 @@ function registerColliders(trees: TreeSpot[], rocks: TreeSpot[], fieldFence: Fen
   addSegment(BARN.maxX, BARN.minZ, BARN.maxX, BARN.maxZ, wt); // east
   addSegment(BARN.minX, BARN.minZ, DOOR.x0, BARN.minZ, wt); // south-left
   addSegment(DOOR.x1, BARN.minZ, BARN.maxX, BARN.minZ, wt); // south-right
-  // stations
-  addBox(BIN_POS.x, BIN_POS.z, 0.9, 0.7);
-  addBox(STAND_POS.x, STAND_POS.z, 1.0, 0.8);
 }
 
 // ---------------------------------------------------------------------------
@@ -300,7 +299,6 @@ function toRgb(hex: string): [number, number, number] {
 }
 const C_PATH = [toRgb(PATH.base), toRgb(PATH.dk), toRgb(PATH.lt)];
 const C_PATH_PEB = toRgb(PATH.pebl);
-const C_SOIL = [toRgb("#9c7a52"), toRgb("#8a6642"), toRgb("#ab8a5f")];
 const C_SAND_DRY = [toRgb("#cabd94"), toRgb("#bcab7e")];
 const C_SAND_WET = toRgb("#a98f63");
 const C_TUFT = toRgb(G.tuftl);
@@ -338,10 +336,13 @@ function pathDist(wx: number, wz: number): number {
 }
 
 interface Cov {
-  kind: "path" | "soil" | "sand";
+  kind: "path" | "sand";
   solid: number;
 }
-/** PURE. Non-grass terrain coverage at a world point (null = pure grass). */
+/** PURE. Non-grass terrain coverage at a world point (null = pure grass). R5:
+ * the farming FIELD is no longer baked as dirt — it's grass now (free-form
+ * tilling digs organic patches on top), so only the pond rim, the worn barn-door
+ * fan, and the dirt paths remain baked into the static map. */
 function terrainCoverage(wx: number, wz: number): Cov | null {
   // pond sand rim (water↔grass, wet at the waterline) — water body drawn separately
   const dPond = Math.hypot(wx - POND.cx, wz - POND.cz);
@@ -350,9 +351,6 @@ function terrainCoverage(wx: number, wz: number): Cov | null {
   // worn dirt fan at the barn door (grazing side) — trivial pasture add
   const dBarn = Math.hypot(wx - (DOOR.x0 + DOOR.x1) / 2, wz - (BARN.minZ - 1.5));
   if (dBarn < 4.6) return { kind: "path", solid: 1 - smooth01(dBarn - 1.4, 3.2) };
-  // field soil (untilled dirt plot) — solid inside, dithered outer edge
-  const edge = Math.max(Math.abs(wx - FIELD.cx), Math.abs(wz - FIELD.cz)) - FIELD.half;
-  if (edge < 1.9) return { kind: "soil", solid: 1 - smooth01(edge, 1.9) };
   // dirt path
   const dp = pathDist(wx, wz);
   if (dp < PATH_CORE + PATH_FEATHER) return { kind: "path", solid: 1 - smooth01(dp - PATH_CORE, PATH_FEATHER) };
@@ -361,7 +359,6 @@ function terrainCoverage(wx: number, wz: number): Cov | null {
 
 function pickColor(kind: Cov["kind"], h: number, solid: number): [number, number, number] {
   if (kind === "path") return h < 0.14 ? C_PATH_PEB : h < 0.34 ? C_PATH[1] : h < 0.5 ? C_PATH[2] : C_PATH[0];
-  if (kind === "soil") return h < 0.42 ? C_SOIL[1] : h < 0.72 ? C_SOIL[0] : C_SOIL[2];
   return solid > 0.74 ? C_SAND_WET : h < 0.5 ? C_SAND_DRY[0] : C_SAND_DRY[1]; // sand (wet near the waterline)
 }
 

@@ -23,9 +23,20 @@ import {
   diffDecor,
   buildMetaFromDocs,
   emptyMetaState,
+  REGION_WORLD_M,
+  regionKeyForWorldPos,
+  toWirePlant,
+  fromWirePlant,
+  toWirePatch,
+  fromWirePatch,
+  diffPlants,
+  diffPatches,
+  collectLegacyTiles,
+  freeformMigrated,
   type RawDoc,
 } from "./sync";
 import type { DecorRecord } from "../world/decorConst";
+import type { Plant, TilledPatch } from "../farm/plots";
 import { defaultFarmState, type FarmState, type TileRecord } from "../farm/store";
 
 describe("region/tile key math", () => {
@@ -190,8 +201,12 @@ describe("buildFarmStateFromDocs / collectionIsEmpty", () => {
       { id: "world", data: { data: "default" } },
     ];
     const state = buildFarmStateFromDocs(docs, "player_Eleanor");
-    expect(Object.keys(state.tiles).sort()).toEqual(["t_1_1", "t_20_2"]);
-    expect(state.tiles.t_1_1.crop).toBe("turnip");
+    // R5: legacy `t_` tiles convert IN MEMORY to free-form plants/patches with
+    // deterministic migration ids; state.tiles stays empty (never surfaced live).
+    expect(Object.keys(state.tiles)).toEqual([]);
+    expect(Object.keys(state.patches).sort()).toEqual(["tp_mig_1_1", "tp_mig_20_2"]);
+    expect(state.plants.p_mig_1_1.crop).toBe("turnip"); // planted tile → a plant
+    expect(state.plants.p_mig_20_2).toBeUndefined(); // bare tilled tile → patch only
     expect(state.coins).toBe(40);
     expect(state.seeds.turnip).toBe(2);
   });
@@ -331,5 +346,92 @@ describe("meta doc", () => {
 
   it("buildMetaFromDocs returns an empty state when the meta doc is absent", () => {
     expect(buildMetaFromDocs([])).toEqual(emptyMetaState());
+  });
+});
+
+// ---- R5: free-form plants + patches wire -----------------------------------
+describe("free-form region-by-world-pos key math", () => {
+  it("buckets metres into region docs (REGION_WORLD_M = 32)", () => {
+    expect(REGION_WORLD_M).toBe(32);
+    expect(regionKeyForWorldPos(0, 0)).toBe("region_0_0");
+    expect(regionKeyForWorldPos(5, 5)).toBe("region_0_0"); // 5/32 → 0
+    expect(regionKeyForWorldPos(40, 3)).toBe("region_1_0"); // 40/32 → 1
+    expect(regionKeyForWorldPos(-17, 6)).toBe("region_-1_0"); // floor(-17/32) = -1
+  });
+});
+
+describe("plant wire (de)serialization", () => {
+  const p: Plant = { id: "p_abc12", x: 3.5, z: -2.25, crop: "corn", plantedAt: 100, accruedMs: 50, lastWatered: 120, waterings: 2 };
+  it("toWirePlant omits the id (it's the field key); fromWirePlant round-trips", () => {
+    const wire = toWirePlant(p);
+    expect(wire).toEqual({ crop: "corn", x: 3.5, z: -2.25, plantedAt: 100, accruedMs: 50, lastWatered: 120, waterings: 2 });
+    expect(fromWirePlant("p_abc12", wire)).toEqual(p);
+  });
+  it("fromWirePlant is defensive (bad key / null / unknown crop → null)", () => {
+    expect(fromWirePlant("p_abc12", null)).toBeNull(); // a removed (null) field
+    expect(fromWirePlant("nope", toWirePlant(p))).toBeNull();
+    expect(fromWirePlant("p_x", { crop: "not-a-crop" })).toBeNull();
+    expect(fromWirePlant("p_x", { crop: "turnip" })).toMatchObject({ crop: "turnip", x: 0, z: 0, waterings: 0 });
+  });
+});
+
+describe("patch wire (de)serialization", () => {
+  const tp: TilledPatch = { id: "tp_abc12", x: 1, z: 2, r: 0.9 };
+  it("round-trips through fromWirePatch", () => {
+    expect(toWirePatch(tp)).toEqual({ x: 1, z: 2, r: 0.9 });
+    expect(fromWirePatch("tp_abc12", toWirePatch(tp))).toEqual(tp);
+  });
+  it("clamps r to PATCH_MAX_R and rejects r<=0 / bad key", () => {
+    expect(fromWirePatch("tp_x", { x: 0, z: 0, r: 99 })!.r).toBe(1.8);
+    expect(fromWirePatch("tp_x", { x: 0, z: 0, r: 0 })).toBeNull();
+    expect(fromWirePatch("bad", toWirePatch(tp))).toBeNull();
+  });
+});
+
+describe("diffPlants / diffPatches", () => {
+  const p = (id: string, x: number, watered: number): Plant => ({ id, x, z: 0, crop: "turnip", plantedAt: 0, accruedMs: 0, lastWatered: watered, waterings: 0 });
+  it("detects added / removed / watered plants, ignores unchanged", () => {
+    expect(diffPlants({}, { a: p("a", 0, 0) })).toEqual(["a"]); // added
+    expect(diffPlants({ a: p("a", 0, 0) }, {})).toEqual(["a"]); // removed (harvested)
+    expect(diffPlants({ a: p("a", 0, 0) }, { a: p("a", 0, 500) })).toEqual(["a"]); // watered
+    expect(diffPlants({ a: p("a", 0, 0) }, { a: p("a", 0, 0) })).toEqual([]);
+  });
+  it("detects patch add / grow, ignores unchanged", () => {
+    const tp = (id: string, r: number): TilledPatch => ({ id, x: 0, z: 0, r });
+    expect(diffPatches({}, { a: tp("a", 0.9) })).toEqual(["a"]);
+    expect(diffPatches({ a: tp("a", 0.9) }, { a: tp("a", 1.2) })).toEqual(["a"]); // grown
+    expect(diffPatches({ a: tp("a", 0.9) }, { a: tp("a", 0.9) })).toEqual([]);
+  });
+});
+
+describe("cloud migration helpers", () => {
+  it("collectLegacyTiles gathers every t_ field across region docs", () => {
+    const docs: RawDoc[] = [
+      { id: "region_0_0", data: { t_1_1: { crop: "turnip", plantedAt: 1, accruedMs: 0, lastWatered: 1 }, p_x: { crop: "corn", x: 0, z: 0 } } },
+      { id: "region_1_0", data: { t_20_2: {} } },
+      { id: "meta", data: {} },
+    ];
+    const tiles = collectLegacyTiles(docs);
+    expect(Object.keys(tiles).sort()).toEqual(["t_1_1", "t_20_2"]);
+    expect(tiles.t_1_1.crop).toBe("turnip");
+  });
+  it("freeformMigrated reads the marker on region_0_0", () => {
+    expect(freeformMigrated([{ id: "region_0_0", data: { t_1_1: {} } }])).toBe(false);
+    expect(freeformMigrated([{ id: "region_0_0", data: { mig_freeform: 12345 } }])).toBe(true);
+  });
+});
+
+describe("buildFarmStateFromDocs reads free-form plants/patches", () => {
+  it("reads p_/tp_ fields and converts leftover legacy t_ (deterministic, no dup)", () => {
+    const docs: RawDoc[] = [
+      { id: "region_0_0", data: { p_live1: { crop: "corn", x: 2, z: 3, plantedAt: 0, accruedMs: 0, lastWatered: 0, waterings: 0 }, tp_live1: { x: 2, z: 3, r: 0.9 } } },
+      // a leftover legacy tile not yet migrated in Firestore → converted in memory
+      { id: "region_-1_0", data: { t_1_1: { crop: "turnip", plantedAt: 5, accruedMs: 0, lastWatered: 5 } } },
+    ];
+    const state = buildFarmStateFromDocs(docs, "player_Eleanor");
+    expect(Object.keys(state.plants).sort()).toEqual(["p_live1", "p_mig_1_1"]);
+    expect(Object.keys(state.patches).sort()).toEqual(["tp_live1", "tp_mig_1_1"]);
+    expect(state.plants.p_live1.crop).toBe("corn");
+    expect(Object.keys(state.tiles)).toEqual([]); // legacy never surfaced live
   });
 });

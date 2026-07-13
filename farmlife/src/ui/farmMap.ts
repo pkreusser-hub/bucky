@@ -27,11 +27,17 @@ export interface MapPlayerDot {
   name?: string;
 }
 
-export interface MapTileCell {
+/** A free-form plant on the map (dot; gold when ready). */
+export interface MapPlantDot {
   x: number;
   z: number;
-  size: number; // world metres, square footprint
-  state: "tilled" | "growing" | "thirsty" | "ready";
+  ready: boolean;
+}
+/** A tilled-soil patch (organic circle). */
+export interface MapPatchDot {
+  x: number;
+  z: number;
+  r: number;
 }
 
 export interface MapFenceLine {
@@ -55,7 +61,8 @@ export interface FarmMapSnapshot {
   decor: MapEmojiDot[]; // kid-placed decorations
   stations: MapEmojiDot[]; // seed stand / shipping bin / farmhouse
   doors?: MapEmojiDot[]; // enterable-building door markers (🚪)
-  tiles: MapTileCell[]; // farming field grid, per-tile state
+  plants: MapPlantDot[]; // free-form crops (dots; gold = ready)
+  patches?: MapPatchDot[]; // tilled-soil blobs
   animals: MapEmojiDot[];
   players: MapPlayerDot[];
   // husbandry rework: the fenced pasture, its gate, the barn footprint + door
@@ -66,13 +73,6 @@ export interface FarmMapSnapshot {
   doorOpen?: boolean;
   eggCount?: number;
 }
-
-const TILE_COLOR: Record<MapTileCell["state"], string> = {
-  tilled: "#7a5230",
-  growing: "#5f8a45",
-  thirsty: "#c9863a",
-  ready: "#ffd35a",
-};
 
 let bg: HTMLCanvasElement | null = null;
 let bgSig = "";
@@ -108,24 +108,13 @@ function buildBackground(size: number, proj: Proj, snap: FarmMapSnapshot): HTMLC
   ctx.lineWidth = Math.max(1.5, size * 0.003);
   ctx.stroke();
 
-  // field footprint (dirt plot the tile grid sits on)
+  // starter field footprint — a FAINT outline landmark only. It's grass now
+  // (free-form farming happens anywhere), so no dirt fill and no tile grid.
   const fA = worldToMap(snap.field.cx - snap.field.half, snap.field.cz - snap.field.half, proj);
   const fB = worldToMap(snap.field.cx + snap.field.half, snap.field.cz + snap.field.half, proj);
-  ctx.fillStyle = "#a9825a";
-  ctx.fillRect(fA.mx, fA.my, fB.mx - fA.mx, fB.my - fA.my);
-  ctx.strokeStyle = "#7a5a3a";
-  ctx.lineWidth = Math.max(1.5, size * 0.004);
+  ctx.strokeStyle = "rgba(74,110,52,.55)";
+  ctx.lineWidth = Math.max(1, size * 0.003);
   ctx.strokeRect(fA.mx, fA.my, fB.mx - fA.mx, fB.my - fA.my);
-  // faint 12x12 tile-grid inset so EMPTY plots read as a grid too
-  ctx.strokeStyle = "rgba(90,64,40,.35)";
-  ctx.lineWidth = 1;
-  const cells = 12;
-  for (let i = 1; i < cells; i++) {
-    const gx = fA.mx + ((fB.mx - fA.mx) * i) / cells;
-    const gz = fA.my + ((fB.my - fA.my) * i) / cells;
-    ctx.beginPath(); ctx.moveTo(gx, fA.my); ctx.lineTo(gx, fB.my); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(fA.mx, gz); ctx.lineTo(fB.mx, gz); ctx.stroke();
-  }
 
   // pasture fence (rectangle with a gate gap on the west edge) + barn footprint
   if (snap.pasture) {
@@ -196,14 +185,30 @@ export function drawFarmMap(ctx: CanvasRenderingContext2D, size: number, snap: F
   ctx.clearRect(0, 0, size, size);
   ctx.drawImage(bg, 0, 0);
 
-  // field tile grid states (live, redrawn every call)
-  for (const t of snap.tiles) {
-    const c = worldToMap(t.x, t.z, proj);
-    const px = worldLenToMap(t.size, proj) * 0.86;
-    const alpha = t.state === "ready" ? 0.65 + 0.35 * (0.5 + 0.5 * Math.sin(tSec * 4)) : 1;
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = TILE_COLOR[t.state];
-    ctx.fillRect(c.mx - px / 2, c.my - px / 2, px, px);
+  // tilled-soil patches (organic blobs, live)
+  if (snap.patches) {
+    ctx.fillStyle = "rgba(120,84,52,.85)";
+    for (const p of snap.patches) {
+      const c = worldToMap(p.x, p.z, proj);
+      ctx.beginPath();
+      ctx.arc(c.mx, c.my, Math.max(1, worldLenToMap(p.r, proj)), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  // free-form plants — dots, gold pulse when ready (live)
+  const dotR = Math.max(1.5, size * 0.006);
+  for (const p of snap.plants) {
+    const c = worldToMap(p.x, p.z, proj);
+    if (p.ready) {
+      ctx.globalAlpha = 0.7 + 0.3 * (0.5 + 0.5 * Math.sin(tSec * 4));
+      ctx.fillStyle = "#ffd35a";
+    } else {
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = "#5f8a45";
+    }
+    ctx.beginPath();
+    ctx.arc(c.mx, c.my, dotR, 0, Math.PI * 2);
+    ctx.fill();
     ctx.globalAlpha = 1;
   }
 

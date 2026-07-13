@@ -71,6 +71,7 @@ async function main() {
   suites.push(await runSuite("R2 — gameplay parity", "verify-2d-r2.cjs", []));
   suites.push(await runSuite("R3 — offline solo / touch / THREE-shed", "verify-2d-r3.cjs", ["--offline"]));
   suites.push(await runSuite("R4 — scale / interiors / auto-tile", "verify-2d-r4.cjs", []));
+  suites.push(await runSuite("R5 — fade / solid buildings / free-form", "verify-2d-r5.cjs", []));
 
   if (server) try { process.kill(server.pid); } catch (_) {}
 

@@ -3,6 +3,7 @@ import { TOOL_ORDER, type ToolId } from "./action";
 import { STARTER_HERD, sanitizeAnimal, starterHerd, PRODUCE_ORDER, type AnimalRecord, type ProduceId } from "./animals";
 import { isDecorType, type DecorRecord } from "../world/decorConst";
 import { defaultDoorState, type DoorState, type EggRecord } from "./pasture";
+import { migrateTilesToFreeform, PATCH_MAX_R, type Plant, type TilledPatch } from "./plots";
 // type-only import (erased at build) so there is no runtime store<->sync cycle.
 import { DEFAULT_FARM_NAME, type MetaState } from "../net/sync";
 
@@ -24,7 +25,13 @@ export interface TileRecord {
 }
 
 export interface FarmState {
-  tiles: Record<string, TileRecord>; // key = `t_<gx>_<gz>`
+  // FREE-FORM (R5): planting is no longer tile-keyed. `plants` + `patches` hold
+  // continuous-world records; `tiles` survives ONLY as a MIGRATION SOURCE and is
+  // cleared to {} once converted (sanitizeFarmState / the cloud migrate path), so
+  // the live game never reads it.
+  plants: Record<string, Plant>; // key = plant id (p_<…>)
+  patches: Record<string, TilledPatch>; // key = patch id (tp_<…>)
+  tiles: Record<string, TileRecord>; // legacy `t_<gx>_<gz>` — migration input only
   seeds: Record<CropId, number>;
   crops: Record<CropId, number>; // harvested, unsold inventory
   produce: Record<ProduceId, number>; // P4: collected milk/eggs, unsold inventory
@@ -38,6 +45,8 @@ const DEFAULT_TANK = 6;
 
 export function defaultFarmState(): FarmState {
   return {
+    plants: {},
+    patches: {},
     tiles: {},
     seeds: { turnip: 5, potato: 0, corn: 0, pumpkin: 0, strawberry: 0, carrot: 0, tomato: 0, sunflower: 0 },
     crops: { turnip: 0, potato: 0, corn: 0, pumpkin: 0, strawberry: 0, carrot: 0, tomato: 0, sunflower: 0 },
@@ -49,6 +58,36 @@ export function defaultFarmState(): FarmState {
   };
 }
 
+const PLANT_ID_RE = /^p_[a-z0-9_]+$/i;
+const PATCH_ID_RE = /^tp_[a-z0-9_]+$/i;
+const num = (x: unknown, d: number) => (typeof x === "number" && isFinite(x) ? x : d);
+
+/** Defensive parse of one persisted plant value (id from the key). */
+export function sanitizePlant(id: string, raw: unknown): Plant | null {
+  if (!PLANT_ID_RE.test(id) || !raw || typeof raw !== "object") return null;
+  const v = raw as Partial<Plant>;
+  if (!v.crop || !CROP_ORDER.includes(v.crop)) return null;
+  const plantedAt = num(v.plantedAt, 0);
+  return {
+    id,
+    x: num(v.x, 0),
+    z: num(v.z, 0),
+    crop: v.crop,
+    plantedAt,
+    accruedMs: num(v.accruedMs, 0),
+    lastWatered: num(v.lastWatered, plantedAt),
+    waterings: Math.max(0, Math.floor(num(v.waterings, 0))),
+  };
+}
+/** Defensive parse of one persisted tilled-patch value (id from the key). */
+export function sanitizePatch(id: string, raw: unknown): TilledPatch | null {
+  if (!PATCH_ID_RE.test(id) || !raw || typeof raw !== "object") return null;
+  const v = raw as Partial<TilledPatch>;
+  const r = num(v.r, 0);
+  if (r <= 0) return null;
+  return { id, x: num(v.x, 0), z: num(v.z, 0), r: Math.min(PATCH_MAX_R, r) };
+}
+
 /** Defensive merge over defaults — a corrupt/partial save can never brick the
  * game (herd-dup-hardening house convention: never trust raw storage). */
 export function sanitizeFarmState(raw: unknown): FarmState {
@@ -56,6 +95,22 @@ export function sanitizeFarmState(raw: unknown): FarmState {
   if (!raw || typeof raw !== "object") return out;
   const r = raw as Partial<FarmState>;
 
+  // free-form records (R5)
+  if (r.plants && typeof r.plants === "object") {
+    for (const [id, val] of Object.entries(r.plants as Record<string, unknown>)) {
+      const p = sanitizePlant(id, val);
+      if (p) out.plants[id] = p;
+    }
+  }
+  if (r.patches && typeof r.patches === "object") {
+    for (const [id, val] of Object.entries(r.patches as Record<string, unknown>)) {
+      const p = sanitizePatch(id, val);
+      if (p) out.patches[id] = p;
+    }
+  }
+
+  // LEGACY tile parse (needed only to feed the one-time migration below).
+  const legacyTiles: Record<string, TileRecord> = {};
   if (r.tiles && typeof r.tiles === "object") {
     for (const [key, val] of Object.entries(r.tiles as Record<string, unknown>)) {
       if (!/^t_\d+_\d+$/.test(key) || !val || typeof val !== "object") continue;
@@ -67,9 +122,19 @@ export function sanitizeFarmState(raw: unknown): FarmState {
         rec.accruedMs = typeof v.accruedMs === "number" ? v.accruedMs : 0;
         rec.lastWatered = typeof v.lastWatered === "number" ? v.lastWatered : rec.plantedAt;
       }
-      out.tiles[key] = rec;
+      legacyTiles[key] = rec;
     }
   }
+  // ONE-TIME MIGRATION: an old-shape save (legacy tiles, no free-form records)
+  // converts to plants + patches (deterministic ids). Once migrated the save
+  // persists in the new shape with tiles cleared, so this never re-runs; the
+  // deterministic ids make even a double-run idempotent (no dupes).
+  if (Object.keys(legacyTiles).length && !Object.keys(out.plants).length && !Object.keys(out.patches).length) {
+    const mig = migrateTilesToFreeform(legacyTiles);
+    out.plants = mig.plants;
+    out.patches = mig.patches;
+  }
+  out.tiles = {}; // never surface legacy tiles to the live game
   for (const id of CROP_ORDER) {
     const s = r.seeds && (r.seeds as Record<string, number>)[id];
     const c = r.crops && (r.crops as Record<string, number>)[id];

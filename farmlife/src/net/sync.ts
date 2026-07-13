@@ -11,6 +11,7 @@ import { defaultFarmState, type FarmState, type TileRecord } from "../farm/store
 import { STARTER_HERD, sanitizeAnimal, PRODUCE_ORDER, type AnimalRecord, type ProduceId } from "../farm/animals";
 import { isDecorType, type DecorRecord } from "../world/decorConst";
 import { defaultDoorState, type DoorState, type EggRecord } from "../farm/pasture";
+import { migrateTilesToFreeform, PATCH_MAX_R, type Plant, type TilledPatch } from "../farm/plots";
 
 /** Tiles are grouped into fixed regions so a doc stays far under Firestore's
  * 1MB cap even once the map grows well past today's 12x12 field (which fits
@@ -136,6 +137,106 @@ function tileEquals(a: TileRecord | undefined, b: TileRecord | undefined): boole
   );
 }
 
+// ---- FREE-FORM plants + patches <-> wire (R5) -------------------------------
+// Plants (`p_<id>`) and tilled patches (`tp_<id>`) ride the SAME region docs as
+// legacy tiles, but are keyed by their WORLD POSITION (they are continuous now,
+// not on the 12x12 grid). REGION_WORLD_M buckets metres into the same region_x_z
+// doc naming — a region spans REGION_SIZE tiles × 2 m = 32 m, so the family's
+// content sits in a handful of docs, each far under the 1 MB cap.
+export const REGION_WORLD_M = REGION_SIZE * 2;
+export const PLANT_KEY_RE = /^p_[a-z0-9_]+$/i;
+export const PATCH_KEY_RE = /^tp_[a-z0-9_]+$/i;
+
+/** Which region doc a free-form object at world (x,z) lives in. */
+export function regionKeyForWorldPos(x: number, z: number): string {
+  return `region_${Math.floor(x / REGION_WORLD_M)}_${Math.floor(z / REGION_WORLD_M)}`;
+}
+
+export function toWirePlant(p: Plant): Record<string, unknown> {
+  return { crop: p.crop, x: p.x, z: p.z, plantedAt: p.plantedAt, accruedMs: p.accruedMs, lastWatered: p.lastWatered, waterings: p.waterings };
+}
+/** Defensive parse of one plant field value (null = a removed field → null). */
+export function fromWirePlant(id: string, raw: unknown): Plant | null {
+  if (!PLANT_KEY_RE.test(id) || !raw || typeof raw !== "object") return null;
+  const v = raw as Partial<Plant>;
+  if (!v.crop || !(CROP_ORDER as string[]).includes(v.crop)) return null;
+  const n = (x: unknown, d: number) => (typeof x === "number" && isFinite(x) ? x : d);
+  const plantedAt = n(v.plantedAt, 0);
+  return {
+    id,
+    x: n(v.x, 0),
+    z: n(v.z, 0),
+    crop: v.crop,
+    plantedAt,
+    accruedMs: n(v.accruedMs, 0),
+    lastWatered: n(v.lastWatered, plantedAt),
+    waterings: Math.max(0, Math.floor(n(v.waterings, 0))),
+  };
+}
+
+export function toWirePatch(p: TilledPatch): Record<string, unknown> {
+  return { x: p.x, z: p.z, r: p.r };
+}
+export function fromWirePatch(id: string, raw: unknown): TilledPatch | null {
+  if (!PATCH_KEY_RE.test(id) || !raw || typeof raw !== "object") return null;
+  const v = raw as Partial<TilledPatch>;
+  const n = (x: unknown, d: number) => (typeof x === "number" && isFinite(x) ? x : d);
+  const r = n(v.r, 0);
+  if (r <= 0) return null;
+  return { id, x: n(v.x, 0), z: n(v.z, 0), r: Math.min(PATCH_MAX_R, r) };
+}
+
+/** PURE. Which plant ids differ (added/removed/moved/grown/watered) between two
+ * maps — diffTiles's role for the free-form write-batch + remote-apply. */
+export function diffPlants(prev: Record<string, Plant>, next: Record<string, Plant>): string[] {
+  const changed: string[] = [];
+  const ids = new Set<string>([...Object.keys(prev), ...Object.keys(next)]);
+  for (const id of ids) {
+    const a = prev[id];
+    const b = next[id];
+    if (a === b) continue;
+    if (a && b && a.crop === b.crop && a.x === b.x && a.z === b.z && a.plantedAt === b.plantedAt && a.accruedMs === b.accruedMs && a.lastWatered === b.lastWatered && a.waterings === b.waterings) continue;
+    changed.push(id);
+  }
+  return changed;
+}
+export function diffPatches(prev: Record<string, TilledPatch>, next: Record<string, TilledPatch>): string[] {
+  const changed: string[] = [];
+  const ids = new Set<string>([...Object.keys(prev), ...Object.keys(next)]);
+  for (const id of ids) {
+    const a = prev[id];
+    const b = next[id];
+    if (a === b) continue;
+    if (a && b && a.x === b.x && a.z === b.z && a.r === b.r) continue;
+    changed.push(id);
+  }
+  return changed;
+}
+
+/** The migration marker field written onto region_0_0 once legacy tiles have been
+ * converted to free-form objects (so the one-time cloud migration never re-runs). */
+export const FREEFORM_MIG_FIELD = "mig_freeform";
+export const FREEFORM_MIG_REGION = "region_0_0";
+
+/** Collect any legacy `t_<gx>_<gz>` fields still present across the region docs. */
+export function collectLegacyTiles(docs: RawDoc[]): Record<string, TileRecord> {
+  const tiles: Record<string, TileRecord> = {};
+  for (const d of docs) {
+    if (!isRegionDocId(d.id) || !d.data || typeof d.data !== "object") continue;
+    for (const [k, v] of Object.entries(d.data as Record<string, unknown>)) {
+      if (TILE_KEY_RE.test(k) && v && typeof v === "object") tiles[k] = fromWireTile(v);
+    }
+  }
+  return tiles;
+}
+
+/** True once the cloud has already run the tile→free-form migration (marker set). */
+export function freeformMigrated(docs: RawDoc[]): boolean {
+  const doc = docs.find((d) => d.id === FREEFORM_MIG_REGION);
+  const data = doc && doc.data && typeof doc.data === "object" ? (doc.data as Record<string, unknown>) : null;
+  return !!(data && data[FREEFORM_MIG_FIELD]);
+}
+
 // ---- player doc <-> wire -----------------------------------------------------
 
 export interface PlayerWire {
@@ -166,6 +267,8 @@ export function toWirePlayer(state: FarmState): PlayerWire {
  * defensive-merge posture as sanitizeFarmState. */
 export function applyWirePlayer(base: FarmState, raw: unknown): FarmState {
   const out: FarmState = {
+    plants: base.plants,
+    patches: base.patches,
     tiles: base.tiles,
     seeds: { ...base.seeds },
     crops: { ...base.crops },
@@ -258,7 +361,9 @@ export function extractPlayerFields(s: FarmState): LocalPlayerFields {
 export function mergeLocalDirty(
   fresh: FarmState,
   localPlayer: LocalPlayerFields | null,
-  localTiles: Record<string, TileRecord> | null
+  localTiles: Record<string, TileRecord> | null,
+  localPlants: Record<string, Plant | null> | null = null,
+  localPatches: Record<string, TilledPatch | null> | null = null
 ): FarmState {
   if (localPlayer) {
     fresh.coins = localPlayer.coins;
@@ -271,6 +376,19 @@ export function mergeLocalDirty(
   }
   if (localTiles) {
     for (const [k, rec] of Object.entries(localTiles)) fresh.tiles[k] = rec;
+  }
+  // free-form dirty guard (null = locally removed → don't let an echo resurrect it)
+  if (localPlants) {
+    for (const [id, rec] of Object.entries(localPlants)) {
+      if (rec === null) delete fresh.plants[id];
+      else fresh.plants[id] = rec;
+    }
+  }
+  if (localPatches) {
+    for (const [id, rec] of Object.entries(localPatches)) {
+      if (rec === null) delete fresh.patches[id];
+      else fresh.patches[id] = rec;
+    }
   }
   return fresh;
 }
@@ -289,16 +407,35 @@ export interface RawDoc {
 export function buildFarmStateFromDocs(docs: RawDoc[], myPlayerDocId: string): FarmState {
   let state = defaultFarmState();
   state.tiles = {};
+  state.plants = {};
+  state.patches = {};
+  const legacyTiles: Record<string, TileRecord> = {};
   for (const d of docs) {
     if (isRegionDocId(d.id)) {
       const data = (d.data && typeof d.data === "object" ? d.data : {}) as Record<string, unknown>;
       for (const [key, val] of Object.entries(data)) {
-        if (!TILE_KEY_RE.test(key)) continue;
-        state.tiles[key] = fromWireTile(val);
+        if (PLANT_KEY_RE.test(key)) {
+          const p = fromWirePlant(key, val);
+          if (p) state.plants[key] = p;
+        } else if (PATCH_KEY_RE.test(key)) {
+          const p = fromWirePatch(key, val);
+          if (p) state.patches[key] = p;
+        } else if (TILE_KEY_RE.test(key) && val && typeof val === "object") {
+          legacyTiles[key] = fromWireTile(val);
+        }
       }
     } else if (d.id === myPlayerDocId) {
       state = applyWirePlayer(state, d.data);
     }
+  }
+  // Legacy tiles that haven't been migrated in Firestore yet still render/act:
+  // convert them in memory with the SAME deterministic ids the migration WRITE
+  // uses, so the live state is identical before and after the migration persists
+  // (no flicker, no dupes — a p_/tp_ field already present always wins).
+  if (Object.keys(legacyTiles).length) {
+    const mig = migrateTilesToFreeform(legacyTiles);
+    for (const [id, rec] of Object.entries(mig.plants)) if (!state.plants[id]) state.plants[id] = rec;
+    for (const [id, rec] of Object.entries(mig.patches)) if (!state.patches[id]) state.patches[id] = rec;
   }
   return state;
 }
@@ -558,7 +695,7 @@ export function collectionIsEmpty(docs: RawDoc[]): boolean {
   for (const d of docs) {
     if (isRegionDocId(d.id)) {
       const data = d.data as Record<string, unknown> | null | undefined;
-      if (data && Object.keys(data).some((k) => TILE_KEY_RE.test(k))) return false;
+      if (data && Object.keys(data).some((k) => TILE_KEY_RE.test(k) || PLANT_KEY_RE.test(k) || PATCH_KEY_RE.test(k))) return false;
     } else if (isPlayerDocId(d.id)) {
       return false;
     }

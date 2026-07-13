@@ -178,12 +178,14 @@ async function main() {
     await sleep(200);
     const coreReg = await P(page, () => window.__FL__._region(16, 14, 6, 1));
     check("auto-tile: path core is solid dirt", cDirt(coreReg) >= 0.55 * coreReg.length, `dirt=${cDirt(coreReg)}/${coreReg.length}${pcore || ""}`);
-    // field OUTER edge is a DITHERED soil↔grass boundary (tree-free, unoccluded);
-    // a region straddling the edge holds BOTH soil (dirt) and grass px (dithered)
-    await P(page, () => window.__FL__.farm.teleport(-6, 25));
-    await sleep(200);
-    const edgeReg = await P(page, () => window.__FL__._region(-6, 17.5, 11, 1));
-    check("auto-tile: field/soil edge is DITHERED (both dirt+grass px in the band)", cDirt(edgeReg) >= 4 && cGrass(edgeReg) >= 4, `dirt=${cDirt(edgeReg)} grass=${cGrass(edgeReg)} of ${edgeReg.length}`);
+    // R5: the FIELD is grass now (no baked soil). Free-form TILLED PATCHES render
+    // as organic DITHERED soil blobs — till one on clear grass and sample across
+    // its edge: the band holds BOTH soil (dirt) and grass px (the dithered blob edge).
+    await P(page, () => { window.__FL__.farm.clearFarm(); window.__FL__.farm.addPatch(-6, 14, 1.4); window.__FL__.farm.teleport(-6, 24); });
+    await sleep(250);
+    const edgeReg = await P(page, () => window.__FL__._region(-6, 14, 14, 1)); // straddles the patch edge
+    check("auto-tile: tilled PATCH edge is DITHERED (both dirt+grass px in the blob band)", cDirt(edgeReg) >= 4 && cGrass(edgeReg) >= 4, `dirt=${cDirt(edgeReg)} grass=${cGrass(edgeReg)} of ${edgeReg.length}`);
+    await P(page, () => window.__FL__.farm.clearFarm());
     // open pasture grass (tree-free) reads green
     await P(page, () => window.__FL__.farm.teleport(26, 4));
     await sleep(200);
@@ -208,12 +210,21 @@ async function main() {
     await P(page, () => { window.__FL__.farm.teleport(16, -2); });
     await sleep(400);
     await page.screenshot({ path: path.join(SHOTS, "farmlife-2d-r4-paths.png") });
-    // hero: planted field + farmer + dusk light
+    // hero: free-form scattered garden + farmer + dusk light
     await P(page, () => {
       const FL = window.__FL__;
+      FL.farm.clearFarm();
       const crops = ["turnip", "potato", "corn", "pumpkin", "carrot", "tomato", "strawberry", "sunflower"];
-      let i = 0;
-      for (let gx = 3; gx <= 9; gx++) for (let gz = 3; gz <= 9; gz++) FL.farm.plantStage(gx, gz, crops[i++ % crops.length], (gx + gz) % 4);
+      let seed = 5, i = 0;
+      const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+      for (let c = 0; c < 9; c++) {
+        const cx = -13 + rnd() * 14, cz = 0 + rnd() * 13;
+        const n = 3 + Math.floor(rnd() * 3);
+        for (let k = 0; k < n; k++) {
+          const px = cx + (rnd() - 0.5) * 3, pz = cz + (rnd() - 0.5) * 3;
+          FL.farm.plantStageAt(px, pz, crops[i++ % crops.length], Math.floor(rnd() * 4));
+        }
+      }
       FL.farm.teleport(-6, 12); FL.farm.setHeading(Math.PI); FL.animals.setPhase("dusk"); FL.weather.applySky();
     });
     await sleep(600);

@@ -123,6 +123,20 @@ async function restDeleteCollection(collection) {
   for (const d of docs) await restDeleteDoc(collection, d.name.split("/").pop());
   return docs.length;
 }
+// encode a JS value → Firestore REST Value (inverse of decodeValue); used to
+// seed a LEGACY t_ tile directly for the one-time free-form migration test.
+function fsValue(v) {
+  if (typeof v === "number") return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
+  if (typeof v === "string") return { stringValue: v };
+  if (typeof v === "boolean") return { booleanValue: v };
+  if (v && typeof v === "object") { const f = {}; for (const [k, val] of Object.entries(v)) f[k] = fsValue(val); return { mapValue: { fields: f } }; }
+  return { nullValue: null };
+}
+async function restSetField(collection, id, fieldKey, obj) {
+  const url = `${REST_BASE}/${collection}/${id}?key=${API_KEY}&updateMask.fieldPaths=${encodeURIComponent(fieldKey)}`;
+  const res = await fetch(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fields: { [fieldKey]: fsValue(obj) } }) });
+  if (!res.ok) throw new Error(`setField ${collection}/${id}.${fieldKey}: HTTP ${res.status} ${await res.text()}`);
+}
 async function waitDoc(collection, id, pred, ms) {
   const t0 = Date.now();
   let last = null;
@@ -200,29 +214,34 @@ async function offlineSection(browser) {
   check("solo: 0 remote avatars", rc === 0, `remoteCount=${rc}`);
   const isCloud = await P(page, () => window.__FL__.net.isCloud());
   check("solo: farm store falls back to local (not cloud)", isCloud === false, `isCloud=${isCloud}`);
-  // core loop still works offline: walk + till
-  await P(page, () => { window.__FL__.farm.equip("hoe"); window.__FL__.farm.teleport(-7, 3.5); window.__FL__.farm.setHeading(0); });
+  // core loop still works offline: walk + free-form till
+  await P(page, () => { window.__FL__.farm.clearFarm(); window.__FL__.farm.equip("hoe"); window.__FL__.farm.teleport(-7, 3.8); window.__FL__.farm.setHeading(0); });
   await sleep(250);
-  const t0 = await P(page, () => window.__FL__.farm.tileAt(5, 5));
+  const p0 = await P(page, () => window.__FL__.farm.patchCount());
   await P(page, () => window.__FL__.farm.action());
-  await sleep(200);
-  const t1 = await P(page, () => window.__FL__.farm.tileAt(5, 5));
-  check("solo: farming loop works offline (E tills a tile)", !t0.present && t1.present && t1.tilled, `${JSON.stringify(t0)}→${JSON.stringify(t1)}`);
+  await sleep(250);
+  const p1c = await P(page, () => ({ n: window.__FL__.farm.patchCount(), covered: window.__FL__.farm.patchCoverageAt(-7, 5) > 0 }));
+  check("solo: farming loop works offline (E tills a free-form patch)", p0 === 0 && p1c.n === 1 && p1c.covered, `patches 0→${p1c.n} covered=${p1c.covered}`);
   // local emote renders (speech bubble path) without error
   await P(page, () => window.__FL__.presence.emote("wave"));
   await sleep(200);
   check("solo: local emote fires without error", true);
   check("solo: 0 pageerrors (desktop)", errors.length === 0, errors.join(" | "));
 
-  // --- hero screenshot: planted field + farmer + golden dusk light ---
+  // --- hero screenshot: free-form scattered garden + farmer + golden dusk light ---
   await P(page, () => {
     const FL = window.__FL__;
+    FL.farm.clearFarm();
     const crops = ["turnip", "potato", "corn", "pumpkin", "carrot", "tomato", "strawberry", "sunflower"];
-    let i = 0;
-    for (let gx = 3; gx <= 9; gx++) for (let gz = 3; gz <= 9; gz++) {
-      const c = crops[(i++) % crops.length];
-      const stage = ((gx + gz) % 4);
-      FL.farm.plantStage(gx, gz, c, stage);
+    let seed = 7, i = 0;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+    for (let c = 0; c < 9; c++) {
+      const cx = -13 + rnd() * 15, cz = 0 + rnd() * 13;
+      const n = 3 + Math.floor(rnd() * 3);
+      for (let k = 0; k < n; k++) {
+        const px = cx + (rnd() - 0.5) * 3, pz = cz + (rnd() - 0.5) * 3;
+        FL.farm.plantStageAt(px, pz, crops[i++ % crops.length], Math.floor(rnd() * 4));
+      }
     }
     FL.farm.teleport(-6, 12);
     FL.farm.setHeading(Math.PI);
@@ -270,13 +289,13 @@ async function offlineSection(browser) {
   check("mobile DRAG: player walks north (z decreased > 2m)", zBefore - zAfterDrag > 2, `dz=${(zBefore - zAfterDrag).toFixed(2)}`);
   check("mobile DRAG: releasing clears the stick (fwd back to 0)", inputAfterUp && Math.abs(inputAfterUp.fwd) < 0.001, JSON.stringify(inputAfterUp));
 
-  // TAP → acts on the faced tile, NO joystick engagement, player does not walk
-  await P(mp, () => { window.__FL__.farm.equip("hoe"); window.__FL__.farm.teleport(-7, 3.5); window.__FL__.farm.setHeading(0); });
+  // TAP → acts on the faced point, NO joystick engagement, player does not walk
+  await P(mp, () => { window.__FL__.farm.clearFarm(); window.__FL__.farm.equip("hoe"); window.__FL__.farm.teleport(-7, 3.8); window.__FL__.farm.setHeading(0); });
   await sleep(250);
-  const tapScreen = await P(mp, () => window.__FL__.farm.tileScreen(5, 5)); // tile the farmer faces
+  const tapScreen = await P(mp, () => window.__FL__.farm.worldScreen(-7, 5)); // the point the farmer faces
   const inLeftZone = tapScreen.sx < 0.55 * 390;
-  const tBeforeTap = await P(mp, () => window.__FL__.farm.tileAt(5, 5));
-  const posBeforeTap = await P(mp, () => ({ x: window.__FL__.player.x, z: window.__FL__.player.z }));
+  const tBeforeTap = await P(mp, () => window.__FL__.farm.patchCoverageAt(-7, 5) > 0);
+  const posBeforeTap = await P(mp, () => window.__FL__.farm.pos());
   await P(mp, (sx, sy) => {
     const sz = document.getElementById("fl-stickzone");
     sz.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 8, clientX: sx, clientY: sy, button: 0, bubbles: true }));
@@ -285,11 +304,11 @@ async function offlineSection(browser) {
   }, tapScreen.sx, tapScreen.sy);
   await sleep(300);
   const inputAfterTap = await P(mp, () => window.__FL__.touch.input());
-  const tAfterTap = await P(mp, () => window.__FL__.farm.tileAt(5, 5));
-  const posAfterTap = await P(mp, () => ({ x: window.__FL__.player.x, z: window.__FL__.player.z }));
+  const tAfterTap = await P(mp, () => window.__FL__.farm.patchCoverageAt(-7, 5) > 0);
+  const posAfterTap = await P(mp, () => window.__FL__.farm.pos());
   const walked = Math.hypot(posAfterTap.x - posBeforeTap.x, posAfterTap.z - posBeforeTap.z);
   check("mobile TAP: tap point lands in the left joystick zone (coexistence)", inLeftZone, `sx=${tapScreen.sx.toFixed(0)} < ${(0.55 * 390).toFixed(0)}`);
-  check("mobile TAP: quick low-travel tap acts on the tile (tilled), NOT a drag", !tBeforeTap.present && tAfterTap.present && tAfterTap.tilled, `${JSON.stringify(tBeforeTap)}→${JSON.stringify(tAfterTap)}`);
+  check("mobile TAP: quick low-travel tap tills a patch at the point, NOT a drag", !tBeforeTap && tAfterTap, `before=${tBeforeTap}→after=${tAfterTap}`);
   check("mobile TAP: tap did NOT engage the joystick (fwd/strafe stayed 0)", inputAfterTap && Math.abs(inputAfterTap.fwd) < 0.001 && Math.abs(inputAfterTap.strafe) < 0.001, JSON.stringify(inputAfterTap));
   check("mobile TAP: tap did not walk the player (< 0.5m)", walked < 0.5, `walked=${walked.toFixed(2)}`);
 
@@ -340,25 +359,23 @@ async function cloudSection(browser) {
   const aFields = animalsDoc ? Object.keys(animalsDoc.fields || {}).filter((k) => k.startsWith("a_")) : [];
   check("cloud: empty boot writes only animals+meta (no spurious region_*/player_* writes)", ids.length === 2 && ids[0] === "animals" && ids[1] === "meta" && aFields.length === 5, `docs=${JSON.stringify(ids)} a_=${aFields.length}`);
 
-  // (b) A tills + plants
-  await A.page.evaluate(() => window.__FL__.farm.equip("hoe"));
-  await faceTile(A.page, 6, 6);
-  await act(A.page);
-  await A.page.evaluate(() => window.__FL__.farm.equip("seeds"));
-  await faceTile(A.page, 6, 6);
-  await act(A.page);
+  // (b) A tills + plants FREE-FORM at world point (-7,5) → region_-1_0 (p_/tp_ fields)
+  await A.page.evaluate(() => { window.__FL__.farm.clearFarm(); window.__FL__.farm.tillAt(-7, 5); });
+  await sleep(400);
+  await A.page.evaluate(() => window.__FL__.farm.plantAt(-7, 5, "turnip"));
   await A.page.evaluate(() => window.__FL__.net.flush());
-  await sleep(300);
-  const region = await restGetDoc(`farmlife_${FAM}`, "region_0_0");
-  const wire = region && region["t_6_6"];
-  check("cloud: A's plant writes region_0_0.t_6_6 = turnip", wire && wire.crop === "turnip", JSON.stringify(wire));
+  await sleep(400);
+  const region = await restGetDoc(`farmlife_${FAM}`, "region_-1_0"); // floor(-7/32) = -1
+  const plantKey = region && Object.keys(region).find((k) => /^p_/.test(k) && region[k] && region[k].crop === "turnip");
+  const patchKey = region && Object.keys(region).find((k) => /^tp_/.test(k));
+  check("cloud: A's free-form plant writes a p_ field (turnip) + a tp_ patch field", !!plantKey && !!patchKey, `p=${plantKey} tp=${patchKey}`);
 
-  // (c) B sees it on boot
+  // (c) B sees the plant on boot at the SAME coords
   const B = await device("TesterB");
   const bReady = await waitCloud(B.page);
   check("cloud: device B store ready + active", bReady);
-  const bSees = await B.page.evaluate(() => window.__FL__.farm.tileAt(6, 6));
-  check("cloud: B sees A's planted turnip on boot (live shared world)", bSees && bSees.crop === "turnip", JSON.stringify(bSees));
+  const bSees = await B.page.evaluate(() => window.__FL__.farm.plantInfoAt(-7, 5));
+  check("cloud: B sees A's free-form turnip at the same point (live shared world)", bSees && bSees.present && bSees.crop === "turnip" && Math.abs(bSees.x + 7) < 0.2 && Math.abs(bSees.z - 5) < 0.2, JSON.stringify(bSees));
 
   // (d) per-player coins independent
   const aCoins0 = (await A.page.evaluate(() => window.__FL__.farm.state())).coins;
@@ -369,11 +386,40 @@ async function cloudSection(browser) {
   const bPlayer = await restGetDoc(`farmlife_${FAM}`, "player_TesterB");
   check("cloud: coins are per-player (B's coin change doesn't touch A)", aCoins1 === aCoins0, `A ${aCoins0}→${aCoins1}`);
   check("cloud: B has its own player doc", bPlayer && typeof bPlayer.coins === "number", JSON.stringify(bPlayer && { coins: bPlayer.coins }));
-
-  const errs = [...A.errors, ...B.errors].filter((e) => !/favicon|Failed to load resource/i.test(e));
-  check("cloud: 0 real pageerrors", errs.length === 0, errs.join(" | "));
   await A.ctx.close().catch(() => {});
   await B.ctx.close().catch(() => {});
+
+  // (e) ONE-TIME tile → free-form MIGRATION across two devices. Seed a LEGACY t_
+  // tile directly into Firestore, then boot a fresh device: it converts to a
+  // free-form plant/patch (deterministic ids), clears the legacy field + sets the
+  // marker; a SECOND device must NOT re-migrate (no duplicate — the signature
+  // incident class). Tile (3,3) centre = world (-11,1) → plant region_-1_0.
+  await restDeleteCollection(`farmlife_${FAM}`);
+  await restSetField(`farmlife_${FAM}`, "region_0_0", "t_3_3", { crop: "turnip", plantedAt: 0, accruedMs: 0, lastWatered: 0 });
+  const C = await device("TesterC");
+  await waitCloud(C.page);
+  await sleep(3000); // let load + migrateTiles() land
+  const cPlants = await C.page.evaluate(() => window.__FL__.farm.plants());
+  const cMig = Object.values(cPlants).find((p) => p.crop === "turnip");
+  check("cloud migration: legacy t_ tile → a free-form plant (deterministic id p_mig_3_3)", !!cMig && cMig.id === "p_mig_3_3", JSON.stringify(cMig && { id: cMig.id, x: cMig.x, z: cMig.z }));
+  const r00 = await restGetDoc(`farmlife_${FAM}`, "region_0_0");
+  const legacyLeft = r00 && Object.keys(r00).some((k) => /^t_\d+_\d+$/.test(k) && r00[k] != null);
+  const marker = r00 && r00.mig_freeform;
+  check("cloud migration: legacy t_ cleared + marker set (runs once)", !legacyLeft && !!marker, `legacy=${legacyLeft} marker=${!!marker}`);
+  const rMig = await restGetDoc(`farmlife_${FAM}`, "region_-1_0");
+  const migFields = rMig ? Object.keys(rMig) : [];
+  check("cloud migration: p_mig_3_3 + tp_mig_3_3 written to the world-pos region", migFields.includes("p_mig_3_3") && migFields.includes("tp_mig_3_3"), JSON.stringify(migFields));
+  // a SECOND device: no re-migration → still exactly one plant (no duplicate)
+  const D = await device("TesterD");
+  await waitCloud(D.page);
+  await sleep(2000);
+  const dCount = await D.page.evaluate(() => window.__FL__.farm.plantCount());
+  check("cloud migration: a second device does NOT re-migrate (no duplicate plant)", dCount === 1, `plants=${dCount}`);
+
+  const errs = [...A.errors, ...B.errors, ...C.errors, ...D.errors].filter((e) => !/favicon|Failed to load resource/i.test(e));
+  check("cloud: 0 real pageerrors", errs.length === 0, errs.join(" | "));
+  await C.ctx.close().catch(() => {});
+  await D.ctx.close().catch(() => {});
 }
 
 // =====================================================================
@@ -438,16 +484,12 @@ async function mpSection() {
   // tinted puppet
   check("MP: A's remote puppet carries a shirt TINT (valid hex, not default)", st && /^#[0-9a-f]{6}$/i.test(st.color || ""), JSON.stringify(st && { color: st.color, name: st.name }));
 
-  // A equips + uses the hoe → B sees the tool + a swing replay
-  await A.page.evaluate(() => {
-    const g = { gx: 6, gz: 6 }; const ORIGIN_X = -6 - 12, ORIGIN_Z = 6 - 12, TILE = 2;
-    const x = ORIGIN_X + TILE * (g.gx + 0.5), z = ORIGIN_Z + TILE * (g.gz + 0.5);
-    window.__FL__.farm.teleport(x, z - 1.6); window.__FL__.farm.setHeading(0); window.__FL__.farm.equip("hoe");
-  });
+  // A equips + uses the hoe (free-form till) → B sees the tool + a swing replay
+  await A.page.evaluate(() => { window.__FL__.farm.clearFarm(); window.__FL__.farm.teleport(-7, 3.8); window.__FL__.farm.setHeading(0); window.__FL__.farm.equip("hoe"); });
   await sleep(900);
   const toolOnB = await B.page.evaluate((id) => { const s = window.__FL__.presence.remoteState(id); return s && s.tool; }, idA);
   check("MP: B sees A's equipped hoe (tool display synced)", toolOnB === "hoe", `tool=${toolOnB}`);
-  await A.page.evaluate(() => window.__FL__.farm.action()); // till → emitAnim("hoe")
+  await A.page.evaluate(() => window.__FL__.farm.action()); // free-form till → emitAnim("hoe")
   let sawSwing = false;
   try {
     await B.page.waitForFunction((id) => { const s = window.__FL__.presence.remoteState(id); return s && s.acting === true; }, { timeout: 4000, polling: 30 }, idA);

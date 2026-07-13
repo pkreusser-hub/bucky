@@ -24,8 +24,18 @@ import {
   buildFarmStateFromDocs,
   collectionIsEmpty,
   diffTiles,
+  diffPlants,
+  diffPatches,
+  toWireTile,
+  toWirePlant,
+  toWirePatch,
+  regionKeyForWorldPos,
+  regionKeyForTileKey,
+  collectLegacyTiles,
+  freeformMigrated,
+  FREEFORM_MIG_FIELD,
+  FREEFORM_MIG_REGION,
   extractPlayerFields,
-  groupTileWritesByRegion,
   mergeLocalDirty,
   playerDocId,
   toWirePlayer,
@@ -54,6 +64,7 @@ import {
 import { currentPlayerName } from "../net/firebase";
 import { defaultFarmState, type FarmState, type FarmStore, type TileRecord, type AnimalStore, type DecorStore, type MetaStore, type BarnStore, type BarnData } from "./store";
 import { CROP_ORDER } from "./growth";
+import { migrateTilesToFreeform, type Plant, type TilledPatch } from "./plots";
 import { starterHerd, type AnimalRecord } from "./animals";
 import type { DecorRecord } from "../world/decorConst";
 import type { DoorState, EggRecord } from "./pasture";
@@ -79,8 +90,15 @@ export class CloudFarmStore implements LiveFarmStore {
   private session: FarmlifeSession;
   private latestState: FarmState = defaultFarmState();
   private lastSentTiles: Record<string, TileRecord> = {};
+  private lastSentPlants: Record<string, Plant> = {};
+  private lastSentPatches: Record<string, TilledPatch> = {};
   private lastSentPlayerSig: string | null = null;
   private pendingTiles: Record<string, TileRecord> = {};
+  // free-form region writes: id -> {value (null = removed), region doc it lives in}
+  private pendingPlants: Record<string, { v: Plant | null; region: string }> = {};
+  private pendingPatches: Record<string, { v: TilledPatch | null; region: string }> = {};
+  private dirtyPlants: Record<string, Plant | null> = {};
+  private dirtyPatches: Record<string, TilledPatch | null> = {};
   private tileTimer: number | null = null;
   private pendingPlayerState: FarmState | null = null;
   private playerTimer: number | null = null;
@@ -138,7 +156,9 @@ export class CloudFarmStore implements LiveFarmStore {
     return mergeLocalDirty(
       fresh,
       this.isPlayerDirty() ? this.localPlayer : null,
-      dirtyTileKeys.length ? this.dirtyTiles : null
+      dirtyTileKeys.length ? this.dirtyTiles : null,
+      Object.keys(this.dirtyPlants).length ? this.dirtyPlants : null,
+      Object.keys(this.dirtyPatches).length ? this.dirtyPatches : null
     );
   }
 
@@ -152,6 +172,8 @@ export class CloudFarmStore implements LiveFarmStore {
 
   private markSentBaseline(state: FarmState): void {
     this.lastSentTiles = { ...state.tiles };
+    this.lastSentPlants = { ...state.plants };
+    this.lastSentPatches = { ...state.patches };
     this.lastSentPlayerSig = JSON.stringify(toWirePlayer(state));
   }
 
@@ -162,28 +184,77 @@ export class CloudFarmStore implements LiveFarmStore {
   async migrateFromLocal(local: FarmState | null): Promise<boolean> {
     if (this.session.offline || !local) return false;
     if (!this.isEmptyOnServer()) return false;
-    const hasTiles = Object.keys(local.tiles).length > 0;
+    // `local` is already sanitized to the free-form shape (sanitizeFarmState
+    // migrates legacy tiles → plants/patches), so upload those, not tiles.
+    const hasContent = Object.keys(local.plants).length > 0 || Object.keys(local.patches).length > 0;
     const def = defaultFarmState();
     const hasProgress =
-      hasTiles ||
+      hasContent ||
       local.coins !== def.coins ||
       local.tank !== def.tank ||
       CROP_ORDER.some((id) => local.crops[id] !== def.crops[id] || local.seeds[id] !== def.seeds[id]);
     if (!hasProgress) return false;
 
-    const groups = groupTileWritesByRegion(local.tiles, Object.keys(local.tiles));
-    for (const [region, patch] of groups) {
-      await this.session.write(region, patch);
-    }
+    const groups = new Map<string, Record<string, unknown>>();
+    const add = (region: string, key: string, val: unknown) => {
+      let g = groups.get(region);
+      if (!g) {
+        g = {};
+        groups.set(region, g);
+      }
+      g[key] = val;
+    };
+    for (const [id, p] of Object.entries(local.plants)) add(regionKeyForWorldPos(p.x, p.z), id, toWirePlant(p));
+    for (const [id, p] of Object.entries(local.patches)) add(regionKeyForWorldPos(p.x, p.z), id, toWirePatch(p));
+    if (hasContent) add(FREEFORM_MIG_REGION, FREEFORM_MIG_FIELD, Date.now()); // already free-form
+    for (const [region, patch] of groups) await this.session.write(region, patch);
     await this.session.write(this.myDocId, toWirePlayer(local) as unknown as Record<string, unknown>);
     this.latestState = local;
     this.markSentBaseline(local);
     return true;
   }
 
+  /** One-time conversion of PRE-EXISTING cloud legacy tiles (`t_<gx>_<gz>`) into
+   * free-form plants + patches. Idempotent (deterministic ids + the marker on
+   * region_0_0), serverConfirmed-gated (call after `ready`). Writes p_/tp_, clears
+   * the t_ fields, and sets the marker. Returns true if it migrated anything. */
+  async migrateTiles(): Promise<boolean> {
+    if (this.session.offline) return false;
+    await this.ready;
+    const docs = this.session.docs();
+    if (freeformMigrated(docs)) return false;
+    const legacy = collectLegacyTiles(docs);
+    if (!Object.keys(legacy).length) return false; // fresh/already-free-form farm
+
+    const { plants, patches } = migrateTilesToFreeform(legacy);
+    const groups = new Map<string, Record<string, unknown>>();
+    const add = (region: string, key: string, val: unknown) => {
+      let g = groups.get(region);
+      if (!g) {
+        g = {};
+        groups.set(region, g);
+      }
+      g[key] = val;
+    };
+    for (const [id, p] of Object.entries(plants)) add(regionKeyForWorldPos(p.x, p.z), id, toWirePlant(p));
+    for (const [id, p] of Object.entries(patches)) add(regionKeyForWorldPos(p.x, p.z), id, toWirePatch(p));
+    for (const key of Object.keys(legacy)) {
+      const region = regionKeyForTileKey(key);
+      if (region) add(region, key, null); // clear the legacy tile field
+    }
+    add(FREEFORM_MIG_REGION, FREEFORM_MIG_FIELD, Date.now()); // exactly-once marker
+    for (const [region, patch] of groups) await this.session.write(region, patch);
+    for (const [id, p] of Object.entries(plants)) this.lastSentPlants[id] = p;
+    for (const [id, p] of Object.entries(patches)) this.lastSentPatches[id] = p;
+    for (const key of Object.keys(legacy)) delete this.lastSentTiles[key];
+    this.latestState = this.buildLatest();
+    return true;
+  }
+
   save(state: FarmState): void {
     if (this.session.offline) return;
 
+    let regionDirty = false;
     const changedTiles = diffTiles(this.lastSentTiles, state.tiles);
     if (changedTiles.length) {
       for (const k of changedTiles) {
@@ -194,9 +265,29 @@ export class CloudFarmStore implements LiveFarmStore {
         this.pendingTiles[k] = rec;
         this.dirtyTiles[k] = rec;
       }
-      if (this.tileTimer == null) {
-        this.tileTimer = window.setTimeout(() => this.flushTiles(), TILE_DEBOUNCE_MS);
-      }
+      regionDirty = true;
+    }
+    // FREE-FORM (R5): plants + patches ride the same region docs (keyed by world
+    // pos). A removed object queues a null field write — its region comes from the
+    // last-sent coords (a removal has no current record to read them from).
+    for (const id of diffPlants(this.lastSentPlants, state.plants)) {
+      const cur = state.plants[id];
+      const region = cur ? regionKeyForWorldPos(cur.x, cur.z) : regionKeyForWorldPos(this.lastSentPlants[id].x, this.lastSentPlants[id].z);
+      const v = cur ? { ...cur } : null;
+      this.pendingPlants[id] = { v, region };
+      this.dirtyPlants[id] = v;
+      regionDirty = true;
+    }
+    for (const id of diffPatches(this.lastSentPatches, state.patches)) {
+      const cur = state.patches[id];
+      const region = cur ? regionKeyForWorldPos(cur.x, cur.z) : regionKeyForWorldPos(this.lastSentPatches[id].x, this.lastSentPatches[id].z);
+      const v = cur ? { ...cur } : null;
+      this.pendingPatches[id] = { v, region };
+      this.dirtyPatches[id] = v;
+      regionDirty = true;
+    }
+    if (regionDirty && this.tileTimer == null) {
+      this.tileTimer = window.setTimeout(() => this.flushTiles(), TILE_DEBOUNCE_MS);
     }
 
     const sig = JSON.stringify(toWirePlayer(state));
@@ -214,21 +305,50 @@ export class CloudFarmStore implements LiveFarmStore {
 
   private flushTiles(): Promise<void> {
     this.tileTimer = null;
-    const pending = this.pendingTiles;
+    const tiles = this.pendingTiles;
+    const plants = this.pendingPlants;
+    const patches = this.pendingPatches;
     this.pendingTiles = {};
-    const keys = Object.keys(pending);
-    if (!keys.length) return Promise.resolve();
-    const groups = groupTileWritesByRegion(pending, keys);
+    this.pendingPlants = {};
+    this.pendingPatches = {};
+    const tileKeys = Object.keys(tiles);
+    const plantIds = Object.keys(plants);
+    const patchIds = Object.keys(patches);
+    if (!tileKeys.length && !plantIds.length && !patchIds.length) return Promise.resolve();
+
+    // one merged patch per region doc (tiles by tile-coord region, plants/patches
+    // by their world-pos region); a null field value clears (removes) that field.
+    const groups = new Map<string, Record<string, unknown>>();
+    const add = (region: string | null, key: string, val: unknown) => {
+      if (!region) return;
+      let g = groups.get(region);
+      if (!g) {
+        g = {};
+        groups.set(region, g);
+      }
+      g[key] = val;
+    };
+    for (const k of tileKeys) add(regionKeyForTileKey(k), k, toWireTile(tiles[k]));
+    for (const id of plantIds) add(plants[id].region, id, plants[id].v ? toWirePlant(plants[id].v!) : null);
+    for (const id of patchIds) add(patches[id].region, id, patches[id].v ? toWirePatch(patches[id].v!) : null);
+
     const writes: Promise<void>[] = [];
     for (const [region, patch] of groups) writes.push(this.session.write(region, patch));
-    for (const k of keys) this.lastSentTiles[k] = pending[k];
+    for (const k of tileKeys) this.lastSentTiles[k] = tiles[k];
+    for (const id of plantIds) {
+      if (plants[id].v) this.lastSentPlants[id] = plants[id].v!;
+      else delete this.lastSentPlants[id];
+    }
+    for (const id of patchIds) {
+      if (patches[id].v) this.lastSentPatches[id] = patches[id].v!;
+      else delete this.lastSentPatches[id];
+    }
     return Promise.all(writes).then(() => {
-      // Write acknowledged: release protection for these tiles UNLESS a newer
-      // save re-dirtied the key with a different record (reference inequality
-      // means superseded — keep protecting the newer intended value).
-      for (const k of keys) {
-        if (this.dirtyTiles[k] === pending[k]) delete this.dirtyTiles[k];
-      }
+      // Write acknowledged: release protection UNLESS a newer save re-dirtied the
+      // key with a different record (reference inequality = superseded).
+      for (const k of tileKeys) if (this.dirtyTiles[k] === tiles[k]) delete this.dirtyTiles[k];
+      for (const id of plantIds) if (this.dirtyPlants[id] === plants[id].v) delete this.dirtyPlants[id];
+      for (const id of patchIds) if (this.dirtyPatches[id] === patches[id].v) delete this.dirtyPatches[id];
     });
   }
 

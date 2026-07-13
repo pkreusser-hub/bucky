@@ -155,8 +155,8 @@ async function main() {
     const fz = await P(page, () => window.__FL__.player.z);
     check("field fence blocks entry (z stays < -5.6)", fz < -5.6, `z=${fz.toFixed(2)}`);
 
-    // --- gate PASSES: east field gate gap @ x=6,z=6 ---
-    await P(page, () => window.__FL__.farm.teleport(8.5, 6));
+    // --- gate PASSES: east field gate gap @ x=6, south lane z~7 (clear of the bin) ---
+    await P(page, () => window.__FL__.farm.teleport(8.5, 7));
     await sleep(150);
     await P(page, () => window.__FL__.setInput({ fwd: 0, strafe: -1, run: true })); // west through gate
     await sleep(1200);
@@ -211,22 +211,24 @@ async function main() {
     await P(page, () => window.__FL__.animals.setPhase("day"));
     await P(page, () => window.__FL__.weather.applySky());
 
-    // --- tile highlight + E tills + repaints + persists ---
-    // player 1.5m north of tile (5,5) center (-7,5), facing south (+Z)
-    await P(page, () => { window.__FL__.farm.equip("hoe"); window.__FL__.farm.teleport(-7, 3.5); window.__FL__.farm.setHeading(0); });
+    // --- point marker + E tills a PATCH + repaints + persists (FREE-FORM R5) ---
+    // the hoe acts on the point ~1.2 m in FRONT of the player (no grid): player at
+    // (-7, 3.8) facing south (heading 0 = +Z) → aims at (-7, 5.0).
+    await P(page, () => { window.__FL__.farm.clearFarm(); window.__FL__.farm.equip("hoe"); window.__FL__.farm.teleport(-7, 3.8); window.__FL__.farm.setHeading(0); });
     await sleep(250);
     const tgt = await P(page, () => window.__FL__.farm.target());
-    check("tile highlight/target on the faced tile (till)", tgt && tgt.gx === 5 && tgt.gz === 5 && tgt.verb === "till", JSON.stringify(tgt));
+    check("point marker/target in front of the player (till verb)", tgt && tgt.kind === "till" && Math.abs(tgt.worldZ - 5.0) < 0.35, JSON.stringify(tgt));
 
     const px0 = await P(page, () => window.__FL__._pixel(-7, 5));
-    const t0 = await P(page, () => window.__FL__.farm.tileAt(5, 5));
+    const p0 = await P(page, () => window.__FL__.farm.patchCount());
     await P(page, () => window.__FL__.farm.action()); // E
     await sleep(250);
-    const t1 = await P(page, () => window.__FL__.farm.tileAt(5, 5));
+    const p1 = await P(page, () => window.__FL__.farm.patchCount());
+    const covered = await P(page, () => window.__FL__.farm.patchCoverageAt(-7, 5) > 0);
     const px1 = await P(page, () => window.__FL__._pixel(-7, 5));
-    check("E tills the untouched tile (FarmState → tilled)", !t0.present && t1.present && t1.tilled, `before=${JSON.stringify(t0)} after=${JSON.stringify(t1)}`);
+    check("E tills a PATCH at the aimed point (patchCount 0→1, point covered)", p0 === 0 && p1 === 1 && covered, `patches ${p0}→${p1} covered=${covered}`);
     const changed = px0 && px1 && (Math.abs(px0.r - px1.r) + Math.abs(px0.g - px1.g) + Math.abs(px0.b - px1.b)) > 10;
-    check("tilled tile repaints (pixel changed)", changed, `${JSON.stringify(px0)}→${JSON.stringify(px1)}`);
+    check("tilled soil blob repaints (pixel changed)", changed, `${JSON.stringify(px0)}→${JSON.stringify(px1)}`);
 
     await P(page, () => window.__FL__.farm.flushSave());
     await sleep(200);
@@ -249,8 +251,8 @@ async function main() {
 
     // --- persist across reload ---
     const page2 = (await bootPage(browser, false)).page;
-    const persisted = await page2.evaluate(() => window.__FL__.farm.tileAt(5, 5));
-    check("FarmState persists across reload (tile still tilled)", persisted.present && persisted.tilled, JSON.stringify(persisted));
+    const persisted = await page2.evaluate(() => ({ n: window.__FL__.farm.patchCount(), covered: window.__FL__.farm.patchCoverageAt(-7, 5) > 0 }));
+    check("free-form patch persists across reload", persisted.n >= 1 && persisted.covered, JSON.stringify(persisted));
     await page2.close();
 
     // ============================ MOBILE ============================
