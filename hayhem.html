@@ -10,6 +10,8 @@
   :root{
     --navy:#233357; --navy-d:#18233b; --red:#ba303e; --red-d:#7a1f28;
     --cream:#f4efe4; --ink:#15233f;
+    --sat:env(safe-area-inset-top,0px); --sar:env(safe-area-inset-right,0px);
+    --sab:env(safe-area-inset-bottom,0px); --sal:env(safe-area-inset-left,0px);
   }
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body{
@@ -20,8 +22,8 @@
     user-select:none;
   }
   #bar{
-    position:fixed; top:0; left:0; right:0; height:46px; z-index:40;
-    display:flex; align-items:center; gap:10px; padding:0 12px;
+    position:fixed; top:0; left:0; right:0; height:calc(46px + var(--sat)); z-index:40;
+    display:flex; align-items:center; gap:10px; padding:var(--sat) 12px 0;
     background:var(--navy); box-shadow:0 2px 10px rgba(0,0,0,.25);
   }
   #bar a{
@@ -69,7 +71,7 @@
   #hud.on{ display:block; }
 
   .teamCard{
-    position:absolute; top:54px;
+    position:absolute; top:calc(54px + var(--sat));
     background:rgba(35,51,87,.82); border-radius:12px; padding:7px 11px;
     min-width:112px; border:2px solid rgba(255,255,255,.16);
     box-shadow:0 3px 12px rgba(0,0,0,.25);
@@ -82,7 +84,7 @@
   .teamCard.turnon{ outline:3px solid #ffd23f; }
 
   #banner{
-    position:absolute; top:106px; left:50%; transform:translateX(-50%);
+    position:absolute; top:calc(106px + var(--sat)); left:50%; transform:translateX(-50%);
     display:flex; flex-direction:column; align-items:center; gap:5px;
     pointer-events:none; max-width:88vw;
   }
@@ -100,7 +102,7 @@
   #windPips{ letter-spacing:1px; color:var(--red); }
 
   #toast{
-    position:absolute; top:172px; left:50%; transform:translateX(-50%);
+    position:absolute; top:calc(172px + var(--sat)); left:50%; transform:translateX(-50%);
     background:rgba(35,51,87,.9); color:#fff; font-weight:800; font-size:14px;
     padding:8px 15px; border-radius:12px; opacity:0; transition:opacity .2s;
     white-space:nowrap; max-width:92vw; overflow:hidden; text-overflow:ellipsis;
@@ -110,7 +112,7 @@
 
   /* ── aim controls: HEIGHT + POWER sliders (bottom-left, kid-sized) ── */
   #aimControls{
-    position:absolute; left:12px; bottom:calc(env(safe-area-inset-bottom) + 16px);
+    position:absolute; left:12px; bottom:calc(var(--sab) + 20px);
     width:min(200px, 46vw); pointer-events:auto;
     display:flex; flex-direction:column; gap:10px;
     background:rgba(35,51,87,.78); border-radius:14px; padding:10px 12px;
@@ -143,7 +145,7 @@
 
   /* ── FIRE button (bottom-right) + ammo chips directly above it ── */
   #fireBtn{
-    position:absolute; right:14px; bottom:calc(env(safe-area-inset-bottom) + 16px);
+    position:absolute; right:14px; bottom:calc(var(--sab) + 20px);
     width:88px; height:88px; border-radius:50%;
     border:3px solid #fff; background:var(--red); color:#fff;
     font-weight:900; font-size:17px; letter-spacing:.5px;
@@ -166,14 +168,14 @@
   #ammoRow .chip:disabled{ opacity:.38; cursor:default; filter:grayscale(1); }
 
   #mute{
-    position:absolute; top:112px; right:12px;
+    position:absolute; top:calc(112px + var(--sat)); right:12px;
     width:40px; height:40px; border-radius:50%;
     border:2px solid rgba(255,255,255,.3); background:rgba(35,51,87,.8);
     color:#fff; font-size:18px; pointer-events:auto; cursor:pointer;
     display:flex; align-items:center; justify-content:center;
   }
   #musicBtn{
-    position:absolute; top:112px; right:58px;
+    position:absolute; top:calc(112px + var(--sat)); right:58px;
     width:40px; height:40px; border-radius:50%;
     border:2px solid rgba(255,255,255,.3); background:rgba(35,51,87,.8);
     color:#fff; font-size:18px; pointer-events:auto; cursor:pointer;

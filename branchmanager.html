@@ -5,16 +5,24 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>BUCKY — Branch Manager</title>
 <style>
-  :root{ --navy:#0a3161; --red:#b31942; --bark:#241a12; --bark2:#2e2118; --sky:#4a90c9; --sky2:#5aa0d8; }
+  :root{ --navy:#0a3161; --red:#b31942; --bark:#241a12; --bark2:#2e2118; --sky:#4a90c9; --sky2:#5aa0d8;
+         --sat:env(safe-area-inset-top,0px); --sar:env(safe-area-inset-right,0px);
+         --sab:env(safe-area-inset-bottom,0px); --sal:env(safe-area-inset-left,0px); }
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body{ margin:0; height:100%; background:#1c4a6e; color:#fff; font-family:-apple-system,Segoe UI,Roboto,sans-serif; overflow:hidden; }
-  #bar{ position:fixed; top:0; left:0; right:0; height:46px; display:flex; align-items:center; gap:10px; padding:0 12px;
+  /* Mobile safe-area (2026-07-13): back-bar clears the notch (padding-top + grown height); the
+     HUD/board/touch band below shift down/up to match; title stays one line (see .t below).
+     No-op on desktop (all insets 0). */
+  #bar{ position:fixed; top:0; left:0; right:0; height:calc(46px + var(--sat)); display:flex; align-items:center; gap:10px;
+        padding:var(--sat) calc(12px + var(--sar)) 0 calc(12px + var(--sal));
         background:var(--navy); z-index:10; }
-  #bar a{ color:#fff; text-decoration:none; font-weight:800; font-size:15px; background:rgba(255,255,255,.15); padding:7px 12px; border-radius:9px; }
-  #bar .t{ font-weight:800; letter-spacing:.5px; }
-  #hud{ position:fixed; top:46px; left:0; right:0; height:34px; display:flex; align-items:center; justify-content:center; gap:18px;
+  #bar a{ color:#fff; text-decoration:none; font-weight:800; font-size:15px; background:rgba(255,255,255,.15); padding:7px 12px; border-radius:9px; white-space:nowrap; flex:0 0 auto; }
+  /* title stays on ONE line at narrow widths — shrinks + ellipsis-truncates instead of wrapping
+     into the score HUD below (2026-07-13 fix). */
+  #bar .t{ font-weight:800; letter-spacing:.5px; flex:1 1 auto; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #hud{ position:fixed; top:calc(46px + var(--sat)); left:0; right:0; height:34px; display:flex; align-items:center; justify-content:center; gap:18px;
         padding:0 14px; z-index:9; font-family:monospace; font-weight:bold; font-size:14px; color:#e6dcc8; }
-  #layout{ position:absolute; top:80px; left:0; right:0; bottom:150px; display:flex; align-items:flex-start; justify-content:center; gap:14px; padding:10px 14px; }
+  #layout{ position:absolute; top:calc(80px + var(--sat)); left:0; right:0; bottom:calc(150px + var(--sab)); display:flex; align-items:flex-start; justify-content:center; gap:14px; padding:10px 14px; }
   #boardStage{ flex:1 1 auto; height:100%; display:flex; align-items:center; justify-content:center; min-width:0; }
   canvas{ display:block; touch-action:none; }
   #board{ border-radius:8px; box-shadow:0 4px 20px rgba(0,0,0,.6); }
@@ -22,12 +30,25 @@
   .panel{ background:var(--bark2); border:1px solid #4a3826; border-radius:10px; padding:8px; text-align:center; }
   .panel .label{ font-size:11px; color:#c9b79a; font-weight:800; letter-spacing:.5px; margin-bottom:6px; }
   #nextCanvas{ border-radius:6px; }
-  #touchControls{ position:fixed; left:0; right:0; bottom:0; height:150px; display:flex; align-items:center;
-                  justify-content:space-between; padding:0 20px; z-index:9; }
+  /* bottom band lifts its buttons above the home indicator via padding-bottom:var(--sab) +
+     grown height; align-items:center then centers them in the 150px zone above the inset. */
+  #touchControls{ position:fixed; left:0; right:0; bottom:0; height:calc(150px + var(--sab)); display:flex; align-items:center;
+                  justify-content:space-between; padding:0 20px var(--sab); z-index:9; }
   #touchControls .grp{ display:flex; gap:10px; align-items:center; }
   #touchControls button{ width:56px; height:56px; border:0; border-radius:12px; background:rgba(255,255,255,.16); color:#fff;
-                          font-size:24px; display:flex; align-items:center; justify-content:center; touch-action:none; }
+                          font-size:24px; display:flex; align-items:center; justify-content:center; touch-action:none; flex:0 0 auto; }
   #touchControls button:active{ background:rgba(255,255,255,.32); }
+  /* Narrow-width fit (≤360px): the 5 touch buttons + 2 groups (~310px at 56px) overflow 320px
+     with the 40px side padding — shrink buttons/gaps/padding and use space-around so the
+     rotate-CW button stays fully on-screen and tappable. Also shrink the top-bar text so the
+     full title fits on one line without the ellipsis kicking in. (2026-07-13 width fixes.) */
+  @media (max-width:360px){
+    #touchControls{ padding:0 10px var(--sab); justify-content:space-around; }
+    #touchControls .grp{ gap:7px; }
+    #touchControls button{ width:48px; height:48px; font-size:20px; }
+    #bar a{ font-size:13px; padding:6px 9px; }
+    #bar .t{ font-size:13px; }
+  }
   .overlay{ position:fixed; inset:0; background:rgba(0,0,0,.65); z-index:20; display:none; align-items:center; justify-content:center; flex-direction:column; padding:0 24px; text-align:center; }
   .overlay.show{ display:flex; }
   .overlay h1{ font-size:28px; margin:0 0 6px; }

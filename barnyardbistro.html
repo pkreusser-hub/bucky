@@ -8,10 +8,16 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Luckiest+Guy&display=swap" rel="stylesheet">
 <style>
-  :root{ --navy:#0a3161; --red:#b31942; }
+  :root{ --navy:#0a3161; --red:#b31942;
+         --sat:env(safe-area-inset-top,0px); --sar:env(safe-area-inset-right,0px);
+         --sab:env(safe-area-inset-bottom,0px); --sal:env(safe-area-inset-left,0px); }
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body{ margin:0; height:100%; background:#0d1b0d; color:#fff; font-family:-apple-system,Segoe UI,Roboto,sans-serif; overflow:hidden; }
-  #bar{ position:fixed; top:0; left:0; right:0; height:46px; display:flex; align-items:center; gap:10px; padding:0 12px;
+  /* Mobile safe-area (2026-07-13): back-bar clears the notch/Dynamic Island via padding-top +
+     grown height; #stage stays at top:46px so the in-#hud chips add their own var(--sat) below
+     the grown bar (no double count). No-op on desktop (all insets 0). */
+  #bar{ position:fixed; top:0; left:0; right:0; height:calc(46px + var(--sat)); display:flex; align-items:center; gap:10px;
+        padding:var(--sat) calc(12px + var(--sar)) 0 calc(12px + var(--sal));
         background:var(--navy); z-index:30; }
   #bar a{ color:#fff; text-decoration:none; font-weight:800; font-size:15px; background:rgba(255,255,255,.15); padding:7px 12px; border-radius:9px; }
   #bar .t{ font-weight:800; letter-spacing:.5px; }
@@ -32,7 +38,7 @@
   #hint{ font-size:17px; font-weight:700; color:#fff8e6; text-shadow:0 1px 3px rgba(0,0,0,.7); white-space:nowrap; }
 
   /* ---- sun-clock (top-left) + mute button (top-right, near score) ---- */
-  #sunClock{ position:absolute; top:12px; left:14px; display:flex; align-items:center; gap:6px;
+  #sunClock{ position:absolute; top:calc(var(--sat) + 12px); left:calc(var(--sal) + 14px); display:flex; align-items:center; gap:6px;
              font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:26px; color:#fff8e6;
              text-shadow:0 3px 0 rgba(0,0,0,.4), 0 5px 10px rgba(0,0,0,.5); letter-spacing:1px;
              background:rgba(0,0,0,.22); border-radius:14px; padding:4px 14px 4px 10px;
@@ -47,12 +53,12 @@
   /* Cleanup pass 2 (user): EXIT button — bottom-left corner (clear of the touch arc on the
      right and the joystick's usual thumb zone), hidden on the title screen. Two-tap confirm:
      first tap arms it ("SURE?") for 2.5s, second tap reloads to the game's landing/title. */
-  #exitBtn{ position:absolute; left:12px; bottom:12px; z-index:30; border:0; border-radius:10px;
+  #exitBtn{ position:absolute; left:calc(var(--sal) + 12px); bottom:calc(var(--sab) + 12px); z-index:30; border:0; border-radius:10px;
             padding:8px 12px; font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:13px;
             letter-spacing:.05em; color:#fff; background:rgba(0,0,0,.4); cursor:pointer;
             pointer-events:auto; display:none; }
   #exitBtn.armed{ background:#c0392b; }
-  #camBtn{ position:absolute; left:12px; bottom:56px; z-index:30; border:0; border-radius:10px;
+  #camBtn{ position:absolute; left:calc(var(--sal) + 12px); bottom:calc(var(--sab) + 56px); z-index:30; border:0; border-radius:10px;
            padding:8px 12px; font-family:'Luckiest Guy','Arial Black',sans-serif; font-size:13px;
            letter-spacing:.05em; color:#fff; background:rgba(0,0,0,.4); cursor:pointer;
            pointer-events:auto; display:none; }
@@ -61,13 +67,13 @@
      Mute stays (useful on the title). body.titleUp is toggled from frame(). */
   .titleUp #sunClock, .titleUp #recipeCard, .titleUp #scoreWrap, .titleUp #streakChip,
   .titleUp #hintWrap, .titleUp #orderRow, .titleUp #touchLayer{ display:none !important; }
-  #muteBtn{ position:absolute; top:14px; right:14px; width:34px; height:34px; border-radius:50%;
+  #muteBtn{ position:absolute; top:calc(var(--sat) + 14px); right:calc(var(--sar) + 14px); width:34px; height:34px; border-radius:50%;
             background:rgba(0,0,0,.35); border:none; font-size:18px; line-height:34px; text-align:center;
             padding:0; cursor:pointer; pointer-events:auto; z-index:31; }
   /* 2026-07-12: music on/off toggle, same pill styling, sits just left of the mute button.
      Independent of #muteBtn — mute silences everything (masterGain), this only silences
      music+ambience (musicBus) so a family can keep SFX but skip the soundtrack. */
-  #musicBtn{ position:absolute; top:14px; right:54px; width:34px; height:34px; border-radius:50%;
+  #musicBtn{ position:absolute; top:calc(var(--sat) + 14px); right:calc(var(--sar) + 54px); width:34px; height:34px; border-radius:50%;
              background:rgba(0,0,0,.35); border:none; font-size:18px; line-height:34px; text-align:center;
              padding:0; cursor:pointer; pointer-events:auto; z-index:31; }
   #musicBtn.muted{ opacity:.55; }
@@ -89,9 +95,9 @@
   .dishBadge.show{ opacity:1; }
 
   @media (max-width:520px){
-    #sunClock{ font-size:17px; top:8px; left:8px; padding:3px 10px 3px 8px; }
-    #muteBtn{ width:28px; height:28px; font-size:14px; line-height:28px; top:9px; right:9px; }
-    #musicBtn{ width:24px; height:24px; font-size:12px; line-height:24px; top:11px; right:41px; }
+    #sunClock{ font-size:17px; top:calc(var(--sat) + 8px); left:calc(var(--sal) + 8px); padding:3px 10px 3px 8px; }
+    #muteBtn{ width:28px; height:28px; font-size:14px; line-height:28px; top:calc(var(--sat) + 9px); right:calc(var(--sar) + 9px); }
+    #musicBtn{ width:24px; height:24px; font-size:12px; line-height:24px; top:calc(var(--sat) + 11px); right:calc(var(--sar) + 41px); }
     #streakChip{ top:64px; font-size:12px; right:8px; }
     #scoreWrap{ top:42px; }
   }
@@ -506,21 +512,21 @@
      bottom-right CORNER — below and beside the kitchen so they never cover the bottom counter
      row. Same size (60px), 12px gutters. GRAB keeps the corner (most-used, easiest reach);
      WORK left of it; THROW above GRAB; LOB above WORK. Only emote (top-right) is smaller. */
-  #grabWrap{ right:12px; bottom:10px; }
+  #grabWrap{ right:calc(var(--sar) + 12px); bottom:calc(var(--sab) + 10px); }
   #actionBtn{ width:60px; height:60px; font-size:24px; background:rgba(255,178,63,.6); }
   #actionBtn.pressed{ background:rgba(255,178,63,.9); }
-  #workWrap{ right:84px; bottom:10px; }
+  #workWrap{ right:calc(var(--sar) + 84px); bottom:calc(var(--sab) + 10px); }
   #workBtn{ width:60px; height:60px; font-size:24px; background:rgba(74,144,226,.6); }
   #workBtn.pressed{ background:rgba(74,144,226,.9); }
-  #throwWrap{ right:12px; bottom:100px; }
+  #throwWrap{ right:calc(var(--sar) + 12px); bottom:calc(var(--sab) + 100px); }
   #throwBtn{ width:60px; height:60px; font-size:24px; background:rgba(74,154,58,.6); }
   #throwBtn.pressed{ background:rgba(74,154,58,.9); }
   /* LOB (FIELD-CUSTOMER REWORK) — the delivery verb, top-left cell of the grid. */
-  #lobWrap{ right:84px; bottom:100px; }
+  #lobWrap{ right:calc(var(--sar) + 84px); bottom:calc(var(--sab) + 100px); }
   #lobBtn{ width:60px; height:60px; font-size:24px; background:rgba(212,120,42,.6); }
   #lobBtn.pressed{ background:rgba(212,120,42,.9); }
   /* emote — novelty, not a gameplay verb: top-right corner under the mute/score chips, smaller. */
-  #emoteWrap{ right:10px; top:132px; }
+  #emoteWrap{ right:calc(var(--sar) + 10px); top:calc(var(--sat) + 132px); }
   #emoteBtn{ width:40px; height:40px; font-size:16px; background:rgba(255,143,208,.6); }
   #emoteBtn.pressed{ background:rgba(255,143,208,.9); }
 
@@ -539,16 +545,16 @@
        zero pairwise overlap both with each other and with the widened/repositioned hintWrap. */
     .touchAware #hintWrap{ bottom:14px; left:14px; transform:none; max-width:38vw; }
     /* Playtest tune 2 (user): same 2×2 corner grid in landscape, one size step down. */
-    #grabWrap{ right:12px; bottom:8px; }
+    #grabWrap{ right:calc(var(--sar) + 12px); bottom:calc(var(--sab) + 8px); }
     .touchAware #actionBtn{ width:50px; height:50px; font-size:20px; }
-    #workWrap{ right:74px; bottom:8px; }
+    #workWrap{ right:calc(var(--sar) + 74px); bottom:calc(var(--sab) + 8px); }
     .touchAware #workBtn{ width:50px; height:50px; font-size:20px; }
-    #throwWrap{ right:12px; bottom:86px; }
+    #throwWrap{ right:calc(var(--sar) + 12px); bottom:calc(var(--sab) + 86px); }
     .touchAware #throwBtn{ width:50px; height:50px; font-size:20px; }
-    #lobWrap{ right:74px; bottom:86px; }
+    #lobWrap{ right:calc(var(--sar) + 74px); bottom:calc(var(--sab) + 86px); }
     .touchAware #lobBtn{ width:50px; height:50px; font-size:20px; }
     /* emote stays in its corner spot (top-right) in landscape too — no arc slot needed. */
-    #emoteWrap{ right:10px; top:96px; }
+    #emoteWrap{ right:calc(var(--sar) + 10px); top:calc(var(--sat) + 96px); }
     .touchAware #emoteBtn{ width:36px; height:36px; font-size:14px; }
     .touchAware .touchBtnLabel{ font-size:9px; }
     .touchAware #orderRow{ top:6px; }

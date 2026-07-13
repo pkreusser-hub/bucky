@@ -6,6 +6,7 @@
 <title>BUCKY — Farm Kart (feel prototype)</title>
 <style>
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  :root{ --sat:env(safe-area-inset-top,0px); --sar:env(safe-area-inset-right,0px); --sab:env(safe-area-inset-bottom,0px); --sal:env(safe-area-inset-left,0px); }
   html,body{ margin:0; height:100%; background:#7ec0ee; color:#fff; font-family:-apple-system,Segoe UI,Roboto,sans-serif; overflow:hidden; }
   #stage{ position:absolute; inset:0; }
   canvas{ display:block; touch-action:none; }
@@ -140,7 +141,7 @@
   #mpPlaces .pl .pnm{ flex:1; }
   #mpPlaces .pl.me{ font-weight:800; }
   /* ---- HUD item slot (top-center) ---- */
-  #itemSlot{ position:absolute; left:50%; top:14px; transform:translateX(-50%); z-index:12; width:76px; height:76px; border-radius:16px;
+  #itemSlot{ position:absolute; left:50%; top:calc(var(--sat) + 14px); transform:translateX(-50%); z-index:12; width:76px; height:76px; border-radius:16px;
         background:rgba(0,0,0,.42); border:2px solid rgba(255,255,255,.25); display:flex; align-items:center;
         justify-content:center; user-select:none; pointer-events:none; }
   #itemSlot.rolling{ border-color:#ffe27a; animation:pulse .5s ease-in-out infinite; }
@@ -306,19 +307,19 @@
   #startOverlay .loadpick button .ico{ display:block; font-size:16px; line-height:1.2; }
   #startOverlay .loadpick button .nm{ display:block; font-size:10px; font-weight:700; opacity:.92; letter-spacing:.02em; }
   /* ---- mute toggle (top-left) ---- */
-  #muteBtn{ position:absolute; left:12px; top:12px; z-index:22; width:38px; height:38px; border-radius:10px;
+  #muteBtn{ position:absolute; left:12px; top:calc(var(--sat) + 12px); z-index:22; width:38px; height:38px; border-radius:10px;
     border:1px solid rgba(255,255,255,.22); background:rgba(0,0,0,.42); color:#fff; font-size:18px; cursor:pointer;
     font-family:monospace; padding:0; line-height:38px; }
   #muteBtn:hover{ background:rgba(0,0,0,.6); }
   #muteBtn.muted{ color:#ff8a8a; }
-  #musicBtn{ position:absolute; left:56px; top:12px; z-index:22; width:38px; height:38px; border-radius:10px;
+  #musicBtn{ position:absolute; left:56px; top:calc(var(--sat) + 12px); z-index:22; width:38px; height:38px; border-radius:10px;
     border:1px solid rgba(255,255,255,.22); background:rgba(0,0,0,.42); color:#fff; font-size:18px; cursor:pointer;
     font-family:monospace; padding:0; line-height:38px; }
   #musicBtn:hover{ background:rgba(0,0,0,.6); }
   #musicBtn.muted{ color:#ff8a8a; }
   /* ---- PAUSE button (top-left, next to mute/music; clear of the top-right minimap + mobile ♻ reset).
      Only shown in countdown/racing/finished (toggled from updateHUD). ---- */
-  #pauseBtn{ position:absolute; left:100px; top:12px; z-index:22; width:38px; height:38px; border-radius:10px;
+  #pauseBtn{ position:absolute; left:100px; top:calc(var(--sat) + 12px); z-index:22; width:38px; height:38px; border-radius:10px;
     border:1px solid rgba(255,255,255,.22); background:rgba(0,0,0,.42); color:#fff; font-size:17px; cursor:pointer;
     font-family:monospace; padding:0; line-height:38px; display:none; }
   #pauseBtn:hover{ background:rgba(0,0,0,.6); }
@@ -362,13 +363,13 @@
     border:3px solid rgba(255,255,255,.5); background:rgba(0,0,0,.14); pointer-events:none; display:none; }
   #steerKnob{ position:absolute; z-index:2; width:30px; height:30px; margin:-15px 0 0 -15px; border-radius:50%;
     background:rgba(255,255,255,.82); box-shadow:0 2px 7px rgba(0,0,0,.45); pointer-events:none; display:none; }
-  #tcDrift{ right:20px;  bottom:24px; width:104px; height:104px; font-size:19px; letter-spacing:.02em;
+  #tcDrift{ right:20px;  bottom:calc(var(--sab) + 24px); width:104px; height:104px; font-size:19px; letter-spacing:.02em;
     background:rgba(40,92,168,.5); border-color:rgba(150,200,255,.55); }
-  #tcItem{  right:140px; bottom:44px; width:76px; height:76px; font-size:22px; font-weight:900;
+  #tcItem{  right:140px; bottom:calc(var(--sab) + 44px); width:76px; height:76px; font-size:22px; font-weight:900;
     letter-spacing:.01em; line-height:1; }
   #tcReset{ right:14px; top:54px; width:44px; height:44px; font-size:20px; background:rgba(0,0,0,.44); }
   /* Horn: bottom-LEFT, clear of the right-side DRIFT/FIRE cluster + top-right RESET (both orientations). */
-  #tcHorn{ left:20px; bottom:30px; width:70px; height:70px; font-size:26px; background:rgba(0,0,0,.42);
+  #tcHorn{ left:20px; bottom:calc(var(--sab) + 30px); width:70px; height:70px; font-size:26px; background:rgba(0,0,0,.42);
     border-color:rgba(255,225,140,.5); }
   #tcSteerHint{ position:absolute; left:0; right:0; bottom:118px; z-index:2; text-align:center; pointer-events:none;
     color:rgba(255,255,255,.9); font-family:-apple-system,Segoe UI,Roboto,sans-serif; font-weight:800; font-size:15px;
