@@ -11,10 +11,12 @@
  *     call returns false and every sfxPlays counter stays 0. Game must still boot, start
  *     a run, and take core gameplay actions (fire weapons, kill enemies, collect pickups,
  *     level up, take damage, game over) with 0 pageerrors.
- *  2) SAMPLES — served normally. All 36 files decode, gesture-unlock starts menu music,
- *     starting a run crossfades to play music, every gameplay beat's sfxPlays counter
- *     ticks, returning to the title screen crossfades back to menu music, and the
- *     🔊 mute / 🎵 music toggle buttons both work and persist.
+ *  2) SAMPLES — served normally. All 39 files decode, gesture-unlock starts menu music,
+ *     starting a run crossfades to the tier band (battle1 at tier 0), every gameplay beat's
+ *     sfxPlays counter ticks, the INTENSITY system selects battle1/2/3 by threatTier, a boss
+ *     overrides with the Showdown track and returns to the tier track after the anti-thrash
+ *     dwell, endless forces battle3, returning to the title crossfades back to menu music,
+ *     and the 🔊 mute / 🎵 music toggle buttons both work and persist.
  */
 const path = require("path");
 const net = require("net");
@@ -65,7 +67,11 @@ async function runPass(browser, { blockAudio, label }) {
     req.continue();
   });
 
-  await page.goto(BASE + "/pasturepanic.html", { waitUntil: "networkidle0", timeout: 60000 });
+  // domcontentloaded + hook-wait (NOT networkidle0): the ~4.8MB of new intensity-music mp3s keep the
+  // connection busy past the 60s nav cap, so networkidle0 never settles (this SAMPLES pass needs the
+  // audio, so it explicitly waits on buffersLoaded below); the __PP__/__PASTURE_AUDIO__ hooks are the
+  // real readiness signal.
+  await page.goto(BASE + "/pasturepanic.html", { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForFunction(() => !!window.__PP__ && !!window.__PASTURE_AUDIO__, { timeout: 20000 });
 
   // first real gesture — unlocks AudioContext playback + starts menu music if buffers are ready
@@ -94,7 +100,7 @@ async function runPass(browser, { blockAudio, label }) {
     check("audio ctx exists", a0.ctxState === "running" || a0.ctxState === "suspended", a0.ctxState);
     check("unmuted masterGain 1", a0.masterGainV === 1, a0.masterGainV);
     check("gesture registered", a0.gestured === true, a0.gestured);
-    check("buffersTotal is 36", a0.buffersTotal === 36, a0.buffersTotal);
+    check("buffersTotal is 39", a0.buffersTotal === 39, a0.buffersTotal);
     if (blockAudio) {
       check("no buffers loaded (blocked)", a0.buffersLoaded === 0, a0.buffersLoaded);
     } else {
@@ -102,9 +108,9 @@ async function runPass(browser, { blockAudio, label }) {
     }
     check("music phase is menu (still on title)", a0.musicPhase === "menu", a0.musicPhase);
     if (!blockAudio) {
-      check("menu music gain rose", (a0.menuMusicGainV || 0) > 0.3, a0.menuMusicGainV);
+      check("menu music gain rose", (a0.trackGains.menu || 0) > 0.3, a0.trackGains.menu);
     } else {
-      check("menu music gain stays null/0 (blocked, no buffer)", !a0.menuMusicGainV, a0.menuMusicGainV);
+      check("menu music gain stays null/0 (blocked, no buffer)", !a0.trackGains.menu, a0.trackGains.menu);
     }
     return out;
   }, blockAudio));
@@ -120,12 +126,12 @@ async function runPass(browser, { blockAudio, label }) {
     function check(name, cond, detail) { out.push({ name, pass: !!cond, detail: detail == null ? "" : String(detail) }); }
     const a = A.audioState();
     check("state is playing", window.__PP__.state === "playing", window.__PP__.state);
-    check("music phase switched to play", a.musicPhase === "play", a.musicPhase);
+    check("music phase switched to battle1 (tier 0)", a.musicPhase === "battle1", a.musicPhase);
     if (!blockAudio) {
-      check("play music gain rose", (a.playMusicGainV || 0) > 0.3, a.playMusicGainV);
-      check("menu music gain faded down", (a.menuMusicGainV || 0) < 0.3, a.menuMusicGainV);
+      check("battle1 music gain rose", (a.trackGains.battle1 || 0) > 0.3, a.trackGains.battle1);
+      check("menu music gain faded down", (a.trackGains.menu || 0) < 0.3, a.trackGains.menu);
     } else {
-      check("play music gain stays null/0 (blocked)", !a.playMusicGainV, a.playMusicGainV);
+      check("battle1 music gain stays null/0 (blocked)", !a.trackGains.battle1, a.trackGains.battle1);
     }
     return out;
   }, blockAudio));
@@ -255,6 +261,77 @@ async function runPass(browser, { blockAudio, label }) {
 
   await page.waitForFunction(() => window.__PP__.state === "playing", { timeout: 5000 }).catch(() => {});
 
+  // ---- INTENSITY MUSIC: tier bands, boss override + anti-thrash dwell, endless, THE COMBINE ----
+  // Drives __PP__.elapsed / spawnBoss / spawnFinalBoss / endlessMode and reads musicPhase +
+  // per-track gains. Leaves the world dirty; the game-over section's startGame() fully resets it.
+  pushChecks(await page.evaluate(async (blockAudio) => {
+    const P = window.__PP__, A = window.__PASTURE_AUDIO__;
+    const out = [];
+    function check(name, cond, detail) { out.push({ name, pass: !!cond, detail: detail == null ? "" : String(detail) }); }
+    function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+    // keep the lone chef alive across long waits: recenter + clear the field each tick
+    async function safeWait(ms) { for (let w = 0; w < ms; w += 150) { P.enemies.length = 0; if (P.player) P.player.position.set(0, 0, 0); await sleep(150); } }
+    const phase = () => A.audioState().musicPhase;
+    const gains = () => A.audioState().trackGains;
+    // one track's gain high, every OTHER created track's gain low (a completed crossfade)
+    function onlyUp(hot) {
+      const g = gains();
+      if ((g[hot] || 0) <= 0.3) return false;
+      for (const k of Object.keys(g)) if (k !== hot && (g[k] || 0) > 0.3) return false;
+      return true;
+    }
+    if (P.state !== "playing") P.startGame();
+    P.player.position.set(0, 0, 0);
+    // flush any residual boss-music dwell left by the gameplay-beats boss kill above
+    for (let w = 0; w < 8000 && phase() === "boss"; w += 150) { P.enemies.length = 0; P.player.position.set(0, 0, 0); await sleep(150); }
+
+    // --- tier bands: battle1 (tier<=2) / battle2 (3-5) / battle3 (>=6) ---
+    P.elapsed = 0; await sleep(850);
+    check("tier 0 -> musicPhase battle1", phase() === "battle1", phase());
+    if (!blockAudio) check("battle1 gain hot, others faded", onlyUp("battle1"), JSON.stringify(gains()));
+    else check("battle1 gain null (blocked, graceful)", gains().battle1 === null, JSON.stringify(gains()));
+
+    P.elapsed = 300; await sleep(850);
+    check("tier 3 -> musicPhase battle2", phase() === "battle2", phase());
+    if (!blockAudio) check("battle2 gain hot, others faded", onlyUp("battle2"), JSON.stringify(gains()));
+
+    P.elapsed = 600; await sleep(850);
+    check("tier 6 -> musicPhase battle3", phase() === "battle3", phase());
+    if (!blockAudio) check("battle3 gain hot, others faded", onlyUp("battle3"), JSON.stringify(gains()));
+
+    // --- boss override: crossfades in over the tier track ---
+    P.enemies.length = 0;
+    P.spawnBoss();
+    await sleep(850);
+    check("boss active -> musicPhase boss (overrides tier)", phase() === "boss", phase());
+    if (!blockAudio) check("boss gain hot, battle3 faded", onlyUp("boss"), JSON.stringify(gains()));
+
+    // --- boss death: anti-thrash dwell holds boss music, then returns to the tier track ---
+    P.damageEnemy(P.boss, 1e9, new THREE.Vector3(1, 0, 0));
+    await sleep(250);
+    check("just after boss death -> still boss (dwell hold)", phase() === "boss", phase());
+    await safeWait(7000); // > BOSS_MIN_DWELL(6) + tail
+    check("after dwell -> back to correct tier track battle3", phase() === "battle3", phase());
+    if (!blockAudio) check("battle3 gain hot again after boss, boss faded", onlyUp("battle3"), JSON.stringify(gains()));
+
+    // --- endless forces battle3 even at a low tier ---
+    P.endlessMode = true; P.elapsed = 100; await sleep(850);
+    check("endless (tier 1) -> musicPhase battle3", phase() === "battle3", phase());
+    P.endlessMode = false;
+
+    // --- THE COMBINE (final boss) -> boss music ---
+    P.enemies.length = 0;
+    P.spawnFinalBoss();
+    await sleep(350);
+    check("THE COMBINE active -> musicPhase boss", phase() === "boss", phase());
+    if (blockAudio) {
+      const g = gains();
+      check("all 4 new tracks silent under blocked (graceful)",
+        g.battle1 === null && g.battle2 === null && g.battle3 === null && g.boss === null, JSON.stringify(g));
+    }
+    return out;
+  }, blockAudio));
+
   // --- game over: victory + defeat, then back to menu music ---
   pushChecks(await page.evaluate(async (blockAudio) => {
     const P = window.__PP__, A = window.__PASTURE_AUDIO__;
@@ -288,7 +365,7 @@ async function runPass(browser, { blockAudio, label }) {
     function check(name, cond, detail) { out.push({ name, pass: !!cond, detail: detail == null ? "" : String(detail) }); }
     const a = A.audioState();
     check("music phase back to menu after game over", a.musicPhase === "menu", a.musicPhase);
-    if (!blockAudio) check("menu music gain rose again", (a.menuMusicGainV || 0) > 0.3, a.menuMusicGainV);
+    if (!blockAudio) check("menu music gain rose again", (a.trackGains.menu || 0) > 0.3, a.trackGains.menu);
     return out;
   }, blockAudio));
 

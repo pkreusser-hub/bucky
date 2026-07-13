@@ -51,7 +51,11 @@ async function openPage(browser, viewport) {
     if (/googleapis|firestore|firebase|gstatic/i.test(u)) return req.abort();
     req.continue();
   });
-  await page.goto(BASE + "/pasturepanic.html", { waitUntil: "networkidle0", timeout: 60000 });
+  // domcontentloaded + explicit hook-wait (NOT networkidle0): the ~4.8MB of new intensity-music
+  // mp3s keep the connection busy past the nav cap (esp. on the dsf-2 mobile pass), so networkidle0
+  // no longer settles in time. The page is domReady in ~1s; __PP__ is the true readiness signal and
+  // audio streams in the background without affecting any check in this suite.
+  await page.goto(BASE + "/pasturepanic.html", { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForFunction(() => !!window.__PP__, { timeout: 20000 });
   // first gesture — some UI code paths (audio unlock) expect at least one
   await page.mouse.move(400, 300);

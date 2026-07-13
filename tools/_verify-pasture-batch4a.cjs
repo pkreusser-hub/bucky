@@ -53,7 +53,10 @@ async function openPage(browser, viewport) {
     if (/googleapis|firestore|firebase|gstatic/i.test(u)) return req.abort();
     req.continue();
   });
-  await page.goto(BASE + "/pasturepanic.html", { waitUntil: "networkidle0", timeout: 60000 });
+  // domcontentloaded + __PP__ hook-wait (NOT networkidle0): the ~4.8MB of new intensity-music mp3s
+  // keep the connection busy past the nav cap, so networkidle0 no longer settles. __PP__ is the true
+  // readiness signal; audio streams in the background without affecting any check in this suite.
+  await page.goto(BASE + "/pasturepanic.html", { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForFunction(() => !!window.__PP__, { timeout: 20000 });
   await page.mouse.move(400, 300); await page.mouse.down(); await page.mouse.up();
   return { page, errors };

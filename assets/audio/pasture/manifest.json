@@ -286,5 +286,37 @@
     "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, a gentle spooky-cute whoosh that makes varmints scurry away, playful not scary",
     "bytes": 13836,
     "api": "POST /v1/sound-generation (duration_seconds=0.8, prompt_influence=0.7)"
+  },
+  {
+    "file": "pp-music-battle1.mp3",
+    "kind": "music",
+    "target": "~104s",
+    "prompt": "Cheerful family farm bluegrass in G major at a relaxed 108 BPM, bouncy three-finger banjo roll leading, warm acoustic guitar and light upright bass, playful and a little laid-back like an easy morning of chores. Clear sections: a short gentle banjo intro, then a bouncy main groove, a softer laid-back B-section breakdown with mandolin, a small build back to the groove, ending so it loops seamlessly. Wholesome, sunny, kid-friendly cartoon farm game music, no vocals, instrumental.",
+    "bytes": 1248907,
+    "api": "POST /v1/music (music_v1, force_instrumental=true, music_length_ms=104000, output_format=mp3_44100_96)"
+  },
+  {
+    "file": "pp-music-battle2.mp3",
+    "kind": "music",
+    "target": "~104s",
+    "prompt": "Energetic family farm bluegrass in G major at a driving 126 BPM, busy fast three-finger banjo picking with a lively fiddle trading the lead, punchy upright bass and rhythm guitar, higher energy and a touch urgent like critters swarming the field. Clear sections: a quick banjo-and-fiddle intro kick, a driving main groove, a syncopated fiddle B-section breakdown, a rising build with faster rolls, ending so it loops seamlessly. Upbeat, exciting but friendly, kid-friendly cartoon farm game music, no vocals, instrumental.",
+    "bytes": 1248280,
+    "api": "POST /v1/music (music_v1, force_instrumental=true, music_length_ms=104000, output_format=mp3_44100_96)"
+  },
+  {
+    "file": "pp-music-battle3.mp3",
+    "kind": "music",
+    "target": "~100s",
+    "prompt": "Fast relentless family farm hoedown in G mixolydian at 142 BPM, breakneck banjo rolls and wild fiddle in a foot-stomping barn-dance frenzy, hard-driving upright bass and washboard percussion, tense and full of momentum like a full barnyard stampede. Clear sections: a hard-hitting intro stab, a full-tilt main groove, a stomping call-and-response B-section, a frantic build cranking the energy, ending so it loops seamlessly. Big, exciting, playful not scary, kid-friendly cartoon farm game music, no vocals, instrumental.",
+    "bytes": 1200319,
+    "api": "POST /v1/music (music_v1, force_instrumental=true, music_length_ms=100000, output_format=mp3_44100_96)"
+  },
+  {
+    "file": "pp-music-boss.mp3",
+    "kind": "music",
+    "target": "~92s",
+    "prompt": "Big comic western showdown standoff theme in E minor at 120 BPM, dramatic and heavy but playful, twangy electric and acoustic guitar, low brooding upright bass, banjo and fiddle stabs, a lone whistle motif and stomping percussion for a tense high-noon farm duel against a giant harvester. Clear sections: an ominous sparse intro with whistle and bass, a heavy driving standoff groove, a suspenseful B-section swell, a bold rising build, ending so it loops seamlessly. Ominous but comic and kid-friendly, exciting not frightening, cartoon farm game boss music, no vocals, instrumental.",
+    "bytes": 1105025,
+    "api": "POST /v1/music (music_v1, force_instrumental=true, music_length_ms=92000, output_format=mp3_44100_96)"
   }
 ]

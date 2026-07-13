@@ -8,17 +8,20 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Luckiest+Guy&display=swap" rel="stylesheet">
 <style>
-  :root{ --navy:#0a3161; --red:#b31942; }
+  :root{ --navy:#0a3161; --red:#b31942;
+         --sat:env(safe-area-inset-top,0px); --sar:env(safe-area-inset-right,0px);
+         --sab:env(safe-area-inset-bottom,0px); --sal:env(safe-area-inset-left,0px); }
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body{ margin:0; height:100%; background:#0d1b0d; color:#fff; font-family:-apple-system,Segoe UI,Roboto,sans-serif; overflow:hidden; }
-  #bar{ position:fixed; top:0; left:0; right:0; height:46px; display:flex; align-items:center; gap:10px; padding:0 12px;
+  #bar{ position:fixed; top:0; left:0; right:0; height:calc(46px + var(--sat)); display:flex; align-items:center; gap:10px;
+        padding:var(--sat) calc(12px + var(--sar)) 0 calc(12px + var(--sal));
         background:var(--navy); z-index:30; }
   #bar a{ color:#fff; text-decoration:none; font-weight:800; font-size:15px; background:rgba(255,255,255,.15); padding:7px 12px; border-radius:9px; }
   #bar .t{ font-weight:800; letter-spacing:.5px; flex:1; }
   #bar .audBtn{ color:#fff; background:rgba(255,255,255,.15); border:0; border-radius:9px; font-size:15px;
                 padding:7px 10px; cursor:pointer; line-height:1; }
   #bar .audBtn.muted{ opacity:.45; }
-  #stage{ position:absolute; top:46px; left:0; right:0; bottom:0; }
+  #stage{ position:absolute; top:calc(46px + var(--sat)); left:0; right:0; bottom:0; }
   canvas{ display:block; touch-action:none; }
 
   /* HUD — corner clusters with a subtle backdrop pill so text reads against bright grass */
@@ -49,7 +52,7 @@
   #pauseBtn{ position:absolute; top:10px; right:10px; z-index:11; pointer-events:auto; background:rgba(0,0,0,.45); color:#fff;
              border:0; border-radius:9px; font-size:17px; padding:6px 12px; display:none; }
   /* bottom-left: weapon loadout + passive-item row */
-  #hudBottomLeft{ left:10px; bottom:22px; padding:8px 10px; }
+  #hudBottomLeft{ left:calc(var(--sal) + 10px); bottom:calc(var(--sab) + 22px); padding:8px 10px; }
   #loadout{ display:flex; flex-direction:column; gap:6px; }
   #weapSlots, #passiveSlots{ display:flex; gap:6px; }
   .wSlot{ position:relative; width:40px; height:40px; border-radius:10px; background:rgba(255,255,255,.08);
@@ -68,12 +71,12 @@
                     display:flex; align-items:center; justify-content:center; padding:0 3px; font-family:monospace; }
   .pSlot .lvlChip2{ min-width:14px; height:14px; }
   /* bottom-right: passive upgrades */
-  #hudBottomRight{ right:10px; bottom:22px; padding:8px 10px; justify-content:flex-end; }
+  #hudBottomRight{ right:calc(var(--sar) + 10px); bottom:calc(var(--sab) + 22px); padding:8px 10px; justify-content:flex-end; }
   #passRow{ display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; max-width:160px; }
   .pChip{ display:flex; align-items:center; gap:2px; font-size:13px; font-family:monospace; font-weight:bold; color:#e8f2e0; }
   .pChip .n{ font-size:11px; }
   /* xp bar: full-width thin strip pinned to the very bottom edge */
-  #xpBarWrap{ position:absolute; left:0; right:0; bottom:0; height:7px; background:rgba(0,0,0,.35); z-index:10;
+  #xpBarWrap{ position:absolute; left:0; right:0; bottom:var(--sab); height:7px; background:rgba(0,0,0,.35); z-index:10;
               pointer-events:none; display:none; }
   #xpFill{ height:100%; background:linear-gradient(90deg,#e0a92c,#ffd23f); width:0%; transition:width .15s; }
 
@@ -88,21 +91,21 @@
     /* stack kills/coins vertically so the cluster stays narrow and clears the centered timer */
     #hudTopRight{ top:6px; right:40px; gap:1px; padding:4px 7px; font-size:10px; flex-direction:column; align-items:flex-end; }
     #pauseBtn{ top:6px; right:6px; font-size:13px; padding:4px 8px; }
-    #hudBottomLeft{ left:6px; bottom:14px; padding:5px 6px; }
+    #hudBottomLeft{ left:calc(var(--sal) + 6px); bottom:calc(var(--sab) + 14px); padding:5px 6px; }
     #loadout{ gap:4px; }
     #weapSlots, #passiveSlots{ gap:4px; }
     .wSlot{ width:30px; height:30px; border-radius:8px; font-size:18px; }
     .pSlot{ width:22px; height:22px; border-radius:7px; font-size:13px; }
     .wSlot .lvlChip2, .pSlot .lvlChip2{ font-size:7.5px; min-width:12px; height:12px; bottom:-3px; right:-3px; }
     .wSlot .recipe{ font-size:9px; }
-    #hudBottomRight{ right:6px; bottom:14px; padding:5px 6px; }
+    #hudBottomRight{ right:calc(var(--sar) + 6px); bottom:calc(var(--sab) + 14px); padding:5px 6px; }
     #passRow{ gap:5px; max-width:120px; }
     .pChip{ font-size:10px; }
     .pChip .n{ font-size:9px; }
   }
 
   /* character active-ability chip — bottom-center, radial cooldown sweep, glows when ready */
-  #abilityChip{ position:absolute; left:50%; bottom:26px; transform:translateX(-50%); width:64px; height:64px; border-radius:50%;
+  #abilityChip{ position:absolute; left:50%; bottom:calc(var(--sab) + 26px); transform:translateX(-50%); width:64px; height:64px; border-radius:50%;
                 background:radial-gradient(circle at 35% 30%,#3a5a3f,#14301a); border:3px solid #ffd23f; display:none;
                 align-items:center; justify-content:center; z-index:12; pointer-events:auto; cursor:pointer; user-select:none;
                 box-shadow:0 3px 10px rgba(0,0,0,.5); }
@@ -112,7 +115,7 @@
   #abilityCd{ position:absolute; inset:0; border-radius:50%; pointer-events:none; }
   #abilityKey{ position:absolute; bottom:-15px; left:50%; transform:translateX(-50%); font-size:9px; font-weight:800;
                color:#d7ead2; text-shadow:0 1px 2px rgba(0,0,0,.8); white-space:nowrap; pointer-events:none; }
-  @media (max-width:520px){ #abilityChip{ width:54px; height:54px; bottom:18px; } #abilityIco{ font-size:25px; } #abilityKey{ display:none; } }
+  @media (max-width:520px){ #abilityChip{ width:54px; height:54px; bottom:calc(var(--sab) + 18px); } #abilityIco{ font-size:25px; } #abilityKey{ display:none; } }
 
   /* ---- batch 4b: co-op HUD ---- */
   .pname{ font-size:10px; font-weight:800; color:#eaf3e4; text-shadow:0 1px 2px rgba(0,0,0,.8); margin-bottom:1px; }
@@ -121,18 +124,18 @@
   #hpFill2.p2fill{ background:linear-gradient(90deg,#e0952e,#ffc861); }
   #loadout2.coop2row{ margin-top:6px; padding-top:6px; border-top:1px dashed rgba(255,255,255,.18); }
   /* per-player ability chips in the two bottom corners */
-  .abChipCoop{ position:absolute; bottom:22px; left:18px; width:60px; height:60px; border-radius:50%;
+  .abChipCoop{ position:absolute; bottom:calc(var(--sab) + 22px); left:calc(var(--sal) + 18px); width:60px; height:60px; border-radius:50%;
                background:radial-gradient(circle at 35% 30%,#3a5a3f,#14301a); border:3px solid #ffd23f;
                align-items:center; justify-content:center; z-index:12; pointer-events:auto; cursor:pointer;
                user-select:none; box-shadow:0 3px 10px rgba(0,0,0,.5); display:none; }
-  .abChipCoop.abR{ left:auto; right:18px; border-color:#ffb14a; }
+  .abChipCoop.abR{ left:auto; right:calc(var(--sar) + 18px); border-color:#ffb14a; }
   .abChipCoop.ready{ border-color:#7df58a; animation:abReady 1.1s ease-in-out infinite; }
   .abChipCoop.dim{ opacity:.35; filter:grayscale(1); }
   .abChipCoop .abIco{ font-size:28px; line-height:1; pointer-events:none; }
   .abChipCoop .abCd{ position:absolute; inset:0; border-radius:50%; pointer-events:none; }
   .abChipCoop .abKey{ position:absolute; bottom:-14px; left:50%; transform:translateX(-50%); font-size:8px;
                       font-weight:800; color:#d7ead2; text-shadow:0 1px 2px rgba(0,0,0,.8); white-space:nowrap; pointer-events:none; }
-  @media (max-width:520px){ .abChipCoop{ width:52px; height:52px; bottom:16px; } .abChipCoop .abIco{ font-size:24px; } .abChipCoop .abKey{ display:none; } }
+  @media (max-width:520px){ .abChipCoop{ width:52px; height:52px; bottom:calc(var(--sab) + 16px); } .abChipCoop .abIco{ font-size:24px; } .abChipCoop .abKey{ display:none; } }
   /* floating name tags over each co-op player's head */
   #coopNames{ position:absolute; inset:0; pointer-events:none; z-index:11; }
   #coopNames .ntag{ position:absolute; transform:translate(-50%,-100%); font-size:11px; font-weight:800;
@@ -146,8 +149,15 @@
 
   /* overlays */
   .overlay{ position:absolute; inset:0; background:rgba(6,16,8,.78); z-index:20; display:none;
-            align-items:center; justify-content:center; flex-direction:column; padding:0 20px; text-align:center; }
+            align-items:center; flex-direction:column; overflow-y:auto; -webkit-overflow-scrolling:touch;
+            padding:0 calc(20px + var(--sar)) 0 calc(20px + var(--sal)); text-align:center; }
   .overlay.show{ display:flex; }
+  /* flexible auto-margin spacers: center the panel while it fits, then collapse so the
+     top stays reachable and everything scrolls when the menu is taller than the viewport.
+     The min-heights double as safe-area padding that survives the overflow collapse. */
+  .overlay.show::before, .overlay.show::after{ content:""; flex:0 0 auto; margin:auto 0; }
+  .overlay.show::before{ min-height:calc(var(--sat) + 16px); }
+  .overlay.show::after{ min-height:calc(var(--sab) + 16px); }
   .overlay h1{ font-size:30px; margin:0 0 8px; font-family:'Luckiest Guy', 'Arial Black', sans-serif; font-weight:400;
                letter-spacing:1px; text-shadow:0 3px 0 rgba(0,0,0,.35); }
   .overlay .desc{ font-size:15px; color:#d7ead2; max-width:420px; margin-bottom:14px; line-height:1.55; }
@@ -6930,7 +6940,9 @@
     }
     const AUDIO_BASE = 'assets/audio/pasture/';
     const AUDIO_FILES = [
-      'pp-music-menu','pp-music-play',
+      'pp-music-menu',
+      // 4 intensity-mapped run tracks (pp-music-play retired; file stays on disk)
+      'pp-music-battle1','pp-music-battle2','pp-music-battle3','pp-music-boss',
       'pp-sfx-corn-fire','pp-sfx-pumpkin-blast','pp-sfx-cat-pounce','pp-sfx-scarecrow-plant',
       'pp-sfx-bee-sting','pp-sfx-sprinkler-spray','pp-sfx-fork-throw','pp-sfx-bolt-zap',
       'pp-sfx-varmint-pop','pp-sfx-elite-pop','pp-sfx-boss-roar','pp-sfx-boss-death','pp-sfx-combine-roar',
@@ -6955,10 +6967,10 @@
         }).then(ab => ctx.decodeAudioData(ab)).then(b => {
           audioBuffers[name] = b; _buffersLoaded++;
           // late-decode retry: if a gesture already happened and we're still on the phase
-          // this buffer belongs to, (re)start it — start fns are idempotent via !src guards.
-          if (_audioGestured){
-            if (musicPhase === 'menu' && name === 'pp-music-menu') startMenuMusic();
-            else if (musicPhase === 'play' && name === 'pp-music-play') startPlayMusic();
+          // this buffer belongs to, (re)start it — startTrack is idempotent via its !src guard.
+          if (_audioGestured && musicPhase && MUSIC_TRACKS[musicPhase]
+              && MUSIC_TRACKS[musicPhase].file === name){
+            startTrack(musicPhase);
           }
         }).catch(() => { audioBuffers[name] = null; });
       });
@@ -6996,9 +7008,19 @@
       return playSample(name, opts);
     }
 
-    // ---- music: menu (title/barn/char-select) <-> play (the run itself) ----
-    let menuMusicSrc = null, menuMusicGain = null, playMusicSrc = null, playMusicGain = null;
-    let musicPhase = null;   // 'menu' | 'play' | null
+    // ---- music: menu <-> four intensity tracks (battle1/2/3 + boss), crossfaded ----
+    // Each track's BufferSource is created ONCE and looped forever; "switching" just fades
+    // gains. `level` = per-track loudness trim into musicBus (default 1) — the knob to reach
+    // for if a crossfade jumps (no offline loudness-normalization was applied).
+    const MUSIC_TRACKS = {
+      menu:    { file:'pp-music-menu',    src:null, gain:null, level:1 },
+      battle1: { file:'pp-music-battle1', src:null, gain:null, level:1 },
+      battle2: { file:'pp-music-battle2', src:null, gain:null, level:1 },
+      battle3: { file:'pp-music-battle3', src:null, gain:null, level:1 },
+      boss:    { file:'pp-music-boss',    src:null, gain:null, level:1 },
+    };
+    const MUSIC_XFADE = 0.7;   // s, every phase crossfade (0.6-0.8 band)
+    let musicPhase = null;     // 'menu' | 'battle1' | 'battle2' | 'battle3' | 'boss' | null
     function fadeGainTo(node, target, dur){
       if (!node || !audioCtx) return;
       try{
@@ -7008,44 +7030,62 @@
         node.gain.linearRampToValueAtTime(target, t + Math.max(0.02, dur || 0.5));
       }catch(e){}
     }
-    function silenceTrack(node){ if (node) fadeGainTo(node, 0, 0.6); }
-    // NOTE: the source (menuMusicSrc/playMusicSrc) is created ONCE and left running forever
-    // (looping); "stopping" a track just fades its gain to 0 via silenceTrack(). So the
-    // create-if-missing step and the fade-up step are two SEPARATE conditions below — a
-    // re-entry after being silenced must still re-fade up even though the source already exists.
-    function startMenuMusic(){
-      if (!ensureAudio() || !musicBus) return;
-      if (!menuMusicSrc && buf('pp-music-menu')){
-        menuMusicGain = audioCtx.createGain(); menuMusicGain.gain.value = 0; menuMusicGain.connect(musicBus);
-        menuMusicSrc = audioCtx.createBufferSource(); menuMusicSrc.buffer = buf('pp-music-menu'); menuMusicSrc.loop = true;
-        menuMusicSrc.connect(menuMusicGain); menuMusicSrc.start();
+    // NOTE: each track's source is created ONCE and left looping forever; "switching" just
+    // fades gains. create-if-missing and fade-up are SEPARATE steps — re-entering a silenced
+    // track must still re-fade it up even though its source already exists.
+    function startTrack(phase){
+      const tr = MUSIC_TRACKS[phase];
+      if (!ensureAudio() || !musicBus || !tr) return;
+      if (!tr.src && buf(tr.file)){
+        tr.gain = audioCtx.createGain(); tr.gain.value = 0; tr.gain.connect(musicBus);
+        tr.src = audioCtx.createBufferSource(); tr.src.buffer = buf(tr.file); tr.src.loop = true;
+        tr.src.connect(tr.gain); tr.src.start();
       }
-      if (menuMusicGain) fadeGainTo(menuMusicGain, 1, 0.6);
-    }
-    function startPlayMusic(){
-      if (!ensureAudio() || !musicBus) return;
-      if (!playMusicSrc && buf('pp-music-play')){
-        playMusicGain = audioCtx.createGain(); playMusicGain.gain.value = 0; playMusicGain.connect(musicBus);
-        playMusicSrc = audioCtx.createBufferSource(); playMusicSrc.buffer = buf('pp-music-play'); playMusicSrc.loop = true;
-        playMusicSrc.connect(playMusicGain); playMusicSrc.start();
-      }
-      if (playMusicGain) fadeGainTo(playMusicGain, 1, 0.6);
+      if (tr.gain) fadeGainTo(tr.gain, tr.level != null ? tr.level : 1, MUSIC_XFADE);
     }
     function setMusicPhase(next){
-      if (musicPhase === next) return;
+      if (musicPhase === next) return;   // already on this band -> no restart, keeps looping
       musicPhase = next;
       ensureAudio();
-      if (next === 'menu'){ silenceTrack(playMusicGain); startMenuMusic(); }
-      else if (next === 'play'){ silenceTrack(menuMusicGain); startPlayMusic(); }
-      else { silenceTrack(menuMusicGain); silenceTrack(playMusicGain); }
+      for (const key in MUSIC_TRACKS){
+        if (key !== next && MUSIC_TRACKS[key].gain) fadeGainTo(MUSIC_TRACKS[key].gain, 0, MUSIC_XFADE);
+      }
+      if (next) startTrack(next);
     }
     // menu music resumes automatically the next time musicPhaseForState() is polled (see loop())
+    // boss-music latch: hold boss music >= BOSS_MIN_DWELL total and >= BOSS_TAIL after the boss
+    // dies, so a fast kill doesn't blip and the death fanfare lands over boss music. Evaluated
+    // EXACTLY ONCE PER FRAME from the loop poll below (it mutates its own latch state) — do not
+    // add other call sites.
+    const BOSS_TAIL = 2.0, BOSS_MIN_DWELL = 6.0;
+    let _bossMusicStart = -1, _bossMusicHoldUntil = 0;
+    function bossMusicActive(){
+      const now = performance.now() / 1000;
+      if (boss){
+        if (_bossMusicStart < 0) _bossMusicStart = now;   // rising edge of an episode
+        _bossMusicHoldUntil = now + BOSS_TAIL;            // refresh tail every alive frame
+        return true;
+      }
+      if (_bossMusicStart >= 0){
+        const floor = Math.max(_bossMusicHoldUntil, _bossMusicStart + BOSS_MIN_DWELL);
+        if (now < floor) return true;
+        _bossMusicStart = -1;                             // episode fully over
+      }
+      return false;
+    }
     function musicPhaseForState(){
       // barn/char-select/pact overlays never change `state` (they layer on top of "title"/"over"),
       // so both of those naturally keep menu music playing underneath them — no extra case needed.
-      return (state === 'title' || state === 'over') ? 'menu'
-           : (state === 'playing' || state === 'levelup' || state === 'paused' || state === 'chest' || state === 'merchant' || state === 'secured') ? 'play'
-           : null;
+      if (state === 'title' || state === 'over') return 'menu';
+      const inRun = (state === 'playing' || state === 'levelup' || state === 'paused'
+                  || state === 'chest' || state === 'merchant' || state === 'secured');
+      if (!inRun) return null;
+      if (bossMusicActive()) return 'boss';      // any regular boss OR THE COMBINE (+ dwell) overrides tier
+      if (endlessMode) return 'battle3';         // endless = relentless
+      const tier = threatTier();                 // floor(elapsed/90)
+      if (tier <= 2) return 'battle1';           // 0:00-~4:30 warmup
+      if (tier <= 5) return 'battle2';           // ~4:30-9:00 mid
+      return 'battle3';                          // 9:00+ late
     }
 
     // ---- 🔊 mute / 🎵 music toggle buttons ----
@@ -7099,8 +7139,9 @@
       audioState: () => ({
         muted: audioMuted, musicOff, ctxState: audioCtx ? audioCtx.state : null,
         buffersLoaded: _buffersLoaded, buffersTotal: AUDIO_FILES.length,
-        musicPhase, menuMusicGainV: menuMusicGain ? menuMusicGain.gain.value : null,
-        playMusicGainV: playMusicGain ? playMusicGain.gain.value : null,
+        musicPhase,
+        trackGains: Object.fromEntries(Object.keys(MUSIC_TRACKS).map(k =>
+          [k, MUSIC_TRACKS[k].gain ? +MUSIC_TRACKS[k].gain.gain.value.toFixed(3) : null])),
         masterGainV: masterGain ? masterGain.gain.value : null,
         musicBusV: musicBus ? musicBus.gain.value : null,
         sfxPlays: Object.assign({}, _sfxPlays), gestured: _audioGestured
