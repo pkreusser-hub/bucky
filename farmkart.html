@@ -195,6 +195,20 @@
   body.mobile #wrongway{ font-size:20px; padding:7px 16px;
         top:calc(140px + env(safe-area-inset-top, 0px)); }
 
+  /* 2026-07-12 R1: FINAL LAP! banner — countdown-family styling, center screen, brief. */
+  #finalLap{ position:absolute; inset:0; z-index:29; display:none; align-items:center; justify-content:center;
+        pointer-events:none; }
+  #finalLap .fl{ font-size:88px; font-weight:900; color:#ffd45e; letter-spacing:-.01em;
+        font-family:-apple-system,Segoe UI,Roboto,sans-serif;
+        text-shadow:0 4px 0 rgba(0,0,0,.4), 0 0 26px rgba(255,190,60,.7);
+        transform:scale(.6); opacity:0; }
+  #finalLap.show{ display:flex; }
+  #finalLap.show .fl{ animation:flpop 1.7s ease-out forwards; }
+  @keyframes flpop{ 0%{ transform:scale(.55); opacity:0; }
+        14%{ transform:scale(1.08); opacity:1; } 26%{ transform:scale(1); opacity:1; }
+        78%{ transform:scale(1); opacity:1; } 100%{ transform:scale(1.02); opacity:0; } }
+  body.mobile #finalLap .fl{ font-size:56px; }
+
   /* ---- BOOST FLARE: MK-style radial speed-lines during a boost FOV kick. opacity is driven
      per-frame from boostFlareT; costs ~nothing at idle (opacity:0 → compositor skips it), never
      intercepts pointer events. A radial mask keeps the streaks at the periphery (clear center). */
@@ -375,6 +389,14 @@
   .mfCard .cb{ font-size:10px; font-weight:700; color:#8effb0; font-family:'Consolas',monospace; }
   .mfCard .ci{ font-size:30px; line-height:1; }
   .mfCard .ct{ font-size:9px; color:#bfe0ff; text-align:center; line-height:1.25; opacity:.85; }
+  /* R1: kart stat bars (SPEED/ACCEL/TURN) — 3-dot kid-readable scale on each kart card */
+  .mfStats{ display:flex; flex-direction:column; gap:2px; width:100%; margin-top:3px; }
+  .mfStatRow{ display:flex; align-items:center; gap:4px; }
+  .mfStatRow .sl{ font-size:8px; font-weight:800; color:#bfe0ff; width:34px; text-align:right;
+    font-family:'Consolas',monospace; letter-spacing:.02em; }
+  .mfStatRow .sd{ display:flex; gap:2px; }
+  .mfStatRow .sd i{ width:7px; height:7px; border-radius:50%; background:rgba(255,255,255,.18); display:block; }
+  .mfStatRow .sd i.on{ background:#ffd45e; }
   /* cup card mini track list */
   .mfCard.cupcard .ct{ font-size:9.5px; }
   /* bots stepper on SP course/cup select */
@@ -507,6 +529,7 @@
   <div id="mpPlaces"></div>
   <div id="countdown"><div class="num" id="cdNum">3</div></div>
   <div id="wrongway">⚠ WRONG WAY</div>
+  <div id="finalLap"><div class="fl">FINAL LAP!</div></div>
   <div id="results">
     <div class="card">
       <div class="rtitle">FINISH!</div>
@@ -807,6 +830,23 @@
     fov:"Camera field of view in degrees. Higher = wider view and more sense of speed."
   };
   let TUNE = Object.assign({}, TUNE_DEFAULTS);
+  // ---- KART STAT IDENTITY (2026-07-12 R1) ----
+  // Light per-kart-body multipliers applied in stepKart (top speed / accel / steer rate) to the LOCAL
+  // simulation of whoever drives that body (bots included, keyed off p.kartId which is synced as `kd`).
+  // Deltas are deliberately GENTLE (family game). bucky-truck is the balanced 1.0 baseline.
+  const KART_STATS = {
+    bucky:   { top:1.00, accel:1.00, steer:1.00 },
+    tractor: { top:1.08, accel:0.88, steer:0.96 },
+    mower:   { top:0.95, accel:1.10, steer:1.08 },
+  };
+  function kartStats(p){ return KART_STATS[normalizeKartId(p && p.kartId)] || KART_STATS.bucky; }
+  // Kid-readable 3-dot stat scale for the racer-select kart cards (SPEED / ACCEL / TURN). Derived from
+  // the multipliers above but rounded to clear, differentiated dots so the trade-offs read at a glance.
+  const KART_STAT_DOTS = {
+    bucky:   { SPEED:2, ACCEL:2, TURN:2 },
+    tractor: { SPEED:3, ACCEL:1, TURN:2 },
+    mower:   { SPEED:1, ACCEL:3, TURN:3 },
+  };
   try {
     // fk_tune_v2 (bumped from v1 — semantics changed with the MKW rewrite).
     const saved = JSON.parse(localStorage.getItem('fk_tune_v2') || 'null');
@@ -1152,6 +1192,46 @@
       if (w.cells.has(i+','+j)) return w;
     }
     return null;
+  }
+  // ---- WATER OBJECTS (legacy type:"water" slabs, e.g. the Sunny Meadows mill pond) ----
+  // These are placed OBJECTS (not `waters` flood-fill regions), so waterAt() doesn't see them.
+  // Build a light AABB list (rotated footprint + surface level) so the RESCUE CROW deep-water test
+  // covers ponds authored as objects too. Surface level = center.y + sy/2 (box top; buildObjectMesh
+  // renders a unit box scaled by sx/sy/sz centered at x/y/z).
+  const _waterObjs = (ACTIVE_TRACK.objects || []).filter(o => o && o.type === 'water').map(o => ({
+    x:o.x||0, z:o.z||0, hx:Math.abs(o.sx||1)/2, hz:Math.abs(o.sz||1)/2,
+    rot:o.rotY||0, level:(o.y||0) + Math.abs(o.sy||1)/2
+  }));
+  function waterObjAt(x, z){
+    for (const w of _waterObjs){
+      const c = Math.cos(-w.rot), s = Math.sin(-w.rot);
+      const dx = x - w.x, dz = z - w.z;
+      const lx = dx*c - dz*s, lz = dx*s + dz*c;   // world -> object-local (undo rotY)
+      if (Math.abs(lx) <= w.hx && Math.abs(lz) <= w.hz) return w;
+    }
+    return null;
+  }
+  // Water surface level at (x,z) across BOTH systems (flood-fill waters + object slabs), or null if
+  // (x,z) is over no water at all.
+  function waterSurfaceAt(x, z){
+    let level = null;
+    const w = waterAt(x, z); if (w) level = w.level;
+    const wo = waterObjAt(x, z); if (wo) level = level == null ? wo.level : Math.max(level, wo.level);
+    return level;
+  }
+  // ---- RESCUE CROW trigger (2026-07-12 R1) ----
+  // Fires when the kart is fully in DEEP water (water surface well above the pond bed at the kart —
+  // wheel-deep shallows stay driveable) OR has somehow dropped below the playable world (safety net).
+  const RESCUE_DEEP_WATER = 0.7;    // water-surface minus terrain that counts as "deep" (m)
+  const RESCUE_WORLD_FLOOR = 5;     // y below terrain that counts as "fell out of the world" (m)
+  function rescueTriggered(p){
+    const surf = waterSurfaceAt(p.pos.x, p.pos.z);
+    if (surf != null){
+      const bed = groundSampleHeight(p.pos.x, p.pos.z);
+      if (surf - bed > RESCUE_DEEP_WATER) return true;   // deep pond — sunk
+    }
+    if (p.y < sampleHeight(p.pos.x, p.pos.z) - RESCUE_WORLD_FLOOR) return true;   // fell out of the world
+    return false;
   }
 
   // TRAINS (2026-07-12): a closed-loop railroad with a moving loco+cars train. Renders rail track
@@ -2091,6 +2171,14 @@
       bullScale:1,           // 🐂 render scale (eases up to ~2x while charging — RENDER-ONLY)
       stormFlashT:0,         // ⛈ barn-storm screen-flash countdown (local FX)
       spinT:0,               // spin-out lock countdown (input ignored, kart spins 720deg)
+      // --- RESCUE CROW (2026-07-12 R1) ---
+      rescueT:0,             // remaining rescue-sequence time (s); >0 = control cut
+      rescueInvulnT:0,       // gentle no-spin window after being set down
+      rescueFrom:null, rescueTo:null,  // {x,z,y} fall point + centerline drop point
+      _rescueVisual:false,   // MP: remote kart is being rescued (crow visual only)
+      // --- SLIPSTREAM (2026-07-12 R1, MK8 draft) ---
+      slipT:0,               // cumulative time inside a draft cone (s)
+      slipCd:0,              // cooldown after firing a slip boost (s)
       // --- K3.5 bot identity (isBot=false => the human/local) ---
       isBot:false, botName:null, botColor:null, botSkill:0.75,
       gridSlot:0,
@@ -2186,6 +2274,8 @@
     p.lapLast = 0; p.lapBest = 0; p.startPressT = null; p.stallT = 0;
     p.spinT = 0; p.itemHeld = null; p.itemCount = 0; p.itemTrail = false; p.itemRollT = 0; p.itemHoldT = 0;
     p.trailKind = null; p.starT = 0; p.bullT = 0; p.bullScale = 1; p.stormFlashT = 0;
+    p.rescueT = 0; p.rescueInvulnT = 0; p.rescueFrom = null; p.rescueTo = null; p._rescueVisual = false;
+    p.slipT = 0; p.slipCd = 0;
   }
   // seat a player at a grid slot (pre-race pose), zeroing motion + progress baseline
   function placeAtGrid(p, slot){
@@ -2370,6 +2460,12 @@
   //   and the lap/finish bookkeeping moved out into updateRaceProgress().) ----------
   function stepKart(p, inp, dt){
     // inp: { steer:[-1,1], throttle:[0,1], brake:[0,1], drift:bool }
+    // RESCUE CROW (2026-07-12 R1, Lakitu): if the kart is stuck in DEEP water or fell below the
+    // playable world, a crow lifts it back to the road. Control is cut and stepKart returns early
+    // while the rescue sequence plays (applies to the local kart AND bots — bots can be dunked too).
+    if (p.rescueInvulnT > 0) p.rescueInvulnT = Math.max(0, p.rescueInvulnT - dt);
+    if (p.rescueT > 0){ advanceRescue(p, dt); return; }
+    if (rescueTriggered(p)){ startRescue(p); advanceRescue(p, dt); return; }
     // K4 SPIN-OUT: input fully ignored while spinning; the kart coasts (drag only) and the 720deg
     // visual spin is rendered from spinT. speed was already knocked down once at the hit (applySpinOut).
     // 🌻 star / ⛈ storm-flash timers tick down regardless of drive state (star also grants immunity
@@ -2422,10 +2518,12 @@
     const botCap = p.isBot
       ? ((TUNE.botTopSpeedMul || 1) * (p.botTopMul != null ? p.botTopMul : 1))
       : 1;
-    let effMax = TUNE.maxSpeed * (boosting ? Math.max(botCap, 1 + TUNE.boostMult) : botCap);
+    // KART STAT IDENTITY (2026-07-12 R1): gentle per-body multipliers (top / accel / steer).
+    const kst = kartStats(p);
+    let effMax = TUNE.maxSpeed * (boosting ? Math.max(botCap, 1 + TUNE.boostMult) : botCap) * kst.top;
     if (p.bullT > 0) effMax = Math.max(effMax, TUNE.maxSpeed * TUNE.bullSpeedMul);   // 🐂 charges fast
     else if (p.starT > 0) effMax *= TUNE.starSpeedMul;                                // 🌻 +18% top speed
-    let effAccel = TUNE.accel;
+    let effAccel = TUNE.accel * kst.accel;
     if (p.isBot) effAccel *= (p.botAccelMul != null ? p.botAccelMul : 1);
     if (gf > 0){ effAccel *= (1 - 0.55*gf); effMax *= (1 - 0.5*gf); }
 
@@ -2522,19 +2620,20 @@
     speed = Math.hypot(p.v.x, p.v.z);
     const speedFactor = turnAuthority(speed);
     const reversing = (p.v.x*forward.x + p.v.z*forward.z) < -0.01;
+    const steerRateEff = TUNE.steerRate * kst.steer;   // KART STAT IDENTITY: per-body handling
     let steerEff;
     if (p.drift.active){
       const d = p.drift.dir;
       const tight = (p.steer * d + 1) / 2; // 0..1
       const mag = TUNE.driftSteerMin + (TUNE.driftSteerMax - TUNE.driftSteerMin) * Math.min(Math.max(tight,0),1);
-      steerEff = d * mag * TUNE.steerRate * speedFactor;
+      steerEff = d * mag * steerRateEff * speedFactor;
       if (!air){   // K2.5: drift CHARGE frozen while airborne (a held drift survives the hop)
         let chargeRate = TUNE.mtChargeBase;
         if (p.steer * d > 0.4) chargeRate += TUNE.mtChargeBonus;
         p.drift.charge += chargeRate * dt;
       }
     } else {
-      steerEff = p.steer * TUNE.steerRate * speedFactor;
+      steerEff = p.steer * steerRateEff * speedFactor;
       if (reversing) steerEff = -steerEff;
     }
     if (air) steerEff *= TUNE.airControl;   // reduced steering authority mid-air
@@ -2732,6 +2831,15 @@
     if (charge >= TUNE.mtTier1) return 1;
     return 0;
   }
+  // VISUAL spark tier (2026-07-12 R1): 0 dust · 1 blue · 2 orange · 3 pink/purple. The 3rd tier is a
+  // pure-visual flourish (a MAX-charge "ultra" look) — the physics boost still caps at driftTier 2.
+  function driftSparkTier(charge){
+    if (charge >= 3*TUNE.mtTier1) return 3;
+    if (charge >= 2*TUNE.mtTier1) return 2;
+    if (charge >= TUNE.mtTier1) return 1;
+    return 0;
+  }
+  const DRIFT_SPARK_COL = [0xcdb98a, 0x2f9bff, 0xff8a1a, 0xd45cff];   // dust / blue / orange / pink
 
   // ---------- K4: spin-out (shared hazard result) ----------
   // Gentle, kid-friendly: input locked for spinT, kart visibly spins 720deg, speed knocked to 35%
@@ -2739,6 +2847,7 @@
   function applySpinOut(p, mult){
     if (p.spinT > 0) return;
     if (p.starT > 0 || p.bullT > 0) return;   // 🌻/🐂 invincible — no spin
+    if (p.rescueT > 0 || p.rescueInvulnT > 0) return;   // being rescued / just dropped (gentle invuln)
     const dur = TUNE.spinT * (mult || 1);
     // MP: the host DECLARES spins; a remote human's client applies it to their own kart. So on
     // the host, a hit on a guest kart bumps that guest's spin seq instead of spinning the host's
@@ -2934,6 +3043,13 @@
         if (behind > 2 && behind < 16 && lat < 6){ useItem(p); return; }  // drop in a chaser's path
       }
       if (p.itemHoldT <= 0) useItem(p);
+    } else if (held === 'mimic'){
+      // 🎁 drop the fake box on the racing line NEAR an item row (where rivals reach for real boxes)
+      const frac = arcS[p.lastSampleIdx || 0] / TRACK_LEN;
+      const rows = (ACTIVE_TRACK.itemRows && ACTIVE_TRACK.itemRows.length) ? ACTIVE_TRACK.itemRows : [0.12,0.40,0.68];
+      let nearRow = false;
+      for (const rf of rows){ let d = Math.abs(frac - rf); if (d > 0.5) d = 1 - d; if (d < 0.06){ nearRow = true; break; } }
+      if (nearRow || p.itemHoldT <= 0) useItem(p);
     } else {   // boost: spend it where it pays off — a straight ahead (low curvature)
       const { maxCurv } = cornerAhead(p.lastSampleIdx, Math.hypot(p.v.x, p.v.z));
       if (maxCurv < 0.015 || p.itemHoldT <= 0) useItem(p);
@@ -2951,6 +3067,7 @@
     ['tomato',     20,    -8],
     ['hay',        16,    -6],
     ['chicken',     6,     8],
+    ['mimic',       6,     4],   // 🎁 mimic crate (fake item box) — mid-pack leaning, leaders can get it
     ['tomato3',     2,    12],
     ['chicken3',    1,    12],
     ['egg',         0,    14],   // 🥚 golden egg (blue shell) — back only
@@ -2979,7 +3096,7 @@
     return 'tomato';
   }
   function isTriple(kind){ return kind === 'tomato3' || kind === 'chicken3'; }
-  function isTrailable(kind){ return kind === 'tomato' || kind === 'chicken' || kind === 'hay'; }
+  function isTrailable(kind){ return kind === 'tomato' || kind === 'chicken' || kind === 'hay' || kind === 'mimic'; }
   function itemShotCount(kind){ return isTriple(kind) ? 3 : 1; }
   function clearItem(p){ p.itemHeld = null; p.itemCount = 0; }   // clears the HELD SLOT only (trail is separate)
   function grantHeldItem(p, kind){
@@ -3041,6 +3158,11 @@
     if (kind === 'hay'){
       dropHay(p); haySound(p.pos);
       clearItem(p);
+      return;
+    }
+    if (kind === 'mimic'){
+      dropMimic(p); mimicDropSound(p.pos);
+      clearItem(p);
     }
   }
   // 🛡→ FIRE THE TRAILED ITEM (2026-07-12 trail-fire semantics): while an item trails behind you, a
@@ -3053,6 +3175,7 @@
     if (kind === 'tomato'){ fireTomato(p); tomatoFireSound(p.pos); }
     else if (kind === 'chicken'){ fireChicken(p); chickenSquawkSound(false, p.pos); }
     else if (kind === 'hay'){ dropHay(p); haySound(p.pos); }
+    else if (kind === 'mimic'){ dropMimic(p); mimicDropSound(p.pos); }
     return true;
   }
   function fireTomato(p){
@@ -3086,8 +3209,17 @@
   function dropHay(p){
     const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
     const x = p.pos.x - f.x*2.4, z = p.pos.z - f.z*2.4;
-    G.hazards.push({ x, z, y:sampleHeight(x,z)+0.4, owner:p.id, ownerGraceT:0.7 });
+    G.hazards.push({ x, z, y:sampleHeight(x,z)+0.4, owner:p.id, ownerGraceT:0.7, kind:'hay' });
     while (G.hazards.length > TUNE.hazardMax) G.hazards.shift();   // oldest despawns (render reconciles)
+  }
+  // 🎁 MIMIC CRATE (fake item box): drops behind like hay, but LOOKS like an item box. Touching it spins
+  // you out + pops with a "gotcha" — it's a hazard, never picked up as a real item (updateItemBoxes only
+  // scans G.itemBoxes). Seated a touch higher so the box reads as floating like a real box.
+  function dropMimic(p){
+    const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
+    const x = p.pos.x - f.x*2.4, z = p.pos.z - f.z*2.4;
+    G.hazards.push({ x, z, y:sampleHeight(x,z)+0.85, owner:p.id, ownerGraceT:0.7, kind:'mimic' });
+    while (G.hazards.length > TUNE.hazardMax) G.hazards.shift();
   }
   // ---- new items ----
   // Race leader = furthest-along kart (finished karts are already "done" — exclude them).
@@ -3204,7 +3336,9 @@
       ? [0xf5f0e6, 0xe23b2e, 0xffa020, 0xfff8ee]
       : (kind === 'hay')
         ? [0xcaa24a, 0xd4a84b, 0xe8c878]
-        : [0x4a9a3a, 0x7ac26a, 0x2a6a24, 0xc8e8a0]; // tomato item = lettuce visuals
+        : (kind === 'mimic')
+          ? [0xc98a5a, 0xb56a3a, 0xd8a878, 0xe6c088]   // cardboard box shards
+          : [0x4a9a3a, 0x7ac26a, 0x2a6a24, 0xc8e8a0]; // tomato item = lettuce visuals
     for (let i=0;i<12;i++){
       const a = Math.random() * Math.PI * 2;
       const sp = 2.2 + Math.random() * 5.5;
@@ -3386,11 +3520,17 @@
         const q = G.players[id];
         if (id === hz.owner && hz.ownerGraceT > 0) continue;
         if (Math.hypot(q.pos.x-hz.x, q.pos.z-hz.z) < 1.6){
+          const mimic = hz.kind === 'mimic';
           if (tryAbsorbWithTrail(q, hz.x, hz.z)){
-            spawnItemExplode(hz.x, hz.y, hz.z, 'hay');
+            spawnItemExplode(hz.x, hz.y, hz.z, mimic ? 'mimic' : 'hay');
             hz.dead = true; break;
           }
-          if (q.spinT <= 0){ applySpinOut(q); haySound(hz); hz.dead = true; break; }   // 2026-07-10: proximity audio
+          if (q.spinT <= 0){
+            applySpinOut(q);
+            if (mimic){ spawnItemExplode(hz.x, hz.y, hz.z, 'mimic'); mimicHitSound(hz); }
+            else haySound(hz);   // 2026-07-10: proximity audio
+            hz.dead = true; break;
+          }
         }
       }
     }
@@ -3754,6 +3894,57 @@
       }
     }
   }
+  // ---------- SLIPSTREAM (2026-07-12 R1, MK8 draft) ----------
+  // Tucking within a cone BEHIND another kart at speed for ~1.4s cumulative fires a burst boost
+  // (~85% of a boost-pad kick) + whoosh + brief flare. ~2.5s cooldown so it can't chain infinitely.
+  // Computed purely from known positions, so it works drafting bots AND remote karts; bots draft too.
+  const SLIP_RANGE = 7.0;        // max gap behind the kart ahead (m, projected along our forward)
+  const SLIP_LAT = 1.6;          // max lateral offset from directly behind (m)
+  const SLIP_MIN_FRAC = 0.6;     // must be above 60% of top speed to draft
+  const SLIP_CHARGE = 1.4;       // cumulative seconds in the cone to fire
+  const SLIP_CD = 2.5;           // cooldown after firing (s)
+  const SLIP_BOOST_T = TUNE_DEFAULTS.boostPadT * 0.85;   // boost window (~85% of a pad)
+  const _slipDbg = { fires:0, lastId:null };
+  function updateSlipstream(dt){
+    const minSpd = TUNE.maxSpeed * SLIP_MIN_FRAC;
+    for (const id in G.players){
+      const p = G.players[id];
+      if (!ownedLocally(p)) continue;   // never apply a draft boost to an adopted remote kart
+      if (p.slipCd > 0) p.slipCd = Math.max(0, p.slipCd - dt);
+      if (p.finished || p.rescueT > 0 || p.spinT > 0){ p.slipT = 0; continue; }
+      const spd = Math.hypot(p.v.x, p.v.z);
+      const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
+      const r = { x:Math.cos(p.theta), z:-Math.sin(p.theta) };
+      let drafting = false;
+      if (spd > minSpd && p.slipCd <= 0){
+        for (const oid in G.players){
+          const q = G.players[oid]; if (q === p) continue;
+          const dx = q.pos.x - p.pos.x, dz = q.pos.z - p.pos.z;
+          const ahead = dx*f.x + dz*f.z;              // >0 = q is ahead of us (we tuck behind them)
+          if (ahead <= 0.5 || ahead > SLIP_RANGE) continue;
+          const lat = Math.abs(dx*r.x + dz*r.z);
+          if (lat > SLIP_LAT) continue;
+          drafting = true; break;
+        }
+      }
+      if (drafting){
+        p.slipT += dt;
+        if (p.slipT >= SLIP_CHARGE){
+          // FIRE: pad-like surge (boostMult window) + a forward kick at ~85% of a pad's strength
+          p.boostT = Math.max(p.boostT, SLIP_BOOST_T);
+          p.boostTier = Math.max(p.boostTier, 1);
+          const kick = TUNE.boostPadStrength * 0.85;
+          p.v.x += f.x*kick; p.v.z += f.z*kick;
+          boostWhoosh(p === G.players.local ? undefined : p.pos);
+          p.slipT = 0; p.slipCd = SLIP_CD;
+          _slipDbg.fires++; _slipDbg.lastId = id;
+        }
+      } else {
+        // out of the cone (or too slow): bleed the charge quickly so only sustained drafting pays off
+        p.slipT = Math.max(0, p.slipT - dt*2);
+      }
+    }
+  }
   function bonkSound(){ tone(140, 0.08, { type:'square', vol:0.11, slideTo:90 }); }
 
   // ---------- K3.5: bot roster (Grand Prix fills to MAX_RACERS; Time Trial = humans only) ----------
@@ -3884,6 +4075,19 @@
     const tapeA = new THREE.Mesh(ITEMBOX_TAPE_GEO, _itemTapeMat);
     tapeA.position.y = 0.575; g.add(tapeA);
     const tapeB = new THREE.Mesh(ITEMBOX_TAPE_GEO, _itemTapeMat);
+    tapeB.position.y = 0.575; tapeB.rotation.y = Math.PI/2; g.add(tapeB);
+    return g;
+  }
+  // 🎁 MIMIC CRATE — looks like a real item box but with a SUBTLY REDDER tint kids can learn to spot
+  // (the cardboard map multiplied by a warm-red color). Slightly darker tape too.
+  const _mimicBoxMat = new THREE.MeshLambertMaterial({ map:_cardboardTex, color:0xff8f6a, emissive:0x1a0805 });
+  const _mimicTapeMat = new THREE.MeshLambertMaterial({ color:0xa85528 });
+  function buildMimicBox(){
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(ITEMBOX_GEO, _mimicBoxMat));
+    const tapeA = new THREE.Mesh(ITEMBOX_TAPE_GEO, _mimicTapeMat);
+    tapeA.position.y = 0.575; g.add(tapeA);
+    const tapeB = new THREE.Mesh(ITEMBOX_TAPE_GEO, _mimicTapeMat);
     tapeB.position.y = 0.575; tapeB.rotation.y = Math.PI/2; g.add(tapeB);
     return g;
   }
@@ -4115,6 +4319,7 @@
       const m = new THREE.Mesh(HAY_GEO, new THREE.MeshLambertMaterial({ color:0xcaa24a }));
       m.rotation.z = Math.PI/2; m.scale.setScalar(0.55); return m;
     }
+    if (kind === 'mimic'){ const m = buildMimicBox(); m.scale.setScalar(0.5); return m; }
     if (_projTpl.lettuce){ const m = _projTpl.lettuce.clone(true); m.scale.multiplyScalar(0.85); m.userData.tplVer = _projTplVer; return m; }
     const m = new THREE.Mesh(TOMATO_GEO, new THREE.MeshLambertMaterial({ color:0x4a9a3a, emissive:0x1a3010 }));
     m.scale.setScalar(0.72); m.userData.fallback = true; return m;
@@ -4213,11 +4418,22 @@
       }
     }
     for (let i=G.projectiles.length;i<_projPool.length;i++) _projPool[i].visible = false;
-    // hay bales
+    // hazards: hay bales + 🎁 mimic crates (kind-aware pooled meshes; rebuild on kind change)
     for (let i=0;i<G.hazards.length;i++){
+      const hz = G.hazards[i];
+      const want = hz.kind === 'mimic' ? 'mimic' : 'hay';
       let m = _hazPool[i];
-      if (!m){ m = new THREE.Mesh(HAY_GEO, new THREE.MeshLambertMaterial({ color:0xcaa24a })); m.rotation.z = Math.PI/2; scene.add(m); _hazPool[i] = m; }
-      const hz = G.hazards[i]; m.visible = true; m.position.set(hz.x, hz.y, hz.z);
+      if (!m || m.userData.hkind !== want){
+        if (m) scene.remove(m);
+        if (want === 'mimic'){ m = buildMimicBox(); }
+        else { m = new THREE.Mesh(HAY_GEO, new THREE.MeshLambertMaterial({ color:0xcaa24a })); m.rotation.z = Math.PI/2; }
+        m.userData.hkind = want; scene.add(m); _hazPool[i] = m;
+      }
+      m.visible = true; m.position.set(hz.x, hz.y, hz.z);
+      if (want === 'mimic'){   // spin + bob like a real item box to sell the disguise
+        m.rotation.y += dt * 0.55;
+        m.position.y = hz.y + Math.sin(performance.now()*0.001*1.35 + i) * 0.18;
+      }
     }
     for (let i=G.hazards.length;i<_hazPool.length;i++) _hazPool[i].visible = false;
     // orbit / trail visuals around each kart that holds a triple or trails a single
@@ -4297,6 +4513,15 @@
   }
   function updateRaceProgress(p, dt){
     if (p.finished) return;
+    // RESCUE (R1): while a crow carries the kart, keep the progress baseline current but don't count
+    // laps / wrong-way / finish crossings (the carry moves the kart to the centerline, not a real lap).
+    if (p.rescueT > 0){
+      updateProgressS(p);
+      p.prevProgressS = p.progressS; p.wrongWayT = 0;
+      const rx = p.pos.x - FINISH.cx, rz = p.pos.z - FINISH.cz;
+      p.prevSide = (rx*FINISH.tx + rz*FINISH.tz) >= 0 ? 1 : -1;
+      return;
+    }
     updateProgressS(p);
     // ordered checkpoints: lap fraction u measured forward from the finish line; require the
     // kart to enter sectors 1,2,3 in order (checkpoint count) before a finish cross counts.
@@ -4334,6 +4559,9 @@
         p.lap++;
         p.checkpoint = 0;
         p.finishDebounce = 5;
+        // FINAL LAP DRAMA (R1): the LOCAL kart just started its last lap (each player triggers their
+        // own locally). p.lap is 0-indexed completed laps; final lap begins at lapsTotal-1.
+        if (p === G.players.local && G.lapsTotal >= 2 && p.lap === G.lapsTotal - 1) triggerFinalLap();
         if (p.lap >= G.lapsTotal) finishRace(p);
       }
     }
@@ -4546,19 +4774,22 @@
     view._dustAcc = (view._dustAcc || 0) + dt;
     const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
     const r = { x:Math.cos(p.theta), z:-Math.sin(p.theta) };
-    // Drift-tier color lives on the SPARKS (not the kart body): dust → cyan MT → orange SMT
-    const tier = driftTier(p.drift.charge);
-    const col = tier === 2 ? 0xff7a1a : (tier === 1 ? 0x18b6ff : 0xcdb98a);
-    const op = tier === 0 ? 0.55 : 0.85;
-    const sz = tier === 0 ? 0.35 : (tier === 1 ? 0.42 : 0.48);
-    const rate = tier === 0 ? 0.028 : (tier === 1 ? 0.020 : 0.014);
+    // Drift-tier SPARKS (2026-07-12 R1): color escalates dust → blue → orange → pink/purple with the
+    // CURRENT mini-turbo charge tier, and intensifies per tier (denser, bigger, brighter, more spark-like).
+    const tier = driftSparkTier(p.drift.charge);
+    const col = DRIFT_SPARK_COL[tier];
+    const op = tier === 0 ? 0.55 : 0.95;
+    const sz = tier === 0 ? 0.35 : (0.4 + tier*0.06);
+    const rate = tier === 0 ? 0.028 : (0.024 - tier*0.005);   // t1 .019 · t2 .014 · t3 .009 (denser)
     while (view._dustAcc > rate){
       view._dustAcc -= rate;
       const side = Math.random() < 0.5 ? -1 : 1;
       const rx = p.pos.x - f.x*0.9 + r.x*side*0.55, rz = p.pos.z - f.z*0.9 + r.z*side*0.55;
-      spawnParticle(rx, gy + 0.15, rz, { color:col, opacity:op, life:0.4,
-        vx:r.x*side*1.1 - f.x*1.2 + (Math.random()-0.5), vy:1.1 + Math.random()*0.6, vz:r.z*side*1.1 - f.z*1.2 + (Math.random()-0.5),
-        grav:1.2, size:sz, grow:0.7 });
+      // higher tiers throw brighter, faster, more upward sparks (reads as flying sparks, not dust)
+      const up = tier === 0 ? (1.1 + Math.random()*0.6) : (1.6 + tier*0.5 + Math.random()*0.8);
+      spawnParticle(rx, gy + 0.15, rz, { color:col, opacity:op, life:tier===0?0.4:0.34,
+        vx:r.x*side*1.1 - f.x*1.2 + (Math.random()-0.5)*(1+tier*0.4), vy:up, vz:r.z*side*1.1 - f.z*1.2 + (Math.random()-0.5)*(1+tier*0.4),
+        grav:tier===0?1.2:2.4, size:sz, grow:tier===0?0.7:0.2, spin:tier?5:0 });
     }
   }
   function spawnBoostPuff(p, view, gy, dt){
@@ -4624,6 +4855,132 @@
       const a = Math.random()*Math.PI*2, rad = 0.7;
       spawnParticle(p.pos.x + Math.cos(a)*rad, (p.y || 0) + 1.5, p.pos.z + Math.sin(a)*rad, { color:0xffe45e, opacity:0.95, life:0.5,
         vx:Math.cos(a)*0.6, vy:1.2, vz:Math.sin(a)*0.6, size:0.42, spin:6, grow:-0.15 });
+    }
+  }
+
+  // ---------- RESCUE CROW (2026-07-12 R1, Lakitu) ----------
+  // A ~3s sequence: control cut + splash/sink, a crow flies in, grabs + carries the kart to the
+  // nearest centerline point, sets it down facing forward with a gentle invuln window, flies off.
+  const RESCUE_DUR = 3.0;
+  const RESCUE_T = { sink:0.6, lift:1.6, carry:2.6 };   // phase END times (elapsed s); drop = 2.6..3.0
+  const RESCUE_CARRY_H = 6.5;    // carry height above the drop road point (m)
+  const RESCUE_SINK = 1.6;       // how far the kart sinks during the splash phase (m)
+  function startRescue(p){
+    p.rescueT = RESCUE_DUR;
+    p.rescueInvulnT = 0;
+    p.drift.active = false; p.drift.dir = 0; p.drift.charge = 0; p.driftAngle = 0;
+    p.boostT = 0; p.boostTier = 0; p.airborne = false; p.vy = 0;
+    p.slipT = 0;   // a dunk cancels any draft charge
+    p.v.x = 0; p.v.z = 0;
+    // nearest centerline point + forward-facing tangent = the drop target
+    const bi = nearestSampleIdxFull(p.pos.x, p.pos.z);
+    const c = centerPts[bi], t = tangents[bi];
+    const ty = rideHeight(c.x, c.z, sampleHeight(c.x, c.z));
+    p.rescueFrom = { x:p.pos.x, z:p.pos.z, y:p.y };
+    p.rescueTo   = { x:c.x, z:c.z, y:ty, theta:Math.atan2(t.x, t.z) };
+    // big splash + entry sound at the fall point
+    const surf = waterSurfaceAt(p.pos.x, p.pos.z);
+    if (surf != null){
+      const wy = surf;
+      for (let i=0;i<20;i++){
+        const a = (i/20)*Math.PI*2 + Math.random()*0.4;
+        spawnParticle(p.pos.x + Math.cos(a)*0.8, wy + 0.2, p.pos.z + Math.sin(a)*0.8,
+          { color:0xeaf6ff, opacity:0.9, life:0.7, vx:Math.cos(a)*(4+Math.random()*3), vy:3.5+Math.random()*2,
+            vz:Math.sin(a)*(4+Math.random()*3), grav:7, size:0.5, grow:0.5 });
+      }
+      spawnParticle(p.pos.x, wy + 0.05, p.pos.z, { color:0xdff2ff, opacity:0.55, life:0.6, size:0.8, grow:7 });
+      waterSplashSound(p.pos);
+    }
+    crowFlapSound(p.pos);
+  }
+  function advanceRescue(p, dt){
+    p.rescueT = Math.max(0, p.rescueT - dt);
+    const el = RESCUE_DUR - p.rescueT;           // elapsed
+    const from = p.rescueFrom, to = p.rescueTo;
+    if (!from || !to){ p.rescueT = 0; return; }
+    p.v.x = 0; p.v.z = 0; p.vy = 0; p.airborne = false;
+    const carryY = to.y + RESCUE_CARRY_H;
+    if (el < RESCUE_T.sink){
+      // SINK: kart bobs then dips under the surface
+      const f = el / RESCUE_T.sink;
+      p.pos.x = from.x; p.pos.z = from.z;
+      p.y = from.y - RESCUE_SINK * f;
+    } else if (el < RESCUE_T.lift){
+      // LIFT: crow hauls the kart straight up out of the water/pit to carry height
+      const f = (el - RESCUE_T.sink) / (RESCUE_T.lift - RESCUE_T.sink);
+      const ef = f*f*(3-2*f);   // smoothstep
+      p.pos.x = from.x; p.pos.z = from.z;
+      p.y = (from.y - RESCUE_SINK) + (carryY - (from.y - RESCUE_SINK)) * ef;
+    } else if (el < RESCUE_T.carry){
+      // CARRY: fly the kart laterally over to the drop point, held aloft
+      const f = (el - RESCUE_T.lift) / (RESCUE_T.carry - RESCUE_T.lift);
+      const ef = f*f*(3-2*f);
+      p.pos.x = from.x + (to.x - from.x) * ef;
+      p.pos.z = from.z + (to.z - from.z) * ef;
+      p.y = carryY + Math.sin(f*Math.PI) * 0.8;   // gentle arc
+      p.theta = to.theta;                          // face forward for the set-down
+    } else {
+      // DROP: lower onto the road at the target, facing forward
+      const f = (el - RESCUE_T.carry) / (RESCUE_DUR - RESCUE_T.carry);
+      const ef = f*f;
+      p.pos.x = to.x; p.pos.z = to.z;
+      p.y = carryY + (to.y - carryY) * Math.min(1, ef*1.05);
+      p.theta = to.theta;
+    }
+    if (p.rescueT <= 0){
+      // set down, seated + facing forward, with a brief no-spin window
+      p.pos.x = to.x; p.pos.z = to.z; p.y = to.y; p.theta = to.theta;
+      p.v.x = 0; p.v.z = 0; p.vy = 0; p.airborne = false;
+      p.rescueInvulnT = 1.0;
+      p.rescueFrom = null; p.rescueTo = null;
+    }
+  }
+  // Procedural crow: dark body + head + orange beak + two flapping wings. One per rescued kart (pooled).
+  const _rescueCrows = {};   // pid -> { grp, wingL, wingR, t }
+  function buildCrow(){
+    const g = new THREE.Group();
+    const dark = new THREE.MeshLambertMaterial({ color:0x24242c, emissive:0x0a0a10 });
+    const beakM = new THREE.MeshLambertMaterial({ color:0xf0a017, emissive:0x3a2600 });
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.55, 12, 10), dark);
+    body.scale.set(1, 0.8, 1.5); g.add(body);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.34, 10, 8), dark);
+    head.position.set(0, 0.28, 0.72); g.add(head);
+    const beak = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.42, 7), beakM);
+    beak.rotation.x = Math.PI/2; beak.position.set(0, 0.24, 1.05); g.add(beak);
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.1, 0.5), dark);
+    tail.position.set(0, 0.05, -0.85); g.add(tail);
+    const wingGeo = new THREE.BoxGeometry(1.5, 0.08, 0.7);
+    const wingL = new THREE.Group(); const wlm = new THREE.Mesh(wingGeo, dark);
+    wlm.position.x = -0.75; wingL.add(wlm); wingL.position.set(-0.15, 0.18, 0); g.add(wingL);
+    const wingR = new THREE.Group(); const wrm = new THREE.Mesh(wingGeo, dark);
+    wrm.position.x = 0.75; wingR.add(wrm); wingR.position.set(0.15, 0.18, 0); g.add(wingR);
+    g.visible = false; scene.add(g);
+    return { grp:g, wingL, wingR, t:0 };
+  }
+  function updateRescueCrows(dt){
+    for (const id in G.players){
+      const p = G.players[id];
+      const active = (p.rescueT > 0) || p._rescueVisual;
+      let cr = _rescueCrows[id];
+      if (!active){ if (cr){ cr.grp.visible = false; } continue; }
+      if (!cr){ cr = _rescueCrows[id] = buildCrow(); }
+      cr.t += dt;
+      // crow hovers above the kart, dipping to grab; flaps its wings
+      const el = RESCUE_DUR - (p.rescueT || 0.001);
+      const approach = el < RESCUE_T.sink ? (1 - el/RESCUE_T.sink) : 0;   // fly in from higher/aside early
+      const cx = p.pos.x, cz = p.pos.z;
+      const cy = (p.y || sampleHeight(cx, cz)) + 2.3 + approach*4;
+      cr.grp.visible = true;
+      cr.grp.position.set(cx + approach*3.5, cy, cz - approach*2.0);
+      // face the drop direction (or travel)
+      const to = p.rescueTo;
+      cr.grp.rotation.y = to ? Math.atan2(to.x - cx, to.z - cz) : p.theta;
+      const flap = Math.sin(cr.t * 22) * 0.85;
+      cr.wingL.rotation.z = 0.2 + flap;
+      cr.wingR.rotation.z = -0.2 - flap;
+      // periodic wing-flap whoosh
+      cr._flapCd = (cr._flapCd || 0) - dt;
+      if (cr._flapCd <= 0){ crowFlapSound(p.pos); cr._flapCd = 0.42; }
     }
   }
 
@@ -5089,7 +5446,7 @@
   const ITEM_ICON = {
     boost:'⚡', tomato:'🥬', hay:'🌾', chicken:'🐔',
     tomato3:'🥬×3', chicken3:'🐔×3',
-    egg:'🥚', star:'🌻', bull:'🐂', storm:'⛈'
+    egg:'🥚', star:'🌻', bull:'🐂', storm:'⛈', mimic:'📦❗'
   };
   function updateItemSlot(p){
     const racing = G.phase === 'racing' || G.phase === 'finished';
@@ -5447,6 +5804,22 @@
     noiseBurst(0.26, { filter:'lowpass', freq:1600, freqTo:300, Q:0.7, vol:0.13, mul });
     tone(340, 0.14, { type:'sine', vol:0.07, slideTo:150, mul });
   }
+  // RESCUE CROW wing flap — a soft low whoosh (proximity-scaled). Synth-only (no sample needed).
+  function crowFlapSound(pos){
+    const mul = gainAt(pos, 'crowFlap');
+    noiseBurst(0.16, { filter:'lowpass', freq:900, freqTo:260, Q:0.6, vol:0.08, mul });
+  }
+  // 🎁 MIMIC CRATE — a light "clunk" on drop, and a comedic "gotcha!" pop + shard rattle on hit.
+  function mimicDropSound(pos){
+    const mul = gainAt(pos, 'mimicDrop');
+    tone(300, 0.08, { type:'square', vol:0.09, slideTo:180, mul });
+  }
+  function mimicHitSound(pos){
+    const mul = gainAt(pos, 'mimicHit');
+    tone(520, 0.10, { type:'square', vol:0.11, slideTo:120, mul });   // descending "wah-wah" gotcha
+    setTimeout(()=>tone(360, 0.12, { type:'square', vol:0.10, slideTo:90, mul }), 90);
+    noiseBurst(0.2, { filter:'highpass', freq:1200, Q:0.6, vol:0.09, mul });   // cardboard shard rattle
+  }
   // hay bale fire/drop AND hit both use the same sample (2026-07-10); synth fallback unchanged.
   // pos (proximity audio, optional): world {x,z} of the bale/hit.
   function haySound(pos){
@@ -5774,6 +6147,15 @@
       raceMusicSrcName = want;
     }
     if (raceMusicGain) fadeGainTo(raceMusicGain, 1, 0.5);
+    // R1: a fresh race source starts at 1.0; reapply any pending final-lap rate (kept across restart)
+    if (raceMusicSrc && _raceMusicRate !== 1){ try{ raceMusicSrc.playbackRate.value = _raceMusicRate; }catch(e){} }
+  }
+  // FINAL LAP DRAMA (R1): kick the race music tempo up. A buffer source's playbackRate CAN change live
+  // and stays loop-seamless (just faster/higher), so no restart needed.
+  let _raceMusicRate = 1;
+  function setRaceMusicRate(r){
+    _raceMusicRate = r;
+    if (raceMusicSrc){ try{ raceMusicSrc.playbackRate.value = r; }catch(e){} }
   }
   function setMusicPhase(next){
     if (musicPhase === next) return;
@@ -5793,6 +6175,7 @@
   function musicRaceEnd(){
     ensureMusicBus();
     silenceTrack(raceMusicGain);
+    setRaceMusicRate(1);   // R1: revert the final-lap tempo bump on race end
     musicPhase = null;
     if (playSample('fk-sfx-win-jingle', { gain:0.9, dest: musicBus || masterGain })) _sfxPlays.winJingle++;
   }
@@ -5836,6 +6219,31 @@
   const countdownEl  = document.getElementById('countdown');
   const cdNum        = document.getElementById('cdNum');
   const resultsEl    = document.getElementById('results');
+  const finalLapEl   = document.getElementById('finalLap');
+  // FINAL LAP DRAMA (R1): banner + jingle + music tempo bump (once per race, local kart's final lap).
+  let _finalLapFired = false;
+  let _finalLapHideT = null;
+  function finalLapJingle(){
+    // short rising synth fanfare
+    tone(660, 0.12, { type:'square', vol:0.11 });
+    setTimeout(()=>tone(880, 0.12, { type:'square', vol:0.11 }), 120);
+    setTimeout(()=>tone(1175, 0.20, { type:'square', vol:0.12 }), 260);
+  }
+  function triggerFinalLap(){
+    if (_finalLapFired) return;
+    _finalLapFired = true;
+    finalLapEl.classList.add('show');
+    if (_finalLapHideT) clearTimeout(_finalLapHideT);
+    _finalLapHideT = setTimeout(()=>{ finalLapEl.classList.remove('show'); }, 1800);
+    finalLapJingle();
+    setRaceMusicRate(1.08);   // music kicks up for the last lap
+  }
+  function resetFinalLap(){
+    _finalLapFired = false;
+    if (_finalLapHideT){ clearTimeout(_finalLapHideT); _finalLapHideT = null; }
+    finalLapEl.classList.remove('show');
+    setRaceMusicRate(1);
+  }
   // clear power-up entities + re-arm every item box (start of a race / return to menu)
   function resetEntities(){
     G.projectiles.length = 0; G.hazards.length = 0;
@@ -5884,6 +6292,7 @@
     // above assigned a grid-slot color; the racer color wins for the human you control).
     if (G.players.local._racerCol != null){ G.players.local._slotCol = G.players.local._racerCol; paintKartAccent('local'); }
     resetEntities();
+    resetFinalLap();   // R1: clear final-lap banner + music tempo for the new race
     G.finishOrder = []; G.finishSeq = 0; G.localDone = false; G.localFinishClock = 0;
     G.phase = 'countdown';
     G.countdownT = TUNE.countdownBeat * 3;
@@ -6487,7 +6896,8 @@
       it:p.itemHeld, ic:p.itemCount||0, trk:p.trailKind||'', st:p.starT||0, bl:p.bullT||0, roll:p.itemRollT, fin:p.finished, ft:p.finishTime,
       dact:p.drift.active, dtier:(p.drift.active?driftTier(p.drift.charge):0), bo:(p.boostT>0?1:0),
       nm:name||'', col:col,
-      kd:p.kartId||'bucky', dd:p.driverId||'bucky'
+      kd:p.kartId||'bucky', dd:p.driverId||'bucky',
+      rsc:p.rescueT>0?1:0   // R1: remote crow-rescue visual flag
     };
   }
   // ---- write a received kart snapshot into a G.players entry (create + interpolate) ----
@@ -6506,6 +6916,7 @@
     // buildKartView is idempotent (kartViews[key] guard) so this is safe to call every tick.
     p.kartId = normalizeKartId(ks.kd != null ? ks.kd : p.kartId);
     p.driverId = normalizeDriverId(ks.dd != null ? ks.dd : p.driverId);
+    p._rescueVisual = !!ks.rsc;   // R1: show a crow over a remote kart being rescued
     if (!kartViews[key]) buildKartView(key, ks.col!=null?ks.col:0x8844cc, false, ks.nm || 'Racer',
       { kartId:p.kartId, driverId:p.driverId });
     else applyKartLoadout(kartViews[key], p.kartId, p.driverId);
@@ -6562,7 +6973,7 @@
       karts,
       boxes:G.itemBoxes.map(b=>b.active?1:0),
       proj:G.projectiles.map(pr=>({x:pr.x,y:pr.y,z:pr.z,k:pr.kind||'tomato',vx:pr.vx,vz:pr.vz})),
-      haz:G.hazards.map(hz=>({x:hz.x,y:hz.y,z:hz.z})),
+      haz:G.hazards.map(hz=>({x:hz.x,y:hz.y,z:hz.z,k:hz.kind||'hay'})),
       chick:G.chickens.filter(c=>c.active).map(c=>({ i:c.i, x:c.x, z:c.z, d:c.dir, w:c.walkT, r:c.roll })),
       grants:net.grants || {},
       spins:net.spins,
@@ -6761,7 +7172,7 @@
       kind:pr.k||'tomato', x:pr.x, y:pr.y, z:pr.z,
       vx:pr.vx||0, vz:pr.vz||0, life:1, owner:'', bounced:false, target:null
     }));
-    G.hazards = (snap.haz||[]).map(hz=>({x:hz.x,y:hz.y,z:hz.z,owner:''}));
+    G.hazards = (snap.haz||[]).map(hz=>({x:hz.x,y:hz.y,z:hz.z,owner:'',kind:hz.k||'hay'}));
     // chickens: host-authoritative — render from the snapshot (guest never simulates them).
     for (const ch of G.chickens) ch.active = false;
     for (const sc of (snap.chick||[])){
@@ -7012,6 +7423,7 @@
       advanceHazards(dt);
       advanceChickens(dt);          // 2026-07-12: road-crossing chickens (host-authoritative)
       updateBoostPads(dt);          // K7: boost pads (host kart + bots; guests fire their own)
+      updateSlipstream(dt);         // R1: draft boost (host kart + bots; guests compute their own)
       resolveKartCollisions();      // K7: local separation (own kart authoritative; remotes not moved)
       G.raceClock += dt;
       // race fully over? (all karts finished) -> stop the world
@@ -7048,6 +7460,7 @@
     advanceHazards(dt);
     advanceChickens(dt);          // 2026-07-12: road-crossing chickens (solo)
     updateBoostPads(dt);          // K7: boost pads (own + bots)
+    updateSlipstream(dt);         // R1: draft boost (own + bots)
     resolveKartCollisions();      // K7: kart-vs-kart separation (own + bots)
     G.raceClock += dt;
     // FINISH TRANSITION (2026-07-12): once the local player has finished, keep simulating so the
@@ -7087,6 +7500,7 @@
         updateRaceProgress(p, dt);
         if (inp.item || inp.itemTrailToggle) applyLocalItemInputNet(G.players.local, inp);
         updateBoostPads(dt);          // K7: guest fires its own pad boost locally (feel)
+        updateSlipstream(dt);         // R1: guest drafts remotes/host locally (own kart only)
         resolveKartCollisions();      // K7: separate only OUR kart from interpolated remotes
         if (G.goFlashT > 0){ G.goFlashT = Math.max(0, G.goFlashT - dt); if (G.goFlashT===0){ countdownEl.style.display='none'; cdNum.classList.remove('go'); } }
         G.raceClock += dt;
@@ -7112,6 +7526,7 @@
     }
 
     syncKart(dt);
+    updateRescueCrows(dt);   // R1: crow lift-and-carry visual over any kart being rescued
     updateCamera(dt);
     updateHUD();
     updateParticles(dt);   // K6: advance the pooled juice particles
@@ -7333,20 +7748,33 @@
     function buildLoadoutSections(host, onChange){
       host.className='mfLoadout'; host.addEventListener('pointerdown', stop);
       const drvCards={}, kartCards={}, colSwatches={};
-      function section(title, kinds, cardMap, pickKey){
+      function section(title, kinds, cardMap, pickKey, withStats){
         const sec=el('div','lsec'); sec.appendChild(el('div','lh', title));
         const grid=document.createElement('div'); grid.className='mfPickGrid';
         for (const k of kinds){
           const c=document.createElement('div'); c.className='mfCard'; c.dataset.id=k.id;
           c.appendChild(el('div','pico', k.ico)); c.appendChild(el('div','cn', k.name));
+          if (withStats) c.appendChild(buildStatBars(k.id));   // R1: kart cards show SPEED/ACCEL/TURN
           c.addEventListener('pointerdown',stop);
           c.addEventListener('click', ()=>{ st.loadout[pickKey]=k.id; apply(); });
           grid.appendChild(c); cardMap[k.id]=c;
         }
         sec.appendChild(grid); host.appendChild(sec);
       }
+      // R1: 3-dot stat block (SPEED/ACCEL/TURN) for a kart id, from KART_STAT_DOTS.
+      function buildStatBars(kartId){
+        const dots = KART_STAT_DOTS[kartId] || KART_STAT_DOTS.bucky;
+        const box = el('div','mfStats');
+        for (const label of ['SPEED','ACCEL','TURN']){
+          const row=el('div','mfStatRow'); row.appendChild(el('div','sl', label));
+          const sd=el('div','sd');
+          for (let i=1;i<=3;i++){ const dot=document.createElement('i'); if (i<=dots[label]) dot.className='on'; sd.appendChild(dot); }
+          row.appendChild(sd); box.appendChild(row);
+        }
+        return box;
+      }
       section('WHO’S DRIVING?', DRIVER_KINDS, drvCards, 'driverId');
-      section('PICK YOUR KART',    KART_KINDS,   kartCards, 'kartId');
+      section('PICK YOUR KART',    KART_KINDS,   kartCards, 'kartId', true);
       const csec=el('div','lsec'); csec.appendChild(el('div','lh','KART COLOR'));
       const crow=document.createElement('div'); crow.className='mfColors';
       for (const col of RACER_COLORS){
@@ -7750,7 +8178,7 @@
 
   // ---------- TEST / TUNING HOOK (leave in — prototype) ----------
   window.__KART__ = {
-    G, resetKart, centerPts, FINISH, scene, camera, renderer,
+    G, resetKart, centerPts, tangents, nearestSampleIdxFull, FINISH, scene, camera, renderer,
     arcS, TRACK_LEN, FINISH_S, gridSlotPose,
     sampleHeight, sampleHeightAtY, groundSampleHeight, nearestCenterInfo, TRACK_WIDTH,
     // K7: collisions / fences / overlap fix / boost pads
@@ -7782,6 +8210,22 @@
     updateLightningBolts, BULL_SIZE,
     advanceProjectiles, advanceHazards, stepKart,
     ITEM_ROLL_TABLE, ITEM_KINDS, ITEM_ICON,
+    // ---- 2026-07-12 R1 (Feel & Fairness): six MK-inspired features ----
+    // 1. rescue crow
+    rescueTriggered, startRescue, advanceRescue, updateRescueCrows, waterSurfaceAt, waterObjAt,
+    RESCUE_DUR, RESCUE_DEEP_WATER, RESCUE_WORLD_FLOOR, get rescueCrows(){ return _rescueCrows; },
+    // 2. drift spark tiers (+ existing hop)
+    driftSparkTier, DRIFT_SPARK_COL, spawnDriftDust,
+    // 3. slipstream
+    updateSlipstream, SLIP_RANGE, SLIP_LAT, SLIP_MIN_FRAC, SLIP_CHARGE, SLIP_CD, SLIP_BOOST_T,
+    get slipDbg(){ return _slipDbg; },
+    // 4. final lap drama
+    triggerFinalLap, resetFinalLap, setRaceMusicRate, get raceMusicRate(){ return _raceMusicRate; },
+    get finalLapFired(){ return _finalLapFired; }, get finalLapEl(){ return finalLapEl; },
+    // 5. kart stat identity
+    KART_STATS, kartStats,
+    // 6. mimic crate
+    dropMimic, mimicHitSound, mimicDropSound, buildMimicBox,
     spawnItemExplode, makeProjMesh, buildChickenMesh, get projTpl(){ return _projTpl; }, get projTplVer(){ return _projTplVer; },
     // K5 multiplayer (also exposed for the headless harness / unit-style codepath tests)
     net, serializeKart, adoptKart, buildNetSnapshot, publishNetSnapshotNow, guestApply,
@@ -7810,7 +8254,7 @@
     WATER_GROUP, TRAIN_GROUP, setSky, get SKY_OBJ(){ return SKY_OBJ; }, get sky(){ return ACTIVE_TRACK.sky || 'day'; },
     get hemiLight(){ return hemi; }, get sunLight(){ return sun; },
     // K6 polish (audio + particles + best-lap key; exposed for the headless harness)
-    BEST_LAP_KEY, setMuted, toggleMute, particleActiveCount,
+    BEST_LAP_KEY, setMuted, toggleMute, particleActiveCount, updateParticles, syncEntityMeshes,
     audioState:()=>({ muted:audioMuted, masterGain: masterGain ? masterGain.gain.value : null,
       engineFreq: engineOsc ? engineOsc.frequency.value : null,
       engineHarmonic: engineOsc2 ? engineOsc2.frequency.value : null,
