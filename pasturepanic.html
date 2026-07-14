@@ -603,25 +603,81 @@
     // ================== constants ==================
     const ARENA = 66;                 // half-size of the fenced pasture (3x area vs the old 38)
     const SCORES_KEY = "pasturePanicScores";
-    const ENEMY_CAP = 190;   // leans into swarm volume — separation pass is O(n²) but fine at this size
+    // Swarm cap: solo/couch lean HARD into "the whole screen is covered" (balance overhaul 2026-07-13:
+    // 190 -> 230, +21%). small-fry HP is cheaper below so density never becomes an unkillable wall, and
+    // the separation pass moved to a spatial-hash grid (O(n·k)) so the raised cap stays cheap. 230 is the
+    // point that reliably holds ≥30fps headless-swiftshader WITH margin even on a CONTENDED shared CI box
+    // (a clean box measures well above; real GPUs handle far more — swiftshader CPU-rasterizes ~2.3k
+    // draw-calls, which is the binding constraint, not the sim). The "screen covered" menace comes from
+    // the denser rings/walls + elite ramp filling this cap, not from the raw number alone. Online co-op
+    // stays 120 (snapshot budget) and compensates with the toughness ramp (×1.4 late-HP) instead of count.
+    const ENEMY_CAP = 260;   // 2026-07-13: raised 190->230->260 for menacing late swarms (online coop stays 120)
     const SPECS = {   // everything but the turtle slowed so the swarm can be outrun
-      rat:       { hp: 10,  speed: 4.0, dmg: 6,  xp: 1, r: 0.75, mass: 0.7 },
+      // small-fry HP trimmed (rat 10->7, crow 8->6, snake 18->15) so the denser swarm stays killable
+      rat:       { hp: 7,   speed: 4.0, dmg: 6,  xp: 1, r: 0.75, mass: 0.7 },
       armadillo: { hp: 28,  speed: 2.7, dmg: 10, xp: 2, r: 1.0,  mass: 1.4 },
-      snake:     { hp: 18,  speed: 3.3, dmg: 8,  xp: 2, r: 0.9,  mass: 0.9 },
+      snake:     { hp: 15,  speed: 3.3, dmg: 8,  xp: 2, r: 0.9,  mass: 0.9 },
       turtle:    { hp: 80,  speed: 2.0, dmg: 18, xp: 5, r: 1.3,  mass: 2.6 },
-      crow:      { hp: 8,   speed: 9.5, dmg: 9,  xp: 1, r: 0.7,  mass: 0.4 },  // kamikaze flyer — formations only
-      mole:      { hp: 40,  speed: 2.0, dmg: 20, xp: 4, r: 1.1,  mass: 2.0 }   // boss-only (never in the regular spawn pool)
+      crow:      { hp: 6,   speed: 9.5, dmg: 9,  xp: 1, r: 0.7,  mass: 0.4 },  // kamikaze flyer — formations only
+      mole:      { hp: 40,  speed: 2.0, dmg: 20, xp: 4, r: 1.1,  mass: 2.0 },  // boss-only (never in the regular spawn pool)
+      // ---- LOBBER (balance overhaul 2026-07-13, DRG:Survivor mechanic): a comic mole-rat that stops
+      // at range and lobs slow arcing dirt clods at where you stand — move off the marker to dodge. ----
+      lobber:    { hp: 34,  speed: 2.4, dmg: 8,  xp: 3, r: 0.9,  mass: 1.6 }
+    };
+    // ================== balance-overhaul tunables (2026-07-13) ==================
+    // Centralized so the sim harness (_verify-pasture-balance) can read the LIVE numbers and, during
+    // iteration, poke them via window.__PP__.BAL without a code edit. Gameplay reads these fields live.
+    const BAL = {
+      // Directive 1 — corn kernel per-pierce falloff (corn is rapid-fire so steeper than the pitchfork's −8%)
+      cornPierceFalloff: 0.16, cornPierceFloor: 0.30,
+      // Directive 2 — barn-cat pounce splash (AoE). Radius scales with cat weapon level; evolution widens it.
+      // 2026-07-13 tune: splash was runaway (cats 77% of their build); frac/evo/radius trimmed hard.
+      catSplashR: 1.6, catSplashPerLvl: 0.14, catSplashEvoBonus: 1.2, catSplashFrac: 0.15,
+      // Systemic AoE-class compression: the Nth enemy caught by a SINGLE blast/splash event takes
+      // diminishing damage (rank falloff, floored). Barely touches 1-3-target hits (normal play) but
+      // reins in the whole-crowd AoE weapons (pumpkin blast, cat splash) against a dense swarm — the
+      // exact scenario where they dominated the damage share. Applied as a CLASS, not per-weapon.
+      aoeRankFalloff: 0.16, aoeRankFloor: 0.30,
+      // Directive 3 — milk zone real DPS tick (dmg/sec), scaled by the weapon's damage stat; churn stacks higher
+      milkTick: 9, milkChurnTick: 18,
+      // Directive 5 — lobber cadence / projectile / puddle
+      lobStandoff: 15, lobFireEvery: 3.0, lobHang: 1.4, lobPuddleR: 2.6, lobPuddleLife: 1.5,
+      lobPuddleTick: 10, lobOffscreenChance: 0.5,
+      // Directive 6 — severe elite ramp: fraction of NORMAL spawns that roll elite, 0 before start,
+      // climbing to 1.0 (all-elite) by eliteAllAt. Replaces the old 0.06 hard cap past 8:00.
+      eliteRampStart: 480, eliteAllAt: 810, eliteAffixFrom: 240,
+      // Addition — late-game HP curve steepening (extra hp growth per second past 8:00)
+      hpLateBoost: 0.007,
+      // Dominance trims surfaced by the simulation (sprinkler + pitchfork were the new >45% offenders
+      // once corn was nerfed): steeper pierce falloff on the fork; higher per-enemy sprinkler cooldown
+      // (fewer ticks/sec so its whole-crowd DPS stops eclipsing the rest of a 4-weapon build).
+      // 2026-07-13 tune: fork mowed an unbounded line at a 0.30 floor -> 43% share. Steeper falloff +
+      // a much lower floor so a single throw no longer chews a whole crowd at near-full damage.
+      // CORN rework (2026-07-13): standing-corn funnels line the crowd up into the pitchfork's path,
+      // which nudged evolved-focused fork share 43% -> ~48% (over the 45% cap). Steepened 0.22 -> 0.27
+      // to trim the pierced-line tail back under target — per the corn-directive's "tune per-pierce
+      // falloff slightly if the corn funnel favors piercers" guidance. Corn feel/geometry unchanged.
+      forkPierceFalloff: 0.27, forkPierceFloor: 0.10,
+      // Sprinkler is an uncapped whole-crowd pulse: against a packed swarm it soaked dozens of enemies
+      // per cooldown, so its share swung wildly (31%–63% run-to-run) and could tower over a 4-weapon
+      // build. sprkMaxTargets caps how many varmints one frame's spray can soak (nearest-first) — its
+      // DPS now SATURATES with crowd size instead of scaling without bound, which both trims the mean
+      // and kills the variance. sprkCdBase raised a touch on top.
+      sprkCdBase: 0.72, sprkMaxTargets: 7,
+      // Bees sting more than one varmint per pass (mini-AoE swarm identity) but CAPPED per tick, or an
+      // uncapped multi-sting spiked bees to ~49% of a dense crowd (same runaway the sprinkler had).
+      beeMaxStings: 2
     };
     // ---- weapons: 4 slots, new pick every 5 levels ----
     const WEAPON_SPECS = {
       corn:      { ico:"🌽", name:"Corn Cannon",      baseDmg:11, baseRate:1.5,  range:14 },
-      pumpkin:   { ico:"🎃", name:"Pumpkin Launcher", baseDmg:30, baseRate:0.55, range:22, blast:3.4 },
-      cats:      { ico:"🐈", name:"Barn Cat Blaster", baseDmg:21, baseRate:0.75, range:30 },
-      scarecrow: { ico:"🌾", name:"Scarecrow Turret", baseDmg:15, baseRate:1.6,  range:14, deployEvery:7, life:15 },
-      bees:      { ico:"🐝", name:"Bee Hive",         baseDmg:9,  baseRate:1.0,  range:0,  orbitR:6.0 },
-      sprinkler: { ico:"💦", name:"Sprinkler",        baseDmg:26, baseRate:1.5,  range:7.5 },
+      pumpkin:   { ico:"🎃", name:"Pumpkin Launcher", baseDmg:24, baseRate:0.55, range:22, blast:3.4 },   // nerf: 30->24 (blast dominated crowds at 60%)
+      cats:      { ico:"🐈", name:"Barn Cat Blaster", baseDmg:14, baseRate:0.75, range:30 },   // nerf: 21->14 (pounce+splash dominated its build at 66-77%)
+      scarecrow: { ico:"🌾", name:"Scarecrow Turret", baseDmg:22, baseRate:1.6,  range:14, deployEvery:7, life:15 },   // buff: 15->22 (was hugging the 5% floor)
+      bees:      { ico:"🐝", name:"Bee Hive",         baseDmg:15, baseRate:1.0,  range:0,  orbitR:6.0 },   // buff: 9->14->15 + multi-sting (was <5% in its build)
+      sprinkler: { ico:"💦", name:"Sprinkler",        baseDmg:17, baseRate:1.5,  range:7.5 },   // nerf: 26->17 whole-crowd DPS was runaway (67-78% of a 4-weapon build)
       fork:      { ico:"🔱", name:"Pitchfork",        baseDmg:38, baseRate:0.6,  range:30 },
-      bolt:      { ico:"⚡", name:"Weathervane",      baseDmg:48, baseRate:0.5,  range:24 },
+      bolt:      { ico:"⚡", name:"Weathervane",      baseDmg:55, baseRate:0.5,  range:24 },   // buff: 48->55 single-target spike (was a low co-weapon share)
       // ---- Batch-2 weapons (design-review feature #6) — pool goes 8 -> 12 ----
       egg:       { ico:"🥚", name:"Egg Mortar",       baseDmg:24, baseRate:0.7,  range:22, blast:2.2 },   // dmg/rate lifted from the spec's 18/0.6 for crowd-DPS parity
       chicken:   { ico:"🐔", name:"Chicken Flock",    baseDmg:22, baseRate:0.95, range:26 },  // peck dmg/cadence lifted from the spec's 10/0.83 for parity
@@ -677,14 +733,20 @@
     // ---- named minute-mark waves, ending in the 15:00 final boss ----
     const FINAL_AT = 900;
     // set-piece waves surround the WHOLE screen — a closing ring you have to fight out of
+    // Balance overhaul: EARLY waves stay at their tuned (shipped) sizes so a fresh no-meta save is
+    // survivable to ~8-13:00; the "whole screen is covered" menace is a LATE-game escalation — the new
+    // 540/720/810 set-pieces + the higher cap + elite ramp make the back third a closing wall.
     const WAVES = [
       { t: 60,  txt:"🐀 The Rat Pack!",        f: () => spawnRing("rat", 50, 32) },
       { t: 120, txt:"🦔 Dillo Brigade!",       f: () => spawnRing("armadillo", 28, 30) },
       { t: 180, txt:"🐦‍⬛ Crow Squadron!",      f: () => spawnCrows(24) },
       { t: 240, txt:"🐍 Snake Hour!",          f: () => spawnRing("snake", 45, 30) },
       { t: 300, txt:"🐢 Shell Shock!",         f: () => spawnRing("turtle", 26, 30) },
-      { t: 420, txt:"🌪 Total Stampede!",      f: () => { spawnRing("rat", 55, 30); spawnRing("armadillo", 22, 24); } },
-      { t: 600, txt:"🐦‍⬛ Murder of Crows!",    f: () => { spawnCrows(26); spawnRing("snake", 40, 30); } },
+      { t: 420, txt:"🌪 Total Stampede!",      f: () => { spawnRing("rat", 58, 30); spawnRing("armadillo", 24, 22); } },
+      { t: 540, txt:"🕳 Clod Squad!",          f: () => { spawnRing("lobber", 14, 30); spawnRing("rat", 40, 20); } },
+      { t: 600, txt:"🐦‍⬛ Murder of Crows!",    f: () => { spawnCrows(28); spawnRing("snake", 46, 30); } },
+      { t: 720, txt:"⚔️ The Elite Guard!",     f: () => spawnWall(24) },
+      { t: 810, txt:"💀 Nowhere To Run!",      f: () => { spawnRing("rat", 58, 34); spawnRing("armadillo", 30, 22); spawnCrows(18); } },
       { t: FINAL_AT - 30, txt:"⚠️ THE COMBINE IS COMING…", f: () => {} },
       { t: FINAL_AT, txt:"🚜 THE COMBINE HARVESTER!", f: () => spawnFinalBoss() }
     ];
@@ -1930,7 +1992,20 @@
       g.add(blobShadow(1.2));
       return g;
     }
-    const BUILDERS = { rat: buildRat, armadillo: buildArmadillo, snake: buildSnake, turtle: buildTurtle, crow: buildCrow, mole: buildMole };
+    // Lobber = a smaller mole-rat in a red bandana, forever hefting a dirt clod (comic, not scary).
+    function buildLobber(){
+      const g = buildMole();
+      g.scale.setScalar(0.82);
+      // red bandana around the neck so it reads distinct from the (boss-only) mole
+      const band = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.09, 6, 12), mat(0xc0392b, true));
+      band.rotation.x = Math.PI/2; band.position.set(0, 0.5, 0.55); g.add(band);
+      // a dirt clod held up in one paw (cosmetic; the real thrown clod is a separate projectile mesh)
+      const clod = new THREE.Mesh(new THREE.DodecahedronGeometry(0.22, 0), mat(0x6b4a2a, true));
+      clod.position.set(0.55, 0.7, 0.6); g.add(clod);
+      g.userData.clod = clod;
+      return g;
+    }
+    const BUILDERS = { rat: buildRat, armadillo: buildArmadillo, snake: buildSnake, turtle: buildTurtle, crow: buildCrow, mole: buildMole, lobber: buildLobber };
 
     // ---- downloaded rat model (rat.fbx + rat-palette.jpg in this folder) ----
     // The pack holds three rat poses (Rat1-3); spawns pick one at random. Geometry is
@@ -2699,6 +2774,7 @@
     let beeUnits = [], forks = [], boltsFx = [];
     // ---- batch-2 weapon entities ----
     let eggs = [], bomblets = [], chickens = [], milkJars = [], milkZones = [], hayBales = [];
+    let lobShots = [], lobPuddles = [];   // Lobber (directive 5): arcing dirt clods + their impact puddles
     let weapons = [], pickQueue = [], banished = new Set();
     let boss = null, bossTimer = 0, bossIdx = 0, revivesLeft = 0;
     let rerollsLeft = 0, banishesLeft = 0, bonusCoins = 0;
@@ -2707,6 +2783,8 @@
     // ---- batch-4a state ----
     let ability = null, abilityCd = 0, abilityMax = 0;   // character active (feature #5)
     let autoAbility = false;                             // headless-bot auto-fire on cooldown
+    let simSubSteps = 1;                                 // test-only sim fast-forward (see the rAF loop)
+    const _sepGrid = new Map();                           // reused spatial-hash grid for enemy separation
     let dashT = 0, dashDir = null, dashHits = null;      // Bucky Ram Dash
     let roundupT = 0, roundupPt = null;                  // Collie Round-Up pull window
     let eggLayTimer = 0;                                 // Henrietta passive egg-lay timer
@@ -2840,11 +2918,14 @@
       for (const j of milkJars) freeMesh(j.mesh);
       for (const z of milkZones) freeMesh(z.mesh);
       for (const b of hayBales) freeMesh(b.mesh);
+      for (const s of lobShots){ freeMesh(s.mesh); if (s.marker) freeMesh(s.marker); }
+      for (const p of lobPuddles) freeMesh(p.mesh);
       enemies = []; projectiles = []; orbs = []; puffs = [];
       pumpkins = []; cats = []; turrets = []; rings = []; chunks = []; chests = [];
       pickups = []; props = []; beeUnits = []; forks = []; boltsFx = []; corpses = [];
       quakeRings = []; sprinklerBeams = [];
       eggs = []; bomblets = []; chickens = []; milkJars = []; milkZones = []; hayBales = [];
+      lobShots = []; lobPuddles = [];
       if (merchant){ freeMesh(merchant.mesh); merchant = null; }
       boss = null; document.getElementById("bossBar").style.display = "none";
     }
@@ -3193,6 +3274,14 @@
     // difficulty tier climbs with TIME — fixed walls the player runs into (~every 75s),
     // so barn upgrades genuinely push how far you get instead of accelerating the ramp
     function threatTier(){ return Math.floor(elapsed / 90); }
+    // Directive 6: fraction of NORMAL spawns that roll elite. 0 before the ramp starts (8:00), climbing
+    // to 1.0 (ALL spawns elite — no more plain rats) by ~13:30, and staying there through endless.
+    // This REPLACES the old 0.06 hard elite cap past 8:00.
+    function eliteFraction(){
+      const t = elapsed + (endlessMode ? endlessT : 0);
+      if (t < BAL.eliteRampStart) return 0;
+      return Math.min(1, (t - BAL.eliteRampStart) / (BAL.eliteAllAt - BAL.eliteRampStart));
+    }
 
     // shared with the debug hook so tests read the EXACT live formula, not a re-derived copy
     function computeSpawnInterval(){
@@ -3222,8 +3311,9 @@
       if (t > 130) pool.push("armadillo", "rat");
       if (t > 170) pool.push("snake");
       if (t > 230) pool.push("snake");
+      if (t > 240) pool.push("lobber");                 // ranged mole-rats join ~4:00 (directive 5)
       if (t > 290) pool.push("turtle");
-      if (t > 400) pool.push("turtle", "armadillo");
+      if (t > 400) pool.push("turtle", "armadillo", "lobber");   // more lobbers with tier
       return pool[(spawnRandom()*pool.length)|0];   // seeded stream in daily runs
     }
 
@@ -3246,7 +3336,11 @@
       const tier = threatTier();
       // gentle HP growth — the pressure comes from volume, not sponginess; the Pact stacks on top.
       // In endless the tier keeps climbing with elapsed, so HP/dmg extend smoothly past 15:00.
-      const hpScale  = (1 + elapsed/60 * 0.3 + tier * 0.25) * (elite ? 6 : 1) * (1 + curse * 0.06) * (dailyMods.enemyHpMul || 1);
+      // late-game curve steepening (balance overhaul): past 8:00 HP climbs faster so player power
+      // doesn't outpace the swarm. Online co-op leans on toughness (×1.4) since its enemy count is
+      // capped at 120 — it can't lean on raw volume the way solo does.
+      const lateBoost = Math.max(0, (elapsed + (endlessMode ? endlessT : 0)) - BAL.eliteRampStart) * BAL.hpLateBoost * ((coop && coopMode === "online") ? 1.4 : 1);
+      const hpScale  = (1 + elapsed/60 * 0.3 + tier * 0.25 + lateBoost) * (elite ? 6 : 1) * (1 + curse * 0.06) * (dailyMods.enemyHpMul || 1);
       const dmgScale = (1 + tier * 0.2) * (elite ? 1.5 : 1) * (dailyMods.enemyDmgMul || 1);
       const spdCap = endlessMode ? 1.7 : 1.5;   // endless lifts the speed ceiling to 1.7
       // Little Sprout assist (#15): the whole swarm crawls at 80% speed
@@ -3274,7 +3368,9 @@
       // ---- elite affixes (feature #8): past 4:00, 60% of elites roll one comic affix ----
       if (elite){
         let af = opts.affix || null;
-        if (!af && elapsed > 240 && Math.random() < 0.6) af = ["shielded","splitting","greedy"][(Math.random()*3)|0];
+        // Directive 6: affixes roll more often as the run wears on (0.6 at 4:00 → 0.9 past ~13:00)
+        const affixChance = Math.min(0.9, 0.6 + Math.max(0, elapsed - 480) * 0.0009);
+        if (!af && elapsed > BAL.eliteAffixFrom && Math.random() < affixChance) af = ["shielded","splitting","greedy"][(Math.random()*3)|0];
         if (af){
           e.affix = af;
           if (af === "shielded") e.shield = 6;                        // 6 hits crack the corn-husk armor
@@ -3314,6 +3410,140 @@
       return e2;
     }
 
+    // ================== LOBBER (directive 5): ranged mole-rat that lobs dirt clods ==================
+    // Per-enemy update (called with a `continue` from the main enemy loop). Stops at a standoff, then
+    // periodically flings a slow arcing clod at the player's CURRENT spot — the ground marker tells the
+    // player where to NOT be. Fires while off-screen sometimes so camping the arena edge isn't safe.
+    function updateLobberEnemy(e, dt, dir, dist){
+      if (e.slowT > 0) e.slowT -= dt;
+      if (e.ampT > 0) e.ampT -= dt;
+      if (e.fearT > 0){ e.fearT -= dt; }
+      // movement: hold at the standoff band; approach if too far, back off if the player closes in
+      const slowMul = e.slowT > 0 ? (1 - (e.slowPct != null ? e.slowPct : 0.45)) : 1;
+      const pondMul = inPond(e.mesh.position.x, e.mesh.position.z) ? 0.55 : 1;
+      let moveDir = null;
+      if (dist > BAL.lobStandoff + 3) moveDir = dir;
+      else if (dist < BAL.lobStandoff - 5) moveDir = dir.clone().negate();
+      if (moveDir){
+        const step = e.speed * slowMul * pondMul * dt;
+        const _lx = e.mesh.position.x, _lz = e.mesh.position.z;
+        e.mesh.position.addScaledVector(moveDir, step);
+        // the lobber's BODY gets the same standing-corn block/slide as regular ground varmints
+        // (its arcing SHOTS still sail over corn — that stays untouched)
+        if (cornState && cornStandingCount &&
+            e.mesh.position.x > cornBMinX - 3 && e.mesh.position.x < cornBMaxX + 3 &&
+            e.mesh.position.z > cornBMinZ - 3 && e.mesh.position.z < cornBMaxZ + 3){
+          resolveCornBlock(_lx, _lz, e.mesh.position.x, e.mesh.position.z, _cornOut);
+          e.mesh.position.x = _cornOut[0]; e.mesh.position.z = _cornOut[1];
+        }
+        e.mesh.position.x = Math.max(-ARENA+0.8, Math.min(ARENA-0.8, e.mesh.position.x));
+        e.mesh.position.z = Math.max(-ARENA+0.8, Math.min(ARENA-0.8, e.mesh.position.z));
+        pushOutOfBales(e.mesh.position, e.r * 0.6);
+      }
+      e.mesh.rotation.y = Math.atan2(dir.x, dir.z);
+      // little idle bob
+      e.wob += dt * 4;
+      e.mesh.position.y = Math.abs(Math.sin(e.wob)) * 0.05;
+      // spawn pop-in
+      if (e.baseScale !== undefined && (e.pop < 1 || e.squash > 0)){
+        if (e.pop < 1) e.pop = Math.min(1, e.pop + dt * 3.2);
+        const k = e.pop;
+        const base = e.baseScale * (k >= 1 ? 1 : 0.15 + 0.85 * k + Math.sin(k * Math.PI) * 0.2);
+        const sq = e.squash > 0 ? e.squash : 0;
+        if (e.squash > 0) e.squash -= dt * 2.5;
+        e.mesh.scale.set(base * (1 + sq * 0.4), base * (1 - sq * 0.5), base * (1 + sq * 0.4));
+      }
+      if (e.flash > 0){
+        e.flash -= dt;
+        e.mesh.traverse(o => { if (o.isMesh && o.material.emissive) o.material.emissive.setHex(e.flash > 0 ? 0x888888 : 0x000000); });
+      }
+      // firing: aim at where the player stands right now (tgt = e.pos + dir*dist)
+      e.lobTimer = (e.lobTimer == null ? BAL.lobFireEvery * (0.5 + Math.random()) : e.lobTimer) - dt;
+      if (e.lobTimer <= 0){
+        e.lobTimer = BAL.lobFireEvery * (0.8 + Math.random()*0.6);
+        const inRange = dist < BAL.lobStandoff * 2.4;
+        // off-screen / long-range shot still happens sometimes (anti-camp)
+        if (inRange || Math.random() < BAL.lobOffscreenChance){
+          const tx = e.mesh.position.x + dir.x * dist;
+          const tz = e.mesh.position.z + dir.z * dist;
+          spawnLobShot(e, tx, tz);
+        }
+      }
+      // contact damage (the lobber is a poor melee attacker but still bites if you walk into it)
+      e.hitCd -= dt;
+      if (coop){
+        if (e.hitCd <= 0 && applyEnemyHitCoop(e, false)) return;
+      } else if (dist < e.r + 0.9 && e.hitCd <= 0 && invulnT <= 0){
+        e.hitCd = 0.8;
+        const takenDmg = Math.max(1, e.dmg - (stats.armor || 0));
+        hp -= takenDmg; dmgTaken += takenDmg;
+        updateHud();
+        if (hp <= 0){ gameOver(); return; }
+      }
+    }
+    function spawnLobShot(e, tx, tz){
+      const from = e.mesh.position.clone().setY(1.0);
+      const clod = new THREE.Mesh(new THREE.DodecahedronGeometry(0.3, 0), mat(0x6b4a2a, true));
+      clod.position.copy(from); scene.add(clod);
+      // landing marker: a red-brown ground ring the player reads and runs off of
+      const marker = new THREE.Mesh(
+        new THREE.RingGeometry(BAL.lobPuddleR * 0.72, BAL.lobPuddleR * 0.95, 22),
+        new THREE.MeshBasicMaterial({ color: 0x8a2b1a, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false }));
+      marker.rotation.x = -Math.PI / 2; marker.position.set(tx, 0.05, tz); scene.add(marker);
+      const tick = BAL.lobPuddleTick * (e.dmg / SPECS.lobber.dmg);   // scale with the lobber's own dmg growth
+      lobShots.push({ mesh: clod, marker, from, tx, tz, t: 0, dur: BAL.lobHang, tick });
+      if (e.mesh.userData.clod) e.mesh.userData.clod.visible = false;
+      if (playThrottled('pp-sfx-fork-throw', 'lobThrow', 0.12, { gain: 0.3 })) {}
+    }
+    // clod flight + impact puddles (called once per frame from update())
+    function updateLobShots(dt){
+      for (const s of lobShots.slice()){
+        s.t += dt / s.dur;
+        if (s.t >= 1){
+          // land: brown splat + a brief damage puddle
+          puff(s.tx, 0.3, s.tz, 0x7a5330, 8);
+          chunkBurst(s.tx, 0.4, s.tz, 0x6b4a2a, 5);
+          const disc = new THREE.Mesh(
+            new THREE.CircleGeometry(BAL.lobPuddleR, 20),
+            new THREE.MeshBasicMaterial({ color: 0x6b4a2a, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false }));
+          disc.rotation.x = -Math.PI / 2; disc.position.set(s.tx, 0.04, s.tz); scene.add(disc);
+          lobPuddles.push({ mesh: disc, x: s.tx, z: s.tz, r: BAL.lobPuddleR, life: BAL.lobPuddleLife, maxLife: BAL.lobPuddleLife, tick: s.tick });
+          freeMesh(s.mesh); freeMesh(s.marker);
+          lobShots.splice(lobShots.indexOf(s), 1);
+          continue;
+        }
+        // parabolic arc toward the marker
+        const land = new THREE.Vector3(s.tx, 0.3, s.tz);
+        s.mesh.position.lerpVectors(s.from, land, s.t);
+        s.mesh.position.y += Math.sin(s.t * Math.PI) * 5;
+        s.mesh.rotation.x += dt * 6; s.mesh.rotation.y += dt * 5;
+        s.marker.material.opacity = 0.3 + 0.35 * Math.abs(Math.sin(s.t * 12));   // pulse harder as it nears
+      }
+      for (const p of lobPuddles.slice()){
+        p.life -= dt;
+        const k = Math.max(0, p.life / p.maxLife);
+        p.mesh.material.opacity = 0.5 * (0.3 + 0.7 * k);
+        // damage any player standing in the puddle (teaches repositioning). SOLO uses the module hp;
+        // co-op damages each living player inside it.
+        if (coop){
+          for (const pr of players){
+            if (pr.dead || pr.invulnT > 0) continue;
+            if (Math.hypot(pr.mesh.position.x - p.x, pr.mesh.position.z - p.z) < p.r){
+              const taken = Math.max(0.5, (p.tick - (pr.stats.armor || 0))) * dt;
+              pr.hp -= taken; dmgTaken += taken;
+              if (pr.hp <= 0){ downPlayer(pr); if (players.every(q => q.dead)){ gameOver(); return; } }
+            }
+          }
+        } else if (invulnT <= 0 && player &&
+                   Math.hypot(player.position.x - p.x, player.position.z - p.z) < p.r){
+          const taken = Math.max(0.5, (p.tick - (stats.armor || 0))) * dt;
+          hp -= taken; dmgTaken += taken; updateHud();
+          if (hp <= 0){ gameOver(); return; }
+        }
+        if (p.life <= 0){ freeMesh(p.mesh); lobPuddles.splice(lobPuddles.indexOf(p), 1); }
+      }
+    }
+
     // ---- formation spawners (Tier 3: attacks that read as intentional, not noise) ----
     // On a gated stage (Home Pasture) formations pour through the gate nearest the player.
     function spawnLine(kind, n){
@@ -3347,15 +3577,35 @@
         spawnEnemy("crow", { at });
       }
     }
+    // Directive 4: a full encircling WALL — a double ring around the player that reads as "nowhere to
+    // run." Uses the live elite ramp so late walls are elite-heavy. Kinds mix per current pressure.
+    function spawnWall(n){
+      n = n || 24;
+      const ef = eliteFraction();
+      for (let ring = 0; ring < 2; ring++){
+        const R = 28 + ring * 5;
+        for (let i = 0; i < n; i++){
+          const a = (i / n) * Math.PI * 2 + ring * 0.13;
+          const x = Math.max(-ARENA+1.5, Math.min(ARENA-1.5, player.position.x + Math.cos(a) * R));
+          const z = Math.max(-ARENA+1.5, Math.min(ARENA-1.5, player.position.z + Math.sin(a) * R));
+          const makeElite = kills >= 60 && ef > 0 && Math.random() < ef;
+          spawnEnemy(enemyKindForPressure(), makeElite ? { elite: true, at: [x, z] } : { at: [x, z] });
+        }
+      }
+    }
     function randomFormation(){
       // daily "Hitchcock" makes every formation a crow swarm
       if (dailyMods.allCrows){ spawnCrows(6 + Math.min(8, threatTier())); return; }
+      const tier = threatTier();
+      // late-game (tier ≥ 6, ~9:00): occasionally throw a full encircling wall instead of a line/ring
+      if (tier >= 6 && spawnRandom() < 0.3){ spawnWall(20 + Math.min(14, tier)); return; }
       const roll = spawnRandom();
       // Night Barnyard tilts formations toward crows (the +25%-presence flavor)
       const crowBias = (curStage && curStage.id === "night") ? 0.55 : 0.75;
-      if (roll < 0.4) spawnLine(enemyKindForPressure(), 6 + Math.min(6, threatTier()*2));
-      else if (roll < crowBias) spawnRing(enemyKindForPressure(), 7 + Math.min(6, threatTier()*2));
-      else spawnCrows(4 + Math.min(8, threatTier()));   // crows are the anti-kite answer late
+      // base sizes match the shipped tuning (gentle early); only LATE tiers inflate toward the new cap
+      if (roll < 0.4) spawnLine(enemyKindForPressure(), 6 + Math.min(16, tier*2));
+      else if (roll < crowBias) spawnRing(enemyKindForPressure(), 7 + Math.min(18, tier*2));
+      else spawnCrows(4 + Math.min(10, tier));   // crows are the anti-kite answer late
     }
 
     // ---- THE COMBINE: 15-minute final boss; killing it wins the run ----
@@ -3829,6 +4079,10 @@
       // tick the per-enemy sprinkler cooldown once per frame, regardless of beam count
       for (const e of enemies) if (e.sprkCd > 0) e.sprkCd -= dt;
 
+      // Collect every off-cooldown enemy inside ANY beam's arc this frame, then soak only the nearest
+      // sprkMaxTargets of them — bounds whole-crowd DPS so a huge swarm can't multiply the spray's damage
+      // without limit (nearest-first keeps it feeling like it soaks what's on top of you).
+      const sprkCand = new Map();   // enemy -> nearest dist among beams it falls in
       for (let i = 0; i < sprinklerBeams.length; i++){
         const b = sprinklerBeams[i];
         const angle = w.spinAngle + (i / sprinklerBeams.length) * Math.PI * 2;
@@ -3846,7 +4100,7 @@
           puff(player.position.x + dx, 0.55, player.position.z + dz, 0x9adcff, 1);
         }
 
-        // damage: enemies within R (+their radius) whose bearing falls inside this beam's arc
+        // gather: enemies within R (+their radius) whose bearing falls inside this beam's arc, off cd
         for (const e of enemies.slice()){
           const ex = e.mesh.position.x - player.position.x, ez = e.mesh.position.z - player.position.z;
           const dist = Math.hypot(ex, ez);
@@ -3857,15 +4111,20 @@
           if (Math.abs(diff) > halfWidth) continue;
           e.sprkCd = e.sprkCd || 0;
           if (e.sprkCd > 0) continue;
-          // more beams = each beam re-visits an enemy faster, so the per-enemy cooldown
-          // shrinks with sqrt(beams) — keeps DPS-vs-a-single-target scaling with beam count
-          // instead of capping out once one beam is already ticking that enemy every frame
-          e.sprkCd = 0.4 / Math.sqrt(sprinklerBeams.length);
-          const dir = new THREE.Vector3(ex, 0, ez).normalize();
-          damageEnemy(e, dmg, dir.multiplyScalar(0.4), "sprinkler");
-          if (playThrottled('pp-sfx-sprinkler-spray', 'sprinklerSpray', 0.35, { gain:0.35 })) _sfxPlays.sprinklerSpray++;
-          if (w.slows){ e.slowT = Math.max(e.slowT || 0, 1.3 * stats.durMul); e.slowPct = 0.45; }
+          const prev = sprkCand.get(e);
+          if (prev === undefined || dist < prev) sprkCand.set(e, dist);
         }
+      }
+      // more beams = each beam re-visits an enemy faster, so the per-enemy cooldown shrinks with
+      // sqrt(beams) — keeps DPS-vs-a-single-target scaling with beam count.
+      const sprkCd = BAL.sprkCdBase / Math.sqrt(sprinklerBeams.length);
+      const soaked = Array.from(sprkCand.entries()).sort((a, b) => a[1] - b[1]).slice(0, BAL.sprkMaxTargets);
+      for (const [e] of soaked){
+        e.sprkCd = sprkCd;
+        const dir = new THREE.Vector3(e.mesh.position.x - player.position.x, 0, e.mesh.position.z - player.position.z).normalize();
+        damageEnemy(e, dmg, dir.multiplyScalar(0.4), "sprinkler");
+        if (playThrottled('pp-sfx-sprinkler-spray', 'sprinklerSpray', 0.35, { gain:0.35 })) _sfxPlays.sprinklerSpray++;
+        if (w.slows){ e.slowT = Math.max(e.slowT || 0, 1.3 * stats.durMul); e.slowPct = 0.45; }
       }
     }
 
@@ -3900,15 +4159,21 @@
         }
         b.cd -= dt;
         if (b.cd <= 0){
+          // buff (2026-07-13): a bee stings up to beeMaxStings varmints it overlaps this tick, not just
+          // one. Turns the swarm into a bounded mini-AoE (its identity is "flies through the crowd") and
+          // lifts bees off the <5% floor — capped so a packed swarm can't run the share away (49% bug).
+          let stung = 0;
           for (const e of enemies){
             const d = Math.hypot(e.mesh.position.x - b.mesh.position.x, e.mesh.position.z - b.mesh.position.z);
-            if (d < e.r + 1.0){
+            if (d < e.r + 1.2){   // buff: wider sting reach (1.0->1.2)
               damageEnemy(e, wDmg(w), new THREE.Vector3(e.mesh.position.x - player.position.x, 0, e.mesh.position.z - player.position.z).normalize(), "bees");
-              puff(b.mesh.position.x, b.mesh.position.y, b.mesh.position.z, 0xf2c531, 2);
-              if (playThrottled('pp-sfx-bee-sting', 'beeSting', 0.3, { gain:0.4 })) _sfxPlays.beeSting++;
-              b.cd = 0.4;
-              break;
+              if (++stung >= BAL.beeMaxStings) break;
             }
+          }
+          if (stung){
+            puff(b.mesh.position.x, b.mesh.position.y, b.mesh.position.z, 0xf2c531, 2);
+            if (playThrottled('pp-sfx-bee-sting', 'beeSting', 0.3, { gain:0.4 })) _sfxPlays.beeSting++;
+            b.cd = 0.3;   // buff: faster re-sting (0.4->0.3)
           }
         }
       }
@@ -4001,6 +4266,7 @@
             damageEnemy(e, wDmg(w), dir, "egg");
           }
         }
+        trampleCornAt(bx, bz, R);   // egg blast also clears its radius of corn
         // split into w.bomblets bouncing yolk bomblets
         for (let i = 0; i < w.bomblets; i++){
           const a = (i / w.bomblets) * Math.PI * 2 + Math.random() * 0.4;
@@ -4090,9 +4356,14 @@
             e.slowPct = z.w.slowPct;                       // 25% (base) / 35% (Butter Churn)
             e.amp = z.w.amp;                               // +20% (base) / +35% dmg taken
             e.ampT = Math.max(e.ampT || 0, 0.25);
-            if (z.w.churn){
-              const dir = new THREE.Vector3(e.mesh.position.x - z.x, 0, e.mesh.position.z - z.z).normalize();
-              damageEnemy(e, 8 * dt, dir, "milk");        // Butter Churn: 8 dmg/s tick
+            // Directive 3: milk zones now inflict a real DPS tick (was Butter-Churn-only). Scales
+            // with the player's global damage so a milk build actually contributes on-chart. The
+            // amp above stacks on top of this tick (self-amped), keeping milk's identity as debuff.
+            // (THE COMBINE is already skipped by the isFinal `continue` at the top of this loop.)
+            {
+              const tick = (z.w.churn ? BAL.milkChurnTick : BAL.milkTick) * (stats.gDmg || 1);
+              const dir = new THREE.Vector3(e.mesh.position.x - z.x, 0, e.mesh.position.z - z.z);
+              damageEnemy(e, tick * dt, dir.lengthSq() > 1e-6 ? dir.normalize() : new THREE.Vector3(1,0,0), "milk");
             }
           }
         }
@@ -4391,6 +4662,7 @@
         b.mesh.position.y += (0 - b.mesh.position.y) * Math.min(1, dt*6);
         b.mesh.position.addScaledVector(dir, b.speed * 0.8 * dt);   // slow chase while exposed
         b.mesh.position.x = _clampArena(b.mesh.position.x); b.mesh.position.z = _clampArena(b.mesh.position.z);
+        if (cornState && cornStandingCount) trampleCornAt(b.mesh.position.x, b.mesh.position.z, b.r);   // boss tramples corn
         b.mesh.rotation.y = Math.atan2(dir.x, dir.z);
         b.hitCd -= dt;
         if (dist < b.r + 0.9 && b.hitCd <= 0 && invulnT <= 0){
@@ -4567,13 +4839,23 @@
         }
         return;   // this hit only cracks the husk — no HP damage while it holds
       }
-      // Milk Splash amplification: enemies standing in (or freshly soaked by) a milk zone take extra damage
-      if (e.ampT > 0 && e.amp > 0) dmg *= (1 + e.amp);
+      // Milk Splash amplification: enemies standing in (or freshly soaked by) a milk zone take extra
+      // damage. Directive 3: the amplified PORTION is attributed to milk on the DPS chart so its
+      // support value shows up (milk stops reading as bottom-of-the-chart dead weight).
+      let ampBonus = 0;
+      if (e.ampT > 0 && e.amp > 0){ ampBonus = dmg * e.amp; dmg += ampBonus; }
       // Hot Sauce crit: a rolled crit deals CRIT_MULT and paints the damage number orange
       let isCrit = false;
-      if ((stats.critChance || 0) > 0 && Math.random() < stats.critChance){ dmg *= CRIT_MULT; isCrit = true; }
+      if ((stats.critChance || 0) > 0 && Math.random() < stats.critChance){ dmg *= CRIT_MULT; isCrit = true; ampBonus *= CRIT_MULT; }
       e.hp -= dmg;
-      if (wid) dmgByWeapon[wid] = (dmgByWeapon[wid] || 0) + dmg;
+      if (wid){
+        if (ampBonus > 0 && wid !== "milk"){
+          dmgByWeapon.milk = (dmgByWeapon.milk || 0) + ampBonus;
+          dmgByWeapon[wid] = (dmgByWeapon[wid] || 0) + (dmg - ampBonus);
+        } else {
+          dmgByWeapon[wid] = (dmgByWeapon[wid] || 0) + dmg;
+        }
+      }
       noteDamage(e, dmg, isCrit);
       e.flash = 0.12;
       if (!e.isBoss) e.squash = 0.3;   // cartoon squish on every hit
@@ -5249,6 +5531,9 @@
         }
       }
       pushOutOfBales(player.position, 0.7);
+      // CARVEABLE CORN: standing in corn auto-scythes the cells around you (persistent alley).
+      // Host-authoritative in online co-op (guests never run update()); slowed via stageSpeedMul above.
+      if (!downed && cornState && cornStandingCount) carveCornAt(player.position.x, player.position.z, dt, 1, true);
       if (mv.x || mv.z) player.rotation.y = Math.atan2(mv.x, mv.z);
       if (mv.x || mv.z){ playerVelX = mv.x; playerVelZ = mv.z; }   // last heading, biases grass bend direction
       // real instantaneous velocity (zero when stopped) — used to lead crow-strike predictions
@@ -5329,11 +5614,15 @@
         spawnTimer = interval;
         // tier 1: pairs, tier 2: triples, tier 3+: quads, plus late-game bonus bursts every 75s past 240s
         const burst = Math.min(7, 1 + Math.min(3, threatTier()) + Math.floor(Math.max(0, elapsed - 240) / 75));
-        for (let i = 0; i < burst; i++) spawnEnemy();
-        // elites are a rare occasion, not a parade — the ramp gets a higher ceiling late
-        // (past 10:00) once stat inflation alone isn't spicy enough anymore
-        const eliteCap = elapsed > 600 ? 0.06 : 0.03;
-        if (kills >= 60 && Math.random() < Math.min(eliteCap, 0.008 + kills * 0.00004)){
+        // Directive 6: past 8:00 an ever-larger SHARE of each burst rolls elite; by ~13:30 it's ALL
+        // elite (the last 2 minutes read as a boss-rush wall). Before the ramp, only a rare elite spices
+        // the field (the old occasional roll). The 0.06 hard cap is gone.
+        const ef = eliteFraction();
+        for (let i = 0; i < burst; i++){
+          const makeElite = kills >= 60 && ef > 0 && Math.random() < ef;
+          spawnEnemy(null, makeElite ? { elite: true } : undefined);
+        }
+        if (ef === 0 && kills >= 60 && Math.random() < Math.min(0.03, 0.008 + kills * 0.00004)){
           spawnEnemy(null, { elite: true });
         }
       }
@@ -5380,6 +5669,9 @@
         else if (elapsed >= qWaveWatch.until){ qWaveClean = true; qWaveWatch = null; }
       }
       stageUpdate(dt);
+      // CARVEABLE CORN: recompute the enemy flow field ~3.5Hz (and immediately on any cut/trample)
+      if (cornState){ cornFlowT -= dt; if (cornFlowT <= 0 || cornFlowDirty){ recomputeCornFlow(); cornFlowT = 0.28; } }
+      updateCornSwipes(dt);
       checkQuests();
 
       // chests — bob & spin, and open when the farmer walks up (co-op: whichever player reaches it)
@@ -5458,6 +5750,7 @@
         chickensUpdate(dt);
       }
       updateBatch2Weapons(dt);
+      updateLobShots(dt);   // Lobber dirt-clod flight + impact puddles (directive 5)
 
       // spinning pitchforks — pierce everything on a straight line, bust props, sail off the field
       for (const f of forks.slice()){
@@ -5471,7 +5764,7 @@
             // wave-mower fantasy while stopping one throw from mowing an infinite line at full damage
             const pierceIdx = f.hitSet.size;
             f.hitSet.add(e);
-            const fallDmg = f.dmg * Math.max(0.4, 1 - 0.08 * pierceIdx);
+            const fallDmg = f.dmg * Math.max(BAL.forkPierceFloor, 1 - BAL.forkPierceFalloff * pierceIdx);
             damageEnemy(e, fallDmg, f.dir, "fork");
           }
         }
@@ -5508,8 +5801,14 @@
             if (p.hitSet.has(e)) continue;
             const d = p.mesh.position.distanceTo(e.mesh.position.clone().setY(p.mesh.position.y));
             if (d < e.r + 0.35){
+              // Directive 1: corn kernels lose punch per enemy pierced (corn is rapid-fire, so the
+              // falloff is steeper than the pitchfork's −8%). scarecrow kernels have pierce 0 so idx
+              // is always 0 for them → their damage is unchanged.
+              const pierceIdx = p.hitSet.size;
               p.hitSet.add(e);
-              damageEnemy(e, p.dmg, p.dir, p.wid);
+              const fall = (p.wid === "corn" && pierceIdx > 0)
+                ? Math.max(BAL.cornPierceFloor, 1 - BAL.cornPierceFalloff * pierceIdx) : 1;
+              damageEnemy(e, p.dmg * fall, p.dir, p.wid);
               if (p.pierceLeft > 0){ p.pierceLeft--; } else { dead = true; }
               break;
             }
@@ -5538,17 +5837,26 @@
         puff(bx, 0.6, bz, 0xe0862c, 14);
         puff(bx, 0.9, bz, 0xffd23f, 8);
         chunkBurst(bx, 0.7, bz, 0xe0862c, 7);
+        // gather everything in the blast, nearest-first, so the systemic AoE rank falloff (BAL.aoeRank*)
+        // charges the closest targets full and diminishes the far/extra ones — one pumpkin can no longer
+        // vaporize a whole packed crowd at near-full damage.
+        const hitList = [];
         for (const e of enemies.slice()){
           const d = Math.hypot(e.mesh.position.x - bx, e.mesh.position.z - bz);
-          if (d < R + e.r){
-            const fall = Math.max(0.45, 1 - d / (R + e.r));
-            const dir = new THREE.Vector3(e.mesh.position.x - bx, 0, e.mesh.position.z - bz).normalize();
-            damageEnemy(e, wDmg(p.w) * fall, dir.multiplyScalar(1.6 * fall), "pumpkin");
-          }
+          if (d < R + e.r) hitList.push({ e, d });
+        }
+        hitList.sort((a, b) => a.d - b.d);
+        for (let i = 0; i < hitList.length; i++){
+          const { e, d } = hitList[i];
+          const fall = Math.max(0.45, 1 - d / (R + e.r));
+          const rankMul = Math.max(BAL.aoeRankFloor, 1 - BAL.aoeRankFalloff * i);
+          const dir = new THREE.Vector3(e.mesh.position.x - bx, 0, e.mesh.position.z - bz).normalize();
+          damageEnemy(e, wDmg(p.w) * fall * rankMul, dir.multiplyScalar(1.6 * fall), "pumpkin");
         }
         for (const pr of props.slice()){
           if (Math.hypot(pr.x - bx, pr.z - bz) < R + pr.r) destroyProp(pr);   // blasts flatten farm gear
         }
+        trampleCornAt(bx, bz, R);   // a pumpkin blast clears its radius of corn (bombs earn utility)
         freeMesh(p.mesh); pumpkins.splice(pumpkins.indexOf(p), 1);
       }
       for (const p of pumpkins.slice()){
@@ -5587,6 +5895,30 @@
           const d = c.mesh.position.distanceTo(c.target.mesh.position.clone().setY(c.mesh.position.y));
           if (d < c.target.r + 0.7){
             damageEnemy(c.target, c.dmg, c.dir, c.wid);
+            // Directive 2: pounces now splash — the cats become the "clears clumps" tool while
+            // keeping their homing identity. Radius scales with the Barn Cat weapon level, and the
+            // Cat Stampede evolution widens it further; splash hits deal a fraction of the pounce.
+            const cw = weaponById("cats");
+            if (cw){
+              const splR = (BAL.catSplashR + weaponLevel(cw) * BAL.catSplashPerLvl) * (cw.evolved ? BAL.catSplashEvoBonus : 1) * (stats.areaMul || 1);
+              const cx = c.target.mesh.position.x, cz = c.target.mesh.position.z;
+              // nearest-first + systemic AoE rank falloff (same class rule as the pumpkin blast) so a
+              // pounce into a dense clump doesn't credit full splash to a dozen bystanders.
+              const splHits = [];
+              for (const e2 of enemies){
+                if (e2 === c.target || e2.isBoss) continue;
+                const dd = Math.hypot(e2.mesh.position.x - cx, e2.mesh.position.z - cz);
+                if (dd < splR + e2.r) splHits.push({ e2, dd });
+              }
+              splHits.sort((a, b) => a.dd - b.dd);
+              for (let si = 0; si < splHits.length; si++){
+                const e2 = splHits[si].e2;
+                const rankMul = Math.max(BAL.aoeRankFloor, 1 - BAL.aoeRankFalloff * si);
+                const kd = new THREE.Vector3(e2.mesh.position.x - cx, 0, e2.mesh.position.z - cz);
+                damageEnemy(e2, c.dmg * BAL.catSplashFrac * rankMul, kd.lengthSq() > 1e-6 ? kd.normalize() : c.dir, c.wid);
+              }
+              ring(cx, cz, 0xffb14a, splR * 1.6, 0.3);
+            }
             puff(c.mesh.position.x, 0.6, c.mesh.position.z, 0xd98e3c, 5);
             ring(c.mesh.position.x, c.mesh.position.z, 0xd98e3c, 2.2, 0.3);
             done = true;
@@ -5636,6 +5968,7 @@
         // batch-4a boss machines: Crow Matriarch (aerial circle+dive+summon) / Mole Boss (burrow+erupt)
         if (e.isBoss && e.ability === "matriarch"){ updateMatriarchBoss(e, dt, dist); continue; }
         if (e.isBoss && e.ability === "burrow"){ updateMoleBoss(e, dt, dir, dist); continue; }
+        if (e.kind === "lobber"){ updateLobberEnemy(e, dt, dir, dist); continue; }
         if (e.slowT > 0) e.slowT -= dt;   // Monsoon / Milk Splash soak wears off
         if (e.ampT > 0) e.ampT -= dt;     // Milk Splash damage-amp window
         // Cornfield scarecrow fear: flee the statue instead of chasing the farmer
@@ -5644,11 +5977,9 @@
         if (e.flee) dir.negate();
         // mud ponds bog down ground varmints to 55% speed — flyers (crows) pass over untouched
         const pondMul = (!e.fly && inPond(e.mesh.position.x, e.mesh.position.z)) ? 0.55 : 1;
-        // Cornfield rows slow ground varmints to 80% (same soft-wall play as the player)
-        const cornMul = (!e.fly && curStage && curStage.id === "corn" && inCorn(e.mesh.position.x, e.mesh.position.z)) ? 0.8 : 1;
         // slow amount is per-source (Milk 25% / Butter Churn 35% / default Monsoon 45%)
         const slowMul = e.slowT > 0 ? (1 - (e.slowPct != null ? e.slowPct : 0.45)) : 1;
-        let step = e.speed * slowMul * pondMul * cornMul * dt;
+        let step = e.speed * slowMul * pondMul * dt;
 
         // crows fly a locked straight line through the farm — swoop, flap, and leave
         if (e.fly){
@@ -5748,7 +6079,28 @@
           e.mesh.position.y = Math.abs(Math.sin(e.wob)) * 0.05 * moving;
           e.mesh.rotation.z = Math.sin(e.wob) * 0.05 * moving;
         }
+        // ---- CARVEABLE CORN: ground varmints (not fliers/bosses) route around standing corn via
+        // the flow field and are hard-walled out of standing cells; bosses trample straight through. ----
+        const cornActive = cornState && cornStandingCount &&
+          e.mesh.position.x > cornBMinX - 3 && e.mesh.position.x < cornBMaxX + 3 &&
+          e.mesh.position.z > cornBMinZ - 3 && e.mesh.position.z < cornBMaxZ + 3;
+        // cheap per-enemy gate: only varmints within ~2 cells of standing corn pay the steer/block cost
+        let cornNearHere = false;
+        if (cornActive && cornNear && !e.fly){
+          const ecx = Math.floor((e.mesh.position.x - CORN_ORIGIN) / CORN_CELL), ecz = Math.floor((e.mesh.position.z - CORN_ORIGIN) / CORN_CELL);
+          if (ecx >= 0 && ecz >= 0 && ecx < CORN_N && ecz < CORN_N) cornNearHere = cornNear[ecz * CORN_N + ecx] === 1;
+        }
+        if (cornNearHere && !cornTramples(e)) cornFlowSteer(e, dir);
+        const _ox = e.mesh.position.x, _oz = e.mesh.position.z;
         e.mesh.position.addScaledVector(dir, step);
+        if (cornActive){
+          if (cornTramples(e)) trampleCornAt(e.mesh.position.x, e.mesh.position.z, e.r);   // flatten what a boss rolls over
+          else if (cornNearHere){
+            resolveCornBlock(_ox, _oz, e.mesh.position.x, e.mesh.position.z, _cornOut);
+            e.mesh.position.x = _cornOut[0]; e.mesh.position.z = _cornOut[1];
+            if (e.chew) carveCornAt(_ox + dir.x * 1.2, _oz + dir.z * 1.2, dt, 0.25, false);   // enclosed & cut off — munch through
+          }
+        }
         e.mesh.position.x = Math.max(-ARENA+0.8, Math.min(ARENA-0.8, e.mesh.position.x));
         e.mesh.position.z = Math.max(-ARENA+0.8, Math.min(ARENA-0.8, e.mesh.position.z));
         if (!e.isFinal) pushOutOfBales(e.mesh.position, e.r * 0.6);   // varmints go around the bales; THE COMBINE goes through
@@ -5790,23 +6142,45 @@
 
       // separation physics — varmints shove each other aside instead of stacking into one blob.
       // Each overlapping pair resolves half its overlap per frame, split by mass (turtles barely budge).
-      for (let i = 0; i < enemies.length; i++){
-        const a = enemies[i];
-        if (a.fly) continue;   // crows are airborne — they don't shove or get shoved
-        for (let j = i + 1; j < enemies.length; j++){
-          const b = enemies[j];
-          if (b.fly) continue;
-          let dx = b.mesh.position.x - a.mesh.position.x;
-          let dz = b.mesh.position.z - a.mesh.position.z;
-          const minD = (a.r + b.r) * 0.85;
-          const d2 = dx*dx + dz*dz;
-          if (d2 >= minD*minD) continue;
-          let dd = Math.sqrt(d2);
-          if (dd < 0.001){ dx = Math.random() - 0.5; dz = Math.random() - 0.5; dd = Math.hypot(dx, dz); }
-          const push = (minD - dd) / dd * 0.5;
-          const wa = b.mass / (a.mass + b.mass), wb = a.mass / (a.mass + b.mass);
-          a.mesh.position.x -= dx * push * wa; a.mesh.position.z -= dz * push * wa;
-          b.mesh.position.x += dx * push * wb; b.mesh.position.z += dz * push * wb;
+      // Uses a uniform spatial-hash grid (O(n·k)) instead of the old O(n²) sweep so the raised swarm
+      // cap (320) stays cheap — the largest interaction distance is well under one cell, so a 3×3
+      // neighborhood catches every overlapping pair. (i<j visitation preserves once-per-pair semantics.)
+      {
+        const CELL = 4.6;   // > max (a.r+b.r)*0.85 even for two elite turtles (≈4.2)
+        const grid = _sepGrid; grid.clear();
+        for (let i = 0; i < enemies.length; i++){
+          const a = enemies[i];
+          if (a.fly) continue;
+          const key = (Math.floor(a.mesh.position.x / CELL)) * 100000 + Math.floor(a.mesh.position.z / CELL);
+          let arr = grid.get(key); if (!arr){ arr = []; grid.set(key, arr); }
+          arr.push(i);
+        }
+        for (let i = 0; i < enemies.length; i++){
+          const a = enemies[i];
+          if (a.fly) continue;
+          const cx = Math.floor(a.mesh.position.x / CELL), cz = Math.floor(a.mesh.position.z / CELL);
+          for (let gx = cx - 1; gx <= cx + 1; gx++){
+            for (let gz = cz - 1; gz <= cz + 1; gz++){
+              const arr = grid.get(gx * 100000 + gz);
+              if (!arr) continue;
+              for (let n = 0; n < arr.length; n++){
+                const j = arr[n];
+                if (j <= i) continue;   // once per pair
+                const b = enemies[j];
+                let dx = b.mesh.position.x - a.mesh.position.x;
+                let dz = b.mesh.position.z - a.mesh.position.z;
+                const minD = (a.r + b.r) * 0.85;
+                const d2 = dx*dx + dz*dz;
+                if (d2 >= minD*minD) continue;
+                let dd = Math.sqrt(d2);
+                if (dd < 0.001){ dx = Math.random() - 0.5; dz = Math.random() - 0.5; dd = Math.hypot(dx, dz); }
+                const push = (minD - dd) / dd * 0.5;
+                const wa = b.mass / (a.mass + b.mass), wb = a.mass / (a.mass + b.mass);
+                a.mesh.position.x -= dx * push * wa; a.mesh.position.z -= dz * push * wa;
+                b.mesh.position.x += dx * push * wb; b.mesh.position.z += dz * push * wb;
+              }
+            }
+          }
         }
       }
 
@@ -6676,14 +7050,15 @@
     let curStage = null;                 // active stage config for the run in progress
     let stageDecor = [];                 // meshes to remove on the next clear
     let stageGates = [];                 // [{x,z,ex,ez,glow,glowT}]
-    let stageLantern = null, stageFireflies = [], stageScare = null, stageCorn = null, stageCornCells = [];
+    let stageLantern = null, stageFireflies = [], stageScare = null;
     let stagePumpkins = [];
 
     function clearStageDecor(){
       for (const m of stageDecor){ scene.remove(m); }
-      stageDecor = []; stageGates = []; stageFireflies = []; stagePumpkins = []; stageCornCells = [];
+      stageDecor = []; stageGates = []; stageFireflies = []; stagePumpkins = [];
       if (stageLantern){ if (player) player.remove(stageLantern); scene.remove(stageLantern); stageLantern = null; }
-      stageScare = null; stageCorn = null;
+      stageScare = null;
+      resetCornState();   // clear carveable-corn grid/flow (cornInst mesh is freed via stageDecor above)
       // restore day lighting/ground
       hemi.intensity = LIGHT_BASE.hemi; sun.intensity = LIGHT_BASE.sun; sun.color.setHex(LIGHT_BASE.sunColor);
       scene.background.setHex(LIGHT_BASE.bg); scene.fog.color.setHex(LIGHT_BASE.fogColor);
@@ -6747,41 +7122,494 @@
       scene.add(g); stageDecor.push(g);
       return { x, z, mesh: g, timer: 6 };
     }
-    function buildCornRows(){
-      // maze-ish rows: vertical corridors with periodic gaps; cells drive the slow + rustle
-      const cells = [];
-      for (let x = -(ARENA-8); x <= ARENA-8; x += 11){
-        for (let z = -(ARENA-8), row = 0; z <= ARENA-8; z += 4.5, row++){
-          if (Math.hypot(x, z) < 10) continue;         // keep the spawn clear
-          if (row % 4 === 2) continue;                 // gaps to walk through
-          cells.push({ x: x + (Math.random()-0.5)*1.2, z: z + (Math.random()-0.5)*1.2 });
+    // =====================================================================================
+    // ================== CARVEABLE CORNSTALK PATCHES (DRG-Survivor style, 2026-07-13) ======
+    // =====================================================================================
+    // Big organic cornstalk blobs, generated per run. Grid-cell based under the hood for cheap
+    // collision + pathing; rendered as instanced stalks (2-4 per cell) so it reads as a lush field.
+    //   - The PLAYER walks into standing corn slowed to CORN_SLOW, auto-scything a cell after
+    //     ~CORN_CARVE_TIME of contact; cut cells stay cut for the whole run (persistent alley).
+    //   - Ground enemies are HARD-WALLED by standing corn and steer around it via a coarse
+    //     BFS FLOW FIELD (recomputed ~3.5Hz + on any cut/trample); they funnel through gaps/alleys.
+    //   - Bosses + Mini-Combines TRAMPLE (ignore the field, flatten cells they touch).
+    //   - Fliers ignore corn entirely; the Lobber lobs OVER it (its arcing shot isn't blocked).
+    //   - Fully enclosed? The nearest 2-3 cut-off ground enemies CHEW through at 0.25x carve speed
+    //     so total permanent immunity is impossible.
+    //   - Co-op: host authoritative; the compact standing-cell BITMASK rides the snapshot to guests.
+    const CORN_CELL = 1.5;                          // world units per grid cell
+    const CORN_N = Math.ceil((ARENA * 2) / CORN_CELL) + 1;   // grid dimension (~89)
+    const CORN_ORIGIN = -ARENA;                     // world x/z at cell (0,0)
+    const CORN_SLOW = 0.55;                          // player/normal move mult inside standing corn
+    const CORN_CARVE_TIME = 0.35;                    // player contact-seconds to fell one cell
+    const CORN_CARVE_R = 1.35;                        // reach around the carver
+    const CORN_UNREACH = 65535;                       // flow-field "no path" sentinel
+    const FLOW_NX = [1,-1,0,0, 1,1,-1,-1], FLOW_NZ = [0,0,1,-1, 1,-1,1,-1];
+    let cornState = null;        // Uint8Array per cell: 0 empty(never corn) | 1 standing | 2 cut
+    let cornCarve = null;        // Float32Array carve-contact accumulator per cell
+    let cornFlowDist = null;     // Uint16Array BFS distance-to-player field
+    let cornNear = null;         // Uint8Array: 1 if a cell is within 2 cells of standing corn (hot-path gate)
+    let _flowQueue = null;       // Int32Array reused BFS queue (index-based, no shift)
+    let cornStandingCount = 0;   // live count of state===1 cells
+    let cornVer = 0;             // bumps on any cell change — drives the co-op sync
+    let cornFlowT = 0, cornFlowDirty = true;
+    let cornInst = null, cornCellStalks = null;      // InstancedMesh + Map<cellIdx,[instIdx...]>
+    let cornBMinX = 1e9, cornBMaxX = -1e9, cornBMinZ = 1e9, cornBMaxZ = -1e9;   // patch AABB (hot-path gate)
+    let cornPatchCount = 0;      // number of blobs generated this run (2-3 Home/Night, 4-6 Cornfield)
+    let cornSwipes = [];         // transient scythe-swipe crescent meshes
+    const _cornDummy = new THREE.Object3D(), _cornCol = new THREE.Color(), _cornOut = [0, 0];
+
+    function cornCellIdx(cx, cz){ return cz * CORN_N + cx; }
+    function cornCellOf(x, z){ return [Math.floor((x - CORN_ORIGIN) / CORN_CELL), Math.floor((z - CORN_ORIGIN) / CORN_CELL)]; }
+    function cornCellCenter(cx, cz){ return [CORN_ORIGIN + (cx + 0.5) * CORN_CELL, CORN_ORIGIN + (cz + 0.5) * CORN_CELL]; }
+    function cornStandingAt(x, z){
+      if (!cornState || cornStandingCount === 0) return false;
+      const cx = Math.floor((x - CORN_ORIGIN) / CORN_CELL), cz = Math.floor((z - CORN_ORIGIN) / CORN_CELL);
+      if (cx < 0 || cz < 0 || cx >= CORN_N || cz >= CORN_N) return false;
+      return cornState[cz * CORN_N + cx] === 1;
+    }
+    // back-compat alias (batch-3 test + __PP__): "is this standing corn?"
+    function inCorn(x, z){ return cornStandingAt(x, z); }
+    // combined ground-speed multiplier for the active stage (standing corn bogs to CORN_SLOW)
+    function stageSpeedMul(x, z){ return cornStandingAt(x, z) ? CORN_SLOW : 1; }
+
+    function cornSeedForRun(){
+      // daily runs are deterministic off the date key; normal runs get a fresh seed each play
+      if (daily) return hashStr32("corn:" + dailyDateKey());
+      return (Math.random() * 0xffffffff) >>> 0;
+    }
+    function cornLandmarks(){
+      // keep patches off the spawn and the windmill/scarecrow landmark (+ ponds, for clarity)
+      const lm = [{ x: 0, z: 0, r: 16 }];
+      const wc = bales.find(b => b.notBale);   // windmill (or, in corn stage, the scarecrow's tile)
+      if (wc) lm.push({ x: wc.x, z: wc.z, r: 9 });
+      if (stageScare) lm.push({ x: stageScare.x, z: stageScare.z, r: 9 });
+      for (const p of ponds) lm.push({ x: p.x, z: p.z, r: (Math.max(p.rx, p.rz) || 4) + 4 });
+      return lm;
+    }
+    function generateCornPatches(){
+      cornState = new Uint8Array(CORN_N * CORN_N);
+      cornCarve = new Float32Array(CORN_N * CORN_N);
+      cornStandingCount = 0;
+      cornBMinX = 1e9; cornBMaxX = -1e9; cornBMinZ = 1e9; cornBMaxZ = -1e9;
+      const rng = mulberry32(cornSeedForRun());
+      const id = curStage ? curStage.id : "home";
+      const nPatch = id === "corn" ? (4 + Math.floor(rng() * 3))    // Cornfield: 4-6 dense patches
+                                   : (2 + Math.floor(rng() * 2));   // Home / Night: 2-3
+      const lms = cornLandmarks();
+      const patches = [];
+      let attempts = 0;
+      while (patches.length < nPatch && attempts < nPatch * 16){
+        attempts++;
+        const px = (rng() * 2 - 1) * (ARENA - 14);
+        const pz = (rng() * 2 - 1) * (ARENA - 14);
+        const pr = 6 + rng() * 4;                                   // overall radius 6-10 => 12-20u across
+        let ok = true;
+        for (const lm of lms){ if (Math.hypot(px - lm.x, pz - lm.z) < lm.r + pr){ ok = false; break; } }
+        if (ok) for (const q of patches){ if (Math.hypot(px - q.x, pz - q.z) < pr + q.pr - 3){ ok = false; break; } }
+        if (!ok) continue;
+        // organic outline = union of a few overlapping lobes (metaball-ish)
+        const nLobe = 3 + Math.floor(rng() * 3);
+        const lobes = [];
+        for (let i = 0; i < nLobe; i++){
+          const a = rng() * Math.PI * 2, rr = rng() * pr * 0.5;
+          lobes.push({ x: px + Math.cos(a) * rr, z: pz + Math.sin(a) * rr, r: pr * (0.45 + rng() * 0.4) });
+        }
+        patches.push({ x: px, z: pz, pr, lobes });
+      }
+      for (const p of patches) rasterizeCornPatch(p, rng);
+      cornPatchCount = patches.length;
+      cornFlowDirty = true; cornFlowT = 0; cornVer++;
+      buildCornVisual(rng);
+    }
+    function rasterizeCornPatch(p, rng){
+      const cxLo = Math.max(0, Math.floor((p.x - p.pr - 1 - CORN_ORIGIN) / CORN_CELL));
+      const cxHi = Math.min(CORN_N - 1, Math.ceil((p.x + p.pr + 1 - CORN_ORIGIN) / CORN_CELL));
+      const czLo = Math.max(0, Math.floor((p.z - p.pr - 1 - CORN_ORIGIN) / CORN_CELL));
+      const czHi = Math.min(CORN_N - 1, Math.ceil((p.z + p.pr + 1 - CORN_ORIGIN) / CORN_CELL));
+      for (let cz = czLo; cz <= czHi; cz++){
+        for (let cx = cxLo; cx <= cxHi; cx++){
+          const [wx, wz] = cornCellCenter(cx, cz);
+          if (Math.abs(wx) > ARENA - 1 || Math.abs(wz) > ARENA - 1) continue;   // inside the fence
+          let inside = false;
+          for (const lo of p.lobes){ if ((wx - lo.x) ** 2 + (wz - lo.z) ** 2 < lo.r * lo.r){ inside = true; break; } }
+          if (!inside) continue;
+          const idx = cornCellIdx(cx, cz);
+          if (cornState[idx] === 1) continue;
+          cornState[idx] = 1; cornStandingCount++;
+          if (wx < cornBMinX) cornBMinX = wx; if (wx > cornBMaxX) cornBMaxX = wx;
+          if (wz < cornBMinZ) cornBMinZ = wz; if (wz > cornBMaxZ) cornBMaxZ = wz;
         }
       }
-      stageCornCells = cells;
-      // one InstancedMesh of corn stalks (2 per cell)
-      const stalkGeo = new THREE.CylinderGeometry(0.06, 0.12, 2.2, 5);
-      const stalkMat = new THREE.MeshPhongMaterial({ color: 0x6faa38 });
-      const inst = new THREE.InstancedMesh(stalkGeo, stalkMat, cells.length * 2);
-      const dummy = new THREE.Object3D();
+      // punch 1-2 natural gaps so an uncut patch is never a total dead-zone (a walkable corridor
+      // ~2 cells wide across the patch center) — enemies funnel through these + carved alleys.
+      const nGap = 1 + Math.floor(rng() * 2);
+      for (let g = 0; g < nGap; g++){
+        const a = rng() * Math.PI * 2, dx = Math.cos(a), dz = Math.sin(a), gw = CORN_CELL * 1.1;
+        for (let t = -p.pr - 2; t <= p.pr + 2; t += CORN_CELL * 0.5){
+          const gx = p.x + dx * t, gz = p.z + dz * t;
+          const [ccx, ccz] = cornCellOf(gx, gz);
+          for (let oz = -1; oz <= 1; oz++) for (let ox = -1; ox <= 1; ox++){
+            const nx = ccx + ox, nz = ccz + oz; if (nx < 0 || nz < 0 || nx >= CORN_N || nz >= CORN_N) continue;
+            const [wcx, wcz] = cornCellCenter(nx, nz);
+            // perpendicular distance from the gap centerline
+            const perp = Math.abs((wcx - p.x) * (-dz) + (wcz - p.z) * dx);
+            if (perp > gw) continue;
+            const idx = cornCellIdx(nx, nz);
+            if (cornState[idx] === 1){ cornState[idx] = 0; cornStandingCount--; }
+          }
+        }
+      }
+    }
+    // ---- CORN VISUAL: DRG-rock-wall read. One merged stalk geometry (fat stem + horizontal leaf
+    // fins + canopy quad + tassel, all-in-one so a single InstancedMesh carries the whole field),
+    // vertex-colored dark-base->sunlit-top gradient, harvest-gold instance palette (clearly not
+    // grass), a merged dark-soil footprint plane under every patch (the solid-mass read + the
+    // visible carved alley), and cut cells become pale straw STUBBLE instead of vanishing. ----
+    let _cornStalkGeo = null, _cornSoil = null;
+    function cornStalkGeometry(){
+      if (_cornStalkGeo) return _cornStalkGeo;
+      const parts = [];
+      // stem: fat tapered trunk, base at y=0, unit height (instances scale y to 2.4-3.2)
+      const stem = new THREE.CylinderGeometry(0.075, 0.16, 1, 4, 1, true);
+      stem.translate(0, 0.5, 0); parts.push(stem);
+      // 3 near-horizontal leaf blades fanned around the stem — laid flat-ish so the TOP-DOWN
+      // camera actually sees them (a vertical blade is invisible from above)
+      for (let i = 0; i < 3; i++){
+        const leaf = new THREE.PlaneGeometry(0.95, 0.3);
+        leaf.rotateX(-Math.PI / 2);            // lie in XZ, face up
+        leaf.translate(0.5, 0, 0);             // extend outward from the stem
+        leaf.rotateZ(0.38 - i * 0.14);         // arc up-and-out, lower blades droopier
+        leaf.rotateY(i * 2.09 + 0.4);          // fan around
+        leaf.translate(0, 0.42 + i * 0.2, 0);
+        parts.push(leaf);
+      }
+      // canopy quad at the crown — the big sunlit golden cap the top-down camera reads as mass
+      const cap = new THREE.PlaneGeometry(0.62, 0.62);
+      cap.rotateX(-Math.PI / 2); cap.rotateZ(0.18); cap.rotateY(0.7); cap.translate(0, 0.97, 0);
+      parts.push(cap);
+      // tassel poking above (silhouette from oblique angles)
+      const tas = new THREE.ConeGeometry(0.1, 0.32, 4);
+      tas.translate(0, 1.1, 0); parts.push(tas);
+      // manual merge (r128 has no BufferGeometryUtils on this page)
+      let vCount = 0; const nonIdx = parts.map(g => { const n = g.toNonIndexed ? g.toNonIndexed() : g; vCount += n.attributes.position.count; return n; });
+      const pos = new Float32Array(vCount * 3), nor = new Float32Array(vCount * 3), col = new Float32Array(vCount * 3);
+      let o = 0;
+      for (const g of nonIdx){
+        pos.set(g.attributes.position.array, o * 3);
+        nor.set(g.attributes.normal.array, o * 3);
+        o += g.attributes.position.count;
+        g.dispose();
+      }
+      // height gradient: dark shaded base -> bright sunlit crown (multiplies the instance gold)
+      for (let v = 0; v < vCount; v++){
+        const y = pos[v * 3 + 1];
+        const t = Math.max(0, Math.min(1, y / 1.02));
+        const sh = 0.42 + 0.72 * t * t + 0.14 * t;
+        col[v * 3] = sh; col[v * 3 + 1] = sh; col[v * 3 + 2] = sh * 0.92;
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+      geo.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
+      geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+      _cornStalkGeo = geo; SHARED_ASSETS.add(geo);
+      return geo;
+    }
+    // merged dark-soil plane under every corn-footprint cell (standing OR cut) — makes the patch
+    // read as one solid mass and keeps the carved alley visible as a dirt path through the field
+    function buildCornSoil(footprint, rng){
+      if (_cornSoil){ scene.remove(_cornSoil); const si = stageDecor.indexOf(_cornSoil); if (si >= 0) stageDecor.splice(si, 1);
+        _cornSoil.geometry.dispose(); _cornSoil.material.dispose(); _cornSoil = null; }
+      if (!footprint.length) return;
+      const h = CORN_CELL * 0.5 + 0.06;   // slight overlap so cells fuse seamlessly
+      const pos = new Float32Array(footprint.length * 4 * 3), col = new Float32Array(footprint.length * 4 * 3), nrm = new Float32Array(footprint.length * 4 * 3);
+      const idxA = new Uint32Array(footprint.length * 6);
+      let v = 0, f = 0;
+      for (const idx of footprint){
+        const cz = (idx / CORN_N) | 0, cx = idx - cz * CORN_N;
+        const [ccx, ccz] = cornCellCenter(cx, cz);
+        const br = 0.86 + rng() * 0.26;                       // per-cell tone variation
+        const r = 0.42 * br, g = 0.31 * br, b = 0.175 * br;   // warm tilled-earth brown
+        const quad = [[-h,-h],[h,-h],[h,h],[-h,h]];
+        for (let q = 0; q < 4; q++){
+          pos[(v + q) * 3] = ccx + quad[q][0]; pos[(v + q) * 3 + 1] = 0.02; pos[(v + q) * 3 + 2] = ccz + quad[q][1];
+          col[(v + q) * 3] = r; col[(v + q) * 3 + 1] = g; col[(v + q) * 3 + 2] = b;
+          nrm[(v + q) * 3 + 1] = 1;   // all normals up (lit material so the Night stage dims it)
+        }
+        idxA[f] = v; idxA[f + 1] = v + 2; idxA[f + 2] = v + 1; idxA[f + 3] = v; idxA[f + 4] = v + 3; idxA[f + 5] = v + 2;
+        v += 4; f += 6;
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+      geo.setAttribute("normal", new THREE.BufferAttribute(nrm, 3));
+      geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+      geo.setIndex(new THREE.BufferAttribute(idxA, 1));
+      const m = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 2 }));
+      scene.add(m); stageDecor.push(m);
+      _cornSoil = m;
+    }
+    function buildCornVisual(rng){
+      rng = rng || mulberry32((cornVer * 2654435761) >>> 0);
+      if (cornInst){ scene.remove(cornInst); const si = stageDecor.indexOf(cornInst); if (si >= 0) stageDecor.splice(si, 1);
+        if (cornInst.geometry && !SHARED_ASSETS.has(cornInst.geometry)) cornInst.geometry.dispose();
+        if (cornInst.material) cornInst.material.dispose(); }
+      cornInst = null; cornCellStalks = null;
+      const standing = [], cut = [];
+      for (let i = 0; i < cornState.length; i++){ if (cornState[i] === 1) standing.push(i); else if (cornState[i] === 2) cut.push(i); }
+      const footprint = standing.concat(cut);
+      buildCornSoil(footprint, mulberry32(0xC0FFEE));   // soil tone independent of the stalk rng stream
+      if (!footprint.length) return;
+      // rim cells (a 4-neighbor that isn't standing corn) get an extra stalk + a height bias so
+      // the patch boundary reads as a crisp, slightly taller wall silhouette
+      const isRim = idx => {
+        const cz = (idx / CORN_N) | 0, cx = idx - cz * CORN_N;
+        return (cx <= 0 || cornState[idx - 1] !== 1) || (cx >= CORN_N - 1 || cornState[idx + 1] !== 1) ||
+               (cz <= 0 || cornState[idx - CORN_N] !== 1) || (cz >= CORN_N - 1 || cornState[idx + CORN_N] !== 1);
+      };
+      const STALKS = 5;   // interior 5, rim 6 per cell
+      let total = 0;
+      for (const idx of standing) total += STALKS + (isRim(idx) ? 1 : 0);
+      total += cut.length * 3;   // stubble stumps on already-cut cells (guest rebuilds mid-run)
+      // FrontSide only: the camera is always above, leaves/caps face up — halves fragment cost
+      const matC = new THREE.MeshPhongMaterial({ color: 0xffffff, vertexColors: true, shininess: 4 });
+      const inst = new THREE.InstancedMesh(cornStalkGeometry(), matC, total);
+      cornCellStalks = new Map();
       let k = 0;
-      for (const c of cells){
-        for (let j = 0; j < 2; j++){
-          dummy.position.set(c.x + (j?0.5:-0.5), 1.1, c.z + (j?0.3:-0.3));
-          dummy.rotation.set((Math.random()-0.5)*0.2, Math.random()*Math.PI, (Math.random()-0.5)*0.2);
-          dummy.updateMatrix(); inst.setMatrixAt(k++, dummy.matrix);
+      for (const idx of standing){
+        const cz = (idx / CORN_N) | 0, cx = idx - cz * CORN_N;
+        const [ccx, ccz] = cornCellCenter(cx, cz);
+        const rim = isRim(idx);
+        const n = STALKS + (rim ? 1 : 0);
+        const list = [];
+        for (let j = 0; j < n; j++){
+          // golden-angle scatter fills the whole 1.5u cell (random-radius clumps left holes)
+          const a = idx * 0.71 + j * 2.39996, rr = 0.72 * Math.sqrt((j + 0.5) / n);
+          const sx = ccx + Math.cos(a) * rr, sz = ccz + Math.sin(a) * rr;
+          const s = 0.92 + rng() * 0.5;                                   // lateral girth
+          const hgt = 2.4 + rng() * 0.8 + (rim ? 0.2 : 0);                // 2.4-3.2u (+rim bias)
+          _cornDummy.position.set(sx, 0, sz);
+          _cornDummy.rotation.set((rng() - 0.5) * 0.16, rng() * Math.PI * 2, (rng() - 0.5) * 0.16);
+          _cornDummy.scale.set(s, hgt, s);
+          _cornDummy.updateMatrix(); inst.setMatrixAt(k, _cornDummy.matrix);
+          // harvest gold with green undertones — reads as ripe corn, never as grass; ~1/3 of the
+          // stalks lean greener so the mass reads "corn field", not one flat hay-yellow slab
+          if (rng() < 0.34) inst.setColorAt(k, _cornCol.setRGB(0.52 + rng() * 0.16, 0.62 + rng() * 0.14, 0.14 + rng() * 0.1));
+          else inst.setColorAt(k, _cornCol.setRGB(0.78 + rng() * 0.2, 0.62 + rng() * 0.18, 0.16 + rng() * 0.12));
+          list.push([k, sx, sz, s]); k++;
+        }
+        cornCellStalks.set(idx, list);
+      }
+      for (const idx of cut){
+        const cz = (idx / CORN_N) | 0, cx = idx - cz * CORN_N;
+        const [ccx, ccz] = cornCellCenter(cx, cz);
+        const list = [];
+        for (let j = 0; j < 3; j++){
+          const a = idx * 0.71 + j * 2.39996, rr = 0.62 * Math.sqrt((j + 0.5) / 3);
+          const sx = ccx + Math.cos(a) * rr, sz = ccz + Math.sin(a) * rr;
+          list.push([k, sx, sz, 1]);
+          setCornStumpMatrix(inst, k, sx, sz, 1, j); k++;
+        }
+        cornCellStalks.set(idx, list);
+      }
+      inst.instanceMatrix.needsUpdate = true; if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+      inst.castShadow = false; inst.receiveShadow = false;
+      scene.add(inst); stageDecor.push(inst);
+      cornInst = inst;
+    }
+    // one short pale-straw stump (used both when felling live and when rebuilding a cut cell)
+    function setCornStumpMatrix(inst, k, x, z, s, j){
+      _cornDummy.position.set(x, 0, z);
+      _cornDummy.rotation.set(((j * 37 % 10) - 5) * 0.03, j * 1.7, ((j * 53 % 10) - 5) * 0.03);
+      _cornDummy.scale.set(s * 0.9, 0.13 + (j % 3) * 0.03, s * 0.9);
+      _cornDummy.updateMatrix(); inst.setMatrixAt(k, _cornDummy.matrix);
+      inst.setColorAt(k, _cornCol.setRGB(0.6, 0.47, 0.26));   // dry straw (the baked top-gradient brightens it — keep the base dark or stubble reads white)
+    }
+    // a felled cell keeps 3 stumps (visible stubble alley) and hides the rest of its stalks
+    function stubbleCornStalks(idx){
+      if (!cornInst || !cornCellStalks) return;
+      const list = cornCellStalks.get(idx); if (!list) return;
+      for (let j = 0; j < list.length; j++){
+        const [k, x, z, s] = list[j];
+        if (j < 3){ setCornStumpMatrix(cornInst, k, x, z, s, j); continue; }
+        _cornDummy.position.set(0, -999, 0); _cornDummy.rotation.set(0, 0, 0); _cornDummy.scale.set(0.0001, 0.0001, 0.0001);
+        _cornDummy.updateMatrix();
+        cornInst.setMatrixAt(k, _cornDummy.matrix);
+      }
+      cornInst.instanceMatrix.needsUpdate = true;
+      if (cornInst.instanceColor) cornInst.instanceColor.needsUpdate = true;
+    }
+    function spawnCornSwipe(x, z){
+      const g = new THREE.Mesh(new THREE.RingGeometry(0.6, 1.5, 16, 1, 0, Math.PI * 1.1),
+        new THREE.MeshBasicMaterial({ color: 0xe8ffa0, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false }));
+      g.rotation.x = -Math.PI / 2; g.rotation.z = Math.random() * Math.PI * 2;
+      g.position.set(x, 0.9, z); scene.add(g);
+      cornSwipes.push({ mesh: g, t: 0, spin: (Math.random() < 0.5 ? 1 : -1) * 9 });
+    }
+    function updateCornSwipes(dt){
+      for (const s of cornSwipes.slice()){
+        s.t += dt; s.mesh.rotation.z += s.spin * dt;
+        s.mesh.material.opacity = Math.max(0, 0.85 * (1 - s.t / 0.18));
+        s.mesh.scale.setScalar(1 + s.t * 2.5);
+        if (s.t >= 0.18){ scene.remove(s.mesh); s.mesh.geometry.dispose(); s.mesh.material.dispose(); cornSwipes.splice(cornSwipes.indexOf(s), 1); }
+      }
+    }
+    // fell one standing cell (byPlayer => bright scythe chop; else a trample/munch flatten)
+    function fellCornCell(cx, cz, wx, wz, byPlayer){
+      const idx = cornCellIdx(cx, cz);
+      if (cornState[idx] !== 1) return;
+      cornState[idx] = 2; cornStandingCount--; cornCarve[idx] = 0;
+      cornVer++; cornFlowDirty = true;
+      stubbleCornStalks(idx);
+      if (byPlayer){
+        chunkBurst(wx, 1.0, wz, 0x9fd23f, 4); puff(wx, 1.2, wz, 0xdcef8f, 3); spawnCornSwipe(wx, wz);
+        if (playThrottled('pp-sfx-hay-roll', 'cornChop', 0.05, { gain: 0.4 })) _sfxPlays.hayRoll++;
+      } else {
+        chunkBurst(wx, 0.7, wz, 0x8fbf36, 3); puff(wx, 0.9, wz, 0xcfe07a, 2);
+      }
+    }
+    // accumulate carve contact on standing cells near (x,z); fell them past the threshold
+    function carveCornAt(x, z, dt, rate, byPlayer){
+      if (!cornState || cornStandingCount === 0) return;
+      const [cx, cz] = cornCellOf(x, z);
+      for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++){
+        const gx = cx + dx, gz = cz + dz; if (gx < 0 || gz < 0 || gx >= CORN_N || gz >= CORN_N) continue;
+        const idx = cornCellIdx(gx, gz); if (cornState[idx] !== 1) continue;
+        const [ccx, ccz] = cornCellCenter(gx, gz);
+        if (Math.hypot(ccx - x, ccz - z) > CORN_CARVE_R) continue;
+        cornCarve[idx] += dt * rate;
+        if (cornCarve[idx] >= CORN_CARVE_TIME) fellCornCell(gx, gz, ccx, ccz, byPlayer);
+      }
+    }
+    // bosses / mini-combines flatten every standing cell they roll over, instantly
+    function trampleCornAt(x, z, r){
+      if (!cornState || cornStandingCount === 0) return;
+      const [cx, cz] = cornCellOf(x, z);
+      const rad = Math.max(1, Math.ceil((r + 0.6) / CORN_CELL));
+      for (let dz = -rad; dz <= rad; dz++) for (let dx = -rad; dx <= rad; dx++){
+        const gx = cx + dx, gz = cz + dz; if (gx < 0 || gz < 0 || gx >= CORN_N || gz >= CORN_N) continue;
+        const idx = cornCellIdx(gx, gz); if (cornState[idx] !== 1) continue;
+        const [ccx, ccz] = cornCellCenter(gx, gz);
+        if (Math.hypot(ccx - x, ccz - z) > r + 0.6) continue;
+        fellCornCell(gx, gz, ccx, ccz, false);
+      }
+    }
+    function cornTramples(e){ return e.isBoss || e.isMini; }
+    // slide a ground enemy out of any standing cell it tried to enter (center-based => brushes the edge)
+    function resolveCornBlock(ox, oz, nx, nz, out){
+      if (!cornStandingAt(nx, nz)){ out[0] = nx; out[1] = nz; return; }
+      if (!cornStandingAt(nx, oz)){ out[0] = nx; out[1] = oz; return; }   // slide along Z wall
+      if (!cornStandingAt(ox, nz)){ out[0] = ox; out[1] = nz; return; }   // slide along X wall
+      out[0] = ox; out[1] = oz;                                            // fully blocked
+    }
+    // steer `dir` (mutated in place, no allocation) around standing corn via the flow field
+    function cornFlowSteer(e, dir){
+      const px = e.mesh.position.x, pz = e.mesh.position.z;
+      const cx = Math.floor((px - CORN_ORIGIN) / CORN_CELL), cz = Math.floor((pz - CORN_ORIGIN) / CORN_CELL);
+      if (cx < 1 || cz < 1 || cx >= CORN_N - 1 || cz >= CORN_N - 1) return;
+      const here = cornFlowDist[cornCellIdx(cx, cz)];
+      let bestD = here, bx = 0, bz = 0, anyStanding = false;
+      for (let k = 0; k < 8; k++){
+        const gx = cx + FLOW_NX[k], gz = cz + FLOW_NZ[k], gi = cornCellIdx(gx, gz);
+        if (cornState[gi] === 1){ anyStanding = true; continue; }
+        const nd = cornFlowDist[gi];
+        if (nd < bestD){ bestD = nd; bx = FLOW_NX[k]; bz = FLOW_NZ[k]; }
+      }
+      const aheadNear = cornStandingAt(px + dir.x * 1.2, pz + dir.z * 1.2);   // corn a step away (route HARD, no corner-cut)
+      const aheadFar = cornStandingAt(px + dir.x * 2.6, pz + dir.z * 2.6);     // corn looming ahead (anticipate)
+      if (!anyStanding && !aheadNear && !aheadFar) return;    // open lane — chase straight (organic)
+      if (bx === 0 && bz === 0) return;                       // no downhill neighbor (enclosed) — press in; chew handles it
+      const fl = Math.hypot(bx, bz) || 1, fx = bx / fl, fz = bz / fl;
+      const w = aheadNear ? 0.92 : (aheadFar ? 0.6 : 0.45);   // commit to the flow lane when corn is right there
+      const nx = dir.x * (1 - w) + fx * w, nz = dir.z * (1 - w) + fz * w;
+      const l = Math.hypot(nx, nz) || 1; dir.x = nx / l; dir.z = nz / l;
+    }
+    function recomputeCornFlow(){
+      if (!cornState){ cornFlowDirty = false; return; }
+      if (!cornFlowDist || cornFlowDist.length !== CORN_N * CORN_N){
+        cornFlowDist = new Uint16Array(CORN_N * CORN_N); _flowQueue = new Int32Array(CORN_N * CORN_N);
+      }
+      cornFlowDist.fill(CORN_UNREACH);
+      let head = 0, tail = 0;
+      const seeds = coop ? livingPlayers().map(p => p.mesh.position) : (player ? [player.position] : []);
+      for (const s of seeds){
+        const scx = Math.floor((s.x - CORN_ORIGIN) / CORN_CELL), scz = Math.floor((s.z - CORN_ORIGIN) / CORN_CELL);
+        for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++){
+          const gx = scx + dx, gz = scz + dz; if (gx < 0 || gz < 0 || gx >= CORN_N || gz >= CORN_N) continue;
+          const idx = cornCellIdx(gx, gz);
+          if (cornState[idx] === 1 || cornFlowDist[idx] === 0) continue;   // don't seed inside corn
+          cornFlowDist[idx] = 0; _flowQueue[tail++] = idx;
         }
       }
-      inst.instanceMatrix.needsUpdate = true;
-      scene.add(inst); stageDecor.push(inst);
-      stageCorn = inst;
+      while (head < tail){
+        const idx = _flowQueue[head++];
+        const cz = (idx / CORN_N) | 0, cx = idx - cz * CORN_N;
+        const nd = cornFlowDist[idx] + 1; if (nd >= CORN_UNREACH) continue;
+        for (let k = 0; k < 8; k++){
+          const ox = FLOW_NX[k], oz = FLOW_NZ[k], gx = cx + ox, gz = cz + oz;
+          if (gx < 0 || gz < 0 || gx >= CORN_N || gz >= CORN_N) continue;
+          const nidx = cornCellIdx(gx, gz);
+          if (cornState[nidx] === 1 || cornFlowDist[nidx] <= nd) continue;
+          if (ox !== 0 && oz !== 0 &&                          // no diagonal squeeze through a corner
+              cornState[cornCellIdx(cx + ox, cz)] === 1 && cornState[cornCellIdx(cx, cz + oz)] === 1) continue;
+          cornFlowDist[nidx] = nd; _flowQueue[tail++] = nidx;
+        }
+      }
+      markCornNear();
+      updateCornChewers();
+      cornFlowDirty = false;
     }
-    function inCorn(x, z){
-      if (!stageCornCells.length) return false;
-      for (const c of stageCornCells){ const dx = x - c.x, dz = z - c.z; if (dx*dx + dz*dz < 2.4*2.4) return true; }
-      return false;
+    // dilate standing corn by 2 cells — the cheap per-enemy gate so only varmints actually near
+    // stalks pay the flow-steer/block cost (keeps the Cornfield stage's 260-enemy frame cheap)
+    function markCornNear(){
+      if (!cornNear || cornNear.length !== CORN_N * CORN_N) cornNear = new Uint8Array(CORN_N * CORN_N);
+      cornNear.fill(0);
+      if (cornStandingCount === 0) return;
+      for (let idx = 0; idx < cornState.length; idx++){
+        if (cornState[idx] !== 1) continue;
+        const cz = (idx / CORN_N) | 0, cx = idx - cz * CORN_N;
+        const zlo = Math.max(0, cz - 2), zhi = Math.min(CORN_N - 1, cz + 2), xlo = Math.max(0, cx - 2), xhi = Math.min(CORN_N - 1, cx + 2);
+        for (let gz = zlo; gz <= zhi; gz++){ const row = gz * CORN_N; for (let gx = xlo; gx <= xhi; gx++) cornNear[row + gx] = 1; }
+      }
     }
-    // combined non-mud ground-speed multiplier for the active stage (corn slows to 0.8x)
-    function stageSpeedMul(x, z){ return (curStage && curStage.id === "corn" && inCorn(x, z)) ? 0.8 : 1; }
+    function updateCornChewers(){
+      for (const e of enemies) if (e.chew) e.chew = false;
+      if (!cornState || cornStandingCount === 0) return;
+      const cand = [];
+      for (const e of enemies){
+        if (e.fly || e.isBoss || e.isMini || e.kind === "lobber") continue;
+        const cx = Math.floor((e.mesh.position.x - CORN_ORIGIN) / CORN_CELL), cz = Math.floor((e.mesh.position.z - CORN_ORIGIN) / CORN_CELL);
+        if (cx < 0 || cz < 0 || cx >= CORN_N || cz >= CORN_N) continue;
+        if (cornFlowDist[cornCellIdx(cx, cz)] !== CORN_UNREACH) continue;   // has a path — not cut off
+        const pp = coop ? nearestPlayerPos(e.mesh.position.x, e.mesh.position.z) : (player ? player.position : null);
+        if (!pp) continue;
+        cand.push({ e, d: Math.hypot(e.mesh.position.x - pp.x, e.mesh.position.z - pp.z) });
+      }
+      cand.sort((a, b) => a.d - b.d);
+      for (let i = 0; i < Math.min(3, cand.length); i++) cand[i].e.chew = true;
+    }
+    function resetCornState(){
+      cornState = null; cornCarve = null; cornStandingCount = 0; cornFlowDirty = true; cornFlowT = 0;
+      cornCellStalks = null;   // cornInst/_cornSoil themselves are disposed via stageDecor in clearStageDecor
+      cornInst = null; _cornSoil = null;
+      for (const s of cornSwipes){ scene.remove(s.mesh); s.mesh.geometry.dispose(); s.mesh.material.dispose(); }
+      cornSwipes = [];
+      cornBMinX = 1e9; cornBMaxX = -1e9; cornBMinZ = 1e9; cornBMaxZ = -1e9;
+    }
+    // ---- co-op sync: pack/unpack the STANDING-cell bitmask (guests render from host state) ----
+    function packCornStanding(){
+      const n = cornState.length, bytes = new Uint8Array((n + 7) >> 3);
+      for (let i = 0; i < n; i++) if (cornState[i] === 1) bytes[i >> 3] |= (1 << (i & 7));
+      let s = ""; for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+      return btoa(s);
+    }
+    function unpackCornStandingToGuest(b64){
+      const bin = atob(b64), n = CORN_N * CORN_N;
+      if (!cornState || cornState.length !== n){ cornState = new Uint8Array(n); cornCarve = new Float32Array(n); }
+      cornStandingCount = 0;
+      // a cell that WAS corn and is no longer standing becomes CUT (2) on the guest too, so the
+      // soil footprint + stubble persist visually (state 2 renders stubble, paths treat it as open)
+      for (let i = 0; i < n; i++){ const bit = (bin.charCodeAt(i >> 3) >> (i & 7)) & 1; cornState[i] = bit ? 1 : (cornState[i] ? 2 : 0); if (bit) cornStandingCount++; }
+      cornFlowDirty = true;
+    }
     // night: brightness a far-from-player enemy renders at (hook for the measurable dimming test)
     function enemyBrightness(e){
       if (!curStage || curStage.id !== "night" || !player) return 1;
@@ -6836,8 +7664,11 @@
           if (wc) wc.hidden = true;
           stageScare = buildScareStatue(wc ? wc.x : ARENA-9, wc ? wc.z : ARENA-9);
         }
-        buildCornRows();
       }
+      // carveable cornstalk patches on every stage (2-3 on Home/Night, 4-6 dense on Cornfield).
+      // Host-authoritative in online co-op: the guest receives the standing mask via the snapshot,
+      // so it must NOT generate its own patches.
+      if (!(net.mp && !net.isHost)) generateCornPatches();
     }
     // per-frame stage upkeep (called from update while playing)
     function stageUpdate(dt){
@@ -7180,13 +8011,17 @@
       if (net.mp && !net.isHost){
         // GUEST: no authoritative sim — render from host snapshots + locally predict own movement
         guestFrame(dt);
-      } else {
-        if (net.mp && net.isHost){ hostReadRemoteInputs(dt); hostTickAfk(dt); }
+      } else if (net.mp && net.isHost){
+        hostReadRemoteInputs(dt); hostTickAfk(dt);
         update(dt);
-        if (net.mp && net.isHost){
-          net.snapshotCd -= dt;
-          if (net.snapshotCd <= 0 || state === "levelup"){ publishSnapshotNow(); net.snapshotCd = 1/10; }
-        }
+        net.snapshotCd -= dt;
+        if (net.snapshotCd <= 0 || state === "levelup"){ publishSnapshotNow(); net.snapshotCd = 1/10; }
+      } else {
+        // SOLO — normally one step. simSubSteps>1 (test-only) fast-forwards the sim by running extra
+        // update() calls per rAF frame so the balance harness can play out full 15:00 runs quickly.
+        // Default 1 keeps live solo play byte-identical.
+        const steps = simSubSteps > 1 ? (simSubSteps | 0) : 1;
+        for (let s = 0; s < steps; s++){ update(dt); if (state !== "playing") break; }
       }
       updateAbilityChip();   // keep the ability chip's cooldown ring/visibility fresh in every state
       ambientUpdate(dt);
@@ -7357,8 +8192,17 @@
       if (boss) pushBossEntry(boss);
       for (const e of enemies) if (e.isMini) pushBossEntry(e);
       const b = document.getElementById("waveBanner");
+      // CARVEABLE CORN: ship the standing-cell bitmask to guests. Only when it changed (version bump)
+      // or a ~2s heartbeat (so a late joiner still gets the field within a couple seconds), keeping the
+      // ~1KB payload off most snapshots. cv/cn always ride along (tiny) so the guest knows the version.
+      let cornPayload = null;
+      if (cornState){
+        net._cornHb = (net._cornHb || 0) + 1;
+        if (cornVer !== net._lastCornVer || net._cornHb >= 20){ cornPayload = packCornStanding(); net._lastCornVer = cornVer; net._cornHb = 0; }
+      } else if (net._lastCornVer !== 0){ net._lastCornVer = 0; }
       const snap = {
         st: state, pl, en, orb, pk, bs,
+        cv: cornVer, cn: cornState ? CORN_N : 0, cm: cornPayload,
         lv: level, xp: Math.round(xp), xn: xpNeed, k: kills, el: Math.round(elapsed*10),
         co: meta.coins, bc: bonusCoins, em: endlessMode?1:0, et: Math.round(endlessT*10),
         bar: (b && b.style.opacity > 0.5) ? b.textContent : "",
@@ -7382,7 +8226,7 @@
 
     // ---- guest: reconstruct the world from a host snapshot ----
     const LERP = 0.25;
-    let _guestSnap = null, _guestStarted = false;
+    let _guestSnap = null, _guestStarted = false, _guestCornVer = -1;
     function lerpTo(mesh, tx, tz, t){ mesh.position.x += (tx - mesh.position.x) * t; mesh.position.z += (tz - mesh.position.z) * t; }
     function guestEnsureScene(snap){
       // build the arena + both player meshes once, off the first snapshot
@@ -7492,6 +8336,15 @@
       // boss + mini-combine meshes (kept separate from the boss-bar text/hp below, which only
       // tracks the ONE main boss/COMBINE — see BOSS_KINDS/pushBossEntry in buildSnapshot)
       guestSyncBosses(snap.bs);
+      // CARVEABLE CORN: reconstruct the standing field from the host's bitmask (arrives on change +
+      // a ~2s heartbeat). Rebuild the instanced stalks only when the version actually moved.
+      if (!snap.cn){
+        if (cornInst){ scene.remove(cornInst); const si=stageDecor.indexOf(cornInst); if(si>=0) stageDecor.splice(si,1); }
+        if (_cornSoil){ scene.remove(_cornSoil); const si=stageDecor.indexOf(_cornSoil); if(si>=0) stageDecor.splice(si,1); }
+        if (cornState){ _guestCornVer = -1; resetCornState(); }
+      } else if (snap.cm && snap.cv !== _guestCornVer){
+        _guestCornVer = snap.cv; unpackCornStandingToGuest(snap.cm); buildCornVisual();
+      }
       // boss bar
       const bb = document.getElementById("bossBar");
       if (snap.boss){ bb.style.display = "block"; document.getElementById("bossName").textContent = snap.boss.nm; document.getElementById("bossFill").style.width = snap.boss.hp + "%"; }
@@ -7784,6 +8637,31 @@
       checkQuests, renderQuests, renderStages, renderDaily,
       buildDaily, startDailyRun, dailyDateKey, applyDailyMods,
       applyStage, stageUnlocked, stageById, inCorn, enemyBrightness, stageSpeedMul, nearestGate,
+      // ---- CARVEABLE CORN hooks (test/sync) ----
+      CORN_N, CORN_CELL, CORN_UNREACH, cornStandingAt, cornCellOf, cornCellCenter, cornCellIdx,
+      generateCornPatches, recomputeCornFlow, carveCornAt, trampleCornAt, fellCornCell, buildCornVisual,
+      packCornStanding, resetCornState,
+      get cornState(){ return cornState; },
+      get cornInst(){ return cornInst; },
+      get cornSoil(){ return _cornSoil; },
+      get cornCellStalks(){ return cornCellStalks; },
+      get cornStandingCount(){ return cornStandingCount; },
+      get cornPatchCount(){ return cornPatchCount; },
+      get cornVer(){ return cornVer; },
+      get cornFlowDist(){ return cornFlowDist; },
+      get cornBounds(){ return { minX:cornBMinX, maxX:cornBMaxX, minZ:cornBMinZ, maxZ:cornBMaxZ }; },
+      cornDistAt(x, z){ if (!cornFlowDist) return -1; const cx=Math.floor((x-CORN_ORIGIN)/CORN_CELL), cz=Math.floor((z-CORN_ORIGIN)/CORN_CELL); if (cx<0||cz<0||cx>=CORN_N||cz>=CORN_N) return -1; return cornFlowDist[cz*CORN_N+cx]; },
+      // build a controlled patch for tests: fn(cx,cz,wx,wz)->bool marks standing; then rebuild visuals+flow
+      setCornField(fn){
+        cornState = new Uint8Array(CORN_N*CORN_N); cornCarve = new Float32Array(CORN_N*CORN_N); cornStandingCount = 0;
+        cornBMinX=1e9; cornBMaxX=-1e9; cornBMinZ=1e9; cornBMaxZ=-1e9;
+        for (let cz=0; cz<CORN_N; cz++) for (let cx=0; cx<CORN_N; cx++){
+          const wx=CORN_ORIGIN+(cx+0.5)*CORN_CELL, wz=CORN_ORIGIN+(cz+0.5)*CORN_CELL;
+          if (fn(cx,cz,wx,wz)){ cornState[cz*CORN_N+cx]=1; cornStandingCount++;
+            if(wx<cornBMinX)cornBMinX=wx; if(wx>cornBMaxX)cornBMaxX=wx; if(wz<cornBMinZ)cornBMinZ=wz; if(wz>cornBMaxZ)cornBMaxZ=wz; }
+        }
+        cornVer++; cornFlowDirty=true; cornFlowT=0; buildCornVisual(); recomputeCornFlow();
+      },
       runCoinsTotal,
       set daily(v){ daily = v; if (v) applyDailyMods(); },
       set pendingDaily(v){ pendingDaily = v; },
@@ -7801,6 +8679,12 @@
       get dashT(){ return dashT; }, get roundupT(){ return roundupT; },
       get eggLayTimer(){ return eggLayTimer; }, set eggLayTimer(v){ eggLayTimer = v; },
       get autoAbility(){ return autoAbility; }, set autoAbility(v){ autoAbility = !!v; },
+      // ---- balance-overhaul (2026-07-13) hooks ----
+      BAL, eliteFraction, updateLobShots,
+      get simSubSteps(){ return simSubSteps; }, set simSubSteps(v){ simSubSteps = Math.max(1, v|0); },
+      get lobShots(){ return lobShots; }, get lobPuddles(){ return lobPuddles; },
+      get xpNeed(){ return xpNeed; },
+      get dmgByWeaponTotal(){ let s=0; for (const k in dmgByWeapon) s+=dmgByWeapon[k]; return s; },
       get sprout(){ return sprout; },
       get merchant(){ return merchant; },
       spawnMerchant, updateMerchant, openMerchant, renderMerchant, buyMerchant, closeMerchant, mysteryWeaponLevel,

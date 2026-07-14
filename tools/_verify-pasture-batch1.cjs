@@ -247,9 +247,14 @@ async function runDesktopChecks(browser) {
     const hits = dummies.map(d => 100000 - d.hp);
     check("all 4 dummies hit", hits.every(h => h > 0), JSON.stringify(hits));
     check("damage strictly decreases per pierce", hits[0] > hits[1] && hits[1] > hits[2] && hits[2] > hits[3], JSON.stringify(hits));
-    // ~8% falloff per pierce: hit[1] ~= hit[0]*0.92, hit[2] ~= hit[0]*0.84, floor at 0.4
+    // BALANCE OVERHAUL 2026-07-13: the pitchfork's per-pierce falloff was STEEPENED (BAL.forkPierceFalloff
+    // 0.12->0.17->0.22, floor 0.30->0.14->0.10) so one throw no longer mows an unbounded line at near-full
+    // damage (it was 43-46% of a 4-weapon build in the spend×build sim). CORN rework (2026-07-13) steepened
+    // it once more (0.22 -> 0.27) because standing-corn funnels line the crowd into the fork's path (evolved-
+    // focused fork share 43% -> 48%, back over the 45% cap); ratios now track hit[n] = hit[0]*(1 - 0.27*n),
+    // floored at 0.10 -> ~0.73/0.46/0.19.
     const r1 = hits[1] / hits[0], r2 = hits[2] / hits[0], r3 = hits[3] / hits[0];
-    check("falloff ratios track ~0.92/0.84/0.76 (8%/pierce)", Math.abs(r1 - 0.92) < 0.03 && Math.abs(r2 - 0.84) < 0.03 && Math.abs(r3 - 0.76) < 0.03, `${r1.toFixed(2)},${r2.toFixed(2)},${r3.toFixed(2)}`);
+    check("falloff ratios track ~0.73/0.46/0.19 (27%/pierce, post-corn tune)", Math.abs(r1 - 0.73) < 0.03 && Math.abs(r2 - 0.46) < 0.03 && Math.abs(r3 - 0.19) < 0.03, `${r1.toFixed(2)},${r2.toFixed(2)},${r3.toFixed(2)}`);
     P.enemies.length = 0;
     return out;
   }));

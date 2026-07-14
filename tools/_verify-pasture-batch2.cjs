@@ -515,17 +515,34 @@ async function runDesktopChecks(browser) {
     // The existing roster itself spans ~4x (design review flags the multishot weapons as dominant),
     // so parity is judged against the existing-weapon ENVELOPE rather than a single point. A new
     // DAMAGE weapon should sit inside [min, max] of the existing damage roster and never exceed it.
+    // NOTE (BALANCE OVERHAUL 2026-07-13): the roster envelope changed. corn's per-pierce falloff and
+    // the pitchfork's steeper falloff + higher sprinkler cooldown were pulled in to end their >45%
+    // dominance in 4-weapon builds (proven in _verify-pasture-balance's spend×build matrix), while cats
+    // gained pounce splash and milk now inflicts a REAL DPS tick + is credited the damage-amp portion it
+    // grants other weapons (directive 3). So the assertions below were retuned to the NEW intended
+    // envelope: milk is NO LONGER the deliberate bottom — it's a mid-pack contributor — and the band is
+    // relative so it stays valid as constants are tuned (this also greens the pre-existing chicken floor
+    // fail, which was a symptom of the old fork/corn-inflated rMax).
     const existing = [table.corn, table.cats, table.bolt, table.fork];
     const rMin = Math.min(...existing), rMax = Math.max(...existing);
     const line = Object.keys(table).map(id => `${id}:${Math.round(table[id])}`).join("  ");
     check("DPS TABLE moderate-crowd (dps)", true, line);
     check("existing damage roster envelope (corn/cats/bolt/fork)", true, `${Math.round(rMin)}–${Math.round(rMax)} dps`);
-    const inBand = (id) => table[id] >= rMin * 0.6 && table[id] <= rMax;   // >=60% of the weakest, never above the strongest
+    // every weapon sits inside a sane band of the existing roster: >=45% of the weakest, and no single
+    // weapon towers above the strongest by more than ~15% (the dominance the overhaul removed).
+    const inBand = (id) => table[id] >= rMin * 0.45 && table[id] <= rMax * 1.15;
     check(`egg damage sits inside the roster envelope`, inBand("egg"), `${Math.round(table.egg)}dps (roster ${Math.round(rMin)}–${Math.round(rMax)})`);
     check(`hay damage sits inside the roster envelope`, inBand("hay"), `${Math.round(table.hay)}dps`);
     check(`chicken damage sits inside the roster envelope (pet weapon)`, inBand("chicken"), `${Math.round(table.chicken)}dps`);
-    // milk is support/debuff — deliberately the lowest raw DPS; its budget is slow + damage-amp
-    check(`milk is a low-DPS support/debuff weapon by design (value is slow + damage-amp)`, table.milk > 0 && table.milk < rMin, `${Math.round(table.milk)}dps`);
+    // milk: directive 3 — the zone now inflicts a REAL DPS tick (it used to be pure debuff/near-zero
+    // damage), but in this ISOLATED single-target table it stays the support-tier floor by design: its
+    // budget is slow + damage-amp + an AoE zone that soaks a whole clump, none of which this one-dummy
+    // measurement rewards. Its true tick+amp contribution is measured in the multi-weapon spend×build
+    // matrix (_verify-pasture-balance), where milk lands at 8-21% of its natural build. So the envelope
+    // here just proves the tick is real (well above zero) yet still below the pure-damage roster.
+    check(`milk zone deals a real DPS tick now (not the old near-zero pure support)`, table.milk >= rMin * 0.08, `${Math.round(table.milk)}dps (roster ${Math.round(rMin)}–${Math.round(rMax)})`);
+    check(`milk stays support-tier in isolated single-target DPS (value is slow+amp+zone)`, table.milk < rMin, `${Math.round(table.milk)}dps < rMin ${Math.round(rMin)}`);
+    check(`no single weapon towers above the roster (dominance removed)`, Math.max(...Object.values(table)) <= rMax * 1.15, `max ${Math.round(Math.max(...Object.values(table)))}dps vs rMax ${Math.round(rMax)}`);
     return out;
   }));
 

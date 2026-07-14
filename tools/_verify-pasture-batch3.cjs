@@ -336,14 +336,15 @@ async function runDesktopChecks(browser) {
     check("far enemies are dimmer than near ones at night", bFar < bNear, `${bNear.toFixed(2)} vs ${bFar.toFixed(2)}`);
     check("far enemies stay silhouettes (never fully dark, >=0.4)", bFar >= 0.4, bFar.toFixed(2));
 
-    // CORNFIELD: rows slow movement to 0.8x
+    // CORNFIELD: carveable cornstalk patches (2026-07-13 rework — replaced the old push-through
+    // rows + 0.8x soft-wall with grid-cell standing corn that slows to CORN_SLOW=0.55 and blocks enemies)
     P.meta.qc.kills = 500; P.meta.selStage = "corn"; P.startGame(); await new Promise(r=>setTimeout(r,60));
     check("Cornfield swaps the windmill for a scarecrow statue", !!P.stageScare, !!P.stageScare);
-    // find a corn cell and confirm the slow multiplier
+    // find a standing-corn cell and confirm the slow multiplier
     let cornPt = null;
-    for (let x=-50;x<=50 && !cornPt;x+=2) for (let z=-50;z<=50;z+=2){ if (P.inCorn(x,z)){ cornPt = [x,z]; break; } }
-    check("Cornfield has corn-row cells", !!cornPt, cornPt && cornPt.join(","));
-    check("corn rows slow movement to 0.8x", cornPt && Math.abs(P.stageSpeedMul(cornPt[0], cornPt[1]) - 0.8) < 1e-6, cornPt && P.stageSpeedMul(cornPt[0], cornPt[1]));
+    for (let x=-52;x<=52 && !cornPt;x+=1.5) for (let z=-52;z<=52;z+=1.5){ if (P.inCorn(x,z)){ cornPt = [x,z]; break; } }
+    check("Cornfield has standing cornstalk cells", !!cornPt, cornPt && cornPt.map(n=>n.toFixed(1)).join(","));
+    check("standing corn slows movement to 0.55x", cornPt && Math.abs(P.stageSpeedMul(cornPt[0], cornPt[1]) - 0.55) < 1e-6, cornPt && P.stageSpeedMul(cornPt[0], cornPt[1]));
     check("open ground is full speed (1.0x)", Math.abs(P.stageSpeedMul(0.1, 0.1) - 1) < 1e-6, P.stageSpeedMul(0.1,0.1));
     return out;
   }));
