@@ -1408,16 +1408,50 @@
     const wo = waterObjAt(x, z); if (wo) level = level == null ? wo.level : Math.max(level, wo.level);
     return level;
   }
-  // ---- RESCUE CROW trigger (2026-07-12 R1) ----
-  // Fires when the kart is fully in DEEP water (water surface well above the pond bed at the kart —
-  // wheel-deep shallows stay driveable) OR has somehow dropped below the playable world (safety net).
-  const RESCUE_DEEP_WATER = 0.7;    // water-surface minus terrain that counts as "deep" (m)
+  // ---- WATER DEPTH ZONES (2026-07-14) ----
+  // Three zones sized off H = the MEASURED kart+rider combined height (wheel tread at kart-local
+  // y=0 up to the top of the driver's head/hat), taken once at boot from the real local kart
+  // view's bbox right after buildKartView('local') (see measureKartRiderH below; measured bucky
+  // kart + bucky driver ≈ 1.57u — the `let` fallback only applies if the measure ever fails):
+  //   SHALLOW  (depth <= WATER_SHALLOW_K*H): wheel-deep — free driving, splash FX, no slowdown.
+  //   WADING   (shallow < depth <= WATER_DROWN_K*H): speed multiplier eases 0.85 -> 0.45 by head
+  //            depth (WATER_HEAD_K*H) then stays 0.45; sluggish accel (mud treatment); heavy spray.
+  //            You can wade through and back OUT — no rescue.
+  //   DROWNING (depth > WATER_DROWN_K*H): rescue crow (replaces the old fixed 0.7m threshold).
+  let KART_RIDER_H = 1.8;             // fallback; overwritten at boot by the real bbox measure
+  const WATER_SHALLOW_K = 0.35;       // shallow/wading boundary, in units of H
+  const WATER_HEAD_K    = 1.0;        // ≈ driver-head depth — wading multiplier bottoms out here
+  const WATER_DROWN_K   = 2.0;        // wading/drowning boundary, in units of H
+  const WATER_WADE_SPEED_HI = 0.85;   // speed multiplier just past the shallow boundary
+  const WATER_WADE_SPEED_LO = 0.45;   // speed multiplier at/beyond head depth (until drowning)
+  const WATER_WADE_ACCEL    = 0.5;    // accel multiplier while wading (same feel as mud)
+  const WATER_WADE_DRAG_K   = 0.9;    // hydro drag while wading, as a fraction of grassDecel
+  // Water depth (surface minus terrain) at (x,z); 0 when over no water.
+  function waterDepthAt(x, z){
+    const surf = waterSurfaceAt(x, z);
+    if (surf == null) return 0;
+    return Math.max(0, surf - groundSampleHeight(x, z));
+  }
+  // Depth -> composable top-speed multiplier: 1 in the shallows, smoothstep-eased 0.85 -> 0.45
+  // between the shallow boundary and head depth, flat 0.45 beyond (multiplies effMax alongside
+  // kart stats / class / course maxSpeedMul / grass / mud — never overwrites them).
+  function waterSpeedMul(depth){
+    const H = KART_RIDER_H;
+    if (depth <= WATER_SHALLOW_K * H) return 1;
+    const span = Math.max(0.01, (WATER_HEAD_K - WATER_SHALLOW_K) * H);
+    const f = Math.min(1, (depth - WATER_SHALLOW_K * H) / span);
+    const e = f * f * (3 - 2 * f);
+    return WATER_WADE_SPEED_HI + (WATER_WADE_SPEED_LO - WATER_WADE_SPEED_HI) * e;
+  }
+  // ---- RESCUE CROW trigger (2026-07-12 R1; depth zones 2026-07-14) ----
+  // Fires when the kart is in DROWNING-depth water (over WATER_DROWN_K x kart+rider height —
+  // shallow and wading depths stay driveable) OR dropped below the playable world (safety net).
   const RESCUE_WORLD_FLOOR = 5;     // y below terrain that counts as "fell out of the world" (m)
   function rescueTriggered(p){
     const surf = waterSurfaceAt(p.pos.x, p.pos.z);
     if (surf != null){
       const bed = groundSampleHeight(p.pos.x, p.pos.z);
-      if (surf - bed > RESCUE_DEEP_WATER) return true;   // deep pond — sunk
+      if (surf - bed > WATER_DROWN_K * KART_RIDER_H) return true;   // DROWNING — sunk past 2xH
     }
     if (p.y < sampleHeight(p.pos.x, p.pos.z) - RESCUE_WORLD_FLOOR) return true;   // fell out of the world
     return false;
@@ -2314,6 +2348,19 @@
     delete kartViews[id];
   }
   buildKartView('local', 0x3d8b3d, true, null);
+  // WATER DEPTH ZONES (2026-07-14): measure the real kart+rider combined height H ONCE from the
+  // freshly-built local view. The view is at the scene origin with identity transforms here, and
+  // the wheels are built with their tread bottom at kart-local y=0, so bbox max.y = wheel tread up
+  // to the top of the driver's head/hat. Measured: bucky kart + bucky driver ≈ 1.57u.
+  (function measureKartRiderH(){
+    try {
+      const v = kartViews['local'];
+      v.group.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(v.bounce);
+      const h = box.max.y;
+      if (isFinite(h) && h > 0.8 && h < 4) KART_RIDER_H = h;
+    } catch (e) { /* keep the documented 1.8 fallback */ }
+  })();
 
   // ---------- STATE (K1: ALL race-mutable state lives in one G object; local-only concerns
   //   — camera, meshes, input, tune — stay OUTSIDE G, so a future Playroom sync is a thin
@@ -2749,6 +2796,12 @@
     // MUD: hard top-speed cap ~55% + sluggish accel (a boosting kart still surges relative to its
     // own capped max — boostMult multiplies effMax above, so mud stays sludgy even mid-boost).
     if (onMud){ effMax *= 0.55; effAccel *= 0.5; }
+    // WATER WADING (2026-07-14): depth-scaled slowdown between wheel-deep and drowning. Multiplies
+    // effMax/effAccel (composes with kart stats + class + course maxSpeedMul + grass + mud above,
+    // never overwrites). Applies to ALL karts incl. bots; skipped while airborne (like the paints).
+    p.waterDepth = (!p.airborne) ? waterDepthAt(p.pos.x, p.pos.z) : 0;
+    const _wMul = waterSpeedMul(p.waterDepth);
+    if (_wMul < 1){ effMax *= _wMul; effAccel *= WATER_WADE_ACCEL; }
 
     // ---- throttle / brake along forward ----
     // K2.5: NO throttle accel and NO coasting drag while airborne — horizontal velocity persists.
@@ -2829,7 +2882,10 @@
       // one-frame velocity discontinuity read as a screen "teleport" the moment you touched grass.
       // grassDecel is a firm exponential drag: grass still bogs you down within ~0.3s, but smoothly.
       // Lerp drag->grassDecel by the ramped grass factor so a shallow/edge excursion barely drags.
-      const rate = TUNE.drag + (TUNE.grassDecel - TUNE.drag) * gf;
+      let rate = TUNE.drag + (TUNE.grassDecel - TUNE.drag) * gf;
+      // WATER WADING (2026-07-14): a kart that ENTERS deep water fast bleeds down to its wading cap
+      // with a firm grass-strength hydro drag (smooth, no one-frame cliff), not the gentle road drag.
+      if (_wMul < 1) rate = Math.max(rate, TUNE.grassDecel * WATER_WADE_DRAG_K);
       const over = speed - effMax;
       const newSpeed = effMax + over * Math.exp(-rate * dt);
       const s = newSpeed / speed;
@@ -3158,6 +3214,10 @@
     tv *= (0.75 + 0.25 * (p.botSkill != null ? p.botSkill : TUNE.botSkill)); // skill scales pace
     // MUD: pull the bot's target speed down so it doesn't just wall-grind a mud patch at full throttle.
     if (ACTIVE_TRACK.paint && FK_TRACK.surfaceTypeAt(ACTIVE_TRACK.paint, p.pos.x, p.pos.z) === 'mud') tv *= 0.6;
+    // WATER WADING (2026-07-14): same treatment as mud — cut the target speed by the depth-scaled
+    // wading multiplier so a bot in deep water slows without grinding against its own throttle.
+    const _bwd = waterDepthAt(p.pos.x, p.pos.z);
+    if (_bwd > 0) tv *= waterSpeedMul(_bwd);
     // light rubber-band: nudge target speed toward the human to keep family races close
     const human = G.players.local;
     if (human && human !== p){
@@ -5783,18 +5843,22 @@
       spawnParticle(p.pos.x, wy + 0.05, p.pos.z, { color:0xdff2ff, opacity:0.5, life:0.45, size:0.6, grow:5.5 });  // wake ring
       waterSplashSound(p.pos);
     }
-    if (inW && spd > 3){
+    // WADING (2026-07-14): past wheel depth the spray gets HEAVIER (faster cadence, bigger, taller)
+    // and keeps churning even at slow wading speeds — the kart is pushing a bow wave.
+    const wading = inW && waterDepthAt(p.pos.x, p.pos.z) > WATER_SHALLOW_K * KART_RIDER_H;
+    if (inW && spd > (wading ? 1.2 : 3)){
       // continuous wheel spray while crossing at speed (time-accumulated -> no per-frame alloc storm)
       view._sprayAcc = (view._sprayAcc || 0) + dt;
       const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
       const r = { x:Math.cos(p.theta), z:-Math.sin(p.theta) };
-      while (view._sprayAcc > 0.03){
-        view._sprayAcc -= 0.03;
+      const gap = wading ? 0.016 : 0.03, big = wading ? 1.5 : 1;
+      while (view._sprayAcc > gap){
+        view._sprayAcc -= gap;
         const side = Math.random() < 0.5 ? -1 : 1;
         const rx = p.pos.x - f.x*0.7 + r.x*side*0.7, rz = p.pos.z - f.z*0.7 + r.z*side*0.7;
-        spawnParticle(rx, wy + 0.2, rz, { color:0xf0faff, opacity:0.7, life:0.34,
-          vx:r.x*side*1.4 - f.x*1.5 + (Math.random()-0.5), vy:1.6 + Math.random()*0.9, vz:r.z*side*1.4 - f.z*1.5 + (Math.random()-0.5),
-          grav:5, size:0.32, grow:0.4 });
+        spawnParticle(rx, wy + 0.2, rz, { color:0xf0faff, opacity:0.7, life:0.34*big,
+          vx:r.x*side*1.4 - f.x*1.5 + (Math.random()-0.5), vy:(1.6 + Math.random()*0.9)*big, vz:r.z*side*1.4 - f.z*1.5 + (Math.random()-0.5),
+          grav:5, size:0.32*big, grow:0.4*big });
       }
     } else view._sprayAcc = 0;
     view._inWater = inW;
@@ -10208,7 +10272,14 @@
     // ---- 2026-07-12 R1 (Feel & Fairness): six MK-inspired features ----
     // 1. rescue crow
     rescueTriggered, startRescue, advanceRescue, updateRescueCrows, waterSurfaceAt, waterObjAt,
-    RESCUE_DUR, RESCUE_DEEP_WATER, RESCUE_WORLD_FLOOR, get rescueCrows(){ return _rescueCrows; },
+    RESCUE_DUR, RESCUE_WORLD_FLOOR, get rescueCrows(){ return _rescueCrows; },
+    // water depth zones (2026-07-14): RESCUE_DEEP_WATER kept as a live getter (back-compat name —
+    // it's the depth in meters that now triggers the rescue crow, WATER_DROWN_K x measured H).
+    get RESCUE_DEEP_WATER(){ return WATER_DROWN_K * KART_RIDER_H; },
+    get KART_RIDER_H(){ return KART_RIDER_H; },
+    WATER_SHALLOW_K, WATER_HEAD_K, WATER_DROWN_K,
+    WATER_WADE_SPEED_HI, WATER_WADE_SPEED_LO, WATER_WADE_ACCEL, WATER_WADE_DRAG_K,
+    waterDepthAt, waterSpeedMul,
     // 2. drift spark tiers (+ existing hop)
     driftSparkTier, DRIFT_SPARK_COL, spawnDriftDust,
     // 3. slipstream
