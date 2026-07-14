@@ -630,6 +630,28 @@
       // the solid ribbon walls (visual swap only — collision reads fence.points either way). Absent or
       // 'ribbon' -> omitted (byte-identical for every existing track).
       if (data.wallStyle === 'fence') out.wallStyle = 'fence';
+      // GHOST WALLS (2026-07-13): [{id, points:[{x,z}...]}] invisible collision polylines — they
+      // block/slide/bonk EXACTLY like a corridor/fence wall (fenceCollide reads .points) but render
+      // NOTHING in a race (invisible course boundaries for off-road / battle maps; the editor draws a
+      // translucent striped preview). Needs >=2 points. Absent/garbage -> omitted (byte-identical for
+      // tracks without it).
+      if (Array.isArray(data.ghostWalls)){
+        const gws = [];
+        for (const g of data.ghostWalls){
+          if (!g || !Array.isArray(g.points) || g.points.length < 2) continue;
+          const pts = [];
+          for (const p of g.points){ const x=+p.x, z=+p.z; if (isFinite(x)&&isFinite(z)) pts.push({x,z}); }
+          if (pts.length < 2) continue;
+          gws.push({ id:(typeof g.id==='string' && g.id) ? g.id.slice(0,40) : ('ghost_'+(gws.length+1)), points:pts });
+        }
+        if (gws.length) out.ghostWalls = gws;
+      }
+      // PER-COURSE MAX SPEED (2026-07-13): a multiplier (0.5-1.5) on every kart's top speed on this
+      // course (layered with class/kart stats in stepKart). Absent or ===1 -> omitted (byte-identical).
+      if (isFinite(+data.maxSpeedMul)){
+        const m = Math.max(0.5, Math.min(1.5, +data.maxSpeedMul));
+        if (m !== 1) out.maxSpeedMul = m;
+      }
       // GLOBAL SEA LEVEL (2026-07-13): a single world-Y ocean plane. Terrain below seaLevel is water
       // at seaLevel across the WHOLE map; terrain above it occludes the sea (so water only shows in low
       // spots — beaches, basins). ONE plane, never stacked. Distinct from — and coexists with — the

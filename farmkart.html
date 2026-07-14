@@ -1336,6 +1336,12 @@
     heightFn:(x,z)=>sampleHeight(x,z)
   });
 
+  // GHOST WALLS (2026-07-13): invisible collision polylines authored in the editor. They block/slide/
+  // bonk EXACTLY like the corridor fences (same fenceCollide path in stepKart) but render NOTHING here
+  // — invisible course boundaries for off-road / battle maps. Each entry has .points, so fenceCollide
+  // consumes them directly. Empty for tracks without ghost walls.
+  const GHOST_WALLS = (ACTIVE_TRACK.ghostWalls && ACTIVE_TRACK.ghostWalls.length) ? ACTIVE_TRACK.ghostWalls : [];
+
   // WATERS (2026-07-12): flood-fill ponds. Region flood-filled from each seed up to its stored level;
   // realistic translucent surface with depth tint + shore foam + animated waves (WATER_GROUP.userData
   // .animate(t), called per frame below). Visual only — no physics (driving in = today's behavior).
@@ -2736,6 +2742,9 @@
     if (p.isBot) effAccel *= (p.botAccelMul != null ? p.botAccelMul : 1);
     // R2 SPEED CLASS: global top-speed/accel multiplier (100cc/150cc/200cc) on ALL karts.
     const _cm = classMul(); effMax *= _cm; effAccel *= _cm;
+    // PER-COURSE MAX SPEED (2026-07-13): a track-authored top-speed multiplier (0.5-1.5) layered on
+    // TOP of class + kart stats, applied to EVERY kart (bots included). Absent -> 1 (no change).
+    if (ACTIVE_TRACK.maxSpeedMul){ effMax *= ACTIVE_TRACK.maxSpeedMul; }
     if (gf > 0){ effAccel *= (1 - 0.55*gf); effMax *= (1 - 0.5*gf); }
     // MUD: hard top-speed cap ~55% + sluggish accel (a boosting kart still surges relative to its
     // own capped max — boostMult multiplies effMax above, so mud stays sludgy even mid-boost).
@@ -2923,6 +2932,32 @@
       if (!resolved) p._inWall = false;                     // clear path this frame -> re-arm the bonk
     }
 
+    // ---- GHOST WALL COLLISION (2026-07-13) ----
+    // Invisible boundary polylines (ACTIVE_TRACK.ghostWalls) collide exactly like fences: same swept
+    // sub-step, same slide-only-into-wall behavior, same debounced bonk. Nothing is drawn for them.
+    if (GHOST_WALLS.length){
+      const rad = Math.max(0.6, TUNE.kartRadius) + 0.28;
+      const px = p.pos.x - p.v.x*dt, pz = p.pos.z - p.v.z*dt;
+      const moved = Math.hypot(p.pos.x-px, p.pos.z-pz);
+      const steps = Math.max(1, Math.ceil(moved / (rad*0.5)));
+      let resolved = false;
+      for (let si=1; si<=steps; si++){
+        const f = si/steps, tx = px + (p.pos.x-px)*f, tz = pz + (p.pos.z-pz)*f;
+        const hit = FK_TRACK.fenceCollide(GHOST_WALLS, tx, tz, rad);
+        if (hit){
+          p.pos.x = tx + hit.nx*hit.over; p.pos.z = tz + hit.nz*hit.over;
+          const vn = p.v.x*hit.nx + p.v.z*hit.nz;
+          if (vn < 0){
+            p.v.x -= vn*hit.nx; p.v.z -= vn*hit.nz;
+            if (!p._inGhostWall && -vn > 6 && p === G.players.local) bonkSound();
+            p._inGhostWall = true;
+          }
+          resolved = true; break;
+        }
+      }
+      if (!resolved) p._inGhostWall = false;
+    }
+
     // ---- BRIDGE DECK-EDGE COLLISION (2026-07-12) ----
     // The plank side walls of a bridge span physically block, exactly like a fence, but HEIGHT-GATED
     // (bridgeCollide only pushes when the kart's y is near the deck) so a kart under the bridge passes.
@@ -3074,8 +3109,9 @@
         publishNetSnapshotNow();
         return;
       }
+      // pop a balloon (detaches + floats away) AND spin out — a battle hit both costs a balloon and
+      // knocks you into a spin (2026-07-13: the pop used to skip the spin). Fall through to the spin.
       battlePopBalloon(p);
-      return;
     }
     const dur = TUNE.spinT * (mult || 1);
     // MP: the host DECLARES spins; a remote human's client applies it to their own kart. So on
@@ -3115,7 +3151,7 @@
       const j = (ai+1)%N; acc += Math.hypot(C[j].x-C[ai].x, C[j].z-C[ai].z); ai = j;
       if (ai === idx) break;
     }
-    const botTop = TUNE.maxSpeed * (TUNE.botTopSpeedMul || 1) * (p.botTopMul != null ? p.botTopMul : 1) * classMul();
+    const botTop = TUNE.maxSpeed * (TUNE.botTopSpeedMul || 1) * (p.botTopMul != null ? p.botTopMul : 1) * classMul() * (ACTIVE_TRACK.maxSpeedMul || 1);
     let tv = botTop;
     if (maxCurv > 1e-4) tv = Math.sqrt((TUNE.botLatBase * TUNE.botCornerGrip) / maxCurv);
     tv = Math.min(tv, botTop);
@@ -3348,7 +3384,9 @@
   }
   function battlePopBalloon(p){
     if (p.ko || p.balloons <= 0) return;
+    const poppedIdx = p.balloons - 1;   // the balloon that DETACHES (highest remaining) floats away
     p.balloons--; p.battleInvulnT = BATTLE_INVULN;
+    spawnFloatingBalloon(p, poppedIdx);
     spawnBalloonBurst(p);
     balloonPopSound(p.pos);
     if (p === G.players.local) fkToast('🎈 Balloon popped! '+p.balloons+' left');
@@ -3443,16 +3481,48 @@
     for (const [k,w] of weights){ r -= w; if (r <= 0) return k; }
     return 'tomato';
   }
-  // BATTLE BOT AI: hunt the nearest non-KO rival (KO'd bots sit still).
+  // BATTLE BOT AI (2026-07-13 overhaul): a real objective loop —
+  //  (a) NO item held  -> pathfind toward the nearest reachable, active item box (re-targets when it's
+  //      taken/respawns, since G.itemBoxes is scanned fresh each frame);
+  //  (b) item held      -> hunt the nearest non-KO rival, close to firing range then ease off the
+  //      throttle so botUseItems (called separately) can aim + fire into its ahead-cone;
+  //  (c) EVADE          -> when a nearby rival is ALSO armed and close, strafe perpendicular to juke
+  //      their shot. Personas (R4 aggroMul) modulate it: aggressive bots evade less and pursue harder.
+  //  botUseItems(p,dt) still runs for battle bots (sim loop), so aiming/firing/trailing is unchanged —
+  //  this only chooses WHERE the bot drives. KO'd bots sit still.
   function battleBotInput(p){
     if (p.ko) return { steer:0, throttle:0, brake:0, drift:false };
-    let best = null, bd = 1e18;
-    for (const id in G.players){ const q = G.players[id]; if (q === p || q.ko) continue; const d = Math.hypot(q.pos.x-p.pos.x, q.pos.z-p.pos.z); if (d < bd){ bd = d; best = q; } }
-    if (!best) return { steer:0, throttle:0.3, brake:0, drift:false };
-    const dx = best.pos.x - p.pos.x, dz = best.pos.z - p.pos.z;
-    let dth = Math.atan2(dx, dz) - p.theta; while (dth>Math.PI) dth-=Math.PI*2; while (dth<-Math.PI) dth+=Math.PI*2;
-    const steer = Math.max(-1, Math.min(1, dth*1.7));
-    return { steer, throttle: bd > 5 ? 1 : 0.55, brake:0, drift:false };
+    const aggro = p.aggroMul || 1;
+    const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
+    const armed = !!p.itemHeld && p.itemRollT <= 0;
+    let goalX, goalZ, throttle = 1, closingOnRival = false;
+    // (a) unarmed -> seek the nearest active item box
+    if (!armed && G.itemBoxes && G.itemBoxes.length){
+      let box = null, bd = 1e18;
+      for (const b of G.itemBoxes){ if (!b.active) continue; const d = Math.hypot(b.x-p.pos.x, b.z-p.pos.z); if (d < bd){ bd = d; box = b; } }
+      if (box){ goalX = box.x; goalZ = box.z; }
+    }
+    // (b) armed (or no boxes to grab) -> hunt the nearest non-KO rival
+    if (goalX === undefined){
+      let best = null, bd = 1e18;
+      for (const id in G.players){ const q = G.players[id]; if (q === p || q.ko) continue; const d = Math.hypot(q.pos.x-p.pos.x, q.pos.z-p.pos.z); if (d < bd){ bd = d; best = q; } }
+      if (best){ goalX = best.pos.x; goalZ = best.pos.z; closingOnRival = true;
+        if (armed && bd < 6) throttle = 0.5;   // in range: ease off so the shot lines up
+      }
+    }
+    if (goalX === undefined) return { steer:0, throttle:0.3, brake:0, drift:false };
+    // (c) evade: strafe away from any CLOSE armed rival (aggressive personas juke less)
+    let evadeSteer = 0;
+    const evadeGain = 0.7 / aggro;
+    for (const id in G.players){
+      const q = G.players[id]; if (q === p || q.ko) continue;
+      if (!(q.itemHeld && q.itemRollT <= 0)) continue;
+      const rx = q.pos.x - p.pos.x, rz = q.pos.z - p.pos.z, d = Math.hypot(rx, rz);
+      if (d < 13){ const perp = rx*(-f.z) + rz*f.x; evadeSteer += (perp > 0 ? -1 : 1) * evadeGain * (1 - d/13); }
+    }
+    let dth = Math.atan2(goalX-p.pos.x, goalZ-p.pos.z) - p.theta; while (dth>Math.PI) dth-=Math.PI*2; while (dth<-Math.PI) dth+=Math.PI*2;
+    const steer = Math.max(-1, Math.min(1, dth*1.7 + evadeSteer));
+    return { steer, throttle, brake:0, drift:false, _closingOnRival:closingOnRival };
   }
   // ---- battle FX: balloon burst + KO confetti + pop/ko sounds ----
   function spawnBalloonBurst(p){
@@ -3471,19 +3541,24 @@
   }
   function balloonPopSound(pos){ const mul=(typeof gainAt==='function')?gainAt(pos,'pop'):1; if(mul<=0.02)return; noiseBurst(0.09,{filter:'bandpass',freq:1800,freqTo:400,Q:0.8,vol:0.16,mul}); tone(520,0.06,{type:'square',vol:0.08,mul}); }
   function koSound(pos){ const mul=(typeof gainAt==='function')?gainAt(pos,'ko'):1; tone(400,0.3,{type:'sawtooth',vol:0.14,slideTo:120,mul}); tone(300,0.35,{type:'sine',vol:0.1,slideTo:90,mul}); }
-  // ---- balloon render: up to 3 balloons bob above each non-KO kart ----
-  const _balloonViews = {}, BALLOON_COLS = [0xff4757,0x2ed573,0x1e90ff];
+  // ---- balloon render: up to 3 balloons bob above each non-KO kart. Each kart's 3 balloons are ONE
+  // color = the kart's own accent/racer color (kartHexColor(p), deterministic from the synced _slotCol
+  // in MP), so you can tell whose is whose at a glance. Shared balloon geometry (per-view materials so
+  // the color can differ per kart). ----
+  const _balloonViews = {};
+  const _BAL_BODY_GEO = new THREE.SphereGeometry(0.32,12,10), _BAL_KNOT_GEO = new THREE.ConeGeometry(0.07,0.13,6);
   function ensureBalloonView(id){
     if (_balloonViews[id]) return _balloonViews[id];
-    const group = new THREE.Group(); scene.add(group); const balloons = [];
+    const group = new THREE.Group(); scene.add(group); const balloons = []; const mats = [];
     for (let i=0;i<3;i++){
       const b = new THREE.Group();
-      const body = new THREE.Mesh(new THREE.SphereGeometry(0.32,12,10), new THREE.MeshLambertMaterial({ color:BALLOON_COLS[i], emissive:0x140404 }));
-      body.scale.set(1,1.25,1); b.add(body);
-      const knot = new THREE.Mesh(new THREE.ConeGeometry(0.07,0.13,6), new THREE.MeshLambertMaterial({ color:BALLOON_COLS[i] })); knot.position.y=-0.42; b.add(knot);
-      b.position.x = (i-1)*0.4; group.add(b); balloons.push(b);
+      const bodyMat = new THREE.MeshLambertMaterial({ color:0xffffff, emissive:0x140404 });
+      const body = new THREE.Mesh(_BAL_BODY_GEO, bodyMat); body.scale.set(1,1.25,1); b.add(body);
+      const knotMat = new THREE.MeshLambertMaterial({ color:0xffffff });
+      const knot = new THREE.Mesh(_BAL_KNOT_GEO, knotMat); knot.position.y=-0.42; b.add(knot);
+      b.position.x = (i-1)*0.4; group.add(b); balloons.push(b); mats.push(bodyMat, knotMat);
     }
-    _balloonViews[id] = { group, balloons }; return _balloonViews[id];
+    _balloonViews[id] = { group, balloons, mats, col:null }; return _balloonViews[id];
   }
   function updateBattleBalloons(){
     if (!battleActive()){ for (const id in _balloonViews) _balloonViews[id].group.visible = false; return; }
@@ -3493,11 +3568,59 @@
       const p = G.players[id], v = ensureBalloonView(id);
       if (p.ko || p.balloons <= 0){ v.group.visible = false; continue; }
       v.group.visible = true;
+      const col = kartHexColor(p);
+      if (v.col !== col){ v.col = col; for (const m of v.mats) m.color.setHex(col); }   // recolor only on change
       const y = (p.y || sampleHeight(p.pos.x, p.pos.z));
       v.group.position.set(p.pos.x, y + 1.95, p.pos.z);
       // flash the whole rig during invuln
       const flash = (p.battleInvulnT > 0) && (Math.floor(p.battleInvulnT*10)%2===0);
       v.balloons.forEach((b,i)=>{ b.visible = (i < p.balloons) && !flash; b.position.y = Math.sin(t+i*1.3)*0.08; b.rotation.z = Math.sin(t*0.7+i)*0.18; });
+    }
+  }
+  // ---- floating balloons (2026-07-13): a popped balloon DETACHES and floats away — rises + drifts +
+  // shrinks/pops after ~2.5s, colored the kart's own color. POOLED: reuse inactive slots, never
+  // allocate per frame. ----
+  const _FLOAT_BODY_GEO = new THREE.SphereGeometry(0.32,12,10), _FLOAT_KNOT_GEO = new THREE.ConeGeometry(0.07,0.13,6);
+  const FLOAT_BALLOON_LIFE = 2.5;
+  const _floatBalloons = [];
+  function _makeFloatBalloon(){
+    const group = new THREE.Group();
+    const body = new THREE.Mesh(_FLOAT_BODY_GEO, new THREE.MeshLambertMaterial({ color:0xffffff, emissive:0x140404 }));
+    body.scale.set(1,1.25,1); group.add(body);
+    const knot = new THREE.Mesh(_FLOAT_KNOT_GEO, new THREE.MeshLambertMaterial({ color:0xffffff })); knot.position.y=-0.42; group.add(knot);
+    group.visible = false; scene.add(group);
+    const fb = { group, body, knot, active:false, t:0, x:0, y:0, z:0, vx:0, vy:0, vz:0, col:0xffffff };
+    _floatBalloons.push(fb); return fb;
+  }
+  function spawnFloatingBalloon(p, idx){
+    let fb = _floatBalloons.find(f=>!f.active); if (!fb) fb = _makeFloatBalloon();
+    const col = kartHexColor(p);
+    fb.col = col; fb.body.material.color.setHex(col); fb.knot.material.color.setHex(col);
+    const y = (p.y || sampleHeight(p.pos.x, p.pos.z)) + 2.1;
+    fb.x = p.pos.x + ((idx||0)-1)*0.4; fb.y = y; fb.z = p.pos.z;
+    const a = Math.random()*Math.PI*2;
+    fb.vx = Math.cos(a)*0.8; fb.vz = Math.sin(a)*0.8; fb.vy = 1.6 + Math.random()*0.8;
+    fb.t = 0; fb.active = true;
+    fb.group.visible = true; fb.group.scale.set(1,1,1); fb.group.position.set(fb.x, fb.y, fb.z);
+  }
+  function updateFloatingBalloons(dt){
+    for (const fb of _floatBalloons){
+      if (!fb.active) continue;
+      fb.t += dt;
+      fb.x += fb.vx*dt; fb.y += fb.vy*dt; fb.z += fb.vz*dt;
+      fb.vx *= 0.98; fb.vz *= 0.98;                 // lateral drift eases off
+      fb.vy = Math.min(fb.vy + 0.4*dt, 2.4);        // keeps rising gently
+      const k = fb.t / FLOAT_BALLOON_LIFE;
+      const sc = k < 0.8 ? 1 : Math.max(0.01, 1 - (k-0.8)/0.2);   // shrink over the last 20% before the pop
+      fb.group.position.set(fb.x, fb.y, fb.z);
+      fb.group.rotation.z = Math.sin(fb.t*3)*0.2;
+      fb.group.scale.set(sc, sc, sc);
+      if (fb.t >= FLOAT_BALLOON_LIFE){
+        for (let j=0;j<8;j++){ const a=Math.random()*Math.PI*2;
+          spawnParticle(fb.x, fb.y, fb.z, { color:fb.col, opacity:0.9, life:0.4,
+            vx:Math.cos(a)*2, vy:1+Math.random()*2, vz:Math.sin(a)*2, grav:5, size:0.18, spin:6, grow:-0.1 }); }
+        fb.active = false; fb.group.visible = false;
+      }
     }
   }
   // ---- battle HUD: big 3:00 timer + per-kart balloon standings (top-center) ----
@@ -3604,8 +3727,42 @@
     const f = { x:Math.sin(p.theta), z:Math.cos(p.theta) };
     const sp = Math.hypot(p.v.x, p.v.z) + TUNE.tomatoSpeed;
     const x = p.pos.x + f.x*2.2, z = p.pos.z + f.z*2.2;
+    // GREEN-SHELL LETTUCE (2026-07-13): ricochets off walls, so it needs a generous life backstop
+    // (12s) — it usually dies on its 6th bounce or on hitting a kart first, not on the timer.
     G.projectiles.push({ kind:'tomato', x, z, y:sampleHeight(x,z)+0.6, vx:f.x*sp, vz:f.z*sp,
-      life:TUNE.tomatoLife, bounced:false, owner:p.id, target:null });
+      life:LETTUCE_LIFE, bounced:false, bounces:0, owner:p.id, target:null });
+  }
+  const LETTUCE_LIFE = 12, LETTUCE_BOUNCE_MAX = 5;   // survives >=5 wall bounces; dies on the 6th
+  function lettuceBounceSound(pos){
+    const mul = (typeof gainAt==='function') ? gainAt(pos, 'bounce') : 1;
+    if (mul <= 0.02) return;
+    tone(680, 0.05, { type:'square', vol:0.09, slideTo:380, mul });
+  }
+  // Reflect a ricocheting green-shell lettuce off any wall it overlaps along THIS frame's swept motion.
+  // Consumes corridor/fence walls + ghost walls (2D) and bridge deck edges (height-gated). Speed is
+  // preserved (mirror the velocity about the wall normal); dies after LETTUCE_BOUNCE_MAX bounces.
+  function ricochetLettuce(pr, dt){
+    const R = 0.6;
+    const px = pr.x - pr.vx*dt, pz = pr.z - pr.vz*dt;
+    const moved = Math.hypot(pr.x-px, pr.z-pz);
+    const steps = Math.max(1, Math.ceil(moved/(R*0.6)));
+    for (let si=1; si<=steps; si++){
+      const f = si/steps, tx = px + (pr.x-px)*f, tz = pz + (pr.z-pz)*f;
+      let hit = FK_TRACK.fenceCollide(RACE_FENCES, tx, tz, R);
+      if (!hit && GHOST_WALLS.length) hit = FK_TRACK.fenceCollide(GHOST_WALLS, tx, tz, R);
+      if (!hit && BRIDGE_EDGES.length) hit = FK_TRACK.bridgeCollide(BRIDGE_EDGES, tx, tz, pr.y, R, 2.5);
+      if (hit){
+        pr.x = tx + hit.nx*hit.over; pr.z = tz + hit.nz*hit.over;
+        const vn = pr.vx*hit.nx + pr.vz*hit.nz;
+        if (vn < 0){ pr.vx -= 2*vn*hit.nx; pr.vz -= 2*vn*hit.nz; }   // mirror -> speed preserved
+        pr.bounces = (pr.bounces||0) + 1;
+        pr.bounced = true;   // (legacy flag; also gates self-hit after the first bounce)
+        lettuceBounceSound(pr);
+        if (pr.bounces > LETTUCE_BOUNCE_MAX){ spawnItemExplode(pr.x, pr.y, pr.z, pr.kind); tomatoSplatSound(true, pr); pr.life = 0; }
+        return true;
+      }
+    }
+    return false;
   }
   // Homing chicken: seeks the racer AHEAD by race progress (not raw distance). Gentle turn rate.
   function findKartAhead(p){
@@ -3909,6 +4066,8 @@
       pr.x += pr.vx*dt; pr.z += pr.vz*dt;
       pr.y = sampleHeight(pr.x, pr.z) + (pr.kind === 'chicken' ? 0.7 : (pr.kind === 'egg' ? 0.8 : 0.6));
       pr.life -= dt;
+      // GREEN-SHELL LETTUCE: ricochet off walls (preserve speed), die on the 6th bounce.
+      if (pr.kind === 'tomato' && pr.life > 0){ ricochetLettuce(pr, dt); }
       // Homing chickens EXPLODE on fence/wall hit (tomatoes fly past / expire on life)
       if (pr.kind === 'chicken' && pr.life > 0){
         const wall = FK_TRACK.fenceCollide(RACE_FENCES, pr.x, pr.z, 0.55);
@@ -3927,7 +4086,10 @@
       if (sweptTrailAbsorb(pr, dt)) continue;
       const hitR = pr.kind === 'chicken' ? TUNE.chickenHitR : (pr.kind === 'egg' ? 2.1 : 1.5);
       for (const id in G.players){
-        const q = G.players[id]; if (id === pr.owner) continue;
+        const q = G.players[id];
+        // A ricocheting lettuce can hit its OWN owner after the first bounce (classic green-shell
+        // self-hit); everything else (and a not-yet-bounced lettuce) always skips the owner.
+        if (id === pr.owner && !(pr.kind === 'tomato' && (pr.bounces||0) >= 1)) continue;
         // an egg WITH a target only detonates on that leader; a target-less egg (firer was 1st) hits
         // the first kart it meets.
         if (pr.kind === 'egg' && pr.target && id !== pr.target) continue;
@@ -8861,6 +9023,7 @@
     syncChickenViews();    // 2026-07-12: position/animate road-crossing chicken meshes
     syncCowViews();        // 2026-07-13 R3: position/animate pasture cows
     updateBattleBalloons(); // 2026-07-13 R3: balloons bob above each kart in battle
+    updateFloatingBalloons(dt); // 2026-07-13: popped balloons drift away + pop
     updateLightningBolts(dt);   // ⚡ barn-storm bolts fade/despawn
     if (_skyFlashT > 0) _skyFlashT = Math.max(0, _skyFlashT - dt);
     if (WATER_GROUP.userData.animate) WATER_GROUP.userData.animate(now*0.001);   // water waves
@@ -8934,6 +9097,19 @@
       return ids.filter(id=>{ const i=trackInfo(id); return !(i && i.track && i.track.battle); });
     }
     const BATTLE_ARENA_ID = 'barnyard-brawl';
+    // BATTLE ARENAS (2026-07-13): every battle:true track (the builtin barnyard-brawl + any editor-made
+    // battle course) — these appear in the BATTLE pickers instead of the racing grids. barnyard-brawl
+    // is listed first so it stays the default.
+    function battleArenaIds(){
+      const ids = [];
+      const b = FK_TRACK.BUILTIN_TRACKS || {};
+      for (const id in b){ const i = trackInfo(id); if (i && i.track && i.track.battle) ids.push(id); }
+      let map=null; try{ map=JSON.parse(localStorage.getItem('fk_tracks_v1')||'null'); }catch(e){}
+      if (map && typeof map==='object'){ for (const id in map){ if (id==='default') continue; if (ids.indexOf(id)<0){ const i=trackInfo(id); if (i && i.track && i.track.battle) ids.push(id); } } }
+      // keep barnyard-brawl first if present
+      ids.sort((a,b2)=> (a===BATTLE_ARENA_ID?-1:0) - (b2===BATTLE_ARENA_ID?-1:0));
+      return ids;
+    }
     // R2: bests/ghosts key per class+mirror (classMirrorSuffix() reflects the LIVE menu selection).
     function bestFor(id){ let b=parseFloat(localStorage.getItem('fk_best_'+id+classMirrorSuffix())); return isFinite(b)&&b>0 ? b : null; }
     function ghostFor(id){ try{ return !!localStorage.getItem('fk_ghost_'+id+classMirrorSuffix()); }catch(e){ return false; } }
@@ -9101,7 +9277,7 @@
       const w=document.createElement('div'); w.className='mfBig';
       w.appendChild(btn('mfBtn','<span class="ic">⏱</span><div>TIME TRIAL<small>solo · beat your best lap</small></div>', ()=>{ st.spMode='trial'; openCourseGrid('tt'); }));
       w.appendChild(btn('mfBtn','<span class="ic">🏆</span><div>GRAND PRIX<small>12 racers · 4-track cups</small></div>', ()=>{ st.spMode='prix'; openCups(); }));
-      w.appendChild(btn('mfBtn','<span class="ic">💥</span><div>BATTLE<small>balloon battle vs 3 bots</small></div>', ()=>{ st.spMode='battle'; openRacerSelect('battle'); }));
+      w.appendChild(btn('mfBtn','<span class="ic">💥</span><div>BATTLE<small>balloon battle vs 3 bots</small></div>', ()=>{ st.spMode='battle'; startBattleFlow('battle'); }));
       s.appendChild(w);
       s.appendChild(diffBar());   // R4: Easy / Normal / Hard difficulty (persisted fk_difficulty)
       s.appendChild(backBar());
@@ -9132,6 +9308,41 @@
       bar.appendChild(race); s.appendChild(bar);
       return { grid, race };
     })();
+    // ================= BATTLE — arena grid (SP + MP host) =================
+    // Editor-made battle:true tracks show up here alongside the builtin barnyard-brawl. If there's only
+    // one arena the pickers skip straight to it (old behavior); with several, this grid lets you choose.
+    let battleGridMode = 'battle';   // 'battle' (solo) | 'mphost'
+    const battleGrid = (function(){ const s=makeScreen('battle-course');
+      s.appendChild(el('div','mfHead','CHOOSE AN ARENA'));
+      const grid=document.createElement('div'); grid.className='mfGrid courses'; grid.addEventListener('pointerdown',stop);
+      s.appendChild(grid);
+      s.appendChild(backBar());
+      return { grid };
+    })();
+    function openBattleGrid(mode){
+      battleGridMode = mode;
+      battleGrid.grid.innerHTML='';
+      for (const id of battleArenaIds()){
+        const info=trackInfo(id); if(!info) continue;
+        const card=document.createElement('div'); card.className='mfCard'; card.dataset.id=id;
+        const cv=document.createElement('canvas'); cv.width=104; cv.height=66; card.appendChild(cv);
+        drawTrackPreview(cv, info.track);
+        card.appendChild(el('div','cn', info.name));
+        card.appendChild(el('div','cb', '💥 balloon battle'));
+        card.addEventListener('pointerdown',stop);
+        card.addEventListener('click', ()=>{ st.selBattle=id; if (battleGridMode==='mphost') hostBattle(); else openRacerSelect('battle'); });
+        battleGrid.grid.appendChild(card);
+      }
+      show('battle-course');
+    }
+    // Entry point used by the SP + MP battle buttons: pick-a-grid when there are several arenas, else
+    // go straight to the single arena (default barnyard-brawl).
+    function startBattleFlow(mode){
+      const arenas = battleArenaIds();
+      if (arenas.length > 1){ openBattleGrid(mode); return; }
+      st.selBattle = arenas[0] || BATTLE_ARENA_ID;
+      if (mode==='mphost') hostBattle(); else openRacerSelect('battle');
+    }
     let courseCards = {};
     function courseBestLine(id){ const b=bestFor(id); return (b?('⏱ '+fmtTime(b)):'—') + (ghostFor(id)?' 👻':''); }
     function repaintCourseCards(){ for (const id in courseCards){ const cb=courseCards[id].querySelector('.cb'); if (cb) cb.textContent=courseBestLine(id); } }
@@ -9298,11 +9509,12 @@
     }
     // ---- launch a solo BATTLE (R3): balloon battle on the arena vs 3 bots (needs a track reload) ----
     function launchBattle(){
-      if ((ACTIVE_TRACK_ID||BOOT_TRACK_ID) === BATTLE_ARENA_ID && !mirrorNeedsReload()){
+      const arenaId = st.selBattle || BATTLE_ARENA_ID;
+      if ((ACTIVE_TRACK_ID||BOOT_TRACK_ID) === arenaId && !mirrorNeedsReload()){
         setRaceMode('prix'); startCountdown(); return;   // already on the arena → start now
       }
       try{ sessionStorage.setItem('fk_flow_pending', JSON.stringify({ kind:'battle', loadout:st.loadout })); }catch(e){}
-      location.href = 'farmkart.html?track=' + encodeURIComponent(BATTLE_ARENA_ID);
+      location.href = 'farmkart.html?track=' + encodeURIComponent(arenaId);
     }
 
     // A course start needs a full reload (so loadActiveTrack re-resolves fk_tracks_v1) when the
@@ -9449,7 +9661,7 @@
       w.appendChild(btn('mfBtn','<span class="ic">🏁</span><div>RACE<small>single race or cup</small></div>', ()=>show('mp-race')));
       // BATTLE (R3): host a balloon battle on the arena. Reuses the mphost waiting-room flow; the arena
       // track being a battle:true course is what flips the shared race into battle for everyone.
-      w.appendChild(btn('mfBtn','<span class="ic">💥</span><div>BATTLE<small>balloon battle · up to 4 players</small></div>', ()=>hostBattle()));
+      w.appendChild(btn('mfBtn','<span class="ic">💥</span><div>BATTLE<small>balloon battle · up to 4 players</small></div>', ()=>startBattleFlow('mphost')));
       s.appendChild(w); s.appendChild(backBar());
     })();
     (function(){ const s=makeScreen('mp-race');
@@ -9518,9 +9730,10 @@
     }
     // ---- host a MP BATTLE (R3): reload onto the arena, then run the normal mphost waiting room ----
     async function hostBattle(){
-      if ((ACTIVE_TRACK_ID||BOOT_TRACK_ID) === BATTLE_ARENA_ID){ await beginHost(); return; }
-      try{ sessionStorage.setItem('fk_flow_pending', JSON.stringify({ kind:'mphost', track:BATTLE_ARENA_ID })); }catch(e){}
-      location.href='farmkart.html?track='+encodeURIComponent(BATTLE_ARENA_ID);
+      const arenaId = st.selBattle || BATTLE_ARENA_ID;
+      if ((ACTIVE_TRACK_ID||BOOT_TRACK_ID) === arenaId){ await beginHost(); return; }
+      try{ sessionStorage.setItem('fk_flow_pending', JSON.stringify({ kind:'mphost', track:arenaId })); }catch(e){}
+      location.href='farmkart.html?track='+encodeURIComponent(arenaId);
     }
     async function beginHost(){
       mpGrid.go.disabled=true;
@@ -10029,6 +10242,8 @@
     // Natural (cave) tunnels (2026-07-13, for headless tests)
     NATURAL_TUNNELS, meshTerrainOpts, get camTunnelK(){ return camTunnelK; },
     naturalCoverAt:(x,z)=>FK_TRACK.naturalTunnelCoverAt(_sampled, x, z, NATURAL_TUNNELS),
+    // Ghost walls (2026-07-13, invisible collision polylines, for headless tests)
+    get GHOST_WALLS(){ return GHOST_WALLS; },
     // Bridges (2026-07-10 / walls 2026-07-12, for headless tests)
     BRIDGE_GROUP, get BRIDGE_EDGES(){ return BRIDGE_EDGES; },
     // Water splash + chicken crossings (2026-07-12, for headless tests)
@@ -10045,6 +10260,7 @@
     // R3 battle mode (test hooks)
     battleActive, startBattle, battlePopBalloon, battleKO, battleTick, battleEnd, battleStandings,
     rollItemBattle, battleBotInput, updateBattleBalloons, updateBattleHUD, showBattleResults,
+    updateFloatingBalloons, spawnFloatingBalloon, kartHexColor, get floatBalloons(){ return _floatBalloons; },
     get battle(){ return G.battle; }, BATTLE_START_BALLOONS, BATTLE_TIME,
     get hemiLight(){ return hemi; }, get sunLight(){ return sun; },
     // R2: speed class + mirror + ghost + podium (test hooks)

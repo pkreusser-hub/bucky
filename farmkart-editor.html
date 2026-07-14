@@ -96,6 +96,12 @@
         <button class="btn" id="offroadBtn" style="flex:1;" title="No road ribbon or walls — the whole terrain is full-grip drivable; design the centerline at y=0. The ribbon shows as a faint ghost guide.">🏜 off-road course</button>
         <button class="btn" id="wallStyleBtn" style="flex:1;" title="Corridor boundary style: solid ribbon walls (default) or post+rail fences">🧱 ribbon walls</button>
       </div>
+      <div class="row" style="margin-top:5px;">
+        <button class="btn" id="battleBtn" style="flex:1;" title="Balloon-battle ARENA: no laps/checkpoints/wrong-way, karts fight in an open field. Appears in the BATTLE pickers instead of the racing grids. Use 🎁 item mode to scatter item boxes.">🎈 battle arena</button>
+      </div>
+      <div id="battleHint" style="display:none;color:#ffcf99;font-size:11px;margin-top:4px;padding:5px 7px;background:rgba(150,90,30,.3);border-radius:6px;">💥 battle courses have no racing direction — turn ON 🏜 off-road so karts roam the whole field, and use 🎁 item mode to scatter item boxes.</div>
+      <label style="margin-top:8px;">🏎 course speed <span id="msmV" style="color:#7fd0ff;">100</span>%</label>
+      <input type="range" id="msmInp" min="50" max="150" step="5" value="100" style="width:100%;" title="Top-speed multiplier for every kart on this course (50%–150%).">
       <label style="margin-top:6px;">🌤 sky</label>
       <select id="skySel" style="width:100%;padding:5px;border-radius:6px;background:rgba(0,0,0,.35);color:#fff;border:1px solid rgba(255,255,255,.2);font-family:monospace;">
         <option value="day">☀️ day (default)</option>
@@ -123,6 +129,7 @@
       <button class="btn" id="mSculpt">⛰ sculpt</button>
       <button class="btn" id="mPaint">🎨 paint</button>
       <button class="btn" id="mFence">🔗 fence</button>
+      <button class="btn" id="mGhost">🚧 ghost wall</button>
       <button class="btn" id="mTunnel">🚇 tunnel</button>
       <button class="btn" id="mBridge">🌉 bridge</button>
       <button class="btn" id="mWater">💧 water</button>
@@ -204,6 +211,15 @@
         <button class="btn wide warn" id="tnDel" style="margin-top:6px;">🗑 delete tunnel</button>
       </div>
     </div>
+    <div id="ghostTools" style="display:none;margin-top:6px;padding:8px;background:rgba(120,40,40,.28);border-radius:8px;">
+      <div style="color:#f7b4b4;font-size:11px;margin-bottom:3px;">🚧 INVISIBLE wall — blocks karts but renders NOTHING in a race (course boundaries for off-road / battle maps). Shown here striped red so you can place it.</div>
+      <div class="row" style="margin-top:5px;">
+        <button class="btn" id="gwUndo">↶ undo point</button>
+        <button class="btn on" id="gwFinish">✓ finish wall</button>
+      </div>
+      <div style="color:#9ab;font-size:11px;margin-top:5px;">click the ground to drop wall points along a line · finish to start a new run</div>
+      <div id="ghostList" style="margin-top:6px;"></div>
+    </div>
     <div id="bridgeTools" style="display:none;margin-top:6px;padding:8px;background:rgba(90,65,35,.3);border-radius:8px;">
       <div style="color:#9ab;font-size:11px;margin-bottom:3px;">click the road to start a wooden BRIDGE</div>
       <div id="bridgeList" style="margin-top:4px;"></div>
@@ -269,13 +285,17 @@
     </select>
     <div id="objList" style="margin-top:6px;"></div>
 
-    <div class="sec">🌲 Scenery <span style="color:#7fd0ff;font-weight:400;text-transform:none;">(free CC0 models)</span></div>
-    <input type="text" id="propSearch" placeholder="🔎 search props… (e.g. rock, barn)" autocomplete="off" style="margin-bottom:5px;">
-    <select id="propCat" style="width:100%;padding:5px;border-radius:6px;background:rgba(0,0,0,.35);color:#fff;border:1px solid rgba(255,255,255,.2);font-family:monospace;"></select>
-    <div id="propList" style="margin-top:5px;max-height:260px;overflow-y:auto;display:flex;flex-wrap:wrap;gap:4px;"></div>
-    <div id="propSearchCount" style="color:#9ab;font-size:11px;margin-top:2px;"></div>
-    <div style="color:#9ab;font-size:11px;margin-top:3px;" id="propStatus">loading models…</div>
-    <button id="propRetryBtn" style="display:none;margin-top:4px;font-size:11px;padding:4px 8px;border-radius:6px;border:1px solid rgba(255,180,120,.4);background:#5a3a1a;color:#ffd9a0;cursor:pointer;">🔄 retry failed models</button>
+    <button id="propToggle" style="width:100%;text-align:left;margin-top:8px;background:rgba(40,75,52,.5);border:1px solid rgba(255,255,255,.14);color:#dfe;border-radius:8px;padding:7px 9px;cursor:pointer;font-family:inherit;font-weight:700;display:flex;justify-content:space-between;align-items:center;">
+      <span>🌲 Scenery <span style="color:#7fd0ff;font-weight:400;text-transform:none;">(297 CC0 models)</span></span><span id="propCaret">▸</span>
+    </button>
+    <div id="sceneryBody" style="display:none;">
+      <input type="text" id="propSearch" placeholder="🔎 search props… (e.g. rock, barn)" autocomplete="off" style="margin-bottom:5px;margin-top:5px;">
+      <select id="propCat" style="width:100%;padding:5px;border-radius:6px;background:rgba(0,0,0,.35);color:#fff;border:1px solid rgba(255,255,255,.2);font-family:monospace;"></select>
+      <div id="propList" style="margin-top:5px;max-height:300px;overflow-y:auto;"></div>
+      <div id="propSearchCount" style="color:#9ab;font-size:11px;margin-top:2px;"></div>
+      <div style="color:#9ab;font-size:11px;margin-top:3px;" id="propStatus">loading models…</div>
+      <button id="propRetryBtn" style="display:none;margin-top:4px;font-size:11px;padding:4px 8px;border-radius:6px;border:1px solid rgba(255,180,120,.4);background:#5a3a1a;color:#ffd9a0;cursor:pointer;">🔄 retry failed models</button>
+    </div>
 
     <div class="sec">🤖 Preview <span style="color:#7fd0ff;font-weight:400;text-transform:none;">(watch a bot drive)</span></div>
     <div class="row">
@@ -851,6 +871,70 @@
   }
   function fenceCount(){ return (track.fences||[]).length; }
 
+  // ---- GHOST WALLS (2026-07-13): invisible collision polylines. In-GAME they render nothing but
+  // collide exactly like a fence (fenceCollide reads .points). HERE they render as a translucent RED
+  // STRIPED barrier (vertical quads walked along the polyline, terrain-seated) so the designer can see
+  // them. Placement mirrors the fence tool: click to drop points; undo/finish/list/delete. ----
+  const ghostGroup = new THREE.Group(); scene.add(ghostGroup);
+  let curGhost = null, ghostSeq = 0, ghostDown = null;
+  const _GHOST_MAT = new THREE.MeshBasicMaterial({ color:0xff3b3b, transparent:true, opacity:0.32, side:THREE.DoubleSide, depthWrite:false });
+  function rebuildGhostWalls(){
+    while (ghostGroup.children.length){ const o=ghostGroup.children[0]; ghostGroup.remove(o); if(o.geometry)o.geometry.dispose(); }
+    const H = 2.5;   // matches the game's ghost-wall collision height feel
+    for (const g of (track.ghostWalls||[])){
+      const pts=g.points; if(!pts||pts.length<2) continue;
+      // striped wall: alternate quads along each segment
+      for (let i=0;i<pts.length-1;i++){
+        const a=pts[i], b=pts[i+1];
+        const segLen=Math.hypot(b.x-a.x, b.z-a.z), n=Math.max(1, Math.round(segLen/2.2));
+        for (let s=0;s<n;s+=2){   // every OTHER slab -> stripes
+          const t0=s/n, t1=Math.min(1,(s+1)/n);
+          const ax=a.x+(b.x-a.x)*t0, az=a.z+(b.z-a.z)*t0, bx=a.x+(b.x-a.x)*t1, bz=a.z+(b.z-a.z)*t1;
+          const ay=terrainHeightAt(ax,az), by=terrainHeightAt(bx,bz);
+          const geo=new THREE.BufferGeometry();
+          geo.setAttribute('position', new THREE.Float32BufferAttribute([ ax,ay,az, bx,by,bz, bx,by+H,bz,  ax,ay,az, bx,by+H,bz, ax,ay+H,az ],3));
+          ghostGroup.add(new THREE.Mesh(geo, _GHOST_MAT));
+        }
+      }
+      // point markers for the run being drawn / short walls
+      if (g===curGhost || pts.length<=24)
+        for (const p of pts){ const d=new THREE.Mesh(new THREE.SphereGeometry(0.8,8,6), new THREE.MeshBasicMaterial({color:0xff9a9a})); d.position.set(p.x, terrainHeightAt(p.x,p.z)+1, p.z); ghostGroup.add(d); }
+    }
+    refreshGhostList();
+  }
+  function addGhostPoint(x,z){
+    track.ghostWalls=track.ghostWalls||[];
+    if (!curGhost){ curGhost={ id:'ghost_'+(++ghostSeq), points:[] }; track.ghostWalls.push(curGhost); }
+    curGhost.points.push({ x:Math.round(x*10)/10, z:Math.round(z*10)/10 });
+    rebuildGhostWalls(); commitHistory();
+  }
+  function undoGhostPoint(){
+    const g = curGhost || (track.ghostWalls && track.ghostWalls[track.ghostWalls.length-1]);
+    if (!g || !g.points.length) return;
+    g.points.pop();
+    if (!g.points.length){ track.ghostWalls=track.ghostWalls.filter(x=>x!==g); if(curGhost===g) curGhost=null; }
+    rebuildGhostWalls(); commitHistory();
+  }
+  function finishGhost(){
+    if (curGhost && curGhost.points.length<2) track.ghostWalls=track.ghostWalls.filter(g=>g!==curGhost);
+    curGhost=null; rebuildGhostWalls(); toast('ghost wall finished — click to start a new one');
+  }
+  function refreshGhostList(){
+    const box=$('ghostList'); if(!box) return; box.innerHTML='';
+    const gs=track.ghostWalls||[];
+    if(!gs.length){ box.innerHTML='<div style="color:#8aa;font-size:12px;">no ghost walls yet</div>'; return; }
+    let maxSeq=0;
+    gs.forEach((g,i)=>{
+      const m=String(g.id||'').match(/(\d+)$/); if(m) maxSeq=Math.max(maxSeq,+m[1]);
+      const row=document.createElement('div'); row.style.cssText='display:flex;gap:6px;margin:2px 0;font-family:monospace;font-size:12px;';
+      const nm=document.createElement('span'); nm.style.cssText='flex:1;color:#f2c0c0;'; nm.textContent=(g===curGhost?'▶ ':'')+'🚧 ghost wall '+(i+1)+' ('+g.points.length+'pt)';
+      const del=document.createElement('button'); del.textContent='×'; del.style.cssText='background:#8a3a3a;border:0;color:#fff;border-radius:5px;cursor:pointer;padding:1px 7px;';
+      del.onclick=()=>{ track.ghostWalls=track.ghostWalls.filter(x=>x!==g); if(curGhost===g)curGhost=null; rebuildGhostWalls(); commitHistory(); };
+      row.appendChild(nm); row.appendChild(del); box.appendChild(row);
+    });
+    ghostSeq=Math.max(ghostSeq,maxSeq);
+  }
+
   // ---- TUNNELS (2026-07-10): click the road to drop a concrete tunnel; select from the list to
   // adjust len/h/w via sliders, or delete. Rendered via the SAME FK_TRACK.buildTunnelMesh the game
   // uses so the editor is a byte-parity preview. Seated on the ROAD height (not the grass mesh).
@@ -1373,33 +1457,66 @@
     startPlacing({ type:'glb', model:id, sx:s, sy:s, sz:s, color:0 }, def.name);
   }
   const PROP_CATS={tree:'🌳 trees',rock:'🪨 rocks & stones',plant:'🌱 plants & flowers',crop:'🌽 crops',log:'🪵 logs & stumps',fence:'🚧 fences',building:'🏚 farm buildings',prop:'🎪 props',cliff:'⛰ cliffs',bridge:'🌉 bridges',path:'🟫 paths',water:'🌊 rivers',structures:'🏛 structures',race:'🏁 race day',clutter:'📦 clutter',western:'🤠 western',city:'🏙 city',snow:'❄️ snow',jungle:'🌴 jungle'};
-  // 2026-07-10 (usability pass): a text search box above the 200-prop list. Non-empty search
-  // matches name OR category across ALL props (ignores the category dropdown — searching should
-  // never require first guessing the right category); empty search falls back to the dropdown's
-  // selected category exactly as before. Updates live as you type + shows a result count.
+  // 2026-07-13 (collapsible list): the 297-model list now renders as COLLAPSIBLE CATEGORY GROUPS —
+  // each category is a ▸/▾ header (name + count) with its prop buttons beneath. The whole Scenery
+  // section also collapses via #propToggle (state in fk_ed_props_open). A search matches name OR
+  // category across ALL props (ignores the dropdown) and AUTO-EXPANDS matching groups; the "all" view
+  // (no search, category = all) defaults every group COLLAPSED so the panel stays short.
+  const _propGroupsOpen = {};   // catKey -> bool (which category groups are expanded)
+  function _propBtn(p){
+    const b=document.createElement('button'); b.textContent=p.name; b.title=p.name;
+    b.style.cssText='font-size:11px;padding:4px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.2);background:#274b34;color:#dfe;cursor:pointer;flex:0 0 auto;margin:2px;';
+    b.onclick=()=>addProp(p.id); return b;
+  }
   function renderPropList(cat, q){
     const box=$('propList'); if(!box) return; box.innerHTML='';
     q = (q||'').trim().toLowerCase();
-    const list = (window.FK_PROPS||[]).filter(p=>{
+    const props = (window.FK_PROPS||[]);
+    const matched = props.filter(p=>{
       if (q) return p.name.toLowerCase().includes(q) || (p.cat||'').toLowerCase().includes(q) || (PROP_CATS[p.cat]||'').toLowerCase().includes(q);
-      return cat==='all'||p.cat===cat;
+      return cat==='all' || p.cat===cat;
     });
-    list.forEach(p=>{
-      const b=document.createElement('button'); b.textContent=p.name; b.title=p.name;
-      b.style.cssText='font-size:11px;padding:4px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.2);background:#274b34;color:#dfe;cursor:pointer;flex:0 0 auto;';
-      b.onclick=()=>addProp(p.id); box.appendChild(b);
-    });
+    // group by category, preserving first-seen order
+    const groups=[], byCat={};
+    for (const p of matched){ const c=p.cat||'other'; if(!byCat[c]){ byCat[c]=[]; groups.push(c); } byCat[c].push(p); }
+    for (const c of groups){
+      const items=byCat[c];
+      // expansion: search -> always open matching groups; single-category select -> open; "all" -> use
+      // the remembered per-group state (defaults collapsed).
+      let open = q ? true : (cat!=='all' ? true : !!_propGroupsOpen[c]);
+      const header=document.createElement('button'); header.className='propGroupHdr'; header.dataset.cat=c;
+      header.style.cssText='width:100%;text-align:left;margin:3px 0 0;background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.12);color:#cfe;border-radius:6px;padding:5px 8px;cursor:pointer;font-family:monospace;font-size:12px;display:flex;justify-content:space-between;';
+      header.innerHTML='<span>'+(PROP_CATS[c]||c)+' ('+items.length+')</span><span class="pgCaret">'+(open?'▾':'▸')+'</span>';
+      const body=document.createElement('div'); body.className='propGroupBody';
+      body.style.cssText='display:'+(open?'flex':'none')+';flex-wrap:wrap;gap:2px;padding:3px 0 4px;';
+      for (const p of items) body.appendChild(_propBtn(p));
+      header.onclick=()=>{ _propGroupsOpen[c]=!(_propGroupsOpen[c]); const nowOpen=_propGroupsOpen[c];
+        body.style.display=nowOpen?'flex':'none'; const car=header.querySelector('.pgCaret'); if(car)car.textContent=nowOpen?'▾':'▸'; };
+      box.appendChild(header); box.appendChild(body);
+    }
     const cnt=$('propSearchCount');
-    if (cnt) cnt.textContent = q ? (list.length+' match'+(list.length===1?'':'es')+' for "'+q+'"') : '';
+    if (cnt) cnt.textContent = q ? (matched.length+' match'+(matched.length===1?'':'es')+' for "'+q+'"') : '';
   }
   function buildPropPicker(){
     const props=window.FK_PROPS||[]; const sel=$('propCat'); if(!sel) return; sel.innerHTML='';
-    const all=document.createElement('option'); all.value='all'; all.textContent='all ('+props.length+')'; sel.appendChild(all);
+    const all=document.createElement('option'); all.value='all'; all.textContent='all categories ('+props.length+')'; sel.appendChild(all);
     [...new Set(props.map(p=>p.cat))].forEach(c=>{ const o=document.createElement('option'); o.value=c; o.textContent=(PROP_CATS[c]||c)+' ('+props.filter(p=>p.cat===c).length+')'; sel.appendChild(o); });
     sel.onchange=()=>renderPropList(sel.value, $('propSearch') ? $('propSearch').value : '');
     const search=$('propSearch');
     if (search) search.addEventListener('input', ()=>renderPropList(sel.value, search.value));
-    sel.value='tree'; renderPropList('tree','');
+    sel.value='all'; renderPropList('all','');
+  }
+  // ---- Scenery section collapse (2026-07-13): the whole picker folds to one header row ----
+  const PROPS_OPEN_KEY = 'fk_ed_props_open';
+  function setPropsOpen(open){
+    const body=$('sceneryBody'), car=$('propCaret');
+    if (body) body.style.display = open ? 'block' : 'none';
+    if (car) car.textContent = open ? '▾' : '▸';
+    try{ localStorage.setItem(PROPS_OPEN_KEY, open ? '1' : '0'); }catch(e){}
+  }
+  function wireScenerySection(){
+    const t=$('propToggle'); if (t) t.addEventListener('click', ()=>setPropsOpen($('sceneryBody').style.display==='none'));
+    setPropsOpen(localStorage.getItem(PROPS_OPEN_KEY)==='1');
   }
 
   function rebuild(){
@@ -1434,6 +1551,7 @@
     rebuildCorridorViz();
     rebuildTunnels();
     rebuildBridges();
+    rebuildGhostWalls();
     rebuildWaters();
     rebuildSea();
     rebuildTrains();
@@ -1449,6 +1567,17 @@
 
   function rebuildItemMarkers(){
     while (itemGroup.children.length) itemGroup.remove(itemGroup.children[0]);
+    // BATTLE ARENA: item boxes are scattered free on the terrain (battleBoxes), not centerline rows.
+    if (track.battle){
+      for (const b of (track.battleBoxes||[])){
+        const box = new THREE.Mesh(new THREE.BoxGeometry(2.4,2.4,2.4),
+          new THREE.MeshLambertMaterial({ color:0xffcf3b, emissive:0x332200, transparent:true, opacity:0.9 }));
+        box.position.set(b.x, terrainHeightAt(b.x, b.z)+2.0, b.z);
+        box.rotation.y = 0.6;
+        itemGroup.add(box);
+      }
+      return;
+    }
     const hw = track.width/2, N = sampled.samples;
     for (const s of (track.itemRows||[])){
       const i = Math.max(0, Math.min(N-1, Math.round(s*N)));
@@ -1533,8 +1662,28 @@
       d.appendChild(span); d.appendChild(btn); el.appendChild(d);
     });
   }
+  // BATTLE ARENA: place a scattered item box on the terrain (free {x,z}).
+  function addBattleBoxAt(x, z){
+    track.battleBoxes = track.battleBoxes || [];
+    track.battleBoxes.push({ x:Math.round(x*10)/10, z:Math.round(z*10)/10 });
+    rebuildItemMarkers(); refreshItemList(); commitHistory();
+    toast('item box #'+track.battleBoxes.length);
+  }
   function refreshItemList(){
     const el = $('itemList'); el.innerHTML='';
+    // BATTLE ARENA: list scattered item boxes instead of centerline item rows.
+    if (track.battle){
+      const bx = (track.battleBoxes||[]);
+      if (!bx.length){ el.innerHTML = '<div style="color:#889;">no item boxes — use 🎁 item mode, click the field</div>'; return; }
+      bx.forEach((b,i)=>{
+        const d = document.createElement('div'); d.className='ir';
+        const span = document.createElement('span'); span.textContent = '🎁 box '+(i+1)+' ('+b.x.toFixed(0)+','+b.z.toFixed(0)+')';
+        const btn = document.createElement('button'); btn.textContent='✕';
+        btn.addEventListener('click', ()=>{ track.battleBoxes.splice(i,1); rebuildItemMarkers(); refreshItemList(); commitHistory(); });
+        d.appendChild(span); d.appendChild(btn); el.appendChild(d);
+      });
+      return;
+    }
     const rows = (track.itemRows||[]);
     if (!rows.length){ el.innerHTML = '<div style="color:#889;">none — use 🎁 item mode, click the road</div>'; return; }
     rows.forEach((s,i)=>{
@@ -1561,6 +1710,7 @@
     $('mSculpt').classList.toggle('on', m==='sculpt');
     $('mPaint').classList.toggle('on', m==='paint');
     $('mFence').classList.toggle('on', m==='fence');
+    $('mGhost').classList.toggle('on', m==='ghost');
     $('mTunnel').classList.toggle('on', m==='tunnel');
     $('mBridge').classList.toggle('on', m==='bridge');
     $('mWater').classList.toggle('on', m==='water');
@@ -1571,6 +1721,7 @@
     $('sculptTools').style.display = (m==='sculpt') ? 'block' : 'none';
     $('paintTools').style.display = (m==='paint') ? 'block' : 'none';
     $('fenceTools').style.display = (m==='fence') ? 'block' : 'none';
+    $('ghostTools').style.display = (m==='ghost') ? 'block' : 'none';
     $('tunnelTools').style.display = (m==='tunnel') ? 'block' : 'none';
     $('bridgeTools').style.display = (m==='bridge') ? 'block' : 'none';
     $('waterTools').style.display = (m==='water') ? 'block' : 'none';
@@ -1580,6 +1731,7 @@
     if (m==='paint') $('pCells').textContent = paintCellCount();
     if (m==='tufts') $('tfCells').textContent = tuftCellCount();
     if (m==='fence') refreshFenceList();
+    if (m==='ghost'){ refreshGhostList(); if (showTerrain===false){ showTerrain=true; $('terrainBtn').classList.add('on'); rebuildTerrain(); } }
     if (m==='tunnel') refreshTunnelList();
     if (m==='bridge') refreshBridgeList();
     if (m==='water') refreshWaterList();
@@ -1596,6 +1748,7 @@
                           : m==='sculpt' ? 'drag the GRASS to raise it · hold Shift to lower · the road stays put'
                           : m==='paint'  ? 'pick a color, then drag the GRASS to paint it (dirt, sand, path...)'
                           : m==='fence'  ? 'click the ground to drop fence posts along a line · finish to start a new run · drag = orbit'
+                          : m==='ghost'  ? 'click the ground to drop INVISIBLE wall points · finish to start a new run · renders nothing in a race · drag = orbit'
                           : m==='tunnel' ? 'pick 🏗 concrete or ⛏ cave, then click the road to add a TUNNEL · cave = land continues overhead (use ⛰ mound over if the hill is too low)'
                           : m==='bridge' ? 'click the road to add a wooden BRIDGE · select one from the list to adjust its length'
                           : m==='water'  ? '🌊 click a low spot to set the OCEAN height — everything below fills across the map · click again to move the water line'
@@ -1753,6 +1906,9 @@
   });
   // fence
   $('mFence').addEventListener('click', ()=>setMode('fence'));
+  $('mGhost').addEventListener('click', ()=>setMode('ghost'));
+  $('gwUndo').addEventListener('click', undoGhostPoint);
+  $('gwFinish').addEventListener('click', finishGhost);
   $('fUndo').addEventListener('click', undoFencePoint);
   $('fFinish').addEventListener('click', finishFence);
   $('fFromEdges').addEventListener('click', fencesFromEdges);
@@ -1783,6 +1939,24 @@
   // 🧱 wall style: solid ribbon walls (default) <-> post+rail fences (visual swap only).
   function syncWallStyleBtn(){ const on = track.wallStyle==='fence'; const b=$('wallStyleBtn'); if(b){ b.classList.toggle('on', on); b.textContent = on ? '🪵 fence walls' : '🧱 ribbon walls'; } }
   $('wallStyleBtn').addEventListener('click', ()=>{ track.wallStyle = (track.wallStyle==='fence') ? undefined : 'fence'; if(!track.wallStyle) delete track.wallStyle; syncWallStyleBtn(); rebuildFences(); commitHistory(); });
+  // 🎈 BATTLE ARENA (2026-07-13): mark this course as a balloon-battle arena (no laps/direction). When
+  // ON, the 🎁 item mode scatters battleBoxes on the terrain instead of centerline item rows.
+  function syncBattleBtn(){
+    const on = !!track.battle; const b=$('battleBtn');
+    if (b){ b.classList.toggle('on', on); b.textContent = on ? '🎈 battle arena ✓' : '🎈 battle arena'; }
+    const h=$('battleHint'); if (h) h.style.display = on ? 'block' : 'none';
+  }
+  $('battleBtn').addEventListener('click', ()=>{
+    track.battle = !track.battle; if(!track.battle) delete track.battle;
+    syncBattleBtn(); rebuildItemMarkers(); refreshItemList(); commitHistory();
+    if (track.battle) toast('battle arena ON — 🎁 item mode now scatters item boxes');
+  });
+  // 🏎 course speed multiplier (0.5–1.5). 100% => unset key (byte-identical).
+  $('msmInp').addEventListener('input', ()=>{
+    const v = +$('msmInp').value / 100; $('msmV').textContent = $('msmInp').value;
+    if (Math.abs(v-1) < 1e-9) delete track.maxSpeedMul; else track.maxSpeedMul = Math.round(v*100)/100;
+  });
+  $('msmInp').addEventListener('change', commitHistory);
 
   // ---- ⚙ advanced section: collapsed by default, remembered in localStorage (2026-07-10) ----
   const ADV_KEY = 'fk_ed_advanced_open';
@@ -1793,6 +1967,7 @@
   }
   $('advToggle').addEventListener('click', ()=>{ setAdvOpen($('advBody').style.display !== 'block'); });
   setAdvOpen(localStorage.getItem(ADV_KEY) === '1');
+  wireScenerySection();
 
   // ---- raycasting / pointer interaction ----
   const raycaster = new THREE.Raycaster();
@@ -1812,6 +1987,43 @@
     const hit = new THREE.Vector3(); return raycaster.ray.intersectPlane(_groundPlane, hit) ? hit : null;
   }
   let sculpting = false, painting = false, tufting = false;
+  // ---- DRAG-SELECT MARQUEE (2026-07-13): in object mode, drag a box on empty ground to multi-select
+  // every object whose projected center falls inside. Shift+drag adds; plain drag replaces. ----
+  let marquee = null;
+  const marqueeEl = document.createElement('div');
+  marqueeEl.id = 'marquee';
+  marqueeEl.style.cssText = 'position:fixed;border:1.5px dashed #66ccff;background:rgba(102,204,255,.14);pointer-events:none;z-index:60;display:none;';
+  document.body.appendChild(marqueeEl);
+  function updateMarqueeEl(){
+    const xMin=Math.min(marquee.x0,marquee.x1), xMax=Math.max(marquee.x0,marquee.x1);
+    const yMin=Math.min(marquee.y0,marquee.y1), yMax=Math.max(marquee.y0,marquee.y1);
+    marqueeEl.style.left=xMin+'px'; marqueeEl.style.top=yMin+'px';
+    marqueeEl.style.width=(xMax-xMin)+'px'; marqueeEl.style.height=(yMax-yMin)+'px';
+    marqueeEl.style.display='block';
+  }
+  const _mqV = new THREE.Vector3();
+  function finalizeMarquee(){
+    const r = renderer.domElement.getBoundingClientRect();
+    const xMin=Math.min(marquee.x0,marquee.x1), xMax=Math.max(marquee.x0,marquee.x1);
+    const yMin=Math.min(marquee.y0,marquee.y1), yMax=Math.max(marquee.y0,marquee.y1);
+    if (!marquee.shift) clearMultiSel();
+    for (const o of (track.objects||[])){
+      const g = objMeshes[o.id]; if (!g) continue;
+      _mqV.set(o.x, o.y, o.z).project(camera);
+      if (_mqV.z > 1) continue;   // behind the camera
+      const sx = r.left + (_mqV.x*0.5+0.5)*r.width, sy = r.top + (-_mqV.y*0.5+0.5)*r.height;
+      if (sx>=xMin && sx<=xMax && sy>=yMin && sy<=yMax) multiSel.add(o.id);
+    }
+    if (multiSel.size){ const first=[...multiSel][0]; selObjId=first; if(objMeshes[first]) gizmo.attach(objMeshes[first]); }
+    refreshMultiSelHighlight(); refreshObjList();
+  }
+  function endMarquee(){
+    if (!marquee) return;
+    const wasActive = marquee.active;
+    marqueeEl.style.display='none';
+    if (wasActive) finalizeMarquee();
+    marquee = null;
+  }
   // Ctrl+C / Ctrl+V object copy-paste (2026-07-12): objClipboard holds ALL fields of the copied
   // object; lastPointerEvt tracks the cursor so a paste lands under it when it's over the terrain.
   let objClipboard = null, lastPointerEvt = null;
@@ -1834,7 +2046,11 @@
       // the event so TransformControls doesn't hijack the press to drag the old selection instead.
       if (hitId && hitId !== selObjId){ selectObject(hitId); controls.enabled = false; e.stopImmediatePropagation(); return; }
       if (gizmo.axis) return;                  // pressing a handle of the CURRENT selection -> gizmo owns it
-      if (hitId){ selectObject(hitId); controls.enabled = false; }   // re-press the selected object's body
+      if (hitId){ selectObject(hitId); controls.enabled = false; return; }   // re-press the selected object's body
+      // EMPTY GROUND, no gizmo hit -> begin a DRAG-SELECT MARQUEE (2026-07-13). Disables orbit for
+      // this gesture (orbit stays on RMB). Shift+drag ADDS to the current selection; plain replaces.
+      marquee = { x0:e.clientX, y0:e.clientY, x1:e.clientX, y1:e.clientY, shift:e.shiftKey, active:false };
+      controls.enabled = false;
       return;                                  // no point/sphere editing in object mode
     }
     if (mode === 'sculpt'){
@@ -1863,6 +2079,7 @@
       return;
     }
     if (mode === 'fence'){ fenceDown = { x:e.clientX, y:e.clientY }; return; }  // add on click-up (drag = orbit)
+    if (mode === 'ghost'){ ghostDown = { x:e.clientX, y:e.clientY }; return; }  // add on click-up (drag = orbit)
     setNdc(e);
     if (mode === 'insert'){
       const hit = pickRibbon();
@@ -1870,6 +2087,8 @@
       return;
     }
     if (mode === 'item'){
+      // BATTLE ARENA: scatter item boxes free on the terrain; otherwise drop a centerline item row.
+      if (track.battle){ const h = pickGround(); if (h){ addBattleBoxAt(h.x, h.z); controls.enabled = false; } return; }
       const hit = pickRibbon();
       if (hit){ addItemAt(hit); controls.enabled = false; }
       return;
@@ -1918,6 +2137,13 @@
 
   renderer.domElement.addEventListener('pointermove', e=>{
     lastPointerEvt = e;   // remembered so a Ctrl+V paste can land under the cursor
+    // DRAG-SELECT MARQUEE: resize the box; activate once the drag passes a small threshold.
+    if (marquee){
+      marquee.x1 = e.clientX; marquee.y1 = e.clientY;
+      if (!marquee.active && Math.hypot(marquee.x1-marquee.x0, marquee.y1-marquee.y0) > 4) marquee.active = true;
+      if (marquee.active) updateMarqueeEl();
+      return;
+    }
     // brush preview ring + the sculpt/paint/tufts stroke itself share one raycast per event.
     if (mode==='sculpt' || mode==='paint' || mode==='tufts'){
       setNdc(e); const h = pickGround();
@@ -1953,6 +2179,7 @@
   });
 
   function endDrag(){
+    if (marquee){ endMarquee(); controls.enabled = true; return; }   // finalize a drag-select box
     let mutated = false;
     if (sculpting){ sculpting=false; levelTarget=null; rebuildTerrain(); $('scCells').textContent = terrainCellCount(); mutated = true; }
     if (painting){ painting=false; rebuildTerrain(); $('pCells').textContent = paintCellCount(); mutated = true; }
@@ -1968,6 +2195,10 @@
     if (mode==='fence' && fenceDown){
       const moved = Math.hypot(e.clientX-fenceDown.x, e.clientY-fenceDown.y); fenceDown=null;
       if (moved < 6){ setNdc(e); const h=pickGround(); if(h) addFencePoint(h.x, h.z); }
+    }
+    if (mode==='ghost' && ghostDown){
+      const moved = Math.hypot(e.clientX-ghostDown.x, e.clientY-ghostDown.y); ghostDown=null;
+      if (moved < 6){ setNdc(e); const h=pickGround(); if(h) addGhostPoint(h.x, h.z); }
     }
   });
 
@@ -2180,6 +2411,9 @@
     $('drapeBtn').classList.toggle('on', !!track.followTerrain);
     $('offroadBtn').classList.toggle('on', !!track.offroad);
     syncWallStyleBtn();
+    syncBattleBtn();
+    { const msm = isFinite(track.maxSpeedMul) ? track.maxSpeedMul : 1; const pct = Math.round(msm*100);
+      const inp=$('msmInp'); if(inp) inp.value = pct; const v=$('msmV'); if(v) v.textContent = pct; }
     { const s=$('skySel'); if (s) s.value = FK_TRACK.SKY_PRESETS[track.sky] ? track.sky : 'day'; }
     syncMusicSel(); }
   $('nameInp').addEventListener('input', ()=>{ track.name = $('nameInp').value; });
@@ -2339,7 +2573,7 @@
     histSuspended = true;
     const c = FK_TRACK.sanitize(snap);
     track = c || snap;
-    selected = -1; selObjId = null; curFence = null; selTunnelId = null; selBridgeId = null; selWaterId = null;
+    selected = -1; selObjId = null; curFence = null; curGhost = null; selTunnelId = null; selBridgeId = null; selWaterId = null;
     gizmo.detach();
     syncFields(); rebuild(); rebuildObjects(); rebuildFences(); rebuildBridges();
     histSuspended = false;
@@ -2965,7 +3199,27 @@
     setMusicSel:(slug)=>{ const s=$('musicSel'); if(s){ s.value=slug; s.dispatchEvent(new Event('change')); } },
     clickMusicPreview:()=>{ $('musicPreview').click(); },
     get musicPreviewPlaying(){ return !!_musicPreviewEl; },
-    get musicSelOptionCount(){ return $('musicSel').options.length; }
+    get musicSelOptionCount(){ return $('musicSel').options.length; },
+    // GHOST WALLS (2026-07-13, for headless tests)
+    get ghostWalls(){ return track.ghostWalls||[]; }, addGhostPoint, finishGhost, undoGhostPoint, rebuildGhostWalls,
+    get ghostGroup(){ return ghostGroup; },
+    deleteGhostWall:(id)=>{ track.ghostWalls=(track.ghostWalls||[]).filter(g=>g.id!==id); if(curGhost&&curGhost.id===id)curGhost=null; rebuildGhostWalls(); commitHistory(); },
+    // BATTLE + course-speed hooks (2026-07-13, for headless tests)
+    get battle(){ return !!track.battle; },
+    setBattle:(v)=>{ track.battle = !!v; if(!track.battle) delete track.battle; syncBattleBtn(); rebuildItemMarkers(); refreshItemList(); commitHistory(); },
+    get battleBoxes(){ return track.battleBoxes||[]; }, addBattleBoxAt,
+    get maxSpeedMul(){ return track.maxSpeedMul; },
+    setMaxSpeedMul:(v)=>{ const inp=$('msmInp'); if(inp){ inp.value=Math.round(v*100); inp.dispatchEvent(new Event('input')); inp.dispatchEvent(new Event('change')); } },
+    get itemGroup(){ return itemGroup; },
+    // PROP LIST collapse hooks (2026-07-13, for headless tests)
+    get propsOpen(){ return $('sceneryBody').style.display!=='none'; }, setPropsOpen,
+    renderPropList, get propGroupsOpen(){ return Object.assign({}, _propGroupsOpen); },
+    togglePropGroup:(cat)=>{ const hs=[...document.querySelectorAll('#propList .propGroupHdr')]; const h=hs.find(x=>x.dataset.cat===cat); if(h) h.click(); },
+    get propGroupHeaders(){ return [...document.querySelectorAll('#propList .propGroupHdr')].map(h=>h.dataset.cat); },
+    propGroupOpenInDom:(cat)=>{ const hs=[...document.querySelectorAll('#propList .propGroupHdr')]; const idx=hs.findIndex(x=>x.dataset.cat===cat); if(idx<0) return null; const body=hs[idx].nextSibling; return body && body.style.display!=='none'; },
+    // MARQUEE drag-select hooks (2026-07-13, for headless tests) — simulate a screen-space box drag
+    marqueeSelect:(x0,y0,x1,y1,shift)=>{ marquee={ x0,y0,x1,y1, shift:!!shift, active:true }; finalizeMarquee(); marquee=null; },
+    projectObjToScreen:(id)=>{ const o=(track.objects||[]).find(x=>x.id===id); if(!o) return null; const r=renderer.domElement.getBoundingClientRect(); _mqV.set(o.x,o.y,o.z).project(camera); return { x:r.left+(_mqV.x*0.5+0.5)*r.width, y:r.top+(-_mqV.y*0.5+0.5)*r.height }; }
   };
   </script>
 </body>
