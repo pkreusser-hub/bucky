@@ -389,7 +389,13 @@ async function runStageBot(browser, stageId, unlockJs) {
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     const t0 = performance.now();
     let frameSamples = [], lastT = t0;
+    // CORN WORLD (2026-07-14): the blind circling bot dies often in the 70-77% corn world (bogged at
+    // 0.55x in stalks), and a death + auto-restart RESETS P.elapsed — so track the cumulative sim
+    // time across lives; the check's intent is "the sim advances (not frozen)", not "the bot lives".
+    let simMax = 0, simPrev = 0, simTotal = 0;
     while (performance.now() - t0 < 75000) {
+      const el = P.elapsed; if (el < simPrev) simTotal += simPrev;   // death restart — bank the last life
+      simPrev = el; simMax = Math.max(simMax, el);
       const a = (performance.now() - t0) / 1400;
       const kx = Math.cos(a) > 0 ? "ArrowRight" : "ArrowLeft";
       const kz = Math.sin(a) > 0 ? "ArrowDown" : "ArrowUp";
@@ -405,7 +411,7 @@ async function runStageBot(browser, stageId, unlockJs) {
       const now = performance.now(); frameSamples.push(now - lastT); lastT = now;
     }
     const avgGap = frameSamples.reduce((a,b)=>a+b,0)/frameSamples.length;
-    return { finalState: P.state, stage: P.curStage && P.curStage.id, elapsed: P.elapsed, kills: P.kills, avgGap, enemyCount: P.enemies.length };
+    return { finalState: P.state, stage: P.curStage && P.curStage.id, elapsed: simTotal + P.elapsed, simLife: P.elapsed, kills: P.kills, avgGap, enemyCount: P.enemies.length };
   });
   const checks = [
     { name: `bot on '${stageId}' completed without hanging`, pass: true, detail: JSON.stringify(result) },

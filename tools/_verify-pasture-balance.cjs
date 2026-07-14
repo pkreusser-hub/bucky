@@ -65,6 +65,7 @@ window.__balSetup = function(opts){
   P.meta.up = Object.assign({}, opts.up || {});
   P.meta.coins = 999999;
   if (opts.charId) P.selChar = opts.charId;
+  P.forceCornSeed(0x51157);   // CORN WORLD: survival probes all fight the same 70% field (comparable)
   P.startGame();
   P.weaponsArr = opts.build.map(id => P.newWeapon(id));
   P.autoAbility = true;
@@ -125,7 +126,7 @@ window.__balStep = async function(budgetMs){
     for (const k of keys) window.dispatchEvent(new KeyboardEvent('keyup', { key: k }));
     B.hpLow = Math.min(B.hpLow, P.hp);
     B.enemyPeak = Math.max(B.enemyPeak, P.enemies.length);
-    if (P.lobPuddles.length) B.lobFrames++;
+    if (P.lobShots.length) B.lobFrames++;
     if (P.elapsed >= 900 && !P.boss){ B.done = true; break; }
   }
   return { done: B.done, state: P.state, elapsed: P.elapsed, kills: P.kills, hp: P.hp, enemies: P.enemies.length };
@@ -138,6 +139,10 @@ window.__balMeasureShares = async function(opts){
   const P = window.__PP__;
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   P.meta.up = Object.assign({}, opts.up || {}); P.meta.coins = 999999;
+  // CORN WORLD (2026-07-14): pin the world-gen seed so every measurement fights the SAME 70% field,
+  // and measure IN it — the player stands in the spawn clearing, ground weapons fire down the open
+  // lanes while corn gates their sight-lines, and arcing weapons (pumpkin/egg/milk) sail over.
+  P.forceCornSeed(0x51157);
   P.startGame();
   P.player.position.set(0,0,0);
   P.invulnT = 1e9;
@@ -153,15 +158,18 @@ window.__balMeasureShares = async function(opts){
   // seed a starter crowd, then KITE an immortal bot so the swarm streams through every weapon's natural
   // engagement geometry (point-blank melee, orbit rings, ranged lobs). Enemies are HP-locked each poll so
   // nothing dies -> no XP -> no leveling -> the pre-built loadout stays fixed and the crowd stays dense.
+  // deterministic crowd around the spawn clearing (r 5-18): some sit in the open clearing (ground-
+  // hittable), some behind corn (arcing-only until the swarm funnels in). Seeded angles => reproducible.
   P.enemies.length = 0;
-  for (let i=0;i<40;i++){ const a=Math.random()*Math.PI*2, r=4+Math.random()*16; const e=P.spawnEnemy(i%4===0?'rat':'turtle', { at:[Math.cos(a)*r, Math.sin(a)*r] }); if (e){ e.hp=e.maxHp=1e12; } }
+  for (let i=0;i<48;i++){ const a=i*2.399963, r=5+((i*7)%14); const e=P.spawnEnemy(i%4===0?'rat':'turtle', { at:[Math.cos(a)*r, Math.sin(a)*r] }); if (e){ e.hp=e.maxHp=1e12; } }
   const lockAll = () => { for (const e of P.enemies) if (!e.isBoss) e.hp = e.maxHp = 1e12; };
   const kite = () => {
     const px=P.player.position.x, pz=P.player.position.z; let cx=0,cz=0,n=0;
     for (const e of P.enemies){ if (e.isBoss) continue; const dx=e.mesh.position.x-px, dz=e.mesh.position.z-pz, d2=dx*dx+dz*dz; if (d2<400){ const w=1/(d2+4); cx+=dx*w; cz+=dz*w; n++; } }
     let fx,fz; if (n>0){ fx=-cx; fz=-cz; const l=Math.hypot(fx,fz)||1; fx/=l; fz/=l; } else { fx=1; fz=0; }
     const tx=-fz, tz=fx; fx+=tx*0.6; fz+=tz*0.6;
-    const edge=48; if (Math.abs(px)>edge) fx+=(px>0?-1:1)*0.9; if (Math.abs(pz)>edge) fz+=(pz>0?-1:1)*0.9;
+    // stay INSIDE the spawn clearing so the pinned measurement doesn't bog the bot into the corn
+    const dc=Math.hypot(px,pz); if (dc>8){ fx += -px/dc*1.4; fz += -pz/dc*1.4; }
     const keys=[]; if (fx>0.35) keys.push('ArrowRight'); else if (fx<-0.35) keys.push('ArrowLeft'); if (fz>0.35) keys.push('ArrowDown'); else if (fz<-0.35) keys.push('ArrowUp');
     return keys;
   };
@@ -171,7 +179,9 @@ window.__balMeasureShares = async function(opts){
   while (P.elapsed - e0 < 4){ P.invulnT = 1e9; lockAll(); const k=kite(); for (const kk of k) window.dispatchEvent(new KeyboardEvent('keydown',{key:kk})); await sleep(16); for (const kk of k) window.dispatchEvent(new KeyboardEvent('keyup',{key:kk})); }
   for (const k in P.dmgByWeapon) delete P.dmgByWeapon[k];
   e0 = P.elapsed; let peak=0;
-  while (P.elapsed - e0 < 40){ P.invulnT = 1e9; lockAll(); peak=Math.max(peak,P.enemies.length); const k=kite(); for (const kk of k) window.dispatchEvent(new KeyboardEvent('keydown',{key:kk})); await sleep(16); for (const kk of k) window.dispatchEvent(new KeyboardEvent('keyup',{key:kk})); }
+  // 55s of sim (was 40) — the corn-world funnel adds run-to-run variance to the shares; a longer
+  // window tightens the estimate so the 45%-cap verdicts aren't decided by noise
+  while (P.elapsed - e0 < 55){ P.invulnT = 1e9; lockAll(); peak=Math.max(peak,P.enemies.length); const k=kite(); for (const kk of k) window.dispatchEvent(new KeyboardEvent('keydown',{key:kk})); await sleep(16); for (const kk of k) window.dispatchEvent(new KeyboardEvent('keyup',{key:kk})); }
   const dbw = {}; let tot = 0; for (const k in P.dmgByWeapon){ dbw[k]=P.dmgByWeapon[k]; tot+=P.dmgByWeapon[k]; }
   const shares = {}; for (const id of opts.build.concat(['milk'])) shares[id] = tot>0 ? (dbw[id]||0)/tot : 0;
   return { build: opts.build, shares, dbw, tot, enemyCount: peak,
@@ -326,36 +336,39 @@ async function runDirectives(browser){
     // Directive 4: enemy cap raised
     check("solo enemy cap raised to 320", P.spawnEnemy && (function(){ return true; })() , "see FPS pass");
 
-    // Directive 5: lobber telegraph/arc/puddle/off-screen
-    P.startGame(); P.weaponsArr = [];
+    // Directive 3 (2026-07-14): the SNIPER (was Lobber) shoots a slow, straight, magenta orb — no
+    // marker/puddle, rare spawn, corn-absorbed.
+    P.startGame(); P.clearAllCorn();   // sniper mechanic test — clear the corn world so shots aren't absorbed
+    P.weaponsArr = [];
     P.player.position.set(0,0,0);
-    P.enemies.length = 0; P.lobShots.length = 0; P.lobPuddles.length = 0;
-    P.elapsed = 300;   // past the lobber intro
+    P.enemies.length = 0; P.lobShots.length = 0;
+    P.elapsed = 500;   // past the sniper intro
     const lob = P.spawnEnemy("lobber", { at: [0, -14] });
-    check("lobber spawns", !!lob && lob.kind === "lobber", lob && lob.kind);
-    // force a fire
+    check("sniper spawns", !!lob && lob.kind === "lobber", lob && lob.kind);
     lob.lobTimer = 0.001;
-    let sawShot = false, sawMarker = false, arcHi = 0, sawPuddle = false;
+    let sawShot = false, shotSpeed = 0, colorHex = null, flatHeight = true, y0 = null;
     for (let i=0;i<140;i++){
       await sleep(20);
-      if (P.lobShots.length){ sawShot = true; const s=P.lobShots[0]; if (s.marker) sawMarker = true; arcHi = Math.max(arcHi, s.mesh.position.y); }
-      if (P.lobPuddles.length) sawPuddle = true;
-      if (sawPuddle && sawShot && sawMarker) break;
+      if (P.lobShots.length){ const s = P.lobShots[0]; sawShot = true; shotSpeed = s.speed; colorHex = s.mesh.material.color.getHex();
+        if (y0 == null) y0 = s.mesh.position.y; if (Math.abs(s.mesh.position.y - y0) > 0.5) flatHeight = false; }
+      if (sawShot && P.lobShots.length === 0) break;
     }
-    check("lobber lobs an arcing clod", sawShot && arcHi > 2, `apex y ${arcHi.toFixed(1)}`);
-    check("lob has a ground landing marker (telegraph)", sawMarker, sawMarker);
-    check("lob leaves a damage puddle on impact", sawPuddle, sawPuddle);
-    // off-screen fire: put the lobber far away, it still sometimes fires
-    P.lobShots.length = 0; P.lobPuddles.length = 0;
-    P.enemies.length = 0;
+    check("sniper shoots a shot", sawShot, sawShot);
+    check("shot is STRAIGHT (flat height, no arc)", sawShot && flatHeight, `y0 ${y0}`);
+    check("shot is SLOW (< slowest player projectile, 13)", shotSpeed > 0 && shotSpeed < 13, `speed ${shotSpeed}`);
+    check("shot is a distinct magenta (0xff23d6)", colorHex === 0xff23d6, colorHex != null ? ("#"+colorHex.toString(16)) : "none");
+    check("NO marker / NO puddle (removed)", P.lobPuddles === undefined, `lobPuddles ${P.lobPuddles}`);
+    check("sniper is rare (lobSpawnChance ~0.03)", Math.abs(P.BAL.lobSpawnChance - 0.03) < 0.02, P.BAL.lobSpawnChance);
+    // off-screen fire: put the sniper far away, it still sometimes fires
+    P.lobShots.length = 0; P.enemies.length = 0;
     const orig = Math.random; Math.random = () => 0.1;   // < lobOffscreenChance
     const far = P.spawnEnemy("lobber", { at: [0, -60] });
     far.lobTimer = 0.001;
     let farShot = false;
     for (let i=0;i<40;i++){ await sleep(20); if (P.lobShots.length){ farShot = true; break; } }
     Math.random = orig;
-    check("lobber fires even from off-screen (anti-camp)", farShot, farShot);
-    P.enemies.length = 0; P.lobShots.length = 0; P.lobPuddles.length = 0;
+    check("sniper fires even from off-screen (anti-camp)", farShot, farShot);
+    P.enemies.length = 0; P.lobShots.length = 0;
 
     // Directive 6: spawn mix at 13:30 = 100% elite
     P.startGame(); P.kills = 200;
@@ -387,6 +400,11 @@ async function runFps(browser){
     const P = window.__PP__;
     const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
     P.simSubSteps = 1;
+    // This gate measures the raised ENEMY CAP's crowd cost (320 enemies). Disable the corn world and
+    // RESTART so the field is truly empty (clearAllCorn would leave ~15k stubble instances + the soil
+    // plane) — corn's marginal render cost has its own relative-FPS gate in _verify-pasture-corn.cjs
+    // (260 enemies + full 77% cornfield, within 2fps of the no-corn baseline).
+    P.setCornEnabled(false); P.startGame(); await sleep(80); P.simSubSteps = 1;
     P.elapsed = 820; P.kills = 300;   // late-game so spawns roll elite
     P.player.position.set(0,0,0);
     // pack the field to the cap with a realistic elite-heavy mix

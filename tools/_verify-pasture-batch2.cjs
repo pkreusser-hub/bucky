@@ -431,6 +431,10 @@ async function runDesktopChecks(browser) {
     const check = (n, c, d) => out.push({ name: n, pass: !!c, detail: d == null ? "" : String(d) });
     const w = P.setSoleWeapon("hay"); w.timer = 999;   // only our explicit fire
     P.player.position.set(0,0,0);
+    // CORN WORLD (2026-07-14): standing corn now stops the hay roller (early boomerang), and the
+    // dummy line extends past the spawn clearing — fell all corn so this measures pure pierce
+    // falloff on an open arena (the corn-stops-hay rule has its own corn-suite coverage).
+    P.clearAllCorn();
     P.enemies.length = 0; P.bales.length = 0;
     for (let i=0;i<4;i++) P.spawnEnemy("turtle", { at: [0, -(3 + i*5)] });
     const dummies = P.enemies.slice(-4);

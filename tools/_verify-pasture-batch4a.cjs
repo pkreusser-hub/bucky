@@ -124,6 +124,9 @@ async function runDesktopChecks(browser) {
 
     // --- Collie ROUND-UP: vacuum orbs + pull enemies ---
     P.selChar = "collie"; P.startGame(); await new Promise(r=>setTimeout(r,60));
+    // CORN WORLD (2026-07-14): the test rat 10u out can sit inside/behind standing corn, where the
+    // hard-block + flow-steer counter the round-up pull — fell all corn so the pull is measured clean
+    P.clearAllCorn();
     check("collie active is Round-Up @25s cd", P.ability && P.ability.id === "roundup" && P.abilityMax === 25, P.abilityMax);
     P.enemies.length = 0; P.orbs.length = 0;
     P.dropPickup; // noop guard
@@ -136,9 +139,13 @@ async function runDesktopChecks(browser) {
     P.abilityCd = 0; P.fireAbility();
     check("round-up vacuums all XP orbs", P.orbs.every(o => o.vac), anyOrb ? "orbs vac'd" : "no orbs (ok)");
     check("round-up is active (roundupT > 0)", P.roundupT > 0, P.roundupT.toFixed(2));
-    for (let i=0;i<20;i++) await new Promise(r=>setTimeout(r,20));
-    const eD1 = Math.hypot(farE.mesh.position.x - P.player.position.x, farE.mesh.position.z - P.player.position.z);
-    check("round-up pulls a nearby enemy inward", eD1 < eD0 - 0.5, `${eD0.toFixed(2)} -> ${eD1.toFixed(2)}`);
+    // sample the MINIMUM distance across the 0.8s pull window — the pull drags the rat to the
+    // round-up point and past it, and the collie's own cats knock it back out afterward, so a
+    // single post-hoc read is timing-fragile (got flaky under load); min-during-pull is the intent.
+    let eDMin = eD0;
+    for (let i=0;i<20;i++){ await new Promise(r=>setTimeout(r,20));
+      eDMin = Math.min(eDMin, Math.hypot(farE.mesh.position.x - P.player.position.x, farE.mesh.position.z - P.player.position.z)); }
+    check("round-up pulls a nearby enemy inward", eDMin < eD0 - 0.5, `${eD0.toFixed(2)} -> min ${eDMin.toFixed(2)}`);
 
     // --- Strawman DREAD AURA: fear + slow, enemies flee ---
     P.selChar = "straw"; P.startGame(); await new Promise(r=>setTimeout(r,60));
@@ -292,6 +299,7 @@ async function runDesktopChecks(browser) {
     const check = (n, c, d) => out.push({ name: n, pass: !!c, detail: d == null ? "" : String(d) });
     eval(window.__RESET_SRC__);
     P.selChar = "farmer"; P.startGame(); await new Promise(r=>setTimeout(r,60));
+    P.invulnT = 1e9;   // 5:00 swarm pressure in the corn world can kill the farmer mid-walk (state "over" broke the overlay check)
     // spawns at 5:00
     P.elapsed = 300;
     for (let i=0;i<4 && !P.merchant;i++) await new Promise(r=>setTimeout(r,25));

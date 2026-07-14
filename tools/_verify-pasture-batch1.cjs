@@ -225,6 +225,10 @@ async function runDesktopChecks(browser) {
     P.enemies.length = 0;
     P.forks.length = 0;
     P.player.position.set(0, 0, 0);
+    // CORN WORLD (2026-07-14): standing corn now BLOCKS the pitchfork (directive 2), and the dummy
+    // line extends past the spawn clearing into the generated field — fell all corn so this test
+    // measures pure pierce falloff on an open arena (corn blocking has its own corn-suite checks).
+    P.clearAllCorn();
     // strip every OTHER equipped weapon (earlier checks in this suite left an evolved Kettle Corn
     // Cannon + a sprinkler on the player, both of which auto-fire every frame via weaponsUpdate()
     // and would otherwise plink the nearest dummy in the background and contaminate the falloff
