@@ -86,6 +86,18 @@
     background:rgba(24,35,59,.6); color:#dbe6ff; font-size:11px; font-weight:600;
     padding:6px 10px; border-radius:9px; line-height:1.5; text-align:right; max-width:44vw;
   }
+  #chargeHud{
+    position:absolute; left:calc(12px + var(--sal)); bottom:calc(82px + var(--sab));
+    width:132px; height:12px; border-radius:7px; overflow:hidden;
+    background:rgba(35,51,87,.55); box-shadow:0 1px 4px rgba(0,0,0,.3);
+    display:none;
+  }
+  #chargeHud.on{ display:block; }
+  #chargeHud .cfill{
+    height:100%; width:0%; border-radius:7px;
+    background:linear-gradient(90deg,#ffe58a,#ba303e);
+    transition:width .05s linear;
+  }
 
   /* ── TUNE dev panel (backtick) ── */
   #tune{
@@ -123,14 +135,16 @@
     <p class="sub">Swing through the city!</p>
     <button class="playBtn" id="playBtn" type="button">PLAY</button>
     <p class="hint" id="titleHint">Hold <b>Space</b> to shoot a web and swing.
-      <b>WASD</b>/arrows steer, <b>Shift</b> jumps &amp; zips, <b>R</b> resets.
+      <b>WASD</b>/arrows steer. <b>Shift</b>: tap to jump, <b>hold</b> to charge a super-jump,
+      zip in the air, or kick off a wall. Hit a building to stick &amp; run it. <b>R</b> resets.
       Press <b>`</b> for the tuning panel.</p>
   </div>
 
   <div id="hud">
     <div id="speedHud">speed  0.0 m/s</div>
     <div id="stateHud">air</div>
-    <div id="keysHud">SPACE web · WASD steer<br>SHIFT jump/zip · R reset</div>
+    <div id="chargeHud"><div class="cfill"></div></div>
+    <div id="keysHud">SPACE web · WASD steer<br>SHIFT jump/hold super/zip/wall · R reset</div>
   </div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
@@ -142,6 +156,7 @@
   // ───────────────────────────────────────────────────────────────────────────
   const DEG = Math.PI / 180;
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const lerp = (a, b, t) => a + (b - a) * t;
   const H_STEP = 1 / 120;            // fixed physics substep
   const ACC_CAP = 0.1;               // accumulator cap (s)
 
@@ -181,8 +196,9 @@
       local: {
         x: 0, y: 0, z: 0,
         vx: 0, vy: 0, vz: 0,
-        state: "air",   // "air" | "swing" | "zip" | "ground"
+        state: "air",   // "air" | "swing" | "zip" | "ground" | "wall"
         anchor: null,   // {x,y,z} while swinging
+        wall: null,     // {nx,nz,box} while stuck to a building side (MP-serializable)
         ropeLen: 0,
         heading: 0,     // facing angle in XZ (atan2(vz,vx))
         name: "Goat",
@@ -199,7 +215,9 @@
     dragAir: 0.06, dragSwing: 0.02, airControl: 14, steerTurn: 1.6,
     releaseUp: 4, releaseFwd: 1.12, jumpVel: 11, zipImpulse: 16, runSpeed: 8,
     minSwingHeight: 2.5, anchorPitch: 55, anchorDist: 28, anchorMinAbove: 6,
-    anchorCone: 65, camDist: 8, camHeight: 2.5, camLag: 5, fovBase: 65, fovKick: 18
+    anchorCone: 65, camDist: 8, camHeight: 2.5, camLag: 5, fovBase: 65, fovKick: 18,
+    superJumpVel: 26, superJumpChargeT: 0.75,
+    wallStickSpeed: 2, wallSlide: 0.8, wallRunSpeed: 10, wallJumpVel: 13
   };
   const TUNE_RANGE = {
     gravity: [10, 50, 0.5], ropeSlack: [0.8, 1.0, 0.01], ropeMax: [20, 70, 1],
@@ -209,7 +227,10 @@
     zipImpulse: [5, 30, 0.5], runSpeed: [3, 15, 0.5], minSwingHeight: [0, 6, 0.25],
     anchorPitch: [30, 75, 1], anchorDist: [12, 50, 1], anchorMinAbove: [2, 15, 0.5],
     anchorCone: [30, 90, 1], camDist: [4, 16, 0.25], camHeight: [0.5, 6, 0.25],
-    camLag: [1, 12, 0.25], fovBase: [50, 80, 1], fovKick: [0, 35, 1]
+    camLag: [1, 12, 0.25], fovBase: [50, 80, 1], fovKick: [0, 35, 1],
+    superJumpVel: [15, 40, 1], superJumpChargeT: [0.3, 1.5, 0.05],
+    wallStickSpeed: [0, 10, 0.5], wallSlide: [0, 6, 0.25],
+    wallRunSpeed: [4, 18, 0.5], wallJumpVel: [6, 24, 0.5]
   };
   const TUNE = Object.assign({}, TUNE_DEFAULTS);
   (function loadTune() {
@@ -310,6 +331,7 @@
   }
   function collideWalls(p) {
     const r = 0.5;
+    let hit = null;   // { nx, nz, box, vn, m } — outward normal (XZ), CITY index, speed INTO the face, penetration
     for (let i = 0; i < CITY.length; i++) {
       const b = CITY[i];
       if (p.x <= b.minX - r || p.x >= b.maxX + r) continue;
@@ -320,11 +342,14 @@
       const penZmin = p.z - (b.minZ - r);
       const penZmax = (b.maxZ + r) - p.z;
       const m = Math.min(penXmin, penXmax, penZmin, penZmax);
-      if (m === penXmin) { p.x = b.minX - r; if (p.vx > 0) p.vx = 0; }
-      else if (m === penXmax) { p.x = b.maxX + r; if (p.vx < 0) p.vx = 0; }
-      else if (m === penZmin) { p.z = b.minZ - r; if (p.vz > 0) p.vz = 0; }
-      else { p.z = b.maxZ + r; if (p.vz < 0) p.vz = 0; }
+      let nx = 0, nz = 0, vn = 0;
+      if (m === penXmin) { nx = -1; vn = p.vx; p.x = b.minX - r; if (p.vx > 0) p.vx = 0; }
+      else if (m === penXmax) { nx = 1; vn = -p.vx; p.x = b.maxX + r; if (p.vx < 0) p.vx = 0; }
+      else if (m === penZmin) { nz = -1; vn = p.vz; p.z = b.minZ - r; if (p.vz > 0) p.vz = 0; }
+      else { nz = 1; vn = -p.vz; p.z = b.maxZ + r; if (p.vz < 0) p.vz = 0; }
+      if (!hit || m > hit.m) hit = { nx, nz, box: i, vn, m };
     }
+    return hit;
   }
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -334,13 +359,20 @@
     opts = opts || {};
     const pitch = (opts.pitch != null) ? opts.pitch : TUNE.anchorPitch * DEG;
     const cone = (opts.cone != null) ? opts.cone : TUNE.anchorCone * DEG;
-    // aim direction: horizontal velocity if fast enough, else facing heading
-    let hx, hz;
-    const hsp = Math.hypot(vx, vz);
-    if (hsp > 3) { hx = vx / hsp; hz = vz / hsp; }
-    else { hx = Math.cos(G.players.local.heading); hz = Math.sin(G.players.local.heading); }
-    // pitch up
-    let dirx = hx * Math.cos(pitch), diry = Math.sin(pitch), dirz = hz * Math.cos(pitch);
+    const exclude = opts.exclude || null;   // {box,nx,nz} — skip the face the hero is stuck to
+    let dirx, diry, dirz;
+    if (opts.dir) {
+      // explicit aim (e.g. off a wall: normal blended up)
+      dirx = opts.dir.x; diry = opts.dir.y; dirz = opts.dir.z;
+    } else {
+      // aim direction: horizontal velocity if fast enough, else facing heading
+      let hx, hz;
+      const hsp = Math.hypot(vx, vz);
+      if (hsp > 3) { hx = vx / hsp; hz = vz / hsp; }
+      else { hx = Math.cos(G.players.local.heading); hz = Math.sin(G.players.local.heading); }
+      // pitch up
+      dirx = hx * Math.cos(pitch); diry = Math.sin(pitch); dirz = hz * Math.cos(pitch);
+    }
     const dl = Math.hypot(dirx, diry, dirz) || 1; dirx /= dl; diry /= dl; dirz /= dl;
     const Tx = px + dirx * TUNE.anchorDist, Ty = py + diry * TUNE.anchorDist, Tz = pz + dirz * TUNE.anchorDist;
 
@@ -355,9 +387,14 @@
       const dXmin = qx - b.minX, dXmax = b.maxX - qx;
       const dZmin = qz - b.minZ, dZmax = b.maxZ - qz, dYmax = b.maxY - qy;
       const m = Math.min(dXmin, dXmax, dZmin, dZmax, dYmax);
-      if (m === dXmin) qx = b.minX; else if (m === dXmax) qx = b.maxX;
-      else if (m === dZmin) qz = b.minZ; else if (m === dZmax) qz = b.maxZ;
-      else qy = b.maxY;
+      let cnx = 0, cnz = 0, ctop = false;
+      if (m === dXmin) { qx = b.minX; cnx = -1; }
+      else if (m === dXmax) { qx = b.maxX; cnx = 1; }
+      else if (m === dZmin) { qz = b.minZ; cnz = -1; }
+      else if (m === dZmax) { qz = b.maxZ; cnz = 1; }
+      else { qy = b.maxY; ctop = true; }
+      // don't grapple the very face we're clinging to
+      if (exclude && i === exclude.box && !ctop && cnx === exclude.nx && cnz === exclude.nz) continue;
       qy = clamp(qy, py + TUNE.anchorMinAbove, b.maxY);   // keep it high & within the box top
       let ax = qx - px, ay = qy - py, az = qz - pz;
       const dist = Math.hypot(ax, ay, az);
@@ -375,6 +412,11 @@
   // ───────────────────────────────────────────────────────────────────────────
   const keys = new Set();
   let camYaw = 0;    // maintained by the camera; input is relative to it
+
+  // charged super-jump plumbing (LOCAL input state — not gameplay-mutable until launch)
+  const charge = { active: false, t: 0 };
+  const SUPER_TAP_T = 0.18;   // hold < this = a plain jump
+  let wallAwayT = 0;          // transient "moving away from wall" timer
 
   function inputDir() {
     let f = 0, s = 0;
@@ -403,10 +445,13 @@
 
     // ── GROUND branch: run + friction ──
     if (p.state === "ground") {
-      if (inDir) {
+      // while charging a super-jump the hero stays put (friction only) + winds up
+      const run = charge.active ? null : inDir;
+      if (charge.active) charge.t += h;
+      if (run) {
         const RUN_ACCEL = 40;
-        p.vx += inDir.x * RUN_ACCEL * h;
-        p.vz += inDir.z * RUN_ACCEL * h;
+        p.vx += run.x * RUN_ACCEL * h;
+        p.vz += run.z * RUN_ACCEL * h;
         const hsp = Math.hypot(p.vx, p.vz);
         if (hsp > TUNE.runSpeed) { const k = TUNE.runSpeed / hsp; p.vx *= k; p.vz *= k; }
       } else {
@@ -422,6 +467,60 @@
       collideWalls(p);
       if (Math.hypot(p.vx, p.vz) > 2) p.heading = Math.atan2(p.vz, p.vx);
       return;
+    }
+
+    // ── WALL branch: stick + run along a building face ──
+    if (p.state === "wall") {
+      const w = p.wall, b = w ? CITY[w.box] : null;
+      if (!b) { p.state = "air"; p.wall = null; wallAwayT = 0; }
+      else {
+        const nx = w.nx, nz = w.nz;
+        const tx = nz, tz = -nx;   // horizontal tangent along the face (unit)
+        const r = 0.5, WALL_ACCEL = 30;
+        // raw run inputs mapped to the wall plane
+        let fVert = 0, fSide = 0;
+        if (keys.has("KeyW") || keys.has("ArrowUp")) fVert += 1;
+        if (keys.has("KeyS") || keys.has("ArrowDown")) fVert -= 1;
+        if (keys.has("KeyD") || keys.has("ArrowRight")) fSide += 1;
+        if (keys.has("KeyA") || keys.has("ArrowLeft")) fSide -= 1;
+        // leave if the hero pushes away from the wall for a beat
+        if (inDir && (inDir.x * nx + inDir.z * nz) > 0.7) {
+          wallAwayT += h;
+          if (wallAwayT > 0.15) {
+            p.state = "air"; p.wall = null; wallAwayT = 0;
+            p.vx += nx * 3; p.vz += nz * 3;
+            return;
+          }
+        } else wallAwayT = 0;
+        // vertical: run up/down, else a gentle slide toward −wallSlide
+        const tgtVy = (fVert !== 0) ? fVert * TUNE.wallRunSpeed : -TUNE.wallSlide;
+        p.vy += clamp(tgtVy - p.vy, -WALL_ACCEL * h, WALL_ACCEL * h);
+        // horizontal: along the face tangent only (kill any into/out-of wall drift)
+        let tv = p.vx * tx + p.vz * tz;
+        const tgtTv = fSide * TUNE.wallRunSpeed;
+        tv += clamp(tgtTv - tv, -WALL_ACCEL * h, WALL_ACCEL * h);
+        p.vx = tx * tv; p.vz = tz * tv;
+        // integrate + hug the face
+        p.x += p.vx * h; p.y += p.vy * h; p.z += p.vz * h;
+        if (nx === -1) p.x = b.minX - r; else if (nx === 1) p.x = b.maxX + r;
+        else if (nz === -1) p.z = b.minZ - r; else if (nz === 1) p.z = b.maxZ + r;
+        // vault over the top onto the roof
+        if (p.y >= b.maxY) {
+          p.state = "ground"; p.wall = null; p.y = b.maxY; p.vy = 3;
+          p.x -= nx * (r + 0.3); p.z -= nz * (r + 0.3);   // nudge inward onto the roof
+          return;
+        }
+        // slid to the base → drop off
+        if (p.y <= b.minY) { p.state = "air"; p.wall = null; return; }
+        // ran past a side edge of the face → let go into the air (keep velocity)
+        if (nx !== 0) {
+          if (p.z < b.minZ - 0.1 || p.z > b.maxZ + 0.1) { p.state = "air"; p.wall = null; return; }
+        } else {
+          if (p.x < b.minX - 0.1 || p.x > b.maxX + 0.1) { p.state = "air"; p.wall = null; return; }
+        }
+        if (Math.abs(tv) > 2) p.heading = Math.atan2(p.vz, p.vx);
+        return;
+      }
     }
 
     // ── AIRBORNE branch: air / swing / zip ──
@@ -501,8 +600,15 @@
       }
     }
 
-    // 7. building side collision (wall slide)
-    collideWalls(p);
+    // 7. building side collision — slide, or STICK to the wall if hit hard enough
+    const hit = collideWalls(p);
+    if (hit && (p.state === "air" || p.state === "zip") && hit.vn >= TUNE.wallStickSpeed) {
+      // enter wall: position already snapped to face+r, normal velocity already zeroed
+      p.state = "wall";
+      p.wall = { nx: hit.nx, nz: hit.nz, box: hit.box };
+      p.anchor = null;
+      wallAwayT = 0;
+    }
 
     if (Math.hypot(p.vx, p.vz) > 2) p.heading = Math.atan2(p.vz, p.vx);
   }
@@ -519,12 +625,21 @@
   // ── gameplay actions (SAME code paths as keyboard) ──
   function webPress() {
     const p = G.players.local;
-    const a = pickAnchor(p.x, p.y, p.z, p.vx, p.vy, p.vz, {});
+    let a;
+    if (p.state === "wall" && p.wall) {
+      // aim out-and-up away from the wall (normal blended up 45°), skip the stuck face
+      const w = p.wall, c = Math.cos(45 * DEG), s = Math.sin(45 * DEG);
+      a = pickAnchor(p.x, p.y, p.z, 0, 0, 0,
+        { dir: { x: w.nx * c, y: s, z: w.nz * c }, exclude: { box: w.box, nx: w.nx, nz: w.nz } });
+    } else {
+      a = pickAnchor(p.x, p.y, p.z, p.vx, p.vy, p.vz, {});
+    }
     if (!a) return;                                     // nothing fires
     p.anchor = a;
     const d = Math.hypot(p.x - a.x, p.y - a.y, p.z - a.z);
     p.ropeLen = Math.min(d * TUNE.ropeSlack, TUNE.ropeMax);
     p.state = "swing";
+    p.wall = null;
   }
   function webRelease() {
     const p = G.players.local;
@@ -535,11 +650,34 @@
   }
   function jumpPress() {
     const p = G.players.local;
+    if (p.state === "wall") { wallJump(); return; }
     if (p.state === "ground") { p.vy = TUNE.jumpVel; p.state = "air"; }
+  }
+  // charged super-jump launch — SAME path for keyboard release and the chargeJump() hook
+  function launchJump(held) {
+    const p = G.players.local;
+    if (p.state !== "ground") return;
+    if (held < SUPER_TAP_T) { p.vy = TUNE.jumpVel; p.state = "air"; return; }
+    const c = clamp(held / TUNE.superJumpChargeT, 0, 1);
+    p.vy = lerp(TUNE.jumpVel, TUNE.superJumpVel, c);
+    const inDir = inputDir();
+    if (inDir) { p.vx += inDir.x * 4 * c; p.vz += inDir.z * 4 * c; }
+    p.state = "air";
+  }
+  // wall jump — kick off the face (Shift while stuck)
+  function wallJump() {
+    const p = G.players.local;
+    if (p.state !== "wall" || !p.wall) return;
+    const w = p.wall, jv = TUNE.wallJumpVel;
+    p.vx = w.nx * jv + p.vx * 0.4;
+    p.vy = jv * 0.9 + p.vy * 0.4;
+    p.vz = w.nz * jv + p.vz * 0.4;
+    p.state = "air"; p.wall = null; wallAwayT = 0;
   }
   function zipPress() {
     const p = G.players.local;
     if (p.state === "ground") { jumpPress(); return; }
+    if (p.state === "wall") { wallJump(); return; }
     const a = pickAnchor(p.x, p.y, p.z, p.vx, p.vy, p.vz, { pitch: 20 * DEG, cone: 30 * DEG });
     if (a) {
       let dx = a.x - p.x, dy = a.y - p.y, dz = a.z - p.z;
@@ -560,8 +698,9 @@
     const p = G.players.local;
     p.x = SPAWN.x; p.y = SPAWN.y; p.z = SPAWN.z;
     p.vx = p.vy = p.vz = 0;
-    p.state = "ground"; p.anchor = null; p.ropeLen = 0; p.zipT = 0;
+    p.state = "ground"; p.anchor = null; p.wall = null; p.ropeLen = 0; p.zipT = 0;
     p.heading = 0;
+    charge.active = false; charge.t = 0; wallAwayT = 0;
     snapCamera();
   }
 
@@ -772,7 +911,15 @@
   function syncMeshes() {
     const p = G.players.local;
     hero.position.set(p.x, p.y, p.z);
-    hero.rotation.y = -p.heading + Math.PI / 2;
+    if (p.state === "wall" && p.wall) {
+      // back to the wall: face along the outward normal, lean toward travel
+      const nAng = Math.atan2(p.wall.nz, p.wall.nx);
+      hero.rotation.y = -nAng + Math.PI / 2;
+    } else {
+      hero.rotation.y = -p.heading + Math.PI / 2;
+    }
+    // squash while winding up a super-jump; snap back on launch
+    hero.scale.y = charge.active ? (1 - 0.25 * clamp(charge.t / TUNE.superJumpChargeT, 0, 1)) : 1;
     const swinging = (p.state === "swing" && p.anchor);
     rope.visible = !!swinging;
     anchorMark.visible = !!swinging;
@@ -822,11 +969,19 @@
   // ───────────────────────────────────────────────────────────────────────────
   const speedHud = document.getElementById("speedHud");
   const stateHud = document.getElementById("stateHud");
+  const chargeHud = document.getElementById("chargeHud");
+  const chargeFill = chargeHud.querySelector(".cfill");
   function updateHud() {
     const p = G.players.local;
     const sp = Math.hypot(p.vx, p.vy, p.vz);
     speedHud.textContent = "speed  " + sp.toFixed(1) + " m/s";
     stateHud.textContent = p.state;
+    if (charge.active) {
+      chargeHud.classList.add("on");
+      chargeFill.style.width = (clamp(charge.t / TUNE.superJumpChargeT, 0, 1) * 100).toFixed(0) + "%";
+    } else {
+      chargeHud.classList.remove("on");
+    }
   }
 
   const tuneEl = document.createElement("div");
@@ -891,7 +1046,11 @@
       e.preventDefault(); return;
     }
     if (e.code === "ShiftLeft" || e.code === "ShiftRight") {
-      if (!e.repeat) zipPress();          // jump on ground / zip in air (zipPress routes both)
+      if (!e.repeat) {
+        const p = G.players.local;
+        if (p.state === "ground") { charge.active = true; charge.t = 0; }  // wind up a super-jump
+        else zipPress();                    // wall→wall-jump · air/swing/zip→zip
+      }
       return;
     }
     if (e.code === "KeyR") { if (!e.repeat) resetPlayer(); return; }
@@ -899,10 +1058,14 @@
   });
   window.addEventListener("keyup", (e) => {
     if (e.code === "Space") { webRelease(); return; }
+    if (e.code === "ShiftLeft" || e.code === "ShiftRight") {
+      if (charge.active) { charge.active = false; launchJump(charge.t); }   // release = tap-jump or super-launch
+      return;
+    }
     if (STEER_CODES.has(e.code)) keys.delete(e.code);
   });
-  window.addEventListener("blur", () => keys.clear());
-  document.addEventListener("visibilitychange", () => { if (document.hidden) keys.clear(); });
+  window.addEventListener("blur", () => { keys.clear(); charge.active = false; });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) { keys.clear(); charge.active = false; } });
 
   // ───────────────────────────────────────────────────────────────────────────
   //  START / PHASE
@@ -926,17 +1089,21 @@
       const p = G.players.local;
       p.x = x; p.y = y; p.z = z;
       p.vx = vx || 0; p.vy = vy || 0; p.vz = vz || 0;
-      p.state = "air"; p.anchor = null; p.ropeLen = 0; p.zipT = 0;
+      p.state = "air"; p.anchor = null; p.wall = null; p.ropeLen = 0; p.zipT = 0;
+      charge.active = false; charge.t = 0; wallAwayT = 0;
       if (Math.hypot(p.vx, p.vz) > 0.01) p.heading = Math.atan2(p.vz, p.vx);
       snapCamera();
     },
     pickAnchor(px, py, pz, vx, vy, vz, opts) { return pickAnchor(px, py, pz, vx, vy, vz, opts); },
     webPress, webRelease, zipPress, jumpPress,
+    // simulate a Shift hold+release of `seconds` on the ground (same path as keyboard)
+    chargeJump(seconds) { charge.active = false; launchJump(seconds || 0); },
     stepPhysics(seconds) { stepPhysics(seconds); },
     setTestDriving(on) { testDriving = !!on; },
     startPlay,
     get phase() { return G.phase; },
     get state() { return G.players.local.state; },
+    get wall() { return G.players.local.wall; },
     get pos() { const p = G.players.local; return { x: p.x, y: p.y, z: p.z }; },
     get vel() { const p = G.players.local; return { vx: p.vx, vy: p.vy, vz: p.vz }; },
     get spawn() { return Object.assign({}, SPAWN); },

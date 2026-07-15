@@ -353,6 +353,212 @@ async function main() {
   check(zip.sp1 > zip.sp0, `zip increases speed (${zip.sp0.toFixed(1)} → ${zip.sp1.toFixed(1)})`);
   check(zip.stAfter === "air", "zip reverts to air after ~0.4 s");
 
+  // ── 12) CHARGED SUPER JUMP ──
+  console.log("\n[12] charged super jump");
+  const sj = await page.evaluate(() => {
+    const H = window.__WEBGOAT__;
+    H.setTestDriving(true);
+    const bs = H.buildings();
+    const b = bs.find((x) => x.spine) || bs[0];
+    const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
+    const land = () => { H.setPlayer(cx, b.maxY + 3, cz, 0, 0, 0); let t = 0; while (H.state !== "ground" && t < 3) { H.stepPhysics(0.05); t += 0.05; } };
+    land(); H.chargeJump(0.05); const tapVy = H.vel.vy;
+    land(); H.chargeJump(0.75); const superVy = H.vel.vy, stAfter = H.state;
+    const y0 = H.pos.y; let apex = y0;
+    for (let i = 0; i < 300 && H.vel.vy > 0; i++) { H.stepPhysics(1 / 120); if (H.pos.y > apex) apex = H.pos.y; }
+    return { tapVy, superVy, stAfter, rise: apex - y0, jumpVel: H.TUNE.jumpVel };
+  });
+  check(near(sj.tapVy, sj.jumpVel, 1), `tap Shift → plain jump vy ≈ jumpVel (${sj.tapVy.toFixed(2)})`);
+  check(sj.stAfter === "air", "super jump → air");
+  check(sj.superVy >= 22, `super jump launch vy ≥ 22 (${sj.superVy.toFixed(2)})`);
+  check(sj.rise >= 9, `super jump apex ≥ 9 m above launch (${sj.rise.toFixed(2)})`);
+
+  // ── 13) SUPER JUMP → SWING FROM THE STREET (the acceptance ask) ──
+  console.log("\n[13] super jump back into a swing (from street level)");
+  const sjs = await page.evaluate(() => {
+    const H = window.__WEBGOAT__;
+    H.setTestDriving(true);
+    const bs = H.buildings();
+    const b = bs.filter((x) => x.maxY > 40)
+      .sort((a, c) => Math.hypot((a.minX + a.maxX) / 2, (a.minZ + a.maxZ) / 2) - Math.hypot((c.minX + c.maxX) / 2, (c.minZ + c.maxZ) / 2))[0];
+    const cz = (b.minZ + b.maxZ) / 2, sx = b.minX - 9;
+    let clear = true;
+    for (const bb of bs) { if (sx > bb.minX - 1 && sx < bb.maxX + 1 && cz > bb.minZ - 1 && cz < bb.maxZ + 1) { clear = false; break; } }
+    H.setPlayer(sx, 8, cz, 0, 0, 0);
+    let t = 0; while (H.state !== "ground" && t < 4) { H.stepPhysics(0.05); t += 0.05; }
+    H.G.players.local.heading = 0;                 // face the building (+x)
+    H.chargeJump(0.9);
+    for (let i = 0; i < 120 && H.vel.vy > 1; i++) H.stepPhysics(1 / 120);
+    const yApex = H.pos.y;
+    const a = H.pickAnchor(H.pos.x, H.pos.y, H.pos.z, H.vel.vx, H.vel.vy, H.vel.vz, {});
+    H.webPress();
+    return { clear, yApex, hasAnchor: !!a, swung: H.state === "swing" };
+  });
+  check(sjs.clear, "street launch point clear of footprints");
+  check(sjs.yApex >= 9, `reached ≥ 9 m off the street (${sjs.yApex.toFixed(1)})`);
+  check(sjs.hasAnchor, "anchor available at apex after super jump");
+  check(sjs.swung, "webPress at apex → swing (back to swinging from the ground)");
+
+  // ── 14) WALL STICK ──
+  console.log("\n[14] wall stick");
+  const wstick = await page.evaluate(() => {
+    const H = window.__WEBGOAT__;
+    H.setTestDriving(true);
+    const bs = H.buildings();
+    const b = bs.find((x) => x.spine) || bs.reduce((a, c) => (c.maxY > a.maxY ? c : a));
+    const cz = (b.minZ + b.maxZ) / 2, midY = Math.min(b.maxY - 4, 20);
+    H.setPlayer(b.minX - 6, midY, cz, 12, 0, 0);   // fly at the -x face at 12 m/s
+    let stuck = false;
+    for (let i = 0; i < 40 && !stuck; i++) { H.stepPhysics(0.05); if (H.state === "wall") stuck = true; }
+    const w = H.wall, p = H.pos;
+    return { stuck, dotAway: w ? (w.nx * -1 + w.nz * 0) : 0, distToFace: Math.abs(p.x - b.minX) };
+  });
+  check(wstick.stuck, "flying hard into a face → state wall");
+  check(wstick.dotAway > 0.95, `wall normal points away from the face (dot ${wstick.dotAway.toFixed(3)})`);
+  check(wstick.distToFace <= 0.6, `hero hugs the face (dist ${wstick.distToFace.toFixed(3)})`);
+
+  // ── 15) WALL RUN UP ──
+  console.log("\n[15] wall run up");
+  const wrun = await page.evaluate(() => {
+    const H = window.__WEBGOAT__;
+    H.setTestDriving(true);
+    const bs = H.buildings();
+    const b = bs.find((x) => x.spine) || bs.reduce((a, c) => (c.maxY > a.maxY ? c : a));
+    const cz = (b.minZ + b.maxZ) / 2;
+    H.setPlayer(b.minX - 3, 18, cz, 22, 0, 0);     // approach close+fast → tiny entry fall
+    for (let i = 0; i < 60 && H.state !== "wall"; i++) H.stepPhysics(0.02);
+    const stuck = H.state === "wall", y0 = H.pos.y;
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyW", bubbles: true }));
+    H.stepPhysics(1.2);
+    window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyW", bubbles: true }));
+    return { stuck, rise: H.pos.y - y0, stillWall: H.state === "wall" };
+  });
+  check(wrun.stuck, "wall run: attached to the wall");
+  check(wrun.rise >= 5, `holding W runs UP the wall ≥ 5 m (${wrun.rise.toFixed(2)})`);
+  check(wrun.stillWall, "still on wall after running up a tall building");
+
+  // ── 16) VAULT OVER THE TOP ──
+  console.log("\n[16] vault");
+  const vault = await page.evaluate(() => {
+    const H = window.__WEBGOAT__;
+    H.setTestDriving(true);
+    const bs = H.buildings();
+    const b = bs.filter((x) => !x.spine).reduce((a, c) => (c.maxY < a.maxY ? c : a));  // a short one
+    const cz = (b.minZ + b.maxZ) / 2;
+    H.setPlayer(b.minX - 3, Math.max(2, b.maxY - 6), cz, 22, 0, 0);
+    for (let i = 0; i < 60 && H.state !== "wall"; i++) H.stepPhysics(0.02);
+    const stuck = H.state === "wall";
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyW", bubbles: true }));
+    let t = 0; while (H.state === "wall" && t < 3) { H.stepPhysics(0.05); t += 0.05; }
+    window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyW", bubbles: true }));
+    return { stuck, state: H.state, y: H.pos.y, maxY: b.maxY };
+  });
+  check(vault.stuck, "vault: attached to a short wall");
+  check(vault.state === "ground", `run past the top → ground (${vault.state})`);
+  check(near(vault.y, vault.maxY, 0.4), `vault lands at roof height (${vault.y.toFixed(2)} vs ${vault.maxY.toFixed(2)})`);
+
+  // ── 17) WALL SLIDE (gentle) ──
+  console.log("\n[17] wall slide");
+  const wsl = await page.evaluate(() => {
+    const H = window.__WEBGOAT__;
+    H.setTestDriving(true);
+    const bs = H.buildings();
+    const b = bs.find((x) => x.spine) || bs.reduce((a, c) => (c.maxY > a.maxY ? c : a));
+    const cz = (b.minZ + b.maxZ) / 2;
+    H.setPlayer(b.minX - 6, 25, cz, 12, 0, 0);
+    for (let i = 0; i < 30 && H.state !== "wall"; i++) H.stepPhysics(0.05);
+    const stuck = H.state === "wall";
+    H.stepPhysics(1.0);   // no input
+    return { stuck, vy: H.vel.vy, slide: H.TUNE.wallSlide, state: H.state };
+  });
+  check(wsl.stuck, "wall slide: attached");
+  check(Math.abs(wsl.vy) <= wsl.slide + 0.3, `slide is gentle: |vy| ≤ wallSlide+0.3 (${Math.abs(wsl.vy).toFixed(2)} ≤ ${(wsl.slide + 0.3).toFixed(2)})`);
+
+  // ── 18) WALL JUMP ──
+  console.log("\n[18] wall jump");
+  const wj = await page.evaluate(() => {
+    const H = window.__WEBGOAT__;
+    H.setTestDriving(true);
+    const bs = H.buildings();
+    const b = bs.find((x) => x.spine) || bs.reduce((a, c) => (c.maxY > a.maxY ? c : a));
+    const cz = (b.minZ + b.maxZ) / 2;
+    H.setPlayer(b.minX - 6, 20, cz, 12, 0, 0);
+    for (let i = 0; i < 30 && H.state !== "wall"; i++) H.stepPhysics(0.05);
+    const stuck = H.state === "wall", w = H.wall;
+    H.zipPress();   // Shift-context on a wall → wall jump
+    const v = H.vel;
+    return { stuck, state: H.state, alongNormal: w ? (v.vx * w.nx + v.vz * w.nz) : 0, vy: v.vy };
+  });
+  check(wj.stuck, "wall jump: attached first");
+  check(wj.state === "air", `wall jump → air (${wj.state})`);
+  check(wj.alongNormal > 0, `wall jump kicks along the outward normal (${wj.alongNormal.toFixed(2)})`);
+  check(wj.vy > 0, `wall jump adds upward velocity (${wj.vy.toFixed(2)})`);
+
+  // ── 19) WEB OFF A WALL (anchor not on the stuck face) ──
+  console.log("\n[19] web off a wall");
+  const wweb = await page.evaluate(() => {
+    const H = window.__WEBGOAT__;
+    H.setTestDriving(true);
+    const bs = H.buildings();
+    const faces = [{ nx: -1, nz: 0 }, { nx: 1, nz: 0 }, { nx: 0, nz: -1 }, { nx: 0, nz: 1 }];
+    const r = 0.5, c = Math.cos(45 * Math.PI / 180), s = Math.sin(45 * Math.PI / 180);
+    let found = null;
+    for (let bi = 0; bi < bs.length && !found; bi++) {
+      const b = bs[bi];
+      const midY = Math.min(b.maxY - 3, 16);
+      if (midY < 4) continue;
+      for (const f of faces) {
+        let px, pz;
+        if (f.nx === -1) { px = b.minX - r; pz = (b.minZ + b.maxZ) / 2; }
+        else if (f.nx === 1) { px = b.maxX + r; pz = (b.minZ + b.maxZ) / 2; }
+        else if (f.nz === -1) { pz = b.minZ - r; px = (b.minX + b.maxX) / 2; }
+        else { pz = b.maxZ + r; px = (b.minX + b.maxX) / 2; }
+        const a = H.pickAnchor(px, midY, pz, 0, 0, 0, { dir: { x: f.nx * c, y: s, z: f.nz * c }, exclude: { box: bi, nx: f.nx, nz: f.nz } });
+        if (a) { found = { bi, f, px, pz, midY }; break; }
+      }
+    }
+    if (!found) return { found: false };
+    const b = bs[found.bi], f = found.f, g = H.G.players.local;
+    g.x = found.px; g.y = found.midY; g.z = found.pz; g.vx = 0; g.vy = 0; g.vz = 0;
+    g.state = "wall"; g.wall = { nx: f.nx, nz: f.nz, box: found.bi }; g.anchor = null;
+    H.webPress();
+    const swung = H.state === "swing", anch = g.anchor;
+    const eps = 1e-3;
+    let onStuckFace = false;
+    if (anch) {
+      if (f.nx === -1) onStuckFace = Math.abs(anch.x - b.minX) < eps;
+      else if (f.nx === 1) onStuckFace = Math.abs(anch.x - b.maxX) < eps;
+      else if (f.nz === -1) onStuckFace = Math.abs(anch.z - b.minZ) < eps;
+      else onStuckFace = Math.abs(anch.z - b.maxZ) < eps;
+      if (onStuckFace) {
+        // only counts if the anchor is actually within that same face's span on THIS building
+        if (f.nx !== 0) onStuckFace = anch.z >= b.minZ - eps && anch.z <= b.maxZ + eps && anch.y <= b.maxY + eps;
+        else onStuckFace = anch.x >= b.minX - eps && anch.x <= b.maxX + eps && anch.y <= b.maxY + eps;
+      }
+    }
+    return { found: true, swung, onStuckFace };
+  });
+  check(wweb.found, "found a wall pose with a grapple-able taller building nearby");
+  check(wweb.swung, "Space on a wall → swing");
+  check(!wweb.onStuckFace, "anchor is NOT on the face the hero was stuck to");
+
+  // ── 20) SWINGING PAST A WALL NEVER STICKS ──
+  console.log("\n[20] swing-past-wall never sticks");
+  const nostick = await page.evaluate(() => {
+    const H = window.__WEBGOAT__;
+    H.setTestDriving(true);
+    const bs = H.buildings();
+    const b = bs.find((x) => x.spine) || bs.reduce((a, c) => (c.maxY > a.maxY ? c : a));
+    const cz = (b.minZ + b.maxZ) / 2, g = H.G.players.local;
+    g.x = b.minX - 3; g.y = Math.min(b.maxY - 4, 18); g.z = cz;
+    g.vx = 20; g.vy = 0; g.vz = 0;
+    g.state = "swing"; g.anchor = { x: b.minX - 3, y: g.y + 20, z: cz }; g.ropeLen = 20; g.wall = null;
+    let becameWall = false;
+    for (let i = 0; i < 40 && !becameWall; i++) { H.stepPhysics(0.05); if (H.state === "wall") becameWall = true; }
+    return { becameWall, state: H.state };
+  });
+  check(!nostick.becameWall, `a swing grazing a wall never becomes 'wall' (ended ${nostick.state})`);
+
   // ── 10) SCREENSHOTS ──
   console.log("\n[10] screenshots");
   if (!fs.existsSync(SHOTS)) fs.mkdirSync(SHOTS, { recursive: true });
@@ -380,11 +586,25 @@ async function main() {
   const groundShot = fs.statSync(path.join(SHOTS, "webgoat-w1-ground.png")).size;
   check(groundShot > 8000, `ground screenshot rendered (${groundShot} bytes)`);
 
+  // wall stick — fly the hero into a face and let it cling while the camera settles
+  await page.evaluate(() => {
+    const H = window.__WEBGOAT__;
+    H.setTestDriving(false);
+    const bs = H.buildings();
+    const b = bs.find((x) => x.spine) || bs.reduce((a, c) => (c.maxY > a.maxY ? c : a));
+    const cz = (b.minZ + b.maxZ) / 2;
+    H.setPlayer(b.minX - 6, Math.min(b.maxY - 6, 24), cz, 14, 0, 0);
+  });
+  await new Promise((r) => setTimeout(r, 1300));
+  await page.screenshot({ path: path.join(SHOTS, "webgoat-w15-wall.png") });
+  const wallShot = fs.statSync(path.join(SHOTS, "webgoat-w15-wall.png")).size;
+  check(wallShot > 8000, `wall-stick screenshot rendered (${wallShot} bytes)`);
+
   // ── 11) 0 pageerrors ──
   console.log("\n[11] errors");
   check(errors.length === 0, "0 pageerrors" + (errors.length ? ": " + errors.join("; ") : ""));
 
-  console.log("\nWeb Goat W1 verify: PASS (" + PASS + " checks)");
+  console.log("\nWeb Goat W1.5 verify: PASS (" + PASS + " checks)");
   await browser.close();
   if (server) server.kill();
   process.exit(0);
