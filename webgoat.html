@@ -37,11 +37,11 @@
   /* ── title ── */
   #title{
     position:absolute; inset:0; z-index:20;
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
-    /* translucent vignette — the orbiting hero + city show THROUGH behind the wordmark */
+    display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
+    /* translucent vignette — the orbiting hero + city show THROUGH below the wordmark/UI */
     background:
-      radial-gradient(ellipse at 50% 40%, rgba(15,26,48,.26), rgba(15,26,48,.64) 72%);
-    text-align:center; padding:24px 18px calc(var(--sab) + 24px);
+      radial-gradient(ellipse at 50% 30%, rgba(15,26,48,.26), rgba(15,26,48,.6) 78%);
+    text-align:center; padding:clamp(30px,9vh,90px) 18px calc(var(--sab) + 24px);
   }
   #title.hidden{ display:none; }
   .logo{
@@ -901,9 +901,9 @@
   function segGeo(rTop, rBot, len) { const g = new THREE.CylinderGeometry(rTop, rBot, len, 10); g.translate(0, -len / 2, 0); return g; }
   const HG = {
     head:    new THREE.SphereGeometry(0.30, 22, 18),
-    eye:     new THREE.SphereGeometry(0.15, 16, 12),
-    eyeBack: new THREE.SphereGeometry(0.165, 16, 12),
-    horn:    new THREE.ConeGeometry(0.055, 0.20, 10),
+    eye:     new THREE.SphereGeometry(0.093, 16, 12),
+    eyeBack: new THREE.SphereGeometry(0.1, 16, 12),
+    horn:    new THREE.ConeGeometry(0.08, 0.30, 10),
     ear:     new THREE.BoxGeometry(0.14, 0.07, 0.045),
     snout:   new THREE.SphereGeometry(0.12, 14, 12),
     torso:   new THREE.BoxGeometry(0.30, 0.34, 0.21),
@@ -961,18 +961,20 @@
     const head = new THREE.Mesh(HG.head, HM.suit);
     head.position.y = 0.20; head.scale.set(1.06, 0.94, 1.0); headRoot.add(head);
     function buildEye(sx) {
-      const g = new THREE.Group(); g.position.set(sx * 0.135, 0.255, 0.205);
-      g.rotation.z = -sx * 0.45; g.rotation.y = sx * 0.22;
-      const back = new THREE.Mesh(HG.eyeBack, HM.navy);
-      back.scale.set(1.0, 1.55, 0.5); back.position.z = -0.015; g.add(back);
+      // small angled teardrop lens fully on the FRONT hemisphere (invisible from behind)
+      const g = new THREE.Group(); g.position.set(sx * 0.125, 0.25, 0.24);
+      g.rotation.z = -sx * 0.42; g.rotation.y = sx * 0.16;
+      const back = new THREE.Mesh(HG.eyeBack, HM.navy);         // slim outline shell (~8% larger)
+      back.scale.set(1.0, 1.42, 0.42); back.position.z = -0.012; g.add(back);
       const lens = new THREE.Mesh(HG.eye, HM.lens);
-      lens.scale.set(1.0, 1.55, 0.55); g.add(lens);
+      lens.scale.set(1.0, 1.42, 0.46); g.add(lens);
       return g;
     }
     const eyeL = buildEye(-1), eyeR = buildEye(1); headRoot.add(eyeL, eyeR);
     function buildHorn(sx) {
+      // chunky cream horns, clearly visible from the front, curving back/outward
       const h = new THREE.Mesh(HG.horn, HM.cream);
-      h.position.set(sx * 0.105, 0.47, 0.0); h.rotation.z = -sx * 0.34; h.rotation.x = -0.16; return h;
+      h.position.set(sx * 0.145, 0.52, -0.02); h.rotation.z = -sx * 0.5; h.rotation.x = -0.3; return h;
     }
     const hornL = buildHorn(-1), hornR = buildHorn(1); headRoot.add(hornL, hornR);
     function buildEar(sx) {
@@ -981,7 +983,8 @@
     }
     const earL = buildEar(-1), earR = buildEar(1); headRoot.add(earL, earR);
     const snout = new THREE.Mesh(HG.snout, HM.suit);
-    snout.position.set(0, 0.055, 0.275); snout.scale.set(1.15, 0.72, 0.85); headRoot.add(snout);
+    // subtle muzzle bump — ≤ ~30% head width, low on the face, slight protrusion
+    snout.position.set(0, 0.05, 0.27); snout.scale.set(0.78, 0.5, 0.55); headRoot.add(snout);
 
     return {
       root, bodyPivot, hips, chest, headRoot, head, torso,
@@ -1344,10 +1347,11 @@
   function titleCamera(dt) {
     titleT += dt;
     const a = titleT * 0.2;                             // slow orbit around the spawn hero
-    const R = 9, p = G.players.local;
-    camera.position.set(p.x + Math.cos(a) * R, p.y + 3.0, p.z + Math.sin(a) * R);
+    const R = 7.5, p = G.players.local;
+    camera.position.set(p.x + Math.cos(a) * R, p.y + 2.4, p.z + Math.sin(a) * R);
     camera.up.set(0, 1, 0);
-    camera.lookAt(p.x, p.y + 1.0, p.z);
+    // look-at raised above the hero → the hero renders in the LOWER third, clear of the UI
+    camera.lookAt(p.x, p.y + 3.4, p.z);
     if (Math.abs(camera.fov - TUNE.fovBase) > 0.01) { camera.fov = TUNE.fovBase; camera.updateProjectionMatrix(); }
   }
   let acc = 0, lastT = performance.now();
@@ -1571,18 +1575,24 @@
       p.state = "wall"; p.wall = { nx: -1, nz: 0, box: CITY.indexOf(b) };
       p.heading = Math.atan2(0, -1);
     }
-    // pre-warm the pose so limbs are settled before the fixed camera frames the hero
-    syncHero(0.05);
+    // pre-warm the pose so limbs are settled before the fixed camera frames the hero;
+    // yaw is set EXACTLY (no lerp) so the camera's 3/4-front framing is guaranteed
+    heroRoot.position.set(p.x, p.y, p.z);
+    heroRoot.rotation.y = (p.state === "wall" && p.wall)
+      ? (-Math.atan2(p.wall.nz, p.wall.nx) + Math.PI / 2)
+      : (-p.heading + Math.PI / 2);
     for (let i = 0; i < 40; i++) { poseHero(0.05); }
     heroRoot.updateMatrixWorld(true);
     // fixed camera: slightly below, 3/4 front
     const rot = -p.heading + Math.PI / 2;
     const fx = Math.sin(rot), fz = Math.cos(rot);       // hero forward (world)
     const rx = Math.cos(rot), rz = -Math.sin(rot);      // hero right (world)
-    const dist = (pose === "wall") ? 3.7 : 2.6, side = (pose === "wall") ? 1.5 : 1.1;
+    const dist = (pose === "wall") ? 3.7 : (pose === "zip") ? 3.4 : 2.6;
+    const side = (pose === "wall") ? 1.5 : 1.1;
+    const lookY = (pose === "zip") ? 0.5 : 1.0;
     camera.up.set(0, 1, 0);
-    camera.position.set(p.x + fx * dist + rx * side, p.y + 0.7, p.z + fz * dist + rz * side);
-    camera.lookAt(p.x, p.y + 1.0, p.z);
+    camera.position.set(p.x + fx * dist + rx * side, p.y + lookY - 0.3, p.z + fz * dist + rz * side);
+    camera.lookAt(p.x, p.y + lookY, p.z);
     camera.fov = TUNE.fovBase; camera.updateProjectionMatrix();
     camPos.copy(camera.position);
   }
