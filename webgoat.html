@@ -38,20 +38,23 @@
   #title{
     position:absolute; inset:0; z-index:20;
     display:flex; flex-direction:column; align-items:center; justify-content:center;
+    /* translucent vignette — the orbiting hero + city show THROUGH behind the wordmark */
     background:
-      radial-gradient(ellipse at 50% 18%, rgba(255,255,255,.4), transparent 55%),
-      linear-gradient(180deg,#5f9fd6 0%,#9cc7ea 55%,#c9d7e6 100%);
+      radial-gradient(ellipse at 50% 40%, rgba(15,26,48,.26), rgba(15,26,48,.64) 72%);
     text-align:center; padding:24px 18px calc(var(--sab) + 24px);
   }
   #title.hidden{ display:none; }
   .logo{
-    font-size:clamp(46px,13vw,82px); font-weight:900; letter-spacing:1px;
-    color:#fff; text-shadow:0 3px 0 var(--navy-d),0 8px 18px rgba(0,0,0,.35);
-    margin:0 0 4px;
+    font-size:clamp(54px,15vw,98px); font-weight:900; letter-spacing:1.5px;
+    color:#e23b4a; transform:skewX(-6deg);
+    -webkit-text-stroke:2px #12203c;
+    text-shadow:0 3px 0 #12203c, 0 6px 0 rgba(18,32,60,.55), 0 16px 28px rgba(0,0,0,.5);
+    margin:0 0 6px;
   }
   .sub{
-    margin:0 0 22px; font-size:15px; font-weight:700; color:var(--navy);
-    background:rgba(255,255,255,.66); padding:6px 14px; border-radius:999px;
+    margin:0 0 22px; font-size:16px; font-weight:800; color:#fff;
+    background:rgba(186,48,62,.85); padding:7px 16px; border-radius:999px;
+    box-shadow:0 3px 10px rgba(0,0,0,.3);
   }
   .playBtn{
     appearance:none; border:0; cursor:pointer;
@@ -62,7 +65,8 @@
   .playBtn:active{ transform:translateY(2px); box-shadow:0 2px 0 var(--red-d),0 6px 14px rgba(0,0,0,.2); }
   .hint{
     margin-top:18px; max-width:340px; font-size:13.5px; line-height:1.5;
-    color:var(--navy-d); font-weight:600; opacity:.92;
+    color:#e6eefc; font-weight:600;
+    text-shadow:0 1px 3px rgba(0,0,0,.6);
   }
 
   /* ── HUD ── */
@@ -838,38 +842,244 @@
     scene.add(gm);
   }
 
-  // ── placeholder hero (chibi is Stage W2 — this just reads position/orientation) ──
-  const hero = new THREE.Group();
-  {
-    const red = new THREE.MeshLambertMaterial({ color: 0xba303e });
-    const white = new THREE.MeshLambertMaterial({ color: 0xffffff });
-    // body ~0.66 m tall, head ~0.54 m sphere (≈45% of ~1.2 m total)
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 0.66, 12), red);
-    body.position.y = 0.33; hero.add(body);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 16, 14), red);
-    head.position.y = 0.9; hero.add(head);
-    const eyeGeo = new THREE.SphereGeometry(0.08, 10, 8);
-    const eL = new THREE.Mesh(eyeGeo, white); eL.scale.z = 0.4; eL.position.set(-0.1, 0.95, 0.23); hero.add(eL);
-    const eR = new THREE.Mesh(eyeGeo, white); eR.scale.z = 0.4; eR.position.set(0.1, 0.95, 0.23); hero.add(eR);
-    const pupGeo = new THREE.SphereGeometry(0.035, 8, 6);
-    const dark = new THREE.MeshLambertMaterial({ color: 0x18233b });
-    const pL = new THREE.Mesh(pupGeo, dark); pL.position.set(-0.1, 0.95, 0.28); hero.add(pL);
-    const pR = new THREE.Mesh(pupGeo, dark); pR.position.set(0.1, 0.95, 0.28); hero.add(pR);
+  // ── chibi goat hero (Stage W2) ──────────────────────────────────────────────
+  //  Named-group hierarchy; all geometry + materials hoisted (created ONCE).
+  //  Pose is applied per-frame in poseHero(); nothing here is per-frame allocated.
+  const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _e = new THREE.Euler();
+  const _va = new THREE.Vector3(), _vb = new THREE.Vector3(), _vc = new THREE.Vector3();
+  const _NEGY = new THREE.Vector3(0, -1, 0), _UP = new THREE.Vector3(0, 1, 0);
+  const _STREAKAXIS = new THREE.Vector3(0, 0, 1);
+  function lerpRot(o, x, y, z, k) {
+    o.rotation.x += (x - o.rotation.x) * k;
+    o.rotation.y += (y - o.rotation.y) * k;
+    o.rotation.z += (z - o.rotation.z) * k;
   }
-  scene.add(hero);
+  function easeOutBack(t) { const c = 1.70158; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); }
 
-  // ── web rope + anchor marker ──
-  const ropeGeo = new THREE.BufferGeometry();
-  ropeGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(6), 3));
-  const rope = new THREE.Line(ropeGeo, new THREE.LineBasicMaterial({ color: 0xffffff }));
-  rope.visible = false; rope.frustumCulled = false;
-  scene.add(rope);
-  const anchorMark = new THREE.Mesh(
-    new THREE.SphereGeometry(0.35, 10, 8),
-    new THREE.MeshBasicMaterial({ color: 0xffffff })
-  );
-  anchorMark.visible = false;
-  scene.add(anchorMark);
+  // hero materials
+  const HM = {
+    suit:  new THREE.MeshLambertMaterial({ color: 0xba303e }),
+    navy:  new THREE.MeshLambertMaterial({ color: 0x233357 }),
+    cream: new THREE.MeshLambertMaterial({ color: 0xe8ddc8 }),
+    lens:  new THREE.MeshBasicMaterial({ color: 0xffffff }),
+    dark:  new THREE.MeshLambertMaterial({ color: 0x11182b })
+  };
+  function makeTorsoTexture() {
+    const cv = document.createElement("canvas"); cv.width = cv.height = 256;
+    const x = cv.getContext("2d");
+    x.fillStyle = "#ba303e"; x.fillRect(0, 0, 256, 256);
+    const cx = 128, cy = 92;
+    x.strokeStyle = "rgba(84,14,20,0.9)"; x.lineWidth = 2;
+    for (let i = 0; i < 12; i++) {                      // radial web strands
+      const a = (i / 12) * Math.PI * 2;
+      x.beginPath(); x.moveTo(cx, cy);
+      x.lineTo(cx + Math.cos(a) * 190, cy + Math.sin(a) * 210); x.stroke();
+    }
+    for (let r = 22; r <= 150; r += 26) {               // concentric web arcs
+      x.beginPath();
+      for (let i = 0; i <= 24; i++) {
+        const a = (i / 24) * Math.PI * 2;
+        const px = cx + Math.cos(a) * r, py = cy + Math.sin(a) * r * 1.08;
+        if (i === 0) x.moveTo(px, py); else x.lineTo(px, py);
+      }
+      x.closePath(); x.stroke();
+    }
+    // navy goat-head emblem low on the chest
+    const ex = 128, ey = 188;
+    x.fillStyle = "#233357";
+    x.beginPath(); x.ellipse(ex, ey + 2, 24, 28, 0, 0, Math.PI * 2); x.fill();  // face
+    x.beginPath(); x.moveTo(ex - 20, ey - 16); x.lineTo(ex - 40, ey - 46); x.lineTo(ex - 8, ey - 24); x.closePath(); x.fill(); // horn L
+    x.beginPath(); x.moveTo(ex + 20, ey - 16); x.lineTo(ex + 40, ey - 46); x.lineTo(ex + 8, ey - 24); x.closePath(); x.fill(); // horn R
+    x.fillStyle = "#e8ddc8";
+    x.beginPath(); x.ellipse(ex, ey + 18, 8, 12, 0, 0, Math.PI * 2); x.fill();  // cream beard
+    const tex = new THREE.CanvasTexture(cv);
+    return tex;
+  }
+  HM.torso = new THREE.MeshLambertMaterial({ map: makeTorsoTexture() });
+
+  // hero geometry (pivot-at-top segments hang along -Y)
+  function segGeo(rTop, rBot, len) { const g = new THREE.CylinderGeometry(rTop, rBot, len, 10); g.translate(0, -len / 2, 0); return g; }
+  const HG = {
+    head:    new THREE.SphereGeometry(0.30, 22, 18),
+    eye:     new THREE.SphereGeometry(0.15, 16, 12),
+    eyeBack: new THREE.SphereGeometry(0.165, 16, 12),
+    horn:    new THREE.ConeGeometry(0.055, 0.20, 10),
+    ear:     new THREE.BoxGeometry(0.14, 0.07, 0.045),
+    snout:   new THREE.SphereGeometry(0.12, 14, 12),
+    torso:   new THREE.BoxGeometry(0.30, 0.34, 0.21),
+    belly:   new THREE.BoxGeometry(0.19, 0.26, 0.03),
+    thigh:   segGeo(0.055, 0.05, 0.19),
+    shin:    segGeo(0.05, 0.04, 0.17),
+    boot:    new THREE.BoxGeometry(0.115, 0.085, 0.17),
+    uarm:    segGeo(0.05, 0.045, 0.14),
+    farm:    segGeo(0.045, 0.04, 0.13),
+    hand:    new THREE.SphereGeometry(0.075, 12, 10),
+    tail:    new THREE.SphereGeometry(0.05, 8, 8)
+  };
+
+  function buildWebGoat() {
+    const root = new THREE.Group(); root.name = "heroRoot";
+    const bodyPivot = new THREE.Group(); root.add(bodyPivot);
+
+    // hips + skinny legs
+    const hips = new THREE.Group(); hips.position.y = 0.42; bodyPivot.add(hips);
+    function buildLeg(sx) {
+      const leg = new THREE.Group(); leg.position.set(sx * 0.085, 0, 0);
+      leg.add(new THREE.Mesh(HG.thigh, HM.suit));
+      const shin = new THREE.Group(); shin.position.y = -0.19; leg.add(shin);
+      shin.add(new THREE.Mesh(HG.shin, HM.suit));
+      const boot = new THREE.Mesh(HG.boot, HM.navy); boot.position.set(0, -0.17, 0.02); shin.add(boot);
+      return { leg, shin };
+    }
+    const L = buildLeg(-1), R = buildLeg(1);
+    hips.add(L.leg, R.leg);
+    const tailNub = new THREE.Mesh(HG.tail, HM.cream); tailNub.position.set(0, 0.05, -0.13); hips.add(tailNub);
+
+    // chest + tiny torso + skinny arms
+    const chest = new THREE.Group(); chest.position.y = 0.42; bodyPivot.add(chest);
+    const torso = new THREE.Mesh(HG.torso, HM.torso); torso.position.y = 0.15; chest.add(torso);
+    // slim navy side panels (leave the chest web + emblem texture readable up front)
+    for (const sx of [-1, 1]) {
+      const side = new THREE.Mesh(HG.belly, HM.navy);
+      side.position.set(sx * 0.145, 0.14, 0); side.rotation.y = sx * Math.PI / 2;
+      chest.add(side);
+    }
+    function buildArm(sx) {
+      const arm = new THREE.Group(); arm.position.set(sx * 0.17, 0.28, 0);
+      arm.add(new THREE.Mesh(HG.uarm, HM.navy));
+      const fore = new THREE.Group(); fore.position.y = -0.14; arm.add(fore);
+      fore.add(new THREE.Mesh(HG.farm, HM.suit));
+      const hand = new THREE.Group(); hand.position.y = -0.13; fore.add(hand);
+      const glove = new THREE.Mesh(HG.hand, HM.suit); glove.scale.set(1.2, 1.05, 1.2); hand.add(glove);
+      return { arm, fore, hand };
+    }
+    const AL = buildArm(-1), AR = buildArm(1);
+    chest.add(AL.arm, AR.arm);
+
+    // big chibi head
+    const headRoot = new THREE.Group(); headRoot.position.y = 0.76; bodyPivot.add(headRoot);
+    const head = new THREE.Mesh(HG.head, HM.suit);
+    head.position.y = 0.20; head.scale.set(1.06, 0.94, 1.0); headRoot.add(head);
+    function buildEye(sx) {
+      const g = new THREE.Group(); g.position.set(sx * 0.135, 0.255, 0.205);
+      g.rotation.z = -sx * 0.45; g.rotation.y = sx * 0.22;
+      const back = new THREE.Mesh(HG.eyeBack, HM.navy);
+      back.scale.set(1.0, 1.55, 0.5); back.position.z = -0.015; g.add(back);
+      const lens = new THREE.Mesh(HG.eye, HM.lens);
+      lens.scale.set(1.0, 1.55, 0.55); g.add(lens);
+      return g;
+    }
+    const eyeL = buildEye(-1), eyeR = buildEye(1); headRoot.add(eyeL, eyeR);
+    function buildHorn(sx) {
+      const h = new THREE.Mesh(HG.horn, HM.cream);
+      h.position.set(sx * 0.105, 0.47, 0.0); h.rotation.z = -sx * 0.34; h.rotation.x = -0.16; return h;
+    }
+    const hornL = buildHorn(-1), hornR = buildHorn(1); headRoot.add(hornL, hornR);
+    function buildEar(sx) {
+      const e = new THREE.Mesh(HG.ear, HM.navy);
+      e.position.set(sx * 0.285, 0.17, -0.02); e.rotation.z = sx * 0.4; return e;
+    }
+    const earL = buildEar(-1), earR = buildEar(1); headRoot.add(earL, earR);
+    const snout = new THREE.Mesh(HG.snout, HM.suit);
+    snout.position.set(0, 0.055, 0.275); snout.scale.set(1.15, 0.72, 0.85); headRoot.add(snout);
+
+    return {
+      root, bodyPivot, hips, chest, headRoot, head, torso,
+      legL: L.leg, legR: R.leg, shinL: L.shin, shinR: R.shin,
+      armL: AL.arm, armR: AR.arm, foreL: AL.fore, foreR: AR.fore, handL: AL.hand, handR: AR.hand,
+      eyeL, eyeR, hornL, hornR, earL, earR, snout, tailNub
+    };
+  }
+  const hero = buildWebGoat();
+  const heroRoot = hero.root;
+  scene.add(heroRoot);
+  // rest metrics (pose-independent — measured before any posing)
+  heroRoot.updateMatrixWorld(true);
+  let HERO_TOTAL = 1.3, HERO_HEADDIAM = 0.6;
+  {
+    const rb = new THREE.Box3().setFromObject(heroRoot);
+    HERO_TOTAL = rb.max.y - rb.min.y;
+    const hb = new THREE.Box3().setFromObject(hero.head);
+    HERO_HEADDIAM = Math.max(hb.max.x - hb.min.x, hb.max.z - hb.min.z);
+  }
+  // seat the hero on the spawn rooftop so it reads on the title screen
+  Object.assign(G.players.local, { x: SPAWN.x, y: SPAWN.y, z: SPAWN.z, state: "ground" });
+
+  // ── web rope (3 parallel lines w/ sag) + anchor splat ──
+  const ROPE_N = 12;
+  const ropeGroup = new THREE.Group(); ropeGroup.visible = false; scene.add(ropeGroup);
+  const ropeLines = [];
+  for (let li = 0; li < 3; li++) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(ROPE_N * 3), 3));
+    const line = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 }));
+    line.frustumCulled = false; ropeGroup.add(line); ropeLines.push(line);
+  }
+  const _ropeStart = new THREE.Vector3();
+  function makeStarTexture() {
+    const cv = document.createElement("canvas"); cv.width = cv.height = 64;
+    const x = cv.getContext("2d"); x.translate(32, 32);
+    x.fillStyle = "rgba(255,255,255,0.96)";
+    x.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2 - Math.PI / 2, r = (i % 2 === 0) ? 30 : 12;
+      const px = Math.cos(a) * r, py = Math.sin(a) * r;
+      if (i === 0) x.moveTo(px, py); else x.lineTo(px, py);
+    }
+    x.closePath(); x.fill();
+    return new THREE.CanvasTexture(cv);
+  }
+  const splatSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: makeStarTexture(), transparent: true, depthWrite: false }));
+  splatSprite.scale.set(0.8, 0.8, 0.8); splatSprite.visible = false; scene.add(splatSprite);
+  let splatT = 0, lastSplatAnchor = null;
+
+  // ── landing / wall-run dust pool ──
+  function makePuffTexture() {
+    const cv = document.createElement("canvas"); cv.width = cv.height = 64;
+    const x = cv.getContext("2d");
+    const g = x.createRadialGradient(32, 32, 2, 32, 32, 30);
+    g.addColorStop(0, "rgba(255,255,255,0.95)");
+    g.addColorStop(0.5, "rgba(226,230,238,0.6)");
+    g.addColorStop(1, "rgba(210,214,222,0)");
+    x.fillStyle = g; x.fillRect(0, 0, 64, 64);
+    return new THREE.CanvasTexture(cv);
+  }
+  const PUFF_TEX = makePuffTexture();
+  const DUST = [];
+  for (let i = 0; i < 16; i++) {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: PUFF_TEX, transparent: true, opacity: 0, depthWrite: false }));
+    s.visible = false; scene.add(s);
+    DUST.push({ s, life: 0, max: 0.4, vx: 0, vy: 0, vz: 0, scale: 0.5 });
+  }
+  function spawnDust(x, y, z, n, scale, spread) {
+    let c = 0;
+    for (const d of DUST) {
+      if (d.s.visible) continue;
+      d.s.visible = true; d.life = 0; d.max = 0.4 + Math.random() * 0.15;
+      const a = Math.random() * Math.PI * 2, sp = (0.4 + Math.random() * 0.8) * (spread || 1);
+      d.vx = Math.cos(a) * sp; d.vz = Math.sin(a) * sp; d.vy = 0.6 + Math.random() * 0.8;
+      d.scale = scale * (0.7 + Math.random() * 0.6);
+      d.s.position.set(x + Math.cos(a) * 0.15, y, z + Math.sin(a) * 0.15);
+      d.s.material.opacity = 0.75; d.s.scale.setScalar(d.scale);
+      if (++c >= n) break;
+    }
+  }
+  let prevState = "ground", prevVy = 0, wallDustT = 0;
+
+  // ── speed streaks (few additive lines trailing velocity) ──
+  const streakGeo = new THREE.BufferGeometry();
+  {
+    const NS = 6, arr = new Float32Array(NS * 2 * 3);
+    for (let i = 0; i < NS; i++) {
+      const ox = (Math.random() - 0.5) * 1.6, oy = (Math.random() - 0.5) * 1.2, len = 1.2 + Math.random() * 1.2;
+      arr[i * 6 + 0] = ox; arr[i * 6 + 1] = oy; arr[i * 6 + 2] = 0;
+      arr[i * 6 + 3] = ox; arr[i * 6 + 4] = oy; arr[i * 6 + 5] = -len;
+    }
+    streakGeo.setAttribute("position", new THREE.BufferAttribute(arr, 3));
+  }
+  const streaks = new THREE.LineSegments(streakGeo,
+    new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+  streaks.frustumCulled = false; streaks.visible = false; scene.add(streaks);
 
   // ───────────────────────────────────────────────────────────────────────────
   //  CAMERA  (third-person chase)
@@ -883,10 +1093,12 @@
     camera.position.copy(camPos);
     camera.lookAt(p.x + yawDirx * 2, p.y + 1.5, p.z + yawDirz * 2);
   }
+  let camRoll = 0;
   function updateCamera(dt) {
     const p = G.players.local;
     const hsp = Math.hypot(p.vx, p.vz);
     const targetYaw = (hsp > 3) ? Math.atan2(p.vz, p.vx) : p.heading;
+    const prevYaw = camYaw;
     camYaw = angLerp(camYaw, targetYaw, 1 - Math.exp(-4 * dt));
     const yawDirx = Math.cos(camYaw), yawDirz = Math.sin(camYaw);
     const goalx = p.x - yawDirx * TUNE.camDist;
@@ -900,6 +1112,14 @@
     if (camPos.y < 1) camPos.y = 1;
     camera.position.copy(camPos);
     camera.lookAt(p.x + yawDirx * 2, p.y + 1.5, p.z + yawDirz * 2);
+    // subtle roll into a horizontal turn while swinging
+    let dYaw = camYaw - prevYaw;
+    while (dYaw > Math.PI) dYaw -= 2 * Math.PI;
+    while (dYaw < -Math.PI) dYaw += 2 * Math.PI;
+    const rollTarget = (p.state === "swing" && dt > 1e-4)
+      ? clamp(dYaw / dt * 0.06, -0.06, 0.06) : 0;
+    camRoll += (rollTarget - camRoll) * (1 - Math.exp(-6 * dt));
+    if (Math.abs(camRoll) > 1e-4) camera.rotateZ(camRoll);
     // FOV kicks with speed
     const sp = Math.hypot(p.vx, p.vy, p.vz);
     const targetFov = TUNE.fovBase + TUNE.fovKick * clamp(sp / TUNE.maxSpeed, 0, 1);
@@ -907,30 +1127,203 @@
     if (Math.abs(camera.fov - camFov) > 0.01) { camera.fov = camFov; camera.updateProjectionMatrix(); }
   }
 
-  // ── per-frame mesh sync from G ──
-  function syncMeshes() {
+  // ── per-frame hero placement (position + heading yaw) ──
+  function syncHero(dt) {
     const p = G.players.local;
-    hero.position.set(p.x, p.y, p.z);
+    heroRoot.position.set(p.x, p.y, p.z);
+    let yaw;
     if (p.state === "wall" && p.wall) {
-      // back to the wall: face along the outward normal, lean toward travel
-      const nAng = Math.atan2(p.wall.nz, p.wall.nx);
-      hero.rotation.y = -nAng + Math.PI / 2;
+      const nAng = Math.atan2(p.wall.nz, p.wall.nx);   // back to the wall (face along outward normal)
+      yaw = -nAng + Math.PI / 2;
     } else {
-      hero.rotation.y = -p.heading + Math.PI / 2;
+      yaw = -p.heading + Math.PI / 2;
     }
-    // squash while winding up a super-jump; snap back on launch
-    hero.scale.y = charge.active ? (1 - 0.25 * clamp(charge.t / TUNE.superJumpChargeT, 0, 1)) : 1;
-    const swinging = (p.state === "swing" && p.anchor);
-    rope.visible = !!swinging;
-    anchorMark.visible = !!swinging;
-    if (swinging) {
-      const a = p.anchor;
-      const pos = rope.geometry.attributes.position;
-      pos.setXYZ(0, p.x, p.y + 0.5, p.z);
-      pos.setXYZ(1, a.x, a.y, a.z);
+    heroRoot.rotation.y = angLerp(heroRoot.rotation.y, yaw, 1 - Math.exp(-12 * dt));
+  }
+
+  // ── state-driven pose (runs AFTER physics, BEFORE rope + camera) ──
+  let poseTime = 0, ropeSide = -1, lastAnchorRef = null;
+  function targetArm(arm, x, y, z, k) { _e.set(x, y, z); _q.setFromEuler(_e); arm.quaternion.slerp(_q, k); }
+  function poseHero(dt) {
+    const p = G.players.local;
+    const k = 1 - Math.exp(-10 * dt);
+    poseTime += dt; const t = poseTime;
+    const hsp = Math.hypot(p.vx, p.vz);
+
+    let pose = p.state;
+    if (charge.active) pose = "charge";
+    else if (p.state === "ground") pose = (hsp < 0.5) ? "idle" : "run";
+
+    // pose targets (defaults ≈ relaxed idle)
+    let crouch = 0, legLx = 0, legRx = 0, shinLx = 0.05, shinRx = 0.05;
+    let foreLx = 0.12, foreRx = 0.12, headX = 0, headY = 0, torsoSy = 1;
+    let armLe = [0, 0, 0.14], armRe = [0, 0, -0.14];
+    _q2.identity();                                   // bodyPivot target (identity = upright)
+
+    if (pose === "idle") {
+      torsoSy = 1 + Math.sin(t * 1.6) * 0.02;         // breathe
+      headY = Math.sin(t * 0.5) * 0.35;               // slow look-around
+      armLe = [0.05, 0, 0.13]; armRe = [0.05, 0, -0.13];
+    } else if (pose === "run") {
+      const freq = clamp(hsp / TUNE.runSpeed, 0.2, 1.4) * 2.2;
+      const ph = t * freq * Math.PI * 2;
+      legLx = Math.sin(ph) * 0.8; legRx = Math.sin(ph + Math.PI) * 0.8;
+      shinLx = clamp(-Math.cos(ph), 0, 1) * 0.8 + 0.1; shinRx = clamp(-Math.cos(ph + Math.PI), 0, 1) * 0.8 + 0.1;
+      armLe = [Math.sin(ph + Math.PI) * 0.75, 0, 0.15]; armRe = [Math.sin(ph) * 0.75, 0, -0.15];
+      foreLx = 0.55; foreRx = 0.55;
+      _q2.setFromEuler(_e.set(0.26 + Math.sin(ph * 2) * 0.03, 0, 0));   // forward lean + bob
+    } else if (pose === "charge") {
+      const c = clamp(charge.t / TUNE.superJumpChargeT, 0, 1);
+      crouch = -0.15 * c;
+      legLx = 0.75 * c; legRx = 0.75 * c; shinLx = 1.1 * c; shinRx = 1.1 * c;
+      armLe = [1.3 * c, 0, 0.45 * c]; armRe = [1.3 * c, 0, -0.45 * c];   // swept back
+      headX = -0.32 * c;                               // head tilts up
+      _q2.setFromEuler(_e.set(-0.12 * c, 0, 0));
+    } else if (pose === "wall") {
+      const climbing = hsp > 1 || Math.abs(p.vy) > 1;
+      if (climbing) {
+        const ph = t * 7;
+        armLe = [-1.5 + Math.sin(ph) * 0.7, 0, 0.3]; armRe = [-1.5 + Math.sin(ph + Math.PI) * 0.7, 0, -0.3];
+        legLx = Math.sin(ph + Math.PI) * 0.5 - 0.2; legRx = Math.sin(ph) * 0.5 - 0.2;
+        shinLx = 0.5; shinRx = 0.5;
+      } else {
+        armLe = [-1.75, 0, 0.4]; armRe = [-0.95, 0, -0.3];              // one hand gripping high
+        legLx = 0.35; legRx = 0.55; shinLx = 0.9; shinRx = 1.1; crouch = -0.06;
+      }
+      headX = 0.12;
+      _q2.setFromEuler(_e.set(-0.26, 0, 0));           // tip back toward the wall
+    } else if (p.state === "swing" && p.anchor) {
+      // signature: up-axis slerped ~0.7 toward the rope direction
+      _va.set(p.anchor.x - p.x, p.anchor.y - p.y, p.anchor.z - p.z);
+      if (_va.lengthSq() > 1e-6) {
+        _va.normalize();
+        const Y = heroRoot.rotation.y, ca = Math.cos(-Y), sa = Math.sin(-Y);
+        _vb.set(_va.x * ca + _va.z * sa, _va.y, -_va.x * sa + _va.z * ca).normalize();
+        _q.setFromUnitVectors(_UP, _vb);
+        _q2.identity().slerp(_q, 0.7);
+      }
+      legLx = -0.55; legRx = -0.5; shinLx = 0.45; shinRx = 0.4;         // legs together, trailing
+      foreLx = 0.2; foreRx = 0.2; headX = 0.12;
+      armLe = [0.55, 0, 0.15]; armRe = [0.55, 0, -0.15];                // both trail back (rope arm aimed below)
+    } else if (p.state === "zip") {
+      armLe = [-1.6, 0, 0.12]; armRe = [-1.6, 0, -0.12];                // both arms forward
+      foreLx = 0.02; foreRx = 0.02; legLx = 0.15; legRx = 0.15; shinLx = 0.05; shinRx = 0.05;
+      headX = -0.35;
+      _q2.setFromEuler(_e.set(1.25, 0, 0));            // body horizontal, superman
+    } else {
+      // freefall
+      const flail = Math.sin(t * 7) * 0.25;
+      if (p.vy > 4) {                                  // rising after a super jump → superman-lite
+        armLe = [-1.6, 0, 0.12]; armRe = [-1.6, 0, -0.12];
+        legLx = -0.2; legRx = -0.2; shinLx = 0.2; shinRx = 0.2;
+        _q2.setFromEuler(_e.set(0.2, 0, 0));
+      } else {                                         // spread + gentle seeded flail
+        armLe = [-0.9 + flail, 0, 0.85]; armRe = [-0.9 - flail, 0, -0.85];
+        legLx = 0.5 + flail * 0.5; legRx = 0.5 - flail * 0.5; shinLx = 0.5; shinRx = 0.5;
+        const dive = clamp((-p.vy - 8) / 20, 0, 1);
+        _q2.setFromEuler(_e.set(0.3 + dive * 0.9, 0, 0));
+      }
+    }
+
+    // apply (all lerped toward targets at ~10/s)
+    hero.hips.position.y += (0.42 + crouch - hero.hips.position.y) * k;
+    hero.chest.position.y += (0.42 + crouch - hero.chest.position.y) * k;
+    hero.headRoot.position.y += (0.76 + crouch - hero.headRoot.position.y) * k;
+    lerpRot(hero.legL, legLx, 0, 0, k); lerpRot(hero.legR, legRx, 0, 0, k);
+    lerpRot(hero.shinL, shinLx, 0, 0, k); lerpRot(hero.shinR, shinRx, 0, 0, k);
+    lerpRot(hero.foreL, foreLx, 0, 0, k); lerpRot(hero.foreR, foreRx, 0, 0, k);
+    hero.head.rotation.x += (headX - hero.head.rotation.x) * k;
+    hero.headRoot.rotation.y += (headY - hero.headRoot.rotation.y) * k;
+    hero.torso.scale.y += (torsoSy - hero.torso.scale.y) * k;
+    const tw = (Math.sin(t * 0.7) > 0.96) ? 0.55 : 0;  // occasional ear twitch (time-gated)
+    lerpRot(hero.earL, 0, 0, 0.4 + tw, k); lerpRot(hero.earR, 0, 0, -0.4 - tw, k);
+    hero.bodyPivot.quaternion.slerp(_q2, k);
+    targetArm(hero.armL, armLe[0], armLe[1], armLe[2], k);
+    targetArm(hero.armR, armRe[0], armRe[1], armRe[2], k);
+
+    // rope-side arm points EXACTLY along shoulder→anchor while swinging (sticky side per attach)
+    if (p.state === "swing" && p.anchor) {
+      if (p.anchor !== lastAnchorRef) {
+        lastAnchorRef = p.anchor;
+        heroRoot.updateMatrixWorld(true);
+        hero.armL.getWorldPosition(_va); hero.armR.getWorldPosition(_vb);
+        _vc.set(p.anchor.x, p.anchor.y, p.anchor.z);
+        ropeSide = (_va.distanceToSquared(_vc) <= _vb.distanceToSquared(_vc)) ? -1 : 1;
+      }
+      const arm = (ropeSide < 0) ? hero.armL : hero.armR;
+      hero.chest.updateMatrixWorld(true);
+      _va.set(p.anchor.x, p.anchor.y, p.anchor.z);
+      hero.chest.worldToLocal(_va);
+      _vb.copy(_va).sub(arm.position);
+      if (_vb.lengthSq() > 1e-6) { _vb.normalize(); _q.setFromUnitVectors(_NEGY, _vb); arm.quaternion.slerp(_q, k); }
+    } else {
+      lastAnchorRef = null;
+    }
+  }
+
+  // ── web rope from the posed hand + anchor splat ──
+  function updateRope() {
+    const p = G.players.local;
+    const swinging = p.state === "swing" && p.anchor;
+    ropeGroup.visible = !!swinging; splatSprite.visible = !!swinging;
+    if (!swinging) { lastSplatAnchor = null; return; }
+    if (p.anchor !== lastSplatAnchor) { lastSplatAnchor = p.anchor; splatT = 0; }
+    heroRoot.updateMatrixWorld(true);
+    (ropeSide < 0 ? hero.handL : hero.handR).getWorldPosition(_ropeStart);
+    const a = p.anchor;
+    const dist = Math.hypot(p.x - a.x, p.y - a.y, p.z - a.z);
+    const slack = clamp((p.ropeLen - dist) / Math.max(0.001, p.ropeLen), 0, 1);
+    const sag = slack * Math.min(2.5, p.ropeLen * 0.12);
+    for (let li = 0; li < ropeLines.length; li++) {
+      const pos = ropeLines[li].geometry.attributes.position, off = (li - 1) * 0.02;
+      for (let i = 0; i < ROPE_N; i++) {
+        const u = i / (ROPE_N - 1), dip = sag * (1 - (2 * u - 1) * (2 * u - 1));
+        pos.setXYZ(i,
+          lerp(_ropeStart.x, a.x, u) + off,
+          lerp(_ropeStart.y, a.y, u) - dip + off,
+          lerp(_ropeStart.z, a.z, u));
+      }
       pos.needsUpdate = true;
-      anchorMark.position.set(a.x, a.y, a.z);
     }
+    splatSprite.position.set(a.x, a.y, a.z);
+    const s = easeOutBack(clamp(splatT / 0.12, 0, 1)) * 0.9;
+    splatSprite.scale.set(s, s, s);
+  }
+
+  // ── juice: dust, speed streaks, splat timer ──
+  function updateJuice(dt) {
+    const p = G.players.local;
+    splatT += dt;
+    if ((prevState === "air" || prevState === "zip") && p.state === "ground" && prevVy < -6) {
+      spawnDust(p.x, p.y + 0.1, p.z, 10, 0.5, 1.4);   // landing dust
+    }
+    if (p.state === "wall") {                          // wall-run dust
+      const hsp = Math.hypot(p.vx, p.vz);
+      if (hsp > 1 || Math.abs(p.vy) > 1) {
+        wallDustT += dt;
+        if (wallDustT > 0.08) { wallDustT = 0; spawnDust(p.x, p.y + 0.1, p.z, 1, 0.25, 0.6); }
+      }
+    }
+    prevState = p.state; prevVy = p.vy;
+    for (const d of DUST) {
+      if (!d.s.visible) continue;
+      d.life += dt;
+      if (d.life >= d.max) { d.s.visible = false; continue; }
+      const f = d.life / d.max;
+      d.s.position.x += d.vx * dt; d.s.position.y += d.vy * dt; d.s.position.z += d.vz * dt;
+      d.vy -= 2 * dt;
+      const sc = d.scale * (0.5 + f * 1.4); d.s.scale.setScalar(sc);
+      d.s.material.opacity = (1 - f) * 0.75;
+    }
+    const sp = Math.hypot(p.vx, p.vy, p.vz);
+    const f = clamp((sp - 0.65 * TUNE.maxSpeed) / (0.35 * TUNE.maxSpeed), 0, 1);
+    streaks.material.opacity = f * 0.5;
+    if (f > 0.01) {
+      streaks.visible = true;
+      streaks.position.set(p.x, p.y + 0.6, p.z);
+      const l = sp || 1; _va.set(p.vx / l, p.vy / l, p.vz / l);
+      _q.setFromUnitVectors(_STREAKAXIS, _va); streaks.quaternion.copy(_q);
+    } else streaks.visible = false;
   }
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -946,7 +1339,17 @@
   window.addEventListener("resize", fit);
   fit();
 
-  let testDriving = false;
+  let testDriving = false, cameraLocked = false;
+  let titleT = 0;
+  function titleCamera(dt) {
+    titleT += dt;
+    const a = titleT * 0.2;                             // slow orbit around the spawn hero
+    const R = 9, p = G.players.local;
+    camera.position.set(p.x + Math.cos(a) * R, p.y + 3.0, p.z + Math.sin(a) * R);
+    camera.up.set(0, 1, 0);
+    camera.lookAt(p.x, p.y + 1.0, p.z);
+    if (Math.abs(camera.fov - TUNE.fovBase) > 0.01) { camera.fov = TUNE.fovBase; camera.updateProjectionMatrix(); }
+  }
   let acc = 0, lastT = performance.now();
   function frame(now) {
     const dt = Math.min(ACC_CAP, (now - lastT) / 1000); lastT = now;
@@ -955,9 +1358,18 @@
         acc += dt; if (acc > ACC_CAP) acc = ACC_CAP;
         while (acc >= H_STEP) { substepFixed(H_STEP); acc -= H_STEP; }
       }
-      updateCamera(dt);
-      syncMeshes();
+      // order: physics → hero place → pose → rope → juice → camera → render
+      syncHero(dt);
+      poseHero(dt);
+      updateRope();
+      updateJuice(dt);
+      if (!cameraLocked) updateCamera(dt);
       updateHud();
+    } else if (G.phase === "title") {
+      syncHero(dt);
+      poseHero(dt);
+      updateRope();
+      titleCamera(dt);
     }
     renderer.render(scene, camera);
     requestAnimationFrame(frame);
@@ -1107,8 +1519,89 @@
     get pos() { const p = G.players.local; return { x: p.x, y: p.y, z: p.z }; },
     get vel() { const p = G.players.local; return { vx: p.vx, vy: p.vy, vz: p.vz }; },
     get spawn() { return Object.assign({}, SPAWN); },
-    tunePanelVisible() { return !tuneEl.classList.contains("hidden"); }
+    tunePanelVisible() { return !tuneEl.classList.contains("hidden"); },
+    // ── W2 render-layer hooks ──
+    heroParts() {
+      return {
+        root: heroRoot, head: hero.head, eyeL: hero.eyeL, eyeR: hero.eyeR,
+        hornL: hero.hornL, hornR: hero.hornR, armL: hero.armL, armR: hero.armR,
+        legL: hero.legL, legR: hero.legR, handL: hero.handL, handR: hero.handR
+      };
+    },
+    heroMetrics() { return { total: HERO_TOTAL, headDiam: HERO_HEADDIAM }; },
+    ropeStart() { return { x: _ropeStart.x, y: _ropeStart.y, z: _ropeStart.z }; },
+    handWorld() {
+      heroRoot.updateMatrixWorld(true);
+      (ropeSide < 0 ? hero.handL : hero.handR).getWorldPosition(_vc);
+      return { x: _vc.x, y: _vc.y, z: _vc.z };
+    }
   };
+
+  // ───────────────────────────────────────────────────────────────────────────
+  //  PHOTO MODE  (?photo=1&pose=idle|run|swing|air|zip|wall|charge) — art review
+  // ───────────────────────────────────────────────────────────────────────────
+  function applyPhotoPose(pose) {
+    const p = G.players.local, bs = CITY;
+    charge.active = false; charge.t = 0;
+    p.vx = p.vy = p.vz = 0; p.anchor = null; p.wall = null; p.ropeLen = 0; p.zipT = 0;
+    if (pose === "idle" || pose === "run") {
+      p.x = SPAWN.x; p.y = SPAWN.y; p.z = SPAWN.z; p.state = "ground";
+      p.heading = (pose === "run") ? 0 : 0.3; if (pose === "run") p.vx = 6;
+    } else if (pose === "charge") {
+      p.x = SPAWN.x; p.y = SPAWN.y; p.z = SPAWN.z; p.state = "ground"; p.heading = 0.2;
+      charge.active = true; charge.t = 0.55;
+    } else if (pose === "swing") {
+      const b = bs.filter((x) => x.maxY > 40).sort((a, c) =>
+        Math.hypot((a.minX + a.maxX) / 2 - SPAWN.x, (a.minZ + a.maxZ) / 2 - SPAWN.z) -
+        Math.hypot((c.minX + c.maxX) / 2 - SPAWN.x, (c.minZ + c.maxZ) / 2 - SPAWN.z))[0] || bs[0];
+      const ax = (b.minX + b.maxX) / 2, ay = b.maxY - 2, az = b.minZ;
+      p.x = ax - 6; p.y = ay - 16; p.z = az - 6; p.vx = 14; p.vy = -2; p.vz = 6;
+      p.state = "swing"; p.anchor = { x: ax, y: ay, z: az };
+      p.ropeLen = Math.hypot(p.x - ax, p.y - ay, p.z - az) * 0.98;
+      p.heading = Math.atan2(p.vz, p.vx); lastAnchorRef = null; lastSplatAnchor = null;
+    } else if (pose === "air") {
+      p.x = SPAWN.x + 4; p.y = SPAWN.y + 6; p.z = SPAWN.z; p.vx = 8; p.vy = -4; p.vz = 2;
+      p.state = "air"; p.heading = Math.atan2(p.vz, p.vx);
+    } else if (pose === "zip") {
+      p.x = SPAWN.x; p.y = SPAWN.y + 4; p.z = SPAWN.z; p.vx = 24; p.state = "zip"; p.zipT = 0.4; p.heading = 0;
+    } else if (pose === "wall") {
+      const b = bs.find((x) => x.spine) || bs.reduce((a, c) => (c.maxY > a.maxY ? c : a));
+      const cz = (b.minZ + b.maxZ) / 2, r = 0.5;
+      p.x = b.minX - r; p.y = Math.min(b.maxY - 4, 18); p.z = cz; p.vy = -0.4;
+      p.state = "wall"; p.wall = { nx: -1, nz: 0, box: CITY.indexOf(b) };
+      p.heading = Math.atan2(0, -1);
+    }
+    // pre-warm the pose so limbs are settled before the fixed camera frames the hero
+    syncHero(0.05);
+    for (let i = 0; i < 40; i++) { poseHero(0.05); }
+    heroRoot.updateMatrixWorld(true);
+    // fixed camera: slightly below, 3/4 front
+    const rot = -p.heading + Math.PI / 2;
+    const fx = Math.sin(rot), fz = Math.cos(rot);       // hero forward (world)
+    const rx = Math.cos(rot), rz = -Math.sin(rot);      // hero right (world)
+    const dist = (pose === "wall") ? 3.7 : 2.6, side = (pose === "wall") ? 1.5 : 1.1;
+    camera.up.set(0, 1, 0);
+    camera.position.set(p.x + fx * dist + rx * side, p.y + 0.7, p.z + fz * dist + rz * side);
+    camera.lookAt(p.x, p.y + 1.0, p.z);
+    camera.fov = TUNE.fovBase; camera.updateProjectionMatrix();
+    camPos.copy(camera.position);
+  }
+  (function photoModeBoot() {
+    let q; try { q = new URLSearchParams(location.search); } catch (e) { return; }
+    if (!q || q.get("photo") !== "1") return;
+    const pose = q.get("pose") || "swing";
+    G.phase = "play";
+    document.getElementById("title").classList.add("hidden");
+    document.getElementById("hud").classList.add("on");
+    testDriving = true; cameraLocked = true;
+    applyPhotoPose(pose);
+    const t0 = performance.now();
+    (function settle() {
+      if (performance.now() - t0 > 1000) {
+        requestAnimationFrame(() => requestAnimationFrame(() => { window.__photoReady = true; }));
+      } else requestAnimationFrame(settle);
+    })();
+  })();
 })();
 </script>
 </body>

@@ -600,11 +600,71 @@ async function main() {
   const wallShot = fs.statSync(path.join(SHOTS, "webgoat-w15-wall.png")).size;
   check(wallShot > 8000, `wall-stick screenshot rendered (${wallShot} bytes)`);
 
+  // ── W2a) CHIBI HERO STRUCTURE + PROPORTIONS ──
+  console.log("\n[W2a] chibi hero structure + proportions");
+  const hs = await page.evaluate(() => {
+    const H = window.__WEBGOAT__, P = H.heroParts(), m = H.heroMetrics();
+    return {
+      has: !!(P.root && P.head && P.eyeL && P.eyeR && P.hornL && P.hornR && P.armL && P.armR && P.legL && P.legR),
+      rootName: P.root.name,
+      ratio: m.headDiam / m.total, total: m.total, headDiam: m.headDiam
+    };
+  });
+  check(hs.has, "heroRoot exposes head/eyeL/eyeR/hornL/hornR/armL/armR/legL/legR");
+  check(hs.rootName === "heroRoot", "hero root group is named heroRoot");
+  check(hs.ratio >= 0.4 && hs.ratio <= 0.55,
+    `head diameter / total height in [0.4,0.55] (${hs.ratio.toFixed(3)}; head ${hs.headDiam.toFixed(2)} / total ${hs.total.toFixed(2)})`);
+
+  // ── W2b) ROPE STARTS AT THE POSED HAND ──
+  console.log("\n[W2b] rope starts at the posed rope-side hand");
+  const rhp = await page.evaluate(() => {
+    const H = window.__WEBGOAT__;
+    H.setTestDriving(false);
+    H.setPlayer(-30, 40, 0, 22, 2, 4);
+    H.webPress();
+    return new Promise((res) => {
+      let n = 0;
+      (function step() {
+        n++;
+        if (n > 45) {
+          const r = H.ropeStart(), h = H.handWorld();
+          res({ sw: H.state, d: Math.hypot(r.x - h.x, r.y - h.y, r.z - h.z) });
+        } else requestAnimationFrame(step);
+      })();
+    });
+  });
+  check(rhp.sw === "swing", "still swinging for the rope-hand check");
+  check(rhp.d < 0.3, `rope start ≈ hand world position (dist ${rhp.d.toFixed(3)})`);
+
+  // ── W2c) PHOTO MODE — all 7 poses reach __photoReady with 0 pageerrors ──
+  console.log("\n[W2c] photo mode poses");
+  const W2POSES = ["idle", "run", "swing", "air", "zip", "wall", "charge"];
+  for (const pose of W2POSES) {
+    await page.goto(BASE + "/webgoat.html?photo=1&pose=" + pose + "&n=" + Date.now(), { waitUntil: "networkidle0", timeout: 90000 });
+    await page.waitForFunction(() => window.__photoReady === true, { timeout: 15000 });
+    const st = await page.evaluate(() => (window.__WEBGOAT__.phase === "play") && window.__WEBGOAT__.state);
+    check(!!st, `photo mode ready: ${pose} (state ${st})`);
+    if (["idle", "swing", "wall", "air"].includes(pose)) {
+      await page.screenshot({ path: path.join(SHOTS, "webgoat-w2-" + pose + ".png") });
+    }
+  }
+
+  // ── W2d) TITLE renders the hero (orbit ~2 s, no pageerror) ──
+  console.log("\n[W2d] title screen renders the hero");
+  await page.goto(BASE + "/webgoat.html?n=" + Date.now(), { waitUntil: "networkidle0", timeout: 90000 });
+  await page.waitForFunction(() => !!window.__WEBGOAT__, { timeout: 30000 });
+  const tphase = await page.evaluate(() => window.__WEBGOAT__.phase);
+  check(tphase === "title", "plain load starts on the title screen");
+  await new Promise((r) => setTimeout(r, 2000));
+  await page.screenshot({ path: path.join(SHOTS, "webgoat-w2-title.png") });
+  const titleShot = fs.statSync(path.join(SHOTS, "webgoat-w2-title.png")).size;
+  check(titleShot > 8000, `title screenshot rendered (${titleShot} bytes)`);
+
   // ── 11) 0 pageerrors ──
   console.log("\n[11] errors");
   check(errors.length === 0, "0 pageerrors" + (errors.length ? ": " + errors.join("; ") : ""));
 
-  console.log("\nWeb Goat W1.5 verify: PASS (" + PASS + " checks)");
+  console.log("\nWeb Goat W2 verify: PASS (" + PASS + " checks)");
   await browser.close();
   if (server) server.kill();
   process.exit(0);
