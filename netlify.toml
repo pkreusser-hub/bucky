@@ -4,3 +4,9 @@
 
 [functions]
   node_bundler = "esbuild"
+
+# Scheduled chore reminders. Cross-product cron (6 UTC fires/day); the handler selects the
+# 3 intended Central sends (8:30 AM / 1:00 PM / 8:30 PM) via its own UTC-minute match +
+# Central-band guard. See netlify/functions/chorereminders.mjs. Activates only after deploy.
+[functions."chorereminders"]
+  schedule = "0,30 1,13,18 * * *"

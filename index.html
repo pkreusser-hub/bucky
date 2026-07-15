@@ -37,6 +37,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
     --navy-soft: #e9ebee;
     --red-soft: #f8eaec;
     --good: #2f8f4e; --good-d: #237a3f; --good-soft: #e3f2e8;
+    --amber: #e0a53a; --amber-soft: #fbf3e3;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; padding: 0; }
@@ -44,7 +45,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     background: var(--bg);
     color: var(--ink);
-    padding-bottom: calc(env(safe-area-inset-bottom) + 130px);   /* clears the fixed bottom nav + the FAB above it */
+    padding-bottom: calc(env(safe-area-inset-bottom) + 156px);   /* clears the fixed bottom nav (~78) + the FAB above it (top ~140px) so the last row's controls are never covered */
     -webkit-font-smoothing: antialiased;
   }
   header {
@@ -264,6 +265,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .badge { display: inline-block; font-weight: 700; color: var(--green); }
   .badge.warn { color: #b9770e; }
   .badge.over { color: var(--red); }
+  .badge.muted { color: var(--muted); font-weight: 700; }
 
   li.goat {
     display: flex; flex-direction: column; align-items: stretch; gap: 0; padding: 0; overflow: hidden;
@@ -363,6 +365,9 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .bank-custom-row { display: flex; gap: 8px; margin-bottom: 6px; }
   .bank-custom-row input { flex: 1; }
   .bank-readonly-note { font-size: 12.5px; color: var(--muted); font-style: italic; margin-bottom: 6px; }
+  .bank-unlock-row { display: block; width: 100%; text-align: left; font-size: 14px; font-weight: 700; color: var(--red);
+    background: var(--red-soft); border: 1px solid var(--line); border-radius: 14px; padding: 13px 16px; margin-bottom: 14px; cursor: pointer; box-shadow: var(--shadow); }
+  .bank-unlock-row:active { transform: scale(.99); }
   .bank-ledger { margin-top: 8px; }
   .ledger-row { display: flex; align-items: baseline; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
   .ledger-row:last-child { border-bottom: 0; }
@@ -506,6 +511,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   /* values bottom-align so the four numbers form one line even with icon-only labels above them */
   .home2 .stat .v { font-size: 19px; font-weight: 800; margin-top: auto; padding-top: 3px; font-variant-numeric: tabular-nums; letter-spacing: -.3px; color: var(--ink); }
   .home2 .stat .v small { font-size: 12px; color: var(--muted); font-weight: 700; }
+  .home2 .stat .v small.ssub { display: block; font-size: 9.5px; line-height: 1.1; letter-spacing: -.1px; margin-top: 1px; }
 
   /* Today's chores card */
   .home2 .card2 { background: var(--card); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); overflow: hidden; }
@@ -514,7 +520,12 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .home2 .chd .more { margin-left: auto; font-size: 12.5px; font-weight: 800; color: var(--green-d); text-decoration: none; cursor: pointer; background: none; border: 0; }
   .home2 .rows { display: flex; flex-direction: column; max-height: 216px; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
   .home2 .rows.short { max-height: 162px; }   /* work-order list: ~3 rows then scroll */
-  .home2 .crow { display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-top: 1px solid var(--line-2); cursor: pointer; text-align: left; background: none; width: 100%; color: inherit; }
+  .home2 .crow { display: flex; align-items: center; gap: 12px; padding: 11px 14px; border: 0; border-top: 1px solid var(--line-2); cursor: pointer; text-align: left; background: none; width: 100%; color: inherit; }
+  /* "up for grabs" unclaimed work order — subtle amber accent so it reads as available to anyone */
+  .home2 .crow.grabs { border-left: 3px solid var(--amber, #e0a53a); background: var(--amber-soft, #fbf3e3); }
+  .home2 .crow.grabs:first-child { border-top: 0; }
+  .home2 .crow .grab-tag { flex: 0 0 auto; font-size: 10.5px; font-weight: 800; color: #9a6b12; background: #f4e2bd; border-radius: 999px; padding: 2px 7px; letter-spacing: .2px; }
+  .home2 .crow .wo-ic.grabs { background: #f4e2bd; }
   .home2 .crow:first-child { border-top: 0; }
   .home2 .crow:active { background: var(--surface-2); }
   .home2 .crow .cbody { flex: 1; min-width: 0; }
@@ -527,6 +538,9 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .home2 .crow .wo-amt { font-weight: 800; font-size: 14px; color: var(--good-d); flex: 0 0 auto; font-variant-numeric: tabular-nums; }
   .home2 .crow .chev { color: var(--muted); font-size: 18px; flex: 0 0 auto; }
   .home2 .empty2 { padding: 16px 14px; color: var(--muted); font-size: 13px; font-weight: 600; }
+  .home2 .empty2-cta { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .home2 .empty-add-btn { flex: 0 0 auto; font-size: 13px; font-weight: 800; color: var(--green-d); background: var(--done); border: 1px solid var(--line); border-radius: 999px; padding: 7px 13px; cursor: pointer; }
+  .home2 .empty-add-btn:active { transform: scale(.97); }
 
   .home2 .pill { font-size: 11px; font-weight: 800; padding: 3px 9px; border-radius: 999px; letter-spacing: .2px; flex: 0 0 auto; }
   .home2 .pill.reward { background: var(--good-soft); color: var(--good-d); }
@@ -591,6 +605,10 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
     width: 100%; padding: 13px; font-size: 16px; border: 1px solid var(--line); border-radius: 12px;
     background: var(--card); color: var(--ink);
   }
+  .assignee-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .assignee-chips .achip { border: 1px solid var(--line); background: var(--card); color: var(--ink); font-size: 14px; font-weight: 700; padding: 9px 14px; border-radius: 999px; cursor: pointer; }
+  .assignee-chips .achip.sel { background: var(--green); border-color: var(--green); color: #fff; }
+  .assignee-chips .achip-empty { font-size: 13px; color: var(--muted); padding: 4px 0; }
   .seg { display: flex; gap: 6px; flex-wrap: wrap; }
   .seg button {
     flex: 1 1 40%; border: 1px solid var(--line); background: var(--card); color: var(--muted);
@@ -830,8 +848,8 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
     <h2 id="woSheetTitle">Add work order</h2>
     <label for="woName">Task</label>
     <input type="text" id="woName" placeholder="e.g. Repair the south fence" autocomplete="off" />
-    <label for="woAssignee">Assigned to</label>
-    <select id="woAssignee"></select>
+    <label>Assigned to <span style="font-weight:400;color:var(--muted);">(tap to select one or more — leave blank for up-for-grabs)</span></label>
+    <div id="woAssignees" class="assignee-chips"></div>
     <label for="woDue">Due by</label>
     <input type="date" id="woDue" />
     <label for="woValue">Dollar value (optional)</label>
@@ -1016,6 +1034,25 @@ const BANK_KIDS = ["Isaac", "Eleanor"];
 const BANK_USERS = ["Eleanor", "Isaac", "Dad", "Mom"];
 function seesBank(){ return BANK_USERS.includes(myName()); }
 
+/* ---- Work-order assignees (multi-capable, backward compatible) ----
+   A work order may carry `assignees` (an ARRAY of names). Legacy docs (and other
+   devices running older code) only have the `assignee` STRING. Read BOTH everywhere via
+   these helpers; whenever we WRITE assignees we also stamp `assignee = assignees[0] || ""`
+   so an older client still shows a sensible single name. */
+function woAssignees(w){
+  if (Array.isArray(w.assignees)) return w.assignees.filter(Boolean);
+  const a = (w.assignee || "").trim();
+  return a ? [a] : [];
+}
+function woIsUnassigned(w){ return woAssignees(w).length === 0; }
+function woIsMine(w, name){ return !!name && woAssignees(w).includes(name); }
+// "Eleanor + Isaac" (or "—" when unassigned) for card display.
+function woAssigneeText(w){ const a = woAssignees(w); return a.length ? a.join(" + ") : "—"; }
+// Group key + label for the Work Orders tab grouping.
+function woGroupKey(w){ const a = woAssignees(w); return a.length ? a.slice().sort((x,y)=>x.localeCompare(y)).join(" + ") : "__unassigned"; }
+// Build the {assignees, assignee} patch pair from an array (keeps legacy field in sync).
+function woAssigneePatch(arr){ const a = (arr || []).filter(Boolean); return { assignees: a, assignee: a[0] || "" }; }
+
 /* ---- Dad account lock: the Dad profile (banking, and FarmGPT's usage + kids' Story Log) is
    PIN-protected. The PIN is created in-app the first time, hashed (never stored in the clear),
    synced to Firestore (settings_<familyKey>/dadAuth.pinHash) + mirrored to localStorage so
@@ -1024,7 +1061,11 @@ function seesBank(){ return BANK_USERS.includes(myName()); }
 async function sha256Hex(s){ const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)); return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join(""); }
 const dadPinHash    = () => localStorage.getItem("dadPinHash") || "";
 const dadConfigured = () => !!dadPinHash();
-const dadUnlocked   = () => sessionStorage.getItem("dadUnlocked") === "1";
+// Unlocked if EITHER this session is unlocked, OR this device has been unlocked before (a
+// successful PIN entry persists per-device so Dad doesn't re-enter it after every reload /
+// profile switch). Roster mutations deliberately bypass this — see gateDadForRoster.
+const dadUnlocked   = () => sessionStorage.getItem("dadUnlocked") === "1" || localStorage.getItem("dadUnlockedDevice") === "1";
+function markDadUnlocked(){ sessionStorage.setItem("dadUnlocked", "1"); try { localStorage.setItem("dadUnlockedDevice", "1"); } catch {} }
 const isDadName     = () => (localStorage.getItem("choreUser") || "") === BANK_ADMIN;   // "Dad"
 const bankAdmin     = () => isDadName() && dadUnlocked();                                // gate for Dad-only UI
 async function setDadPin(pin){ const h = await sha256Hex(pin + ":" + FAMILY_PASSWORD); localStorage.setItem("dadPinHash", h); try { await backend?.setSetting?.("dadAuth", { pinHash: h }); } catch {} }
@@ -1037,11 +1078,11 @@ async function gateDad(){
     const p2 = prompt("Re-enter the PIN to confirm:");
     if (p2 == null) return false;
     if (p1 !== p2){ alert("PINs didn't match — try again."); return false; }
-    await setDadPin(p1.trim()); sessionStorage.setItem("dadUnlocked", "1"); return true;
+    await setDadPin(p1.trim()); markDadUnlocked(); return true;
   }
   const pin = prompt("Enter your Dad PIN:");
   if (pin == null) return false;
-  if ((await sha256Hex(pin + ":" + FAMILY_PASSWORD)) === dadPinHash()){ sessionStorage.setItem("dadUnlocked", "1"); return true; }
+  if ((await sha256Hex(pin + ":" + FAMILY_PASSWORD)) === dadPinHash()){ markDadUnlocked(); return true; }
   alert("Wrong PIN."); return false;
 }
 // Gate for roster mutations (add/edit/delete family members) — anyone can trigger this (kids
@@ -1049,8 +1090,9 @@ async function gateDad(){
 // afterward (that flag also gates banking admin UI via bankAdmin()). If the CURRENT profile is
 // Dad, leave the unlock in place (a legitimate Dad session). Otherwise clear it right after.
 async function gateDadForRoster(){
-  const ok = await gateDad();
-  if (ok && !isDadName()) sessionStorage.removeItem("dadUnlocked");
+  const ok = await gateDad();   // gateDad ALWAYS prompts (never satisfied by a stored flag) — required here
+  // A non-Dad who entered the PIN for a roster edit must NOT gain a device-wide Dad unlock.
+  if (ok && !isDadName()){ sessionStorage.removeItem("dadUnlocked"); try { localStorage.removeItem("dadUnlockedDevice"); } catch {} }
   return ok;
 }
 
@@ -1097,7 +1139,7 @@ const SECTIONS = [
 // workorders/farmbank are here too so email "View in BUCKY" buttons can land on the right tab.
 // Every tab is deep-linkable via index.html#<key> so the persistent icon nav on the
 // FarmGPT/Games pages can land you directly on any section here.
-const DEEP_LINK_TABS = ["dashboard", "chores", "workorders", "print3d", "shopping", "farmbank", "goathooves", "goatcare", "game", "catgame"];
+const DEEP_LINK_TABS = ["dashboard", "chores", "workorders", "print3d", "shopping", "farmbank", "goathooves", "goatcare", "game", "catgame", "play"];
 const initialHashTab = DEEP_LINK_TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "dashboard";
 let currentTab = initialHashTab;
 
@@ -1811,8 +1853,9 @@ function renderDashboard(){
   const total = dayChores.length;
   const done  = dayChores.filter(isDone).length;
   const left  = total - done;
-  // Jobs stat = MY open work orders only (assigned to the logged-in person). No name set → all open.
-  const openWos = chores.filter(c => c.frequency === "workorder" && !c.done && (!who || (c.assignee || "") === who)).length;
+  // Jobs stat = open work orders relevant to me: assigned to me OR unclaimed (up for grabs).
+  // No name set → all open.
+  const openWos = chores.filter(c => c.frequency === "workorder" && !c.done && (!who || woIsMine(c, who) || woIsUnassigned(c))).length;
   const bankVal = isBankKid ? kidBalance(who) : BANK_KIDS.reduce((s,k)=> s + kidBalance(k), 0);
   const shopOpen = chores.filter(c => c.frequency === "shopping" && !c.gotAt).length;
   const streak   = choreStreak(total, done);
@@ -1829,9 +1872,14 @@ function renderDashboard(){
   // ---- hero: greeting + chore progress ring ----
   const CIRC = 2 * Math.PI * 30, pct = total ? done/total : 0;   // r=30
   const hero = document.createElement("button"); hero.className = "hero";
-  const sub = total
-    ? (left ? `<b>${left} chore${left>1?"s":""}</b> left today — nice pace!` : "<b>All done</b> — go play! 🎉")
-    : "No chores today 🌻";
+  // Adaptive encouragement: scales with progress so the tone matches how far along they are.
+  const leftLbl = `<b>${left} chore${left>1?"s":""}</b> left`;
+  let sub;
+  if (!total) sub = "No chores today 🌻";
+  else if (!left) sub = "<b>All done</b> — go play! 🎉";
+  else if (done === 0) sub = `${leftLbl} today — let's get started 💪`;
+  else if (done / total > 0.75) sub = `${leftLbl} — almost there!`;
+  else sub = `${leftLbl} today — nice pace!`;
   hero.innerHTML =
     `<div class="htxt">
        <div class="eyebrow"></div>
@@ -1862,7 +1910,7 @@ function renderDashboard(){
   };
   const statDefs = [];
   if (showBank) statDefs.push(["💰", "Bank", bankMarkup(bankVal), () => goTo("farmbank")]);
-  statDefs.push(["🔥", "Streak", `${streak}<small>d</small>`,  () => goTo("chores")]);
+  statDefs.push(["🔥", "Streak", `${streak}<small class="ssub">day streak</small>`,  () => goTo("chores")]);
   statDefs.push(["🛠", "Open Work Orders", `${openWos}`, () => goTo("workorders")]);
   statDefs.push(["🛒", "Shopping", `${shopOpen}`, () => goTo("shopping")]);
   stats.style.gridTemplateColumns = `repeat(${statDefs.length}, 1fr)`;
@@ -1952,9 +2000,12 @@ function renderDashboard(){
   card2.appendChild(rows);
   home.appendChild(card2);
 
-  // ---- Open work orders list (mine) — shows ~3, scrolls for the rest ----
-  const myWos = chores.filter(c => c.frequency === "workorder" && !c.done && (!who || (c.assignee || "") === who))
-    .sort((a,b) => (a.due || "￿").localeCompare(b.due || "￿") || (b.createdAt || 0) - (a.createdAt || 0));
+  // ---- Open work orders list — MY jobs + unclaimed "up for grabs" jobs; shows ~3, scrolls ----
+  const dueSort = (a,b) => (a.due || "￿").localeCompare(b.due || "￿") || (b.createdAt || 0) - (a.createdAt || 0);
+  const openWoList = chores.filter(c => c.frequency === "workorder" && !c.done);
+  const mineWos = openWoList.filter(c => !who || woIsMine(c, who)).sort(dueSort);
+  const grabWos = openWoList.filter(c => who && woIsUnassigned(c)).sort(dueSort);
+  const myWos = [...mineWos, ...grabWos];   // my jobs first, then up-for-grabs
   const woCard = document.createElement("div"); woCard.className = "card2";
   const woHd = document.createElement("div"); woHd.className = "chd";
   woHd.innerHTML = `<h2>Open work orders</h2><button class="more">See all →</button>`;
@@ -1962,19 +2013,24 @@ function renderDashboard(){
   woCard.appendChild(woHd);
   const woRows = document.createElement("div"); woRows.className = "rows short";
   if (!myWos.length){
-    const e = document.createElement("div"); e.className = "empty2";
-    e.textContent = "No open work orders 🎉";
+    const e = document.createElement("div"); e.className = "empty2 empty2-cta";
+    const msg = document.createElement("span"); msg.textContent = "No open work orders 🎉";
+    const add = document.createElement("button"); add.className = "empty-add-btn"; add.textContent = "+ Add a job";
+    add.onclick = (ev) => { ev.stopPropagation(); openWorkOrderSheet(null); };
+    e.append(msg, add);
     woRows.appendChild(e);
   } else {
     for (const w of myWos){
-      const r = document.createElement("button"); r.className = "crow";
+      const grabs = who && woIsUnassigned(w);
+      const r = document.createElement("button"); r.className = "crow" + (grabs ? " grabs" : "");
       const dueTxt = w.due ? "Due " + new Date(w.due + "T00:00").toLocaleDateString(undefined, { month:"short", day:"numeric" }) : "Open";
       r.innerHTML =
-        `<div class="wo-ic">🛠️</div>
+        `<div class="wo-ic${grabs ? " grabs" : ""}">🛠️</div>
          <div class="cbody"><div class="t"></div><div class="s"></div></div>
-         ${w.value ? `<span class="wo-amt">$${w.value}</span>` : `<span class="chev">›</span>`}`;
+         ${grabs ? `<span class="grab-tag">✋ up for grabs</span>` : ""}
+         ${w.value ? `<span class="wo-amt">$${w.value}</span>` : (grabs ? "" : `<span class="chev">›</span>`)}`;
       r.querySelector(".t").textContent = w.name;
-      r.querySelector(".s").textContent = dueTxt;
+      r.querySelector(".s").textContent = grabs ? (dueTxt === "Open" ? "Unassigned" : dueTxt) : dueTxt;
       r.onclick = () => goTo("workorders");
       woRows.appendChild(r);
     }
@@ -2510,7 +2566,7 @@ function buildGoatDetail(g){
     const row = document.createElement("div"); row.className = "care-row";
     const cl = document.createElement("div"); cl.className = "clabel"; cl.textContent = t.label;
     const cd = document.createElement("div"); cd.className = "cdays";
-    if (n === null){ cd.innerHTML = `<span class="badge ${t.key === "hooves" ? "over" : ""}">Never logged</span>`; }
+    if (n === null){ cd.innerHTML = `<span class="badge muted">Never logged</span>`; }
     else {
       const lbl = n === 0 ? "Today" : (n === 1 ? "1 day ago" : `${n} days ago`);
       const cls = t.key === "hooves" ? (n >= 60 ? "over" : (n >= 30 ? "warn" : "")) : "";
@@ -2578,8 +2634,18 @@ function renderGoatCare(){
 
   const key = careView;
   const label = (CARE.find(c => c.key === key) || {}).label || key;
-  const sortVal = g => { const n = daysSince(careAt(g, key)); return n === null ? Infinity : n; };
-  const goats = chores.filter(c => c.frequency === "goathooves").sort((a,b)=> sortVal(b) - sortVal(a));
+  // Order: genuinely overdue first (most days first), THEN never-logged, THEN ok (most-recent last).
+  // Only hooves has a real overdue threshold (>=60 days); other activities have none, so nothing
+  // there is "overdue" and never-logged simply floats above the logged ones.
+  const rankOf = g => {
+    const n = daysSince(careAt(g, key));
+    if (n === null) return 1;                                  // never-logged: middle band
+    const overdue = key === "hooves" && n >= 60;
+    return overdue ? 0 : 2;                                    // overdue first, ok last
+  };
+  const daysOf = g => { const n = daysSince(careAt(g, key)); return n === null ? -1 : n; };
+  const goats = chores.filter(c => c.frequency === "goathooves").sort((a,b)=>
+    (rankOf(a) - rankOf(b)) || (daysOf(b) - daysOf(a)));
 
   document.getElementById("empty").style.display = goats.length ? "none" : "block";
   if (!goats.length) document.getElementById("empty").innerHTML = "No goats yet.<br>Add goats on the Goats tab first.";
@@ -2602,7 +2668,7 @@ function buildCareRow(g, key, label){
   const meta = document.createElement("div");
   meta.className = "meta";
   if (n === null){
-    meta.innerHTML = `<span class="badge ${key === "hooves" ? "over" : ""}">Never logged</span>`;
+    meta.innerHTML = `<span class="badge muted">Never logged</span>`;
   } else {
     const lbl = n === 0 ? "Today" : (n === 1 ? "1 day ago" : `${n} days ago`);
     const cls = key === "hooves" ? (n >= 60 ? "over" : (n >= 30 ? "warn" : "")) : "";
@@ -2837,21 +2903,22 @@ function renderWorkOrders(){
     if (!collapsedGroups.has(key)) for (const w of pendingPayoutWos.sort((a,b)=> (a.doneAt||0)-(b.doneAt||0))) list.appendChild(buildWoCard(w));
   }
 
-  // Open work orders grouped by assignee — your own group first & expanded, others collapsed
+  // Open work orders grouped by assignee set (e.g. "Eleanor + Isaac") — groups that include YOU
+  // come first & expanded, others collapsed, unassigned last.
   const groups = {};
-  for (const w of openWos){ const a = (w.assignee||"").trim(); const k = a || "__unassigned"; (groups[k] = groups[k] || []).push(w); }
+  for (const w of openWos){ const k = woGroupKey(w); (groups[k] = groups[k] || []).push(w); }
   const me = myName();
-  const named = Object.keys(groups).filter(k => k !== "__unassigned" && k !== me).sort((a,b)=> a.localeCompare(b));
-  const order = [];
-  if (me && groups[me]) order.push(me);                 // your work orders always on top
-  for (const n of named) order.push(n);
+  const keys = Object.keys(groups).filter(k => k !== "__unassigned");
+  const mine = keys.filter(k => me && groups[k].some(w => woIsMine(w, me))).sort((a,b)=> a.localeCompare(b));
+  const others = keys.filter(k => !mine.includes(k)).sort((a,b)=> a.localeCompare(b));
+  const order = [...mine, ...others];
   if (groups["__unassigned"]) order.push("__unassigned");
   for (const k of order){
     const arr = groups[k].sort(woSort);                 // soonest due first
     const label = k === "__unassigned" ? "Unassigned" : k;
     const key = "wo:" + k;
     // default once: your group expanded, everyone else collapsed (still toggleable afterward)
-    if (!woGroupInit.has(key)){ woGroupInit.add(key); if (k === me) collapsedGroups.delete(key); else collapsedGroups.add(key); }
+    if (!woGroupInit.has(key)){ woGroupInit.add(key); if (mine.includes(k)) collapsedGroups.delete(key); else collapsedGroups.add(key); }
     list.appendChild(woGroupHeader(label, key, arr.length));   // red badge = # open work orders
     if (!collapsedGroups.has(key)) for (const w of arr) list.appendChild(buildWoCard(w));
   }
@@ -2885,7 +2952,7 @@ function buildWoCard(w){
 
   const meta = document.createElement("div"); meta.className = "wo-meta";
   meta.appendChild(document.createTextNode("Assigned: "));
-  const a = document.createElement("strong"); a.textContent = w.assignee || "—"; meta.appendChild(a);
+  const a = document.createElement("strong"); a.textContent = woAssigneeText(w); meta.appendChild(a);
   meta.appendChild(document.createTextNode(" · "));
   const di = woDueInfo(w.due);
   const due = document.createElement("span"); due.className = "due" + (di.overdue && !w.done ? " overdue" : ""); due.textContent = di.text; meta.appendChild(due);
@@ -2955,12 +3022,12 @@ function buildWoCard(w){
     const cp = document.createElement("button"); cp.className = "wo-ghost-btn"; cp.textContent = "Copy"; cp.title = "Create a new work order from this one"; cp.onclick = () => openCopySheet(w); actions.appendChild(cp);
     const re = document.createElement("button"); re.className = "wo-ghost-btn"; re.textContent = "Reopen"; re.onclick = () => reopenWorkOrder(w); actions.appendChild(re);
   } else {
-    if ((w.assignee || "").trim()){
+    if (!woIsUnassigned(w)){
       const re = document.createElement("button"); re.className = "wo-ghost-btn"; re.textContent = "Reassign"; re.onclick = () => reassignWorkOrder(w); actions.appendChild(re);
     } else {
       const claim = document.createElement("button"); claim.className = "wo-ghost-btn claim"; claim.textContent = "Claim"; claim.onclick = () => claimWorkOrder(w); actions.appendChild(claim);
     }
-    if (w.assignee === myName()){
+    if (woIsMine(w, myName())){
       const prog = document.createElement("button"); prog.className = "wo-progress-btn"; prog.textContent = "Update progress";
       prog.onclick = () => openProgressSheet(w);
       actions.appendChild(prog);
@@ -2987,16 +3054,17 @@ function woGroupHeader(label, key, openCount){
 async function claimWorkOrder(w){
   const me = myName();
   if (!me){ await confirmDialog("Set your name first — tap the 👤 button at the top.", "OK"); return; }
-  const patch = { assignee: me };
+  const patch = woAssigneePatch([me]);
   Object.assign(w, patch); render();
   await backend.update(w.id, patch);
   notifyAssignee(me, w);
 }
 async function reassignWorkOrder(w){
-  const picked = await pickPerson("Reassign to…", w.assignee || "");
+  const cur = woAssignees(w)[0] || "";
+  const picked = await pickPerson("Reassign to…", cur);
   if (picked === null) return;                 // cancelled
-  const changed = picked !== (w.assignee || "");
-  const patch = { assignee: picked };
+  const changed = picked !== cur;
+  const patch = woAssigneePatch(picked ? [picked] : []);
   Object.assign(w, patch); render();
   await backend.update(w.id, patch);
   if (changed && picked) notifyAssignee(picked, w);
@@ -3039,7 +3107,8 @@ function buildWoChoreRow(w){
   const name = document.createElement("div"); name.className = "name"; name.textContent = w.name;
   const meta = document.createElement("div"); meta.className = "meta";
   const di = woDueInfo(w.due);
-  meta.textContent = `${w.assignee ? w.assignee + " · " : ""}${di.text}${w.value ? " · $" + w.value : ""}`;
+  const aTxt = woIsUnassigned(w) ? "" : woAssigneeText(w) + " · ";
+  meta.textContent = `${aTxt}${di.text}${w.value ? " · $" + w.value : ""}`;
   body.appendChild(name); body.appendChild(meta);
   body.style.cursor = "pointer"; body.onclick = () => openWorkOrderSheet(w);
   const close = document.createElement("button"); close.className = "donebtn"; close.textContent = "Close"; close.onclick = () => openCompleteSheet(w);
@@ -3051,10 +3120,11 @@ function buildWoChoreRow(w){
 let editingWoId = null, woPhoto = "";
 let woInitialSnapshot = null;   // {name,assignee,due,value,desc} captured when the sheet opened
 let woHistoryPushed = false;    // whether we pushed a history sentinel for the open sheet
+let woSelectedAssignees = [];   // names currently selected in the editor's chip multi-select
 function woSnapshot(){
   return {
     name: document.getElementById("woName").value,
-    assignee: document.getElementById("woAssignee").value,
+    assignee: woSelectedAssignees.slice().sort().join(","),
     due: document.getElementById("woDue").value,
     value: document.getElementById("woValue").value,
     desc: document.getElementById("woDesc").value
@@ -3073,14 +3143,26 @@ async function requestCloseWorkOrderSheet(){
   closeWorkOrderSheet();
   return true;
 }
-function populateWoNames(current){
-  const sel = document.getElementById("woAssignee");
-  sel.innerHTML = "";
-  const un = document.createElement("option"); un.value = ""; un.textContent = "Unassigned"; sel.appendChild(un);
+// Build the assignee chip multi-select. `current` = array of already-selected names.
+function populateWoAssignees(current){
+  woSelectedAssignees = (current || []).filter(Boolean);
+  const wrap = document.getElementById("woAssignees");
+  wrap.innerHTML = "";
   const names = familyMembers().map(m => m.name);
-  if (current && !names.includes(current)) names.push(current);   // keep an existing assignee even if not a member
-  for (const n of names){ const o = document.createElement("option"); o.value = n; o.textContent = n; sel.appendChild(o); }
-  sel.value = current || "";
+  for (const n of woSelectedAssignees) if (!names.includes(n)) names.push(n);   // keep an off-roster assignee
+  if (!names.length){
+    const e = document.createElement("div"); e.className = "achip-empty"; e.textContent = "Add family members first."; wrap.appendChild(e); return;
+  }
+  for (const n of names){
+    const chip = document.createElement("button"); chip.type = "button"; chip.className = "achip" + (woSelectedAssignees.includes(n) ? " sel" : "");
+    chip.textContent = n;
+    chip.onclick = () => {
+      const i = woSelectedAssignees.indexOf(n);
+      if (i >= 0) woSelectedAssignees.splice(i, 1); else woSelectedAssignees.push(n);
+      chip.classList.toggle("sel");
+    };
+    wrap.appendChild(chip);
+  }
 }
 function updateWoPhotoPreview(){
   const p = document.getElementById("woPhotoPreview"), rm = document.getElementById("woPhotoRemove");
@@ -3091,7 +3173,7 @@ function openWorkOrderSheet(w){
   editingWoId = w ? w.id : null;
   document.getElementById("woSheetTitle").textContent = w ? "Edit work order" : "Add work order";
   document.getElementById("woName").value = w ? w.name : "";
-  populateWoNames((w && w.assignee) ? w.assignee : "");
+  populateWoAssignees(w ? woAssignees(w) : []);
   document.getElementById("woDue").value = (w && w.due) ? w.due : "";
   document.getElementById("woValue").value = (w && w.value) ? w.value : "";
   document.getElementById("woDesc").value = (w && w.desc) ? w.desc : "";
@@ -3115,29 +3197,29 @@ function closeWorkOrderSheet(){
 async function saveWorkOrder(){
   const name = document.getElementById("woName").value.trim();
   if (!name){ document.getElementById("woName").focus(); return; }
-  const fields = {
+  const fields = Object.assign({
     name,
-    assignee: document.getElementById("woAssignee").value.trim(),
     due: document.getElementById("woDue").value,
     value: document.getElementById("woValue").value.trim(),
     desc: document.getElementById("woDesc").value.trim(),
     photo: woPhoto || ""
-  };
+  }, woAssigneePatch(woSelectedAssignees));   // {assignees:[...], assignee: first}
   const wasEditing = !!editingWoId;
-  let oldAssignee = "";
+  let oldAssignees = [];
   if (editingWoId){
     const w = chores.find(x=>x.id===editingWoId);
-    oldAssignee = w ? (w.assignee || "") : "";
+    oldAssignees = w ? woAssignees(w) : [];
     Object.assign(w, fields);
     await backend.update(editingWoId, fields);
   } else {
     await backend.add(Object.assign({ frequency:"workorder", done:false, doneAt:0, doneBy:"", donePhoto:"", progress:0, milestones:[], payoutPending:false, createdBy: myName(), createdAt: Date.now(), order: Date.now() }, fields));
   }
-  // Email the assignee when they're newly assigned (not on every edit)
-  if (fields.assignee && fields.assignee !== oldAssignee) notifyAssignee(fields.assignee, fields);
+  // Notify each newly-added assignee (not on every edit)
+  const newlyAdded = fields.assignees.filter(n => !oldAssignees.includes(n));
+  for (const n of newlyAdded) notifyAssignee(n, fields);
   currentTab = "workorders"; syncTabsUI(); closeWorkOrderSheet(); render();
   if (wasEditing) showToast("Work order updated ✅");
-  else showToast("Work order created ✅" + (fields.assignee ? ` — ${fields.assignee} will be notified` : ""));
+  else showToast("Work order created ✅" + (fields.assignees.length ? ` — ${woAssigneeText(fields)} will be notified` : ""));
 }
 async function deleteWorkOrder(){
   if (!editingWoId) return;
@@ -3209,7 +3291,7 @@ async function markWorkOrderComplete(){
   if (BANK_KIDS.includes(me) && value > 0) patch.payoutPending = true;
   Object.assign(w, patch);
   if (w.createdBy && w.createdBy !== me) notifyCreatorClosed(w);   // tell the creator it's done
-  if (patch.payoutPending) notifyPayoutPending(w);
+  if (patch.payoutPending){ notifyPayoutPending(w); notifyPayoutSentToKids(w, value); }
   closeCompleteSheet(); render();
   await backend.update(w.id, patch);
 }
@@ -3219,14 +3301,35 @@ async function reopenWorkOrder(w){
   await backend.update(w.id, patch);
 }
 
+// Who gets paid for a completed value>0 work order: the KID assignees. Falls back to the
+// person who completed it (doneBy) if it has no kid assignees on record (legacy single WOs).
+function payoutRecipients(w){
+  const kids = woAssignees(w).filter(n => BANK_KIDS.includes(n));
+  if (kids.length) return kids;
+  return BANK_KIDS.includes(w.doneBy) ? [w.doneBy] : (w.doneBy ? [w.doneBy] : []);
+}
+// Split `value` (dollars) evenly into cents across n recipients; any odd cent(s) go to the first.
+function splitValue(value, n){
+  const total = Math.round((parseFloat(value) || 0) * 100);
+  const base = Math.floor(total / n), rem = total - base * n;
+  const out = [];
+  for (let i = 0; i < n; i++) out.push((base + (i < rem ? 1 : 0)) / 100);
+  return out;
+}
 // ----- Kid payout confirmation (Dad-only decision on a completed, value>0 kid work order) -----
 async function confirmPayout(w){
   const value = parseFloat(w.value) || 0;
-  await addLedgerEntry(w.doneBy, value, w.name, BANK_ADMIN, "workorder");
+  const recipients = payoutRecipients(w);
+  const split = recipients.length > 1;
+  const amounts = splitValue(value, recipients.length || 1);
+  for (let i = 0; i < recipients.length; i++){
+    const kid = recipients[i], amt = amounts[i];
+    await addLedgerEntry(kid, amt, w.name + (split ? " (split)" : ""), BANK_ADMIN, "workorder");
+    notifyPayoutConfirmed(w, amt, kid);
+  }
   const patch = { payoutPending: false };
   Object.assign(w, patch); render();
   await backend.update(w.id, patch);
-  notifyPayoutConfirmed(w, value);
 }
 async function notYetPayout(w){
   // Gentle reopen: done goes back to false (progress is untouched), payoutPending clears.
@@ -3638,11 +3741,8 @@ function buildBankCard(kid){
     };
     customRow.append(input, btnPlus, btn);
     card.appendChild(customRow);
-  } else {
-    const note = document.createElement("div"); note.className = "bank-readonly-note";
-    note.textContent = "Only Dad can make deposits 🏦";
-    card.appendChild(note);
   }
+  // (Non-admin note / Dad-unlock row is rendered ONCE at the top of the tab — see renderFarmBank.)
 
   const ledger = kidLedger(kid);
   const expanded = bankExpanded.has(kid);
@@ -3705,6 +3805,19 @@ function renderFarmBank(){
   // A kid logged in on this device sees only their OWN account; Dad (the banker) sees all.
   const me = myName();
   const showKids = BANK_KIDS.includes(me) ? [me] : BANK_KIDS;
+  // ONE top row (not per-card): Dad-but-locked gets a tappable unlock row; everyone else who
+  // can't bank gets a single gentle note.
+  if (isDadName() && !dadUnlocked()){
+    const unlock = document.createElement("button");
+    unlock.className = "bank-unlock-row";
+    unlock.innerHTML = "🔒 Unlock to manage";
+    unlock.onclick = async () => { if (await gateDad()) render(); };
+    li.appendChild(unlock);
+  } else if (!bankAdmin()){
+    const note = document.createElement("div"); note.className = "bank-readonly-note";
+    note.textContent = "Only Dad can make deposits 🏦";
+    li.appendChild(note);
+  }
   for (const kid of showKids) li.appendChild(buildBankCard(kid));
   list.appendChild(li);
   document.getElementById("progressText").textContent = "Farm Bank";
@@ -4810,10 +4923,10 @@ function renderFamilyList(){
     const meBtn = document.createElement("button"); meBtn.className = "iconbtn"; meBtn.style.fontSize = "13px";
     meBtn.textContent = m.name === me ? "✓ You" : "This is me";
     meBtn.onclick = async () => {
-      // Becoming "Dad" requires the Dad PIN (create it the first time). Clicking Dad while already
-      // Dad-but-locked re-runs the gate to unlock this session.
-      if (m.name === BANK_ADMIN){ if (!(await gateDad())) return; }
-      else { sessionStorage.removeItem("dadUnlocked"); }   // leaving Dad re-locks
+      // Becoming "Dad" requires the Dad PIN — but a device that's already been unlocked stays
+      // unlocked (per-device persistence), so no re-prompt there. Profile switches never clear
+      // the device flag (Part 3); the session flag is left alone too.
+      if (m.name === BANK_ADMIN && !dadUnlocked()){ if (!(await gateDad())) return; }
       localStorage.setItem("choreUser", m.name); refreshName();
       buildBottomNav(); syncTabsUI();   // Bank area + Chores chip visibility depends on who you are
       renderFamilyList(); render();
@@ -5080,22 +5193,41 @@ function notifyPayoutPending(wo){
     });
   })();
 }
-function notifyPayoutConfirmed(wo, value){
-  const kid = wo.doneBy;
+function money(v){ return Number(v).toFixed(2).replace(/\.00$/, ""); }
+// When Dad confirms → each paid kid hears about their (possibly split) deposit.
+function notifyPayoutConfirmed(wo, value, kid){
+  kid = kid || wo.doneBy;
   if (!kid) return;
-  const n = addNotif(kid, "payout_confirmed", `💰 $${value} added to your Farm Bank for "${wo.name}"!`, wo.id + ":confirmed");
+  const amt = money(value);
+  const n = addNotif(kid, "payout_confirmed", `🎉 Dad approved! $${amt} deposited for "${wo.name}"`, wo.id + ":confirmed:" + kid);
   if (n) liveNotify(n);
   if (window.BuckyPush && familyKey){
     BuckyPush.notify(FAMILY_PASSWORD, familyKey, kid,
-      "💰 Payout confirmed!", `$${value} added to your Farm Bank for "${wo.name}"`);
+      "🎉 Dad approved!", `$${amt} deposited to your Farm Bank for "${wo.name}"`);
   }
   sendEmail(kid, {
-    subject: `💰 $${value} added to your Farm Bank!`,
-    message: `Great work! $${value} was added to your Farm Bank account for finishing "${wo.name}".`,
-    task: wo.name, due: "", value: "$" + value, description: "",
-    details_block: buildDetailsBlock([{ label: "Task", value: wo.name }, { label: "Amount", value: "$" + value }]),
+    subject: `💰 $${amt} added to your Farm Bank!`,
+    message: `Great work! $${amt} was added to your Farm Bank account for finishing "${wo.name}".`,
+    task: wo.name, due: "", value: "$" + amt, description: "",
+    details_block: buildDetailsBlock([{ label: "Task", value: wo.name }, { label: "Amount", value: "$" + amt }]),
     cta_block: buildCtaBlock("View Farm Bank", "farmbank")
   });
+}
+// When a kid marks a $-value WO complete → reassure the kid(s) it's on its way (pending Dad).
+function notifyPayoutSentToKids(wo, value){
+  const amt = money(value);
+  // Toast the person who just tapped complete (immediate feedback).
+  showToast(`💰 Sent to Dad to confirm — $${amt} on the way once he approves!`);
+  const kids = woAssignees(wo).filter(n => BANK_KIDS.includes(n));
+  const recipients = kids.length ? kids : (BANK_KIDS.includes(wo.doneBy) ? [wo.doneBy] : []);
+  for (const kid of recipients){
+    const n = addNotif(kid, "payout_sent", `💰 Sent to Dad to confirm — $${amt} on the way once he approves!`, wo.id + ":sent:" + kid);
+    if (n && kid === myName()) liveNotify(n);
+    if (window.BuckyPush && familyKey && kid !== myName()){
+      BuckyPush.notify(FAMILY_PASSWORD, familyKey, kid,
+        "💰 On its way!", `$${amt} for "${wo.name}" — waiting on Dad to approve.`);
+    }
+  }
 }
 
 // Re-render every minute so "X min ago" stays fresh and chores reset at day/week boundaries

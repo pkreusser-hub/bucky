@@ -620,13 +620,14 @@
   }
   const dadPinHash = () => localStorage.getItem("dadPinHash") || "";
   const dadConfigured = () => !!dadPinHash();
-  const dadUnlocked = () => sessionStorage.getItem("dadUnlocked") === "1";
+  // Mirror of index.html: unlocked if the session OR this device (persisted) has been unlocked.
+  const dadUnlocked = () => sessionStorage.getItem("dadUnlocked") === "1" || localStorage.getItem("dadUnlockedDevice") === "1";
   const isDadName = () => (localStorage.getItem("choreUser") || "") === "Dad";
   const isDad = () => isDadName() && dadUnlocked();
   async function tryUnlockDad(pin) {
     if (!dadConfigured() || !pin) return false;
     const ok = (await sha256Hex(pin + ":" + FAMILY_PASSWORD)) === dadPinHash();
-    if (ok) sessionStorage.setItem("dadUnlocked", "1");
+    if (ok) { sessionStorage.setItem("dadUnlocked", "1"); try { localStorage.setItem("dadUnlockedDevice", "1"); } catch {} }
     return ok;
   }
   // Show/hide the Dad-only links based on unlock state.
