@@ -1,0 +1,948 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#233357">
+<title>BUCKY — Web Goat</title>
+<link rel="icon" href="bucky.png">
+<style>
+  :root{
+    --navy:#233357; --navy-d:#18233b; --red:#ba303e; --red-d:#7a1f28;
+    --cream:#f4efe4; --ink:#15233f;
+    --sat:env(safe-area-inset-top,0px); --sar:env(safe-area-inset-right,0px);
+    --sab:env(safe-area-inset-bottom,0px); --sal:env(safe-area-inset-left,0px);
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{
+    margin:0; height:100%; overflow:hidden;
+    background:linear-gradient(180deg,#8fc0ec 0%,#cfe7f6 55%,#e7dfce 100%);
+    color:#fff;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    user-select:none;
+  }
+  #bar{
+    position:fixed; top:0; left:0; right:0; height:calc(46px + var(--sat)); z-index:40;
+    display:flex; align-items:center; gap:10px; padding:var(--sat) 12px 0;
+    background:var(--navy); box-shadow:0 2px 10px rgba(0,0,0,.25);
+  }
+  #bar a{
+    color:#fff; text-decoration:none; font-weight:800; font-size:15px;
+    background:rgba(255,255,255,.15); padding:7px 12px; border-radius:9px;
+  }
+  #bar .t{ font-weight:800; letter-spacing:.3px; }
+  #stage{ position:absolute; top:46px; left:0; right:0; bottom:0; }
+  #stage canvas{ display:block; width:100%; height:100%; touch-action:none; cursor:crosshair; }
+
+  /* ── title ── */
+  #title{
+    position:absolute; inset:0; z-index:20;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:
+      radial-gradient(ellipse at 50% 18%, rgba(255,255,255,.4), transparent 55%),
+      linear-gradient(180deg,#5f9fd6 0%,#9cc7ea 55%,#c9d7e6 100%);
+    text-align:center; padding:24px 18px calc(var(--sab) + 24px);
+  }
+  #title.hidden{ display:none; }
+  .logo{
+    font-size:clamp(46px,13vw,82px); font-weight:900; letter-spacing:1px;
+    color:#fff; text-shadow:0 3px 0 var(--navy-d),0 8px 18px rgba(0,0,0,.35);
+    margin:0 0 4px;
+  }
+  .sub{
+    margin:0 0 22px; font-size:15px; font-weight:700; color:var(--navy);
+    background:rgba(255,255,255,.66); padding:6px 14px; border-radius:999px;
+  }
+  .playBtn{
+    appearance:none; border:0; cursor:pointer;
+    background:var(--red); color:#fff; font-weight:900; font-size:22px;
+    padding:15px 44px; border-radius:16px;
+    box-shadow:0 4px 0 var(--red-d),0 10px 24px rgba(0,0,0,.25);
+  }
+  .playBtn:active{ transform:translateY(2px); box-shadow:0 2px 0 var(--red-d),0 6px 14px rgba(0,0,0,.2); }
+  .hint{
+    margin-top:18px; max-width:340px; font-size:13.5px; line-height:1.5;
+    color:var(--navy-d); font-weight:600; opacity:.92;
+  }
+
+  /* ── HUD ── */
+  #hud{ position:absolute; inset:0; z-index:12; pointer-events:none; display:none; }
+  #hud.on{ display:block; }
+  #speedHud{
+    position:absolute; left:calc(12px + var(--sal)); bottom:calc(14px + var(--sab));
+    background:rgba(35,51,87,.72); color:#fff;
+    font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+    font-size:13px; font-weight:700; padding:6px 10px; border-radius:9px;
+    letter-spacing:.3px; white-space:pre;
+  }
+  #stateHud{
+    position:absolute; left:calc(12px + var(--sal)); bottom:calc(48px + var(--sab));
+    background:rgba(186,48,62,.78); color:#fff;
+    font-size:11px; font-weight:800; padding:4px 9px; border-radius:8px;
+    letter-spacing:.6px; text-transform:uppercase;
+  }
+  #keysHud{
+    position:absolute; right:calc(12px + var(--sar)); bottom:calc(14px + var(--sab));
+    background:rgba(24,35,59,.6); color:#dbe6ff; font-size:11px; font-weight:600;
+    padding:6px 10px; border-radius:9px; line-height:1.5; text-align:right; max-width:44vw;
+  }
+
+  /* ── TUNE dev panel (backtick) ── */
+  #tune{
+    position:absolute; top:calc(54px + var(--sat)); right:8px; z-index:30;
+    width:250px; max-height:calc(100vh - 90px); overflow:auto;
+    background:rgba(16,24,42,.94); border:1px solid rgba(255,255,255,.14);
+    border-radius:12px; padding:8px 10px 12px; color:#e8eefb;
+    font-size:11px; box-shadow:0 8px 30px rgba(0,0,0,.5);
+  }
+  #tune.hidden{ display:none; }
+  #tune h3{ margin:2px 0 8px; font-size:12px; letter-spacing:.4px; }
+  #tune .trow{ margin:0 0 7px; }
+  #tune .tlab{ display:flex; justify-content:space-between; font-weight:700; margin-bottom:2px; }
+  #tune .tv{ color:#7fd4ff; font-variant-numeric:tabular-nums; }
+  #tune input[type=range]{ width:100%; margin:0; }
+  #tune .btns{ display:flex; gap:6px; margin-top:6px; }
+  #tune button{
+    flex:1; appearance:none; border:0; cursor:pointer; border-radius:8px;
+    padding:7px 0; font-weight:800; font-size:11px; color:#fff; background:var(--navy);
+  }
+  #tune button.red{ background:var(--red); }
+  #tune .note{ opacity:.65; margin-top:6px; font-size:10px; line-height:1.4; }
+</style>
+</head>
+<body>
+  <div id="bar">
+    <a href="games.html">← Bucky</a>
+    <span class="t">🕸️ Web Goat</span>
+  </div>
+
+  <div id="stage"></div>
+
+  <div id="title">
+    <div class="logo">🕸️ WEB GOAT</div>
+    <p class="sub">Swing through the city!</p>
+    <button class="playBtn" id="playBtn" type="button">PLAY</button>
+    <p class="hint" id="titleHint">Hold <b>Space</b> to shoot a web and swing.
+      <b>WASD</b>/arrows steer, <b>Shift</b> jumps &amp; zips, <b>R</b> resets.
+      Press <b>`</b> for the tuning panel.</p>
+  </div>
+
+  <div id="hud">
+    <div id="speedHud">speed  0.0 m/s</div>
+    <div id="stateHud">air</div>
+    <div id="keysHud">SPACE web · WASD steer<br>SHIFT jump/zip · R reset</div>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script type="module">
+(() => {
+  "use strict";
+  // ───────────────────────────────────────────────────────────────────────────
+  //  CONSTANTS / HELPERS
+  // ───────────────────────────────────────────────────────────────────────────
+  const DEG = Math.PI / 180;
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const H_STEP = 1 / 120;            // fixed physics substep
+  const ACC_CAP = 0.1;               // accumulator cap (s)
+
+  const IS_MOBILE = !!(window.matchMedia &&
+    window.matchMedia("(pointer: coarse)").matches &&
+    Math.min(window.innerWidth, window.innerHeight) < 900);
+
+  // seeded PRNG (mulberry32)
+  function mulberry32(seed) {
+    let a = seed >>> 0;
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function angleBetween(ax, ay, az, bx, by, bz) {
+    const la = Math.hypot(ax, ay, az) || 1e-9;
+    const lb = Math.hypot(bx, by, bz) || 1e-9;
+    return Math.acos(clamp((ax * bx + ay * by + az * bz) / (la * lb), -1, 1));
+  }
+  function angLerp(a, b, t) {
+    let d = b - a;
+    while (d > Math.PI) d -= 2 * Math.PI;
+    while (d < -Math.PI) d += 2 * Math.PI;
+    return a + d * t;
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  //  STATE CONTRACT  (multiplayer-ready — ALL gameplay-mutable state lives in G)
+  // ───────────────────────────────────────────────────────────────────────────
+  const G = {
+    seed: 1,
+    phase: "title",   // "title" | "play"
+    players: {
+      local: {
+        x: 0, y: 0, z: 0,
+        vx: 0, vy: 0, vz: 0,
+        state: "air",   // "air" | "swing" | "zip" | "ground"
+        anchor: null,   // {x,y,z} while swinging
+        ropeLen: 0,
+        heading: 0,     // facing angle in XZ (atan2(vz,vx))
+        name: "Goat",
+        zipT: 0         // remaining zip-lock time (gameplay state, kept in G)
+      }
+    }
+  };
+
+  // ───────────────────────────────────────────────────────────────────────────
+  //  TUNE  (feel constants; edited live via the ` panel; persisted)
+  // ───────────────────────────────────────────────────────────────────────────
+  const TUNE_DEFAULTS = {
+    gravity: 28, ropeSlack: 0.94, ropeMax: 45, pumpAccel: 10, maxSpeed: 38,
+    dragAir: 0.06, dragSwing: 0.02, airControl: 14, steerTurn: 1.6,
+    releaseUp: 4, releaseFwd: 1.12, jumpVel: 11, zipImpulse: 16, runSpeed: 8,
+    minSwingHeight: 2.5, anchorPitch: 55, anchorDist: 28, anchorMinAbove: 6,
+    anchorCone: 65, camDist: 8, camHeight: 2.5, camLag: 5, fovBase: 65, fovKick: 18
+  };
+  const TUNE_RANGE = {
+    gravity: [10, 50, 0.5], ropeSlack: [0.8, 1.0, 0.01], ropeMax: [20, 70, 1],
+    pumpAccel: [0, 25, 0.5], maxSpeed: [15, 60, 1], dragAir: [0, 0.3, 0.005],
+    dragSwing: [0, 0.3, 0.005], airControl: [0, 30, 0.5], steerTurn: [0, 4, 0.05],
+    releaseUp: [0, 10, 0.25], releaseFwd: [1, 1.4, 0.01], jumpVel: [5, 18, 0.5],
+    zipImpulse: [5, 30, 0.5], runSpeed: [3, 15, 0.5], minSwingHeight: [0, 6, 0.25],
+    anchorPitch: [30, 75, 1], anchorDist: [12, 50, 1], anchorMinAbove: [2, 15, 0.5],
+    anchorCone: [30, 90, 1], camDist: [4, 16, 0.25], camHeight: [0.5, 6, 0.25],
+    camLag: [1, 12, 0.25], fovBase: [50, 80, 1], fovKick: [0, 35, 1]
+  };
+  const TUNE = Object.assign({}, TUNE_DEFAULTS);
+  (function loadTune() {
+    try {
+      const saved = JSON.parse(localStorage.getItem("wg_tune_v1") || "null");
+      if (saved && typeof saved === "object") {
+        for (const k in TUNE_DEFAULTS) {
+          if (typeof saved[k] === "number" && isFinite(saved[k])) TUNE[k] = saved[k];
+        }
+      }
+    } catch (e) {}
+  })();
+  function saveTune() { try { localStorage.setItem("wg_tune_v1", JSON.stringify(TUNE)); } catch (e) {} }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  //  CITY GEN  (seeded, deterministic — derived from G.seed, NOT stored in G)
+  // ───────────────────────────────────────────────────────────────────────────
+  const N = 12;              // 12×12 blocks
+  const BLOCK = 28;          // block footprint (m)
+  const STREET = 14;         // street width (m)
+  const PITCH = BLOCK + STREET;   // 42
+  const CITY_HALF = ((N - 1) / 2) * PITCH + BLOCK / 2;   // 245
+  const NMAT = 5;
+
+  const blockCenter = (i) => (i - (N - 1) / 2) * PITCH;
+
+  let CITY = [];        // flat [{minX,minY,minZ,maxX,maxY,maxZ,mat,spine}]
+  let SPAWN = { x: 0, y: 20, z: 0 };
+
+  function addBuilding(list, x0, x1, z0, z1, h, mat, rnd, spine) {
+    const ins = 2 + rnd() * 2;                 // inset 2–4 m per side
+    const mnx = x0 + ins, mxx = x1 - ins, mnz = z0 + ins, mxz = z1 - ins;
+    if (mxx - mnx < 3 || mxz - mnz < 3) return;
+    list.push({ minX: mnx, maxX: mxx, minZ: mnz, maxZ: mxz, minY: 0, maxY: h, mat: mat, spine: !!spine });
+  }
+
+  function genCity(seed) {
+    const rnd = mulberry32(seed);
+    const list = [];
+    const H = () => 14 + 51 * Math.pow(rnd(), 1.4);   // 14 → 65
+    const matPick = () => Math.floor(rnd() * NMAT);
+    // ~8 guaranteed tall "spine" buildings along the two central avenues
+    const spineCols = [5, 6], spineRows = [2, 4, 6, 8];
+    const isSpine = (ci, ri) => spineCols.indexOf(ci) >= 0 && spineRows.indexOf(ri) >= 0;
+
+    for (let ci = 0; ci < N; ci++) {
+      for (let ri = 0; ri < N; ri++) {
+        const bx = blockCenter(ci), bz = blockCenter(ri);
+        const x0 = bx - BLOCK / 2, x1 = bx + BLOCK / 2;
+        const z0 = bz - BLOCK / 2, z1 = bz + BLOCK / 2;
+        if (isSpine(ci, ri)) {
+          addBuilding(list, x0, x1, z0, z1, 55 + rnd() * 10, matPick(), rnd, true);
+        } else if (rnd() < 0.30) {
+          // two half-block buildings
+          if (rnd() < 0.5) {
+            const m = (z0 + z1) / 2;
+            addBuilding(list, x0, x1, z0, m - 1, H(), matPick(), rnd);
+            addBuilding(list, x0, x1, m + 1, z1, H(), matPick(), rnd);
+          } else {
+            const m = (x0 + x1) / 2;
+            addBuilding(list, x0, m - 1, z0, z1, H(), matPick(), rnd);
+            addBuilding(list, m + 1, x1, z0, z1, H(), matPick(), rnd);
+          }
+        } else {
+          addBuilding(list, x0, x1, z0, z1, H(), matPick(), rnd);
+        }
+      }
+    }
+    return list;
+  }
+
+  function computeSpawn() {
+    // atop a spine building near center (closest spine to origin)
+    let best = null, bd = Infinity;
+    for (const b of CITY) {
+      if (!b.spine) continue;
+      const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
+      const d = cx * cx + cz * cz;
+      if (d < bd) { bd = d; best = b; }
+    }
+    if (!best) best = CITY[0];
+    SPAWN = { x: (best.minX + best.maxX) / 2, y: best.maxY, z: (best.minZ + best.maxZ) / 2 };
+  }
+
+  CITY = genCity(G.seed);
+  computeSpawn();
+
+  // ── world queries used by physics ──
+  function surfaceHeightAt(x, z) {
+    let s = 0;
+    for (let i = 0; i < CITY.length; i++) {
+      const b = CITY[i];
+      if (x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ) {
+        if (b.maxY > s) s = b.maxY;
+      }
+    }
+    return s;
+  }
+  function collideWalls(p) {
+    const r = 0.5;
+    for (let i = 0; i < CITY.length; i++) {
+      const b = CITY[i];
+      if (p.x <= b.minX - r || p.x >= b.maxX + r) continue;
+      if (p.z <= b.minZ - r || p.z >= b.maxZ + r) continue;
+      if (p.y <= b.minY - r || p.y >= b.maxY - 0.1) continue;   // above roof / below base → not a wall
+      const penXmin = p.x - (b.minX - r);
+      const penXmax = (b.maxX + r) - p.x;
+      const penZmin = p.z - (b.minZ - r);
+      const penZmax = (b.maxZ + r) - p.z;
+      const m = Math.min(penXmin, penXmax, penZmin, penZmax);
+      if (m === penXmin) { p.x = b.minX - r; if (p.vx > 0) p.vx = 0; }
+      else if (m === penXmax) { p.x = b.maxX + r; if (p.vx < 0) p.vx = 0; }
+      else if (m === penZmin) { p.z = b.minZ - r; if (p.vz > 0) p.vz = 0; }
+      else { p.z = b.maxZ + r; if (p.vz < 0) p.vz = 0; }
+    }
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  //  PICKER  — pure auto-anchor pick (exported on the hook)
+  // ───────────────────────────────────────────────────────────────────────────
+  function pickAnchor(px, py, pz, vx, vy, vz, opts) {
+    opts = opts || {};
+    const pitch = (opts.pitch != null) ? opts.pitch : TUNE.anchorPitch * DEG;
+    const cone = (opts.cone != null) ? opts.cone : TUNE.anchorCone * DEG;
+    // aim direction: horizontal velocity if fast enough, else facing heading
+    let hx, hz;
+    const hsp = Math.hypot(vx, vz);
+    if (hsp > 3) { hx = vx / hsp; hz = vz / hsp; }
+    else { hx = Math.cos(G.players.local.heading); hz = Math.sin(G.players.local.heading); }
+    // pitch up
+    let dirx = hx * Math.cos(pitch), diry = Math.sin(pitch), dirz = hz * Math.cos(pitch);
+    const dl = Math.hypot(dirx, diry, dirz) || 1; dirx /= dl; diry /= dl; dirz /= dl;
+    const Tx = px + dirx * TUNE.anchorDist, Ty = py + diry * TUNE.anchorDist, Tz = pz + dirz * TUNE.anchorDist;
+
+    let best = null, bestScore = Infinity;
+    for (let i = 0; i < CITY.length; i++) {
+      const b = CITY[i];
+      if (b.maxY <= py + TUNE.anchorMinAbove) continue;
+      const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
+      if (Math.hypot(cx - px, cz - pz) >= 70) continue;
+      // clamp target into the box, then push to the nearest face (candidate on the surface)
+      let qx = clamp(Tx, b.minX, b.maxX), qy = clamp(Ty, b.minY, b.maxY), qz = clamp(Tz, b.minZ, b.maxZ);
+      const dXmin = qx - b.minX, dXmax = b.maxX - qx;
+      const dZmin = qz - b.minZ, dZmax = b.maxZ - qz, dYmax = b.maxY - qy;
+      const m = Math.min(dXmin, dXmax, dZmin, dZmax, dYmax);
+      if (m === dXmin) qx = b.minX; else if (m === dXmax) qx = b.maxX;
+      else if (m === dZmin) qz = b.minZ; else if (m === dZmax) qz = b.maxZ;
+      else qy = b.maxY;
+      qy = clamp(qy, py + TUNE.anchorMinAbove, b.maxY);   // keep it high & within the box top
+      let ax = qx - px, ay = qy - py, az = qz - pz;
+      const dist = Math.hypot(ax, ay, az);
+      if (dist < 4) continue;
+      const ang = angleBetween(ax, ay, az, dirx, diry, dirz);
+      if (ang > cone) continue;
+      const score = 1.5 * ang + 0.03 * Math.abs(dist - TUNE.anchorDist) - 0.02 * (qy - py);
+      if (score < bestScore) { bestScore = score; best = { x: qx, y: qy, z: qz }; }
+    }
+    return best;
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  //  INPUT  (keyboard only in W1; camera-relative)
+  // ───────────────────────────────────────────────────────────────────────────
+  const keys = new Set();
+  let camYaw = 0;    // maintained by the camera; input is relative to it
+
+  function inputDir() {
+    let f = 0, s = 0;
+    if (keys.has("KeyW") || keys.has("ArrowUp")) f += 1;
+    if (keys.has("KeyS") || keys.has("ArrowDown")) f -= 1;
+    if (keys.has("KeyD") || keys.has("ArrowRight")) s += 1;
+    if (keys.has("KeyA") || keys.has("ArrowLeft")) s -= 1;
+    if (f === 0 && s === 0) return null;
+    const fx = Math.cos(camYaw), fz = Math.sin(camYaw);   // forward (camera→player)
+    const rx = -Math.sin(camYaw), rz = Math.cos(camYaw);  // right
+    let x = fx * f + rx * s, z = fz * f + rz * s;
+    const l = Math.hypot(x, z) || 1;
+    return { x: x / l, z: z / l };
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  //  PHYSICS  (position-based pendulum; fixed timestep)
+  // ───────────────────────────────────────────────────────────────────────────
+  function autoRelease(p) {           // minSwingHeight bail-out
+    p.state = "air"; p.anchor = null; p.vy += 3;
+  }
+
+  function substepFixed(h) {
+    const p = G.players.local;
+    const inDir = inputDir();
+
+    // ── GROUND branch: run + friction ──
+    if (p.state === "ground") {
+      if (inDir) {
+        const RUN_ACCEL = 40;
+        p.vx += inDir.x * RUN_ACCEL * h;
+        p.vz += inDir.z * RUN_ACCEL * h;
+        const hsp = Math.hypot(p.vx, p.vz);
+        if (hsp > TUNE.runSpeed) { const k = TUNE.runSpeed / hsp; p.vx *= k; p.vz *= k; }
+      } else {
+        const hsp = Math.hypot(p.vx, p.vz);
+        const nf = Math.max(0, hsp - 10 * h);          // friction ~10/s
+        if (hsp > 1e-6) { const k = nf / hsp; p.vx *= k; p.vz *= k; }
+      }
+      p.vy = 0;
+      p.x += p.vx * h; p.z += p.vz * h;
+      const surf = surfaceHeightAt(p.x, p.z);
+      if (surf < p.y - 0.05) { p.state = "air"; }       // walked off an edge
+      else { p.y = surf; }
+      collideWalls(p);
+      if (Math.hypot(p.vx, p.vz) > 2) p.heading = Math.atan2(p.vz, p.vx);
+      return;
+    }
+
+    // ── AIRBORNE branch: air / swing / zip ──
+    if (p.state === "zip") { p.zipT -= h; if (p.zipT <= 0) p.state = "air"; }
+
+    // 1. integrate (semi-implicit Euler)
+    p.vy -= TUNE.gravity * h;
+
+    // air control (air & swing)
+    if (inDir) {
+      p.vx += inDir.x * TUNE.airControl * h;
+      p.vz += inDir.z * TUNE.airControl * h;
+      // steer: rotate horizontal(v) toward input dir, preserving speed
+      const hsp = Math.hypot(p.vx, p.vz);
+      if (hsp > 0.01) {
+        const cur = Math.atan2(p.vz, p.vx);
+        const tgt = Math.atan2(inDir.z, inDir.x);
+        let d = tgt - cur;
+        while (d > Math.PI) d -= 2 * Math.PI;
+        while (d < -Math.PI) d += 2 * Math.PI;
+        const step = clamp(d, -TUNE.steerTurn * h, TUNE.steerTurn * h);
+        const na = cur + step;
+        p.vx = Math.cos(na) * hsp; p.vz = Math.sin(na) * hsp;
+      }
+    }
+
+    // pump (swing) — accel along horizontal(v), scaled by cos(rope angle from vertical)
+    if (p.state === "swing" && p.anchor) {
+      const hsp = Math.hypot(p.vx, p.vz);
+      if (hsp > 0.01) {
+        const dx = p.x - p.anchor.x, dy = p.y - p.anchor.y, dz = p.z - p.anchor.z;
+        const dlen = Math.hypot(dx, dy, dz) || 1;
+        const cosV = clamp(-dy / dlen, 0, 1);           // 1 at the arc bottom
+        p.vx += (p.vx / hsp) * TUNE.pumpAccel * cosV * h;
+        p.vz += (p.vz / hsp) * TUNE.pumpAccel * cosV * h;
+      }
+    }
+
+    // drag
+    const drag = (p.state === "swing") ? TUNE.dragSwing : TUNE.dragAir;
+    const df = Math.exp(-drag * h);
+    p.vx *= df; p.vy *= df; p.vz *= df;
+
+    // soft speed cap
+    const sp = Math.hypot(p.vx, p.vy, p.vz);
+    if (sp > TUNE.maxSpeed) { const k = TUNE.maxSpeed / sp; p.vx *= k; p.vy *= k; p.vz *= k; }
+
+    // integrate position
+    p.x += p.vx * h; p.y += p.vy * h; p.z += p.vz * h;
+
+    // 2. rope constraint (one-sided)
+    if (p.state === "swing" && p.anchor) {
+      const dx = p.x - p.anchor.x, dy = p.y - p.anchor.y, dz = p.z - p.anchor.z;
+      const d = Math.hypot(dx, dy, dz);
+      if (d > p.ropeLen && d > 1e-6) {
+        const rx = dx / d, ry = dy / d, rz = dz / d;
+        p.x = p.anchor.x + rx * p.ropeLen;
+        p.y = p.anchor.y + ry * p.ropeLen;
+        p.z = p.anchor.z + rz * p.ropeLen;
+        const vr = p.vx * rx + p.vy * ry + p.vz * rz;
+        if (vr > 0) { p.vx -= rx * vr; p.vy -= ry * vr; p.vz -= rz * vr; }
+      }
+    }
+
+    // 5. minSwingHeight bail-out
+    if (p.state === "swing") {
+      const surf = surfaceHeightAt(p.x, p.z);
+      if (p.y < surf + TUNE.minSwingHeight) autoRelease(p);
+    }
+
+    // 6. ground / roof landing (checked before wall push so a drop-in lands cleanly)
+    if (p.state !== "swing") {
+      const surf = surfaceHeightAt(p.x, p.z);
+      if (p.y <= surf && p.vy <= 0) {
+        p.y = surf; p.vy = 0;
+        if (p.state === "air" || p.state === "zip") p.state = "ground";
+      }
+    }
+
+    // 7. building side collision (wall slide)
+    collideWalls(p);
+
+    if (Math.hypot(p.vx, p.vz) > 2) p.heading = Math.atan2(p.vz, p.vx);
+  }
+
+  function stepPhysics(seconds) {
+    let acc = seconds;
+    while (acc > 1e-9) {
+      const h = Math.min(H_STEP, acc);
+      substepFixed(h);
+      acc -= h;
+    }
+  }
+
+  // ── gameplay actions (SAME code paths as keyboard) ──
+  function webPress() {
+    const p = G.players.local;
+    const a = pickAnchor(p.x, p.y, p.z, p.vx, p.vy, p.vz, {});
+    if (!a) return;                                     // nothing fires
+    p.anchor = a;
+    const d = Math.hypot(p.x - a.x, p.y - a.y, p.z - a.z);
+    p.ropeLen = Math.min(d * TUNE.ropeSlack, TUNE.ropeMax);
+    p.state = "swing";
+  }
+  function webRelease() {
+    const p = G.players.local;
+    if (p.state !== "swing") return;
+    if (p.vy > -2) p.vy += TUNE.releaseUp;
+    p.vx *= TUNE.releaseFwd; p.vz *= TUNE.releaseFwd;
+    p.state = "air"; p.anchor = null;
+  }
+  function jumpPress() {
+    const p = G.players.local;
+    if (p.state === "ground") { p.vy = TUNE.jumpVel; p.state = "air"; }
+  }
+  function zipPress() {
+    const p = G.players.local;
+    if (p.state === "ground") { jumpPress(); return; }
+    const a = pickAnchor(p.x, p.y, p.z, p.vx, p.vy, p.vz, { pitch: 20 * DEG, cone: 30 * DEG });
+    if (a) {
+      let dx = a.x - p.x, dy = a.y - p.y, dz = a.z - p.z;
+      const l = Math.hypot(dx, dy, dz) || 1;
+      p.vx += dx / l * TUNE.zipImpulse; p.vy += dy / l * TUNE.zipImpulse; p.vz += dz / l * TUNE.zipImpulse;
+    } else {
+      const hsp = Math.hypot(p.vx, p.vz);
+      let fx, fz;
+      if (hsp > 0.5) { fx = p.vx / hsp; fz = p.vz / hsp; }
+      else { fx = Math.cos(p.heading); fz = Math.sin(p.heading); }
+      p.vx += fx * TUNE.zipImpulse * 0.8; p.vz += fz * TUNE.zipImpulse * 0.8; p.vy += 4;
+    }
+    p.anchor = null;
+    p.state = "zip"; p.zipT = 0.4;
+  }
+
+  function resetPlayer() {
+    const p = G.players.local;
+    p.x = SPAWN.x; p.y = SPAWN.y; p.z = SPAWN.z;
+    p.vx = p.vy = p.vz = 0;
+    p.state = "ground"; p.anchor = null; p.ropeLen = 0; p.zipT = 0;
+    p.heading = 0;
+    snapCamera();
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  //  RENDER  (three.js — reads G each frame, never the reverse)
+  // ───────────────────────────────────────────────────────────────────────────
+  const stage = document.getElementById("stage");
+  const renderer = new THREE.WebGLRenderer({ antialias: !IS_MOBILE });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, IS_MOBILE ? 1.5 : 2));
+  renderer.setSize(stage.clientWidth || window.innerWidth, stage.clientHeight || window.innerHeight);
+  stage.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  const SKY_TOP = new THREE.Color(0x8fc0ec);
+  scene.background = SKY_TOP.clone();
+  scene.fog = new THREE.Fog(0xcfe1f0, 120, 350);
+
+  const camera = new THREE.PerspectiveCamera(TUNE.fovBase, 1, 0.3, 1200);
+  let camFov = TUNE.fovBase;
+  const camPos = new THREE.Vector3(0, 30, 20);
+
+  // lighting
+  const hemi = new THREE.HemisphereLight(0xdcecff, 0x6a6350, 0.95);
+  scene.add(hemi);
+  const sun = new THREE.DirectionalLight(0xfff2d6, 0.85);
+  sun.position.set(120, 220, 80);
+  scene.add(sun);
+
+  // ── facade textures (baked window grids) ──
+  function makeFacadeTexture(wall, rnd) {
+    const cv = document.createElement("canvas"); cv.width = 128; cv.height = 256;
+    const ctx = cv.getContext("2d");
+    ctx.fillStyle = wall; ctx.fillRect(0, 0, 128, 256);
+    // subtle vertical shading
+    const g = ctx.createLinearGradient(0, 0, 0, 256);
+    g.addColorStop(0, "rgba(255,255,255,0.10)"); g.addColorStop(1, "rgba(0,0,0,0.12)");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, 128, 256);
+    const cols = 4, rows = 8, mx = 12, my = 14;
+    const cw = (128 - mx * (cols + 1)) / cols;
+    const ch = (256 - my * (rows + 1)) / rows;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const x = mx + c * (cw + mx), y = my + r * (ch + my);
+        const lit = rnd() < 0.22;
+        ctx.fillStyle = lit ? "#ffe58a" : "#233357";
+        ctx.fillRect(x, y, cw, ch);
+        ctx.strokeStyle = "rgba(0,0,0,0.25)"; ctx.lineWidth = 1;
+        ctx.strokeRect(x + 0.5, y + 0.5, cw - 1, ch - 1);
+      }
+    }
+    const tex = new THREE.CanvasTexture(cv);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.anisotropy = 4;
+    return tex;
+  }
+
+  const WALL_COLORS = ["#f2e6cf", "#e8927c", "#a9cbe0", "#bcd9c0", "#c47b62"];
+  const facadeMats = [];
+  {
+    const trnd = mulberry32(G.seed ^ 0x9e3779b9);
+    for (let i = 0; i < NMAT; i++) {
+      const tex = makeFacadeTexture(WALL_COLORS[i], trnd);
+      facadeMats.push(new THREE.MeshLambertMaterial({ map: tex }));
+    }
+  }
+
+  // ── instanced buildings (one InstancedMesh per material) ──
+  const unitBox = new THREE.BoxGeometry(1, 1, 1);
+  const buildingMeshes = [];
+  {
+    const buckets = [];
+    for (let i = 0; i < NMAT; i++) buckets.push([]);
+    for (const b of CITY) buckets[b.mat].push(b);
+    const mtx = new THREE.Matrix4();
+    for (let i = 0; i < NMAT; i++) {
+      const arr = buckets[i];
+      if (!arr.length) continue;
+      const im = new THREE.InstancedMesh(unitBox, facadeMats[i], arr.length);
+      for (let j = 0; j < arr.length; j++) {
+        const b = arr[j];
+        const w = b.maxX - b.minX, hh = b.maxY - b.minY, d = b.maxZ - b.minZ;
+        mtx.makeScale(w, hh, d);
+        mtx.setPosition((b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, (b.minZ + b.maxZ) / 2);
+        im.setMatrixAt(j, mtx);
+      }
+      im.instanceMatrix.needsUpdate = true;
+      scene.add(im);
+      buildingMeshes.push(im);
+    }
+  }
+
+  // ── ground (streets + sidewalk blocks matching the grid) ──
+  function makeGroundTexture() {
+    const S = 1024;
+    const cv = document.createElement("canvas"); cv.width = cv.height = S;
+    const ctx = cv.getContext("2d");
+    ctx.fillStyle = "#3b3f46"; ctx.fillRect(0, 0, S, S);      // asphalt
+    const w2px = (w) => ((w + CITY_HALF) / (2 * CITY_HALF)) * S;
+    for (let ci = 0; ci < N; ci++) {
+      for (let ri = 0; ri < N; ri++) {
+        const bx = blockCenter(ci), bz = blockCenter(ri);
+        const x0 = w2px(bx - BLOCK / 2), x1 = w2px(bx + BLOCK / 2);
+        const z0 = w2px(bz - BLOCK / 2), z1 = w2px(bz + BLOCK / 2);
+        ctx.fillStyle = "#9a9385";                            // sidewalk block
+        ctx.fillRect(x0, z0, x1 - x0, z1 - z0);
+        ctx.fillStyle = "#b7b0a1";                            // inner plaza
+        ctx.fillRect(x0 + 6, z0 + 6, (x1 - x0) - 12, (z1 - z0) - 12);
+      }
+    }
+    // street centre-lines
+    ctx.strokeStyle = "rgba(240,220,120,0.35)"; ctx.lineWidth = 2; ctx.setLineDash([10, 12]);
+    for (let ci = 0; ci < N - 1; ci++) {
+      const gx = w2px((blockCenter(ci) + blockCenter(ci + 1)) / 2);
+      ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, S); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, gx); ctx.lineTo(S, gx); ctx.stroke();
+    }
+    const tex = new THREE.CanvasTexture(cv);
+    tex.anisotropy = 4;
+    return tex;
+  }
+  {
+    const gt = makeGroundTexture();
+    const gsize = CITY_HALF * 2 + 120;
+    const gm = new THREE.Mesh(
+      new THREE.PlaneGeometry(gsize, gsize),
+      new THREE.MeshLambertMaterial({ map: gt })
+    );
+    gm.rotation.x = -Math.PI / 2;
+    gm.position.y = 0;
+    // texture only covers the city span; extend UVs so the plane's outskirts stay grey
+    const uvScale = gsize / (CITY_HALF * 2);
+    gt.wrapS = gt.wrapT = THREE.ClampToEdgeWrapping;
+    gt.repeat.set(uvScale, uvScale);
+    gt.offset.set(-(uvScale - 1) / 2, -(uvScale - 1) / 2);
+    scene.add(gm);
+  }
+
+  // ── placeholder hero (chibi is Stage W2 — this just reads position/orientation) ──
+  const hero = new THREE.Group();
+  {
+    const red = new THREE.MeshLambertMaterial({ color: 0xba303e });
+    const white = new THREE.MeshLambertMaterial({ color: 0xffffff });
+    // body ~0.66 m tall, head ~0.54 m sphere (≈45% of ~1.2 m total)
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 0.66, 12), red);
+    body.position.y = 0.33; hero.add(body);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 16, 14), red);
+    head.position.y = 0.9; hero.add(head);
+    const eyeGeo = new THREE.SphereGeometry(0.08, 10, 8);
+    const eL = new THREE.Mesh(eyeGeo, white); eL.scale.z = 0.4; eL.position.set(-0.1, 0.95, 0.23); hero.add(eL);
+    const eR = new THREE.Mesh(eyeGeo, white); eR.scale.z = 0.4; eR.position.set(0.1, 0.95, 0.23); hero.add(eR);
+    const pupGeo = new THREE.SphereGeometry(0.035, 8, 6);
+    const dark = new THREE.MeshLambertMaterial({ color: 0x18233b });
+    const pL = new THREE.Mesh(pupGeo, dark); pL.position.set(-0.1, 0.95, 0.28); hero.add(pL);
+    const pR = new THREE.Mesh(pupGeo, dark); pR.position.set(0.1, 0.95, 0.28); hero.add(pR);
+  }
+  scene.add(hero);
+
+  // ── web rope + anchor marker ──
+  const ropeGeo = new THREE.BufferGeometry();
+  ropeGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(6), 3));
+  const rope = new THREE.Line(ropeGeo, new THREE.LineBasicMaterial({ color: 0xffffff }));
+  rope.visible = false; rope.frustumCulled = false;
+  scene.add(rope);
+  const anchorMark = new THREE.Mesh(
+    new THREE.SphereGeometry(0.35, 10, 8),
+    new THREE.MeshBasicMaterial({ color: 0xffffff })
+  );
+  anchorMark.visible = false;
+  scene.add(anchorMark);
+
+  // ───────────────────────────────────────────────────────────────────────────
+  //  CAMERA  (third-person chase)
+  // ───────────────────────────────────────────────────────────────────────────
+  function snapCamera() {
+    const p = G.players.local;
+    const hsp = Math.hypot(p.vx, p.vz);
+    camYaw = (hsp > 3) ? Math.atan2(p.vz, p.vx) : p.heading;
+    const yawDirx = Math.cos(camYaw), yawDirz = Math.sin(camYaw);
+    camPos.set(p.x - yawDirx * TUNE.camDist, Math.max(1, p.y + TUNE.camHeight), p.z - yawDirz * TUNE.camDist);
+    camera.position.copy(camPos);
+    camera.lookAt(p.x + yawDirx * 2, p.y + 1.5, p.z + yawDirz * 2);
+  }
+  function updateCamera(dt) {
+    const p = G.players.local;
+    const hsp = Math.hypot(p.vx, p.vz);
+    const targetYaw = (hsp > 3) ? Math.atan2(p.vz, p.vx) : p.heading;
+    camYaw = angLerp(camYaw, targetYaw, 1 - Math.exp(-4 * dt));
+    const yawDirx = Math.cos(camYaw), yawDirz = Math.sin(camYaw);
+    const goalx = p.x - yawDirx * TUNE.camDist;
+    const goalz = p.z - yawDirz * TUNE.camDist;
+    const goaly = p.y + TUNE.camHeight;
+    const kH = 1 - Math.exp(-TUNE.camLag * dt);
+    const kV = 1 - Math.exp(-2.5 * dt);
+    camPos.x += (goalx - camPos.x) * kH;
+    camPos.z += (goalz - camPos.z) * kH;
+    camPos.y += (goaly - camPos.y) * kV;
+    if (camPos.y < 1) camPos.y = 1;
+    camera.position.copy(camPos);
+    camera.lookAt(p.x + yawDirx * 2, p.y + 1.5, p.z + yawDirz * 2);
+    // FOV kicks with speed
+    const sp = Math.hypot(p.vx, p.vy, p.vz);
+    const targetFov = TUNE.fovBase + TUNE.fovKick * clamp(sp / TUNE.maxSpeed, 0, 1);
+    camFov += (targetFov - camFov) * (1 - Math.exp(-4 * dt));
+    if (Math.abs(camera.fov - camFov) > 0.01) { camera.fov = camFov; camera.updateProjectionMatrix(); }
+  }
+
+  // ── per-frame mesh sync from G ──
+  function syncMeshes() {
+    const p = G.players.local;
+    hero.position.set(p.x, p.y, p.z);
+    hero.rotation.y = -p.heading + Math.PI / 2;
+    const swinging = (p.state === "swing" && p.anchor);
+    rope.visible = !!swinging;
+    anchorMark.visible = !!swinging;
+    if (swinging) {
+      const a = p.anchor;
+      const pos = rope.geometry.attributes.position;
+      pos.setXYZ(0, p.x, p.y + 0.5, p.z);
+      pos.setXYZ(1, a.x, a.y, a.z);
+      pos.needsUpdate = true;
+      anchorMark.position.set(a.x, a.y, a.z);
+    }
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  //  RESIZE + MAIN LOOP
+  // ───────────────────────────────────────────────────────────────────────────
+  function fit() {
+    const w = stage.clientWidth || window.innerWidth;
+    const h = stage.clientHeight || Math.max(1, window.innerHeight - 46);
+    renderer.setSize(w, h, true);
+    camera.aspect = w / Math.max(1, h);
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener("resize", fit);
+  fit();
+
+  let testDriving = false;
+  let acc = 0, lastT = performance.now();
+  function frame(now) {
+    const dt = Math.min(ACC_CAP, (now - lastT) / 1000); lastT = now;
+    if (G.phase === "play") {
+      if (!testDriving) {
+        acc += dt; if (acc > ACC_CAP) acc = ACC_CAP;
+        while (acc >= H_STEP) { substepFixed(H_STEP); acc -= H_STEP; }
+      }
+      updateCamera(dt);
+      syncMeshes();
+      updateHud();
+    }
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // ───────────────────────────────────────────────────────────────────────────
+  //  HUD + TUNE PANEL
+  // ───────────────────────────────────────────────────────────────────────────
+  const speedHud = document.getElementById("speedHud");
+  const stateHud = document.getElementById("stateHud");
+  function updateHud() {
+    const p = G.players.local;
+    const sp = Math.hypot(p.vx, p.vy, p.vz);
+    speedHud.textContent = "speed  " + sp.toFixed(1) + " m/s";
+    stateHud.textContent = p.state;
+  }
+
+  const tuneEl = document.createElement("div");
+  tuneEl.id = "tune"; tuneEl.className = "hidden";
+  document.body.appendChild(tuneEl);
+  const tuneInputs = {};
+  function buildTunePanel() {
+    tuneEl.innerHTML = "<h3>🕸️ tuning (`)</h3>";
+    for (const k in TUNE_DEFAULTS) {
+      const rng = TUNE_RANGE[k]; if (!rng) continue;
+      const [mn, mx, st] = rng;
+      const row = document.createElement("div"); row.className = "trow";
+      const lab = document.createElement("div"); lab.className = "tlab";
+      const name = document.createElement("span"); name.textContent = k;
+      const val = document.createElement("span"); val.className = "tv"; val.textContent = TUNE[k];
+      lab.appendChild(name); lab.appendChild(val);
+      const inp = document.createElement("input");
+      inp.type = "range"; inp.min = mn; inp.max = mx; inp.step = st; inp.value = TUNE[k];
+      inp.addEventListener("input", () => {
+        TUNE[k] = parseFloat(inp.value); val.textContent = TUNE[k];
+        if (k === "fovBase" || k === "fovKick") { camFov = TUNE.fovBase; camera.fov = camFov; camera.updateProjectionMatrix(); }
+        saveTune();
+      });
+      row.appendChild(lab); row.appendChild(inp);
+      tuneEl.appendChild(row);
+      tuneInputs[k] = { inp, val };
+    }
+    const btns = document.createElement("div"); btns.className = "btns";
+    const rb = document.createElement("button"); rb.className = "red"; rb.textContent = "Reset";
+    rb.addEventListener("click", () => {
+      for (const k in TUNE_DEFAULTS) TUNE[k] = TUNE_DEFAULTS[k];
+      saveTune(); refreshTunePanel();
+      camFov = TUNE.fovBase; camera.fov = camFov; camera.updateProjectionMatrix();
+    });
+    const cb = document.createElement("button"); cb.textContent = "Copy JSON";
+    cb.addEventListener("click", () => {
+      const txt = JSON.stringify(TUNE, null, 2);
+      if (navigator.clipboard) navigator.clipboard.writeText(txt).catch(() => {});
+      cb.textContent = "Copied!"; setTimeout(() => (cb.textContent = "Copy JSON"), 1000);
+    });
+    btns.appendChild(rb); btns.appendChild(cb);
+    tuneEl.appendChild(btns);
+    const note = document.createElement("div"); note.className = "note";
+    note.textContent = "Live feel knobs — persisted to localStorage.";
+    tuneEl.appendChild(note);
+  }
+  function refreshTunePanel() {
+    for (const k in tuneInputs) { tuneInputs[k].inp.value = TUNE[k]; tuneInputs[k].val.textContent = TUNE[k]; }
+  }
+  buildTunePanel();
+  function toggleTune() { tuneEl.classList.toggle("hidden"); }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  //  INPUT WIRING
+  // ───────────────────────────────────────────────────────────────────────────
+  const STEER_CODES = new Set(["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
+  window.addEventListener("keydown", (e) => {
+    if (e.code === "Backquote") { toggleTune(); e.preventDefault(); return; }
+    if (G.phase !== "play") return;
+    if (e.code === "Space") {
+      if (!e.repeat) webPress();
+      e.preventDefault(); return;
+    }
+    if (e.code === "ShiftLeft" || e.code === "ShiftRight") {
+      if (!e.repeat) zipPress();          // jump on ground / zip in air (zipPress routes both)
+      return;
+    }
+    if (e.code === "KeyR") { if (!e.repeat) resetPlayer(); return; }
+    if (STEER_CODES.has(e.code)) { keys.add(e.code); e.preventDefault(); }
+  });
+  window.addEventListener("keyup", (e) => {
+    if (e.code === "Space") { webRelease(); return; }
+    if (STEER_CODES.has(e.code)) keys.delete(e.code);
+  });
+  window.addEventListener("blur", () => keys.clear());
+  document.addEventListener("visibilitychange", () => { if (document.hidden) keys.clear(); });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  //  START / PHASE
+  // ───────────────────────────────────────────────────────────────────────────
+  function startPlay() {
+    G.phase = "play";
+    document.getElementById("title").classList.add("hidden");
+    document.getElementById("hud").classList.add("on");
+    resetPlayer();
+    fit();
+  }
+  document.getElementById("playBtn").addEventListener("click", startPlay);
+
+  // ───────────────────────────────────────────────────────────────────────────
+  //  HOOK  (set once, late)
+  // ───────────────────────────────────────────────────────────────────────────
+  window.__WEBGOAT__ = {
+    G, TUNE,
+    buildings: () => CITY,
+    setPlayer(x, y, z, vx, vy, vz) {
+      const p = G.players.local;
+      p.x = x; p.y = y; p.z = z;
+      p.vx = vx || 0; p.vy = vy || 0; p.vz = vz || 0;
+      p.state = "air"; p.anchor = null; p.ropeLen = 0; p.zipT = 0;
+      if (Math.hypot(p.vx, p.vz) > 0.01) p.heading = Math.atan2(p.vz, p.vx);
+      snapCamera();
+    },
+    pickAnchor(px, py, pz, vx, vy, vz, opts) { return pickAnchor(px, py, pz, vx, vy, vz, opts); },
+    webPress, webRelease, zipPress, jumpPress,
+    stepPhysics(seconds) { stepPhysics(seconds); },
+    setTestDriving(on) { testDriving = !!on; },
+    startPlay,
+    get phase() { return G.phase; },
+    get state() { return G.players.local.state; },
+    get pos() { const p = G.players.local; return { x: p.x, y: p.y, z: p.z }; },
+    get vel() { const p = G.players.local; return { vx: p.vx, vy: p.vy, vz: p.vz }; },
+    get spawn() { return Object.assign({}, SPAWN); },
+    tunePanelVisible() { return !tuneEl.classList.contains("hidden"); }
+  };
+})();
+</script>
+</body>
+</html>
