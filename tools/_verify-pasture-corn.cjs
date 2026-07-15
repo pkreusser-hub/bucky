@@ -62,38 +62,94 @@ async function runMechanics(browser){
       return comps;
     }
 
-    // ---------- A. CORN-WORLD GENERATION (70% coverage, connected network) ----------
-    // The field is now a CORN WORLD you carve through: ~70% of the playable field starts as standing
-    // corn (Cornfield ~77%), generated as value-noise valleys + carved winding lanes so there's always
-    // a connected open network (spawn pocket + landmark clearings + a perimeter ring road).
+    // ---------- A. CORN GENERATION (2026-07-15 large-spot rework: ~50% coverage as a FEW LARGE MASSES) ----------
+    // The field is now ~50% standing corn arranged as 5-8 large organic masses (the generator seeds that
+    // many blobs and grows them to an EXACT coverage fraction) with substantial OPEN GROUND between them,
+    // so the open space is one connected network. Cornfield runs a bit denser (~57%). We assert: coverage
+    // in the 45-55 band, the corn forms a FEW LARGE contiguous masses (not noise speckle — a value-noise
+    // field at 50% shatters into dozens of tiny components; large blobs give few, large ones), the open
+    // network is connected, the spawn clearing stays open, and the blob generator seeded 5-8 masses.
+    // components: bucket standing cells into ~7u super-cells, 8-connected, and return {count, sizes}.
+    function blobShape(){
+      const N=P.CORN_N, st=P.cornState, cell=P.CORN_CELL; if(!st) return {count:0,sizes:[]};
+      const SUP=Math.max(1, Math.round(7/cell)); const SN=Math.ceil(N/SUP);
+      const occ=new Uint8Array(SN*SN);
+      for(let i=0;i<st.length;i++){ if(st[i]!==1) continue; const cz=(i/N)|0, cx=i-cz*N; occ[((cz/SUP)|0)*SN+((cx/SUP)|0)]=1; }
+      const seen=new Uint8Array(SN*SN); const sizes=[]; const q=[];
+      for(let i=0;i<occ.length;i++){ if(!occ[i]||seen[i]) continue; let sz=0; q.length=0; q.push(i); seen[i]=1;
+        while(q.length){ const idx=q.pop(); sz++; const sz2=(idx/SN)|0, sx=idx-sz2*SN;
+          for(let oz=-1;oz<=1;oz++)for(let ox=-1;ox<=1;ox++){ if(!ox&&!oz)continue; const gx=sx+ox,gz=sz2+oz; if(gx<0||gz<0||gx>=SN||gz>=SN)continue; const ni=gz*SN+gx; if(occ[ni]&&!seen[ni]){seen[ni]=1;q.push(ni);} } }
+        sizes.push(sz); }
+      sizes.sort((a,b)=>b-a); return {count:sizes.length, sizes};
+    }
     P.meta.selStage = "home"; P.startGame(); await sleep(60);
     const covHome = P.cornCoverage();
-    check("A1 home fills the field with a corn WORLD (thousands of cells)", P.cornStandingCount > 1500, `${P.cornStandingCount} cells`);
-    check("A2 home coverage ~70% (65-75% band)", covHome >= 0.65 && covHome <= 0.75, `${(covHome*100).toFixed(1)}%`);
+    check("A1 home fills a big fraction of the field with corn (hundreds of cells)", P.cornStandingCount > 800, `${P.cornStandingCount} cells`);
+    check("A2 home coverage ~50% (45-55% band)", covHome >= 0.45 && covHome <= 0.55, `${(covHome*100).toFixed(1)}%`);
     // spawn clearing: no standing corn within r8 of origin
     let nearSpawn = 0; for (let a=0;a<360;a+=12) for (let rr=2;rr<=8;rr+=2){ if (P.cornStandingAt(Math.cos(a*Math.PI/180)*rr, Math.sin(a*Math.PI/180)*rr)) nearSpawn++; }
     check("A3 spawn clearing (r8) stays open", nearSpawn === 0, `${nearSpawn} hits`);
-    // connected open network: nearly every open cell is reachable from the spawn pocket, and the
-    // perimeter ring road (where edge-spawned enemies land) is reachable from spawn on all 4 sides
+    // LARGE-SPOT shape: FEW components, each large (a noise field at 50% would shatter into dozens of
+    // small components). The largest mass dominates the field and there is no tiny speckle.
+    const shHome = blobShape();
+    const totalSup = shHome.sizes.reduce((a,b)=>a+b,0);
+    const speckle = shHome.sizes.filter(s=>s<3).length;   // super-cell components smaller than ~3 (tiny bits)
+    check("A4 corn forms a FEW LARGE masses, not noise speckle (<=8 components, largest dominant)", shHome.count >= 1 && shHome.count <= 8 && shHome.sizes[0] >= totalSup*0.35, `${shHome.count} comps, top ${shHome.sizes.slice(0,4)}`);
+    check("A4b no tiny speckle components (<=1 sub-3-cell bit)", speckle <= 1, `${speckle} speckle bits`);
+    check("A5 the generator seeded 5-8 large corn masses (blob count)", P.cornPatchCount >= 5 && P.cornPatchCount <= 8, `${P.cornPatchCount} blobs`);
+    // connected open network: nearly every open cell is reachable from the spawn pocket (open ground is
+    // one network with the masses removed — no more perimeter-ring-road requirement now that enemies
+    // spawn anywhere offscreen rather than only at the fence).
     const openReach = P.cornOpenReachableFrom(0,0);
     const totalOpen = Math.round(P.cornStandingCount * (1/Math.max(covHome,1e-6) - 1));
     const reachFrac = totalOpen > 0 ? openReach/totalOpen : 0;
-    check("A4 open network is CONNECTED (>=90% of open cells reachable from spawn)", reachFrac >= 0.90, `${openReach}/${totalOpen} open reachable (${(reachFrac*100).toFixed(0)}%)`);
-    const perim = P.cornOpenReachableAt(0, 62) && P.cornOpenReachableAt(0, -62) && P.cornOpenReachableAt(62, 0) && P.cornOpenReachableAt(-62, 0);
-    check("A5 perimeter ring road reachable from spawn (edge spawns can path in)", perim, perim);
-    // Cornfield = denser world (75-80%)
+    check("A6 open network is CONNECTED (>=90% of open cells reachable from spawn)", reachFrac >= 0.90, `${openReach}/${totalOpen} open reachable (${(reachFrac*100).toFixed(0)}%)`);
+    // Cornfield = a bit denser (~57%, 55-60 band) but the same large-spot shape
     P.meta.qc.kills = 500; P.meta.selStage = "corn"; P.startGame(); await sleep(60);
     const covCorn = P.cornCoverage();
-    check("A6 Cornfield is DENSER than Home (75-80%)", covCorn > covHome && covCorn >= 0.72 && covCorn <= 0.82, `${(covCorn*100).toFixed(1)}% vs home ${(covHome*100).toFixed(1)}%`);
-    check("A7 Cornfield still swaps windmill -> scarecrow", !!P.stageScare, !!P.stageScare);
+    check("A7 Cornfield is denser than Home (55-60% band)", covCorn > covHome && covCorn >= 0.55 && covCorn <= 0.60, `${(covCorn*100).toFixed(1)}% vs home ${(covHome*100).toFixed(1)}%`);
+    const shCorn = blobShape();
+    check("A7b Cornfield is also a few large masses (<=8 components)", shCorn.count >= 1 && shCorn.count <= 8, `${shCorn.count} comps`);
+    check("A8 Cornfield still swaps windmill -> scarecrow", !!P.stageScare, !!P.stageScare);
     // determinism under a forced seed: two starts with the same seed => byte-identical corn
     P.forceCornSeed(0xC0FFEE); P.meta.selStage = "home"; P.startGame(); await sleep(50); const s1 = Array.from(P.cornState || []).join("");
     P.startGame(); await sleep(50); const s2 = Array.from(P.cornState || []).join(""); P.forceCornSeed(null);
-    check("A8 world-gen is deterministic under a fixed seed", s1.length > 0 && s1 === s2, `len ${s1.length}, identical ${s1===s2}`);
+    check("A9 world-gen is deterministic under a fixed seed", s1.length > 0 && s1 === s2, `len ${s1.length}, identical ${s1===s2}`);
     // determinism under a daily seed: two daily starts produce byte-identical corn
     const dailyMask = async () => { P.startDailyRun(); await sleep(50); return Array.from(P.cornState || []).join(""); };
     const d1 = await dailyMask(); const d2 = await dailyMask();
-    check("A9 daily runs generate deterministic corn (same seed => same field)", d1.length > 0 && d1 === d2, `len ${d1.length}, identical ${d1===d2}`);
+    check("A10 daily runs generate deterministic corn (same seed => same field)", d1.length > 0 && d1 === d2, `len ${d1.length}, identical ${d1===d2}`);
+
+    // ---------- A2. DIRECTIVE 1: camera pulled in ~20% (fit distance ×0.8) ----------
+    check("A11 camera zoom multiplier is 0.8 (~20% tighter view)", Math.abs(P.CAM_ZOOM - 0.8) < 1e-9, P.CAM_ZOOM);
+
+    // ---------- A3. DIRECTIVE 3: enemies spawn ANYWHERE offscreen in OPEN cells, not just the fence ----------
+    P.meta.selStage = "home"; P.startGame(); await sleep(80);   // let the follow-cam settle on the player
+    P.player.position.set(0,0,0); await sleep(60);
+    // (a) the sampler returns offscreen + open points respecting the player-distance minimum
+    let sampN = 0, sampOffscreen = 0, sampOpen = 0, sampFar = 0;
+    for (let i=0;i<120;i++){ const p = P.pickOffscreenSpawnPos(); if (!p) continue; sampN++;
+      if (!P.pointOnScreen(p[0], p[1], 0)) sampOffscreen++;                 // strictly outside the NDC box
+      if (!P.cornStandingAt(p[0], p[1])) sampOpen++;                        // open ground
+      if (Math.hypot(p[0], p[1]) >= P.SPAWN_MIN_D - 0.01) sampFar++;        // player-distance minimum
+    }
+    check("A12 offscreen sampler returns points OUTSIDE the camera view", sampN > 0 && sampOffscreen/sampN >= 0.97, `${sampOffscreen}/${sampN} offscreen`);
+    check("A13 offscreen sampler returns OPEN (non-corn) cells", sampN > 0 && sampOpen/sampN >= 0.97, `${sampOpen}/${sampN} open`);
+    check("A14 offscreen spawns respect the player-distance minimum", sampN > 0 && sampFar/sampN >= 0.97, `${sampFar}/${sampN} >= ${P.SPAWN_MIN_D}`);
+    // (b) actual default spawns (no opts.at) land offscreen + open, NOT hugging the far fence
+    P.enemies.length = 0;
+    for (let i=0;i<40;i++) P.spawnEnemy("rat");
+    let sOff=0, sOpen=0, atFence=0, tot=0;
+    for (const e of P.enemies){ tot++;
+      const x=e.mesh.position.x, z=e.mesh.position.z;
+      if (!P.pointOnScreen(x, z, 0)) sOff++;
+      if (!P.cornStandingAt(x, z)) sOpen++;
+      if (Math.abs(x) > P.ARENA-2.5 || Math.abs(z) > P.ARENA-2.5) atFence++;   // right up against the fence
+    }
+    check("A15 default spawns land offscreen", tot>0 && sOff/tot >= 0.95, `${sOff}/${tot} offscreen`);
+    check("A16 default spawns land in open ground (not stuck in corn)", tot>0 && sOpen/tot >= 0.95, `${sOpen}/${tot} open`);
+    check("A17 default spawns are NOT all pinned to the far fence (short-walk)", tot>0 && atFence/tot <= 0.3, `${atFence}/${tot} at fence`);
+    P.enemies.length = 0;
 
     // ---------- B. PLAYER CARVE / SLOW / PERSIST ----------
     P.meta.selStage = "home"; P.startGame(); await sleep(20);
@@ -115,6 +171,19 @@ async function runMechanics(browser){
     // persistence: cut cell stays cut for the rest of the run
     P.player.position.set(0,0,0); await sleep(200);
     check("B5 cut cells stay cut (persistent alley)", P.cornState[tIdx] === 2 && !P.cornStandingAt(12,0), `state ${P.cornState[tIdx]}`);
+    // DIRECTIVE 4: the scythe swath is ~2x wider — the carve reach is ~2.7u (was 1.35) and standing
+    // still in a big block clears a corridor several cells wide, not a single-cell dot.
+    check("B6 carve reach is ~2x (CORN_CARVE_R ~2.7u, was 1.35)", P.CORN_CARVE_R >= 2.5 && P.CORN_CARVE_R <= 3.0, `${P.CORN_CARVE_R}`);
+    P.startGame(); await sleep(20); P.weaponsArr = []; P.invulnT = 1e9;
+    // a wide solid block of standing corn; stand still in the middle and measure the felled swath width
+    P.setCornField((cx,cz,wx,wz) => Math.abs(wx) < 8 && Math.abs(wz) < 8);
+    P.player.position.set(0,0,0);
+    for (let i=0;i<70;i++){ await sleep(16); }   // ~1.1s of standing -> corridor carved
+    // measure the widest run of cut cells across the row through the player (z=0)
+    let cutSpan = 0; for (let x=-7.5; x<=7.5; x+=P.CORN_CELL){ if (!P.cornStandingAt(x, 0)) cutSpan++; }
+    // ~2.7u reach => a felled band ~5.4u across => ~4 cells (1.5u each). A 1.35u reach would clear ~2.
+    check("B7 standing still carves a WIDE corridor (>=4 open cells across, ~5u swath)", cutSpan >= 4, `${cutSpan} cells open across the player's row`);
+    P.enemies.length = 0;
 
     // ---------- C. GROUND ENEMY BLOCKED + STREAMS AROUND ----------
     P.startGame(); await sleep(20); P.weaponsArr = []; P.invulnT = 1e9;
@@ -253,35 +322,66 @@ async function runMechanics(browser){
     check("G6 corn ABSORBS the Sniper shot (never crosses the wall to the player)", sawShot2 && !crossedWall, `sawShot ${sawShot2}, maxZ ${maxShotZ.toFixed(1)}`);
     check("G7 Sniper shots do NOT clear corn (absorbed, not blasted)", P.cornStandingCount >= cornBeforeShot - 1, `${cornBeforeShot} -> ${P.cornStandingCount}`);
 
-    // ---------- H. ENCLOSURE -> CHEW THROUGH ----------
+    // ---------- H. DIRECTIVE 5: SEALED POCKET IS SAFE (no chew-through, no CPU spin) ----------
+    // Enclose the player in a SOLID closed corn annulus (no gap). With chew-through removed, ground
+    // enemies can NEVER breach it — they just press the wall via the flow field. We also measure frame
+    // time while the pocket is sealed and enemies press it, to prove the unreachable-player case doesn't
+    // spin the CPU. (30s+ is impractical headless; ~4s of frames + the code having no enemy-carve path
+    // proves the mechanic — a chewer would have felled cells within the first second.)
     P.startGame(); await sleep(20); P.weaponsArr = []; P.invulnT = 1e9;
     P.player.position.set(0,0,0);
-    // a SOLID closed annulus around the player (no gap) at r 3.5..6 -> player fully enclosed
-    P.setCornField((cx,cz,wx,wz) => { const d=Math.hypot(wx,wz); return d>3.3 && d<6.2; });
+    P.setCornField((cx,cz,wx,wz) => { const d=Math.hypot(wx,wz); return d>3.3 && d<6.2; });   // solid ring, player enclosed
     P.recomputeCornFlow();
-    const enclosedBefore = P.cornStandingCount;
+    const sealedBefore = P.cornStandingCount;
     P.enemies.length = 0;
-    for (let a=0;a<360;a+=45){ P.spawnEnemy("armadillo", { at: [Math.cos(a*Math.PI/180)*12, Math.sin(a*Math.PI/180)*12] }); }
-    let anyChewer = false;
-    for (let i=0;i<200;i++){ await sleep(16);   // player does NOT move
+    for (let a=0;a<360;a+=30){ P.spawnEnemy("armadillo", { at: [Math.cos(a*Math.PI/180)*13, Math.sin(a*Math.PI/180)*13] }); }
+    let anyChewFlag = false, minStanding = sealedBefore;
+    const gaps = []; let last = performance.now();
+    for (let i=0;i<150;i++){ await sleep(16);   // ~2.4s of frames; player never moves (can't reach the ring)
+      const now = performance.now(); gaps.push(now - last); last = now;
       const arr=P.enemies; for(let j=arr.length-1;j>=0;j--) if(arr[j].isBoss) arr.splice(j,1);
-      if (P.enemies.some(e => e.chew)) anyChewer = true;
-      if (P.cornStandingCount < enclosedBefore - 1) break;
+      if (P.enemies.some(e => e.chew)) anyChewFlag = true;   // no code sets .chew anymore
+      minStanding = Math.min(minStanding, P.cornStandingCount);
     }
-    check("H1 an enclosed player has cut-off enemies flagged as chewers", anyChewer, anyChewer);
-    check("H2 cut-off enemies chew through corn (cells fall w/o the player carving)", P.cornStandingCount < enclosedBefore, `${enclosedBefore} -> ${P.cornStandingCount}`);
+    const avgGap = gaps.reduce((a,b)=>a+b,0)/gaps.length;
+    check("H1 no enemy is ever flagged as a chewer (chew-through removed)", !anyChewFlag, anyChewFlag ? "a chewer appeared" : "none");
+    check("H2 a fully-sealed pocket is NEVER breached by ground enemies", minStanding === sealedBefore, `${sealedBefore} -> min ${minStanding} standing`);
+    // spin-GUARD (not an FPS SLA): a real CPU spin / infinite path search would blow the protocolTimeout
+    // outright or push frames into the many-hundreds-of-ms range. On the contended CI swiftshader box a
+    // healthy frame here is ~sleep(16)+render+CDP overhead (~50-90ms); 250ms is the generous ceiling that
+    // still catches a pathological spin. H2 (no breach) already proves the pocket is truly sealed.
+    check("H3 unreachable-player pocket does NOT spin the CPU (no pathological frame times)", avgGap < 250, `avg frame ${avgGap.toFixed(1)}ms over ${gaps.length} frames`);
 
-    // ---------- I. PUMPKIN BLAST CLEARS CORN ----------
+    // ---------- I. DIRECTIVE 6: WEAPONS DO NOT CLEAR CORN (only scythe + boss trample do) ----------
+    // pumpkin blast: fire it straight into a standing block — enemies still take damage, corn stands.
     P.startGame(); await sleep(20); P.invulnT = 1e9;
     P.player.position.set(0,0,0);
     P.setCornField((cx,cz,wx,wz) => Math.abs(wx) < 3 && Math.abs(wz-10) < 3);
     const cornPumpBefore = P.cornStandingCount;
     const pw = P.setSoleWeapon("pumpkin"); pw.timer = 999;
-    P.enemies.length = 0; const dummy = P.spawnEnemy("turtle", { at: [0, 10] }); if (dummy) dummy.hp = dummy.maxHp = 1e9;
-    P.fireWeapon(pw);
-    let cleared = false;
-    for (let i=0;i<120;i++){ await sleep(16); if (P.cornStandingCount < cornPumpBefore){ cleared = true; break; } }
-    check("I1 pumpkin blast clears corn in its radius", cleared && !P.cornStandingAt(0,10), `${cornPumpBefore} -> ${P.cornStandingCount}`);
+    P.enemies.length = 0; const dummy = P.spawnEnemy("turtle", { at: [0, 10] }); if (dummy) dummy.hp = dummy.maxHp = 1e12;
+    for (let r=0;r<4;r++){ pw.timer = 999; P.fireWeapon(pw); for (let i=0;i<20;i++) await sleep(16); }
+    check("I1 pumpkin blast does NOT clear corn (weapons don't harvest)", P.cornStandingCount >= cornPumpBefore - 1 && P.cornStandingAt(0,10), `${cornPumpBefore} -> ${P.cornStandingCount}, still standing ${P.cornStandingAt(0,10)}`);
+    // egg mortar: arcs over corn (still damages) but must not fell stalks either
+    P.startGame(); await sleep(20); P.invulnT = 1e9; P.player.position.set(0,0,0);
+    P.setCornField((cx,cz,wx,wz) => Math.abs(wx) < 3 && Math.abs(wz-10) < 3);
+    const cornEggBefore = P.cornStandingCount;
+    const ew = P.setSoleWeapon("egg"); ew.timer = 999;
+    P.enemies.length = 0; const ed = P.spawnEnemy("turtle", { at: [0, 10] }); if (ed) ed.hp = ed.maxHp = 1e12;
+    for (let r=0;r<6;r++){ ew.timer = 999; P.fireWeapon(ew); for (let i=0;i<20;i++) await sleep(16); }
+    check("I2 egg blast + bomblets do NOT clear corn", P.cornStandingCount >= cornEggBefore - 1, `${cornEggBefore} -> ${P.cornStandingCount}`);
+
+    // ---------- I3. DIRECTIVE 7: scythe-carve swish plays, throttled to swipes ----------
+    P.resetScytheFires();
+    for (let i=0;i<6;i++) P.scytheSwish();     // rapid-fire: throttle should collapse these to ONE
+    const firesBurst = P.scytheFires;
+    await sleep(200);                           // wait past the 0.16s throttle window
+    P.scytheSwish();
+    const firesAfter = P.scytheFires;
+    check("I3 scythe swish plays on carve", firesBurst >= 1, `${firesBurst} fired`);
+    check("I3b swish is THROTTLED (a burst collapses to a single swipe)", firesBurst === 1, `${firesBurst} in a rapid burst`);
+    check("I3c swish fires again after the throttle window (rhythmic swipes)", firesAfter === firesBurst + 1, `${firesAfter} after cooldown`);
+    check("I3d the scythe-swish sample is registered in AUDIO_FILES/manifest", P.sfxPlays && ('scytheSwish' in P.sfxPlays), `sfxPlays has scytheSwish counter`);
 
     // ---------- J. VISUAL PASS (golden-wall read) + LOBBER BODY BLOCK ----------
     P.startGame(); await sleep(20); P.weaponsArr = []; P.invulnT = 1e9;
@@ -455,7 +555,7 @@ async function main(){
   let server = null;
   if (!(await isOpen(PORT))) server = spawn("npx", ["-y", "http-server", ROOT, "-p", String(PORT), "-c-1"], { cwd: ROOT, stdio: "ignore", shell: true });
   await waitServer(PORT, 20000);
-  const browser = await puppeteer.launch({ channel: "chrome", headless: "new", protocolTimeout: 180000, args: ["--autoplay-policy=no-user-gesture-required", "--use-gl=swiftshader", "--enable-webgl", "--ignore-gpu-blocklist"] });
+  const browser = await puppeteer.launch({ channel: "chrome", headless: "new", protocolTimeout: 300000, args: ["--autoplay-policy=no-user-gesture-required", "--use-gl=swiftshader", "--enable-webgl", "--ignore-gpu-blocklist"] });
   let allOk = true;
   try {
     for (const [label, fn] of [

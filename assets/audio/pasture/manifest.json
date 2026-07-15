@@ -318,5 +318,21 @@
     "prompt": "Big comic western showdown standoff theme in E minor at 120 BPM, dramatic and heavy but playful, twangy electric and acoustic guitar, low brooding upright bass, banjo and fiddle stabs, a lone whistle motif and stomping percussion for a tense high-noon farm duel against a giant harvester. Clear sections: an ominous sparse intro with whistle and bass, a heavy driving standoff groove, a suspenseful B-section swell, a bold rising build, ending so it loops seamlessly. Ominous but comic and kid-friendly, exciting not frightening, cartoon farm game boss music, no vocals, instrumental.",
     "bytes": 1105025,
     "api": "POST /v1/music (music_v1, force_instrumental=true, music_length_ms=92000, output_format=mp3_44100_96)"
+  },
+  {
+    "file": "pp-sfx-scythe-swish.mp3",
+    "kind": "sfx",
+    "target": "~0.5s",
+    "prompt": "kid-friendly, cute, cartoonish, family-game, no scary or harsh tones, a quick light scythe blade swish whooshing through tall corn stalks, a soft leafy swipe, playful farm sound",
+    "bytes": 8821,
+    "api": "POST /v1/sound-generation (duration_seconds=0.5, prompt_influence=0.7, loop=false)"
+  },
+  {
+    "file": "pp-sfx-pumpkin-splat.mp3",
+    "kind": "sfx",
+    "target": "~0.5s",
+    "prompt": "wet cartoon pumpkin SPLAT for the pumpkin-launcher impact (kid-comic 'goes splat'). REUSED from Farm Kart's assets/audio/fk-sfx-splat.mp3 (the tomato splat) — copied byte-for-byte, no new generation. Free reuse of an existing family-game asset; the old pp-sfx-pumpkin-blast.mp3 stays on disk (now unused by the launcher).",
+    "bytes": 17180,
+    "api": "copied from assets/audio/fk-sfx-splat.mp3 (no API call)"
   }
 ]

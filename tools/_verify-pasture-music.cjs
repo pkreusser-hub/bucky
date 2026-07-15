@@ -19,7 +19,7 @@
  * Two passes:
  *   FULL     — all audio served. menu / tier bands / crossfade-gradient / boss override + anti-thrash
  *              dwell + return-to-tier (no source restart) / endless=battle3 / mute / music-toggle
- *              (music off keeps SFX) / back-to-menu. Asserts 39/39 buffers.
+ *              (music off keeps SFX) / back-to-menu. Asserts 41/41 buffers.
  *   ONE-BLOCKED — pp-music-battle2.mp3 aborted: that track decodes to null, so at tier 3 the LOGICAL
  *              phase is still 'battle2' but its gain node is never created (graceful silence) — game
  *              keeps playing with 0 pageerrors and the other tracks are unaffected.
@@ -105,7 +105,7 @@ async function runFull(browser) {
     const check = (name, cond, detail) => out.push({ name, pass: !!cond, detail: detail == null ? "" : String(detail) });
     const a = A.audioState();
     check("gesture registered", a.gestured === true, a.gestured);
-    check("39/39 buffers decoded", a.buffersLoaded === 39 && a.buffersTotal === 39, a.buffersLoaded + "/" + a.buffersTotal);
+    check("41/41 buffers decoded", a.buffersLoaded === 41 && a.buffersTotal === 41, a.buffersLoaded + "/" + a.buffersTotal);
     check("title screen -> musicPhase 'menu'", a.musicPhase === "menu", a.musicPhase);
     check("menu track gain rose (hot)", (a.trackGains.menu || 0) > 0.5, a.trackGains.menu);
     check("no run track playing on the title", (a.trackGains.battle1 || 0) < 0.3 && (a.trackGains.boss || 0) < 0.3, JSON.stringify(a.trackGains));
@@ -309,7 +309,7 @@ async function runOneBlocked(browser) {
   const { page, errors } = await openPage(browser, { blockMusicFile: "pp-music-battle2.mp3" });
   const checks = [];
   const observed = {};
-  // let the other 38 buffers settle (the blocked one rejects fast)
+  // let the other 39 buffers settle (the blocked one rejects fast)
   await page.waitForFunction(
     () => { const a = window.__PASTURE_AUDIO__.audioState(); return a.buffersLoaded >= a.buffersTotal - 1; },
     { timeout: 20000 }
@@ -322,7 +322,7 @@ async function runOneBlocked(browser) {
     const out = [];
     const check = (name, cond, detail) => out.push({ name, pass: !!cond, detail: detail == null ? "" : String(detail) });
     const a0 = A.audioState();
-    check("38/39 buffers decoded (one music file blocked)", a0.buffersLoaded === 38, a0.buffersLoaded + "/" + a0.buffersTotal);
+    check("40/41 buffers decoded (one music file blocked)", a0.buffersLoaded === 40, a0.buffersLoaded + "/" + a0.buffersTotal);
 
     // menu still plays (its file wasn't blocked)
     check("menu music still plays with battle2 blocked", a0.musicPhase === "menu" && (a0.trackGains.menu || 0) > 0.5, JSON.stringify(a0.trackGains));

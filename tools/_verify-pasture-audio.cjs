@@ -11,7 +11,7 @@
  *     call returns false and every sfxPlays counter stays 0. Game must still boot, start
  *     a run, and take core gameplay actions (fire weapons, kill enemies, collect pickups,
  *     level up, take damage, game over) with 0 pageerrors.
- *  2) SAMPLES — served normally. All 39 files decode, gesture-unlock starts menu music,
+ *  2) SAMPLES — served normally. All 40 files decode, gesture-unlock starts menu music,
  *     starting a run crossfades to the tier band (battle1 at tier 0), every gameplay beat's
  *     sfxPlays counter ticks, the INTENSITY system selects battle1/2/3 by threatTier, a boss
  *     overrides with the Showdown track and returns to the tier track after the anti-thrash
@@ -100,7 +100,7 @@ async function runPass(browser, { blockAudio, label }) {
     check("audio ctx exists", a0.ctxState === "running" || a0.ctxState === "suspended", a0.ctxState);
     check("unmuted masterGain 1", a0.masterGainV === 1, a0.masterGainV);
     check("gesture registered", a0.gestured === true, a0.gestured);
-    check("buffersTotal is 39", a0.buffersTotal === 39, a0.buffersTotal);
+    check("buffersTotal is 41", a0.buffersTotal === 41, a0.buffersTotal);
     if (blockAudio) {
       check("no buffers loaded (blocked)", a0.buffersLoaded === 0, a0.buffersLoaded);
     } else {
@@ -198,8 +198,10 @@ async function runPass(browser, { blockAudio, label }) {
     P.fireWeapon(P.weaponById("pumpkin"));
     await pumpAndWait(1800);
     after = A.audioState().sfxPlays;
-    if (!blockAudio) check("pumpkin blast sample ticked after lob resolves", delta(before, after, "pumpkinBlast") > 0, before.pumpkinBlast + "->" + after.pumpkinBlast);
-    else check("pumpkin blast sample stays 0 (blocked)", after.pumpkinBlast === 0, after.pumpkinBlast);
+    // 2026-07-15: the pumpkin impact now plays the wet SPLAT (pp-sfx-pumpkin-splat, reused from Farm
+    // Kart's fk-sfx-splat), not the old pp-sfx-pumpkin-blast — so the SPLAT counter is what ticks.
+    if (!blockAudio) check("pumpkin blast plays the SPLAT sample after lob resolves", delta(before, after, "pumpkinSplat") > 0, before.pumpkinSplat + "->" + after.pumpkinSplat);
+    else check("pumpkin splat sample stays 0 (blocked)", after.pumpkinSplat === 0, after.pumpkinSplat);
 
     // --- enemy death: varmint pop + elite pop ---
     before = Object.assign({}, A.audioState().sfxPlays);

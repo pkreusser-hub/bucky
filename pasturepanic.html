@@ -602,6 +602,12 @@
   (() => {
     // ================== constants ==================
     const ARENA = 66;                 // half-size of the fenced pasture (3x area vs the old 38)
+    // DIRECTIVE 1 (2026-07-15): pull the follow-camera in ~20% (fit distance/frustum ×0.8) so the
+    // action reads bigger on both desktop AND mobile. Applied as a multiplier on the live camera
+    // distance/height at every follow-cam site (host solo + guest), so the portrait extra-zoom (camK)
+    // and co-op pull-back (×1.25) still compose on top. HUD is DOM-fixed and the off-screen indicators
+    // project through this same camera, so both adapt automatically to the tighter view.
+    const CAM_ZOOM = 0.8;
     const SCORES_KEY = "pasturePanicScores";
     // Swarm cap: solo/couch lean HARD into "the whole screen is covered" (balance overhaul 2026-07-13:
     // 190 -> 230, +21%). small-fry HP is cheaper below so density never becomes an unkillable wall, and
@@ -3329,6 +3335,53 @@
       return k;
     }
 
+    // ---- DIRECTIVE 3 (2026-07-15): spawn ANYWHERE offscreen, not just at the fence. Picks a random
+    // OPEN (non-corn) cell that is outside the current camera view (+ a margin so nothing pops in at the
+    // screen edge) and still at least SPAWN_MIN_D from every living player. At the tighter zoom this
+    // kills the long-walk-from-the-fence: enemies materialize just past the edge of the visible field. ----
+    const SPAWN_MIN_D = 15;                    // never closer than this to a player, even offscreen
+    const _spawnNdc = new THREE.Vector3();
+    function pointOnScreen(x, z, margin){
+      _spawnNdc.set(x, 0, z).project(camera);
+      const m = margin == null ? 0 : margin;
+      return _spawnNdc.z < 1 && Math.abs(_spawnNdc.x) < 1 + m && Math.abs(_spawnNdc.y) < 1 + m;
+    }
+    function spawnSeedsPositions(){
+      return coop ? livingPlayers().map(p => p.mesh.position) : (player ? [player.position] : []);
+    }
+    function farFromPlayers(x, z, minD){
+      for (const s of spawnSeedsPositions()){ if (Math.hypot(x - s.x, z - s.z) < minD) return false; }
+      return true;
+    }
+    // a random OPEN offscreen point respecting the player-distance minimum; falls back to a fence edge
+    // (old behavior) if the sampler can't find one — a spawn is never skipped for lack of a clear cell.
+    function pickOffscreenSpawnPos(minD){
+      minD = minD == null ? SPAWN_MIN_D : minD;
+      for (let tries = 0; tries < 48; tries++){
+        const x = (Math.random()*2-1) * (ARENA-2), z = (Math.random()*2-1) * (ARENA-2);
+        if (cornStandingAt(x, z)) continue;                 // must be OPEN ground
+        if (!farFromPlayers(x, z, minD)) continue;          // respect the player-distance minimum
+        if (pointOnScreen(x, z, 0.15)) continue;            // must be offscreen (15% NDC margin = no edge pop-in)
+        return [x, z];
+      }
+      // fallback: a random fence edge (guaranteed valid), nudged off any corn it lands in
+      const side = (Math.random()*4)|0, along = (Math.random()*2-1) * (ARENA-2);
+      let pos = [ [along, -ARENA+1], [along, ARENA-1], [-ARENA+1, along], [ARENA-1, along] ][side];
+      return pos;
+    }
+    // nudge a formation point off standing corn to the nearest open cell within a small ring (so a
+    // ring/cluster member never spawns stuck inside a mass); returns [x,z].
+    function nudgeToOpen(x, z){
+      if (!cornStandingAt(x, z)) return [x, z];
+      for (let r = CORN_CELL; r <= CORN_CELL * 4; r += CORN_CELL){
+        for (let a = 0; a < Math.PI * 2; a += Math.PI / 6){
+          const nx = x + Math.cos(a) * r, nz = z + Math.sin(a) * r;
+          if (Math.abs(nx) < ARENA-1.5 && Math.abs(nz) < ARENA-1.5 && !cornStandingAt(nx, nz)) return [nx, nz];
+        }
+      }
+      return [x, z];
+    }
+
     function spawnEnemy(kind, opts){
       opts = opts || {};
       const elite = !!opts.elite;
@@ -3339,9 +3392,8 @@
       if (opts.at){
         mesh.position.set(opts.at[0], 0, opts.at[1]);
       } else {
-        // spawn on a random fence edge
-        const side = (Math.random()*4)|0, along = (Math.random()*2-1) * (ARENA-2);
-        const pos = [ [along, -ARENA+1], [along, ARENA-1], [-ARENA+1, along], [ARENA-1, along] ][side];
+        // DIRECTIVE 3: default spawn is any OPEN cell just offscreen (not the far fence)
+        const pos = pickOffscreenSpawnPos();
         mesh.position.set(pos[0], 0, pos[1]);
       }
 
@@ -3551,23 +3603,37 @@
 
     // ---- formation spawners (Tier 3: attacks that read as intentional, not noise) ----
     // On a gated stage (Home Pasture) formations pour through the gate nearest the player.
+    // DIRECTIVE 3: a formation now arrives as an OFFSCREEN CLUSTER in open ground on one side of the
+    // player (not a full-width fence line) — the anchor is picked offscreen+open, members jitter around
+    // it and slide off any corn. Gate stages still route through the nearest gate (unchanged).
     function spawnLine(kind, n){
       if (activeGates() && spawnFromGate(kind, n)) return;
-      const side = (spawnRandom()*4)|0;
+      const anchor = pickOffscreenSpawnPos();
+      // orient the cluster line perpendicular to the anchor->player direction so it reads as a wave front
+      const px = player ? player.position.x : 0, pz = player ? player.position.z : 0;
+      let ux = px - anchor[0], uz = pz - anchor[1]; const ul = Math.hypot(ux, uz) || 1; ux /= ul; uz /= ul;
+      const tx = -uz, tz = ux;   // tangent (the line spreads along this)
+      const span = Math.min(ARENA * 0.5, 3 + n * 1.1);
       for (let i = 0; i < n; i++){
-        const along = -ARENA + 3 + (i + 0.5) * ((ARENA*2 - 6) / n);
-        const at = [ [along, -ARENA+1], [along, ARENA-1], [-ARENA+1, along], [ARENA-1, along] ][side];
+        const t = (i / Math.max(1, n - 1) - 0.5) * span;
+        const jx = (spawnRandom() - 0.5) * 2.2, jz = (spawnRandom() - 0.5) * 2.2;
+        const rx = Math.max(-ARENA+1.5, Math.min(ARENA-1.5, anchor[0] + tx * t + jx));
+        const rz = Math.max(-ARENA+1.5, Math.min(ARENA-1.5, anchor[1] + tz * t + jz));
+        const at = nudgeToOpen(rx, rz);
         spawnEnemy(kind, { at });
       }
     }
     function spawnRing(kind, n, R){
       if (activeGates() && spawnFromGate(kind, n)) return;
-      R = R || 22;
+      // encircle the player, but at a radius large enough to sit OFFSCREEN at the tighter zoom, and slide
+      // each point off any corn mass so no ring member spawns stuck inside stalks.
+      R = R || 40;
       for (let i = 0; i < n; i++){
         const a = (i / n) * Math.PI * 2;
         const x = Math.max(-ARENA+1.5, Math.min(ARENA-1.5, player.position.x + Math.cos(a) * R));
         const z = Math.max(-ARENA+1.5, Math.min(ARENA-1.5, player.position.z + Math.sin(a) * R));
-        spawnEnemy(kind, { at: [x, z] });
+        const at = nudgeToOpen(x, z);
+        spawnEnemy(kind, { at });
       }
     }
     function spawnCrows(n){
@@ -3588,13 +3654,14 @@
       n = n || 24;
       const ef = eliteFraction();
       for (let ring = 0; ring < 2; ring++){
-        const R = 28 + ring * 5;
+        const R = 40 + ring * 5;   // offscreen encircling rings at the tighter zoom
         for (let i = 0; i < n; i++){
           const a = (i / n) * Math.PI * 2 + ring * 0.13;
           const x = Math.max(-ARENA+1.5, Math.min(ARENA-1.5, player.position.x + Math.cos(a) * R));
           const z = Math.max(-ARENA+1.5, Math.min(ARENA-1.5, player.position.z + Math.sin(a) * R));
+          const at = nudgeToOpen(x, z);
           const makeElite = kills >= 60 && ef > 0 && Math.random() < ef;
-          spawnEnemy(enemyKindForPressure(), makeElite ? { elite: true, at: [x, z] } : { at: [x, z] });
+          spawnEnemy(enemyKindForPressure(), makeElite ? { elite: true, at } : { at });
         }
       }
     }
@@ -3873,6 +3940,29 @@
         .map(o => o.e);
     }
     function toughestEnemy(fromPos, range){ return toughestEnemies(fromPos, range, 1)[0] || null; }
+    // DIRECTIVE (2026-07-15): direct-line weapons (kernels/fork/hay/chicken darts/scarecrow shots) must
+    // not FIRE at a varmint standing behind corn — their shot would just splat into the wall. Pick the
+    // nearest target whose player/turret->enemy line is CLEAR of standing corn. Perf: with no standing
+    // corn this is exactly nearestEnemy (cornBlocksRay short-circuits). Otherwise gather in-range enemies,
+    // sort nearest-first, and run the (cheap grid-sampled) LOS check on only the nearest few, returning the
+    // first that passes. If the nearest few are all walled, HOLD FIRE (null) — the weapon retries next
+    // frame (existing no-target behavior), never spraying blind into the stalks.
+    function nearestVisibleEnemy(fromPos, range, maxChecks){
+      if (!cornState || cornStandingCount === 0) return nearestEnemy(fromPos, range);
+      const cand = [];
+      for (const e of enemies){
+        if (e.untargetable) continue;
+        const d = fromPos.distanceTo(e.mesh.position.clone().setY(fromPos.y));
+        if (d < range) cand.push({ e, d });
+      }
+      cand.sort((a, b) => a.d - b.d);
+      const cap = Math.min(cand.length, maxChecks || 6);
+      for (let i = 0; i < cap; i++){
+        const e = cand[i].e;
+        if (!cornBlocksRay(fromPos.x, fromPos.z, e.mesh.position.x, e.mesh.position.z)) return e;
+      }
+      return null;   // nearest candidates are all shadowed by corn — hold fire
+    }
 
     // corn kernels — straight shots (also used by scarecrow turrets, with their own dmg/origin)
     function fireKernels(origin, target, n, dmg, pierce, wid){
@@ -3891,7 +3981,7 @@
     function fireWeapon(w){
       const spec = WEAPON_SPECS[w.id];
       if (w.id === "corn"){
-        const t = nearestEnemy(player.position, spec.range);
+        const t = nearestVisibleEnemy(player.position, spec.range);   // direct kernels — need clear LOS
         if (!t) return false;
         const dir = fireKernels(player.position, t, w.multishot, wDmg(w), w.pierce, "corn");
         // (facing is movement-driven only — shooting never turns the character)
@@ -3901,7 +3991,7 @@
         return true;
       }
       if (w.id === "pumpkin"){
-        const t = toughestEnemy(player.position, spec.range);   // lob at the beefiest target
+        const t = nearestEnemy(player.position, spec.range);   // lob at the CLOSEST target (arcs over corn)
         if (!t) return false;
         const from = player.position.clone().setY(1.3);
         const lobs = w.spread || 1;   // The Great Pumpkin evolution carpet-bombs a spread
@@ -3917,7 +4007,7 @@
         return true;
       }
       if (w.id === "cats"){
-        const targets = toughestEnemies(player.position, spec.range, w.count);   // pounce on the beefiest
+        const targets = nearestEnemies(player.position, spec.range, w.count);   // pounce on the CLOSEST (chain retargets nearest-to-cat)
         if (!targets.length) return false;
         for (let i = 0; i < w.count; i++){
           const t = targets[i % targets.length];
@@ -3932,7 +4022,7 @@
         return true;
       }
       if (w.id === "fork"){
-        const t = nearestEnemy(player.position, spec.range);
+        const t = nearestVisibleEnemy(player.position, spec.range);   // thrown straight — need clear LOS
         if (!t) return false;
         const baseDir = new THREE.Vector3().subVectors(t.mesh.position, player.position).setY(0).normalize();
         for (let i = 0; i < w.multishot; i++){
@@ -3949,7 +4039,7 @@
         return true;
       }
       if (w.id === "bolt"){
-        const targets = toughestEnemies(player.position, spec.range, w.count);
+        const targets = nearestEnemies(player.position, spec.range, w.count);   // sky-strike — CLOSEST (no LOS needed)
         if (!targets.length) return false;
         for (let i = 0; i < w.count; i++){
           const t = targets[i % targets.length];
@@ -3973,7 +4063,7 @@
         return true;
       }
       if (w.id === "egg"){
-        const t = toughestEnemy(player.position, spec.range);   // lob at the beefiest
+        const t = nearestEnemy(player.position, spec.range);   // lob at the CLOSEST (arcs over corn)
         if (!t) return false;
         const from = player.position.clone().setY(1.3);
         const target = t.mesh.position.clone().setY(0.3);
@@ -3984,7 +4074,7 @@
         return true;
       }
       if (w.id === "milk"){
-        const t = toughestEnemy(player.position, spec.range);
+        const t = nearestEnemy(player.position, spec.range);   // lob at the CLOSEST (arcs over corn)
         if (!t) return false;
         const from = player.position.clone().setY(1.3);
         const target = t.mesh.position.clone().setY(0.2);
@@ -3995,7 +4085,7 @@
         return true;
       }
       if (w.id === "hay"){
-        const t = nearestEnemy(player.position, spec.range);
+        const t = nearestVisibleEnemy(player.position, spec.range);   // rolls along the ground — need clear LOS
         if (!t) return false;
         const baseDir = new THREE.Vector3().subVectors(t.mesh.position, player.position).setY(0).normalize();
         const range = Math.min(spec.range, 24);
@@ -4226,7 +4316,7 @@
           c.mesh.position.z += (homeZ - c.mesh.position.z) * Math.min(1, dt * 8);
           c.cd -= dt;
           if (c.cd <= 0){
-            const t = nearestEnemy(player.position, spec.range);
+            const t = nearestVisibleEnemy(player.position, spec.range);   // darts straight — need clear LOS
             if (t){ c.state = "dart"; c.target = t; }
             else c.cd = 0.2;
           }
@@ -4285,7 +4375,8 @@
             damageEnemy(e, wDmg(w), dir, "egg");
           }
         }
-        trampleCornAt(bx, bz, R);   // egg blast also clears its radius of corn
+        // DIRECTIVE 6 (2026-07-15): weapons no longer clear corn — only the player's scythe + boss
+        // tramples change the field (egg blast still damages enemies, just doesn't fell stalks).
         // split into w.bomblets bouncing yolk bomblets
         for (let i = 0; i < w.bomblets; i++){
           const a = (i / w.bomblets) * Math.PI * 2 + Math.random() * 0.4;
@@ -4335,8 +4426,7 @@
                 }
               }
               puff(b.mesh.position.x, 0.4, b.mesh.position.z, 0xffe9a8, 4);
-              trampleCornAt(b.mesh.position.x, b.mesh.position.z, 1.0);   // egg bomblets clear corn where they land
-              dead = true;
+              dead = true;   // DIRECTIVE 6: bomblets no longer clear corn (only scythe + boss trample do)
               break;
             }
           }
@@ -4597,6 +4687,12 @@
             b.speed = b.baseSpeed;
           }
         }
+        // BUGFIX (2026-07-15): only the "rolling" phase spins the body on X (the tumble). Any other phase
+        // must sit upright — the roll used to leave b.mesh.rotation.x at ~22 rad (≈π mod 2π = upside-down),
+        // which sank the body BELOW the grass so only the outward-poking legs showed ("invisible except
+        // hands/feet"). Force it back to 0 whenever not actively rolling — covers repeat rolls, dizzy/idle,
+        // and any mid-roll interruption (hit-stop/knock) that leaves the phase non-rolling.
+        if (b.abPhase !== "rolling") b.mesh.rotation.x = 0;
       } else if (b.ability === "court"){
         // The Rat King: squeak telegraph (scale pulse), then summons 7 rats around him
         if (b.abPhase === "idle" && b.abTimer <= 0){
@@ -5868,7 +5964,9 @@
       // pumpkins — lobbed arcs; explode on landing, or early if they come down into a bale
       function pumpkinBoom(p, bx, bz){
         const R = WEAPON_SPECS.pumpkin.blast * p.w.blastMul * stats.areaMul;   // Tin Pail widens the blast
-        if (playThrottled('pp-sfx-pumpkin-blast', 'pumpkinBlast', 0.08, { gain:0.7 })) _sfxPlays.pumpkinBlast++;
+        // pumpkin impact = wet kid-comic SPLAT (reused from Farm Kart's fk-sfx-splat). Egg Mortar keeps
+        // its own pp-sfx-egg-splat; the old pp-sfx-pumpkin-blast asset stays on disk, now unused.
+        if (playThrottled('pp-sfx-pumpkin-splat', 'pumpkinSplat', 0.08, { gain:0.85 })) _sfxPlays.pumpkinSplat++;
         ring(bx, bz, 0xffb347, R * 1.9, 0.45);
         puff(bx, 0.6, bz, 0xe0862c, 14);
         puff(bx, 0.9, bz, 0xffd23f, 8);
@@ -5892,7 +5990,8 @@
         for (const pr of props.slice()){
           if (Math.hypot(pr.x - bx, pr.z - bz) < R + pr.r) destroyProp(pr);   // blasts flatten farm gear
         }
-        trampleCornAt(bx, bz, R);   // a pumpkin blast clears its radius of corn (bombs earn utility)
+        // DIRECTIVE 6 (2026-07-15): pumpkin blasts no longer clear corn — only the player's scythe and
+        // boss tramples change the field (the blast still damages enemies + flattens farm props).
         freeMesh(p.mesh); pumpkins.splice(pumpkins.indexOf(p), 1);
       }
       for (const p of pumpkins.slice()){
@@ -5989,7 +6088,7 @@
           continue;
         }
         if (t.fireTimer <= 0){
-          const target = nearestEnemy(t.mesh.position, WEAPON_SPECS.scarecrow.range);
+          const target = nearestVisibleEnemy(t.mesh.position, WEAPON_SPECS.scarecrow.range);   // turret->enemy LOS
           if (target){
             fireKernels(t.mesh.position, target, 1, wDmg(t.w), 0, "scarecrow");
             if (playThrottled('pp-sfx-corn-fire', 'turretFire', 0.12, { gain:0.35 })) _sfxPlays.cornFire++;
@@ -6142,10 +6241,12 @@
         if (cornActive){
           if (cornTramples(e)) trampleCornAt(e.mesh.position.x, e.mesh.position.z, e.r);   // flatten what a boss rolls over
           else if (cornNearHere){
-            // corn resolve runs LAST (after the arena clamp + bale push) so nothing shoves a body into stalks
+            // corn resolve runs LAST (after the arena clamp + bale push) so nothing shoves a body into stalks.
+            // DIRECTIVE 5 (2026-07-15): ground enemies NEVER carve corn — no chew-through. A cut-off enemy
+            // just presses the wall / slides along it via the flow field, so a fully-sealed pocket is safe
+            // from ground varmints by design (fliers + snipers-through-gaps + boss tramples are the pressure).
             resolveCornBlock(_ox, _oz, e.mesh.position.x, e.mesh.position.z, _cornOut);
             e.mesh.position.x = _cornOut[0]; e.mesh.position.z = _cornOut[1];
-            if (e.chew) carveCornAt(_ox + dir.x * 1.2, _oz + dir.z * 1.2, dt, 0.25, false);   // enclosed & cut off — munch through
           }
         }
         // facing (rotation.y) — set via quaternion so it composes with the gait's z/x tilt
@@ -6301,7 +6402,7 @@
       const shakeAmt = shakeMag * (shakePct / 100);
       const shx = (Math.random() - 0.5) * shakeAmt * 1.4, shz = (Math.random() - 0.5) * shakeAmt * 1.4;
       const shy = (Math.random() - 0.5) * shakeAmt * 0.6;
-      camera.position.set(camX + shx, 44 * zoomK + shy, camZ + 21 * zoomK + shz);
+      camera.position.set(camX + shx, 44 * zoomK * CAM_ZOOM + shy, camZ + 21 * zoomK * CAM_ZOOM + shz);
       camera.lookAt(camX + shx * 0.5, 0, camZ + shz * 0.5);
 
       updateDamageNumbers(dt);
@@ -7175,24 +7276,30 @@
     //     ~CORN_CARVE_TIME of contact; cut cells stay cut for the whole run (persistent alley).
     //   - Ground enemies are HARD-WALLED by standing corn and steer around it via a coarse
     //     BFS FLOW FIELD (recomputed ~3.5Hz + on any cut/trample); they funnel through gaps/alleys.
-    //   - Bosses + Mini-Combines TRAMPLE (ignore the field, flatten cells they touch).
+    //   - Bosses + Mini-Combines TRAMPLE (ignore the field, flatten cells they touch). Weapons do NOT
+    //     clear corn (2026-07-15) — only the player's scythe + boss tramples change the field.
     //   - Fliers ignore corn entirely; the Sniper's straight shot is ABSORBED by standing corn (cover).
-    //   - Fully enclosed? The nearest 2-3 cut-off ground enemies CHEW through at 0.25x carve speed
-    //     so total permanent immunity is impossible.
+    //   - Ground enemies NEVER carve corn (2026-07-15, chew-through removed): a fully-sealed pocket is
+    //     safe from them by design — they just press the nearest wall/gap via the flow field.
     //   - Co-op: host authoritative; the compact standing-cell BITMASK rides the snapshot to guests.
     const CORN_CELL = 1.5;                          // world units per grid cell
     const CORN_N = Math.ceil((ARENA * 2) / CORN_CELL) + 1;   // grid dimension (~89)
     const CORN_ORIGIN = -ARENA;                     // world x/z at cell (0,0)
     const CORN_SLOW = 0.55;                          // player/normal move mult inside standing corn
     const CORN_CARVE_TIME = 0.35;                    // player contact-seconds to fell one cell
-    const CORN_CARVE_R = 1.35;                        // reach around the carver
+    // DIRECTIVE 4 (2026-07-15): 2x-wider scythe swath — the player clears a real corridor to fight in
+    // (was 1.35). The carveCornAt neighbor scan widens with it (CORN_CARVE_CELLS = ceil(R/CELL)).
+    const CORN_CARVE_R = 2.7;                         // reach around the carver (~2x the old swath)
+    const CORN_CARVE_CELLS = Math.ceil(CORN_CARVE_R / CORN_CELL);   // grid rings to scan (=2 at R 2.7)
     const CORN_UNREACH = 65535;                       // flow-field "no path" sentinel
-    // ---- CORN-WORLD coverage (2026-07-14 overhaul): the field is now a CORN WORLD you carve through,
-    // not an arena with corn blobs. ~70% of the playable field starts as standing corn (Cornfield 77%),
-    // generated as value-noise valleys + carved winding lanes so there's always a connected open network.
-    // pre-carve targets (the winding-lane carve removes ~7% after) so MEASURED coverage lands ~70% / ~77%
-    const CORN_COVER_HOME = 0.77;                     // Home / Night -> ~70% after lanes
-    const CORN_COVER_CORN = 0.84;                     // Cornfield -> ~77% after lanes (75-80% band)
+    // ---- CORN coverage (2026-07-15 large-spot rework): the field is now ~50% standing corn arranged
+    // as 5-8 LARGE organic masses (each ~16-26u across) with substantial OPEN GROUND between them, so
+    // the open space is naturally one connected network (no dense noise-world to thread). Cornfield runs
+    // a bit denser (~57%). Generation grows the blobs to an EXACT coverage fraction (top-K on normalized
+    // distance-to-nearest-blob), then carves a couple of light spawn->landmark lanes for the guarantee.
+    // pre-carve targets sit a hair above the measured goal (the lane carve fells ~2-3% after).
+    const CORN_COVER_HOME = 0.525;                    // Home / Night -> ~50% after lanes (45-55 band)
+    const CORN_COVER_CORN = 0.60;                     // Cornfield -> ~57% after lanes (55-60 band)
     const CORN_SPAWN_CLEAR_R = 11;                    // open clearing around the player's spawn
     const CORN_BORDER_CELLS = 2;                      // open perimeter ring (edge-spawned enemies land clear + a ring road)
     const FLOW_NX = [1,-1,0,0, 1,1,-1,-1], FLOW_NZ = [0,0,1,-1, 1,-1,1,-1];
@@ -7261,21 +7368,64 @@
       for (const p of ponds) lm.push({ x: p.x, z: p.z, r: (Math.max(p.rx, p.rz) || 4) + 3 });
       return lm;
     }
-    // ---- CORN WORLD generation (2026-07-14): value-noise valleys thresholded to an EXACT coverage
-    // fraction, then winding lanes carved so the open network is connected. Forced-open clearings:
-    // the spawn pocket, the windmill/scarecrow landmark, ponds, and a perimeter ring (edge spawns land
-    // in the open + a ring road). Deterministic off the run/daily seed (dailies stay byte-identical). ----
-    // a few octaves of trig value noise -> broad, smoothly-varying [0,1] field (low base freq so the
-    // sub-threshold OPEN region forms connected winding valleys, not random speckle)
-    function cornNoiseField(rng){
-      const oc = []; let ampSum = 0;
-      const base = 0.030 + rng() * 0.012;
-      for (let k = 0; k < 5; k++){
-        const ang = rng() * Math.PI * 2, freq = base * Math.pow(1.95, k), amp = Math.pow(0.58, k);
-        oc.push({ fx: Math.cos(ang) * freq, fz: Math.sin(ang) * freq, ph: rng() * Math.PI * 2, amp });
-        ampSum += amp;
+    // ---- CORN generation (2026-07-15 large-spot rework): scatter 5-8 well-separated blob centers,
+    // each an organically-wobbled disk, then GROW every blob at a common normalized radius until the
+    // union hits the exact target coverage (top-K on min normalized distance-to-a-blob-boundary). This
+    // yields a handful of big distinct masses with wide open ground between them — never noise speckle
+    // (cells far from every blob have a large normalized distance, so they're taken last / stay open).
+    // Forced-open clearings (spawn pocket, windmill/scarecrow, ponds) + a thin perimeter ring stay
+    // open, then a couple of light spawn->landmark lanes guarantee reachability. Deterministic off the
+    // run/daily seed (dailies stay byte-identical). ----
+    // 5-8 blob centers, rejection-sampled for a minimum separation so the masses read as DISTINCT
+    // spots (not one merged glob); each carries low-freq harmonics that wobble its boundary organic.
+    function cornBlobSeeds(rng){
+      // FEWER, BIGGER, FARTHER-APART masses: at ~50% coverage the grown blobs will still touch in
+      // places, but wide separation keeps real open channels between most of them so the field reads as
+      // a handful of distinct corn islands, not one amoeba. Centers are seeded on a jittered ring so
+      // they spread evenly around the field instead of clustering.
+      // Sizing for distinct spots at ~50% coverage: for non-overlapping disks, coverage = N·π·r²/area,
+      // and the gap between neighbors = spacing − 2r. Radius ~20 spaced ~48 gives ~50% union WITH ~8-10u
+      // open channels, so the masses read as separate islands (bigger radius spec on the Cornfield to
+      // reach ~57%). Centers are rejection-sampled at that spacing so they never overlap into one glob.
+      const want = 5 + Math.floor(rng() * 3);          // 5-7 masses
+      const minSep = 48;                               // ≈ 2·radius + a real open channel between masses
+      const spread = ARENA - 17;                        // centers sit within this radius of origin
+      const denseStage = (curStage ? curStage.id : "home") === "corn";
+      const seeds = [];
+      const baseA = rng() * Math.PI * 2;
+      for (let i = 0; i < want; i++){
+        let placed = false;
+        for (let attempt = 0; attempt < 20 && !placed; attempt++){
+          const a = baseA + (i / want) * Math.PI * 2 + (rng() - 0.5) * 0.85;
+          const rr = spread * (0.45 + rng() * 0.55);
+          const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
+          let ok = true;
+          for (const s of seeds){ if (Math.hypot(x - s.x, z - s.z) < minSep){ ok = false; break; } }
+          if (!ok) continue;
+          const rad = (denseStage ? 21 : 19) + rng() * 5;   // ~19-24u (Cornfield a touch bigger for ~57%)
+          const h = [];
+          for (let k = 0; k < 3; k++) h.push({ f: 2 + k, ph: rng() * Math.PI * 2, amp: 0.24 - k * 0.05 });
+          seeds.push({ x, z, rad, h }); placed = true;
+        }
       }
-      return (wx, wz) => { let s = 0; for (const o of oc) s += o.amp * Math.sin(wx * o.fx + wz * o.fz + o.ph); return 0.5 + 0.5 * (s / ampSum); };
+      // guarantee at least a few masses even if rejection under-fills (tiny arenas / unlucky seed)
+      while (seeds.length < 5){ const a = baseA + seeds.length / 5 * Math.PI * 2; const rr = spread * 0.66;
+        seeds.push({ x: Math.cos(a) * rr, z: Math.sin(a) * rr, rad: denseStage ? 22 : 20, h: [{ f:2, ph: rng()*6.28, amp:0.18 }] }); }
+      return seeds;
+    }
+    // normalized distance from (wx,wz) to the NEAREST blob boundary: <1 inside that blob, grows outside.
+    // Growing all blobs to a common normalized radius `s` == selecting every cell with normDist <= s.
+    function cornBlobNormDist(wx, wz, blobs){
+      let best = Infinity;
+      for (const b of blobs){
+        const dx = wx - b.x, dz = wz - b.z, d = Math.hypot(dx, dz);
+        const ang = Math.atan2(dz, dx);
+        let wob = 0; for (const hh of b.h) wob += hh.amp * Math.sin(hh.f * ang + hh.ph);
+        const rr = Math.max(4, b.rad * (1 + wob));
+        const nd = d / rr;
+        if (nd < best) best = nd;
+      }
+      return best;
     }
     function generateCornPatches(seed){
       cornState = new Uint8Array(CORN_N * CORN_N);
@@ -7287,10 +7437,11 @@
       const rng = mulberry32(seed != null ? (seed >>> 0) : cornSeedForRun());
       const id = curStage ? curStage.id : "home";
       const targetFrac = id === "corn" ? CORN_COVER_CORN : CORN_COVER_HOME;
-      const noise = cornNoiseField(rng);
+      const blobs = cornBlobSeeds(rng);
       const clears = cornLandmarks();
       const borderW = CORN_BORDER_CELLS * CORN_CELL;
-      // eligible cells = playable AND not in a clearing AND not in the perimeter ring; keep their noise
+      // eligible cells = playable AND not in a clearing AND not in the perimeter ring; store each cell's
+      // normalized distance to the nearest blob boundary (the metric we top-K to grow the masses).
       const cand = []; let playable = 0;
       for (let cz = 0; cz < CORN_N; cz++){
         for (let cx = 0; cx < CORN_N; cx++){
@@ -7301,24 +7452,27 @@
           let inClear = false;
           for (const c of clears){ if ((wx - c.x) ** 2 + (wz - c.z) ** 2 < c.r * c.r){ inClear = true; break; } }
           if (inClear) continue;
-          cand.push({ idx: cornCellIdx(cx, cz), n: noise(wx, wz) });
+          cand.push({ idx: cornCellIdx(cx, cz), n: cornBlobNormDist(wx, wz, blobs) });
         }
       }
-      // the HIGHEST-noise cells become standing corn -> the LOWEST-noise cells stay open, forming
-      // connected valleys/lanes. Taking exactly targetFrac*playable cells pins coverage precisely.
+      // Grow the blobs to EXACTLY targetFrac: the cells CLOSEST (normalized) to a blob become standing.
+      // The boundary settles at whatever common radius hits the target; cells far from every blob (large
+      // normDist) stay open, forming the wide connected clearings between the masses. At ~50% coverage a
+      // handful of spread-out blobs read as a few LARGE lobed corn regions with substantial open ground —
+      // pins coverage deterministically into the band (distinct-island topology isn't reachable at 50%
+      // area in this arena, so we favor exact coverage + big organic masses over hard separation).
+      cand.sort((a, b) => a.n - b.n);
       const targetStanding = Math.min(cand.length, Math.round(playable * targetFrac));
-      cand.sort((a, b) => b.n - a.n);
       for (let i = 0; i < targetStanding; i++){
         const idx = cand[i].idx; cornState[idx] = 1; cornStandingCount++;
         const cz = (idx / CORN_N) | 0, cx = idx - cz * CORN_N; const [wx, wz] = cornCellCenter(cx, cz);
         if (wx < cornBMinX) cornBMinX = wx; if (wx > cornBMaxX) cornBMaxX = wx;
         if (wz < cornBMinZ) cornBMinZ = wz; if (wz > cornBMaxZ) cornBMaxZ = wz;
       }
-      // carve winding lanes so the open network is CONNECTED: radial spokes spawn->perimeter + a lane
-      // from spawn to every landmark clearing. The noise valleys already thread most of it; this
-      // guarantees every clearing + the perimeter ring is reachable from the spawn pocket.
+      // light lanes: with big gaps the open space is already connected, so we only guarantee spawn ->
+      // each landmark clearing is reachable (a couple of thin wavering cuts). No radial ring-road spokes.
       carveCornLanes(rng, clears);
-      cornPatchCount = clears.length;   // legacy field: now = number of forced-open clearings
+      cornPatchCount = blobs.length;   // now = number of large corn masses generated
       cornFlowDirty = true; cornFlowT = 0; cornVer++;
       buildCornVisual(rng);
     }
@@ -7342,12 +7496,9 @@
       }
     }
     function carveCornLanes(rng, clears){
-      const nSpoke = 5 + Math.floor(rng() * 3);   // 5-7 radial highways
-      const reach = ARENA - 2;
-      for (let s = 0; s < nSpoke; s++){
-        const a = (s / nSpoke) * Math.PI * 2 + rng() * 0.6;
-        carveCornLane(0, 0, Math.cos(a) * reach, Math.sin(a) * reach, rng, CORN_CELL * 0.9);
-      }
+      // 2026-07-15 large-spot rework: the open ground between the big masses is already one connected
+      // network, so the radial ring-road spokes are gone — we only guarantee spawn -> each landmark
+      // clearing is reachable with a single thin wavering cut (fells ~2-3% of coverage total).
       for (const c of clears){
         if (Math.hypot(c.x, c.z) < 6) continue;   // the spawn pocket itself
         carveCornLane(0, 0, c.x, c.z, rng, CORN_CELL * 0.9);
@@ -7596,7 +7747,7 @@
       stubbleCornStalks(idx);
       if (byPlayer){
         chunkBurst(wx, 1.0, wz, 0x9fd23f, 4); puff(wx, 1.2, wz, 0xdcef8f, 3); spawnCornSwipe(wx, wz);
-        if (playThrottled('pp-sfx-hay-roll', 'cornChop', 0.05, { gain: 0.4 })) _sfxPlays.hayRoll++;
+        scytheSwish();   // directive 7: proper blade swish (sample + synth fallback, throttled to swipes)
       } else {
         chunkBurst(wx, 0.7, wz, 0x8fbf36, 3); puff(wx, 0.9, wz, 0xcfe07a, 2);
       }
@@ -7605,7 +7756,7 @@
     function carveCornAt(x, z, dt, rate, byPlayer){
       if (!cornState || cornStandingCount === 0) return;
       const [cx, cz] = cornCellOf(x, z);
-      for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++){
+      for (let dz = -CORN_CARVE_CELLS; dz <= CORN_CARVE_CELLS; dz++) for (let dx = -CORN_CARVE_CELLS; dx <= CORN_CARVE_CELLS; dx++){
         const gx = cx + dx, gz = cz + dz; if (gx < 0 || gz < 0 || gx >= CORN_N || gz >= CORN_N) continue;
         const idx = cornCellIdx(gx, gz); if (cornState[idx] !== 1) continue;
         const [ccx, ccz] = cornCellCenter(gx, gz);
@@ -7651,7 +7802,7 @@
       const aheadNear = cornStandingAt(px + dir.x * 1.2, pz + dir.z * 1.2);   // corn a step away (route HARD, no corner-cut)
       const aheadFar = cornStandingAt(px + dir.x * 2.6, pz + dir.z * 2.6);     // corn looming ahead (anticipate)
       if (!anyStanding && !aheadNear && !aheadFar) return;    // open lane — chase straight (organic)
-      if (bx === 0 && bz === 0) return;                       // no downhill neighbor (enclosed) — press in; chew handles it
+      if (bx === 0 && bz === 0) return;                       // no downhill neighbor (enclosed/unreachable) — leave dir toward the player; resolveCornBlock slides it along the wall (no chew, no spin)
       const fl = Math.hypot(bx, bz) || 1, fx = bx / fl, fz = bz / fl;
       const w = aheadNear ? 0.92 : (aheadFar ? 0.6 : 0.45);   // commit to the flow lane when corn is right there
       const nx = dir.x * (1 - w) + fx * w, nz = dir.z * (1 - w) + fz * w;
@@ -7689,7 +7840,6 @@
         }
       }
       markCornNear();
-      updateCornChewers();
       cornFlowDirty = false;
     }
     // dilate standing corn by 2 cells — the cheap per-enemy gate so only varmints actually near
@@ -7705,24 +7855,11 @@
         for (let gz = zlo; gz <= zhi; gz++){ const row = gz * CORN_N; for (let gx = xlo; gx <= xhi; gx++) cornNear[row + gx] = 1; }
       }
     }
-    function updateCornChewers(){
-      for (const e of enemies) if (e.chew) e.chew = false;
-      if (!cornState || cornStandingCount === 0) return;
-      const cand = [];
-      for (const e of enemies){
-        if (e.fly || e.isBoss || e.isMini || e.kind === "lobber") continue;
-        const cx = Math.floor((e.mesh.position.x - CORN_ORIGIN) / CORN_CELL), cz = Math.floor((e.mesh.position.z - CORN_ORIGIN) / CORN_CELL);
-        if (cx < 0 || cz < 0 || cx >= CORN_N || cz >= CORN_N) continue;
-        if (cornFlowDist[cornCellIdx(cx, cz)] !== CORN_UNREACH) continue;   // has a path — not cut off
-        const pp = coop ? nearestPlayerPos(e.mesh.position.x, e.mesh.position.z) : (player ? player.position : null);
-        if (!pp) continue;
-        cand.push({ e, d: Math.hypot(e.mesh.position.x - pp.x, e.mesh.position.z - pp.z) });
-      }
-      cand.sort((a, b) => a.d - b.d);
-      // CORN WORLD (70% coverage): more sealed-off spawns, so let the nearest 8 cut-off varmints chew
-      // through rather than idle at a wall (up from 3 — total permanent immunity stays impossible).
-      for (let i = 0; i < Math.min(8, cand.length); i++) cand[i].e.chew = true;
-    }
+    // DIRECTIVE 5 (2026-07-15): chew-through is REMOVED. Ground enemies never carve corn; a cut-off
+    // varmint (cornFlowDist === CORN_UNREACH at its cell) simply keeps pressing the nearest wall/gap via
+    // the flow field (cornFlowSteer's enclosed branch leaves dir pointing at the player, and
+    // resolveCornBlock slides the body along the stalks — no CPU spin). A fully-sealed pocket is safe
+    // from ground enemies by design; fliers, sniper shots through gaps, and boss tramples remain.
     function resetCornState(){
       cornState = null; cornCarve = null; cornStandingCount = 0; cornFlowDirty = true; cornFlowT = 0;
       disposeCornChunks();     // removes + disposes the chunk meshes (idempotent if stageDecor got there first)
@@ -7931,7 +8068,11 @@
       // batch-2 weapon sfx
       'pp-sfx-egg-splat','pp-sfx-chicken-peck','pp-sfx-milk-splash','pp-sfx-hay-roll',
       // batch-4a character-active sfx
-      'pp-sfx-whistle','pp-sfx-ram-dash','pp-sfx-herd-bark','pp-sfx-dread'
+      'pp-sfx-whistle','pp-sfx-ram-dash','pp-sfx-herd-bark','pp-sfx-dread',
+      // directive-7 (2026-07-15) scythe-carve swish
+      'pp-sfx-scythe-swish',
+      // pumpkin impact = wet SPLAT (reused from Farm Kart's fk-sfx-splat; old pp-sfx-pumpkin-blast now unused)
+      'pp-sfx-pumpkin-splat'
     ];
     const audioBuffers = {};   // name -> AudioBuffer once decoded; null = failed (stays silent forever)
     let _buffersLoaded = 0;
@@ -7969,14 +8110,16 @@
         return true;
       }catch(e){ return false; }
     }
-    const _sfxPlays = { cornFire:0, pumpkinBlast:0, catPounce:0, scarecrowPlant:0, beeSting:0, sprinklerSpray:0,
+    const _sfxPlays = { cornFire:0, pumpkinBlast:0, pumpkinSplat:0, catPounce:0, scarecrowPlant:0, beeSting:0, sprinklerSpray:0,
       forkThrow:0, boltZap:0, varmintPop:0, elitePop:0, bossRoar:0, bossDeath:0, combineRoar:0,
       xpCollect:0, coinPickup:0, milkPickup:0, magnetPickup:0, boomPickup:0, chestOpen:0, evolution:0,
       levelup:0, playerHurt:0, waveHorn:0, victory:0, defeat:0, uiClick:0,
       // batch-2 weapon sfx
       eggSplat:0, chickenPeck:0, milkSplash:0, hayRoll:0,
       // batch-4a character-active sfx
-      whistle:0, ramDash:0, herdBark:0, dread:0 };
+      whistle:0, ramDash:0, herdBark:0, dread:0,
+      // directive-7 scythe-carve swish (increments only when the SAMPLE plays; synth fallback is separate)
+      scytheSwish:0 };
     // small per-sound cooldown gates so a dense swarm frame (many bees stinging, many enemies
     // touching the player, an xp-orb frenzy) can't stack dozens of overlapping one-shots at once
     const _sfxCd = {};
@@ -7985,6 +8128,43 @@
       if (_sfxCd[key] && t - _sfxCd[key] < cooldown) return false;
       _sfxCd[key] = t;
       return playSample(name, opts);
+    }
+    // ---- DIRECTIVE 7 (2026-07-15): scythe-carve swish. Plays the generated pp-sfx-scythe-swish sample
+    // when it's decoded, else a synthesized bandpass-swept noise swipe (house fallback pattern), THROTTLED
+    // so continuous carving (many cells felled per frame at the 2x-wide swath) reads as rhythmic swipes,
+    // not a machine-gun. _sfxPlays.scytheSwish counts SAMPLE plays only (the synth path is the fallback). ----
+    let _pastureNoiseBuf = null;
+    function pastureNoiseBuffer(){
+      const ctx = ensureAudio(); if (!ctx) return null;
+      if (_pastureNoiseBuf) return _pastureNoiseBuf;
+      const len = Math.floor(ctx.sampleRate * 0.5);
+      const b = ctx.createBuffer(1, len, ctx.sampleRate);
+      const d = b.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      _pastureNoiseBuf = b; return b;
+    }
+    function scytheSwishSynth(gain){
+      const ctx = ensureAudio(); if (!ctx || !masterGain) return;
+      const nb = pastureNoiseBuffer(); if (!nb) return;
+      try{
+        const t = ctx.currentTime;
+        const src = ctx.createBufferSource(); src.buffer = nb;
+        const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.8;
+        bp.frequency.setValueAtTime(2600, t); bp.frequency.exponentialRampToValueAtTime(650, t + 0.15);
+        const g = ctx.createGain(); const vol = (gain != null ? gain : 0.4) * 0.5;
+        g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+        src.connect(bp); bp.connect(g); g.connect(masterGain);
+        src.start(t); src.stop(t + 0.22);
+      }catch(e){}
+    }
+    let _scytheFires = 0;   // test hook: total swish plays (sample OR synth) past the throttle
+    function scytheSwish(){
+      const t = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
+      if (_sfxCd.scytheSwish && t - _sfxCd.scytheSwish < 0.16) return;   // rhythmic swipe cadence
+      _sfxCd.scytheSwish = t; _scytheFires++;
+      if (buf('pp-sfx-scythe-swish')){ if (playSample('pp-sfx-scythe-swish', { gain: 0.5 })) _sfxPlays.scytheSwish++; }
+      else scytheSwishSynth(0.5);
     }
 
     // ---- music: menu <-> four intensity tracks (battle1/2/3 + boss), crossfaded ----
@@ -8712,7 +8892,7 @@
       const shakeAmt = shakeMag * (shakePct / 100);
       const shx = (Math.random() - 0.5) * shakeAmt * 1.4, shz = (Math.random() - 0.5) * shakeAmt * 1.4;
       const shy = (Math.random() - 0.5) * shakeAmt * 0.6;
-      camera.position.set(cx + shx, 44*zoomK + shy, cz + 21*zoomK + shz);
+      camera.position.set(cx + shx, 44*zoomK*CAM_ZOOM + shy, cz + 21*zoomK*CAM_ZOOM + shz);
       camera.lookAt(cx + shx * 0.5, 0, cz + shz * 0.5);
       coopNameTags();
     }
@@ -8790,6 +8970,13 @@
       checkQuests, renderQuests, renderStages, renderDaily,
       buildDaily, startDailyRun, dailyDateKey, applyDailyMods,
       applyStage, stageUnlocked, stageById, inCorn, enemyBrightness, stageSpeedMul, nearestGate,
+      // ---- 2026-07-15 directive hooks (camera zoom, offscreen spawn, carve width, scythe sfx) ----
+      CAM_ZOOM, CORN_CARVE_R, ARENA, SPAWN_MIN_D,
+      get camera(){ return camera; },
+      pickOffscreenSpawnPos, pointOnScreen,
+      get sfxPlays(){ return _sfxPlays; },
+      get scytheFires(){ return _scytheFires; }, resetScytheFires(){ _scytheFires = 0; },
+      scytheSwish,
       // ---- CARVEABLE CORN hooks (test/sync) ----
       CORN_N, CORN_CELL, CORN_UNREACH, cornStandingAt, cornCellOf, cornCellCenter, cornCellIdx,
       generateCornPatches, recomputeCornFlow, carveCornAt, trampleCornAt, fellCornCell, buildCornVisual,
