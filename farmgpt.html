@@ -553,7 +553,7 @@
   // so a capped kid never even burns a request, and the UI can show/hide the notice instantly.
   // The server's own count (from farmgpt_story_log) is the source of truth — see the `capped`
   // error path in callFarmGPT below, which syncs this counter up if the server disagrees.
-  const STORY_DAILY_CAP = 30;
+  const STORY_DAILY_CAP = 15;
   const STORY_COUNT_KEY = "farmgpt_story_count_v1";
   function centralDay() {
     try { return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date()); }

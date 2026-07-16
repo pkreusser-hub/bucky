@@ -404,14 +404,14 @@ const STORY_LOG_RETENTION_DAYS = 30;   // logs older than this are pruned on rea
 // fine: Dad is the parent, and an unnamed session has nothing to attribute a cap to anyway.
 // Fails OPEN: any query failure (network/infra/auth) returns null, and the cap is skipped —
 // story time must never break because of a monitoring query.
-const STORY_DAILY_CAP = 30;
+const STORY_DAILY_CAP = 15;
 
 // Identity strings are kid-editable (localStorage "choreUser"), and a tweaked profile name
 // ("Eleanor ( :") must NOT mint a fresh daily cap — that exact bypass happened in production
 // (30 scenes as "Eleanor" + 30 more as "Eleanor ( :" in one day). Cap buckets are therefore
 // CANONICAL, not exact strings: strip everything but letters/digits, lowercase, and any name
 // that CONTAINS a known family member's name counts as that person; anything unrecognized
-// shares ONE "~other" bucket (so invented names split a single 30/day, never one each).
+// shares ONE "~other" bucket (so invented names split a single daily cap, never one each).
 // Only the exact string "Dad" is exempt (checked by the caller, unchanged) — a "dad"-ish
 // variant like "Dad ( :" lands in ~other and IS capped.
 const STORY_CAP_KNOWN = ["eleanor", "grandma", "grandpa", "janae", "isaac", "john", "joy", "mom"];

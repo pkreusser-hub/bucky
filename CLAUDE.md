@@ -985,6 +985,9 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   ~other bucket, per-kid isolation, Dad exempt / Dad-variant capped, fails open, research
   untouched) + cap_client_test.mjs (playwright vs local http, CDN libs stubbed — jsdelivr is
   unreachable from sandbox Chromium, 4/4). Production Firestore audit script: storylog_audit.mjs.
+  CAP LOWERED 30 → 15/day (2026-07-16, user, after confirming the bucket fix held for a few
+  days) — STORY_DAILY_CAP in BOTH farmgpt.mjs and farmgpt.html (keep in sync); both suites
+  re-run green at 15.
 - UI FIX BATCH (2026-07-09, index.html + games.html + farmgpt.html): (1) Farm Bank shows only the
   logged-in kid's account (renderFarmBank: a BANK_KID sees just their card; Dad sees all). (2) Work-
   order cards compacted (tighter .wo-top/.wo-meta/.wo-desc/.wo-actions padding + 34px thumb) to fit
