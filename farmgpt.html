@@ -559,15 +559,29 @@
     try { return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date()); }
     catch { return new Date().toISOString().slice(0, 10); }
   }
+  // The local counter keys on a CANONICAL identity (mirrors the server's canonStoryUser in
+  // farmgpt.mjs) so renaming a profile ("Eleanor" -> "Eleanor ( :") doesn't reset this
+  // device's counter. Keep the known-name list in sync with the server's STORY_CAP_KNOWN.
+  const STORY_CAP_KNOWN = ["eleanor", "grandma", "grandpa", "janae", "isaac", "john", "joy", "mom"];
+  function canonStoryUser(user) {
+    const n = String(user == null ? "" : user).toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (!n) return "";
+    for (const k of STORY_CAP_KNOWN) if (n.includes(k)) return k;
+    return "~other";
+  }
   function storyCountState() {
     let s;
     try { s = JSON.parse(localStorage.getItem(STORY_COUNT_KEY)) || {}; } catch { s = {}; }
-    const day = centralDay(), user = localStorage.getItem("choreUser") || "";
+    const day = centralDay(), user = canonStoryUser(localStorage.getItem("choreUser") || "");
     if (s.day !== day || s.user !== user) s = { day, user, count: 0 };
     return s;
   }
   function storyCountSave(s) { try { localStorage.setItem(STORY_COUNT_KEY, JSON.stringify(s)); } catch {} }
-  function storyCapped() { return storyCountState().count >= STORY_DAILY_CAP; }
+  // Exact "Dad" is never capped (matches the server's exemption — the server also never logs him).
+  function storyCapped() {
+    if ((localStorage.getItem("choreUser") || "") === "Dad") return false;
+    return storyCountState().count >= STORY_DAILY_CAP;
+  }
   function bumpStoryCount() { const s = storyCountState(); s.count++; storyCountSave(s); return s.count; }
   function forceStoryCapped() { const s = storyCountState(); s.count = STORY_DAILY_CAP; storyCountSave(s); }
   // Call at the top of every user-initiated story action. Returns true (and shows the gentle

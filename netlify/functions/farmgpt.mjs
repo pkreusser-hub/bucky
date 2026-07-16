@@ -405,33 +405,51 @@ const STORY_LOG_RETENTION_DAYS = 30;   // logs older than this are pruned on rea
 // Fails OPEN: any query failure (network/infra/auth) returns null, and the cap is skipped —
 // story time must never break because of a monitoring query.
 const STORY_DAILY_CAP = 30;
+
+// Identity strings are kid-editable (localStorage "choreUser"), and a tweaked profile name
+// ("Eleanor ( :") must NOT mint a fresh daily cap — that exact bypass happened in production
+// (30 scenes as "Eleanor" + 30 more as "Eleanor ( :" in one day). Cap buckets are therefore
+// CANONICAL, not exact strings: strip everything but letters/digits, lowercase, and any name
+// that CONTAINS a known family member's name counts as that person; anything unrecognized
+// shares ONE "~other" bucket (so invented names split a single 30/day, never one each).
+// Only the exact string "Dad" is exempt (checked by the caller, unchanged) — a "dad"-ish
+// variant like "Dad ( :" lands in ~other and IS capped.
+const STORY_CAP_KNOWN = ["eleanor", "grandma", "grandpa", "janae", "isaac", "john", "joy", "mom"];
+function canonStoryUser(user) {
+  const n = String(user == null ? "" : user).toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!n) return "";
+  for (const k of STORY_CAP_KNOWN) if (n.includes(k)) return k;
+  return "~other";
+}
+
 async function countStoryToday(user) {
+  const bucket = canonStoryUser(user);
+  if (!bucket) return null;
   try {
     const token = await getGoogleAccessToken();
     if (!token) return null;
+    // Fetch ALL of today's log docs (date equality only) and bucket-match in code — an exact
+    // `user` equality filter is what the rename bypass defeated. The select mask keeps the
+    // payload tiny (scene text can be ~24KB/doc; we only need the user field).
     const resp = await fetch(`${FIRESTORE_BASE}:runQuery`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({
         structuredQuery: {
           from: [{ collectionId: STORY_LOG_COLLECTION }],
+          select: { fields: [{ fieldPath: "user" }] },
           where: {
-            compositeFilter: {
-              op: "AND",
-              filters: [
-                { fieldFilter: { field: { fieldPath: "date" }, op: "EQUAL", value: { stringValue: farmDate() } } },
-                { fieldFilter: { field: { fieldPath: "user" }, op: "EQUAL", value: { stringValue: user } } },
-              ],
-            },
+            fieldFilter: { field: { fieldPath: "date" }, op: "EQUAL", value: { stringValue: farmDate() } },
           },
-          limit: 500,
+          limit: 1000,
         },
       }),
     });
     if (!resp.ok) return null;
     const rows = await resp.json();
     if (!Array.isArray(rows)) return null;
-    return rows.filter((r) => r && r.document).length;
+    return rows.filter((r) => r && r.document &&
+      canonStoryUser(r.document.fields?.user?.stringValue || "") === bucket).length;
   } catch { return null; }
 }
 

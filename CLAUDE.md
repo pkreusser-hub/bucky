@@ -960,6 +960,31 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   "This is me" on a non-Dad profile calls prompt() 0 times; post-edit sessionStorage.dadUnlocked is
   null for a kid session; 0 pageerrors. Regressions unaffected (profile-switch flows exercised
   there call no roster mutations): p7_fixes.mjs 15/15, p8_gate.mjs 18/18.
+- STORY CAP: CANONICAL IDENTITY BUCKETS (2026-07-16, user: Eleanor ran 50+ story requests/day
+  despite the 30 cap): production `farmgpt_story_log` showed the cap WAS enforcing exactly 30 —
+  per exact `user` STRING. Eleanor ran a second identity `"Eleanor ( :"` alongside `"Eleanor"`
+  (30+30 on 07-11, 30+21 on 07-12; no such profile exists in the roster now — either deleted
+  after, or she set localStorage.choreUser directly, the roster PIN gate can't stop devtools).
+  (Her 54-scene 07-10 run predates that day's 13:44 CDT cap deploy — not a live bug.) FIX
+  (farmgpt.mjs): `canonStoryUser()` — lowercase, strip non-alphanumerics; any name CONTAINING a
+  known family name (STORY_CAP_KNOWN = eleanor/grandma/grandpa/janae/isaac/john/joy/mom) buckets
+  as that person; anything unrecognized shares ONE `~other` bucket (invented names split a single
+  30/day, never one each). Only the EXACT string "Dad" stays uncapped (caller check unchanged) —
+  "Dad ( :" style variants land in ~other and ARE capped. `countStoryToday()` now queries by date
+  equality ONLY (+ a `select` mask on the `user` field — scene docs are up to ~24KB and only the
+  name is needed) and bucket-matches in code; still fails OPEN on query errors. Log docs keep the
+  RAW name so the Story Log shows the parent exactly what identity was used. Client mirror
+  (farmgpt.html): same canon fn keys the local `farmgpt_story_count_v1` counter (a same-device
+  rename no longer resets the pre-check) + exact-"Dad" client exemption added (previously the
+  local counter would wrongly block Dad at 30 even though the server never would). KNOWN LIMIT:
+  a devtools kid setting choreUser to exactly "Dad" bypasses cap AND logging — server can't
+  verify the PIN; consistent with the app's stated identity posture. Keep STORY_CAP_KNOWN in sync
+  (both files) when the family roster changes; a NEW legit member shares ~other until added.
+  Verified: scratchpad cap_test.mjs (in-process handler + fake Google/Firestore/Anthropic, 13/13:
+  rename/case/punctuation variants capped, mixed identities sum, 29 allowed, query shape, shared
+  ~other bucket, per-kid isolation, Dad exempt / Dad-variant capped, fails open, research
+  untouched) + cap_client_test.mjs (playwright vs local http, CDN libs stubbed — jsdelivr is
+  unreachable from sandbox Chromium, 4/4). Production Firestore audit script: storylog_audit.mjs.
 - UI FIX BATCH (2026-07-09, index.html + games.html + farmgpt.html): (1) Farm Bank shows only the
   logged-in kid's account (renderFarmBank: a BANK_KID sees just their card; Dad sees all). (2) Work-
   order cards compacted (tighter .wo-top/.wo-meta/.wo-desc/.wo-actions padding + 34px thumb) to fit
