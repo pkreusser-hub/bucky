@@ -673,6 +673,8 @@
 
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+  <!-- SkeletonUtils.clone() — required to clone the Tripo skinned "Bucky 3D" driver (regular .clone() breaks skinned meshes) -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
   <script src="https://unpkg.com/playroomkit@0.0.96/multiplayer.full.umd.js"></script>
   <script src="assets/farmkart-track.js"></script>
   <script src="assets/farmkart-props.js"></script>
@@ -739,6 +741,21 @@
     botTopSpeedMul:1.18,    // bots' top speed = maxSpeed*this (helps on straights where they don't
                             //   mini-turbo; a boosting human still exceeds it)
     botRubberband:0.06,     // +-fraction of target speed when >25u behind/ahead of the human
+    // --- Phase 1: rubber-band CURVE (smooth ramp, not a step) + far-behind recovery ---
+    botRubberNear:15,       // gap (u) where rubber-band starts to ramp in
+    botRubberFar:90,        // gap (u) of full rubber-band strength
+    botRubberAsym:0.7,      // slow-down side (bot AHEAD of human) gets this fraction of the strength
+    botCatchupFar:0.3,      // extra target-speed fraction for hopelessly dropped bots (ramps in 120->220u behind)
+    botRecoverMul:0.6,      // far-behind bots' spin-out duration multiplier (ramps in over 20->80u behind)
+    // --- Phase 2: RIVAL system — 1-2 bots leashed to the human (MK64/MKW-style), rest of the
+    //     field races honestly (rubber-band weakened via nonRivalRubber) and spreads out ---
+    rivalBandBack:35,       // leash band: rival may trail the human up to this (u) before pushing
+    rivalBandAhead:20,      // leash band: rival may lead the human up to this (u) before easing
+    rivalGain:0.004,        // leash strength: target-speed factor per u outside the band
+    rivalBoostCap:1.22,     // max leash catch-up factor (also lifts the physics cap via _rbBoost)
+    rivalSlowFloor:0.75,    // min leash ease-off factor when a rival is too far ahead
+    rivalSkillFloor:1.0,    // rivals' minimum botSkill after persona/difficulty scaling
+    nonRivalRubber:0.5,     // non-rival bots get this fraction of the normal rubber-band strength
     botSkillVar:0.28,       // per-bot random spread in pace (added to botSkill at spawn) so they don't match paces
     botLaneSpread:0.5,      // per-bot preferred lane, as a fraction of half-width, so the field fans across the track
     // --- 8b. SMARTER BOTS (racing line + drifting) ---
@@ -839,6 +856,9 @@
     slopeAccel:[0,16,0.25], normalSmooth:[2,25,0.5],
     gravity:[10,60,1], airControl:[0,1,0.02], airGrip:[0.05,2,0.01],
     botLookahead:[3,20,0.5], botCornerGrip:[0.3,1.8,0.05], botSkill:[0,1,0.05], botRubberband:[0,0.2,0.01],
+    botRubberNear:[5,40,1], botRubberFar:[40,200,5], botRubberAsym:[0,1,0.05], botCatchupFar:[0,0.8,0.05], botRecoverMul:[0.3,1,0.05],
+    rivalBandBack:[10,80,5], rivalBandAhead:[5,60,5], rivalGain:[0.001,0.01,0.0005], rivalBoostCap:[1,1.5,0.02],
+    rivalSlowFloor:[0.5,1,0.05], rivalSkillFloor:[0.8,1.2,0.05], nonRivalRubber:[0,1,0.05],
     botTopSpeedMul:[1,1.6,0.02], botLatBase:[8,32,0.5], botCurvWindow:[10,45,1], botSteerGain:[0.8,3,0.05],
     botSkillVar:[0,0.5,0.01], botLaneSpread:[0,0.9,0.05],
     botDrift:[0,1,1], botDriftCurv:[0.005,0.06,0.005], botDriftGripMul:[1,4,0.1], botLineInside:[0,0.9,0.05], botLineGain:[4,40,1],
@@ -896,6 +916,18 @@
     botCornerGrip:"How boldly bots take corners. Higher = they brake less and carry more speed through turns.",
     botSkill:"Overall bot pace (0–1). Higher = faster, tougher opponents.",
     botRubberband:"How much bots speed up when behind (or ease off when ahead) to keep races close.",
+    botRubberNear:"Gap (in track units) where bots start rubber-banding. Below this, races are fully honest.",
+    botRubberFar:"Gap where rubber-banding reaches full strength. Farther = gentler correction overall.",
+    botRubberAsym:"How much leaders ease off vs. how hard stragglers push. 1 = symmetric; lower = leaders stay honest while stragglers catch up.",
+    botCatchupFar:"Extra catch-up for bots dropped way behind (off-screen style — you never see it happen). Higher = the pack never strings out.",
+    botRecoverMul:"How quickly far-behind bots shake off spin-outs. Lower = they recover faster to rejoin the race.",
+    rivalBandBack:"How far a rival may fall behind you before it pushes hard to catch up.",
+    rivalBandAhead:"How far a rival may pull ahead before it eases off to keep the duel alive.",
+    rivalGain:"How firmly rivals snap back into their band. Higher = they hound you tighter.",
+    rivalBoostCap:"Rivals' max catch-up boost. Higher = they close gaps faster (can look cheaty).",
+    rivalSlowFloor:"How much a runaway rival eases off. Lower = they wait for you more.",
+    rivalSkillFloor:"Rivals' minimum driving skill, whatever their personality says.",
+    nonRivalRubber:"Rubber-banding for the rest of the pack. Lower = the field spreads out honestly while your rivals stay on you.",
     botSkillVar:"How much bot paces vary from each other (random spread added at the start). Higher = a wider mix of fast and slow bots.",
     botLaneSpread:"How far apart bots sit across the track (each picks its own lane). Higher = the field fans out side-by-side instead of trailing in one line.",
     botTopSpeedMul:"Bots' top speed vs yours — they don't drift, so this keeps them competitive. Higher = faster bots.",
@@ -947,6 +979,7 @@
     bucky:   { top:1.00, accel:1.00, steer:1.00 },
     tractor: { top:1.08, accel:0.88, steer:0.96 },
     mower:   { top:0.95, accel:1.10, steer:1.08 },
+    gator3d: { top:1.05, accel:0.94, steer:1.00 },   // chunky green gator — a touch faster, slightly heavier launch
   };
   function kartStats(p){ return KART_STATS[normalizeKartId(p && p.kartId)] || KART_STATS.bucky; }
   // Kid-readable 3-dot stat scale for the racer-select kart cards (SPEED / ACCEL / TURN). Derived from
@@ -955,6 +988,7 @@
     bucky:   { SPEED:2, ACCEL:2, TURN:2 },
     tractor: { SPEED:3, ACCEL:1, TURN:2 },
     mower:   { SPEED:1, ACCEL:3, TURN:3 },
+    gator3d: { SPEED:3, ACCEL:2, TURN:2 },
   };
   try {
     // fk_tune_v2 (bumped from v1 — semantics changed with the MKW rewrite).
@@ -1134,7 +1168,17 @@
   // Kart physics, entities, fences, and (Stage A) the grass mesh on non-bridge spans all read this.
   // = smooth blend of (a) flat track surface (nearest-centerline elev within half-width) into
   // (b) ground hills over heightBlendMargin. Math lives in FK_TRACK; terrainOpts() passes live TUNE.
-  function terrainOpts(){ return { amp:TUNE.groundHillAmp, wave:TUNE.groundHillWave, margin:TUNE.heightBlendMargin, field:ACTIVE_TRACK.terrain, paint:ACTIVE_TRACK.paint, groundMargin:ACTIVE_TRACK.groundMargin, followTerrain:ACTIVE_TRACK.followTerrain, offroad:ACTIVE_TRACK.offroad }; }
+  // CITY THEME (2026-07-17): dark asphalt ground + blue-gray road + light curbs, no grass blades (the
+  // height functions ignore these color keys, so physics stays identical; only the mesh builders read them).
+  const CITY_THEME = ACTIVE_TRACK.theme === 'city';
+  function terrainOpts(){ const o = { amp:TUNE.groundHillAmp, wave:TUNE.groundHillWave, margin:TUNE.heightBlendMargin, field:ACTIVE_TRACK.terrain, paint:ACTIVE_TRACK.paint, groundMargin:ACTIVE_TRACK.groundMargin, followTerrain:ACTIVE_TRACK.followTerrain, offroad:ACTIVE_TRACK.offroad };
+    if (CITY_THEME){ o.color = 0x2e3136; o.roadColor = 0x3d434e; o.curbColor = 0x9aa2ad; o.skipBladeTexture = true; }
+    // PER-TRACK ROAD/CURB COLOURS (2026-07-17): explicit track keys WIN over the theme defaults above and
+    // the builder defaults (a dirt farm lane etc). Only the ribbon builders read these — height/physics
+    // are untouched. Absent -> the ribbon keeps its byte-identical default colours.
+    if (isFinite(ACTIVE_TRACK.roadColor)) o.roadColor = ACTIVE_TRACK.roadColor;
+    if (isFinite(ACTIVE_TRACK.curbColor)) o.curbColor = ACTIVE_TRACK.curbColor;
+    return o; }
   // NATURAL (cave) TUNNELS: the GROUND MESH keeps the hill height over the road across these spans so
   // the land literally continues overhead. ONLY the mesh build reads this (meshTerrainOpts) — the
   // kart/entity height authority (sampleHeight) and the game's groundSampleHeight() below deliberately
@@ -1192,7 +1236,8 @@
   // Built by the shared FK_TRACK.buildGroundMesh so farmkart-editor.html renders the identical mesh.
   scene.add(FK_TRACK.buildGroundMesh(_sampled, TRACK_WIDTH, THREE, meshTerrainOpts()));
   // 3D grass tufts scattered along the track corridor (fewer on phones). Static instanced mesh.
-  { const mobile = (typeof matchMedia==='function' && matchMedia('(pointer: coarse)').matches);
+  // CITY THEME: no grass tufts growing out of the asphalt — skip both the corridor + painted tufts.
+  if (!CITY_THEME){ const mobile = (typeof matchMedia==='function' && matchMedia('(pointer: coarse)').matches);
     scene.add(FK_TRACK.buildGrassTufts(_sampled, TRACK_WIDTH, THREE, { heightFn:(x,z)=>sampleHeight(x,z), count: mobile?2200:4600 }));
     // PAINTED tufts (2026-07-12): editor-brushed low/high density cells, scattered ON TOP of the
     // automatic corridor tufts. Absent -> nothing added (byte-identical for tracks without them).
@@ -1306,7 +1351,11 @@
       : FK_TRACK.corridorFences(_sampled, TRACK_WIDTH, effWallMargin());
   if (ACTIVE_TRACK.wallStyle === 'fence')
     RACE_FENCES = RACE_FENCES.map(f => f.style === 'ribbon' ? { ...f, style:'rail', height:2.2 } : f);
-  for (const f of RACE_FENCES) scene.add(FK_TRACK.buildFenceMesh(f, THREE, { heightFn:(x,z)=>sampleHeight(x,z) }));
+  // CITY THEME: recolour the ribbon corridor walls as light-gray concrete highway barriers with an
+  // emissive lift so they read at night (collision unchanged — it reads fence.points, not the mesh).
+  const _fenceOpts = { heightFn:(x,z)=>sampleHeight(x,z) };
+  if (CITY_THEME){ _fenceOpts.ribbonColors = [[0.62,0.63,0.6],[0.72,0.73,0.7]]; _fenceOpts.ribbonEmissive = 0x2a2c30; }
+  for (const f of RACE_FENCES) scene.add(FK_TRACK.buildFenceMesh(f, THREE, _fenceOpts));
 
   // TUNNELS (2026-07-10): concrete arches drawn in the editor. Purely visual — the existing corridor
   // walls already constrain karts, so no physics change here. Follows the ROAD height (sampleHeight),
@@ -1323,6 +1372,22 @@
     heightFn:(x,z)=>sampleHeight(x,z), groundFn:(x,z)=>groundSampleHeight(x,z)
   });
   scene.add(BRIDGE_GROUP);
+
+  // CITY THEME (2026-07-17): the nighttime-city environment (street lamps, lit-window buildings, far
+  // skyline, goat billboards, dusk glow) + white dashed/solid lane markings on the road. All static +
+  // instanced/batched (<=~25 draw calls), reduced on mobile. Purely visual — no collision/physics.
+  // Empty (never built) for every non-city track. Traffic is added by a later pass.
+  let CITY_GROUP = null, LANE_GROUP = null;
+  if (CITY_THEME){
+    const _cityMobile = (typeof matchMedia==='function' && matchMedia('(pointer: coarse)').matches);
+    CITY_GROUP = FK_TRACK.buildCityscape(_sampled, TRACK_WIDTH, THREE, {
+      heightFn:(x,z)=>sampleHeight(x,z), groundFn:(x,z)=>groundSampleHeight(x,z),
+      wallMargin:effWallMargin(), mobile:_cityMobile
+    });
+    scene.add(CITY_GROUP);
+    LANE_GROUP = FK_TRACK.buildLaneMarks(_sampled, TRACK_WIDTH, THREE, { heightFn:(x,z)=>sampleHeight(x,z) });
+    scene.add(LANE_GROUP);
+  }
   // BRIDGE WALL COLLISION (2026-07-12): the plank side walls now PHYSICALLY BLOCK — karts used to
   // drive straight off the deck edge. The two deck-edge polylines (centerline ± half-width over each
   // bridge span, at deck height) collide via FK_TRACK.bridgeCollide in stepKart. Height-aware: a kart
@@ -1453,7 +1518,13 @@
       const bed = groundSampleHeight(p.pos.x, p.pos.z);
       if (surf - bed > WATER_DROWN_K * KART_RIDER_H) return true;   // DROWNING — sunk past 2xH
     }
-    if (p.y < sampleHeight(p.pos.x, p.pos.z) - RESCUE_WORLD_FLOOR) return true;   // fell out of the world
+    // CROSSING FIX (2026-07-17): use the BRANCH-AWARE height (seeded with p.y). Context-free sampleHeight
+    // resolves the XZ-nearest branch, so UNDER an overpass (midnight-run viaduct / turnpike start straight)
+    // it can return the upper deck (y8) — a kart on the low road (y0) reads as ~8 below "the road" and gets
+    // grabbed by the rescue crow as if out of bounds. sampleHeightAtY picks the branch closest to p.y, so
+    // the low road resolves to y0 (no false rescue) while a GENUINE fall (single branch, kart far below)
+    // still fires — the only branch found is the real road, so AtY returns it and the check holds.
+    if (p.y < sampleHeightAtY(p.pos.x, p.pos.z, p.y) - RESCUE_WORLD_FLOOR) return true;   // fell out of the world
     return false;
   }
 
@@ -1462,6 +1533,13 @@
   // per frame below. Purely visual — no collision. Empty for tracks without a `trains` array.
   const TRAIN_GROUP = FK_TRACK.buildTrainsMesh(ACTIVE_TRACK.trains || [], THREE, { heightFn:(x,z)=>sampleHeight(x,z) });
   scene.add(TRAIN_GROUP);
+
+  // CIVILIAN TRAFFIC (2026-07-17): the signature Toad's Turnpike hazard — sedans/tankers/box-trucks/
+  // buses driving the course in lanes (same direction as racers) that LAUNCH a kart on contact.
+  // Vehicles drive at ALL times (menu/countdown/racing) — a living highway; the launch RULING only
+  // runs during a race (advanceTrafficHits). Empty group for tracks without a `traffic` object.
+  const TRAFFIC_GROUP = FK_TRACK.buildTraffic(ACTIVE_TRACK.traffic, _sampled, TRACK_WIDTH, THREE, { heightFn:(x,z)=>sampleHeight(x,z) });
+  scene.add(TRAFFIC_GROUP);
   // R3: train level-crossing gates are built once at boot by buildTrainCrossings() (see below, after
   // the TRAIN_CROSSINGS const is initialized — calling it here would hit that const's temporal dead zone).
 
@@ -1485,6 +1563,11 @@
   }
   // only depart from the byte-identical default path when a track actually specifies a non-day sky
   if (ACTIVE_TRACK.sky && ACTIVE_TRACK.sky !== 'day') setSky(ACTIVE_TRACK.sky);
+  // CITY THEME lighting readability (2026-07-17): the shared night preset (hemi 0.40) is tuned for a
+  // dark rural night; a LIT city highway wants a touch more fill so karts + road read clearly. Nudge
+  // hemisphere fill up + warm its ground tint WITHOUT mutating the shared SKY_PRESETS.night object
+  // (other tracks keep the preset). The moon + stars from the preset stay.
+  if (CITY_THEME){ hemi.intensity = 0.58; hemi.groundColor.setHex(0x201a16); hemi.color.setHex(0x2c3450); sun.intensity = 0.52; }
 
   // ---------- start/finish line (checkered strip across main straight) ----------
   // Placed near the main straight at ~z=20, spanning the track width.
@@ -1697,11 +1780,21 @@
     { id:'bucky',   name:'Bucky',   ico:'🛻' },
     { id:'tractor', name:'Tractor', ico:'🚜' },
     { id:'mower',   name:'Mower',   ico:'🌿' },
+    // Tripo-generated GLB kart (assets/farmkart/farmkart-gator3d.glb) — chunky green John-Deere-style
+    // gator w/ SPINNING GLB tires + a TURNING GLB steering wheel. Body color is FIXED green (the
+    // baked texture; racer/slot color is ignored for paint, like the Tractor's red). Auto-joins the
+    // picker, fk_kart persistence, and the bot random pool. buildKartBody returns an EMPTY root for
+    // this id and the GLB clone attaches async (fillKartModel → _attachGator3d).
+    { id:'gator3d', name:'Gator 3D', ico:'🐊' },
   ];
   const DRIVER_KINDS = [
     { id:'bucky', name:'Bucky', ico:'🐐' },
     { id:'otis',  name:'Otis',  ico:'🐶' },
     { id:'boots', name:'Boots', ico:'🐱' },
+    // Tripo-generated skinned GLB goat (assets/cast/bucky/bucky.glb). Auto-joins the picker,
+    // fk_driver persistence, and the bot random pool via DRIVER_IDS below. 'bucky' (procedural)
+    // stays the default. buildDriver() returns a DIFFERENT contract for this id (glb:true).
+    { id:'bucky3d', name:'Bucky 3D', ico:'🐐' },
   ];
   const KART_IDS = KART_KINDS.map(k=>k.id);
   const DRIVER_IDS = DRIVER_KINDS.map(k=>k.id);
@@ -1979,13 +2072,231 @@
     const id = normalizeKartId(kartId);
     if (id === 'tractor') return buildTractorKart(bodyColor);
     if (id === 'mower') return buildMowerKart(bodyColor);
+    if (id === 'gator3d') return buildGator3dKart(bodyColor);
     return buildBuckyKart(bodyColor);
   }
+  // ============================================================================
+  //  Bucky 3D — Tripo-generated skinned GLB driver (assets/cast/bucky/bucky.glb)
+  // ----------------------------------------------------------------------------
+  //  54-bone anatomical rig, single SkinnedMesh, ~47k tris, baseColor texture. Cloned per
+  //  instance with THREE.SkeletonUtils.clone (regular .clone() breaks skinned meshes). The
+  //  Tripo PBR MeshStandardMaterial renders near-black under this scene's toon lighting, so
+  //  we convert to MeshLambertMaterial{ skinning:true } (skinning:true is REQUIRED in r128 or
+  //  the skinned mesh freezes in bind pose — same lesson as the Bistro chefs). The rest pose
+  //  is STANDING; we fold it into a seated driving pose ONCE (bone-quat = rest * delta) and
+  //  the steer-lean is a small per-frame delta on the spine/head bones (no limb stretch).
+  const BUCKY3D_URL = 'assets/cast/bucky/bucky.glb';
+  const BUCKY3D_TARGET_H = 1.52;           // normalized STANDING height (kart units); was 1.9, -20% per playtest
+  // The Tripo GLB faces +X in the kart frame (kart forward = +Z); yaw the wrapper -90° so the
+  // driver faces forward (we see its back + horns in the chase cam). Discovered empirically.
+  let BUCKY3D_BASE_YAW = -Math.PI / 2;
+  const _bq3 = new THREE.Quaternion(), _be3 = new THREE.Euler(), _v3a = new THREE.Vector3();
+  // Seated pose: boneName -> [x,y,z] Euler radians, applied as rest*delta (see _verify-bucky3d.cjs).
+  // Left/Right arms + legs are mirrored on the axes discovered to be side-antisymmetric.
+  const BUCKY3D_SEATED_POSE = {
+    // torso slight recline, head level
+    Spine01:[0.10, 0, 0], Head:[-0.05, 0, 0],
+    // arms: reach forward+down to the wheel (solver-fit to the grip anchors; hovers just short of
+    // the occluded rim — the model's arms can't fully reach it, which reads fine from the chase cam)
+    L_Upperarm:[1.75, -0.507, -1.115], L_Forearm:[-0.591, 0.514, 0.605],
+    R_Upperarm:[1.655, 0.468, 1.139], R_Forearm:[-0.393, -0.356, -0.38],
+    // legs: thighs up/forward, knees bent so the feet fold down into the (occluded) footwell
+    L_Thigh:[0.383, -0.5, -1.0], L_Calf:[0.116, 0.755, 0.145],
+    R_Thigh:[0.4, 0.464, 0.921], R_Calf:[0.238, -0.589, -0.166],
+  };
+  let _bucky3dTpl = null, _bucky3dPromise = null, _bucky3dNativeH = 0;
+  function _prepBucky3dTemplate(sceneRoot){
+    sceneRoot.traverse(o=>{
+      if (!(o.isMesh || o.isSkinnedMesh) || !o.material) return;
+      const src = Array.isArray(o.material) ? o.material[0] : o.material;
+      const map = (src && src.map) ? src.map : null;   // baseColor only; drop normal/metallicRoughness
+      o.material = new THREE.MeshLambertMaterial({
+        map,
+        color: map ? 0xffffff : ((src && src.color) ? src.color.clone() : new THREE.Color(0xcccccc)),
+        skinning: true,   // r128: required or the skinned mesh freezes in bind pose
+        // emissive lift so unlit faces read under the toon Hemisphere+Directional rig (props do the same)
+        emissive: new THREE.Color(0xffffff).multiplyScalar(0.30), emissiveMap: map
+      });
+      o.castShadow = true; o.receiveShadow = false; o.frustumCulled = false;
+    });
+    sceneRoot.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(sceneRoot);
+    _bucky3dNativeH = Math.max(box.max.y - box.min.y, 1e-3);
+    return sceneRoot;
+  }
+  function loadBucky3dTemplate(){
+    if (_bucky3dPromise) return _bucky3dPromise;
+    _bucky3dPromise = new Promise(resolve=>{
+      if (!THREE.GLTFLoader){ resolve(null); return; }
+      new THREE.GLTFLoader().load(BUCKY3D_URL, gltf=>{
+        try { _bucky3dTpl = _prepBucky3dTemplate(gltf.scene); resolve(_bucky3dTpl); }
+        catch(e){ console.warn('[fk] bucky3d prep failed', e); resolve(null); }
+      }, undefined, err=>{ console.warn('[fk] bucky3d.glb failed', err); resolve(null); });
+    });
+    return _bucky3dPromise;
+  }
+  // Apply the seated pose to a clone's bones (rest*delta). Twist bones are LEFT ALONE — the mesh
+  // weight rides on them as children of the main limb bones (never counter-rotate/zero them).
+  function _applyBucky3dSeatedPose(boneMap){
+    for (const name in boneMap){
+      const b = boneMap[name];
+      if (!b.userData._rest) b.userData._rest = b.quaternion.clone();
+      const r = BUCKY3D_SEATED_POSE[name];
+      if (r){ _bq3.setFromEuler(_be3.set(r[0], r[1], r[2], 'XYZ')); b.quaternion.copy(b.userData._rest).multiply(_bq3); }
+      else b.quaternion.copy(b.userData._rest);
+      b.userData._seated = b.quaternion.clone();
+    }
+  }
+  // Seat the hips at the wrapper origin so TUNE.driverY places the character like the procedural rig.
+  function _anchorBucky3d(g){
+    if (!g._clone || !g.bones) return;
+    g.wrapper.rotation.y = BUCKY3D_BASE_YAW;   // face +Z (kart forward); rotation is about the hip-seated origin
+    g._clone.position.set(0, 0, 0);
+    g.wrapper.updateMatrixWorld(true);
+    const hip = g.bones['Hip'] || g.bones['Pelvis'] || g.bones['Root'];
+    if (hip){ hip.getWorldPosition(_v3a); g.wrapper.worldToLocal(_v3a); g._clone.position.set(-_v3a.x, -_v3a.y, -_v3a.z); }
+  }
+  function _attachBucky3d(contract){
+    loadBucky3dTemplate().then(tpl=>{
+      if (!tpl || !contract.root) return;   // load failed → root stays empty (kart just has no rider, never black)
+      const clone = THREE.SkeletonUtils.clone(tpl);
+      const boneMap = {};
+      clone.traverse(o=>{ o.frustumCulled = false; if (o.isBone) boneMap[o.name] = o; });
+      contract.wrapper.add(clone);
+      contract.wrapper.scale.setScalar(BUCKY3D_TARGET_H / (_bucky3dNativeH || 1));
+      contract._clone = clone; contract.bones = boneMap;
+      _applyBucky3dSeatedPose(boneMap);
+      _anchorBucky3d(contract);
+      contract.head = boneMap['Head'] || null;            // hats read g.head (gated off for glb in setViewHat)
+      contract._headBone = boneMap['Head'] || null;
+      contract._spine = boneMap['Spine01'] || boneMap['Spine02'] || boneMap['Waist'] || null;
+      contract._ready = true;
+    });
+  }
+  // Re-apply the (possibly edited) BUCKY3D_SEATED_POSE to the LOCAL driver — pose-tuning hook.
+  function reposeBucky3dLocal(){
+    const v = kartViews.local, g = v && v.goat;
+    if (!g || !g.glb || !g._ready || !g.bones) return false;
+    _applyBucky3dSeatedPose(g.bones);
+    _anchorBucky3d(g);
+    return true;
+  }
+
+  // ============================================================================
+  //  Gator 3D — Tripo-generated STATIC GLB kart (assets/farmkart/farmkart-gator3d.glb)
+  // ----------------------------------------------------------------------------
+  //  Node hierarchy (baked in Blender, +Z = kart forward): root "GatorBody" with children
+  //  "Wheel_FL/FR/BL/BR" (origin = each wheel's axle center) + "SteerWheel" (origin = rim center).
+  //  ~38.5k tris, single 1024 baseColor texture (ORM/normal dropped). Plain THREE deep clone per
+  //  instance (no skeleton). The Tripo PBR material renders near-black under this scene's toon
+  //  lighting, so we convert to MeshLambert + emissive lift (same house fix as the GLB props /
+  //  Bucky 3D driver). Wheels spin (roll about local X) + front pair steers (yaw about local Y);
+  //  SteerWheel turns about the column axis. Body color is FIXED green (the baked texture).
+  const GATOR3D_URL = 'assets/farmkart/farmkart-gator3d.glb';
+  const GATOR3D_TARGET_W = 1.45;   // scale the clone so its wheel-track width ≈ the Bucky kart's footprint
+  // Steering-column axis in kart-local frame (up + slightly back toward the driver), measured from
+  // the Blender surgery (ring-center minus column-base, converted to the glTF/game frame).
+  const GATOR3D_STEER_AXIS = new THREE.Vector3(0, 0.93, -0.36).normalize();
+  let _gator3dTpl = null, _gator3dPromise = null;
+  function _prepGator3dTemplate(sceneRoot){
+    sceneRoot.traverse(o=>{
+      if (!o.isMesh || !o.material) return;
+      const src = Array.isArray(o.material) ? o.material[0] : o.material;
+      const map = (src && src.map) ? src.map : null;   // baseColor only
+      const flatCol = (src && src.color) ? src.color.clone() : new THREE.Color(0x4a9d3f);
+      o.material = new THREE.MeshLambertMaterial({
+        map, color: map ? 0xffffff : flatCol,
+        // textured: white lift through the map; flat (v3 wheels): lift TINTED by the
+        // material's own color so dark tires stay dark instead of washing out grey
+        emissive: map ? new THREE.Color(0xffffff).multiplyScalar(0.30) : flatCol.clone().multiplyScalar(0.35),
+        emissiveMap: map
+      });
+      o.castShadow = true; o.receiveShadow = false; o.frustumCulled = false;
+    });
+    return sceneRoot;
+  }
+  function loadGator3dTemplate(){
+    if (_gator3dPromise) return _gator3dPromise;
+    _gator3dPromise = new Promise(resolve=>{
+      if (!THREE.GLTFLoader){ resolve(null); return; }
+      new THREE.GLTFLoader().load(GATOR3D_URL, gltf=>{
+        try { _gator3dTpl = _prepGator3dTemplate(gltf.scene); resolve(_gator3dTpl); }
+        catch(e){ console.warn('[fk] gator3d prep failed', e); resolve(null); }
+      }, undefined, err=>{ console.warn('[fk] gator3d.glb failed', err); resolve(null); });
+    });
+    return _gator3dPromise;
+  }
+  // Empty synchronous body — the GLB clone attaches async (fillKartModel → _attachGator3d).
+  function buildGator3dKart(bodyColor){
+    const root = new THREE.Group(); root.name = 'gator3dKart'; root.userData.gator3d = true;
+    return { root, bodyMat: new THREE.MeshLambertMaterial({ color:bodyColor }) };
+  }
+  // Clone the GLB into the kart body root, normalize footprint + seat on ground, and register the
+  // wheel + steering-wheel nodes so the render loop spins/steers them. Async (pops in like scenery).
+  function _attachGator3d(view, root){
+    view.wheels = [];              // no procedural wheels for this kart
+    view.glbWheels = null; view.glbSteer = null; view._gatorReady = false;
+    loadGator3dTemplate().then(tpl=>{
+      if (!tpl || !root || view.kartRoot !== root) return;   // load failed or view rebuilt meanwhile
+      const clone = tpl.clone(true);                          // static mesh — plain deep clone is safe
+      clone.traverse(o=>{ o.frustumCulled = false; });
+      // Measure + seat while the wrap is DETACHED from the scene graph so world == kart-local
+      // (the live kart group is positioned/rotated mid-race — measuring it in world space would seat wrong).
+      const wrap = new THREE.Group();
+      wrap.add(clone);
+      wrap.updateMatrixWorld(true);
+      let box = new THREE.Box3().setFromObject(clone);
+      const w = (box.max.x - box.min.x) || 1;
+      const s = GATOR3D_TARGET_W / w;
+      wrap.scale.setScalar(s);
+      wrap.updateMatrixWorld(true);
+      box = new THREE.Box3().setFromObject(clone);
+      wrap.position.y = -box.min.y;   // seat the tyres on the ground (kart-local y=0)
+      root.add(wrap);                 // attach AFTER seating
+      // register wheel + steer nodes (front = local +Z in the kart frame)
+      root.updateMatrixWorld(true);
+      const wheels = []; const _wp = new THREE.Vector3();
+      clone.traverse(o=>{
+        if (o.name && o.name.indexOf('Wheel_') === 0){
+          o.getWorldPosition(_wp); root.worldToLocal(_wp);
+          wheels.push({ node:o, front: _wp.z > 0, roll: 0, base: o.quaternion.clone() });
+        } else if (o.name === 'SteerWheel'){
+          o.userData._base = o.quaternion.clone(); view.glbSteer = o;
+        }
+      });
+      // scaled wheel radius (for the spin rate) — half the wheel node's own vertical extent
+      let wr = 0.3;
+      if (wheels[0]){ const wb = new THREE.Box3().setFromObject(wheels[0].node); wr = Math.max(0.08, (wb.max.y - wb.min.y) * 0.5); }
+      view.glbWheelR = wr;
+      view.glbWheels = wheels;
+      view._gatorReady = true;
+    });
+  }
+  // Per-kart cockpit offsets for the Gator (its seat/dash/pedals differ from the procedural karts).
+  // Applied ADDITIVELY on top of the global driver/steer/pedal TUNE in syncDriverPlacement; every
+  // other kart uses zero offsets (unchanged behavior). Tuned from in-game screenshots.
+  const GATOR3D_OFFSETS = {
+    driverX:0, driverY:0.02, driverZ:-0.06, driverScale:0.92,
+    steerX:0,  steerY:0.02,  steerZ:0.10,
+    pedalX:0,  pedalY:-0.02, pedalZ:0.10,
+  };
+
   // ---- Procedural humanoid drivers (Bucky goat / Otis dog / Boots cat) ----
   // Shared hierarchy: hips → torso/chest/head + shoulder pivots; hands on wheel grips;
   // feet on pedals. Limb segments stretch each frame between joints.
   function buildDriver(kind){
     const id = normalizeDriverId(kind);
+    if (id === 'bucky3d'){
+      // GLB driver: root (gets TUNE placement each frame) > wrapper (normalization scale + seated
+      // model). The skinned clone attaches ASYNC (pops in like the scenery props) — root is empty
+      // until then. syncKartDriver / fillKartDriver branch on `.glb`.
+      const root = new THREE.Group(); root.name = 'driver_bucky3d';
+      const wrapper = new THREE.Group(); root.add(wrapper);
+      const contract = { kind:'bucky3d', glb:true, root, wrapper, head:null, bones:null,
+                         _clone:null, _ready:false, _spine:null, _headBone:null };
+      _attachBucky3d(contract);
+      return contract;
+    }
     const G = _DRIVER_MATS[id] || _DRIVER_MATS.bucky;
     const root = new THREE.Group(); root.name = 'driver_'+id;
     const hips = new THREE.Group(); root.add(hips);
@@ -2171,12 +2482,27 @@
     const sw = buildSteerWheel();
     kartMesh.add(sw);
     view.steerWheel = sw;
+    // Gator 3D shows the GLB SteerWheel node; keep this procedural rim ONLY for its grip anchors
+    // (procedural drivers' hands parent here), but hide it so we don't double up.
+    if (normalizeKartId(view.kartId) === 'gator3d') sw.visible = false;
 
     const pedals = buildPedals();
     kartMesh.add(pedals);
     view.pedals = pedals;
 
     const goat = buildDriver(view.driverId || 'bucky');
+    if (goat.glb){
+      // GLB skinned driver (Bucky 3D): the rig poses itself — no hand/foot parenting, no limb-mesh
+      // extraction. Steering wheel + pedals are still built (they're kart furniture, not driver-owned).
+      kartMesh.add(goat.root);
+      view.driverRoot = goat.root;
+      view.goat = goat; view.driver = goat;
+      view.driverLean = 0;
+      view._limbMeshes = null;
+      view._hatMesh = null;   // hats gated off for glb drivers (see setViewHat)
+      syncDriverPlacement(view);
+      return;
+    }
     sw.userData.gripL.add(goat.handL);
     sw.userData.gripR.add(goat.handR);
     goat.handL.rotation.set(0.4, 0, 0.2);
@@ -2201,18 +2527,21 @@
     syncDriverPlacement(view);
   }
   function syncDriverPlacement(view){
+    // Gator 3D has a different cockpit than the procedural karts — nudge driver/steer/pedals via a
+    // per-kart additive offset table (zero for every other kart, so their placement is unchanged).
+    const G3 = (normalizeKartId(view.kartId) === 'gator3d') ? GATOR3D_OFFSETS : null;
     if (view.driverRoot){
-      view.driverRoot.position.set(TUNE.driverX, TUNE.driverY, TUNE.driverZ);
-      view.driverRoot.scale.setScalar(TUNE.driverScale);
+      view.driverRoot.position.set(TUNE.driverX + (G3?G3.driverX:0), TUNE.driverY + (G3?G3.driverY:0), TUNE.driverZ + (G3?G3.driverZ:0));
+      view.driverRoot.scale.setScalar(TUNE.driverScale * (G3?G3.driverScale:1));
       view.driverRoot.rotation.set(0, 0, 0);
     }
     if (view.steerWheel){
-      view.steerWheel.position.set(TUNE.steerWheelX, TUNE.steerWheelY, TUNE.steerWheelZ);
+      view.steerWheel.position.set(TUNE.steerWheelX + (G3?G3.steerX:0), TUNE.steerWheelY + (G3?G3.steerY:0), TUNE.steerWheelZ + (G3?G3.steerZ:0));
       view.steerWheel.scale.setScalar(TUNE.steerWheelScale);
       view.steerWheel.rotation.set(-0.55, 0, 0);
     }
     if (view.pedals){
-      view.pedals.position.set(TUNE.pedalX, TUNE.pedalY, TUNE.pedalZ);
+      view.pedals.position.set(TUNE.pedalX + (G3?G3.pedalX:0), TUNE.pedalY + (G3?G3.pedalY:0), TUNE.pedalZ + (G3?G3.pedalZ:0));
       const ud = view.pedals.userData;
       if (ud.footL){
         ud.footL.position.set(-TUNE.pedalSpread, 0.02, 0);
@@ -2231,6 +2560,19 @@
     const targetLean = st * TUNE.driverLeanSteer + driftLean;
     const k = 1 - Math.exp(-TUNE.driverLeanSmooth * (dt || 0.016));
     view.driverLean += (targetLean - view.driverLean) * k;
+    // GLB skinned driver (Bucky 3D): spin the wheel + lean the spine/head as a small bone-quat delta
+    // ON TOP of the baked seated pose (rest*seated*lean). No limb stretch (the rig deforms itself).
+    if (g.glb){
+      const rimAngle = -st * TUNE.steerWheelTurn;
+      if (view.steerWheel && view.steerWheel.userData.rim) view.steerWheel.userData.rim.rotation.z = rimAngle;
+      if (g._ready){
+        const lean = view.driverLean;
+        // sign is FLIPPED vs the procedural torso: the wrapper's -π/2 base yaw mirrors bone-local Z
+        if (g._spine && g._spine.userData._seated){ _bq3.setFromEuler(_be3.set(0, 0, lean, 'XYZ')); g._spine.quaternion.copy(g._spine.userData._seated).multiply(_bq3); }
+        if (g._headBone && g._headBone.userData._seated){ _bq3.setFromEuler(_be3.set(0, 0, -lean * 0.35, 'XYZ')); g._headBone.quaternion.copy(g._headBone.userData._seated).multiply(_bq3); }
+      }
+      return;
+    }
     // Lean torso into the turn; hips stay planted
     g.torso.rotation.z = -view.driverLean;
     g.head.rotation.z = view.driverLean * 0.35;
@@ -2298,15 +2640,22 @@
     view.kartRoot = built.root;
     view.placeholder.visible = false;
     view.wheels = [];
-    for (const [nm, x, y, z] of KART_WHEEL_POS){
-      const mount = new THREE.Group();
-      const tire = buildProcWheel();
-      tire.rotation.y = Math.PI/2;
-      mount.add(tire);
-      mount.userData.bx = x; mount.userData.by = y; mount.userData.bz = z;
-      mount.userData.roll = 0; mount.userData.front = (z > 0);
-      built.root.add(mount);
-      view.wheels.push(mount);
+    view.glbWheels = null; view.glbSteer = null;   // reset GLB-kart node refs on every rebuild
+    const isGator = normalizeKartId(view.kartId) === 'gator3d';
+    if (isGator){
+      // GLB kart: no procedural tyres — the spinning tyres are named nodes in the clone (async).
+      _attachGator3d(view, built.root);
+    } else {
+      for (const [nm, x, y, z] of KART_WHEEL_POS){
+        const mount = new THREE.Group();
+        const tire = buildProcWheel();
+        tire.rotation.y = Math.PI/2;
+        mount.add(tire);
+        mount.userData.bx = x; mount.userData.by = y; mount.userData.bz = z;
+        mount.userData.roll = 0; mount.userData.front = (z > 0);
+        built.root.add(mount);
+        view.wheels.push(mount);
+      }
     }
     // Mower uses much smaller wheels (visual only — physics footprint unchanged)
     view.wheelSizeMul = (normalizeKartId(view.kartId) === 'mower') ? 0.48 : 1;
@@ -2416,6 +2765,7 @@
       bullScale:1,           // 🐂 render scale (eases up to ~2x while charging — RENDER-ONLY)
       stormFlashT:0,         // ⛈ barn-storm screen-flash countdown (local FX)
       spinT:0,               // spin-out lock countdown (input ignored, kart spins 720deg)
+      trafficInvulnT:0,      // grace window after a Toad's-Turnpike traffic launch (one hit = one pop)
       // --- RESCUE CROW (2026-07-12 R1) ---
       rescueT:0,             // remaining rescue-sequence time (s); >0 = control cut
       rescueInvulnT:0,       // gentle no-spin window after being set down
@@ -2426,6 +2776,8 @@
       slipCd:0,              // cooldown after firing a slip boost (s)
       // --- K3.5 bot identity (isBot=false => the human/local) ---
       isBot:false, botName:null, botColor:null, botSkill:0.75,
+      // Phase 2: rival leash flag (only ever true for a bot picked as a rival; humans never rivals)
+      isRival:false,
       gridSlot:0,
       // --- kart + driver loadout (visual only; same physics footprint) ---
       kartId: id==='local' ? loadKartId() : 'bucky',
@@ -2777,8 +3129,12 @@
     const boosting = p.boostT > 0 || p.bullT > 0;
     // bots don't drift/mini-turbo, so their cruising cap is raised (botTopSpeedMul) to compensate;
     // a boosting human still exceeds it. Boost (pads/items) uses the normal boostMult surge for both.
+    // Phase 1: a far-behind bot's rubber-band catch-up (_rbBoost, stashed by botTargetSpeed every
+    // frame) also LIFTS this hard cap — otherwise a bot's boosted target speed request is just
+    // clipped back down to the old cap and catch-up does nothing on a straight. Only ever lifts
+    // (Math.max(1,...)); the slow-down/ahead side never shrinks the cap.
     const botCap = p.isBot
-      ? ((TUNE.botTopSpeedMul || 1) * (p.botTopMul != null ? p.botTopMul : 1))
+      ? ((TUNE.botTopSpeedMul || 1) * (p.botTopMul != null ? p.botTopMul : 1)) * Math.max(1, p._rbBoost || 1)
       : 1;
     // KART STAT IDENTITY (2026-07-12 R1): gentle per-body multipliers (top / accel / steer).
     const kst = kartStats(p);
@@ -3169,7 +3525,20 @@
       // knocks you into a spin (2026-07-13: the pop used to skip the spin). Fall through to the spin.
       battlePopBalloon(p);
     }
-    const dur = TUNE.spinT * (mult || 1);
+    let dur = TUNE.spinT * (mult || 1);
+    // Phase 1: a far-behind bot shakes off a spin-out faster (ramps in 20->80u behind the human) so
+    // hazards don't compound a bad race into a hopeless one. Never applies to the human, never to a
+    // bot that's level or ahead.
+    if (p.isBot){
+      const human = G.players.local;
+      if (human && human !== p){
+        const gap = totalProgress(human) - totalProgress(p);
+        if (gap > 0) dur *= 1 - (1 - (TUNE.botRecoverMul != null ? TUNE.botRecoverMul : 1)) * _ss(20, 80, gap);
+      }
+      // Phase 3: per-tier recovery — hard-tier CPUs shake off hits faster across the board (MK's
+      // faster-CPU-recovery feel), easy-tier unchanged.
+      if (p._beh) dur *= p._beh.recoverBase;
+    }
     // MP: the host DECLARES spins; a remote human's client applies it to their own kart. So on
     // the host, a hit on a guest kart bumps that guest's spin seq instead of spinning the host's
     // adopted copy (which the guest would just overwrite next publish).
@@ -3198,6 +3567,8 @@
     const R = (A*B*C)/(4*area);
     return 1/R;
   }
+  // Phase 1 rubber-band: smoothstep ramp helper (0 below a, 1 above b, eased between).
+  function _ss(a, b, x){ const t = Math.max(0, Math.min(1, (x-a)/(b-a))); return t*t*(3-2*t); }
   function botTargetSpeed(p, idx){
     const C = centerPts, N = SAMPLES;
     let maxCurv = 0, ai = idx, acc = 0;
@@ -3218,13 +3589,44 @@
     // wading multiplier so a bot in deep water slows without grinding against its own throttle.
     const _bwd = waterDepthAt(p.pos.x, p.pos.z);
     if (_bwd > 0) tv *= waterSpeedMul(_bwd);
-    // light rubber-band: nudge target speed toward the human to keep family races close
+    // Phase 3: scripted 'slow' mistake — brake-early, target speed cut regardless of tier.
+    if (p._mErr && p._mErr.type === 'slow') tv *= 0.6;
+    // Phase 1 rubber-band: a smooth curve (not a step) — strongest far away where the player can't
+    // see it happen, catch-up (behind) stronger than slow-down (ahead), plus an extra off-screen
+    // catch-up boost for bots hopelessly dropped so the pack never strings out.
     const human = G.players.local;
+    p._rbBoost = 1;   // stashed for stepKart to lift the physics speed cap (see botCap below) — only
+                       // ever raised on the catch-up side; the slow-down side never touches the cap.
     if (human && human !== p){
-      const rb = (p.rubberMul != null) ? p.rubberMul : TUNE.botRubberband;   // R4: persona + difficulty scaled
-      const gap = totalProgress(human) - totalProgress(p);   // >0 = bot behind the human
-      if (gap > 25) tv *= (1 + rb);
-      else if (gap < -25) tv *= (1 - rb);
+      if (p.isRival){
+        // Phase 2: rivals REPLACE the Phase-1 curve with a proportional leash-band controller —
+        // fully honest dueling inside the band, proportional push/ease outside it (MK64/MKW rival feel).
+        // Phase 3: the leash itself is tier-scaled — easy rivals hover loosely and never look cheaty,
+        // hard rivals push sooner/harder (leash floor unchanged across tiers, just the gain/band/cap).
+        const beh = p._beh || DIFF_BEHAVIOR.normal;
+        const bandBack = TUNE.rivalBandBack * beh.rivalBandBackMul;
+        const gain = TUNE.rivalGain * beh.rivalGainMul;
+        const cap = TUNE.rivalBoostCap * beh.rivalBoostCapMul;
+        const gap = totalProgress(human) - totalProgress(p);   // >0 = rival behind the human
+        const err = gap - Math.max(-TUNE.rivalBandAhead, Math.min(bandBack, gap));
+        let f = 1 + err * gain;
+        f = Math.max(TUNE.rivalSlowFloor, Math.min(cap, f));
+        tv *= f;
+        p._rbBoost = Math.max(1, f);   // stepKart lifts the physics speed cap by this (catch-up side only)
+      } else {
+        const rb = (p.rubberMul != null) ? p.rubberMul : TUNE.botRubberband;   // R4: persona + difficulty scaled (Phase 2: halved for non-rivals)
+        const gap = totalProgress(human) - totalProgress(p);   // >0 = bot behind the human
+        if (gap > 0){
+          const f = 1 + rb * _ss(TUNE.botRubberNear, TUNE.botRubberFar, gap)
+                      + (TUNE.botCatchupFar || 0) * _ss(120, 220, gap);
+          tv *= f;
+          p._rbBoost = f;               // stepKart lifts the physics speed cap by this
+        } else {
+          // slow-down side: target speed only, capped at a 0.55 floor so leaders never park on the spot.
+          const f = Math.max(0.55, 1 - rb * (TUNE.botRubberAsym != null ? TUNE.botRubberAsym : 1) * _ss(TUNE.botRubberNear, TUNE.botRubberFar, -gap));
+          tv *= f;
+        }
+      }
     }
     return tv;
   }
@@ -3253,7 +3655,10 @@
     const C = centerPts;
     const idx = p.lastSampleIdx;
     const speed = Math.hypot(p.v.x, p.v.z);
-    const { ai, inx, inz, maxCurv } = cornerAhead(idx, speed, p.botLookMul || 1);
+    // Phase 3: 'look' mistake — late apex, halve the corner lookahead so the bot reacts later.
+    const mErr = p._mErr;
+    const lookMul = (mErr && mErr.type === 'look') ? (p.botLookMul || 1) * 0.5 : (p.botLookMul || 1);
+    const { ai, inx, inz, maxCurv } = cornerAhead(idx, speed, lookMul);
     const skill = (p.botSkill != null ? p.botSkill : TUNE.botSkill);
     // A drift has LOW grip, so its path can't bend tighter than ~driftSpeed/driftGripRate (radius). Only
     // drift a corner gentle enough that the slide stays on the road (maxCurv <= holdable); tighter
@@ -3261,13 +3666,23 @@
     const driftSpeed = TUNE.minDriftSpeed * 1.1;
     const botDriftGrip = TUNE.driftGripRate * (TUNE.botDriftGripMul || 1);
     const holdableCurv = (botDriftGrip / driftSpeed) * 0.7;   // safety margin so the slide stays on-road
-    const wantDrift = !!TUNE.botDrift && skill > 0.15
-                      && maxCurv > TUNE.botDriftCurv && maxCurv <= holdableCurv;
+    // Phase 3: per-tier drift gate — easy CPUs never drift, normal only drifts real corners (1.6x the
+    // base threshold — a "sharp corners only" filter, MK 100cc feel), hard drifts everything (150cc).
+    const beh = p._beh || DIFF_BEHAVIOR.normal;
+    const driftMode = beh.drift;
+    const driftCurvGate = TUNE.botDriftCurv * (driftMode === 'sharp' ? 1.6 : 1);
+    let wantDrift = driftMode !== 'off' && !!TUNE.botDrift && skill > 0.15
+                      && maxCurv > driftCurvGate && maxCurv <= holdableCurv;
+    // 'nodrift' mistake — a fumbled drift entry; never INITIATE while it's active (an already-active
+    // drift may still finish normally, handled below where p.drift.active is checked first).
+    if (mErr && mErr.type === 'nodrift') wantDrift = false;
     // RACING LINE: bias the aim toward the inside/apex (0 on straights, up to botLineInside*hw), scaled
     // by this bot's own apex aggression (botLineMul).
     const half = TRACK_WIDTH/2;
     const maxOff = half * (TUNE.botLineInside || 0);
-    const off = Math.min(maxCurv * (TUNE.botLineGain || 0), 1) * maxOff * (p.botLineMul != null ? p.botLineMul : 1);
+    // Phase 3: 'wide' mistake — the bot runs a wide line, invert the apex offset toward the outside.
+    const wideMul = (mErr && mErr.type === 'wide') ? -0.6 : 1;
+    const off = Math.min(maxCurv * (TUNE.botLineGain || 0), 1) * maxOff * (p.botLineMul != null ? p.botLineMul : 1) * wideMul;
     // PER-BOT LANE: shift the aim laterally to this bot's preferred lane so the field spreads across the
     // track instead of trailing in one line. Faded out in corners so the apex line still wins there.
     const tn = tangents[ai]; const nx = -tn.z, nz = tn.x;   // left normal
@@ -3325,6 +3740,23 @@
     while (dTheta < -Math.PI) dTheta += Math.PI*2;
     return { steer: Math.max(-1, Math.min(1, dTheta * 3)), throttle:1, brake:0, drift:false };
   }
+  // Phase 4: SPITE TIMING — the DD/MK-Wii "AI fires its meanest item just as you take the lead" move,
+  // softened: a short window (SPITE_WINDOW_T) opens the instant the HUMAN overtakes into 1st place.
+  // Only hard-tier bots act on it (beh.spiteOk, see botUseItems below). Race-mode only (no "place" in
+  // battle — battleActive() guard). Ticked once per frame from the race sim loop (hostMpTick/
+  // soloRaceTick), never per-bot.
+  const SPITE_WINDOW_T = 1.5;
+  let spiteT = 0;
+  let prevHumanPlace = 99;
+  function advanceSpiteTracking(dt){
+    if (battleActive()) return;
+    if (spiteT > 0) spiteT = Math.max(0, spiteT - dt);
+    const human = G.players.local;
+    if (!human || human.finished) return;
+    const place = computePlace(human);
+    if (place === 1 && prevHumanPlace > 1) spiteT = SPITE_WINDOW_T;
+    prevHumanPlace = place;
+  }
   // bot item policy (situational): tomato/chicken -> fire at a rival ahead; hay -> drop/trail when
   // a rival is close BEHIND; boost -> save for a straight. itemHoldT is a fallback so an item is
   // never hoarded forever (set to 1-3s on pickup).
@@ -3332,6 +3764,8 @@
     if (!p.itemHeld || p.itemRollT > 0 || p.spinT > 0) return;
     const aggro = p.aggroMul || 1;   // R4: aggressive bots (Archie) burn the hold faster → fire more often
     p.itemHoldT -= dt * aggro;
+    // Phase 3: per-tier behavior gate (falls back to normal for any bot that somehow never got one).
+    const beh = p._beh || DIFF_BEHAVIOR.normal;
     // TRAIL-FIRE SEMANTICS (2026-07-12): a bot holding a NEW item while trailing is LOCKED just like the
     // player — the held item can't be used until the trail is fired. Keep the shield up while the hold
     // timer runs, then fire the trail to unlock the held item.
@@ -3344,13 +3778,16 @@
     // ---- new items ----
     // star / bull: use PROMPTLY (they're pure upside — get moving)
     if (held === 'star' || held === 'bull'){ useItem(p); return; }
-    // egg / storm: fire when trailing the pack (a leader/ahead-karts exist to punish), else on timeout
+    // egg / storm: fire when trailing the pack (a leader/ahead-karts exist to punish), else on timeout.
+    // Phase 3: easy-tier bots aren't spiteful (beh.spiteOk false) — they never target-fire, timeout only.
     if (held === 'egg' || held === 'storm'){
+      if (!beh.spiteOk && activeDifficulty() === 'easy'){ if (p.itemHoldT <= 0) useItem(p); return; }
       const place = computePlace(p), n = Object.keys(G.players).length;
-      if (place > Math.max(1, n*0.4) || p.itemHoldT <= 0) useItem(p);
+      // Phase 4: hard-tier spite — fire promptly during the post-overtake window instead of waiting.
+      if (place > Math.max(1, n*0.4) || p.itemHoldT <= 0 || (beh.spiteOk && spiteT > 0)) useItem(p);
       return;
     }
-    const canTrail = isTrailable(held) && !isTriple(held);
+    const canTrail = isTrailable(held) && !isTriple(held) && beh.trailAllowed;
     // trail when threatened from behind (single tomato/chicken/hay only)
     if (canTrail && !p.trailKind){
       for (const id in G.players){
@@ -3361,12 +3798,23 @@
       }
     }
     if (held === 'tomato' || held === 'tomato3' || held === 'chicken' || held === 'chicken3'){
+      const range = ((held === 'chicken' || held === 'chicken3') ? 48 : 34) * aggro * beh.itemConeMul;   // R4 aggro + Phase 3 tier cone
+      // Phase 4: hard-tier spite — during the post-overtake window, check the HUMAN specifically
+      // (same cone-multiplied range) BEFORE the general nearest-rival scan, so the punish lands on
+      // the racer who just took the lead rather than whichever kart happens to be nearest.
+      if (beh.spiteOk && spiteT > 0){
+        const h = G.players.local;
+        if (h && h !== p){
+          const rx = h.pos.x - p.pos.x, rz = h.pos.z - p.pos.z;
+          const ahead = rx*f.x + rz*f.z, lat = Math.abs(rx*(-f.z) + rz*f.x);
+          if (ahead > 2 && ahead < range && lat < 8*aggro*beh.itemConeMul){ useItem(p); return; }
+        }
+      }
       for (const id in G.players){
         const q = G.players[id]; if (q === p) continue;
         const rx = q.pos.x - p.pos.x, rz = q.pos.z - p.pos.z;
         const ahead = rx*f.x + rz*f.z, lat = Math.abs(rx*(-f.z) + rz*f.x);
-        const range = ((held === 'chicken' || held === 'chicken3') ? 48 : 34) * aggro;   // R4: wider firing cone when aggressive
-        if (ahead > 2 && ahead < range && lat < 8*aggro){ useItem(p); return; }
+        if (ahead > 2 && ahead < range && lat < 8*aggro*beh.itemConeMul){ useItem(p); return; }
       }
       if (p.itemHoldT <= 0) useItem(p);
     } else if (held === 'hay'){
@@ -3374,7 +3822,7 @@
         const q = G.players[id]; if (q === p) continue;
         const rx = q.pos.x - p.pos.x, rz = q.pos.z - p.pos.z;
         const behind = -(rx*f.x + rz*f.z), lat = Math.abs(rx*(-f.z) + rz*f.x);
-        if (behind > 2 && behind < 16 && lat < 6){ useItem(p); return; }  // drop in a chaser's path
+        if (behind > 2 && behind < 16*beh.itemConeMul && lat < 6*beh.itemConeMul){ useItem(p); return; }  // drop in a chaser's path
       }
       if (p.itemHoldT <= 0) useItem(p);
     } else if (held === 'mimic'){
@@ -3387,6 +3835,27 @@
     } else {   // boost: spend it where it pays off — a straight ahead (low curvature)
       const { maxCurv } = cornerAhead(p.lastSampleIdx, Math.hypot(p.v.x, p.v.z));
       if (maxCurv < 0.015 || p.itemHoldT <= 0) useItem(p);
+    }
+  }
+  // Phase 3: scripted human-like mistakes, ticked once per bot per sim step. A small state machine —
+  // p._mistakeT counts down to the bot's next slip-up, p._mErr holds the ACTIVE effect (consumed by
+  // botTargetSpeed/botInput above) until its own timer runs out. Skipped while the bot is already out
+  // of normal control (spinning/airborne/being rescued/finished) so mistakes never stack on hazards.
+  function advanceBotMistakes(p, dt){
+    if (p.spinT > 0 || p.airborne || p.rescueT > 0 || p.finished) return;
+    if (p._mErr){
+      p._mErr.t -= dt;
+      if (p._mErr.t <= 0) p._mErr = null;
+    }
+    if (p._mistakeT == null) seedMistakeTimer(p);
+    p._mistakeT -= dt;
+    if (p._mistakeT <= 0){
+      seedMistakeTimer(p);
+      const roll = Math.random();
+      p._mErr = roll < 0.25 ? { type:'slow', t:1.0 }
+               : roll < 0.5  ? { type:'look', t:1.2 }
+               : roll < 0.75 ? { type:'wide', t:2.0 }
+               :               { type:'nodrift', t:2.0 };
     }
   }
 
@@ -3421,10 +3890,27 @@
     if (n <= 1) return 0;
     return (computePlace(p) - 1) / (n - 1);
   }
+  // Phase 4: signature-item bias — bots get a fixed BOT_PERSONA.sig kind (Double Dash "special item"
+  // flavor, zero art cost) that rolls more often for them. Multiplied AFTER the place-gated weight so
+  // a back-only item (egg/storm) stays impossible for a leading bot (weight already 0 stays 0) — the
+  // place gate always wins. Humans never get this (p.isBot guard).
+  const SIG_ITEM_BIAS = 2.5;
   // roll one item for kart p (catch-up weighted). Falls back to the leading pool if p is missing.
   function rollItem(p){
     if (battleActive()) return rollItemBattle(p);   // R3: battle rolls by balloon count, not race place
     const weights = computeRollWeights(p ? placeFracOf(p) : 0);
+    // Phase 3: per-tier roll access gate (easy CPUs rarely touch the nasty back-of-pack weapons).
+    // Phase 4: bot signature-item bias, layered on top (order matters — bias AFTER the tier gate so a
+    // sig kind zeroed by an easy-tier rollBias:0 stays zero, never resurrected by the sig multiplier).
+    if (p && p.isBot){
+      const beh = p._beh || DIFF_BEHAVIOR.normal;
+      const bias = beh.rollBias;
+      const sig = p.persona && p.persona.sig;
+      for (const w of weights){
+        if (bias && bias[w[0]] != null) w[1] *= bias[w[0]];
+        if (sig && w[0] === sig) w[1] *= SIG_ITEM_BIAS;
+      }
+    }
     const total = weights.reduce((s,w)=>s+w[1], 0) || 1;
     let r = Math.random() * total;
     for (const [k,w] of weights){ r -= w; if (r <= 0) return k; }
@@ -3441,6 +3927,10 @@
   function startBattle(){
     G.battle = { active:true, over:false, timeLeft:BATTLE_TIME, winner:null, koSeq:0, elapsed:0 };
     for (const id in G.players){ const p = G.players[id]; p.balloons = BATTLE_START_BALLOONS; p.ko = false; p.battleInvulnT = 0; p.koOrder = 0; }
+    // Phase 4: spite has no meaning in battle (no race "place") — reset so a leftover window from a
+    // race just before this battle can never leak in (advanceSpiteTracking freezes spiteT, doesn't
+    // decay it, while battleActive() is true).
+    spiteT = 0; prevHumanPlace = 99;
   }
   function battlePopBalloon(p){
     if (p.ko || p.balloons <= 0) return;
@@ -4290,6 +4780,84 @@
       }
     }
   }
+
+  // ---------- 🚗 TOAD'S TURNPIKE TRAFFIC (2026-07-17) ----------
+  // Civilian vehicles (built by FK_TRACK.buildTraffic) drive the course in lanes; hitting one LAUNCHES
+  // your kart skyward — the defining hazard of MK64's Toad's Turnpike. RULING MODEL (a deliberate
+  // deviation from the host-rules-all chicken/train pattern, because traffic is deterministic + synced):
+  // each client rules ONLY the karts it SIMULATES — solo: all; MP host: its own kart + bots; MP guest:
+  // its own kart only (ownedLocally(q) == !q._remote gives exactly that). So a guest gets its own launch
+  // physics with ZERO net traffic and no remote-kart double-rulings.
+  const TRAFFIC_VEH_R = 1.55;        // vehicle body half-radius for the 2-circle hull (+ half kart footprint)
+  const TRAFFIC_LAUNCH_VY = 7.5;     // big satisfying MK64 pop — well above a normal ramp hop (RAMP_LAUNCH_BASE 3.0)
+  const TRAFFIC_INVULN_T = 1.6;      // post-launch grace: one contact = one launch, not a machine-gun of pops
+  // CROSSING FIX (2026-07-17): a vertical gate so a kart on the road UNDER an overpass never registers a
+  // phantom launch from a vehicle driving the deck ABOVE it (the swept-XZ hull test alone is level-blind).
+  // Same-level contact keeps |kart.y - vehicle road-y| well under ~1 (a grounded kart rides the road surface;
+  // a brief ramp hop stays <1.5). The overpass separation is a full 8u. 2.5 sits comfortably above any real
+  // same-level delta yet far below 8, so it never misses a genuine hit and always rejects the cross-level
+  // one; a launched kart falling onto a bus roof (~+3 above the road) is over the gate AND still inside its
+  // trafficInvulnT window, so it can't re-trigger mid-pop.
+  const TRAFFIC_Y_GATE = 2.5;
+  function trafficHornSound(v, kart){
+    const pos = kart ? kart.pos : (v ? { x:v.x, z:v.z } : null);
+    const mul = (typeof gainAt === 'function') ? gainAt(pos, 'traffichorn') : 1;
+    if (mul <= 0.02) return;
+    if (v && v.type === 'sedan'){                         // little car: higher beep-beep
+      tone(560, 0.09, { type:'square', vol:0.11, mul });
+      setTimeout(()=>{ try{ tone(600, 0.09, { type:'square', vol:0.11, mul }); }catch(e){} }, 120);
+    } else {                                              // bus/tanker/box truck: deep two-tone air horn
+      tone(150, 0.28, { type:'sawtooth', vol:0.14, mul });
+      tone(196, 0.28, { type:'sawtooth', vol:0.10, mul });
+    }
+    noiseBurst(0.16, { filter:'lowpass', freq:440, freqTo:120, Q:0.6, vol:0.17, mul });   // metallic thud
+  }
+  function launchOnTraffic(q, v){
+    q.airborne = true; q.airT = 0; q.vy = TRAFFIC_LAUNCH_VY;   // the pop
+    q.v.x *= 0.35; q.v.z *= 0.35;                              // scrub most horizontal speed (you got bonked)
+    q.trafficInvulnT = TRAFFIC_INVULN_T;
+    applySpinOut(q);                                          // spin + immunity + spin sound (early-returns if state changed)
+    trafficHornSound(v, q);
+    for (let k=0;k<10;k++){                                    // warm impact sparks
+      spawnParticle(q.pos.x, (q.pos.y||0)+0.6, q.pos.z, { color: (k%2)?0xffe08a:0xfff4d0, opacity:0.92,
+        life:0.42+Math.random()*0.22, vx:(Math.random()-0.5)*4.5, vy:1.6+Math.random()*2.8, vz:(Math.random()-0.5)*4.5,
+        grav:9, size:0.22, grow:-0.16, spin:5 });
+    }
+  }
+  // Called from the same sites as advanceChickens (host + solo). Only rules during a race.
+  function advanceTrafficHits(dt){
+    const vs = (TRAFFIC_GROUP.userData && TRAFFIC_GROUP.userData.vehicles) || [];
+    // decay every kart's grace timer regardless (so it always counts down), but only rule during a race.
+    for (const id in G.players){ const q = G.players[id]; if (q.trafficInvulnT > 0) q.trafficInvulnT -= dt; }
+    if (G.phase !== 'racing' || !vs.length) return;
+    const kHalf = Math.max(0.6, TUNE.kartRadius) * 0.5;
+    const reach = TRAFFIC_VEH_R + kHalf, reach2 = reach*reach;
+    for (const id in G.players){
+      const q = G.players[id];
+      if (!ownedLocally(q)) continue;                         // rule only karts THIS client simulates
+      if (q.spinT>0 || q.starT>0 || q.bullT>0 || q.rescueT>0 || q.rescueInvulnT>0 || q.trafficInvulnT>0) continue;
+      // swept kart segment this frame (prev -> cur), same pattern as the chicken test above
+      const ax = q.pos.x - q.v.x*dt, az = q.pos.z - q.v.z*dt;
+      const bx = q.pos.x,            bz = q.pos.z;
+      const abx = bx-ax, abz = bz-az, L2 = abx*abx + abz*abz;
+      for (const v of vs){
+        const cdx = q.pos.x - v.x, cdz = q.pos.z - v.z;
+        if (cdx*cdx + cdz*cdz > 400) continue;                // cheap early-out (>20u away)
+        if (Math.abs((q.y || 0) - (v.y || 0)) > TRAFFIC_Y_GATE) continue;   // over/under an overpass — different level, no hit (q.y = kart height; pos has no y)
+        const fx = Math.sin(v.yaw), fz = Math.cos(v.yaw), hl = v.len*0.28;   // approx as 2 circles (front/rear)
+        let hit = false;
+        for (const sgn of [-1, 1]){
+          const cx = v.x + fx*hl*sgn, cz = v.z + fz*hl*sgn;
+          let t = L2 > 1e-9 ? ((cx-ax)*abx + (cz-az)*abz) / L2 : 0;
+          if (t < 0) t = 0; else if (t > 1) t = 1;
+          const dx = (ax+abx*t)-cx, dz = (az+abz*t)-cz;
+          if (dx*dx + dz*dz < reach2){ hit = true; break; }
+        }
+        if (hit){ launchOnTraffic(q, v); break; }
+      }
+    }
+  }
+
   // pooled render meshes, keyed by crossing index. Per-kind walk/roll animation.
   const _chickenViews = {};
   function syncChickenViews(){
@@ -4740,7 +5308,7 @@
         p.itemRollT = Math.max(0, p.itemRollT - dt);
         if (p.itemRollT === 0){
           grantHeldItem(p, rollItem(p));
-          if (p.isBot) p.itemHoldT = 1 + Math.random()*2;
+          if (p.isBot) p.itemHoldT = (1 + Math.random()*2) * ((p._beh && p._beh.itemHoldMul) || 1);
         }
       }
     }
@@ -4944,18 +5512,52 @@
     if (!p || !v) return;
     v.bodyMat.color.setHex(accentColorFor(p));
   }
+  // Phase 2: pick a random distinct subset of `want` names out of the field's bot names.
+  function randomRivalNames(names, want){
+    const pool = names.slice(), picked = [];
+    while (picked.length < want && pool.length){ picked.push(pool.splice(Math.floor(Math.random()*pool.length), 1)[0]); }
+    return picked;
+  }
+  // Phase 2: choose this race's 1-2 "rival" bots (MK64/MKW-style leash targets). Skipped in battle
+  // (no rubber-band there at all). Grand-Prix cup runs persist the SAME rivals across all 4 races
+  // (Double Dash rule) via sessionStorage fk_cup_session.rivalNames; a single race re-rolls freely.
+  function selectRivalNames(n, names){
+    if (n <= 0 || !names.length) return [];
+    const want = Math.min(2, n);
+    let cs = null; try{ cs = JSON.parse(sessionStorage.getItem('fk_cup_session')||'null'); }catch(e){}
+    if (cs && cs.cupId){
+      if (Array.isArray(cs.rivalNames) && cs.rivalNames.length){
+        const picked = cs.rivalNames.filter(nm=> names.includes(nm)).slice(0, want);
+        while (picked.length < want){
+          const cand = names[Math.floor(Math.random()*names.length)];
+          if (!picked.includes(cand)) picked.push(cand);
+        }
+        return picked;
+      }
+      const picked = randomRivalNames(names, want);
+      cs.rivalNames = picked;
+      try{ sessionStorage.setItem('fk_cup_session', JSON.stringify(cs)); }catch(e){}
+      return picked;
+    }
+    return randomRivalNames(names, want);
+  }
   function setupRoster(){
     // remove any existing bots + their views
     for (const id in G.players){ if (G.players[id].isBot){ removeKartView(id); delete G.players[id]; } }
+    G.players.local.isRival = false;   // humans are never rivals
     const humans = humanCount();
     // BATTLE (R3): a fixed 4-kart arena (you + up to 3 bots; MP humans fill the slots first).
     const field = ACTIVE_TRACK.battle ? 4 : (G.raceMode === 'prix' ? MAX_RACERS : humans);
     const n = Math.max(0, Math.min(MAX_RACERS - 1, field - humans));
     G.botCount = n; // keep for HUD / debug / older harnesses
+    // Phase 2: battle has no rubber-band/rivals at all; racing picks 1-2 rivals from this field's names.
+    const fieldNames = ACTIVE_TRACK.battle ? [] : Array.from({length:n}, (_,i)=> BOT_NAMES[i % BOT_NAMES.length]);
+    const rivalNames = ACTIVE_TRACK.battle ? [] : selectRivalNames(n, fieldNames);
     for (let i=0;i<n;i++){
       const id = 'bot'+i;
       const p = makePlayer(id);
       p.isBot = true; p.botName = BOT_NAMES[i % BOT_NAMES.length]; p.botColor = BOT_COLORS[i % BOT_COLORS.length];
+      p.isRival = rivalNames.includes(p.botName);
       p.botSkill   = Math.max(0.35, Math.min(1, TUNE.botSkill + (Math.random()-0.5)*((TUNE.botSkillVar||0.25)*2)));
       // Per-bot engine: some feel "better" (faster top + snappier accel), some lag
       p.botTopMul  = 0.82 + Math.random() * 0.38;   // 0.82 .. 1.20 × bot top-speed cap
@@ -6074,6 +6676,25 @@
         else w.quaternion.copy(_wqRoll);
       }
     }
+    // ---- Gator 3D (GLB kart): spin the named wheel NODES + turn the GLB steering wheel ----
+    // Mirrors the procedural path but drives the glTF nodes in place (they already sit at their
+    // axle centers). Front pair yaws with steer about local Y; every wheel rolls about local X.
+    if (view.glbWheels && view.glbWheels.length){
+      const signedSpeed = p.v.x*Math.sin(p.theta) + p.v.z*Math.cos(p.theta);
+      const dRoll = p.airborne ? 0 : (signedSpeed * (dt||0.016)) / Math.max(0.08, view.glbWheelR || 0.3) * TUNE.wheelSpin;
+      const steerAng = (p.steer || 0) * 0.5;
+      for (const w of view.glbWheels){
+        w.roll += dRoll;
+        _wqRoll.setFromAxisAngle(_AXLE_X, w.roll);
+        if (w.front){ _wqSteer.setFromAxisAngle(_WUP_Y, steerAng); w.node.quaternion.copy(w.base).multiply(_wqSteer).multiply(_wqRoll); }
+        else w.node.quaternion.copy(w.base).multiply(_wqRoll);
+      }
+    }
+    if (view.glbSteer){
+      const ang = -(p.steer || 0) * TUNE.steerWheelTurn;
+      _wqSteer.setFromAxisAngle(GATOR3D_STEER_AXIS, ang);
+      view.glbSteer.quaternion.copy(view.glbSteer.userData._base).multiply(_wqSteer);
+    }
     // Chef Bucky driver: lean into turns, rotate steering wheel, hands on the rim
     syncKartDriver(p, view, dt);
     // hop bounce
@@ -6308,8 +6929,9 @@
     if (!live) return;
     const ctx = mmCtx, W = _mm.W, H = _mm.H;
     ctx.clearRect(0, 0, W, H);
-    // soft grass fill
-    ctx.fillStyle = 'rgba(70,110,55,.55)';
+    // soft ground fill — grass green by default; dark navy asphalt for a city-theme track (a night
+    // highway reads wrong on bright green). Every other track keeps the exact original green.
+    ctx.fillStyle = (ACTIVE_TRACK.theme === 'city') ? 'rgba(20,26,44,.62)' : 'rgba(70,110,55,.55)';
     ctx.fillRect(0, 0, W, H);
     // track corridor. OFF-ROAD: no real road, so draw the intended route as a DASHED/ghosted outline
     // (the corridor edges, not filled) so the racing line still reads. Normal: filled ribbon.
@@ -6342,6 +6964,13 @@
     ctx.setLineDash([6, 5]);
     ctx.stroke();
     ctx.setLineDash([]);
+    // civilian traffic (Toad's Turnpike): small pale gray-white dots (MK64 shows traffic on its map)
+    if (TRAFFIC_GROUP.userData && TRAFFIC_GROUP.userData.vehicles && TRAFFIC_GROUP.userData.vehicles.length){
+      ctx.fillStyle = 'rgba(226,231,236,.9)';
+      for (const v of TRAFFIC_GROUP.userData.vehicles){
+        ctx.beginPath(); ctx.arc(_mm.toX(v.x), _mm.toY(v.z), 2, 0, Math.PI*2); ctx.fill();
+      }
+    }
     // players: others first, local on top with facing wedge
     const local = G.players.local;
     for (const id in G.players){
@@ -8037,6 +8666,7 @@
       chick:G.chickens.filter(c=>c.active).map(c=>({ i:c.i, x:c.x, z:c.z, d:c.dir, w:c.walkT, r:c.roll })),
       cows:G.cows.map(c=>({ x:c.x, z:c.z, h:c.heading, w:c.walkT, st:(c.state==='graze'?0:1), c:c.chew })),
       trains:((TRAIN_GROUP.userData.trains)||[]).map(t=>Math.round(t.state.head*100)/100),   // R3: train head sync (gates/contact agree)
+      traffic:((TRAFFIC_GROUP.userData.vehicles)||[]).map(v=>Math.round(v.head*100)/100),   // 2026-07-17: traffic head sync (deterministic; guests adopt + smooth)
       battle:G.battle ? { tl:G.battle.timeLeft, ov:G.battle.over?1:0, win:G.battle.winner } : null,   // R3: battle timer/over/winner (per-kart balloons ride in each kart's 'k'/snapshot serialize)
       grants:net.grants || {},
       spins:net.spins,
@@ -8246,6 +8876,8 @@
     }
     // trains: adopt the host's train head so gates + contact agree across clients (local advance smooths between snaps)
     if (snap.trains) snap.trains.forEach((h,i)=>{ const t=(TRAIN_GROUP.userData.trains||[])[i]; if (t && isFinite(h)) t.state.head = h; });
+    // traffic: adopt the host's vehicle heads so launch contacts agree across clients (local update smooths between snaps)
+    if (snap.traffic) snap.traffic.forEach((h,i)=>{ const v=(TRAFFIC_GROUP.userData.vehicles||[])[i]; if (v && isFinite(h)) v.head = h; });
     // battle: adopt the host-authoritative timer/over; guest's own balloons/ko are driven locally (net.spins pops).
     if (snap.battle){
       if (!G.battle) G.battle = { active:true, over:false, timeLeft:snap.battle.tl, winner:snap.battle.win, koSeq:0, elapsed:0 };
@@ -8486,6 +9118,7 @@
     updatePhase(dt, inp);
     if (dt > 0 && (G.phase === 'racing')){
       net._grantDt = dt;
+      advanceSpiteTracking(dt);   // Phase 4: per-frame, not per-bot
       hostAdoptRemotes(dt);
       for (const id in G.players){
         const p = G.players[id];
@@ -8494,6 +9127,7 @@
         stepKart(p, pinp, dt);
         updateRaceProgress(p, dt);
         if (p.isBot) botUseItems(p, dt);
+        if (p.isBot) advanceBotMistakes(p, dt);
       }
       if (inp.item || inp.itemTrailToggle) applyLocalItemInput(G.players.local, inp);
       updateItemBoxes(dt);
@@ -8502,6 +9136,7 @@
       advanceProjectiles(dt);
       advanceHazards(dt);
       advanceChickens(dt);          // 2026-07-12: road-crossing chickens (host-authoritative)
+      advanceTrafficHits(dt);       // 2026-07-17: Toad's Turnpike traffic launches (host + bots; guests rule their own)
       advanceCows(dt);              // 2026-07-13 R3: wandering pasture cows (host-authoritative)
       battleTick(dt);               // 2026-07-13 R3: balloon-battle timer + win check (host-authoritative)
       updateBoostPads(dt);          // K7: boost pads (host kart + bots; guests fire their own)
@@ -8522,6 +9157,7 @@
   // Solo race sim step (extracted so headless tests can drive full races deterministically). Byte-
   // identical to the original inline solo loop body.
   function soloRaceTick(dt, inp){
+    advanceSpiteTracking(dt);   // Phase 4: per-frame, not per-bot (no-ops cleanly in battle mode)
     // step EVERY kart (human + bots) through the SAME stepKart, then its race progress. A FINISHED
     // kart (incl. the local one, once it's done) auto-drives via botInput so it COASTS the cool-down
     // lap instead of dead-stopping at the line. No mid-loop break: every kart crossing THIS frame
@@ -8532,6 +9168,7 @@
       stepKart(p, pinp, dt);
       updateRaceProgress(p, dt);
       if (p.isBot) botUseItems(p, dt);
+      if (p.isBot) advanceBotMistakes(p, dt);
     }
     // local item use (tap fire / hold trail) — only while the player still controls the kart
     if (!G.players.local.finished && (inp.item || inp.itemTrailToggle)) applyLocalItemInput(G.players.local, inp);
@@ -8541,6 +9178,7 @@
     advanceProjectiles(dt);
     advanceHazards(dt);
     advanceChickens(dt);          // 2026-07-12: road-crossing chickens (solo)
+    advanceTrafficHits(dt);       // 2026-07-17: Toad's Turnpike traffic launches (solo: all karts)
     advanceCows(dt);              // 2026-07-13 R3: wandering pasture cows (solo)
     battleTick(dt);               // 2026-07-13 R3: balloon-battle timer + win check (solo)
     updateBoostPads(dt);          // K7: boost pads (own + bots)
@@ -8670,6 +9308,9 @@
     if (!view) return;
     view.hatId = hatId || 'none';
     const g = view.goat || view.driver;
+    // Hats gated OFF for GLB (Tripo) drivers: the head-bone local frame ≠ the procedural head Group,
+    // so a hat built in the procedural frame lands mis-scaled/mis-oriented on the skinned head.
+    if (g && g.glb) return;
     if (!g || !g.head) return;
     if (view._hatMesh){ if (view._hatMesh.parent) view._hatMesh.parent.remove(view._hatMesh); view._hatMesh=null; }
     if (!hatId || hatId==='none') return;
@@ -8678,22 +9319,44 @@
   }
 
   // ---- BOT PERSONALITIES (assigned deterministically by goat-herd name) + DIFFICULTY ----
+  // Phase 4: `sig` = signature item (Double Dash "special item" flavor, zero new art) — this bot's
+  // roll is biased (SIG_ITEM_BIAS, see rollItem) toward that kind, on top of the normal place-gated
+  // pool. Kind ids match ITEM_ROLL_TABLE exactly.
   const BOT_PERSONA = {
-    'Archie':      { aggression:1.7, skill:1.05, rubberband:1.0, wobble:0.15 },  // aggressive + bumps
-    'Daisy':       { aggression:1.0, skill:0.96, rubberband:2.0, wobble:0.10 },  // rubber-bands hard
-    'Steffi':      { aggression:0.45,skill:1.12, rubberband:0.9, wobble:0.00 },  // clean racer
-    'Oakley':      { aggression:1.1, skill:0.9,  rubberband:1.0, wobble:0.65 },  // erratic wobble
-    'Graffi':      { aggression:1.35,skill:1.0,  rubberband:1.1, wobble:0.2  },
-    'Annie':       { aggression:0.8, skill:1.02, rubberband:1.2, wobble:0.05 },
-    'Peyton':      { aggression:1.2, skill:0.98, rubberband:1.35,wobble:0.25 },
-    'Raspberry':   { aggression:1.45,skill:0.92, rubberband:1.5, wobble:0.4  },
-    'Hay Bill':    { aggression:0.9, skill:0.88, rubberband:1.0, wobble:0.2  },
-    'Cluck Norris':{ aggression:1.6, skill:1.08, rubberband:0.8, wobble:0.1  },
-    'Mud Bug':     { aggression:1.0, skill:0.85, rubberband:1.4, wobble:0.35 },
-    'Silo Sam':    { aggression:0.7, skill:0.95, rubberband:1.1, wobble:0.15 },
+    'Archie':      { aggression:1.7, skill:1.05, rubberband:1.0, wobble:0.15, sig:'bull'     },  // aggressive + bumps
+    'Daisy':       { aggression:1.0, skill:0.96, rubberband:2.0, wobble:0.10, sig:'egg'      },  // rubber-bands hard
+    'Steffi':      { aggression:0.45,skill:1.12, rubberband:0.9, wobble:0.00, sig:'boost'    },  // clean racer
+    'Oakley':      { aggression:1.1, skill:0.9,  rubberband:1.0, wobble:0.65, sig:'mimic'    },  // erratic wobble
+    'Graffi':      { aggression:1.35,skill:1.0,  rubberband:1.1, wobble:0.2,  sig:'tomato3'  },
+    'Annie':       { aggression:0.8, skill:1.02, rubberband:1.2, wobble:0.05, sig:'star'     },
+    'Peyton':      { aggression:1.2, skill:0.98, rubberband:1.35,wobble:0.25, sig:'chicken3' },
+    'Raspberry':   { aggression:1.45,skill:0.92, rubberband:1.5, wobble:0.4,  sig:'storm'    },
+    'Hay Bill':    { aggression:0.9, skill:0.88, rubberband:1.0, wobble:0.2,  sig:'hay'      },
+    'Cluck Norris':{ aggression:1.6, skill:1.08, rubberband:0.8, wobble:0.1,  sig:'chicken'  },
+    'Mud Bug':     { aggression:1.0, skill:0.85, rubberband:1.4, wobble:0.35, sig:'tomato'   },
+    'Silo Sam':    { aggression:0.7, skill:0.95, rubberband:1.1, wobble:0.15, sig:'hay'      },
   };
   function personaFor(name){ return BOT_PERSONA[name] || { aggression:1, skill:1, rubberband:1, wobble:0.2 }; }
   const DIFF_MUL = { easy:{ skill:0.80, rubber:1.35 }, normal:{ skill:1.0, rubber:1.0 }, hard:{ skill:1.15, rubber:0.75 } };
+  // Phase 3: difficulty tiers as BEHAVIOR gates, not just number tweaks (MK Wii 50/100/150cc feel) —
+  // easy CPUs never drift + make visible mistakes + play items shyly; hard CPUs drift everything, play
+  // items aggressively, and recover fast. A code-tunable table (not TUNE sliders) alongside DIFF_MUL.
+  // spiteOk is a Phase-4 hook (deliberate targeted item use against the leader) — defined now, unused
+  // until Phase 4 wires a consumer; only referenced today by the easy-tier egg/storm gate below.
+  // Phase 4: rollBias multiplies rollItem's place-gated weight per kind for this tier (applied BEFORE
+  // the signature-item bias, see rollItem) — easy CPUs rarely touch the nastiest back-of-pack weapons
+  // (egg/storm zeroed, triples halved); normal/hard stay neutral (hard's edge is timing/spite, not loot).
+  const DIFF_BEHAVIOR = {
+    //       drift: 'off'|'sharp'|'all' — 'sharp' only drifts corners >= 1.6x the normal threshold
+    easy:   { drift:'off',   mistakeEvery:8,  itemConeMul:0.6,  itemHoldMul:1.6,  trailAllowed:false, spiteOk:false, recoverBase:1.0,  rivalGainMul:0.7, rivalBandBackMul:1.4, rivalBoostCapMul:0.92, rollBias:{ egg:0, storm:0, tomato3:0.5, chicken3:0.5 } },
+    normal: { drift:'sharp', mistakeEvery:20, itemConeMul:1.0,  itemHoldMul:1.0,  trailAllowed:true,  spiteOk:false, recoverBase:1.0,  rivalGainMul:1.0, rivalBandBackMul:1.0, rivalBoostCapMul:1.0,  rollBias:{} },
+    hard:   { drift:'all',   mistakeEvery:55, itemConeMul:1.15, itemHoldMul:0.75, trailAllowed:true,  spiteOk:true,  recoverBase:0.85, rivalGainMul:1.3, rivalBandBackMul:0.7, rivalBoostCapMul:1.0,  rollBias:{} },
+  };
+  // seed/reseed a bot's next scripted mistake timer — better/harder bots err less often.
+  function seedMistakeTimer(p){
+    const beh = p._beh || DIFF_BEHAVIOR.normal;
+    p._mistakeT = beh.mistakeEvery * (0.6 + Math.random()*0.8) * (0.7 + (p.botSkill||1)*0.6);
+  }
   function loadDifficulty(){ try{ const d=localStorage.getItem('fk_difficulty'); return DIFF_MUL[d]?d:'normal'; }catch(e){ return 'normal'; } }
   function saveDifficulty(d){ try{ localStorage.setItem('fk_difficulty', DIFF_MUL[d]?d:'normal'); }catch(e){} }
   // MP keeps Normal for fairness unless the host carries a difficulty in room state (net.roomDiff).
@@ -8706,9 +9369,19 @@
     const diff=DIFF_MUL[activeDifficulty()] || DIFF_MUL.normal; p._diffName=activeDifficulty();
     p.botSkill = Math.max(0.3, Math.min(1.2, (p.botSkill!=null?p.botSkill:TUNE.botSkill) * per.skill * diff.skill));
     p.rubberMul = TUNE.botRubberband * per.rubberband * diff.rubber;
+    // Phase 2: rivals never fall below a skill floor; non-rivals get a weakened rubber-band so the
+    // rest of the field races honestly and spreads out (rivals ignore rubberMul — they use the leash).
+    if (p.isRival) p.botSkill = Math.max(p.botSkill, TUNE.rivalSkillFloor);
+    else p.rubberMul *= (TUNE.nonRivalRubber != null ? TUNE.nonRivalRubber : 1);
     p.aggroMul = per.aggression;
     p.wobbleAmp = per.wobble;
     p._wobPhase = Math.random()*Math.PI*2;
+    // Phase 3: behavior gate table for this tier + hard-tier apex floor (150cc CPUs commit to the line)
+    // + a scripted mistake timer (seeded fresh every persona apply, e.g. on roster rebuild/difficulty change).
+    p._beh = DIFF_BEHAVIOR[p._diffName] || DIFF_BEHAVIOR.normal;
+    if (p._diffName === 'hard') p.botLineMul = Math.max(p.botLineMul||1, 1.0);
+    seedMistakeTimer(p);
+    p._mErr = null;
   }
 
   // ---- HORN: signature honk per driver, 0.4s cooldown, proximity-scaled (MP via _hornSeq) ----
@@ -9094,6 +9767,7 @@
     if (SEA_GROUP.userData.animate) SEA_GROUP.userData.animate(now*0.001);       // global-sea ripple
     if (SKY_OBJ && SKY_OBJ.userData.update) SKY_OBJ.userData.update(dt, camera);  // cloud drift / snow / celestial
     if (TRAIN_GROUP.userData.update) TRAIN_GROUP.userData.update(dt);             // moving trains
+    if (TRAFFIC_GROUP.userData.update) TRAFFIC_GROUP.userData.update(dt);         // civilian traffic (Toad's Turnpike) — drives at all times
     updateTrainCrossings(dt);   // R3: level-crossing gates/lights/bell + train-vs-kart spin ruling
     renderer.render(scene, camera);
     if (_fps.on) fpsSample(now);   // perf HUD: sample AFTER render so renderer.info is this frame's
@@ -10302,6 +10976,13 @@
     fillKartModel, fillKartDriver, syncKartDriver, syncKartView, applyKartLoadout,
     buildCustomKart, buildBuckyKart, buildTractorKart, buildMowerKart, buildKartBody,
     buildGoatDriver, buildDriver, setLocalKart, setLocalDriver, setRaceMode,
+    // Gator 3D (Tripo GLB kart) — test hooks
+    loadGator3dTemplate, buildGator3dKart, randomKartId, KART_IDS, GATOR3D_OFFSETS,
+    get GATOR3D_STEER_AXIS(){ return GATOR3D_STEER_AXIS; },
+    // Bucky 3D (Tripo GLB driver) — test + pose-tuning hooks
+    loadBucky3dTemplate, reposeBucky3dLocal, BUCKY3D_SEATED_POSE, randomDriverId, DRIVER_IDS,
+    get bucky3dNativeH(){ return _bucky3dNativeH; },
+    set _bucky3dYaw(v){ BUCKY3D_BASE_YAW = v; reposeBucky3dLocal(); }, get _bucky3dYaw(){ return BUCKY3D_BASE_YAW; },
     KART_KINDS, DRIVER_KINDS, normalizeKartId, normalizeDriverId,
     MAX_RACERS, MAX_MP_PLAYERS, TRACTOR_RED, accentColorFor, paintKartAccent,
     sampleHeight, groundSampleHeight, maxHeightUnderKart, sampleKartPlane, rideHeight,
@@ -10326,6 +11007,11 @@
     get cows(){ return G.cows; }, get cowViews(){ return _cowViews; },
     // Waters + sky + trains (2026-07-12, for headless tests)
     WATER_GROUP, SEA_GROUP, get SEA_LEVEL(){ return SEA_LEVEL; }, TRAIN_GROUP, setSky, get SKY_OBJ(){ return SKY_OBJ; }, get sky(){ return ACTIVE_TRACK.sky || 'day'; },
+    // City theme (2026-07-17, for headless tests): the cityscape + lane-mark groups (null on non-city tracks)
+    get CITY_GROUP(){ return CITY_GROUP; }, get LANE_GROUP(){ return LANE_GROUP; }, get theme(){ return ACTIVE_TRACK.theme || null; },
+    // Toad's Turnpike traffic (2026-07-17, for headless tests): the group, its per-vehicle state, + the launch ruling
+    TRAFFIC_GROUP, get trafficVehicles(){ return (TRAFFIC_GROUP.userData && TRAFFIC_GROUP.userData.vehicles) || []; }, advanceTrafficHits,
+    TRAFFIC_VEH_R, TRAFFIC_LAUNCH_VY, TRAFFIC_INVULN_T,
     // R3 train crossings (test hooks)
     buildTrainCrossings, updateTrainCrossings, get trainCrossings(){ return TRAIN_CROSSINGS; },
     // R3 battle mode (test hooks)
@@ -10398,6 +11084,11 @@
     earnedUnlocks, checkUnlocks,
     // bot personalities + difficulty
     BOT_NAMES, BOT_PERSONA, personaFor, applyBotPersona, loadDifficulty, saveDifficulty, activeDifficulty, DIFF_MUL,
+    DIFF_BEHAVIOR, advanceBotMistakes, seedMistakeTimer,
+    // Phase 4: signature items + spite timing (test hooks)
+    SIG_ITEM_BIAS, advanceSpiteTracking,
+    spiteState(){ return { spiteT, prevHumanPlace }; },
+    set _testSpiteT(v){ spiteT = v; }, set _testPrevHumanPlace(v){ prevHumanPlace = v; },
     setupRoster, botTargetSpeed, botUseItems, useItem, makePlayer, finishRace, battleEnd, recordFinish,
     // horn
     hornHonk, localHonk, HORN_CFG, get hornCd(){ return _hornCd; }, set hornCd(v){ _hornCd = v; },

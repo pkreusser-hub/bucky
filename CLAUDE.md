@@ -8,6 +8,117 @@ self-contained: its own `<script>`, its own render loop, no shared JS between pa
 
 ---
 
+# 🐐 BUCKY CAST — Tripo character pipeline (ACTIVE, 2026-07-17)
+
+North-star: a Mario-Party-style SHARED CAST — same rigged characters across every game
+(Farm Kart drivers, Pasture Panic, party minigames). TWO cast members DONE, each 6 clips
+(idle/walk/run/jump/dance/cheer), demoed on `characterdemo.html` (untracked pending user
+approval; character picker + button-per-clip crossfade, speed/spin/bones/wire/root-motion
+toggles; test hook `window.__DEMO__`; suite takes a char arg: `castdemo_verify.cjs bucky`;
+🎛 POSE MODE (2026-07-17): per-bone XYZ rotation-offset sliders applied post-mixer as
+base×delta (capture-and-compose — the mixer does NOT rewrite bones at timeScale 0, naive
+multiply accumulates; ⏸ freeze + persistence per char in localStorage cd_pose_<name>;
+"copy JSON" emits the exact {bone:[x,y,z]} table format the games' pose code consumes,
+e.g. BUCKY3D_SEATED_POSE; hooks __DEMO__.setBoneDelta/poseJSON/pose; verify: scratchpad
+posecheck.cjs 11/11):
+- **Bucky** `assets/cast/bucky/` — THE mascot, generated IMAGE-TO-3D from the user's
+  Mario-style reference (brown fur, white ribbed horns, blue overalls, white gloves, red
+  boots; ref saved at `scratchpad bucky_ref.png`, extracted from the session .jsonl).
+  `image` task w/ `--enable-image-autofix --texture-alignment original_image`. KEY
+  LEARNING: the reference's RELAXED pose (arms ~30° down, not T-pose) rigged perfectly
+  first try — organic cartoon characters with clear limb separation don't need strict
+  T-pose. 3.5MB total.
+- **Billy** `assets/cast/goat/` — first pipeline proof, text-to-3D T-pose prompt (cream
+  fur, navy overalls, red bandana). 2.9MB total.
+**FARM KART INTEGRATION DONE** (2026-07-17, opus agent): driverId `bucky3d` ("Bucky 3D" 🐐)
+in DRIVER_KINDS — loads bucky.glb once, SkeletonUtils.clone per kart (r128 script tag added),
+MeshLambert{skinning:true} + emissive lift 0.30 (normal/MR dropped), seated-pose bone table
+`BUCKY3D_SEATED_POSE` applied rest×delta on a wrapper (base yaw -π/2 — THE GLB READS +X in
+the kart frame, not +Z; native height ~0.98u → TARGET_H 1.52 after the user's -20% playtest
+note), steer/drift lean = quat delta on Spine01/Head — lean SIGN IS FLIPPED vs the
+procedural torso (the -π/2 wrapper yaw mirrors bone-local Z; playtest-confirmed). glb branch in fillKartDriver/syncKartDriver (no stretchLimb/hand-parenting);
+hats gated OFF for glb drivers; procedural bucky stays DEFAULT; bucky3d in bot random pool
+(~48k tris/clone — fine at 3 bots). Verify: `node tools/_verify-bucky3d.cjs` (16/16).
+KNOWN: hands hover ~0.26u from grips meeting center-front (anatomical reach limit; occluded
+from chase cam); `_verify-driver.cjs` currently times out on networkidle0 because it's the
+one suite that doesn't block cloud domains and the boot-time cloud track-reconcile keeps a
+socket open (pre-existing/environmental) — procedural regression covered by a focused check.
+**GATOR 3D KART DONE** (2026-07-17, opus agent): kartId `gator3d` ("Gator 3D" 🐊) — Tripo
+text-to-3D cartoon John Deere gator (task `74f9d95f-76d9-4ff5-b3ca-898c76d716d9`, ~30cr),
+Blender-split into `assets/farmkart/farmkart-gator3d.glb` (1.5MB, 38.5k tris): GatorBody +
+Wheel_FL/FR/BL/BR (origins at axle centers, roll about X, front steer about Y) + SteerWheel
+(measured column axis (0,0.933,-0.361), turns with steer; the PROCEDURAL steer wheel is
+kept INVISIBLE for grip anchors so procedural drivers' hands still work). Fixed green like
+the tractor precedent (racer color can't repaint the baked texture). GATOR3D_OFFSETS =
+additive per-kart driver/steer/pedal offsets in syncDriverPlacement (zero for other karts).
+Source orientation was X-front → baked -90° Z rotation (game forward = +Z). Verify:
+`node tools/_verify-gator3d.cjs` (24/24). Blender GOTCHAS: headless EEVEE render fails
+(use BLENDER_WORKBENCH); steering-axis PCA corrupted by column length (use ring-center −
+column-base); measure clone bboxes DETACHED from the scene or mid-race transforms corrupt
+seating.
+**GATOR WHEELS REBUILT v3** (2026-07-17, Fable direct after 2 agent carve attempts failed —
+user playtest: tire chunks stayed welded to the body + steering yawed a chunk of the front):
+the carved wheels are GONE — replaced by 4 instances of a separately-generated Tripo wheel
+(task `f90ef504-1ef0-4800-af5a-0a162a55e3c6`; its baked texture was ugly grey → STRIPPED,
+flat two-material toon paint instead: tire charcoal + hub vibrant yellow 0xf2c53d, matching
+the game's flat-Lambert look). Rebuild recipe = `tools/_gator_rebuild.py` (run from repo
+root, Blender 5.1 headless; regenerates farmkart-gator3d.glb from the two raw Tripo GLBs).
+HARD-WON LESSONS baked into that script: (1) the Tripo mesh is SHELL SOUP (~590 loose
+parts) — remove tires at ISLAND level classified by TEXTURE COLOR (neutral+not-bright =
+rubber), never by geometry-only cylinders/sweeps (geometry alone ate the hood twice: tires
+tuck under the hood edges and overlap it in every spatial axis); (2) Blender Image.pixels
+are LINEAR floats — sRGB-intuition thresholds misclassify John-Deere green (~0.26 linear)
+as "dark", use saturation not value; (3) selection-dependent ops (transform_apply) silently
+no-op — use mesh.data.transform(Matrix) and assert bboxes after every bake; (4) ground
+truth measured in glTF space via `tools/_gator_measure.mjs`: wheelbase 0.528 > track 0.459,
+tire dia 0.40 axle y -0.146 (v2 swapped axes → monster-truck chaos); (5) fender undersides
+LEGITIMATELY interpenetrate the tires (they did in the original) — the no-fragment
+guarantee must be color-aware (build-time "tirelike faces in tire zone" assert; the runtime
+suite check is a loose proximity bound only). Steering wheel = color-gated sphere split of
+the ORIGINAL ring+column at measured center (0,-0.11,0.205 blender-final frame).
+_prepGator3dTemplate now tints the emissive lift by the material's own color for
+UNTEXTURED materials (flat white lift washed the new dark tires grey). `kartviewer.html`
+(new page, untracked): kart inspection viewer w/ drive/steer/spin/wire/parts controls
+mirroring the game's exact quaternion conventions; test hook `window.__KV__`; gator entry
+also in characterdemo.html's picker (inspect-only).
+
+**Pipeline** (threejs-3d-generator skill + `TRIPO_API_KEY` in `tools/.env`; run
+`py -3 -X utf8 ~/.claude/skills/threejs-3d-generator/scripts/threejs_3d_asset.py`):
+1. `character-pipeline --prompt "<T-pose mascot prompt>" --animations preset:idle,preset:walk,preset:run,preset:jump --texture-quality detailed --geometry-quality detailed --out-dir assets/cast/<name>` — generates, rig-checks, rigs (biped → v1.0-20240301 anatomical skeleton, auto-validated), retargets (v1.0 = ONE FBX per clip, GLB bake broken upstream).
+2. Extra clips later: `postprocess --type animate_retarget --original-task-id <RIG_TASK> --rig-type biped --animation preset:biped:<name>` (~10 credits each, failures free).
+   **THE LEGACY LIBRARY IS THE WHOLE POINT of the v1.0 rig: 97 clips** — full list in
+   `assets/cast/tripo-biped-presets.txt` (extracted from the studio web bundle; NOT in
+   public docs; incl. dance_01-06, cheer, clap, greet, wave_goodbye, laugh, cry, sit,
+   swim, basketball/football/baseball moves). `preset:biped:dance` (no suffix) is NOT
+   valid — task fails w/ error_code 1004, 0 credits.
+3. Convert FBX→GLB via Blender 5.1 headless (session scratchpad `fbx2glb.py`; recreate
+   from this spec): `base` mode = decimate ratio 0.025 (1.89M→~47k tris) + images→1024
+   + no anims → `goat.glb` 2.4MB; `clip` mode = delete meshes, keep best action renamed
+   → mesh-less clip GLBs 60-280KB. GOTCHAS: Blender 5 removed `Action.fcurves` (count
+   via layers→strips→channelbags); exporter bakes constant-1.0 scale tracks on every
+   bone — strip w/ `node tools/_cast_split.mjs strip-scale in.glb out.glb` (NEVER strip
+   position tracks — Tripo bakes meaningful per-bone positions).
+4. Games load base + only the clips they need; clips bind to the base's clone by BONE
+   NAME (both come through the same FBX path so names always match; root bone = `Root`).
+   In-place conversion at runtime: zero the HORIZONTAL deltas of the single
+   `Root.position` track, keep Y (see characterdemo.html `inPlaceClip()`).
+
+**Clip facts** (measured): only `Root` carries real translation; walk travels ~1.06u/cycle
+along +X; **jump has ZERO vertical root motion** (reads through leg extension — don't
+assert root-Y in tests); idle keeps feet planted (15.4s subtle sway).
+**Cost**: ~115 credits per cast member w/ 6 clips (gen 30 · rig 25 · 6×10 retargets).
+**Task IDs** (reusable for more clips — retarget against the RIG id):
+- Billy: gen `56c274e0-ad96-4486-b22f-6231364ebe01`, RIG `4b4b68ca-2e82-4448-98e0-9f45874eb9e3`
+- Bucky: gen `ba8d7a1b-5362-417a-9f24-93a4d7da64f0`, RIG `df08d15e-f514-4ae6-9d2b-bca5266eaaec`
+**RAW intermediates** (~1GB total: base/rig GLBs + per-clip FBXs under
+`assets/cast/<name>/<task-dirs>/`) are kept untracked for re-conversion — NEVER commit
+them; only `<name>.glb` + `<name>-*.glb` + the presets txt ship.
+**Test gotcha**: headless SwiftShader runs the page at ~5-10fps with dt capped at 0.05
+→ crossfades stretch ~4x past wall-clock; tests must wait for fade completion by
+ACTION WEIGHT, not sleep(600) (see scratchpad castdemo_verify.cjs `settle()`; 25/25).
+
+---
+
 # 📱 MOBILE PREVIEW (daily testing)
 
 Reliable phone viewport for pages + games — prefer this over one-off DevTools tips.
@@ -2527,3 +2638,308 @@ pattern as tunnels).
   `shots/before_desktop.png` / `shots/after_desktop.png` (panel before/after) and
   `shots/fk_bridge_editor.png` / `shots/fk_bridge_game.png` (a placed bridge on an elevated
   figure-8 span, editor + in-game).
+
+# 🏁 Farm Kart — TOAD'S TURNPIKE night-city rebuild (2026-07-17, Fable + 2 opus agents)
+
+The bare `toads-turnpike` layout port is now a full MK64-Toad's-Turnpike-style night city
+highway (layout/points untouched). TWO new sanitize keys (whitelisted, omitted-when-absent,
+byte-identical for every other track — re-verified vs `git show HEAD`):
+- **`theme:"city"`** → night-city environment. Track def also gained `sky:"night"`,
+  `wallMargin:6`, `music:"turnpike"` (mp3 absent → clean fallback to default race theme).
+  `FK_TRACK.buildCityscape(sampled,width,THREE,{heightFn,groundFn,wallMargin,mobile})` = ONE
+  deterministic group, 18 draw calls: 63 arc-spaced sodium street lamps (instanced poles/heads
+  + additive glows + road light-pools, seated on heightFn so they climb the elevated start
+  ramp), 160/100-mobile near buildings (4 window-grid canvas variants, MeshBasicMaterial =
+  self-lit windows, footprint-corner road clearance, sidewalk aprons, groundFn-min seating),
+  80/48 far-skyline towers fading into the night fog, 10 atlas-batched billboards (goat-mascot
+  "BUCKY!" ads = the Toad analog + farm-parody ads; faces built on the road-viewer's
+  screen-right so text never mirrors — first pass DID render mirrored, fixed via
+  R_view=(-outN.z,outN.x) + DoubleSide + dark backing), horizon dusk-glow cylinder ("very
+  late sunset"). `FK_TRACK.buildLaneMarks` = merged dashed 4-lane dividers (−4.5/0/+4.5) +
+  solid edge lines. New opt-in builder opts (defaults = exact old values): buildRibbonGeometry
+  roadColor/curbColor, buildFenceMesh ribbonColors/ribbonEmissive (concrete barriers),
+  buildGroundMesh skipBladeTexture. Game hooks gated on `ACTIVE_TRACK.theme==='city'`: asphalt
+  ground 0x2e3136 (no blade tex), blue-gray road 0x3d434e, no grass/painted tufts, concrete
+  walls, hemi 0.58 + sun 0.52 warm nudge (shared SKY_PRESETS.night NOT mutated), dark-navy
+  minimap pad (grass-green elsewhere). `CITY_GROUP`/`LANE_GROUP`/`theme` on `__KART__`.
+- **`traffic:{count:1..24, speed:1..40}`** → civilian traffic, the signature hazard
+  (authentic MK64 mix: white sedans / turquoise tankers / red box trucks / yellow school
+  buses). `FK_TRACK.buildTraffic` mirrors buildTrainsMesh: group + userData.update(dt) +
+  userData.vehicles[{head,lane,laneOff,speed,len,type,x,z,yaw}]. Deterministic spawn over the
+  4 lane centers (−6.75/−2.25/+2.25/+6.75), 30u start-grid exclusion, inner lanes ×1.05 /
+  outer ×0.92 (no lane changes → same-lane gaps constant), bright red taillights + headlight
+  road pools (night readability), vehicles drive at ALL phases. Turnpike def: count 12,
+  speed 9.5 (≈32% of maxSpeed 30). COLLISION `advanceTrafficHits`: swept kart segment (chicken
+  pattern) vs 2-circle hull (±len*0.28, r 1.55+~0.45); ruling model DELIBERATELY deviates from
+  host-rules-all — each client rules only karts it simulates (solo=all, host=own+bots,
+  guest=own; traffic is deterministic + head-synced like trains in snapshots, so rulings
+  agree) → guests get real LOCAL launch physics with zero extra net traffic. Hit = MK64
+  upward LAUNCH: airborne, vy 7.5 (vs RAMP_LAUNCH_BASE 3.0), horizontal ×0.35,
+  trafficInvulnT 1.6s (new makePlayer field), then applySpinOut (star/bull/rescue immunity
+  respected — star karts plow through), type-aware horn + impact particles. Minimap gets pale
+  traffic dots. `TRAFFIC_GROUP`/`trafficVehicles`/`advanceTrafficHits` on `__KART__`.
+- VERIFY: `tools/_verify-turnpike.cjs` **77/77** (pure-node sanitize byte-identical + clamp/
+  drop, city boot counts/colors/no-tufts, building road-clearance ≥21u, drive check, traffic
+  boot/mix/ramp-follow/wrap/advance, launch/invuln/star rulings, minimap pads both ways,
+  default-track fully unchanged, mobile pass incl. 18-draw budget, 0 pageerrors ×3 passes) +
+  `_verify-items.cjs` 24/24 + `_verify-hud-defaults.cjs` PASS. Screenshots: shots/
+  fk_turnpike_{start,night_desktop,mobile,traffic,launch,traffic_mobile}.png. UNPUSHED —
+  awaiting user playtest (preview-before-push). Optional follow-up offered: generate a real
+  `fk-music-race-turnpike.mp3` city-night theme (needs ElevenLabs credits — ask first).
+
+# 🏁 Farm Kart — MARIO KART BOT OVERHAUL, phases 1–5 (2026-07-17)
+
+Researched real MK CPU design (MK64: off-screen-only rubber-band cheating, self-spawned CPU
+items, 1–2 random rivals per GP; Double Dash: per-CC rubber tables + CC-gated item access +
+cup-persistent rivals + spiteful timing; MK Wii: enemy-path widths, per-point behavior flags,
+behavioral CC tiers — 50cc never drifts/rarely items/errs, 150cc drifts everything, 2 rivals
+leashed to the player) and rebuilt the farmkart.html bots on that recipe. All 5 phases in the
+working tree, sonnet-delegated per phase, Fable spec+review. UNPUSHED/uncommitted — awaiting
+user playtest; the parallel Cursor agent's "city theme" WIP shares the tree (its hunks in
+farmkart.html/farmkart-track.js/CLAUDE.md — separate the commits when shipping).
+- **P1 rubber-band curve**: the old flat ±6%-past-25u step → smoothstep ramp
+  botRubberNear(15u)→botRubberFar(90u), asym slow-down side (botRubberAsym 0.7, floor 0.55),
+  extra capped catch-up 120→220u behind (botCatchupFar 0.3). KEY BUG FOUND: target-speed-only
+  rubber was a silent no-op on straights — stepKart hard-caps bots at botCap; fix stashes the
+  catch-up factor on p._rbBoost (reset each botTargetSpeed call) and stepKart lifts botCap by
+  max(1,_rbBoost) (lift-only; leaders never capped down). Spin recovery: applySpinOut scales
+  bot dur ×botRecoverMul(0.6) ramped over 20→80u behind; humans never scaled.
+- **P2 rivals**: setupRoster picks 2 rival bots per prix race (0 in battle; humans never).
+  Cup runs persist the SAME rivals across all 4 races via fk_cup_session.rivalNames
+  (session shape is {cupId,raceIdx,points,loadout} — no racerId despite older docs).
+  Rivals REPLACE the P1 curve with a leash: err past band [-rivalBandAhead 20, +rivalBandBack
+  35] → f = clamp(1+err*rivalGain(0.004), rivalSlowFloor 0.75, rivalBoostCap 1.22), boost side
+  feeds _rbBoost. Rivals get botSkill floor (rivalSkillFloor 1.0) but keep persona quirks;
+  NON-rivals get rubberMul × nonRivalRubber(0.5) so the field spreads honestly.
+- **P3 difficulty behavior gates**: DIFF_BEHAVIOR{easy,normal,hard} table beside DIFF_MUL
+  (code-tunable like BOT_PERSONA, not sliders): drift 'off'/'sharp'(1.6× botDriftCurv)/'all',
+  mistakeEvery 8/20/55s, itemConeMul .6/1/1.15, itemHoldMul 1.6/1/.75, trailAllowed,
+  spiteOk (hard only), recoverBase (hard .85), rival leash muls (easy looser+capped .92,
+  hard tighter+harder). applyBotPersona stashes p._beh + seeds p._mistakeT (skill-scaled).
+  MISTAKE SYSTEM: advanceBotMistakes(p,dt) (called beside botUseItems at both sim-loop sites,
+  skipped while spin/air/rescue/finished) rolls one of slow(tv×0.6,1s)/look(lookahead×0.5)/
+  wide(apex offset inverted ×-0.6)/nodrift — easy bots are beatable because they ERR, not
+  because they crawl. Hard floors botLineMul ≥1. None of _beh/_mErr/_mistakeT serialized (bots
+  host-sim only; serializeKart confirmed clean). Wario-stadium measured: 213/400 samples over
+  botDriftCurv, 156/400 over the sharp gate — natural tier separation on the default track;
+  20s e2e driftFrames easy 0 / normal 1083 / hard 1235.
+- **P4 item flavor**: BOT_PERSONA gains sig items (DD "special items", roll weight ×
+  SIG_ITEM_BIAS 2.5, place gate stays authoritative so leaders never roll back-only sigs):
+  Archie bull · Graffi tomato3 · Steffi boost · Oakley mimic · Annie star · Peyton chicken3 ·
+  Daisy egg · Raspberry storm · Hay Bill+Silo Sam hay · Cluck Norris chicken · Mud Bug tomato.
+  DIFF_BEHAVIOR.rollBias: easy {egg:0,storm:0,triples ×0.5}. SPITE (hard-only): spiteT=1.5s
+  armed when the human's computePlace transitions to 1 (advanceSpiteTracking(dt), once per
+  frame both sim branches, frozen+zeroed in battle); hard bots holding egg/storm fire into the
+  window, tomato/chicken prioritize the human-in-cone. All bias paths p.isBot-gated — human
+  rolls (local + hostGrantItems remotes) provably untouched.
+- **P5 standing suite**: tools/_verify-bots.cjs (1014 lines, ~60s): Section A curated
+  functional core (~57) + TUNE/table surface audit (~50) + Section B MEASURED race outcomes
+  (~38): per tier, autopilot-human (driven by botInput — rubber no-ops on the human, honest
+  reference driver) races 50s × 3 pooled seeds; ORDINAL asserts only (easy humanMeanPlace +1
+  ≤ hard's; easy mistakes/min > 2× hard's; easy driftFrames 0, hard >0; rival mean-gap <
+  non-rival mean-gap ±25%; spread >60u) + a MEASURED stdout table for eyeballing tune drift.
+  145/145 ×3 consecutive runs. STABILITY LESSONS: seeding Math.random alone doesn't make the
+  sim deterministic — Date.now()/performance.now() in cosmetic paths reorder the PRNG stream;
+  stub BOTH clocks (fake monotonic) + pool 3 seeds and average; never hard-assert a MAX
+  statistic (one bad corner = one-sample-takes-all — demote to informational).
+- Scratchpad suites (finer-grained): fk_phase1_rubber 40/40 · fk_phase2_rivals 47/47 ·
+  fk_phase3_difficulty 53/53 · fk_phase4_items 34/34. Regressions all green every phase:
+  _verify-items 24/24 · _verify-audio 102/102 · _verify-hud-defaults PASS. E2E TEST TECHNIQUE:
+  drive the "human" with botInput autopilot, pin gaps by moving the HUMAN's lap/progressS
+  (pin the bot's baseline first — grid-start progress dwarfs the shift otherwise).
+
+# 🏁 Farm Kart — "BUCKY'S MIDNIGHT RUN" original drift circuit (2026-07-17, Fable-designed)
+
+New builtin `midnight-run` in BUILTIN_TRACKS (after toads-turnpike): an ORIGINAL drift-focused
+night-city circuit reusing the full city kit (sky night · theme city · wallMargin 6 ·
+traffic{count:8,speed:9}). 48 points, 1617u, laps 3, width 18. Lap: home straight → T1 90°R
+sweeper → 4-corner esses (y0→2→0) → "Skyline Loop" ~200° climbing 180 (R≈40, y0→7.6) →
+viaduct west at y8 CROSSING OVER the home straight (true over/under, d=3.4u XZ, Ygap 8) w/
+boost pad (s .483) → downhill left carousel → CONCRETE TUNNEL (s .668, len 70) containing a
+descending S-bend → "The Hook" ~170° L hairpin R≈20 + exit boost pad (s .81) → back esses w/
+a RAMP-jump straight (aligned ramp object) → "Last Call" wide final sweeper onto a home
+straight that leans FAINTLY EAST on purpose (P0 at (14,-4)) — closure tangent 2.7°; a literal
+x=0 north home straight from the back-ess endpoint is topologically a hook, don't "fix" it.
+DRIFT BAR (the design goal): scripted real-key drift runs reach mini-turbo TIER 2 in T1 +
+Skyline Loop + Last Call (3/3). TEST GOTCHAS: kart height is p.y NOT p.pos.y (pos = {x,z});
+drift tests must pin steer to p.drift.dir (full-lock) — proportional steer oscillates, never
+trips mtChargeBonus (needs p.steer*dir>0.4) and understates drift tiers. Tightest corners:
+hairpin r≈20, esses r≈22-28 — bots lap fine, do NOT tighten further. VERIFY:
+tools/_verify-midnightrun.cjs 54/54 (sanitize round-trip + byte-identical, geometry incl.
+closure kink 2.7°/slope 0.063/only-intended overlap, 3 bots lap 90s no-stuck, drift tiers,
+city kit + tunnel-spans-S-bend + ramp aligned + pads on-road, over/under resolves both
+branches, menu card + preview) + regressions turnpike 77/77, items 24/24, hud-defaults PASS.
+Screens: shots/fk_midnight_{start,esses,tunnel,viaduct,mobile}.png. UNPUSHED (preview rule).
+NOTE (same day): the family cloud doc settings_fam2jan2g/fkTracks had a saved EDITOR COPY of
+toads-turnpike (hills remix: followTerrain, 218 sculpt cells, tunnel/bridge/ramp) SHADOWING
+the builtin on all devices — renamed in-place to id `toads-turnpike-old` ("Toad's Turnpike
+(old)", still playable from the course grid; backup in session scratchpad) so the night-city
+builtin shows through. LESSON: a saved map/cloud entry under a builtin id always wins — when a
+builtin gets reworked, check fkTracks for a shadowing copy. (Node gotcha hit doing the REST
+write: `const URL=...` shadows the global URL class and breaks fetch with "Failed to parse
+URL" — name it BASE.)
+
+# 📖 Storybook Squish! — Booksquirm party minigame (ACTIVE, 2026-07-17)
+
+`storybook.html` — farm remake of Mario Party 4's Booksquirm using the NEW Tripo-rigged
+mascot (assets/cast/bucky/, see BUCKY CAST section). UNTRACKED, not linked from games/index
+yet, awaiting user playtest. Solo Challenge mode (survive pages, cap 99); versus/multi-cast
+is the Stage 2+ plan. Built via threejs-game-director skill flow (gameplay/UI/QA sibling
+skills loaded by the opus build agent), Fable spec+review, one polish pass.
+- MECHANICS (researched vs MP4/Top 100/Superstars): pages HINGE-FLIP 180° over the spine
+  (not an elevator drop), accelerating flipT(N)=max(0.95, 4.4·0.965^N)s, gap shrinks; holes
+  3 (N≤8) → 2 (≤20) → 1, relief 2-hole every 7th; die-cut shapes circle/star/heart/egg/
+  apple/goat-head (ShapeGeometry + hole paths, polygon verts kept for collision); stand in
+  the landed hole or comic pancake (procedural y-squash 0.12 — no clip needed). Score =
+  pages survived, best localStorage sb_best; 99 = cheer clip + confetti; dance clip on new
+  best. MIRROR RULE (load-bearing): a hole authored at shape (sx,sy) lands at world
+  (HINGE_X−sx, −sy) — flip mirrors across the hinge; verify suite asserts vs the real
+  rendered transform, not the helper.
+- READABILITY: per-hole landing markers = warm-orange soft fill + BOLD ribbon-ring of the
+  hole's own polygon (buildOffsetRingGeometry, ±offset triangulated w/ miter correction —
+  THREE.Line linewidth is a no-op on Windows ANGLE, never use it), opacity ramps with the
+  flip to ≥0.85 + scale pulse in the last 25%. These markers ARE the aiming mechanic.
+- PORTRAIT CAMERA LESSON: a 15×11 landscape spread viewed down -Z can only fill ~20% of a
+  390×844 portrait screen at ANY pitch/FOV (proved analytically) — rotating the portrait
+  camera azimuth onto the book's SHORT axis (CAM_DIR_PORTRAIT (1.0,1.9,0.08)) doubled fill
+  to 42% with all corners + flip apex in frame. Desktop uses a separate CAM_DIR_LANDSCAPE.
+- MODEL: characterdemo.html loader pattern (GLTFLoader + r128 SkeletonUtils.clone, clips
+  from the mesh-less bucky-*.glb by node name, +X-facing GLB → -π/2 yaw wrapper,
+  skinning:true on converted materials). BUCKY_H 1.875 (1.25× polish bump), hemisphere
+  1.1 + emissive 0.34 so the page's underside never swallows him. Blob shadow (no shadow
+  map — headless swiftshader double-renders 48k skinned tris; real GPUs moot but blob is
+  cheap + spreads with the pancake).
+- HOUSE PATTERNS: G single-state object, host-authoritative-shaped sim fns (hostAdvance/
+  beginFlip/onSlamAndJudge/judge/clearPageAndNext) ready for Playroom Stage 3; WebAudio
+  synth SFX only (mute sb_muted); drag-anywhere analog stick on coarse pointer; dt-clamp;
+  220-particle pool, no hot-loop allocs. Debug hook window.__BOOK__.
+- VERIFY: scratchpad storybook_verify.cjs 53/53 ×2 (mirror math, survive+shadow ramp,
+  squish→overlay→best→restart, forgiveness margin (center+4 satellites, ≥3 rule), ramp,
+  clips incl. cheer via forcePage(99), mobile stick+framing ≥35% fill, perf-stability,
+  no-hooks real-timer page-1 survive) + pose_midflip.cjs re-poser. Shots in scratchpad
+  shots/sb_*.png. Perf: headless floor ~33-66ms is CPU-skinning the 48k-tri model
+  (resolution-independent, proved via quarter-res test) — fine on any real GPU; suite
+  gates on frame-time STABILITY not absolute ms.
+- Stage 2+ backlog: versus mode (bots/local co-op, shared cast — Billy exists at
+  assets/cast/goat/), games.html + PLAY_GAMES tiles, 3D cover-open flourish, art pass
+  (barn props/page doodles), difficulty tuning from family playtests, ElevenLabs samples
+  (ask before spending credits).
+- PORTRAIT REORIENT + DESCENT SHADOW (2026-07-17, user direction from the real MP4 shot):
+  spine now along world X at the FAR edge (HINGE_Z -5.5), page flips about rotation.x
+  TOWARD the camera — mid-flip it's a readable billboard, and the resting page's die-cuts
+  are visible at the top of the screen BEFORE the flip (the "react early" affordance).
+  Mirror math re-derived: lateral x NEVER mirrors, depth reflects (hole landing (wx,wz)
+  is cut at shape (wx, wz-HINGE_Z)); suite asserts vs the real localToWorld transform.
+  DESCENT SHADOW: hole-cutout dark mesh pivoted at the hinge, scale.z = -cos(angle)
+  (creeps spine→player, exact landed footprint at π), opacity 0→0.38 over 90°→175° —
+  light POOLS through the holes ("stand in the light", diegetic) under the orange rings.
+  Page canvas texture prints ~0.12u outline rings around each hole (billboard pop).
+  CAMERA LESSON: the 15×11 ground spread caps portrait fill ~20-26% for any symmetric
+  camera; full 90° azimuth reads as an unusable diamond — settled 18° yaw (29.7% ground
+  fill; the COMPOSITE incoming-page + spread fills the phone screen well, which is what
+  matters). Suite now 71 checks ×2 green. Possible future: reshape the spread itself
+  portrait (11×15, pages taller than wide like a real book) — would fix fill natively.
+- **OVERPASS CROW/PHANTOM-HIT FIX BATCH** (2026-07-17, user playtest: "lakitu grabs you over or
+  under the overpass"): FOUR context-free-height bugs at multi-level crossings, all repro'd
+  pre-fix then proven clean. (1) rescueTriggered's fell-out-of-the-world check used plain
+  sampleHeight(x,z) (XZ-nearest branch — reads the y8 deck under the viaduct) → phantom crow;
+  now sampleHeightAtY(x,z,p.y) (genuine falls still fire — a single-branch section resolves the
+  only road). (2) advanceTrafficHits was XZ-only → cross-level phantom launches through the
+  deck; new TRAFFIC_Y_GATE=2.5 on |q.y − v.y| (q.y NOT q.pos.y — pos has no y; same-level Δy
+  <~1.5, deck gap 8). (3) buildTraffic seated vehicles via heightFn(x,z) → a low-road bus
+  teleported to deck height (8.01) in the flip band; sampleAtArc now interpolates centerline y
+  (branch-correct by construction), v.y exposed in state. (4) buildLaneMarks dashes +
+  buildCityscape lamp bases/light pools now seat on their own walk-sample y, not an XZ probe
+  (verified heightFn-independent). LESSON: at over/unders, ANY kart-context or
+  own-arc-position consumer must use branch-aware/own-sample height; plain sampleHeight is only
+  for true context-free callers (camera clamp, mesh, placement). KNOWN pre-existing (K7, out of
+  scope): turnpike's perpendicular under-crossing can legitimately mount the deck edge via the
+  height-follow at the deck lip. Suites: midnightrun 65/65 (+11 crossing), turnpike 88/88
+  (+11), items 24/24, hud PASS. Shot: shots/fk_midnight_crossing_fixed.png.
+- STAGE 2 — SQUISH MATCH versus mode (2026-07-17): title = 📖 Story Book (solo, untouched —
+  original 71 checks pass with zero assertion edits) · 🥊 Squish Match (player + 3 bots,
+  last-standing; MP4 draw rule when all remaining flatten on one page; spectate w/ tap-skip
+  when the player is out; sb_wins persisted; sb_mode remembers the pick). CAST from the 2
+  Tripo rigs at zero credits: Bucky · Billy (assets/cast/goat/, own 6 clips) · Rosie
+  (SkeletonUtils.clone of Bucky, pink tint 0xffd8dc) · Clover (Billy clone, green 0xd8f0d2);
+  per-instance material clones; NECKERCHIEF (torus+cone) parented to bone NeckTwist01
+  (fallback NeckTwist02→Spine02→Head; both GLBs share the Tripo v1.0 biped skeleton) with
+  world-scale compensation — kerchief color = HUD chip color (red/blue/pink/green).
+  BOT AI (kid-fair, Farm-Kart philosophy — bots lose by ERRING, never by being slow): same
+  speed ±10%, reactionT 0.35-0.9s, pick nearest-ish spawned hole, stand inside w/ ≥0.6u
+  separation (holes shareable, authentic); errChanceAt(page)=min(0.5, base+page*0.012) →
+  late-react ×2.5 / wobble-between-holes / mid-walk dawdle. No future-reading, no post-slam
+  dodges. Measured: good-player proxy won 10/10, resolution pages 11-24 (avg 19.2);
+  bots-only baseline avg page 13. HARNESS LESSON: reposition test players on the
+  stage→"pause" transition, NOT on G.page change (holes spawn 0.6s later in
+  clearPageAndNext — an earlier 0/10 result was the harness's own bug). Suite 114/114
+  (71+43) ×6 clean runs; sb_mobile_solo.png preserved, sb_mobile.png = versus retake.
+  PERF: 4×48k-tri skinned = ~1.9-2.4× headless frame cost (stable, no leak; swiftshader
+  CPU-skinning artifact — real GPUs fine; dt-clamp 0.05s makes heavy headless rAF runs
+  under-count sim time — drive hostAdvance directly for match measurements). Stage 3 MP
+  notes: G.player needs re-keying by player id (Farm Kart G.players pattern); guest skip
+  can't fast-forward a shared sim (host-only or all-tap skip).
+- STAGE 3 — PLAYROOM ONLINE MP (2026-07-17, opus agent, verified LIVE vs the real Playroom
+  backend): 🌐 Family Match title button — host creates room (SDK playroomkit@0.0.96 UMD,
+  LAZY-loaded only when picked; #r= hash parsed+CLEARED before insertCoin, roomCode explicit
+  per the Bistro caution), waiting room ON the book (hop-in + share link + copy + host-only
+  START; "empty spots become friendly goats"), guests auto-join via #r= link. Up to 4 humans,
+  join order = Bucky/Billy/Rosie/Clover, bots fill leftover seats. G REKEYED: G.player+G.bots
+  → G.players map ('local' / 'r_<pid>' / bot ids keyed by char); one unified
+  renderCharacters/charViews path (any char renders as local/remote/bot). WIRE: host snap
+  ~12Hz+events {stage,page,matchGen,flipDur,flipElapsed,holeGen,seats,players-by-CHAR,result
+  w/ winnerChar = perspective-neutral}; holes sent ONCE per page keyed holeGen (guest rebuilds
+  polys via unitPoly); guest publishes only own x,z,facing,moving ~18Hz (host adopts for
+  judgment); guests extrapolate flipAngle from the host's π·t^1.7 curve between snaps; remote
+  interp ~120ms exp-lerp, snap >6u. Hidden-host 250ms heartbeat sub-stepped ≤0.05s. Host quit
+  = 5s stale-heartbeat → "the book closed!" → title; guest quit = poof + "(left)" chip, no
+  mid-match bot replacement; MP disables the local skipSpectate fast-forward; host-only Play
+  Again. CDN/insertCoin failure → toast + local-versus fallback (never blank). VERIFIED ×2:
+  114/114 local regression (Playroom blocked; suite edits = 8 mechanical G.players renames
+  only), sb_mp_local.cjs 10/10 (lazy-load proven: zero playroom requests in solo/versus;
+  blocked-CDN fallback), sb_mp_live.cjs 36/36 — TWO real Chrome processes on the REAL
+  backend: join, cast assign, guest-move adoption Δ0.000, cross-screen elimination,
+  perspective-correct win overlays ("You win" vs "Bucky wins!"), Play Again both, both
+  disconnect directions. 0 pageerrors all processes. Shots sb_mp_waiting/sb_mp_match.png.
+  KNOWN: late-joiner "hang tight" path implemented but not live-asserted; waiting-room chip
+  says "Player (you)" vs in-match "Bucky (you)" (label nit); client-authoritative guest
+  position (family-app posture). STAGE 4 spec'd in the Stage-3 report: Firestore
+  lobbies_<familyKey>/sb_<roomCode> doc (game:"storybook", ico 📖, 15s heartbeat) +
+  games.html LOBBY_TEXT entry + tiles → then go-live push (user approval required).
+
+# 🏁 Farm Kart — "HARVEST HOLLOW" farm-life showcase track (2026-07-17, Fable-designed)
+
+New builtin `harvest-hollow` — the first track composing the WHOLE farm feature set: dirt road,
+pastures/cows, critter crossings, gated steam-train crossings, fordable water, ramp, props.
+NEW GENERAL KEYS: `roadColor`/`curbColor` (sanitize: finite ints 0..0xffffff, omitted when
+absent, byte-identical otherwise; terrainOpts precedence explicit track > theme > builder
+default 0x33373d/0xdfe4ea). Hollow: road 0x8a6b45 / curb 0xb0996f, sky:"sun", wallMargin 8,
+width 18, laps 3, 929u, 34 pts, closure kink 2.4°, winding exactly 360°. LAP: home lane
+(fences+farmhouse) → T1 → pasture straight (2 pastures/6 cows + chicken crossing + TRAIN: loop
+straddles the straight = TWO gated crossings — a closed train loop always crosses a road an
+EVEN number of times) → crop esses (gold paint+crops) → FORD (road dips y−1.0, water level
+−0.35 → depth 0.65 = wading 0.84x, NEVER drowns; hay ramp sy1.7/sz12 before it — top speed
+clears the creek, maxY 8.4) → orchard esses → windmill hilltop turn (R≈20 uphill; a true 170°
+hairpin breaks a non-self-intersecting 360° loop — softened deliberately, don't "restore" it)
+→ barnyard chicane THROUGH farm_open_barn (mid support post on its centerline — offset ~5.5u
+perpendicular + scale 30 so the line clears the post) + goat & chicken crossings → last
+sweeper past the pond. 138 objects, 413 sculpt cells, 245 paint, 78 tufts, 2 boost pads.
+KEY AUTHORING LESSON — FLOOD-FILL FORD CONTAINMENT: `waters` flood-fill runs away (2400+
+cells) because groundHillAmp 3.4 puts ~40% of terrain below any usable level, all 4-connected;
+fix = sculpt a SOLID RAISED PLATEAU RING via the terrain field (delta = target −
+groundHills(cell), +0.8 out to r26 encircling the creek) — road dip self-seals at its ends,
+plateau seals the perimeter, 0 leak. objects[type:'water'] slabs do NOT splash — only
+flood-fill `waters` feeds WATER_LOOKUP/waterAt. Depth consts: WATER_SHALLOW_K 0.35×H≈0.55
+wade, WATER_DROWN_K 2.0×H≈3.14 drown. TRAIN SCREENSHOT GOTCHA: train speed is closure-local —
+to freeze it, no-op TRAIN_GROUP.userData.update after seating (userData.trains[0].speed does
+nothing). Cow pastures: centers must be off-road (_randomCowSpot falls back to pasture
+CENTER). Generator: tools/_hh_build.cjs re-patches the HH_GEN_START/END block (idempotent).
+VERIFY: tools/_verify-harvesthollow.cjs 70/70 0 pageerrors (sanitize isolation, geometry,
+dirt-vs-default colors, ford wade/splash/no-crow/containment, ramp-clears-water, chicken+goat
+spins, train gates lower/spin/rise, cows ≥19u off-road 30s, drift tier≥2 in T1+orchard+last,
+3 bots lap + all cross the ford, menu, mobile) + midnightrun 65/65 + turnpike 88/88 (one 87/88
+flake on a timing-dependent overpass-seating check, passes on retry — pre-existing) + items
+24/24 + hud PASS. Shots: shots/fk_harvest_{start,pasture,train,ford,windmill,barn,mobile}.png.
+UNPUSHED (preview rule). The session's 3 new tracks (toads-turnpike rework · midnight-run ·
+harvest-hollow) all await ONE user-approved push; name the Cursor agent's concurrent work in
+the commit when it ships.
