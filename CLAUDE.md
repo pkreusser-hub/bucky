@@ -2943,3 +2943,80 @@ flake on a timing-dependent overpass-seating check, passes on retry — pre-exis
 UNPUSHED (preview rule). The session's 3 new tracks (toads-turnpike rework · midnight-run ·
 harvest-hollow) all await ONE user-approved push; name the Cursor agent's concurrent work in
 the commit when it ships.
+- 🎉 FARM PARTY PIVOT (2026-07-17, user direction, opus agent): Storybook is no longer a
+  standalone game — farmparty.html (3389 lines, evolved FROM storybook.html which stays
+  byte-identical on disk as the verified reference; retire it at go-live) is a
+  Mario-Party-style suite shell: PARTY phase machine title→lobby→select→minigame→result→
+  select (party persists across rounds; ONE page because a Playroom room dies on
+  navigation). PARTY object above the minigame's G; select screen = per-char tally strip
+  (session-scoped PARTY.tally, sb_wins still lifetime) + MINIGAMES registry cards (📖
+  Storybook Squish ready + 2 SOON placeholders); host picks w/ live hover sync ("«host» is
+  picking!", guests read-only); solo party offers Match + classic Challenge (sb_best kept);
+  result overlay bumps the winner's tally (+1 🏆) → host-only "Back to the games!".
+  MINIGAME INTERFACE (the template for game #2): { id, name, ico, ready, soloModes?,
+  start(ctx{party,subMode,isHost}), hostTick(dt), guestTick(dt), isOver(), result()→
+  {draw,winnerChar}|null, teardown() } — shell owns phase/seats/tally/networking, minigame
+  owns its sim+render while active; snap gains party:{phase,game,hover,tally}; new games
+  add namespaced snap keys only. Leak contract: teardown returns sceneChildCount to
+  baseline (measured 230 across 2 full loops, asserted). Lobby chip nit fixed ("Bucky
+  (you)"). Hook renamed __BOOK__→__PARTY__ (old accessors kept + partyState/selectCard/
+  hostBackToSelect/sceneChildCount etc.). VERIFIED: farmparty_verify.cjs 139/139 ×4 (full
+  114 ported + ~19 shell checks incl. second-match loop + leak proof), fp_mp_local.cjs
+  10/10 (lazy SDK, blocked-CDN → solo-party fallback), fp_mp_live.cjs 39/39 ×2 vs REAL
+  Playroom (2 processes: lobby→select sync→hover→match→cross-screen elimination→result
+  both→back-to-select w/ tally on both→SECOND match→both disconnect directions), 0
+  pageerrors everywhere. Shots fp_title/fp_select/fp_select_guest/fp_result + ported set.
+  Step-by-step "add minigame #2" guide in the build agent's report (this session's task
+  transcript); STILL UNTRACKED/UNPUSHED — go-live bundle when approved: games.html +
+  PLAY_GAMES tiles for Farm Party, Firestore lobbies_<familyKey>/sb_* JOIN cards, retire
+  storybook.html, ONE push.
+
+# 🛡 Farm Kart — TANK BATTLE co-op MVP (2026-07-18, Fable + opus agent, UNCOMMITTED — awaiting family playtest)
+
+Battle-mode pivot (user): co-op Double-Dash-style TANK — one drives, one guns. MVP is couch/solo
+only; old balloon battle + racing byte-identical (everything gated on `ACTIVE_TRACK.tankBattle`).
+- New sanitize key `tankBattle:true` + builtin arena `downtown-showdown` ("Downtown Showdown",
+  battle+tankBattle+sky:night+theme:city+offroad, 130×130): 16 SOLID lit-window buildings +
+  perimeter — visuals DERIVED IN-GAME from the track's ghostWalls rectangles (one source: collision
+  and visuals can never drift; building height encoded in id `bld_<h>`), 2-lane streets + central
+  plaza, 9 battleBoxes at intersections, 8 lamps. Generator tools/_dt_build.cjs (marked-block).
+  buildCityscape gated OFF for tank arenas (its buildings are collision-less).
+- TANK: KART_STATS ×(top .68, accel .85), drift/mini-turbo intact. Procedural turret (ring/mantlet/
+  barrel), WORLD-relative yaw (holds heading while hull drifts). GUNNER: ←→ aim 3.2 rad/s, Enter
+  fire. SOLO: 4s without gunner input → auto-aim nearest enemy, F fires, any arrow retakes manual.
+  Couch DRIVER: WASD+Space. Mobile boots + auto-aim + FIRE btn (manual touch aim = deferred gap).
+- AMMO: cannon shell default (∞, 0.9s reload, ~2× tomato speed, detonates on buildings — never
+  through) pops balloons via the existing battle path; battleBoxes grant chicken3/tomato3(±10°)/
+  hay mine, fired along turret aim, then revert. HUD ammo chip + reload bar.
+- ENEMIES: 2 red AI tanks (3 balloons; player 5). Driving = street-waypoint roam + RANDOM-WALK
+  unstick (KEY LESSON: the open-field battleBotInput wedges on city walls, and reverse+turn
+  oscillates in corners — random-heading-until-moving slides free; worst stuck 0.8s over 8×30s).
+  Enemy turrets track player ±6°, fire 2.8-3.8s, LOS-gated (segment-vs-building — no through-wall
+  shots). Win "🏆 CITY CHAMPIONS!" / lose "TANK DOWN" (gentle), both restart cleanly.
+- READABILITY PASS (Fable reviewer bounce — first screenshots had an invisible tank + balloon
+  cluster filling the frame): tankBattle hemi 0.95/sun 0.8 (city keeps 0.58/0.52), emissive lift
+  hull ×0.36 / turret ×0.38 / barrel ×0.42 (traffic-vehicle convention), balloons ×0.55 raised
+  +2.85 forward +0.75, TANK_CAM {dist 1.35, height 1.3} multiplier inside camDistEff/camHeightEff
+  (MOBILE_CAM precedent — composes, zero per-site edits). Muzzle-flash scale clamped.
+- GOTCHAS: turret built LAZILY in syncTurret (buildKartView runs at boot before TANK consts init —
+  const TDZ); building emissiveMap needs material color WHITE; net._grantDt mirrored into
+  soloRaceTick (was MP-host-only) for solo box grants; snapCameraBehind exposed for screenshot
+  poses after teleports.
+- VERIFY: tools/_verify-tankbattle.cjs 75/75 ×stable (sanitize byte-identical all 19 prior tracks,
+  4-dir building solidity + projectile-vs-building, speed ratio .68 measured, drift tier as tank,
+  turret independence/auto-aim/override, shell/specials/reload/pop, roam no-stuck, LOS blocked+
+  clear, win/lose/restart, TANK_CAM ratios, balloon scale, classic-battle unmultiplied camera +
+  scale-1 regressions) + items 24/24 + hud PASS + midnightrun 65/65 + barnyard-brawl classic
+  battle boots/pops with no turret. Shots: shots/fk_tank_{arena,aim,fire,battle,win,mobile}.png.
+- DEFERRED (post-playtest): online driver/gunner Playroom pairing (state shaped for it), manual
+  touch/mouse gunner aim, arenas/rounds/scoring, ramming rules, richer audio. Entry: Single
+  Player → "🛡 TANK BATTLE (2P co-op)" card. NOTE: Cursor agent concurrently wiring "Farm Party"
+  (games.html/index.html hunks are theirs).
+- 🚀 FARM PARTY WENT LIVE (2026-07-17): lobby cards (fp_<code> docs, game:"farmparty" 🎉,
+  status open in lobby/select/result + started only mid-minigame, 15s heartbeat, verified
+  28/28 live vs famtestfp incl. real guest join + games.html card swap) + 🎉 tiles first in
+  games.html GAMES and index.html PLAY_GAMES + storybook.html RETIRED (backup in the
+  session scratchpad; zero tracked references). Shipped: farmparty.html, games/index tiles,
+  cast GLBs (assets/cast/{bucky,goat}/*.glb + presets txt; RAW intermediates gitignored via
+  assets/cast/*/*/). farmkart.html + farmkart-track.js changes (bot overhaul + Cursor city
+  theme) deliberately NOT shipped — still awaiting playtest.

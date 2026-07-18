@@ -1,0 +1,3547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Farm Party — Bucky's Farm Almanac</title>
+<meta name="theme-color" content="#233357">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%89%3C/text%3E%3C/svg%3E">
+<style>
+  :root{
+    --navy:#233357; --red:#ba303e; --cream:#f6ecd2; --ink:#2a2013;
+    --gold:#e7b64b; --paper:#fbf3dd;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent; -webkit-user-select:none; user-select:none;}
+  html,body{margin:0;height:100%;overflow:hidden;background:#1c1409;
+    font-family:"Segoe UI",system-ui,Roboto,sans-serif;touch-action:none;overscroll-behavior:none;}
+  #stage{position:fixed;inset:0;}
+  canvas{display:block;}
+
+  /* top bar */
+  #topbar{position:fixed;top:0;left:0;right:0;display:flex;align-items:center;gap:10px;
+    padding:calc(env(safe-area-inset-top,0px) + 8px) 12px 8px;pointer-events:none;z-index:20;}
+  #topbar a{pointer-events:auto;text-decoration:none;background:rgba(35,51,87,.85);color:#fff;
+    font-weight:800;font-size:14px;padding:7px 12px;border-radius:11px;box-shadow:0 2px 8px rgba(0,0,0,.3);}
+  #gtitle{font-weight:900;color:#fff;font-size:15px;letter-spacing:.3px;
+    text-shadow:0 2px 6px rgba(0,0,0,.55);}
+  #muteBtn{pointer-events:auto;margin-left:auto;border:0;border-radius:11px;
+    background:rgba(35,51,87,.85);color:#fff;font-size:16px;font-weight:800;
+    padding:7px 11px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.3);}
+
+  /* page counter HUD */
+  #hud{position:fixed;top:calc(env(safe-area-inset-top,0px) + 52px);left:0;right:0;
+    display:flex;justify-content:center;pointer-events:none;z-index:15;opacity:0;transition:opacity .25s;}
+  #hud.on{opacity:1;}
+  #pageChip{background:linear-gradient(180deg,#fff,#f2e6c6);color:var(--navy);
+    font-weight:900;font-size:20px;padding:6px 20px;border-radius:16px;
+    border:3px solid var(--gold);box-shadow:0 4px 14px rgba(0,0,0,.35);
+    display:flex;align-items:baseline;gap:7px;}
+  #pageChip small{font-size:12px;font-weight:800;color:var(--red);text-transform:uppercase;letter-spacing:.5px;}
+
+  /* transient "Page N!" popup */
+  #popup{position:fixed;left:0;right:0;top:34%;text-align:center;pointer-events:none;z-index:16;
+    font-weight:900;font-size:44px;color:#fff;opacity:0;
+    text-shadow:0 3px 0 var(--red),0 6px 18px rgba(0,0,0,.5);}
+  #popup.show{animation:popbounce .9s ease-out;}
+  @keyframes popbounce{
+    0%{opacity:0;transform:scale(.3) translateY(10px);}
+    25%{opacity:1;transform:scale(1.18) translateY(0);}
+    45%{transform:scale(.96);}
+    65%{transform:scale(1.04);}
+    100%{opacity:0;transform:scale(1) translateY(-26px);}
+  }
+
+  /* title screen */
+  .screen{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;text-align:center;padding:24px;
+    background:radial-gradient(ellipse at 50% 32%, rgba(58,42,20,.35), rgba(18,12,6,.86));}
+  #title .cover{background:linear-gradient(160deg,#7d1f28,#ba303e 55%,#8f2531);
+    border:6px solid var(--gold);border-radius:20px;padding:34px 30px 30px;
+    box-shadow:0 18px 50px rgba(0,0,0,.55), inset 0 0 0 3px rgba(255,255,255,.12);
+    max-width:min(88vw,440px);}
+  #title .kicker{color:#ffe6a8;font-weight:800;font-size:14px;letter-spacing:2px;text-transform:uppercase;}
+  #title h1{margin:8px 0 4px;color:#fff;font-size:clamp(30px,9vw,52px);line-height:1;
+    text-shadow:0 3px 0 #6d1620,0 8px 22px rgba(0,0,0,.5);font-weight:900;letter-spacing:.5px;}
+  #title .sub{color:#ffe6a8;font-weight:800;font-size:clamp(14px,4.5vw,20px);margin-top:2px;
+    font-style:italic;}
+  #title .goat{font-size:54px;margin:14px 0 6px;filter:drop-shadow(0 4px 8px rgba(0,0,0,.4));}
+  .startbtn{margin-top:18px;background:#fff;color:var(--navy);border:0;border-radius:16px;
+    font-weight:900;font-size:19px;padding:14px 30px;cursor:pointer;
+    box-shadow:0 6px 0 #c9a23a,0 10px 22px rgba(0,0,0,.4);}
+  .startbtn:active{transform:translateY(3px);box-shadow:0 3px 0 #c9a23a,0 6px 14px rgba(0,0,0,.4);}
+  .hint{color:#f4e8cc;font-weight:700;font-size:13px;margin-top:12px;opacity:.85;}
+
+  /* game over / win overlay */
+  #overlay{display:none;}
+  #overlay.on{display:flex;}
+  #overlay .panel{background:linear-gradient(180deg,#fff,#f3e7c8);border:5px solid var(--gold);
+    border-radius:22px;padding:26px 30px 24px;max-width:min(88vw,430px);
+    box-shadow:0 18px 50px rgba(0,0,0,.55);}
+  #overlay .ohead{font-weight:900;font-size:clamp(24px,7vw,36px);color:var(--red);line-height:1.05;}
+  #overlay.win .ohead{color:#2f8f3a;}
+  #overlay .bignum{font-size:clamp(58px,17vw,92px);font-weight:900;color:var(--navy);line-height:.95;margin:4px 0 0;}
+  #overlay .blabel{font-weight:800;color:var(--ink);font-size:15px;text-transform:uppercase;letter-spacing:1px;opacity:.75;}
+  #overlay .best{margin-top:10px;font-weight:800;color:var(--ink);font-size:16px;}
+  #overlay .best .nb{color:var(--red);}
+  #overlay .again{margin-top:18px;display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;}
+  #overlay .playAgain{background:var(--navy);color:#fff;border:0;border-radius:14px;font-weight:900;
+    font-size:18px;padding:13px 26px;cursor:pointer;box-shadow:0 5px 0 #16233f;}
+  #overlay .playAgain:active{transform:translateY(2px);box-shadow:0 3px 0 #16233f;}
+  #overlay .restartMini{background:#e7dcbe;color:var(--navy);border:0;border-radius:12px;
+    font-weight:900;font-size:18px;padding:12px 14px;cursor:pointer;}
+
+  /* mode select buttons (title screen) */
+  .modeRow{display:flex;gap:10px;justify-content:center;margin-top:18px;flex-wrap:wrap;}
+  .modebtn{background:#fff;color:var(--navy);border:3px solid transparent;border-radius:16px;
+    font-weight:900;font-size:15px;padding:12px 16px;cursor:pointer;
+    box-shadow:0 6px 0 #c9a23a,0 10px 22px rgba(0,0,0,.4);}
+  .modebtn:active{transform:translateY(3px);box-shadow:0 3px 0 #c9a23a,0 6px 14px rgba(0,0,0,.4);}
+  .modebtn.active{border-color:var(--gold);background:#fff8e6;}
+
+  /* versus HUD strip: 4 chips (name + neckerchief-colored dot) below the page counter */
+  #vhud{position:fixed;top:calc(env(safe-area-inset-top,0px) + 106px);left:0;right:0;
+    display:none;justify-content:center;gap:6px;z-index:15;pointer-events:none;flex-wrap:nowrap;padding:0 8px;}
+  #vhud.on{display:flex;}
+  #vhud{gap:5px;}
+  .vchip{background:rgba(255,255,255,.92);color:var(--navy);font-weight:800;font-size:11px;
+    padding:4px 7px;border-radius:10px;display:flex;align-items:center;gap:4px;
+    box-shadow:0 2px 6px rgba(0,0,0,.3);white-space:nowrap;transition:opacity .3s, filter .3s;}
+  .vchip .dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none;}
+  .vchip.out{opacity:.42;filter:grayscale(1);}
+  #spectateChip{position:fixed;top:calc(env(safe-area-inset-top,0px) + 136px);left:0;right:0;
+    display:none;justify-content:center;z-index:15;pointer-events:none;}
+  #spectateChip.on{display:flex;}
+  #spectateChip .pill{background:rgba(35,51,87,.85);color:#fff;font-weight:800;font-size:13px;
+    padding:6px 14px;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.3);}
+
+  /* touch stick */
+  #touchCtl{position:fixed;inset:0;z-index:12;display:none;}
+  body.coarse #touchCtl.on{display:block;}
+  #ring{position:absolute;width:132px;height:132px;margin:-66px 0 0 -66px;border-radius:50%;
+    border:3px solid rgba(255,255,255,.5);background:rgba(35,51,87,.18);display:none;pointer-events:none;}
+  #knob{position:absolute;width:60px;height:60px;margin:-30px 0 0 -30px;border-radius:50%;
+    background:radial-gradient(circle at 38% 34%,#fff,#c9d3e6);border:2px solid rgba(35,51,87,.6);
+    box-shadow:0 3px 10px rgba(0,0,0,.35);display:none;pointer-events:none;}
+
+  .vchip .tag{font-size:10px;font-weight:800;color:var(--red);opacity:.9;}
+  .vchip .pts{font-size:9px;font-weight:900;color:#233357;background:#e7b64b;
+    border-radius:7px;padding:1px 5px;line-height:1.35;}
+
+  /* MP presence pill "🌐 N/4" */
+  #mpPill{position:fixed;top:calc(env(safe-area-inset-top,0px) + 52px);right:12px;
+    display:none;z-index:16;pointer-events:none;background:rgba(35,51,87,.9);color:#fff;
+    font-weight:900;font-size:13px;padding:5px 11px;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.3);}
+  #mpPill.on{display:block;}
+
+  /* toast */
+  #toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 24px);
+    transform:translateX(-50%);z-index:40;background:rgba(35,51,87,.95);color:#fff;
+    font-weight:800;font-size:14px;padding:11px 18px;border-radius:13px;box-shadow:0 6px 20px rgba(0,0,0,.45);
+    opacity:0;transition:opacity .25s;pointer-events:none;max-width:88vw;text-align:center;}
+  #toast.on{opacity:1;}
+
+  /* MP waiting room — a bottom sheet; the 3D book + hop-in characters stay visible above it */
+  #mpWait{position:fixed;left:0;right:0;bottom:0;z-index:30;display:none;justify-content:center;
+    padding:0 12px calc(env(safe-area-inset-bottom,0px) + 14px);pointer-events:none;}
+  #mpWait.on{display:flex;}
+  #mpWait .mppanel{pointer-events:auto;width:min(94vw,440px);
+    background:linear-gradient(180deg,rgba(35,51,87,.97),rgba(24,35,59,.98));
+    border:3px solid var(--gold);border-radius:20px 20px 16px 16px;
+    padding:16px 18px calc(14px);box-shadow:0 -8px 34px rgba(0,0,0,.5);color:#fff;text-align:center;}
+  #mpWait .mptitle{font-weight:900;font-size:20px;color:#ffe6a8;}
+  #mpWait .mpstatus{font-weight:700;font-size:13px;opacity:.9;margin-top:2px;}
+  #mpWait .mpchips{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:12px 0;}
+  #mpWait .mpseat{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.12);
+    border-radius:11px;padding:5px 10px;font-weight:800;font-size:12px;}
+  #mpWait .mpseat.empty{opacity:.45;}
+  #mpWait .mpseat .dot{width:9px;height:9px;border-radius:50%;flex:none;}
+  #mpWait .mpshare{background:rgba(0,0,0,.22);border-radius:13px;padding:10px;margin-bottom:12px;}
+  #mpWait .mpsharelabel{font-weight:800;font-size:12px;color:#ffe6a8;margin-bottom:6px;}
+  #mpWait .mpsharerow{display:flex;gap:6px;}
+  #mpWait #mpLink{flex:1;min-width:0;border:0;border-radius:9px;padding:8px 10px;font-size:12px;
+    font-weight:700;color:var(--navy);background:#f6ecd2;}
+  #mpWait #mpCopy{border:0;border-radius:9px;padding:8px 12px;font-weight:900;font-size:13px;
+    background:var(--gold);color:var(--navy);cursor:pointer;white-space:nowrap;}
+  #mpWait #mpStart{margin-top:0;width:100%;}
+  #mpWait #mpWaitNote{color:#f4e8cc;margin-top:10px;}
+  #mpWait #mpLeave{margin-top:10px;background:transparent;border:0;color:#cdd7ea;
+    font-weight:800;font-size:13px;cursor:pointer;}
+
+  /* ============================ FARM PARTY SHELL ======================== */
+  /* minigame-select screen (the party heart) */
+  #select{display:none;z-index:31;padding:16px;
+    background:radial-gradient(ellipse at 50% 28%, rgba(58,42,20,.42), rgba(16,11,6,.92));}
+  #select.on{display:flex;}
+  .selpanel{width:min(94vw,480px);max-height:calc(100dvh - 24px);overflow-y:auto;
+    background:linear-gradient(180deg,rgba(35,51,87,.97),rgba(24,35,59,.985));
+    border:4px solid var(--gold);border-radius:22px;padding:16px 16px 14px;
+    box-shadow:0 18px 50px rgba(0,0,0,.55);color:#fff;text-align:center;}
+  .selpanel .selhead{font-weight:900;font-size:22px;color:#ffe6a8;letter-spacing:.3px;}
+  .selpanel .selsub{font-weight:800;font-size:13px;opacity:.9;margin-top:1px;}
+  /* party tally strip */
+  #selTally{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:12px 0 4px;}
+  .tchip{display:flex;align-items:center;gap:5px;background:rgba(255,255,255,.12);
+    border-radius:11px;padding:5px 9px;font-weight:800;font-size:12px;
+    transition:opacity .3s,filter .3s,transform .25s;}
+  .tchip .dot{width:9px;height:9px;border-radius:50%;flex:none;}
+  .tchip .pts{font-weight:900;color:#ffe6a8;}
+  .tchip.out{opacity:.42;filter:grayscale(1);}
+  .tchip.bump{transform:scale(1.14);}
+  /* minigame card grid */
+  #gameGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:10px 0 4px;}
+  .gcard{position:relative;background:rgba(0,0,0,.24);border:3px solid rgba(255,255,255,.14);
+    border-radius:15px;padding:12px 6px 10px;cursor:pointer;transition:border-color .2s,transform .15s,background .2s;}
+  .gcard:active{transform:translateY(2px);}
+  .gcard .gico{font-size:34px;line-height:1;filter:drop-shadow(0 3px 6px rgba(0,0,0,.4));}
+  .gcard .gname{font-weight:900;font-size:12px;margin-top:6px;color:#fff;line-height:1.05;}
+  .gcard .gblurb{font-weight:700;font-size:10px;opacity:.72;margin-top:2px;}
+  .gcard.sel{border-color:var(--gold);background:rgba(231,182,75,.16);}
+  .gcard.disabled{cursor:default;opacity:.5;}
+  .gcard.disabled .gname{color:#cdd7ea;}
+  .gcard .soon{position:absolute;top:6px;right:6px;background:rgba(0,0,0,.4);color:#ffe6a8;
+    font-weight:900;font-size:9px;padding:2px 6px;border-radius:8px;text-transform:uppercase;letter-spacing:.5px;}
+  /* select action row (mode buttons / confirm / guest note) */
+  #selAction{margin-top:10px;min-height:52px;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;}
+  #selAction .selbtn{background:#fff;color:var(--navy);border:0;border-radius:14px;
+    font-weight:900;font-size:16px;padding:12px 22px;cursor:pointer;box-shadow:0 5px 0 #c9a23a;}
+  #selAction .selbtn:active{transform:translateY(2px);box-shadow:0 3px 0 #c9a23a;}
+  #selAction .selbtn.go{background:var(--gold);}
+  #selAction .selbtn.chal{background:#e7dcbe;}
+  #selAction .selrow{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;}
+  #selAction .selnote{font-weight:800;font-size:13px;color:#f4e8cc;}
+  #selLeave{margin-top:12px;background:transparent;border:0;color:#cdd7ea;font-weight:800;font-size:13px;cursor:pointer;}
+
+  /* party result decoration (inside #overlay) */
+  #partyTallyRow{display:none;flex-wrap:wrap;gap:6px;justify-content:center;margin:12px 0 2px;}
+  #partyTallyRow.on{display:flex;}
+  #partyTallyRow .prchip{display:flex;align-items:center;gap:5px;background:#efe4c6;
+    border-radius:10px;padding:4px 9px;font-weight:800;font-size:12px;color:var(--navy);}
+  #partyTallyRow .prchip .dot{width:9px;height:9px;border-radius:50%;flex:none;}
+  #partyTallyRow .prchip.win{background:#d6f0d8;box-shadow:0 0 0 2px #2f8f3a inset;}
+  #partyTallyRow .prchip .pt{font-weight:900;color:var(--red);}
+  #tallyFly{position:fixed;left:0;right:0;top:15%;text-align:center;z-index:41;pointer-events:none;
+    font-weight:900;font-size:32px;color:#2f8f3a;opacity:0;
+    text-shadow:0 3px 0 #fff,0 6px 18px rgba(0,0,0,.4);}
+  #tallyFly.show{animation:flyup 1.3s ease-out;}
+  @keyframes flyup{
+    0%{opacity:0;transform:scale(.4) translateY(24px);}
+    22%{opacity:1;transform:scale(1.2) translateY(0);}
+    50%{opacity:1;transform:scale(1) translateY(-6px);}
+    100%{opacity:0;transform:scale(.9) translateY(-70px);}
+  }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<div id="topbar">
+  <a href="index.html#play">← Bucky</a>
+  <div id="gtitle">🎉 Farm Party</div>
+  <button id="muteBtn" aria-label="Toggle sound">🔊</button>
+</div>
+
+<div id="hud"><div id="pageChip"><small>Page</small><span id="pageNum">0</span></div></div>
+<div id="vhud"></div>
+<div id="mpPill"></div>
+<div id="spectateChip"><div class="pill">👀 watching…</div></div>
+<div id="popup"></div>
+<div id="toast"></div>
+
+<div id="mpWait">
+  <div class="mppanel">
+    <div class="mptitle">🌐 Family Party</div>
+    <div id="mpStatus" class="mpstatus">Connecting…</div>
+    <div id="mpChips" class="mpchips"></div>
+    <div id="mpShare" class="mpshare">
+      <div class="mpsharelabel">Share with the family!</div>
+      <div class="mpsharerow">
+        <input id="mpLink" readonly aria-label="Room link">
+        <button id="mpCopy">📋 Copy</button>
+      </div>
+    </div>
+    <button id="mpStart" class="startbtn">▶ Start the Match!</button>
+    <div id="mpWaitNote" class="hint"></div>
+    <button id="mpLeave">← Leave</button>
+  </div>
+</div>
+
+<div id="title" class="screen">
+  <div class="cover">
+    <div class="kicker">A Barnyard Game Night</div>
+    <div class="goat">🎉🐐</div>
+    <h1>Farm<br>Party!</h1>
+    <div class="sub">Bucky's Farm Almanac</div>
+    <div class="modeRow">
+      <button class="modebtn" id="playBtn">🎮 Play</button>
+      <button class="modebtn" id="familyBtn">🌐 Family Party</button>
+    </div>
+    <div class="hint">Enter / P = play · F = family party · you + friends pick minigames together!</div>
+  </div>
+</div>
+
+<div id="overlay" class="screen">
+  <div class="panel">
+    <div class="ohead" id="ohead">Squished!</div>
+    <div class="bignum" id="oNum">0</div>
+    <div class="blabel">pages survived</div>
+    <div class="best" id="oBest"></div>
+    <div id="partyTallyRow"></div>
+    <div class="again">
+      <button class="playAgain" id="againBtn">↻ Play Again</button>
+      <button class="restartMini" id="restartMini" aria-label="Restart">♻</button>
+    </div>
+    <div class="hint" style="color:#6b5a3a" id="overlayHint">Tap or press Enter · R to restart</div>
+  </div>
+</div>
+
+<!-- FARM PARTY: minigame-select screen (the party heart) -->
+<div id="select" class="screen">
+  <div class="selpanel">
+    <div class="selhead">🎉 Farm Party</div>
+    <div class="selsub" id="selSub">Pick a game!</div>
+    <div id="selTally"></div>
+    <div id="gameGrid"></div>
+    <div id="selAction"></div>
+    <button id="selLeave">← Leave the party</button>
+  </div>
+</div>
+
+<div id="tallyFly"></div>
+
+<div id="touchCtl">
+  <div id="ring"></div>
+  <div id="knob"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
+<script>
+"use strict";
+/* ============================================================================
+   Storybook Squish! — Stage 1 (solo). A farm remake of Mario Party 4's
+   Booksquirm. Bucky stands on an open storybook; pages hinged at the right edge
+   flip 180° and slam down. Die-cut holes are the only safe spots.
+   House style: single self-contained file, three.js r128 CDN globals, no build.
+   ========================================================================== */
+
+/* ---------------------------------------------------------------- TUNING --- */
+const TUNE = {
+  SPREAD_HALF_W: 7.5,          // spread x: -7.5 .. +7.5 (lateral — NEVER mirrored by the flip)
+  SPREAD_HALF_D: 5.5,          // spread z: -5.5 (spine/hinge, far/top edge) .. +5.5 (near edge, at camera)
+  HINGE_Z: -5.5,                // page hinge / book spine (far/top edge; = -SPREAD_HALF_D)
+  PAGE_Y: 0.07,                // resting height of a landed page
+  GROUND_Y: 0.0,               // play surface / where Bucky stands
+  SHADOW_Y: 0.025,             // hole footprint markers sit just above ground
+  SHADOW_PAGE_Y: 0.015,         // descent-shadow page sits just under the markers
+  SHADOW_PAGE_START_DEG: 90,    // shadow starts appearing once the page passes vertical
+  SHADOW_PAGE_END_DEG: 175,     // ramp completes just shy of full descent
+  SHADOW_PAGE_MAX_OP: 0.38,     // peak darkness of the descent shadow
+
+  BUCKY_H: 1.875,               // Bucky normalized height (units) — 1.25x the original 1.5
+  BLOB_SIZE: 1.875,            // blob-shadow plane size, scaled with BUCKY_H (was 1.5)
+  MOVE_SPEED: 5.5,             // u/s
+  BOUND_X: 7.15,               // Bucky clamp
+  BOUND_Z: 5.15,
+
+  FORGIVE: 0.15,               // squish-test satellite radius (u)
+
+  SHADOW_START: 0.35,          // fraction of the flip (angle/PI) where the marker begins to appear
+  MARKER_FILL_MAX_OP: 0.30,    // peak soft-fill opacity (the "landing pad" tint)
+  MARKER_RING_MAX_OP: 0.92,    // peak bold-outline-ring opacity — must read clearly at full descent
+  MARKER_RING_OUT: 0.18,       // ring ribbon outward offset (u) from the hole polygon
+  MARKER_RING_IN: 0.10,        // ring ribbon inward offset (u) from the hole polygon
+  MARKER_PULSE_START: 0.75,    // flip fraction where the marker starts a gentle pulse (last 25%)
+  MARKER_PULSE_AMT: 0.06,      // pulse scale amplitude (1.0 -> 1.0+this)
+
+  START_PAUSE: 1.5,            // extra time before the very first flip
+  REST_TIME: 0.6,             // page lies flat after a safe landing before clearing
+  SQUISH_Y: 0.12,              // pancake height fraction
+  SQUISH_BULGE: 1.45,          // x/z bulge when squished
+
+  SHAKE_T: 0.15, SHAKE_AMP: 0.14,
+  WIN_PAGE: 99,
+
+  ELIM_HOLD_T: 1.2,             // versus: seconds a flattened bot lingers before fading
+  ELIM_FADE_T: 0.45,            // versus: fade-out duration after the hold
+};
+// Difficulty curves (tunable) ------------------------------------------------
+const flipT = (N) => Math.max(0.95, 4.4 * Math.pow(0.965, N));
+const pauseT = (N) => Math.max(0.35, 1.1 - N * 0.01);
+function holesForPage(N){
+  let base = N <= 8 ? 3 : N <= 20 ? 2 : 1;
+  if (N % 7 === 0) base = Math.max(base, 2);   // relief page every 7th
+  return base;
+}
+const HOLE_KINDS = ["circle","star","heart","egg","apple","goat"];
+
+/* --------------------------------------------------------------- G STATE --- *
+ * All game-mutable state lives in G (host-authoritative). Stage 3 re-keyed the
+ * old single G.player + G.bots array into ONE G.players map keyed by id:
+ *   'local'          — this browser's human (solo/versus/host; a guest's own
+ *                       avatar is 'local' too, whatever character it drew)
+ *   'r_'+playroomId  — a remote human (host + other-guest views)
+ *   '<char>'         — a bot filling an empty seat ('billy'/'rosie'/'clover')
+ * Each entry carries a `char` ('bucky'|'billy'|'rosie'|'clover') that resolves
+ * its VIEW (charViews[char]) + neckerchief + name + spawn. Solo/local-versus
+ * behave identically to Stage 2 after the re-key (the 114-check suite guards it).
+ * Rendering / tweens / camera / input / meshes live OUTSIDE G.                 */
+const G = {
+  phase: "title",              // title | intro | waiting | playing | squished | won | matchover
+  mode: "solo",                 // solo | versus | mp
+  stage: "none",               // pause | flipping | resting | none
+  page: 0,                     // pages survived
+  flipAngle: 0,                // 0..PI
+  flipDur: 0, flipElapsed: 0, slamDone: false,
+  pauseLeft: 0, restLeft: 0,
+  holes: [],                   // [{kind,cx,cz,rx,rz,worldPoly:[[x,z]..]}]
+  holeGen: 0,                  // increments every new page (MP: keyed hole publish)
+  players: {},                 // id -> character entry (see block comment above)
+  spectate: false,              // versus/mp: local flattened, others still fighting
+  matchResult: null,            // {type:'playerWin'|'botWin'|'remoteWin'|'draw', winnerId, winnerName}
+  fastForwarding: false,        // true only inside skipSpectate()'s simulated-time loop
+  seats: null,                  // mp: ordered seat roster (4 chars, host-authoritative)
+  matchGen: 0,
+  best: 0,
+  muted: false,
+};
+
+/* ============================================================ FARM PARTY === *
+ * The PARTY shell sits ABOVE the minigame. Its phase machine:
+ *   title -> lobby -> select -> minigame -> result -> select (party persists)
+ * Leave / host-quit -> title. The minigame (Storybook, below) owns its own sim
+ * + rendering while active; the SHELL owns party phase, seats/cast, tally, and
+ * networking. Because a Playroom room dies on page navigation, the party and
+ * every minigame must live on ONE page — this shell is that page.
+ *
+ * PARTY.phase drives the shell's screens. G.phase (above) stays the MINIGAME's
+ * internal state (waiting/playing/squished/won/matchover) — during lobby+select
+ * G.phase is "waiting" (no minigame running); the lobby-vs-select distinction is
+ * PARTY.phase alone.                                                            */
+const PARTY = {
+  phase: "title",          // title | lobby | select | minigame | result
+  mode: "solo",            // solo | mp
+  tally: { bucky:0, billy:0, rosie:0, clover:0 },   // match wins per char this session
+  selectedGame: null,      // id of the minigame chosen (confirmed)
+  selectHover: null,       // id of the card the host is hovering/selecting (guests mirror)
+  subMode: null,           // storybook: 'match' | 'challenge'
+  lastWinner: null,        // char that just won (for the result tally-bump)
+  _inGame: false,          // true while a minigame started BY THE PARTY is running
+  _resultPending: false,   // one-shot guard so the party->result transition fires once
+};
+
+/* MINIGAME INTERFACE — the shell<->minigame boundary. A minigame is a plain
+ * object; the shell only ever calls these hooks, so a new game slots in by
+ * pushing another entry (see the report / MINIGAMES array). Contract:
+ *   id/name/ico/ready   — registry metadata (ready:false = "coming soon" card)
+ *   soloModes           — sub-modes offered in a SOLO party (mp always uses match)
+ *   start(ctx)          — begin the minigame. ctx={ party:'solo'|'mp',
+ *                         subMode:'match'|'challenge', isHost:bool }
+ *   hostTick(dt)        — advance the host/solo authoritative sim one frame
+ *   guestTick(dt)       — advance a guest one frame (network apply + own avatar)
+ *   isOver()            — true once the minigame reached a terminal state
+ *   result()            — { draw:bool, winnerChar:string|null } | null (null = no
+ *                         party point, e.g. a solo-only score mode)
+ *   teardown()          — release the scene between matches (leak-free)          */
+const STORYBOOK_MINIGAME = {
+  id: "storybook", name: "Storybook Squish!", ico: "📖", ready: true,
+  soloModes: [
+    { id: "match",     label: "🥊 Match",     hint: "vs 3 goat pals" },
+    { id: "challenge", label: "📖 Challenge", hint: "solo survival" },
+  ],
+  start(ctx){
+    if (ctx.party === "mp") hostStartMatch();               // player(s) + bots, last-standing
+    else if (ctx.subMode === "challenge") startGame("solo"); // classic 99-page survival
+    else startGame("versus");                                // solo party: you + 3 bots
+  },
+  hostTick(dt){ updateVersusIntro(dt); hostAdvance(dt); },   // delegates to the proven sim
+  guestTick(dt){ guestTick(dt); },
+  isOver(){ return G.phase === "squished" || G.phase === "won" || G.phase === "matchover"; },
+  result(){
+    if (G.mode === "solo") return null;                      // challenge: no party point
+    if (!G.matchResult) return null;
+    if (G.matchResult.type === "draw") return { draw:true, winnerChar:null };
+    return { draw:false, winnerChar: G.matchResult.winnerChar || null };
+  },
+  teardown(){ clearPage(); resetAllViews(); hudEl.classList.remove("on");
+    document.getElementById("vhud").classList.remove("on"); },
+};
+const MINIGAMES = [
+  STORYBOOK_MINIGAME,
+  { id: "cornmaze", name: "Corn Maze Dash", ico: "🌽", ready: false },
+  { id: "barnhop",  name: "Barn Dance-Off", ico: "🎪", ready: false },
+];
+function minigameById(id){ return MINIGAMES.find(m => m.id === id) || null; }
+let ACTIVE_MINIGAME = null;   // the minigame object currently running (null = none)
+
+/* Character table — the 4 fixed seats. A "seat"/character has one view, neck
+ * color, name and spawn; who drives it (local human / remote human / bot)
+ * varies per game.                                                            */
+const CHARS = {
+  bucky:  { name: "Bucky"  },
+  billy:  { name: "Billy"  },
+  rosie:  { name: "Rosie"  },
+  clover: { name: "Clover" },
+};
+const CHAR_ORDER = ["bucky", "billy", "rosie", "clover"];
+
+// entry factory — one game character (position + AI/net fields)
+function makeEntry(id, char, opt){
+  opt = opt || {};
+  const sp = (typeof VERSUS_SPAWNS !== "undefined" && VERSUS_SPAWNS[char]) || { x: 0, z: 0 };
+  const e = {
+    id, char, name: CHARS[char].name,
+    isBot: !!opt.isBot, isLocal: !!opt.isLocal, isRemote: !!opt.isRemote,
+    remotePid: opt.remotePid || null,
+    x: sp.x, z: sp.z, facing: 0, speed: 0, moving: false, alive: true,
+    squishT: 0, elimPhase: null, elimT: 0, revealed: false,
+  };
+  if (e.isBot) Object.assign(e, freshBotAI(char, sp));
+  return e;
+}
+function freshBotAI(char, sp){
+  return {
+    speedMul: 0.9 + Math.random()*0.2,
+    reactionBase: 0.35 + Math.random()*0.55,
+    errRateBase: 0.04 + Math.random()*0.06,
+    dawdleAmt: Math.random()*0.25,
+    targetHoleIdx: -1, standX: sp.x, standZ: sp.z,
+    errType: null, effReactionT: 0.5, aiPhase: "idle", planned: false,
+    walkDawdleDone: false, walkT: 0, dawdleMidT: 0.4, dawdleTimer: 0,
+  };
+}
+// entry lookups
+function localP(){ return G.players.local || null; }
+function allEntries(){ return Object.values(G.players); }
+function botEntries(){ return allEntries().filter(e => e.isBot); }
+function aliveEntries(){ return allEntries().filter(e => e.alive); }
+function entryByChar(char){ for (const id in G.players) if (G.players[id].char === char) return G.players[id]; return null; }
+function entryById(id){ return G.players[id] || null; }
+// resolve a test/hook id: 'player' -> local human, else id or char
+function resolveEntry(idOrChar){
+  if (idOrChar === "player") return localP();
+  if (G.players[idOrChar]) return G.players[idOrChar];
+  return entryByChar(idOrChar);
+}
+
+/* --------------------------------------------------------------- THREE ----- */
+const stageEl = document.getElementById("stage");
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputEncoding = THREE.sRGBEncoding;
+// No real-time shadow map: it doubles the cost of the 48k-tri skinned Bucky in
+// software renderers for little gain here (the book is flat on a table). Bucky
+// gets a cheap soft blob shadow instead; hole "shadow" previews are flat meshes.
+renderer.shadowMap.enabled = false;
+stageEl.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x2b1f12);
+scene.fog = new THREE.Fog(0x2b1f12, 30, 62);
+
+const camera = new THREE.PerspectiveCamera(46, innerWidth / innerHeight, 0.1, 200);
+// MP4-style Booksquirm camera: sits elevated ABOVE and BEHIND the near edge
+// (the player's spawn side, z=+SPREAD_HALF_D) and looks DOWN-TILTED toward
+// the spine (z=HINGE_Z=-5.5, the far/top edge). The flip hinges along X now,
+// so "depth" (near edge -> spine) maps onto SCREEN HEIGHT for any aspect —
+// but the GROUND FOOTPRINT is still the same 15x11 landscape-shaped
+// rectangle it always was (SPREAD_HALF_W/D didn't change, only which edge
+// hinges), so a perfectly symmetric (zero-yaw) camera on a narrow portrait
+// viewport still caps out around ~20-25% vertical fill (measured — see
+// scratchpad cam_tune.cjs/cam_sweep.cjs) because the near edge's full 15u
+// width has to fit a narrow horizontal FOV. LANDSCAPE stays pure-pitch,
+// zero-yaw (plenty of horizontal room at 16:10). PORTRAIT gets a MODEST
+// yaw (~18deg, far short of the old orientation's full 90-degree-ish
+// rotate-to-the-short-axis trick) — enough to meaningfully widen the fill
+// without turning the spine into a diamond; the spine still reads as
+// "mostly across the top", just gently angled, MP4-esque.
+const CAM_DIR_LANDSCAPE = new THREE.Vector3(0, 0.82, 1).normalize();
+const CAM_DIR_PORTRAIT = new THREE.Vector3(0.309, 2.2, 0.951).normalize();   // yaw ~18deg
+const CAM_TARGET_LANDSCAPE = new THREE.Vector3(0, 2.2, -1.4);
+const CAM_TARGET_PORTRAIT = new THREE.Vector3(0, 2.2, -2.5);
+let camBasePos = new THREE.Vector3();
+let CAM_TARGET = CAM_TARGET_LANDSCAPE.clone();   // set live per-branch by fitCamera()
+
+// hemisphere fill bumped a touch (0.95->1.1) so Bucky and the markers stay
+// readable in the visually "busier" area under/near the descending page,
+// without a real shadow-map pass (shadowMap stays disabled — see below).
+scene.add(new THREE.HemisphereLight(0xfff0d8, 0x4a3a22, 1.1));
+const sun = new THREE.DirectionalLight(0xfff0d2, 1.15);
+sun.position.set(6, 13, 4);
+scene.add(sun);
+const rim = new THREE.DirectionalLight(0xffd9a0, 0.4);
+rim.position.set(-8, 6, -6); scene.add(rim);
+
+// screen-relative movement basis (camera fixed → computed once)
+const CAM_FWD = new THREE.Vector3(), CAM_RIGHT = new THREE.Vector3();
+function computeMoveBasis(){
+  CAM_FWD.copy(CAM_TARGET).sub(camBasePos); CAM_FWD.y = 0; CAM_FWD.normalize();
+  CAM_RIGHT.crossVectors(CAM_FWD, new THREE.Vector3(0,1,0)).normalize();
+}
+
+/* --------------------------------------------------------- BARN / TABLE ---- */
+(function buildBackdrop(){
+  // wooden barn table
+  const woodTex = makeWoodTexture();
+  const table = new THREE.Mesh(
+    new THREE.BoxGeometry(46, 1.4, 40),
+    new THREE.MeshLambertMaterial({ map: woodTex })
+  );
+  table.position.set(0, -0.72, 2);
+  table.receiveShadow = true;
+  scene.add(table);
+  // warm barn wall backdrop
+  const wall = new THREE.Mesh(
+    new THREE.PlaneGeometry(120, 60),
+    new THREE.MeshBasicMaterial({ color: 0x3a2a17 })
+  );
+  wall.position.set(0, 12, 34);
+  wall.rotation.y = Math.PI;
+  scene.add(wall);
+})();
+
+function makeWoodTexture(){
+  const c = document.createElement("canvas"); c.width = 256; c.height = 256;
+  const g = c.getContext("2d");
+  g.fillStyle = "#6e4a26"; g.fillRect(0,0,256,256);
+  for (let i=0;i<70;i++){
+    g.strokeStyle = `rgba(${60+Math.random()*40|0},${38+Math.random()*26|0},18,${.18+Math.random()*.2})`;
+    g.lineWidth = 1 + Math.random()*2;
+    g.beginPath();
+    const y = Math.random()*256;
+    g.moveTo(0, y);
+    g.bezierCurveTo(80, y+ (Math.random()*20-10), 176, y+(Math.random()*20-10), 256, y);
+    g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(6,5);
+  t.encoding = THREE.sRGBEncoding;
+  return t;
+}
+
+/* open-book base (the two flat leaves + spine + page-stack rim) */
+const bookGroup = new THREE.Group(); scene.add(bookGroup);
+const paperTex = makePaperTexture();
+(function buildBook(){
+  const W = TUNE.SPREAD_HALF_W * 2, D = TUNE.SPREAD_HALF_D * 2;
+  // the base spread (a flat page under everything) — cream
+  const base = new THREE.Mesh(
+    new THREE.BoxGeometry(W + 0.4, 0.12, D + 0.4),
+    new THREE.MeshLambertMaterial({ map: paperTex })
+  );
+  base.position.set(0, -0.06, 0);
+  base.receiveShadow = true;
+  bookGroup.add(base);
+  // spine shadow bar along the far/top edge (z = HINGE_Z fold) — the book's
+  // binding now runs laterally (full X width) at the hinge line.
+  const spine = new THREE.Mesh(
+    new THREE.BoxGeometry(W + 0.4, 0.16, 0.5),
+    new THREE.MeshLambertMaterial({ color: 0x7a1f28 })
+  );
+  spine.position.set(0, -0.02, TUNE.HINGE_Z - 0.25);
+  bookGroup.add(spine);
+  // page-stack rims on both edges (unread stack sits beyond the far/spine
+  // edge; the near edge gets a matching cover-edge rim).
+  const rimMat = new THREE.MeshLambertMaterial({ color: 0xe4d3a6 });
+  for (const s of [1, -1]){
+    const stack = new THREE.Mesh(new THREE.BoxGeometry(W + 0.4, 0.5, 0.7), rimMat);
+    stack.position.set(0, -0.2, s > 0 ? TUNE.SPREAD_HALF_D + 0.35 : TUNE.HINGE_Z - 0.35);
+    stack.receiveShadow = true; stack.castShadow = true;
+    bookGroup.add(stack);
+  }
+  // hard cover lip left/right (the book's short edges, now along X)
+  const coverMat = new THREE.MeshLambertMaterial({ color: 0x8f2531 });
+  for (const s of [1,-1]){
+    const lip = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.42, D + 1.6), coverMat);
+    lip.position.set(s * (TUNE.SPREAD_HALF_W + 0.5), -0.22, -0.5);
+    bookGroup.add(lip);
+  }
+})();
+
+function makePaperTexture(){
+  const c = document.createElement("canvas"); c.width = 512; c.height = 384;
+  const g = c.getContext("2d");
+  g.fillStyle = "#fbf3dd"; g.fillRect(0,0,512,384);
+  // subtle vignette / aging
+  const grd = g.createRadialGradient(256,192,60,256,192,300);
+  grd.addColorStop(0, "rgba(255,255,255,0)");
+  grd.addColorStop(1, "rgba(150,120,70,.22)");
+  g.fillStyle = grd; g.fillRect(0,0,512,384);
+  // faux ruled text lines
+  g.strokeStyle = "rgba(120,95,55,.28)";
+  for (let y=54; y<360; y+=34){
+    g.lineWidth = 1;
+    // broken "words"
+    let x = 40;
+    while (x < 472){
+      const w = 12 + Math.random()*44;
+      g.beginPath(); g.moveTo(x, y); g.lineTo(Math.min(472, x+w), y); g.stroke();
+      x += w + 8 + Math.random()*10;
+    }
+  }
+  // a little farm doodle (sun + hill + goat) top corner
+  g.fillStyle = "rgba(190,150,70,.5)";
+  g.beginPath(); g.arc(430, 60, 20, 0, 7); g.fill();
+  g.strokeStyle = "rgba(120,95,55,.5)"; g.lineWidth = 2;
+  g.beginPath(); g.moveTo(360,300); g.quadraticCurveTo(430,250,500,300); g.stroke();
+  const t = new THREE.CanvasTexture(c);
+  t.encoding = THREE.sRGBEncoding;
+  return t;
+}
+
+/* One reusable canvas/texture for the CURRENT flipping page, repainted each
+ * spawnPage(): starts from the same paper look, then stamps a dark outline
+ * ring around every die-cut hole (mapped through the page's own shape-space,
+ * see W2S_LAT/W2S_HDIST below) so the cutouts pop as a readable billboard
+ * when the page stands upright mid-flip — like the decorated die-cuts in
+ * the real Booksquirm board. Faux text lines + corner doodle carry over
+ * unchanged (drawn once into paperTex, copied in here as the base layer). */
+const pageCanvas = document.createElement("canvas");
+pageCanvas.width = 512; pageCanvas.height = 384;
+const pageCtx = pageCanvas.getContext("2d");
+const pageTex = new THREE.CanvasTexture(pageCanvas);
+pageTex.encoding = THREE.sRGBEncoding;
+function paintPageTexture(holes){
+  const g = pageCtx, W = pageCanvas.width, H = pageCanvas.height;
+  g.clearRect(0, 0, W, H);
+  g.drawImage(paperTex.image, 0, 0, W, H);
+  const LAT = TUNE.SPREAD_HALF_W * 2, LEN = TUNE.SPREAD_HALF_D * 2;
+  const pxPerUnit = W / LAT;
+  g.lineJoin = "round";
+  g.strokeStyle = "rgba(90,58,26,0.68)";
+  g.lineWidth = Math.max(1.5, 0.12 * pxPerUnit);
+  let outlineCount = 0;
+  for (const h of holes){
+    const pts = h.worldPoly.map(([wx, wz]) => {
+      const sx = W2S_LAT(wx), sy = W2S_HDIST(wz);
+      return [ (sx + LAT / 2) / LAT * W, (1 - sy / LEN) * H ];
+    });
+    g.beginPath();
+    g.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]);
+    g.closePath();
+    g.stroke();
+    outlineCount++;
+  }
+  pageTex.needsUpdate = true;
+  return outlineCount;
+}
+
+/* -------------------------------------------------------- HOLE SHAPES ------ *
+ * Each kind returns a unit polygon (array of [x,y] roughly in [-1,1]) used for
+ * BOTH the die-cut Path and the point-in-polygon squish test.                 */
+function unitCircle(n=30){ const p=[]; for(let i=0;i<n;i++){const a=i/n*Math.PI*2;p.push([Math.cos(a),Math.sin(a)]);} return p; }
+function unitStar(spikes=5, outer=1, inner=0.46){
+  const p=[]; const step=Math.PI/spikes; let a=-Math.PI/2;
+  for(let i=0;i<spikes*2;i++){ const r=i%2?inner:outer; p.push([Math.cos(a)*r,Math.sin(a)*r]); a+=step; }
+  return p;
+}
+function unitHeart(n=34){
+  const p=[]; for(let i=0;i<n;i++){ const t=i/n*Math.PI*2;
+    const x=16*Math.pow(Math.sin(t),3);
+    const y=13*Math.cos(t)-5*Math.cos(2*t)-2*Math.cos(3*t)-Math.cos(4*t);
+    p.push([x/17, y/17 + 0.05]); }
+  return p;  // already CCW-ish
+}
+function unitEgg(n=30){ const p=[]; for(let i=0;i<n;i++){const a=i/n*Math.PI*2;
+  const taper=1+0.18*Math.sin(a); p.push([Math.cos(a)*0.78, Math.sin(a)*taper*0.95]);} return p; }
+function unitApple(n=32){ const p=[]; for(let i=0;i<n;i++){ const t=i/n*Math.PI*2;
+  // apple body with a top cleft
+  let r=1 + 0.16*Math.cos(2*t);
+  const dimple = Math.max(0, Math.sin(t)) ; // top
+  r -= 0.30*Math.pow(dimple,6);
+  p.push([Math.cos(t)*r*0.92, Math.sin(t)*r]); }
+  return p; }
+function unitGoat(){
+  // stylized goat-head silhouette (built from a symmetric point list, CCW).
+  // right half authored, mirrored for the left.
+  const right = [
+    [0.00, 1.28],  // between horns
+    [0.34, 1.42],[0.52, 1.12],[0.30, 0.82], // right horn
+    [0.62, 0.86],[0.86, 0.62], // right ear tip
+    [0.60, 0.44],
+    [0.66, 0.10],[0.54,-0.34],[0.34,-0.66], // cheek to chin
+    [0.16,-0.92],[0.06,-1.14], // muzzle right
+  ];
+  const chin = [ [0.00,-1.22] ];
+  const pts = [];
+  for (const q of right) pts.push(q);
+  for (const q of chin) pts.push(q);
+  for (let i=right.length-1;i>=0;i--){ const q=right[i]; pts.push([-q[0], q[1]]); } // mirror
+  return pts.map(q=>[q[0]*0.92, q[1]*0.82]);
+}
+function unitPoly(kind){
+  switch(kind){
+    case "star": return unitStar();
+    case "heart": return unitHeart();
+    case "egg": return unitEgg();
+    case "apple": return unitApple();
+    case "goat": return unitGoat();
+    default: return unitCircle();
+  }
+}
+
+/* --------------------------------------------------------- PAGE SYSTEM ----- *
+ * MIRROR MATH (spine along world X, at the far edge z=HINGE_Z=-5.5 — the
+ * "top of the screen"). The page mesh child is rotated x=-PI/2, which maps
+ * flat shape coords (sx,sy,0) to pivot-local (sx, 0, -sy) — same trick as
+ * before. The pivot itself now sits at (0, PAGE_Y, HINGE_Z) and flips via
+ * rotation.x = flipAngle (0..PI), NOT rotation.z: rotating about the X axis
+ * leaves each point's X coordinate untouched and only sweeps Y/Z, so:
+ *   world.x = sx                          (LATERAL — constant for the whole
+ *                                           flip, never mirrored)
+ *   world.y = PAGE_Y + sy * sin(angle)     (0 at rest and at landing; peaks
+ *                                           at angle=PI/2, standing upright)
+ *   world.z = HINGE_Z - sy * cos(angle)    (rest: HINGE_Z - sy, i.e. resting
+ *                                           beyond the spine; landed at
+ *                                           angle=PI: HINGE_Z + sy)
+ * A shape-local point at LATERAL sx and HINGE-DISTANCE sy (sy=0 at the
+ * spine, growing toward the page's far/unread edge) therefore lands
+ * (angle=PI) at world (sx, HINGE_Z + sy) — so a hole authored to LAND at
+ * world (wx,wz) is cut at shape (wx, wz - HINGE_Z) i.e. sy = wz + 5.5.
+ * Left/right (x) is NEVER mirrored — a page flipping toward the camera
+ * keeps left left, like closing a book cover. At angle=PI/2 every point
+ * sits at world z = HINGE_Z regardless of sy: the WHOLE page stands as a
+ * flat vertical billboard directly above the spine, height = sy — this is
+ * the readable "standing page" moment the camera is built to frame.       */
+const W2S_LAT = (wx) => wx;                       // lateral — identity, never mirrored
+const W2S_HDIST = (wz) => wz - TUNE.HINGE_Z;      // hinge-distance sy = wz + SPREAD_HALF_D
+const S2W_Z = (sy) => TUNE.HINGE_Z + sy;          // inverse — only valid at flipAngle = PI (landed)
+
+let curPage = null;   // { pivot, mesh, shadows:[{mesh,mat}], shadowPage, outlineCount, number }
+
+function placeHoles(N){
+  const count = holesForPage(N);
+  const holes = [];
+  const margin = 0.7;
+  let guard = 0;
+  while (holes.length < count && guard++ < 400){
+    const kind = HOLE_KINDS[(Math.random()*HOLE_KINDS.length)|0];
+    const diameter = 2.0 + Math.random()*0.6;   // 2.0..2.6 across
+    const r = diameter / 2;
+    const rx = (kind === "egg") ? r*0.86 : r;
+    const rz = r;
+    const cx = rand(-TUNE.SPREAD_HALF_W + margin + rx, TUNE.SPREAD_HALF_W - margin - rx);
+    const cz = rand(-TUNE.SPREAD_HALF_D + margin + rz, TUNE.SPREAD_HALF_D - margin - rz);
+    // reject overlaps
+    let ok = true;
+    for (const h of holes){
+      const dx = h.cx - cx, dz = h.cz - cz;
+      if (Math.hypot(dx, dz) < (h.rz + rz + 0.55)){ ok = false; break; }
+    }
+    if (!ok) continue;
+    const unit = unitPoly(kind);
+    const worldPoly = unit.map(([ux,uy]) => [cx + ux*rx, cz + uy*rz]);
+    holes.push({ kind, cx, cz, rx, rz, unit, worldPoly });
+  }
+  return holes;
+}
+
+function buildPageMesh(holes){
+  const LAT = TUNE.SPREAD_HALF_W * 2, LEN = TUNE.SPREAD_HALF_D * 2;
+  // outer rectangle in SHAPE coords: sx -LAT/2..LAT/2 (lateral), sy 0..LEN
+  // (hinge-distance — 0 at the spine, LEN at the page's far/unread edge)
+  const shape = new THREE.Shape();
+  shape.moveTo(-LAT/2, 0);
+  shape.lineTo( LAT/2, 0);
+  shape.lineTo( LAT/2, LEN);
+  shape.lineTo(-LAT/2, LEN);
+  shape.lineTo(-LAT/2, 0);
+  // cut each hole (shape coords = where it must be authored so it LANDS at
+  // its intended world position — see the mirror-math block above)
+  for (const h of holes){
+    const path = new THREE.Path();
+    const pts = h.worldPoly.map(([wx,wz]) => [W2S_LAT(wx), W2S_HDIST(wz)]);
+    path.moveTo(pts[0][0], pts[0][1]);
+    for (let i=1;i<pts.length;i++) path.lineTo(pts[i][0], pts[i][1]);
+    path.lineTo(pts[0][0], pts[0][1]);
+    shape.holes.push(path);
+  }
+  const geo = new THREE.ShapeGeometry(shape, 14);
+  // normalize UVs across the page bounds — must match paintPageTexture's
+  // own (sx,sy)->pixel mapping so the printed hole outlines line up exactly.
+  const pos = geo.attributes.position, uv = geo.attributes.uv;
+  for (let i=0;i<pos.count;i++){
+    uv.setXY(i, (pos.getX(i) + LAT/2)/LAT, pos.getY(i)/LEN);
+  }
+  uv.needsUpdate = true;
+  const mat = new THREE.MeshLambertMaterial({ map: pageTex, side: THREE.DoubleSide,
+    color: 0xf3e7c6, transparent: true, opacity: 1 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.rotation.x = -Math.PI/2;   // shape XY -> page XZ (see mirror math)
+  mesh.castShadow = true; mesh.receiveShadow = true;
+  return mesh;
+}
+
+// High-contrast "target" marker color — saturated warm red-orange, reads
+// clearly against the cream paper regardless of lighting (MeshBasicMaterial
+// ignores scene lights entirely, so it never dims under the descending page).
+const MARKER_COLOR = 0xe0502a;
+
+// Build a triangulated RIBBON outline that follows a polygon's own shape,
+// offset outward/inward from the source contour. THREE.Line linewidth is
+// ignored on Windows ANGLE, so a bold outline has to be real geometry, not a
+// thin line — this is that geometry. Per-vertex normals come from averaging
+// the two adjacent edge normals (a standard 2D polygon-offset technique),
+// with the winding direction (CW/CCW) resolved from the polygon's own
+// signed area so it works for every hole shape (circle/star/heart/egg/
+// apple/goat) without hand-tuning each one.
+function buildOffsetRingGeometry(poly, outerOff, innerOff, y){
+  const n = poly.length;
+  let area = 0;
+  for (let i=0;i<n;i++){
+    const [x1,z1] = poly[i], [x2,z2] = poly[(i+1)%n];
+    area += x1*z2 - x2*z1;
+  }
+  const ccw = area > 0;
+  const normals = [];
+  for (let i=0;i<n;i++){
+    const prev = poly[(i-1+n)%n], curr = poly[i], next = poly[(i+1)%n];
+    const e1x = curr[0]-prev[0], e1z = curr[1]-prev[1];
+    const e2x = next[0]-curr[0], e2z = next[1]-curr[1];
+    let n1x, n1z, n2x, n2z;
+    if (ccw){ n1x = e1z; n1z = -e1x; n2x = e2z; n2z = -e2x; }
+    else     { n1x = -e1z; n1z = e1x; n2x = -e2z; n2z = e2x; }
+    const l1 = Math.hypot(n1x,n1z) || 1, l2 = Math.hypot(n2x,n2z) || 1;
+    n1x/=l1; n1z/=l1; n2x/=l2; n2z/=l2;
+    let nx = n1x+n2x, nz = n1z+n2z;
+    let l = Math.hypot(nx,nz);
+    if (l < 1e-4){ nx = n1x; nz = n1z; l = 1; }
+    nx/=l; nz/=l;
+    // miter length correction (1/cos(half-angle)) so the offset stays snug
+    // around sharp corners (star spikes etc); clamped to avoid runaway spikes.
+    const cosHalf = Math.max(0.4, n1x*nx + n1z*nz);
+    const miter = Math.min(2.2, 1/cosHalf);
+    normals.push([nx*miter, nz*miter]);
+  }
+  const outer = poly.map((p,i)=>[p[0]+normals[i][0]*outerOff, p[1]+normals[i][1]*outerOff]);
+  const inner = poly.map((p,i)=>[p[0]-normals[i][0]*innerOff, p[1]-normals[i][1]*innerOff]);
+  const positions = new Float32Array(n*6*3);
+  let o = 0;
+  const push = (x,z)=>{ positions[o++]=x; positions[o++]=y; positions[o++]=z; };
+  for (let i=0;i<n;i++){
+    const j = (i+1)%n;
+    const o1=outer[i], o2=outer[j], i1=inner[i], i2=inner[j];
+    push(o1[0],o1[1]); push(i1[0],i1[1]); push(o2[0],o2[1]);
+    push(o2[0],o2[1]); push(i1[0],i1[1]); push(i2[0],i2[1]);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// High-contrast hole-landing marker: a soft fill (the "target pad") plus a
+// bold outline ring built as real ribbon geometry (see buildOffsetRingGeometry
+// above). Both are built in LOCAL coords around the hole's own center so the
+// group can pulse (scale) about that center during the flip's final approach.
+function buildShadow(h){
+  const { worldPoly, cx, cz } = h;
+  const localPoly = worldPoly.map(([x,z]) => [x-cx, z-cz]);
+
+  const contour = localPoly.map(([x,z]) => new THREE.Vector2(x, z));
+  const faces = THREE.ShapeUtils.triangulateShape(contour, []);
+  const fillPos = new Float32Array(faces.length * 3 * 3);
+  let o = 0;
+  for (const f of faces){
+    for (const idx of f){
+      const v = contour[idx];
+      fillPos[o++] = v.x; fillPos[o++] = 0; fillPos[o++] = v.y;
+    }
+  }
+  const fillGeo = new THREE.BufferGeometry();
+  fillGeo.setAttribute("position", new THREE.BufferAttribute(fillPos, 3));
+  fillGeo.computeVertexNormals();
+  const mat = new THREE.MeshBasicMaterial({ color: MARKER_COLOR, transparent: true,
+    opacity: 0, depthWrite: false });
+  const fillMesh = new THREE.Mesh(fillGeo, mat);
+  fillMesh.renderOrder = 2;
+
+  const ringGeo = buildOffsetRingGeometry(localPoly, TUNE.MARKER_RING_OUT, TUNE.MARKER_RING_IN, 0.008);
+  const ringMat = new THREE.MeshBasicMaterial({ color: MARKER_COLOR, transparent: true,
+    opacity: 0, depthWrite: false });
+  const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+  ringMesh.renderOrder = 3;
+
+  const group = new THREE.Group();
+  group.position.set(cx, TUNE.SHADOW_Y, cz);
+  group.add(fillMesh, ringMesh);
+
+  return { group, fillMesh, ringMesh, mat, ringMat };
+}
+
+// DESCENT SHADOW: a flat, static "shadow page" — the exact landed footprint
+// (same holes) lying on the ground the whole time, darkening + growing from
+// the spine as the real page swings down. Built as its own group pivoted at
+// the HINGE LINE (world (0, SHADOW_PAGE_Y, HINGE_Z)) so scaling the group in
+// Z alone grows the darkness outward from the spine toward the player and
+// reaches the exact landed size at scale=1 (see updateFlipVisuals). Local
+// child coords use the SAME hinge-distance convention as the real page
+// (sy=0 at the spine) but authored negative-y-in-shape-space (see the sign
+// note below) so after the fixed rotation.x=-PI/2 a local-z of +sy (i.e.
+// "sy world-units past the spine") comes out positive/away from the hinge.
+function buildShadowPageGroup(holes){
+  const HALF_W = TUNE.SPREAD_HALF_W, LEN = TUNE.SPREAD_HALF_D * 2;
+  const shape = new THREE.Shape();
+  shape.moveTo(-HALF_W, 0);
+  shape.lineTo( HALF_W, 0);
+  shape.lineTo( HALF_W, -LEN);
+  shape.lineTo(-HALF_W, -LEN);
+  shape.lineTo(-HALF_W, 0);
+  for (const h of holes){
+    const path = new THREE.Path();
+    // shape sy = -(wz - HINGE_Z) so that, after rotation.x=-PI/2, local z
+    // comes out to +(wz-HINGE_Z) — the point's true hinge-distance.
+    const pts = h.worldPoly.map(([wx, wz]) => [wx, TUNE.HINGE_Z - wz]);
+    path.moveTo(pts[0][0], pts[0][1]);
+    for (let i=1;i<pts.length;i++) path.lineTo(pts[i][0], pts[i][1]);
+    path.lineTo(pts[0][0], pts[0][1]);
+    shape.holes.push(path);
+  }
+  const geo = new THREE.ShapeGeometry(shape, 14);
+  const mat = new THREE.MeshBasicMaterial({ color: 0x0a0704, transparent: true,
+    opacity: 0, depthWrite: false, side: THREE.DoubleSide });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.rotation.x = -Math.PI/2;
+  mesh.renderOrder = 1;   // under the marker fill(2)/ring(3), above the ground
+  const group = new THREE.Group();
+  group.position.set(0, TUNE.SHADOW_PAGE_Y, TUNE.HINGE_Z);
+  group.add(mesh);
+  return { group, mesh, mat, holeCount: holes.length };
+}
+
+// build the page mesh + hole markers + descent shadow for a given hole set
+// (shared by the host's spawnPage and the guest's applyHolesFromRoom).
+function buildPageVisuals(holes, number){
+  clearPage();
+  G.holes = holes;
+  const outlineCount = paintPageTexture(holes);
+  const pivot = new THREE.Group();
+  pivot.position.set(0, TUNE.PAGE_Y, TUNE.HINGE_Z);
+  const mesh = buildPageMesh(holes);
+  pivot.add(mesh);
+  scene.add(pivot);
+  const shadows = holes.map(h => {
+    const s = buildShadow(h);
+    scene.add(s.group);
+    return s;
+  });
+  const shadowPage = buildShadowPageGroup(holes);
+  scene.add(shadowPage.group);
+  curPage = { pivot, mesh, shadows, shadowPage, outlineCount, number };
+  G.flipAngle = 0; pivot.rotation.x = 0;
+  updateFlipVisuals(0);
+}
+function spawnPage(number){
+  const holes = placeHoles(number);
+  G.holes = holes;
+  if (G.mode !== "solo") planBotsForPage();   // versus + mp (host-authoritative)
+  buildPageVisuals(holes, number);
+  G.holeGen++;
+  publishHoles(number, holes);                // MP: one keyed message per page (no-op unless host)
+}
+
+function clearPage(){
+  if (!curPage) return;
+  scene.remove(curPage.pivot);
+  curPage.mesh.geometry.dispose();
+  for (const s of curPage.shadows){
+    scene.remove(s.group);
+    s.fillMesh.geometry.dispose(); s.ringMesh.geometry.dispose();
+  }
+  scene.remove(curPage.shadowPage.group);
+  curPage.shadowPage.mesh.geometry.dispose();
+  curPage = null;
+}
+
+// set the flip angle + ramp the hole-landing markers + the descent shadow
+// (single source used by loop, setFlipAngle test hook, and judgeNow).
+function updateFlipVisuals(angle){
+  G.flipAngle = angle;
+  if (!curPage) return;
+  curPage.pivot.rotation.x = angle;
+  const frac = angle / Math.PI;                       // 0..1
+  let op = (frac - TUNE.SHADOW_START) / (1 - TUNE.SHADOW_START);
+  op = Math.max(0, Math.min(1, op));
+  const fillOp = op * TUNE.MARKER_FILL_MAX_OP;
+  const ringOp = Math.min(1, op * 1.3) * TUNE.MARKER_RING_MAX_OP;
+  // gentle SIZE pulse (not an opacity flicker) in the flip's final approach —
+  // keeps the marker unmistakably "hot" right when it matters most.
+  let scalePulse = 1;
+  if (frac > TUNE.MARKER_PULSE_START){
+    scalePulse = 1 + TUNE.MARKER_PULSE_AMT * Math.abs(Math.sin(performance.now() * 0.012));
+  }
+  for (const s of curPage.shadows){
+    s.mat.opacity = fillOp;
+    s.ringMat.opacity = ringOp;
+    s.group.scale.setScalar(scalePulse);
+  }
+  // descent shadow: opacity ramps 90deg->175deg past vertical; z-scale grows
+  // from ~0 (collapsed on the spine) to 1 (exact landed footprint) as
+  // -cos(angle) goes 0->1 across the WHOLE flip, so it's naturally near-zero
+  // before the page even passes vertical and reaches exactly 1 at landing.
+  const sp = curPage.shadowPage;
+  const angleDeg = angle * 180 / Math.PI;
+  const shRamp = Math.max(0, Math.min(1,
+    (angleDeg - TUNE.SHADOW_PAGE_START_DEG) / (TUNE.SHADOW_PAGE_END_DEG - TUNE.SHADOW_PAGE_START_DEG)));
+  sp.mat.opacity = shRamp * TUNE.SHADOW_PAGE_MAX_OP;
+  sp.group.scale.z = Math.max(0.001, -Math.cos(angle));
+}
+
+/* ---------------------------------------------------- SQUISH JUDGE --------- */
+function pointInPoly(px, pz, poly){
+  let inside = false;
+  for (let i=0, j=poly.length-1; i<poly.length; j=i++){
+    const xi=poly[i][0], zi=poly[i][1], xj=poly[j][0], zj=poly[j][1];
+    if (((zi>pz)!==(zj>pz)) && (px < (xj-xi)*(pz-zi)/(zj-zi)+xi)) inside = !inside;
+  }
+  return inside;
+}
+// safe iff center inside a hole AND >=3 of 4 forgiveness satellites inside it
+function safeInHole(px, pz, poly){
+  if (!pointInPoly(px, pz, poly)) return false;
+  const m = TUNE.FORGIVE;
+  const sats = [[m,0],[-m,0],[0,m],[0,-m]];
+  let n = 0;
+  for (const [dx,dz] of sats) if (pointInPoly(px+dx, pz+dz, poly)) n++;
+  return n >= 3;
+}
+function isSafeAt(px, pz){
+  for (const h of G.holes) if (safeInHole(px, pz, h.worldPoly)) return true;
+  return false;
+}
+function isPlayerSafe(){ const e = localP(); return e ? isSafeAt(e.x, e.z) : false; }
+function isEntrySafe(e){ return isSafeAt(e.x, e.z); }
+
+/* ------------------------------------------------------- HOST SIM ---------- *
+ * host-authoritative functions. In MP the host runs the WHOLE sim through here
+ * (see the MP block for the net layer); guests never call these, they render
+ * the host's published verdicts. publishSnapshotNow()/publishHoles() self-guard
+ * (no-op unless net.active && net.isHost) so the same code drives solo/versus/MP. */
+function beginFlip(){
+  const num = G.page + 1;
+  G.stage = "flipping";
+  G.flipElapsed = 0; G.slamDone = false;
+  G.flipDur = flipT(num);
+  sfxWhoosh(G.flipDur);
+  publishSnapshotNow();
+}
+function onSlamAndJudge(){
+  G.slamDone = true;
+  shake(TUNE.SHAKE_AMP);
+  slamFX();
+  sfxSlam();
+  judge();
+  publishSnapshotNow();
+}
+function judge(){
+  if (G.mode !== "solo"){ judgeMulti(); return; }
+  if (isPlayerSafe()){
+    sfxDing();
+    G.page += 1;
+    pageCounterFX(G.page);
+    if (G.page >= TUNE.WIN_PAGE){ winGame(); return; }
+    G.stage = "resting"; G.restLeft = TUNE.REST_TIME;
+  } else {
+    squishBucky();
+  }
+}
+function clearPageAndNext(){
+  const next = G.page + 1;
+  spawnPage(next);
+  G.stage = "pause";
+  G.pauseLeft = pauseT(next);
+  publishSnapshotNow();
+}
+function hostAdvance(dt){
+  if (G.phase !== "playing") return;
+  const local = localP();
+  if (local && local.alive && !local.isBot) updatePlayer(dt);   // local human from input
+  if (net.active && net.isHost) hostAdoptGuests(dt);            // remote humans from their published pos
+  if (G.mode !== "solo") updateBots(dt);                        // bot AI (versus + mp)
+  if (G.stage === "pause"){
+    G.pauseLeft -= dt;
+    if (G.pauseLeft <= 0) beginFlip();
+  } else if (G.stage === "flipping"){
+    G.flipElapsed += dt;
+    const t = Math.min(1, G.flipElapsed / G.flipDur);
+    updateFlipVisuals(Math.PI * Math.pow(t, 1.7));   // accelerating slam
+    if (t >= 1 && !G.slamDone) onSlamAndJudge();
+  } else if (G.stage === "resting"){
+    G.restLeft -= dt;
+    if (G.restLeft <= 0) clearPageAndNext();
+  }
+}
+
+/* ================================================================ VERSUS === *
+ * Last-one-standing (versus = Bucky + 3 AI goats; MP = up to 4 humans + bots).
+ * Judging reuses the exact same safeInHole()/isSafeAt() polygon test as solo,
+ * with the same forgiveness margin — bots get no advantage or penalty on the
+ * hitbox itself, only on their movement/decision-making (planBotsForPage/
+ * updateBots). eliminateEntry() handles BOTH a local human (pancake + stay to
+ * spectate) and a remote/bot (pancake -> hold -> fade poof).                  */
+function eliminateEntry(e){
+  if (!e || !e.alive) return;
+  e.alive = false;
+  if (e.isLocal){
+    slamFX(true, e.x, e.z);
+    sfxHonk();
+    playViewClip(charViews[e.char], "idle", 0.1);
+  } else {
+    e.elimPhase = "squishing";
+    e.elimT = 0;
+    slamFX(false, e.x, e.z);
+  }
+}
+function checkMatchResolution(opts){
+  const advancePage = !!(opts && opts.advancePage);
+  const alive = aliveEntries();
+  if (alive.length >= 2){
+    if (advancePage){
+      sfxDing();
+      G.page += 1;
+      pageCounterFX(G.page);
+      G.stage = "resting"; G.restLeft = TUNE.REST_TIME;
+    }
+    const local = localP();
+    if (local && !local.alive && !G.spectate) enterSpectate();
+    return { resolved:false };
+  }
+  if (alive.length === 1){
+    const w = alive[0];
+    resolveMatch(w);
+    return { resolved:true, type: matchTypeFor(w), winnerId: w.id };
+  }
+  resolveMatch(null);
+  return { resolved:true, type:"draw" };
+}
+function matchTypeFor(w){ return w.isLocal ? "playerWin" : (w.isBot ? "botWin" : "remoteWin"); }
+function judgeMulti(){
+  for (const e of aliveEntries()) if (!isEntrySafe(e)) eliminateEntry(e);
+  checkMatchResolution({ advancePage:true });
+}
+function enterSpectate(){ G.spectate = true; }
+function resolveMatch(winner){
+  G.phase = "matchover"; G.stage = "none";
+  G.spectate = false;
+  if (!winner){
+    G.matchResult = { type:"draw", winnerId:null, winnerName:null, winnerChar:null };
+    sfxHonk();
+    showVersusOverlay(G.matchResult);
+    publishSnapshotNow();
+    return;
+  }
+  const type = matchTypeFor(winner);
+  G.matchResult = { type, winnerId: winner.id, winnerName: winner.name, winnerChar: winner.char };
+  winner.x = 0; winner.z = 0;
+  syncEntryNow(winner);
+  playViewClip(charViews[winner.char], "cheer", 0.15);
+  if (type === "playerWin"){
+    sfxFanfare(); confettiBurst();
+    const wins = (parseInt(localStorage.getItem("sb_wins") || "0", 10) || 0) + 1;
+    localStorage.setItem("sb_wins", String(wins));
+  } else {
+    sfxSting();
+  }
+  showVersusOverlay(G.matchResult);
+  publishSnapshotNow();
+}
+function skipSpectate(){
+  if (!G.spectate || G.mode === "mp") return;   // MP: no fast-forward (guests can't sim ahead)
+  G.fastForwarding = true;
+  const stepDt = 1/60;
+  let iterations = 0;
+  while (G.phase === "playing" && iterations < 24000){
+    hostAdvance(stepDt);
+    iterations++;
+  }
+  G.fastForwarding = false;
+  const local = localP();
+  if (local) syncEntryNow(local);
+  for (const b of botEntries()) syncEntryNow(b);
+}
+
+/* ---- bot AI: per-page planning (runs once right after new holes spawn) --- *
+ * Bots only ever look at G.holes for the CURRENT page — they never read
+ * ahead. errChanceAt(pageN) ramps the chance a bot fumbles this page; when
+ * it does, one of three harmless-but-costly mistakes is rolled: reacting
+ * late, wobbling to a point BETWEEN holes, or dawdling mid-walk.           */
+function errChanceAt(n, botId){
+  const bot = botId ? resolveEntry(botId) : null;
+  const base = (bot && bot.errRateBase != null) ? bot.errRateBase : 0.07;
+  return Math.min(0.5, base + n * 0.012);
+}
+function pickErrorType(bot){
+  const dawdleW = 1 + bot.dawdleAmt * 4;   // 1..2 — bot's own "dawdle personality" biases this
+  const lateW = 1, wobbleW = 1;
+  let r = Math.random() * (dawdleW + lateW + wobbleW);
+  if (r < dawdleW) return "dawdle";
+  r -= dawdleW;
+  if (r < lateW) return "late";
+  return "wobble";
+}
+function findSafePointInHole(hole, avoid, minDist){
+  let fallback = null;
+  for (let i=0; i<24; i++){
+    const ang = Math.random()*Math.PI*2;
+    const rad = Math.random()*Math.min(hole.rx, hole.rz)*0.55;
+    const x = hole.cx + Math.cos(ang)*rad, z = hole.cz + Math.sin(ang)*rad;
+    if (!safeInHole(x, z, hole.worldPoly)) continue;
+    if (avoid && avoid.length){
+      let farEnough = true;
+      for (const a of avoid) if (Math.hypot(a.x-x, a.z-z) < minDist){ farEnough = false; break; }
+      if (!farEnough){ if (!fallback) fallback = { x, z }; continue; }
+    }
+    return { x, z };
+  }
+  return fallback || { x: hole.cx, z: hole.cz };
+}
+function pickWobblePoint(hole, allHoles){
+  let other = null;
+  for (const h of allHoles) if (h !== hole){ other = h; break; }
+  let tx, tz;
+  if (other){
+    const t = 0.45 + Math.random()*0.1;
+    tx = hole.cx + (other.cx - hole.cx)*t;
+    tz = hole.cz + (other.cz - hole.cz)*t;
+  } else {
+    tx = hole.cx*0.3; tz = hole.cz*0.3;
+  }
+  let guard = 0;
+  while (isSafeAt(tx, tz) && guard++ < 10){ tx += (Math.random()*2-1)*0.8; tz += (Math.random()*2-1)*0.8; }
+  return { x: clamp(tx, -TUNE.BOUND_X, TUNE.BOUND_X), z: clamp(tz, -TUNE.BOUND_Z, TUNE.BOUND_Z) };
+}
+function planBotsForPage(){
+  const pageN = G.page + 1;
+  for (const bot of botEntries()){
+    bot.aiPhase = "idle";
+    bot.walkDawdleDone = false;
+    bot.walkT = 0;
+    bot.errType = null;
+    if (!bot.alive){ bot.planned = false; continue; }
+    const chance = errChanceAt(pageN, bot.id);
+    const erring = G.forceNoErrors ? false : Math.random() < chance;
+    const holesSorted = G.holes.map((h,i) => ({ i, h, d: Math.hypot(h.cx-bot.x, h.cz-bot.z) })).sort((a,b) => a.d-b.d);
+    let pick = holesSorted[0];
+    if (holesSorted.length > 1 && Math.random() < 0.28) pick = holesSorted[1];
+    bot.targetHoleIdx = pick.i;
+    const hole = pick.h;
+    const others = botEntries().filter(b => b !== bot && b.alive && b.targetHoleIdx === pick.i)
+      .map(b => ({ x:b.standX, z:b.standZ }));
+    let sp = findSafePointInHole(hole, others, 0.6);
+    if (erring){
+      const type = pickErrorType(bot);
+      bot.errType = type;
+      if (type === "wobble") sp = pickWobblePoint(hole, G.holes);
+    }
+    bot.standX = sp.x; bot.standZ = sp.z;
+    bot.effReactionT = bot.reactionBase * (bot.errType === "late" ? 2.5 : 1);
+    bot.dawdleMidT = 0.3 + Math.random()*0.35;
+    bot.planned = true;
+  }
+}
+function stepBotToward(bot, tx, tz, dt){
+  const dx = tx-bot.x, dz = tz-bot.z;
+  const dist = Math.hypot(dx, dz);
+  const speed = TUNE.MOVE_SPEED * bot.speedMul;
+  if (dist < 0.06){
+    bot.x = tx; bot.z = tz;
+    bot.aiPhase = "arrived";
+    bot.moving = false;
+    return;
+  }
+  const step = Math.min(dist, speed*dt);
+  bot.x += dx/dist*step; bot.z += dz/dist*step;
+  bot.facing = Math.atan2(dx, dz);
+  bot.moving = true;
+  bot.speed = speed;
+}
+function updateBots(dt){
+  for (const bot of botEntries()){
+    if (!bot.alive || !bot.planned) continue;
+    if (bot.aiPhase === "idle"){
+      bot.moving = false;
+      if (G.stage === "flipping" && G.flipElapsed >= bot.effReactionT){
+        bot.aiPhase = "walking"; bot.walkT = 0;
+      }
+    } else if (bot.aiPhase === "walking"){
+      bot.walkT += dt;
+      if (bot.errType === "dawdle" && !bot.walkDawdleDone && bot.walkT >= bot.dawdleMidT){
+        bot.aiPhase = "dawdling"; bot.dawdleTimer = 0.6; bot.walkDawdleDone = true; bot.moving = false;
+      } else {
+        stepBotToward(bot, bot.standX, bot.standZ, dt);
+      }
+    } else if (bot.aiPhase === "dawdling"){
+      bot.moving = false;
+      bot.dawdleTimer -= dt;
+      if (bot.dawdleTimer <= 0) bot.aiPhase = "walking";
+    } else if (bot.aiPhase === "arrived"){
+      bot.moving = false;
+    }
+  }
+}
+
+/* ----------------------------------------------------------- INPUT --------- */
+const keys = new Set();
+const KEYMAP = {
+  KeyW:"up", ArrowUp:"up", KeyS:"down", ArrowDown:"down",
+  KeyA:"left", ArrowLeft:"left", KeyD:"right", ArrowRight:"right",
+};
+addEventListener("keydown", (e)=>{
+  if (KEYMAP[e.code]){ keys.add(KEYMAP[e.code]); e.preventDefault(); }
+  if (e.code === "Enter" || e.code === "Space"){
+    // terminal game states take priority (a running/finished minigame may leave
+    // PARTY.phase untouched in direct-start/debug paths).
+    if (G.phase === "squished" || G.phase === "won" || G.phase === "matchover") restart();
+    else if (G.spectate) skipSpectate();
+    else if (PARTY.phase === "title") partyStart("solo");
+    e.preventDefault();
+  }
+  if (e.code === "KeyP" && PARTY.phase === "title") partyStart("solo");
+  if (e.code === "KeyF" && PARTY.phase === "title") partyStart("mp");
+  if (e.code === "KeyR" && (G.phase === "squished" || G.phase === "won" || G.phase === "matchover")) restart();
+});
+addEventListener("keyup", (e)=>{ if (KEYMAP[e.code]) keys.delete(KEYMAP[e.code]); });
+addEventListener("blur", ()=> keys.clear());
+// versus spectate: any tap/click skips straight to the match result
+addEventListener("pointerdown", (e)=>{
+  if (G.spectate && G.phase === "playing" && !e.target.closest("#muteBtn")) skipSpectate();
+});
+
+// touch stick (full-area analog)
+const IS_COARSE = matchMedia("(pointer: coarse)").matches;
+if (IS_COARSE) document.body.classList.add("coarse");
+const touch = { active:false, id:-1, ox:0, oy:0, ix:0, iy:0 };
+const ringEl = document.getElementById("ring"), knobEl = document.getElementById("knob");
+const TC = document.getElementById("touchCtl");
+const STICK_R = 62;
+function stickDown(e){
+  if (G.phase !== "playing") return;
+  const t = e.changedTouches ? e.changedTouches[0] : e;
+  touch.active = true; touch.id = t.identifier ?? -1;
+  touch.ox = t.clientX; touch.oy = t.clientY; touch.ix = 0; touch.iy = 0;
+  ringEl.style.display = knobEl.style.display = "block";
+  ringEl.style.left = knobEl.style.left = t.clientX + "px";
+  ringEl.style.top = knobEl.style.top = t.clientY + "px";
+}
+function stickMove(e){
+  if (!touch.active) return;
+  const list = e.changedTouches || [e];
+  let t = null;
+  for (const c of list){ if ((c.identifier ?? -1) === touch.id){ t = c; break; } }
+  if (!t) return;
+  let dx = t.clientX - touch.ox, dy = t.clientY - touch.oy;
+  const d = Math.hypot(dx, dy);
+  const cl = Math.min(d, STICK_R);
+  const ang = Math.atan2(dy, dx);
+  const kx = Math.cos(ang)*cl, ky = Math.sin(ang)*cl;
+  knobEl.style.left = (touch.ox + kx) + "px";
+  knobEl.style.top = (touch.oy + ky) + "px";
+  touch.ix = kx / STICK_R;         // [-1,1] right
+  touch.iy = -ky / STICK_R;        // [-1,1] forward (drag up = forward)
+  e.preventDefault();
+}
+function stickUp(e){
+  touch.active = false; touch.ix = 0; touch.iy = 0;
+  ringEl.style.display = knobEl.style.display = "none";
+}
+TC.addEventListener("touchstart", stickDown, {passive:false});
+TC.addEventListener("touchmove", stickMove, {passive:false});
+TC.addEventListener("touchend", stickUp);
+TC.addEventListener("touchcancel", stickUp);
+TC.addEventListener("pointerdown", (e)=>{ if (e.pointerType!=="touch") stickDown(e); });
+TC.addEventListener("pointermove", (e)=>{ if (e.pointerType!=="touch") stickMove(e); });
+TC.addEventListener("pointerup", stickUp);
+
+function readInput(){
+  let ix = 0, iy = 0;
+  if (keys.has("left")) ix -= 1;
+  if (keys.has("right")) ix += 1;
+  if (keys.has("up")) iy += 1;
+  if (keys.has("down")) iy -= 1;
+  if (touch.active){ ix += touch.ix; iy += touch.iy; }
+  return { ix: Math.max(-1,Math.min(1,ix)), iy: Math.max(-1,Math.min(1,iy)) };
+}
+
+const _mv = new THREE.Vector3();
+function updatePlayer(dt){
+  const e = localP();
+  if (!e) return;
+  const { ix, iy } = readInput();
+  _mv.set(0,0,0);
+  _mv.addScaledVector(CAM_RIGHT, ix);
+  _mv.addScaledVector(CAM_FWD, iy);
+  const len = _mv.length();
+  if (len > 1) _mv.multiplyScalar(1/len);
+  const spd = TUNE.MOVE_SPEED;
+  e.x = clamp(e.x + _mv.x * spd * dt, -TUNE.BOUND_X, TUNE.BOUND_X);
+  e.z = clamp(e.z + _mv.z * spd * dt, -TUNE.BOUND_Z, TUNE.BOUND_Z);
+  e.speed = len * spd;
+  if (len > 0.01){ e.facing = Math.atan2(_mv.x, _mv.z); e.moving = true; }
+  else e.moving = false;
+  syncEntryNow(e);
+}
+
+/* ------------------------------------------------------------ BUCKY -------- */
+let buckyReady = false, buckyTris = 0;
+let buckyRoot, buckySquish, buckyFacing, buckyLean, buckyModel;
+let mixer = null, actions = {};
+let dizzy = [];    // Bucky's star sprites (per-view dizzy is built for the others too)
+
+buckyRoot = new THREE.Group();
+buckySquish = new THREE.Group();
+buckyFacing = new THREE.Group();
+buckyLean = new THREE.Group();
+buckyRoot.add(buckySquish); buckySquish.add(buckyFacing); buckyFacing.add(buckyLean);
+scene.add(buckyRoot);
+
+// cheap soft blob shadow (grounding without a shadow-map pass) — texture built
+// once and reused (read-only) across Bucky + every bot instance.
+let blobShadowTex = null;
+function buildBlobShadowTexture(){
+  const c = document.createElement("canvas"); c.width = c.height = 128;
+  const g = c.getContext("2d");
+  const grd = g.createRadialGradient(64,64,4,64,64,62);
+  grd.addColorStop(0, "rgba(20,14,6,.55)");
+  grd.addColorStop(0.6, "rgba(20,14,6,.28)");
+  grd.addColorStop(1, "rgba(20,14,6,0)");
+  g.fillStyle = grd; g.fillRect(0,0,128,128);
+  return new THREE.CanvasTexture(c);
+}
+function makeBlobShadow(){
+  if (!blobShadowTex) blobShadowTex = buildBlobShadowTexture();
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(TUNE.BLOB_SIZE, TUNE.BLOB_SIZE),
+    new THREE.MeshBasicMaterial({ map:blobShadowTex, transparent:true, depthWrite:false }));
+  m.rotation.x = -Math.PI/2; m.position.y = 0.035; m.renderOrder = 1;
+  return m;
+}
+const blobShadow = makeBlobShadow();
+buckyRoot.add(blobShadow);
+
+const gltfLoader = new THREE.GLTFLoader();
+function loadGLB(url){ return new Promise((res,rej)=>gltfLoader.load(url, res, undefined, rej)); }
+
+// Generic cast-member loader (base GLB + 6 mesh-less clip GLBs, same pattern
+// characterdemo.html/barnyardbistro.html use). Returns a fully normalized
+// model (feet at origin, scaled to targetH, facing +Z) + the RAW clip objects
+// (not yet bound to a mixer) so callers can either drive it directly (Bucky,
+// Billy) or SkeletonUtils.clone() it for a tinted rival (Rosie, Clover).
+async function loadCastModel(dir, prefix, targetH){
+  const gltf = await loadGLB(`assets/cast/${dir}/${prefix}.glb`);
+  const model = gltf.scene;
+  let tris = 0;
+  model.traverse(o=>{
+    if (o.isMesh || o.isSkinnedMesh){
+      const src = Array.isArray(o.material) ? o.material[0] : o.material;
+      const map = (src && src.map) ? src.map : null;
+      o.material = new THREE.MeshLambertMaterial({
+        map,
+        color: map ? 0xffffff : ((src && src.color) ? src.color.clone() : new THREE.Color(0xcccccc)),
+        skinning: true,   // r128: required or the skinned mesh freezes in bind pose
+        emissive: new THREE.Color(0xffffff).multiplyScalar(0.34), emissiveMap: map,
+      });
+      o.castShadow = true; o.receiveShadow = false; o.frustumCulled = false;
+      if (o.geometry && o.geometry.index) tris += o.geometry.index.count/3;
+    }
+  });
+  model.updateMatrixWorld(true);
+  let box = new THREE.Box3().setFromObject(model);
+  const h = Math.max(box.max.y - box.min.y, 1e-3);
+  const s = (targetH || TUNE.BUCKY_H) / h;
+  model.scale.setScalar(s);
+  model.updateMatrixWorld(true);
+  box = new THREE.Box3().setFromObject(model);
+  model.position.y -= box.min.y;
+  model.rotation.y = -Math.PI/2;   // GLB faces +X -> face +Z (game forward)
+  const rawClips = {};
+  const clipNames = ["idle","walk","run","jump","dance","cheer"];
+  await Promise.allSettled(clipNames.map(async n=>{
+    try{
+      const g = await loadGLB(`assets/cast/${dir}/${prefix}-${n}.glb`);
+      const clip = g.animations && g.animations[0];
+      if (clip) rawClips[n] = clip;
+    }catch(e){ console.warn(`${dir}/${prefix}-${n} failed`, e); }
+  }));
+  return { model, rawClips, tris: Math.round(tris) };
+}
+
+let buckyRawClips = null;
+async function loadBucky(){
+  let res;
+  try { res = await loadCastModel("bucky", "bucky"); }
+  catch(e){ console.warn("bucky.glb failed", e); return; }
+  buckyModel = res.model;
+  buckyTris = res.tris;
+  buckyRawClips = res.rawClips;
+  buckyLean.add(buckyModel);
+  mixer = new THREE.AnimationMixer(buckyModel);
+  for (const n in res.rawClips) actions[n] = mixer.clipAction(res.rawClips[n]);
+  playerNeckMesh = addNeckerchief(buckyModel, NECK_COLOR.bucky);
+  if (playerNeckMesh) playerNeckMesh.visible = false;   // shown only in versus/mp
+  // register Bucky as a unified character view (same interface as the bot views)
+  buckyView = {
+    char:"bucky", root:buckyRoot, squish:buckySquish, facing:buckyFacing, lean:buckyLean,
+    model:buckyModel, mixer, actions, curClip:null, neckMesh:playerNeckMesh, blob:blobShadow,
+    dizzy, tris:buckyTris,
+  };
+  charViews.bucky = buckyView;
+  buildDizzyStars(buckyRoot, dizzy);
+  buckyReady = true;
+  playViewClip(buckyView, "idle", 0);
+  maybeBuildBotViews();
+}
+
+let billyTemplateModel = null, billyRawClips = null, billyReady = false;
+async function loadBillyTemplate(){
+  let res;
+  try { res = await loadCastModel("goat", "goat"); }
+  catch(e){ console.warn("goat.glb failed", e); return; }
+  billyTemplateModel = res.model;
+  billyRawClips = res.rawClips;
+  billyReady = true;
+  maybeBuildBotViews();
+}
+
+/* ---------------------------------------------------------- VERSUS CAST ---- *
+ * P1 Bucky (player, no tint) · Billy (own goat.glb, no tint) · Rosie (Bucky
+ * clone, pink tint) · Clover (Billy clone, green tint). Rosie/Clover reuse
+ * the ALREADY-LOADED geometry/skeleton via SkeletonUtils.clone — no extra
+ * network fetch, no extra Tripo credits. Each gets its own material clones
+ * (never shared — tint would bleed onto the source) and its own mixer bound
+ * to the SHARED raw AnimationClip objects (clipAction() just reads tracks,
+ * safe to bind the same clip on multiple mixers — same pattern
+ * barnyardbistro.html's buildChefGLB uses for its chef cast). */
+const NECK_COLOR = { bucky:0xba303e, billy:0x2255cc, rosie:0xef5fa0, clover:0x2f8f3a };
+const TINT_COLOR = { rosie:0xffd8dc, clover:0xd8f0d2 };
+const botViews = {};    // char -> view (billy/rosie/clover)
+const charViews = {};   // char -> view (bucky + the three bot views) — the unified render map
+let buckyView = null;
+let playerNeckMesh = null, botsBuilt = false;
+
+function findBone(root, names){
+  let found = null;
+  for (const n of names){
+    root.traverse(o => { if (!found && o.isBone && o.name === n) found = o; });
+    if (found) break;
+  }
+  return found;
+}
+// Attaches a small colored ring+flap "neckerchief" to a neck-ish bone. Sized
+// via the bone's own cumulative WORLD scale so it reads a consistent size
+// regardless of the model's normalize factor — a naive child-of-bone add
+// would inherit the whole model.scale.setScalar(s) chain and render tiny/huge.
+function addNeckerchief(model, color){
+  const bone = findBone(model, ["NeckTwist01","NeckTwist02","Spine02","Head"]);
+  if (!bone) return null;
+  model.updateMatrixWorld(true);   // ensure bone.getWorldScale below reads real (not stale) transforms
+  const group = new THREE.Group();
+  const mat = new THREE.MeshLambertMaterial({ color, emissive: new THREE.Color(color).multiplyScalar(0.3) });
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.10, 0.038, 6, 12), mat);
+  ring.rotation.x = Math.PI/2;
+  group.add(ring);
+  const flap = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.16, 4), mat);
+  flap.position.set(0, -0.11, 0.03);
+  flap.rotation.y = Math.PI/4;
+  group.add(flap);
+  const worldScale = new THREE.Vector3();
+  bone.getWorldScale(worldScale);
+  const avg = (worldScale.x + worldScale.y + worldScale.z) / 3 || 1;
+  group.scale.setScalar(1/avg);
+  group.position.set(0, 0.02, 0.05);
+  bone.add(group);
+  return group;
+}
+// Per-instance material clones + a color multiply (white/textured base ->
+// texture detail survives; a light tint like the pink/green pair here stays
+// readable). Never shared with the source model's own materials.
+function tintClone(clone, tintColor){
+  if (tintColor == null) return;
+  const tint = new THREE.Color(tintColor);
+  clone.traverse(o=>{
+    if ((o.isMesh || o.isSkinnedMesh) && o.material){
+      o.material = o.material.clone();
+      o.material.color.multiply(tint);
+      if (o.material.emissive) o.material.emissive.multiply(tint);
+    }
+  });
+}
+function countTris(model){
+  let n = 0;
+  model.traverse(o=>{ if ((o.isMesh || o.isSkinnedMesh) && o.geometry && o.geometry.index) n += o.geometry.index.count/3; });
+  return Math.round(n);
+}
+function buildBotView(id, sourceModel, rawClips, tint, neckColor, doClone){
+  const root = new THREE.Group();
+  const squish = new THREE.Group();
+  const facing = new THREE.Group();
+  const lean = new THREE.Group();
+  root.add(squish); squish.add(facing); facing.add(lean);
+  scene.add(root);
+  const model = doClone ? THREE.SkeletonUtils.clone(sourceModel) : sourceModel;
+  if (doClone) tintClone(model, tint);
+  lean.add(model);
+  const blob = makeBlobShadow();
+  root.add(blob);
+  const mixer = new THREE.AnimationMixer(model);
+  const actions = {};
+  for (const n in rawClips) actions[n] = mixer.clipAction(rawClips[n]);
+  const neckMesh = addNeckerchief(model, neckColor);
+  root.visible = false;
+  const dz = [];
+  buildDizzyStars(root, dz);
+  const view = { char:id, root, squish, facing, lean, model, mixer, actions, curClip:null, neckMesh, blob, dizzy:dz, tris: countTris(model) };
+  botViews[id] = view;
+  charViews[id] = view;
+  return view;
+}
+function maybeBuildBotViews(){
+  if (!buckyReady || !billyReady || botsBuilt) return;
+  botsBuilt = true;
+  buildBotView("billy",  billyTemplateModel, billyRawClips, null,               NECK_COLOR.billy,  false);
+  buildBotView("rosie",  buckyModel,         buckyRawClips, TINT_COLOR.rosie,   NECK_COLOR.rosie,  true);
+  buildBotView("clover", billyTemplateModel, billyRawClips, TINT_COLOR.clover,  NECK_COLOR.clover, true);
+  buildVersusHudChips();
+}
+
+/* --------------------------------------------------- UNIFIED RENDER LAYER --- *
+ * ONE render path drives every character (local / remote human / bot) from its
+ * G.players entry. char resolves the view (charViews[char]); the entry supplies
+ * position + facing + moving + alive + squish. An eliminated LOCAL human
+ * pancakes and lingers (dizzy stars, they watch/overlay); an eliminated
+ * remote/bot pancakes -> holds -> fades to a poof. In solo/versus this collapses
+ * to exactly the Stage-2 behavior (local=Bucky, others=bots).                 */
+function playViewClip(view, name, fade=0.15){
+  if (!view || !view.actions[name] || view.curClip === name) return;
+  const next = view.actions[name];
+  next.enabled = true;
+  next.reset().setEffectiveTimeScale(1).setEffectiveWeight(1);
+  if (name === "jump" || name === "cheer"){ next.setLoop(THREE.LoopRepeat); }
+  if (view.curClip && view.actions[view.curClip]) next.crossFadeFrom(view.actions[view.curClip], fade, true);
+  next.play();
+  view.curClip = name;
+}
+function syncViewTransform(entry, view){
+  if (!view) return;
+  view.root.position.set(entry.x, TUNE.GROUND_Y, entry.z);
+  view.facing.rotation.y = entry.facing || 0;
+  const lean = Math.min(1, (entry.speed||0) / TUNE.MOVE_SPEED);
+  view.lean.rotation.x = entry.moving ? -0.20 * lean : 0;
+}
+function syncEntryNow(entry){ if (entry) syncViewTransform(entry, charViews[entry.char]); }
+function setViewOpacity(view, alpha){
+  if (!view) return;
+  view.model.traverse(o=>{
+    if ((o.isMesh || o.isSkinnedMesh) && o.material){
+      o.material.transparent = true;
+      o.material.opacity = alpha;
+    }
+  });
+  if (view.blob) view.blob.material.opacity = alpha * 0.9;
+  if (view.neckMesh) view.neckMesh.visible = alpha > 0.02;
+}
+function driveElimFade(entry, view, dt){
+  if (entry.elimPhase === "squishing"){
+    entry.squishT = Math.min(1, entry.squishT + dt*6.5);
+    if (entry.squishT >= 1){ entry.elimPhase = "hold"; entry.elimT = 0; }
+  } else if (entry.elimPhase === "hold"){
+    entry.elimT += dt;
+    if (entry.elimT >= TUNE.ELIM_HOLD_T){ entry.elimPhase = "fading"; entry.elimT = 0; }
+  } else if (entry.elimPhase === "fading"){
+    entry.elimT += dt;
+    const t = Math.min(1, entry.elimT / TUNE.ELIM_FADE_T);
+    setViewOpacity(view, 1 - t);
+    if (t >= 1){ entry.elimPhase = "gone"; view.root.visible = false; }
+  }
+}
+function updateDizzy(entry, view){
+  const stars = view.dizzy; if (!stars) return;
+  const on = entry.isLocal && entry.squishT > 0.2;
+  for (let i=0;i<stars.length;i++){
+    const m = stars[i];
+    m.visible = on;
+    m.material.opacity = on ? 0.95*entry.squishT : 0;
+    if (!on) continue;
+    const a = performance.now()*0.004 + i/stars.length*Math.PI*2;
+    m.position.set(Math.cos(a)*0.55, TUNE.BUCKY_H*0.55 + Math.sin(a*2)*0.08, Math.sin(a)*0.55);
+    m.rotation.z = a*2;
+    m.lookAt(camera.position);
+  }
+}
+const ANIM_PHASES = { playing:1, intro:1, waiting:1 };
+function updateEntryView(entry, dt){
+  const view = charViews[entry.char];
+  if (!view) return;
+  view.root.visible = entry.revealed && entry.elimPhase !== "gone";
+  syncViewTransform(entry, view);
+  if (entry.alive){
+    if (ANIM_PHASES[G.phase]){
+      if (entry.moving){
+        playViewClip(view, "run", 0.12);
+        if (view.actions.run) view.actions.run.setEffectiveTimeScale(0.7 + 0.9*((entry.speed||0)/TUNE.MOVE_SPEED));
+      } else {
+        playViewClip(view, "idle", 0.18);
+      }
+    }
+    if (entry.squishT > 0) entry.squishT = Math.max(0, entry.squishT - dt*5);
+  } else {
+    if (entry.isLocal){
+      entry.squishT = Math.min(1, entry.squishT + dt*6.5);   // pancake and linger
+    } else {
+      driveElimFade(entry, view, dt);                        // pancake -> hold -> poof
+    }
+  }
+  const st = entry.squishT;
+  const e = st<0.5 ? 2*st*st : 1-Math.pow(-2*st+2,2)/2;   // easeInOut
+  const sy = 1 + (TUNE.SQUISH_Y - 1)*e;
+  const sxz = 1 + (TUNE.SQUISH_BULGE - 1)*e;
+  view.squish.scale.set(sxz, sy, sxz);
+  if (view.blob) view.blob.scale.setScalar(1 + (sxz - 1) * 0.7);
+  updateDizzy(entry, view);
+  if (view.mixer) view.mixer.update(dt);
+}
+function renderCharacters(dt){
+  for (const id in G.players) updateEntryView(G.players[id], dt);
+}
+
+function buildDizzyStars(parent, arr){
+  const starMat = new THREE.MeshBasicMaterial({ color: 0xffe14a, transparent:true, opacity:0, side:THREE.DoubleSide });
+  for (let i=0;i<5;i++){
+    const m = new THREE.Mesh(makeStarGeo(0.16), starMat.clone());
+    m.visible = false;
+    parent.add(m);
+    arr.push(m);
+  }
+}
+function makeStarGeo(r){
+  const shape = new THREE.Shape();
+  const pts = unitStar(5, r, r*0.46);
+  shape.moveTo(pts[0][0], pts[0][1]);
+  for (let i=1;i<pts.length;i++) shape.lineTo(pts[i][0], pts[i][1]);
+  return new THREE.ShapeGeometry(shape);
+}
+
+function squishBucky(){
+  G.phase = "squished";
+  const local = localP();
+  if (local){ local.alive = false; local.squishT = 0.001; }
+  slamFX(true);
+  sfxHonk();
+  const newBest = G.page > G.best;
+  if (newBest){ G.best = G.page; localStorage.setItem("sb_best", String(G.best)); }
+  if (local) playViewClip(charViews[local.char], newBest ? "dance" : "idle", 0.1);
+  showOverlay(false, newBest);
+}
+function winGame(){
+  G.phase = "won"; G.stage = "none";
+  sfxFanfare();
+  confettiBurst();
+  const local = localP();
+  if (local) playViewClip(charViews[local.char], "cheer", 0.15);
+  const newBest = G.page > G.best;
+  if (newBest){ G.best = G.page; localStorage.setItem("sb_best", String(G.best)); }
+  showOverlay(true, newBest);
+}
+
+/* --------------------------------------------------------- PARTICLES ------- */
+const P_MAX = 220;
+const particles = [];
+const _quadGeo = new THREE.PlaneGeometry(1, 1);
+for (let i=0;i<P_MAX;i++){
+  const mat = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:1, side:THREE.DoubleSide, depthWrite:false });
+  const m = new THREE.Mesh(_quadGeo, mat);
+  m.visible = false; scene.add(m);
+  particles.push({ mesh:m, life:0, max:1, vx:0,vy:0,vz:0, spin:0, grav:0, size:0.2 });
+}
+let pCursor = 0;
+function spawnParticle(x,y,z, color, opt){
+  const p = particles[pCursor]; pCursor = (pCursor+1) % P_MAX;
+  p.mesh.visible = true;
+  p.mesh.position.set(x,y,z);
+  p.mesh.material.color.setHex(color);
+  p.mesh.material.opacity = 1;
+  p.size = opt.size ?? 0.2;
+  p.mesh.scale.set(p.size, p.size*(opt.aspect??1), 1);
+  p.mesh.rotation.set(Math.random()*6, Math.random()*6, Math.random()*6);
+  p.vx = opt.vx ?? 0; p.vy = opt.vy ?? 0; p.vz = opt.vz ?? 0;
+  p.spin = opt.spin ?? (Math.random()*6-3);
+  p.grav = opt.grav ?? -6;
+  p.max = p.life = opt.life ?? 0.7;
+}
+function updateParticles(dt){
+  for (const p of particles){
+    if (!p.mesh.visible) continue;
+    p.life -= dt;
+    if (p.life <= 0){ p.mesh.visible = false; continue; }
+    p.vy += p.grav*dt;
+    p.mesh.position.x += p.vx*dt;
+    p.mesh.position.y += p.vy*dt;
+    p.mesh.position.z += p.vz*dt;
+    if (p.mesh.position.y < TUNE.GROUND_Y+0.01){ p.mesh.position.y = TUNE.GROUND_Y+0.01; p.vy *= -0.3; p.vx*=0.6; p.vz*=0.6; }
+    p.mesh.rotation.z += p.spin*dt;
+    p.mesh.material.opacity = Math.min(1, p.life/p.max*1.6);
+  }
+}
+function slamFX(atPlayer, ecx, ecz){
+  // dust poof + paper scraps at the front of the sweeping page (or at a
+  // specific point — used for bot eliminations — or at the player)
+  const focused = atPlayer || ecx != null;
+  const _lp = localP();
+  const cx = ecx != null ? ecx : (atPlayer && _lp ? _lp.x : 0);
+  const cz = ecz != null ? ecz : (atPlayer && _lp ? _lp.z : 0);
+  for (let i=0;i<16;i++){
+    const a = Math.random()*Math.PI*2, sp = 1.6+Math.random()*2.6;
+    spawnParticle(cx + (Math.random()*2-1)*(focused?0.5:6), TUNE.GROUND_Y+0.1, cz + (Math.random()*2-1)*3,
+      0xd8c79a, { vx:Math.cos(a)*sp, vy:1.4+Math.random()*2, vz:Math.sin(a)*sp, size:0.28+Math.random()*0.2, life:0.6+Math.random()*0.3, grav:-5 });
+  }
+  for (let i=0;i<10;i++){
+    const a = Math.random()*Math.PI*2, sp = 2+Math.random()*3;
+    spawnParticle(cx + (Math.random()*2-1)*(focused?0.6:6), TUNE.GROUND_Y+0.3, cz + (Math.random()*2-1)*3.5,
+      0xf3e7c6, { vx:Math.cos(a)*sp, vy:2.4+Math.random()*2.4, vz:Math.sin(a)*sp, size:0.16+Math.random()*0.12, aspect:1.4, life:0.9+Math.random()*0.5, grav:-4 });
+  }
+}
+function confettiBurst(){
+  const cols = [0xba303e,0x233357,0xe7b64b,0x2f8f3a,0xffffff,0xef7aa0];
+  for (let i=0;i<Math.min(90,P_MAX);i++){
+    spawnParticle((Math.random()*2-1)*6, 8+Math.random()*3, (Math.random()*2-1)*4,
+      cols[i%cols.length], { vx:(Math.random()*2-1)*2.4, vy:-1-Math.random()*2, vz:(Math.random()*2-1)*2.4,
+      size:0.18+Math.random()*0.14, aspect:0.5, life:2.4+Math.random()*1.2, grav:-3 });
+  }
+}
+
+/* ------------------------------------------------------------ AUDIO -------- */
+let actx = null, masterGain = null;
+function ensureAudio(){
+  if (actx) return;
+  try{
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = actx.createGain();
+    masterGain.gain.value = G.muted ? 0 : 0.9;
+    masterGain.connect(actx.destination);
+  }catch(e){ actx = null; }
+}
+function tone(freq, dur, type="sine", gain=0.2, whenOff=0, glideTo=null){
+  if (!actx || G.fastForwarding) return;
+  const t0 = actx.currentTime + whenOff;
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq, t0);
+  if (glideTo) o.frequency.exponentialRampToValueAtTime(Math.max(1,glideTo), t0+dur);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(gain, t0+0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0+dur);
+  o.connect(g); g.connect(masterGain);
+  o.start(t0); o.stop(t0+dur+0.02);
+}
+function noiseBurst(dur, gain=0.2, filterFreq=1400, whenOff=0, glideTo=null){
+  if (!actx || G.fastForwarding) return;
+  const t0 = actx.currentTime + whenOff;
+  const n = Math.floor(actx.sampleRate * dur);
+  const buf = actx.createBuffer(1, n, actx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i=0;i<n;i++) d[i] = (Math.random()*2-1) * (1 - i/n);
+  const src = actx.createBufferSource(); src.buffer = buf;
+  const f = actx.createBiquadFilter(); f.type = "bandpass"; f.frequency.setValueAtTime(filterFreq, t0);
+  if (glideTo) f.frequency.exponentialRampToValueAtTime(Math.max(60,glideTo), t0+dur);
+  const g = actx.createGain(); g.gain.setValueAtTime(gain, t0);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0+dur);
+  src.connect(f); f.connect(g); g.connect(masterGain);
+  src.start(t0); src.stop(t0+dur+0.02);
+}
+const sfxWhoosh = (dur)=>{ noiseBurst(Math.min(dur*0.9,0.9), 0.16, 260, 0, 1700); };
+const sfxSlam = ()=>{ tone(88, 0.28, "sine", 0.42); tone(60, 0.34, "triangle", 0.3); noiseBurst(0.22, 0.28, 900); };
+const sfxDing = ()=>{ tone(880, 0.14, "sine", 0.28); tone(1320, 0.2, "sine", 0.22, 0.06); };
+const sfxHonk = ()=>{ tone(300, 0.5, "sawtooth", 0.24, 0, 120); tone(150, 0.5, "square", 0.14, 0, 70); };
+const sfxTick = ()=>{ tone(1500, 0.05, "square", 0.16); };
+const sfxFanfare = ()=>{ const s=[523,659,784,1047]; s.forEach((f,i)=>tone(f,0.4,"triangle",0.26,i*0.12)); };
+const sfxSting = ()=>{ tone(392,0.16,"triangle",0.24); tone(587,0.22,"triangle",0.22,0.1); };
+
+/* --------------------------------------------------------- CAMERA SHAKE ---- */
+let shakeAmt = 0;
+function shake(a){ shakeAmt = a; }
+
+/* ---------------------------------------------------------- UI GLUE -------- */
+const hudEl = document.getElementById("hud");
+const pageNumEl = document.getElementById("pageNum");
+const popupEl = document.getElementById("popup");
+const titleEl = document.getElementById("title");
+const overlayEl = document.getElementById("overlay");
+const selectEl = document.getElementById("select");
+const muteBtn = document.getElementById("muteBtn");
+
+function showNamePopup(text){
+  popupEl.textContent = text;
+  popupEl.classList.remove("show"); void popupEl.offsetWidth; popupEl.classList.add("show");
+}
+function pageCounterFX(n){
+  pageNumEl.textContent = n;
+  if (G.fastForwarding) return;
+  sfxTick();
+  showNamePopup("Page " + n + "!");
+}
+function showOverlay(win, newBest){
+  overlayEl.classList.toggle("win", win);
+  document.getElementById("ohead").textContent = win ? "You finished the whole book! 🎉" : "Squished! 🥞";
+  document.getElementById("oNum").textContent = G.page;
+  document.querySelector("#overlay .blabel").textContent = "pages survived";
+  const bestEl = document.getElementById("oBest");
+  bestEl.innerHTML = newBest ? '<span class="nb">🏆 New best!</span>' : ("Best: " + G.best);
+  overlayEl.classList.add("on");
+}
+function showVersusOverlay(result){
+  overlayEl.classList.toggle("win", result.type === "playerWin");
+  const winner = result.winnerName || "???";
+  const heads = {
+    playerWin: "🏆 You win!",
+    botWin: winner + " wins! So close!",
+    remoteWin: winner + " wins! So close!",
+    draw: "Everyone squished! 🥞 It's a draw!",
+  };
+  document.getElementById("ohead").textContent = heads[result.type] || "Match over";
+  document.getElementById("oNum").textContent = G.page;
+  document.querySelector("#overlay .blabel").textContent = "pages survived";
+  const bestEl = document.getElementById("oBest");
+  bestEl.innerHTML = result.type === "playerWin" ? '<span class="nb">🏆 Match win!</span>' : "";
+  // MP: only the host restarts (guests wait for the next waiting room)
+  const again = document.getElementById("againBtn"), mini = document.getElementById("restartMini");
+  const hostCtl = !(G.mode === "mp" && !net.isHost);
+  if (again) again.style.display = hostCtl ? "" : "none";
+  if (mini) mini.style.display = hostCtl ? "" : "none";
+  overlayEl.classList.add("on");
+}
+muteBtn.onclick = ()=>{
+  G.muted = !G.muted;
+  localStorage.setItem("sb_muted", G.muted ? "1" : "0");
+  muteBtn.textContent = G.muted ? "🔇" : "🔊";
+  if (masterGain) masterGain.gain.value = G.muted ? 0 : 0.9;
+};
+
+function lastMode(){
+  const m = localStorage.getItem("sb_party_mode");
+  return (m === "mp") ? "mp" : "solo";
+}
+function updateModeButtons(){
+  const m = lastMode();
+  const play = document.getElementById("playBtn"), fam = document.getElementById("familyBtn");
+  if (play) play.classList.toggle("active", m === "solo");
+  if (fam) fam.classList.toggle("active", m === "mp");
+}
+document.getElementById("playBtn").onclick = ()=> partyStart("solo");
+document.getElementById("familyBtn").onclick = ()=> partyStart("mp");
+titleEl.addEventListener("pointerdown", (e)=>{ if (e.target.closest("button")) return; partyStart(lastMode()); });
+document.getElementById("againBtn").onclick = restart;
+document.getElementById("restartMini").onclick = restart;
+overlayEl.addEventListener("pointerdown", (e)=>{
+  if (e.target.closest("button")) return;
+  if (PARTY.mode === "mp" && !net.isHost) return;   // guests can't dismiss the result
+  restart();
+});
+
+/* ----------------------------------------------------- VERSUS/MP HUD/INTRO - */
+const vhudChipEls = {};
+function buildVersusHudChips(){
+  const el = document.getElementById("vhud");
+  el.innerHTML = "";
+  for (const char of CHAR_ORDER){
+    const chip = document.createElement("div");
+    chip.className = "vchip";
+    chip.dataset.id = char;
+    const col = NECK_COLOR[char].toString(16).padStart(6,"0");
+    chip.innerHTML = `<span class="dot" style="background:#${col}"></span><span class="nm">${CHARS[char].name}</span><span class="tag"></span><span class="pts"></span>`;
+    el.appendChild(chip);
+    vhudChipEls[char] = chip;
+  }
+}
+function updateVersusHud(){
+  const el = document.getElementById("vhud");
+  // (the waiting-room panel shows the roster during "waiting", so the top strip
+  // only appears once characters are actually on the book)
+  const showing = (G.mode === "versus" || G.mode === "mp") &&
+    (G.phase === "intro" || G.phase === "playing" || G.phase === "matchover");
+  el.classList.toggle("on", showing);
+  if (showing){
+    for (const char of CHAR_ORDER){
+      const chip = vhudChipEls[char];
+      if (!chip) continue;
+      const e = entryByChar(char);
+      const seat = mpSeatForChar(char);
+      const nm = chip.querySelector(".nm"), tag = chip.querySelector(".tag");
+      const pts = chip.querySelector(".pts");
+      if (pts) pts.textContent = String(PARTY.tally[char] || 0);   // compact scoreboard badge (🏆 lives on the select tally)
+      let label = e ? e.name : (seat ? (seat.name || CHARS[char].name) : CHARS[char].name);
+      if (nm) nm.textContent = label;
+      let tagTxt = "";
+      if (e && e.isLocal) tagTxt = " (you)";
+      else if (seat && seat.kind === "left") tagTxt = " (left)";
+      else if (seat && seat.kind === "bot") tagTxt = " 🤖";
+      if (tag) tag.textContent = tagTxt;
+      const present = !!e || (seat && seat.kind !== "empty");
+      const out = e ? !e.alive : (!seat || seat.kind === "empty" || seat.kind === "left");
+      chip.classList.toggle("out", out);
+      chip.style.display = (G.mode === "mp" && !present && G.phase === "waiting") ? "flex" : "flex";
+    }
+  }
+  document.getElementById("spectateChip").classList.toggle("on", !!G.spectate);
+  // MP presence pill "🌐 N/4"
+  const pill = document.getElementById("mpPill");
+  if (pill){
+    const showPill = G.mode === "mp" && (G.phase === "playing" || G.phase === "matchover");
+    pill.classList.toggle("on", showPill);
+    if (showPill) pill.textContent = "🌐 " + humanCount() + "/4";
+  }
+}
+function mpSeatForChar(char){
+  if (G.mode !== "mp" || !G.seats) return null;
+  return G.seats.find(s => s.char === char) || null;
+}
+
+const VERSUS_SPAWNS = {
+  bucky:  { x:0,    z:3.2 },
+  billy:  { x:-3.2, z:-0.5 },
+  rosie:  { x:3.2,  z:-0.5 },
+  clover: { x:0,    z:-3.0 },
+};
+// hard-reset every character view to a clean, fully-opaque, hidden state
+function resetAllViews(){
+  for (const char in charViews){
+    const v = charViews[char];
+    if (!v) continue;
+    v.root.visible = false;
+    v.squish.scale.set(1,1,1);
+    if (v.blob) v.blob.scale.setScalar(1);
+    setViewOpacity(v, 1);
+    v.curClip = null;
+    if (v.dizzy) for (const m of v.dizzy){ m.visible = false; if (m.material) m.material.opacity = 0; }
+  }
+}
+function makeLocalEntry(char){
+  const e = makeEntry("local", char, { isLocal:true });
+  e.x = 0; e.z = 0; e.revealed = true;
+  G.players.local = e;
+  return e;
+}
+function addBotEntry(char){
+  const e = makeEntry(char, char, { isBot:true });
+  e.revealed = false;
+  G.players[char] = e;
+  return e;
+}
+let introQueue = [], introElapsed = 0;
+function beginVersusIntro(){
+  introElapsed = 0;
+  introQueue = CHAR_ORDER.map((ch, i) => ({ ch, t: i*0.35, shown:false }));
+  for (const id in G.players) G.players[id].revealed = false;
+  for (const char in charViews) charViews[char].root.visible = false;
+}
+function revealCharacter(char){
+  const e = entryByChar(char);
+  if (!e) return;
+  e.revealed = true;
+  const v = charViews[char];
+  if (v){ v.root.visible = true; syncEntryNow(e); playViewClip(v, "jump", 0.05); }
+  if (char === "bucky" && playerNeckMesh) playerNeckMesh.visible = true;
+  showNamePopup(e.name + "!");
+  sfxTick();
+}
+function updateVersusIntro(dt){
+  if (G.phase !== "intro") return;
+  introElapsed += dt;
+  for (const item of introQueue){
+    if (!item.shown && introElapsed >= item.t){
+      item.shown = true;
+      revealCharacter(item.ch);
+    }
+  }
+  const allShown = introQueue.every(i => i.shown);
+  const lastT = introQueue[introQueue.length-1].t;
+  if (allShown && introElapsed >= lastT + 0.9){
+    G.phase = "playing";
+    G.stage = "pause";
+    G.pauseLeft = TUNE.START_PAUSE;
+  }
+}
+
+/* ----------------------------------------------------- GAME LIFECYCLE ------ */
+function resetState(mode){
+  mode = (mode === "versus") ? "versus" : "solo";   // MP builds its roster separately
+  G.mode = mode;
+  G.phase = (mode === "versus") ? "intro" : "playing";
+  G.stage = "pause";
+  G.page = 0; G.flipAngle = 0; G.slamDone = false; G.holeGen = 0;
+  G.spectate = false; G.matchResult = null; G.fastForwarding = false;
+  resetAllViews();
+  G.players = {};
+  const local = makeLocalEntry("bucky");
+  syncEntryNow(local);
+  if (mode === "versus"){
+    for (const c of ["billy","rosie","clover"]) addBotEntry(c);
+    if (playerNeckMesh) playerNeckMesh.visible = true;
+  } else {
+    if (playerNeckMesh) playerNeckMesh.visible = false;
+  }
+}
+function showPlayUI(){
+  titleEl.style.display = "none";
+  selectEl.classList.remove("on");
+  hideMpWaiting();
+  overlayEl.classList.remove("on");
+  hudEl.classList.add("on");
+  pageNumEl.textContent = "0";
+  if (IS_COARSE) TC.classList.add("on");
+}
+function startGame(mode){
+  mode = mode === "versus" ? "versus" : "solo";
+  ensureAudio();
+  sfxSting();
+  PARTY._inGame = false;   // a DIRECT startGame (debug/test) is not a party-driven round
+  resetState(mode);
+  spawnPage(1);
+  showPlayUI();
+  if (mode === "versus"){
+    G.pauseLeft = 1e9;   // frozen — hostAdvance no-ops during "intro" anyway
+    beginVersusIntro();
+  } else {
+    G.pauseLeft = TUNE.START_PAUSE;
+    playViewClip(charViews.bucky, "jump", 0.1);   // drop-in flourish
+  }
+}
+function restart(){
+  // In a party, the result screen's action is "Back to the games!" (-> select).
+  if (PARTY._inGame){
+    if (PARTY.mode === "mp"){ if (net.isHost) hostBackToSelect(); return; }   // guests wait for the host
+    backToSelect();
+    return;
+  }
+  // Classic path (a DIRECT startGame from a test/debug hook): restart the minigame.
+  overlayEl.classList.remove("on");
+  if (G.mode === "mp"){ if (net.isHost) hostPlayAgain(); return; }
+  startGame(G.mode);
+}
+
+/* =========================================================== PARTY SHELL === *
+ * The party phase machine + minigame-select UI. All host/solo transitions set
+ * PARTY.phase and (for MP host) publish it in the snapshot; guests mirror the
+ * host's party state read-only (see applySnapshot / guestApplyPartyPhase).      */
+const gtitleEl = document.getElementById("gtitle");
+
+function partyStart(mode){
+  mode = (mode === "mp") ? "mp" : "solo";
+  ensureAudio(); sfxSting();
+  localStorage.setItem("sb_party_mode", mode);
+  updateModeButtons();
+  PARTY.mode = mode;
+  PARTY.tally = { bucky:0, billy:0, rosie:0, clover:0 };
+  PARTY.selectedGame = null; PARTY.selectHover = null; PARTY.subMode = null;
+  PARTY.lastWinner = null; PARTY._inGame = false; PARTY._resultPending = false;
+  ACTIVE_MINIGAME = null;
+  gtitleEl.textContent = "🎉 Farm Party";
+  if (mode === "mp"){
+    PARTY.phase = "lobby";
+    startFamilyMatch();               // connect to Playroom + enter the lobby (waiting room)
+  } else {
+    resetAllViews(); G.players = {}; clearPage();
+    enterSelect();                    // solo party: straight to the game-select screen
+  }
+}
+
+/* build/refresh the select screen (tally strip + game cards + action row) */
+function partyRoster(){
+  // returns [{char, kind, name, isMe}] — solo = fixed cast, mp = live seats
+  if (PARTY.mode === "mp" && G.seats){
+    return G.seats.map(s => ({ char:s.char, kind:s.kind, name: CHARS[s.char].name,
+      isMe: net.isHost ? (s.char === "bucky") : (s.char === net.guestChar) }));
+  }
+  return CHAR_ORDER.map(c => ({ char:c, kind: c === "bucky" ? "human" : "bot",
+    name: CHARS[c].name, isMe: c === "bucky" }));
+}
+function renderSelectTally(){
+  const el = document.getElementById("selTally");
+  el.innerHTML = "";
+  for (const r of partyRoster()){
+    const chip = document.createElement("div");
+    chip.className = "tchip" + ((r.kind === "empty" || r.kind === "left") ? " out" : "");
+    chip.dataset.char = r.char;
+    const col = NECK_COLOR[r.char].toString(16).padStart(6,"0");
+    let tag = r.isMe ? " (you)" : (r.kind === "bot" ? " 🤖" : (r.kind === "left" ? " (left)" : (r.kind === "empty" ? "" : "")));
+    const nm = (r.kind === "empty") ? "…" : r.name;
+    chip.innerHTML = `<span class="dot" style="background:#${col}"></span><span class="nm">${nm}${tag}</span><span class="pts">🏆${PARTY.tally[r.char]||0}</span>`;
+    el.appendChild(chip);
+  }
+}
+function renderSelectCards(){
+  const grid = document.getElementById("gameGrid");
+  const readOnly = (PARTY.mode === "mp" && !net.isHost);
+  const sig = MINIGAMES.map(m=>m.id).join("|") + "|ro" + (readOnly?1:0);
+  if (grid._sig !== sig){
+    grid._sig = sig;
+    grid.innerHTML = "";
+    for (const m of MINIGAMES){
+      const card = document.createElement("div");
+      card.className = "gcard" + (m.ready ? "" : " disabled");
+      card.dataset.game = m.id;
+      const blurb = m.ready ? "" : `<div class="soon">soon</div>`;
+      card.innerHTML = `${blurb}<div class="gico">${m.ico}</div>`
+        + `<div class="gname">${m.ready ? m.name : "?"}</div>`
+        + `<div class="gblurb">${m.ready ? "Dodge the pages!" : "Coming soon"}</div>`;
+      if (m.ready && !readOnly) card.onclick = ()=> selectCardClicked(m.id);
+      grid.appendChild(card);
+    }
+  }
+  // highlight the hovered/selected card (host pick or guest mirror)
+  const hi = PARTY.selectHover || PARTY.selectedGame;
+  for (const card of grid.children) card.classList.toggle("sel", card.dataset.game === hi);
+}
+function renderSelectAction(){
+  const el = document.getElementById("selAction");
+  const readOnly = (PARTY.mode === "mp" && !net.isHost);
+  if (readOnly){
+    const hostSeat = (G.seats||[]).find(s => s.char === "bucky");
+    const hostName = hostSeat ? hostSeat.name : "the host";
+    const g = PARTY.selectHover ? minigameById(PARTY.selectHover) : null;
+    el.innerHTML = `<div class="selnote">${g ? `${hostName} picked ${g.name}` : `${hostName} is picking a game…`}</div>`;
+    return;
+  }
+  const g = PARTY.selectHover ? minigameById(PARTY.selectHover) : null;
+  if (!g){ el.innerHTML = `<div class="selnote">Tap a game to play!</div>`; return; }
+  if (PARTY.mode === "solo" && g.soloModes){
+    el.innerHTML = "";
+    const row = document.createElement("div"); row.className = "selrow";
+    for (const sm of g.soloModes){
+      const b = document.createElement("button");
+      b.className = "selbtn" + (sm.id === "challenge" ? " chal" : " go");
+      b.textContent = sm.label;
+      b.title = sm.hint;
+      b.onclick = ()=> partyBeginSolo(g.id, sm.id);
+      row.appendChild(b);
+    }
+    el.appendChild(row);
+  } else {
+    // mp host: a single confirm button
+    el.innerHTML = "";
+    const b = document.createElement("button");
+    b.className = "selbtn go";
+    b.id = "selConfirm";
+    b.textContent = "▶ Start " + g.name;
+    b.onclick = ()=> hostBeginMinigame(g.id, "match");
+    el.appendChild(b);
+  }
+}
+function renderSelect(){
+  const sub = document.getElementById("selSub");
+  if (sub) sub.textContent = (PARTY.mode === "mp" && !net.isHost) ? "Watch the host pick a game!" : "Pick a game!";
+  renderSelectTally();
+  renderSelectCards();
+  renderSelectAction();
+}
+function selectCardClicked(gameId){
+  const g = minigameById(gameId);
+  if (!g || !g.ready) return;
+  PARTY.selectHover = gameId;
+  renderSelectAction();
+  renderSelectCards();
+  if (PARTY.mode === "mp" && net.isHost) publishSnapshotNow();   // guests see the highlight live
+}
+
+function enterSelect(){
+  PARTY.phase = "select";
+  PARTY.selectedGame = null; PARTY.selectHover = null; PARTY.subMode = null;
+  ACTIVE_MINIGAME = null;
+  G.phase = "waiting"; G.stage = "none";   // no minigame running during select
+  gtitleEl.textContent = "🎉 Farm Party";
+  titleEl.style.display = "none";
+  hideMpWaiting();
+  overlayEl.classList.remove("on");
+  hudEl.classList.remove("on");
+  document.getElementById("vhud").classList.remove("on");
+  if (IS_COARSE) TC.classList.remove("on");
+  selectEl.classList.add("on");
+  renderSelect();
+  if (PARTY.mode === "mp" && net.isHost) publishSnapshotNow();
+}
+
+/* SOLO: begin the chosen minigame + sub-mode. NOTE: startGame() clears
+ * PARTY._inGame (a direct start is not a party round), so we set the party flags
+ * AFTER mg.start() — otherwise partyTick would never see the round finish. */
+function partyBeginSolo(gameId, subMode){
+  const mg = minigameById(gameId);
+  if (!mg || !mg.ready) return;
+  ensureAudio(); sfxSting();
+  PARTY.selectedGame = gameId; PARTY.subMode = subMode;
+  PARTY.phase = "minigame"; ACTIVE_MINIGAME = mg;
+  gtitleEl.textContent = mg.ico + " " + mg.name;
+  selectEl.classList.remove("on");
+  mg.start({ party:"solo", subMode, isHost:true });
+  PARTY._inGame = true; PARTY._resultPending = false;
+}
+
+/* MP HOST: confirm the picked game -> begin the minigame for everyone */
+function hostBeginMinigame(gameId, subMode){
+  if (!net.isHost) return;
+  const mg = minigameById(gameId);
+  if (!mg || !mg.ready) return;
+  PARTY.selectedGame = gameId; PARTY.subMode = subMode || "match";
+  PARTY.phase = "minigame"; ACTIVE_MINIGAME = mg;   // set phase BEFORE start so the publish carries it
+  gtitleEl.textContent = mg.ico + " " + mg.name;
+  reviveAllEntriesForRound();      // fresh alive/positions for a repeated round
+  net.resultShown = false;
+  selectEl.classList.remove("on");
+  mg.start({ party:"mp", subMode:PARTY.subMode, isHost:true });   // hostStartMatch() spawns page 1 + publishes
+  PARTY._inGame = true; PARTY._resultPending = false;
+  fpUpdateLobbyDoc({ status:'started' });   // family lobby: a minigame is actively running — no-op otherwise
+}
+
+/* reset every existing G.players entry for a clean new round (MP reuse path) */
+function reviveAllEntriesForRound(){
+  for (const id in G.players){
+    const e = G.players[id];
+    e.alive = true; e.squishT = 0; e.elimPhase = null; e.elimT = 0; e.revealed = true;
+    const sp = VERSUS_SPAWNS[e.char] || { x:0, z:0 };
+    e.x = sp.x; e.z = sp.z; e.moving = false; e.speed = 0; e.facing = 0;
+    if (e.isBot) Object.assign(e, freshBotAI(e.char, sp));
+    const v = charViews[e.char];
+    if (v){ setViewOpacity(v, 1); v.squish.scale.set(1,1,1); if (v.blob) v.blob.scale.setScalar(1); v.curClip = null;
+      if (v.dizzy) for (const m of v.dizzy){ m.visible = false; if (m.material) m.material.opacity = 0; } }
+  }
+}
+
+/* the minigame finished -> award the party point + show the result screen */
+function onMinigameResolved(){
+  PARTY.phase = "result";
+  const r = ACTIVE_MINIGAME ? ACTIVE_MINIGAME.result() : null;
+  PARTY.lastWinner = null;
+  if (r && !r.draw && r.winnerChar){
+    PARTY.tally[r.winnerChar] = (PARTY.tally[r.winnerChar] || 0) + 1;
+    PARTY.lastWinner = r.winnerChar;
+  }
+  decorateResultOverlay();
+  if (PARTY.mode === "mp" && net.isHost){
+    publishSnapshotNow();
+    fpUpdateLobbyDoc({ status:'open' });   // family lobby: minigame over — party is joinable again (result/select), no-op otherwise
+  }
+}
+
+/* re-skin the (already-shown) minigame overlay as a PARTY result screen */
+function decorateResultOverlay(){
+  const again = document.getElementById("againBtn");
+  const mini = document.getElementById("restartMini");
+  const hint = document.getElementById("overlayHint");
+  const hostCtl = !(PARTY.mode === "mp" && !net.isHost);
+  if (again){ again.textContent = "🎮 Back to the games!"; again.style.display = hostCtl ? "" : "none"; }
+  if (mini) mini.style.display = "none";
+  if (hint) hint.textContent = hostCtl ? "Tap or press Enter to keep partying" : "Waiting for the host…";
+  renderPartyTallyRow(PARTY.lastWinner);
+  if (PARTY.lastWinner){
+    const fly = document.getElementById("tallyFly");
+    fly.textContent = "+1 🏆 " + CHARS[PARTY.lastWinner].name + "!";
+    fly.classList.remove("show"); void fly.offsetWidth; fly.classList.add("show");
+  }
+}
+function renderPartyTallyRow(winner){
+  const row = document.getElementById("partyTallyRow");
+  row.innerHTML = "";
+  for (const r of partyRoster()){
+    const chip = document.createElement("div");
+    chip.className = "prchip" + (r.char === winner ? " win" : "");
+    const col = NECK_COLOR[r.char].toString(16).padStart(6,"0");
+    const bump = r.char === winner ? ' <span class="pt">+1</span>' : "";
+    chip.innerHTML = `<span class="dot" style="background:#${col}"></span>${r.name} 🏆${PARTY.tally[r.char]||0}${bump}`;
+    row.appendChild(chip);
+  }
+  row.classList.add("on");
+}
+
+/* SOLO: result -> back to the game-select (party persists) */
+function backToSelect(){
+  const mg = ACTIVE_MINIGAME;
+  overlayEl.classList.remove("on");
+  document.getElementById("partyTallyRow").classList.remove("on");
+  if (mg && mg.teardown) mg.teardown();
+  ACTIVE_MINIGAME = null;
+  PARTY._inGame = false; PARTY._resultPending = false;
+  enterSelect();
+}
+
+/* MP HOST: result -> back to the select for everyone (keeps the roster) */
+function hostBackToSelect(){
+  if (!net.isHost) return;
+  const mg = ACTIVE_MINIGAME;
+  overlayEl.classList.remove("on");
+  document.getElementById("partyTallyRow").classList.remove("on");
+  if (mg && mg.teardown) mg.teardown();
+  ACTIVE_MINIGAME = null;
+  PARTY._inGame = false; PARTY._resultPending = false;
+  net.resultShown = false;
+  G.phase = "waiting"; G.stage = "none"; G.page = 0; G.holeGen = 0;
+  G.spectate = false; G.matchResult = null;
+  clearPage(); pageNumEl.textContent = "0";
+  hostSeatWaitingGuests();          // seat any late-joiners who were waiting
+  enterSelect();                    // sets PARTY.phase=select + publishes
+}
+
+/* seat any connected-but-unseated guest (late joiner) into a bot/empty/left seat */
+function hostSeatWaitingGuests(){
+  if (!net.isHost) return;
+  for (const pl of net.players){
+    if (G.players["r_"+pl.id]) continue;                     // already seated
+    let seat = G.seats.find(s => s.kind === "empty")
+      || G.seats.find(s => s.kind === "left")
+      || G.seats.find(s => s.kind === "bot");
+    if (!seat) continue;                                     // party full of humans
+    if (seat.kind === "bot"){ const b = G.players[seat.char]; if (b) removeEntry(b); }
+    let nm = null; try { nm = pl.getState("name"); } catch (e){}
+    seat.kind = "human"; seat.pid = pl.id; seat.id = "r_"+pl.id; seat.name = nm || CHARS[seat.char].name;
+    const ent = makeEntry("r_"+pl.id, seat.char, { isRemote:true, remotePid:pl.id });
+    const sp = VERSUS_SPAWNS[seat.char] || { x:0, z:0 };
+    ent.x = sp.x; ent.z = sp.z; ent.name = seat.name;
+    G.players[ent.id] = ent;
+    try { pl.setState("char", seat.char, true); } catch (e){}
+  }
+}
+
+/* MP HOST: lobby START -> lock the roster + go to the game-select */
+function hostStartParty(){
+  if (!net.isHost) return;
+  net.matchLocked = true;   // late joiners now wait; they're seated at the next select
+  hideMpWaiting();
+  enterSelect();
+}
+
+/* per-frame: detect a party-driven minigame finishing (host + solo) */
+function partyTick(){
+  if (net.active && net.ready && !net.isHost) return;   // guests are snapshot-driven
+  if (PARTY._inGame && !PARTY._resultPending && ACTIVE_MINIGAME && ACTIVE_MINIGAME.isOver()){
+    PARTY._resultPending = true;
+    onMinigameResolved();
+  }
+}
+
+/* leave the party -> title (MP reloads to cleanly drop the Playroom room) */
+function leaveParty(){
+  if (PARTY.mode === "mp"){ location.href = location.pathname; return; }
+  overlayEl.classList.remove("on");
+  selectEl.classList.remove("on");
+  hudEl.classList.remove("on");
+  document.getElementById("vhud").classList.remove("on");
+  document.getElementById("partyTallyRow").classList.remove("on");
+  clearPage(); resetAllViews();
+  PARTY.phase = "title"; PARTY._inGame = false; PARTY._resultPending = false; ACTIVE_MINIGAME = null;
+  G.phase = "title"; G.mode = "solo"; G.stage = "none"; G.players = {};
+  gtitleEl.textContent = "🎉 Farm Party";
+  titleEl.style.display = "flex";
+}
+
+/* ------------------------------------------------------------- LOOP -------- */
+function fitCamera(){
+  camera.aspect = innerWidth / innerHeight;
+  // pick a fov that fits portrait or landscape framing
+  const portrait = camera.aspect < 1;
+  camera.fov = portrait ? 72 : 44;
+  camera.updateProjectionMatrix();
+  const camDir = portrait ? CAM_DIR_PORTRAIT : CAM_DIR_LANDSCAPE;
+  CAM_TARGET = portrait ? CAM_TARGET_PORTRAIT : CAM_TARGET_LANDSCAPE;
+  computeMoveBasis(); // needs a base pos; set below then recompute
+  // iteratively push the camera back along camDir until key points fit NDC.
+  // Includes the true flip apex now (not an approximation): at angle=PI/2
+  // the WHOLE page stands as a flat vertical billboard directly above the
+  // spine line (z=HINGE_Z), height = SPREAD_HALF_D*2 — see the mirror-math
+  // comment block above buildPageMesh. The GROUND corners (where Bucky
+  // actually plays) get the tight/gameplay-legible margin; the APEX corners
+  // (a momentary flourish at the top of each flip, portrait especially —
+  // the world footprint is still 15x11 landscape-shaped no matter which
+  // edge hinges, so a symmetric down-tilted camera on a narrow viewport
+  // cannot fit the full 15u width AND a tall vertical span with the same
+  // margin the desktop aspect affords) get a looser near-clip-edge margin
+  // so they don't force the whole shot to zoom out and shrink the play area.
+  const APEX_H = TUNE.SPREAD_HALF_D * 2;
+  const groundPts = [
+    new THREE.Vector3(-TUNE.SPREAD_HALF_W, 0, -TUNE.SPREAD_HALF_D),
+    new THREE.Vector3( TUNE.SPREAD_HALF_W, 0, -TUNE.SPREAD_HALF_D),
+    new THREE.Vector3(-TUNE.SPREAD_HALF_W, 0,  TUNE.SPREAD_HALF_D),
+    new THREE.Vector3( TUNE.SPREAD_HALF_W, 0,  TUNE.SPREAD_HALF_D),
+  ];
+  const apexPts = [
+    new THREE.Vector3(-TUNE.SPREAD_HALF_W, APEX_H, TUNE.HINGE_Z),   // flip apex, standing billboard top
+    new THREE.Vector3( TUNE.SPREAD_HALF_W, APEX_H, TUNE.HINGE_Z),
+  ];
+  const lim = portrait ? 0.94 : 0.9, apexLim = portrait ? 0.98 : 0.9;
+  let dist = 12;
+  for (let iter=0; iter<160; iter++){
+    camBasePos.copy(camDir).multiplyScalar(dist).add(CAM_TARGET);
+    camera.position.copy(camBasePos);
+    camera.lookAt(CAM_TARGET);
+    camera.updateMatrixWorld(true);
+    let fits = true;
+    const v = new THREE.Vector3();
+    for (const p of groundPts){
+      v.copy(p).project(camera);
+      if (Math.abs(v.x) > lim || Math.abs(v.y) > lim){ fits = false; break; }
+    }
+    if (fits) for (const p of apexPts){
+      v.copy(p).project(camera);
+      if (Math.abs(v.x) > apexLim || Math.abs(v.y) > apexLim){ fits = false; break; }
+    }
+    if (fits) break;
+    dist += 0.4;
+  }
+  camBasePos.copy(camDir).multiplyScalar(dist).add(CAM_TARGET);
+  camera.position.copy(camBasePos);
+  camera.lookAt(CAM_TARGET);
+  computeMoveBasis();
+}
+
+const clock = new THREE.Clock();
+function frame(){
+  requestAnimationFrame(frame);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  if (net.active && net.ready && !net.isHost){
+    guestTick(dt);                        // guest: own-movement + snapshot apply + flip extrapolation
+  } else {
+    // solo/versus/host authoritative sim: route through the active minigame's
+    // hostTick when a party-driven minigame is running (it delegates to the same
+    // updateVersusIntro+hostAdvance); otherwise the raw calls (lobby/select no-op).
+    if (ACTIVE_MINIGAME) ACTIVE_MINIGAME.hostTick(dt);
+    else { updateVersusIntro(dt); hostAdvance(dt); }
+    if (net.active && net.isHost && net.ready) hostNetTick(dt);
+  }
+  partyTick();                             // party phase machine (minigame -> result)
+  renderCharacters(dt);                    // unified render for every character
+  updateVersusHud();
+  updateMpWaiting();                       // waiting-room panel (no-op unless waiting)
+  updateParticles(dt);
+  if ((!net.active || net.isHost) && G.phase === "playing" && G.stage === "flipping") updateFlipVisuals(G.flipAngle); // keep pulse alive
+  // camera shake decay
+  camera.position.copy(camBasePos);
+  if (shakeAmt > 0.001){
+    shakeAmt = Math.max(0, shakeAmt - dt/TUNE.SHAKE_T*TUNE.SHAKE_AMP);
+    camera.position.x += (Math.random()*2-1)*shakeAmt;
+    camera.position.y += (Math.random()*2-1)*shakeAmt;
+  }
+  camera.lookAt(CAM_TARGET);
+  renderer.render(scene, camera);
+}
+
+addEventListener("resize", ()=>{
+  renderer.setSize(innerWidth, innerHeight);
+  fitCamera();
+});
+
+/* ============================================================== MULTIPLAYER = *
+ * Stage 3 — Playroom Kit online co-op (up to 4 humans; bots fill empty seats).
+ * Host-authoritative: the host runs the ENTIRE sim (hostAdvance) and publishes a
+ * lean snapshot ~12Hz + immediately on discrete events (flip start, slam/judge,
+ * page spawn, eliminations, match start/over). Guests own ONLY their own avatar
+ * position (published ~18Hz) — the host adopts it for judgment; every other
+ * character interpolates ~120ms toward the host's snapshot. Guests never judge;
+ * they render the host's verdicts and extrapolate flipAngle smoothly between
+ * snapshots. The SDK is LAZY-loaded only when Family Match is chosen, so solo/
+ * versus never touch Playroom and boot weight is unchanged.                    */
+const SNAPSHOT_INTERVAL = 1/12;
+const INPUT_INTERVAL = 1/18;
+const net = {
+  active: false,        // MP engaged (Family Match chosen)
+  ready: false,         // insertCoin resolved
+  isHost: false,
+  localPlayer: null,
+  players: [],          // host: guest Playroom player objects, join order
+  roomCode: null,
+  myPid: null,
+  myName: "Player",
+  snapshotCd: 0, inputCd: 0,
+  snap: null,           // guest: latest applied snapshot
+  guestChar: null,      // guest: my assigned character
+  holeGenSeen: -1,      // guest: last hole generation applied
+  matchLocked: false,   // host: true once a match is running (late joiners wait)
+  resultShown: false,   // client: match-over overlay already shown
+  guestFlip: { stage:"none", flipDur:1, flipElapsed:0 },
+  hostGoneShown: false, // guest: "book closed" notice shown once
+  lastSnapTs: null, lastSnapAt: 0, // guest: host-heartbeat staleness tracking
+};
+
+// ============================================================================
+//  FAMILY LOBBY (2026-07-18) — ported from farmkart.html's proven family-lobby
+//  system (see CLAUDE.md "Farm Kart — family lobby port" for the recipe this
+//  mirrors closely). House convention: Firebase config/helpers are DUPLICATED
+//  inline per page (no shared JS module in this repo) rather than imported —
+//  kept in sync by hand; every helper here is fp-prefixed to keep it visually
+//  distinct from the (unrelated) fk-prefixed copy in farmkart.html.
+//  Hosting a Family Party now registers a Firestore doc that games.html's
+//  ALREADY-GENERIC renderLobbies() renders as a live JOIN card — no changes
+//  needed there beyond the card-text lookup. Entirely additive: solo/versus
+//  play and every guest never touch Firestore (every write below is gated on
+//  net.active && net.isHost). PARTY SEMANTICS: status stays "open" through the
+//  lobby/select/result phases (a party is joinable between matches — late
+//  joiners get the existing hang-tight -> next-select flow) and flips to
+//  "started" only while a minigame is actively running.
+// ============================================================================
+const fpFirebaseConfig = {
+  apiKey: "AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU",
+  authDomain: "amen-farms-app.firebaseapp.com",
+  projectId: "amen-farms-app",
+  storageBucket: "amen-farms-app.firebasestorage.app",
+  messagingSenderId: "321230755979",
+  appId: "1:321230755979:web:d362c56aaf7e50b4ab5c8e"
+};
+const FP_FAMILY_PASSWORD = "amenfarms";
+function fpRoomId(pw){
+  let h = 0;
+  for (const ch of pw.toLowerCase()) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return "fam" + h.toString(36);
+}
+// ?fam= override: dev/test hook so automated verification can target a scratch family
+// collection instead of production (memory: test familyKey for automated writes).
+const fpFamilyKey = (new URLSearchParams(location.search).get('fam')) || fpRoomId(FP_FAMILY_PASSWORD);
+const FP_LOBBY_HEARTBEAT_MS = 15 * 1000;
+const FP_LOBBY_HIDDEN_DELETE_MS = 60 * 1000;
+
+const FpLobby = {
+  available: false,
+  db: null,
+  fs: null,
+  lobbyDocRef: null,
+  heartbeatTimer: null,
+  unloadHooked: false,
+  visibilityHooked: false,
+  hiddenTimer: null,
+  hiddenDeletedDoc: false
+};
+async function fpInitLobbyBackend(){
+  try{
+    const appMod = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js');
+    const fs = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js');
+    const app = appMod.initializeApp(fpFirebaseConfig, 'bucky-lobby-fp');
+    FpLobby.db = fs.getFirestore(app);
+    FpLobby.fs = fs;
+    FpLobby.available = true;
+  }catch(err){
+    console.warn('Farm Party: family lobby backend unavailable (Firestore failed to load) — lobby doc/JOIN cards disabled, game unaffected.', err);
+    FpLobby.available = false;
+  }
+}
+const fpLobbyBackendReady = fpInitLobbyBackend();
+
+// HUMANS only (never counts bot-filled seats) — guests connected-but-not-yet-seated
+// (a late joiner during a locked roster) still count, since net.players tracks every
+// connected Playroom player regardless of seating.
+function fpHumanCount(){ return net.players.length + 1; }   // +1 = the host itself
+
+// ---- host-only: lobby doc lifecycle (only ever called when net.active && net.isHost &&
+// net.roomCode, i.e. a real Playroom room exists — solo/versus never reach here). ----
+async function fpEnsureLobbyDoc(){
+  if (!FpLobby.available || !net.active || !net.isHost || !net.roomCode) return;
+  await fpLobbyBackendReady;
+  if (!FpLobby.available) return;
+  const { doc, setDoc } = FpLobby.fs;
+  const ref = doc(FpLobby.db, 'lobbies_' + fpFamilyKey, 'fp_' + net.roomCode);
+  FpLobby.lobbyDocRef = ref;
+  try{
+    await setDoc(ref, {
+      game: 'farmparty',
+      gameName: 'Farm Party',
+      ico: '🎉',
+      hostName: net.myName || 'Someone',
+      roomCode: net.roomCode,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      status: 'open',
+      playerCount: fpHumanCount(),
+      maxPlayers: 4
+    });
+    fpStartLobbyHeartbeat();
+    fpHookUnloadCleanup();
+    fpHookVisibilityLifecycle();
+  }catch(err){
+    console.warn('Farm Party: could not create lobby doc (continuing without it).', err);
+  }
+}
+async function fpUpdateLobbyDoc(patch){
+  if (!FpLobby.available || !FpLobby.lobbyDocRef) return;
+  try{ await FpLobby.fs.setDoc(FpLobby.lobbyDocRef, { ...patch, updatedAt: Date.now() }, { merge:true }); }
+  catch(err){ /* best-effort — a missed update just ages out via games.html's liveness window */ }
+}
+function fpStartLobbyHeartbeat(){
+  if (FpLobby.heartbeatTimer) return;
+  FpLobby.heartbeatTimer = setInterval(() => {
+    if (!FpLobby.lobbyDocRef) return;
+    fpUpdateLobbyDoc({ playerCount: fpHumanCount() });
+  }, FP_LOBBY_HEARTBEAT_MS);
+}
+async function fpDeleteLobbyDoc(){
+  if (!FpLobby.available || !FpLobby.lobbyDocRef) return;
+  const ref = FpLobby.lobbyDocRef;
+  FpLobby.lobbyDocRef = null;
+  if (FpLobby.heartbeatTimer){ clearInterval(FpLobby.heartbeatTimer); FpLobby.heartbeatTimer = null; }
+  try{ await FpLobby.fs.deleteDoc(ref); }catch(err){ /* best-effort */ }
+}
+function fpHookUnloadCleanup(){
+  if (FpLobby.unloadHooked) return;
+  FpLobby.unloadHooked = true;
+  const cleanup = () => { if (FpLobby.lobbyDocRef) fpDeleteLobbyDoc(); };
+  window.addEventListener('pagehide', cleanup);
+  window.addEventListener('beforeunload', cleanup);
+}
+// Same hardening as Farm Kart: a host tab backgrounded for a long time without ever
+// formally closing (kid switches apps) would otherwise leave a stale JOIN card up to the
+// full liveness window even though the heartbeat itself is throttled/suspended while hidden.
+function fpHookVisibilityLifecycle(){
+  if (FpLobby.visibilityHooked) return;
+  FpLobby.visibilityHooked = true;
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden){
+      if (FpLobby.hiddenTimer) return;
+      FpLobby.hiddenTimer = setTimeout(() => {
+        FpLobby.hiddenTimer = null;
+        if (FpLobby.lobbyDocRef){ FpLobby.hiddenDeletedDoc = true; fpDeleteLobbyDoc(); }
+      }, FP_LOBBY_HIDDEN_DELETE_MS);
+    } else {
+      if (FpLobby.hiddenTimer){ clearTimeout(FpLobby.hiddenTimer); FpLobby.hiddenTimer = null; }
+      if (FpLobby.hiddenDeletedDoc){
+        FpLobby.hiddenDeletedDoc = false;
+        fpEnsureLobbyDoc();   // re-checks isHost/roomCode itself — silent no-op if no longer host
+      }
+    }
+  });
+}
+window.__fpLobby = {
+  ensureLobbyDoc: fpEnsureLobbyDoc, deleteLobbyDoc: fpDeleteLobbyDoc, updateLobbyDoc: fpUpdateLobbyDoc,
+  get state(){ return FpLobby; }
+};
+
+/* --- lazy SDK loader (unpkg UMD, pinned) --- */
+let _sdkPromise = null;
+function loadPlayroomSDK(){
+  if (typeof Playroom !== "undefined" && Playroom.insertCoin) return Promise.resolve(true);
+  if (_sdkPromise) return _sdkPromise;
+  _sdkPromise = new Promise((resolve)=>{
+    const s = document.createElement("script");
+    s.src = "https://unpkg.com/playroomkit@0.0.96/multiplayer.full.umd.js";
+    s.onload = ()=> resolve(typeof Playroom !== "undefined" && !!Playroom.insertCoin);
+    s.onerror = ()=> resolve(false);
+    document.head.appendChild(s);
+  });
+  return _sdkPromise;
+}
+
+// deep-link contract: "#r=<roomCode>". Playroom reads/writes location.hash key "r"
+// in its OWN "r=R<code>" format (with a leading R it slices off) and that read BEATS
+// an explicit roomCode option — so parse+CLEAR our hash BEFORE insertCoin and pass the
+// code explicitly (same lesson as barnyardbistro.html / farmkart.html).
+function readAndClearRoomCodeFromHash(){
+  const m = /(?:^|&)r=([^&]+)/.exec(location.hash.slice(1));
+  const code = m ? decodeURIComponent(m[1]) : null;
+  if (code) history.replaceState(null, "", location.pathname + location.search);
+  return code;
+}
+function mpShareLink(){ return location.origin + location.pathname + "#r=" + (net.roomCode || ""); }
+function humanCount(){ let n=0; for (const id in G.players) if (!G.players[id].isBot) n++; return n; }
+
+/* ----------------------------------------------------------- init / connect */
+function startFamilyMatch(){
+  ensureAudio();
+  sfxSting();
+  localStorage.setItem("sb_party_mode", "mp");
+  updateModeButtons();
+  PARTY.mode = "mp"; PARTY.phase = "lobby"; PARTY._inGame = false; ACTIVE_MINIGAME = null;
+  titleEl.style.display = "none";
+  selectEl.classList.remove("on");
+  overlayEl.classList.remove("on");
+  hudEl.classList.remove("on");
+  resetAllViews();
+  G.players = {};
+  G.mode = "mp"; G.phase = "waiting"; G.stage = "none"; G.seats = [];
+  G.page = 0; G.holeGen = 0; G.spectate = false; G.matchResult = null;
+  clearPage();
+  net.guestFlip = { stage:"none", flipDur:1, flipElapsed:0 };
+  showMpWaiting("Connecting to the family room…");
+  initNet();
+}
+async function initNet(){
+  net.active = true;
+  const okSdk = await loadPlayroomSDK();
+  if (!okSdk || typeof Playroom === "undefined" || !Playroom.insertCoin){
+    mpFallbackSolo("Couldn't reach the family room — playing solo!");
+    return;
+  }
+  try {
+    const code = readAndClearRoomCodeFromHash();
+    net.myName = (localStorage.getItem("choreUser") || "").trim() || "Player";
+    await Playroom.insertCoin({ maxPlayersPerRoom: 4, skipLobby: true, roomCode: code || undefined });
+    net.isHost = Playroom.isHost();
+    net.localPlayer = Playroom.myPlayer();
+    net.myPid = net.localPlayer.id;
+    try { net.roomCode = Playroom.getRoomCode(); } catch (e){ net.roomCode = code || null; }
+    try { net.localPlayer.setState("name", net.myName, true); } catch (e){}
+    net.ready = true;
+    if (net.isHost){
+      hostEnterWaiting();
+      Playroom.onPlayerJoin((player)=>{
+        if (player.id === net.myPid) return;
+        net.players.push(player);
+        if (net.matchLocked){
+          try { player.setState("char", "", true); } catch (e){}   // late joiner: no seat this match
+        } else {
+          hostSeatGuest(player);
+        }
+        publishSnapshotNow();
+        fpUpdateLobbyDoc({ playerCount: fpHumanCount() });   // family lobby: live count, no-op otherwise
+        player.onQuit(()=>{
+          net.players = net.players.filter(p => p.id !== player.id);
+          hostUnseatGuest(player);
+          publishSnapshotNow();
+          fpUpdateLobbyDoc({ playerCount: fpHumanCount() });   // family lobby: live count, no-op otherwise
+        });
+      });
+      // family lobby: create the lobby doc now that we know we're really an online host —
+      // no-op for guests (fpEnsureLobbyDoc's own isHost guard covers that uniformly).
+      fpEnsureLobbyDoc();
+    } else {
+      guestEnterWaiting();
+    }
+  } catch (err){
+    console.warn("Storybook: Playroom connection failed — solo.", err);
+    mpFallbackSolo("Couldn't reach the family room — playing solo!");
+  }
+}
+function mpFallbackSolo(msg){
+  net.active = false; net.isHost = false; net.ready = false;
+  hideMpWaiting();
+  toast(msg);
+  partyStart("solo");   // graceful degrade: a solo party (you + goat bots)
+}
+
+/* ------------------------------------------------------------- host: seats - */
+function freshSeats(){
+  return CHAR_ORDER.map(char => ({ char, kind:"empty", pid:null, id:null, name:CHARS[char].name }));
+}
+function hostEnterWaiting(){
+  resetAllViews();
+  G.players = {};
+  G.seats = freshSeats();
+  // host is always Bucky, seat 0
+  G.seats[0].kind = "human"; G.seats[0].pid = net.myPid; G.seats[0].id = "local"; G.seats[0].name = net.myName || "You";
+  const local = makeLocalEntry("bucky");
+  const sp = VERSUS_SPAWNS.bucky; local.x = sp.x; local.z = sp.z;
+  if (playerNeckMesh) playerNeckMesh.visible = true;
+  revealEntry(local, true);
+  // re-seat anyone already connected (play-again path)
+  for (const pl of net.players) hostSeatGuest(pl);
+  net.matchLocked = false; net.resultShown = false;
+  PARTY.mode = "mp"; PARTY.phase = "lobby"; PARTY._inGame = false; ACTIVE_MINIGAME = null;
+  G.mode = "mp"; G.phase = "waiting"; G.stage = "none";
+  G.page = 0; G.holeGen = 0; G.flipAngle = 0; G.spectate = false; G.matchResult = null;
+  clearPage();
+  pageNumEl.textContent = "0";
+  showMpWaiting();
+  publishSnapshotNow();
+}
+function hostSeatGuest(player){
+  const seat = G.seats.find(s => s.kind === "empty");
+  if (!seat) return;   // room full
+  let nm = null; try { nm = player.getState("name"); } catch (e){}
+  seat.kind = "human"; seat.pid = player.id; seat.id = "r_"+player.id; seat.name = nm || CHARS[seat.char].name;
+  const ent = makeEntry("r_"+player.id, seat.char, { isRemote:true, remotePid:player.id });
+  const sp = VERSUS_SPAWNS[seat.char] || { x:0, z:0 };
+  ent.x = sp.x; ent.z = sp.z; ent.name = seat.name;
+  G.players[ent.id] = ent;
+  revealEntry(ent, true);
+  try { player.setState("char", seat.char, true); } catch (e){}
+}
+function hostUnseatGuest(player){
+  const seat = G.seats.find(s => s.pid === player.id);
+  if (seat){ seat.kind = "left"; seat.pid = null; }
+  const key = "r_"+player.id, ent = G.players[key];
+  if (!ent) return;
+  if (PARTY.phase === "minigame" && PARTY._inGame){
+    // mid-minigame: their character poofs (fade), NO bot replacement
+    ent.alive = false; ent.elimPhase = "fading"; ent.elimT = 0;
+    if (charViews[ent.char]) charViews[ent.char]._poofing = true;
+    checkMatchResolution({ advancePage:false });   // maybe someone is now the sole survivor
+  } else {
+    // lobby / select / result: remove; the seat stays 'left' (chip grays). At the
+    // next minigame the 'left' seat becomes a friendly goat (bot).
+    removeEntry(ent);
+    if (PARTY.phase === "select") renderSelect();
+  }
+}
+function hostStartMatch(){
+  if (!net.isHost) return;
+  for (const seat of G.seats){
+    if (seat.kind === "empty" || seat.kind === "left"){
+      seat.kind = "bot"; seat.pid = null; seat.name = CHARS[seat.char].name;
+      if (!entryByChar(seat.char)){
+        const e = addBotEntry(seat.char);
+        const sp = VERSUS_SPAWNS[seat.char] || { x:0, z:0 };
+        e.x = sp.x; e.z = sp.z;
+      }
+    }
+  }
+  for (const id in G.players){ const e = G.players[id]; if (!e.revealed) revealEntry(e, true); }
+  net.matchLocked = true; net.resultShown = false;
+  G.matchGen = (G.matchGen || 0) + 1;
+  G.phase = "playing"; G.stage = "pause"; G.pauseLeft = TUNE.START_PAUSE;
+  G.page = 0; G.holeGen = 0; G.spectate = false; G.matchResult = null;
+  spawnPage(1);
+  showPlayUI();
+  publishSnapshotNow();
+}
+function hostPlayAgain(){
+  if (!net.isHost) return;
+  overlayEl.classList.remove("on");
+  hostEnterWaiting();   // keep connected guests, drop bots, back to the waiting room
+}
+function hostAdoptGuests(dt){
+  for (const pl of net.players){
+    const e = G.players["r_"+pl.id];
+    if (!e) continue;
+    let x,z,facing,moving;
+    try { x = pl.getState("x"); z = pl.getState("z"); facing = pl.getState("facing"); moving = pl.getState("moving"); }
+    catch (err){ continue; }
+    if (typeof x === "number") e.x = clamp(x, -TUNE.BOUND_X, TUNE.BOUND_X);
+    if (typeof z === "number") e.z = clamp(z, -TUNE.BOUND_Z, TUNE.BOUND_Z);
+    if (typeof facing === "number") e.facing = facing;
+    e.moving = !!moving;
+    e.speed = moving ? TUNE.MOVE_SPEED : 0;
+  }
+}
+
+/* ------------------------------------------------------ host: publish state */
+function buildSnapshot(){
+  const players = {};
+  for (const id in G.players){
+    const e = G.players[id];
+    players[e.char] = {
+      x: +e.x.toFixed(3), z: +e.z.toFixed(3), facing: +(e.facing||0).toFixed(3),
+      moving: !!e.moving, alive: !!e.alive, elim: e.elimPhase || null,
+    };
+  }
+  return {
+    mode:"mp", phase:G.phase, stage:G.stage, page:G.page, matchGen:G.matchGen||0,
+    ts: Date.now(),   // host heartbeat — guests detect a vanished host by a stale ts
+    flipDur:G.flipDur, flipElapsed:G.flipElapsed, holeGen:G.holeGen,
+    seats: (G.seats||[]).map(s => ({ char:s.char, kind:s.kind, name:s.name })),
+    // PARTY shell state — guests mirror the host's party phase / hover / tally.
+    party: { phase:PARTY.phase, game:PARTY.selectedGame, hover:PARTY.selectHover, tally:PARTY.tally },
+    players,
+    // result is PERSPECTIVE-NEUTRAL: each client derives "You win" vs "<name> wins"
+    // relative to its OWN character (see applySnapshot) so a guest never sees the
+    // host's "playerWin".
+    result: G.matchResult ? { winnerChar:G.matchResult.winnerChar||null, winnerName:G.matchResult.winnerName||null, draw: G.matchResult.type==="draw" } : null,
+  };
+}
+function publishSnapshotNow(){
+  if (!net.active || !net.isHost || !net.ready) return;
+  try { Playroom.setState("snap", buildSnapshot(), true); } catch (e){}
+}
+function publishHoles(number, holes){
+  if (!net.active || !net.isHost || !net.ready) return;
+  const lean = holes.map(h => ({ k:h.kind, cx:+h.cx.toFixed(3), cz:+h.cz.toFixed(3), rx:+h.rx.toFixed(3), rz:+h.rz.toFixed(3) }));
+  try { Playroom.setState("holes", { gen:G.holeGen, number, holes:lean }, true); } catch (e){}
+}
+function hostNetTick(dt){
+  net.snapshotCd -= dt;
+  if (net.snapshotCd <= 0){ publishSnapshotNow(); net.snapshotCd = SNAPSHOT_INTERVAL; }
+}
+
+/* ---------------------------------------------------------------- guest --- */
+function guestEnterWaiting(){
+  resetAllViews();
+  G.players = {};
+  G.mode = "mp"; G.phase = "waiting"; G.stage = "none";
+  G.page = 0; G.holeGen = 0; net.holeGenSeen = -1;
+  net.guestChar = null; net.resultShown = false;
+  net.guestFlip = { stage:"none", flipDur:1, flipElapsed:0 };
+  clearPage();
+  pageNumEl.textContent = "0";
+  showMpWaiting();
+}
+function ensureGuestLocalEntry(char){
+  let e = localP();
+  if (e && e.char === char) return e;
+  e = makeLocalEntry(char);
+  const sp = VERSUS_SPAWNS[char] || { x:0, z:0 };
+  e.x = sp.x; e.z = sp.z;
+  revealEntry(e, true);
+  return e;
+}
+function makeRemoteEntry(char){
+  const e = makeEntry("remote_"+char, char, { isRemote:true });
+  G.players[e.id] = e;
+  return e;
+}
+function removeEntry(e){
+  const v = charViews[e.char];
+  if (v) v.root.visible = false;
+  delete G.players[e.id];
+}
+function revealEntry(e, hop){
+  e.revealed = true;
+  const v = charViews[e.char];
+  if (v){ v.root.visible = true; setViewOpacity(v, 1); syncEntryNow(e); if (hop) playViewClip(v, "jump", 0.05); }
+  if (e.char === "bucky" && playerNeckMesh) playerNeckMesh.visible = true;
+  if (hop){ showNamePopup(e.name + "!"); sfxTick(); }
+}
+function lerpAngle(cur, target, t){
+  let diff = ((target - cur + Math.PI*3) % (Math.PI*2)) - Math.PI;
+  return cur + diff * t;
+}
+function applySeats(seats){
+  G.seats = seats;
+  for (const s of seats){
+    const e = entryByChar(s.char);
+    if (e && !e.isLocal && s.name) e.name = s.name;
+  }
+}
+function applyHolesFromRoom(gen){
+  let hd = null; try { hd = Playroom.getState("holes"); } catch (e){}
+  if (!hd || hd.gen !== gen) return false;
+  const holes = hd.holes.map(lh => {
+    const kind = lh.k, cx = lh.cx, cz = lh.cz, rx = lh.rx, rz = lh.rz;
+    const unit = unitPoly(kind);
+    const worldPoly = unit.map(([ux,uy]) => [cx + ux*rx, cz + uy*rz]);
+    return { kind, cx, cz, rx, rz, unit, worldPoly };
+  });
+  buildPageVisuals(holes, hd.number);
+  net.holeGenSeen = gen;
+  return true;
+}
+function guestStageSfx(prev, cur){
+  if (prev === cur) return;
+  if (cur === "flipping"){ sfxWhoosh(net.guestFlip.flipDur || 1); }
+  else if (prev === "flipping"){ shake(TUNE.SHAKE_AMP); slamFX(); sfxSlam(); }
+}
+/* ---- guest: mirror the host's PARTY state (phase / hover / tally) ---------- */
+function guestApplyParty(p){
+  if (!p) return;
+  if (p.tally) PARTY.tally = p.tally;
+  PARTY.selectedGame = p.game || null;
+  PARTY.selectHover = p.hover || null;
+  guestApplyPartyPhase(p.phase);
+}
+function guestApplyPartyPhase(pp){
+  if (!pp) return;
+  const prev = PARTY.phase;
+  PARTY.mode = "mp";
+  if (pp === "select"){
+    if (prev === "minigame" || prev === "result") guestBackToSelect();
+    PARTY.phase = "select";
+    selectEl.classList.add("on");
+    hideMpWaiting();
+    hudEl.classList.remove("on");
+    overlayEl.classList.remove("on");
+    document.getElementById("vhud").classList.remove("on");
+    if (IS_COARSE) TC.classList.remove("on");
+    renderSelect();                    // keep the host's hover highlight fresh
+  } else if (pp === "lobby"){
+    PARTY.phase = "lobby";
+    selectEl.classList.remove("on");
+  } else if (pp === "minigame"){
+    PARTY.phase = "minigame"; PARTY._inGame = true;
+    selectEl.classList.remove("on");
+  } else if (pp === "result"){
+    PARTY.phase = "result";
+    selectEl.classList.remove("on");
+  }
+}
+function guestBackToSelect(){
+  clearPage();
+  G.stage = "none"; G.page = 0; G.holeGen = 0; net.holeGenSeen = -1; net.resultShown = false;
+  overlayEl.classList.remove("on"); hudEl.classList.remove("on");
+  document.getElementById("partyTallyRow").classList.remove("on");
+  for (const id in G.players){
+    const e = G.players[id];
+    e.alive = true; e.squishT = 0; e.elimPhase = null; e.elimT = 0;
+    const v = charViews[e.char];
+    if (v){ setViewOpacity(v, 1); v.squish.scale.set(1,1,1); if (v.blob) v.blob.scale.setScalar(1); v.curClip = null; }
+  }
+  PARTY._inGame = false; PARTY._resultPending = false;
+}
+
+function applySnapshot(snap, dt){
+  if (!snap) return;
+  net.snap = snap;
+  G.mode = "mp";
+  if (snap.party) guestApplyParty(snap.party);   // PARTY shell mirror (before the game-state apply)
+  if (snap.seats) applySeats(snap.seats);
+  if (typeof snap.holeGen === "number" && snap.holeGen !== net.holeGenSeen){
+    applyHolesFromRoom(snap.holeGen);   // retried next frame if the holes state isn't up yet
+  }
+  const prevPage = G.page;
+  G.page = snap.page || 0;
+  if (G.page !== prevPage){ pageNumEl.textContent = G.page; if (G.page > prevPage && G.phase !== "waiting"){ sfxDing(); showNamePopup("Page " + G.page + "!"); } }
+  const prevStage = net.guestFlip.stage;
+  net.guestFlip.stage = snap.stage;
+  net.guestFlip.flipDur = snap.flipDur || 1;
+  net.guestFlip.flipElapsed = snap.flipElapsed || 0;
+  G.stage = snap.stage;
+  guestStageSfx(prevStage, snap.stage);
+  const t = 1 - Math.exp(-8.3 * (dt || 0.016));   // ~120ms interp
+  for (const char in snap.players){
+    const ps = snap.players[char];
+    if (char === net.guestChar){
+      const me = localP();
+      if (me){
+        if (me.alive && !ps.alive){ me.alive = false; slamFX(true, me.x, me.z); sfxHonk(); }
+        else if (!me.alive && ps.alive){ me.alive = true; me.squishT = 0; me.elimPhase = null; }
+      }
+      continue;
+    }
+    let e = entryByChar(char);
+    if (!e){ e = makeRemoteEntry(char); e.x = ps.x; e.z = ps.z; revealEntry(e, G.phase !== "waiting"); }
+    const err = Math.hypot(ps.x - e.x, ps.z - e.z);
+    if (err > 6){ e.x = ps.x; e.z = ps.z; } else { e.x += (ps.x - e.x)*t; e.z += (ps.z - e.z)*t; }
+    e.facing = lerpAngle(e.facing, ps.facing, t);
+    e.moving = ps.moving; e.speed = ps.moving ? TUNE.MOVE_SPEED : 0;
+    if (e.alive && !ps.alive){ e.alive = false; e.elimPhase = "squishing"; e.elimT = 0; slamFX(false, e.x, e.z); }
+    else if (!e.alive && ps.alive){ e.alive = true; e.elimPhase = null; e.squishT = 0; const v=charViews[char]; if (v){ setViewOpacity(v,1); v.root.visible = true; } }
+  }
+  // drop remotes that vanished from the snapshot (a player left)
+  for (const id in G.players){
+    const e = G.players[id];
+    if (e.isLocal) continue;
+    if (!snap.players[e.char]) removeEntry(e);
+  }
+  // phase transitions
+  const prevPhase = G.phase;
+  if (snap.phase === "playing" && prevPhase === "waiting" && net.guestChar){ showPlayUI(); G.spectate = false; }
+  // a return to "waiting" that is really the party's SELECT is handled by
+  // guestApplyPartyPhase above; only a true LOBBY return resets to the waiting room.
+  if (snap.phase === "waiting" && (prevPhase === "playing" || prevPhase === "matchover")
+      && (!snap.party || snap.party.phase === "lobby")){ guestEnterWaiting(); }
+  G.phase = snap.phase || G.phase;
+  // result overlay (host verdict) — derived relative to MY character
+  if (snap.result){
+    if (!net.resultShown){
+      net.resultShown = true;
+      const r = snap.result;
+      const local = r.draw ? { type:"draw", winnerName:null, winnerChar:null }
+        : { type: (r.winnerChar === net.guestChar ? "playerWin" : "remoteWin"), winnerName: r.winnerName, winnerChar: r.winnerChar };
+      G.matchResult = local;
+      showVersusOverlay(local);
+      PARTY.lastWinner = r.draw ? null : (r.winnerChar || null);
+      PARTY.phase = "result";
+      decorateResultOverlay();          // "Back to the games!" (hidden for guests) + tally row
+    }
+  } else { net.resultShown = false; }
+}
+function guestUpdateFlip(dt){
+  if (!curPage) return;
+  const gf = net.guestFlip;
+  if (gf.stage === "flipping"){
+    gf.flipElapsed += dt;
+    const t = Math.min(1, gf.flipElapsed / (gf.flipDur || 1));
+    updateFlipVisuals(Math.PI * Math.pow(t, 1.7));
+  } else if (gf.stage === "resting"){
+    updateFlipVisuals(Math.PI);
+  } else {
+    updateFlipVisuals(0);
+  }
+}
+function guestTick(dt){
+  // learn my character from my own player state (host assigns it on seating)
+  if (!net.guestChar && net.localPlayer){
+    let ch = null; try { ch = net.localPlayer.getState("char"); } catch (e){}
+    if (ch){ net.guestChar = ch; ensureGuestLocalEntry(ch); }
+  }
+  const local = localP();
+  if (local && local.alive && G.phase === "playing") updatePlayer(dt);   // own-avatar, zero lag
+  // publish own position ~18Hz
+  net.inputCd -= dt;
+  if (net.inputCd <= 0 && net.localPlayer && local){
+    try {
+      net.localPlayer.setState("x", local.x, false);
+      net.localPlayer.setState("z", local.z, false);
+      net.localPlayer.setState("facing", local.facing || 0, false);
+      net.localPlayer.setState("moving", !!local.moving, false);
+    } catch (e){}
+    net.inputCd = INPUT_INTERVAL;
+  }
+  // apply the latest snapshot + smooth the flip between snapshots
+  let snap = null; try { snap = Playroom.getState("snap"); } catch (e){}
+  if (snap){
+    applySnapshot(snap, dt);
+    const nowMs = performance.now();
+    if (snap.ts !== net.lastSnapTs){ net.lastSnapTs = snap.ts; net.lastSnapAt = nowMs; }
+    else if (net.ready && !net.hostGoneShown && net.lastSnapAt && (nowMs - net.lastSnapAt) > 5000){
+      // host heartbeat stopped for 5s -> the book closed (host left)
+      net.hostGoneShown = true;
+      hostLeftToTitle();
+      return;
+    }
+  }
+  guestUpdateFlip(dt);
+}
+function hostLeftToTitle(){
+  toast("The party ended! (the host left)");
+  hideMpWaiting();
+  overlayEl.classList.remove("on");
+  selectEl.classList.remove("on");
+  hudEl.classList.remove("on");
+  document.getElementById("vhud").classList.remove("on");
+  document.getElementById("partyTallyRow").classList.remove("on");
+  clearPage(); resetAllViews();
+  net.active = false; net.ready = false;
+  PARTY.mode = "solo"; PARTY.phase = "title"; PARTY._inGame = false; PARTY._resultPending = false; ACTIVE_MINIGAME = null;
+  G.mode = "solo"; G.phase = "title"; G.stage = "none"; G.players = {};
+  gtitleEl.textContent = "🎉 Farm Party";
+  titleEl.style.display = "flex";
+}
+
+/* --- guest disconnect detection: if the host player quits, Playroom fires it --- */
+// (handled below in the frame path via a per-frame host-presence check)
+
+/* ------------------------------------------------------ waiting-room UI ---- */
+function showMpWaiting(msg){
+  const el = document.getElementById("mpWait");
+  if (el) el.classList.add("on");
+  if (msg){ const s = document.getElementById("mpStatus"); if (s) s.textContent = msg; }
+}
+function hideMpWaiting(){ const el = document.getElementById("mpWait"); if (el) el.classList.remove("on"); }
+function updateMpWaiting(){
+  const el = document.getElementById("mpWait");
+  if (!el) return;
+  // lobby only — during party SELECT (also G.phase "waiting") the select screen shows instead.
+  const showing = G.mode === "mp" && net.active && PARTY.phase === "lobby";
+  el.classList.toggle("on", showing);
+  if (!showing) return;
+  const linkEl = document.getElementById("mpLink");
+  if (linkEl && net.roomCode) linkEl.value = mpShareLink();
+  const chipsEl = document.getElementById("mpChips");
+  const seats = G.seats || [];
+  const sig = seats.map(s => s.char + s.kind + (s.name||"")).join("|") + "|" + (net.guestChar||"") + "|" + (net.isHost?"h":"g");
+  if (chipsEl && chipsEl._sig !== sig){
+    chipsEl._sig = sig;
+    chipsEl.innerHTML = "";
+    for (const s of seats){
+      const div = document.createElement("div");
+      div.className = "mpseat" + (s.kind === "empty" ? " empty" : "");
+      const col = NECK_COLOR[s.char].toString(16).padStart(6,"0");
+      // label by CHARACTER name so the "you" chip reads "Bucky (you)" / "Billy (you)".
+      const label = s.kind === "empty" ? "…" : CHARS[s.char].name;
+      const isMe = net.isHost ? (s.char === "bucky") : (s.char === net.guestChar);
+      let tag = "";
+      if (isMe) tag = " (you)";
+      else if (s.kind === "bot") tag = " 🤖";
+      else if (s.kind === "left") tag = " (left)";
+      div.innerHTML = `<span class="dot" style="background:#${col}"></span>${label}${tag}`;
+      chipsEl.appendChild(div);
+    }
+  }
+  const statusEl = document.getElementById("mpStatus");
+  const startBtn = document.getElementById("mpStart");
+  const noteEl = document.getElementById("mpWaitNote");
+  const shareEl = document.getElementById("mpShare");
+  if (net.isHost){
+    if (startBtn) startBtn.style.display = "block";
+    if (shareEl) shareEl.style.display = "";
+    const humans = seats.filter(s => s.kind === "human").length;
+    if (statusEl) statusEl.textContent = humans > 1 ? (humans + " players in the room!") : "Waiting for the family to join…";
+    if (noteEl) noteEl.textContent = "Empty spots become friendly goats. Start whenever you're ready!";
+  } else {
+    if (startBtn) startBtn.style.display = "none";
+    if (shareEl) shareEl.style.display = "none";
+    if (!net.guestChar){
+      if (statusEl) statusEl.textContent = (net.snap && net.snap.phase && net.snap.phase !== "waiting")
+        ? "Match in progress — hang tight for the next round!" : "Joining the family room…";
+      if (noteEl) noteEl.textContent = "";
+    } else {
+      const hostSeat = seats.find(s => s.char === "bucky");
+      const hostName = hostSeat ? hostSeat.name : "the host";
+      if (statusEl) statusEl.textContent = "You're in! Waiting for " + hostName + " to flip the first page!";
+      if (noteEl) noteEl.textContent = "";
+    }
+  }
+}
+(function wireMpUI(){
+  const start = document.getElementById("mpStart");
+  if (start) start.onclick = ()=> hostStartParty();   // lobby START -> game-select (not straight to a match)
+  const selLeave = document.getElementById("selLeave");
+  if (selLeave) selLeave.onclick = ()=> leaveParty();
+  const copy = document.getElementById("mpCopy");
+  if (copy) copy.onclick = ()=>{
+    const link = mpShareLink();
+    const done = ()=>{ copy.textContent = "✔ Copied!"; setTimeout(()=> copy.textContent = "📋 Copy", 1500); };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(link).then(done, ()=>{ selectLink(); }); }
+      else selectLink();
+    } catch (e){ selectLink(); }
+    function selectLink(){ const l = document.getElementById("mpLink"); if (l){ l.focus(); l.select(); try{ document.execCommand("copy"); done(); }catch(_){} } }
+  };
+  const leave = document.getElementById("mpLeave");
+  if (leave) leave.onclick = ()=>{ location.href = location.pathname; };
+})();
+
+/* ---------- host: hidden-tab heartbeat (rAF suspends while hidden) ---------- */
+let _lastBgTick = performance.now();
+setInterval(()=>{
+  const now = performance.now();
+  const dt = Math.min(1.1, (now - _lastBgTick) / 1000);
+  _lastBgTick = now;
+  if (!document.hidden || !net.active || !net.isHost || !net.ready) return;
+  let rem = dt;
+  while (rem > 0){ const step = Math.min(0.05, rem); hostAdvance(step); rem -= step; }   // sub-step vs tunneling
+  hostNetTick(dt);
+}, 250);
+
+/* small transient toast */
+let _toastTimer = null;
+function toast(msg){
+  const el = document.getElementById("toast");
+  if (!el) return;
+  el.textContent = msg; el.classList.add("on");
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(()=> el.classList.remove("on"), 3200);
+}
+
+/* -------------------------------------------------------------- BOOT ------- */
+function boot(){
+  G.best = parseInt(localStorage.getItem("sb_best") || "0", 10) || 0;
+  G.muted = localStorage.getItem("sb_muted") === "1";
+  muteBtn.textContent = G.muted ? "🔇" : "🔊";
+  updateModeButtons();
+  fitCamera();
+  loadBucky();
+  loadBillyTemplate();
+  frame();
+  // A guest arriving via a shared "#r=<code>" link auto-joins straight into the
+  // party lobby (no title tap needed) once the cast is ready.
+  if (/(?:^|&)r=/.test(location.hash.slice(1))){
+    const tryJoin = ()=>{ if (buckyReady && billyReady && botsBuilt) partyStart("mp"); else setTimeout(tryJoin, 120); };
+    tryJoin();
+  }
+}
+boot();
+
+/* -------------------------------------------------------- DEBUG HOOK ------- */
+window.__PARTY__ = {
+  G, TUNE, THREE,
+  startGame, restart, hostAdvance,
+  flipT, holesForPage, isPlayerSafe, safeInHole, pointInPoly,
+  forcePage(n){
+    PARTY._inGame = false; selectEl.classList.remove("on");   // direct debug drive, not a party round
+    if (G.phase !== "playing") { resetState(); titleEl.style.display="none"; overlayEl.classList.remove("on"); hudEl.classList.add("on"); }
+    G.phase = "playing";
+    G.page = n - 1;
+    spawnPage(n);
+    G.stage = "pause"; G.pauseLeft = 1e6;  // won't auto-flip; test drives it
+    pageNumEl.textContent = G.page;
+    return { number: n, holes: G.holes.map(h=>({kind:h.kind, cx:h.cx, cz:h.cz})) };
+  },
+  setFlipAngle(a){ updateFlipVisuals(a); },
+  judgeNow(){
+    G.stage = "flipping"; G.slamDone = false;
+    updateFlipVisuals(Math.PI);
+    onSlamAndJudge();
+  },
+  setPlayer(x, z){ const e = localP(); if (!e) return; e.x = clamp(x,-TUNE.BOUND_X,TUNE.BOUND_X); e.z = clamp(z,-TUNE.BOUND_Z,TUNE.BOUND_Z); syncEntryNow(e); },
+  holePolysWorld(){ return G.holes.map(h => h.worldPoly.map(p=>[p[0],p[1]])); },
+  holeCenters(){ return G.holes.map(h=>({kind:h.kind, cx:h.cx, cz:h.cz, rx:h.rx, rz:h.rz})); },
+  shadowInfo(){ return curPage ? curPage.shadows.map(s=>({op:+s.mat.opacity.toFixed(3), ringOp:+s.ringMat.opacity.toFixed(3)})) : []; },
+  shadowPageInfo(){
+    if (!curPage) return null;
+    const sp = curPage.shadowPage;
+    return { opacity:+sp.mat.opacity.toFixed(4), zScale:+sp.group.scale.z.toFixed(5),
+      holeCount: sp.holeCount, outlineCount: curPage.outlineCount, holeCountMatches: sp.holeCount === curPage.outlineCount };
+  },
+  spreadCornersOnScreen(){
+    const out = [];
+    const v = new THREE.Vector3();
+    const pts = [[-TUNE.SPREAD_HALF_W,-TUNE.SPREAD_HALF_D],[TUNE.SPREAD_HALF_W,-TUNE.SPREAD_HALF_D],
+                 [-TUNE.SPREAD_HALF_W,TUNE.SPREAD_HALF_D],[TUNE.SPREAD_HALF_W,TUNE.SPREAD_HALF_D]];
+    for (const [x,z] of pts){
+      v.set(x,0,z).project(camera);
+      out.push({ x:(v.x*0.5+0.5)*innerWidth, y:(-v.y*0.5+0.5)*innerHeight, ndcX:+v.x.toFixed(3), ndcY:+v.y.toFixed(3) });
+    }
+    return out;
+  },
+  get buckyReady(){ return buckyReady; },
+  get buckyTris(){ return buckyTris; },
+  get curClip(){ return buckyView ? buckyView.curClip : null; },
+  get squishY(){ return buckySquish.scale.y; },
+  get muted(){ return G.muted; },
+  get camera(){ return camera; },
+  get curPage(){ return curPage; },
+  landedWorldZ(sy){ return S2W_Z(sy); },   // mirror-math helper for the suite
+
+  /* --------------------------------------------------- VERSUS TEST HOOKS --- */
+  isSafeAt, errChanceAt, entryByChar, entryById, resolveEntry,
+  get castReady(){ return buckyReady && billyReady && botsBuilt; },
+  get spectate(){ return G.spectate; },
+  get matchResult(){ return G.matchResult; },
+  get bots(){ return botEntries(); },
+  get players(){ return G.players; },
+  setForceNoErrors(v){ G.forceNoErrors = !!v; },
+  skipSpectate,
+  skipIntro(){
+    if (G.phase !== "intro") return;
+    for (const item of introQueue) if (!item.shown){ item.shown = true; revealCharacter(item.ch); }
+    G.phase = "playing"; G.stage = "pause"; G.pauseLeft = TUNE.START_PAUSE;
+  },
+  setBotPos(id, x, z){
+    const bot = resolveEntry(id);
+    if (!bot) return;
+    bot.x = clamp(x, -TUNE.BOUND_X, TUNE.BOUND_X);
+    bot.z = clamp(z, -TUNE.BOUND_Z, TUNE.BOUND_Z);
+    syncEntryNow(bot);
+  },
+  forceFlatten(id){
+    const e = resolveEntry(id);
+    if (e && e.alive) eliminateEntry(e);
+    return checkMatchResolution({ advancePage:false });
+  },
+  forceFlattenAll(ids){
+    for (const id of ids){
+      const e = resolveEntry(id);
+      if (e && e.alive) eliminateEntry(e);
+    }
+    return checkMatchResolution({ advancePage:false });
+  },
+  botTargetOf(id){
+    const bot = resolveEntry(id);
+    if (!bot) return null;
+    return { targetHoleIdx: bot.targetHoleIdx, standX: bot.standX, standZ: bot.standZ,
+      aiPhase: bot.aiPhase, errType: bot.errType, effReactionT: bot.effReactionT };
+  },
+  castInfo(){
+    const info = [];
+    const push = (id, name, model, hasMixer, neckGroup) => {
+      let skinned = 0, sampleColor = null;
+      if (model) model.traverse(o => {
+        if (o.isSkinnedMesh){ skinned++; if (sampleColor === null && o.material && o.material.color) sampleColor = o.material.color.getHex(); }
+      });
+      const neckColor = neckGroup && neckGroup.children[0] ? neckGroup.children[0].material.color.getHex() : null;
+      info.push({ id, name, modelUUID: model ? model.uuid : null, hasMixer: !!hasMixer,
+        skinnedMeshCount: skinned, sampleColor, neckColor });
+    };
+    const idFor = { bucky:"player", billy:"billy", rosie:"rosie", clover:"clover" };   // castInfo keeps "player" for Bucky (debug id, matches the suite)
+    for (const char of CHAR_ORDER){
+      const v = charViews[char];
+      push(idFor[char], CHARS[char].name, v ? v.model : null, v ? v.mixer : null, v ? v.neckMesh : null);
+    }
+    return info;
+  },
+
+  /* ------------------------------------------------------- MP TEST HOOKS --- */
+  get net(){ return net; },
+  startFamilyMatch, hostStartMatch, hostPlayAgain,
+  get seats(){ return G.seats; },
+  get guestChar(){ return net.guestChar; },
+  get roomCode(){ return net.roomCode; },
+  shareLink(){ return net.roomCode ? mpShareLink() : null; },
+  humanCount, mpSetSnapForTest(snap){ if (net.active && !net.isHost) applySnapshot(snap, 0.05); },
+
+  /* ----------------------------------------------------- PARTY TEST HOOKS -- */
+  get PARTY(){ return PARTY; },
+  get MINIGAMES(){ return MINIGAMES.map(m=>({ id:m.id, name:m.name, ico:m.ico, ready:!!m.ready })); },
+  get activeMinigame(){ return ACTIVE_MINIGAME ? ACTIVE_MINIGAME.id : null; },
+  partyStart, hostStartParty, hostBeginMinigame, partyBeginSolo, hostBackToSelect, backToSelect, leaveParty,
+  selectCard(gameId){ selectCardClicked(gameId); },              // simulate a host card tap
+  partyState(){ return { phase:PARTY.phase, mode:PARTY.mode, tally:Object.assign({},PARTY.tally),
+    selectedGame:PARTY.selectedGame, selectHover:PARTY.selectHover, subMode:PARTY.subMode,
+    inGame:PARTY._inGame, active:ACTIVE_MINIGAME ? ACTIVE_MINIGAME.id : null }; },
+  sceneChildCount(){ return scene.children.length; },            // leak proof across matches
+};
+
+/* -------------------------------------------------------- UTILITIES -------- */
+function clamp(v,a,b){ return v<a?a:v>b?b:v; }
+function rand(a,b){ return a + Math.random()*(b-a); }
+</script>
+</body>
+</html>

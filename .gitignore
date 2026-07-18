@@ -24,3 +24,6 @@ tools/_inspect-*.txt
 tools/_verify-out.txt
 .vscode/
 scratchpad/
+
+# Tripo cast RAW intermediates (per-clip FBX + rig dirs, ~600MB/member) — only the root GLBs ship
+assets/cast/*/*/

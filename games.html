@@ -144,6 +144,7 @@
 <script>
   // Every game the family can play. Add a tile here to add it to the games hub.
   const GAMES = [
+    { ico:"🎉", name:"Farm Party",     desc:"Mario-Party-style minigames",  url:"farmparty.html" },
     { ico:"🐐", name:"Bucky Jump",     desc:"Jump the fences",              url:"index.html#game" },
     { ico:"🐱", name:"Cat Rescue",     desc:"Save the barn cats",           url:"index.html#catgame" },
     { ico:"🚜", name:"Hay Haul",       desc:"Snake, but tractor & hay",     url:"hayhaul.html" },
@@ -198,6 +199,10 @@
   // kitchen/chef wording; unknown future games get a neutral generic fallback so a new game
   // doesn't need a games.html change just to appear here.
   const LOBBY_TEXT = {
+    farmparty: {
+      open: (d) => `🎉 ${d.hostName || "Someone"}'s farm party is on! · ${d.playerCount || 1}/${d.maxPlayers || 4} partiers`,
+      started: (d) => `🎉 ${d.hostName || "Someone"}'s party is mid-game!`
+    },
     barnyardbistro: {
       open: (d) => `${d.hostName || "Someone"}'s kitchen is open! · ${d.playerCount || 1}/${d.maxPlayers || 2} chefs`,
       started: (d) => `🍳 ${d.hostName || "Someone"} is cooking with ${d.playerCount || 1} chefs`
