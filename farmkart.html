@@ -1173,6 +1173,9 @@
   const CITY_THEME = ACTIVE_TRACK.theme === 'city';
   function terrainOpts(){ const o = { amp:TUNE.groundHillAmp, wave:TUNE.groundHillWave, margin:TUNE.heightBlendMargin, field:ACTIVE_TRACK.terrain, paint:ACTIVE_TRACK.paint, groundMargin:ACTIVE_TRACK.groundMargin, followTerrain:ACTIVE_TRACK.followTerrain, offroad:ACTIVE_TRACK.offroad };
     if (CITY_THEME){ o.color = 0x2e3136; o.roadColor = 0x3d434e; o.curbColor = 0x9aa2ad; o.skipBladeTexture = true; }
+    // WAVE-2 SKYWAY (2026-07-19): the road floats ~12-100u in the night sky — paint the ground far
+    // below near-void so it reads as empty space beneath the light-ribbon (no green grass showing).
+    if (ACTIVE_TRACK.decor === 'skyway'){ o.color = 0x090b16; o.skipBladeTexture = true; }
     // PER-TRACK ROAD/CURB COLOURS (2026-07-17): explicit track keys WIN over the theme defaults above and
     // the builder defaults (a dirt farm lane etc). Only the ribbon builders read these — height/physics
     // are untouched. Absent -> the ribbon keeps its byte-identical default colours.
@@ -1237,7 +1240,7 @@
   scene.add(FK_TRACK.buildGroundMesh(_sampled, TRACK_WIDTH, THREE, meshTerrainOpts()));
   // 3D grass tufts scattered along the track corridor (fewer on phones). Static instanced mesh.
   // CITY THEME: no grass tufts growing out of the asphalt — skip both the corridor + painted tufts.
-  if (!CITY_THEME){ const mobile = (typeof matchMedia==='function' && matchMedia('(pointer: coarse)').matches);
+  if (!CITY_THEME && ACTIVE_TRACK.decor !== 'skyway'){ const mobile = (typeof matchMedia==='function' && matchMedia('(pointer: coarse)').matches);
     scene.add(FK_TRACK.buildGrassTufts(_sampled, TRACK_WIDTH, THREE, { heightFn:(x,z)=>sampleHeight(x,z), count: mobile?2200:4600 }));
     // PAINTED tufts (2026-07-12): editor-brushed low/high density cells, scattered ON TOP of the
     // automatic corridor tufts. Absent -> nothing added (byte-identical for tracks without them).
@@ -1378,7 +1381,10 @@
   // instanced/batched (<=~25 draw calls), reduced on mobile. Purely visual — no collision/physics.
   // Empty (never built) for every non-city track. Traffic is added by a later pass.
   let CITY_GROUP = null, LANE_GROUP = null;
-  if (CITY_THEME){
+  // TANK BATTLE arenas keep the city GROUND/LIGHTING/SKY (from theme:'city') but SKIP the auto
+  // cityscape: buildCityscape scatters its own (collision-less) buildings along the corridor, which
+  // would fight the hand-placed solid block grid. Those buildings + lamps are built by buildTankArena.
+  if (CITY_THEME && !ACTIVE_TRACK.tankBattle){
     const _cityMobile = (typeof matchMedia==='function' && matchMedia('(pointer: coarse)').matches);
     CITY_GROUP = FK_TRACK.buildCityscape(_sampled, TRACK_WIDTH, THREE, {
       heightFn:(x,z)=>sampleHeight(x,z), groundFn:(x,z)=>groundSampleHeight(x,z),
@@ -1387,6 +1393,14 @@
     scene.add(CITY_GROUP);
     LANE_GROUP = FK_TRACK.buildLaneMarks(_sampled, TRACK_WIDTH, THREE, { heightFn:(x,z)=>sampleHeight(x,z) });
     scene.add(LANE_GROUP);
+  }
+  // WAVE-2 THEME-PACK DECOR (2026-07-19): cheap per-track decor groups gated on ACTIVE_TRACK.decor.
+  // skyway = glowing edges + star/planet field; pumpkin = jack-o-lantern lamps. Purely visual.
+  let SKYWAY_GROUP = null, PUMPKIN_GROUP = null;
+  {
+    const _decorMobile = (typeof matchMedia==='function' && matchMedia('(pointer: coarse)').matches);
+    if (ACTIVE_TRACK.decor === 'skyway'){ SKYWAY_GROUP = FK_TRACK.buildSkywayDecor(_sampled, TRACK_WIDTH, THREE, { mobile:_decorMobile }); scene.add(SKYWAY_GROUP); }
+    if (ACTIVE_TRACK.decor === 'pumpkin'){ PUMPKIN_GROUP = FK_TRACK.buildPumpkinLamps(_sampled, TRACK_WIDTH, THREE, { heightFn:(x,z)=>sampleHeight(x,z), wallMargin:effWallMargin(), mobile:_decorMobile }); scene.add(PUMPKIN_GROUP); }
   }
   // BRIDGE WALL COLLISION (2026-07-12): the plank side walls now PHYSICALLY BLOCK — karts used to
   // drive straight off the deck edge. The two deck-edge polylines (centerline ± half-width over each
@@ -1568,6 +1582,21 @@
   // hemisphere fill up + warm its ground tint WITHOUT mutating the shared SKY_PRESETS.night object
   // (other tracks keep the preset). The moon + stars from the preset stay.
   if (CITY_THEME){ hemi.intensity = 0.58; hemi.groundColor.setHex(0x201a16); hemi.color.setHex(0x2c3450); sun.intensity = 0.52; }
+  // TANK BATTLE arena (2026-07-18): the compact block grid's tall buildings occlude far more sky/sun
+  // than the open turnpike, starving the tanks of light. Raise the fill a notch ABOVE the city values
+  // (same colors → night mood kept) so tanks, enemies and the street read instantly.
+  if (CITY_THEME && ACTIVE_TRACK.tankBattle){ hemi.intensity = 0.95; sun.intensity = 0.8; }
+  // WAVE-2 THEME-PACK night-readability lifts (2026-07-19): applied AFTER the sky:night preset, WITHOUT
+  // mutating the shared SKY_PRESETS.night object (each is a per-track tweak to the live hemi/sun lights).
+  if (ACTIVE_TRACK.decor === 'pumpkin'){   // autumn-spooky dusk — cozy, warmer + a touch brighter than city night
+    hemi.intensity = 0.75; hemi.color.setHex(0x4a3a56); hemi.groundColor.setHex(0x2a1e14); sun.intensity = 0.62; sun.color.setHex(0xffb066);
+  }
+  if (ACTIVE_TRACK.decor === 'stadium'){   // floodlit night stadium — brightest night, cool-white
+    hemi.intensity = 0.9; hemi.color.setHex(0xdfe6f0); hemi.groundColor.setHex(0x4a4a44); sun.intensity = 0.85; sun.color.setHex(0xf4f8ff);
+  }
+  if (ACTIVE_TRACK.decor === 'skyway'){    // floating light-ribbon — a soft violet fill so the road + karts read against the void
+    hemi.intensity = 0.62; hemi.color.setHex(0x3a2f66); hemi.groundColor.setHex(0x0a0a14); sun.intensity = 0.5; sun.color.setHex(0xbfc4ff);
+  }
 
   // ---------- start/finish line (checkered strip across main straight) ----------
   // Placed near the main straight at ~z=20, spanning the track width.
@@ -1791,10 +1820,14 @@
     { id:'bucky', name:'Bucky', ico:'🐐' },
     { id:'otis',  name:'Otis',  ico:'🐶' },
     { id:'boots', name:'Boots', ico:'🐱' },
-    // Tripo-generated skinned GLB goat (assets/cast/bucky/bucky.glb). Auto-joins the picker,
+    // Tripo-generated skinned GLB cast (assets/cast/<name>/<name>.glb). Each auto-joins the picker,
     // fk_driver persistence, and the bot random pool via DRIVER_IDS below. 'bucky' (procedural)
-    // stays the default. buildDriver() returns a DIFFERENT contract for this id (glb:true).
+    // stays the default. buildDriver() returns a DIFFERENT contract for these ids (glb:true) — all
+    // driven by the GLB_DRIVER_DEFS registry (same 54-bone Tripo skeleton, per-char targetH/yaw/pose).
     { id:'bucky3d', name:'Bucky 3D', ico:'🐐' },
+    { id:'otis3d',  name:'Otis 3D',  ico:'🐶' },
+    { id:'boots3d', name:'Boots 3D', ico:'🐱' },
+    { id:'huey3d',  name:'Huey 3D',  ico:'🦆' },
   ];
   const KART_IDS = KART_KINDS.map(k=>k.id);
   const DRIVER_IDS = DRIVER_KINDS.map(k=>k.id);
@@ -2085,27 +2118,56 @@
   //  the skinned mesh freezes in bind pose — same lesson as the Bistro chefs). The rest pose
   //  is STANDING; we fold it into a seated driving pose ONCE (bone-quat = rest * delta) and
   //  the steer-lean is a small per-frame delta on the spine/head bones (no limb stretch).
-  const BUCKY3D_URL = 'assets/cast/bucky/bucky.glb';
-  const BUCKY3D_TARGET_H = 1.52;           // normalized STANDING height (kart units); was 1.9, -20% per playtest
-  // The Tripo GLB faces +X in the kart frame (kart forward = +Z); yaw the wrapper -90° so the
-  // driver faces forward (we see its back + horns in the chase cam). Discovered empirically.
-  let BUCKY3D_BASE_YAW = -Math.PI / 2;
   const _bq3 = new THREE.Quaternion(), _be3 = new THREE.Euler(), _v3a = new THREE.Vector3();
-  // Seated pose: boneName -> [x,y,z] Euler radians, applied as rest*delta (see _verify-bucky3d.cjs).
-  // Left/Right arms + legs are mirrored on the axes discovered to be side-antisymmetric.
+  // Base seated pose (Tripo cast): boneName -> [x,y,z] Euler radians, applied as rest*delta
+  // (see _verify-bucky3d.cjs). Left/Right arms + legs are mirrored on the side-antisymmetric axes.
+  // Every GLB_DRIVER_DEFS entry starts from THIS table (same 54-bone skeleton) and may override
+  // specific bones per-character (see _poseWith below).
   const BUCKY3D_SEATED_POSE = {
     // torso slight recline, head level
     Spine01:[0.10, 0, 0], Head:[-0.05, 0, 0],
-    // arms: reach forward+down to the wheel (solver-fit to the grip anchors; hovers just short of
-    // the occluded rim — the model's arms can't fully reach it, which reads fine from the chase cam)
-    L_Upperarm:[1.75, -0.507, -1.115], L_Forearm:[-0.591, 0.514, 0.605],
-    R_Upperarm:[1.655, 0.468, 1.139], R_Forearm:[-0.393, -0.356, -0.38],
+    // arms: hands ON the wheel grips. 2026-07-18 re-solved (user report: the original solver
+    // fit read as crossed arms clasped at the hub). Grip-marker sweep in the cast demo's kart
+    // preview landed each hand at its own-side grip (L at -z — the rig's LEFT is -z world for
+    // the +X-facing GLB, per shoulder ground-truth; total hand->grip miss 0.16u).
+    L_Upperarm:[2.16, -0.191, -0.371], L_Forearm:[-0.231, -0.065, 0.806],
+    R_Upperarm:[2.251, 0.214, 0.333], R_Forearm:[-0.339, -0.132, -0.973],
     // legs: thighs up/forward, knees bent so the feet fold down into the (occluded) footwell
     L_Thigh:[0.383, -0.5, -1.0], L_Calf:[0.116, 0.755, 0.145],
     R_Thigh:[0.4, 0.464, 0.921], R_Calf:[0.238, -0.589, -0.166],
   };
-  let _bucky3dTpl = null, _bucky3dPromise = null, _bucky3dNativeH = 0;
-  function _prepBucky3dTemplate(sceneRoot){
+  // Clone the base seated table with per-bone overrides (keeps the base immutable per character).
+  function _poseWith(overrides){ return Object.assign({}, BUCKY3D_SEATED_POSE, overrides || {}); }
+
+  // ============================================================================
+  //  GLB (Tripo cast) driver REGISTRY — the last copy of the bucky3d pattern.
+  // ----------------------------------------------------------------------------
+  //  Every entry is a skinned GLB that came through the IDENTICAL Tripo pipeline as bucky.glb, so
+  //  they all share the same 54-bone anatomical rig + bone names. ONE set of generic loader / pose /
+  //  anchor / attach fns serves all of them; per-character tuning lives entirely in the entry:
+  //    url · name · ico · targetH (STANDING height, kart units) · baseYaw (wrapper yaw; the Tripo GLBs
+  //    face +X in the kart frame → -90° so the driver faces forward +Z) · pose (seated bone table).
+  //  Runtime fields _tpl/_promise/_nativeH are filled lazily on first load. Materials: the Tripo PBR
+  //  MeshStandard renders near-black under this toon rig, so we convert to MeshLambert{ skinning:true }
+  //  (skinning:true is REQUIRED in r128 or the skinned mesh freezes in bind pose) + an emissive lift.
+  //  The rest pose is STANDING; we fold it into a seated driving pose ONCE (bone-quat = rest*delta)
+  //  and the steer-lean is a small per-frame delta on spine/head (no limb stretch — the rig deforms).
+  const GLB_DRIVER_DEFS = {
+    bucky3d: { url:'assets/cast/bucky/bucky.glb', name:'Bucky 3D', ico:'🐐', targetH:1.52, baseYaw:-Math.PI/2, pose:BUCKY3D_SEATED_POSE },
+    otis3d:  { url:'assets/cast/otis/otis.glb',   name:'Otis 3D',  ico:'🐶', targetH:1.52, baseYaw:-Math.PI/2, pose:_poseWith({}) },
+    boots3d: { url:'assets/cast/boots/boots.glb', name:'Boots 3D', ico:'🐱', targetH:1.52, baseYaw:-Math.PI/2, pose:_poseWith({}) },
+    // Goose ("Huey", user naming): long neck raises the STANDING bbox, so targetH is bumped so the
+    // seated body reads at kart scale rather than shrinking the whole bird to fit the neck into 1.52u.
+    // Pose = base seated table + the user's pose-tool wing/feet refinements (2026-07-18): forearm
+    // entries are QUATERNION-COMPOSED (base×user, re-extracted as XYZ euler), the rest are additions.
+    huey3d:  { url:'assets/cast/goose/goose.glb', name:'Huey 3D',  ico:'🦆', targetH:1.72, baseYaw:-Math.PI/2,
+               pose:_poseWith({ R_Hand:[0.227,-1.449,-0.192], L_Hand:[0,1.571,0.105],
+                                L_UpperarmTwist01:[0,0,0.262], R_Foot:[0,0,-0.541], L_Foot:[0,0,0.489],
+                                L_Forearm:[-0.292,0.253,0.767], R_Forearm:[0.033,-0.689,-0.911],
+                                // long neck dips toward the wheel from the chase cam — raise the head
+                                NeckTwist01:[-0.4,0,0], NeckTwist02:[-0.35,0,0], Head:[-0.3,0,0] }) },
+  };
+  function _prepGlbDriverTemplate(sceneRoot, def){
     sceneRoot.traverse(o=>{
       if (!(o.isMesh || o.isSkinnedMesh) || !o.material) return;
       const src = Array.isArray(o.material) ? o.material[0] : o.material;
@@ -2121,66 +2183,75 @@
     });
     sceneRoot.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(sceneRoot);
-    _bucky3dNativeH = Math.max(box.max.y - box.min.y, 1e-3);
+    def._nativeH = Math.max(box.max.y - box.min.y, 1e-3);
     return sceneRoot;
   }
-  function loadBucky3dTemplate(){
-    if (_bucky3dPromise) return _bucky3dPromise;
-    _bucky3dPromise = new Promise(resolve=>{
+  // Per-id template cache. Load failure resolves null → the kart just has no rider (never black).
+  function loadGlbDriverTemplate(id){
+    const def = GLB_DRIVER_DEFS[id];
+    if (!def) return Promise.resolve(null);
+    if (def._promise) return def._promise;
+    def._promise = new Promise(resolve=>{
       if (!THREE.GLTFLoader){ resolve(null); return; }
-      new THREE.GLTFLoader().load(BUCKY3D_URL, gltf=>{
-        try { _bucky3dTpl = _prepBucky3dTemplate(gltf.scene); resolve(_bucky3dTpl); }
-        catch(e){ console.warn('[fk] bucky3d prep failed', e); resolve(null); }
-      }, undefined, err=>{ console.warn('[fk] bucky3d.glb failed', err); resolve(null); });
+      new THREE.GLTFLoader().load(def.url, gltf=>{
+        try { def._tpl = _prepGlbDriverTemplate(gltf.scene, def); resolve(def._tpl); }
+        catch(e){ console.warn('[fk] glb driver prep failed', id, e); resolve(null); }
+      }, undefined, err=>{ console.warn('[fk] glb driver failed', id, err); resolve(null); });
     });
-    return _bucky3dPromise;
+    return def._promise;
   }
-  // Apply the seated pose to a clone's bones (rest*delta). Twist bones are LEFT ALONE — the mesh
+  // Apply a seated pose to a clone's bones (rest*delta). Twist bones are LEFT ALONE — the mesh
   // weight rides on them as children of the main limb bones (never counter-rotate/zero them).
-  function _applyBucky3dSeatedPose(boneMap){
+  function _applyGlbSeatedPose(boneMap, pose){
     for (const name in boneMap){
       const b = boneMap[name];
       if (!b.userData._rest) b.userData._rest = b.quaternion.clone();
-      const r = BUCKY3D_SEATED_POSE[name];
+      const r = pose[name];
       if (r){ _bq3.setFromEuler(_be3.set(r[0], r[1], r[2], 'XYZ')); b.quaternion.copy(b.userData._rest).multiply(_bq3); }
       else b.quaternion.copy(b.userData._rest);
       b.userData._seated = b.quaternion.clone();
     }
   }
   // Seat the hips at the wrapper origin so TUNE.driverY places the character like the procedural rig.
-  function _anchorBucky3d(g){
+  function _anchorGlbDriver(g){
     if (!g._clone || !g.bones) return;
-    g.wrapper.rotation.y = BUCKY3D_BASE_YAW;   // face +Z (kart forward); rotation is about the hip-seated origin
+    g.wrapper.rotation.y = (g._def ? g._def.baseYaw : -Math.PI/2);   // face +Z; rotation about the hip-seated origin
     g._clone.position.set(0, 0, 0);
     g.wrapper.updateMatrixWorld(true);
     const hip = g.bones['Hip'] || g.bones['Pelvis'] || g.bones['Root'];
     if (hip){ hip.getWorldPosition(_v3a); g.wrapper.worldToLocal(_v3a); g._clone.position.set(-_v3a.x, -_v3a.y, -_v3a.z); }
   }
-  function _attachBucky3d(contract){
-    loadBucky3dTemplate().then(tpl=>{
+  function _attachGlbDriver(contract, id){
+    const def = GLB_DRIVER_DEFS[id];
+    if (!def) return;
+    loadGlbDriverTemplate(id).then(tpl=>{
       if (!tpl || !contract.root) return;   // load failed → root stays empty (kart just has no rider, never black)
       const clone = THREE.SkeletonUtils.clone(tpl);
       const boneMap = {};
       clone.traverse(o=>{ o.frustumCulled = false; if (o.isBone) boneMap[o.name] = o; });
       contract.wrapper.add(clone);
-      contract.wrapper.scale.setScalar(BUCKY3D_TARGET_H / (_bucky3dNativeH || 1));
+      contract.wrapper.scale.setScalar(def.targetH / (def._nativeH || 1));
       contract._clone = clone; contract.bones = boneMap;
-      _applyBucky3dSeatedPose(boneMap);
-      _anchorBucky3d(contract);
+      _applyGlbSeatedPose(boneMap, def.pose);
+      _anchorGlbDriver(contract);
       contract.head = boneMap['Head'] || null;            // hats read g.head (gated off for glb in setViewHat)
       contract._headBone = boneMap['Head'] || null;
       contract._spine = boneMap['Spine01'] || boneMap['Spine02'] || boneMap['Waist'] || null;
       contract._ready = true;
     });
   }
-  // Re-apply the (possibly edited) BUCKY3D_SEATED_POSE to the LOCAL driver — pose-tuning hook.
-  function reposeBucky3dLocal(){
+  // Re-apply the (possibly edited) seated pose to the LOCAL glb driver — pose-tuning hook. Reposes
+  // whichever GLB driver is local, using its own registry entry's pose + yaw.
+  function reposeGlbDriverLocal(){
     const v = kartViews.local, g = v && v.goat;
-    if (!g || !g.glb || !g._ready || !g.bones) return false;
-    _applyBucky3dSeatedPose(g.bones);
-    _anchorBucky3d(g);
+    if (!g || !g.glb || !g._ready || !g.bones || !g._def) return false;
+    _applyGlbSeatedPose(g.bones, g._def.pose);
+    _anchorGlbDriver(g);
     return true;
   }
+  // ---- Back-compat aliases (verify suites + pose-tuning hooks call the bucky3d-era names) ----
+  const loadBucky3dTemplate = () => loadGlbDriverTemplate('bucky3d');
+  const reposeBucky3dLocal  = reposeGlbDriverLocal;
 
   // ============================================================================
   //  Gator 3D — Tripo-generated STATIC GLB kart (assets/farmkart/farmkart-gator3d.glb)
@@ -2286,15 +2357,16 @@
   // feet on pedals. Limb segments stretch each frame between joints.
   function buildDriver(kind){
     const id = normalizeDriverId(kind);
-    if (id === 'bucky3d'){
-      // GLB driver: root (gets TUNE placement each frame) > wrapper (normalization scale + seated
-      // model). The skinned clone attaches ASYNC (pops in like the scenery props) — root is empty
-      // until then. syncKartDriver / fillKartDriver branch on `.glb`.
-      const root = new THREE.Group(); root.name = 'driver_bucky3d';
+    if (GLB_DRIVER_DEFS[id]){
+      // GLB (Tripo cast) driver: root (gets TUNE placement each frame) > wrapper (normalization scale
+      // + seated model). The skinned clone attaches ASYNC (pops in like the scenery props) — root is
+      // empty until then. syncKartDriver / fillKartDriver branch on `.glb`.
+      const root = new THREE.Group(); root.name = 'driver_'+id;
       const wrapper = new THREE.Group(); root.add(wrapper);
-      const contract = { kind:'bucky3d', glb:true, root, wrapper, head:null, bones:null,
-                         _clone:null, _ready:false, _spine:null, _headBone:null };
-      _attachBucky3d(contract);
+      const contract = { kind:id, glb:true, root, wrapper, head:null, bones:null,
+                         _clone:null, _ready:false, _spine:null, _headBone:null,
+                         _def:GLB_DRIVER_DEFS[id], _glbId:id };
+      _attachGlbDriver(contract, id);
       return contract;
     }
     const G = _DRIVER_MATS[id] || _DRIVER_MATS.bucky;
@@ -2692,6 +2764,7 @@
     const v = kartViews[id]; if (!v) return;
     scene.remove(v.group);
     if (v.shadow){ scene.remove(v.shadow); if (v.shadow.material) v.shadow.material.dispose(); v.shadow=null; }   // R4
+    if (v.turret){ scene.remove(v.turret); v.turret=null; }   // TANK BATTLE: scene-level turret group
     v.bodyMat.dispose();
     v.group.traverse(o=>{ if (o.isSprite && o.material){ if (o.material.map) o.material.map.dispose(); o.material.dispose(); } });
     delete kartViews[id];
@@ -2766,6 +2839,11 @@
       stormFlashT:0,         // ⛈ barn-storm screen-flash countdown (local FX)
       spinT:0,               // spin-out lock countdown (input ignored, kart spins 720deg)
       trafficInvulnT:0,      // grace window after a Toad's-Turnpike traffic launch (one hit = one pop)
+      // --- TANK BATTLE (2026-07-18): turret + cannon (unused/inert outside a tankBattle arena) ---
+      turretYaw:0,           // WORLD-relative turret heading (rad)
+      reloadT:0,             // cannon-shell reload countdown (s)
+      tankFireCd:0,          // enemy AI: seconds until the next fire attempt
+      _aimErr:0,             // enemy AI: per-shot aim error (±6°)
       // --- RESCUE CROW (2026-07-12 R1) ---
       rescueT:0,             // remaining rescue-sequence time (s); >0 = control cut
       rescueInvulnT:0,       // gentle no-spin window after being set down
@@ -2832,8 +2910,14 @@
   // ORIENTATION-AWARE: evaluated LIVE (read innerWidth/innerHeight each call) so a device
   // rotation re-reads it — never cached at boot. Portrait (taller than wide) → pull back 5.35;
   // landscape → the closer 3.5. Desktop TUNE.camDist is untouched.
-  function camDistEff(){ return IS_MOBILE ? (innerHeight > innerWidth ? MOBILE_CAM_PORTRAIT_DIST : MOBILE_CAM.camDist) : TUNE.camDist; }
-  function camHeightEff(){ return IS_MOBILE ? MOBILE_CAM.camHeight : TUNE.camHeight; }
+  // TANK BATTLE (2026-07-18): pull the chase cam back + up so the street, the turret and the balloon
+  // rig all frame at once (a tank + its 360° turret needs more context than a kart's bumper cam).
+  // A MULTIPLIER on the live tune (MOBILE_CAM precedent) applied inside the eff() accessors, so every
+  // camera site (init snap / snapCameraBehind / frame target) picks it up with no per-site edits.
+  const TANK_CAM = { dist:1.35, height:1.3 };
+  function _tankCamMul(k){ return ACTIVE_TRACK.tankBattle ? TANK_CAM[k] : 1; }
+  function camDistEff(){ return (IS_MOBILE ? (innerHeight > innerWidth ? MOBILE_CAM_PORTRAIT_DIST : MOBILE_CAM.camDist) : TUNE.camDist) * _tankCamMul('dist'); }
+  function camHeightEff(){ return (IS_MOBILE ? MOBILE_CAM.camHeight : TUNE.camHeight) * _tankCamMul('height'); }
   function camLagEff(){ return IS_MOBILE ? MOBILE_CAM.camLag : TUNE.camLag; }
   function fovEff(){ return IS_MOBILE ? MOBILE_CAM.fov : TUNE.fov; }
   // camera was constructed before IS_MOBILE existed — snap FOV to the effective default now
@@ -3142,6 +3226,9 @@
     if (p.bullT > 0) effMax = Math.max(effMax, TUNE.maxSpeed * TUNE.bullSpeedMul);   // 🐂 charges fast
     else if (p.starT > 0) effMax *= TUNE.starSpeedMul;                                // 🌻 +18% top speed
     let effAccel = TUNE.accel * kst.accel;
+    // TANK BATTLE: the hull drives slower than a kart (top ×0.68, accel ×0.85). Steer + drift +
+    // mini-turbo are untouched (nothing below scales them), so a tank still charges a boost tier.
+    if (ACTIVE_TRACK.tankBattle){ effMax *= TANK.topMul; effAccel *= TANK.accelMul; }
     if (p.isBot) effAccel *= (p.botAccelMul != null ? p.botAccelMul : 1);
     // R2 SPEED CLASS: global top-speed/accel multiplier (100cc/150cc/200cc) on ALL karts.
     const _cm = classMul(); effMax *= _cm; effAccel *= _cm;
@@ -3651,6 +3738,7 @@
     return { ai, inx, inz, maxCurv };
   }
   function botInput(p){
+    if (battleActive() && ACTIVE_TRACK.tankBattle) return tankBotInput(p);   // tank arena: roam + unstick (buildings are solid)
     if (battleActive()) return battleBotInput(p);   // R3: in battle, bots hunt rivals instead of racing the line
     const C = centerPts;
     const idx = p.lastSampleIdx;
@@ -3897,6 +3985,7 @@
   const SIG_ITEM_BIAS = 2.5;
   // roll one item for kart p (catch-up weighted). Falls back to the leading pool if p is missing.
   function rollItem(p){
+    if (battleActive() && ACTIVE_TRACK.tankBattle) return rollItemTank();   // tank boxes grant only gunner specials
     if (battleActive()) return rollItemBattle(p);   // R3: battle rolls by balloon count, not race place
     const weights = computeRollWeights(p ? placeFracOf(p) : 0);
     // Phase 3: per-tier roll access gate (easy CPUs rarely touch the nasty back-of-pack weapons).
@@ -3926,7 +4015,16 @@
   function battleActive(){ return !!(G.battle && G.battle.active && !G.battle.over); }
   function startBattle(){
     G.battle = { active:true, over:false, timeLeft:BATTLE_TIME, winner:null, koSeq:0, elapsed:0 };
-    for (const id in G.players){ const p = G.players[id]; p.balloons = BATTLE_START_BALLOONS; p.ko = false; p.battleInvulnT = 0; p.koOrder = 0; }
+    const tank = !!ACTIVE_TRACK.tankBattle;
+    for (const id in G.players){ const p = G.players[id];
+      // TANK BATTLE: the player crew gets 5 balloons, each enemy tank 3.
+      p.balloons = tank ? (p === G.players.local ? TANK.playerBalloons : TANK.enemyBalloons) : BATTLE_START_BALLOONS;
+      p.ko = false; p.battleInvulnT = 0; p.koOrder = 0;
+      // reset turret + cannon so a re-match starts clean
+      p.turretYaw = 0; p.reloadT = 0; p.tankFireCd = 1 + Math.random()*1.5; p._aimErr = 0;
+      p._firePrev = false; p._lastGunnerT = 0; p._autoAiming = false; p._stuckT = 0; p._unstickT = 0;
+    }
+    if (tank) resetTankControlsCard();
     // Phase 4: spite has no meaning in battle (no race "place") — reset so a leftover window from a
     // race just before this battle can never leak in (advanceSpiteTracking freezes spiteT, doesn't
     // decay it, while battleActive() is true).
@@ -3956,6 +4054,15 @@
     const b = G.battle; if (!b || !b.active || b.over) return;
     b.elapsed += dt;
     for (const id in G.players){ const p = G.players[id]; if (p.battleInvulnT > 0) p.battleInvulnT = Math.max(0, p.battleInvulnT - dt); }
+    // TANK BATTLE: win/lose is decided by KO (no 3:00 timer pressure). Player down -> lose immediately;
+    // all enemies down -> win. (The generic timer / last-standing rules below are skipped.)
+    if (ACTIVE_TRACK.tankBattle){
+      const local = G.players.local;
+      if (local && local.ko){ battleEnd(null); return; }
+      const enemies = Object.values(G.players).filter(q => q !== local);
+      if (enemies.length && enemies.every(q => q.ko)){ battleEnd(local); return; }
+      return;
+    }
     b.timeLeft = Math.max(0, b.timeLeft - dt);
     const players = Object.values(G.players);
     const alive = players.filter(p => !p.ko);
@@ -3994,8 +4101,13 @@
     const iWon = ranked[0] === local;
     recordProfileRace(place, { battle:true, balloons:Math.max(0, local.balloons||0) });   // R4: battle win → profile + crown unlock
     G.results = { place, totalTime:(G.battle.elapsed||0), bestLap:0, standings:[], battle:true };
-    document.getElementById('rPlace').innerHTML = iWon ? '🏆 <span class="medal">🎈</span>WINNER' : (ORD[place] || (place+'th'));
-    const rt = document.getElementById('rTime'); if (rt) rt.textContent = iWon ? 'Last kart flying!' : (local.ko ? 'Knocked out' : local.balloons+' 🎈 left');
+    const _tank = !!ACTIVE_TRACK.tankBattle;
+    document.getElementById('rPlace').innerHTML = _tank
+      ? (iWon ? '🏆 CITY CHAMPIONS!' : 'TANK DOWN')
+      : (iWon ? '🏆 <span class="medal">🎈</span>WINNER' : (ORD[place] || (place+'th')));
+    const rt = document.getElementById('rTime'); if (rt) rt.textContent = _tank
+      ? (iWon ? 'Both rivals down — the city is yours!' : 'Every crew has rough nights. Try again!')
+      : (iWon ? 'Last kart flying!' : (local.ko ? 'Knocked out' : local.balloons+' 🎈 left'));
     const rb = document.getElementById('rBest'); if (rb) rb.textContent = '';
     // custom balloon standings into #rStandings
     const sEl = document.getElementById('rStandings');
@@ -4013,7 +4125,7 @@
       sEl.style.display = 'block';
     }
     resultsEl.style.display = 'flex'; countdownEl.style.display = 'none';
-    setResultsContinue('BATTLE AGAIN →', !(net.mp && !net.isHost));
+    setResultsContinue(_tank ? 'FIGHT AGAIN →' : 'BATTLE AGAIN →', !(net.mp && !net.isHost));
     finishFanfare(iWon ? 1 : 3);
     musicRaceEnd();
   }
@@ -4121,7 +4233,17 @@
       const col = kartHexColor(p);
       if (v.col !== col){ v.col = col; for (const m of v.mats) m.color.setHex(col); }   // recolor only on change
       const y = (p.y || sampleHeight(p.pos.x, p.pos.z));
-      v.group.position.set(p.pos.x, y + 1.95, p.pos.z);
+      // TANK BATTLE (2026-07-18 reviewer fix): the full-size cluster at kart height filled ~40% of the
+      // chase-cam frame. Shrink to 0.55×, raise it above the TURRET, and nudge it forward along the
+      // hull heading so it never sits between the camera (behind the tank) and the gunner's aim line.
+      if (ACTIVE_TRACK.tankBattle){
+        v.group.scale.setScalar(0.55);
+        const fx = Math.sin(p.theta), fz = Math.cos(p.theta);
+        v.group.position.set(p.pos.x + fx*0.75, y + 2.85, p.pos.z + fz*0.75);
+      } else {
+        v.group.scale.setScalar(1);
+        v.group.position.set(p.pos.x, y + 1.95, p.pos.z);
+      }
       // flash the whole rig during invuln
       const flash = (p.battleInvulnT > 0) && (Math.floor(p.battleInvulnT*10)%2===0);
       v.balloons.forEach((b,i)=>{ b.visible = (i < p.balloons) && !flash; b.position.y = Math.sin(t+i*1.3)*0.08; b.rotation.z = Math.sin(t*0.7+i)*0.18; });
@@ -4186,9 +4308,346 @@
       const me = p===G.players.local ? 'font-weight:700;' : '';
       return '<div style="'+me+'display:flex;gap:6px;align-items:center;font-size:13px;"><span style="width:9px;height:9px;border-radius:50%;background:'+col+';display:inline-block;flex:0 0 auto;"></span><span style="flex:1;text-align:left;">'+nameOfKart(p)+'</span><span>'+bal+'</span></div>';
     }).join('');
-    _battleHudEl.innerHTML = '<div style="font-size:26px;font-weight:800;letter-spacing:1px;">💥 '+mm+':'+ss+'</div>'+
+    // TANK BATTLE has no countdown timer (win/lose is by KO) — show a title instead of mm:ss.
+    const header = ACTIVE_TRACK.tankBattle ? '🛡 TANK BATTLE' : ('💥 '+mm+':'+ss);
+    _battleHudEl.innerHTML = '<div style="font-size:'+(ACTIVE_TRACK.tankBattle?'20':'26')+'px;font-weight:800;letter-spacing:1px;">'+header+'</div>'+
       '<div style="margin-top:4px;min-width:158px;background:rgba(18,22,30,.6);border-radius:8px;padding:5px 8px;">'+rows+'</div>';
     _battleHudEl.style.display = 'block';
+  }
+
+  // ============================================================================
+  //  🛡 TANK BATTLE (2026-07-18) — co-op tank-crew arena (Double-Dash division of labor:
+  //  one player DRIVES, one operates the 360° TURRET). Layered on top of battle mode; EVERYTHING
+  //  here is gated on ACTIVE_TRACK.tankBattle so racing + the classic balloon battle are unchanged.
+  //  Tanks drive slower than karts but still drift/mini-turbo. City buildings are SOLID (ghostWalls).
+  // ============================================================================
+  const TANK = {
+    topMul: 0.68, accelMul: 0.85,           // slower hull (steer/drift/mini-turbo unchanged)
+    reload: 0.9,                            // cannon-shell reload (s)
+    shellSpeed: 60, shellLife: 0.6, shellHitR: 1.3,   // flat, fast, ~30u range
+    turretYawSpeed: 3.2,                    // gunner rotate speed (rad/s)
+    autoAimDelay: 4,                        // s of no gunner input before solo auto-aim kicks in
+    mountY: 0.9, barrelLen: 1.9, barrelY: 0.32, muzzleDur: 0.09,
+    enemyTrackSpeed: 3.2,                   // enemy turret slew toward the player
+    playerBalloons: 5, enemyBalloons: 3,
+  };
+  // buildings-only wall set (perimeter excluded) — used for shell impacts + enemy line-of-sight.
+  const TANK_BUILDING_WALLS = GHOST_WALLS.filter(g => g.id && g.id.indexOf('bld_') === 0);
+  function tankMode(){ return !!ACTIVE_TRACK.tankBattle; }
+  function _angDiff(a, b){ let d = a - b; while (d > Math.PI) d -= Math.PI*2; while (d < -Math.PI) d += Math.PI*2; return d; }
+  function _angLerp(a, b, t){ return a + _angDiff(b, a) * t; }
+  function nearestEnemyTank(me){
+    let best = null, bd = 1e18;
+    for (const id in G.players){ const q = G.players[id]; if (q === me || q.ko) continue;
+      const d = Math.hypot(q.pos.x-me.pos.x, q.pos.z-me.pos.z); if (d < bd){ bd = d; best = q; } }
+    return best;
+  }
+
+  // ---- window texture (dark wall + a grid of lit/unlit windows) ----
+  function tankWindowTex(seed){
+    const cv=document.createElement('canvas'); cv.width=64; cv.height=64; const c=cv.getContext('2d');
+    c.fillStyle='#12151f'; c.fillRect(0,0,64,64);
+    let s=(seed*9301+49297)>>>0;
+    const rnd=()=>{ s=(s*9301+49297)%233280; return s/233280; };
+    const cols=5, rows=5, m=3, wpx=(64-m*(cols+1))/cols, hpx=(64-m*(rows+1))/rows;
+    for (let r=0;r<rows;r++) for (let col=0;col<cols;col++){
+      const lit=rnd()<0.58;
+      c.fillStyle = lit ? (rnd()<0.5?'#ffe6a0':'#aeccff') : '#080a12';
+      c.fillRect(m+col*(wpx+m), m+r*(hpx+m), wpx, hpx);
+    }
+    const t=new THREE.CanvasTexture(cv); t.needsUpdate=true; return t;
+  }
+  // ---- buildTankArena: SOLID lit-window buildings + perimeter + street lamps, all derived from the
+  //   track's ghostWalls so the collision rectangles and the visuals are the SAME rectangles. ----
+  let TANK_ARENA_GROUP = null;
+  function buildTankArena(){
+    if (TANK_ARENA_GROUP){ scene.remove(TANK_ARENA_GROUP); TANK_ARENA_GROUP = null; }
+    const grp = new THREE.Group();
+    const baseTexes = [tankWindowTex(11), tankWindowTex(23), tankWindowTex(37), tankWindowTex(53)];
+    const BLD_COLORS = [0x2a3550, 0x333a4a, 0x2e3242, 0x3a3346, 0x283246];
+    let bidx = 0;
+    for (const g of GHOST_WALLS){
+      const pts = g.points; if (!pts || pts.length < 2) continue;
+      if (g.id === 'perim'){
+        const H = 7;
+        for (let i=0;i<pts.length-1;i++){
+          const a=pts[i], b=pts[i+1];
+          const mx=(a.x+b.x)/2, mz=(a.z+b.z)/2, len=Math.hypot(b.x-a.x, b.z-a.z);
+          const gy = sampleHeight(mx,mz);
+          const box = new THREE.Mesh(new THREE.BoxGeometry(len+1.2, H, 1.4),
+            new THREE.MeshLambertMaterial({ color:0x181b24, emissive:0x090b12 }));
+          box.position.set(mx, gy + H/2 - 1, mz);
+          box.rotation.y = Math.atan2(b.x-a.x, b.z-a.z);
+          grp.add(box);
+        }
+        continue;
+      }
+      if (g.id.indexOf('bld_') === 0){
+        const h = parseFloat(g.id.slice(4)) || 18;
+        let minX=1e9,maxX=-1e9,minZ=1e9,maxZ=-1e9;
+        for (const p of pts){ minX=Math.min(minX,p.x); maxX=Math.max(maxX,p.x); minZ=Math.min(minZ,p.z); maxZ=Math.max(maxZ,p.z); }
+        const cx=(minX+maxX)/2, cz=(minZ+maxZ)/2, w=maxX-minX, d=maxZ-minZ;
+        const gy = sampleHeight(cx,cz);
+        const t = baseTexes[bidx % baseTexes.length].clone(); t.needsUpdate=true;
+        t.wrapS = t.wrapT = THREE.RepeatWrapping;
+        t.repeat.set(Math.max(1, Math.round(w/7)), Math.max(1, Math.round(h/7)));
+        const mat = new THREE.MeshLambertMaterial({ color:BLD_COLORS[bidx%BLD_COLORS.length],
+          map:t, emissive:0xffffff, emissiveMap:t, emissiveIntensity:0.6 });
+        const box = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+        box.position.set(cx, gy + h/2 - 2, cz);          // buried 2u so it meets the ground on slopes
+        grp.add(box);
+        const roof = new THREE.Mesh(new THREE.BoxGeometry(w*1.03, 0.7, d*1.03),
+          new THREE.MeshLambertMaterial({ color:0x121420, emissive:0x070912 }));
+        roof.position.set(cx, gy + h - 2 + 0.35, cz); grp.add(roof);
+        bidx++;
+      }
+    }
+    // street lamps (emissive heads + a soft light-pool disc; no extra lights → shader-safe)
+    const lampPos = [[-30,-30],[30,-30],[-30,30],[30,30],[-48,0],[48,0],[0,-48],[0,48]];
+    const poolGeo = new THREE.CircleGeometry(4.5, 20);
+    for (const [lx,lz] of lampPos){
+      const gy = sampleHeight(lx,lz);
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.15,0.2,6,8),
+        new THREE.MeshLambertMaterial({ color:0x23262e, emissive:0x0a0b0f })); pole.position.set(lx, gy+3, lz); grp.add(pole);
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.5,12,10),
+        new THREE.MeshBasicMaterial({ color:0xffe6a0 })); head.position.set(lx, gy+6.1, lz); grp.add(head);
+      const pool = new THREE.Mesh(poolGeo, new THREE.MeshBasicMaterial({ color:0xffcf80, transparent:true, opacity:0.14, depthWrite:false }));
+      pool.rotation.x = -Math.PI/2; pool.position.set(lx, gy+0.06, lz); pool.renderOrder = 2; grp.add(pool);
+    }
+    scene.add(grp);
+    TANK_ARENA_GROUP = grp;
+    return grp;
+  }
+
+  // ---- turret (procedural, palette-matched, scene-level so its yaw is WORLD-relative — a gunner
+  //   holds a heading while the driver spins the hull; a level turret reads well on gentle hills). ----
+  function buildKartTurret(view, color){
+    const turret = new THREE.Group();
+    // NIGHT READABILITY (2026-07-18 reviewer fix): warm emissive lift ≈ base × 0.38 on every turret
+    // material (the traffic-vehicle recipe) — the arena's tall buildings occlude most direct light and
+    // an unlit turret vanished into the dark. The barrel gets the strongest lift: its direction IS the
+    // gunner's whole UI, it must read at all times.
+    const emOf = (c, k)=> new THREE.Color(c).multiplyScalar(k).getHex();
+    const dark = new THREE.Color(color).multiplyScalar(0.66).getHex();
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.52,0.58,0.34,14),
+      new THREE.MeshLambertMaterial({ color, emissive:emOf(color, 0.38) })); base.position.y=0; turret.add(base);
+    const mantlet = new THREE.Mesh(new THREE.BoxGeometry(0.72,0.44,0.66),
+      new THREE.MeshLambertMaterial({ color:dark, emissive:emOf(dark, 0.38) })); mantlet.position.set(0,0.28,0.28); turret.add(mantlet);
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.11,0.13,1.5,10),
+      new THREE.MeshLambertMaterial({ color:0x565b64, emissive:emOf(0x565b64, 0.42) }));
+    barrel.rotation.x = Math.PI/2; barrel.position.set(0,0.32,1.05); turret.add(barrel);   // points +Z
+    const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.42,8,6),
+      new THREE.MeshBasicMaterial({ color:0xffd070, transparent:true, opacity:0, depthWrite:false }));
+    muzzle.position.set(0,0.32,1.95); turret.add(muzzle);
+    scene.add(turret);
+    view.turret = turret; view.muzzle = muzzle; view._muzzleT = 0;
+  }
+  function syncTurret(p, view, dt){
+    if (!view.turret){ const c = (view.bodyMat && view.bodyMat.color) ? view.bodyMat.color.getHex() : 0x3d8b3d; buildKartTurret(view, c); }
+    // NIGHT READABILITY (2026-07-18): warm emissive lift (base × 0.36) on every near-black-emissive
+    // hull/driver Lambert material — player AND enemy tanks. Re-runs when the model slot's child
+    // count changes (kart bodies/GLBs fill in async), and is idempotent (emissive derives from the
+    // material's own color, so lifting twice is a no-op). bodyMat is excluded: syncKartView drives
+    // its emissive dynamically per frame (boost/star glow), with its own tank-mode idle lift.
+    const sig = view.modelSlot.children.length + view.placeholder.children.length;
+    if (view._tankLiftSig !== sig){
+      view._tankLiftSig = sig;
+      view.bounce.traverse(o=>{
+        if (!o.isMesh || !o.material || !o.material.isMeshLambertMaterial) return;
+        const m = o.material;
+        if (m === view.bodyMat || m.emissiveMap) return;
+        if (m.emissive && (m.emissive.r + m.emissive.g + m.emissive.b) < 0.14) m.emissive.copy(m.color).multiplyScalar(0.36);
+      });
+    }
+    const t = view.turret;
+    t.visible = !p.ko;
+    t.position.set(p.pos.x, view.group.position.y + TANK.mountY, p.pos.z);
+    t.rotation.y = p.turretYaw || 0;
+    if (view._muzzleT > 0){ view._muzzleT = Math.max(0, view._muzzleT - (dt||0.016));
+      const f = Math.min(1, view._muzzleT / TANK.muzzleDur);   // clamp so a large value can't balloon the flash
+      view.muzzle.material.opacity = f; view.muzzle.scale.setScalar(0.5+f*1.3); }
+    else if (view.muzzle) view.muzzle.material.opacity = 0;
+  }
+  function flashMuzzle(p){ const v = kartViews[p.id]; if (v) v._muzzleT = TANK.muzzleDur; }
+
+  // ---- firing ----
+  function tankBarrelTip(p, yaw){ const f = { x:Math.sin(yaw), z:Math.cos(yaw) };
+    return { x: p.pos.x + f.x*TANK.barrelLen, z: p.pos.z + f.z*TANK.barrelLen, f }; }
+  function fireShell(p){
+    const t = tankBarrelTip(p, p.turretYaw||0), f = t.f;
+    G.projectiles.push({ kind:'shell', x:t.x, z:t.z, y:sampleHeight(t.x,t.z)+TANK.barrelY,
+      vx:f.x*TANK.shellSpeed, vz:f.z*TANK.shellSpeed, life:TANK.shellLife, owner:p.id, target:null });
+    flashMuzzle(p); shellFireSound(p.pos);
+    for (let k=0;k<5;k++){ const a=Math.random()*Math.PI*2;
+      spawnParticle(t.x, sampleHeight(t.x,t.z)+TANK.barrelY, t.z, { color:Math.random()<0.5?0xffd070:0xff9a30,
+        opacity:0.9, life:0.16, vx:f.x*6+Math.cos(a)*2, vy:1+Math.random()*1.5, vz:f.z*6+Math.sin(a)*2, grav:6, size:0.3, grow:0.4 }); }
+  }
+  function tankPushProjectile(p, kind, yaw){
+    const t = tankBarrelTip(p, yaw), f = t.f;
+    if (kind === 'tomato'){
+      G.projectiles.push({ kind:'tomato', x:t.x, z:t.z, y:sampleHeight(t.x,t.z)+0.7, vx:f.x*TUNE.tomatoSpeed, vz:f.z*TUNE.tomatoSpeed,
+        life:LETTUCE_LIFE, bounced:false, bounces:0, owner:p.id, target:null });
+    } else if (kind === 'chicken'){
+      const tgt = nearestEnemyTank(p);
+      G.projectiles.push({ kind:'chicken', x:t.x, z:t.z, y:sampleHeight(t.x,t.z)+0.7, vx:f.x*TUNE.chickenSpeed, vz:f.z*TUNE.chickenSpeed,
+        life:TUNE.chickenLife, bounced:false, owner:p.id, target:tgt?tgt.id:null });
+    }
+  }
+  // GUNNER fire: special ammo (from an item box) fires from the turret aim, then reverts to shells;
+  // the default cannon shell is infinite but reload-gated.
+  function tankFire(p){
+    if (p.ko) return;
+    const kind = p.itemHeld;
+    if (kind === 'hay'){ dropHay(p); haySound(p.pos); clearItem(p); return; }   // mine drops rearward (hull rear)
+    if (kind === 'tomato3'){ for (let i=-1;i<=1;i++) tankPushProjectile(p, 'tomato', (p.turretYaw||0) + i*0.1745);   // ±10° spread
+      tomatoFireSound(p.pos); clearItem(p); flashMuzzle(p); return; }
+    if (kind === 'chicken3'){ for (let i=0;i<3;i++) tankPushProjectile(p, 'chicken', (p.turretYaw||0) + (i-1)*0.14);   // 3 homing
+      chickenSquawkSound(false, p.pos); clearItem(p); flashMuzzle(p); return; }
+    // cannon shell (infinite, reload-gated)
+    if (p.reloadT > 0) return;
+    fireShell(p); p.reloadT = TANK.reload;
+  }
+  // ROLL for tank battle: boxes only ever grant the three GUNNER specials.
+  const TANK_ROLL = ['chicken3','tomato3','hay'];
+  function rollItemTank(){ return TANK_ROLL[(Math.random()*TANK_ROLL.length)|0]; }
+  // line-of-sight clear of buildings (segment sampled; endpoints skipped so a tank beside a wall
+  // doesn't self-block). Enemy tanks only fire when this is true → shells never phantom through walls.
+  function losClear(x0,z0,x1,z1){
+    const dx=x1-x0, dz=z1-z0, d=Math.hypot(dx,dz)||1;
+    const steps = Math.max(2, Math.ceil(d/2));
+    for (let i=1;i<steps;i++){ const f=i/steps;
+      if (FK_TRACK.fenceCollide(TANK_BUILDING_WALLS, x0+dx*f, z0+dz*f, 0.6)) return false; }
+    return true;
+  }
+  function shellFireSound(pos){ const mul=(typeof gainAt==='function')?gainAt(pos,'shell'):1; if(mul<=0.02)return;
+    tone(150,0.12,{type:'sawtooth',vol:0.16,slideTo:60,mul}); noiseBurst(0.08,{filter:'lowpass',freq:900,freqTo:200,vol:0.14,mul}); }
+  function shellThudSound(pos){ const mul=(typeof gainAt==='function')?gainAt(pos,'thud'):1; if(mul<=0.02)return;
+    tone(90,0.18,{type:'sine',vol:0.15,slideTo:45,mul}); noiseBurst(0.12,{filter:'lowpass',freq:600,freqTo:120,vol:0.12,mul}); }
+  function shellBoom(x,y,z){
+    shellThudSound({x,z});
+    for (let k=0;k<14;k++){ const a=Math.random()*Math.PI*2, sp=2+Math.random()*6;
+      spawnParticle(x, y+0.2, z, { color:[0x555a60,0x30343a,0xff9a30,0xffd070][(Math.random()*4)|0],
+        opacity:0.9, life:0.35+Math.random()*0.3, vx:Math.cos(a)*sp, vy:2+Math.random()*5, vz:Math.sin(a)*sp,
+        grav:12, size:0.24+Math.random()*0.3, grow:0.3, spin:(Math.random()-0.5)*8 }); }
+  }
+
+  // ---- driving AI for enemy tanks = the battle roam brain + an UNSTICK rule (buildings trap naive
+  //   bots). Solid walls mean a bot can wedge; if it's slow for >2s it reverses+turns for ~1s. ----
+  function _steerToHeading(p, targetAng, gain){
+    let dth = targetAng - p.theta; while (dth > Math.PI) dth -= Math.PI*2; while (dth < -Math.PI) dth += Math.PI*2;
+    return Math.max(-1, Math.min(1, dth * (gain||1.6)));
+  }
+  function tankBotInput(p){
+    if (p.ko) return { steer:0, throttle:0, brake:0, drift:false };
+    const dt = net._grantDt || 0.016;
+    const spd = Math.hypot(p.v.x, p.v.z);
+    // STUCK TRACKING: a walled city WILL wedge a naive bot. Slow builds _stuckT; real motion bleeds it.
+    if (spd < 1) p._stuckT = (p._stuckT||0) + dt; else p._stuckT = Math.max(0, (p._stuckT||0) - dt*3);
+    // ESCAPE (random-walk): once wedged, drive FORWARD toward a random heading, re-rolled every ~0.45s.
+    // Any heading not near-perpendicular to the wall slides the tank free — reliably escapes flats AND
+    // corners within a couple of rolls (a fixed reverse can oscillate in a tight pocket forever).
+    if (p._stuckT > 0.8){
+      p._escT = (p._escT||0) - dt;
+      if (p._escT <= 0 || p._escHeading == null){ p._escHeading = Math.random()*Math.PI*2; p._escT = 0.45; p._wp = null; }
+      if (spd > 3) p._stuckT = 0;   // moving again → drop back to normal roam
+      return { steer: _steerToHeading(p, p._escHeading, 2.0), throttle:1, brake:0, drift:false };
+    }
+    // WAYPOINT ROAM over the street intersections (battleBoxes are all on clear crossings). Route to a
+    // NEARBY intersection so each hop stays street-aligned (a far diagonal target would cut through a
+    // building). The turret tracks the player independently, so the HULL only needs to wander.
+    const wps = ACTIVE_TRACK.battleBoxes || [];
+    p._wpT = (p._wpT||0) - dt;
+    if (!p._wp || p._wpT <= 0 || Math.hypot(p._wp.x-p.pos.x, p._wp.z-p.pos.z) < 5){
+      const cand = wps.map(w=>({ w, d:Math.hypot(w.x-p.pos.x, w.z-p.pos.z) })).sort((a,b)=>a.d-b.d);
+      const pool = cand.slice(1, 4);   // skip the one we're sitting on; pick among the next-nearest few
+      p._wp = pool.length ? pool[(Math.random()*pool.length)|0].w : (cand[0] ? cand[0].w : { x:0, z:0 });
+      p._wpT = 3 + Math.random()*2;
+    }
+    return { steer: _steerToHeading(p, Math.atan2(p._wp.x-p.pos.x, p._wp.z-p.pos.z), 1.6), throttle:0.8, brake:0, drift:false };
+  }
+
+  // ---- per-frame tank crew logic: LOCAL gunner input / solo auto-aim / fire; ENEMY turret tracking
+  //   + LOS-gated fire; reload. Called from the sim loop (gated on tankMode + battleActive). ----
+  function tankTurretTick(dt){
+    if (!tankMode() || !battleActive()) return;
+    for (const id in G.players){ const p=G.players[id]; if (p.reloadT>0) p.reloadT=Math.max(0,p.reloadT-dt); }
+    const me = G.players.local;
+    if (me && !me.ko && !paused){
+      let manual = false;
+      if (keys['arrowleft']){ me.turretYaw = (me.turretYaw||0) + TANK.turretYawSpeed*dt; manual=true; }
+      if (keys['arrowright']){ me.turretYaw = (me.turretYaw||0) - TANK.turretYawSpeed*dt; manual=true; }
+      if (manual){ me._lastGunnerT = performance.now(); me._autoAiming = false; _tankInputSeen(); }
+      const sinceManual = (performance.now() - (me._lastGunnerT||0))/1000;
+      if (sinceManual > TANK.autoAimDelay){
+        const tgt = nearestEnemyTank(me);
+        if (tgt){ me.turretYaw = _angLerp(me.turretYaw||0, Math.atan2(tgt.pos.x-me.pos.x, tgt.pos.z-me.pos.z), Math.min(1,dt*4)); me._autoAiming = true; }
+      }
+      // fire: Enter/F (gunner/driver keyboard) OR the mobile FIRE (🎁) touch button — edge-triggered.
+      const fireDown = !!(keys['enter'] || keys['f'] || (typeof touch !== 'undefined' && touch.item));
+      if (fireDown && !me._firePrev){ tankFire(me); _tankInputSeen(); }
+      me._firePrev = fireDown;
+    }
+    // enemy tanks: slew the turret onto the player, fire when aimed + LOS clear + reloaded
+    const player = G.players.local;
+    for (const id in G.players){
+      const e = G.players[id]; if (e === player || !e.isBot || e.ko) continue;
+      if (!player || player.ko) continue;
+      const want = Math.atan2(player.pos.x-e.pos.x, player.pos.z-e.pos.z);
+      e.turretYaw = _angLerp(e.turretYaw||0, want + (e._aimErr||0), Math.min(1,dt*TANK.enemyTrackSpeed));
+      e.tankFireCd = (e.tankFireCd||0) - dt;
+      if (e.tankFireCd <= 0 && e.reloadT <= 0){
+        const dist = Math.hypot(player.pos.x-e.pos.x, player.pos.z-e.pos.z);
+        const aimOff = Math.abs(_angDiff(e.turretYaw, want));
+        if (aimOff < 0.18 && dist < 44 && losClear(e.pos.x,e.pos.z,player.pos.x,player.pos.z)){
+          tankFire(e);
+          e.tankFireCd = 2.8 + Math.random()*1.0;
+          e._aimErr = (Math.random()-0.5)*0.21;   // fresh ±6° aim error for the next shot
+        }
+      }
+    }
+  }
+
+  // ---- tank HUD: ammo chip (current weapon + count + reload bar) ----
+  const _tankHudEl = (function(){ const d=document.createElement('div'); d.id='tankHud';
+    d.style.cssText='position:fixed;left:12px;bottom:14px;z-index:41;font-family:Consolas,monospace;color:#fff;display:none;'+
+      'background:rgba(18,22,32,.66);border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:7px 11px;text-shadow:0 1px 3px rgba(0,0,0,.7);';
+    document.body.appendChild(d); return d; })();
+  function updateTankHud(){
+    if (!tankMode() || !(G.battle && (G.phase==='racing'||G.phase==='countdown'))){ _tankHudEl.style.display='none'; return; }
+    const p = G.players.local;
+    const held = p.itemHeld;
+    let label, sub;
+    if (held === 'chicken3'){ label='🐔 CHICKENS'; sub='×'+(p.itemCount||3); }
+    else if (held === 'tomato3'){ label='🍅 SPREAD'; sub='×'+(p.itemCount||3); }
+    else if (held === 'hay'){ label='🌾 MINE'; sub='drop'; }
+    else { label='🎯 CANNON'; sub='∞'; }
+    const rl = held ? 0 : Math.max(0, Math.min(1, (p.reloadT||0)/TANK.reload));
+    const ready = rl<=0.001;
+    _tankHudEl.innerHTML = '<div style="font-size:15px;font-weight:800;">'+label+' <span style="opacity:.8;font-weight:600;font-size:12px;">'+sub+'</span></div>'+
+      (held ? '<div style="font-size:11px;opacity:.85;margin-top:2px;">🎯 aim ←→ · fire Enter/F</div>'
+            : '<div style="height:5px;margin-top:5px;background:rgba(255,255,255,.18);border-radius:3px;overflow:hidden;"><div style="height:100%;width:'+Math.round((1-rl)*100)+'%;background:'+(ready?'#5fd06a':'#ffb347')+';"></div></div>');
+    _tankHudEl.style.display='block';
+  }
+  // ---- pre-match controls card (shown until first driver/gunner input) ----
+  const _tankControlsEl = (function(){ const d=document.createElement('div'); d.id='tankControls';
+    d.style.cssText='position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);z-index:44;font-family:Consolas,monospace;'+
+      'color:#fff;text-align:center;display:none;pointer-events:none;background:rgba(14,18,28,.82);border:2px solid rgba(255,255,255,.16);'+
+      'border-radius:16px;padding:18px 26px;text-shadow:0 2px 6px rgba(0,0,0,.8);max-width:86vw;';
+    d.innerHTML='<div style="font-size:22px;font-weight:900;letter-spacing:1px;margin-bottom:8px;">🛡 TANK BATTLE</div>'+
+      '<div style="font-size:15px;line-height:1.7;">'+
+      '<b>DRIVER</b> — WASD move · Space drift<br>'+
+      '<b>GUNNER</b> — ← → aim turret · Enter fire<br>'+
+      '<span style="opacity:.8;">Solo? The turret auto-aims — press <b>F</b> to fire</span></div>';
+    document.body.appendChild(d); return d; })();
+  let _tankInputWasSeen = false;
+  function _tankInputSeen(){ _tankInputWasSeen = true; _tankControlsEl.style.display='none'; }
+  function resetTankControlsCard(){ _tankInputWasSeen = false; }
+  function updateTankControlsCard(){
+    if (!tankMode()){ _tankControlsEl.style.display='none'; return; }
+    const show = !_tankInputWasSeen && (G.phase==='countdown' || G.phase==='racing');
+    _tankControlsEl.style.display = show ? 'block' : 'none';
+    // any driver input also dismisses it
+    if (show && (keys['w']||keys['a']||keys['s']||keys['d']||keys[' ']||keys['arrowleft']||keys['arrowright']||keys['enter']||keys['f'])) _tankInputSeen();
   }
   function isTriple(kind){ return kind === 'tomato3' || kind === 'chicken3'; }
   function isTrailable(kind){ return kind === 'tomato' || kind === 'chicken' || kind === 'hay' || kind === 'mimic'; }
@@ -4467,6 +4926,8 @@
         ? [0xcaa24a, 0xd4a84b, 0xe8c878]
         : (kind === 'mimic')
           ? [0xc98a5a, 0xb56a3a, 0xd8a878, 0xe6c088]   // cardboard box shards
+          : (kind === 'shell')
+          ? [0x555a60, 0x30343a, 0xff9a30, 0xffd070]   // tank cannon boom (smoke + spark)
           : [0x4a9a3a, 0x7ac26a, 0x2a6a24, 0xc8e8a0]; // tomato item = lettuce visuals
     for (let i=0;i<12;i++){
       const a = Math.random() * Math.PI * 2;
@@ -4544,6 +5005,7 @@
       spawnItemExplode(pr.x, pr.y, pr.z, pr.kind);
       if (pr.kind === 'tomato') tomatoSplatSound(false, pr);
       else if (pr.kind === 'chicken') chickenSquawkSound(true, pr);
+      else if (pr.kind === 'shell') shellThudSound(pr);
       else if (pr.kind === 'egg'){ eggHitSound(pr); spawnParticle(pr.x, pr.y+0.4, pr.z, { color:0xfff2a0, opacity:1, life:0.5, vx:0, vy:6, vz:0, grav:10, size:0.9, grow:1.2, spin:5 }); }
       pr.life = 0; return true;
     }
@@ -4618,6 +5080,10 @@
       pr.life -= dt;
       // GREEN-SHELL LETTUCE: ricochet off walls (preserve speed), die on the 6th bounce.
       if (pr.kind === 'tomato' && pr.life > 0){ ricochetLettuce(pr, dt); }
+      // TANK CANNON SHELL: flat ballistic, DETONATES on a building / perimeter wall (no pass-through).
+      if (pr.kind === 'shell' && pr.life > 0 && GHOST_WALLS.length){
+        if (FK_TRACK.fenceCollide(GHOST_WALLS, pr.x, pr.z, 0.5)){ shellBoom(pr.x, pr.y, pr.z); pr.life = 0; continue; }
+      }
       // Homing chickens EXPLODE on fence/wall hit (tomatoes fly past / expire on life)
       if (pr.kind === 'chicken' && pr.life > 0){
         const wall = FK_TRACK.fenceCollide(RACE_FENCES, pr.x, pr.z, 0.55);
@@ -4634,7 +5100,7 @@
       // projectile tunneled past the shield sitting 2.35u behind the kart) and glancing angles. Testing
       // against the SHIELD point (not the kart center) with a swept segment fixes both.
       if (sweptTrailAbsorb(pr, dt)) continue;
-      const hitR = pr.kind === 'chicken' ? TUNE.chickenHitR : (pr.kind === 'egg' ? 2.1 : 1.5);
+      const hitR = pr.kind === 'chicken' ? TUNE.chickenHitR : (pr.kind === 'egg' ? 2.1 : (pr.kind === 'shell' ? TANK.shellHitR : 1.5));
       for (const id in G.players){
         const q = G.players[id];
         // A ricocheting lettuce can hit its OWN owner after the first bounce (classic green-shell
@@ -5547,7 +6013,8 @@
     G.players.local.isRival = false;   // humans are never rivals
     const humans = humanCount();
     // BATTLE (R3): a fixed 4-kart arena (you + up to 3 bots; MP humans fill the slots first).
-    const field = ACTIVE_TRACK.battle ? 4 : (G.raceMode === 'prix' ? MAX_RACERS : humans);
+    // TANK BATTLE: 3 tanks total (you + 2 AI enemies).
+    const field = ACTIVE_TRACK.tankBattle ? 3 : (ACTIVE_TRACK.battle ? 4 : (G.raceMode === 'prix' ? MAX_RACERS : humans));
     const n = Math.max(0, Math.min(MAX_RACERS - 1, field - humans));
     G.botCount = n; // keep for HUD / debug / older harnesses
     // Phase 2: battle has no rubber-band/rivals at all; racing picks 1-2 rivals from this field's names.
@@ -5557,6 +6024,8 @@
       const id = 'bot'+i;
       const p = makePlayer(id);
       p.isBot = true; p.botName = BOT_NAMES[i % BOT_NAMES.length]; p.botColor = BOT_COLORS[i % BOT_COLORS.length];
+      // TANK BATTLE: enemy tanks get distinct RED hull colors (also read as red minimap dots).
+      if (ACTIVE_TRACK.tankBattle){ p.botColor = [0xd23b32, 0xe0662a][i % 2]; p.botName = 'Enemy '+(i+1); }
       p.isRival = rivalNames.includes(p.botName);
       p.botSkill   = Math.max(0.35, Math.min(1, TUNE.botSkill + (Math.random()-0.5)*((TUNE.botSkillVar||0.25)*2)));
       // Per-bot engine: some feel "better" (faster top + snappier accel), some lag
@@ -5580,7 +6049,8 @@
       const p = G.players[id]; if (!p) return;
       placeAtGrid(p, slot);
       p.gridSlot = slot;
-      p._slotCol = KART_COLORS[slot % KART_COLORS.length];
+      // TANK BATTLE: enemy tanks keep their distinct RED hull color (don't overwrite with a slot color).
+      p._slotCol = (ACTIVE_TRACK.tankBattle && p.isBot) ? p.botColor : KART_COLORS[slot % KART_COLORS.length];
       paintKartAccent(id);
       slot++;
     };
@@ -5855,6 +6325,8 @@
     return g;
   }
   function makeProjMesh(kind){
+    if (kind === 'shell'){ const m = new THREE.Mesh(new THREE.SphereGeometry(0.34,10,8),
+      new THREE.MeshLambertMaterial({ color:0x2a2c30, emissive:0x3a1c08 })); m.userData.tplVer = 0; return m; }
     if (kind === 'egg') return buildEggMesh();
     if (kind === 'chicken'){
       // Prefer a real GLB only when it has a texture atlas (reads as a chicken at distance).
@@ -6245,8 +6717,10 @@
     // ArrowRight / stick x>0) map to NEGATIVE steer — the handedness flip lives HERE and
     // only here; driftDir, tightness, visual yaw and camera swing all derive from steer.
     let steer = 0, throttle = 0, brake = 0, drift = false;
-    if (keys['a'] || keys['arrowleft'])  steer += 1;
-    if (keys['d'] || keys['arrowright']) steer -= 1;
+    // TANK BATTLE: the arrow keys drive the GUNNER's turret, so the driver steers with A/D only.
+    const _tank = !!ACTIVE_TRACK.tankBattle;
+    if (keys['a'] || (!_tank && keys['arrowleft']))  steer += 1;
+    if (keys['d'] || (!_tank && keys['arrowright'])) steer -= 1;
     steer += touch.steer;   // binary full-lock drag-to-steer (mobile), +left / -right
     if (keys['w'] || keys['arrowup']) throttle = 1;
     if (keys['s'] || keys['arrowdown']) brake = 1;
@@ -6304,6 +6778,9 @@
   // Local human item input (solo + host). Guests use netLocalUseItem / netLocalTrail.
   function applyLocalItemInput(p, inp){
     if (!p || p.spinT > 0 || p.itemRollT > 0) return;
+    // TANK BATTLE: firing is the GUNNER's job (turret aim), handled in tankTurretTick — never fire the
+    // held item along the hull heading, and never trail. (The mobile 🎁/FIRE button routes to tankFire.)
+    if (ACTIVE_TRACK.tankBattle) return;
     // HOLD = deploy the active held single as a trail (only when nothing is already trailing).
     if (inp.itemTrailToggle && !p.trailKind && isTrailable(p.itemHeld) && !isTriple(p.itemHeld)){
       setItemTrail(p, true);
@@ -6732,9 +7209,15 @@
       bodyMat.emissive.setHex(0xd83010);
     } else if (p.boostT > 0){
       bodyMat.emissive.setHex(0xff7a1a);
+    } else if (ACTIVE_TRACK.tankBattle){
+      // NIGHT READABILITY (2026-07-18): idle tank hulls keep a warm lift (base × 0.36) instead of
+      // going pitch-black between the arena's buildings; boost/star/bull glows above still win.
+      bodyMat.emissive.copy(bodyMat.color).multiplyScalar(0.36);
     } else {
       bodyMat.emissive.setHex(0x000000);
     }
+    // TANK BATTLE: mount + aim the turret (scene-level, world-relative yaw). Lazily builds the turret.
+    if (ACTIVE_TRACK.tankBattle) syncTurret(p, view, dt);
   }
   function syncKart(dt){
     for (const id in G.players){
@@ -7066,6 +7549,9 @@
     else wrongwayEl.classList.remove('show');
     // K4 item slot: roll animation (cycling icons) then the settled item
     updateItemSlot(p);
+    // TANK BATTLE: ammo/reload chip + first-input controls card (both no-op outside tankBattle)
+    updateTankHud();
+    updateTankControlsCard();
     // ⛈ barn-storm screen flash for the local kart (stormFlashT set when it's caught) OR the sky flash
     // fired whenever a storm strikes (even if the local kart isn't hit — the lightning lights the whole sky)
     if (stormFlashEl){
@@ -9138,6 +9624,7 @@
       advanceChickens(dt);          // 2026-07-12: road-crossing chickens (host-authoritative)
       advanceTrafficHits(dt);       // 2026-07-17: Toad's Turnpike traffic launches (host + bots; guests rule their own)
       advanceCows(dt);              // 2026-07-13 R3: wandering pasture cows (host-authoritative)
+      tankTurretTick(dt);           // 2026-07-18: tank crew turrets + cannon (no-op unless tankBattle)
       battleTick(dt);               // 2026-07-13 R3: balloon-battle timer + win check (host-authoritative)
       updateBoostPads(dt);          // K7: boost pads (host kart + bots; guests fire their own)
       updateSlipstream(dt);         // R1: draft boost (host kart + bots; guests compute their own)
@@ -9157,6 +9644,7 @@
   // Solo race sim step (extracted so headless tests can drive full races deterministically). Byte-
   // identical to the original inline solo loop body.
   function soloRaceTick(dt, inp){
+    net._grantDt = dt;   // last-frame dt (mirrors hostMpTick) — tank-bot unstick timing reads this
     advanceSpiteTracking(dt);   // Phase 4: per-frame, not per-bot (no-ops cleanly in battle mode)
     // step EVERY kart (human + bots) through the SAME stepKart, then its race progress. A FINISHED
     // kart (incl. the local one, once it's done) auto-drives via botInput so it COASTS the cool-down
@@ -9180,6 +9668,7 @@
     advanceChickens(dt);          // 2026-07-12: road-crossing chickens (solo)
     advanceTrafficHits(dt);       // 2026-07-17: Toad's Turnpike traffic launches (solo: all karts)
     advanceCows(dt);              // 2026-07-13 R3: wandering pasture cows (solo)
+    tankTurretTick(dt);           // 2026-07-18: tank crew turrets + cannon (no-op unless tankBattle)
     battleTick(dt);               // 2026-07-13 R3: balloon-battle timer + win check (solo)
     updateBoostPads(dt);          // K7: boost pads (own + bots)
     updateSlipstream(dt);         // R1: draft boost (own + bots)
@@ -9766,6 +10255,7 @@
     if (WATER_GROUP.userData.animate) WATER_GROUP.userData.animate(now*0.001);   // water waves
     if (SEA_GROUP.userData.animate) SEA_GROUP.userData.animate(now*0.001);       // global-sea ripple
     if (SKY_OBJ && SKY_OBJ.userData.update) SKY_OBJ.userData.update(dt, camera);  // cloud drift / snow / celestial
+    if (SKYWAY_GROUP && SKYWAY_GROUP.userData.update) SKYWAY_GROUP.userData.update(dt, camera);  // wave-2 skyway star twinkle
     if (TRAIN_GROUP.userData.update) TRAIN_GROUP.userData.update(dt);             // moving trains
     if (TRAFFIC_GROUP.userData.update) TRAFFIC_GROUP.userData.update(dt);         // civilian traffic (Toad's Turnpike) — drives at all times
     updateTrainCrossings(dt);   // R3: level-crossing gates/lights/bell + train-vs-kart spin ruling
@@ -10016,6 +10506,7 @@
       w.appendChild(btn('mfBtn','<span class="ic">⏱</span><div>TIME TRIAL<small>solo · beat your best lap</small></div>', ()=>{ st.spMode='trial'; openCourseGrid('tt'); }));
       w.appendChild(btn('mfBtn','<span class="ic">🏆</span><div>GRAND PRIX<small>12 racers · 4-track cups</small></div>', ()=>{ st.spMode='prix'; openCups(); }));
       w.appendChild(btn('mfBtn','<span class="ic">💥</span><div>BATTLE<small>balloon battle vs 3 bots</small></div>', ()=>{ st.spMode='battle'; startBattleFlow('battle'); }));
+      w.appendChild(btn('mfBtn','<span class="ic">🛡</span><div>TANK BATTLE<small>2P co-op · drive + gun vs 2 tanks</small></div>', ()=>{ st.spMode='tank'; launchTank(); }));
       s.appendChild(w);
       s.appendChild(diffBar());   // R4: Easy / Normal / Hard difficulty (persisted fk_difficulty)
       s.appendChild(backBar());
@@ -10253,6 +10744,16 @@
       }
       try{ sessionStorage.setItem('fk_flow_pending', JSON.stringify({ kind:'battle', loadout:st.loadout })); }catch(e){}
       location.href = 'farmkart.html?track=' + encodeURIComponent(arenaId);
+    }
+    // ---- launch TANK BATTLE (2026-07-18): the co-op tank arena vs 2 enemy tanks (needs a reload) ----
+    const TANK_ARENA_ID = 'downtown-showdown';
+    function launchTank(){
+      st.loadout = applyLocalLoadout(st.loadout);   // persist the picked racer so the reload keeps it
+      if ((ACTIVE_TRACK_ID||BOOT_TRACK_ID) === TANK_ARENA_ID && !mirrorNeedsReload()){
+        setRaceMode('prix'); startCountdown(); return;   // already on the arena → start now
+      }
+      try{ sessionStorage.setItem('fk_flow_pending', JSON.stringify({ kind:'tank', loadout:st.loadout })); }catch(e){}
+      location.href = 'farmkart.html?track=' + encodeURIComponent(TANK_ARENA_ID);
     }
 
     // A course start needs a full reload (so loadActiveTrack re-resolves fk_tracks_v1) when the
@@ -10843,6 +11344,7 @@
       if (pend){ try{ sessionStorage.removeItem('fk_flow_pending'); }catch(e){}
         if (pend.kind==='trial'){ st.loadout=normalizeLoadout(pend.loadout||st.loadout); applyLocalLoadout(st.loadout); setRaceMode('trial'); startCountdown(); return; }
         if (pend.kind==='battle'){ st.loadout=normalizeLoadout(pend.loadout||st.loadout); applyLocalLoadout(st.loadout); setRaceMode('prix'); startCountdown(); return; }   // R3: resume solo battle on the arena
+        if (pend.kind==='tank'){ st.loadout=normalizeLoadout(pend.loadout||st.loadout); applyLocalLoadout(st.loadout); setRaceMode('prix'); startCountdown(); return; }   // 2026-07-18: resume solo TANK BATTLE on the arena
         if (pend.kind==='mphost'){ histStack=['home']; beginHost(); return; }
       }
       // 3) resume a Grand Prix cup session
@@ -10890,6 +11392,7 @@
 
   // boot into the menu (seed item boxes now that all item geometry consts are initialized)
   buildItemBoxes();
+  if (ACTIVE_TRACK.tankBattle) buildTankArena();   // TANK BATTLE: solid buildings + perimeter + lamps
   buildBoostPads(); buildBoostPadVisuals();   // K7: boost pads from ACTIVE_TRACK.boostPads
   // (fences are built at track load from RACE_FENCES — see the FENCES block; no auto corridor wall now)
   toMenu();
@@ -10979,10 +11482,11 @@
     // Gator 3D (Tripo GLB kart) — test hooks
     loadGator3dTemplate, buildGator3dKart, randomKartId, KART_IDS, GATOR3D_OFFSETS,
     get GATOR3D_STEER_AXIS(){ return GATOR3D_STEER_AXIS; },
-    // Bucky 3D (Tripo GLB driver) — test + pose-tuning hooks
+    // GLB (Tripo cast) drivers — test + pose-tuning hooks. bucky3d aliases kept for the old suite.
+    GLB_DRIVER_DEFS, loadGlbDriverTemplate, reposeGlbDriverLocal,
     loadBucky3dTemplate, reposeBucky3dLocal, BUCKY3D_SEATED_POSE, randomDriverId, DRIVER_IDS,
-    get bucky3dNativeH(){ return _bucky3dNativeH; },
-    set _bucky3dYaw(v){ BUCKY3D_BASE_YAW = v; reposeBucky3dLocal(); }, get _bucky3dYaw(){ return BUCKY3D_BASE_YAW; },
+    get bucky3dNativeH(){ return GLB_DRIVER_DEFS.bucky3d._nativeH || 0; },
+    set _bucky3dYaw(v){ GLB_DRIVER_DEFS.bucky3d.baseYaw = v; reposeGlbDriverLocal(); }, get _bucky3dYaw(){ return GLB_DRIVER_DEFS.bucky3d.baseYaw; },
     KART_KINDS, DRIVER_KINDS, normalizeKartId, normalizeDriverId,
     MAX_RACERS, MAX_MP_PLAYERS, TRACTOR_RED, accentColorFor, paintKartAccent,
     sampleHeight, groundSampleHeight, maxHeightUnderKart, sampleKartPlane, rideHeight,
@@ -11009,6 +11513,7 @@
     WATER_GROUP, SEA_GROUP, get SEA_LEVEL(){ return SEA_LEVEL; }, TRAIN_GROUP, setSky, get SKY_OBJ(){ return SKY_OBJ; }, get sky(){ return ACTIVE_TRACK.sky || 'day'; },
     // City theme (2026-07-17, for headless tests): the cityscape + lane-mark groups (null on non-city tracks)
     get CITY_GROUP(){ return CITY_GROUP; }, get LANE_GROUP(){ return LANE_GROUP; }, get theme(){ return ACTIVE_TRACK.theme || null; },
+    get SKYWAY_GROUP(){ return SKYWAY_GROUP; }, get PUMPKIN_GROUP(){ return PUMPKIN_GROUP; }, get decor(){ return ACTIVE_TRACK.decor || null; },
     // Toad's Turnpike traffic (2026-07-17, for headless tests): the group, its per-vehicle state, + the launch ruling
     TRAFFIC_GROUP, get trafficVehicles(){ return (TRAFFIC_GROUP.userData && TRAFFIC_GROUP.userData.vehicles) || []; }, advanceTrafficHits,
     TRAFFIC_VEH_R, TRAFFIC_LAUNCH_VY, TRAFFIC_INVULN_T,
@@ -11019,6 +11524,13 @@
     rollItemBattle, battleBotInput, updateBattleBalloons, updateBattleHUD, showBattleResults,
     updateFloatingBalloons, spawnFloatingBalloon, kartHexColor, get floatBalloons(){ return _floatBalloons; },
     get battle(){ return G.battle; }, BATTLE_START_BALLOONS, BATTLE_TIME,
+    // 🛡 TANK BATTLE (2026-07-18, test hooks)
+    tankMode, TANK, get TANK_ARENA_GROUP(){ return TANK_ARENA_GROUP; }, buildTankArena,
+    get TANK_BUILDING_WALLS(){ return TANK_BUILDING_WALLS; },
+    tankTurretTick, tankFire, fireShell, tankBotInput, rollItemTank, losClear, nearestEnemyTank,
+    buildKartTurret, syncTurret, shellBoom, get tankControlsSeen(){ return _tankInputWasSeen; }, resetTankControlsCard,
+    dismissTankControls:()=>{ _tankInputSeen(); }, updateTankHud, updateTankControlsCard, get touch(){ return touch; },
+    TANK_CAM, get balloonViews(){ return _balloonViews; }, snapCameraBehind,
     get hemiLight(){ return hemi; }, get sunLight(){ return sun; },
     // R2: speed class + mirror + ghost + podium (test hooks)
     SPEED_CLASSES, classMul, classMirrorSuffix, GHOST_KEY, mirrorTrack,

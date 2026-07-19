@@ -61,8 +61,11 @@ function loadModule(code) { const win = {}; const fn = new Function("window", "d
 function pureNodeChecks() {
   const NEW = loadModule(fs.readFileSync(path.join(ROOT, "assets/farmkart-track.js"), "utf8"));
   const OLD = loadModule(execSync("git show HEAD:assets/farmkart-track.js", { cwd: ROOT, maxBuffer: 1 << 24 }).toString());
-  // byte-identical for tracks WITHOUT the new keys (adding midnight-run must not perturb them)
-  for (const id of ["__default__", "wario-stadium", "royal-raceway", "rainbow-road"]) {
+  // byte-identical for tracks WITHOUT the new keys (adding midnight-run must not perturb them). NOTE:
+  // wario-stadium + rainbow-road were re-themed in the wave-2 theme pack (they now carry the new `decor`
+  // key), so they are no longer valid "untouched control" tracks here — swapped for tracks that carry
+  // none of the new keys, which still proves the sanitize-code change doesn't perturb plain tracks.
+  for (const id of ["__default__", "mario-raceway", "royal-raceway", "moo-moo-farm"]) {
     const t = id === "__default__" ? NEW.DEFAULT_TRACK : NEW.BUILTIN_TRACKS[id];
     const a = JSON.stringify(OLD.sanitize(JSON.parse(JSON.stringify(t))));
     const b = JSON.stringify(NEW.sanitize(JSON.parse(JSON.stringify(t))));

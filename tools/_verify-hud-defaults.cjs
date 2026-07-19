@@ -100,7 +100,7 @@ async function main() {
   });
   console.log("boot:", JSON.stringify(boot));
   assert(boot.trackId === "wario-stadium", "boot track id = wario-stadium, got " + boot.trackId);
-  assert(boot.trackName === "Wario Stadium", "boot track name, got " + boot.trackName);
+  assert(boot.trackName === "Thunderdome Supercross", "boot track name, got " + boot.trackName);   // wave-2 rename of wario-stadium
   assert(boot.raceMode === "prix", "default race mode = prix, got " + boot.raceMode);
   assert(boot.trackSel === "wario-stadium", "menu select = wario-stadium, got " + boot.trackSel);
   assert(boot.modeBtn === "prix", "mode button prix on, got " + boot.modeBtn);
