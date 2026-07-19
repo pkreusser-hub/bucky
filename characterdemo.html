@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bucky Cast — Character Demo</title>
+<meta name="theme-color" content="#233357">
+<style>
+  :root{
+    --navy:#233357; --red:#ba303e; --bg:#eef2f8; --card:#ffffff; --ink:#1c2436;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);font-family:system-ui,Segoe UI,Roboto,sans-serif;}
+  #stage{position:fixed;inset:0;}
+  canvas{display:block;}
+  #topbar{
+    position:fixed;top:0;left:0;right:0;display:flex;align-items:center;gap:10px;
+    padding:calc(env(safe-area-inset-top,0px) + 8px) 12px 8px;
+    pointer-events:none;
+  }
+  #topbar a{
+    pointer-events:auto;text-decoration:none;background:var(--navy);color:#fff;
+    font-weight:700;font-size:14px;padding:7px 12px;border-radius:10px;
+  }
+  #title{font-weight:800;color:var(--navy);font-size:16px;text-shadow:0 1px 0 #fff;}
+  #status{
+    position:fixed;top:calc(env(safe-area-inset-top,0px) + 46px);left:12px;right:12px;
+    color:var(--navy);font-size:13px;font-weight:600;opacity:.85;pointer-events:none;
+    text-shadow:0 1px 0 #fff;
+  }
+  #panel{
+    position:fixed;left:0;right:0;bottom:0;
+    padding:10px 12px calc(env(safe-area-inset-bottom,0px) + 12px);
+    display:flex;flex-direction:column;gap:8px;pointer-events:none;
+  }
+  .row{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;}
+  .row > *{pointer-events:auto;}
+  button.clip{
+    border:0;border-radius:14px;background:var(--card);color:var(--ink);
+    font-size:15px;font-weight:800;padding:12px 16px;min-width:74px;
+    box-shadow:0 2px 8px rgba(28,36,54,.18);cursor:pointer;
+  }
+  button.clip.active{background:var(--red);color:#fff;}
+  button.clip:disabled{opacity:.35;cursor:default;}
+  button.chr{
+    border:2px solid transparent;border-radius:12px;background:#dfe6f2;color:var(--navy);
+    font-size:13px;font-weight:800;padding:8px 14px;cursor:pointer;
+  }
+  button.chr.active{background:var(--navy);color:#fff;border-color:var(--red);}
+  button.tog{
+    border:0;border-radius:10px;background:#dfe6f2;color:var(--navy);
+    font-size:12.5px;font-weight:700;padding:8px 10px;cursor:pointer;
+  }
+  button.tog.on{background:var(--navy);color:#fff;}
+  #speedwrap{display:flex;align-items:center;gap:6px;background:#dfe6f2;border-radius:10px;padding:4px 10px;}
+  #speedwrap label{font-size:12px;font-weight:700;color:var(--navy);}
+  #speed{width:110px;accent-color:var(--red);}
+  #speedval{font-size:12px;font-weight:700;color:var(--navy);width:34px;text-align:right;}
+  #posePanel{
+    position:fixed;right:10px;top:calc(env(safe-area-inset-top,0px) + 46px);
+    width:230px;max-height:calc(100vh - 220px);overflow-y:auto;display:none;
+    background:rgba(255,255,255,.94);border-radius:14px;padding:10px;
+    box-shadow:0 3px 14px rgba(28,36,54,.25);
+  }
+  #posePanel.on{display:block;}
+  #posePanel h4{margin:0 0 6px;font-size:13px;color:var(--navy);}
+  #boneSearch{width:100%;border:1px solid #c8d2e4;border-radius:8px;padding:5px 8px;font-size:12px;margin-bottom:5px;box-sizing:border-box;}
+  #boneList{max-height:150px;overflow-y:auto;border:1px solid #e2e8f4;border-radius:8px;margin-bottom:8px;}
+  #boneList button{
+    display:block;width:100%;border:0;background:none;text-align:left;cursor:pointer;
+    font-size:11.5px;padding:3px 7px;color:var(--ink);font-family:Consolas,monospace;white-space:nowrap;
+  }
+  #boneList button.sel{background:var(--navy);color:#fff;}
+  #boneList button.tweaked{font-weight:800;color:var(--red);}
+  #boneList button.sel.tweaked{color:#ffb3bb;}
+  .axisRow{display:flex;align-items:center;gap:5px;margin:3px 0;}
+  .axisRow label{font-size:12px;font-weight:800;width:12px;color:var(--navy);}
+  .axisRow input[type=range]{flex:1;accent-color:var(--red);}
+  .axisRow .deg{font-size:11px;font-weight:700;color:var(--navy);width:38px;text-align:right;font-family:Consolas,monospace;}
+  #poseBtns{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px;}
+  #poseBtns button{
+    border:0;border-radius:8px;background:#dfe6f2;color:var(--navy);
+    font-size:11.5px;font-weight:700;padding:6px 8px;cursor:pointer;
+  }
+  #poseBtns button.warn{background:var(--red);color:#fff;}
+  #poseOut{
+    width:100%;box-sizing:border-box;margin-top:7px;font-size:10px;font-family:Consolas,monospace;
+    border:1px solid #e2e8f4;border-radius:8px;padding:5px;display:none;min-height:64px;
+  }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="topbar">
+  <a href="index.html#play">← Bucky</a>
+  <div id="title">🐐 Cast Demo — Goat</div>
+</div>
+<div id="status">Loading model…</div>
+<div id="posePanel">
+  <h4>🦴 Pose — rotation offsets on top of the animation</h4>
+  <input id="boneSearch" type="text" placeholder="filter bones…">
+  <div id="boneList"></div>
+  <div id="poseSliders">
+    <div class="axisRow"><label>X</label><input type="range" id="poseX" min="-180" max="180" step="1" value="0"><div class="deg" id="poseXv">0°</div></div>
+    <div class="axisRow"><label>Y</label><input type="range" id="poseY" min="-180" max="180" step="1" value="0"><div class="deg" id="poseYv">0°</div></div>
+    <div class="axisRow"><label>Z</label><input type="range" id="poseZ" min="-180" max="180" step="1" value="0"><div class="deg" id="poseZv">0°</div></div>
+    <div style="font-size:11px;font-weight:800;color:var(--navy);margin-top:5px;">shift (anchor point)</div>
+    <div class="axisRow"><label>X</label><input type="range" id="poseTX" min="-0.2" max="0.2" step="0.002" value="0"><div class="deg" id="poseTXv">0</div></div>
+    <div class="axisRow"><label>Y</label><input type="range" id="poseTY" min="-0.2" max="0.2" step="0.002" value="0"><div class="deg" id="poseTYv">0</div></div>
+    <div class="axisRow"><label>Z</label><input type="range" id="poseTZ" min="-0.2" max="0.2" step="0.002" value="0"><div class="deg" id="poseTZv">0</div></div>
+  </div>
+  <div id="wheelSec" style="display:none;margin-top:7px;border-top:1px solid #e2e8f4;padding-top:6px;">
+    <div style="font-size:11px;font-weight:800;color:var(--navy);">🛞 steering wheel (kart preview)</div>
+    <div class="axisRow"><label>X</label><input type="range" id="whX" min="-0.3" max="0.3" step="0.005" value="0"><div class="deg" id="whXv">0</div></div>
+    <div class="axisRow"><label>Y</label><input type="range" id="whY" min="-0.3" max="0.3" step="0.005" value="0"><div class="deg" id="whYv">0</div></div>
+    <div class="axisRow"><label>Z</label><input type="range" id="whZ" min="-0.3" max="0.3" step="0.005" value="0"><div class="deg" id="whZv">0</div></div>
+    <div class="axisRow"><label>S</label><input type="range" id="whS" min="0.5" max="1.6" step="0.01" value="1"><div class="deg" id="whSv">1.0</div></div>
+    <div class="axisRow"><label>✋</label><input type="range" id="whG" min="10" max="90" step="1" value="40"><div class="deg" id="whGv">40°</div></div>
+  </div>
+  <div id="poseBtns">
+    <button id="poseFreeze">⏸ freeze</button>
+    <button id="poseMirror" class="warn" style="background:var(--navy)">🪞 mirror: ON</button>
+    <button id="poseResetBone">↺ bone</button>
+    <button id="poseResetAll" class="warn">reset all</button>
+    <button id="poseCopy">📋 copy JSON</button>
+    <button id="poseKart">🛻 kart preview</button>
+  </div>
+  <textarea id="poseOut" readonly spellcheck="false"></textarea>
+</div>
+<div id="panel">
+  <div class="row" id="charRow"></div>
+  <div class="row" id="clipRow"></div>
+  <div class="row">
+    <div id="speedwrap">
+      <label for="speed">speed</label>
+      <input id="speed" type="range" min="0.1" max="2" step="0.05" value="1">
+      <div id="speedval">1.0×</div>
+    </div>
+    <button class="tog" id="togSpin">🔄 spin</button>
+    <button class="tog" id="togSkel">🦴 bones</button>
+    <button class="tog" id="togWire">🕸 wire</button>
+    <button class="tog" id="togRoot">🧭 root motion</button>
+    <button class="tog" id="togPose">🎛 pose</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+"use strict";
+/* Bucky Cast character demo — loads a Tripo-generated, rigged cast member
+   (base GLB + mesh-less clip GLBs, same pattern as the Bistro chefs) and
+   lets you A/B the animation quality on any device. */
+
+const CLIP_EMOJI = { idle:"🧍", walk:"🚶", run:"🏃", jump:"🤸", dance:"🕺", cheer:"🎉", hurt:"😵", slash:"⚔️" };
+const castClips = (dir, name, list) => Object.fromEntries(list.map(c => [c, `assets/cast/${dir}/${name}-${c}.glb`]));
+const CHARACTERS = {
+  bucky: {
+    name: "Bucky", icon: "🐐",
+    base: "assets/cast/bucky/bucky.glb",
+    clips: castClips("bucky", "bucky", ["idle","walk","run","jump","dance","cheer"]),
+  },
+  goat: {
+    name: "Billy", icon: "🧑‍🌾",
+    base: "assets/cast/goat/goat.glb",
+    clips: castClips("goat", "goat", ["idle","walk","run","jump","dance","cheer"]),
+  },
+  otis: {
+    name: "Otis", icon: "🐶",
+    base: "assets/cast/otis/otis.glb",
+    clips: castClips("otis", "otis", ["idle","walk","run","jump","dance","cheer"]),
+  },
+  boots: {
+    name: "Boots", icon: "🐱",
+    base: "assets/cast/boots/boots.glb",
+    clips: castClips("boots", "boots", ["idle","walk","run","jump","dance","cheer"]),
+  },
+  goose: {
+    name: "Huey", icon: "🦆",
+    base: "assets/cast/goose/goose.glb",
+    clips: castClips("goose", "goose", ["idle","walk","run","jump","dance","cheer"]),
+    // user-tuned character pose (2026-07-18, exported from the pose tool):
+    // splayed webbed feet + wing-hand rotations — applied as defaults when no
+    // saved pose exists for this character on the device
+    poseDefaults: {"R_Hand":[0.227,-1.449,-0.192],"L_Hand":[0,1.571,0.105],"L_UpperarmTwist01":[0,0,0.262],"R_Foot":[0,0,-0.541],"L_Foot":[0,0,0.489],"L_Forearm":[0.192,0.262,-0.07],"R_Forearm":[0.646,-0.07,-0.07]},
+  },
+  gator: {
+    name: "Gator 3D", icon: "🐊",
+    base: "assets/farmkart/farmkart-gator3d.glb",
+    clips: {},            // vehicle — no animation clips, inspect-only
+    targetH: 1.15,
+  },
+};
+// Extra clips dropped in later just get added to a character's clip list — the UI builds itself.
+let CHAR = CHARACTERS[new URLSearchParams(location.search).get("char")] || CHARACTERS.goat;
+
+const statusEl = document.getElementById("status");
+const setStatus = (t) => { statusEl.textContent = t; };
+
+/* ---------- renderer / scene ---------- */
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.getElementById("stage").appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xbcd3ee);
+scene.fog = new THREE.Fog(0xbcd3ee, 18, 42);
+
+const camera = new THREE.PerspectiveCamera(38, innerWidth/innerHeight, 0.05, 100);
+camera.position.set(2.6, 1.7, 3.4);
+
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.9, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.maxDistance = 12;
+controls.minDistance = 0.8;
+controls.maxPolarAngle = Math.PI * 0.55;
+
+scene.add(new THREE.HemisphereLight(0xe8f1ff, 0x7a6a52, 0.95));
+const sun = new THREE.DirectionalLight(0xfff2dd, 1.15);
+sun.position.set(4, 7, 3);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -5; sun.shadow.camera.right = 5;
+sun.shadow.camera.top = 5;   sun.shadow.camera.bottom = -5;
+scene.add(sun);
+
+// simple stage: grass disc + navy ring
+const ground = new THREE.Mesh(
+  new THREE.CircleGeometry(9, 48),
+  new THREE.MeshLambertMaterial({ color: 0x86a862 })
+);
+ground.rotation.x = -Math.PI/2;
+ground.receiveShadow = true;
+scene.add(ground);
+const ring = new THREE.Mesh(
+  new THREE.RingGeometry(1.55, 1.75, 48),
+  new THREE.MeshLambertMaterial({ color: 0x233357 })
+);
+ring.rotation.x = -Math.PI/2;
+ring.position.y = 0.005;
+scene.add(ring);
+
+/* ---------- model + clips ---------- */
+const loader = new THREE.GLTFLoader();
+const mixerRoot = new THREE.Group();
+scene.add(mixerRoot);
+
+let mixer = null, model = null, skelHelper = null;
+let actions = {};            // name -> AnimationAction
+let current = null;
+let rootBoneName = null;     // for root-motion stripping
+const rawClips = {};         // name -> original clip (with root motion)
+let rootMotionOn = false;
+
+function loadGLB(url){
+  return new Promise((res, rej) => loader.load(url, res, undefined, rej));
+}
+
+// Strip HORIZONTAL root translation only (keep Y — jumps need it).
+// Touch ONLY the top root bone's position track; everything else stays.
+function inPlaceClip(clip){
+  const c = clip.clone();
+  for (const tr of c.tracks){
+    if (!rootBoneName || tr.name !== rootBoneName + ".position") continue;
+    const v = tr.values, x0 = v[0], z0 = v[2];
+    for (let i = 0; i < v.length; i += 3){ v[i] = x0; v[i+2] = z0; }
+  }
+  return c;
+}
+
+function findRootBone(obj){
+  let root = null;
+  obj.traverse(o => {
+    if (o.isBone && !root){
+      // topmost bone = a bone whose parent is not a bone
+      let b = o;
+      while (b.parent && b.parent.isBone) b = b.parent;
+      root = b;
+    }
+  });
+  return root;
+}
+
+function frameModel(){
+  const box = new THREE.Box3().setFromObject(model);
+  const size = box.getSize(new THREE.Vector3());
+  const h = Math.max(size.y, 0.001);
+  const targetH = CHAR.targetH || 1.7;
+  const s = targetH / h;                   // normalize height
+  model.scale.setScalar(s);
+  const box2 = new THREE.Box3().setFromObject(model);
+  model.position.y -= box2.min.y;          // feet on the ground
+  controls.target.set(0, targetH*0.52, 0);
+}
+
+let loadSeq = 0;   // guards against a slow load finishing after a newer switch
+function unloadCharacter(){
+  if (mixer){ mixer.stopAllAction(); if (model) mixer.uncacheRoot(model); }
+  if (skelHelper){ scene.remove(skelHelper); skelHelper = null; }
+  if (model){ mixerRoot.remove(model); }
+  model = null; mixer = null; current = null; rootBoneName = null;
+  actions = {};
+  for (const k of Object.keys(rawClips)) delete rawClips[k];
+  document.getElementById("clipRow").innerHTML = "";
+  pose.bones = []; pose.deltas = {}; pose.quats = {}; pose.sel = null;
+  if (pose.marker && pose.marker.parent) pose.marker.parent.remove(pose.marker);
+}
+
+async function loadCharacter(id){
+  const seq = ++loadSeq;
+  CHAR = CHARACTERS[id] || CHAR;
+  buildCharButtons(id);
+  unloadCharacter();
+  statusEl.style.transition = ""; statusEl.style.opacity = "1";
+  setStatus(`Loading ${CHAR.name}…`);
+  let gltf;
+  try {
+    gltf = await loadGLB(CHAR.base);
+  } catch(e){
+    console.error(e);
+    if (seq === loadSeq) setStatus(`❌ ${CHAR.name}: couldn't load ${CHAR.base} — run the pipeline first.`);
+    return;
+  }
+  if (seq !== loadSeq) return;
+  model = gltf.scene;
+  model.traverse(o => {
+    if (o.isMesh){ o.castShadow = true; o.receiveShadow = false; o.frustumCulled = false; o.material.wireframe = wire; }
+  });
+  mixerRoot.add(model);
+  frameModel();
+  const rb = findRootBone(model);
+  rootBoneName = rb ? rb.name : null;
+  mixer = new THREE.AnimationMixer(model);
+  mixer.timeScale = parseFloat(document.getElementById("speed").value);
+  // pose mode: fresh skeleton — rebuild bone list, restore saved offsets for this character
+  pose.sel = null; pose.frozen = false;
+  document.getElementById("poseFreeze").textContent = "⏸ freeze";
+  collectBones();
+  loadPose();
+  buildBoneList(document.getElementById("boneSearch").value);
+  setSliders([0,0,0]); updatePoseOut();
+  document.getElementById("posePanel").classList.toggle("on",
+    document.getElementById("togPose").classList.contains("on") && pose.bones.length > 0);
+  for (const c of (gltf.animations || [])) registerClip(c.name, c);
+  if (document.getElementById("togSkel").classList.contains("on")){
+    skelHelper = new THREE.SkeletonHelper(model); scene.add(skelHelper);
+  }
+  setStatus("Loading animations…");
+  const names = Object.keys(CHAR.clips);
+  const results = await Promise.allSettled(names.map(async n => {
+    const g = await loadGLB(CHAR.clips[n]);
+    if (seq !== loadSeq) return;
+    const clip = (g.animations && g.animations[0]) || null;
+    if (!clip) throw new Error("no clip in " + CHAR.clips[n]);
+    registerClip(n, clip);
+  }));
+  if (seq !== loadSeq) return;
+  const okCount = results.filter(r => r.status === "fulfilled").length;
+  const clipNames = Object.keys(actions);
+  document.getElementById("title").textContent = `${CHAR.icon} Cast Demo — ${CHAR.name}`;
+  if (!clipNames.length){
+    setStatus(names.length ? `${CHAR.name}: model loaded — no animation clips found yet.`
+                           : `${CHAR.name}: model loaded — drag to orbit, wheel to zoom.`);
+    setTimeout(()=>{ if (seq === loadSeq){ statusEl.style.transition="opacity .6s"; statusEl.style.opacity="0"; } }, 2500);
+    return;
+  }
+  setStatus(`${CHAR.name}: ${clipNames.length} clips ready (${okCount}/${names.length} files).`);
+  buildClipButtons();
+  if (kartMode) enterKartPreview();                  // character switch keeps the kart seat
+  else play(clipNames.includes("idle") ? "idle" : clipNames[0]);
+  setTimeout(()=>{ if (seq === loadSeq){ statusEl.style.transition="opacity .6s"; statusEl.style.opacity="0"; } }, 2500);
+}
+
+function buildCharButtons(activeId){
+  const row = document.getElementById("charRow");
+  row.innerHTML = "";
+  for (const [id, c] of Object.entries(CHARACTERS)){
+    const b = document.createElement("button");
+    b.className = "chr" + (id === activeId ? " active" : "");
+    b.dataset.char = id;
+    b.textContent = c.icon + " " + c.name;
+    b.onclick = () => loadCharacter(id);
+    row.appendChild(b);
+  }
+}
+
+function boot(){
+  const id = Object.entries(CHARACTERS).find(([, c]) => c === CHAR)[0];
+  return loadCharacter(id);
+}
+
+function registerClip(name, clip){
+  rawClips[name] = clip;
+  actions[name] = mixer.clipAction(rootMotionOn ? clip : inPlaceClip(clip));
+}
+
+function rebuildActions(){
+  const prev = current;
+  mixer.stopAllAction(); mixer.uncacheRoot(model);
+  actions = {};
+  for (const n of Object.keys(rawClips)){
+    actions[n] = mixer.clipAction(rootMotionOn ? rawClips[n] : inPlaceClip(rawClips[n]));
+  }
+  current = null;
+  if (prev) play(prev, 0);
+}
+
+function play(name, fade = 0.25){
+  if (kartMode){                     // picking a clip leaves the kart preview
+    kartMode = false;
+    const kb = document.getElementById("poseKart");
+    kb.style.background = ""; kb.style.color = "";
+    exitKartPreviewLite();
+  }
+  if (!actions[name] || current === name) return;
+  const next = actions[name];
+  next.enabled = true;
+  next.reset().setEffectiveTimeScale(1).setEffectiveWeight(1);
+  if (current && actions[current]) {
+    next.crossFadeFrom(actions[current], fade, true);
+  }
+  next.play();
+  current = name;
+  document.querySelectorAll("#clipRow .clip").forEach(b =>
+    b.classList.toggle("active", b.dataset.clip === name));
+}
+
+function buildClipButtons(){
+  const row = document.getElementById("clipRow");
+  row.innerHTML = "";
+  for (const n of Object.keys(actions)){
+    const b = document.createElement("button");
+    b.className = "clip";
+    b.dataset.clip = n;
+    b.textContent = (CLIP_EMOJI[n] || "🎬") + " " + n;
+    b.onclick = () => play(n);
+    row.appendChild(b);
+  }
+}
+
+/* ---------- pose mode: per-bone rotation offsets on top of the animation ----------
+   Applied AFTER mixer.update each frame as bone.quaternion ×= delta — the same
+   rest×delta technique the games use (BUCKY3D_SEATED_POSE, steer lean). The exported
+   JSON drops straight into those pose tables. */
+const pose = {
+  deltas: {},           // boneName -> {r:[x,y,z] radians, t:[tx,ty,tz] bone-local units}
+  quats: {},            // boneName -> THREE.Quaternion (derived from r)
+  trans: {},            // boneName -> THREE.Vector3 (derived from t)
+  bones: [],            // [{name, depth, bone}]
+  sel: null,
+  marker: null,
+  frozen: false,
+};
+const _poseEuler = new THREE.Euler(), _poseQ = new THREE.Quaternion();
+
+function poseStorageKey(){ return "cd_pose_" + (CHAR.name || "x"); }
+
+function collectBones(){
+  pose.bones = [];
+  if (!model) return;
+  const seen = new Set();
+  model.traverse(o => {
+    if (!o.isBone || seen.has(o.name)) return;
+    seen.add(o.name);
+    let depth = 0, p = o.parent;
+    while (p && p.isBone){ depth++; p = p.parent; }
+    pose.bones.push({ name: o.name, depth, bone: o });
+  });
+}
+
+function applyPoseDeltas(){
+  if (!model) return;
+  // capture-and-compose: the mixer only rewrites bones while actively playing
+  // (timeScale 0 = frozen leaves them as-is), so ALWAYS compose base×delta and only
+  // refresh the base snapshot on frames the mixer actually wrote.
+  const mixerWrote = !!current && !pose.frozen;
+  for (const name of Object.keys(pose.deltas)){
+    const rec = pose.bones.find(b => b.name === name);
+    if (!rec) continue;
+    const ud = rec.bone.userData;
+    if (mixerWrote || !ud._poseBase)
+      ud._poseBase = (ud._poseBase || new THREE.Quaternion()).copy(rec.bone.quaternion);
+    if (mixerWrote || !ud._posePosBase)
+      ud._posePosBase = (ud._posePosBase || new THREE.Vector3()).copy(rec.bone.position);
+    if (pose.quats[name]) rec.bone.quaternion.copy(ud._poseBase).multiply(pose.quats[name]);
+    if (pose.trans[name]) rec.bone.position.copy(ud._posePosBase).add(pose.trans[name]);
+  }
+}
+
+function setBoneDelta(name, x, y, z, tx, ty, tz){
+  tx = tx || 0; ty = ty || 0; tz = tz || 0;
+  if (!x && !y && !z && !tx && !ty && !tz){
+    delete pose.deltas[name]; delete pose.quats[name]; delete pose.trans[name];
+    // restore the un-posed transform immediately (matters while frozen)
+    const rec = pose.bones.find(b => b.name === name);
+    if (rec && rec.bone.userData._poseBase) rec.bone.quaternion.copy(rec.bone.userData._poseBase);
+    if (rec && rec.bone.userData._posePosBase) rec.bone.position.copy(rec.bone.userData._posePosBase);
+  }
+  else {
+    pose.deltas[name] = { r:[x, y, z], t:[tx, ty, tz] };
+    pose.quats[name] = new THREE.Quaternion().setFromEuler(_poseEuler.set(x, y, z, "XYZ"));
+    pose.trans[name] = new THREE.Vector3(tx, ty, tz);
+  }
+  savePose(); refreshBoneListHighlights(); updatePoseOut();
+}
+
+function savePose(){
+  try {
+    const k = poseStorageKey();
+    if (Object.keys(pose.deltas).length) localStorage.setItem(k, JSON.stringify(pose.deltas));
+    else localStorage.removeItem(k);
+  } catch(e){}
+}
+function loadPose(){
+  pose.deltas = {}; pose.quats = {}; pose.trans = {};
+  try {
+    const raw = localStorage.getItem(poseStorageKey());
+    const o = raw ? JSON.parse(raw) : (CHAR.poseDefaults || null);   // saved beats defaults
+    if (o){
+      for (const [n, e] of Object.entries(o)){
+        if (n.startsWith("__")) continue;                            // meta keys (e.g. __steerWheel)
+        if (Array.isArray(e) && e.length === 3) setBoneDeltaSilent(n, e[0], e[1], e[2], 0, 0, 0);
+        else if (e && Array.isArray(e.r)) setBoneDeltaSilent(n, e.r[0], e.r[1], e.r[2],
+          ...(Array.isArray(e.t) ? e.t : [0,0,0]));
+      }
+    }
+  } catch(e){}
+}
+function setBoneDeltaSilent(name, x, y, z, tx, ty, tz){
+  pose.deltas[name] = { r:[x, y, z], t:[tx||0, ty||0, tz||0] };
+  pose.quats[name] = new THREE.Quaternion().setFromEuler(new THREE.Euler(x, y, z, "XYZ"));
+  pose.trans[name] = new THREE.Vector3(tx||0, ty||0, tz||0);
+}
+
+function poseJSON(){
+  // game-compatible: rotation-only bones stay plain [x,y,z] arrays (the existing
+  // pose-table format); bones with a translation emit {r:[...], t:[...]}.
+  const out = {};
+  for (const [n, e] of Object.entries(pose.deltas)){
+    const r = e.r.map(v => +v.toFixed(3)), t = e.t.map(v => +v.toFixed(3));
+    out[n] = t.some(v => v !== 0) ? { r, t } : r;
+  }
+  if (kartMode && wheelAdj.dirty) out.__steerWheel = {
+    x:+wheelAdj.x.toFixed(3), y:+wheelAdj.y.toFixed(3), z:+wheelAdj.z.toFixed(3),
+    scale:+wheelAdj.scale.toFixed(3), gripAngle: Math.round(wheelAdj.gripAngle),
+  };
+  return JSON.stringify(out);
+}
+
+/* ---- pose UI ---- */
+const boneListEl = document.getElementById("boneList");
+function buildBoneList(filter){
+  boneListEl.innerHTML = "";
+  const f = (filter || "").toLowerCase();
+  for (const rec of pose.bones){
+    if (rec.name.endsWith("_end")) continue;             // leaf tips: nothing to pose
+    if (f && rec.name.toLowerCase().indexOf(f) < 0) continue;
+    const b = document.createElement("button");
+    b.dataset.bone = rec.name;
+    b.textContent = " ".repeat(rec.depth) + rec.name;
+    b.onclick = () => selectBone(rec.name);
+    boneListEl.appendChild(b);
+  }
+  refreshBoneListHighlights();
+}
+function refreshBoneListHighlights(){
+  boneListEl.querySelectorAll("button").forEach(b => {
+    b.classList.toggle("sel", b.dataset.bone === pose.sel);
+    b.classList.toggle("tweaked", !!pose.deltas[b.dataset.bone]);
+  });
+}
+function selectBone(name){
+  pose.sel = name;
+  const e = pose.deltas[name] || [0,0,0];
+  setSliders(e);
+  const rec = pose.bones.find(b => b.name === name);
+  if (!pose.marker){ pose.marker = new THREE.AxesHelper(0.14); pose.marker.material.depthTest = false; pose.marker.renderOrder = 99; }
+  if (rec){ if (pose.marker.parent) pose.marker.parent.remove(pose.marker); rec.bone.add(pose.marker); }
+  refreshBoneListHighlights();
+}
+const D2R = Math.PI/180, R2D = 180/Math.PI;
+function setSliders(delta){
+  const r = Array.isArray(delta) ? delta : (delta && delta.r) || [0,0,0];
+  const t = (delta && !Array.isArray(delta) && delta.t) || [0,0,0];
+  for (const [i, ax] of ["X","Y","Z"].entries()){
+    document.getElementById("pose"+ax).value = Math.round(r[i]*R2D);
+    document.getElementById("pose"+ax+"v").textContent = Math.round(r[i]*R2D) + "°";
+    document.getElementById("poseT"+ax).value = t[i];
+    document.getElementById("poseT"+ax+"v").textContent = (+t[i]).toFixed(3).replace(/^(-?)0\./, "$1.");
+  }
+}
+function readSliders(){
+  const r = ["X","Y","Z"].map(a => parseFloat(document.getElementById("pose"+a).value) * D2R);
+  const t = ["X","Y","Z"].map(a => parseFloat(document.getElementById("poseT"+a).value));
+  return { r, t };
+}
+/* mirror: limb bones are L_/R_ pairs with mirrored local frames — the counterpart
+   delta is [x, -y, -z] (verified against the game's hand-tuned seated pose tables). */
+pose.mirror = true;
+function mirrorBoneName(name){
+  if (name.startsWith("L_")) return "R_" + name.slice(2);
+  if (name.startsWith("R_")) return "L_" + name.slice(2);
+  return null;
+}
+function mirrorTranslation(name, twin, t){
+  // GEOMETRIC mirror: local shift -> world -> reflect across the character's
+  // sagittal plane (model-local Z; the GLBs face +X, up +Y) -> twin-local.
+  // Guarantees "left arm moves out => right arm moves out" whatever the local frames do.
+  const recO = pose.bones.find(b => b.name === name), recT = pose.bones.find(b => b.name === twin);
+  if (!recO || !recT || !model) return [t[0], -t[1], -t[2]];
+  // bone.position lives in the PARENT's space — mirror via the parents' orientations
+  const qO = (recO.bone.parent || recO.bone).getWorldQuaternion(new THREE.Quaternion());
+  const qT = (recT.bone.parent || recT.bone).getWorldQuaternion(new THREE.Quaternion());
+  const qM = model.getWorldQuaternion(new THREE.Quaternion());
+  const v = new THREE.Vector3(t[0], t[1], t[2]).applyQuaternion(qO);   // world displacement
+  v.applyQuaternion(qM.clone().invert());                              // model space
+  v.z = -v.z;                                                          // sagittal reflection
+  v.applyQuaternion(qM).applyQuaternion(qT.clone().invert());          // twin-local
+  return [v.x, v.y, v.z];
+}
+
+function setBoneDeltaMirrored(name, x, y, z, tx, ty, tz){
+  tx = tx || 0; ty = ty || 0; tz = tz || 0;
+  setBoneDelta(name, x, y, z, tx, ty, tz);
+  if (!pose.mirror) return;
+  const twin = mirrorBoneName(name);
+  if (twin && pose.bones.some(b => b.name === twin)){
+    if (!x && !y && !z && !tx && !ty && !tz) setBoneDelta(twin, 0, 0, 0, 0, 0, 0);
+    else {
+      // rotations: mirrored local frames flip y/z (validated on this rig).
+      // translations: geometric world-space mirror (see mirrorTranslation).
+      const mt = (tx || ty || tz) ? mirrorTranslation(name, twin, [tx, ty, tz]) : [0, 0, 0];
+      setBoneDelta(twin, x, -y, -z, mt[0], mt[1], mt[2]);
+    }
+  }
+}
+function _onPoseSlider(){
+  if (!pose.sel) return;
+  const { r, t } = readSliders();
+  for (const ax of ["X","Y","Z"]){
+    document.getElementById("pose"+ax+"v").textContent = document.getElementById("pose"+ax).value + "°";
+    document.getElementById("poseT"+ax+"v").textContent =
+      (+document.getElementById("poseT"+ax).value).toFixed(3).replace(/^(-?)0\./, "$1.");
+  }
+  setBoneDeltaMirrored(pose.sel, r[0], r[1], r[2], t[0], t[1], t[2]);
+}
+for (const ax of ["X","Y","Z"]){
+  document.getElementById("pose"+ax).oninput = _onPoseSlider;
+  document.getElementById("poseT"+ax).oninput = _onPoseSlider;
+}
+document.getElementById("poseMirror").onclick = function(){
+  pose.mirror = !pose.mirror;
+  this.textContent = pose.mirror ? "🪞 mirror: ON" : "🪞 mirror: off";
+  this.style.background = pose.mirror ? "var(--navy)" : "";
+  this.style.color = pose.mirror ? "#fff" : "";
+};
+document.getElementById("boneSearch").oninput = (ev) => buildBoneList(ev.target.value);
+document.getElementById("poseResetBone").onclick = () => { if (pose.sel){ setBoneDeltaMirrored(pose.sel, 0, 0, 0); setSliders([0,0,0]); } };
+document.getElementById("poseResetAll").onclick = () => {
+  // restore captured bases so cleared bones snap back even while frozen
+  for (const name of Object.keys(pose.deltas)){
+    const rec = pose.bones.find(b => b.name === name);
+    if (rec && rec.bone.userData._poseBase) rec.bone.quaternion.copy(rec.bone.userData._poseBase);
+    if (rec && rec.bone.userData._posePosBase) rec.bone.position.copy(rec.bone.userData._posePosBase);
+  }
+  pose.deltas = {}; pose.quats = {}; pose.trans = {};
+  savePose(); setSliders([0,0,0]); refreshBoneListHighlights(); updatePoseOut();
+};
+document.getElementById("poseFreeze").onclick = function(){
+  pose.frozen = !pose.frozen;
+  this.textContent = pose.frozen ? "▶ resume" : "⏸ freeze";
+  if (mixer) mixer.timeScale = pose.frozen ? 0 : parseFloat(document.getElementById("speed").value);
+};
+function updatePoseOut(){
+  const out = document.getElementById("poseOut");
+  const has = Object.keys(pose.deltas).length > 0;
+  out.style.display = has ? "block" : "none";
+  if (has) out.value = poseJSON();
+}
+document.getElementById("poseCopy").onclick = async function(){
+  updatePoseOut();
+  try { await navigator.clipboard.writeText(poseJSON()); this.textContent = "✅ copied"; }
+  catch(e){ const o = document.getElementById("poseOut"); o.style.display="block"; o.select(); this.textContent = "select+copy above"; }
+  setTimeout(() => this.textContent = "📋 copy JSON", 1600);
+};
+
+/* ---------- kart preview: seat the character in the Gator with the game's
+   driving pose, so pose-tool tweaks are tuned in context. Deltas from the pose
+   panel compose ON TOP of the seated pose (rest×seated×user — same order as
+   farmkart.html). Keep SEATED_POSE in sync with BUCKY3D_SEATED_POSE there. */
+const SEATED_POSE = {
+  Spine01:[0.10,0,0], Head:[-0.05,0,0],
+  // hands-on-grips re-solve 2026-07-18 — keep in sync with farmkart BUCKY3D_SEATED_POSE
+  L_Upperarm:[2.16,-0.191,-0.371], L_Forearm:[-0.231,-0.065,0.806],
+  R_Upperarm:[2.251,0.214,0.333], R_Forearm:[-0.339,-0.132,-0.973],
+  L_Thigh:[0.383,-0.5,-1.0],  L_Calf:[0.116,0.755,0.145],
+  R_Thigh:[0.4,0.464,0.921],  R_Calf:[0.238,-0.589,-0.166],
+};
+const KART_URL = "assets/farmkart/farmkart-gator3d.glb";
+let kartMode = false, kartRoot = null, _kartTpl = null, _kartPromise = null;
+
+/* steering-wheel adjustment (kart preview): offsets applied to the kart GLB's
+   SteerWheel node + two grip markers on the rim as hand-placement targets.
+   Exported as __steerWheel in the pose JSON — translated into the game's
+   TUNE.steerWheel* / per-kart offsets when handed back. */
+const wheelAdj = { x:0, y:0, z:0, scale:1, gripAngle:40, dirty:false };
+let _steerNode = null, _steerBase = null, _gripMarkers = null;
+
+function _findSteerNode(){
+  _steerNode = null;
+  if (!_kartTpl) return;
+  _kartTpl.traverse(o => { if (o.name === "SteerWheel") _steerNode = o; });
+  if (_steerNode && !_steerBase)
+    _steerBase = { p: _steerNode.position.clone(), s: _steerNode.scale.clone() };
+}
+
+function applyWheelAdj(){
+  if (!_steerNode || !_steerBase) return;
+  _steerNode.position.copy(_steerBase.p).add(new THREE.Vector3(wheelAdj.x, wheelAdj.y, wheelAdj.z));
+  _steerNode.scale.copy(_steerBase.s).multiplyScalar(wheelAdj.scale);
+  if (_gripMarkers){
+    // rim radius from the node's own (unscaled-parent) bounds; markers sit at ±gripAngle from top
+    const box = new THREE.Box3().setFromObject(_steerNode);
+    _steerNode.updateMatrixWorld(true);
+    const local = box.getSize(new THREE.Vector3());
+    const r = Math.max(local.x, local.y, local.z) * 0.5 * 0.82 / Math.max(_steerNode.getWorldScale(new THREE.Vector3()).x, 1e-4);
+    const a = wheelAdj.gripAngle * D2R;
+    // rim plane ⟂ the measured column axis (0,0.93,-0.36 in game frame); grips left/right of top
+    _gripMarkers[0].position.set(-Math.sin(a) * r, Math.cos(a) * r * 0.93, Math.cos(a) * r * -0.36);
+    _gripMarkers[1].position.set( Math.sin(a) * r, Math.cos(a) * r * 0.93, Math.cos(a) * r * -0.36);
+  }
+}
+
+function ensureGripMarkers(){
+  if (!_steerNode) return;
+  if (!_gripMarkers){
+    _gripMarkers = [0,1].map(() => {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(0.035, 12, 10),
+        new THREE.MeshBasicMaterial({ color: 0xba303e, depthTest: false, transparent: true, opacity: 0.85 }));
+      m.renderOrder = 98;
+      return m;
+    });
+  }
+  for (const m of _gripMarkers) if (m.parent !== _steerNode) _steerNode.add(m);
+  applyWheelAdj();
+}
+
+function _wheelSlider(id, key, fmt){
+  const el = document.getElementById(id);
+  el.oninput = () => {
+    wheelAdj[key] = parseFloat(el.value);
+    wheelAdj.dirty = true;
+    document.getElementById(id + "v").textContent = fmt(wheelAdj[key]);
+    applyWheelAdj(); updatePoseOut();
+  };
+}
+_wheelSlider("whX", "x", v => v.toFixed(3));
+_wheelSlider("whY", "y", v => v.toFixed(3));
+_wheelSlider("whZ", "z", v => v.toFixed(3));
+_wheelSlider("whS", "scale", v => v.toFixed(2));
+_wheelSlider("whG", "gripAngle", v => Math.round(v) + "°");
+
+function loadKartTpl(){
+  if (_kartPromise) return _kartPromise;
+  _kartPromise = new Promise((res) => {
+    loader.load(KART_URL, g => {
+      g.scene.traverse(o => { if (o.isMesh){ o.castShadow = true; o.frustumCulled = false; } });
+      _kartTpl = g.scene; res(_kartTpl);
+    }, undefined, () => res(null));
+  });
+  return _kartPromise;
+}
+
+function applySeatedPose(){
+  // bind pose first, then seated deltas (rest × seated)
+  model.traverse(o => { if (o.isSkinnedMesh && o.skeleton) o.skeleton.pose(); });
+  const q = new THREE.Quaternion(), e = new THREE.Euler();
+  for (const rec of pose.bones){
+    rec.bone.userData._poseBase = null;              // user deltas re-capture from the seated base
+    rec.bone.userData._posePosBase = null;
+    const t = SEATED_POSE[rec.name];
+    if (t){ q.setFromEuler(e.set(t[0], t[1], t[2], "XYZ")); rec.bone.quaternion.multiply(q); }
+  }
+}
+
+async function enterKartPreview(){
+  if (!model || !pose.bones.length) { setStatus(`${CHAR.name} has no skeleton — no kart preview.`); return; }
+  const tpl = await loadKartTpl();
+  if (!tpl){ setStatus("couldn't load the kart GLB."); return; }
+  if (!kartMode) return;                             // toggled off while loading
+  mixer.stopAllAction(); current = null;
+  document.querySelectorAll("#clipRow .clip").forEach(b => b.classList.remove("active"));
+  applySeatedPose();
+  const charH = CHAR.targetH || 1.7;
+  if (!kartRoot){ kartRoot = new THREE.Group(); }
+  if (!kartRoot.children.length) kartRoot.add(tpl);
+  // kart width 1.45 vs standing char 1.52 in the game — keep that ratio here
+  const kBox = new THREE.Box3().setFromObject(tpl);
+  const kw = Math.max(kBox.getSize(new THREE.Vector3()).x, 0.001);
+  const ks = (charH * 1.45 / 1.52) / kw;
+  kartRoot.scale.setScalar(ks);
+  kartRoot.rotation.y = Math.PI / 2;                 // kart +Z forward -> +X to match the character's facing
+  mixerRoot.add(kartRoot);
+  kartRoot.updateMatrixWorld(true);
+  const kBox2 = new THREE.Box3().setFromObject(kartRoot);
+  kartRoot.position.y -= kBox2.min.y;                // kart tires on the ground
+  // seat the character: hips to the game's driver height (0.78+0.02 of 1.52-char), slight rearward
+  model.updateMatrixWorld(true);
+  const hip = pose.bones.find(b => b.name === "Hip");
+  if (hip){
+    const hw = new THREE.Vector3(); hip.bone.getWorldPosition(hw);
+    model.position.y += (0.80/1.52)*charH - hw.y;
+    model.position.x += -(0.14/1.52)*charH - hw.x;   // seat sits slightly behind kart center (char faces +X)
+  }
+  _findSteerNode();
+  ensureGripMarkers();
+  document.getElementById("wheelSec").style.display = "block";
+}
+
+function exitKartPreviewLite(){
+  if (kartRoot && kartRoot.parent) mixerRoot.remove(kartRoot);
+  if (_steerNode && _steerBase){                       // restore the shared kart template
+    _steerNode.position.copy(_steerBase.p);
+    _steerNode.scale.copy(_steerBase.s);
+  }
+  if (_gripMarkers) for (const m of _gripMarkers) if (m.parent) m.parent.remove(m);
+  document.getElementById("wheelSec").style.display = "none";
+  if (model){
+    model.traverse(o => { if (o.isSkinnedMesh && o.skeleton) o.skeleton.pose(); });
+    for (const rec of pose.bones){ rec.bone.userData._poseBase = null; rec.bone.userData._posePosBase = null; }
+    frameModel();
+  }
+}
+function exitKartPreview(){
+  exitKartPreviewLite();
+  const names = Object.keys(actions);
+  if (model && names.length) play(names.includes("idle") ? "idle" : names[0], 0);
+}
+
+document.getElementById("poseKart").onclick = function(){
+  kartMode = !kartMode;
+  this.style.background = kartMode ? "var(--navy)" : "";
+  this.style.color = kartMode ? "#fff" : "";
+  if (kartMode) enterKartPreview(); else exitKartPreview();
+};
+
+/* ---------- toggles ---------- */
+let spinning = false, wire = false;
+const tog = (id, fn) => {
+  const el = document.getElementById(id);
+  el.onclick = () => { el.classList.toggle("on"); fn(el.classList.contains("on")); };
+};
+tog("togSpin", on => spinning = on);
+tog("togSkel", on => {
+  if (on && model && !skelHelper){ skelHelper = new THREE.SkeletonHelper(model); scene.add(skelHelper); }
+  if (skelHelper) skelHelper.visible = on;
+});
+tog("togWire", on => {
+  wire = on;
+  if (model) model.traverse(o => { if (o.isMesh && o.material) o.material.wireframe = on; });
+});
+tog("togRoot", on => { rootMotionOn = on; rebuildActions(); });
+tog("togPose", on => {
+  document.getElementById("posePanel").classList.toggle("on", on && pose.bones.length > 0);
+  if (on && !pose.bones.length) setStatus(`${CHAR.name} has no skeleton to pose.`);
+  if (!on && pose.marker && pose.marker.parent) pose.marker.parent.remove(pose.marker);
+  if (on && pose.sel) selectBone(pose.sel);
+});
+
+const speedEl = document.getElementById("speed");
+speedEl.oninput = () => {
+  const v = parseFloat(speedEl.value);
+  if (mixer && !pose.frozen) mixer.timeScale = v;
+  document.getElementById("speedval").textContent = v.toFixed(2).replace(/0$/,"") + "×";
+};
+
+/* ---------- loop ---------- */
+const clock = new THREE.Clock();
+function frame(){
+  requestAnimationFrame(frame);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  if (mixer) mixer.update(dt);
+  applyPoseDeltas();
+  if (spinning && model) mixerRoot.rotation.y += dt * 0.6;
+  controls.update();
+  renderer.render(scene, camera);
+}
+frame();
+
+addEventListener("resize", () => {
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+boot();
+
+// headless-test hook
+window.__DEMO__ = {
+  play,
+  loadCharacter,
+  get char(){ return CHAR; },
+  get actions(){ return actions; },
+  get current(){ return current; },
+  get model(){ return model; },
+  get mixer(){ return mixer; },
+  get rootBoneName(){ return rootBoneName; },
+  get pose(){ return pose; },
+  get kartMode(){ return kartMode; },
+  get kartRoot(){ return kartRoot; },
+  setBoneDelta,
+  setBoneDeltaMirrored,
+  poseJSON,
+  SEATED_POSE,
+  bonePos(name){
+    let p = null;
+    if (model) model.traverse(o => {
+      if (!p && o.isBone && o.name === name){
+        const v = new THREE.Vector3(); o.getWorldPosition(v); p = [v.x, v.y, v.z];
+      }
+    });
+    return p;
+  },
+};
+</script>
+</body>
+</html>

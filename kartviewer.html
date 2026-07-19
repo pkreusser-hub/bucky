@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bucky Cast — Kart Viewer</title>
+<meta name="theme-color" content="#233357">
+<style>
+  :root{ --navy:#233357; --red:#ba303e; --bg:#eef2f8; --card:#ffffff; --ink:#1c2436; }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);font-family:system-ui,Segoe UI,Roboto,sans-serif;}
+  #stage{position:fixed;inset:0;}
+  canvas{display:block;}
+  #topbar{
+    position:fixed;top:0;left:0;right:0;display:flex;align-items:center;gap:10px;
+    padding:calc(env(safe-area-inset-top,0px) + 8px) 12px 8px;pointer-events:none;
+  }
+  #topbar a{pointer-events:auto;text-decoration:none;background:var(--navy);color:#fff;font-weight:700;font-size:14px;padding:7px 12px;border-radius:10px;}
+  #title{font-weight:800;color:var(--navy);font-size:16px;text-shadow:0 1px 0 #fff;}
+  #status{
+    position:fixed;top:calc(env(safe-area-inset-top,0px) + 46px);left:12px;right:12px;
+    color:var(--navy);font-size:13px;font-weight:600;opacity:.85;pointer-events:none;text-shadow:0 1px 0 #fff;
+  }
+  #partsBox{
+    position:fixed;right:10px;top:calc(env(safe-area-inset-top,0px) + 46px);
+    background:rgba(255,255,255,.92);border-radius:12px;padding:8px;display:none;
+    box-shadow:0 2px 10px rgba(28,36,54,.2);max-width:170px;
+  }
+  #partsBox.on{display:block;}
+  #partsBox button{
+    display:block;width:100%;border:0;border-radius:8px;background:#dfe6f2;color:var(--navy);
+    font-size:12px;font-weight:700;padding:6px 8px;margin:3px 0;cursor:pointer;text-align:left;
+  }
+  #partsBox button.hi{background:var(--red);color:#fff;}
+  #panel{
+    position:fixed;left:0;right:0;bottom:0;
+    padding:10px 12px calc(env(safe-area-inset-bottom,0px) + 12px);
+    display:flex;flex-direction:column;gap:8px;pointer-events:none;
+  }
+  .row{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;align-items:center;}
+  .row > *{pointer-events:auto;}
+  .sliderwrap{display:flex;align-items:center;gap:8px;background:var(--card);border-radius:12px;padding:8px 12px;box-shadow:0 2px 8px rgba(28,36,54,.15);}
+  .sliderwrap label{font-size:13px;font-weight:800;color:var(--navy);min-width:52px;}
+  .sliderwrap input{width:150px;accent-color:var(--red);}
+  .sliderwrap .val{font-size:12px;font-weight:700;color:var(--navy);width:40px;text-align:right;}
+  button.tog{
+    border:0;border-radius:10px;background:#dfe6f2;color:var(--navy);
+    font-size:12.5px;font-weight:700;padding:9px 11px;cursor:pointer;
+  }
+  button.tog.on{background:var(--navy);color:#fff;}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="topbar">
+  <a href="characterdemo.html">← Cast</a>
+  <div id="title">🐊 Kart Viewer — Gator 3D</div>
+</div>
+<div id="status">Loading kart…</div>
+<div id="partsBox"></div>
+<div id="panel">
+  <div class="row">
+    <div class="sliderwrap"><label for="speed">🏎 speed</label><input id="speed" type="range" min="0" max="30" step="0.5" value="0"><div class="val" id="speedval">0</div></div>
+    <div class="sliderwrap"><label for="steer">🎯 steer</label><input id="steer" type="range" min="-1" max="1" step="0.02" value="0"><div class="val" id="steerval">0</div></div>
+  </div>
+  <div class="row">
+    <button class="tog" id="togDrive">🏁 drive</button>
+    <button class="tog" id="togSweep">↔️ auto-steer</button>
+    <button class="tog" id="togSpin">🔄 spin</button>
+    <button class="tog" id="togWire">🕸 wire</button>
+    <button class="tog" id="togParts">🛞 parts</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+"use strict";
+/* Kart Viewer — inspect Tripo-generated karts with LIVE part animation that mirrors
+   farmkart.html's exact conventions: wheels roll about local X, front pair yaws about
+   local Y (±0.5 rad), steering wheel turns about its measured column axis. */
+
+const KARTS = {
+  gator3d: {
+    name: "Gator 3D", icon: "🐊",
+    file: "assets/farmkart/farmkart-gator3d.glb",
+    steerAxis: [0, 0.93, -0.36],     // GATOR3D_STEER_AXIS from farmkart.html
+    steerWheelTurn: 1.35,            // TUNE.steerWheelTurn default
+    targetH: 1.15,
+  },
+};
+const KART = KARTS[new URLSearchParams(location.search).get("kart")] || KARTS.gator3d;
+
+const statusEl = document.getElementById("status");
+const setStatus = t => statusEl.textContent = t;
+
+/* ---------- stage (matches characterdemo) ---------- */
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.getElementById("stage").appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xbcd3ee);
+scene.fog = new THREE.Fog(0xbcd3ee, 18, 42);
+const camera = new THREE.PerspectiveCamera(38, innerWidth/innerHeight, 0.05, 100);
+camera.position.set(2.4, 1.5, 3.2);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.55, 0);
+controls.enableDamping = true; controls.dampingFactor = 0.08;
+controls.maxDistance = 12; controls.minDistance = 0.6;
+controls.maxPolarAngle = Math.PI * 0.55;
+scene.add(new THREE.HemisphereLight(0xe8f1ff, 0x7a6a52, 0.95));
+const sun = new THREE.DirectionalLight(0xfff2dd, 1.15);
+sun.position.set(4, 7, 3); sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left=-5; sun.shadow.camera.right=5; sun.shadow.camera.top=5; sun.shadow.camera.bottom=-5;
+scene.add(sun);
+const ground = new THREE.Mesh(new THREE.CircleGeometry(9, 48), new THREE.MeshLambertMaterial({ color:0x86a862 }));
+ground.rotation.x = -Math.PI/2; ground.receiveShadow = true; scene.add(ground);
+const ring = new THREE.Mesh(new THREE.RingGeometry(1.55, 1.75, 48), new THREE.MeshLambertMaterial({ color:0x233357 }));
+ring.rotation.x = -Math.PI/2; ring.position.y = 0.005; scene.add(ring);
+
+/* ---------- kart ---------- */
+const spinRoot = new THREE.Group(); scene.add(spinRoot);
+let model = null, wheels = [], steerNode = null, wheelR = 0.3;
+const STEER_AXIS = new THREE.Vector3(...KART.steerAxis).normalize();
+const _qRoll = new THREE.Quaternion(), _qSteer = new THREE.Quaternion();
+const _AXLE_X = new THREE.Vector3(1,0,0), _UP_Y = new THREE.Vector3(0,1,0);
+
+new THREE.GLTFLoader().load(KART.file, (gltf) => {
+  model = gltf.scene;
+  model.traverse(o => { if (o.isMesh){ o.castShadow = true; o.frustumCulled = false; } });
+  // normalize + seat (height-based, like the cast demo)
+  const box = new THREE.Box3().setFromObject(model);
+  const s = KART.targetH / Math.max(box.max.y - box.min.y, 0.001);
+  model.scale.setScalar(s);
+  const box2 = new THREE.Box3().setFromObject(model);
+  model.position.y -= box2.min.y;
+  spinRoot.add(model);
+  // register animated nodes — same rules as farmkart.html
+  const centerZ = (box2.min.z + box2.max.z) / 2 / s;
+  model.traverse(o => {
+    if (!o.name) return;
+    if (o.name.indexOf("Wheel_") === 0){
+      wheels.push({ node:o, base:o.quaternion.clone(), roll:0, front:o.position.z > centerZ });
+    } else if (o.name === "SteerWheel"){
+      steerNode = o; o.userData._base = o.quaternion.clone();
+    }
+  });
+  if (wheels[0]){
+    const wb = new THREE.Box3().setFromObject(wheels[0].node);
+    wheelR = Math.max(0.05, (wb.max.y - wb.min.y) / 2);
+  }
+  buildParts();
+  setStatus(`${KART.name}: ${wheels.length} wheels${steerNode ? " + steering wheel" : ""} — drag to orbit.`);
+  setTimeout(()=>{ statusEl.style.transition="opacity .6s"; statusEl.style.opacity="0"; }, 2600);
+}, undefined, (e) => { console.error(e); setStatus("❌ couldn't load " + KART.file); });
+
+/* ---------- parts list ---------- */
+let hiPart = null, hiTimer = 0;
+function buildParts(){
+  const box = document.getElementById("partsBox");
+  box.innerHTML = "";
+  model.traverse(o => {
+    if (!o.isMesh || !o.name) return;
+    const b = document.createElement("button");
+    b.textContent = o.name + ` (${(o.geometry.index ? o.geometry.index.count/3 : 0)|0} tris)`;
+    b.onclick = () => {
+      document.querySelectorAll("#partsBox button").forEach(x => x.classList.remove("hi"));
+      if (hiPart === o){ clearHighlight(); return; }
+      clearHighlight();
+      hiPart = o; b.classList.add("hi");
+      o.userData._mat = o.material;
+      o.material = o.material.clone();
+      o.material.emissive = new THREE.Color(0xba303e);
+      o.material.emissiveIntensity = 0.55;
+    };
+    box.appendChild(b);
+  });
+}
+function clearHighlight(){
+  if (hiPart && hiPart.userData._mat){ hiPart.material.dispose(); hiPart.material = hiPart.userData._mat; hiPart.userData._mat = null; }
+  hiPart = null;
+}
+
+/* ---------- controls ---------- */
+let driving = false, sweeping = false, spinning = false, wire = false;
+const speedEl = document.getElementById("speed"), steerEl = document.getElementById("steer");
+speedEl.oninput = () => document.getElementById("speedval").textContent = (+speedEl.value).toFixed(1);
+steerEl.oninput = () => document.getElementById("steerval").textContent = (+steerEl.value).toFixed(2);
+const tog = (id, fn) => { const el = document.getElementById(id); el.onclick = () => { el.classList.toggle("on"); fn(el.classList.contains("on")); }; };
+tog("togDrive", on => { driving = on; if (on && +speedEl.value === 0){ speedEl.value = 12; speedEl.oninput(); } });
+tog("togSweep", on => sweeping = on);
+tog("togSpin",  on => spinning = on);
+tog("togWire",  on => { wire = on; if (model) model.traverse(o => { if (o.isMesh && o.material) o.material.wireframe = on; }); });
+tog("togParts", on => document.getElementById("partsBox").classList.toggle("on", on));
+
+/* ---------- loop (math mirrors farmkart.html syncKartView glb branch) ---------- */
+const clock = new THREE.Clock();
+let t = 0;
+function frame(){
+  requestAnimationFrame(frame);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  t += dt;
+  if (sweeping){ steerEl.value = Math.sin(t * 1.4).toFixed(2); steerEl.oninput(); }
+  const steer = +steerEl.value;
+  const speed = driving ? +speedEl.value : 0;
+  if (model){
+    const dRoll = (speed * dt) / Math.max(0.05, wheelR);
+    const steerAng = steer * 0.5;
+    for (const w of wheels){
+      w.roll += dRoll;
+      _qRoll.setFromAxisAngle(_AXLE_X, w.roll);
+      if (w.front){ _qSteer.setFromAxisAngle(_UP_Y, steerAng); w.node.quaternion.copy(w.base).multiply(_qSteer).multiply(_qRoll); }
+      else w.node.quaternion.copy(w.base).multiply(_qRoll);
+    }
+    if (steerNode){
+      _qSteer.setFromAxisAngle(STEER_AXIS, -steer * KART.steerWheelTurn);
+      steerNode.quaternion.copy(steerNode.userData._base).multiply(_qSteer);
+    }
+  }
+  if (spinning) spinRoot.rotation.y += dt * 0.6;
+  controls.update();
+  renderer.render(scene, camera);
+}
+frame();
+addEventListener("resize", () => {
+  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// headless-test hook
+window.__KV__ = {
+  get model(){ return model; },
+  get wheels(){ return wheels; },
+  get steerNode(){ return steerNode; },
+  setSpeed(v){ speedEl.value = v; speedEl.oninput(); },
+  setSteer(v){ steerEl.value = v; steerEl.oninput(); },
+  setDriving(on){ const el = document.getElementById("togDrive"); if (el.classList.contains("on") !== on) el.click(); },
+};
+</script>
+</body>
+</html>

@@ -27,3 +27,6 @@ scratchpad/
 
 # Tripo cast RAW intermediates (per-clip FBX + rig dirs, ~600MB/member) — only the root GLBs ship
 assets/cast/*/*/
+
+# Gator 3D RAW Tripo intermediates (57MB source + wheel experiments) — only farmkart-gator3d.glb ships
+assets/farmkart/gator3d/
