@@ -34,7 +34,8 @@
   #hud.on{opacity:1;}
   #pageChip{background:linear-gradient(180deg,#fff,#f2e6c6);color:var(--navy);
     font-weight:900;font-size:20px;padding:6px 20px;border-radius:16px;
-    border:3px solid var(--gold);box-shadow:0 4px 14px rgba(0,0,0,.35);
+    border:3px solid var(--gold);
+    box-shadow:0 4px 14px rgba(0,0,0,.35), inset 0 0 0 2px rgba(186,48,62,.22);
     display:flex;align-items:baseline;gap:7px;}
   #pageChip small{font-size:12px;font-weight:800;color:var(--red);text-transform:uppercase;letter-spacing:.5px;}
 
@@ -229,6 +230,26 @@
     50%{opacity:1;transform:scale(1) translateY(-6px);}
     100%{opacity:0;transform:scale(.9) translateY(-70px);}
   }
+
+  /* ===================== MOO STAMPEDE! (minigame #2) ==================== */
+  /* big countdown clock top-center */
+  #smpTimer{position:fixed;top:calc(env(safe-area-inset-top,0px) + 48px);left:0;right:0;
+    display:none;flex-direction:column;align-items:center;z-index:16;pointer-events:none;}
+  #smpTimer.on{display:flex;}
+  #smpTimer .clock{background:linear-gradient(180deg,#fff,#e9f4ff);color:var(--navy);
+    font-weight:900;font-size:34px;line-height:1.1;padding:4px 22px;border-radius:16px;
+    border:3px solid #7fb2e0;box-shadow:0 4px 14px rgba(0,0,0,.35);
+    font-variant-numeric:tabular-nums;min-width:92px;text-align:center;}
+  #smpTimer .clock.urgent{color:var(--red);border-color:var(--red);animation:smpPulse .5s infinite;}
+  #smpTimer .csub{margin-top:3px;background:rgba(35,51,87,.85);color:#fff;font-weight:800;
+    font-size:12px;padding:3px 10px;border-radius:10px;}
+  @keyframes smpPulse{0%,100%{transform:scale(1);}50%{transform:scale(1.09);}}
+  /* giant-cow warning banner */
+  #smpWarn{position:fixed;left:0;right:0;top:31%;text-align:center;z-index:17;pointer-events:none;
+    font-weight:900;font-size:clamp(30px,9vw,54px);color:#fff;opacity:0;transition:opacity .12s;
+    text-shadow:0 3px 0 var(--red),0 7px 22px rgba(0,0,0,.6);letter-spacing:1px;}
+  #smpWarn.on{opacity:1;animation:smpWarnPulse .45s infinite;}
+  @keyframes smpWarnPulse{0%,100%{transform:scale(1) rotate(-1deg);}50%{transform:scale(1.07) rotate(1deg);}}
 </style>
 </head>
 <body>
@@ -245,6 +266,8 @@
 <div id="mpPill"></div>
 <div id="spectateChip"><div class="pill">👀 watching…</div></div>
 <div id="popup"></div>
+<div id="smpTimer"><div class="clock" id="smpClock">30</div><div class="csub" id="smpCsub"></div></div>
+<div id="smpWarn">❗ MOOOO!</div>
 <div id="toast"></div>
 
 <div id="mpWait">
@@ -330,8 +353,14 @@ const TUNE = {
   SPREAD_HALF_W: 7.5,          // spread x: -7.5 .. +7.5 (lateral — NEVER mirrored by the flip)
   SPREAD_HALF_D: 5.5,          // spread z: -5.5 (spine/hinge, far/top edge) .. +5.5 (near edge, at camera)
   HINGE_Z: -5.5,                // page hinge / book spine (far/top edge; = -SPREAD_HALF_D)
-  PAGE_Y: 0.07,                // resting height of a landed page
-  GROUND_Y: 0.0,               // play surface / where Bucky stands
+  TOME_TOP_Y: 1.55,            // world-Y of the play surface — the top of a THICK hardcover tome
+                                // (hardcover boards + a striped page-block resting on the table) —
+                                // ONE source of truth; every world-Y below that used to assume a
+                                // table-level surface (PAGE_Y/GROUND_Y/SHADOW_Y/SHADOW_PAGE_Y,
+                                // camera targets, fitCamera frustum points, particle floor) adds
+                                // this in at its use site — see buildBook() below.
+  PAGE_Y: 0.07,                // resting height of a landed page ABOVE the tome surface
+  GROUND_Y: 0.0,               // play surface / where Bucky stands, ABOVE the tome surface
   SHADOW_Y: 0.025,             // hole footprint markers sit just above ground
   SHADOW_PAGE_Y: 0.015,         // descent-shadow page sits just under the markers
   SHADOW_PAGE_START_DEG: 90,    // shadow starts appearing once the page passes vertical
@@ -364,7 +393,27 @@ const TUNE = {
 
   ELIM_HOLD_T: 1.2,             // versus: seconds a flattened bot lingers before fading
   ELIM_FADE_T: 0.45,            // versus: fade-out duration after the hold
+
+  WEDGE_TILT_DEG: 68,           // unread-page stack: rest tilt toward the camera (see buildWedge).
+                                 // ART POLISH ROUND 2 (2026-07-18): was 28deg — at that shallow angle
+                                 // the face normal (0,cos28,sin28) still points mostly UPWARD, so the
+                                 // camera (elevation ~39-40deg) looked nearly ALONG the surface and it
+                                 // read as a flat "band", not a standing object — user taste-test:
+                                 // "pages still appear from nowhere". At 68deg the normal
+                                 // (0,cos68,sin68)=(0,.37,.93) points mostly TOWARD the camera —a big,
+                                 // clearly-3D standing surface, like the reference Booksquirm board.
+  WEDGE_DEPTH: 0.85,             // how far the main page-slab projects beyond the spine. At the old
+                                 // shallow 28deg tilt this stayed near the camera on purpose; at the
+                                 // new near-vertical 68deg tilt the depth axis reads mostly as HEIGHT
+                                 // (see buildWedge's corner-offset math), so the same value still
+                                 // gives a chunky, readable slab without needing to grow.
+  WEDGE_MAX_H: 2.2,              // stack thickness at page 1 (full remaining pages) — chunky on purpose.
+  WEDGE_MIN_FRAC: 0.25,         // never thins below this fraction of WEDGE_MAX_H
+
+  CHAR_R: 0.42,                 // character collision radius (soft separation + bot crowd checks)
+  BUMP_SPEED_THRESH: 2.2,       // relative closing speed that triggers the "bmp" juice
 };
+const WEDGE_TILT_RAD = TUNE.WEDGE_TILT_DEG * Math.PI / 180;   // ~0.4887 rad
 // Difficulty curves (tunable) ------------------------------------------------
 const flipT = (N) => Math.max(0.95, 4.4 * Math.pow(0.965, N));
 const pauseT = (N) => Math.max(0.35, 1.1 - N * 0.01);
@@ -444,7 +493,7 @@ const PARTY = {
  *                         party point, e.g. a solo-only score mode)
  *   teardown()          — release the scene between matches (leak-free)          */
 const STORYBOOK_MINIGAME = {
-  id: "storybook", name: "Storybook Squish!", ico: "📖", ready: true,
+  id: "storybook", name: "Storybook Squish!", ico: "📖", ready: true, blurb: "Dodge the pages!",
   soloModes: [
     { id: "match",     label: "🥊 Match",     hint: "vs 3 goat pals" },
     { id: "challenge", label: "📖 Challenge", hint: "solo survival" },
@@ -466,8 +515,28 @@ const STORYBOOK_MINIGAME = {
   teardown(){ clearPage(); resetAllViews(); hudEl.classList.remove("on");
     document.getElementById("vhud").classList.remove("on"); },
 };
+/* Moo Stampede! — minigame #2. A farm remake of the classic "survive the herd
+ * crossing a floating platform" party minigame. Cows stampede left across a pond
+ * dock; being shoved off any edge = a splash and you're out. The whole sim lives
+ * in the SMP_* module (near the DEBUG HOOK, defined later — its function
+ * declarations hoist, so referencing them here is safe). Each hook mirrors the
+ * STORYBOOK_MINIGAME contract exactly. */
+const STAMPEDE_MINIGAME = {
+  id: "stampede", name: "Moo Stampede!", ico: "🐄", ready: true, blurb: "Dodge the herd!",
+  soloModes: [
+    { id: "match",     label: "🥊 Match",     hint: "vs 3 goat pals" },
+    { id: "challenge", label: "⏱ Challenge", hint: "survive the herd!" },
+  ],
+  start(ctx){ SMP_start(ctx); },
+  hostTick(dt){ SMP_hostTick(dt); },
+  guestTick(dt){ /* shell drives guests via the global guestTick; SMP hooks in via applySnapshot */ },
+  isOver(){ return SMP_isOver(); },
+  result(){ return SMP_result(); },
+  teardown(){ SMP_teardown(); },
+};
 const MINIGAMES = [
   STORYBOOK_MINIGAME,
+  STAMPEDE_MINIGAME,
   { id: "cornmaze", name: "Corn Maze Dash", ico: "🌽", ready: false },
   { id: "barnhop",  name: "Barn Dance-Off", ico: "🎪", ready: false },
 ];
@@ -526,7 +595,11 @@ function resolveEntry(idOrChar){
 
 /* --------------------------------------------------------------- THREE ----- */
 const stageEl = document.getElementById("stage");
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+// preserveDrawingBuffer: true — negligible cost, but required so the ART
+// POLISH samplePixel() debug hook (gl.readPixels, called from test code
+// OUTSIDE the render loop) reads the actually-presented frame instead of a
+// buffer already cleared for the next paint (a standard WebGL testing gotcha).
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputEncoding = THREE.sRGBEncoding;
@@ -537,7 +610,11 @@ renderer.shadowMap.enabled = false;
 stageEl.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x2b1f12);
+// ART POLISH: a warm radial-vignette backdrop (was a flat solid color) — a
+// dark warm "library nook" glow pooled behind the table instead of a flat
+// black void. Fog (distance-based, unrelated to this texture) is left at its
+// original color/range so far geometry still fades to the same tone.
+scene.background = makeVignetteBackgroundTexture();
 scene.fog = new THREE.Fog(0x2b1f12, 30, 62);
 
 const camera = new THREE.PerspectiveCamera(46, innerWidth / innerHeight, 0.1, 200);
@@ -558,19 +635,26 @@ const camera = new THREE.PerspectiveCamera(46, innerWidth / innerHeight, 0.1, 20
 // "mostly across the top", just gently angled, MP4-esque.
 const CAM_DIR_LANDSCAPE = new THREE.Vector3(0, 0.82, 1).normalize();
 const CAM_DIR_PORTRAIT = new THREE.Vector3(0.309, 2.2, 0.951).normalize();   // yaw ~18deg
-const CAM_TARGET_LANDSCAPE = new THREE.Vector3(0, 2.2, -1.4);
-const CAM_TARGET_PORTRAIT = new THREE.Vector3(0, 2.2, -2.5);
+// targets ride up with TUNE.TOME_TOP_Y (the whole scene's content moved up when
+// the tome got a thick hardcover+page-block base) — camDir/FOV/margins are all
+// unchanged, so this is a pure vertical translation of camera+target together
+// and fitCamera's iterative NDC-fit distance comes out IDENTICAL to before.
+const CAM_TARGET_LANDSCAPE = new THREE.Vector3(0, 2.2 + TUNE.TOME_TOP_Y, -1.4);
+const CAM_TARGET_PORTRAIT = new THREE.Vector3(0, 2.2 + TUNE.TOME_TOP_Y, -2.5);
 let camBasePos = new THREE.Vector3();
 let CAM_TARGET = CAM_TARGET_LANDSCAPE.clone();   // set live per-branch by fitCamera()
 
 // hemisphere fill bumped a touch (0.95->1.1) so Bucky and the markers stay
 // readable in the visually "busier" area under/near the descending page,
 // without a real shadow-map pass (shadowMap stays disabled — see below).
-scene.add(new THREE.HemisphereLight(0xfff0d8, 0x4a3a22, 1.1));
-const sun = new THREE.DirectionalLight(0xfff0d2, 1.15);
+// ART POLISH: warmed slightly further (ground color + key/rim tint) to match
+// the leather/gold/lantern palette — characters stay just as bright (only the
+// COLOR tint shifted, intensities barely moved) so readability is untouched.
+scene.add(new THREE.HemisphereLight(0xfff2dc, 0x55402a, 1.18));
+const sun = new THREE.DirectionalLight(0xffe9c4, 1.2);
 sun.position.set(6, 13, 4);
 scene.add(sun);
-const rim = new THREE.DirectionalLight(0xffd9a0, 0.4);
+const rim = new THREE.DirectionalLight(0xffcf94, 0.42);
 rim.position.set(-8, 6, -6); scene.add(rim);
 
 // screen-relative movement basis (camera fixed → computed once)
@@ -620,83 +704,500 @@ function makeWoodTexture(){
   return t;
 }
 
-/* open-book base (the two flat leaves + spine + page-stack rim) */
-const bookGroup = new THREE.Group(); scene.add(bookGroup);
-const paperTex = makePaperTexture();
-(function buildBook(){
-  const W = TUNE.SPREAD_HALF_W * 2, D = TUNE.SPREAD_HALF_D * 2;
-  // the base spread (a flat page under everything) — cream
-  const base = new THREE.Mesh(
-    new THREE.BoxGeometry(W + 0.4, 0.12, D + 0.4),
-    new THREE.MeshLambertMaterial({ map: paperTex })
-  );
-  base.position.set(0, -0.06, 0);
-  base.receiveShadow = true;
-  bookGroup.add(base);
-  // spine shadow bar along the far/top edge (z = HINGE_Z fold) — the book's
-  // binding now runs laterally (full X width) at the hinge line.
-  const spine = new THREE.Mesh(
-    new THREE.BoxGeometry(W + 0.4, 0.16, 0.5),
-    new THREE.MeshLambertMaterial({ color: 0x7a1f28 })
-  );
-  spine.position.set(0, -0.02, TUNE.HINGE_Z - 0.25);
-  bookGroup.add(spine);
-  // page-stack rims on both edges (unread stack sits beyond the far/spine
-  // edge; the near edge gets a matching cover-edge rim).
-  const rimMat = new THREE.MeshLambertMaterial({ color: 0xe4d3a6 });
-  for (const s of [1, -1]){
-    const stack = new THREE.Mesh(new THREE.BoxGeometry(W + 0.4, 0.5, 0.7), rimMat);
-    stack.position.set(0, -0.2, s > 0 ? TUNE.SPREAD_HALF_D + 0.35 : TUNE.HINGE_Z - 0.35);
-    stack.receiveShadow = true; stack.castShadow = true;
-    bookGroup.add(stack);
-  }
-  // hard cover lip left/right (the book's short edges, now along X)
-  const coverMat = new THREE.MeshLambertMaterial({ color: 0x8f2531 });
-  for (const s of [1,-1]){
-    const lip = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.42, D + 1.6), coverMat);
-    lip.position.set(s * (TUNE.SPREAD_HALF_W + 0.5), -0.22, -0.5);
-    bookGroup.add(lip);
-  }
-})();
-
-function makePaperTexture(){
-  const c = document.createElement("canvas"); c.width = 512; c.height = 384;
+// ART POLISH: warm radial-vignette scene background — a dark warm "library
+// nook" glow pooled behind the table, replacing the old flat solid color.
+// Built once (static, no per-frame cost); fog handles distance fade separately.
+function makeVignetteBackgroundTexture(){
+  const c = document.createElement("canvas"); c.width = 512; c.height = 512;
   const g = c.getContext("2d");
-  g.fillStyle = "#fbf3dd"; g.fillRect(0,0,512,384);
-  // subtle vignette / aging
-  const grd = g.createRadialGradient(256,192,60,256,192,300);
-  grd.addColorStop(0, "rgba(255,255,255,0)");
-  grd.addColorStop(1, "rgba(150,120,70,.22)");
-  g.fillStyle = grd; g.fillRect(0,0,512,384);
-  // faux ruled text lines
-  g.strokeStyle = "rgba(120,95,55,.28)";
-  for (let y=54; y<360; y+=34){
-    g.lineWidth = 1;
-    // broken "words"
-    let x = 40;
-    while (x < 472){
-      const w = 12 + Math.random()*44;
-      g.beginPath(); g.moveTo(x, y); g.lineTo(Math.min(472, x+w), y); g.stroke();
-      x += w + 8 + Math.random()*10;
-    }
-  }
-  // a little farm doodle (sun + hill + goat) top corner
-  g.fillStyle = "rgba(190,150,70,.5)";
-  g.beginPath(); g.arc(430, 60, 20, 0, 7); g.fill();
-  g.strokeStyle = "rgba(120,95,55,.5)"; g.lineWidth = 2;
-  g.beginPath(); g.moveTo(360,300); g.quadraticCurveTo(430,250,500,300); g.stroke();
+  g.fillStyle = "#150e08"; g.fillRect(0,0,512,512);
+  const grd = g.createRadialGradient(256,300,40,256,300,420);
+  grd.addColorStop(0, "#4a3319");
+  grd.addColorStop(0.45, "#2b1f12");
+  grd.addColorStop(1, "#0e0904");
+  g.fillStyle = grd; g.fillRect(0,0,512,512);
   const t = new THREE.CanvasTexture(c);
   t.encoding = THREE.sRGBEncoding;
   return t;
 }
 
+/* open-book base — a THICK HARDCOVER TOME resting on the table: deep-red/brown
+ * covers (with a subtle gold trim line) topped by a chunky cream PAGE BLOCK
+ * (striped page-edge sides), reading as the open middle of a real storybook
+ * rather than a single thin sheet. TUNE.TOME_TOP_Y is the single source of
+ * truth for the play surface height — see the TUNE block for the full list of
+ * world-Ys that add it in at their use site. */
+const bookGroup = new THREE.Group(); scene.add(bookGroup);
+const paperTex = makePaperTexture();
+const pageStackTex = makePageStackTexture();
+const playSurfaceTex = makePlaySurfaceTexture();   // ART POLISH: decorated play-surface canvas (see below)
+const TABLE_TOP_Y = -0.02;   // table's own top surface (table box: y=-0.72, h=1.4) — shared by
+                             // buildBook() (tome base) and buildScenery() (desk clutter)
+// ART POLISH: shared "deep leather red-brown" cover tone. Was 0x5c1420 — measured
+// via the samplePixel debug hook, that color renders as a washed-out PINK
+// (247,119,139) under this scene's bright warm hemisphere+sun+rim stack. A
+// first halving to 0x3a0f16 still measured (202,103,115) — still salmon, not
+// leather (the hemisphere's warm GROUND color adds a fairly flat boost that
+// dominates a small base value proportionally more than a bright one, so
+// simple proportional darkening under-corrects). Darkened further to
+// 0x24080d. Shared by the tome's own cover, the wedge's standing-half cover
+// board, and the scenery book stack so every leather surface reads as one
+// consistent material. Second pass measured (168,79,92) — close, still a
+// touch pink-leaning; nudged once more.
+const LEATHER_RED = 0x1c060a;
+(function buildBook(){
+  const W = TUNE.SPREAD_HALF_W * 2, D = TUNE.SPREAD_HALF_D * 2;
+  const BOARD_H = 0.34;                  // hardcover thickness
+  const BOARD_Y0 = TABLE_TOP_Y, BOARD_Y1 = BOARD_Y0 + BOARD_H;
+  const PAGEBLOCK_Y0 = BOARD_Y1;
+  const PAGEBLOCK_H = TUNE.TOME_TOP_Y - PAGEBLOCK_Y0;   // fills the rest up to the play surface
+  const BOARD_OVERHANG = 0.55;           // covers extend beyond the page block on every side
+
+  // --- hardcover boards: deep warm red/brown slab under the page block ---
+  const coverMat = new THREE.MeshLambertMaterial({ color: LEATHER_RED });
+  const cover = new THREE.Mesh(
+    new THREE.BoxGeometry(W + BOARD_OVERHANG * 2, BOARD_H, D + BOARD_OVERHANG * 2),
+    coverMat
+  );
+  cover.name = "tomeCover";
+  cover.position.set(0, (BOARD_Y0 + BOARD_Y1) / 2, 0);
+  cover.receiveShadow = true; cover.castShadow = true;
+  bookGroup.add(cover);
+  // subtle gold trim line — a slim inset frame sitting right at the cover's top edge
+  const trimMat = new THREE.MeshLambertMaterial({ color: 0xcf9a3e, emissive: 0x3a2a10 });
+  const trimInset = 0.16, trimH = 0.035, trimW = 0.07;
+  const trimY = BOARD_Y1 - trimH / 2 + 0.002;
+  const trimHalfW = W / 2 + BOARD_OVERHANG - trimInset, trimHalfD = D / 2 + BOARD_OVERHANG - trimInset;
+  const trimFB = new THREE.Mesh(new THREE.BoxGeometry(trimHalfW * 2, trimH, trimW), trimMat);
+  trimFB.name = "tomeTrim";
+  trimFB.position.set(0, trimY, -trimHalfD); bookGroup.add(trimFB);
+  const trimFB2 = trimFB.clone(); trimFB2.position.z = trimHalfD; bookGroup.add(trimFB2);
+  const trimLR = new THREE.Mesh(new THREE.BoxGeometry(trimW, trimH, trimHalfD * 2), trimMat);
+  trimLR.name = "tomeTrim";
+  trimLR.position.set(-trimHalfW, trimY, 0); bookGroup.add(trimLR);
+  const trimLR2 = trimLR.clone(); trimLR2.position.x = trimHalfW; bookGroup.add(trimLR2);
+
+  // --- darker embossed inset frame — a second, recessed border line further
+  // in from the gold trim, reading as a tooled/embossed leather-cover border
+  // (ART POLISH: "darker embossed border frame") ---
+  const embossMat = new THREE.MeshLambertMaterial({ color: 0x3d0e14 });
+  const embInset = trimInset + 0.16, embH = 0.022, embW = 0.05;
+  const embY = trimY - 0.006;
+  const embHalfW = W / 2 + BOARD_OVERHANG - embInset, embHalfD = D / 2 + BOARD_OVERHANG - embInset;
+  const embFB = new THREE.Mesh(new THREE.BoxGeometry(embHalfW * 2, embH, embW), embossMat);
+  embFB.name = "tomeEmboss";
+  embFB.position.set(0, embY, -embHalfD); bookGroup.add(embFB);
+  const embFB2 = embFB.clone(); embFB2.position.z = embHalfD; bookGroup.add(embFB2);
+  const embLR = new THREE.Mesh(new THREE.BoxGeometry(embW, embH, embHalfD * 2), embossMat);
+  embLR.name = "tomeEmboss";
+  embLR.position.set(-embHalfW, embY, 0); bookGroup.add(embLR);
+  const embLR2 = embLR.clone(); embLR2.position.x = embHalfW; bookGroup.add(embLR2);
+
+  // --- gold corner accents at the gold trim's 4 corners (ART POLISH request) ---
+  const cornerGeo = new THREE.OctahedronGeometry(0.078, 0);
+  for (const [sx, sz] of [[1,1],[1,-1],[-1,1],[-1,-1]]){
+    const acc = new THREE.Mesh(cornerGeo, trimMat);
+    acc.name = "tomeCornerAccent";
+    acc.position.set(sx * trimHalfW, trimY + 0.012, sz * trimHalfD);
+    bookGroup.add(acc);
+  }
+
+  // --- page block: thick cream slab, striped "stacked page edges" on every
+  // visible side, resting directly on the covers, inset from their overhang ---
+  const sideMat = new THREE.MeshLambertMaterial({ map: pageStackTex, color: 0xffffff });
+  const topMat = new THREE.MeshLambertMaterial({ color: 0xf3e7c6 });   // covered by the base sheet above
+  const pageBlock = new THREE.Mesh(
+    new THREE.BoxGeometry(W, PAGEBLOCK_H, D),
+    [sideMat, sideMat, topMat, sideMat, sideMat, sideMat]   // +X,-X,+Y,-Y,+Z,-Z
+  );
+  pageBlock.name = "tomePageBlock";
+  pageBlock.position.set(0, PAGEBLOCK_Y0 + PAGEBLOCK_H / 2, 0);
+  pageBlock.receiveShadow = true; pageBlock.castShadow = true;
+  bookGroup.add(pageBlock);
+
+  // top "base" sheet — a flat page under everything, flush with the play surface.
+  // ART POLISH: was a bare `paperTex` w/ no color tint, which under the bright
+  // hemisphere+sun combo blew out to near-white ("sterile" — user report). Now
+  // uses the richer playSurfaceTex (aged-paper print language + faint printed
+  // "already flattened" impressions). MEASURED via samplePixel: a light tint
+  // (0xf3e8cd, ~95% of white) still clipped to (255,255,204) under this scene's
+  // bright lights — barely darker than plain white. Tint dropped further to a
+  // genuinely warm tan so the surface reads as AGED PAPER, not a lit sheet of
+  // printer paper — stays well clear of the marker/shadow opacity range
+  // (.30-.92) so readability holds regardless.
+  const base = new THREE.Mesh(
+    new THREE.BoxGeometry(W + 0.1, 0.06, D + 0.1),
+    new THREE.MeshLambertMaterial({ map: playSurfaceTex, color: 0xdcc79a })
+  );
+  base.name = "tomeBaseSheet";
+  base.position.set(0, TUNE.TOME_TOP_Y - 0.03, 0);
+  base.receiveShadow = true;
+  bookGroup.add(base);
+  // spine shadow bar along the far/top edge (z = HINGE_Z fold) — the book's
+  // binding runs laterally (full X width) at the hinge line. ART POLISH: was
+  // 0x7a1f28 (even brighter-red than the old cover — same wash-to-pink issue,
+  // worse); darkened to a true crease-shadow tone that sits believably BEHIND
+  // the now-corrected LEATHER_RED cover instead of glowing pink next to it.
+  const spine = new THREE.Mesh(
+    new THREE.BoxGeometry(W + 0.1, 0.10, 0.5),
+    new THREE.MeshLambertMaterial({ color: 0x2a0810 })
+  );
+  spine.position.set(0, TUNE.TOME_TOP_Y + 0.02, TUNE.HINGE_Z - 0.25);
+  bookGroup.add(spine);
+})();
+
+/* --------------------------------------------------------- SCENERY -------- *
+ * ART POLISH: warm desk clutter around the tome — a lit lantern, stacked
+ * books, an apple, an inkwell+quill — static geometry + shared canvas/flat-
+ * color materials, built ONCE at boot. Placed OUTSIDE the play spread
+ * (SPREAD_HALF_W/D) on the table so nothing ever intersects gameplay or the
+ * camera's fitted frustum (fitCamera only ever fits the spread+apex points,
+ * unaffected by this group). No shadow maps (house convention — see the
+ * renderer setup comment near the top); the lantern gets one small,
+ * shadow-less PointLight as a cheap "practical/emissive" beacon per the AAA
+ * graphics render recipes (a lighting cue, not a geometry cost). */
+function buildScenery(){
+  const g = new THREE.Group(); g.name = "scenery";
+  const pageEdgeMat = new THREE.MeshLambertMaterial({ map: pageStackTex, color: 0xf0e2bc });
+  const goldMat = new THREE.MeshLambertMaterial({ color: 0xdcae4e, emissive: 0x3a2a10 });
+
+  function book(w, h, d, mat){
+    const grp = new THREE.Group();
+    const cover = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    cover.name = "sceneryBookCover";
+    grp.add(cover);
+    return grp;
+  }
+  // 3 stacked books (back-left of the table, behind the standing wedge)
+  const stack = new THREE.Group(); stack.name = "sceneryBookStack";
+  const leatherA = new THREE.MeshLambertMaterial({ color: 0x2d4a3a, emissive: 0x0c1710 });
+  const leatherB = new THREE.MeshLambertMaterial({ color: 0x4a2c14, emissive: 0x160d05 });
+  const leatherC = new THREE.MeshLambertMaterial({ color: LEATHER_RED, emissive: 0x120304 });
+  const b1 = book(2.2, 0.5, 1.5, leatherA); b1.position.y = 0.25; b1.rotation.y = 0.12; stack.add(b1);
+  const b2 = book(2.0, 0.42, 1.4, leatherB); b2.position.y = 0.5 + 0.21; b2.rotation.y = -0.08; stack.add(b2);
+  const b3 = book(1.7, 0.36, 1.2, leatherC); b3.position.y = 0.5 + 0.42 + 0.18; b3.rotation.y = 0.22; stack.add(b3);
+  // a thin cream page-edge sliver peeking out from the top book — reads as
+  // real pages, not a painted box.
+  const pages = new THREE.Mesh(new THREE.BoxGeometry(1.7 * 0.9, 0.08, 1.2 * 0.92), pageEdgeMat);
+  pages.name = "sceneryBookPages";
+  pages.position.y = 0.5 + 0.42 + 0.36 + 0.04; pages.rotation.y = 0.22;
+  stack.add(pages);
+  stack.position.set(-10.6, TABLE_TOP_Y, -3.4);
+  g.add(stack);
+  // a lone book in the front-left corner (near-camera, adds foreground depth)
+  const loneBook = book(1.8, 0.4, 1.3, leatherB);
+  loneBook.name = "sceneryLoneBook";
+  loneBook.position.set(-9.4, TABLE_TOP_Y + 0.2, 5.6); loneBook.rotation.y = -0.3;
+  g.add(loneBook);
+
+  // lantern: base + amber glass body + cap + ring, one small warm PointLight
+  const lanternGrp = new THREE.Group(); lanternGrp.name = "sceneryLantern";
+  const lbase = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.5, 0.22, 10), goldMat);
+  lbase.position.y = 0.11; lanternGrp.add(lbase);
+  const lglass = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.9, 10),
+    new THREE.MeshLambertMaterial({ color: 0xcc7a20, emissive: 0xff9020, emissiveIntensity: 1.6, transparent: true, opacity: 0.82 }));
+  lglass.position.y = 0.22 + 0.45; lanternGrp.add(lglass);
+  // an UNLIT flame core (MeshBasicMaterial, ignores scene lighting entirely)
+  // inside the glass — the standard cheap trick for a light source that reads
+  // as genuinely glowing under bright ambient light without real bloom/post.
+  const lflame = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 8),
+    new THREE.MeshBasicMaterial({ color: 0xfff2c0 }));
+  lflame.position.y = 0.22 + 0.45; lanternGrp.add(lflame);
+  const lcap = new THREE.Mesh(new THREE.ConeGeometry(0.4, 0.34, 10), goldMat);
+  lcap.position.y = 0.22 + 0.9 + 0.17; lanternGrp.add(lcap);
+  const lring = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.035, 6, 12), goldMat);
+  lring.rotation.x = Math.PI / 2; lring.position.y = 0.22 + 0.9 + 0.36; lanternGrp.add(lring);
+  const lamp = new THREE.PointLight(0xffb060, 0.55, 9, 2);
+  lamp.position.y = 0.22 + 0.45; lanternGrp.add(lamp);
+  lanternGrp.position.set(10.3, TABLE_TOP_Y, -6.6);
+  g.add(lanternGrp);
+
+  // apple: body + stem
+  const appleGrp = new THREE.Group(); appleGrp.name = "sceneryApple";
+  const abody = new THREE.Mesh(new THREE.SphereGeometry(0.32, 12, 10),
+    new THREE.MeshLambertMaterial({ color: 0xc23b2e, emissive: 0x2a0906 }));
+  abody.scale.set(1, 0.92, 1); appleGrp.add(abody);
+  const astem = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.18, 6),
+    new THREE.MeshLambertMaterial({ color: 0x5a4022 }));
+  astem.position.y = 0.32; appleGrp.add(astem);
+  appleGrp.position.set(9.5, TABLE_TOP_Y + 0.30, 5.6);
+  g.add(appleGrp);
+
+  // inkwell + quill
+  const inkGrp = new THREE.Group(); inkGrp.name = "sceneryInkwell";
+  const ibottle = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.3, 0.4, 10),
+    new THREE.MeshLambertMaterial({ color: 0x1c2430, emissive: 0x05070c }));
+  ibottle.position.y = 0.2; inkGrp.add(ibottle);
+  const iquill = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 1.1, 5),
+    new THREE.MeshLambertMaterial({ color: 0xe8ddc0 }));
+  iquill.position.set(0.12, 0.7, 0); iquill.rotation.z = 0.5; inkGrp.add(iquill);
+  inkGrp.position.set(-9.8, TABLE_TOP_Y, 6.1);
+  g.add(inkGrp);
+
+  scene.add(g);
+  return g;
+}
+const sceneryGroup = buildScenery();
+
+function makePageStackTexture(){
+  // horizontal striations — the edges of many stacked paper sheets — used on
+  // the page block's own side faces (and the wedge's, below) so the tome reads
+  // as genuinely thick rather than a single slab.
+  const c = document.createElement("canvas"); c.width = 128; c.height = 128;
+  const g = c.getContext("2d");
+  g.fillStyle = "#efe2bd"; g.fillRect(0, 0, 128, 128);
+  for (let y = 0; y < 128; y += 3){
+    const jitter = Math.random() * 0.22;
+    g.strokeStyle = `rgba(150,124,80,${0.28 + jitter})`;
+    g.lineWidth = 1;
+    g.beginPath(); g.moveTo(0, y + 0.5); g.lineTo(128, y + 0.5); g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(1, 1);
+  t.encoding = THREE.sRGBEncoding;
+  return t;
+}
+
+/* --------------------------------------------------------- WEDGE / STACK --- *
+ * The unread half of the book: a tilted wedge of remaining pages rising from
+ * the hinge line, beyond the spine (z < HINGE_Z). Built with the SAME pivot
+ * position + rotation family the flipping page itself uses (see the mirror-
+ * math block above buildPageMesh) so its near-spine face sits exactly at the
+ * hinge at surface height, and it visually continues under the currently-
+ * resting page (which now starts its own flip tilted at WEDGE_TILT_RAD — see
+ * beginFlip/hostAdvance/guestUpdateFlip below — so the top sheet appears to
+ * REST ON this wedge and peel off it as the flip advances). Thins over the
+ * course of the match via wedgeGroup.scale.y (bottom-anchored: geometry AND
+ * the mesh's own y-offset both scale by the same factor, so the visible base
+ * stays flush with the tome surface while only the top drops).
+ *
+ * ART POLISH ROUND 2 (2026-07-18): the near-vertical WEDGE_TILT_RAD (see TUNE)
+ * makes the main slab (wedgeMesh) read as a big standing surface on its own,
+ * but the user wanted it to read as HALF A BOOK, not a lone sheet — so two
+ * more pieces join it, all sharing the SAME rotation (rigid, no extra sync
+ * state needed for MP guests, who already receive WEDGE_TILT_RAD as a const):
+ *   - wedgeFanMeshes: a few thin "splayed" page-edge strips staggered deeper
+ *     (more negative local z) and progressively shorter than the main slab,
+ *     with a hair of lateral jitter/rotation — reads as loose pages fanning
+ *     out behind the top sheet, not one plank.
+ *   - wedgeCoverGroup: the standing half's OUTER hardcover, positioned
+ *     deepest and TALLER than the page stack so it peeks up/behind it —
+ *     the "half a book" read the user asked for. Deliberately its OWN group
+ *     (same position/rotation as wedgeGroup, built once, never scaled by
+ *     wedgeRemainingFrac): a real cover doesn't get thinner as pages are
+ *     read, only the stack in front of it does — and keeping it fixed means
+ *     zero new state to sync to guests. */
+let wedgeGroup = null, wedgeMesh = null, wedgeFanMeshes = [], wedgeCoverGroup = null;
+function buildWedge(){
+  wedgeGroup = new THREE.Group();
+  wedgeGroup.name = "unreadWedge";
+  wedgeGroup.position.set(0, TUNE.TOME_TOP_Y + TUNE.PAGE_Y, TUNE.HINGE_Z);
+  wedgeGroup.rotation.x = WEDGE_TILT_RAD;
+  const LAT = TUNE.SPREAD_HALF_W * 2 - 0.7;
+  const geo = new THREE.BoxGeometry(LAT, TUNE.WEDGE_MAX_H, TUNE.WEDGE_DEPTH);
+  // a richer, more saturated gold-cream (distinct from the near-white base
+  // sheet / pale pageStackTex used elsewhere) so the wedge's silhouette pops
+  // against the page instead of blending tonally into it.
+  const sideMat = new THREE.MeshLambertMaterial({ map: pageStackTex, color: 0xe0c07a });
+  const topMat = new THREE.MeshLambertMaterial({ map: paperTex, color: 0xf0dba0 });   // "next page" paper look
+  // the near-spine face (+Z, local z=0) is the one most edge-on to the default
+  // camera at this tilt — a warm shadow tone here reads as a clear "step" down
+  // from the resting page into the stack beneath it.
+  const nearFaceMat = new THREE.MeshLambertMaterial({ color: 0xb5854a, emissive: 0x2a1c0a });
+  const mats = [sideMat, sideMat, topMat, sideMat, nearFaceMat, sideMat];   // +X,-X,+Y,-Y,+Z,-Z
+  wedgeMesh = new THREE.Mesh(geo, mats);
+  // base flush with the tome surface at the hinge (local y=0..WEDGE_MAX_H),
+  // extending away from the spine (local z: 0 at the hinge .. -WEDGE_DEPTH
+  // beyond it — negative because shape hinge-distance sy maps to pivot-local
+  // z=-sy, same convention buildPageMesh documents above).
+  wedgeMesh.position.set(0, TUNE.WEDGE_MAX_H / 2, -TUNE.WEDGE_DEPTH / 2);
+  wedgeMesh.castShadow = true; wedgeMesh.receiveShadow = true;
+  wedgeGroup.add(wedgeMesh);
+
+  // splayed page fan — a handful of thin cream/gold strips staggered deeper
+  // and progressively shorter than the main slab, so the standing half reads
+  // as genuinely MANY pages up close, not one plank.
+  const fanMat = new THREE.MeshLambertMaterial({ map: pageStackTex, color: 0xead9ad });
+  wedgeFanMeshes = [];
+  const FAN_N = 4;
+  for (let i = 0; i < FAN_N; i++){
+    const t = (i + 1) / FAN_N;                                   // 0.25 .. 1
+    const fh = TUNE.WEDGE_MAX_H * (0.86 - t * 0.24);              // progressively shorter
+    const fd = 0.09;
+    const fz = -(TUNE.WEDGE_DEPTH + 0.06 + t * 0.30);             // progressively deeper behind the slab
+    const jitterX = (i % 2 === 0 ? 1 : -1) * (0.15 + t * 0.18);
+    const fgeo = new THREE.BoxGeometry(LAT * (0.985 - t * 0.02), fh, fd);
+    const fm = new THREE.Mesh(fgeo, fanMat);
+    fm.position.set(jitterX, fh / 2, fz);
+    fm.rotation.z = (i % 2 === 0 ? 1 : -1) * 0.006 * (i + 1);      // barely-there splay wobble
+    wedgeGroup.add(fm);
+    wedgeFanMeshes.push(fm);
+  }
+  scene.add(wedgeGroup);
+  updateWedge();
+
+  // far hardcover board — the standing half's OUTER cover, rising taller and
+  // sitting deeper than the fan so it peeks up/behind everything (see the
+  // block comment above for why this is a separate, un-scaled group).
+  wedgeCoverGroup = new THREE.Group();
+  wedgeCoverGroup.name = "unreadWedgeCover";
+  wedgeCoverGroup.position.copy(wedgeGroup.position);
+  wedgeCoverGroup.rotation.x = WEDGE_TILT_RAD;
+  const coverH = TUNE.WEDGE_MAX_H * 1.55, coverD = 0.16;
+  const coverZ = -(TUNE.WEDGE_DEPTH + 0.5 + coverD / 2);
+  const coverMatWedge = new THREE.MeshLambertMaterial({ color: LEATHER_RED, emissive: 0x120304 });
+  const coverBoard = new THREE.Mesh(new THREE.BoxGeometry(LAT + 0.5, coverH, coverD), coverMatWedge);
+  coverBoard.name = "unreadWedgeCoverBoard";
+  coverBoard.position.set(0, coverH / 2, coverZ);
+  wedgeCoverGroup.add(coverBoard);
+  // gold trim along the board's top (exposed) edge, matching the tome's own
+  // cover trim so the standing half reads as the SAME book.
+  const coverTrim = new THREE.Mesh(new THREE.BoxGeometry(LAT + 0.5, 0.05, coverD + 0.03),
+    new THREE.MeshLambertMaterial({ color: 0xdcae4e, emissive: 0x3a2a10 }));
+  coverTrim.position.set(0, coverH - 0.03, coverZ);
+  wedgeCoverGroup.add(coverTrim);
+  scene.add(wedgeCoverGroup);
+}
+function wedgeRemainingFrac(){
+  return Math.max(TUNE.WEDGE_MIN_FRAC, 1 - G.page / 60);
+}
+function updateWedge(){
+  if (!wedgeGroup) return;
+  wedgeGroup.scale.set(1, wedgeRemainingFrac(), 1);
+}
+buildWedge();
+
+/* ART POLISH — shared "aged storybook print" foundation, reused by the wedge
+ * top / play surface / the live flipping page: warm cream fill, radial +
+ * corner aging, a thin double-line border, corner flourishes, and two-column
+ * faux ruled text (was one loose full-width column). Kept as ONE function so
+ * every printed surface in the game reads as the same book. */
+function paintAgedPaperBase(g, W, H){
+  const s = W / 512;
+  g.fillStyle = "#f6ecd2";
+  g.fillRect(0, 0, W, H);
+  // radial vignette / aging
+  const grd = g.createRadialGradient(W/2, H/2, Math.min(W,H)*0.10, W/2, H/2, Math.max(W,H)*0.68);
+  grd.addColorStop(0, "rgba(255,255,255,0)");
+  grd.addColorStop(1, "rgba(128,94,50,.30)");
+  g.fillStyle = grd; g.fillRect(0, 0, W, H);
+  // corner age blotches
+  for (const [cx,cy] of [[W*0.07,H*0.09],[W*0.93,H*0.91],[W*0.91,H*0.11],[W*0.09,H*0.89]]){
+    const rg = g.createRadialGradient(cx, cy, 0, cx, cy, Math.min(W,H)*0.24);
+    rg.addColorStop(0, "rgba(140,100,50,.14)"); rg.addColorStop(1, "rgba(140,100,50,0)");
+    g.fillStyle = rg; g.fillRect(0, 0, W, H);
+  }
+  // thin double-line border
+  const o1 = 16*s, o2 = 22*s;
+  g.strokeStyle = "rgba(100,72,36,.55)"; g.lineWidth = 1.3*s;
+  g.strokeRect(o1, o1, W-o1*2, H-o1*2);
+  g.lineWidth = 0.9*s;
+  g.strokeRect(o2, o2, W-o2*2, H-o2*2);
+  // small corner flourishes (quarter-swirl tick + dot) at all 4 corners
+  g.strokeStyle = "rgba(110,80,40,.5)"; g.lineWidth = 1.2*s;
+  for (const [cx,cy,sx,sy] of [[o2+5*s,o2+5*s,1,1],[W-o2-5*s,o2+5*s,-1,1],[o2+5*s,H-o2-5*s,1,-1],[W-o2-5*s,H-o2-5*s,-1,-1]]){
+    g.beginPath();
+    g.moveTo(cx, cy+16*s*sy);
+    g.quadraticCurveTo(cx, cy, cx+16*s*sx, cy);
+    g.stroke();
+    g.beginPath(); g.arc(cx, cy, 3*s, 0, 7); g.stroke();
+  }
+  // two-column faux ruled text (was one full-width column)
+  g.strokeStyle = "rgba(120,95,55,.28)";
+  const colGap = W*0.06, colW = (W - o2*2 - colGap)/2 - 6*s;
+  for (const cx0 of [o2+6*s, o2+6*s+colW+colGap]){
+    const xEnd = cx0 + colW;
+    for (let y=44*s; y<H-40*s; y+=15*s){
+      g.lineWidth = 1;
+      let x = cx0;
+      while (x < xEnd){
+        const w = (10+Math.random()*30)*s;
+        g.beginPath(); g.moveTo(x,y); g.lineTo(Math.min(xEnd,x+w),y); g.stroke();
+        x += w + (6+Math.random()*8)*s;
+      }
+    }
+  }
+}
+
+function makePaperTexture(){
+  const c = document.createElement("canvas"); c.width = 512; c.height = 384;
+  const g = c.getContext("2d");
+  paintAgedPaperBase(g, 512, 384);
+  // a little farm doodle (sun + hill) accent, kept clear of the new corner flourishes
+  g.fillStyle = "rgba(190,150,70,.5)";
+  g.beginPath(); g.arc(412, 78, 16, 0, 7); g.fill();
+  g.strokeStyle = "rgba(120,95,55,.5)"; g.lineWidth = 2;
+  g.beginPath(); g.moveTo(360,296); g.quadraticCurveTo(422,254,484,296); g.stroke();
+  const t = new THREE.CanvasTexture(c);
+  t.encoding = THREE.sRGBEncoding;
+  return t;
+}
+
+/* ART POLISH: the play surface (base sheet Bucky stands on) gets the same
+ * aged-paper foundation PLUS faint "echoes" of previously-flattened die-cut
+ * shapes — storybook charm, kept well under the marker/shadow opacity range
+ * (.30-.92) so it never fights readability. Fixed-seed shapes (not random)
+ * so the surface is stable frame to frame / identical across MP clients. */
+function makePlaySurfaceTexture(){
+  const c = document.createElement("canvas"); c.width = 512; c.height = 384;
+  const g = c.getContext("2d");
+  paintAgedPaperBase(g, 512, 384);
+  const spots = [
+    { kind:"circle", x:118, y:88,  r:44 },
+    { kind:"star",   x:398, y:118, r:38 },
+    { kind:"heart",  x:150, y:288, r:40 },
+    { kind:"egg",    x:392, y:298, r:38 },
+    { kind:"apple",  x:256, y:196, r:32 },
+  ];
+  g.fillStyle = "rgba(120,88,44,0.07)";
+  g.strokeStyle = "rgba(120,88,44,0.11)";
+  g.lineWidth = 2;
+  for (const sp of spots){
+    const poly = unitPoly(sp.kind);
+    g.beginPath();
+    poly.forEach(([ux,uy], i) => {
+      const px = sp.x + ux*sp.r, py = sp.y - uy*sp.r;
+      if (i === 0) g.moveTo(px, py); else g.lineTo(px, py);
+    });
+    g.closePath(); g.fill(); g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.encoding = THREE.sRGBEncoding;
+  return t;
+}
+
+/* ART POLISH: ornamental print AROUND a die-cut hole, echoing its shape —
+ * a radiating "sun/petals" burst + a thin double-ring frame, like the
+ * printed motifs around the reference Booksquirm board's cutouts. Drawn
+ * BEFORE the functional dark outline ring (paintPageTexture below) so the
+ * high-contrast gameplay outline always wins the readability fight. */
+function paintHoleOrnament(g, kind, cx, cy, rPx){
+  const spikes = kind === "star" ? 16 : kind === "heart" ? 10 : 12;
+  const outer = rPx + 14;
+  g.save();
+  g.strokeStyle = "rgba(120,80,36,0.42)";
+  g.lineWidth = 1.6;
+  for (let i=0;i<spikes;i++){
+    const a = (i/spikes) * Math.PI * 2;
+    const r1 = rPx + 5, r2 = outer + (i % 2 === 0 ? 7 : 0);
+    g.beginPath();
+    g.moveTo(cx+Math.cos(a)*r1, cy+Math.sin(a)*r1);
+    g.lineTo(cx+Math.cos(a)*r2, cy+Math.sin(a)*r2);
+    g.stroke();
+  }
+  g.strokeStyle = "rgba(120,80,36,0.30)"; g.lineWidth = 1.2;
+  g.beginPath(); g.arc(cx, cy, outer+10, 0, Math.PI*2); g.stroke();
+  g.restore();
+}
+
 /* One reusable canvas/texture for the CURRENT flipping page, repainted each
- * spawnPage(): starts from the same paper look, then stamps a dark outline
- * ring around every die-cut hole (mapped through the page's own shape-space,
- * see W2S_LAT/W2S_HDIST below) so the cutouts pop as a readable billboard
- * when the page stands upright mid-flip — like the decorated die-cuts in
- * the real Booksquirm board. Faux text lines + corner doodle carry over
- * unchanged (drawn once into paperTex, copied in here as the base layer). */
+ * spawnPage(): starts from the same aged-paper print foundation, stamps an
+ * ornamental print AROUND each die-cut hole (paintHoleOrnament), then the
+ * dark FUNCTIONAL outline ring on top (mapped through the page's own
+ * shape-space, see W2S_LAT/W2S_HDIST below) so the cutouts pop as a readable
+ * billboard when the page stands upright pre-flip/mid-flip — like the
+ * decorated die-cuts in the real Booksquirm board. */
 const pageCanvas = document.createElement("canvas");
 pageCanvas.width = 512; pageCanvas.height = 384;
 const pageCtx = pageCanvas.getContext("2d");
@@ -705,18 +1206,22 @@ pageTex.encoding = THREE.sRGBEncoding;
 function paintPageTexture(holes){
   const g = pageCtx, W = pageCanvas.width, H = pageCanvas.height;
   g.clearRect(0, 0, W, H);
-  g.drawImage(paperTex.image, 0, 0, W, H);
+  paintAgedPaperBase(g, W, H);
   const LAT = TUNE.SPREAD_HALF_W * 2, LEN = TUNE.SPREAD_HALF_D * 2;
   const pxPerUnit = W / LAT;
   g.lineJoin = "round";
-  g.strokeStyle = "rgba(90,58,26,0.68)";
-  g.lineWidth = Math.max(1.5, 0.12 * pxPerUnit);
   let outlineCount = 0;
   for (const h of holes){
     const pts = h.worldPoly.map(([wx, wz]) => {
       const sx = W2S_LAT(wx), sy = W2S_HDIST(wz);
       return [ (sx + LAT / 2) / LAT * W, (1 - sy / LEN) * H ];
     });
+    const ocx = pts.reduce((a,p)=>a+p[0],0) / pts.length;
+    const ocy = pts.reduce((a,p)=>a+p[1],0) / pts.length;
+    const rPx = Math.max(...pts.map(p => Math.hypot(p[0]-ocx, p[1]-ocy)));
+    paintHoleOrnament(g, h.kind, ocx, ocy, rPx);
+    g.strokeStyle = "rgba(90,58,26,0.7)";
+    g.lineWidth = Math.max(1.5, 0.12 * pxPerUnit);
     g.beginPath();
     g.moveTo(pts[0][0], pts[0][1]);
     for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]);
@@ -866,8 +1371,15 @@ function buildPageMesh(holes){
     uv.setXY(i, (pos.getX(i) + LAT/2)/LAT, pos.getY(i)/LEN);
   }
   uv.needsUpdate = true;
+  // ART POLISH: this IS the big "standing half" surface at the new steep rest
+  // angle (its own real length, up to SPREAD_HALF_D*2 tall — see the mirror-
+  // math comment above) — it dominates the pre-flip shot, so its tint matters
+  // more than the flat base sheet's. Was 0xf3e7c6 (~95% of white), which
+  // measured via samplePixel as clipping to (255,255,206) under this scene's
+  // bright lights — indistinguishable from plain white paper. Darkened to
+  // match the play-surface fix so the standing page reads as genuinely aged.
   const mat = new THREE.MeshLambertMaterial({ map: pageTex, side: THREE.DoubleSide,
-    color: 0xf3e7c6, transparent: true, opacity: 1 });
+    color: 0xdcc79a, transparent: true, opacity: 1 });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.rotation.x = -Math.PI/2;   // shape XY -> page XZ (see mirror math)
   mesh.castShadow = true; mesh.receiveShadow = true;
@@ -965,7 +1477,7 @@ function buildShadow(h){
   ringMesh.renderOrder = 3;
 
   const group = new THREE.Group();
-  group.position.set(cx, TUNE.SHADOW_Y, cz);
+  group.position.set(cx, TUNE.TOME_TOP_Y + TUNE.SHADOW_Y, cz);
   group.add(fillMesh, ringMesh);
 
   return { group, fillMesh, ringMesh, mat, ringMat };
@@ -1006,7 +1518,7 @@ function buildShadowPageGroup(holes){
   mesh.rotation.x = -Math.PI/2;
   mesh.renderOrder = 1;   // under the marker fill(2)/ring(3), above the ground
   const group = new THREE.Group();
-  group.position.set(0, TUNE.SHADOW_PAGE_Y, TUNE.HINGE_Z);
+  group.position.set(0, TUNE.TOME_TOP_Y + TUNE.SHADOW_PAGE_Y, TUNE.HINGE_Z);
   group.add(mesh);
   return { group, mesh, mat, holeCount: holes.length };
 }
@@ -1018,7 +1530,7 @@ function buildPageVisuals(holes, number){
   G.holes = holes;
   const outlineCount = paintPageTexture(holes);
   const pivot = new THREE.Group();
-  pivot.position.set(0, TUNE.PAGE_Y, TUNE.HINGE_Z);
+  pivot.position.set(0, TUNE.TOME_TOP_Y + TUNE.PAGE_Y, TUNE.HINGE_Z);
   const mesh = buildPageMesh(holes);
   pivot.add(mesh);
   scene.add(pivot);
@@ -1030,8 +1542,11 @@ function buildPageVisuals(holes, number){
   const shadowPage = buildShadowPageGroup(holes);
   scene.add(shadowPage.group);
   curPage = { pivot, mesh, shadows, shadowPage, outlineCount, number };
-  G.flipAngle = 0; pivot.rotation.x = 0;
-  updateFlipVisuals(0);
+  // rest pose = resting ON the wedge (see buildWedge above), not flat — the
+  // page visibly peels off the stack as its own flip advances toward PI.
+  G.flipAngle = WEDGE_TILT_RAD; pivot.rotation.x = WEDGE_TILT_RAD;
+  updateFlipVisuals(WEDGE_TILT_RAD);
+  updateWedge();
 }
 function spawnPage(number){
   const holes = placeHoles(number);
@@ -1166,7 +1681,9 @@ function hostAdvance(dt){
   } else if (G.stage === "flipping"){
     G.flipElapsed += dt;
     const t = Math.min(1, G.flipElapsed / G.flipDur);
-    updateFlipVisuals(Math.PI * Math.pow(t, 1.7));   // accelerating slam
+    // starts at the wedge's rest tilt (the page peels OFF the stack), still an
+    // accelerating slam, still lands EXACTLY at PI (end state unchanged).
+    updateFlipVisuals(WEDGE_TILT_RAD + (Math.PI - WEDGE_TILT_RAD) * Math.pow(t, 1.7));
     if (t >= 1 && !G.slamDone) onSlamAndJudge();
   } else if (G.stage === "resting"){
     G.restLeft -= dt;
@@ -1319,6 +1836,7 @@ function planBotsForPage(){
     bot.walkDawdleDone = false;
     bot.walkT = 0;
     bot.errType = null;
+    bot._repicked = false;   // crowd-awareness: at most one re-pick per page (see maybeBotRepick)
     if (!bot.alive){ bot.planned = false; continue; }
     const chance = errChanceAt(pageN, bot.id);
     const erring = G.forceNoErrors ? false : Math.random() < chance;
@@ -1329,7 +1847,11 @@ function planBotsForPage(){
     const hole = pick.h;
     const others = botEntries().filter(b => b !== bot && b.alive && b.targetHoleIdx === pick.i)
       .map(b => ({ x:b.standX, z:b.standZ }));
-    let sp = findSafePointInHole(hole, others, 0.6);
+    // min-dist matches the collision radius (TUNE.CHAR_R*2) so two bots planned
+    // into the same hole don't immediately jostle each other off it — genuinely
+    // tight holes still fall back to the closest available point (findSafePointInHole)
+    // and get resolved live by the soft-separation/re-pick systems instead.
+    let sp = findSafePointInHole(hole, others, TUNE.CHAR_R * 2);
     if (erring){
       const type = pickErrorType(bot);
       bot.errType = type;
@@ -1357,9 +1879,33 @@ function stepBotToward(bot, tx, tz, dt){
   bot.moving = true;
   bot.speed = speed;
 }
+/* Crowd awareness: if a bot's own chosen stand-point is within 2*CHAR_R of
+ * ANOTHER character's CURRENT position (player, another bot, a remote — any
+ * live, non-pancaked entry) it re-picks a free interior point in the SAME
+ * hole (findSafePointInHole already biases away from other occupants).
+ * At most once per page (bot._repicked, reset in planBotsForPage) so bots
+ * never oscillate; if the hole is genuinely full the bot still commits and
+ * goes there anyway — the resulting shove is the intended jostling fun. */
+function maybeBotRepick(bot){
+  if (bot._repicked || !bot.planned) return;
+  if (bot.aiPhase !== "idle" && bot.aiPhase !== "walking") return;
+  const hole = G.holes[bot.targetHoleIdx];
+  if (!hole) return;
+  let crowded = false;
+  for (const other of aliveEntries()){
+    if (other === bot || other.elimPhase) continue;
+    if (Math.hypot(other.x - bot.standX, other.z - bot.standZ) < TUNE.CHAR_R * 2){ crowded = true; break; }
+  }
+  if (!crowded) return;
+  const avoid = aliveEntries().filter(o => o !== bot && !o.elimPhase).map(o => ({ x:o.x, z:o.z }));
+  const sp = findSafePointInHole(hole, avoid, TUNE.CHAR_R * 2);
+  bot.standX = sp.x; bot.standZ = sp.z;
+  bot._repicked = true;
+}
 function updateBots(dt){
   for (const bot of botEntries()){
     if (!bot.alive || !bot.planned) continue;
+    maybeBotRepick(bot);
     if (bot.aiPhase === "idle"){
       bot.moving = false;
       if (G.stage === "flipping" && G.flipElapsed >= bot.effReactionT){
@@ -1378,6 +1924,94 @@ function updateBots(dt){
       if (bot.dawdleTimer <= 0) bot.aiPhase = "walking";
     } else if (bot.aiPhase === "arrived"){
       bot.moving = false;
+    }
+  }
+}
+
+/* ------------------------------------------------------- COLLISION/JOSTLE -- *
+ * Soft radial separation between every alive, non-pancaked character so they
+ * don't clip through each other, plus a little "bmp" juice on a hard bump.
+ * MP OWNERSHIP: the host may only ever nudge entries it owns (its own local
+ * avatar + bots) — a connected guest's position is authoritative FROM THE
+ * GUEST, never overwritten here. Symmetrically, a guest only ever nudges its
+ * OWN local character; every other rendered character (host + other guests +
+ * bots) is read-only ground truth for the guest's push calculation. Both call
+ * sites pass a `movableIds` Set of entry ids this client is allowed to move;
+ * everything else acts as a fixed obstacle. Judging (safeInHole) reads
+ * whatever position exists at the instant of the slam — separation runs
+ * AFTER the host's judge() each frame, so it never perturbs the frame a slam
+ * is judged on, only the frames leading up to it (the "shoved half out" case
+ * really is a `judge()`-time position the player/bot walked into, not an
+ * artifact of this code running in the wrong order). */
+function isCollidable(e){
+  return !!e && e.revealed && e.alive && (e.squishT || 0) < 0.05 && e.elimPhase == null;
+}
+function entryVelocity(e){
+  if (!e || !e.moving) return { vx:0, vz:0 };
+  const spd = e.speed || 0;
+  return { vx: Math.sin(e.facing || 0) * spd, vz: Math.cos(e.facing || 0) * spd };
+}
+// deterministic tangent split for the (rare) exact-same-point degenerate case
+function hashAngle(idA, idB){
+  const s = String(idA) + "|" + String(idB);
+  let h = 0; for (let i=0;i<s.length;i++) h = (h*31 + s.charCodeAt(i)) | 0;
+  return ((h >>> 0) % 6283) / 1000;
+}
+const BUMP_SFX_COOLDOWN = 0.15, BUMP_SQUASH_T = 0.06;
+let _lastBumpAt = -10;
+function sfxBump(){ tone(210, 0.055, "square", 0.09); }
+function maybeBumpJuice(a, b, closingSpeed){
+  if (closingSpeed < TUNE.BUMP_SPEED_THRESH) return;
+  const now = (typeof performance !== "undefined" ? performance.now() : Date.now()) / 1000;
+  if (now - _lastBumpAt < BUMP_SFX_COOLDOWN) return;
+  _lastBumpAt = now;
+  sfxBump();
+  a._bumpT = BUMP_SQUASH_T; b._bumpT = BUMP_SQUASH_T;
+}
+// which G.players entries THIS client is allowed to move during separation —
+// every non-remote entry (identical rule for solo/versus/MP-host: only an
+// isRemote entry — a connected guest's own avatar — is ever excluded).
+function separationMovableIds(){
+  const ids = new Set();
+  for (const id in G.players) if (!G.players[id].isRemote) ids.add(id);
+  return ids;
+}
+function applyCharacterSeparation(dt, movableIds){
+  const all = allEntries().filter(isCollidable);
+  if (all.length < 2) return;
+  const minD = TUNE.CHAR_R * 2;
+  for (let iter = 0; iter < 2; iter++){
+    for (let i = 0; i < all.length; i++){
+      for (let j = i+1; j < all.length; j++){
+        const a = all[i], b = all[j];
+        const aMove = movableIds.has(a.id), bMove = movableIds.has(b.id);
+        if (!aMove && !bMove) continue;
+        let dx = b.x - a.x, dz = b.z - a.z;
+        let dist = Math.hypot(dx, dz);
+        if (dist >= minD) continue;
+        if (dist < 1e-4){
+          const ang = hashAngle(a.id, b.id);
+          dx = Math.cos(ang); dz = Math.sin(ang); dist = 1;
+        }
+        const nx = dx/dist, nz = dz/dist;
+        const overlap = minD - dist;
+        if (iter === 0){
+          const va = entryVelocity(a), vb = entryVelocity(b);
+          const closing = -((vb.vx-va.vx)*nx + (vb.vz-va.vz)*nz);
+          if (closing > 0) maybeBumpJuice(a, b, closing);
+        }
+        if (aMove && bMove){
+          a.x -= nx*overlap*0.5; a.z -= nz*overlap*0.5;
+          b.x += nx*overlap*0.5; b.z += nz*overlap*0.5;
+        } else if (aMove){
+          a.x -= nx*overlap; a.z -= nz*overlap;
+        } else if (bMove){
+          b.x += nx*overlap; b.z += nz*overlap;
+        }
+        const bx = smpBoundX(), bz = smpBoundZ();
+        if (aMove){ a.x = clamp(a.x,-bx,bx); a.z = clamp(a.z,-bz,bz); }
+        if (bMove){ b.x = clamp(b.x,-bx,bx); b.z = clamp(b.z,-bz,bz); }
+      }
     }
   }
 }
@@ -1475,8 +2109,13 @@ function updatePlayer(dt){
   const len = _mv.length();
   if (len > 1) _mv.multiplyScalar(1/len);
   const spd = TUNE.MOVE_SPEED;
-  e.x = clamp(e.x + _mv.x * spd * dt, -TUNE.BOUND_X, TUNE.BOUND_X);
-  e.z = clamp(e.z + _mv.z * spd * dt, -TUNE.BOUND_Z, TUNE.BOUND_Z);
+  // Stampede widens the movement clamp (smpBoundX/Z) so a character can be shoved
+  // — or walk — off the dock edge; the stampede fall-check owns elimination there.
+  // Storybook keeps the tight book bounds (smpBound* returns TUNE.BOUND when not
+  // in stampede).
+  const bx = smpBoundX(), bz = smpBoundZ();
+  e.x = clamp(e.x + _mv.x * spd * dt, -bx, bx);
+  e.z = clamp(e.z + _mv.z * spd * dt, -bz, bz);
   e.speed = len * spd;
   if (len > 0.01){ e.facing = Math.atan2(_mv.x, _mv.z); e.moving = true; }
   else e.moving = false;
@@ -1723,7 +2362,7 @@ function playViewClip(view, name, fade=0.15){
 }
 function syncViewTransform(entry, view){
   if (!view) return;
-  view.root.position.set(entry.x, TUNE.GROUND_Y, entry.z);
+  view.root.position.set(entry.x, TUNE.TOME_TOP_Y + TUNE.GROUND_Y, entry.z);
   view.facing.rotation.y = entry.facing || 0;
   const lean = Math.min(1, (entry.speed||0) / TUNE.MOVE_SPEED);
   view.lean.rotation.x = entry.moving ? -0.20 * lean : 0;
@@ -1785,7 +2424,9 @@ function updateEntryView(entry, dt){
     }
     if (entry.squishT > 0) entry.squishT = Math.max(0, entry.squishT - dt*5);
   } else {
-    if (entry.isLocal){
+    if (entry._fell){
+      driveElimFade(entry, view, dt);                        // stampede: fell in the pond -> fade out (no pancake)
+    } else if (entry.isLocal){
       entry.squishT = Math.min(1, entry.squishT + dt*6.5);   // pancake and linger
     } else {
       driveElimFade(entry, view, dt);                        // pancake -> hold -> poof
@@ -1793,8 +2434,16 @@ function updateEntryView(entry, dt){
   }
   const st = entry.squishT;
   const e = st<0.5 ? 2*st*st : 1-Math.pow(-2*st+2,2)/2;   // easeInOut
-  const sy = 1 + (TUNE.SQUISH_Y - 1)*e;
-  const sxz = 1 + (TUNE.SQUISH_BULGE - 1)*e;
+  let sy = 1 + (TUNE.SQUISH_Y - 1)*e;
+  let sxz = 1 + (TUNE.SQUISH_BULGE - 1)*e;
+  // subtle collision-bump juice: a tiny 0.06s squash pulse, decoupled from the
+  // (much bigger) death-squish above — only while genuinely alive, so it never
+  // stacks weirdly with a pancake.
+  if (entry.alive && entry._bumpT > 0){
+    entry._bumpT = Math.max(0, entry._bumpT - dt);
+    const bf = entry._bumpT / BUMP_SQUASH_T;
+    sy *= 1 - 0.10*bf; sxz *= 1 + 0.06*bf;
+  }
   view.squish.scale.set(sxz, sy, sxz);
   if (view.blob) view.blob.scale.setScalar(1 + (sxz - 1) * 0.7);
   updateDizzy(entry, view);
@@ -1877,7 +2526,7 @@ function updateParticles(dt){
     p.mesh.position.x += p.vx*dt;
     p.mesh.position.y += p.vy*dt;
     p.mesh.position.z += p.vz*dt;
-    if (p.mesh.position.y < TUNE.GROUND_Y+0.01){ p.mesh.position.y = TUNE.GROUND_Y+0.01; p.vy *= -0.3; p.vx*=0.6; p.vz*=0.6; }
+    if (p.mesh.position.y < TUNE.TOME_TOP_Y+TUNE.GROUND_Y+0.01){ p.mesh.position.y = TUNE.TOME_TOP_Y+TUNE.GROUND_Y+0.01; p.vy *= -0.3; p.vx*=0.6; p.vz*=0.6; }
     p.mesh.rotation.z += p.spin*dt;
     p.mesh.material.opacity = Math.min(1, p.life/p.max*1.6);
   }
@@ -1891,12 +2540,12 @@ function slamFX(atPlayer, ecx, ecz){
   const cz = ecz != null ? ecz : (atPlayer && _lp ? _lp.z : 0);
   for (let i=0;i<16;i++){
     const a = Math.random()*Math.PI*2, sp = 1.6+Math.random()*2.6;
-    spawnParticle(cx + (Math.random()*2-1)*(focused?0.5:6), TUNE.GROUND_Y+0.1, cz + (Math.random()*2-1)*3,
+    spawnParticle(cx + (Math.random()*2-1)*(focused?0.5:6), TUNE.TOME_TOP_Y+TUNE.GROUND_Y+0.1, cz + (Math.random()*2-1)*3,
       0xd8c79a, { vx:Math.cos(a)*sp, vy:1.4+Math.random()*2, vz:Math.sin(a)*sp, size:0.28+Math.random()*0.2, life:0.6+Math.random()*0.3, grav:-5 });
   }
   for (let i=0;i<10;i++){
     const a = Math.random()*Math.PI*2, sp = 2+Math.random()*3;
-    spawnParticle(cx + (Math.random()*2-1)*(focused?0.6:6), TUNE.GROUND_Y+0.3, cz + (Math.random()*2-1)*3.5,
+    spawnParticle(cx + (Math.random()*2-1)*(focused?0.6:6), TUNE.TOME_TOP_Y+TUNE.GROUND_Y+0.3, cz + (Math.random()*2-1)*3.5,
       0xf3e7c6, { vx:Math.cos(a)*sp, vy:2.4+Math.random()*2.4, vz:Math.sin(a)*sp, size:0.16+Math.random()*0.12, aspect:1.4, life:0.9+Math.random()*0.5, grav:-4 });
   }
 }
@@ -2281,7 +2930,7 @@ function renderSelectCards(){
       const blurb = m.ready ? "" : `<div class="soon">soon</div>`;
       card.innerHTML = `${blurb}<div class="gico">${m.ico}</div>`
         + `<div class="gname">${m.ready ? m.name : "?"}</div>`
-        + `<div class="gblurb">${m.ready ? "Dodge the pages!" : "Coming soon"}</div>`;
+        + `<div class="gblurb">${m.ready ? (m.blurb || "Let's play!") : "Coming soon"}</div>`;
       if (m.ready && !readOnly) card.onclick = ()=> selectCardClicked(m.id);
       grid.appendChild(card);
     }
@@ -2393,7 +3042,7 @@ function hostBeginMinigame(gameId, subMode){
 function reviveAllEntriesForRound(){
   for (const id in G.players){
     const e = G.players[id];
-    e.alive = true; e.squishT = 0; e.elimPhase = null; e.elimT = 0; e.revealed = true;
+    e.alive = true; e.squishT = 0; e.elimPhase = null; e.elimT = 0; e.revealed = true; e._fell = false;
     const sp = VERSUS_SPAWNS[e.char] || { x:0, z:0 };
     e.x = sp.x; e.z = sp.z; e.moving = false; e.speed = 0; e.facing = 0;
     if (e.isBot) Object.assign(e, freshBotAI(e.char, sp));
@@ -2552,15 +3201,17 @@ function fitCamera(){
   // margin the desktop aspect affords) get a looser near-clip-edge margin
   // so they don't force the whole shot to zoom out and shrink the play area.
   const APEX_H = TUNE.SPREAD_HALF_D * 2;
+  const SURF_Y = TUNE.TOME_TOP_Y + TUNE.GROUND_Y;             // play surface (raised by the tome)
   const groundPts = [
-    new THREE.Vector3(-TUNE.SPREAD_HALF_W, 0, -TUNE.SPREAD_HALF_D),
-    new THREE.Vector3( TUNE.SPREAD_HALF_W, 0, -TUNE.SPREAD_HALF_D),
-    new THREE.Vector3(-TUNE.SPREAD_HALF_W, 0,  TUNE.SPREAD_HALF_D),
-    new THREE.Vector3( TUNE.SPREAD_HALF_W, 0,  TUNE.SPREAD_HALF_D),
+    new THREE.Vector3(-TUNE.SPREAD_HALF_W, SURF_Y, -TUNE.SPREAD_HALF_D),
+    new THREE.Vector3( TUNE.SPREAD_HALF_W, SURF_Y, -TUNE.SPREAD_HALF_D),
+    new THREE.Vector3(-TUNE.SPREAD_HALF_W, SURF_Y,  TUNE.SPREAD_HALF_D),
+    new THREE.Vector3( TUNE.SPREAD_HALF_W, SURF_Y,  TUNE.SPREAD_HALF_D),
   ];
   const apexPts = [
-    new THREE.Vector3(-TUNE.SPREAD_HALF_W, APEX_H, TUNE.HINGE_Z),   // flip apex, standing billboard top
-    new THREE.Vector3( TUNE.SPREAD_HALF_W, APEX_H, TUNE.HINGE_Z),
+    // flip apex, standing billboard top: world.y = PAGE_Y_abs + sy_max*sin(90deg) = PAGE_Y_abs + APEX_H
+    new THREE.Vector3(-TUNE.SPREAD_HALF_W, TUNE.TOME_TOP_Y + TUNE.PAGE_Y + APEX_H, TUNE.HINGE_Z),
+    new THREE.Vector3( TUNE.SPREAD_HALF_W, TUNE.TOME_TOP_Y + TUNE.PAGE_Y + APEX_H, TUNE.HINGE_Z),
   ];
   const lim = portrait ? 0.94 : 0.9, apexLim = portrait ? 0.98 : 0.9;
   let dist = 12;
@@ -2600,10 +3251,14 @@ function frame(){
     // updateVersusIntro+hostAdvance); otherwise the raw calls (lobby/select no-op).
     if (ACTIVE_MINIGAME) ACTIVE_MINIGAME.hostTick(dt);
     else { updateVersusIntro(dt); hostAdvance(dt); }
+    // host/solo/versus jostling: every phase they're on the book (intro,
+    // waiting, mid-flip) — never moves an isRemote (guest-owned) entry.
+    applyCharacterSeparation(dt, separationMovableIds());
     if (net.active && net.isHost && net.ready) hostNetTick(dt);
   }
   partyTick();                             // party phase machine (minigame -> result)
   renderCharacters(dt);                    // unified render for every character
+  if (stampedeActive()) SMP_frame(dt);     // Moo Stampede: dock/water/cow view sync + HUD (host + guest)
   updateVersusHud();
   updateMpWaiting();                       // waiting-room panel (no-op unless waiting)
   updateParticles(dt);
@@ -3012,7 +3667,7 @@ function buildSnapshot(){
       moving: !!e.moving, alive: !!e.alive, elim: e.elimPhase || null,
     };
   }
-  return {
+  const s = {
     mode:"mp", phase:G.phase, stage:G.stage, page:G.page, matchGen:G.matchGen||0,
     ts: Date.now(),   // host heartbeat — guests detect a vanished host by a stale ts
     flipDur:G.flipDur, flipElapsed:G.flipElapsed, holeGen:G.holeGen,
@@ -3025,6 +3680,9 @@ function buildSnapshot(){
     // host's "playerWin".
     result: G.matchResult ? { winnerChar:G.matchResult.winnerChar||null, winnerName:G.matchResult.winnerName||null, draw: G.matchResult.type==="draw" } : null,
   };
+  // per-minigame namespaced payload — Moo Stampede publishes cows + timer here.
+  if (stampedeActive()) s.smp = SMP_buildSnap();
+  return s;
 }
 function publishSnapshotNow(){
   if (!net.active || !net.isHost || !net.ready) return;
@@ -3142,12 +3800,13 @@ function guestApplyPartyPhase(pp){
 }
 function guestBackToSelect(){
   clearPage();
+  SMP_teardown();   // Moo Stampede: drop the guest's dock/water/cow scene when the round ends
   G.stage = "none"; G.page = 0; G.holeGen = 0; net.holeGenSeen = -1; net.resultShown = false;
   overlayEl.classList.remove("on"); hudEl.classList.remove("on");
   document.getElementById("partyTallyRow").classList.remove("on");
   for (const id in G.players){
     const e = G.players[id];
-    e.alive = true; e.squishT = 0; e.elimPhase = null; e.elimT = 0;
+    e.alive = true; e.squishT = 0; e.elimPhase = null; e.elimT = 0; e._fell = false;
     const v = charViews[e.char];
     if (v){ setViewOpacity(v, 1); v.squish.scale.set(1,1,1); if (v.blob) v.blob.scale.setScalar(1); v.curClip = null; }
   }
@@ -3160,12 +3819,18 @@ function applySnapshot(snap, dt){
   G.mode = "mp";
   if (snap.party) guestApplyParty(snap.party);   // PARTY shell mirror (before the game-state apply)
   if (snap.seats) applySeats(snap.seats);
+  if (snap.smp && stampedeActive()) SMP_applySnap(snap.smp, dt);   // Moo Stampede: cows + timer + warnings
   if (typeof snap.holeGen === "number" && snap.holeGen !== net.holeGenSeen){
     applyHolesFromRoom(snap.holeGen);   // retried next frame if the holes state isn't up yet
   }
   const prevPage = G.page;
   G.page = snap.page || 0;
-  if (G.page !== prevPage){ pageNumEl.textContent = G.page; if (G.page > prevPage && G.phase !== "waiting"){ sfxDing(); showNamePopup("Page " + G.page + "!"); } }
+  if (G.page !== prevPage){
+    pageNumEl.textContent = G.page;
+    if (G.page > prevPage && G.phase !== "waiting"){ sfxDing(); showNamePopup("Page " + G.page + "!"); }
+    updateWedge();   // re-derive from the freshest G.page (applyHolesFromRoom above may have run
+                      // against the OLD G.page this same tick — this keeps the guest's wedge exact)
+  }
   const prevStage = net.guestFlip.stage;
   net.guestFlip.stage = snap.stage;
   net.guestFlip.flipDur = snap.flipDur || 1;
@@ -3178,8 +3843,8 @@ function applySnapshot(snap, dt){
     if (char === net.guestChar){
       const me = localP();
       if (me){
-        if (me.alive && !ps.alive){ me.alive = false; slamFX(true, me.x, me.z); sfxHonk(); }
-        else if (!me.alive && ps.alive){ me.alive = true; me.squishT = 0; me.elimPhase = null; }
+        if (me.alive && !ps.alive){ me.alive = false; if (stampedeActive()){ stampedeSplashElim(me); G.spectate = true; } else { slamFX(true, me.x, me.z); sfxHonk(); } }
+        else if (!me.alive && ps.alive){ me.alive = true; me.squishT = 0; me.elimPhase = null; me._fell = false; }
       }
       continue;
     }
@@ -3189,8 +3854,8 @@ function applySnapshot(snap, dt){
     if (err > 6){ e.x = ps.x; e.z = ps.z; } else { e.x += (ps.x - e.x)*t; e.z += (ps.z - e.z)*t; }
     e.facing = lerpAngle(e.facing, ps.facing, t);
     e.moving = ps.moving; e.speed = ps.moving ? TUNE.MOVE_SPEED : 0;
-    if (e.alive && !ps.alive){ e.alive = false; e.elimPhase = "squishing"; e.elimT = 0; slamFX(false, e.x, e.z); }
-    else if (!e.alive && ps.alive){ e.alive = true; e.elimPhase = null; e.squishT = 0; const v=charViews[char]; if (v){ setViewOpacity(v,1); v.root.visible = true; } }
+    if (e.alive && !ps.alive){ e.alive = false; if (stampedeActive()) stampedeSplashElim(e); else { e.elimPhase = "squishing"; e.elimT = 0; slamFX(false, e.x, e.z); } }
+    else if (!e.alive && ps.alive){ e.alive = true; e.elimPhase = null; e.squishT = 0; e._fell = false; const v=charViews[char]; if (v){ setViewOpacity(v,1); v.root.visible = true; } }
   }
   // drop remotes that vanished from the snapshot (a player left)
   for (const id in G.players){
@@ -3214,7 +3879,7 @@ function applySnapshot(snap, dt){
       const local = r.draw ? { type:"draw", winnerName:null, winnerChar:null }
         : { type: (r.winnerChar === net.guestChar ? "playerWin" : "remoteWin"), winnerName: r.winnerName, winnerChar: r.winnerChar };
       G.matchResult = local;
-      showVersusOverlay(local);
+      if (stampedeActive()) SMP_showResultOverlay(local); else showVersusOverlay(local);
       PARTY.lastWinner = r.draw ? null : (r.winnerChar || null);
       PARTY.phase = "result";
       decorateResultOverlay();          // "Back to the games!" (hidden for guests) + tally row
@@ -3227,11 +3892,11 @@ function guestUpdateFlip(dt){
   if (gf.stage === "flipping"){
     gf.flipElapsed += dt;
     const t = Math.min(1, gf.flipElapsed / (gf.flipDur || 1));
-    updateFlipVisuals(Math.PI * Math.pow(t, 1.7));
+    updateFlipVisuals(WEDGE_TILT_RAD + (Math.PI - WEDGE_TILT_RAD) * Math.pow(t, 1.7));
   } else if (gf.stage === "resting"){
     updateFlipVisuals(Math.PI);
   } else {
-    updateFlipVisuals(0);
+    updateFlipVisuals(WEDGE_TILT_RAD);
   }
 }
 function guestTick(dt){
@@ -3242,6 +3907,15 @@ function guestTick(dt){
   }
   const local = localP();
   if (local && local.alive && G.phase === "playing") updatePlayer(dt);   // own-avatar, zero lag
+  // Moo Stampede: the guest applies the herd's shove to its OWN character using
+  // the snapshot cow positions, then publishes the shoved pos below — the host
+  // adopts it and judges the fall (client-authoritative movement, host-authoritative
+  // fall verdict).
+  if (stampedeActive() && local && local.alive && G.phase === "playing") SMP_applyCowPush(dt, e => e.isLocal);
+  // guest jostling: nudge ONLY my own local character against everyone else's
+  // latest rendered position — never write a remote/bot/host position, those
+  // are the host's snapshot to own.
+  if (local) applyCharacterSeparation(dt, new Set(["local"]));
   // publish own position ~18Hz
   net.inputCd -= dt;
   if (net.inputCd <= 0 && net.localPlayer && local){
@@ -3376,7 +4050,10 @@ setInterval(()=>{
   _lastBgTick = now;
   if (!document.hidden || !net.active || !net.isHost || !net.ready) return;
   let rem = dt;
-  while (rem > 0){ const step = Math.min(0.05, rem); hostAdvance(step); rem -= step; }   // sub-step vs tunneling
+  // route through the active minigame's hostTick (storybook's delegates to
+  // hostAdvance; Moo Stampede runs its own cow sim) so a hidden host keeps the
+  // shared game alive for guests.
+  while (rem > 0){ const step = Math.min(0.05, rem); if (ACTIVE_MINIGAME) ACTIVE_MINIGAME.hostTick(step); else hostAdvance(step); rem -= step; }
   hostNetTick(dt);
 }, 250);
 
@@ -3388,6 +4065,719 @@ function toast(msg){
   el.textContent = msg; el.classList.add("on");
   clearTimeout(_toastTimer);
   _toastTimer = setTimeout(()=> el.classList.remove("on"), 3200);
+}
+
+/* ==========================================================================
+   🐄 MOO STAMPEDE!  — minigame #2 (a farm remake of the classic "survive the
+   herd sweeping across a floating platform" party minigame; original farm art,
+   names and theme throughout). The cast stands on a wooden dock floating on the
+   farm pond; cows stampede LEFT across it and plunge off the far edge. Cows
+   don't kill on touch — they SHOVE. Get carried off any edge = a splash and
+   you're out. Movement is the only control (analog keyboard + the shell's touch
+   stick). Reuses the shell's G.players map, charViews render path, character
+   separation, snapshot/lobby plumbing, sounds + mute — see the MINIGAME
+   INTERFACE contract and STAMPEDE_MINIGAME registry entry above.
+
+   HOST-AUTHORITATIVE like storybook: the host runs the cow sim + judges every
+   fall; guests publish only their own position (host adopts it), render cows
+   from the snapshot's `smp` key, and apply the herd's shove to their own avatar
+   locally so their published position reflects being pushed. Everything the
+   shell needs to route to this game keys off stampedeActive().               */
+
+// active iff the running (or just-finished) minigame is Moo Stampede. Works on
+// the HOST/solo (ACTIVE_MINIGAME set) AND on guests (ACTIVE_MINIGAME is null for
+// them — they learn the active game from the mirrored PARTY.selectedGame).
+function stampedeActive(){
+  const id = (ACTIVE_MINIGAME && ACTIVE_MINIGAME.id)
+    || ((PARTY.phase === "minigame" || PARTY.phase === "result") ? PARTY.selectedGame : null);
+  return id === "stampede";
+}
+// stampede widens the movement clamp so characters can be shoved / walk off the
+// dock edge (the fall-check owns elimination there). Storybook keeps TUNE.BOUND.
+function smpBoundX(){ return stampedeActive() ? SMP.FREE_BOUND : TUNE.BOUND_X; }
+function smpBoundZ(){ return stampedeActive() ? SMP.FREE_BOUND : TUNE.BOUND_Z; }
+
+const SMP = {
+  active:false, mode:null, state:"idle",   // mode: 'versus' | 'challenge' | 'mp'(->'versus'); state: idle|run|over
+  timeLeft:0, elapsed:0, best:0, grace:0,
+  cows:[], cowById:{}, cowSeq:1,
+  spawnCd:0, giantCd:0, warnT:0, warnLane:0, warnActive:false,
+  result:null, group:null, water:null,
+  _arena:false, _savedBg:null, _savedFog:null, _lastTick:-1,
+  // arena / dock geometry
+  DOCK_HALF_X:6.8, DOCK_HALF_Z:4.8,   // fall-line: center past this = in the pond
+  FREE_BOUND:40,
+  SPAWN_X:9.6, DESPAWN_X:-9.6,        // cows enter/leave beyond the dock
+  MATCH_TIME:30, START_GRACE:1.2, FRENZY_T:8,   // frenzy in the final 8s
+  ACCEL_MAX:2.35,                     // last-15%-before-far-edge speed multiplier
+  WARN_T:1.2, GIANT_FIRST_V:12, GIANT_FIRST_C:10,
+  BOT_LOOKAHEAD:7.5, BOT_DODGE_BAND:1.0,
+};
+
+/* ---- shared cow assets (built once, reused across every cow + match; NOT
+ * scene children, so they don't affect the sceneChildCount leak baseline; never
+ * disposed on teardown) ---- */
+let _smpAssets = null;
+function SMP_patchTex(variant){
+  const c = document.createElement("canvas"); c.width = c.height = 128;
+  const g = c.getContext("2d");
+  g.fillStyle = variant === 2 ? "#b7ad9c" : "#f4f0e7";   // giant = grayer hide
+  g.fillRect(0,0,128,128);
+  g.fillStyle = variant === 2 ? "#332e27" : "#26221e";
+  const blobs = variant === 2 ? 8 : 4 + variant;
+  for (let i=0;i<blobs;i++){
+    g.beginPath();
+    const x = Math.random()*128, y = Math.random()*128;
+    const r = (variant === 2 ? 20 : 13) + Math.random()*(variant === 2 ? 22 : 15);
+    g.ellipse(x, y, r, r*(0.55+Math.random()*0.5), Math.random()*3, 0, 7); g.fill();
+  }
+  const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; return t;
+}
+function SMP_cowAssets(){
+  if (_smpAssets) return _smpAssets;
+  const M = (c,e)=> new THREE.MeshLambertMaterial({ color:c, emissive:e!=null?e:0x000000 });
+  const legGeo = new THREE.BoxGeometry(0.2, 0.5, 0.2);  legGeo.translate(0,-0.25,0);   // pivot at hip
+  const tailGeo = new THREE.BoxGeometry(0.09, 0.5, 0.09); tailGeo.translate(0,-0.25,0); // pivot at rump
+  _smpAssets = {
+    bodyGeo: new THREE.BoxGeometry(1.55, 0.82, 0.9),
+    headGeo: new THREE.BoxGeometry(0.6, 0.58, 0.62),
+    muzzleGeo: new THREE.BoxGeometry(0.24, 0.32, 0.44),
+    earGeo: new THREE.BoxGeometry(0.28, 0.14, 0.12),
+    hornGeo: new THREE.ConeGeometry(0.11, 0.42, 6),
+    legGeo, tailGeo,
+    bodyMats: [ M(0xffffff).clone(), M(0xffffff).clone() ],   // maps set below
+    giantMat: M(0xffffff),
+    whiteMat: M(0xf3efe6), pinkMat: M(0xf0a6ac, 0x3a1a1c), hornMat: M(0xe9e1cf), darkMat: M(0x2a2622),
+  };
+  _smpAssets.bodyMats[0].map = SMP_patchTex(0);
+  _smpAssets.bodyMats[1].map = SMP_patchTex(1);
+  _smpAssets.giantMat.map = SMP_patchTex(2);
+  return _smpAssets;
+}
+function SMP_cowPushR(size){ return 0.52 * size + 0.28; }
+function SMP_buildCowView(cow){
+  const A = SMP_cowAssets();
+  const g = new THREE.Group();
+  const giant = cow.type === "giant";
+  const bodyMat = giant ? A.giantMat : A.bodyMats[cow.id % A.bodyMats.length];
+  const legH = 0.5, bodyY = legH + 0.4;
+  g.add(mk(A.bodyGeo, bodyMat, 0, bodyY, 0));
+  g.add(mk(A.headGeo, bodyMat, -0.95, legH+0.5, 0));
+  g.add(mk(A.muzzleGeo, A.pinkMat, -1.22, legH+0.34, 0));
+  for (const s of [-1,1]) g.add(mk(A.earGeo, A.whiteMat, -0.86, legH+0.72, s*0.34));
+  if (giant) for (const s of [-1,1]){ const h = mk(A.hornGeo, A.hornMat, -0.9, legH+0.95, s*0.2); h.rotation.z = s*0.35; g.add(h); }
+  const legs = [];
+  for (const [lx,lz] of [[-0.5,0.3],[-0.5,-0.3],[0.5,0.3],[0.5,-0.3]]){
+    const leg = mk(A.legGeo, A.whiteMat, lx, legH, lz); g.add(leg); legs.push(leg);
+  }
+  const tail = mk(A.tailGeo, bodyMat, 0.78, legH+0.55, 0); g.add(tail);
+  g.userData.legs = legs; g.userData.tail = tail;
+  g.scale.setScalar(cow.size);
+  return g;
+  function mk(geo, mat, x, y, z){ const m = new THREE.Mesh(geo, mat); m.position.set(x,y,z); return m; }
+}
+
+/* ------------------------------------------------------------- arena -------- */
+function SMP_makeWaterTex(){
+  const c = document.createElement("canvas"); c.width = c.height = 128;
+  const g = c.getContext("2d");
+  g.fillStyle = "#3f97c9"; g.fillRect(0,0,128,128);
+  for (let i=0;i<90;i++){
+    g.strokeStyle = `rgba(255,255,255,${0.05+Math.random()*0.12})`;
+    g.lineWidth = 1 + Math.random()*1.5;
+    const y = Math.random()*128, w = 8+Math.random()*22, x = Math.random()*128;
+    g.beginPath(); g.moveTo(x,y); g.quadraticCurveTo(x+w/2, y-3, x+w, y); g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(9,9); t.encoding = THREE.sRGBEncoding; return t;
+}
+function SMP_makePlankTex(){
+  const c = document.createElement("canvas"); c.width = c.height = 256;
+  const g = c.getContext("2d");
+  g.fillStyle = "#b98a54"; g.fillRect(0,0,256,256);
+  const planks = 7, ph = 256/planks;
+  for (let i=0;i<planks;i++){
+    g.fillStyle = i%2 ? "#b0824c" : "#bd9058"; g.fillRect(0, i*ph, 256, ph-2);
+    g.strokeStyle = "rgba(60,40,20,.5)"; g.lineWidth = 2;
+    g.strokeRect(0, i*ph, 256, ph-2);
+    for (let k=0;k<26;k++){ g.strokeStyle = `rgba(90,60,30,${.1+Math.random()*.18})`; g.beginPath();
+      const y = i*ph + Math.random()*ph; g.moveTo(0,y); g.lineTo(256,y); g.stroke(); }
+  }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(3,2); t.encoding = THREE.sRGBEncoding; return t;
+}
+function SMP_makeSkyTex(){
+  const c = document.createElement("canvas"); c.width = 16; c.height = 256;
+  const g = c.getContext("2d");
+  const grad = g.createLinearGradient(0,0,0,256);
+  grad.addColorStop(0, "#8fc7ee"); grad.addColorStop(0.6, "#bfe3f5"); grad.addColorStop(1, "#e8f6fb");
+  g.fillStyle = grad; g.fillRect(0,0,16,256);
+  const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; return t;
+}
+function SMP_ensureArena(){
+  if (SMP._arena) return;
+  SMP._savedBg = scene.background; SMP._savedFog = scene.fog;
+  scene.background = new THREE.Color(0xbfe3f5);
+  scene.fog = new THREE.Fog(0xbfe3f5, 44, 130);
+  bookGroup.visible = false;
+  if (wedgeGroup) wedgeGroup.visible = false;
+  if (wedgeCoverGroup) wedgeCoverGroup.visible = false;
+  const sceneryGrp = scene.getObjectByName("scenery");   // storybook decor props (books/lantern/etc.)
+  if (sceneryGrp) sceneryGrp.visible = false;
+  const grp = new THREE.Group();
+  const surf = TUNE.TOME_TOP_Y + TUNE.GROUND_Y;
+  // water plane (large, gentle scrolling ripple)
+  const waterMat = new THREE.MeshLambertMaterial({ map: SMP_makeWaterTex(), color: 0xbfe6ff, transparent:true, opacity:0.96 });
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(150,150), waterMat);
+  water.rotation.x = -Math.PI/2; water.position.set(0, surf-0.45, 0);
+  grp.add(water); SMP.water = water;
+  // dock / raft — planked platform a touch larger than the fall-line
+  const dW = (SMP.DOCK_HALF_X + 0.7)*2, dD = (SMP.DOCK_HALF_Z + 0.7)*2;
+  const plankTex = SMP_makePlankTex();
+  const deckMat = new THREE.MeshLambertMaterial({ map: plankTex });
+  const sideMat = new THREE.MeshLambertMaterial({ color: 0x7c5a34 });
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(dW, 0.5, dD), [sideMat,sideMat,deckMat,sideMat,sideMat,sideMat]);
+  deck.position.set(0, surf-0.25, 0); grp.add(deck);
+  // support logs under the raft
+  const logMat = new THREE.MeshLambertMaterial({ color: 0x6b4a28 });
+  for (const lz of [-SMP.DOCK_HALF_Z*0.6, SMP.DOCK_HALF_Z*0.6]){
+    const log = new THREE.Mesh(new THREE.CylinderGeometry(0.34,0.34,dW*0.96,8), logMat);
+    log.rotation.z = Math.PI/2; log.position.set(0, surf-0.55, lz); grp.add(log);
+  }
+  // hay-bale corner accents
+  const hayMat = new THREE.MeshLambertMaterial({ color: 0xe2c774 });
+  const hayGeo = new THREE.BoxGeometry(1.0,0.7,0.8);
+  for (const [sx,sz] of [[1,1],[1,-1],[-1,1],[-1,-1]]){
+    const hay = new THREE.Mesh(hayGeo, hayMat);
+    hay.position.set(sx*(SMP.DOCK_HALF_X+0.1), surf+0.35, sz*(SMP.DOCK_HALF_Z+0.1));
+    grp.add(hay);
+  }
+  // soft sky backdrop (behind the pond, faces the camera)
+  const sky = new THREE.Mesh(new THREE.PlaneGeometry(220,120), new THREE.MeshBasicMaterial({ map: SMP_makeSkyTex(), depthWrite:false, fog:false }));
+  sky.position.set(0, 18, -55); grp.add(sky);
+  // a few lily pads / reeds for life on the pond
+  const padMat = new THREE.MeshLambertMaterial({ color: 0x4f9e46 });
+  for (let i=0;i<7;i++){
+    const pad = new THREE.Mesh(new THREE.CircleGeometry(0.5+Math.random()*0.4, 10), padMat);
+    pad.rotation.x = -Math.PI/2;
+    const side = Math.random()<0.5?1:-1;
+    pad.position.set((Math.random()*2-1)*13, surf-0.42, side*(SMP.DOCK_HALF_Z+2+Math.random()*5));
+    grp.add(pad);
+  }
+  scene.add(grp);
+  SMP.group = grp; SMP._arena = true; SMP.active = true;
+  SMP.cows = []; SMP.cowById = {};
+}
+function SMP_clearCows(){
+  if (SMP.group){ for (const cow of SMP.cows) if (cow.view) SMP.group.remove(cow.view); }
+  SMP.cows = []; SMP.cowById = {};
+}
+function SMP_teardown(){
+  SMP_clearCows();
+  if (SMP.group){ scene.remove(SMP.group); }
+  SMP.group = null; SMP.water = null;
+  if (SMP._arena){
+    scene.background = SMP._savedBg || new THREE.Color(0x2b1f12);
+    scene.fog = SMP._savedFog || null;
+    bookGroup.visible = true;
+    if (wedgeGroup) wedgeGroup.visible = true;
+    if (wedgeCoverGroup) wedgeCoverGroup.visible = true;
+    const sceneryGrp = scene.getObjectByName("scenery");
+    if (sceneryGrp) sceneryGrp.visible = true;
+    SMP._arena = false;
+  }
+  SMP.active = false; SMP.state = "idle"; SMP.warnActive = false; SMP._lastTick = -1;
+  const t = document.getElementById("smpTimer"), w = document.getElementById("smpWarn");
+  if (t) t.classList.remove("on"); if (w) w.classList.remove("on");
+}
+
+/* ------------------------------------------------------- lifecycle --------- */
+function SMP_freshBotAI(){
+  return { speedMul: 0.92 + Math.random()*0.12, reactBase: 0.45 + Math.random()*0.6,
+    errBase: 0.24 + Math.random()*0.16, targetX:0, targetZ:0, reactCd:0, dawdleCd:0 };
+}
+function SMP_showPlayUI(){
+  titleEl.style.display = "none";
+  selectEl.classList.remove("on");
+  hideMpWaiting();
+  overlayEl.classList.remove("on");
+  hudEl.classList.remove("on");            // no storybook page chip — we own #smpTimer
+  if (IS_COARSE) TC.classList.add("on");
+}
+function SMP_resetRun(mode){
+  SMP.mode = mode;   // 'versus' | 'challenge'
+  SMP.state = "run";
+  SMP.elapsed = 0;
+  SMP.timeLeft = SMP.MATCH_TIME;
+  SMP.grace = SMP.START_GRACE;
+  SMP.spawnCd = 0.5;
+  SMP.giantCd = mode === "challenge" ? SMP.GIANT_FIRST_C : SMP.GIANT_FIRST_V;
+  SMP.warnT = 0; SMP.warnActive = false; SMP.warnLane = 0; SMP._waveCd = 3.0;
+  SMP.result = null; SMP._lastTick = -1;
+  SMP.best = parseFloat(localStorage.getItem("fp_stampede_best") || "0") || 0;
+  SMP_clearCows();
+  for (const b of botEntries()) b.smpAI = SMP_freshBotAI();
+}
+function SMP_placeCastAtSpawns(revealHop){
+  for (const id in G.players){
+    const e = G.players[id];
+    const sp = VERSUS_SPAWNS[e.char] || { x:0, z:0 };
+    e.x = sp.x; e.z = sp.z; e.facing = 0; e.moving = false; e.speed = 0;
+    e.alive = true; e.squishT = 0; e.elimPhase = null; e.elimT = 0; e._fell = false;
+    if (!e.revealed) revealEntry(e, revealHop); else syncEntryNow(e);
+  }
+}
+function SMP_start(ctx){
+  ensureAudio();
+  SMP_ensureArena();
+  if (ctx.party === "mp"){ SMP_hostStartMatch(); return; }
+  // SOLO party: build a fresh cast (local Bucky + optional 3 bots)
+  resetAllViews();
+  G.players = {};
+  makeLocalEntry("bucky");
+  const versus = ctx.subMode !== "challenge";
+  if (versus) for (const c of ["billy","rosie","clover"]) addBotEntry(c);
+  G.mode = versus ? "versus" : "solo";
+  G.phase = "playing"; G.stage = "run"; G.spectate = false; G.matchResult = null;
+  SMP_resetRun(versus ? "versus" : "challenge");
+  SMP_placeCastAtSpawns(true);
+  SMP_showPlayUI();
+}
+function SMP_hostStartMatch(){
+  if (!net.isHost) return;
+  for (const seat of G.seats){
+    if (seat.kind === "empty" || seat.kind === "left"){
+      seat.kind = "bot"; seat.pid = null; seat.name = CHARS[seat.char].name;
+      if (!entryByChar(seat.char)){ const e = addBotEntry(seat.char); }
+    }
+  }
+  net.matchLocked = true; net.resultShown = false;
+  G.matchGen = (G.matchGen || 0) + 1;
+  G.mode = "mp"; G.phase = "playing"; G.stage = "run"; G.spectate = false; G.matchResult = null;
+  SMP_resetRun("versus");
+  SMP_placeCastAtSpawns(true);
+  SMP_showPlayUI();
+  publishSnapshotNow();
+}
+
+/* ------------------------------------------------------------- host sim ---- */
+function SMP_randLane(){ return (Math.random()*2-1) * (SMP.DOCK_HALF_Z*0.95); }
+function SMP_spawnCow(opts){
+  const type = opts.type || "cow";
+  const size = type === "giant" ? rand(3.6,4.4) : (type === "calf" ? 0.72 : 1.0);
+  const baseSpeed = (type === "giant" ? 2.7 : type === "calf" ? 5.6 : 4.5) * rand(0.9,1.12);
+  const lane = opts.lane != null ? opts.lane : SMP_randLane();
+  const cow = {
+    id: SMP.cowSeq++, type, size, x: SMP.SPAWN_X, z: lane, lane,
+    baseSpeed, speed: baseSpeed, phase: Math.random()*6.28,
+    wobPhase: Math.random()*6.28, wobFreq: rand(1.2,2.2),
+    wobAmp: type === "giant" ? 0.12 : rand(0.15,0.4),
+    pushR: SMP_cowPushR(size), _px: SMP.SPAWN_X, _pz: lane, view: null,
+  };
+  cow.view = SMP_buildCowView(cow);
+  if (SMP.group) SMP.group.add(cow.view);
+  SMP.cows.push(cow); SMP.cowById[cow.id] = cow;
+  smpMoo(type);
+  return cow;
+}
+function SMP_removeCow(i){
+  const cow = SMP.cows[i];
+  if (cow.view && SMP.group) SMP.group.remove(cow.view);
+  delete SMP.cowById[cow.id];
+  SMP.cows.splice(i,1);
+}
+function SMP_updateSpawns(dt){
+  SMP.spawnCd -= dt;
+  if (SMP.spawnCd > 0) return;
+  const frenzy = (SMP.mode !== "challenge" && SMP.timeLeft <= SMP.FRENZY_T);
+  // Concurrent-cow CAP is what actually controls difficulty (the crossing takes
+  // ~4s, so an uncapped fast spawner just walls the dock). The cap ramps with
+  // time so the herd thickens gradually — a clean dodger always keeps a gap,
+  // but a bot that errs gets caught. Frenzy bumps the cap for a climactic wall.
+  let cap, interval;
+  if (SMP.mode === "challenge"){
+    cap = Math.min(11, 3 + Math.floor(SMP.elapsed/5));
+    interval = Math.max(0.3, 1.4 * Math.pow(0.62, SMP.elapsed/16));
+  } else {
+    cap = Math.min(10, 3 + Math.floor(SMP.elapsed/2.8)) + (frenzy ? 3 : 0);
+    interval = frenzy ? 0.3 : Math.max(0.4, 1.3 - SMP.elapsed*0.04);
+  }
+  SMP.spawnCd = interval * (0.8 + Math.random()*0.4);
+  // FRENZY WAVE: every so often in the final stretch, a near-full-width sweep
+  // rolls in with a SINGLE random gap lane — a clean dodger threads the gap, a
+  // hesitating one gets walled and carried off. This is what makes the last
+  // seconds decisive (otherwise cows spread along the travel axis and the herd
+  // never actually forms a wall).
+  if (SMP.cows.length >= cap) return;                // herd is full — wait
+  const rows = (frenzy && SMP.cows.length < cap-1 && Math.random()<0.5) ? 2 : 1;
+  const lanes = [];
+  for (let i=0;i<rows && SMP.cows.length<cap;i++){
+    let lane = SMP_randLane(), guard = 0;
+    while (guard++ < 6 && lanes.some(l => Math.abs(l-lane) < 1.8)) lane = SMP_randLane();
+    lanes.push(lane);
+    SMP_spawnCow({ type: Math.random() < 0.3 ? "calf" : "cow", lane });
+  }
+}
+function SMP_updateGiantWarn(dt){
+  if (SMP.warnT > 0){
+    SMP.warnT -= dt;
+    if (SMP.warnT <= 0){ SMP.warnActive = false; SMP_spawnCow({ type:"giant", lane: SMP.warnLane }); publishSnapshotNow(); }
+    return;
+  }
+  if (SMP.grace > 0) return;
+  SMP.giantCd -= dt;
+  if (SMP.giantCd <= 0){
+    if (SMP.mode !== "challenge" && SMP.timeLeft < 2.5){ SMP.giantCd = 999; return; }   // no giant in the last breath
+    SMP.warnT = SMP.WARN_T; SMP.warnActive = true; SMP.warnLane = SMP_randLane();
+    SMP.giantCd = SMP.mode === "challenge" ? rand(8,11) : rand(9,11);
+    smpGiantMoo();
+    publishSnapshotNow();
+  }
+}
+function SMP_updateCows(dt){
+  const span = SMP.SPAWN_X - SMP.DESPAWN_X;
+  const panic = (SMP.mode !== "challenge" && SMP.timeLeft <= SMP.FRENZY_T) ? 1.12 : 1;   // final-stretch herd panic
+  for (let i=SMP.cows.length-1;i>=0;i--){
+    const cow = SMP.cows[i];
+    const progress = (SMP.SPAWN_X - cow.x)/span;   // 0 at spawn -> 1 at far edge
+    let accel = 1;
+    if (progress > 0.85) accel = 1 + (SMP.ACCEL_MAX-1) * Math.min(1,(progress-0.85)/0.15);
+    cow.speed = cow.baseSpeed * accel * panic;
+    cow.x -= cow.speed * dt;
+    cow.z = cow.lane + Math.sin(SMP.elapsed*cow.wobFreq + cow.wobPhase)*cow.wobAmp;
+    if (cow.x < SMP.DESPAWN_X){
+      smpSplashFX(SMP.DESPAWN_X+0.4, cow.z); smpSplash();
+      SMP_removeCow(i);
+    }
+  }
+}
+// push every char this client owns (host: local+bots; guest: own local) out of
+// any overlapping cow, along the cow's leftward travel — never kills, only shoves.
+function SMP_applyCowPush(dt, canMove){
+  const cand = [];
+  for (const e of allEntries()){
+    if (!e.alive || e.elimPhase || e._fell || !canMove(e)) continue;
+    e._contactHit = false; cand.push(e);
+  }
+  for (const cow of SMP.cows){
+    const R = cow.pushR;
+    for (const e of cand){
+      let dx = e.x - cow.x, dz = e.z - cow.z;
+      let dist = Math.hypot(dx, dz);
+      const minD = R + TUNE.CHAR_R;
+      if (dist >= minD) continue;
+      if (dist < 1e-4){ dx = -1; dz = (Math.random()*2-1)*0.25; dist = Math.hypot(dx,dz); }
+      const nx = dx/dist, nz = dz/dist, overlap = minD - dist;
+      e.x += nx*overlap; e.z += nz*overlap;                       // full overlap resolve
+      // TRAMPLING: a brief graze (what a clean dodger gets) barely nudges you,
+      // but the longer you stay under the herd the harder it sweeps you along —
+      // so a bot that FAILS to dodge (sustained contact) gets carried off, while
+      // a player who slips out immediately is only lightly bumped. This makes the
+      // skill gap about DODGING IN TIME, not raw push strength (symmetric carry
+      // would kill everyone equally).
+      const trample = 1 + Math.min(3.6, (e._contactT || 0) * 3.4);
+      e.x -= (cow.type === "giant" ? 0.66 : 0.5) * trample * cow.speed * dt;
+      e._pushT = 0.12; e._contactHit = true;
+    }
+  }
+  for (const e of cand){
+    if (e._contactHit) e._contactT = (e._contactT || 0) + dt;
+    else e._contactT = Math.max(0, (e._contactT || 0) - dt*4.5);   // a quick slip-out clears the trample fast
+  }
+}
+function stampedeSplashElim(e){
+  e._fell = true; e.elimPhase = "fading"; e.elimT = 0; e.squishT = 0;
+  smpSplashFX(e.x, e.z); smpSplash();
+}
+function SMP_eliminate(e){
+  if (!e || !e.alive) return;
+  e.alive = false;
+  stampedeSplashElim(e);
+  if (e.isLocal){
+    if (G.mode === "solo") SMP_endChallenge();
+    else G.spectate = true;
+  }
+  publishSnapshotNow();
+}
+function SMP_fallCheck(){
+  const H = SMP.DOCK_HALF_X, Hz = SMP.DOCK_HALF_Z;
+  for (const e of aliveEntries()){
+    if (e.elimPhase || e._fell) continue;
+    if (Math.abs(e.x) > H || Math.abs(e.z) > Hz) SMP_eliminate(e);
+  }
+}
+function SMP_checkResolve(){
+  if (SMP.state !== "run") return;
+  const alive = aliveEntries();
+  if (alive.length <= 1){ SMP_resolve(alive.length === 1 ? alive[0] : null); return; }
+  if (SMP.timeLeft <= 0) SMP_resolve(null);   // timer up with >=2 alive -> draw
+}
+function SMP_resolve(winner){
+  SMP.state = "over";
+  G.phase = "matchover"; G.stage = "none"; G.spectate = false;
+  if (!winner){
+    SMP.result = { draw:true, winnerChar:null };
+    G.matchResult = { type:"draw", winnerId:null, winnerName:null, winnerChar:null };
+    sfxHonk();
+    SMP_showResultOverlay(G.matchResult);
+    publishSnapshotNow();
+    return;
+  }
+  SMP.result = { draw:false, winnerChar: winner.char };
+  const type = matchTypeFor(winner);
+  G.matchResult = { type, winnerId: winner.id, winnerName: winner.name, winnerChar: winner.char };
+  winner.x = 0; winner.z = 0; syncEntryNow(winner);
+  playViewClip(charViews[winner.char], "cheer", 0.15);
+  if (type === "playerWin"){
+    sfxFanfare(); confettiBurst();
+    const wins = (parseInt(localStorage.getItem("sb_wins") || "0", 10) || 0) + 1;
+    localStorage.setItem("sb_wins", String(wins));
+  } else sfxSting();
+  SMP_showResultOverlay(G.matchResult);
+  publishSnapshotNow();
+}
+function SMP_endChallenge(){
+  SMP.state = "over";
+  G.phase = "squished"; G.stage = "none"; G.spectate = false;
+  const t = SMP.elapsed;
+  const newBest = t > SMP.best;
+  if (newBest){ SMP.best = t; localStorage.setItem("fp_stampede_best", String(+t.toFixed(1))); }
+  sfxHonk();
+  SMP_showChallengeOverlay(newBest);
+}
+function SMP_hostTick(dt){
+  if (!stampedeActive()) return;
+  if (G.phase !== "playing") return;
+  SMP_ensureArena();
+  SMP.grace = Math.max(0, SMP.grace - dt);
+  const local = localP();
+  if (local && local.alive && !local.isBot) updatePlayer(dt);
+  if (net.active && net.isHost) hostAdoptGuests(dt);
+  if (G.mode !== "solo") SMP_updateBots(dt);
+  if (SMP.grace <= 0) SMP_updateSpawns(dt);
+  SMP_updateGiantWarn(dt);
+  SMP_updateCows(dt);
+  SMP_applyCowPush(dt, e => !e.isRemote);   // host owns local+bots; guests arrive pre-shoved
+  SMP_fallCheck();
+  SMP.elapsed += dt;
+  if (SMP.mode === "challenge"){
+    // endless — ends when the lone player falls (SMP_eliminate -> SMP_endChallenge)
+  } else {
+    if (SMP.grace <= 0) SMP.timeLeft = Math.max(0, SMP.timeLeft - dt);
+    SMP_checkResolve();
+  }
+}
+
+/* ------------------------------------------------------- stampede bots ----- *
+ * House philosophy: bots have the SAME top speed as the player and lose by
+ * ERRING, never by being slow. They seek the biggest gap between incoming cow
+ * lanes, drift away from the dock edges, flee the giant's lane, and make
+ * time-scaled mistakes (late reactions, wrong-way dodges, dawdles).           */
+function SMP_botPlan(b, ai){
+  const errChance = Math.min(0.85, ai.errBase + SMP.elapsed*0.024);
+  const erring = Math.random() < errChance;
+  let threat = null, threatDx = 1e9;
+  for (const cow of SMP.cows){
+    const dx = cow.x - b.x;
+    if (dx < -0.4 || dx > SMP.BOT_LOOKAHEAD) continue;                  // only cows ahead, within lookahead
+    if (Math.abs(cow.z - b.z) < SMP.BOT_DODGE_BAND + cow.pushR){
+      if (dx < threatDx){ threatDx = dx; threat = cow; }
+    }
+  }
+  const inner = SMP.DOCK_HALF_Z - 0.7, innerX = SMP.DOCK_HALF_X - 0.7;
+  let tx = b.x, tz = b.z;
+  if (threat){
+    const roomPos = inner - b.z, roomNeg = b.z + inner;   // room toward +z vs -z
+    let dir = roomPos > roomNeg ? 1 : -1;
+    if (erring){ if (Math.random() < 0.45) dir = -dir; else ai.dawdleCd = 0.6 + Math.random()*0.7; }
+    tz = clamp(b.z + dir*2.4, -inner, inner);
+    tx = b.x * 0.9;
+  } else {
+    // Idle bots only mildly re-center (unlike a skilled player, who actively
+    // returns to the safe middle) — so accumulated shoves grind a bot toward the
+    // danger edge over time. This is the ASYMMETRY that lets a clean dodger
+    // outlast the herd without needing lethal-to-everyone carry.
+    tz = b.z * 0.95; tx = b.x * 0.99;
+  }
+  // flee the giant / the warned lane
+  for (const cow of SMP.cows){
+    if (cow.type === "giant" && cow.x > b.x - 1.5 && Math.abs(tz - cow.z) < cow.pushR + 1.3)
+      tz = cow.z + (tz >= cow.z ? 1 : -1) * (cow.pushR + 1.6);
+  }
+  if (SMP.warnActive && Math.abs(tz - SMP.warnLane) < 2.0)
+    tz = SMP.warnLane + (tz >= SMP.warnLane ? 1 : -1) * 2.3;
+  ai.targetX = clamp(tx, -innerX, innerX);
+  ai.targetZ = clamp(tz, -inner, inner);
+}
+function SMP_botMove(b, ai, dt){
+  const speed = TUNE.MOVE_SPEED * (ai.speedMul || 1);
+  const dx = ai.targetX - b.x, dz = ai.targetZ - b.z;
+  const d = Math.hypot(dx, dz);
+  if (d < 0.05){ b.moving = false; b.speed = 0; return; }
+  const step = Math.min(d, speed*dt);
+  b.x += dx/d*step; b.z += dz/d*step;             // NOT edge-clamped — a cow can still shove a bot off
+  b.facing = Math.atan2(dx, dz);
+  b.moving = true; b.speed = speed;
+}
+function SMP_updateBots(dt){
+  for (const b of botEntries()){
+    if (!b.alive || b.elimPhase) continue;
+    const ai = b.smpAI || (b.smpAI = SMP_freshBotAI());
+    if (ai.dawdleCd > 0){ ai.dawdleCd -= dt; b.moving = false; b.speed = 0; continue; }
+    ai.reactCd -= dt;
+    if (ai.reactCd <= 0){ SMP_botPlan(b, ai); ai.reactCd = ai.reactBase * (0.6 + Math.random()*0.8); }
+    SMP_botMove(b, ai, dt);
+  }
+}
+
+/* --------------------------------------------------------- MP snapshot ----- */
+function SMP_buildSnap(){
+  const cows = [];
+  for (const c of SMP.cows){
+    const tc = c.type === "calf" ? 0 : c.type === "giant" ? 2 : 1;
+    cows.push([c.id, tc, +c.x.toFixed(2), +c.z.toFixed(2), +c.size.toFixed(2)]);
+  }
+  return { t: +Math.max(0,SMP.timeLeft).toFixed(2), md: SMP.mode === "challenge" ? 1 : 0,
+    warn: SMP.warnActive ? 1 : 0, wl: +SMP.warnLane.toFixed(1), cows };
+}
+function SMP_applySnap(smp, dt){
+  SMP_ensureArena();
+  SMP.mode = smp.md ? "challenge" : "versus";
+  SMP.timeLeft = smp.t;
+  const wasWarn = SMP.warnActive;
+  SMP.warnActive = !!smp.warn; SMP.warnLane = smp.wl || 0;
+  if (SMP.warnActive && !wasWarn) smpGiantMoo();
+  const seen = {};
+  for (const cd of smp.cows){
+    const id = cd[0], tc = cd[1], x = cd[2], z = cd[3], size = cd[4];
+    seen[id] = 1;
+    let cow = SMP.cowById[id];
+    if (!cow){
+      const type = tc === 0 ? "calf" : tc === 2 ? "giant" : "cow";
+      cow = { id, type, size: size || (type === "giant" ? 4 : type === "calf" ? 0.72 : 1),
+        x, z, lane: z, phase: Math.random()*6.28, pushR: SMP_cowPushR(size || 1),
+        _px: x, _pz: z, view: null, tx: x, tz: z };
+      cow.view = SMP_buildCowView(cow);
+      if (SMP.group) SMP.group.add(cow.view);
+      SMP.cows.push(cow); SMP.cowById[id] = cow;
+      smpMoo(cow.type);
+    } else { cow.tx = x; cow.tz = z; }
+  }
+  const t = 1 - Math.exp(-9*(dt || 0.016));
+  for (const cow of SMP.cows){
+    if (cow.tx == null) continue;
+    cow.x += (cow.tx - cow.x)*t; cow.z += (cow.tz - cow.z)*t;
+  }
+  for (let i=SMP.cows.length-1;i>=0;i--){
+    const cow = SMP.cows[i];
+    if (!seen[cow.id]){ smpSplashFX(cow.x, cow.z); smpSplash(); SMP_removeCow(i); }
+  }
+}
+
+/* -------------------------------------------------- per-frame view + HUD ---- */
+function SMP_frame(dt){
+  if (!stampedeActive()) return;
+  SMP_ensureArena();
+  if (SMP.water && SMP.water.material.map){ SMP.water.material.map.offset.x += dt*0.014; SMP.water.material.map.offset.y += dt*0.009; }
+  const surf = TUNE.TOME_TOP_Y + TUNE.GROUND_Y;
+  for (const cow of SMP.cows){
+    if (!cow.view) continue;
+    const moved = Math.hypot(cow.x - cow._px, cow.z - cow._pz);
+    cow._px = cow.x; cow._pz = cow.z;
+    cow.phase += moved / 0.32;
+    cow.view.position.set(cow.x, surf, cow.z);
+    const legs = cow.view.userData.legs;
+    const swing = cow.type === "giant" ? 0.26 : 0.5;
+    if (legs) for (let i=0;i<legs.length;i++) legs[i].rotation.z = Math.sin(cow.phase + (i%2?Math.PI:0) + (i<2?0:0.5)) * swing;
+    if (cow.view.userData.tail) cow.view.userData.tail.rotation.x = Math.sin(SMP.elapsed*3 + cow.id)*0.35;
+  }
+  SMP_updateHud();
+}
+function SMP_updateHud(){
+  const timerEl = document.getElementById("smpTimer");
+  const clockEl = document.getElementById("smpClock");
+  const csubEl = document.getElementById("smpCsub");
+  const warnEl = document.getElementById("smpWarn");
+  const show = stampedeActive() && G.phase === "playing";
+  hudEl.classList.remove("on");   // keep the storybook page chip hidden during stampede
+  if (timerEl) timerEl.classList.toggle("on", show);
+  if (show){
+    if (SMP.mode === "challenge"){
+      clockEl.textContent = SMP.elapsed.toFixed(1);
+      clockEl.classList.remove("urgent");
+      csubEl.style.display = ""; csubEl.textContent = "⏱ survive! · best " + SMP.best.toFixed(1) + "s";
+    } else {
+      const tl = Math.max(0, SMP.timeLeft);
+      clockEl.textContent = String(Math.ceil(tl));
+      clockEl.classList.toggle("urgent", tl <= 5.5);
+      csubEl.style.display = "none";
+      const sec = Math.ceil(tl);
+      if (tl > 0 && tl <= 5 && sec !== SMP._lastTick){ SMP._lastTick = sec; sfxTick(); }
+    }
+  }
+  if (warnEl) warnEl.classList.toggle("on", show && SMP.warnActive);
+}
+function SMP_showResultOverlay(result){
+  overlayEl.classList.toggle("win", result.type === "playerWin");
+  const winner = result.winnerName || "???";
+  const heads = {
+    playerWin: "🏆 You survived — last cow-dodger standing!",
+    botWin: winner + " outlasted the herd!",
+    remoteWin: winner + " outlasted the herd!",
+    draw: "The whole herd won! 🐄 It's a draw!",
+  };
+  document.getElementById("ohead").textContent = heads[result.type] || "Stampede over";
+  document.getElementById("oNum").textContent = Math.floor(SMP.elapsed);
+  document.querySelector("#overlay .blabel").textContent = "seconds survived";
+  const bestEl = document.getElementById("oBest");
+  bestEl.innerHTML = result.type === "playerWin" ? '<span class="nb">🏆 Match win!</span>' : "";
+  const again = document.getElementById("againBtn"), mini = document.getElementById("restartMini");
+  const hostCtl = !(G.mode === "mp" && !net.isHost);
+  if (again) again.style.display = hostCtl ? "" : "none";
+  if (mini) mini.style.display = hostCtl ? "" : "none";
+  overlayEl.classList.add("on");
+}
+function SMP_showChallengeOverlay(newBest){
+  overlayEl.classList.remove("win");
+  document.getElementById("ohead").textContent = "Splash! 🐄💦";
+  document.getElementById("oNum").textContent = SMP.elapsed.toFixed(1);
+  document.querySelector("#overlay .blabel").textContent = "seconds survived";
+  const bestEl = document.getElementById("oBest");
+  bestEl.innerHTML = newBest ? '<span class="nb">🏆 New best!</span>' : ("Best: " + SMP.best.toFixed(1) + "s");
+  overlayEl.classList.add("on");
+}
+function SMP_isOver(){ return SMP.state === "over"; }
+function SMP_result(){
+  if (SMP.mode === "challenge") return null;   // solo score — no party point
+  return SMP.result || null;
+}
+
+/* --------------------------------------------------------------- sounds ---- */
+function smpMoo(type){
+  if (!actx || G.fastForwarding) return;
+  const base = type === "giant" ? 92 : type === "calf" ? 300 : 188;
+  const p = base * (0.85 + Math.random()*0.32);
+  tone(p, 0.34, "sawtooth", 0.09, 0, p*0.62);
+  tone(p*0.5, 0.4, "square", 0.05, 0.02, p*0.42);
+}
+function smpGiantMoo(){
+  tone(70, 0.7, "sawtooth", 0.2, 0, 46);
+  tone(48, 0.82, "square", 0.15, 0, 33);
+  noiseBurst(0.72, 0.15, 120, 0, 60);   // hoof rumble
+}
+function smpSplash(){
+  noiseBurst(0.3, 0.15, 1900, 0, 380);
+  tone(560, 0.12, "sine", 0.07, 0, 300);
+}
+function smpSplashFX(x, z){
+  const surf = TUNE.TOME_TOP_Y + TUNE.GROUND_Y;
+  const cols = [0x9fd8f2, 0xd8f0ff, 0x6fb8e0];
+  for (let i=0;i<14;i++){
+    const a = Math.random()*Math.PI*2, sp = 1.3 + Math.random()*2.4;
+    spawnParticle(x + (Math.random()*2-1)*0.5, surf + 0.12, z + (Math.random()*2-1)*0.5,
+      cols[i%cols.length], { vx: Math.cos(a)*sp, vy: 2.0 + Math.random()*2.4, vz: Math.sin(a)*sp,
+      size: 0.14 + Math.random()*0.16, life: 0.6 + Math.random()*0.4, grav: -7 });
+  }
 }
 
 /* -------------------------------------------------------------- BOOT ------- */
@@ -3445,8 +4835,9 @@ window.__PARTY__ = {
     const v = new THREE.Vector3();
     const pts = [[-TUNE.SPREAD_HALF_W,-TUNE.SPREAD_HALF_D],[TUNE.SPREAD_HALF_W,-TUNE.SPREAD_HALF_D],
                  [-TUNE.SPREAD_HALF_W,TUNE.SPREAD_HALF_D],[TUNE.SPREAD_HALF_W,TUNE.SPREAD_HALF_D]];
+    const surfY = TUNE.TOME_TOP_Y + TUNE.GROUND_Y;
     for (const [x,z] of pts){
-      v.set(x,0,z).project(camera);
+      v.set(x,surfY,z).project(camera);
       out.push({ x:(v.x*0.5+0.5)*innerWidth, y:(-v.y*0.5+0.5)*innerHeight, ndcX:+v.x.toFixed(3), ndcY:+v.y.toFixed(3) });
     }
     return out;
@@ -3459,6 +4850,115 @@ window.__PARTY__ = {
   get camera(){ return camera; },
   get curPage(){ return curPage; },
   landedWorldZ(sy){ return S2W_Z(sy); },   // mirror-math helper for the suite
+
+  /* ------------------------------------------------------- TOME/WEDGE HOOKS - */
+  get WEDGE_TILT_RAD(){ return WEDGE_TILT_RAD; },
+  get scene(){ return scene; },
+  tomeInfo(){
+    const cover = scene.getObjectByName("tomeCover");
+    const pageBlock = scene.getObjectByName("tomePageBlock");
+    return {
+      coverExists: !!cover, pageBlockExists: !!pageBlock,
+      coverY: cover ? cover.position.y : null, pageBlockY: pageBlock ? pageBlock.position.y : null,
+      pageBlockH: pageBlock ? pageBlock.geometry.parameters.height : null,
+      surfaceY: TUNE.TOME_TOP_Y + TUNE.GROUND_Y,
+    };
+  },
+  wedgeInfo(){
+    if (!wedgeGroup || !wedgeMesh) return null;
+    const box = new THREE.Box3().setFromObject(wedgeGroup);
+    return { exists:true, scaleY:+wedgeGroup.scale.y.toFixed(4), remainingFrac: wedgeRemainingFrac(),
+      maxH: TUNE.WEDGE_MAX_H, tiltRad: WEDGE_TILT_RAD, worldTopY: box.max.y, worldBottomY: box.min.y };
+  },
+
+  /* -------------------------------------------------- ART POLISH HOOKS ----- *
+   * "standing half of the book" assembly, decorated surfaces, scenery, and a
+   * WebGL pixel sampler for on-screen contrast/visibility proof. */
+  wedgeCoverInfo(){
+    if (!wedgeCoverGroup) return null;
+    const board = scene.getObjectByName("unreadWedgeCoverBoard");
+    const box = new THREE.Box3().setFromObject(wedgeCoverGroup);
+    return { exists:true, boardExists: !!board, fanCount: wedgeFanMeshes.length,
+      worldTopY: box.max.y, worldBottomY: box.min.y, height: box.max.y - box.min.y };
+  },
+  // projected screen-space bounding box (NDC + pixel fraction of viewport
+  // height) of the WHOLE standing-half assembly (page fan + cover board) —
+  // proof the standing half actually occupies a big, readable chunk of
+  // screen, not just that the meshes exist in data.
+  standingAssemblyScreenInfo(){
+    if (!wedgeGroup || !wedgeCoverGroup) return null;
+    const box = new THREE.Box3().setFromObject(wedgeGroup).union(new THREE.Box3().setFromObject(wedgeCoverGroup));
+    const corners = [];
+    for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z])
+      corners.push(new THREE.Vector3(x,y,z));
+    let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+    for (const c of corners){ const v = c.clone().project(camera); minX=Math.min(minX,v.x); maxX=Math.max(maxX,v.x); minY=Math.min(minY,v.y); maxY=Math.max(maxY,v.y); }
+    return { ndcMinX:minX, ndcMaxX:maxX, ndcMinY:minY, ndcMaxY:maxY,
+      screenHFrac: (maxY-minY)/2, screenWFrac: (maxX-minX)/2 };   // NDC spans -1..1, so /2 = fraction of viewport
+  },
+  sceneryInfo(){
+    const grp = scene.getObjectByName("scenery");
+    if (!grp) return null;
+    let meshCount = 0, lightCount = 0;
+    grp.traverse(o => { if (o.isMesh) meshCount++; if (o.isLight) lightCount++; });
+    return { exists:true, topLevelCount: grp.children.length, meshCount, lightCount };
+  },
+  playSurfaceInfo(){
+    const base = scene.getObjectByName("tomeBaseSheet");
+    return { exists: !!base, usesPlaySurfaceTex: !!base && base.material.map === playSurfaceTex };
+  },
+  tomeExteriorInfo(){
+    let embossCount = 0, cornerAccentCount = 0;
+    scene.traverse(o => { if (o.name === "tomeEmboss") embossCount++; if (o.name === "tomeCornerAccent") cornerAccentCount++; });
+    return { embossCount, cornerAccentCount };
+  },
+  rendererDiagnostics(){
+    const info = renderer.info;
+    return { calls: info.render.calls, triangles: info.render.triangles,
+      geometries: info.memory.geometries, textures: info.memory.textures };
+  },
+  // WebGL pixel sampler — px/py in CSS pixels, top-left origin (same
+  // convention as spreadCornersOnScreen()'s output) — for on-screen
+  // contrast/visibility assertions (not just "the data exists").
+  samplePixel(px, py){
+    const gl = renderer.getContext();
+    const dpr = renderer.getPixelRatio();
+    const bw = gl.drawingBufferWidth, bh = gl.drawingBufferHeight;
+    const x = Math.round(px*dpr), y = bh - Math.round(py*dpr) - 1;
+    const buf = new Uint8Array(4);
+    gl.readPixels(Math.max(0,Math.min(bw-1,x)), Math.max(0,Math.min(bh-1,y)), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+    return Array.from(buf);
+  },
+  // read a pixel DIRECTLY off the 2D pageCanvas (the CURRENT page's own
+  // texture source, coords 0..pageCanvas.width/height) — sidesteps the whole
+  // 3D world->screen->GL-sample pipeline (thin printed strokes are easy to
+  // miss by a pixel via that route at oblique angles) to prove the PRINT
+  // CONTENT itself is correct; pairs with the "on-screen" projection check
+  // (which proves the hole's world position is within the camera frustum)
+  // for a robust, deterministic "genuinely visible" proof.
+  samplePageCanvasPixel(px, py){
+    const x = Math.max(0, Math.min(pageCanvas.width-1, Math.round(px)));
+    const y = Math.max(0, Math.min(pageCanvas.height-1, Math.round(py)));
+    return Array.from(pageCtx.getImageData(x, y, 1, 1).data);
+  },
+  get pageCanvasSize(){ return { w: pageCanvas.width, h: pageCanvas.height }; },
+  // project a world point to CSS-pixel screen coords (top-left origin) —
+  // pairs with samplePixel for "sample the pixel AT this world position".
+  worldToScreen(x, y, z){
+    const v = new THREE.Vector3(x,y,z).project(camera);
+    return { x:(v.x*0.5+0.5)*innerWidth, y:(-v.y*0.5+0.5)*innerHeight };
+  },
+
+  /* ------------------------------------------------------ COLLISION HOOKS --- */
+  buckyRootWorldY(){ return buckyRoot.position.y; },
+  separationMovableIds(){ return Array.from(separationMovableIds()); },
+  applySeparationOnce(ids){ applyCharacterSeparation(1/60, new Set(ids)); },
+  makeRemoteEntryForTest(char){ return makeRemoteEntry(char); },
+  dist(idA, idB){
+    const a = resolveEntry(idA), b = resolveEntry(idB);
+    if (!a || !b) return null;
+    return Math.hypot(a.x-b.x, a.z-b.z);
+  },
 
   /* --------------------------------------------------- VERSUS TEST HOOKS --- */
   isSafeAt, errChanceAt, entryByChar, entryById, resolveEntry,
@@ -3497,7 +4997,7 @@ window.__PARTY__ = {
     const bot = resolveEntry(id);
     if (!bot) return null;
     return { targetHoleIdx: bot.targetHoleIdx, standX: bot.standX, standZ: bot.standZ,
-      aiPhase: bot.aiPhase, errType: bot.errType, effReactionT: bot.effReactionT };
+      aiPhase: bot.aiPhase, errType: bot.errType, effReactionT: bot.effReactionT, repicked: !!bot._repicked };
   },
   castInfo(){
     const info = [];
@@ -3537,6 +5037,51 @@ window.__PARTY__ = {
     selectedGame:PARTY.selectedGame, selectHover:PARTY.selectHover, subMode:PARTY.subMode,
     inGame:PARTY._inGame, active:ACTIVE_MINIGAME ? ACTIVE_MINIGAME.id : null }; },
   sceneChildCount(){ return scene.children.length; },            // leak proof across matches
+
+  /* -------------------------------------------------- MOO STAMPEDE HOOKS --- */
+  stampede: {
+    get G(){ return G; },
+    get SMP(){ return SMP; },
+    get active(){ return stampedeActive(); },
+    get state(){ return SMP.state; },
+    get mode(){ return SMP.mode; },
+    get timeLeft(){ return SMP.timeLeft; },
+    get elapsed(){ return SMP.elapsed; },
+    get best(){ return SMP.best; },
+    get warnActive(){ return SMP.warnActive; },
+    get cowCount(){ return SMP.cows.length; },
+    cows(){ return SMP.cows.map(c => ({ id:c.id, type:c.type, size:c.size, x:c.x, z:c.z, speed:c.speed, pushR:c.pushR })); },
+    cowById(id){ const c = SMP.cowById[id]; return c ? { id:c.id, type:c.type, size:c.size, x:c.x, z:c.z, speed:c.speed } : null; },
+    // spawn a cow directly at (x,z) for deterministic tests; returns its id.
+    spawnCow(opts){
+      SMP_ensureArena();
+      const c = SMP_spawnCow(opts || {});
+      if (opts && typeof opts.x === "number") c.x = opts.x;
+      if (opts && typeof opts.z === "number"){ c.z = opts.z; c.lane = opts.z; }
+      return c.id;
+    },
+    clearCows(){ SMP_clearCows(); },
+    forceTime(sec){ SMP.timeLeft = sec; },
+    forceElapsed(sec){ SMP.elapsed = sec; },
+    setGrace(sec){ SMP.grace = sec; },
+    hostTick(dt){ SMP_hostTick(dt || 1/60); },
+    // run the host cow-push once against local+bots (test: shove a player leftward).
+    pushStep(dt){ SMP_applyCowPush(dt || 1/60, e => !e.isRemote); },
+    fallCheck(){ SMP_fallCheck(); },
+    checkResolve(){ SMP_checkResolve(); },
+    updateCows(dt){ SMP_updateCows(dt || 1/60); },
+    updateSpawns(dt){ SMP_updateSpawns(dt || 1/60); },
+    updateGiantWarn(dt){ SMP_updateGiantWarn(dt || 1/60); },
+    updateBots(dt){ SMP_updateBots(dt || 1/60); },
+    spawnGiantNow(lane){ SMP.warnT = 0; SMP.warnActive = false; return SMP_spawnCow({ type:"giant", lane: lane||0 }).id; },
+    cowMeshCount(){ let n=0; for (const c of SMP.cows) if (c.view) c.view.traverse(o=>{ if (o.isMesh) n++; }); return n; },
+    cowViewSize(id){ const c = SMP.cowById[id]; if (!c || !c.view) return null; const b = new THREE.Box3().setFromObject(c.view); const s = new THREE.Vector3(); b.getSize(s); return { x:s.x, y:s.y, z:s.z }; },
+    cowTris(){ let t=0; for (const c of SMP.cows) if (c.view) c.view.traverse(o=>{ if (o.isMesh && o.geometry){ const g=o.geometry; const idx=g.index?g.index.count:(g.attributes.position?g.attributes.position.count:0); t += idx/3; } }); return t; },
+    result(){ return SMP_result(); },
+    isOver(){ return SMP_isOver(); },
+    dockHalf(){ return { x: SMP.DOCK_HALF_X, z: SMP.DOCK_HALF_Z }; },
+    setForceNoBotErrors(v){ SMP._noBotErr = !!v; },   // (reserved; bots still err by default)
+  },
 };
 
 /* -------------------------------------------------------- UTILITIES -------- */
