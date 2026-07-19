@@ -20,7 +20,25 @@ base×delta (capture-and-compose — the mixer does NOT rewrite bones at timeSca
 multiply accumulates; ⏸ freeze + persistence per char in localStorage cd_pose_<name>;
 "copy JSON" emits the exact {bone:[x,y,z]} table format the games' pose code consumes,
 e.g. BUCKY3D_SEATED_POSE; hooks __DEMO__.setBoneDelta/poseJSON/pose; verify: scratchpad
-posecheck.cjs 11/11):
+posecheck.cjs 11/11. 2026-07-18 additions (mirror_kart_check.cjs 11/11): 🪞 MIRROR default
+ON — L_/R_ limb edits auto-apply [x,-y,-z] to the twin (the rig's mirrored local frames;
+toggle off for asymmetric poses like Huey's); 🛻 KART PREVIEW — seats the character in
+farmkart-gator3d.glb with SEATED_POSE (a copy of BUCKY3D_SEATED_POSE — keep in sync),
+user deltas compose rest×seated×user exactly like the game, char switches stay seated,
+picking a clip exits; per-char poseDefaults in CHARACTERS (Huey ships user-tuned wing/feet
+offsets). Goose char is named HUEY (user naming, 2026-07-18). POSE v2 (2026-07-18, user:
+arms clip into bodies): per-bone TRANSLATION offsets too ("shift (anchor point)" sliders
+±0.2, capture-and-compose on bone.position like rotations — Tripo clips bake constant
+position tracks on every bone so the mixer rewrites them each frame; mirror for t is
+GEOMETRIC — local→world via the PARENT quat (bone.position lives in parent space),
+reflect across the model-local sagittal plane, into the twin's parent frame — so "left
+arm out = right arm out" exactly; naive [tx,-ty,-tz] moved the twin INWARD, and rotation
+mirroring stays [x,-y,-z]); JSON format: rotation-only bones stay PLAIN ARRAYS (game-table compatible),
+translated bones emit {r,t} — game appliers must learn {r,t} before consuming those;
+kart preview gains a 🛞 steering-wheel section (X/Y/Z/scale sliders move the kart GLB's
+SteerWheel node + ✋ gripAngle positions 2 red rim markers as hand targets; exported as
+__steerWheel meta key; restored on exit so the shared template never drifts). Verify:
+scratchpad pose_v2_check.cjs 12/12 + all prior suites green.):
 - **Bucky** `assets/cast/bucky/` — THE mascot, generated IMAGE-TO-3D from the user's
   Mario-style reference (brown fur, white ribbed horns, blue overalls, white gloves, red
   boots; ref saved at `scratchpad bucky_ref.png`, extracted from the session .jsonl).
@@ -36,7 +54,14 @@ MeshLambert{skinning:true} + emissive lift 0.30 (normal/MR dropped), seated-pose
 `BUCKY3D_SEATED_POSE` applied rest×delta on a wrapper (base yaw -π/2 — THE GLB READS +X in
 the kart frame, not +Z; native height ~0.98u → TARGET_H 1.52 after the user's -20% playtest
 note), steer/drift lean = quat delta on Spine01/Head — lean SIGN IS FLIPPED vs the
-procedural torso (the -π/2 wrapper yaw mirrors bone-local Z; playtest-confirmed). glb branch in fillKartDriver/syncKartDriver (no stretchLimb/hand-parenting);
+procedural torso (the -π/2 wrapper yaw mirrors bone-local Z; playtest-confirmed).
+SEATED-POSE ARMS RE-SOLVED 2026-07-18 (user: "hands swapped, arms look crossed"): hands
+now land ON the wheel grips via a grip-marker sweep in the cast demo's kart preview
+(score = hand→own-grip distances + crossing penalty; total miss 0.16u). GROUND TRUTH for
+sides: the +X-facing GLB's anatomical LEFT is world -Z — verify against SHOULDER bone
+world positions, never derive by hand (two sign derivations in a row were wrong here).
+Huey's composed forearm overrides were recomputed against the new bases (merge_pose.cjs
+in session scratchpad composes base×user quats → euler). glb branch in fillKartDriver/syncKartDriver (no stretchLimb/hand-parenting);
 hats gated OFF for glb drivers; procedural bucky stays DEFAULT; bucky3d in bot random pool
 (~48k tris/clone — fine at 3 bots). Verify: `node tools/_verify-bucky3d.cjs` (16/16).
 KNOWN: hands hover ~0.26u from grips meeting center-front (anatomical reach limit; occluded
@@ -110,6 +135,24 @@ assert root-Y in tests); idle keeps feet planted (15.4s subtle sway).
 **Task IDs** (reusable for more clips — retarget against the RIG id):
 - Billy: gen `56c274e0-ad96-4486-b22f-6231364ebe01`, RIG `4b4b68ca-2e82-4448-98e0-9f45874eb9e3`
 - Bucky: gen `ba8d7a1b-5362-417a-9f24-93a4d7da64f0`, RIG `df08d15e-f514-4ae6-9d2b-bca5266eaaec`
+- Otis 🐶 (dog, image-to-3D from user ref): gen `ade492c3-f028-4962-9e31-c8899f4d9d78`, RIG `6b3de3e8-de18-40a6-b1f2-190b0d722545`
+- Boots 🐱 (cat, user ref): gen `3d5775af-0c18-47de-b967-ae71ed75b105`, RIG `943f751f-9083-4fd0-bccd-45dbc7e31950`
+- Huey 🦆 (goose, user ref — USER NAMED HIM HUEY; rigged with EXPLICIT --rig-type biped so
+  the checker can't route it avian; files stay assets/cast/goose/goose*.glb): gen
+  `c05d614d-1e2a-4098-b36e-340d06cf6efb`, RIG `c8dff594-b24a-4ba9-92cf-0a8f8ab88552`
+(2026-07-18: cast batch ×3 all 26/26 in castdemo_verify; conversion batching =
+scratchpad cast_convert.sh; ~11MB total for the three.)
+**ALL FOUR GLB KART DRIVERS** (2026-07-18, opus agent + Fable follow-up): bucky3d machinery
+refactored into `GLB_DRIVER_DEFS` registry (farmkart.html ~L2131: {url,name,ico,targetH,
+baseYaw,pose}; shared _prepGlbDriverTemplate/loadGlbDriverTemplate/_attachGlbDriver;
+_poseWith(overrides) clones the base seated table; bucky3d hooks aliased, its 16/16 suite
+UNCHANGED). Drivers: bucky3d · otis3d · boots3d · **huey3d** ("Huey 3D" 🦆 — renamed from
+gus3d per user; targetH 1.72 for the neck; pose = base + user's pose-tool wing/feet JSON
+(forearms QUATERNION-COMPOSED base×user then re-extracted as euler — additive tables don't
+compose) + NeckTwist01/02+Head -X raises the head so the chase cam sees more than a white
+blob). All four: same +X facing/-π/2 yaw, same base seated pose. 4 concurrent GLB drivers
+= 254k tris, no cap needed. Verify: `node tools/_verify-glbdrivers.cjs` (65/65).
+Huey's pose-tool defaults also ship in characterdemo CHARACTERS.goose.poseDefaults.
 **RAW intermediates** (~1GB total: base/rig GLBs + per-clip FBXs under
 `assets/cast/<name>/<task-dirs>/`) are kept untracked for re-conversion — NEVER commit
 them; only `<name>.glb` + `<name>-*.glb` + the presets txt ship.
@@ -3020,3 +3063,101 @@ only; old balloon battle + racing byte-identical (everything gated on `ACTIVE_TR
   cast GLBs (assets/cast/{bucky,goat}/*.glb + presets txt; RAW intermediates gitignored via
   assets/cast/*/*/). farmkart.html + farmkart-track.js changes (bot overhaul + Cursor city
   theme) deliberately NOT shipped — still awaiting playtest.
+- TOME + PAGE-SOURCE + JOSTLING (2026-07-17, user playtest of live Farm Party; LOCAL/unpushed):
+  (1) TOME — TUNE.TOME_TOP_Y=1.55 single raised-surface const (every table-level Y routes
+  through it; camera target+content shift by the same const so fitCamera fit is provably
+  identical, portrait fill still 29.7%); buildBook adds tomeCover (deep red slab + gold trim)
+  + ~1.23u cream tomePageBlock w/ makePageStackTexture striped page-edge sides. (2) PAGE
+  SOURCE — unreadWedge group at the hinge, WEDGE_TILT_RAD 28°; page REST pose = the wedge
+  tilt and both flip interpolators ramp WEDGE_TILT→π (pages peel off the stack); landed
+  mirror math UNCHANGED (end-state fn; suite localToWorld check + a new from-rest-angle
+  check). Wedge thins by wedgeRemainingFrac() from synced G.page (guest updateWedge after
+  applySnapshot — no new wire state). VISUAL COMPROMISE flagged: camera pitch ≈ wedge slope
+  makes a faithful thin wedge nearly invisible — shipped as a short/deep/tall gold-tan band
+  (0.85u×2.2u) at the fold; revisit if the user wants a dramatic freestanding stack.
+  (3) JOSTLING — CHAR_R 0.42, 2-iteration pairwise soft separation each frame among alive/
+  revealed/non-pancaked chars; MP ownership: separationMovableIds() = non-isRemote (host
+  moves bots+self, NEVER adopted guests; guests separate only their own char) — proven by
+  an offline fake-net unit (remote displacement 0.000000) + live 39/39; bots re-pick a
+  crowded stand-point at most once/page (_repicked flag; same-hole planning min-dist
+  0.6→CHAR_R*2); judgment untouched (shove-outs at slam = authentic). Bump blip (tone(),
+  rate-limited 0.15s) + 0.06s micro-squash. Suite 139→167 checks ×4 green; fp_mp_local
+  10/10; fp_mp_live 39/39 real backend. One pre-existing "bot competence" check got a
+  bounded 3-retry wrapper (crowded-shove of a shared small hole is designed behavior, not
+  a pathing bug — diagnosed at exactly 0.840u separation). Shots fp_tome_*.png/fp_jostle.png.
+- MOO STAMPEDE! minigame #2 (2026-07-18, opus agent, LOCAL/unpushed): id 'stampede' 🐄 in
+  MINIGAMES (after storybook; placeholders kept) — 30s survival on a floating pond dock,
+  procedural toon cows (shared geo, ~121 tris/cow, cap ramps to ~30 concurrent at frenzy)
+  stampede right→left and ACCELERATE before plunging off (signature detail); calf/cow/GIANT
+  (3.6-4.4x, 1.2s "❗ MOOOO!" warning + rumble); contact SHOVES (contact-duration trampling
+  escalates the carry — the asymmetric skill lever that keeps bots fair); off any edge =
+  splash+spectate; last-standing wins instantly, timer-end ≥2 alive = draw, simultaneous
+  wipeout = draw. Solo modes: match (vs 3 bots) + challenge (endless, best in
+  fp_stampede_best). Bots err-based (late reacts/wrong dodges/dawdle), measured mean ~18s,
+  competent proxy 15/16 wins. MP mirrors storybook wire: snap.smp={t,md,warn,wl,cows:[[id,
+  type,x,z,size]]} (~0.25-0.7KB @12Hz), guests interp cows by id-diff + publish own pos;
+  live-verified 22/22 vs real Playroom (2 browsers). SMP module farmparty.html ~L4071-4781;
+  shell seams guarded by stampedeActive() (checks ACTIVE_MINIGAME OR mirrored
+  PARTY.selectedGame — guests never get ACTIVE_MINIGAME). Storybook tome/wedge/scenery
+  groups HIDDEN during stampede, restored on teardown; teardown → sceneChildCount baseline.
+  Suites (scratchpad): fp_stampede.cjs 57/57 (proxy check hardened to N=16 ≥10 wins — N=10
+  ≥7 flaked at ~1-in-8 by binomial noise), fp_stampede_mp_local 5/5, fp_stampede_mp_live
+  22/22. Minigame #3 friction note: elimination visuals + snap payload need small guarded
+  branches in guestTick/buildSnapshot/applySnapshot (future: lift into optional interface
+  methods eliminateVisual/buildSnap/applySnap).
+
+# 🏁 Farm Kart — SIX-TRACK THEME PACK (2026-07-18, Fable-designed, 2 opus waves — UNCOMMITTED)
+
+Six bare MK64 layout ports re-themed into original courses (ids/XZ shapes byte-identical to
+HEAD — cups/bests/links intact; only `name` + theming data changed). User bars: great to look
+at · consistent theme · NO objects in the road · fun to play. New sanitize key `decor`
+(whitelist 'skyway'|'pumpkin'|'stadium') gating 3 new night builders.
+- `kalimari-desert` → **"Dust Devil Gulch"**: sun sky, road 0x9c7a50 + warm verge band
+  0xbb8250 (reviewer bounce: original 0xc2a36b road vanished into the sand paint), mesas via
+  sculpt, western town (saloon/well/windmill), cacti/rocks/skulls edge dressing, 2 tumbleweed
+  crossings, steam-train loop w/ 2 gated crossings, 203 props.
+- `koopa-troopa-beach` → **"Seashell Shores"**: clouds sky, seaLevel −0.45 surrounds the course
+  (53% water), sand road 0xd8c48e, palms/tents/driftwood, 2 crab crossings. REVIEWER BOUNCE +
+  LESSON: the original +0.6 shore berm HID the entire sea from kart eye height — reshaped to a
+  +0.05 beach strip w/ waterline ~19u from centerline; the suite now has a durable SEA-VISIBILITY
+  check (8 road samples, eye-height sight-line must reach water ≤60u unoccluded, ≥6/8). Theme
+  must read FROM THE DRIVER'S SEAT, not the map view. Generator `keep()` max-abs rule silently
+  drowned the palm islets — discTarget gained a 'force' overwrite mode.
+- `dks-jungle-parkway` → **"Croc Creek Canopy"**: clouds sky, dirt 0x7a6248, seaLevel −15.5
+  river beside the gorge road (2.8% water), 485 props (canopy walls + slope understory),
+  2 turtle crossings, bridge/waterfall/river-rocks. LESSONS: sculpt channels must clear the
+  road skirt (half+margin≈18u — an early creek carved the road edge into a pit and bots fell);
+  bunched bots can PHYSICALLY lap but miss checkFinishGate's ~10u lateral credit window —
+  drivability tests must use a wrap-aware arc-length ODOMETER, not the credit counter; posed
+  (snapCameraBehind) shots beat driven shots for determinism (frame-rate-dependent depth
+  tripped the camera pit-lift into an overhead view).
+- `rainbow-road` → **"Starlight Skyway"** (showstopper): AUTHORIZED uniform Y+100 (XZ identical;
+  road floats 11.5-100u), night sky, road 0x6a5cff/curb 0xeef0ff + FK_TRACK.buildSkywayDecor
+  (additive glowing road edges, star/glow-orb field, 3 ringed pastel planets, twinkle), ground
+  painted near-void 0x090b16, tufts skipped, 5 boost pads, wallMargin 12 (WIDER margins let a
+  bot loop into the over/under gap — 12 is the sweet spot), deliberate-fall→crow verified
+  branch-aware, drift tier2 3/3.
+- `choco-mountain` → **"Pumpkin Hollow"**: night sky + warm hemi 0.75 dusk lift, path 0x6b5a48,
+  FK_TRACK.buildPumpkinLamps (jack-o-lantern street lamps: carved-face emissive canvas, glow +
+  road pool, arc-walk + own-sample seating on climbs), autumn paint (1201 cells), 204 props
+  (dark pines/mushrooms/stumps/abandoned camp), covered bridge, 2 goat crossings, NO water (the
+  layout's self-merge valley offers no safe creek spot). KNOWN: base layout has a self-merge
+  pinch (frac 0.55↔0.88 ~8u apart, roads overlap) that snags bots seed-dependently — geometry
+  locked, handled via best-of-3 seed pooling in the suite's B-pass.
+- `wario-stadium` → **"Thunderdome Supercross"**: night + cool-white hemi 0.9 floodlit, dirt
+  0x8a6a4a, 165 race-kit props (grandstand runs, banner towers, corner light towers, 2 overhead
+  gantries — 9u clearance asserted, pit cluster, pylons, checker start paint), 4 supercross
+  ramps (~8u air) + 3 pads, drift 3/3. NOTE: wario-stadium is the BOOT DEFAULT track — the
+  game now boots showing "Thunderdome Supercross" (flagged to user; 1-line change if unwanted).
+  Reviewer bounce: the signature screenshot config posed at a barren back corner (s0.402) —
+  re-aimed to the main-straight ramp (s0.085) where the grandstands frame the jump.
+VERIFY: tools/_verify-themepack.cjs (config-driven, both waves) **249/249** exit 0 — per track:
+XZ byte-identity (skyway Y=HEAD+100 exact), all-other-tracks sanitize byte-identical, road-
+clearance sweep (no in-road/floating/buried props; ramps + verified gantry spans exempt), water
+safety + crow checks, bot odometer laps (3 bots), drift tiers, feature checks (crossings/train/
+lamps/gantries/ramps/pads), menu cards, mobile passes. Regressions: items 24/24 · hud PASS ·
+tankbattle 75/75 · midnightrun 65/65 (3 stale assertions in those suites updated for renames/
+decor key — documented inline). Generators tools/_w1_build.cjs + _w2_build.cjs (marker-baked).
+Shots: shots/fk_{gulch,shores,canopy,skyway,hollow,thunder}_{start,signature,drift}.png +
+fk_wave{1,2}_mobile.png. ALL UNCOMMITTED — one push bundle after user preview (incl. Tank
+Battle MVP; name Cursor's concurrent Farm Party work in the commit).
