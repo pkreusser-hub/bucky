@@ -432,6 +432,22 @@ w/ calwidget (__CAL__.setHomeNow drives both). Override date-scoping proven by r
 the clock so the same weekday's NEXT occurrence shows the default. Test gotcha: the
 override dot legitimately overhangs the chip corner ~2px — measure text clipping via
 Range width, not scrollWidth. home_calwidget_test.cjs now 114/114.
+FIVE-CHANGE BATCH (2026-07-20, user; opus agent): (1) calendar controls STICKY
+(.cal-controls, top=--cal-sticky-top measured from header.offsetHeight per render;
+IntersectionObserver sentinel toggles .stuck shadow); (2) event tap → read-only PREVIEW
+sheet (#calPreviewOverlay: title/date/time/repeat-description/notes + Close/✏️ Edit —
+preview fetches the series master for exact cadence wording; FAB still edits directly);
+(3) nav order = Home · Plan · Chores · Jobs · Shop · Bank · Farm · Play across all 4
+mirrored navs; (4) CHORE REMINDERS gated server-side in chorereminders.mjs
+getAllDeviceTokens(): CHORE_REMINDER_USERS={Isaac,Eleanor} filters pushTokens docs by
+their .user field (written by push-client enable(userName); untagged legacy docs also
+dropped); (5) BANK-CREDIT notifications: unified notifyBankCredit(kid,amount,source,
+dedupeId) — kid∈{Isaac,Eleanor} + amount>0 only — hooked into allowance mint /
+WO payout / manual deposit, in-app bell via notifs_<fam> keyed to the credit's
+DETERMINISTIC id (idempotent vs self-healing sweeps) + targeted FCM via pushTokens.user;
+bell renderer now type-aware (bank_credit rows → Farm Bank, not lobby-invite styling).
+NOTE behavior change: payout alert text unified to "💰 $X added to your bank! (Work
+order: <name>)". Suites: cal_ui 197 · notif_chore_test.mjs 18 · notif_bank_test.cjs 19.
 
 ---
 

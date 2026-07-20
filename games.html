@@ -114,12 +114,12 @@
   var me = localStorage.getItem("choreUser") || "";
   var NAV = [
     ["🏠","index.html#dashboard","Home"],
+    ["📅","index.html#calendar","Plan"],
     ["✅","index.html#chores","Chores"],
     ["🛠️","index.html#workorders","Jobs"],
     ["🛒","index.html#shopping","Shop"],
     ["💰","index.html#farmbank","Bank"],
     ["🐐","index.html#goathooves","Farm"],
-    ["📅","index.html#calendar","Plan"],
     ["🎮","games.html","Play"]
   ].filter(function (n) { return n[2] !== "Bank" || BANK_USERS.indexOf(me) >= 0; });
   var here = "games.html", el = document.getElementById("buckyNav");

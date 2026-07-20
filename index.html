@@ -660,6 +660,17 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .lockerr { color: #c0392b; font-size: 13px; min-height: 16px; margin-top: 8px; }
 
   /* ---------- Family Calendar (Plan area) ---------- */
+  /* Sticky controls: the title + ‹Today›↻ row + Month/Week/Day segmented control stay pinned
+     just below the app's fixed (sticky) header while the events scroll under them. --cal-sticky-top
+     is set to the measured header height in renderCalendar (fallback below covers first paint /
+     no-JS). The negative side margins + matching padding let the solid background span main's 12px
+     padding so scrolling content never shows through the edges. */
+  .cal-controls {
+    position: sticky; top: var(--cal-sticky-top, calc(env(safe-area-inset-top) + 70px));
+    z-index: 15; background: var(--bg); margin: 0 -12px; padding: 8px 12px 2px;
+    transition: box-shadow .15s ease;
+  }
+  .cal-controls.stuck { box-shadow: 0 6px 12px -8px rgba(0,0,0,.4); }
   .cal-top { display: flex; align-items: center; gap: 8px; margin: 2px 2px 12px; }
   .cal-title { font-size: 19px; font-weight: 800; flex: 1; min-width: 0; }
   .cal-nav { display: flex; gap: 6px; align-items: center; }
@@ -713,6 +724,14 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .cal-customnote { font-size: 12.5px; color: var(--muted); margin-top: 6px; line-height: 1.45; }
   .cal-delrow { display: flex; gap: 10px; margin-top: 20px; }
   .cal-delrow .btn { flex: 1 1 0; padding: 12px 6px; font-size: 13.5px; white-space: nowrap; }
+  /* Read-only event preview card (opens on tapping an event; ✏️ Edit → the full editor) */
+  .cal-pv-title { font-size: 20px; font-weight: 800; line-height: 1.25; margin: 2px 0 14px; word-break: break-word; }
+  .cal-pv-row { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line-2); }
+  .cal-pv-row:first-of-type { border-top: 0; }
+  .cal-pv-ico { flex: 0 0 22px; font-size: 16px; line-height: 1.4; text-align: center; }
+  .cal-pv-val { flex: 1; min-width: 0; font-size: 14.5px; font-weight: 600; color: var(--ink); }
+  .cal-pv-val.notes { white-space: pre-wrap; font-weight: 500; color: var(--ink-2); line-height: 1.5; }
+  .cal-pv-val.repeat { color: var(--green); font-weight: 700; }
   input[type=time], input[type=date] { width: 100%; padding: 13px; font-size: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink); }
   textarea { width: 100%; padding: 13px; font-size: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink); font-family: inherit; resize: vertical; min-height: 60px; }
 
@@ -1167,6 +1186,21 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   </div>
 </div>
 
+<!-- Read-only event preview (opens first on tapping an event; Edit → the full editor) -->
+<div class="overlay" id="calPreviewOverlay">
+  <div class="sheet">
+    <div class="cal-pv-title" id="calPvTitle"></div>
+    <div class="cal-pv-row"><div class="cal-pv-ico">📅</div><div class="cal-pv-val" id="calPvDate"></div></div>
+    <div class="cal-pv-row"><div class="cal-pv-ico">🕒</div><div class="cal-pv-val" id="calPvTime"></div></div>
+    <div class="cal-pv-row" id="calPvRepeatRow" style="display:none"><div class="cal-pv-ico">↻</div><div class="cal-pv-val repeat" id="calPvRepeat"></div></div>
+    <div class="cal-pv-row" id="calPvNotesRow" style="display:none"><div class="cal-pv-ico">📝</div><div class="cal-pv-val notes" id="calPvNotes"></div></div>
+    <div class="sheet-actions">
+      <button class="btn ghost" id="calPvCloseBtn">Close</button>
+      <button class="btn primary" id="calPvEditBtn">✏️ Edit</button>
+    </div>
+  </div>
+</div>
+
 <!-- Edit weekly animal-care schedule sheet -->
 <div class="overlay" id="careSchedOverlay">
   <div class="sheet">
@@ -1211,6 +1245,10 @@ const PRINT_ADMIN = "Dad";
    Must match profile names EXACTLY (same rule as PRINT_ADMIN above). ---- */
 const BANK_ADMIN = "Dad";
 const BANK_KIDS = ["Isaac", "Eleanor"];
+// Who receives "money added to your bank!" alerts (bell + push) — Isaac + Eleanor only, never
+// Dad/Mom/guests. Declared here (not in the notification block) so the __BANK__ test hook, which
+// runs at module-eval time, can read it without a temporal-dead-zone error.
+const BANK_NOTIFY_KIDS = BANK_KIDS;   // ["Isaac", "Eleanor"]
 // Farm Bank is family-only (kids + parents) — grandparents/guests don't see it. Gates the
 // Home bank stat, the Bank bottom-nav area, and the farmbank section. Chores are visible to
 // EVERYONE (2026-07-09 user decision, reversing the earlier chores gate). Must match profile names.
@@ -1334,14 +1372,16 @@ let currentTab = initialHashTab;
 // can switch between their members. Play is an in-app menu (renderPlay) that links
 // out to the Games + FarmGPT hubs; the in-app deep-link games (game/catgame) also
 // live under Play so they highlight the right bottom tab.
+// Order: Home · Plan · Chores · Jobs · Shop · Bank · Farm · Play (Plan sits right after
+// Home — 2026-07-20 user request; keep the mirrored navs in farmgpt/games/weather in sync).
 const NAV_GROUPS = [
   { id:"home",  ico:"🏠",  name:"Home",   def:"dashboard",  members:["dashboard"] },
+  { id:"plan",  ico:"📅",  name:"Plan",   def:"calendar",   members:["calendar","animalcare"] },
   { id:"tasks", ico:"✅",  name:"Chores", def:"chores",     members:["chores"] },
   { id:"wo",    ico:"🛠️",  name:"Jobs",   def:"workorders", members:["workorders","print3d"] },
   { id:"shop",  ico:"🛒",  name:"Shop",   def:"shopping",   members:["shopping"] },
   { id:"bank",  ico:"💰",  name:"Bank",   def:"farmbank",   members:["farmbank"] },
   { id:"farm",  ico:"🐐",  name:"Farm",   def:"goathooves", members:["goathooves","goatcare"] },
-  { id:"plan",  ico:"📅",  name:"Plan",   def:"calendar",   members:["calendar","animalcare"] },
   { id:"play",  ico:"🎮",  name:"Play",   def:"play",       members:["play","game","catgame"] },
 ];
 const SECTION_BY_KEY = Object.fromEntries(SECTIONS.map(s => [s.key, s]));
@@ -1645,17 +1685,24 @@ function renderNotifList(){
     wrap.innerHTML = '<div class="empty" style="padding:24px 8px;">No news — all quiet on the farm 🐐</div>';
     return;
   }
-  // Lobby invites always sit at the top of the list, ahead of the work-order inbox.
+  // The notifs_<familyKey> collection is shared by lobby invites (a JOIN button) AND cross-device
+  // bank-deposit alerts (type "bank_credit" — a plain tappable row). Both sit above the work-order inbox.
   for (const n of lobbyInvites){
     const row = document.createElement("div");
-    row.className = "notif-row invite" + (n.read ? "" : " unread");
     const body = document.createElement("div"); body.className = "notif-body";
     const text = document.createElement("div"); text.className = "notif-text"; text.textContent = n.text;
     const time = document.createElement("div"); time.className = "notif-time"; time.textContent = relNotifTime(n.at);
     body.append(text, time);
-    const join = document.createElement("button"); join.className = "invite-join"; join.textContent = "JOIN THE KITCHEN 🍳";
-    join.onclick = () => { markInviteRead(n.id); closeNotifPanel(); location.href = n.url; };
-    row.append(body, join);
+    if (n.type === "bank_credit"){
+      row.className = "notif-row" + (n.read ? "" : " unread");
+      row.append(body);
+      row.onclick = () => { markInviteRead(n.id); closeNotifPanel(); goToFarmBank(); };
+    } else {
+      row.className = "notif-row invite" + (n.read ? "" : " unread");
+      const join = document.createElement("button"); join.className = "invite-join"; join.textContent = "JOIN THE KITCHEN 🍳";
+      join.onclick = () => { markInviteRead(n.id); closeNotifPanel(); location.href = n.url; };
+      row.append(body, join);
+    }
     wrap.appendChild(row);
   }
   for (const n of inbox){
@@ -1716,7 +1763,7 @@ function showToast(text, onClick){
 }
 function notifDestination(n){
   if (n.type === "print_request" || n.type === "print_done") return goToPrint3D;
-  if (n.type === "payout_confirmed") return goToFarmBank;
+  if (n.type === "payout_confirmed" || n.type === "bank_credit") return goToFarmBank;   // bank_credit = money-added alerts
   return goToWorkOrders;   // assigned, closed, progress, payout_pending, payout_notyet
 }
 function liveNotify(n){
@@ -3846,6 +3893,7 @@ async function ensureDailyAllowance(){
     if (!existing){
       const id = `allowance_${idSlug(kid)}_${day}`;
       await backend.set(id, { frequency:"kidbank", kid, amount: 2, desc: "All chores done — daily $2! ⭐", by: "BUCKY", at: Date.now(), kind: "allowance", day });
+      notifyBankCredit(kid, 2, "Allowance", id);   // dedup on the deterministic allowance doc id
       if (currentTab === "farmbank") render();
     }
   }
@@ -3950,7 +3998,9 @@ async function saveWhatFor(){
   const desc = document.getElementById("bankWhatForInput").value.trim();
   if (!desc){ document.getElementById("bankWhatForInput").focus(); return; }
   if (!bankWhatForKid) { closeWhatFor(); return; }
-  await addLedgerEntry(bankWhatForKid, bankWhatForAmount, desc, myName() || BANK_ADMIN, "manual");
+  const ledgerId = await addLedgerEntry(bankWhatForKid, bankWhatForAmount, desc, myName() || BANK_ADMIN, "manual");
+  // Only a positive amount is a deposit — notifyBankCredit ignores withdrawals (amount ≤ 0).
+  notifyBankCredit(bankWhatForKid, bankWhatForAmount, desc, "manual_" + ledgerId);
   closeWhatFor();
   render();
 }
@@ -4327,10 +4377,15 @@ function calErrText(code){
   return "⚠️ Couldn't reach the calendar — try again.";
 }
 
+let calStuckObs = null;   // IntersectionObserver toggling the sticky-controls shadow
 function renderCalendar(){
   document.querySelector(".bar").style.display = "none";
   document.getElementById("empty").style.display = "none";
   document.getElementById("progress").style.display = "none";
+  // pin the calendar controls just below the app's sticky header — measure its live height
+  const hdr = document.querySelector("header");
+  const headerH = hdr ? hdr.offsetHeight : 84;
+  document.documentElement.style.setProperty("--cal-sticky-top", headerH + "px");
   const list = document.getElementById("list"); list.innerHTML = "";
   const wrap = document.createElement("li"); wrap.style.cssText = "background:transparent;border:0;box-shadow:none;padding:0;";
   const cal = document.createElement("div"); cal.className = "cal";
@@ -4345,7 +4400,6 @@ function renderCalendar(){
   const refr = document.createElement("button"); refr.className = "cal-iconbtn"; refr.textContent = "↻"; refr.title = "Refresh"; refr.setAttribute("aria-label","Refresh"); refr.onclick = () => ensureCalData(true);
   nav.append(prev, today, next, refr);
   top.append(title, nav);
-  cal.appendChild(top);
 
   // view segmented control
   const seg = document.createElement("div"); seg.className = "cal-viewseg";
@@ -4355,7 +4409,19 @@ function renderCalendar(){
     b.onclick = () => calSetView(v[0]);
     seg.appendChild(b);
   }
-  cal.appendChild(seg);
+  // sticky controls block (title/nav + view segmented) stays visible as the events scroll under it.
+  // A 1px sentinel above it drives the "stuck" shadow via IntersectionObserver (cheap, no scroll handler).
+  const sentinel = document.createElement("div"); sentinel.className = "cal-sticky-sentinel"; sentinel.style.cssText = "height:1px";
+  const controls = document.createElement("div"); controls.className = "cal-controls";
+  controls.append(top, seg);
+  cal.append(sentinel, controls);
+  if (calStuckObs){ calStuckObs.disconnect(); calStuckObs = null; }
+  if (typeof IntersectionObserver !== "undefined"){
+    calStuckObs = new IntersectionObserver((entries)=>{
+      for (const e of entries) controls.classList.toggle("stuck", e.intersectionRatio === 0);
+    }, { rootMargin: `-${headerH}px 0px 0px 0px`, threshold: [0, 1] });
+    calStuckObs.observe(sentinel);
+  }
 
   const unconfigured = !!(calStatus && calStatus.configured === false);
   if (unconfigured || calError === "server" || calError === "calendar-not-shared" || calError === "not-configured"){
@@ -4441,7 +4507,7 @@ function buildCalAgendaList(container, key){
     body.appendChild(nm);
     if (ev.notes){ const nt = document.createElement("div"); nt.className = "cal-evnote"; nt.textContent = ev.notes; body.appendChild(nt); }
     row.append(t, body);
-    row.onclick = () => openCalEventSheet(ev);
+    row.onclick = () => openCalEventPreview(ev);
     container.appendChild(row);
   }
 }
@@ -4477,6 +4543,79 @@ function buildCalSetup(){
   card.appendChild(note);
   return card;
 }
+
+// ---- Read-only event preview (tap an event -> preview -> ✏️ Edit opens the full editor) ----
+let calPreviewEv = null;
+// Human-readable repeat description from a parsed rule ({freq, until}). WEEKLY/BIWEEKLY name the
+// weekday off the instance's own date; CUSTOM (an exotic Google rule) reads "Repeats (custom)".
+function calRepeatDescribe(repeat, ev){
+  if (!repeat || !repeat.freq || repeat.freq === "NONE") return "";
+  if (repeat.freq === "CUSTOM") return "Repeats (custom)";
+  const dt = ev && ev.start ? (ev.allDay ? parseDateKey(ev.start) : new Date(ev.start)) : null;
+  const wd = dt && !isNaN(dt.getTime()) ? dt.toLocaleDateString(undefined, { weekday: "long" }) : "";
+  let base;
+  switch (repeat.freq){
+    case "DAILY":    base = "Repeats daily"; break;
+    case "WEEKLY":   base = wd ? "Repeats weekly on " + wd : "Repeats weekly"; break;
+    case "BIWEEKLY": base = wd ? "Repeats every 2 weeks on " + wd : "Repeats every 2 weeks"; break;
+    case "MONTHLY":  base = "Repeats monthly"; break;
+    case "YEARLY":   base = "Repeats yearly"; break;
+    default:         base = "Repeats"; break;
+  }
+  if (repeat.until){
+    const u = parseDateKey(repeat.until);
+    if (!isNaN(u.getTime())) base += " until " + u.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  }
+  return base;
+}
+function calPreviewDateText(ev){
+  const d = ev.allDay ? parseDateKey(ev.start) : new Date(ev.start);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+}
+function calPreviewTimeText(ev){
+  if (ev.allDay) return "All day";
+  const s = new Date(ev.start);
+  if (isNaN(s.getTime())) return "";
+  const opt = { hour: "numeric", minute: "2-digit" };
+  let t = s.toLocaleTimeString(undefined, opt);
+  const e = ev.end ? new Date(ev.end) : null;
+  if (e && !isNaN(e.getTime()) && e.getTime() !== s.getTime()) t += " – " + e.toLocaleTimeString(undefined, opt);
+  return t;
+}
+function openCalEventPreview(ev){
+  if (!ev) return;
+  calPreviewEv = ev;
+  document.getElementById("calPvTitle").textContent = ev.title || "(untitled)";
+  document.getElementById("calPvDate").textContent = calPreviewDateText(ev);
+  document.getElementById("calPvTime").textContent = calPreviewTimeText(ev);
+  const notesRow = document.getElementById("calPvNotesRow");
+  if (ev.notes){ notesRow.style.display = ""; document.getElementById("calPvNotes").textContent = ev.notes; }
+  else notesRow.style.display = "none";
+  const repRow = document.getElementById("calPvRepeatRow"), repEl = document.getElementById("calPvRepeat");
+  if (ev.seriesId){
+    repRow.style.display = "";
+    repEl.textContent = "Repeating event";   // placeholder until the master's rule loads
+    // the instance list doesn't carry the rule; fetch the series master (action:get) for the exact cadence
+    calPost("get", { event: { id: ev.seriesId } }).then(r => {
+      if (calPreviewEv !== ev) return;   // preview changed while the request was in flight
+      const desc = calRepeatDescribe(r && r.event && r.event.repeat, ev);
+      repEl.textContent = desc || "Repeating event";
+    }).catch(()=>{});
+  } else {
+    repRow.style.display = "none";
+  }
+  document.getElementById("calPreviewOverlay").classList.add("open");
+}
+function closeCalPreview(){ document.getElementById("calPreviewOverlay").classList.remove("open"); }
+function editFromCalPreview(){
+  const ev = calPreviewEv;
+  closeCalPreview();
+  if (ev) openCalEventSheet(ev);   // full editor keeps all existing behavior (This day / Whole series scope)
+}
+document.getElementById("calPvCloseBtn").onclick = closeCalPreview;
+document.getElementById("calPvEditBtn").onclick = editFromCalPreview;
+document.getElementById("calPreviewOverlay").onclick = (e)=>{ if (e.target.id === "calPreviewOverlay") closeCalPreview(); };
 
 // ---- Add / edit event sheet ----
 function openCalEventSheet(ev){
@@ -4909,6 +5048,8 @@ window.__CAL__ = {
   state: ()=>({ view: calView, focus: dateKeyLocal(calFocus), selected: calSelectedKey, events: calEvents.slice(), error: calError, status: calStatus, loading: calLoading }),
   setStatus: (s)=>{ calStatus = s; calStatusFetched = true; if (currentTab === "calendar") renderCalendar(); },
   openSheet: (ev)=>openCalEventSheet(ev || null),
+  openPreview: (ev)=>openCalEventPreview(ev || null),
+  preview: ()=>({ open: document.getElementById("calPreviewOverlay").classList.contains("open"), ev: calPreviewEv }),
   sheet: ()=>({ scope: calSheetScope, seriesId: calSheetSeriesId, masterLoaded: !!calSheetMaster,
                 repeat: document.getElementById("calRepeatSel").value, ends: calSheetEnds,
                 repeatTouched: calRepeatTouched }),
@@ -4923,6 +5064,14 @@ window.__CARE__ = {
   reload: ()=>loadAnimalCare(),
 };
 window.__NAV__ = { goTo, tab: ()=>currentTab };
+// Bank-notification test hooks (drive the real credit paths + read the resulting bell inbox).
+window.__BANK__ = {
+  notifyCredit: (kid, amt, src, id)=>notifyBankCredit(kid, amt, src, id),
+  addLedger: (kid, amt, desc, kind, extra)=>addLedgerEntry(kid, amt, desc, "TESTER", kind || "manual", extra),
+  inbox: (kid)=>loadNotifInbox(kid).filter(n => n.type === "bank_credit"),
+  balance: (kid)=>kidBalance(kid),
+  kids: BANK_NOTIFY_KIDS.slice(),
+};
 
 // ==================== BUCKY JUMP (mini-game) ====================
 let game = null;
@@ -6162,6 +6311,44 @@ function notifyProgressIncrease(wo, milestone){
   })();
 }
 
+// ---- Bank-deposit notifications (Isaac + Eleanor only) ----
+// Fires ONLY when money is ADDED (amount > 0) to a kid's Farm Bank balance, and ONLY for the
+// profiles in BANK_NOTIFY_KIDS. Every positive credit path (allowance auto-mint, work-order
+// payout confirmation, manual admin deposit) funnels through here so the gate + dedupe live in
+// ONE place. Deducts/spends (amount ≤ 0) and non-kid balances (Dad/Mom/guests) never notify.
+// BANK_NOTIFY_KIDS (= Isaac/Eleanor) is declared up by BANK_KIDS.
+function money2(v){ return (Number(v) || 0).toFixed(2); }
+// Write the in-app bell notification. Cross-device via the notifs_<familyKey> Firestore collection
+// (the same mechanism the bell already merges in) when the cloud listener is connected — keyed to
+// the credit's DETERMINISTIC id so re-renders / the self-healing dupe sweeps can never double-post.
+// Falls back to the per-device localStorage inbox (idempotent by dedupeId+type) on the local backend
+// or before the listener connects.
+function writeBankNotif(kid, text, dedupeId, url){
+  if (notifsCol && notifsFs){
+    try {
+      const id = "bank_" + idSlug(dedupeId || (kid + "_" + Date.now()));
+      // deterministic doc id => setDoc converges racing writers onto ONE doc (no dup bell entry)
+      notifsFs.setDoc(notifsFs.doc(notifsCol, id), {
+        to: kid, from: "BUCKY", type: "bank_credit", text, url: url || "", at: Date.now(), read: false
+      }).catch(()=>{});
+      return;
+    } catch {}
+  }
+  const n = addNotif(kid, "bank_credit", text, dedupeId || null);
+  if (n && kid === myName()) liveNotify(n);
+}
+function notifyBankCredit(kid, amount, source, dedupeId){
+  const amt = Number(amount) || 0;
+  if (amt <= 0) return;                          // credits only — deducts/spends stay silent
+  if (!BANK_NOTIFY_KIDS.includes(kid)) return;   // never Dad/Mom/others
+  const text = `💰 $${money2(amt)} added to your bank!` + (source ? ` (${source})` : "");
+  const url = "index.html#farmbank";
+  writeBankNotif(kid, text, dedupeId, url);
+  if (window.BuckyPush && familyKey){
+    BuckyPush.notify(FAMILY_PASSWORD, familyKey, kid, "💰 Money added!", text, url);
+  }
+}
+
 // ---- Kid Farm Account (payout) notifications ----
 function notifyPayoutPending(wo){
   const value = parseFloat(wo.value) || 0;
@@ -6189,12 +6376,11 @@ function notifyPayoutConfirmed(wo, value, kid){
   kid = kid || wo.doneBy;
   if (!kid) return;
   const amt = money(value);
-  const n = addNotif(kid, "payout_confirmed", `🎉 Dad approved! $${amt} deposited for "${wo.name}"`, wo.id + ":confirmed:" + kid);
-  if (n) liveNotify(n);
-  if (window.BuckyPush && familyKey){
-    BuckyPush.notify(FAMILY_PASSWORD, familyKey, kid,
-      "🎉 Dad approved!", `$${amt} deposited to your Farm Bank for "${wo.name}"`);
-  }
+  // Work-order payout is a bank CREDIT — route the kid's bell + push through the unified
+  // notifyBankCredit gate (dedup keyed to the deterministic wo:confirmed:kid id). Non-kid
+  // recipients (e.g. a doneBy who isn't Isaac/Eleanor) get no bank alert, per the Isaac/Eleanor-
+  // only rule; the email below still goes out to whoever was paid.
+  notifyBankCredit(kid, value, "Work order: " + wo.name, wo.id + ":confirmed:" + kid);
   sendEmail(kid, {
     subject: `💰 $${amt} added to your Farm Bank!`,
     message: `Great work! $${amt} was added to your Farm Bank account for finishing "${wo.name}".`,

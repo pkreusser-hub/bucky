@@ -30,6 +30,15 @@
 const PROJECT_ID = "amen-farms-app";
 const DEFAULT_FAMILY_KEY = "fam2jan2g"; // roomId("amenfarms")
 
+// ---- Who may receive chore reminders ----
+// Chore-reminder pushes are scoped to ONLY these profiles (matched against each push-token
+// doc's `user` field — the choreUser identity BuckyPush.enable stamps per device). This is the
+// SEND/DELIVERY gate: it's the single fan-out point for chore reminders, so filtering the token
+// list here guarantees no device for any OTHER profile (Dad, Mom, guests) is ever messaged — and
+// legacy/untagged token docs (no `user` field) are excluded too, since they can't match the
+// allowlist. Add a name here to start reminding that profile; keep the names EXACT (choreUser).
+const CHORE_REMINDER_USERS = new Set(["Isaac", "Eleanor"]);
+
 const FIRESTORE_BASE = () =>
   process.env.CHOREREMINDER_FIRESTORE_BASE ||
   `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
@@ -88,7 +97,11 @@ async function getGoogleAccessToken(serviceAccount) {
 }
 
 // ---- Firestore reads ----
-// All push tokens for the family (every user, every device) — NOT filtered by user.
+// Push tokens for the family, filtered to the CHORE_REMINDER_USERS allowlist. We read the whole
+// collection (no server-side filter) and drop any doc whose `user` field isn't in the allowlist —
+// this is the delivery gate that keeps chore reminders off Dad's/Mom's/guests' devices. A doc with
+// NO `user` field (legacy/untagged) also fails the allowlist and is excluded, so old devices for
+// other people stop receiving chore reminders too.
 async function getAllDeviceTokens(accessToken, familyKey) {
   const url = `${FIRESTORE_BASE()}:runQuery`;
   const body = { structuredQuery: { from: [{ collectionId: `pushTokens_${familyKey}` }] } };
@@ -105,8 +118,10 @@ async function getAllDeviceTokens(accessToken, familyKey) {
     if (!doc) continue;
     const token = doc.fields && doc.fields.token && doc.fields.token.stringValue;
     if (!token) continue;
+    const user = doc.fields && doc.fields.user && doc.fields.user.stringValue;
+    if (!CHORE_REMINDER_USERS.has(user)) continue;   // only Isaac/Eleanor; untagged legacy docs excluded
     const parts = doc.name.split("/");
-    out.push({ docId: parts[parts.length - 1], token });
+    out.push({ docId: parts[parts.length - 1], token, user });
   }
   return out;
 }
