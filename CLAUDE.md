@@ -3161,3 +3161,10 @@ decor key — documented inline). Generators tools/_w1_build.cjs + _w2_build.cjs
 Shots: shots/fk_{gulch,shores,canopy,skyway,hollow,thunder}_{start,signature,drift}.png +
 fk_wave{1,2}_mobile.png. ALL UNCOMMITTED — one push bundle after user preview (incl. Tank
 Battle MVP; name Cursor's concurrent Farm Party work in the commit).
+- 🚀 PUSHED 2026-07-18: the tome/page-source/jostling batch + the art polish round (standing
+  68° book half, aged-paper print language, farm-study scenery) + the OTHER session's Moo
+  Stampede minigame #2 shipped together in one farmparty.html commit. Pre-push combined
+  verification: farmparty_verify 191 checks clean on re-run (one perf-stability flake under
+  parallel-Chrome load only), fp_stampede.cjs 57/57 run from ITS session scratchpad
+  (460d3b7d…/scratchpad — suites live in their OWN session dirs), fp_mp_local 10/10. Suite
+  card-count assertions updated 3→4 cards / 1→2 playable for the new registry reality.
