@@ -7,9 +7,20 @@
 //       -> { configured, saEmail, hasServiceAccount, hasCalendarId }
 //         (the in-app setup screen shows "share your calendar with <saEmail>")
 //   { action:"list", timeMin, timeMax }
-//       -> { events:[{id,title,start,end,allDay,notes}] } (singleEvents, orderBy startTime)
+//       -> { events:[{id,title,start,end,allDay,notes,seriesId}] } (singleEvents, orderBy
+//          startTime; seriesId = Google recurringEventId — the client's recurring marker
+//          + series-edit handle, null for standalone events)
+//   { action:"get", event:{id} }
+//       -> { event:{normalized + repeat} } — repeat parsed back from the event's RRULE
+//          ({freq,until}, exotic rules -> {freq:"CUSTOM"}, non-recurring -> null); the
+//          client uses this to prefill "whole series" edits.
 //   { action:"create", event:{...} } | { action:"update", event:{id,...} }
 //       -> { event:{normalized} }
+//       event.repeat (optional) = { freq:"DAILY"|"WEEKLY"|"BIWEEKLY"|"MONTHLY"|"YEARLY",
+//       until:"YYYY-MM-DD"|null } builds the Google recurrence RRULE server-side
+//       (BIWEEKLY = FREQ=WEEKLY;INTERVAL=2; WEEKLY recurs on the start date's weekday
+//       implicitly). On UPDATE: repeat absent/null leaves recurrence UNCHANGED;
+//       repeat:{freq:"NONE"} explicitly CLEARS it (recurrence:[]).
 //   { action:"delete", event:{id} }
 //       -> { ok:true }
 //
@@ -131,7 +142,9 @@ function classifyGoogleError(r, headers) {
 }
 
 // Normalize a Google event → the lean shape the client renders. Handles both timed
-// (start.dateTime) and all-day (start.date) events.
+// (start.dateTime) and all-day (start.date) events. seriesId = the master's id when this
+// is an INSTANCE of a recurring event (list uses singleEvents:true so that's what the
+// client sees); null for standalone events and for the master itself.
 function normalizeEvent(e) {
   const allDay = !!(e.start && e.start.date);
   return {
@@ -141,7 +154,79 @@ function normalizeEvent(e) {
     end: allDay ? ((e.end && e.end.date) || "") : ((e.end && e.end.dateTime) || ""),
     allDay,
     notes: e.description || "",
+    seriesId: e.recurringEventId || null,
   };
+}
+
+// ---- Recurrence (Google-native RRULE) ----
+// The app supports one simple rule per series: {freq, until}. Anything richer is created
+// in Google Calendar directly and round-trips as {freq:"CUSTOM"} (which the client shows
+// read-only and never rewrites).
+const REPEAT_FREQ_RULES = {
+  DAILY: "FREQ=DAILY",
+  WEEKLY: "FREQ=WEEKLY",              // recurs on the start date's weekday implicitly
+  BIWEEKLY: "FREQ=WEEKLY;INTERVAL=2",
+  MONTHLY: "FREQ=MONTHLY",
+  YEARLY: "FREQ=YEARLY",
+};
+
+// {freq, until} → "RRULE:..." (null for NONE/CUSTOM/unknown freq). UNTIL uses the UTC
+// datetime form for timed events and the value-date form for all-day events (Google
+// requires UNTIL's type to match DTSTART's).
+function buildRRule(repeat, allDay) {
+  if (!repeat || typeof repeat !== "object") return null;
+  const base = REPEAT_FREQ_RULES[repeat.freq];
+  if (!base) return null;
+  let rule = "RRULE:" + base;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(repeat.until || "");
+  if (m) rule += ";UNTIL=" + m[1] + m[2] + m[3] + (allDay ? "" : "T235959Z");
+  return rule;
+}
+
+// Stamp ev.repeat onto the outgoing Google body. Semantics:
+//   absent/null            → leave recurrence alone (PATCH omits the key entirely)
+//   {freq:"NONE"}          → on update, explicitly clear (recurrence:[]); no-op on create
+//   {freq:<supported>}     → recurrence:[RRULE]
+//   {freq:"CUSTOM"/junk}   → leave recurrence alone (never clobber an exotic rule)
+function applyRepeat(g, ev, isUpdate) {
+  const rep = ev.repeat;
+  if (rep === undefined || rep === null) return;
+  if (rep && rep.freq === "NONE") { if (isUpdate) g.recurrence = []; return; }
+  const rule = buildRRule(rep, !!ev.allDay);
+  if (rule) g.recurrence = [rule];
+}
+
+// Best-effort inverse of buildRRule: Google recurrence array → {freq, until} | null.
+// Anything beyond one plain FREQ/INTERVAL/UNTIL rule (COUNT, BYDAY lists, RDATE-only,
+// nth-weekday, multiple RRULEs, …) → {freq:"CUSTOM"} so the client treats it read-only.
+function parseRepeat(recurrence) {
+  if (!Array.isArray(recurrence) || recurrence.length === 0) return null;
+  const rules = recurrence.filter((s) => typeof s === "string" && /^RRULE:/i.test(s.trim()));
+  if (rules.length !== 1) return { freq: "CUSTOM", until: null };  // RDATE-only or several rules
+  const props = {};
+  for (const part of rules[0].trim().replace(/^RRULE:/i, "").split(";")) {
+    const i = part.indexOf("=");
+    if (i > 0) props[part.slice(0, i).toUpperCase()] = part.slice(i + 1).toUpperCase();
+  }
+  let until = null;
+  const um = /^(\d{4})(\d{2})(\d{2})/.exec(props.UNTIL || "");   // both 20261231 and 20261231T235959Z
+  if (um) until = `${um[1]}-${um[2]}-${um[3]}`;
+  const custom = { freq: "CUSTOM", until };
+  const interval = props.INTERVAL ? parseInt(props.INTERVAL, 10) : 1;
+  const known = new Set(["FREQ", "INTERVAL", "UNTIL", "WKST"]);
+  const extras = Object.keys(props).filter((k) => !known.has(k));
+  if (props.FREQ === "WEEKLY") {
+    // a single plain BYDAY (what Google's own UI writes for "Weekly on Monday") is still
+    // our WEEKLY — the weekday rides on the start date; anything more is CUSTOM.
+    if (extras.some((k) => k !== "BYDAY")) return custom;
+    if (props.BYDAY && !/^(SU|MO|TU|WE|TH|FR|SA)$/.test(props.BYDAY)) return custom;
+    if (interval === 1) return { freq: "WEEKLY", until };
+    if (interval === 2) return { freq: "BIWEEKLY", until };
+    return custom;
+  }
+  if (extras.length || interval !== 1) return custom;
+  if (props.FREQ === "DAILY" || props.FREQ === "MONTHLY" || props.FREQ === "YEARLY") return { freq: props.FREQ, until };
+  return custom;
 }
 
 function addDayStr(dateStr) {
@@ -179,16 +264,31 @@ async function listEvents(token, calId, body, headers) {
 }
 
 async function createEvent(token, calId, ev, headers) {
-  const r = await calFetch(token, "POST", `/calendars/${encodeURIComponent(calId)}/events`, { body: buildGoogleEvent(ev) });
+  const body = buildGoogleEvent(ev);
+  applyRepeat(body, ev, false);
+  const r = await calFetch(token, "POST", `/calendars/${encodeURIComponent(calId)}/events`, { body });
   if (!r.ok) return classifyGoogleError(r, headers);
   return json({ event: normalizeEvent(r.data || {}) }, 200, headers);
 }
 
 async function updateEvent(token, calId, ev, headers) {
   if (!ev || !ev.id) return jsonError(400, "Missing event id", headers);
-  const r = await calFetch(token, "PATCH", `/calendars/${encodeURIComponent(calId)}/events/${encodeURIComponent(ev.id)}`, { body: buildGoogleEvent(ev) });
+  const body = buildGoogleEvent(ev);
+  applyRepeat(body, ev, true);
+  const r = await calFetch(token, "PATCH", `/calendars/${encodeURIComponent(calId)}/events/${encodeURIComponent(ev.id)}`, { body });
   if (!r.ok) return classifyGoogleError(r, headers);
   return json({ event: normalizeEvent(r.data || {}) }, 200, headers);
+}
+
+// Single-event fetch (the client prefills "whole series" edits from the master's parsed
+// repeat + original dates). Returns the normalized event + repeat ({freq,until} | CUSTOM | null).
+async function getEvent(token, calId, ev, headers) {
+  if (!ev || !ev.id) return jsonError(400, "Missing event id", headers);
+  const r = await calFetch(token, "GET", `/calendars/${encodeURIComponent(calId)}/events/${encodeURIComponent(ev.id)}`);
+  if (!r.ok) return classifyGoogleError(r, headers);
+  const norm = normalizeEvent(r.data || {});
+  norm.repeat = parseRepeat((r.data || {}).recurrence);
+  return json({ event: norm }, 200, headers);
 }
 
 async function deleteEvent(token, calId, ev, headers) {
@@ -237,6 +337,7 @@ export default async (req) => {
 
   try {
     if (action === "list") return await listEvents(token, calId, body, headers);
+    if (action === "get") return await getEvent(token, calId, body.event || {}, headers);
     if (action === "create") return await createEvent(token, calId, body.event || {}, headers);
     if (action === "update") return await updateEvent(token, calId, body.event || {}, headers);
     if (action === "delete") return await deleteEvent(token, calId, body.event || {}, headers);

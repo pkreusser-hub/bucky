@@ -503,15 +503,20 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .home2 .ring .val span { display: flex; align-items: baseline; }
   .home2 .ring .val small { font-size: 10px; color: var(--muted); font-weight: 700; margin-left: 1px; }
 
-  /* 3-up stat row */
-  .home2 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-  .home2 .stat { background: var(--card); border: 1px solid var(--line); border-radius: 15px; padding: 11px 10px; box-shadow: var(--shadow); cursor: pointer; color: inherit; text-align: left; transition: transform .1s ease, background .15s ease; display: flex; flex-direction: column; }
-  .home2 .stat:active { transform: scale(.96); background: var(--done); }
-  .home2 .stat .k { font-size: 17px; line-height: 1; }
-  /* values bottom-align so the four numbers form one line even with icon-only labels above them */
-  .home2 .stat .v { font-size: 19px; font-weight: 800; margin-top: auto; padding-top: 3px; font-variant-numeric: tabular-nums; letter-spacing: -.3px; color: var(--ink); }
-  .home2 .stat .v small { font-size: 12px; color: var(--muted); font-weight: 700; }
-  .home2 .stat .v small.ssub { display: block; font-size: 9.5px; line-height: 1.1; letter-spacing: -.1px; margin-top: 1px; }
+  /* Home calendar widget (replaces the old stat row; taps through to Plan → Calendar) */
+  .home2 .calwidget { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 12px 14px; cursor: pointer; text-align: left; width: 100%; font: inherit; color: inherit; display: block; }
+  .home2 .calwidget:active { background: var(--done, #e7eefb); }
+  .home2 .cwhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+  .home2 .cwhead .cwdate { font-size: 13.5px; font-weight: 800; color: var(--ink); letter-spacing: -.1px; }
+  .home2 .cwhead .cwmore { flex: 0 0 auto; font-size: 12px; font-weight: 800; color: var(--red); }
+  .home2 .cwrow { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line-2); }
+  .home2 .cwrow:first-child { border-top: 0; }
+  .home2 .cwday { flex: 0 0 66px; font-size: 11px; font-weight: 800; text-align: center; padding: 4px 0; border-radius: 8px; background: var(--navy-soft); color: var(--green-d); white-space: nowrap; }
+  .home2 .cwday.today { background: var(--red-soft); color: var(--red); }
+  .home2 .cwtitle { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .home2 .cwtime { flex: 0 0 auto; font-size: 12px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .home2 .cwextra { font-size: 12px; font-weight: 700; color: var(--muted); border-top: 1px solid var(--line-2); padding-top: 7px; margin-top: 1px; }
+  .home2 .cwempty { font-size: 13px; color: var(--muted); font-weight: 600; padding: 5px 0 3px; }
 
   /* Today's chores card */
   .home2 .card2 { background: var(--card); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); overflow: hidden; }
@@ -685,6 +690,10 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .cal-setup .dadnote { font-size: 12px; color: var(--muted); font-weight: 700; margin-top: 12px; }
   .cal-timerow { display: flex; gap: 10px; }
   .cal-timerow > div { flex: 1; }
+  .cal-recur { font-size: .82em; opacity: .6; margin-left: 4px; font-weight: 800; }
+  .cal-customnote { font-size: 12.5px; color: var(--muted); margin-top: 6px; line-height: 1.45; }
+  .cal-delrow { display: flex; gap: 10px; margin-top: 20px; }
+  .cal-delrow .btn { flex: 1 1 0; padding: 12px 6px; font-size: 13.5px; white-space: nowrap; }
   input[type=time], input[type=date] { width: 100%; padding: 13px; font-size: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink); }
   textarea { width: 100%; padding: 13px; font-size: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink); font-family: inherit; resize: vertical; min-height: 60px; }
 
@@ -1081,6 +1090,13 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
 <div class="overlay" id="calOverlay">
   <div class="sheet">
     <h2 id="calSheetTitle">Add event</h2>
+    <div id="calScopeRow" style="display:none">
+      <label>This event repeats — change…</label>
+      <div class="seg" id="calScopeSeg">
+        <button data-scope="one" class="sel">This day</button>
+        <button data-scope="all">Whole series</button>
+      </div>
+    </div>
     <label for="calEvTitle">Event</label>
     <input type="text" id="calEvTitle" placeholder="e.g. Vet visit" autocomplete="off" />
     <label for="calEvDate">Date</label>
@@ -1097,8 +1113,33 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
         <div><input type="time" id="calEvEnd" value="10:00" /></div>
       </div>
     </div>
+    <div id="calRepeatRow">
+      <label for="calRepeatSel">Repeats</label>
+      <select id="calRepeatSel">
+        <option value="NONE">Doesn't repeat</option>
+        <option value="DAILY">Daily</option>
+        <option value="WEEKLY">Weekly</option>
+        <option value="BIWEEKLY">Every 2 weeks</option>
+        <option value="MONTHLY">Monthly</option>
+        <option value="YEARLY">Yearly</option>
+        <option value="CUSTOM" hidden>Repeats (custom)</option>
+      </select>
+      <div class="cal-customnote" id="calRepeatCustomNote" style="display:none">This series' schedule was set up in Google Calendar and stays as-is — everything else is still editable.</div>
+    </div>
+    <div id="calEndsRow" style="display:none">
+      <label>Ends</label>
+      <div class="seg" id="calEndsSeg">
+        <button data-ends="never" class="sel">Never</button>
+        <button data-ends="on">On date</button>
+      </div>
+      <input type="date" id="calRepeatUntil" style="display:none;margin-top:8px" />
+    </div>
     <label for="calEvNotes">Notes</label>
     <textarea id="calEvNotes" placeholder="Anything to remember (optional)"></textarea>
+    <div class="cal-delrow" id="calDelSeriesRow" style="display:none">
+      <button class="btn danger" id="calDelOneBtn">🗑 Delete this day</button>
+      <button class="btn danger" id="calDelAllBtn">🗑 Delete whole series</button>
+    </div>
     <div class="sheet-actions">
       <button class="btn danger" id="calDeleteBtn" style="display:none">Delete</button>
       <button class="btn ghost" id="calCancelBtn">Cancel</button>
@@ -1874,12 +1915,6 @@ function goTo(tab, push = true){
 }
 
 // ---- Home helpers ----
-function dayKey(d){ return d.getFullYear() + "-" + (d.getMonth()+1) + "-" + d.getDate(); }
-// "$14" or "$14<small>.50</small>" — cents only shown when non-zero (for the stat row).
-function bankMarkup(v){
-  const neg = v < 0, a = Math.abs(v), whole = Math.floor(a), cents = Math.round((a - whole) * 100);
-  return `${neg?"−":""}$${whole}` + (cents ? `<small>.${String(cents).padStart(2,"0")}</small>` : "");
-}
 // Subtitle under a chore on the Home list (time of day for dailies, else the frequency).
 function homeChoreSub(c){
   if (c.frequency === "daily") return { morning:"Morning", noon:"Noon", night:"Night" }[c.timeOfDay || "morning"];
@@ -1890,22 +1925,6 @@ function toggleHomeChore(c){
   if (isDone(c)) setSlot(c, 0);
   else setSlot(c, curPeriodLog(c).length);
 }
-// Honest consecutive-day streak: counts days where EVERY chore was completed. Per device +
-// per person (localStorage). Advances at most once/day, only when today is fully done.
-function choreStreak(total, done){
-  const key = "bucky_streak_" + (myName() || "x");
-  let st; try { st = JSON.parse(localStorage.getItem(key) || "{}"); } catch { st = {}; }
-  const todayK = dayKey(new Date());
-  const yK = dayKey(new Date(Date.now() - 86400000));
-  if (total > 0 && done === total && st.lastDay !== todayK){
-    st.count = (st.lastDay === yK) ? (st.count||0) + 1 : 1;
-    st.lastDay = todayK;
-    try { localStorage.setItem(key, JSON.stringify(st)); } catch {}
-  }
-  if (st.lastDay === todayK || st.lastDay === yK) return st.count || 0;   // alive today or yesterday
-  return 0;   // broken
-}
-
 // ---- 3-day weather for the farm (Woodville, AL) via Open-Meteo (free, no key, CORS ok) ----
 const WX_URL = "https://api.open-meteo.com/v1/forecast?latitude=34.6865&longitude=-86.2104"
   + "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"
@@ -1972,7 +1991,6 @@ function renderDashboard(){
   document.getElementById("progress").style.display = "none";   // greeting lives in the hero now
 
   const who = myName();
-  const isBankKid = BANK_KIDS.includes(who);
   const h = new Date().getHours();
   const part = h < 12 ? ["Morning","☀️"] : h < 17 ? ["Afternoon","🌤️"] : ["Evening","🌙"];
   const eyebrow = new Date().toLocaleDateString(undefined, { weekday:"long", month:"long", day:"numeric" }).toUpperCase();
@@ -1982,12 +2000,6 @@ function renderDashboard(){
   const total = dayChores.length;
   const done  = dayChores.filter(isDone).length;
   const left  = total - done;
-  // Jobs stat = open work orders relevant to me: assigned to me OR unclaimed (up for grabs).
-  // No name set → all open.
-  const openWos = chores.filter(c => c.frequency === "workorder" && !c.done && (!who || woIsMine(c, who) || woIsUnassigned(c))).length;
-  const bankVal = isBankKid ? kidBalance(who) : BANK_KIDS.reduce((s,k)=> s + kidBalance(k), 0);
-  const shopOpen = chores.filter(c => c.frequency === "shopping" && !c.gotAt).length;
-  const streak   = choreStreak(total, done);
 
   const list = document.getElementById("list");
   list.innerHTML = "";
@@ -1995,8 +2007,6 @@ function renderDashboard(){
   li.style.cssText = "background:transparent;border:0;box-shadow:none;padding:0;";
   const home = document.createElement("div"); home.className = "home2";
   li.appendChild(home);
-
-  const showBank = seesBank();   // Farm Bank stays family-only; chores are for everyone
 
   // ---- hero: greeting + chore progress ring ----
   const CIRC = 2 * Math.PI * 30, pct = total ? done/total : 0;   // r=30
@@ -2028,23 +2038,16 @@ function renderDashboard(){
   hero.onclick = () => goTo("chores");
   home.appendChild(hero);
 
-  // ---- stat row: Bank (family only) / Streak / Open Work Orders / Shopping ----
-  // Icon-only cards (no label text, cleaner) — full name still exposed via title + aria-label.
-  const stats = document.createElement("div"); stats.className = "stats";
-  const mkStat = (icon, label, v, onClick) => {
-    const b = document.createElement("button"); b.className = "stat";
-    b.title = label; b.setAttribute("aria-label", label);
-    b.innerHTML = `<div class="k">${icon}</div><div class="v">${v}</div>`;
-    b.onclick = onClick; stats.appendChild(b);
-  };
-  const statDefs = [];
-  if (showBank) statDefs.push(["💰", "Bank", bankMarkup(bankVal), () => goTo("farmbank")]);
-  statDefs.push(["🔥", "Streak", `${streak}<small class="ssub">day streak</small>`,  () => goTo("chores")]);
-  statDefs.push(["🛠", "Open Work Orders", `${openWos}`, () => goTo("workorders")]);
-  statDefs.push(["🛒", "Shopping", `${shopOpen}`, () => goTo("shopping")]);
-  stats.style.gridTemplateColumns = `repeat(${statDefs.length}, 1fr)`;
-  for (const [icon, label, v, fn] of statDefs) mkStat(icon, label, v, fn);
-  home.appendChild(stats);
+  // ---- calendar widget: today's date + the next few family events (universal — no
+  // audience gating). Whole card taps into Plan → Calendar; paints instantly from the
+  // bucky_cal_cache the calendar tab shares, then calHomeRefresh() quietly refreshes a
+  // stale cache in the background (weather-card pattern).
+  const calw = document.createElement("button"); calw.className = "calwidget"; calw.type = "button";
+  calw.setAttribute("aria-label", "Open the family calendar");
+  calw.onclick = () => goTo("calendar");
+  home.appendChild(calw);
+  paintCalWidget(calw);
+  calHomeRefresh();
 
   // ---- 5-day weather for the farm (opens full weather.html: 7-day + radar) ----
   const wx = document.createElement("button"); wx.className = "wxcard";
@@ -4081,7 +4084,16 @@ let calStatusFetched = false;
 let calRangeKey = "";                          // signature of the last fetched range (avoids refetch churn)
 let editingCalId = null;                       // null = adding a new event
 let calSheetAllDay = false;
+// ---- recurring-event sheet state ----
+let calSheetSeriesId = null;   // master id when the sheet was opened on a recurring INSTANCE
+let calSheetScope = "one";     // "one" (this day) | "all" (whole series) — recurring only
+let calSheetMaster = null;     // {..., repeat} fetched via action:"get" for series edits
+let calSheetMasterReq = null;  // in-flight get promise (fetch once per sheet open)
+let calSheetEnds = "never";    // "never" | "on" — the repeat's Ends control
+let calRepeatTouched = false;  // user changed the Repeats select this open (CUSTOM guard)
+let calCacheTs = 0;                            // when bucky_cal_cache was last written (Home-widget staleness check)
 try { const c = JSON.parse(localStorage.getItem("bucky_cal_cache")); if (Array.isArray(c)) calEvents = c; } catch {}
+try { const t = Number(localStorage.getItem("bucky_cal_cache_ts")); if (t > 0) calCacheTs = t; } catch {}
 try { const s = JSON.parse(localStorage.getItem("bucky_cal_status")); if (s) calStatus = s; } catch {}
 
 function startOfDay(d){ return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
@@ -4099,6 +4111,23 @@ async function calPost(action, extra){
   let j = null; try { j = await resp.json(); } catch {}
   if (!resp.ok){ const e = new Error("http " + resp.status); e.code = "http"; throw e; }
   return j || {};
+}
+
+// THE one events-list fetch path — the calendar tab (ensureCalData) and the Home widget
+// (calHomeRefresh) both route through here so the secret/plumbing lives in one place.
+// Pulls [min,max) into calEvents + the localStorage cache (stamped for the widget's TTL).
+// Throws on any failure; an API-level {error} reply throws with .apiError so the tab can
+// keep mapping it to its setup/warn cards exactly as before. Callers decide how loud to be.
+async function calFetchEvents(min, max){
+  const r = await calPost("list", { timeMin: min.toISOString(), timeMax: max.toISOString() });
+  if (r.error){ const e = new Error(r.error); e.apiError = r.error; throw e; }
+  calEvents = r.events || [];
+  calCacheTs = Date.now();
+  try {
+    localStorage.setItem("bucky_cal_cache", JSON.stringify(calEvents));
+    localStorage.setItem("bucky_cal_cache_ts", String(calCacheTs));
+  } catch {}
+  return calEvents;
 }
 
 // month grid = 6 weeks from the Sunday on/before the 1st; week/day = their own span.
@@ -4131,10 +4160,9 @@ async function ensureCalData(force){
   calRangeKey = key;
   calLoading = true;
   try {
-    const r = await calPost("list", { timeMin: min.toISOString(), timeMax: max.toISOString() });
-    if (r.error){ calError = r.error; }
-    else { calEvents = r.events || []; calError = null; localStorage.setItem("bucky_cal_cache", JSON.stringify(calEvents)); }
-  } catch (e){ calError = e.code === "server" ? "server" : "network"; }
+    await calFetchEvents(min, max);
+    calError = null;
+  } catch (e){ calError = e.apiError ? e.apiError : (e.code === "server" ? "server" : "network"); }
   calLoading = false;
   if (currentTab === "calendar") renderCalendar();
 }
@@ -4163,6 +4191,81 @@ function calEventsForDay(key){
 function calTimeLabel(e){
   if (e.allDay) return "All day";
   return new Date(e.start).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+// ---- Home dashboard calendar widget (replaced the old stat row, 2026-07-20) ----
+// Reads the same calEvents / bucky_cal_cache the calendar tab keeps; renderDashboard
+// paints it from cache instantly, then calHomeRefresh() background-refreshes a stale
+// cache and repaints only while the user is still on the dashboard (wxcard precedent).
+const CAL_HOME_TTL = 10 * 60 * 1000;   // background-refresh when the cache is older than this
+const CAL_HOME_DAYS = 8;               // widget window = today + the next 7 days
+let calHomeNowOverride = null;         // test hook: ms timestamp or null (real clock)
+let calHomeFetching = false;
+function calHomeNow(){ return calHomeNowOverride ? new Date(calHomeNowOverride) : new Date(); }
+// Up to `limit` events in the today→+7d window, soonest first (all-day ahead of timed on
+// ties, like the tab's agenda sort). A multi-day all-day event surfaces on its first
+// visible day, so one already running reads as "Today". Timed events keep showing for the
+// whole of their day (a 9 AM event is still today's plan at 3 PM).
+function calUpcoming(limit){
+  const min = startOfDay(calHomeNow());
+  const max = new Date(min.getTime() + CAL_HOME_DAYS * 86400000);
+  const items = [];
+  for (const e of calEvents){
+    if (!e || !e.start) continue;
+    if (e.allDay){
+      const s = startOfDay(parseDateKey(e.start));
+      const en = e.end ? startOfDay(parseDateKey(e.end)) : new Date(s.getTime() + 86400000);   // Google end is exclusive
+      if (en <= min || s >= max) continue;
+      const day = s > min ? s : min;
+      items.push({ e, day, t: day.getTime(), timed: 0 });
+    } else {
+      const s = new Date(e.start);
+      if (s < min || s >= max) continue;
+      items.push({ e, day: startOfDay(s), t: s.getTime(), timed: 1 });
+    }
+  }
+  items.sort((a,b)=> a.t - b.t || a.timed - b.timed);
+  return { rows: items.slice(0, limit), extra: Math.max(0, items.length - limit) };
+}
+function calHomeDayChip(day){
+  const diff = Math.round((day - startOfDay(calHomeNow())) / 86400000);
+  if (diff <= 0) return "Today";
+  if (diff === 1) return "Tomorrow";
+  return day.toLocaleDateString(undefined, { weekday: "short" });
+}
+function paintCalWidget(el){
+  const { rows, extra } = calUpcoming(3);
+  el.innerHTML =
+    `<div class="cwhead"><span class="cwdate"></span><span class="cwmore">Calendar ›</span></div>`
+    + (rows.length
+        ? `<div class="cwrows"></div>` + (extra ? `<div class="cwextra">+${extra} more this week</div>` : "")
+        : `<div class="cwempty">Nothing coming up this week — tap to add an event ➜</div>`);
+  el.querySelector(".cwdate").textContent =
+    "📅 " + calHomeNow().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  const rowsEl = el.querySelector(".cwrows");
+  if (rowsEl) for (const it of rows){
+    const r = document.createElement("div"); r.className = "cwrow";
+    r.innerHTML = `<span class="cwday"></span><span class="cwtitle"></span><span class="cwtime"></span>`;
+    const chip = calHomeDayChip(it.day);
+    const dc = r.querySelector(".cwday"); dc.textContent = chip; if (chip === "Today") dc.classList.add("today");
+    r.querySelector(".cwtitle").textContent = (it.e.seriesId ? "↻ " : "") + (it.e.title || "(untitled)");
+    r.querySelector(".cwtime").textContent = calTimeLabel(it.e);
+    rowsEl.appendChild(r);
+  }
+}
+// Missing/stale (>~10 min) cache → ONE quiet list fetch for the widget window; repaint
+// only if the user is still on the dashboard. Failures are silent — whatever painted
+// (cached rows / the friendly empty state) simply stands. Never an error state.
+function calHomeRefresh(){
+  if (calHomeFetching) return;
+  if (Date.now() - calCacheTs < CAL_HOME_TTL) return;
+  if (calStatus && calStatus.configured === false) return;   // not set up yet — nothing to fetch
+  calHomeFetching = true;
+  const min = startOfDay(new Date()), max = new Date(min.getTime() + CAL_HOME_DAYS * 86400000);
+  calFetchEvents(min, max)
+    .then(() => { const cur = document.querySelector(".home2 .calwidget"); if (cur && currentTab === "dashboard") paintCalWidget(cur); })
+    .catch(() => {})
+    .finally(() => { calHomeFetching = false; });
 }
 function calTitleText(){
   if (calView === "month") return calFocus.toLocaleDateString(undefined, { month: "long", year: "numeric" });
@@ -4256,7 +4359,7 @@ function buildCalMonth(container){
     cell.appendChild(num);
     const evs = calEventsForDay(key);
     const chips = document.createElement("div"); chips.className = "cal-chips";
-    evs.slice(0,2).forEach(e=>{ const c = document.createElement("div"); c.className = "cal-chip" + (e.allDay?" allday":""); c.textContent = e.title || "(untitled)"; chips.appendChild(c); });
+    evs.slice(0,2).forEach(e=>{ const c = document.createElement("div"); c.className = "cal-chip" + (e.allDay?" allday":""); c.textContent = (e.seriesId ? "↻ " : "") + (e.title || "(untitled)"); chips.appendChild(c); });
     if (evs.length > 2){ const m = document.createElement("div"); m.className = "cal-more"; m.textContent = "+" + (evs.length-2) + " more"; chips.appendChild(m); }
     cell.appendChild(chips);
     cell.onclick = () => { calSelectedKey = key; renderCalendar(); };
@@ -4302,6 +4405,7 @@ function buildCalAgendaList(container, key){
     const t = document.createElement("div"); t.className = "cal-evtime"; t.textContent = calTimeLabel(ev);
     const body = document.createElement("div"); body.className = "cal-evbody";
     const nm = document.createElement("div"); nm.className = "cal-evname"; nm.textContent = ev.title || "(untitled)";
+    if (ev.seriesId){ const rc = document.createElement("span"); rc.className = "cal-recur"; rc.textContent = "↻"; rc.title = "Repeats"; nm.appendChild(rc); }
     body.appendChild(nm);
     if (ev.notes){ const nt = document.createElement("div"); nt.className = "cal-evnote"; nt.textContent = ev.notes; body.appendChild(nt); }
     row.append(t, body);
@@ -4345,8 +4449,14 @@ function buildCalSetup(){
 // ---- Add / edit event sheet ----
 function openCalEventSheet(ev){
   editingCalId = ev ? ev.id : null;
+  calSheetSeriesId = (ev && ev.seriesId) ? ev.seriesId : null;
+  calSheetScope = "one";
+  calSheetMaster = null; calSheetMasterReq = null;
+  calSheetEnds = "never"; calRepeatTouched = false;
+  const repSel = document.getElementById("calRepeatSel");
+  repSel.value = "NONE"; repSel.disabled = false;
+  document.getElementById("calRepeatUntil").value = "";
   document.getElementById("calSheetTitle").textContent = ev ? "Edit event" : "Add event";
-  document.getElementById("calDeleteBtn").style.display = ev ? "" : "none";
   const titleI = document.getElementById("calEvTitle");
   const dateI = document.getElementById("calEvDate");
   const startI = document.getElementById("calEvStart");
@@ -4363,12 +4473,79 @@ function openCalEventSheet(ev){
     startI.value = "09:00"; endI.value = "10:00";
   }
   syncCalAllDayUI();
+  syncCalScopeUI();
   document.getElementById("calOverlay").classList.add("open");
   setTimeout(()=>titleI.focus(), 100);
 }
 function syncCalAllDayUI(){
   document.querySelectorAll("#calAllDaySeg button").forEach(b=> b.classList.toggle("sel", (b.dataset.allday === "1") === calSheetAllDay));
   document.getElementById("calTimeRow").style.display = calSheetAllDay ? "none" : "";
+}
+// Scope ("This day" / "Whole series") + which delete affordance shows. The Repeats block is
+// a SERIES property: hidden while editing a single day of a series, shown otherwise.
+function syncCalScopeUI(){
+  const isRec = !!calSheetSeriesId;
+  document.getElementById("calScopeRow").style.display = isRec ? "" : "none";
+  document.querySelectorAll("#calScopeSeg button").forEach(b=> b.classList.toggle("sel", b.dataset.scope === calSheetScope));
+  document.getElementById("calRepeatRow").style.display = (isRec && calSheetScope === "one") ? "none" : "";
+  document.getElementById("calDeleteBtn").style.display = (editingCalId && !isRec) ? "" : "none";
+  document.getElementById("calDelSeriesRow").style.display = isRec ? "flex" : "none";
+  syncCalRepeatUI();
+}
+// Repeats select + Ends row visibility. The Weekly option's label follows the picked date's
+// weekday live; CUSTOM (exotic rule from Google) renders read-only.
+function syncCalRepeatUI(){
+  const sel = document.getElementById("calRepeatSel");
+  const d = parseDateKey(document.getElementById("calEvDate").value || dateKeyLocal(new Date()));
+  const wd = isNaN(d.getTime()) ? "" : d.toLocaleDateString(undefined, { weekday: "long" });
+  sel.querySelector('option[value="WEEKLY"]').textContent = wd ? ("Weekly on " + wd) : "Weekly";
+  const isCustom = sel.value === "CUSTOM";
+  const seriesLoading = !!(calSheetSeriesId && calSheetScope === "all" && !calSheetMaster);
+  sel.disabled = isCustom || seriesLoading;
+  document.getElementById("calRepeatCustomNote").style.display = isCustom ? "" : "none";
+  const repeatRowShown = document.getElementById("calRepeatRow").style.display !== "none";
+  const repeating = repeatRowShown && sel.value !== "NONE" && !isCustom;
+  document.getElementById("calEndsRow").style.display = repeating ? "" : "none";
+  document.querySelectorAll("#calEndsSeg button").forEach(b=> b.classList.toggle("sel", b.dataset.ends === calSheetEnds));
+  document.getElementById("calRepeatUntil").style.display = calSheetEnds === "on" ? "" : "none";
+}
+// Fetch the series MASTER once per sheet open (action:"get"): prefills the Repeats controls
+// from its parsed rule and supplies the ORIGINAL dates a whole-series save shifts.
+function loadCalMaster(){
+  if (calSheetMasterReq) return calSheetMasterReq;
+  const seriesId = calSheetSeriesId;
+  calSheetMasterReq = (async ()=>{
+    try {
+      const r = await calPost("get", { event: { id: seriesId } });
+      if (r && r.event && r.event.id && calSheetSeriesId === seriesId){
+        calSheetMaster = r.event;
+        if (!calRepeatTouched){
+          const rep = calSheetMaster.repeat;
+          const sel = document.getElementById("calRepeatSel");
+          sel.value = (rep && rep.freq) ? rep.freq : "NONE";
+          calSheetEnds = (rep && rep.until) ? "on" : "never";
+          document.getElementById("calRepeatUntil").value = (rep && rep.until) || "";
+        }
+      }
+    } catch {}
+    syncCalRepeatUI();
+    return calSheetMaster;
+  })();
+  return calSheetMasterReq;
+}
+function setCalScope(scope){
+  calSheetScope = scope;
+  if (scope === "all" && calSheetSeriesId && !calSheetMaster) loadCalMaster();
+  syncCalScopeUI();
+}
+// The form's Repeats controls → the API's repeat object. CUSTOM → null (omit; a series
+// save must never clobber an exotic Google-made rule).
+function calRepeatValue(){
+  const v = document.getElementById("calRepeatSel").value;
+  if (v === "CUSTOM") return null;
+  if (v === "NONE") return { freq: "NONE" };
+  const until = (calSheetEnds === "on" && document.getElementById("calRepeatUntil").value) || null;
+  return { freq: v, until };
 }
 function closeCalSheet(){ document.getElementById("calOverlay").classList.remove("open"); }
 async function saveCalEvent(){
@@ -4377,15 +4554,38 @@ async function saveCalEvent(){
   const date = document.getElementById("calEvDate").value;
   if (!date){ document.getElementById("calEvDate").focus(); return; }
   const notes = document.getElementById("calEvNotes").value.trim();
+  const st = document.getElementById("calEvStart").value || "09:00";
+  const en = document.getElementById("calEvEnd").value || "10:00";
   let payload;
-  if (calSheetAllDay){ payload = { title, notes, allDay: true, startDate: date }; }
-  else {
-    const st = document.getElementById("calEvStart").value || "09:00";
-    const en = document.getElementById("calEvEnd").value || "10:00";
-    payload = { title, notes, allDay: false, start: `${date}T${st}:00`, end: `${date}T${en}:00` };
+  if (calSheetSeriesId && calSheetScope === "all"){
+    // Whole series → update the MASTER: title/notes/repeat from the form, and the form's
+    // time-of-day applied onto the master's ORIGINAL dates (shifts every occurrence's
+    // clock time, like Google's own "all events" edit; all-day stays on its own dates).
+    let master = calSheetMaster;
+    if (!master){ try { master = await loadCalMaster(); } catch {} }
+    if (!master){ showToast("⚠️ Couldn't load the series — try again."); return; }
+    const mDate = master.allDay ? master.start : String(master.start).slice(0, 10);
+    if (calSheetAllDay){
+      payload = { title, notes, allDay: true, startDate: mDate };
+      if (master.allDay && master.end) payload.endDate = master.end;
+    } else {
+      payload = { title, notes, allDay: false, start: `${mDate}T${st}:00`, end: `${mDate}T${en}:00` };
+    }
+    const rep = calRepeatValue();
+    if (rep) payload.repeat = rep;   // CUSTOM → omitted, Google's rule stays untouched
+    payload.id = calSheetSeriesId;
+  } else {
+    if (calSheetAllDay){ payload = { title, notes, allDay: true, startDate: date }; }
+    else { payload = { title, notes, allDay: false, start: `${date}T${st}:00`, end: `${date}T${en}:00` }; }
+    if (editingCalId) payload.id = editingCalId;
+    if (!calSheetSeriesId){
+      // new/standalone: picking a repeat creates (or converts to) a series; NONE = unchanged
+      const rep = calRepeatValue();
+      if (rep && rep.freq !== "NONE") payload.repeat = rep;
+    }
+    // "This day" on a series: fields only, no repeat — Google exceptions just that instance
   }
-  const editing = editingCalId;
-  if (editing) payload.id = editing;
+  const editing = !!payload.id;
   closeCalSheet();
   showToast(editing ? "Saving change…" : "Adding event…");
   try {
@@ -4395,9 +4595,7 @@ async function saveCalEvent(){
   } catch (e){ showToast("⚠️ Couldn't save — check your connection"); }
   ensureCalData(true);
 }
-async function deleteCalEvent(){
-  if (!editingCalId){ closeCalSheet(); return; }
-  const id = editingCalId;
+async function doCalDelete(id){
   closeCalSheet();
   showToast("Deleting…");
   try {
@@ -4407,10 +4605,22 @@ async function deleteCalEvent(){
   } catch (e){ showToast("⚠️ Couldn't delete — check your connection"); }
   ensureCalData(true);
 }
+async function deleteCalEvent(){
+  if (!editingCalId){ closeCalSheet(); return; }
+  doCalDelete(editingCalId);
+}
 document.querySelectorAll("#calAllDaySeg button").forEach(b=>{ b.onclick = () => { calSheetAllDay = b.dataset.allday === "1"; syncCalAllDayUI(); }; });
+document.querySelectorAll("#calScopeSeg button").forEach(b=>{ b.onclick = () => setCalScope(b.dataset.scope); });
+document.getElementById("calRepeatSel").onchange = () => { calRepeatTouched = true; syncCalRepeatUI(); };
+document.querySelectorAll("#calEndsSeg button").forEach(b=>{ b.onclick = () => { calSheetEnds = b.dataset.ends; calRepeatTouched = true; syncCalRepeatUI(); }; });
+document.getElementById("calRepeatUntil").addEventListener("change", ()=>{ calRepeatTouched = true; });
+document.getElementById("calEvDate").addEventListener("input", syncCalRepeatUI);
+document.getElementById("calEvDate").addEventListener("change", syncCalRepeatUI);
 document.getElementById("calCancelBtn").onclick = closeCalSheet;
 document.getElementById("calSaveBtn").onclick = saveCalEvent;
 document.getElementById("calDeleteBtn").onclick = deleteCalEvent;
+document.getElementById("calDelOneBtn").onclick = ()=>{ if (editingCalId) doCalDelete(editingCalId); };
+document.getElementById("calDelAllBtn").onclick = ()=>{ if (calSheetSeriesId) doCalDelete(calSheetSeriesId); };
 document.getElementById("calOverlay").onclick = (e)=>{ if (e.target.id === "calOverlay") closeCalSheet(); };
 document.getElementById("calEvTitle").addEventListener("keydown", e=>{ if (e.key === "Enter") saveCalEvent(); });
 
@@ -4607,6 +4817,12 @@ window.__CAL__ = {
   state: ()=>({ view: calView, focus: dateKeyLocal(calFocus), selected: calSelectedKey, events: calEvents.slice(), error: calError, status: calStatus, loading: calLoading }),
   setStatus: (s)=>{ calStatus = s; calStatusFetched = true; if (currentTab === "calendar") renderCalendar(); },
   openSheet: (ev)=>openCalEventSheet(ev || null),
+  sheet: ()=>({ scope: calSheetScope, seriesId: calSheetSeriesId, masterLoaded: !!calSheetMaster,
+                repeat: document.getElementById("calRepeatSel").value, ends: calSheetEnds,
+                repeatTouched: calRepeatTouched }),
+  // Home-widget hooks (deterministic "now" for the dashboard calendar card)
+  setHomeNow: (ts)=>{ calHomeNowOverride = ts || null; if (currentTab === "dashboard") render(); },
+  home: ()=>({ cacheTs: calCacheTs, fetching: calHomeFetching }),
 };
 window.__CARE__ = {
   data: ()=>animalCareData,

@@ -400,6 +400,27 @@ cal_server_test.mjs 57/57 (fake Google; SA key never leaked asserted) +
 cal_ui_test.cjs 104/104 (needs PPT env var = path to puppeteer-core; Firebase blocked).
 GOTCHA the tests caught: passing a slot OBJECT as a map key stringifies to
 "[object Object]" and silently reads defaults wrong — pass slot.id.
+RECURRING EVENTS (2026-07-19, sonnet agent): Google-native RRULE. Function: list/get
+emit seriesId (recurringEventId); create/update take event.repeat {freq DAILY|WEEKLY|
+BIWEEKLY|MONTHLY|YEARLY, until} → buildRRule (WEEKLY = no BYDAY, weekday implicit;
+until timed = UNTIL=...T235959Z, all-day = value-date; NONE on update = explicit
+recurrence:[] clear; absent = omit/unchanged; CUSTOM never clobbers); action "get"
+parses RRULE back (exotic → freq:CUSTOM read-only in UI). UI: Repeats+Ends rows in the
+sheet (weekly label live-follows date), ↻ marker on instances, instance tap = This day/
+Whole series scope seg (series save = get master → apply form time-of-day onto master's
+ORIGINAL dates → update master id; asserted ordering), dual delete buttons. Suites now
+cal_server 130 / cal_ui 154 (PPT env var). Agent correctly refused live-pane index.html
+verification (production-Firestore risk) — headless route-mocked only.
+HOME CAL WIDGET (2026-07-20, user): the 4-up stat row (Bank/Streak/Open WO/Shopping) is
+GONE from renderDashboard — replaced by a universal clickable calendar card in its slot
+(hero → calwidget → weather): "📅 <Weekday, Month D>" + up to 3 upcoming events over
+today→+7d from bucky_cal_cache (Today/Tomorrow/weekday chips, time or All day, ↻ for
+recurring, "+N more this week", friendly empty state — never errors), whole card →
+goTo('calendar'). ONE fetch path: calFetchEvents() shared by tab + widget;
+bucky_cal_cache_ts stamp; widget refresh = wxcard pattern (>10min stale → one quiet
+fetch, repaint only if still on dashboard). Dead code removed w/ grep evidence
+(bankMarkup/choreStreak/dayKey); seesBank/kidBalance/woIsMine KEPT (shared). Suite:
+scratchpad home_calwidget_test.cjs 64/64.
 
 ---
 
