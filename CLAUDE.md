@@ -378,6 +378,31 @@ tokens (no framework); regroup the 9 sections into ~5 areas.
 
 ---
 
+# 📅 PLAN AREA — family calendar + animal care (2026-07-19, opus agent, UNPUSHED)
+
+8th bottom-nav area "📅 Plan" (members ['calendar','animalcare']; nav mirrored on
+farmgpt/games/weather — keep all four in sync; 8 areas = 46px each at 390px, blabel
+10px). CALENDAR: netlify/functions/calendar.mjs (secret-gated like farmgpt, reuses
+FIREBASE_SERVICE_ACCOUNT w/ calendar scope + GOOGLE_CALENDAR_ID env; actions
+status/list/create/update/delete; status.saEmail feeds the in-app setup card; Google
+401/403/404 → "calendar-not-shared"; CALENDAR_BASE_URL/CAL_GOOGLE_TOKEN_URL test
+overrides). index.html renderCalendar ~L4195: month/week/day views (view persisted
+bucky_cal_view), localStorage cache bucky_cal_cache for instant paint, add/edit/delete
+sheet #calOverlay, times America/Chicago. SETUP (Dad, one-time): share family calendar
+w/ the SA email shown on the setup card ("Make changes to events") + enable Calendar API
+on amen-farms-app + set GOOGLE_CALENDAR_ID in Netlify + redeploy. ANIMAL CARE:
+renderAnimalCare ~L4491 — backend.getSetting/setSetting("animalCare") JSON envelope
+{defaults:{mon..sun:{am,pm}}, overrides:{"YYYY-MM-DD":{am/pm}}} (sparse, 30-day prune
+on save); groups Kreussers(navy)/Joy(red)/Grandparents(amber); tap chip = cycle →
+override (auto-removes when equal to default, ↺ resets); #careSchedOverlay = weekly
+default editor; week paging. Test hooks __CAL__/__CARE__/__NAV__. Suites (scratchpad):
+cal_server_test.mjs 57/57 (fake Google; SA key never leaked asserted) +
+cal_ui_test.cjs 104/104 (needs PPT env var = path to puppeteer-core; Firebase blocked).
+GOTCHA the tests caught: passing a slot OBJECT as a map key stringifies to
+"[object Object]" and silently reads defaults wrong — pass slot.id.
+
+---
+
 # 🗺 Farm3D — real-terrain 3D map of the actual farm (2026-07-06)
 
 `farm3d.html` — interactive 3D viewer of the real property (727 Co Rd 80, Woodville AL;

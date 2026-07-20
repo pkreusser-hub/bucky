@@ -155,17 +155,17 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
     -webkit-backdrop-filter: saturate(1.3) blur(14px);
     backdrop-filter: saturate(1.3) blur(14px);
     border-top: 1px solid var(--line);
-    padding: 6px 8px calc(env(safe-area-inset-bottom) + 6px);
+    padding: 6px 5px calc(env(safe-area-inset-bottom) + 6px);   /* horizontal padding trimmed so 8 areas fit at 390px */
     box-shadow: 0 -2px 16px rgba(35,51,87,.08);
   }
   .bnav-btn {
     flex: 1 1 0; min-width: 0; border: 0; background: transparent; cursor: pointer;
     display: flex; flex-direction: column; align-items: center; gap: 3px;
-    padding: 7px 0 5px; border-radius: 13px; color: var(--muted);
+    padding: 7px 0 5px; border-radius: 12px; color: var(--muted);
     transition: color .15s ease, background .15s ease, transform .1s ease;
   }
-  .bnav-btn .bico { font-size: 22px; line-height: 1; filter: grayscale(.4) opacity(.75); transition: filter .15s ease, transform .12s ease; }
-  .bnav-btn .blabel { font-size: 11px; font-weight: 700; letter-spacing: .2px; }
+  .bnav-btn .bico { font-size: 21px; line-height: 1; filter: grayscale(.4) opacity(.75); transition: filter .15s ease, transform .12s ease; }
+  .bnav-btn .blabel { font-size: 10px; font-weight: 700; letter-spacing: .1px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .bnav-btn:active { transform: scale(.93); }
   .bnav-btn.active { color: var(--green); background: var(--done); }
   .bnav-btn.active .bico { filter: none; transform: translateY(-1px) scale(1.08); }
@@ -634,6 +634,86 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .lockhub { color: var(--red); font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 12px; }
   .lockcard p { color: var(--muted); font-size: 14px; margin: 0 0 16px; }
   .lockerr { color: #c0392b; font-size: 13px; min-height: 16px; margin-top: 8px; }
+
+  /* ---------- Family Calendar (Plan area) ---------- */
+  .cal-top { display: flex; align-items: center; gap: 8px; margin: 2px 2px 12px; }
+  .cal-title { font-size: 19px; font-weight: 800; flex: 1; min-width: 0; }
+  .cal-nav { display: flex; gap: 6px; align-items: center; }
+  .cal-iconbtn { border: 1px solid var(--line); background: var(--card); color: var(--ink); width: 36px; height: 36px; border-radius: 10px; font-size: 17px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .cal-iconbtn:active { transform: scale(.94); }
+  .cal-todaybtn { border: 1px solid var(--line); background: var(--card); color: var(--green); font-weight: 800; font-size: 13px; padding: 0 12px; height: 36px; border-radius: 10px; cursor: pointer; }
+  .cal-viewseg { display: flex; gap: 3px; background: var(--done); border: 1px solid var(--line); border-radius: 13px; padding: 3px; margin: 0 2px 14px; }
+  .cal-viewseg button { flex: 1 1 0; border: 0; background: transparent; color: var(--muted); font-size: 14px; font-weight: 700; padding: 9px 3px; border-radius: 10px; cursor: pointer; }
+  .cal-viewseg button.sel { background: var(--card); color: var(--ink); box-shadow: var(--shadow); }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .cal-dow { text-align: center; font-size: 11px; font-weight: 800; color: var(--muted); padding: 2px 0 4px; text-transform: uppercase; letter-spacing: .4px; }
+  .cal-cell { position: relative; min-height: 60px; border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 4px 3px 3px; cursor: pointer; text-align: left; display: flex; flex-direction: column; gap: 2px; overflow: hidden; font: inherit; color: inherit; }
+  .cal-cell.other { background: var(--surface-2); color: var(--muted); }
+  .cal-cell.today { border-color: var(--green); box-shadow: inset 0 0 0 1px var(--green); }
+  .cal-cell.sel { outline: 2px solid var(--red); outline-offset: -2px; }
+  .cal-num { font-size: 12.5px; font-weight: 800; }
+  .cal-cell.today .cal-num { color: var(--green); }
+  .cal-chips { display: flex; flex-direction: column; gap: 2px; }
+  .cal-chip { font-size: 9.5px; font-weight: 700; line-height: 1.3; padding: 1px 4px; border-radius: 5px; background: var(--navy-soft); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cal-chip.allday { background: var(--red-soft); color: var(--red); }
+  .cal-more { font-size: 9px; font-weight: 700; color: var(--muted); padding-left: 2px; }
+  .cal-agenda { margin-top: 16px; }
+  .cal-agenda-h { font-size: 14px; font-weight: 800; color: var(--ink); margin: 0 2px 8px; }
+  .cal-daycard { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; box-shadow: var(--shadow); }
+  .cal-daycard.today { border-color: var(--green); box-shadow: 0 0 0 1px var(--green), var(--shadow); }
+  .cal-daycard-h { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
+  .cal-dname { font-size: 15px; font-weight: 800; }
+  .cal-ddate { font-size: 12.5px; font-weight: 700; color: var(--muted); }
+  .cal-evrow { display: flex; gap: 10px; width: 100%; text-align: left; background: transparent; border: 0; border-top: 1px solid var(--line-2); padding: 9px 2px; cursor: pointer; align-items: flex-start; }
+  .cal-evrow:first-of-type { border-top: 0; }
+  .cal-evtime { flex: 0 0 62px; font-size: 12px; font-weight: 800; color: var(--green); padding-top: 1px; }
+  .cal-evrow.allday .cal-evtime { color: var(--red); }
+  .cal-evbody { flex: 1; min-width: 0; }
+  .cal-evname { font-size: 14.5px; font-weight: 700; }
+  .cal-evnote { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  .cal-empty { font-size: 13px; color: var(--muted); padding: 8px 2px; }
+  .cal-banner { font-size: 12.5px; font-weight: 700; padding: 9px 12px; border-radius: 10px; margin: 0 2px 12px; }
+  .cal-banner.warn { background: var(--amber-soft); color: #8a6414; }
+  .cal-banner.muted { background: var(--surface-2); color: var(--muted); }
+  .cal-setup { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px 16px; box-shadow: var(--shadow); }
+  .cal-setup h3 { margin: 0 0 6px; font-size: 16px; }
+  .cal-setup p { font-size: 13.5px; color: var(--ink-2); margin: 0 0 10px; line-height: 1.5; }
+  .cal-setup .saemail { display: inline-block; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; font-size: 12.5px; font-weight: 800; color: var(--green); word-break: break-all; }
+  .cal-setup ol { margin: 10px 0 0; padding-left: 18px; }
+  .cal-setup li { font-size: 13px; color: var(--ink-2); margin-bottom: 8px; line-height: 1.45; }
+  .cal-setup li b { color: var(--ink); }
+  .cal-setup .dadnote { font-size: 12px; color: var(--muted); font-weight: 700; margin-top: 12px; }
+  .cal-timerow { display: flex; gap: 10px; }
+  .cal-timerow > div { flex: 1; }
+  input[type=time], input[type=date] { width: 100%; padding: 13px; font-size: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink); }
+  textarea { width: 100%; padding: 13px; font-size: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink); font-family: inherit; resize: vertical; min-height: 60px; }
+
+  /* ---------- Animal Care coverage (Plan area) ---------- */
+  .care-top { display: flex; align-items: center; gap: 8px; margin: 2px 2px 10px; }
+  .care-wk-title { font-size: 16px; font-weight: 800; flex: 1; min-width: 0; }
+  .care-tonight { font-size: 13px; font-weight: 700; color: var(--ink-2); background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; margin: 0 2px 12px; display: flex; align-items: center; gap: 8px; }
+  .care-tonight .care-dot { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto; }
+  .care-editbtn { display: block; width: calc(100% - 4px); border: 1px dashed var(--line); background: var(--card); color: var(--green); font-weight: 800; font-size: 14px; padding: 12px; border-radius: 12px; cursor: pointer; margin: 2px 2px 14px; }
+  .care-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; box-shadow: var(--shadow); }
+  .care-card.today { border-color: var(--green); box-shadow: 0 0 0 1px var(--green), var(--shadow); }
+  .care-card-h { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+  .care-dname { font-size: 15px; font-weight: 800; }
+  .care-ddate { font-size: 12.5px; font-weight: 700; color: var(--muted); }
+  .care-todaybadge { margin-left: auto; font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: #fff; background: var(--green); padding: 2px 8px; border-radius: 999px; }
+  .care-slot { display: flex; align-items: center; gap: 10px; padding: 7px 0; }
+  .care-slot + .care-slot { border-top: 1px solid var(--line-2); }
+  .care-slot-lbl { flex: 1; font-size: 13.5px; font-weight: 700; color: var(--ink-2); display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .care-slot-ico { font-size: 15px; }
+  .care-chip { --chip: var(--green); background: var(--chip); color: #fff; border: 0; font-size: 13px; font-weight: 800; padding: 8px 16px; border-radius: 999px; cursor: pointer; position: relative; white-space: nowrap; }
+  .care-chip:active { transform: scale(.95); }
+  .care-chip.ov { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--chip); }
+  .care-chip.ov::after { content: ""; position: absolute; top: -2px; right: -2px; width: 8px; height: 8px; border-radius: 50%; background: var(--red); border: 1.5px solid var(--card); }
+  .care-reset { border: 0; background: transparent; color: var(--muted); font-size: 17px; cursor: pointer; padding: 2px 4px; line-height: 1; }
+  .care-sched-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line-2); }
+  .care-sched-day { flex: 0 0 40px; font-size: 13px; font-weight: 800; }
+  .care-sched-cell { flex: 1; display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .care-sched-slotlbl { font-size: 14px; flex: 0 0 auto; }
+  .care-chip.sched { flex: 1; padding: 9px 6px; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -997,6 +1077,49 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   <img id="photoBig" alt="" style="max-width:92%;max-height:86vh;border-radius:14px;display:block;box-shadow:0 10px 40px rgba(0,0,0,.4);" />
 </div>
 
+<!-- Add / edit calendar event sheet -->
+<div class="overlay" id="calOverlay">
+  <div class="sheet">
+    <h2 id="calSheetTitle">Add event</h2>
+    <label for="calEvTitle">Event</label>
+    <input type="text" id="calEvTitle" placeholder="e.g. Vet visit" autocomplete="off" />
+    <label for="calEvDate">Date</label>
+    <input type="date" id="calEvDate" />
+    <label>All day?</label>
+    <div class="seg" id="calAllDaySeg">
+      <button data-allday="0" class="sel">Set a time</button>
+      <button data-allday="1">All day</button>
+    </div>
+    <div id="calTimeRow">
+      <label>Time</label>
+      <div class="cal-timerow">
+        <div><input type="time" id="calEvStart" value="09:00" /></div>
+        <div><input type="time" id="calEvEnd" value="10:00" /></div>
+      </div>
+    </div>
+    <label for="calEvNotes">Notes</label>
+    <textarea id="calEvNotes" placeholder="Anything to remember (optional)"></textarea>
+    <div class="sheet-actions">
+      <button class="btn danger" id="calDeleteBtn" style="display:none">Delete</button>
+      <button class="btn ghost" id="calCancelBtn">Cancel</button>
+      <button class="btn primary" id="calSaveBtn">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit weekly animal-care schedule sheet -->
+<div class="overlay" id="careSchedOverlay">
+  <div class="sheet">
+    <h2>Weekly care schedule</h2>
+    <p style="color:var(--muted);font-size:13px;margin:0 0 12px;">Tap a name to change who covers each slot by default. Day-by-day changes on the week view override this.</p>
+    <div id="careSchedGrid"></div>
+    <div class="sheet-actions">
+      <button class="btn ghost" id="careSchedCancelBtn">Cancel</button>
+      <button class="btn primary" id="careSchedSaveBtn">Save</button>
+    </div>
+  </div>
+</div>
+
 <script type="module">
 /* ============================================================
    1) PASTE YOUR FIREBASE SETTINGS HERE  (see the setup guide)
@@ -1130,6 +1253,8 @@ const SECTIONS = [
   { key:"farmbank",   ico:"💰",  name:"Farm Bank",       desc:"Kid savings accounts" },
   { key:"goathooves", ico:"🐐",  name:"Goats",           desc:"Herd & records" },
   { key:"goatcare",   ico:"🩺",  name:"Goat Care",       desc:"Log care quickly" },
+  { key:"calendar",   ico:"📅",  name:"Calendar",        desc:"Family shared calendar" },
+  { key:"animalcare", ico:"🐾",  name:"Animal Care",     desc:"Who's covering chores" },
   { key:"farmgpt",    ico:"🌾",  name:"FarmGPT",         desc:"story time & research AI", url:"farmgpt.html" },
   { key:"games",      ico:"🎮",  name:"Games",           desc:"games might just be real life", url:"games.html" }
 ];
@@ -1139,7 +1264,7 @@ const SECTIONS = [
 // workorders/farmbank are here too so email "View in BUCKY" buttons can land on the right tab.
 // Every tab is deep-linkable via index.html#<key> so the persistent icon nav on the
 // FarmGPT/Games pages can land you directly on any section here.
-const DEEP_LINK_TABS = ["dashboard", "chores", "workorders", "print3d", "shopping", "farmbank", "goathooves", "goatcare", "game", "catgame", "play"];
+const DEEP_LINK_TABS = ["dashboard", "chores", "workorders", "print3d", "shopping", "farmbank", "goathooves", "goatcare", "calendar", "animalcare", "game", "catgame", "play"];
 const initialHashTab = DEEP_LINK_TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "dashboard";
 let currentTab = initialHashTab;
 
@@ -1156,12 +1281,13 @@ const NAV_GROUPS = [
   { id:"shop",  ico:"🛒",  name:"Shop",   def:"shopping",   members:["shopping"] },
   { id:"bank",  ico:"💰",  name:"Bank",   def:"farmbank",   members:["farmbank"] },
   { id:"farm",  ico:"🐐",  name:"Farm",   def:"goathooves", members:["goathooves","goatcare"] },
+  { id:"plan",  ico:"📅",  name:"Plan",   def:"calendar",   members:["calendar","animalcare"] },
   { id:"play",  ico:"🎮",  name:"Play",   def:"play",       members:["play","game","catgame"] },
 ];
 const SECTION_BY_KEY = Object.fromEntries(SECTIONS.map(s => [s.key, s]));
 // Short chip labels for the segmented sub-nav (the full section names like
 // "Work Orders" / "3D Prints" would truncate in a 3-up segmented control).
-const SUBNAV_LABEL = { chores:"Chores", workorders:"Jobs", shopping:"Shopping", goathooves:"Goats", goatcare:"Care", print3d:"Prints" };
+const SUBNAV_LABEL = { chores:"Chores", workorders:"Jobs", shopping:"Shopping", goathooves:"Goats", goatcare:"Care", print3d:"Prints", calendar:"Calendar", animalcare:"Care" };
 // Remembers the last section visited within a multi-section area so tapping the
 // bottom tab returns you where you were (only tracked for Tasks/Farm sub-nav).
 const groupLast = {};
@@ -1634,10 +1760,12 @@ function render(){
   renderSubnav();   // keep the Tasks/Farm sub-nav in sync no matter who changed currentTab
   const cf = document.getElementById("careFilter");
   if (cf) cf.style.display = currentTab === "goatcare" ? "block" : "none";
-  document.getElementById("addFab").style.display = (currentTab === "dashboard" || currentTab === "goatcare" || currentTab === "shopping" || currentTab === "print3d" || currentTab === "game" || currentTab === "catgame" || currentTab === "farmbank" || currentTab === "play") ? "none" : "";
+  document.getElementById("addFab").style.display = (currentTab === "dashboard" || currentTab === "goatcare" || currentTab === "shopping" || currentTab === "print3d" || currentTab === "game" || currentTab === "catgame" || currentTab === "farmbank" || currentTab === "play" || currentTab === "animalcare") ? "none" : "";
   document.getElementById("progress").classList.remove("greet");   // greeting styling is dashboard-only
   document.getElementById("progress").style.display = "";          // restored here; Home hides it (greeting is in the hero)
   if (currentTab === "dashboard") return renderDashboard();
+  if (currentTab === "calendar") return renderCalendar();
+  if (currentTab === "animalcare") return renderAnimalCare();
   if (currentTab === "play") return renderPlay();
   if (currentTab === "catgame") return renderCatGame();
   if (currentTab === "farmbank") return renderFarmBank();
@@ -3936,6 +4064,558 @@ document.getElementById("shopAddBtn").onclick = addShopItem;
 document.getElementById("shopOverlay").onclick = (e)=>{ if(e.target.id==="shopOverlay") closeShopSheet(); };
 document.getElementById("shopName").addEventListener("keydown", e=>{ if(e.key==="Enter") addShopItem(); });
 
+// ==================== FAMILY CALENDAR (Plan area) ====================
+// Google-Calendar-backed via /.netlify/functions/calendar (secret-gated with the family
+// password, exactly like FarmGPT). Anyone in the family can add/edit/delete. Events cache
+// to localStorage for instant paint; the function is the source of truth on refresh.
+const CAL_FN_URL = "/.netlify/functions/calendar";
+let calView = localStorage.getItem("bucky_cal_view") || "month";       // month | week | day
+if (!["month","week","day"].includes(calView)) calView = "month";
+let calFocus = startOfDay(new Date());        // the date the current view is anchored on
+let calSelectedKey = dateKeyLocal(new Date());// month view: which day's agenda is shown below the grid
+let calEvents = [];                            // normalized [{id,title,start,end,allDay,notes}]
+let calStatus = null;                          // {configured, saEmail, hasServiceAccount, hasCalendarId}
+let calError = null;                           // null | "network" | "calendar-not-shared" | "not-configured" | "server"
+let calLoading = false;
+let calStatusFetched = false;
+let calRangeKey = "";                          // signature of the last fetched range (avoids refetch churn)
+let editingCalId = null;                       // null = adding a new event
+let calSheetAllDay = false;
+try { const c = JSON.parse(localStorage.getItem("bucky_cal_cache")); if (Array.isArray(c)) calEvents = c; } catch {}
+try { const s = JSON.parse(localStorage.getItem("bucky_cal_status")); if (s) calStatus = s; } catch {}
+
+function startOfDay(d){ return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+function dateKeyLocal(d){ return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
+function parseDateKey(k){ const p = String(k||"").split("-").map(Number); return new Date(p[0], (p[1]||1)-1, p[2]||1); }
+function weekStart(d){ const s = startOfDay(d); s.setDate(s.getDate() - s.getDay()); return s; }   // Sunday
+function hhmm(d){ return pad(d.getHours()) + ":" + pad(d.getMinutes()); }
+
+async function calPost(action, extra){
+  const resp = await fetch(CAL_FN_URL, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ secret: FAMILY_PASSWORD, action, ...(extra||{}) }),
+  });
+  if (resp.status === 500 || resp.status === 502){ const e = new Error("server"); e.code = "server"; throw e; }
+  let j = null; try { j = await resp.json(); } catch {}
+  if (!resp.ok){ const e = new Error("http " + resp.status); e.code = "http"; throw e; }
+  return j || {};
+}
+
+// month grid = 6 weeks from the Sunday on/before the 1st; week/day = their own span.
+function calVisibleRange(){
+  if (calView === "day"){ const min = startOfDay(calFocus); return { min, max: new Date(min.getTime()+86400000) }; }
+  if (calView === "week"){ const min = weekStart(calFocus); return { min, max: new Date(min.getTime()+7*86400000) }; }
+  const first = new Date(calFocus.getFullYear(), calFocus.getMonth(), 1);
+  const gridStart = startOfDay(first); gridStart.setDate(gridStart.getDate() - first.getDay());
+  return { min: gridStart, max: new Date(gridStart.getTime()+42*86400000) };
+}
+
+// Fire-and-forget refresh driven by renderCalendar: status once per session, events whenever
+// the visible range changes. force=true (↻ / after a write) re-fetches both. Re-renders when
+// results land; terminates because a second render finds the status fetched + range unchanged.
+async function ensureCalData(force){
+  if (currentTab !== "calendar") return;
+  if (!calStatusFetched || force){
+    calStatusFetched = true;
+    try {
+      const s = await calPost("status");
+      calStatus = s; calError = null;
+      localStorage.setItem("bucky_cal_status", JSON.stringify(s));
+    } catch (e){ calError = e.code === "server" ? "server" : "network"; }
+    if (currentTab === "calendar") renderCalendar();
+  }
+  if (calStatus && calStatus.configured === false) return;   // unconfigured — setup card shows
+  const { min, max } = calVisibleRange();
+  const key = min.toISOString() + "|" + max.toISOString();
+  if (key === calRangeKey && !force) return;
+  calRangeKey = key;
+  calLoading = true;
+  try {
+    const r = await calPost("list", { timeMin: min.toISOString(), timeMax: max.toISOString() });
+    if (r.error){ calError = r.error; }
+    else { calEvents = r.events || []; calError = null; localStorage.setItem("bucky_cal_cache", JSON.stringify(calEvents)); }
+  } catch (e){ calError = e.code === "server" ? "server" : "network"; }
+  calLoading = false;
+  if (currentTab === "calendar") renderCalendar();
+}
+
+// All events touching a given local day (all-day events expand across their [start,end) range).
+function calEventsForDay(key){
+  const dayStart = parseDateKey(key), dayEnd = new Date(dayStart.getTime()+86400000);
+  const out = [];
+  for (const e of calEvents){
+    if (!e || !e.start) continue;
+    if (e.allDay){
+      const s = startOfDay(parseDateKey(e.start));
+      const en = e.end ? startOfDay(parseDateKey(e.end)) : new Date(s.getTime()+86400000);   // Google end is exclusive
+      if (dayStart >= s && dayStart < en) out.push(e);
+    } else {
+      const s = new Date(e.start);
+      if (s >= dayStart && s < dayEnd) out.push(e);
+    }
+  }
+  out.sort((a,b)=>{
+    if (a.allDay !== b.allDay) return a.allDay ? -1 : 1;
+    return new Date(a.start) - new Date(b.start);
+  });
+  return out;
+}
+function calTimeLabel(e){
+  if (e.allDay) return "All day";
+  return new Date(e.start).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+function calTitleText(){
+  if (calView === "month") return calFocus.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  if (calView === "week"){
+    const ws = weekStart(calFocus), we = new Date(ws.getTime()+6*86400000);
+    return ws.toLocaleDateString(undefined,{month:"short",day:"numeric"}) + " – " + we.toLocaleDateString(undefined,{month:"short",day:"numeric"});
+  }
+  return calFocus.toLocaleDateString(undefined, { weekday:"long", month:"long", day:"numeric" });
+}
+function calNav(dir){
+  const f = new Date(calFocus);
+  if (calView === "month") f.setMonth(f.getMonth()+dir);
+  else if (calView === "week") f.setDate(f.getDate()+7*dir);
+  else f.setDate(f.getDate()+dir);
+  calFocus = startOfDay(f);
+  renderCalendar();
+}
+function calGoToday(){ calFocus = startOfDay(new Date()); calSelectedKey = dateKeyLocal(calFocus); renderCalendar(); }
+function calSetView(v){ calView = v; localStorage.setItem("bucky_cal_view", v); renderCalendar(); }
+
+function calBanner(text, kind){
+  const b = document.createElement("div"); b.className = "cal-banner " + (kind||"muted"); b.textContent = text; return b;
+}
+function calErrText(code){
+  if (code === "calendar-not-shared") return "⚠️ The family calendar isn't shared with Bucky yet — see setup.";
+  if (code === "not-configured" || code === "server") return "⚠️ The calendar isn't finished setting up.";
+  return "⚠️ Couldn't reach the calendar — try again.";
+}
+
+function renderCalendar(){
+  document.querySelector(".bar").style.display = "none";
+  document.getElementById("empty").style.display = "none";
+  document.getElementById("progress").style.display = "none";
+  const list = document.getElementById("list"); list.innerHTML = "";
+  const wrap = document.createElement("li"); wrap.style.cssText = "background:transparent;border:0;box-shadow:none;padding:0;";
+  const cal = document.createElement("div"); cal.className = "cal";
+
+  // top bar: title + prev/today/next + refresh
+  const top = document.createElement("div"); top.className = "cal-top";
+  const title = document.createElement("div"); title.className = "cal-title"; title.textContent = calTitleText();
+  const nav = document.createElement("div"); nav.className = "cal-nav";
+  const prev = document.createElement("button"); prev.className = "cal-iconbtn"; prev.textContent = "‹"; prev.title = "Previous"; prev.setAttribute("aria-label","Previous"); prev.onclick = () => calNav(-1);
+  const today = document.createElement("button"); today.className = "cal-todaybtn"; today.textContent = "Today"; today.onclick = calGoToday;
+  const next = document.createElement("button"); next.className = "cal-iconbtn"; next.textContent = "›"; next.title = "Next"; next.setAttribute("aria-label","Next"); next.onclick = () => calNav(1);
+  const refr = document.createElement("button"); refr.className = "cal-iconbtn"; refr.textContent = "↻"; refr.title = "Refresh"; refr.setAttribute("aria-label","Refresh"); refr.onclick = () => ensureCalData(true);
+  nav.append(prev, today, next, refr);
+  top.append(title, nav);
+  cal.appendChild(top);
+
+  // view segmented control
+  const seg = document.createElement("div"); seg.className = "cal-viewseg";
+  for (const v of [["month","Month"],["week","Week"],["day","Day"]]){
+    const b = document.createElement("button"); b.textContent = v[1]; b.dataset.view = v[0];
+    if (calView === v[0]) b.classList.add("sel");
+    b.onclick = () => calSetView(v[0]);
+    seg.appendChild(b);
+  }
+  cal.appendChild(seg);
+
+  const unconfigured = !!(calStatus && calStatus.configured === false);
+  if (unconfigured || calError === "server" || calError === "calendar-not-shared" || calError === "not-configured"){
+    cal.appendChild(buildCalSetup());
+  } else {
+    if (calError === "network") cal.appendChild(calBanner("⚠️ Can't reach the calendar right now — showing your last saved events.", "warn"));
+    else if (calLoading) cal.appendChild(calBanner("Loading…", "muted"));
+    const body = document.createElement("div"); body.className = "cal-body";
+    if (calView === "month") buildCalMonth(body);
+    else if (calView === "week") buildCalWeek(body);
+    else buildCalDay(body);
+    cal.appendChild(body);
+  }
+
+  wrap.appendChild(cal); list.appendChild(wrap);
+  ensureCalData();
+}
+
+function buildCalMonth(container){
+  const grid = document.createElement("div"); grid.className = "cal-grid";
+  for (const d of ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"]){ const h = document.createElement("div"); h.className = "cal-dow"; h.textContent = d; grid.appendChild(h); }
+  const { min } = calVisibleRange();
+  const todayKey = dateKeyLocal(new Date());
+  const monthIdx = calFocus.getMonth();
+  for (let i=0;i<42;i++){
+    const d = new Date(min.getTime()+i*86400000);
+    const key = dateKeyLocal(d);
+    const cell = document.createElement("button"); cell.className = "cal-cell";
+    if (d.getMonth() !== monthIdx) cell.classList.add("other");
+    if (key === todayKey) cell.classList.add("today");
+    if (key === calSelectedKey) cell.classList.add("sel");
+    const num = document.createElement("div"); num.className = "cal-num"; num.textContent = d.getDate();
+    cell.appendChild(num);
+    const evs = calEventsForDay(key);
+    const chips = document.createElement("div"); chips.className = "cal-chips";
+    evs.slice(0,2).forEach(e=>{ const c = document.createElement("div"); c.className = "cal-chip" + (e.allDay?" allday":""); c.textContent = e.title || "(untitled)"; chips.appendChild(c); });
+    if (evs.length > 2){ const m = document.createElement("div"); m.className = "cal-more"; m.textContent = "+" + (evs.length-2) + " more"; chips.appendChild(m); }
+    cell.appendChild(chips);
+    cell.onclick = () => { calSelectedKey = key; renderCalendar(); };
+    grid.appendChild(cell);
+  }
+  container.appendChild(grid);
+  const agenda = document.createElement("div"); agenda.className = "cal-agenda";
+  const ah = document.createElement("div"); ah.className = "cal-agenda-h";
+  ah.textContent = parseDateKey(calSelectedKey).toLocaleDateString(undefined, { weekday:"long", month:"long", day:"numeric" });
+  agenda.appendChild(ah);
+  const card = document.createElement("div"); card.className = "cal-daycard";
+  buildCalAgendaList(card, calSelectedKey);
+  agenda.appendChild(card);
+  container.appendChild(agenda);
+}
+function buildCalWeek(container){
+  const ws = weekStart(calFocus);
+  const todayKey = dateKeyLocal(new Date());
+  for (let i=0;i<7;i++){
+    const d = new Date(ws.getTime()+i*86400000);
+    const key = dateKeyLocal(d);
+    const card = document.createElement("div"); card.className = "cal-daycard" + (key===todayKey?" today":"");
+    const h = document.createElement("div"); h.className = "cal-daycard-h";
+    const nm = document.createElement("span"); nm.className = "cal-dname"; nm.textContent = d.toLocaleDateString(undefined,{weekday:"long"});
+    const dt = document.createElement("span"); dt.className = "cal-ddate"; dt.textContent = d.toLocaleDateString(undefined,{month:"short",day:"numeric"});
+    h.append(nm, dt); card.appendChild(h);
+    buildCalAgendaList(card, key);
+    container.appendChild(card);
+  }
+}
+function buildCalDay(container){
+  const key = dateKeyLocal(calFocus);
+  const todayKey = dateKeyLocal(new Date());
+  const card = document.createElement("div"); card.className = "cal-daycard" + (key===todayKey?" today":"");
+  buildCalAgendaList(card, key);
+  container.appendChild(card);
+}
+function buildCalAgendaList(container, key){
+  const evs = calEventsForDay(key);
+  if (!evs.length){ const e = document.createElement("div"); e.className = "cal-empty"; e.textContent = "Nothing scheduled."; container.appendChild(e); return; }
+  for (const ev of evs){
+    const row = document.createElement("button"); row.className = "cal-evrow" + (ev.allDay?" allday":"");
+    const t = document.createElement("div"); t.className = "cal-evtime"; t.textContent = calTimeLabel(ev);
+    const body = document.createElement("div"); body.className = "cal-evbody";
+    const nm = document.createElement("div"); nm.className = "cal-evname"; nm.textContent = ev.title || "(untitled)";
+    body.appendChild(nm);
+    if (ev.notes){ const nt = document.createElement("div"); nt.className = "cal-evnote"; nt.textContent = ev.notes; body.appendChild(nt); }
+    row.append(t, body);
+    row.onclick = () => openCalEventSheet(ev);
+    container.appendChild(row);
+  }
+}
+function buildCalSetup(){
+  const st = calStatus || {};
+  const card = document.createElement("div"); card.className = "cal-setup";
+  const notShared = calError === "calendar-not-shared";
+  const noCalId = st.hasServiceAccount && !st.hasCalendarId && !notShared;
+  const serverMissing = calError === "server" || st.hasServiceAccount === false;
+  const h = document.createElement("h3");
+  h.textContent = notShared ? "Share the calendar with Bucky" : "Family Calendar isn't set up yet";
+  card.appendChild(h);
+  const p = document.createElement("p");
+  if (notShared) p.textContent = "Bucky can see the calendar's slot but Google won't let it read the events. It needs to be shared with the service account below.";
+  else if (serverMissing) p.textContent = "The calendar server needs its Google service account before it can connect.";
+  else if (noCalId) p.textContent = "Almost there — Bucky just needs to know which calendar to show.";
+  else p.textContent = "A shared Google Calendar keeps the whole family on the same page. Here's how Dad finishes the one-time setup:";
+  card.appendChild(p);
+  if (st.saEmail){
+    const em = document.createElement("div"); em.className = "saemail"; em.textContent = st.saEmail;
+    card.appendChild(em);
+  }
+  const ol = document.createElement("ol");
+  const steps = [
+    ["Share your family Google Calendar with the address above and give it <b>“Make changes to events”</b>.", notShared],
+    ["Enable the <b>Google Calendar API</b> on the amen-farms-app Google Cloud project.", false],
+    ["Set <b>GOOGLE_CALENDAR_ID</b> in Netlify to your calendar's id.", noCalId],
+    ["Redeploy the site.", false],
+  ];
+  for (const [txt] of steps){ const li = document.createElement("li"); li.innerHTML = txt; ol.appendChild(li); }
+  card.appendChild(ol);
+  const note = document.createElement("div"); note.className = "dadnote"; note.textContent = "These are one-time setup steps for Dad.";
+  card.appendChild(note);
+  return card;
+}
+
+// ---- Add / edit event sheet ----
+function openCalEventSheet(ev){
+  editingCalId = ev ? ev.id : null;
+  document.getElementById("calSheetTitle").textContent = ev ? "Edit event" : "Add event";
+  document.getElementById("calDeleteBtn").style.display = ev ? "" : "none";
+  const titleI = document.getElementById("calEvTitle");
+  const dateI = document.getElementById("calEvDate");
+  const startI = document.getElementById("calEvStart");
+  const endI = document.getElementById("calEvEnd");
+  const notesI = document.getElementById("calEvNotes");
+  if (ev){
+    titleI.value = ev.title || ""; notesI.value = ev.notes || "";
+    calSheetAllDay = !!ev.allDay;
+    if (ev.allDay){ dateI.value = ev.start; startI.value = "09:00"; endI.value = "10:00"; }
+    else { const s = new Date(ev.start), e = new Date(ev.end || ev.start); dateI.value = dateKeyLocal(s); startI.value = hhmm(s); endI.value = hhmm(e); }
+  } else {
+    titleI.value = ""; notesI.value = ""; calSheetAllDay = false;
+    dateI.value = (calView === "month" && calSelectedKey) ? calSelectedKey : dateKeyLocal(calFocus);
+    startI.value = "09:00"; endI.value = "10:00";
+  }
+  syncCalAllDayUI();
+  document.getElementById("calOverlay").classList.add("open");
+  setTimeout(()=>titleI.focus(), 100);
+}
+function syncCalAllDayUI(){
+  document.querySelectorAll("#calAllDaySeg button").forEach(b=> b.classList.toggle("sel", (b.dataset.allday === "1") === calSheetAllDay));
+  document.getElementById("calTimeRow").style.display = calSheetAllDay ? "none" : "";
+}
+function closeCalSheet(){ document.getElementById("calOverlay").classList.remove("open"); }
+async function saveCalEvent(){
+  const title = document.getElementById("calEvTitle").value.trim();
+  if (!title){ document.getElementById("calEvTitle").focus(); return; }
+  const date = document.getElementById("calEvDate").value;
+  if (!date){ document.getElementById("calEvDate").focus(); return; }
+  const notes = document.getElementById("calEvNotes").value.trim();
+  let payload;
+  if (calSheetAllDay){ payload = { title, notes, allDay: true, startDate: date }; }
+  else {
+    const st = document.getElementById("calEvStart").value || "09:00";
+    const en = document.getElementById("calEvEnd").value || "10:00";
+    payload = { title, notes, allDay: false, start: `${date}T${st}:00`, end: `${date}T${en}:00` };
+  }
+  const editing = editingCalId;
+  if (editing) payload.id = editing;
+  closeCalSheet();
+  showToast(editing ? "Saving change…" : "Adding event…");
+  try {
+    const r = await calPost(editing ? "update" : "create", { event: payload });
+    if (r.error) showToast(calErrText(r.error));
+    else showToast(editing ? "Event updated ✅" : "Event added ✅");
+  } catch (e){ showToast("⚠️ Couldn't save — check your connection"); }
+  ensureCalData(true);
+}
+async function deleteCalEvent(){
+  if (!editingCalId){ closeCalSheet(); return; }
+  const id = editingCalId;
+  closeCalSheet();
+  showToast("Deleting…");
+  try {
+    const r = await calPost("delete", { event: { id } });
+    if (r.error) showToast(calErrText(r.error));
+    else showToast("Event deleted");
+  } catch (e){ showToast("⚠️ Couldn't delete — check your connection"); }
+  ensureCalData(true);
+}
+document.querySelectorAll("#calAllDaySeg button").forEach(b=>{ b.onclick = () => { calSheetAllDay = b.dataset.allday === "1"; syncCalAllDayUI(); }; });
+document.getElementById("calCancelBtn").onclick = closeCalSheet;
+document.getElementById("calSaveBtn").onclick = saveCalEvent;
+document.getElementById("calDeleteBtn").onclick = deleteCalEvent;
+document.getElementById("calOverlay").onclick = (e)=>{ if (e.target.id === "calOverlay") closeCalSheet(); };
+document.getElementById("calEvTitle").addEventListener("keydown", e=>{ if (e.key === "Enter") saveCalEvent(); });
+
+// ==================== ANIMAL CARE coverage (Plan area) ====================
+// Who covers morning/night animal chores. A weekly default schedule + sparse per-day overrides,
+// stored in the settings backend (settings_<familyKey>/animalCare, JSON-enveloped so a Firestore
+// merge fully replaces it). Any family member taps a chip to change coverage — no role gating.
+const CARE_GROUPS = [
+  { id:"Kreussers",    label:"Kreussers",    color:"var(--green)" },
+  { id:"Joy",          label:"Joy",          color:"var(--red)" },
+  { id:"Grandparents", label:"Grandparents", color:"var(--amber)" },
+];
+const CARE_DAYS = ["sun","mon","tue","wed","thu","fri","sat"];
+const CARE_DAYNAME = { sun:"Sun", mon:"Mon", tue:"Tue", wed:"Wed", thu:"Thu", fri:"Fri", sat:"Sat" };
+const CARE_SLOTS = [ { id:"am", label:"Morning", ico:"🌅" }, { id:"pm", label:"Night", ico:"🌙" } ];
+let animalCareData = null;   // { defaults:{mon:{am,pm},...}, overrides:{ "YYYY-MM-DD":{am?,pm?} } }
+let careWeekOffset = 0;
+let careLoaded = false;
+let careSched = null;        // working copy of defaults while the edit-schedule sheet is open
+
+function defaultCareData(){
+  const defaults = {};
+  for (const d of CARE_DAYS) defaults[d] = { am:"Kreussers", pm:"Kreussers" };
+  return { defaults, overrides:{} };
+}
+function careGroupById(id){ return CARE_GROUPS.find(g=>g.id===id) || CARE_GROUPS[0]; }
+function careWeekdayKey(d){ return CARE_DAYS[d.getDay()]; }
+function careDefaultFor(d, slot){ const wk = animalCareData.defaults[careWeekdayKey(d)] || {}; return wk[slot] || "Kreussers"; }
+function careSlotValue(d, slot){
+  const ov = animalCareData.overrides[dateKeyLocal(d)];
+  if (ov && ov[slot]) return { group: ov[slot], overridden: true };
+  return { group: careDefaultFor(d, slot), overridden: false };
+}
+function careNextGroup(cur){ const i = CARE_GROUPS.findIndex(g=>g.id===cur); return CARE_GROUPS[(i+1) % CARE_GROUPS.length].id; }
+function pruneCareOverrides(){
+  const cutoff = startOfDay(new Date()); cutoff.setDate(cutoff.getDate()-30);
+  for (const key of Object.keys(animalCareData.overrides)){
+    const d = parseDateKey(key);
+    if (isNaN(d.getTime()) || d < cutoff) delete animalCareData.overrides[key];
+  }
+}
+async function loadAnimalCare(){
+  if (!backend) return;
+  try {
+    const s = await backend.getSetting("animalCare");
+    let data = null;
+    if (s && typeof s.json === "string"){ try { data = JSON.parse(s.json); } catch {} }
+    if (!data || !data.defaults) data = defaultCareData();
+    if (!data.overrides) data.overrides = {};
+    const changed = JSON.stringify(data) !== JSON.stringify(animalCareData);
+    animalCareData = data; careLoaded = true;
+    if (changed && currentTab === "animalcare") renderAnimalCare();
+  } catch (e){ if (!animalCareData){ animalCareData = defaultCareData(); careLoaded = true; } }
+}
+async function saveAnimalCare(){
+  pruneCareOverrides();
+  try { await backend.setSetting("animalCare", { json: JSON.stringify(animalCareData) }); } catch {}
+}
+async function cycleCareSlot(d, slot){
+  const next = careNextGroup(careSlotValue(d, slot).group);
+  const key = dateKeyLocal(d);
+  if (next === careDefaultFor(d, slot)){
+    if (animalCareData.overrides[key]){ delete animalCareData.overrides[key][slot]; if (!Object.keys(animalCareData.overrides[key]).length) delete animalCareData.overrides[key]; }
+  } else {
+    if (!animalCareData.overrides[key]) animalCareData.overrides[key] = {};
+    animalCareData.overrides[key][slot] = next;
+  }
+  await saveAnimalCare();
+  renderAnimalCare();
+}
+async function resetCareSlot(d, slot){
+  const key = dateKeyLocal(d);
+  if (animalCareData.overrides[key]){ delete animalCareData.overrides[key][slot]; if (!Object.keys(animalCareData.overrides[key]).length) delete animalCareData.overrides[key]; }
+  await saveAnimalCare();
+  renderAnimalCare();
+}
+
+function renderAnimalCare(){
+  document.querySelector(".bar").style.display = "none";
+  document.getElementById("empty").style.display = "none";
+  document.getElementById("progress").style.display = "none";
+  if (!animalCareData) animalCareData = defaultCareData();
+  loadAnimalCare();   // poll-on-render: pick up other-device edits (re-renders only if changed)
+
+  const list = document.getElementById("list"); list.innerHTML = "";
+  const wrap = document.createElement("li"); wrap.style.cssText = "background:transparent;border:0;box-shadow:none;padding:0;";
+  const root = document.createElement("div"); root.className = "care";
+
+  const ws = weekStart(new Date()); ws.setDate(ws.getDate() + careWeekOffset*7);
+  const we = new Date(ws.getTime() + 6*86400000);
+  const top = document.createElement("div"); top.className = "care-top";
+  const title = document.createElement("div"); title.className = "care-wk-title";
+  title.textContent = careWeekOffset === 0 ? "This week" : (ws.toLocaleDateString(undefined,{month:"short",day:"numeric"}) + " – " + we.toLocaleDateString(undefined,{month:"short",day:"numeric"}));
+  const nav = document.createElement("div"); nav.className = "cal-nav";
+  const prev = document.createElement("button"); prev.className = "cal-iconbtn"; prev.textContent = "‹"; prev.setAttribute("aria-label","Previous week"); prev.onclick = () => { careWeekOffset--; renderAnimalCare(); };
+  const thisw = document.createElement("button"); thisw.className = "cal-todaybtn"; thisw.textContent = "This week"; thisw.onclick = () => { careWeekOffset = 0; renderAnimalCare(); };
+  const next = document.createElement("button"); next.className = "cal-iconbtn"; next.textContent = "›"; next.setAttribute("aria-label","Next week"); next.onclick = () => { careWeekOffset++; renderAnimalCare(); };
+  nav.append(prev, thisw, next);
+  top.append(title, nav);
+  root.appendChild(top);
+
+  // Tonight summary (always about the real today)
+  const tnGroup = careSlotValue(new Date(), "pm").group;
+  const tnG = careGroupById(tnGroup);
+  const tn = document.createElement("div"); tn.className = "care-tonight";
+  const dot = document.createElement("span"); dot.className = "care-dot"; dot.style.background = tnG.color;
+  const txt = document.createElement("span"); txt.innerHTML = "🌙 Tonight: <b>" + tnG.label + "</b>";
+  tn.append(dot, txt);
+  root.appendChild(tn);
+
+  const edit = document.createElement("button"); edit.className = "care-editbtn"; edit.textContent = "✎ Edit weekly schedule"; edit.onclick = openCareSchedSheet;
+  root.appendChild(edit);
+
+  const todayKey = dateKeyLocal(new Date());
+  for (let i=0;i<7;i++){
+    const d = new Date(ws.getTime() + i*86400000);
+    const key = dateKeyLocal(d);
+    const card = document.createElement("div"); card.className = "care-card" + (key===todayKey ? " today" : "");
+    const h = document.createElement("div"); h.className = "care-card-h";
+    const nm = document.createElement("span"); nm.className = "care-dname"; nm.textContent = d.toLocaleDateString(undefined,{weekday:"long"});
+    const dt = document.createElement("span"); dt.className = "care-ddate"; dt.textContent = d.toLocaleDateString(undefined,{month:"short",day:"numeric"});
+    h.append(nm, dt);
+    if (key === todayKey){ const badge = document.createElement("span"); badge.className = "care-todaybadge"; badge.textContent = "Today"; h.appendChild(badge); }
+    card.appendChild(h);
+    for (const slot of CARE_SLOTS) card.appendChild(buildCareSlotRow(d, slot));
+    root.appendChild(card);
+  }
+
+  wrap.appendChild(root); list.appendChild(wrap);
+}
+function buildCareSlotRow(d, slot){
+  // slot is the CARE_SLOTS object ({id,label,ico}); the data fns key by slot.id ("am"/"pm").
+  const { group, overridden } = careSlotValue(d, slot.id);
+  const g = careGroupById(group);
+  const row = document.createElement("div"); row.className = "care-slot";
+  const lbl = document.createElement("span"); lbl.className = "care-slot-lbl";
+  lbl.innerHTML = `<span class="care-slot-ico">${slot.ico}</span>${slot.label}`;
+  const chip = document.createElement("button"); chip.className = "care-chip" + (overridden ? " ov" : "");
+  chip.style.setProperty("--chip", g.color); chip.textContent = g.label;
+  chip.title = "Tap to change who's covering"; chip.setAttribute("aria-label", slot.label + ": " + g.label + " (tap to change)");
+  chip.onclick = () => cycleCareSlot(d, slot.id);
+  row.append(lbl, chip);
+  if (overridden){
+    const reset = document.createElement("button"); reset.className = "care-reset"; reset.textContent = "↺"; reset.title = "Reset to weekly default"; reset.setAttribute("aria-label","Reset to weekly default");
+    reset.onclick = (e)=>{ e.stopPropagation(); resetCareSlot(d, slot.id); };
+    row.appendChild(reset);
+  }
+  return row;
+}
+// ---- Edit weekly schedule sheet ----
+function openCareSchedSheet(){
+  careSched = JSON.parse(JSON.stringify((animalCareData || defaultCareData()).defaults));
+  buildCareSchedGrid();
+  document.getElementById("careSchedOverlay").classList.add("open");
+}
+function buildCareSchedGrid(){
+  const grid = document.getElementById("careSchedGrid"); grid.innerHTML = "";
+  for (const day of CARE_DAYS){
+    const rowdiv = document.createElement("div"); rowdiv.className = "care-sched-row";
+    const nm = document.createElement("div"); nm.className = "care-sched-day"; nm.textContent = CARE_DAYNAME[day];
+    rowdiv.appendChild(nm);
+    for (const slot of CARE_SLOTS){
+      const cur = careSched[day][slot.id];
+      const g = careGroupById(cur);
+      const cell = document.createElement("div"); cell.className = "care-sched-cell";
+      const sl = document.createElement("span"); sl.className = "care-sched-slotlbl"; sl.textContent = slot.ico;
+      const chip = document.createElement("button"); chip.className = "care-chip sched"; chip.style.setProperty("--chip", g.color); chip.textContent = g.label;
+      chip.dataset.day = day; chip.dataset.slot = slot.id;
+      chip.onclick = () => { careSched[day][slot.id] = careNextGroup(careSched[day][slot.id]); buildCareSchedGrid(); };
+      cell.append(sl, chip);
+      rowdiv.appendChild(cell);
+    }
+    grid.appendChild(rowdiv);
+  }
+}
+async function saveCareSched(){
+  if (!animalCareData) animalCareData = defaultCareData();
+  animalCareData.defaults = careSched;
+  await saveAnimalCare();
+  closeCareSchedSheet();
+  renderAnimalCare();
+}
+function closeCareSchedSheet(){ document.getElementById("careSchedOverlay").classList.remove("open"); }
+document.getElementById("careSchedCancelBtn").onclick = closeCareSchedSheet;
+document.getElementById("careSchedSaveBtn").onclick = saveCareSched;
+document.getElementById("careSchedOverlay").onclick = (e)=>{ if (e.target.id === "careSchedOverlay") closeCareSchedSheet(); };
+
+// ---- Test hooks (module globals are unreachable from page.evaluate; these expose the
+//      minimum surface the headless UI suites drive). No effect on production behavior. ----
+window.__CAL__ = {
+  setFocus: (k)=>{ calFocus = parseDateKey(k); calSelectedKey = k; if (currentTab === "calendar") renderCalendar(); },
+  setView: (v)=>{ calSetView(v); },
+  setEvents: (arr)=>{ calEvents = arr || []; calRangeKey = "__test__"; if (currentTab === "calendar") renderCalendar(); },
+  state: ()=>({ view: calView, focus: dateKeyLocal(calFocus), selected: calSelectedKey, events: calEvents.slice(), error: calError, status: calStatus, loading: calLoading }),
+  setStatus: (s)=>{ calStatus = s; calStatusFetched = true; if (currentTab === "calendar") renderCalendar(); },
+  openSheet: (ev)=>openCalEventSheet(ev || null),
+};
+window.__CARE__ = {
+  data: ()=>animalCareData,
+  setRaw: async (d)=>{ animalCareData = d; careLoaded = true; try { await backend.setSetting("animalCare", { json: JSON.stringify(d) }); } catch {} if (currentTab === "animalcare") renderAnimalCare(); },
+  weekOffset: (n)=>{ careWeekOffset = n; if (currentTab === "animalcare") renderAnimalCare(); },
+  reload: ()=>loadAnimalCare(),
+};
+window.__NAV__ = { goTo, tab: ()=>currentTab };
+
 // ==================== BUCKY JUMP (mini-game) ====================
 let game = null;
 const goatImg1 = new Image(); goatImg1.src = "Goat1.png";
@@ -4882,6 +5562,7 @@ document.querySelectorAll("#todSeg button").forEach(b=>{
 document.getElementById("addFab").onclick = () => {
   if (currentTab === "goathooves") openGoatSheet(null);
   else if (currentTab === "workorders") openWorkOrderSheet(null);
+  else if (currentTab === "calendar") openCalEventSheet(null);
   else openSheet(null);
 };
 
