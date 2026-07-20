@@ -518,6 +518,25 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .home2 .cwextra { font-size: 12px; font-weight: 700; color: var(--muted); border-top: 1px solid var(--line-2); padding-top: 7px; margin-top: 1px; }
   .home2 .cwempty { font-size: 13px; color: var(--muted); font-weight: 600; padding: 5px 0 3px; }
 
+  /* Home animal-care widget (right below the calendar card; taps through to Plan → Care).
+     Horizontal 7-day grid: an emoji label column (🌅/🌙) + 7 day columns (today first).
+     Cells are single-LETTER group chips (K/J/G) — compact spans (the whole card is a
+     <button>, nested buttons are invalid HTML) in the Care tab's palette via the same
+     --chip custom property. Today = filled red header + a soft tint down its column. */
+  .home2 .carewidget { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 12px 14px; cursor: pointer; text-align: left; width: 100%; font: inherit; color: inherit; display: block; }
+  .home2 .carewidget:active { background: var(--done, #e7eefb); }
+  .home2 .caregrid { display: grid; grid-template-columns: 22px repeat(7, minmax(0, 1fr)); gap: 3px; align-items: center; margin-top: 6px; }
+  .home2 .cg-day { display: flex; flex-direction: column; align-items: center; padding: 2px 0 3px; border-radius: 8px; line-height: 1.15; min-width: 0; }
+  .home2 .cg-day b { font-size: 9.5px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .2px; }
+  .home2 .cg-day i { font-style: normal; font-size: 11.5px; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .home2 .cg-day.today { background: var(--red); }
+  .home2 .cg-day.today b, .home2 .cg-day.today i { color: #fff; }
+  .home2 .cg-lab { font-size: 12px; text-align: center; line-height: 1; }
+  .home2 .cg-cell { display: flex; justify-content: center; padding: 2px; border-radius: 9px; min-width: 0; }
+  .home2 .cg-cell.today { background: var(--red-soft); }
+  .home2 .care-mini { width: 100%; max-width: 56px; min-width: 0; height: 20px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; color: #fff; background: var(--chip, var(--green)); border-radius: 7px; white-space: nowrap; position: relative; }
+  .home2 .care-mini.ov::after { content: ""; position: absolute; top: -2px; right: -2px; width: 7px; height: 7px; border-radius: 50%; background: var(--red); border: 1.5px solid var(--card); }
+
   /* Today's chores card */
   .home2 .card2 { background: var(--card); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); overflow: hidden; }
   .home2 .chd { display: flex; align-items: center; gap: 8px; padding: 13px 14px 4px; }
@@ -2048,6 +2067,19 @@ function renderDashboard(){
   home.appendChild(calw);
   paintCalWidget(calw);
   calHomeRefresh();
+
+  // ---- animal-care widget: who's covering the next 7 days (universal — no audience
+  // gating). Whole card taps into Plan → Care; coverage resolution is 100% the Care
+  // tab's own helpers (careSlotValue et al — never duplicated here). Paints instantly
+  // (defaults if the setting hasn't loaded yet — never an error state), then
+  // careHomeRefresh() background-loads the setting and repaints in place only while
+  // the user is still on the dashboard (calwidget/wxcard pattern).
+  const carew = document.createElement("button"); carew.className = "carewidget"; carew.type = "button";
+  carew.setAttribute("aria-label", "Open animal care coverage");
+  carew.onclick = () => goTo("animalcare");
+  home.appendChild(carew);
+  paintCareWidget(carew);
+  careHomeRefresh();
 
   // ---- 5-day weather for the farm (opens full weather.html: 7-day + radar) ----
   const wx = document.createElement("button"); wx.className = "wxcard";
@@ -4807,6 +4839,66 @@ function closeCareSchedSheet(){ document.getElementById("careSchedOverlay").clas
 document.getElementById("careSchedCancelBtn").onclick = closeCareSchedSheet;
 document.getElementById("careSchedSaveBtn").onclick = saveCareSched;
 document.getElementById("careSchedOverlay").onclick = (e)=>{ if (e.target.id === "careSchedOverlay") closeCareSchedSheet(); };
+
+// ---- Home dashboard care widget (2026-07-20) ----
+// The next CARE_HOME_DAYS days of coverage as a horizontal grid: header row of day
+// columns (today first, filled + column-tinted), one row per CARE_SLOTS entry (🌅/🌙),
+// cells = single-letter group chips (K/J/G). Per-date resolution is the Care tab's OWN
+// helpers (careSlotValue → defaults-unless-override, careGroupById for the palette) —
+// nothing re-derived here. "Now" comes from calHomeNow() so the calendar card's
+// deterministic-clock test hook drives this widget too.
+const CARE_HOME_DAYS = 7;
+function paintCareWidget(el){
+  if (!animalCareData) animalCareData = defaultCareData();   // same fallback renderAnimalCare uses
+  el.innerHTML =
+    `<div class="cwhead"><span class="cwdate">🐐 Animal care</span><span class="cwmore">Care ›</span></div>
+     <div class="caregrid"></div>`;
+  const grid = el.querySelector(".caregrid");
+  const base = startOfDay(calHomeNow());
+  const days = [];
+  for (let i = 0; i < CARE_HOME_DAYS; i++){
+    const d = new Date(base); d.setDate(base.getDate() + i);   // setDate = DST-safe local day step
+    days.push(d);
+  }
+  // Header row: spacer over the label column, then 7 day headers (2-letter weekday + date).
+  const corner = document.createElement("span"); corner.className = "cg-corner"; corner.setAttribute("aria-hidden", "true");
+  grid.appendChild(corner);
+  days.forEach((d, i) => {
+    const h = document.createElement("span"); h.className = "cg-day" + (i === 0 ? " today" : "");
+    const wd = document.createElement("b"); wd.textContent = d.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 2);
+    const num = document.createElement("i"); num.textContent = d.getDate();
+    h.append(wd, num);
+    grid.appendChild(h);
+  });
+  // One row per slot: emoji label, then 7 letter chips.
+  for (const slot of CARE_SLOTS){
+    const lab = document.createElement("span"); lab.className = "cg-lab";
+    lab.textContent = slot.ico; lab.title = slot.label; lab.setAttribute("aria-label", slot.label);
+    grid.appendChild(lab);
+    days.forEach((d, i) => {
+      const cell = document.createElement("span"); cell.className = "cg-cell" + (i === 0 ? " today" : "");
+      const { group, overridden } = careSlotValue(d, slot.id);
+      const g = careGroupById(group);
+      const mini = document.createElement("span");
+      mini.className = "care-mini" + (overridden ? " ov" : "");
+      mini.style.setProperty("--chip", g.color);
+      mini.dataset.group = g.id; mini.dataset.slot = slot.id; mini.dataset.date = dateKeyLocal(d);
+      mini.textContent = g.label[0];   // single letter: K / J / G
+      mini.title = slot.label + " " + d.toLocaleDateString(undefined, { weekday: "short" }) + " " + d.getDate() + ": " + g.label;
+      cell.appendChild(mini);
+      grid.appendChild(cell);
+    });
+  }
+}
+// Quiet background load (first boot / other-device edits) → repaint in place only if
+// the user is still on the dashboard. loadAnimalCare never throws (falls to defaults),
+// so whatever painted simply stands — never an error state.
+function careHomeRefresh(){
+  loadAnimalCare().then(() => {
+    const cur = document.querySelector(".home2 .carewidget");
+    if (cur && currentTab === "dashboard") paintCareWidget(cur);
+  }).catch(() => {});
+}
 
 // ---- Test hooks (module globals are unreachable from page.evaluate; these expose the
 //      minimum surface the headless UI suites drive). No effect on production behavior. ----

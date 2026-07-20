@@ -421,6 +421,17 @@ bucky_cal_cache_ts stamp; widget refresh = wxcard pattern (>10min stale → one 
 fetch, repaint only if still on dashboard). Dead code removed w/ grep evidence
 (bankMarkup/choreStreak/dayKey); seesBank/kidBalance/woIsMine KEPT (shared). Suite:
 scratchpad home_calwidget_test.cjs 64/64.
+CARE WIDGET (2026-07-20, user; reworked same day to a GRID): .carewidget card below
+.calwidget — HORIZONTAL 7-day grid (.caregrid, 22px + repeat(7,minmax(0,1fr))):
+columns = next 7 days (2-letter weekday over date, TODAY filled red + column tinted),
+rows = 🌅/🌙, cells = single-letter chips K/J/G (Kreussers navy — note --green IS the
+navy · Joy red · Grandparents amber; full name in title tooltip), .ov::after override
+dot; tap → goTo('animalcare'). ZERO duplicated logic: resolves via the Care tab's own
+careSlotValue/careGroupById/defaultCareData/loadAnimalCare; deterministic clock shared
+w/ calwidget (__CAL__.setHomeNow drives both). Override date-scoping proven by rolling
+the clock so the same weekday's NEXT occurrence shows the default. Test gotcha: the
+override dot legitimately overhangs the chip corner ~2px — measure text clipping via
+Range width, not scrollWidth. home_calwidget_test.cjs now 114/114.
 
 ---
 
