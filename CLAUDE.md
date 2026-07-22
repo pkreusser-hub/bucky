@@ -448,6 +448,28 @@ DETERMINISTIC id (idempotent vs self-healing sweeps) + targeted FCM via pushToke
 bell renderer now type-aware (bank_credit rows → Farm Bank, not lobby-invite styling).
 NOTE behavior change: payout alert text unified to "💰 $X added to your bank! (Work
 order: <name>)". Suites: cal_ui 197 · notif_chore_test.mjs 18 · notif_bank_test.cjs 19.
+🍽 MEALS — Mom-only calorie tracker (2026-07-22, opus agent from Fable spec, UNPUSHED):
+3rd Plan-area member `mealplan` (NAV_GROUPS plan=['calendar','animalcare','mealplan'];
+chip via navKeyVisible gated on seesMeals()/MEAL_USERS=["Mom"]; render() bounces non-Mom
+→ dashboard; farmgpt/games/weather navs untouched — areas unchanged). Source = the user's
+Weekly_GF_Meal_Plan.docx baked in verbatim as consts (1,400 cal/day GF plan, Mon–Sun day
+totals 1395/1350/1390/1430/1360-Fri-cheat/1395/1355 — suite asserts recomputed sums equal
+these). renderMealPlan pill nav (bucky_meal_page): TODAY (day paging, eaten/1,400 summary
+bar green→amber→red, tap-row toggle, ⇄ swap / ✕ remove+undo, Add sheet = catalog + doc
+quick-adds + custom name+cal, future days read-only note) · WEEK (Mon–Sun grid, tap-through)
+· PROGRESS (SVG bars 30/90/all vs 1400 line, 7-day avg/days-on-plan/streak, deficit
+estimate vs ~1,850 maintenance, weigh-in sheet + SVG trend vs 150→125 goal line over 20
+wks) · GUIDE (full plan tables + rules + tiers + swaps + grocery). DATA: getSetting docs
+mealMeta {start,startWeight,goalWeight,target} · mealLog_<YYYY-MM> month-sharded
+{days:{key:{items:[{id,meal,n,c,done,add?}]}}} · mealWeight sparse map. Days materialize
+LAZILY on first interaction as self-contained snapshots (viewing never writes; history
+immune to template edits); ~400ms debounced saves. Day keys America/Chicago en-CA via
+UTC-noon arithmetic (NOT the siblings' dateKeyLocal). Test hook __MEAL__; CSS scoped
+.mealwrap. Suite: scratchpad mealplan_test.cjs 76/76, 0 pageerrors (gating incl. Dad
+gateDad() prompt auto-dismiss, template sums, toggle/add/swap−70/remove, reload persist +
+setting_mealLog_ key + untouched-day-writes-nothing, 2-month shard seed, mobile 390 +
+desktop). TEST GOTCHA: shared browser context leaks localStorage across "fresh" pages —
+use an isolated incognito context per app open.
 
 ---
 

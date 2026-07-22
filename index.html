@@ -761,6 +761,107 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .care-sched-cell { flex: 1; display: flex; align-items: center; gap: 6px; min-width: 0; }
   .care-sched-slotlbl { font-size: 14px; flex: 0 0 auto; }
   .care-chip.sched { flex: 1; padding: 9px 6px; font-size: 12px; }
+
+  /* ===== Meals (Mom-only calorie tracker) — scoped under .mealwrap ===== */
+  .mealwrap { }
+  .mealpills { display: flex; gap: 3px; width: 100%; background: var(--done); border: 1px solid var(--line); border-radius: 13px; padding: 3px; margin: 0 0 14px; }
+  .mealpills button { flex: 1 1 0; min-width: 0; border: 0; background: transparent; cursor: pointer; color: var(--muted); font-size: 13px; font-weight: 700; padding: 9px 4px; border-radius: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mealpills button.sel { background: var(--card); color: var(--ink); box-shadow: var(--shadow); }
+  .meal-dayhdr { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; }
+  .meal-daytitle { flex: 1; min-width: 0; text-align: center; display: flex; flex-direction: column; line-height: 1.25; }
+  .meal-daytitle b { font-size: 16px; font-weight: 800; }
+  .meal-daytitle span { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+  .meal-iconbtn { flex: 0 0 auto; width: 38px; height: 38px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font-size: 20px; cursor: pointer; }
+  .mealsum { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px 16px 14px; box-shadow: var(--shadow); margin-bottom: 14px; }
+  .mealsum-big { display: flex; align-items: baseline; gap: 8px; }
+  .mealsum-eaten { font-size: 40px; font-weight: 900; line-height: 1; letter-spacing: -1px; }
+  .mealsum-of { font-size: 14px; color: var(--muted); font-weight: 700; }
+  .mealprog { height: 12px; background: var(--line); border-radius: 999px; overflow: hidden; margin: 12px 0 10px; }
+  .mealprog-fill { display: block; height: 100%; border-radius: 999px; transition: width .2s ease; }
+  .mealprog-fill.ok { background: var(--good); }
+  .mealprog-fill.warn { background: var(--amber); }
+  .mealprog-fill.over { background: var(--red); }
+  .mealsum-stats { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); font-weight: 600; }
+  .mealsum-stats b { color: var(--ink); font-weight: 800; }
+  .mealsum-stats b.over { color: var(--red); }
+  .meal-note { background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 12px; padding: 10px 12px; font-size: 12.5px; color: var(--muted); margin-bottom: 12px; }
+  .mealgroup { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 6px 12px 8px; box-shadow: var(--shadow); margin-bottom: 10px; }
+  .mealgroup-h { display: flex; justify-content: space-between; align-items: baseline; padding: 8px 2px 6px; border-bottom: 1px solid var(--line-2); }
+  .mealgroup-h > span:first-child { font-size: 14px; font-weight: 800; }
+  .mealgroup-sub { font-size: 12px; color: var(--muted); font-weight: 700; }
+  .mealitem { display: flex; align-items: center; gap: 10px; padding: 9px 2px; border-bottom: 1px solid var(--line-2); }
+  .mealitem:last-child { border-bottom: 0; }
+  .mealitem.tappable { cursor: pointer; }
+  .mealcheck { flex: 0 0 auto; width: 22px; height: 22px; border-radius: 7px; border: 2px solid var(--line); display: flex; align-items: center; justify-content: center; font-size: 14px; color: #fff; font-weight: 900; }
+  .mealcheck.on { background: var(--good); border-color: var(--good); }
+  .mealname { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; }
+  .mealitem.done .mealname { text-decoration: line-through; color: var(--muted); }
+  .mealbadge { display: inline-block; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .3px; color: var(--green); background: var(--done); padding: 1px 6px; border-radius: 999px; vertical-align: middle; }
+  .mealcal { flex: 0 0 auto; font-size: 13px; font-weight: 800; color: var(--ink); min-width: 34px; text-align: right; }
+  .mealminibtn { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--muted); font-size: 14px; cursor: pointer; }
+  .meal-addbtn { width: 100%; padding: 13px; border-radius: 12px; border: 1px dashed var(--green); background: var(--done); color: var(--green); font-size: 15px; font-weight: 800; cursor: pointer; margin-top: 4px; }
+  /* Week grid */
+  .mealweek { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+  .mealday { display: flex; flex-direction: column; align-items: stretch; gap: 3px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 7px 4px; cursor: pointer; text-align: center; box-shadow: var(--shadow); }
+  .mealday.today { border-color: var(--red); box-shadow: 0 0 0 1px var(--red), var(--shadow); }
+  .mealday-wd { font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; }
+  .mealday-dt { font-size: 15px; font-weight: 900; }
+  .mealday.today .mealday-dt { color: var(--red); }
+  .mealday-cal { font-size: 10.5px; font-weight: 700; color: var(--ink-2); white-space: nowrap; }
+  .mealmini { height: 5px; background: var(--line); border-radius: 999px; overflow: hidden; margin: 2px 0; }
+  .mealmini-fill { display: block; height: 100%; }
+  .mealmini-fill.ok { background: var(--good); } .mealmini-fill.warn { background: var(--amber); } .mealmini-fill.over { background: var(--red); }
+  .mealday-meta { font-size: 9.5px; font-weight: 700; color: var(--muted); }
+  /* Progress */
+  .mealcard { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px; box-shadow: var(--shadow); margin-bottom: 14px; }
+  .mealcard h3 { margin: 0 0 10px; font-size: 15px; }
+  .mealchart { width: 100%; height: auto; display: block; overflow: visible; }
+  .mealchart .mc-ok { fill: var(--good); } .mealchart .mc-warn { fill: var(--amber); } .mealchart .mc-over { fill: var(--red); }
+  .mealchart .mc-target { stroke: var(--red); stroke-width: 1.2; stroke-dasharray: 4 3; }
+  .mealchart .mc-lbl { fill: var(--red); font-size: 9px; font-weight: 700; }
+  .mealchart .mc-goal { stroke: var(--muted); stroke-width: 1.4; stroke-dasharray: 5 4; }
+  .mealchart .mc-wline { stroke: var(--green); stroke-width: 2; fill: none; }
+  .mealchart .mc-wdot { fill: var(--green); }
+  .mealseg { display: flex; gap: 4px; margin: 0 0 10px; }
+  .mealseg button { flex: 1; border: 1px solid var(--line); background: var(--card); color: var(--muted); font-size: 12.5px; font-weight: 700; padding: 7px 4px; border-radius: 9px; cursor: pointer; }
+  .mealseg button.sel { background: var(--green); color: #fff; border-color: var(--green); }
+  .mealstat-row { display: flex; gap: 8px; margin-top: 12px; }
+  .mealstat { flex: 1; background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 12px; padding: 10px 8px; text-align: center; }
+  .mealstat b { display: block; font-size: 20px; font-weight: 900; }
+  .mealstat span { font-size: 11px; color: var(--muted); font-weight: 700; }
+  .meal-emptyline { font-size: 13px; color: var(--muted); padding: 8px 2px; }
+  .meal-pace { font-size: 12.5px; color: var(--muted); margin-top: 10px; padding: 9px 11px; background: var(--surface-2); border-radius: 10px; }
+  .meal-pace b { color: var(--ink); }
+  .meal-weightbtn { width: 100%; padding: 12px; border-radius: 12px; border: 1px solid var(--green); background: var(--done); color: var(--green); font-size: 14px; font-weight: 800; cursor: pointer; margin-bottom: 12px; }
+  /* Guide */
+  .mealguide .mealcard p { font-size: 13px; line-height: 1.5; color: var(--ink-2); margin: 0 0 10px; }
+  .mealguide .mealcard p:last-child { margin-bottom: 0; }
+  .mealguide ul { margin: 0; padding-left: 18px; }
+  .mealguide li { font-size: 13px; line-height: 1.5; color: var(--ink-2); margin-bottom: 5px; }
+  .mealgt { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .mealgt td { padding: 3px 4px; border-bottom: 1px solid var(--line-2); vertical-align: top; }
+  .mealgt td.c { text-align: right; font-weight: 800; white-space: nowrap; color: var(--ink); }
+  .mealgt tr.sub td { font-weight: 800; color: var(--muted); border-bottom: 0; }
+  .mealgt tr.tot td { font-weight: 900; border-top: 2px solid var(--line); border-bottom: 0; }
+  .mealgt tr.mealhd td { font-weight: 900; color: var(--green); padding-top: 8px; }
+  .mealgrocery { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .mealgrocery h4 { margin: 0 0 4px; font-size: 13px; }
+  .mealgrocery ul { padding-left: 16px; }
+  /* Add / swap sheet */
+  .meal-chiprow, .meal-quickrow { display: flex; flex-wrap: wrap; gap: 6px; }
+  .meal-mealchip { border: 1px solid var(--line); background: var(--card); color: var(--ink); font-size: 13px; font-weight: 700; padding: 8px 13px; border-radius: 999px; cursor: pointer; }
+  .meal-mealchip.sel { background: var(--green); border-color: var(--green); color: #fff; }
+  .meal-quickchip { border: 1px solid var(--line); background: var(--surface-2); color: var(--ink); font-size: 12.5px; font-weight: 700; padding: 8px 11px; border-radius: 999px; cursor: pointer; }
+  .meal-customrow { display: flex; gap: 8px; }
+  .meal-customrow input[type=text] { flex: 1; }
+  .meal-customrow input[type=number] { width: 76px; padding: 13px; font-size: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink); }
+  .meal-customadd { flex: 0 0 auto; padding: 0 16px; border-radius: 12px; border: 0; background: var(--green); color: #fff; font-weight: 800; cursor: pointer; }
+  .mealcat { max-height: 34vh; overflow-y: auto; border: 1px solid var(--line-2); border-radius: 12px; margin-top: 4px; }
+  .mealcat-h { position: sticky; top: 0; background: var(--surface-2); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); padding: 6px 12px; }
+  .mealcat-item { display: flex; width: 100%; justify-content: space-between; gap: 10px; align-items: center; background: var(--card); border: 0; border-bottom: 1px solid var(--line-2); padding: 10px 12px; font-size: 13px; cursor: pointer; text-align: left; color: var(--ink); }
+  .mealcat-item.sug { background: var(--done); }
+  .mealcat-name { min-width: 0; }
+  .mealcat-cal { flex: 0 0 auto; font-weight: 800; }
 </style>
 </head>
 <body>
@@ -1214,6 +1315,11 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   </div>
 </div>
 
+<!-- Meals: add / swap / log-weight sheet (contents built in JS per action) -->
+<div class="overlay" id="mealSheetOverlay">
+  <div class="sheet" id="mealSheetInner"></div>
+</div>
+
 <script type="module">
 /* ============================================================
    1) PASTE YOUR FIREBASE SETTINGS HERE  (see the setup guide)
@@ -1254,6 +1360,12 @@ const BANK_NOTIFY_KIDS = BANK_KIDS;   // ["Isaac", "Eleanor"]
 // EVERYONE (2026-07-09 user decision, reversing the earlier chores gate). Must match profile names.
 const BANK_USERS = ["Eleanor", "Isaac", "Dad", "Mom"];
 function seesBank(){ return BANK_USERS.includes(myName()); }
+
+/* ---- Meals (Mom-only calorie tracker, a 3rd member of the Plan area). Soft client gate,
+   consistent with the app's choreUser identity posture (same as the Farm Bank / Chores
+   gates). Only the "Mom" profile ever sees the Meals sub-nav chip or section. ---- */
+const MEAL_USERS = ["Mom"];
+function seesMeals(){ return MEAL_USERS.includes(myName()); }
 
 /* ---- Work-order assignees (multi-capable, backward compatible) ----
    A work order may carry `assignees` (an ARRAY of names). Legacy docs (and other
@@ -1353,6 +1465,7 @@ const SECTIONS = [
   { key:"goatcare",   ico:"🩺",  name:"Goat Care",       desc:"Log care quickly" },
   { key:"calendar",   ico:"📅",  name:"Calendar",        desc:"Family shared calendar" },
   { key:"animalcare", ico:"🐾",  name:"Animal Care",     desc:"Who's covering chores" },
+  { key:"mealplan",   ico:"🍽️",  name:"Meals",           desc:"Calorie plan (Mom)" },
   { key:"farmgpt",    ico:"🌾",  name:"FarmGPT",         desc:"story time & research AI", url:"farmgpt.html" },
   { key:"games",      ico:"🎮",  name:"Games",           desc:"games might just be real life", url:"games.html" }
 ];
@@ -1362,7 +1475,7 @@ const SECTIONS = [
 // workorders/farmbank are here too so email "View in BUCKY" buttons can land on the right tab.
 // Every tab is deep-linkable via index.html#<key> so the persistent icon nav on the
 // FarmGPT/Games pages can land you directly on any section here.
-const DEEP_LINK_TABS = ["dashboard", "chores", "workorders", "print3d", "shopping", "farmbank", "goathooves", "goatcare", "calendar", "animalcare", "game", "catgame", "play"];
+const DEEP_LINK_TABS = ["dashboard", "chores", "workorders", "print3d", "shopping", "farmbank", "goathooves", "goatcare", "calendar", "animalcare", "mealplan", "game", "catgame", "play"];
 const initialHashTab = DEEP_LINK_TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "dashboard";
 let currentTab = initialHashTab;
 
@@ -1376,7 +1489,7 @@ let currentTab = initialHashTab;
 // Home — 2026-07-20 user request; keep the mirrored navs in farmgpt/games/weather in sync).
 const NAV_GROUPS = [
   { id:"home",  ico:"🏠",  name:"Home",   def:"dashboard",  members:["dashboard"] },
-  { id:"plan",  ico:"📅",  name:"Plan",   def:"calendar",   members:["calendar","animalcare"] },
+  { id:"plan",  ico:"📅",  name:"Plan",   def:"calendar",   members:["calendar","animalcare","mealplan"] },
   { id:"tasks", ico:"✅",  name:"Chores", def:"chores",     members:["chores"] },
   { id:"wo",    ico:"🛠️",  name:"Jobs",   def:"workorders", members:["workorders","print3d"] },
   { id:"shop",  ico:"🛒",  name:"Shop",   def:"shopping",   members:["shopping"] },
@@ -1387,15 +1500,20 @@ const NAV_GROUPS = [
 const SECTION_BY_KEY = Object.fromEntries(SECTIONS.map(s => [s.key, s]));
 // Short chip labels for the segmented sub-nav (the full section names like
 // "Work Orders" / "3D Prints" would truncate in a 3-up segmented control).
-const SUBNAV_LABEL = { chores:"Chores", workorders:"Jobs", shopping:"Shopping", goathooves:"Goats", goatcare:"Care", print3d:"Prints", calendar:"Calendar", animalcare:"Care" };
+const SUBNAV_LABEL = { chores:"Chores", workorders:"Jobs", shopping:"Shopping", goathooves:"Goats", goatcare:"Care", print3d:"Prints", calendar:"Calendar", animalcare:"Care", mealplan:"Meals" };
 // Remembers the last section visited within a multi-section area so tapping the
 // bottom tab returns you where you were (only tracked for Tasks/Farm sub-nav).
 const groupLast = {};
 function groupForTab(tab){
   return NAV_GROUPS.find(g => g.members.includes(tab)) || NAV_GROUPS[0];
 }
-// Farm Bank is hidden from the nav for non-family users; everything else is visible to all.
-function navKeyVisible(key){ return seesBank() || key !== "farmbank"; }
+// Farm Bank is hidden from the nav for non-family users; Meals is Mom-only; everything else
+// is visible to all. (Precedent: the farmbank chip gate.)
+function navKeyVisible(key){
+  if (key === "farmbank") return seesBank();
+  if (key === "mealplan") return seesMeals();
+  return true;
+}
 function navGroupVisible(gid){ return seesBank() || gid !== "bank"; }
 let careView = "hooves";    // which activity the Goat Care tab is updating
 const expandedGoats = new Set();  // ids of goats expanded on the Goats tab
@@ -1864,15 +1982,18 @@ function render(){
   // Farm Bank is hidden for non-family users; bounce them to Home if they somehow land on it
   // (stale tab after a profile switch, an old deep-link, etc.).
   if (!seesBank() && currentTab === "farmbank") currentTab = "dashboard";
+  // Meals is Mom-only — bounce a non-Mom user who lands on it via a stale tab / deep-link.
+  if (!seesMeals() && currentTab === "mealplan") currentTab = "dashboard";
   renderSubnav();   // keep the Tasks/Farm sub-nav in sync no matter who changed currentTab
   const cf = document.getElementById("careFilter");
   if (cf) cf.style.display = currentTab === "goatcare" ? "block" : "none";
-  document.getElementById("addFab").style.display = (currentTab === "dashboard" || currentTab === "goatcare" || currentTab === "shopping" || currentTab === "print3d" || currentTab === "game" || currentTab === "catgame" || currentTab === "farmbank" || currentTab === "play" || currentTab === "animalcare") ? "none" : "";
+  document.getElementById("addFab").style.display = (currentTab === "dashboard" || currentTab === "goatcare" || currentTab === "shopping" || currentTab === "print3d" || currentTab === "game" || currentTab === "catgame" || currentTab === "farmbank" || currentTab === "play" || currentTab === "animalcare" || currentTab === "mealplan") ? "none" : "";
   document.getElementById("progress").classList.remove("greet");   // greeting styling is dashboard-only
   document.getElementById("progress").style.display = "";          // restored here; Home hides it (greeting is in the hero)
   if (currentTab === "dashboard") return renderDashboard();
   if (currentTab === "calendar") return renderCalendar();
   if (currentTab === "animalcare") return renderAnimalCare();
+  if (currentTab === "mealplan") return renderMealPlan();
   if (currentTab === "play") return renderPlay();
   if (currentTab === "catgame") return renderCatGame();
   if (currentTab === "farmbank") return renderFarmBank();
@@ -5039,8 +5160,703 @@ function careHomeRefresh(){
   }).catch(() => {});
 }
 
+// ==================== MEALS — Mom-only calorie tracker (Plan area) ====================
+// A 1,400 cal/day gluten-free weekly plan. A day is materialized LAZILY from the weekday
+// template the first time Mom interacts with it (check/add/remove/swap), then persisted as
+// a full snapshot so history stays exact even if the template is later edited. Data lives in
+// the settings backend: mealMeta, mealLog_<YYYY-MM> (one doc/month), mealWeight. Mere viewing
+// never writes. All dates are America/Chicago (en-CA day keys), matching the Plan-area siblings.
+const MEAL_TARGET = 1400;
+const MEAL_MAINTENANCE = 1850;               // maintenance estimate from the plan doc (deficit math)
+const MEAL_MEAL_ORDER = ["Breakfast", "Lunch", "Snack", "Dinner", "Cheat treat"];
+const MEAL_PLAN = {
+  mon: {
+    Breakfast: [["Black coffee, 1 cup (240 ml)",5],["Buckwheat bagel, 1 whole (85 g)",230],["Avocado, ½ medium (75 g)",120]],
+    Lunch: [["Canned salmon, drained, ½ can (106 g)",160],["Leafy salad greens, 3 cups (85 g)",20],["Olive oil, 1 tbsp (14 g)",120],["GF bread, 1 slice (32 g)",80]],
+    Snack: [["Strawberries, 1 cup (150 g)",50],["Almonds, 1 oz (28 g)",165]],
+    Dinner: [["Turkey breast, cooked, 4 oz (113 g)",150],["Broccoli, steamed, 1½ cups (150 g)",55],["Olive oil, 1 tbsp (14 g)",120],["Avocado, ½ medium (75 g)",120]],
+  },
+  tue: {
+    Breakfast: [["Black coffee, 1 cup (240 ml)",5],["Buckwheat bagel, 1 whole (85 g)",230],["Avocado, ½ medium (75 g)",120]],
+    Lunch: [["Turkey breast, cooked, 4 oz (113 g)",150],["Leafy salad greens, 3 cups (85 g)",20],["Olive oil, 1 tbsp (14 g)",120],["Bell pepper, 1 medium (120 g)",30]],
+    Snack: [["Cheese, 1 oz (28 g)",115],["GF bread, 1 slice (32 g)",80]],
+    Dinner: [["Canned salmon, drained, ½ can (106 g)",160],["Broccoli, steamed, 1½ cups (150 g)",55],["Asparagus, 8 spears (120 g)",25],["Olive oil, 1 tbsp (14 g)",120],["Avocado, ½ medium (75 g)",120]],
+  },
+  wed: {
+    Breakfast: [["Black coffee, 1 cup (240 ml)",5],["GF cereal, 1 cup (40 g)",150],["Unsweetened almond milk, 1 cup (240 ml)",35],["Strawberries, ½ cup (75 g)",25]],
+    Lunch: [["Canned salmon, drained, ½ can (106 g)",160],["Leafy salad greens, 3 cups (85 g)",20],["Olive oil, 1 tbsp (14 g)",120],["GF bread, 1 slice (32 g)",80],["Avocado, ½ medium (75 g)",120]],
+    Snack: [["Almonds, 1 oz (28 g)",165],["Strawberries, ½ cup (75 g)",25]],
+    Dinner: [["Turkey breast, cooked, 5 oz (140 g)",190],["Broccoli, steamed, 1½ cups (150 g)",55],["Olive oil, 1 tbsp (14 g)",120],["Avocado, ½ medium (75 g)",120]],
+  },
+  thu: {
+    Breakfast: [["Black coffee, 1 cup (240 ml)",5],["Buckwheat bagel, 1 whole (85 g)",230],["Avocado, ½ medium (75 g)",120]],
+    Lunch: [["Leafy salad greens, 3 cups (85 g)",20],["Cheese, 1 oz (28 g)",115],["Almonds, 1 oz (28 g)",165],["Bell pepper, 1 medium (120 g)",30],["Olive oil, 1 tsp (5 g)",40],["GF bread, 1 slice (32 g)",80]],
+    Snack: [["Strawberries, 1 cup (150 g)",50],["Cheese, 1 oz (28 g)",115]],
+    Dinner: [["Lean beef sirloin, cooked, 4 oz (113 g)",220],["Broccoli, steamed, 1½ cups (150 g)",55],["Asparagus, 8 spears (120 g)",25],["Olive oil, 1 tsp (5 g)",40],["Avocado, ½ medium (75 g)",120]],
+  },
+  fri: {
+    Breakfast: [["Black coffee, 1 cup (240 ml)",5],["GF bread, toasted, 2 slices (64 g)",160],["Avocado, ½ medium (75 g)",120]],
+    Lunch: [["Turkey breast, cooked, 4 oz (113 g)",150],["Leafy salad greens, 3 cups (85 g)",20],["Olive oil, 1 tsp (5 g)",40],["Bell pepper, 1 medium (120 g)",30]],
+    Dinner: [["GF cheese pizza, 2 slices (about 200 g, half a 10-inch)",450]],
+    "Cheat treat": [["Ice cream, 1 cup (140 g)",275],["Chocolate sauce, 1 tbsp (19 g)",55],["Caramel sauce, 1 tbsp (19 g)",55]],
+  },
+  sat: {
+    Breakfast: [["Black coffee, 1 cup (240 ml)",5],["Buckwheat bagel, 1 whole (85 g)",230],["Avocado, ½ medium (75 g)",120]],
+    Lunch: [["Canned salmon, drained, ½ can (106 g)",160],["Leafy salad greens, 3 cups (85 g)",20],["Olive oil, 1 tbsp (14 g)",120],["GF bread, 1 slice (32 g)",80]],
+    Snack: [["GF chips, 1 oz (28 g)",140],["Avocado mashed with lemon and salt, ½ medium (75 g)",120]],
+    Dinner: [["Turkey breast, cooked, 4 oz (113 g)",150],["Broccoli, steamed, 1½ cups (150 g)",55],["Asparagus, 8 spears (120 g)",25],["Olive oil, 1 tbsp (14 g)",120],["Strawberries, 1 cup (150 g)",50]],
+  },
+  sun: {
+    Breakfast: [["Black coffee, 1 cup (240 ml)",5],["GF bread, toasted, 2 slices (64 g)",160],["Avocado, ½ medium (75 g)",120],["Dairy milk, 2%, 1 cup (240 ml)",120]],
+    Lunch: [["Leafy salad greens, 3 cups (85 g)",20],["Cheese, 1 oz (28 g)",115],["Almonds, 1 oz (28 g)",165],["Avocado, ½ medium (75 g)",120],["Olive oil, 1 tsp (5 g)",40]],
+    Snack: [["Strawberries, 1 cup (150 g)",50]],
+    Dinner: [["Canned salmon, drained, ½ can (106 g)",160],["Broccoli, steamed, 1½ cups (150 g)",55],["Asparagus, 8 spears (120 g)",25],["Olive oil, 1 tbsp (14 g)",120],["GF bread, 1 slice (32 g)",80]],
+  },
+};
+const MEAL_PLAN_LABEL = { mon:"Monday", tue:"Tuesday", wed:"Wednesday", thu:"Thursday", fri:"Friday — Cheat Day", sat:"Saturday", sun:"Sunday" };
+const MEAL_FRI_NOTE = "Lighter meals, no snack — treats still land near target.";
+const MEAL_CATALOG = {
+  Protein: [["Canned salmon, drained, ½ can (106 g)",160],["Turkey breast, cooked, 4 oz (113 g)",150],["Turkey breast, cooked, 5 oz (140 g)",190],["Lean beef sirloin, cooked, 4 oz (113 g)",220],["Cheese, 1 oz (28 g)",115]],
+  Veg: [["Leafy salad greens, 3 cups (85 g)",20],["Broccoli, steamed, 1 cup (100 g)",35],["Broccoli, steamed, 1½ cups (150 g)",55],["Asparagus, 8 spears (120 g)",25],["Bell pepper, 1 medium (120 g)",30]],
+  "Fruit / fat": [["Avocado, ½ medium (75 g)",120],["Strawberries, 1 cup (150 g)",50],["Strawberries, ½ cup (75 g)",25],["Almonds, 1 oz (28 g)",165],["Olive oil, 1 tbsp (14 g)",120],["Olive oil, 1 tsp (5 g)",40]],
+  Carbs: [["GF bread, 1 slice (32 g)",80],["GF bread, toasted, 2 slices (64 g)",160],["Buckwheat bagel, 1 whole (85 g)",230],["GF cereal, 1 cup (40 g)",150],["GF chips, 1 oz (28 g)",140]],
+  Drinks: [["Black coffee, 1 cup (240 ml)",5],["Unsweetened almond milk, 1 cup (240 ml)",35],["Dairy milk, 2%, 1 cup (240 ml)",120]],
+  Treats: [["GF cheese pizza, 2 slices (about 200 g, half a 10-inch)",450],["Ice cream, 1 cup (140 g)",275],["Chocolate sauce, 1 tbsp (19 g)",55],["Caramel sauce, 1 tbsp (19 g)",55]],
+};
+// Named one-tap swaps from the plan doc. Each is symmetric (offered from either side).
+const MEAL_SWAPS = [
+  { a:"Buckwheat bagel", aName:"Buckwheat bagel, 1 whole (85 g)", aCal:230, bName:"GF bread, toasted, 2 slices (64 g)", bCal:160 },
+  { a:"Canned salmon",   aName:"Canned salmon, drained, ½ can (106 g)", aCal:160, bName:"Turkey breast, cooked, 4 oz (113 g)", bCal:150 },
+];
+const MEAL_QUICKADDS = [
+  ["Leafy salad greens, 3 cups (85 g)", 20],
+  ["Broccoli, steamed, 1 cup (100 g)", 35],
+  ["Asparagus, 8 spears (120 g)", 25],
+  ["Almonds, 1 oz (28 g)", 165],
+];
+
+// ---- Meals state ----
+let mealMeta = null;               // { start, startWeight, goalWeight, target } or null until created
+let mealMetaLoaded = false;
+const mealLogs = {};               // { "YYYY-MM": { days:{ "YYYY-MM-DD":{items:[...]} } } }
+const mealLoaded = {};             // { "YYYY-MM": true } — which months are fetched
+let mealWeights = null;            // { "YYYY-MM-DD": number }
+let mealWeightsLoaded = false;
+let mealPage = localStorage.getItem("bucky_meal_page") || "today";
+let mealDayKey = null;             // Today page's selected day (defaults to today)
+let mealWeekOffset = 0;
+let mealNowOverride = null;        // deterministic-clock test hook (ms) or null
+let mealProgRange = 30;            // 30 | 90 | "all"
+let mealLastRemoved = null;        // single-level undo of the last remove
+const mealSaveTimers = {};         // per-month debounce timers
+let mealSheetMealSel = null;       // selected meal in the Add sheet
+
+// ---- Clock / day keys (America/Chicago, en-CA — deterministic, tz-safe) ----
+function mealNow(){ return mealNowOverride ? new Date(mealNowOverride) : new Date(); }
+function mealDateKey(d){ return d.toLocaleDateString("en-CA", { timeZone: "America/Chicago" }); }
+function mealToday(){ return mealDateKey(mealNow()); }
+function mealKeyToNoon(key){ const p = String(key).split("-").map(Number); return new Date(Date.UTC(p[0], (p[1]||1)-1, p[2]||1, 12)); }
+function mealKeyAddDays(key, n){ const d = mealKeyToNoon(key); d.setUTCDate(d.getUTCDate()+n); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`; }
+const MEAL_WD = ["sun","mon","tue","wed","thu","fri","sat"];
+function mealWeekdayOfKey(key){ return MEAL_WD[mealKeyToNoon(key).getUTCDay()]; }
+function mealKeyFmt(key, opts){ return mealKeyToNoon(key).toLocaleDateString(undefined, Object.assign({ timeZone:"UTC" }, opts)); }
+function mealMonthOf(key){ return key.slice(0,7); }
+function mealWeekStartKey(key){ const dow = mealKeyToNoon(key).getUTCDay(); return mealKeyAddDays(key, -((dow+6)%7)); }   // Monday
+function mealMonthsBetween(aKey, bKey){
+  const out = []; let y = +aKey.slice(0,4), m = +aKey.slice(5,7); const ey = +bKey.slice(0,4), em = +bKey.slice(5,7); let guard = 0;
+  while ((y < ey || (y === ey && m <= em)) && guard < 36){ out.push(`${y}-${pad(m)}`); m++; if (m > 12){ m = 1; y++; } guard++; }
+  return out.slice(-6);   // cap at 6 months of getSetting calls (spec)
+}
+
+// ---- Data load / persist ----
+async function mealEnsureMonth(month){
+  if (mealLoaded[month]) return mealLogs[month] || (mealLogs[month] = { days:{} });
+  try { const s = await backend?.getSetting?.("mealLog_" + month); mealLogs[month] = (s && s.days) ? s : { days:{} }; }
+  catch { mealLogs[month] = { days:{} }; }
+  if (!mealLogs[month].days) mealLogs[month].days = {};
+  mealLoaded[month] = true;
+  return mealLogs[month];
+}
+async function mealEnsureMeta(){
+  if (mealMetaLoaded) return mealMeta;
+  try { const s = await backend?.getSetting?.("mealMeta"); if (s && s.start) mealMeta = s; } catch {}
+  mealMetaLoaded = true;
+  return mealMeta;
+}
+async function mealEnsureWeights(){
+  if (mealWeightsLoaded) return mealWeights;
+  try { const s = await backend?.getSetting?.("mealWeight"); mealWeights = (s && typeof s === "object") ? s : {}; } catch { mealWeights = {}; }
+  mealWeightsLoaded = true;
+  return mealWeights;
+}
+// Meta is created on the first save-worthy interaction (never on mere viewing).
+async function mealTouchMeta(){
+  await mealEnsureMeta();
+  if (!mealMeta){
+    mealMeta = { start: mealToday(), startWeight: 150, goalWeight: 125, target: MEAL_TARGET };
+    try { await backend?.setSetting?.("mealMeta", mealMeta); } catch {}
+  }
+  return mealMeta;
+}
+function mealScheduleSave(month){ clearTimeout(mealSaveTimers[month]); mealSaveTimers[month] = setTimeout(() => mealSaveMonth(month), 400); }
+async function mealSaveMonth(month){ const m = mealLogs[month]; if (!m) return; try { await backend?.setSetting?.("mealLog_" + month, m); } catch {} }
+async function mealSaveMonthNow(month){ clearTimeout(mealSaveTimers[month]); await mealSaveMonth(month); }
+
+// ---- Template + snapshot access ----
+function mealMealCode(meal){ return ({ Breakfast:"b", Lunch:"l", Snack:"s", Dinner:"d", "Cheat treat":"c" })[meal] || "x"; }
+function mealTemplateItems(dayKey){
+  const plan = MEAL_PLAN[mealWeekdayOfKey(dayKey)] || {};
+  const items = [];
+  for (const meal of MEAL_MEAL_ORDER){
+    const arr = plan[meal]; if (!arr) continue;
+    arr.forEach((it, i) => items.push({ id: mealMealCode(meal) + i, meal, n: it[0], c: it[1], done: false }));
+  }
+  return items;
+}
+function mealDaySnapshot(dayKey){ const m = mealLogs[mealMonthOf(dayKey)]; return (m && m.days && m.days[dayKey]) ? m.days[dayKey] : null; }
+function mealDayIsMaterialized(dayKey){ return !!mealDaySnapshot(dayKey); }
+// Read-only view: the persisted snapshot if it exists, otherwise the (unsaved) template.
+function mealDayItems(dayKey){ const snap = mealDaySnapshot(dayKey); return snap ? snap.items : mealTemplateItems(dayKey); }
+// Materialize a day snapshot for EDITING (persists on the next save; also creates meta).
+async function mealMaterialize(dayKey){
+  const month = mealMonthOf(dayKey);
+  await mealEnsureMonth(month);
+  const m = mealLogs[month] || (mealLogs[month] = { days:{} });
+  if (!m.days) m.days = {};
+  if (!m.days[dayKey]) m.days[dayKey] = { items: mealTemplateItems(dayKey) };
+  await mealTouchMeta();
+  return m.days[dayKey];
+}
+function mealEaten(items){ return items.reduce((s, it) => s + (it.done ? (it.c||0) : 0), 0); }
+function mealPlanned(items){ return items.reduce((s, it) => s + (it.c||0), 0); }
+function mealDoneCount(items){ return items.filter(it => it.done).length; }
+function mealBarClass(eaten){ if (eaten <= MEAL_TARGET) return "ok"; if (eaten <= MEAL_TARGET + 100) return "warn"; return "over"; }
+
+// ---- Mutations ----
+async function mealToggle(dayKey, itemId){
+  const day = await mealMaterialize(dayKey);
+  const it = day.items.find(x => x.id === itemId); if (!it) return;
+  it.done = !it.done;
+  mealScheduleSave(mealMonthOf(dayKey));
+  if (currentTab === "mealplan") renderMealPlan();
+}
+async function mealAdd(dayKey, meal, name, cal){
+  const day = await mealMaterialize(dayKey);
+  day.items.push({ id: "x" + Date.now().toString(36) + Math.floor(Math.random()*1000), meal, n: String(name||"").trim() || "Item", c: Math.max(0, Math.round(Number(cal))||0), done: false, add: true });
+  mealScheduleSave(mealMonthOf(dayKey));
+  if (currentTab === "mealplan") renderMealPlan();
+}
+async function mealRemove(dayKey, itemId){
+  const day = await mealMaterialize(dayKey);
+  const idx = day.items.findIndex(x => x.id === itemId); if (idx < 0) return;
+  mealLastRemoved = { dayKey, idx, item: day.items[idx] };
+  day.items.splice(idx, 1);
+  mealScheduleSave(mealMonthOf(dayKey));
+  if (currentTab === "mealplan") renderMealPlan();
+  showToast("Removed “" + (mealLastRemoved.item.n || "item") + "” — tap to undo", mealUndoRemove);
+}
+async function mealUndoRemove(){
+  if (!mealLastRemoved) return;
+  const { dayKey, idx, item } = mealLastRemoved; mealLastRemoved = null;
+  const day = await mealMaterialize(dayKey);
+  day.items.splice(Math.min(idx, day.items.length), 0, item);
+  mealScheduleSave(mealMonthOf(dayKey));
+  if (currentTab === "mealplan") renderMealPlan();
+}
+async function mealSwap(dayKey, itemId, name, cal){
+  const day = await mealMaterialize(dayKey);
+  const it = day.items.find(x => x.id === itemId); if (!it) return;
+  it.n = String(name||"").trim() || it.n; it.c = Math.max(0, Math.round(Number(cal))||0); it.done = false;   // swap resets done, keeps meal + position
+  mealScheduleSave(mealMonthOf(dayKey));
+  if (currentTab === "mealplan") renderMealPlan();
+}
+async function mealLogWeight(dayKey, lbs){
+  await mealEnsureWeights(); await mealTouchMeta();
+  const v = Math.round((Number(lbs)||0) * 10) / 10; if (!v) return;
+  mealWeights[dayKey] = v;
+  try { await backend?.setSetting?.("mealWeight", mealWeights); } catch {}
+  if (currentTab === "mealplan") renderMealPlan();
+}
+
+// ---- Render: page shell ----
+function renderMealPlan(){
+  document.querySelector(".bar").style.display = "none";
+  document.getElementById("empty").style.display = "none";
+  document.getElementById("progress").style.display = "none";
+  if (mealDayKey === null) mealDayKey = mealToday();
+  const list = document.getElementById("list"); list.innerHTML = "";
+  const wrap = document.createElement("li"); wrap.style.cssText = "background:transparent;border:0;box-shadow:none;padding:0;";
+  const root = document.createElement("div"); root.className = "mealwrap";
+  const pills = document.createElement("div"); pills.className = "mealpills";
+  for (const p of [["today","Today"],["week","Week"],["progress","Progress"],["guide","Guide"]]){
+    const b = document.createElement("button"); b.textContent = p[1]; b.dataset.page = p[0];
+    if (mealPage === p[0]) b.classList.add("sel");
+    b.onclick = () => { mealPage = p[0]; localStorage.setItem("bucky_meal_page", p[0]); renderMealPlan(); };
+    pills.appendChild(b);
+  }
+  root.appendChild(pills);
+  const body = document.createElement("div"); body.className = "mealbody"; root.appendChild(body);
+  wrap.appendChild(root); list.appendChild(wrap);
+  if (mealPage === "today") mealRenderToday(body);
+  else if (mealPage === "week") mealRenderWeek(body);
+  else if (mealPage === "progress") mealRenderProgress(body);
+  else mealRenderGuide(body);
+}
+
+// ---- Page 1: Today ----
+function mealRenderToday(body){
+  const dayKey = mealDayKey;
+  const month = mealMonthOf(dayKey);
+  if (!mealLoaded[month]) mealEnsureMonth(month).then(() => { if (currentTab === "mealplan" && mealPage === "today" && mealDayKey === dayKey) renderMealPlan(); });
+  const items = mealDayItems(dayKey);
+  const eaten = mealEaten(items), planned = mealPlanned(items), remaining = MEAL_TARGET - eaten;
+  const todayKey = mealToday(), isToday = dayKey === todayKey, isFuture = dayKey > todayKey;
+
+  const hdr = document.createElement("div"); hdr.className = "meal-dayhdr";
+  const prev = document.createElement("button"); prev.className = "meal-iconbtn"; prev.textContent = "‹"; prev.setAttribute("aria-label","Previous day"); prev.onclick = () => { mealDayKey = mealKeyAddDays(dayKey, -1); renderMealPlan(); };
+  const t = document.createElement("div"); t.className = "meal-daytitle";
+  const tb = document.createElement("b"); tb.textContent = mealKeyFmt(dayKey, { weekday:"long" });
+  const ts = document.createElement("span"); ts.textContent = mealKeyFmt(dayKey, { month:"long", day:"numeric" }) + (isToday ? " · Today" : "");
+  t.append(tb, ts);
+  const next = document.createElement("button"); next.className = "meal-iconbtn"; next.textContent = "›"; next.setAttribute("aria-label","Next day"); next.onclick = () => { mealDayKey = mealKeyAddDays(dayKey, 1); renderMealPlan(); };
+  hdr.append(prev, t, next); body.appendChild(hdr);
+
+  const sum = document.createElement("div"); sum.className = "mealsum";
+  const big = document.createElement("div"); big.className = "mealsum-big";
+  const be = document.createElement("span"); be.className = "mealsum-eaten"; be.id = "mealEaten"; be.textContent = eaten;
+  const bo = document.createElement("span"); bo.className = "mealsum-of"; bo.textContent = "of " + MEAL_TARGET.toLocaleString() + " cal";
+  big.append(be, bo);
+  const barWrap = document.createElement("div"); barWrap.className = "mealprog";
+  const bar = document.createElement("span"); bar.className = "mealprog-fill " + mealBarClass(eaten); bar.id = "mealBar"; bar.style.width = Math.min(100, (eaten / MEAL_TARGET) * 100) + "%";
+  barWrap.appendChild(bar);
+  const stats = document.createElement("div"); stats.className = "mealsum-stats";
+  const s1 = document.createElement("span"); s1.innerHTML = "Planned "; const s1b = document.createElement("b"); s1b.textContent = planned; s1.appendChild(s1b);
+  const s2 = document.createElement("span"); s2.innerHTML = "Remaining "; const s2b = document.createElement("b"); s2b.textContent = remaining; if (remaining < 0) s2b.className = "over"; s2.appendChild(s2b);
+  stats.append(s1, s2);
+  sum.append(big, barWrap, stats); body.appendChild(sum);
+
+  if (isFuture){ const note = document.createElement("div"); note.className = "meal-note"; note.id = "mealFutureNote"; note.textContent = "Planned for this day — viewing only. Come back to check things off."; body.appendChild(note); }
+
+  const grouped = {};
+  for (const it of items){ (grouped[it.meal] = grouped[it.meal] || []).push(it); }
+  for (const meal of MEAL_MEAL_ORDER){
+    if (!grouped[meal]) continue;
+    const g = document.createElement("div"); g.className = "mealgroup";
+    const gh = document.createElement("div"); gh.className = "mealgroup-h";
+    const sub = grouped[meal].reduce((s, it) => s + (it.c||0), 0);
+    const gn = document.createElement("span"); gn.textContent = meal;
+    const gs = document.createElement("span"); gs.className = "mealgroup-sub"; gs.textContent = sub + " cal";
+    gh.append(gn, gs); g.appendChild(gh);
+    for (const it of grouped[meal]) g.appendChild(mealItemRow(dayKey, it, isFuture));
+    body.appendChild(g);
+  }
+
+  if (!isFuture){
+    const add = document.createElement("button"); add.className = "meal-addbtn"; add.textContent = "＋ Add item";
+    add.onclick = () => mealOpenAddSheet(dayKey, mealNextMeal(dayKey));
+    body.appendChild(add);
+  }
+}
+function mealItemRow(dayKey, it, readOnly){
+  const row = document.createElement("div"); row.className = "mealitem" + (it.done ? " done" : "");
+  const cb = document.createElement("span"); cb.className = "mealcheck" + (it.done ? " on" : ""); cb.setAttribute("role","checkbox"); cb.setAttribute("aria-checked", it.done ? "true" : "false"); cb.textContent = it.done ? "✓" : "";
+  const nm = document.createElement("span"); nm.className = "mealname"; nm.textContent = it.n;
+  if (it.add){ nm.appendChild(document.createTextNode(" ")); const b = document.createElement("span"); b.className = "mealbadge"; b.textContent = "added"; nm.appendChild(b); }
+  const cal = document.createElement("span"); cal.className = "mealcal"; cal.textContent = it.c;
+  row.append(cb, nm, cal);
+  if (!readOnly){
+    const swap = document.createElement("button"); swap.className = "mealminibtn meal-swapbtn"; swap.textContent = "⇄"; swap.title = "Swap"; swap.setAttribute("aria-label", "Swap " + it.n);
+    swap.onclick = (e) => { e.stopPropagation(); mealOpenSwapSheet(dayKey, it); };
+    const rm = document.createElement("button"); rm.className = "mealminibtn meal-rmbtn"; rm.textContent = "✕"; rm.title = "Remove"; rm.setAttribute("aria-label", "Remove " + it.n);
+    rm.onclick = (e) => { e.stopPropagation(); mealRemove(dayKey, it.id); };
+    row.append(swap, rm);
+    row.classList.add("tappable");
+    row.onclick = () => mealToggle(dayKey, it.id);
+  }
+  return row;
+}
+function mealNextMeal(dayKey){
+  const items = mealDayItems(dayKey);
+  const present = MEAL_MEAL_ORDER.filter(m => items.some(it => it.meal === m));
+  const undone = present.find(m => items.some(it => it.meal === m && !it.done));
+  return undone || present[0] || "Breakfast";
+}
+function mealMealChoices(dayKey){
+  const items = mealDayItems(dayKey);
+  const present = MEAL_MEAL_ORDER.filter(m => items.some(it => it.meal === m));
+  return present.length ? present : ["Breakfast","Lunch","Snack","Dinner"];
+}
+
+// ---- Add / Swap / Weight sheets ----
+function mealCatalogList(onPick){
+  const box = document.createElement("div"); box.className = "mealcat";
+  for (const [cat, arr] of Object.entries(MEAL_CATALOG)){
+    const h = document.createElement("div"); h.className = "mealcat-h"; h.textContent = cat; box.appendChild(h);
+    for (const it of arr){
+      const b = document.createElement("button"); b.className = "mealcat-item";
+      const nm = document.createElement("span"); nm.className = "mealcat-name"; nm.textContent = it[0];
+      const c = document.createElement("span"); c.className = "mealcat-cal"; c.textContent = it[1];
+      b.append(nm, c); b.onclick = () => onPick(it[0], it[1]); box.appendChild(b);
+    }
+  }
+  return box;
+}
+function mealOpenAddSheet(dayKey, defaultMeal){
+  const inner = document.getElementById("mealSheetInner");
+  mealSheetMealSel = defaultMeal;
+  const meals = mealMealChoices(dayKey);
+  inner.innerHTML = "";
+  const h = document.createElement("h2"); h.textContent = "Add an item"; inner.appendChild(h);
+  const l1 = document.createElement("label"); l1.textContent = "Add to"; inner.appendChild(l1);
+  const chips = document.createElement("div"); chips.className = "meal-chiprow"; inner.appendChild(chips);
+  function paintChips(){
+    chips.innerHTML = "";
+    for (const m of meals){ const c = document.createElement("button"); c.className = "meal-mealchip" + (m === mealSheetMealSel ? " sel" : ""); c.textContent = m; c.onclick = () => { mealSheetMealSel = m; paintChips(); }; chips.appendChild(c); }
+  }
+  paintChips();
+  const ql = document.createElement("label"); ql.textContent = "Quick adds"; inner.appendChild(ql);
+  const qa = document.createElement("div"); qa.className = "meal-quickrow";
+  for (const q of MEAL_QUICKADDS){ const b = document.createElement("button"); b.className = "meal-quickchip"; b.textContent = q[0].split(",")[0] + " +" + q[1]; b.onclick = () => { mealAdd(dayKey, mealSheetMealSel, q[0], q[1]); mealCloseSheet(); }; qa.appendChild(b); }
+  inner.appendChild(qa);
+  const cl = document.createElement("label"); cl.textContent = "Custom item"; inner.appendChild(cl);
+  const crow = document.createElement("div"); crow.className = "meal-customrow";
+  const cn = document.createElement("input"); cn.type = "text"; cn.id = "mealCustomName"; cn.placeholder = "Name"; cn.autocomplete = "off";
+  const cc = document.createElement("input"); cc.type = "number"; cc.id = "mealCustomCal"; cc.placeholder = "cal"; cc.inputMode = "numeric"; cc.min = "0";
+  const cbtn = document.createElement("button"); cbtn.className = "meal-customadd"; cbtn.id = "mealCustomAdd"; cbtn.textContent = "Add";
+  cbtn.onclick = () => { const n = cn.value.trim(); const c = parseInt(cc.value, 10); if (n && c >= 0){ mealAdd(dayKey, mealSheetMealSel, n, c); mealCloseSheet(); } };
+  crow.append(cn, cc, cbtn); inner.appendChild(crow);
+  const catl = document.createElement("label"); catl.textContent = "Food catalog"; inner.appendChild(catl);
+  inner.appendChild(mealCatalogList((name, cal) => { mealAdd(dayKey, mealSheetMealSel, name, cal); mealCloseSheet(); }));
+  const act = document.createElement("div"); act.className = "sheet-actions";
+  const done = document.createElement("button"); done.className = "btn ghost"; done.textContent = "Done"; done.onclick = mealCloseSheet;
+  act.appendChild(done); inner.appendChild(act);
+  document.getElementById("mealSheetOverlay").classList.add("open");
+}
+function mealSwapSuggestions(it){
+  const out = [];
+  for (const s of MEAL_SWAPS){
+    if (it.n === s.aName || it.n.startsWith(s.a)) out.push([s.bName, s.bCal]);
+    else if (it.n === s.bName) out.push([s.aName, s.aCal]);
+  }
+  return out;
+}
+function mealOpenSwapSheet(dayKey, it){
+  const inner = document.getElementById("mealSheetInner"); inner.innerHTML = "";
+  const h = document.createElement("h2"); h.textContent = "Swap this item"; inner.appendChild(h);
+  const cur = document.createElement("div"); cur.className = "meal-note"; cur.textContent = "Replacing: " + it.n + " (" + it.c + " cal)"; inner.appendChild(cur);
+  const suggestions = mealSwapSuggestions(it);
+  if (suggestions.length){
+    const l = document.createElement("label"); l.textContent = "Suggested swaps"; inner.appendChild(l);
+    const sug = document.createElement("div"); sug.className = "mealcat";
+    for (const s of suggestions){
+      const b = document.createElement("button"); b.className = "mealcat-item sug";
+      const nm = document.createElement("span"); nm.className = "mealcat-name"; nm.textContent = s[0];
+      const c = document.createElement("span"); c.className = "mealcat-cal"; c.textContent = s[1];
+      b.append(nm, c); b.onclick = () => { mealSwap(dayKey, it.id, s[0], s[1]); mealCloseSheet(); };
+      sug.appendChild(b);
+    }
+    inner.appendChild(sug);
+  }
+  const catl = document.createElement("label"); catl.textContent = "Or pick anything"; inner.appendChild(catl);
+  inner.appendChild(mealCatalogList((name, cal) => { mealSwap(dayKey, it.id, name, cal); mealCloseSheet(); }));
+  const act = document.createElement("div"); act.className = "sheet-actions";
+  const cancel = document.createElement("button"); cancel.className = "btn ghost"; cancel.textContent = "Cancel"; cancel.onclick = mealCloseSheet;
+  act.appendChild(cancel); inner.appendChild(act);
+  document.getElementById("mealSheetOverlay").classList.add("open");
+}
+function mealOpenWeightSheet(){
+  const inner = document.getElementById("mealSheetInner"); inner.innerHTML = "";
+  const h = document.createElement("h2"); h.textContent = "⚖️ Log today's weight"; inner.appendChild(h);
+  const l = document.createElement("label"); l.textContent = "Weight (lb)"; inner.appendChild(l);
+  const row = document.createElement("div"); row.className = "meal-customrow";
+  const inp = document.createElement("input"); inp.type = "number"; inp.id = "mealWeightInput"; inp.inputMode = "decimal"; inp.step = "0.1"; inp.placeholder = "e.g. 148.6";
+  inp.style.cssText = "flex:1;padding:13px;font-size:16px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);";
+  const cur = (mealWeights && mealWeights[mealToday()]); if (cur) inp.value = cur;
+  row.appendChild(inp); inner.appendChild(row);
+  const act = document.createElement("div"); act.className = "sheet-actions";
+  const cancel = document.createElement("button"); cancel.className = "btn ghost"; cancel.textContent = "Cancel"; cancel.onclick = mealCloseSheet;
+  const save = document.createElement("button"); save.className = "btn primary"; save.id = "mealWeightSave"; save.textContent = "Save";
+  save.onclick = () => { const v = parseFloat(inp.value); if (v > 0){ mealLogWeight(mealToday(), v); mealCloseSheet(); } };
+  act.append(cancel, save); inner.appendChild(act);
+  document.getElementById("mealSheetOverlay").classList.add("open");
+}
+function mealCloseSheet(){ document.getElementById("mealSheetOverlay").classList.remove("open"); }
+
+// ---- Page 2: Week ----
+function mealRenderWeek(body){
+  const todayKey = mealToday();
+  const wsKey = mealKeyAddDays(mealWeekStartKey(todayKey), mealWeekOffset * 7);
+  const days = []; for (let i = 0; i < 7; i++) days.push(mealKeyAddDays(wsKey, i));
+  const missing = [...new Set(days.map(mealMonthOf))].filter(m => !mealLoaded[m]);
+  if (missing.length) Promise.all(missing.map(mealEnsureMonth)).then(() => { if (currentTab === "mealplan" && mealPage === "week") renderMealPlan(); });
+
+  const hdr = document.createElement("div"); hdr.className = "meal-dayhdr";
+  const prev = document.createElement("button"); prev.className = "meal-iconbtn"; prev.textContent = "‹"; prev.setAttribute("aria-label","Previous week"); prev.onclick = () => { mealWeekOffset--; renderMealPlan(); };
+  const t = document.createElement("div"); t.className = "meal-daytitle";
+  const tb = document.createElement("b"); tb.textContent = mealWeekOffset === 0 ? "This week" : (mealKeyFmt(wsKey, { month:"short", day:"numeric" }) + " – " + mealKeyFmt(days[6], { month:"short", day:"numeric" }));
+  const ts = document.createElement("span"); ts.textContent = "Mon–Sun";
+  t.append(tb, ts);
+  const next = document.createElement("button"); next.className = "meal-iconbtn"; next.textContent = "›"; next.setAttribute("aria-label","Next week"); next.onclick = () => { mealWeekOffset++; renderMealPlan(); };
+  hdr.append(prev, t, next); body.appendChild(hdr);
+
+  const grid = document.createElement("div"); grid.className = "mealweek";
+  for (const key of days){
+    const items = mealDayItems(key);
+    const mat = mealDayIsMaterialized(key);
+    const eaten = mealEaten(items), planned = mealPlanned(items), done = mealDoneCount(items), total = items.length;
+    const card = document.createElement("button"); card.className = "mealday" + (key === todayKey ? " today" : "");
+    const wd = document.createElement("div"); wd.className = "mealday-wd"; wd.textContent = mealKeyFmt(key, { weekday:"short" });
+    const dt = document.createElement("div"); dt.className = "mealday-dt"; dt.textContent = mealKeyFmt(key, { day:"numeric" });
+    const cal = document.createElement("div"); cal.className = "mealday-cal"; cal.textContent = mat ? (eaten + " / " + planned) : (planned + " cal");
+    const mini = document.createElement("div"); mini.className = "mealmini"; const mf = document.createElement("span"); mf.className = "mealmini-fill " + mealBarClass(mat ? eaten : 0); mf.style.width = Math.min(100, ((mat ? eaten : 0) / MEAL_TARGET) * 100) + "%"; mini.appendChild(mf);
+    const meta = document.createElement("div"); meta.className = "mealday-meta"; meta.textContent = mat ? (done + "/" + total + " ✓") : "not logged";
+    card.append(wd, dt, cal, mini, meta);
+    card.onclick = () => { mealDayKey = key; mealPage = "today"; localStorage.setItem("bucky_meal_page", "today"); renderMealPlan(); };
+    grid.appendChild(card);
+  }
+  body.appendChild(grid);
+}
+
+// ---- Page 3: Progress ----
+function mealAllDays(){
+  const out = {};
+  for (const m of Object.keys(mealLogs)){ const days = (mealLogs[m] && mealLogs[m].days) || {}; for (const k of Object.keys(days)) out[k] = days[k]; }
+  return out;
+}
+function mealAvgLast(allDays, endKey, days){
+  let sum = 0, n = 0;
+  for (let i = 0; i < days; i++){ const k = mealKeyAddDays(endKey, -i); const s = allDays[k]; if (s){ sum += mealEaten(s.items); n++; } }
+  return n ? Math.round(sum / n) : null;
+}
+function mealStreak(allDays, todayKey){
+  let streak = 0, k = todayKey;
+  if (!(allDays[k] && mealDoneCount(allDays[k].items) >= 1)) k = mealKeyAddDays(todayKey, -1);
+  while (allDays[k] && mealDoneCount(allDays[k].items) >= 1){ streak++; k = mealKeyAddDays(k, -1); }
+  return streak;
+}
+function mealRenderProgress(body){
+  const jobs = [];
+  if (!mealMetaLoaded) jobs.push(mealEnsureMeta());
+  if (!mealWeightsLoaded) jobs.push(mealEnsureWeights());
+  const startKey = (mealMeta && mealMeta.start) ? mealMeta.start : mealToday();
+  mealMonthsBetween(startKey, mealToday()).filter(m => !mealLoaded[m]).forEach(m => jobs.push(mealEnsureMonth(m)));
+  if (jobs.length){ Promise.all(jobs).then(() => { if (currentTab === "mealplan" && mealPage === "progress") renderMealPlan(); }); const load = document.createElement("div"); load.className = "meal-emptyline"; load.textContent = "Loading your history…"; body.appendChild(load); return; }
+
+  const allDays = mealAllDays();
+  const todayKey = mealToday();
+  const startK = (mealMeta && mealMeta.start) ? mealMeta.start : todayKey;
+
+  // ----- Calorie chart card -----
+  const calCard = document.createElement("div"); calCard.className = "mealcard";
+  const ch3 = document.createElement("h3"); ch3.textContent = "🔥 Daily calories"; calCard.appendChild(ch3);
+  const seg = document.createElement("div"); seg.className = "mealseg";
+  for (const r of [[30,"30 days"],[90,"90 days"],["all","All"]]){
+    const b = document.createElement("button"); b.textContent = r[1]; if (mealProgRange === r[0]) b.classList.add("sel");
+    b.onclick = () => { mealProgRange = r[0]; renderMealPlan(); };
+    seg.appendChild(b);
+  }
+  calCard.appendChild(seg);
+  let N = mealProgRange === "all" ? Math.max(1, Math.round((mealKeyToNoon(todayKey) - mealKeyToNoon(startK)) / 86400000) + 1) : mealProgRange;
+  N = Math.min(N, 366);
+  const series = [];
+  for (let i = N - 1; i >= 0; i--){ const k = mealKeyAddDays(todayKey, -i); const s = allDays[k]; series.push({ k, eaten: s ? mealEaten(s.items) : 0, has: !!s }); }
+  const anyLogged = series.some(s => s.has);
+  if (anyLogged){ const holder = document.createElement("div"); holder.innerHTML = mealCalChartSVG(series); calCard.appendChild(holder.firstChild); }
+  else { const e = document.createElement("div"); e.className = "meal-emptyline"; e.textContent = "No days logged yet — check off items on the Today tab and they'll chart here."; calCard.appendChild(e); }
+  const avg7 = mealAvgLast(allDays, todayKey, 7);
+  const onPlan = Object.keys(allDays).filter(k => mealDoneCount(allDays[k].items) >= 1).length;
+  const streak = mealStreak(allDays, todayKey);
+  const srow = document.createElement("div"); srow.className = "mealstat-row";
+  srow.appendChild(mealStatEl(avg7 == null ? "—" : avg7, "7-day avg cal"));
+  srow.appendChild(mealStatEl(onPlan, "days on plan"));
+  srow.appendChild(mealStatEl(streak, "day streak"));
+  calCard.appendChild(srow);
+  if (avg7 != null){
+    const def = MEAL_MAINTENANCE - avg7; const lbWk = def * 7 / 3500;
+    const pace = document.createElement("div"); pace.className = "meal-pace";
+    pace.innerHTML = "Estimated deficit: maintenance ~" + MEAL_MAINTENANCE.toLocaleString() + " − your 7-day avg <b>" + avg7 + "</b> ≈ <b>" + (lbWk >= 0 ? "" : "+") + Math.abs(lbWk).toFixed(2) + " lb/week</b> pace. (Estimate.)";
+    calCard.appendChild(pace);
+  }
+  body.appendChild(calCard);
+
+  // ----- Weight card -----
+  const wCard = document.createElement("div"); wCard.className = "mealcard";
+  const wh3 = document.createElement("h3"); wh3.textContent = "⚖️ Weight"; wCard.appendChild(wh3);
+  const wbtn = document.createElement("button"); wbtn.className = "meal-weightbtn"; wbtn.id = "mealLogWeightBtn"; wbtn.textContent = "⚖️ Log weight"; wbtn.onclick = mealOpenWeightSheet; wCard.appendChild(wbtn);
+  const weights = mealWeights || {};
+  const wkeys = Object.keys(weights).sort();
+  const sw = (mealMeta && mealMeta.startWeight) || 150, gw = (mealMeta && mealMeta.goalWeight) || 125;
+  if (wkeys.length){
+    const holder = document.createElement("div"); holder.innerHTML = mealWeightChartSVG(weights, startK, todayKey, sw, gw); if (holder.firstChild) wCard.appendChild(holder.firstChild);
+    const cur = weights[wkeys[wkeys.length-1]], first = weights[wkeys[0]];
+    const change = cur - sw;
+    const wrow = document.createElement("div"); wrow.className = "mealstat-row";
+    wrow.appendChild(mealStatEl(cur.toFixed(1), "current lb"));
+    wrow.appendChild(mealStatEl((change >= 0 ? "+" : "") + change.toFixed(1), "since start"));
+    wrow.appendChild(mealStatEl(gw, "goal lb"));
+    wCard.appendChild(wrow);
+    // on-pace note vs ~1.25 lb/week
+    if (wkeys.length >= 2){
+      const days = Math.max(1, (mealKeyToNoon(wkeys[wkeys.length-1]) - mealKeyToNoon(wkeys[0])) / 86400000);
+      const lost = first - cur; const perWk = lost / (days / 7);
+      const note = document.createElement("div"); note.className = "meal-pace";
+      const paceWord = perWk >= 1.0 ? "right on pace" : (perWk > 0 ? "a bit slower than target" : "trending up");
+      note.innerHTML = "Trend: <b>" + (perWk >= 0 ? "" : "+") + Math.abs(perWk).toFixed(2) + " lb/week</b> — " + paceWord + " (target ~1.25 lb/week).";
+      wCard.appendChild(note);
+    }
+  } else {
+    const holder = document.createElement("div"); holder.innerHTML = mealWeightChartSVG({}, startK, todayKey, sw, gw); if (holder.firstChild) wCard.appendChild(holder.firstChild);
+    const e = document.createElement("div"); e.className = "meal-emptyline"; e.textContent = "No weigh-ins yet — tap ⚖️ Log weight to start tracking. The dashed line is your goal to " + gw + " lb.";
+    wCard.appendChild(e);
+  }
+  body.appendChild(wCard);
+}
+function mealStatEl(val, label){
+  const s = document.createElement("div"); s.className = "mealstat";
+  const b = document.createElement("b"); b.textContent = val;
+  const sp = document.createElement("span"); sp.textContent = label;
+  s.append(b, sp); return s;
+}
+function mealCalChartSVG(series){
+  const W = Math.max(320, series.length * 11), H = 150, padT = 14, padB = 16;
+  const maxV = Math.max(MEAL_TARGET + 300, ...series.map(s => s.eaten), 1);
+  const bw = W / series.length;
+  const chartH = H - padT - padB;
+  let bars = "";
+  series.forEach((s, i) => {
+    const h = (s.eaten / maxV) * chartH;
+    const x = i * bw + bw * 0.15, y = padT + (chartH - h), w = Math.max(1, bw * 0.7);
+    const cls = s.eaten <= MEAL_TARGET ? "ok" : (s.eaten <= MEAL_TARGET + 100 ? "warn" : "over");
+    if (s.eaten > 0) bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${Math.max(0,h).toFixed(1)}" class="mc-${cls}" rx="1.5"/>`;
+  });
+  const ly = padT + (chartH - (MEAL_TARGET / maxV) * chartH);
+  const line = `<line x1="0" y1="${ly.toFixed(1)}" x2="${W}" y2="${ly.toFixed(1)}" class="mc-target"/><text x="3" y="${(ly-3).toFixed(1)}" class="mc-lbl">${MEAL_TARGET}</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" class="mealchart" role="img" aria-label="Daily calories with a ${MEAL_TARGET} target line">${bars}${line}</svg>`;
+}
+function mealWeightChartSVG(weights, startK, todayK, sw, gw){
+  const W = 340, H = 150, padL = 6, padR = 6, padT = 12, padB = 14;
+  const t0 = mealKeyToNoon(startK).getTime();
+  const goalEndT = mealKeyToNoon(mealKeyAddDays(startK, 140)).getTime();   // 20 weeks → 125
+  const entries = Object.keys(weights).sort().map(k => ({ t: mealKeyToNoon(k).getTime(), w: weights[k] }));
+  const t1 = Math.max(goalEndT, mealKeyToNoon(todayK).getTime(), entries.length ? entries[entries.length-1].t : 0);
+  const allW = [sw, gw, ...entries.map(e => e.w)];
+  const wMin = Math.min(...allW) - 2, wMax = Math.max(...allW) + 2, wSpan = Math.max(1, wMax - wMin);
+  const tSpan = Math.max(1, t1 - t0);
+  const X = t => padL + ((t - t0) / tSpan) * (W - padL - padR);
+  const Y = w => padT + (1 - (w - wMin) / wSpan) * (H - padT - padB);
+  const goal = `<line x1="${X(t0).toFixed(1)}" y1="${Y(sw).toFixed(1)}" x2="${X(goalEndT).toFixed(1)}" y2="${Y(gw).toFixed(1)}" class="mc-goal"/>`;
+  let poly = "", dots = "";
+  if (entries.length){
+    poly = `<polyline points="${entries.map(e => X(e.t).toFixed(1) + "," + Y(e.w).toFixed(1)).join(" ")}" class="mc-wline"/>`;
+    dots = entries.map(e => `<circle cx="${X(e.t).toFixed(1)}" cy="${Y(e.w).toFixed(1)}" r="3" class="mc-wdot"/>`).join("");
+  }
+  return `<svg viewBox="0 0 ${W} ${H}" class="mealchart" role="img" aria-label="Weight trend vs goal line">${goal}${poly}${dots}</svg>`;
+}
+
+// ---- Page 4: Guide ----
+function mealRenderGuide(body){
+  const g = document.createElement("div"); g.className = "mealguide";
+
+  const how = document.createElement("div"); how.className = "mealcard";
+  how.innerHTML = "<h3>How this plan works</h3>"
+    + "<p>Maintenance is roughly 1,800–1,900 calories a day. Eating about 1,400/day is a 450–500 calorie deficit — around 1 to 1.3 lb per week, so about 25 lb in roughly 4.5–5 months.</p>"
+    + "<p>Weigh proteins <b>after</b> cooking and vegetables <b>before</b>. A kitchen scale keeps portions honest — one extra tablespoon of olive oil is 120 calories on its own.</p>"
+    + "<p>Salmon and turkey are interchangeable at lunch or dinner (about the same calories) if you want variety.</p>"
+    + "<p><i>This is a guide, not medical advice — worth a quick OK from her doctor, especially with the celiac / gluten-free requirement.</i></p>";
+  g.appendChild(how);
+
+  // Plan tables Mon–Sun
+  const planCard = document.createElement("div"); planCard.className = "mealcard";
+  planCard.innerHTML = "<h3>The weekly plan</h3>";
+  for (const wd of ["mon","tue","wed","thu","fri","sat","sun"]){
+    const plan = MEAL_PLAN[wd];
+    const dayTot = MEAL_MEAL_ORDER.reduce((s, meal) => s + ((plan[meal]||[]).reduce((a, it) => a + it[1], 0)), 0);
+    const tbl = document.createElement("table"); tbl.className = "mealgt";
+    let rows = `<tr class="mealhd"><td colspan="2">${MEAL_PLAN_LABEL[wd]}</td></tr>`;
+    if (wd === "fri") rows += `<tr><td colspan="2" style="color:var(--muted);font-style:italic;">${MEAL_FRI_NOTE}</td></tr>`;
+    for (const meal of MEAL_MEAL_ORDER){
+      const arr = plan[meal]; if (!arr) continue;
+      const sub = arr.reduce((a, it) => a + it[1], 0);
+      rows += `<tr class="sub"><td>${meal}</td><td class="c">${sub}</td></tr>`;
+      for (const it of arr) rows += `<tr><td>${it[0].replace(/</g,"&lt;")}</td><td class="c">${it[1]}</td></tr>`;
+    }
+    rows += `<tr class="tot"><td>Day total</td><td class="c">${dayTot}</td></tr>`;
+    tbl.innerHTML = rows;
+    planCard.appendChild(tbl);
+  }
+  g.appendChild(planCard);
+
+  const rules = document.createElement("div"); rules.className = "mealcard";
+  rules.innerHTML = "<h3>Daily rules</h3><ul>"
+    + "<li>One cup of plain black coffee each morning.</li>"
+    + "<li>Water only the rest of the day (plain sparkling is fine) — no soda or sugary drinks.</li>"
+    + "<li>No processed sugar except the GF cereal and the Friday treats.</li>"
+    + "<li>Everything gluten-free — always check labels on GF bread, cereal, chips, pizza and the sauces (chocolate & caramel sauces occasionally contain gluten).</li>"
+    + "</ul>";
+  g.appendChild(rules);
+
+  const tiers = document.createElement("div"); tiers.className = "mealcard";
+  tiers.innerHTML = "<h3>How often to eat each food</h3><ul>"
+    + "<li><b>Rarely (1×/week):</b> red meat (Thu), dairy milk (Sun), GF cereal (Wed), GF chips (Sat).</li>"
+    + "<li><b>Sometimes (2–5×/week):</b> salmon, turkey, cheese, almonds, strawberries, bell pepper, asparagus, almond milk.</li>"
+    + "<li><b>Abundant (daily):</b> avocado, olive oil, broccoli, leafy salad, GF bread, buckwheat bagels.</li>"
+    + "</ul>";
+  g.appendChild(tiers);
+
+  const swaps = document.createElement("div"); swaps.className = "mealcard";
+  swaps.innerHTML = "<h3>Simple swaps</h3><ul>"
+    + "<li>Buckwheat bagel ⇄ GF bread, toasted, 2 slices (−70 / +70 cal).</li>"
+    + "<li>Canned salmon, ½ can ⇄ Turkey breast, 4 oz (any lunch or dinner).</li>"
+    + "<li>Still hungry? Add leafy greens, 1 cup steamed broccoli (+35), 8 asparagus spears (+25), or 1 oz almonds (+165).</li>"
+    + "</ul>";
+  g.appendChild(swaps);
+
+  const groc = document.createElement("div"); groc.className = "mealcard";
+  const grocGroups = [
+    ["Produce", ["Avocados", "Leafy salad greens", "Broccoli", "Asparagus", "Bell peppers", "Strawberries", "Lemons"]],
+    ["Protein", ["Canned salmon", "Turkey breast", "Lean beef sirloin", "Cheese", "Almonds"]],
+    ["Pantry", ["Olive oil", "GF bread", "Buckwheat bagels", "GF cereal", "GF chips", "Black coffee"]],
+    ["Dairy-alt", ["Unsweetened almond milk", "Dairy milk (2%)"]],
+    ["Friday", ["GF cheese pizza", "Ice cream", "Chocolate sauce", "Caramel sauce"]],
+  ];
+  let grocHTML = "<h3>Grocery list</h3><div class=\"mealgrocery\">";
+  for (const [name, items] of grocGroups) grocHTML += "<div><h4>" + name + "</h4><ul>" + items.map(x => "<li>" + x + "</li>").join("") + "</ul></div>";
+  grocHTML += "</div>";
+  groc.innerHTML = grocHTML;
+  g.appendChild(groc);
+
+  body.appendChild(g);
+}
+
+// Backdrop click closes the meal sheet.
+document.getElementById("mealSheetOverlay").onclick = (e) => { if (e.target.id === "mealSheetOverlay") mealCloseSheet(); };
+
 // ---- Test hooks (module globals are unreachable from page.evaluate; these expose the
 //      minimum surface the headless UI suites drive). No effect on production behavior. ----
+window.__MEAL__ = {
+  setNow: (ts) => { mealNowOverride = ts || null; mealDayKey = mealToday(); if (currentTab === "mealplan") renderMealPlan(); },
+  goPage: (p) => { mealPage = p; localStorage.setItem("bucky_meal_page", p); if (currentTab === "mealplan") renderMealPlan(); },
+  setDay: (k) => { mealDayKey = k; if (currentTab === "mealplan") renderMealPlan(); },
+  matDay: (k) => mealMaterialize(k),
+  toggleItem: (k, id) => mealToggle(k, id),
+  addItem: (k, meal, n, c) => mealAdd(k, meal, n, c),
+  removeItem: (k, id) => mealRemove(k, id),
+  swapItem: (k, id, n, c) => mealSwap(k, id, n, c),
+  logWeight: (k, w) => mealLogWeight(k, w),
+  undoRemove: () => mealUndoRemove(),
+  saveNow: (m) => mealSaveMonthNow(m || mealMonthOf(mealDayKey || mealToday())),
+  ensureMonth: (m) => mealEnsureMonth(m),
+  meta: () => mealMeta,
+  weights: () => mealWeights,
+  dayItems: (k) => mealDayItems(k),
+  isMaterialized: (k) => mealDayIsMaterialized(k),
+  template: (k) => mealTemplateItems(k),
+  plan: () => MEAL_PLAN,
+  catalog: () => MEAL_CATALOG,
+  planTotal: (wd) => MEAL_MEAL_ORDER.reduce((s, meal) => s + (((MEAL_PLAN[wd]||{})[meal]||[]).reduce((a, it) => a + it[1], 0)), 0),
+  state: () => ({ page: mealPage, day: mealDayKey, weekOffset: mealWeekOffset, today: mealToday(), progRange: mealProgRange, months: Object.keys(mealLogs) }),
+};
+
 window.__CAL__ = {
   setFocus: (k)=>{ calFocus = parseDateKey(k); calSelectedKey = k; if (currentTab === "calendar") renderCalendar(); },
   setView: (v)=>{ calSetView(v); },
