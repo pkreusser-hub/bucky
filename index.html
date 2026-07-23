@@ -709,6 +709,20 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .cal-weeksep { font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin: 14px 2px 6px; }
   .cal-weeksep:first-child { margin-top: 2px; }
   .cal-weekmore { text-align: center; color: var(--muted); font-size: 12.5px; font-weight: 700; padding: 10px 0 4px; }
+  .cal-weekmore.top { padding: 2px 0 8px; }
+  /* Day view: 30-minute planner grid (2026-07-23) */
+  .cal-daywrap { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 10px 10px 14px; }
+  .cal-daywrap.today { border-color: var(--green); }
+  .cal-alldayrow { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 2px 10px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+  .cal-alldaychip { font-size: 12px; font-weight: 800; background: var(--red-soft); color: var(--red); border: 0; border-radius: 8px; padding: 6px 10px; cursor: pointer; font-family: inherit; }
+  .cal-daygrid { position: relative; }
+  .cal-slot { position: absolute; left: 0; right: 0; border-top: 1px solid var(--line-2); cursor: pointer; }
+  .cal-slot.hour { border-top-color: var(--line); }
+  .cal-slotlabel { position: absolute; left: 0; top: -8px; width: 46px; font-size: 10.5px; font-weight: 700; color: var(--muted); background: var(--card); padding-right: 4px; }
+  .cal-devent { position: absolute; background: var(--navy-soft); border: 1px solid var(--line); border-left: 3px solid var(--green); border-radius: 8px; padding: 3px 8px; font-size: 12.5px; font-weight: 800; color: var(--ink); overflow: hidden; cursor: pointer; text-align: left; font-family: inherit; z-index: 2; }
+  .cal-devent .t { font-weight: 600; color: var(--muted); font-size: 10.5px; }
+  .cal-nowline { position: absolute; left: 48px; right: 0; height: 0; border-top: 2px solid var(--red); z-index: 3; pointer-events: none; }
+  .cal-nowline::before { content: ""; position: absolute; left: -5px; top: -5px; width: 8px; height: 8px; border-radius: 50%; background: var(--red); }
   .cal-agenda { margin-top: 16px; }
   .cal-agenda-h { font-size: 14px; font-weight: 800; color: var(--ink); margin: 0 2px 8px; }
   .cal-daycard { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; box-shadow: var(--shadow); }
@@ -4302,9 +4316,13 @@ let calError = null;                           // null | "network" | "calendar-n
 let calLoading = false;
 let calStatusFetched = false;
 let calRangeKey = "";                          // signature of the last fetched range (avoids refetch churn)
-let calWeekCount = 3;                          // week view: weeks in the endless feed (grows as you scroll)
-const CAL_WEEK_MAX = 26;                       // ~6 months — bounds the events fetch
-let calWeekObs = null;                         // IntersectionObserver growing the week feed
+let calWeekCount = 3;                          // week view: weeks BELOW the anchor (scroll down grows)
+let calWeeksBefore = 1;                        // week view: weeks ABOVE the anchor (scroll up grows)
+const CAL_WEEK_MAX = 26;                       // ~6 months each direction — bounds the events fetch
+let calWeekObs = null;                         // IntersectionObserver growing the feed downward
+let calWeekTopObs = null;                      // …and upward
+let calWeekScrollPending = false;              // one-shot: align today's week under the controls
+let calDayScrollPending = false;               // one-shot: scroll the day grid to the useful hour
 let editingCalId = null;                       // null = adding a new event
 let calSheetAllDay = false;
 // ---- recurring-event sheet state ----
@@ -4357,7 +4375,7 @@ async function calFetchEvents(min, max){
 // month grid = 6 weeks from the Sunday on/before the 1st; week/day = their own span.
 function calVisibleRange(){
   if (calView === "day"){ const min = startOfDay(calFocus); return { min, max: new Date(min.getTime()+86400000) }; }
-  if (calView === "week"){ const min = weekStart(calFocus); return { min, max: new Date(min.getTime()+calWeekCount*7*86400000) }; }
+  if (calView === "week"){ const a = weekStart(calFocus); return { min: new Date(a.getTime()-calWeeksBefore*7*86400000), max: new Date(a.getTime()+calWeekCount*7*86400000) }; }
   const first = new Date(calFocus.getFullYear(), calFocus.getMonth(), 1);
   const gridStart = startOfDay(first); gridStart.setDate(gridStart.getDate() - first.getDay());
   return { min: gridStart, max: new Date(gridStart.getTime()+42*86400000) };
@@ -4499,16 +4517,62 @@ function calTitleText(){
   }
   return calFocus.toLocaleDateString(undefined, { weekday:"long", month:"long", day:"numeric" });
 }
-function calNav(dir){
+function calNav(dir){   // driven by swipes now (month/day) — the ‹ › buttons are gone
   const f = new Date(calFocus);
   if (calView === "month") f.setMonth(f.getMonth()+dir);
-  else if (calView === "week"){ f.setDate(f.getDate()+7*dir); calWeekCount = 3; }   // jump = fresh 3-week feed
-  else f.setDate(f.getDate()+dir);
+  else if (calView === "week"){ f.setDate(f.getDate()+7*dir); calWeekCount = 3; calWeeksBefore = 1; calWeekScrollPending = true; }
+  else { f.setDate(f.getDate()+dir); calDayScrollPending = true; }
   calFocus = startOfDay(f);
   renderCalendar();
 }
-function calGoToday(){ calFocus = startOfDay(new Date()); calSelectedKey = dateKeyLocal(calFocus); calWeekCount = 3; renderCalendar(); }
-function calSetView(v){ calView = v; calWeekCount = 3; localStorage.setItem("bucky_cal_view", v); renderCalendar(); }
+function calGoToday(){
+  calFocus = startOfDay(new Date()); calSelectedKey = dateKeyLocal(calFocus);
+  calWeekCount = 3; calWeeksBefore = 1;
+  if (calView === "week") calWeekScrollPending = true;
+  if (calView === "day") calDayScrollPending = true;
+  if (calView === "month") window.scrollTo(0, 0);
+  renderCalendar();
+}
+function calSetView(v){
+  calView = v; calWeekCount = 3; calWeeksBefore = 1;
+  // opening the WEEK tab always lands on today (user spec) and aligns it under the controls
+  if (v === "week"){ calFocus = startOfDay(new Date()); calWeekScrollPending = true; }
+  if (v === "day") calDayScrollPending = true;
+  localStorage.setItem("bucky_cal_view", v);
+  renderCalendar();
+}
+// Swipe left/right to change month/day (pointer-based so a mouse drag works on desktop too;
+// horizontal trackpad wheel also navigates). A real swipe suppresses the click it would
+// otherwise land on a day cell.
+let calSwipeSuppressClick = false;
+function attachCalSwipe(el){
+  el.style.touchAction = "pan-y";
+  let sx = null, sy = null;
+  el.addEventListener("pointerdown", (e)=>{ sx = e.clientX; sy = e.clientY; }, { passive: true });
+  el.addEventListener("pointerup", (e)=>{
+    if (sx === null) return;
+    const dx = e.clientX - sx, dy = e.clientY - sy; sx = sy = null;
+    if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.5){
+      calSwipeSuppressClick = true;
+      setTimeout(()=>{ calSwipeSuppressClick = false; }, 350);
+      calNav(dx < 0 ? 1 : -1);
+    }
+  }, { passive: true });
+  el.addEventListener("pointercancel", ()=>{ sx = sy = null; }, { passive: true });
+  el.addEventListener("click", (e)=>{ if (calSwipeSuppressClick){ e.stopPropagation(); e.preventDefault(); } }, true);
+  let wheelAcc = 0, wheelT = null;
+  el.addEventListener("wheel", (e)=>{
+    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+    wheelAcc += e.deltaX;
+    if (Math.abs(wheelAcc) > 140){ const dir = wheelAcc > 0 ? 1 : -1; wheelAcc = 0; calNav(dir); }
+    clearTimeout(wheelT); wheelT = setTimeout(()=>{ wheelAcc = 0; }, 300);
+  }, { passive: true });
+}
+// Scroll offset that clears the app header + the sticky calendar controls.
+function calStickyOffset(){
+  const hdr = document.querySelector("header"), ctl = document.querySelector(".cal-controls");
+  return (hdr ? hdr.offsetHeight : 84) + (ctl ? ctl.offsetHeight : 96) + 6;
+}
 
 function calBanner(text, kind){
   const b = document.createElement("div"); b.className = "cal-banner " + (kind||"muted"); b.textContent = text; return b;
@@ -4535,12 +4599,11 @@ function renderCalendar(){
   // top bar: title + prev/today/next + refresh
   const top = document.createElement("div"); top.className = "cal-top";
   const title = document.createElement("div"); title.className = "cal-title"; title.textContent = calTitleText();
+  // ‹ › buttons retired (2026-07-23): month/day navigate by SWIPE, week by endless scroll.
   const nav = document.createElement("div"); nav.className = "cal-nav";
-  const prev = document.createElement("button"); prev.className = "cal-iconbtn"; prev.textContent = "‹"; prev.title = "Previous"; prev.setAttribute("aria-label","Previous"); prev.onclick = () => calNav(-1);
   const today = document.createElement("button"); today.className = "cal-todaybtn"; today.textContent = "Today"; today.onclick = calGoToday;
-  const next = document.createElement("button"); next.className = "cal-iconbtn"; next.textContent = "›"; next.title = "Next"; next.setAttribute("aria-label","Next"); next.onclick = () => calNav(1);
   const refr = document.createElement("button"); refr.className = "cal-iconbtn"; refr.textContent = "↻"; refr.title = "Refresh"; refr.setAttribute("aria-label","Refresh"); refr.onclick = () => ensureCalData(true);
-  nav.append(prev, today, next, refr);
+  nav.append(today, refr);
   top.append(title, nav);
 
   // view segmented control
@@ -4610,6 +4673,7 @@ function buildCalMonth(container){
     grid.appendChild(cell);
   }
   container.appendChild(grid);
+  attachCalSwipe(grid);   // swipe (or mouse-drag / horizontal trackpad) changes the month
   const agenda = document.createElement("div"); agenda.className = "cal-agenda";
   const ah = document.createElement("div"); ah.className = "cal-agenda-h";
   ah.textContent = parseDateKey(calSelectedKey).toLocaleDateString(undefined, { weekday:"long", month:"long", day:"numeric" });
@@ -4645,19 +4709,26 @@ function calWeekSepLabel(ws){
 function buildCalWeek(container){
   const anchor = weekStart(calFocus);
   const feed = document.createElement("div"); feed.className = "cal-weekfeed";
-  const appendWeek = (w)=>{
+  const weekBlock = (w)=>{   // one week (separator + 7 day cards) as a fragment
+    const frag = document.createDocumentFragment();
     const ws = new Date(anchor.getTime() + w*7*86400000);
     const sep = document.createElement("div"); sep.className = "cal-weeksep"; sep.textContent = calWeekSepLabel(ws);
-    feed.appendChild(sep);
-    calWeekDayCards(feed, ws);
+    if (w === 0) sep.dataset.anchor = "1";
+    frag.appendChild(sep);
+    calWeekDayCards(frag, ws);
+    return frag;
   };
-  for (let w=0; w<calWeekCount; w++) appendWeek(w);
+  for (let w=-calWeeksBefore; w<calWeekCount; w++) feed.appendChild(weekBlock(w));
+  const topNote = document.createElement("div"); topNote.className = "cal-weekmore top";
+  topNote.textContent = "Scroll up for earlier weeks…";
+  container.appendChild(topNote);
   container.appendChild(feed);
   const foot = document.createElement("div"); foot.className = "cal-weekmore";
-  const footText = ()=> calWeekCount >= CAL_WEEK_MAX ? "That's about 6 months out — use › to jump further." : "Keep scrolling for more weeks…";
+  const footText = ()=> calWeekCount >= CAL_WEEK_MAX ? "That's about 6 months out." : "Keep scrolling for more weeks…";
   foot.textContent = footText();
   container.appendChild(foot);
   if (calWeekObs){ calWeekObs.disconnect(); calWeekObs = null; }
+  if (calWeekTopObs){ calWeekTopObs.disconnect(); calWeekTopObs = null; }
   if (typeof IntersectionObserver !== "undefined"){
     let busy = false;
     calWeekObs = new IntersectionObserver((entries)=>{
@@ -4666,21 +4737,135 @@ function buildCalWeek(container){
         busy = true;
         const from = calWeekCount;
         calWeekCount = Math.min(CAL_WEEK_MAX, calWeekCount + 2);
-        for (let w=from; w<calWeekCount; w++) appendWeek(w);
+        for (let w=from; w<calWeekCount; w++) feed.appendChild(weekBlock(w));
         foot.textContent = footText();
-        ensureCalData();                       // widen the fetched range for the new weeks
-        setTimeout(()=>{ busy = false; }, 250); // re-arm after layout settles (foot may still be visible)
+        ensureCalData();                        // widen the fetched range for the new weeks
+        setTimeout(()=>{ busy = false; }, 250); // re-arm after layout settles
       }
     });
     calWeekObs.observe(foot);
+    // Scroll UP = back in time: prepend past weeks and compensate the scroll position so
+    // the content under your thumb never moves.
+    let busyTop = false;
+    calWeekTopObs = new IntersectionObserver((entries)=>{
+      for (const e of entries){
+        if (!e.isIntersecting || busyTop || calWeeksBefore >= CAL_WEEK_MAX) continue;
+        busyTop = true;
+        const from = calWeeksBefore;
+        calWeeksBefore = Math.min(CAL_WEEK_MAX, calWeeksBefore + 2);
+        const frag = document.createDocumentFragment();
+        for (let w=-calWeeksBefore; w<-from; w++) frag.appendChild(weekBlock(w));
+        const h0 = document.documentElement.scrollHeight;
+        feed.insertBefore(frag, feed.firstChild);
+        const dh = document.documentElement.scrollHeight - h0;
+        window.scrollTo(0, window.scrollY + dh);
+        ensureCalData();
+        setTimeout(()=>{ busyTop = false; }, 250);
+      }
+    });
+    calWeekTopObs.observe(topNote);
+  }
+  // One-shot alignment (view switch / Today / week jump): today's week lands right under
+  // the sticky controls, with last week reachable by scrolling up.
+  if (calWeekScrollPending){
+    calWeekScrollPending = false;
+    requestAnimationFrame(()=>{
+      const sep = feed.querySelector('.cal-weeksep[data-anchor="1"]');
+      if (sep) window.scrollTo(0, Math.max(0, sep.getBoundingClientRect().top + window.scrollY - calStickyOffset()));
+    });
   }
 }
+// Day view = a full 30-minute planner grid (2026-07-23): hour gutter, half-hour lines,
+// timed events as positioned blocks (overlaps share lanes), all-day chips up top, a red
+// "now" line on today, and tap-an-empty-slot → add sheet prefilled with that time.
+const CAL_SLOT_H = 26;   // px per 30-minute slot
 function buildCalDay(container){
   const key = dateKeyLocal(calFocus);
   const todayKey = dateKeyLocal(new Date());
-  const card = document.createElement("div"); card.className = "cal-daycard" + (key===todayKey?" today":"");
-  buildCalAgendaList(card, key);
-  container.appendChild(card);
+  const evs = calEventsForDay(key);
+  const wrap = document.createElement("div"); wrap.className = "cal-daywrap" + (key===todayKey?" today":"");
+  const allday = evs.filter(e=>e.allDay);
+  if (allday.length){
+    const row = document.createElement("div"); row.className = "cal-alldayrow";
+    for (const ev of allday){
+      const c = document.createElement("button"); c.className = "cal-alldaychip";
+      c.textContent = (ev.seriesId?"↻ ":"") + (ev.title||"(untitled)");
+      c.onclick = (e)=>{ e.stopPropagation(); openCalEventPreview(ev); };
+      row.appendChild(c);
+    }
+    wrap.appendChild(row);
+  }
+  const grid = document.createElement("div"); grid.className = "cal-daygrid";
+  grid.style.height = (48*CAL_SLOT_H) + "px";
+  for (let s=0; s<48; s++){
+    const slot = document.createElement("div"); slot.className = "cal-slot" + (s%2===0?" hour":"");
+    slot.style.top = (s*CAL_SLOT_H) + "px"; slot.style.height = CAL_SLOT_H + "px";
+    if (s%2===0){
+      const lab = document.createElement("div"); lab.className = "cal-slotlabel";
+      lab.textContent = new Date(2000,0,1,s/2).toLocaleTimeString(undefined,{hour:"numeric"});
+      slot.appendChild(lab);
+    }
+    const hh = pad(Math.floor(s/2)) + ":" + (s%2 ? "30" : "00");
+    slot.onclick = ()=> openCalEventSheet(null, { date: key, start: hh });
+    grid.appendChild(slot);
+  }
+  // timed events → minutes-of-day spans, greedy lane assignment for overlaps
+  const dayMs = parseDateKey(key).getTime();
+  const timed = evs.filter(e=>!e.allDay).map(e=>{
+    const s = new Date(e.start), en = e.end ? new Date(e.end) : new Date(s.getTime()+1800000);
+    let a = (s.getTime()-dayMs)/60000, b = (en.getTime()-dayMs)/60000;
+    a = Math.max(0, Math.min(1439, a)); b = Math.max(a+20, Math.min(1440, b));
+    return { e, a, b, lane: 0 };
+  }).sort((x,y)=> x.a-y.a || x.b-y.b);
+  // lanes are computed PER OVERLAP CLUSTER, so a lone event stays full width even when
+  // some other part of the day has side-by-side overlaps
+  {
+    let cluster = [], clusterEnd = -1, laneEnds = [];
+    const flush = ()=>{ const L = Math.max(1, laneEnds.length); for (const c of cluster) c.L = L; cluster = []; laneEnds = []; };
+    for (const t of timed){
+      if (t.a >= clusterEnd) flush();
+      clusterEnd = Math.max(clusterEnd, t.b);
+      let li = laneEnds.findIndex((end)=> end <= t.a);
+      if (li === -1){ li = laneEnds.length; laneEnds.push(0); }
+      laneEnds[li] = t.b; t.lane = li;
+      cluster.push(t);
+    }
+    flush();
+  }
+  for (const t of timed){
+    const el = document.createElement("button"); el.className = "cal-devent";
+    el.style.top = (t.a/30*CAL_SLOT_H + 1) + "px";
+    el.style.height = ((t.b-t.a)/30*CAL_SLOT_H - 3) + "px";
+    el.style.left = `calc(50px + (100% - 52px) * ${t.lane} / ${t.L})`;
+    el.style.width = `calc((100% - 52px) / ${t.L} - 4px)`;
+    const endTxt = t.e.end ? "–" + new Date(t.e.end).toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}) : "";
+    el.innerHTML = `<div class="n"></div><div class="t"></div>`;
+    el.querySelector(".n").textContent = (t.e.seriesId?"↻ ":"") + (t.e.title||"(untitled)");
+    el.querySelector(".t").textContent = calTimeLabel(t.e) + endTxt;
+    el.onclick = (e)=>{ e.stopPropagation(); openCalEventPreview(t.e); };
+    grid.appendChild(el);
+  }
+  if (key === todayKey){
+    const now = new Date();
+    const line = document.createElement("div"); line.className = "cal-nowline";
+    line.style.top = ((now.getHours()*60 + now.getMinutes())/30*CAL_SLOT_H) + "px";
+    grid.appendChild(line);
+  }
+  wrap.appendChild(grid);
+  container.appendChild(wrap);
+  attachCalSwipe(wrap);   // swipe changes the day
+  // One-shot: land on the useful part of the day (now−1h today, else 30 min before the
+  // first event, else 7 AM).
+  if (calDayScrollPending){
+    calDayScrollPending = false;
+    requestAnimationFrame(()=>{
+      let mins = 7*60;
+      if (timed.length) mins = Math.max(0, timed[0].a - 30);
+      if (key === todayKey){ const n = new Date(); mins = Math.max(0, n.getHours()*60 + n.getMinutes() - 60); }
+      const y = grid.getBoundingClientRect().top + window.scrollY + mins/30*CAL_SLOT_H;
+      window.scrollTo(0, Math.max(0, y - calStickyOffset()));
+    });
+  }
 }
 function buildCalAgendaList(container, key){
   const evs = calEventsForDay(key);
@@ -4805,7 +4990,7 @@ document.getElementById("calPvEditBtn").onclick = editFromCalPreview;
 document.getElementById("calPreviewOverlay").onclick = (e)=>{ if (e.target.id === "calPreviewOverlay") closeCalPreview(); };
 
 // ---- Add / edit event sheet ----
-function openCalEventSheet(ev){
+function openCalEventSheet(ev, opts){
   editingCalId = ev ? ev.id : null;
   calSheetSeriesId = (ev && ev.seriesId) ? ev.seriesId : null;
   calSheetScope = "one";
@@ -4833,6 +5018,9 @@ function openCalEventSheet(ev){
     // end defaults to THE SAME time as start (and follows it until the user edits the end
     // themselves), so the sheet can never offer an end before the beginning.
     startI.value = "09:00"; endI.value = "09:00";
+    // day-grid slot tap: prefill the tapped date + time (end matches start per the follow rule)
+    if (opts && opts.date) dateI.value = opts.date;
+    if (opts && opts.start){ startI.value = opts.start; endI.value = opts.start; }
   }
   syncCalAllDayUI();
   syncCalScopeUI();
@@ -5944,7 +6132,7 @@ window.__CAL__ = {
   setFocus: (k)=>{ calFocus = parseDateKey(k); calSelectedKey = k; if (currentTab === "calendar") renderCalendar(); },
   setView: (v)=>{ calSetView(v); },
   setEvents: (arr)=>{ calEvents = arr || []; calRangeKey = "__test__"; if (currentTab === "calendar") renderCalendar(); },
-  state: ()=>({ view: calView, focus: dateKeyLocal(calFocus), selected: calSelectedKey, events: calEvents.slice(), error: calError, status: calStatus, loading: calLoading, weekCount: calWeekCount }),
+  state: ()=>({ view: calView, focus: dateKeyLocal(calFocus), selected: calSelectedKey, events: calEvents.slice(), error: calError, status: calStatus, loading: calLoading, weekCount: calWeekCount, weeksBefore: calWeeksBefore }),
   setStatus: (s)=>{ calStatus = s; calStatusFetched = true; if (currentTab === "calendar") renderCalendar(); },
   openSheet: (ev)=>openCalEventSheet(ev || null),
   openPreview: (ev)=>openCalEventPreview(ev || null),
