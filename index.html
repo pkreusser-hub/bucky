@@ -38,6 +38,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
     --red-soft: #f8eaec;
     --good: #2f8f4e; --good-d: #237a3f; --good-soft: #e3f2e8;
     --amber: #e0a53a; --amber-soft: #fbf3e3;
+    --purple: #7c3aed; --purple-soft: #efe8fc;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; padding: 0; }
@@ -1429,6 +1430,10 @@ const BANK_NOTIFY_KIDS = BANK_KIDS;   // ["Isaac", "Eleanor"]
 // EVERYONE (2026-07-09 user decision, reversing the earlier chores gate). Must match profile names.
 const BANK_USERS = ["Eleanor", "Isaac", "Dad", "Mom"];
 function seesBank(){ return BANK_USERS.includes(myName()); }
+// Chore tracking on the HOME page (hero ring + "Today's chores" card) is only for the kids
+// who have chores — everyone else gets a chore-free dashboard. The Chores TAB is unchanged.
+const CHORE_USERS = ["Isaac", "Eleanor"];
+function seesChores(){ return CHORE_USERS.includes(myName()); }
 
 /* ---- Meals (Mom-only calorie tracker, a 3rd member of the Plan area). Soft client gate,
    consistent with the app's choreUser identity posture (same as the Farm Bank / Chores
@@ -2382,34 +2387,41 @@ function renderDashboard(){
   const home = document.createElement("div"); home.className = "home2";
   li.appendChild(home);
 
-  // ---- hero: greeting + chore progress ring ----
+  // ---- hero: greeting (+ chore progress ring for the kids with chores) ----
+  const showChores = seesChores();
   const CIRC = 2 * Math.PI * 30, pct = total ? done/total : 0;   // r=30
   const hero = document.createElement("button"); hero.className = "hero";
-  // Adaptive encouragement: scales with progress so the tone matches how far along they are.
-  const leftLbl = `<b>${left} chore${left>1?"s":""}</b> left`;
-  let sub;
-  if (!total) sub = "No chores today 🌻";
-  else if (!left) sub = "<b>All done</b> — go play! 🎉";
-  else if (done === 0) sub = `${leftLbl} today — let's get started 💪`;
-  else if (done / total > 0.75) sub = `${leftLbl} — almost there!`;
-  else sub = `${leftLbl} today — nice pace!`;
+  // Chore tracking (ring + encouragement subtext) only for CHORE_USERS; everyone else gets a
+  // clean greeting without any chore UI.
+  let sub = "";
+  if (showChores){
+    const leftLbl = `<b>${left} chore${left>1?"s":""}</b> left`;
+    if (!total) sub = "No chores today 🌻";
+    else if (!left) sub = "<b>All done</b> — go play! 🎉";
+    else if (done === 0) sub = `${leftLbl} today — let's get started 💪`;
+    else if (done / total > 0.75) sub = `${leftLbl} — almost there!`;
+    else sub = `${leftLbl} today — nice pace!`;
+  }
+  const ringHtml = showChores
+    ? `<div class="ring" aria-label="${done} of ${total} chores done">
+         <svg width="70" height="70">
+           <circle cx="35" cy="35" r="30" fill="none" stroke="var(--line)" stroke-width="7"></circle>
+           <circle class="ringfg" cx="35" cy="35" r="30" fill="none" stroke="var(--green)" stroke-width="7"
+             stroke-linecap="round" stroke-dasharray="${CIRC.toFixed(1)}" stroke-dashoffset="${(CIRC*(1-pct)).toFixed(1)}"></circle>
+         </svg>
+         <div class="val"><span>${done}<small>/${total}</small></span></div>
+       </div>`
+    : "";
   hero.innerHTML =
     `<div class="htxt">
        <div class="eyebrow"></div>
        <h1></h1>
-       <p class="hsub">${sub}</p>
+       ${sub ? `<p class="hsub">${sub}</p>` : ""}
      </div>
-     <div class="ring" aria-label="${done} of ${total} chores done">
-       <svg width="70" height="70">
-         <circle cx="35" cy="35" r="30" fill="none" stroke="var(--line)" stroke-width="7"></circle>
-         <circle class="ringfg" cx="35" cy="35" r="30" fill="none" stroke="var(--green)" stroke-width="7"
-           stroke-linecap="round" stroke-dasharray="${CIRC.toFixed(1)}" stroke-dashoffset="${(CIRC*(1-pct)).toFixed(1)}"></circle>
-       </svg>
-       <div class="val"><span>${done}<small>/${total}</small></span></div>
-     </div>`;
+     ${ringHtml}`;
   hero.querySelector(".eyebrow").textContent = eyebrow;
   hero.querySelector("h1").textContent = `${part[0]}${who ? ", " + who : ""} ${part[1]}`;
-  hero.onclick = () => goTo("chores");
+  if (showChores) hero.onclick = () => goTo("chores");
   home.appendChild(hero);
 
   // ---- calendar widget: today's date + the next few family events (universal — no
@@ -2474,88 +2486,54 @@ function renderDashboard(){
   });
   home.appendChild(ask);
 
-  // ---- Today's chores card (interactive, everyone) ----
+  // ---- Today's chores card (Isaac & Eleanor only) ----
   // Only NOT-done chores show here (the hero ring above still counts done/total across ALL of
   // today's chores) — sorted daily-by-time-of-day (morning→noon→night) first, then any
   // weekly/monthly/yearly chores due today, then by c.order within each group.
-  const TOD_RANK = { morning: 0, noon: 1, night: 2 };
-  const visibleChores = dayChores.filter(c => !isDone(c)).sort((a, b) => {
-    const aDaily = a.frequency === "daily", bDaily = b.frequency === "daily";
-    if (aDaily !== bDaily) return aDaily ? -1 : 1;
-    if (aDaily){
-      const ar = TOD_RANK[a.timeOfDay || "morning"] ?? 0;
-      const br = TOD_RANK[b.timeOfDay || "morning"] ?? 0;
-      if (ar !== br) return ar - br;
+  if (showChores){
+    const TOD_RANK = { morning: 0, noon: 1, night: 2 };
+    const visibleChores = dayChores.filter(c => !isDone(c)).sort((a, b) => {
+      const aDaily = a.frequency === "daily", bDaily = b.frequency === "daily";
+      if (aDaily !== bDaily) return aDaily ? -1 : 1;
+      if (aDaily){
+        const ar = TOD_RANK[a.timeOfDay || "morning"] ?? 0;
+        const br = TOD_RANK[b.timeOfDay || "morning"] ?? 0;
+        if (ar !== br) return ar - br;
+      }
+      return (a.order || 0) - (b.order || 0);
+    });
+    const card2 = document.createElement("div"); card2.className = "card2";
+    const chd = document.createElement("div"); chd.className = "chd";
+    chd.innerHTML = `<h2>Today's chores</h2><button class="more">See all →</button>`;
+    chd.querySelector(".more").onclick = () => goTo("chores");
+    card2.appendChild(chd);
+    const rows = document.createElement("div"); rows.className = "rows";
+    if (!dayChores.length){
+      const e = document.createElement("div"); e.className = "empty2";
+      e.textContent = "No chores yet — tap + on Chores to add one.";
+      rows.appendChild(e);
+    } else if (!visibleChores.length){
+      const e = document.createElement("div"); e.className = "empty2";
+      e.textContent = "All done — go play! 🎉";
+      rows.appendChild(e);
+    } else {
+      for (const c of visibleChores){   // scrolls (capped to ~4 rows tall in CSS)
+        const isD = isDone(c);
+        const r = document.createElement("button"); r.className = "crow" + (isD ? " checked" : "");
+        r.innerHTML =
+          `<div class="hcheck">${isD ? "✓" : ""}</div>
+           <div class="cbody"><div class="t${isD ? " done" : ""}"></div><div class="s"></div></div>`;
+        r.querySelector(".t").textContent = c.name;
+        r.querySelector(".s").textContent = homeChoreSub(c);
+        r.onclick = () => toggleHomeChore(c);
+        rows.appendChild(r);
+      }
     }
-    return (a.order || 0) - (b.order || 0);
-  });
-  const card2 = document.createElement("div"); card2.className = "card2";
-  const chd = document.createElement("div"); chd.className = "chd";
-  chd.innerHTML = `<h2>Today's chores</h2><button class="more">See all →</button>`;
-  chd.querySelector(".more").onclick = () => goTo("chores");
-  card2.appendChild(chd);
-  const rows = document.createElement("div"); rows.className = "rows";
-  if (!dayChores.length){
-    const e = document.createElement("div"); e.className = "empty2";
-    e.textContent = "No chores yet — tap + on Chores to add one.";
-    rows.appendChild(e);
-  } else if (!visibleChores.length){
-    const e = document.createElement("div"); e.className = "empty2";
-    e.textContent = "All done — go play! 🎉";
-    rows.appendChild(e);
-  } else {
-    for (const c of visibleChores){   // scrolls (capped to ~4 rows tall in CSS)
-      const isD = isDone(c);
-      const r = document.createElement("button"); r.className = "crow" + (isD ? " checked" : "");
-      r.innerHTML =
-        `<div class="hcheck">${isD ? "✓" : ""}</div>
-         <div class="cbody"><div class="t${isD ? " done" : ""}"></div><div class="s"></div></div>`;
-      r.querySelector(".t").textContent = c.name;
-      r.querySelector(".s").textContent = homeChoreSub(c);
-      r.onclick = () => toggleHomeChore(c);
-      rows.appendChild(r);
-    }
+    card2.appendChild(rows);
+    home.appendChild(card2);
   }
-  card2.appendChild(rows);
-  home.appendChild(card2);
 
-  // ---- Open work orders list — MY jobs + unclaimed "up for grabs" jobs; shows ~3, scrolls ----
-  const dueSort = (a,b) => (a.due || "￿").localeCompare(b.due || "￿") || (b.createdAt || 0) - (a.createdAt || 0);
-  const openWoList = chores.filter(c => c.frequency === "workorder" && !c.done);
-  const mineWos = openWoList.filter(c => !who || woIsMine(c, who)).sort(dueSort);
-  const grabWos = openWoList.filter(c => who && woIsUnassigned(c)).sort(dueSort);
-  const myWos = [...mineWos, ...grabWos];   // my jobs first, then up-for-grabs
-  const woCard = document.createElement("div"); woCard.className = "card2";
-  const woHd = document.createElement("div"); woHd.className = "chd";
-  woHd.innerHTML = `<h2>Open work orders</h2><button class="more">See all →</button>`;
-  woHd.querySelector(".more").onclick = () => goTo("workorders");
-  woCard.appendChild(woHd);
-  const woRows = document.createElement("div"); woRows.className = "rows short";
-  if (!myWos.length){
-    const e = document.createElement("div"); e.className = "empty2 empty2-cta";
-    const msg = document.createElement("span"); msg.textContent = "No open work orders 🎉";
-    const add = document.createElement("button"); add.className = "empty-add-btn"; add.textContent = "+ Add a job";
-    add.onclick = (ev) => { ev.stopPropagation(); openWorkOrderSheet(null); };
-    e.append(msg, add);
-    woRows.appendChild(e);
-  } else {
-    for (const w of myWos){
-      const grabs = who && woIsUnassigned(w);
-      const r = document.createElement("button"); r.className = "crow" + (grabs ? " grabs" : "");
-      const dueTxt = w.due ? "Due " + new Date(w.due + "T00:00").toLocaleDateString(undefined, { month:"short", day:"numeric" }) : "Open";
-      r.innerHTML =
-        `<div class="wo-ic${grabs ? " grabs" : ""}">🛠️</div>
-         <div class="cbody"><div class="t"></div><div class="s"></div></div>
-         ${grabs ? `<span class="grab-tag">✋ up for grabs</span>` : ""}
-         ${w.value ? `<span class="wo-amt">$${w.value}</span>` : (grabs ? "" : `<span class="chev">›</span>`)}`;
-      r.querySelector(".t").textContent = w.name;
-      r.querySelector(".s").textContent = grabs ? (dueTxt === "Open" ? "Unassigned" : dueTxt) : dueTxt;
-      r.onclick = () => goTo("workorders");
-      woRows.appendChild(r);
-    }
-  }
-  woCard.appendChild(woRows);
-  home.appendChild(woCard);
+  // (Open work orders card removed from Home 2026-07-23 — see the Jobs tab.)
 
   // ---- dad joke ----
   const joke = document.createElement("div"); joke.className = "joke2";
@@ -5396,7 +5374,7 @@ document.getElementById("calEvTitle").addEventListener("keydown", e=>{ if (e.key
 // merge fully replaces it). Any family member taps a chip to change coverage — no role gating.
 const CARE_GROUPS = [
   { id:"Kreussers",    label:"Kreussers",    color:"var(--green)" },
-  { id:"Joy",          label:"Joy",          color:"var(--red)" },
+  { id:"Joy",          label:"Joy",          color:"var(--purple)" },
   { id:"Grandparents", label:"Grandparents", color:"var(--amber)" },
 ];
 const CARE_DAYS = ["sun","mon","tue","wed","thu","fri","sat"];
