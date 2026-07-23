@@ -468,6 +468,16 @@ cal_batch_test.mjs 30/30 (SWIPE TEST GOTCHA: pick a pointer y clamped inside BOT
 and the viewport — a scrolled day grid has negative box.y and off-viewport coords silently
 no-op; measure scroll compensation by capturing anchor position in the SAME evaluate as the
 scrollTo, before the async observer fires).
+PINNING BATCH (2026-07-23, pushed): MONTH page never scrolls — `body.cal-fixed` (toggled in
+render() AND renderCalendar, keyed on tab+view so it never leaks to other tabs) zeroes the
+body's 156px nav-clearance padding, and the agenda card gets class `scrolly` + a JS maxHeight
+clamp (space to #bnav top, then a SECOND pass subtracts any remaining
+scrollHeight−innerHeight overshoot — one pass alone left 31px of scroll from below-card
+margins). DAY all-day chip row = sticky at --cal-allday-top (calStickyBase + controls height,
+set in a rAF at the end of renderCalendar). #subnav (ALL area sub-navs, not just Plan) is now
+sticky under the header (--subnav-top set in renderSubnav) + slimmed (5px chip padding);
+.cal-controls stack below it — calStickyBase (module let) = headerH + subnavH feeds the
+sticky top, the stuck-shadow rootMargin, and calStickyOffset(). Suite now 36/36.
 🍽 MEALS — Mom-only calorie tracker (2026-07-22, opus agent from Fable spec, UNPUSHED):
 3rd Plan-area member `mealplan` (NAV_GROUPS plan=['calendar','animalcare','mealplan'];
 chip via navKeyVisible gated on seesMeals()/MEAL_USERS=["Mom"]; render() bounces non-Mom
