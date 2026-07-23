@@ -48,6 +48,10 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
     padding-bottom: calc(env(safe-area-inset-bottom) + 156px);   /* clears the fixed bottom nav (~78) + the FAB above it (top ~140px) so the last row's controls are never covered */
     -webkit-font-smoothing: antialiased;
   }
+  /* Month view pins everything (grid fixed, events scroll inside their card), so the page
+     itself must not scroll — drop the nav-clearance padding that would otherwise leave the
+     document taller than the viewport (2026-07-23). */
+  body.cal-fixed { padding-bottom: 0; }
   header {
     background: linear-gradient(180deg, #0d3d76 0%, var(--green) 100%);
     color: #fff;
@@ -177,17 +181,22 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   }
 
   /* Sub-nav: a segmented pill control shown only for the multi-section areas
-     (Tasks, Farm). Single-section areas (Home, Bank, Play) hide it. */
-  #subnav { display: none; margin: 2px 2px 14px; }
-  #subnav.on { display: flex; }
+     (Tasks, Farm, Plan). Single-section areas (Home, Bank, Play) hide it.
+     2026-07-23: sticky under the header on every screen (the Calendar/Care chips used to
+     scroll away) and slimmed down so it takes less vertical room. */
+  #subnav { display: none; }
+  #subnav.on {
+    display: flex; position: sticky; top: var(--subnav-top, calc(env(safe-area-inset-top) + 70px));
+    z-index: 16; background: var(--bg); margin: 0 -12px 8px; padding: 4px 12px 5px;
+  }
   .subseg {
     display: flex; gap: 3px; width: 100%; background: var(--done);
-    border: 1px solid var(--line); border-radius: 13px; padding: 3px;
+    border: 1px solid var(--line); border-radius: 11px; padding: 2px;
   }
   .subseg button {
     flex: 1 1 0; min-width: 0; border: 0; background: transparent; cursor: pointer;
-    color: var(--muted); font-size: 13px; font-weight: 700; padding: 9px 3px;
-    border-radius: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    color: var(--muted); font-size: 13px; font-weight: 700; padding: 5px 3px;
+    border-radius: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     transition: background .15s ease, color .15s ease;
   }
   .subseg button.sel { background: var(--card); color: var(--ink); box-shadow: var(--shadow); }
@@ -713,7 +722,12 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   /* Day view: 30-minute planner grid (2026-07-23) */
   .cal-daywrap { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 10px 10px 14px; }
   .cal-daywrap.today { border-color: var(--green); }
-  .cal-alldayrow { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 2px 10px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+  /* All-day events pin under the controls while the hour grid scrolls (2026-07-23) */
+  .cal-alldayrow {
+    display: flex; flex-wrap: wrap; gap: 6px; padding: 9px 12px; border-bottom: 1px solid var(--line);
+    position: sticky; top: var(--cal-allday-top, calc(env(safe-area-inset-top) + 186px));
+    z-index: 5; background: var(--card); margin: -10px -10px 8px; border-radius: 14px 14px 0 0;
+  }
   .cal-alldaychip { font-size: 12px; font-weight: 800; background: var(--red-soft); color: var(--red); border: 0; border-radius: 8px; padding: 6px 10px; cursor: pointer; font-family: inherit; }
   .cal-daygrid { position: relative; }
   .cal-slot { position: absolute; left: 0; right: 0; border-top: 1px solid var(--line-2); cursor: pointer; }
@@ -726,6 +740,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .cal-agenda { margin-top: 16px; }
   .cal-agenda-h { font-size: 14px; font-weight: 800; color: var(--ink); margin: 0 2px 8px; }
   .cal-daycard { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; box-shadow: var(--shadow); }
+  .cal-daycard.scrolly { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
   .cal-daycard.today { border-color: var(--green); box-shadow: 0 0 0 1px var(--green), var(--shadow); }
   .cal-daycard-h { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
   .cal-dname { font-size: 15px; font-weight: 800; }
@@ -2016,6 +2031,8 @@ function render(){
   // Meals is Mom-only — bounce a non-Mom user who lands on it via a stale tab / deep-link.
   if (!seesMeals() && currentTab === "mealplan") currentTab = "dashboard";
   renderSubnav();   // keep the Tasks/Farm sub-nav in sync no matter who changed currentTab
+  // the month view's no-page-scroll mode must never leak onto other tabs
+  document.body.classList.toggle("cal-fixed", currentTab === "calendar" && calView === "month");
   const cf = document.getElementById("careFilter");
   if (cf) cf.style.display = currentTab === "goatcare" ? "block" : "none";
   document.getElementById("addFab").style.display = (currentTab === "dashboard" || currentTab === "goatcare" || currentTab === "shopping" || currentTab === "print3d" || currentTab === "game" || currentTab === "catgame" || currentTab === "farmbank" || currentTab === "play" || currentTab === "animalcare" || currentTab === "mealplan") ? "none" : "";
@@ -4568,10 +4585,11 @@ function attachCalSwipe(el){
     clearTimeout(wheelT); wheelT = setTimeout(()=>{ wheelAcc = 0; }, 300);
   }, { passive: true });
 }
-// Scroll offset that clears the app header + the sticky calendar controls.
+// Scroll offset that clears the app header + sticky sub-nav + sticky calendar controls.
+let calStickyBase = 84;   // header + sub-nav height, measured each renderCalendar
 function calStickyOffset(){
-  const hdr = document.querySelector("header"), ctl = document.querySelector(".cal-controls");
-  return (hdr ? hdr.offsetHeight : 84) + (ctl ? ctl.offsetHeight : 96) + 6;
+  const ctl = document.querySelector(".cal-controls");
+  return calStickyBase + (ctl ? ctl.offsetHeight : 96) + 6;
 }
 
 function calBanner(text, kind){
@@ -4588,10 +4606,14 @@ function renderCalendar(){
   document.querySelector(".bar").style.display = "none";
   document.getElementById("empty").style.display = "none";
   document.getElementById("progress").style.display = "none";
-  // pin the calendar controls just below the app's sticky header — measure its live height
+  // month view = fully pinned page (see body.cal-fixed); week/day scroll normally
+  document.body.classList.toggle("cal-fixed", calView === "month");
+  // pin the calendar controls just below the sticky header + the (now sticky) Plan sub-nav
   const hdr = document.querySelector("header");
   const headerH = hdr ? hdr.offsetHeight : 84;
-  document.documentElement.style.setProperty("--cal-sticky-top", headerH + "px");
+  const sn = document.getElementById("subnav");
+  calStickyBase = headerH + ((sn && sn.classList.contains("on")) ? sn.offsetHeight : 0);
+  document.documentElement.style.setProperty("--cal-sticky-top", calStickyBase + "px");
   const list = document.getElementById("list"); list.innerHTML = "";
   const wrap = document.createElement("li"); wrap.style.cssText = "background:transparent;border:0;box-shadow:none;padding:0;";
   const cal = document.createElement("div"); cal.className = "cal";
@@ -4624,7 +4646,7 @@ function renderCalendar(){
   if (typeof IntersectionObserver !== "undefined"){
     calStuckObs = new IntersectionObserver((entries)=>{
       for (const e of entries) controls.classList.toggle("stuck", e.intersectionRatio === 0);
-    }, { rootMargin: `-${headerH}px 0px 0px 0px`, threshold: [0, 1] });
+    }, { rootMargin: `-${calStickyBase}px 0px 0px 0px`, threshold: [0, 1] });
     calStuckObs.observe(sentinel);
   }
 
@@ -4642,6 +4664,11 @@ function renderCalendar(){
   }
 
   wrap.appendChild(cal); list.appendChild(wrap);
+  // the day view's sticky all-day row pins right under the controls — measure after layout
+  requestAnimationFrame(()=>{
+    const ctl = document.querySelector(".cal-controls");
+    if (ctl) document.documentElement.style.setProperty("--cal-allday-top", (calStickyBase + ctl.offsetHeight - 1) + "px");
+  });
   ensureCalData();
 }
 
@@ -4678,10 +4705,24 @@ function buildCalMonth(container){
   const ah = document.createElement("div"); ah.className = "cal-agenda-h";
   ah.textContent = parseDateKey(calSelectedKey).toLocaleDateString(undefined, { weekday:"long", month:"long", day:"numeric" });
   agenda.appendChild(ah);
-  const card = document.createElement("div"); card.className = "cal-daycard";
+  const card = document.createElement("div"); card.className = "cal-daycard scrolly";
   buildCalAgendaList(card, calSelectedKey);
   agenda.appendChild(card);
   container.appendChild(agenda);
+  // The month grid stays FIXED (2026-07-23): the page itself doesn't scroll in month view —
+  // the selected day's event card becomes its own scroller, sized to the space left between
+  // the grid and the bottom nav.
+  requestAnimationFrame(()=>{
+    window.scrollTo(0, 0);
+    const bn = document.getElementById("bnav");
+    const bh = bn ? bn.getBoundingClientRect().height : 78;
+    const h = window.innerHeight - card.getBoundingClientRect().top - bh - 10;
+    card.style.maxHeight = Math.max(150, h) + "px";
+    // second pass: body/main bottom paddings still push the document past the viewport —
+    // measure the overshoot and take it out of the card so the page truly cannot scroll
+    const extra = document.documentElement.scrollHeight - window.innerHeight;
+    if (extra > 0) card.style.maxHeight = Math.max(150, h - extra) + "px";
+  });
 }
 // Week view = an ENDLESS FEED (2026-07-23): weeks stack under a labeled separator and more
 // append as you scroll (‹ › still jump, resetting the feed to 3 weeks). Growth happens
@@ -7048,6 +7089,9 @@ function renderSubnav(){
   const subs = g.members.filter(k => SECTION_BY_KEY[k] && navKeyVisible(k));   // only real, visible sections get a chip
   if (subs.length < 2){ el.className = ""; el.innerHTML = ""; return; }
   el.className = "on";
+  // pin just below the sticky header (measured live, like the calendar controls)
+  const hdr = document.querySelector("header");
+  document.documentElement.style.setProperty("--subnav-top", (hdr ? hdr.offsetHeight : 84) + "px");
   el.innerHTML = "";
   const seg = document.createElement("div"); seg.className = "subseg";
   for (const key of subs){
