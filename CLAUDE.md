@@ -478,6 +478,26 @@ set in a rAF at the end of renderCalendar). #subnav (ALL area sub-navs, not just
 sticky under the header (--subnav-top set in renderSubnav) + slimmed (5px chip padding);
 .cal-controls stack below it — calStickyBase (module let) = headerH + subnavH feeds the
 sticky top, the stuck-shadow rootMargin, and calStickyOffset(). Suite now 36/36.
+🛠 WORK ORDERS REDESIGN (2026-07-23, taste-skill pass — user: "busy and not easy to
+navigate"): buildWoCard rewritten to SUMMARY-FIRST accordion — a card is one row (.wo-sum:
+thumb? · title · quiet meta · $value right · chevron) until tapped; `expandedWoId` (one at a
+time) opens .wo-detail (desc, byline, progress bar→milestones, photo, actions). Actions = ONE
+.wo-primary (assigned: "✓ Close work order" / unassigned: "✋ Claim this job") + .wo-link text
+links (Update progress·Reassign/Assign·Close·Edit; closed: Progress history·Copy to new·
+Reopen·Edit). Payout-pending cards PINNED open (page's real CTA), flattened — no more
+card-in-card-in-card amber nesting; .payout-confirm-btn full-width + "Not yet" link;
+non-admin = read-only "waiting for Dad's OK". Killed: red OPEN pill (open = default state,
+no chrome; .wo-status kept quiet navy/green for the 3D PRINTS page which shares it),
+green .wo-hasvalue stripe, "Assigned:" labels (group header carries it), "Created by" own
+line (→ .wo-byline in detail), .wo-ghost-btn/.wo-close-btn/.wo-progress-btn/.payout-card.
+woDuePhrase() = relative dues ("overdue by 2 days" red / "due today/tomorrow/Friday" /
+"due Aug 12"); woDueInfo stays (chores-tab wo-row + toast use it). woGroupHeader: sentence
+case ink name + quiet "· N" count (li.group-head.wo-group-head — DOUBLE class needed, the
+base group-head uppercase rule comes later in the sheet); red .wo-badge ONLY on the payout
+group (alert=true 4th param). Red = overdue + payout alert only; money = --good-d.
+Suite: scratchpad wo_redesign_test.mjs 34/34 (collapse/expand/one-at-a-time, relative dues,
+claim persists, progress sheet + milestones, close sheet, Dad confirm clears payoutPending,
+reopen, quiet headers, 0 pageerrors ×2 users).
 📈 STOCK WATCHLIST (2026-07-23, dashboard bottom): a per-device watchlist card at the end of
 renderDashboard (after the dad joke, before the footer). Add/remove tickers (＋ Add toggles an
 inline uppercase input; ✕ removes), each row shows ticker · company name · price · daily change

@@ -308,42 +308,56 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
 
   /* Work orders */
   textarea { width: 100%; padding: 13px; font-size: 16px; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink); font-family: inherit; resize: vertical; }
+  /* Work orders (Jobs) — summary-first cards, tap to expand (redesign 2026-07-23).
+     One accent (navy), money in green, red reserved for overdue + the payout alert.
+     A card is a single scannable row until tapped; details + actions live in .wo-detail. */
   li.wo { display: flex; flex-direction: column; align-items: stretch; gap: 0; padding: 0; overflow: hidden; }
-  li.wo.done { opacity: .6; }
+  li.wo.done { opacity: .62; }
   li.wo.done .name { text-decoration: line-through; }
-  li.wo.wo-pending { border: 2px solid #e0a610; box-shadow: 0 0 0 1px #e0a610 inset; background: #fffdf5; }
-  .wo-top { display: flex; align-items: center; gap: 9px; padding: 8px 12px 3px; }
-  .wo-top .name { flex: 1; min-width: 0; font-size: 15px; font-weight: 700; line-height: 1.25; }
-  .wo-thumb { width: 34px; height: 34px; border-radius: 8px; object-fit: cover; flex: 0 0 auto; background: #e9e7dd; }
-  .wo-status { flex: 0 0 auto; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; padding: 3px 9px; border-radius: 999px; }
-  .wo-status.open { background: var(--red-soft); color: var(--red); }
-  .wo-status.done { background: #e7eefb; color: var(--green); }
-  .wo-status.pending { background: #f0d98a; color: #6b4e00; text-transform: none; letter-spacing: 0; }
-  .wo-meta { padding: 0 12px 5px; font-size: 12.5px; color: var(--muted); }
-  .wo-meta .due.overdue { color: var(--red); font-weight: 700; }
-  .wo-money { font-weight: 700; color: var(--green); }
+  li.wo.wo-pending { background: #fffdf4; border-color: #ecd9a0; }
+  .wo-sum { display: flex; align-items: center; gap: 10px; padding: 12px; cursor: pointer; text-align: left;
+    background: transparent; border: 0; font: inherit; color: inherit; width: 100%; transition: background .15s ease; }
+  .wo-sum:active { background: var(--done); }
+  @media (hover: hover){ .wo-sum:hover { background: var(--surface-2); } }
+  .wo-thumb { width: 36px; height: 36px; border-radius: 9px; object-fit: cover; flex: 0 0 auto; background: #e9e7dd; }
+  .wo-sum .wo-body { flex: 1; min-width: 0; }
+  .wo-sum .name { font-size: 15px; font-weight: 700; line-height: 1.3; text-wrap: balance; }
+  .wo-sum .wo-sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  .wo-sub .due.overdue { color: var(--red); font-weight: 700; }
+  .wo-sub .prog { color: var(--green); font-weight: 700; }
+  .wo-sub .grab { color: #8a6414; font-weight: 700; }
+  .wo-sub .wait { color: #6b4e00; font-weight: 700; }
+  .wo-sum .wo-amt { flex: 0 0 auto; font-weight: 800; font-size: 15px; color: var(--good-d); font-variant-numeric: tabular-nums; }
+  .wo-sum .wo-chev { flex: 0 0 auto; color: var(--muted); font-size: 12px; transition: transform .18s ease; }
+  li.wo.expanded .wo-sum .wo-chev { transform: rotate(90deg); }
+  .wo-detail { padding: 0 12px 13px; animation: woReveal .16s ease; }
+  @keyframes woReveal { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+  .wo-desc { font-size: 13.5px; line-height: 1.5; color: var(--ink); white-space: pre-wrap; margin: 0 0 10px; max-width: 60ch; }
+  .wo-byline { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
+  .wo-actions { display: flex; flex-direction: column; gap: 4px; }
+  .wo-primary { width: 100%; padding: 12px 14px; border: 0; border-radius: 11px; background: var(--green); color: #fff;
+    font-weight: 800; font-size: 14px; cursor: pointer; transition: transform .12s ease; }
+  .wo-primary:active { transform: scale(.98); }
+  .wo-linkrow { display: flex; align-items: center; gap: 18px; padding-top: 5px; }
+  .wo-link { border: 0; background: transparent; color: var(--green); font-size: 13px; font-weight: 700; cursor: pointer; padding: 6px 0; }
+  .wo-link:active { opacity: .55; }
+  .wo-link.quiet { color: var(--muted); }
+  .wo-pay-head { font-size: 13.5px; font-weight: 700; color: #6b4e00; line-height: 1.45; margin: 0 0 10px; }
+  /* status pill — still used by the 3D Prints list (quiet now: open is a default state, not an alarm) */
+  .wo-status { flex: 0 0 auto; font-size: 11px; font-weight: 800; letter-spacing: .4px; padding: 3px 9px; border-radius: 7px; }
+  .wo-status.open { background: var(--navy-soft); color: var(--ink-2); }
+  .wo-status.done { background: var(--good-soft); color: var(--good-d); }
   /* money jobs get a quiet green accent stripe instead of the old full green outline */
-  li.wo.wo-hasvalue { border-left: 4px solid var(--good); }
   .wo-badge { margin-left: 8px; min-width: 20px; height: 20px; padding: 0 6px; background: var(--red); color: #fff;
     border-radius: 999px; font-size: 12px; font-weight: 800; line-height: 20px; text-align: center; letter-spacing: 0; box-sizing: border-box; }
-  .wo-desc { padding: 0 12px 7px; font-size: 13px; color: var(--ink); white-space: pre-wrap; }
-  /* flex-wrap + nowrap labels: on narrow phones the close button drops to its own
-     full-width row instead of squeezing its label onto two lines */
-  .wo-actions { padding: 7px 12px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  /* secondary text actions (Reassign/Claim/Copy/Reopen) — real ghost buttons, not bare gray text */
-  .wo-ghost-btn { border: 1px solid var(--line); background: var(--card); color: var(--ink-2); font-size: 13px; font-weight: 700; padding: 8px 12px; border-radius: 10px; cursor: pointer; }
-  .wo-ghost-btn:active { background: var(--done); }
-  .wo-ghost-btn.claim { color: var(--green); border-color: var(--green); }
-  .wo-close-btn { flex: 1 1 150px; padding: 9px; border: 0; border-radius: 10px; background: var(--green); color: #fff; font-weight: 700; font-size: 14px; cursor: pointer; white-space: nowrap; }
-  .donephoto { width: 42px; height: 42px; border-radius: 8px; object-fit: cover; flex: 0 0 auto; }
+  .donephoto { width: 42px; height: 42px; border-radius: 8px; object-fit: cover; flex: 0 0 auto; cursor: pointer; }
   li.chore.wo-row { background: #fff8e1; border-color: #f0d98a; }
 
-  /* Work-order progress milestones */
-  .wo-progress-wrap { padding: 0 12px 6px; }
-  .wo-progress-bar { height: 8px; background: var(--line); border-radius: 999px; overflow: hidden; }
+  /* Work-order progress bar (inside .wo-detail) */
+  .wo-progress-wrap { margin: 0 0 11px; cursor: pointer; }
+  .wo-progress-bar { height: 7px; background: var(--line); border-radius: 999px; overflow: hidden; }
   .wo-progress-bar > span { display: block; height: 100%; background: var(--green); border-radius: 999px; transition: width .25s ease; }
-  .wo-progress-label { font-size: 12px; color: var(--muted); margin-top: 3px; font-weight: 700; }
-  .wo-progress-btn { flex: 0 0 auto; border: 1.5px solid var(--green); background: #fff; color: var(--green); padding: 7px 13px; border-radius: 999px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+  .wo-progress-label { font-size: 12px; color: var(--muted); margin-top: 4px; font-weight: 700; }
   input[type=range].fat-slider { width: 100%; height: 40px; -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; }
   input[type=range].fat-slider::-webkit-slider-runnable-track { height: 12px; border-radius: 999px; background: var(--line); }
   input[type=range].fat-slider::-moz-range-track { height: 12px; border-radius: 999px; background: var(--line); }
@@ -387,11 +401,14 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .ledger-desc { flex: 1; min-width: 0; color: var(--ink); }
   .ledger-meta { flex: 0 0 auto; font-size: 11.5px; color: var(--muted); text-align: right; }
   .ledger-more-btn { border: 0; background: transparent; color: var(--green); font-weight: 700; font-size: 13px; padding: 8px 0 0; cursor: pointer; }
-  .payout-card { background: #fff8e1; border: 2px solid #f0d98a; border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; }
-  .payout-head { font-weight: 800; font-size: 14px; margin-bottom: 8px; }
-  .payout-actions { display: flex; gap: 10px; }
-  .payout-confirm-btn { flex: 1; padding: 10px; border: 0; border-radius: 10px; background: #1c8a4a; color: #fff; font-weight: 700; font-size: 14px; cursor: pointer; }
-  .payout-notyet-btn { flex: 0 0 auto; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--muted); font-weight: 700; font-size: 14px; cursor: pointer; }
+  /* payout confirm — flat, inside the amber card (no nested boxes) */
+  .payout-confirm-btn { width: 100%; padding: 12px 14px; border: 0; border-radius: 11px; background: var(--good-d);
+    color: #fff; font-weight: 800; font-size: 14.5px; cursor: pointer; transition: transform .12s ease; }
+  .payout-confirm-btn:active { transform: scale(.98); }
+  /* work-order group headers: names, not alarms — count is quiet text; red badge only on payout */
+  li.group-head.wo-group-head { text-transform: none; letter-spacing: 0; font-size: 14.5px; color: var(--ink); padding: 15px 4px 2px; }
+  li.group-head.wo-group-head .wo-gchev { color: var(--muted); font-size: 11px; margin-right: 7px; display: inline-block; transition: transform .18s ease; }
+  li.group-head.wo-group-head .wo-count { color: var(--muted); font-weight: 700; font-size: 13px; margin-left: 7px; }
 
   /* 3D print requests (mirrors the work-order card look) */
   .print-form-card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 16px; margin: 0 0 14px; }
@@ -1593,6 +1610,7 @@ let careView = "hooves";    // which activity the Goat Care tab is updating
 const expandedGoats = new Set();  // ids of goats expanded on the Goats tab
 const collapsedGroups = new Set();  // collapsed group headers (Goats by type, Work Orders by assignee)
 const woGroupInit = new Set();      // work-order assignee groups whose default collapse state has been set
+let expandedWoId = null;            // work-order card open for details/actions (one at a time; payout-pending always open)
 const defaultCollapsedInit = new Set();
 // Make a group collapsed the first time it appears, but respect the user's toggles afterward.
 function defaultCollapse(key){ if (!defaultCollapsedInit.has(key)){ defaultCollapsedInit.add(key); collapsedGroups.add(key); } }
@@ -3382,6 +3400,23 @@ function woDueInfo(due){
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   return { text: "Due " + fmtDate(dt.getTime()), overdue: dt.getTime() < todayStart };
 }
+// Relative due phrasing for the card summary line — "overdue by 2 days" scans faster than
+// "Due Jul 21, 2026" (and the year is almost always noise).
+function woDuePhrase(due){
+  if (!due) return { text: "no due date", overdue: false };
+  const [y, m, d] = due.split("-").map(Number);
+  const dt = new Date(y, m-1, d, 12, 0, 0);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12);
+  const days = Math.round((dt - today) / 86400000);
+  if (days < 0)  return { text: days === -1 ? "overdue by a day" : `overdue by ${-days} days`, overdue: true };
+  if (days === 0) return { text: "due today", overdue: false };
+  if (days === 1) return { text: "due tomorrow", overdue: false };
+  if (days < 7)  return { text: "due " + dt.toLocaleDateString(undefined, { weekday: "long" }), overdue: false };
+  const opts = dt.getFullYear() === today.getFullYear()
+    ? { month: "short", day: "numeric" } : { month: "short", day: "numeric", year: "numeric" };
+  return { text: "due " + dt.toLocaleDateString(undefined, opts), overdue: false };
+}
 
 function renderWorkOrders(){
   const list = document.getElementById("list");
@@ -3402,7 +3437,7 @@ function renderWorkOrders(){
   // Payout-pending cards render first, above the assignee groups, so they can't be missed.
   if (pendingPayoutWos.length){
     const key = "wo_payout_pending";
-    list.appendChild(woGroupHeader("💰 Awaiting payout confirmation", key, pendingPayoutWos.length));
+    list.appendChild(woGroupHeader("💰 Awaiting payout confirmation", key, pendingPayoutWos.length, true));
     if (!collapsedGroups.has(key)) for (const w of pendingPayoutWos.sort((a,b)=> (a.doneAt||0)-(b.doneAt||0))) list.appendChild(buildWoCard(w));
   }
 
@@ -3437,120 +3472,150 @@ function renderWorkOrders(){
     wos.length ? `${activeCount} open · ${closedWos.length} completed` : "No work orders";
 }
 
+// Redesigned 2026-07-23 (taste pass): a card is ONE scannable summary row — title, quiet
+// meta line, money on the right — until tapped. Details (description, progress, photo) and
+// actions (one primary + text links) live in the expanded state. Payout-pending cards are
+// the page's real call-to-action, so they stay expanded. Red is reserved for overdue.
 function buildWoCard(w){
   const pending = !!(w.done && w.payoutPending);   // done, but money hasn't moved yet — treated as active
+  const expanded = pending || expandedWoId === w.id;
   const li = document.createElement("li");
-  li.className = "wo" + (w.done && !pending ? " done" : "") + (pending ? " wo-pending" : "") + (w.value ? " wo-hasvalue" : "");
+  li.className = "wo" + (w.done && !pending ? " done" : "") + (pending ? " wo-pending" : "") + (expanded ? " expanded" : "");
 
-  const top = document.createElement("div");
-  top.className = "wo-top";
-  if (w.photo){ const im = document.createElement("img"); im.className = "wo-thumb"; im.src = w.photo; im.alt = ""; top.appendChild(im); }
+  // ---- summary row (the whole card, when collapsed) ----
+  const sum = document.createElement("button"); sum.className = "wo-sum"; sum.type = "button";
+  sum.setAttribute("aria-expanded", expanded ? "true" : "false");
+  if (w.photo){ const im = document.createElement("img"); im.className = "wo-thumb"; im.src = w.photo; im.alt = ""; sum.appendChild(im); }
+  const body = document.createElement("div"); body.className = "wo-body";
   const name = document.createElement("div"); name.className = "name"; name.textContent = w.name;
-  const status = document.createElement("span");
-  status.className = "wo-status " + (pending ? "pending" : (w.done ? "done" : "open"));
-  status.textContent = pending ? "💰 Needs Dad's confirmation" : (w.done ? "Done" : "Open");
-  const edit = document.createElement("button"); edit.className = "iconbtn"; edit.innerHTML = "✎"; edit.onclick = () => openWorkOrderSheet(w);
-  top.append(name, status, edit);
-  li.appendChild(top);
+  const sub = document.createElement("div"); sub.className = "wo-sub";
+  if (pending){
+    const t = document.createElement("span"); t.className = "wait";
+    t.textContent = `💰 ${w.doneBy || "someone"} finished — waiting for Dad's OK`;
+    sub.appendChild(t);
+  } else if (w.done){
+    sub.textContent = `Completed${w.doneBy ? " by " + w.doneBy : ""}${w.doneAt ? " · " + fmtDate(w.doneAt) : ""}`;
+  } else {
+    const di = woDuePhrase(w.due);
+    const due = document.createElement("span"); due.className = "due" + (di.overdue ? " overdue" : "");
+    due.textContent = di.text; sub.appendChild(due);
+    if (woIsUnassigned(w)){
+      sub.appendChild(document.createTextNode(" · "));
+      const g = document.createElement("span"); g.className = "grab"; g.textContent = "✋ up for grabs"; sub.appendChild(g);
+    }
+    if ((w.progress || 0) > 0){
+      sub.appendChild(document.createTextNode(" · "));
+      const p = document.createElement("span"); p.className = "prog"; p.textContent = (w.progress || 0) + "% done"; sub.appendChild(p);
+    }
+  }
+  body.append(name, sub);
+  sum.appendChild(body);
+  if (w.value){ const amt = document.createElement("span"); amt.className = "wo-amt"; amt.textContent = "$" + w.value; sum.appendChild(amt); }
+  const chev = document.createElement("span"); chev.className = "wo-chev"; chev.textContent = "▸"; chev.setAttribute("aria-hidden", "true");
+  sum.appendChild(chev);
+  sum.onclick = () => {
+    if (pending) return;   // payout cards are pinned open — nothing to toggle
+    expandedWoId = expandedWoId === w.id ? null : w.id;
+    render();
+  };
+  li.appendChild(sum);
+  if (!expanded) return li;
 
-  const meta = document.createElement("div"); meta.className = "wo-meta";
-  meta.appendChild(document.createTextNode("Assigned: "));
-  const a = document.createElement("strong"); a.textContent = woAssigneeText(w); meta.appendChild(a);
-  meta.appendChild(document.createTextNode(" · "));
-  const di = woDueInfo(w.due);
-  const due = document.createElement("span"); due.className = "due" + (di.overdue && !w.done ? " overdue" : ""); due.textContent = di.text; meta.appendChild(due);
-  if (w.value){ meta.appendChild(document.createTextNode(" · ")); const v = document.createElement("span"); v.className = "wo-money"; v.textContent = "$" + w.value; meta.appendChild(v); }
-  li.appendChild(meta);
-
+  // ---- expanded detail ----
+  const det = document.createElement("div"); det.className = "wo-detail";
+  if (w.desc){ const d = document.createElement("div"); d.className = "wo-desc"; d.textContent = w.desc; det.appendChild(d); }
   if (w.createdBy){
-    const cb = document.createElement("div"); cb.className = "wo-meta"; cb.style.cssText = "padding-top:0;font-size:12px;";
-    cb.textContent = "Created by " + w.createdBy; li.appendChild(cb);
+    const cb = document.createElement("div"); cb.className = "wo-byline";
+    cb.textContent = "Added by " + w.createdBy + (w.createdAt ? " · " + fmtDate(w.createdAt) : "");
+    det.appendChild(cb);
   }
 
-  if (w.desc){ const d = document.createElement("div"); d.className = "wo-desc"; d.textContent = w.desc; li.appendChild(d); }
-
-  // Slim progress bar + milestone timeline link (shown once any progress has been logged).
+  // progress bar + milestone timeline link (shown once any progress has been logged)
   if (!w.done && (w.progress || 0) > 0){
     const pwrap = document.createElement("div"); pwrap.className = "wo-progress-wrap";
-    pwrap.style.cursor = "pointer";
     pwrap.onclick = () => openMilestonesView(w);
     const bar = document.createElement("div"); bar.className = "wo-progress-bar";
     const span = document.createElement("span"); span.style.width = (w.progress || 0) + "%"; bar.appendChild(span);
     const label = document.createElement("div"); label.className = "wo-progress-label"; label.textContent = (w.progress || 0) + "% · tap for history";
     pwrap.append(bar, label);
-    li.appendChild(pwrap);
-  } else if (w.done && Array.isArray(w.milestones) && w.milestones.length){
-    const pwrap = document.createElement("div"); pwrap.className = "wo-progress-wrap";
-    pwrap.style.cursor = "pointer";
-    pwrap.onclick = () => openMilestonesView(w);
-    const label = document.createElement("div"); label.className = "wo-progress-label"; label.textContent = "View progress history";
-    pwrap.appendChild(label);
-    li.appendChild(pwrap);
+    det.appendChild(pwrap);
   }
 
-  // Payout confirmation card: everyone sees the amber "awaiting confirmation" card + tag;
-  // the Confirm/Not-yet buttons are Dad-only (BANK_ADMIN) — other users get a read-only card.
+  const linkBtn = (label, fn, quiet) => {
+    const b = document.createElement("button"); b.className = "wo-link" + (quiet ? " quiet" : "");
+    b.textContent = label; b.onclick = fn; return b;
+  };
+  const photoThumb = () => {
+    const im = document.createElement("img"); im.className = "donephoto"; im.src = w.donePhoto;
+    im.alt = "Completion photo"; im.onclick = () => openPhoto(w.donePhoto); return im;
+  };
+
   if (pending){
-    const pc = document.createElement("div"); pc.className = "payout-card";
-    const head = document.createElement("div"); head.className = "payout-head";
-    head.textContent = `💰 Confirm: ${w.doneBy} finished "${w.name}" ($${w.value})`;
-    pc.appendChild(head);
+    // Payout confirmation, flat inside the amber card. Confirm is Dad-only (bank admin);
+    // everyone else sees the same card read-only.
+    const head = document.createElement("div"); head.className = "wo-pay-head";
+    head.textContent = `${w.doneBy || "Someone"} finished this${w.doneAt ? " " + fmtDate(w.doneAt) : ""}. $${w.value} moves to ${w.doneBy || "them"} once Dad confirms.`;
+    det.appendChild(head);
+    if (w.donePhoto) det.appendChild(photoThumb());
     if (bankAdmin()){
-      const pa = document.createElement("div"); pa.className = "payout-actions";
       const conf = document.createElement("button"); conf.className = "payout-confirm-btn";
       conf.textContent = `Confirm $${w.value} → ${w.doneBy} 💰`;
       conf.onclick = () => confirmPayout(w);
-      const notyet = document.createElement("button"); notyet.className = "payout-notyet-btn";
-      notyet.textContent = "Not yet";
-      notyet.onclick = () => notYetPayout(w);
-      pa.append(conf, notyet);
-      pc.appendChild(pa);
-    }
-    li.appendChild(pc);
-  }
-
-  const actions = document.createElement("div"); actions.className = "wo-actions";
-  if (pending){
-    const info = document.createElement("div");
-    info.style.flex = "1"; info.style.fontSize = "13px"; info.style.color = "var(--muted)";
-    info.textContent = `Completed${w.doneBy ? " by " + w.doneBy : ""}${w.doneAt ? " · " + fmtDate(w.doneAt) : ""} — awaiting confirmation`;
-    actions.appendChild(info);
-    if (w.donePhoto){ const im = document.createElement("img"); im.className = "donephoto"; im.src = w.donePhoto; im.alt = ""; im.style.cursor = "pointer"; im.onclick = () => openPhoto(w.donePhoto); actions.appendChild(im); }
-  } else if (w.done){
-    const info = document.createElement("div");
-    info.style.flex = "1"; info.style.fontSize = "13px"; info.style.color = "var(--muted)";
-    info.textContent = `Completed${w.doneBy ? " by " + w.doneBy : ""}${w.doneAt ? " · " + fmtDate(w.doneAt) : ""}`;
-    actions.appendChild(info);
-    if (w.donePhoto){ const im = document.createElement("img"); im.className = "donephoto"; im.src = w.donePhoto; im.alt = ""; im.style.cursor = "pointer"; im.onclick = () => openPhoto(w.donePhoto); actions.appendChild(im); }
-    const cp = document.createElement("button"); cp.className = "wo-ghost-btn"; cp.textContent = "Copy"; cp.title = "Create a new work order from this one"; cp.onclick = () => openCopySheet(w); actions.appendChild(cp);
-    const re = document.createElement("button"); re.className = "wo-ghost-btn"; re.textContent = "Reopen"; re.onclick = () => reopenWorkOrder(w); actions.appendChild(re);
-  } else {
-    if (!woIsUnassigned(w)){
-      const re = document.createElement("button"); re.className = "wo-ghost-btn"; re.textContent = "Reassign"; re.onclick = () => reassignWorkOrder(w); actions.appendChild(re);
+      det.appendChild(conf);
+      const links = document.createElement("div"); links.className = "wo-linkrow";
+      links.append(linkBtn("Not yet", () => notYetPayout(w), true), linkBtn("Edit", () => openWorkOrderSheet(w), true));
+      det.appendChild(links);
     } else {
-      const claim = document.createElement("button"); claim.className = "wo-ghost-btn claim"; claim.textContent = "Claim"; claim.onclick = () => claimWorkOrder(w); actions.appendChild(claim);
+      const links = document.createElement("div"); links.className = "wo-linkrow";
+      links.append(linkBtn("Edit", () => openWorkOrderSheet(w), true));
+      det.appendChild(links);
     }
-    if (woIsMine(w, myName())){
-      const prog = document.createElement("button"); prog.className = "wo-progress-btn"; prog.textContent = "Update progress";
-      prog.onclick = () => openProgressSheet(w);
-      actions.appendChild(prog);
+  } else if (w.done){
+    if (w.donePhoto) det.appendChild(photoThumb());
+    const links = document.createElement("div"); links.className = "wo-linkrow";
+    if (Array.isArray(w.milestones) && w.milestones.length) links.append(linkBtn("Progress history", () => openMilestonesView(w)));
+    links.append(
+      linkBtn("Copy to new", () => openCopySheet(w)),
+      linkBtn("Reopen", () => reopenWorkOrder(w)),
+      linkBtn("Edit", () => openWorkOrderSheet(w), true)
+    );
+    det.appendChild(links);
+  } else {
+    const actions = document.createElement("div"); actions.className = "wo-actions";
+    const primary = document.createElement("button"); primary.className = "wo-primary";
+    if (woIsUnassigned(w)){
+      primary.textContent = "✋ Claim this job";
+      primary.onclick = () => claimWorkOrder(w);
+    } else {
+      primary.textContent = "✓ Close work order";
+      primary.onclick = () => openCompleteSheet(w);
     }
-    const close = document.createElement("button"); close.className = "wo-close-btn"; close.textContent = "Close work order"; close.onclick = () => openCompleteSheet(w);
-    actions.appendChild(close);
+    actions.appendChild(primary);
+    const links = document.createElement("div"); links.className = "wo-linkrow";
+    if (woIsMine(w, myName())) links.append(linkBtn("Update progress", () => openProgressSheet(w)));
+    links.append(linkBtn(woIsUnassigned(w) ? "Assign to…" : "Reassign", () => reassignWorkOrder(w)));
+    if (woIsUnassigned(w)) links.append(linkBtn("Close", () => openCompleteSheet(w)));
+    links.append(linkBtn("Edit", () => openWorkOrderSheet(w), true));
+    actions.appendChild(links);
+    det.appendChild(actions);
   }
-  li.appendChild(actions);
+  li.appendChild(det);
   return li;
 }
-// Group header for work orders: name + a red circle badge showing the number of open work orders
-function woGroupHeader(label, key, openCount){
+// Group header for work orders: the assignee's name with a quiet count ("Isaac · 2").
+// The red alert badge is reserved for the payout group — the one header that needs Dad NOW.
+function woGroupHeader(label, key, openCount, alert){
   const li = document.createElement("li");
   li.className = "group-head wo-group-head";
   li.style.cssText = "cursor:pointer;display:flex;align-items:center;";
   const collapsed = collapsedGroups.has(key);
-  const chev = document.createElement("span"); chev.textContent = collapsed ? "▸ " : "▾ ";
+  const chev = document.createElement("span"); chev.className = "wo-gchev"; chev.textContent = collapsed ? "▸" : "▾";
   const name = document.createElement("span"); name.textContent = label; name.style.flex = "0 0 auto";
   li.append(chev, name);
-  if (openCount > 0){ const b = document.createElement("span"); b.className = "wo-badge"; b.textContent = openCount; li.appendChild(b); }
+  if (openCount > 0){
+    if (alert){ const b = document.createElement("span"); b.className = "wo-badge"; b.textContent = openCount; li.appendChild(b); }
+    else { const c = document.createElement("span"); c.className = "wo-count"; c.textContent = "· " + openCount; li.appendChild(c); }
+  }
   li.onclick = () => { collapsed ? collapsedGroups.delete(key) : collapsedGroups.add(key); render(); };
   return li;
 }
