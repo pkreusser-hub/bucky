@@ -448,6 +448,26 @@ DETERMINISTIC id (idempotent vs self-healing sweeps) + targeted FCM via pushToke
 bell renderer now type-aware (bank_credit rows → Farm Bank, not lobby-invite styling).
 NOTE behavior change: payout alert text unified to "💰 $X added to your bank! (Work
 order: <name>)". Suites: cal_ui 197 · notif_chore_test.mjs 18 · notif_bank_test.cjs 19.
+CALENDAR UX REWORK (2026-07-23, two pushed batches): ‹ › nav buttons REMOVED (Today + ↻ stay).
+MONTH: phones ≤700px swap title chips for event DOTS (.cal-dots; navy timed/red all-day) w/
+34px cells so the tapped day's agenda shows 3+ events with no scrolling (desktop keeps chips);
+swipe left/right (attachCalSwipe: pointer-based so mouse-drag + horizontal wheel work; real
+swipe suppresses the day-cell click via a capture handler) changes month. WEEK: endless feed
+BOTH directions — calWeeksBefore(1)/calWeekCount(3) grow ±2 per IntersectionObserver sentinel
+(CAL_WEEK_MAX 26 each way); upward prepend compensates scroll (scrollHeight delta →
+window.scrollTo) so content never jumps; opening the week tab ALWAYS snaps calFocus to today
++ aligns today's sep (data-anchor) under the sticky controls (calWeekScrollPending one-shot);
+labeled .cal-weeksep per week, dates on every day card; fetch range = anchor±counts weeks.
+DAY: full 30-min planner grid (CAL_SLOT_H 26px × 48 slots, hour gutter labels, timed events =
+positioned blocks w/ PER-CLUSTER overlap lanes, all-day chip row, red .cal-nowline on today,
+auto-scroll to now−1h/first event/7AM, tap empty slot → add sheet prefilled w/ that time,
+swipe changes day). EVENT SHEET: end time defaults to start and FOLLOWS it until hand-edited
+(calEndTouched); start past end snaps end up; save clamps en ≥ st. openCalEventSheet gained
+(ev, opts{date,start}). Hooks: __CAL__.state() adds weekCount/weeksBefore. Suite: scratchpad
+cal_batch_test.mjs 30/30 (SWIPE TEST GOTCHA: pick a pointer y clamped inside BOTH the element
+and the viewport — a scrolled day grid has negative box.y and off-viewport coords silently
+no-op; measure scroll compensation by capturing anchor position in the SAME evaluate as the
+scrollTo, before the async observer fires).
 🍽 MEALS — Mom-only calorie tracker (2026-07-22, opus agent from Fable spec, UNPUSHED):
 3rd Plan-area member `mealplan` (NAV_GROUPS plan=['calendar','animalcare','mealplan'];
 chip via navKeyVisible gated on seesMeals()/MEAL_USERS=["Mom"]; render() bounces non-Mom
