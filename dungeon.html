@@ -167,9 +167,9 @@
       <h2>New campaign</h2>
       <label class="f">Campaign name</label>
       <input type="text" id="ncName" placeholder="e.g. Lost Mine of Phandelver" maxlength="90" />
-      <label class="f">Adventure module (optional — paste the module text, or load a .txt/.md file)</label>
+      <label class="f">Adventure module (optional — paste the module text, or load a .pdf/.txt/.md file)</label>
       <textarea id="ncModule" rows="5" placeholder="Paste a full 5e adventure module here and the DM will run it as written. Leave empty for a homebrew campaign."></textarea>
-      <input type="file" id="ncModuleFile" accept=".txt,.md,.markdown" style="margin-top:6px; font-size:13px;" />
+      <input type="file" id="ncModuleFile" accept=".txt,.md,.markdown,.pdf,application/pdf" style="margin-top:6px; font-size:13px;" />
       <div class="sub" id="ncModuleInfo" style="margin-top:4px;"></div>
       <label class="f">Campaign premise (optional, homebrew games)</label>
       <input type="text" id="ncPremise" placeholder="e.g. gritty low-magic sword & sorcery in a port city" maxlength="300" />
@@ -407,12 +407,78 @@
 
   $("newCampBtn").addEventListener("click", () => { $("newCampCard").style.display = "block"; $("ncName").focus(); });
   $("ncCancelBtn").addEventListener("click", () => { $("newCampCard").style.display = "none"; });
-  $("ncModuleFile").addEventListener("change", () => {
+  // ---- module file loading (.txt/.md read directly; .pdf extracted client-side) ----
+  // pdf.js is vendored in assets/pdfjs/ and lazy-loaded only when a PDF is actually picked,
+  // so the page itself stays light and works offline.
+  let pdfjsReady = null;
+  function loadPdfjs() {
+    if (pdfjsReady) return pdfjsReady;
+    pdfjsReady = new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "assets/pdfjs/pdf.min.js";
+      s.onload = () => {
+        try { window.pdfjsLib.GlobalWorkerOptions.workerSrc = "assets/pdfjs/pdf.worker.min.js"; resolve(window.pdfjsLib); }
+        catch (e) { pdfjsReady = null; reject(e); }
+      };
+      s.onerror = () => { pdfjsReady = null; reject(new Error("Couldn't load the PDF reader")); };
+      document.head.appendChild(s);
+    });
+    return pdfjsReady;
+  }
+  // Page text is reflowed line-by-line (items grouped by their y position) with a
+  // "----- page N -----" marker per page so the DM can honor the module's page references.
+  async function extractPdfText(file, onProgress) {
+    const lib = await loadPdfjs();
+    const data = new Uint8Array(await file.arrayBuffer());
+    const doc = await lib.getDocument({ data }).promise;
+    const numPages = doc.numPages;
+    let out = "";
+    try {
+      for (let p = 1; p <= numPages; p++) {
+        if (onProgress) onProgress(p, numPages);
+        const page = await doc.getPage(p);
+        const tc = await page.getTextContent();
+        let text = "", lastY = null;
+        for (const it of tc.items) {
+          if (typeof it.str !== "string") continue;
+          const y = it.transform ? Math.round(it.transform[5]) : null;
+          if (lastY !== null && y !== null && Math.abs(y - lastY) > 3) text += "\n";
+          else if (text && !text.endsWith("\n") && !text.endsWith(" ") && it.str && !it.str.startsWith(" ")) text += " ";
+          text += it.str;
+          if (it.hasEOL) text += "\n";
+          if (y !== null) lastY = y;
+        }
+        out += "\n\n----- page " + p + " -----\n\n" + text.trim();
+        if (out.length > 620000) { out += "\n\n[module truncated — 600k character limit reached]"; break; }
+      }
+    } finally { doc.destroy().catch(() => {}); }
+    return { text: out.trim(), pages: numPages };
+  }
+  $("ncModuleFile").addEventListener("change", async () => {
     const f = $("ncModuleFile").files[0];
     if (!f) return;
-    const r = new FileReader();
-    r.onload = () => { $("ncModule").value = String(r.result || ""); updateModuleInfo(); };
-    r.readAsText(f);
+    const isPdf = /\.pdf$/i.test(f.name) || f.type === "application/pdf";
+    if (!isPdf) {
+      const r = new FileReader();
+      r.onload = () => { $("ncModule").value = String(r.result || ""); updateModuleInfo(); };
+      r.readAsText(f);
+      return;
+    }
+    $("ncModuleInfo").textContent = "Opening PDF…";
+    try {
+      const { text, pages } = await extractPdfText(f, (p, n) => {
+        $("ncModuleInfo").textContent = "Extracting text… page " + p + " / " + n;
+      });
+      if (text.replace(/-+ page \d+ -+/g, "").trim().length < 200 && pages > 2) {
+        $("ncModuleInfo").textContent = "⚠ This PDF has almost no selectable text — it's probably scanned images. Try a text-based PDF or paste the text instead.";
+        return;
+      }
+      $("ncModule").value = text;
+      updateModuleInfo();
+      $("ncModuleInfo").textContent = "📄 " + pages + " pages extracted · " + $("ncModuleInfo").textContent;
+    } catch (e) {
+      $("ncModuleInfo").textContent = "⚠ Couldn't read that PDF: " + (e.message || e);
+    }
   });
   function updateModuleInfo() {
     const n = $("ncModule").value.length;
