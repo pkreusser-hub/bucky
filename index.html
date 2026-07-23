@@ -4586,10 +4586,44 @@ function attachCalSwipe(el){
   }, { passive: true });
 }
 // Scroll offset that clears the app header + sticky sub-nav + sticky calendar controls.
-let calStickyBase = 84;   // header + sub-nav height, measured each renderCalendar
+let calStickyBase = 84;   // header + sub-nav height, kept live by syncStickyTops
 function calStickyOffset(){
   const ctl = document.querySelector(".cal-controls");
   return calStickyBase + (ctl ? ctl.offsetHeight : 96) + 6;
+}
+// THE sticky-offset source of truth. The header's height CHANGES after render (the status
+// line tucks itself away ~4s after boot) — a one-time measurement left the pinned sub-nav/
+// controls floating below the shrunken header with a content-peek gap between them. A
+// ResizeObserver on the header re-syncs every layer whenever its size moves.
+function syncStickyTops(){
+  const hdr = document.querySelector("header");
+  const headerH = hdr ? hdr.offsetHeight : 84;
+  document.documentElement.style.setProperty("--subnav-top", headerH + "px");
+  const sn = document.getElementById("subnav");
+  calStickyBase = headerH + ((sn && sn.classList.contains("on")) ? sn.offsetHeight : 0);
+  document.documentElement.style.setProperty("--cal-sticky-top", calStickyBase + "px");
+  const ctl = document.querySelector(".cal-controls");
+  if (ctl) document.documentElement.style.setProperty("--cal-allday-top", (calStickyBase + ctl.offsetHeight - 1) + "px");
+  clampMonthAgenda();   // month view: the agenda scroller's height depends on the header too
+}
+if (typeof ResizeObserver !== "undefined"){
+  const _hdrRO = new ResizeObserver(()=> syncStickyTops());
+  const _hdrEl = document.querySelector("header");
+  if (_hdrEl) _hdrRO.observe(_hdrEl);
+}
+// Size the month view's agenda card to the space between the grid and the bottom nav —
+// the page itself must not scroll (body.cal-fixed). Second pass eats any residual
+// document overshoot from below-card margins.
+function clampMonthAgenda(){
+  if (!document.body.classList.contains("cal-fixed")) return;
+  const card = document.querySelector(".cal-agenda .cal-daycard.scrolly");
+  if (!card) return;
+  const bn = document.getElementById("bnav");
+  const bh = bn ? bn.getBoundingClientRect().height : 78;
+  const h = window.innerHeight - card.getBoundingClientRect().top - bh - 10;
+  card.style.maxHeight = Math.max(150, h) + "px";
+  const extra = document.documentElement.scrollHeight - window.innerHeight;
+  if (extra > 0) card.style.maxHeight = Math.max(150, h - extra) + "px";
 }
 
 function calBanner(text, kind){
@@ -4609,11 +4643,7 @@ function renderCalendar(){
   // month view = fully pinned page (see body.cal-fixed); week/day scroll normally
   document.body.classList.toggle("cal-fixed", calView === "month");
   // pin the calendar controls just below the sticky header + the (now sticky) Plan sub-nav
-  const hdr = document.querySelector("header");
-  const headerH = hdr ? hdr.offsetHeight : 84;
-  const sn = document.getElementById("subnav");
-  calStickyBase = headerH + ((sn && sn.classList.contains("on")) ? sn.offsetHeight : 0);
-  document.documentElement.style.setProperty("--cal-sticky-top", calStickyBase + "px");
+  syncStickyTops();
   const list = document.getElementById("list"); list.innerHTML = "";
   const wrap = document.createElement("li"); wrap.style.cssText = "background:transparent;border:0;box-shadow:none;padding:0;";
   const cal = document.createElement("div"); cal.className = "cal";
@@ -4664,11 +4694,8 @@ function renderCalendar(){
   }
 
   wrap.appendChild(cal); list.appendChild(wrap);
-  // the day view's sticky all-day row pins right under the controls — measure after layout
-  requestAnimationFrame(()=>{
-    const ctl = document.querySelector(".cal-controls");
-    if (ctl) document.documentElement.style.setProperty("--cal-allday-top", (calStickyBase + ctl.offsetHeight - 1) + "px");
-  });
+  // re-sync after layout: the all-day row offset needs the mounted controls' height
+  requestAnimationFrame(syncStickyTops);
   ensureCalData();
 }
 
@@ -4712,17 +4739,7 @@ function buildCalMonth(container){
   // The month grid stays FIXED (2026-07-23): the page itself doesn't scroll in month view —
   // the selected day's event card becomes its own scroller, sized to the space left between
   // the grid and the bottom nav.
-  requestAnimationFrame(()=>{
-    window.scrollTo(0, 0);
-    const bn = document.getElementById("bnav");
-    const bh = bn ? bn.getBoundingClientRect().height : 78;
-    const h = window.innerHeight - card.getBoundingClientRect().top - bh - 10;
-    card.style.maxHeight = Math.max(150, h) + "px";
-    // second pass: body/main bottom paddings still push the document past the viewport —
-    // measure the overshoot and take it out of the card so the page truly cannot scroll
-    const extra = document.documentElement.scrollHeight - window.innerHeight;
-    if (extra > 0) card.style.maxHeight = Math.max(150, h - extra) + "px";
-  });
+  requestAnimationFrame(()=>{ window.scrollTo(0, 0); clampMonthAgenda(); });
 }
 // Week view = an ENDLESS FEED (2026-07-23): weeks stack under a labeled separator and more
 // append as you scroll (‹ › still jump, resetting the feed to 3 weeks). Growth happens
@@ -7089,9 +7106,6 @@ function renderSubnav(){
   const subs = g.members.filter(k => SECTION_BY_KEY[k] && navKeyVisible(k));   // only real, visible sections get a chip
   if (subs.length < 2){ el.className = ""; el.innerHTML = ""; return; }
   el.className = "on";
-  // pin just below the sticky header (measured live, like the calendar controls)
-  const hdr = document.querySelector("header");
-  document.documentElement.style.setProperty("--subnav-top", (hdr ? hdr.offsetHeight : 84) + "px");
   el.innerHTML = "";
   const seg = document.createElement("div"); seg.className = "subseg";
   for (const key of subs){
@@ -7105,6 +7119,7 @@ function renderSubnav(){
     seg.appendChild(btn);
   }
   el.appendChild(seg);
+  syncStickyTops();   // sub-nav height feeds every sticky layer below it
 }
 
 // Build the top tab bar from SECTIONS (Home first, then every section). Adding a
