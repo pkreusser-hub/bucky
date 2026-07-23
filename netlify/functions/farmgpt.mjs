@@ -323,6 +323,17 @@ no markdown fences, no commentary, JSON only.
   this schema:
 {"name":"","race":"","class":"","level":1,"background":"","alignment":"","xp":0,"abilities":{"str":10,"dex":10,"con":10,"int":10,"wis":10,"cha":10},"ac":10,"maxHp":0,"hp":0,"tempHp":0,"speed":30,"profBonus":2,"saves":[],"skills":[],"attacks":[],"spellSlots":{},"spells":[],"inventory":[],"gold":{"gp":0,"sp":0,"cp":0},"conditions":[],"exhaustion":0,"deathSaves":{"successes":0,"failures":0},"features":[],"backstory":"","notes":""}`;
 
+// Scanned-module transcription: photocopied module PDFs have no text layer, so the page
+// renders each PDF page to a JPEG and this mode transcribes it (Sonnet vision reads
+// two-column RPG layouts + stat blocks far better than classic OCR). One page per request.
+const DND_OCR_SYSTEM = `You transcribe scanned pages of a tabletop RPG adventure module. You
+receive one page image. Output the COMPLETE text of the page, faithfully and in reading order
+(top to bottom; left column fully, then right column, for two-column layouts). Preserve headings,
+boxed read-aloud text (prefix each of its lines with "> "), stat blocks, tables (as aligned plain
+text), DCs, dice notation, and every number exactly as printed. Do not summarize, do not skip
+anything, and do not add commentary of your own. If part of the page is truly illegible, write
+[illegible] at that spot. Output ONLY the transcribed text.`;
+
 // Campaign-journal call (background): the story summary system reflavored for D&D continuity.
 const DND_SUMMARY_SYSTEM = `You keep the campaign journal for an ongoing D&D 5e campaign. You
 receive the journal so far (if any) and the newest events. Rewrite the journal to cover the WHOLE
@@ -343,6 +354,7 @@ const MODES = {
   dnd:         { system: DND_SYSTEM,        maxTokens: 3000, thinking: undefined },
   dnd_update:  { system: DND_UPDATE_SYSTEM, maxTokens: 1500, thinking: { type: "disabled" } },
   dnd_summary: { system: DND_SUMMARY_SYSTEM, maxTokens: 600, thinking: { type: "disabled" } },
+  dnd_ocr:     { system: DND_OCR_SYSTEM,    maxTokens: 3000, thinking: { type: "disabled" } },
 };
 
 // Server-side history caps — the client is untrusted, so bound everything here.
@@ -624,7 +636,7 @@ async function clearStoryLog(date) {
 // readable by any family device (it syncs to localStorage for the soft gates), so the hash
 // itself can never be the credential — only PIN knowledge is. Fails CLOSED: this mode has
 // no content guardrails, so an infra hiccup must deny, never allow.
-const DND_STREAM_MODES = new Set(["dnd", "dnd_update", "dnd_summary"]);
+const DND_STREAM_MODES = new Set(["dnd", "dnd_update", "dnd_summary", "dnd_ocr"]);
 const DND_ACTIONS = new Set(["dnd_list", "dnd_get", "dnd_save", "dnd_delete"]);
 const DND_COLLECTION = "farmgpt_dnd";
 const MAX_MODULE_CHARS = 600_000;     // ~150k tokens — comfortably inside Sonnet's context

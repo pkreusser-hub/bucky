@@ -1424,8 +1424,14 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   function — campaign doc c_<id> (kind, name, charName, sheet, journal, turns tail ≤80,
   moduleShards, updatedAt) + module shards m_<id>_<n> (≤400k chars each, module ≤600k, pasted or
   .txt at campaign creation; module rides in the system prompt every dnd turn → cached re-reads).
-  No sheet at creation → DM runs session zero. Usage logs under NEW `d_*` prefix (dashboard: 🎲
-  row + column, priced at Sonnet). VERIFY: `node tools/_verify-dnd-server.mjs` (41 checks:
+  No sheet at creation → DM runs session zero. MODULE PDFs (2026-07-23): picker accepts .pdf —
+  text-layer PDFs extract client-side via VENDORED pdf.js (assets/pdfjs/, pdfjs-dist 3.11.174,
+  lazy-loaded on pick; "----- page N -----" markers so the DM honors page refs; 600k cap);
+  SCANNED/photocopy PDFs (no text layer, detected <200 chars over >2 pages) offer "🔍 Read it
+  with AI" → mode `dnd_ocr` (Sonnet vision, PIN-gated, 1 page-JPEG per request ≤1568px q0.82,
+  3 in flight, 2 attempts/page, cancel keeps finished pages, ~1-2¢/page one-time). Usage logs
+  under NEW `d_*` prefix (dashboard: 🎲 row + column, priced at Sonnet). VERIFY:
+  `node tools/_verify-dnd-server.mjs` (47 checks:
   PIN fail-closed/brake, no-FAMILY_RULES + Sonnet + module injection asserts, no-cap/no-log,
   d_* usage, storage round-trip incl. shard preservation on module-less re-save, story/research
   regression — rules still stamped, cap still fires, scenes still logged). Client suite (35

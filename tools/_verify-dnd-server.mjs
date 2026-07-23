@@ -100,6 +100,8 @@ const antSrv = http.createServer(async (req, res) => {
   ev({ type: "message_start", message: { usage: { input_tokens: 100, cache_creation_input_tokens: 5, cache_read_input_tokens: 7 } } });
   const text = j.system.includes("bookkeeper")
     ? '{"name":"Torin","hp":9,"maxHp":11,"inventory":[{"item":"torch","qty":3}]}'
+    : j.system.includes("transcribe scanned pages")
+    ? "PAGE TRANSCRIPT: Area 1 — two goblins (AC 15)."
     : "The goblin snarls. What do you do?\n===ROLL=== d20+2|player|Initiative";
   ev({ type: "content_block_delta", delta: { type: "text_delta", text } });
   ev({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 42 } });
@@ -271,6 +273,25 @@ console.log("— story/research regression: guardrails + cap untouched —");
 {
   const r = await call({ mode: "stats" });
   ok(r.status === 200 && JSON.parse(r.text).days !== undefined, "stats endpoint still works");
+}
+
+console.log("— dnd_ocr (scanned-module transcription) —");
+{
+  const r = await call({ mode: "dnd_ocr", messages: msgs });
+  ok(r.status === 403, "dnd_ocr PIN-gated like the rest");
+}
+{
+  const imgMsg = [{ role: "user", content: [
+    { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "aGVsbG8=" } },
+    { type: "text", text: "Transcribe this module page completely." },
+  ] }];
+  const r = await call({ mode: "dnd_ocr", dndPin: PIN, messages: imgMsg });
+  const a = lastAnt();
+  ok(r.status === 200 && r.text.includes("PAGE TRANSCRIPT"), "dnd_ocr streams a transcript");
+  ok(a.model === "claude-sonnet-5" && a.max_tokens === 3000 && a.thinking && a.thinking.type === "disabled", "Sonnet vision, 3000 tok, thinking off");
+  ok(a.system.includes("transcribe scanned pages"), "OCR system prompt stamped");
+  ok(Array.isArray(a.messages[0].content) && a.messages[0].content.some((b) => b.type === "image"), "image block passes the sanitizer");
+  ok(!a.system.includes("CONTENT RULES"), "no family rules on OCR either");
 }
 
 console.log("— brute-force brake (last: poisons the failure counter) —");

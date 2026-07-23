@@ -171,6 +171,10 @@
       <textarea id="ncModule" rows="5" placeholder="Paste a full 5e adventure module here and the DM will run it as written. Leave empty for a homebrew campaign."></textarea>
       <input type="file" id="ncModuleFile" accept=".txt,.md,.markdown,.pdf,application/pdf" style="margin-top:6px; font-size:13px;" />
       <div class="sub" id="ncModuleInfo" style="margin-top:4px;"></div>
+      <div id="ncOcrRow" style="display:none; margin-top:8px;">
+        <button class="btn ghost" id="ncOcrBtn" style="font-size:13px; padding:9px 12px;">🔍 Read it with AI (~1–2¢ per page)</button>
+        <button class="btn red" id="ncOcrCancelBtn" style="display:none; font-size:13px; padding:9px 12px;">✕ Stop reading</button>
+      </div>
       <label class="f">Campaign premise (optional, homebrew games)</label>
       <input type="text" id="ncPremise" placeholder="e.g. gritty low-magic sword & sorcery in a port city" maxlength="300" />
       <label class="f">Character sheet JSON (optional — leave empty to build a character with the DM)</label>
@@ -470,7 +474,12 @@
         $("ncModuleInfo").textContent = "Extracting text… page " + p + " / " + n;
       });
       if (text.replace(/-+ page \d+ -+/g, "").trim().length < 200 && pages > 2) {
-        $("ncModuleInfo").textContent = "⚠ This PDF has almost no selectable text — it's probably scanned images. Try a text-based PDF or paste the text instead.";
+        // Photocopy/scan with no text layer → offer the AI-transcription path instead.
+        scannedPdfFile = f;
+        $("ncModuleInfo").textContent = "⚠ This PDF is scanned images (no selectable text, " + pages +
+          " pages). I can read it with AI instead — Sonnet transcribes each page faithfully, one-time cost roughly 1–2¢ a page.";
+        $("ncOcrRow").style.display = "block";
+        $("ncOcrBtn").style.display = "";
         return;
       }
       $("ncModule").value = text;
@@ -480,6 +489,76 @@
       $("ncModuleInfo").textContent = "⚠ Couldn't read that PDF: " + (e.message || e);
     }
   });
+
+  // ---- AI transcription for scanned modules (dnd_ocr) ----
+  // Each page renders to a JPEG via pdf.js and goes to the server's vision transcription
+  // mode, one page per request, 3 pages in flight. Assembled with the same page markers
+  // as the text path. Cancel keeps whatever has finished so far.
+  let scannedPdfFile = null;
+  let ocrCancelled = false;
+  async function ocrPdf(file) {
+    const lib = await loadPdfjs();
+    const data = new Uint8Array(await file.arrayBuffer());
+    const doc = await lib.getDocument({ data }).promise;
+    const numPages = doc.numPages;
+    const results = new Array(numPages).fill(null);
+    let done = 0, failed = 0, nextPage = 1;
+    ocrCancelled = false;
+    const renderPage = async (p) => {
+      const page = await doc.getPage(p);
+      let vp = page.getViewport({ scale: 1 });
+      const scale = Math.min(2.2, 1568 / Math.max(vp.width, vp.height));
+      vp = page.getViewport({ scale });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(vp.width); canvas.height = Math.round(vp.height);
+      await page.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;
+      return canvas.toDataURL("image/jpeg", 0.82).split(",")[1];
+    };
+    const worker = async () => {
+      for (;;) {
+        const p = nextPage++;
+        if (p > numPages || ocrCancelled) return;
+        try {
+          const b64 = await renderPage(p);
+          let text = null;
+          for (let attempt = 0; attempt < 2 && text === null && !ocrCancelled; attempt++) {
+            try {
+              text = await callStream("dnd_ocr", [{ role: "user", content: [
+                { type: "image", source: { type: "base64", media_type: "image/jpeg", data: b64 } },
+                { type: "text", text: "Transcribe this module page completely." },
+              ] }], null, {});
+            } catch (e) { if (attempt === 1) throw e; }
+          }
+          results[p - 1] = (text || "").trim();
+        } catch { results[p - 1] = "[page " + p + " could not be read]"; failed++; }
+        done++;
+        $("ncModuleInfo").textContent = "🔍 AI-reading the module… " + done + " / " + numPages +
+          " pages" + (failed ? " (" + failed + " failed)" : "");
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    doc.destroy().catch(() => {});
+    const got = results.map((t, i) => t === null ? null : "\n\n----- page " + (i + 1) + " -----\n\n" + t)
+      .filter((t) => t !== null).join("").trim();
+    return { text: got, pages: numPages, done, failed };
+  }
+  $("ncOcrBtn").addEventListener("click", async () => {
+    if (!scannedPdfFile) return;
+    $("ncOcrBtn").style.display = "none";
+    $("ncOcrCancelBtn").style.display = "";
+    try {
+      const r = await ocrPdf(scannedPdfFile);
+      $("ncModule").value = r.text;
+      const words = "~" + Math.round(r.text.length / 4000) / 10 + "k words";
+      $("ncModuleInfo").textContent = (ocrCancelled ? "⏹ Stopped — kept " : "🔍 AI-read ") + r.done + " / " + r.pages +
+        " pages · " + words + (r.failed ? " · " + r.failed + " failed ([could not be read] markers left in place)" : "");
+    } catch (e) {
+      $("ncModuleInfo").textContent = "⚠ AI reading failed: " + (e.message || e);
+      $("ncOcrBtn").style.display = "";
+    }
+    $("ncOcrCancelBtn").style.display = "none";
+  });
+  $("ncOcrCancelBtn").addEventListener("click", () => { ocrCancelled = true; });
   function updateModuleInfo() {
     const n = $("ncModule").value.length;
     $("ncModuleInfo").textContent = n ? "~" + Math.round(n / 4000) / 10 + "k words loaded" +
