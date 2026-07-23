@@ -594,6 +594,29 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .home2 .wxp { font-size: 10.5px; font-weight: 700; color: #3574d4; font-variant-numeric: tabular-nums; }
   .home2 .wxload { font-size: 13px; color: var(--muted); padding: 6px 0; }
 
+  /* Stock watchlist (bottom of the dashboard) */
+  .home2 .stockcard { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 12px 14px; }
+  .home2 .stockhead { font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .home2 .stockhead .stadd { color: var(--green); font-weight: 800; text-transform: none; letter-spacing: 0; font-size: 13px; border: 0; background: transparent; cursor: pointer; padding: 2px 4px; }
+  .home2 .strow { display: flex; align-items: center; gap: 10px; padding: 9px 2px; border-top: 1px solid var(--line-2); }
+  .home2 .strow:first-of-type { border-top: 0; }
+  .home2 .stsym { font-weight: 800; font-size: 15px; color: var(--ink); flex: 0 0 auto; min-width: 62px; }
+  .home2 .stname { font-size: 11.5px; color: var(--muted); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .home2 .stprice { font-size: 15px; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; text-align: right; flex: 0 0 auto; }
+  .home2 .stchg { font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums; text-align: right; flex: 0 0 auto; min-width: 92px; }
+  .home2 .stchg.up { color: #1a8a4f; }
+  .home2 .stchg.down { color: var(--red); }
+  .home2 .stchg.flat { color: var(--muted); }
+  .home2 .strm { border: 0; background: transparent; color: var(--muted); font-size: 15px; cursor: pointer; padding: 2px 4px; flex: 0 0 auto; line-height: 1; }
+  .home2 .strm:active { transform: scale(.9); }
+  .home2 .stempty { font-size: 13px; color: var(--muted); padding: 8px 2px 4px; }
+  .home2 .stmiss { font-size: 11.5px; color: var(--muted); flex: 1; }
+  .home2 .staddrow { display: flex; gap: 8px; margin-top: 10px; }
+  .home2 .staddrow input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font: inherit; font-size: 15px; text-transform: uppercase; color: var(--ink); background: var(--card); }
+  .home2 .staddrow input::placeholder { text-transform: none; color: var(--muted); }
+  .home2 .staddrow button { flex: 0 0 auto; border: 0; border-radius: 10px; background: var(--green); color: #fff; font: inherit; font-weight: 800; font-size: 14px; padding: 0 16px; cursor: pointer; }
+  .home2 .stfoot { font-size: 10.5px; color: var(--muted); margin-top: 8px; text-align: right; }
+
   /* FarmGPT research ask bar */
   .home2 .askbar { display: flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 6px 6px 6px 12px; }
   .home2 .askbar .askico { font-size: 17px; flex: 0 0 auto; }
@@ -2220,6 +2243,122 @@ function renderWxInto(el){
   }
 }
 
+// ---- Stock watchlist (dashboard, 2026-07-23) ----
+// Per-device list (localStorage bucky_stocks = ["AAPL",...]) + a quote cache for instant
+// paint, refreshed in the background through the stocks Netlify function (Yahoo can't be
+// fetched from the browser directly — CORS — so it's proxied server-side; same secret gate
+// as the other functions). Paint-from-cache-then-refresh mirrors the weather card.
+const STOCKS_FN_URL = "/.netlify/functions/stocks";
+const STOCK_TTL = 60 * 1000;             // background-refresh quotes older than this
+let stockQuotes = {};                    // { SYM: {price,change,changePct,currency,name,ok} }
+let stockQuotesTs = 0;
+let stockFetching = false;
+let stockAddOpen = false;                // is the add-a-ticker row showing?
+try { const c = JSON.parse(localStorage.getItem("bucky_stocks_cache")); if (c && c.q){ stockQuotes = c.q; stockQuotesTs = c.ts || 0; } } catch {}
+function stockSymbols(){
+  try { const a = JSON.parse(localStorage.getItem("bucky_stocks")); if (Array.isArray(a)) return a.filter(s => typeof s === "string"); } catch {}
+  return [];
+}
+function stockSaveSymbols(arr){ try { localStorage.setItem("bucky_stocks", JSON.stringify(arr)); } catch {} }
+function stockFmtPrice(v, cur){
+  const p = (cur === "USD" || !cur) ? "$" : "";
+  return p + Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function stockFmtChg(q){
+  const up = q.change > 0.0001, down = q.change < -0.0001;
+  const arrow = up ? "▲" : down ? "▼" : "•";
+  const sign = up ? "+" : "";
+  return { cls: up ? "up" : down ? "down" : "flat",
+    text: `${arrow} ${sign}${q.change.toFixed(2)} (${sign}${q.changePct.toFixed(2)}%)` };
+}
+const STOCK_HEAD = `<div class="stockhead"><span>📈 Stocks</span><button type="button" class="stadd">＋ Add</button></div>`;
+function paintStocks(el){
+  const syms = stockSymbols();
+  el.innerHTML = STOCK_HEAD;
+  const head = el.querySelector(".stockhead .stadd");
+  head.onclick = () => { stockAddOpen = !stockAddOpen; paintStocks(el); if (stockAddOpen){ const i = el.querySelector(".staddrow input"); if (i) i.focus(); } };
+  if (!syms.length && !stockAddOpen){
+    const e = document.createElement("div"); e.className = "stempty"; e.textContent = "Tap ＋ Add to track a stock's price and daily change.";
+    el.appendChild(e);
+  }
+  for (const sym of syms){
+    const q = stockQuotes[sym];
+    const row = document.createElement("div"); row.className = "strow";
+    const s = document.createElement("div"); s.className = "stsym"; s.textContent = sym;
+    row.appendChild(s);
+    if (q && q.ok){
+      const nm = document.createElement("div"); nm.className = "stname"; nm.textContent = q.name || "";
+      const pr = document.createElement("div"); pr.className = "stprice"; pr.textContent = stockFmtPrice(q.price, q.currency);
+      const ch = stockFmtChg(q); const cg = document.createElement("div"); cg.className = "stchg " + ch.cls; cg.textContent = ch.text;
+      row.append(nm, pr, cg);
+    } else if (q && !q.ok){
+      const m = document.createElement("div"); m.className = "stmiss"; m.textContent = "Not found";
+      row.appendChild(m);
+    } else {
+      const m = document.createElement("div"); m.className = "stmiss"; m.textContent = "Loading…";
+      row.appendChild(m);
+    }
+    const rm = document.createElement("button"); rm.className = "strm"; rm.textContent = "✕"; rm.title = "Remove " + sym;
+    rm.setAttribute("aria-label", "Remove " + sym);
+    rm.onclick = () => { stockSaveSymbols(stockSymbols().filter(x => x !== sym)); paintStocks(el); };
+    row.appendChild(rm);
+    el.appendChild(row);
+  }
+  if (stockAddOpen){
+    const add = document.createElement("div"); add.className = "staddrow";
+    add.innerHTML = `<input type="text" placeholder="Ticker (e.g. AAPL)" maxlength="12" autocapitalize="characters" autocomplete="off" enterkeyhint="done" /><button type="button">Add</button>`;
+    const input = add.querySelector("input");
+    const submit = () => {
+      const sym = input.value.trim().toUpperCase();
+      if (!/^[A-Z0-9.\-^=]{1,12}$/.test(sym)){ input.focus(); return; }
+      const cur = stockSymbols();
+      if (!cur.includes(sym)){ cur.push(sym); stockSaveSymbols(cur); }
+      input.value = "";
+      stockQuotesTs = 0;             // force a refresh so the new ticker fills in
+      paintStocks(el);
+      const i2 = el.querySelector(".staddrow input"); if (i2) i2.focus();
+      stocksRefresh(true);
+    };
+    add.querySelector("button").onclick = submit;
+    input.addEventListener("keydown", e => { if (e.key === "Enter"){ e.preventDefault(); submit(); } });
+    el.appendChild(add);
+  }
+  if (syms.some(s => stockQuotes[s] && stockQuotes[s].ok)){
+    const f = document.createElement("div"); f.className = "stfoot";
+    f.textContent = "Updated " + new Date(stockQuotesTs || Date.now()).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) + " · delayed";
+    el.appendChild(f);
+  }
+}
+async function stocksFetch(){
+  const syms = stockSymbols();
+  if (!syms.length){ stockQuotes = {}; return; }
+  const r = await fetch(STOCKS_FN_URL, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ secret: FAMILY_PASSWORD, action: "quote", symbols: syms }),
+  });
+  if (!r.ok) throw new Error("stocks " + r.status);
+  const data = await r.json();
+  const q = {};
+  for (const item of (data.quotes || [])) if (item && item.symbol) q[item.symbol] = item;
+  stockQuotes = q; stockQuotesTs = Date.now();
+  try { localStorage.setItem("bucky_stocks_cache", JSON.stringify({ ts: stockQuotesTs, q })); } catch {}
+  return q;
+}
+// Refresh if forced, or the cache is stale, or a tracked symbol has no quote yet. Repaints
+// only while still on the dashboard (weather-card pattern); failures leave the cache as-is.
+function stocksRefresh(force){
+  if (stockFetching) return;
+  const syms = stockSymbols();
+  if (!syms.length) return;
+  const stale = force || (Date.now() - stockQuotesTs) > STOCK_TTL || syms.some(s => !stockQuotes[s]);
+  if (!stale) return;
+  stockFetching = true;
+  stocksFetch()
+    .then(() => { const cur = document.querySelector(".home2 .stockcard"); if (cur && currentTab === "dashboard") paintStocks(cur); })
+    .catch(() => {})
+    .finally(() => { stockFetching = false; });
+}
+
 function renderDashboard(){
   document.querySelector(".bar").style.display = "none";
   document.getElementById("empty").style.display = "none";
@@ -2433,6 +2572,12 @@ function renderDashboard(){
   jb.onclick = () => { jokeExtra++; showJoke(); };
   showJoke();
   home.appendChild(joke);
+
+  // ---- stock watchlist (bottom of the dashboard) ----
+  const stocks = document.createElement("div"); stocks.className = "stockcard";
+  home.appendChild(stocks);
+  paintStocks(stocks);
+  stocksRefresh();
 
   const foot = document.createElement("div"); foot.className = "hfoot";
   foot.textContent = "Bucky · Family Farm Hub";
@@ -6186,6 +6331,14 @@ window.__MEAL__ = {
   state: () => ({ page: mealPage, day: mealDayKey, weekOffset: mealWeekOffset, today: mealToday(), progRange: mealProgRange, months: Object.keys(mealLogs) }),
 };
 
+window.__STOCKS__ = {
+  symbols: () => stockSymbols(),
+  add: (s) => { const c = stockSymbols(); if (!c.includes(s)) { c.push(s); stockSaveSymbols(c); } },
+  setQuotes: (q, ts) => { stockQuotes = q || {}; stockQuotesTs = ts || Date.now(); },
+  quotes: () => stockQuotes,
+  refresh: (f) => stocksRefresh(f),
+  fetch: () => stocksFetch(),
+};
 window.__CAL__ = {
   setFocus: (k)=>{ calFocus = parseDateKey(k); calSelectedKey = k; if (currentTab === "calendar") renderCalendar(); },
   setView: (v)=>{ calSetView(v); },

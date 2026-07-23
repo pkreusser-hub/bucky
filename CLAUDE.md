@@ -478,6 +478,27 @@ set in a rAF at the end of renderCalendar). #subnav (ALL area sub-navs, not just
 sticky under the header (--subnav-top set in renderSubnav) + slimmed (5px chip padding);
 .cal-controls stack below it — calStickyBase (module let) = headerH + subnavH feeds the
 sticky top, the stuck-shadow rootMargin, and calStickyOffset(). Suite now 36/36.
+📈 STOCK WATCHLIST (2026-07-23, dashboard bottom): a per-device watchlist card at the end of
+renderDashboard (after the dad joke, before the footer). Add/remove tickers (＋ Add toggles an
+inline uppercase input; ✕ removes), each row shows ticker · company name · price · daily change
+colored green ▲ / red ▼ (vs prior close) + %. DATA: localStorage bucky_stocks (["AAPL",...]) +
+bucky_stocks_cache {ts,q:{SYM:quote}} for instant paint; stocksRefresh() repaints-if-still-on-
+dashboard when stale >60s / a symbol has no quote / forced (weather-card pattern). Quotes come
+through netlify/functions/stocks.mjs — a KEYLESS server proxy to Yahoo's /v8/finance/chart/<SYM>
+endpoint (no API key, no new env var — just the existing BUCKY_NOTIFY_SECRET gate; server-side
+because Yahoo sends no CORS headers so a direct browser fetch like the weather widget can't
+work). Per-symbol parallel fetch (the batch /v7/quote endpoint now needs a crumb+cookie),
+cleanSymbol() allows only [A-Z0-9.\-^=]{1,12} (blocks path injection; permits BRK-B/^GSPC), a
+bad/unknown ticker returns {ok:false} without sinking the others, ≤20 symbols, browser UA (Yahoo
+rate-limits the default). STOCKS_BASE_URL env override for tests. NOT live-tested vs real Yahoo
+(env egress blocks finance hosts) — after deploy spot-check a couple tickers render live. VERIFY:
+node tools/_verify-stocks-server.mjs (18: parse/change-math, unknown→ok:false, dedupe+upcase,
+injection/over-long reject, 20-cap, secret gate) + scratchpad stocks_client_test.mjs (14,
+playwright: add/upcase/persist, ▲green/▼red, Not-found, ✕ remove, cache paints with network
+down). GOTCHA: `new Response(null,{status:204})` for the CORS preflight — Node's undici rejects a
+204 with even an empty-STRING body (Netlify tolerated ""); and in playwright route mocks the
+catch-all `**/.netlify/functions/**` must be registered BEFORE the specific `/stocks` route
+(most-recently-added handler wins).
 🍽 MEALS — Mom-only calorie tracker (2026-07-22, opus agent from Fable spec, UNPUSHED):
 3rd Plan-area member `mealplan` (NAV_GROUPS plan=['calendar','animalcare','mealplan'];
 chip via navKeyVisible gated on seesMeals()/MEAL_USERS=["Mom"]; render() bounces non-Mom
