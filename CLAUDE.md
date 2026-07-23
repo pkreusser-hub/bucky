@@ -1401,6 +1401,38 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   persistence isn't guaranteed) — re-ran p12_polish.mjs (26/26) as a spot-check that the ring
   markup/CSS change didn't regress the rest of Home; didn't re-run p9/p10/p11 since none of them
   touch the ring/askbar/chapter code paths this batch changed.
+- 🎲 DUNGEON MODE (2026-07-23, Dad-only D&D 5e DM): `dungeon.html` (self-contained page, linked
+  Dad-only from the FarmGPT home next to Story Log) + modes `dnd`/`dnd_update`/`dnd_summary` +
+  storage actions `dnd_list/get/save/delete` in farmgpt.mjs. Sonnet 5 (RESEARCH_MODEL), adaptive
+  thinking, maxTokens 3000. DELIBERATE DIFFERENCES from story mode (user spec): NO FAMILY_RULES
+  appended (stock Sonnet only), NO daily cap, NO story-log capture. Because guardrails are off,
+  this is the app's ONE hard server-side gate: every dnd* request carries Dad's RAW PIN
+  (`dndPin`, typed per page-load, kept in memory + tab sessionStorage only, NEVER localStorage —
+  the synced pinHash is public-ish so hash-as-credential would be replayable by any kid device);
+  server sha256(pin+":"+secret)-compares vs settings_<fam>/dadAuth.pinHash (familyKeyFromSecret
+  mirrors index.html roomId; 10-min warm cache; 8 wrong tries/10min = brake) and FAILS CLOSED.
+  DM contract in DND_SYSTEM: absolute player agency (never act/speak for the PC), RAW 5e 2014,
+  module fidelity, and REAL DICE — model may never invent a roll; it ends replies with
+  `===ROLL=== dice|player-or-dm|label` lines, the page rolls crypto-random (adv/dis = d20adv/
+  d20dis notation), player rolls tap-to-roll / dm rolls auto-roll openly, results auto-send as a
+  `[ROLLS] …` user turn the prompt treats as authoritative. STATE: character sheet (JSON) +
+  campaign journal appended client-side to the FINAL user turn only (older history stays
+  byte-stable for the prompt cache); sheet updated after each DM turn by a dedicated `dnd_update`
+  bookkeeper call (inline-marker state proved unreliable in the recap saga — dedicated calls
+  only), journal folded by `dnd_summary` when >24 unsummarized turns; Dad can edit the sheet
+  JSON directly (source of truth) + quick HP ± buttons. STORAGE: Firestore `farmgpt_dnd` via the
+  function — campaign doc c_<id> (kind, name, charName, sheet, journal, turns tail ≤80,
+  moduleShards, updatedAt) + module shards m_<id>_<n> (≤400k chars each, module ≤600k, pasted or
+  .txt at campaign creation; module rides in the system prompt every dnd turn → cached re-reads).
+  No sheet at creation → DM runs session zero. Usage logs under NEW `d_*` prefix (dashboard: 🎲
+  row + column, priced at Sonnet). VERIFY: `node tools/_verify-dnd-server.mjs` (41 checks:
+  PIN fail-closed/brake, no-FAMILY_RULES + Sonnet + module injection asserts, no-cap/no-log,
+  d_* usage, storage round-trip incl. shard preservation on module-less re-save, story/research
+  regression — rules still stamped, cap still fires, scenes still logged). Client suite (35
+  checks, playwright) in session scratchpad `dnd_client_test.mjs` (gate/create/dice/sheet/
+  persistence/mobile). NOT yet live-tested vs real Sonnet (env can't reach the API) — after
+  deploy, spot-check: never-acts-for-player, ===ROLL=== adherence, sheet extraction, module
+  fidelity. Netlify request-body limits cap a pasted module ~a few MB (600k chars is fine).
 - RESEARCH MODE: teen homework+coding chat; markdown via marked+DOMPurify CDN; adaptive
   thinking (default) w/ "Thinking…" indicator, max_tokens 4096; localStorage
   farmgpt_research_v1 (50 msgs; user msg saved BEFORE the reply streams so a mid-stream

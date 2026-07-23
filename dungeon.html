@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#233357" />
+<title>BUCKY — Dungeon</title>
+<link rel="icon" href="bucky.png" />
+<link rel="apple-touch-icon" href="bucky.png" />
+<!-- markdown rendering for DM narration (sanitized before render, same stack as farmgpt.html) -->
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.5/dist/purify.min.js"></script>
+<style>
+  :root {
+    --bg: #eef2fa; --card: #ffffff; --ink: #15233f; --muted: #5d6b86;
+    --green: #233357; --green-d: #18233b; --red: #ba303e; --line: #d7e0f0;
+    --shadow: 0 1px 3px rgba(35,51,87,.10), 0 6px 16px rgba(35,51,87,.06);
+    --parchment: #fdf8ec;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--ink); display: flex; flex-direction: column; -webkit-font-smoothing: antialiased; }
+  header { background: var(--green); color: #fff; padding: calc(env(safe-area-inset-top) + 12px) 14px 10px;
+    z-index: 20; box-shadow: var(--shadow); flex: 0 0 auto; }
+  #bar { display: flex; align-items: center; gap: 10px; }
+  #bar a, #bar button { color: #fff; text-decoration: none; font-weight: 800; font-size: 14px;
+    background: rgba(255,255,255,.16); padding: 7px 12px; border-radius: 9px; border: 0; cursor: pointer;
+    font-family: inherit; flex: 0 0 auto; }
+  #bar .t { font-size: 17px; font-weight: 800; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #sheetBtn { display: none; }
+  body.playing #sheetBtn { display: block; }
+
+  main { flex: 1; min-height: 0; display: flex; flex-direction: row; width: 100%; margin: 0 auto; max-width: 1180px; }
+  .view { display: none; flex: 1; min-height: 0; flex-direction: column; overflow-y: auto;
+    overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 14px; }
+  .view.on { display: flex; }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
+    padding: 16px; margin: 0 auto 12px; width: 100%; max-width: 640px; }
+  .card h2 { margin: 0 0 6px; font-size: 18px; }
+  .card .sub { color: var(--muted); font-size: 13px; line-height: 1.45; margin-bottom: 10px; }
+  input[type=text], input[type=password], textarea { width: 100%; font-family: inherit; font-size: 15px; color: var(--ink);
+    border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: #fff; }
+  textarea { resize: vertical; }
+  label.f { display: block; font-size: 12px; font-weight: 800; color: var(--muted); margin: 12px 0 4px; text-transform: uppercase; letter-spacing: .4px; }
+  .btn { background: var(--green); color: #fff; border: 0; border-radius: 10px; padding: 11px 18px;
+    font-family: inherit; font-size: 15px; font-weight: 800; cursor: pointer; }
+  .btn.red { background: var(--red); }
+  .btn.ghost { background: #fff; color: var(--green); border: 1px solid var(--line); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .err { color: var(--red); font-size: 13px; font-weight: 700; margin-top: 8px; min-height: 18px; }
+
+  /* campaigns list */
+  .campRow { display: flex; align-items: center; gap: 10px; padding: 12px 4px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .campRow:last-child { border-bottom: 0; }
+  .campRow .ico { font-size: 24px; }
+  .campRow .nm { font-weight: 800; }
+  .campRow .meta { font-size: 12px; color: var(--muted); }
+  .campRow .grow { flex: 1; min-width: 0; }
+  .campRow .del { background: none; border: 0; font-size: 16px; cursor: pointer; opacity: .55; }
+
+  /* ---------- play view ---------- */
+  #playView { padding: 0; flex-direction: row; overflow: hidden; }
+  #playCol { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+  #chatScroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch; padding: 14px 14px 8px; }
+  .msg { max-width: 92%; margin: 0 auto 12px; line-height: 1.55; font-size: 15px; }
+  .msg.dm { background: var(--parchment); border: 1px solid #e8ddc2; border-radius: 14px; padding: 12px 14px; }
+  .msg.dm .who { font-size: 11px; font-weight: 800; color: #8a7a4e; letter-spacing: .6px; margin-bottom: 4px; }
+  .msg.me { background: var(--green); color: #fff; border-radius: 14px; padding: 10px 14px; margin-left: auto; margin-right: 0; max-width: 84%; white-space: pre-wrap; }
+  .msg.me.rolls { background: #3d5a99; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; }
+  .msg p { margin: 0 0 10px; } .msg p:last-child { margin-bottom: 0; }
+  .msg em { color: #6b5a2a; }
+  .thinking { color: var(--muted); font-size: 13px; font-weight: 700; padding: 4px 14px; }
+
+  /* dice tray */
+  #diceTray { flex: 0 0 auto; padding: 8px 14px 0; display: none; }
+  #diceTray.on { display: block; }
+  .rollCard { display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid var(--line);
+    border-radius: 12px; box-shadow: var(--shadow); padding: 10px 12px; margin-bottom: 8px; }
+  .rollCard .lbl { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; }
+  .rollCard .lbl small { display: block; color: var(--muted); font-weight: 600; }
+  .rollCard button.roll { background: var(--red); color: #fff; border: 0; border-radius: 10px;
+    padding: 10px 16px; font-family: inherit; font-weight: 800; font-size: 15px; cursor: pointer; }
+  .rollCard .res { font-size: 22px; font-weight: 900; min-width: 44px; text-align: center; }
+  .rollCard .brk { font-size: 11px; color: var(--muted); font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .rollCard.dm .who { font-size: 11px; font-weight: 800; color: var(--red); }
+
+  /* composer */
+  #composer { flex: 0 0 auto; padding: 8px 14px calc(env(safe-area-inset-bottom) + 12px); background: var(--bg); }
+  #quickDice { display: flex; gap: 6px; margin-bottom: 6px; }
+  #quickDice button { background: #fff; border: 1px solid var(--line); border-radius: 8px; font-family: inherit;
+    font-size: 12px; font-weight: 800; color: var(--green); padding: 5px 9px; cursor: pointer; }
+  #inRow { display: flex; gap: 8px; align-items: flex-end; }
+  #playerIn { flex: 1; min-height: 44px; max-height: 130px; }
+  #saveNote { font-size: 11px; color: var(--muted); text-align: right; padding: 3px 2px 0; min-height: 15px; }
+
+  /* character sheet panel */
+  #sheetPanel { width: 340px; flex: 0 0 340px; border-left: 1px solid var(--line); background: #fff;
+    overflow-y: auto; overscroll-behavior: contain; padding: 14px; display: none; }
+  body.playing #sheetPanel.desk { display: block; }
+  @media (max-width: 899px) {
+    #sheetPanel { position: fixed; top: 0; right: 0; bottom: 0; width: min(88vw, 360px); z-index: 40;
+      transform: translateX(100%); transition: transform .2s ease; box-shadow: -8px 0 24px rgba(0,0,0,.25);
+      padding-top: calc(env(safe-area-inset-top) + 14px); display: block !important; }
+    #sheetPanel.open { transform: translateX(0); }
+  }
+  #sheetPanel h3 { margin: 0 0 2px; font-size: 17px; }
+  #sheetPanel .cls { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .chip { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 5px 9px; font-size: 12px; font-weight: 800; }
+  .chip.hp { background: #fbe9eb; border-color: #efc4c9; }
+  .abGrid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; margin-bottom: 10px; }
+  .ab { text-align: center; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 5px 2px; }
+  .ab .k { font-size: 10px; font-weight: 800; color: var(--muted); text-transform: uppercase; }
+  .ab .v { font-size: 15px; font-weight: 900; }
+  .ab .m { font-size: 11px; color: var(--muted); }
+  .shSec { font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; margin: 12px 0 4px; }
+  .shList { font-size: 13px; line-height: 1.5; }
+  .shList li { margin-bottom: 2px; }
+  #hpRow { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; }
+  #hpRow button { background: #fff; border: 1px solid var(--line); border-radius: 8px; font-weight: 900;
+    font-size: 15px; width: 34px; height: 30px; cursor: pointer; font-family: inherit; }
+  #sheetEditBox { display: none; }
+  #sheetEditBox.on { display: block; }
+  #sheetJsonIn { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; min-height: 260px; }
+  #journalBox { font-size: 12px; color: var(--muted); white-space: pre-wrap; line-height: 1.45; }
+
+  #toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom) + 18px);
+    background: var(--green-d); color: #fff; font-size: 13px; font-weight: 700; border-radius: 10px;
+    padding: 10px 16px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 60; max-width: 88vw; }
+  #toast.on { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <div id="bar">
+    <a href="farmgpt.html" id="backLink">← FarmGPT</a>
+    <div class="t" id="barTitle">🎲 Dungeon</div>
+    <button id="sheetBtn" title="Character sheet">🧾</button>
+  </div>
+</header>
+
+<main>
+  <!-- PIN gate -->
+  <section class="view on" id="gateView">
+    <div class="card" style="margin-top:26px; text-align:center;">
+      <div style="font-size:52px;">🎲</div>
+      <h2>The Dungeon</h2>
+      <div class="sub">Dad's D&amp;D table. Enter your PIN to open your campaigns —
+        the server checks it on every request.</div>
+      <input type="password" id="pinIn" inputmode="numeric" autocomplete="off" placeholder="Dad's PIN" style="max-width:220px; text-align:center; font-size:18px;" />
+      <div style="margin-top:12px;"><button class="btn" id="pinBtn">Enter the dungeon</button></div>
+      <div class="err" id="pinErr"></div>
+    </div>
+  </section>
+
+  <!-- campaign list + create -->
+  <section class="view" id="campView">
+    <div class="card">
+      <h2>📜 Campaigns</h2>
+      <div id="campList"><div class="sub">Loading…</div></div>
+      <div style="margin-top:12px;"><button class="btn" id="newCampBtn">＋ New campaign</button></div>
+    </div>
+    <div class="card" id="newCampCard" style="display:none;">
+      <h2>New campaign</h2>
+      <label class="f">Campaign name</label>
+      <input type="text" id="ncName" placeholder="e.g. Lost Mine of Phandelver" maxlength="90" />
+      <label class="f">Adventure module (optional — paste the module text, or load a .txt/.md file)</label>
+      <textarea id="ncModule" rows="5" placeholder="Paste a full 5e adventure module here and the DM will run it as written. Leave empty for a homebrew campaign."></textarea>
+      <input type="file" id="ncModuleFile" accept=".txt,.md,.markdown" style="margin-top:6px; font-size:13px;" />
+      <div class="sub" id="ncModuleInfo" style="margin-top:4px;"></div>
+      <label class="f">Campaign premise (optional, homebrew games)</label>
+      <input type="text" id="ncPremise" placeholder="e.g. gritty low-magic sword & sorcery in a port city" maxlength="300" />
+      <label class="f">Character sheet JSON (optional — leave empty to build a character with the DM)</label>
+      <textarea id="ncSheet" rows="4" placeholder='Paste an existing character sheet as JSON, or leave empty for a guided "session zero".'></textarea>
+      <div style="margin-top:14px; display:flex; gap:8px;">
+        <button class="btn" id="ncCreateBtn">Create &amp; play</button>
+        <button class="btn ghost" id="ncCancelBtn">Cancel</button>
+      </div>
+      <div class="err" id="ncErr"></div>
+    </div>
+  </section>
+
+  <!-- play -->
+  <section class="view" id="playView">
+    <div id="playCol">
+      <div id="chatScroll"></div>
+      <div class="thinking" id="dmThinking" style="display:none;">The DM is thinking…</div>
+      <div id="diceTray"></div>
+      <div id="composer">
+        <div id="quickDice">
+          <button data-d="20">d20</button><button data-d="12">d12</button><button data-d="10">d10</button>
+          <button data-d="8">d8</button><button data-d="6">d6</button><button data-d="4">d4</button>
+          <span style="flex:1"></span>
+        </div>
+        <div id="inRow">
+          <textarea id="playerIn" placeholder="What do you do?" rows="1"></textarea>
+          <button class="btn red" id="sendBtn">Send</button>
+        </div>
+        <div id="saveNote"></div>
+      </div>
+    </div>
+    <aside id="sheetPanel" class="desk">
+      <h3 id="shName">—</h3>
+      <div class="cls" id="shClass"></div>
+      <div id="hpRow"></div>
+      <div class="chips" id="shChips"></div>
+      <div class="abGrid" id="shAbs"></div>
+      <div id="shBody"></div>
+      <div class="shSec">Campaign journal</div>
+      <div id="journalBox">—</div>
+      <div style="margin-top:14px; display:flex; gap:8px;">
+        <button class="btn ghost" id="sheetEditBtn" style="font-size:13px; padding:8px 12px;">✏️ Edit JSON</button>
+      </div>
+      <div id="sheetEditBox">
+        <textarea id="sheetJsonIn"></textarea>
+        <div style="margin-top:8px; display:flex; gap:8px;">
+          <button class="btn" id="sheetSaveBtn" style="font-size:13px; padding:8px 12px;">Save sheet</button>
+          <button class="btn ghost" id="sheetCancelBtn" style="font-size:13px; padding:8px 12px;">Cancel</button>
+        </div>
+        <div class="err" id="sheetErr"></div>
+      </div>
+    </aside>
+  </section>
+</main>
+
+<div id="toast"></div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const API_URL = "/.netlify/functions/farmgpt";
+  const FAMILY_PASSWORD = "amenfarms";
+
+  let toastT = null;
+  function toast(msg, ms) {
+    const el = $("toast"); el.textContent = msg; el.classList.add("on");
+    clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove("on"), ms || 2600);
+  }
+
+  // ---------------- auth (raw PIN, held in memory + tab-scoped sessionStorage) ----------------
+  // The PIN itself is the credential — the server hashes and verifies it on EVERY dnd request.
+  // Never written to localStorage; sessionStorage only so a reload mid-session doesn't re-prompt.
+  let dndPin = sessionStorage.getItem("dndPin") || "";
+
+  // ---------------- API ----------------
+  async function callAction(mode, extra) {
+    const resp = await fetch(API_URL, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ secret: FAMILY_PASSWORD, mode, dndPin, ...(extra || {}) }),
+    });
+    const data = await resp.json().catch(() => null);
+    if (!resp.ok) throw new Error((data && data.error) || ("Request failed (" + resp.status + ")"));
+    return data;
+  }
+  async function callStream(mode, messages, onChunk, extra) {
+    const resp = await fetch(API_URL, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ secret: FAMILY_PASSWORD, mode, messages, dndPin, ...(extra || {}) }),
+    });
+    if (!resp.ok) {
+      let msg = "Request failed (" + resp.status + ")";
+      try { msg = (await resp.json()).error || msg; } catch {}
+      throw new Error(msg);
+    }
+    const ct = resp.headers.get("content-type") || "";
+    if (ct.includes("application/json")) throw new Error("Unexpected response from the server");
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let full = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      full += decoder.decode(value, { stream: true });
+      if (onChunk) onChunk(full);
+    }
+    full += decoder.decode();
+    if (!full.trim()) throw new Error("The DM sent back an empty reply — try again!");
+    return full;
+  }
+
+  // ---------------- dice (real RNG — crypto.getRandomValues, rejection-sampled) ----------------
+  function randInt(sides) {
+    const buf = new Uint32Array(1);
+    const limit = Math.floor(0xFFFFFFFF / sides) * sides;
+    for (;;) {
+      crypto.getRandomValues(buf);
+      if (buf[0] < limit) return (buf[0] % sides) + 1;
+    }
+  }
+  // "d20+5", "2d6+3", "1d8+2d6", "d20adv+7", "d20dis-1" → { terms:[...] } or null.
+  function parseDice(str) {
+    const s = String(str || "").toLowerCase().replace(/\s+/g, "");
+    if (!s) return null;
+    const toks = s.split(/(?=[+-])/);
+    const terms = [];
+    for (const tok of toks) {
+      let m = tok.match(/^([+-]?)(\d*)d(\d+)(adv|dis)?$/);
+      if (m) {
+        const n = m[2] ? parseInt(m[2], 10) : 1, sides = parseInt(m[3], 10);
+        if (!n || n > 40 || !sides || sides > 1000) return null;
+        terms.push({ kind: "die", sign: m[1] === "-" ? -1 : 1, n, sides, mode: m[4] || "" });
+        continue;
+      }
+      m = tok.match(/^([+-]?)(\d+)$/);
+      if (m) { terms.push({ kind: "flat", sign: m[1] === "-" ? -1 : 1, v: parseInt(m[2], 10) }); continue; }
+      return null;
+    }
+    return terms.some((t) => t.kind === "die") ? { terms } : null;
+  }
+  function rollDice(parsed) {
+    let total = 0; const parts = [];
+    for (const t of parsed.terms) {
+      if (t.kind === "flat") { total += t.sign * t.v; parts.push((t.sign < 0 ? "-" : "+") + t.v); continue; }
+      for (let i = 0; i < t.n; i++) {
+        let v, note = "";
+        if (t.mode) {
+          const a = randInt(t.sides), b = randInt(t.sides);
+          v = t.mode === "adv" ? Math.max(a, b) : Math.min(a, b);
+          note = t.mode + "(" + a + "," + b + ")";
+        } else v = randInt(t.sides);
+        total += t.sign * v;
+        parts.push((parts.length ? (t.sign < 0 ? "-" : "+") : (t.sign < 0 ? "-" : "")) + v + (note ? "[" + note + "]" : ""));
+      }
+    }
+    return { total, breakdown: parts.join("") };
+  }
+
+  // ---------------- markdown ----------------
+  function mdToHtml(text) {
+    const t = String(text || "").trim();
+    try { return DOMPurify.sanitize(marked.parse(t)); }
+    catch {   // CDN blocked/offline → plain-text fallback, never a blank page
+      const esc = t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      return esc.replace(/\n/g, "<br>");
+    }
+  }
+
+  // ---------------- state ----------------
+  const SEND_TURNS = 30;      // verbatim history window per request
+  const KEEP_TURNS = 80;      // client + server stored tail
+  const UNSUM_MAX = 24;       // fold journal when unsummarized turns exceed this…
+  const UNSUM_KEEP = 12;      // …down to this many
+  let camp = null;            // { id, name, charName, sheet, journal, turns, summarizedIdx }
+  let moduleText = "";        // in memory; sent with every dnd turn
+  let busy = false;
+  let pendingRolls = [];
+  let sheetBusy = false, sheetDirty = false;
+  let saveT = null;
+
+  function show(view) {
+    for (const v of ["gateView", "campView", "playView"]) $(v).classList.toggle("on", v === view);
+    document.body.classList.toggle("playing", view === "playView");
+    $("barTitle").textContent = view === "playView" && camp ? "🎲 " + camp.name : "🎲 Dungeon";
+  }
+
+  // ---------------- gate ----------------
+  async function tryEnter() {
+    const pin = $("pinIn").value.trim();
+    if (!pin) { $("pinErr").textContent = "Enter your PIN"; return; }
+    $("pinBtn").disabled = true; $("pinErr").textContent = "";
+    dndPin = pin;
+    try {
+      const data = await callAction("dnd_list");
+      sessionStorage.setItem("dndPin", pin);
+      renderCampaigns(data.campaigns || []);
+      show("campView");
+    } catch (e) {
+      dndPin = "";
+      $("pinErr").textContent = e.message || "Couldn't unlock";
+    }
+    $("pinBtn").disabled = false;
+  }
+  $("pinBtn").addEventListener("click", tryEnter);
+  $("pinIn").addEventListener("keydown", (e) => { if (e.key === "Enter") tryEnter(); });
+
+  // ---------------- campaigns ----------------
+  function renderCampaigns(list) {
+    const box = $("campList");
+    if (!list.length) { box.innerHTML = '<div class="sub">No campaigns yet — start one below!</div>'; return; }
+    box.innerHTML = "";
+    for (const c of list) {
+      const row = document.createElement("div");
+      row.className = "campRow";
+      row.innerHTML = '<div class="ico">🗡️</div><div class="grow"><div class="nm"></div><div class="meta"></div></div>' +
+        '<button class="del" title="Delete">🗑</button>';
+      row.querySelector(".nm").textContent = c.name || "Untitled";
+      row.querySelector(".meta").textContent = (c.charName ? c.charName + " · " : "") +
+        (c.hasModule ? "module · " : "") + (c.updatedAt ? new Date(c.updatedAt).toLocaleDateString() : "");
+      row.addEventListener("click", () => openCampaign(c.id));
+      row.querySelector(".del").addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (!confirm('Delete "' + (c.name || "Untitled") + '" forever?')) return;
+        try { await callAction("dnd_delete", { id: c.id }); refreshCampaigns(); }
+        catch (err) { toast("Delete failed: " + err.message); }
+      });
+      box.appendChild(row);
+    }
+  }
+  async function refreshCampaigns() {
+    try { renderCampaigns((await callAction("dnd_list")).campaigns || []); }
+    catch (e) { $("campList").innerHTML = '<div class="sub">Couldn’t load: ' + e.message + "</div>"; }
+  }
+
+  $("newCampBtn").addEventListener("click", () => { $("newCampCard").style.display = "block"; $("ncName").focus(); });
+  $("ncCancelBtn").addEventListener("click", () => { $("newCampCard").style.display = "none"; });
+  $("ncModuleFile").addEventListener("change", () => {
+    const f = $("ncModuleFile").files[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = () => { $("ncModule").value = String(r.result || ""); updateModuleInfo(); };
+    r.readAsText(f);
+  });
+  function updateModuleInfo() {
+    const n = $("ncModule").value.length;
+    $("ncModuleInfo").textContent = n ? "~" + Math.round(n / 4000) / 10 + "k words loaded" +
+      (n > 600000 ? " — too big, will be truncated at 600k characters" : "") : "";
+  }
+  $("ncModule").addEventListener("input", updateModuleInfo);
+
+  $("ncCreateBtn").addEventListener("click", async () => {
+    const name = $("ncName").value.trim();
+    if (!name) { $("ncErr").textContent = "Give the campaign a name"; return; }
+    let sheet = $("ncSheet").value.trim();
+    if (sheet) {
+      try { sheet = JSON.stringify(JSON.parse(sheet)); }
+      catch { $("ncErr").textContent = "That character sheet isn't valid JSON"; return; }
+    }
+    $("ncErr").textContent = ""; $("ncCreateBtn").disabled = true;
+    const id = Date.now().toString(36);
+    const premise = $("ncPremise").value.trim();
+    moduleText = $("ncModule").value.slice(0, 600000);
+    camp = { id, name, charName: "", sheet, journal: "", turns: [], summarizedIdx: 0 };
+    try {
+      await callAction("dnd_save", { id, module: moduleText, campaign: campForSave() });
+      $("newCampCard").style.display = "none";
+      enterPlay();
+      // Opening turn — visible to the player, so nothing is hidden about how the game starts.
+      let first = moduleText ? "We're playing the loaded adventure module — run it as written. " : "";
+      if (premise) first += "Campaign premise: " + premise + ". ";
+      first += sheet
+        ? "My character sheet is attached. Set the opening scene and let's begin the adventure."
+        : "I don't have a character yet — run session zero and build one with me, one question at a time.";
+      sendPlayer(first);
+    } catch (e) { $("ncErr").textContent = e.message || "Couldn't create"; }
+    $("ncCreateBtn").disabled = false;
+  });
+
+  async function openCampaign(id) {
+    try {
+      const data = await callAction("dnd_get", { id });
+      camp = data.campaign;
+      camp.summarizedIdx = Math.max(0, camp.turns.length - UNSUM_MAX);
+      moduleText = data.module || "";
+      enterPlay();
+      // Replay the stored tail into the chat.
+      for (const t of camp.turns) {
+        if (t.role === "assistant") addDmBubble(t.content);
+        else addMeBubble(t.content);
+      }
+      // Un-resolved roll requests at the tail get their tray back.
+      const last = camp.turns[camp.turns.length - 1];
+      if (last && last.role === "assistant") setPendingRolls(parseRolls(last.content));
+      $("chatScroll").scrollTop = $("chatScroll").scrollHeight;
+      renderSheet(); renderJournal();
+    } catch (e) { toast("Couldn't open: " + e.message); }
+  }
+
+  function campForSave() {
+    return { id: camp.id, name: camp.name, charName: camp.charName || "",
+      sheet: camp.sheet || "", journal: camp.journal || "", turns: camp.turns.slice(-KEEP_TURNS) };
+  }
+  function scheduleSave() {
+    $("saveNote").textContent = "saving…";
+    clearTimeout(saveT);
+    saveT = setTimeout(async () => {
+      try { await callAction("dnd_save", { id: camp.id, campaign: campForSave() }); $("saveNote").textContent = "saved ✓"; }
+      catch { $("saveNote").textContent = "⚠ not saved — will retry on your next turn"; }
+    }, 1500);
+  }
+
+  function enterPlay() {
+    $("chatScroll").innerHTML = "";
+    setPendingRolls([]);
+    show("playView");
+    renderSheet(); renderJournal();
+  }
+
+  // ---------------- chat ----------------
+  function stripRollLines(text) {
+    let t = String(text || "");
+    const i = t.indexOf("\n===ROLL===");
+    if (i !== -1) t = t.slice(0, i);
+    if (t.startsWith("===ROLL===")) t = "";
+    return t.replace(/\n=+[A-Z=]*\s*$/, "");   // trailing partial marker mid-stream
+  }
+  function parseRolls(text) {
+    const out = [];
+    for (const line of String(text || "").split("\n")) {
+      const m = line.match(/^===ROLL===\s*(.+)$/);
+      if (!m) continue;
+      const parts = m[1].split("|").map((s) => s.trim());
+      const parsed = parseDice(parts[0]);
+      if (!parsed) continue;
+      out.push({ dice: parts[0], parsed, who: (parts[1] || "player").toLowerCase() === "dm" ? "dm" : "player",
+        label: parts[2] || "Roll", result: null, breakdown: "" });
+    }
+    return out;
+  }
+  function addDmBubble(text) {
+    const el = document.createElement("div");
+    el.className = "msg dm";
+    el.innerHTML = '<div class="who">DUNGEON MASTER</div><div class="body"></div>';
+    el.querySelector(".body").innerHTML = mdToHtml(stripRollLines(text));
+    $("chatScroll").appendChild(el);
+    return el;
+  }
+  function addMeBubble(text) {
+    const el = document.createElement("div");
+    el.className = "msg me" + (text.startsWith("[ROLLS]") ? " rolls" : "");
+    el.textContent = text.replace(/\n\n\[CHARACTER SHEET\][\s\S]*$/, "");
+    $("chatScroll").appendChild(el);
+    return el;
+  }
+
+  // Build the request messages: recent turns verbatim, with the current sheet + journal
+  // appended to the FINAL user turn (keeps older history byte-stable for prompt caching).
+  function buildMessages() {
+    let tail = camp.turns.slice(-SEND_TURNS);
+    while (tail.length && tail[0].role !== "user") tail = tail.slice(1);
+    const msgs = tail.map((t) => ({ role: t.role, content: t.content }));
+    let state = "";
+    if (camp.sheet) state += "\n\n[CHARACTER SHEET]\n" + camp.sheet;
+    if (camp.journal) state += "\n\n[CAMPAIGN JOURNAL]\n" + camp.journal;
+    if (state) {
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (msgs[i].role === "user") { msgs[i] = { role: "user", content: msgs[i].content + state }; break; }
+      }
+    }
+    return msgs;
+  }
+
+  async function sendPlayer(text) {
+    if (busy || !text.trim()) return;
+    busy = true; $("sendBtn").disabled = true;
+    setPendingRolls([]);
+    camp.turns.push({ role: "user", content: text });
+    addMeBubble(text);
+    $("chatScroll").scrollTop = $("chatScroll").scrollHeight;
+    $("dmThinking").style.display = "block";
+    const live = addDmBubble("");
+    const body = live.querySelector(".body");
+    try {
+      const full = await callStream("dnd", buildMessages(), (sofar) => {
+        $("dmThinking").style.display = "none";
+        body.innerHTML = mdToHtml(stripRollLines(sofar));
+        $("chatScroll").scrollTop = $("chatScroll").scrollHeight;
+      }, { dndModule: moduleText || undefined });
+      camp.turns.push({ role: "assistant", content: full });
+      if (camp.turns.length > KEEP_TURNS) {
+        const cut = camp.turns.length - KEEP_TURNS;
+        camp.turns = camp.turns.slice(cut);
+        camp.summarizedIdx = Math.max(0, (camp.summarizedIdx || 0) - cut);
+      }
+      body.innerHTML = mdToHtml(stripRollLines(full));
+      setPendingRolls(parseRolls(full));
+      scheduleSave();
+      updateSheetInBackground();
+      maybeSummarize();
+    } catch (e) {
+      live.remove();
+      camp.turns.pop();   // the model never saw it — let the player retry the same turn
+      toast("⚠ " + (e.message || "The DM couldn't answer — try again"));
+    }
+    $("dmThinking").style.display = "none";
+    busy = false; $("sendBtn").disabled = false;
+    $("chatScroll").scrollTop = $("chatScroll").scrollHeight;
+  }
+
+  $("sendBtn").addEventListener("click", () => {
+    const t = $("playerIn").value.trim();
+    if (!t) return;
+    $("playerIn").value = "";
+    sendPlayer(t);
+  });
+  $("playerIn").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey && window.matchMedia("(pointer: fine)").matches) {
+      e.preventDefault(); $("sendBtn").click();
+    }
+  });
+
+  // ---------------- dice tray ----------------
+  function setPendingRolls(rolls) {
+    pendingRolls = rolls || [];
+    renderTray();
+    // The DM's own (NPC/monster) rolls happen openly and automatically, slightly staggered.
+    let delay = 350;
+    for (const r of pendingRolls) {
+      if (r.who !== "dm") continue;
+      setTimeout(() => { if (r.result === null) doRoll(r); }, delay);
+      delay += 450;
+    }
+  }
+  function doRoll(r) {
+    const res = rollDice(r.parsed);
+    r.result = res.total; r.breakdown = res.breakdown;
+    renderTray();
+    if (pendingRolls.length && pendingRolls.every((x) => x.result !== null)) {
+      const msg = "[ROLLS] " + pendingRolls.map((x) =>
+        x.label + " (" + x.dice + "): " + x.result + " = " + x.breakdown).join(" · ");
+      setTimeout(() => sendPlayer(msg), 650);
+    }
+  }
+  function renderTray() {
+    const tray = $("diceTray");
+    tray.classList.toggle("on", pendingRolls.length > 0);
+    tray.innerHTML = "";
+    for (const r of pendingRolls) {
+      const el = document.createElement("div");
+      el.className = "rollCard" + (r.who === "dm" ? " dm" : "");
+      const lbl = document.createElement("div");
+      lbl.className = "lbl";
+      lbl.innerHTML = (r.who === "dm" ? '<span class="who">DM rolls · </span>' : "") +
+        '<span class="lt"></span><small></small>';
+      lbl.querySelector(".lt").textContent = r.label;
+      lbl.querySelector("small").textContent = r.dice;
+      el.appendChild(lbl);
+      if (r.result === null) {
+        if (r.who === "player") {
+          const b = document.createElement("button");
+          b.className = "roll"; b.textContent = "🎲 Roll " + r.dice;
+          b.addEventListener("click", () => doRoll(r));
+          el.appendChild(b);
+        } else {
+          const s = document.createElement("div"); s.className = "brk"; s.textContent = "rolling…";
+          el.appendChild(s);
+        }
+      } else {
+        const res = document.createElement("div"); res.className = "res"; res.textContent = r.result;
+        const brk = document.createElement("div"); brk.className = "brk"; brk.textContent = "= " + r.breakdown;
+        el.appendChild(brk); el.appendChild(res);
+      }
+      tray.appendChild(el);
+    }
+  }
+  for (const b of $("quickDice").querySelectorAll("button")) {
+    b.addEventListener("click", () => {
+      if (busy || !camp) return;
+      const sides = parseInt(b.dataset.d, 10);
+      const res = rollDice(parseDice("d" + sides));
+      sendPlayer("[ROLLS] Player's own d" + sides + ": " + res.total);
+    });
+  }
+
+  // ---------------- character sheet ----------------
+  function sheetObj() {
+    if (!camp || !camp.sheet) return null;
+    try { return JSON.parse(camp.sheet); } catch { return null; }
+  }
+  const mod = (v) => { const m = Math.floor((v - 10) / 2); return (m >= 0 ? "+" : "") + m; };
+  function renderSheet() {
+    const s = sheetObj();
+    $("shName").textContent = (s && s.name) || "No character yet";
+    $("shClass").textContent = s ? [s.race, s.class && (s.class + " " + (s.level || 1)), s.background].filter(Boolean).join(" · ") : "Session zero will build one.";
+    camp && (camp.charName = (s && s.name) || "");
+    const hp = $("hpRow"); hp.innerHTML = "";
+    if (s && s.maxHp) {
+      const mk = (t, d) => { const b = document.createElement("button"); b.textContent = t;
+        b.addEventListener("click", () => { s.hp = Math.max(0, Math.min((s.maxHp || 0) + (s.tempHp || 0), (s.hp || 0) + d)); camp.sheet = JSON.stringify(s); renderSheet(); scheduleSave(); }); return b; };
+      hp.appendChild(mk("−", -1));
+      const c = document.createElement("div"); c.className = "chip hp";
+      c.textContent = "❤️ " + (s.hp ?? "?") + " / " + s.maxHp + (s.tempHp ? " (+" + s.tempHp + " temp)" : "");
+      hp.appendChild(c); hp.appendChild(mk("＋", +1));
+    }
+    const chips = $("shChips"); chips.innerHTML = "";
+    if (s) {
+      const add = (t) => { const c = document.createElement("div"); c.className = "chip"; c.textContent = t; chips.appendChild(c); };
+      if (s.ac) add("🛡 AC " + s.ac);
+      if (s.speed) add("👟 " + s.speed + " ft");
+      if (s.profBonus) add("PB +" + s.profBonus);
+      if (s.xp != null) add("XP " + s.xp);
+      const g = s.gold || {};
+      if (g.gp || g.sp || g.cp) add("💰 " + (g.gp || 0) + "gp " + (g.sp || 0) + "sp " + (g.cp || 0) + "cp");
+      for (const cond of (s.conditions || [])) add("⚠ " + cond);
+    }
+    const abs = $("shAbs"); abs.innerHTML = "";
+    if (s && s.abilities) {
+      for (const k of ["str", "dex", "con", "int", "wis", "cha"]) {
+        const v = s.abilities[k] ?? 10;
+        const el = document.createElement("div"); el.className = "ab";
+        el.innerHTML = '<div class="k"></div><div class="v"></div><div class="m"></div>';
+        el.querySelector(".k").textContent = k; el.querySelector(".v").textContent = v; el.querySelector(".m").textContent = mod(v);
+        abs.appendChild(el);
+      }
+    }
+    const body = $("shBody"); body.innerHTML = "";
+    if (s) {
+      const sec = (title, items, fmt) => {
+        if (!items || !items.length) return;
+        const h = document.createElement("div"); h.className = "shSec"; h.textContent = title; body.appendChild(h);
+        const ul = document.createElement("ul"); ul.className = "shList"; ul.style.margin = "0"; ul.style.paddingLeft = "18px";
+        for (const it of items) { const li = document.createElement("li"); li.textContent = fmt ? fmt(it) : String(it); ul.appendChild(li); }
+        body.appendChild(ul);
+      };
+      sec("Attacks", s.attacks, (a) => typeof a === "string" ? a : [a.name, a.bonus != null ? "+" + a.bonus : "", a.damage].filter(Boolean).join(" "));
+      if (s.spellSlots && Object.keys(s.spellSlots).length) {
+        const h = document.createElement("div"); h.className = "shSec"; h.textContent = "Spell slots"; body.appendChild(h);
+        const d = document.createElement("div"); d.className = "shList";
+        d.textContent = Object.entries(s.spellSlots).map(([lv, n]) => "L" + lv + ": " + (typeof n === "object" ? (n.used != null ? (n.max - n.used) + "/" + n.max : JSON.stringify(n)) : n)).join(" · ");
+        body.appendChild(d);
+      }
+      sec("Spells", s.spells);
+      sec("Inventory", s.inventory, (i) => typeof i === "string" ? i : [i.item || i.name, i.qty > 1 ? "×" + i.qty : "", i.notes].filter(Boolean).join(" "));
+      sec("Features", s.features, (f) => typeof f === "string" ? f : f.name || JSON.stringify(f));
+      sec("Skills", s.skills);
+      sec("Saves", s.saves);
+      if (s.notes) sec("Notes", [s.notes]);
+    }
+  }
+  function renderJournal() { $("journalBox").textContent = (camp && camp.journal) || "— nothing recorded yet —"; }
+
+  $("sheetBtn").addEventListener("click", () => $("sheetPanel").classList.toggle("open"));
+  $("sheetEditBtn").addEventListener("click", () => {
+    $("sheetJsonIn").value = camp.sheet ? JSON.stringify(sheetObj() || {}, null, 2) : "";
+    $("sheetEditBox").classList.add("on");
+  });
+  $("sheetCancelBtn").addEventListener("click", () => $("sheetEditBox").classList.remove("on"));
+  $("sheetSaveBtn").addEventListener("click", () => {
+    try {
+      const v = $("sheetJsonIn").value.trim();
+      camp.sheet = v ? JSON.stringify(JSON.parse(v)) : "";
+      $("sheetErr").textContent = ""; $("sheetEditBox").classList.remove("on");
+      renderSheet(); scheduleSave(); toast("Sheet updated — the DM sees it next turn");
+    } catch { $("sheetErr").textContent = "Not valid JSON"; }
+  });
+
+  // Background bookkeeping: after each DM turn, a small dedicated call updates the sheet
+  // from the latest exchange (dedicated call — inline state markers proved unreliable).
+  async function updateSheetInBackground() {
+    if (sheetBusy) { sheetDirty = true; return; }
+    sheetBusy = true;
+    try {
+      const n = camp.turns.length;
+      const exchange = camp.turns.slice(Math.max(0, n - 2)).map((t) =>
+        (t.role === "user" ? "PLAYER: " : "DM: ") + t.content).join("\n\n");
+      const prompt = "CURRENT SHEET JSON:\n" + (camp.sheet || "(none yet — session zero)") +
+        "\n\nLATEST EXCHANGE:\n" + exchange.slice(0, 11000);
+      const out = await callStream("dnd_update", [{ role: "user", content: prompt }], null, {});
+      const cleaned = out.trim().replace(/^```(json)?\s*/i, "").replace(/```\s*$/, "");
+      const obj = JSON.parse(cleaned);   // throws → keep the old sheet
+      camp.sheet = JSON.stringify(obj);
+      renderSheet(); scheduleSave();
+    } catch { /* keep the previous sheet — Dad can always edit it directly */ }
+    sheetBusy = false;
+    if (sheetDirty) { sheetDirty = false; updateSheetInBackground(); }
+  }
+
+  // Campaign journal: fold older turns into the running notes once enough pile up.
+  async function maybeSummarize() {
+    const from = camp.summarizedIdx || 0;
+    if (camp.turns.length - from <= UNSUM_MAX) return;
+    const to = camp.turns.length - UNSUM_KEEP;
+    const chunk = camp.turns.slice(from, to).map((t) =>
+      (t.role === "user" ? "PLAYER: " : "DM: ") + t.content).join("\n\n");
+    try {
+      const prompt = "JOURNAL SO FAR:\n" + (camp.journal || "(empty)") +
+        "\n\nNEW EVENTS TO FOLD IN:\n" + chunk.slice(0, 11000);
+      const out = await callStream("dnd_summary", [{ role: "user", content: prompt }], null, {});
+      camp.journal = out.trim().slice(0, 11000);
+      camp.summarizedIdx = to;
+      renderJournal(); scheduleSave();
+    } catch { /* failed journal fold never disrupts play; retried after the next turn */ }
+  }
+
+  // ---------------- boot ----------------
+  if (dndPin) {
+    callAction("dnd_list")
+      .then((d) => { renderCampaigns(d.campaigns || []); show("campView"); })
+      .catch(() => { dndPin = ""; sessionStorage.removeItem("dndPin"); });
+  }
+
+  // test hook
+  window.__DND__ = {
+    parseDice, rollDice, parseRolls, stripRollLines, buildMessages: () => buildMessages(),
+    get camp() { return camp; }, get pendingRolls() { return pendingRolls; },
+    sendPlayer, doRoll, setPin: (p) => { dndPin = p; }, sheetObj, show,
+  };
+})();
+</script>
+</body>
+</html>

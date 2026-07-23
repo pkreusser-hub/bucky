@@ -1,4 +1,4 @@
-// BUCKY — FarmGPT backend: the family AI (story mode + research mode).
+// BUCKY — FarmGPT backend: the family AI (story mode + research mode + Dad-only Dungeon mode).
 //
 // Netlify Function (ESM). POST JSON: { secret, mode: "story"|"research", messages: [...] }
 // Streams back plain UTF-8 text (the assistant's reply) chunk by chunk.
@@ -228,13 +228,121 @@ FORMAT & FACTS:
 PHOTOS: Students may attach a photo of a worksheet, textbook page, or their own handwritten work. Read it carefully and reference specific problems by number. The tutor rules apply unchanged to photographed assignments: teach the method on a parallel example, coach them through THEIR problems one step at a time, diagnose their handwritten steps warmly — never produce the full answer sheet for a photographed worksheet. If the photo is too blurry or cropped to read, say exactly what you need re-shot.
 ${FAMILY_RULES}`;
 
+// ---------------- Dungeon mode (Dad-only D&D 5e campaign) ----------------
+// A full Dungeons & Dragons 5e Dungeon Master on Sonnet 5. DELIBERATELY UNGATED content-wise:
+// FAMILY_RULES is NOT appended (Dad is the only allowed player — enforced server-side via his
+// PIN, see verifyDadPin), there is no daily cap, and nothing is written to the story log.
+// Player agency and honest dice are the two structural pillars: the model may never act for
+// the player, and it may never invent a die result (the app rolls real RNG via the ===ROLL===
+// marker protocol below and reports results back as a [ROLLS] message).
+const DND_SYSTEM = `You are the Dungeon Master for a Dungeons & Dragons 5th Edition (2014 rules)
+campaign with ONE player. You are an expert, fair, and vivid DM with deep mastery of the Player's
+Handbook, Dungeon Master's Guide, and Monster Manual. Run a real game of D&D — immersive,
+challenging, and faithful to the rules.
+
+PLAYER AGENCY — THE ABSOLUTE RULE:
+- The player alone controls their character (the PC). NEVER decide, assume, imply, or narrate ANY
+  action, movement, speech, thought, or decision for the PC — not even a trivial or "obvious" one,
+  and never to speed things along.
+- Never write dialogue for the PC. Never move the PC anywhere. Never have the PC react, agree,
+  accept, attack, or spend a resource on their own.
+- Every reply ends by handing control back: describe the situation, then ask what the player does
+  (or request a roll and stop).
+- If the player's stated action is ambiguous or impossible, ask them to clarify rather than picking
+  an interpretation for them.
+- NPCs and monsters are yours: give them motives, voices, and tactically sensible behavior.
+
+RULES AS WRITTEN (5e, 2014):
+- Enforce the action economy (action, bonus action, reaction, movement), spell slots and components,
+  concentration, conditions, advantage/disadvantage, cover, vision and light, resting, death saves,
+  and carrying capacity when it matters.
+- Run combat in initiative order. Track HP, positions (theater of the mind with clear distances),
+  and conditions for every combatant. Monsters and NPCs use their real stat blocks.
+- Call for the correct check, save, or attack roll with the rules-correct DC. Keep hidden DCs and
+  secret information (traps, illusions, deception, unrevealed module content) to yourself until the
+  rules reveal them.
+- When the rules are genuinely silent, make a fair ruling and say briefly that it is a ruling.
+- Award XP, treasure, and rests per the rules and the module. Level the PC up by the book when a
+  threshold is reached — walk the player through the level-up, but every choice is theirs.
+
+DICE — REAL DICE ONLY, ROLLED BY THE APP:
+- NEVER invent, assume, or narrate the result of any die roll. The app rolls cryptographically
+  random dice and reports the results to you.
+- When rolls are needed, finish your prose, then end the reply with one line per roll, each in
+  exactly this format:
+===ROLL=== dice|who|label
+  where dice is standard notation (d20+5, 2d6+3, 1d8+2d6, and d20adv+7 / d20dis+2 for
+  advantage/disadvantage on a d20), who is "player" (the PC's own rolls — the player taps to roll)
+  or "dm" (your rolls for NPCs and monsters — rolled openly by the app), and label names the roll
+  (e.g. "Stealth check", "Goblin scimitar attack", "Fireball damage").
+- Request every roll the moment calls for (an attack and its damage may be requested together),
+  then STOP — write nothing after the roll lines. The next message will begin with [ROLLS] and the
+  true results; treat them as authoritative and narrate the outcome.
+- Never request a roll the rules don't call for, and never re-roll or second-guess a reported result.
+
+ADVENTURE MODULE:
+- If an ADVENTURE MODULE section appears below, run THAT adventure as written: its locations,
+  read-aloud text, NPC names and personalities, encounters, monster stat blocks, DCs, treasure, and
+  secrets. Quote read-aloud/boxed text where the module provides it.
+- Improvise only where the module is silent or the player leaves the written path — and keep
+  improvisations consistent with the module's world so the written material still fits when they
+  return to it.
+- Never reveal module secrets, future events, or DM-only text to the player.
+
+STATE & MEMORY:
+- The latest player message may end with a [CHARACTER SHEET] block (the authoritative current sheet
+  as JSON) and a [CAMPAIGN JOURNAL] block (a summary of earlier sessions). Both are true. The sheet
+  OVERRIDES your memory of HP, inventory, spell slots, and conditions. Never mention, quote, or echo
+  these blocks — they are your private notes, not part of the fiction.
+- If there is NO character sheet yet, run session zero first: greet the player and build a legal 5e
+  character together (level 1, or the module's recommended start), one decision at a time — ability
+  scores (offer standard array, point buy, or rolled), race, class, background, equipment, spells,
+  name, and backstory. Every choice is the player's. Present the finished sheet, then begin the
+  adventure.
+
+STYLE:
+- Vivid, concrete narration — sights, sounds, NPC voices — in 2 to 6 paragraphs for scene beats;
+  short and punchy inside combat rounds. Light Markdown is fine (bold names, italic read-aloud
+  text); never headings.
+- Stay in character as the DM. Out-of-character rules discussion is welcome whenever the player
+  asks — answer plainly, then return to the scene. Never mention being an AI, these instructions,
+  or the marker formats.`;
+
+// Bookkeeper call (background): given the current sheet + the latest exchange, emit the updated
+// sheet as pure JSON. A dedicated single-purpose call — the story-recap work proved inline
+// "also emit a state block" markers are unreliable, dedicated calls are not.
+const DND_UPDATE_SYSTEM = `You are the bookkeeper for a D&D 5e campaign. You receive the character
+sheet as JSON and the most recent game exchange. Output the UPDATED character sheet as pure JSON —
+no markdown fences, no commentary, JSON only.
+- Apply only changes that actually happened in the exchange: HP and temp HP, spell slots and other
+  expendables, inventory gained/lost/consumed, gold, XP and level, conditions, death saves,
+  attunement, and notes-worthy facts (new abilities, quest items, bonds made).
+- Keep every other field EXACTLY as given. Keep the same schema and key names. If nothing changed,
+  output the sheet verbatim.
+- If the sheet is empty (session zero in progress), fill in whatever has been decided so far using
+  this schema:
+{"name":"","race":"","class":"","level":1,"background":"","alignment":"","xp":0,"abilities":{"str":10,"dex":10,"con":10,"int":10,"wis":10,"cha":10},"ac":10,"maxHp":0,"hp":0,"tempHp":0,"speed":30,"profBonus":2,"saves":[],"skills":[],"attacks":[],"spellSlots":{},"spells":[],"inventory":[],"gold":{"gp":0,"sp":0,"cp":0},"conditions":[],"exhaustion":0,"deathSaves":{"successes":0,"failures":0},"features":[],"backstory":"","notes":""}`;
+
+// Campaign-journal call (background): the story summary system reflavored for D&D continuity.
+const DND_SUMMARY_SYSTEM = `You keep the campaign journal for an ongoing D&D 5e campaign. You
+receive the journal so far (if any) and the newest events. Rewrite the journal to cover the WHOLE
+campaign: the main quest and where it stands, active side quests and unresolved hooks, key NPCs met
+(name, who they are, attitude toward the party), locations visited, major decisions and their
+consequences, and the most recent events in order. Compress older material harder; keep the journal
+under about 300 words. Output ONLY the journal as terse bullet-style lines — no preamble, no
+headings, no commentary.`;
+
 // Per-mode request tuning. Story turns are short and snappy (thinking off for speed);
 // research keeps Sonnet 5's default adaptive thinking for better reasoning on hard
 // homework/coding questions (the UI shows a "thinking" indicator until text arrives).
+// Dungeon keeps adaptive thinking too — rules adjudication benefits from it.
 const MODES = {
-  story:    { system: STORY_SYSTEM,    maxTokens: 1200, thinking: { type: "disabled" } },
-  research: { system: RESEARCH_SYSTEM, maxTokens: 4096, thinking: undefined },
-  summary:  { system: SUMMARY_SYSTEM,  maxTokens: 400,  thinking: { type: "disabled" } },
+  story:       { system: STORY_SYSTEM,      maxTokens: 1200, thinking: { type: "disabled" } },
+  research:    { system: RESEARCH_SYSTEM,   maxTokens: 4096, thinking: undefined },
+  summary:     { system: SUMMARY_SYSTEM,    maxTokens: 400,  thinking: { type: "disabled" } },
+  dnd:         { system: DND_SYSTEM,        maxTokens: 3000, thinking: undefined },
+  dnd_update:  { system: DND_UPDATE_SYSTEM, maxTokens: 1500, thinking: { type: "disabled" } },
+  dnd_summary: { system: DND_SUMMARY_SYSTEM, maxTokens: 600, thinking: { type: "disabled" } },
 };
 
 // Server-side history caps — the client is untrusted, so bound everything here.
@@ -316,8 +424,9 @@ async function logUsage(modeName, inTok, outTok, cacheWriteTok = 0, cacheReadTok
     const token = await getGoogleAccessToken();
     if (!token) return;
     // Field prefix per mode: story "s", story-summary "u" (separate so chapter vs summary cost is
-    // visible), research "r".
-    const key = modeName === "story" ? "s" : modeName === "summary" ? "u" : "r";
+    // visible), research "r", dungeon (all three dnd_* calls) "d".
+    const key = modeName === "story" ? "s" : modeName === "summary" ? "u"
+      : String(modeName).startsWith("dnd") ? "d" : "r";
     const base = `projects/${PROJECT_ID}/databases/(default)/documents`;
     const tf = (f, n) => ({ fieldPath: f, increment: { integerValue: String(n) } });
     const fields = [
@@ -344,8 +453,8 @@ function usageRow(d, label) {
   const f = d.fields || {};
   const n = (k) => parseInt((f[k] && f[k].integerValue) || "0", 10);
   const row = { [label]: d.name.split("/").pop() };
-  // s = story chapters, u = story summaries, r = research
-  for (const p of ["s", "u", "r"]) for (const m of ["in", "out", "req", "cw", "cr"]) row[`${p}_${m}`] = n(`${p}_${m}`);
+  // s = story chapters, u = story summaries, r = research, d = dungeon (D&D)
+  for (const p of ["s", "u", "r", "d"]) for (const m of ["in", "out", "req", "cw", "cr"]) row[`${p}_${m}`] = n(`${p}_${m}`);
   return row;
 }
 async function readCollection(collection, label, cap) {
@@ -507,6 +616,161 @@ async function clearStoryLog(date) {
   return ids.length;
 }
 
+// ---------------- Dungeon mode: Dad gate + campaign storage ----------------
+// Unlike the app's other Dad gates (UI-only), Dungeon mode is enforced HERE: the request
+// carries Dad's RAW PIN (typed each page-load, never persisted client-side), and the server
+// hash-verifies it against the family's stored settings_<familyKey>/dadAuth.pinHash — the
+// same hash index.html creates (sha256(pin + ":" + familyPassword)). The stored HASH is
+// readable by any family device (it syncs to localStorage for the soft gates), so the hash
+// itself can never be the credential — only PIN knowledge is. Fails CLOSED: this mode has
+// no content guardrails, so an infra hiccup must deny, never allow.
+const DND_STREAM_MODES = new Set(["dnd", "dnd_update", "dnd_summary"]);
+const DND_ACTIONS = new Set(["dnd_list", "dnd_get", "dnd_save", "dnd_delete"]);
+const DND_COLLECTION = "farmgpt_dnd";
+const MAX_MODULE_CHARS = 600_000;     // ~150k tokens — comfortably inside Sonnet's context
+const MODULE_SHARD_CHARS = 400_000;   // per Firestore doc, well under the ~1MB doc limit
+const MAX_DND_TURNS = 80;             // stored history tail per campaign
+const bigSv = (s, cap) => ({ stringValue: String(s == null ? "" : s).slice(0, cap) });
+
+let cachedDadPinHash = null;   // { hash, exp } — survives warm invocations
+let dndPinFailures = [];       // recent wrong-PIN timestamps (best-effort brute-force brake)
+
+function familyKeyFromSecret(pw) {
+  let h = 0;
+  for (const ch of String(pw).toLowerCase()) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return "fam" + h.toString(36);
+}
+async function fetchDadPinHash(familySecret) {
+  if (cachedDadPinHash && Date.now() < cachedDadPinHash.exp) return cachedDadPinHash.hash;
+  try {
+    const token = await getGoogleAccessToken();
+    if (!token) return null;
+    const r = await fetch(`${FIRESTORE_BASE}/settings_${familyKeyFromSecret(familySecret)}/dadAuth`,
+      { headers: { authorization: `Bearer ${token}` } });
+    if (!r.ok) return null;
+    const j = await r.json().catch(() => null);
+    const hash = (j && j.fields && j.fields.pinHash && j.fields.pinHash.stringValue) || null;
+    if (hash) cachedDadPinHash = { hash, exp: Date.now() + 10 * 60 * 1000 };
+    return hash;
+  } catch { return null; }
+}
+// Returns null when the PIN is good, else a user-facing denial message.
+async function verifyDadPin(body, familySecret) {
+  const now = Date.now();
+  dndPinFailures = dndPinFailures.filter((t) => now - t < 10 * 60 * 1000);
+  if (dndPinFailures.length >= 8) return "Too many wrong PIN tries — wait a few minutes";
+  if (typeof body.dndPin !== "string" || !body.dndPin) return "Dad's PIN is required for Dungeon mode";
+  const stored = await fetchDadPinHash(familySecret);
+  if (!stored) return "Dungeon mode is unavailable: Dad's PIN isn't set up in the Bucky app, or the server can't reach family settings";
+  const crypto = await import("node:crypto");
+  const hash = crypto.createHash("sha256").update(body.dndPin + ":" + familySecret).digest("hex");
+  if (hash !== stored) { dndPinFailures.push(now); return "Wrong PIN"; }
+  return null;
+}
+
+// Campaign docs: c_<id> { kind:"campaign", name, sheet, journal, turns(JSON), moduleShards,
+// updatedAt } + module shards m_<id>_<n> { kind:"module", text }. The module is written once
+// (at create/edit) and reassembled on get; turns are the recent message tail (the journal is
+// the long-term memory, same division of labor as story mode).
+async function dndHandleAction(body) {
+  const token = await getGoogleAccessToken();
+  if (!token) return null;
+  const base = `projects/${PROJECT_ID}/databases/(default)/documents`;
+  const auth = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+
+  if (body.mode === "dnd_list") {
+    const resp = await fetch(`${FIRESTORE_BASE}:runQuery`, {
+      method: "POST", headers: auth,
+      body: JSON.stringify({
+        structuredQuery: {
+          from: [{ collectionId: DND_COLLECTION }],
+          select: { fields: [{ fieldPath: "name" }, { fieldPath: "updatedAt" }, { fieldPath: "moduleShards" }, { fieldPath: "charName" }] },
+          where: { fieldFilter: { field: { fieldPath: "kind" }, op: "EQUAL", value: { stringValue: "campaign" } } },
+          limit: 100,
+        },
+      }),
+    });
+    if (!resp.ok) return null;
+    const rows = await resp.json();
+    if (!Array.isArray(rows)) return null;
+    const campaigns = rows.filter((r) => r && r.document).map((r) => {
+      const f = r.document.fields || {};
+      const s = (k) => (f[k] && f[k].stringValue) || "";
+      return { id: r.document.name.split("/").pop().replace(/^c_/, ""), name: s("name"),
+        charName: s("charName"), updatedAt: s("updatedAt"),
+        hasModule: parseInt((f.moduleShards && f.moduleShards.integerValue) || "0", 10) > 0 };
+    }).sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+    return { campaigns };
+  }
+
+  const id = sanId(body.id);
+  if (!id) return { error: "missing campaign id" };
+
+  if (body.mode === "dnd_get") {
+    const r = await fetch(`${FIRESTORE_BASE}/${DND_COLLECTION}/c_${id}`, { headers: auth });
+    if (r.status === 404) return { error: "not found" };
+    if (!r.ok) return null;
+    const j = await r.json();
+    const f = j.fields || {};
+    const s = (k) => (f[k] && f[k].stringValue) || "";
+    const shards = parseInt((f.moduleShards && f.moduleShards.integerValue) || "0", 10);
+    let moduleText = "";
+    for (let i = 0; i < shards && i < 8; i++) {
+      const sr = await fetch(`${FIRESTORE_BASE}/${DND_COLLECTION}/m_${id}_${i}`, { headers: auth });
+      if (!sr.ok) break;
+      const sj = await sr.json();
+      moduleText += (sj.fields && sj.fields.text && sj.fields.text.stringValue) || "";
+    }
+    let turns = [];
+    try { turns = JSON.parse(s("turns") || "[]"); } catch { turns = []; }
+    return { campaign: { id, name: s("name"), charName: s("charName"), sheet: s("sheet"),
+      journal: s("journal"), turns, updatedAt: s("updatedAt") }, module: moduleText };
+  }
+
+  if (body.mode === "dnd_save") {
+    const c = body.campaign;
+    if (!c || typeof c !== "object") return { error: "missing campaign" };
+    let turns = Array.isArray(c.turns) ? c.turns.slice(-MAX_DND_TURNS) : [];
+    turns = turns.filter((t) => t && (t.role === "user" || t.role === "assistant") && typeof t.content === "string")
+      .map((t) => ({ role: t.role, content: t.content.slice(0, MAX_CONTENT_CHARS) }));
+    const writes = [];
+    const fields = {
+      kind: sv("campaign"),
+      name: bigSv(c.name || "Untitled campaign", 120),
+      charName: bigSv(c.charName || "", 80),
+      sheet: bigSv(c.sheet || "", 40_000),
+      journal: bigSv(c.journal || "", 12_000),
+      turns: bigSv(JSON.stringify(turns), 700_000),
+      updatedAt: sv(new Date().toISOString()),
+    };
+    // Module rides along only when (re)provided; existing shards are otherwise left untouched.
+    if (typeof body.module === "string") {
+      const mod = body.module.slice(0, MAX_MODULE_CHARS);
+      const nShards = mod ? Math.ceil(mod.length / MODULE_SHARD_CHARS) : 0;
+      for (let i = 0; i < nShards; i++) {
+        writes.push({ update: { name: `${base}/${DND_COLLECTION}/m_${id}_${i}`,
+          fields: { kind: sv("module"), text: bigSv(mod.slice(i * MODULE_SHARD_CHARS, (i + 1) * MODULE_SHARD_CHARS), MODULE_SHARD_CHARS) } } });
+      }
+      for (let i = nShards; i < 8; i++) writes.push({ delete: `${base}/${DND_COLLECTION}/m_${id}_${i}` });
+      fields.moduleShards = iv(nShards);
+    }
+    writes.push({ update: { name: `${base}/${DND_COLLECTION}/c_${id}`, fields },
+      ...(typeof body.module === "string" ? {} : { updateMask: { fieldPaths: Object.keys(fields) } }) });
+    const resp = await fetch(`${FIRESTORE_BASE}:commit`, { method: "POST", headers: auth, body: JSON.stringify({ writes }) });
+    if (!resp.ok) return null;
+    return { saved: true, id };
+  }
+
+  if (body.mode === "dnd_delete") {
+    const writes = [{ delete: `${base}/${DND_COLLECTION}/c_${id}` }];
+    for (let i = 0; i < 8; i++) writes.push({ delete: `${base}/${DND_COLLECTION}/m_${id}_${i}` });
+    const resp = await fetch(`${FIRESTORE_BASE}:commit`, { method: "POST", headers: auth, body: JSON.stringify({ writes }) });
+    if (!resp.ok) return null;
+    return { deleted: true };
+  }
+  return null;
+}
+
 function corsHeaders(origin, contentType) {
   const allowOrigin = ALLOWED_ORIGINS.has(origin) ? origin : "https://amenfarms.netlify.app";
   return {
@@ -640,6 +904,20 @@ export default async (req) => {
     return new Response(JSON.stringify({ cleared }), { status: 200, headers: jsonHeaders });
   }
 
+  // Dungeon (D&D) mode — every dnd* request (streaming AND storage) requires Dad's raw PIN,
+  // verified server-side. This is the one hard server gate in the app: dnd mode carries no
+  // content guardrails, so possession of the family password alone must not reach it.
+  if (DND_STREAM_MODES.has(body.mode) || DND_ACTIONS.has(body.mode)) {
+    const denied = await verifyDadPin(body, familySecret);
+    if (denied) return jsonError(403, denied, jsonHeaders);
+    if (DND_ACTIONS.has(body.mode)) {
+      const out = await dndHandleAction(body);
+      if (!out) return jsonError(500, "Campaign storage isn't reachable right now", jsonHeaders);
+      if (out.error) return jsonError(400, out.error, jsonHeaders);
+      return new Response(JSON.stringify(out), { status: 200, headers: jsonHeaders });
+    }
+  }
+
   const mode = MODES[body.mode];
   if (!mode) return jsonError(400, "mode must be \"story\" or \"research\"", jsonHeaders);
 
@@ -661,8 +939,16 @@ export default async (req) => {
   // Story illustrations: opt-in per request. Bump the token budget so the <svg> fits
   // after the chapter + choices without truncating either. Research ignores the flag.
   const illustrate = body.mode === "story" && body.illustrate === true;
-  const system = illustrate ? mode.system + "\n" + STORY_ILLUSTRATION : mode.system;
+  let system = illustrate ? mode.system + "\n" + STORY_ILLUSTRATION : mode.system;
   const maxTokens = illustrate ? 3000 : mode.maxTokens;
+
+  // Dungeon mode: the adventure module rides along inside the system prompt on every turn.
+  // It sits at the head of the request, so the top-level cache_control below means the whole
+  // module re-reads at ~10% input price after the first turn of a session.
+  if (body.mode === "dnd" && typeof body.dndModule === "string" && body.dndModule.trim()) {
+    system += "\n\n===== ADVENTURE MODULE — RUN THIS ADVENTURE AS WRITTEN =====\n" +
+      body.dndModule.slice(0, MAX_MODULE_CHARS);
+  }
 
   // Chapter flow (story mode only): open a titled chapter (possible POV switch), softly offer to
   // close it at a natural beat, or firmly close it. The directive rides on the LAST user turn so

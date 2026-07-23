@@ -74,9 +74,9 @@
   #homeIntro { text-align: center; color: var(--muted); font-size: 14px; margin-top: 22px; }
   #homeIntro .bigIco { font-size: 54px; }
   #usageLink { text-align: center; margin-top: 18px; }
-  #storyLogLink { text-align: center; margin-top: 8px; }
+  #storyLogLink, #dungeonLink { text-align: center; margin-top: 8px; }
   #dadUnlockLink { text-align: center; margin-top: 18px; }
-  #usageLink button, #storyLogLink button, #dadUnlockLink button {
+  #usageLink button, #storyLogLink button, #dungeonLink button, #dadUnlockLink button {
     background: none; border: 0; color: var(--muted); font-family: inherit; font-size: 13px;
     font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px;
   }
@@ -379,6 +379,7 @@
     </div>
     <div id="usageLink"><button id="usageBtn">📊 API usage &amp; cost</button></div>
     <div id="storyLogLink"><button id="storyLogBtn">📖 Story Log &mdash; kids' reading</button></div>
+    <div id="dungeonLink"><button id="dungeonBtn">🎲 Dungeon &mdash; D&amp;D table</button></div>
     <div id="dadUnlockLink"><button id="dadUnlockBtn">🔒 Unlock Dad tools</button></div>
   </div>
 
@@ -650,6 +651,7 @@
     const unlocked = isDad();
     $("usageLink").style.display = unlocked ? "" : "none";
     $("storyLogLink").style.display = unlocked ? "" : "none";
+    $("dungeonLink").style.display = unlocked ? "" : "none";
     // A Dad who's locked this session (PIN already synced locally) can unlock right here.
     $("dadUnlockLink").style.display = (isDadName() && !unlocked && dadConfigured()) ? "" : "none";
   }
@@ -1623,7 +1625,7 @@
   // Cost of one prefix at rate r: in + 1.25x cache-write + 0.1x cache-read, out at out-rate.
   const priced = (d, p, inR, outR) => cw(d, p + "_in") * inR + cw(d, p + "_cw") * inR * 1.25
     + cw(d, p + "_cr") * inR * 0.1 + cw(d, p + "_out") * outR;
-  const rowCost = (d) => (priced(d, "s", S_IN, S_OUT) + priced(d, "u", S_IN, S_OUT) + priced(d, "r", R_IN, R_OUT)) / 1e6;
+  const rowCost = (d) => (priced(d, "s", S_IN, S_OUT) + priced(d, "u", S_IN, S_OUT) + priced(d, "r", R_IN, R_OUT) + priced(d, "d", R_IN, R_OUT)) / 1e6;
   const dayCost = rowCost;
   const fmt$ = (v) => "$" + (v < 0.10 ? v.toFixed(3) : v.toFixed(2));
   const fmtTok = (n) => n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n);
@@ -1668,6 +1670,7 @@
       ["📖", "Story chapters", sum(monthDays, "s_req"), sum(monthDays, "s_in"), sum(monthDays, "s_out"), sum(monthDays, "s_cw") + sum(monthDays, "s_cr"), "Haiku 4.5"],
       ["📝", "Story recaps", sum(monthDays, "u_req"), sum(monthDays, "u_in"), sum(monthDays, "u_out"), sum(monthDays, "u_cw") + sum(monthDays, "u_cr"), "Haiku 4.5"],
       ["🔬", "Research", sum(monthDays, "r_req"), sum(monthDays, "r_in"), sum(monthDays, "r_out"), sum(monthDays, "r_cw") + sum(monthDays, "r_cr"), "Sonnet 5"],
+      ["🎲", "Dungeon", sum(monthDays, "d_req"), sum(monthDays, "d_in"), sum(monthDays, "d_out"), sum(monthDays, "d_cw") + sum(monthDays, "d_cr"), "Sonnet 5"],
     ]) {
       const el = document.createElement("div");
       el.className = "usplit";
@@ -1681,12 +1684,12 @@
 
     const table = document.createElement("table");
     table.id = "usageTable";
-    const tokTotal = (d) => ["s", "u", "r"].reduce((a, p) =>
+    const tokTotal = (d) => ["s", "u", "r", "d"].reduce((a, p) =>
       a + cw(d, p + "_in") + cw(d, p + "_out") + cw(d, p + "_cw") + cw(d, p + "_cr"), 0);
-    table.innerHTML = "<tr><th>Day</th><th>📖</th><th>📝</th><th>🔬</th><th>Tokens</th><th>Est. cost</th></tr>";
+    table.innerHTML = "<tr><th>Day</th><th>📖</th><th>📝</th><th>🔬</th><th>🎲</th><th>Tokens</th><th>Est. cost</th></tr>";
     for (const d of days.slice(0, 21)) {
       const tr = document.createElement("tr");
-      const cells = [d.date, d.s_req, cw(d, "u_req"), d.r_req, fmtTok(tokTotal(d)), fmt$(dayCost(d))];
+      const cells = [d.date, d.s_req, cw(d, "u_req"), d.r_req, cw(d, "d_req"), fmtTok(tokTotal(d)), fmt$(dayCost(d))];
       for (const c of cells) { const td = document.createElement("td"); td.textContent = c; tr.appendChild(td); }
       table.appendChild(tr);
     }
@@ -1699,11 +1702,11 @@
       body.appendChild(hHead);
       const ht = document.createElement("table");
       ht.id = "usageTable";
-      ht.innerHTML = "<tr><th>Hour (CT)</th><th>📖</th><th>📝</th><th>🔬</th><th>Tokens</th><th>Est. cost</th></tr>";
+      ht.innerHTML = "<tr><th>Hour (CT)</th><th>📖</th><th>📝</th><th>🔬</th><th>🎲</th><th>Tokens</th><th>Est. cost</th></tr>";
       for (const h of hours.slice(0, 18)) {
         const tr = document.createElement("tr");
         const label = h.hour.replace(/^(\d{4})-(\d{2})-(\d{2})-(\d{2})$/, "$2/$3 $4:00");
-        const cells = [label, h.s_req, cw(h, "u_req"), h.r_req, fmtTok(tokTotal(h)), fmt$(rowCost(h))];
+        const cells = [label, h.s_req, cw(h, "u_req"), h.r_req, cw(h, "d_req"), fmtTok(tokTotal(h)), fmt$(rowCost(h))];
         for (const c of cells) { const td = document.createElement("td"); td.textContent = c; tr.appendChild(td); }
         ht.appendChild(tr);
       }
@@ -1713,13 +1716,14 @@
     const note = document.createElement("div");
     note.id = "usageNote";
     note.textContent = "Estimated at list pricing — story on Haiku 4.5 ($" + S_IN + " in / $" + S_OUT +
-      " out per MTok), research on Sonnet 5 ($" + R_IN + " in / $" + R_OUT + " out); cached tokens 💰 " +
+      " out per MTok), research + dungeon on Sonnet 5 ($" + R_IN + " in / $" + R_OUT + " out); cached tokens 💰 " +
       "re-read at 10% of the input rate. Exact billing is at console.anthropic.com.";
     body.appendChild(note);
   }
 
   $("usageBtn").addEventListener("click", () => { show("usage"); loadUsage(); });
   $("storyLogBtn").addEventListener("click", () => { show("storylog"); loadStoryLog(); });
+  $("dungeonBtn").addEventListener("click", () => { location.href = "dungeon.html"; });
   // The usage dashboard AND the Story Log are Dad-only and PIN-locked (kids shouldn't see spend or
   // each other's reading). The endpoints are also family-password gated; this is the client gate.
   $("dadUnlockBtn").addEventListener("click", async () => {
