@@ -412,9 +412,10 @@ const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || "gemini-2.5-flash-i
 const KID_ART_IMAGE_PROMPT = `A single illustration for a children's picture book, for a
 six-year-old. Bright, warm, cheerful, hand-painted storybook style with bold simple shapes and
 soft rounded edges. Friendly and completely non-scary: happy faces, gentle light, cozy mood.
-No text, letters, numbers, or words anywhere in the image. It fills one page of an open picture
-book, so compose it slightly wider than tall with the main character well inside the middle —
-the outer edges may be trimmed. The picture shows: `;
+No text, letters, numbers, or words anywhere in the image. The artwork fills the entire frame
+edge to edge as a full-bleed page: no white border, no paper margin, no vignette — the background
+colour reaches all four edges. It fills one page of an open picture book, so keep the main
+character well inside the middle; the outer edges may be trimmed. The picture shows: `;
 
 async function generateKidImage(scene) {
   const key = process.env.GEMINI_API_KEY;
@@ -426,6 +427,9 @@ async function generateKidImage(scene) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         contents: [{ role: "user", parts: [{ text: KID_ART_IMAGE_PROMPT + String(scene).slice(0, 600) }] }],
+        // without this the model returns a SQUARE image; the book's picture page is landscape
+        // and crops to fill, so a square would lose the top and bottom of every scene.
+        generationConfig: { imageConfig: { aspectRatio: "4:3" } },
       }),
     });
     if (!r.ok) return null;

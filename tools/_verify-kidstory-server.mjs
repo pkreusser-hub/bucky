@@ -150,6 +150,9 @@ console.log("— kidart: real image generation (KID_ART_PROVIDER=gemini) —");
   ok(/children's picture book/i.test(prompt) && /non-scary/i.test(prompt), "image prompt is kid-safe + storybook styled");
   ok(/No text, letters, numbers/i.test(prompt), "image prompt bans text in the picture");
   ok(prompt.includes("Bo the goat ran past a red barn."), "scene text is what gets illustrated");
+  ok(/full-bleed|reaches all four edges/i.test(prompt), "image prompt asks for full-bleed art (no white paper border)");
+  ok(gb.generationConfig && gb.generationConfig.imageConfig && gb.generationConfig.imageConfig.aspectRatio === "4:3",
+    "asks for a 4:3 picture — the model returns a SQUARE without this, and the book page would crop its top and bottom");
   // failure must fall back to a drawing, never to a blank page
   // usage: a generated image is COUNTED (billed per image), not token-logged
   {
