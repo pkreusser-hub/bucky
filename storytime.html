@@ -203,6 +203,36 @@
     { em: "🐻", nm: "Camping With Bear",     seed: "A cozy story about a kid camping in the yard with a big, gentle, marshmallow-loving bear." },
   ];
 
+  // ---------- offline demo mode (?demo=1) ----------
+  // The same page, but the story comes from these baked scenes instead of the network, so it
+  // can be opened straight off an iPad with no internet at all. Everything else — the type,
+  // the read-aloud, the tap targets, the layout — is the real thing. Art here is a literal in
+  // this file (our own markup, same trust level as the page), so it skips the sanitizer that
+  // model-drawn art must pass through.
+  // ?demo=1 forces it; opening the file straight off a device (file://) also switches to the
+  // demo automatically, since there's no server there for the live story to call anyway.
+  const DEMO = new URLSearchParams(location.search).get("demo") === "1" || location.protocol === "file:";
+  const D_ART = {
+    farm: `<svg viewBox="0 0 400 260"><rect width="400" height="260" fill="#bfe4f7"/><circle cx="336" cy="46" r="30" fill="#ffd75e"/><ellipse cx="86" cy="52" rx="42" ry="20" fill="#fff"/><ellipse cx="120" cy="46" rx="30" ry="16" fill="#fff"/><rect y="176" width="400" height="84" fill="#8ec96b"/><ellipse cx="60" cy="182" rx="70" ry="16" fill="#7bbb59"/><ellipse cx="330" cy="186" rx="80" ry="18" fill="#7bbb59"/><rect x="248" y="86" width="118" height="94" fill="#d2453f"/><polygon points="240,88 307,44 374,88" fill="#a83430"/><rect x="288" y="126" width="38" height="54" fill="#8f2f2b"/><rect x="86" y="120" width="86" height="52" rx="16" fill="#f4efe6"/><circle cx="72" cy="120" r="27" fill="#f4efe6"/><circle cx="62" cy="112" r="5" fill="#33404f"/><ellipse cx="48" cy="126" rx="12" ry="9" fill="#e6dccb"/><path d="M60 96 q-10 -22 4 -26 q4 16 8 22 z" fill="#e6dccb"/><path d="M84 96 q10 -22 -4 -26 q-4 16 -8 22 z" fill="#e6dccb"/><rect x="96" y="168" width="13" height="30" fill="#d9d2c4"/><rect x="146" y="168" width="13" height="30" fill="#d9d2c4"/><path d="M172 132 q22 -6 20 16" stroke="#e6dccb" stroke-width="9" fill="none" stroke-linecap="round"/><ellipse cx="212" cy="186" rx="20" ry="15" fill="#fff"/><circle cx="228" cy="172" r="11" fill="#fff"/><polygon points="236,172 248,176 236,180" fill="#f2a63b"/><circle cx="231" cy="169" r="2.4" fill="#33404f"/></svg>`,
+    barn: `<svg viewBox="0 0 400 260"><rect width="400" height="260" fill="#8f5f3a"/><rect y="196" width="400" height="64" fill="#6f472b"/><rect x="24" y="40" width="60" height="90" fill="#a06b42"/><rect x="316" y="40" width="60" height="90" fill="#a06b42"/><circle cx="200" cy="52" r="26" fill="#ffe08a"/><rect x="96" y="128" width="88" height="40" rx="7" fill="#e8c66a"/><rect x="104" y="140" width="72" height="5" fill="#cfa94d"/><rect x="120" y="90" width="88" height="40" rx="7" fill="#e8c66a"/><rect x="128" y="102" width="72" height="5" fill="#cfa94d"/><rect x="212" y="128" width="88" height="40" rx="7" fill="#e8c66a"/><rect x="220" y="140" width="72" height="5" fill="#cfa94d"/><ellipse cx="250" cy="186" rx="26" ry="17" fill="#f0efe9"/><circle cx="274" cy="172" r="15" fill="#f0efe9"/><polygon points="264,160 268,150 274,160" fill="#f0efe9"/><polygon points="280,160 286,150 289,160" fill="#f0efe9"/><circle cx="270" cy="171" r="2.6" fill="#33404f"/><circle cx="280" cy="171" r="2.6" fill="#33404f"/><path d="M224 186 q-16 6 -12 18" stroke="#f0efe9" stroke-width="7" fill="none" stroke-linecap="round"/></svg>`,
+    pond: `<svg viewBox="0 0 400 260"><rect width="400" height="260" fill="#c3e8f7"/><circle cx="60" cy="48" r="26" fill="#ffd75e"/><rect y="150" width="400" height="110" fill="#8ec96b"/><ellipse cx="210" cy="204" rx="150" ry="52" fill="#5bb4d8"/><ellipse cx="210" cy="196" rx="128" ry="40" fill="#79c9e6"/><ellipse cx="150" cy="196" rx="22" ry="16" fill="#fff"/><circle cx="170" cy="182" r="12" fill="#fff"/><polygon points="180,182 192,186 180,190" fill="#f2a63b"/><circle cx="173" cy="179" r="2.4" fill="#33404f"/><ellipse cx="232" cy="206" rx="12" ry="9" fill="#fff"/><circle cx="243" cy="198" r="7" fill="#fff"/><polygon points="249,198 256,200 249,203" fill="#f2a63b"/><ellipse cx="268" cy="212" rx="12" ry="9" fill="#fff"/><circle cx="279" cy="204" r="7" fill="#fff"/><polygon points="285,204 292,206 285,209" fill="#f2a63b"/><rect x="336" y="140" width="7" height="62" fill="#6f9e4f"/><ellipse cx="339" cy="136" rx="9" ry="18" fill="#8a5a34"/><rect x="358" y="152" width="7" height="50" fill="#6f9e4f"/><ellipse cx="361" cy="148" rx="8" ry="15" fill="#8a5a34"/></svg>`,
+    flowers: `<svg viewBox="0 0 400 260"><rect width="400" height="260" fill="#cfeafb"/><circle cx="330" cy="44" r="28" fill="#ffd75e"/><rect y="160" width="400" height="100" fill="#8ec96b"/><g fill="#f2c53d"><circle cx="70" cy="168" r="15"/><circle cx="160" cy="182" r="15"/><circle cx="268" cy="170" r="15"/></g><g fill="#e8746a"><circle cx="116" cy="196" r="14"/><circle cx="220" cy="200" r="14"/><circle cx="320" cy="190" r="14"/></g><g fill="#fff"><circle cx="70" cy="168" r="6"/><circle cx="160" cy="182" r="6"/><circle cx="268" cy="170" r="6"/><circle cx="116" cy="196" r="6"/><circle cx="220" cy="200" r="6"/><circle cx="320" cy="190" r="6"/></g><g stroke="#5f9440" stroke-width="5"><path d="M70 182v34"/><path d="M160 196v30"/><path d="M268 184v34"/><path d="M116 210v26"/><path d="M220 214v24"/><path d="M320 204v28"/></g><ellipse cx="196" cy="112" rx="15" ry="11" fill="#f5c243"/><rect x="188" y="103" width="6" height="18" fill="#33404f"/><rect x="200" y="103" width="6" height="18" fill="#33404f"/><ellipse cx="190" cy="98" rx="12" ry="7" fill="#fff" opacity=".8"/><ellipse cx="204" cy="98" rx="12" ry="7" fill="#fff" opacity=".8"/></svg>`,
+  };
+  // Real first-grade sentences (3-9 words each) so the reading level can be judged too.
+  const DEMO_SCENES = {
+    s1: { art: "farm", text: "Bo the goat pushed the gate.\nIt swung open with a creak.\nBo ran out into the sun.\nA duck said, \"Quack! Hello!\"",
+      choices: [ { em: "🦆", text: "Say hi to the duck", next: "s3" }, { em: "🏚️", text: "Peek in the barn", next: "s2" }, { em: "🌻", text: "Go see the flowers", next: "s4" } ] },
+    s2: { art: "barn", text: "The barn smelled like warm hay.\nBig soft bales sat in a row.\nA tiny kitten blinked at Bo.\n\"Mew,\" said the kitten.",
+      choices: [ { em: "🐱", text: "Pet the kitten", next: "s5" }, { em: "🌾", text: "Jump on the hay", next: "s5" }, { em: "🚪", text: "Go back outside", next: "s1" } ] },
+    s3: { art: "pond", text: "The duck had six little ducklings.\nThey all went splash in the pond.\nBo dipped one hoof in.\nThe water was cold!",
+      choices: [ { em: "💦", text: "Splash some more", next: "s5" }, { em: "🌻", text: "Run to the flowers", next: "s4" }, { em: "🏚️", text: "Dry off in the barn", next: "s2" } ] },
+    s4: { art: "flowers", text: "The field was full of flowers.\nRed ones. Yellow ones. So many!\nA fat bee buzzed past Bo.\nBo sneezed a very big sneeze.",
+      choices: [ { em: "🐝", text: "Follow the buzzy bee", next: "s5" }, { em: "👃", text: "Smell a red flower", next: "s5" }, { em: "🦆", text: "Go find the duck", next: "s3" } ] },
+    s5: { art: "farm", text: "Soon the sun went down low.\nBo felt sleepy and warm.\nThe duck walked Bo back home.\n\"Same time tomorrow?\" said the duck.",
+      choices: [ { em: "☀️", text: "Play again tomorrow", next: "s1" }, { em: "🌙", text: "Curl up and nap", next: "s2" }, { em: "🍎", text: "Have a snack first", next: "s4" } ] },
+  };
+  let demoAt = "s1";
+
   const SAVE_KEY = "storytime_save_v1";
   let story = null;          // { id, title, msgs:[{role,content}], scene:{text,choices}, art }
   let busy = false;
@@ -392,7 +422,27 @@
     } catch { /* a missing picture never blocks the story */ }
   }
 
+  // Offline demo: same render path, canned scene, a short pause so the "writing…" state and
+  // the picture pop-in behave exactly like the live version.
+  function demoAdvance(nextId) {
+    setBusy(true);
+    stopSpeech();
+    $("art").classList.add("loading");
+    setTimeout(() => {
+      demoAt = nextId || "s1";
+      const d = DEMO_SCENES[demoAt];
+      story.scene = { text: d.text, choices: d.choices.map((c) => ({ em: c.em, text: c.text, next: c.next })) };
+      paintText(story.scene.text);
+      paintChoices(story.scene.choices);
+      setBusy(false);
+      setArt(null);
+      setTimeout(() => setArt(D_ART[d.art], false), 450);   // art lands a beat after the words
+      if (speechReady) setTimeout(speakScene, 250);
+    }, 700);
+  }
+
   async function advance(userContent) {
+    if (DEMO) return demoAdvance(story && story.pendingNext);
     setBusy(true);
     stopSpeech();
     $("art").classList.add("loading");
@@ -428,12 +478,13 @@
   function pickChoice(c) {
     if (busy) return;
     story.lastChoice = c.text;
+    story.pendingNext = c.next || null;   // demo mode routes by id; live mode ignores it
     advance(c.em + " " + c.text);
   }
 
   function startStory(s) {
     primeSpeech();
-    story = { id: "k" + Date.now().toString(36), title: s.nm, msgs: [], scene: null, art: null, lastChoice: "" };
+    story = { id: "k" + Date.now().toString(36), title: s.nm, msgs: [], scene: null, art: null, lastChoice: "", pendingNext: DEMO ? "s1" : null };
     show("storyView");
     setArt(null);
     paintText("");
@@ -461,7 +512,7 @@
   function buildStarters() {
     const wrap = $("starters");
     wrap.innerHTML = "";
-    const saved = loadSaved();
+    const saved = DEMO ? null : loadSaved();   // demo runs don't save or resume
     if (saved) {
       const b = document.createElement("button");
       b.className = "starter"; b.type = "button";
@@ -484,6 +535,8 @@
   }
 
   $("greet").textContent = WHO ? `Hi ${WHO}!` : "Story Time";
+  if (DEMO) document.querySelector(".sub").textContent =
+    "Demo — works with no internet. Any story card starts the same sample story.";
   $("backBtn").onclick = () => { buildStarters(); show("pickView"); };
   $("homeBtn").onclick = () => { location.href = "index.html"; };
   $("retryBtn").onclick = () => {
