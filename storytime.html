@@ -667,6 +667,25 @@
     }
   }
 
+  // ?art=1 — grown-up check: which picture engine is actually live on the server. The Gemini
+  // path falls back to a drawing silently, so this is the only way to tell "configured" from
+  // "quietly falling back". Costs nothing and generates nothing.
+  if (new URLSearchParams(location.search).get("art") === "1" && !DEMO) {
+    const bar = document.createElement("div");
+    bar.style.cssText = "margin:0 0 14px;padding:12px 16px;border-radius:16px;font-size:16px;font-weight:800;background:#e9f3ff;border:2px solid #a9c9ee";
+    bar.textContent = "Checking pictures…";
+    $("pickView").insertBefore(bar, $("starters"));
+    fetch(API, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ secret: FAMILY_PASSWORD, mode: "kidart_status" }) })
+      .then((r) => r.json())
+      .then((s) => {
+        if (s.live === "gemini") { bar.textContent = "🎨 Pictures: real generated images (" + s.model + ")"; bar.style.background = "#e6f6ea"; bar.style.borderColor = "#9ed3ae"; }
+        else if (s.provider === "gemini" && !s.hasGeminiKey) { bar.textContent = "⚠️ Set to generated images, but GEMINI_API_KEY is missing — falling back to drawings."; bar.style.background = "#fdf0e3"; bar.style.borderColor = "#e8bf88"; }
+        else bar.textContent = "✏️ Pictures: drawings (set KID_ART_PROVIDER=gemini for generated images)";
+      })
+      .catch(() => { bar.textContent = "Couldn't reach the picture service."; });
+  }
+
   $("greet").textContent = WHO ? `Hi ${WHO}!` : "Story Time";
   if (DEMO) document.querySelector(".sub").textContent =
     "Demo — works with no internet. Any story card starts the same sample story.";

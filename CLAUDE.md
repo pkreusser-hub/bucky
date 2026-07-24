@@ -1504,7 +1504,12 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   drawing so a picture always appears. NOTE generativelanguage.googleapis.com IS reachable
   from the sandbox (unlike Anthropic/Yahoo) — verified with a real API-key-invalid response —
   so the image path can be live-probed with a key. Usage splits into TWO buckets since they
-  bill differently: k_* kid text (Haiku) + a_* pictures (Sonnet); dashboard has 🧒 and 🎨 rows.
+  bill differently: k_* kid text (Haiku) + a_* drawings (Sonnet) + g_* GENERATED IMAGES
+  (counted, priced flat ~$0.039 each in the dashboard — per-image not per-token); rows 🧒/🎨/🖼.
+  DIAGNOSTIC: mode `kidart_status` → {provider,hasGeminiKey,model,live} (no image, no cost) and
+  `storytime.html?art=1` shows it as a banner — the gemini path falls back to a drawing SILENTLY,
+  so without this there's no way to tell a configured setup from a quietly-broken one.
+  TO TURN GENERATED IMAGES ON: Netlify env KID_ART_PROVIDER=gemini + GEMINI_API_KEY, redeploy.
   VERIFY: `node tools/_verify-kidstory-server.mjs` (36: model/budget, KID_RULES+FAMILY_RULES
   both stamped, 200-char user cap w/ assistant uncapped, no-cap + logging, k_*/a_* buckets,
   svg vs gemini provider incl. failure fallback + prompt content, story/research untouched)

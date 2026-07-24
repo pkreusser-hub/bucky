@@ -557,9 +557,12 @@ async function logUsage(modeName, inTok, outTok, cacheWriteTok = 0, cacheReadTok
     // visible), research "r", dungeon (all three dnd_* calls) "d".
     // Little-kid mode splits into two buckets because they bill very differently: the story
     // text is Haiku (fractions of a cent) while each picture is a Sonnet drawing.
+    // Generated photo-style pictures get their own "g" bucket: they bill PER IMAGE, not per
+    // token, so mixing them into the token-priced buckets would make the dashboard lie.
     const key = modeName === "story" ? "s" : modeName === "summary" ? "u"
       : String(modeName).startsWith("dnd") ? "d"
-      : modeName === "kidstory" ? "k" : modeName === "kidart" ? "a" : "r";
+      : modeName === "kidstory" ? "k" : modeName === "kidart" ? "a"
+      : modeName === "kidimage" ? "g" : "r";
     const base = `projects/${PROJECT_ID}/databases/(default)/documents`;
     const tf = (f, n) => ({ fieldPath: f, increment: { integerValue: String(n) } });
     const fields = [
@@ -587,7 +590,7 @@ function usageRow(d, label) {
   const n = (k) => parseInt((f[k] && f[k].integerValue) || "0", 10);
   const row = { [label]: d.name.split("/").pop() };
   // s = story chapters, u = story summaries, r = research, d = dungeon (D&D)
-  for (const p of ["s", "u", "r", "d", "k", "a"]) for (const m of ["in", "out", "req", "cw", "cr"]) row[`${p}_${m}`] = n(`${p}_${m}`);
+  for (const p of ["s", "u", "r", "d", "k", "a", "g"]) for (const m of ["in", "out", "req", "cw", "cr"]) row[`${p}_${m}`] = n(`${p}_${m}`);
   return row;
 }
 async function readCollection(collection, label, cap) {
@@ -1062,8 +1065,22 @@ export default async (req) => {
   // this returns an image; otherwise it falls through to the free SVG path (mode "kidart").
   if (body.mode === "kidart" && KID_ART_PROVIDER === "gemini") {
     const img = await generateKidImage(typeof body.scene === "string" ? body.scene : "");
-    if (img) return new Response(JSON.stringify({ image: `data:${img.mime};base64,${img.data}` }), { status: 200, headers: jsonHeaders });
+    if (img) {
+      await logUsage("kidimage", 0, 0, 0, 0);   // billed per image, so just count them
+      return new Response(JSON.stringify({ image: `data:${img.mime};base64,${img.data}`, source: "gemini" }), { status: 200, headers: jsonHeaders });
+    }
     // fall through to the SVG drawing below so a picture always appears
+  }
+  // Which picture engine is actually live right now. Costs nothing, generates nothing — it
+  // exists because the Gemini path falls back to a drawing silently, so without this there is
+  // no way to tell a configured setup from a broken one.
+  if (body.mode === "kidart_status") {
+    return new Response(JSON.stringify({
+      provider: KID_ART_PROVIDER,
+      hasGeminiKey: !!process.env.GEMINI_API_KEY,
+      model: GEMINI_IMAGE_MODEL,
+      live: KID_ART_PROVIDER === "gemini" && !!process.env.GEMINI_API_KEY ? "gemini" : "svg",
+    }), { status: 200, headers: jsonHeaders });
   }
 
   const mode = MODES[body.mode];

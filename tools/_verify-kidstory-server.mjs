@@ -150,11 +150,32 @@ console.log("— kidart: real image generation (KID_ART_PROVIDER=gemini) —");
   ok(/No text, letters, numbers/i.test(prompt), "image prompt bans text in the picture");
   ok(prompt.includes("Bo the goat ran past a red barn."), "scene text is what gets illustrated");
   // failure must fall back to a drawing, never to a blank page
+  // usage: a generated image is COUNTED (billed per image), not token-logged
+  {
+    const usage = commits.flatMap((c) => c.writes || []).filter((w) => w.transform && w.transform.document.includes("farmgpt_usage/"));
+    const last = usage[usage.length - 1];
+    const fields = last ? last.transform.fieldTransforms.map((t) => t.fieldPath) : [];
+    ok(fields.includes("g_req"), "a generated image increments its own g_* counter (per-image billing)");
+  }
+  // the status probe tells a grown-up which engine is really live — no image, no cost
+  {
+    const before = geminiReqs.length;
+    const st = await call({ mode: "kidart_status" }, h2);
+    ok(st.status === 200 && st.json.live === "gemini" && st.json.hasGeminiKey === true, "status probe reports gemini live");
+    ok(st.json.model === "gemini-2.5-flash-image", "…and which model");
+    ok(geminiReqs.length === before, "…without generating anything");
+  }
   geminiMode = "fail"; const antBefore = anthropicReqs.length;
   const r2 = await call({ mode: "kidart", messages: [{ role: "user", content: "Draw: Bo ran." }], scene: "Bo ran." }, h2);
   ok(r2.status === 200 && r2.text.includes("<svg"), "image API failure falls back to the SVG drawing");
   ok(anthropicReqs.length === antBefore + 1, "…via a real Anthropic art call");
   delete process.env.KID_ART_PROVIDER; delete process.env.GEMINI_API_KEY;
+}
+
+{
+  // with no key configured the probe says so plainly instead of pretending
+  const st = await call({ mode: "kidart_status" });
+  ok(st.status === 200 && st.json.live === "svg" && st.json.hasGeminiKey === false, "status probe reports the free drawing path when unconfigured");
 }
 
 console.log("— the other modes are untouched —");
