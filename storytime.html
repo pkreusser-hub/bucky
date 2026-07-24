@@ -101,6 +101,24 @@
   #text .w.now { background: #ffe082; }      /* follows along while it reads aloud */
   #readRow { display: flex; justify-content: center; align-items: center; gap: 12px; margin-top: 20px; flex-wrap: wrap; }
   #tapHint { text-align: center; font-size: 15px; font-weight: 700; color: var(--muted); margin: 12px 0 0; }
+  /* voice picker */
+  #voiceSheet { position: fixed; inset: 0; background: rgba(40,30,15,.45); z-index: 40;
+    display: grid; place-items: center; padding: 20px; }
+  #voiceSheet[hidden] { display: none; }
+  #vpanel { background: var(--card); border-radius: 26px; padding: 22px; width: min(560px, 100%);
+    max-height: 84vh; display: flex; flex-direction: column; box-shadow: var(--shadow); }
+  #vpanel h2 { font-size: 26px; margin: 0 0 4px; }
+  #vhint { font-size: 16px; color: var(--muted); font-weight: 700; margin: 0 0 14px; }
+  #voiceList { overflow-y: auto; -webkit-overflow-scrolling: touch; display: grid; gap: 10px; margin-bottom: 16px; }
+  .vrow { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+    border: 3px solid var(--line); background: var(--card); border-radius: 18px; padding: 14px 16px;
+    font: inherit; cursor: pointer; color: inherit; min-height: 62px; }
+  .vrow:active { transform: scale(.98); }
+  .vrow.sel { border-color: var(--navy); background: #eef3fb; }
+  .vrow .vn { flex: 1; font-size: 19px; font-weight: 800; }
+  .vrow .vr { font-size: 14px; font-weight: 700; color: var(--muted); }
+  .vrow .vc { font-size: 22px; color: var(--navy); }
+  #vnone { font-size: 17px; color: var(--muted); font-weight: 700; line-height: 1.5; }
   #text .w { cursor: pointer; }
   #readBtn {
     border: 0; border-radius: 20px; background: var(--navy); color: #fff;
@@ -141,6 +159,16 @@
 </head>
 <body>
 
+<!-- voice picker (tap a name to hear it) -->
+<div id="voiceSheet" hidden>
+  <div id="vpanel" role="dialog" aria-label="Pick a reading voice">
+    <h2>Pick a voice</h2>
+    <p id="vhint">Tap a name to hear it.</p>
+    <div id="voiceList"></div>
+    <button class="tinybtn" id="voiceClose">Done</button>
+  </div>
+</div>
+
 <div id="top">
   <button class="tinybtn" id="backBtn" aria-label="Pick a different story">← Stories</button>
   <div class="sp"></div>
@@ -163,6 +191,7 @@
       <div id="readRow">
       <button id="readBtn">🔊 <span>Read it to me</span></button>
       <button id="speedBtn" class="tinybtn" aria-label="Reading speed">🐢 Slow</button>
+      <button id="voiceBtn" class="tinybtn" aria-label="Pick a reading voice">🗣 Voice</button>
     </div>
     <p id="tapHint">Tap any word to hear it.</p>
     </div>
@@ -277,13 +306,74 @@
   };
   paintSpeed();
 
-  function pickVoice() {
-    if (!synth) return null;
-    const vs = synth.getVoices() || [];
-    const pref = ["Samantha", "Karen", "Moira", "Google UK English Female", "Google US English"];
-    for (const p of pref) { const v = vs.find((x) => x.name === p); if (v) return v; }
-    return vs.find((v) => /^en(-|_)?/i.test(v.lang || "")) || null;
+  // ---- voices ----
+  // An iPad usually has a dozen-plus English voices installed (more if extra ones have been
+  // downloaded in Settings › Accessibility › Spoken Content › Voices). Let the child pick,
+  // and remember it on this device.
+  const VOICE_KEY = "storytime_voice";
+  let chosenVoice = (() => { try { return localStorage.getItem(VOICE_KEY) || ""; } catch { return ""; } })();
+  const REGION = { US: "American", GB: "British", AU: "Australian", IE: "Irish", IN: "Indian",
+                   ZA: "South African", NZ: "New Zealand", CA: "Canadian", SG: "Singapore", HK: "Hong Kong" };
+  function englishVoices() {
+    if (!synth) return [];
+    const seen = new Set(), out = [];
+    for (const v of (synth.getVoices() || [])) {
+      if (!/^en\b|^en[-_]/i.test(v.lang || "")) continue;      // English only
+      if (seen.has(v.name)) continue;
+      seen.add(v.name); out.push(v);
+    }
+    return out;
   }
+  function pickVoice() {
+    const vs = englishVoices();
+    if (!vs.length) return null;
+    if (chosenVoice) { const v = vs.find((x) => x.name === chosenVoice); if (v) return v; }
+    // no choice yet: prefer warm, clear voices that read well for children
+    const pref = ["Samantha", "Ava", "Allison", "Susan", "Karen", "Moira", "Daniel",
+                  "Google UK English Female", "Google US English"];
+    for (const p of pref) { const v = vs.find((x) => x.name === p || x.name.startsWith(p + " ")); if (v) return v; }
+    return vs[0];
+  }
+  function voiceRegion(v) {
+    const m = /[-_]([A-Za-z]{2})\b/.exec(v.lang || "");
+    return m ? (REGION[m[1].toUpperCase()] || m[1].toUpperCase()) : "";
+  }
+  function buildVoiceList() {
+    const box = $("voiceList");
+    box.innerHTML = "";
+    const vs = englishVoices();
+    if (!vs.length) {
+      const p = document.createElement("p"); p.id = "vnone";
+      p.textContent = "No reading voices are installed on this device yet. On an iPad you can add them in Settings › Accessibility › Spoken Content › Voices.";
+      box.appendChild(p); return;
+    }
+    const current = pickVoice();
+    for (const v of vs) {
+      const b = document.createElement("button");
+      b.className = "vrow" + (current && v.name === current.name ? " sel" : "");
+      b.type = "button";
+      b.innerHTML = `<span class="vn"></span><span class="vr"></span><span class="vc"></span>`;
+      b.querySelector(".vn").textContent = v.name;
+      b.querySelector(".vr").textContent = voiceRegion(v);
+      b.querySelector(".vc").textContent = (current && v.name === current.name) ? "✓" : "";
+      b.onclick = () => {
+        chosenVoice = v.name;
+        try { localStorage.setItem(VOICE_KEY, v.name); } catch {}
+        buildVoiceList();
+        previewVoice();                       // hear it immediately
+      };
+      box.appendChild(b);
+    }
+  }
+  function previewVoice() {
+    if (!synth) return;
+    stopSpeech();
+    const u = makeUtter("Hi! I can read your story.");
+    try { synth.speak(u); } catch {}
+  }
+  $("voiceBtn").onclick = () => { primeSpeech(); buildVoiceList(); $("voiceSheet").hidden = false; };
+  $("voiceClose").onclick = () => { stopSpeech(); $("voiceSheet").hidden = true; };
+  $("voiceSheet").onclick = (e) => { if (e.target.id === "voiceSheet") { stopSpeech(); $("voiceSheet").hidden = true; } };
   function primeSpeech() {           // must run inside a real tap for iOS
     if (speechReady || !synth) return;
     try { const u = new SpeechSynthesisUtterance(" "); u.volume = 0; synth.speak(u); speechReady = true; } catch {}
@@ -351,7 +441,10 @@
     u.onend = clear; u.onerror = clear;
     try { synth.speak(u); } catch { clear(); }
   }
-  if (synth && typeof synth.onvoiceschanged !== "undefined") synth.onvoiceschanged = () => pickVoice();
+  // voices often arrive a moment after load — refresh the list if it's open when they do
+  if (synth && typeof synth.onvoiceschanged !== "undefined") {
+    synth.onvoiceschanged = () => { if (!$("voiceSheet").hidden) buildVoiceList(); };
+  }
   $("readBtn").onclick = () => { primeSpeech(); speakScene(); };
 
   // ---------- rendering ----------
