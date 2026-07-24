@@ -82,7 +82,8 @@ console.log("— kidstory: model, budget, guardrail stack —");
   ok(a.max_tokens === 500, "small token budget keeps scenes short (" + a.max_tokens + ")");
   ok(a.thinking && a.thinking.type === "disabled", "thinking off (snappy for a waiting child)");
   ok(/first grade|just learning to read/i.test(a.system), "reading-level instructions present");
-  ok(/3 to 9 words/.test(a.system) && /3 to 5 sentences/.test(a.system), "sentence + scene length limits stated");
+  ok(/3 to 8 words/.test(a.system) && /2 or 3 sentences/.test(a.system), "shorter page: 2-3 sentences of 3-8 words");
+  ok(/never more than 30/.test(a.system), "hard word ceiling per page stated");
   ok(a.system.includes("LITTLE-KID SAFETY"), "KID_RULES stamped");
   ok(a.system.includes("CONTENT RULES"), "FAMILY_RULES still stamped underneath");
   ok(/no dying|no danger|Nothing frightening/i.test(a.system), "no-peril / no-death rules present");
@@ -128,7 +129,7 @@ console.log("— kidart: drawn SVG (default, no key needed) —");
   const a = lastAnt();
   ok(r.status === 200 && r.text.includes("<svg"), "kidart returns an SVG drawing");
   ok(a.model === "claude-sonnet-5", "art runs on Sonnet (cleaner shapes than Haiku)");
-  ok(/viewBox="0 0 400 260"/.test(a.system), "art prompt pins the viewBox");
+  ok(/viewBox="0 0 400 300"/.test(a.system), "art prompt pins the page-shaped viewBox");
   ok(/Never use <script>|no text or letters/i.test(a.system), "art prompt bans scripts + text in the picture");
   ok(geminiReqs.length === 0, "no image API called while the provider is the default svg");
 }

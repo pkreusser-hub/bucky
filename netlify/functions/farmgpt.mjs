@@ -356,9 +356,11 @@ HOW EASY THE WORDS MUST BE — THIS MATTERS MORE THAN ANYTHING ELSE:
 - Use short, common words a six-year-old can sound out. If a bigger word is really needed
   (dinosaur, astronaut), use it sparingly — those are fun to read — but never more than one
   per turn.
-- Sentences are 3 to 9 words long. Never longer than 12.
-- Write exactly 3 to 5 sentences per turn. That is one picture-book page. Never write more,
-  no matter how exciting the moment is.
+- Sentences are 3 to 8 words long. Never longer than 10.
+- Write exactly 2 or 3 sentences per turn — about 20 words in total, never more than 30.
+  That is ONE page of a picture book, and a page is all a new reader can take at once.
+  Never write more, no matter how exciting the moment is. If you have more to tell, save it
+  for the next page.
 - One idea per sentence. Simple past tense ("Bo ran to the barn."). Say who is doing what.
 - Give the hero a short, easy name: Bo, Pip, Max, Sam, Nell, Gus.
 - Repeat names instead of using lots of pronouns, so the child never loses track of who is who.
@@ -392,7 +394,8 @@ const KID_ART_SVG_SYSTEM = `You draw a single picture for one page of a picture 
 six-year-old. You reply with ONE complete <svg> element and absolutely nothing else — no
 explanation, no markdown fence.
 Rules for the drawing:
-- viewBox="0 0 400 260", no width or height attributes.
+- viewBox="0 0 400 300", no width or height attributes. It fills one page of an open book, so
+  keep the main character well inside the middle — the very edges may be trimmed.
 - Bold, flat, cheerful picture-book art: big simple shapes, thick friendly forms, no thin
   detail, no text or letters anywhere in the picture.
 - A clear main character, large and centered-ish, easy for a child to recognize at a glance.
@@ -409,8 +412,9 @@ const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || "gemini-2.5-flash-i
 const KID_ART_IMAGE_PROMPT = `A single illustration for a children's picture book, for a
 six-year-old. Bright, warm, cheerful, hand-painted storybook style with bold simple shapes and
 soft rounded edges. Friendly and completely non-scary: happy faces, gentle light, cozy mood.
-No text, letters, numbers, or words anywhere in the image. Wide landscape composition.
-The picture shows: `;
+No text, letters, numbers, or words anywhere in the image. It fills one page of an open picture
+book, so compose it slightly wider than tall with the main character well inside the middle —
+the outer edges may be trimmed. The picture shows: `;
 
 async function generateKidImage(scene) {
   const key = process.env.GEMINI_API_KEY;

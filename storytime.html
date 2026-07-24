@@ -66,41 +66,72 @@
   .starter .nm { font-size: 21px; font-weight: 800; text-align: center; line-height: 1.25; }
 
   /* ---------- the story ---------- */
+  /* ---------- the open book ---------- */
+  /* Two facing pages with a spine down the middle: picture on one page, words on the other,
+     the way a real picture book sits open in front of a child. */
+  #book {
+    display: grid; grid-template-columns: 1fr 1fr;
+    background: linear-gradient(180deg, #fffdf7 0%, #fdf5e6 100%);
+    border-radius: 8px 20px 20px 8px;
+    box-shadow: 0 2px 4px rgba(90,64,28,.16), 0 18px 40px -12px rgba(90,64,28,.34);
+    position: relative; overflow: hidden; margin-bottom: 20px;
+    border: 1px solid #eadfc9;
+    min-height: min(56vh, 460px);        /* sits on the page like a real open book */
+  }
+  /* the gutter — pages curving down into the spine */
+  #book::after {
+    content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 46px;
+    transform: translateX(-50%); pointer-events: none; z-index: 3;
+    background: linear-gradient(90deg,
+      rgba(150,116,64,0) 0%, rgba(150,116,64,.10) 34%, rgba(120,88,44,.20) 49%,
+      rgba(120,88,44,.20) 51%, rgba(150,116,64,.10) 66%, rgba(150,116,64,0) 100%);
+  }
+  .page { position: relative; min-width: 0; padding: 20px 22px 34px; display: flex; flex-direction: column; }
+  .page.pgArt { padding: 0; }            /* the picture bleeds to the page edges */
+  .page.pgText { padding: 20px 22px 34px 18px; justify-content: center; }
+  /* a whisper of page texture so it doesn't read as flat white */
+  .page::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(120% 90% at 50% 0%, rgba(255,255,255,.55), rgba(255,255,255,0) 60%),
+                radial-gradient(90% 80% at 50% 100%, rgba(160,128,72,.07), rgba(160,128,72,0) 70%);
+  }
+  .pgnum {
+    position: absolute; bottom: 12px; font-size: 14px; font-weight: 800; color: #b3a184;
+    font-variant-numeric: tabular-nums; z-index: 4;
+  }
+  .pgArt .pgnum { display: none; }
+  .pgText .pgnum { right: 24px; }
+
   #art {
-    background: #f3ece0; border-radius: 26px; overflow: hidden; margin-bottom: 18px;
-    box-shadow: var(--shadow); aspect-ratio: 400 / 260; display: grid; place-items: center;
+    flex: 1; background: #f1e9db; overflow: hidden;
+    display: grid; place-items: center; min-height: 0;
   }
   #art svg, #art img { width: 100%; height: 100%; display: block; object-fit: cover; }
-  /* Landscape iPad: stacked, the picture alone would fill the screen and push the words below
-     the fold. Side-by-side instead — picture left, story right, choices across the bottom —
-     so a child never has to scroll to find the words or the choices. */
-  @media (orientation: landscape) and (min-width: 900px) {
-    #storyTop { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: stretch; }
-    #art { margin-bottom: 0; align-self: start; }
-    #storyCard { margin-bottom: 0; display: flex; flex-direction: column; justify-content: center; }
-    #pickWrap { margin-top: 20px; }
-  }
-  #art.loading::after {
-    content: "🎨"; font-size: 54px; animation: bob 1.4s ease-in-out infinite;
-  }
+  #art.loading::after { content: "🎨"; font-size: 50px; animation: bob 1.4s ease-in-out infinite; }
   @keyframes bob { 0%,100% { transform: translateY(0) rotate(-6deg); } 50% { transform: translateY(-10px) rotate(6deg); } }
 
-  #storyCard {
-    background: var(--card); border: 3px solid var(--line); border-radius: 26px;
-    padding: 26px 26px 22px; box-shadow: var(--shadow); margin-bottom: 20px;
-  }
-  /* The reading text itself — the most important thing on the page. */
+  /* a new page settling into place */
+  #book.turning .pgArt #art, #book.turning .pgText #storyCard { animation: pageIn .34s ease both; }
+  @keyframes pageIn { from { opacity: 0; transform: translateX(14px) rotateY(6deg); } to { opacity: 1; transform: none; } }
+
+  /* the words */
   #text {
     font-size: 30px; line-height: 1.95; font-weight: 700; letter-spacing: .2px;
-    max-width: 26ch; margin: 0 auto; text-wrap: pretty;
+    text-wrap: pretty; margin: 0;
   }
-  @media (max-width: 700px){ #text { font-size: 26px; line-height: 1.85; } }
-  /* negative margin cancels the padding so the highlight has breathing room without
-     visually widening the gaps between words */
-  #text .w { border-radius: 7px; padding: 2px 4px; margin: 0 -4px; transition: background .1s linear; }
-  #text .w.now { background: #ffe082; }      /* follows along while it reads aloud */
-  #readRow { display: flex; justify-content: center; align-items: center; gap: 12px; margin-top: 20px; flex-wrap: wrap; }
-  #tapHint { text-align: center; font-size: 15px; font-weight: 700; color: var(--muted); margin: 12px 0 0; }
+  #text .w { border-radius: 7px; padding: 2px 4px; margin: 0 -4px; transition: background .1s linear; cursor: pointer; }
+  #text .w.now { background: #ffe082; }
+  #readRow { display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 22px; flex-wrap: wrap; }
+  #readBtn {
+    border: 0; border-radius: 20px; background: var(--navy); color: #fff;
+    font: inherit; font-size: 21px; font-weight: 800; padding: 15px 26px; cursor: pointer;
+    min-height: 60px; display: flex; align-items: center; gap: 10px;
+    box-shadow: 0 4px 0 #16203a; transition: transform .1s ease, box-shadow .1s ease;
+  }
+  #readBtn:active { transform: translateY(3px); box-shadow: 0 1px 0 #16203a; }
+  #readBtn.playing { background: var(--red); box-shadow: 0 4px 0 #7d1f29; }
+  #tapHint { text-align: center; font-size: 14px; font-weight: 700; color: var(--muted); margin: 12px 0 0; }
+
   /* voice picker */
   #voiceSheet { position: fixed; inset: 0; background: rgba(40,30,15,.45); z-index: 40;
     display: grid; place-items: center; padding: 20px; }
@@ -119,16 +150,23 @@
   .vrow .vr { font-size: 14px; font-weight: 700; color: var(--muted); }
   .vrow .vc { font-size: 22px; color: var(--navy); }
   #vnone { font-size: 17px; color: var(--muted); font-weight: 700; line-height: 1.5; }
-  #text .w { cursor: pointer; }
-  #readBtn {
-    border: 0; border-radius: 20px; background: var(--navy); color: #fff;
-    font: inherit; font-size: 22px; font-weight: 800; padding: 16px 30px; cursor: pointer;
-    min-height: 62px; display: flex; align-items: center; gap: 10px;
-    box-shadow: 0 4px 0 #16203a; transition: transform .1s ease, box-shadow .1s ease;
-  }
-  #readBtn:active { transform: translateY(3px); box-shadow: 0 1px 0 #16203a; }
-  #readBtn.playing { background: var(--red); box-shadow: 0 4px 0 #7d1f29; }
 
+  /* Portrait: the book stands open the tall way — picture page above, words page below,
+     with the fold running across the middle. Still a book, never a stack of cards. */
+  @media (orientation: portrait), (max-width: 899px) {
+    #book { grid-template-columns: 1fr; border-radius: 20px 20px 14px 14px; min-height: 0; }
+    #book::after {
+      top: 50%; left: 0; right: 0; bottom: auto; width: auto; height: 40px;
+      transform: translateY(-50%);
+      background: linear-gradient(180deg,
+        rgba(150,116,64,0) 0%, rgba(150,116,64,.10) 34%, rgba(120,88,44,.18) 49%,
+        rgba(120,88,44,.18) 51%, rgba(150,116,64,.10) 66%, rgba(150,116,64,0) 100%);
+    }
+    .page.pgArt { padding: 0; }
+    .page.pgText { padding: 24px 22px 34px; }
+    #art { aspect-ratio: 4 / 3; flex: 0 0 auto; }
+    #text { font-size: 27px; line-height: 1.85; }
+  }
   .pickTitle { font-size: 23px; font-weight: 800; color: var(--muted); margin: 0 0 14px 4px; }
   #choices { display: grid; gap: 16px; }
   @media (min-width: 760px){ #choices { grid-template-columns: repeat(3, 1fr); } }
@@ -184,16 +222,23 @@
 
 <!-- THE STORY -->
 <section class="view" id="storyView">
-  <div id="storyTop">
-    <div id="art" class="loading" aria-hidden="true"></div>
-    <div id="storyCard">
-      <div id="text"></div>
-      <div id="readRow">
-      <button id="readBtn">🔊 <span>Read it to me</span></button>
-      <button id="speedBtn" class="tinybtn" aria-label="Reading speed">🐢 Slow</button>
-      <button id="voiceBtn" class="tinybtn" aria-label="Pick a reading voice">🗣 Voice</button>
+  <!-- an open picture book: the picture on one page, the words on the facing page -->
+  <div id="book">
+    <div class="page pgArt">
+      <div id="art" class="loading" aria-hidden="true"></div>
+      <span class="pgnum" id="pgnumL"></span>
     </div>
-    <p id="tapHint">Tap any word to hear it.</p>
+    <div class="page pgText">
+      <div id="storyCard">
+        <div id="text"></div>
+        <div id="readRow">
+          <button id="readBtn">🔊 <span>Read it to me</span></button>
+          <button id="speedBtn" class="tinybtn" aria-label="Reading speed">🐢 Slow</button>
+          <button id="voiceBtn" class="tinybtn" aria-label="Pick a reading voice">🗣 Voice</button>
+        </div>
+        <p id="tapHint">Tap any word to hear it.</p>
+      </div>
+      <span class="pgnum" id="pgnumR"></span>
     </div>
   </div>
   <div id="thinking" style="display:none">
@@ -236,6 +281,7 @@
     { em: "🚂", nm: "The Talking Train",     seed: "A happy story about a little train who talks and takes animals on a trip through the hills." },
     { em: "🍪", nm: "The Cookie Mystery",    seed: "A silly mystery about who took the cookies from the kitchen. It turns out to be something funny." },
     { em: "🐻", nm: "Camping With Bear",     seed: "A cozy story about a kid camping in the yard with a big, gentle, marshmallow-loving bear." },
+    { em: "🕷️", nm: "Spider-Man Helps",      seed: "A happy story about Spider-Man in the city. There are no bad guys at all — he swings between buildings and helps his neighbors with everyday things, like getting a kitten down from a tree or carrying groceries." },
   ];
 
   // ---------- offline demo mode (?demo=1) ----------
@@ -255,15 +301,15 @@
   };
   // Real first-grade sentences (3-9 words each) so the reading level can be judged too.
   const DEMO_SCENES = {
-    s1: { art: "farm", text: "Bo the goat pushed the gate.\nIt swung open with a creak.\nBo ran out into the sun.\nA duck said, \"Quack! Hello!\"",
+    s1: { art: "farm", text: "Bo the goat pushed the gate.\nIt swung wide open.\nA duck said, \"Quack! Hello!\"",
       choices: [ { em: "🦆", text: "Say hi to the duck", next: "s3" }, { em: "🏚️", text: "Peek in the barn", next: "s2" }, { em: "🌻", text: "Go see the flowers", next: "s4" } ] },
-    s2: { art: "barn", text: "The barn smelled like warm hay.\nBig soft bales sat in a row.\nA tiny kitten blinked at Bo.\n\"Mew,\" said the kitten.",
+    s2: { art: "barn", text: "The barn smelled like warm hay.\nA tiny kitten blinked at Bo.\n\"Mew,\" said the kitten.",
       choices: [ { em: "🐱", text: "Pet the kitten", next: "s5" }, { em: "🌾", text: "Jump on the hay", next: "s5" }, { em: "🚪", text: "Go back outside", next: "s1" } ] },
-    s3: { art: "pond", text: "The duck had six little ducklings.\nThey all went splash in the pond.\nBo dipped one hoof in.\nThe water was cold!",
+    s3: { art: "pond", text: "The duck had six little ducklings.\nThey all went splash!\nBo dipped in one hoof.",
       choices: [ { em: "💦", text: "Splash some more", next: "s5" }, { em: "🌻", text: "Run to the flowers", next: "s4" }, { em: "🏚️", text: "Dry off in the barn", next: "s2" } ] },
-    s4: { art: "flowers", text: "The field was full of flowers.\nRed ones. Yellow ones. So many!\nA fat bee buzzed past Bo.\nBo sneezed a very big sneeze.",
+    s4: { art: "flowers", text: "The field was full of flowers.\nA fat bee buzzed by.\nBo sneezed a big sneeze.",
       choices: [ { em: "🐝", text: "Follow the buzzy bee", next: "s5" }, { em: "👃", text: "Smell a red flower", next: "s5" }, { em: "🦆", text: "Go find the duck", next: "s3" } ] },
-    s5: { art: "farm", text: "Soon the sun went down low.\nBo felt sleepy and warm.\nThe duck walked Bo back home.\n\"Same time tomorrow?\" said the duck.",
+    s5: { art: "farm", text: "The sun went down low.\nThe duck walked Bo home.\n\"Play again tomorrow?\" she said.",
       choices: [ { em: "☀️", text: "Play again tomorrow", next: "s1" }, { em: "🌙", text: "Curl up and nap", next: "s2" }, { em: "🍎", text: "Have a snack first", next: "s4" } ] },
   };
   let demoAt = "s1";
@@ -462,6 +508,17 @@
       box.appendChild(s); wordEls.push(s);
     }
   }
+  // A real picture book has page numbers, and pages settle rather than pop.
+  function paintPageNo() {
+    const n = (story && story.page) ? story.page : 1;
+    $("pgnumR").textContent = n;
+  }
+  function turnPage() {
+    const b = $("book");
+    b.classList.remove("turning");
+    void b.offsetWidth;                 // restart the animation
+    b.classList.add("turning");
+  }
   function paintChoices(choices) {
     const wrap = $("choices");
     wrap.innerHTML = "";
@@ -483,7 +540,13 @@
     el.innerHTML = "";
     if (!html) { el.classList.add("loading"); return; }
     if (isImage) { const im = document.createElement("img"); im.src = html; im.alt = ""; el.appendChild(im); }
-    else el.innerHTML = html;
+    else {
+      el.innerHTML = html;
+      // fill the picture page edge-to-edge (the drawing keeps its subject centred, so a
+      // little crop at the sides is safer than beige letterbox bands inside the book)
+      const svg = el.querySelector("svg");
+      if (svg) { svg.setAttribute("preserveAspectRatio", "xMidYMid slice"); svg.removeAttribute("width"); svg.removeAttribute("height"); }
+    }
   }
   function setBusy(on) {
     busy = on;
@@ -566,8 +629,11 @@
       demoAt = nextId || "s1";
       const d = DEMO_SCENES[demoAt];
       story.scene = { text: d.text, choices: d.choices.map((c) => ({ em: c.em, text: c.text, next: c.next })) };
+      story.page = (story.page || 0) + 1;
       paintText(story.scene.text);
       paintChoices(story.scene.choices);
+      paintPageNo();
+      turnPage();
       setBusy(false);
       setArt(null);
       setTimeout(() => setArt(D_ART[d.art], false), 450);   // art lands a beat after the words
@@ -594,8 +660,11 @@
       const scene = parseScene(raw);
       story.scene = scene;
       story.art = null;
+      story.page = (story.page || 0) + 1;
       paintText(scene.text);
       paintChoices(scene.choices);
+      paintPageNo();
+      turnPage();
       setBusy(false);
       setArt(null);
       save();
@@ -617,7 +686,7 @@
 
   function startStory(s) {
     primeSpeech();
-    story = { id: "k" + Date.now().toString(36), title: s.nm, msgs: [], scene: null, art: null, lastChoice: "", pendingNext: DEMO ? "s1" : null };
+    story = { id: "k" + Date.now().toString(36), title: s.nm, msgs: [], scene: null, art: null, lastChoice: "", page: 0, pendingNext: DEMO ? "s1" : null };
     show("storyView");
     setArt(null);
     paintText("");
@@ -636,6 +705,7 @@
     show("storyView");
     paintText(s.scene.text);
     paintChoices(s.scene.choices || []);
+    paintPageNo();
     if (s.art && s.art.svg) setArt(s.art.svg, false);
     else if (s.art && s.art.img) setArt(s.art.img, true);
     else setArt(null);
@@ -708,6 +778,7 @@
     pick: (i) => { const b = document.querySelectorAll(".choice")[i || 0]; if (b) b.click(); },
     who: WHO, speak: speakScene, stop: stopSpeech,
     get words(){ return wordEls.length; },
+    get page(){ return story && story.page; },
   };
 })();
 </script>
