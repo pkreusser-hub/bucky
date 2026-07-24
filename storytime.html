@@ -99,7 +99,9 @@
      visually widening the gaps between words */
   #text .w { border-radius: 7px; padding: 2px 4px; margin: 0 -4px; transition: background .1s linear; }
   #text .w.now { background: #ffe082; }      /* follows along while it reads aloud */
-  #readRow { display: flex; justify-content: center; margin-top: 20px; }
+  #readRow { display: flex; justify-content: center; align-items: center; gap: 12px; margin-top: 20px; flex-wrap: wrap; }
+  #tapHint { text-align: center; font-size: 15px; font-weight: 700; color: var(--muted); margin: 12px 0 0; }
+  #text .w { cursor: pointer; }
   #readBtn {
     border: 0; border-radius: 20px; background: var(--navy); color: #fff;
     font: inherit; font-size: 22px; font-weight: 800; padding: 16px 30px; cursor: pointer;
@@ -158,7 +160,11 @@
     <div id="art" class="loading" aria-hidden="true"></div>
     <div id="storyCard">
       <div id="text"></div>
-      <div id="readRow"><button id="readBtn">🔊 <span>Read it to me</span></button></div>
+      <div id="readRow">
+      <button id="readBtn">🔊 <span>Read it to me</span></button>
+      <button id="speedBtn" class="tinybtn" aria-label="Reading speed">🐢 Slow</button>
+    </div>
+    <p id="tapHint">Tap any word to hear it.</p>
     </div>
   </div>
   <div id="thinking" style="display:none">
@@ -251,7 +257,26 @@
   // words light up as it goes. Boundary events drive it where supported (most desktop
   // browsers + iOS), with a paced fallback so it always tracks even when they don't fire.
   const synth = window.speechSynthesis;
-  let utter = null, wordEls = [], fallbackTimer = null;
+  let wordEls = [], speaking = false, speakIdx = -1;
+
+  // Reading speed. A beginning reader needs this much slower than natural speech; the child
+  // (or a grown-up) can nudge it either way and it sticks on this device.
+  const RATE_KEY = "storytime_rate";
+  const RATES = [
+    { r: 0.42, em: "🐢", nm: "Slowest" },
+    { r: 0.55, em: "🐢", nm: "Slow" },
+    { r: 0.70, em: "🚶", nm: "Medium" },
+    { r: 0.90, em: "🐇", nm: "Fast" },
+  ];
+  let rateIdx = (() => { try { const n = parseInt(localStorage.getItem(RATE_KEY), 10); return (n >= 0 && n < RATES.length) ? n : 1; } catch { return 1; } })();
+  function paintSpeed() { $("speedBtn").textContent = RATES[rateIdx].em + " " + RATES[rateIdx].nm; }
+  $("speedBtn").onclick = () => {
+    rateIdx = (rateIdx + 1) % RATES.length;
+    try { localStorage.setItem(RATE_KEY, String(rateIdx)); } catch {}
+    paintSpeed(); stopSpeech();
+  };
+  paintSpeed();
+
   function pickVoice() {
     if (!synth) return null;
     const vs = synth.getVoices() || [];
@@ -263,53 +288,68 @@
     if (speechReady || !synth) return;
     try { const u = new SpeechSynthesisUtterance(" "); u.volume = 0; synth.speak(u); speechReady = true; } catch {}
   }
+  function setReadBtn(on) {
+    $("readBtn").classList.toggle("playing", !!on);
+    $("readBtn").querySelector("span").textContent = on ? "Stop" : "Read it to me";
+  }
   function stopSpeech() {
-    clearInterval(fallbackTimer); fallbackTimer = null;
+    speaking = false;                 // set BEFORE cancel — cancel fires onend on some engines
+    speakIdx = -1;
     try { synth && synth.cancel(); } catch {}
-    utter = null;
     for (const el of wordEls) el.classList.remove("now");
-    $("readBtn").classList.remove("playing");
-    $("readBtn").querySelector("span").textContent = "Read it to me";
+    setReadBtn(false);
   }
   function highlight(i) {
     for (const el of wordEls) el.classList.remove("now");
-    if (wordEls[i]) {
-      wordEls[i].classList.add("now");
-    }
+    if (wordEls[i]) wordEls[i].classList.add("now");
+  }
+  // Quotes and dashes confuse the synthesizer; the child still sees them on screen.
+  const forSpeech = (w) => String(w || "").replace(/[“”„‟"'‘’—–]/g, "").trim();
+  function makeUtter(text) {
+    const u = new SpeechSynthesisUtterance(text);
+    const v = pickVoice(); if (v) u.voice = v;
+    u.rate = RATES[rateIdx].r;
+    u.pitch = 1.06;
+    return u;
+  }
+  // ONE UTTERANCE PER WORD. Estimating word timing from a single long utterance always drifts
+  // out of sync with the highlight; speaking word by word makes the highlight exact by
+  // construction — the next word simply cannot start until the previous one has finished.
+  // It also reads deliberately, the way you'd read along with a beginning reader.
+  function speakNext() {
+    if (!speaking) return;
+    speakIdx++;
+    if (speakIdx >= wordEls.length) { stopSpeech(); return; }
+    const el = wordEls[speakIdx];
+    const say = forSpeech(el.dataset.w);
+    if (!say) { speakNext(); return; }          // punctuation-only token: skip, don't stall
+    const u = makeUtter(say);
+    highlight(speakIdx);
+    u.onstart = () => highlight(speakIdx);      // re-affirm exactly as the audio begins
+    u.onend = () => { if (speaking) speakNext(); };
+    u.onerror = () => { if (speaking) speakNext(); };
+    try { synth.speak(u); } catch { stopSpeech(); }
   }
   function speakScene() {
     if (!synth || !story || !story.scene) return;
-    if (synth.speaking) { stopSpeech(); return; }
-    const text = story.scene.text;
-    utter = new SpeechSynthesisUtterance(text);
-    const v = pickVoice(); if (v) utter.voice = v;
-    utter.rate = 0.82;               // slow enough for a first grader to follow along
-    utter.pitch = 1.08;
-    let boundaryFired = false;
-    // char index -> word index, so a boundary event can find the right span
-    const starts = [];
-    { let i = 0; for (const el of wordEls) { const w = el.dataset.w || ""; const at = text.indexOf(w, i); starts.push(at === -1 ? i : at); i = (at === -1 ? i : at) + w.length; } }
-    utter.onboundary = (e) => {
-      if (e.name && e.name !== "word") return;
-      boundaryFired = true;
-      clearInterval(fallbackTimer); fallbackTimer = null;
-      let idx = 0;
-      for (let i = 0; i < starts.length; i++) if (starts[i] <= e.charIndex) idx = i;
-      highlight(idx);
-    };
-    utter.onend = () => stopSpeech();
-    utter.onerror = () => stopSpeech();
-    $("readBtn").classList.add("playing");
-    $("readBtn").querySelector("span").textContent = "Stop";
-    highlight(0);
-    try { synth.speak(utter); } catch { stopSpeech(); return; }
-    // Fallback pacing if the engine never reports word boundaries.
-    let i = 0;
-    fallbackTimer = setInterval(() => {
-      if (boundaryFired) { clearInterval(fallbackTimer); fallbackTimer = null; return; }
-      i++; if (i >= wordEls.length) { clearInterval(fallbackTimer); fallbackTimer = null; return; }
-      highlight(i);
-    }, 340);
+    if (speaking) { stopSpeech(); return; }     // the button doubles as Stop
+    try { synth.cancel(); } catch {}
+    speaking = true; speakIdx = -1;
+    setReadBtn(true);
+    speakNext();
+  }
+  // Tap any single word to hear just that word — the "what does this one say?" move a child
+  // makes constantly at this level.
+  function speakWord(el) {
+    stopSpeech();
+    const say = forSpeech(el.dataset.w);
+    if (!synth || !say) return;
+    const u = makeUtter(say);
+    u.rate = Math.max(0.35, RATES[rateIdx].r * 0.9);   // a touch slower on its own
+    el.classList.add("now");
+    const clear = () => el.classList.remove("now");
+    u.onend = clear; u.onerror = clear;
+    try { synth.speak(u); } catch { clear(); }
   }
   if (synth && typeof synth.onvoiceschanged !== "undefined") synth.onvoiceschanged = () => pickVoice();
   $("readBtn").onclick = () => { primeSpeech(); speakScene(); };
@@ -325,6 +365,7 @@
       const s = document.createElement("span");
       s.className = "w"; s.textContent = raw;
       s.dataset.w = raw;
+      s.onclick = () => { primeSpeech(); speakWord(s); };   // tap one word to hear it
       box.appendChild(s); wordEls.push(s);
     }
   }
@@ -437,7 +478,6 @@
       setBusy(false);
       setArt(null);
       setTimeout(() => setArt(D_ART[d.art], false), 450);   // art lands a beat after the words
-      if (speechReady) setTimeout(speakScene, 250);
     }, 700);
   }
 
@@ -467,7 +507,7 @@
       setArt(null);
       save();
       fetchArt(scene.text);
-      if (speechReady) setTimeout(speakScene, 250);   // auto-read once the child has tapped once
+      // never auto-read: the voice only ever starts when the child presses a button
     } catch (e) {
       setBusy(false);
       $("oops").style.display = "";
