@@ -1625,7 +1625,7 @@
   // Cost of one prefix at rate r: in + 1.25x cache-write + 0.1x cache-read, out at out-rate.
   const priced = (d, p, inR, outR) => cw(d, p + "_in") * inR + cw(d, p + "_cw") * inR * 1.25
     + cw(d, p + "_cr") * inR * 0.1 + cw(d, p + "_out") * outR;
-  const rowCost = (d) => (priced(d, "s", S_IN, S_OUT) + priced(d, "u", S_IN, S_OUT) + priced(d, "r", R_IN, R_OUT) + priced(d, "d", R_IN, R_OUT)) / 1e6;
+  const rowCost = (d) => (priced(d, "s", S_IN, S_OUT) + priced(d, "u", S_IN, S_OUT) + priced(d, "r", R_IN, R_OUT) + priced(d, "d", R_IN, R_OUT) + priced(d, "k", S_IN, S_OUT) + priced(d, "a", R_IN, R_OUT)) / 1e6;
   const dayCost = rowCost;
   const fmt$ = (v) => "$" + (v < 0.10 ? v.toFixed(3) : v.toFixed(2));
   const fmtTok = (n) => n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n);
@@ -1671,6 +1671,8 @@
       ["📝", "Story recaps", sum(monthDays, "u_req"), sum(monthDays, "u_in"), sum(monthDays, "u_out"), sum(monthDays, "u_cw") + sum(monthDays, "u_cr"), "Haiku 4.5"],
       ["🔬", "Research", sum(monthDays, "r_req"), sum(monthDays, "r_in"), sum(monthDays, "r_out"), sum(monthDays, "r_cw") + sum(monthDays, "r_cr"), "Sonnet 5"],
       ["🎲", "Dungeon", sum(monthDays, "d_req"), sum(monthDays, "d_in"), sum(monthDays, "d_out"), sum(monthDays, "d_cw") + sum(monthDays, "d_cr"), "Sonnet 5"],
+      ["🧒", "Little-kid stories", sum(monthDays, "k_req"), sum(monthDays, "k_in"), sum(monthDays, "k_out"), sum(monthDays, "k_cw") + sum(monthDays, "k_cr"), "Haiku 4.5"],
+      ["🎨", "Story pictures", sum(monthDays, "a_req"), sum(monthDays, "a_in"), sum(monthDays, "a_out"), sum(monthDays, "a_cw") + sum(monthDays, "a_cr"), "Sonnet 5"],
     ]) {
       const el = document.createElement("div");
       el.className = "usplit";
@@ -1684,12 +1686,12 @@
 
     const table = document.createElement("table");
     table.id = "usageTable";
-    const tokTotal = (d) => ["s", "u", "r", "d"].reduce((a, p) =>
+    const tokTotal = (d) => ["s", "u", "r", "d", "k", "a"].reduce((a, p) =>
       a + cw(d, p + "_in") + cw(d, p + "_out") + cw(d, p + "_cw") + cw(d, p + "_cr"), 0);
-    table.innerHTML = "<tr><th>Day</th><th>📖</th><th>📝</th><th>🔬</th><th>🎲</th><th>Tokens</th><th>Est. cost</th></tr>";
+    table.innerHTML = "<tr><th>Day</th><th>📖</th><th>📝</th><th>🔬</th><th>🎲</th><th>🧒</th><th>Tokens</th><th>Est. cost</th></tr>";
     for (const d of days.slice(0, 21)) {
       const tr = document.createElement("tr");
-      const cells = [d.date, d.s_req, cw(d, "u_req"), d.r_req, cw(d, "d_req"), fmtTok(tokTotal(d)), fmt$(dayCost(d))];
+      const cells = [d.date, d.s_req, cw(d, "u_req"), d.r_req, cw(d, "d_req"), cw(d, "k_req"), fmtTok(tokTotal(d)), fmt$(dayCost(d))];
       for (const c of cells) { const td = document.createElement("td"); td.textContent = c; tr.appendChild(td); }
       table.appendChild(tr);
     }
@@ -1702,11 +1704,11 @@
       body.appendChild(hHead);
       const ht = document.createElement("table");
       ht.id = "usageTable";
-      ht.innerHTML = "<tr><th>Hour (CT)</th><th>📖</th><th>📝</th><th>🔬</th><th>🎲</th><th>Tokens</th><th>Est. cost</th></tr>";
+      ht.innerHTML = "<tr><th>Hour (CT)</th><th>📖</th><th>📝</th><th>🔬</th><th>🎲</th><th>🧒</th><th>Tokens</th><th>Est. cost</th></tr>";
       for (const h of hours.slice(0, 18)) {
         const tr = document.createElement("tr");
         const label = h.hour.replace(/^(\d{4})-(\d{2})-(\d{2})-(\d{2})$/, "$2/$3 $4:00");
-        const cells = [label, h.s_req, cw(h, "u_req"), h.r_req, cw(h, "d_req"), fmtTok(tokTotal(h)), fmt$(rowCost(h))];
+        const cells = [label, h.s_req, cw(h, "u_req"), h.r_req, cw(h, "d_req"), cw(h, "k_req"), fmtTok(tokTotal(h)), fmt$(rowCost(h))];
         for (const c of cells) { const td = document.createElement("td"); td.textContent = c; tr.appendChild(td); }
         ht.appendChild(tr);
       }

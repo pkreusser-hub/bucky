@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+<meta name="theme-color" content="#233357" />
+<title>Story Time</title>
+<link rel="icon" href="bucky.png" />
+<link rel="apple-touch-icon" href="bucky.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<!-- DOMPurify sanitizes the drawn illustration before it ever touches the DOM -->
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.5/dist/purify.min.js"></script>
+<style>
+  /* Built for a six-year-old on an iPad: very large type, very large targets, no typing
+     anywhere, and nothing on screen that isn't part of the story. */
+  :root {
+    --bg: #fff8ec;          /* warm paper */
+    --card: #ffffff;
+    --ink: #23303f;
+    --muted: #6b7789;
+    --navy: #233357;
+    --red: #ba303e;
+    --line: #eadfc9;
+    --shadow: 0 2px 6px rgba(80,60,30,.08), 0 12px 28px rgba(80,60,30,.10);
+    --pick1: #ffe6a7; --pick2: #cfeccc; --pick3: #d6e6ff;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; min-height: 100%; }
+  body {
+    font-family: ui-rounded, "SF Pro Rounded", "Nunito", "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: var(--bg); color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    padding: calc(env(safe-area-inset-top) + 10px) 18px calc(env(safe-area-inset-bottom) + 22px);
+    max-width: 1100px; margin: 0 auto;
+    /* a child resting a palm on the screen shouldn't select text */
+    -webkit-user-select: none; user-select: none;
+  }
+
+  /* ---------- top bar (small — grown-up controls stay out of the way) ---------- */
+  #top { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  #top .sp { flex: 1; }
+  .tinybtn {
+    border: 2px solid var(--line); background: var(--card); color: var(--muted);
+    font: inherit; font-size: 15px; font-weight: 800; padding: 8px 14px;
+    border-radius: 14px; cursor: pointer; min-height: 44px;
+  }
+  .tinybtn:active { transform: scale(.96); }
+
+  .view { display: none; }
+  .view.on { display: block; }
+
+  /* ---------- pick a story ---------- */
+  h1 { font-size: 40px; line-height: 1.15; margin: 6px 0 4px; letter-spacing: -.5px; }
+  .sub { font-size: 21px; color: var(--muted); font-weight: 700; margin: 0 0 22px; }
+  #starters { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
+  @media (min-width: 760px){ #starters { grid-template-columns: repeat(3, 1fr); } }
+  .starter {
+    background: var(--card); border: 3px solid var(--line); border-radius: 26px;
+    padding: 26px 16px 22px; cursor: pointer; font: inherit; color: inherit;
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    box-shadow: var(--shadow); transition: transform .12s ease, border-color .12s ease;
+    min-height: 168px; justify-content: center;
+  }
+  .starter:active { transform: scale(.96); border-color: var(--navy); }
+  .starter .em { font-size: 62px; line-height: 1; }
+  .starter .nm { font-size: 21px; font-weight: 800; text-align: center; line-height: 1.25; }
+
+  /* ---------- the story ---------- */
+  #art {
+    background: #f3ece0; border-radius: 26px; overflow: hidden; margin-bottom: 18px;
+    box-shadow: var(--shadow); aspect-ratio: 400 / 260; display: grid; place-items: center;
+  }
+  #art svg, #art img { width: 100%; height: 100%; display: block; object-fit: cover; }
+  /* Landscape iPad: stacked, the picture alone would fill the screen and push the words below
+     the fold. Side-by-side instead — picture left, story right, choices across the bottom —
+     so a child never has to scroll to find the words or the choices. */
+  @media (orientation: landscape) and (min-width: 900px) {
+    #storyTop { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: stretch; }
+    #art { margin-bottom: 0; align-self: start; }
+    #storyCard { margin-bottom: 0; display: flex; flex-direction: column; justify-content: center; }
+    #pickWrap { margin-top: 20px; }
+  }
+  #art.loading::after {
+    content: "🎨"; font-size: 54px; animation: bob 1.4s ease-in-out infinite;
+  }
+  @keyframes bob { 0%,100% { transform: translateY(0) rotate(-6deg); } 50% { transform: translateY(-10px) rotate(6deg); } }
+
+  #storyCard {
+    background: var(--card); border: 3px solid var(--line); border-radius: 26px;
+    padding: 26px 26px 22px; box-shadow: var(--shadow); margin-bottom: 20px;
+  }
+  /* The reading text itself — the most important thing on the page. */
+  #text {
+    font-size: 30px; line-height: 1.95; font-weight: 700; letter-spacing: .2px;
+    max-width: 26ch; margin: 0 auto; text-wrap: pretty;
+  }
+  @media (max-width: 700px){ #text { font-size: 26px; line-height: 1.85; } }
+  /* negative margin cancels the padding so the highlight has breathing room without
+     visually widening the gaps between words */
+  #text .w { border-radius: 7px; padding: 2px 4px; margin: 0 -4px; transition: background .1s linear; }
+  #text .w.now { background: #ffe082; }      /* follows along while it reads aloud */
+  #readRow { display: flex; justify-content: center; margin-top: 20px; }
+  #readBtn {
+    border: 0; border-radius: 20px; background: var(--navy); color: #fff;
+    font: inherit; font-size: 22px; font-weight: 800; padding: 16px 30px; cursor: pointer;
+    min-height: 62px; display: flex; align-items: center; gap: 10px;
+    box-shadow: 0 4px 0 #16203a; transition: transform .1s ease, box-shadow .1s ease;
+  }
+  #readBtn:active { transform: translateY(3px); box-shadow: 0 1px 0 #16203a; }
+  #readBtn.playing { background: var(--red); box-shadow: 0 4px 0 #7d1f29; }
+
+  .pickTitle { font-size: 23px; font-weight: 800; color: var(--muted); margin: 0 0 14px 4px; }
+  #choices { display: grid; gap: 16px; }
+  @media (min-width: 760px){ #choices { grid-template-columns: repeat(3, 1fr); } }
+  .choice {
+    display: flex; align-items: center; gap: 18px; width: 100%; text-align: left;
+    border: 3px solid var(--line); border-radius: 24px; padding: 20px 22px;
+    font: inherit; cursor: pointer; box-shadow: var(--shadow); color: var(--ink);
+    min-height: 96px; transition: transform .12s ease, border-color .12s ease;
+  }
+  @media (min-width: 760px){ .choice { flex-direction: column; text-align: center; gap: 12px; padding: 24px 16px; } }
+  .choice:nth-child(1){ background: var(--pick1); }
+  .choice:nth-child(2){ background: var(--pick2); }
+  .choice:nth-child(3){ background: var(--pick3); }
+  .choice:active { transform: scale(.97); border-color: var(--navy); }
+  .choice .em { font-size: 48px; line-height: 1; flex: 0 0 auto; }
+  .choice .tx { font-size: 24px; font-weight: 800; line-height: 1.3; }
+  .choice[disabled] { opacity: .45; }
+
+  /* thinking + trouble */
+  #thinking { text-align: center; padding: 26px 0; font-size: 23px; font-weight: 800; color: var(--muted); }
+  #thinking .dots span { display: inline-block; font-size: 34px; animation: hop .9s infinite; }
+  #thinking .dots span:nth-child(2){ animation-delay: .15s; }
+  #thinking .dots span:nth-child(3){ animation-delay: .3s; }
+  @keyframes hop { 0%,60%,100% { transform: translateY(0); } 30% { transform: translateY(-12px); } }
+  #oops { text-align: center; font-size: 22px; font-weight: 800; color: var(--muted); padding: 20px; }
+  #oops button { margin-top: 14px; }
+</style>
+</head>
+<body>
+
+<div id="top">
+  <button class="tinybtn" id="backBtn" aria-label="Pick a different story">← Stories</button>
+  <div class="sp"></div>
+  <button class="tinybtn" id="homeBtn" aria-label="Leave story time">🏡</button>
+</div>
+
+<!-- PICK A STORY -->
+<section class="view on" id="pickView">
+  <h1 id="greet">Story Time</h1>
+  <p class="sub">Pick a story to begin.</p>
+  <div id="starters"></div>
+</section>
+
+<!-- THE STORY -->
+<section class="view" id="storyView">
+  <div id="storyTop">
+    <div id="art" class="loading" aria-hidden="true"></div>
+    <div id="storyCard">
+      <div id="text"></div>
+      <div id="readRow"><button id="readBtn">🔊 <span>Read it to me</span></button></div>
+    </div>
+  </div>
+  <div id="thinking" style="display:none">
+    <div>Writing the next part…</div>
+    <div class="dots"><span>🐾</span><span>🐾</span><span>🐾</span></div>
+  </div>
+  <div id="pickWrap">
+    <p class="pickTitle">What happens next?</p>
+    <div id="choices"></div>
+  </div>
+  <div id="oops" style="display:none">
+    <div id="oopsMsg">The story got stuck.</div>
+    <button class="tinybtn" id="retryBtn">Try again</button>
+  </div>
+</section>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const API = "/.netlify/functions/farmgpt";
+  const FAMILY_PASSWORD = "amenfarms";
+  // Who's reading. A grown-up can change it with ?who=Name (remembered on this iPad) so the
+  // greeting is personal and the parent Story Log shows whose session it was.
+  const WHO_KEY = "storytime_who";
+  const qsWho = new URLSearchParams(location.search).get("who");
+  if (qsWho) { try { localStorage.setItem(WHO_KEY, qsWho.slice(0, 24)); } catch {} }
+  const WHO = (() => { try { return localStorage.getItem(WHO_KEY) || "Benjie"; } catch { return "Benjie"; } })();
+
+  // The child never types. These are the ONLY story openings that exist, and every turn after
+  // this is a choice the storyteller itself wrote — so nothing a child can tap ever introduces
+  // new instructions into the conversation.
+  const STARTERS = [
+    { em: "🐐", nm: "The Goat Who Got Out",  seed: "A funny farm story about a goat named Bo who opens his gate and goes exploring around the farm." },
+    { em: "🦖", nm: "My Dinosaur Friend",    seed: "A happy story about a kid who finds a small, friendly, polka-dotted dinosaur in the back yard." },
+    { em: "🚀", nm: "Trip to the Moon",      seed: "A cheerful story about a kid who builds a cardboard rocket and flies to the moon to have a picnic." },
+    { em: "🐙", nm: "Under the Sea",         seed: "A gentle story about a kid in a yellow submarine who makes friends with a silly octopus." },
+    { em: "🏴‍☠️", nm: "The Silly Pirates",   seed: "A goofy story about friendly pirates whose treasure map leads to something surprising and sweet." },
+    { em: "🐉", nm: "A Very Small Dragon",   seed: "A warm story about a tiny dragon, no bigger than a kitten, who can only puff smoke rings." },
+    { em: "🚂", nm: "The Talking Train",     seed: "A happy story about a little train who talks and takes animals on a trip through the hills." },
+    { em: "🍪", nm: "The Cookie Mystery",    seed: "A silly mystery about who took the cookies from the kitchen. It turns out to be something funny." },
+    { em: "🐻", nm: "Camping With Bear",     seed: "A cozy story about a kid camping in the yard with a big, gentle, marshmallow-loving bear." },
+  ];
+
+  const SAVE_KEY = "storytime_save_v1";
+  let story = null;          // { id, title, msgs:[{role,content}], scene:{text,choices}, art }
+  let busy = false;
+  let speechReady = false;   // iOS needs a real tap before it will ever speak
+
+  // ---------- view switching ----------
+  function show(v) {
+    for (const id of ["pickView", "storyView"]) $(id).classList.toggle("on", id === v);
+    $("backBtn").style.visibility = v === "storyView" ? "visible" : "hidden";
+    stopSpeech();
+    window.scrollTo(0, 0);
+  }
+
+  // ---------- speech (read-aloud with word highlighting) ----------
+  // The biggest help for a child at this level: they can hear the sentence and watch the
+  // words light up as it goes. Boundary events drive it where supported (most desktop
+  // browsers + iOS), with a paced fallback so it always tracks even when they don't fire.
+  const synth = window.speechSynthesis;
+  let utter = null, wordEls = [], fallbackTimer = null;
+  function pickVoice() {
+    if (!synth) return null;
+    const vs = synth.getVoices() || [];
+    const pref = ["Samantha", "Karen", "Moira", "Google UK English Female", "Google US English"];
+    for (const p of pref) { const v = vs.find((x) => x.name === p); if (v) return v; }
+    return vs.find((v) => /^en(-|_)?/i.test(v.lang || "")) || null;
+  }
+  function primeSpeech() {           // must run inside a real tap for iOS
+    if (speechReady || !synth) return;
+    try { const u = new SpeechSynthesisUtterance(" "); u.volume = 0; synth.speak(u); speechReady = true; } catch {}
+  }
+  function stopSpeech() {
+    clearInterval(fallbackTimer); fallbackTimer = null;
+    try { synth && synth.cancel(); } catch {}
+    utter = null;
+    for (const el of wordEls) el.classList.remove("now");
+    $("readBtn").classList.remove("playing");
+    $("readBtn").querySelector("span").textContent = "Read it to me";
+  }
+  function highlight(i) {
+    for (const el of wordEls) el.classList.remove("now");
+    if (wordEls[i]) {
+      wordEls[i].classList.add("now");
+    }
+  }
+  function speakScene() {
+    if (!synth || !story || !story.scene) return;
+    if (synth.speaking) { stopSpeech(); return; }
+    const text = story.scene.text;
+    utter = new SpeechSynthesisUtterance(text);
+    const v = pickVoice(); if (v) utter.voice = v;
+    utter.rate = 0.82;               // slow enough for a first grader to follow along
+    utter.pitch = 1.08;
+    let boundaryFired = false;
+    // char index -> word index, so a boundary event can find the right span
+    const starts = [];
+    { let i = 0; for (const el of wordEls) { const w = el.dataset.w || ""; const at = text.indexOf(w, i); starts.push(at === -1 ? i : at); i = (at === -1 ? i : at) + w.length; } }
+    utter.onboundary = (e) => {
+      if (e.name && e.name !== "word") return;
+      boundaryFired = true;
+      clearInterval(fallbackTimer); fallbackTimer = null;
+      let idx = 0;
+      for (let i = 0; i < starts.length; i++) if (starts[i] <= e.charIndex) idx = i;
+      highlight(idx);
+    };
+    utter.onend = () => stopSpeech();
+    utter.onerror = () => stopSpeech();
+    $("readBtn").classList.add("playing");
+    $("readBtn").querySelector("span").textContent = "Stop";
+    highlight(0);
+    try { synth.speak(utter); } catch { stopSpeech(); return; }
+    // Fallback pacing if the engine never reports word boundaries.
+    let i = 0;
+    fallbackTimer = setInterval(() => {
+      if (boundaryFired) { clearInterval(fallbackTimer); fallbackTimer = null; return; }
+      i++; if (i >= wordEls.length) { clearInterval(fallbackTimer); fallbackTimer = null; return; }
+      highlight(i);
+    }, 340);
+  }
+  if (synth && typeof synth.onvoiceschanged !== "undefined") synth.onvoiceschanged = () => pickVoice();
+  $("readBtn").onclick = () => { primeSpeech(); speakScene(); };
+
+  // ---------- rendering ----------
+  function paintText(t) {
+    const box = $("text");
+    box.innerHTML = "";
+    wordEls = [];
+    for (const raw of String(t).split(/(\s+)/)) {
+      if (!raw) continue;
+      if (/^\s+$/.test(raw)) { box.appendChild(document.createTextNode(raw)); continue; }
+      const s = document.createElement("span");
+      s.className = "w"; s.textContent = raw;
+      s.dataset.w = raw;
+      box.appendChild(s); wordEls.push(s);
+    }
+  }
+  function paintChoices(choices) {
+    const wrap = $("choices");
+    wrap.innerHTML = "";
+    $("pickWrap").style.display = choices.length ? "" : "none";
+    choices.forEach((c) => {
+      const b = document.createElement("button");
+      b.className = "choice"; b.type = "button";
+      const em = document.createElement("span"); em.className = "em"; em.textContent = c.em || "✨";
+      const tx = document.createElement("span"); tx.className = "tx"; tx.textContent = c.text;
+      b.append(em, tx);
+      b.setAttribute("aria-label", c.text);
+      b.onclick = () => { primeSpeech(); pickChoice(c); };
+      wrap.appendChild(b);
+    });
+  }
+  function setArt(html, isImage) {
+    const el = $("art");
+    el.classList.remove("loading");
+    el.innerHTML = "";
+    if (!html) { el.classList.add("loading"); return; }
+    if (isImage) { const im = document.createElement("img"); im.src = html; im.alt = ""; el.appendChild(im); }
+    else el.innerHTML = html;
+  }
+  function setBusy(on) {
+    busy = on;
+    $("thinking").style.display = on ? "" : "none";
+    if (on) { $("pickWrap").style.display = "none"; $("oops").style.display = "none"; }
+    for (const b of document.querySelectorAll(".choice")) b.disabled = on;
+  }
+
+  // ---------- the story engine ----------
+  // Every message that leaves this page is either a starter seed from STARTERS or a choice
+  // the storyteller itself wrote. There is no text input anywhere in this page.
+  function parseScene(raw) {
+    const M = "===CHOICES===";
+    const i = String(raw).indexOf(M);
+    const text = (i === -1 ? raw : raw.slice(0, i)).replace(/^\s*[\r\n]+/, "").trim();
+    const choices = [];
+    if (i !== -1) {
+      for (const line of raw.slice(i + M.length).split("\n")) {
+        const m = line.match(/^\s*\d[.)]\s*(.*)$/);
+        if (!m) continue;
+        const parts = m[1].split("|");
+        if (parts.length >= 2) choices.push({ em: parts[0].trim().slice(0, 4), text: parts.slice(1).join("|").trim() });
+        else {
+          // model forgot the pipe — take a leading emoji if there is one, else a default
+          const t = m[1].trim();
+          const lead = t.match(/^(\p{Extended_Pictographic}️?(?:‍\p{Extended_Pictographic}️?)*)\s*(.*)$/u);
+          choices.push(lead ? { em: lead[1], text: lead[2].trim() } : { em: "✨", text: t });
+        }
+      }
+    }
+    return { text, choices: choices.filter((c) => c.text).slice(0, 3) };
+  }
+  function sanitizeArt(svg) {
+    try {
+      const clean = DOMPurify.sanitize(svg, {
+        USE_PROFILES: { svg: true, svgFilters: true },
+        FORBID_TAGS: ["script", "foreignObject", "image", "text"],
+        FORBID_ATTR: ["href", "xlink:href", "onload", "onclick"],
+      });
+      return /<svg[\s\S]*<\/svg>/i.test(clean) ? clean : null;
+    } catch { return null; }
+  }
+  async function callStream(mode, messages, extra) {
+    const r = await fetch(API, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ secret: FAMILY_PASSWORD, mode, messages, ...(extra || {}) }),
+    });
+    if (!r.ok) throw new Error("http " + r.status);
+    const ct = r.headers.get("content-type") || "";
+    if (ct.includes("application/json")) return { json: await r.json() };
+    const reader = r.body.getReader(); const dec = new TextDecoder();
+    let full = "";
+    for (;;) { const { done, value } = await reader.read(); if (done) break; full += dec.decode(value, { stream: true }); }
+    full += dec.decode();
+    return { text: full };
+  }
+
+  async function fetchArt(sceneText) {
+    $("art").classList.add("loading");
+    try {
+      const res = await callStream("kidart",
+        [{ role: "user", content: "Draw this page of the story:\n" + sceneText }],
+        { scene: sceneText });
+      if (res.json && res.json.image) { setArt(res.json.image, true); story.art = { img: res.json.image }; }
+      else if (res.text) {
+        const clean = sanitizeArt(res.text);
+        if (clean) { setArt(clean, false); story.art = { svg: clean }; }
+      }
+      save();
+    } catch { /* a missing picture never blocks the story */ }
+  }
+
+  async function advance(userContent) {
+    setBusy(true);
+    stopSpeech();
+    $("art").classList.add("loading");
+    try {
+      story.msgs.push({ role: "user", content: userContent });
+      const res = await callStream("kidstory", story.msgs, {
+        user: WHO, storyId: story.id, storyTitle: story.title,
+        sceneIdx: story.msgs.filter((m) => m.role === "assistant").length,
+        choice: story.lastChoice || "",
+      });
+      const raw = res.text || "";
+      if (!raw.trim()) throw new Error("empty");
+      story.msgs.push({ role: "assistant", content: raw });
+      // Keep the sent history small — the last few turns are all this story needs.
+      if (story.msgs.length > 14) story.msgs = story.msgs.slice(-14);
+      const scene = parseScene(raw);
+      story.scene = scene;
+      story.art = null;
+      paintText(scene.text);
+      paintChoices(scene.choices);
+      setBusy(false);
+      setArt(null);
+      save();
+      fetchArt(scene.text);
+      if (speechReady) setTimeout(speakScene, 250);   // auto-read once the child has tapped once
+    } catch (e) {
+      setBusy(false);
+      $("oops").style.display = "";
+      $("pickWrap").style.display = story && story.scene && story.scene.choices.length ? "" : "none";
+    }
+  }
+
+  function pickChoice(c) {
+    if (busy) return;
+    story.lastChoice = c.text;
+    advance(c.em + " " + c.text);
+  }
+
+  function startStory(s) {
+    primeSpeech();
+    story = { id: "k" + Date.now().toString(36), title: s.nm, msgs: [], scene: null, art: null, lastChoice: "" };
+    show("storyView");
+    setArt(null);
+    paintText("");
+    advance(s.seed);
+  }
+
+  // ---------- save / resume ----------
+  function save() {
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(story)); } catch {}
+  }
+  function loadSaved() {
+    try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); return (s && s.scene && Array.isArray(s.msgs)) ? s : null; } catch { return null; }
+  }
+  function resume(s) {
+    story = s;
+    show("storyView");
+    paintText(s.scene.text);
+    paintChoices(s.scene.choices || []);
+    if (s.art && s.art.svg) setArt(s.art.svg, false);
+    else if (s.art && s.art.img) setArt(s.art.img, true);
+    else setArt(null);
+  }
+
+  // ---------- pick screen ----------
+  function buildStarters() {
+    const wrap = $("starters");
+    wrap.innerHTML = "";
+    const saved = loadSaved();
+    if (saved) {
+      const b = document.createElement("button");
+      b.className = "starter"; b.type = "button";
+      b.style.background = "#e9f3ff"; b.style.borderColor = "#a9c9ee";
+      b.innerHTML = `<span class="em">📖</span><span class="nm"></span>`;
+      b.querySelector(".nm").textContent = "Keep reading\n" + saved.title;
+      b.querySelector(".nm").style.whiteSpace = "pre-line";
+      b.onclick = () => { primeSpeech(); resume(saved); };
+      wrap.appendChild(b);
+    }
+    for (const s of STARTERS) {
+      const b = document.createElement("button");
+      b.className = "starter"; b.type = "button";
+      b.innerHTML = `<span class="em"></span><span class="nm"></span>`;
+      b.querySelector(".em").textContent = s.em;
+      b.querySelector(".nm").textContent = s.nm;
+      b.onclick = () => startStory(s);
+      wrap.appendChild(b);
+    }
+  }
+
+  $("greet").textContent = WHO ? `Hi ${WHO}!` : "Story Time";
+  $("backBtn").onclick = () => { buildStarters(); show("pickView"); };
+  $("homeBtn").onclick = () => { location.href = "index.html"; };
+  $("retryBtn").onclick = () => {
+    $("oops").style.display = "none";
+    if (!story || !story.msgs.length) return;
+    const last = story.msgs[story.msgs.length - 1];
+    if (last && last.role === "user") { story.msgs.pop(); advance(last.content); }
+  };
+  buildStarters();
+  show("pickView");
+
+  // test hook
+  window.__KIDSTORY__ = {
+    STARTERS, parseScene, sanitizeArt,
+    get story(){ return story; },
+    start: (i) => startStory(STARTERS[i || 0]),
+    pick: (i) => { const b = document.querySelectorAll(".choice")[i || 0]; if (b) b.click(); },
+    who: WHO, speak: speakScene, stop: stopSpeech,
+    get words(){ return wordEls.length; },
+  };
+})();
+</script>
+</body>
+</html>

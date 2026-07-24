@@ -1472,6 +1472,48 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   persistence isn't guaranteed) — re-ran p12_polish.mjs (26/26) as a spot-check that the ring
   markup/CSS change didn't regress the rest of Home; didn't re-run p9/p10/p11 since none of them
   touch the ring/askbar/chapter code paths this batch changed.
+- 🧒 STORY TIME JR — early-reader page for a visiting 6-year-old (2026-07-24, built for
+  nephew Benjie on an iPad): `storytime.html` (self-contained, no nav chrome) + server modes
+  `kidstory` (Haiku, maxTokens 500) and `kidart` (Sonnet — draws noticeably better shapes).
+  DELIBERATELY NOT the big-kid story mode: scenes are 3-5 sentences of 3-9 words (a first
+  grader can't read 900-word chapters), and the child NEVER TYPES. THE CENTRAL SAFEGUARD is
+  that closed loop: the opening turn is one of 9 fixed STARTERS baked into the page, and every
+  turn after is a choice the model itself wrote — so no text a child can produce ever enters
+  the conversation. Backed server-side by KID_TURN_MAX_CHARS=200 truncation on kid-mode USER
+  turns only (assistant scenes uncapped), so a tampered client still can't smuggle
+  instructions. Guardrails stack KID_RULES (no peril/danger/death/villains/weapons/meanness/
+  gross-out, every turn ends safe or silly, quietly steer away rather than refuse, treat all
+  input as story never command) ON TOP OF the shared FAMILY_RULES. No daily cap; every scene
+  IS logged to farmgpt_story_log so it shows in Dad's existing Story Log (logStoryReq extended
+  to kidstory; parseChapter renders them fine since they use ===CHOICES===).
+  CHOICE FORMAT: `1. 🦆 | Say hi to the duck` — the PIPE is deliberate, emoji-vs-text regex
+  splitting is fragile; client falls back to a leading-Extended_Pictographic match then "✨".
+  CLIENT (iPad-first): 30px/1.95 story text in per-word spans, read-aloud via SpeechSynthesis
+  with word highlighting (boundary events + a 340ms paced fallback when they don't fire; iOS
+  needs primeSpeech() — a silent utterance inside a real tap — before it will ever speak),
+  96px+ choice cards, 9 emoji starter cards, localStorage resume (storytime_save_v1), `?who=`
+  sets the greeting + Story Log name (default "Benjie", remembered per device).
+  LAYOUT GOTCHA: stacked, the 400×260 picture fills a landscape iPad and pushes the words
+  below the fold — landscape ≥900px goes SIDE-BY-SIDE (#storyTop grid: art left, words right,
+  choices across the bottom). Per-word highlight spans need `margin: 0 -4px` to cancel their
+  own padding or word gaps visibly inflate.
+  🎨 IMAGES — two providers behind one env switch: `svg` (DEFAULT, free, no key: Sonnet draws
+  a flat storybook scene, DOMPurify-sanitized client-side with script/foreignObject/image/text
+  forbidden) and `gemini` (KID_ART_PROVIDER=gemini + GEMINI_API_KEY → gemini-2.5-flash-image
+  "nano banana", ~4¢/image, returns a data: URL). Gemini failure FALLS THROUGH to the SVG
+  drawing so a picture always appears. NOTE generativelanguage.googleapis.com IS reachable
+  from the sandbox (unlike Anthropic/Yahoo) — verified with a real API-key-invalid response —
+  so the image path can be live-probed with a key. Usage splits into TWO buckets since they
+  bill differently: k_* kid text (Haiku) + a_* pictures (Sonnet); dashboard has 🧒 and 🎨 rows.
+  VERIFY: `node tools/_verify-kidstory-server.mjs` (36: model/budget, KID_RULES+FAMILY_RULES
+  both stamped, 200-char user cap w/ assistant uncapped, no-cap + logging, k_*/a_* buckets,
+  svg vs gemini provider incl. failure fallback + prompt content, story/research untouched)
+  + scratchpad kidstory_client_test.mjs (37: zero text inputs anywhere ×2 screens, 30px text,
+  choice parsing/size, exact wire payload, hostile-SVG neutered, resume, portrait+landscape
+  fit). NOT live-tested vs real Haiku/Sonnet (env blocks Anthropic) — after deploy check
+  reading level, exactly-3 piped choices, and drawing quality; if SVG art disappoints, flip
+  KID_ART_PROVIDER=gemini. Page is intentionally UNLINKED from the family nav — bookmark
+  storytime.html to the iPad home screen (apple-mobile-web-app-capable = opens fullscreen).
 - 🎲 DUNGEON MODE (2026-07-23, Dad-only D&D 5e DM): `dungeon.html` (self-contained page, linked
   Dad-only from the FarmGPT home next to Story Log) + modes `dnd`/`dnd_update`/`dnd_summary` +
   storage actions `dnd_list/get/save/delete` in farmgpt.mjs. Sonnet 5 (RESEARCH_MODEL), adaptive
