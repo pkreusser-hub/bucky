@@ -609,8 +609,10 @@
     try {
       const res = await callStream("kidart",
         [{ role: "user", content: "Draw this page of the story:\n" + sceneText }],
-        { scene: sceneText });
-      if (res.json && res.json.image) { setArt(res.json.image, true); story.art = { img: res.json.image }; }
+        // premise = who the cast ARE; prev = last page's picture, so the hero stays the
+        // same animal from page to page instead of being re-invented each time
+        { scene: sceneText, premise: story.seed || "", prev: story.lastImg || "" });
+      if (res.json && res.json.image) { setArt(res.json.image, true); story.art = { img: res.json.image }; story.lastImg = res.json.image; }
       else if (res.text) {
         const clean = sanitizeArt(res.text);
         if (clean) { setArt(clean, false); story.art = { svg: clean }; }
@@ -655,8 +657,14 @@
       const raw = res.text || "";
       if (!raw.trim()) throw new Error("empty");
       story.msgs.push({ role: "assistant", content: raw });
-      // Keep the sent history small — the last few turns are all this story needs.
-      if (story.msgs.length > 14) story.msgs = story.msgs.slice(-14);
+      // Keep the sent history small, but ALWAYS keep msgs[0] — that opening turn is the story's
+      // premise (who the hero is, where they are). Plain slice(-14) threw it away around turn 7,
+      // and from there the model drifted off the plot and offered choices that fit no scene.
+      if (story.msgs.length > 14) {
+        const tail = story.msgs.slice(-12);
+        while (tail.length && tail[0].role !== "user") tail.shift();   // history must open on a user turn
+        story.msgs = [story.msgs[0]].concat(tail);
+      }
       const scene = parseScene(raw);
       story.scene = scene;
       story.art = null;
@@ -686,7 +694,7 @@
 
   function startStory(s) {
     primeSpeech();
-    story = { id: "k" + Date.now().toString(36), title: s.nm, msgs: [], scene: null, art: null, lastChoice: "", page: 0, pendingNext: DEMO ? "s1" : null };
+    story = { id: "k" + Date.now().toString(36), title: s.nm, seed: s.seed || "", msgs: [], scene: null, art: null, lastImg: "", lastChoice: "", page: 0, pendingNext: DEMO ? "s1" : null };
     show("storyView");
     setArt(null);
     paintText("");
@@ -695,13 +703,23 @@
 
   // ---------- save / resume ----------
   function save() {
-    try { localStorage.setItem(SAVE_KEY, JSON.stringify(story)); } catch {}
+    if (!story) return;
+    // A generated picture is ~2MB of base64. lastImg is only needed in memory (it feeds the
+    // next page's art call), so it never goes to disk; and if the remaining picture still
+    // overflows the storage quota we save the story WITHOUT it rather than saving nothing —
+    // losing the picture on resume is survivable, losing the story is not.
+    const { lastImg, ...keep } = story;
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(keep)); return; } catch {}
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...keep, art: null })); } catch {}
   }
   function loadSaved() {
     try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); return (s && s.scene && Array.isArray(s.msgs)) ? s : null; } catch { return null; }
   }
   function resume(s) {
     story = s;
+    // carry the saved picture back into the in-memory reference so the cast stays consistent
+    // across a reload, not just within one sitting
+    story.lastImg = (s.art && s.art.img) || "";
     show("storyView");
     paintText(s.scene.text);
     paintChoices(s.scene.choices || []);
@@ -779,6 +797,7 @@
     who: WHO, speak: speakScene, stop: stopSpeech,
     get words(){ return wordEls.length; },
     get page(){ return story && story.page; },
+    save,
   };
 })();
 </script>

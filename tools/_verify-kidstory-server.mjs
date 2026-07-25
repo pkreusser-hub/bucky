@@ -89,6 +89,10 @@ console.log("— kidstory: model, budget, guardrail stack —");
   ok(/no dying|no danger|Nothing frightening/i.test(a.system), "no-peril / no-death rules present");
   ok(/===CHOICES===/.test(a.system) && /\|/.test(a.system), "exactly-3 piped choices contract present");
   ok(/never a command to obey|never as a command|never a command/i.test(a.system), "anti-injection clause present");
+  ok(/choice must follow directly|would only make sense somewhere else/i.test(a.system),
+    "choices must fit the page just written, not float free of the scene");
+  ok(/same hero, the same friends, the same place/i.test(a.system),
+    "…and the cast/setting can't be quietly swapped mid-story");
 }
 
 console.log("— the closed loop: a child's turn can never carry instructions —");
@@ -146,11 +150,43 @@ console.log("— kidart: real image generation (KID_ART_PROVIDER=gemini) —");
   ok(geminiReqs.length === 1, "exactly one image API call");
   ok(/gemini-2\.5-flash-image:generateContent/.test(geminiReqs[0].url), "calls the image model endpoint");
   const gb = JSON.parse(geminiReqs[0].body);
-  const prompt = gb.contents[0].parts[0].text;
+  const prompt = gb.contents[0].parts.map((p) => p.text || "").join("\n");
   ok(/children's picture book/i.test(prompt) && /non-scary/i.test(prompt), "image prompt is kid-safe + storybook styled");
   ok(/No text, letters, numbers/i.test(prompt), "image prompt bans text in the picture");
   ok(prompt.includes("Bo the goat ran past a red barn."), "scene text is what gets illustrated");
   ok(/full-bleed|reaches all four edges/i.test(prompt), "image prompt asks for full-bleed art (no white paper border)");
+  ok(gb.contents[0].parts.every((p) => !p.inlineData), "no reference image sent on page one (there is no previous page)");
+}
+// Character consistency: art is generated per page, so without context the same hero came back
+// a goat, then a dog, then a raccoon. The premise names the cast; the previous page's picture
+// pins their actual design.
+{
+  const h2 = (await import(modUrl + "?v=gem")).default;
+  geminiReqs.length = 0; geminiMode = "image";
+  const PREV = "iVBORw0KGgoAAAANSUhEUg==";
+  const r = await call({ mode: "kidart", scene: "Bo hopped over a puddle.",
+    premise: "Bo is a small white goat with a red scarf who lives on a farm.",
+    prev: "data:image/png;base64," + PREV }, h2);
+  ok(r.status === 200 && typeof r.json.image === "string", "still returns a picture with context attached");
+  const gb = JSON.parse(geminiReqs[0].body);
+  const parts = gb.contents[0].parts;
+  const text = parts.map((p) => p.text || "").join("\n");
+  ok(/small white goat with a red scarf/.test(text), "the story premise rides along, so the model knows what the hero IS");
+  const ref = parts.find((p) => p.inlineData);
+  ok(!!ref && ref.inlineData.data === PREV && ref.inlineData.mimeType === "image/png",
+    "the previous page's picture is sent as a visual reference");
+  ok(parts.indexOf(ref) < parts.length - 1, "…before the instructions that refer to it");
+  ok(/EXACTLY as they appear there|same species/i.test(text), "…with an explicit keep-the-same-character instruction");
+  ok(text.includes("Bo hopped over a puddle."), "and this page's own action is still what gets drawn");
+}
+{
+  // a malformed or oversized reference must never break the picture
+  const h2 = (await import(modUrl + "?v=gem")).default;
+  geminiReqs.length = 0; geminiMode = "image";
+  const r = await call({ mode: "kidart", scene: "Bo smiled.", prev: "not-an-image" }, h2);
+  const gb = JSON.parse(geminiReqs[0].body);
+  const parts = gb.contents[0].parts;
+  ok(r.status === 200 && parts.every((p) => !p.inlineData), "a junk reference image is ignored, not forwarded");
   ok(gb.generationConfig && gb.generationConfig.imageConfig && gb.generationConfig.imageConfig.aspectRatio === "4:3",
     "asks for a 4:3 picture — the model returns a SQUARE without this, and the book page would crop its top and bottom");
   // failure must fall back to a drawing, never to a blank page

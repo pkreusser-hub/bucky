@@ -380,6 +380,12 @@ HOW A TURN WORKS:
   nothing after the third choice.
 - The three choices must be different from each other, all cheerful, and all things the child
   would enjoy picking. Never make a choice sound like the wrong answer.
+- EVERY choice must follow directly from the page you just wrote: something the hero could do in
+  the very next moment, in the place they are standing, with the characters and things that are
+  actually there right now. Name them ("Pet the pony", not "Go on an adventure"). If a choice
+  would only make sense somewhere else in the story, it is wrong — replace it.
+- Keep faith with the story so far: the same hero, the same friends, the same place, and whatever
+  the child chose on the page before. Do not quietly swap in a new character or a new setting.
 - The story keeps going for as long as the child taps. Never end it, never wind it down, and
   never write "The End" — always give three fresh choices.
 
@@ -417,16 +423,33 @@ edge to edge as a full-bleed page: no white border, no paper margin, no vignette
 colour reaches all four edges. It fills one page of an open picture book, so keep the main
 character well inside the middle; the outer edges may be trimmed. The picture shows: `;
 
-async function generateKidImage(scene) {
+// A page of art is generated on its own, so without context the model re-invents the cast
+// every time (the same hero came back a goat, then a dog, then a raccoon). Two things keep
+// it steady: the story's own premise, which names who the characters ARE, and the previous
+// page's picture handed back as a visual reference — Gemini matches designs from an image
+// far more reliably than from any description.
+async function generateKidImage(scene, opts) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return null;
   const base = process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com";
+  const premise = String((opts && opts.premise) || "").slice(0, 600);
+  const prev = (opts && opts.prev) || null;
+  const parts = [];
+  if (prev && prev.data) {
+    parts.push({ inlineData: { mimeType: prev.mime || "image/png", data: prev.data } });
+    parts.push({ text: `The picture above is the PREVIOUS page of this same book. Keep every
+character EXACTLY as they appear there — same species, same colours, same clothing, same face,
+same proportions — and keep the same art style and palette. Only the action and setting change.` });
+  }
+  parts.push({ text: KID_ART_IMAGE_PROMPT
+    + (premise ? `\n\nTHE STORY (who the characters are — always draw them this way): ${premise}\n\nTHIS PAGE SHOWS: ` : "")
+    + String(scene).slice(0, 600) });
   try {
     const r = await fetch(`${base}/v1beta/models/${GEMINI_IMAGE_MODEL}:generateContent?key=${encodeURIComponent(key)}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: KID_ART_IMAGE_PROMPT + String(scene).slice(0, 600) }] }],
+        contents: [{ role: "user", parts }],
         // without this the model returns a SQUARE image; the book's picture page is landscape
         // and crops to fill, so a square would lose the top and bottom of every scene.
         generationConfig: { imageConfig: { aspectRatio: "4:3" } },
@@ -434,8 +457,8 @@ async function generateKidImage(scene) {
     });
     if (!r.ok) return null;
     const j = await r.json();
-    const parts = (j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || [];
-    for (const p of parts) {
+    const outParts = (j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || [];
+    for (const p of outParts) {
       const d = p.inlineData || p.inline_data;
       if (d && d.data) return { mime: d.mimeType || d.mime_type || "image/png", data: d.data };
     }
@@ -1072,7 +1095,13 @@ export default async (req) => {
   // Little-kid illustration: when the family has switched art on to real generated pictures,
   // this returns an image; otherwise it falls through to the free SVG path (mode "kidart").
   if (body.mode === "kidart" && KID_ART_PROVIDER === "gemini") {
-    const img = await generateKidImage(typeof body.scene === "string" ? body.scene : "");
+    // the page sends the last picture back as "data:image/png;base64,…" so the cast stays put
+    let prev = null;
+    const m = typeof body.prev === "string" && body.prev.length < 4e6
+      ? body.prev.match(/^data:(image\/[a-z+]+);base64,(.+)$/i) : null;
+    if (m) prev = { mime: m[1], data: m[2] };
+    const img = await generateKidImage(typeof body.scene === "string" ? body.scene : "",
+      { premise: typeof body.premise === "string" ? body.premise : "", prev });
     if (img) {
       await logUsage("kidimage", 0, 0, 0, 0);   // billed per image, so just count them
       return new Response(JSON.stringify({ image: `data:${img.mime};base64,${img.data}`, source: "gemini" }), { status: 200, headers: jsonHeaders });
