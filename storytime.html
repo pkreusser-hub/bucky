@@ -246,7 +246,7 @@
     <div class="dots"><span>🐾</span><span>🐾</span><span>🐾</span></div>
   </div>
   <div id="pickWrap">
-    <p class="pickTitle">What happens next?</p>
+    <p class="pickTitle" id="pickTitle">What happens next?</p>
     <div id="choices"></div>
   </div>
   <div id="oops" style="display:none">
@@ -273,7 +273,7 @@
   // new instructions into the conversation.
   const STARTERS = [
     { em: "🐐", nm: "The Goat Who Got Out",  seed: "A funny farm story about a goat named Bo who opens his gate and goes exploring around the farm." },
-    { em: "🦖", nm: "My Dinosaur Friend",    seed: "A happy story about a kid who finds a small, friendly, polka-dotted dinosaur in the back yard." },
+    { em: "🦖", nm: "My Dinosaur Friend",    baked: "dino", seed: "A happy story about a kid who finds a small, friendly, polka-dotted dinosaur in the back yard." },
     { em: "🚀", nm: "Trip to the Moon",      seed: "A cheerful story about a kid who builds a cardboard rocket and flies to the moon to have a picnic." },
     { em: "🐙", nm: "Under the Sea",         seed: "A gentle story about a kid in a yellow submarine who makes friends with a silly octopus." },
     { em: "🏴‍☠️", nm: "The Silly Pirates",   seed: "A goofy story about friendly pirates whose treasure map leads to something surprising and sweet." },
@@ -687,12 +687,67 @@
 
   function pickChoice(c) {
     if (busy) return;
+    if (story && story.baked) {          // baked stories just walk their own tree — no network
+      if (c.restart) story.page = 0;
+      showBakedPage(c.to);
+      return;
+    }
     story.lastChoice = c.text;
     story.pendingNext = c.next || null;   // demo mode routes by id; live mode ignores it
     advance(c.em + " " + c.text);
   }
 
+  function showOops(msg) {
+    if (msg) $("oopsMsg").textContent = msg;
+    $("oops").style.display = "";
+  }
+  // ---------- baked stories ----------
+  // The child never types, so a story is just a tree of pages — which means the whole thing
+  // (words, choices AND pictures) can be generated once, ahead of time, by tools/_bake-story.mjs.
+  // A baked story costs nothing to read, appears with no wait, works with no network, and can
+  // never drift off its own plot. Live AI stories keep working exactly as before.
+  async function startBaked(s) {
+    primeSpeech();
+    show("storyView");
+    setArt(null); paintText(""); paintChoices([]);
+    setBusy(true);
+    let data;
+    try {
+      const r = await fetch("assets/storytime/" + s.baked + "/story.json");
+      data = await r.json();
+    } catch { setBusy(false); showOops("This story could not open."); return; }
+    setBusy(false);
+    story = { id: "b" + Date.now().toString(36), baked: s.baked, title: data.title, data,
+              node: data.root, page: 0, scene: null, art: null, msgs: [] };
+    showBakedPage(data.root);
+  }
+  function showBakedPage(id, opts) {
+    const p = story.data.pages[id];
+    if (!p) return;
+    story.node = id;
+    if (!(opts && opts.keepPage)) story.page = (story.page || 0) + 1;
+    turnPage();
+    paintText(p.text);
+    setArt(p.img || null, true);
+    paintPageNo();
+    // the page's own shape decides what the buttons are: a real choice, a page turn, or the end
+    if (p.choices && p.choices.length) {
+      $("pickTitle").textContent = "What happens next?";
+      paintChoices(p.choices);
+    } else if (p.next) {
+      $("pickTitle").textContent = "";
+      paintChoices([{ em: "📖", text: "Turn the page", to: p.next }]);
+    } else {
+      $("pickTitle").textContent = "The End 🎉";
+      paintChoices([{ em: "🔄", text: "Read it again", to: story.data.root, restart: true }]);
+    }
+    // the scene shape the rest of the page (speech, saving, resume) already understands
+    story.scene = { text: p.text, choices: [] };
+    save();
+  }
+
   function startStory(s) {
+    if (s.baked) return startBaked(s);
     primeSpeech();
     story = { id: "k" + Date.now().toString(36), title: s.nm, seed: s.seed || "", msgs: [], scene: null, art: null, lastImg: "", lastChoice: "", page: 0, pendingNext: DEMO ? "s1" : null };
     show("storyView");
@@ -708,14 +763,29 @@
     // next page's art call), so it never goes to disk; and if the remaining picture still
     // overflows the storage quota we save the story WITHOUT it rather than saving nothing —
     // losing the picture on resume is survivable, losing the story is not.
-    const { lastImg, ...keep } = story;
+    // a baked story is a whole book on disk already — remember only which page we're on
+    const { lastImg, data, ...keep } = story;
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(keep)); return; } catch {}
     try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...keep, art: null })); } catch {}
   }
   function loadSaved() {
-    try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); return (s && s.scene && Array.isArray(s.msgs)) ? s : null; } catch { return null; }
+    try {
+      const s = JSON.parse(localStorage.getItem(SAVE_KEY));
+      if (s && s.baked && s.node) return s;                       // baked: just a page marker
+      return (s && s.scene && Array.isArray(s.msgs)) ? s : null;
+    } catch { return null; }
   }
-  function resume(s) {
+  async function resume(s) {
+    if (s.baked) {                       // re-open the book, then jump back to the saved page
+      show("storyView"); setArt(null); paintText(""); paintChoices([]); setBusy(true);
+      try {
+        const r = await fetch("assets/storytime/" + s.baked + "/story.json");
+        story = { ...s, data: await r.json() };
+      } catch { setBusy(false); showOops("This story could not open."); return; }
+      setBusy(false);
+      showBakedPage(story.node || story.data.root, { keepPage: true });
+      return;
+    }
     story = s;
     // carry the saved picture back into the in-memory reference so the cast stays consistent
     // across a reload, not just within one sitting
@@ -797,6 +867,7 @@
     who: WHO, speak: speakScene, stop: stopSpeech,
     get words(){ return wordEls.length; },
     get page(){ return story && story.page; },
+    get node(){ return story && story.node; },
     save,
   };
 })();

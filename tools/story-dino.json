@@ -1,0 +1,109 @@
+{
+  "id": "dino",
+  "title": "My Dinosaur Friend",
+  "em": "🦖",
+  "cast": "Sam is a small boy about six years old, with short brown hair, a bright green t-shirt and blue shorts. The dinosaur is tiny — the size of a puppy — bright green with darker green polka dots, a round belly, short tail and big happy eyes. They are in a sunny back yard with a wooden fence, a big tree and flower beds.",
+  "nodes": {
+    "p1": {
+      "text": "Sam found a little dinosaur. It had green polka dots. It blinked at him and smiled.",
+      "art": "Sam crouching in the grass, meeting the tiny polka-dotted dinosaur for the first time. Both look delighted.",
+      "choices": [
+        { "em": "🌿", "text": "Give him a leaf", "to": "a" },
+        { "em": "🎾", "text": "Roll him a ball", "to": "b" },
+        { "em": "🏠", "text": "Show him the yard", "to": "c" }
+      ]
+    },
+
+    "a": {
+      "text": "Sam held out a big leaf. The dinosaur munched it up fast. Then he wanted more!",
+      "art": "Sam holding out a big green leaf. The little dinosaur is chewing it happily, cheeks full.",
+      "next": "a2"
+    },
+    "b": {
+      "text": "Sam rolled a red ball. The dinosaur bopped it with his nose. The ball went flying!",
+      "art": "The little dinosaur bopping a red ball with his nose, the ball flying up. Sam laughing behind him.",
+      "next": "b2"
+    },
+    "c": {
+      "text": "Sam showed him the whole yard. The dinosaur sniffed every flower. He sneezed a tiny sneeze.",
+      "art": "The little dinosaur sniffing a flower bed and sneezing a tiny sneeze. Sam pointing things out.",
+      "next": "c2"
+    },
+
+    "a2": {
+      "text": "They picked leaves together all morning. The dinosaur made a happy hum. Sam hummed along too.",
+      "art": "Sam and the dinosaur gathering a pile of leaves together under the big tree, both humming happily.",
+      "choices": [
+        { "em": "🥪", "text": "Share a snack", "to": "a2x" },
+        { "em": "🌻", "text": "Plant a seed", "to": "a2y" },
+        { "em": "😴", "text": "Rest in the shade", "to": "a2z" }
+      ]
+    },
+    "b2": {
+      "text": "They played ball until lunchtime. The dinosaur was very good at it. He never dropped it once.",
+      "art": "Sam and the dinosaur mid-game with the red ball in the sunny yard, the dinosaur balancing it on his nose.",
+      "choices": [
+        { "em": "🥅", "text": "Play one more game", "to": "b2x" },
+        { "em": "💦", "text": "Cool off in water", "to": "b2y" },
+        { "em": "🍪", "text": "Get a cookie", "to": "b2z" }
+      ]
+    },
+    "c2": {
+      "text": "The garden smelled very good. The dinosaur wagged his little tail. He liked the yard a lot.",
+      "art": "The little dinosaur wagging his tail among the flower beds, Sam kneeling beside him in the sunshine.",
+      "choices": [
+        { "em": "🐛", "text": "Follow a caterpillar", "to": "c2x" },
+        { "em": "🌼", "text": "Pick a flower", "to": "c2y" },
+        { "em": "🏡", "text": "Build a little house", "to": "c2z" }
+      ]
+    },
+
+    "a2x": {
+      "text": "They ate crackers on the grass. The dinosaur liked cheese the best. Sam saved him the last one.",
+      "art": "Sam and the dinosaur sitting on a picnic blanket on the grass sharing crackers and cheese.",
+      "end": true
+    },
+    "a2y": {
+      "text": "They put a seed in the dirt. The dinosaur patted it down gently. Something green would grow soon.",
+      "art": "Sam and the dinosaur planting a seed in a flower bed, the dinosaur patting the soil with one foot.",
+      "end": true
+    },
+    "a2z": {
+      "text": "They lay under the big tree. The dinosaur curled up like a cat. Sam listened to him snore.",
+      "art": "Sam lying in the shade under the big tree with the dinosaur curled up asleep beside him.",
+      "end": true
+    },
+
+    "b2x": {
+      "text": "They played one last round. The dinosaur scored the winning goal. He did a happy little dance.",
+      "art": "The little dinosaur doing a happy dance after scoring, the red ball behind him, Sam cheering.",
+      "end": true
+    },
+    "b2y": {
+      "text": "They ran through the cold sprinkler. The dinosaur squeaked at every splash. His polka dots looked shiny.",
+      "art": "Sam and the dinosaur running through a garden sprinkler, water sparkling, both soaked and delighted.",
+      "end": true
+    },
+    "b2z": {
+      "text": "Mom brought out two cookies. The dinosaur ate his in one bite. Then he eyed Sam's cookie.",
+      "art": "Sam holding a cookie on the back steps, the dinosaur licking his lips and eyeing it hopefully.",
+      "end": true
+    },
+
+    "c2x": {
+      "text": "A fuzzy caterpillar crawled by. The dinosaur followed it very slowly. They watched it climb a leaf.",
+      "art": "Sam and the dinosaur crouched low, watching a fuzzy caterpillar climb a leaf.",
+      "end": true
+    },
+    "c2y": {
+      "text": "Sam picked a yellow flower. He put it behind the dinosaur's ear. The dinosaur felt very fancy.",
+      "art": "Sam tucking a yellow flower behind the little dinosaur's ear. The dinosaur looks proud and pleased.",
+      "end": true
+    },
+    "c2z": {
+      "text": "They stacked sticks into a tiny house. The dinosaur crawled inside to try it. It fit him just right.",
+      "art": "A tiny house made of stacked sticks in the yard with the little dinosaur peeking out of the doorway, Sam grinning.",
+      "end": true
+    }
+  }
+}
