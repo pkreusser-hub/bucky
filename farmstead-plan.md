@@ -23,7 +23,15 @@ systems*, never art, sound, text, or names from the original. Working title: **F
    beat. Original had real traffic jams; we keep visual congestion without gridlock bugs).
 5. Flag→building door delivery is a short fixed-time hand-off, not a separately pathed walk.
 6. Campaign missions are out of scope; skirmish vs 1-3 AI with seeds, 3 map sizes.
-7. No 2-player split-screen (a later Playroom co-op could be a follow-up).
+7. 2-player mode is SHARED-KINGDOM CO-OP over the network (both players command the same
+   settlement vs AI) — the original's 2-player was competitive split-screen; co-op is the
+   requested design here.
+8. Territory contested-vertex resolution = nearest-claiming-building (the original
+   compares military strength on contested tiles; nearest-claimer is our documented
+   simplification). Castle claims radius 12 (start-area room); hut/tower/fortress claim
+   the confirmed uniform radius 8.
+9. Terrain naming: the classic's families are water/grass/desert/tundra/snow; our SWAMP
+   (walkable, unbuildable flavor) + MOUNTAIN≙tundra keep the same buildability rules.
 Everything else — building set, resource set, serf professions + tools, chains, ratios,
 flags/roads/carriers, geologists, mines+food, knights/morale/gold, territory, combat,
 distribution/priority controls — is implemented for real.
@@ -245,11 +253,16 @@ boatwright hammer, geologist hammer, knight sword+shield.
 
 # 6. Economy buildings (types, recipes — numbers live in FSC.BLD, cite here for review)
 
+**Costs/sizes in fs-const.js are the reconciled CONFIRMED originals — that file is the
+source of truth.** Size model: only small (center vertex, no leveling) and large (flat
+7-vertex footprint, digger-leveled) exist — there is NO medium tier; mines are small-class
+on mountains. Notable: mill is SMALL; sawmill/bakery/butcher/tower are LARGE.
+
 | type | size | worker | consumes → produces (cycle) | notes |
 |---|---|---|---|---|
 | castle | HQ | — | stores all; spawns serfs | 1 per player, conquerable |
 | stock | large | — | warehouse | extra spawn/storage point |
-| hut / tower / fortress | S/M/L | knights | — | garrison 3/6/12, territory r 8/11/14, gold 2/4/8 |
+| hut / tower / fortress | S/L/L | knights | — | garrison 3/6/12, territory r 8 UNIFORM, gold 2/4/8 |
 | fisher | S | fisher rod | nearby fish → FISH | works shore ≤ R7, fish stock depletes+regrows slowly |
 | lumberjack | S | axe | mature tree → LUMBER | fells within R7, stumps fade |
 | forester | S | shovel | — → saplings | plants within R7 on free grass, stages T1..T4 |
@@ -268,15 +281,30 @@ boatwright hammer, geologist hammer, knight sword+shield.
 | weaponsmith | M | hammer+pincer | 1 COAL + 1 STEEL → SWORD/SHIELD alternating | |
 | boatwright | S | hammer | 2 PLANK → 1 BOAT | for water roads |
 
-Goods (26, default transport priority order in FSC.RES_ORDER): plank, stone, lumber, boat,
-sword, shield, goldBar, goldOre, steel, ironOre, coal, fish, bread, meat, pig, wheat,
-flour, shovel, hammer, rod, cleaver, scythe, axe, saw, pick, pincer.
+Goods (26). TWO separate reorderable priority lists exist (do not conflate):
+- FSC.RES_ORDER — FLAG TRANSPORT priority (which waiting good a carrier picks up first);
+  confirmed original default starts goldOre/goldBar and ends stone/plank. Pickup choice is
+  a LIVE re-evaluation: a higher-priority arrival pre-empts a lower one not yet picked up.
+- FSC.INV_ORDER — WAREHOUSE OUTPUT priority (which stored goods leave storage first).
 Distribution sliders (Player.dist) gate *which requester wins* when multiple compete
-(weighted round-robin by slider 0..8); food sliders split fish/bread/meat among the 4 mine
-types. Transport priority list is player-reorderable (UI) and drives carrier pickup order.
+(weighted by slider on the classic's 0..65500 scale, 20 notches of 3275 — build stepped
+controls); food sliders split food among the 4 mine types. Confirmed defaults in
+FSC.DIST_DEFAULTS/TOOL_PRIO_DEFAULT (hammer is by far the top default tool).
+Toolmaker/weaponsmith are demand-responsive each cycle (live priority minus current
+stock), never fixed round-robin. Warehouses later gain per-res In/Stop/Out modes (§11).
 
 # 7. Military, territory, combat
 
+- Knight strength is EXPONENTIAL in rank: FSC.KNIGHT_EXP = [1,2,4,8,16]. A knight fighting
+  on his OWN player's territory fights at full strength; fighting on foreign soil his
+  strength is scaled by his player's morale (gold-share formula in fs-const.js — no gold
+  anywhere in the game = everyone at full morale). Duel round: P(A beats B) =
+  scoreA/(scoreA+scoreB), seeded rng.
+- Garrison targets use 4 THREAT TIERS by distance to the nearest enemy border (tier 3 =
+  at the border), each with player-settable min/max occupation level 0..9
+  (FSC.KNIGHT_OCC_DEFAULTS); headcount = max(1, round(level/9 × cap)). Castle garrison =
+  player-set stepper (default 3, cap 99). "Cycle knights" action rotates garrisons home
+  for promotion churn (cooldown FSC.CYCLE_KNIGHTS_T).
 - Occupied military building claims all vertices within its radius for its player;
   `owner[]` = argmin(dist to any occupied mil bld of that player, tie → earlier building).
   Recompute on occupation change / capture / destruction (incremental region update fine).
@@ -412,6 +440,70 @@ launch (CHROME_PATH env → /opt/pw-browsers/chromium → channel:chrome), pagee
   every 5 min (no destless goods > cap, no serf stuck > 2 min, carriers on all roads,
   economy monotonic-ish), then save/load equivalence.
 
+# 16. Multiplayer — 2-player shared-kingdom co-op (deterministic lockstep)
+
+TWO co-op modes, chosen by the host at room creation:
+- SHARED KINGDOM: both seats command PLAYER 0's settlement together vs 1-3 AI.
+- SEPARATE KINGDOMS: seat 0 = player 0, seat 1 = player 1, each with their own castle,
+  economy and territory, ALLIED (same team) against 1-2 AI enemies.
+Seat→player mapping is the ONLY netcode difference between the modes — everything else
+is the team system (below). Netcode is COMMAND-LOCKSTEP: both browsers run the identical
+deterministic sim; only player commands travel the network.
+
+## Teams (implemented in sim regardless of MP)
+- Player.team int. Solo: human team 0, each AI its own team. Shared co-op: same. Separate
+  co-op: players 0+1 both team 0 (human alliance), AIs teams 1+.
+- Attack validation rejects same-team targets (UI greys allied buildings). AI targets
+  enemy teams only.
+- Territory between SAME-TEAM players never displaces: an owned vertex keeps its owner
+  when the would-be claimer is an ally; the conquest demolish rule ("lost land burns
+  buildings") applies only across teams. Roads/flags/buildings remain strictly per-player
+  (no shared networks or gifting — deviation note: the classic has no trade either).
+- Elimination: castle falls → that player out. Team defeated when all members out;
+  victory = your team is the last with living players. Overlays say "team" in co-op. Transport: Playroom Kit (house stack, pin playroomkit@0.0.96 UMD,
+lazy-load only when hosting/joining; skipLobby:true; parse+CLEAR the #r= hash BEFORE
+insertCoin and pass roomCode explicitly — house caution).
+
+## The command layer (built in Phase B, solo uses it too — MP is just a transport)
+EVERY mutating player action is a command object:
+  {t: execTick, seq, by: seatId, type: "flag"|"road"|"build"|"demolish"|"attack"|
+   "geologist"|"speed"|"prio"|"dist"|"toolPrio"|"knightSet"|"halt"|…, args}
+- FSSim.issueCommand(G, cmd) queues; commands execute at the START of their tick in
+  (t, by, seq) order; invalid-at-execution commands fail silently-but-logged (event).
+- Solo: execTick = current tick + 1. MP: host assigns execTick = hostTick + DELAY_TICKS
+  (~4 = 400ms) and broadcasts; both sides execute at that tick. Guest sends command
+  requests to host (host validates seat, assigns tick, broadcasts).
+- G.speed changes are commands (both screens follow). Pause while hidden: SOLO only;
+  in MP the sim keeps its tick schedule (host heartbeat pattern) and a hidden tab
+  catches up in capped slices on return ("catching up…" veil).
+## Sync guarantees
+- Determinism rules (already enforced): sim/map modules use FSC.rng only; NO
+  Math.sin/cos/tan/pow/exp/log, no Math.random, no Date.now in sim or mapgen (float
+  transcendentals are engine-implementation-defined and break cross-device lockstep;
+  + - * / sqrt floor min max and integer hashing only). Suites grep-audit this.
+- Desync detection: every 100 ticks both sides compute cheap hash (tick, rngCalls, ids,
+  inv totals, serf/flag/bld counts, owner checksum) → exchange → mismatch triggers
+  RESYNC: host chunks a b64 save over the wire (8KB chunks), guest loads, play continues
+  (event logged; suites assert zero desyncs in normal play).
+- Join mid-game: same chunked-save transfer, then guest applies buffered commands.
+- Drop handling: guest leaves → host continues seamlessly (it owns the room). HOST
+  leaves → guest has the full state: offer "continue solo" (loads local state into solo
+  mode). Both directions tested.
+## Lobby / discovery
+- Title screen: SOLO / HOST CO-OP / JOIN. Host creates room → share link (#r=<code>) +
+  Firestore family-lobby doc lobbies_<familyKey>/fst_<code> {game:"farmstead",
+  gameName:"Farmstead", ico:"🏰", hostName, status, playerCount 1..2, maxPlayers 2,
+  updatedAt} with 15s heartbeat + pagehide delete (games.html's generic lobby renderer
+  shows a JOIN card via its neutral-fallback text — zero games.html changes needed).
+  Identity = localStorage choreUser. Firestore unreachable → lobby features degrade
+  silently (link sharing still works). Playroom unreachable → clean fallback to solo
+  with a friendly note, never a blank page.
+- Test transport: FSNet abstracts the wire (playroom | localWS). Suites run TWO browser
+  processes against a tiny node WS relay (?mpws=ws://127.0.0.1:PORT) since Playroom's
+  CDN/backend is blocked from this container; the playroom adapter follows the exact
+  house integration pattern (verified live in prior projects) and is spot-checked
+  manually post-deploy.
+
 # 15. Build phases (sequential agents; each: read this file + fs-const.js first,
 run earlier suites before AND after, keep them green, 0 pageerrors, update __FS__)
 
@@ -424,11 +516,16 @@ B. transport+construction core (fs-sim: flags/roads/carriers/scheduling/construc
 C. economy complete (all producers, mines, geology, tools, boats, stock, distribution) →
    economy suite.
 D. military+AI (fs-military, fs-ai; attack UI dialog) → military suite.
-E. UI complete (fs-ui everything in §11; replaces any temp glue) → ui suite.
+M. multiplayer co-op per §16 (fs-net.js: command transport, hash/resync, lobby glue,
+   minimal host/join screens; localWS test adapter) → mp suite (two browser processes
+   over the local relay: joint build session, command ordering, hash agreement, drop
+   handling both directions, speed-as-command).
+E. UI complete (fs-ui everything in §11 + polished co-op lobby/partner presence) → ui suite.
 F. audio+polish+mobile+perf (fs-audio, effects, touch, budgets) → polish suite.
 Then: integration pass, adversarial review (multi-agent), fixes, push.
 
 File ownership per phase to avoid conflicts: A owns map/models/render/html; B owns sim +
 extends render via NEW functions (never rewrites A's); C extends sim (marked sections);
-D owns military/ai; E owns ui (+ its html/css block); F owns audio + touch block.
+D owns military/ai; M owns fs-net.js (+ command-layer seams in sim marked PHASE-M);
+E owns ui (+ its html/css block); F owns audio + touch block.
 Marked section comments `/* ===== PHASE-X: name ===== */` at every extension point.

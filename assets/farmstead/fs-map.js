@@ -207,8 +207,11 @@
   FSMap.isTree = function (o) { return o >= OBJ.TREE1 && o <= OBJ.TREE4; };
   FSMap.isStone = function (o) { return o >= OBJ.STONE1 && o <= OBJ.STONE4; };
   FSMap.isField = function (o) { return o >= OBJ.FIELD0 && o <= OBJ.FIELD4; };
-  /** deterministic per-vertex tree species (0 pine, 1 round) — derived, never stored */
-  FSMap.species = function (v) { return (Math.imul(v ^ 0x9e37, 2654435761) >>> 17) & 1; };
+  /** deterministic per-vertex tree species (0 pine, 1 broadleaf, 2 autumn) — derived, never stored */
+  FSMap.species = function (v) {
+    const h = (Math.imul(v ^ 0x9e3779b9, 2654435761) >>> 9) % 100;
+    return h < 52 ? 0 : (h < 82 ? 1 : 2);
+  };
 
   // --------------------------------------------------------------- generation
   function fade(t) { return t * t * (3 - 2 * t); }

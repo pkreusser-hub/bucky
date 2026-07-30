@@ -73,7 +73,20 @@
   ];
   FSC.RES_LIST = RES_LIST;
   FSC.RES = {}; RES_LIST.forEach((r, i) => (FSC.RES[r] = r)); // string ids everywhere (save-friendly)
-  FSC.RES_ORDER = RES_LIST.slice(); // default transport priority (index 0 = picked up first)
+  // Default FLAG transport priority (index 0 = picked up first) — the classic's exact
+  // default order: gold moves most urgently, raw planks/stone dead last.
+  FSC.RES_ORDER = [
+    "goldOre", "goldBar", "wheat", "flour", "pig", "boat", "pincer", "scythe", "rod",
+    "cleaver", "saw", "axe", "pick", "shovel", "hammer", "shield", "sword", "bread",
+    "meat", "fish", "ironOre", "lumber", "coal", "steel", "stone", "plank",
+  ];
+  // Separate WAREHOUSE OUTPUT priority list (which stored goods leave storage first).
+  // Positions 4-5 and 11-21 are informed reconstruction (source only partially recovered).
+  FSC.INV_ORDER = [
+    "wheat", "flour", "pig", "bread", "fish", "meat", "lumber", "plank", "boat", "stone",
+    "ironOre", "steel", "coal", "shovel", "hammer", "rod", "cleaver", "scythe", "axe",
+    "saw", "pick", "pincer", "shield", "sword", "goldOre", "goldBar",
+  ];
   FSC.TOOLS = ["shovel", "hammer", "rod", "cleaver", "scythe", "axe", "saw", "pick", "pincer"];
   FSC.FOODS = ["fish", "bread", "meat"];
   FSC.RES_ICON = {
@@ -109,30 +122,33 @@
   // cost {plank,stone}; radius = work radius; mil = {cap, terrRadius, goldCap}
   const B = {};
   function def(type, o) { o.type = type; B[type] = o; }
-  def("castle",      { size: 2, cost: { plank: 0, stone: 0 }, hq: true, warehouse: true, mil: { cap: 12, terrRadius: 16, goldCap: 8 } });
-  def("stock",       { size: 2, cost: { plank: 4, stone: 6 }, warehouse: true });
-  def("hut",         { size: 0, cost: { plank: 2, stone: 1 }, mil: { cap: 3, terrRadius: 8, goldCap: 2 } });
-  def("tower",       { size: 1, cost: { plank: 3, stone: 5 }, mil: { cap: 6, terrRadius: 11, goldCap: 4 } });
-  def("fortress",    { size: 2, cost: { plank: 5, stone: 8 }, mil: { cap: 12, terrRadius: 14, goldCap: 8 } });
+  // Sizes follow the classic's real model: 0 = small (center vertex only, no leveling),
+  // 2 = large (flat 7-vertex footprint, digger leveling). There is NO medium tier.
+  // Mines are size 0 + mountain:true (no leveling). Costs are the confirmed originals.
+  def("castle",      { size: 2, cost: { plank: 0, stone: 0 }, hq: true, warehouse: true, mil: { cap: 12, terrRadius: 12, goldCap: 8 } });
+  def("stock",       { size: 2, cost: { plank: 4, stone: 3 }, warehouse: true });
+  def("hut",         { size: 0, cost: { plank: 1, stone: 1 }, mil: { cap: 3, terrRadius: 8, goldCap: 2 } });
+  def("tower",       { size: 2, cost: { plank: 2, stone: 3 }, mil: { cap: 6, terrRadius: 8, goldCap: 4 } });
+  def("fortress",    { size: 2, cost: { plank: 5, stone: 5 }, mil: { cap: 12, terrRadius: 8, goldCap: 8 } });
   def("fisher",      { size: 0, cost: { plank: 2, stone: 0 }, job: "fisher", radius: 7, out: "fish", cycleT: 220 });
   def("lumberjack",  { size: 0, cost: { plank: 2, stone: 0 }, job: "lumberjack", radius: 7, out: "lumber", cycleT: 180 });
   def("forester",    { size: 0, cost: { plank: 2, stone: 0 }, job: "forester", radius: 7, cycleT: 200 });
   def("stonecutter", { size: 0, cost: { plank: 2, stone: 0 }, job: "stonecutter", radius: 7, out: "stone", cycleT: 200 });
-  def("sawmill",     { size: 1, cost: { plank: 2, stone: 2 }, job: "sawyer", in: { lumber: 1 }, out: "plank", cycleT: 140 });
-  def("farm",        { size: 2, cost: { plank: 4, stone: 2 }, job: "farmer", radius: 7, out: "wheat", cycleT: 160 });
-  def("mill",        { size: 1, cost: { plank: 2, stone: 2 }, job: "miller", in: { wheat: 1 }, out: "flour", cycleT: 160 });
-  def("bakery",      { size: 1, cost: { plank: 2, stone: 3 }, job: "baker", in: { flour: 1 }, out: "bread", cycleT: 180 });
-  def("pigfarm",     { size: 2, cost: { plank: 4, stone: 2 }, job: "pigfarmer", in: { wheat: 1 }, out: "pig", cycleT: 380 });
-  def("butcher",     { size: 1, cost: { plank: 2, stone: 1 }, job: "butcher", in: { pig: 1 }, out: "meat", outN: 2, cycleT: 160 });
+  def("sawmill",     { size: 2, cost: { plank: 3, stone: 2 }, job: "sawyer", in: { lumber: 1 }, out: "plank", cycleT: 140 });
+  def("farm",        { size: 2, cost: { plank: 4, stone: 1 }, job: "farmer", radius: 7, out: "wheat", cycleT: 160 });
+  def("mill",        { size: 0, cost: { plank: 3, stone: 1 }, job: "miller", in: { wheat: 1 }, out: "flour", cycleT: 160 });
+  def("bakery",      { size: 2, cost: { plank: 2, stone: 1 }, job: "baker", in: { flour: 1 }, out: "bread", cycleT: 180 });
+  def("pigfarm",     { size: 2, cost: { plank: 4, stone: 1 }, job: "pigfarmer", in: { wheat: 1 }, out: "pig", cycleT: 380 });
+  def("butcher",     { size: 2, cost: { plank: 2, stone: 1 }, job: "butcher", in: { pig: 1 }, out: "meat", outN: 2, cycleT: 160 });
   def("stoneMine",   { size: 0, cost: { plank: 4, stone: 1 }, mine: "STONE", job: "miner", inFood: 1, out: "stone", cycleT: 260, mountain: true });
-  def("coalMine",    { size: 0, cost: { plank: 4, stone: 1 }, mine: "COAL", job: "miner", inFood: 1, out: "coal", cycleT: 260, mountain: true });
-  def("ironMine",    { size: 0, cost: { plank: 4, stone: 1 }, mine: "IRON", job: "miner", inFood: 1, out: "ironOre", cycleT: 280, mountain: true });
-  def("goldMine",    { size: 0, cost: { plank: 4, stone: 1 }, mine: "GOLD", job: "miner", inFood: 1, out: "goldOre", cycleT: 300, mountain: true });
-  def("smelter",     { size: 1, cost: { plank: 2, stone: 3 }, job: "smelter", in: { coal: 1, ironOre: 1 }, out: "steel", cycleT: 240 });
-  def("goldsmelter", { size: 1, cost: { plank: 2, stone: 3 }, job: "goldsmelter", in: { coal: 1, goldOre: 1 }, out: "goldBar", cycleT: 240 });
-  def("toolmaker",   { size: 1, cost: { plank: 3, stone: 3 }, job: "toolmaker", in: { plank: 1, steel: 1 }, outTool: true, cycleT: 300 });
-  def("weaponsmith", { size: 1, cost: { plank: 2, stone: 3 }, job: "weaponsmith", in: { coal: 1, steel: 1 }, outWeapon: true, cycleT: 300 });
-  def("boatwright",  { size: 0, cost: { plank: 2, stone: 0 }, job: "boatwright", in: { plank: 2 }, out: "boat", cycleT: 400 });
+  def("coalMine",    { size: 0, cost: { plank: 5, stone: 0 }, mine: "COAL", job: "miner", inFood: 1, out: "coal", cycleT: 260, mountain: true });
+  def("ironMine",    { size: 0, cost: { plank: 5, stone: 0 }, mine: "IRON", job: "miner", inFood: 1, out: "ironOre", cycleT: 280, mountain: true });
+  def("goldMine",    { size: 0, cost: { plank: 5, stone: 0 }, mine: "GOLD", job: "miner", inFood: 1, out: "goldOre", cycleT: 300, mountain: true });
+  def("smelter",     { size: 2, cost: { plank: 3, stone: 2 }, job: "smelter", in: { coal: 1, ironOre: 1 }, out: "steel", cycleT: 240 });
+  def("goldsmelter", { size: 2, cost: { plank: 4, stone: 1 }, job: "smelter", in: { coal: 1, goldOre: 1 }, out: "goldBar", cycleT: 240 });
+  def("toolmaker",   { size: 2, cost: { plank: 3, stone: 3 }, job: "toolmaker", in: { plank: 1, steel: 1 }, outTool: true, cycleT: 300 });
+  def("weaponsmith", { size: 2, cost: { plank: 2, stone: 3 }, job: "weaponsmith", in: { coal: 1, steel: 1 }, outWeapon: true, cycleT: 300 });
+  def("boatwright",  { size: 0, cost: { plank: 3, stone: 0 }, job: "boatwright", in: { plank: 2 }, out: "boat", cycleT: 400 });
   FSC.BLD = B;
   FSC.BLD_LIST = Object.keys(B);
   FSC.BLD_NAME = {
@@ -165,32 +181,61 @@
   FSC.SIGN_EMPTY = 255;
 
   // ---------- Military ----------
-  FSC.MORALE_BASE = 1.0;
-  FSC.MORALE_GOLD = 0.6;       // + gold/goldCap * this
+  // Knight strength doubles per rank (exponential — confirmed). Defenders on their OWN
+  // territory fight at full strength; fighting on foreign soil uses the player's
+  // gold-funded morale instead (0..1).
+  FSC.KNIGHT_EXP = [1, 2, 4, 8, 16];
+  FSC.MORALE_MIN = 0.25;       // morale floor when the game has gold but you hold none
+  // morale = (game has no gold anywhere) ? 1.0 : MORALE_MIN + (1-MORALE_MIN)*min(1, 2*myGoldShare)
   FSC.KNIGHT_RANKS = 5;        // 0..4
   FSC.ATTACK_RANGE = 20;       // own mil bld within this of target can contribute
   FSC.FIGHT_ROUND_T = 22;      // ticks per duel round (rendered swings)
   FSC.CASTLE_RADIUS = 12;      // starting territory
-  FSC.KNIGHT_DEFAULTS = { minHut: 1, maxHut: 3, minTower: 2, maxTower: 6, minFort: 4, maxFort: 12, recruitRate: 5, attackStrong: true };
+  // Garrison occupancy: 4 threat tiers by distance to the nearest enemy border
+  // (tier 3 = at the border), each with min/max occupation LEVEL 0..9.
+  // headcount = max(1, round(level/9 * building cap)). Defaults are the originals.
+  FSC.KNIGHT_OCC_DEFAULTS = [[0, 1], [1, 2], [2, 3], [3, 4]];
+  FSC.THREAT_NEAR = [26, 18, 10];  // lattice dist to enemy border → tier 0/1/2/3 boundaries
+  FSC.SERF_TO_KNIGHT_DEFAULT = 20000; // 0..65500 slider: eagerness of generic→knight
+  FSC.CASTLE_KNIGHTS_DEFAULT = 3;  // castle desired garrison (stepper, cap 99)
+  FSC.CYCLE_KNIGHTS_T = 2400;      // rotate-garrisons cooldown (ticks)
+  FSC.KNIGHT_DEFAULTS = { recruitRate: 20000, attackStrong: true, castleKnights: 3 };
 
   // ---------- Start inventory (castle) ----------
+  // Materials are tuned defaults (the classic derived them from a Supplies difficulty
+  // slider; exact standard-game numbers unconfirmed). Serf roster below IS the exact one.
   FSC.START_INV = {
     plank: 40, stone: 30, lumber: 10, boat: 2,
     sword: 3, shield: 3, goldBar: 0, goldOre: 0, steel: 6, ironOre: 4, coal: 10,
     fish: 12, bread: 8, meat: 4, pig: 0, wheat: 6, flour: 0,
     shovel: 4, hammer: 6, rod: 2, cleaver: 1, scythe: 2, axe: 3, saw: 2, pick: 4, pincer: 1,
-    serf: 40, knight: 4,
+  };
+  // Exact confirmed starting serf roster (19 spawnable; the classic's 20th is an
+  // in-warehouse goods handler our model doesn't represent as an entity). Pre-made
+  // professionals are consumed FIRST when a building requests that worker; else a
+  // generic + the profession's tool(s) are consumed.
+  FSC.START_SERFS = {
+    generic: 5, knight: 3, toolmaker: 1, lumberjack: 1, sawyer: 1, stonecutter: 1,
+    digger: 1, builder: 1, fisher: 1, geologist: 2, miner: 2,
   };
 
   // ---------- Distribution defaults (0..8 weights) ----------
+  // All priority/distribution sliders share the classic's 0..65500 scale with 20 discrete
+  // notches of 3275 (build stepped controls, not smooth sliders). Values are the
+  // confirmed original defaults.
+  FSC.PRIO_MAX = 65500;
+  FSC.PRIO_STEP = 3275;
   FSC.DIST_DEFAULTS = {
-    planksConstruction: 8, planksBoats: 2, planksTools: 4,
-    steelTools: 4, steelWeapons: 6,
-    coalSteel: 6, coalGold: 4, coalWeapons: 6,
-    wheatMill: 6, wheatPigs: 4,
-    foodStoneMine: 2, foodCoalMine: 6, foodIronMine: 6, foodGoldMine: 8,
+    planksConstruction: 65500, planksTools: 19650, planksBoats: 3275,
+    steelWeapons: 65500, steelTools: 45850,
+    coalGold: 65500, coalWeapons: 52400, coalSteel: 32750,
+    wheatPigs: 65500, wheatMill: 32750,
+    foodGoldMine: 65500, foodCoalMine: 45850, foodIronMine: 45850, foodStoneMine: 13100,
   };
-  FSC.TOOL_PRIO_DEFAULT = { shovel: 5, hammer: 6, rod: 2, cleaver: 1, scythe: 3, axe: 5, saw: 4, pick: 5, pincer: 1 };
+  FSC.TOOL_PRIO_DEFAULT = {
+    hammer: 65500, pick: 45850, saw: 32750, axe: 26200, rod: 13100,
+    scythe: 13100, shovel: 9825, cleaver: 6550, pincer: 6550,
+  };
 
   // ---------- Players ----------
   FSC.PLAYER_COLORS = [0x2b6cb0, 0xc53030, 0xd69e2e, 0x6b46c1]; // blue you, red, gold, purple
@@ -225,7 +270,7 @@
     SMOOTH_PASSES: 3, SMOOTH_W: 0.7,   // lowland smoothing (plains stay buildable)
     BORDER: 3,            // vertices of forced deep water at the map edge
     FOREST_T: 0.50, FOREST_P: 0.85,     // tree clump threshold / max density
-    ROCK_T: 0.72, ROCK_P: 0.34,         // stone pile threshold / max density
+    ROCK_T: 0.80, ROCK_P: 0.22,         // stone pile threshold / max density
     ROCK_NEAR_MOUNT: 6,   // stone piles get a density bonus within this many steps of a mountain
     FISH_MIN: 3, FISH_MAX: 8, FISH_COAST: 2,
     MINERAL_BLOB_P: 0.055,              // chance a mountain vertex seeds a deposit blob
@@ -235,7 +280,6 @@
     TREE_STAGE_W: [0.05, 0.09, 0.16, 0.70],  // stage 1..4 weights
   };
   FSC.START = {
-    R_FLAT: 2,            // castle footprint flatness radius
     R_AREA: 6,            // "flat grass radius" tested for buildable room
     GRASS_FRAC: 0.62,     // min grass share inside R_AREA (soft — relaxes per tier)
     LAND_FRAC: 0.92,      // min non-water share inside R_AREA (soft)
@@ -250,7 +294,7 @@
     SEP_RELAX: 0.9, SEP_PASSES: 3,
     SEP_FLOOR_FRAC: 0.26, SEP_FLOOR_STEP: 0.07, SEP_HARD_FLOOR: 0.14,
     TOPUP_TREES: 14, TOPUP_TREE_R: 7,        // fairness top-up around every start site
-    TOPUP_STONES: 5, TOPUP_STONE_R: 9,
+    TOPUP_STONES: 4, TOPUP_STONE_R: 9,
     CLEAR_R: 1,           // objects cleared around the castle vertex
   };
 
@@ -266,13 +310,14 @@
   FSC.COL = {
     TERR: {
       0: 0x3d6d84,  // WATER (lake bed, mostly hidden under the water plane)
-      1: 0x6d9b4c,  // GRASS
+      1: 0x6b9350,  // GRASS
       2: 0xd6c188,  // DESERT
       3: 0x566b3f,  // SWAMP
-      4: 0x8b8478,  // MOUNTAIN
-      5: 0xeff3f7,  // SNOW
+      4: 0x6e6455,  // MOUNTAIN
+      5: 0xe4eaf1,  // SNOW
     },
-    BEACH: 0xd8c79c,
+    BEACH: 0xd9c9a0,
+    GRASS_DRY: 0x9cae63,
     WATER_SURF: 0x2f6f9e,
     SKY: 0x9fc4e0,
     FOG_NEAR: 70, FOG_FAR: 340,
@@ -280,7 +325,7 @@
     TREE_LEAF: [0x2f5d3a, 0x4f8039],
     TREE_AUTUMN: [0xa3702c, 0xc08a2e, 0x8f5f2a],
     STUMP: 0x6b5137,
-    STONE: 0x8d949c,
+    STONE: 0x7c838d,
     SAPLING: 0x6fae54,
     FIELD: [0x6b5236, 0x7f7a44, 0x94974a, 0xc0b055, 0xdcb94a],
     FIELD_STUB: 0x8a7a55,
