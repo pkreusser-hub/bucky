@@ -205,6 +205,97 @@
   FSC.NOTIF_CAP = 40;
   FSC.EVENT_CAP = 400;
 
+  /* ===== PHASE-A: world generation ===== */
+  FSC.ROW_Z = 0.8660254037844386;   // sqrt(3)/2 — row spacing factor (world z = r*TILE*ROW_Z)
+  FSC.WATER_Y = 0;                  // world y of the water surface (heights are relative to it)
+  FSC.GEN = {
+    OCTAVES: 5, BASE_CELLS: 3, PERSIST: 0.52,   // fBm heightfield
+    // island bowl: f = smoothstep(EDGE_0,EDGE_1,edgeDist) * (1-smoothstep(RAD_0,RAD_1,radius))
+    EDGE_0: 0.02, EDGE_1: 0.18, RAD_0: 0.86, RAD_1: 1.4, SEA_BOWL: 0.75,
+    // fields are percentile-flattened, so these thresholds ARE area fractions
+    WATER_N: 0.27,        // normalized height of the shoreline
+    MOUNT_N: 0.745,       // normalized height where the plains band ends
+    PLAIN_H: 2.1,         // world height of the top of the plains band (gentle slopes)
+    MOUNT_H: 12.0,        // world height added across the mountain band (steep)
+    DEEP_H: 9.0,          // world depth scale below the shoreline
+    MOUNTAIN_Y: 2.72,     // y above which land is MOUNTAIN
+    SNOW_Y: 11.2,         // y above which mountain is SNOW
+    SWAMP_Y: 0.75, SWAMP_MOIST: 0.62,   // wet lowlands
+    DESERT_Y: 0.25, DESERT_MOIST: 0.16, // arid patches
+    SMOOTH_PASSES: 3, SMOOTH_W: 0.7,   // lowland smoothing (plains stay buildable)
+    BORDER: 3,            // vertices of forced deep water at the map edge
+    FOREST_T: 0.50, FOREST_P: 0.85,     // tree clump threshold / max density
+    ROCK_T: 0.72, ROCK_P: 0.34,         // stone pile threshold / max density
+    ROCK_NEAR_MOUNT: 6,   // stone piles get a density bonus within this many steps of a mountain
+    FISH_MIN: 3, FISH_MAX: 8, FISH_COAST: 2,
+    MINERAL_BLOB_P: 0.055,              // chance a mountain vertex seeds a deposit blob
+    MINERAL_W: { STONE: 0.28, COAL: 0.34, IRON: 0.27, GOLD: 0.11 },
+    MINERAL_R: { STONE: 4, COAL: 5, IRON: 4, GOLD: 2 },
+    MINERAL_AMT: [4, 15],
+    TREE_STAGE_W: [0.05, 0.09, 0.16, 0.70],  // stage 1..4 weights
+  };
+  FSC.START = {
+    R_FLAT: 2,            // castle footprint flatness radius
+    R_AREA: 6,            // "flat grass radius" tested for buildable room
+    GRASS_FRAC: 0.62,     // min grass share inside R_AREA (soft — relaxes per tier)
+    LAND_FRAC: 0.92,      // min non-water share inside R_AREA (soft)
+    GRASS_FLOOR: 0.42,    // hard floors: never relaxed, whatever the seed
+    LAND_FLOOR: 0.78,
+    SPREAD_AREA: 3.2,     // max height spread inside R_AREA
+    WATER_CLEAR: 3,       // no water this close to the castle
+    MOUNTAIN_MAX: 25,     // a mountain must be within this many lattice steps
+    TREES_R: 8, TREES_MIN: 6,
+    STONES_R: 10, STONES_MIN: 2,
+    SEP_FRAC: [0, 0.50, 0.50, 0.42, 0.36],   // min separation as a fraction of W, by player count
+    SEP_RELAX: 0.9, SEP_PASSES: 3,
+    SEP_FLOOR_FRAC: 0.26, SEP_FLOOR_STEP: 0.07, SEP_HARD_FLOOR: 0.14,
+    TOPUP_TREES: 14, TOPUP_TREE_R: 7,        // fairness top-up around every start site
+    TOPUP_STONES: 5, TOPUP_STONE_R: 9,
+    CLEAR_R: 1,           // objects cleared around the castle vertex
+  };
+
+  /* ===== PHASE-A: camera / render tunables ===== */
+  FSC.CAM = {
+    FOV: 52, NEAR: 0.5, FAR: 2000,
+    DIST_MIN: 8, DIST_MAX: 80, DIST_START: 34,
+    PITCH_MIN: 35 * Math.PI / 180, PITCH_MAX: 70 * Math.PI / 180, PITCH_START: 52 * Math.PI / 180,
+    ZOOM_RATE: 0.0016, YAW_RATE: 1.5, KEY_PAN: 0.55, DRAG_PAN: 0.0022,
+    ORBIT_YAW: 0.006, ORBIT_PITCH: 0.004, LERP: 12,
+  };
+  // Shared palette (plain ints — no THREE here). Render + models read these.
+  FSC.COL = {
+    TERR: {
+      0: 0x3d6d84,  // WATER (lake bed, mostly hidden under the water plane)
+      1: 0x6d9b4c,  // GRASS
+      2: 0xd6c188,  // DESERT
+      3: 0x566b3f,  // SWAMP
+      4: 0x8b8478,  // MOUNTAIN
+      5: 0xeff3f7,  // SNOW
+    },
+    BEACH: 0xd8c79c,
+    WATER_SURF: 0x2f6f9e,
+    SKY: 0x9fc4e0,
+    FOG_NEAR: 70, FOG_FAR: 340,
+    TREE_TRUNK: [0x5b4632, 0x6b5137],
+    TREE_LEAF: [0x2f5d3a, 0x4f8039],
+    TREE_AUTUMN: [0xa3702c, 0xc08a2e, 0x8f5f2a],
+    STUMP: 0x6b5137,
+    STONE: 0x8d949c,
+    SAPLING: 0x6fae54,
+    FIELD: [0x6b5236, 0x7f7a44, 0x94974a, 0xc0b055, 0xdcb94a],
+    FIELD_STUB: 0x8a7a55,
+    CASTLE_WALL: 0xbfb6a4,
+    CASTLE_ROOF: 0x7d3a2e,
+    CASTLE_WOOD: 0x6b5137,
+    BLD_WALL: 0xc9b79a,
+    BLD_ROOF: 0x8c4a34,
+    BLD_WOOD: 0x6f5334,
+    SIGN_POST: 0x6b5137,
+    MINERAL: { 0: 0x999999, 1: 0x8d949c, 2: 0x2a2a2e, 3: 0xa8703a, 4: 0xe0b93a },
+    HOVER: 0xffe9a8,
+  };
+  FSC.EMISSIVE_LIFT = 0.3;   // unlit faces never render black (house rule)
+
   if (typeof window !== "undefined") window.FSC = FSC;
   if (typeof module !== "undefined" && module.exports) module.exports = FSC; // node tests
 })();
