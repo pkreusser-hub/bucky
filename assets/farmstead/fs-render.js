@@ -491,15 +491,18 @@
     if (!dyn.group || !G) return;
     dyn.tAcc += dt;
     // terrain the sim changed (digger leveling, cleared building footprints)
+    let ground = false;
     if (G.dirtyV && G.dirtyV.length) {
       for (let i = 0; i < G.dirtyV.length; i++) FSRender.refreshVertex(G.dirtyV[i]);
       G.dirtyV.length = 0;
+      ground = true;                    // buildings + roads sit on the ground that moved
+      dyn.roadSig = "";
     }
     const rs = roadSignature();
     if (rs !== dyn.roadSig) { dyn.roadSig = rs; rebuildRoads(); }
     let bs = "";
     for (const id in G.buildings) { const b = G.buildings[id]; bs += id + b.state + bldVisKey(b) + ";"; }
-    if (bs !== dyn.bldSig) { dyn.bldSig = bs; FSRender.refreshBuildings(); }
+    if (ground || bs !== dyn.bldSig) { dyn.bldSig = bs; FSRender.refreshBuildings(); }
     syncFlags();
     syncSerfs(dt);
     dynFlush();

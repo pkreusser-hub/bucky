@@ -148,9 +148,8 @@
 
   /** Vertices whose terrain/objects changed — the renderer drains this list. */
   function dirty(G, v) {
-    if (v < 0) return;
-    G.dirtyV.push(v);
-    if (G.dirtyV.length > 4096) G.dirtyV.splice(0, G.dirtyV.length - 4096);
+    // the renderer drains this every frame; headless runs simply let it fill up
+    if (v >= 0 && G.dirtyV.length < 4096) G.dirtyV.push(v);
   }
   FSSim.dirtyVertices = function (G) { return G.dirtyV; };
 

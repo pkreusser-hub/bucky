@@ -236,13 +236,17 @@
       if (n >= FSC.MAX_TICKS_PER_FRAME) acc = 0;     // tab-return protection
     }
     const st = FSRender.frame(dtReal);
-    if (G && (st.frames & 7) === 0) {
-      const c = FSSim.counts(G, 0);
-      dbgEl.textContent = "fps " + st.fps + "  tick " + G.tick + "  x" + (G.speed || 0) +
-        "\ndraws " + st.drawCalls + "  tris " + (st.tris / 1000).toFixed(1) + "k" +
-        "\nserfs " + c.serfs + "  flags " + c.flags + "  roads " + c.roads +
-        "\nbld " + c.buildings + " (" + c.sites + " site)  goods " + c.goods;
-    }
+    if (G && (st.frames & 7) === 0) paintDbg();
+  }
+
+  function paintDbg() {
+    if (!G) return "";
+    const st = FSRender.stats(), c = FSSim.counts(G, 0);
+    dbgEl.textContent = "fps " + st.fps + "  tick " + G.tick + "  x" + (G.speed || 0) +
+      "\ndraws " + st.drawCalls + "  tris " + (st.tris / 1000).toFixed(1) + "k" +
+      "\nserfs " + c.serfs + "  flags " + c.flags + "  roads " + c.roads +
+      "\nbld " + c.buildings + " (" + c.sites + " site)  goods " + c.goods;
+    return dbgEl.textContent;
   }
 
   function paintSpeed() {
@@ -385,6 +389,7 @@
     build: function (type, v, o) { return FSSim.issueCommand(G, Object.assign({ type: "build", args: { type, v } }, o || {})); },
     demolish: function (id, o) { return FSSim.issueCommand(G, Object.assign({ type: "demolish", args: { id } }, o || {})); },
     hash: function () { return FSSim.hash(G); },
+    paintHud: function () { return paintDbg(); },   // headless renders ~1fps: force the HUD
     events: function (type) { return type ? G.events.filter((e) => e.type === type) : G.events.slice(); },
     mode: function () { return mode; },
     q: {

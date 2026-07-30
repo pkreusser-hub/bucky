@@ -94,11 +94,6 @@ const HELPERS = function () {
     }
     return made;
   };
-  T.serfStates = function () {
-    return FS.FSSim.serfsOf(FS.G, 0).map((s) => ({ id: s.id, job: s.job, state: s.state, v: s.v, carry: s.carry, road: s.road }));
-  };
-  T.evTypes = function () { return FS.G.events.map((e) => e.type); };
-  T.lastFail = function () { const f = FS.G.events.filter((e) => e.type === "cmdFail"); return f.length ? f[f.length - 1] : null; };
   return true;
 };
 
@@ -712,6 +707,76 @@ H.run("farmstead-transport", async (t) => {
   t.check("a different seed diverges", det.a.hash !== det.c.hash, det);
   t.check("the replay actually ran a busy 3000-tick game", det.a.tick === 3000 && det.a.counts.buildings >= 3, det.a);
 
+  // ════════════════════════════════ HTML glue (temp Phase-B UI)
+  const ui = await page.evaluate(() => {
+    const FS = window.__FS__;
+    const hint = document.getElementById("bhint");
+    const key = (k) => window.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true }));
+    key("r");
+    const roadMode = FS.mode();
+    key("Escape");
+    const cleared = FS.mode();
+    key("b");
+    const buildMode = FS.mode();
+    key("Escape");
+    return {
+      hintVisible: !hint.classList.contains("hidden"),
+      hintText: hint.textContent.replace(/\s+/g, " ").trim(),
+      roadMode, cleared, buildMode,
+    };
+  });
+  t.check("the temp hint line lists every mode key", ui.hintVisible && /F flag/.test(ui.hintText) && /R road/.test(ui.hintText) && /B/.test(ui.hintText) && /X demolish/.test(ui.hintText), ui);
+  t.check("R arms road mode, B arms build mode, Esc clears", ui.roadMode === "road" && ui.cleared === null && ui.buildMode === "build", ui);
+
+  // the same keys/clicks a player actually uses, end to end through the command layer
+  const glue = await page.evaluate(async () => {
+    const FS = window.__FS__, T = window.T, R = FS.FSRender, G0 = T.fresh();
+    const G = FS.G, castle = T.castle();
+    R.setCam({ yaw: 0.55, pitch: 0.9 });
+    R.focusVertex(castle.v, 26);
+    R.frame(0.016);
+    const key = (k) => window.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true }));
+    const click = (v) => {
+      const s = R.vertexScreen(v);
+      const opt = { clientX: s.x, clientY: s.y, bubbles: true, button: 0, pointerId: 1 };
+      document.getElementById("view").dispatchEvent(new PointerEvent("pointerdown", opt));
+      window.dispatchEvent(new PointerEvent("pointerup", opt));
+      return s.inView;
+    };
+    // F = flag at the hovered vertex
+    const fv = T.flagSpot(3, 7);
+    R.setHover(fv);
+    key("f");
+    FS.ff(2);
+    const flagged = G.map.flagAt[fv];
+    // B then '1' = a hut at the hovered vertex
+    const bv = T.pickSite("hut", 3, 9, fv);
+    R.setHover(bv);
+    key("b"); key("1");
+    FS.ff(2);
+    const built = G.map.bldAt[bv];
+    const builtType = built ? G.buildings[built].type : null;
+    // R + two clicks = a road between two flags
+    const cf = T.cflag();
+    R.focusVertex(castle.v, 26);
+    R.frame(0.016);
+    key("r");
+    const inView = click(cf.v) && click(G.flags[flagged].v);
+    FS.ff(2);
+    const road = FSSim_roadBetween(cf.id, flagged);
+    function FSSim_roadBetween(a, b) { return FS.FSSim.roadBetween(G, a, b); }
+    // X = demolish whatever is under the cursor
+    R.setHover(bv);
+    key("x");
+    FS.ff(2);
+    const burning = built && G.buildings[built] ? G.buildings[built].state : "gone";
+    return { flagged, built, builtType, road, inView, burning, mode: FS.mode() };
+  });
+  t.check("F places a flag at the hovered vertex", glue.flagged > 0, glue);
+  t.check("B then 1 places a hut at the hovered vertex", glue.built > 0 && glue.builtType === "hut", glue);
+  t.check("R + two flag clicks builds a road", glue.inView === true && glue.road > 0, glue);
+  t.check("X demolishes what is under the cursor", glue.burning === "burn", glue);
+
   // ════════════════════════════════ a whole working town: render + perf
   const town = await page.evaluate(() => {
     const FS = window.__FS__, T = window.T, FSSim = FS.FSSim, FSMap = FS.FSMap;
@@ -804,27 +869,6 @@ H.run("farmstead-transport", async (t) => {
   t.check("4x on a busy town costs <60ms of CPU per real second", perf.at4x < 60, perf);
   console.log("   perf: tickMsAvg=" + perf.avg.toFixed(4) + "ms  (4x → " + perf.at4x.toFixed(2) + "ms/s)  serfs=" + perf.serfs);
 
-  // ════════════════════════════════ HTML glue (temp Phase-B UI)
-  const ui = await page.evaluate(() => {
-    const FS = window.__FS__;
-    const hint = document.getElementById("bhint");
-    const key = (k) => window.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true }));
-    key("r");
-    const roadMode = FS.mode();
-    key("Escape");
-    const cleared = FS.mode();
-    key("b");
-    const buildMode = FS.mode();
-    key("Escape");
-    return {
-      hintVisible: !hint.classList.contains("hidden"),
-      hintText: hint.textContent.replace(/\s+/g, " ").trim(),
-      roadMode, cleared, buildMode,
-    };
-  });
-  t.check("the temp hint line lists every mode key", ui.hintVisible && /F flag/.test(ui.hintText) && /R road/.test(ui.hintText) && /B/.test(ui.hintText) && /X demolish/.test(ui.hintText), ui);
-  t.check("R arms road mode, B arms build mode, Esc clears", ui.roadMode === "road" && ui.cleared === null && ui.buildMode === "build", ui);
-
   // ════════════════════════════════ screenshot: a busy moment
   const shotSetup = await page.evaluate(() => {
     const FS = window.__FS__, T = window.T, FSSim = FS.FSSim, FSMap = FS.FSMap, R = FS.FSRender;
@@ -854,24 +898,31 @@ H.run("farmstead-transport", async (t) => {
       }
       if (bestF) FSSim.buildRoad(G, bestF, b.flag, bestP, 0);
     }
-    // hold the frame on a tick where goods are waiting and serfs are mid-stride
+    // hold the frame on a tick with scaffolding up, goods waiting and serfs mid-stride
     let hit = null;
-    for (let i = 0; i < 900; i++) {
+    for (let i = 0; i < 1200; i++) {
       FS.ff(1);
       const serfs = FSSim.serfsOf(G, 0);
       const walking = serfs.filter((s) => s.from !== s.to).length;
       const c = FSSim.counts(G, 0);
-      if (walking >= 4 && c.goods >= 2 && c.sites >= 1) { hit = { walking, goods: c.goods, sites: c.sites, tick: G.tick }; break; }
+      let building = 0;
+      for (const id in G.buildings) if (G.buildings[id].state === "build") building++;
+      if (walking >= 4 && c.goods >= 2 && building >= 1) {
+        hit = { walking, goods: c.goods, sites: c.sites, building, tick: G.tick };
+        break;
+      }
     }
     const castle = FSSim.castleOf(G, 0);
     R.setCam({ yaw: 0.62, pitch: 0.86 });
     R.focusVertex(castle.v, 24);
     R.setHover(-1);
     for (let i = 0; i < 8; i++) R.frame(0.016);
-    return { hit, counts: FSSim.counts(G, 0) };
+    const hud = FS.paintHud();      // the page's own loop draws ~1fps headless
+    return { hit, hud, counts: FSSim.counts(G, 0) };
   });
   t.check("composed a busy frame: sites building, goods waiting, serfs walking", !!shotSetup.hit, shotSetup);
-  await t.sleep(350);
+  t.check("the debug HUD reports the live world", /serfs \d+\s+flags \d+\s+roads \d+/.test(shotSetup.hud || ""), shotSetup.hud);
+  await t.sleep(300);
   await t.shot(page, "farmstead_transport");
 
   // close-up: flag goods, carrier minifigs, a scaffolded site
