@@ -418,20 +418,25 @@
     const waterDist = distField(map, waterSeeds, 12);
     const mountDist = distField(map, mountSeeds, Math.max(30, ST.MOUNTAIN_MAX + 4));
 
-    // ---- underground minerals (blobs under mountains only) -----------------
+    // ---- underground minerals (ringed clusters under mountains only) --------
+    // Confirmed original shape: a cluster is `rings` concentric rings, ring j holding
+    // STEP×(rings−j) ore (so 20 at the heart of the richest ones); a richer neighbour
+    // never gets overwritten. Coal is by far the commonest, gold the rarest.
     const mw = G.MINERAL_W, kinds = ["STONE", "COAL", "IRON", "GOLD"];
     let wsum = 0; kinds.forEach((k) => (wsum += mw[k]));
+    const RING_LO = G.MINERAL_RINGS[0], RING_HI = G.MINERAL_RINGS[1];
     for (let s = 0; s < mountSeeds.length; s++) {
       const v = mountSeeds[s];
       if (FSC.rng() > G.MINERAL_BLOB_P) continue;
       let roll = FSC.rng() * wsum, kind = kinds[0];
       for (let k = 0; k < kinds.length; k++) { roll -= mw[kinds[k]]; if (roll <= 0) { kind = kinds[k]; break; } }
-      const R = G.MINERAL_R[kind];
       const code = MIN[kind];
-      const peak = G.MINERAL_AMT[0] + FSC.rngInt(G.MINERAL_AMT[1] - G.MINERAL_AMT[0] + 1);
-      forRadius(map, v, R, (u, d) => {
+      const rings = RING_LO + FSC.rngInt(RING_HI - RING_LO + 1);
+      forRadius(map, v, rings - 1, (u, d) => {
         if (map.terr[u] !== T.MOUNTAIN) return;
-        const amt = Math.max(1, Math.round(peak * (1 - d / (R + 1))));
+        let amt = G.MINERAL_STEP * (rings - d);
+        if (amt > 20) amt = 20;
+        if (amt <= 0) return;
         if (amt > map.mineralAmt[u]) { map.mineralAmt[u] = amt; map.mineral[u] = code; }
       });
     }
@@ -458,15 +463,10 @@
       }
     }
 
-    // ---- fish in coastal water --------------------------------------------
-    const landSeeds = [];
-    for (let i = 0; i < N; i++) if (map.terr[i] !== T.WATER) landSeeds.push(i);
-    const landDist = distField(map, landSeeds, 6);
+    // ---- fish (every water vertex, 0..7 — confirmed original rng & 7) -------
     for (let i = 0; i < N; i++) {
       if (map.terr[i] !== T.WATER) continue;
-      if (landDist[i] <= G.FISH_COAST) {
-        map.fish[i] = G.FISH_MIN + FSC.rngInt(G.FISH_MAX - G.FISH_MIN + 1);
-      }
+      map.fish[i] = FSC.rngInt(G.FISH_MAX + 1);
     }
 
     // ---- fair start sites --------------------------------------------------

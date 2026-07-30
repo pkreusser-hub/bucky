@@ -114,7 +114,8 @@
 <!-- PHASE-B temp UI -->
 <div id="bmode" class="hidden">mode</div>
 <div id="bhint" class="hidden">
-  <b>F</b> flag · <b>R</b> road (click flag → flag) · <b>B</b>+<b>1-9</b> build · <b>X</b> demolish · <b>Esc</b> cancel
+  <b>F</b> flag · <b>R</b> road (click flag → flag) · <b>B</b>+<b>1-9</b> build (<b>Tab</b> page) ·
+  <b>G</b> geologist · <b>X</b> demolish · <b>Esc</b> cancel
 </div>
 
 <a class="back" href="games.html" id="backLink">← Bucky</a>
@@ -270,6 +271,12 @@
      (and by the suite) long before Phase E's real build menu exists. */
   const BUILD_KEYS = ["hut", "lumberjack", "forester", "stonecutter", "sawmill",
     "farm", "mill", "stock", "tower"];
+  /* ===== PHASE-C: a second build page so every economy type is placeable by hand ===== */
+  const BUILD_KEYS2 = ["bakery", "pigfarm", "butcher", "fisher", "smelter",
+    "toolmaker", "weaponsmith", "boatwright", "coalMine"];
+  const BUILD_KEYS3 = ["ironMine", "goldMine", "stoneMine", "goldsmelter", "fortress"];
+  let buildPage = 0;
+  function buildKeys() { return buildPage === 0 ? BUILD_KEYS : (buildPage === 1 ? BUILD_KEYS2 : BUILD_KEYS3); }
   let mode = null;            // null | 'road' | 'build'
   let roadFrom = 0;
 
@@ -298,6 +305,16 @@
     issue("build", { type, v });
     setMode(null);
   }
+  /* ===== PHASE-C: geologist dispatch from a mountain flag ===== */
+  function doGeologist(v) {
+    if (v < 0) return;
+    const fid = G.map.flagAt[v];
+    if (!fid) { toastMode("stand on a flag"); return; }
+    if (G.map.terr[v] !== FSC.TERR.MOUNTAIN) { toastMode("geologists survey mountains"); return; }
+    issue("geologist", { flag: fid });
+    toastMode("⛏ geologist on the way");
+  }
+
   function doDemolish(v) {
     if (v < 0) return;
     let id = G.map.bldAt[v] || G.map.flagAt[v] || 0;
@@ -344,7 +361,15 @@
     if (k === "Escape") { setMode(null); return; }
     if (mode === "build" && k >= "1" && k <= "9") {
       e.preventDefault();
-      doBuild(BUILD_KEYS[k.charCodeAt(0) - 49], hovered());
+      doBuild(buildKeys()[k.charCodeAt(0) - 49], hovered());
+      return;
+    }
+    /* ===== PHASE-C: G = send a geologist from the hovered mountain flag ===== */
+    if (k === "g" || k === "G") { doGeologist(hovered()); return; }
+    if (k === "Tab") {
+      e.preventDefault();
+      buildPage = (buildPage + 1) % 3;
+      if (mode === "build") setMode("build", "build: 1-9 = " + buildKeys().join(" "));
       return;
     }
     if (e.code === "Space") { e.preventDefault(); setSpeed(G.speed ? 0 : lastSpeed); return; }
@@ -355,7 +380,7 @@
     if (k === "f" || k === "F") { doFlag(hovered()); return; }
     if (k === "r" || k === "R") { setMode(mode === "road" ? null : "road", "road: click a flag"); return; }
     if (k === "b" || k === "B") {
-      setMode(mode === "build" ? null : "build", "build: 1-9 = " + BUILD_KEYS.join(" "));
+      setMode(mode === "build" ? null : "build", "build: 1-9 = " + buildKeys().join(" "));
       return;
     }
     if (k === "x" || k === "X") { doDemolish(hovered()); return; }
@@ -388,6 +413,12 @@
     buildRoad: function (f1, f2, path, o) { return FSSim.issueCommand(G, Object.assign({ type: "road", args: { f1, f2, path } }, o || {})); },
     build: function (type, v, o) { return FSSim.issueCommand(G, Object.assign({ type: "build", args: { type, v } }, o || {})); },
     demolish: function (id, o) { return FSSim.issueCommand(G, Object.assign({ type: "demolish", args: { id } }, o || {})); },
+    /* ===== PHASE-C: economy controls, all through the command layer ===== */
+    sendGeologist: function (flag, o) { return FSSim.issueCommand(G, Object.assign({ type: "geologist", args: { flag } }, o || {})); },
+    setDist: function (key, value, o) { return FSSim.issueCommand(G, Object.assign({ type: "dist", args: { key, value } }, o || {})); },
+    setToolPrio: function (tool, value, o) { return FSSim.issueCommand(G, Object.assign({ type: "toolPrio", args: { tool, value } }, o || {})); },
+    setStockMode: function (id, res, mode, o) { return FSSim.issueCommand(G, Object.assign({ type: "stockMode", args: { id, res, mode } }, o || {})); },
+    halt: function (id, on, o) { return FSSim.issueCommand(G, Object.assign({ type: "halt", args: { id, on: on === undefined ? true : on } }, o || {})); },
     hash: function () { return FSSim.hash(G); },
     paintHud: function () { return paintDbg(); },   // headless renders ~1fps: force the HUD
     events: function (type) { return type ? G.events.filter((e) => e.type === type) : G.events.slice(); },
@@ -402,6 +433,14 @@
       itemsAt: function (f) { return FSSim.itemsAt(G, f); },
       roadBetween: function (a, b) { return FSSim.roadBetween(G, a, b); },
       route: function (a, b) { return { road: FSSim.nextRoad(G, a, b), hops: FSSim.hops(G, a, b) }; },
+      /* ===== PHASE-C ===== */
+      production: function (p) { return FSSim.production(G, p || 0); },
+      signAt: function (v) {
+        const c = G.map.sign[v] || 0;
+        return { code: c, mineral: FSSim.signMineral(c), big: FSSim.signDensity(c) };
+      },
+      objAt: function (v) { return { obj: G.map.obj[v], arg: G.map.objArg[v], fish: G.map.fish[v] }; },
+      mineralAt: function (v) { return { kind: G.map.mineral[v], amt: G.map.mineralAmt[v] }; },
     },
     perf: {
       get tickMsAvg() { return tickMsAvg; },

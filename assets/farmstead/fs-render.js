@@ -215,6 +215,8 @@
   /** Re-sync ONE vertex (object + terrain height/colour) — the Phase B/C hook. */
   FSRender.refreshVertex = function (v) {
     if (!scene || v < 0 || v >= map.W * map.H) return false;
+    /* ===== PHASE-C: geologist signs live on their own little layer ===== */
+    if (map.sign[v]) signVerts.set(v, map.sign[v]); else signVerts.delete(v);
     // terrain
     posAttr.setY(v, map.height[v]);
     terrainColor(v, tmpC);
@@ -244,11 +246,11 @@
   };
 
   // ----------------------------------------------------------------- buildings
-  /** 0..1 progress through the hammering phase (drives the rising-wall visual). */
+  /** 0..1 progress through the hammering phase (drives the rising-wall visual).
+   *  PHASE-C: b.progress is the builder's 16-bit swing accumulator. */
   function buildFrac(b) {
-    const tot = (b.matReq.plank || 0) + (b.matReq.stone || 0);
-    if (!tot) return 1;
-    return Math.min(1, ((b.matUsed || 0) + (b.progress || 0) / FSC.BUILD_T_PER_MAT) / tot);
+    if (b.state === "done") return 1;
+    return Math.min(1, (b.progress || 0) / FSC.BUILD_FULL);
   }
   /** Rebuild a building's mesh only when its visible stage actually changed. */
   function bldVisKey(b) {
@@ -359,12 +361,17 @@
     for (const id in G.roads) { n++; sum += (id | 0) + G.roads[id].path.length * 7; }
     return n + ":" + sum + ":" + G.routeGen;
   }
+  /* ===== PHASE-C: water roads ride ON the water, not on the lake bed ===== */
+  function roadY(v) {
+    return (map.terr[v] === FSC.TERR.WATER ? FSC.WATER_Y + 0.05 : map.height[v]) + FSC.ROAD_LIFT;
+  }
+
   function rebuildRoads() {
     if (dyn.roadMesh) { dyn.group.remove(dyn.roadMesh); dyn.roadMesh.geometry.dispose(); dyn.roadMesh = null; }
     const segs = [];
     for (const id in G.roads) {
-      const path = G.roads[id].path;
-      for (let i = 0; i + 1 < path.length; i++) segs.push([path[i], path[i + 1]]);
+      const r = G.roads[id];
+      for (let i = 0; i + 1 < r.path.length; i++) segs.push([r.path[i], r.path[i + 1], r.water ? 1 : 0]);
     }
     if (!segs.length) return;
     const quads = segs.length + segs.length + 1;      // ribbons + a patch per vertex
@@ -383,22 +390,23 @@
         o++;
       }
     }
-    const W = FSC.ROAD_W, LIFT = FSC.ROAD_LIFT;
+    const W = FSC.ROAD_W;
+    const plank = new THREE.Color(COL.WATER_ROAD);
     const seen = new Set();
     for (let s = 0; s < segs.length; s++) {
-      const va = segs[s][0], vb = segs[s][1];
+      const va = segs[s][0], vb = segs[s][1], wet = segs[s][2];
       FSMap.worldXZ(map, va, a); FSMap.worldXZ(map, vb, b);
       const dx = b[0] - a[0], dz = b[1] - a[1];
       const len = Math.sqrt(dx * dx + dz * dz) || 1;
       const px = (-dz / len) * W, pz = (dx / len) * W;
-      const ya = map.height[va] + LIFT, yb = map.height[vb] + LIFT;
+      const ya = roadY(va), yb = roadY(vb);
       quad(a[0] + px, a[1] + pz, a[0] - px, a[1] - pz, b[0] - px, b[1] - pz, b[0] + px, b[1] + pz,
-        ya, ya, yb, yb, base);
+        ya, ya, yb, yb, wet ? plank : base);
       for (let k = 0; k < 2; k++) {
         const v = k ? vb : va;
         if (seen.has(v)) continue;
         seen.add(v);
-        const p = k ? b : a, y = map.height[v] + LIFT;
+        const p = k ? b : a, y = roadY(v);
         quad(p[0] - W, p[1] - W, p[0] + W, p[1] - W, p[0] + W, p[1] + W, p[0] - W, p[1] + W, y, y, y, y, edge);
       }
     }
@@ -452,30 +460,46 @@
     return vis;
   }
 
+  /** a serf standing on a water vertex is in his boat, not on the lake bed */
+  function serfY(v) {
+    return map.terr[v] === FSC.TERR.WATER ? FSC.WATER_Y + 0.06 : map.height[v];
+  }
+
   function syncSerfs(dt) {
     const alive = new Set();
     const crate = dynPool("crate", FSModels.crateGeo(), FSModels.vcMat("crate", 0x808080, 0.34));
+    const boat = dynPool("boat", FSModels.boatGeo(), FSModels.vcMat("boat", FSC.COL.BOAT, 0.3));
     for (const id in G.serfs) {
       const s = G.serfs[id];
       alive.add(s.id);
       if (s.state === "work") continue;                            // inside a building
       const vis = serfVisual(s, dt);
       FSMap.worldXZ(map, s.from, xz);
-      const x0 = xz[0], z0 = xz[1], y0 = map.height[s.from];
+      const x0 = xz[0], z0 = xz[1], y0 = serfY(s.from);
       FSMap.worldXZ(map, s.to, xz);
-      const x1 = xz[0], z1 = xz[1], y1 = map.height[s.to];
+      const x1 = xz[0], z1 = xz[1], y1 = serfY(s.to);
       const f = vis.frac;
       const x = x0 + (x1 - x0) * f, z = z0 + (z1 - z0) * f, y = y0 + (y1 - y0) * f;
       const moving = s.from !== s.to;
-      const bob = moving ? Math.abs(Math.sin((dyn.tAcc * 7.5) + s.id)) * 0.055 : 0;
+      const afloat = map.terr[s.from] === FSC.TERR.WATER || map.terr[s.to] === FSC.TERR.WATER;
+      // work animations: a chop/scythe/hammer swing is a little lean + bob
+      const working = s.state === "doWork" || s.state === "geoWork";
+      const swing = working ? Math.sin(dyn.tAcc * 6.5 + s.id) : 0;
+      const bob = moving ? Math.abs(Math.sin((dyn.tAcc * 7.5) + s.id)) * 0.055
+        : (working ? Math.abs(swing) * 0.05 : 0);
       const yaw = moving ? Math.atan2(x1 - x0, z1 - z0) : (s.id % 7) * 0.9;
       const p = dynPool("serf:" + s.job + ":" + s.p, FSModels.serfGeo(s.job, s.p),
         FSModels.vcMat("serf", 0x9a9a9a, 0.34));
       tmpV.set(x, y + bob, z);
-      tmpE.set(0, yaw, moving ? Math.sin(dyn.tAcc * 7.5 + s.id) * 0.07 : 0);
+      tmpE.set(working ? swing * 0.45 : 0, yaw, moving ? Math.sin(dyn.tAcc * 7.5 + s.id) * 0.07 : 0);
       tmpQ.setFromEuler(tmpE);
       tmpS.set(1, 1, 1);
       dynPush(p, tmpM.compose(tmpV, tmpQ, tmpS));
+      if (afloat) {                                                // the ferry itself
+        tmpV.set(x, FSC.WATER_Y + 0.02, z);
+        tmpE.set(0, yaw, 0); tmpQ.setFromEuler(tmpE);
+        dynPush(boat, tmpM.compose(tmpV, tmpQ, tmpS));
+      }
       if (s.carry) {
         tmpV.set(x, y + bob + 0.86, z);
         tmpE.set(0, yaw, 0); tmpQ.setFromEuler(tmpE);
@@ -484,6 +508,66 @@
     }
     dyn.serfVis.forEach((v, id) => { if (!alive.has(id)) dyn.serfVis.delete(id); });
     dyn.lastSerfCount = alive.size;
+  }
+
+  /* ===================================================================== */
+  /* ===== PHASE-C: geologist signs, chimney smoke, moving machinery ====== */
+  /* ===================================================================== */
+
+  const signVerts = new Map();          // vertex -> sign code (kept by refreshVertex)
+
+  function scanSigns() {
+    signVerts.clear();
+    for (let v = 0; v < map.W * map.H; v++) if (map.sign[v]) signVerts.set(v, map.sign[v]);
+  }
+
+  function syncSigns() {
+    if (!signVerts.size) return;
+    const postP = dynPool("signpost", FSModels.signPostGeo(), FSModels.vcMat("signpost", COL.SIGN_POST, 0.3));
+    const board = dynPool("signboard", FSModels.signBoardGeo(), FSModels.vcMat("signboard", 0x888888, 0.45));
+    signVerts.forEach((code, v) => {
+      FSMap.worldXZ(map, v, xz);
+      tmpV.set(xz[0], map.height[v], xz[1]);
+      tmpE.set(0, (v % 7) * 0.7, 0); tmpQ.setFromEuler(tmpE);
+      const mineral = window.FSSim ? window.FSSim.signMineral(code) : 0;
+      const big = window.FSSim ? window.FSSim.signDensity(code) : 0;
+      tmpS.set(1, 1, 1);
+      dynPush(postP, tmpM.compose(tmpV, tmpQ, tmpS));
+      tmpS.set(big ? 1.35 : 1, big ? 1.35 : 1, 1);
+      dynPush(board, tmpM.compose(tmpV, tmpQ, tmpS), tmpC.set(COL.MINERAL[mineral] === undefined ? COL.MINERAL[0] : COL.MINERAL[mineral]));
+    });
+  }
+
+  /** Turn the mill sails / mine wheel / saw blade, and puff smoke, while working. */
+  function syncWorking(dt) {
+    const smoke = dynPool("smoke", FSModels.smokeGeo(), FSModels.vcMat("smoke", COL.SMOKE, 0.55));
+    for (const id in G.buildings) {
+      const b = G.buildings[id];
+      if (b.state !== "done") continue;
+      const view = bldViews.get(b.id);
+      if (!view) continue;
+      const busy = !!b.working;
+      if (view.userData.spin) {
+        if (busy) {
+          const r = (view.userData.spinRate || 1) * dt;
+          const ax = view.userData.spinAxis;
+          if (ax === "y") view.userData.spin.rotation.y += r;
+          else if (ax === "x") view.userData.spin.rotation.x += r;
+          else view.userData.spin.rotation.z += r;
+        }
+      }
+      if (busy && view.userData.smoke) {
+        const o = view.userData.smoke;
+        for (let k = 0; k < 3; k++) {
+          const t = ((dyn.tAcc * 0.55) + k * 0.33 + (b.id % 5) * 0.1) % 1;
+          const s = 0.5 + t * 1.1;
+          tmpV.set(view.position.x + o[0] + t * 0.22, view.position.y + o[1] + t * 1.1, view.position.z + o[2]);
+          tmpE.set(0, t * 3, 0); tmpQ.setFromEuler(tmpE);
+          tmpS.set(s, s, s);
+          dynPush(smoke, tmpM.compose(tmpV, tmpQ, tmpS), tmpC.setScalar(1 - t * 0.35));
+        }
+      }
+    }
   }
 
   /** Per-frame sync of everything Phase B owns. Called from FSRender.frame(). */
@@ -505,6 +589,8 @@
     if (ground || bs !== dyn.bldSig) { dyn.bldSig = bs; FSRender.refreshBuildings(); }
     syncFlags();
     syncSerfs(dt);
+    syncSigns();                        /* ===== PHASE-C ===== */
+    syncWorking(dt);
     dynFlush();
   }
   FSRender.syncDynamic = syncDynamic;
@@ -706,6 +792,7 @@
     bldGroup = new THREE.Group(); bldGroup.name = "buildings";
     scene.add(bldGroup);
     FSRender.refreshBuildings();
+    scanSigns();                        /* ===== PHASE-C: signs on a loaded save ===== */
     initDynamic();                      /* ===== PHASE-B: flags/roads/serfs ===== */
 
     hoverRing = FSModels.ring();

@@ -348,8 +348,324 @@
     return g;
   };
 
+  /* ===================================================================== */
+  /* ===== PHASE-C: a distinct silhouette for every building type ========= */
+  /* ===================================================================== */
+
   /**
-   * Generic building stand-in — Phase B/C swap in per-type silhouettes.
+   * Every economy building is built from the same kit — a timbered box, a pitched
+   * roof and a door — plus the props that say what happens inside. Moving parts
+   * (mill sails, mine wheel, sawmill blade) are returned as their own mesh in
+   * `userData.spin` so the renderer can turn them while the building works, and
+   * `userData.smoke` marks where the chimney puffs from.
+   * Budget: ≤ ~400 triangles each, one draw call for the shell + one per mover.
+   */
+  function shell(parts, w, h, o) {
+    o = o || {};
+    const wall = o.wall === undefined ? COL.BLD_WALL : o.wall;
+    const roof = o.roof === undefined ? COL.BLD_ROOF : o.roof;
+    parts.push({ geo: new THREE.BoxGeometry(w, h, w * (o.d || 1)), color: wall, matrix: M(0, h / 2, 0) });
+    // sill beams — the timbered look, two thin bands
+    parts.push({ geo: new THREE.BoxGeometry(w * 1.04, 0.07, w * (o.d || 1) * 1.04), color: COL.BLD_WOOD, matrix: M(0, h * 0.62, 0) });
+    if (o.roofType === "flat") {
+      parts.push({ geo: new THREE.BoxGeometry(w * 1.15, 0.12, w * (o.d || 1) * 1.15), color: roof, matrix: M(0, h + 0.06, 0) });
+    } else if (o.roofType === "gable") {
+      // two slabs leaning together — reads as a pitched roof from any angle
+      const rl = w * 0.78, rh = o.roofH || 0.6;
+      parts.push({ geo: new THREE.BoxGeometry(rl, 0.1, w * (o.d || 1) * 1.15), color: roof, matrix: M(-w * 0.24, h + rh * 0.5, 0, 0, 0, 0.72) });
+      parts.push({ geo: new THREE.BoxGeometry(rl, 0.1, w * (o.d || 1) * 1.15), color: roof, matrix: M(w * 0.24, h + rh * 0.5, 0, 0, 0, -0.72) });
+    } else {
+      parts.push({
+        geo: new THREE.ConeGeometry(w * 0.86, o.roofH || 0.62, 4), color: roof,
+        matrix: M(0, h + (o.roofH || 0.62) * 0.5, 0, 0, Math.PI / 4, 0),
+      });
+    }
+    // door faces the SE flag (the model group is yawed to it by the renderer)
+    parts.push({ geo: new THREE.BoxGeometry(0.28, h * 0.52, 0.06), color: 0x4d3826, matrix: M(w * 0.12, h * 0.26, w * (o.d || 1) * 0.5) });
+    return parts;
+  }
+  function post(parts, x, z, h, col) {
+    parts.push({ geo: new THREE.CylinderGeometry(0.05, 0.06, h, 5), color: col === undefined ? COL.BLD_WOOD : col, matrix: M(x, h / 2, z) });
+  }
+  function fence(parts, r, n, col) {
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      post(parts, Math.cos(a) * r, Math.sin(a) * r, 0.34, col);
+    }
+  }
+
+  /** ONE spinning prop: returns {geo, color} lists in its own local frame. */
+  function sailsGeo() {
+    const parts = [];
+    parts.push({ geo: new THREE.CylinderGeometry(0.09, 0.09, 0.16, 6), color: COL.BLD_WOOD, matrix: M(0, 0, 0, Math.PI / 2, 0, 0) });
+    for (let i = 0; i < 4; i++) {
+      const a = i * Math.PI / 2;
+      parts.push({
+        geo: new THREE.BoxGeometry(0.14, 1.05, 0.05), color: COL.MILL_SAIL,
+        matrix: M(Math.cos(a + Math.PI / 2) * 0.55, Math.sin(a + Math.PI / 2) * 0.55, 0.1, 0, 0, a),
+      });
+    }
+    return mergeColored(parts);
+  }
+  function wheelGeo() {
+    const parts = [];
+    parts.push({ geo: new THREE.TorusGeometry(0.36, 0.05, 4, 10), color: COL.WHEEL, matrix: M(0, 0, 0) });
+    for (let i = 0; i < 4; i++) {
+      parts.push({ geo: new THREE.BoxGeometry(0.72, 0.06, 0.06), color: COL.WHEEL, matrix: M(0, 0, 0, 0, 0, i * Math.PI / 4) });
+    }
+    return mergeColored(parts);
+  }
+  function bladeGeo() {
+    const parts = [{ geo: new THREE.CylinderGeometry(0.38, 0.38, 0.05, 12), color: 0xb9bfc6, matrix: M(0, 0, 0, Math.PI / 2, 0, 0) }];
+    for (let i = 0; i < 8; i++) {
+      const a = i * Math.PI / 4;
+      parts.push({ geo: new THREE.BoxGeometry(0.1, 0.1, 0.06), color: 0xd8dde3, matrix: M(Math.cos(a) * 0.38, Math.sin(a) * 0.38, 0, 0, 0, a) });
+    }
+    return mergeColored(parts);
+  }
+
+  const MINE_TINT = { stoneMine: 0x8d949c, coalMine: 0x3a3a40, ironMine: 0xa8703a, goldMine: 0xe0b93a };
+
+  /** the per-type part list; returns {parts, spin, spinAt, axis, smoke} */
+  function buildingParts(type, playerIdx) {
+    const parts = [];
+    const out = { parts, spin: null, spinAt: null, axis: "z", rate: 1, smoke: null };
+    const team = FSModels.playerColor(playerIdx || 0);
+    switch (type) {
+      case "stock":
+        shell(parts, 1.9, 1.05, { roofType: "gable", roofH: 0.7, wall: 0xd7c7a6 });
+        for (let i = 0; i < 3; i++) {
+          parts.push({ geo: new THREE.BoxGeometry(0.3, 0.24, 0.3), color: 0xc9a06a, matrix: M(-0.85 + i * 0.34, 0.12, 1.05) });
+        }
+        parts.push({ geo: new THREE.BoxGeometry(0.5, 0.6, 0.06), color: 0x4d3826, matrix: M(0, 0.3, 0.96) });
+        break;
+      case "hut":
+        shell(parts, 1.0, 0.8, { wall: COL.CASTLE_WALL, roofType: "flat", roof: 0x9a9384 });
+        for (let i = 0; i < 4; i++) {
+          const a = Math.PI / 4 + i * Math.PI / 2;
+          parts.push({ geo: new THREE.BoxGeometry(0.2, 0.2, 0.2), color: COL.CASTLE_WALL, matrix: M(Math.cos(a) * 0.42, 0.9, Math.sin(a) * 0.42) });
+        }
+        parts.push({ geo: new THREE.BoxGeometry(0.28, 0.2, 0.04), color: team, matrix: M(0, 1.15, 0) });
+        post(parts, 0, 0, 1.15, COL.FLAG_POLE);
+        break;
+      case "tower":
+        parts.push({ geo: new THREE.CylinderGeometry(0.62, 0.72, 1.9, 8), color: COL.CASTLE_WALL, matrix: M(0, 0.95, 0) });
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2;
+          parts.push({ geo: new THREE.BoxGeometry(0.2, 0.24, 0.2), color: COL.CASTLE_WALL, matrix: M(Math.cos(a) * 0.6, 2.0, Math.sin(a) * 0.6) });
+        }
+        parts.push({ geo: new THREE.ConeGeometry(0.62, 0.5, 8), color: team, matrix: M(0, 2.35, 0) });
+        parts.push({ geo: new THREE.BoxGeometry(0.34, 0.5, 0.06), color: 0x4d3826, matrix: M(0.1, 0.25, 0.66) });
+        break;
+      case "fortress":
+        parts.push({ geo: new THREE.BoxGeometry(1.7, 1.5, 1.7), color: COL.CASTLE_WALL, matrix: M(0, 0.75, 0) });
+        for (let i = 0; i < 4; i++) {
+          const a = Math.PI / 4 + i * Math.PI / 2;
+          const x = Math.cos(a) * 0.92, z = Math.sin(a) * 0.92;
+          parts.push({ geo: new THREE.CylinderGeometry(0.34, 0.38, 1.9, 6), color: 0xb5ac9b, matrix: M(x, 0.95, z) });
+          parts.push({ geo: new THREE.ConeGeometry(0.44, 0.42, 6), color: team, matrix: M(x, 2.1, z) });
+        }
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2;
+          parts.push({ geo: new THREE.BoxGeometry(0.22, 0.24, 0.22), color: COL.CASTLE_WALL, matrix: M(Math.cos(a) * 0.72, 1.6, Math.sin(a) * 0.72) });
+        }
+        break;
+      case "fisher":
+        shell(parts, 0.95, 0.72, { roofH: 0.5 });
+        // drying rack with a catch hanging on it
+        post(parts, -0.62, 0.3, 0.62); post(parts, -0.62, -0.3, 0.62);
+        parts.push({ geo: new THREE.BoxGeometry(0.05, 0.05, 0.66), color: COL.BLD_WOOD, matrix: M(-0.62, 0.6, 0) });
+        for (let i = 0; i < 3; i++) {
+          parts.push({ geo: new THREE.BoxGeometry(0.09, 0.2, 0.05), color: FSC.RES_COLOR.fish, matrix: M(-0.62, 0.46, -0.24 + i * 0.24) });
+        }
+        parts.push({ geo: new THREE.BoxGeometry(0.5, 0.5, 0.04), color: COL.NET, matrix: M(0.56, 0.3, 0.2, 0, 0.5, 0.2) });
+        break;
+      case "lumberjack": {
+        shell(parts, 0.95, 0.72, { roofH: 0.5 });
+        const logs = [[-0.66, 0.1], [-0.66, -0.16], [-0.62, 0.26]];
+        for (let i = 0; i < logs.length; i++) {
+          parts.push({ geo: new THREE.CylinderGeometry(0.11, 0.11, 0.8, 6), color: FSC.RES_COLOR.lumber, matrix: M(logs[i][0], 0.12 + i * 0.19, logs[i][1], Math.PI / 2, 0, 0) });
+        }
+        parts.push({ geo: new THREE.CylinderGeometry(0.2, 0.22, 0.26, 7), color: COL.STUMP, matrix: M(0.6, 0.13, 0.4) });
+        parts.push({ geo: new THREE.BoxGeometry(0.05, 0.4, 0.05), color: COL.TOOL, matrix: M(0.6, 0.42, 0.4, 0.4, 0, 0.3) });
+        break;
+      }
+      case "forester":
+        shell(parts, 0.9, 0.7, { roofH: 0.5, roof: COL.ROOF_ALT });
+        for (let i = 0; i < 3; i++) {
+          parts.push({ geo: new THREE.ConeGeometry(0.16, 0.34, 6), color: COL.SAPLING, matrix: M(-0.62 + i * 0.1, 0.22, 0.5 - i * 0.42) });
+          parts.push({ geo: new THREE.BoxGeometry(0.26, 0.12, 0.26), color: COL.BLD_WOOD, matrix: M(-0.62 + i * 0.1, 0.06, 0.5 - i * 0.42) });
+        }
+        break;
+      case "stonecutter":
+        shell(parts, 0.95, 0.72, { roofH: 0.5, wall: 0xc2bcae });
+        for (let i = 0; i < 4; i++) {
+          parts.push({ geo: new THREE.BoxGeometry(0.26, 0.2, 0.26), color: COL.STONE, matrix: M(-0.62 + (i % 2) * 0.3, 0.1 + ((i / 2) | 0) * 0.2, 0.42 - (i % 2) * 0.06) });
+        }
+        parts.push({ geo: new THREE.BoxGeometry(0.05, 0.34, 0.05), color: COL.TOOL, matrix: M(0.56, 0.4, 0.3, 0, 0, 0.5) });
+        break;
+      case "sawmill": {
+        shell(parts, 1.7, 0.95, { roofType: "gable", roofH: 0.62, d: 0.85 });
+        const blade = bladeGeo();
+        out.spin = blade; out.spinAt = [0.0, 0.62, 0.78]; out.axis = "z"; out.rate = 5.5;
+        for (let i = 0; i < 3; i++) {
+          parts.push({ geo: new THREE.BoxGeometry(0.72, 0.08, 0.26), color: FSC.RES_COLOR.plank, matrix: M(-0.95, 0.06 + i * 0.1, 0.3 - i * 0.06) });
+        }
+        parts.push({ geo: new THREE.CylinderGeometry(0.1, 0.1, 0.7, 6), color: FSC.RES_COLOR.lumber, matrix: M(0.95, 0.12, -0.2, Math.PI / 2, 0, 0) });
+        break;
+      }
+      case "farm":
+        shell(parts, 1.35, 0.95, { roofType: "gable", roofH: 0.66 });
+        parts.push({ geo: new THREE.BoxGeometry(0.8, 0.6, 0.7), color: 0xb0563f, matrix: M(-1.0, 0.3, -0.25) });
+        parts.push({ geo: new THREE.BoxGeometry(0.88, 0.1, 0.78), color: COL.BLD_ROOF, matrix: M(-1.0, 0.62, -0.25) });
+        fence(parts, 1.18, 10);
+        for (let i = 0; i < 4; i++) {
+          parts.push({ geo: new THREE.BoxGeometry(0.3, 0.22, 0.3), color: FSC.RES_COLOR.wheat, matrix: M(0.5 + (i % 2) * 0.34, 0.11, 0.6 - ((i / 2) | 0) * 0.34) });
+        }
+        break;
+      case "mill": {
+        parts.push({ geo: new THREE.CylinderGeometry(0.46, 0.66, 1.5, 8), color: 0xd8cdb4, matrix: M(0, 0.75, 0) });
+        parts.push({ geo: new THREE.ConeGeometry(0.6, 0.48, 8), color: COL.BLD_ROOF, matrix: M(0, 1.72, 0) });
+        parts.push({ geo: new THREE.BoxGeometry(0.26, 0.42, 0.06), color: 0x4d3826, matrix: M(0.1, 0.21, 0.6) });
+        out.spin = sailsGeo(); out.spinAt = [0, 1.5, 0.62]; out.axis = "z"; out.rate = 1.6;
+        break;
+      }
+      case "bakery":
+        shell(parts, 1.35, 0.92, { roofH: 0.6, wall: 0xe0d2b6 });
+        parts.push({ geo: new THREE.BoxGeometry(0.3, 0.8, 0.3), color: 0xa0938a, matrix: M(-0.48, 1.15, -0.4) });
+        parts.push({ geo: new THREE.CylinderGeometry(0.34, 0.4, 0.5, 8), color: 0xb08a6a, matrix: M(0.62, 0.25, 0.42) });
+        parts.push({ geo: new THREE.BoxGeometry(0.24, 0.24, 0.06), color: COL.FIRE_BOX, matrix: M(0.62, 0.25, 0.72) });
+        out.smoke = [-0.48, 1.6, -0.4];
+        break;
+      case "pigfarm": {
+        shell(parts, 1.25, 0.9, { roofType: "gable", roofH: 0.6, wall: 0xd0b998 });
+        fence(parts, 1.2, 12);
+        const pigs = [[0.7, 0.55], [0.35, 0.9], [0.85, -0.4]];
+        for (let i = 0; i < pigs.length; i++) {
+          parts.push({ geo: new THREE.BoxGeometry(0.3, 0.18, 0.2), color: COL.PIG, matrix: M(pigs[i][0], 0.12, pigs[i][1], 0, i * 0.9, 0) });
+          parts.push({ geo: new THREE.BoxGeometry(0.13, 0.13, 0.12), color: COL.PIG, matrix: M(pigs[i][0] + 0.16, 0.16, pigs[i][1] + 0.06, 0, i * 0.9, 0) });
+        }
+        break;
+      }
+      case "butcher":
+        shell(parts, 1.25, 0.9, { roofH: 0.58, wall: 0xe2cfc0 });
+        parts.push({ geo: new THREE.BoxGeometry(1.3, 0.06, 0.5), color: 0xa8845c, matrix: M(0, 0.95, 0.62, 0.35, 0, 0) });
+        post(parts, -0.55, 0.82, 0.7); post(parts, 0.55, 0.82, 0.7);
+        for (let i = 0; i < 2; i++) {
+          parts.push({ geo: new THREE.BoxGeometry(0.16, 0.24, 0.12), color: FSC.RES_COLOR.meat, matrix: M(-0.25 + i * 0.5, 0.6, 0.68) });
+        }
+        break;
+      case "stoneMine": case "coalMine": case "ironMine": case "goldMine": {
+        const tint = MINE_TINT[type];
+        parts.push({ geo: new THREE.BoxGeometry(1.0, 0.62, 0.9), color: 0xa79b86, matrix: M(0, 0.31, 0) });
+        parts.push({ geo: new THREE.BoxGeometry(1.06, 0.1, 0.96), color: 0x8b8172, matrix: M(0, 0.64, 0) });
+        // headframe: two legs, a beam and the winding wheel
+        post(parts, -0.34, 0.3, 1.25); post(parts, 0.34, 0.3, 1.25);
+        parts.push({ geo: new THREE.BoxGeometry(0.86, 0.08, 0.08), color: COL.BLD_WOOD, matrix: M(0, 1.25, 0.3) });
+        parts.push({ geo: new THREE.BoxGeometry(0.5, 0.5, 0.05), color: 0x3a3128, matrix: M(0, 0.25, 0.46) });
+        // ore cart + a heap in the mineral's own colour
+        parts.push({ geo: new THREE.BoxGeometry(0.34, 0.2, 0.26), color: 0x6b5137, matrix: M(0.62, 0.12, 0.5) });
+        parts.push({ geo: new THREE.IcosahedronGeometry(0.16, 0), color: tint, matrix: M(0.62, 0.26, 0.5) });
+        parts.push({ geo: new THREE.IcosahedronGeometry(0.22, 0), color: tint, matrix: M(-0.66, 0.14, 0.45, 0.3, 0.4, 0) });
+        out.spin = wheelGeo(); out.spinAt = [0, 1.25, 0.3]; out.axis = "z"; out.rate = 2.4;
+        break;
+      }
+      case "smelter": case "goldsmelter": {
+        const gold = type === "goldsmelter";
+        shell(parts, 1.25, 0.85, { roofType: "flat", wall: 0xa9a094, roof: 0x8c8478 });
+        parts.push({ geo: new THREE.CylinderGeometry(0.24, 0.3, 1.15, 8), color: 0x8f8578, matrix: M(-0.42, 1.0, -0.3) });
+        parts.push({ geo: new THREE.BoxGeometry(0.42, 0.42, 0.08), color: COL.FIRE_BOX, matrix: M(0.3, 0.32, 0.66) });
+        parts.push({ geo: new THREE.IcosahedronGeometry(0.2, 0), color: gold ? FSC.RES_COLOR.goldOre : FSC.RES_COLOR.ironOre, matrix: M(0.72, 0.14, 0.5) });
+        parts.push({ geo: new THREE.IcosahedronGeometry(0.18, 0), color: FSC.RES_COLOR.coal, matrix: M(-0.75, 0.13, 0.45) });
+        if (gold) parts.push({ geo: new THREE.BoxGeometry(0.9, 0.07, 0.9), color: FSC.RES_COLOR.goldBar, matrix: M(0, 0.9, 0) });
+        out.smoke = [-0.42, 1.6, -0.3];
+        break;
+      }
+      case "toolmaker":
+        shell(parts, 1.3, 0.9, { roofType: "gable", roofH: 0.6, wall: 0xcfb894 });
+        parts.push({ geo: new THREE.BoxGeometry(0.34, 0.24, 0.26), color: 0x6f7780, matrix: M(0.62, 0.12, 0.55) });
+        parts.push({ geo: new THREE.BoxGeometry(0.14, 0.16, 0.14), color: 0x8a8f96, matrix: M(0.62, 0.3, 0.55) });
+        for (let i = 0; i < 3; i++) {
+          parts.push({ geo: new THREE.BoxGeometry(0.05, 0.3, 0.05), color: COL.TOOL, matrix: M(-0.7, 0.35, 0.4 - i * 0.26, 0, 0, 0.2) });
+        }
+        parts.push({ geo: new THREE.BoxGeometry(0.06, 0.06, 0.9), color: COL.BLD_WOOD, matrix: M(-0.7, 0.52, 0.14) });
+        break;
+      case "weaponsmith":
+        shell(parts, 1.25, 0.88, { roofType: "flat", wall: 0xb6a894, roof: 0x7d7468 });
+        parts.push({ geo: new THREE.CylinderGeometry(0.2, 0.26, 1.0, 8), color: 0x8f8578, matrix: M(0.46, 0.9, -0.34) });
+        parts.push({ geo: new THREE.BoxGeometry(0.34, 0.26, 0.28), color: 0x6f7780, matrix: M(-0.6, 0.13, 0.5) });
+        parts.push({ geo: new THREE.BoxGeometry(0.07, 0.62, 0.07), color: FSC.RES_COLOR.sword, matrix: M(-0.6, 0.5, 0.5, 0, 0, 0.15) });
+        parts.push({ geo: new THREE.BoxGeometry(0.34, 0.4, 0.08), color: FSC.RES_COLOR.shield, matrix: M(0.66, 0.5, 0.52) });
+        out.smoke = [0.46, 1.45, -0.34];
+        break;
+      case "boatwright": {
+        shell(parts, 0.95, 0.72, { roofH: 0.5, wall: 0xcdb894 });
+        // a hull on the slipway
+        parts.push({ geo: new THREE.BoxGeometry(0.9, 0.16, 0.36), color: COL.BOAT, matrix: M(0.1, 0.16, 0.75, 0, 0.2, 0) });
+        parts.push({ geo: new THREE.BoxGeometry(0.66, 0.14, 0.24), color: 0xa9743d, matrix: M(0.1, 0.3, 0.75, 0, 0.2, 0) });
+        post(parts, -0.35, 0.75, 0.24); post(parts, 0.55, 0.75, 0.24);
+        for (let i = 0; i < 2; i++) {
+          parts.push({ geo: new THREE.BoxGeometry(0.6, 0.06, 0.2), color: FSC.RES_COLOR.plank, matrix: M(-0.7, 0.05 + i * 0.08, 0.3) });
+        }
+        break;
+      }
+      default:
+        shell(parts, 1.15, 0.85, {});
+    }
+    return out;
+  }
+
+  /** Finished building of `type` in `playerIdx`'s colours. */
+  FSModels.building = function (type, playerIdx) {
+    if (type === "castle") return FSModels.castle(playerIdx);
+    const g = new THREE.Group();
+    const built = buildingParts(type, playerIdx);
+    const body = new THREE.Mesh(mergeColored(built.parts),
+      mat(0xffffff, { vertexColors: true, emissiveOf: COL.BLD_WALL, emissiveK: 0.28 }));
+    body.name = "bldBody";
+    g.add(body);
+    if (built.spin) {
+      const spin = new THREE.Mesh(built.spin, mat(0xffffff, { vertexColors: true, emissiveOf: COL.MILL_SAIL, emissiveK: 0.3 }));
+      spin.position.set(built.spinAt[0], built.spinAt[1], built.spinAt[2]);
+      spin.name = "bldSpin";
+      g.add(spin);
+      g.userData.spin = spin;
+      g.userData.spinAxis = built.axis;
+      g.userData.spinRate = built.rate;
+    }
+    if (built.smoke) g.userData.smoke = built.smoke;
+    g.userData.type = type;
+    return g;
+  };
+
+  /** A rowing boat — drawn under a sailor while he is out on the water. */
+  FSModels.boatGeo = function () {
+    return cached("geo:boat", () => mergeColored([
+      { geo: new THREE.BoxGeometry(0.86, 0.16, 0.42), color: COL.BOAT, matrix: M(0, 0.08, 0) },
+      { geo: new THREE.BoxGeometry(0.5, 0.1, 0.3), color: 0xa9743d, matrix: M(0, 0.19, 0) },
+      { geo: new THREE.BoxGeometry(0.06, 0.05, 0.5), color: 0x6b5137, matrix: M(0.1, 0.22, 0, 0.4, 0, 0) },
+    ]));
+  };
+  /** A geologist's sign: the post is shared, the board carries the mineral colour. */
+  FSModels.signPostGeo = function () {
+    return cached("geo:signpost", () => mergeColored([
+      { geo: new THREE.CylinderGeometry(0.035, 0.035, 0.42, 5), color: COL.SIGN_POST, matrix: M(0, 0.21, 0) },
+    ]));
+  };
+  FSModels.signBoardGeo = function () {
+    return cached("geo:signboard", () => mergeColored([
+      { geo: new THREE.BoxGeometry(0.3, 0.2, 0.05), color: 0xffffff, matrix: M(0, 0.45, 0) },
+    ]));
+  };
+  /** One smoke puff (billboard-ish blob) — instanced, animated by the renderer. */
+  FSModels.smokeGeo = function () {
+    return cached("geo:smoke", () => mergeColored([
+      { geo: new THREE.IcosahedronGeometry(0.18, 0), color: 0xffffff, matrix: M(0, 0, 0) },
+    ]));
+  };
+
+  /**
+   * Generic building stand-in — kept for anything without its own silhouette.
    * type: FSC.BLD key, size: 0 small / 1 medium / 2 large.
    */
   FSModels.placeholderBuilding = function (type, size, playerIdx) {
@@ -475,7 +791,8 @@
    */
   FSModels.buildingModel = function (type, state, playerIdx, frac) {
     if (state === "done" || state === undefined) {
-      return type === "castle" ? FSModels.castle(playerIdx) : FSModels.placeholderBuilding(type, undefined, playerIdx);
+      /* ===== PHASE-C: every type has its own silhouette now ===== */
+      return FSModels.building(type, playerIdx);
     }
     const def = FSC.BLD[type] || {};
     const sz = def.size || 0;

@@ -106,23 +106,40 @@ H.run("farmstead-transport", async (t) => {
   await page.evaluate(HELPERS);
   // Settler growth is real gameplay but it moves headcounts under the focused
   // tests; park it out of reach and switch it back on for the town scenario.
-  await page.evaluate(() => { window.T.GROW = window.__FS__.FSC.SERF_GROW_T; window.__FS__.FSC.SERF_GROW_T = 1e9; });
+  // (PHASE-C replaced the flat SERF_GROW_T timer with the reproduction slider —
+  //  a negative slider default switches breeding off for every new game.)
+  await page.evaluate(() => { window.T.GROW = window.__FS__.FSC.REPRO_DEFAULT; window.__FS__.FSC.REPRO_DEFAULT = -1; });
 
   // ════════════════════════════════ settler growth
   const grow = await page.evaluate(() => {
-    const FS = window.__FS__, T = window.T;
-    FS.FSC.SERF_GROW_T = 40;
+    const FS = window.__FS__, T = window.T, FSC = FS.FSC;
+    // reproduction interval = (REPRO_MAX - slider) * REPRO_UNIT — read it, never guess
+    FSC.REPRO_DEFAULT = FSC.REPRO_MAX - 8;                    // → 8 * REPRO_UNIT ticks
     T.fresh();
     const G = FS.G, castle = T.castle();
-    const gen0 = castle.pool.generic, pop0 = FS.FSSim.population(G, 0);
-    FS.ff(200);
-    const out = { gen0, gen1: castle.pool.generic, pop0, pop1: FS.FSSim.population(G, 0),
-      born: G.events.filter((e) => e.type === "serfBorn" && e.p === 0).length, invMirror: castle.inv.serf };
-    FS.FSC.SERF_GROW_T = 1e9;
+    const iv = FS.FSSim.reproInterval(G.players[0]);
+    const gen0 = castle.pool.generic, kn0 = castle.pool.knight, pop0 = FS.FSSim.population(G, 0);
+    FS.ff(iv * 5);
+    const born = G.events.filter((e) => e.type === "serfBorn" && e.p === 0).length;
+    const knights = G.events.filter((e) => e.type === "knightRecruited" && e.p === 0).length;
+    const out = { iv, gen0, kn0, gen1: castle.pool.generic, kn1: castle.pool.knight,
+      pop0, pop1: FS.FSSim.population(G, 0), born, knights, invMirror: castle.inv.serf };
+    // with recruiting off every firing must be a plain settler
+    FS.G.players[0].knights.recruitRate = 0;
+    FS.G.players[0].knightCredit = 0;
+    FS.G.players[0].knightCounter = FSC.KNIGHT_COUNTER_START;
+    const g2 = castle.pool.generic;
+    FS.ff(iv * 3);
+    out.plainOnly = castle.pool.generic - g2;
+    FSC.REPRO_DEFAULT = -1;
     return out;
   });
-  t.check("the castle breeds new settlers over time", grow.gen1 === grow.gen0 + 5 && grow.born === 5, grow);
-  t.check("start roster is the confirmed 19 people", grow.pop0 === 19 && grow.pop1 === 24, grow);
+  t.check("the castle breeds on the reproduction clock", grow.born + grow.knights === 5 && grow.iv > 0, grow);
+  t.check("every firing is one new person", grow.pop1 === grow.pop0 + 5, grow);
+  t.check("the same clock recruits knights when swords + shields are in store",
+    grow.knights >= 1 && grow.kn1 === grow.kn0 + grow.knights, grow);
+  t.check("recruitRate 0 → only plain settlers", grow.plainOnly === 3, grow);
+  t.check("start roster is the confirmed 19 people", grow.pop0 === 19, grow);
   t.check("inv.serf mirrors the generic pool", grow.invMirror === grow.gen1, grow);
 
   // ════════════════════════════════ determinism rules (addendum §2)
@@ -780,7 +797,7 @@ H.run("farmstead-transport", async (t) => {
   // ════════════════════════════════ a whole working town: render + perf
   const town = await page.evaluate(() => {
     const FS = window.__FS__, T = window.T, FSSim = FS.FSSim, FSMap = FS.FSMap;
-    FS.FSC.SERF_GROW_T = T.GROW;                 // real settler growth for the town
+    FS.FSC.REPRO_DEFAULT = T.GROW;               // real settler growth for the town
     T.fresh({ seed: 90210 });
     const G = FS.G, cf = T.cflag();
     // sites FIRST — once the map is peppered with flags no door vertex is free
@@ -812,7 +829,13 @@ H.run("farmstead-transport", async (t) => {
     }
     const made = T.town(8);                       // then a web of plain flags/roads
     let maxWalking = 0, maxCarrying = 0, maxGoods = 0;
-    for (let i = 0; i < 2500; i++) {
+    // PHASE-C pacing: a small building is `swings` hammer blows of ~64 ticks each and
+    // every material walks in at ~26 ticks per lattice edge, so the window is derived
+    // from the constants rather than hand-tuned.
+    const swingT = FS.FSC.SWING_TICKS.reduce((a, b) => a + b, 0) / FS.FSC.SWING_TICKS.length;
+    const oneBuild = FS.FSC.BLD.hut.swings * swingT;
+    const WINDOW = Math.round(oneBuild * 12);
+    for (let i = 0; i < WINDOW; i++) {
       FS.ff(1);
       const ss = FSSim.serfsOf(G, 0);
       const w = ss.filter((s) => s.from !== s.to).length;
@@ -824,7 +847,7 @@ H.run("farmstead-transport", async (t) => {
     }
     const c = FSSim.counts(G, 0);
     const crewed = Object.keys(G.roads).filter((k) => !!G.roads[k].carrier).length;
-    return { made, sites, counts: c, maxWalking, maxCarrying, maxGoods, crewed,
+    return { made, sites, window: WINDOW, counts: c, maxWalking, maxCarrying, maxGoods, crewed,
       roads: Object.keys(G.roads).length, pop: FSSim.population(G, 0),
       deliveries: G.events.filter((e) => e.type === "itemDeliver").length,
       tickMs: FS.perf.tickMsAvg };

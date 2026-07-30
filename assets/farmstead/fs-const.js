@@ -35,9 +35,13 @@
   FSC.TICK_S = 0.1;            // one game tick = 100ms at 1x
   FSC.SPEEDS = [0, 1, 2, 4];   // pause / 1x / 2x / 4x
   FSC.MAX_TICKS_PER_FRAME = 16;
-  FSC.WALK_TICKS = 5;          // ticks per lattice edge for a serf (0.5s at 1x)
-  FSC.WALK_TICKS_CARRY = 6;    // loaded carrier slightly slower
-  FSC.WALK_TICKS_OFFROAD = 7;
+  // Walking pace is SLOPE dependent and identical loaded or empty (confirmed original):
+  // ticks per lattice edge indexed by the height-difference bucket
+  // clamp(round(dy / WALK_DY), -4, +4) + 4  →  flat = 26 ticks (2.6 s at 1x).
+  // Downhill is quicker than up; a steep drop is picked carefully again.
+  FSC.WALK_TICKS_TABLE = [51, 45, 38, 32, 26, 32, 51, 77, 102];
+  FSC.WALK_DY = 0.275;         // world height per bucket step
+  FSC.WALK_TICKS = 26;         // flat-ground reference (render/UI convenience)
 
   // ---------- Terrain ----------
   FSC.TERR = { WATER: 0, GRASS: 1, DESERT: 2, SWAMP: 3, MOUNTAIN: 4, SNOW: 5 };
@@ -59,10 +63,17 @@
   };
   FSC.MINERAL = { NONE: 0, STONE: 1, COAL: 2, IRON: 3, GOLD: 4 };
 
-  FSC.TREE_GROW_T = 2400;      // ticks per growth stage (4 min at 1x; forester keeps up)
-  FSC.FIELD_GROW_T = 900;      // per field stage
-  FSC.FIELD_STUB_T = 1800;
-  FSC.FISH_REGROW_T = 6000;    // one fish regrows per this many ticks per coastal vertex (slow)
+  // Growing things are driven by the BACKGROUND SWEEP (see FSC.SWEEP_* below), not by
+  // per-object timers: every SWEEP_EVERY ticks a strided handful of vertices is visited
+  // and each visit rolls that vertex forward. One full pass ≈ SWEEP_EVERY*1024 ticks.
+  FSC.SWEEP_EVERY = 2;         // ticks between sweep steps
+  FSC.SWEEP_PER_1024 = 1;      // vertices visited per step, per 1024 map vertices
+  FSC.SWEEP_STRIDE = 1021;     // prime stride → hits every vertex, spread out
+  FSC.SAPLING_P = 0.25;        // chance a young tree grows a stage on a visit
+  FSC.STUMP_P = 0.25;          // chance a stump rots away on a visit
+  FSC.FISH_REGROW_P = 63 / 64; // chance a water vertex gains a fish on a visit
+  FSC.FISH_CAP = 10;           // regrowth ceiling
+  FSC.FISH_MIGRATE_DIRS = [0, 4, 1, 3];  // E, SE, W, NW — shoals drift
 
   // ---------- Resources (26) ----------
   const RES_LIST = [
@@ -125,30 +136,36 @@
   // Sizes follow the classic's real model: 0 = small (center vertex only, no leveling),
   // 2 = large (flat 7-vertex footprint, digger leveling). There is NO medium tier.
   // Mines are size 0 + mountain:true (no leveling). Costs are the confirmed originals.
-  def("castle",      { size: 2, cost: { plank: 0, stone: 0 }, hq: true, warehouse: true, mil: { cap: 12, terrRadius: 12, goldCap: 8 } });
-  def("stock",       { size: 2, cost: { plank: 4, stone: 3 }, warehouse: true });
-  def("hut",         { size: 0, cost: { plank: 1, stone: 1 }, mil: { cap: 3, terrRadius: 8, goldCap: 2 } });
-  def("tower",       { size: 2, cost: { plank: 2, stone: 3 }, mil: { cap: 6, terrRadius: 8, goldCap: 4 } });
-  def("fortress",    { size: 2, cost: { plank: 5, stone: 5 }, mil: { cap: 12, terrRadius: 8, goldCap: 8 } });
-  def("fisher",      { size: 0, cost: { plank: 2, stone: 0 }, job: "fisher", radius: 7, out: "fish", cycleT: 220 });
-  def("lumberjack",  { size: 0, cost: { plank: 2, stone: 0 }, job: "lumberjack", radius: 7, out: "lumber", cycleT: 180 });
-  def("forester",    { size: 0, cost: { plank: 2, stone: 0 }, job: "forester", radius: 7, cycleT: 200 });
-  def("stonecutter", { size: 0, cost: { plank: 2, stone: 0 }, job: "stonecutter", radius: 7, out: "stone", cycleT: 200 });
-  def("sawmill",     { size: 2, cost: { plank: 3, stone: 2 }, job: "sawyer", in: { lumber: 1 }, out: "plank", cycleT: 140 });
-  def("farm",        { size: 2, cost: { plank: 4, stone: 1 }, job: "farmer", radius: 7, out: "wheat", cycleT: 160 });
-  def("mill",        { size: 0, cost: { plank: 3, stone: 1 }, job: "miller", in: { wheat: 1 }, out: "flour", cycleT: 160 });
-  def("bakery",      { size: 2, cost: { plank: 2, stone: 1 }, job: "baker", in: { flour: 1 }, out: "bread", cycleT: 180 });
-  def("pigfarm",     { size: 2, cost: { plank: 4, stone: 1 }, job: "pigfarmer", in: { wheat: 1 }, out: "pig", cycleT: 380 });
-  def("butcher",     { size: 2, cost: { plank: 2, stone: 1 }, job: "butcher", in: { pig: 1 }, out: "meat", outN: 2, cycleT: 160 });
-  def("stoneMine",   { size: 0, cost: { plank: 4, stone: 1 }, mine: "STONE", job: "miner", inFood: 1, out: "stone", cycleT: 260, mountain: true });
-  def("coalMine",    { size: 0, cost: { plank: 5, stone: 0 }, mine: "COAL", job: "miner", inFood: 1, out: "coal", cycleT: 260, mountain: true });
-  def("ironMine",    { size: 0, cost: { plank: 5, stone: 0 }, mine: "IRON", job: "miner", inFood: 1, out: "ironOre", cycleT: 280, mountain: true });
-  def("goldMine",    { size: 0, cost: { plank: 5, stone: 0 }, mine: "GOLD", job: "miner", inFood: 1, out: "goldOre", cycleT: 300, mountain: true });
-  def("smelter",     { size: 2, cost: { plank: 3, stone: 2 }, job: "smelter", in: { coal: 1, ironOre: 1 }, out: "steel", cycleT: 240 });
-  def("goldsmelter", { size: 2, cost: { plank: 4, stone: 1 }, job: "smelter", in: { coal: 1, goldOre: 1 }, out: "goldBar", cycleT: 240 });
-  def("toolmaker",   { size: 2, cost: { plank: 3, stone: 3 }, job: "toolmaker", in: { plank: 1, steel: 1 }, outTool: true, cycleT: 300 });
-  def("weaponsmith", { size: 2, cost: { plank: 2, stone: 3 }, job: "weaponsmith", in: { coal: 1, steel: 1 }, outWeapon: true, cycleT: 300 });
-  def("boatwright",  { size: 0, cost: { plank: 3, stone: 0 }, job: "boatwright", in: { plank: 2 }, out: "boat", cycleT: 400 });
+  // `cycleT` = confirmed original production cycle in OUR ticks (internal ÷ 10).
+  // `swings` = hammer swings a builder needs (construction accumulator, see below).
+  def("castle",      { size: 2, cost: { plank: 0, stone: 0 }, hq: true, warehouse: true, swings: 64, mil: { cap: 12, terrRadius: 12, goldCap: 8 } });
+  def("stock",       { size: 2, cost: { plank: 4, stone: 3 }, warehouse: true, swings: 56 });
+  def("hut",         { size: 0, cost: { plank: 1, stone: 1 }, swings: 16, mil: { cap: 3, terrRadius: 8, goldCap: 2 } });
+  def("tower",       { size: 2, cost: { plank: 2, stone: 3 }, swings: 32, mil: { cap: 6, terrRadius: 8, goldCap: 4 } });
+  def("fortress",    { size: 2, cost: { plank: 5, stone: 5 }, swings: 64, mil: { cap: 12, terrRadius: 8, goldCap: 8 } });
+  // Offsite professions: the TRIP is the cycle (walk out, work, walk back); cycleT is
+  // only the short hand-over pause inside the hut. Work lengths live in FSC.CHOP_T etc.
+  def("fisher",      { size: 0, cost: { plank: 2, stone: 0 }, job: "fisher", radius: 7, out: "fish", cycleT: 26, swings: 16 });
+  def("lumberjack",  { size: 0, cost: { plank: 2, stone: 0 }, job: "lumberjack", radius: 7, out: "lumber", cycleT: 26, swings: 16 });
+  def("forester",    { size: 0, cost: { plank: 2, stone: 0 }, job: "forester", radius: 7, cycleT: 26, swings: 16 });
+  def("stonecutter", { size: 0, cost: { plank: 2, stone: 0 }, job: "stonecutter", radius: 7, out: "stone", cycleT: 26, swings: 16 });
+  def("sawmill",     { size: 2, cost: { plank: 3, stone: 2 }, job: "sawyer", in: { lumber: 1 }, out: "plank", cycleT: 237, swings: 32 });
+  def("farm",        { size: 2, cost: { plank: 4, stone: 1 }, job: "farmer", radius: 4, out: "wheat", cycleT: 26, swings: 32 });
+  def("mill",        { size: 0, cost: { plank: 3, stone: 1 }, job: "miller", in: { wheat: 1 }, out: "flour", cycleT: 377, swings: 32 });
+  def("bakery",      { size: 2, cost: { plank: 2, stone: 1 }, job: "baker", in: { flour: 1 }, out: "bread", cycleT: 227, swings: 20 });
+  // pigfarm cycleT is the one production number that was NOT recovered — tuned stand-in.
+  def("pigfarm",     { size: 2, cost: { plank: 4, stone: 1 }, job: "pigfarmer", in: { wheat: 1 }, out: "pig", cycleT: 380, swings: 32 });
+  def("butcher",     { size: 2, cost: { plank: 2, stone: 1 }, job: "butcher", in: { pig: 1 }, out: "meat", outN: 1, cycleT: 154, swings: 20 });
+  def("stoneMine",   { size: 0, cost: { plank: 4, stone: 1 }, mine: "STONE", job: "miner", inFood: 1, out: "stone", mountain: true, swings: 32 });
+  def("coalMine",    { size: 0, cost: { plank: 5, stone: 0 }, mine: "COAL", job: "miner", inFood: 1, out: "coal", mountain: true, swings: 32 });
+  def("ironMine",    { size: 0, cost: { plank: 5, stone: 0 }, mine: "IRON", job: "miner", inFood: 1, out: "ironOre", mountain: true, swings: 32 });
+  def("goldMine",    { size: 0, cost: { plank: 5, stone: 0 }, mine: "GOLD", job: "miner", inFood: 1, out: "goldOre", mountain: true, swings: 32 });
+  def("smelter",     { size: 2, cost: { plank: 3, stone: 2 }, job: "smelter", in: { coal: 1, ironOre: 1 }, out: "steel", cycleT: 806, swings: 32 });
+  def("goldsmelter", { size: 2, cost: { plank: 4, stone: 1 }, job: "smelter", in: { coal: 1, goldOre: 1 }, out: "goldBar", cycleT: 806, swings: 32 });
+  def("toolmaker",   { size: 2, cost: { plank: 3, stone: 3 }, job: "toolmaker", in: { plank: 1, steel: 1 }, outTool: true, cycleT: 461, swings: 40 });
+  // weaponsmith: the SWORD half-cycle eats 1 coal + 1 steel, the SHIELD half is free.
+  def("weaponsmith", { size: 2, cost: { plank: 2, stone: 3 }, job: "weaponsmith", in: { coal: 1, steel: 1 }, outWeapon: true, cycleT: 346, swings: 20 });
+  def("boatwright",  { size: 0, cost: { plank: 3, stone: 0 }, job: "boatwright", in: { plank: 1 }, out: "boat", cycleT: 1002, swings: 20 });
   FSC.BLD = B;
   FSC.BLD_LIST = Object.keys(B);
   FSC.BLD_NAME = {
@@ -162,22 +179,46 @@
 
   // ---------- Transport / flags ----------
   FSC.FLAG_CAP = 8;            // goods waiting at a flag
-  FSC.IN_CAP = 2;              // building input stock target (per res) incl. in-flight
-  FSC.RETRY_T = 40;            // destless goods reschedule period (ticks)
-  FSC.CONGEST_T = 120;         // carrier gives up waiting on a full dest flag
+  FSC.IN_CAP = 8;              // building input stock target (per res) incl. in-flight
+  // (PHASE-C: these are all "how many edges of walking is that?" numbers, so they
+  //  were rescaled when the confirmed slope-based walk pacing landed — flat 26 t/edge.)
+  FSC.RETRY_T = 120;           // destless goods reschedule period (ticks)
+  FSC.CONGEST_T = 600;         // carrier gives up waiting on a full dest flag
   FSC.DOOR_T = 4;              // flag->building hand-off ticks
   FSC.SPAWN_GAP = 8;           // ticks between serfs exiting a warehouse door
   FSC.DOOR_DIR = "SE";         // building door flag = SE neighbour of building vertex
 
   // ---------- Construction ----------
-  FSC.LEVEL_T = 250;           // digger leveling ticks (medium/large)
-  FSC.BUILD_T_PER_MAT = 90;    // builder ticks per material unit consumed
+  // The builder swings a hammer; each swing adds BLD.phase to a 16-bit accumulator and
+  // one material is eaten every SWING_PER_MAT swings (planks first, then stones).
+  FSC.LEVEL_T = 250;           // digger leveling ticks (large sites)
+  FSC.SWING_TICKS = [77, 51, 51, 77];   // ticks per swing, picked by rng
+  FSC.SWING_PER_MAT = 8;       // swings between material draws
+  FSC.BUILD_FULL = 0x10000;    // accumulator target
+  FSC.BUILD_IDLE_T = 26;       // waiting for the next material
   FSC.BURN_T = 300;
 
   // ---------- Mines / geology ----------
-  FSC.MINE_P = [0, 0.35, 0.55, 0.72, 0.88]; // success prob by ceil(mineralAmt/4) bucket
-  FSC.GEO_SPOTS = 7;
-  FSC.GEO_T = 60;              // per sample
+  // A miner: thinks (MINE_WAIT), eats one meal (skipped 1 time in MINE_SKIP_EVERY),
+  // then makes up to MINE_DIGS attempts; each attempt samples ONE random vertex in
+  // lattice rings 0..MINE_RING and hits only if that vertex really holds the mineral.
+  FSC.MINE_WAIT = [10, 61];
+  FSC.MINE_SKIP_EVERY = 8;     // 1-in-8 cycles the miner does not eat
+  FSC.MINE_EAT_T = 38;
+  FSC.MINE_PRE_T = 30;
+  FSC.MINE_DIG_T = 100;
+  FSC.MINE_DIGS = 4;
+  FSC.MINE_POST_T = 30;
+  FSC.MINE_OUT_T = 38;
+  FSC.MINE_IDLE_T = 26;        // no food in store — look again later
+  FSC.MINE_RING = 3;
+  FSC.MINE_EXHAUST_REG = 0x8000;  // 16-bit find-history register: fires the notification
+  FSC.GEO_SPOTS = 12;          // hard safety cap on one geologist's tour
+  FSC.GEO_T = 78;              // hammering one sample
+  FSC.GEO_TRIES = 8;           // candidate vertices examined per search
+  FSC.GEO_SIGN_STOP = 2;       // two signs already there → the tour is over
+  FSC.GEO_RING = [1, 4];       // candidates live this far from the flag
+  FSC.GEO_BIG_AMT = 12;        // a "large deposit" sign
   FSC.SIGN_EMPTY = 255;
 
   // ---------- Military ----------
@@ -272,11 +313,12 @@
     FOREST_T: 0.50, FOREST_P: 0.85,     // tree clump threshold / max density
     ROCK_T: 0.80, ROCK_P: 0.22,         // stone pile threshold / max density
     ROCK_NEAR_MOUNT: 6,   // stone piles get a density bonus within this many steps of a mountain
-    FISH_MIN: 3, FISH_MAX: 8, FISH_COAST: 2,
-    MINERAL_BLOB_P: 0.055,              // chance a mountain vertex seeds a deposit blob
-    MINERAL_W: { STONE: 0.28, COAL: 0.34, IRON: 0.27, GOLD: 0.11 },
-    MINERAL_R: { STONE: 4, COAL: 5, IRON: 4, GOLD: 2 },
-    MINERAL_AMT: [4, 15],
+    FISH_MAX: 7,                        // every water vertex gets rng & 7 fish
+    MINERAL_BLOB_P: 0.055,              // chance a mountain vertex seeds a deposit
+    // relative cluster frequency (confirmed): coal is common, gold is precious
+    MINERAL_W: { STONE: 2, COAL: 9, IRON: 4, GOLD: 2 },
+    MINERAL_RINGS: [2, 5],              // ring count 2..5 (center + 1..4)
+    MINERAL_STEP: 4,                    // ring j holds STEP × (rings − j), max 20
     TREE_STAGE_W: [0.05, 0.09, 0.16, 0.70],  // stage 1..4 weights
   };
   FSC.START = {
@@ -352,14 +394,19 @@
   // Scheduling budgets — every per-tick loop is bounded, nothing scans the map.
   FSC.WH_DISPATCH_T = 6;       // ticks between one warehouse pushing a good out (staggered by id)
   FSC.SERF_REQ_PER_TICK = 4;   // pending serf requests examined per tick
-  FSC.SERF_REQ_RETRY_T = 25;   // a request that found no warehouse waits this long
+  FSC.SERF_REQ_RETRY_T = 100;  // a request that found no warehouse waits this long
   FSC.RETRY_PER_TICK = 6;      // destless-goods flags re-scheduled per tick
-  FSC.CREW_WATCHDOG_T = 600;   // a digger/builder who never arrives lets the site re-ask
-  // Population: the starting roster alone could crew only 5 roads, so the castle
-  // keeps breeding plain settlers (the classic grows its settler supply over time;
-  // the exact rule is undocumented — this is our tuned stand-in). PHASE-C may gate
-  // the rate on food/warehouse count.
-  FSC.SERF_GROW_T = 90;        // ticks between a new generic settler appearing
+  FSC.CREW_WATCHDOG_T = 3000;  // a digger/builder who never arrives lets the site re-ask
+  // Population (confirmed original REPRODUCTION rule — PHASE-C): the castle produces
+  // one settler every (60 − reproRate) × REPRO_UNIT ticks. The same clock recruits
+  // knights: a 16-bit counter gathers `recruitRate` per firing and every overflow
+  // banks a knight credit, so a firing with a credit + a sword + a shield in store
+  // turns out a rank-0 knight instead of a plain settler.
+  FSC.REPRO_UNIT = 5;
+  FSC.REPRO_DEFAULT = 30;      // slider 0..60 → 150 ticks between settlers
+  FSC.REPRO_MAX = 60;
+  FSC.KNIGHT_COUNTER_START = 0x8000;
+  FSC.KNIGHT_CREDIT_MAX = 2;
   FSC.SERF_CAP = 200;          // hard population ceiling per player
   FSC.ROUTE_MAX_HOPS = 96;     // flag-graph BFS cap for scheduling searches
 
@@ -410,33 +457,36 @@
   /* ===== PHASE-C: production, jobs, geology, boats, distribution ======== */
   /* ===================================================================== */
 
-  // --- offsite worker trips (the visible chop / cast / scythe swing) ---
-  FSC.CHOP_T = 45;             // lumberjack felling a mature tree
-  FSC.PLANT_T = 28;            // forester planting a sapling
-  FSC.HACK_T = 40;             // stonecutter knocking a charge off a pile
-  FSC.CAST_T = 55;             // fisher casting from the shore
-  FSC.SOW_T = 30;              // farmer sowing one field
-  FSC.REAP_T = 40;             // farmer harvesting a ripe field
-  FSC.WORK_WALK_MAX = 34;      // offroad A* budget for one worker trip (cost units)
+  // --- offsite worker trips (confirmed original work lengths, in our ticks) ---
+  FSC.CHOP_T = 284;            // lumberjack felling a mature tree (staged animation)
+  FSC.PLANT_T = 147;           // forester planting a sapling (not separately recovered)
+  FSC.HACK_T = 154;            // stonecutter knocking a charge off a pile
+  FSC.SOW_T = 147;             // farmer sowing one field
+  FSC.REAP_T = 198;            // farmer harvesting
+  // Fishing is a run of chances, not a fixed job: the rod goes in, and every
+  // FISH_CHECK_T / FISH_WAIT_T (alternating) there is a (fish-4)/64 chance of a bite.
+  FSC.FISH_CHECK_T = 13;
+  FSC.FISH_WAIT_T = 77;
+  FSC.FISH_CHECKS = 10;        // then he gives up and walks home empty handed
+  FSC.FISH_MIN_STOCK = 4;      // fish below this never bite
+  FSC.FISH_P_DIV = 64;
+  FSC.WORK_WALK_MAX = 90;      // offroad A* budget for one worker trip (cost units)
   FSC.WORK_IDLE_T = 60;        // nothing to do in range → look again in this many ticks
-  FSC.STUMP_FADE_T = 1200;     // a stump rots away
   FSC.FIELD_MAX = 6;           // fields one farm keeps in rotation
-  FSC.FISH_CAP = 8;            // regrowth ceiling for a fished-out water vertex
+  FSC.FIELD_RING = [2, 4];     // fields are sown this far from the farmhouse
+  FSC.FIELD_HARVEST_MIN = 2;   // FIELD2 and up can be cut (and the stage advances)
 
   // --- producers ---
   FSC.OUT_CAP = 4;             // finished goods a producer holds when its flag is full
   FSC.PROD_FLUSH_T = 10;       // ticks between attempts to push a held output out
-  FSC.MINE_BLOB_R = 3;         // how far a mine reaches into its own deposit
-  FSC.MINE_AMT_BUCKET = 4;     // mineralAmt per FSC.MINE_P bucket
-
-  // --- geologist ---
-  FSC.GEO_R = 8;               // wander radius around the flag he was sent to
-  FSC.GEO_WALK_MAX = 40;       // offroad budget between two sample spots
-  FSC.SIGN_DENSITY = [6, 11];  // mineralAmt thresholds for the small/medium/large sign
+  FSC.PIG_HERD_MAX = 8;        // pigs living in one pen
+  FSC.PIG_ROLLS = 3;           // breeding rolls per cycle
+  FSC.PIG_P_BASE = 0.09;       // chance per roll at an empty pen…
+  FSC.PIG_P_PER = 0.015;       // …plus this per pig already in the herd
+  FSC.PIG_KEEP = 1;            // breeding stock the farmer never ships
 
   // --- boats / water roads ---
   FSC.BOAT_REQ_T = 30;         // ticks between a boatless water road asking for one
-  FSC.WALK_TICKS_WATER = 6;    // a sailor's rowing speed per lattice edge
 
   // --- distribution arbitration (weights are the 0..PRIO_MAX slider scale) ---
   // A source picks the winning requester with smooth weighted round-robin over the
@@ -451,10 +501,9 @@
     _food: { stoneMine: "foodStoneMine", coalMine: "foodCoalMine", ironMine: "foodIronMine", goldMine: "foodGoldMine" },
   };
 
-  // --- toolmaker choice heuristic (live priority minus what is already in store) ---
-  FSC.TOOL_STOCK_W = 0.30;     // each tool already stored lowers that tool's score
-  FSC.TOOL_NEED_W = 2.0;       // a profession is blocked for want of this tool
-  FSC.TOOL_NEED_T = 3000;      // how long a "blocked" mark stays hot
+  // --- toolmaker choice: weighted-random roulette over the 9 priority sliders ---
+  // (confirmed original: no scarcity maths, a 0 slider is simply never drawn, and
+  //  an all-zero panel falls back to a uniform draw.)
 
   // --- warehouse per-resource modes ---
   FSC.STOCK_MODE = { IN: 0, STOP: 1, OUT: 2 };
