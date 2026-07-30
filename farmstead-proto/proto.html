@@ -177,8 +177,8 @@
         hsl: (h, s, l) => [h, s < 0.05 ? s : Math.min(1, s * 1.62 + 0.13), Math.min(0.9, l * 1.02 + 0.01)],
       },
       lights: {
-        hemi: { sky: 0x8fd0ff, ground: 0x9ad46a, intensity: 0.98 },           // strong sky-blue bounce
-        sun: { color: 0xffffff, intensity: 0.80, dir: [0.50, 1.10, 0.42] },
+        hemi: { sky: 0x8fd0ff, ground: 0x9ad46a, intensity: 0.86 },           // strong sky-blue bounce
+        sun: { color: 0xffffff, intensity: 0.66, dir: [0.50, 1.10, 0.42] },
       },
       fog: { color: 0xc3ecff, near: 190, far: 520 },                          // barely any
       sky: { stops: [[0.00, "#2f97e0"], [0.62, "#79c8f4"], [1.00, "#bfeaff"]] },
@@ -428,7 +428,7 @@
   }
 
   const outlines = [];       // {src, dst} instanced pairs kept in sync every frame
-  function addOutlines(cfg) {
+  function addOutlines(cfg, distScale) {
     const scene = FSRender.scene();
     const inkMat = new THREE.MeshBasicMaterial({ color: cfg.color, side: THREE.BackSide });
     const SMALL = /^(dyn:serf|dyn:crate|dyn:pole|dyn:pennant|dyn:board|dyn:post)/;
@@ -441,7 +441,9 @@
       targets.push(o);
     });
     for (const o of targets) {
-      const k = SMALL.test(o.name) ? cfg.kSmall : cfg.k;
+      // world-constant ink would be 8px wide in a close-up and invisible in a wide
+      // shot — scale the hull with the camera distance so the line reads the same
+      const k = (SMALL.test(o.name) ? cfg.kSmall : cfg.k) * (distScale || 1);
       const g = hullGeo(o.geometry, k);
       let ink;
       if (o.isInstancedMesh) {
@@ -470,7 +472,7 @@
     }
   }
 
-  function applyStyle(st) {
+  function applyStyle(st, camDist) {
     const scene = FSRender.scene();
     if (st.lights) {
       scene.traverse((o) => {
@@ -488,7 +490,7 @@
     }
     if (st.sky) scene.background = skyTexture(st.sky.stops);
     if (st.fog) scene.fog = new THREE.Fog(st.fog.color, st.fog.near, st.fog.far);
-    if (st.outline) addOutlines(st.outline);
+    if (st.outline) addOutlines(st.outline, (camDist || 24) / 24);
     const fx = document.getElementById("fx");
     if (st.fx) { fx.style.background = st.fx; fx.style.opacity = st.fxOpacity === undefined ? 1 : st.fxOpacity; }
   }
@@ -512,10 +514,10 @@
       yaw = Math.atan2(-mx / L, -mz / L) + qn("swing", -0.62);
     } else yaw = 0.55;
     yaw = qn("yaw", yaw);
-    const pitch = qn("pitch", CLOSE ? 25 : 24) * Math.PI / 180;
-    const dist = qn("dist", CLOSE ? 8.6 : 24);
+    const pitch = qn("pitch", CLOSE ? 28 : 24) * Math.PI / 180;
+    const dist = qn("dist", CLOSE ? 9.0 : 24);
     // push the look-target past the castle so the keep sits low-centre with sky above
-    const push = qn("push", CLOSE ? 0.4 : 3.5);
+    const push = qn("push", CLOSE ? 1.2 : 3.5);
     FSRender.setCam({
       tx: info.cxz[0] - Math.sin(yaw + Math.PI) * push,
       tz: info.cxz[1] - Math.cos(yaw + Math.PI) * push,
@@ -550,8 +552,8 @@
     G.speed = 0;
     const info = stage();
     FSRender.init(canvas, G);
-    applyStyle(st);
-    const campose = poseCamera(info);
+    const campose = poseCamera(info);          // outline width needs the final camera distance
+    applyStyle(st, campose.dist);
 
     const tag = document.getElementById("tag");
     if (qn("tag", 0)) {
