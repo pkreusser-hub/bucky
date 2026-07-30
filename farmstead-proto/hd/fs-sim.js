@@ -248,9 +248,7 @@
       const b = FSSim.makeBuilding(G, i, "castle", v, "done");
       b.mil.wanted = FSC.BLD.castle.mil.cap;
       const inv = b.inv;
-      // Supplies 0..50 interpolates the classic's 5-anchor starting-stock table
-      const sinv = FSC.suppliesInv(opts.supplies);
-      for (const k in sinv) inv[k] = sinv[k];
+      for (const k in FSC.START_INV) inv[k] = FSC.START_INV[k];
       // the exact confirmed starting roster lives in the castle as a job-tagged pool
       for (const job in FSC.START_SERFS) b.pool[job] = FSC.START_SERFS[job];
       inv.serf = b.pool.generic; inv.knight = b.pool.knight;
@@ -497,9 +495,6 @@
       return Math.max(0, Math.min(want, room));
     }
     /* ===== PHASE-C: production inputs ===== */
-    // a finished building only stocks up once it is staffed (or a worker is on the
-    // way) — an unmanned workshop must not hoard the settlement's goods
-    if (!b.worker && !b.workerReq) return 0;
     if (def.in && def.in[res]) {
       return Math.max(0, FSC.IN_CAP - (b.stockIn[res] || 0) - (b.reqInFlight[res] || 0));
     }
@@ -1876,25 +1871,11 @@
       if (!wh.inv[res]) continue;
       const d = FSSim.chooseDemand(G, f.id, res, wh.p, wh.id);
       if (!d) continue;
-      // A mine is happy with any meal, so the store sends whichever food it is
-      // longest on (confirmed original; ties go to fish).
-      let send = res;
-      if (isFood(res) && defOf(d).inFood) send = FSSim.bestFoodOf(wh);
-      wh.inv[send]--;
-      FSSim.pushItem(G, f, send, d.id);
+      wh.inv[res]--;
+      FSSim.pushItem(G, f, res, d.id);
       return;
     }
   }
-
-  /** The food a store holds most of — fish first on a tie (FSC.FOODS order). */
-  FSSim.bestFoodOf = function (wh) {
-    let best = FSC.FOODS[0], bestN = -1;
-    for (let i = 0; i < FSC.FOODS.length; i++) {
-      const n = (wh.inv && wh.inv[FSC.FOODS[i]]) || 0;
-      if (n > bestN) { bestN = n; best = FSC.FOODS[i]; }
-    }
-    return best;
-  };
 
   /** Total people a player owns: walking serfs + everyone resting in warehouses. */
   FSSim.population = function (G, p) {
@@ -2082,11 +2063,12 @@
    * exact vertex still holds the mineral → walk out → deliver. A 16-bit history
    * register raises the "exhausted" notification once the finds dry up.
    */
-  // (rebuilt per dig — 40-odd vertices, and nothing derived ever lands in the save)
   function mineCells(G, b) {
+    if (b.mine.cells) return b.mine.cells;
     const cells = [];
     FSMap.forRadius(G.map, b.v, FSC.MINE_RING, (u) => cells.push(u));
     cells.sort((x, y) => x - y);
+    b.mine.cells = cells;
     return cells;
   }
   function mineDig(G, b) {

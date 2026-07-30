@@ -54,9 +54,7 @@
   ["site", "leveling", "build", "done", "burn"].forEach((s, i) => (STATE_IDX[s] = i + 1));
   const SERF_STATE_IDX = Object.create(null);
   ["spawn", "goRoad", "idle", "fetch", "carry", "wait", "handIn", "goBld", "enter",
-    "level", "hammer", "work", "return", "gone",
-    /* ===== PHASE-C ===== */ "goWork", "doWork", "backWork", "goGeo", "geoWalk", "geoWork",
-  ].forEach((s, i) => (SERF_STATE_IDX[s] = i + 1));
+    "level", "hammer", "work", "return", "gone"].forEach((s, i) => (SERF_STATE_IDX[s] = i + 1));
 
   // ------------------------------------------------------------------ helpers
   function newId(G) { return G.nextId++; }
@@ -79,11 +77,6 @@
       transportPrio: FSC.RES_ORDER.slice(),
       dist: Object.assign({}, FSC.DIST_DEFAULTS),
       knights: Object.assign({}, FSC.KNIGHT_DEFAULTS),
-      /* ===== PHASE-C: reproduction + knight ledger (plan §5) ===== */
-      repro: FSC.REPRO_DEFAULT,
-      knightCounter: FSC.KNIGHT_COUNTER_START,
-      knightCredit: 0,
-      distCredit: {},
     };
   }
 
@@ -124,26 +117,16 @@
       matReq: { plank: (def.cost && def.cost.plank) || 0, stone: (def.cost && def.cost.stone) || 0 },
       matInFlight: { plank: 0, stone: 0 },
       matUsed: 0,
-      swings: 0, swingT: 0,           /* ===== PHASE-C: construction accumulator ===== */
       leveled: def.size < 2,          // only LARGE sites need a digger (there is no medium tier)
       diggerReq: false, builderReq: false, crew: 0, crewT: 0,
       worker: 0, workerReq: false,
       stockIn: {}, stockOut: {}, reqInFlight: {},
       prodT: 0,
       burnT: 0,
-      /* ===== PHASE-C: production state ===== */
-      working: false,      // a cycle is running (drives smoke / sails / wheel)
-      halted: false,       // player pressed "stop production"
-      outT: 0,             // retry timer for outputs held back by a full flag
-      cycles: 0,           // completed production cycles (stats + suites)
-      altOut: 0,           // weaponsmith sword/shield alternation
     };
     if (def.mil) b.mil = { knights: [], wanted: 0, gold: 0, goldReq: 0 };
     if (def.mine) b.mine = { kind: def.mine, exhausted: false };
-    if (def.warehouse) {
-      b.inv = FSSim.emptyInv(); b.pool = FSSim.emptyPool(); b.spawnT = 0;
-      b.modes = {};        /* ===== PHASE-C: per-res In/Stop/Out ===== */
-    }
+    if (def.warehouse) { b.inv = FSSim.emptyInv(); b.pool = FSSim.emptyPool(); b.spawnT = 0; }
     G.buildings[b.id] = b;
     G.map.bldAt[v] = b.id;
     return b;
@@ -225,21 +208,16 @@
       /* ===== PHASE-B: command layer + work queues ===== */
       cmdQueue: [], cmdSeq: 0, cmdLog: 0,
       seats: [0, 0],            // seat id → player id (shared-kingdom co-op default)
-      serfReqs: [],             // {p, job, kind:'road'|'bld'|'geo', id, due}
+      serfReqs: [],             // {p, job, kind:'road'|'bld', id, due}
       retryQ: [],               // {f: flagId, due} — destless goods
       dirtyV: [],               // vertices the renderer must re-sync
       gameOver: null,
       rngState: FSC.rngSnapshot(),
-      /* ===== PHASE-C: background sweep + production bookkeeping ===== */
-      sweepV: 0,                // strided cursor over the map (trees, fields, fish)
-      prod: [],                 // per player: {res: total ever produced}
-      statT: 0,
     };
 
     for (let i = 0; i < nPlayers; i++) {
       G.players.push(makePlayer(G, i, i > 0));
       G.stats[i] = makeStats();
-      G.prod.push({});
     }
 
     // castles: building entity + its door flag, start inventory, starting land
@@ -248,9 +226,7 @@
       const b = FSSim.makeBuilding(G, i, "castle", v, "done");
       b.mil.wanted = FSC.BLD.castle.mil.cap;
       const inv = b.inv;
-      // Supplies 0..50 interpolates the classic's 5-anchor starting-stock table
-      const sinv = FSC.suppliesInv(opts.supplies);
-      for (const k in sinv) inv[k] = sinv[k];
+      for (const k in FSC.START_INV) inv[k] = FSC.START_INV[k];
       // the exact confirmed starting roster lives in the castle as a job-tagged pool
       for (const job in FSC.START_SERFS) b.pool[job] = FSC.START_SERFS[job];
       inv.serf = b.pool.generic; inv.knight = b.pool.knight;
@@ -320,18 +296,12 @@
     let r = null;
     switch (c.type) {
       case "flag": r = FSSim.placeFlag(G, a.v, p); break;
-      case "road": r = FSSim.buildRoad(G, a.f1, a.f2, a.path, p, { water: a.water }); break;
+      case "road": r = FSSim.buildRoad(G, a.f1, a.f2, a.path, p); break;
       case "build": r = FSSim.build(G, a.type, a.v, p); break;
       case "demolish": r = FSSim.demolish(G, a.id, p); break;
       case "speed": r = FSSim.setSpeed(G, a.speed); break;
       case "prio": r = FSSim.setTransportPrio(G, p, a.order); break;
-      /* ===== PHASE-C: geologist, distribution, tools, warehouse modes, halt ===== */
-      case "geologist": r = FSSim.sendGeologist(G, a.flag, p); break;
-      case "dist": r = FSSim.setDist(G, p, a.key, a.value); break;
-      case "toolPrio": r = FSSim.setToolPrio(G, p, a.tool, a.value); break;
-      case "stockMode": r = FSSim.setStockMode(G, a.id, a.res, a.mode, p); break;
-      case "halt": r = FSSim.setHalt(G, a.id, a.on, p); break;
-      /* ===== PHASE-D: knightSet, attack ===== */
+      /* ===== PHASE-C/D: geologist, halt, dist, toolPrio, knightSet, attack ===== */
       default: r = { ok: false, why: "unknown command" };
     }
     G.cmdLog++;
@@ -497,34 +467,11 @@
       return Math.max(0, Math.min(want, room));
     }
     /* ===== PHASE-C: production inputs ===== */
-    // a finished building only stocks up once it is staffed (or a worker is on the
-    // way) — an unmanned workshop must not hoard the settlement's goods
-    if (!b.worker && !b.workerReq) return 0;
     if (def.in && def.in[res]) {
       return Math.max(0, FSC.IN_CAP - (b.stockIn[res] || 0) - (b.reqInFlight[res] || 0));
     }
-    // mines eat ONE food per attempt, any kind — the cap is shared across the three
-    if (def.inFood && isFood(res)) {
-      if (b.mine && b.mine.exhausted) return 0;      // a dead mine stops eating
-      return Math.max(0, FSC.IN_CAP - foodStock(b) - foodInFlight(b));
-    }
     return 0;
   };
-
-  /* ===== PHASE-C: food helpers (mines take fish OR bread OR meat) ===== */
-  function isFood(res) { return FSC.FOODS.indexOf(res) >= 0; }
-  function foodStock(b) {
-    let n = 0;
-    for (let i = 0; i < FSC.FOODS.length; i++) n += b.stockIn[FSC.FOODS[i]] || 0;
-    return n;
-  }
-  function foodInFlight(b) {
-    let n = 0;
-    for (let i = 0; i < FSC.FOODS.length; i++) n += b.reqInFlight[FSC.FOODS[i]] || 0;
-    return n;
-  }
-  FSSim.isFood = isFood;
-  FSSim.foodStock = foodStock;
 
   /**
    * Every open request for `res` belonging to player `p`, as an iterable list.
@@ -553,111 +500,6 @@
     });
     return hit ? hit.val : null;
   };
-
-  /* ===================================================================== */
-  /* ===== PHASE-C: distribution arbitration (plan §6) ==================== */
-  /* ===================================================================== */
-
-  /**
-   * Which distribution slider governs "this building wanting this resource"?
-   * Returns a Player.dist key, or null when the resource has only one consumer
-   * class (stone, lumber, flour…) and nothing has to be arbitrated.
-   */
-  function distKey(res, b) {
-    const table = FSC.DIST_CLASS[isFood(res) ? "_food" : res];
-    if (!table) return null;
-    if (b.state !== "done") return table._site || null;      // a construction site
-    return table[b.type] || null;
-  }
-  FSSim.distKey = distKey;
-
-  /**
-   * Every open request for `res` reachable from `fromFlag`, nearest first.
-   * Bounded: the search stops DIST_LOOKAHEAD hop levels past the first hit, or
-   * at DIST_MAX_CAND candidates — it never walks the whole network.
-   */
-  function gatherDemand(G, fromFlag, res, p, skipBldId) {
-    const out = [];
-    if (!G.flags[fromFlag]) return out;
-    const seen = new Set([fromFlag]);
-    let frontier = [fromFlag], hops = 0, firstHit = -1;
-    while (frontier.length && hops <= FSC.ROUTE_MAX_HOPS) {
-      for (let i = 0; i < frontier.length; i++) {
-        const f = G.flags[frontier[i]];
-        if (!f || f.p !== p || !f.bld) continue;
-        const b = G.buildings[f.bld];
-        if (!b || b.id === skipBldId) continue;
-        if (FSSim.need(G, b, res) > 0) {
-          out.push({ bld: b, flag: f.id, hops });
-          if (firstHit < 0) firstHit = hops;
-        }
-      }
-      if (out.length >= FSC.DIST_MAX_CAND) break;
-      if (firstHit >= 0 && hops >= firstHit + FSC.DIST_LOOKAHEAD) break;
-      const nf = [];
-      for (let i = 0; i < frontier.length; i++) {
-        const f = G.flags[frontier[i]];
-        if (!f) continue;
-        for (let k = 0; k < f.roads.length; k++) {
-          const r = G.roads[f.roads[k]];
-          if (!r) continue;
-          const o = r.f1 === f.id ? r.f2 : r.f1;
-          if (seen.has(o)) continue;
-          seen.add(o); nf.push(o);
-        }
-      }
-      frontier = nf; hops++;
-    }
-    out.sort((a, b) => (a.hops - b.hops) || (a.bld.id - b.bld.id));
-    return out;
-  }
-  FSSim.gatherDemand = gatherDemand;
-
-  /**
-   * Pick WHO gets the next unit of `res` leaving `fromFlag`.
-   * One class of requester → plain nearest (identical to FSSim.demandNear).
-   * Two or more → smooth weighted round-robin on the player's distribution
-   * sliders (0..FSC.PRIO_MAX; 0 means "never"), then nearest inside the class.
-   */
-  FSSim.chooseDemand = function (G, fromFlag, res, p, skipBldId) {
-    const cands = gatherDemand(G, fromFlag, res, p, skipBldId);
-    if (!cands.length) return null;
-    const pl = G.players[p];
-    if (!pl) return cands[0].bld;
-    const keys = [];
-    for (let i = 0; i < cands.length; i++) {
-      const k = distKey(res, cands[i].bld) || "_";
-      cands[i].key = k;
-      if (keys.indexOf(k) < 0) keys.push(k);
-    }
-    if (keys.length < 2) return cands[0].bld;
-    const cred = pl.distCredit || (pl.distCredit = {});
-    let total = 0;
-    for (let i = 0; i < keys.length; i++) {
-      const w = keys[i] === "_" ? FSC.PRIO_MAX : (pl.dist[keys[i]] || 0);
-      if (w > 0) total += w;
-    }
-    if (total <= 0) return cands[0].bld;             // every class muted → nearest
-    let pick = null, bestCred = 0;
-    for (let i = 0; i < keys.length; i++) {
-      const k = keys[i];
-      const w = k === "_" ? FSC.PRIO_MAX : (pl.dist[k] || 0);
-      if (w <= 0) continue;
-      cred[k] = (cred[k] || 0) + w;
-      if (pick === null || cred[k] > bestCred) { pick = k; bestCred = cred[k]; }
-    }
-    if (pick === null) return cands[0].bld;
-    cred[pick] -= total;
-    for (let i = 0; i < cands.length; i++) if (cands[i].key === pick) return cands[i].bld;
-    return cands[0].bld;
-  };
-
-  /** Warehouse mode gate: may this store still take `res` in? */
-  function stockAccepts(b, res) {
-    if (!b.modes) return true;
-    return (b.modes[res] || 0) === FSC.STOCK_MODE.IN;
-  }
-  FSSim.stockAccepts = stockAccepts;
 
   /** Nearest warehouse (castle/stock) reachable from `fromFlag`. Warehouses accept all. */
   FSSim.warehouseNear = function (G, fromFlag, p, testFn) {
@@ -705,31 +547,19 @@
 
   /** Resolve an item's destination: open request → warehouse → destless (retry later). */
   FSSim.scheduleItem = function (G, flag, item) {
-    /* ===== PHASE-C: a boat is addressed to a FLAG (the water road's shore end) ===== */
-    if (item.destFlag) {
-      const tf = G.flags[item.destFlag];
-      if (tf && (tf.id === flag.id || FSSim.hops(G, flag.id, tf.id) >= 0)) return 0;
-      item.destFlag = 0;                                    // gone or cut off
-    }
     if (item.dest) { inFlightAdd(G, G.buildings[item.dest], item.res, -1); item.dest = 0; }
-    const dest = FSSim.chooseDemand(G, flag.id, item.res, flag.p)
-      || FSSim.warehouseNear(G, flag.id, flag.p, (b) => stockAccepts(b, item.res));
+    const dest = FSSim.demandNear(G, flag.id, item.res, flag.p)
+      || FSSim.warehouseNear(G, flag.id, flag.p);
     if (dest) { item.dest = dest.id; inFlightAdd(G, dest, item.res, 1); }
     else markRetry(G, flag.id);
     return item.dest;
   };
 
   /** Put a good on a flag. dest undefined → resolve now; 0 → deliberately destless. */
-  FSSim.pushItem = function (G, flag, res, dest, opts) {
+  FSSim.pushItem = function (G, flag, res, dest) {
     if (!flag || flag.slots.length >= FSC.FLAG_CAP) return null;
     const item = { res, dest: 0 };
     flag.slots.push(item);
-    /* ===== PHASE-C: flag-addressed goods (a boat for a water road) ===== */
-    if (opts && opts.destFlag) {
-      item.destFlag = opts.destFlag;
-      if (opts.road) item.road = opts.road;
-      return item;
-    }
     if (dest === undefined) FSSim.scheduleItem(G, flag, item);
     else if (dest) { item.dest = dest; inFlightAdd(G, G.buildings[dest], res, 1); }
     else markRetry(G, flag.id);
@@ -746,13 +576,6 @@
     return FSSim.pushItem(G, f, res, undefined);
   };
 
-  /** What a carrier is holding, rebuilt as a flag item (keeps flag-addressing). */
-  function carriedItem(s) {
-    const it = { res: s.carry, dest: s.carryDest };
-    if (s.carryFlag) { it.destFlag = s.carryFlag; if (s.carryRoad) it.road = s.carryRoad; }
-    return it;
-  }
-
   /** Hand a good into a building (warehouse inv / construction materials / inputs). */
   function deliverInto(G, b, res, fromSerf) {
     if (!b) return false;
@@ -766,8 +589,6 @@
       b.matGot[res] = (b.matGot[res] || 0) + 1;
     } else if (def.in && def.in[res]) {
       b.stockIn[res] = (b.stockIn[res] || 0) + 1;   /* ===== PHASE-C: production input ===== */
-    } else if (def.inFood && isFood(res)) {
-      b.stockIn[res] = (b.stockIn[res] || 0) + 1;   /* ===== PHASE-C: a miner's meal ===== */
     } else {
       event(G, "itemLost", { res, v: b.v, why: "nobody wanted it" });
       return false;
@@ -953,36 +774,27 @@
    * Build a road between two flags. `path` = explicit vertex list (both flag
    * vertices included); omitted → auto-routed. Every step is validated.
    */
-  FSSim.buildRoad = function (G, f1Id, f2Id, path, p, opts) {
+  FSSim.buildRoad = function (G, f1Id, f2Id, path, p) {
     p = p || 0;
-    opts = opts || {};
     const f1 = flagOf(G, f1Id), f2 = flagOf(G, f2Id);
     if (!f1 || !f2) return { ok: false, why: "no flag" };
     if (f1.id === f2.id) return { ok: false, why: "same flag" };
     if (f1.p !== p || f2.p !== p) return { ok: false, why: "not your flag" };
     if (f1.roads.length >= 6 || f2.roads.length >= 6) return { ok: false, why: "flag is full" };
-    if (!path || !path.length) path = FSSim.roadPath(G, f1.v, f2.v, p, { water: opts.water });
+    if (!path || !path.length) path = FSSim.roadPath(G, f1.v, f2.v, p);
     if (!path || path.length < 2) return { ok: false, why: "no route" };
     if (path[0] !== f1.v || path[path.length - 1] !== f2.v) return { ok: false, why: "path does not join the flags" };
     if (path.length > FSC.ROAD_MAX_LEN + 1) return { ok: false, why: "road too long" };
-    /* ===== PHASE-C: a road that touches water is a BOAT road ===== */
-    let wet = false;
-    for (let i = 0; i < path.length; i++) if (G.map.terr[path[i]] === FSC.TERR.WATER) wet = true;
-    if (wet && (G.map.terr[f1.v] === FSC.TERR.WATER || G.map.terr[f2.v] === FSC.TERR.WATER)) {
-      return { ok: false, why: "both ends must stand on the shore" };
-    }
     for (let i = 0; i + 1 < path.length; i++) {
       const last = i + 2 === path.length;
-      const crossing = G.map.terr[path[i]] === FSC.TERR.WATER || G.map.terr[path[i + 1]] === FSC.TERR.WATER;
-      const why = FSMap.whyRoadStep(G.map, path[i], path[i + 1], p, { endB: last, water: crossing });
+      const why = FSMap.whyRoadStep(G.map, path[i], path[i + 1], p, { endB: last });
       if (why) return { ok: false, why };
       if (!last && FSMap.edgeCount(G.map, path[i + 1]) > 0) return { ok: false, why: "roads must meet at a flag" };
     }
     // no repeated vertices (a road may not cross itself)
     for (let i = 0; i < path.length; i++) for (let k = i + 1; k < path.length; k++) if (path[i] === path[k]) return { ok: false, why: "path repeats a vertex" };
 
-    const r = { id: newId(G), p, f1: f1.id, f2: f2.id, path: path.slice(), water: wet, carrier: 0, carrierReq: true };
-    if (wet) { r.boatHave = false; r.boatInFlight = 0; }
+    const r = { id: newId(G), p, f1: f1.id, f2: f2.id, path: path.slice(), water: false, carrier: 0, carrierReq: true };
     for (let i = 0; i + 1 < path.length; i++) FSMap.setEdge(G.map, path[i], path[i + 1], true);
     G.roads[r.id] = r;
     f1.roads.push(r.id); f2.roads.push(r.id);
@@ -1021,7 +833,7 @@
           : (f2 && f2.slots.length < FSC.FLAG_CAP) ? f2 : null;
         if (target) {
           // the good is still counted in flight — scheduleItem re-resolves it
-          const it = carriedItem(s);
+          const it = { res: s.carry, dest: s.carryDest };
           target.slots.push(it);
           FSSim.scheduleItem(G, target, it);
           event(G, "itemDrop", { serf: s.id, res: s.carry, flag: target.id });
@@ -1029,7 +841,7 @@
           inFlightAdd(G, G.buildings[s.carryDest], s.carry, -1);
           event(G, "itemLost", { res: s.carry, v: s.v, why: "road removed" });
         }
-        s.carry = 0; s.carryDest = 0; s.carryFlag = 0; s.carryRoad = 0;
+        s.carry = 0; s.carryDest = 0;
       }
       s.road = 0;
       if (escape && escape.length > 1) {
@@ -1071,8 +883,8 @@
     return true;
   }
   function poolPut(G, wh, job) {
-    // transporters and sailors carry no tool — they melt back into the generic pool
-    const j = (job === JOB.TRANSPORTER || job === JOB.SAILOR) ? JOB.GENERIC : job;
+    // transporters carry no tool — they melt back into the generic pool
+    const j = job === JOB.TRANSPORTER ? JOB.GENERIC : job;
     wh.pool[j] = (wh.pool[j] || 0) + 1;
     syncPoolInv(wh);
   }
@@ -1085,33 +897,19 @@
       id: newId(G), p, job, state: "spawn", t: 0,
       v, from: v, to: v, stepT: 0, stepN: FSC.WALK_TICKS, frac: 0,
       path: [], road: 0,
-      carry: 0, carryDest: 0, carryFlag: 0, carryRoad: 0,
+      carry: 0, carryDest: 0,
       home: 0, target: 0, targetFlag: 0,
       congestT: 0, rank: 0,
-      /* ===== PHASE-C: offsite work + geology ===== */
-      workV: -1, workKind: "", workRes: 0, geoFlag: 0, geoSpots: 0, geoSeen: [],
     };
     G.serfs[s.id] = s;
     return s;
   }
 
-  /**
-   * PHASE-C pacing: crossing one lattice edge costs a SLOPE-dependent number of
-   * ticks (flat 26 ≈ 2.6 s at 1x) and a loaded serf is exactly as quick as an empty
-   * one — both confirmed original. Uphill is punishing, a gentle descent is fastest.
-   */
-  function edgeTicks(G, a, b) {
-    let k = Math.round((G.map.height[b] - G.map.height[a]) / FSC.WALK_DY);
-    if (k < -4) k = -4; else if (k > 4) k = 4;
-    return FSC.WALK_TICKS_TABLE[k + 4];
-  }
-  FSSim.edgeTicks = edgeTicks;
-
   /** Walk one tick along s.path. Returns true when the path is finished. */
   function walk(G, s) {
     if (!s.path.length) { s.from = s.v; s.to = s.v; s.frac = 0; s.stepT = 0; return true; }
     if (s.to !== s.path[0] || s.from !== s.v) { s.from = s.v; s.to = s.path[0]; s.stepT = 0; }
-    s.stepN = edgeTicks(G, s.from, s.to);
+    s.stepN = s.carry ? FSC.WALK_TICKS_CARRY : (s.offroad ? FSC.WALK_TICKS_OFFROAD : FSC.WALK_TICKS);
     s.stepT++;
     if (s.stepT >= s.stepN) {
       s.v = s.to; s.from = s.v; s.stepT = 0; s.frac = 0;
@@ -1282,9 +1080,7 @@
   function requestCarrier(G, road) {
     if (!road || road.carrier) return;
     road.carrierReq = true;
-    /* ===== PHASE-C: a water road stays dead until its boat is delivered ===== */
-    if (road.water && !road.boatHave) return;
-    requestSerf(G, road.p, road.water ? JOB.SAILOR : JOB.TRANSPORTER, "road", road.id);
+    requestSerf(G, road.p, JOB.TRANSPORTER, "road", road.id);
   }
   FSSim.requestSerf = requestSerf;
 
@@ -1297,11 +1093,7 @@
       let targetFlag = 0, alive = false;
       if (q.kind === "road") {
         const r = G.roads[q.id];
-        if (r && !r.carrier && (!r.water || r.boatHave)) { alive = true; targetFlag = r.f1; }
-      } else if (q.kind === "geo") {
-        /* ===== PHASE-C: a geologist was sent to this flag ===== */
-        const f = G.flags[q.id];
-        if (f && f.p === q.p) { alive = true; targetFlag = f.id; }
+        if (r && !r.carrier) { alive = true; targetFlag = r.f1; }
       } else {
         const b = G.buildings[q.id];
         if (b && b.flag) {
@@ -1326,10 +1118,6 @@
         r.carrier = s.id; r.carrierReq = false;
         s.road = r.id;
         ok = startCarrierWalk(G, s, r);
-      } else if (q.kind === "geo") {
-        s.geoFlag = q.id; s.geoSpots = 0; s.geoSeen = [];
-        ok = goToFlag(G, s, q.id);
-        if (ok) s.state = "goGeo";
       } else {
         // the site's xxxReq flag stays TRUE while the crewman is en route, so the
         // site never double-requests; it is cleared when he actually walks in
@@ -1415,14 +1203,13 @@
       if (!f) continue;
       for (let i = 0; i < f.slots.length; i++) {
         const it = f.slots[i];
-        /* ===== PHASE-C: an item may be addressed to a flag (boat) or a building ===== */
-        const b = it.dest ? G.buildings[it.dest] : null;
-        const destFlag = b ? b.flag : (it.destFlag || 0);
-        if (!destFlag) continue;
+        if (!it.dest) continue;
+        const b = G.buildings[it.dest];
+        if (!b) continue;
+        const destFlag = b.flag;
         let handIn = false;
-        if (destFlag === f.id) handIn = !!b;         // a flag-addressed good just sits there
+        if (destFlag === f.id) handIn = true;
         else if (FSSim.nextRoad(G, f.id, destFlag) !== r.id) continue;
-        if (!b && destFlag === f.id) continue;       // already home
         const pr = prioIndex(pl, it.res);
         if (!best || pr < best.prio || (pr === best.prio && (f.id < best.flag || (f.id === best.flag && i < best.idx)))) {
           best = { flag: f.id, idx: i, prio: pr, res: it.res, handIn };
@@ -1473,7 +1260,6 @@
           if (!now || now.flag !== f.id) { s.state = "idle"; return; }
           const it = f.slots.splice(now.idx, 1)[0];
           s.carry = it.res; s.carryDest = it.dest;
-          s.carryFlag = it.destFlag || 0; s.carryRoad = it.road || 0;   /* PHASE-C */
           event(G, "itemPickup", { serf: s.id, res: it.res, flag: f.id, dest: it.dest });
           if (now.handIn) { s.state = "handIn"; s.t = FSC.DOOR_T; return; }
           const otherFlag = f.id === r.f1 ? r.f2 : r.f1;
@@ -1490,7 +1276,6 @@
         const b = G.buildings[s.carryDest];
         if (b && b.flag === f.id) { s.state = "handIn"; s.t = FSC.DOOR_T; return; }
         if (f.slots.length >= FSC.FLAG_CAP) {
-          if (trySwap(G, s, r, f)) return;
           s.state = "wait"; s.congestT = 0;
           event(G, "congestion", { serf: s.id, flag: f.id, res: s.carry });
           return;
@@ -1502,7 +1287,6 @@
         const f = flagOf(G, s.targetFlag);
         if (!f) { s.state = "idle"; s.carry = 0; return; }
         if (f.slots.length < FSC.FLAG_CAP) { dropCarried(G, s, f); return; }
-        if (trySwap(G, s, r, f)) return;
         s.congestT++;
         if (s.congestT > FSC.CONGEST_T) {          // give up: take it back where it came from
           const back = f.id === r.f1 ? r.f2 : r.f1;
@@ -1521,7 +1305,7 @@
           if (f && f.slots.length < FSC.FLAG_CAP) { dropCarried(G, s, f); return; }
           event(G, "itemLost", { res: s.carry, v: s.v, why: "destination gone" });
         }
-        s.carry = 0; s.carryDest = 0; s.carryFlag = 0; s.carryRoad = 0;
+        s.carry = 0; s.carryDest = 0;
         s.state = "idle";
         return;
       }
@@ -1530,41 +1314,14 @@
     }
   }
 
-  /**
-   * PHASE-C — the exchange rule. A carrier standing at a FULL flag with a good in
-   * his hands may swap it for a good already waiting there that wants to travel
-   * back over his own road. Without this two chains that share a road can lock
-   * each other out for good: the flag is full of ore heading down, the carrier is
-   * holding bread heading up, and only he can move either of them.
-   */
-  function trySwap(G, s, r, f) {
-    for (let i = 0; i < f.slots.length; i++) {
-      const it = f.slots[i];
-      const b = it.dest ? G.buildings[it.dest] : null;
-      const destFlag = b ? b.flag : (it.destFlag || 0);
-      if (!destFlag || destFlag === f.id) continue;             // it belongs here
-      if (FSSim.nextRoad(G, f.id, destFlag) !== r.id) continue; // not my direction
-      f.slots[i] = carriedItem(s);
-      event(G, "itemSwap", { serf: s.id, flag: f.id, put: s.carry, took: it.res });
-      s.carry = it.res; s.carryDest = it.dest;
-      s.carryFlag = it.destFlag || 0; s.carryRoad = it.road || 0;
-      const back = f.id === r.f1 ? r.f2 : r.f1;
-      s.targetFlag = back;
-      carrierWalkTo(G, s, r, f.id === r.f1 ? r.path.length - 1 : 0);
-      s.state = "carry"; s.congestT = 0;
-      return true;
-    }
-    return false;
-  }
-
   function dropCarried(G, s, f) {
-    const it = carriedItem(s);
+    const it = { res: s.carry, dest: s.carryDest };
     f.slots.push(it);
     const b = G.buildings[it.dest];
     // still in flight to the same building — only re-resolve when that broke
     if (!b || (b.flag !== f.id && FSSim.nextRoad(G, f.id, b.flag) === 0)) FSSim.scheduleItem(G, f, it);
     event(G, "itemDrop", { serf: s.id, res: it.res, flag: f.id });
-    s.carry = 0; s.carryDest = 0; s.carryFlag = 0; s.carryRoad = 0;
+    s.carry = 0; s.carryDest = 0;
     s.congestT = 0;
     s.state = "idle";
     s.path.length = 0;
@@ -1612,7 +1369,7 @@
       return;
     }
     if (b.state === "done") {
-      tickProduction(G, b);          /* ===== PHASE-C ===== */
+      /* ===== PHASE-C: production runs here ===== */
       return;
     }
     // crews are requested lazily so a cut-off site simply waits.
@@ -1633,34 +1390,20 @@
       return;
     }
     if (b.state === "build") {
-      /* ===== PHASE-C: the confirmed swing accumulator ===== */
       const need = totalCost(b);
+      if (b.matUsed >= need) { finishBuilding(G, b); return; }
       if (!b.crew) return;                         // the builder is the one swinging
-      if (b.swingT > 0) { b.swingT--; return; }
-      const total = swingsFor(b);
-      // one material is drawn every SWING_PER_MAT swings — planks first, then stones
-      if ((b.swings % FSC.SWING_PER_MAT) === 0 && b.matUsed < need) {
-        const res = b.matHave.plank > 0 ? "plank" : (b.matHave.stone > 0 ? "stone" : null);
-        if (!res) { b.swingT = FSC.BUILD_IDLE_T; return; }   // waiting on materials
+      const res = b.matHave.plank > 0 ? "plank" : (b.matHave.stone > 0 ? "stone" : null);
+      if (!res) return;                            // waiting on materials — no progress
+      b.progress++;
+      if (b.progress >= FSC.BUILD_T_PER_MAT) {
+        b.progress = 0;
         b.matHave[res]--;
         b.matUsed++;
+        if (b.matUsed >= need) finishBuilding(G, b);
       }
-      b.swings++;
-      b.progress = Math.min(FSC.BUILD_FULL, b.progress + Math.floor(FSC.BUILD_FULL / total));
-      b.swingT = FSC.SWING_TICKS[FSC.rngInt(FSC.SWING_TICKS.length)];
-      if (b.swings >= total && b.matUsed >= need) finishBuilding(G, b);
     }
   }
-
-  /** Hammer swings this building needs: its own table, but never fewer than the
-   *  8-swings-per-material rule requires. */
-  function swingsFor(b) {
-    const def = defOf(b);
-    const byMat = FSC.SWING_PER_MAT * totalCost(b);
-    const table = def.swings || 16;
-    return Math.max(table, byMat);
-  }
-  FSSim.swingsFor = swingsFor;
 
   function setState(G, b, to) {
     if (b.state === to) return;
@@ -1678,9 +1421,7 @@
     b.crew = 0;
     if (crew) sendHome(G, crew);
     if (def.job) { b.workerReq = true; requestSerf(G, b.p, def.job, "bld", b.id); }
-    // a finished military building claims its land at once (PHASE-D refines this
-    // with garrisons and influence weights — the claim itself already works)
-    if (def.mil) FSSim.recomputeOwner(G);
+    if (def.mil) { /* ===== PHASE-D: knights + territory ===== */ }
     event(G, "bldDone", { id: b.id, btype: b.type, v: b.v, p: b.p });
     FSSim.notify(G, b.p, (FSC.BLD_NAME[b.type] || b.type) + " finished.", b.v);
   }
@@ -1821,15 +1562,11 @@
         return;                                  // progress is driven by tickConstruction
       }
       case "work": {
-        /* ===== PHASE-C: offsite professions set out from here ===== */
+        /* ===== PHASE-C: the worker's production cycle runs from the building ===== */
         const b = G.buildings[s.home];
-        if (!b || b.state !== "done") { if (b) b.worker = 0; sendHome(G, s); return; }
-        if (defOf(b).radius) maybeStartTrip(G, s, b);
+        if (!b || b.state === "burn") { if (b) b.worker = 0; sendHome(G, s); }
         return;
       }
-      /* ===== PHASE-C: offsite work + geology ===== */
-      case "goWork": case "doWork": case "backWork": tickFieldWorker(G, s); return;
-      case "goGeo": case "geoWalk": case "geoWork": case "geoBack": tickGeologist(G, s); return;
       case "return": {
         if (!walk(G, s)) return;
         const wh = G.buildings[s.target];
@@ -1858,43 +1595,16 @@
   function warehouseDispatch(G, wh) {
     const f = flagOf(G, wh.flag);
     if (!f || f.slots.length >= FSC.FLAG_CAP) return;
-    /* ===== PHASE-C: 'out' resources are pushed away first, demand or not ===== */
-    if (wh.modes) {
-      for (let i = 0; i < FSC.INV_ORDER.length; i++) {
-        const res = FSC.INV_ORDER[i];
-        if ((wh.modes[res] || 0) !== FSC.STOCK_MODE.OUT || !wh.inv[res]) continue;
-        const d = FSSim.chooseDemand(G, f.id, res, wh.p, wh.id)
-          || FSSim.warehouseNear(G, f.id, wh.p, (b) => b.id !== wh.id && stockAccepts(b, res));
-        if (!d) continue;
-        wh.inv[res]--;
-        FSSim.pushItem(G, f, res, d.id);
-        return;
-      }
-    }
     for (let i = 0; i < FSC.INV_ORDER.length; i++) {
       const res = FSC.INV_ORDER[i];
       if (!wh.inv[res]) continue;
-      const d = FSSim.chooseDemand(G, f.id, res, wh.p, wh.id);
+      const d = FSSim.demandNear(G, f.id, res, wh.p, wh.id);
       if (!d) continue;
-      // A mine is happy with any meal, so the store sends whichever food it is
-      // longest on (confirmed original; ties go to fish).
-      let send = res;
-      if (isFood(res) && defOf(d).inFood) send = FSSim.bestFoodOf(wh);
-      wh.inv[send]--;
-      FSSim.pushItem(G, f, send, d.id);
+      wh.inv[res]--;
+      FSSim.pushItem(G, f, res, d.id);
       return;
     }
   }
-
-  /** The food a store holds most of — fish first on a tie (FSC.FOODS order). */
-  FSSim.bestFoodOf = function (wh) {
-    let best = FSC.FOODS[0], bestN = -1;
-    for (let i = 0; i < FSC.FOODS.length; i++) {
-      const n = (wh.inv && wh.inv[FSC.FOODS[i]]) || 0;
-      if (n > bestN) { bestN = n; best = FSC.FOODS[i]; }
-    }
-    return best;
-  };
 
   /** Total people a player owns: walking serfs + everyone resting in warehouses. */
   FSSim.population = function (G, p) {
@@ -1908,791 +1618,18 @@
     return n;
   };
 
-  /**
-   * PHASE-C reproduction (confirmed original): the castle turns out one settler
-   * every (REPRO_MAX − reproRate) × REPRO_UNIT ticks. The very same clock recruits
-   * knights — a 16-bit counter gathers `recruitRate` per firing, every overflow
-   * banks a credit, and a firing holding a credit plus a sword and a shield in
-   * store produces a rank-0 knight instead of a plain settler.
-   * A negative repro slider switches breeding off (used by the suites).
-   */
-  function reproInterval(pl) {
-    const r = pl.repro === undefined ? FSC.REPRO_DEFAULT : pl.repro;
-    if (r < 0) return 0;
-    let iv = (FSC.REPRO_MAX - r) * FSC.REPRO_UNIT;
-    if (iv < 1) iv = 1;
-    return iv;
-  }
-  FSSim.reproInterval = reproInterval;
-
+  /** New settlers turn up in the castle over time (see FSC.SERF_GROW_T). */
   function tickPopulation(G) {
     for (let p = 0; p < G.players.length; p++) {
+      if (((G.tick + p) % FSC.SERF_GROW_T) !== 0) continue;
       const pl = G.players[p];
       if (pl.eliminated) continue;
-      const iv = reproInterval(pl);
-      if (!iv || ((G.tick + p) % iv) !== 0) continue;
-      // the knight ledger ticks whether or not there is room for the settler
-      pl.knightCounter = (pl.knightCounter === undefined ? FSC.KNIGHT_COUNTER_START : pl.knightCounter)
-        + ((pl.knights && pl.knights.recruitRate) | 0);
-      if (pl.knightCounter > 0xffff) {
-        pl.knightCounter &= 0xffff;
-        pl.knightCredit = Math.min(FSC.KNIGHT_CREDIT_MAX, (pl.knightCredit || 0) + 1);
-      }
-      const c = FSSim.castleOf(G, p) || firstStock(G, p);
+      const c = FSSim.castleOf(G, p);
       if (!c || c.state !== "done" || !c.pool) continue;
       if (FSSim.population(G, p) >= FSC.SERF_CAP) continue;
-      if ((pl.knightCredit || 0) > 0 && (c.inv.sword || 0) > 0 && (c.inv.shield || 0) > 0) {
-        c.inv.sword--; c.inv.shield--;
-        c.pool.knight++;
-        pl.knightCredit--;
-        syncPoolInv(c);
-        event(G, "knightRecruited", { p, pool: c.pool.knight, from: c.id });
-        continue;
-      }
       c.pool.generic++;
       syncPoolInv(c);
       event(G, "serfBorn", { p, pool: c.pool.generic });
-    }
-  }
-  function firstStock(G, p) {
-    let best = null;
-    for (const id in G.buildings) {
-      const b = G.buildings[id];
-      if (b.p !== p || !b.pool || b.state !== "done") continue;
-      if (!best || b.id < best.id) best = b;
-    }
-    return best;
-  }
-
-  /* ===================================================================== */
-  /* ===== PHASE-C: the background sweep (one system for everything alive)  */
-  /* ===================================================================== */
-
-  /**
-   * The classic advances the living world with a cheap strided sweep instead of
-   * per-object timers: every FSC.SWEEP_EVERY ticks it visits a handful of vertices
-   * (scaled to map size) and rolls each one forward — fish spawn and drift, young
-   * trees mature, stumps rot, sown fields ripen a stage. A whole pass over a 64²
-   * map takes ~2048 ticks, so nothing is ever scanned and everything still grows.
-   */
-  function sweepStep(G, v) {
-    const map = G.map, O = FSC.OBJ;
-    const t = map.terr[v];
-    if (t === FSC.TERR.WATER) {
-      if (map.fish[v] < FSC.FISH_CAP && FSC.rng() < FSC.FISH_REGROW_P) map.fish[v]++;
-      // shoals drift: one fish moves to a neighbouring water vertex
-      if (map.fish[v] > 0) {
-        const d = FSC.FISH_MIGRATE_DIRS[FSC.rngInt(FSC.FISH_MIGRATE_DIRS.length)];
-        const u = FSMap.nbr(map, v, d);
-        if (u >= 0 && map.terr[u] === FSC.TERR.WATER && map.fish[u] < FSC.FISH_CAP) {
-          map.fish[v]--; map.fish[u]++;
-        }
-      }
-      return;
-    }
-    const o = map.obj[v];
-    if (o === O.SAPLING) {
-      if (FSC.rng() < FSC.SAPLING_P) { map.obj[v] = O.TREE1; dirty(G, v); }
-      return;
-    }
-    if (o >= O.TREE1 && o < O.TREE4) {
-      if (FSC.rng() < FSC.SAPLING_P) { map.obj[v] = o + 1; dirty(G, v); }
-      return;
-    }
-    if (o === O.STUMP) {
-      if (FSC.rng() < FSC.STUMP_P) { map.obj[v] = O.NONE; map.objArg[v] = 0; dirty(G, v); }
-      return;
-    }
-    if (o >= O.FIELD0 && o <= O.FIELD4) { map.obj[v] = o + 1; dirty(G, v); return; }
-    if (o === O.FIELD_STUB) { map.obj[v] = O.NONE; map.objArg[v] = 0; dirty(G, v); }
-  }
-
-  function tickSweep(G) {
-    if ((G.tick % FSC.SWEEP_EVERY) !== 0) return;
-    const N = G.map.W * G.map.H;
-    let n = Math.ceil(N / 1024) * FSC.SWEEP_PER_1024;
-    if (n < 1) n = 1;
-    for (let i = 0; i < n; i++) {
-      G.sweepV = (G.sweepV + FSC.SWEEP_STRIDE) % N;
-      sweepStep(G, G.sweepV);
-    }
-  }
-  FSSim.sweepStep = sweepStep;
-
-  /* ===================================================================== */
-  /* ===== PHASE-C: producers ============================================= */
-  /* ===================================================================== */
-
-  /** Book a finished good: onto the door flag, or held back when the flag is full. */
-  function produceGood(G, b, res, n) {
-    n = n || 1;
-    for (let i = 0; i < n; i++) {
-      if (!FSSim.outputGood(G, b, res)) {
-        b.stockOut[res] = (b.stockOut[res] || 0) + 1;
-        b.outHeld = (b.outHeld || 0) + 1;
-        b.outT = FSC.PROD_FLUSH_T;
-      }
-    }
-    const pr = G.prod[b.p] || (G.prod[b.p] = {});
-    pr[res] = (pr[res] || 0) + n;
-    event(G, "produced", { bld: b.id, btype: b.type, res, n, p: b.p });
-  }
-  FSSim.produceGood = produceGood;
-
-  /** Try again to get held-back goods onto the door flag. */
-  function flushOutputs(G, b) {
-    if (!b.outHeld) return;
-    for (const res in b.stockOut) {
-      while (b.stockOut[res] > 0) {
-        if (!FSSim.outputGood(G, b, res)) { b.outT = FSC.PROD_FLUSH_T; return; }
-        b.stockOut[res]--; b.outHeld--;
-      }
-    }
-  }
-
-  /** The weaponsmith's shield half-cycle is free — only the sword half eats. */
-  function cycleEats(b, def) {
-    if (!def.outWeapon) return true;
-    return (b.altOut % 2) === 0;
-  }
-  function inputsReady(G, b, def) {
-    if (def.in && cycleEats(b, def)) {
-      for (const r in def.in) if ((b.stockIn[r] || 0) < def.in[r]) return false;
-    }
-    return true;
-  }
-  function consumeInputs(G, b, def) {
-    if (def.in && cycleEats(b, def)) for (const r in def.in) b.stockIn[r] -= def.in[r];
-  }
-  /** Eat one meal: the food the mine happens to hold most of (ties → fish). */
-  function consumeFood(b) {
-    let best = null, bestN = 0;
-    for (let i = 0; i < FSC.FOODS.length; i++) {
-      const f = FSC.FOODS[i], n = b.stockIn[f] || 0;
-      if (n > bestN) { best = f; bestN = n; }
-    }
-    if (!best) return null;
-    b.stockIn[best]--;
-    return best;
-  }
-
-  /* --- mines: the confirmed dig model ---------------------------------------
-   * think → (usually) eat a meal → walk in → up to MINE_DIGS attempts, each
-   * sampling ONE random vertex in rings 0..MINE_RING and hitting only if that
-   * exact vertex still holds the mineral → walk out → deliver. A 16-bit history
-   * register raises the "exhausted" notification once the finds dry up.
-   */
-  // (rebuilt per dig — 40-odd vertices, and nothing derived ever lands in the save)
-  function mineCells(G, b) {
-    const cells = [];
-    FSMap.forRadius(G.map, b.v, FSC.MINE_RING, (u) => cells.push(u));
-    cells.sort((x, y) => x - y);
-    return cells;
-  }
-  function mineDig(G, b) {
-    const map = G.map, kind = FSC.MINERAL[b.mine.kind];
-    const cells = mineCells(G, b);
-    if (!cells.length) return false;
-    const v = cells[FSC.rngInt(cells.length)];
-    if (map.mineral[v] !== kind || map.mineralAmt[v] <= 0) return false;
-    map.mineralAmt[v]--;
-    return true;
-  }
-  function mineRegister(G, b, found) {
-    const m = b.mine;
-    m.reg = (((m.reg || 0) << 1) | (found ? 1 : 0)) & 0xffff;
-    if (found) { m.exhausted = false; return; }
-    if (m.reg === FSC.MINE_EXHAUST_REG && !m.exhausted) {
-      m.exhausted = true;
-      event(G, "mineExhausted", { bld: b.id, btype: b.type, v: b.v, p: b.p });
-      FSSim.notify(G, b.p, (FSC.BLD_NAME[b.type] || b.type) + " has run dry.", b.v);
-    }
-  }
-  function tickMine(G, b, def) {
-    if (b.halted) { b.working = false; return; }
-    if (b.prodT > 0) { b.prodT--; return; }
-    const st = b.mstate || "wait";
-    if (st === "wait") {
-      // the "do I need a meal this time" roll happens ONCE per cycle — waiting for
-      // food does not re-roll it, so a mine with an empty larder really does stall.
-      if (b.skipRoll === undefined) {
-        b.mcycle = (b.mcycle || 0) + 1;
-        b.skipRoll = (b.mcycle % FSC.MINE_SKIP_EVERY) === 0 ? 1 : 0;
-      }
-      if (b.skipRoll) {                               // one cycle in eight is free
-        b.skipRoll = undefined;
-        b.mstate = "pre"; b.prodT = FSC.MINE_PRE_T; b.working = true;
-        return;
-      }
-      if (foodStock(b) <= 0) { b.prodT = FSC.MINE_IDLE_T; b.working = false; return; }
-      consumeFood(b);
-      b.skipRoll = undefined;
-      b.mstate = "eat"; b.prodT = FSC.MINE_EAT_T; b.working = true;
-      return;
-    }
-    if (st === "eat") { b.mstate = "pre"; b.prodT = FSC.MINE_PRE_T; return; }
-    if (st === "pre") { b.mstate = "dig"; b.digs = 0; b.prodT = FSC.MINE_DIG_T; return; }
-    if (st === "dig") {
-      b.digs++;
-      if (mineDig(G, b)) { b.found = 1; b.mstate = "post"; b.prodT = FSC.MINE_POST_T; return; }
-      if (b.digs >= FSC.MINE_DIGS) { b.found = 0; b.mstate = "post"; b.prodT = FSC.MINE_POST_T; return; }
-      b.prodT = FSC.MINE_DIG_T;
-      return;
-    }
-    if (st === "post") { b.mstate = "out"; b.prodT = FSC.MINE_OUT_T; return; }
-    // "out": the miner comes back up
-    if (b.found) produceGood(G, b, def.out, 1);
-    else event(G, "mineFail", { bld: b.id, btype: b.type, v: b.v, p: b.p });
-    b.cycles++;
-    mineRegister(G, b, b.found);
-    b.found = 0;
-    b.mstate = "wait";
-    b.working = false;
-    b.prodT = FSC.MINE_WAIT[0] + FSC.rngInt(FSC.MINE_WAIT[1] - FSC.MINE_WAIT[0] + 1);
-  }
-
-  /**
-   * Which tool the toolmaker makes next: a weighted-random draw over the nine
-   * priority sliders (confirmed original — a 0 slider is never drawn, an all-zero
-   * panel falls back to a uniform pick). No scarcity maths anywhere.
-   */
-  function chooseTool(G, p) {
-    const pl = G.players[p];
-    let total = 0;
-    for (let i = 0; i < FSC.TOOLS.length; i++) {
-      const w = (pl.tools && pl.tools[FSC.TOOLS[i]]) | 0;
-      if (w > 0) total += w;
-    }
-    if (total <= 0) return FSC.TOOLS[FSC.rngInt(FSC.TOOLS.length)];
-    let roll = FSC.rng() * total;
-    for (let i = 0; i < FSC.TOOLS.length; i++) {
-      const w = (pl.tools && pl.tools[FSC.TOOLS[i]]) | 0;
-      if (w <= 0) continue;
-      roll -= w;
-      if (roll <= 0) return FSC.TOOLS[i];
-    }
-    return FSC.TOOLS[FSC.TOOLS.length - 1];
-  }
-  FSSim.chooseTool = chooseTool;
-
-  /** Pig pen: the herd breeds on fed cycles and one fat pig ships out. */
-  function tickPigfarm(G, b, def) {
-    if (b.herd === undefined) b.herd = 0;
-    if (b.working) {
-      if (--b.prodT > 0) return;
-      b.working = false;
-      b.cycles++;
-      if (b.fed) {
-        for (let i = 0; i < FSC.PIG_ROLLS && b.herd < FSC.PIG_HERD_MAX; i++) {
-          if (FSC.rng() < FSC.PIG_P_BASE + FSC.PIG_P_PER * b.herd) b.herd++;
-        }
-        b.fed = 0;
-      }
-      if (b.herd > FSC.PIG_KEEP) { b.herd--; produceGood(G, b, def.out, 1); }
-      return;
-    }
-    if (b.halted || b.outHeld >= FSC.OUT_CAP) return;
-    const wheat = b.stockIn.wheat || 0;
-    if (b.herd < FSC.PIG_HERD_MAX && wheat > 0) { b.stockIn.wheat = wheat - 1; b.fed = 1; }
-    else if (b.herd <= FSC.PIG_KEEP) return;           // nothing to feed, nothing to sell
-    b.working = true;
-    b.prodT = def.cycleT;
-  }
-
-  function emitProduct(G, b, def) {
-    if (def.outTool) { produceGood(G, b, chooseTool(G, b.p), 1); return; }
-    if (def.outWeapon) {
-      const res = (b.altOut % 2) === 0 ? "sword" : "shield";
-      b.altOut++;
-      produceGood(G, b, res, 1);
-      return;
-    }
-    if (def.out) produceGood(G, b, def.out, def.outN || 1);
-  }
-
-  /** An interior producer (sawmill, mill, smelter, toolmaker…). */
-  function tickInterior(G, b, def) {
-    if (b.working) {
-      if (--b.prodT > 0) return;
-      b.working = false;
-      b.cycles++;
-      emitProduct(G, b, def);
-      return;
-    }
-    if (b.halted) return;
-    if (b.outHeld >= FSC.OUT_CAP) return;              // the door flag is jammed
-    if (!inputsReady(G, b, def)) return;
-    consumeInputs(G, b, def);
-    b.working = true;
-    b.prodT = def.cycleT;
-  }
-
-  /** Runs for every finished building each tick (called from tickConstruction). */
-  function tickProduction(G, b) {
-    const def = defOf(b);
-    if (def.warehouse || def.mil) return;
-    if (b.outT > 0) b.outT--; else flushOutputs(G, b);
-    if (!b.worker || !G.serfs[b.worker]) return;
-    if (def.radius) return;                            // offsite jobs live on the serf
-    if (def.mine) { tickMine(G, b, def); return; }
-    if (b.type === "pigfarm") { tickPigfarm(G, b, def); return; }
-    if (!def.in) return;                               // nothing to make
-    tickInterior(G, b, def);
-  }
-
-  /* ===================================================================== */
-  /* ===== PHASE-C: offsite workers (chop / plant / hack / fish / farm) === */
-  /* ===================================================================== */
-
-  function workTicks(kind) {
-    if (kind === "chop") return FSC.CHOP_T;
-    if (kind === "plant") return FSC.PLANT_T;
-    if (kind === "hack") return FSC.HACK_T;
-    if (kind === "fish") return FSC.FISH_CHECK_T;      // first bite check
-    if (kind === "sow") return FSC.SOW_T;
-    return FSC.REAP_T;
-  }
-
-  /** Is another worker already walking to this vertex? (keeps two axes off one tree) */
-  function taskTaken(G, p, v) {
-    for (const id in G.serfs) {
-      const s = G.serfs[id];
-      if (s.p !== p || s.workV !== v) continue;
-      if (s.state === "goWork" || s.state === "doWork") return true;
-    }
-    return false;
-  }
-
-  function freeGrass(G, v) {
-    const map = G.map;
-    if (map.terr[v] !== FSC.TERR.GRASS) return false;
-    if (map.obj[v] !== FSC.OBJ.NONE) return false;
-    if (map.flagAt[v] || map.bldAt[v]) return false;
-    return FSMap.edgeCount(map, v) === 0;              // never plant across a road
-  }
-
-  /** What should this worker do next? {v, kind, arg} or null. */
-  function pickTask(G, b, def) {
-    const map = G.map, O = FSC.OBJ, R = def.radius;
-    let best = -1, bestD = 1e9, arg = -1, kind = "";
-    function take(u, d, k, a) {
-      if (d > bestD || (d === bestD && u >= best && best >= 0)) return;
-      best = u; bestD = d; kind = k; arg = a === undefined ? -1 : a;
-    }
-    if (def.job === JOB.LUMBERJACK) {
-      FSMap.forRadius(map, b.v, R, (u, d) => {
-        if (map.obj[u] !== O.TREE4 || taskTaken(G, b.p, u)) return;
-        take(u, d, "chop");
-      });
-    } else if (def.job === JOB.FORESTER) {
-      FSMap.forRadius(map, b.v, R, (u, d) => {
-        if (d < 1 || !freeGrass(G, u) || taskTaken(G, b.p, u)) return;
-        take(u, d, "plant");
-      });
-    } else if (def.job === JOB.STONECUTTER) {
-      FSMap.forRadius(map, b.v, R, (u, d) => {
-        if (!FSMap.isStone(map.obj[u]) || !(map.objArg[u] > 0) || taskTaken(G, b.p, u)) return;
-        take(u, d, "hack");
-      });
-    } else if (def.job === JOB.FISHER) {
-      FSMap.forRadius(map, b.v, R, (u, d) => {
-        // only shoals above the biting threshold are worth the walk
-        if (map.terr[u] !== FSC.TERR.WATER || !(map.fish[u] > FSC.FISH_MIN_STOCK)) return;
-        // stand on the shore next to the shoal
-        for (let k = 0; k < 6; k++) {
-          const sh = FSMap.nbr(map, u, k);
-          if (sh < 0 || !FSMap.walkable(map.terr[sh]) || map.bldAt[sh]) continue;
-          if (taskTaken(G, b.p, sh)) continue;
-          take(sh, d, "fish", u);
-          break;
-        }
-      });
-    } else if (def.job === JOB.FARMER) {
-      // ripe enough to cut? (FIELD2 and up — cutting also ages the field a stage)
-      let fields = 0;
-      FSMap.forRadius(map, b.v, R, (u, d) => {
-        if (!FSMap.isField(map.obj[u])) return;
-        fields++;
-        if (map.obj[u] < O.FIELD0 + FSC.FIELD_HARVEST_MIN || taskTaken(G, b.p, u)) return;
-        take(u, d, "reap");
-      });
-      if (best < 0 && fields < FSC.FIELD_MAX) {
-        FSMap.forRadius(map, b.v, FSC.FIELD_RING[1], (u, d) => {
-          if (d < FSC.FIELD_RING[0] || !freeGrass(G, u) || taskTaken(G, b.p, u)) return;
-          take(u, d, "sow");
-        });
-      }
-    }
-    if (best < 0) return null;
-    return { v: best, kind, arg };
-  }
-
-  /** The worker is home and rested — send him out if there is work in range. */
-  function maybeStartTrip(G, s, b) {
-    const def = defOf(b);
-    if (b.halted) { b.working = false; return; }
-    if (b.prodT > 0) { b.prodT--; return; }
-    if (b.outHeld >= FSC.OUT_CAP) { b.prodT = FSC.PROD_FLUSH_T; return; }
-    const task = pickTask(G, b, def);
-    if (!task) { b.prodT = FSC.WORK_IDLE_T; b.working = false; return; }
-    const path = FSSim.offroadPath(G, b.v, task.v, { maxLen: FSC.WORK_WALK_MAX });
-    if (!path || path.length < 2) { b.prodT = FSC.WORK_IDLE_T; b.working = false; return; }
-    s.v = b.v; s.from = b.v; s.to = path[1]; s.frac = 0; s.stepT = 0;
-    s.path = path.slice(1);
-    s.offroad = true;
-    s.state = "goWork";
-    s.workV = task.v; s.workKind = task.kind; s.workArg = task.arg;
-    b.working = true;
-  }
-
-  /** Apply the effect of a finished job. Returns the good to carry home, 0, or null. */
-  function applyWork(G, s, b) {
-    const map = G.map, O = FSC.OBJ, v = s.workV;
-    if (s.workKind === "chop") {
-      if (map.obj[v] !== O.TREE4) return null;
-      map.obj[v] = O.STUMP; map.objArg[v] = 0; dirty(G, v);
-      event(G, "treeFelled", { v, p: b.p, bld: b.id });
-      return "lumber";
-    }
-    if (s.workKind === "plant") {
-      if (map.obj[v] !== O.NONE) return null;
-      map.obj[v] = O.SAPLING; map.objArg[v] = 0; dirty(G, v);
-      event(G, "saplingPlanted", { v, p: b.p, bld: b.id });
-      return 0;
-    }
-    if (s.workKind === "hack") {
-      if (!FSMap.isStone(map.obj[v])) return null;
-      const left = Math.max(0, (map.objArg[v] || 1) - 1);
-      if (left > 0) FSMap.setStone(map, v, left);
-      else { map.obj[v] = O.NONE; map.objArg[v] = 0; }
-      dirty(G, v);
-      event(G, "stoneCut", { v, p: b.p, left });
-      return "stone";
-    }
-    if (s.workKind === "sow") {
-      if (map.obj[v] !== O.NONE) return null;
-      map.obj[v] = O.FIELD0; map.objArg[v] = 0; dirty(G, v);
-      event(G, "fieldSown", { v, p: b.p, bld: b.id });
-      return 0;
-    }
-    if (s.workKind === "reap") {
-      // a cut takes one sheaf AND ages the field a stage (past ripe → stubble)
-      if (!FSMap.isField(map.obj[v]) || map.obj[v] < O.FIELD0 + FSC.FIELD_HARVEST_MIN) return null;
-      map.obj[v] = map.obj[v] >= O.FIELD4 ? O.FIELD_STUB : map.obj[v] + 1;
-      map.objArg[v] = 0; dirty(G, v);
-      event(G, "fieldReaped", { v, p: b.p, bld: b.id });
-      return "wheat";
-    }
-    return null;
-  }
-
-  /**
-   * Fishing is a run of chances rather than a fixed job: each check has a
-   * (fish − FISH_MIN_STOCK)/64 chance of a bite, and after FISH_CHECKS the fisher
-   * packs up empty handed. Returns "fish", 0 (still trying) or null (gave up).
-   */
-  function fishCheck(G, s) {
-    const map = G.map, w = s.workArg;
-    s.fishN = (s.fishN || 0) + 1;
-    if (w >= 0 && map.terr[w] === FSC.TERR.WATER) {
-      const stock = map.fish[w] || 0;
-      const chance = Math.max(0, stock - FSC.FISH_MIN_STOCK) / FSC.FISH_P_DIV;
-      if (chance > 0 && FSC.rng() < chance) {
-        map.fish[w]--;
-        event(G, "fishCaught", { v: w, p: s.p, left: map.fish[w] });
-        return "fish";
-      }
-    }
-    if (s.fishN >= FSC.FISH_CHECKS) return null;
-    return 0;
-  }
-
-  /** The offsite worker state machine (called from tickWorkerSerf). */
-  function tickFieldWorker(G, s) {
-    const b = G.buildings[s.home];
-    if (!b || b.state !== "done") { if (b) b.worker = 0; sendHome(G, s); return; }
-    const def = defOf(b);
-    if (s.state === "goWork") {
-      if (!walk(G, s)) return;
-      s.state = "doWork"; s.t = workTicks(s.workKind); s.fishN = 0;
-      return;
-    }
-    if (s.state === "doWork") {
-      if (--s.t > 0) return;
-      let res;
-      if (s.workKind === "fish") {
-        res = fishCheck(G, s);
-        if (res === 0) {                               // no bite yet — wait and try again
-          s.t = (s.fishN % 2) === 0 ? FSC.FISH_CHECK_T : FSC.FISH_WAIT_T;
-          return;
-        }
-      } else {
-        res = applyWork(G, s, b);
-      }
-      s.carry = res || 0;
-      s.workV = -1;
-      const home = FSSim.offroadPath(G, s.v, b.v, { maxLen: FSC.WORK_WALK_MAX + 10 });
-      if (!home || home.length < 2) {                  // stranded (very rare)
-        if (s.carry) s.carry = 0;
-        s.v = b.v; s.from = b.v; s.to = b.v; s.frac = 0; s.path.length = 0;
-        s.state = "work"; b.prodT = def.cycleT; b.working = false;
-        return;
-      }
-      s.path = home.slice(1);
-      s.offroad = true;
-      s.state = "backWork";
-      return;
-    }
-    // backWork
-    if (!walk(G, s)) return;
-    if (s.carry) { produceGood(G, b, s.carry, 1); b.cycles++; }
-    s.carry = 0;
-    s.state = "work";
-    b.prodT = def.cycleT;
-    b.working = false;
-  }
-
-  /* ===================================================================== */
-  /* ===== PHASE-C: geologists (plan §8) ================================== */
-  /* ===================================================================== */
-
-  const MINERAL_NAME = { 1: "stone", 2: "coal", 3: "iron ore", 4: "gold" };
-
-  FSSim.sendGeologist = function (G, flagId, p) {
-    p = p || 0;
-    const f = flagOf(G, flagId);
-    if (!f) return { ok: false, why: "no flag" };
-    if (f.p !== p) return { ok: false, why: "not your flag" };
-    if (G.map.terr[f.v] !== FSC.TERR.MOUNTAIN) return { ok: false, why: "geologists survey mountains" };
-    for (const id in G.serfs) {
-      const s = G.serfs[id];
-      if (s.job === JOB.GEOLOGIST && s.geoFlag === flagId) return { ok: false, why: "a geologist is already on the way" };
-    }
-    requestSerf(G, p, JOB.GEOLOGIST, "geo", flagId);
-    return { ok: true, flag: flagId };
-  };
-
-  /** sign code = (mineral+1) + 8*density, or FSC.SIGN_EMPTY for "nothing here". */
-  FSSim.signMineral = function (code) {
-    if (!code || code === FSC.SIGN_EMPTY) return 0;
-    return (code & 7) - 1;
-  };
-  FSSim.signDensity = function (code) {
-    if (!code || code === FSC.SIGN_EMPTY) return 0;
-    return code >> 3;
-  };
-
-  function plantSign(G, s) {
-    const map = G.map, v = s.workV;
-    if (v < 0) return;
-    const amt = map.mineralAmt[v] || 0;
-    const kind = amt > 0 ? map.mineral[v] : 0;
-    // a sign says WHAT and roughly HOW MUCH: big deposit or small.
-    const code = kind > 0 ? (kind + 1) + (amt >= FSC.GEO_BIG_AMT ? 8 : 0) : FSC.SIGN_EMPTY;
-    map.sign[v] = code;
-    dirty(G, v);
-    event(G, "geoSign", { v, mineral: kind, amt, code, p: s.p });
-    if (kind > 0) {
-      // one shout per mineral+size in this neighbourhood, not once per sign
-      let dup = false;
-      FSMap.forRadius(map, v, 4, (u) => { if (u !== v && map.sign[u] === code) dup = true; });
-      if (!dup) FSSim.notify(G, s.p, "Geologist found " + (MINERAL_NAME[kind] || "ore") + ".", v);
-    }
-  }
-
-  /**
-   * The tour: from the flag he samples up to GEO_TRIES candidate vertices in
-   * rings GEO_RING; two already-signed hits mean the area is surveyed and he
-   * goes home. Otherwise he walks out, hammers, plants a sign, comes BACK to
-   * the flag and searches again.
-   */
-  function nextGeoSpot(G, s) {
-    const map = G.map;
-    const f = flagOf(G, s.geoFlag);
-    const center = f ? f.v : s.v;
-    const lo = FSC.GEO_RING[0], hi = FSC.GEO_RING[1];
-    const ring = [];
-    FSMap.forRadius(map, center, hi, (u, d) => { if (d >= lo) ring.push(u); });
-    if (s.geoSpots >= FSC.GEO_SPOTS || !ring.length) { sendHome(G, s); return false; }
-    let signs = 0;
-    for (let tries = 0; tries < FSC.GEO_TRIES; tries++) {
-      const u = ring[FSC.rngInt(ring.length)];
-      if (map.sign[u]) { signs++; if (signs >= FSC.GEO_SIGN_STOP) break; continue; }
-      if (map.terr[u] !== FSC.TERR.MOUNTAIN || map.flagAt[u] || map.bldAt[u]) continue;
-      if (s.geoSeen.indexOf(u) >= 0) continue;
-      s.geoSeen.push(u);
-      const path = FSSim.offroadPath(G, s.v, u, { maxLen: FSC.OFFROAD_MAX });
-      if (!path) continue;
-      s.workV = u;
-      if (path.length < 2) { s.state = "geoWork"; s.t = FSC.GEO_T; return true; }
-      s.path = path.slice(1);
-      s.offroad = true;
-      s.state = "geoWalk";
-      return true;
-    }
-    sendHome(G, s);
-    return false;
-  }
-
-  function tickGeologist(G, s) {
-    if (s.state === "goGeo") {
-      if (!walk(G, s)) return;
-      s.geoSpots = 0; s.geoSeen = [];
-      nextGeoSpot(G, s);
-      return;
-    }
-    if (s.state === "geoWalk") {
-      if (!walk(G, s)) return;
-      s.state = "geoWork"; s.t = FSC.GEO_T;
-      return;
-    }
-    if (s.state === "geoWork") {
-      if (--s.t > 0) return;
-      plantSign(G, s);
-      s.geoSpots++;
-      s.workV = -1;
-      const f = flagOf(G, s.geoFlag);
-      const back = f ? FSSim.offroadPath(G, s.v, f.v, { maxLen: FSC.OFFROAD_MAX }) : null;
-      if (!back || back.length < 2) { nextGeoSpot(G, s); return; }
-      s.path = back.slice(1);
-      s.offroad = true;
-      s.state = "geoBack";
-      return;
-    }
-    // geoBack — home at the flag, look for the next likely spot
-    if (!walk(G, s)) return;
-    nextGeoSpot(G, s);
-  }
-
-  /* ===================================================================== */
-  /* ===== PHASE-C: water roads + boats =================================== */
-  /* ===================================================================== */
-
-  /** Pull a boat out of the nearest store and address it to the road's shore flag. */
-  function requestBoat(G, r) {
-    const ends = [r.f1, r.f2];
-    for (let i = 0; i < ends.length; i++) {
-      const f = flagOf(G, ends[i]);
-      if (!f) continue;
-      const wh = FSSim.warehouseNear(G, f.id, r.p, (b) => (b.inv.boat || 0) > 0);
-      if (!wh) continue;
-      const wf = flagOf(G, wh.flag);
-      if (!wf || wf.slots.length >= FSC.FLAG_CAP) continue;
-      wh.inv.boat--;
-      FSSim.pushItem(G, wf, "boat", 0, { destFlag: f.id, road: r.id });
-      r.boatInFlight = 1;
-      event(G, "boatSent", { road: r.id, from: wh.id, flag: f.id, p: r.p });
-      return true;
-    }
-    return false;
-  }
-
-  function tickWaterRoads(G) {
-    for (const id in G.roads) {
-      const r = G.roads[id];
-      if (!r.water || r.boatHave) continue;
-      // has a boat arrived on either shore?
-      const ends = [r.f1, r.f2];
-      for (let i = 0; i < ends.length && !r.boatHave; i++) {
-        const f = flagOf(G, ends[i]);
-        if (!f) continue;
-        for (let k = 0; k < f.slots.length; k++) {
-          const it = f.slots[k];
-          if (it.res !== "boat") continue;
-          if (it.road && it.road !== r.id) continue;
-          if (!it.road && it.destFlag !== f.id) continue;
-          f.slots.splice(k, 1);
-          r.boatHave = true; r.boatInFlight = 0;
-          event(G, "boatArrive", { road: r.id, flag: f.id, p: r.p });
-          FSSim.notify(G, r.p, "A boat is in the water — the ferry runs.", f.v);
-          requestCarrier(G, r);
-          break;
-        }
-      }
-      if (!r.boatHave && !r.boatInFlight && ((G.tick + r.id) % FSC.BOAT_REQ_T) === 0) requestBoat(G, r);
-    }
-  }
-
-  /* ===================================================================== */
-  /* ===== PHASE-C: player controls (all routed through the command layer) = */
-  /* ===================================================================== */
-
-  FSSim.setDist = function (G, p, key, value) {
-    const pl = G.players[p];
-    if (!pl || !(key in pl.dist)) return { ok: false, why: "unknown distribution" };
-    let v = value | 0;
-    if (v < 0) v = 0;
-    if (v > FSC.PRIO_MAX) v = FSC.PRIO_MAX;
-    pl.dist[key] = v;
-    if (pl.distCredit) pl.distCredit = {};             // a slider move restarts the round-robin
-    return { ok: true, key, value: v };
-  };
-
-  FSSim.setToolPrio = function (G, p, tool, value) {
-    const pl = G.players[p];
-    if (!pl || FSC.TOOLS.indexOf(tool) < 0) return { ok: false, why: "unknown tool" };
-    let v = value | 0;
-    if (v < 0) v = 0;
-    if (v > FSC.PRIO_MAX) v = FSC.PRIO_MAX;
-    pl.tools[tool] = v;
-    return { ok: true, tool, value: v };
-  };
-
-  FSSim.setStockMode = function (G, bldId, res, mode, p) {
-    const b = bldOf(G, bldId);
-    if (!b || !b.modes) return { ok: false, why: "not a warehouse" };
-    if (p !== undefined && b.p !== p) return { ok: false, why: "not yours" };
-    if (FSC.RES_LIST.indexOf(res) < 0) return { ok: false, why: "unknown resource" };
-    const m = mode | 0;
-    if (m < 0 || m > 2) return { ok: false, why: "bad mode" };
-    b.modes[res] = m;
-    markAllRetry(G);                                   // goods heading here may need a new home
-    return { ok: true, id: b.id, res, mode: m };
-  };
-
-  FSSim.setHalt = function (G, bldId, on, p) {
-    const b = bldOf(G, bldId);
-    if (!b) return { ok: false, why: "no building" };
-    if (p !== undefined && b.p !== p) return { ok: false, why: "not yours" };
-    b.halted = !!on;
-    if (b.halted) b.working = false;
-    return { ok: true, id: b.id, halted: b.halted };
-  };
-
-  /** Totals of everything a player has ever produced (also feeds the stats rings). */
-  FSSim.production = function (G, p) { return Object.assign({}, G.prod[p] || {}); };
-
-  /**
-   * TEST/DEBUG hook — finish a site instantly. Used by the suites (and later the
-   * map editor) so production tests do not have to re-run construction every time.
-   */
-  FSSim.forceComplete = function (G, id) {
-    const b = bldOf(G, id);
-    if (!b) return { ok: false, why: "no building" };
-    if (b.state === "done") return { ok: false, why: "already done" };
-    b.matGot.plank = b.matReq.plank; b.matGot.stone = b.matReq.stone;
-    b.matHave.plank = 0; b.matHave.stone = 0;
-    b.matInFlight.plank = 0; b.matInFlight.stone = 0;
-    b.matUsed = totalCost(b);
-    b.leveled = true; b.progress = 0;
-    b.diggerReq = false; b.builderReq = false;
-    finishBuilding(G, b);
-    return { ok: true, id: b.id };
-  };
-
-  /** Cheap stats sampling for the Phase-E graphs. */
-  function tickStats(G) {
-    if ((G.tick % FSC.STATS_T) !== 0) return;
-    for (let p = 0; p < G.players.length; p++) {
-      const st = G.stats[p];
-      if (!st) continue;
-      const c = FSSim.counts(G, p);
-      let goods = 0;
-      const pr = G.prod[p] || {};
-      for (const k in pr) goods += pr[k];
-      st.t.push(G.tick); st.goods.push(goods); st.serfs.push(c.people);
-      st.land.push(c.land); st.military.push(0);
-      for (const k in st) if (st[k].length > FSC.STATS_CAP) st[k].shift();
     }
   }
 
@@ -2711,12 +1648,6 @@
       let any = false;
       for (let k = 0; k < f.slots.length; k++) {
         const it = f.slots[k];
-        /* ===== PHASE-C: flag-addressed goods keep their address while reachable ===== */
-        if (it.destFlag) {
-          const tf = G.flags[it.destFlag];
-          if (tf && (tf.id === f.id || FSSim.hops(G, f.id, tf.id) >= 0)) continue;
-          it.destFlag = 0;
-        }
         const b = it.dest && G.buildings[it.dest];
         // keep a destination that is still alive AND still reachable by road
         if (b && (b.flag === f.id || FSSim.hops(G, f.id, b.flag) >= 0)) continue;
@@ -2736,8 +1667,6 @@
     /* commands execute at the START of their tick, in (t, by, seq) order */
     FSSim.runCommands(G, false);
 
-    tickSweep(G);                 /* ===== PHASE-C: the living world ===== */
-
     /* ===== PHASE-B: transport (flags, roads, carriers, construction) ===== */
     for (const id in G.buildings) {
       const b = G.buildings[id];
@@ -2749,14 +1678,12 @@
     tickSerfRequests(G);
     for (const id in G.serfs) {
       const s = G.serfs[id];
-      const carrier = (s.job === JOB.TRANSPORTER || s.job === JOB.SAILOR);
-      if (carrier && s.state !== "return") tickCarrier(G, s);
+      if (s.job === JOB.TRANSPORTER && s.state !== "return") tickCarrier(G, s);
       else tickWorkerSerf(G, s);
     }
     tickRetry(G);
-    tickWaterRoads(G);            /* ===== PHASE-C: ferries ===== */
-    tickStats(G);
 
+    /* ===== PHASE-C: production (producers, mines, geology, growth) ===== */
     /* ===== PHASE-D: military (garrisons, combat, territory, AI) ===== */
     return G;
   };
@@ -2852,10 +1779,6 @@
       mix(b.id); mix(b.v); mix(STATE_IDX[b.state] || 0); mix(b.progress); mix(b.matUsed);
       mix(b.matHave.plank); mix(b.matHave.stone); mix(b.matInFlight.plank); mix(b.matInFlight.stone);
       mix(b.worker); mix(b.crew); mix(b.workerReq ? 1 : 0);
-      /* ===== PHASE-C: production state ===== */
-      mix(b.swings); mix(b.prodT); mix(b.working ? 1 : 0); mix(b.cycles); mix(b.outHeld || 0);
-      mix(b.herd === undefined ? 0 : b.herd);
-      for (let k = 0; k < FSC.RES_LIST.length; k++) mix(b.stockIn[FSC.RES_LIST[k]] || 0);
     }
     const ss = ids(G.serfs);
     mix(ss.length);
@@ -2864,9 +1787,7 @@
       mix(s.id); mix(JOB_IDX[s.job] || 0); mix(SERF_STATE_IDX[s.state] || 0);
       mix(s.v); mix(s.from); mix(s.to); mix(s.stepT); mix(s.path.length);
       mix(RES_IDX[s.carry] || 0); mix(s.carryDest); mix(s.road); mix(s.t);
-      mix(s.workV === undefined ? -1 : s.workV); mix(s.geoSpots || 0);   /* PHASE-C */
     }
-    mix(G.sweepV);
     return h >>> 0;
   };
 

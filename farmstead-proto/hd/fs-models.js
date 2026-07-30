@@ -26,6 +26,17 @@
       if (k === "emissiveK" || k === "emissiveOf") continue;
       props[k] = opts[k];
     }
+    /* PROTO style hook — grade the material's own diffuse (skipped when it is the
+       plain white carrier for a vertex-coloured mesh: those colours are graded in
+       mergeColored already) and always grade the emissive lift so it tracks it. */
+    if (window.FSGRADE) {
+      if (props.color !== 0xffffff) {
+        const mc = new THREE.Color(props.color);
+        window.FSGRADE(mc, "model");
+        props.color = mc;
+      }
+      window.FSGRADE(props.emissive, "emissive");
+    }
     return new THREE.MeshLambertMaterial(props);
   }
   FSModels.mat = mat;
@@ -46,7 +57,9 @@
       if (p.matrix) g.applyMatrix4(p.matrix);
       if (!g.attributes.normal) g.computeVertexNormals();
       if (g.attributes.uv) anyUV = true;
-      prepared.push({ g, c: new THREE.Color(p.color === undefined ? 0xffffff : p.color) });
+      const pc = new THREE.Color(p.color === undefined ? 0xffffff : p.color);
+      if (window.FSGRADE) window.FSGRADE(pc, "model");                  /* PROTO style hook */
+      prepared.push({ g, c: pc });
       total += g.attributes.position.count;
     }
     const pos = new Float32Array(total * 3);
@@ -305,30 +318,40 @@
     const color = FSModels.playerColor(playerIdx);
     const g = new THREE.Group();
     const stone = [], wood = [], team = [];
+    /* PROTO proportions hook — "b" = toy-like keep: squat walls, a huge roof and
+       a comically oversized gate. Same part list, different numbers. */
+    const B = window.FSPROP === "b";
+    const kh = B ? 1.42 : 1.9;                     // keep wall height
+    const ky = kh / 2 + 0.2;                       // keep centre y
+    const batY = 0.2 + kh + 0.16;                  // battlement y
+    const twH = B ? 2.0 : 2.6;                     // corner tower height
+    const twY = twH / 2;
 
     stone.push({ geo: new THREE.BoxGeometry(3.5, 0.34, 3.5), color: 0xa9a091, matrix: M(0, 0.17, 0) });
-    stone.push({ geo: new THREE.BoxGeometry(2.5, 1.9, 2.5), color: COL.CASTLE_WALL, matrix: M(0, 1.15, 0) });
+    stone.push({ geo: new THREE.BoxGeometry(2.5, kh, 2.5), color: COL.CASTLE_WALL, matrix: M(0, ky, 0) });
     // battlements around the keep
     for (let i = 0; i < 12; i++) {
       const a = (i / 12) * Math.PI * 2;
       const x = Math.cos(a), z = Math.sin(a);
       const ax = Math.abs(x) > Math.abs(z) ? Math.sign(x) * 1.25 : x * 1.25;
       const az = Math.abs(z) >= Math.abs(x) ? Math.sign(z) * 1.25 : z * 1.25;
-      stone.push({ geo: new THREE.BoxGeometry(0.34, 0.3, 0.34), color: COL.CASTLE_WALL, matrix: M(ax, 2.25, az) });
+      stone.push({ geo: new THREE.BoxGeometry(B ? 0.44 : 0.34, B ? 0.38 : 0.3, B ? 0.44 : 0.34), color: COL.CASTLE_WALL, matrix: M(ax, batY, az) });
     }
     // four corner towers with conical roofs
     for (let i = 0; i < 4; i++) {
       const a = Math.PI / 4 + i * Math.PI / 2;
       const x = Math.cos(a) * 1.5, z = Math.sin(a) * 1.5;
-      stone.push({ geo: new THREE.CylinderGeometry(0.42, 0.48, 2.6, 8), color: 0xb5ac9b, matrix: M(x, 1.3, z) });
-      team.push({ geo: new THREE.ConeGeometry(0.58, 0.8, 8), color: color, matrix: M(x, 3.0, z) });
+      stone.push({ geo: new THREE.CylinderGeometry(B ? 0.5 : 0.42, B ? 0.56 : 0.48, twH, 8), color: 0xb5ac9b, matrix: M(x, twY, z) });
+      team.push({ geo: new THREE.ConeGeometry(B ? 0.86 : 0.58, B ? 1.25 : 0.8, 8), color: color, matrix: M(x, twH + (B ? 0.60 : 0.40), z) });
     }
     // gate on the door (SE) side
-    wood.push({ geo: new THREE.BoxGeometry(0.9, 1.0, 0.16), color: 0x4d3826, matrix: M(0.62, 0.5, 1.3) });
-    wood.push({ geo: new THREE.BoxGeometry(0.16, 1.0, 0.9), color: 0x4d3826, matrix: M(1.3, 0.5, 0.62) });
+    const gw = B ? 1.30 : 0.9, gh = B ? 1.10 : 1.0;
+    wood.push({ geo: new THREE.BoxGeometry(gw, gh, 0.16), color: 0x4d3826, matrix: M(0.62, gh / 2 + 0.05, 1.3) });
+    wood.push({ geo: new THREE.BoxGeometry(0.16, gh, gw), color: 0x4d3826, matrix: M(1.3, gh / 2 + 0.05, 0.62) });
     // keep roof + flag pole
-    team.push({ geo: new THREE.ConeGeometry(1.9, 1.0, 4), color: COL.CASTLE_ROOF, matrix: M(0, 2.6, 0, 0, Math.PI / 4, 0) });
-    wood.push({ geo: new THREE.CylinderGeometry(0.05, 0.05, 1.3, 5), color: 0x8a8070, matrix: M(0, 3.6, 0) });
+    const krR = B ? 2.55 : 1.9, krH = B ? 1.65 : 1.0, krY = 0.2 + kh + (B ? 0.30 : 0.5);
+    team.push({ geo: new THREE.ConeGeometry(krR, krH, 4), color: COL.CASTLE_ROOF, matrix: M(0, krY + krH * 0.5 - 0.2, 0, 0, Math.PI / 4, 0) });
+    wood.push({ geo: new THREE.CylinderGeometry(0.05, 0.05, 1.3, 5), color: 0x8a8070, matrix: M(0, krY + krH + 0.35, 0) });
 
     const body = new THREE.Mesh(mergeColored(stone.concat(wood)), mat(0xffffff, { vertexColors: true, emissiveOf: COL.CASTLE_WALL, emissiveK: 0.26 }));
     body.name = "castleBody";
@@ -341,7 +364,7 @@
       new THREE.PlaneGeometry(0.62, 0.44),
       mat(0xffffff, { map: bannerTexture(color), side: THREE.DoubleSide, emissiveOf: color, emissiveK: 0.35 })
     );
-    banner.position.set(0.32, 4.02, 0);
+    banner.position.set(0.32, krY + krH + 0.77, 0);
     banner.name = "castleBanner";
     g.add(banner);
     g.userData.banner = banner;
@@ -364,24 +387,35 @@
     o = o || {};
     const wall = o.wall === undefined ? COL.BLD_WALL : o.wall;
     const roof = o.roof === undefined ? COL.BLD_ROOF : o.roof;
-    parts.push({ geo: new THREE.BoxGeometry(w, h, w * (o.d || 1)), color: wall, matrix: M(0, h / 2, 0) });
+    /* PROTO proportions hook — "b" = toy-like: shorter walls, much taller roofs
+       with a fat overhang, oversized doors. Geometry only; colours untouched. */
+    const B = window.FSPROP === "b";
+    const rK = B ? 1.55 : 1;          // roof height multiplier
+    const oK = B ? 1.30 : 1;          // roof overhang multiplier
+    if (B) h *= 0.74;                 // shorter walls
+    const d = o.d || 1;
+    parts.push({ geo: new THREE.BoxGeometry(w, h, w * d), color: wall, matrix: M(0, h / 2, 0) });
     // sill beams — the timbered look, two thin bands
-    parts.push({ geo: new THREE.BoxGeometry(w * 1.04, 0.07, w * (o.d || 1) * 1.04), color: COL.BLD_WOOD, matrix: M(0, h * 0.62, 0) });
+    parts.push({ geo: new THREE.BoxGeometry(w * 1.04, 0.07, w * d * 1.04), color: COL.BLD_WOOD, matrix: M(0, h * 0.62, 0) });
     if (o.roofType === "flat") {
-      parts.push({ geo: new THREE.BoxGeometry(w * 1.15, 0.12, w * (o.d || 1) * 1.15), color: roof, matrix: M(0, h + 0.06, 0) });
+      const th = 0.12 * (B ? 1.9 : 1);
+      parts.push({ geo: new THREE.BoxGeometry(w * 1.15 * oK, th, w * d * 1.15 * oK), color: roof, matrix: M(0, h + th * 0.5, 0) });
     } else if (o.roofType === "gable") {
       // two slabs leaning together — reads as a pitched roof from any angle
-      const rl = w * 0.78, rh = o.roofH || 0.6;
-      parts.push({ geo: new THREE.BoxGeometry(rl, 0.1, w * (o.d || 1) * 1.15), color: roof, matrix: M(-w * 0.24, h + rh * 0.5, 0, 0, 0, 0.72) });
-      parts.push({ geo: new THREE.BoxGeometry(rl, 0.1, w * (o.d || 1) * 1.15), color: roof, matrix: M(w * 0.24, h + rh * 0.5, 0, 0, 0, -0.72) });
+      const rh = (o.roofH || 0.6) * rK, rl = w * 0.78 * (B ? 1.34 : 1);
+      const lean = B ? 0.60 : 0.72;
+      parts.push({ geo: new THREE.BoxGeometry(rl, 0.1, w * d * 1.15 * oK), color: roof, matrix: M(-w * 0.24, h + rh * 0.5, 0, 0, 0, lean) });
+      parts.push({ geo: new THREE.BoxGeometry(rl, 0.1, w * d * 1.15 * oK), color: roof, matrix: M(w * 0.24, h + rh * 0.5, 0, 0, 0, -lean) });
     } else {
+      const rh = (o.roofH || 0.62) * rK;
       parts.push({
-        geo: new THREE.ConeGeometry(w * 0.86, o.roofH || 0.62, 4), color: roof,
-        matrix: M(0, h + (o.roofH || 0.62) * 0.5, 0, 0, Math.PI / 4, 0),
+        geo: new THREE.ConeGeometry(w * 0.86 * oK, rh, 4), color: roof,
+        matrix: M(0, h + rh * 0.5, 0, 0, Math.PI / 4, 0),
       });
     }
     // door faces the SE flag (the model group is yawed to it by the renderer)
-    parts.push({ geo: new THREE.BoxGeometry(0.28, h * 0.52, 0.06), color: 0x4d3826, matrix: M(w * 0.12, h * 0.26, w * (o.d || 1) * 0.5) });
+    const dw = B ? 0.50 : 0.28, dh = h * (B ? 0.80 : 0.52);
+    parts.push({ geo: new THREE.BoxGeometry(dw, dh, 0.06), color: 0x4d3826, matrix: M(w * 0.12, dh * 0.5, w * d * 0.5) });
     return parts;
   }
   function post(parts, x, z, h, col) {
@@ -471,7 +505,7 @@
         }
         break;
       case "fisher":
-        shell(parts, 0.95, 0.72, { roofH: 0.5, roof: 0x5b7f92, wall: 0xd8cbb0 });
+        shell(parts, 0.95, 0.72, { roofH: 0.5 });
         // drying rack with a catch hanging on it
         post(parts, -0.62, 0.3, 0.62); post(parts, -0.62, -0.3, 0.62);
         parts.push({ geo: new THREE.BoxGeometry(0.05, 0.05, 0.66), color: COL.BLD_WOOD, matrix: M(-0.62, 0.6, 0) });
@@ -481,7 +515,7 @@
         parts.push({ geo: new THREE.BoxGeometry(0.5, 0.5, 0.04), color: COL.NET, matrix: M(0.56, 0.3, 0.2, 0, 0.5, 0.2) });
         break;
       case "lumberjack": {
-        shell(parts, 0.95, 0.72, { roofH: 0.5, roof: 0x7a5636 });
+        shell(parts, 0.95, 0.72, { roofH: 0.5 });
         const logs = [[-0.66, 0.1], [-0.66, -0.16], [-0.62, 0.26]];
         for (let i = 0; i < logs.length; i++) {
           parts.push({ geo: new THREE.CylinderGeometry(0.11, 0.11, 0.8, 6), color: FSC.RES_COLOR.lumber, matrix: M(logs[i][0], 0.12 + i * 0.19, logs[i][1], Math.PI / 2, 0, 0) });
@@ -498,14 +532,14 @@
         }
         break;
       case "stonecutter":
-        shell(parts, 0.95, 0.72, { roofH: 0.5, wall: 0xc2bcae, roof: 0x8d949c });
+        shell(parts, 0.95, 0.72, { roofH: 0.5, wall: 0xc2bcae });
         for (let i = 0; i < 4; i++) {
           parts.push({ geo: new THREE.BoxGeometry(0.26, 0.2, 0.26), color: COL.STONE, matrix: M(-0.62 + (i % 2) * 0.3, 0.1 + ((i / 2) | 0) * 0.2, 0.42 - (i % 2) * 0.06) });
         }
         parts.push({ geo: new THREE.BoxGeometry(0.05, 0.34, 0.05), color: COL.TOOL, matrix: M(0.56, 0.4, 0.3, 0, 0, 0.5) });
         break;
       case "sawmill": {
-        shell(parts, 1.7, 0.95, { roofType: "gable", roofH: 0.62, d: 0.85, roof: 0x8a6a42 });
+        shell(parts, 1.7, 0.95, { roofType: "gable", roofH: 0.62, d: 0.85 });
         const blade = bladeGeo();
         out.spin = blade; out.spinAt = [0.0, 0.62, 0.78]; out.axis = "z"; out.rate = 5.5;
         for (let i = 0; i < 3; i++) {
@@ -548,7 +582,7 @@
         break;
       }
       case "butcher":
-        shell(parts, 1.25, 0.9, { roofH: 0.58, wall: 0xe2cfc0, roof: 0x9c4b46 });
+        shell(parts, 1.25, 0.9, { roofH: 0.58, wall: 0xe2cfc0 });
         parts.push({ geo: new THREE.BoxGeometry(1.3, 0.06, 0.5), color: 0xa8845c, matrix: M(0, 0.95, 0.62, 0.35, 0, 0) });
         post(parts, -0.55, 0.82, 0.7); post(parts, 0.55, 0.82, 0.7);
         for (let i = 0; i < 2; i++) {
@@ -582,7 +616,7 @@
         break;
       }
       case "toolmaker":
-        shell(parts, 1.3, 0.9, { roofType: "gable", roofH: 0.6, wall: 0xcfb894, roof: 0x6b6f77 });
+        shell(parts, 1.3, 0.9, { roofType: "gable", roofH: 0.6, wall: 0xcfb894 });
         parts.push({ geo: new THREE.BoxGeometry(0.34, 0.24, 0.26), color: 0x6f7780, matrix: M(0.62, 0.12, 0.55) });
         parts.push({ geo: new THREE.BoxGeometry(0.14, 0.16, 0.14), color: 0x8a8f96, matrix: M(0.62, 0.3, 0.55) });
         for (let i = 0; i < 3; i++) {
@@ -599,7 +633,7 @@
         out.smoke = [0.46, 1.45, -0.34];
         break;
       case "boatwright": {
-        shell(parts, 0.95, 0.72, { roofH: 0.5, wall: 0xcdb894, roof: 0x4f7fa8 });
+        shell(parts, 0.95, 0.72, { roofH: 0.5, wall: 0xcdb894 });
         // a hull on the slipway
         parts.push({ geo: new THREE.BoxGeometry(0.9, 0.16, 0.36), color: COL.BOAT, matrix: M(0.1, 0.16, 0.75, 0, 0.2, 0) });
         parts.push({ geo: new THREE.BoxGeometry(0.66, 0.14, 0.24), color: 0xa9743d, matrix: M(0.1, 0.3, 0.75, 0, 0.2, 0) });
@@ -649,15 +683,12 @@
   /** A geologist's sign: the post is shared, the board carries the mineral colour. */
   FSModels.signPostGeo = function () {
     return cached("geo:signpost", () => mergeColored([
-      { geo: new THREE.CylinderGeometry(0.05, 0.06, 0.62, 5), color: COL.SIGN_POST, matrix: M(0, 0.31, 0) },
-      { geo: new THREE.BoxGeometry(0.5, 0.05, 0.05), color: COL.SIGN_POST, matrix: M(0, 0.58, 0) },
+      { geo: new THREE.CylinderGeometry(0.035, 0.035, 0.42, 5), color: COL.SIGN_POST, matrix: M(0, 0.21, 0) },
     ]));
   };
   FSModels.signBoardGeo = function () {
     return cached("geo:signboard", () => mergeColored([
-      // a broad painted board, tilted to catch the light — the colour is the mineral
-      { geo: new THREE.BoxGeometry(0.46, 0.34, 0.06), color: 0xffffff, matrix: M(0, 0.72, 0.02, -0.22, 0, 0) },
-      { geo: new THREE.BoxGeometry(0.5, 0.06, 0.08), color: 0xffffff, matrix: M(0, 0.9, 0.06, -0.22, 0, 0) },
+      { geo: new THREE.BoxGeometry(0.3, 0.2, 0.05), color: 0xffffff, matrix: M(0, 0.45, 0) },
     ]));
   };
   /** One smoke puff (billboard-ish blob) — instanced, animated by the renderer. */

@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FARMSTEAD — art-style prototype</title>
+<style>
+  html,body{ margin:0; height:100%; overflow:hidden; background:#000; }
+  #view{ display:block; width:100vw; height:100vh; }
+  /* per-style full-screen overlays (vignette / warm bloom) — pure CSS, never blocks input */
+  #fx{ position:fixed; inset:0; pointer-events:none; z-index:5; opacity:0; }
+  #tag{
+    position:fixed; left:10px; top:8px; z-index:9; pointer-events:none;
+    font:800 13px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace;
+    color:#fff; text-shadow:0 1px 3px rgba(0,0,0,.75); letter-spacing:.5px;
+  }
+  #tag.off{ display:none; }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="fx"></div>
+<div id="tag" class="off"></div>
+<script src="../assets/vendor/three-r128.min.js"></script>
+<script>
+/* ══════════════════════════════════════════════════════════════════════════
+   FARMSTEAD art-direction prototype — standalone staged diorama.
+
+   Loads FROZEN copies of the game modules from this sandbox (never the live
+   assets/farmstead/*.js another agent is editing), stages one deterministic
+   settlement scene, then paints it in one of four art styles.
+
+     ?style=1   MEADOW     — the current game look, untouched (baseline)
+     ?style=2   STORYBOOK  — golden hour, pastel meadows, cream + terracotta
+     ?style=3   YE OLDE    — cold hard key light, deep greens, heavy haze
+     ?style=4   TOYBOX     — saturated, sky-bounced, black inked outlines
+     &proportions=b         chunky toy proportions for castle / hut / houses
+     &mods=frozen           acc091c module set instead of the default HEAD set
+     &seed= &yaw= &pitch= &dist= &close=1 &tag=1
+   ══════════════════════════════════════════════════════════════════════════ */
+(function () {
+  "use strict";
+  const Q = new URLSearchParams(location.search);
+  const qn = (k, d) => { const v = parseFloat(Q.get(k)); return isFinite(v) ? v : d; };
+
+  const STYLE = Math.max(1, Math.min(4, qn("style", 1) | 0));
+  const PROP = (Q.get("proportions") || "a").toLowerCase() === "b" ? "b" : "a";
+  const MODS = (Q.get("mods") || "hd") === "frozen" ? "" : "hd/";
+  const SEED = qn("seed", 379) | 0;
+  const CLOSE = !!qn("close", 0);
+
+  window.FSPROP = PROP;                 // read by fs-models when it builds geometry
+  window.FSGRADE = null;                // set below, BEFORE any model/terrain is built
+
+  /* ───────────────────────────── module loader (classic scripts, in order) */
+  const FILES = ["fs-const.js", "fs-map.js", "fs-sim.js", "fs-models.js", "fs-render.js"];
+  (function load(i) {
+    if (i >= FILES.length) return boot();
+    const s = document.createElement("script");
+    s.src = MODS + FILES[i];
+    s.onload = () => load(i + 1);
+    s.onerror = () => { window.__PROTO_ERR__ = "load " + s.src; };
+    document.head.appendChild(s);
+  })(0);
+
+  /* ══════════════════════════════ colour grading ═══════════════════════════
+     Every palette shift runs through ONE function, installed as window.FSGRADE
+     before the world is built, so terrain vertices, model parts, material
+     emissives and road ribbons all come out of the same transform. Styles
+     declare (a) an exact-match remap table for named materials and (b) an HSL
+     transform for everything else. */
+  const hsl = { h: 0, s: 0, l: 0 };
+  function near(c, hex) {
+    const r = ((hex >> 16) & 255) / 255, g = ((hex >> 8) & 255) / 255, b = (hex & 255) / 255;
+    return Math.abs(c.r - r) + Math.abs(c.g - g) + Math.abs(c.b - b) < 0.012;
+  }
+  function makeGrade(cfg) {
+    if (!cfg) return null;
+    const remap = cfg.remap || [];
+    return function (col, tag) {
+      for (let i = 0; i < remap.length; i++) {
+        if (near(col, remap[i][0])) {
+          const t = remap[i][1];
+          col.setRGB(((t >> 16) & 255) / 255, ((t >> 8) & 255) / 255, (t & 255) / 255);
+          if (!cfg.gradeRemapped) return col;
+          break;
+        }
+      }
+      col.getHSL(hsl);
+      const o = cfg.hsl(hsl.h, hsl.s, hsl.l, tag);
+      col.setHSL(
+        (o[0] % 1 + 1) % 1,
+        Math.max(0, Math.min(1, o[1])),
+        Math.max(0, Math.min(1, o[2]))
+      );
+      return col;
+    };
+  }
+  /** shortest-path hue nudge toward `to` (hues are a circle, 0.95→0.02 must not wrap the long way) */
+  function towardHue(h, to, k) {
+    let d = to - h;
+    if (d > 0.5) d -= 1; else if (d < -0.5) d += 1;
+    return h + d * k;
+  }
+
+  /* ══════════════════════════════ THE FOUR STYLES ══════════════════════════ */
+  const STYLES = {
+    /* ── 1 · MEADOW — baseline. No grade, no light/fog/background overrides:
+       whatever fs-render.init() builds is exactly what ships today. */
+    1: { name: "MEADOW", grade: null, lights: null, fog: null, sky: null, outline: null, fx: null },
+
+    /* ── 2 · STORYBOOK — low golden sun, pastel meadows, cream walls + terracotta
+       roofs, warm haze, soft vignette. */
+    2: {
+      name: "STORYBOOK",
+      grade: {
+        remap: [
+          [0xc9b79a, 0xf6e7c6], [0xd7c7a6, 0xf6e7c6], [0xbfb6a4, 0xf3e4c2],   // walls → cream
+          [0xa9a091, 0xe8d9b8], [0xb5ac9b, 0xefe1c0],                          // castle plinth/towers
+          [0x8c4a34, 0xd9663f], [0x7d3a2e, 0xc9552f], [0x9a9384, 0xdda36a],   // roofs → terracotta
+          [0x6f5334, 0x9c7040], [0x6b5137, 0x9c7040], [0x4d3826, 0x7d5333],   // timber → warm oak
+        ],
+        hsl: (h, s, l, tag) => {
+          if (s < 0.04) return [h, s, Math.min(1, l * 1.03)];                  // keep whites white
+          const blue = h > 0.48 && h < 0.72;                                   // water & sky stay blue
+          let H = blue ? h : towardHue(h, 0.11, 0.07);                         // everything else leans golden
+          if (h > 0.19 && h < 0.44) H = towardHue(h, 0.155, 0.30);             // meadows/leaves → yellow-green
+          const S = s * (blue ? 0.94 : tag === "terrain" ? 0.90 : 0.92);       // pastel = a little less chroma…
+          const L = l + (1 - l) * (blue ? 0.05 : tag === "terrain" ? 0.13 : 0.09);   // …and a little more light
+          return [H, S, L];
+        },
+      },
+      lights: {
+        hemi: { sky: 0xffe3bd, ground: 0x8c7448, intensity: 0.60 },
+        sun: { color: 0xffcf90, intensity: 0.90, dir: [0.94, 0.30, 0.22] },    // LOW golden-hour angle
+      },
+      fog: { color: 0xffcf9c, near: 62, far: 250 },
+      sky: { stops: [[0.00, "#6fa8d8"], [0.42, "#bcd4e4"], [0.68, "#ffdcaa"], [1.00, "#ffb474"]] },
+      outline: null,
+      fx: "radial-gradient(ellipse 74% 66% at 50% 44%, rgba(255,214,150,0) 42%, rgba(120,62,20,.34) 100%)",
+      fxOpacity: 1,
+    },
+
+    /* ── 3 · YE OLDE — cold hard key + dim bounce (contrast), deep muted greens,
+       grey stone, heavy distance haze. */
+    3: {
+      name: "YE OLDE",
+      grade: {
+        remap: [
+          [0xc9b79a, 0xa08f74], [0xd7c7a6, 0xa89873], [0xbfb6a4, 0x8f8b81],   // walls → muted plaster/grey
+          [0xa9a091, 0x7f7c74], [0xb5ac9b, 0x8a877e],
+          [0x8c4a34, 0x5f3a2a], [0x7d3a2e, 0x572f24], [0x9a9384, 0x6f6a60],   // roofs → dark timber
+          [0x6f5334, 0x4a3722], [0x6b5137, 0x4a3722], [0x4d3826, 0x33251a],
+        ],
+        hsl: (h, s, l, tag) => {
+          let H = h, S = s, L = l;
+          if (h > 0.18 && h < 0.45) { H = towardHue(h, 0.30, 0.55); S = s * 0.86; L = l * 0.70; }  // greens go deep + forest
+          else { H = towardHue(h, 0.09, 0.10); S = s * 0.52; L = l * 0.80; }                        // everything else muddies
+          if (tag === "terrain") L *= 0.94;
+          return [H, S, L];
+        },
+      },
+      lights: {
+        hemi: { sky: 0x7d8ea3, ground: 0x24291d, intensity: 0.30 },           // dim bounce → hard shadows
+        sun: { color: 0xd2dcec, intensity: 0.92, dir: [0.44, 0.88, 0.52] },   // cool, high, hard
+      },
+      fog: { color: 0x8a959a, near: 26, far: 165 },                           // heavy haze
+      sky: { stops: [[0.00, "#5c6f80"], [0.55, "#7e8b92"], [1.00, "#9fa8a4"]] },
+      outline: null,
+      fx: null,
+    },
+
+    /* ── 4 · TOYBOX — vivid, sky-blue bounce, inked black outlines, crisp air. */
+    4: {
+      name: "TOYBOX",
+      grade: {
+        hsl: (h, s, l) => [h, s < 0.05 ? s : Math.min(1, s * 1.62 + 0.13), Math.min(0.9, l * 1.02 + 0.01)],
+      },
+      lights: {
+        hemi: { sky: 0x8fd0ff, ground: 0x9ad46a, intensity: 0.98 },           // strong sky-blue bounce
+        sun: { color: 0xffffff, intensity: 0.80, dir: [0.50, 1.10, 0.42] },
+      },
+      fog: { color: 0xc3ecff, near: 190, far: 520 },                          // barely any
+      sky: { stops: [[0.00, "#2f97e0"], [0.62, "#79c8f4"], [1.00, "#bfeaff"]] },
+      outline: { color: 0x101014, k: 0.10, kSmall: 0.045 },                   // inverted-hull ink
+      fx: null,
+    },
+  };
+
+  /* ══════════════════════════════ scene staging ════════════════════════════ */
+  let G = null, FSC, FSMap, FSSim, FSModels, FSRender;
+  const canvas = document.getElementById("view");
+
+  /** Walk a road path dropping flags every ~3 vertices, building one road per gap. */
+  function laySpur(fromFlagId, path) {
+    const made = { flags: [], roads: [] };
+    let prevFlag = fromFlagId, prevIdx = 0;
+    for (let i = 3; i < path.length; i += 3) {
+      let j = Math.min(i, path.length - 1);
+      // nudge to a vertex that will actually take a flag
+      let ok = -1;
+      for (let d = 0; d < 3 && ok < 0; d++) {
+        for (const jj of [j - d, j + d]) {
+          if (jj <= prevIdx + 1 || jj > path.length - 1) continue;
+          if (!FSMap.whyFlag(G.map, path[jj], 0)) { ok = jj; break; }
+        }
+      }
+      if (ok < 0) continue;
+      const nf = FSSim.placeFlag(G, path[ok], 0);
+      if (!nf.ok) continue;
+      const r = FSSim.buildRoad(G, prevFlag, nf.flag.id, path.slice(prevIdx, ok + 1), 0);
+      if (!r.ok) { FSSim.removeFlag(G, nf.flag.id); continue; }
+      made.flags.push(nf.flag.id); made.roads.push(r.id);
+      prevFlag = nf.flag.id; prevIdx = ok;
+    }
+    return { endFlag: prevFlag, endIdx: prevIdx, made };
+  }
+
+  /** Connect a flag to the nearest already-connected flag by a fresh road.
+      Only the 5 closest candidates get an A* probe — roadPath is expensive. */
+  function connect(flagId, poolFlagIds) {
+    const f = G.flags[flagId];
+    const near5 = poolFlagIds
+      .map((id) => G.flags[id]).filter((o) => o && o.id !== flagId)
+      .map((o) => ({ o, d: FSMap.dist(G.map, o.v, f.v) }))
+      .filter((e) => e.d <= 8).sort((a, b) => a.d - b.d).slice(0, 5);
+    for (const e of near5) {
+      const p = FSSim.roadPath(G, e.o.v, f.v, 0);
+      if (!p || p.length < 2) continue;
+      const r = FSSim.buildRoad(G, e.o.id, flagId, p, 0);
+      if (r.ok) return r.id;
+    }
+    return 0;
+  }
+
+  function stage() {
+    const map = G.map;
+    const castle = G.buildings[G.players[0].castleId];
+    const cf = G.flags[castle.flag];
+    const cxz = FSMap.worldXZ(map, castle.v, [0, 0]);
+    const flagIds = [cf.id];
+
+    /* ── four road spurs, spread around the castle.
+       Angle-bucket the flaggable vertices FIRST, then A* only one candidate per
+       bucket: roadPath is a real search, it must not run hundreds of times. */
+    const BUCKETS = 8;
+    const bucket = new Array(BUCKETS).fill(null);
+    FSMap.forRadius(map, castle.v, 10, (u, d) => {
+      if (d < 6 || d > 9) return;
+      if (FSMap.whyFlag(map, u, 0)) return;
+      const xz = FSMap.worldXZ(map, u, [0, 0]);
+      const ang = Math.atan2(xz[0] - cxz[0], xz[1] - cxz[1]);
+      const bi = Math.min(BUCKETS - 1, Math.floor(((ang + Math.PI) / (Math.PI * 2)) * BUCKETS));
+      if (!bucket[bi] || d > bucket[bi].d) bucket[bi] = { v: u, d, ang };
+    });
+    const spurs = [];
+    for (let bi = 0; bi < BUCKETS && spurs.length < 4; bi += 2) {
+      const c = bucket[bi] || bucket[(bi + 1) % BUCKETS];
+      if (!c) continue;
+      const p = FSSim.roadPath(G, cf.v, c.v, 0);
+      if (!p || p.length < 5) continue;
+      spurs.push(Object.assign({ path: p }, c));
+    }
+    const ends = [];
+    for (const s of spurs) {
+      const r = laySpur(cf.id, s.path);
+      for (const fid of r.made.flags) flagIds.push(fid);
+      if (r.endFlag !== cf.id) ends.push(r.endFlag);
+    }
+
+    /* ── buildings: two done, two mid-construction, plus the sim's own progress ── */
+    const WANT = [
+      { type: "lumberjack", done: true }, { type: "sawmill", done: true },
+      { type: "stonecutter", done: true }, { type: "mill", done: true },
+      { type: "hut", done: true }, { type: "stock", done: false },
+      { type: "farm", done: false }, { type: "bakery", done: false },
+    ];
+    const placed = [];
+    // work outward from the castle so the village clusters instead of scattering
+    const byNear = flagIds.slice().sort((a, b) =>
+      FSMap.dist(map, G.flags[a].v, castle.v) - FSMap.dist(map, G.flags[b].v, castle.v));
+    for (const w of WANT) {
+      let spot = -1;
+      for (const efid of byNear) {
+        const ef = G.flags[efid];
+        if (!ef) continue;
+        FSMap.forRadius(map, ef.v, 3, (u, d) => {
+          if (spot >= 0 || d < 1) return;
+          if (FSMap.whyBuilding(map, w.type, u, 0)) return;
+          const door = FSMap.doorVertex(map, u);
+          if (door < 0 || !FSSim.roadPath(G, ef.v, door, 0)) return;
+          let tooClose = false;
+          for (const b of placed) if (FSMap.dist(map, b.v, u) < 3) tooClose = true;
+          if (tooClose || FSMap.dist(map, castle.v, u) < 3) return;
+          spot = u;
+        });
+        if (spot >= 0) break;
+      }
+      if (spot < 0) continue;
+      const res = FSSim.build(G, w.type, spot, 0);
+      if (!res.ok) continue;
+      const b = G.buildings[res.id];
+      placed.push({ v: spot, id: b.id, done: w.done, type: w.type });
+      if (b.flag && flagIds.indexOf(b.flag) < 0) { connect(b.flag, flagIds); flagIds.push(b.flag); }
+    }
+
+    /* ── let the real sim run: carriers spawn, walk, sites get dug and raised ── */
+    for (let i = 0; i < 900; i++) FSSim.tick(G);
+
+    /* ── force the "finished village" half (visual staging only) ── */
+    for (const p of placed) {
+      const b = G.buildings[p.id];
+      if (!b) continue;
+      if (p.done) {
+        b.state = "done";
+        b.matUsed = (b.matReq.plank || 0) + (b.matReq.stone || 0);
+        b.progress = 0;
+      } else {
+        b.state = "build";                                     // scaffold + walls half up
+        b.matUsed = Math.max(1, Math.floor(((b.matReq.plank || 0) + (b.matReq.stone || 0)) * 0.5));
+        b.progress = FSC.BUILD_T_PER_MAT * 0.5;
+      }
+    }
+
+    /* ── goods waiting at flags: a little colour at the roadside ── */
+    const goods = ["plank", "stone", "lumber", "wheat", "bread", "coal", "fish", "flour"];
+    let gi = 0;
+    for (const fid of flagIds) {
+      const f = G.flags[fid];
+      if (!f || f.slots.length >= 3) continue;
+      if ((gi % 3) === 0) {
+        const n = 1 + (gi % 3);
+        for (let k = 0; k < n; k++) f.slots.push({ res: goods[(gi + k) % goods.length], dest: 0, t: 0 });
+      }
+      gi++;
+    }
+
+    /* ── people: top the workforce up to a busy village and freeze them mid-stride ── */
+    const JOBS = ["transporter", "transporter", "builder", "digger", "lumberjack",
+      "stonecutter", "farmer", "knight", "sawyer", "miller", "baker", "forester"];
+    let ji = 0;
+    // give every existing serf a mid-edge pose so nobody is standing on a vertex
+    for (const id in G.serfs) {
+      const s = G.serfs[id];
+      if (s.state === "work") continue;
+      if (s.from === s.to || !s.frac) {
+        const f = G.flags[s.targetFlag] || null;
+        if (f && f.v !== s.v && FSMap.adjacent(G.map, s.v, f.v)) { s.from = s.v; s.to = f.v; }
+      }
+      if (s.from !== s.to) s.frac = 0.2 + ((s.id * 37) % 60) / 100;
+    }
+    // …then add walkers along the road ribbons until the village reads "busy"
+    const roadIds = Object.keys(G.roads);
+    let want = 13 - Object.keys(G.serfs).length;
+    for (let pass = 0; pass < 3 && want > 0; pass++) {
+      for (const rid of roadIds) {
+        if (want <= 0) break;
+        const path = G.roads[rid].path;
+        if (path.length < 2) continue;
+        const i = (pass * 2 + 1) % (path.length - 1);
+        const job = JOBS[ji % JOBS.length];
+        const carry = (ji % 3 === 0) ? goods[ji % goods.length] : 0;
+        ji++;
+        G.serfs[G.nextId] = {
+          id: G.nextId++, p: 0, job, state: "goRoad", t: 0,
+          v: path[i], from: pass % 2 ? path[i + 1] : path[i], to: pass % 2 ? path[i] : path[i + 1],
+          stepT: 0, stepN: 5, frac: 0.25 + (ji % 5) * 0.12,
+          path: [], road: rid | 0, carry, carryDest: 0,
+          home: 0, target: 0, targetFlag: 0, congestT: 0, rank: 0,
+        };
+        want--;
+      }
+    }
+
+    G.speed = 0;
+    G.dirtyV.length = 0;                    // nothing left for the renderer to re-sync
+    return { castle, cf, cxz, placed: placed.length, flags: flagIds.length, roads: roadIds.length };
+  }
+
+  /* ══════════════════════════════ style application ════════════════════════ */
+  function skyTexture(stops) {
+    const cv = document.createElement("canvas");
+    cv.width = 8; cv.height = 256;
+    const g = cv.getContext("2d");
+    const grd = g.createLinearGradient(0, 0, 0, 256);
+    for (const s of stops) grd.addColorStop(s[0], s[1]);
+    g.fillStyle = grd; g.fillRect(0, 0, 8, 256);
+    const t = new THREE.CanvasTexture(cv);
+    t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter;
+    return t;
+  }
+
+  /* Inverted-hull outlines. A uniform scale-up would shear off-origin parts and is
+     meaningless for an InstancedMesh (it would move the instances, not fatten them),
+     so the hull is baked into the GEOMETRY instead: vertices pushed along a
+     position-averaged (welded) normal. That works identically for a plain Mesh and
+     for an InstancedMesh sharing the same instanceMatrix. */
+  const hullCache = new Map();
+  function hullGeo(geo, k) {
+    const key = geo.uuid + ":" + k;
+    if (hullCache.has(key)) return hullCache.get(key);
+    const src = geo.index ? geo.toNonIndexed() : geo.clone();
+    const pos = src.attributes.position;
+    if (!src.attributes.normal) src.computeVertexNormals();
+    const nor = src.attributes.normal;
+    const acc = new Map();
+    const q = (x) => Math.round(x * 1000);
+    for (let i = 0; i < pos.count; i++) {
+      const id = q(pos.getX(i)) + "," + q(pos.getY(i)) + "," + q(pos.getZ(i));
+      let a = acc.get(id);
+      if (!a) { a = [0, 0, 0]; acc.set(id, a); }
+      a[0] += nor.getX(i); a[1] += nor.getY(i); a[2] += nor.getZ(i);
+    }
+    for (let i = 0; i < pos.count; i++) {
+      const id = q(pos.getX(i)) + "," + q(pos.getY(i)) + "," + q(pos.getZ(i));
+      const a = acc.get(id);
+      const len = Math.hypot(a[0], a[1], a[2]) || 1;
+      pos.setXYZ(i,
+        pos.getX(i) + (a[0] / len) * k,
+        pos.getY(i) + (a[1] / len) * k,
+        pos.getZ(i) + (a[2] / len) * k);
+    }
+    pos.needsUpdate = true;
+    src.deleteAttribute("color");
+    src.computeBoundingSphere();
+    hullCache.set(key, src);
+    return src;
+  }
+
+  const outlines = [];       // {src, dst} instanced pairs kept in sync every frame
+  function addOutlines(cfg) {
+    const scene = FSRender.scene();
+    const inkMat = new THREE.MeshBasicMaterial({ color: cfg.color, side: THREE.BackSide });
+    const SMALL = /^(dyn:serf|dyn:crate|dyn:pole|dyn:pennant|dyn:board|dyn:post)/;
+    const targets = [];
+    scene.traverse((o) => {
+      if (!o.isMesh && !o.isInstancedMesh) return;
+      if (o.name === "terrain" || o.name === "water" || o.name === "roads") return;
+      if (o.name.indexOf("obj:field") === 0) return;             // flat crop patches: no rim
+      if (o.material && o.material.transparent) return;          // banners, hover ring
+      targets.push(o);
+    });
+    for (const o of targets) {
+      const k = SMALL.test(o.name) ? cfg.kSmall : cfg.k;
+      const g = hullGeo(o.geometry, k);
+      let ink;
+      if (o.isInstancedMesh) {
+        ink = new THREE.InstancedMesh(g, inkMat, o.instanceMatrix.count);
+        ink.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        ink.instanceMatrix.array.set(o.instanceMatrix.array);
+        ink.count = o.count;
+        ink.frustumCulled = false;
+        outlines.push({ src: o, dst: ink });
+      } else {
+        ink = new THREE.Mesh(g, inkMat);
+      }
+      ink.name = "ink:" + o.name;
+      ink.renderOrder = (o.renderOrder || 0) - 1;
+      (o.parent || scene).add(ink);
+      if (!o.isInstancedMesh) { ink.position.copy(o.position); ink.quaternion.copy(o.quaternion); ink.scale.copy(o.scale); }
+    }
+    return targets.length;
+  }
+  function syncOutlines() {
+    for (const p of outlines) {
+      if (p.dst.instanceMatrix.array.length < p.src.instanceMatrix.array.length) continue;
+      p.dst.instanceMatrix.array.set(p.src.instanceMatrix.array);
+      p.dst.instanceMatrix.needsUpdate = true;
+      p.dst.count = p.src.count;
+    }
+  }
+
+  function applyStyle(st) {
+    const scene = FSRender.scene();
+    if (st.lights) {
+      scene.traverse((o) => {
+        if (o.isHemisphereLight && st.lights.hemi) {
+          o.color.setHex(st.lights.hemi.sky);
+          o.groundColor.setHex(st.lights.hemi.ground);
+          o.intensity = st.lights.hemi.intensity;
+        } else if (o.isDirectionalLight && st.lights.sun) {
+          o.color.setHex(st.lights.sun.color);
+          o.intensity = st.lights.sun.intensity;
+          const d = st.lights.sun.dir;
+          o.position.set(d[0], d[1], d[2]).normalize().multiplyScalar(160);
+        }
+      });
+    }
+    if (st.sky) scene.background = skyTexture(st.sky.stops);
+    if (st.fog) scene.fog = new THREE.Fog(st.fog.color, st.fog.near, st.fog.far);
+    if (st.outline) addOutlines(st.outline);
+    const fx = document.getElementById("fx");
+    if (st.fx) { fx.style.background = st.fx; fx.style.opacity = st.fxOpacity === undefined ? 1 : st.fxOpacity; }
+  }
+
+  /* ══════════════════════════════ camera ═══════════════════════════════════ */
+  function poseCamera(info) {
+    const map = G.map;
+    // aim the view at the mountain mass so peaks sit behind the settlement
+    let mx = 0, mz = 0, mn = 0;
+    FSMap.forRadius(map, info.castle.v, 20, (u) => {
+      if (map.terr[u] !== FSC.TERR.MOUNTAIN && map.terr[u] !== FSC.TERR.SNOW) return;
+      const xz = FSMap.worldXZ(map, u, [0, 0]);
+      mx += xz[0]; mz += xz[1]; mn++;
+    });
+    let yaw;
+    if (mn) {
+      mx = mx / mn - info.cxz[0]; mz = mz / mn - info.cxz[1];
+      const L = Math.hypot(mx, mz) || 1;
+      // camera sits opposite the mountain looking at it, then swung off-axis so the
+      // peaks frame one side and the sea + horizon open up on the other
+      yaw = Math.atan2(-mx / L, -mz / L) + qn("swing", -0.62);
+    } else yaw = 0.55;
+    yaw = qn("yaw", yaw);
+    const pitch = qn("pitch", CLOSE ? 25 : 24) * Math.PI / 180;
+    const dist = qn("dist", CLOSE ? 8.6 : 24);
+    // push the look-target past the castle so the keep sits low-centre with sky above
+    const push = qn("push", CLOSE ? 0.4 : 3.5);
+    FSRender.setCam({
+      tx: info.cxz[0] - Math.sin(yaw + Math.PI) * push,
+      tz: info.cxz[1] - Math.cos(yaw + Math.PI) * push,
+      ty: map.height[info.castle.v] + (CLOSE ? 1.4 : 0.9),
+      dist, yaw, pitch,
+    });
+    return { yaw: +yaw.toFixed(3), pitch: +(pitch * 180 / Math.PI).toFixed(1), dist };
+  }
+
+  /* ══════════════════════════════ boot ═════════════════════════════════════ */
+  function boot() {
+    FSC = window.FSC; FSMap = window.FSMap; FSSim = window.FSSim;
+    FSModels = window.FSModels; FSRender = window.FSRender;
+    const st = STYLES[STYLE];
+
+    // grade the plain DATA palettes too (instance tints: goods crates, pennants,
+    // profession hats, mineral signs) — these never pass through mergeColored.
+    window.FSGRADE = makeGrade(st.grade);
+    if (window.FSGRADE) {
+      const tmp = new THREE.Color();
+      const gradeTable = (obj) => {
+        for (const k in obj) {
+          if (typeof obj[k] !== "number") continue;
+          tmp.setHex(obj[k]); window.FSGRADE(tmp, "model"); obj[k] = tmp.getHex();
+        }
+      };
+      gradeTable(FSC.RES_COLOR); gradeTable(FSC.JOB_COLOR); gradeTable(FSC.COL.MINERAL);
+      FSC.PLAYER_COLORS = FSC.PLAYER_COLORS.map((c) => { tmp.setHex(c); window.FSGRADE(tmp, "model"); return tmp.getHex(); });
+    }
+
+    G = FSSim.newGame({ size: "small", seed: SEED, ais: 1 });
+    G.speed = 0;
+    const info = stage();
+    FSRender.init(canvas, G);
+    applyStyle(st);
+    const campose = poseCamera(info);
+
+    const tag = document.getElementById("tag");
+    if (qn("tag", 0)) {
+      tag.classList.remove("off");
+      tag.textContent = "V" + STYLE + " " + st.name + "  ·  proportions " + PROP.toUpperCase() +
+        "  ·  seed " + SEED;
+    }
+
+    /* Deterministic settle: fixed-dt frames so the carrier lerp converges and the
+       pennants land on the same phase in every screenshot, then near-zero dt so
+       the picture stops moving but the canvas keeps being drawn. */
+    let n = 0;
+    (function loop() {
+      requestAnimationFrame(loop);
+      FSRender.frame(n < 100 ? 1 / 60 : 1e-5);
+      if (outlines.length) syncOutlines();
+      n++;
+      if (n === 110) {
+        window.__PROTO_INFO__ = Object.assign({
+          style: STYLE, styleName: st.name, proportions: PROP, seed: SEED, mods: MODS || "frozen",
+          serfs: Object.keys(G.serfs).length, flags: Object.keys(G.flags).length,
+          roads: Object.keys(G.roads).length, buildings: Object.keys(G.buildings).length,
+          draws: FSRender.stats().drawCalls, outlined: outlines.length,
+        }, campose);
+        window.__PROTO_READY__ = true;
+      }
+    })();
+
+    window.__PROTO__ = {
+      get G() { return G; },
+      FSRender, FSSim, FSMap, FSC, FSModels,
+      style: st, setCam: (o) => FSRender.setCam(o), info,
+    };
+  }
+})();
+</script>
+</body>
+</html>

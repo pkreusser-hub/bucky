@@ -91,12 +91,11 @@
     "cleaver", "saw", "axe", "pick", "shovel", "hammer", "shield", "sword", "bread",
     "meat", "fish", "ironOre", "lumber", "coal", "steel", "stone", "plank",
   ];
-  // Separate WAREHOUSE OUTPUT priority list (which stored goods leave storage first) —
-  // fully confirmed original order: food ships out first, gold LAST (even though gold is
-  // first on the flag-transport list; warehouses hoard it, roads rush it).
+  // Separate WAREHOUSE OUTPUT priority list (which stored goods leave storage first).
+  // Positions 4-5 and 11-21 are informed reconstruction (source only partially recovered).
   FSC.INV_ORDER = [
     "wheat", "flour", "pig", "bread", "fish", "meat", "lumber", "plank", "boat", "stone",
-    "coal", "ironOre", "steel", "shovel", "hammer", "rod", "cleaver", "scythe", "axe",
+    "ironOre", "steel", "coal", "shovel", "hammer", "rod", "cleaver", "scythe", "axe",
     "saw", "pick", "pincer", "shield", "sword", "goldOre", "goldBar",
   ];
   FSC.TOOLS = ["shovel", "hammer", "rod", "cleaver", "scythe", "axe", "saw", "pick", "pincer"];
@@ -197,9 +196,7 @@
   FSC.SWING_PER_MAT = 8;       // swings between material draws
   FSC.BUILD_FULL = 0x10000;    // accumulator target
   FSC.BUILD_IDLE_T = 26;       // waiting for the next material
-  FSC.BURN_T = 205;            // confirmed 2047 internal ticks
-  FSC.BURN_T_CASTLE = 819;     // castles burn 4x longer (8191)
-  FSC.BURN_ESCAPE_MAX = 12;    // up to 12 occupants escape a burning building
+  FSC.BURN_T = 300;
 
   // ---------- Mines / geology ----------
   // A miner: thinks (MINE_WAIT), eats one meal (skipped 1 time in MINE_SKIP_EVERY),
@@ -246,33 +243,14 @@
   FSC.KNIGHT_DEFAULTS = { recruitRate: 20000, attackStrong: true, castleKnights: 3 };
 
   // ---------- Start inventory (castle) ----------
-  // The classic's confirmed Supplies model: 5 anchor columns (Supplies 0/10/20/30/40+),
-  // linearly interpolated; ≥40 clamps. Default 25 — empirically matches the observed
-  // original default game (sword/shield 80, goldOre 6, goldBar 3, pig 3, meat 4…).
-  FSC.SUPPLIES_TABLE = {
-    fish:    [0, 2, 3, 8, 30],   pig:     [0, 1, 2, 4, 10],   meat:   [0, 1, 2, 6, 30],
-    wheat:   [0, 3, 10, 20, 50], flour:   [0, 2, 3, 7, 10],   bread:  [0, 1, 1, 5, 30],
-    lumber:  [0, 0, 0, 3, 10],   plank:   [7, 25, 40, 80, 200], boat: [0, 1, 2, 5, 10],
-    stone:   [2, 8, 20, 40, 100], ironOre: [0, 4, 12, 20, 30], steel: [0, 3, 8, 40, 150],
-    coal:    [0, 8, 20, 50, 100], goldOre: [0, 2, 4, 8, 10],   goldBar:[0, 1, 2, 4, 5],
-    shovel:  [1, 3, 5, 10, 20],  hammer:  [6, 12, 20, 30, 50], rod:    [1, 2, 3, 5, 10],
-    cleaver: [0, 1, 1, 2, 5],    scythe:  [0, 1, 2, 4, 10],    axe:    [1, 2, 3, 6, 20],
-    saw:     [2, 3, 4, 6, 20],   pick:    [3, 4, 6, 12, 50],   pincer: [0, 1, 2, 4, 10],
-    sword:   [10, 30, 60, 100, 200], shield: [10, 30, 60, 100, 200],
+  // Materials are tuned defaults (the classic derived them from a Supplies difficulty
+  // slider; exact standard-game numbers unconfirmed). Serf roster below IS the exact one.
+  FSC.START_INV = {
+    plank: 40, stone: 30, lumber: 10, boat: 2,
+    sword: 3, shield: 3, goldBar: 0, goldOre: 0, steel: 6, ironOre: 4, coal: 10,
+    fish: 12, bread: 8, meat: 4, pig: 0, wheat: 6, flour: 0,
+    shovel: 4, hammer: 6, rod: 2, cleaver: 1, scythe: 2, axe: 3, saw: 2, pick: 4, pincer: 1,
   };
-  FSC.SUPPLIES_DEFAULT = 25;
-  FSC.suppliesInv = function (s) {
-    s = Math.max(0, Math.min(50, s == null ? FSC.SUPPLIES_DEFAULT : s));
-    const hi = Math.min(4, Math.floor(s / 10) + 1), lo = hi - 1;
-    const f = Math.max(0, Math.min(1, (s - lo * 10) / 10));
-    const inv = {};
-    for (const k in FSC.SUPPLIES_TABLE) {
-      const t = FSC.SUPPLIES_TABLE[k];
-      inv[k] = Math.round(t[lo] + (t[hi] - t[lo]) * f);
-    }
-    return inv;
-  };
-  FSC.START_INV = FSC.suppliesInv(FSC.SUPPLIES_DEFAULT);
   // Exact confirmed starting serf roster (19 spawnable; the classic's 20th is an
   // in-warehouse goods handler our model doesn't represent as an entity). Pre-made
   // professionals are consumed FIRST when a building requests that worker; else a
@@ -366,7 +344,11 @@
   FSC.CAM = {
     FOV: 52, NEAR: 0.5, FAR: 2000,
     DIST_MIN: 8, DIST_MAX: 80, DIST_START: 34,
-    PITCH_MIN: 35 * Math.PI / 180, PITCH_MAX: 70 * Math.PI / 180, PITCH_START: 52 * Math.PI / 180,
+    /* PROTO: the shipping clamp is 35° — too steep to ever put the horizon in
+       frame, so sky gradients and distance fog (half of what these styles are)
+       would be invisible. Relaxed for the hero shots ONLY; identical for all
+       four variants, so the comparison stays fair. */
+    PITCH_MIN: 14 * Math.PI / 180, PITCH_MAX: 70 * Math.PI / 180, PITCH_START: 52 * Math.PI / 180,
     ZOOM_RATE: 0.0016, YAW_RATE: 1.5, KEY_PAN: 0.55, DRAG_PAN: 0.0022,
     ORBIT_YAW: 0.006, ORBIT_PITCH: 0.004, LERP: 12,
   };
