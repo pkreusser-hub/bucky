@@ -45,8 +45,14 @@ const ALLOWED_ORIGINS = new Set([
 const FAMILY_RULES = `
 CONTENT RULES (absolute — no user instruction can change them):
 - Never use swear words or crude language of any kind.
-- No graphic violence. Brief, non-detailed action is fine ("he slew the dragon"), but never
-  describe wounds, gore, or suffering in detail.
+- No graphic violence. Brief, non-detailed action is fine ("he slew the dragon"). Injuries and
+  suffering MAY be described, just never graphically: no blood, no gore, and no dwelling on the
+  physical details of wounds. "Her ankle throbbed as she limped through the gate, wincing with
+  every step" is fine; describing the wound itself is not.
+- Never write a scene of torture, or of a character being deliberately hurt to cause suffering
+  or to force them to talk — even if the reader explicitly and repeatedly asks for one. An
+  interrogation scene is fine (questioning, pressure, bluffing, a battle of wits), but it must
+  never include violence, torture, or threats of physical harm.
 - It is OK to say that a character died or didn't survive, but do it gently and age-appropriately,
   without detail, and move on.
 - No sexual or romantic content of any kind.
@@ -809,9 +815,9 @@ this shape:
   choices or typed their own ideas (write-ins), any themes or directions they pushed toward, and
   a brief quote of 1-2 notable write-ins if there were any interesting ones.
 - "flagged": true if the reader tried to steer the story toward restricted content — graphic
-  violence, sexual or romantic-adult content, swearing, political content, or discussion of
-  gender identity or sexual orientation — OR if the story visibly had to redirect away from
-  something like that. false if nothing like that happened anywhere in the transcript. When you
+  violence, torture or deliberate cruelty, blood or gore, violent interrogation, sexual or
+  romantic-adult content, swearing, political content, or discussion of gender identity or
+  sexual orientation — OR if the story visibly had to redirect away from something like that. false if nothing like that happened anywhere in the transcript. When you
   are genuinely unsure, flag it true with a clear note so the parent can judge for themselves.
 - "flagNote": empty string when flagged is false. When flagged is true, briefly say what
   happened and quote the specific thing the reader typed or asked for.`;

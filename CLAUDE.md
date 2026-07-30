@@ -1331,6 +1331,14 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   scratchpad client suite 24/24 + kidstory 54/54 + dnd 47/47 regressions. Flag QUALITY not
   live-testable from this env — spot-check the first real day post-deploy and tune
   STORY_LOG_SUMMARY_SYSTEM if flags read too twitchy or too quiet.
+- GUARDRAILS TIGHTENED (2026-07-30, user): FAMILY_RULES — torture scenes are never written even
+  if explicitly/repeatedly requested (redirects in-story like other restricted topics);
+  interrogation OK (questioning/pressure/bluffing/wits) but zero violence, torture, or threats
+  of physical harm; injuries/suffering MAY be described, just never graphically — no blood, no
+  gore, no dwelling on wound detail (user iterated: first cut banned describing suffering
+  entirely, softened same day). STORY_LOG_SUMMARY_SYSTEM flag list mirrors the additions
+  (torture/deliberate cruelty, blood/gore, violent interrogation). kidstory (already bans all
+  peril) + dungeon (deliberately unrestricted) untouched. Suites re-green 77/77 + 54/54.
 - UI FIX BATCH (2026-07-09, index.html + games.html + farmgpt.html): (1) Farm Bank shows only the
   logged-in kid's account (renderFarmBank: a BANK_KID sees just their card; Dad sees all). (2) Work-
   order cards compacted (tighter .wo-top/.wo-meta/.wo-desc/.wo-actions padding + 34px thumb) to fit
