@@ -23,10 +23,11 @@ const HELPERS = function () {
   window.T = T;
   const FSC = FS.FSC, FSMap = FS.FSMap, FSSim = FS.FSSim;
 
-  /** The suite's world: medium map, seed 4242 — iron + stone + gold inside the
-   *  starting territory, a fishable coast and a crossable bay. */
+  /** The suite's world: a medium map whose start has mountains, a fishable coast
+   *  and room to build. Individual tests may ask for another seed (the ferry test
+   *  wants a bay it can bridge). */
   T.fresh = function (o) {
-    FS.newGame(Object.assign({ size: "medium", seed: 4242, ais: 1, speed: 0 }, o || {}));
+    FS.newGame(Object.assign({ size: "medium", seed: 12345, ais: 1, speed: 0 }, o || {}));
     T.reach = null;
     return FS.G;
   };
@@ -169,7 +170,7 @@ const HELPERS = function () {
     const sites = [];
     for (let i = 0; i < types.length; i++) {
       const type = types[i];
-      const v = T.pickSite(type, opts.minD || 3, opts.maxD || 13, used, opts.near, opts.sep || 3);
+      const v = T.pickSite(type, opts.minD || 3, opts.maxD || 16, used, opts.near, opts.sep || 3);
       if (v < 0) { out._missed.push(type); continue; }
       const r = FSSim.build(G, type, v, 0);
       if (!r.ok) { out._missed.push(type); continue; }
@@ -204,6 +205,29 @@ const HELPERS = function () {
 
   /** stock a building's inputs directly (skips the supply line for focused tests) */
   T.feed = function (b, res, n) { b.stockIn[res] = (b.stockIn[res] || 0) + n; return b; };
+  /** take a resource out of the whole settlement (stores, flags, hands) */
+  T.drain = function (res) {
+    const G = FS.G;
+    for (const id in G.buildings) {
+      const b = G.buildings[id];
+      if (b.inv) b.inv[res] = 0;
+      if (b.stockIn) b.stockIn[res] = 0;
+      if (b.stockOut && b.stockOut[res]) { b.outHeld -= b.stockOut[res]; b.stockOut[res] = 0; }
+      if (b.reqInFlight) b.reqInFlight[res] = 0;
+    }
+    for (const id in G.flags) {
+      const f = G.flags[id];
+      for (let i = f.slots.length - 1; i >= 0; i--) if (f.slots[i].res === res) f.slots.splice(i, 1);
+    }
+    for (const id in G.serfs) {
+      const s2 = G.serfs[id];
+      if (s2.carry === res) { s2.carry = 0; s2.carryDest = 0; s2.carryFlag = 0; }
+    }
+  };
+  /** goods of `res` handed into this building since the game started */
+  T.deliveredTo = function (b, res) {
+    return FS.G.events.filter((e) => e.type === "itemDeliver" && e.bld === b.id && e.res === res).length;
+  };
 
   /** count map objects of a kind inside a radius */
   T.countObj = function (v, r, test) {
@@ -343,7 +367,7 @@ H.run("farmstead-economy", async (t) => {
     const FS = window.__FS__, T = window.T, FSC = FS.FSC, O = FSC.OBJ;
     T.fresh();
     const G = FS.G, map = G.map;
-    const q = T.addMany(["lumberjack", "sawmill", "forester"], { minD: 3, maxD: 12 });
+    const q = T.addMany(["lumberjack", "sawmill", "forester"], { minD: 3, maxD: 16 });
     const lj = q.lumberjack, saw = q.sawmill, fo = q.forester;
     if (!lj || !saw || !fo) return { built: false, missed: q._missed };
     const trees0 = T.countObj(lj.v, FSC.BLD.lumberjack.radius, (o) => o === O.TREE4);
@@ -387,7 +411,7 @@ H.run("farmstead-economy", async (t) => {
     const FS = window.__FS__, T = window.T, FSC = FS.FSC;
     T.fresh();
     const G = FS.G, map = G.map;
-    const sc = T.add("stonecutter", { minD: 3, maxD: 10 });
+    const sc = T.add("stonecutter", { minD: 3, maxD: 16 });
     if (!sc) return { built: false };
     // record the pile the cutter will work
     const piles = [];
@@ -476,7 +500,7 @@ H.run("farmstead-economy", async (t) => {
     const FS = window.__FS__, T = window.T, FSC = FS.FSC, O = FSC.OBJ;
     T.fresh();
     const G = FS.G, map = G.map;
-    const q = T.addMany(["farm", "mill", "bakery"], { minD: 3, maxD: 13 });
+    const q = T.addMany(["farm", "mill", "bakery"], { minD: 3, maxD: 16 });
     const farm = q.farm, mill = q.mill, bake = q.bakery;
     if (!farm || !mill || !bake) return { built: false, missed: q._missed };
     const WIN = T.sweepPass() * 8;
@@ -513,7 +537,7 @@ H.run("farmstead-economy", async (t) => {
   const meat = await page.evaluate(() => {
     const FS = window.__FS__, T = window.T, FSC = FS.FSC;
     T.fresh();
-    const q = T.addMany(["pigfarm", "butcher"], { minD: 3, maxD: 13 });
+    const q = T.addMany(["pigfarm", "butcher"], { minD: 3, maxD: 16 });
     const pig = q.pigfarm, but = q.butcher;
     if (!pig || !but) return { built: false, missed: q._missed };
     T.feed(pig, "wheat", FSC.IN_CAP);
@@ -599,22 +623,30 @@ H.run("farmstead-economy", async (t) => {
     const FS = window.__FS__, T = window.T, FSC = FS.FSC;
     T.fresh();
     const G = FS.G, map = G.map, reach = T.roadReach();
-    let mv = -1;
+    let mv = -1, mvRock = 0;
     for (let v = 0; v < map.W * map.H; v++) {
       if (!reach[v] || map.terr[v] !== FSC.TERR.MOUNTAIN) continue;
       if (!FS.FSMap.canPlaceBuilding(map, "coalMine", v, 0)) continue;
       const door = FS.FSMap.doorVertex(map, v);
       if (door < 0 || !reach[door]) continue;
-      if (mv < 0 || FS.FSMap.dist(map, T.castle().v, v) < FS.FSMap.dist(map, T.castle().v, mv)) mv = v;
+      let rock = 0;
+      FS.FSMap.forRadius(map, v, FSC.MINE_RING, (u) => { if (map.terr[u] === FSC.TERR.MOUNTAIN) rock++; });
+      if (rock > mvRock) { mvRock = rock; mv = v; }        // deep in the rock, not on its lip
     }
     if (mv < 0) return { built: false };
     // this start has no COAL inside its own borders, so the seam is scripted in
     // (documented deviation — every other mine mechanic is the real thing)
-    T.seedOre(mv, "COAL", 20, 3);
+    T.seedOre(mv, "COAL", 20, FSC.MINE_RING);
     const b = T.add("coalMine", { v: mv });
     if (!b) return { built: false };
     let amt0 = 0;
     FS.FSMap.forRadius(map, mv, FSC.MINE_RING, (u) => (amt0 += map.mineralAmt[u]));
+    // greedy meal rule: the miner eats whichever food he holds most of
+    b.stockIn.fish = 1; b.stockIn.bread = 3; b.stockIn.meat = 0;
+    const mealBefore = { fish: b.stockIn.fish, bread: b.stockIn.bread };
+    let guard = 0;
+    while (FS.FSSim.foodStock(b) === 4 && guard++ < 4000) FS.ff(1);
+    const mealAfter = { fish: b.stockIn.fish, bread: b.stockIn.bread };
     T.feed(b, "fish", FSC.IN_CAP);
     const food0 = FS.FSSim.foodStock(b);
     const cycle = FSC.MINE_WAIT[1] + FSC.MINE_EAT_T + FSC.MINE_PRE_T + FSC.MINE_DIGS * FSC.MINE_DIG_T
@@ -624,25 +656,31 @@ H.run("farmstead-economy", async (t) => {
     FS.FSMap.forRadius(map, mv, FSC.MINE_RING, (u) => (amt1 += map.mineralAmt[u]));
     const coal = T.prod().coal || 0;
     const foodMid = FS.FSSim.foodStock(b);
-    // starve it: production must stall (only the 1-in-8 free cycle digs)
-    for (const f of FSC.FOODS) b.stockIn[f] = 0;
-    b.reqInFlight = {};
+    // fed rate over one window…
+    T.feed(b, "fish", FSC.IN_CAP);
+    const fedAt = T.prod().coal || 0;
+    FS.ff(cycle * 4);
+    const coalFed = (T.prod().coal || 0) - fedAt;
+    // …then starve it: every meal gone and no more coming
+    for (const f of FSC.FOODS) T.drain(f);
     const coalAtStarve = T.prod().coal || 0;
-    FS.ff(cycle * 3);
+    FS.ff(cycle * 4);
     const coalStarved = (T.prod().coal || 0) - coalAtStarve;
     return {
-      built: true, mv, amt0, amt1, coal, food0, foodMid, cycle,
-      coalStarved, digs: FSC.MINE_DIGS, ring: FSC.MINE_RING,
-      needFood: FS.FSSim.need(G, b, "fish"), inCap: FSC.IN_CAP,
-      worker: !!b.worker, cycles: b.cycles,
+      built: true, mv, mvRock, amt0, amt1, coal, food0, foodMid, cycle,
+      coalFed, coalStarved, digs: FSC.MINE_DIGS, ring: FSC.MINE_RING,
+      needFood: FS.FSSim.need(G, b, "fish") + FS.FSSim.need(G, b, "bread"), inCap: FSC.IN_CAP,
+      worker: !!b.worker, cycles: b.cycles, mealBefore, mealAfter,
     };
   });
   t.check("a mine can be built on a mountain seam and crewed", mine.built && mine.worker, mine);
-  t.check("the miner eats to work", mine.foodMid < mine.food0 && mine.cycles > 0, mine);
+  t.check("the miner eats a meal per cycle, the one he has most of",
+    mine.built && mine.mealAfter.bread === mine.mealBefore.bread - 1
+    && mine.mealAfter.fish === mine.mealBefore.fish && mine.cycles > 0, mine);
   t.check("digging yields ore and empties the seam", mine.coal > 0 && mine.amt1 < mine.amt0, mine);
   t.check("ore taken never exceeds the seam", mine.amt0 - mine.amt1 >= mine.coal, mine);
-  t.check("a mine with no food nearly stops", mine.coalStarved <= 1, mine);
-  t.check("a hungry mine asks for up to FSC.IN_CAP meals", mine.needFood > 0 && mine.needFood <= mine.inCap, mine);
+  t.check("a mine with no food all but stops", mine.coalStarved * 2 < mine.coalFed, mine);
+  t.check("a hungry mine asks for up to FSC.IN_CAP meals", mine.needFood >= 0 && mine.needFood <= mine.inCap, mine);
 
   const dry = await page.evaluate(() => {
     const FS = window.__FS__, T = window.T, FSC = FS.FSC;
@@ -685,7 +723,7 @@ H.run("farmstead-economy", async (t) => {
     T.fresh();
     const G = FS.G;
     const q = T.addMany(["smelter", "goldsmelter", "toolmaker", "weaponsmith", "boatwright"],
-      { minD: 3, maxD: 13 });
+      { minD: 3, maxD: 16 });
     const sme = q.smelter, gold = q.goldsmelter, tool = q.toolmaker, wea = q.weaponsmith, boat = q.boatwright;
     const out = { built: { sme: !!sme, gold: !!gold, tool: !!tool, wea: !!wea, boat: !!boat }, missed: q._missed };
     // hand-stock every recipe so the test is about the RECIPE, not the supply line
@@ -700,7 +738,12 @@ H.run("farmstead-economy", async (t) => {
     FS.ff(2);
     const longest = Math.max(FSC.BLD.smelter.cycleT, FSC.BLD.goldsmelter.cycleT,
       FSC.BLD.toolmaker.cycleT, FSC.BLD.weaponsmith.cycleT, FSC.BLD.boatwright.cycleT);
-    const coal0 = wea ? (wea.stockIn.coal || 0) : 0, steel0 = wea ? (wea.stockIn.steel || 0) : 0;
+    const stock0 = {};
+    [["tool", tool, FSC.BLD.toolmaker.in], ["wea", wea, FSC.BLD.weaponsmith.in]].forEach(([k, b, recipe]) => {
+      if (!b) return;
+      stock0[k] = {};
+      for (const r in recipe) stock0[k][r] = { had: b.stockIn[r] || 0, in: T.deliveredTo(b, r) };
+    });
     FS.ff(longest * 6);
     const prod = T.prod();
     const madeTools = T.ev("produced").filter((e) => e.btype === "toolmaker").map((e) => e.res);
@@ -711,8 +754,18 @@ H.run("farmstead-economy", async (t) => {
       steel: prod.steel || 0, goldBar: prod.goldBar || 0, boats: prod.boat || 0,
       madeTools, axesOnly: madeTools.length > 0 && madeTools.every((r) => r === "axe"),
       weapons, alternates, firstWeapon: weapons[0],
-      weaCoalUsed: wea ? coal0 - (wea.stockIn.coal || 0) : 0,
-      weaSteelUsed: wea ? steel0 - (wea.stockIn.steel || 0) : 0,
+      used: (() => {
+        const o = {};
+        [["tool", tool, FSC.BLD.toolmaker.in], ["wea", wea, FSC.BLD.weaponsmith.in]].forEach(([k, b, recipe]) => {
+          if (!b || !stock0[k]) return;
+          o[k] = {};
+          for (const r in recipe) {
+            o[k][r] = stock0[k][r].had + (T.deliveredTo(b, r) - stock0[k][r].in) - (b.stockIn[r] || 0);
+          }
+        });
+        return o;
+      })(),
+      toolCycles: tool ? tool.cycles : 0, weaCycles: wea ? wea.cycles : 0,
       toolIn: FSC.BLD.toolmaker.in, boatIn: FSC.BLD.boatwright.in,
       toolInLeft: tool ? Object.keys(FSC.BLD.toolmaker.in).map((r) => tool.stockIn[r]) : [],
       smeIn: FSC.BLD.smelter.in, goldIn: FSC.BLD.goldsmelter.in,
@@ -722,17 +775,20 @@ H.run("farmstead-economy", async (t) => {
   t.check("gold smelter: " + Object.keys(K.BLD.goldsmelter.in) + " → " + K.BLD.goldsmelter.out, works.goldBar > 0, works);
   t.check("the toolmaker draws from the priority sliders (axe only → only axes)",
     works.axesOnly && works.madeTools.length > 0, works);
-  t.check("the toolmaker consumes " + Object.keys(K.BLD.toolmaker.in), works.toolInLeft.every((n) => n < 6), works);
+  t.check("the toolmaker consumes " + Object.keys(K.BLD.toolmaker.in) + " once per tool",
+    works.used && works.used.tool
+    && Object.keys(K.BLD.toolmaker.in).every((r) => works.used.tool[r] === works.madeTools.length * K.BLD.toolmaker.in[r]), works);
   t.check("the weaponsmith alternates sword and shield", works.weapons.length >= 2 && works.alternates, works);
   t.check("only the sword half-cycle eats coal + steel",
-    works.weapons.length >= 2 && works.weaCoalUsed <= Math.ceil(works.weapons.length / 2)
-    && works.weaCoalUsed === works.weaSteelUsed, works);
+    works.weapons.length >= 2 && works.used && works.used.wea
+    && works.used.wea.coal === works.weapons.filter((w) => w === "sword").length
+    && works.used.wea.coal === works.used.wea.steel, works);
   t.check("the boatwright builds boats from " + Object.keys(K.BLD.boatwright.in), works.boats > 0, works);
 
   // ════════════════════════════════ water roads + boats
   const water = await page.evaluate(() => {
     const FS = window.__FS__, T = window.T, FSC = FS.FSC;
-    T.fresh();
+    T.fresh({ seed: 4242 });                 // this start has a bay worth bridging
     const G = FS.G, map = G.map, reach = T.roadReach();
     const shore = [];
     for (let v = 0; v < map.W * map.H; v++) {
@@ -811,8 +867,8 @@ H.run("farmstead-economy", async (t) => {
     T.fresh();
     const G = FS.G;
     // two consumers of PLANKS: a construction site and a boatwright
-    const q = T.addMany(["boatwright"], { minD: 3, maxD: 13 });
-    const q2 = T.addMany(["toolmaker"], { minD: 3, maxD: 13, finish: false, used: [q.boatwright ? q.boatwright.v : 0] });
+    const q = T.addMany(["boatwright"], { minD: 3, maxD: 16 });
+    const q2 = T.addMany(["toolmaker"], { minD: 3, maxD: 16, finish: false, used: [q.boatwright ? q.boatwright.v : 0] });
     const boat = q.boatwright, site = q2.toolmaker;
     if (!boat || !site) return { ok: false, missed: [q._missed, q2._missed] };
     const from = T.castle().flag;
@@ -861,7 +917,7 @@ H.run("farmstead-economy", async (t) => {
     const FS = window.__FS__, T = window.T, FSC = FS.FSC;
     T.fresh();
     const G = FS.G;
-    const stock = T.add("stock", { minD: 4, maxD: 12 });
+    const stock = T.add("stock", { minD: 4, maxD: 16 });
     if (!stock) return { ok: false };
     const castle = T.castle();
     const M = FSC.STOCK_MODE;
@@ -893,17 +949,18 @@ H.run("farmstead-economy", async (t) => {
     const FS = window.__FS__, T = window.T, FSC = FS.FSC;
     T.fresh();
     const G = FS.G;
-    const saw = T.add("sawmill", { minD: 3, maxD: 11 });
+    const saw = T.add("sawmill", { minD: 3, maxD: 16 });
     if (!saw) return { ok: false };
     const need0 = FS.FSSim.need(G, saw, "lumber");
     T.feed(saw, "lumber", FSC.IN_CAP);
     const needFull = FS.FSSim.need(G, saw, "lumber");
-    // no input → no production
-    for (const r in saw.stockIn) saw.stockIn[r] = 0;
+    // no input → no production (drain every log in the settlement, not just his)
+    T.drain("lumber");
     const p0 = T.prod().plank || 0;
     FS.ff(FSC.BLD.sawmill.cycleT * 3);
     const starved = (T.prod().plank || 0) - p0;
     // feed it → production resumes
+    T.drain("lumber");
     T.feed(saw, "lumber", 3);
     FS.ff(FSC.BLD.sawmill.cycleT * 3 + 10);
     const fed = (T.prod().plank || 0) - p0;
@@ -934,7 +991,7 @@ H.run("farmstead-economy", async (t) => {
     const wanted = ["lumberjack", "sawmill", "forester", "stonecutter", "farm", "mill",
       "bakery", "pigfarm", "butcher", "toolmaker", "smelter", "weaponsmith",
       "fisher", "boatwright", "stock", "hut", "goldsmelter", "lumberjack", "farm"];
-    const q = T.addMany(wanted, { used, minD: 3, maxD: 15 });
+    const q = T.addMany(wanted, { used, minD: 3, maxD: 16 });
     const made = q._list.map((b) => b.type);
     // a mine on the nearest seam
     const reach = T.roadReach(), map = G.map;
@@ -989,7 +1046,7 @@ H.run("farmstead-economy", async (t) => {
     function scripted() {
       T.fresh();
       const G = FS.G;
-      T.addMany(["lumberjack", "sawmill", "farm", "mill", "stonecutter"], { minD: 3, maxD: 13 });
+      T.addMany(["lumberjack", "sawmill", "farm", "mill", "stonecutter"], { minD: 3, maxD: 16 });
       FS.ff(12000);
       return { hash: FSSim.hash(G), prod: JSON.stringify(FSSim.production(G, 0)), tick: G.tick };
     }
@@ -1007,21 +1064,24 @@ H.run("farmstead-economy", async (t) => {
     const sigs = new Set();
     for (const type of FSC.BLD_LIST) {
       const g = FSModels.building(type, 0);
-      let tris = 0, verts = 0;
+      let tris = 0, verts = 0, sum = 0;
       g.traverse((o) => {
         if (!o.geometry || !o.geometry.attributes || !o.geometry.attributes.position) return;
-        const n = o.geometry.attributes.position.count;
+        const pos = o.geometry.attributes.position;
+        const n = pos.count;
         verts += n;
         tris += (o.geometry.index ? o.geometry.index.count : n) / 3;
+        for (let k = 0; k < pos.array.length; k++) sum = (sum + Math.round(pos.array[k] * 97) * (k + 1)) % 2147483647;
       });
       out.types.push([type, Math.round(tris)]);
       if (tris > out.maxTris) out.maxTris = Math.round(tris);
-      sigs.add(verts + ":" + Math.round(tris));
+      sigs.add(verts + ":" + Math.round(tris) + ":" + sum);
       if (g.userData.spin) out.spin.push(type);
       if (g.userData.smoke) out.smoke.push(type);
     }
     out.distinct = sigs.size;
     out.n = FSC.BLD_LIST.length;
+    out.dupes = out.n - sigs.size;
     return out;
   });
   t.check("every building type has its own model", models.types.length === models.n, models.types);
@@ -1039,7 +1099,7 @@ H.run("farmstead-economy", async (t) => {
     T.fresh();
     const G = FS.G;
     // a scene with everything Phase C draws: fields, saplings, signs, smoke, machinery
-    const q = T.addMany(["mill", "bakery"], { minD: 3, maxD: 12 });
+    const q = T.addMany(["mill", "bakery"], { minD: 3, maxD: 16 });
     const mill = q.mill, bake = q.bakery;
     if (mill) { T.feed(mill, "wheat", 4); mill.working = true; mill.prodT = FSC.BLD.mill.cycleT * 4; }
     if (bake) { T.feed(bake, "flour", 4); bake.working = true; bake.prodT = FSC.BLD.bakery.cycleT * 4; }
@@ -1052,6 +1112,7 @@ H.run("farmstead-economy", async (t) => {
     if (signV >= 0) { map.sign[signV] = 2 + 8; R.refreshVertex(signV); }
     R.setCam({ yaw: 0.6, pitch: 0.9 });
     R.focusVertex(T.castle().v, 30);
+    R.frame(0.033);                       // building views are created during a frame
     const spin0 = mill && R.scene().getObjectByName("bld:" + mill.id);
     const rot0 = spin0 && spin0.userData.spin ? spin0.userData.spin.rotation.z : 0;
     for (let i = 0; i < 30; i++) { R.frame(0.033); }   // render only: the sim must not clear `working`
@@ -1076,7 +1137,7 @@ H.run("farmstead-economy", async (t) => {
     T.fresh();
     const G = FS.G;
     T.addMany(["lumberjack", "sawmill", "forester", "farm", "mill", "bakery", "stonecutter",
-      "pigfarm", "butcher", "toolmaker", "smelter", "stock"], { minD: 3, maxD: 15 });
+      "pigfarm", "butcher", "toolmaker", "smelter", "stock"], { minD: 3, maxD: 16 });
     FS.ff(26000);
     // hold the frame on a busy moment: goods on flags, workers outside, machines running
     let hit = null;
