@@ -45,6 +45,22 @@
   const FSSim = {};
   const JOB = FSC.JOB;
 
+  /* ===== PHASE-D hook: fs-military / fs-ai load AFTER this file, so they are
+   * resolved lazily. Everything below degrades to the Phase-B/C behaviour when
+   * they are absent (the sim stays runnable on its own). */
+  let _FSMil = null, _FSAI = null;
+  function mil() {
+    if (_FSMil) return _FSMil;
+    _FSMil = (typeof window !== "undefined" && window.FSMil) ? window.FSMil : null;
+    return _FSMil;
+  }
+  function ai() {
+    if (_FSAI) return _FSAI;
+    _FSAI = (typeof window !== "undefined" && window.FSAI) ? window.FSAI : null;
+    return _FSAI;
+  }
+  FSSim._bindMilitary = function (m, a) { _FSMil = m || _FSMil; _FSAI = a || _FSAI; };
+
   // stable integer ids for hashing string enums
   const RES_IDX = Object.create(null);
   FSC.RES_LIST.forEach((r, i) => (RES_IDX[r] = i + 1));
@@ -78,7 +94,11 @@
       tools: Object.assign({}, FSC.TOOL_PRIO_DEFAULT),
       transportPrio: FSC.RES_ORDER.slice(),
       dist: Object.assign({}, FSC.DIST_DEFAULTS),
-      knights: Object.assign({}, FSC.KNIGHT_DEFAULTS),
+      /* ===== PHASE-D: occupancy levels are per threat tier, deep-copied ===== */
+      knights: Object.assign({}, FSC.KNIGHT_DEFAULTS, {
+        occ: FSC.KNIGHT_OCC_DEFAULTS.map((a) => a.slice()),
+      }),
+      cycleT: 0,                   // "cycle knights" cooldown
       /* ===== PHASE-C: reproduction + knight ledger (plan §5) ===== */
       repro: FSC.REPRO_DEFAULT,
       knightCounter: FSC.KNIGHT_COUNTER_START,
@@ -138,11 +158,19 @@
       cycles: 0,           // completed production cycles (stats + suites)
       altOut: 0,           // weaponsmith sword/shield alternation
     };
-    if (def.mil) b.mil = { knights: [], wanted: 0, gold: 0, goldReq: 0 };
+    /* ===== PHASE-D: `knights` is a list of RANKS (0..4), not serf ids — a
+     * garrisoned knight is stored inside the building exactly like an idle serf
+     * is stored in a warehouse pool, and materialises as an entity only when he
+     * marches out. `defending` counts knights currently duelling at the flag
+     * (they still hold the building for territory purposes). */
+    if (def.mil) {
+      b.mil = { knights: [], wanted: 0, gold: 0, goldReq: 0, inbound: 0, defending: 0, attackers: [], fight: null, warned: 0 };
+    }
     if (def.mine) b.mine = { kind: def.mine, exhausted: false };
     if (def.warehouse) {
       b.inv = FSSim.emptyInv(); b.pool = FSSim.emptyPool(); b.spawnT = 0;
       b.modes = {};        /* ===== PHASE-C: per-res In/Stop/Out ===== */
+      b.knightRanks = [];  /* ===== PHASE-D: ranks of the knights resting here ===== */
     }
     G.buildings[b.id] = b;
     G.map.bldAt[v] = b.id;
@@ -171,10 +199,14 @@
   FSSim.dirtyVertices = function (G) { return G.dirtyV; };
 
   /**
-   * Territory: every vertex within radius of an occupied military building belongs
-   * to the nearest such building's owner (ties -> lower building id).
+   * Territory. PHASE-D replaces this with the influence-weight model in
+   * fs-military.js (FSMil.recomputeOwnership) — which also runs the "land you
+   * lost burns" cascade. The nearest-claimer rule below is the Phase-B fallback
+   * that keeps this file runnable on its own.
    */
-  FSSim.recomputeOwner = function (G) {
+  FSSim.recomputeOwner = function (G, area) {
+    const M = mil();
+    if (M && M.recomputeOwnership) return M.recomputeOwnership(G, area);
     const map = G.map, N = map.W * map.H;
     const claims = [];
     for (const id in G.buildings) {

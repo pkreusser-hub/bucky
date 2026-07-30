@@ -412,7 +412,8 @@
   FSC.CMD_DELAY = 1;
   FSC.CMD_DELAY_MP = 4;
   FSC.CMD_TYPES = ["flag", "road", "build", "demolish", "speed", "prio",
-    /* ===== PHASE-C ===== */ "geologist", "dist", "toolPrio", "stockMode", "halt"];
+    /* ===== PHASE-C ===== */ "geologist", "dist", "toolPrio", "stockMode", "halt",
+    /* ===== PHASE-D ===== */ "attack", "knightSet", "cycleKnights"];
 
   // Scheduling budgets — every per-tick loop is bounded, nothing scans the map.
   FSC.WH_DISPATCH_T = 6;       // ticks between one warehouse pushing a good out (staggered by id)
