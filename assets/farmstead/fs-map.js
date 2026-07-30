@@ -502,6 +502,10 @@
     const door = nbr(map, v, DIR[FSC.DOOR_DIR]);
     if (door < 0 || !FSMap.flaggable(terr[door])) return null;
     if (fields.waterDist[v] < 2) return null;
+    // HARD: enough road-reachable land from the castle door — a start boxed in by
+    // forest + slope is unplayable (clearing trees needs a lumberjack, a lumberjack
+    // needs a road). Never relaxed by tier.
+    if (!reachOK(map, v, door)) return null;
 
     let grass = 0, land = 0, tot = 0, lo = Infinity, hi = -Infinity;
     forRadius(map, v, ST.R_AREA, (u) => {
@@ -535,6 +539,34 @@
     return score;
   }
   FSMap.scoreSite = scoreSite;
+
+  /**
+   * Deterministic bounded BFS from a prospective castle's door: counts vertices a
+   * road network could actually reach (walkable terrain, road-legal slope, not
+   * object-blocked — objects on the castle footprint/door are treated clear because
+   * the fairness top-up removes them). Early-exits at ST.REACH_MIN.
+   */
+  function reachOK(map, site, door) {
+    const need = ST.REACH_MIN, cap = ST.REACH_CAP;
+    const seen = new Set([door]);
+    const q = [door];
+    let count = 1;
+    while (q.length && count < need && seen.size < cap) {
+      const cur = q.shift();
+      for (let d = 0; d < 6; d++) {
+        const u = nbr(map, cur, d);
+        if (u < 0 || seen.has(u)) continue;
+        const t = map.terr[u];
+        if (!FSMap.walkable(t)) continue;
+        if (Math.abs(map.height[u] - map.height[cur]) > FSC.S_ROAD) continue;
+        if (FSMap.objBlocks(map.obj[u]) && dist(map, site, u) > 1 && u !== door) continue;
+        seen.add(u); q.push(u); count++;
+        if (count >= need) return true;
+      }
+    }
+    return count >= need;
+  }
+  FSMap.reachOK = reachOK;
 
   /** best-scoring sites that are all at least `sep` apart, else null */
   function greedyPick(map, cands, n, sep) {

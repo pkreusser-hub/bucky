@@ -360,6 +360,8 @@
     SEP_FLOOR_FRAC: 0.26, SEP_FLOOR_STEP: 0.07, SEP_HARD_FLOOR: 0.14,
     TOPUP_TREES: 14, TOPUP_TREE_R: 7,        // fairness top-up around every start site
     TOPUP_STONES: 4, TOPUP_STONE_R: 9,
+    REACH_MIN: 60,        // HARD floor: road-reachable vertices from the castle door
+    REACH_CAP: 420,       // BFS node guard (early exit at REACH_MIN)
     CLEAR_R: 1,           // objects cleared around the castle vertex
   };
 
