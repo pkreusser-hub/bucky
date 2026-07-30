@@ -1308,6 +1308,29 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   CAP LOWERED 30 → 15/day (2026-07-16, user, after confirming the bucket fix held for a few
   days) — STORY_DAILY_CAP in BOTH farmgpt.mjs and farmgpt.html (keep in sync); both suites
   re-run green at 15.
+- STORY LOG → DAILY SUMMARIES (2026-07-30, sonnet agent from Fable spec, PUSHED): Dad's Story
+  Log no longer stores/renders full transcripts — ONE Haiku-written summary per kid per day
+  (📖 about / 🧭 how the kid steered it, write-ins quoted / verdict line: ✅ clean or 🚩 flagged
+  when the kid pushed toward restricted-adult content or the story had to redirect; uncertain →
+  flag with a note). NEW collection farmgpt_story_summary (doc id <date>__<canonKey>, ~other→
+  "other" in the id only; users[] keeps every raw identity seen so the rename trick stays
+  visible; 90-day prune STORY_SUMMARY_RETENTION_DAYS). NEW action storylog_summaries (replaces
+  the old storylog transcript action; runs LAZILY when Dad opens the log: groups raw scenes by
+  (date, canonStoryUser), processes ≤3 groups/request, client polls while pending>0 cap 10).
+  ORDERING GUARANTEE: the summary doc write is confirmed ok BEFORE that day's raw scenes are
+  deleted, and TODAY's raw scenes are NEVER deleted (countStoryToday's daily cap queries them;
+  today renders a "(so far today)" partial:true card, re-summarized when sceneCount changes).
+  Failure = one retry then a flagged:null sentinel doc (sceneCount:-1) so the group re-attempts
+  next open with scenes intact. storylog_clear now clears scenes AND summaries for the date.
+  Summarizer = non-streaming Haiku (callAnthropicOnce), STRICT-JSON parsed defensively, usage
+  under u_*; kidstory (Benjie) scenes summarize through the same path. GOTCHA the suite caught:
+  `pending` must count group RESOLUTION (classified − resolved), not classified − batchSize —
+  a failed write otherwise reports pending:0 and the client poll never converges. VERIFY:
+  node tools/_verify-storylog-summary.mjs (77: blocked-write ordering proof, cap regression,
+  rename-variant merge, all retry paths, pending arithmetic 7→3/3/1, both prunes, 401) +
+  scratchpad client suite 24/24 + kidstory 54/54 + dnd 47/47 regressions. Flag QUALITY not
+  live-testable from this env — spot-check the first real day post-deploy and tune
+  STORY_LOG_SUMMARY_SYSTEM if flags read too twitchy or too quiet.
 - UI FIX BATCH (2026-07-09, index.html + games.html + farmgpt.html): (1) Farm Bank shows only the
   logged-in kid's account (renderFarmBank: a BANK_KID sees just their card; Dad sees all). (2) Work-
   order cards compacted (tighter .wo-top/.wo-meta/.wo-desc/.wo-actions padding + 34px thumb) to fit

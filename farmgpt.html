@@ -80,7 +80,11 @@
     background: none; border: 0; color: var(--muted); font-family: inherit; font-size: 13px;
     font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px;
   }
-  /* Story Log (Dad monitoring) */
+  /* Story Log (Dad monitoring) — one AI-written report per reader per day, not a transcript */
+  #storyLogBody .slPending {
+    background: #f6f2e6; border: 1px solid var(--paper-line); color: #6d5410; font-size: 13px;
+    font-weight: 700; border-radius: 10px; padding: 9px 12px; margin: 0 0 14px; text-align: center;
+  }
   #storyLogBody .slDay { margin: 0 0 8px; }
   #storyLogBody .slDayHead {
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
@@ -92,13 +96,27 @@
     cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
   }
   #storyLogBody .slClear:hover { color: var(--red); }
-  #storyLogBody .slUser { font-weight: 700; font-size: 14px; margin: 12px 0 2px; }
-  #storyLogBody .slStory { font-family: Georgia, serif; font-weight: 700; color: #6d5410; margin: 8px 0 2px; }
-  #storyLogBody .slChap { text-align: center; color: #b08d2e; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; margin: 8px 0 2px; }
-  #storyLogBody .slSetup { background: #f6f2e6; border-radius: 6px; padding: 5px 9px; font-size: 13px; margin: 4px 0; }
-  #storyLogBody .slChoice { color: #8a6d1a; font-style: italic; font-size: 13px; margin: 8px 0 2px; }
-  #storyLogBody .slProse { font-family: Georgia, serif; font-size: 14px; line-height: 1.55; white-space: pre-wrap; color: #33280f; margin: 2px 0; }
-  #storyLogBody .slOffered { color: var(--muted); font-size: 12px; margin: 2px 0 8px; }
+  #storyLogBody .slCard {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
+    padding: 13px 15px; margin: 10px 0;
+  }
+  #storyLogBody .slCardHead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 2px; }
+  #storyLogBody .slUser { font-weight: 800; font-size: 15px; color: var(--ink); }
+  #storyLogBody .slSoFar {
+    font-size: 11px; font-weight: 700; color: #8a6d1a; background: #f6f2e6; border-radius: 999px;
+    padding: 2px 9px; text-transform: uppercase; letter-spacing: .04em;
+  }
+  #storyLogBody .slAlso { font-size: 12px; color: var(--muted); margin: 0 0 6px; }
+  #storyLogBody .slTitles { font-family: Georgia, serif; font-weight: 700; color: #6d5410; font-size: 13.5px; margin: 4px 0 8px; }
+  #storyLogBody .slLabel { font-size: 11.5px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 8px 0 2px; }
+  #storyLogBody .slAbout, #storyLogBody .slPrompting { font-size: 14px; line-height: 1.5; color: var(--ink); margin: 0; }
+  #storyLogBody .slVerdict {
+    display: flex; align-items: flex-start; gap: 7px; font-size: 13.5px; font-weight: 700;
+    border-radius: 10px; padding: 8px 11px; margin: 10px 0 0;
+  }
+  #storyLogBody .slVerdict.good { background: #eaf6ec; color: #1f6d33; }
+  #storyLogBody .slVerdict.bad { background: #fceaec; color: var(--red); }
+  #storyLogBody .slVerdict.pending { background: #fbf3de; color: #8a6d1a; }
   #storyLogBody .slEmpty { color: var(--muted); text-align: center; padding: 20px; }
 
   /* ---------- usage ---------- */
@@ -1740,9 +1758,10 @@
   refreshDadUI();
 
   // ---------------- Story Log (Dad monitoring) ----------------
-  // Reads the kids' logged story scenes through the function (server-side Firestore), groups them
-  // by day → reader → story, and renders each scene with the existing parseChapter(). A per-day
-  // "clear" prunes that day from the database.
+  // Reads AI-written per-reader-per-day reports (never a full transcript) through the function.
+  // Each call to storylog_summaries processes a few pending (day, reader) groups on the server
+  // and reports back how many are still pending; the client polls while pending > 0 so a first
+  // open after a busy day finishes summarizing without the user having to reopen the page.
   async function fetchLog(extra) {
     const resp = await fetch(API_URL, {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -1754,21 +1773,29 @@
   async function loadStoryLog() {
     const body = $("storyLogBody");
     body.textContent = "Loading…";
-    let entries;
-    try { entries = (await fetchLog({ mode: "storylog" })).entries || []; }
-    catch (err) { body.textContent = "😵 " + err.message; return; }
-    if (!entries.length) { body.innerHTML = '<div class="slEmpty">No story reading logged yet. Check back after the kids play Story Time.<br><span style="font-size:12px">(Logs older than 30 days are cleared automatically.)</span></div>'; return; }
-    // Group: date → user → storyId → { title, scenes[] } (entries already sorted date desc, idx asc)
+    let data = null;
+    for (let i = 0; i < 10; i++) {
+      try { data = await fetchLog({ mode: "storylog_summaries" }); }
+      catch (err) { body.textContent = "😵 " + err.message; return; }
+      const pending = data.pending || 0;
+      if (pending <= 0) break;
+      body.innerHTML = '<div class="slPending">📚 Summarizing ' + pending + ' more day' + (pending === 1 ? "" : "s") + '…</div>';
+    }
+    renderStoryLog((data && data.summaries) || []);
+  }
+  function renderStoryLog(summaries) {
+    const body = $("storyLogBody");
+    if (!summaries.length) {
+      body.innerHTML = '<div class="slEmpty">No story reading logged yet. Check back after the kids play Story Time.<br><span style="font-size:12px">(Reports older than 90 days are cleared automatically.)</span></div>';
+      return;
+    }
+    // Group by date — summaries are already sorted date desc, then reader — one card per reader.
     const days = [];
     const dayMap = {};
-    for (const e of entries) {
-      let day = dayMap[e.date];
-      if (!day) { day = dayMap[e.date] = { date: e.date, users: [], userMap: {} }; days.push(day); }
-      let u = day.userMap[e.user];
-      if (!u) { u = day.userMap[e.user] = { user: e.user, stories: [], storyMap: {} }; day.users.push(u); }
-      let s = u.storyMap[e.storyId];
-      if (!s) { s = u.storyMap[e.storyId] = { title: e.title, scenes: [] }; u.stories.push(s); }
-      s.scenes.push(e);
+    for (const s of summaries) {
+      let day = dayMap[s.date];
+      if (!day) { day = dayMap[s.date] = { date: s.date, cards: [] }; days.push(day); }
+      day.cards.push(s);
     }
     body.innerHTML = "";
     for (const day of days) {
@@ -1778,24 +1805,42 @@
       const clr = document.createElement("button"); clr.className = "slClear"; clr.textContent = "🗑 clear this day";
       clr.addEventListener("click", () => clearStoryDay(day.date));
       head.append(d, clr); dWrap.appendChild(head);
-      for (const u of day.users) {
-        const uEl = document.createElement("div"); uEl.className = "slUser"; uEl.textContent = "👤 " + u.user;
-        dWrap.appendChild(uEl);
-        for (const s of u.stories) {
-          const sEl = document.createElement("div"); sEl.className = "slStory"; sEl.textContent = "“" + s.title + "”";
-          dWrap.appendChild(sEl);
-          for (const sc of s.scenes) {
-            const p = parseChapter(sc.scene);
-            if (p.title) { const c = document.createElement("div"); c.className = "slChap"; c.textContent = "Chapter — " + p.title; dWrap.appendChild(c); }
-            if (sc.idx === 0 && sc.choice) { const w = document.createElement("div"); w.className = "slSetup"; w.textContent = "The world: " + sc.choice; dWrap.appendChild(w); }
-            else if (sc.choice) { const ch = document.createElement("div"); ch.className = "slChoice"; ch.textContent = "▸ " + sc.choice; dWrap.appendChild(ch); }
-            const pr = document.createElement("div"); pr.className = "slProse"; pr.textContent = p.text; dWrap.appendChild(pr);
-            if (p.choices.length) { const o = document.createElement("div"); o.className = "slOffered"; o.textContent = "Choices offered: " + p.choices.map((c, i) => (i + 1) + ") " + c).join("   "); dWrap.appendChild(o); }
-          }
-        }
-      }
+      for (const s of day.cards) dWrap.appendChild(buildStoryLogCard(s));
       body.appendChild(dWrap);
     }
+  }
+  function buildStoryLogCard(s) {
+    const card = document.createElement("div"); card.className = "slCard";
+    const head = document.createElement("div"); head.className = "slCardHead";
+    // The raw identity string(s) actually seen (a renamed/tampered profile still shows plainly).
+    const users = (s.users && s.users.length) ? s.users : [s.canon || "Reader"];
+    const nm = document.createElement("span"); nm.className = "slUser"; nm.textContent = "👤 " + users[0];
+    head.appendChild(nm);
+    if (s.partial) { const b = document.createElement("span"); b.className = "slSoFar"; b.textContent = "so far today"; head.appendChild(b); }
+    card.appendChild(head);
+    const extras = users.slice(1);
+    if (extras.length) {
+      const also = document.createElement("div"); also.className = "slAlso";
+      also.textContent = "also appeared as: " + extras.join(", ");
+      card.appendChild(also);
+    }
+    if (s.titles && s.titles.length) {
+      const t = document.createElement("div"); t.className = "slTitles";
+      t.textContent = s.titles.map((x) => "“" + x + "”").join(", ");
+      card.appendChild(t);
+    }
+    const aboutLbl = document.createElement("div"); aboutLbl.className = "slLabel"; aboutLbl.textContent = "📖 About";
+    const about = document.createElement("div"); about.className = "slAbout"; about.textContent = s.about || "—";
+    card.append(aboutLbl, about);
+    const promptLbl = document.createElement("div"); promptLbl.className = "slLabel"; promptLbl.textContent = "🧭 How they steered it";
+    const prompting = document.createElement("div"); prompting.className = "slPrompting"; prompting.textContent = s.prompting || "—";
+    card.append(promptLbl, prompting);
+    const verdict = document.createElement("div"); verdict.className = "slVerdict";
+    if (s.flagged === true) { verdict.classList.add("bad"); verdict.textContent = "🚩 " + (s.flagNote || "Something needed redirecting."); }
+    else if (s.flagged === false) { verdict.classList.add("good"); verdict.textContent = "✅ Nothing needed redirecting"; }
+    else { verdict.classList.add("pending"); verdict.textContent = "⚠️ Summary incomplete — will retry next open"; }
+    card.appendChild(verdict);
+    return card;
   }
   async function clearStoryDay(date) {
     if (!confirm("Delete the logged reading for " + date + "? (This can't be undone.)")) return;
