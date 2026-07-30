@@ -534,9 +534,16 @@
   /* ===== PHASE-B: goods on flags ======================================== */
   /* ===================================================================== */
 
-  function markRetry(G, flagId) {
+  function markRetry(G, flagId, due) {
     for (let i = 0; i < G.retryQ.length; i++) if (G.retryQ[i].f === flagId) return;
-    G.retryQ.push({ f: flagId, due: G.tick + FSC.RETRY_T });
+    G.retryQ.push({ f: flagId, due: due === undefined ? G.tick + FSC.RETRY_T : due });
+  }
+  /**
+   * The network shrank: every waiting good has to be re-examined, because a
+   * destination that was reachable a moment ago may not be any more.
+   */
+  function markAllRetry(G) {
+    for (const id in G.flags) if (G.flags[id].slots.length) markRetry(G, G.flags[id].id, G.tick);
   }
 
   /** Resolve an item's destination: open request → warehouse → destless (retry later). */
@@ -679,6 +686,7 @@
     G.map.flagAt[f.v] = 0;
     delete G.flags[f.id];
     bumpRoutes(G);
+    markAllRetry(G);
     event(G, "flagRemoved", { id: f.id, v: f.v, p: f.p });
     return { ok: true };
   };
@@ -805,9 +813,20 @@
     if (f1) { const k = f1.roads.indexOf(r.id); if (k >= 0) f1.roads.splice(k, 1); }
     if (f2) { const k = f2.roads.indexOf(r.id); if (k >= 0) f2.roads.splice(k, 1); }
     const s = G.serfs[r.carrier];
+    // plan his way off the doomed road BEFORE it stops existing
+    let escape = null;
+    if (s) {
+      const i = r.path.indexOf(s.v);
+      if (i >= 0) {
+        escape = (i * 2 <= r.path.length - 1)
+          ? r.path.slice(0, i + 1).reverse()      // out to f1
+          : r.path.slice(i);                      // out to f2
+      }
+    }
     delete G.roads[r.id];
     dropRequest(G, "road", r.id);
     bumpRoutes(G);
+    markAllRetry(G);
     if (s) {
       // whatever he holds lands on a surviving end flag; then he walks home
       if (s.carry) {
@@ -826,7 +845,16 @@
         s.carry = 0; s.carryDest = 0;
       }
       s.road = 0;
-      sendHome(G, s);
+      if (escape && escape.length > 1) {
+        // walk out to the surviving flag; the 'return' handler re-paths from there
+        s.path = escape.slice(1);
+        s.offroad = false;
+        s.state = "return";
+        s.target = 0;
+        s.congestT = 0;
+      } else {
+        sendHome(G, s);
+      }
     }
     event(G, "roadRemoved", { id: r.id, p: r.p });
     return { ok: true };
@@ -1220,7 +1248,8 @@
       case "fetch": {
         const pick = bestPickup(G, s, r);
         if (!pick) { s.state = "idle"; s.path.length = 0; return; }
-        if (pick.flag !== s.targetFlag) {          // a better good appeared elsewhere
+        // re-aim only while standing ON a vertex, so he never jumps mid-stride
+        if (pick.flag !== s.targetFlag && s.stepT === 0) {
           s.targetFlag = pick.flag;
           const f = flagOf(G, pick.flag);
           carrierWalkTo(G, s, r, r.path.indexOf(f.v));
@@ -1620,7 +1649,9 @@
       let any = false;
       for (let k = 0; k < f.slots.length; k++) {
         const it = f.slots[k];
-        if (it.dest && G.buildings[it.dest]) continue;
+        const b = it.dest && G.buildings[it.dest];
+        // keep a destination that is still alive AND still reachable by road
+        if (b && (b.flag === f.id || FSSim.hops(G, f.id, b.flag) >= 0)) continue;
         it.dest = 0;
         FSSim.scheduleItem(G, f, it);
         if (!it.dest) any = true;

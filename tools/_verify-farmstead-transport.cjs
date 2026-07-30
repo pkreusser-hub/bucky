@@ -561,6 +561,28 @@ H.run("farmstead-transport", async (t) => {
   t.check("the carrier rejoins the pool (headcount restored)", demoRoad.peopleAfter === demoRoad.peopleBefore, demoRoad);
   t.check("no serf is left attached to the dead road", demoRoad.serfStillOnDeadRoad === false, demoRoad);
 
+  // ════════════════════════════════ goods stranded by a network cut
+  const stranded = await page.evaluate(() => {
+    const FS = window.__FS__, T = window.T, FSSim = FS.FSSim;
+    T.fresh();
+    const G = FS.G;
+    const c = T.chain("hut");
+    FS.ff(400);
+    const far = G.flags[G.buildings[c.site].flag];
+    far.slots.length = 0;
+    const it = FSSim.pushItem(G, far, "coal", undefined);
+    const destBefore = it.dest;
+    const reachBefore = FSSim.hops(G, far.id, G.buildings[destBefore].flag);
+    FSSim.demolishRoad(G, c.r2);                 // cut the far flag off the network
+    FS.ff(FS.FSC.RETRY_T + 30);
+    const stillThere = far.slots.indexOf(it) >= 0;
+    return { destBefore, reachBefore, destAfter: it.dest, stillThere,
+      queued: G.retryQ.some((q) => q.f === far.id) };
+  });
+  t.check("a good addressed to a reachable warehouse starts routed", stranded.destBefore > 0 && stranded.reachBefore >= 0, stranded);
+  t.check("cutting the network makes it destless again, not stuck en route", stranded.destAfter === 0 && stranded.stillThere, stranded);
+  t.check("and it is queued for a later retry", stranded.queued === true, stranded);
+
   // ════════════════════════════════ flag + building demolition
   const demoFlag = await page.evaluate(() => {
     const FS = window.__FS__, T = window.T, FSSim = FS.FSSim, FSC = FS.FSC;
