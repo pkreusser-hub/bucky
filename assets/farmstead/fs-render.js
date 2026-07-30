@@ -244,27 +244,45 @@
   };
 
   // ----------------------------------------------------------------- buildings
+  /** 0..1 progress through the hammering phase (drives the rising-wall visual). */
+  function buildFrac(b) {
+    const tot = (b.matReq.plank || 0) + (b.matReq.stone || 0);
+    if (!tot) return 1;
+    return Math.min(1, ((b.matUsed || 0) + (b.progress || 0) / FSC.BUILD_T_PER_MAT) / tot);
+  }
+  /** Rebuild a building's mesh only when its visible stage actually changed. */
+  function bldVisKey(b) {
+    if (b.state === "build") return "build" + Math.min(3, Math.floor(buildFrac(b) * 4));
+    return b.state || "done";
+  }
+
   function buildingView(b) {
-    const g = b.type === "castle" ? FSModels.castle(b.p) : FSModels.placeholderBuilding(b.type, undefined, b.p);
+    const g = FSModels.buildingModel(b.type, b.state, b.p, buildFrac(b));
     FSMap.worldXZ(map, b.v, xz);
     g.position.set(xz[0], map.height[b.v], xz[1]);
     g.rotation.y = Math.PI / 6;         // face the SE door flag
     g.name = "bld:" + b.id;
+    g.userData.visKey = bldVisKey(b);
     return g;
   }
 
-  /** Sync building meshes with G.buildings (Phase B calls this when sites appear). */
+  /** Sync building meshes with G.buildings (site → scaffold → done → burn). */
   FSRender.refreshBuildings = function () {
     if (!scene) return 0;
     const seen = new Set();
     for (const id in G.buildings) {
       const b = G.buildings[id];
       seen.add(b.id);
-      if (!bldViews.has(b.id)) {
-        const view = buildingView(b);
-        bldViews.set(b.id, view);
-        bldGroup.add(view);
+      const cur = bldViews.get(b.id);
+      if (cur && cur.userData.visKey === bldVisKey(b)) {
+        FSMap.worldXZ(map, b.v, xz);
+        cur.position.set(xz[0], map.height[b.v], xz[1]);   // leveling moves the ground
+        continue;
       }
+      if (cur) { bldGroup.remove(cur); disposeTree(cur); }
+      const view = buildingView(b);
+      bldViews.set(b.id, view);
+      bldGroup.add(view);
     }
     bldViews.forEach((view, id) => {
       if (seen.has(id)) return;
@@ -274,6 +292,231 @@
     });
     return bldViews.size;
   };
+
+  /* ===================================================================== */
+  /* ===== PHASE-B: flags, goods, roads, serfs (all instanced) ============ */
+  /* ===================================================================== */
+  const dyn = {
+    group: null, pools: Object.create(null), roadMesh: null,
+    roadSig: "", bldSig: "", tAcc: 0, serfVis: new Map(), lastSerfCount: 0,
+  };
+  const WHITE = new THREE.Color(1, 1, 1);
+  const resC = new THREE.Color();
+
+  function dynPool(key, geo, material) {
+    let p = dyn.pools[key];
+    if (p) return p;
+    const mesh = new THREE.InstancedMesh(geo, material, 32);
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.frustumCulled = false;
+    mesh.name = "dyn:" + key;
+    mesh.setColorAt(0, WHITE);
+    mesh.count = 0;
+    dyn.group.add(mesh);
+    p = { key, mesh, cap: 32, n: 0, geo, mat: material };
+    dyn.pools[key] = p;
+    return p;
+  }
+  function dynGrow(p, cap) {
+    const mesh = new THREE.InstancedMesh(p.geo, p.mat, cap);
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.frustumCulled = false;
+    mesh.name = p.mesh.name;
+    mesh.setColorAt(0, WHITE);
+    mesh.count = 0;
+    dyn.group.remove(p.mesh);
+    p.mesh.dispose();
+    dyn.group.add(mesh);
+    p.mesh = mesh; p.cap = cap;
+  }
+  function dynPush(p, m, color) {
+    if (p.n >= p.cap) dynGrow(p, Math.ceil(p.cap * 1.8) + 16);
+    p.mesh.setMatrixAt(p.n, m);
+    p.mesh.setColorAt(p.n, color || WHITE);
+    p.n++;
+  }
+  function dynFlush() {
+    for (const k in dyn.pools) {
+      const p = dyn.pools[k];
+      p.mesh.count = p.n;
+      p.mesh.instanceMatrix.needsUpdate = true;
+      if (p.mesh.instanceColor) p.mesh.instanceColor.needsUpdate = true;
+      p.n = 0;
+    }
+  }
+
+  function initDynamic() {
+    dyn.group = new THREE.Group();
+    dyn.group.name = "dynamic";
+    scene.add(dyn.group);
+    dyn.roadSig = ""; dyn.bldSig = "";
+    dyn.serfVis.clear();
+  }
+
+  // ---- roads: one merged ribbon mesh, rebuilt only when the network changes ----
+  function roadSignature() {
+    let n = 0, sum = 0;
+    for (const id in G.roads) { n++; sum += (id | 0) + G.roads[id].path.length * 7; }
+    return n + ":" + sum + ":" + G.routeGen;
+  }
+  function rebuildRoads() {
+    if (dyn.roadMesh) { dyn.group.remove(dyn.roadMesh); dyn.roadMesh.geometry.dispose(); dyn.roadMesh = null; }
+    const segs = [];
+    for (const id in G.roads) {
+      const path = G.roads[id].path;
+      for (let i = 0; i + 1 < path.length; i++) segs.push([path[i], path[i + 1]]);
+    }
+    if (!segs.length) return;
+    const quads = segs.length + segs.length + 1;      // ribbons + a patch per vertex
+    const pos = new Float32Array(quads * 6 * 3);
+    const col = new Float32Array(quads * 6 * 3);
+    const base = new THREE.Color(COL.ROAD), edge = new THREE.Color(COL.ROAD_EDGE);
+    let o = 0;
+    const a = [0, 0], b = [0, 0];
+    function quad(x0, z0, x1, z1, x2, z2, x3, z3, y0, y1, y2, y3, c) {
+      const P = [[x0, y0, z0], [x1, y1, z1], [x2, y2, z2], [x0, y0, z0], [x2, y2, z2], [x3, y3, z3]];
+      for (let i = 0; i < 6; i++) {
+        pos[o * 3] = P[i][0]; pos[o * 3 + 1] = P[i][1]; pos[o * 3 + 2] = P[i][2];
+        col[o * 3] = c.r; col[o * 3 + 1] = c.g; col[o * 3 + 2] = c.b;
+        o++;
+      }
+    }
+    const W = FSC.ROAD_W, LIFT = FSC.ROAD_LIFT;
+    const seen = new Set();
+    for (let s = 0; s < segs.length; s++) {
+      const va = segs[s][0], vb = segs[s][1];
+      FSMap.worldXZ(map, va, a); FSMap.worldXZ(map, vb, b);
+      const dx = b[0] - a[0], dz = b[1] - a[1];
+      const len = Math.sqrt(dx * dx + dz * dz) || 1;
+      const px = (-dz / len) * W, pz = (dx / len) * W;
+      const ya = map.height[va] + LIFT, yb = map.height[vb] + LIFT;
+      quad(a[0] + px, a[1] + pz, a[0] - px, a[1] - pz, b[0] - px, b[1] - pz, b[0] + px, b[1] + pz,
+        ya, ya, yb, yb, base);
+      for (let k = 0; k < 2; k++) {
+        const v = k ? vb : va;
+        if (seen.has(v)) continue;
+        seen.add(v);
+        const p = k ? b : a, y = map.height[v] + LIFT;
+        quad(p[0] - W, p[1] - W, p[0] + W, p[1] - W, p[0] + W, p[1] + W, p[0] - W, p[1] + W, y, y, y, y, edge);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(pos.subarray(0, o * 3), 3));
+    geo.setAttribute("color", new THREE.BufferAttribute(col.subarray(0, o * 3), 3));
+    geo.computeVertexNormals();
+    geo.computeBoundingSphere();
+    dyn.roadMesh = new THREE.Mesh(geo, FSModels.vcMat("road", COL.ROAD, 0.3));
+    dyn.roadMesh.name = "roads";
+    dyn.roadMesh.renderOrder = 1;
+    dyn.group.add(dyn.roadMesh);
+  }
+
+  // ---- flags + the goods stacked at their feet ----
+  function syncFlags() {
+    const pole = dynPool("pole", FSModels.flagPoleGeo(), FSModels.vcMat("pole", COL.FLAG_POLE, 0.3));
+    const pen = dynPool("pennant", FSModels.pennantGeo(), FSModels.vcMat("pennant", 0x888888, 0.45));
+    const crate = dynPool("crate", FSModels.crateGeo(), FSModels.vcMat("crate", 0x808080, 0.34));
+    const wave = Math.sin(dyn.tAcc * 2.2) * 0.22;
+    for (const id in G.flags) {
+      const f = G.flags[id];
+      FSMap.worldXZ(map, f.v, xz);
+      const y = map.height[f.v];
+      tmpV.set(xz[0], y, xz[1]);
+      tmpE.set(0, 0, 0); tmpQ.setFromEuler(tmpE); tmpS.set(1, 1, 1);
+      dynPush(pole, tmpM.compose(tmpV, tmpQ, tmpS));
+      tmpE.set(0, wave + f.id * 0.7, 0); tmpQ.setFromEuler(tmpE);
+      dynPush(pen, tmpM.compose(tmpV, tmpQ, tmpS), tmpC.set(FSC.PLAYER_COLORS[f.p % FSC.PLAYER_COLORS.length]));
+      for (let i = 0; i < f.slots.length; i++) {
+        const ring = (i / 4) | 0, k = i % 4;
+        const ang = k * (Math.PI / 2) + ring * (Math.PI / 4);
+        tmpV.set(xz[0] + Math.cos(ang) * 0.46, y + ring * 0.24, xz[1] + Math.sin(ang) * 0.46);
+        tmpE.set(0, ang, 0); tmpQ.setFromEuler(tmpE);
+        dynPush(crate, tmpM.compose(tmpV, tmpQ, tmpS), resC.set(FSC.RES_COLOR[f.slots[i].res] || 0xcccccc));
+      }
+    }
+    return crate;
+  }
+
+  // ---- serfs: one instanced mesh per (job, player) ----
+  function serfVisual(s, dt) {
+    let vis = dyn.serfVis.get(s.id);
+    if (!vis) { vis = { frac: s.frac || 0, from: s.from, to: s.to }; dyn.serfVis.set(s.id, vis); }
+    if (vis.from !== s.from || vis.to !== s.to) { vis.from = s.from; vis.to = s.to; vis.frac = s.frac || 0; }
+    else {
+      const target = s.frac || 0;
+      if (target < vis.frac) vis.frac = target;                    // new edge / reset
+      else vis.frac += (target - vis.frac) * Math.min(1, dt * 16);
+    }
+    return vis;
+  }
+
+  function syncSerfs(dt) {
+    const alive = new Set();
+    const crate = dynPool("crate", FSModels.crateGeo(), FSModels.vcMat("crate", 0x808080, 0.34));
+    for (const id in G.serfs) {
+      const s = G.serfs[id];
+      alive.add(s.id);
+      if (s.state === "work") continue;                            // inside a building
+      const vis = serfVisual(s, dt);
+      FSMap.worldXZ(map, s.from, xz);
+      const x0 = xz[0], z0 = xz[1], y0 = map.height[s.from];
+      FSMap.worldXZ(map, s.to, xz);
+      const x1 = xz[0], z1 = xz[1], y1 = map.height[s.to];
+      const f = vis.frac;
+      const x = x0 + (x1 - x0) * f, z = z0 + (z1 - z0) * f, y = y0 + (y1 - y0) * f;
+      const moving = s.from !== s.to;
+      const bob = moving ? Math.abs(Math.sin((dyn.tAcc * 7.5) + s.id)) * 0.055 : 0;
+      const yaw = moving ? Math.atan2(x1 - x0, z1 - z0) : (s.id % 7) * 0.9;
+      const p = dynPool("serf:" + s.job + ":" + s.p, FSModels.serfGeo(s.job, s.p),
+        FSModels.vcMat("serf", 0x9a9a9a, 0.34));
+      tmpV.set(x, y + bob, z);
+      tmpE.set(0, yaw, moving ? Math.sin(dyn.tAcc * 7.5 + s.id) * 0.07 : 0);
+      tmpQ.setFromEuler(tmpE);
+      tmpS.set(1, 1, 1);
+      dynPush(p, tmpM.compose(tmpV, tmpQ, tmpS));
+      if (s.carry) {
+        tmpV.set(x, y + bob + 0.86, z);
+        tmpE.set(0, yaw, 0); tmpQ.setFromEuler(tmpE);
+        dynPush(crate, tmpM.compose(tmpV, tmpQ, tmpS), resC.set(FSC.RES_COLOR[s.carry] || 0xcccccc));
+      }
+    }
+    dyn.serfVis.forEach((v, id) => { if (!alive.has(id)) dyn.serfVis.delete(id); });
+    dyn.lastSerfCount = alive.size;
+  }
+
+  /** Per-frame sync of everything Phase B owns. Called from FSRender.frame(). */
+  function syncDynamic(dt) {
+    if (!dyn.group || !G) return;
+    dyn.tAcc += dt;
+    // terrain the sim changed (digger leveling, cleared building footprints)
+    if (G.dirtyV && G.dirtyV.length) {
+      for (let i = 0; i < G.dirtyV.length; i++) FSRender.refreshVertex(G.dirtyV[i]);
+      G.dirtyV.length = 0;
+    }
+    const rs = roadSignature();
+    if (rs !== dyn.roadSig) { dyn.roadSig = rs; rebuildRoads(); }
+    let bs = "";
+    for (const id in G.buildings) { const b = G.buildings[id]; bs += id + b.state + bldVisKey(b) + ";"; }
+    if (bs !== dyn.bldSig) { dyn.bldSig = bs; FSRender.refreshBuildings(); }
+    syncFlags();
+    syncSerfs(dt);
+    dynFlush();
+  }
+  FSRender.syncDynamic = syncDynamic;
+  FSRender.dynamicInfo = function () {
+    const out = { serfs: dyn.lastSerfCount, roads: dyn.roadMesh ? 1 : 0, pools: {} };
+    for (const k in dyn.pools) out.pools[k] = { cap: dyn.pools[k].cap, count: dyn.pools[k].mesh.count };
+    return out;
+  };
+
+  function disposeDynamic() {
+    if (!dyn.group) return;
+    for (const k in dyn.pools) { dyn.group.remove(dyn.pools[k].mesh); dyn.pools[k].mesh.dispose(); delete dyn.pools[k]; }
+    if (dyn.roadMesh) { dyn.group.remove(dyn.roadMesh); dyn.roadMesh.geometry.dispose(); dyn.roadMesh = null; }
+    if (scene) scene.remove(dyn.group);
+    dyn.group = null;
+    dyn.serfVis.clear();
+  }
 
   function disposeTree(o) {
     o.traverse((c) => {
@@ -458,6 +701,7 @@
     bldGroup = new THREE.Group(); bldGroup.name = "buildings";
     scene.add(bldGroup);
     FSRender.refreshBuildings();
+    initDynamic();                      /* ===== PHASE-B: flags/roads/serfs ===== */
 
     hoverRing = FSModels.ring();
     hoverRing.visible = false;
@@ -497,6 +741,7 @@
     if (!renderer || !scene) return stats;
     dt = Math.min(0.1, dt || 0.016);
     tickCamera(dt);
+    syncDynamic(dt);                    /* ===== PHASE-B: flags/roads/serfs ===== */
     if (hoverPend) { FSRender.setHover(FSRender.pickVertex(hoverPend.x, hoverPend.y)); hoverPend = null; }
     if (dirtyPos) { posAttr.needsUpdate = true; terrainMesh.geometry.computeVertexNormals(); dirtyPos = false; }
     if (dirtyCol) { colAttr.needsUpdate = true; dirtyCol = false; }
@@ -543,6 +788,7 @@
     if (FSRender._ku) window.removeEventListener("keyup", FSRender._ku);
     if (FSRender._rs) window.removeEventListener("resize", FSRender._rs);
     if (FSRender._bl) window.removeEventListener("blur", FSRender._bl);
+    disposeDynamic();                   /* ===== PHASE-B: flags/roads/serfs ===== */
     bldViews.forEach((v) => disposeTree(v));
     bldViews.clear();
     for (const k in pools) { objGroup.remove(pools[k].mesh); pools[k].mesh.dispose(); delete pools[k]; }

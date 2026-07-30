@@ -341,6 +341,70 @@
   };
   FSC.EMISSIVE_LIFT = 0.3;   // unlit faces never render black (house rule)
 
+  /* ===== PHASE-B: command layer, transport tuning, serf/goods palette ===== */
+  // Command layer (see plan §16). Solo issues execute on the next tick; MP hosts
+  // stamp execTick = hostTick + CMD_DELAY_MP so both sides run them in lockstep.
+  FSC.CMD_DELAY = 1;
+  FSC.CMD_DELAY_MP = 4;
+  FSC.CMD_TYPES = ["flag", "road", "build", "demolish", "speed", "prio"];
+
+  // Scheduling budgets — every per-tick loop is bounded, nothing scans the map.
+  FSC.WH_DISPATCH_T = 6;       // ticks between one warehouse pushing a good out (staggered by id)
+  FSC.SERF_REQ_PER_TICK = 4;   // pending serf requests examined per tick
+  FSC.SERF_REQ_RETRY_T = 25;   // a request that found no warehouse waits this long
+  FSC.RETRY_PER_TICK = 6;      // destless-goods flags re-scheduled per tick
+  FSC.CREW_WATCHDOG_T = 600;   // a digger/builder who never arrives lets the site re-ask
+  // Population: the starting roster alone could crew only 5 roads, so the castle
+  // keeps breeding plain settlers (the classic grows its settler supply over time;
+  // the exact rule is undocumented — this is our tuned stand-in). PHASE-C may gate
+  // the rate on food/warehouse count.
+  FSC.SERF_GROW_T = 90;        // ticks between a new generic settler appearing
+  FSC.SERF_CAP = 200;          // hard population ceiling per player
+  FSC.ROUTE_MAX_HOPS = 96;     // flag-graph BFS cap for scheduling searches
+
+  // Road building / offroad walking
+  FSC.ROAD_MAX_LEN = 40;       // vertices in an auto-routed road path
+  FSC.ROAD_SEARCH_NODES = 6000;
+  FSC.ROAD_SLOPE_COST = 1.6;   // per world-unit of |dy| on a road step
+  FSC.OFFROAD_MAX = 240;       // max steps for a specialist walking offroad
+  FSC.OFFROAD_NODES = 12000;
+  FSC.OFFROAD_SLOPE_COST = 2.2;
+  FSC.OFFROAD_SWAMP_COST = 1.4;
+
+  // Flag goods colours (tiny crates stacked at the flag base + over a carrier's head)
+  FSC.RES_COLOR = {
+    plank: 0xd2a869, stone: 0x9aa0a8, lumber: 0x6e4f2f, boat: 0x8a5a2b,
+    sword: 0xd8dde3, shield: 0xb0762d, goldBar: 0xf2c53d, goldOre: 0xd9a441,
+    steel: 0x7f8b99, ironOre: 0xa8703a, coal: 0x2f2f34,
+    fish: 0x4fa3c7, bread: 0xcf9a4e, meat: 0xb2503f, pig: 0xe8a9ad,
+    wheat: 0xe0c352, flour: 0xefe6cf,
+    shovel: 0x9c6b3e, hammer: 0x8c6239, rod: 0x6fae54, cleaver: 0xc0c6cc,
+    scythe: 0xa9b3bd, axe: 0x8f5a34, saw: 0xb9bfc6, pick: 0x87919b, pincer: 0x707a85,
+  };
+  // Serf hat colour per profession (the silhouette reads at a glance from above)
+  FSC.JOB_COLOR = {
+    generic: 0xd9d2c4, transporter: 0xcbb894, sailor: 0x4f7fa8, digger: 0x8c6b3f,
+    builder: 0xe08a2a, lumberjack: 0x3f6b34, forester: 0x2f7a45, stonecutter: 0x8a8f96,
+    fisher: 0x3a7fa8, farmer: 0xd6b64a, miller: 0xe8e2d0, baker: 0xefe6cf,
+    pigfarmer: 0xd58b90, butcher: 0xb2503f, sawyer: 0xa9743d, miner: 0x4a4f57,
+    smelter: 0x7f5a3a, goldsmelter: 0xd9a441, toolmaker: 0x9a6a3a,
+    weaponsmith: 0x6a6f78, boatwright: 0x7a5230, geologist: 0x8f5fa8, knight: 0xb03a3a,
+  };
+  FSC.COL.ROAD = 0x9b8460;        // trodden earth ribbon
+  FSC.COL.ROAD_EDGE = 0x7d6a4c;
+  FSC.COL.FLAG_POLE = 0x8d7449;
+  FSC.COL.SITE_STAKE = 0xb99b62;
+  FSC.COL.SITE_PAD = 0x8f7a58;
+  FSC.COL.SITE_ROPE = 0xe0d6b8;
+  FSC.COL.SCAFFOLD = 0xc0a06a;
+  FSC.COL.BURN = 0x3a3128;
+  FSC.COL.FIRE = [0xff9b2e, 0xffd24a];
+  FSC.COL.SERF_SKIN = 0xe3b58a;
+  FSC.COL.SERF_CLOTH = 0xcfc3a8;
+  FSC.COL.TOOL = 0x6b5137;
+  FSC.ROAD_W = 0.42;              // ribbon half-width (world units)
+  FSC.ROAD_LIFT = 0.06;           // y lift so the ribbon never z-fights the terrain
+
   if (typeof window !== "undefined") window.FSC = FSC;
   if (typeof module !== "undefined" && module.exports) module.exports = FSC; // node tests
 })();

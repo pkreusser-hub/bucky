@@ -394,6 +394,161 @@
     return g;
   };
 
+  /* ===================================================================== */
+  /* ===== PHASE-B: flags, goods crates, serfs, construction stages ======= */
+  /* ===================================================================== */
+
+  /** Shared geometry cache — every Phase-B visual is instanced, so build once. */
+  function cached(key, make) { return CACHE[key] || (CACHE[key] = make()); }
+
+  /** Flag pole (shared by every player); the pennant carries the player colour. */
+  FSModels.flagPoleGeo = function () {
+    return cached("geo:flagpole", () => mergeColored([
+      { geo: new THREE.CylinderGeometry(0.055, 0.075, 1.35, 6), color: COL.FLAG_POLE, matrix: M(0, 0.675, 0) },
+      { geo: new THREE.CylinderGeometry(0.24, 0.30, 0.10, 8), color: 0x8a7d63, matrix: M(0, 0.05, 0) },
+    ]));
+  };
+  /** Triangular pennant, tinted per instance with the owner's colour. */
+  FSModels.pennantGeo = function () {
+    return cached("geo:pennant", () => {
+      const g = new THREE.ConeGeometry(0.16, 0.52, 3);
+      g.rotateZ(-Math.PI / 2);
+      g.rotateY(Math.PI / 6);
+      return mergeColored([{ geo: g, color: 0xffffff, matrix: M(0.26, 1.16, 0) }]);
+    });
+  };
+  /** Tiny good crate — one instanced mesh, per-instance colour from FSC.RES_COLOR. */
+  FSModels.crateGeo = function () {
+    return cached("geo:crate", () => mergeColored([
+      { geo: new THREE.BoxGeometry(0.30, 0.22, 0.30), color: 0xffffff, matrix: M(0, 0.11, 0) },
+      { geo: new THREE.BoxGeometry(0.33, 0.05, 0.33), color: 0xdddddd, matrix: M(0, 0.215, 0) },
+    ]));
+  };
+  FSModels.vcMat = function (key, emissiveOf, k) {
+    return cached("mat:" + key, () => mat(0xffffff, { vertexColors: true, emissiveOf: emissiveOf, emissiveK: k }));
+  };
+
+  /**
+   * A serf minifig (~140 tris): boots, smock, player-colour sash, head, a hat in
+   * the profession colour and a tool in hand. One merged geometry per
+   * (job, player) so the renderer can draw the whole workforce instanced.
+   */
+  FSModels.serfGeo = function (job, playerIdx) {
+    const key = "geo:serf:" + job + ":" + playerIdx;
+    return cached(key, () => {
+      const team = FSModels.playerColor(playerIdx);
+      const hat = FSC.JOB_COLOR[job] || FSC.JOB_COLOR.generic;
+      const parts = [];
+      // legs
+      parts.push({ geo: new THREE.BoxGeometry(0.11, 0.20, 0.11), color: 0x5a4a34, matrix: M(-0.08, 0.10, 0) });
+      parts.push({ geo: new THREE.BoxGeometry(0.11, 0.20, 0.11), color: 0x5a4a34, matrix: M(0.08, 0.10, 0) });
+      // body + sash in the player's colour
+      parts.push({ geo: new THREE.BoxGeometry(0.30, 0.30, 0.22), color: COL.SERF_CLOTH, matrix: M(0, 0.35, 0) });
+      parts.push({ geo: new THREE.BoxGeometry(0.32, 0.09, 0.24), color: team, matrix: M(0, 0.34, 0) });
+      // arms
+      parts.push({ geo: new THREE.BoxGeometry(0.08, 0.24, 0.09), color: COL.SERF_CLOTH, matrix: M(-0.19, 0.36, 0.03) });
+      parts.push({ geo: new THREE.BoxGeometry(0.08, 0.24, 0.09), color: COL.SERF_CLOTH, matrix: M(0.19, 0.36, 0.03) });
+      // head + hat
+      parts.push({ geo: new THREE.BoxGeometry(0.20, 0.18, 0.19), color: COL.SERF_SKIN, matrix: M(0, 0.59, 0) });
+      parts.push({ geo: new THREE.CylinderGeometry(0.15, 0.17, 0.09, 7), color: hat, matrix: M(0, 0.70, 0) });
+      if (job === FSC.JOB.KNIGHT) {
+        parts.push({ geo: new THREE.ConeGeometry(0.15, 0.14, 7), color: hat, matrix: M(0, 0.79, 0) });
+      }
+      // tool in the right hand
+      const tools = FSC.JOB_TOOLS[job] || [];
+      if (tools.length) {
+        parts.push({ geo: new THREE.BoxGeometry(0.045, 0.42, 0.045), color: COL.TOOL, matrix: M(0.25, 0.36, 0.06) });
+        const headCol = tools[0] === "hammer" ? 0x8a8f96 : (tools[0] === "shovel" ? 0x9aa0a8 : 0xb9bfc6);
+        parts.push({ geo: new THREE.BoxGeometry(0.16, 0.09, 0.07), color: headCol, matrix: M(0.25, 0.56, 0.06) });
+      }
+      return mergeColored(parts);
+    });
+  };
+
+  /**
+   * Construction visuals per building state:
+   *   'site'     surveyor stakes + rope on a scraped pad
+   *   'leveling' the same pad, dug flatter, with a spoil heap
+   *   'build'    scaffold posts + walls rising with `frac` (0..1)
+   *   'done'     the finished building (castle gets its own model)
+   *   'burn'     blackened shell + flames
+   */
+  FSModels.buildingModel = function (type, state, playerIdx, frac) {
+    if (state === "done" || state === undefined) {
+      return type === "castle" ? FSModels.castle(playerIdx) : FSModels.placeholderBuilding(type, undefined, playerIdx);
+    }
+    const def = FSC.BLD[type] || {};
+    const sz = def.size || 0;
+    const w = [1.15, 1.6, 2.1][sz], h = [0.85, 1.15, 1.4][sz];
+    const g = new THREE.Group();
+    const parts = [];
+    const pad = w * 0.98;
+    parts.push({ geo: new THREE.BoxGeometry(pad, 0.10, pad), color: COL.SITE_PAD, matrix: M(0, 0.05, 0) });
+
+    if (state === "burn") {
+      parts.push({ geo: new THREE.BoxGeometry(w * 0.8, h * 0.55, w * 0.8), color: COL.BURN, matrix: M(0, h * 0.28, 0) });
+      for (let i = 0; i < 5; i++) {
+        const a = i * 1.256;
+        parts.push({
+          geo: new THREE.ConeGeometry(0.20 - i * 0.02, 0.5 + (i % 3) * 0.18, 5),
+          color: COL.FIRE[i % 2],
+          matrix: M(Math.cos(a) * w * 0.28, h * 0.55 + 0.25, Math.sin(a) * w * 0.28),
+        });
+      }
+      const burnt = new THREE.Mesh(mergeColored(parts), mat(0xffffff, { vertexColors: true, emissiveOf: COL.FIRE[0], emissiveK: 0.5 }));
+      burnt.name = "bldBurn";
+      g.add(burnt);
+      g.userData.type = type;
+      return g;
+    }
+
+    // corner stakes + rope (every unfinished state keeps them)
+    const c = pad * 0.5;
+    const corners = [[-c, -c], [c, -c], [c, c], [-c, c]];
+    for (let i = 0; i < 4; i++) {
+      parts.push({
+        geo: new THREE.CylinderGeometry(0.045, 0.055, 0.55, 5), color: COL.SITE_STAKE,
+        matrix: M(corners[i][0], 0.28, corners[i][1]),
+      });
+      const n = corners[(i + 1) % 4];
+      const mx = (corners[i][0] + n[0]) / 2, mz = (corners[i][1] + n[1]) / 2;
+      const len = Math.sqrt((n[0] - corners[i][0]) * (n[0] - corners[i][0]) + (n[1] - corners[i][1]) * (n[1] - corners[i][1]));
+      const rot = Math.atan2(n[0] - corners[i][0], n[1] - corners[i][1]);
+      parts.push({
+        geo: new THREE.BoxGeometry(0.03, 0.03, len), color: COL.SITE_ROPE,
+        matrix: M(mx, 0.50, mz, 0, rot, 0),
+      });
+    }
+    if (state === "leveling") {
+      parts.push({ geo: new THREE.ConeGeometry(0.30, 0.34, 6), color: COL.SITE_PAD, matrix: M(c * 0.72, 0.20, -c * 0.72) });
+      parts.push({ geo: new THREE.ConeGeometry(0.22, 0.26, 6), color: COL.SITE_PAD, matrix: M(-c * 0.80, 0.16, c * 0.55) });
+    }
+    if (state === "build") {
+      const f = Math.max(0.08, Math.min(1, frac === undefined ? 0.35 : frac));
+      parts.push({ geo: new THREE.BoxGeometry(w * 0.86, h * f, w * 0.86), color: COL.BLD_WALL, matrix: M(0, 0.1 + h * f * 0.5, 0) });
+      // scaffold: four uprights plus a waist rail
+      for (let i = 0; i < 4; i++) {
+        parts.push({
+          geo: new THREE.BoxGeometry(0.07, h + 0.35, 0.07), color: COL.SCAFFOLD,
+          matrix: M(corners[i][0] * 0.92, (h + 0.35) / 2, corners[i][1] * 0.92),
+        });
+      }
+      for (let i = 0; i < 4; i++) {
+        const n = corners[(i + 1) % 4];
+        const mx = (corners[i][0] + n[0]) / 2 * 0.92, mz = (corners[i][1] + n[1]) / 2 * 0.92;
+        const len = Math.sqrt((n[0] - corners[i][0]) * (n[0] - corners[i][0]) + (n[1] - corners[i][1]) * (n[1] - corners[i][1])) * 0.92;
+        const rot = Math.atan2(n[0] - corners[i][0], n[1] - corners[i][1]);
+        parts.push({ geo: new THREE.BoxGeometry(0.05, 0.05, len), color: COL.SCAFFOLD, matrix: M(mx, h * 0.62, mz, 0, rot, 0) });
+      }
+    }
+    const body = new THREE.Mesh(mergeColored(parts), mat(0xffffff, { vertexColors: true, emissiveOf: COL.SITE_STAKE, emissiveK: 0.3 }));
+    body.name = "bldSite";
+    g.add(body);
+    g.userData.type = type;
+    g.userData.state = state;
+    return g;
+  };
+
   /** geologist sign post — colour tells the mineral (or grey for "nothing here") */
   FSModels.signPost = function (mineral) {
     const c = COL.MINERAL[mineral] === undefined ? COL.MINERAL[0] : COL.MINERAL[mineral];
@@ -423,7 +578,11 @@
     if (CACHE.kinds) {
       for (const k in CACHE.kinds) { CACHE.kinds[k].geo.dispose(); CACHE.kinds[k].mat.dispose(); }
     }
-    for (const k in CACHE) { if (CACHE[k] && CACHE[k].isTexture) CACHE[k].dispose(); delete CACHE[k]; }
+    for (const k in CACHE) {
+      const c = CACHE[k];
+      if (c && (c.isTexture || c.isBufferGeometry || c.isMaterial)) c.dispose();
+      delete CACHE[k];
+    }
   };
 
   window.FSModels = FSModels;
