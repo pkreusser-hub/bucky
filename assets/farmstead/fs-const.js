@@ -346,7 +346,8 @@
   // stamp execTick = hostTick + CMD_DELAY_MP so both sides run them in lockstep.
   FSC.CMD_DELAY = 1;
   FSC.CMD_DELAY_MP = 4;
-  FSC.CMD_TYPES = ["flag", "road", "build", "demolish", "speed", "prio"];
+  FSC.CMD_TYPES = ["flag", "road", "build", "demolish", "speed", "prio",
+    /* ===== PHASE-C ===== */ "geologist", "dist", "toolPrio", "stockMode", "halt"];
 
   // Scheduling budgets — every per-tick loop is bounded, nothing scans the map.
   FSC.WH_DISPATCH_T = 6;       // ticks between one warehouse pushing a good out (staggered by id)
@@ -404,6 +405,75 @@
   FSC.COL.TOOL = 0x6b5137;
   FSC.ROAD_W = 0.32;              // ribbon half-width (world units)
   FSC.ROAD_LIFT = 0.06;           // y lift so the ribbon never z-fights the terrain
+
+  /* ===================================================================== */
+  /* ===== PHASE-C: production, jobs, geology, boats, distribution ======== */
+  /* ===================================================================== */
+
+  // --- offsite worker trips (the visible chop / cast / scythe swing) ---
+  FSC.CHOP_T = 45;             // lumberjack felling a mature tree
+  FSC.PLANT_T = 28;            // forester planting a sapling
+  FSC.HACK_T = 40;             // stonecutter knocking a charge off a pile
+  FSC.CAST_T = 55;             // fisher casting from the shore
+  FSC.SOW_T = 30;              // farmer sowing one field
+  FSC.REAP_T = 40;             // farmer harvesting a ripe field
+  FSC.WORK_WALK_MAX = 34;      // offroad A* budget for one worker trip (cost units)
+  FSC.WORK_IDLE_T = 60;        // nothing to do in range → look again in this many ticks
+  FSC.STUMP_FADE_T = 1200;     // a stump rots away
+  FSC.FIELD_MAX = 6;           // fields one farm keeps in rotation
+  FSC.FISH_CAP = 8;            // regrowth ceiling for a fished-out water vertex
+
+  // --- producers ---
+  FSC.OUT_CAP = 4;             // finished goods a producer holds when its flag is full
+  FSC.PROD_FLUSH_T = 10;       // ticks between attempts to push a held output out
+  FSC.MINE_BLOB_R = 3;         // how far a mine reaches into its own deposit
+  FSC.MINE_AMT_BUCKET = 4;     // mineralAmt per FSC.MINE_P bucket
+
+  // --- geologist ---
+  FSC.GEO_R = 8;               // wander radius around the flag he was sent to
+  FSC.GEO_WALK_MAX = 40;       // offroad budget between two sample spots
+  FSC.SIGN_DENSITY = [6, 11];  // mineralAmt thresholds for the small/medium/large sign
+
+  // --- boats / water roads ---
+  FSC.BOAT_REQ_T = 30;         // ticks between a boatless water road asking for one
+  FSC.WALK_TICKS_WATER = 6;    // a sailor's rowing speed per lattice edge
+
+  // --- distribution arbitration (weights are the 0..PRIO_MAX slider scale) ---
+  // A source picks the winning requester with smooth weighted round-robin over the
+  // dist classes below; a class at weight 0 is never served.
+  FSC.DIST_LOOKAHEAD = 3;      // extra hop levels searched once a requester is found
+  FSC.DIST_MAX_CAND = 12;      // candidate requesters considered per scheduling decision
+  FSC.DIST_CLASS = {
+    plank: { _site: "planksConstruction", boatwright: "planksBoats", toolmaker: "planksTools" },
+    steel: { toolmaker: "steelTools", weaponsmith: "steelWeapons" },
+    coal: { smelter: "coalSteel", goldsmelter: "coalGold", weaponsmith: "coalWeapons" },
+    wheat: { mill: "wheatMill", pigfarm: "wheatPigs" },
+    _food: { stoneMine: "foodStoneMine", coalMine: "foodCoalMine", ironMine: "foodIronMine", goldMine: "foodGoldMine" },
+  };
+
+  // --- toolmaker choice heuristic (live priority minus what is already in store) ---
+  FSC.TOOL_STOCK_W = 0.30;     // each tool already stored lowers that tool's score
+  FSC.TOOL_NEED_W = 2.0;       // a profession is blocked for want of this tool
+  FSC.TOOL_NEED_T = 3000;      // how long a "blocked" mark stays hot
+
+  // --- warehouse per-resource modes ---
+  FSC.STOCK_MODE = { IN: 0, STOP: 1, OUT: 2 };
+  FSC.STOCK_MODE_NAMES = ["in", "stop", "out"];
+
+  // --- stats rings (Phase E draws them; the sim just samples) ---
+  FSC.STATS_T = 300;
+  FSC.STATS_CAP = 240;
+
+  // --- Phase-C palette (per-type building models, signs, boats, smoke) ---
+  FSC.COL.MILL_SAIL = 0xe8dfc6;
+  FSC.COL.WHEEL = 0x7a5a34;
+  FSC.COL.SMOKE = 0xd8d5cc;
+  FSC.COL.BOAT = 0x8a5a2b;
+  FSC.COL.WATER_ROAD = 0xa98a63;
+  FSC.COL.PIG = 0xe8a9ad;
+  FSC.COL.FIRE_BOX = 0xd9743a;
+  FSC.COL.ROOF_ALT = 0x6f7f6a;
+  FSC.COL.NET = 0xd8cfae;
 
   if (typeof window !== "undefined") window.FSC = FSC;
   if (typeof module !== "undefined" && module.exports) module.exports = FSC; // node tests
