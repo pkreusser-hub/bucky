@@ -373,8 +373,10 @@
     const base = new THREE.Color(COL.ROAD), edge = new THREE.Color(COL.ROAD_EDGE);
     let o = 0;
     const a = [0, 0], b = [0, 0];
+    // corners are given clockwise seen from above, so the triangles are wound
+    // 0-2-1 / 0-3-2 to make the ribbon face UP (else it is backface-culled away)
     function quad(x0, z0, x1, z1, x2, z2, x3, z3, y0, y1, y2, y3, c) {
-      const P = [[x0, y0, z0], [x1, y1, z1], [x2, y2, z2], [x0, y0, z0], [x2, y2, z2], [x3, y3, z3]];
+      const P = [[x0, y0, z0], [x2, y2, z2], [x1, y1, z1], [x0, y0, z0], [x3, y3, z3], [x2, y2, z2]];
       for (let i = 0; i < 6; i++) {
         pos[o * 3] = P[i][0]; pos[o * 3 + 1] = P[i][1]; pos[o * 3 + 2] = P[i][2];
         col[o * 3] = c.r; col[o * 3 + 1] = c.g; col[o * 3 + 2] = c.b;

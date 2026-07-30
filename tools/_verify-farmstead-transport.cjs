@@ -122,7 +122,7 @@ H.run("farmstead-transport", async (t) => {
     const gen0 = castle.pool.generic, pop0 = FS.FSSim.population(G, 0);
     FS.ff(200);
     const out = { gen0, gen1: castle.pool.generic, pop0, pop1: FS.FSSim.population(G, 0),
-      born: G.events.filter((e) => e.type === "serfBorn").length, invMirror: castle.inv.serf };
+      born: G.events.filter((e) => e.type === "serfBorn" && e.p === 0).length, invMirror: castle.inv.serf };
     FS.FSC.SERF_GROW_T = 1e9;
     return out;
   });
@@ -724,18 +724,28 @@ H.run("farmstead-transport", async (t) => {
       if (bestF) FSSim.buildRoad(G, bestF, b.flag, bestP, 0);
     }
     const made = T.town(8);                       // then a web of plain flags/roads
-    FS.ff(2500);
+    let maxWalking = 0, maxCarrying = 0, maxGoods = 0;
+    for (let i = 0; i < 2500; i++) {
+      FS.ff(1);
+      const ss = FSSim.serfsOf(G, 0);
+      const w = ss.filter((s) => s.from !== s.to).length;
+      const cy = ss.filter((s) => !!s.carry).length;
+      if (w > maxWalking) maxWalking = w;
+      if (cy > maxCarrying) maxCarrying = cy;
+      const g = FSSim.counts(G, 0).goods;
+      if (g > maxGoods) maxGoods = g;
+    }
     const c = FSSim.counts(G, 0);
-    const walking = FSSim.serfsOf(G, 0).filter((s) => s.from !== s.to).length;
-    const carrying = FSSim.serfsOf(G, 0).filter((s) => !!s.carry).length;
     const crewed = Object.keys(G.roads).filter((k) => !!G.roads[k].carrier).length;
-    return { made, sites, counts: c, walking, carrying, crewed, roads: Object.keys(G.roads).length,
-      pop: FSSim.population(G, 0), tickMs: FS.perf.tickMsAvg };
+    return { made, sites, counts: c, maxWalking, maxCarrying, maxGoods, crewed,
+      roads: Object.keys(G.roads).length, pop: FSSim.population(G, 0),
+      deliveries: G.events.filter((e) => e.type === "itemDeliver").length,
+      tickMs: FS.perf.tickMsAvg };
   });
   t.check("the scripted town built a real network", town.sites >= 4 && town.counts.roads >= 10, town);
   t.check("settler growth crewed every road", town.crewed === town.roads && town.crewed >= 10, town);
   t.check("it is populated with carriers and crews", town.counts.serfs >= 10, town);
-  t.check("goods are moving (serfs walking + carrying)", town.walking >= 1, town);
+  t.check("goods moved through the network (walk + carry + deliver)", town.maxWalking >= 3 && town.maxCarrying >= 1 && town.maxGoods >= 1, town);
   t.check("several sites reached 'done'", town.counts.buildings - town.counts.sites >= 4, town);
 
   // let the renderer draw the busy town, then measure
@@ -794,27 +804,51 @@ H.run("farmstead-transport", async (t) => {
   t.check("R arms road mode, B arms build mode, Esc clears", ui.roadMode === "road" && ui.cleared === null && ui.buildMode === "build", ui);
 
   // ════════════════════════════════ screenshot: a busy moment
-  await page.evaluate(() => {
-    const FS = window.__FS__, R = FS.FSRender;
+  const shotSetup = await page.evaluate(() => {
+    const FS = window.__FS__, T = window.T, FSSim = FS.FSSim, FSMap = FS.FSMap, R = FS.FSRender;
     const G = FS.G;
-    // hold the frame on a tick where goods are waiting and serfs are mid-stride
-    let best = null;
-    for (let i = 0; i < 400; i++) {
-      FS.ff(1);
-      const serfs = FS.FSSim.serfsOf(G, 0);
-      const walking = serfs.filter((s) => s.from !== s.to).length;
-      const goods = FS.FSSim.counts(G, 0).goods;
-      const sites = FS.FSSim.counts(G, 0).sites;
-      const score = walking * 2 + goods + sites * 3;
-      if (!best || score > best.score) best = { score, tick: G.tick };
-      if (walking >= 4 && goods >= 2 && sites >= 1) break;
+    // fresh sites so the frame catches scaffolding + goods actually in transit
+    const want = ["tower", "bakery", "hut", "stonecutter"];
+    for (let i = 0; i < want.length; i++) {
+      let v = -1;
+      FSMap.forRadius(G.map, T.castle().v, 11, (u, d) => {
+        if (v >= 0 || d < 3) return;
+        if (!FSMap.canPlaceBuilding(want[i], u, 0)) return;
+        let near = 0;
+        for (const id in G.flags) if (FSMap.dist(G.map, G.flags[id].v, FSMap.doorVertex(G.map, u)) <= 5) near++;
+        if (!near) return;
+        v = u;
+      });
+      if (v < 0) continue;
+      const r = FSSim.build(G, want[i], v, 0);
+      if (!r.ok) continue;
+      const b = G.buildings[r.id];
+      let bestF = 0, bestP = null, bestL = 1e9;
+      for (const id in G.flags) {
+        const f = G.flags[id];
+        if (f.id === b.flag || f.p !== 0 || f.roads.length >= 6) continue;
+        const p = FSSim.roadPath(G, f.v, G.flags[b.flag].v, 0);
+        if (p && p.length < bestL) { bestL = p.length; bestP = p; bestF = f.id; }
+      }
+      if (bestF) FSSim.buildRoad(G, bestF, b.flag, bestP, 0);
     }
-    const castle = FS.FSSim.castleOf(G, 0);
+    // hold the frame on a tick where goods are waiting and serfs are mid-stride
+    let hit = null;
+    for (let i = 0; i < 900; i++) {
+      FS.ff(1);
+      const serfs = FSSim.serfsOf(G, 0);
+      const walking = serfs.filter((s) => s.from !== s.to).length;
+      const c = FSSim.counts(G, 0);
+      if (walking >= 4 && c.goods >= 2 && c.sites >= 1) { hit = { walking, goods: c.goods, sites: c.sites, tick: G.tick }; break; }
+    }
+    const castle = FSSim.castleOf(G, 0);
     R.setCam({ yaw: 0.62, pitch: 0.86 });
-    R.focusVertex(castle.v, 22);
+    R.focusVertex(castle.v, 24);
     R.setHover(-1);
     for (let i = 0; i < 8; i++) R.frame(0.016);
+    return { hit, counts: FSSim.counts(G, 0) };
   });
+  t.check("composed a busy frame: sites building, goods waiting, serfs walking", !!shotSetup.hit, shotSetup);
   await t.sleep(350);
   await t.shot(page, "farmstead_transport");
 
