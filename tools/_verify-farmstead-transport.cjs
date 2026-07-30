@@ -852,6 +852,25 @@ H.run("farmstead-transport", async (t) => {
   await t.sleep(350);
   await t.shot(page, "farmstead_transport");
 
+  // close-up: flag goods, carrier minifigs, a scaffolded site
+  const close = await page.evaluate(() => {
+    const FS = window.__FS__, R = FS.FSRender, G = FS.G;
+    let focus = -1, why = "castle";
+    for (const id in G.flags) if (G.flags[id].slots.length && focus < 0) { focus = G.flags[id].v; why = "goods"; }
+    if (focus < 0) {
+      for (const id in G.buildings) if (G.buildings[id].state !== "done" && focus < 0) { focus = G.buildings[id].v; why = "site"; }
+    }
+    if (focus < 0) focus = FS.FSSim.castleOf(G, 0).v;
+    R.setCam({ yaw: 0.75, pitch: 0.78 });
+    R.focusVertex(focus, 9);
+    R.setHover(-1);
+    for (let i = 0; i < 8; i++) R.frame(0.016);
+    return { why, focus };
+  });
+  await t.sleep(250);
+  await t.shot(page, "farmstead_transport_close");
+  t.check("close-up framed a live flag or site", close.why !== "castle", close);
+
   const shotState = await page.evaluate(() => {
     const FS = window.__FS__;
     const c = FS.FSSim.counts(FS.G, 0);

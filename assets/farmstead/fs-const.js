@@ -402,7 +402,7 @@
   FSC.COL.SERF_SKIN = 0xe3b58a;
   FSC.COL.SERF_CLOTH = 0xcfc3a8;
   FSC.COL.TOOL = 0x6b5137;
-  FSC.ROAD_W = 0.42;              // ribbon half-width (world units)
+  FSC.ROAD_W = 0.32;              // ribbon half-width (world units)
   FSC.ROAD_LIFT = 0.06;           // y lift so the ribbon never z-fights the terrain
 
   if (typeof window !== "undefined") window.FSC = FSC;
