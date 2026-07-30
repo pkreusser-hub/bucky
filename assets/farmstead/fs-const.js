@@ -644,6 +644,30 @@
   FSC.COL.ROOF_ALT = 0x6f7f6a;
   FSC.COL.NET = 0xd8cfae;
 
+  /* ===================================================================== */
+  /* ===== PHASE-M: multiplayer (plan §16 — command lockstep) ============= */
+  /* ===================================================================== */
+  // "ping" is a look-here marker: an EVENT-ONLY command with zero sim effect,
+  // so (like `speed`) it is invisible to FSSim.hash and its exec tick may drift
+  // by a tick between the two machines without ever desyncing them.
+  FSC.CMD_TYPES.push("ping");
+  FSC.CMD_HASH_NEUTRAL = ["speed", "ping"];   // may run on a near tick, never hashed
+
+  FSC.SYNC_HASH_T = 100;        // ticks between lockstep hash checkpoints
+  FSC.NET_HASH_KEEP = 24;       // checkpoints each side remembers while comparing
+  FSC.NET_CHUNK = 8192;         // b64 characters per state chunk
+  FSC.NET_BEAT_MS = 250;        // host tick-clock heartbeat  (Date.now — NETWORK only)
+  FSC.NET_HIDDEN_MS = 250;      // hidden-tab sim heartbeat, both roles (house pattern)
+  FSC.NET_EXTRAP_MS = 1500;     // guest may extrapolate the host clock this far past a beat
+  FSC.NET_LEAD_MARGIN = 1;      // …and always stops this many ticks short of the command lead
+  FSC.NET_CATCHUP_SHOW = 100;   // ticks behind before the "catching up…" veil appears
+  FSC.NET_CATCHUP_TICKS = 240;  // sim ticks per frame while catching up
+  FSC.NET_TIMEOUT_MS = 8000;    // silence from the peer for this long = they are gone
+  FSC.NET_MAX_PLAYERS = 2;      // co-op is strictly 2 seats
+  FSC.NET_PING_T = 45;          // ticks a ping marker stays on screen
+  FSC.NET_LOBBY_BEAT_MS = 15000;// family-lobby heartbeat (games.html liveness window)
+  FSC.NET_SDK_URL = "https://unpkg.com/playroomkit@0.0.96/multiplayer.full.umd.js";
+
   if (typeof window !== "undefined") window.FSC = FSC;
   if (typeof module !== "undefined" && module.exports) module.exports = FSC; // node tests
 })();

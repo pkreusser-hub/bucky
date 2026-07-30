@@ -1023,6 +1023,27 @@
     return FSRender;
   };
 
+  /* ===================================================================== */
+  /* ===== PHASE-M: full visual rebuild from a freshly loaded G ============ */
+  /* ===================================================================== */
+  /**
+   * FSRender.rebuildAll(g) — swap the whole world for a loaded/received G
+   * (co-op join, desync resync, Phase E save slots). Composes the existing
+   * build paths through init(), which disposes every geometry/material/pool of
+   * the old world first, then puts the camera back where the player left it.
+   * Returns false when nothing has ever been initialised (nothing to rebuild).
+   */
+  FSRender.rebuildAll = function (g) {
+    if (!canvas || !g) return false;
+    const keep = { tx: cam.tx, tz: cam.tz, yaw: cam.yaw, pitch: cam.pitch, dist: cam.dist };
+    const tint = mil.tint;
+    FSRender.init(canvas, g);
+    mil.tint = tint;
+    FSRender.setCam(keep);
+    repaintTerrain();
+    return true;
+  };
+
   FSRender.resize = function () {
     if (!renderer || !canvas) return;
     const w = canvas.clientWidth || window.innerWidth;

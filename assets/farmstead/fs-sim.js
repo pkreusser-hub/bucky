@@ -33,6 +33,11 @@
  *   itemLost     {res, v, why}
  *   congestion   {serf, flag, res}     dest flag full, carrier holding
  *   workerArrive {bld, serf, job}
+ *   ── PHASE-M (co-op; all of these are render/UI only and NEVER enter FSSim.hash)
+ *   ping         {v, p, by}              a partner marked a spot
+ *   netDesync    {t, n, side}            a lockstep checkpoint disagreed
+ *   netResync    {t, bytes}              a fresh world arrived and was adopted
+ *   netPeer      {here, name}            partner joined / left
  */
 (function () {
   "use strict";
@@ -342,17 +347,33 @@
    */
   FSSim.issueCommand = function (G, cmd) {
     cmd = cmd || {};
+    /* ===== PHASE-M: the ONE multiplayer seam on the command layer. FSNet sets
+     * FSSim.netHook while a room is live; solo leaves it null and this whole
+     * block costs one property read.
+     *   hook.delay(type, G) → ticks of lead time (host: FSC.CMD_DELAY_MP scaled
+     *     by G.speed, so a command stamped here always reaches the other machine
+     *     with the same ~400 ms of real time to spare at any sim speed)
+     *   hook.route(G, c) → true when the transport consumed it (guest: the
+     *     command travels to the host and comes back as a broadcast instead of
+     *     being queued locally). `cmd.net` marks a command that ARRIVED from the
+     *     wire — it is queued verbatim and never re-routed.
+     * Everything funnels through here: UI, __FS__, suites, sim internals. */
+    const hook = cmd.net ? null : FSSim.netHook;
+    const delay = hook && hook.delay ? hook.delay(String(cmd.type || ""), G) : FSC.CMD_DELAY;
     const c = {
-      t: cmd.t === undefined ? G.tick + FSC.CMD_DELAY : cmd.t | 0,
+      t: cmd.t === undefined ? G.tick + delay : cmd.t | 0,
       seq: cmd.seq === undefined ? G.cmdSeq++ : cmd.seq | 0,
       by: cmd.by === undefined ? 0 : cmd.by | 0,
       type: String(cmd.type || ""),
       args: cmd.args || {},
     };
+    if (hook && hook.route && hook.route(G, c)) return c;   /* PHASE-M: guest → host */
     G.cmdQueue.push(c);
     if (c.type === "speed" || G.speed === 0) FSSim.runCommands(G, true);
     return c;
   };
+  /* ===== PHASE-M: set by FSNet (see fs-net.js). Null in solo. ===== */
+  FSSim.netHook = null;
 
   function cmdOrder(a, b) { return (a.t - b.t) || (a.by - b.by) || (a.seq - b.seq); }
 
@@ -391,6 +412,8 @@
       case "attack": r = mil() ? mil().attack(G, a.id, a.count, p, a.strong) : { ok: false, why: "no military module" }; break;
       case "knightSet": r = FSSim.setKnightSetting(G, p, a.key, a.value, a.tier); break;
       case "cycleKnights": r = mil() ? mil().cycleKnights(G, p) : { ok: false, why: "no military module" }; break;
+      /* ===== PHASE-M: co-op "look here!" marker — event only, no sim state ===== */
+      case "ping": r = FSSim.ping(G, a.v, p, c.by); break;
       default: r = { ok: false, why: "unknown command" };
     }
     G.cmdLog++;
@@ -3044,6 +3067,120 @@
       if (r && (r.f1 === f2 || r.f2 === f2)) return r.id;
     }
     return 0;
+  };
+
+  /* ===================================================================== */
+  /* ===== PHASE-M: co-op seams — ping, seats, serialize/deserialize ====== */
+  /* ===================================================================== */
+
+  /**
+   * "Look here!" marker. Pushes an event both machines raise at the same tick
+   * and touches NOTHING the hash reads — a ping can never desync a room, so it
+   * is allowed the short CMD_DELAY even in multiplayer (see FSC.CMD_HASH_NEUTRAL).
+   */
+  FSSim.ping = function (G, v, p, by) {
+    const N = G.map.W * G.map.H;
+    if (!(v >= 0 && v < N)) return { ok: false, why: "off the map" };
+    event(G, "ping", { v: v | 0, p: p | 0, by: by === undefined ? 0 : by | 0 });
+    return { ok: true, v: v | 0 };
+  };
+
+  /** seat → player map. Used when a co-op guest carries on solo (plan §16). */
+  FSSim.setSeats = function (G, seats) {
+    if (!seats || !seats.length) return { ok: false, why: "bad seats" };
+    G.seats = seats.map((s) => s | 0);
+    return { ok: true, seats: G.seats.slice() };
+  };
+
+  /** True on the tick boundaries where both machines exchange a state hash. */
+  FSSim.isCheckpoint = function (G) { return (G.tick % FSC.SYNC_HASH_T) === 0; };
+  /** Hash + tick in one object — what a checkpoint message carries. */
+  FSSim.checkpoint = function (G) { return { t: G.tick, h: FSSim.hash(G) }; };
+
+  // ---- typed-array packing (b64, exact bytes — no float re-formatting) ----
+  const TA_NAME = {
+    Float32Array: "f32", Float64Array: "f64", Uint8Array: "u8", Int8Array: "i8",
+    Uint16Array: "u16", Int16Array: "i16", Uint32Array: "u32", Int32Array: "i32",
+    Uint8ClampedArray: "u8c",
+  };
+  const TA_CTOR = {
+    f32: Float32Array, f64: Float64Array, u8: Uint8Array, i8: Int8Array,
+    u16: Uint16Array, i16: Int16Array, u32: Uint32Array, i32: Int32Array,
+    u8c: Uint8ClampedArray,
+  };
+  function b64enc(bytes) {
+    if (typeof btoa === "function") {
+      let s = "";
+      const CH = 0x8000;                       // fromCharCode arg-count ceiling
+      for (let i = 0; i < bytes.length; i += CH) s += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+      return btoa(s);
+    }
+    return Buffer.from(bytes).toString("base64");   // node (suite helpers)
+  }
+  function b64dec(s) {
+    if (typeof atob === "function") {
+      const bin = atob(s), out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    }
+    return new Uint8Array(Buffer.from(s, "base64"));
+  }
+  function packMap(map) {
+    const out = {};
+    for (const k in map) {
+      const val = map[k];
+      const tn = val && val.buffer && val.constructor ? TA_NAME[val.constructor.name] : null;
+      if (tn) out[k] = { _ta: tn, b: b64enc(new Uint8Array(val.buffer, val.byteOffset, val.byteLength)) };
+      else out[k] = val;
+    }
+    return out;
+  }
+  function unpackMap(o) {
+    const map = {};
+    for (const k in o) {
+      const val = o[k];
+      if (val && val._ta && TA_CTOR[val._ta]) {
+        const bytes = b64dec(val.b);
+        const C = TA_CTOR[val._ta];
+        map[k] = new C(bytes.buffer, bytes.byteOffset, bytes.byteLength / C.BYTES_PER_ELEMENT);
+      } else map[k] = val;
+    }
+    return map;
+  }
+
+  /**
+   * FSSim.serialize(G) → JSON string. The whole game: every entity id-linked
+   * (no cycles), the map's typed arrays as exact base64 bytes, and the PRNG
+   * stream position. Used by MP join/resync AND by Phase E's save slots.
+   */
+  FSSim.serialize = function (G) {
+    const g = {};
+    for (const k in G) { if (k !== "map") g[k] = G[k]; }
+    return JSON.stringify({
+      fs: "farmstead", v: FSC.VERSION, t: G.tick,
+      rng: FSC.rngSnapshot(),
+      map: packMap(G.map),
+      g,
+    });
+  };
+
+  /** FSSim.deserialize(str) → G. Throws on a foreign or wrong-version save. */
+  FSSim.deserialize = function (str) {
+    const doc = typeof str === "string" ? JSON.parse(str) : str;
+    if (!doc || doc.fs !== "farmstead") throw new Error("not a farmstead save");
+    if ((doc.v | 0) !== (FSC.VERSION | 0)) throw new Error("save version " + doc.v + " ≠ " + FSC.VERSION);
+    const G = doc.g || {};
+    G.map = unpackMap(doc.map || {});
+    FSMap.bind(G.map);
+    FSC.rngRestore(doc.rng || { seed: G.seed >>> 0, calls: 0 });
+    G.rngState = FSC.rngSnapshot();
+    // arrays the render/UI layers drain every frame must never be missing
+    if (!G.events) G.events = [];
+    if (!G.notif) G.notif = [];
+    if (!G.dirtyV) G.dirtyV = [];
+    if (!G.cmdQueue) G.cmdQueue = [];
+    if (!G.seats) G.seats = G.mode === "separate" ? [0, 1] : [0, 0];
+    return G;
   };
 
   /**

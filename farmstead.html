@@ -104,6 +104,81 @@
     padding:6px 11px; border-radius:10px; pointer-events:none;
   }
   #bmode.hidden{ display:none; }
+
+  /* ───────────── PHASE-M UI: co-op (Phase E polishes all of this) ───────── */
+  #coop{ margin-top:14px; }
+  #coop .cbtn{
+    width:100%; appearance:none; border:2px solid var(--line); cursor:pointer; margin-bottom:8px;
+    background:rgba(255,255,255,.10); color:#eaf2fb; font-weight:800; font-size:15px;
+    padding:11px 12px; border-radius:12px; text-align:center;
+  }
+  #coop .cbtn:active{ transform:translateY(1px); }
+  #coop .joinrow{ display:flex; gap:8px; }
+  #joinCode{
+    flex:1; min-width:0; background:rgba(255,255,255,.1); border:2px solid var(--line); color:#fff;
+    font-weight:800; font-size:15px; padding:9px 11px; border-radius:11px; font-family:inherit;
+    text-transform:uppercase; letter-spacing:2px;
+  }
+  #joinBtn{ flex:0 0 96px; }
+  #netNote{ margin-top:10px; font-size:12.5px; font-weight:700; color:#cddcf5; line-height:1.5; word-break:break-all; }
+  #netNote .code{ font:900 20px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing:3px; color:#ffd98a; }
+  #netNote.hidden{ display:none; }
+
+  #netChip{
+    position:fixed; top:calc(6px + var(--sat)); left:10px; z-index:22;
+    font:800 12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    color:#fff; background:rgba(24,35,59,.78); border:1px solid var(--line);
+    padding:6px 10px; border-radius:10px; max-width:52vw; white-space:nowrap; overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  #netChip.hidden{ display:none; }
+  #netChip.live{ border-color:#7fd08a; }
+  #netChip.wait{ border-color:#ffd98a; }
+  #netChip.gone{ border-color:#e2707c; }
+  #netInvite{
+    position:fixed; top:calc(36px + var(--sat)); left:10px; z-index:22;
+    background:rgba(24,35,59,.86); border:1px solid var(--line); border-radius:12px;
+    padding:9px 11px; max-width:min(340px,72vw);
+    font:700 11.5px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; color:#cddcf5;
+  }
+  #netInvite.hidden{ display:none; }
+  #netInvite .code{
+    font:900 22px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing:4px; color:#ffd98a;
+  }
+  #netInvite .lnk{ display:block; margin:4px 0 7px; word-break:break-all; user-select:text; opacity:.85; }
+  #copyLinkBtn{
+    appearance:none; border:1px solid var(--line); background:rgba(255,255,255,.1); color:#fff;
+    font:800 11.5px inherit; padding:5px 10px; border-radius:9px; cursor:pointer;
+  }
+  #pingBtn{
+    position:fixed; top:calc(40px + var(--sat)); left:10px; z-index:22;
+    appearance:none; border:1px solid var(--line); background:rgba(186,48,62,.85); color:#fff;
+    font:800 12px/1.4 inherit; padding:6px 10px; border-radius:10px; cursor:pointer;
+  }
+  #pingBtn.hidden{ display:none; }
+  #pingMark{
+    position:fixed; z-index:23; pointer-events:none; transform:translate(-50%,-100%);
+    font-size:38px; line-height:1;
+    filter:drop-shadow(0 0 6px rgba(255,255,255,.95)) drop-shadow(0 3px 5px rgba(0,0,0,.55));
+  }
+  #pingMark.hidden{ display:none; }
+  #veil{
+    position:fixed; inset:0; z-index:25; display:none; align-items:center; justify-content:center;
+    background:rgba(12,20,36,.55); color:#fff; font-weight:900; font-size:20px; letter-spacing:1px;
+    backdrop-filter:blur(2px); pointer-events:none;   /* never traps the player */
+  }
+  body.fs-catchup #veil{ display:flex; }
+  #hostLeft{
+    position:fixed; inset:0; z-index:32; display:none; align-items:center; justify-content:center;
+    background:rgba(12,20,36,.72); padding:20px;
+  }
+  #hostLeft.on{ display:flex; }
+  #hostLeft .box{
+    width:min(360px,100%); background:rgba(24,35,59,.96); border:2px solid var(--line);
+    border-radius:16px; padding:18px; text-align:center; box-shadow:0 14px 34px rgba(0,0,0,.4);
+  }
+  #hostLeft h3{ margin:0 0 8px; font-size:17px; }
+  #hostLeft p{ margin:0 0 14px; font-size:13px; color:#cddcf5; line-height:1.5; }
 </style>
 </head>
 <body>
@@ -115,7 +190,8 @@
 <div id="bmode" class="hidden">mode</div>
 <div id="bhint" class="hidden">
   <b>F</b> flag · <b>R</b> road (click flag → flag) · <b>B</b>+<b>1-9</b> build (<b>Tab</b> page) ·
-  <b>G</b> geologist · <b>X</b> demolish · <b>A</b> attack · <b>C</b> cycle knights · <b>T</b> tint · <b>Esc</b> cancel
+  <b>G</b> geologist · <b>X</b> demolish · <b>A</b> attack · <b>C</b> cycle knights · <b>P</b> ping ·
+  <b>T</b> tint · <b>Esc</b> cancel
 </div>
 
 <a class="back" href="games.html" id="backLink">← Bucky</a>
@@ -146,11 +222,41 @@
       </div>
     </div>
     <button class="playBtn" id="startBtn">START</button>
+    <!-- PHASE-M UI: co-op room controls (Phase E gives these a real lobby) -->
+    <div id="coop">
+      <h2>Co-op · 2 players</h2>
+      <button class="cbtn" id="hostSharedBtn">🤝 HOST shared kingdom</button>
+      <button class="cbtn" id="hostSepBtn">🏰🏰 HOST separate kingdoms</button>
+      <div class="joinrow">
+        <input id="joinCode" inputmode="text" autocomplete="off" maxlength="8" placeholder="CODE">
+        <button class="cbtn" id="joinBtn" style="margin:0">JOIN</button>
+      </div>
+      <div id="netNote" class="hidden"></div>
+    </div>
   </div>
   <p class="hint">
     Drag to pan · wheel to zoom · <b>Q/E</b> turn · <b>WASD</b> move ·
     <b>Space</b> pause · <b>1 2 3</b> speed
   </p>
+</div>
+
+<!-- PHASE-M UI: in-game co-op chrome -->
+<div id="netChip" class="hidden">co-op</div>
+<div id="netInvite" class="hidden">
+  waiting for your partner — send them this:
+  <div class="code" id="inviteCode">·····</div>
+  <span class="lnk" id="inviteLink"></span>
+  <button id="copyLinkBtn">📋 copy invite link</button>
+</div>
+<button id="pingBtn" class="hidden" title="Ping the spot under the cursor (P)">📍 PING</button>
+<div id="pingMark" class="hidden">📍</div>
+<div id="veil">catching up…</div>
+<div id="hostLeft">
+  <div class="box">
+    <h3>Your partner's game closed</h3>
+    <p>The host left the room. You still have the whole kingdom — carry on by yourself?</p>
+    <button class="playBtn" id="soloBtn">CONTINUE SOLO</button>
+  </div>
 </div>
 
 <script src="assets/vendor/three-r128.min.js"></script>
@@ -159,6 +265,7 @@
 <script src="assets/farmstead/fs-sim.js"></script>
 <script src="assets/farmstead/fs-military.js"></script>
 <script src="assets/farmstead/fs-ai.js"></script>
+<script src="assets/farmstead/fs-net.js"></script>
 <script src="assets/farmstead/fs-models.js"></script>
 <script src="assets/farmstead/fs-render.js"></script>
 <script>
@@ -166,6 +273,7 @@
   "use strict";
   const FSC = window.FSC, FSMap = window.FSMap, FSSim = window.FSSim, FSRender = window.FSRender;
   const FSMil = window.FSMil, FSAI = window.FSAI;   /* ===== PHASE-D ===== */
+  const FSNet = window.FSNet;                       /* ===== PHASE-M ===== */
 
   const el = (id) => document.getElementById(id);
   const titleEl = el("title"), dbgEl = el("dbg"), speedEl = el("speedTag"), canvas = el("view");
@@ -177,6 +285,7 @@
   let hiddenSpeed = 0;           // speed stashed while the page is hidden
   let lastSpeed = 1;             // speed to restore when un-pausing
   let tickMsAvg = 0, tickCount = 0;
+  let paintedSpeed = -1;         /* ===== PHASE-M: speed can change from the wire ===== */
   const opts = { size: "medium", ais: 1, seed: 0 };
 
   // ───────────────────────────────── new game UI
@@ -209,9 +318,17 @@
       humans: o.humans, mode: o.mode, aiPlan: o.aiPlan, supplies: o.supplies,
     });
     G.speed = o.speed === undefined ? 1 : o.speed;
+    FSRender.init(canvas, G);
+    enterGame();
+    return G;
+  }
+
+  /* ===== PHASE-M: shared "we are in a game now" chrome, used by startGame AND
+   * by a co-op guest adopting the world it just received over the wire. ===== */
+  function enterGame() {
     lastSpeed = G.speed || 1;
     tickMsAvg = 0; tickCount = 0;
-    FSRender.init(canvas, G);
+    acc = 0;
     titleEl.classList.add("hidden");
     el("backLink").style.display = "none";
     dbgEl.classList.remove("hidden");
@@ -219,7 +336,17 @@
     hintEl.classList.remove("hidden");
     setMode(null);
     paintSpeed();
-    if (!running) { running = true; lastT = performance.now(); acc = 0; raf = requestAnimationFrame(loop); }
+    paintNetChip();
+    if (!running) { running = true; lastT = performance.now(); raf = requestAnimationFrame(loop); }
+  }
+
+  /* ===== PHASE-M: adopt a whole world handed over by the host (join / resync).
+   * Disposes the old scene through FSRender.rebuildAll and keeps the camera. */
+  function adoptWorld(g2) {
+    const first = !G;
+    G = g2;
+    if (first) FSRender.init(canvas, G); else FSRender.rebuildAll(G);
+    enterGame();
     return G;
   }
 
@@ -229,20 +356,44 @@
     const ms = performance.now() - t0;
     tickCount++;
     tickMsAvg += (ms - tickMsAvg) / Math.min(tickCount, 120);
+    /* ===== PHASE-M: lockstep hash checkpoint every FSC.SYNC_HASH_T ticks ===== */
+    if (FSNet && FSNet.active()) FSNet.afterTick(G);
+  }
+
+  /* ===== PHASE-M: one sim step, driven by rAF when visible and by FSNet's
+   * 250 ms heartbeat when the tab is hidden (a co-op sim never stops).
+   *  solo / host — own accumulator, capped per frame (tab-return protection)
+   *  guest       — paced by FSNet toward the host's tick clock, never past it,
+   *                catching up in bigger slices when it has fallen behind. */
+  function step(dtReal) {
+    if (!G) return 0;
+    const net = FSNet && FSNet.active();
+    const pace = net ? FSNet.pace(G) : null;
+    let n = 0;
+    if (pace && pace.clock) {
+      acc = 0;
+      while (n < pace.budget && G.tick < pace.limit) { runTick(); n++; }
+      document.body.classList.toggle("fs-catchup", !!pace.catching);
+    } else {
+      const budget = pace ? pace.budget : FSC.MAX_TICKS_PER_FRAME;
+      acc += dtReal * (G.speed || 0);
+      while (acc >= FSC.TICK_S && n < budget) { runTick(); acc -= FSC.TICK_S; n++; }
+      if (n >= budget) acc = 0;                      // tab-return protection
+    }
+    if (G.speed !== paintedSpeed) paintSpeed();
+    return n;
   }
 
   function loop(now) {
     raf = requestAnimationFrame(loop);
     const dtReal = Math.min(0.25, (now - lastT) / 1000);
     lastT = now;
-    if (G) {
-      acc += dtReal * (G.speed || 0);
-      let n = 0;
-      while (acc >= FSC.TICK_S && n < FSC.MAX_TICKS_PER_FRAME) { runTick(); acc -= FSC.TICK_S; n++; }
-      if (n >= FSC.MAX_TICKS_PER_FRAME) acc = 0;     // tab-return protection
-    }
+    step(dtReal);
     const st = FSRender.frame(dtReal);
-    if (G && (st.frames & 7) === 0) paintDbg();
+    if (G) {
+      syncPingMark();                                /* ===== PHASE-M ===== */
+      if ((st.frames & 7) === 0) { paintDbg(); paintNetChip(); }
+    }
   }
 
   function paintDbg() {
@@ -257,6 +408,7 @@
 
   function paintSpeed() {
     if (!G) return;
+    paintedSpeed = G.speed;
     speedEl.textContent = G.speed ? ("▶ " + G.speed + "×") : "⏸ paused";
   }
   function setSpeed(s) {
@@ -393,6 +545,8 @@
        hover an enemy military building and press A to send half your reach ===== */
     if (k === "a" || k === "A") { doAttack(hovered()); return; }
     if (k === "c" || k === "C") { issue("cycleKnights", {}); toastMode("♻ knights rotating"); return; }
+    /* ===== PHASE-M: P = ping the spot under the cursor (both screens see it) ===== */
+    if (k === "p" || k === "P") { doPing(hovered()); return; }
     if (k === "t" || k === "T") {
       const on = FSRender.setTerritoryTint(!FSRender.territoryTint());
       toastMode(on ? "territory tint ON" : "territory tint OFF");
@@ -416,12 +570,158 @@
 
   document.addEventListener("visibilitychange", () => {
     if (!G) return;
+    /* ===== PHASE-M: co-op never pauses on hide — FSNet's heartbeat keeps the
+     * shared clock running and the tab catches up in slices on return. ===== */
+    if (FSNet && FSNet.active()) { lastT = performance.now(); acc = 0; return; }
     if (document.hidden) {
       if (G.speed) { hiddenSpeed = G.speed; setSpeed(0); }
     } else if (hiddenSpeed) {
       const s = hiddenSpeed; hiddenSpeed = 0; setSpeed(s);
     }
   });
+
+  /* ═══════════════════════════════════════════════════════════════════════
+   * ===== PHASE-M UI: co-op glue (title card, partner chip, ping, modal) ===
+   * Deliberately minimal — Phase E replaces this with the real lobby panel.
+   * ═══════════════════════════════════════════════════════════════════════ */
+  const netNoteEl = el("netNote"), netChipEl = el("netChip"), pingBtnEl = el("pingBtn");
+  const pingMarkEl = el("pingMark"), hostLeftEl = el("hostLeft"), inviteEl = el("netInvite");
+  let pingV = -1, pingUntil = 0, pingSeenT = -1;
+
+  function netSettings() {
+    const s = parseInt(el("seed").value, 10);
+    return {
+      size: opts.size, ais: opts.ais,
+      seed: (isFinite(s) && s > 0) ? s : randSeed(),
+    };
+  }
+  function netNote(html) {
+    netNoteEl.innerHTML = html || "";
+    netNoteEl.classList.toggle("hidden", !html);
+  }
+  function paintNetChip() {
+    if (!FSNet) return;
+    const st = FSNet.state();
+    if (!st.role && st.status !== "solo") {
+      netChipEl.classList.add("hidden"); pingBtnEl.classList.add("hidden");
+      inviteEl.classList.add("hidden");
+      return;
+    }
+    netChipEl.classList.remove("hidden");
+    pingBtnEl.classList.toggle("hidden", !G);
+    // the host keeps the room code + a copyable link on screen until someone joins
+    const inviting = st.role === "host" && !st.peerHere && !!G;
+    inviteEl.classList.toggle("hidden", !inviting);
+    if (inviting) {
+      el("inviteCode").textContent = st.code;
+      el("inviteLink").textContent = st.link;
+      // the invite panel grows with the link — park the ping button under it
+      pingBtnEl.style.top = Math.round(inviteEl.getBoundingClientRect().bottom + 8) + "px";
+    } else pingBtnEl.style.top = "";
+    let txt, cls;
+    if (st.status === "solo") { txt = "🌾 solo (partner gone)"; cls = "gone"; }
+    else if (st.status === "hostLeft") { txt = "⚠ host left"; cls = "gone"; }
+    else if (!st.peerHere) { txt = "🤝 waiting for partner… " + (st.code || ""); cls = "wait"; }
+    else if (st.catching) { txt = "⏳ catching up… " + st.behind; cls = "wait"; }
+    else {
+      txt = "🤝 " + (st.peerName || "Partner") + " · " + (st.role === "host" ? "you host" : "seat " + (st.seat + 1)) +
+        " · " + (st.mode === "separate" ? "separate" : "shared");
+      if (st.desyncs) txt += " · ⟳" + st.desyncs;
+      cls = "live";
+    }
+    netChipEl.textContent = txt;
+    netChipEl.className = cls;
+  }
+  /** Ping markers ride on the event stream, so BOTH screens show the same one. */
+  function syncPingMark() {
+    if (!G) return;
+    const evs = G.events;
+    for (let i = evs.length - 1; i >= 0 && i >= evs.length - 40; i--) {
+      const e = evs[i];
+      if (e.type !== "ping") continue;
+      if (e.t > pingSeenT) { pingSeenT = e.t; pingV = e.v; pingUntil = G.tick + FSC.NET_PING_T; }
+      break;
+    }
+    if (pingV < 0 || G.tick > pingUntil) { pingMarkEl.classList.add("hidden"); return; }
+    const s = FSRender.vertexScreen(pingV);
+    if (!s || !s.inView) { pingMarkEl.classList.add("hidden"); return; }
+    pingMarkEl.style.left = s.x + "px";
+    pingMarkEl.style.top = s.y + "px";
+    pingMarkEl.classList.remove("hidden");
+  }
+  function doPing(v) {
+    if (!G || !FSNet) return null;
+    if (v === undefined || v < 0) v = hovered();
+    if (v < 0) { const c = FSSim.castleOf(G, G.seats ? G.seats[FSNet.state().seat] || 0 : 0); v = c ? c.v : 0; }
+    return FSNet.ping(v);
+  }
+
+  if (FSNet) {
+    FSNet.init({
+      getG: function () { return G; },
+      setG: function (g2) { adoptWorld(g2); },
+      startWorld: function (settings) {
+        startGame({ size: settings.size, ais: settings.ais, seed: settings.seed,
+          supplies: settings.supplies, mode: settings.mode, humans: settings.humans,
+          aiPlan: settings.aiPlan, speed: settings.speed === undefined ? 1 : settings.speed });
+      },
+      step: function (dt) { step(dt); },
+      toast: function (msg) { toastMode(msg); },
+      notify: function (kind, data) {
+        paintNetChip();
+        if (kind === "status") {
+          const st = FSNet.state();
+          if (st.role === "host" && !G) netNote("Opening room…");
+          else if (st.role === "host") {
+            netNote('room <span class="code">' + st.code + "</span><br>" +
+              (st.peerHere ? "🤝 " + st.peerName + " joined!" : "waiting for partner… share this link:<br>" + st.link));
+          } else if (st.role === "guest") {
+            netNote(st.status === "syncing" ? "receiving the world…" : "connected — waiting for the host…");
+          } else if (st.status === "failed") netNote("⚠ " + (st.err || "couldn't connect"));
+        }
+        if (kind === "hostLeft") hostLeftEl.classList.add("on");
+        if (kind === "peer" && data && data.here) netNote("");
+        if (kind === "catchup") document.body.classList.toggle("fs-catchup", !!(data && data.on));
+      },
+    });
+  }
+
+  function hostRoom(mode) {
+    if (!FSNet) return null;
+    const s = netSettings();
+    netNote("Opening room…");
+    return FSNet.host({ mode: mode, size: s.size, ais: s.ais, seed: s.seed });
+  }
+  function joinRoom(code) {
+    if (!FSNet) return null;
+    netNote("Connecting…");
+    return FSNet.join(code);
+  }
+  el("hostSharedBtn").addEventListener("click", () => hostRoom("shared"));
+  el("hostSepBtn").addEventListener("click", () => hostRoom("separate"));
+  el("joinBtn").addEventListener("click", () => joinRoom(el("joinCode").value.trim()));
+  pingBtnEl.addEventListener("click", () => doPing());
+  el("copyLinkBtn").addEventListener("click", () => {
+    const link = FSNet.state().link;
+    let done = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(link).then(() => toastMode("📋 invite link copied"), () => {});
+        done = true;
+      }
+    } catch (e) { done = false; }
+    if (!done) toastMode("copy the link above ↑");
+  });
+  el("soloBtn").addEventListener("click", () => {
+    hostLeftEl.classList.remove("on");
+    FSNet.detach();
+    toastMode("🌾 carrying on solo");
+  });
+  // deep link: farmstead.html#r=<code> joins straight away
+  if (FSNet && FSNet.linkCode()) {
+    netNote("Joining " + FSNet.linkCode() + "…");
+    setTimeout(() => joinRoom(FSNet.linkCode()), 0);
+  }
 
   // ───────────────────────────────── debug hook (suite contract — keep stable)
   window.__FS__ = {
@@ -457,8 +757,46 @@
     },
     cycleKnights: function (o) { return FSSim.issueCommand(G, Object.assign({ type: "cycleKnights", args: {} }, o || {})); },
     setTerritoryTint: function (on) { return FSRender.setTerritoryTint(on); },
+    /* ═══ PHASE-M: co-op + serialization (plan §16) ═══ */
+    FSNet: FSNet,
+    hostGame: function (mode, o) {
+      o = o || {};
+      const s = netSettings();
+      return FSNet.host({
+        mode: mode, size: o.size || s.size,
+        ais: o.ais === undefined ? s.ais : o.ais,
+        seed: o.seed || s.seed, supplies: o.supplies, code: o.code, transport: o.transport,
+        aiPlan: o.aiPlan, speed: o.speed,
+      });
+    },
+    joinGame: function (code, o) { return FSNet.join(code, o); },
+    netState: function () { return FSNet.state(); },
+    netStats: function () { return FSNet.stats(); },
+    ping: function (v) { return doPing(v === undefined ? -1 : v); },
+    continueSolo: function () {
+      hostLeftEl.classList.remove("on");
+      return FSNet.detach();
+    },
+    leaveRoom: function () { return FSNet.leave(); },
+    serialize: function () { return FSSim.serialize(G); },
+    loadState: function (str) { return adoptWorld(FSSim.deserialize(str)); },
+    save: function (slot) {
+      try {
+        localStorage.setItem("fs_save_" + (slot || 1), FSSim.serialize(G));
+        return true;
+      } catch (e) { return false; }
+    },
+    load: function (slot) {
+      let str = null;
+      try { str = localStorage.getItem("fs_save_" + (slot || 1)); } catch (e) { str = null; }
+      if (!str) return false;
+      adoptWorld(FSSim.deserialize(str));
+      return true;
+    },
+    step: function (dt) { return step(dt === undefined ? FSC.TICK_S : dt); },
     hash: function () { return FSSim.hash(G); },
-    paintHud: function () { return paintDbg(); },   // headless renders ~1fps: force the HUD
+    // headless renders ~1fps: force the HUD (incl. the PHASE-M co-op chrome)
+    paintHud: function () { paintNetChip(); syncPingMark(); return paintDbg(); },
     events: function (type) { return type ? G.events.filter((e) => e.type === type) : G.events.slice(); },
     mode: function () { return mode; },
     q: {
