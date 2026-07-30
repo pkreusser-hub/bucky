@@ -242,6 +242,7 @@
   FSC.THREAT_NEAR = [26, 18, 10];  // lattice dist to enemy border → tier 0/1/2/3 boundaries
   FSC.SERF_TO_KNIGHT_DEFAULT = 20000; // 0..65500 slider: eagerness of generic→knight
   FSC.CASTLE_KNIGHTS_DEFAULT = 3;  // castle desired garrison (stepper, cap 99)
+  FSC.CASTLE_KNIGHTS_MAX = 99;
   FSC.CYCLE_KNIGHTS_T = 2400;      // rotate-garrisons cooldown (ticks)
   FSC.KNIGHT_DEFAULTS = { recruitRate: 20000, attackStrong: true, castleKnights: 3 };
 
@@ -534,6 +535,95 @@
   // --- stats rings (Phase E draws them; the sim just samples) ---
   FSC.STATS_T = 300;
   FSC.STATS_CAP = 240;
+
+  /* ===================================================================== */
+  /* ===== PHASE-D: knights, territory, combat, victory, AI =============== */
+  /* ===================================================================== */
+
+  // --- the duel (confirmed original: a per-fighter weighted lottery) ---------
+  // strength = (STRENGTH_BASE × 2^rank × landFactor) >> 16, computed for EACH
+  // fighter; landFactor = LAND_OWN when that fighter stands on his own player's
+  // territory, otherwise his player's gold-funded morale (MORALE_FLOOR..FULL).
+  // P(A wins a round) = sA / (sA + sB). The loser dies; NEITHER side changes rank
+  // (promotion is a separate periodic roll — see PROMOTE_* below).
+  FSC.STRENGTH_BASE = 1024;
+  FSC.STRENGTH_SHIFT = 16;
+  FSC.LAND_OWN = 4096;
+  FSC.MORALE_FULL = 4096;      // ceiling — also what everyone gets when no gold exists
+  FSC.MORALE_FLOOR = 1024;     // holding none of the world's gold
+  FSC.MORALE_SHARE_K = 2;      // your share is doubled before the min(1, …) clamp
+  FSC.RANK_NAMES = ["Recruit", "Private", "Sergeant", "Officer", "General"];
+  FSC.RANK_COLOR = [0x9aa0a8, 0xb98b45, 0xd8dde3, 0xf2c53d, 0xe05a3a];
+
+  // --- promotion: one roll per garrisoned knight every PROMOTE_T ticks -------
+  // p/65536 by building tier × current rank (the castle is the training ground).
+  FSC.PROMOTE_T = 600;
+  FSC.PROMOTE_P = {
+    hut: [250, 125, 62, 31],
+    tower: [1000, 500, 250, 125],
+    fortress: [2000, 1000, 500, 250],
+    castle: [4000, 2000, 1000, 500],
+  };
+
+  // --- occupancy: player sets a LEVEL 0..4 per threat tier, tables give heads --
+  FSC.OCC_TABLE = { hut: [1, 1, 2, 2, 3], tower: [1, 2, 3, 4, 6], fortress: [1, 3, 6, 9, 12] };
+  FSC.OCC_NAMES = ["Minimum", "Weak", "Medium", "Good", "Full"];
+  FSC.OCC_LEVEL_MAX = 4;
+  FSC.GARRISON_T = 20;         // ticks between garrison-management sweeps
+
+  // --- territory: the influence-weight model ---------------------------------
+  // Every occupied military building projects a claim over radius TERR_RADIUS.
+  // The table is indexed by CLOSENESS = TERR_RADIUS − distance (so influence
+  // FALLS with distance and a building always owns the ground under itself):
+  // closeness 8 → TERR_ABSOLUTE, 7..1 → the row below, 0 → nothing.
+  // NOTE the raw research listed these eight numbers as "ring 0..7" which would
+  // hand a building ZERO influence on its own vertex; the closeness reading is
+  // the one that reproduces the original's behaviour (rings 8/9 are flagged
+  // "no influence" = the absolute-claim marker). Either reading keeps the solid
+  // headline result — a fortress out-claims a hut at every distance.
+  FSC.TERR_RADIUS = 8;
+  FSC.TERR_INFLUENCE = {
+    hut: [0, 1, 2, 4, 7, 12, 18, 29],
+    tower: [0, 3, 5, 8, 11, 15, 22, 30],
+    fortress: [0, 6, 10, 14, 19, 23, 27, 31],
+  };
+  FSC.TERR_ABSOLUTE = 128;     // the ground under a military building is never contested
+  FSC.TERR_CAP = 127;          // summed influence saturates just below absolute
+  // The castle uses the fortress row stretched over CASTLE_RADIUS (deviation §8:
+  // a widened castle claim so every start economy has room to breathe).
+
+  // --- attacks ---------------------------------------------------------------
+  FSC.ATTACK_MAX = 64;         // knights one attack order may commit
+  FSC.KNIGHT_WALK_MAX = 320;   // offroad A* budget for an attacking knight (cost units)
+  FSC.FIGHT_START_T = 8;       // pause after the defender steps out, before round 1
+  FSC.SIEGE_GIVEUP_T = 2400;   // an attacker who can never reach the target goes home
+  FSC.CORPSE_T = 40;           // ticks a corpse is reported to the renderer
+
+  // --- burning / elimination -------------------------------------------------
+  FSC.DOOM_PER_TICK = 3;       // eliminated player's estate is dismantled this fast
+
+  // --- AI --------------------------------------------------------------------
+  FSC.AI_STUCK_T = 3000;       // a site with no material progress for this long is scrapped
+  FSC.AI_BLACKLIST_T = 6000;   // …and its vertex is left alone for this long
+  FSC.AI_MAX_SITES = 3;        // concurrent unfinished buildings
+  FSC.AI_ROAD_SEG = 7;         // vertices between flags on a long AI road
+  FSC.AI_ROAD_MAX = 120;       // A* cost budget for one AI road hunt
+  FSC.AI_SCAN_CAP = 900;       // vertices examined per site hunt (amortised, cached)
+  FSC.AI_ATTACK_T = 900;       // ticks between one AI's attack considerations
+  FSC.AI_ATTACK_SHARE = 0.6;   // fraction of the spare garrison committed to an attack
+  // per-AI personality (index = player id): aggression + expansion multipliers
+  FSC.AI_PERSONA = [
+    { aggro: 1.0, expand: 1.0 },
+    { aggro: 0.95, expand: 1.15 },
+    { aggro: 1.25, expand: 0.9 },
+    { aggro: 1.1, expand: 1.05 },
+  ];
+
+  // --- Phase-D palette -------------------------------------------------------
+  FSC.COL.STAKE = 0x6b5137;
+  FSC.COL.CORPSE = 0x6a5a4a;
+  FSC.COL.CLANG = 0xfff2b0;
+  FSC.TERRITORY_TINT = 0.13;   // how far own ground leans toward the player colour
 
   // --- Phase-C palette (per-type building models, signs, boats, smoke) ---
   FSC.COL.MILL_SAIL = 0xe8dfc6;
