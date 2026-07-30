@@ -55,10 +55,11 @@
   /* ===================================================================== */
   /* ===== cached views of the world (rebuilt when the border moves) ====== */
   /* ===================================================================== */
-  const cache = { G: null, gen: -1, land: {}, rival: {} };
+  const cache = { G: null, gen: -1, land: {}, rival: {}, room: {}, roomGen: {} };
   function fresh(G) {
     if (cache.G === G && cache.gen === G.ownerGen) return;
-    cache.G = G; cache.gen = G.ownerGen; cache.land = {}; cache.rival = {};
+    cache.G = G; cache.gen = G.ownerGen;
+    cache.land = {}; cache.rival = {}; cache.room = {}; cache.roomGen = {};
   }
 
   /** Every vertex this player owns (the only ground he may build on). */
@@ -97,6 +98,34 @@
   /* ===================================================================== */
   /* ===== small queries ================================================== */
   /* ===================================================================== */
+  /**
+   * How many building plots are left inside our own border. On a generous start
+   * this is dozens; on a cramped one (rock, swamp and water everywhere) it can
+   * be a handful, and every building we put down eats a plot plus the ring
+   * around it. Cached against the border generation — it only moves when the
+   * territory or the buildings do, and one bounded pass is the same budget as a
+   * single site hunt.
+   */
+  function roomLeft(G, p) {
+    fresh(G);
+    // keyed on the ROAD/FLAG generation, not G.nextId — the latter ticks every
+    // time a serf is born, which would defeat the cache entirely
+    if (cache.room[p] !== undefined && cache.roomGen[p] === G.routeGen) return cache.room[p];
+    const land = ownLand(G, p), map = G.map;
+    let n = 0, checks = 0;
+    const stride = Math.max(1, Math.floor(land.length / FSC.AI_SCAN_CAP));
+    for (let i = 0; i < land.length; i += stride) {
+      const v = land[i];
+      if (map.bldAt[v] || map.flagAt[v] || map.terr[v] !== T.GRASS) continue;
+      if (FSMap.objBlocks(map.obj[v])) continue;
+      if (++checks > FSC.AI_PLACE_CHECKS) break;
+      if (FSMap.canPlaceBuilding(map, "hut", v, p)) n++;
+    }
+    cache.room[p] = n;
+    cache.roomGen[p] = G.routeGen;       // any new flag/road/building invalidates it
+    return n;
+  }
+
   function countTypes(G, p) {
     const c = Object.create(null);
     c._sites = 0; c._mil = 0; c._all = 0;
@@ -218,13 +247,28 @@
    * Returns a WISH LIST, best first — the planner walks down it, so one type it
    * cannot place (no room for a butcher) never blocks everything behind it.
    */
-  function wishList(G, p, c, inv) {
+  function wishList(G, p, c, inv, st) {
     const per = persona(p);
     const land = Math.round(has(c, "hut") + has(c, "tower") * 1.5 + has(c, "fortress") * 2);
     const want = (n) => Math.round(n * per.expand);
     const w = [];
     const add = (t, cond) => { if (cond !== false && w.indexOf(t) < 0) w.push(t); };
 
+    /**
+     * CRAMPED START (plan §9). A guard hut is the only building that makes MORE
+     * room, and on a rocky start the room runs out FAST — measured on one such
+     * map the buildable plots fall from 15 to 1 inside the first sim-minute,
+     * because every building sterilises the ring around it. So the trigger has
+     * to fire while plots still exist, which means expansion outranks even the
+     * opening woodcutter. To keep that from turning into pure hut-spam, it
+     * alternates: right after a hut goes up the economy gets the next slot.
+     * On a roomy start (plots in the dozens) none of this fires at all.
+     */
+    const tight = roomLeft(G, p) <= FSC.AI_ROOM_LOW && st && st.lastBuild !== "hut";
+    if (tight) add("hut");
+
+    // the first three are the settlement itself — without planks and stone
+    // nothing else can ever be built
     if (has(c, "lumberjack") < 1) add("lumberjack");
     if (has(c, "sawmill") < 1) add("sawmill");
     if (has(c, "stonecutter") < 1) add("stonecutter");
@@ -331,10 +375,18 @@
         score += countIn(map, v, FSC.FIELD_RING[1], (u, d) => d >= FSC.FIELD_RING[0]
           && map.terr[u] === T.GRASS && map.obj[u] === O.NONE) * 2;
       } else if (def.mil) {
-        // a guard hut is worth exactly the new ground it takes
-        let gained = 0;
-        FSMap.forRadius(map, v, FSC.TERR_RADIUS - 1, (u) => { if (map.owner[u] < 0) gained++; });
-        score += gained * 1.4;
+        // A guard hut is worth the new ground it takes — but BUILDABLE ground is
+        // what actually keeps a settlement growing. Claiming forty vertices of
+        // cliff and lake looks like expansion on the minimap and leaves the AI
+        // with nowhere to put its next woodcutter, so open grass counts for
+        // several times its area.
+        let gained = 0, useful = 0;
+        FSMap.forRadius(map, v, FSC.TERR_RADIUS - 1, (u) => {
+          if (map.owner[u] >= 0) return;
+          gained++;
+          if (map.terr[u] === T.GRASS && !FSMap.objBlocks(map.obj[u])) useful++;
+        });
+        score += gained * 0.5 + useful * 2.5;
         // …and it must not crowd the buildings we already hold
         let crowd = 0;
         FSMap.forRadius(map, v, 5, (u) => { const b = G.buildings[map.bldAt[u]]; if (b && b.mil && b.p === p) crowd++; });
@@ -409,7 +461,19 @@
   /* ===================================================================== */
   /* ===== watchdog ======================================================= */
   /* ===================================================================== */
-  /** A site that has taken no material for AI_STUCK_T ticks is a dead end. */
+  /**
+   * A site that has taken no material for AI_STUCK_T ticks is SUSPECT — but only
+   * a site the carriers can never reach is actually a dead end.
+   *
+   * This distinction matters more than it looks. A young settlement has two or
+   * three transporters and long roads, so a second-priority site can easily wait
+   * thousands of ticks for its second plank while the sawmill ahead of it eats
+   * every delivery. Scrapping that site is exactly the wrong move: it throws
+   * away the materials already in the walls AND blacklists the ground, and on a
+   * cramped start (where the buildable spots number in the teens) that ground
+   * may be the only spot left — which is how one misfiring watchdog can freeze
+   * an AI for the rest of the game. So: cut off → scrap; merely queued → wait.
+   */
   function watchdog(G, p, st) {
     for (const id in G.buildings) {
       const b = G.buildings[id];
@@ -419,6 +483,11 @@
       const w = st.watch[b.id];
       if (!w || w.mat !== got) { st.watch[b.id] = { mat: got, t: G.tick }; continue; }
       if (G.tick - w.t < FSC.AI_STUCK_T) continue;
+      const f = G.flags[b.flag];
+      if (f && networked(G, p, f.id, homeFlag(G, p))) {
+        w.t = G.tick;                    // still on the network — just be patient
+        continue;
+      }
       event(G, "aiScrapSite", { p, id: b.id, btype: b.type, v: b.v });
       st.black[b.v] = G.tick + FSC.AI_BLACKLIST_T;
       delete st.watch[b.id];
@@ -489,9 +558,14 @@
       if (prospect(G, p, st)) return "prospect";
     }
 
-    const wish = wishList(G, p, c, inv);
+    // Walk the wish list until something sticks. The budget has to be generous:
+    // on a cramped map the first few wants can be unplaceable for a long stretch,
+    // and a short budget means the planner never even LOOKS at the food and mine
+    // entries further down (measured: with 4 tries the fisher was never reached
+    // in 30 sim-minutes). A hunt is ~0.1 ms; the one road A* per run dominates.
+    const wish = wishList(G, p, c, inv, st);
     let tried = 0;
-    for (let i = 0; i < wish.length && tried < 4; i++) {
+    for (let i = 0; i < wish.length && tried < FSC.AI_TRIES; i++) {
       const type = wish[i];
       if (!affordable(G, p, type, inv)) { st.lastFail = "poor:" + type; continue; }
       tried++;
@@ -508,9 +582,21 @@
         return "noroad";           // one road hunt per run — see FSC.AI_PERIOD
       }
       st.lastFail = "";
+      st.lastBuild = type;            // drives the cramped-start alternation
       event(G, "aiBuild", { p, id: b.id, btype: type, v });
       return type;
     }
+    // BOXED IN: nothing on the wish list fits anywhere. Before idling away
+    // another AI_PERIOD, take back the oldest thing we wrote off — on a cramped
+    // map the blacklist itself becomes the wall, and a spot that failed once
+    // (no road THEN) is often buildable now that the network has grown.
+    // a run that placed nothing also clears the alternation latch, so a settlement
+    // that can ONLY expand still expands (and one that can do both still trades
+    // off) — without this the latch could stick and deadlock a cramped AI
+    st.lastBuild = "";
+    let oldest = -1, oldestT = Infinity;
+    for (const k in st.black) if (st.black[k] < oldestT) { oldestT = st.black[k]; oldest = k; }
+    if (oldest >= 0) { delete st.black[oldest]; return "forgive"; }
     return "idle";
   }
   FSAI.plan = plan;

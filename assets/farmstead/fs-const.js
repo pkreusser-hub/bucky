@@ -615,6 +615,8 @@
   FSC.AI_PLACE_CHECKS = 140;    // canPlaceBuilding calls one hunt may spend
   FSC.AI_SHORTLIST = 24;       // spots that reach the (dearer) scoring pass
   FSC.AI_ROCK_CHECKS = 12;     // mountain spots a prospecting run may weigh
+  FSC.AI_ROOM_LOW = 16;       // …below which expansion jumps the queue
+  FSC.AI_TRIES = 8;            // wish-list entries one planner run may hunt for         // plots left in own land before expansion jumps the queue
   FSC.AI_ATTACK_T = 900;       // ticks between one AI's attack considerations
   FSC.AI_ATTACK_SHARE = 0.6;   // fraction of the spare garrison committed to an attack
   // per-AI personality (index = player id): aggression + expansion multipliers
