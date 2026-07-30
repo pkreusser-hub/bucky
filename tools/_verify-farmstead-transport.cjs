@@ -19,7 +19,12 @@ const HELPERS = function () {
   window.T = T;
 
   T.fresh = function (o) {
-    const G = FS.newGame(Object.assign({ size: "small", seed: 12345, ais: 1, speed: 0 }, o || {}));
+    // PHASE-D note: the AI player is kept for map generation (start-site fairness
+    // depends on the player count) but its PLANNER is parked — this is an ECONOMY
+    // suite, and on this seed the rival castle happens to sit 8-9 steps away, so a
+    // live opponent would turn every test below into a war. Same precedent as the
+    // REPRO_DEFAULT = -1 stub above. The AI is exercised in the military suite.
+    const G = FS.newGame(Object.assign({ size: "small", seed: 12345, ais: 1, speed: 0, aiPlan: false }, o || {}));
     return G;
   };
   T.castle = function () { return FS.FSSim.castleOf(FS.G, 0); };

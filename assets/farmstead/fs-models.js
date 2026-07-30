@@ -784,6 +784,77 @@
     });
   };
 
+  /* ===================================================================== */
+  /* ===== PHASE-D: knights, border stakes, corpses, clangs =============== */
+  /* ===================================================================== */
+
+  /**
+   * A knight: the serf minifig in a kettle helm, with a sword in one hand and a
+   * round shield on the other arm. The shield's TRIM tells you his rank at a
+   * glance (FSC.RANK_COLOR), which is the only rank cue the player ever gets.
+   */
+  FSModels.knightGeo = function (rank, playerIdx) {
+    const r = Math.max(0, Math.min(FSC.KNIGHT_RANKS - 1, rank | 0));
+    const key = "geo:knight:" + r + ":" + playerIdx;
+    return cached(key, () => {
+      const team = FSModels.playerColor(playerIdx);
+      const trim = FSC.RANK_COLOR[r] || FSC.RANK_COLOR[0];
+      const steel = 0xb9bfc6;
+      const parts = [];
+      parts.push({ geo: new THREE.BoxGeometry(0.11, 0.20, 0.11), color: 0x4a3f30, matrix: M(-0.08, 0.10, 0) });
+      parts.push({ geo: new THREE.BoxGeometry(0.11, 0.20, 0.11), color: 0x4a3f30, matrix: M(0.08, 0.10, 0) });
+      // mail coat + surcoat in the player's colour
+      parts.push({ geo: new THREE.BoxGeometry(0.31, 0.30, 0.23), color: 0x8f959d, matrix: M(0, 0.35, 0) });
+      parts.push({ geo: new THREE.BoxGeometry(0.33, 0.13, 0.25), color: team, matrix: M(0, 0.33, 0) });
+      parts.push({ geo: new THREE.BoxGeometry(0.08, 0.24, 0.09), color: 0x8f959d, matrix: M(-0.20, 0.36, 0.03) });
+      parts.push({ geo: new THREE.BoxGeometry(0.08, 0.24, 0.09), color: 0x8f959d, matrix: M(0.20, 0.36, 0.03) });
+      parts.push({ geo: new THREE.BoxGeometry(0.19, 0.17, 0.18), color: COL.SERF_SKIN, matrix: M(0, 0.59, 0) });
+      // kettle helm
+      parts.push({ geo: new THREE.CylinderGeometry(0.15, 0.16, 0.12, 8), color: steel, matrix: M(0, 0.66, 0) });
+      parts.push({ geo: new THREE.ConeGeometry(0.13, 0.13, 8), color: steel, matrix: M(0, 0.78, 0) });
+      // sword: blade + crossguard
+      parts.push({ geo: new THREE.BoxGeometry(0.05, 0.46, 0.05), color: 0xd8dde3, matrix: M(0.27, 0.44, 0.07) });
+      parts.push({ geo: new THREE.BoxGeometry(0.16, 0.045, 0.06), color: trim, matrix: M(0.27, 0.24, 0.07) });
+      // shield: a disc with the rank trim around the rim
+      parts.push({ geo: new THREE.CylinderGeometry(0.15, 0.15, 0.04, 10), color: team, matrix: M(-0.25, 0.36, 0.09, Math.PI / 2, 0, 0) });
+      parts.push({ geo: new THREE.TorusGeometry(0.15, 0.028, 5, 10), color: trim, matrix: M(-0.25, 0.36, 0.10) });
+      for (let i = 0; i < r; i++) {                       // rank pips on the surcoat
+        parts.push({ geo: new THREE.BoxGeometry(0.045, 0.045, 0.03), color: trim, matrix: M(-0.06 + i * 0.045, 0.47, 0.13) });
+      }
+      return mergeColored(parts);
+    });
+  };
+
+  /** A frontier post — driven into the ground, pennant in the owner's colour. */
+  FSModels.stakeGeo = function () {
+    return cached("geo:stake", () => mergeColored([
+      { geo: new THREE.CylinderGeometry(0.035, 0.045, 0.62, 5), color: COL.STAKE, matrix: M(0, 0.31, 0) },
+      { geo: new THREE.BoxGeometry(0.20, 0.13, 0.03), color: 0xffffff, matrix: M(0.10, 0.56, 0) },
+    ]));
+  };
+
+  /** A fallen knight — flat on the grass, fading out (per-instance scale). */
+  FSModels.corpseGeo = function () {
+    return cached("geo:corpse", () => mergeColored([
+      { geo: new THREE.BoxGeometry(0.42, 0.10, 0.22), color: COL.CORPSE, matrix: M(0, 0.05, 0) },
+      { geo: new THREE.BoxGeometry(0.16, 0.09, 0.16), color: 0x8f959d, matrix: M(0.26, 0.05, 0) },
+    ]));
+  };
+
+  /** The spark of a parried blow. */
+  FSModels.clangGeo = function () {
+    return cached("geo:clang", () => mergeColored([
+      { geo: new THREE.OctahedronGeometry(0.20, 0), color: 0xffffff, matrix: M(0, 0, 0) },
+    ]));
+  };
+
+  /** A tongue of flame for a burning building (scaled + flickered per instance). */
+  FSModels.flameGeo = function () {
+    return cached("geo:flame", () => mergeColored([
+      { geo: new THREE.ConeGeometry(0.22, 0.62, 5), color: 0xffffff, matrix: M(0, 0.31, 0) },
+    ]));
+  };
+
   /**
    * Construction visuals per building state:
    *   'site'     surveyor stakes + rope on a scraped pad

@@ -115,7 +115,7 @@
 <div id="bmode" class="hidden">mode</div>
 <div id="bhint" class="hidden">
   <b>F</b> flag · <b>R</b> road (click flag → flag) · <b>B</b>+<b>1-9</b> build (<b>Tab</b> page) ·
-  <b>G</b> geologist · <b>X</b> demolish · <b>Esc</b> cancel
+  <b>G</b> geologist · <b>X</b> demolish · <b>A</b> attack · <b>C</b> cycle knights · <b>T</b> tint · <b>Esc</b> cancel
 </div>
 
 <a class="back" href="games.html" id="backLink">← Bucky</a>
@@ -157,12 +157,15 @@
 <script src="assets/farmstead/fs-const.js"></script>
 <script src="assets/farmstead/fs-map.js"></script>
 <script src="assets/farmstead/fs-sim.js"></script>
+<script src="assets/farmstead/fs-military.js"></script>
+<script src="assets/farmstead/fs-ai.js"></script>
 <script src="assets/farmstead/fs-models.js"></script>
 <script src="assets/farmstead/fs-render.js"></script>
 <script>
 (function () {
   "use strict";
   const FSC = window.FSC, FSMap = window.FSMap, FSSim = window.FSSim, FSRender = window.FSRender;
+  const FSMil = window.FSMil, FSAI = window.FSAI;   /* ===== PHASE-D ===== */
 
   const el = (id) => document.getElementById(id);
   const titleEl = el("title"), dbgEl = el("dbg"), speedEl = el("speedTag"), canvas = el("view");
@@ -202,6 +205,8 @@
       size: o.size || opts.size,
       ais: o.ais === undefined ? opts.ais : o.ais,
       seed: o.seed || randSeed(),
+      /* ===== PHASE-D: co-op shape + the suites' "park the opponents" switch ===== */
+      humans: o.humans, mode: o.mode, aiPlan: o.aiPlan, supplies: o.supplies,
     });
     G.speed = o.speed === undefined ? 1 : o.speed;
     lastSpeed = G.speed || 1;
@@ -384,7 +389,30 @@
       return;
     }
     if (k === "x" || k === "X") { doDemolish(hovered()); return; }
+    /* ===== PHASE-D (TEMP — Phase E replaces this with the attack dialog):
+       hover an enemy military building and press A to send half your reach ===== */
+    if (k === "a" || k === "A") { doAttack(hovered()); return; }
+    if (k === "c" || k === "C") { issue("cycleKnights", {}); toastMode("♻ knights rotating"); return; }
+    if (k === "t" || k === "T") {
+      const on = FSRender.setTerritoryTint(!FSRender.territoryTint());
+      toastMode(on ? "territory tint ON" : "territory tint OFF");
+      return;
+    }
   });
+
+  /* ===== PHASE-D TEMP attack: pick the enemy building under the cursor ===== */
+  function doAttack(v) {
+    if (v < 0 || !FSMil) return;
+    const id = G.map.bldAt[v];
+    const b = id && G.buildings[id];
+    if (!b || !b.mil) { toastMode("aim at an enemy hut, tower or castle"); return; }
+    if (!FSMil.isEnemy(G, b.p, 0)) { toastMode("that one is not the enemy's"); return; }
+    const max = FSMil.maxAttackers(G, b.id, 0);
+    if (max <= 0) { toastMode("no knights in range"); return; }
+    const n = Math.max(1, Math.ceil(max / 2));
+    issue("attack", { id: b.id, count: n, strong: !!G.players[0].knights.attackStrong });
+    toastMode("⚔ " + n + " knight" + (n === 1 ? "" : "s") + " march out");
+  }
 
   document.addEventListener("visibilitychange", () => {
     if (!G) return;
@@ -399,6 +427,7 @@
   window.__FS__ = {
     get G() { return G; },
     FSC: FSC, FSMap: FSMap, FSSim: FSSim, FSRender: FSRender, FSModels: window.FSModels,
+    FSMil: FSMil, FSAI: FSAI,                       /* ===== PHASE-D ===== */
     version: FSC.VERSION,
     newGame: function (o) { return startGame(o || {}); },
     ff: function (n) { for (let i = 0; i < (n | 0); i++) runTick(); return G.tick; },
@@ -419,6 +448,15 @@
     setToolPrio: function (tool, value, o) { return FSSim.issueCommand(G, Object.assign({ type: "toolPrio", args: { tool, value } }, o || {})); },
     setStockMode: function (id, res, mode, o) { return FSSim.issueCommand(G, Object.assign({ type: "stockMode", args: { id, res, mode } }, o || {})); },
     halt: function (id, on, o) { return FSSim.issueCommand(G, Object.assign({ type: "halt", args: { id, on: on === undefined ? true : on } }, o || {})); },
+    /* ===== PHASE-D: military orders, all through the command layer ===== */
+    attack: function (id, count, o) {
+      return FSSim.issueCommand(G, Object.assign({ type: "attack", args: { id, count, strong: o && o.strong } }, o || {}));
+    },
+    setKnightSetting: function (key, value, tier, o) {
+      return FSSim.issueCommand(G, Object.assign({ type: "knightSet", args: { key, value, tier } }, o || {}));
+    },
+    cycleKnights: function (o) { return FSSim.issueCommand(G, Object.assign({ type: "cycleKnights", args: {} }, o || {})); },
+    setTerritoryTint: function (on) { return FSRender.setTerritoryTint(on); },
     hash: function () { return FSSim.hash(G); },
     paintHud: function () { return paintDbg(); },   // headless renders ~1fps: force the HUD
     events: function (type) { return type ? G.events.filter((e) => e.type === type) : G.events.slice(); },
@@ -441,6 +479,24 @@
       },
       objAt: function (v) { return { obj: G.map.obj[v], arg: G.map.objArg[v], fish: G.map.fish[v] }; },
       mineralAt: function (v) { return { kind: G.map.mineral[v], amt: G.map.mineralAmt[v] }; },
+      /* ===== PHASE-D: military queries (Phase E's panels read these) ===== */
+      ownerAt: function (v) { return G.map.owner[v]; },
+      territoryOf: function (p) { return FSMil.territoryOf(G, p || 0); },
+      strength: function (p) { return FSMil.strength(G, p || 0); },
+      knights: function (p) { return FSMil.knightCount(G, p || 0); },
+      morale: function (p) { return FSMil.morale(G, p || 0); },
+      garrison: function (id) {
+        const b = G.buildings[id];
+        if (!b || !b.mil) return null;
+        return { id: b.id, type: b.type, p: b.p, ranks: b.mil.knights.slice(),
+          wanted: b.mil.wanted, gold: b.mil.gold, goldCap: (FSC.BLD[b.type].mil || {}).goldCap || 0,
+          defending: b.mil.defending, attackers: b.mil.attackers.length,
+          tier: FSMil.threatTier(G, b), min: FSMil.minGarrison(G, b), cap: FSMil.capacityOf(b) };
+      },
+      attackTargets: function (p) { return FSMil.attackTargets(G, p || 0); },
+      maxAttackers: function (id, p) { return FSMil.maxAttackers(G, id, p || 0); },
+      aiState: function (p) { return FSAI.state(G, p); },
+      gameOver: function () { return G.gameOver; },
     },
     perf: {
       get tickMsAvg() { return tickMsAvg; },

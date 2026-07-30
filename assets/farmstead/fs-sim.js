@@ -71,7 +71,8 @@
   const SERF_STATE_IDX = Object.create(null);
   ["spawn", "goRoad", "idle", "fetch", "carry", "wait", "handIn", "goBld", "enter",
     "level", "hammer", "work", "return", "gone",
-    /* ===== PHASE-C ===== */ "goWork", "doWork", "backWork", "goGeo", "geoWalk", "geoWork",
+    /* ===== PHASE-C ===== */ "goWork", "doWork", "backWork", "goGeo", "geoWalk", "geoWork", "geoBack",
+    /* ===== PHASE-D ===== */ "garrison", "atkWalk", "atkWait", "fight",
   ].forEach((s, i) => (SERF_STATE_IDX[s] = i + 1));
 
   // ------------------------------------------------------------------ helpers
@@ -232,13 +233,20 @@
 
   // ------------------------------------------------------------------ new game
   /**
-   * FSSim.newGame({size, seed, ais}) — generate a world and seat every player.
-   * size: 'small'|'medium'|'large' (or a number). ais: 0..3 computer opponents.
+   * FSSim.newGame({size, seed, ais, humans, mode}) — generate a world and seat
+   * every player.  size: 'small'|'medium'|'large' (or a number).
+   * ais: 0..3 computer opponents.
+   * PHASE-D / plan §16: `humans` 1|2 and `mode` 'shared'|'separate' pick the
+   * co-op shape. SHARED = both seats drive player 0. SEPARATE = seat 1 gets its
+   * own castle as player 1, ALLIED with player 0 (same team). Every AI is its
+   * own team, so "enemy" always means "different team".
    */
   FSSim.newGame = function (opts) {
     opts = opts || {};
     const ais = Math.max(0, Math.min(3, opts.ais === undefined ? 1 : opts.ais | 0));
-    const nPlayers = 1 + ais;
+    const mode = opts.mode === "separate" ? "separate" : "shared";
+    const humans = Math.max(1, Math.min(2, (mode === "separate" ? (opts.humans || 2) : 1) | 0));
+    const nPlayers = Math.min(4, humans + ais);
     const seed = (opts.seed >>> 0) || 1;
 
     const map = FSMap.generate({ seed, size: opts.size, players: nPlayers });
@@ -256,7 +264,8 @@
       routeGen: 1,
       /* ===== PHASE-B: command layer + work queues ===== */
       cmdQueue: [], cmdSeq: 0, cmdLog: 0,
-      seats: [0, 0],            // seat id → player id (shared-kingdom co-op default)
+      mode, humans,             /* ===== PHASE-D: co-op shape ===== */
+      seats: mode === "separate" ? [0, 1] : [0, 0],   // seat id → player id
       serfReqs: [],             // {p, job, kind:'road'|'bld'|'geo', id, due}
       retryQ: [],               // {f: flagId, due} — destless goods
       dirtyV: [],               // vertices the renderer must re-sync
@@ -266,10 +275,18 @@
       sweepV: 0,                // strided cursor over the map (trees, fields, fish)
       prod: [],                 // per player: {res: total ever produced}
       statT: 0,
+      /* ===== PHASE-D: military bookkeeping ===== */
+      ownerGen: 1,              // bumped whenever map.owner changed (render/AI cache key)
+      aiPlan: opts.aiPlan === false ? false : true,   // suites can park the opponents
+      doomQ: [],                // staggered teardown of an eliminated player's estate
+      corpses: [],              // {v, p, t} — render fades them, sim drops them
     };
 
     for (let i = 0; i < nPlayers; i++) {
-      G.players.push(makePlayer(G, i, i > 0));
+      G.players.push(makePlayer(G, i, i >= humans));
+      // teams: every human is on team 0, every AI is a team of its own, numbered
+      // from 1 up (plan §16 — solo is the humans=1 case, so team === id there)
+      G.players[i].team = i < humans ? 0 : 1 + (i - humans);
       G.stats[i] = makeStats();
       G.prod.push({});
     }
@@ -285,6 +302,11 @@
       for (const k in sinv) inv[k] = sinv[k];
       // the exact confirmed starting roster lives in the castle as a job-tagged pool
       for (const job in FSC.START_SERFS) b.pool[job] = FSC.START_SERFS[job];
+      /* ===== PHASE-D: the starting knights already man the castle wall ===== */
+      while (b.pool.knight > 0 && b.mil.knights.length < FSC.CASTLE_KNIGHTS_DEFAULT) {
+        b.pool.knight--; b.mil.knights.push(0);
+      }
+      for (let k = 0; k < b.pool.knight; k++) b.knightRanks.push(0);
       inv.serf = b.pool.generic; inv.knight = b.pool.knight;
       G.players[i].castleId = b.id;
 
@@ -295,7 +317,9 @@
         b.flag = f.id;
       }
     }
-    FSSim.recomputeOwner(G);
+    /* ===== PHASE-D: seed garrison targets, then draw the first borders ===== */
+    const M = mil();
+    if (M) M.initGame(G); else FSSim.recomputeOwner(G);
 
     FSSim.notify(G, 0, "Your castle stands ready.");
     return G;
@@ -363,7 +387,10 @@
       case "toolPrio": r = FSSim.setToolPrio(G, p, a.tool, a.value); break;
       case "stockMode": r = FSSim.setStockMode(G, a.id, a.res, a.mode, p); break;
       case "halt": r = FSSim.setHalt(G, a.id, a.on, p); break;
-      /* ===== PHASE-D: knightSet, attack ===== */
+      /* ===== PHASE-D: military orders (fs-military owns the rules) ===== */
+      case "attack": r = mil() ? mil().attack(G, a.id, a.count, p, a.strong) : { ok: false, why: "no military module" }; break;
+      case "knightSet": r = FSSim.setKnightSetting(G, p, a.key, a.value, a.tier); break;
+      case "cycleKnights": r = mil() ? mil().cycleKnights(G, p) : { ok: false, why: "no military module" }; break;
       default: r = { ok: false, why: "unknown command" };
     }
     G.cmdLog++;
@@ -383,6 +410,39 @@
     if (!pl || !order || !order.length) return { ok: false, why: "bad order" };
     pl.transportPrio = order.slice();
     return { ok: true };
+  };
+
+  /**
+   * PHASE-D — the Knights panel. Keys:
+   *   recruitRate   0..FSC.PRIO_MAX   how eagerly settlers become knights
+   *   castleKnights 0..CASTLE_KNIGHTS_MAX
+   *   attackStrong  bool              attacks send the strongest knights first
+   *   occMin/occMax 0..4 + `tier` 0..3  occupation level per threat tier
+   */
+  FSSim.setKnightSetting = function (G, p, key, value, tier) {
+    const pl = G.players[p];
+    if (!pl) return { ok: false, why: "no player" };
+    const k = pl.knights;
+    if (key === "recruitRate") {
+      k.recruitRate = Math.max(0, Math.min(FSC.PRIO_MAX, value | 0));
+    } else if (key === "castleKnights") {
+      k.castleKnights = Math.max(0, Math.min(FSC.CASTLE_KNIGHTS_MAX, value | 0));
+    } else if (key === "attackStrong") {
+      k.attackStrong = !!value;
+    } else if (key === "occMin" || key === "occMax") {
+      const ti = tier | 0;
+      if (ti < 0 || ti >= k.occ.length) return { ok: false, why: "bad tier" };
+      let v = Math.max(0, Math.min(FSC.OCC_LEVEL_MAX, value | 0));
+      const pair = k.occ[ti];
+      if (key === "occMin") pair[0] = Math.min(v, pair[1]);
+      else { pair[1] = Math.max(v, pair[0]); }
+    } else {
+      return { ok: false, why: "unknown knight setting" };
+    }
+    // garrison targets are recomputed on the next sweep — nudge it so the UI
+    // reacts immediately instead of up to GARRISON_T ticks later
+    if (mil()) mil().refreshWanted(G, p);
+    return { ok: true, key, value };
   };
 
   /* ===================================================================== */
@@ -527,6 +587,15 @@
       const want = (b.matReq[res] || 0) - (b.matGot[res] || 0) - (b.matInFlight[res] || 0);
       const room = FSC.IN_CAP - (b.matInFlight[res] || 0);       // cap goods in flight
       return Math.max(0, Math.min(want, room));
+    }
+    /* ===== PHASE-D: a manned military building stockpiles gold (it raises the
+     * player's morale share). The castle is a warehouse first — its gold lands
+     * in `inv` like any other stored good, so it is excluded here. */
+    if (def.mil && !def.warehouse) {
+      if (res !== "goldBar") return 0;
+      if (!b.mil || b.mil.knights.length + b.mil.defending <= 0) return 0;
+      const cap = def.mil.goldCap || 0;
+      return Math.max(0, cap - (b.mil.gold || 0) - (b.reqInFlight.goldBar || 0));
     }
     /* ===== PHASE-C: production inputs ===== */
     // a finished building only stocks up once it is staffed (or a worker is on the
@@ -796,6 +865,8 @@
     } else if (b.state !== "done" && (res === "plank" || res === "stone")) {
       b.matHave[res] = (b.matHave[res] || 0) + 1;
       b.matGot[res] = (b.matGot[res] || 0) + 1;
+    } else if (def.mil && !def.warehouse && res === "goldBar") {
+      b.mil.gold = (b.mil.gold || 0) + 1;           /* ===== PHASE-D: morale gold ===== */
     } else if (def.in && def.in[res]) {
       b.stockIn[res] = (b.stockIn[res] || 0) + 1;   /* ===== PHASE-C: production input ===== */
     } else if (def.inFood && isFood(res)) {
@@ -1083,17 +1154,40 @@
   /* ===== PHASE-B: serf pool, spawning, walking ========================== */
   /* ===================================================================== */
 
-  function poolTake(G, wh, job) {
+  /**
+   * Take one worker out of a warehouse. `out` (optional) receives {rank} — a
+   * knight carries his rank with him (PHASE-D). `out.strong` asks for the best
+   * knight in store instead of the greenest one.
+   */
+  function poolTake(G, wh, job, out) {
     if (!wh.pool) return false;
-    if ((wh.pool[job] || 0) > 0) { wh.pool[job]--; syncPoolInv(wh); return true; }
+    if ((wh.pool[job] || 0) > 0) {
+      wh.pool[job]--;
+      if (job === JOB.KNIGHT && out) out.rank = takeRank(wh, out.strong);
+      else if (job === JOB.KNIGHT) takeRank(wh, false);
+      syncPoolInv(wh);
+      return true;
+    }
     const tools = FSC.JOB_TOOLS[job] || [];
     if ((wh.pool.generic || 0) <= 0) return false;
     for (let i = 0; i < tools.length; i++) if ((wh.inv[tools[i]] || 0) <= 0) return false;
     wh.pool.generic--;
     for (let i = 0; i < tools.length; i++) wh.inv[tools[i]]--;
+    if (out && job === JOB.KNIGHT) out.rank = 0;      // freshly sworn in
     syncPoolInv(wh);
     return true;
   }
+  /** Pull one rank out of a warehouse's knight roster (greenest, or the best). */
+  function takeRank(wh, strong) {
+    const list = wh.knightRanks || (wh.knightRanks = []);
+    if (!list.length) return 0;
+    let k = 0;
+    for (let i = 1; i < list.length; i++) {
+      if (strong ? list[i] > list[k] : list[i] < list[k]) k = i;
+    }
+    return list.splice(k, 1)[0];
+  }
+  FSSim.takeRank = takeRank;
   function poolCanTake(G, wh, job) {
     if (!wh.pool) return false;
     if ((wh.pool[job] || 0) > 0) return true;
@@ -1102,10 +1196,12 @@
     for (let i = 0; i < tools.length; i++) if ((wh.inv[tools[i]] || 0) <= 0) return false;
     return true;
   }
-  function poolPut(G, wh, job) {
+  function poolPut(G, wh, job, rank) {
     // transporters and sailors carry no tool — they melt back into the generic pool
     const j = (job === JOB.TRANSPORTER || job === JOB.SAILOR) ? JOB.GENERIC : job;
     wh.pool[j] = (wh.pool[j] || 0) + 1;
+    /* ===== PHASE-D: a knight brings his rank back into the store ===== */
+    if (j === JOB.KNIGHT) (wh.knightRanks || (wh.knightRanks = [])).push(Math.max(0, Math.min(FSC.KNIGHT_RANKS - 1, rank | 0)));
     syncPoolInv(wh);
   }
   function syncPoolInv(wh) { wh.inv.serf = wh.pool.generic || 0; wh.inv.knight = wh.pool.knight || 0; }
@@ -1214,7 +1310,7 @@
   }
 
   function despawn(G, s, wh) {
-    if (wh && wh.pool) poolPut(G, wh, s.job);
+    if (wh && wh.pool) poolPut(G, wh, s.job, s.rank);
     event(G, "serfDespawn", { id: s.id, job: s.job, p: s.p, home: wh ? wh.id : 0 });
     delete G.serfs[s.id];
   }
@@ -1338,7 +1434,10 @@
         const b = G.buildings[q.id];
         if (b && b.flag) {
           alive = (q.job === JOB.DIGGER && b.diggerReq) || (q.job === JOB.BUILDER && b.builderReq)
-            || (q.job !== JOB.DIGGER && q.job !== JOB.BUILDER && b.workerReq);
+            /* ===== PHASE-D: a military building wants knights, not a worker ===== */
+            || (q.job === JOB.KNIGHT && !!b.mil && b.state === "done"
+              && b.mil.wanted > b.mil.knights.length + b.mil.defending + (b.mil.inbound || 0))
+            || (q.job !== JOB.DIGGER && q.job !== JOB.BUILDER && q.job !== JOB.KNIGHT && b.workerReq);
           targetFlag = b.flag;
         }
       }
@@ -1347,8 +1446,10 @@
       if (!wh) { q.due = G.tick + FSC.SERF_REQ_RETRY_T; continue; }
       const f = flagOf(G, wh.flag);
       if (!f) { q.due = G.tick + FSC.SERF_REQ_RETRY_T; continue; }
-      if (!poolTake(G, wh, q.job)) { q.due = G.tick + FSC.SERF_REQ_RETRY_T; continue; }
+      const took = {};
+      if (!poolTake(G, wh, q.job, took)) { q.due = G.tick + FSC.SERF_REQ_RETRY_T; continue; }
       const s = makeSerf(G, q.p, q.job, f.v);
+      if (took.rank !== undefined) s.rank = took.rank;   /* ===== PHASE-D ===== */
       s.home = wh.id;
       wh.spawnT = FSC.SPAWN_GAP;
       event(G, "serfSpawn", { id: s.id, job: s.job, p: s.p, v: s.v, from: wh.id });
@@ -1372,10 +1473,16 @@
       }
       if (!ok) {           // network changed under us — put everything back
         if (q.kind === "road" && G.roads[q.id]) { G.roads[q.id].carrier = 0; G.roads[q.id].carrierReq = true; }
-        poolPut(G, wh, s.job);
+        poolPut(G, wh, s.job, s.rank);
         delete G.serfs[s.id];
         q.due = G.tick + FSC.SERF_REQ_RETRY_T;
         continue;
+      }
+      /* ===== PHASE-D: book the knight against his target so the building does
+       * not keep asking while he is still on the road ===== */
+      if (q.kind === "bld" && q.job === JOB.KNIGHT) {
+        const tb = G.buildings[q.id];
+        if (tb && tb.mil) tb.mil.inbound = (tb.mil.inbound || 0) + 1;
       }
       G.serfReqs.splice(i--, 1);
     }
@@ -1710,9 +1817,12 @@
     b.crew = 0;
     if (crew) sendHome(G, crew);
     if (def.job) { b.workerReq = true; requestSerf(G, b.p, def.job, "bld", b.id); }
-    // a finished military building claims its land at once (PHASE-D refines this
-    // with garrisons and influence weights — the claim itself already works)
-    if (def.mil) FSSim.recomputeOwner(G);
+    /* ===== PHASE-D: a finished military building starts asking for its
+     * garrison; the land follows the first knight through the door. */
+    if (def.mil) {
+      const M = mil();
+      if (M) M.onBuildingDone(G, b); else FSSim.recomputeOwner(G);
+    }
     event(G, "bldDone", { id: b.id, btype: b.type, v: b.v, p: b.p });
     FSSim.notify(G, b.p, (FSC.BLD_NAME[b.type] || b.type) + " finished.", b.v);
   }
@@ -1754,31 +1864,61 @@
     if (f && f.bld === b.id) f.bld = 0;
     if (b.worker && G.serfs[b.worker]) sendHome(G, G.serfs[b.worker]);
     if (b.crew && G.serfs[b.crew]) sendHome(G, G.serfs[b.crew]);
+    /* ===== PHASE-D: the ashes hold nobody ===== */
+    if (b.mil) { b.mil.knights.length = 0; b.mil.defending = 0; }
     dropRequest(G, "bld", b.id);
     G.map.bldAt[b.v] = 0;
     delete G.buildings[b.id];
     rescheduleFor(G, b.id);
     event(G, "bldRemoved", { id: b.id, btype: b.type, v: b.v, p: b.p });
-    FSSim.recomputeOwner(G);
+    if (b.mil) FSSim.recomputeOwner(G, { v: b.v, r: b.type === "castle" ? FSC.CASTLE_RADIUS : FSC.TERR_RADIUS });
   }
+
+  /**
+   * PHASE-D — set a building alight. Up to FSC.BURN_ESCAPE_MAX occupants run
+   * for a warehouse; anyone beyond that dies in the fire (confirmed original).
+   * `opts.noEscape` (an eliminated player's estate) kills everyone.
+   * A castle burns FSC.BURN_T_CASTLE ticks — four times as long, and it takes
+   * conquest, never a demolish order, to light one.
+   */
+  FSSim.burnBuilding = function (G, b, opts) {
+    opts = opts || {};
+    if (!b || b.state === "burn") return { ok: false, why: "already burning" };
+    // delivered materials burn with it (the classic refunds nothing)
+    b.matHave.plank = 0; b.matHave.stone = 0;
+    const occ = [];
+    if (b.worker && G.serfs[b.worker]) occ.push(G.serfs[b.worker]);
+    if (b.crew && G.serfs[b.crew]) occ.push(G.serfs[b.crew]);
+    b.worker = 0; b.crew = 0;
+    let escaped = 0;
+    for (let i = 0; i < occ.length; i++) {
+      const s = occ[i];
+      if (!opts.noEscape && escaped < FSC.BURN_ESCAPE_MAX) { escaped++; sendHome(G, s); }
+      else { event(G, "serfLost", { id: s.id, job: s.job, p: s.p, v: s.v, why: "fire" }); delete G.serfs[s.id]; }
+    }
+    /* ===== PHASE-D: the garrison shares the escape budget ===== */
+    if (b.mil) {
+      const M = mil();
+      if (M) M.evictGarrison(G, b, { escaped, noEscape: opts.noEscape });
+      else { b.mil.knights.length = 0; b.mil.defending = 0; }
+    }
+    b.workerReq = false; b.builderReq = false; b.diggerReq = false;
+    b.matInFlight.plank = 0; b.matInFlight.stone = 0;
+    dropRequest(G, "bld", b.id);
+    setState(G, b, "burn");
+    b.burnT = b.type === "castle" ? FSC.BURN_T_CASTLE : FSC.BURN_T;
+    rescheduleFor(G, b.id);
+    // only a military building's death moves a border
+    if (b.mil) FSSim.recomputeOwner(G, { v: b.v, r: b.type === "castle" ? FSC.CASTLE_RADIUS : FSC.TERR_RADIUS });
+    return { ok: true };
+  };
 
   FSSim.demolishBuilding = function (G, id) {
     const b = bldOf(G, id);
     if (!b) return { ok: false, why: "no building" };
     if (b.type === "castle") return { ok: false, why: "the castle cannot be torn down" };
     if (b.state === "burn") return { ok: false, why: "already burning" };
-    // delivered materials burn with it (the classic refunds nothing)
-    b.matHave.plank = 0; b.matHave.stone = 0;
-    if (b.worker && G.serfs[b.worker]) { sendHome(G, G.serfs[b.worker]); b.worker = 0; }
-    if (b.crew && G.serfs[b.crew]) { sendHome(G, G.serfs[b.crew]); b.crew = 0; }
-    b.workerReq = false; b.builderReq = false; b.diggerReq = false;
-    b.matInFlight.plank = 0; b.matInFlight.stone = 0;
-    dropRequest(G, "bld", b.id);
-    setState(G, b, "burn");
-    b.burnT = FSC.BURN_T;
-    rescheduleFor(G, b.id);
-    FSSim.recomputeOwner(G);
-    return { ok: true };
+    return FSSim.burnBuilding(G, b);
   };
 
   /** Demolish anything by id — building, road or flag. */
@@ -1802,19 +1942,44 @@
   /* ===== PHASE-B: non-carrier serfs (digger, builder, workers) ========== */
   /* ===================================================================== */
 
+  /** PHASE-D — a knight who never made it un-books his reservation. */
+  function milUnbook(G, s) {
+    if (s.job !== JOB.KNIGHT) return;
+    const b = G.buildings[s.target];
+    if (b && b.mil && b.mil.inbound > 0) b.mil.inbound--;
+  }
+  FSSim.milUnbook = milUnbook;
+
   function tickWorkerSerf(G, s) {
     switch (s.state) {
+      /* ===== PHASE-D: knights on the march live in fs-military ===== */
+      case "atkWalk": case "atkWait": case "fight": case "garrison": {
+        const M = mil();
+        if (M) M.tickKnight(G, s); else sendHome(G, s);
+        return;
+      }
       case "goBld": {
         if (!walk(G, s)) return;
         const b = G.buildings[s.target];
-        if (!b || b.state === "burn") { sendHome(G, s); return; }
+        if (!b || b.state === "burn") { milUnbook(G, s); sendHome(G, s); return; }
         s.state = "enter"; s.t = FSC.DOOR_T;
         return;
       }
       case "enter": {
         if (--s.t > 0) return;
         const b = G.buildings[s.target];
-        if (!b || b.state === "burn") { sendHome(G, s); return; }
+        if (!b || b.state === "burn") { milUnbook(G, s); sendHome(G, s); return; }
+        /* ===== PHASE-D: a knight joins the garrison instead of taking the job ===== */
+        if (s.job === JOB.KNIGHT) {
+          const M = mil();
+          if (!b.mil || b.state !== "done" || (b.p !== s.p)) { milUnbook(G, s); sendHome(G, s); return; }
+          if (b.mil.inbound > 0) b.mil.inbound--;
+          b.mil.knights.push(s.rank | 0);
+          event(G, "knightGarrison", { bld: b.id, btype: b.type, p: b.p, rank: s.rank | 0, id: s.id });
+          delete G.serfs[s.id];
+          if (M) M.onGarrisonChange(G, b);
+          return;
+        }
         s.v = b.v; s.from = b.v; s.to = b.v; s.frac = 0;
         if (s.job === JOB.DIGGER) {
           b.crew = s.id; b.diggerReq = false; b.crewT = 0;
@@ -1928,14 +2093,19 @@
     return best;
   };
 
-  /** Total people a player owns: walking serfs + everyone resting in warehouses. */
+  /**
+   * Total people a player owns: walking serfs + everyone resting in warehouses
+   * + PHASE-D's garrisoned knights (they live inside their building exactly
+   * like a pooled serf lives inside a store).
+   */
   FSSim.population = function (G, p) {
     let n = 0;
     for (const id in G.serfs) if (G.serfs[id].p === p) n++;
     for (const id in G.buildings) {
       const b = G.buildings[id];
-      if (b.p !== p || !b.pool) continue;
-      for (const k in b.pool) n += b.pool[k];
+      if (b.p !== p) continue;
+      if (b.pool) for (const k in b.pool) n += b.pool[k];
+      if (b.mil && b.state !== "burn") n += b.mil.knights.length;
     }
     return n;
   };
@@ -1976,6 +2146,7 @@
       if ((pl.knightCredit || 0) > 0 && (c.inv.sword || 0) > 0 && (c.inv.shield || 0) > 0) {
         c.inv.sword--; c.inv.shield--;
         c.pool.knight++;
+        (c.knightRanks || (c.knightRanks = [])).push(0);   /* ===== PHASE-D: rank 0 ===== */
         pl.knightCredit--;
         syncPoolInv(c);
         event(G, "knightRecruited", { p, pool: c.pool.knight, from: c.id });
@@ -2709,6 +2880,15 @@
     b.leveled = true; b.progress = 0;
     b.diggerReq = false; b.builderReq = false;
     finishBuilding(G, b);
+    /* ===== PHASE-D: a military building only holds land once a knight is in
+     * it, so the debug hook posts one straight away — the transport/economy
+     * suites lean on "forceComplete a hut → the border moves". */
+    if (b.mil && !b.mil.knights.length) {
+      b.mil.knights.push(0);
+      dropRequest(G, "bld", b.id);
+      const M = mil();
+      if (M) M.onGarrisonChange(G, b); else FSSim.recomputeOwner(G);
+    }
     return { ok: true, id: b.id };
   };
 
@@ -2787,9 +2967,16 @@
     }
     tickRetry(G);
     tickWaterRoads(G);            /* ===== PHASE-C: ferries ===== */
-    tickStats(G);
 
-    /* ===== PHASE-D: military (garrisons, combat, territory, AI) ===== */
+    /* ===== PHASE-D hook: garrisons, promotion, duels, captures, elimination,
+     * then the computer opponents. Both modules are optional — without them the
+     * sim is exactly the Phase-C game. ===== */
+    const M = mil();
+    if (M) M.tick(G);
+    const A = ai();
+    if (A) A.tick(G);
+
+    tickStats(G);
     return G;
   };
 
@@ -2829,7 +3016,16 @@
     const pool = FSSim.poolOf(G, p);
     let pooled = 0;
     for (const k in pool) pooled += pool[k];
-    return { buildings, flags, roads, serfs, land, sites, goods, pooled, people: serfs + pooled };
+    /* ===== PHASE-D: garrisons ===== */
+    let garrison = 0, milBlds = 0;
+    for (const id in G.buildings) {
+      const b = G.buildings[id];
+      if (b.p !== p || !b.mil || b.state === "burn") continue;
+      milBlds++;
+      garrison += b.mil.knights.length;
+    }
+    return { buildings, flags, roads, serfs, land, sites, goods, pooled, garrison, milBlds,
+      people: serfs + pooled + garrison };
   };
   FSSim.serfsOf = function (G, p) {
     const out = [];
@@ -2888,6 +3084,15 @@
       mix(b.swings); mix(b.prodT); mix(b.working ? 1 : 0); mix(b.cycles); mix(b.outHeld || 0);
       mix(b.herd === undefined ? 0 : b.herd);
       for (let k = 0; k < FSC.RES_LIST.length; k++) mix(b.stockIn[FSC.RES_LIST[k]] || 0);
+      /* ===== PHASE-D: garrison, gold, siege ===== */
+      mix(b.p);
+      if (b.mil) {
+        mix(b.mil.knights.length); mix(b.mil.wanted); mix(b.mil.gold); mix(b.mil.defending);
+        for (let k = 0; k < b.mil.knights.length; k++) mix(b.mil.knights[k]);
+        mix(b.mil.attackers.length);
+        mix(b.mil.fight ? (b.mil.fight.att + b.mil.fight.def * 7 + b.mil.fight.t * 13) : 0);
+      }
+      if (b.knightRanks) { mix(b.knightRanks.length); for (let k = 0; k < b.knightRanks.length; k++) mix(b.knightRanks[k]); }
     }
     const ss = ids(G.serfs);
     mix(ss.length);
@@ -2897,9 +3102,28 @@
       mix(s.v); mix(s.from); mix(s.to); mix(s.stepT); mix(s.path.length);
       mix(RES_IDX[s.carry] || 0); mix(s.carryDest); mix(s.road); mix(s.t);
       mix(s.workV === undefined ? -1 : s.workV); mix(s.geoSpots || 0);   /* PHASE-C */
+      mix(s.rank || 0); mix(s.atkTarget || 0);                           /* PHASE-D */
     }
     mix(G.sweepV);
+    /* ===== PHASE-D: territory + victory ===== */
+    const owner = G.map.owner;
+    let land = 0;
+    for (let i = 0; i < owner.length; i++) land = (land + (owner[i] + 2) * (i + 1)) | 0;
+    mix(land); mix(land >> 8); mix(land >> 16);
+    mix(G.gameOver ? (G.gameOver.winnerTeam + 2) : 0);
+    for (let p = 0; p < G.players.length; p++) mix(G.players[p].eliminated ? 1 : 0);
     return h >>> 0;
+  };
+
+  /* ===================================================================== */
+  /* ===== PHASE-D hook: the internals fs-military / fs-ai are allowed to  */
+  /* ===== reach for. Everything else stays private to this file.         */
+  /* ===================================================================== */
+  FSSim._d = {
+    sendHome, setState, rescheduleFor, dropRequest, despawn, makeSerf, walk,
+    poolPut, poolTake, syncPoolInv, markAllRetry, requestSerf, flagAtV, flagOf,
+    bldOf, defOf, inFlightAdd, removeBuilding, homeFlagFor, goToFlag, edgeTicks,
+    totalCost, swingsFor,
   };
 
   if (typeof window !== "undefined") window.FSSim = FSSim;

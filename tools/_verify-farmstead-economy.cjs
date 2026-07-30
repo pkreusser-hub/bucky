@@ -27,7 +27,12 @@ const HELPERS = function () {
    *  and room to build. Individual tests may ask for another seed (the ferry test
    *  wants a bay it can bridge). */
   T.fresh = function (o) {
-    FS.newGame(Object.assign({ size: "medium", seed: 12345, ais: 1, speed: 0 }, o || {}));
+    // PHASE-D note: the AI player is kept for map generation (start-site fairness
+    // depends on the player count) but its PLANNER is parked — this is an ECONOMY
+    // suite, and on this seed the rival castle happens to sit 8-9 steps away, so a
+    // live opponent would turn every test below into a war. Same precedent as the
+    // REPRO_DEFAULT = -1 stub above. The AI is exercised in the military suite.
+    FS.newGame(Object.assign({ size: "medium", seed: 12345, ais: 1, speed: 0, aiPlan: false }, o || {}));
     T.reach = null;
     return FS.G;
   };
@@ -556,14 +561,18 @@ H.run("farmstead-economy", async (t) => {
     const prod = T.prod();
     const meatEv = T.ev("produced").filter((e) => e.res === "meat");
     return {
+      // the pen is topped back up by the supply line, so measure what it ATE:
+      // starting stock + everything delivered since, minus what is left
       built: true, wheat0, wheat1: pig.stockIn.wheat || 0, herd: pig.herd,
+      fed: T.deliveredTo(pig, "wheat"),
       pigs: prod.pig || 0, meat: prod.meat || 0,
       butIn: FSC.BLD.butcher.in, outN: FSC.BLD.butcher.outN || 1,
       perCycle: meatEv.length ? meatEv[0].n : 0, butCycles: but.cycles,
       keep: FSC.PIG_KEEP, herdMax: FSC.PIG_HERD_MAX,
     };
   });
-  t.check("the pig farm eats wheat and raises a herd", meat.built && meat.wheat1 < meat.wheat0 && meat.herd >= 0, meat);
+  t.check("the pig farm eats wheat and raises a herd",
+    meat.built && (meat.wheat0 + meat.fed - meat.wheat1) > 0 && meat.herd >= 0, meat);
   t.check("pigs ship out once the herd is above FSC.PIG_KEEP", meat.pigs > 0 && meat.herd <= meat.herdMax, meat);
   t.check("the butcher turns " + Object.keys(K.BLD.butcher.in) + " into meat", meat.meat > 0 && meat.butCycles > 0, meat);
   t.check("each pig yields FSC.BLD.butcher.outN (=" + (K.BLD.butcher.outN || 1) + ") meat",
@@ -610,9 +619,16 @@ H.run("farmstead-economy", async (t) => {
         if ((map.mineralAmt[v] >= FSC.GEO_BIG_AMT) !== (FS.FSSim.signDensity(code) > 0)) wrong++;
       }
     }
+    // the tour is over when the last hammer falls, but the WALK back can be long
+    // (mountain edges are the slowest in FSC.WALK_TICKS_TABLE) — give him a
+    // bounded grace period instead of a knife-edge window
+    let grace = 0;
+    const geoLeft = () => FS.FSSim.serfsOf(G, 0).filter((s) => s.job === "geologist").length;
+    const graceCap = FSC.GEO_T * FSC.GEO_SPOTS * 6;
+    while (geoLeft() && grace < graceCap) { FS.ff(FSC.GEO_T); grace += FSC.GEO_T; }
     const g = FS.FSSim.serfsOf(G, 0).filter((s) => s.job === "geologist");
     return {
-      ok: true, flag, fv, ore, signs: ok + wrong, correct: ok, wrong, withOre, big, seen,
+      ok: true, flag, fv, ore, signs: ok + wrong, correct: ok, wrong, withOre, big, seen, grace,
       geoEvents: T.ev("geoSign").length, spots: FSC.GEO_SPOTS,
       badFlag: bad && bad.args !== undefined,
       cmdFail: T.ev("cmdFail").filter((e) => e.cmd === "geologist").length,
@@ -1206,15 +1222,23 @@ H.run("farmstead-economy", async (t) => {
     if (mv < 0) return { ok: false };
     T.seedOre(mv, "COAL", 20, FSC.MINE_RING);
     const m1 = T.add("coalMine", { v: mv });
-    // a second mine + a surveyed hillside
-    let m2v = -1;
+    // a second mine + a surveyed hillside. Collect EVERY legal pithead nearby and
+    // try them in turn: whether a given one can be road-connected depends on the
+    // shape of the border, so a single candidate is a coin flip.
+    const m2cands = [];
     FS.FSMap.forRadius(map, mv, 8, (u, d) => {
-      if (m2v >= 0 || d < 3 || !reach[u]) return;
+      if (d < 3 || !reach[u]) return;
       if (map.terr[u] !== FSC.TERR.MOUNTAIN) return;
-      if (FS.FSMap.canPlaceBuilding(map, "ironMine", u, 0)) m2v = u;
+      if (FS.FSMap.canPlaceBuilding(map, "ironMine", u, 0)) m2cands.push([u, d]);
     });
-    let m2 = null;
-    if (m2v >= 0) { T.seedOre(m2v, "IRON", 16, 2); m2 = T.add("ironMine", { v: m2v }); }
+    m2cands.sort((a, b) => (a[1] - b[1]) || (a[0] - b[0]));
+    let m2 = null, m2v = -1;
+    for (let i = 0; i < m2cands.length && !m2; i++) {
+      const u = m2cands[i][0];
+      T.seedOre(u, "IRON", 16, 2);
+      m2 = T.add("ironMine", { v: u });
+      if (m2) m2v = u;
+    }
     // sprinkle a survey around them
     let signs = 0, sx = 0, sz = 0, sn = 0;
     FS.FSMap.forRadius(map, mv, 4, (u, d) => {

@@ -39,6 +39,9 @@
     return (a >>> 8) / 16777216;
   }
 
+  /* ===== PHASE-D: military render state (borders, duels, fire, flashes) ===== */
+  const mil = { tint: true, gen: -1, stakes: [], evT: -1, flashes: [] };
+
   // ------------------------------------------------------------------- terrain
   function terrainColor(v, out) {
     const t = map.terr[v], h = map.height[v];
@@ -68,6 +71,11 @@
     const rocky = (t === FSC.TERR.MOUNTAIN || t === FSC.TERR.SNOW) ? 1.9 : 1;
     const shade = 1 - Math.min(0.26, dh * 0.13) + (hash01(v, 7) - 0.5) * 0.10 * rocky;
     out.multiplyScalar(shade);
+    /* ===== PHASE-D: a whisper of the owner's colour over held ground ===== */
+    if (mil.tint) {
+      const p = map.owner[v];
+      if (p >= 0) { blendC.set(FSC.PLAYER_COLORS[p % FSC.PLAYER_COLORS.length]); out.lerp(blendC, FSC.TERRITORY_TINT); }
+    }
     return out;
   }
 
@@ -472,7 +480,9 @@
     for (const id in G.serfs) {
       const s = G.serfs[id];
       alive.add(s.id);
-      if (s.state === "work") continue;                            // inside a building
+      if (s.state === "work" || s.state === "garrison") continue;  // inside a building
+      /* ===== PHASE-D: knights have their own rank-trimmed model + duel anim ===== */
+      if (s.job === FSC.JOB.KNIGHT) { knightVisual(s, dt); continue; }
       const vis = serfVisual(s, dt);
       FSMap.worldXZ(map, s.from, xz);
       const x0 = xz[0], z0 = xz[1], y0 = serfY(s.from);
@@ -570,6 +580,191 @@
     }
   }
 
+  /* ===================================================================== */
+  /* ===== PHASE-D: knights, duels, corpses, fire, frontier, captures ===== */
+  /* ===================================================================== */
+
+  /** Who is this knight crossing swords with? (drives the facing + the lunge) */
+  function duelFoe(s) {
+    const b = G.buildings[s.state === "fight" ? (s.defOf || s.atkTarget) : 0];
+    if (!b || !b.mil || !b.mil.fight) return null;
+    const f = b.mil.fight;
+    const other = f.att === s.id ? f.def : (f.def === s.id ? f.att : 0);
+    return other ? G.serfs[other] : null;
+  }
+
+  /**
+   * Knights get their own instanced mesh per (rank, player) so the shield trim
+   * reads at a glance. During a duel the pair face each other and lunge on
+   * alternate beats — the classic's little sword dance.
+   */
+  function knightVisual(s, dt) {
+    const vis = serfVisual(s, dt);
+    FSMap.worldXZ(map, s.from, xz);
+    const x0 = xz[0], z0 = xz[1], y0 = serfY(s.from);
+    FSMap.worldXZ(map, s.to, xz);
+    const x1 = xz[0], z1 = xz[1], y1 = serfY(s.to);
+    const f = vis.frac;
+    let x = x0 + (x1 - x0) * f, z = z0 + (z1 - z0) * f;
+    const y = y0 + (y1 - y0) * f;
+    const moving = s.from !== s.to;
+    let yaw = moving ? Math.atan2(x1 - x0, z1 - z0) : (s.id % 7) * 0.9;
+    let lunge = 0, bob = moving ? Math.abs(Math.sin(dyn.tAcc * 7.5 + s.id)) * 0.055 : 0;
+    if (s.state === "fight") {
+      const foe = duelFoe(s);
+      if (foe) {
+        FSMap.worldXZ(map, foe.v, xz);
+        const dx = xz[0] - x, dz = xz[1] - z;
+        yaw = Math.atan2(dx, dz);
+        // alternate: one lunges while the other recovers
+        const beat = Math.sin(dyn.tAcc * 5.2 + (s.id < foe.id ? 0 : Math.PI));
+        lunge = Math.max(0, beat) * 0.34;
+        const len = Math.sqrt(dx * dx + dz * dz) || 1;
+        x += (dx / len) * lunge; z += (dz / len) * lunge;
+        bob = lunge * 0.18;
+      }
+    }
+    const pool = dynPool("knight:" + (s.rank | 0) + ":" + s.p,
+      FSModels.knightGeo(s.rank, s.p), FSModels.vcMat("serf", 0x9a9a9a, 0.34));
+    tmpV.set(x, y + bob, z);
+    tmpE.set(lunge * 0.5, yaw, moving ? Math.sin(dyn.tAcc * 7.5 + s.id) * 0.07 : 0);
+    tmpQ.setFromEuler(tmpE);
+    tmpS.set(1, 1, 1);
+    dynPush(pool, tmpM.compose(tmpV, tmpQ, tmpS));
+    return { x, y, z, lunge };
+  }
+
+  /** Border posts along every ownership seam, rebuilt when the map changes hands. */
+  function syncBorders() {
+    if (!window.FSMil) return;
+    if (mil.gen !== G.ownerGen) {
+      mil.gen = G.ownerGen;
+      mil.stakes = window.FSMil.borderStakes(G);
+    }
+    if (!mil.stakes.length) return;
+    const pool = dynPool("stake", FSModels.stakeGeo(), FSModels.vcMat("stake", FSC.COL.STAKE, 0.34));
+    for (let i = 0; i < mil.stakes.length; i++) {
+      const st = mil.stakes[i];
+      FSMap.worldXZ(map, st.v, xz);
+      tmpV.set(xz[0], map.height[st.v], xz[1]);
+      tmpE.set(0, st.d * 1.047 + 0.4, 0); tmpQ.setFromEuler(tmpE);
+      tmpS.set(1, 1, 1);
+      dynPush(pool, tmpM.compose(tmpV, tmpQ, tmpS), tmpC.set(FSC.PLAYER_COLORS[st.p % FSC.PLAYER_COLORS.length]));
+    }
+  }
+
+  /** Fallen knights lie where they dropped and sink away over FSC.CORPSE_T. */
+  function syncCorpses() {
+    if (!G.corpses || !G.corpses.length) return;
+    const pool = dynPool("corpse", FSModels.corpseGeo(), FSModels.vcMat("corpse", FSC.COL.CORPSE, 0.3));
+    for (let i = 0; i < G.corpses.length; i++) {
+      const c = G.corpses[i];
+      const age = (G.tick - c.t) / FSC.CORPSE_T;
+      if (age > 1) continue;
+      const k = 1 - age * age;
+      FSMap.worldXZ(map, c.v, xz);
+      tmpV.set(xz[0], map.height[c.v] + 0.02, xz[1]);
+      tmpE.set(0, (c.v % 7) * 0.9, 0); tmpQ.setFromEuler(tmpE);
+      tmpS.set(k, k, k);
+      dynPush(pool, tmpM.compose(tmpV, tmpQ, tmpS), tmpC.set(FSC.PLAYER_COLORS[c.p % FSC.PLAYER_COLORS.length]).lerp(blendC.set(FSC.COL.CORPSE), 0.65));
+    }
+  }
+
+  /** Flames + smoke over anything that is burning down. */
+  function syncFire(dt) {
+    const flame = dynPool("flame", FSModels.flameGeo(), FSModels.vcMat("flame", FSC.COL.FIRE[0], 0.85));
+    const smoke = dynPool("smoke", FSModels.smokeGeo(), FSModels.vcMat("smoke", COL.SMOKE, 0.55));
+    for (const id in G.buildings) {
+      const b = G.buildings[id];
+      if (b.state !== "burn") continue;
+      FSMap.worldXZ(map, b.v, xz);
+      const y = map.height[b.v];
+      const big = FSC.BLD[b.type].size >= 2 ? 1.5 : 1;
+      for (let k = 0; k < 4; k++) {
+        const a = k * 1.571 + dyn.tAcc * 0.6 + b.id;
+        const s = (0.7 + Math.abs(Math.sin(dyn.tAcc * 6 + k * 1.9 + b.id)) * 0.6) * big;
+        tmpV.set(xz[0] + Math.cos(a) * 0.34 * big, y + 0.2, xz[1] + Math.sin(a) * 0.34 * big);
+        tmpE.set(0, a, 0); tmpQ.setFromEuler(tmpE);
+        tmpS.set(s, s * 1.2, s);
+        dynPush(flame, tmpM.compose(tmpV, tmpQ, tmpS), tmpC.set(FSC.COL.FIRE[k & 1]));
+      }
+      for (let k = 0; k < 3; k++) {
+        const t = ((dyn.tAcc * 0.5) + k * 0.33 + (b.id % 5) * 0.1) % 1;
+        const s = (0.7 + t * 1.5) * big;
+        tmpV.set(xz[0] + t * 0.3, y + 1.0 * big + t * 1.6, xz[1]);
+        tmpE.set(0, t * 3, 0); tmpQ.setFromEuler(tmpE);
+        tmpS.set(s, s, s);
+        dynPush(smoke, tmpM.compose(tmpV, tmpQ, tmpS), tmpC.setScalar(0.55 - t * 0.3));
+      }
+    }
+  }
+
+  /**
+   * Event-driven one-shots: a clang at every fight round, a coloured ring when a
+   * building changes hands. The sim's event ring is scanned by tick stamp, so a
+   * skipped frame never loses one and a replayed one is never double-counted.
+   */
+  function scanMilEvents() {
+    if (!G.events.length) return;
+    const from = mil.evT;
+    for (let i = 0; i < G.events.length; i++) {
+      const e = G.events[i];
+      if (e.t <= from) continue;
+      if (e.type === "fightRound") mil.flashes.push({ v: e.v, kind: "clang", t: 0 });
+      else if (e.type === "bldCaptured") mil.flashes.push({ v: e.v, kind: "capture", t: 0, p: e.p });
+      else if (e.type === "castleFell") mil.flashes.push({ v: e.v, kind: "capture", t: 0, p: e.by });
+    }
+    mil.evT = G.tick;
+    if (mil.flashes.length > 40) mil.flashes.splice(0, mil.flashes.length - 40);
+  }
+
+  function syncFlashes(dt) {
+    if (!mil.flashes.length) return;
+    const clang = dynPool("clang", FSModels.clangGeo(), FSModels.vcMat("clang", FSC.COL.CLANG, 0.9));
+    for (let i = mil.flashes.length - 1; i >= 0; i--) {
+      const f = mil.flashes[i];
+      f.t += dt;
+      const life = f.kind === "clang" ? 0.35 : 1.1;
+      if (f.t > life) { mil.flashes.splice(i, 1); continue; }
+      const k = f.t / life;
+      FSMap.worldXZ(map, f.v, xz);
+      if (f.kind === "clang") {
+        const s = 0.5 + k * 0.9;
+        tmpV.set(xz[0], map.height[f.v] + 0.75, xz[1]);
+        tmpE.set(k * 4, k * 6, 0); tmpQ.setFromEuler(tmpE);
+        tmpS.set(s, s, s);
+        dynPush(clang, tmpM.compose(tmpV, tmpQ, tmpS), tmpC.set(FSC.COL.CLANG).multiplyScalar(1 - k));
+      } else {
+        const s = 0.6 + k * 4.5;
+        tmpV.set(xz[0], map.height[f.v] + 0.35, xz[1]);
+        tmpE.set(0, k * 2, 0); tmpQ.setFromEuler(tmpE);
+        tmpS.set(s, 0.35, s);
+        dynPush(clang, tmpM.compose(tmpV, tmpQ, tmpS),
+          tmpC.set(FSC.PLAYER_COLORS[(f.p || 0) % FSC.PLAYER_COLORS.length]).multiplyScalar(1 - k * 0.8));
+      }
+    }
+  }
+
+  /** Repaint every terrain vertex — used when the territory tint is toggled. */
+  function repaintTerrain() {
+    if (!terrainMesh) return;
+    const N = map.W * map.H;
+    for (let v = 0; v < N; v++) {
+      terrainColor(v, tmpC);
+      colAttr.setXYZ(v, tmpC.r, tmpC.g, tmpC.b);
+    }
+    dirtyCol = true;
+  }
+  FSRender.setTerritoryTint = function (on) {
+    mil.tint = !!on;
+    repaintTerrain();
+    return mil.tint;
+  };
+  FSRender.territoryTint = function () { return mil.tint; };
+  FSRender.militaryInfo = function () {
+    return { tint: mil.tint, stakes: mil.stakes.length, flashes: mil.flashes.length, gen: mil.gen };
+  };
+
   /** Per-frame sync of everything Phase B owns. Called from FSRender.frame(). */
   function syncDynamic(dt) {
     if (!dyn.group || !G) return;
@@ -591,6 +786,12 @@
     syncSerfs(dt);
     syncSigns();                        /* ===== PHASE-C ===== */
     syncWorking(dt);
+    /* ===== PHASE-D: frontier, corpses, fire, duel sparks ===== */
+    scanMilEvents();
+    syncBorders();
+    syncCorpses();
+    syncFire(dt);
+    syncFlashes(dt);
     dynFlush();
   }
   FSRender.syncDynamic = syncDynamic;
@@ -793,6 +994,9 @@
     scene.add(bldGroup);
     FSRender.refreshBuildings();
     scanSigns();                        /* ===== PHASE-C: signs on a loaded save ===== */
+    /* ===== PHASE-D: a new world starts with no borders drawn and no backlog
+     * of duel sparks from the last one ===== */
+    mil.gen = -1; mil.stakes = []; mil.flashes.length = 0; mil.evT = G.tick;
     initDynamic();                      /* ===== PHASE-B: flags/roads/serfs ===== */
 
     hoverRing = FSModels.ring();
