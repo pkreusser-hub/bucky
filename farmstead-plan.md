@@ -17,8 +17,10 @@ systems*, never art, sound, text, or names from the original. Working title: **F
 2. **Modernized UI layout** (HTML overlay panels, minimap, tooltips) — original's icon-grid UI
    is an artifact of 320×200; all the same *controls* exist (priorities, distributions, attack
    dialog, stats), presented cleanly.
-3. **Timing constants are tuned approximations** at the same order of magnitude (a skirmish
-   should take ~45-90 min at 1×; 2×/4× exist for a reason).
+3. **Timing constants are the original's exact values** (recovered from reimplementation
+   source: walk 2.55s/flat edge with slope-dependent costs, per-building cycle ticks,
+   promotion checks every 60s, etc — internal-tick ÷ 10 = our 100ms ticks). The handful
+   still approximated (pig-shipping rule, a few UI cadences) are marked in code comments.
 4. Serfs do not hard-block each other on road nodes (soft avoidance + pass-through after a
    beat. Original had real traffic jams; we keep visual congestion without gridlock bugs).
 5. Flag→building door delivery is a short fixed-time hand-off, not a separately pathed walk.
@@ -26,10 +28,9 @@ systems*, never art, sound, text, or names from the original. Working title: **F
 7. 2-player mode is SHARED-KINGDOM CO-OP over the network (both players command the same
    settlement vs AI) — the original's 2-player was competitive split-screen; co-op is the
    requested design here.
-8. Territory contested-vertex resolution = nearest-claiming-building (the original
-   compares military strength on contested tiles; nearest-claimer is our documented
-   simplification). Castle claims radius 12 (start-area room); hut/tower/fortress claim
-   the confirmed uniform radius 8.
+8. Territory uses the original's influence-weight model (per-ring tier tables, radius 8,
+   argmax of summed influence; castle = fortress row). Castle keeps a widened initial
+   claim at game start (radius 12) purely so both start economies have room.
 9. Terrain naming: the classic's families are water/grass/desert/tundra/snow; our SWAMP
    (walkable, unbuildable flavor) + MOUNTAIN≙tundra keep the same buildability rules.
 Everything else — building set, resource set, serf professions + tools, chains, ratios,
@@ -246,8 +247,10 @@ boatwright hammer, geologist hammer, knight sword+shield.
 - Creating a professional consumes 1 generic + the tool(s) from the same warehouse (nearest
   warehouse that has both; if tools exist but no generic → wait; if no tool → toolmaker
   demand is implicitly signalled via the tool request system).
-- Knights: created per `recruitRate` whenever sword+shield+generic available; rank 0..4
-  (renders as shield trim); promoted by winning fights (+1). Knights garrison military
+- Knights: created via the reproduction/knight-credit system (serfToKnightRate overflow
+  counter; sword+shield consumed at spawn); rank 0..4 (renders as shield trim); promoted
+  by PERIODIC probability rolls while garrisoned (per-building × per-rank table — the
+  castle trains fastest; combat never changes rank). Knights garrison military
   buildings; extras rest in warehouses.
 - Workers whose building burns → walk back to warehouse, keep profession (tool kept).
 
