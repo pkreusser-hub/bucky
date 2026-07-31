@@ -23,6 +23,10 @@
   let sparkMesh = null, sparkV = null;
   let decorGroup = null;            // tufts + flowers + static blob shadows
   let decorRate = 1;                // thinned on big maps so the cap is never hit
+  /* ===== PHASE-F: flowers were "tucked into" a tuft clump in Phase V; now that
+   * tufts default OFF (FSC.VIS.TUFT_PER_VERTEX=0) they scatter independently
+   * straight onto grass vertices, with their OWN big-map thinning rate. ===== */
+  let flowerRate = 1;
   let quality = 1;                  // 1 = full meadow; software rasterisers get less
   const decor = {};                 // key -> { mesh, cap, top, free[], anchor:Float32Array }
   const decorSlot = new Map();      // vertex -> [{key, idx}, ...]
@@ -628,9 +632,12 @@
         }
       }
     }
-    // 3. tufts + flowers, only on open ground the settlement has not claimed
+    // 3. tufts, only on open ground the settlement has not claimed. PHASE-F:
+    // default OFF (FSC.VIS.TUFT_PER_VERTEX===0) — this whole branch, and the
+    // pools it would draw from, simply do not exist (see buildDecor), so a
+    // disabled meadow costs nothing here beyond the one comparison below.
     const dens = tuftDensity(t);
-    if (dens > 0 && decorFree(v) && hash01(v, 97) < dens * decorRate) {
+    if (V.TUFT_PER_VERTEX > 0 && dens > 0 && decorFree(v) && hash01(v, 97) < dens * decorRate) {
       const n = V.TUFT_PER_VERTEX;
       for (let j = 0; j < n; j++) {
         const hj = hash01(v, 211 + j * 37);
@@ -654,17 +661,21 @@
         decorSet(p, i, x, y - 0.02, z, s, hash01(v, 601 + j * 23) * 6.283,
           hash01(v, 701 + j * 29) * 6.283, tuftTint(v * 7 + j, t, tmpC));
         list.push({ key: p.key, idx: i });
-        // a wildflower tucked into the clump
-        if (t === FSC.TERR.GRASS && hash01(v, 809 + j * 31) < V.FLOWER_FRAC) {
-          const fp = decor.flower;
-          const fi = fp ? decorAlloc(fp) : -1;
-          if (fi >= 0) {
-            const col = V.FLOWER_COL[(hash01(v, 911 + j) * V.FLOWER_COL.length) | 0];
-            decorSet(fp, fi, x + (hash01(v, 1009 + j) - 0.5) * 0.30, y, z + (hash01(v, 1103 + j) - 0.5) * 0.30,
-              0.8 + hash01(v, 1201 + j) * 0.5, hash01(v, 1301 + j) * 6.283,
-              hash01(v, 1409 + j) * 6.283, tmpC.set(col));
-            list.push({ key: "flower", idx: fi });
-          }
+      }
+    }
+    // 3b. wildflowers — PHASE-F: INDEPENDENT of tufts (they used to be "tucked
+    // into a clump"; tufts default off now, so flowers scatter straight onto
+    // open grass on their own budget/rate). FLOWER_FRAC===0 disables these too.
+    if (t === FSC.TERR.GRASS && V.FLOWER_FRAC > 0 && decorFree(v) && hash01(v, 1619) < V.FLOWER_FRAC * flowerRate) {
+      const fp = decor.flower;
+      if (fp) {
+        const i = decorAlloc(fp);
+        if (i >= 0) {
+          FSMap.worldXZ(map, v, xz);
+          const col = V.FLOWER_COL[(hash01(v, 911) * V.FLOWER_COL.length) | 0];
+          decorSet(fp, i, xz[0] + (hash01(v, 1009) - 0.5) * 0.7, map.height[v], xz[1] + (hash01(v, 1103) - 0.5) * 0.7,
+            0.8 + hash01(v, 1201) * 0.5, hash01(v, 1301) * 6.283, hash01(v, 1409) * 6.283, tmpC.set(col));
+          list.push({ key: "flower", idx: i });
         }
       }
     }
@@ -726,14 +737,30 @@
     const cap = V.TUFT_MAX * quality;
     const wanted = grassy * V.TUFT_PER_VERTEX;
     decorRate = (wanted > cap ? cap / wanted : 1) * quality;
-    const perVariant = Math.ceil((Math.min(wanted * quality, cap) / V.TUFT_VARIANTS) * 1.4) + 32;
-    for (let i = 0; i < V.TUFT_VARIANTS; i++) {
-      decorPool("tuft" + i, FSModels.tuftGeo(i, quality < 0.4 ? 1 : 3), FSModels.tuftMat(), perVariant, 1);
-      decor["tuft" + i].sway = 1;
+    /* ===== PHASE-F: tufts default OFF (TUFT_PER_VERTEX===0) — skip pool
+     * creation ENTIRELY so a disabled meadow allocates nothing (no geometry,
+     * no InstancedMesh, no per-frame breeze entry — animDecor's `for (const k
+     * in decor)` simply never sees a "tuft*" key to sway). Re-enabling the
+     * constant brings this whole path back untouched. ===== */
+    if (V.TUFT_PER_VERTEX > 0) {
+      const perVariant = Math.ceil((Math.min(wanted * quality, cap) / V.TUFT_VARIANTS) * 1.4) + 32;
+      for (let i = 0; i < V.TUFT_VARIANTS; i++) {
+        decorPool("tuft" + i, FSModels.tuftGeo(i, quality < 0.4 ? 1 : 3), FSModels.tuftMat(), perVariant, 1);
+        decor["tuft" + i].sway = 1;
+      }
     }
-    decorPool("flower", FSModels.flowerGeo(),
-      FSModels.vcMat("flower", 0xd8c46a, 0.5), Math.ceil(Math.min(wanted * quality, cap) * V.FLOWER_FRAC * 1.6) + 32, 1);
-    decor.flower.sway = 1;
+    /* ===== PHASE-F: flowers are their own independent layer now (see
+     * refreshDecor 3b) — one roll per grassy vertex, not per-tuft — so they
+     * get their own big-map thinning rate + pool budget, and are skipped
+     * entirely (no pool at all) when FLOWER_FRAC is 0. ===== */
+    const flowerCap = (V.FLOWER_MAX || 4000) * quality;
+    const flowerWanted = grassy;
+    flowerRate = (flowerWanted > flowerCap ? flowerCap / flowerWanted : 1) * quality;
+    if (V.FLOWER_FRAC > 0) {
+      decorPool("flower", FSModels.flowerGeo(), FSModels.vcMat("flower", 0xd8c46a, 0.5),
+        Math.ceil(Math.min(flowerWanted * quality, flowerCap) * V.FLOWER_FRAC * 1.6) + 32, 1);
+      decor.flower.sway = 1;
+    }
     /* the soft contact shadows are a broad alpha-blended pass — worth it for
      * grounding, but the first thing after the meadow to go on a rasteriser */
     if (quality >= 0.4) decorPool("shadow", FSModels.shadowGeo(), FSModels.shadowMat(), Math.min(V.SHADOW_MAX, shadows + 64), 1);
@@ -1629,12 +1656,29 @@
     return FSRender.worldToScreen(xz[0], map.height[v], xz[1]);
   };
 
+  /* ===== PHASE F: hovering a BUILDING scales the hover ring to its real
+   * footprint — the closest thing to an "outline" that doesn't touch the
+   * building's own material (Phase V's building material is a single shared/
+   * cached atlas across every instance of that mesh — bumping ITS emissive
+   * would light up every building of that kind on the map, not just the one
+   * under the cursor, so a separate ground decal is the safe route). A plain
+   * vertex/flag hover keeps the ring at its original small size. ===== */
+  const HOVER_RING_BASE_R = 0.78;   // FSModels.ring()'s own default outer radius
+  function hoverFootprintScale(v) {
+    const bid = map.bldAt[v];
+    if (!bid || !G || !G.buildings[bid]) return 1;
+    const def = FSC.BLD[G.buildings[bid].type];
+    const r = (def && def.size >= 2) ? 2.35 : 1.05;   // mirrors FOOTPRINT_R small/large below
+    return r / HOVER_RING_BASE_R;
+  }
   FSRender.setHover = function (v) {
     hoverV = v;
     if (!hoverRing) return;
     if (v < 0) { hoverRing.visible = false; return; }
     FSMap.worldXZ(map, v, xz);
     hoverRing.position.set(xz[0], map.height[v] + 0.07, xz[1]);
+    const s = hoverFootprintScale(v);
+    hoverRing.scale.set(s, 1, s);
     hoverRing.visible = true;
   };
   FSRender.hoverVertex = function () { return hoverV; };
@@ -1880,6 +1924,14 @@
     animDecor(dt);                      /* ===== PHASE-V: the breeze ===== */
     animWaterFX(dt);                    /* ===== PHASE-V: surf + glints ===== */
     if (window.FSFX) window.FSFX.frame(dt, G);   /* ===== PHASE-V: ambient life ===== */
+    /* ===== PHASE F: a gentle pulse on the persistent selection ring — the
+     * static ring read as inert; a slow scale+opacity breathe makes it clear
+     * something is actively selected without being distracting. ===== */
+    if (selectRing && selectRing.visible) {
+      const p = 1 + Math.sin(tAccum * 3.2) * 0.08;
+      selectRing.scale.set(p, 1, p);
+      selectRing.material.opacity = 0.65 + Math.sin(tAccum * 3.2) * 0.20;
+    }
     renderer.render(scene, camera);
     stats.frames++;
     stats.drawCalls = renderer.info.render.calls;

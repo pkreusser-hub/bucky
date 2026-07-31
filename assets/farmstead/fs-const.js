@@ -717,9 +717,20 @@
     SCREE_FRAC: 0.34,          // share of bare mountain vertices that grow a boulder
 
     // ---- grass tufts + flowers ------------------------------------------
+    // PHASE-F ART DIRECTION (2026-07-31, user: the instanced tuft clumps read
+    // "too visually busy") — DISABLED BY DEFAULT. The whole tuft code path
+    // (pools, spawn, breeze sway) stays intact behind this constant and costs
+    // literally nothing when it's 0 (fs-render.js skips pool creation AND the
+    // per-vertex spawn branch entirely — see refreshDecor/buildDecor); set it
+    // back to a positive number to bring clumps back. The painted blade-noise
+    // ground texture (terrainColor + FSModels' canvas) now carries grass
+    // detail alone. Wildflowers are INDEPENDENT of tufts now (they used to be
+    // "tucked into a clump" — see refreshDecor's split 3/3b) and kept at a
+    // reduced standalone scatter (FLOWER_FRAC below) since a calm meadow with
+    // a little colour still read better than a completely bare one.
     TUFT_VARIANTS: 3,
-    TUFT_PER_VERTEX: 6,        // clusters scattered per eligible grass vertex
-    TUFT_MAX: 13000,            // hard cap (large maps thin out to fit)
+    TUFT_PER_VERTEX: 0,        // 0 = disabled (was 6); clusters scattered per eligible grass vertex when >0
+    TUFT_MAX: 13000,            // hard cap (large maps thin out to fit) when tufts are re-enabled
     TUFT_H: 0.47, TUFT_W: 0.64,
     TUFT_GREEN: [0x6f9c46, 0x84ae52, 0x5e8a3c, 0x95b95a],
     TUFT_SWAY: 0.16,           // radians of lean at full sway
@@ -728,7 +739,8 @@
     TUFT_FADE_DIST: 62,        // above this camera distance a tuft is sub-pixel
     FLOWER_FADE_DIST: 44,
     QUALITY_SOFT: 0.08,        // meadow density on a software rasteriser          // instance matrices re-swayed per frame
-    FLOWER_FRAC: 0.11,         // share of tufts that get a flower head
+    FLOWER_FRAC: 0.12,         // standalone per-eligible-grass-vertex chance of a flower (0 disables them too)
+    FLOWER_MAX: 4000,          // hard cap for the (now tuft-independent) flower pool
     FLOWER_COL: [0xfff4e0, 0xffd94a, 0xe2624c, 0xd8a8e0],
     DESERT_TUFT: 0xc3b071, SWAMP_TUFT: 0x63793f,
 

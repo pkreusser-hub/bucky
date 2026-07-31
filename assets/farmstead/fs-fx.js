@@ -76,13 +76,14 @@
   const dust = [];          // { x, y, z, t, T }
   let waterCand = null;     // sampled water vertices, refreshed lazily
   let forestCand = null;    // vertices with several mature trees around them
-  let fishT = 0, flyT = 0, leafT = 0, dustT = 0, candT = 0;
+  let fishT = 0, flyT = 0, leafT = 0, dustT = 0, siteDustT = 0, candT = 0;
 
   function resetLive() {
     fish.length = 0; rings.length = 0; drops.length = 0;
     birds.length = 0; flies.length = 0; leaves.length = 0; dust.length = 0;
     waterCand = null; forestCand = null;
-    fishT = 0; flyT = 0; leafT = 0; dustT = 0; candT = 0;
+    fishT = 0; flyT = 0; leafT = 0; dustT = 0; siteDustT = 0; candT = 0;
+    deliverSeenTick = -1; sparkleCooldown = 0;   /* ===== PHASE F ===== */
   }
 
   /**
@@ -185,6 +186,40 @@
   function drop(x, y, z, vx, vy, vz, T) {
     if (drops.length >= V().DROP_MAX) drops.shift();
     drops.push({ x, y, z, vx, vy, vz, t: 0, T });
+  }
+
+  /* ===== PHASE F: a subtle golden sparkle over a warehouse (castle/stock)
+   * when a good is actually delivered into its inventory — reuses the same
+   * "ring" particle the fish splashes use, just warmer-coloured and smaller,
+   * so it costs nothing new. Reads G.events with the same tick-watermark
+   * pattern fs-audio.js uses (safe against the ring buffer's own splice-cap),
+   * rate-limited to one sparkle per short cooldown so a busy 4x economy
+   * reads as gentle periodic glimmer, never a strobe. */
+  let deliverSeenTick = -1, sparkleCooldown = 0;
+  const DELIVER_SCAN_CAP = 50;
+  function drainDeliverySparkle(g, dt) {
+    if (deliverSeenTick < 0) deliverSeenTick = g.tick;   // fresh world — skip its boot history
+    sparkleCooldown -= dt;
+    const evs = g.events;
+    if (evs && evs.length) {
+      let scanned = 0, spawned = false;
+      for (let i = evs.length - 1; i >= 0 && scanned < DELIVER_SCAN_CAP; i--) {
+        const e = evs[i];
+        if (e.t <= deliverSeenTick) break;
+        scanned++;
+        if (spawned || sparkleCooldown > 0 || e.type !== "itemDeliver") continue;
+        const def = FSC.BLD[e.btype];
+        if (!def || !def.warehouse) continue;
+        const b = g.buildings[e.bld];
+        if (!b) continue;
+        FSMap.worldXZ(map, b.v, xz);
+        ring(xz[0] + (rng() - 0.5) * 0.9, map.height[b.v] + 0.85 + rng() * 0.5, xz[1] + (rng() - 0.5) * 0.9,
+          0.10, 0.36, 0.55, 0xffe6a0);
+        sparkleCooldown = 0.35 + rng() * 0.3;
+        spawned = true;
+      }
+    }
+    deliverSeenTick = g.tick;
   }
 
   function advanceFish(dt) {
@@ -363,6 +398,23 @@
       return;
     }
   }
+  /* ===== PHASE F: construction dust — a building actively being hammered on
+   * (state 'build' with a builder crew present, same condition fs-audio.js
+   * gates its hammer-tap SFX on) puffs a little dust now and then. Reuses the
+   * SAME pool/particle as road dust — one more spawn SOURCE feeding the
+   * existing system rather than a whole new pool. */
+  function trySpawnSiteDust() {
+    if (!G || !G.buildings || dust.length >= V().DUST_MAX) return;
+    const ids = Object.keys(G.buildings);
+    if (!ids.length) return;
+    for (let k = 0; k < 5; k++) {
+      const b = G.buildings[ids[(rng() * ids.length) | 0]];
+      if (!b || b.state !== "build" || !b.crew) continue;
+      FSMap.worldXZ(map, b.v, xz);
+      dust.push({ x: xz[0] + (rng() - 0.5) * 1.5, y: map.height[b.v] + 0.05, z: xz[1] + (rng() - 0.5) * 1.5, t: 0, T: 1.3 + rng() * 0.7 });
+      return;
+    }
+  }
   function advanceDust(dt) {
     for (let i = dust.length - 1; i >= 0; i--) {
       const d = dust[i];
@@ -429,6 +481,9 @@
     if (leafT <= 0) { leafT = 0.55 + rng() * 1.1; trySpawnLeaf(); }
     dustT -= dt;
     if (dustT <= 0) { dustT = 0.9 + rng() * 1.4; trySpawnDust(); }
+    siteDustT -= dt;                                          /* ===== PHASE F ===== */
+    if (siteDustT <= 0) { siteDustT = 1.1 + rng() * 1.6; trySpawnSiteDust(); }
+    drainDeliverySparkle(g, dt);                                /* ===== PHASE F ===== */
     // forests grow and are felled: refresh their list a slice at a time
     scanForestSlice();
 

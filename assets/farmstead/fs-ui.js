@@ -531,7 +531,10 @@
   }
   function onRootChange(e) {
     const t = e.target;
-    if (t.tagName === "SELECT" && t.hasAttribute("data-act")) dispatchAction(t.getAttribute("data-act"), t, e);
+    if (!t.hasAttribute("data-act")) return;
+    /* ===== PHASE F: file inputs (the custom-music picker) fire 'change' just
+     * like <select> already did here — widened, nothing existing narrowed. ===== */
+    if (t.tagName === "SELECT" || (t.tagName === "INPUT" && t.type === "file")) dispatchAction(t.getAttribute("data-act"), t, e);
   }
 
   function onRootClick(e) {
@@ -1160,19 +1163,58 @@
     closeSheet();
   }
 
+  /* ===== PHASE F: Settings gains the real audio controls (mute / music
+   * toggle / "use my own music" loader) — fs-ui.js owns this panel's DOM per
+   * the Phase-F brief; FSAudio (fs-audio.js) owns the actual WebAudio state,
+   * this just reads/drives it through its public API. Falls back to reading
+   * localStorage directly if fs-audio.js failed to load, so the checkbox
+   * never lies even in that edge case. ===== */
   function renderSettings() {
-    let muted = false;
-    try { muted = localStorage.getItem("fs_muted") === "1"; } catch (e) { /* noop */ }
+    const FA = window.FSAudio;
+    let muted = FA ? FA.muted() : false;
+    if (!FA) { try { muted = localStorage.getItem("fs_muted") === "1"; } catch (e) { /* noop */ } }
+    const musicOff = FA ? FA.musicOff() : false;
+    const info = FA ? FA.musicInfo() : { source: "synth", ready: true, name: null };
     let html = "";
+    html += '<div class="fs-sec-h">🔊 Audio</div>';
     html += '<label class="fs-toggle"><input type="checkbox" data-act="settings-mute"' + (muted ? " checked" : "") +
-      "> 🔇 Mute (sound arrives in a later update)</label>";
+      "> 🔇 Mute everything <span class=\"fs-dim\">(M)</span></label>";
+    html += '<label class="fs-toggle"><input type="checkbox" data-act="settings-musicoff"' + (musicOff ? " checked" : "") +
+      "> 🎵 Turn off music <span class=\"fs-dim\">(keep sound effects)</span></label>";
+    html += '<p class="fs-note fs-dim" style="margin-top:8px">' +
+      (info.source === "file"
+        ? "Now playing: your track" + (info.name ? " — " + esc(info.name) : "") + (info.ready ? "" : " (loading…)")
+        : "Now playing: the built-in village theme") + "</p>";
+    html += '<label class="fs-btn fs-ghost" for="fsMusicFile" style="text-align:center">🎵 Use my own music…</label>' +
+      '<input type="file" id="fsMusicFile" accept="audio/*" data-act="settings-music-file" style="display:none">';
+    if (info.source === "file") html += '<button class="fs-btn" data-act="settings-music-remove">↺ Back to the built-in theme</button>';
+    html += '<p class="fs-note fs-dim">Your music file stays on this device only — it is never uploaded or shared.</p>';
+    html += '<div class="fs-sec-h">🎥 Camera</div>';
     html += '<label class="fs-toggle"><input type="checkbox" data-act="settings-invert"' + (FSRender.invertY() ? " checked" : "") +
       "> 🔄 Invert camera look</label>";
     html += '<label class="fs-toggle"><input type="checkbox" data-act="settings-tint"' + (FSRender.territoryTint() ? " checked" : "") +
       "> 🎨 Territory tint</label>";
     return html;
   }
-  function toggleMute(btn) { try { localStorage.setItem("fs_muted", btn.checked ? "1" : "0"); } catch (e) { /* noop */ } }
+  function toggleMute(btn) {
+    if (window.FSAudio) { FSAudio.setMuted(!!btn.checked); return; }
+    try { localStorage.setItem("fs_muted", btn.checked ? "1" : "0"); } catch (e) { /* noop */ }
+  }
+  function toggleMusicOff(btn) { if (window.FSAudio) FSAudio.setMusicOff(!!btn.checked); }
+  function handleMusicFile(input) {
+    const f = input.files && input.files[0];
+    input.value = "";                 // so picking the SAME filename again still fires change
+    if (!f || !window.FSAudio) return;
+    toast("🎵 loading your track…", "info");
+    FSAudio.setCustomMusic(f).then((r) => {
+      toast(r && r.ok ? "🎵 now playing your track" : ("⚠ " + ((r && r.why) || "couldn't use that file — kept the built-in theme")), r && r.ok ? "info" : "err");
+      refreshOpenSheet();
+    });
+  }
+  function handleMusicRemove() {
+    if (!window.FSAudio) return;
+    FSAudio.clearCustomMusic().then(() => { toast("🎵 back to the built-in theme", "info"); refreshOpenSheet(); });
+  }
 
   function renderHelp() {
     return "" +
@@ -1251,6 +1293,9 @@
       case "load-slot": doLoadSlot(btn.getAttribute("data-slot")); break;
       case "newgame-fromsheet": closeSheet(); H.backToTitle(); break;
       case "settings-mute": toggleMute(btn); break;
+      case "settings-musicoff": toggleMusicOff(btn); break;               /* ===== PHASE F ===== */
+      case "settings-music-file": handleMusicFile(btn); break;            /* ===== PHASE F ===== */
+      case "settings-music-remove": handleMusicRemove(); break;           /* ===== PHASE F ===== */
       case "settings-invert": FSRender.setInvertY(!!btn.checked); break;
       case "settings-tint": FSRender.setTerritoryTint(!!btn.checked); break;
       case "stats-tab": statsTab = btn.getAttribute("data-tab"); refreshOpenSheet(); break;

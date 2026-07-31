@@ -4,8 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#233357">
-<title>BUCKY — Farmstead</title>
-<link rel="icon" href="bucky.png">
+<meta name="description" content="Farmstead — a mechanics-faithful 3D settlement-building game: flags, roads, serfs, knights and territory.">
+<title>Farmstead — BUCKY</title>
+<!-- PHASE F housekeeping: emoji favicon via data-URL SVG (house pattern — see farmparty.html) -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8F%B0%3C/text%3E%3C/svg%3E">
 <style>
   :root{
     --navy:#233357; --navy-d:#18233b; --red:#ba303e; --red-d:#7a1f28;
@@ -500,6 +502,20 @@
   #netInvite .code{ font-size:26px; }
   #pingBtn{ left:auto; right:calc(8px + var(--sat)); top:calc(46px + var(--sat)); }
 
+  /* ───────────────── PHASE F: touch long-press context menu ───────────────── */
+  #fsTouchCtx{
+    position:fixed; z-index:26; display:flex; gap:6px; background:rgba(20,29,49,.97);
+    border:1px solid var(--line); border-radius:14px; padding:7px; box-shadow:0 14px 30px rgba(0,0,0,.4);
+  }
+  #fsTouchCtx.hidden{ display:none; }
+  #fsTouchCtx button{
+    appearance:none; border:1px solid var(--line); background:rgba(255,255,255,.10); color:#eaf2fb;
+    font:800 13px inherit; padding:10px 12px; border-radius:10px; min-height:44px; min-width:44px;
+    white-space:nowrap; cursor:pointer;
+  }
+  #fsTouchCtxFlag{ background:var(--red); border-color:#e2707c; }
+  #fsTouchCtxCancel{ min-width:44px; padding:10px; }
+
   /* ───────────────────── mobile (≤700px) ───────────────────── */
   @media (max-width:700px){
     /* PHASE E fix: on narrow phones the huge centered clamp()-sized logo text
@@ -522,9 +538,12 @@
     .tick-item .ico{ font-size:11.5px; }
     #fsTicker{ gap:2px; max-width:62vw; }
     #fsSpeed{ top:calc(58px + var(--sat)); padding:3px; }
-    #fsSpeed button{ padding:6px 10px; font-size:13px; min-width:36px; }
+    /* PHASE F: min-height (not padding) so this floor never disturbs any of
+     * Phase E's measured mobile clearances above/below — it only makes the
+     * tap TARGET taller, not the visual box any wider. */
+    #fsSpeed button{ padding:6px 10px; font-size:13px; min-width:36px; min-height:40px; }
     #fsDock{ gap:3px; }
-    #fsDock button{ min-width:0; padding:6px 6px; font-size:16px; }
+    #fsDock button{ min-width:40px; min-height:40px; padding:6px 6px; font-size:16px; }
     #fsDock button b{ display:none; }
     /* PHASE E fix: both bottom panels used to run full-width (right:8px /
      * width:min(320px,94vw)) straight under the bottom-right minimap's own
@@ -544,6 +563,20 @@
     #bhint{ display:none; }
     #fsToasts{ top:calc(96px + var(--sat)); width:88vw; }
     #netInvite{ top:calc(58px + var(--sat)); }
+    /* ═══ PHASE F: touch-target floor (house/Apple/Android guidance: ≥40px) ═══
+     * min-height/min-width ONLY — never padding — so nothing above shifts.
+     * DELIBERATELY EXCLUDED: the 20-notch distribution/tool/knight steppers
+     * (.fs-tick) and the priority-list ↑/↓ arrows (.fs-arrow) — forcing every
+     * segment of a 20-way stepper to 40px would make it wider than the phone,
+     * and the arrows sit one per already-tight list row; both stay reachable
+     * as small-but-adjacent-and-forgiving targets instead, which is the more
+     * usable trade for those specific controls. */
+    .fs-icobtn{ min-width:40px; min-height:40px; }
+    .fs-tab{ min-height:40px; }
+    .build-item{ min-height:40px; }
+    .fs-modal-actions button{ min-height:44px; }
+    .fs-x{ width:40px; height:40px; font-size:15px; }
+    #fsMinimapToggle{ min-height:26px; }
   }
 </style>
 </head>
@@ -627,6 +660,12 @@
 </div>
 <button id="pingBtn" class="hidden" title="Ping the spot under the cursor (P)">📍 PING</button>
 <div id="pingMark" class="hidden">📍</div>
+<!-- PHASE F: touch long-press context menu (flag/build at the pressed vertex) -->
+<div id="fsTouchCtx" class="hidden">
+  <button id="fsTouchCtxFlag">🚩 Flag here</button>
+  <button id="fsTouchCtxBuild">🏠 Build here</button>
+  <button id="fsTouchCtxCancel">✕</button>
+</div>
 <div id="veil">catching up…</div>
 <div id="hostLeft">
   <div class="box">
@@ -646,6 +685,7 @@
 <script src="assets/farmstead/fs-models.js"></script>
 <script src="assets/farmstead/fs-fx.js"></script>
 <script src="assets/farmstead/fs-render.js"></script>
+<script src="assets/farmstead/fs-audio.js"></script>
 <script src="assets/farmstead/fs-ui.js"></script>
 <script>
 (function () {
@@ -734,6 +774,7 @@
     speedEl.classList.remove("hidden");
     hintEl.classList.remove("hidden");
     if (window.FSUI) FSUI.onGameStart();     /* ===== PHASE E: build/show the real HUD ===== */
+    if (window.FSAudio) FSAudio.onGameStart(); /* ===== PHASE F: BGM fades in, not on the title ===== */
     paintSpeed();
     paintNetChip();
     if (!running) { running = true; lastT = performance.now(); raf = requestAnimationFrame(loop); }
@@ -753,6 +794,7 @@
     speedEl.classList.add("hidden");
     hintEl.classList.add("hidden");
     if (window.FSUI) FSUI.onGameEnd();
+    if (window.FSAudio) FSAudio.onGameEnd(); /* ===== PHASE F: BGM fades out back on the title ===== */
     try { if (localStorage.getItem("fs_save_auto")) el("continueBtn").classList.remove("hidden"); } catch (e) { /* noop */ }
   }
 
@@ -809,6 +851,7 @@
     if (G) {
       syncPingMark();                                /* ===== PHASE-M ===== */
       if (window.FSUI) FSUI.frame(dtReal);            /* ===== PHASE E: the whole HUD ===== */
+      if (window.FSAudio) FSAudio.frame(dtReal, G);   /* ===== PHASE F: SFX + BGM (never during ff) ===== */
       if ((st.frames & 7) === 0) { paintDbg(); paintNetChip(); }
     }
   }
@@ -879,6 +922,142 @@
     if (window.FSUI) FSUI.onCanvasClick(v, e);
   });
 
+  /* ═══════════════════════════════════════════════════════════════════════
+   * ===== PHASE F: touch controls ============================================
+   * Coarse-pointer devices (house pattern: matchMedia, never UA-sniffing) get:
+   *   - 1-finger drag pan, tap = select, drag-then-release = camera pan — ALL
+   *     FREE from the click-detector just above and fs-render.js's existing
+   *     Pointer-Event-based pan/orbit (Pointer Events fire identically for
+   *     mouse/touch/pen — nothing to add for the single-finger case).
+   *   - pinch zoom + 2-finger twist rotate + 2-finger pan — genuinely new:
+   *     a single `drag` variable in fs-render.js has no concept of a SECOND
+   *     simultaneous contact. Handled here at `window`'s CAPTURE phase, which
+   *     — regardless of listener ADD ORDER — always runs before every
+   *     bubble-phase listener anywhere in the page (including fs-render's own
+   *     window-level pointermove/up and the click-detector just above), so a
+   *     live 2-finger gesture can fully own its two pointer streams via
+   *     stopPropagation() without any mouse-oriented handler ever seeing them.
+   *   - long-press (a still finger held ~520ms) = context menu: flag/build at
+   *     the pressed vertex (there is no Esc/right-click on a touchscreen).
+   * ═══════════════════════════════════════════════════════════════════════ */
+  const isCoarsePointer = (function () {
+    try { return !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches); } catch (e) { return false; }
+  })();
+
+  const touches = new Map();          // pointerId -> {x,y}, every currently-down touch
+  let sessionMulti = false;           // true once THIS touch session ever reached 2 fingers
+  let gPrevDist = 0, gPrevAngle = 0, gPrevCx = 0, gPrevCy = 0;
+
+  function twoTouchStats() {
+    const it = touches.values();
+    const a = it.next().value, b = it.next().value;
+    if (!a || !b) return null;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    return { dist: Math.hypot(dx, dy), angle: Math.atan2(dy, dx), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
+  }
+  function resetGestureBaseline() {
+    const s = twoTouchStats();
+    if (s) { gPrevDist = s.dist; gPrevAngle = s.angle; gPrevCx = s.cx; gPrevCy = s.cy; }
+    return s;
+  }
+  function applyGestureDelta(s) {
+    if (!s || !G) return;
+    const cs = FSRender.camState();
+    // pinch: fingers spreading (dist grows) zooms IN — same convention as the
+    // wheel handler (scroll "up"/negative deltaY also zooms in / dist shrinks).
+    const distRatio = (gPrevDist > 4 && s.dist > 4) ? (gPrevDist / s.dist) : 1;
+    let dAngle = s.angle - gPrevAngle;
+    if (dAngle > Math.PI) dAngle -= Math.PI * 2; else if (dAngle < -Math.PI) dAngle += Math.PI * 2;
+    const dx = s.cx - gPrevCx, dy = s.cy - gPrevCy;
+    // reuses fs-render's own drag-pan constant/formula (CAM.DRAG_PAN) so 2-
+    // finger pan feels identical in scale to the desktop 1-finger drag.
+    const k = cs.dist * FSC.CAM.DRAG_PAN, sinY = Math.sin(cs.yaw), cosY = Math.cos(cs.yaw);
+    FSRender.setCam({
+      dist: cs.dist * distRatio,
+      yaw: cs.yaw - dAngle,
+      tx: cs.tx + (-cosY * dx + -sinY * dy) * k,
+      tz: cs.tz + (sinY * dx + -cosY * dy) * k,
+    });
+  }
+
+  // ---- long-press → context menu (flag / build at the pressed vertex) ----
+  let longPress = null;    // {id,x,y,fired,timer}
+  const touchCtxEl = el("fsTouchCtx");
+  const touchCtxFlagBtn = el("fsTouchCtxFlag"), touchCtxBuildBtn = el("fsTouchCtxBuild"), touchCtxCancelBtn = el("fsTouchCtxCancel");
+  function dismissTouchCtx() { touchCtxEl.classList.add("hidden"); }
+  function openTouchCtx(x, y) {
+    if (!G || !window.FSUI) return;
+    const v = FSRender.pickVertex(x, y);
+    if (v < 0) return;
+    FSRender.setHover(v);
+    if (navigator.vibrate) { try { navigator.vibrate(12); } catch (e) { /* noop */ } }
+    const left = Math.max(8, Math.min(x - 90, window.innerWidth - 260));
+    const top = Math.max(8, Math.min(y - 60, window.innerHeight - 70));
+    touchCtxEl.style.left = left + "px";
+    touchCtxEl.style.top = top + "px";
+    touchCtxEl.classList.remove("hidden");
+  }
+  touchCtxFlagBtn.addEventListener("click", () => { dismissTouchCtx(); if (window.FSUI) FSUI.doFlagAtHover(); });
+  touchCtxBuildBtn.addEventListener("click", () => { dismissTouchCtx(); if (window.FSUI) FSUI.armBuildKey(); });
+  touchCtxCancelBtn.addEventListener("click", dismissTouchCtx);
+  function armLongPress(id, x, y) {
+    longPress = { id, x, y, fired: false, timer: null };
+    longPress.timer = setTimeout(() => {
+      if (!longPress || longPress.id !== id) return;
+      longPress.fired = true;
+      openTouchCtx(x, y);
+    }, 520);
+  }
+  function cancelLongPress() {
+    if (longPress && longPress.timer) clearTimeout(longPress.timer);
+    longPress = null;
+  }
+
+  window.addEventListener("pointerdown", (e) => {
+    if (!touchCtxEl.classList.contains("hidden") && !touchCtxEl.contains(e.target)) dismissTouchCtx();
+    if (!isCoarsePointer || e.pointerType !== "touch" || !G) return;
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    cancelLongPress();
+    if (touches.size >= 2) {
+      sessionMulti = true;
+      resetGestureBaseline();
+      dismissTouchCtx();
+      e.stopPropagation();
+      return;
+    }
+    if (sessionMulti) { e.stopPropagation(); return; }   // a late finger re-arriving mid-session
+    armLongPress(e.pointerId, e.clientX, e.clientY);
+  }, { capture: true });
+
+  window.addEventListener("pointermove", (e) => {
+    if (!isCoarsePointer || e.pointerType !== "touch" || !touches.has(e.pointerId)) return;
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (sessionMulti) {
+      e.stopPropagation();
+      if (touches.size >= 2) { applyGestureDelta(twoTouchStats()); resetGestureBaseline(); }
+      return;               // a fading-out finger (session dropped to 1) is swallowed, not panned —
+    }                        // avoids a camera jump from fs-render's now-stale single-drag state
+    if (longPress && longPress.id === e.pointerId &&
+      (Math.abs(e.clientX - longPress.x) > 10 || Math.abs(e.clientY - longPress.y) > 10)) cancelLongPress();
+  }, { capture: true });
+
+  function endTouch(e) {
+    if (!isCoarsePointer || e.pointerType !== "touch") return;
+    const wasTracked = touches.has(e.pointerId);
+    touches.delete(e.pointerId);
+    if (wasTracked && sessionMulti) {
+      e.stopPropagation();
+      if (touches.size >= 2) resetGestureBaseline();   // 3→2 fingers: rebase, gesture continues
+    }
+    if (touches.size === 0) sessionMulti = false;       // session fully over — next touch starts fresh
+    if (longPress && longPress.id === e.pointerId) {
+      if (longPress.fired) e.stopPropagation();         // swallow the trailing tap-click after a long-press
+      cancelLongPress();
+    }
+  }
+  window.addEventListener("pointerup", endTouch, { capture: true });
+  window.addEventListener("pointercancel", endTouch, { capture: true });
+
   // ───────────────────────────────── keys (FSUI's dock mirrors every one of these)
   window.addEventListener("keydown", (e) => {
     const tag = e.target && e.target.tagName;
@@ -910,6 +1089,11 @@
     /* ===== PHASE E QoL#2: T = build-suitability overlay (territory tint moved
        into the Settings panel, since both used to share this key) ===== */
     if (k === "t" || k === "T") { FSUI.toggleSuitability(); return; }
+    /* ===== PHASE F: M = mute toggle (mirrors the Settings panel checkbox) ===== */
+    if (k === "m" || k === "M") {
+      if (window.FSAudio) { const on = FSAudio.toggleMuted(); toastMode(on ? "🔇 muted" : "🔊 sound on"); }
+      return;
+    }
   });
 
   document.addEventListener("visibilitychange", () => {
@@ -1073,7 +1257,13 @@
     get G() { return G; },
     FSC: FSC, FSMap: FSMap, FSSim: FSSim, FSRender: FSRender, FSModels: window.FSModels,
     FSMil: FSMil, FSAI: FSAI,                       /* ===== PHASE-D ===== */
-    version: FSC.VERSION,
+    FSAudio: window.FSAudio,                        /* ===== PHASE F ===== */
+    /* ===== PHASE F housekeeping: a distinct BUILD version string, decoupled
+     * from FSC.VERSION (the sim SAVE-FORMAT version, untouched by this phase —
+     * fs-const.js's mechanics/data tables are sim-owned and stay byte-for-byte
+     * so the sim-hash proof holds). Bumped so a loaded page visibly reports
+     * which phase's shell it's running. */
+    version: FSC.VERSION + "-f1",
     newGame: function (o) { return startGame(o || {}); },
     ff: function (n) { for (let i = 0; i < (n | 0); i++) runTick(); return G.tick; },
     setSpeed: setSpeed,
@@ -1195,6 +1385,9 @@
 
   /* ===== PHASE E: the real UI — built once, shows/hides with the game ===== */
   if (window.FSUI) FSUI.init(window.__FS__, { toastMode: toastMode, backToTitle: backToTitle });
+  /* ===== PHASE F: audio — init is safe pre-gesture; unlock() (nodes/context)
+   * only happens on the page's first real pointerdown/keydown (see fs-audio.js). ===== */
+  if (window.FSAudio) FSAudio.init(window.__FS__);
 })();
 </script>
 </body>

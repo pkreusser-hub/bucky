@@ -63,34 +63,59 @@ H.run("farmstead-visuals", async (t) => {
   t.check("key light + cool fill + hemisphere", layers.dirLights === 2 && layers.hemi === 1, layers);
 
   // ════════════════════════════════════════════════════ 2. the meadow layer
-  const meadow = await page.evaluate(() => {
-    const FS = window.__FS__, R = FS.FSRender, FSC = FS.FSC, FSMap = FS.FSMap, map = FS.G.map;
+  // PHASE-F ART DIRECTION (2026-07-31): the instanced tuft-clump layer reads
+  // "too visually busy" and is now DISABLED BY DEFAULT (FSC.VIS.TUFT_PER_
+  // VERTEX===0 — see fs-const.js). This section is split in two: (a) proves
+  // the SHIPPED default really does spend nothing on tufts (no pools at all),
+  // and (b) temporarily flips the constant back on inside the browser (never
+  // touching the source file) to prove the removal is a clean toggle, not a
+  // deletion — the old density/flower/claim-hook assertions still run for
+  // real against that re-enabled world, then the constant is restored.
+  const meadowOff = await page.evaluate(() => {
+    const FS = window.__FS__, R = FS.FSRender, FSC = FS.FSC, map = FS.G.map;
     const d = R.decorInfo();
     let grassV = 0;
     for (let v = 0; v < map.W * map.H; v++) if (map.terr[v] === FSC.TERR.GRASS) grassV++;
-    let tufts = 0;
+    return { pools: Object.keys(d), tuftPerVertex: FSC.VIS.TUFT_PER_VERTEX,
+      flowers: d.flower ? d.flower.live : 0, shadows: d.shadow ? d.shadow.live : 0,
+      scree: d.scree ? d.scree.live : 0, grassV, quality: R.quality() };
+  });
+  t.check("shipped default: TUFT_PER_VERTEX is 0 (tufts off)", meadowOff.tuftPerVertex === 0, meadowOff);
+  t.check("shipped default: NO tuft pools exist at all (zero alloc, zero per-frame breeze cost)",
+    ["tuft0", "tuft1", "tuft2"].every((k) => meadowOff.pools.indexOf(k) < 0), meadowOff.pools);
+  t.check("shipped default: wildflowers still exist, independent of tufts, and are sparse not everywhere",
+    meadowOff.flowers > 10 && meadowOff.flowers < meadowOff.grassV * 0.3, meadowOff);
+  t.check("shipped default: every standing object still drops a contact shadow", meadowOff.shadows > 40, meadowOff);
+  t.check("shipped default: bare mountain still grows scree", meadowOff.scree > 10, meadowOff);
+
+  // (b) the re-enable path: flip FSC.VIS.TUFT_PER_VERTEX back on for a fresh
+  // world (in-browser only — the shipped source stays 0) and prove the whole
+  // mechanism — density, flower co-existence, and the claim/removal hook —
+  // still works exactly as Phase V built it.
+  const meadowOn = await page.evaluate(() => {
+    const FS = window.__FS__, R = FS.FSRender, FSC = FS.FSC, FSMap = FS.FSMap, map0 = FS.G.map;
+    FSC.VIS.TUFT_PER_VERTEX = 6;             // re-enable, in-memory only
+    FS.newGame({ size: "medium", seed: 12345, ais: 1, speed: 0 });
+    R.setQuality(1);
+    for (let i = 0; i < 4; i++) R.frame(0.033);
+    const map = FS.G.map;
+    const d = R.decorInfo();
+    let grassV = 0, tufts = 0;
+    for (let v = 0; v < map.W * map.H; v++) if (map.terr[v] === FSC.TERR.GRASS) grassV++;
     for (const k in d) if (k.indexOf("tuft") === 0) tufts += d[k].live;
     return { pools: Object.keys(d), tufts, flowers: d.flower ? d.flower.live : 0,
-      shadows: d.shadow ? d.shadow.live : 0, scree: d.scree ? d.scree.live : 0,
-      grassV, perGrass: +(tufts / Math.max(1, grassV)).toFixed(2), quality: R.quality() };
+      grassV, perGrass: +(tufts / Math.max(1, grassV)).toFixed(2) };
   });
-  t.check("tuft, flower, shadow and scree pools all exist",
-    ["tuft0", "tuft1", "tuft2", "flower", "shadow", "scree"].every((k) => meadow.pools.indexOf(k) >= 0), meadow.pools);
-  t.check("the meadow is dense — around a tuft clump per grass vertex or better",
-    meadow.perGrass >= 0.9, meadow);
-  t.check("wildflowers are sprinkled through it, not everywhere",
-    meadow.flowers > 20 && meadow.flowers < meadow.tufts * 0.4, meadow);
-  t.check("every standing object drops a contact shadow", meadow.shadows > 40, meadow);
-  t.check("bare mountain grows scree", meadow.scree > 10, meadow);
+  t.check("re-enabled: tuft pools exist again", ["tuft0", "tuft1", "tuft2"].every((k) => meadowOn.pools.indexOf(k) >= 0), meadowOn.pools);
+  t.check("re-enabled: the meadow is dense again — around a tuft clump per grass vertex or better",
+    meadowOn.perGrass >= 0.9, meadowOn);
+  t.check("re-enabled: wildflowers still co-exist and stay sparse",
+    meadowOn.flowers > 10 && meadowOn.flowers < meadowOn.tufts * 0.5, meadowOn);
 
   // a road through open meadow must TAKE the grass with it (refreshVertex hook)
+  // — exercised against the RE-ENABLED world so there is real density to tear up.
   const claim = await page.evaluate(() => {
     const FS = window.__FS__, R = FS.FSRender, FSC = FS.FSC, FSMap = FS.FSMap, map = FS.G.map;
-    function tuftsAt(v) {
-      // count live tufts within one tile of v by walking the pools' anchors
-      const info = R.decorInfo();
-      return info;
-    }
     function total() {
       const d = R.decorInfo();
       let n = 0;
@@ -137,6 +162,28 @@ H.run("farmstead-visuals", async (t) => {
   t.check("building a road through the meadow tears up the grass under it",
     claim.afterRoad < claim.before, claim);
   t.check("pulling the road up lets the grass return", claim.afterRemoved === claim.before, claim);
+
+  // restore the shipped default before the rest of the suite (draw-call
+  // budgets etc. below are meant to measure the REAL player experience).
+  await page.evaluate(() => {
+    const FS = window.__FS__;
+    FS.FSC.VIS.TUFT_PER_VERTEX = 0;
+    FS.newGame({ size: "medium", seed: 12345, ais: 1, speed: 0 });
+    FS.FSRender.setQuality(1);
+    for (let i = 0; i < 4; i++) FS.FSRender.frame(0.033);
+    /* ===== PHASE-F test-hygiene note: sections 3/4 below reuse THIS G/FSFX
+     * instance (they don't call their own newGame) and section 4's fish-pool-
+     * leak check counts ANY live fish, injected or ambient. The extra newGame()
+     * calls this re-enable/restore probe added (vs. the pre-Phase-F suite,
+     * which made none in section 2) shift FSFX's own ambient spawn-timer
+     * phase enough that an unrelated natural jump could coincidentally still
+     * be airborne when section 4 starts measuring — not a leak, just a
+     * different roll of FSFX's own timer. Drain to a clean slate (bounded)
+     * so sections 3/4 start from the same "nothing airborne" baseline the
+     * original suite always had, regardless of how many newGame calls ran
+     * before it. ===== */
+    for (let i = 0; i < 60 && window.FSFX.info().fish > 0; i++) FS.FSRender.frame(0.033);
+  });
 
   // ════════════════════════════════════════════════════ 3. the water is alive
   const water = await page.evaluate(() => {
@@ -390,11 +437,18 @@ H.run("farmstead-visuals", async (t) => {
     for (const k in before) if (k.indexOf("tuft") === 0) t0 += before[k].live;
     for (const k in after) if (k.indexOf("tuft") === 0) t1 += after[k].live;
     try { localStorage.removeItem("fs_save_visualtest"); } catch (e) { /* noop */ }
-    return { ok, t0, t1,
+    return { ok, t0, t1, f0: before.flower ? before.flower.live : 0, f1: after.flower ? after.flower.live : 0,
       layers: ["sky", "terrain", "water", "foam", "decor", "fx"].filter((n) => !!sc.getObjectByName(n)).length };
   });
   t.check("save/load rebuilds every look layer", rebuilt.ok && rebuilt.layers === 6, rebuilt);
-  t.check("…including the meadow, at the same density", rebuilt.t1 > 0 && Math.abs(rebuilt.t1 - rebuilt.t0) < rebuilt.t0 * 0.05, rebuilt);
+  /* ===== PHASE-F: tufts default OFF, so t0/t1 are legitimately both 0 (still
+   * asserted equal — proves rebuild doesn't spontaneously create any); the
+   * now-independent wildflower layer is the one that must survive a rebuild
+   * at the same density (mirrors the pre-Phase-F "…including the meadow"
+   * check, just pointed at the layer that is actually on by default now). */
+  t.check("…tuft count (0 by default) is unaffected by rebuild", rebuilt.t1 === rebuilt.t0, rebuilt);
+  t.check("…and the wildflower layer rebuilds at the same density",
+    rebuilt.f1 > 0 && Math.abs(rebuilt.f1 - rebuilt.f0) < Math.max(2, rebuilt.f0 * 0.15), rebuilt);
 
   // ════════════════════════════════════════════════════ 9. determinism guard
   const pure = await page.evaluate(() => {
@@ -417,8 +471,13 @@ H.run("farmstead-visuals", async (t) => {
     pure.calls0 === pure.calls1 && pure.seed0 === pure.seed1, pure);
 
   // ════════════════════════════════════════════════════ 10. quality switch
+  // PHASE-F: the shipped default has nothing to thin (tufts off), so this
+  // re-enables the constant in-browser for the probe (same pattern as
+  // section 2) and restores it to the shipped default (0) afterward — the
+  // screenshots right after this depend on that restore to show the real look.
   const qual = await page.evaluate(() => {
-    const FS = window.__FS__, R = FS.FSRender;
+    const FS = window.__FS__, R = FS.FSRender, FSC = FS.FSC;
+    FSC.VIS.TUFT_PER_VERTEX = 6;
     FS.newGame({ size: "medium", seed: 12345, ais: 1, speed: 0 });
     function tufts() {
       const d = R.decorInfo();
@@ -433,10 +492,16 @@ H.run("farmstead-visuals", async (t) => {
     R.setQuality(1);
     const back = tufts();
     for (let i = 0; i < 3; i++) R.frame(0.033);
-    return { hi, lo, back, auto: R.quality() };
+    FSC.VIS.TUFT_PER_VERTEX = 0;              // restore the shipped default
+    FS.newGame({ size: "medium", seed: 12345, ais: 1, speed: 0 });
+    R.setQuality(1);
+    for (let i = 0; i < 3; i++) R.frame(0.033);
+    return { hi, lo, back, auto: R.quality(), restoredTuftPerVertex: FSC.VIS.TUFT_PER_VERTEX };
   });
-  t.check("the quality switch really thins the meadow", qual.lo < qual.hi * 0.5, qual);
-  t.check("…and restores it", qual.back === qual.hi, qual);
+  t.check("re-enabled: the quality switch really thins the meadow", qual.lo < qual.hi * 0.5, qual);
+  t.check("re-enabled: …and restores it", qual.back === qual.hi, qual);
+  t.check("the shipped default (0) is restored before the hero screenshots below",
+    qual.restoredTuftPerVertex === 0, qual);
 
   // ════════════════════════════════════════════════════ 11. hero screenshots
   async function shoot(name, setup, frames) {
