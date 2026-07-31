@@ -6142,21 +6142,32 @@ function mealOpenAddSheet(dayKey, defaultMeal){
   ain.addEventListener("keydown", (e) => { if (e.key === "Enter") runAi(); });
   arow.append(ain);
   // 🎤 dictation (Web Speech API — Android Chrome etc.; button simply absent where unsupported).
-  // A final transcript fills the box and auto-runs the estimate, so "speak → logged" is one tap.
+  // TAP-TO-FINISH: recording never self-ends on a thinking pause — the recognizer's silence
+  // timeouts are bridged by restarting it (accumulating heard text) until the user taps ⏹,
+  // which fills the box and auto-runs the estimate.
   const SRC = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (SRC){
-    const mic = document.createElement("button"); mic.className = "meal-customadd"; mic.id = "mealMicBtn"; mic.textContent = "🎤"; mic.title = "Dictate what you ate"; mic.setAttribute("aria-label", "Dictate what you ate");
+    const mic = document.createElement("button"); mic.className = "meal-customadd"; mic.id = "mealMicBtn"; mic.textContent = "🎤"; mic.title = "Dictate what you ate — tap again to finish"; mic.setAttribute("aria-label", "Dictate what you ate — tap again to finish");
+    let recActive = null, recStop = false, recHeard = "";
+    const startRec = () => {
+      const rec = new SRC(); recActive = rec;
+      rec.lang = "en-US"; rec.interimResults = true; rec.continuous = true;
+      let sFinal = "", sAll = "";
+      rec.onresult = (e) => { sFinal = ""; sAll = ""; for (const r of e.results){ sAll += r[0].transcript + " "; if (r.isFinal) sFinal += r[0].transcript + " "; } ain.value = (recHeard + sAll).replace(/\s+/g, " ").trim(); };
+      rec.onerror = (e) => { if (e && (e.error === "no-speech" || e.error === "aborted")) return; recStop = true; };
+      rec.onend = () => {
+        recHeard = (recHeard + (sFinal || sAll)).replace(/\s+/g, " ").trimStart();
+        if (!recStop){ try { startRec(); return; } catch {} }   // silence pause — keep listening
+        recActive = null; mic.textContent = "🎤";
+        ain.value = recHeard.trim();
+        if (ain.value) runAi();
+      };
+      rec.start();
+    };
     mic.onclick = () => {
-      if (mic.disabled) return;
-      try {
-        const rec = new SRC(); rec.lang = "en-US"; rec.interimResults = true;
-        mic.disabled = true; mic.textContent = "…";
-        let finalText = "";
-        rec.onresult = (e) => { let t = ""; for (const r of e.results){ t += r[0].transcript; if (r.isFinal) finalText = t; } ain.value = t; };
-        rec.onerror = () => { mic.disabled = false; mic.textContent = "🎤"; };
-        rec.onend = () => { mic.disabled = false; mic.textContent = "🎤"; if ((finalText || ain.value).trim()) runAi(); };
-        rec.start();
-      } catch { mic.disabled = false; mic.textContent = "🎤"; }
+      if (recActive){ recStop = true; try { recActive.stop(); } catch {} return; }   // ⏹ finish
+      try { recStop = false; recHeard = ""; startRec(); mic.textContent = "⏹"; }
+      catch { recActive = null; mic.textContent = "🎤"; }
     };
     arow.append(mic);
   }

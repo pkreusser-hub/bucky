@@ -188,7 +188,7 @@ function setPhase(p, statusText){
   phase = p;
   $("micBtn").classList.toggle("listening", p === "listening");
   $("micBtn").classList.toggle("busy", p === "busy");
-  $("micBtn").textContent = p === "busy" ? "…" : "🎤";
+  $("micBtn").textContent = p === "busy" ? "…" : p === "listening" ? "⏹" : "🎤";
   $("result").style.display = p === "done" ? "block" : "none";
   $("typedRow").style.display = p === "done" ? "none" : "flex";
   if (statusText != null) $("status").textContent = statusText;
@@ -213,32 +213,48 @@ async function logText(text){
   } catch (e){ fail(e.message || "Something went wrong — try again"); }
 }
 
+// Recording is TAP-TO-FINISH: it never self-ends on a pause. The browser's recognizer DOES
+// self-end on silence, so onend quietly restarts a fresh session (carrying the text heard so
+// far in heardSoFar) until the user taps ⏹ — thinking pauses just keep it listening.
+let stopWanted = false, heardSoFar = "";
+function paintHeard(sessionText){
+  const t = (heardSoFar + (sessionText || "")).trim();
+  $("heard").textContent = t ? "“" + t + "”" : "";
+}
+function startRecSession(){
+  let sessionFinal = "", sessionAll = "";
+  rec = new SR();
+  rec.lang = "en-US"; rec.interimResults = true; rec.continuous = true; rec.maxAlternatives = 1;
+  rec.onresult = (e) => {
+    localStorage.setItem("meallog_mic_ok", "1");   // mic worked — future opens auto-listen
+    sessionFinal = ""; sessionAll = "";
+    for (const r of e.results){ sessionAll += r[0].transcript + " "; if (r.isFinal) sessionFinal += r[0].transcript + " "; }
+    paintHeard(sessionAll);
+  };
+  rec.onerror = (e) => {
+    if (phase !== "listening") return;
+    if (e && (e.error === "no-speech" || e.error === "aborted")) return;   // onend restarts
+    stopWanted = true;
+    fail(e && e.error === "not-allowed" ? "Mic permission needed — allow it, then tap again"
+      : "Mic trouble — tap and try again");
+  };
+  rec.onend = () => {
+    if (phase !== "listening") return;
+    heardSoFar = (heardSoFar + (sessionFinal || sessionAll)).replace(/\s+/g, " ").trimStart();
+    if (!stopWanted){ try { startRecSession(); return; } catch {} }   // silence pause — keep going
+    const t = heardSoFar.trim();
+    if (t) logText(t); else setPhase("idle", "Didn't hear anything — tap to try again");
+  };
+  rec.start();
+}
 function listen(){
   if (!SR){ fail("This browser can't do voice — type it below instead"); return; }
-  if (phase === "listening"){ try { rec && rec.stop(); } catch {} return; }
+  if (phase === "listening"){ stopWanted = true; try { rec && rec.stop(); } catch {} return; }
   $("err").textContent = ""; $("heard").textContent = "";
-  let finalText = "";
+  stopWanted = false; heardSoFar = "";
   try {
-    rec = new SR();
-    rec.lang = "en-US"; rec.interimResults = true; rec.maxAlternatives = 1;
-    rec.onresult = (e) => {
-      localStorage.setItem("meallog_mic_ok", "1");   // mic worked — future opens auto-listen
-      let t = "";
-      for (const r of e.results){ t += r[0].transcript; if (r.isFinal) finalText = t; }
-      $("heard").textContent = "“" + t + "”";
-    };
-    rec.onerror = (e) => {
-      if (phase !== "listening") return;
-      fail(e && e.error === "not-allowed" ? "Mic permission needed — allow it, then tap again"
-        : "Didn't catch that — tap and try again");
-    };
-    rec.onend = () => {
-      if (phase !== "listening") return;
-      const t = (finalText || $("heard").textContent.replace(/^“|”$/g, "")).trim();
-      if (t) logText(t); else setPhase("idle", "Didn't hear anything — tap to try again");
-    };
-    rec.start();
-    setPhase("listening", "Listening… say what you ate");
+    startRecSession();
+    setPhase("listening", "Listening… tap ⏹ when you're done");
   } catch { fail("Couldn't start the mic — type it below instead"); }
 }
 
