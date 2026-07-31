@@ -994,137 +994,167 @@
   };
 
   // -------------------------------------------------------------------- castle
-  /* ===== CASTLE GLB (user-supplied Tripo asset; optional upgrade) =====
-   * Loads assets/farmstead/castle.glb once; when ready, FSModels.castle() returns a
-   * normalized clone of it. The procedural keep below stays as the loading
-   * placeholder AND the fallback — a missing/failed GLB can never brick a boot. */
-  FSModels._castleGLB = null;
-  FSModels.loadCastleGLB = function (url, onDone) {
-    let fired = false;
-    const done = (ok) => { if (!fired) { fired = true; if (onDone) onDone(!!ok); } };
-    try {
-      if (typeof THREE === "undefined" || !THREE.GLTFLoader) return done(false);
-      new THREE.GLTFLoader().load(url, (gltf) => {
-        try {
-          const root = gltf.scene || (gltf.scenes && gltf.scenes[0]);
-          if (!root) return done(false);
-          // house conversion: Lambert + texture-preserving warm lift (normal/MR dropped)
-          root.traverse((o) => {
-            if (o.isMesh && o.material) {
-              const src = o.material;
-              const m = new THREE.MeshLambertMaterial({
-                map: src.map || null,
-                color: src.map ? 0xffffff
-                  : (src.color ? src.color.clone().convertLinearToSRGB() : 0xbbb5a4),
-              });
-              if (src.map) { m.emissive = new THREE.Color(0x6f6f6f); m.emissiveMap = src.map; }
-              else m.emissive = m.color.clone().multiplyScalar(0.34);
-              o.material = m;
-              o.castShadow = o.receiveShadow = false;
-            }
-          });
-          // normalize: height matched to the keep's neighbourhood scale, grounded, centred
-          const holder = new THREE.Group();
-          holder.add(root);
-          const box = new THREE.Box3().setFromObject(holder);
-          const size = box.getSize(new THREE.Vector3());
-          root.scale.setScalar(4.8 / Math.max(0.001, size.y));
-          const box2 = new THREE.Box3().setFromObject(holder);
-          const c = box2.getCenter(new THREE.Vector3());
-          root.position.x -= c.x; root.position.z -= c.z; root.position.y -= box2.min.y;
-          holder.userData.topY = box2.max.y - box2.min.y;
-          FSModels._castleGLB = holder;
-          done(true);
-        } catch (e) { FSModels._castleGLB = null; done(false); }
-      }, undefined, () => done(false));
-    } catch (e) { done(false); }
+  /** The castle — modelled after the family's Tripo reference piece: a rocky
+   * motte, crenellated curtain walls, a red-gabled keep, a cluster of slender
+   * round towers with maroon spires, an open bastion, and a timber bridge to
+   * the gate. All house-atlas geometry so it reads bright under game light. */
+  /** Gabled-roof kit (unit frame: ridge along X, base at y0, eaves at z ±1).
+   * `gableGeo` is the full closed prism; `gableRoofGeo`/`gablePedGeo` split the
+   * roof planes from the two end triangles so a keep can wear stone pediments
+   * under a maroon roof. */
+  const GABLE_V = {
+    A: [-0.5, 0, -1], B: [-0.5, 0, 1], C: [-0.5, 1, 0],
+    D: [0.5, 0, -1], E: [0.5, 0, 1], F: [0.5, 1, 0],
   };
-
-  function castleFromGLB(playerIdx) {
-    const color = FSModels.playerColor(playerIdx);
-    const g = new THREE.Group();
-    const body = FSModels._castleGLB.clone(true);
-    body.traverse((o) => { if (o.isMesh && o.material) o.material = o.material.clone(); });
-    body.name = "castleBody";
-    g.add(body);
-    g.userData.glb = true;   // clone shares the template's geometry — never dispose it
-    const topY = FSModels._castleGLB.userData.topY || 4.8;
-    const pole = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.045, 0.045, 1.1, 5), mat(0x8a8070, {}));
-    pole.position.set(0, topY + 0.42, 0);
-    g.add(pole);
-    const banner = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.62, 0.44),
-      mat(0xffffff, { map: bannerTexture(color), side: THREE.DoubleSide, emissiveOf: color, emissiveK: 0.35 })
-    );
-    banner.position.set(0.32, topY + 0.72, 0);
-    banner.name = "castleBanner";
-    g.add(banner);
-    g.userData.banner = banner;
-    g.userData.props = FSModels.BLD_PROPS.castle;
-    g.userData.type = "castle";
-    return g;
+  function gableBuild(key, tris, uvOf) {
+    return cached(key, () => {
+      const pos = [], uv = [];
+      for (const t of tris) for (const v of t) { pos.push(v[0], v[1], v[2]); const p = uvOf(v); uv.push(p[0], p[1]); }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+      geo.computeVertexNormals();
+      return geo;
+    });
+  }
+  function gableGeo() {
+    const V = GABLE_V;
+    return gableBuild("geo:gable", [
+      [V.A, V.B, V.C], [V.D, V.F, V.E],
+      [V.A, V.F, V.D], [V.A, V.C, V.F],
+      [V.B, V.F, V.C], [V.B, V.E, V.F],
+    ], (v) => [v[0] + 0.5, v[1]]);
+  }
+  function gableRoofGeo() {
+    const V = GABLE_V;
+    return gableBuild("geo:gableRoof", [
+      [V.A, V.F, V.D], [V.A, V.C, V.F],
+      [V.B, V.F, V.C], [V.B, V.E, V.F],
+    ], (v) => [v[0] + 0.5, 1 - Math.abs(v[2])]);
+  }
+  function gablePedGeo() {
+    const V = GABLE_V;
+    return gableBuild("geo:gablePed", [
+      [V.A, V.B, V.C], [V.D, V.F, V.E],
+    ], (v) => [v[2] * 0.5 + 0.5, v[1]]);
   }
 
-  /** An impressive keep: walls, four towers, gate, and a banner in player colour. */
+  /** Castle-only atlas material: same atlas + vertex colours as bldMat, but a
+   * COOL grey emissive lift — the shared warm BLD_WALL lift washes grey stone
+   * back to cream no matter what the vertex colour says. */
+  function castleMat() {
+    return cached("mat:castleBld", () => mat(0xffffff, {
+      vertexColors: true, map: bldAtlas(), emissiveOf: 0x8b8f96, emissiveK: 0.22,
+    }));
+  }
+
   FSModels.castle = function (playerIdx) {
-    if (FSModels._castleGLB) return castleFromGLB(playerIdx);
     const color = FSModels.playerColor(playerIdx);
     const V = FSC.VIS;
+    // The atlas cells are warm-based (stone #ded6c6) and the game light is warm,
+    // so the greys are BLUE-SHIFTED: texture x vertex x warm light lands on
+    // neutral fieldstone grey (matched by eye against the Tripo reference).
+    const RED = COL.CASTLE_ROOF, LIGHT = 0x9aa3b8, WALLS = 0x8a93a8, TRIM = 0x767f94, DARK = 0x2e2822;
     const g = new THREE.Group();
     const stone = [], wood = [], team = [];
 
-    // a cobbled bailey, a moulded plinth, then the keep
-    stone.push({ geo: new THREE.BoxGeometry(3.6, 0.16, 3.6), color: 0x9d9583, cell: "stone", matrix: M(0, 0.08, 0) });
-    stone.push({ geo: new THREE.BoxGeometry(3.2, 0.22, 3.2), color: 0xb2a996, cell: "stone", matrix: M(0, 0.24, 0) });
-    stone.push({ geo: new THREE.BoxGeometry(2.5, 1.95, 2.5), color: V.WALL_STONE, cell: "stone", matrix: M(0, 1.32, 0) });
-    // a string course band + the machicolation lip under the battlements
-    stone.push({ geo: new THREE.BoxGeometry(2.62, 0.09, 2.62), color: 0xa39a88, cell: "stone", matrix: M(0, 1.44, 0) });
-    stone.push({ geo: new THREE.BoxGeometry(2.72, 0.14, 2.72), color: 0xa39a88, cell: "stone", matrix: M(0, 2.34, 0) });
-    // battlements around the keep
-    for (let i = 0; i < 12; i++) {
-      const a = (i / 12) * Math.PI * 2;
-      const x = Math.cos(a), z = Math.sin(a);
-      const ax = Math.abs(x) > Math.abs(z) ? Math.sign(x) * 1.30 : x * 1.30;
-      const az = Math.abs(z) >= Math.abs(x) ? Math.sign(z) * 1.30 : z * 1.30;
-      stone.push({ geo: new THREE.BoxGeometry(0.34, 0.32, 0.34), color: V.WALL_STONE, cell: "stone", matrix: M(ax, 2.56, az) });
-    }
-    // four corner towers with conical roofs
-    for (let i = 0; i < 4; i++) {
-      const a = Math.PI / 4 + i * Math.PI / 2;
-      const x = Math.cos(a) * 1.5, z = Math.sin(a) * 1.5;
-      stone.push({ geo: new THREE.CylinderGeometry(0.42, 0.50, 2.75, 9), color: 0xc0b7a4, cell: "stone", matrix: M(x, 1.46, z) });
-      stone.push({ geo: new THREE.CylinderGeometry(0.54, 0.46, 0.11, 9), color: 0xa39a88, cell: "stone", matrix: M(x, 2.88, z) });
-      team.push({ geo: new THREE.ConeGeometry(0.58, 0.86, 9), color: color, cell: "tile", matrix: M(x, 3.30, z) });
-      // arrow slit + a warm lit window part way up
-      stone.push({ geo: new THREE.BoxGeometry(0.07, 0.30, 0.07), color: 0x2e2822, matrix: M(x * 1.12, 1.90, z * 1.12) });
-      wood.push({ geo: new THREE.BoxGeometry(0.17, 0.19, 0.09), color: V.WINDOW_GLOW, matrix: M(x * 1.14, 1.20, z * 1.14, 0, -a, 0) });
-    }
-    // gatehouse on the door (SE) side: arch, banded doors, portcullis teeth
-    stone.push({ geo: new THREE.BoxGeometry(1.15, 1.30, 0.30), color: 0xc4bba8, cell: "stone", matrix: M(0.62, 0.90, 1.32) });
-    wood.push({ geo: new THREE.BoxGeometry(0.86, 0.96, 0.14), color: 0x4d3826, cell: "plank", matrix: M(0.62, 0.72, 1.44) });
-    wood.push({ geo: new THREE.BoxGeometry(0.90, 0.07, 0.17), color: 0x6a6055, matrix: M(0.62, 0.98, 1.45) });
-    wood.push({ geo: new THREE.BoxGeometry(0.90, 0.07, 0.17), color: 0x6a6055, matrix: M(0.62, 0.52, 1.45) });
-    stone.push({ geo: new THREE.BoxGeometry(1.25, 0.16, 0.40), color: 0xa39a88, cell: "stone", matrix: M(0.62, 1.60, 1.32) });
-    wood.push({ geo: new THREE.BoxGeometry(0.16, 1.05, 0.90), color: 0x4d3826, cell: "plank", matrix: M(1.36, 0.75, 0.62) });
-    // keep roof, a lantern turret and the flag pole
-    team.push({ geo: new THREE.ConeGeometry(1.95, 1.10, 4), color: COL.CASTLE_ROOF, cell: "tile", matrix: M(0, 2.98, 0, 0, Math.PI / 4, 0) });
-    stone.push({ geo: new THREE.CylinderGeometry(0.26, 0.30, 0.42, 8), color: 0xcfc6b2, cell: "stone", matrix: M(0, 3.62, 0) });
-    team.push({ geo: new THREE.ConeGeometry(0.34, 0.40, 8), color: color, cell: "tile", matrix: M(0, 4.02, 0) });
-    wood.push({ geo: new THREE.CylinderGeometry(0.045, 0.045, 1.20, 5), color: 0x8a8070, matrix: M(0, 4.80, 0) });
+    // ---- the rocky motte the whole castle stands on, and the courtyard slab
+    // two frustums sharing the r=2.55 ring at y0.14 EXACTLY — an open skirt whose
+    // top ring floats off the upper slope lets the sky grin through at grazing angles
+    stone.push({ geo: new THREE.CylinderGeometry(2.28, 2.55, 0.26, 8), color: 0x757263, cell: "rock", matrix: M(0, 0.27, 0, 0, Math.PI / 8, 0) });
+    stone.push({ geo: new THREE.CylinderGeometry(2.55, 2.76, 0.14, 8, 1, true), color: 0x615e52, cell: "rock", matrix: M(0, 0.07, 0, 0, Math.PI / 8, 0) });
+    stone.push({ geo: new THREE.BoxGeometry(3.30, 0.10, 3.10), color: 0x83857c, cell: "stone", matrix: M(0, 0.45, 0) });
+    stone.push({ geo: new THREE.BoxGeometry(0.52, 0.34, 0.44), color: 0x6a6759, cell: "rock", matrix: M(2.00, 0.44, 1.60, 0, 0.5, 0.1) });
+    stone.push({ geo: new THREE.BoxGeometry(0.46, 0.30, 0.40), color: 0x6a6759, cell: "rock", matrix: M(-1.85, 0.40, -1.42, 0, 0.9, -0.08) });
 
-    const body = new THREE.Mesh(mergeColored(stone.concat(wood)), FSModels.bldMat());
+    // ---- crenellated curtain walls (gate bay lives in the front run, +Z)
+    const WALL_H = 1.05, WY = 0.40 + WALL_H / 2;
+    stone.push({ geo: new THREE.BoxGeometry(0.75, WALL_H, 0.22), color: WALLS, cell: "stone", matrix: M(-1.175, WY, 1.40) });
+    stone.push({ geo: new THREE.BoxGeometry(1.35, WALL_H, 0.22), color: WALLS, cell: "stone", matrix: M(0.875, WY, 1.40) });
+    stone.push({ geo: new THREE.BoxGeometry(3.10, WALL_H, 0.22), color: WALLS, cell: "stone", matrix: M(0, WY, -1.40) });
+    stone.push({ geo: new THREE.BoxGeometry(0.22, WALL_H, 2.80), color: WALLS, cell: "stone", matrix: M(-1.55, WY, 0) });
+    stone.push({ geo: new THREE.BoxGeometry(0.22, WALL_H, 2.80), color: WALLS, cell: "stone", matrix: M(1.55, WY, 0) });
+    const MY = 0.40 + WALL_H + 0.09;
+    for (const mx of [-1.35, -0.95, 0.55, 1.05]) stone.push({ geo: new THREE.BoxGeometry(0.20, 0.18, 0.26), color: WALLS, cell: "stone", matrix: M(mx, MY, 1.40) });
+    for (const mx of [-0.85, 0.25]) stone.push({ geo: new THREE.BoxGeometry(0.20, 0.18, 0.26), color: WALLS, cell: "stone", matrix: M(mx, MY, -1.40) });
+    for (const mz of [-0.75, 0.05]) stone.push({ geo: new THREE.BoxGeometry(0.26, 0.18, 0.20), color: WALLS, cell: "stone", matrix: M(-1.55, MY, mz) });
+    for (const mz of [-0.35, 0.45]) stone.push({ geo: new THREE.BoxGeometry(0.26, 0.18, 0.20), color: WALLS, cell: "stone", matrix: M(1.55, MY, mz) });
+
+    // ---- the keep: tall stone hall, stone pediments under a maroon roof
+    stone.push({ geo: new THREE.BoxGeometry(1.90, 2.15, 1.50), color: WALLS, cell: "stone", matrix: M(-0.42, 1.475, -0.52) });
+    stone.push({ geo: new THREE.BoxGeometry(2.00, 0.09, 1.60), color: TRIM, cell: "stone", matrix: M(-0.42, 2.38, -0.52) });
+    stone.push({ geo: gablePedGeo(), color: WALLS, cell: "stone", matrix: M(-0.42, 2.55, -0.52, 0, 0, 0, 1.86, 1.11, 0.78) });
+    team.push({ geo: gableRoofGeo(), color: RED, cell: "shingle", matrix: M(-0.42, 2.55, -0.52, 0, 0, 0, 2.05, 1.15, 0.82) });
+    // window slits + two warm lit panes
+    for (const wx of [-1.05, -0.42, 0.21]) for (const wy of [1.55, 2.12]) {
+      stone.push({ geo: new THREE.BoxGeometry(0.14, 0.32, 0.06), color: DARK, matrix: M(wx, wy, 0.24) });
+    }
+    wood.push({ geo: new THREE.BoxGeometry(0.16, 0.20, 0.06), color: V.WINDOW_GLOW, matrix: M(0.21, 1.08, 0.245) });
+    wood.push({ geo: new THREE.BoxGeometry(0.06, 0.20, 0.16), color: V.WINDOW_GLOW, matrix: M(-1.40, 1.30, -0.52) });
+
+    // ---- the tower cluster (tallest carries the flag, like the reference)
+    // A: great tower engaged on the keep's gate-side corner
+    stone.push({ geo: new THREE.CylinderGeometry(0.34, 0.42, 3.30, 8, 1, true), color: LIGHT, cell: "stone", matrix: M(0.62, 2.05, 0.28) });
+    stone.push({ geo: new THREE.CylinderGeometry(0.46, 0.36, 0.15, 8, 1, true), color: TRIM, cell: "stone", matrix: M(0.62, 3.74, 0.28) });
+    team.push({ geo: new THREE.ConeGeometry(0.55, 0.95, 8, 1, true), color: RED, cell: "shingle", matrix: M(0.62, 4.28, 0.28) });
+    stone.push({ geo: new THREE.BoxGeometry(0.10, 0.30, 0.06), color: DARK, matrix: M(0.62, 2.65, 0.66) });
+    stone.push({ geo: new THREE.BoxGeometry(0.10, 0.30, 0.06), color: DARK, matrix: M(0.62, 1.85, 0.70) });
+    // B: slender watchtower behind, second tallest, player pennant at the tip
+    stone.push({ geo: new THREE.CylinderGeometry(0.24, 0.30, 2.90, 8, 1, true), color: LIGHT, cell: "stone", matrix: M(1.12, 1.85, -0.78) });
+    team.push({ geo: new THREE.ConeGeometry(0.40, 0.78, 8, 1, true), color: RED, cell: "shingle", matrix: M(1.12, 3.69, -0.78) });
+    team.push({ geo: new THREE.ConeGeometry(0.10, 0.24, 6, 1, true), color: color, matrix: M(1.12, 4.18, -0.78) });
+    stone.push({ geo: new THREE.BoxGeometry(0.10, 0.26, 0.06), color: DARK, matrix: M(1.12, 2.42, -0.50) });
+    // C: mid tower over the gate wing
+    stone.push({ geo: new THREE.CylinderGeometry(0.30, 0.36, 2.10, 8, 1, true), color: LIGHT, cell: "stone", matrix: M(-1.18, 1.45, 0.52) });
+    team.push({ geo: new THREE.ConeGeometry(0.48, 0.85, 8, 1, true), color: RED, cell: "shingle", matrix: M(-1.18, 2.925, 0.52) });
+    stone.push({ geo: new THREE.BoxGeometry(0.10, 0.26, 0.06), color: DARK, matrix: M(-1.18, 1.72, 0.88) });
+    // D: little corner turret by the gate (base runs down the motte slope)
+    stone.push({ geo: new THREE.CylinderGeometry(0.24, 0.28, 1.85, 8, 1, true), color: LIGHT, cell: "stone", matrix: M(-1.48, 0.925, 1.28) });
+    team.push({ geo: new THREE.ConeGeometry(0.38, 0.62, 8, 1, true), color: RED, cell: "shingle", matrix: M(-1.48, 2.16, 1.28) });
+    // E: fat open bastion, crenellated, opposite the turret (footed on the slope)
+    stone.push({ geo: new THREE.CylinderGeometry(0.54, 0.62, 1.90, 8, 1, true), color: LIGHT, cell: "stone", matrix: M(1.46, 0.95, 1.22) });
+    stone.push({ geo: new THREE.CircleGeometry(0.54, 8), color: 0x7e8797, cell: "stone", matrix: M(1.46, 1.885, 1.22, -Math.PI / 2, 0, 0) });
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
+      stone.push({ geo: new THREE.BoxGeometry(0.16, 0.16, 0.16), color: LIGHT, cell: "stone", matrix: M(1.46 + Math.cos(a) * 0.48, 1.97, 1.22 + Math.sin(a) * 0.48, 0, -a, 0) });
+    }
+
+    // ---- red-roofed halls tucked against the walls (the annex wings)
+    stone.push({ geo: new THREE.BoxGeometry(0.95, 0.90, 0.85), color: WALLS, cell: "stone", matrix: M(1.12, 0.85, 0.30) });
+    team.push({ geo: gableGeo(), color: RED, cell: "shingle", matrix: M(1.12, 1.30, 0.30, 0, Math.PI / 2, 0, 0.95, 0.50, 0.52) });
+    stone.push({ geo: new THREE.BoxGeometry(0.80, 0.75, 0.62), color: WALLS, cell: "stone", matrix: M(-1.02, 0.775, 1.10) });
+    team.push({ geo: gableGeo(), color: RED, cell: "shingle", matrix: M(-1.02, 1.15, 1.10, 0, 0, 0, 0.85, 0.42, 0.36) });
+
+    // ---- gatehouse: arch, banded door, red cap and the timber bridge out
+    stone.push({ geo: new THREE.BoxGeometry(1.00, 1.50, 0.44), color: 0x939cb1, cell: "stone", matrix: M(-0.30, 1.15, 1.42) });
+    stone.push({ geo: new THREE.BoxGeometry(1.12, 0.12, 0.52), color: TRIM, cell: "stone", matrix: M(-0.30, 1.96, 1.42) });
+    team.push({ geo: gableGeo(), color: RED, cell: "shingle", matrix: M(-0.30, 2.02, 1.42, 0, 0, 0, 1.12, 0.42, 0.30) });
+    stone.push({ geo: new THREE.BoxGeometry(0.72, 0.98, 0.05), color: 0xa4adc2, cell: "stone", matrix: M(-0.30, 0.92, 1.625) });
+    stone.push({ geo: new THREE.BoxGeometry(0.56, 0.86, 0.05), color: DARK, matrix: M(-0.30, 0.86, 1.645) });
+    stone.push({ geo: new THREE.CircleGeometry(0.28, 6, 0, Math.PI), color: DARK, matrix: M(-0.30, 1.29, 1.646) });
+    wood.push({ geo: new THREE.BoxGeometry(0.50, 0.70, 0.05), color: 0x4d3826, cell: "plank", matrix: M(-0.30, 0.78, 1.655) });
+    wood.push({ geo: new THREE.BoxGeometry(0.54, 0.06, 0.06), color: 0x6a6055, matrix: M(-0.30, 0.92, 1.66) });
+    wood.push({ geo: new THREE.BoxGeometry(0.62, 0.08, 1.56), color: 0x8a6b42, cell: "plank", matrix: M(-0.30, 0.245, 2.42, 0.26, 0, 0) });
+    wood.push({ geo: new THREE.BoxGeometry(0.05, 0.05, 1.44), color: 0x75592f, matrix: M(-0.58, 0.60, 2.38, 0.26, 0, 0) });
+    wood.push({ geo: new THREE.BoxGeometry(0.05, 0.05, 1.44), color: 0x75592f, matrix: M(-0.02, 0.60, 2.38, 0.26, 0, 0) });
+    wood.push({ geo: new THREE.BoxGeometry(0.06, 0.38, 0.06), color: 0x75592f, matrix: M(-0.58, 0.24, 3.02) });
+    wood.push({ geo: new THREE.BoxGeometry(0.06, 0.38, 0.06), color: 0x75592f, matrix: M(-0.02, 0.24, 3.02) });
+
+    // ---- the flag over the great tower
+    wood.push({ geo: new THREE.CylinderGeometry(0.035, 0.035, 1.05, 5, 1, true), color: 0x8a8070, matrix: M(0.62, 5.02, 0.28) });
+
+    const body = new THREE.Mesh(mergeColored(stone.concat(wood)), castleMat());
     body.name = "castleBody";
     g.add(body);
-    const trim = new THREE.Mesh(mergeColored(team), FSModels.bldMat());
+    const trim = new THREE.Mesh(mergeColored(team), castleMat());
     trim.name = "castleTrim";
     g.add(trim);
 
     const banner = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.62, 0.44),
+      new THREE.PlaneGeometry(0.60, 0.42),
       mat(0xffffff, { map: bannerTexture(color), side: THREE.DoubleSide, emissiveOf: color, emissiveK: 0.35 })
     );
-    banner.position.set(0.32, 5.16, 0);
+    banner.position.set(0.94, 5.32, 0.28);
     banner.name = "castleBanner";
     g.add(banner);
     g.userData.banner = banner;
@@ -1743,21 +1773,16 @@
     let tris = 0;
     g.traverse((o) => {
       if (!o.geometry || !o.geometry.attributes.position) return;
-      // indexed geometry (the GLB) counts triangles by index, merged atlas geometry by position
       tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3;
     });
-    const glb = !!g.userData.glb;
-    let anyMap = false;
-    g.traverse((o) => { if (o.material && o.material.map) anyMap = true; });
     const out = {
       type: type, props: g.userData.props || [], chimney: g.userData.chimney || null,
-      spin: !!g.userData.spin, tris: Math.round(tris), glb: glb,
-      textured: glb ? anyMap
-        : !!(g.children[0] && g.children[0].material && g.children[0].material.map),
+      spin: !!g.userData.spin, tris: Math.round(tris),
+      textured: !!(g.children[0] && g.children[0].material && g.children[0].material.map),
     };
-    // GLB clones SHARE the cached template's geometry — disposing it here would
-    // blank every castle rendered afterwards. Only fresh procedural geometry dies.
-    if (!glb) g.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+    // the merged geometry is fresh per call — cached SOURCE geos (gable, boat)
+    // are cloned by mergeColored, so this dispose never touches the cache
+    g.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
     return out;
   };
 

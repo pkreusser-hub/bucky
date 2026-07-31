@@ -1121,11 +1121,7 @@ H.run("farmstead-economy", async (t) => {
         for (let k = 0; k < pos.array.length; k++) sum = (sum + Math.round(pos.array[k] * 97) * (k + 1)) % 2147483647;
       });
       out.types.push([type, Math.round(tris)]);
-      // The castle may be the user-supplied GLB asset (own budget, checked separately);
-      // every procedural model stays under the shared ceiling.
-      if (type === "castle" && typeof FSModels !== "undefined" && FSModels._castleGLB) {
-        out.castleGlbTris = Math.round(tris);
-      } else if (tris > out.maxTris) out.maxTris = Math.round(tris);
+      if (tris > out.maxTris) out.maxTris = Math.round(tris);
       sigs.add(verts + ":" + Math.round(tris) + ":" + sum);
       if (g.userData.spin) out.spin.push(type);
       if (g.userData.smoke) out.smoke.push(type);
@@ -1133,7 +1129,6 @@ H.run("farmstead-economy", async (t) => {
     out.distinct = sigs.size;
     out.n = FSC.BLD_LIST.length;
     out.budget = FSC.VIS.BLD_TRI_MAX;      /* ===== PHASE-V ===== */
-    out.castleGlbBudget = FSC.VIS.CASTLE_GLB_TRI_MAX || 5200;
     out.dupes = out.n - sigs.size;
     return out;
   });
@@ -1147,9 +1142,6 @@ H.run("farmstead-economy", async (t) => {
    * pass cannot silently blow past its own budget. */
   t.check("each model stays inside the FSC.VIS.BLD_TRI_MAX triangle budget",
     models.maxTris <= models.budget, models);
-  t.check("the GLB castle (user asset) stays inside FSC.VIS.CASTLE_GLB_TRI_MAX",
-    models.castleGlbTris === undefined || models.castleGlbTris <= (models.castleGlbBudget || 5200),
-    { castleGlbTris: models.castleGlbTris, budget: models.castleGlbBudget });
   // the four mines deliberately share one pithead (only the ore heap is tinted),
   // so four of the signatures collapse into one — everything else is unique.
   t.check("the silhouettes really differ from each other", models.distinct >= models.n - 4, models);

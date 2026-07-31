@@ -261,9 +261,6 @@ H.run("farmstead-visuals", async (t) => {
     ["fish", "ring", "drop", "bird", "fly", "leaf", "dust"].every((k) => fish.pools.indexOf(k) >= 0), fish.pools);
 
   // ════════════════════════════════════════════════════ 5. building charm
-  // make the castle-GLB state deterministic (initDynamic loads it async)
-  await page.evaluate(() => new Promise((res) =>
-    window.FSModels.loadCastleGLB("assets/farmstead/castle.glb", res)));
   const blds = await page.evaluate(() => {
     const FS = window.__FS__, FSC = FS.FSC, M = FS.FSModels;
     const out = { max: 0, textured: 0, withProps: 0, chimneys: [], noProps: [], n: 0 };
@@ -271,11 +268,8 @@ H.run("farmstead-visuals", async (t) => {
     for (const ty of FSC.BLD_LIST.concat(["castle"])) {
       const d = M.buildingDetail(ty);
       out.n++;
-      // the user-supplied castle GLB carries its own budget; procedural models
-      // share BLD_TRI_MAX (max is reported for the procedural set only)
-      const budget = d.glb ? (FSC.VIS.CASTLE_GLB_TRI_MAX || 5200) : FSC.VIS.BLD_TRI_MAX;
-      if (d.tris > budget) out.over.push([ty, d.tris, budget]);
-      if (!d.glb) out.max = Math.max(out.max, d.tris);
+      if (d.tris > FSC.VIS.BLD_TRI_MAX) out.over.push([ty, d.tris]);
+      out.max = Math.max(out.max, d.tris);
       if (d.textured) out.textured++;
       if (d.props && d.props.length >= 3) out.withProps++; else out.noProps.push(ty);
       if (d.chimney) out.chimneys.push(ty);
@@ -290,8 +284,8 @@ H.run("farmstead-visuals", async (t) => {
     blds.withProps === blds.n, blds.noProps);
   t.check("the producers that use fire have chimneys",
     ["bakery", "smelter", "goldsmelter", "weaponsmith", "toolmaker", "butcher"].every((k) => blds.chimneys.indexOf(k) >= 0), blds.chimneys);
-  t.check("and every procedural model still fits FSC.VIS.BLD_TRI_MAX", blds.max <= blds.budget, blds);
-  t.check("no model exceeds its own budget (GLB castle included)", blds.over.length === 0, blds.over);
+  t.check("and every model still fits FSC.VIS.BLD_TRI_MAX", blds.max <= blds.budget, blds);
+  t.check("no model exceeds the budget (castle included)", blds.over.length === 0, blds.over);
 
   // smoke only while the chimney is actually working
   const smoke = await page.evaluate(() => {
@@ -419,12 +413,8 @@ H.run("farmstead-visuals", async (t) => {
   });
   t.check("draw calls in a dense developed town stay under 900", budget.draws < 900, budget);
   t.check("…and comfortably under the world suite's own 120 ceiling too", budget.draws < 120, budget);
-  // With the tuft layer disabled (user art direction) the old "meadow thins at
-  // distance" LOD effect no longer applies, and the far frustum legitimately sees
-  // MORE buildings (both GLB castles). What matters is that far zoom stays cheap:
-  // no tufts, and only bounded triangle growth from the wider view.
-  t.check("zoomed all the way out stays cheap (no tufts, bounded triangle growth)",
-    budget.farTufts === 0 && budget.farTris < budget.tris * 1.1, budget);
+  t.check("zoomed all the way out the meadow drops out and the triangle count falls",
+    budget.farTufts === 0 && budget.farTris < budget.tris, budget);
   t.check("an empty map is cheap", budget.emptyDraws < 60, budget);
   t.check("FSFX.frame stays inside its 1.5ms steady-state budget", budget.fxMs <= 1.5, budget);
 

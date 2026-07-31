@@ -399,7 +399,7 @@
     FIELD: [0x6b5236, 0x7f7a44, 0x94974a, 0xc0b055, 0xdcb94a],
     FIELD_STUB: 0x8a7a55,
     CASTLE_WALL: 0xbfb6a4,
-    CASTLE_ROOF: 0x7d3a2e,
+    CASTLE_ROOF: 0x74282c,
     CASTLE_WOOD: 0x6b5137,
     BLD_WALL: 0xc9b79a,
     BLD_ROOF: 0x8c4a34,
@@ -773,7 +773,6 @@
     ROOF_SLATE: 0x6a6f78, WINDOW_GLOW: 0xffd98a, CHIMNEY: 0xa08a72,
     FOUNDATION: 0x8e8577,
     BLD_TRI_MAX: 900,
-    CASTLE_GLB_TRI_MAX: 5200,   // the user-supplied castle GLB gets its own budget
 
     // ---- FX budgets (FSFX) ----------------------------------------------
     FX_BUDGET_MS: 1.5,
