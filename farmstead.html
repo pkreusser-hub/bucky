@@ -69,13 +69,27 @@
   .playBtn:active{ transform:translateY(2px); box-shadow:0 2px 0 var(--red-d); }
   .hint{ margin:16px auto 0; max-width:380px; font-size:12.5px; line-height:1.6; font-weight:600;
     color:var(--navy-d); opacity:.92; }
+  .hint a{ color:var(--navy-d); font-weight:800; }
+  .supStep{ flex:1; display:flex; align-items:center; justify-content:space-between; gap:8px;
+    background:rgba(255,255,255,.08); border:2px solid var(--line); border-radius:11px; padding:6px 10px; }
+  .supStep button{ appearance:none; border:0; background:rgba(255,255,255,.14); color:#fff; width:30px; height:30px;
+    border-radius:9px; font:900 17px inherit; }
+  .supStep span{ font:900 16px inherit; color:#fff; min-width:26px; text-align:center; }
+  .contBtn{
+    width:min(420px,100%); margin:12px 0 0; appearance:none; border:2px solid #ffd98a; cursor:pointer;
+    background:rgba(255,217,138,.16); color:#fff; font-weight:900; font-size:15px; padding:12px 16px;
+    border-radius:14px;
+  }
+  .contBtn.hidden{ display:none; }
+  .contBtn:active{ transform:translateY(1px); }
+  #coop .cbtn small{ display:block; font-weight:600; font-size:10.5px; text-transform:none; letter-spacing:0; color:#cddcf5; margin-top:2px; }
   .back{ position:fixed; top:calc(10px + var(--sat)); left:10px; z-index:31;
     color:#fff; text-decoration:none; font-weight:800; font-size:14px;
     background:rgba(35,51,87,.72); padding:7px 12px; border-radius:10px; }
 
   /* ───────────────── in-game chrome (Phase E replaces) ───────────────── */
   #dbg{
-    position:fixed; top:calc(6px + var(--sat)); right:8px; z-index:20;
+    position:fixed; top:calc(44px + var(--sat)); right:8px; z-index:20;
     font:600 10.5px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;
     color:#eaf2ff; background:rgba(24,35,59,.62); border:1px solid var(--line);
     padding:4px 7px; border-radius:8px; pointer-events:none; white-space:pre;
@@ -179,6 +193,358 @@
   }
   #hostLeft h3{ margin:0 0 8px; font-size:17px; }
   #hostLeft p{ margin:0 0 14px; font-size:13px; color:#cddcf5; line-height:1.5; }
+
+  /* ═══════════════════════════════════════════════════════════════════════
+   * ===== PHASE E: the real UI (fs-ui.js builds this markup; CSS lives ======
+   * ===== here — house rule: self-contained CSS in the page) ================
+   * ═══════════════════════════════════════════════════════════════════════ */
+  #fsui-root.hidden{ display:none; }
+  #fsui-root button{ font-family:inherit; cursor:pointer; }
+  .fs-dim{ color:#a9bcdc; font-weight:600; }
+  .fs-note{ font-size:12px; line-height:1.5; margin:0 0 10px; }
+  .fs-btn{
+    display:block; width:100%; margin-top:8px; appearance:none; border:1px solid var(--line);
+    background:rgba(255,255,255,.10); color:#eaf2fb; font:800 13px inherit; padding:9px 10px;
+    border-radius:10px; text-align:center;
+  }
+  .fs-btn:active{ transform:translateY(1px); }
+  .fs-btn:disabled{ opacity:.4; pointer-events:none; }
+  .fs-primary{ background:var(--red); border-color:#e2707c; box-shadow:0 3px 0 var(--red-d); }
+  .fs-danger{ background:rgba(186,48,62,.28); border-color:#e2707c; color:#ffd9dc; }
+  .fs-ghost{ background:rgba(255,255,255,.08); }
+  .fs-x{
+    appearance:none; border:0; background:rgba(255,255,255,.12); color:#fff; width:26px; height:26px;
+    border-radius:8px; font-size:13px; line-height:1; float:right;
+  }
+
+  /* ───────────────────── top bar ───────────────────── */
+  #fsTopbar{
+    position:fixed; top:0; left:0; right:0; z-index:15;
+    padding:calc(6px + var(--sat)) 10px 6px; display:flex; align-items:center; gap:10px;
+    background:linear-gradient(180deg, rgba(15,22,38,.82), rgba(15,22,38,.42) 80%, transparent);
+    pointer-events:none;
+  }
+  #fsTicker{ display:flex; gap:3px; flex-wrap:wrap; pointer-events:auto; }
+  .tick-item{
+    display:flex; align-items:center; gap:3px; background:rgba(24,35,59,.72); border:1px solid var(--line);
+    border-radius:9px; padding:4px 7px; font:800 12px/1 ui-monospace,Consolas,monospace; color:#eaf2fb;
+    white-space:nowrap;
+  }
+  .tick-item .ico{ font-size:13px; }
+  .fs-top-right{ margin-left:auto; display:flex; align-items:center; gap:6px; pointer-events:auto; }
+  .fs-icobtn{
+    position:relative; appearance:none; border:1px solid var(--line); background:rgba(24,35,59,.72);
+    color:#fff; width:34px; height:34px; border-radius:10px; font-size:16px;
+  }
+  .fs-chip{
+    appearance:none; border:1px solid #e2707c; background:rgba(186,48,62,.55); color:#fff;
+    font:800 12.5px inherit; padding:6px 10px; border-radius:10px;
+  }
+  .fs-chip.hidden{ display:none; }
+  .fs-badge{
+    position:absolute; top:-5px; right:-5px; background:var(--red); color:#fff; font:800 10px/1 inherit;
+    padding:2.5px 5px; border-radius:999px; border:1px solid rgba(255,255,255,.5); min-width:10px; text-align:center;
+  }
+  .fs-badge.hidden{ display:none; }
+  .fs-dropwrap{ position:relative; }
+  .fs-drop{
+    position:absolute; top:40px; right:0; z-index:16; width:min(320px,84vw); max-height:60vh; overflow-y:auto;
+    background:rgba(20,29,49,.97); border:1px solid var(--line); border-radius:14px; padding:8px;
+    box-shadow:0 14px 30px rgba(0,0,0,.4);
+  }
+  .fs-drop.hidden{ display:none; }
+  .fs-notif-row{
+    display:flex; align-items:center; gap:8px; width:100%; text-align:left; appearance:none; border:0;
+    background:rgba(255,255,255,.05); color:#eaf2fb; font:700 12.5px/1.35 inherit; padding:8px 9px;
+    border-radius:9px; margin-bottom:5px;
+  }
+  .fs-notif-row .ico{ font-size:15px; flex:0 0 auto; }
+  .fs-notif-row .txt{ flex:1; }
+
+  /* ───────────────────── speed control (headline feature) ───────────────────── */
+  #fsSpeed{
+    position:fixed; top:calc(46px + var(--sat)); left:50%; transform:translateX(-50%); z-index:15;
+    display:flex; gap:4px; background:rgba(15,22,38,.78); border:2px solid var(--line); border-radius:14px;
+    padding:4px;
+  }
+  #fsSpeed button{
+    appearance:none; border:0; background:transparent; color:#cddcf5; font:900 15px inherit;
+    padding:8px 15px; border-radius:11px; min-width:46px;
+  }
+  #fsSpeed button.on{ background:var(--red); color:#fff; box-shadow:0 3px 0 var(--red-d); }
+
+  /* ───────────────────── bottom-left dock ───────────────────── */
+  #fsDock{
+    position:fixed; left:calc(8px + env(safe-area-inset-left,0px)); bottom:calc(8px + var(--sab)); z-index:15;
+    display:flex; gap:5px;
+  }
+  #fsDock button{
+    display:flex; flex-direction:column; align-items:center; gap:2px; appearance:none; border:2px solid var(--line);
+    background:rgba(24,35,59,.85); color:#eaf2fb; border-radius:13px; padding:8px 9px; font-size:19px;
+    min-width:52px;
+  }
+  #fsDock button b{ font-size:9.5px; font-weight:800; letter-spacing:.3px; text-transform:uppercase; color:#a9bcdc; }
+  #fsDock button.on{ background:var(--red); border-color:#e2707c; }
+  #fsDock button.on b{ color:#ffe1e4; }
+
+  /* ───────────────────── build panel ───────────────────── */
+  #fsBuildPanel{
+    position:fixed; left:calc(8px + env(safe-area-inset-left,0px)); bottom:calc(80px + var(--sab)); z-index:15;
+    width:min(360px, 92vw); background:rgba(20,29,49,.97); border:1px solid var(--line); border-radius:16px;
+    padding:10px; box-shadow:0 14px 30px rgba(0,0,0,.4);
+  }
+  #fsBuildPanel.hidden{ display:none; }
+  #fsBuildTabs{ display:flex; gap:4px; flex-wrap:wrap; margin-bottom:8px; }
+  .fs-tab{
+    appearance:none; border:1px solid var(--line); background:rgba(255,255,255,.06); color:#cddcf5;
+    font:800 11.5px inherit; padding:6px 9px; border-radius:9px;
+  }
+  .fs-tab.on{ background:var(--navy); border-color:#5a7bc4; color:#fff; }
+  #fsBuildGrid{ display:grid; grid-template-columns:repeat(3,1fr); gap:6px; max-height:44vh; overflow-y:auto; }
+  .build-item{
+    display:flex; flex-direction:column; align-items:center; gap:2px; appearance:none;
+    border:1px solid var(--line); background:rgba(255,255,255,.06); color:#eaf2fb; border-radius:11px;
+    padding:8px 4px;
+  }
+  .build-item .bi-ico{ font-size:20px; }
+  .build-item .bi-name{ font-size:10px; font-weight:800; text-align:center; line-height:1.15; }
+  .build-item .bi-cost{ font-size:10px; color:#cddcf5; font-weight:700; }
+  .build-item.armed{ background:var(--red); border-color:#e2707c; }
+  .build-item.bad{ opacity:.38; }
+
+  /* ───────────────────── connect chip (QoL#1) ───────────────────── */
+  #fsConnectChip{
+    position:fixed; left:50%; bottom:calc(80px + var(--sab)); transform:translateX(-50%); z-index:15;
+    display:flex; align-items:center; gap:8px; background:rgba(20,29,49,.96); border:1px solid #ffd98a;
+    border-radius:13px; padding:8px 10px; font:800 12.5px inherit; color:#eaf2fb;
+  }
+  #fsConnectChip.hidden{ display:none; }
+  #fsConnectChip button{ appearance:none; border:1px solid var(--line); border-radius:9px; padding:6px 10px; font:800 12px inherit; }
+  #fsConnectChip .fs-primary{ width:auto; margin:0; }
+  #fsConnectChip .fs-ghost{ width:auto; margin:0; color:#fff; background:rgba(255,255,255,.1); }
+
+  /* ───────────────────── context panel (flag / building) ───────────────────── */
+  #fsContext{
+    position:fixed; right:calc(8px + env(safe-area-inset-right,0px)); top:calc(96px + var(--sat)); z-index:15;
+    width:min(300px, 90vw); max-height:min(60vh, 520px); overflow-y:auto;
+    background:rgba(20,29,49,.97); border:1px solid var(--line); border-radius:16px; padding:12px;
+    box-shadow:0 14px 30px rgba(0,0,0,.4); color:#eaf2fb;
+  }
+  #fsContext.hidden{ display:none; }
+  #fsContextBody h3{ margin:0 0 8px; font-size:15px; }
+  .ctx-row{ display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:12.5px; margin:5px 0 2px; }
+  .ctx-row b{ font-weight:800; }
+  .ctx-row.fs-warn b{ color:#ffcf7a; }
+  .fs-bar{ height:7px; border-radius:5px; background:rgba(255,255,255,.12); overflow:hidden; margin-bottom:6px; }
+  .fs-bar-fill{ height:100%; background:linear-gradient(90deg,#6fd67a,#3fae54); }
+  .ctx-sec{ margin:10px 0 4px; font:800 11.5px inherit; letter-spacing:.4px; text-transform:uppercase; color:#a9bcdc; }
+  .ctx-goods{ display:flex; flex-wrap:wrap; gap:5px; margin:4px 0 6px; }
+  .ctx-good{
+    display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px;
+    background:rgba(255,255,255,.1); border-radius:8px; font-size:14px;
+  }
+  .ctx-inv-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:4px; }
+  .inv-cell{
+    position:relative; display:flex; flex-direction:column; align-items:center; background:rgba(255,255,255,.06);
+    border-radius:8px; padding:5px 2px; font-size:10.5px;
+  }
+  .inv-cell.zero{ opacity:.35; }
+  .inv-cell .ico{ font-size:13px; }
+  .inv-cell .n{ font-weight:800; }
+  .fs-modebtn{
+    position:absolute; top:1px; right:1px; appearance:none; border:0; background:transparent; font-size:9px;
+    padding:1px; line-height:1;
+  }
+  .ctx-pool{ display:flex; flex-wrap:wrap; gap:4px; }
+  .pool-chip{ background:rgba(255,255,255,.08); border-radius:7px; padding:3px 7px; font-size:10.5px; font-weight:700; }
+  .ctx-garrison{ display:flex; flex-wrap:wrap; gap:4px; margin-bottom:4px; }
+  .rank-chip{ border:2px solid; border-radius:8px; padding:2px 6px; font-size:11px; background:rgba(255,255,255,.06); }
+  .fs-toggle{ display:flex; align-items:center; gap:7px; font-size:12px; font-weight:700; margin-top:9px; color:#eaf2fb; }
+  .fs-note.fs-toggle{ margin-top:0; }
+
+  /* ───────────────────── attack / demolish dialogs + game over ───────────────────── */
+  .fs-modal{
+    position:fixed; inset:0; z-index:30; display:flex; align-items:center; justify-content:center;
+    background:rgba(8,13,24,.62); padding:16px;
+  }
+  .fs-modal.hidden{ display:none; }
+  .fs-modal-box{
+    width:min(360px,100%); background:rgba(20,29,49,.98); border:2px solid var(--line); border-radius:18px;
+    padding:18px; box-shadow:0 16px 36px rgba(0,0,0,.44); color:#eaf2fb;
+  }
+  .fs-modal-box h3{ margin:0 0 10px; font-size:17px; }
+  .fs-rowlbl{ display:block; font-size:12px; font-weight:700; color:#cddcf5; margin:8px 0 4px; }
+  #fsAttackCount{ width:100%; }
+  .fs-modal-actions{ display:flex; gap:8px; margin-top:14px; }
+  .fs-modal-actions button{ flex:1; margin:0; }
+  #fsGameOver{ z-index:34; }
+  .fs-gameover-box{ width:min(420px,100%); text-align:center; }
+  #fsGameOverTitle{ font:900 24px inherit; margin-bottom:10px; letter-spacing:1px; }
+  .go-win{ color:#ffd98a; } .go-lose{ color:#e2707c; }
+  #fsGameOverStats{ display:flex; flex-direction:column; gap:6px; margin-bottom:10px; text-align:left; }
+  .go-row{ display:flex; align-items:center; gap:8px; font:800 13px inherit; }
+  .go-row i{ width:12px; height:12px; border-radius:4px; display:inline-block; }
+  .go-row .fs-dim{ margin-left:auto; font-size:11.5px; }
+  #fsGameOverChart{ width:100%; height:auto; background:rgba(255,255,255,.05); border-radius:10px; }
+
+  /* ───────────────────── side menu + sheets ───────────────────── */
+  #fsMenu{
+    position:fixed; top:calc(46px + var(--sat)); right:calc(8px + env(safe-area-inset-right,0px)); z-index:16;
+    display:flex; flex-direction:column; gap:4px; background:rgba(20,29,49,.97); border:1px solid var(--line);
+    border-radius:14px; padding:7px; width:210px; box-shadow:0 14px 30px rgba(0,0,0,.4);
+  }
+  #fsMenu.hidden{ display:none; }
+  #fsMenu button{ appearance:none; border:0; background:transparent; color:#eaf2fb; text-align:left; font:800 13px inherit; padding:9px 10px; border-radius:9px; }
+  #fsMenu button:active{ background:rgba(255,255,255,.08); }
+  #fsSheetWrap{
+    position:fixed; inset:0; z-index:30; display:flex; align-items:center; justify-content:center; padding:16px;
+    background:rgba(8,13,24,.62);
+  }
+  #fsSheetWrap.hidden{ display:none; }
+  .fs-sheet{
+    width:min(460px,100%); max-height:min(78vh,640px); background:rgba(20,29,49,.98); border:2px solid var(--line);
+    border-radius:18px; display:flex; flex-direction:column; box-shadow:0 16px 36px rgba(0,0,0,.44); color:#eaf2fb;
+  }
+  .fs-sheet-head{ display:flex; align-items:center; justify-content:space-between; padding:14px 16px 8px; }
+  .fs-sheet-head h2{ margin:0; font-size:16px; }
+  #fsSheetBody{ padding:0 16px 16px; overflow-y:auto; }
+  .fs-sec-h{ font:800 11.5px inherit; letter-spacing:.4px; text-transform:uppercase; color:#a9bcdc; margin:14px 0 4px; }
+  .fs-row2{ display:flex; align-items:center; justify-content:space-between; font-size:12.5px; font-weight:700; margin:6px 0 3px; }
+  .fs-num{ color:#ffd98a; font-weight:800; }
+  .fs-stepper{ display:flex; gap:1.5px; margin-bottom:6px; }
+  .fs-tick{ flex:1; height:16px; appearance:none; border:0; background:rgba(255,255,255,.12); border-radius:2px; padding:0; }
+  .fs-tick.on{ background:var(--red); }
+  .fs-tick:first-child{ border-top-left-radius:5px; border-bottom-left-radius:5px; }
+  .fs-tick:last-child{ border-top-right-radius:5px; border-bottom-right-radius:5px; }
+  .fs-prio-list{ display:flex; flex-direction:column; gap:3px; max-height:52vh; overflow-y:auto; }
+  .fs-prio-row{ display:flex; align-items:center; gap:7px; background:rgba(255,255,255,.05); border-radius:8px; padding:5px 8px; }
+  .fs-prio-n{ width:18px; text-align:center; font:800 11px inherit; color:#a9bcdc; }
+  .fs-prio-ico{ font-size:14px; }
+  .fs-prio-name{ flex:1; font-size:12.5px; font-weight:700; text-transform:capitalize; }
+  .fs-arrow{ appearance:none; border:1px solid var(--line); background:rgba(255,255,255,.08); color:#fff; width:26px; height:24px; border-radius:7px; font-size:11px; }
+  .fs-arrow:disabled{ opacity:.25; }
+  .fs-stepbtns{ display:flex; gap:8px; margin:4px 0 6px; }
+  .fs-stepbtns .fs-btn{ margin:0; width:44px; }
+  .fs-occ-row{ display:flex; align-items:center; gap:8px; background:rgba(255,255,255,.05); border-radius:9px; padding:7px 9px; margin-bottom:5px; font-size:11.5px; }
+  .fs-occ-tier{ flex:0 0 58px; font-weight:800; }
+  .fs-occ-row label{ display:flex; align-items:center; gap:4px; font-weight:700; color:#cddcf5; }
+  .fs-occ-row select{ background:rgba(255,255,255,.1); color:#fff; border:1px solid var(--line); border-radius:6px; font:700 11px inherit; padding:3px 4px; }
+  #fsStatsTabs{ display:flex; gap:4px; flex-wrap:wrap; margin-bottom:8px; }
+  #fsStatsCanvas{ width:100%; height:auto; background:rgba(255,255,255,.05); border-radius:10px; }
+  #fsStatsLegend{ display:flex; gap:10px; flex-wrap:wrap; margin-top:8px; }
+  .fs-legend-chip{ display:flex; align-items:center; gap:5px; font-size:11.5px; font-weight:700; }
+  .fs-legend-chip i{ width:10px; height:10px; border-radius:3px; display:inline-block; }
+  .fs-save-row{ display:flex; align-items:center; justify-content:space-between; gap:8px; background:rgba(255,255,255,.05); border-radius:10px; padding:9px 10px; margin-bottom:6px; }
+  .fs-save-info{ display:flex; flex-direction:column; gap:2px; font-size:12.5px; }
+  .fs-save-info .fs-dim{ font-size:11px; }
+  .fs-save-btns{ display:flex; gap:6px; }
+  .fs-save-btns .fs-btn{ margin:0; width:auto; padding:7px 9px; font-size:11.5px; }
+  .fs-help h4{ margin:14px 0 4px; font-size:13px; color:#ffd98a; }
+  .fs-help h4:first-child{ margin-top:0; }
+  .fs-help p, .fs-help li{ font-size:12.5px; line-height:1.55; color:#eaf2fb; }
+  .fs-help pre{
+    white-space:pre-wrap; font:600 11.5px/1.6 ui-monospace,Consolas,monospace; background:rgba(255,255,255,.05);
+    border-radius:10px; padding:9px 10px; color:#cddcf5;
+  }
+  .fs-help ul{ margin:0; padding-left:18px; }
+
+  /* ───────────────────── minimap ───────────────────── */
+  #fsMinimap{
+    position:fixed; right:calc(8px + env(safe-area-inset-right,0px)); bottom:calc(8px + var(--sab)); z-index:15;
+    background:rgba(15,22,38,.75); border:2px solid var(--line); border-radius:14px; padding:5px;
+  }
+  #fsMinimapCanvas{ display:block; width:180px; height:180px; border-radius:9px; cursor:crosshair; touch-action:none; }
+  #fsMinimapToggle{ position:absolute; top:-14px; left:50%; transform:translateX(-50%); width:28px; height:20px; border-radius:8px; font-size:11px; }
+  #fsMinimap.collapsed #fsMinimapCanvas{ display:none; width:0; height:0; }
+  #fsMinimap.collapsed{ padding:5px 10px; }
+
+  /* ───────────────────── toasts ───────────────────── */
+  #fsToasts{
+    position:fixed; top:calc(92px + var(--sat)); left:50%; transform:translateX(-50%); z-index:18;
+    display:flex; flex-direction:column; gap:6px; align-items:center; pointer-events:none; width:min(360px,88vw);
+  }
+  .fs-toast{
+    background:rgba(20,29,49,.94); border:1px solid var(--line); border-radius:11px; padding:8px 14px;
+    font:800 12.5px inherit; color:#eaf2fb; box-shadow:0 8px 18px rgba(0,0,0,.3); text-align:center;
+  }
+  .fs-toast-err{ border-color:#e2707c; background:rgba(122,31,40,.85); }
+
+  /* ───────────────────── restyle the legacy temp UI (kept for suite/back-compat) ───────────────────── */
+  /* PHASE E fix: the old centered left:50%/translateX(-50%) shrink-to-fit box
+   * reached ~320-960px on a 1280-wide screen and got its left few characters
+   * silently painted over by #fsDock/#fsBuildPanel (same z-band, both anchored
+   * left:8px, right edge ~360px) — found via screenshot review. Pinning left/
+   * right instead of centering-by-transform keeps it provably clear of BOTH
+   * the dock/build-panel cluster (fixed ~360px from the left) and the minimap
+   * (fixed ~203px from the right) at any width the media query below leaves
+   * it visible at (it's display:none under 700px). */
+  #bhint{
+    z-index:8; opacity:.5; font-size:9.5px; padding:4px 9px; bottom:calc(3px + var(--sab));
+    left:calc(380px + env(safe-area-inset-left,0px)); right:calc(210px + env(safe-area-inset-right,0px));
+    transform:none; max-width:none;
+  }
+  #bhint:hover{ opacity:.95; }
+  #bmode{ z-index:17; bottom:calc(10px + var(--sab)); background:rgba(24,35,59,.9); }
+  #dbg{ z-index:9; opacity:.45; }
+  #dbg:hover{ opacity:.95; }
+  #speedTag{ display:none; }
+
+  /* co-op chrome sits above the base HUD, below dialogs */
+  #netChip, #netInvite, #pingBtn{ z-index:22; }
+  #pingMark{ z-index:23; animation:fsPingBounce 0.9s ease-in-out infinite; }
+  @keyframes fsPingBounce{ 0%,100%{ transform:translate(-50%,-100%); } 50%{ transform:translate(-50%,-118%); } }
+  #netInvite{
+    left:50%; top:calc(50px + var(--sat)); transform:translateX(-50%); width:min(320px,90vw);
+    text-align:center; padding:14px 16px;
+  }
+  #netInvite .code{ font-size:26px; }
+  #pingBtn{ left:auto; right:calc(8px + var(--sat)); top:calc(46px + var(--sat)); }
+
+  /* ───────────────────── mobile (≤700px) ───────────────────── */
+  @media (max-width:700px){
+    /* PHASE E fix: on narrow phones the huge centered clamp()-sized logo text
+     * reaches close to the left edge and, since #title's content overflows
+     * and top-aligns rather than truly centering, sat right under the
+     * fixed/high-z-index "← Bucky" back button — found via mobile screenshot
+     * review. Reserve clearance below it before the logo starts. */
+    #title{ padding-top:calc(56px + var(--sat)); }
+    /* PHASE E fix: #dbg's desktop top:44px was tuned for the 1-row ticker —
+     * on mobile the ticker wraps to 2 rows and #fsSpeed drops to top:58px,
+     * so the (right-anchored, multi-line, intrinsically wide) debug box's
+     * translucent background crept down and left into the speed control's
+     * band, two independent panels visibly colliding at their edges (found
+     * via mobile screenshot review, close-crop confirmed). It's dev-only
+     * telemetry (fps/draws/tris/…), not player-facing, so — same call as
+     * #bhint just below — simplest is to hide it where screen space is
+     * tightest; it's still there for a desktop devtools check. */
+    #dbg{ display:none; }
+    .tick-item{ padding:3px 5px; font-size:10.5px; gap:2px; }
+    .tick-item .ico{ font-size:11.5px; }
+    #fsTicker{ gap:2px; max-width:62vw; }
+    #fsSpeed{ top:calc(58px + var(--sat)); padding:3px; }
+    #fsSpeed button{ padding:6px 10px; font-size:13px; min-width:36px; }
+    #fsDock{ gap:3px; }
+    #fsDock button{ min-width:0; padding:6px 6px; font-size:16px; }
+    #fsDock button b{ display:none; }
+    /* PHASE E fix: both bottom panels used to run full-width (right:8px /
+     * width:min(320px,94vw)) straight under the bottom-right minimap's own
+     * ~110px column (96px canvas + padding/border) — on a tall panel (e.g.
+     * a Castle inventory list, or just a couple of buttons plus a hint line)
+     * the minimap visually sits ON TOP of the panel's bottom-right corner
+     * (confirmed both by rect math and elementFromPoint — found via mobile
+     * screenshot review). Both now stop clear of that column instead. */
+    #fsContext{
+      left:8px; right:calc(118px + env(safe-area-inset-right,0px)); top:auto; bottom:calc(66px + var(--sab)); width:auto;
+      max-height:34vh;
+    }
+    #fsMinimap{ }
+    #fsMinimapCanvas{ width:96px; height:96px; }
+    #fsBuildPanel{ width:min(256px, calc(94vw - 118px)); bottom:calc(66px + var(--sab)); }
+    #fsBuildGrid{ grid-template-columns:repeat(3,1fr); max-height:32vh; }
+    #bhint{ display:none; }
+    #fsToasts{ top:calc(96px + var(--sat)); width:88vw; }
+    #netInvite{ top:calc(58px + var(--sat)); }
+  }
 </style>
 </head>
 <body>
@@ -191,7 +557,7 @@
 <div id="bhint" class="hidden">
   <b>F</b> flag · <b>R</b> road (click flag → flag) · <b>B</b>+<b>1-9</b> build (<b>Tab</b> page) ·
   <b>G</b> geologist · <b>X</b> demolish · <b>A</b> attack · <b>C</b> cycle knights · <b>P</b> ping ·
-  <b>T</b> tint · <b>Esc</b> cancel
+  <b>T</b> suitability · <b>Esc</b> cancel
 </div>
 
 <a class="back" href="games.html" id="backLink">← Bucky</a>
@@ -221,12 +587,21 @@
         <button data-ai="3">3</button>
       </div>
     </div>
+    <!-- ===== PHASE E addendum 2 item 4: Supplies stepper (shared by solo + co-op) ===== -->
+    <div class="row">
+      <span class="lbl">Supplies</span>
+      <div class="supStep">
+        <button id="supMinus" type="button">−</button>
+        <span id="supVal">25</span>
+        <button id="supPlus" type="button">+</button>
+      </div>
+    </div>
     <button class="playBtn" id="startBtn">START</button>
     <!-- PHASE-M UI: co-op room controls (Phase E gives these a real lobby) -->
     <div id="coop">
       <h2>Co-op · 2 players</h2>
-      <button class="cbtn" id="hostSharedBtn">🤝 HOST shared kingdom</button>
-      <button class="cbtn" id="hostSepBtn">🏰🏰 HOST separate kingdoms</button>
+      <button class="cbtn" id="hostSharedBtn">🤝 Host shared kingdom<small>one castle, two hands on the wheel</small></button>
+      <button class="cbtn" id="hostSepBtn">🏰🏰 Host separate kingdoms<small>your own castle, allied against the AI</small></button>
       <div class="joinrow">
         <input id="joinCode" inputmode="text" autocomplete="off" maxlength="8" placeholder="CODE">
         <button class="cbtn" id="joinBtn" style="margin:0">JOIN</button>
@@ -234,9 +609,11 @@
       <div id="netNote" class="hidden"></div>
     </div>
   </div>
+  <button class="contBtn hidden" id="continueBtn">▶ Continue your kingdom</button>
   <p class="hint">
     Drag to pan · wheel to zoom · <b>Q/E</b> turn · <b>WASD</b> move ·
     <b>Space</b> pause · <b>1 2 3</b> speed
+    — <a href="#" id="howToPlayLink">❔ how to play</a>
   </p>
 </div>
 
@@ -268,6 +645,7 @@
 <script src="assets/farmstead/fs-net.js"></script>
 <script src="assets/farmstead/fs-models.js"></script>
 <script src="assets/farmstead/fs-render.js"></script>
+<script src="assets/farmstead/fs-ui.js"></script>
 <script>
 (function () {
   "use strict";
@@ -302,9 +680,28 @@
   }
   wireSeg("sizeSeg", "size", (v) => (opts.size = v));
   wireSeg("aiSeg", "ai", (v) => (opts.ais = parseInt(v, 10)));
+  /* ===== PHASE E addendum 2 item 4: Supplies stepper, shared by solo + co-op ===== */
+  opts.supplies = FSC.SUPPLIES_DEFAULT;
+  function paintSupplies() { el("supVal").textContent = String(opts.supplies); }
+  paintSupplies();
+  el("supMinus").addEventListener("click", () => { opts.supplies = Math.max(0, opts.supplies - 5); paintSupplies(); });
+  el("supPlus").addEventListener("click", () => { opts.supplies = Math.min(50, opts.supplies + 5); paintSupplies(); });
   el("startBtn").addEventListener("click", () => {
     const s = parseInt(el("seed").value, 10);
-    startGame({ size: opts.size, ais: opts.ais, seed: (isFinite(s) && s > 0) ? s : randSeed() });
+    startGame({ size: opts.size, ais: opts.ais, seed: (isFinite(s) && s > 0) ? s : randSeed(), supplies: opts.supplies });
+  });
+  /* ===== PHASE E item 9: Continue button appears only when an autosave exists ===== */
+  (function () {
+    let has = false;
+    try { has = !!localStorage.getItem("fs_save_auto"); } catch (e) { has = false; }
+    if (has) el("continueBtn").classList.remove("hidden");
+  })();
+  el("continueBtn").addEventListener("click", () => {
+    if (!window.__FS__ || !window.__FS__.load("auto")) el("continueBtn").classList.add("hidden");
+  });
+  el("howToPlayLink").addEventListener("click", (e) => {
+    e.preventDefault();
+    if (window.FSUI) FSUI.openHelp();
   });
 
   // ───────────────────────────────── boot / loop
@@ -315,7 +712,8 @@
       ais: o.ais === undefined ? opts.ais : o.ais,
       seed: o.seed || randSeed(),
       /* ===== PHASE-D: co-op shape + the suites' "park the opponents" switch ===== */
-      humans: o.humans, mode: o.mode, aiPlan: o.aiPlan, supplies: o.supplies,
+      humans: o.humans, mode: o.mode, aiPlan: o.aiPlan,
+      supplies: o.supplies === undefined ? opts.supplies : o.supplies,
     });
     G.speed = o.speed === undefined ? 1 : o.speed;
     FSRender.init(canvas, G);
@@ -334,10 +732,27 @@
     dbgEl.classList.remove("hidden");
     speedEl.classList.remove("hidden");
     hintEl.classList.remove("hidden");
-    setMode(null);
+    if (window.FSUI) FSUI.onGameStart();     /* ===== PHASE E: build/show the real HUD ===== */
     paintSpeed();
     paintNetChip();
     if (!running) { running = true; lastT = performance.now(); raf = requestAnimationFrame(loop); }
+  }
+
+  /* ===== PHASE E item 5: New Game → title screen. Leaves any co-op room,
+   * stops ticking (a fresh startGame()/adoptWorld() resumes the rAF loop),
+   * and hands the HUD back to FSUI to hide. ===== */
+  function backToTitle() {
+    if (FSNet && FSNet.active()) FSNet.leave();
+    if (raf) cancelAnimationFrame(raf);
+    running = false;
+    G = null;
+    titleEl.classList.remove("hidden");
+    el("backLink").style.display = "";
+    dbgEl.classList.add("hidden");
+    speedEl.classList.add("hidden");
+    hintEl.classList.add("hidden");
+    if (window.FSUI) FSUI.onGameEnd();
+    try { if (localStorage.getItem("fs_save_auto")) el("continueBtn").classList.remove("hidden"); } catch (e) { /* noop */ }
   }
 
   /* ===== PHASE-M: adopt a whole world handed over by the host (join / resync).
@@ -392,6 +807,7 @@
     const st = FSRender.frame(dtReal);
     if (G) {
       syncPingMark();                                /* ===== PHASE-M ===== */
+      if (window.FSUI) FSUI.frame(dtReal);            /* ===== PHASE E: the whole HUD ===== */
       if ((st.frames & 7) === 0) { paintDbg(); paintNetChip(); }
     }
   }
@@ -423,70 +839,30 @@
     return G.speed;
   }
 
-  /* ───────────────────────── PHASE-B temp UI: build/road/flag/demolish ─────
-     Keyboard-driven placement so the transport core can be exercised by hand
-     (and by the suite) long before Phase E's real build menu exists. */
-  const BUILD_KEYS = ["hut", "lumberjack", "forester", "stonecutter", "sawmill",
-    "farm", "mill", "stock", "tower"];
-  /* ===== PHASE-C: a second build page so every economy type is placeable by hand ===== */
-  const BUILD_KEYS2 = ["bakery", "pigfarm", "butcher", "fisher", "smelter",
-    "toolmaker", "weaponsmith", "boatwright", "coalMine"];
-  const BUILD_KEYS3 = ["ironMine", "goldMine", "stoneMine", "goldsmelter", "fortress"];
-  let buildPage = 0;
-  function buildKeys() { return buildPage === 0 ? BUILD_KEYS : (buildPage === 1 ? BUILD_KEYS2 : BUILD_KEYS3); }
-  let mode = null;            // null | 'road' | 'build'
-  let roadFrom = 0;
-
-  function setMode(m, note) {
-    mode = m; if (m !== "road") roadFrom = 0;
-    if (!m) { modeEl.classList.add("hidden"); return; }
-    modeEl.classList.remove("hidden");
-    modeEl.textContent = note || m;
-  }
+  /* ───────────────────────── input core: click detection + keyboard map ────
+     PHASE E moved every MODE/placement/panel behaviour into FSUI (fs-ui.js —
+     the real build/flag/road/demolish UI, attack + demolish dialogs, etc).
+     What stays here is the boot-level plumbing: distinguishing a click from
+     a camera drag, and the keyboard→action map (kept working exactly as
+     before — F/G/X/A/C/P are still instant hover actions, B/R/T still arm a
+     sticky mode, digits 1-9 still pick a build type while mode==='build' —
+     the transport/military/mp suites drive the game through these keys). */
   function issue(type, args) {
     if (!G) return null;
     return FSSim.issueCommand(G, { type, args });
   }
   function hovered() { return FSRender.hoverVertex(); }
 
-  function doFlag(v) {
-    if (v < 0) return;
-    const why = FSMap.whyFlag(G.map, v, 0);
-    if (why) { setMode(null); toastMode("✗ " + why); return; }
-    issue("flag", { v });
-  }
-  function doBuild(type, v) {
-    if (v < 0) return;
-    const why = FSMap.whyBuilding(G.map, type, v, 0);
-    if (why) { toastMode("✗ " + why); return; }
-    issue("build", { type, v });
-    setMode(null);
-  }
-  /* ===== PHASE-C: geologist dispatch from a mountain flag ===== */
-  function doGeologist(v) {
-    if (v < 0) return;
-    const fid = G.map.flagAt[v];
-    if (!fid) { toastMode("stand on a flag"); return; }
-    if (G.map.terr[v] !== FSC.TERR.MOUNTAIN) { toastMode("geologists survey mountains"); return; }
-    issue("geologist", { flag: fid });
-    toastMode("⛏ geologist on the way");
-  }
-
-  function doDemolish(v) {
-    if (v < 0) return;
-    let id = G.map.bldAt[v] || G.map.flagAt[v] || 0;
-    if (!id) {
-      for (const rid in G.roads) if (G.roads[rid].path.indexOf(v) >= 0) { id = rid | 0; break; }
-    }
-    if (id) issue("demolish", { id: id | 0 });
-    setMode(null);
-  }
-  let toastT = 0;
+  let toastGen = 0;
+  /** The small legacy status pill (#bmode) — kept for suite back-compat
+   *  (mp.cjs reads its textContent) and mirrored into FSUI's real toast
+   *  stack so the player only ever sees ONE toast language. */
   function toastMode(msg) {
     modeEl.classList.remove("hidden");
     modeEl.textContent = msg;
-    toastT = Date.now();
-    setTimeout(() => { if (Date.now() - toastT >= 1400) setMode(mode); }, 1500);
+    const my = ++toastGen;
+    setTimeout(() => { if (my === toastGen) modeEl.classList.add("hidden"); }, 1600);
+    if (window.FSUI) FSUI.toast(msg);
   }
 
   // click = pointerdown+up within a few px (camera drags stay untouched)
@@ -499,74 +875,41 @@
     if (moved > 6 || e.button !== 0) return;
     const v = FSRender.pickVertex(e.clientX, e.clientY);
     if (v < 0) return;
-    if (mode === "road") {
-      const fid = G.map.flagAt[v];
-      if (!fid) { toastMode("click a flag"); return; }
-      if (!roadFrom) { roadFrom = fid; setMode("road", "road: from flag " + fid + " → pick a flag"); return; }
-      if (fid === roadFrom) return;
-      issue("road", { f1: roadFrom, f2: fid });
-      setMode(null);
-    }
+    if (window.FSUI) FSUI.onCanvasClick(v, e);
   });
 
-  // ───────────────────────────────── keys (Phase E adds real buttons)
+  // ───────────────────────────────── keys (FSUI's dock mirrors every one of these)
   window.addEventListener("keydown", (e) => {
     const tag = e.target && e.target.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-    if (!G) return;
+    if (!G || !window.FSUI) return;
     const k = e.key;
-    if (k === "Escape") { setMode(null); return; }
-    if (mode === "build" && k >= "1" && k <= "9") {
+    if (k === "Escape") { FSUI.escape(); return; }
+    if (FSUI.mode() === "build" && k >= "1" && k <= "9") {
       e.preventDefault();
-      doBuild(buildKeys()[k.charCodeAt(0) - 49], hovered());
+      FSUI.instantBuildDigit(k.charCodeAt(0) - 49);
       return;
     }
     /* ===== PHASE-C: G = send a geologist from the hovered mountain flag ===== */
-    if (k === "g" || k === "G") { doGeologist(hovered()); return; }
-    if (k === "Tab") {
-      e.preventDefault();
-      buildPage = (buildPage + 1) % 3;
-      if (mode === "build") setMode("build", "build: 1-9 = " + buildKeys().join(" "));
-      return;
-    }
+    if (k === "g" || k === "G") { FSUI.doGeologistAtHover(); return; }
+    if (k === "Tab") { e.preventDefault(); FSUI.cycleBuildPage(); return; }
     if (e.code === "Space") { e.preventDefault(); setSpeed(G.speed ? 0 : lastSpeed); return; }
     if (k === "1") return void setSpeed(1);
     if (k === "2") return void setSpeed(2);
     if (k === "3") return void setSpeed(4);
     if (k === "." && !G.speed) { runTick(); return; }     // single-step while paused
-    if (k === "f" || k === "F") { doFlag(hovered()); return; }
-    if (k === "r" || k === "R") { setMode(mode === "road" ? null : "road", "road: click a flag"); return; }
-    if (k === "b" || k === "B") {
-      setMode(mode === "build" ? null : "build", "build: 1-9 = " + buildKeys().join(" "));
-      return;
-    }
-    if (k === "x" || k === "X") { doDemolish(hovered()); return; }
-    /* ===== PHASE-D (TEMP — Phase E replaces this with the attack dialog):
-       hover an enemy military building and press A to send half your reach ===== */
-    if (k === "a" || k === "A") { doAttack(hovered()); return; }
+    if (k === "f" || k === "F") { FSUI.doFlagAtHover(); return; }
+    if (k === "r" || k === "R") { FSUI.toggleRoadMode(); return; }
+    if (k === "b" || k === "B") { FSUI.armBuildKey(); return; }
+    if (k === "x" || k === "X") { FSUI.doDemolishAtHover(); return; }
+    if (k === "a" || k === "A") { FSUI.doAttackAtHover(); return; }
     if (k === "c" || k === "C") { issue("cycleKnights", {}); toastMode("♻ knights rotating"); return; }
     /* ===== PHASE-M: P = ping the spot under the cursor (both screens see it) ===== */
     if (k === "p" || k === "P") { doPing(hovered()); return; }
-    if (k === "t" || k === "T") {
-      const on = FSRender.setTerritoryTint(!FSRender.territoryTint());
-      toastMode(on ? "territory tint ON" : "territory tint OFF");
-      return;
-    }
+    /* ===== PHASE E QoL#2: T = build-suitability overlay (territory tint moved
+       into the Settings panel, since both used to share this key) ===== */
+    if (k === "t" || k === "T") { FSUI.toggleSuitability(); return; }
   });
-
-  /* ===== PHASE-D TEMP attack: pick the enemy building under the cursor ===== */
-  function doAttack(v) {
-    if (v < 0 || !FSMil) return;
-    const id = G.map.bldAt[v];
-    const b = id && G.buildings[id];
-    if (!b || !b.mil) { toastMode("aim at an enemy hut, tower or castle"); return; }
-    if (!FSMil.isEnemy(G, b.p, 0)) { toastMode("that one is not the enemy's"); return; }
-    const max = FSMil.maxAttackers(G, b.id, 0);
-    if (max <= 0) { toastMode("no knights in range"); return; }
-    const n = Math.max(1, Math.ceil(max / 2));
-    issue("attack", { id: b.id, count: n, strong: !!G.players[0].knights.attackStrong });
-    toastMode("⚔ " + n + " knight" + (n === 1 ? "" : "s") + " march out");
-  }
 
   document.addEventListener("visibilitychange", () => {
     if (!G) return;
@@ -593,6 +936,7 @@
     return {
       size: opts.size, ais: opts.ais,
       seed: (isFinite(s) && s > 0) ? s : randSeed(),
+      supplies: opts.supplies,          /* ===== PHASE E: shared settings block (addendum 2 §4) ===== */
     };
   }
   function netNote(html) {
@@ -690,7 +1034,7 @@
     if (!FSNet) return null;
     const s = netSettings();
     netNote("Opening room…");
-    return FSNet.host({ mode: mode, size: s.size, ais: s.ais, seed: s.seed });
+    return FSNet.host({ mode: mode, size: s.size, ais: s.ais, seed: s.seed, supplies: s.supplies });
   }
   function joinRoom(code) {
     if (!FSNet) return null;
@@ -757,6 +1101,10 @@
     },
     cycleKnights: function (o) { return FSSim.issueCommand(G, Object.assign({ type: "cycleKnights", args: {} }, o || {})); },
     setTerritoryTint: function (on) { return FSRender.setTerritoryTint(on); },
+    /* ===== PHASE-E: reorderable priority lists (mirrors setDist/setToolPrio) ===== */
+    setTransportPrio: function (order, o) { return FSSim.issueCommand(G, Object.assign({ type: "prio", args: { order } }, o || {})); },
+    setInvPrio: function (order, o) { return FSSim.issueCommand(G, Object.assign({ type: "invPrio", args: { order } }, o || {})); },
+    toTitle: function () { return backToTitle(); },
     /* ═══ PHASE-M: co-op + serialization (plan §16) ═══ */
     FSNet: FSNet,
     hostGame: function (mode, o) {
@@ -798,7 +1146,7 @@
     // headless renders ~1fps: force the HUD (incl. the PHASE-M co-op chrome)
     paintHud: function () { paintNetChip(); syncPingMark(); return paintDbg(); },
     events: function (type) { return type ? G.events.filter((e) => e.type === type) : G.events.slice(); },
-    mode: function () { return mode; },
+    mode: function () { return window.FSUI ? FSUI.mode() : null; },   /* ===== PHASE E: FSUI now owns placement mode ===== */
     q: {
       flagAt: function (v) { return G.map.flagAt[v]; },
       bldAt: function (v) { return G.map.bldAt[v]; },
@@ -843,6 +1191,9 @@
       get worldMs() { return FSRender.stats().worldMs || 0; },
     },
   };
+
+  /* ===== PHASE E: the real UI — built once, shows/hides with the game ===== */
+  if (window.FSUI) FSUI.init(window.__FS__, { toastMode: toastMode, backToTitle: backToTitle });
 })();
 </script>
 </body>

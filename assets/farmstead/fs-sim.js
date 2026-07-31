@@ -99,6 +99,10 @@
       eliminated: false,
       tools: Object.assign({}, FSC.TOOL_PRIO_DEFAULT),
       transportPrio: FSC.RES_ORDER.slice(),
+      /* ===== PHASE-E: warehouse OUTPUT priority, mirrors transportPrio's wiring
+       * exactly (its own reorderable list — see FSC.INV_ORDER for the default
+       * and warehouseDispatch() below for where it is read) ===== */
+      invPrio: FSC.INV_ORDER.slice(),
       dist: Object.assign({}, FSC.DIST_DEFAULTS),
       /* ===== PHASE-D: occupancy levels are per threat tier, deep-copied ===== */
       knights: Object.assign({}, FSC.KNIGHT_DEFAULTS, {
@@ -402,6 +406,8 @@
       case "demolish": r = FSSim.demolish(G, a.id, p); break;
       case "speed": r = FSSim.setSpeed(G, a.speed); break;
       case "prio": r = FSSim.setTransportPrio(G, p, a.order); break;
+      /* ===== PHASE-E: warehouse output priority (mirrors "prio") ===== */
+      case "invPrio": r = FSSim.setInvPrio(G, p, a.order); break;
       /* ===== PHASE-C: geologist, distribution, tools, warehouse modes, halt ===== */
       case "geologist": r = FSSim.sendGeologist(G, a.flag, p); break;
       case "dist": r = FSSim.setDist(G, p, a.key, a.value); break;
@@ -432,6 +438,13 @@
     const pl = G.players[p];
     if (!pl || !order || !order.length) return { ok: false, why: "bad order" };
     pl.transportPrio = order.slice();
+    return { ok: true };
+  };
+  /* ===== PHASE-E: warehouse OUTPUT priority — mirrors setTransportPrio ===== */
+  FSSim.setInvPrio = function (G, p, order) {
+    const pl = G.players[p];
+    if (!pl || !order || !order.length) return { ok: false, why: "bad order" };
+    pl.invPrio = order.slice();
     return { ok: true };
   };
 
@@ -2072,16 +2085,22 @@
 
   /**
    * A warehouse pushes ONE stored good out to its flag per dispatch tick, choosing
-   * what to release by FSC.INV_ORDER (warehouse OUTPUT priority — a different list
-   * from the flag transport priority). PHASE-C adds full distribution arbitration.
+   * what to release by the player's `invPrio` (warehouse OUTPUT priority — a
+   * different list from the flag transport priority; defaults to the confirmed
+   * original FSC.INV_ORDER, and the player copy — PHASE-E — is what the Phase-E
+   * "Warehouse output priority" panel reorders live). PHASE-C adds full
+   * distribution arbitration.
    */
   function warehouseDispatch(G, wh) {
     const f = flagOf(G, wh.flag);
     if (!f || f.slots.length >= FSC.FLAG_CAP) return;
+    /* ===== PHASE-E: per-player reorder, old saves fall back to the default ===== */
+    const pl = G.players[wh.p];
+    const order = (pl && pl.invPrio) || FSC.INV_ORDER;
     /* ===== PHASE-C: 'out' resources are pushed away first, demand or not ===== */
     if (wh.modes) {
-      for (let i = 0; i < FSC.INV_ORDER.length; i++) {
-        const res = FSC.INV_ORDER[i];
+      for (let i = 0; i < order.length; i++) {
+        const res = order[i];
         if ((wh.modes[res] || 0) !== FSC.STOCK_MODE.OUT || !wh.inv[res]) continue;
         const d = FSSim.chooseDemand(G, f.id, res, wh.p, wh.id)
           || FSSim.warehouseNear(G, f.id, wh.p, (b) => b.id !== wh.id && stockAccepts(b, res));
@@ -2091,8 +2110,8 @@
         return;
       }
     }
-    for (let i = 0; i < FSC.INV_ORDER.length; i++) {
-      const res = FSC.INV_ORDER[i];
+    for (let i = 0; i < order.length; i++) {
+      const res = order[i];
       if (!wh.inv[res]) continue;
       const d = FSSim.chooseDemand(G, f.id, res, wh.p, wh.id);
       if (!d) continue;
@@ -2926,7 +2945,11 @@
       const pr = G.prod[p] || {};
       for (const k in pr) goods += pr[k];
       st.t.push(G.tick); st.goods.push(goods); st.serfs.push(c.people);
-      st.land.push(c.land); st.military.push(0);
+      st.land.push(c.land);
+      /* ===== PHASE-E: this was a hardcoded 0 — the Stats panel needs a real
+       * number to chart. mil() is the same lazy-bound accessor recomputeOwner
+       * already uses, so this stays 0 gracefully if fs-military.js is absent. */
+      st.military.push(mil() ? mil().strength(G, p) : 0);
       for (const k in st) if (st[k].length > FSC.STATS_CAP) st[k].shift();
     }
   }
@@ -3180,6 +3203,10 @@
     if (!G.dirtyV) G.dirtyV = [];
     if (!G.cmdQueue) G.cmdQueue = [];
     if (!G.seats) G.seats = G.mode === "separate" ? [0, 1] : [0, 0];
+    /* ===== PHASE-E: a save from before invPrio existed gets the default order ===== */
+    if (G.players) for (let i = 0; i < G.players.length; i++) {
+      if (G.players[i] && !G.players[i].invPrio) G.players[i].invPrio = FSC.INV_ORDER.slice();
+    }
     return G;
   };
 

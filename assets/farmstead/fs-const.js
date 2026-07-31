@@ -185,6 +185,8 @@
   //  were rescaled when the confirmed slope-based walk pacing landed — flat 26 t/edge.)
   FSC.RETRY_T = 120;           // destless goods reschedule period (ticks)
   FSC.CONGEST_T = 600;         // carrier gives up waiting on a full dest flag
+  /* ===== PHASE-E: flags this full get a pulsing "congested" highlight ===== */
+  FSC.CONGEST_GLOW_MIN = 6;
   FSC.DOOR_T = 4;              // flag->building hand-off ticks
   FSC.SPAWN_GAP = 8;           // ticks between serfs exiting a warehouse door
   FSC.DOOR_DIR = "SE";         // building door flag = SE neighbour of building vertex
@@ -415,7 +417,8 @@
   FSC.CMD_DELAY_MP = 4;
   FSC.CMD_TYPES = ["flag", "road", "build", "demolish", "speed", "prio",
     /* ===== PHASE-C ===== */ "geologist", "dist", "toolPrio", "stockMode", "halt",
-    /* ===== PHASE-D ===== */ "attack", "knightSet", "cycleKnights"];
+    /* ===== PHASE-D ===== */ "attack", "knightSet", "cycleKnights",
+    /* ===== PHASE-E ===== */ "invPrio"];
 
   // Scheduling budgets — every per-tick loop is bounded, nothing scans the map.
   FSC.WH_DISPATCH_T = 6;       // ticks between one warehouse pushing a good out (staggered by id)
@@ -573,6 +576,8 @@
   FSC.OCC_NAMES = ["Minimum", "Weak", "Medium", "Good", "Full"];
   FSC.OCC_LEVEL_MAX = 4;
   FSC.GARRISON_T = 20;         // ticks between garrison-management sweeps
+  /* ===== PHASE-E: display names for the 4 threat tiers (Knights panel) ===== */
+  FSC.THREAT_TIER_NAMES = ["Interior", "Near", "Close", "Border"];
 
   // --- territory: the influence-weight model ---------------------------------
   // Every occupied military building projects a claim over radius TERR_RADIUS.

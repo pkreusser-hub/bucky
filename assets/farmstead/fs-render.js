@@ -21,6 +21,7 @@
   const vertSlot = new Map();       // vertex -> { key, idx }
   const bldViews = new Map();       // building id -> Object3D
   let hoverV = -1, hoverPend = null;
+  let invertY = false;              /* ===== PHASE-E: Settings → invert camera ===== */
   const keys = Object.create(null);
   let drag = null;                  // { mode:'pan'|'orbit', x, y, id }
   const cam = { tx: 0, tz: 0, ty: 0, dist: CAM.DIST_START, yaw: 0.6, pitch: CAM.PITCH_START };
@@ -251,6 +252,9 @@
 
   FSRender.refreshArea = function (v, r) {
     FSMap.forRadius(map, v, r === undefined ? 1 : r, (u) => FSRender.refreshVertex(u));
+    /* ===== PHASE-E: keep the build-suitability overlay in step (cheap: only
+     * runs at all while the overlay is switched on) ===== */
+    if (suitOn) suitDirty = true;
   };
 
   // ----------------------------------------------------------------- buildings
@@ -792,6 +796,9 @@
     syncCorpses();
     syncFire(dt);
     syncFlashes(dt);
+    /* ===== PHASE-E: congestion glow + suitability overlay upkeep ===== */
+    syncCongestion(dt);
+    syncSuitabilityUpkeep(dt);
     dynFlush();
   }
   FSRender.syncDynamic = syncDynamic;
@@ -909,7 +916,8 @@
     drag.moved += Math.abs(dx) + Math.abs(dy);
     if (drag.mode === "orbit") {
       cam.yaw += dx * CAM.ORBIT_YAW;
-      cam.pitch += dy * CAM.ORBIT_PITCH;
+      /* ===== PHASE-E: Settings → "invert camera" flips vertical look only ===== */
+      cam.pitch += dy * CAM.ORBIT_PITCH * (invertY ? -1 : 1);
     } else {
       const k = cam.dist * CAM.DRAG_PAN;
       const s = Math.sin(cam.yaw), c = Math.cos(cam.yaw);
@@ -1113,10 +1121,235 @@
     if (terrainMesh) { terrainMesh.geometry.dispose(); terrainMesh.material.dispose(); }
     if (waterMesh) { waterMesh.geometry.dispose(); waterMesh.material.dispose(); }
     if (hoverRing) { hoverRing.geometry.dispose(); hoverRing.material.dispose(); }
+    /* ===== PHASE-E: selection ring / ghost / road preview / suitability ===== */
+    if (selectRing) { selectRing.geometry.dispose(); selectRing.material.dispose(); selectRing = null; }
+    if (ghostMesh) { ghostMesh.geometry.dispose(); ghostMesh.material.dispose(); ghostMesh = null; }
+    if (roadPrevGroup) { roadPrevGroup.geometry.dispose(); roadPrevGroup.material.dispose(); roadPrevGroup = null; }
+    if (suitMesh) { suitMesh.geometry.dispose(); suitMesh.material.dispose(); suitMesh = null; }
+    suitOn = false; suitDirty = false;
     scene = null; terrainMesh = null; waterMesh = null; hoverRing = null; objGroup = null; bldGroup = null;
     for (const k in keys) delete keys[k];
-    drag = null; hoverV = -1;
+    drag = null; hoverV = -1; selVertex = -1;
   };
+
+  /* ===================================================================== */
+  /* ===== PHASE-E: selection ring, placement ghost, road preview, ======== */
+  /* ===== congestion glow, build-suitability overlay ====================== */
+  /* (all ADDED functions — nothing above this block is rewritten) ========= */
+  /* ===================================================================== */
+
+  // ---- persistent selection ring: distinct from the transient hover ring,
+  // stays put on whatever flag/building the context panel currently shows ----
+  let selectRing = null, selVertex = -1;
+  FSRender.setSelection = function (v) {
+    selVertex = v === undefined ? -1 : v;
+    if (!scene) return;
+    if (!selectRing) {
+      selectRing = FSModels.ring(0xfff2b0, 0.66, 0.92);
+      selectRing.renderOrder = 9;
+      scene.add(selectRing);
+    }
+    if (selVertex < 0) { selectRing.visible = false; return; }
+    FSMap.worldXZ(map, selVertex, xz);
+    selectRing.position.set(xz[0], map.height[selVertex] + 0.09, xz[1]);
+    selectRing.visible = true;
+  };
+  FSRender.selectionVertex = function () { return selVertex; };
+
+  // ---- placement ghost: a flat disc sized to the footprint, green/red for
+  // whether FSMap says the hovered vertex is a legal spot right now ----------
+  let ghostMesh = null;
+  const FOOTPRINT_R = { flag: 0.5, small: 1.05, large: 2.35, mine: 1.05 };
+  function ensureGhost() {
+    if (ghostMesh) return ghostMesh;
+    const geo = new THREE.CircleGeometry(1, 28);
+    geo.rotateX(-Math.PI / 2);
+    const m = new THREE.MeshBasicMaterial({
+      color: 0x6fd67a, transparent: true, opacity: 0.42, depthTest: false, side: THREE.DoubleSide,
+    });
+    ghostMesh = new THREE.Mesh(geo, m);
+    ghostMesh.renderOrder = 7;
+    ghostMesh.visible = false;
+    scene.add(ghostMesh);
+    return ghostMesh;
+  }
+  FSRender.setPlacementGhost = function (v, valid, footprint) {
+    if (!scene) return;
+    const g = ensureGhost();
+    if (v === undefined || v < 0) { g.visible = false; return; }
+    FSMap.worldXZ(map, v, xz);
+    const r = FOOTPRINT_R[footprint] || FOOTPRINT_R.flag;
+    g.scale.set(r, 1, r);
+    g.position.set(xz[0], map.height[v] + 0.1, xz[1]);
+    g.material.color.set(valid ? 0x6fd67a : 0xe2564a);
+    g.visible = true;
+  };
+  FSRender.clearPlacementGhost = function () { if (ghostMesh) ghostMesh.visible = false; };
+
+  // ---- road preview: a chain of small discs along a candidate path, one
+  // shared colour for the whole preview (green = fully legal, red = not) -----
+  let roadPrevGroup = null;
+  function ensureRoadPrevPool() {
+    if (roadPrevGroup) return roadPrevGroup;
+    const geo = new THREE.CircleGeometry(1, 12);
+    geo.rotateX(-Math.PI / 2);
+    const m = new THREE.MeshBasicMaterial({
+      color: 0x6fd67a, transparent: true, opacity: 0.8, depthTest: false, side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.InstancedMesh(geo, m, 64);
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.frustumCulled = false;
+    mesh.count = 0;
+    mesh.renderOrder = 7;
+    scene.add(mesh);
+    roadPrevGroup = mesh;
+    return mesh;
+  }
+  FSRender.setRoadPreview = function (path, valid) {
+    if (!scene) return;
+    const mesh = ensureRoadPrevPool();
+    if (!path || path.length < 2) { mesh.count = 0; mesh.instanceMatrix.needsUpdate = true; return; }
+    const n = Math.min(path.length, 64);
+    mesh.material.color.set(valid ? 0x6fd67a : 0xe2564a);
+    for (let i = 0; i < n; i++) {
+      const v = path[i];
+      FSMap.worldXZ(map, v, xz);
+      tmpV.set(xz[0], map.height[v] + 0.12, xz[1]);
+      tmpQ.identity();
+      const s = (i === 0 || i === n - 1) ? 0.32 : 0.18;
+      tmpS.set(s, 1, s);
+      mesh.setMatrixAt(i, tmpM.compose(tmpV, tmpQ, tmpS));
+    }
+    mesh.count = n;
+    mesh.instanceMatrix.needsUpdate = true;
+  };
+  FSRender.clearRoadPreview = function () {
+    if (roadPrevGroup) { roadPrevGroup.count = 0; roadPrevGroup.instanceMatrix.needsUpdate = true; }
+  };
+
+  // ---- congestion glow: flags carrying ≥ FSC.CONGEST_GLOW_MIN queued goods
+  // pulse gently — one instanced ring pool, populated fresh every frame just
+  // like the sign posts / smoke puffs above it. ------------------------------
+  let congestGeo = null;
+  function congestionGlowGeo() {
+    if (!congestGeo) { congestGeo = new THREE.RingGeometry(0.6, 0.92, 20); congestGeo.rotateX(-Math.PI / 2); }
+    return congestGeo;
+  }
+  function syncCongestion(dt) {
+    if (!dyn.group || !G) return;
+    const pool = dynPool("congestGlow", congestionGlowGeo(), FSModels.vcMat("congestGlow", 0xffcf4d, 0.65));
+    const pulse = 0.55 + Math.sin(dyn.tAcc * 3.4) * 0.35;
+    for (const id in G.flags) {
+      const f = G.flags[id];
+      if (f.slots.length < FSC.CONGEST_GLOW_MIN) continue;
+      FSMap.worldXZ(map, f.v, xz);
+      tmpV.set(xz[0], map.height[f.v] + 0.06, xz[1]);
+      tmpE.set(0, dyn.tAcc * 0.6, 0); tmpQ.setFromEuler(tmpE);
+      const s = 1 + pulse * 0.22;
+      tmpS.set(s, 1, s);
+      dynPush(pool, tmpM.compose(tmpV, tmpQ, tmpS), tmpC.set(0xffcf4d).multiplyScalar(0.72 + pulse * 0.5));
+    }
+  }
+  /** Which of the player's flags are currently glowing (Phase-E idle-alerts/tests). */
+  FSRender.congestedFlags = function () {
+    const out = [];
+    if (!G) return out;
+    for (const id in G.flags) if (G.flags[id].slots.length >= FSC.CONGEST_GLOW_MIN) out.push(G.flags[id].id);
+    return out;
+  };
+
+  // ---- build-suitability overlay: tint your own land by what fits there ----
+  let suitOn = false, suitDirty = false, suitFilter = null, suitP = 0, suitMesh = null, suitT = 0;
+  const SUIT_COLOR = { small: 0x8fe07a, large: 0x5ec9ff, mine: 0xe0a13d, flag: 0xd8cd6a, none: 0xaa5a56 };
+  function classifyVertex(v, p, filterType) {
+    if (map.owner[v] !== p) return null;
+    if (filterType) return FSMap.whyBuilding(map, filterType, v, p) ? null : "small";  // filtered = one colour, "it fits"
+    if (map.terr[v] === FSC.TERR.MOUNTAIN) {
+      if (!FSMap.canPlaceBuilding("stoneMine", v, p)) return FSMap.canPlaceFlag(v, p) ? "flag" : "none";
+      return "mine";
+    }
+    if (FSMap.canPlaceBuilding("sawmill", v, p)) return "large";
+    if (FSMap.canPlaceBuilding("lumberjack", v, p)) return "small";
+    if (FSMap.canPlaceFlag(v, p)) return "flag";
+    return "none";
+  }
+  function disposeSuitMesh() {
+    if (suitMesh) { scene.remove(suitMesh); suitMesh.geometry.dispose(); suitMesh.material.dispose(); suitMesh = null; }
+  }
+  function rebuildSuitability() {
+    suitDirty = false;
+    disposeSuitMesh();
+    if (!scene) return;
+    const N = map.W * map.H;
+    const pos = new Float32Array(N * 3), col = new Float32Array(N * 3);
+    const kindOf = new Uint8Array(N);   // 0 = not painted; 1 small 2 large 3 mine 4 flag 5 none
+    const KIND_COL = { 1: SUIT_COLOR.small, 2: SUIT_COLOR.large, 3: SUIT_COLOR.mine, 4: SUIT_COLOR.flag, 5: SUIT_COLOR.none };
+    const c = new THREE.Color();
+    let any = false;
+    for (let v = 0; v < N; v++) {
+      let k = 0;
+      if (map.owner[v] === suitP) {
+        const kind = classifyVertex(v, suitP, suitFilter);
+        k = kind === "small" ? 1 : kind === "large" ? 2 : kind === "mine" ? 3 : kind === "flag" ? 4 : (kind === "none" ? 5 : 0);
+      }
+      kindOf[v] = k;
+      if (k) any = true;
+      FSMap.worldXZ(map, v, xz);
+      pos[v * 3] = xz[0]; pos[v * 3 + 1] = map.height[v] + 0.05; pos[v * 3 + 2] = xz[1];
+      c.set(k ? KIND_COL[k] : 0x000000);
+      col[v * 3] = c.r; col[v * 3 + 1] = c.g; col[v * 3 + 2] = c.b;
+    }
+    if (!any) return;
+    const idx = [];
+    for (let v = 0; v < N; v++) {
+      const e = FSMap.nbr(map, v, 0), se = FSMap.nbr(map, v, 4), sw = FSMap.nbr(map, v, 5);
+      if (e >= 0 && se >= 0 && (kindOf[v] || kindOf[e] || kindOf[se])) idx.push(v, se, e);
+      if (sw >= 0 && se >= 0 && (kindOf[v] || kindOf[sw] || kindOf[se])) idx.push(v, sw, se);
+    }
+    if (!idx.length) return;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    geo.setIndex(idx);
+    const m = new THREE.MeshBasicMaterial({
+      vertexColors: true, transparent: true, opacity: 0.4, depthWrite: false, side: THREE.DoubleSide,
+    });
+    suitMesh = new THREE.Mesh(geo, m);
+    suitMesh.renderOrder = 3;
+    suitMesh.name = "suitability";
+    scene.add(suitMesh);
+  }
+  function syncSuitabilityUpkeep(dt) {
+    if (!suitOn) return;
+    suitT += dt;
+    if (suitDirty && suitT > 0.6) { suitT = 0; rebuildSuitability(); }
+  }
+  /**
+   * FSRender.overlaySuitability(on, opts) — opts: {p, type}. `type` filters
+   * to ONE building type (used while a build-panel item is armed — "does THIS
+   * fit here?"); omitted shows the full 5-colour legend (large/small/mine/
+   * flag-only/none) over the player's own land. Cheap: only classifies
+   * OWNED vertices, and a full rebuild only happens on toggle + a throttled
+   * upkeep pass while something nearby changed (see refreshArea above).
+   */
+  FSRender.overlaySuitability = function (on, opts) {
+    opts = opts || {};
+    suitOn = !!on;
+    suitFilter = opts.type || null;
+    suitP = opts.p === undefined ? 0 : opts.p;
+    if (!scene) return suitOn;
+    if (!suitOn) { disposeSuitMesh(); return false; }
+    rebuildSuitability();
+    return true;
+  };
+  FSRender.suitabilityOn = function () { return suitOn; };
+  FSRender.suitabilityAt = function (v) {
+    return suitOn ? classifyVertex(v, suitP, suitFilter) : null;
+  };
+
+  // ---- camera invert (Settings panel) ---------------------------------------
+  FSRender.setInvertY = function (on) { invertY = !!on; return invertY; };
+  FSRender.invertY = function () { return invertY; };
 
   window.FSRender = FSRender;
 })();
