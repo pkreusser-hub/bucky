@@ -17,6 +17,15 @@
   let posAttr = null, colAttr = null;
   let dirtyPos = false, dirtyCol = false;
   let waterDist = null;
+  /* ===== PHASE-V: the look layer — sky, water FX, meadow decor, shadows ===== */
+  let skyMesh = null, shimmerMesh = null;
+  let foamMesh = null, foamV = null, foamPhase = 0;
+  let sparkMesh = null, sparkV = null;
+  let decorGroup = null;            // tufts + flowers + static blob shadows
+  const decor = {};                 // key -> { mesh, cap, top, free[], anchor:Float32Array }
+  const decorSlot = new Map();      // vertex -> [{key, idx}, ...]
+  let swayCursor = 0, windCursor = 0;
+  let hemiLight = null, sunLight = null, fillLight = null;
   const pools = {};                 // kind -> { mesh, cap, top, free[] }
   const vertSlot = new Map();       // vertex -> { key, idx }
   const bldViews = new Map();       // building id -> Object3D
@@ -49,33 +58,63 @@
   const mil = { tint: true, gen: -1, stakes: [], evT: -1, flashes: [] };
 
   // ------------------------------------------------------------------- terrain
+  /* ===== PHASE-V: two lazy sine fields give the meadow big soft blotches so a
+   * pasture reads as ground with a history instead of one flat fill. Cheap,
+   * deterministic, and completely independent of the sim RNG. ===== */
+  function patchNoise(x, z) {
+    const V = FSC.VIS;
+    return Math.sin(x * V.PATCH_FA + z * V.PATCH_FA * 0.63) * Math.cos(z * V.PATCH_FA * 1.31 - x * 0.017) * V.PATCH_A
+      + Math.sin(x * V.PATCH_FB * 1.7 - z * V.PATCH_FB) * V.PATCH_B;
+  }
+
   function terrainColor(v, out) {
+    const V = FSC.VIS, T = FSC.TERR;
     const t = map.terr[v], h = map.height[v];
+    FSMap.worldXZ(map, v, xz);
     out.set(COL.TERR[t]);
-    if (t === FSC.TERR.WATER) {
-      // lake bed: shallow sand fading to deep blue-grey
-      blendC.set(COL.BEACH);
-      const k = Math.max(0, Math.min(1, (h + 2.2) / 2.2));
-      out.lerp(blendC, k * 0.55);
-    } else {
-      if (t === FSC.TERR.MOUNTAIN) {
-        // bare rock low down, a dusting of snow only near the peaks
-        const k = Math.max(0, Math.min(1, (h - FSC.GEN.MOUNTAIN_Y) / Math.max(0.1, FSC.GEN.SNOW_Y - FSC.GEN.MOUNTAIN_Y)));
-        blendC.set(COL.TERR[5]); out.lerp(blendC, Math.max(0, k - 0.5) * 0.7);
-      } else if (t === FSC.TERR.GRASS) {
-        // meadows dry out as they climb, so big pastures never read as one flat green
-        blendC.set(COL.GRASS_DRY);
-        out.lerp(blendC, Math.max(0, Math.min(0.5, h / (FSC.GEN.PLAIN_H * 1.6))));
-      }
-      const wd = waterDist ? waterDist[v] : 9;
-      if (wd <= 2) { blendC.set(COL.BEACH); out.lerp(blendC, wd === 1 ? 0.6 : 0.22); }
-    }
-    // slope darkening + a little per-vertex noise so big fields never read flat
+    // average neighbour height drop — used for slope shading and cliff rock
     let dh = 0, dn = 0;
     for (let d = 0; d < 6; d++) { const u = FSMap.nbr(map, v, d); if (u >= 0) { dh += Math.abs(map.height[u] - h); dn++; } }
     if (dn) dh /= dn;
-    const rocky = (t === FSC.TERR.MOUNTAIN || t === FSC.TERR.SNOW) ? 1.9 : 1;
-    const shade = 1 - Math.min(0.26, dh * 0.13) + (hash01(v, 7) - 0.5) * 0.10 * rocky;
+    const wd = waterDist ? waterDist[v] : 9;
+    if (t === T.WATER) {
+      // lake bed: shallow sand fading to deep blue-grey
+      blendC.set(COL.BEACH);
+      const k = Math.max(0, Math.min(1, (h + 2.2) / 2.2));
+      out.lerp(blendC, k * 0.62);
+    } else {
+      if (t === T.MOUNTAIN) {
+        // bare rock low down, a dusting of snow only near the peaks
+        const k = Math.max(0, Math.min(1, (h - FSC.GEN.MOUNTAIN_Y) / Math.max(0.1, FSC.GEN.SNOW_Y - FSC.GEN.MOUNTAIN_Y)));
+        blendC.set(COL.TERR[5]); out.lerp(blendC, Math.max(0, k - 0.48) * 0.85);
+        // and the steeper it stands, the barer and darker the crag
+        blendC.set(V.ROCK_STEEP);
+        out.lerp(blendC, Math.max(0, Math.min(0.55, (dh - 0.35) * 0.42)));
+      } else if (t === T.SNOW) {
+        blendC.set(V.SNOW_SHADE);
+        out.lerp(blendC, Math.max(0, Math.min(0.5, (dh - 0.25) * 0.5)));
+      } else if (t === T.GRASS) {
+        // meadows dry out as they climb, and pool into deep green in the hollows
+        blendC.set(COL.GRASS_DRY);
+        out.lerp(blendC, Math.max(0, Math.min(0.52, h / (FSC.GEN.PLAIN_H * 1.6))));
+        const p = patchNoise(xz[0], xz[1]);
+        blendC.set(p > 0 ? V.GRASS_DEEP : COL.GRASS_DRY);
+        out.lerp(blendC, Math.min(0.34, Math.abs(p) * 2.6));
+      } else if (t === T.SWAMP) {
+        // marsh: standing water pools where the ground is flattest
+        blendC.set(V.SWAMP_WET);
+        out.lerp(blendC, 0.18 + Math.max(0, 0.30 - dh * 0.6));
+      } else if (t === T.DESERT) {
+        const p = patchNoise(xz[0] * 1.4, xz[1] * 1.4);
+        blendC.set(COL.BEACH);
+        out.lerp(blendC, 0.18 + Math.min(0.24, Math.abs(p) * 2.0));
+      }
+      // beach: sand creeps up the shore, brightest right at the waterline
+      if (wd <= 2) { blendC.set(COL.BEACH); out.lerp(blendC, wd === 1 ? 0.72 : 0.30); }
+    }
+    // slope darkening + a little per-vertex noise so big fields never read flat
+    const rocky = (t === T.MOUNTAIN || t === T.SNOW) ? 1.9 : 1;
+    const shade = 1 - Math.min(0.28, dh * 0.14) + (hash01(v, 7) - 0.5) * 0.09 * rocky;
     out.multiplyScalar(shade);
     /* ===== PHASE-D: a whisper of the owner's colour over held ground ===== */
     if (mil.tint) {
@@ -86,12 +125,19 @@
   }
 
   function buildTerrain() {
+    const V = FSC.VIS;
     const W = map.W, H = map.H, N = W * H;
     const pos = new Float32Array(N * 3);
     const col = new Float32Array(N * 3);
+    /* ===== PHASE-V: WORLD-TILED uv so the blade sheet lies over the terrain at a
+     * fixed real-world scale — the texture never stretches over a hillside and
+     * never shrinks on a plain. ===== */
+    const uv = new Float32Array(N * 2);
+    const uvK = 1 / V.GROUND_TEX_UV;
     for (let v = 0; v < N; v++) {
       FSMap.worldXZ(map, v, xz);
       pos[v * 3] = xz[0]; pos[v * 3 + 1] = map.height[v]; pos[v * 3 + 2] = xz[1];
+      uv[v * 2] = xz[0] * uvK; uv[v * 2 + 1] = xz[1] * uvK;
       terrainColor(v, tmpC);
       col[v * 3] = tmpC.r; col[v * 3 + 1] = tmpC.g; col[v * 3 + 2] = tmpC.b;
     }
@@ -106,40 +152,148 @@
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    geo.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
     geo.setIndex(new THREE.BufferAttribute(idx.subarray(0, k), 1));
     geo.computeVertexNormals();
     geo.computeBoundingSphere();
     posAttr = geo.attributes.position;
     colAttr = geo.attributes.color;
-    const m = FSModels.mat(0xffffff, { vertexColors: true, emissiveOf: 0x6d8b5c, emissiveK: 0.18 });
+    const m = FSModels.mat(0xffffff, {
+      vertexColors: true, map: FSModels.groundTex(),
+      emissiveOf: 0x6d8b5c, emissiveK: V.TERR_EMISSIVE_K,
+    });
+    m.userData.shared = true;              // the blade sheet is cached in FSModels
     terrainMesh = new THREE.Mesh(geo, m);
     terrainMesh.name = "terrain";
     scene.add(terrainMesh);
   }
 
+  /* ===== PHASE-V: the water is THREE layers — a translucent body, a scrolling
+   * caustic shimmer that breathes with sin(t), and (built in buildWaterFX) the
+   * shoreline foam + sun glints that make it read as alive. ===== */
   function buildWater() {
+    const V = FSC.VIS;
     const w = map.W * FSC.TILE, d = map.H * FSC.TILE * FSC.ROW_Z;
     const geo = new THREE.PlaneGeometry(w * 1.6, d * 1.6, 1, 1);
     geo.rotateX(-Math.PI / 2);
-    const tex = FSModels.canvasTex("water", 64, 64, (g) => {
-      g.fillStyle = "#ffffff"; g.fillRect(0, 0, 64, 64);
-      g.strokeStyle = "rgba(210,235,255,0.55)"; g.lineWidth = 2;
-      for (let i = 0; i < 10; i++) {
-        g.beginPath();
-        const y = i * 6.4 + 2;
-        g.moveTo(0, y);
-        for (let x = 0; x <= 64; x += 8) g.lineTo(x, y + Math.sin((x + i * 9) * 0.22) * 1.6);
-        g.stroke();
-      }
-    }, 26);
     const m = FSModels.mat(COL.WATER_SURF, {
-      transparent: true, opacity: 0.82, depthWrite: false, map: tex, emissiveK: 0.26,
+      transparent: true, opacity: 0.84, depthWrite: false, map: FSModels.waterTex(), emissiveK: 0.30,
     });
+    m.userData.shared = true;
     waterMesh = new THREE.Mesh(geo, m);
     waterMesh.position.set(w / 2, FSC.WATER_Y, d / 2);
     waterMesh.renderOrder = 2;
     waterMesh.name = "water";
     scene.add(waterMesh);
+
+    const sgeo = new THREE.PlaneGeometry(w * 1.6, d * 1.6, 1, 1);
+    sgeo.rotateX(-Math.PI / 2);
+    const sm = new THREE.MeshBasicMaterial({
+      color: 0xdff2ff, map: FSModels.shimmerTex(), transparent: true,
+      opacity: V.SHIMMER_OP, depthWrite: false, blending: THREE.AdditiveBlending, fog: true,
+    });
+    sm.userData.shared = true;
+    shimmerMesh = new THREE.Mesh(sgeo, sm);
+    shimmerMesh.position.set(w / 2, FSC.WATER_Y + 0.035, d / 2);
+    shimmerMesh.renderOrder = 3;
+    shimmerMesh.name = "watershimmer";
+    scene.add(shimmerMesh);
+  }
+
+  /* ===================================================================== */
+  /* ===== PHASE-V: shoreline foam + sun glints (static scatter, animated
+   * per frame through a rotating window so the CPU cost is flat) ========= */
+  /* ===================================================================== */
+  function buildWaterFX() {
+    const V = FSC.VIS, T = FSC.TERR;
+    const N = map.W * map.H;
+    // foam sits on every water vertex that touches land
+    const shore = [];
+    for (let v = 0; v < N && shore.length < V.FOAM_MAX; v++) {
+      if (map.terr[v] !== T.WATER) continue;
+      let land = 0;
+      for (let d = 0; d < 6; d++) { const u = FSMap.nbr(map, v, d); if (u >= 0 && map.terr[u] !== T.WATER) land++; }
+      if (land) shore.push([v, land]);
+    }
+    if (shore.length) {
+      const mesh = new THREE.InstancedMesh(FSModels.foamGeo(), FSModels.foamMat(), shore.length);
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.frustumCulled = false;
+      mesh.renderOrder = 4;
+      mesh.name = "foam";
+      mesh.setColorAt(0, WHITE);
+      for (let i = 0; i < shore.length; i++) {
+        FSMap.worldXZ(map, shore[i][0], xz);
+        const s = 1.4 + shore[i][1] * 0.24 + hash01(shore[i][0], 21) * 0.5;
+        tmpV.set(xz[0], FSC.WATER_Y + 0.055, xz[1]);
+        tmpE.set(0, hash01(shore[i][0], 5) * 6.283, 0); tmpQ.setFromEuler(tmpE);
+        tmpS.set(s, 1, s * (0.75 + hash01(shore[i][0], 9) * 0.4));
+        mesh.setMatrixAt(i, tmpM.compose(tmpV, tmpQ, tmpS));
+        mesh.setColorAt(i, tmpC.setScalar(0.8));
+      }
+      mesh.count = shore.length;
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      foamMesh = mesh;
+      foamV = shore;
+      scene.add(mesh);
+    }
+    // glints scatter over open water, brightest where it is deepest
+    const open = [];
+    for (let v = 0; v < N; v++) {
+      if (map.terr[v] !== T.WATER) continue;
+      if (hash01(v, 33) > 0.10) continue;
+      open.push(v);
+      if (open.length >= V.SPARK_MAX) break;
+    }
+    if (open.length) {
+      const mesh = new THREE.InstancedMesh(FSModels.sparkGeo(), FSModels.sparkMat(), open.length);
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.frustumCulled = false;
+      mesh.renderOrder = 6;
+      mesh.name = "sparkle";
+      mesh.setColorAt(0, WHITE);
+      mesh.count = open.length;
+      sparkMesh = mesh;
+      sparkV = open;
+      scene.add(mesh);
+    }
+  }
+
+  function animWaterFX(dt) {
+    const V = FSC.VIS;
+    if (foamMesh && foamMesh.instanceColor) {
+      // the surf breathes: a travelling wave of brightness along the shore
+      const n = foamMesh.count;
+      const step = Math.max(1, Math.ceil(n / 6));
+      for (let k = 0; k < step; k++) {
+        const i = (foamPhase + k) % n;
+        const v = foamV[i][0];
+        const b = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(tAccum * V.FOAM_HZ * 6.283 + hash01(v, 13) * 6.283));
+        foamMesh.setColorAt(i, tmpC.setScalar(b));
+      }
+      foamPhase = (foamPhase + step) % n;
+      foamMesh.instanceColor.needsUpdate = true;
+    }
+    if (sparkMesh) {
+      // every glint winks in and out on its own clock
+      const n = sparkMesh.count;
+      for (let i = 0; i < n; i++) {
+        const v = sparkV[i];
+        const ph = hash01(v, 41) * 6.283;
+        const tw = Math.sin(tAccum * V.SPARK_HZ + ph);
+        const on = Math.max(0, tw);
+        FSMap.worldXZ(map, v, xz);
+        const s = 0.35 + on * 1.25;
+        tmpV.set(xz[0] + (hash01(v, 51) - 0.5) * 1.4, FSC.WATER_Y + 0.09, xz[1] + (hash01(v, 61) - 0.5) * 1.4);
+        tmpQ.identity();
+        tmpS.set(s, 1, s);
+        sparkMesh.setMatrixAt(i, tmpM.compose(tmpV, tmpQ, tmpS));
+        sparkMesh.setColorAt(i, tmpC.setScalar(on * on * 0.95));
+      }
+      sparkMesh.instanceMatrix.needsUpdate = true;
+      if (sparkMesh.instanceColor) sparkMesh.instanceColor.needsUpdate = true;
+    }
   }
 
   // -------------------------------------------------------------- object layer
@@ -213,18 +367,264 @@
     // pre-count so every pool is allocated once, at the right size
     const counts = {};
     for (let v = 0; v < N; v++) {
-      const key = FSModels.kindForObj(map.obj[v], FSMap.species(v));
+      const key = FSModels.kindForObj(map.obj[v], FSMap.species(v), v);
       if (key) counts[key] = (counts[key] || 0) + 1;
     }
     for (const key in counts) makePool(key, counts[key] + 16 + Math.ceil(counts[key] * 0.25));
     for (let v = 0; v < N; v++) {
-      const key = FSModels.kindForObj(map.obj[v], FSMap.species(v));
+      const key = FSModels.kindForObj(map.obj[v], FSMap.species(v), v);
       if (!key) continue;
       const a = allocSlot(key);
       vertSlot.set(v, { key, idx: a.idx });
       setSlot(v, key, a.p, a.idx);
     }
   }
+
+  /* ===================================================================== */
+  /* ===== PHASE-V: the meadow layer — grass tufts, wildflowers and the ===
+   * soft contact shadows every grounded thing drops. Vertex-slotted exactly
+   * like the object layer, so refreshVertex tears a clump out the moment a
+   * road, a field or a house claims that ground. ========================= */
+  /* ===================================================================== */
+  const DECOR_STRIDE = 7;           // x, y, z, scale, yaw, phase, spare
+
+  function decorPool(key, geo, material, cap, renderOrder) {
+    let p = decor[key];
+    if (p) return p;
+    const mesh = new THREE.InstancedMesh(geo, material, cap);
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.frustumCulled = false;
+    mesh.name = "decor:" + key;
+    mesh.renderOrder = renderOrder || 0;
+    for (let i = 0; i < cap; i++) mesh.setMatrixAt(i, ZERO);
+    mesh.setColorAt(0, tmpC.setScalar(1));
+    mesh.count = 0;
+    decorGroup.add(mesh);
+    p = { key, mesh, cap, top: 0, free: [], anchor: new Float32Array(cap * DECOR_STRIDE), full: true, sway: 0 };
+    decor[key] = p;
+    return p;
+  }
+  function decorAlloc(p) {
+    if (p.free.length) return p.free.pop();
+    if (p.top >= p.cap) return -1;                 // pools are pre-sized; never grow mid-frame
+    const i = p.top++;
+    p.mesh.count = p.top;
+    return i;
+  }
+  function decorSet(p, i, x, y, z, s, yaw, phase, color) {
+    const a = p.anchor, o = i * DECOR_STRIDE;
+    a[o] = x; a[o + 1] = y; a[o + 2] = z; a[o + 3] = s; a[o + 4] = yaw; a[o + 5] = phase;
+    tmpV.set(x, y, z);
+    tmpE.set(0, yaw, 0); tmpQ.setFromEuler(tmpE);
+    tmpS.set(s, s, s);
+    p.mesh.setMatrixAt(i, tmpM.compose(tmpV, tmpQ, tmpS));
+    if (color !== undefined) p.mesh.setColorAt(i, color);
+    p.full = true;
+  }
+  function decorClear(p, i) {
+    p.mesh.setMatrixAt(i, ZERO);
+    p.anchor[i * DECOR_STRIDE + 3] = 0;
+    p.free.push(i);
+    p.full = true;
+  }
+  /** true when a vertex is free ground: no object, no road, no flag, no house */
+  function decorFree(v) {
+    if (map.obj[v] !== FSC.OBJ.NONE) return false;
+    if (map.flagAt[v] || map.bldAt[v]) return false;
+    for (let d = 0; d < 6; d++) {
+      if (FSMap.edgeUsed(map, v, d)) return false;
+      // a LARGE building spills past its own vertex, so its neighbours stay bare
+      const u = FSMap.nbr(map, v, d);
+      if (u >= 0 && map.bldAt[u] && G && G.buildings) {
+        const b = G.buildings[map.bldAt[u]];
+        if (b && FSC.BLD[b.type] && (FSC.BLD[b.type].size || 0) >= 2) return false;
+      }
+    }
+    return true;
+  }
+  /** how much grass this terrain grows (0 = none) */
+  function tuftDensity(t) {
+    const T = FSC.TERR;
+    if (t === T.GRASS) return 1;
+    if (t === T.SWAMP) return 0.8;
+    if (t === T.DESERT) return 0.25;
+    return 0;
+  }
+  function tuftTint(v, t, out) {
+    const V = FSC.VIS, T = FSC.TERR;
+    if (t === T.DESERT) out.set(V.DESERT_TUFT);
+    else if (t === T.SWAMP) out.set(V.SWAMP_TUFT);
+    else out.set(V.TUFT_GREEN[(hash01(v, 71) * V.TUFT_GREEN.length) | 0]);
+    return out.multiplyScalar(0.82 + hash01(v, 83) * 0.36);
+  }
+  /** the object standing on this vertex, and how wide a shadow it casts (0 = none) */
+  function shadowRadiusFor(v) {
+    const o = map.obj[v], O = FSC.OBJ;
+    if (o >= O.TREE1 && o <= O.TREE4) return [0.60, 0.86, 1.22, 1.66][o - O.TREE1];
+    if (o === O.STUMP) return 0.60;
+    if (o >= O.STONE1 && o <= O.STONE4) return 0.62 + (o - O.STONE1) * 0.16;
+    if (o === O.SAPLING) return 0.38;
+    return 0;
+  }
+
+  /** (re)build every decor instance owned by one vertex */
+  function refreshDecor(v) {
+    if (!decorGroup) return;
+    const V = FSC.VIS;
+    const old = decorSlot.get(v);
+    if (old) {
+      for (let i = 0; i < old.length; i++) decorClear(decor[old[i].key], old[i].idx);
+      decorSlot.delete(v);
+    }
+    const list = [];
+    const t = map.terr[v];
+    // 1. the shadow under whatever object stands here
+    const sr = shadowRadiusFor(v);
+    if (sr > 0) {
+      const p = decor.shadow;
+      if (p) {
+        const i = decorAlloc(p);
+        if (i >= 0) {
+          FSMap.worldXZ(map, v, xz);
+          const s = sr * (0.86 + hash01(v, 3) * 0.3);
+          const o = i * DECOR_STRIDE;
+          p.anchor[o] = xz[0]; p.anchor[o + 1] = map.height[v] + 0.03; p.anchor[o + 2] = xz[1];
+          p.anchor[o + 3] = s; p.anchor[o + 4] = 0; p.anchor[o + 5] = 0;
+          tmpV.set(xz[0], map.height[v] + 0.03, xz[1]);
+          tmpE.set(0, hash01(v, 11) * 6.283, 0); tmpQ.setFromEuler(tmpE);
+          tmpS.set(s * 2, 1, s * 2);
+          p.mesh.setMatrixAt(i, tmpM.compose(tmpV, tmpQ, tmpS));
+          p.full = true;
+          list.push({ key: "shadow", idx: i });
+        }
+      }
+    }
+    // 2. tufts + flowers, only on open ground the settlement has not claimed
+    const dens = tuftDensity(t);
+    if (dens > 0 && decorFree(v) && hash01(v, 97) < dens * decorRate) {
+      const n = V.TUFT_PER_VERTEX;
+      for (let j = 0; j < n; j++) {
+        const hj = hash01(v, 211 + j * 37);
+        // walk a fraction of the way toward one neighbour: exact ground, cheap
+        const d = (hash01(v, 307 + j * 53) * 6) | 0;
+        const u = FSMap.nbr(map, v, d);
+        let f = 0.14 + hash01(v, 401 + j * 61) * 0.52;
+        let x, y, z;
+        FSMap.worldXZ(map, v, xz);
+        const x0 = xz[0], z0 = xz[1], y0 = map.height[v];
+        if (u >= 0 && map.terr[u] !== FSC.TERR.WATER) {
+          FSMap.worldXZ(map, u, xz);
+          x = x0 + (xz[0] - x0) * f; z = z0 + (xz[1] - z0) * f; y = y0 + (map.height[u] - y0) * f;
+        } else { x = x0; y = y0; z = z0; }
+        const varr = ((hj * V.TUFT_VARIANTS) | 0) % V.TUFT_VARIANTS;
+        const p = decor["tuft" + varr];
+        if (!p) continue;
+        const i = decorAlloc(p);
+        if (i < 0) continue;
+        const s = (0.78 + hash01(v, 503 + j * 17) * 0.62) * (t === FSC.TERR.DESERT ? 0.8 : 1);
+        decorSet(p, i, x, y - 0.02, z, s, hash01(v, 601 + j * 23) * 6.283,
+          hash01(v, 701 + j * 29) * 6.283, tuftTint(v * 7 + j, t, tmpC));
+        list.push({ key: p.key, idx: i });
+        // a wildflower tucked into the clump
+        if (t === FSC.TERR.GRASS && hash01(v, 809 + j * 31) < V.FLOWER_FRAC) {
+          const fp = decor.flower;
+          const fi = fp ? decorAlloc(fp) : -1;
+          if (fi >= 0) {
+            const col = V.FLOWER_COL[(hash01(v, 911 + j) * V.FLOWER_COL.length) | 0];
+            decorSet(fp, fi, x + (hash01(v, 1009 + j) - 0.5) * 0.30, y, z + (hash01(v, 1103 + j) - 0.5) * 0.30,
+              0.8 + hash01(v, 1201 + j) * 0.5, hash01(v, 1301 + j) * 6.283,
+              hash01(v, 1409 + j) * 6.283, tmpC.set(col));
+            list.push({ key: "flower", idx: fi });
+          }
+        }
+      }
+    }
+    if (list.length) decorSlot.set(v, list);
+  }
+
+  let decorRate = 1;                // thinned on big maps so the cap is never hit
+
+  function buildDecor() {
+    const V = FSC.VIS;
+    decorGroup = new THREE.Group();
+    decorGroup.name = "decor";
+    scene.add(decorGroup);
+    const N = map.W * map.H;
+    // pre-count so every pool is allocated exactly once, at the right size
+    let grassy = 0, shadows = 0;
+    for (let v = 0; v < N; v++) {
+      const dens = tuftDensity(map.terr[v]);
+      if (dens > 0) grassy += dens;
+      if (shadowRadiusFor(v) > 0) shadows++;
+    }
+    const wanted = grassy * V.TUFT_PER_VERTEX;
+    decorRate = wanted > V.TUFT_MAX ? V.TUFT_MAX / wanted : 1;
+    const perVariant = Math.ceil((Math.min(wanted, V.TUFT_MAX) / V.TUFT_VARIANTS) * 1.35) + 32;
+    for (let i = 0; i < V.TUFT_VARIANTS; i++) {
+      decorPool("tuft" + i, FSModels.tuftGeo(i), FSModels.tuftMat(), perVariant, 1);
+      decor["tuft" + i].sway = 1;
+    }
+    decorPool("flower", FSModels.flowerGeo(),
+      FSModels.vcMat("flower", 0xd8c46a, 0.5), Math.ceil(Math.min(wanted, V.TUFT_MAX) * V.FLOWER_FRAC * 1.5) + 32, 1);
+    decor.flower.sway = 1;
+    decorPool("shadow", FSModels.shadowGeo(), FSModels.shadowMat(), Math.min(V.SHADOW_MAX, shadows + 64), 1);
+    for (let v = 0; v < N; v++) refreshDecor(v);
+  }
+
+  /**
+   * The breeze. Every frame a contiguous WINDOW of tuft matrices is recomposed
+   * with a fresh lean, and only that window is uploaded (BufferAttribute
+   * updateRange) — so the whole meadow ripples over a couple of seconds at a
+   * cost that does not grow with the size of the map.
+   */
+  function animDecor(dt) {
+    const V = FSC.VIS;
+    for (const k in decor) {
+      const p = decor[k];
+      const attr = p.mesh.instanceMatrix;
+      if (!p.sway) {
+        if (p.full) { attr.updateRange.count = -1; attr.needsUpdate = true; p.full = false; if (p.mesh.instanceColor) p.mesh.instanceColor.needsUpdate = true; }
+        continue;
+      }
+      if (p.full) {                                  // a structural change: full upload
+        attr.updateRange.count = -1; attr.needsUpdate = true;
+        if (p.mesh.instanceColor) p.mesh.instanceColor.needsUpdate = true;
+        p.full = false;
+      }
+      const n = p.top;
+      if (!n) continue;
+      const a0 = p.swayAt || 0;
+      const a1 = Math.min(a0 + V.TUFT_WINDOW, n);
+      const wob = tAccum * V.TUFT_SWAY_HZ * 6.283;
+      for (let i = a0; i < a1; i++) {
+        const o = i * DECOR_STRIDE, s = p.anchor[o + 3];
+        if (s <= 0) continue;
+        const lean = Math.sin(wob + p.anchor[o + 5]) * V.TUFT_SWAY;
+        tmpV.set(p.anchor[o], p.anchor[o + 1], p.anchor[o + 2]);
+        tmpE.set(lean * 0.75, p.anchor[o + 4], lean);
+        tmpQ.setFromEuler(tmpE);
+        tmpS.set(s, s, s);
+        p.mesh.setMatrixAt(i, tmpM.compose(tmpV, tmpQ, tmpS));
+      }
+      attr.updateRange.offset = a0 * 16;
+      attr.updateRange.count = (a1 - a0) * 16;
+      attr.needsUpdate = true;
+      p.swayAt = a1 >= n ? 0 : a1;
+    }
+  }
+
+  function disposeDecor() {
+    if (!decorGroup) return;
+    for (const k in decor) { decorGroup.remove(decor[k].mesh); decor[k].mesh.dispose(); delete decor[k]; }
+    if (scene) scene.remove(decorGroup);
+    decorGroup = null;
+    decorSlot.clear();
+  }
+  FSRender.decorInfo = function () {
+    const out = {};
+    for (const k in decor) out[k] = { cap: decor[k].cap, top: decor[k].top, live: decor[k].top - decor[k].free.length };
+    return out;
+  };
 
   /** Re-sync ONE vertex (object + terrain height/colour) — the Phase B/C hook. */
   FSRender.refreshVertex = function (v) {
@@ -237,7 +637,7 @@
     colAttr.setXYZ(v, tmpC.r, tmpC.g, tmpC.b);
     dirtyPos = true; dirtyCol = true;
     // object
-    const key = FSModels.kindForObj(map.obj[v], FSMap.species(v));
+    const key = FSModels.kindForObj(map.obj[v], FSMap.species(v), v);
     const cur = vertSlot.get(v);
     if (cur && cur.key === key) { setSlot(v, key, pools[key], cur.idx); return true; }
     if (cur) {
@@ -252,6 +652,9 @@
       vertSlot.set(v, { key, idx: a.idx });
       setSlot(v, key, a.p, a.idx);
     }
+    /* ===== PHASE-V: the grass goes with it — a felled tree loses its shadow,
+     * a ploughed field loses its tufts, a cleared vertex grows them back. ===== */
+    refreshDecor(v);
     return true;
   };
 
@@ -381,6 +784,34 @@
   /* ===== PHASE-C: water roads ride ON the water, not on the lake bed ===== */
   function roadY(v) {
     return (map.terr[v] === FSC.TERR.WATER ? FSC.WATER_Y + 0.05 : map.height[v]) + FSC.ROAD_LIFT;
+  }
+
+  /* ===== PHASE-V: ground the settlement has claimed grows no grass. Roads and
+   * flags never go through refreshVertex, so their vertices are diffed here and
+   * the meadow layer is torn up (or grown back) only where it actually changed. */
+  const claimed = new Set();
+  let claimSig = "";
+  function syncClaims() {
+    if (!decorGroup) return;
+    const now = new Set();
+    for (const id in G.roads) {
+      const r = G.roads[id];
+      for (let i = 0; i < r.path.length; i++) {
+        const v = r.path[i];
+        now.add(v);
+        for (let d = 0; d < 6; d++) { const u = FSMap.nbr(map, v, d); if (u >= 0) now.add(u); }
+      }
+    }
+    for (const id in G.flags) now.add(G.flags[id].v);
+    for (const id in G.buildings) {
+      const b = G.buildings[id];
+      now.add(b.v);
+      for (let d = 0; d < 6; d++) { const u = FSMap.nbr(map, b.v, d); if (u >= 0) now.add(u); }
+    }
+    now.forEach((v) => { if (!claimed.has(v)) refreshDecor(v); });
+    claimed.forEach((v) => { if (!now.has(v)) refreshDecor(v); });
+    claimed.clear();
+    now.forEach((v) => claimed.add(v));
   }
 
   function rebuildRoads() {
@@ -514,9 +945,14 @@
       tmpQ.setFromEuler(tmpE);
       tmpS.set(1, 1, 1);
       dynPush(p, tmpM.compose(tmpV, tmpQ, tmpS));
+      if (!afloat) serfShadow.push(x, y, z);   /* ===== PHASE-V: contact shadow ===== */
       if (afloat) {                                                // the ferry itself
-        tmpV.set(x, FSC.WATER_Y + 0.02, z);
-        tmpE.set(0, yaw, 0); tmpQ.setFromEuler(tmpE);
+        /* ===== PHASE-V: a boat rides the swell — it bobs at rest and heels a
+         * little into the direction it is rowing. ===== */
+        const bob = Math.sin(dyn.tAcc * 1.5 + s.id * 1.7) * FSC.VIS.BOAT_BOB;
+        const heel = moving ? Math.sin(dyn.tAcc * 2.6 + s.id) * 0.05 : bob * 0.7;
+        tmpV.set(x, FSC.WATER_Y + 0.02 + bob, z);
+        tmpE.set(bob * 0.5, yaw, heel); tmpQ.setFromEuler(tmpE);
         dynPush(boat, tmpM.compose(tmpV, tmpQ, tmpS));
       }
       if (s.carry) {
@@ -577,17 +1013,80 @@
       }
       if (busy && view.userData.smoke) {
         const o = view.userData.smoke;
-        for (let k = 0; k < 3; k++) {
-          const t = ((dyn.tAcc * 0.55) + k * 0.33 + (b.id % 5) * 0.1) % 1;
-          const s = 0.5 + t * 1.1;
-          tmpV.set(view.position.x + o[0] + t * 0.22, view.position.y + o[1] + t * 1.1, view.position.z + o[2]);
-          tmpE.set(0, t * 3, 0); tmpQ.setFromEuler(tmpE);
+        /* ===== PHASE-V: a proper column of puffs — they rise, swell, lean off
+         * on the breeze and thin out, so a working quarter reads at a glance. */
+        for (let k = 0; k < 5; k++) {
+          const t = ((dyn.tAcc * 0.42) + k * 0.2 + (b.id % 7) * 0.09) % 1;
+          const s = 0.42 + t * 1.55;
+          const drift = t * t * 0.9;
+          tmpV.set(view.position.x + o[0] + drift + Math.sin(dyn.tAcc + k) * 0.06,
+            view.position.y + o[1] + t * 1.55,
+            view.position.z + o[2] + Math.cos(dyn.tAcc * 0.8 + k) * 0.10);
+          tmpE.set(0, t * 3 + k, 0); tmpQ.setFromEuler(tmpE);
           tmpS.set(s, s, s);
-          dynPush(smoke, tmpM.compose(tmpV, tmpQ, tmpS), tmpC.setScalar(1 - t * 0.35));
+          dynPush(smoke, tmpM.compose(tmpV, tmpQ, tmpS), tmpC.setScalar(1 - t * 0.55));
         }
       }
     }
   }
+
+  /* ===== PHASE-V: standing crops. The field patch itself is a static object,
+   * but ripe stalks are pushed as instances every frame so the whole harvest
+   * ripples — the one thing that makes a farm quarter feel like weather. ===== */
+  function syncWheat() {
+    const V = FSC.VIS, O = FSC.OBJ;
+    const pool = dynPool("wheat", FSModels.wheatGeo(), FSModels.vcMat("wheat", 0xc9b45c, 0.42));
+    let n = 0;
+    const green = tmpC, ripe = blendC;
+    vertSlot.forEach((slot, v) => {
+      if (n >= V.WHEAT_MAX) return;
+      const o = map.obj[v];
+      if (o < O.FIELD1 || o > O.FIELD4) return;
+      const stage = o - O.FIELD0;                       // 1..4
+      FSMap.worldXZ(map, v, xz);
+      const y = map.height[v];
+      green.set(V.WHEAT_GREEN); ripe.set(V.WHEAT_RIPE);
+      green.lerp(ripe, (stage - 1) / 3);
+      const h = 0.55 + stage * 0.16;
+      for (let k = 0; k < V.WHEAT_CLUSTERS; k++) {
+        const a = (k / V.WHEAT_CLUSTERS) * 6.283 + hash01(v, 17) * 6.283;
+        const r = 0.30 + hash01(v * 5 + k, 23) * 0.34;
+        const ph = hash01(v * 3 + k, 29) * 6.283;
+        const lean = Math.sin(dyn.tAcc * 1.15 + ph) * 0.15;
+        tmpV.set(xz[0] + Math.cos(a) * r, y + 0.07, xz[1] + Math.sin(a) * r);
+        tmpE.set(lean * 0.7, a, lean);
+        tmpQ.setFromEuler(tmpE);
+        tmpS.set(h, h, h);
+        dynPush(pool, tmpM.compose(tmpV, tmpQ, tmpS), green);
+        n++;
+      }
+    });
+  }
+
+  /* ===== PHASE-V: the contact shadows that move — buildings and workers.
+   * (Static object shadows live in the decor layer.) ===================== */
+  function syncShadows() {
+    const pool = dynPool("shadowDyn", FSModels.shadowGeo(), FSModels.shadowMat());
+    for (const id in G.buildings) {
+      const b = G.buildings[id];
+      const view = bldViews.get(b.id);
+      if (!view) continue;
+      const sz = (FSC.BLD[b.type] && FSC.BLD[b.type].size) || 0;
+      const s = b.type === "castle" ? 4.4 : [1.9, 2.5, 3.2][sz];
+      tmpV.set(view.position.x, view.position.y + 0.035, view.position.z);
+      tmpE.set(0, Math.PI / 6, 0); tmpQ.setFromEuler(tmpE);
+      tmpS.set(s, 1, s);
+      dynPush(pool, tmpM.compose(tmpV, tmpQ, tmpS), tmpC.setScalar(1));
+    }
+    for (let i = 0; i < serfShadow.length; i += 3) {
+      tmpV.set(serfShadow[i], serfShadow[i + 1] + 0.03, serfShadow[i + 2]);
+      tmpQ.identity();
+      tmpS.set(0.62, 1, 0.62);
+      dynPush(pool, tmpM.compose(tmpV, tmpQ, tmpS), tmpC.setScalar(0.85));
+    }
+    serfShadow.length = 0;
+  }
+  const serfShadow = [];
 
   /* ===================================================================== */
   /* ===== PHASE-D: knights, duels, corpses, fire, frontier, captures ===== */
@@ -791,10 +1290,16 @@
     let bs = "";
     for (const id in G.buildings) { const b = G.buildings[id]; bs += id + b.state + bldVisKey(b) + ";"; }
     if (ground || bs !== dyn.bldSig) { dyn.bldSig = bs; FSRender.refreshBuildings(); }
+    /* ===== PHASE-V: tear up / grow back the meadow where the settlement moved ===== */
+    let fc = 0;
+    for (const id in G.flags) fc++;
+    const cs = rs + "|" + fc + "|" + bs.length;
+    if (ground || cs !== claimSig) { claimSig = cs; syncClaims(); }
     syncFlags();
     syncSerfs(dt);
     syncSigns();                        /* ===== PHASE-C ===== */
     syncWorking(dt);
+    syncWheat();                        /* ===== PHASE-V ===== */
     /* ===== PHASE-D: frontier, corpses, fire, duel sparks ===== */
     scanMilEvents();
     syncBorders();
@@ -804,6 +1309,7 @@
     /* ===== PHASE-E: congestion glow + suitability overlay upkeep ===== */
     syncCongestion(dt);
     syncSuitabilityUpkeep(dt);
+    syncShadows();                      /* ===== PHASE-V: grounding, drawn last ===== */
     dynFlush();
   }
   FSRender.syncDynamic = syncDynamic;
@@ -1015,15 +1521,27 @@
       renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     }
+    const V = FSC.VIS;
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(COL.SKY);
-    scene.fog = new THREE.Fog(COL.SKY, COL.FOG_NEAR, COL.FOG_FAR);
+    /* ===== PHASE-V: a warm, lush grade. The fog colour is the sky's HORIZON
+     * colour, so distance dissolves into the dome instead of into a flat wall,
+     * and the dome itself is drawn behind everything with fog switched off. */
+    scene.background = new THREE.Color(V.SKY_MID);
+    scene.fog = new THREE.Fog(V.FOG_COL, V.FOG_NEAR, V.FOG_FAR);
 
-    const hemi = new THREE.HemisphereLight(0xd6e6ff, 0x4c5836, 0.62);
-    scene.add(hemi);
-    const sun = new THREE.DirectionalLight(0xfff0d4, 0.62);
-    sun.position.set(0.55, 1.0, 0.35).multiplyScalar(100);
-    scene.add(sun);
+    skyMesh = FSModels.skyDome(Math.max(700, (map.W + map.H) * FSC.TILE * 1.6));
+    skyMesh.material.userData.shared = false;
+    scene.add(skyMesh);
+
+    hemiLight = new THREE.HemisphereLight(V.HEMI_SKY, V.HEMI_GND, V.HEMI_I);
+    scene.add(hemiLight);
+    sunLight = new THREE.DirectionalLight(V.SUN_COL, V.SUN_I);
+    sunLight.position.set(0.55, 1.0, 0.35).multiplyScalar(100);
+    scene.add(sunLight);
+    // a cool bounce from the opposite side so shaded faces read blue-grey, not mud
+    fillLight = new THREE.DirectionalLight(V.FILL_COL, V.FILL_I);
+    fillLight.position.set(-0.6, 0.45, -0.55).multiplyScalar(100);
+    scene.add(fillLight);
 
     const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
     const t0 = now();
@@ -1031,6 +1549,8 @@
     stats.terrainMs = now() - t0;
     buildWater();
     buildObjects();
+    buildDecor();                       /* ===== PHASE-V: the meadow layer ===== */
+    buildWaterFX();                     /* ===== PHASE-V: surf + glints ===== */
     stats.worldMs = now() - t0;
 
     bldGroup = new THREE.Group(); bldGroup.name = "buildings";
@@ -1113,6 +1633,23 @@
         waterMesh.material.map.offset.y = (tAccum * 0.006) % 1;
       }
     }
+    /* ===== PHASE-V: the shimmer sheet scrolls the other way and breathes on a
+     * sine, so the two layers interfere and the surface never reads as a
+     * repeating tile sliding past. ===== */
+    if (shimmerMesh) {
+      const V = FSC.VIS;
+      const m = shimmerMesh.material;
+      if (m.map) {
+        m.map.offset.x = (-tAccum * V.SHIMMER_SPEED) % 1;
+        m.map.offset.y = (tAccum * V.SHIMMER_SPEED * 0.55 + Math.sin(tAccum * 0.35) * 0.02) % 1;
+      }
+      m.opacity = V.SHIMMER_OP * (0.72 + 0.28 * Math.sin(tAccum * 0.55));
+      shimmerMesh.position.y = FSC.WATER_Y + 0.035 + Math.sin(tAccum * 0.7 + 0.6) * 0.03;
+    }
+    if (skyMesh) skyMesh.position.set(camera.position.x, 0, camera.position.z);
+    animDecor(dt);                      /* ===== PHASE-V: the breeze ===== */
+    animWaterFX(dt);                    /* ===== PHASE-V: surf + glints ===== */
+    if (window.FSFX) window.FSFX.frame(dt, G);   /* ===== PHASE-V: ambient life ===== */
     renderer.render(scene, camera);
     stats.frames++;
     stats.drawCalls = renderer.info.render.calls;

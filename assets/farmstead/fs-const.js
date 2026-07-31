@@ -673,6 +673,98 @@
   FSC.NET_LOBBY_BEAT_MS = 15000;// family-lobby heartbeat (games.html liveness window)
   FSC.NET_SDK_URL = "https://unpkg.com/playroomkit@0.0.96/multiplayer.full.umd.js";
 
+  /* ===================================================================== */
+  /* ===== PHASE-V look — palettes, densities, FX budgets ================= */
+  /* PURELY COSMETIC. Nothing below is read by fs-sim / fs-map / fs-military /
+   * fs-ai / fs-net; nothing below may ever be fed into FSC.rng. The renderer,
+   * the model builders and FSFX are the only consumers. ================== */
+  /* ===================================================================== */
+
+  // --- warm lush ground palette (replaces the Phase-A flat greens) ---------
+  FSC.COL.TERR[1] = 0x74a04b;      // GRASS — warmer, more saturated meadow
+  FSC.COL.TERR[2] = 0xd9c084;      // DESERT — warm sand
+  FSC.COL.TERR[3] = 0x5b7040;      // SWAMP — wet olive
+  FSC.COL.TERR[4] = 0x74695a;      // MOUNTAIN — warm rock
+  FSC.COL.TERR[5] = 0xeef3fa;      // SNOW — crisp, faintly blue
+  FSC.COL.GRASS_DRY = 0xaeb45c;    // sun-bleached upland meadow
+  FSC.COL.BEACH = 0xe4d3a4;        // warm shore sand
+  FSC.COL.WATER_SURF = 0x2d7fae;
+  FSC.COL.SKY = 0xa8d0e8;
+
+  FSC.VIS = {
+    // ---- sky + light -----------------------------------------------------
+    SKY_TOP: 0x5f9ed8, SKY_MID: 0xa9d3ec, SKY_LOW: 0xf0e2c4,   // gradient dome
+    SUN_COL: 0xfff1cf, SUN_I: 0.72,
+    HEMI_SKY: 0xcfe6ff, HEMI_GND: 0x6a7346, HEMI_I: 0.58,
+    FILL_COL: 0xbcd4f0, FILL_I: 0.20,                          // cool bounce
+    FOG_COL: 0xc2d9e6, FOG_NEAR: 90, FOG_FAR: 400,
+    TERR_EMISSIVE_K: 0.14,
+
+    // ---- terrain surface -------------------------------------------------
+    GROUND_TEX_PX: 256,        // blade-noise canvas size
+    GROUND_TEX_UV: 5.0,        // world units per texture tile
+    GROUND_BLADES: 3400,       // strokes drawn into the noise canvas
+    PATCH_A: 0.085, PATCH_B: 0.055,   // low-freq meadow blotch amplitudes
+    PATCH_FA: 0.041, PATCH_FB: 0.017, // …and their spatial frequencies
+    GRASS_DEEP: 0x4e7a3a,      // lush hollows
+    ROCK_STEEP: 0x5f574a,      // cliff faces darken toward this
+    SWAMP_WET: 0x3f5a4c,       // standing-water tint in the marshes
+    SNOW_SHADE: 0xc9d8ea,
+
+    // ---- grass tufts + flowers ------------------------------------------
+    TUFT_VARIANTS: 3,
+    TUFT_PER_VERTEX: 2,        // clusters scattered per eligible grass vertex
+    TUFT_MAX: 7000,            // hard cap (large maps thin out to fit)
+    TUFT_H: 0.40, TUFT_W: 0.52,
+    TUFT_GREEN: [0x74a44c, 0x8ab556, 0x5f8d3f, 0x9fbb5e],
+    TUFT_SWAY: 0.16,           // radians of lean at full sway
+    TUFT_SWAY_HZ: 0.55,
+    TUFT_WINDOW: 260,          // instance matrices re-swayed per frame
+    FLOWER_FRAC: 0.11,         // share of tufts that get a flower head
+    FLOWER_COL: [0xfff4e0, 0xffd94a, 0xe2624c, 0xd8a8e0],
+    DESERT_TUFT: 0xc3b071, SWAMP_TUFT: 0x63793f,
+
+    // ---- water -----------------------------------------------------------
+    WATER_DEEP: 0x1d5c86, WATER_SHALLOW: 0x4fa8c8,
+    SHIMMER_OP: 0.22, SHIMMER_SPEED: 0.035,
+    FOAM_COL: 0xf2fbff, FOAM_MAX: 1400, FOAM_HZ: 0.9,
+    SPARK_COL: 0xfffbe8, SPARK_MAX: 240, SPARK_HZ: 2.3,
+    BOAT_BOB: 0.045,
+
+    // ---- trees -----------------------------------------------------------
+    LEAF_A: [0x2f5a34, 0x487f36, 0xb07a2c],    // per species: deep tone
+    LEAF_B: [0x437a45, 0x63a044, 0xd8a63a],    // …and highlight tone
+    TREE_VARIANTS: 2,          // extra canopy arrangements for mature stages
+    WIND_SWAY: 0.055, WIND_HZ: 0.33, WIND_WINDOW: 220,
+    LEAF_FALL_MAX: 60,
+
+    // ---- crops -----------------------------------------------------------
+    WHEAT_CLUSTERS: 5,         // stalk clumps pushed per ripe field vertex
+    WHEAT_MAX: 700,
+
+    // ---- contact shadows -------------------------------------------------
+    SHADOW_COL: 0x3a4530, SHADOW_OP: 0.30, SHADOW_MAX: 4200,
+
+    // ---- building charm --------------------------------------------------
+    ATLAS_PX: 512,
+    WALL_PLASTER: 0xe3d3b2, WALL_TIMBER: 0x6a4a2e, WALL_PLANK: 0xb08a56,
+    WALL_STONE: 0xb3ab99, ROOF_THATCH: 0xc2a05a, ROOF_SHINGLE: 0x9b4b38,
+    ROOF_SLATE: 0x6a6f78, WINDOW_GLOW: 0xffd98a, CHIMNEY: 0xa08a72,
+    FOUNDATION: 0x8e8577,
+    BLD_TRI_MAX: 900,
+
+    // ---- FX budgets (FSFX) ----------------------------------------------
+    FX_BUDGET_MS: 1.5,
+    FISH_MAX: 14, FISH_BASE_HZ: 0.10, FISH_STOCK_K: 0.07, FISH_ARC_T: 1.05,
+    SPLASH_MAX: 30, DROP_MAX: 90,
+    BIRD_N: 4, BIRD_Y: 16, BIRD_R: 34, BIRD_SPD: 0.10,
+    BFLY_MAX: 14, BFLY_R: 22,
+    DUST_MAX: 40,
+    SMOKE_PUFF_MAX: 120,
+  };
+  FSC.VIS.WHEAT_GREEN = 0x93b04a;
+  FSC.VIS.WHEAT_RIPE = 0xdcb954;
+
   if (typeof window !== "undefined") window.FSC = FSC;
   if (typeof module !== "undefined" && module.exports) module.exports = FSC; // node tests
 })();
