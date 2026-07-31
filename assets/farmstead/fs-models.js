@@ -352,7 +352,7 @@
         const x = rnd() * P, y = rnd() * P, r = P * (0.04 + rnd() * 0.14);
         const grd = g.createRadialGradient(x, y, 0, x, y, r);
         const dark = rnd() < 0.5;
-        grd.addColorStop(0, dark ? "rgba(120,120,120,0.16)" : "rgba(255,255,255,0.20)");
+        grd.addColorStop(0, dark ? "rgba(104,110,86,0.26)" : "rgba(255,255,255,0.28)");
         grd.addColorStop(1, "rgba(255,255,255,0)");
         g.fillStyle = grd;
         g.beginPath(); g.arc(x, y, r, 0, 6.3); g.fill();
@@ -363,9 +363,9 @@
         const x = rnd() * P, y = rnd() * P;
         const L = P * (0.008 + rnd() * 0.022), a = -Math.PI / 2 + (rnd() - 0.5) * 1.5;
         const light = rnd() < 0.45;
-        g.strokeStyle = light ? "rgba(255,255,255," + (0.14 + rnd() * 0.22).toFixed(3) + ")"
-          : "rgba(74,74,74," + (0.08 + rnd() * 0.16).toFixed(3) + ")";
-        g.lineWidth = 1 + rnd() * 1.2;
+        g.strokeStyle = light ? "rgba(255,255,255," + (0.20 + rnd() * 0.32).toFixed(3) + ")"
+          : "rgba(56,60,44," + (0.12 + rnd() * 0.24).toFixed(3) + ")";
+        g.lineWidth = 1 + rnd() * 1.6;
         for (let wx = -1; wx <= 1; wx++) {
           for (let wy = -1; wy <= 1; wy++) {
             const px = x + wx * P, py = y + wy * P;
@@ -377,28 +377,55 @@
     }, 1);
   };
 
-  /** A clump of grass blades punched out of a transparent sheet (alphaTest cutout). */
+  /**
+   * A clump of grass blades punched out of a transparent sheet (alphaTest cutout).
+   * THREE attempts to get here, and the lessons are worth keeping:
+   *  - long thin separated blades alpha-test down to a bundle of thistles;
+   *  - a filled dome silhouette reads as a solid green triangle, not grass;
+   *  - so: MANY tapered blades with real gaps between them, tip heights capped
+   *    by a dome so the clump peaks in the middle, and depth carried by the
+   *    blades' own LUMINANCE (dark at the back, bright at the front) because
+   *    an alpha-tested cutout throws away every subtlety in the alpha channel.
+   */
   FSModels.tuftTex = function () {
     return canvasTex("tex:tuft", 128, 128, (g, P) => {
       const rnd = jr(5150);
       g.clearRect(0, 0, P, P);
-      g.lineCap = "round";
-      for (let i = 0; i < 26; i++) {
-        const bx = P * 0.5 + (rnd() - 0.5) * P * 0.72;
-        const h = P * (0.42 + rnd() * 0.5);
-        const lean = (rnd() - 0.5) * P * 0.30;
-        const w = P * (0.035 + rnd() * 0.035);
-        // a blade = a tapered quadratic sliver, bright at the tip
-        const grd = g.createLinearGradient(bx, P, bx + lean, P - h);
-        grd.addColorStop(0, "rgba(224,255,208,0.98)");
-        grd.addColorStop(1, "rgba(255,255,255,0.92)");
-        g.fillStyle = grd;
+      const dome = (u) => Math.sqrt(Math.max(0, 1 - (u * 2 - 1) * (u * 2 - 1)));
+      function blade(rootx, tipx, h, w, lum, curve) {
+        const c = Math.round(255 * lum);
+        g.fillStyle = "rgba(" + Math.round(c * 0.88) + "," + c + "," + Math.round(c * 0.74) + ",1)";
         g.beginPath();
-        g.moveTo(bx - w, P);
-        g.quadraticCurveTo(bx - w * 0.4 + lean * 0.5, P - h * 0.55, bx + lean, P - h);
-        g.quadraticCurveTo(bx + w * 0.5 + lean * 0.5, P - h * 0.5, bx + w, P);
+        g.moveTo(rootx - w, P);
+        g.quadraticCurveTo(rootx - w * 0.3 + (tipx - rootx) * curve, P - h * 0.66, tipx, P - h);
+        g.quadraticCurveTo(rootx + w * 0.35 + (tipx - rootx) * curve, P - h * 0.60, rootx + w, P);
         g.closePath(); g.fill();
       }
+      // back rank: longer, darker, leaning out
+      for (let i = 0; i < 17; i++) {
+        const k = (i + 0.5) / 17;
+        const rootx = P * (0.26 + k * 0.48);
+        const tipx = P * (0.5 + (k - 0.5) * 2 * (0.40 + rnd() * 0.10));
+        const h = P * (0.16 + 0.80 * dome(tipx / P)) * (0.82 + rnd() * 0.22);
+        blade(rootx, tipx, h, P * (0.040 + rnd() * 0.026), 0.64 + rnd() * 0.16, 0.45);
+      }
+      // front rank: shorter, brighter, tighter — this is what reads as "fluffy"
+      for (let i = 0; i < 21; i++) {
+        const k = (i + 0.5) / 21;
+        const rootx = P * (0.20 + k * 0.60);
+        const tipx = P * (0.5 + (k - 0.5) * 2 * (0.30 + rnd() * 0.14));
+        const h = P * (0.12 + 0.64 * dome(tipx / P)) * (0.78 + rnd() * 0.30);
+        blade(rootx, tipx, h, P * (0.036 + rnd() * 0.024), 0.84 + rnd() * 0.16, 0.35);
+      }
+      // a shallow root band so a low camera never sees daylight under the clump
+      const gr = g.createLinearGradient(0, P, 0, P * 0.86);
+      gr.addColorStop(0, "rgba(170,206,140,1)");
+      gr.addColorStop(1, "rgba(196,236,166,0)");
+      g.fillStyle = gr;
+      g.beginPath();
+      g.moveTo(P * 0.14, P);
+      for (let x = P * 0.14; x <= P * 0.86; x += 3) g.lineTo(x, P - P * 0.11 * dome((x / P - 0.14) / 0.72));
+      g.lineTo(P * 0.86, P); g.closePath(); g.fill();
     });
   };
 
@@ -452,7 +479,45 @@
         const x = rnd() * P, y = rnd() * P, r = P * (0.05 + rnd() * 0.16);
         g.beginPath(); g.arc(x, y, r, 0, 6.3); g.fill();
       }
-    }, 22);
+      // NOTE repeat = 1: the water mesh carries WORLD-SCALED uv of its own, so a
+      // texture repeat here would multiply into a herringbone moire on the sea.
+    }, 1);
+  };
+
+  /** trodden earth for the road ribbon — tiles along its own length */
+  FSModels.roadTex = function () {
+    return canvasTex("tex:road", 128, 128, (g, P) => {
+      const rnd = jr(31337);
+      g.fillStyle = "#f0e2c6"; g.fillRect(0, 0, P, P);
+      // two wheel ruts running down the strip
+      for (let s = -1; s <= 1; s += 2) {
+        const x = P * (0.5 + s * 0.22);
+        const grd = g.createLinearGradient(x - P * 0.09, 0, x + P * 0.09, 0);
+        grd.addColorStop(0, "rgba(120,96,62,0)");
+        grd.addColorStop(0.5, "rgba(120,96,62,0.30)");
+        grd.addColorStop(1, "rgba(120,96,62,0)");
+        g.fillStyle = grd; g.fillRect(x - P * 0.09, 0, P * 0.18, P);
+      }
+      // the verges darken where the grass creeps back in
+      for (let s = -1; s <= 1; s += 2) {
+        const x = s < 0 ? 0 : P * 0.88;
+        const grd = g.createLinearGradient(s < 0 ? 0 : P, 0, s < 0 ? P * 0.12 : P * 0.88, 0);
+        grd.addColorStop(0, "rgba(96,110,64,0.42)");
+        grd.addColorStop(1, "rgba(96,110,64,0)");
+        g.fillStyle = grd; g.fillRect(x, 0, P * 0.12, P);
+      }
+      // grit + footprints
+      for (let i = 0; i < 420; i++) {
+        const r = P * (0.004 + rnd() * 0.016);
+        g.fillStyle = rnd() < 0.5 ? "rgba(108,86,54,0.26)" : "rgba(255,250,232,0.30)";
+        g.beginPath(); g.arc(rnd() * P, rnd() * P, r, 0, 6.3); g.fill();
+      }
+      for (let i = 0; i < 16; i++) {
+        g.fillStyle = "rgba(112,90,58,0.20)";
+        const x = P * (0.34 + rnd() * 0.32), y = rnd() * P;
+        g.beginPath(); g.ellipse(x, y, P * 0.022, P * 0.036, rnd(), 0, 6.3); g.fill();
+      }
+    }, 1);
   };
 
   /** soft round white puff (smoke, splash, dust) */
@@ -556,17 +621,24 @@
       });
     } else {
       // broadleaf: a ring of lobes + a crown lobe, deep tones low, bright on top
-      const cr = 0.24 + h * 0.195;
+      const cr = 0.24 + h * 0.205;
       const lobes = s === 1 ? 2 : (s === 2 ? 3 : (4 + ((variant || 0) % 2) + (rnd() < 0.5 ? 1 : 0)));
-      const ringR = cr * (0.44 + rnd() * 0.20);
-      const base = trunkH + cr * 0.60;
+      const ringR = cr * (0.50 + rnd() * 0.20);
+      const base = trunkH + cr * 0.52;
+      // the heart of the crown, so the outer lobes read as a MASS and the tree
+      // never hollows into a doughnut (the first spread pass did exactly that)
+      parts.push({
+        geo: new THREE.IcosahedronGeometry(cr * (0.86 + rnd() * 0.16), 0),
+        color: new THREE.Color(deep).lerp(new THREE.Color(bright), 0.45).getHex(),
+        matrix: M(tipX, base + cr * 0.18, tipZ, rnd() * 3, rnd() * 3, rnd() * 3, 1, 0.88, 1),
+      });
       for (let i = 0; i < lobes; i++) {
-        const a = twist + (i / lobes) * 6.283 + (rnd() - 0.5) * 0.7;
-        const rr = ringR * (0.65 + rnd() * 0.7);
-        const lift = (rnd() - 0.42) * cr * 0.42;
-        const sz = cr * (0.60 + rnd() * 0.42);
-        const up = Math.max(0, Math.min(1, 0.42 + lift / (cr * 0.5)));
-        const c = new THREE.Color(deep).lerp(new THREE.Color(bright), up * 0.9);
+        const a = twist + (i / lobes) * 6.283 + (rnd() - 0.5) * 0.55;
+        const rr = ringR * (0.82 + rnd() * 0.40);
+        const lift = (rnd() - 0.5) * cr * 0.62;
+        const sz = cr * (0.50 + rnd() * 0.30);
+        const up = Math.max(0, Math.min(1, 0.5 + lift / (cr * 0.55)));
+        const c = new THREE.Color(deep).lerp(new THREE.Color(bright), up * up);
         parts.push({
           geo: new THREE.IcosahedronGeometry(sz, 0), color: c.getHex(),
           matrix: M(tipX + Math.cos(a) * rr, base + lift, tipZ + Math.sin(a) * rr,
@@ -575,8 +647,8 @@
       }
       // crown
       parts.push({
-        geo: new THREE.IcosahedronGeometry(cr * (0.72 + rnd() * 0.2), 0), color: bright,
-        matrix: M(tipX + (rnd() - 0.5) * cr * 0.2, base + cr * (0.52 + rnd() * 0.2), tipZ + (rnd() - 0.5) * cr * 0.2,
+        geo: new THREE.IcosahedronGeometry(cr * (0.64 + rnd() * 0.2), 0), color: bright,
+        matrix: M(tipX + (rnd() - 0.5) * cr * 0.3, base + cr * (0.74 + rnd() * 0.22), tipZ + (rnd() - 0.5) * cr * 0.3,
           rnd() * 3, rnd() * 3, rnd() * 3, 1, 0.82, 1),
       });
     }
@@ -711,19 +783,25 @@
    * the blade cutout. Instanced by the renderer, one clump per scatter point,
    * per-instance tinted and swayed. 6 triangles apiece.
    */
-  FSModels.tuftGeo = function (variant) {
-    return cached("geo:tuft:" + variant, () => {
+  FSModels.tuftGeo = function (variant, quads) {
+    const n = Math.max(1, quads === undefined ? 3 : quads);
+    return cached("geo:tuft:" + variant + ":" + n, () => {
       const V = FSC.VIS, rnd = jr(191 + variant * 6151);
       const parts = [];
-      const n = 3;
+      // a low, wide CLUMP: crossing blade-sheets of different heights, spread
+      // over about a metre so one instance reads as a patch of meadow rather
+      // than a single spike. Short + wide survives RTS distance; tall + thin
+      // turned into scratches (first pass, rejected on screenshot).
+      // `quads` drops to 1 on a software rasteriser, where every alpha-tested
+      // fragment is paid for on the CPU.
       for (let i = 0; i < n; i++) {
-        const a = (i / n) * Math.PI + (rnd() - 0.5) * 0.5;
-        const w = V.TUFT_W * (0.78 + rnd() * 0.5) * (1 + variant * 0.12);
-        const hh = V.TUFT_H * (0.75 + rnd() * 0.55) * (1 + variant * 0.10);
+        const a = (i / n) * Math.PI + (rnd() - 0.5) * 0.45;
+        const w = V.TUFT_W * (0.80 + rnd() * 0.44) * (1 + variant * 0.10);
+        const hh = V.TUFT_H * (0.72 + rnd() * 0.72) * (1 + variant * 0.08);
         const g = new THREE.PlaneGeometry(w, hh);
         parts.push({
           geo: g, color: 0xffffff, cell: null,
-          matrix: M((rnd() - 0.5) * 0.14, hh * 0.5, (rnd() - 0.5) * 0.14, 0, a, (rnd() - 0.5) * 0.16),
+          matrix: M((rnd() - 0.5) * 0.42, hh * 0.5, (rnd() - 0.5) * 0.42, 0, a, (rnd() - 0.5) * 0.14),
         });
       }
       // PlaneGeometry brings its own 0..1 uv; the tuft material samples the
@@ -758,9 +836,25 @@
 
   FSModels.tuftMat = function () {
     return cached("mat:tuft", () => mat(0xffffff, {
-      vertexColors: true, map: FSModels.tuftTex(), alphaTest: 0.42,
+      vertexColors: true, map: FSModels.tuftTex(), alphaTest: 0.36,
       side: THREE.DoubleSide, emissiveOf: 0x84a858, emissiveK: 0.34,
     }));
+  };
+
+  /** a knot of loose scree — what keeps a mountainside from reading as one lump */
+  FSModels.screeGeo = function () {
+    return cached("geo:scree", () => {
+      const rnd = jr(8123), parts = [];
+      for (let i = 0; i < 4; i++) {
+        const a = rnd() * 6.283, d = i === 0 ? 0 : 0.14 + rnd() * 0.26;
+        const r = 0.09 + rnd() * 0.14;
+        parts.push({
+          geo: new THREE.IcosahedronGeometry(r, 0), color: 0xffffff, cell: "rock",
+          matrix: M(Math.cos(a) * d, r * 0.55, Math.sin(a) * d, rnd() * 3, rnd() * 3, rnd() * 3, 1, 0.68, 1),
+        });
+      }
+      return mergeColored(parts);
+    });
   };
 
   /** a wildflower: a stalk and a tiny cross of petals, tinted per instance */
@@ -778,7 +872,7 @@
     return cached("geo:shadow", () => {
       const g = new THREE.PlaneGeometry(1, 1);
       g.rotateX(-Math.PI / 2);
-      return g;
+      return whiteColors(g);
     });
   };
   FSModels.shadowMat = function () {
@@ -983,7 +1077,6 @@
     parts.push({ geo: new THREE.BoxGeometry(w + 0.07, h + 0.07, 0.05), color: 0x5b4227, matrix: M(x, y, z, 0, yaw, 0) });
     parts.push({ geo: new THREE.BoxGeometry(w, h, 0.06), color: V.WINDOW_GLOW, matrix: M(x, y, z, 0, yaw, 0) });
     parts.push({ geo: new THREE.BoxGeometry(0.028, h + 0.02, 0.07), color: 0x5b4227, matrix: M(x, y, z, 0, yaw, 0) });
-    parts.push({ geo: new THREE.BoxGeometry(w + 0.11, 0.035, 0.09), color: 0x8a7a5e, matrix: M(x, y - h * 0.62, z, 0, yaw, 0) });
   }
   /** a chimney stack; returns the smoke anchor */
   function chimney(parts, x, z, top, w) {
@@ -1069,11 +1162,16 @@
     parts.push({ geo: new THREE.CylinderGeometry(0.05, 0.06, h, 5), color: col === undefined ? COL.BLD_WOOD : col, cell: "wood", matrix: M(x, h / 2, z) });
   }
   /** a proper paddock: posts joined by two rails */
+  /** a paddock: box posts joined by two rails. Boxes, not cylinders — a ring of
+   *  cylinder posts is a third of a small building's whole triangle budget. */
   function fence(parts, r, n, col) {
     const c = col === undefined ? COL.BLD_WOOD : col;
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2;
-      post(parts, Math.cos(a) * r, Math.sin(a) * r, 0.36, c);
+      parts.push({
+        geo: new THREE.BoxGeometry(0.065, 0.36, 0.065), color: c, cell: "wood",
+        matrix: M(Math.cos(a) * r, 0.18, Math.sin(a) * r, 0, -a, 0),
+      });
       const a2 = ((i + 1) / n) * Math.PI * 2;
       const x0 = Math.cos(a) * r, z0 = Math.sin(a) * r, x1 = Math.cos(a2) * r, z1 = Math.sin(a2) * r;
       const len = Math.sqrt((x1 - x0) * (x1 - x0) + (z1 - z0) * (z1 - z0));
@@ -1161,7 +1259,7 @@
       }
       case "hut": {
         // a small watch post: stone base, palisade crown, banner
-        shell(parts, 1.0, 0.86, { wall: 0xc9c0ad, wallCell: "stone", roofType: "flat", roof: 0x8f8878, win: false });
+        shell(parts, 1.0, 0.86, { wall: 0xc9c0ad, wallCell: "stone", roofType: "flat", roof: 0x8a7a5e, roofCell: "plank", win: false });
         for (let i = 0; i < 10; i++) {
           const a = (i / 10) * Math.PI * 2;
           parts.push({ geo: new THREE.BoxGeometry(0.16, 0.22, 0.16), color: 0xc9c0ad, cell: "stone", matrix: M(Math.cos(a) * 0.46, 1.08, Math.sin(a) * 0.46) });
@@ -1310,7 +1408,7 @@
         }
         parts.push({ geo: new THREE.BoxGeometry(0.30, 0.34, 0.05), color: 0x5d442a, cell: "plank", matrix: M(-1.06, 0.29, 0.13) });
         parts.push({ geo: new THREE.BoxGeometry(0.05, 0.05, 0.24), color: V.WALL_TIMBER, matrix: M(-1.06, 0.86, 0.20) });
-        fence(parts, 1.22, 9);
+        fence(parts, 1.22, 8);
         // hay cart + loose bales
         parts.push({ geo: new THREE.BoxGeometry(0.56, 0.22, 0.38), color: 0x9a6a3c, cell: "plank", matrix: M(0.70, 0.22, 0.72, 0, 0.4, 0) });
         parts.push({ geo: new THREE.BoxGeometry(0.48, 0.24, 0.30), color: FSC.RES_COLOR.wheat, cell: "straw", matrix: M(0.70, 0.42, 0.72, 0, 0.4, 0) });
@@ -1356,17 +1454,17 @@
       }
       case "pigfarm": {
         shell(parts, 1.25, 0.92, { roofType: "gable", roofH: 0.62, wall: 0xd8c09c, roofCell: "thatch", roof: V.ROOF_THATCH });
-        fence(parts, 1.22, 11);
+        fence(parts, 1.22, 9);
         const pigs = [[0.72, 0.55], [0.34, 0.92], [0.88, -0.42]];
         for (let i = 0; i < pigs.length; i++) {
           const yaw = i * 0.9;
           parts.push({ geo: new THREE.BoxGeometry(0.34, 0.20, 0.22), color: COL.PIG, matrix: M(pigs[i][0], 0.16, pigs[i][1], 0, yaw, 0) });
           parts.push({ geo: new THREE.BoxGeometry(0.15, 0.15, 0.14), color: COL.PIG, matrix: M(pigs[i][0] + Math.sin(yaw) * 0.20, 0.19, pigs[i][1] + Math.cos(yaw) * 0.20, 0, yaw, 0) });
           parts.push({ geo: new THREE.CylinderGeometry(0.045, 0.045, 0.04, 6), color: 0xf2c0c4, matrix: M(pigs[i][0] + Math.sin(yaw) * 0.28, 0.19, pigs[i][1] + Math.cos(yaw) * 0.28, Math.PI / 2, 0, 0) });
-          for (let L = 0; L < 4; L++) {
+          for (let L = -1; L <= 1; L += 2) {
             parts.push({
-              geo: new THREE.BoxGeometry(0.05, 0.09, 0.05), color: 0xd08f94,
-              matrix: M(pigs[i][0] + Math.sin(yaw + (L & 1 ? 1.2 : -1.2)) * 0.11, 0.05, pigs[i][1] + Math.cos(yaw + (L & 1 ? 1.2 : -1.2)) * 0.11 + (L < 2 ? 0.06 : -0.06), 0, yaw, 0),
+              geo: new THREE.BoxGeometry(0.20, 0.09, 0.055), color: 0xd08f94,
+              matrix: M(pigs[i][0] + Math.sin(yaw + L * 1.5708) * 0.085, 0.05, pigs[i][1] + Math.cos(yaw + L * 1.5708) * 0.085, 0, yaw, 0),
             });
           }
         }
@@ -1395,7 +1493,14 @@
         // a timber-framed adit cut into the rock, with a headframe and a cart
         parts.push({ geo: new THREE.BoxGeometry(1.20, 0.14, 1.00), color: V.FOUNDATION, cell: "rock", matrix: M(0, 0.07, 0) });
         parts.push({ geo: new THREE.BoxGeometry(1.02, 0.66, 0.92), color: 0xb0a48c, cell: "rock", matrix: M(0, 0.44, 0) });
-        parts.push({ geo: new THREE.BoxGeometry(1.10, 0.12, 1.00), color: 0x8b8172, cell: "rock", matrix: M(0, 0.80, 0) });
+        parts.push({ geo: new THREE.BoxGeometry(1.16, 0.11, 1.06), color: 0x7f6244, cell: "wood", matrix: M(0, 0.80, 0) });
+        for (let s2 = -1; s2 <= 1; s2 += 2) {
+          parts.push({
+            geo: new THREE.BoxGeometry(0.66, 0.09, 1.08), color: 0x9a7449, cell: "plank",
+            matrix: M(s2 * 0.26, 0.95, 0, 0, 0, -s2 * 0.55),
+          });
+        }
+        parts.push({ geo: new THREE.BoxGeometry(0.09, 0.09, 1.10), color: V.WALL_TIMBER, cell: "wood", matrix: M(0, 1.10, 0) });
         // the mouth: a black opening in a heavy timber frame
         parts.push({ geo: new THREE.BoxGeometry(0.56, 0.54, 0.06), color: 0x241f1a, matrix: M(0, 0.36, 0.47) });
         parts.push({ geo: new THREE.BoxGeometry(0.10, 0.62, 0.10), color: V.WALL_TIMBER, cell: "wood", matrix: M(-0.31, 0.40, 0.48) });
@@ -1424,7 +1529,7 @@
       }
       case "smelter": case "goldsmelter": {
         const gold = type === "goldsmelter";
-        shell(parts, 1.25, 0.88, { roofType: "flat", wall: 0xb6ad9e, wallCell: "stone", roof: 0x8c8478, win: false });
+        shell(parts, 1.25, 0.88, { roofType: "flat", wall: 0xb6ad9e, wallCell: "stone", roof: 0x9a7d5e, roofCell: "plank", win: false });
         out.smoke = chimney(parts, -0.44, -0.32, 1.66, 0.28);
         // the furnace stack itself, glowing at the base
         parts.push({ geo: new THREE.CylinderGeometry(0.28, 0.36, 0.86, 9), color: 0x9a8f80, cell: "stone", matrix: M(0.34, 0.51, -0.02) });
@@ -1459,7 +1564,7 @@
         break;
       }
       case "weaponsmith": {
-        shell(parts, 1.25, 0.90, { roofType: "flat", wall: 0xbfae96, wallCell: "plaster", roof: 0x7d7468, win: false });
+        shell(parts, 1.25, 0.90, { roofType: "flat", wall: 0xbfae96, wallCell: "plaster", roof: 0x8f7a5c, roofCell: "plank", win: false });
         out.smoke = chimney(parts, 0.44, -0.34, 1.58, 0.26);
         window_(parts, -0.26, 0.66, 0.66, 0, 0.24, 0.22);
         // forge with an anvil, a quench barrel and a finished blade on the rack
@@ -1597,20 +1702,45 @@
       col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
     }
     geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    /* Drawn LAST in the opaque pass (no renderOrder override → three sorts
+     * opaque front-to-back, and the dome is the farthest thing there is) with
+     * depth TESTING on and depth WRITING off. That means every pixel already
+     * covered by terrain, water or a roof is rejected before it is ever shaded
+     * — a full-screen gradient fill turns into "only the sky you can see". */
     const m = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false });
     const mesh = new THREE.Mesh(geo, m);
     mesh.name = "sky";
-    mesh.renderOrder = -1;
+    /* renderOrder must be forced: three sorts the opaque pass front-to-back by
+     * BOUNDING-SPHERE CENTRE, and this dome is re-centred on the camera every
+     * frame, so its centre depth is ~0 and it would otherwise sort FIRST — the
+     * exact opposite of what the depth-reject trick needs. */
+    mesh.renderOrder = 100;
     mesh.frustumCulled = false;
     return mesh;
   };
+
+  /* GOTCHA (cost an hour of black blobs on the lake): three's colour chain only
+   * applies an InstancedMesh's per-instance colour when USE_COLOR is ALSO
+   * defined — i.e. when the material says vertexColors AND the geometry carries
+   * a `color` attribute. A bare PlaneGeometry has none, so the attribute reads
+   * the default (0,0,0) and every instance paints itself black. Any plain
+   * primitive that wants per-instance tinting goes through here first. */
+  function whiteColors(geo) {
+    if (geo.attributes.color) return geo;
+    const n = geo.attributes.position.count;
+    const c = new Float32Array(n * 3);
+    for (let i = 0; i < n * 3; i++) c[i] = 1;
+    geo.setAttribute("color", new THREE.BufferAttribute(c, 3));
+    return geo;
+  }
+  FSModels.whiteColors = whiteColors;
 
   /** thin bright ring of surf laid on a water vertex that touches land */
   FSModels.foamGeo = function () {
     return cached("geo:foam", () => {
       const g = new THREE.PlaneGeometry(1, 1);
       g.rotateX(-Math.PI / 2);
-      return g;
+      return whiteColors(g);
     });
   };
   FSModels.foamMat = function () {
@@ -1624,7 +1754,7 @@
     return cached("geo:spark", () => {
       const g = new THREE.PlaneGeometry(1, 1);
       g.rotateX(-Math.PI / 2);
-      return g;
+      return whiteColors(g);
     });
   };
   FSModels.sparkMat = function () {
@@ -1635,7 +1765,7 @@
   };
   /** the flat billboard every soft particle (smoke, splash, dust) is drawn on */
   FSModels.puffGeo = function () {
-    return cached("geo:puffquad", () => new THREE.PlaneGeometry(1, 1));
+    return cached("geo:puffquad", () => whiteColors(new THREE.PlaneGeometry(1, 1)));
   };
   FSModels.puffMat = function (key, color, blend) {
     return cached("mat:puff:" + key, () => new THREE.MeshBasicMaterial({
@@ -1659,7 +1789,7 @@
     return cached("geo:fxring", () => {
       const g = new THREE.RingGeometry(0.62, 1.0, 16);
       g.rotateX(-Math.PI / 2);
-      return g;
+      return whiteColors(g);
     });
   };
   FSModels.ringMat = function () {
@@ -1797,7 +1927,14 @@
     ]));
   };
   FSModels.vcMat = function (key, emissiveOf, k) {
-    return cached("mat:" + key, () => mat(0xffffff, { vertexColors: true, emissiveOf: emissiveOf, emissiveK: k }));
+    return cached("mat:" + key, () => {
+      /* ===== PHASE-V: pools whose geometry carries atlas uv (scree, wheat)
+       * want the atlas bound, everything else stays untextured. ===== */
+      const m = mat(0xffffff, { vertexColors: true, emissiveOf: emissiveOf, emissiveK: k });
+      if (key === "scree") m.map = bldAtlas();
+      m.userData.shared = true;
+      return m;
+    });
   };
 
   /**
@@ -1891,8 +2028,8 @@
         parts.push({ geo: new THREE.BoxGeometry(0.032, 0.032, 0.02), color: 0x3a2c1e, matrix: M(s * 0.048, 0.655, 0.09) });
       }
       // profession cap: a crown and a brim in the job colour
-      parts.push({ geo: new THREE.CylinderGeometry(0.10, 0.115, 0.10, 8), color: hat, matrix: M(0, 0.765, 0) });
-      parts.push({ geo: new THREE.CylinderGeometry(0.155, 0.155, 0.035, 9), color: hat, matrix: M(0, 0.72, 0.01) });
+      parts.push({ geo: new THREE.CylinderGeometry(0.10, 0.115, 0.10, 6), color: hat, matrix: M(0, 0.765, 0) });
+      parts.push({ geo: new THREE.CylinderGeometry(0.155, 0.155, 0.035, 7), color: hat, matrix: M(0, 0.72, 0.01) });
       if (job === FSC.JOB.KNIGHT) parts.push({ geo: new THREE.ConeGeometry(0.115, 0.13, 8), color: hat, matrix: M(0, 0.86, 0) });
       // a carrier's pack; everyone else gets the tool of the trade
       if (job === FSC.JOB.TRANSPORTER || job === FSC.JOB.GENERIC || job === FSC.JOB.SAILOR) {
@@ -1945,9 +2082,9 @@
       parts.push({ geo: new THREE.BoxGeometry(0.085, 0.045, 0.09), color: COL.SERF_SKIN, matrix: M(0, 0.535, 0) });
       parts.push({ geo: new THREE.BoxGeometry(0.185, 0.17, 0.175), color: COL.SERF_SKIN, matrix: M(0, 0.625, 0) });
       // kettle helm with a nasal bar, and the rank plume on top
-      parts.push({ geo: new THREE.CylinderGeometry(0.145, 0.155, 0.13, 9), color: steel, matrix: M(0, 0.685, 0) });
-      parts.push({ geo: new THREE.CylinderGeometry(0.185, 0.185, 0.032, 10), color: 0xa9b0b8, matrix: M(0, 0.63, 0) });
-      parts.push({ geo: new THREE.ConeGeometry(0.125, 0.13, 9), color: steel, matrix: M(0, 0.81, 0) });
+      parts.push({ geo: new THREE.CylinderGeometry(0.145, 0.155, 0.13, 7), color: steel, matrix: M(0, 0.685, 0) });
+      parts.push({ geo: new THREE.CylinderGeometry(0.185, 0.185, 0.032, 8), color: 0xa9b0b8, matrix: M(0, 0.63, 0) });
+      parts.push({ geo: new THREE.ConeGeometry(0.125, 0.13, 7), color: steel, matrix: M(0, 0.81, 0) });
       parts.push({ geo: new THREE.BoxGeometry(0.035, 0.12, 0.03), color: 0xa9b0b8, matrix: M(0, 0.635, 0.10) });
       parts.push({ geo: new THREE.BoxGeometry(0.05, 0.075, 0.20), color: trim, matrix: M(0, 0.90, -0.03, 0.32, 0, 0) });
       parts.push({ geo: new THREE.BoxGeometry(0.04, 0.05, 0.13), color: trim, matrix: M(0, 0.94, -0.16, 0.7, 0, 0) });
@@ -1957,11 +2094,11 @@
       parts.push({ geo: new THREE.BoxGeometry(0.18, 0.045, 0.055), color: trim, matrix: M(0.275, 0.23, 0.07) });
       parts.push({ geo: new THREE.BoxGeometry(0.045, 0.10, 0.045), color: 0x6b5137, matrix: M(0.275, 0.175, 0.07) });
       // shield: a kite on the arm and a slung round one on the back
-      parts.push({ geo: new THREE.CylinderGeometry(0.155, 0.155, 0.04, 10), color: team, matrix: M(-0.26, 0.37, 0.09, Math.PI / 2, 0, 0) });
-      parts.push({ geo: new THREE.TorusGeometry(0.155, 0.03, 5, 11), color: trim, matrix: M(-0.26, 0.37, 0.10) });
-      parts.push({ geo: new THREE.CylinderGeometry(0.045, 0.045, 0.05, 8), color: 0xd8dde3, matrix: M(-0.26, 0.37, 0.11, Math.PI / 2, 0, 0) });
-      parts.push({ geo: new THREE.CylinderGeometry(0.135, 0.135, 0.035, 10), color: team, matrix: M(0, 0.40, -0.145, Math.PI / 2, 0, 0) });
-      parts.push({ geo: new THREE.TorusGeometry(0.135, 0.024, 4, 10), color: trim, matrix: M(0, 0.40, -0.155) });
+      parts.push({ geo: new THREE.CylinderGeometry(0.155, 0.155, 0.04, 8), color: team, matrix: M(-0.26, 0.37, 0.09, Math.PI / 2, 0, 0) });
+      parts.push({ geo: new THREE.TorusGeometry(0.155, 0.028, 3, 8), color: trim, matrix: M(-0.26, 0.37, 0.10) });
+      parts.push({ geo: new THREE.BoxGeometry(0.075, 0.075, 0.05), color: 0xd8dde3, matrix: M(-0.26, 0.37, 0.115) });
+      parts.push({ geo: new THREE.CylinderGeometry(0.135, 0.135, 0.035, 8), color: team, matrix: M(0, 0.40, -0.145, Math.PI / 2, 0, 0) });
+      parts.push({ geo: new THREE.TorusGeometry(0.135, 0.022, 3, 8), color: trim, matrix: M(0, 0.40, -0.155) });
       for (let i = 0; i < r; i++) {                       // rank pips on the surcoat
         parts.push({ geo: new THREE.BoxGeometry(0.042, 0.042, 0.03), color: trim, matrix: M(-0.055 + i * 0.045, 0.475, 0.125) });
       }

@@ -22,6 +22,8 @@
   let foamMesh = null, foamV = null, foamPhase = 0;
   let sparkMesh = null, sparkV = null;
   let decorGroup = null;            // tufts + flowers + static blob shadows
+  let decorRate = 1;                // thinned on big maps so the cap is never hit
+  let quality = 1;                  // 1 = full meadow; software rasterisers get less
   const decor = {};                 // key -> { mesh, cap, top, free[], anchor:Float32Array }
   const decorSlot = new Map();      // vertex -> [{key, idx}, ...]
   let swayCursor = 0, windCursor = 0;
@@ -84,12 +86,19 @@
       out.lerp(blendC, k * 0.62);
     } else {
       if (t === T.MOUNTAIN) {
-        // bare rock low down, a dusting of snow only near the peaks
         const k = Math.max(0, Math.min(1, (h - FSC.GEN.MOUNTAIN_Y) / Math.max(0.1, FSC.GEN.SNOW_Y - FSC.GEN.MOUNTAIN_Y)));
-        blendC.set(COL.TERR[5]); out.lerp(blendC, Math.max(0, k - 0.48) * 0.85);
-        // and the steeper it stands, the barer and darker the crag
+        /* ===== PHASE-V: a mountain is not one grey lump. The lower slopes keep
+         * a wash of the meadow they grew out of, bands of warm and cool strata
+         * ripple across the face, the steep crags go bare slate, and only the
+         * top fifth takes snow. ===== */
+        blendC.set(COL.TERR[1]);
+        out.lerp(blendC, Math.max(0, 0.34 - k * 1.7));                       // grass creeps up
+        const strata = Math.sin(h * 1.35 + hash01(v, 29) * 0.9) * 0.5 + 0.5;
+        blendC.set(V.ROCK_WARM); out.lerp(blendC, strata * 0.30);
+        blendC.set(V.ROCK_COOL); out.lerp(blendC, (1 - strata) * 0.22);
         blendC.set(V.ROCK_STEEP);
-        out.lerp(blendC, Math.max(0, Math.min(0.55, (dh - 0.35) * 0.42)));
+        out.lerp(blendC, Math.max(0, Math.min(0.62, (dh - 0.28) * 0.55)));   // bare crag
+        blendC.set(COL.TERR[5]); out.lerp(blendC, Math.max(0, k - 0.62) * 1.6);
       } else if (t === T.SNOW) {
         blendC.set(V.SNOW_SHADE);
         out.lerp(blendC, Math.max(0, Math.min(0.5, (dh - 0.25) * 0.5)));
@@ -168,37 +177,108 @@
     scene.add(terrainMesh);
   }
 
-  /* ===== PHASE-V: the water is THREE layers — a translucent body, a scrolling
-   * caustic shimmer that breathes with sin(t), and (built in buildWaterFX) the
-   * shoreline foam + sun glints that make it read as alive. ===== */
+  /* ===== PHASE-V: the water is TWO layers, not four.
+   * The first attempt stacked a full-size ocean plane, a depth-gradient sheet
+   * and a shimmer sheet on top of each other — three screen-filling transparent
+   * passes, which a software rasteriser pays for three times over. They are now
+   * ONE mesh: the map lattice (vertex-coloured from the lake bed, with per-vertex
+   * ALPHA so the shallows feather instead of seaming) plus a skirt of quads
+   * carrying the same water out past the map edge as open sea. The scrolling
+   * caustic shimmer stays its own sheet — two surfaces interfering is the whole
+   * reason moving water reads as water. ===== */
   function buildWater() {
-    const V = FSC.VIS;
-    const w = map.W * FSC.TILE, d = map.H * FSC.TILE * FSC.ROW_Z;
-    const geo = new THREE.PlaneGeometry(w * 1.6, d * 1.6, 1, 1);
-    geo.rotateX(-Math.PI / 2);
-    const m = FSModels.mat(COL.WATER_SURF, {
-      transparent: true, opacity: 0.84, depthWrite: false, map: FSModels.waterTex(), emissiveK: 0.30,
+    const V = FSC.VIS, T = FSC.TERR;
+    const W = map.W, H = map.H, N = W * H;
+    const w = W * FSC.TILE, d = H * FSC.TILE * FSC.ROW_Z;
+    const SKIRT = Math.max(w, d) * 0.6;
+    const pos = [], col = [], uv = [], idx = [];
+    const deep = new THREE.Color(V.WATER_DEEP), shallow = new THREE.Color(V.WATER_SHALLOW);
+    const c = new THREE.Color();
+    const uvK = 1 / 16;
+    const wet = new Uint8Array(N);
+    for (let v = 0; v < N; v++) {
+      FSMap.worldXZ(map, v, xz);
+      pos.push(xz[0], FSC.WATER_Y, xz[1]);
+      uv.push(xz[0] * uvK, xz[1] * uvK);
+      if (map.terr[v] === T.WATER) wet[v] = 1;
+      /* Depth ALONE is a poor cue — a bay can be metres deep two steps off the
+       * beach. Blending in the distance-to-land field is what actually draws
+       * the turquoise rim a player reads as "shallow here". */
+      const dep = Math.max(0, Math.min(1, -map.height[v] / 2.6));
+      const off = Math.max(0, Math.min(1, ((waterDist ? waterDist[v] : 9) - 1) / 2.6));
+      const k = Math.max(dep, off);
+      c.copy(shallow).lerp(deep, k * k * 0.72 + k * 0.28);
+      col.push(c.r, c.g, c.b, 0.58 + k * 0.32);
+    }
+    for (let v = 0; v < N; v++) {
+      const e = FSMap.nbr(map, v, 0), se = FSMap.nbr(map, v, 4), sw = FSMap.nbr(map, v, 5);
+      if (e >= 0 && se >= 0 && (wet[v] || wet[e] || wet[se])) idx.push(v, se, e);
+      if (sw >= 0 && se >= 0 && (wet[v] || wet[sw] || wet[se])) idx.push(v, sw, se);
+    }
+    /* …and the open sea beyond the island. The skirt is stitched to the
+     * lattice's OWN PERIMETER, not to a straight bounding box: the hex lattice
+     * boundary is a staircase (odd rows are offset half a tile), so a box-edged
+     * skirt leaves a visible zig-zag seam right where the eye follows the
+     * horizon. Every perimeter vertex is pushed radially out to the horizon and
+     * the ring between is filled. */
+    c.copy(deep);
+    const rim = [];
+    for (let cc = 0; cc < W; cc++) rim.push(cc);
+    for (let r = 1; r < H; r++) rim.push(r * W + (W - 1));
+    for (let cc = W - 2; cc >= 0; cc--) rim.push((H - 1) * W + cc);
+    for (let r = H - 2; r >= 1; r--) rim.push(r * W);
+    const midX = w / 2, midZ = d / 2;
+    const base = pos.length / 3;
+    for (let i = 0; i < rim.length; i++) {
+      FSMap.worldXZ(map, rim[i], xz);
+      const dx = xz[0] - midX, dz = xz[1] - midZ;
+      const len = Math.sqrt(dx * dx + dz * dz) || 1;
+      const ox = xz[0] + (dx / len) * SKIRT, oz = xz[1] + (dz / len) * SKIRT;
+      pos.push(ox, FSC.WATER_Y, oz);
+      uv.push(ox * uvK, oz * uvK);
+      col.push(c.r, c.g, c.b, 0.90);
+    }
+    for (let i = 0; i < rim.length; i++) {
+      const j = (i + 1) % rim.length;
+      idx.push(rim[i], base + i, base + j);
+      idx.push(rim[i], base + j, rim[j]);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pos), 3));
+    geo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(col), 4));
+    geo.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(uv), 2));
+    geo.setIndex(idx);
+    geo.computeBoundingSphere();
+    /* DoubleSide on purpose: the lattice cells and the skirt ring are wound from
+     * two different walks, and a horizontal sheet only ever presents one face to
+     * the camera anyway — so this costs nothing and removes a whole class of
+     * "half the ocean is invisible" bugs. (It cost one screenshot to find.) */
+    const m = new THREE.MeshBasicMaterial({
+      vertexColors: true, transparent: true, depthWrite: false,
+      map: FSModels.waterTex(), side: THREE.DoubleSide,
     });
-    m.userData.shared = true;
     waterMesh = new THREE.Mesh(geo, m);
-    waterMesh.position.set(w / 2, FSC.WATER_Y, d / 2);
     waterMesh.renderOrder = 2;
     waterMesh.name = "water";
     scene.add(waterMesh);
 
-    const sgeo = new THREE.PlaneGeometry(w * 1.6, d * 1.6, 1, 1);
+    /* the caustic sheet is a second screen-filling blended pass: worth every
+     * cycle on a GPU, the first thing to go on a software rasteriser */
+    if (quality < 0.6) return;
+    const sw2 = Math.max(w, d) * 1.25;
+    const sgeo = new THREE.PlaneGeometry(sw2, sw2, 1, 1);
     sgeo.rotateX(-Math.PI / 2);
     const sm = new THREE.MeshBasicMaterial({
       color: 0xdff2ff, map: FSModels.shimmerTex(), transparent: true,
       opacity: V.SHIMMER_OP, depthWrite: false, blending: THREE.AdditiveBlending, fog: true,
     });
-    sm.userData.shared = true;
     shimmerMesh = new THREE.Mesh(sgeo, sm);
     shimmerMesh.position.set(w / 2, FSC.WATER_Y + 0.035, d / 2);
     shimmerMesh.renderOrder = 3;
     shimmerMesh.name = "watershimmer";
     scene.add(shimmerMesh);
   }
+
 
   /* ===================================================================== */
   /* ===== PHASE-V: shoreline foam + sun glints (static scatter, animated
@@ -209,8 +289,10 @@
     const N = map.W * map.H;
     // foam sits on every water vertex that touches land
     const shore = [];
-    for (let v = 0; v < N && shore.length < V.FOAM_MAX; v++) {
+    const cap = Math.ceil(V.FOAM_MAX * (quality < 0.6 ? 0.5 : 1));
+    for (let v = 0; v < N && shore.length < cap; v++) {
       if (map.terr[v] !== T.WATER) continue;
+      if (quality < 0.6 && (v & 1)) continue;
       let land = 0;
       for (let d = 0; d < 6; d++) { const u = FSMap.nbr(map, v, d); if (u >= 0 && map.terr[u] !== T.WATER) land++; }
       if (land) shore.push([v, land]);
@@ -223,13 +305,25 @@
       mesh.name = "foam";
       mesh.setColorAt(0, WHITE);
       for (let i = 0; i < shore.length; i++) {
-        FSMap.worldXZ(map, shore[i][0], xz);
-        const s = 1.4 + shore[i][1] * 0.24 + hash01(shore[i][0], 21) * 0.5;
+        const sv = shore[i][0];
+        FSMap.worldXZ(map, sv, xz);
+        // slide the surf toward whichever side the land is on, so it hugs the
+        // beach instead of floating as a puff in the middle of the bay
+        let lx = 0, lz = 0, ln = 0;
+        for (let d = 0; d < 6; d++) {
+          const u = FSMap.nbr(map, sv, d);
+          if (u < 0 || map.terr[u] === FSC.TERR.WATER) continue;
+          const p2 = [0, 0]; FSMap.worldXZ(map, u, p2);
+          lx += p2[0] - xz[0]; lz += p2[1] - xz[1]; ln++;
+        }
+        if (ln) { lx /= ln; lz /= ln; }
+        const s = (1.45 + shore[i][1] * 0.18 + hash01(sv, 21) * 0.42) * FSC.VIS.FOAM_S;
+        xz[0] += lx * 0.32; xz[1] += lz * 0.32;
         tmpV.set(xz[0], FSC.WATER_Y + 0.055, xz[1]);
-        tmpE.set(0, hash01(shore[i][0], 5) * 6.283, 0); tmpQ.setFromEuler(tmpE);
-        tmpS.set(s, 1, s * (0.75 + hash01(shore[i][0], 9) * 0.4));
+        tmpE.set(0, Math.atan2(lx, lz), 0); tmpQ.setFromEuler(tmpE);
+        tmpS.set(s * 1.4, 1, s * 0.72);
         mesh.setMatrixAt(i, tmpM.compose(tmpV, tmpQ, tmpS));
-        mesh.setColorAt(i, tmpC.setScalar(0.8));
+        mesh.setColorAt(i, tmpC.setScalar(1));
       }
       mesh.count = shore.length;
       mesh.instanceMatrix.needsUpdate = true;
@@ -239,6 +333,7 @@
       scene.add(mesh);
     }
     // glints scatter over open water, brightest where it is deepest
+    if (quality < 0.6) return;
     const open = [];
     for (let v = 0; v < N; v++) {
       if (map.terr[v] !== T.WATER) continue;
@@ -269,7 +364,7 @@
       for (let k = 0; k < step; k++) {
         const i = (foamPhase + k) % n;
         const v = foamV[i][0];
-        const b = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(tAccum * V.FOAM_HZ * 6.283 + hash01(v, 13) * 6.283));
+        const b = 0.62 + 0.38 * (0.5 + 0.5 * Math.sin(tAccum * V.FOAM_HZ * 6.283 + hash01(v, 13) * 6.283));
         foamMesh.setColorAt(i, tmpC.setScalar(b));
       }
       foamPhase = (foamPhase + step) % n;
@@ -387,6 +482,7 @@
    * road, a field or a house claims that ground. ========================= */
   /* ===================================================================== */
   const DECOR_STRIDE = 7;           // x, y, z, scale, yaw, phase, spare
+  const SUN_DX = 0.55 / 1.24, SUN_DZ = 0.35 / 1.24;   // the key light's XZ heading
 
   function decorPool(key, geo, material, cap, renderOrder) {
     let p = decor[key];
@@ -400,7 +496,12 @@
     mesh.setColorAt(0, tmpC.setScalar(1));
     mesh.count = 0;
     decorGroup.add(mesh);
-    p = { key, mesh, cap, top: 0, free: [], anchor: new Float32Array(cap * DECOR_STRIDE), full: true, sway: 0 };
+    /* lo/hi are the DIRTY SPAN of instances touched since the last upload. The
+     * first version just flagged "full" and re-uploaded the whole matrix buffer
+     * — and because the world sweep dirties a vertex almost every frame, that
+     * turned into a few hundred KB of instance data per frame, for one tuft. */
+    p = { key, mesh, cap, top: 0, free: [], anchor: new Float32Array(cap * DECOR_STRIDE),
+      lo: 0, hi: cap - 1, clo: 0, chi: cap - 1, sway: 0, swayAt: 0 };
     decor[key] = p;
     return p;
   }
@@ -411,6 +512,8 @@
     p.mesh.count = p.top;
     return i;
   }
+  function decorTouch(p, i) { if (i < p.lo) p.lo = i; if (i > p.hi) p.hi = i; }
+  function decorTouchC(p, i) { if (i < p.clo) p.clo = i; if (i > p.chi) p.chi = i; }
   function decorSet(p, i, x, y, z, s, yaw, phase, color) {
     const a = p.anchor, o = i * DECOR_STRIDE;
     a[o] = x; a[o + 1] = y; a[o + 2] = z; a[o + 3] = s; a[o + 4] = yaw; a[o + 5] = phase;
@@ -418,21 +521,24 @@
     tmpE.set(0, yaw, 0); tmpQ.setFromEuler(tmpE);
     tmpS.set(s, s, s);
     p.mesh.setMatrixAt(i, tmpM.compose(tmpV, tmpQ, tmpS));
-    if (color !== undefined) p.mesh.setColorAt(i, color);
-    p.full = true;
+    decorTouch(p, i);
+    if (color !== undefined) { p.mesh.setColorAt(i, color); decorTouchC(p, i); }
   }
   function decorClear(p, i) {
     p.mesh.setMatrixAt(i, ZERO);
     p.anchor[i * DECOR_STRIDE + 3] = 0;
     p.free.push(i);
-    p.full = true;
+    decorTouch(p, i);
   }
   /** true when a vertex is free ground: no object, no road, no flag, no house */
   function decorFree(v) {
     if (map.obj[v] !== FSC.OBJ.NONE) return false;
     if (map.flagAt[v] || map.bldAt[v]) return false;
+    // GOTCHA: FSMap.edgeUsed takes two VERTICES, not a vertex and a direction —
+    // passing a direction silently resolves to "not adjacent" and the check
+    // quietly never fires. edgeCount is the honest question here anyway.
+    if (FSMap.edgeCount(map, v) > 0) return false;
     for (let d = 0; d < 6; d++) {
-      if (FSMap.edgeUsed(map, v, d)) return false;
       // a LARGE building spills past its own vertex, so its neighbours stay bare
       const u = FSMap.nbr(map, v, d);
       if (u >= 0 && map.bldAt[u] && G && G.buildings) {
@@ -487,19 +593,42 @@
         if (i >= 0) {
           FSMap.worldXZ(map, v, xz);
           const s = sr * (0.86 + hash01(v, 3) * 0.3);
+          /* the sun sits at (0.55, 1, 0.35): a shadow centred UNDER a tree is
+           * hidden by the tree itself at this camera pitch, so it is thrown a
+           * little down-sun where the player can actually see it. */
+          const ox = -SUN_DX * s * V.SHADOW_OFF, oz = -SUN_DZ * s * V.SHADOW_OFF;
           const o = i * DECOR_STRIDE;
-          p.anchor[o] = xz[0]; p.anchor[o + 1] = map.height[v] + 0.03; p.anchor[o + 2] = xz[1];
+          p.anchor[o] = xz[0] + ox; p.anchor[o + 1] = map.height[v] + 0.03; p.anchor[o + 2] = xz[1] + oz;
           p.anchor[o + 3] = s; p.anchor[o + 4] = 0; p.anchor[o + 5] = 0;
-          tmpV.set(xz[0], map.height[v] + 0.03, xz[1]);
+          tmpV.set(xz[0] + ox, map.height[v] + 0.03, xz[1] + oz);
           tmpE.set(0, hash01(v, 11) * 6.283, 0); tmpQ.setFromEuler(tmpE);
-          tmpS.set(s * 2, 1, s * 2);
+          tmpS.set(s * 2.3, 1, s * 2.0);
           p.mesh.setMatrixAt(i, tmpM.compose(tmpV, tmpQ, tmpS));
-          p.full = true;
+          decorTouch(p, i);
           list.push({ key: "shadow", idx: i });
         }
       }
     }
-    // 2. tufts + flowers, only on open ground the settlement has not claimed
+    // 2. scree — bare mountain is otherwise one smooth grey mass at any zoom
+    if ((t === FSC.TERR.MOUNTAIN || t === FSC.TERR.SNOW) && decorFree(v) && hash01(v, 131) < V.SCREE_FRAC) {
+      const p = decor.scree;
+      if (p) {
+        const i = decorAlloc(p);
+        if (i >= 0) {
+          FSMap.worldXZ(map, v, xz);
+          const d = (hash01(v, 137) * 6) | 0;
+          const u = FSMap.nbr(map, v, d);
+          const f = 0.18 + hash01(v, 139) * 0.5;
+          let x = xz[0], y = map.height[v], z = xz[1];
+          if (u >= 0) { const q = [0, 0]; FSMap.worldXZ(map, u, q); x += (q[0] - x) * f; z += (q[1] - z) * f; y += (map.height[u] - y) * f; }
+          const sc = 0.42 + hash01(v, 149) * 0.66;
+          decorSet(p, i, x, y - 0.05, z, sc, hash01(v, 151) * 6.283, 0,
+            tmpC.set(t === FSC.TERR.SNOW ? 0xd8dee6 : COL.STONE).multiplyScalar(0.72 + hash01(v, 157) * 0.5));
+          list.push({ key: "scree", idx: i });
+        }
+      }
+    }
+    // 3. tufts + flowers, only on open ground the settlement has not claimed
     const dens = tuftDensity(t);
     if (dens > 0 && decorFree(v) && hash01(v, 97) < dens * decorRate) {
       const n = V.TUFT_PER_VERTEX;
@@ -542,7 +671,43 @@
     if (list.length) decorSlot.set(v, list);
   }
 
-  let decorRate = 1;                // thinned on big maps so the cap is never hit
+  /* ===== PHASE-V: QUALITY. The meadow is alpha-tested geometry, which is free
+   * on any real GPU and murderous on a software rasteriser (headless CI, a
+   * blocklisted driver, an old laptop): there it is the single most expensive
+   * thing on screen. So the renderer asks the driver what it is once at boot
+   * and thins the meadow when it turns out to be SwiftShader / llvmpipe /
+   * Mesa software. FSRender.setQuality(q) overrides it (the art rig forces 1). */
+  function detectQuality() {
+    if (!FSC.VIS.QUALITY_SOFT) return 1;
+    try {
+      const gl = renderer.getContext();
+      const ext = gl.getExtension("WEBGL_debug_renderer_info");
+      const name = String((ext && gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) || gl.getParameter(gl.RENDERER) || "");
+      if (/swiftshader|llvmpipe|software|softpipe/i.test(name)) return FSC.VIS.QUALITY_SOFT;
+    } catch (e) { /* a driver that will not say is assumed to be real hardware */ }
+    return 1;
+  }
+  FSRender.setQuality = function (q) {
+    const was = quality;
+    quality = Math.max(0.05, Math.min(1, q === undefined ? 1 : q));
+    if (!scene || quality === was) return quality;
+    if (decorGroup) { disposeDecor(); buildDecor(); claimed.clear(); claimSig = ""; }
+    // the water layers are quality-gated too (the caustic sheet and the glints
+    // are the other two screen-filling passes), so they rebuild with it
+    if (waterMesh) { scene.remove(waterMesh); waterMesh.geometry.dispose(); waterMesh.material.dispose(); waterMesh = null; }
+    if (shimmerMesh) { scene.remove(shimmerMesh); shimmerMesh.geometry.dispose(); shimmerMesh.material.dispose(); shimmerMesh = null; }
+    if (foamMesh) { scene.remove(foamMesh); foamMesh.dispose(); foamMesh = null; foamV = null; }
+    if (sparkMesh) { scene.remove(sparkMesh); sparkMesh.dispose(); sparkMesh = null; sparkV = null; }
+    if (skyMesh && quality < 0.6) { scene.remove(skyMesh); skyMesh.geometry.dispose(); skyMesh.material.dispose(); skyMesh = null; }
+    else if (!skyMesh && quality >= 0.6) {
+      skyMesh = FSModels.skyDome(Math.max(700, (map.W + map.H) * FSC.TILE * 1.6));
+      scene.add(skyMesh);
+    }
+    buildWater();
+    buildWaterFX();
+    return quality;
+  };
+  FSRender.quality = function () { return quality; };
 
   function buildDecor() {
     const V = FSC.VIS;
@@ -551,23 +716,28 @@
     scene.add(decorGroup);
     const N = map.W * map.H;
     // pre-count so every pool is allocated exactly once, at the right size
-    let grassy = 0, shadows = 0;
+    let grassy = 0, shadows = 0, rocky = 0;
     for (let v = 0; v < N; v++) {
       const dens = tuftDensity(map.terr[v]);
       if (dens > 0) grassy += dens;
+      if (map.terr[v] === FSC.TERR.MOUNTAIN || map.terr[v] === FSC.TERR.SNOW) rocky++;
       if (shadowRadiusFor(v) > 0) shadows++;
     }
+    const cap = V.TUFT_MAX * quality;
     const wanted = grassy * V.TUFT_PER_VERTEX;
-    decorRate = wanted > V.TUFT_MAX ? V.TUFT_MAX / wanted : 1;
-    const perVariant = Math.ceil((Math.min(wanted, V.TUFT_MAX) / V.TUFT_VARIANTS) * 1.35) + 32;
+    decorRate = (wanted > cap ? cap / wanted : 1) * quality;
+    const perVariant = Math.ceil((Math.min(wanted * quality, cap) / V.TUFT_VARIANTS) * 1.4) + 32;
     for (let i = 0; i < V.TUFT_VARIANTS; i++) {
-      decorPool("tuft" + i, FSModels.tuftGeo(i), FSModels.tuftMat(), perVariant, 1);
+      decorPool("tuft" + i, FSModels.tuftGeo(i, quality < 0.4 ? 1 : 3), FSModels.tuftMat(), perVariant, 1);
       decor["tuft" + i].sway = 1;
     }
     decorPool("flower", FSModels.flowerGeo(),
-      FSModels.vcMat("flower", 0xd8c46a, 0.5), Math.ceil(Math.min(wanted, V.TUFT_MAX) * V.FLOWER_FRAC * 1.5) + 32, 1);
+      FSModels.vcMat("flower", 0xd8c46a, 0.5), Math.ceil(Math.min(wanted * quality, cap) * V.FLOWER_FRAC * 1.6) + 32, 1);
     decor.flower.sway = 1;
-    decorPool("shadow", FSModels.shadowGeo(), FSModels.shadowMat(), Math.min(V.SHADOW_MAX, shadows + 64), 1);
+    /* the soft contact shadows are a broad alpha-blended pass — worth it for
+     * grounding, but the first thing after the meadow to go on a rasteriser */
+    if (quality >= 0.4) decorPool("shadow", FSModels.shadowGeo(), FSModels.shadowMat(), Math.min(V.SHADOW_MAX, shadows + 64), 1);
+    if (quality >= 0.6) decorPool("scree", FSModels.screeGeo(), FSModels.vcMat("scree", COL.STONE, 0.34), Math.ceil(rocky * V.SCREE_FRAC * 1.4) + 32, 0);
     for (let v = 0; v < N; v++) refreshDecor(v);
   }
 
@@ -579,37 +749,47 @@
    */
   function animDecor(dt) {
     const V = FSC.VIS;
+    /* ===== PHASE-V: zoomed all the way out a tuft is smaller than a pixel and
+     * only costs shimmer + fill, so the meadow layer switches itself off. ===== */
+    const far = cam.dist;
     for (const k in decor) {
       const p = decor[k];
+      if (k.indexOf("tuft") === 0) p.mesh.visible = far < V.TUFT_FADE_DIST;
+      else if (k === "flower") p.mesh.visible = far < V.FLOWER_FADE_DIST;
+      if (!p.mesh.visible) continue;
       const attr = p.mesh.instanceMatrix;
-      if (!p.sway) {
-        if (p.full) { attr.updateRange.count = -1; attr.needsUpdate = true; p.full = false; if (p.mesh.instanceColor) p.mesh.instanceColor.needsUpdate = true; }
-        continue;
-      }
-      if (p.full) {                                  // a structural change: full upload
-        attr.updateRange.count = -1; attr.needsUpdate = true;
-        if (p.mesh.instanceColor) p.mesh.instanceColor.needsUpdate = true;
-        p.full = false;
-      }
       const n = p.top;
-      if (!n) continue;
-      const a0 = p.swayAt || 0;
-      const a1 = Math.min(a0 + V.TUFT_WINDOW, n);
-      const wob = tAccum * V.TUFT_SWAY_HZ * 6.283;
-      for (let i = a0; i < a1; i++) {
-        const o = i * DECOR_STRIDE, s = p.anchor[o + 3];
-        if (s <= 0) continue;
-        const lean = Math.sin(wob + p.anchor[o + 5]) * V.TUFT_SWAY;
-        tmpV.set(p.anchor[o], p.anchor[o + 1], p.anchor[o + 2]);
-        tmpE.set(lean * 0.75, p.anchor[o + 4], lean);
-        tmpQ.setFromEuler(tmpE);
-        tmpS.set(s, s, s);
-        p.mesh.setMatrixAt(i, tmpM.compose(tmpV, tmpQ, tmpS));
+      if (p.sway && n) {
+        const a0 = Math.min(p.swayAt || 0, n);
+        const a1 = Math.min(a0 + V.TUFT_WINDOW, n);
+        const wob = tAccum * V.TUFT_SWAY_HZ * 6.283;
+        for (let i = a0; i < a1; i++) {
+          const o = i * DECOR_STRIDE, s = p.anchor[o + 3];
+          if (s <= 0) continue;
+          const lean = Math.sin(wob + p.anchor[o + 5]) * V.TUFT_SWAY;
+          tmpV.set(p.anchor[o], p.anchor[o + 1], p.anchor[o + 2]);
+          tmpE.set(lean * 0.75, p.anchor[o + 4], lean);
+          tmpQ.setFromEuler(tmpE);
+          tmpS.set(s, s, s);
+          p.mesh.setMatrixAt(i, tmpM.compose(tmpV, tmpQ, tmpS));
+        }
+        decorTouch(p, a0);
+        if (a1 > a0) decorTouch(p, a1 - 1);
+        p.swayAt = a1 >= n ? 0 : a1;
       }
-      attr.updateRange.offset = a0 * 16;
-      attr.updateRange.count = (a1 - a0) * 16;
-      attr.needsUpdate = true;
-      p.swayAt = a1 >= n ? 0 : a1;
+      // ONE contiguous upload covering everything touched this frame
+      if (p.lo <= p.hi) {
+        attr.updateRange.offset = p.lo * 16;
+        attr.updateRange.count = (p.hi - p.lo + 1) * 16;
+        attr.needsUpdate = true;
+        p.lo = p.cap; p.hi = -1;
+      }
+      if (p.mesh.instanceColor && p.clo <= p.chi) {
+        p.mesh.instanceColor.updateRange.offset = p.clo * 3;
+        p.mesh.instanceColor.updateRange.count = (p.chi - p.clo + 1) * 3;
+        p.mesh.instanceColor.needsUpdate = true;
+        p.clo = p.cap; p.chi = -1;
+      }
     }
   }
 
@@ -814,6 +994,16 @@
     now.forEach((v) => claimed.add(v));
   }
 
+  function roadMat() {
+    if (!dyn.roadMat) {
+      dyn.roadMat = FSModels.mat(0xffffff, {
+        vertexColors: true, map: FSModels.roadTex(), emissiveOf: COL.ROAD, emissiveK: 0.26,
+      });
+      dyn.roadMat.userData.shared = true;
+    }
+    return dyn.roadMat;
+  }
+
   function rebuildRoads() {
     if (dyn.roadMesh) { dyn.group.remove(dyn.roadMesh); dyn.roadMesh.geometry.dispose(); dyn.roadMesh = null; }
     const segs = [];
@@ -825,16 +1015,22 @@
     const quads = segs.length + segs.length + 1;      // ribbons + a patch per vertex
     const pos = new Float32Array(quads * 6 * 3);
     const col = new Float32Array(quads * 6 * 3);
+    /* ===== PHASE-V: the ribbon carries its own trodden-earth sheet, tiled by
+     * REAL LENGTH so a long haul road shows ruts running down it and a junction
+     * patch does not smear one stretched copy across itself. ===== */
+    const uvs = new Float32Array(quads * 6 * 2);
     const base = new THREE.Color(COL.ROAD), edge = new THREE.Color(COL.ROAD_EDGE);
     let o = 0;
     const a = [0, 0], b = [0, 0];
     // corners are given clockwise seen from above, so the triangles are wound
     // 0-2-1 / 0-3-2 to make the ribbon face UP (else it is backface-culled away)
-    function quad(x0, z0, x1, z1, x2, z2, x3, z3, y0, y1, y2, y3, c) {
+    function quad(x0, z0, x1, z1, x2, z2, x3, z3, y0, y1, y2, y3, c, v0, v1) {
       const P = [[x0, y0, z0], [x2, y2, z2], [x1, y1, z1], [x0, y0, z0], [x3, y3, z3], [x2, y2, z2]];
+      const U = [[0, v0], [1, v1], [1, v0], [0, v0], [0, v1], [1, v1]];
       for (let i = 0; i < 6; i++) {
         pos[o * 3] = P[i][0]; pos[o * 3 + 1] = P[i][1]; pos[o * 3 + 2] = P[i][2];
         col[o * 3] = c.r; col[o * 3 + 1] = c.g; col[o * 3 + 2] = c.b;
+        uvs[o * 2] = U[i][0]; uvs[o * 2 + 1] = U[i][1];
         o++;
       }
     }
@@ -848,22 +1044,25 @@
       const len = Math.sqrt(dx * dx + dz * dz) || 1;
       const px = (-dz / len) * W, pz = (dx / len) * W;
       const ya = roadY(va), yb = roadY(vb);
+      const uLen = len / 2.4;
       quad(a[0] + px, a[1] + pz, a[0] - px, a[1] - pz, b[0] - px, b[1] - pz, b[0] + px, b[1] + pz,
-        ya, ya, yb, yb, wet ? plank : base);
+        ya, ya, yb, yb, wet ? plank : base, 0, uLen);
       for (let k = 0; k < 2; k++) {
         const v = k ? vb : va;
         if (seen.has(v)) continue;
         seen.add(v);
         const p = k ? b : a, y = roadY(v);
-        quad(p[0] - W, p[1] - W, p[0] + W, p[1] - W, p[0] + W, p[1] + W, p[0] - W, p[1] + W, y, y, y, y, edge);
+        quad(p[0] - W, p[1] - W, p[0] + W, p[1] - W, p[0] + W, p[1] + W, p[0] - W, p[1] + W, y, y, y, y, edge,
+          0, (W * 2) / 2.4);
       }
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(pos.subarray(0, o * 3), 3));
     geo.setAttribute("color", new THREE.BufferAttribute(col.subarray(0, o * 3), 3));
+    geo.setAttribute("uv", new THREE.BufferAttribute(uvs.subarray(0, o * 2), 2));
     geo.computeVertexNormals();
     geo.computeBoundingSphere();
-    dyn.roadMesh = new THREE.Mesh(geo, FSModels.vcMat("road", COL.ROAD, 0.3));
+    dyn.roadMesh = new THREE.Mesh(geo, roadMat());
     dyn.roadMesh.name = "roads";
     dyn.roadMesh.renderOrder = 1;
     dyn.group.add(dyn.roadMesh);
@@ -1066,22 +1265,24 @@
   /* ===== PHASE-V: the contact shadows that move — buildings and workers.
    * (Static object shadows live in the decor layer.) ===================== */
   function syncShadows() {
+    if (quality < 0.4) { serfShadow.length = 0; return; }
     const pool = dynPool("shadowDyn", FSModels.shadowGeo(), FSModels.shadowMat());
     for (const id in G.buildings) {
       const b = G.buildings[id];
       const view = bldViews.get(b.id);
       if (!view) continue;
       const sz = (FSC.BLD[b.type] && FSC.BLD[b.type].size) || 0;
-      const s = b.type === "castle" ? 4.4 : [1.9, 2.5, 3.2][sz];
-      tmpV.set(view.position.x, view.position.y + 0.035, view.position.z);
+      const s = b.type === "castle" ? 4.6 : [2.0, 2.6, 3.3][sz];
+      const off = FSC.VIS.SHADOW_OFF * s * 0.5;
+      tmpV.set(view.position.x - SUN_DX * off, view.position.y + 0.035, view.position.z - SUN_DZ * off);
       tmpE.set(0, Math.PI / 6, 0); tmpQ.setFromEuler(tmpE);
-      tmpS.set(s, 1, s);
+      tmpS.set(s * 1.05, 1, s);
       dynPush(pool, tmpM.compose(tmpV, tmpQ, tmpS), tmpC.setScalar(1));
     }
     for (let i = 0; i < serfShadow.length; i += 3) {
-      tmpV.set(serfShadow[i], serfShadow[i + 1] + 0.03, serfShadow[i + 2]);
+      tmpV.set(serfShadow[i] - SUN_DX * 0.16, serfShadow[i + 1] + 0.03, serfShadow[i + 2] - SUN_DZ * 0.16);
       tmpQ.identity();
-      tmpS.set(0.62, 1, 0.62);
+      tmpS.set(0.70, 1, 0.62);
       dynPush(pool, tmpM.compose(tmpV, tmpQ, tmpS), tmpC.setScalar(0.85));
     }
     serfShadow.length = 0;
@@ -1328,12 +1529,21 @@
     dyn.serfVis.clear();
   }
 
+  /* ===== PHASE-V: buildings now SHARE one cached atlas material, so a view
+   * teardown must dispose its own geometry but never the shared material —
+   * doing so would blank every other building on screen (and leak a fresh
+   * texture upload on the next rebuild). Materials that came out of FSModels'
+   * cache are flagged; everything else is still disposed as before. ===== */
+  function disposeMat(m) {
+    if (!m || (m.userData && m.userData.shared) || m === FSModels.bldMat()) return;
+    m.dispose();
+  }
   function disposeTree(o) {
     o.traverse((c) => {
       if (c.geometry) c.geometry.dispose();
       if (c.material) {
-        if (Array.isArray(c.material)) c.material.forEach((m) => m.dispose());
-        else c.material.dispose();
+        if (Array.isArray(c.material)) c.material.forEach(disposeMat);
+        else disposeMat(c.material);
       }
     });
   }
@@ -1522,6 +1732,7 @@
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     }
     const V = FSC.VIS;
+    quality = detectQuality();
     scene = new THREE.Scene();
     /* ===== PHASE-V: a warm, lush grade. The fog colour is the sky's HORIZON
      * colour, so distance dissolves into the dome instead of into a flat wall,
@@ -1529,9 +1740,13 @@
     scene.background = new THREE.Color(V.SKY_MID);
     scene.fog = new THREE.Fog(V.FOG_COL, V.FOG_NEAR, V.FOG_FAR);
 
-    skyMesh = FSModels.skyDome(Math.max(700, (map.W + map.H) * FSC.TILE * 1.6));
-    skyMesh.material.userData.shared = false;
-    scene.add(skyMesh);
+    /* The gradient dome is a screen-sized fill even after the depth-reject
+     * trick, so a software rasteriser gets the flat clear colour instead — it
+     * still reads as sky under the fog, at a fraction of the cost. */
+    if (quality >= 0.6) {
+      skyMesh = FSModels.skyDome(Math.max(700, (map.W + map.H) * FSC.TILE * 1.6));
+      scene.add(skyMesh);
+    }
 
     hemiLight = new THREE.HemisphereLight(V.HEMI_SKY, V.HEMI_GND, V.HEMI_I);
     scene.add(hemiLight);
@@ -1627,7 +1842,6 @@
     if (dirtyCol) { colAttr.needsUpdate = true; dirtyCol = false; }
     tAccum += dt;
     if (waterMesh) {
-      waterMesh.position.y = FSC.WATER_Y + Math.sin(tAccum * 0.7) * 0.035;
       if (waterMesh.material.map) {
         waterMesh.material.map.offset.x = (tAccum * 0.01) % 1;
         waterMesh.material.map.offset.y = (tAccum * 0.006) % 1;
@@ -1686,12 +1900,19 @@
     if (FSRender._rs) window.removeEventListener("resize", FSRender._rs);
     if (FSRender._bl) window.removeEventListener("blur", FSRender._bl);
     disposeDynamic();                   /* ===== PHASE-B: flags/roads/serfs ===== */
+    if (window.FSFX) window.FSFX.dispose();   /* ===== PHASE-V ===== */
+    disposeDecor();                     /* ===== PHASE-V: the meadow layer ===== */
     bldViews.forEach((v) => disposeTree(v));
     bldViews.clear();
     for (const k in pools) { objGroup.remove(pools[k].mesh); pools[k].mesh.dispose(); delete pools[k]; }
     vertSlot.clear();
+    claimed.clear(); claimSig = "";
     if (terrainMesh) { terrainMesh.geometry.dispose(); terrainMesh.material.dispose(); }
     if (waterMesh) { waterMesh.geometry.dispose(); waterMesh.material.dispose(); }
+    if (shimmerMesh) { scene.remove(shimmerMesh); shimmerMesh.geometry.dispose(); shimmerMesh.material.dispose(); shimmerMesh = null; }
+    if (skyMesh) { scene.remove(skyMesh); skyMesh.geometry.dispose(); skyMesh.material.dispose(); skyMesh = null; }
+    if (foamMesh) { scene.remove(foamMesh); foamMesh.dispose(); foamMesh = null; foamV = null; }
+    if (sparkMesh) { scene.remove(sparkMesh); sparkMesh.dispose(); sparkMesh = null; sparkV = null; }
     if (hoverRing) { hoverRing.geometry.dispose(); hoverRing.material.dispose(); }
     /* ===== PHASE-E: selection ring / ghost / road preview / suitability ===== */
     if (selectRing) { selectRing.geometry.dispose(); selectRing.material.dispose(); selectRing = null; }

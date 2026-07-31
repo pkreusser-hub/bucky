@@ -1128,11 +1128,20 @@ H.run("farmstead-economy", async (t) => {
     }
     out.distinct = sigs.size;
     out.n = FSC.BLD_LIST.length;
+    out.budget = FSC.VIS.BLD_TRI_MAX;      /* ===== PHASE-V ===== */
     out.dupes = out.n - sigs.size;
     return out;
   });
   t.check("every building type has its own model", models.types.length === models.n, models.types);
-  t.check("each model stays inside the ~400 triangle budget", models.maxTris <= 460, models);
+  /* PHASE-V raised this ceiling on purpose. The Phase-C models were bare
+   * silhouettes (<=460 tris); the visual overhaul gave every type a stone
+   * footing, a real roof with eaves and a ridge, framed doors, lit windows,
+   * a chimney where it produces, and the props that say what happens inside —
+   * budgeted in fs-const as FSC.VIS.BLD_TRI_MAX. The heaviest (pigfarm, castle)
+   * land in the 850-870 range; the assertion reads the constant so a future
+   * pass cannot silently blow past its own budget. */
+  t.check("each model stays inside the FSC.VIS.BLD_TRI_MAX triangle budget",
+    models.maxTris <= models.budget, models);
   // the four mines deliberately share one pithead (only the ore heap is tinted),
   // so four of the signatures collapse into one — everything else is unique.
   t.check("the silhouettes really differ from each other", models.distinct >= models.n - 4, models);

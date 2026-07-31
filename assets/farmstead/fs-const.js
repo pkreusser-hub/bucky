@@ -684,50 +684,58 @@
   FSC.COL.TERR[1] = 0x74a04b;      // GRASS — warmer, more saturated meadow
   FSC.COL.TERR[2] = 0xd9c084;      // DESERT — warm sand
   FSC.COL.TERR[3] = 0x5b7040;      // SWAMP — wet olive
-  FSC.COL.TERR[4] = 0x74695a;      // MOUNTAIN — warm rock
+  FSC.COL.TERR[4] = 0x8b7c66;      // MOUNTAIN — warm rock
   FSC.COL.TERR[5] = 0xeef3fa;      // SNOW — crisp, faintly blue
   FSC.COL.GRASS_DRY = 0xaeb45c;    // sun-bleached upland meadow
   FSC.COL.BEACH = 0xe4d3a4;        // warm shore sand
   FSC.COL.WATER_SURF = 0x2d7fae;
+  FSC.COL.FIELD = [0x6b5236, 0x7a7440, 0x8b8f46, 0xb8a44c, 0xd2ab3e];   // warmer, less bleached
+  FSC.COL.SERF_CLOTH = 0xc4ad86;   // linen smock — reads as a person, not a white blob
+  FSC.COL.SERF_SKIN = 0xdba977;
   FSC.COL.SKY = 0xa8d0e8;
 
   FSC.VIS = {
     // ---- sky + light -----------------------------------------------------
-    SKY_TOP: 0x5f9ed8, SKY_MID: 0xa9d3ec, SKY_LOW: 0xf0e2c4,   // gradient dome
+    SKY_TOP: 0x5f9ed8, SKY_MID: 0xa6d0ea, SKY_LOW: 0xdfe7e4,   // gradient dome
     SUN_COL: 0xfff1cf, SUN_I: 0.72,
     HEMI_SKY: 0xcfe6ff, HEMI_GND: 0x6a7346, HEMI_I: 0.58,
     FILL_COL: 0xbcd4f0, FILL_I: 0.20,                          // cool bounce
-    FOG_COL: 0xc2d9e6, FOG_NEAR: 90, FOG_FAR: 400,
+    FOG_COL: 0xcadeea, FOG_NEAR: 90, FOG_FAR: 400,
     TERR_EMISSIVE_K: 0.14,
 
     // ---- terrain surface -------------------------------------------------
     GROUND_TEX_PX: 256,        // blade-noise canvas size
-    GROUND_TEX_UV: 5.0,        // world units per texture tile
-    GROUND_BLADES: 3400,       // strokes drawn into the noise canvas
+    GROUND_TEX_UV: 4.2,        // world units per texture tile
+    GROUND_BLADES: 5200,       // strokes drawn into the noise canvas
     PATCH_A: 0.085, PATCH_B: 0.055,   // low-freq meadow blotch amplitudes
     PATCH_FA: 0.041, PATCH_FB: 0.017, // …and their spatial frequencies
     GRASS_DEEP: 0x4e7a3a,      // lush hollows
-    ROCK_STEEP: 0x5f574a,      // cliff faces darken toward this
+    ROCK_STEEP: 0x5a5348,      // bare crag
+    ROCK_WARM: 0x9a8464, ROCK_COOL: 0x6d7280,   // strata banding across a face
     SWAMP_WET: 0x3f5a4c,       // standing-water tint in the marshes
     SNOW_SHADE: 0xc9d8ea,
+    SCREE_FRAC: 0.34,          // share of bare mountain vertices that grow a boulder
 
     // ---- grass tufts + flowers ------------------------------------------
     TUFT_VARIANTS: 3,
-    TUFT_PER_VERTEX: 2,        // clusters scattered per eligible grass vertex
-    TUFT_MAX: 7000,            // hard cap (large maps thin out to fit)
-    TUFT_H: 0.40, TUFT_W: 0.52,
-    TUFT_GREEN: [0x74a44c, 0x8ab556, 0x5f8d3f, 0x9fbb5e],
+    TUFT_PER_VERTEX: 6,        // clusters scattered per eligible grass vertex
+    TUFT_MAX: 13000,            // hard cap (large maps thin out to fit)
+    TUFT_H: 0.47, TUFT_W: 0.64,
+    TUFT_GREEN: [0x6f9c46, 0x84ae52, 0x5e8a3c, 0x95b95a],
     TUFT_SWAY: 0.16,           // radians of lean at full sway
     TUFT_SWAY_HZ: 0.55,
-    TUFT_WINDOW: 260,          // instance matrices re-swayed per frame
+    TUFT_WINDOW: 300,
+    TUFT_FADE_DIST: 62,        // above this camera distance a tuft is sub-pixel
+    FLOWER_FADE_DIST: 44,
+    QUALITY_SOFT: 0.08,        // meadow density on a software rasteriser          // instance matrices re-swayed per frame
     FLOWER_FRAC: 0.11,         // share of tufts that get a flower head
     FLOWER_COL: [0xfff4e0, 0xffd94a, 0xe2624c, 0xd8a8e0],
     DESERT_TUFT: 0xc3b071, SWAMP_TUFT: 0x63793f,
 
     // ---- water -----------------------------------------------------------
-    WATER_DEEP: 0x1d5c86, WATER_SHALLOW: 0x4fa8c8,
+    WATER_DEEP: 0x2a6c9c, WATER_SHALLOW: 0x5cb4cf,
     SHIMMER_OP: 0.22, SHIMMER_SPEED: 0.035,
-    FOAM_COL: 0xf2fbff, FOAM_MAX: 1400, FOAM_HZ: 0.9,
+    FOAM_COL: 0xf2fbff, FOAM_MAX: 1400, FOAM_HZ: 0.9, FOAM_S: 0.95,
     SPARK_COL: 0xfffbe8, SPARK_MAX: 240, SPARK_HZ: 2.3,
     BOAT_BOB: 0.045,
 
@@ -743,7 +751,8 @@
     WHEAT_MAX: 700,
 
     // ---- contact shadows -------------------------------------------------
-    SHADOW_COL: 0x3a4530, SHADOW_OP: 0.30, SHADOW_MAX: 4200,
+    SHADOW_COL: 0x2c3623, SHADOW_OP: 0.44, SHADOW_MAX: 4600,
+    SHADOW_OFF: 0.26,          // shadows lie away from the sun, not under the model
 
     // ---- building charm --------------------------------------------------
     ATLAS_PX: 512,
@@ -762,8 +771,8 @@
     DUST_MAX: 40,
     SMOKE_PUFF_MAX: 120,
   };
-  FSC.VIS.WHEAT_GREEN = 0x93b04a;
-  FSC.VIS.WHEAT_RIPE = 0xdcb954;
+  FSC.VIS.WHEAT_GREEN = 0x8aa844;
+  FSC.VIS.WHEAT_RIPE = 0xd6b048;
 
   if (typeof window !== "undefined") window.FSC = FSC;
   if (typeof module !== "undefined" && module.exports) module.exports = FSC; // node tests
