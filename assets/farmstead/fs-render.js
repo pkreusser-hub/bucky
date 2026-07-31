@@ -30,6 +30,11 @@
   const ray = new THREE.Raycaster();
   const tmpM = new THREE.Matrix4(), tmpV = new THREE.Vector3(), tmpQ = new THREE.Quaternion();
   const tmpS = new THREE.Vector3(), tmpC = new THREE.Color(), tmpE = new THREE.Euler();
+  /* ===== PHASE E (QoL#5): zoom-to-cursor scratch — a flat plane at the
+   * camera target's own height + one more reusable Vector3 (tmpV is used
+   * for the "after" read in the same call, so this needs to be distinct). ===== */
+  const zoomPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const tmpZoomV = new THREE.Vector3();
   const blendC = new THREE.Color();   // lerp target — MUST NOT alias the `out` colour
   const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
   const xz = [0, 0];
@@ -930,10 +935,40 @@
     if (drag && canvas.releasePointerCapture) { try { canvas.releasePointerCapture(drag.id); } catch (_) {} }
     drag = null;
   }
+  /** Raycasts the cursor onto a flat plane at the camera target's own height
+   *  (the same flat-ground approximation onPointerMove's pan branch already
+   *  uses — no dependency on the terrain mesh existing/being ready). Returns
+   *  null if the ray can't hit the plane (near-parallel — practically never
+   *  happens for this camera's pitch range, but the caller must guard it). */
+  function screenGroundPoint(clientX, clientY, out) {
+    const rect = canvas.getBoundingClientRect();
+    const nx = ((clientX - rect.left) / rect.width) * 2 - 1;
+    const ny = -((clientY - rect.top) / rect.height) * 2 + 1;
+    ray.setFromCamera({ x: nx, y: ny }, camera);
+    zoomPlane.constant = -cam.ty;
+    return ray.ray.intersectPlane(zoomPlane, out);
+  }
+  /* ===== PHASE E (QoL#5): zoom TOWARD THE CURSOR, not just the existing
+   * orbit target — a plain dist-only zoom only "feels" cursor-anchored when
+   * the cursor happens to already sit on cam's target; off-target it visibly
+   * drifts. Standard before/after ground-plane raycast + target-pan
+   * compensation: read the world point under the cursor, apply the zoom,
+   * read it again, and pan the target by the difference so that same world
+   * point lands back under the cursor. ===== */
   function onWheel(e) {
     e.preventDefault();
+    const before = screenGroundPoint(e.clientX, e.clientY, tmpZoomV);
+    const bx = before ? before.x : 0, bz = before ? before.z : 0;
     cam.dist *= Math.exp(e.deltaY * CAM.ZOOM_RATE);
     applyCamera();
+    if (before) {
+      const after = screenGroundPoint(e.clientX, e.clientY, tmpV);
+      if (after) {
+        cam.tx += bx - after.x;
+        cam.tz += bz - after.z;
+        applyCamera();
+      }
+    }
   }
   function onKey(e, down) {
     const tag = e.target && e.target.tagName;

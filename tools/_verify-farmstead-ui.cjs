@@ -616,26 +616,46 @@ H.run("farmstead-ui", async (t) => {
   t.check("clicking the minimap moves the camera target", moved > 1, { camBefore, camAfter, moved });
 
   /* ══════════════════════════ QoL#5b: zoom-to-cursor keeps the point under
-   * the cursor fixed on screen (camera feel) ═══════════════════════════════ */
+   * the cursor fixed on screen (camera feel). CRITICAL: the wheel event must
+   * fire OFF the camera's existing orbit target — a naive dist-only zoom
+   * trivially keeps the TARGET's own screen position fixed (it's always
+   * dead-center-ish by construction), so a cursor position that happens to
+   * coincide with the target would pass even with zero cursor-anchoring
+   * logic. Picking a separate, clearly off-center vertex to zoom AT (while
+   * the camera still orbits the castle) is what actually exercises the
+   * pan-compensation math. ═══════════════════════════════════════════════ */
   const zoomFeel = await page.evaluate(() => {
-    const FS = window.__FS__, R = FS.FSRender;
+    const FS = window.__FS__, R = FS.FSRender, FSMap = FS.FSMap;
     R.setCam({ yaw: 0.5, pitch: 0.7, dist: 30 });
     const c = FS.FSSim.castleOf(FS.G, 0);
     R.focusVertex(c.v, 30);
     R.frame(0.016);
-    const s0 = R.vertexScreen(c.v);
+    const targetScreen = R.vertexScreen(c.v);
+    // an off-target vertex, well clear of the castle's own screen spot
+    let cursorV = -1, bestOff = 0;
+    const xz = [0, 0];
+    FSMap.forRadius(FS.G.map, c.v, 9, (u, d) => {
+      if (d < 5) return;
+      FSMap.worldXZ(FS.G.map, u, xz);
+      const s = R.worldToScreen(xz[0], FS.G.map.height[u], xz[1]);
+      if (!s.inView) return;
+      const off = Math.hypot(s.x - targetScreen.x, s.y - targetScreen.y);
+      if (off > bestOff) { bestOff = off; cursorV = u; }
+    });
+    const s0 = R.vertexScreen(cursorV);
     const before = R.camState();
     const canvas = document.getElementById("view");
-    const rect = canvas.getBoundingClientRect();
     canvas.dispatchEvent(new WheelEvent("wheel", { deltaY: -240, clientX: s0.x, clientY: s0.y, bubbles: true, cancelable: true }));
     R.frame(0.016);
     const after = R.camState();
-    const s1 = R.vertexScreen(c.v);
-    return { s0, s1, before, after, dist0: before.dist, dist1: after.dist };
+    const s1 = R.vertexScreen(cursorV);
+    return { s0, s1, before, after, dist0: before.dist, dist1: after.dist, offFromTarget: bestOff, cursorV, targetScreen };
   });
   t.check("wheel actually zoomed", zoomFeel.dist1 < zoomFeel.dist0, zoomFeel);
+  t.check("zoom-cursor test setup: the cursor vertex is well off the camera's own target on screen",
+    zoomFeel.offFromTarget > 80, zoomFeel);
   const screenDrift = Math.hypot(zoomFeel.s1.x - zoomFeel.s0.x, zoomFeel.s1.y - zoomFeel.s0.y);
-  t.check("QoL#5: zoom-to-cursor keeps the point under the cursor within tolerance",
+  t.check("QoL#5: zoom-to-cursor keeps an OFF-TARGET point under the cursor within tolerance",
     screenDrift < 60, { screenDrift, s0: zoomFeel.s0, s1: zoomFeel.s1 });
 
   /* ══════════════════════════ 10. notifications: toast + bell + jump ═════ */
