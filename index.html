@@ -941,6 +941,8 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .meal-quickchip { border: 1px solid var(--line); background: var(--surface-2); color: var(--ink); font-size: 12.5px; font-weight: 700; padding: 8px 11px; border-radius: 999px; cursor: pointer; }
   .meal-customrow { display: flex; gap: 8px; }
   .meal-customrow input[type=text] { flex: 1; }
+  .meal-airow { display: flex; gap: 8px; }
+  .meal-airow input { flex: 1; min-width: 0; font-size: 14px; }
   .meal-customrow input[type=number] { width: 76px; padding: 13px; font-size: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink); }
   .meal-customadd { flex: 0 0 auto; padding: 0 16px; border-radius: 12px; border: 0; background: var(--green); color: #fff; font-weight: 800; cursor: pointer; }
   .mealcat { max-height: 34vh; overflow-y: auto; border: 1px solid var(--line-2); border-radius: 12px; margin-top: 4px; }
@@ -1455,7 +1457,7 @@ function seesChores(){ return CHORE_USERS.includes(myName()); }
 /* ---- Meals (Mom-only calorie tracker, a 3rd member of the Plan area). Soft client gate,
    consistent with the app's choreUser identity posture (same as the Farm Bank / Chores
    gates). Only the "Mom" profile ever sees the Meals sub-nav chip or section. ---- */
-const MEAL_USERS = ["Mom"];
+const MEAL_USERS = ["Mom", "Dad"];
 function seesMeals(){ return MEAL_USERS.includes(myName()); }
 
 /* ---- Work-order assignees (multi-capable, backward compatible) ----
@@ -5677,14 +5679,21 @@ function careHomeRefresh(){
   }).catch(() => {});
 }
 
-// ==================== MEALS — Mom-only calorie tracker (Plan area) ====================
-// A 1,400 cal/day gluten-free weekly plan. A day is materialized LAZILY from the weekday
-// template the first time Mom interacts with it (check/add/remove/swap), then persisted as
-// a full snapshot so history stays exact even if the template is later edited. Data lives in
-// the settings backend: mealMeta, mealLog_<YYYY-MM> (one doc/month), mealWeight. Mere viewing
-// never writes. All dates are America/Chicago (en-CA day keys), matching the Plan-area siblings.
-const MEAL_TARGET = 1400;
-const MEAL_MAINTENANCE = 1850;               // maintenance estimate from the plan doc (deficit math)
+// ==================== MEALS — Mom + Dad calorie tracker (Plan area) ====================
+// Mom: the 1,400 cal/day gluten-free weekly plan. A day is materialized LAZILY from the weekday
+// template the first time she interacts with it (check/add/remove/swap), then persisted as
+// a full snapshot so history stays exact even if the template is later edited. Dad: freeform
+// logging — 2,500 cal/day goal, NO preset plan (days start empty; everything hand- or AI-added).
+// Data lives in the settings backend PER USER: Mom keeps the original doc ids (mealMeta,
+// mealLog_<YYYY-MM>, mealWeight — live data predates Dad), Dad's carry a _Dad suffix. Mere
+// viewing never writes. All dates are America/Chicago (en-CA day keys), like the Plan siblings.
+const MEAL_PROFILES = {
+  Mom: { target: 1400, maintenance: 1850, template: true,  suffix: "",     startWeight: 150, goalWeight: 125 },
+  Dad: { target: 2500, maintenance: null, template: false, suffix: "_Dad", startWeight: null, goalWeight: null },
+};
+function mealProfile(){ return MEAL_PROFILES[myName()] || MEAL_PROFILES.Mom; }
+function mealDocSuffix(){ return mealProfile().suffix || ""; }
+function mealTarget(){ return (mealMeta && mealMeta.target) || mealProfile().target; }
 const MEAL_MEAL_ORDER = ["Breakfast", "Lunch", "Snack", "Dinner", "Cheat treat"];
 const MEAL_PLAN = {
   mon: {
@@ -5786,42 +5795,69 @@ function mealMonthsBetween(aKey, bKey){
 }
 
 // ---- Data load / persist ----
+// All meal caches are ONE user's data. On a profile switch (Mom ⇄ Dad), pending debounced
+// saves are flushed to the OLD user's docs first (a fired timer would otherwise resolve the
+// doc id against the NEW profile and write Mom's day into Dad's log), then everything resets.
+let mealStateUser = null;
+function mealResetForUser(){
+  const u = myName();
+  if (u === mealStateUser) return;
+  const oldSuffix = (MEAL_PROFILES[mealStateUser] || {}).suffix || "";
+  for (const month of Object.keys(mealSaveTimers)){
+    clearTimeout(mealSaveTimers[month]); delete mealSaveTimers[month];
+    const m = mealLogs[month];
+    if (m && mealStateUser){ try { backend?.setSetting?.("mealLog_" + month + oldSuffix, m); } catch {} }
+  }
+  mealStateUser = u;
+  for (const k of Object.keys(mealLogs)) delete mealLogs[k];
+  for (const k of Object.keys(mealLoaded)) delete mealLoaded[k];
+  mealMeta = null; mealMetaLoaded = false; mealWeights = null; mealWeightsLoaded = false;
+  mealLastRemoved = null; mealDayKey = null; mealWeekOffset = 0;
+}
 async function mealEnsureMonth(month){
+  mealResetForUser();
   if (mealLoaded[month]) return mealLogs[month] || (mealLogs[month] = { days:{} });
-  try { const s = await backend?.getSetting?.("mealLog_" + month); mealLogs[month] = (s && s.days) ? s : { days:{} }; }
+  try { const s = await backend?.getSetting?.("mealLog_" + month + mealDocSuffix()); mealLogs[month] = (s && s.days) ? s : { days:{} }; }
   catch { mealLogs[month] = { days:{} }; }
   if (!mealLogs[month].days) mealLogs[month].days = {};
   mealLoaded[month] = true;
   return mealLogs[month];
 }
 async function mealEnsureMeta(){
+  mealResetForUser();
   if (mealMetaLoaded) return mealMeta;
-  try { const s = await backend?.getSetting?.("mealMeta"); if (s && s.start) mealMeta = s; } catch {}
+  try { const s = await backend?.getSetting?.("mealMeta" + mealDocSuffix()); if (s && s.start) mealMeta = s; } catch {}
   mealMetaLoaded = true;
   return mealMeta;
 }
 async function mealEnsureWeights(){
+  mealResetForUser();
   if (mealWeightsLoaded) return mealWeights;
-  try { const s = await backend?.getSetting?.("mealWeight"); mealWeights = (s && typeof s === "object") ? s : {}; } catch { mealWeights = {}; }
+  try { const s = await backend?.getSetting?.("mealWeight" + mealDocSuffix()); mealWeights = (s && typeof s === "object") ? s : {}; } catch { mealWeights = {}; }
   mealWeightsLoaded = true;
   return mealWeights;
 }
-// Meta is created on the first save-worthy interaction (never on mere viewing).
+// Meta is created on the first save-worthy interaction (never on mere viewing). Weight goals
+// only exist where the profile defines them (Mom's plan doc); Dad's meta is just start+target.
 async function mealTouchMeta(){
   await mealEnsureMeta();
   if (!mealMeta){
-    mealMeta = { start: mealToday(), startWeight: 150, goalWeight: 125, target: MEAL_TARGET };
-    try { await backend?.setSetting?.("mealMeta", mealMeta); } catch {}
+    const p = mealProfile();
+    mealMeta = { start: mealToday(), target: p.target };
+    if (p.startWeight) mealMeta.startWeight = p.startWeight;
+    if (p.goalWeight) mealMeta.goalWeight = p.goalWeight;
+    try { await backend?.setSetting?.("mealMeta" + mealDocSuffix(), mealMeta); } catch {}
   }
   return mealMeta;
 }
 function mealScheduleSave(month){ clearTimeout(mealSaveTimers[month]); mealSaveTimers[month] = setTimeout(() => mealSaveMonth(month), 400); }
-async function mealSaveMonth(month){ const m = mealLogs[month]; if (!m) return; try { await backend?.setSetting?.("mealLog_" + month, m); } catch {} }
+async function mealSaveMonth(month){ const m = mealLogs[month]; if (!m) return; try { await backend?.setSetting?.("mealLog_" + month + mealDocSuffix(), m); } catch {} }
 async function mealSaveMonthNow(month){ clearTimeout(mealSaveTimers[month]); await mealSaveMonth(month); }
 
 // ---- Template + snapshot access ----
 function mealMealCode(meal){ return ({ Breakfast:"b", Lunch:"l", Snack:"s", Dinner:"d", "Cheat treat":"c" })[meal] || "x"; }
 function mealTemplateItems(dayKey){
+  if (!mealProfile().template) return [];   // Dad: no preset plan — days start empty
   const plan = MEAL_PLAN[mealWeekdayOfKey(dayKey)] || {};
   const items = [];
   for (const meal of MEAL_MEAL_ORDER){
@@ -5847,7 +5883,7 @@ async function mealMaterialize(dayKey){
 function mealEaten(items){ return items.reduce((s, it) => s + (it.done ? (it.c||0) : 0), 0); }
 function mealPlanned(items){ return items.reduce((s, it) => s + (it.c||0), 0); }
 function mealDoneCount(items){ return items.filter(it => it.done).length; }
-function mealBarClass(eaten){ if (eaten <= MEAL_TARGET) return "ok"; if (eaten <= MEAL_TARGET + 100) return "warn"; return "over"; }
+function mealBarClass(eaten){ if (eaten <= mealTarget()) return "ok"; if (eaten <= mealTarget() + 100) return "warn"; return "over"; }
 
 // ---- Mutations ----
 async function mealToggle(dayKey, itemId){
@@ -5857,9 +5893,11 @@ async function mealToggle(dayKey, itemId){
   mealScheduleSave(mealMonthOf(dayKey));
   if (currentTab === "mealplan") renderMealPlan();
 }
-async function mealAdd(dayKey, meal, name, cal){
+async function mealAdd(dayKey, meal, name, cal, opts){
   const day = await mealMaterialize(dayKey);
-  day.items.push({ id: "x" + Date.now().toString(36) + Math.floor(Math.random()*1000), meal, n: String(name||"").trim() || "Item", c: Math.max(0, Math.round(Number(cal))||0), done: false, add: true });
+  const it = { id: "x" + Date.now().toString(36) + Math.floor(Math.random()*1000), meal, n: String(name||"").trim() || "Item", c: Math.max(0, Math.round(Number(cal))||0), done: !!(opts && opts.done), add: true };
+  if (opts && opts.ai) it.ai = true;   // AI-estimated — badged ✨, counted as eaten on arrival
+  day.items.push(it);
   mealScheduleSave(mealMonthOf(dayKey));
   if (currentTab === "mealplan") renderMealPlan();
 }
@@ -5891,12 +5929,60 @@ async function mealLogWeight(dayKey, lbs){
   await mealEnsureWeights(); await mealTouchMeta();
   const v = Math.round((Number(lbs)||0) * 10) / 10; if (!v) return;
   mealWeights[dayKey] = v;
-  try { await backend?.setSetting?.("mealWeight", mealWeights); } catch {}
+  try { await backend?.setSetting?.("mealWeight" + mealDocSuffix(), mealWeights); } catch {}
   if (currentTab === "mealplan") renderMealPlan();
+}
+
+// ---- 📥 Meal inbox — quick logs queued by meallog.html (the home-screen voice widget) ----
+// The widget page can't apply Mom's day template, so it only QUEUES {k,meal,n,c} entries in
+// mealInbox<suffix>; this drains them through mealAdd (which materializes days correctly).
+// Applied-then-cleared: a crash mid-drain can at worst duplicate, never lose, an entry.
+let mealInboxLastCheck = 0;
+async function mealDrainInbox(){
+  if (Date.now() - mealInboxLastCheck < 60000) return;   // at most one check per minute
+  mealInboxLastCheck = Date.now();
+  try {
+    const id = "mealInbox" + mealDocSuffix();
+    const u = mealStateUser;
+    const s = await backend?.getSetting?.(id);
+    const q = (s && Array.isArray(s.items)) ? s.items : [];
+    if (!q.length || myName() !== u) return;
+    for (const it of q){
+      if (myName() !== u) return;   // profile switched mid-drain — leave the inbox intact
+      await mealAdd(it.k || mealToday(), it.meal || "Snack", it.n, it.c, { done: true, ai: true });
+    }
+    if (myName() === u) await backend?.setSetting?.(id, { items: [] });
+  } catch {}
+}
+
+// ---- ✨ AI calorie estimate (server mode "calories", Sonnet — see farmgpt.mjs) ----
+async function mealAiEstimate(text){
+  const r = await fetch("/.netlify/functions/farmgpt", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ secret: FAMILY_PASSWORD, mode: "calories", text: String(text).slice(0, 500) }),
+  });
+  let j = null; try { j = await r.json(); } catch {}
+  if (!r.ok) throw Object.assign(new Error("estimate failed"), { friendly: (j && j.error) || "Couldn't reach the calorie estimator — check wifi and try again" });
+  if (!j || !j.ok) throw Object.assign(new Error("no estimate"), { friendly: (j && j.message) || "Couldn't estimate that — try rewording it" });
+  return j;   // { ok:true, name, total, items:[{n,c}] }
+}
+async function mealAiAdd(dayKey, meal, text, btn){
+  try {
+    const j = await mealAiEstimate(text);
+    await mealAdd(dayKey, meal, j.name, j.total, { done: true, ai: true });
+    mealCloseSheet();
+    const parts = (j.items || []).map(it => it.n + " " + it.c).join(" · ");
+    showToast(("✨ " + j.name + " ≈ " + j.total + " cal" + (parts ? " — " + parts : "")).slice(0, 140));
+  } catch (e){
+    showToast(e.friendly || "Couldn't estimate right now — add it manually instead");
+    if (btn){ btn.disabled = false; btn.textContent = "Estimate & add"; }
+  }
 }
 
 // ---- Render: page shell ----
 function renderMealPlan(){
+  mealResetForUser();
+  mealDrainInbox();   // pull in anything the voice widget queued (fire-and-forget)
   document.querySelector(".bar").style.display = "none";
   document.getElementById("empty").style.display = "none";
   document.getElementById("progress").style.display = "none";
@@ -5905,7 +5991,11 @@ function renderMealPlan(){
   const wrap = document.createElement("li"); wrap.style.cssText = "background:transparent;border:0;box-shadow:none;padding:0;";
   const root = document.createElement("div"); root.className = "mealwrap";
   const pills = document.createElement("div"); pills.className = "mealpills";
-  for (const p of [["today","Today"],["week","Week"],["progress","Progress"],["guide","Guide"]]){
+  // The Guide is the GF plan doc — only meaningful for the templated (Mom) profile.
+  const pages = [["today","Today"],["week","Week"],["progress","Progress"]];
+  if (mealProfile().template) pages.push(["guide","Guide"]);
+  if (mealPage === "guide" && !mealProfile().template) mealPage = "today";
+  for (const p of pages){
     const b = document.createElement("button"); b.textContent = p[1]; b.dataset.page = p[0];
     if (mealPage === p[0]) b.classList.add("sel");
     b.onclick = () => { mealPage = p[0]; localStorage.setItem("bucky_meal_page", p[0]); renderMealPlan(); };
@@ -5926,7 +6016,7 @@ function mealRenderToday(body){
   const month = mealMonthOf(dayKey);
   if (!mealLoaded[month]) mealEnsureMonth(month).then(() => { if (currentTab === "mealplan" && mealPage === "today" && mealDayKey === dayKey) renderMealPlan(); });
   const items = mealDayItems(dayKey);
-  const eaten = mealEaten(items), planned = mealPlanned(items), remaining = MEAL_TARGET - eaten;
+  const eaten = mealEaten(items), planned = mealPlanned(items), remaining = mealTarget() - eaten;
   const todayKey = mealToday(), isToday = dayKey === todayKey, isFuture = dayKey > todayKey;
 
   const hdr = document.createElement("div"); hdr.className = "meal-dayhdr";
@@ -5941,10 +6031,10 @@ function mealRenderToday(body){
   const sum = document.createElement("div"); sum.className = "mealsum";
   const big = document.createElement("div"); big.className = "mealsum-big";
   const be = document.createElement("span"); be.className = "mealsum-eaten"; be.id = "mealEaten"; be.textContent = eaten;
-  const bo = document.createElement("span"); bo.className = "mealsum-of"; bo.textContent = "of " + MEAL_TARGET.toLocaleString() + " cal";
+  const bo = document.createElement("span"); bo.className = "mealsum-of"; bo.textContent = "of " + mealTarget().toLocaleString() + " cal";
   big.append(be, bo);
   const barWrap = document.createElement("div"); barWrap.className = "mealprog";
-  const bar = document.createElement("span"); bar.className = "mealprog-fill " + mealBarClass(eaten); bar.id = "mealBar"; bar.style.width = Math.min(100, (eaten / MEAL_TARGET) * 100) + "%";
+  const bar = document.createElement("span"); bar.className = "mealprog-fill " + mealBarClass(eaten); bar.id = "mealBar"; bar.style.width = Math.min(100, (eaten / mealTarget()) * 100) + "%";
   barWrap.appendChild(bar);
   const stats = document.createElement("div"); stats.className = "mealsum-stats";
   const s1 = document.createElement("span"); s1.innerHTML = "Planned "; const s1b = document.createElement("b"); s1b.textContent = planned; s1.appendChild(s1b);
@@ -5967,6 +6057,11 @@ function mealRenderToday(body){
     for (const it of grouped[meal]) g.appendChild(mealItemRow(dayKey, it, isFuture));
     body.appendChild(g);
   }
+  if (!items.length){
+    const e = document.createElement("div"); e.className = "meal-emptyline"; e.id = "mealEmptyDay";
+    e.textContent = isFuture ? "Nothing planned for this day yet." : "Nothing logged yet — add what you eat below, or describe it and let the AI count the calories.";
+    body.appendChild(e);
+  }
 
   if (!isFuture){
     const add = document.createElement("button"); add.className = "meal-addbtn"; add.textContent = "＋ Add item";
@@ -5978,15 +6073,18 @@ function mealItemRow(dayKey, it, readOnly){
   const row = document.createElement("div"); row.className = "mealitem" + (it.done ? " done" : "");
   const cb = document.createElement("span"); cb.className = "mealcheck" + (it.done ? " on" : ""); cb.setAttribute("role","checkbox"); cb.setAttribute("aria-checked", it.done ? "true" : "false"); cb.textContent = it.done ? "✓" : "";
   const nm = document.createElement("span"); nm.className = "mealname"; nm.textContent = it.n;
-  if (it.add){ nm.appendChild(document.createTextNode(" ")); const b = document.createElement("span"); b.className = "mealbadge"; b.textContent = "added"; nm.appendChild(b); }
+  if (it.add){ nm.appendChild(document.createTextNode(" ")); const b = document.createElement("span"); b.className = "mealbadge"; b.textContent = it.ai ? "✨ AI" : "added"; nm.appendChild(b); }
   const cal = document.createElement("span"); cal.className = "mealcal"; cal.textContent = it.c;
   row.append(cb, nm, cal);
   if (!readOnly){
-    const swap = document.createElement("button"); swap.className = "mealminibtn meal-swapbtn"; swap.textContent = "⇄"; swap.title = "Swap"; swap.setAttribute("aria-label", "Swap " + it.n);
-    swap.onclick = (e) => { e.stopPropagation(); mealOpenSwapSheet(dayKey, it); };
+    if (mealProfile().template){   // swaps browse the GF-plan catalog — templated profile only
+      const swap = document.createElement("button"); swap.className = "mealminibtn meal-swapbtn"; swap.textContent = "⇄"; swap.title = "Swap"; swap.setAttribute("aria-label", "Swap " + it.n);
+      swap.onclick = (e) => { e.stopPropagation(); mealOpenSwapSheet(dayKey, it); };
+      row.appendChild(swap);
+    }
     const rm = document.createElement("button"); rm.className = "mealminibtn meal-rmbtn"; rm.textContent = "✕"; rm.title = "Remove"; rm.setAttribute("aria-label", "Remove " + it.n);
     rm.onclick = (e) => { e.stopPropagation(); mealRemove(dayKey, it.id); };
-    row.append(swap, rm);
+    row.appendChild(rm);
     row.classList.add("tappable");
     row.onclick = () => mealToggle(dayKey, it.id);
   }
@@ -6031,10 +6129,45 @@ function mealOpenAddSheet(dayKey, defaultMeal){
     for (const m of meals){ const c = document.createElement("button"); c.className = "meal-mealchip" + (m === mealSheetMealSel ? " sel" : ""); c.textContent = m; c.onclick = () => { mealSheetMealSel = m; paintChips(); }; chips.appendChild(c); }
   }
   paintChips();
-  const ql = document.createElement("label"); ql.textContent = "Quick adds"; inner.appendChild(ql);
-  const qa = document.createElement("div"); qa.className = "meal-quickrow";
-  for (const q of MEAL_QUICKADDS){ const b = document.createElement("button"); b.className = "meal-quickchip"; b.textContent = q[0].split(",")[0] + " +" + q[1]; b.onclick = () => { mealAdd(dayKey, mealSheetMealSel, q[0], q[1]); mealCloseSheet(); }; qa.appendChild(b); }
-  inner.appendChild(qa);
+
+  // ✨ AI estimate — describe the meal in plain words, Sonnet finds the calories, and the
+  // item is logged (already checked off — you're describing something you ate).
+  const al = document.createElement("label"); al.textContent = "✨ Describe it — AI finds the calories"; inner.appendChild(al);
+  const arow = document.createElement("div"); arow.className = "meal-airow";
+  const ain = document.createElement("input"); ain.type = "text"; ain.id = "mealAiText"; ain.autocomplete = "off";
+  ain.placeholder = "e.g. chipotle steak bowl, black beans, white rice, fajita veggies, salsa and corn";
+  const abtn = document.createElement("button"); abtn.className = "meal-customadd"; abtn.id = "mealAiBtn"; abtn.textContent = "Estimate & add";
+  const runAi = () => { const q = ain.value.trim(); if (!q || abtn.disabled) return; abtn.disabled = true; abtn.textContent = "Estimating…"; mealAiAdd(dayKey, mealSheetMealSel, q, abtn); };
+  abtn.onclick = runAi;
+  ain.addEventListener("keydown", (e) => { if (e.key === "Enter") runAi(); });
+  arow.append(ain);
+  // 🎤 dictation (Web Speech API — Android Chrome etc.; button simply absent where unsupported).
+  // A final transcript fills the box and auto-runs the estimate, so "speak → logged" is one tap.
+  const SRC = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (SRC){
+    const mic = document.createElement("button"); mic.className = "meal-customadd"; mic.id = "mealMicBtn"; mic.textContent = "🎤"; mic.title = "Dictate what you ate"; mic.setAttribute("aria-label", "Dictate what you ate");
+    mic.onclick = () => {
+      if (mic.disabled) return;
+      try {
+        const rec = new SRC(); rec.lang = "en-US"; rec.interimResults = true;
+        mic.disabled = true; mic.textContent = "…";
+        let finalText = "";
+        rec.onresult = (e) => { let t = ""; for (const r of e.results){ t += r[0].transcript; if (r.isFinal) finalText = t; } ain.value = t; };
+        rec.onerror = () => { mic.disabled = false; mic.textContent = "🎤"; };
+        rec.onend = () => { mic.disabled = false; mic.textContent = "🎤"; if ((finalText || ain.value).trim()) runAi(); };
+        rec.start();
+      } catch { mic.disabled = false; mic.textContent = "🎤"; }
+    };
+    arow.append(mic);
+  }
+  arow.append(abtn); inner.appendChild(arow);
+
+  if (mealProfile().template){
+    const ql = document.createElement("label"); ql.textContent = "Quick adds"; inner.appendChild(ql);
+    const qa = document.createElement("div"); qa.className = "meal-quickrow";
+    for (const q of MEAL_QUICKADDS){ const b = document.createElement("button"); b.className = "meal-quickchip"; b.textContent = q[0].split(",")[0] + " +" + q[1]; b.onclick = () => { mealAdd(dayKey, mealSheetMealSel, q[0], q[1]); mealCloseSheet(); }; qa.appendChild(b); }
+    inner.appendChild(qa);
+  }
   const cl = document.createElement("label"); cl.textContent = "Custom item"; inner.appendChild(cl);
   const crow = document.createElement("div"); crow.className = "meal-customrow";
   const cn = document.createElement("input"); cn.type = "text"; cn.id = "mealCustomName"; cn.placeholder = "Name"; cn.autocomplete = "off";
@@ -6042,8 +6175,10 @@ function mealOpenAddSheet(dayKey, defaultMeal){
   const cbtn = document.createElement("button"); cbtn.className = "meal-customadd"; cbtn.id = "mealCustomAdd"; cbtn.textContent = "Add";
   cbtn.onclick = () => { const n = cn.value.trim(); const c = parseInt(cc.value, 10); if (n && c >= 0){ mealAdd(dayKey, mealSheetMealSel, n, c); mealCloseSheet(); } };
   crow.append(cn, cc, cbtn); inner.appendChild(crow);
-  const catl = document.createElement("label"); catl.textContent = "Food catalog"; inner.appendChild(catl);
-  inner.appendChild(mealCatalogList((name, cal) => { mealAdd(dayKey, mealSheetMealSel, name, cal); mealCloseSheet(); }));
+  if (mealProfile().template){
+    const catl = document.createElement("label"); catl.textContent = "Food catalog"; inner.appendChild(catl);
+    inner.appendChild(mealCatalogList((name, cal) => { mealAdd(dayKey, mealSheetMealSel, name, cal); mealCloseSheet(); }));
+  }
   const act = document.createElement("div"); act.className = "sheet-actions";
   const done = document.createElement("button"); done.className = "btn ghost"; done.textContent = "Done"; done.onclick = mealCloseSheet;
   act.appendChild(done); inner.appendChild(act);
@@ -6124,8 +6259,8 @@ function mealRenderWeek(body){
     const card = document.createElement("button"); card.className = "mealday" + (key === todayKey ? " today" : "");
     const wd = document.createElement("div"); wd.className = "mealday-wd"; wd.textContent = mealKeyFmt(key, { weekday:"short" });
     const dt = document.createElement("div"); dt.className = "mealday-dt"; dt.textContent = mealKeyFmt(key, { day:"numeric" });
-    const cal = document.createElement("div"); cal.className = "mealday-cal"; cal.textContent = mat ? (eaten + " / " + planned) : (planned + " cal");
-    const mini = document.createElement("div"); mini.className = "mealmini"; const mf = document.createElement("span"); mf.className = "mealmini-fill " + mealBarClass(mat ? eaten : 0); mf.style.width = Math.min(100, ((mat ? eaten : 0) / MEAL_TARGET) * 100) + "%"; mini.appendChild(mf);
+    const cal = document.createElement("div"); cal.className = "mealday-cal"; cal.textContent = mat ? (eaten + " / " + planned) : (planned ? planned + " cal" : "—");
+    const mini = document.createElement("div"); mini.className = "mealmini"; const mf = document.createElement("span"); mf.className = "mealmini-fill " + mealBarClass(mat ? eaten : 0); mf.style.width = Math.min(100, ((mat ? eaten : 0) / mealTarget()) * 100) + "%"; mini.appendChild(mf);
     const meta = document.createElement("div"); meta.className = "mealday-meta"; meta.textContent = mat ? (done + "/" + total + " ✓") : "not logged";
     card.append(wd, dt, cal, mini, meta);
     card.onclick = () => { mealDayKey = key; mealPage = "today"; localStorage.setItem("bucky_meal_page", "today"); renderMealPlan(); };
@@ -6188,10 +6323,11 @@ function mealRenderProgress(body){
   srow.appendChild(mealStatEl(onPlan, "days on plan"));
   srow.appendChild(mealStatEl(streak, "day streak"));
   calCard.appendChild(srow);
-  if (avg7 != null){
-    const def = MEAL_MAINTENANCE - avg7; const lbWk = def * 7 / 3500;
+  const maint = mealProfile().maintenance;   // deficit math comes from Mom's plan doc — no estimate for other profiles
+  if (avg7 != null && maint){
+    const def = maint - avg7; const lbWk = def * 7 / 3500;
     const pace = document.createElement("div"); pace.className = "meal-pace";
-    pace.innerHTML = "Estimated deficit: maintenance ~" + MEAL_MAINTENANCE.toLocaleString() + " − your 7-day avg <b>" + avg7 + "</b> ≈ <b>" + (lbWk >= 0 ? "" : "+") + Math.abs(lbWk).toFixed(2) + " lb/week</b> pace. (Estimate.)";
+    pace.innerHTML = "Estimated deficit: maintenance ~" + maint.toLocaleString() + " − your 7-day avg <b>" + avg7 + "</b> ≈ <b>" + (lbWk >= 0 ? "" : "+") + Math.abs(lbWk).toFixed(2) + " lb/week</b> pace. (Estimate.)";
     calCard.appendChild(pace);
   }
   body.appendChild(calCard);
@@ -6202,7 +6338,11 @@ function mealRenderProgress(body){
   const wbtn = document.createElement("button"); wbtn.className = "meal-weightbtn"; wbtn.id = "mealLogWeightBtn"; wbtn.textContent = "⚖️ Log weight"; wbtn.onclick = mealOpenWeightSheet; wCard.appendChild(wbtn);
   const weights = mealWeights || {};
   const wkeys = Object.keys(weights).sort();
-  const sw = (mealMeta && mealMeta.startWeight) || 150, gw = (mealMeta && mealMeta.goalWeight) || 125;
+  // Start/goal weights exist only where the profile (or saved meta) defines them — Dad tracks
+  // weigh-ins with no goal line and no pace note.
+  const prof = mealProfile();
+  const sw = (mealMeta && mealMeta.startWeight) || prof.startWeight || (wkeys.length ? weights[wkeys[0]] : 0);
+  const gw = (mealMeta && mealMeta.goalWeight) || prof.goalWeight || null;
   if (wkeys.length){
     const holder = document.createElement("div"); holder.innerHTML = mealWeightChartSVG(weights, startK, todayKey, sw, gw); if (holder.firstChild) wCard.appendChild(holder.firstChild);
     const cur = weights[wkeys[wkeys.length-1]], first = weights[wkeys[0]];
@@ -6210,10 +6350,10 @@ function mealRenderProgress(body){
     const wrow = document.createElement("div"); wrow.className = "mealstat-row";
     wrow.appendChild(mealStatEl(cur.toFixed(1), "current lb"));
     wrow.appendChild(mealStatEl((change >= 0 ? "+" : "") + change.toFixed(1), "since start"));
-    wrow.appendChild(mealStatEl(gw, "goal lb"));
+    if (gw) wrow.appendChild(mealStatEl(gw, "goal lb"));
     wCard.appendChild(wrow);
-    // on-pace note vs ~1.25 lb/week
-    if (wkeys.length >= 2){
+    // on-pace note vs ~1.25 lb/week (only meaningful against Mom's plan goal)
+    if (gw && wkeys.length >= 2){
       const days = Math.max(1, (mealKeyToNoon(wkeys[wkeys.length-1]) - mealKeyToNoon(wkeys[0])) / 86400000);
       const lost = first - cur; const perWk = lost / (days / 7);
       const note = document.createElement("div"); note.className = "meal-pace";
@@ -6223,7 +6363,7 @@ function mealRenderProgress(body){
     }
   } else {
     const holder = document.createElement("div"); holder.innerHTML = mealWeightChartSVG({}, startK, todayKey, sw, gw); if (holder.firstChild) wCard.appendChild(holder.firstChild);
-    const e = document.createElement("div"); e.className = "meal-emptyline"; e.textContent = "No weigh-ins yet — tap ⚖️ Log weight to start tracking. The dashed line is your goal to " + gw + " lb.";
+    const e = document.createElement("div"); e.className = "meal-emptyline"; e.textContent = "No weigh-ins yet — tap ⚖️ Log weight to start tracking." + (gw ? " The dashed line is your goal to " + gw + " lb." : "");
     wCard.appendChild(e);
   }
   body.appendChild(wCard);
@@ -6236,19 +6376,20 @@ function mealStatEl(val, label){
 }
 function mealCalChartSVG(series){
   const W = Math.max(320, series.length * 11), H = 150, padT = 14, padB = 16;
-  const maxV = Math.max(MEAL_TARGET + 300, ...series.map(s => s.eaten), 1);
+  const target = mealTarget();
+  const maxV = Math.max(target + 300, ...series.map(s => s.eaten), 1);
   const bw = W / series.length;
   const chartH = H - padT - padB;
   let bars = "";
   series.forEach((s, i) => {
     const h = (s.eaten / maxV) * chartH;
     const x = i * bw + bw * 0.15, y = padT + (chartH - h), w = Math.max(1, bw * 0.7);
-    const cls = s.eaten <= MEAL_TARGET ? "ok" : (s.eaten <= MEAL_TARGET + 100 ? "warn" : "over");
+    const cls = s.eaten <= target ? "ok" : (s.eaten <= target + 100 ? "warn" : "over");
     if (s.eaten > 0) bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${Math.max(0,h).toFixed(1)}" class="mc-${cls}" rx="1.5"/>`;
   });
-  const ly = padT + (chartH - (MEAL_TARGET / maxV) * chartH);
-  const line = `<line x1="0" y1="${ly.toFixed(1)}" x2="${W}" y2="${ly.toFixed(1)}" class="mc-target"/><text x="3" y="${(ly-3).toFixed(1)}" class="mc-lbl">${MEAL_TARGET}</text>`;
-  return `<svg viewBox="0 0 ${W} ${H}" class="mealchart" role="img" aria-label="Daily calories with a ${MEAL_TARGET} target line">${bars}${line}</svg>`;
+  const ly = padT + (chartH - (target / maxV) * chartH);
+  const line = `<line x1="0" y1="${ly.toFixed(1)}" x2="${W}" y2="${ly.toFixed(1)}" class="mc-target"/><text x="3" y="${(ly-3).toFixed(1)}" class="mc-lbl">${target}</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" class="mealchart" role="img" aria-label="Daily calories with a ${target} target line">${bars}${line}</svg>`;
 }
 function mealWeightChartSVG(weights, startK, todayK, sw, gw){
   const W = 340, H = 150, padL = 6, padR = 6, padT = 12, padB = 14;
@@ -6256,12 +6397,13 @@ function mealWeightChartSVG(weights, startK, todayK, sw, gw){
   const goalEndT = mealKeyToNoon(mealKeyAddDays(startK, 140)).getTime();   // 20 weeks → 125
   const entries = Object.keys(weights).sort().map(k => ({ t: mealKeyToNoon(k).getTime(), w: weights[k] }));
   const t1 = Math.max(goalEndT, mealKeyToNoon(todayK).getTime(), entries.length ? entries[entries.length-1].t : 0);
-  const allW = [sw, gw, ...entries.map(e => e.w)];
+  const allW = [sw, gw, ...entries.map(e => e.w)].filter(v => typeof v === "number" && v > 0);
+  if (!allW.length) allW.push(150);
   const wMin = Math.min(...allW) - 2, wMax = Math.max(...allW) + 2, wSpan = Math.max(1, wMax - wMin);
   const tSpan = Math.max(1, t1 - t0);
   const X = t => padL + ((t - t0) / tSpan) * (W - padL - padR);
   const Y = w => padT + (1 - (w - wMin) / wSpan) * (H - padT - padB);
-  const goal = `<line x1="${X(t0).toFixed(1)}" y1="${Y(sw).toFixed(1)}" x2="${X(goalEndT).toFixed(1)}" y2="${Y(gw).toFixed(1)}" class="mc-goal"/>`;
+  const goal = gw ? `<line x1="${X(t0).toFixed(1)}" y1="${Y(sw).toFixed(1)}" x2="${X(goalEndT).toFixed(1)}" y2="${Y(gw).toFixed(1)}" class="mc-goal"/>` : "";
   let poly = "", dots = "";
   if (entries.length){
     poly = `<polyline points="${entries.map(e => X(e.t).toFixed(1) + "," + Y(e.w).toFixed(1)).join(" ")}" class="mc-wline"/>`;
@@ -6370,6 +6512,11 @@ window.__MEAL__ = {
   template: (k) => mealTemplateItems(k),
   plan: () => MEAL_PLAN,
   catalog: () => MEAL_CATALOG,
+  profile: () => mealProfile(),
+  target: () => mealTarget(),
+  docSuffix: () => mealDocSuffix(),
+  aiAdd: (k, meal, text) => mealAiAdd(k, meal, text, null),
+  drainInbox: () => { mealInboxLastCheck = 0; return mealDrainInbox(); },
   planTotal: (wd) => MEAL_MEAL_ORDER.reduce((s, meal) => s + (((MEAL_PLAN[wd]||{})[meal]||[]).reduce((a, it) => a + it[1], 0)), 0),
   state: () => ({ page: mealPage, day: mealDayKey, weekOffset: mealWeekOffset, today: mealToday(), progRange: mealProgRange, months: Object.keys(mealLogs) }),
 };
