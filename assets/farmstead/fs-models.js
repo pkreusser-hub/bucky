@@ -474,9 +474,13 @@
         for (let x = 0; x <= P; x += 8) g.lineTo(x, y + Math.sin((x / P) * 6.283 * 2 + i) * 2.2);
         g.stroke();
       }
-      for (let i = 0; i < 26; i++) {
-        g.fillStyle = "rgba(40,90,130," + (0.05 + rnd() * 0.08).toFixed(3) + ")";
-        const x = rnd() * P, y = rnd() * P, r = P * (0.05 + rnd() * 0.16);
+      /* PHASE P: the deep patches used to be small, numerous and comparatively
+       * dark, so the 128px sheet's repeat read as a legible polka-dot grid on
+       * open sea at mid zoom. Fewer, wider and much fainter — the depth
+       * variation survives, the tile does not announce itself. */
+      for (let i = 0; i < 11; i++) {
+        g.fillStyle = "rgba(40,90,130," + (0.022 + rnd() * 0.030).toFixed(3) + ")";
+        const x = rnd() * P, y = rnd() * P, r = P * (0.16 + rnd() * 0.24);
         g.beginPath(); g.arc(x, y, r, 0, 6.3); g.fill();
       }
       // NOTE repeat = 1: the water mesh carries WORLD-SCALED uv of its own, so a
@@ -1817,22 +1821,39 @@
       { geo: new THREE.BoxGeometry(0.05, 0.02, 0.05), color: 0xffffff, matrix: M(0.08, 0.005, 0, 0, 0.6, 0) },
     ]));
   };
-  /** a bird: body, tail and two wings the renderer flaps by scaling Z */
+  /* ===== PHASE P: a bird's flap used to be `scale.z` on the WHOLE bird, so
+   * the body squashed with the wings and the wings themselves never moved —
+   * it reads as a pulsing dart, not a flying thing. Body and wing are now two
+   * geometries in two instanced pools, and the renderer hinges each wing at
+   * the shoulder. Two extra draw calls for every bird and butterfly on the
+   * map, and they finally fly. ===== */
+  /** a bird's body: torso, tail and beak — no wings */
   FSModels.birdGeo = function () {
     return cached("geo:bird", () => mergeColored([
       { geo: new THREE.IcosahedronGeometry(0.16, 0), color: 0x38414c, matrix: M(0, 0, 0, 0, 0, 0, 1.7, 0.7, 0.62) },
       { geo: new THREE.ConeGeometry(0.10, 0.24, 4), color: 0x2c343d, matrix: M(-0.26, 0, 0, 0, 0, Math.PI / 2, 1, 1, 0.4) },
-      { geo: new THREE.BoxGeometry(0.20, 0.022, 0.46), color: 0x424c58, matrix: M(0, 0.035, 0.26, 0.22, 0, 0) },
-      { geo: new THREE.BoxGeometry(0.20, 0.022, 0.46), color: 0x424c58, matrix: M(0, 0.035, -0.26, -0.22, 0, 0) },
       { geo: new THREE.ConeGeometry(0.05, 0.10, 4), color: 0xd8a24a, matrix: M(0.19, 0, 0, 0, 0, -Math.PI / 2) },
     ]));
   };
-  /** a butterfly: two paper wings on a thread of a body */
+  /** ONE bird wing, hinged at the origin, reaching out along +z */
+  FSModels.birdWingGeo = function () {
+    return cached("geo:birdwing", () => mergeColored([
+      { geo: new THREE.BoxGeometry(0.20, 0.022, 0.30), color: 0x424c58, matrix: M(0, 0, 0.16) },
+      { geo: new THREE.BoxGeometry(0.13, 0.020, 0.20), color: 0x4e5a68, matrix: M(-0.02, 0, 0.38) },
+    ]));
+  };
+  /** a butterfly's body: a thread with a head */
   FSModels.butterflyGeo = function () {
     return cached("geo:butterfly", () => mergeColored([
       { geo: new THREE.BoxGeometry(0.10, 0.016, 0.03), color: 0x3a3026, matrix: M(0, 0, 0) },
-      { geo: new THREE.BoxGeometry(0.11, 0.012, 0.13), color: 0xffffff, matrix: M(0.01, 0.02, 0.085, 0.55, 0, 0) },
-      { geo: new THREE.BoxGeometry(0.11, 0.012, 0.13), color: 0xffffff, matrix: M(0.01, 0.02, -0.085, -0.55, 0, 0) },
+      { geo: new THREE.BoxGeometry(0.03, 0.022, 0.026), color: 0x2a2118, matrix: M(0.055, 0.002, 0) },
+    ]));
+  };
+  /** ONE butterfly wing (fore + hind), hinged at the body, reaching along +z */
+  FSModels.butterflyWingGeo = function () {
+    return cached("geo:butterflywing", () => mergeColored([
+      { geo: new THREE.BoxGeometry(0.095, 0.012, 0.10), color: 0xffffff, matrix: M(0.015, 0, 0.058) },
+      { geo: new THREE.BoxGeometry(0.065, 0.012, 0.07), color: 0xf0f0f0, matrix: M(-0.035, 0, 0.105) },
     ]));
   };
   /** A geologist's sign: the post is shared, the board carries the mineral colour. */
@@ -2010,11 +2031,11 @@
       const skin = COL.SERF_SKIN, cloth = COL.SERF_CLOTH;
       const hair = 0x6a4a2c;
       const parts = [];
-      // boots + breeches
-      for (let s = -1; s <= 1; s += 2) {
-        parts.push({ geo: new THREE.BoxGeometry(0.105, 0.13, 0.105), color: 0x6b5a40, matrix: M(s * 0.075, 0.155, 0) });
-        parts.push({ geo: new THREE.BoxGeometry(0.115, 0.08, 0.15), color: 0x4a3c2a, matrix: M(s * 0.075, 0.045, 0.022) });
-      }
+      /* ===== PHASE P: the legs have MOVED OUT of the body mesh into
+       * FSModels.serfLegGeo() so the renderer can actually walk them. The
+       * body is still one merged, cached geometry per (job, player) and the
+       * legs are one shared geometry for the whole workforce — the split
+       * costs exactly one extra draw call in total, not one per serf. ===== */
       // smock + belt + the player's sash across the chest
       parts.push({ geo: new THREE.BoxGeometry(0.29, 0.30, 0.21), color: cloth, matrix: M(0, 0.37, 0) });
       parts.push({ geo: new THREE.BoxGeometry(0.31, 0.055, 0.23), color: 0x6b5137, matrix: M(0, 0.245, 0) });
@@ -2051,6 +2072,30 @@
     });
   };
 
+  /**
+   * PHASE P — ONE serf leg, authored around its HIP so the renderer can swing
+   * it: the origin is the hip joint, the boot hangs below at -y, the turned-up
+   * toe points at +z (the serf's forward). Boots are the same on every job and
+   * every player, so this single cached geometry serves the whole workforce
+   * from ONE instanced pool (see pushLegs in fs-render.js).
+   */
+  FSModels.serfLegGeo = function () {
+    return cached("geo:serfleg", () => mergeColored([
+      // the breeches run a little ABOVE the hip joint so a full stride can
+      // never open a gap between leg and smock
+      { geo: new THREE.BoxGeometry(0.105, 0.20, 0.105), color: 0x6b5a40, matrix: M(0, -0.075, 0) },
+      { geo: new THREE.BoxGeometry(0.115, 0.08, 0.15), color: 0x4a3c2a, matrix: M(0, -0.21, 0.022) },
+    ]));
+  };
+  /** …and the armoured version, with the greave that used to sit on the knight. */
+  FSModels.knightLegGeo = function () {
+    return cached("geo:knightleg", () => mergeColored([
+      { geo: new THREE.BoxGeometry(0.105, 0.21, 0.105), color: 0x4a3f30, matrix: M(0, -0.07, 0) },
+      { geo: new THREE.BoxGeometry(0.115, 0.075, 0.15), color: 0x36301f, matrix: M(0, -0.215, 0.022) },
+      { geo: new THREE.BoxGeometry(0.12, 0.07, 0.12), color: 0xb9bfc6, matrix: M(0, -0.055, 0) },
+    ]));
+  };
+
   /* ===================================================================== */
   /* ===== PHASE-D: knights, border stakes, corpses, clangs =============== */
   /* ===================================================================== */
@@ -2071,11 +2116,7 @@
       /* ===== PHASE-V: greaves + mail + surcoat + a helm with a rank-tinted
        * plume, a sword drawn and a shield slung on the back as well as the arm.
        * Rank reads three ways now: plume, shield rim, surcoat pips. ===== */
-      for (let s = -1; s <= 1; s += 2) {
-        parts.push({ geo: new THREE.BoxGeometry(0.105, 0.14, 0.105), color: 0x4a3f30, matrix: M(s * 0.078, 0.155, 0) });
-        parts.push({ geo: new THREE.BoxGeometry(0.115, 0.075, 0.15), color: 0x36301f, matrix: M(s * 0.078, 0.04, 0.022) });
-        parts.push({ geo: new THREE.BoxGeometry(0.12, 0.07, 0.12), color: steel, matrix: M(s * 0.078, 0.20, 0) });
-      }
+      /* ===== PHASE P: greaves/boots moved to FSModels.knightLegGeo() ===== */
       // mail coat + surcoat in the player's colour
       parts.push({ geo: new THREE.BoxGeometry(0.30, 0.30, 0.22), color: 0x8f959d, matrix: M(0, 0.37, 0) });
       parts.push({ geo: new THREE.BoxGeometry(0.235, 0.28, 0.235), color: team, matrix: M(0, 0.36, 0) });
@@ -2112,10 +2153,21 @@
     });
   };
 
-  /** A frontier post — driven into the ground, pennant in the owner's colour. */
+  /** A frontier post — driven into the ground, pennant in the owner's colour.
+   * PHASE P: split in two. The whole stake used to be ONE instance carrying
+   * the player colour, and an instance colour multiplies the WHOLE mesh — so
+   * the wooden post came out as playerColour x brown, i.e. near-black, and a
+   * long frontier read as a scatter of burnt twigs across the meadow. The
+   * post is now its own untinted (warm wood) instance and only the little
+   * pennant is tinted. One extra draw call for every border on the map. */
   FSModels.stakeGeo = function () {
     return cached("geo:stake", () => mergeColored([
       { geo: new THREE.CylinderGeometry(0.035, 0.045, 0.62, 5), color: COL.STAKE, matrix: M(0, 0.31, 0) },
+      { geo: new THREE.BoxGeometry(0.028, 0.028, 0.028), color: 0xd8c9a8, matrix: M(0, 0.625, 0) },
+    ]));
+  };
+  FSModels.stakeFlagGeo = function () {
+    return cached("geo:stakeflag", () => mergeColored([
       { geo: new THREE.BoxGeometry(0.20, 0.13, 0.03), color: 0xffffff, matrix: M(0.10, 0.56, 0) },
     ]));
   };

@@ -298,16 +298,30 @@ H.run("farmstead-visuals", async (t) => {
     const r1 = FSSim.build(G, "bakery", a, 0), r2 = FSSim.build(G, "bakery", b, 0);
     FSSim.forceComplete(G, r1.id); FSSim.forceComplete(G, r2.id);
     const B1 = G.buildings[r1.id], B2 = G.buildings[r2.id];
+    /* ===== PHASE P: the column is a pooled spawn/age model now (puffs are
+     * BORN at the chimney, swell, drift and die) instead of five modulo slots
+     * teleporting back to the stack, so the window has to be long enough for
+     * a column to form and, on the way down, for the puffs already in the air
+     * to finish their lives. Same contract, honest timing: idle = no smoke at
+     * all, working = a real column. ===== */
     B1.working = false; B2.working = false;
-    for (let i = 0; i < 4; i++) R.frame(0.033);
+    for (let i = 0; i < 120; i++) R.frame(0.033);
     const idle = (R.dynamicInfo().pools.smoke || { count: 0 }).count;
     B1.working = true; B2.working = true;
-    for (let i = 0; i < 4; i++) R.frame(0.033);
+    for (let i = 0; i < 60; i++) R.frame(0.033);
     const busy = (R.dynamicInfo().pools.smoke || { count: 0 }).count;
-    return { idle, busy };
+    // …and it TRAILS OFF rather than being cut dead the instant work stops
+    B1.working = false; B2.working = false;
+    for (let i = 0; i < 6; i++) R.frame(0.033);
+    const justStopped = (R.dynamicInfo().pools.smoke || { count: 0 }).count;
+    for (let i = 0; i < 240; i++) R.frame(0.033);      // ~8 s: taper + the longest puff life
+    const cooled = (R.dynamicInfo().pools.smoke || { count: 0 }).count;
+    return { idle, busy, justStopped, cooled };
   });
   t.check("an idle chimney is cold", smoke.idle === 0, smoke);
   t.check("a working one smokes", smoke.busy >= 5, smoke);
+  t.check("the column trails off after work stops instead of being cut dead",
+    smoke.justStopped >= 5 && smoke.cooled === 0, smoke);
 
   // ════════════════════════════════════════════════════ 6. people stay instanced
   const people = await page.evaluate(() => {

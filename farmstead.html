@@ -989,6 +989,10 @@
     if (!G || !window.FSUI) return;
     const v = FSRender.pickVertex(x, y);
     if (v < 0) return;
+    /* ===== PHASE P: the finger that opened this menu is STILL DOWN, and
+     * fs-render turned it into a camera drag 520 ms ago — without this the
+     * world keeps panning underneath the open menu. ===== */
+    if (FSRender.cancelDrag) FSRender.cancelDrag();
     FSRender.setHover(v);
     if (navigator.vibrate) { try { navigator.vibrate(12); } catch (e) { /* noop */ } }
     const left = Math.max(8, Math.min(x - 90, window.innerWidth - 260));

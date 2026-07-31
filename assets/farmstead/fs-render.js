@@ -45,6 +45,11 @@
   const ray = new THREE.Raycaster();
   const tmpM = new THREE.Matrix4(), tmpV = new THREE.Vector3(), tmpQ = new THREE.Quaternion();
   const tmpS = new THREE.Vector3(), tmpC = new THREE.Color(), tmpE = new THREE.Euler();
+  /* ===== PHASE P: a second set, for composing a LIMB matrix under an already
+   * composed body matrix (legs) without clobbering the body's own scratch. */
+  const tmpM2 = new THREE.Matrix4(), tmpM3 = new THREE.Matrix4();
+  const tmpV2 = new THREE.Vector3(), tmpQ2 = new THREE.Quaternion();
+  const tmpS2 = new THREE.Vector3(), tmpE2 = new THREE.Euler();
   /* ===== PHASE E (QoL#5): zoom-to-cursor scratch — a flat plane at the
    * camera target's own height + one more reusable Vector3 (tmpV is used
    * for the "after" read in the same call, so this needs to be distinct). ===== */
@@ -441,14 +446,72 @@
     return { p, idx };
   }
 
-  function objMatrix(v, key, out) {
+  /* ===== PHASE P: an object that CHANGES on a live map (a felled tree turning
+   * into a stump, a field ripening a stage, a cleared footprint) used to be
+   * swapped in at full size on one frame — a visible pop right where the
+   * player is looking. objPop holds the handful of vertices that changed in
+   * the last quarter second and eases their scale in; everything the map
+   * builds at BOOT still lands at full size with no animation and no cost. */
+  const objPop = new Map();            // vertex -> { t, key, idx }
+  const OBJ_POP_T = 0.26;
+  let objPopArmed = false;             // off until the first frame is drawn
+
+  function objMatrix(v, key, out, grow) {
     FSMap.worldXZ(map, v, xz);
-    const s = key.indexOf("field") === 0 ? 1 : 0.86 + hash01(v, 3) * 0.3;
+    let s = key.indexOf("field") === 0 ? 1 : 0.86 + hash01(v, 3) * 0.3;
+    if (grow !== undefined) s *= grow;
     tmpV.set(xz[0], map.height[v], xz[1]);
     tmpE.set(0, hash01(v, 11) * Math.PI * 2, 0);
     tmpQ.setFromEuler(tmpE);
     tmpS.set(s, s, s);
     return out.compose(tmpV, tmpQ, tmpS);
+  }
+
+  /* ===== PHASE P: …and the object that LEAVES gets a send-off too. The slot
+   * it occupied is simply leased for OBJ_FADE_T before being handed back to
+   * the pool's free list, which is long enough for a felled tree to topple
+   * (rotate about its own base) and sink away — the "timber" beat the sim's
+   * treeFelled event has always had, but the view never showed. ===== */
+  const objFade = [];                  // { key, idx, x, y, z, s, yaw, t, fall }
+  const OBJ_FADE_T = 0.34;
+
+  function advanceObjPop(dt) {
+    if (objPop.size) objPop.forEach((e, v) => {
+      e.t += dt;
+      const u = Math.min(1, e.t / OBJ_POP_T);
+      const p = pools[e.key];
+      if (!p) { objPop.delete(v); return; }
+      // a soft overshoot: 0 → 1.06 → 1, so a stump "settles" into the ground
+      const g = u >= 1 ? 1 : (u < 0.75 ? (u / 0.75) * 1.06 : 1.06 - ((u - 0.75) / 0.25) * 0.06);
+      p.mesh.setMatrixAt(e.idx, objMatrix(v, e.key, tmpM, g));
+      p.mesh.instanceMatrix.needsUpdate = true;
+      if (u >= 1) objPop.delete(v);
+    });
+    for (let i = objFade.length - 1; i >= 0; i--) {
+      const e = objFade[i];
+      const p = pools[e.key];
+      if (!p) { objFade.splice(i, 1); continue; }
+      e.t += dt;
+      const u = Math.min(1, e.t / OBJ_FADE_T);
+      if (u >= 1) {
+        p.mesh.setMatrixAt(e.idx, ZERO);
+        p.mesh.instanceMatrix.needsUpdate = true;
+        p.free.push(e.idx);
+        objFade.splice(i, 1);
+        continue;
+      }
+      // trees TOPPLE (accelerating, about the trunk base); everything else
+      // just shrinks quietly away
+      const s = e.s * (e.fall ? 1 : (1 - u * u));
+      const tip = e.fall ? u * u * 1.5 : 0;
+      tmpV.set(e.x, e.y, e.z);
+      // every tree falls its own way (the direction is baked from its vertex)
+      tmpE.set(tip * Math.cos(e.dir), e.yaw, tip * Math.sin(e.dir));
+      tmpQ.setFromEuler(tmpE);
+      tmpS.set(s, s * (e.fall ? Math.max(0.15, 1 - u * u * 0.85) : 1), s);
+      p.mesh.setMatrixAt(e.idx, tmpM.compose(tmpV, tmpQ, tmpS));
+      p.mesh.instanceMatrix.needsUpdate = true;
+    }
   }
 
   function setSlot(v, key, p, idx) {
@@ -849,15 +912,34 @@
     if (cur && cur.key === key) { setSlot(v, key, pools[key], cur.idx); return true; }
     if (cur) {
       const p = pools[cur.key];
-      p.mesh.setMatrixAt(cur.idx, ZERO);
-      p.mesh.instanceMatrix.needsUpdate = true;
-      p.free.push(cur.idx);
+      objPop.delete(v);
+      /* ===== PHASE P: lease the slot for a moment so it can topple/shrink
+       * out instead of blinking away (boot-time rebuilds skip it). ===== */
+      if (objPopArmed && objFade.length < 24) {
+        FSMap.worldXZ(map, v, xz);
+        objFade.push({ key: cur.key, idx: cur.idx, x: xz[0], y: map.height[v], z: xz[1],
+          s: cur.key.indexOf("field") === 0 ? 1 : 0.86 + hash01(v, 3) * 0.3,
+          yaw: hash01(v, 11) * Math.PI * 2, dir: hash01(v, 23) * Math.PI * 2,
+          t: 0, fall: cur.key.indexOf("tree") === 0 });
+      } else {
+        p.mesh.setMatrixAt(cur.idx, ZERO);
+        p.mesh.instanceMatrix.needsUpdate = true;
+        p.free.push(cur.idx);
+      }
       vertSlot.delete(v);
     }
     if (key) {
       const a = allocSlot(key);
       vertSlot.set(v, { key, idx: a.idx });
       setSlot(v, key, a.p, a.idx);
+      /* ===== PHASE P: ease it in instead of popping it in ===== */
+      if (objPopArmed) {
+        objPop.set(v, { t: 0, key: key, idx: a.idx });
+        a.p.mesh.setMatrixAt(a.idx, objMatrix(v, key, tmpM, 0.001));
+        a.p.mesh.instanceMatrix.needsUpdate = true;
+      }
+    } else {
+      objPop.delete(v);
     }
     /* ===== PHASE-V: the grass goes with it — a felled tree loses its shadow,
      * a ploughed field loses its tufts, a cleared vertex grows them back. ===== */
@@ -928,6 +1010,12 @@
   const dyn = {
     group: null, pools: Object.create(null), roadMesh: null,
     roadSig: "", bldSig: "", tAcc: 0, serfVis: new Map(), lastSerfCount: 0,
+    /* ===== PHASE P: the sub-tick clock. `tickU` is how far the renderer has
+     * travelled through the CURRENT sim tick (0..1). Every animation whose
+     * beat has to land on a sim event (chop impact, hammer tap, duel thrust)
+     * reads its phase from a sim countdown MINUS tickU, so the beat is smooth
+     * between ticks and exact on them. Purely derived from G.tick + dt. */
+    lastTick: -1, tickAge: 0, tickU: 0,
   };
   const WHITE = new THREE.Color(1, 1, 1);
   const resC = new THREE.Color();
@@ -980,6 +1068,8 @@
     scene.add(dyn.group);
     dyn.roadSig = ""; dyn.bldSig = "";
     dyn.serfVis.clear();
+    dyn.lastTick = -1; dyn.tickAge = 0; dyn.tickU = 0;   /* ===== PHASE P ===== */
+    puffs.length = 0; fireSmokeT.clear(); objPop.clear(); objFade.length = 0;
   }
 
   // ---- roads: one merged ribbon mesh, rebuilt only when the network changes ----
@@ -1108,8 +1198,17 @@
       tmpV.set(xz[0], y, xz[1]);
       tmpE.set(0, 0, 0); tmpQ.setFromEuler(tmpE); tmpS.set(1, 1, 1);
       dynPush(pole, tmpM.compose(tmpV, tmpQ, tmpS));
-      tmpE.set(0, wave + f.id * 0.7, 0); tmpQ.setFromEuler(tmpE);
+      /* ===== PHASE P: the pennant used to only YAW about its pole, which
+       * reads as a signboard swinging, not cloth. A rigid instance cannot
+       * ripple, but a flag DOES snap: the yaw now rides a sharpened wave
+       * (fast flick, slow settle) and carries a small roll + a length
+       * flutter with it, which is what sells "wind" at this scale. ===== */
+      const ph = dyn.tAcc * 2.2 + f.id * 0.7;
+      const snap = Math.sin(ph) * 0.62 + Math.sin(ph * 2.3 + 1.1) * 0.28 + Math.sin(ph * 4.7) * 0.10;
+      tmpE.set(0, wave + f.id * 0.7 + snap * 0.16, snap * 0.13); tmpQ.setFromEuler(tmpE);
+      tmpS.set(1 + snap * 0.06, 1 - snap * 0.05, 1);
       dynPush(pen, tmpM.compose(tmpV, tmpQ, tmpS), tmpC.set(FSC.PLAYER_COLORS[f.p % FSC.PLAYER_COLORS.length]));
+      tmpS.set(1, 1, 1);
       for (let i = 0; i < f.slots.length; i++) {
         const ring = (i / 4) | 0, k = i % 4;
         const ang = k * (Math.PI / 2) + ring * (Math.PI / 4);
@@ -1121,22 +1220,183 @@
     return crate;
   }
 
-  // ---- serfs: one instanced mesh per (job, player) ----
+  /* ===================================================================== */
+  /* ===== PHASE P: people move like people ==============================
+   * Three things were wrong and all three are motion-model problems, not
+   * art problems:
+   *  (1) the old exponential chase (`frac += (target-frac) * dt*16`) turned a
+   *      steady 10 Hz sim into a visibly UNEVEN glide — the frame right after
+   *      a tick jumped ~2.6x further than the frames between ticks (measured
+   *      per-frame delta CV 0.68 on a flat straight road). Replaced by a
+   *      CONSTANT-VELOCITY follow at exactly the speed the sim itself is
+   *      moving him (edge length / stepN ticks), so every frame advances the
+   *      same distance no matter where in the tick it lands.
+   *  (2) facing SNAPPED 60° in a single frame at every lattice bend. Now the
+   *      yaw turns toward the edge heading at a bounded rate.
+   *  (3) the walk cycle ran off the wall clock, so feet skated whenever the
+   *      ground speed and the animation disagreed (slopes, 2x/4x, catch-up).
+   *      The gait phase is now driven by DISTANCE WALKED — stop moving and
+   *      the feet stop, walk uphill slowly and the steps slow with you.
+   * All three read sim state and never write it.
+   */
+  const SERF_TURN_RATE = 7.5;        // rad/s — a serf turns, he never flips
+  const SERF_STRIDE = 0.46;          // world units per step (one leg swing)
+  const SERF_DEFAULT_TICKS = 26;     // FSC.WALK_TICKS_TABLE's flat entry
+
+  /* ===== PHASE P: a builder/digger stands on his site's OWN vertex, which
+   * means the site's frame platform sits on top of him and the player never
+   * sees anybody working. Purely visually, step him out to the door side of
+   * the footprint — where a workman would stand anyway. Sim untouched; the
+   * constant-velocity follow walks him there and back on its own. ===== */
+  const WORK_STEP_OUT = 0.85;
+  function workStepOut(s, out) {
+    out[0] = 0; out[1] = 0;
+    if (s.state !== "hammer" && s.state !== "level") return out;
+    const b = G.buildings[s.target];
+    if (!b || b.v !== s.v) return out;
+    const fl = G.flags[b.flag];
+    if (!fl) return out;
+    FSMap.worldXZ(map, b.v, xz);
+    const bxw = xz[0], bzw = xz[1];
+    FSMap.worldXZ(map, fl.v, xz);
+    const dx = xz[0] - bxw, dz = xz[1] - bzw;
+    const len = Math.sqrt(dx * dx + dz * dz) || 1;
+    out[0] = (dx / len) * WORK_STEP_OUT; out[1] = (dz / len) * WORK_STEP_OUT;
+    return out;
+  }
+  const workOff = [0, 0];
+
   function serfVisual(s, dt) {
     let vis = dyn.serfVis.get(s.id);
-    if (!vis) { vis = { frac: s.frac || 0, from: s.from, to: s.to }; dyn.serfVis.set(s.id, vis); }
-    if (vis.from !== s.from || vis.to !== s.to) { vis.from = s.from; vis.to = s.to; vis.frac = s.frac || 0; }
-    else {
-      const target = s.frac || 0;
-      if (target < vis.frac) vis.frac = target;                    // new edge / reset
-      else vis.frac += (target - vis.frac) * Math.min(1, dt * 16);
+    // where the sim says he is, exactly, right now
+    FSMap.worldXZ(map, s.from, xz);
+    const ax = xz[0], az = xz[1], ay = serfY(s.from);
+    FSMap.worldXZ(map, s.to, xz);
+    const bx = xz[0], bz = xz[1], by = serfY(s.to);
+    const f = s.frac || 0;
+    workStepOut(s, workOff);
+    const tx = ax + (bx - ax) * f + workOff[0], tz = az + (bz - az) * f + workOff[1], ty = ay + (by - ay) * f;
+    const moving = s.from !== s.to;
+    const tYaw = moving ? Math.atan2(bx - ax, bz - az)
+      : (workOff[0] || workOff[1] ? Math.atan2(-workOff[0], -workOff[1]) : (s.id % 7) * 0.9);
+    if (!vis) {
+      vis = { x: tx, y: ty, z: tz, yaw: tYaw, phase: (s.id % 13) * 0.48, frac: f, from: s.from, to: s.to, speed: 0 };
+      dyn.serfVis.set(s.id, vis);
+      return vis;
     }
+    vis.frac = f; vis.from = s.from; vis.to = s.to;
+    // ---- position: move at the sim's own ground speed, never in jerks
+    const px = vis.x, pz = vis.z;
+    const dx = tx - vis.x, dy = ty - vis.y, dz = tz - vis.z;
+    const lag = Math.sqrt(dx * dx + dz * dz);
+    const edge = moving ? Math.sqrt((bx - ax) * (bx - ax) + (bz - az) * (bz - az)) : FSC.TILE;
+    const ticks = Math.max(1, s.stepN || SERF_DEFAULT_TICKS);
+    const tickDist = edge / ticks;
+    const rate = tickDist * (Math.max(0, G.speed || 0) / FSC.TICK_S);
+    if (lag > edge * 1.6 || rate <= 0) {
+      // a genuine teleport (spawned, stepped out of a door, world adopted) —
+      // sliding one of those across the map would be far worse than a cut
+      vis.x = tx; vis.y = ty; vis.z = tz;
+    } else if (lag > 1e-7) {
+      let step = rate * dt;
+      if (lag > tickDist * 2.5) step *= 1.9;          // gentle catch-up after a stall
+      const k = Math.min(1, step / lag);
+      vis.x += dx * k; vis.y += dy * k; vis.z += dz * k;
+    } else {
+      vis.y = ty;
+    }
+    // ---- facing: turn toward the heading, bounded
+    let dyaw = tYaw - vis.yaw;
+    while (dyaw > Math.PI) dyaw -= Math.PI * 2;
+    while (dyaw < -Math.PI) dyaw += Math.PI * 2;
+    const maxTurn = SERF_TURN_RATE * dt;
+    vis.yaw += Math.abs(dyaw) <= maxTurn ? dyaw : (dyaw < 0 ? -maxTurn : maxTurn);
+    // ---- gait: phase follows the ground, so feet cannot skate
+    const walked = Math.sqrt((vis.x - px) * (vis.x - px) + (vis.z - pz) * (vis.z - pz));
+    vis.speed = dt > 0 ? walked / dt : 0;
+    vis.phase += (walked / SERF_STRIDE) * Math.PI;
+    if (vis.phase > 1e6) vis.phase -= 1e6;
     return vis;
   }
 
   /** a serf standing on a water vertex is in his boat, not on the lake bed */
   function serfY(v) {
     return map.terr[v] === FSC.TERR.WATER ? FSC.WATER_Y + 0.06 : map.height[v];
+  }
+
+  /* ===== PHASE P: the swing. A tool stroke is not a sine — it is a slow
+   * raise and a fast strike, and the strike has to land ON the tick the sim
+   * actually does the work, or the sound and the tree fall arrive off the
+   * beat. `rem` is the work countdown in ticks (fractional, via dyn.tickU),
+   * so stroke 0 lands exactly when the sim completes the job. Returns
+   * 0 (arm down) → 1 (arm fully raised); the strike is the fall back to 0. */
+  function swingShape(rem, period) {
+    const p = period || 8;
+    let w = 1 - ((rem % p) + p) % p / p;              // 0 at stroke start → 1 at impact
+    if (!isFinite(w)) w = 0;
+    const RAISE = 0.72;
+    return w < RAISE ? (w / RAISE) : Math.max(0, 1 - (w - RAISE) / (1 - RAISE));
+  }
+  /** how far through the current sim tick the renderer is (0..1) — the sub-tick
+   *  clock every event-synced animation reads. */
+  function serfSwing(s) {
+    const st = s.state;
+    if (st === "doWork" || st === "geoWork") {
+      const rem = Math.max(0, (s.t || 0) - dyn.tickU);
+      return swingShape(rem, s.workKind === "fish" ? 14 : 8);
+    }
+    if (st === "hammer") {
+      // the sim's own swing clock is 5-7.7 s per CONSUMED material; a builder
+      // taps far more often than that, so the visual stroke runs at the same
+      // ~0.7 s cadence fs-audio.js taps at — and, because the phase is taken
+      // from b.swingT, the LAST stroke of each cycle lands exactly on the tick
+      // the sim banks the material.
+      const b = G.buildings[s.target];
+      if (!b || !b.crew) return 0;
+      const rem = Math.max(0, (b.swingT || 0) - dyn.tickU);
+      return swingShape(rem, 7);
+    }
+    if (st === "level") {
+      const rem = Math.max(0, (s.t || 0) - dyn.tickU);
+      return swingShape(rem, 9);
+    }
+    return -1;                                        // not working
+  }
+
+  /* ===== PHASE P: pose a pair of legs under an already-composed body matrix.
+   * `body` is the body's world matrix; the legs hang from (±hipX, hipY) in the
+   * body's own frame and swing about their hip on the X axis, so they inherit
+   * the body's yaw/lean/bob for free and can never drift off the torso.
+   * `stride` -1..1 drives the walk (legs counter-phase); `brace` 0..1 spreads
+   * the stance a little while a tool is being swung. */
+  const SERF_HIP_X = 0.075, SERF_HIP_Y = 0.255;
+  const KNIGHT_HIP_X = 0.078, KNIGHT_HIP_Y = 0.255;
+  const LEG_SWING = 0.52;                  // rad at full stride
+  function pushLegs(geo, key, body, stride, brace, hipX, hipY) {
+    const pool = dynPool(key, geo, FSModels.vcMat("serf", 0x9a9a9a, 0.34));
+    for (let s2 = -1; s2 <= 1; s2 += 2) {
+      const a = stride * LEG_SWING * (s2 < 0 ? 1 : -1) + brace * 0.22 * s2;
+      tmpV2.set(s2 * hipX, hipY, 0);
+      tmpE2.set(a, 0, 0);
+      tmpQ2.setFromEuler(tmpE2);
+      tmpS2.set(1, 1, 1);
+      tmpM2.compose(tmpV2, tmpQ2, tmpS2);
+      tmpM3.multiplyMatrices(body, tmpM2);
+      dynPush(pool, tmpM3);
+    }
+  }
+
+  /* ===== PHASE P: the doorway. A serf who steps inside used to be dropped
+   * from the draw list on one frame and popped back at full size on another —
+   * people blinking in and out of existence at every hut door. `vis.appear`
+   * eases 1→0 as he goes in and 0→1 as he comes back out, and he sinks a
+   * little into the doorway on the way, so the building visibly swallows him.
+   * Serfs the world starts with skip it (objPopArmed is false on frame 1). */
+  const DOOR_T = 0.22;
+  function doorFade(vis, dt, hidden) {
+    const a = vis.appear === undefined ? (objPopArmed ? (hidden ? 1 : 0) : 1) : vis.appear;
+    vis.appear = Math.max(0, Math.min(1, a + (hidden ? -1 : 1) * dt / DOOR_T));
+    return vis.appear;
   }
 
   function syncSerfs(dt) {
@@ -1146,32 +1406,66 @@
     for (const id in G.serfs) {
       const s = G.serfs[id];
       alive.add(s.id);
-      if (s.state === "work" || s.state === "garrison") continue;  // inside a building
+      const inside = s.state === "work" || s.state === "garrison";   // inside a building
+      if (inside) {
+        const v0 = dyn.serfVis.get(s.id);
+        if (!v0) continue;                        // never drawn — nothing to swallow
+        const a0 = doorFade(v0, dt, true);
+        if (a0 <= 0.02) continue;
+        if (s.job === FSC.JOB.KNIGHT) { knightVisual(s, dt, a0); continue; }
+        drawSerf(s, v0, dt, a0, crate, boat);
+        continue;
+      }
       /* ===== PHASE-D: knights have their own rank-trimmed model + duel anim ===== */
-      if (s.job === FSC.JOB.KNIGHT) { knightVisual(s, dt); continue; }
+      if (s.job === FSC.JOB.KNIGHT) {
+        const vk = serfVisual(s, dt);
+        knightVisual(s, dt, doorFade(vk, dt, false));
+        continue;
+      }
       const vis = serfVisual(s, dt);
-      FSMap.worldXZ(map, s.from, xz);
-      const x0 = xz[0], z0 = xz[1], y0 = serfY(s.from);
-      FSMap.worldXZ(map, s.to, xz);
-      const x1 = xz[0], z1 = xz[1], y1 = serfY(s.to);
-      const f = vis.frac;
-      const x = x0 + (x1 - x0) * f, z = z0 + (z1 - z0) * f, y = y0 + (y1 - y0) * f;
-      const moving = s.from !== s.to;
+      drawSerf(s, vis, dt, doorFade(vis, dt, false), crate, boat);
+    }
+    dyn.serfVis.forEach((v, id) => { if (!alive.has(id)) dyn.serfVis.delete(id); });
+    dyn.lastSerfCount = alive.size;
+  }
+
+  function drawSerf(s, vis, dt, appear, crate, boat) {
+      const sunk = (1 - appear) * 0.34;              /* ===== PHASE P: door ===== */
+      const x = vis.x, z = vis.z, y = vis.y - sunk;
+      const moving = appear > 0.98 && vis.speed > 0.02;
       const afloat = map.terr[s.from] === FSC.TERR.WATER || map.terr[s.to] === FSC.TERR.WATER;
-      // work animations: a chop/scythe/hammer swing is a little lean + bob
-      const working = s.state === "doWork" || s.state === "geoWork";
-      const swing = working ? Math.sin(dyn.tAcc * 6.5 + s.id) : 0;
-      const bob = moving ? Math.abs(Math.sin((dyn.tAcc * 7.5) + s.id)) * 0.055
-        : (working ? Math.abs(swing) * 0.05 : 0);
-      const yaw = moving ? Math.atan2(x1 - x0, z1 - z0) : (s.id % 7) * 0.9;
+      /* ===== PHASE P: the work stroke is event-synced (see serfSwing) and the
+       * walk is driven by distance, so bob/lean/twist all follow the ground. */
+      const swing = serfSwing(s);
+      const working = swing >= 0;
+      const step = Math.sin(vis.phase);              // ±1, one full period per 2 strides
+      const bob = moving ? Math.abs(Math.cos(vis.phase)) * 0.052
+        : (working ? swing * 0.045 : 0);
+      const yaw = vis.yaw;
       const p = dynPool("serf:" + s.job + ":" + s.p, FSModels.serfGeo(s.job, s.p),
         FSModels.vcMat("serf", 0x9a9a9a, 0.34));
       tmpV.set(x, y + bob, z);
-      tmpE.set(working ? swing * 0.45 : 0, yaw, moving ? Math.sin(dyn.tAcc * 7.5 + s.id) * 0.07 : 0);
+      /* torso: leans into the stroke when working; when walking it twists a
+       * little against the leading leg (which is what reads as arm swing on a
+       * one-piece minifig) and rolls onto the supporting foot. */
+      tmpE.set(working ? -swing * 0.42 : (moving ? 0.06 : 0),
+        yaw + (moving ? step * 0.10 : 0),
+        moving ? -step * 0.055 : 0);
       tmpQ.setFromEuler(tmpE);
-      tmpS.set(1, 1, 1);
+      tmpS.set(appear, appear, appear);
       dynPush(p, tmpM.compose(tmpV, tmpQ, tmpS));
-      if (!afloat) serfShadow.push(x, y, z);   /* ===== PHASE-V: contact shadow ===== */
+      /* ===== PHASE P: legs. The body is still ONE merged instanced mesh per
+       * (job, player) — the legs are simply lifted out of it into a SINGLE
+       * shared pool (boots are the same on every serf, so all jobs and all
+       * players share one geometry and one draw call) and posed per instance.
+       * Cost: +1 draw call for the entire workforce. ===== */
+      pushLegs(FSModels.serfLegGeo(), "serfleg", tmpM, moving ? step : 0,
+        working ? swing : 0, SERF_HIP_X, SERF_HIP_Y);
+      /* ===== PHASE P: record the pose the renderer actually drew, so the
+       * film-strip rig / visual suite can measure per-frame world deltas
+       * (walk smoothness, rotation continuity) from the OUTSIDE. ===== */
+      vis.drawY = y + bob;
+      if (!afloat && appear > 0.5) serfShadow.push(x, y, z);   /* ===== PHASE-V: contact shadow ===== */
       if (afloat) {                                                // the ferry itself
         /* ===== PHASE-V: a boat rides the swell — it bobs at rest and heels a
          * little into the direction it is rowing. ===== */
@@ -1179,6 +1473,7 @@
         const heel = moving ? Math.sin(dyn.tAcc * 2.6 + s.id) * 0.05 : bob * 0.5;
         tmpV.set(x, FSC.WATER_Y + 0.02 + bob, z);
         tmpE.set(bob * 0.5, yaw, heel); tmpQ.setFromEuler(tmpE);
+        tmpS.set(1, 1, 1);
         dynPush(boat, tmpM.compose(tmpV, tmpQ, tmpS));
         if (moving) {
           /* a small wake: two foam quads trailing astern, spreading and fading —
@@ -1198,13 +1493,12 @@
         }
       }
       if (s.carry) {
-        tmpV.set(x, y + bob + 0.86, z);
+        tmpV.set(x, y + bob + 0.86 * appear, z);
         tmpE.set(0, yaw, 0); tmpQ.setFromEuler(tmpE);
+        tmpS.set(appear, appear, appear);
         dynPush(crate, tmpM.compose(tmpV, tmpQ, tmpS), resC.set(FSC.RES_COLOR[s.carry] || 0xcccccc));
+        tmpS.set(1, 1, 1);
       }
-    }
-    dyn.serfVis.forEach((v, id) => { if (!alive.has(id)) dyn.serfVis.delete(id); });
-    dyn.lastSerfCount = alive.size;
   }
 
   /* ===================================================================== */
@@ -1235,38 +1529,109 @@
     });
   }
 
+  /* ═════════════════════════════════════════════════════ PHASE P: smoke ═══
+   * Two things were wrong with the old chimney column.
+   *  (1) It was drawn with the OPAQUE vertex-colour material on an
+   *      icosahedron, so a working quarter wore a grey ROCK, not smoke. It
+   *      now uses the same soft, texture-faded, depth-write-off billboard the
+   *      road dust already used — the puff geometry that was sitting right
+   *      there unused by the chimneys.
+   *  (2) The puffs were a `% 1` modulo of the wall clock: five slots that
+   *      TELEPORTED from the top of the column back to the chimney at full
+   *      size and half opacity. Replaced by a real pooled spawn/age model —
+   *      each puff is born small and clear at the chimney, swells, drifts on
+   *      the breeze, thins out and DIES; nothing ever pops in or out.
+   * Spun-up/spun-down: a chimney that stops working no longer cuts its column
+   * dead — it just stops emitting, and the puffs already in the air finish
+   * their lives. Sails and wheels ease their rate down over ~1.4 s instead of
+   * freezing mid-turn (`view.userData.busyF`). */
+  const puffs = [];                        // { x,y,z, vx,vy,vz, t,T, s0,s1, roll, col }
+  function spawnPuff(x, y, z, o) {
+    if (puffs.length >= (FSC.VIS.SMOKE_PUFF_MAX || 120)) puffs.shift();
+    puffs.push({
+      x: x, y: y, z: z,
+      vx: o.vx, vy: o.vy, vz: o.vz,
+      t: 0, T: o.T, s0: o.s0, s1: o.s1, roll: o.roll, col: o.col === undefined ? 1 : o.col,
+      op: o.op === undefined ? 1 : o.op,
+      warm: o.warm || 0,                     // 0 = wood smoke, 1 = lit by the fire below
+    });
+  }
+  function advancePuffs(dt) {
+    if (!puffs.length) return;
+    /* ADDITIVE, deliberately: an InstancedMesh can only carry a per-instance
+     * COLOUR, never a per-instance alpha — so with normal blending a fading
+     * puff darkens toward black and reads as a soot smudge instead of
+     * disappearing. Under additive blending colour IS opacity, so the same
+     * per-instance scalar gives a clean birth and a clean death, and warm
+     * pale wood-smoke is exactly the register this game wants. */
+    const pool = dynPool("smoke", FSModels.puffGeo(), FSModels.puffMat("smoke", COL.SMOKE, "add"));
+    for (let i = puffs.length - 1; i >= 0; i--) {
+      const p = puffs[i];
+      p.t += dt;
+      if (p.t >= p.T) { puffs.splice(i, 1); continue; }
+      const u = p.t / p.T;
+      p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+      p.vy *= 1 - dt * 0.35;                       // it slows as it cools
+      const s = p.s0 + (p.s1 - p.s0) * u;
+      // fade IN over the first 12% and OUT over the last 45% — a puff never pops
+      const fade = Math.min(1, u / 0.12) * Math.min(1, (1 - u) / 0.45);
+      tmpV.set(p.x, p.y, p.z);
+      billboardQuat(tmpQ, p.roll + u * 0.9);
+      tmpS.set(s, s, s);
+      const k = p.col * fade * p.op;
+      // warm puffs keep the ember glow low down and cool to grey as they climb
+      if (p.warm) { const w = p.warm * (1 - u); tmpC.setRGB(k, k * (1 - w * 0.30), k * (1 - w * 0.55)); }
+      else tmpC.setScalar(k);
+      dynPush(pool, tmpM.compose(tmpV, tmpQ, tmpS), tmpC);
+    }
+  }
+  /** face the camera exactly, with a roll about the view axis for variety */
+  const bbQ = new THREE.Quaternion(), bbAxis = new THREE.Vector3(0, 0, 1);
+  function billboardQuat(out, roll) {
+    out.copy(camera.quaternion);
+    if (roll) { bbQ.setFromAxisAngle(bbAxis, roll); out.multiply(bbQ); }
+    return out;
+  }
+
   /** Turn the mill sails / mine wheel / saw blade, and puff smoke, while working. */
+  const SMOKE_GAP = 0.30;                  // seconds between chimney puffs
   function syncWorking(dt) {
-    const smoke = dynPool("smoke", FSModels.smokeGeo(), FSModels.vcMat("smoke", COL.SMOKE, 0.55));
     for (const id in G.buildings) {
       const b = G.buildings[id];
       if (b.state !== "done") continue;
       const view = bldViews.get(b.id);
       if (!view) continue;
       const busy = !!b.working;
-      if (view.userData.spin) {
-        if (busy) {
-          const r = (view.userData.spinRate || 1) * dt;
-          const ax = view.userData.spinAxis;
-          if (ax === "y") view.userData.spin.rotation.y += r;
-          else if (ax === "x") view.userData.spin.rotation.x += r;
-          else view.userData.spin.rotation.z += r;
-        }
+      const ud = view.userData;
+      /* ===== PHASE P: machinery spins UP and DOWN, it never slams ===== */
+      const target = busy ? 1 : 0;
+      const rate = busy ? 2.2 : 0.7;       // ~0.45 s to spin up, ~1.4 s to coast down
+      ud.busyF = (ud.busyF === undefined ? target : ud.busyF) +
+        (target - (ud.busyF === undefined ? target : ud.busyF)) * Math.min(1, dt * rate);
+      if (ud.busyF < 0.004) ud.busyF = 0;
+      if (ud.spin && ud.busyF > 0) {
+        const r = (ud.spinRate || 1) * dt * ud.busyF;
+        const ax = ud.spinAxis;
+        if (ax === "y") ud.spin.rotation.y += r;
+        else if (ax === "x") ud.spin.rotation.x += r;
+        else ud.spin.rotation.z += r;
       }
-      if (busy && view.userData.smoke) {
-        const o = view.userData.smoke;
-        /* ===== PHASE-V: a proper column of puffs — they rise, swell, lean off
-         * on the breeze and thin out, so a working quarter reads at a glance. */
-        for (let k = 0; k < 5; k++) {
-          const t = ((dyn.tAcc * 0.42) + k * 0.2 + (b.id % 7) * 0.09) % 1;
-          const s = 0.42 + t * 1.55;
-          const drift = t * t * 0.9;
-          tmpV.set(view.position.x + o[0] + drift + Math.sin(dyn.tAcc + k) * 0.06,
-            view.position.y + o[1] + t * 1.55,
-            view.position.z + o[2] + Math.cos(dyn.tAcc * 0.8 + k) * 0.10);
-          tmpE.set(0, t * 3 + k, 0); tmpQ.setFromEuler(tmpE);
-          tmpS.set(s, s, s);
-          dynPush(smoke, tmpM.compose(tmpV, tmpQ, tmpS), tmpC.setScalar(1 - t * 0.55));
+      if (ud.smoke) {
+        const o = ud.smoke;
+        /* the FIRE dies faster than a flywheel coasts: emission tapers over
+         * ~1.4 s and then stops cleanly, while the puffs already in the air
+         * live out their own 2.6-3.5 s. Nothing is ever cut dead. */
+        const smokeF = busy ? 1 : Math.max(0, ud.busyF * 1.55 - 0.55);
+        ud.smokeT = (ud.smokeT === undefined ? hash01(b.id, 5) * SMOKE_GAP : ud.smokeT) - dt * smokeF;
+        while (ud.smokeT <= 0) {
+          ud.smokeT += SMOKE_GAP;
+          const j = hash01(b.id * 31 + Math.round(dyn.tAcc * 37), 9);
+          spawnPuff(view.position.x + o[0] + (j - 0.5) * 0.12,
+            view.position.y + o[1],
+            view.position.z + o[2] + (hash01(b.id * 17 + Math.round(dyn.tAcc * 53), 3) - 0.5) * 0.12, {
+              vx: 0.30 + j * 0.22, vy: 0.98 + j * 0.22, vz: 0.16,
+              T: 2.6 + j * 0.9, s0: 0.26, s1: 1.70, roll: j * 6.283, col: 0.30,
+            });
         }
       }
     }
@@ -1350,39 +1715,67 @@
    * reads at a glance. During a duel the pair face each other and lunge on
    * alternate beats — the classic's little sword dance.
    */
-  function knightVisual(s, dt) {
-    const vis = serfVisual(s, dt);
-    FSMap.worldXZ(map, s.from, xz);
-    const x0 = xz[0], z0 = xz[1], y0 = serfY(s.from);
-    FSMap.worldXZ(map, s.to, xz);
-    const x1 = xz[0], z1 = xz[1], y1 = serfY(s.to);
-    const f = vis.frac;
-    let x = x0 + (x1 - x0) * f, z = z0 + (z1 - z0) * f;
-    const y = y0 + (y1 - y0) * f;
-    const moving = s.from !== s.to;
-    let yaw = moving ? Math.atan2(x1 - x0, z1 - z0) : (s.id % 7) * 0.9;
-    let lunge = 0, bob = moving ? Math.abs(Math.sin(dyn.tAcc * 7.5 + s.id)) * 0.055 : 0;
+  /* ===== PHASE P: the duel used to be `max(0, sin(wallclock))` — one endless
+   * beat with no wind-up, no recovery and, worse, no relationship to the sim.
+   * A round is FSC.FIGHT_ROUND_T ticks long and ends with the fightRound event
+   * (the clang flash, the SFX and, usually, a death). The exchange is now cut
+   * into three beats inside that window, the pair take alternate beats, and
+   * because the phase is read from `fight.t` the LAST thrust reaches full
+   * extension on exactly the tick the blow is struck. Wind-up → thrust →
+   * the other man recoils. */
+  function duelPose(s, fi, isAtt, out) {
+    const P = Math.max(2, (FSC.FIGHT_ROUND_T || 22) / 3);
+    const rem = Math.max(0, (fi.t || 0) - dyn.tickU);
+    const w = 1 - ((rem % P) + P) % P / P;             // 0 → 1 within the beat
+    const beat = Math.floor(((FSC.FIGHT_ROUND_T || 22) - rem) / P + 1e-6);
+    const mine = isAtt ? (beat % 2 === 0) : (beat % 2 === 1);
+    let thrust;
+    if (w < 0.6) thrust = -0.34 * Math.sin((w / 0.6) * Math.PI);   // settle back on guard
+    else thrust = Math.pow((w - 0.6) / 0.4, 1.6);                  // and drive in
+    out.l = mine ? thrust : -0.30 * Math.max(0, thrust);           // the other man recoils
+    return out;
+  }
+  const duelOut = { l: 0 };
+
+  function knightVisual(s, dt, appear) {
+    const vis = dyn.serfVis.get(s.id) || serfVisual(s, dt);
+    if (appear === undefined) appear = 1;
+    const sunk = (1 - appear) * 0.34;              /* ===== PHASE P: door ===== */
+    let x = vis.x, z = vis.z;
+    const y = vis.y - sunk;
+    const moving = appear > 0.98 && vis.speed > 0.02;
+    let yaw = vis.yaw;
+    const step = Math.sin(vis.phase);
+    let lunge = 0, bob = moving ? Math.abs(Math.cos(vis.phase)) * 0.052 : 0;
+    let stride = moving ? step : 0;
     if (s.state === "fight") {
       const foe = duelFoe(s);
+      const fi = foe ? (G.buildings[s.defOf || s.atkTarget] || {}).mil : null;
       if (foe) {
         FSMap.worldXZ(map, foe.v, xz);
         const dx = xz[0] - x, dz = xz[1] - z;
+        // face the foe directly: a duel is not the moment for a slow turn
         yaw = Math.atan2(dx, dz);
-        // alternate: one lunges while the other recovers
-        const beat = Math.sin(dyn.tAcc * 5.2 + (s.id < foe.id ? 0 : Math.PI));
-        lunge = Math.max(0, beat) * 0.34;
+        vis.yaw = yaw;
+        const p = duelPose(s, (fi && fi.fight) || { t: 0 }, (fi && fi.fight && fi.fight.att === s.id), duelOut);
+        lunge = p.l * 0.34;
         const len = Math.sqrt(dx * dx + dz * dz) || 1;
         x += (dx / len) * lunge; z += (dz / len) * lunge;
-        bob = lunge * 0.18;
+        vis.x = x; vis.z = z;
+        bob = Math.max(0, p.l) * 0.16;
+        stride = -p.l * 0.55;                       // the feet follow the lunge
       }
     }
     const pool = dynPool("knight:" + (s.rank | 0) + ":" + s.p,
       FSModels.knightGeo(s.rank, s.p), FSModels.vcMat("serf", 0x9a9a9a, 0.34));
     tmpV.set(x, y + bob, z);
-    tmpE.set(lunge * 0.5, yaw, moving ? Math.sin(dyn.tAcc * 7.5 + s.id) * 0.07 : 0);
+    tmpE.set(lunge * 1.5, yaw + (moving ? step * 0.09 : 0),
+      (moving ? -step * 0.05 : 0) - lunge * 0.45);
     tmpQ.setFromEuler(tmpE);
-    tmpS.set(1, 1, 1);
+    tmpS.set(appear, appear, appear);
     dynPush(pool, tmpM.compose(tmpV, tmpQ, tmpS));
+    pushLegs(FSModels.knightLegGeo(), "knightleg", tmpM, stride, 0, KNIGHT_HIP_X, KNIGHT_HIP_Y);
+    vis.drawY = y + bob;                                   /* ===== PHASE P ===== */
     return { x, y, z, lunge };
   }
 
@@ -1395,13 +1788,19 @@
     }
     if (!mil.stakes.length) return;
     const pool = dynPool("stake", FSModels.stakeGeo(), FSModels.vcMat("stake", FSC.COL.STAKE, 0.34));
+    /* ===== PHASE P: the POST keeps its own wood colour (an instance colour
+     * multiplies the whole mesh, so tinting it by the owner turned every
+     * frontier post near-black); only the pennant carries the player. ===== */
+    const flagP = dynPool("stakeflag", FSModels.stakeFlagGeo(), FSModels.vcMat("stakeflag", 0x888888, 0.42));
     for (let i = 0; i < mil.stakes.length; i++) {
       const st = mil.stakes[i];
       FSMap.worldXZ(map, st.v, xz);
       tmpV.set(xz[0], map.height[st.v], xz[1]);
       tmpE.set(0, st.d * 1.047 + 0.4, 0); tmpQ.setFromEuler(tmpE);
       tmpS.set(1, 1, 1);
-      dynPush(pool, tmpM.compose(tmpV, tmpQ, tmpS), tmpC.set(FSC.PLAYER_COLORS[st.p % FSC.PLAYER_COLORS.length]));
+      tmpM.compose(tmpV, tmpQ, tmpS);
+      dynPush(pool, tmpM);
+      dynPush(flagP, tmpM, tmpC.set(FSC.PLAYER_COLORS[st.p % FSC.PLAYER_COLORS.length]));
     }
   }
 
@@ -1423,12 +1822,12 @@
   }
 
   /** Flames + smoke over anything that is burning down. */
+  const fireSmokeT = new Map();
   function syncFire(dt) {
     const flame = dynPool("flame", FSModels.flameGeo(), FSModels.vcMat("flame", FSC.COL.FIRE[0], 0.85));
-    const smoke = dynPool("smoke", FSModels.smokeGeo(), FSModels.vcMat("smoke", COL.SMOKE, 0.55));
     for (const id in G.buildings) {
       const b = G.buildings[id];
-      if (b.state !== "burn") continue;
+      if (b.state !== "burn") { if (fireSmokeT.size) fireSmokeT.delete(b.id); continue; }
       FSMap.worldXZ(map, b.v, xz);
       const y = map.height[b.v];
       const big = FSC.BLD[b.type].size >= 2 ? 1.5 : 1;
@@ -1440,14 +1839,21 @@
         tmpS.set(s, s * 1.2, s);
         dynPush(flame, tmpM.compose(tmpV, tmpQ, tmpS), tmpC.set(FSC.COL.FIRE[k & 1]));
       }
-      for (let k = 0; k < 3; k++) {
-        const t = ((dyn.tAcc * 0.5) + k * 0.33 + (b.id % 5) * 0.1) % 1;
-        const s = (0.7 + t * 1.5) * big;
-        tmpV.set(xz[0] + t * 0.3, y + 1.0 * big + t * 1.6, xz[1]);
-        tmpE.set(0, t * 3, 0); tmpQ.setFromEuler(tmpE);
-        tmpS.set(s, s, s);
-        dynPush(smoke, tmpM.compose(tmpV, tmpQ, tmpS), tmpC.setScalar(0.55 - t * 0.3));
+      /* ===== PHASE P: the burn column is the same pooled soft puff as a
+       * chimney's, just darker, faster and fatter — so a fire reads as a
+       * rolling column instead of three grey pebbles hopping on a loop. */
+      let t = fireSmokeT.get(b.id);
+      if (t === undefined) t = hash01(b.id, 11) * 0.18;
+      t -= dt;
+      while (t <= 0) {
+        t += 0.16;
+        const j = hash01(b.id * 13 + Math.round(dyn.tAcc * 41), 7);
+        spawnPuff(xz[0] + (j - 0.5) * 0.5 * big, y + 0.9 * big, xz[1] + (j - 0.5) * 0.4 * big, {
+          vx: 0.55 + j * 0.4, vy: 1.55 + j * 0.5, vz: 0.22,
+          T: 2.2 + j * 0.8, s0: 0.5 * big, s1: 2.6 * big, roll: j * 6.283, col: 0.42, warm: 1,
+        });
       }
+      fireSmokeT.set(b.id, t);
     }
   }
 
@@ -1521,6 +1927,15 @@
   function syncDynamic(dt) {
     if (!dyn.group || !G) return;
     dyn.tAcc += dt;
+    /* ===== PHASE P: advance the sub-tick clock before anything reads it. */
+    if (G.tick !== dyn.lastTick) {
+      const n = dyn.lastTick < 0 ? 1 : (G.tick - dyn.lastTick);
+      dyn.lastTick = G.tick;
+      dyn.tickAge = n > 1 ? 0 : Math.max(0, dyn.tickAge - FSC.TICK_S / Math.max(0.001, G.speed || 1));
+    } else {
+      dyn.tickAge += dt;
+    }
+    dyn.tickU = Math.max(0, Math.min(1, dyn.tickAge / (FSC.TICK_S / Math.max(0.001, G.speed || 1))));
     // terrain the sim changed (digger leveling, cleared building footprints)
     let ground = false;
     if (G.dirtyV && G.dirtyV.length) {
@@ -1553,6 +1968,9 @@
     /* ===== PHASE-E: congestion glow + suitability overlay upkeep ===== */
     syncCongestion(dt);
     syncSuitabilityUpkeep(dt);
+    advancePuffs(dt);                   /* ===== PHASE P: pooled soft smoke ===== */
+    advanceObjPop(dt);                  /* ===== PHASE P: no ground object pops ===== */
+    objPopArmed = true;                 // boot's own object build never animates
     syncShadows();                      /* ===== PHASE-V: grounding, drawn last ===== */
     dynFlush();
   }
@@ -1561,6 +1979,31 @@
     const out = { serfs: dyn.lastSerfCount, roads: dyn.roadMesh ? 1 : 0, pools: {} };
     for (const k in dyn.pools) out.pools[k] = { cap: dyn.pools[k].cap, count: dyn.pools[k].mesh.count };
     return out;
+  };
+  /* ===== PHASE P (read-only test hooks): what the last frame actually drew.
+   * The film-strip rig and the visual suite use these to assert motion
+   * continuity numerically instead of by eye. */
+  FSRender.serfPose = function (id) {
+    const v = dyn.serfVis.get(id | 0);
+    if (!v || v.x === undefined) return null;
+    return { x: v.x, y: v.y, z: v.z, yaw: v.yaw, frac: v.frac, from: v.from, to: v.to,
+      phase: v.phase, speed: v.speed, appear: v.appear === undefined ? 1 : v.appear };
+  };
+  /** spin/smoke state of one building's machinery (spin-up/spin-down proof) */
+  FSRender.machineInfo = function (id) {
+    const view = bldViews.get(id | 0);
+    if (!view) return null;
+    const ud = view.userData, sp = ud.spin;
+    return {
+      busyF: ud.busyF === undefined ? null : ud.busyF,
+      hasSpin: !!sp, hasSmoke: !!ud.smoke,
+      spin: sp ? (ud.spinAxis === "y" ? sp.rotation.y : ud.spinAxis === "x" ? sp.rotation.x : sp.rotation.z) : null,
+    };
+  };
+  /** live counts for the animation systems Phase P added */
+  FSRender.animInfo = function () {
+    return { puffs: puffs.length, objPop: objPop.size, objFade: objFade.length,
+      tickU: dyn.tickU, glide: !!camGlide };
   };
 
   function disposeDynamic() {
@@ -1619,15 +2062,36 @@
   }
 
   FSRender.camState = function () { return Object.assign({}, cam); };
-  FSRender.setCam = function (o) { Object.assign(cam, o); applyCamera(); return FSRender.camState(); };
+  FSRender.setCam = function (o) { camGlide = null; Object.assign(cam, o); applyCamera(); return FSRender.camState(); };
 
-  FSRender.focusVertex = function (v, dist) {
+  /* ===== PHASE P: jumping the camera. A notification / alert / minimap jump
+   * used to TELEPORT the view, which is disorienting — you lose where you
+   * were. `glide` eases the target over ~0.45 s with a smoothstep, so the
+   * player's eye can follow the move. Tests (and boot) keep the old instant
+   * behaviour: `glide` is opt-in, and any user pan/zoom/orbit cancels it. */
+  let camGlide = null;                // { t, T, x0, z0, y0, d0, x1, z1, y1, d1 }
+  FSRender.focusVertex = function (v, dist, glide) {
     if (v < 0) return;
     FSMap.worldXZ(map, v, xz);
-    cam.tx = xz[0]; cam.tz = xz[1];
-    cam.ty = Math.max(FSC.WATER_Y, map.height[v]);
-    if (dist) cam.dist = dist;
-    applyCamera();
+    const tx = xz[0], tz = xz[1], ty = Math.max(FSC.WATER_Y, map.height[v]);
+    if (!glide) {
+      camGlide = null;
+      cam.tx = tx; cam.tz = tz; cam.ty = ty;
+      if (dist) cam.dist = dist;
+      applyCamera();
+      return;
+    }
+    camGlide = { t: 0, T: 0.45, x0: cam.tx, z0: cam.tz, y0: cam.ty, d0: cam.dist,
+      x1: tx, z1: tz, y1: ty, d1: dist || cam.dist };
+  };
+  FSRender.cancelGlide = function () { camGlide = null; };
+  /** the touch long-press context menu opens on TOP of a finger that fs-render
+   * already turned into a camera drag — this lets the shell stop that drag so
+   * the world does not keep panning under the open menu. */
+  FSRender.cancelDrag = function () {
+    if (!drag) return false;
+    drag = null;
+    return true;
   };
 
   FSRender.pickVertex = function (clientX, clientY) {
@@ -1686,6 +2150,7 @@
   // --------------------------------------------------------------------- input
   function onPointerDown(e) {
     if (drag) return;
+    camGlide = null;                  /* ===== PHASE P: the player takes over ===== */
     canvas.focus && canvas.focus();
     drag = { mode: e.button === 2 || e.shiftKey ? "orbit" : "pan", x: e.clientX, y: e.clientY, id: e.pointerId, moved: 0 };
     if (canvas.setPointerCapture) { try { canvas.setPointerCapture(e.pointerId); } catch (_) {} }
@@ -1733,6 +2198,7 @@
    * point lands back under the cursor. ===== */
   function onWheel(e) {
     e.preventDefault();
+    camGlide = null;                  /* ===== PHASE P: the player takes over ===== */
     const before = screenGroundPoint(e.clientX, e.clientY, tmpZoomV);
     const bx = before ? before.x : 0, bz = before ? before.z : 0;
     cam.dist *= Math.exp(e.deltaY * CAM.ZOOM_RATE);
@@ -1757,6 +2223,19 @@
   }
 
   function tickCamera(dt) {
+    /* ===== PHASE P: a smoothed jump-to (notification / alert / minimap) ===== */
+    if (camGlide) {
+      camGlide.t += dt;
+      const u = Math.min(1, camGlide.t / camGlide.T);
+      const e = u * u * (3 - 2 * u);                 // smoothstep — ease in AND out
+      cam.tx = camGlide.x0 + (camGlide.x1 - camGlide.x0) * e;
+      cam.tz = camGlide.z0 + (camGlide.z1 - camGlide.z0) * e;
+      cam.ty = camGlide.y0 + (camGlide.y1 - camGlide.y0) * e;
+      cam.dist = camGlide.d0 + (camGlide.d1 - camGlide.d0) * e;
+      if (u >= 1) camGlide = null;
+      applyCamera();
+      return;
+    }
     const pan = CAM.KEY_PAN * cam.dist * dt;
     let fx = 0, fz = 0;
     if (keys.w || keys.ArrowUp) fz -= 1;
@@ -1780,6 +2259,7 @@
   FSRender.init = function (canvasEl, g) {
     FSRender.dispose();
     canvas = canvasEl; G = g; map = g.map;
+    objPopArmed = false;                /* ===== PHASE P: a fresh world never animates in ===== */
     FSMap.bind(map);
     waterDist = (function () {
       const seeds = [];
@@ -1945,10 +2425,14 @@
   FSRender.scene = function () { return scene; };
   FSRender.camera = function () { return camera; };
   FSRender.renderer = function () { return renderer; };
+  /* how many ground objects the MAP currently has. PHASE P leases a slot for a
+   * third of a second after an object is removed so it can topple/shrink out
+   * instead of blinking away — those leased slots are already gone as far as
+   * the world is concerned, so they are discounted here. */
   FSRender.objectCount = function () {
     let n = 0;
     for (const k in pools) n += pools[k].top - pools[k].free.length;
-    return n;
+    return n - objFade.length;
   };
   FSRender.poolInfo = function () {
     const out = {};

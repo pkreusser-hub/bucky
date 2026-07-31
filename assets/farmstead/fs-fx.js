@@ -171,6 +171,7 @@
       dx: Math.cos(a) * d, dz: Math.sin(a) * d,
       t: 0, T: V().FISH_ARC_T * (0.82 + rng() * 0.4),
       peak: 0.55 + rng() * 0.55, spin: (rng() - 0.5) * 5, yaw: a,
+      roll: (rng() < 0.5 ? -1 : 1) * (0.5 + rng() * 0.7),   /* ===== PHASE P ===== */
       v: v, splashed: false,
     };
     fish.push(f);
@@ -242,11 +243,18 @@
       const x = f.x + f.dx * u, z = f.z + f.dz * u;
       // pitch follows the tangent of the arc: nose up on the way out, down on entry
       const pitch = Math.cos(u * Math.PI) * 1.05;
+      /* ===== PHASE P: a leaping fish is not a rigid banana. It BEATS its
+       * tail (a yaw wiggle through the body's long axis, fastest at the top
+       * of the arc where it is fighting the air) and ROLLS onto its side as
+       * it turns over to re-enter — the two things that read as "alive"
+       * rather than "a prop on a sine". ===== */
+      const beat = Math.sin(f.t * 26 + f.spin);
+      const roll = Math.sin(u * Math.PI * 1.15) * f.roll;
       tmpV.set(x, y, z);
-      tmpE.set(0, f.yaw, pitch);
+      tmpE.set(roll, f.yaw + beat * 0.30, pitch);
       tmpQ.setFromEuler(tmpE);
-      const wobble = 1 + Math.sin(f.t * 22) * 0.06;
-      tmpS.set(wobble, 1, 1);
+      const wobble = 1 + beat * 0.05;
+      tmpS.set(wobble, 1 - beat * 0.03, 1);
       push(pools.fish, tmpM.compose(tmpV, tmpQ, tmpS), tmpC.setRGB(1, 1, 1));
     }
   }
@@ -304,15 +312,44 @@
       b.cx += (c.tx - b.cx) * Math.min(1, dt * 0.05);
       b.cz += (c.tz - b.cz) * Math.min(1, dt * 0.05);
       const x = b.cx + Math.cos(b.a) * b.r, z = b.cz + Math.sin(b.a) * b.r;
-      const y = (c.ty || 0) + b.y + Math.sin(b.a * 1.7) * 1.3;
       b.flap += dt * 9.5;
-      const wing = 0.42 + 0.58 * (0.5 + 0.5 * Math.sin(b.flap));
+      /* ===== PHASE P: a real flap. The wings hinge at the shoulder (down
+       * stroke well below the body, up stroke well above); the body RISES a
+       * little on each down-stroke instead of squashing, and banks into the
+       * turn. Nothing scales any more. ===== */
+      const s = Math.sin(b.flap);
+      const y = (c.ty || 0) + b.y + Math.sin(b.a * 1.7) * 1.3 + s * 0.10;
       const yaw = -b.a + (b.spd > 0 ? -Math.PI / 2 : Math.PI / 2);
+      const bank = 0.34 * (b.spd > 0 ? 1 : -1);
       tmpV.set(x, y, z);
-      tmpE.set(0, yaw, Math.sin(b.flap) * 0.12 * (b.spd > 0 ? 1 : -1));
+      tmpE.set(0, yaw, bank);
       tmpQ.setFromEuler(tmpE);
-      tmpS.set(1, 1, wing);
-      push(pools.bird, tmpM.compose(tmpV, tmpQ, tmpS), tmpC.setScalar(0.9 + 0.1 * wing));
+      tmpS.set(1, 1, 1);
+      push(pools.bird, tmpM.compose(tmpV, tmpQ, tmpS), tmpC.setScalar(0.95));
+      pushWings(pools.birdwing, tmpM, s * 0.85, 0.055, tmpC.setScalar(0.92 + 0.08 * s));
+    }
+  }
+
+  /* ===== PHASE P: hinge a pair of wings under an already-composed body
+   * matrix. `flap` is the shoulder angle in radians (+ = up-stroke); the two
+   * wings mirror each other about the body's long axis. ===== */
+  const wM = new THREE.Matrix4(), wM2 = new THREE.Matrix4(), wM3 = new THREE.Matrix4();
+  const wV = new THREE.Vector3(), wZero = new THREE.Vector3(0, 0, 0);
+  const wQ = new THREE.Quaternion(), wQ2 = new THREE.Quaternion();
+  const wE = new THREE.Euler(), wOne = new THREE.Vector3(1, 1, 1);
+  function pushWings(pool, body, flap, lift, color) {
+    if (!pool) return;
+    for (let s = -1; s <= 1; s += 2) {
+      // side flip is a 180° YAW, never a negative scale — a mirrored instance
+      // would flip the winding and vanish under front-face culling
+      wV.set(0, lift, 0);
+      wE.set(0, s < 0 ? Math.PI : 0, 0); wQ.setFromEuler(wE);
+      wM.compose(wV, wQ, wOne);
+      wE.set(-flap, 0, 0); wQ2.setFromEuler(wE);
+      wM3.compose(wZero, wQ2, wOne);
+      wM.multiply(wM3);                      // T · Ryaw · Rhinge
+      wM2.multiplyMatrices(body, wM);
+      push(pool, wM2, color);
     }
   }
 
@@ -342,13 +379,17 @@
       f.z += Math.sin(f.a) * f.sp * dt;
       f.bob += dt * 5.5;
       const y = f.gy + 0.42 + Math.sin(f.bob) * 0.20 + Math.sin(f.t * 0.7) * 0.12;
-      const wing = 0.25 + 0.75 * Math.abs(Math.sin(f.bob * 2.4));
       const fade = Math.min(1, Math.min(f.t, f.life - f.t) * 1.6);
+      /* ===== PHASE P: butterflies clap their wings nearly shut and open them
+       * flat again — the biggest, most readable flap in nature. It was a
+       * scale.z squash, which just made the whole insect narrower. ===== */
+      const flap = 0.15 + 1.15 * (0.5 + 0.5 * Math.sin(f.bob * 2.4));
       tmpV.set(f.x, y, f.z);
       tmpE.set(0, -f.a, Math.sin(f.bob) * 0.25);
       tmpQ.setFromEuler(tmpE);
-      tmpS.set(1, 1, wing);
+      tmpS.set(1, 1, 1);
       push(pools.fly, tmpM.compose(tmpV, tmpQ, tmpS), tmpC.set(f.col).multiplyScalar(fade));
+      pushWings(pools.flywing, tmpM, flap, 0.014, tmpC.set(f.col).multiplyScalar(fade));
     }
   }
 
@@ -445,7 +486,10 @@
     pool("fish", FSModels.fishGeo(), FSModels.vcMat("fx:fish", 0xcfe2f0, 0.5), B.FISH_MAX, 6);
     pool("drop", FSModels.moteGeo(), FSModels.vcMat("fx:drop", 0xcfe8ff, 0.6), B.DROP_MAX, 6);
     pool("bird", FSModels.birdGeo(), FSModels.vcMat("fx:bird", 0x50596a, 0.42), B.BIRD_N + 2, 5);
+    /* ===== PHASE P: wings are their own instanced pools so they can hinge ===== */
+    pool("birdwing", FSModels.birdWingGeo(), FSModels.vcMat("fx:bird", 0x50596a, 0.42), (B.BIRD_N + 2) * 2, 5);
     pool("fly", FSModels.butterflyGeo(), FSModels.vcMat("fx:fly", 0xf0e0c0, 0.62), B.BFLY_MAX, 5);
+    pool("flywing", FSModels.butterflyWingGeo(), FSModels.vcMat("fx:fly", 0xf0e0c0, 0.62), B.BFLY_MAX * 2, 5);
     pool("leaf", FSModels.leafGeo(), FSModels.vcMat("fx:leaf", 0x6f9440, 0.5), B.LEAF_FALL_MAX, 5);
     pool("dust", FSModels.puffGeo(), FSModels.puffMat("dust", 0xd8cbaa), B.DUST_MAX, 5);
     resetLive();

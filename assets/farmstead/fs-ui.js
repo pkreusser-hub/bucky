@@ -565,7 +565,7 @@
       case "notif-jump": {
         const v = parseInt(btn.getAttribute("data-v"), 10);
         if (v >= 0) {
-          FSRender.focusVertex(v);
+          FSRender.focusVertex(v, 0, true);   /* ===== PHASE P: glide, don't teleport ===== */
           const g = G(), bid = g.map.bldAt[v], fid = g.map.flagAt[v];
           if (bid) selectSubject("bld", bid); else if (fid) selectSubject("flag", fid);
         }
@@ -574,7 +574,7 @@
       }
       case "alert-jump": {
         const v = parseInt(btn.getAttribute("data-v"), 10), id = parseInt(btn.getAttribute("data-id"), 10);
-        FSRender.focusVertex(v);
+        FSRender.focusVertex(v, 0, true);     /* ===== PHASE P: glide, don't teleport ===== */
         selectSubject("bld", id);
         alertOpen = false; renderAlerts();
         break;
