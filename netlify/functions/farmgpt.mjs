@@ -523,47 +523,6 @@ restaurant, listing components, or giving quantities. Estimate calories and macr
   grams. Component calories sum to "total"; component grams sum to the meal grams.
 - If the text does not describe food or drink at all, reply exactly {"error":"not food"}.`;
 
-// Voice variant: the phone records raw audio (MediaRecorder — the on-device speech recognizer
-// beeps at every silence-restart on Android and drops words in the gaps) and Gemini transcribes
-// + estimates in ONE call (the Anthropic API takes no audio; GEMINI_API_KEY is already set for
-// Story Time Jr's pictures). Same strict-JSON contract plus the transcription in "heard".
-const CALORIE_AUDIO_PROMPT = `The attached audio is a person saying what they ate. First transcribe
-the speech, then estimate calories and macronutrients for the food they described.
-Reply with STRICT JSON only — no prose, no code fences:
-{"heard":"what they said","name":"Short Dish Name","total":950,"protein":48,"carbs":95,"fat":38,
- "items":[{"n":"steak","c":250,"p":26,"cb":0,"f":16}]}
-- "heard": the transcription, lightly cleaned of filler words.
-- "name": a short title-style label for the log entry, at most 40 characters.
-- Use stated quantities; otherwise typical portions (standard serving when a restaurant or brand
-  is named). "protein"/"carbs"/"fat" are whole grams for the whole meal; "items" are 1-12
-  per-component estimates ("c" calories to the nearest 5, "p"/"cb"/"f" grams) summing to the totals.
-- If the audio contains no description of food or drink, reply exactly {"error":"not food"}.`;
-
-async function estimateCaloriesFromAudio(mime, b64) {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) return { noKey: true };
-  const base = process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com";
-  try {
-    const r = await fetch(`${base}/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [
-          { inlineData: { mimeType: mime, data: b64 } },
-          { text: CALORIE_AUDIO_PROMPT },
-        ] }],
-        generationConfig: { maxOutputTokens: 900, thinkingConfig: { thinkingBudget: 0 } },
-      }),
-    });
-    if (!r.ok) return null;
-    const j = await r.json();
-    const text = ((j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || [])
-      .map((p) => p.text || "").join("");
-    const u = j.usageMetadata || {};
-    return { text, inTok: u.promptTokenCount || 0, outTok: u.candidatesTokenCount || 0 };
-  } catch { return null; }
-}
-
 // Defensive parse of the estimator's reply (same posture as parseSummaryJSON): fences stripped,
 // outermost {...}, every field validated/clamped. Returns {notFood:true}, a clean estimate, or null.
 function parseCalorieJSON(text) {
@@ -583,8 +542,7 @@ function parseCalorieJSON(text) {
       .filter((it) => it.n && Number.isFinite(it.c) && it.c >= 0)
       .slice(0, 12) : [];
     const name = String(obj.name || "").trim().slice(0, 60) || "Meal";
-    const heard = typeof obj.heard === "string" ? obj.heard.trim().slice(0, 300) : "";
-    return { name, total, items, protein: gram(obj.protein), carbs: gram(obj.carbs), fat: gram(obj.fat), heard };
+    return { name, total, items, protein: gram(obj.protein), carbs: gram(obj.carbs), fat: gram(obj.fat) };
   } catch { return null; }
 }
 
@@ -1492,24 +1450,6 @@ export default async (req) => {
     if (parsed.notFood) return new Response(JSON.stringify({ ok: false, message: "That didn't look like a food description — try naming the dish or its parts." }), { status: 200, headers: jsonHeaders });
     return new Response(JSON.stringify({ ok: true, name: parsed.name, total: parsed.total, items: parsed.items,
       protein: parsed.protein, carbs: parsed.carbs, fat: parsed.fat }), { status: 200, headers: jsonHeaders });
-  }
-
-  // 🎤 Voice variant — a recorded audio clip (data: URL) instead of text. Gemini transcribes
-  // + estimates in one call; the response adds "heard" (the transcription) so the pages can
-  // show what was understood. Usage shares the c_* bucket.
-  if (body.mode === "calories_audio") {
-    const m = typeof body.audio === "string" && body.audio.length < 3.5e6
-      ? body.audio.match(/^data:(audio\/[a-z0-9.+-]+(?:;codecs=[a-z0-9.+-]+)?);base64,(.+)$/i) : null;
-    if (!m) return jsonError(400, "Bad or oversized audio (keep recordings under a minute)", jsonHeaders);
-    const r = await estimateCaloriesFromAudio(m[1], m[2]);
-    if (r && r.noKey) return jsonError(500, "Voice logging isn't configured on the server (GEMINI_API_KEY)", jsonHeaders);
-    if (!r) return jsonError(502, "The voice estimator isn't reachable right now", jsonHeaders);
-    await logUsage("calories", r.inTok, r.outTok, 0, 0);
-    const parsed = parseCalorieJSON(r.text);
-    if (!parsed) return jsonError(502, "Couldn't read the estimate — try again", jsonHeaders);
-    if (parsed.notFood) return new Response(JSON.stringify({ ok: false, message: "Didn't catch a food description — try again a bit closer to the mic." }), { status: 200, headers: jsonHeaders });
-    return new Response(JSON.stringify({ ok: true, heard: parsed.heard, name: parsed.name, total: parsed.total,
-      items: parsed.items, protein: parsed.protein, carbs: parsed.carbs, fat: parsed.fat }), { status: 200, headers: jsonHeaders });
   }
 
   // Dungeon (D&D) mode — every dnd* request (streaming AND storage) requires Dad's raw PIN,
