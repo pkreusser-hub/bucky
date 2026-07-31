@@ -505,6 +505,42 @@ headings, no commentary.`;
 // research keeps Sonnet 5's default adaptive thinking for better reasoning on hard
 // homework/coding questions (the UI shows a "thinking" indicator until text arrives).
 // Dungeon keeps adaptive thinking too — rules adjudication benefits from it.
+// 🍽 Meal calorie estimator (index.html Meals tab): one small non-streaming Sonnet call that
+// turns a typed meal description ("chipotle steak bowl, black beans, white rice, fajita
+// veggies, salsa and corn") into a calorie estimate the tracker logs directly. Strict-JSON
+// out; not a MODES entry because it never streams (handled as an action, like storylog_*).
+const CALORIE_SYSTEM = `You are a nutrition assistant estimating calories for a family's food log.
+The user message is a plain-text description of a meal, dish, or snack — possibly naming a
+restaurant, listing components, or giving quantities. Estimate the calories.
+- Use the stated quantities when given; otherwise assume typical portions (the standard serving
+  when a restaurant or brand is named, a typical home portion otherwise).
+- Reply with STRICT JSON only — no prose, no code fences:
+  {"name":"Short Dish Name","total":950,"items":[{"n":"steak","c":250},{"n":"white rice","c":210}]}
+- "name": a short title-style label for the log entry, at most 40 characters.
+- "items": 1-12 per-component estimates in calories that sum to "total"; round to the nearest 5.
+- If the text does not describe food or drink at all, reply exactly {"error":"not food"}.`;
+
+// Defensive parse of the estimator's reply (same posture as parseSummaryJSON): fences stripped,
+// outermost {...}, every field validated/clamped. Returns {notFood:true}, a clean estimate, or null.
+function parseCalorieJSON(text) {
+  if (!text) return null;
+  let s = String(text).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  const start = s.indexOf("{"), end = s.lastIndexOf("}");
+  if (start === -1 || end === -1 || end < start) return null;
+  try {
+    const obj = JSON.parse(s.slice(start, end + 1));
+    if (obj.error) return { notFood: true };
+    const total = Math.round(Number(obj.total));
+    if (!Number.isFinite(total) || total < 0 || total > 20000) return null;
+    const items = Array.isArray(obj.items) ? obj.items
+      .map((it) => ({ n: String(it && it.n || "").slice(0, 80), c: Math.round(Number(it && it.c)) }))
+      .filter((it) => it.n && Number.isFinite(it.c) && it.c >= 0)
+      .slice(0, 12) : [];
+    const name = String(obj.name || "").trim().slice(0, 60) || "Meal";
+    return { name, total, items };
+  } catch { return null; }
+}
+
 const MODES = {
   story:       { system: STORY_SYSTEM,      maxTokens: 1200, thinking: { type: "disabled" } },
   research:    { system: RESEARCH_SYSTEM,   maxTokens: 4096, thinking: undefined },
@@ -608,7 +644,7 @@ async function logUsage(modeName, inTok, outTok, cacheWriteTok = 0, cacheReadTok
     const key = modeName === "story" ? "s" : modeName === "summary" ? "u"
       : String(modeName).startsWith("dnd") ? "d"
       : modeName === "kidstory" ? "k" : modeName === "kidart" ? "a"
-      : modeName === "kidimage" ? "g" : "r";
+      : modeName === "kidimage" ? "g" : modeName === "calories" ? "c" : "r";
     const base = `projects/${PROJECT_ID}/databases/(default)/documents`;
     const tf = (f, n) => ({ fieldPath: f, increment: { integerValue: String(n) } });
     const fields = [
@@ -635,8 +671,8 @@ function usageRow(d, label) {
   const f = d.fields || {};
   const n = (k) => parseInt((f[k] && f[k].integerValue) || "0", 10);
   const row = { [label]: d.name.split("/").pop() };
-  // s = story chapters, u = story summaries, r = research, d = dungeon (D&D)
-  for (const p of ["s", "u", "r", "d", "k", "a", "g"]) for (const m of ["in", "out", "req", "cw", "cr"]) row[`${p}_${m}`] = n(`${p}_${m}`);
+  // s = story chapters, u = story summaries, r = research, d = dungeon (D&D), c = calorie lookups
+  for (const p of ["s", "u", "r", "d", "k", "a", "g", "c"]) for (const m of ["in", "out", "req", "cw", "cr"]) row[`${p}_${m}`] = n(`${p}_${m}`);
   return row;
 }
 async function readCollection(collection, label, cap) {
@@ -1393,6 +1429,21 @@ export default async (req) => {
   if (body.mode === "storylog_clear") {
     const cleared = await clearStoryLog(typeof body.date === "string" ? body.date : "");
     return new Response(JSON.stringify({ cleared }), { status: 200, headers: jsonHeaders });
+  }
+
+  // 🍽 Meal calorie estimate (Meals tab). Secret-gated like everything else; JSON in/out, no
+  // SSE. A parse failure is a 502 the client turns into a "try rewording" toast — never a log
+  // write. Usage logs under the "c" bucket (Sonnet pricing).
+  if (body.mode === "calories") {
+    const text = String(body.text || "").replace(/\s+/g, " ").trim().slice(0, 500);
+    if (!text) return jsonError(400, "Nothing to estimate", jsonHeaders);
+    const r = await callAnthropicOnce(RESEARCH_MODEL, CALORIE_SYSTEM, text, 600);
+    if (!r) return jsonError(502, "The calorie estimator isn't reachable right now", jsonHeaders);
+    await logUsage("calories", r.inTok, r.outTok, r.cacheWriteTok, r.cacheReadTok);
+    const parsed = parseCalorieJSON(r.text);
+    if (!parsed) return jsonError(502, "Couldn't read the estimate — try rewording it", jsonHeaders);
+    if (parsed.notFood) return new Response(JSON.stringify({ ok: false, message: "That didn't look like a food description — try naming the dish or its parts." }), { status: 200, headers: jsonHeaders });
+    return new Response(JSON.stringify({ ok: true, name: parsed.name, total: parsed.total, items: parsed.items }), { status: 200, headers: jsonHeaders });
   }
 
   // Dungeon (D&D) mode — every dnd* request (streaming AND storage) requires Dad's raw PIN,

@@ -1644,7 +1644,7 @@
   const priced = (d, p, inR, outR) => cw(d, p + "_in") * inR + cw(d, p + "_cw") * inR * 1.25
     + cw(d, p + "_cr") * inR * 0.1 + cw(d, p + "_out") * outR;
   const IMG_EACH = 0.039;   // generated picture, billed per image rather than per token
-  const rowCost = (d) => (priced(d, "s", S_IN, S_OUT) + priced(d, "u", S_IN, S_OUT) + priced(d, "r", R_IN, R_OUT) + priced(d, "d", R_IN, R_OUT) + priced(d, "k", S_IN, S_OUT) + priced(d, "a", R_IN, R_OUT)) / 1e6
+  const rowCost = (d) => (priced(d, "s", S_IN, S_OUT) + priced(d, "u", S_IN, S_OUT) + priced(d, "r", R_IN, R_OUT) + priced(d, "d", R_IN, R_OUT) + priced(d, "k", S_IN, S_OUT) + priced(d, "a", R_IN, R_OUT) + priced(d, "c", R_IN, R_OUT)) / 1e6
     + cw(d, "g_req") * IMG_EACH;
   const dayCost = rowCost;
   const fmt$ = (v) => "$" + (v < 0.10 ? v.toFixed(3) : v.toFixed(2));
@@ -1694,6 +1694,7 @@
       ["🧒", "Little-kid stories", sum(monthDays, "k_req"), sum(monthDays, "k_in"), sum(monthDays, "k_out"), sum(monthDays, "k_cw") + sum(monthDays, "k_cr"), "Haiku 4.5"],
       ["🎨", "Story pictures", sum(monthDays, "a_req"), sum(monthDays, "a_in"), sum(monthDays, "a_out"), sum(monthDays, "a_cw") + sum(monthDays, "a_cr"), "Sonnet 5"],
       ["🖼", "Generated images", sum(monthDays, "g_req"), 0, 0, 0, "Gemini · ~$" + IMG_EACH.toFixed(3) + " each"],
+      ["🍽", "Calorie lookups", sum(monthDays, "c_req"), sum(monthDays, "c_in"), sum(monthDays, "c_out"), sum(monthDays, "c_cw") + sum(monthDays, "c_cr"), "Sonnet 5"],
     ]) {
       const el = document.createElement("div");
       el.className = "usplit";
@@ -1707,7 +1708,7 @@
 
     const table = document.createElement("table");
     table.id = "usageTable";
-    const tokTotal = (d) => ["s", "u", "r", "d", "k", "a", "g"].reduce((a, p) =>
+    const tokTotal = (d) => ["s", "u", "r", "d", "k", "a", "g", "c"].reduce((a, p) =>
       a + cw(d, p + "_in") + cw(d, p + "_out") + cw(d, p + "_cw") + cw(d, p + "_cr"), 0);
     table.innerHTML = "<tr><th>Day</th><th>📖</th><th>📝</th><th>🔬</th><th>🎲</th><th>🧒</th><th>Tokens</th><th>Est. cost</th></tr>";
     for (const d of days.slice(0, 21)) {

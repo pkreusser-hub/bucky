@@ -541,6 +541,21 @@ gateDad() prompt auto-dismiss, template sums, toggle/add/swap−70/remove, reloa
 setting_mealLog_ key + untouched-day-writes-nothing, 2-month shard seed, mobile 390 +
 desktop). TEST GOTCHA: shared browser context leaks localStorage across "fresh" pages —
 use an isolated incognito context per app open.
+DAD + AI CALORIE LOOKUP (2026-07-31): MEAL_USERS now ["Mom","Dad"] — MEAL_PROFILES per-user
+config {target, maintenance, template, suffix, start/goalWeight}: Mom = 1400/GF-template/legacy
+doc ids (unchanged live data), Dad = 2500/freeform (days start EMPTY, no quick-adds/catalog/
+swap/Guide — those are the GF-plan surface; deficit note + weight goal line also Mom-only).
+Per-user docs via mealDocSuffix(): Dad's are mealMeta_Dad / mealLog_<month>_Dad / mealWeight_Dad.
+mealResetForUser() (renderMealPlan + every ensure*) clears caches on profile switch and FIRST
+flushes pending debounced saves to the OLD user's doc ids — a timer firing after the switch
+would otherwise write Mom's day into Dad's log. ✨ AI ADD (both users, Add sheet): free-text
+meal description → farmgpt mode "calories" (Sonnet 5, non-streaming strict-JSON action like
+storylog_*, secret-gated; usage bucket c_* + 🍽 dashboard row) → item logged already-done w/
+"✨ AI" badge; not-food → ok:false gentle toast; parse-fail 502 → toast + button re-enabled.
+Suites: tools/_verify-calories-server.mjs 20/20 + scratchpad meal_dad_test.cjs 35/35 (Mom
+regression, Dad gating/2500/empty, doc separation both directions, AI ok/error/not-food paths).
+NOT live-tested vs real Sonnet (env blocks Anthropic) — post-deploy, spot-check a couple of
+real estimates for sane numbers.
 
 ---
 
