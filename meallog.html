@@ -172,21 +172,26 @@ async function undoLast(){
   const s = localGet(inboxId); localSet(inboxId, { items: drop((s && s.items) || []) });
 }
 
-// ---- estimate (farmgpt mode "calories") ----
-async function estimate(text){
+// ---- estimate (farmgpt modes "calories" text / "calories_audio" recorded clip) ----
+async function farmgptPost(payload){
   const r = await fetch("/.netlify/functions/farmgpt", {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ secret: FAMILY_PASSWORD, mode: "calories", text: String(text).slice(0, 500) }),
+    body: JSON.stringify({ secret: FAMILY_PASSWORD, ...payload }),
   });
   let j = null; try { j = await r.json(); } catch {}
   if (!r.ok) throw new Error((j && j.error) || "Couldn't reach the estimator — check wifi");
   if (!j || !j.ok) throw new Error((j && j.message) || "Couldn't estimate that — try rewording");
   return j;
 }
+const estimate = (text) => farmgptPost({ mode: "calories", text: String(text).slice(0, 500) });
+const estimateAudio = (audio) => farmgptPost({ mode: "calories_audio", audio });
 
 // ---- UI state machine ----
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let rec = null, phase = "idle";   // idle | listening | busy | done
+// Recording uses MediaRecorder (raw audio), NOT the on-device speech recognizer: Android's
+// recognizer plays a system beep at every silence-restart and drops words in the restart gaps.
+// Raw capture is silent and gapless; Gemini transcribes + estimates server-side in one call.
+const CAN_REC = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+let phase = "idle";   // idle | listening | busy | done
 function setPhase(p, statusText){
   phase = p;
   $("micBtn").classList.toggle("listening", p === "listening");
@@ -198,6 +203,17 @@ function setPhase(p, statusText){
 }
 function fail(msg){ $("err").textContent = msg; setPhase("idle", "Tap the mic to try again"); }
 
+function paintResult(j, synced){
+  if (j.heard) $("heard").textContent = "“" + j.heard + "”";
+  $("resName").textContent = j.name;
+  $("resCal").textContent = "≈ " + j.total.toLocaleString() + " cal";
+  $("resMacros").textContent = (j.protein || j.carbs || j.fat)
+    ? "protein " + (j.protein||0) + "g · carbs " + (j.carbs||0) + "g · fat " + (j.fat||0) + "g" : "";
+  $("resParts").textContent = (j.items || []).map((it) => it.n + " " + it.c).join(" · ");
+  $("resWhere").textContent = (synced ? "✓ Synced — " : "✓ Saved on this phone — ")
+    + "logged to " + mealOfDay() + " in " + who + "'s Meals tab.";
+  setPhase("done", "Logged! 🎉");
+}
 async function logText(text){
   const t = String(text || "").trim();
   if (!t || phase === "busy") return;
@@ -207,60 +223,63 @@ async function logText(text){
   try {
     const j = await estimate(t);
     const synced = await queueMeal(j.name, j.total, { p: j.protein, cb: j.carbs, f: j.fat });
-    $("resName").textContent = j.name;
-    $("resCal").textContent = "≈ " + j.total.toLocaleString() + " cal";
-    $("resMacros").textContent = (j.protein || j.carbs || j.fat)
-      ? "protein " + (j.protein||0) + "g · carbs " + (j.carbs||0) + "g · fat " + (j.fat||0) + "g" : "";
-    $("resParts").textContent = (j.items || []).map((it) => it.n + " " + it.c).join(" · ");
-    $("resWhere").textContent = (synced ? "✓ Synced — " : "✓ Saved on this phone — ")
-      + "logged to " + mealOfDay() + " in " + who + "'s Meals tab.";
-    setPhase("done", "Logged! 🎉");
+    paintResult(j, synced);
   } catch (e){ fail(e.message || "Something went wrong — try again"); }
 }
 
-// Recording is TAP-TO-FINISH: it never self-ends on a pause. The browser's recognizer DOES
-// self-end on silence, so onend quietly restarts a fresh session (carrying the text heard so
-// far in heardSoFar) until the user taps ⏹ — thinking pauses just keep it listening.
-let stopWanted = false, heardSoFar = "";
-function paintHeard(sessionText){
-  const t = (heardSoFar + (sessionText || "")).trim();
-  $("heard").textContent = t ? "“" + t + "”" : "";
+// TAP-TO-FINISH recording: nothing ends it but the ⏹ tap (75s safety cap aside).
+let mediaRec = null, recChunks = [], recStream = null, recTimer = null, recT0 = 0;
+function pickMime(){
+  for (const m of ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"])
+    if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) return m;
+  return "";
 }
-function startRecSession(){
-  let sessionFinal = "", sessionAll = "";
-  rec = new SR();
-  rec.lang = "en-US"; rec.interimResults = true; rec.continuous = true; rec.maxAlternatives = 1;
-  rec.onresult = (e) => {
-    localStorage.setItem("meallog_mic_ok", "1");   // mic worked — future opens auto-listen
-    sessionFinal = ""; sessionAll = "";
-    for (const r of e.results){ sessionAll += r[0].transcript + " "; if (r.isFinal) sessionFinal += r[0].transcript + " "; }
-    paintHeard(sessionAll);
-  };
-  rec.onerror = (e) => {
-    if (phase !== "listening") return;
-    if (e && (e.error === "no-speech" || e.error === "aborted")) return;   // onend restarts
-    stopWanted = true;
-    fail(e && e.error === "not-allowed" ? "Mic permission needed — allow it, then tap again"
-      : "Mic trouble — tap and try again");
-  };
-  rec.onend = () => {
-    if (phase !== "listening") return;
-    heardSoFar = (heardSoFar + (sessionFinal || sessionAll)).replace(/\s+/g, " ").trimStart();
-    if (!stopWanted){ try { startRecSession(); return; } catch {} }   // silence pause — keep going
-    const t = heardSoFar.trim();
-    if (t) logText(t); else setPhase("idle", "Didn't hear anything — tap to try again");
-  };
-  rec.start();
+function cleanupRec(){
+  clearInterval(recTimer); recTimer = null;
+  try { recStream && recStream.getTracks().forEach((t) => t.stop()); } catch {}
+  recStream = null;
 }
-function listen(){
-  if (!SR){ fail("This browser can't do voice — type it below instead"); return; }
-  if (phase === "listening"){ stopWanted = true; try { rec && rec.stop(); } catch {} return; }
-  $("err").textContent = ""; $("heard").textContent = "";
-  stopWanted = false; heardSoFar = "";
+async function onRecordingStopped(){
+  cleanupRec();
+  if (phase !== "listening") return;
+  const blob = new Blob(recChunks, { type: (mediaRec && mediaRec.mimeType) || "audio/webm" });
+  if (blob.size < 1200){ setPhase("idle", "Didn't hear anything — tap to try again"); $("heard").textContent = ""; return; }
+  if (blob.size > 2.4e6){ fail("That recording got too long — keep it under a minute"); return; }
+  setPhase("busy", "Counting the calories…");
+  $("heard").textContent = "";
   try {
-    startRecSession();
+    const audio = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(blob); });
+    const j = await estimateAudio(audio);
+    const synced = await queueMeal(j.name, j.total, { p: j.protein, cb: j.carbs, f: j.fat });
+    paintResult(j, synced);
+  } catch (e){ fail(e.message || "Something went wrong — try again"); }
+}
+async function listen(){
+  if (!CAN_REC){ fail("This browser can't record — type it below instead"); return; }
+  if (phase === "listening"){ try { mediaRec && mediaRec.state !== "inactive" && mediaRec.stop(); } catch { cleanupRec(); setPhase("idle"); } return; }
+  if (phase === "busy") return;
+  $("err").textContent = ""; $("heard").textContent = "";
+  try {
+    recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    localStorage.setItem("meallog_mic_ok", "1");   // mic granted — future opens auto-listen
+    recChunks = [];
+    const mime = pickMime();
+    mediaRec = mime ? new MediaRecorder(recStream, { mimeType: mime }) : new MediaRecorder(recStream);
+    mediaRec.ondataavailable = (e) => { if (e.data && e.data.size) recChunks.push(e.data); };
+    mediaRec.onstop = onRecordingStopped;
+    mediaRec.start(250);
+    recT0 = Date.now();
     setPhase("listening", "Listening… tap ⏹ when you're done");
-  } catch { fail("Couldn't start the mic — type it below instead"); }
+    recTimer = setInterval(() => {
+      const s = Math.floor((Date.now() - recT0) / 1000);
+      $("heard").textContent = "● Recording… " + Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+      if (s > 75) listen();   // safety cap — acts as the ⏹ tap
+    }, 250);
+  } catch (e){
+    fail(e && (e.name === "NotAllowedError" || e.name === "SecurityError")
+      ? "Mic permission needed — allow it, then tap again"
+      : "Couldn't start the mic — type it below instead");
+  }
 }
 
 $("micBtn").onclick = listen;
@@ -271,11 +290,11 @@ $("typedText").addEventListener("keydown", (e) => { if (e.key === "Enter") { log
 function paintWho(){ $("whoName").textContent = who; }
 $("whoSwap").onclick = () => { who = MEAL_USERS[(MEAL_USERS.indexOf(who) + 1) % MEAL_USERS.length]; localStorage.setItem("meallog_who", who); paintWho(); };
 paintWho();
-if (!SR){ $("status").textContent = "Voice isn't supported here — type what you ate"; }
+if (!CAN_REC){ $("status").textContent = "Voice isn't supported here — type what you ate"; }
 // Auto-listen on open (the one-tap widget flow): only once permission has been granted before,
 // so a brand-new install still gets the friendly tap-first prompt instead of a surprise dialog.
 else if (localStorage.getItem("meallog_mic_ok") === "1"){ setTimeout(listen, 250); }
-window.addEventListener("pagehide", () => { try { rec && rec.abort(); } catch {} });
+window.addEventListener("pagehide", () => { try { mediaRec && mediaRec.state !== "inactive" && mediaRec.stop(); } catch {} cleanupRec(); });
 
 // Test hook (headless suites drive this; module globals are unreachable from evaluate).
 window.__MLOG__ = {

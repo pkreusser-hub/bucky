@@ -574,10 +574,19 @@ targets (Mom 90/155/47g, Dad 155/280/85g ≈ 25/45/30% of cal target); Today pag
 .mealmacros bars (eaten g vs target, >115% = .over tint); meallog result + toast show the
 macro line; inbox items carry p/cb/f through the drain. Suites now calories-server 24 ·
 meal_dad 38 · meallog 37.
-TAP-TO-FINISH (2026-07-31, user: recording cut off during thinking pauses): both mics never
-self-end — continuous=true + onend quietly RESTARTS the recognizer (accumulating heard text)
-until the user taps ⏹ (the mic button while listening), which submits the full transcript;
-suite fake simulates silence-ends via __SR_LAST__.onend().
+VOICE = RAW AUDIO now (2026-07-31, user phone playtest: Android's SpeechRecognition BEEPS at
+every silence-restart and drops words in the restart gaps — the recognizer is unusable for
+long dictation; the earlier continuous+restart "tap-to-finish" attempt made the beeping
+worse). Both mics now capture with MediaRecorder (silent, gapless, tap ⏹ to finish, 75s
+safety cap, <1200-byte blob = "didn't hear"), and a NEW farmgpt mode "calories_audio" sends
+the clip (data: URL ≤3.5M chars, mime regex allows ;codecs=) to GEMINI 2.5 flash (Anthropic
+takes no audio; GEMINI_API_KEY already set for kidart) which transcribes + estimates in ONE
+call — response adds "heard" (transcription, shown on the pages); usage (Gemini token counts)
+shares the c_* bucket; no key → clear 500. Suite fakes: getUserMedia stub + MediaRecorder
+class emitting a __REC_SIZE__-byte blob on stop(); meallog_mic_ok now set on getUserMedia
+GRANT. Suites: calories-server 36 · meallog 38. NOT live-tested vs real Gemini — post-deploy
+verify webm/opus audio is accepted (docs list ogg/mp3/wav/aac/flac; webm works in practice —
+if it 502s consistently, transcode or send mime audio/ogg).
 (3) index.html mealDrainInbox() (renderMealPlan, 60s-throttled, __MEAL__.drainInbox forces):
 drains the inbox through mealAdd (template-aware — the widget page can't materialize Mom's
 plan days, which is WHY it queues instead of writing mealLog directly); applied-then-cleared

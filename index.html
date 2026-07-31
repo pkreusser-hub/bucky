@@ -5978,20 +5978,35 @@ async function mealDrainInbox(){
   } catch {}
 }
 
-// ---- ✨ AI calorie estimate (server mode "calories", Sonnet — see farmgpt.mjs) ----
-async function mealAiEstimate(text){
+// ---- ✨ AI calorie estimate (server modes "calories" text / "calories_audio" clip) ----
+async function mealAiPost(payload){
   const r = await fetch("/.netlify/functions/farmgpt", {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ secret: FAMILY_PASSWORD, mode: "calories", text: String(text).slice(0, 500) }),
+    body: JSON.stringify({ secret: FAMILY_PASSWORD, ...payload }),
   });
   let j = null; try { j = await r.json(); } catch {}
   if (!r.ok) throw Object.assign(new Error("estimate failed"), { friendly: (j && j.error) || "Couldn't reach the calorie estimator — check wifi and try again" });
   if (!j || !j.ok) throw Object.assign(new Error("no estimate"), { friendly: (j && j.message) || "Couldn't estimate that — try rewording it" });
-  return j;   // { ok:true, name, total, items:[{n,c}] }
+  return j;   // { ok:true, name, total, protein, carbs, fat, items:[{n,c,p,cb,f}], heard? }
 }
+const mealAiEstimate = (text) => mealAiPost({ mode: "calories", text: String(text).slice(0, 500) });
 async function mealAiAdd(dayKey, meal, text, btn){
   try {
     const j = await mealAiEstimate(text);
+    await mealAdd(dayKey, meal, j.name, j.total, { done: true, ai: true, macros: { p: j.protein, cb: j.carbs, f: j.fat } });
+    mealCloseSheet();
+    const macro = (j.protein || j.carbs || j.fat) ? ` · P${j.protein} C${j.carbs} F${j.fat}g` : "";
+    showToast(("✨ " + j.name + " ≈ " + j.total + " cal" + macro).slice(0, 140));
+  } catch (e){
+    showToast(e.friendly || "Couldn't estimate right now — add it manually instead");
+    if (btn){ btn.disabled = false; btn.textContent = "Estimate & add"; }
+  }
+}
+// Voice path — a recorded clip goes straight to "calories_audio" (Gemini transcribes +
+// estimates in one call); the logged item is identical to a typed AI add.
+async function mealAiAddAudio(dayKey, meal, audio, btn){
+  try {
+    const j = await mealAiPost({ mode: "calories_audio", audio });
     await mealAdd(dayKey, meal, j.name, j.total, { done: true, ai: true, macros: { p: j.protein, cb: j.carbs, f: j.fat } });
     mealCloseSheet();
     const macro = (j.protein || j.carbs || j.fat) ? ` · P${j.protein} C${j.carbs} F${j.fat}g` : "";
@@ -6182,33 +6197,38 @@ function mealOpenAddSheet(dayKey, defaultMeal){
   abtn.onclick = runAi;
   ain.addEventListener("keydown", (e) => { if (e.key === "Enter") runAi(); });
   arow.append(ain);
-  // 🎤 dictation (Web Speech API — Android Chrome etc.; button simply absent where unsupported).
-  // TAP-TO-FINISH: recording never self-ends on a thinking pause — the recognizer's silence
-  // timeouts are bridged by restarting it (accumulating heard text) until the user taps ⏹,
-  // which fills the box and auto-runs the estimate.
-  const SRC = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (SRC){
-    const mic = document.createElement("button"); mic.className = "meal-customadd"; mic.id = "mealMicBtn"; mic.textContent = "🎤"; mic.title = "Dictate what you ate — tap again to finish"; mic.setAttribute("aria-label", "Dictate what you ate — tap again to finish");
-    let recActive = null, recStop = false, recHeard = "";
-    const startRec = () => {
-      const rec = new SRC(); recActive = rec;
-      rec.lang = "en-US"; rec.interimResults = true; rec.continuous = true;
-      let sFinal = "", sAll = "";
-      rec.onresult = (e) => { sFinal = ""; sAll = ""; for (const r of e.results){ sAll += r[0].transcript + " "; if (r.isFinal) sFinal += r[0].transcript + " "; } ain.value = (recHeard + sAll).replace(/\s+/g, " ").trim(); };
-      rec.onerror = (e) => { if (e && (e.error === "no-speech" || e.error === "aborted")) return; recStop = true; };
-      rec.onend = () => {
-        recHeard = (recHeard + (sFinal || sAll)).replace(/\s+/g, " ").trimStart();
-        if (!recStop){ try { startRec(); return; } catch {} }   // silence pause — keep listening
-        recActive = null; mic.textContent = "🎤";
-        ain.value = recHeard.trim();
-        if (ain.value) runAi();
-      };
-      rec.start();
-    };
-    mic.onclick = () => {
-      if (recActive){ recStop = true; try { recActive.stop(); } catch {} return; }   // ⏹ finish
-      try { recStop = false; recHeard = ""; startRec(); mic.textContent = "⏹"; }
-      catch { recActive = null; mic.textContent = "🎤"; }
+  // 🎤 dictation — MediaRecorder raw-audio capture, NOT the on-device speech recognizer
+  // (Android's recognizer beeps at every silence-restart and drops words in the gaps).
+  // TAP-TO-FINISH: tap = record (⏹ shown), tap ⏹ = stop → the clip goes to "calories_audio"
+  // (Gemini transcribes + estimates) and the item logs like any AI add.
+  const CAN_REC = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+  if (CAN_REC){
+    const mic = document.createElement("button"); mic.className = "meal-customadd"; mic.id = "mealMicBtn"; mic.textContent = "🎤"; mic.title = "Say what you ate — tap again to finish"; mic.setAttribute("aria-label", "Say what you ate — tap again to finish");
+    let mr = null, chunks = [], stream = null;
+    const stopTracks = () => { try { stream && stream.getTracks().forEach((t) => t.stop()); } catch {} stream = null; };
+    mic.onclick = async () => {
+      if (mr && mr.state !== "inactive"){ try { mr.stop(); } catch { stopTracks(); mr = null; mic.textContent = "🎤"; } return; }   // ⏹ finish
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        chunks = [];
+        let mime = ""; for (const m of ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"]){ if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)){ mime = m; break; } }
+        mr = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+        mr.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+        mr.onstop = async () => {
+          stopTracks();
+          mic.textContent = "🎤";
+          const blob = new Blob(chunks, { type: (mr && mr.mimeType) || "audio/webm" });
+          mr = null;
+          if (blob.size < 1200) return;   // nothing said
+          abtn.disabled = true; abtn.textContent = "Estimating…";
+          try {
+            const audio = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(blob); });
+            mealAiAddAudio(dayKey, mealSheetMealSel, audio, abtn);
+          } catch { abtn.disabled = false; abtn.textContent = "Estimate & add"; }
+        };
+        mr.start(250);
+        mic.textContent = "⏹";
+      } catch { stopTracks(); mr = null; mic.textContent = "🎤"; showToast("Couldn't start the mic — type it instead"); }
     };
     arow.append(mic);
   }
