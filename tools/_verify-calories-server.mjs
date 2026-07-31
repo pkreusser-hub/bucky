@@ -13,10 +13,8 @@ const { privateKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 }
 const saPem = privateKey.export({ type: "pkcs8", format: "pem" });
 const DOCBASE = "projects/amen-farms-app/databases/(default)/documents";
 const anthropicReqs = [];
-const geminiReqs = [];
 const commits = [];
-let calorieReply = null;   // next non-streaming Anthropic reply text
-let gemReply = null;       // next fake-Gemini reply text (calories_audio)
+let calorieReply = null;   // next non-streaming reply text
 
 const readBody = (req) => new Promise((r) => { let b = ""; req.on("data", (c) => b += c); req.on("end", () => r(b)); });
 
@@ -43,13 +41,7 @@ const antSrv = http.createServer(async (q, s) => {
   ev({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 40 } });
   s.end();
 });
-const gemSrv = http.createServer(async (q, s) => {
-  geminiReqs.push({ url: q.url, body: JSON.parse(await readBody(q)) });
-  s.writeHead(200, {"content-type":"application/json"});
-  s.end(JSON.stringify({ candidates: [{ content: { parts: [{ text: gemReply }] } }],
-    usageMetadata: { promptTokenCount: 210, candidatesTokenCount: 65 } }));
-});
-for (const srv of [tokenSrv, fsSrv, antSrv, gemSrv]) await new Promise((r) => srv.listen(0, "127.0.0.1", r));
+for (const srv of [tokenSrv, fsSrv, antSrv]) await new Promise((r) => srv.listen(0, "127.0.0.1", r));
 
 process.env.BUCKY_NOTIFY_SECRET = SECRET;
 process.env.ANTHROPIC_API_KEY = "fake";
@@ -57,9 +49,7 @@ process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${antSrv.address().port}`;
 process.env.FARMGPT_GOOGLE_TOKEN_URL = `http://127.0.0.1:${tokenSrv.address().port}/t`;
 process.env.FARMGPT_FIRESTORE_BASE = `http://127.0.0.1:${fsSrv.address().port}/v1/${DOCBASE}`;
 process.env.FIREBASE_SERVICE_ACCOUNT = JSON.stringify({ client_email: "t@t", private_key: saPem });
-delete process.env.STORY_PROVIDER; delete process.env.KID_ART_PROVIDER;
-process.env.GEMINI_API_KEY = "fakegem";
-process.env.GEMINI_BASE_URL = `http://127.0.0.1:${gemSrv.address().port}`;
+delete process.env.STORY_PROVIDER;
 
 const handler = (await import(new URL("../netlify/functions/farmgpt.mjs", import.meta.url).href)).default;
 async function call(body) {
@@ -144,44 +134,6 @@ console.log("— input validation + gating —");
   ok((await handler(req)).status === 401, "wrong secret → 401");
 }
 
-console.log("— calories_audio (voice → Gemini) —");
-{
-  gemReply = JSON.stringify({ heard: "two eggs bacon buttered toast and orange juice", name: "Bacon & Eggs Breakfast",
-    total: 720, protein: 34, carbs: 58, fat: 40, items: [{ n: "two eggs", c: 150, p: 12, cb: 1, f: 10 }] });
-  const audio = "data:audio/webm;codecs=opus;base64," + Buffer.from("fake-opus-bytes").toString("base64");
-  const r = await call({ mode: "calories_audio", audio });
-  ok(r.status === 200 && r.json.ok === true && r.json.total === 720, "audio clip → 200 ok with estimate");
-  ok(r.json.heard === "two eggs bacon buttered toast and orange juice", "transcription returned as heard");
-  ok(r.json.protein === 34 && r.json.fat === 40, "macros pass through on the audio path");
-  const g = geminiReqs[geminiReqs.length - 1];
-  ok(/gemini-2\.5-flash:generateContent/.test(g.url) && /key=fakegem/.test(g.url), "calls Gemini flash with the key");
-  const parts = g.body.contents[0].parts;
-  ok(parts[0].inlineData && parts[0].inlineData.mimeType === "audio/webm;codecs=opus" && parts[0].inlineData.data.length > 0, "audio inlineData with the recorded mime");
-  ok(/transcribe/i.test(parts[1].text) && /STRICT JSON/.test(parts[1].text), "audio prompt asks transcribe + strict JSON");
-  const c = commits[commits.length - 1];
-  const tf = (c.writes || []).flatMap(w => (w.transform && w.transform.fieldTransforms) || []);
-  const by = Object.fromEntries(tf.map(f => [f.fieldPath, f.increment && f.increment.integerValue]));
-  ok(by.c_in === "210" && by.c_out === "65" && by.c_req === "1", "Gemini token usage logged under c_*");
-}
-{
-  gemReply = JSON.stringify({ error: "not food" });
-  const r = await call({ mode: "calories_audio", audio: "data:audio/mp4;base64,QUFB" });
-  ok(r.status === 200 && r.json.ok === false && /food/.test(r.json.message), "non-food audio → gentle ok:false");
-  gemReply = "umm I heard something about eggs?";
-  const r2 = await call({ mode: "calories_audio", audio: "data:audio/mp4;base64,QUFB" });
-  ok(r2.status === 502, "prose Gemini reply → 502");
-}
-{
-  const r = await call({ mode: "calories_audio", audio: "data:video/mp4;base64,QUFB" });
-  ok(r.status === 400, "non-audio data URL → 400");
-  const r2 = await call({ mode: "calories_audio", audio: "data:audio/webm;base64," + "A".repeat(3.6e6) });
-  ok(r2.status === 400, "oversized clip → 400");
-  const saved = process.env.GEMINI_API_KEY; delete process.env.GEMINI_API_KEY;
-  const r3 = await call({ mode: "calories_audio", audio: "data:audio/webm;base64,QUFB" });
-  ok(r3.status === 500 && /GEMINI_API_KEY/.test(r3.json.error), "missing key → clear config error");
-  process.env.GEMINI_API_KEY = saved;
-}
-
 console.log("— streaming modes unaffected —");
 {
   const r = await call({ mode: "story", messages: [{ role: "user", content: "Begin." }] });
@@ -192,5 +144,5 @@ console.log("— streaming modes unaffected —");
 }
 
 console.log(`\n${pass}/${pass + fail} checks passed`);
-for (const srv of [tokenSrv, fsSrv, antSrv, gemSrv]) srv.close();
+for (const srv of [tokenSrv, fsSrv, antSrv]) srv.close();
 process.exit(fail ? 1 : 0);
