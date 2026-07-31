@@ -943,6 +943,16 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .meal-customrow input[type=text] { flex: 1; }
   .meal-airow { display: flex; gap: 8px; }
   .meal-airow input { flex: 1; min-width: 0; font-size: 14px; }
+  .mealmacros { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
+  .mealmacros .mm-k { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); display: block; }
+  .mealmacros .mm-v { font-size: 12.5px; color: var(--muted); }
+  .mealmacros .mm-v b { color: var(--ink); font-size: 14px; }
+  .mealmacros .mm-bar { height: 5px; border-radius: 999px; background: var(--line-2); margin-top: 4px; overflow: hidden; }
+  .mealmacros .mm-bar span { display: block; height: 100%; border-radius: 999px; }
+  .mealmacros .mm-p { background: var(--green); }
+  .mealmacros .mm-cb { background: #d99a2b; }
+  .mealmacros .mm-f { background: var(--red, #ba303e); }
+  .mealmacros .mm-bar span.over { background: var(--red, #ba303e); opacity: .75; }
   .meal-customrow input[type=number] { width: 76px; padding: 13px; font-size: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink); }
   .meal-customadd { flex: 0 0 auto; padding: 0 16px; border-radius: 12px; border: 0; background: var(--green); color: #fff; font-weight: 800; cursor: pointer; }
   .mealcat { max-height: 34vh; overflow-y: auto; border: 1px solid var(--line-2); border-radius: 12px; margin-top: 4px; }
@@ -5687,9 +5697,12 @@ function careHomeRefresh(){
 // Data lives in the settings backend PER USER: Mom keeps the original doc ids (mealMeta,
 // mealLog_<YYYY-MM>, mealWeight — live data predates Dad), Dad's carry a _Dad suffix. Mere
 // viewing never writes. All dates are America/Chicago (en-CA day keys), like the Plan siblings.
+// macros = recommended daily grams (protein ~25% / carbs ~45% / fat ~30% of the calorie
+// target — the standard split; tune per person here). AI-estimated items carry {p,cb,f}
+// grams; hand-typed items don't, so the macro bars count what's known.
 const MEAL_PROFILES = {
-  Mom: { target: 1400, maintenance: 1850, template: true,  suffix: "",     startWeight: 150, goalWeight: 125 },
-  Dad: { target: 2500, maintenance: null, template: false, suffix: "_Dad", startWeight: null, goalWeight: null },
+  Mom: { target: 1400, maintenance: 1850, template: true,  suffix: "",     startWeight: 150, goalWeight: 125, macros: { p: 90,  cb: 155, f: 47 } },
+  Dad: { target: 2500, maintenance: null, template: false, suffix: "_Dad", startWeight: null, goalWeight: null, macros: { p: 155, cb: 280, f: 85 } },
 };
 function mealProfile(){ return MEAL_PROFILES[myName()] || MEAL_PROFILES.Mom; }
 function mealDocSuffix(){ return mealProfile().suffix || ""; }
@@ -5881,6 +5894,12 @@ async function mealMaterialize(dayKey){
   return m.days[dayKey];
 }
 function mealEaten(items){ return items.reduce((s, it) => s + (it.done ? (it.c||0) : 0), 0); }
+// Eaten macro grams — only items that carry macros (AI-estimated ones) contribute.
+function mealMacroTotals(items){
+  const t = { p: 0, cb: 0, f: 0 };
+  for (const it of items){ if (!it.done) continue; t.p += it.p || 0; t.cb += it.cb || 0; t.f += it.f || 0; }
+  return t;
+}
 function mealPlanned(items){ return items.reduce((s, it) => s + (it.c||0), 0); }
 function mealDoneCount(items){ return items.filter(it => it.done).length; }
 function mealBarClass(eaten){ if (eaten <= mealTarget()) return "ok"; if (eaten <= mealTarget() + 100) return "warn"; return "over"; }
@@ -5897,6 +5916,10 @@ async function mealAdd(dayKey, meal, name, cal, opts){
   const day = await mealMaterialize(dayKey);
   const it = { id: "x" + Date.now().toString(36) + Math.floor(Math.random()*1000), meal, n: String(name||"").trim() || "Item", c: Math.max(0, Math.round(Number(cal))||0), done: !!(opts && opts.done), add: true };
   if (opts && opts.ai) it.ai = true;   // AI-estimated — badged ✨, counted as eaten on arrival
+  if (opts && opts.macros){            // grams from the AI estimate: protein / carbs / fat
+    const g = (v) => Math.max(0, Math.round(Number(v)) || 0);
+    it.p = g(opts.macros.p); it.cb = g(opts.macros.cb); it.f = g(opts.macros.f);
+  }
   day.items.push(it);
   mealScheduleSave(mealMonthOf(dayKey));
   if (currentTab === "mealplan") renderMealPlan();
@@ -5949,7 +5972,7 @@ async function mealDrainInbox(){
     if (!q.length || myName() !== u) return;
     for (const it of q){
       if (myName() !== u) return;   // profile switched mid-drain — leave the inbox intact
-      await mealAdd(it.k || mealToday(), it.meal || "Snack", it.n, it.c, { done: true, ai: true });
+      await mealAdd(it.k || mealToday(), it.meal || "Snack", it.n, it.c, { done: true, ai: true, macros: { p: it.p, cb: it.cb, f: it.f } });
     }
     if (myName() === u) await backend?.setSetting?.(id, { items: [] });
   } catch {}
@@ -5969,10 +5992,10 @@ async function mealAiEstimate(text){
 async function mealAiAdd(dayKey, meal, text, btn){
   try {
     const j = await mealAiEstimate(text);
-    await mealAdd(dayKey, meal, j.name, j.total, { done: true, ai: true });
+    await mealAdd(dayKey, meal, j.name, j.total, { done: true, ai: true, macros: { p: j.protein, cb: j.carbs, f: j.fat } });
     mealCloseSheet();
-    const parts = (j.items || []).map(it => it.n + " " + it.c).join(" · ");
-    showToast(("✨ " + j.name + " ≈ " + j.total + " cal" + (parts ? " — " + parts : "")).slice(0, 140));
+    const macro = (j.protein || j.carbs || j.fat) ? ` · P${j.protein} C${j.carbs} F${j.fat}g` : "";
+    showToast(("✨ " + j.name + " ≈ " + j.total + " cal" + macro).slice(0, 140));
   } catch (e){
     showToast(e.friendly || "Couldn't estimate right now — add it manually instead");
     if (btn){ btn.disabled = false; btn.textContent = "Estimate & add"; }
@@ -6040,7 +6063,25 @@ function mealRenderToday(body){
   const s1 = document.createElement("span"); s1.innerHTML = "Planned "; const s1b = document.createElement("b"); s1b.textContent = planned; s1.appendChild(s1b);
   const s2 = document.createElement("span"); s2.innerHTML = "Remaining "; const s2b = document.createElement("b"); s2b.textContent = remaining; if (remaining < 0) s2b.className = "over"; s2.appendChild(s2b);
   stats.append(s1, s2);
-  sum.append(big, barWrap, stats); body.appendChild(sum);
+  sum.append(big, barWrap, stats);
+  // Macro bars — eaten grams vs the profile's recommended daily intake. Only AI-estimated
+  // items carry grams, so this reads "of what's tracked" rather than a hard total.
+  const mtgt = mealProfile().macros;
+  if (mtgt){
+    const got = mealMacroTotals(items);
+    const mrow = document.createElement("div"); mrow.className = "mealmacros";
+    for (const [key, label, tgt] of [["p","Protein",mtgt.p],["cb","Carbs",mtgt.cb],["f","Fat",mtgt.f]]){
+      const cell = document.createElement("div"); cell.className = "mm";
+      const k = document.createElement("span"); k.className = "mm-k"; k.textContent = label;
+      const v = document.createElement("span"); v.className = "mm-v"; v.innerHTML = `<b>${got[key]}</b>/${tgt}g`;
+      const bar = document.createElement("div"); bar.className = "mm-bar";
+      const fill = document.createElement("span"); fill.className = "mm-" + key + (got[key] > tgt * 1.15 ? " over" : "");
+      fill.style.width = Math.min(100, (got[key] / tgt) * 100) + "%";
+      bar.appendChild(fill); cell.append(k, v, bar); mrow.appendChild(cell);
+    }
+    sum.appendChild(mrow);
+  }
+  body.appendChild(sum);
 
   if (isFuture){ const note = document.createElement("div"); note.className = "meal-note"; note.id = "mealFutureNote"; note.textContent = "Planned for this day — viewing only. Come back to check things off."; body.appendChild(note); }
 
@@ -6528,6 +6569,7 @@ window.__MEAL__ = {
   docSuffix: () => mealDocSuffix(),
   aiAdd: (k, meal, text) => mealAiAdd(k, meal, text, null),
   drainInbox: () => { mealInboxLastCheck = 0; return mealDrainInbox(); },
+  macros: (k) => mealMacroTotals(mealDayItems(k)),
   planTotal: (wd) => MEAL_MEAL_ORDER.reduce((s, meal) => s + (((MEAL_PLAN[wd]||{})[meal]||[]).reduce((a, it) => a + it[1], 0)), 0),
   state: () => ({ page: mealPage, day: mealDayKey, weekOffset: mealWeekOffset, today: mealToday(), progRange: mealProgRange, months: Object.keys(mealLogs) }),
 };

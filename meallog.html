@@ -32,6 +32,7 @@
   #result { display: none; background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 18px 20px; width: 100%; box-shadow: 0 6px 18px rgba(28,36,52,.08); }
   #result .big { font-size: 21px; font-weight: 900; color: var(--navy); }
   #result .cal { font-size: 34px; font-weight: 900; color: var(--good); margin: 6px 0 2px; }
+  #result .macros { font-size: 13.5px; font-weight: 700; color: var(--navy); margin-bottom: 4px; }
   #result .parts { font-size: 13px; color: var(--muted); line-height: 1.5; }
   #result .where { font-size: 12px; color: var(--muted); margin-top: 10px; }
   .btnrow { display: flex; gap: 10px; justify-content: center; margin-top: 14px; }
@@ -59,6 +60,7 @@
   <div id="result">
     <div class="big" id="resName"></div>
     <div class="cal" id="resCal"></div>
+    <div class="macros" id="resMacros"></div>
     <div class="parts" id="resParts"></div>
     <div class="where" id="resWhere"></div>
     <div class="btnrow">
@@ -136,9 +138,10 @@ function mealOfDay(){
 
 // ---- inbox write (queue for the app to drain) ----
 let lastLogged = null;   // { inboxId, item, synced } — for Undo
-async function queueMeal(name, cal){
+async function queueMeal(name, cal, macros){
   const inboxId = "mealInbox" + (SUFFIX[who] || "");
   const item = { k: dayKey(), meal: mealOfDay(), n: name, c: cal };
+  if (macros){ const g = (v) => Math.max(0, Math.round(Number(v)) || 0); item.p = g(macros.p); item.cb = g(macros.cb); item.f = g(macros.f); }
   await cloudReady;
   let synced = false;
   if (cloud){
@@ -203,9 +206,11 @@ async function logText(text){
   setPhase("busy", "Counting the calories…");
   try {
     const j = await estimate(t);
-    const synced = await queueMeal(j.name, j.total);
+    const synced = await queueMeal(j.name, j.total, { p: j.protein, cb: j.carbs, f: j.fat });
     $("resName").textContent = j.name;
     $("resCal").textContent = "≈ " + j.total.toLocaleString() + " cal";
+    $("resMacros").textContent = (j.protein || j.carbs || j.fat)
+      ? "protein " + (j.protein||0) + "g · carbs " + (j.carbs||0) + "g · fat " + (j.fat||0) + "g" : "";
     $("resParts").textContent = (j.items || []).map((it) => it.n + " " + it.c).join(" · ");
     $("resWhere").textContent = (synced ? "✓ Synced — " : "✓ Saved on this phone — ")
       + "logged to " + mealOfDay() + " in " + who + "'s Meals tab.";

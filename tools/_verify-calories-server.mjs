@@ -66,13 +66,15 @@ const lastAnt = () => anthropicReqs[anthropicReqs.length - 1];
 
 console.log("— happy path —");
 {
-  calorieReply = JSON.stringify({ name: "Chipotle Steak Bowl", total: 1050,
-    items: [{ n: "steak", c: 250 }, { n: "black beans", c: 130 }, { n: "white rice", c: 210 }, { n: "fajita veggies", c: 20 }, { n: "salsa", c: 25 }, { n: "corn", c: 80 }, { n: "bowl extras", c: 335 }] });
+  calorieReply = JSON.stringify({ name: "Chipotle Steak Bowl", total: 1050, protein: 52, carbs: 118, fat: 38,
+    items: [{ n: "steak", c: 250, p: 26, cb: 0, f: 16 }, { n: "black beans", c: 130, p: 8, cb: 23, f: 1 }, { n: "white rice", c: 210, p: 4, cb: 45, f: 0 }, { n: "fajita veggies", c: 20, p: 1, cb: 4, f: 0 }, { n: "salsa", c: 25, p: 1, cb: 5, f: 0 }, { n: "corn", c: 80, p: 3, cb: 16, f: 1 }, { n: "bowl extras", c: 335, p: 9, cb: 25, f: 20 }] });
   const r = await call({ mode: "calories", text: "chipotle steak bowl, black beans, white rice, fajita veggies, salsa and corn" });
   const a = lastAnt();
   ok(r.status === 200 && r.json && r.json.ok === true, "returns 200 ok:true");
   ok(r.json.name === "Chipotle Steak Bowl" && r.json.total === 1050, "name + total pass through");
+  ok(r.json.protein === 52 && r.json.carbs === 118 && r.json.fat === 38, "meal macros pass through");
   ok(Array.isArray(r.json.items) && r.json.items.length === 7 && r.json.items[0].n === "steak", "per-item breakdown passes through");
+  ok(r.json.items[0].p === 26 && r.json.items[2].cb === 45, "per-item macros pass through");
   ok(a.model === "claude-sonnet-5", "runs on Sonnet 5");
   ok(!a.stream, "non-streaming call");
   ok(String(a.system).includes("STRICT JSON"), "calorie system prompt on the wire");
@@ -112,6 +114,12 @@ console.log("— defensive parsing —");
   calorieReply = JSON.stringify({ name: "", total: 300, items: [{ n: "", c: 100 }, { n: "thing", c: "bad" }, { n: "kept", c: 300 }] });
   const r = await call({ mode: "calories", text: "mystery snack" });
   ok(r.json.ok === true && r.json.name === "Meal" && r.json.items.length === 1 && r.json.items[0].n === "kept", "empty name defaults, bad items filtered");
+}
+{
+  calorieReply = JSON.stringify({ name: "Weird", total: 400, protein: -20, carbs: "lots", fat: 9000, items: [{ n: "x", c: 400, p: 12.6 }] });
+  const r = await call({ mode: "calories", text: "a weird snack" });
+  ok(r.json.ok === true && r.json.protein === 0 && r.json.carbs === 0 && r.json.fat === 0, "invalid macro grams clamp to 0 (negative / non-numeric / absurd)");
+  ok(r.json.items[0].p === 13 && r.json.items[0].cb === 0, "item macros rounded, missing default 0");
 }
 
 console.log("— input validation + gating —");
