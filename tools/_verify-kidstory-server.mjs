@@ -225,7 +225,9 @@ console.log("— the other modes are untouched —");
   ok(r.status === 200 && a.model === "claude-haiku-4-5" && a.max_tokens === 1200, "big-kid story unchanged (Haiku, 1200 tok)");
   ok(a.system.includes("CONTENT RULES") && !a.system.includes("LITTLE-KID SAFETY"), "…and does NOT get the little-kid rules");
   const longOk = await call({ mode: "story", messages: [{ role: "user", content: "y".repeat(3000) }] });
-  ok(lastAnt().messages[0].content.length === 3000, "big-kid turns are not capped at 200 chars");
+  // Big-kid story turns now also carry the appended STORY_RULES_REMINDER (2026-07-31), so
+  // assert the reader's text survives in full rather than an exact length match.
+  ok(lastAnt().messages[0].content.startsWith("y".repeat(3000)), "big-kid turns are not capped at 200 chars");
 }
 {
   const r = await call({ mode: "research", messages: [{ role: "user", content: "help with fractions" }] });
