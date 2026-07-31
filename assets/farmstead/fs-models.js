@@ -799,9 +799,15 @@
         const w = V.TUFT_W * (0.80 + rnd() * 0.44) * (1 + variant * 0.10);
         const hh = V.TUFT_H * (0.72 + rnd() * 0.72) * (1 + variant * 0.08);
         const g = new THREE.PlaneGeometry(w, hh);
+        /* each sheet leans OUTWARD a little, so the clump is a shallow
+         * shuttlecock rather than a set of perfectly upright planes — from an
+         * RTS camera an exactly vertical quad seen edge-on reads as a razor
+         * line, and with three of them one is always nearly edge-on. */
+        const tilt = 0.20 + rnd() * 0.14;
         parts.push({
           geo: g, color: 0xffffff, cell: null,
-          matrix: M((rnd() - 0.5) * 0.42, hh * 0.5, (rnd() - 0.5) * 0.42, 0, a, (rnd() - 0.5) * 0.14),
+          matrix: M(Math.sin(a) * 0.10 + (rnd() - 0.5) * 0.34, hh * 0.46, Math.cos(a) * 0.10 + (rnd() - 0.5) * 0.34,
+            tilt * Math.cos(a), a, tilt * -Math.sin(a)),
         });
       }
       // PlaneGeometry brings its own 0..1 uv; the tuft material samples the
