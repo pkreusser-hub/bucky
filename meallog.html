@@ -32,6 +32,7 @@
   #result { display: none; background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 18px 20px; width: 100%; box-shadow: 0 6px 18px rgba(28,36,52,.08); }
   #result .big { font-size: 21px; font-weight: 900; color: var(--navy); }
   #result .cal { font-size: 34px; font-weight: 900; color: var(--good); margin: 6px 0 2px; }
+  #result .macros { font-size: 13.5px; font-weight: 700; color: var(--navy); margin-bottom: 4px; }
   #result .parts { font-size: 13px; color: var(--muted); line-height: 1.5; }
   #result .where { font-size: 12px; color: var(--muted); margin-top: 10px; }
   .btnrow { display: flex; gap: 10px; justify-content: center; margin-top: 14px; }
@@ -59,6 +60,7 @@
   <div id="result">
     <div class="big" id="resName"></div>
     <div class="cal" id="resCal"></div>
+    <div class="macros" id="resMacros"></div>
     <div class="parts" id="resParts"></div>
     <div class="where" id="resWhere"></div>
     <div class="btnrow">
@@ -136,9 +138,10 @@ function mealOfDay(){
 
 // ---- inbox write (queue for the app to drain) ----
 let lastLogged = null;   // { inboxId, item, synced } — for Undo
-async function queueMeal(name, cal){
+async function queueMeal(name, cal, macros){
   const inboxId = "mealInbox" + (SUFFIX[who] || "");
   const item = { k: dayKey(), meal: mealOfDay(), n: name, c: cal };
+  if (macros){ const g = (v) => Math.max(0, Math.round(Number(v)) || 0); item.p = g(macros.p); item.cb = g(macros.cb); item.f = g(macros.f); }
   await cloudReady;
   let synced = false;
   if (cloud){
@@ -188,7 +191,7 @@ function setPhase(p, statusText){
   phase = p;
   $("micBtn").classList.toggle("listening", p === "listening");
   $("micBtn").classList.toggle("busy", p === "busy");
-  $("micBtn").textContent = p === "busy" ? "…" : "🎤";
+  $("micBtn").textContent = p === "busy" ? "…" : p === "listening" ? "⏹" : "🎤";
   $("result").style.display = p === "done" ? "block" : "none";
   $("typedRow").style.display = p === "done" ? "none" : "flex";
   if (statusText != null) $("status").textContent = statusText;
@@ -203,9 +206,11 @@ async function logText(text){
   setPhase("busy", "Counting the calories…");
   try {
     const j = await estimate(t);
-    const synced = await queueMeal(j.name, j.total);
+    const synced = await queueMeal(j.name, j.total, { p: j.protein, cb: j.carbs, f: j.fat });
     $("resName").textContent = j.name;
     $("resCal").textContent = "≈ " + j.total.toLocaleString() + " cal";
+    $("resMacros").textContent = (j.protein || j.carbs || j.fat)
+      ? "protein " + (j.protein||0) + "g · carbs " + (j.carbs||0) + "g · fat " + (j.fat||0) + "g" : "";
     $("resParts").textContent = (j.items || []).map((it) => it.n + " " + it.c).join(" · ");
     $("resWhere").textContent = (synced ? "✓ Synced — " : "✓ Saved on this phone — ")
       + "logged to " + mealOfDay() + " in " + who + "'s Meals tab.";
@@ -213,32 +218,48 @@ async function logText(text){
   } catch (e){ fail(e.message || "Something went wrong — try again"); }
 }
 
+// Recording is TAP-TO-FINISH: it never self-ends on a pause. The browser's recognizer DOES
+// self-end on silence, so onend quietly restarts a fresh session (carrying the text heard so
+// far in heardSoFar) until the user taps ⏹ — thinking pauses just keep it listening.
+let stopWanted = false, heardSoFar = "";
+function paintHeard(sessionText){
+  const t = (heardSoFar + (sessionText || "")).trim();
+  $("heard").textContent = t ? "“" + t + "”" : "";
+}
+function startRecSession(){
+  let sessionFinal = "", sessionAll = "";
+  rec = new SR();
+  rec.lang = "en-US"; rec.interimResults = true; rec.continuous = true; rec.maxAlternatives = 1;
+  rec.onresult = (e) => {
+    localStorage.setItem("meallog_mic_ok", "1");   // mic worked — future opens auto-listen
+    sessionFinal = ""; sessionAll = "";
+    for (const r of e.results){ sessionAll += r[0].transcript + " "; if (r.isFinal) sessionFinal += r[0].transcript + " "; }
+    paintHeard(sessionAll);
+  };
+  rec.onerror = (e) => {
+    if (phase !== "listening") return;
+    if (e && (e.error === "no-speech" || e.error === "aborted")) return;   // onend restarts
+    stopWanted = true;
+    fail(e && e.error === "not-allowed" ? "Mic permission needed — allow it, then tap again"
+      : "Mic trouble — tap and try again");
+  };
+  rec.onend = () => {
+    if (phase !== "listening") return;
+    heardSoFar = (heardSoFar + (sessionFinal || sessionAll)).replace(/\s+/g, " ").trimStart();
+    if (!stopWanted){ try { startRecSession(); return; } catch {} }   // silence pause — keep going
+    const t = heardSoFar.trim();
+    if (t) logText(t); else setPhase("idle", "Didn't hear anything — tap to try again");
+  };
+  rec.start();
+}
 function listen(){
   if (!SR){ fail("This browser can't do voice — type it below instead"); return; }
-  if (phase === "listening"){ try { rec && rec.stop(); } catch {} return; }
+  if (phase === "listening"){ stopWanted = true; try { rec && rec.stop(); } catch {} return; }
   $("err").textContent = ""; $("heard").textContent = "";
-  let finalText = "";
+  stopWanted = false; heardSoFar = "";
   try {
-    rec = new SR();
-    rec.lang = "en-US"; rec.interimResults = true; rec.maxAlternatives = 1;
-    rec.onresult = (e) => {
-      localStorage.setItem("meallog_mic_ok", "1");   // mic worked — future opens auto-listen
-      let t = "";
-      for (const r of e.results){ t += r[0].transcript; if (r.isFinal) finalText = t; }
-      $("heard").textContent = "“" + t + "”";
-    };
-    rec.onerror = (e) => {
-      if (phase !== "listening") return;
-      fail(e && e.error === "not-allowed" ? "Mic permission needed — allow it, then tap again"
-        : "Didn't catch that — tap and try again");
-    };
-    rec.onend = () => {
-      if (phase !== "listening") return;
-      const t = (finalText || $("heard").textContent.replace(/^“|”$/g, "")).trim();
-      if (t) logText(t); else setPhase("idle", "Didn't hear anything — tap to try again");
-    };
-    rec.start();
-    setPhase("listening", "Listening… say what you ate");
+    startRecSession();
+    setPhase("listening", "Listening… tap ⏹ when you're done");
   } catch { fail("Couldn't start the mic — type it below instead"); }
 }
 

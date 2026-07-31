@@ -509,15 +509,18 @@ headings, no commentary.`;
 // turns a typed meal description ("chipotle steak bowl, black beans, white rice, fajita
 // veggies, salsa and corn") into a calorie estimate the tracker logs directly. Strict-JSON
 // out; not a MODES entry because it never streams (handled as an action, like storylog_*).
-const CALORIE_SYSTEM = `You are a nutrition assistant estimating calories for a family's food log.
+const CALORIE_SYSTEM = `You are a nutrition assistant estimating calories and macros for a family's food log.
 The user message is a plain-text description of a meal, dish, or snack — possibly naming a
-restaurant, listing components, or giving quantities. Estimate the calories.
+restaurant, listing components, or giving quantities. Estimate calories and macronutrients.
 - Use the stated quantities when given; otherwise assume typical portions (the standard serving
   when a restaurant or brand is named, a typical home portion otherwise).
 - Reply with STRICT JSON only — no prose, no code fences:
-  {"name":"Short Dish Name","total":950,"items":[{"n":"steak","c":250},{"n":"white rice","c":210}]}
+  {"name":"Short Dish Name","total":950,"protein":48,"carbs":95,"fat":38,
+   "items":[{"n":"steak","c":250,"p":26,"cb":0,"f":16},{"n":"white rice","c":210,"p":4,"cb":45,"f":0}]}
 - "name": a short title-style label for the log entry, at most 40 characters.
-- "items": 1-12 per-component estimates in calories that sum to "total"; round to the nearest 5.
+- "protein"/"carbs"/"fat": whole grams for the WHOLE described meal.
+- "items": 1-12 per-component estimates; "c" calories rounded to the nearest 5, "p"/"cb"/"f"
+  grams. Component calories sum to "total"; component grams sum to the meal grams.
 - If the text does not describe food or drink at all, reply exactly {"error":"not food"}.`;
 
 // Defensive parse of the estimator's reply (same posture as parseSummaryJSON): fences stripped,
@@ -532,12 +535,14 @@ function parseCalorieJSON(text) {
     if (obj.error) return { notFood: true };
     const total = Math.round(Number(obj.total));
     if (!Number.isFinite(total) || total < 0 || total > 20000) return null;
+    const gram = (v) => { const n = Math.round(Number(v)); return Number.isFinite(n) && n >= 0 && n <= 2000 ? n : 0; };
     const items = Array.isArray(obj.items) ? obj.items
-      .map((it) => ({ n: String(it && it.n || "").slice(0, 80), c: Math.round(Number(it && it.c)) }))
+      .map((it) => ({ n: String(it && it.n || "").slice(0, 80), c: Math.round(Number(it && it.c)),
+        p: gram(it && it.p), cb: gram(it && it.cb), f: gram(it && it.f) }))
       .filter((it) => it.n && Number.isFinite(it.c) && it.c >= 0)
       .slice(0, 12) : [];
     const name = String(obj.name || "").trim().slice(0, 60) || "Meal";
-    return { name, total, items };
+    return { name, total, items, protein: gram(obj.protein), carbs: gram(obj.carbs), fat: gram(obj.fat) };
   } catch { return null; }
 }
 
@@ -1437,13 +1442,14 @@ export default async (req) => {
   if (body.mode === "calories") {
     const text = String(body.text || "").replace(/\s+/g, " ").trim().slice(0, 500);
     if (!text) return jsonError(400, "Nothing to estimate", jsonHeaders);
-    const r = await callAnthropicOnce(RESEARCH_MODEL, CALORIE_SYSTEM, text, 600);
+    const r = await callAnthropicOnce(RESEARCH_MODEL, CALORIE_SYSTEM, text, 800);
     if (!r) return jsonError(502, "The calorie estimator isn't reachable right now", jsonHeaders);
     await logUsage("calories", r.inTok, r.outTok, r.cacheWriteTok, r.cacheReadTok);
     const parsed = parseCalorieJSON(r.text);
     if (!parsed) return jsonError(502, "Couldn't read the estimate — try rewording it", jsonHeaders);
     if (parsed.notFood) return new Response(JSON.stringify({ ok: false, message: "That didn't look like a food description — try naming the dish or its parts." }), { status: 200, headers: jsonHeaders });
-    return new Response(JSON.stringify({ ok: true, name: parsed.name, total: parsed.total, items: parsed.items }), { status: 200, headers: jsonHeaders });
+    return new Response(JSON.stringify({ ok: true, name: parsed.name, total: parsed.total, items: parsed.items,
+      protein: parsed.protein, carbs: parsed.carbs, fat: parsed.fat }), { status: 200, headers: jsonHeaders });
   }
 
   // Dungeon (D&D) mode — every dnd* request (streaming AND storage) requires Dad's raw PIN,

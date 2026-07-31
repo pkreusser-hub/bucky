@@ -567,6 +567,17 @@ breakdown + Undo; identity = meallog_who || choreUser-if-meal-user || Dad. DELIB
 manifest link on the page — Chrome "Add to Home screen" then makes a plain shortcut straight
 to meallog.html (that shortcut IS the android widget; a true widget needs a native APK).
 manifest.webmanifest gains a shortcuts entry (long-press Bucky icon → "🍽 Log a meal").
+MACROS (2026-07-31, user): mode "calories" also returns protein/carbs/fat GRAMS (meal-level
++ per-item p/cb/f, clamped 0..2000, maxTokens 600→800); AI-added items store {p,cb,f} (manual/
+template items don't — macro totals count only what's tracked); MEAL_PROFILES.macros = daily
+targets (Mom 90/155/47g, Dad 155/280/85g ≈ 25/45/30% of cal target); Today page renders 3
+.mealmacros bars (eaten g vs target, >115% = .over tint); meallog result + toast show the
+macro line; inbox items carry p/cb/f through the drain. Suites now calories-server 24 ·
+meal_dad 38 · meallog 37.
+TAP-TO-FINISH (2026-07-31, user: recording cut off during thinking pauses): both mics never
+self-end — continuous=true + onend quietly RESTARTS the recognizer (accumulating heard text)
+until the user taps ⏹ (the mic button while listening), which submits the full transcript;
+suite fake simulates silence-ends via __SR_LAST__.onend().
 (3) index.html mealDrainInbox() (renderMealPlan, 60s-throttled, __MEAL__.drainInbox forces):
 drains the inbox through mealAdd (template-aware — the widget page can't materialize Mom's
 plan days, which is WHY it queues instead of writing mealLog directly); applied-then-cleared
