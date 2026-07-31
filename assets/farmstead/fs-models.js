@@ -994,8 +994,81 @@
   };
 
   // -------------------------------------------------------------------- castle
+  /* ===== CASTLE GLB (user-supplied Tripo asset; optional upgrade) =====
+   * Loads assets/farmstead/castle.glb once; when ready, FSModels.castle() returns a
+   * normalized clone of it. The procedural keep below stays as the loading
+   * placeholder AND the fallback — a missing/failed GLB can never brick a boot. */
+  FSModels._castleGLB = null;
+  FSModels.loadCastleGLB = function (url, onDone) {
+    let fired = false;
+    const done = (ok) => { if (!fired) { fired = true; if (onDone) onDone(!!ok); } };
+    try {
+      if (typeof THREE === "undefined" || !THREE.GLTFLoader) return done(false);
+      new THREE.GLTFLoader().load(url, (gltf) => {
+        try {
+          const root = gltf.scene || (gltf.scenes && gltf.scenes[0]);
+          if (!root) return done(false);
+          // house conversion: Lambert + texture-preserving warm lift (normal/MR dropped)
+          root.traverse((o) => {
+            if (o.isMesh && o.material) {
+              const src = o.material;
+              const m = new THREE.MeshLambertMaterial({
+                map: src.map || null,
+                color: src.map ? 0xffffff
+                  : (src.color ? src.color.clone().convertLinearToSRGB() : 0xbbb5a4),
+              });
+              if (src.map) { m.emissive = new THREE.Color(0x6f6f6f); m.emissiveMap = src.map; }
+              else m.emissive = m.color.clone().multiplyScalar(0.34);
+              o.material = m;
+              o.castShadow = o.receiveShadow = false;
+            }
+          });
+          // normalize: height matched to the keep's neighbourhood scale, grounded, centred
+          const holder = new THREE.Group();
+          holder.add(root);
+          const box = new THREE.Box3().setFromObject(holder);
+          const size = box.getSize(new THREE.Vector3());
+          root.scale.setScalar(4.8 / Math.max(0.001, size.y));
+          const box2 = new THREE.Box3().setFromObject(holder);
+          const c = box2.getCenter(new THREE.Vector3());
+          root.position.x -= c.x; root.position.z -= c.z; root.position.y -= box2.min.y;
+          holder.userData.topY = box2.max.y - box2.min.y;
+          FSModels._castleGLB = holder;
+          done(true);
+        } catch (e) { FSModels._castleGLB = null; done(false); }
+      }, undefined, () => done(false));
+    } catch (e) { done(false); }
+  };
+
+  function castleFromGLB(playerIdx) {
+    const color = FSModels.playerColor(playerIdx);
+    const g = new THREE.Group();
+    const body = FSModels._castleGLB.clone(true);
+    body.traverse((o) => { if (o.isMesh && o.material) o.material = o.material.clone(); });
+    body.name = "castleBody";
+    g.add(body);
+    g.userData.glb = true;   // clone shares the template's geometry — never dispose it
+    const topY = FSModels._castleGLB.userData.topY || 4.8;
+    const pole = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.045, 0.045, 1.1, 5), mat(0x8a8070, {}));
+    pole.position.set(0, topY + 0.42, 0);
+    g.add(pole);
+    const banner = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.62, 0.44),
+      mat(0xffffff, { map: bannerTexture(color), side: THREE.DoubleSide, emissiveOf: color, emissiveK: 0.35 })
+    );
+    banner.position.set(0.32, topY + 0.72, 0);
+    banner.name = "castleBanner";
+    g.add(banner);
+    g.userData.banner = banner;
+    g.userData.props = FSModels.BLD_PROPS.castle;
+    g.userData.type = "castle";
+    return g;
+  }
+
   /** An impressive keep: walls, four towers, gate, and a banner in player colour. */
   FSModels.castle = function (playerIdx) {
+    if (FSModels._castleGLB) return castleFromGLB(playerIdx);
     const color = FSModels.playerColor(playerIdx);
     const V = FSC.VIS;
     const g = new THREE.Group();
@@ -1668,13 +1741,23 @@
   FSModels.buildingDetail = function (type) {
     const g = FSModels.building(type, 0);
     let tris = 0;
-    g.traverse((o) => { if (o.geometry && o.geometry.attributes.position) tris += o.geometry.attributes.position.count / 3; });
+    g.traverse((o) => {
+      if (!o.geometry || !o.geometry.attributes.position) return;
+      // indexed geometry (the GLB) counts triangles by index, merged atlas geometry by position
+      tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3;
+    });
+    const glb = !!g.userData.glb;
+    let anyMap = false;
+    g.traverse((o) => { if (o.material && o.material.map) anyMap = true; });
     const out = {
       type: type, props: g.userData.props || [], chimney: g.userData.chimney || null,
-      spin: !!g.userData.spin, tris: Math.round(tris),
-      textured: !!(g.children[0] && g.children[0].material && g.children[0].material.map),
+      spin: !!g.userData.spin, tris: Math.round(tris), glb: glb,
+      textured: glb ? anyMap
+        : !!(g.children[0] && g.children[0].material && g.children[0].material.map),
     };
-    g.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+    // GLB clones SHARE the cached template's geometry — disposing it here would
+    // blank every castle rendered afterwards. Only fresh procedural geometry dies.
+    if (!glb) g.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
     return out;
   };
 

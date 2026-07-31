@@ -1070,6 +1070,20 @@
     dyn.serfVis.clear();
     dyn.lastTick = -1; dyn.tickAge = 0; dyn.tickU = 0;   /* ===== PHASE P ===== */
     puffs.length = 0; fireSmokeT.clear(); objPop.clear(); objFade.length = 0;
+    /* ===== CASTLE GLB hook: load once; on arrival evict every cached castle
+     * view (their visKey doesn't change, so the differ would keep the old
+     * procedural mesh) and force a rebuild pass — placed castles hot-swap. ===== */
+    if (!FSRender._castleGlbTried) {
+      FSRender._castleGlbTried = true;
+      FSModels.loadCastleGLB("assets/farmstead/castle.glb", (ok) => {
+        if (!ok) return;
+        bldViews.forEach((view, id) => {
+          const b = G && G.buildings && G.buildings[id];
+          if (b && b.type === "castle") { bldGroup.remove(view); disposeTree(view); bldViews.delete(id); }
+        });
+        dyn.bldSig = "";
+      });
+    }
   }
 
   // ---- roads: one merged ribbon mesh, rebuilt only when the network changes ----

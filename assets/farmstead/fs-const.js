@@ -773,6 +773,7 @@
     ROOF_SLATE: 0x6a6f78, WINDOW_GLOW: 0xffd98a, CHIMNEY: 0xa08a72,
     FOUNDATION: 0x8e8577,
     BLD_TRI_MAX: 900,
+    CASTLE_GLB_TRI_MAX: 5200,   // the user-supplied castle GLB gets its own budget
 
     // ---- FX budgets (FSFX) ----------------------------------------------
     FX_BUDGET_MS: 1.5,
