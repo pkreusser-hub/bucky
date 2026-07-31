@@ -5933,6 +5933,28 @@ async function mealLogWeight(dayKey, lbs){
   if (currentTab === "mealplan") renderMealPlan();
 }
 
+// ---- 📥 Meal inbox — quick logs queued by meallog.html (the home-screen voice widget) ----
+// The widget page can't apply Mom's day template, so it only QUEUES {k,meal,n,c} entries in
+// mealInbox<suffix>; this drains them through mealAdd (which materializes days correctly).
+// Applied-then-cleared: a crash mid-drain can at worst duplicate, never lose, an entry.
+let mealInboxLastCheck = 0;
+async function mealDrainInbox(){
+  if (Date.now() - mealInboxLastCheck < 60000) return;   // at most one check per minute
+  mealInboxLastCheck = Date.now();
+  try {
+    const id = "mealInbox" + mealDocSuffix();
+    const u = mealStateUser;
+    const s = await backend?.getSetting?.(id);
+    const q = (s && Array.isArray(s.items)) ? s.items : [];
+    if (!q.length || myName() !== u) return;
+    for (const it of q){
+      if (myName() !== u) return;   // profile switched mid-drain — leave the inbox intact
+      await mealAdd(it.k || mealToday(), it.meal || "Snack", it.n, it.c, { done: true, ai: true });
+    }
+    if (myName() === u) await backend?.setSetting?.(id, { items: [] });
+  } catch {}
+}
+
 // ---- ✨ AI calorie estimate (server mode "calories", Sonnet — see farmgpt.mjs) ----
 async function mealAiEstimate(text){
   const r = await fetch("/.netlify/functions/farmgpt", {
@@ -5960,6 +5982,7 @@ async function mealAiAdd(dayKey, meal, text, btn){
 // ---- Render: page shell ----
 function renderMealPlan(){
   mealResetForUser();
+  mealDrainInbox();   // pull in anything the voice widget queued (fire-and-forget)
   document.querySelector(".bar").style.display = "none";
   document.getElementById("empty").style.display = "none";
   document.getElementById("progress").style.display = "none";
@@ -6117,7 +6140,27 @@ function mealOpenAddSheet(dayKey, defaultMeal){
   const runAi = () => { const q = ain.value.trim(); if (!q || abtn.disabled) return; abtn.disabled = true; abtn.textContent = "Estimating…"; mealAiAdd(dayKey, mealSheetMealSel, q, abtn); };
   abtn.onclick = runAi;
   ain.addEventListener("keydown", (e) => { if (e.key === "Enter") runAi(); });
-  arow.append(ain, abtn); inner.appendChild(arow);
+  arow.append(ain);
+  // 🎤 dictation (Web Speech API — Android Chrome etc.; button simply absent where unsupported).
+  // A final transcript fills the box and auto-runs the estimate, so "speak → logged" is one tap.
+  const SRC = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (SRC){
+    const mic = document.createElement("button"); mic.className = "meal-customadd"; mic.id = "mealMicBtn"; mic.textContent = "🎤"; mic.title = "Dictate what you ate"; mic.setAttribute("aria-label", "Dictate what you ate");
+    mic.onclick = () => {
+      if (mic.disabled) return;
+      try {
+        const rec = new SRC(); rec.lang = "en-US"; rec.interimResults = true;
+        mic.disabled = true; mic.textContent = "…";
+        let finalText = "";
+        rec.onresult = (e) => { let t = ""; for (const r of e.results){ t += r[0].transcript; if (r.isFinal) finalText = t; } ain.value = t; };
+        rec.onerror = () => { mic.disabled = false; mic.textContent = "🎤"; };
+        rec.onend = () => { mic.disabled = false; mic.textContent = "🎤"; if ((finalText || ain.value).trim()) runAi(); };
+        rec.start();
+      } catch { mic.disabled = false; mic.textContent = "🎤"; }
+    };
+    arow.append(mic);
+  }
+  arow.append(abtn); inner.appendChild(arow);
 
   if (mealProfile().template){
     const ql = document.createElement("label"); ql.textContent = "Quick adds"; inner.appendChild(ql);
@@ -6473,6 +6516,7 @@ window.__MEAL__ = {
   target: () => mealTarget(),
   docSuffix: () => mealDocSuffix(),
   aiAdd: (k, meal, text) => mealAiAdd(k, meal, text, null),
+  drainInbox: () => { mealInboxLastCheck = 0; return mealDrainInbox(); },
   planTotal: (wd) => MEAL_MEAL_ORDER.reduce((s, meal) => s + (((MEAL_PLAN[wd]||{})[meal]||[]).reduce((a, it) => a + it[1], 0)), 0),
   state: () => ({ page: mealPage, day: mealDayKey, weekOffset: mealWeekOffset, today: mealToday(), progRange: mealProgRange, months: Object.keys(mealLogs) }),
 };
