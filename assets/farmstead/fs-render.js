@@ -1073,7 +1073,7 @@
     const pole = dynPool("pole", FSModels.flagPoleGeo(), FSModels.vcMat("pole", COL.FLAG_POLE, 0.3));
     const pen = dynPool("pennant", FSModels.pennantGeo(), FSModels.vcMat("pennant", 0x888888, 0.45));
     const crate = dynPool("crate", FSModels.crateGeo(), FSModels.vcMat("crate", 0x808080, 0.34));
-    const wave = Math.sin(dyn.tAcc * 2.2) * 0.22;
+    const wave = Math.sin(dyn.tAcc * 2.2) * 0.20 + Math.sin(dyn.tAcc * 5.1 + 1.3) * 0.07;
     for (const id in G.flags) {
       const f = G.flags[id];
       FSMap.worldXZ(map, f.v, xz);
@@ -1149,10 +1149,26 @@
         /* ===== PHASE-V: a boat rides the swell — it bobs at rest and heels a
          * little into the direction it is rowing. ===== */
         const bob = Math.sin(dyn.tAcc * 1.5 + s.id * 1.7) * FSC.VIS.BOAT_BOB;
-        const heel = moving ? Math.sin(dyn.tAcc * 2.6 + s.id) * 0.05 : bob * 0.7;
+        const heel = moving ? Math.sin(dyn.tAcc * 2.6 + s.id) * 0.05 : bob * 0.5;
         tmpV.set(x, FSC.WATER_Y + 0.02 + bob, z);
         tmpE.set(bob * 0.5, yaw, heel); tmpQ.setFromEuler(tmpE);
         dynPush(boat, tmpM.compose(tmpV, tmpQ, tmpS));
+        if (moving) {
+          /* a small wake: two foam quads trailing astern, spreading and fading —
+           * the cue that tells a player at a glance which boats are working */
+          const wake = dynPool("wake", FSModels.foamGeo(), FSModels.foamMat());
+          const bx = Math.sin(yaw), bz = Math.cos(yaw);
+          for (let k = 0; k < 3; k++) {
+            const u = 0.30 + k * 0.34;
+            const ph = Math.sin(dyn.tAcc * 3.1 + s.id + k) * 0.10;
+            tmpV.set(x - bx * u * 1.5 + bz * ph, FSC.WATER_Y + 0.05, z - bz * u * 1.5 - bx * ph);
+            tmpE.set(0, yaw, 0); tmpQ.setFromEuler(tmpE);
+            const sw = 0.42 + u * 0.55;
+            tmpS.set(sw, 1, sw * 1.5);
+            dynPush(wake, tmpM.compose(tmpV, tmpQ, tmpS), tmpC.setScalar(0.8 - u * 0.5));
+          }
+          tmpS.set(1, 1, 1);
+        }
       }
       if (s.carry) {
         tmpV.set(x, y + bob + 0.86, z);
