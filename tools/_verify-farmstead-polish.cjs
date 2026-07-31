@@ -165,7 +165,7 @@ H.run("farmstead-polish", async (t) => {
   t.check("…and the music source stays on whatever last worked (the file track, unrevoked) — a decode failure never clobbers the current state",
     afterJunk.source === decodeOutcome.source && afterJunk.name === decodeOutcome.name, { before: decodeOutcome, after: afterJunk });
   const junkToast = await page.evaluate(() => document.getElementById("fsToasts").textContent);
-  t.check("a friendly error toast explains the failed upload", /couldn.?t use that file|kept the built-in/i.test(junkToast) || junkToast.length >= 0, junkToast);
+  t.check("a friendly error toast explains the failed upload", /decode failed|kept the synth track|couldn.?t use that file/i.test(junkToast), junkToast);
 
   // ---- explicit decode-failure via the API directly (belt & suspenders — proves the
   // Promise resolves {ok:false}, never rejects, even off the UI path)
