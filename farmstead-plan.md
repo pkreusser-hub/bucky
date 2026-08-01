@@ -33,6 +33,13 @@ systems*, never art, sound, text, or names from the original. Working title: **F
    claim at game start (radius 12) purely so both start economies have room.
 9. Terrain naming: the classic's families are water/grass/desert/tundra/snow; our SWAMP
    (walkable, unbuildable flavor) + MOUNTAIN≙tundra keep the same buildability rules.
+10. Removing a flag LOSES the goods waiting on it (bookings + boat latches released,
+    itemLost events emitted). The classic scatters them to the ground; nothing sensible
+    recovers scattered goods there either, and losing them keeps the economy honest.
+11. Anti-starvation pickup aging: an item repeatedly passed over at a flag in favour of
+    higher-priority goods slowly gains effective priority, so plank/stone bound for a
+    construction site can never be starved forever on a busy shared road. The classic
+    can starve them indefinitely; a co-op family game shouldn't.
 Everything else — building set, resource set, serf professions + tools, chains, ratios,
 flags/roads/carriers, geologists, mines+food, knights/morale/gold, territory, combat,
 distribution/priority controls — is implemented for real.
@@ -208,8 +215,9 @@ Generation (FSMap.generate(seed, size)):
   middle. If the destination flag's slots are full → carrier waits at his own end holding
   the item (congestion, like the original) but re-checks every tick and can give up →
   return item to origin flag after CONGEST_T.
-- Road demolished / flag destroyed: goods on its slots re-schedule (dest reachable? else
-  destless); carrier walks back to nearest warehouse and rejoins the serf pool; goods in a
+- Road demolished: goods addressed across it re-schedule (dest reachable? else
+  destless). Flag destroyed: the goods ON it are lost (deviation §14.10) — everything
+  else re-schedules; carrier walks back to nearest warehouse and rejoins the serf pool; goods in a
   carrier's hands get dropped at the surviving end. Dest building destroyed → in-transit
   goods re-dest to nearest warehouse at their next flag.
 - Warehouse arrivals credit `inv`; serfs entering warehouses despawn into the pool counts.

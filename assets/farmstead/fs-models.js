@@ -2483,16 +2483,5 @@
     return mesh;
   };
 
-  FSModels.dispose = function () {
-    if (CACHE.kinds) {
-      for (const k in CACHE.kinds) { CACHE.kinds[k].geo.dispose(); CACHE.kinds[k].mat.dispose(); }
-    }
-    for (const k in CACHE) {
-      const c = CACHE[k];
-      if (c && (c.isTexture || c.isBufferGeometry || c.isMaterial)) c.dispose();
-      delete CACHE[k];
-    }
-  };
-
   window.FSModels = FSModels;
 })();

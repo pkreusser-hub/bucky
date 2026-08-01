@@ -146,7 +146,9 @@
   def("fortress",    { size: 2, cost: { plank: 5, stone: 5 }, swings: 64, mil: { cap: 12, terrRadius: 8, goldCap: 8 } });
   // Offsite professions: the TRIP is the cycle (walk out, work, walk back); cycleT is
   // only the short hand-over pause inside the hut. Work lengths live in FSC.CHOP_T etc.
-  def("fisher",      { size: 0, cost: { plank: 2, stone: 0 }, job: "fisher", radius: 7, out: "fish", cycleT: 26, swings: 16 });
+  // fisher radius 4: the confirmed original spiral is dist 1..64 = rings 1-4
+  // (same source row the geologist's GEO_RING [1,4] came from)
+  def("fisher",      { size: 0, cost: { plank: 2, stone: 0 }, job: "fisher", radius: 4, out: "fish", cycleT: 26, swings: 16 });
   def("lumberjack",  { size: 0, cost: { plank: 2, stone: 0 }, job: "lumberjack", radius: 7, out: "lumber", cycleT: 26, swings: 16 });
   def("forester",    { size: 0, cost: { plank: 2, stone: 0 }, job: "forester", radius: 7, cycleT: 26, swings: 16 });
   def("stonecutter", { size: 0, cost: { plank: 2, stone: 0 }, job: "stonecutter", radius: 7, out: "stone", cycleT: 26, swings: 16 });
@@ -185,6 +187,11 @@
   //  were rescaled when the confirmed slope-based walk pacing landed — flat 26 t/edge.)
   FSC.RETRY_T = 120;           // destless goods reschedule period (ticks)
   FSC.CONGEST_T = 600;         // carrier gives up waiting on a full dest flag
+  /* Anti-starvation pickup aging (deviation, plan §14.11): a waiting item gains one
+   * effective priority step per AGE_T ticks so low-priority plank/stone bound for a
+   * construction site can never lose the pickup race forever on a busy road. */
+  FSC.PICKUP_AGE_T = 600;      // ticks per gained priority step (1 game-minute)
+  FSC.PICKUP_AGE_MAX = 26;     // enough steps to eventually outrank anything
   /* ===== PHASE-E: flags this full get a pulsing "congested" highlight ===== */
   FSC.CONGEST_GLOW_MIN = 6;
   FSC.DOOR_T = 4;              // flag->building hand-off ticks
@@ -313,7 +320,8 @@
 
   // ---------- Misc ----------
   FSC.AUTOSAVE_T = 1200;       // ticks (2 min at 1x)
-  FSC.NOTIF_CAP = 40;
+  FSC.NOTIF_CAP = 40;          // per PLAYER — one player's chatter can't evict another's
+  FSC.NOTIF_CAP_TOTAL = 160;   // global backstop on the shared ring (4 players x 40)
   FSC.EVENT_CAP = 400;
 
   /* ===== PHASE-A: world generation ===== */
@@ -500,7 +508,12 @@
   FSC.FISH_MIN_STOCK = 4;      // fish below this never bite
   FSC.FISH_P_DIV = 64;
   FSC.WORK_WALK_MAX = 90;      // offroad A* budget for one worker trip (cost units)
-  FSC.WORK_IDLE_T = 60;        // nothing to do in range → look again in this many ticks
+  FSC.WORK_IDLE_T = 60;        // fallback: look again in this many ticks
+  /* Confirmed original per-profession retry cadences after a MISSED random
+   * sample (internal ticks ÷ 10, same conversion as every other timer). */
+  FSC.WORK_RETRY = { lumberjack: 40, forester: 70, stonecutter: 10, fisher: 10, farmer: 50 };
+  FSC.FARM_GIVEUP_N = 131;     // consecutive missed samples before the farmer rests
+  FSC.FARM_GIVEUP_IDLE_T = 500;
   FSC.FIELD_MAX = 6;           // fields one farm keeps in rotation
   FSC.FIELD_RING = [2, 4];     // fields are sown this far from the farmhouse
   FSC.FIELD_HARVEST_MIN = 2;   // FIELD2 and up can be cut (and the stage advances)

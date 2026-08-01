@@ -198,7 +198,18 @@
 
   FSSim.notify = function (G, p, text, v) {
     G.notif.push({ t: G.tick, p, text, v: v === undefined ? -1 : v });
-    if (G.notif.length > FSC.NOTIF_CAP) G.notif.splice(0, G.notif.length - FSC.NOTIF_CAP);
+    // PER-PLAYER eviction: warring AIs generate chatter fast enough to flush a
+    // shared oldest-first ring, silently deleting the human's own "Under
+    // attack!" entries. Each player owns NOTIF_CAP slots; a global backstop
+    // still bounds the array.
+    let mine = 0;
+    for (let i = 0; i < G.notif.length; i++) if (G.notif[i].p === p) mine++;
+    if (mine > FSC.NOTIF_CAP) {
+      for (let i = 0; i < G.notif.length; i++) {
+        if (G.notif[i].p === p) { G.notif.splice(i, 1); break; }
+      }
+    }
+    if (G.notif.length > FSC.NOTIF_CAP_TOTAL) G.notif.splice(0, G.notif.length - FSC.NOTIF_CAP_TOTAL);
   };
 
   /** Vertices whose terrain/objects changed — the renderer drains this list. */
@@ -423,7 +434,15 @@
       default: r = { ok: false, why: "unknown command" };
     }
     G.cmdLog++;
-    if (!r || !r.ok) event(G, "cmdFail", { cmd: c.type, by: c.by, why: (r && r.why) || "failed", args: a });
+    if (!r || !r.ok) {
+      // args come off the WIRE in co-op — store a bounded copy, never the raw
+      // object (an oversized frame would live in G.events, bloat every save and
+      // ride every resync; serialize walks all of G)
+      let argNote = "";
+      try { argNote = JSON.stringify(a); } catch (e) { argNote = "?"; }
+      if (argNote.length > 200) argNote = argNote.slice(0, 200) + "…";
+      event(G, "cmdFail", { cmd: c.type, by: c.by, why: (r && r.why) || "failed", args: argNote });
+    }
     return r;
   }
   FSSim.execCommand = execCommand;
@@ -840,6 +859,17 @@
     for (const id in G.flags) if (G.flags[id].slots.length) markRetry(G, G.flags[id].id, G.tick);
   }
 
+  /** A flag-addressed boat that loses its address must free the road's latch,
+   * or the ferry never re-requests and silently eats the boat. */
+  function releaseBoatBinding(G, item) {
+    if (item.res === "boat" && item.road) {
+      const r = G.roads[item.road];
+      if (r && r.boatInFlight && !r.boatHave) r.boatInFlight = 0;
+    }
+    item.road = 0;
+  }
+  FSSim.releaseBoatBinding = releaseBoatBinding;
+
   /** Resolve an item's destination: open request → warehouse → destless (retry later). */
   FSSim.scheduleItem = function (G, flag, item) {
     /* ===== PHASE-C: a boat is addressed to a FLAG (the water road's shore end) ===== */
@@ -847,6 +877,7 @@
       const tf = G.flags[item.destFlag];
       if (tf && (tf.id === flag.id || FSSim.hops(G, flag.id, tf.id) >= 0)) return 0;
       item.destFlag = 0;                                    // gone or cut off
+      releaseBoatBinding(G, item);
     }
     if (item.dest) { inFlightAdd(G, G.buildings[item.dest], item.res, -1); item.dest = 0; }
     const dest = FSSim.chooseDemand(G, flag.id, item.res, flag.p)
@@ -859,7 +890,7 @@
   /** Put a good on a flag. dest undefined → resolve now; 0 → deliberately destless. */
   FSSim.pushItem = function (G, flag, res, dest, opts) {
     if (!flag || flag.slots.length >= FSC.FLAG_CAP) return null;
-    const item = { res, dest: 0 };
+    const item = { res, dest: 0, t0: G.tick };   // t0 feeds anti-starvation aging
     flag.slots.push(item);
     /* ===== PHASE-C: flag-addressed goods (a boat for a water road) ===== */
     if (opts && opts.destFlag) {
@@ -968,13 +999,22 @@
       // the existing carrier keeps whichever half he is standing on
       const s = G.serfs[r.carrier];
       if (s) {
-        const idx = r2.path.indexOf(s.v);
-        if (idx >= 0 && r.path.indexOf(s.v) < 0) {
+        const onNew = r2.path.indexOf(s.v) >= 0, onOld = r.path.indexOf(s.v) >= 0;
+        if (onNew || onOld) {
+          if (onNew && !onOld) {
+            r.carrier = 0; r.carrierReq = true;
+            r2.carrier = s.id; r2.carrierReq = false;
+            s.road = r2.id;
+          }
+          resetCarrier(G, s);
+        } else if (!startCarrierWalk(G, s, r)) {
+          // still walking IN (off both halves) and no route to the shortened
+          // road: release him properly so the request system can re-crew it —
+          // a bare resetCarrier here wedges him off-road forever while
+          // r.carrier stays set and blocks any replacement
           r.carrier = 0; r.carrierReq = true;
-          r2.carrier = s.id; r2.carrierReq = false;
-          s.road = r2.id;
+          s.road = 0; sendHome(G, s);
         }
-        resetCarrier(G, s);
       } else {
         r.carrierReq = true;
       }
@@ -992,11 +1032,13 @@
     if (f.bld && G.buildings[f.bld]) return { ok: false, why: "a building uses this flag" };
     const roads = f.roads.slice();
     for (let i = 0; i < roads.length; i++) FSSim.demolishRoad(G, roads[i]);
-    // goods waiting here are lost with the flag (documented deviation: the classic
-    // scatters them; losing them keeps the economy honest and the code simple)
+    // goods waiting here are lost with the flag (deviation, listed in plan §14:
+    // the classic scatters them to the ground; losing them keeps the economy
+    // honest and the code simple — every booking and boat latch is released)
     for (let i = 0; i < f.slots.length; i++) {
       const it = f.slots[i];
       inFlightAdd(G, G.buildings[it.dest], it.res, -1);
+      releaseBoatBinding(G, it);
       event(G, "itemLost", { res: it.res, v: f.v, why: "flag removed" });
     }
     f.slots.length = 0;
@@ -1498,6 +1540,13 @@
       } else if (q.kind === "geo") {
         s.geoFlag = q.id; s.geoSpots = 0; s.geoSeen = [];
         ok = goToFlag(G, s, q.id);
+        if (!ok) {
+          // geologists walk OFFROAD direct to targets (plan §5) — scouting a
+          // mountain flag BEFORE spending planks on a road must dispatch too
+          const tf = G.flags[q.id];
+          const op = tf ? FSSim.offroadPath(G, s.v, tf.v, { maxLen: FSC.OFFROAD_MAX }) : null;
+          if (op) { s.path = op.slice(1); s.offroad = true; ok = true; }
+        }
         if (ok) s.state = "goGeo";
       } else {
         // the site's xxxReq flag stays TRUE while the crewman is en route, so the
@@ -1598,7 +1647,9 @@
         if (destFlag === f.id) handIn = !!b;         // a flag-addressed good just sits there
         else if (FSSim.nextRoad(G, f.id, destFlag) !== r.id) continue;
         if (!b && destFlag === f.id) continue;       // already home
-        const pr = prioIndex(pl, it.res);
+        // anti-starvation aging (plan §14.11): long waits buy priority steps
+        const age = Math.min(FSC.PICKUP_AGE_MAX, ((G.tick - (it.t0 || G.tick)) / FSC.PICKUP_AGE_T) | 0);
+        const pr = prioIndex(pl, it.res) - age;
         if (!best || pr < best.prio || (pr === best.prio && (f.id < best.flag || (f.id === best.flag && i < best.idx)))) {
           best = { flag: f.id, idx: i, prio: pr, res: it.res, handIn };
         }
@@ -1791,8 +1842,19 @@
       return;
     }
     // crews are requested lazily so a cut-off site simply waits.
-    // crewT is a watchdog: a crewman who never made it lets the site ask again.
-    if (b.crewT > 0 && !b.crew && --b.crewT === 0) { b.diggerReq = false; b.builderReq = false; }
+    // crewT is a watchdog: a crewman who never made it lets the site ask again —
+    // but only when nobody is actually still walking in. A slow crewman must not
+    // trigger a duplicate (the second would overwrite b.crew, orphan the first
+    // and could re-level a half-built site).
+    if (b.crewT > 0 && !b.crew && --b.crewT === 0) {
+      let inbound = false;
+      for (const sid in G.serfs) {
+        const s = G.serfs[sid];
+        if (s.target === b.id && (s.job === JOB.DIGGER || s.job === JOB.BUILDER)) { inbound = true; break; }
+      }
+      if (inbound) b.crewT = FSC.CREW_WATCHDOG_T;
+      else { b.diggerReq = false; b.builderReq = false; }
+    }
     if (!b.leveled) {
       if (b.state === "site" && !b.diggerReq && !b.crew) {
         b.diggerReq = true; b.crewT = FSC.CREW_WATCHDOG_T;
@@ -1900,6 +1962,16 @@
     if (f && f.bld === b.id) f.bld = 0;
     if (b.worker && G.serfs[b.worker]) sendHome(G, G.serfs[b.worker]);
     if (b.crew && G.serfs[b.crew]) sendHome(G, G.serfs[b.crew]);
+    // a store's POOLED settlers die with it (garrisons escaped at burn start) —
+    // account for them instead of deleting a population silently
+    if (b.pool) {
+      let lost = 0;
+      for (const k in b.pool) lost += b.pool[k];
+      if (lost > 0) {
+        event(G, "serfLost", { n: lost, p: b.p, v: b.v, why: "store destroyed" });
+        FSSim.notify(G, b.p, lost + " settlers were lost with the store.", b.v);
+      }
+    }
     /* ===== PHASE-D: the ashes hold nobody ===== */
     if (b.mil) { b.mil.knights.length = 0; b.mil.defending = 0; }
     dropRequest(G, "bld", b.id);
@@ -2018,10 +2090,14 @@
         }
         s.v = b.v; s.from = b.v; s.to = b.v; s.frac = 0;
         if (s.job === JOB.DIGGER) {
+          // a late/duplicate digger must never re-level a site that is already
+          // crewed or past leveling — that tore down half-built structures
+          if (b.crew || b.leveled || b.state !== "site") { sendHome(G, s); return; }
           b.crew = s.id; b.diggerReq = false; b.crewT = 0;
           setState(G, b, "leveling");
           s.state = "level"; s.t = FSC.LEVEL_T; s.levelStep = 0;
         } else if (s.job === JOB.BUILDER) {
+          if (b.crew || !b.leveled || b.state !== "site") { sendHome(G, s); return; }
           b.crew = s.id; b.builderReq = false; b.crewT = 0;
           setState(G, b, "build");
           s.state = "hammer";
@@ -2146,7 +2222,7 @@
     for (const id in G.buildings) {
       const b = G.buildings[id];
       if (b.p !== p) continue;
-      if (b.pool) for (const k in b.pool) n += b.pool[k];
+      if (b.pool && b.state !== "burn") for (const k in b.pool) n += b.pool[k];
       if (b.mil && b.state !== "burn") n += b.mil.knights.length;
     }
     return n;
@@ -2224,7 +2300,9 @@
     const map = G.map, O = FSC.OBJ;
     const t = map.terr[v];
     if (t === FSC.TERR.WATER) {
-      if (map.fish[v] < FSC.FISH_CAP && FSC.rng() < FSC.FISH_REGROW_P) map.fish[v]++;
+      // confirmed original: only a shoal with fish LEFT regrows — a vertex fished
+      // to zero can recover only when a neighbour migrates a fish back in
+      if (map.fish[v] > 0 && map.fish[v] < FSC.FISH_CAP && FSC.rng() < FSC.FISH_REGROW_P) map.fish[v]++;
       // shoals drift: one fish moves to a neighbouring water vertex
       if (map.fish[v] > 0) {
         const d = FSC.FISH_MIGRATE_DIRS[FSC.rngInt(FSC.FISH_MIGRATE_DIRS.length)];
@@ -2237,11 +2315,15 @@
     }
     const o = map.obj[v];
     if (o === O.SAPLING) {
-      if (FSC.rng() < FSC.SAPLING_P) { map.obj[v] = O.TREE1; dirty(G, v); }
+      // confirmed original: the SAPLING stage is the only one gated by chance —
+      // one successful 25% roll makes a MATURE tree (mean 4 sweep visits, not 4
+      // consecutive rolls; forestry ran 4x slow before this)
+      if (FSC.rng() < FSC.SAPLING_P) { map.obj[v] = O.TREE4; dirty(G, v); }
       return;
     }
     if (o >= O.TREE1 && o < O.TREE4) {
-      if (FSC.rng() < FSC.SAPLING_P) { map.obj[v] = o + 1; dirty(G, v); }
+      // map-gen's half-grown wild trees just grow up, un-gated (visual stages)
+      map.obj[v] = o + 1; dirty(G, v);
       return;
     }
     if (o === O.STUMP) {
@@ -2362,11 +2444,13 @@
       // food does not re-roll it, so a mine with an empty larder really does stall.
       if (b.skipRoll === undefined) {
         b.mcycle = (b.mcycle || 0) + 1;
-        b.skipRoll = (b.mcycle % FSC.MINE_SKIP_EVERY) === 0 ? 1 : 0;
+        // confirmed original: a RANDOM (r & 7) == 0 roll, not every deterministic
+        // 8th cycle — and a skipped meal still pays the eating-animation time
+        b.skipRoll = FSC.rngInt(FSC.MINE_SKIP_EVERY) === 0 ? 1 : 0;
       }
-      if (b.skipRoll) {                               // one cycle in eight is free
+      if (b.skipRoll) {                               // one cycle in ~eight eats free
         b.skipRoll = undefined;
-        b.mstate = "pre"; b.prodT = FSC.MINE_PRE_T; b.working = true;
+        b.mstate = "eat"; b.prodT = FSC.MINE_EAT_T; b.working = true;
         return;
       }
       if (foodStock(b) <= 0) { b.prodT = FSC.MINE_IDLE_T; b.working = false; return; }
@@ -2516,60 +2600,66 @@
     return FSMap.edgeCount(map, v) === 0;              // never plant across a road
   }
 
-  /** What should this worker do next? {v, kind, arg} or null. */
+  /** ONE uniformly-random tile of the work disc — the confirmed original samples
+   * a single spiral position per attempt (uniform per TILE, so the 42-tile outer
+   * ring is hit 7x as often as the 6-tile inner one; clearing runs disc-uniform,
+   * never inside-out, and output rate degrades with resource density). */
+  function sampleWorkTile(G, b, R) {
+    let k = FSC.rngInt(3 * R * (R + 1));       // hex-disc tile count at d 1..R
+    let hit = -1, hd = 0;
+    FSMap.forRadius(G.map, b.v, R, (u, d) => {
+      if (d < 1 || hit >= 0) return;
+      if (k === 0) { hit = u; hd = d; }
+      k--;
+    });
+    // map edges clip the disc: an off-map sample is simply a miss, like the original
+    return hit < 0 ? null : { u: hit, d: hd };
+  }
+
+  /** What should this worker do next? {v, kind, arg} or null (missed sample). */
   function pickTask(G, b, def) {
     const map = G.map, O = FSC.OBJ, R = def.radius;
-    let best = -1, bestD = 1e9, arg = -1, kind = "";
-    function take(u, d, k, a) {
-      if (d > bestD || (d === bestD && u >= best && best >= 0)) return;
-      best = u; bestD = d; kind = k; arg = a === undefined ? -1 : a;
-    }
+    const smp = sampleWorkTile(G, b, R);
+    if (!smp) return null;
+    const u = smp.u, d = smp.d;
     if (def.job === JOB.LUMBERJACK) {
-      FSMap.forRadius(map, b.v, R, (u, d) => {
-        if (map.obj[u] !== O.TREE4 || taskTaken(G, b.p, u)) return;
-        take(u, d, "chop");
-      });
-    } else if (def.job === JOB.FORESTER) {
-      FSMap.forRadius(map, b.v, R, (u, d) => {
-        if (d < 1 || !freeGrass(G, u) || taskTaken(G, b.p, u)) return;
-        take(u, d, "plant");
-      });
-    } else if (def.job === JOB.STONECUTTER) {
-      FSMap.forRadius(map, b.v, R, (u, d) => {
-        if (!FSMap.isStone(map.obj[u]) || !(map.objArg[u] > 0) || taskTaken(G, b.p, u)) return;
-        take(u, d, "hack");
-      });
-    } else if (def.job === JOB.FISHER) {
-      FSMap.forRadius(map, b.v, R, (u, d) => {
-        // only shoals above the biting threshold are worth the walk
-        if (map.terr[u] !== FSC.TERR.WATER || !(map.fish[u] > FSC.FISH_MIN_STOCK)) return;
-        // stand on the shore next to the shoal
-        for (let k = 0; k < 6; k++) {
-          const sh = FSMap.nbr(map, u, k);
-          if (sh < 0 || !FSMap.walkable(map.terr[sh]) || map.bldAt[sh]) continue;
-          if (taskTaken(G, b.p, sh)) continue;
-          take(sh, d, "fish", u);
-          break;
-        }
-      });
-    } else if (def.job === JOB.FARMER) {
-      // ripe enough to cut? (FIELD2 and up — cutting also ages the field a stage)
-      let fields = 0;
-      FSMap.forRadius(map, b.v, R, (u, d) => {
-        if (!FSMap.isField(map.obj[u])) return;
-        fields++;
-        if (map.obj[u] < O.FIELD0 + FSC.FIELD_HARVEST_MIN || taskTaken(G, b.p, u)) return;
-        take(u, d, "reap");
-      });
-      if (best < 0 && fields < FSC.FIELD_MAX) {
-        FSMap.forRadius(map, b.v, FSC.FIELD_RING[1], (u, d) => {
-          if (d < FSC.FIELD_RING[0] || !freeGrass(G, u) || taskTaken(G, b.p, u)) return;
-          take(u, d, "sow");
-        });
-      }
+      if (map.obj[u] === O.TREE4 && !taskTaken(G, b.p, u)) return { v: u, kind: "chop", arg: -1 };
+      return null;
     }
-    if (best < 0) return null;
-    return { v: best, kind, arg };
+    if (def.job === JOB.FORESTER) {
+      if (freeGrass(G, u) && !taskTaken(G, b.p, u)) return { v: u, kind: "plant", arg: -1 };
+      return null;
+    }
+    if (def.job === JOB.STONECUTTER) {
+      if (FSMap.isStone(map.obj[u]) && map.objArg[u] > 0 && !taskTaken(G, b.p, u)) return { v: u, kind: "hack", arg: -1 };
+      return null;
+    }
+    if (def.job === JOB.FISHER) {
+      // no stock pre-filter: a lean shoal wastes the trip, exactly like the
+      // original — the bite roll (fish − FISH_MIN_STOCK)/64 does the judging
+      if (map.terr[u] !== FSC.TERR.WATER) return null;
+      for (let k = 0; k < 6; k++) {            // stand on the shore next to it
+        const sh = FSMap.nbr(map, u, k);
+        if (sh < 0 || !FSMap.walkable(map.terr[sh]) || map.bldAt[sh]) continue;
+        if (taskTaken(G, b.p, sh)) continue;
+        return { v: sh, kind: "fish", arg: u };
+      }
+      return null;
+    }
+    if (def.job === JOB.FARMER) {
+      // ripe enough to cut? (FIELD2 and up — cutting also ages the field a stage)
+      if (FSMap.isField(map.obj[u])) {
+        if (map.obj[u] >= O.FIELD0 + FSC.FIELD_HARVEST_MIN && !taskTaken(G, b.p, u)) return { v: u, kind: "reap", arg: -1 };
+        return null;
+      }
+      if (d >= FSC.FIELD_RING[0] && d <= FSC.FIELD_RING[1] && freeGrass(G, u) && !taskTaken(G, b.p, u)) {
+        let fields = 0;
+        FSMap.forRadius(map, b.v, R, (w) => { if (FSMap.isField(map.obj[w])) fields++; });
+        if (fields < FSC.FIELD_MAX) return { v: u, kind: "sow", arg: -1 };
+      }
+      return null;
+    }
+    return null;
   }
 
   /** The worker is home and rested — send him out if there is work in range. */
@@ -2579,9 +2669,27 @@
     if (b.prodT > 0) { b.prodT--; return; }
     if (b.outHeld >= FSC.OUT_CAP) { b.prodT = FSC.PROD_FLUSH_T; return; }
     const task = pickTask(G, b, def);
-    if (!task) { b.prodT = FSC.WORK_IDLE_T; b.working = false; return; }
+    if (!task) {
+      // a missed sample waits the profession's confirmed retry cadence; the
+      // farmer additionally "gives up" into a long rest after 131 straight
+      // misses (the original's counter), waking to try again later
+      if (def.job === JOB.FARMER) {
+        b.farmMiss = (b.farmMiss || 0) + 1;
+        if (b.farmMiss >= FSC.FARM_GIVEUP_N) {
+          b.farmMiss = 0; b.prodT = FSC.FARM_GIVEUP_IDLE_T; b.working = false;
+          return;
+        }
+      }
+      b.prodT = FSC.WORK_RETRY[def.job] || FSC.WORK_IDLE_T;
+      b.working = false;
+      return;
+    }
+    if (def.job === JOB.FARMER) b.farmMiss = 0;
     const path = FSSim.offroadPath(G, b.v, task.v, { maxLen: FSC.WORK_WALK_MAX });
-    if (!path || path.length < 2) { b.prodT = FSC.WORK_IDLE_T; b.working = false; return; }
+    if (!path || path.length < 2) {
+      b.prodT = FSC.WORK_RETRY[def.job] || FSC.WORK_IDLE_T; b.working = false;
+      return;
+    }
     s.v = b.v; s.from = b.v; s.to = path[1]; s.frac = 0; s.stepT = 0;
     s.path = path.slice(1);
     s.offroad = true;
@@ -2659,16 +2767,19 @@
     const def = defOf(b);
     if (s.state === "goWork") {
       if (!walk(G, s)) return;
-      s.state = "doWork"; s.t = workTicks(s.workKind); s.fishN = 0;
+      s.state = "doWork"; s.t = workTicks(s.workKind); s.fishN = 0; s.fishWait = 0;
       return;
     }
     if (s.state === "doWork") {
       if (--s.t > 0) return;
       let res;
       if (s.workKind === "fish") {
+        // confirmed original: the bite roll happens only on the SHORT pass;
+        // the long pass is a pure no-check cooldown between attempts
+        if (s.fishWait) { s.fishWait = 0; s.t = FSC.FISH_CHECK_T; return; }
         res = fishCheck(G, s);
-        if (res === 0) {                               // no bite yet — wait and try again
-          s.t = (s.fishN % 2) === 0 ? FSC.FISH_CHECK_T : FSC.FISH_WAIT_T;
+        if (res === 0) {                               // no bite yet — cool down, then retry
+          s.fishWait = 1; s.t = FSC.FISH_WAIT_T;
           return;
         }
       } else {
@@ -2974,11 +3085,13 @@
           const tf = G.flags[it.destFlag];
           if (tf && (tf.id === f.id || FSSim.hops(G, f.id, tf.id) >= 0)) continue;
           it.destFlag = 0;
+          FSSim.releaseBoatBinding(G, it);
         }
         const b = it.dest && G.buildings[it.dest];
         // keep a destination that is still alive AND still reachable by road
         if (b && (b.flag === f.id || FSSim.hops(G, f.id, b.flag) >= 0)) continue;
-        it.dest = 0;
+        // leave it.dest for scheduleItem — its release path is what returns the
+        // in-flight booking; zeroing here would leave a phantom booking forever
         FSSim.scheduleItem(G, f, it);
         if (!it.dest) any = true;
       }
@@ -3037,7 +3150,9 @@
     const inv = FSSim.emptyInv();
     for (const id in G.buildings) {
       const b = G.buildings[id];
-      if (b.p !== p || !b.inv) continue;
+      // a burning store's stock is already unroutable (warehouseNear refuses it)
+      // — reporting it would let the HUD and the AI spend goods that are gone
+      if (b.p !== p || !b.inv || b.state === "burn") continue;
       for (const k in b.inv) inv[k] = (inv[k] || 0) + b.inv[k];
     }
     return inv;
@@ -3046,7 +3161,7 @@
     const pool = FSSim.emptyPool();
     for (const id in G.buildings) {
       const b = G.buildings[id];
-      if (b.p !== p || !b.pool) continue;
+      if (b.p !== p || !b.pool || b.state === "burn") continue;
       for (const k in b.pool) pool[k] = (pool[k] || 0) + b.pool[k];
     }
     return pool;
