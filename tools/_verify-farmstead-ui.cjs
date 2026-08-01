@@ -150,6 +150,24 @@ async function tapEl(page, sel) {
 async function hoverVertex(page, v) {
   await page.evaluate((vv) => window.__FS__.FSRender.setHover(vv), v);
 }
+/**
+ * Drive the page's own frame loop by hand.
+ * requestAnimationFrame is heavily starved in this headless/SwiftShader setup —
+ * measured 0 callbacks in most 500ms windows on a loaded machine — so anything
+ * that only happens per FRAME (the camera glide, FSUI's event pollers, the
+ * ≤4Hz panel refresh) can simply never run inside a sleep(). This calls exactly
+ * what farmstead.html's loop() calls, in the same order, so the checks below
+ * test the real code path without betting on the compositor. dt 0.3 also clears
+ * FSUI's 0.25s accumulator, so the ≤4Hz block runs on every pump.
+ */
+async function pumpUI(page, n, dt) {
+  await page.evaluate((args) => {
+    for (let i = 0; i < args.n; i++) {
+      window.__FS__.FSRender.frame(args.dt);
+      if (window.__FS__.started() && window.FSUI) window.FSUI.frame(args.dt);
+    }
+  }, { n: n || 3, dt: dt === undefined ? 0.3 : dt });
+}
 
 H.run("farmstead-ui", async (t) => {
   /* ══════════════════════════ 1. title screen → start flow ═══════════════ */
@@ -235,6 +253,7 @@ H.run("farmstead-ui", async (t) => {
 
   // QoL#1 auto-connect: the hut's door flag had no road → a connect chip offers one
   await sleep(200);
+  await pumpUI(page, 2);          // the offer fires from pollPending(), i.e. per FRAME
   const chip = await page.evaluate(() => ({
     visible: !document.getElementById("fsConnectChip").classList.contains("hidden"),
   }));
@@ -363,9 +382,14 @@ H.run("farmstead-ui", async (t) => {
   t.check("pause button freezes the tick", pausedOn && pa === pb, { pausedOn, pa, pb });
 
   await page.keyboard.press("Space");
-  await sleep(500);
+  /* WAIT for the loop to deliver frames rather than assume a fixed number
+   * arrive in 500ms: rAF is starved in this headless setup (see pumpUI), so on
+   * a loaded machine two 400ms samples can legitimately land inside the SAME
+   * frame and read equal. The assertion below is unchanged — this only stops
+   * it reporting the renderer's frame rate as a sim bug. */
+  await page.waitForFunction((t0) => window.__FS__.G.tick > t0, { timeout: 15000 }, pa).catch(() => {});
   const resumedTick0 = await page.evaluate(() => window.__FS__.G.tick);
-  await sleep(400);
+  await page.waitForFunction((t0) => window.__FS__.G.tick > t0, { timeout: 15000 }, resumedTick0).catch(() => {});
   const resumedTick1 = await page.evaluate(() => window.__FS__.G.tick);
   t.check("Space resumes ticking", resumedTick1 > resumedTick0, { resumedTick0, resumedTick1 });
   const speedOnAfterResume = await page.evaluate(() =>
@@ -685,6 +709,7 @@ H.run("farmstead-ui", async (t) => {
   const camBeforeJump = await page.evaluate(() => window.__FS__.FSRender.camState());
   await page.click('#fsBellLog [data-act="notif-jump"]');
   await sleep(200);
+  await pumpUI(page, 3);              // the jump is a 0.45s GLIDE, advanced per frame
   const camAfterJump = await page.evaluate(() => window.__FS__.FSRender.camState());
   t.check("clicking a bell entry jumps the camera",
     Math.abs(camAfterJump.tx - camBeforeJump.tx) + Math.abs(camAfterJump.tz - camBeforeJump.tz) > 0.5,
@@ -927,6 +952,215 @@ H.run("farmstead-ui", async (t) => {
   console.log("   …game-over section done, continuing…");
   await t.shot(page, "farmstead_ui");
 
+  /* ══════════════════════════ 13. adversarial-review batch ════════════════
+   * ux#1 rejected-command feedback · ux#2 the cycle-knights control ·
+   * ux#4 help content · quality#1 a save that will not load · fidelity#4 the
+   * castle's garrison capacity · longplay#1 the stalled-site hint.
+   * The page is sitting on the TITLE screen right now (the game-over section
+   * left it there) — which is exactly where the Continue button lives. ════ */
+
+  // ── quality#1a: the title screen's Continue button, when the save won't load
+  const contBefore = await page.evaluate(() => {
+    // an autosave exists from section 11, so the button is showing
+    window.__FS__.__origLoad = window.__FS__.load;
+    window.__FS__.load = function () { return false; };     // stand in for a version-mismatched save
+    return {
+      visible: !document.getElementById("continueBtn").classList.contains("hidden"),
+      toasts: document.getElementById("fsToasts").textContent,
+    };
+  });
+  t.check("Continue button is showing before the failed-load check", contBefore.visible, contBefore);
+  await page.click("#continueBtn");
+  await sleep(200);
+  await pumpUI(page, 2);
+  const contAfter = await page.evaluate(() => ({
+    hidden: document.getElementById("continueBtn").classList.contains("hidden"),
+    started: window.__FS__.started(),
+    toasts: document.getElementById("fsToasts").textContent,
+    toastVisible: (function () {
+      const w = document.getElementById("fsToasts");
+      const r = w.getBoundingClientRect();
+      return w.children.length > 0 && r.width > 0 && r.height > 0 && getComputedStyle(w).display !== "none";
+    })(),
+  }));
+  t.check("quality#1: a save that won't load says so on the title screen",
+    /older version/i.test(contAfter.toasts) && contAfter.started === false, contAfter);
+  t.check("quality#1: …the toast is actually on screen (not buried in the hidden HUD root)",
+    contAfter.toastVisible === true, contAfter);
+  t.check("quality#1: …and the Continue button hides itself", contAfter.hidden === true, contAfter);
+
+  // ── quality#1b: the same refusal through the in-game Save/Load sheet
+  await page.evaluate(() => { window.T.fresh({ speed: 0 }); });
+  await sleep(200);
+  await page.click("#fsMenuBtn");
+  await page.click('#fsMenu [data-act="open-saveload"]');
+  await sleep(150);
+  await page.click('.fs-save-row[data-slot="1"] [data-act="load-slot"]');
+  await sleep(250);
+  const sheetLoadFail = await page.evaluate(() => ({
+    toasts: document.getElementById("fsToasts").textContent,
+    sheetStillOpen: !document.getElementById("fsSheetWrap").classList.contains("hidden"),
+  }));
+  t.check("quality#1: the Save/Load sheet's Load button reports a save it cannot read",
+    /older version/i.test(sheetLoadFail.toasts), sheetLoadFail);
+  await page.evaluate(() => { window.__FS__.load = window.__FS__.__origLoad; });   // un-stub
+  await page.click('#fsSheetWrap [data-act="sheet-close"]');
+  await sleep(100);
+
+  // ── ux#1: the sim refuses to raze the castle → the player is told, and the
+  //         panel that was optimistically closed comes back
+  await page.click("#fsDockSelect");
+  await sleep(80);
+  const razeSetup = await page.evaluate(() => {
+    const FS = window.__FS__, T = window.T;
+    T.fresh({ speed: 0 });
+    const c = T.castle();
+    FS.FSRender.focusVertex(c.v, 30);
+    FS.FSRender.frame(0.016);
+    FS.FSRender.setHover(c.v);
+    window.FSUI.onCanvasClick(c.v);          // select the castle (its panel opens)
+    return { v: c.v, id: c.id, panelOpen: !document.getElementById("fsContext").classList.contains("hidden") };
+  });
+  t.check("ux#1 setup: own castle selected", razeSetup.panelOpen && razeSetup.id > 0, razeSetup);
+  await page.click("#fsDockDemolish");
+  await sleep(80);
+  await page.evaluate((v) => { window.FSUI.onCanvasClick(v); }, razeSetup.v);
+  await sleep(120);
+  const razeDlg = await page.evaluate(() => ({
+    open: !document.getElementById("fsDemolishDialog").classList.contains("hidden"),
+    what: document.getElementById("fsDemolishWhat").textContent,
+  }));
+  t.check("ux#1 setup: the raze confirmation opens on the castle", razeDlg.open && /Castle/i.test(razeDlg.what), razeDlg);
+  await page.evaluate(() => { document.getElementById("fsToasts").textContent = ""; });
+  await page.click('#fsDemolishDialog [data-act="demolish-go"]');
+  await sleep(120);
+  await page.evaluate(() => window.__FS__.ff(20));         // let the command reach execCommand
+  await sleep(200);
+  await pumpUI(page, 3);                                   // …and the UI poller see the cmdFail
+  const razed = await page.evaluate((id) => ({
+    toasts: document.getElementById("fsToasts").textContent,
+    castleAlive: !!window.__FS__.G.buildings[id] && window.__FS__.G.buildings[id].state !== "burn",
+    fails: window.__FS__.events("cmdFail").filter((e) => e.cmd === "demolish").length,
+    panelOpen: !document.getElementById("fsContext").classList.contains("hidden"),
+    panelText: document.getElementById("fsContextBody").textContent,
+  }), razeSetup.id);
+  t.check("ux#1: a refused raze toasts a friendly reason instead of vanishing",
+    /castle can't be torn down/i.test(razed.toasts) && razed.fails >= 1, razed);
+  t.check("ux#1: …the castle really did survive", razed.castleAlive, razed);
+  t.check("ux#1: …and its panel is back, showing the truth",
+    razed.panelOpen && /Castle/i.test(razed.panelText), razed);
+
+  // ── ux#1: an enemy producer offers no pause checkbox, and a halt the sim
+  //         refuses still reaches the player as words
+  const enemyProd = await page.evaluate(() => {
+    const FS = window.__FS__, T = window.T;
+    T.fresh({ speed: 0 });
+    const c = T.castle();
+    const v = T.spotNear("lumberjack", c.v, 5, 10, 1);
+    if (v < 0) return { ok: false };
+    const b = T.plant("lumberjack", v, 1);
+    if (!b) return { ok: false };
+    window.FSUI.onCanvasClick(v);            // select mode is still armed → opens its panel
+    const body = document.getElementById("fsContextBody");
+    return { ok: true, id: b.id, halt: !!body.querySelector('[data-act="ctx-halt"]'),
+      panel: body.textContent.slice(0, 120) };
+  });
+  t.check("ux#1 setup: an enemy producer is selected", enemyProd.ok === true, enemyProd);
+  t.check("ux#1: an enemy building shows no 'pause production' box to lie with",
+    enemyProd.halt === false, enemyProd);
+  await page.evaluate((id) => {
+    document.getElementById("fsToasts").textContent = "";
+    window.__FS__.halt(id, true);            // exactly what the old checkbox did
+  }, enemyProd.id);
+  await page.evaluate(() => window.__FS__.ff(20));
+  await sleep(200);
+  await pumpUI(page, 3);
+  const haltFail = await page.evaluate((id) => ({
+    toasts: document.getElementById("fsToasts").textContent,
+    halted: !!window.__FS__.G.buildings[id].halted,
+  }), enemyProd.id);
+  t.check("ux#1: a refused halt is surfaced as a toast, and the building never halted",
+    /isn't yours/i.test(haltFail.toasts) && haltFail.halted === false, haltFail);
+
+  // ── ux#2: the cycle-knights control, reachable by finger as well as by key
+  await page.click("#fsMenuBtn");
+  await page.click('#fsMenu [data-act="open-knights"]');
+  await sleep(150);
+  const knightSheet = await page.evaluate(() => ({
+    hasCycle: !!document.querySelector('#fsSheetBody [data-act="knight-cycle"]'),
+    label: (document.querySelector('#fsSheetBody [data-act="knight-cycle"]') || {}).textContent || "",
+  }));
+  t.check("ux#2: the Knights sheet offers a Rotate-knights-home button",
+    knightSheet.hasCycle && /rotate/i.test(knightSheet.label), knightSheet);
+  await page.evaluate(() => { document.getElementById("fsToasts").textContent = ""; });
+  await page.click('#fsSheetBody [data-act="knight-cycle"]');
+  await sleep(120);
+  await page.evaluate(() => window.__FS__.ff(20));
+  await sleep(200);
+  await pumpUI(page, 3);
+  const cycled = await page.evaluate(() => ({
+    events: window.__FS__.events("knightsCycled").length,
+    fails: window.__FS__.events("cmdFail").filter((e) => e.cmd === "cycleKnights").length,
+    cycleT: window.__FS__.G.players[0].cycleT || 0,
+    toasts: document.getElementById("fsToasts").textContent,
+  }));
+  t.check("ux#2: …and it really runs a rotation through the same command as the C key",
+    cycled.events >= 1 && cycled.fails === 0 && cycled.cycleT > 0, cycled);
+  t.check("ux#2: …with the same '♻ knights rotating' feedback", /rotating/i.test(cycled.toasts), cycled);
+
+  // ── fidelity#4: the castle's garrison line is its castleKnights target
+  const capLine = await page.evaluate(() => {
+    const FS = window.__FS__, T = window.T;
+    FS.setKnightSetting("castleKnights", 7);
+    FS.FSSim.runCommands(FS.G, true);
+    const c = T.castle();
+    window.FSUI.escape();                    // close the Knights sheet
+    window.FSUI.onCanvasClick(c.v);
+    const txt = document.getElementById("fsContextBody").textContent;
+    const m = /Garrison \(\d+\/(\d+)\)/.exec(txt);
+    return { garrison: m ? m[0] : "(no garrison line)", cap: m ? parseInt(m[1], 10) : -1,
+      set: FS.G.players[0].knights.castleKnights, milCap: FS.FSC.BLD.castle.mil.cap };
+  });
+  t.check("fidelity#4: the castle garrison line reads the player's castleKnights target, not def.mil.cap",
+    capLine.cap === 7 && capLine.set === 7 && capLine.milCap === 12, capLine);
+
+  // ── ux#4: the Help sheet lists the actions it used to omit
+  await page.evaluate(() => window.FSUI.openHelp());
+  await sleep(150);
+  const helpTxt = await page.evaluate(() => document.getElementById("fsSheetBody").textContent);
+  t.check("ux#4: Help lists attack, send-geologist and cycle-knights",
+    /attack/i.test(helpTxt) && /geologist/i.test(helpTxt) && /rotate knights/i.test(helpTxt), helpTxt.slice(-320));
+  await page.click('#fsSheetWrap [data-act="sheet-close"]');
+  await sleep(100);
+
+  // ── longplay#1: a site nothing can reach says how long it has been stuck
+  const stalled = await page.evaluate(() => {
+    const FS = window.__FS__, T = window.T;
+    T.fresh({ speed: 0 });
+    const c = T.castle();
+    // deliberately OFF the road network: no plank/stone can ever arrive
+    const v = T.spotNear("hut", c.v, 12, 18, 0);
+    if (v < 0) return { ok: false };
+    const b = T.plant("hut", v, 0, { finish: false });
+    return { ok: !!b, id: b ? b.id : 0, v, state: b ? b.state : null };
+  });
+  t.check("longplay#1 setup: an unreachable construction site exists", stalled.ok && stalled.state === "site", stalled);
+  await pumpUI(page, 2);                     // one ≤4Hz pass registers the site's wait clock
+  await page.evaluate(() => window.__FS__.ff(1400));   // > 2 sim-minutes of nothing arriving
+  await pumpUI(page, 2);
+  await pumpUI(page, 2);
+  const stallLabel = await page.evaluate((id) => {
+    const FS = window.__FS__, b = FS.G.buildings[id];
+    window.FSUI.onCanvasClick(b.v);
+    return { txt: document.getElementById("fsContextBody").textContent.slice(0, 160),
+      state: b.state, got: (b.matGot.plank || 0) + (b.matGot.stone || 0) };
+  }, stalled.id);
+  const stallMin = /Waiting for materials \((\d+) min\)/.exec(stallLabel.txt);
+  t.check("longplay#1: a long-stalled site shows how long it has been waiting",
+    !!stallMin && parseInt(stallMin[1], 10) >= 2, { stallLabel, stallMin: stallMin && stallMin[1] });
+
+  console.log("   …review-batch section done, continuing…");
+
   /* ══════════════════════════ 12. mobile 390×844 ══════════════════════════
    * A SECOND page (its pageerrors flow into the same t.errors the final "0
    * page errors" check reads below) at a real phone viewport. Every
@@ -1021,6 +1255,75 @@ H.run("farmstead-ui", async (t) => {
 
   await t.shot(mob, "farmstead_ui_mobile");
   console.log("   …mobile section done, continuing…");
+
+  /* ══════════════════════════ 14. ux#3: long-press belongs to the MAP ══════
+   * A THIRD page, with the coarse-pointer stub the touch layer gates on (the
+   * polish suite's pattern) — farmstead.html's window-level capture listener
+   * only arms the 520ms timer for real touches on a coarse-pointer device.
+   * Real PointerEvents, dispatched at the element the finger lands on. ═════ */
+  const lp = await t.newPage({ width: 390, height: 844, deviceScaleFactor: 2 });
+  await lp.evaluateOnNewDocument(() => {
+    const mm = window.matchMedia.bind(window);
+    window.matchMedia = (q) => (q.indexOf("pointer: coarse") >= 0
+      ? { matches: true, media: q, addListener() {}, removeListener() {} } : mm(q));
+  });
+  await lp.goto(t.BASE + "/farmstead.html", { waitUntil: "domcontentloaded" });
+  await lp.waitForFunction(() => !!window.__FS__ && !!window.THREE && !!window.FSUI, { timeout: 20000 });
+  await lp.evaluate(() => { window.__FS__.newGame({ size: "medium", ais: 1, seed: 4242, speed: 0, aiPlan: false }); });
+  await sleep(400);
+  const PE_SRC = "function pe(type,x,y,id){return new PointerEvent(type,{bubbles:true,cancelable:true," +
+    "pointerId:id,pointerType:'touch',clientX:x,clientY:y,button:0});}";
+
+  const lpDock = await lp.evaluate(async (peSrc) => {
+    eval(peSrc);
+    const btn = document.getElementById("fsDockBuild");
+    const r = btn.getBoundingClientRect();
+    const x = r.left + r.width / 2, y = r.top + r.height / 2;
+    btn.dispatchEvent(pe("pointerdown", x, y, 301));
+    await new Promise((res) => setTimeout(res, 700));      // well past the 520ms arm
+    const opened = !document.getElementById("fsTouchCtx").classList.contains("hidden");
+    window.dispatchEvent(pe("pointerup", x, y, 301));
+    return { opened, x, y };
+  }, PE_SRC);
+  t.check("ux#3: holding a finger on dock chrome never opens the map context menu",
+    lpDock.opened === false, lpDock);
+
+  const lpPanel = await lp.evaluate(async (peSrc) => {
+    eval(peSrc);
+    const FS = window.__FS__;
+    document.getElementById("fsDockBuild").click();          // open the build panel
+    const item = document.querySelector("#fsBuildGrid [data-type]");
+    const r = item.getBoundingClientRect();
+    const x = r.left + r.width / 2, y = r.top + r.height / 2;
+    item.dispatchEvent(pe("pointerdown", x, y, 302));
+    await new Promise((res) => setTimeout(res, 700));
+    const opened = !document.getElementById("fsTouchCtx").classList.contains("hidden");
+    window.dispatchEvent(pe("pointerup", x, y, 302));
+    document.getElementById("fsDockSelect").click();
+    FS.FSRender.frame(0.016);
+    return { opened };
+  }, PE_SRC);
+  t.check("ux#3: …nor on a build-panel item", lpPanel.opened === false, lpPanel);
+
+  const lpCanvas = await lp.evaluate(async (peSrc) => {
+    eval(peSrc);
+    const FS = window.__FS__, R = FS.FSRender, FSMap = FS.FSMap;
+    const castle = FS.FSSim.castleOf(FS.G, 0);
+    let v = -1;
+    FSMap.forRadius(FS.G.map, castle.v, 8, (u, d) => { if (v < 0 && d >= 4 && !FSMap.whyFlag(FS.G.map, u, 0)) v = u; });
+    R.focusVertex(v, 16);
+    R.frame(0.05);
+    const s = R.vertexScreen(v);
+    const canvas = document.getElementById("view");
+    canvas.dispatchEvent(pe("pointerdown", s.x, s.y, 303));
+    await new Promise((res) => setTimeout(res, 700));
+    const opened = !document.getElementById("fsTouchCtx").classList.contains("hidden");
+    window.dispatchEvent(pe("pointerup", s.x, s.y, 303));
+    return { opened, v, s };
+  }, PE_SRC);
+  t.check("ux#3: …but a long press on the open map still opens it", lpCanvas.opened === true, lpCanvas);
+  await lp.evaluate(() => { const e2 = document.getElementById("fsTouchCtxCancel"); if (e2) e2.click(); });
+  console.log("   …long-press section done, continuing…");
 
   t.check("0 page errors across the whole suite (desktop + mobile)", t.errors.length === 0, t.errors.slice(0, 10));
 });

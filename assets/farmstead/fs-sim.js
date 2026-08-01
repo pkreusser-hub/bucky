@@ -932,6 +932,7 @@
     } else if (b.state !== "done" && (res === "plank" || res === "stone")) {
       b.matHave[res] = (b.matHave[res] || 0) + 1;
       b.matGot[res] = (b.matGot[res] || 0) + 1;
+      b.lastMatT = G.tick;    // save-durable "last delivery" stamp for the waiting label
     } else if (def.mil && !def.warehouse && res === "goldBar") {
       b.mil.gold = (b.mil.gold || 0) + 1;           /* ===== PHASE-D: morale gold ===== */
     } else if (def.in && def.in[res]) {
@@ -3302,7 +3303,9 @@
     });
   };
 
-  /** FSSim.deserialize(str) → G. Throws on a foreign or wrong-version save. */
+  /** FSSim.deserialize(str) → G. THROWS on a foreign or wrong-version save —
+   * it is the low-level primitive; every caller (title Continue, Save/Load
+   * sheet, net resync) wraps it and turns a throw into a friendly failure. */
   FSSim.deserialize = function (str) {
     const doc = typeof str === "string" ? JSON.parse(str) : str;
     if (!doc || doc.fs !== "farmstead") throw new Error("not a farmstead save");

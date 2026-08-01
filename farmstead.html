@@ -195,6 +195,9 @@
   }
   #hostLeft h3{ margin:0 0 8px; font-size:17px; }
   #hostLeft p{ margin:0 0 14px; font-size:13px; color:#cddcf5; line-height:1.5; }
+  /* the modal offers CONTINUE SOLO or BACK TO THE TITLE — never both at once
+     (a host that died during the first transfer left nothing to continue) */
+  #hostLeft .off{ display:none; }
 
   /* ═══════════════════════════════════════════════════════════════════════
    * ===== PHASE E: the real UI (fs-ui.js builds this markup; CSS lives ======
@@ -669,9 +672,10 @@
 <div id="veil">catching up…</div>
 <div id="hostLeft">
   <div class="box">
-    <h3>Your partner's game closed</h3>
-    <p>The host left the room. You still have the whole kingdom — carry on by yourself?</p>
+    <h3 id="hostLeftTitle">Your partner's game closed</h3>
+    <p id="hostLeftMsg">The host left the room. You still have the whole kingdom — carry on by yourself?</p>
     <button class="playBtn" id="soloBtn">CONTINUE SOLO</button>
+    <button class="playBtn off" id="hostGoneTitleBtn">BACK TO THE TITLE</button>
   </div>
 </div>
 
@@ -728,6 +732,9 @@
   el("supMinus").addEventListener("click", () => { opts.supplies = Math.max(0, opts.supplies - 5); paintSupplies(); });
   el("supPlus").addEventListener("click", () => { opts.supplies = Math.min(50, opts.supplies + 5); paintSupplies(); });
   el("startBtn").addEventListener("click", () => {
+    // starting a fresh game while still seated in a (possibly dead) room must
+    // LEAVE it first — a stale socket must never feed frames into the new world
+    try { const st = window.FSNet && FSNet.state(); if (st && st.role) FSNet.leave(); } catch (e) {}
     const s = parseInt(el("seed").value, 10);
     startGame({ size: opts.size, ais: opts.ais, seed: (isFinite(s) && s > 0) ? s : randSeed(), supplies: opts.supplies });
   });
@@ -1030,6 +1037,13 @@
       return;
     }
     if (sessionMulti) { e.stopPropagation(); return; }   // a late finger re-arriving mid-session
+    /* ===== ux#3: the long-press menu belongs to the MAP alone. This is a
+     * WINDOW-level capture listener, so without a target test a finger held on
+     * ANY chrome (a dock button, a build-panel item, a sheet control) armed the
+     * same "Flag here / Build here" popup — anchored to whatever terrain vertex
+     * happened to raycast behind that button. The canvas is childless, so
+     * contains() is just a null-safe identity test. ===== */
+    if (!(e.target && canvas.contains(e.target))) return;
     armLongPress(e.pointerId, e.clientX, e.clientY);
   }, { capture: true });
 
@@ -1155,6 +1169,7 @@
     if (st.status === "solo") { txt = "🌾 solo (partner gone)"; cls = "gone"; }
     else if (st.status === "hostLeft") { txt = "⚠ host left"; cls = "gone"; }
     else if (!st.peerHere) { txt = "🤝 waiting for partner… " + (st.code || ""); cls = "wait"; }
+    else if (st.status === "unsynced") { txt = "⚠ out of sync — retrying"; cls = "gone"; }
     else if (st.catching) { txt = "⏳ catching up… " + st.behind; cls = "wait"; }
     else {
       txt = "🤝 " + (st.peerName || "Partner") + " · " + (st.role === "host" ? "you host" : "seat " + (st.seat + 1)) +
@@ -1209,10 +1224,16 @@
             netNote('room <span class="code">' + st.code + "</span><br>" +
               (st.peerHere ? "🤝 " + st.peerName + " joined!" : "waiting for partner… share this link:<br>" + st.link));
           } else if (st.role === "guest") {
-            netNote(st.status === "syncing" ? "receiving the world…" : "connected — waiting for the host…");
+            netNote(st.status === "syncing" ? "receiving the world…"
+              : st.status === "hostLeft" ? "the host went quiet…"
+              : st.status === "playing" || st.status === "unsynced" ? ""
+              : "connected — waiting for the host…");
           } else if (st.status === "failed") netNote("⚠ " + (st.err || "couldn't connect"));
+          else if (st.status === "off" || st.status === "solo") netNote("");   // no stale note
         }
-        if (kind === "hostLeft") hostLeftEl.classList.add("on");
+        if (kind === "hostLeft") showHostLeft();
+        // the partner only STALLED — withdraw the modal, nobody has to decide
+        if (kind === "peerBack") hostLeftEl.classList.remove("on");
         if (kind === "peer" && data && data.here) netNote("");
         if (kind === "catchup") document.body.classList.toggle("fs-catchup", !!(data && data.on));
       },
@@ -1245,10 +1266,37 @@
     } catch (e) { done = false; }
     if (!done) toastMode("copy the link above ↑");
   });
+  /**
+   * "Continue solo" is only an honest offer when a world actually ARRIVED. A
+   * host that dies during the FIRST state transfer leaves the guest with
+   * nothing to continue, so that case gets a clean way back to the title
+   * instead (and the stale "connected — waiting…" note goes with it).
+   */
+  function showHostLeft() {
+    const st = FSNet.state();
+    const has = !!G && st.hasWorld !== false;
+    el("hostLeftTitle").textContent = has ? "Your partner's game closed" : "That kingdom never arrived";
+    el("hostLeftMsg").textContent = has
+      ? "The host left the room. You still have the whole kingdom — carry on by yourself?"
+      : "The host left before the world finished arriving, so there is nothing here to carry on with yet.";
+    el("soloBtn").classList.toggle("off", !has);
+    el("hostGoneTitleBtn").classList.toggle("off", has);
+    hostLeftEl.classList.add("on");
+  }
+  function hostLeftToTitle() {
+    hostLeftEl.classList.remove("on");
+    backToTitle();                    // …which leaves the room for us (status → off)
+    netNote("");
+  }
   el("soloBtn").addEventListener("click", () => {
     hostLeftEl.classList.remove("on");
+    if (!G) { hostLeftToTitle(); toastMode("🌾 back to the title"); return; }
     FSNet.detach();
     toastMode("🌾 carrying on solo");
+  });
+  el("hostGoneTitleBtn").addEventListener("click", () => {
+    hostLeftToTitle();
+    toastMode("🌾 back to the title");
   });
   // deep link: farmstead.html#r=<code> joins straight away
   if (FSNet && FSNet.linkCode()) {
@@ -1322,7 +1370,12 @@
     },
     leaveRoom: function () { return FSNet.leave(); },
     serialize: function () { return FSSim.serialize(G); },
-    loadState: function (str) { return adoptWorld(FSSim.deserialize(str)); },
+    loadState: function (str) {
+      // deserialize THROWS on a foreign/older-version save — the UI paths must
+      // get a clean false (and toast), never an uncaught crash
+      try { return adoptWorld(FSSim.deserialize(str)); }
+      catch (e) { console.warn("loadState refused:", e.message); return false; }
+    },
     save: function (slot) {
       try {
         localStorage.setItem("fs_save_" + (slot || 1), FSSim.serialize(G));
@@ -1333,7 +1386,8 @@
       let str = null;
       try { str = localStorage.getItem("fs_save_" + (slot || 1)); } catch (e) { str = null; }
       if (!str) return false;
-      adoptWorld(FSSim.deserialize(str));
+      try { adoptWorld(FSSim.deserialize(str)); }
+      catch (e) { console.warn("load refused:", e.message); return false; }
       return true;
     },
     step: function (dt) { return step(dt === undefined ? FSC.TICK_S : dt); },
@@ -1372,7 +1426,7 @@
         return { id: b.id, type: b.type, p: b.p, ranks: b.mil.knights.slice(),
           wanted: b.mil.wanted, gold: b.mil.gold, goldCap: (FSC.BLD[b.type].mil || {}).goldCap || 0,
           defending: b.mil.defending, attackers: b.mil.attackers.length,
-          tier: FSMil.threatTier(G, b), min: FSMil.minGarrison(G, b), cap: FSMil.capacityOf(b) };
+          tier: FSMil.threatTier(G, b), min: FSMil.minGarrison(G, b), cap: FSMil.capacityOf(G, b) };
       },
       attackTargets: function (p) { return FSMil.attackTargets(G, p || 0); },
       maxAttackers: function (id, p) { return FSMil.maxAttackers(G, id, p || 0); },

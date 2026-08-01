@@ -338,29 +338,9 @@ H.run("farmstead-economy", async (t) => {
     sap.forEach((v) => (map.obj[v] = O.SAPLING));
     fld.forEach((v) => (map.obj[v] = O.FIELD0));
     stump.forEach((v) => (map.obj[v] = O.STUMP));
-    // two fished-out water vertices: one ISOLATED inside a 2-ring dead zone
-    // (must stay dead: only shoals with fish LEFT regrow, confirmed original),
-    // one with a stocked neighbour (must recover by MIGRATION alone). The
-    // migration pair sits >4 tiles from the dead zone so no drift can bridge.
-    let wet = -1, wet2 = -1, wetNbr = -1;
-    FS.FSMap.forRadius(map, T.castle().v, 20, (u) => {
-      if (wet < 0 && map.terr[u] === FSC.TERR.WATER) wet = u;
-    });
-    const excl = new Set();
-    if (wet >= 0) FS.FSMap.forRadius(map, wet, 4, (u) => excl.add(u));
-    FS.FSMap.forRadius(map, T.castle().v, 20, (u) => {
-      if (wet2 >= 0 || wet < 0) return;
-      if (map.terr[u] !== FSC.TERR.WATER || excl.has(u)) return;
-      for (let k = 0; k < 6; k++) {
-        const n = FS.FSMap.nbr(map, u, k);
-        if (n >= 0 && map.terr[n] === FSC.TERR.WATER && !excl.has(n)) { wet2 = u; wetNbr = n; return; }
-      }
-    });
-    if (wet >= 0) {
-      map.fish[wet] = 0;
-      FS.FSMap.forRadius(map, wet, 2, (n) => { if (map.terr[n] === FSC.TERR.WATER) map.fish[n] = 0; });
-    }
-    if (wet2 >= 0) { map.fish[wet2] = 0; map.fish[wetNbr] = 6; }
+    // (fish regrowth/migration is proven in its own controlled block below —
+    // on CONNECTED water a "dead zone" can always be re-seeded by multi-hop
+    // drift, so geometric isolation is not a valid way to test the >0 guard)
     const pass = T.sweepPass();
     // the cursor walk itself: a prime stride must land on every vertex exactly once
     const N = map.W * map.H;
@@ -380,9 +360,6 @@ H.run("farmstead-economy", async (t) => {
       pass, walk: walk.size, mapN: map.W * map.H, before, fieldsBefore,
       grown, sapN: sap.length, rotted, stumpN: stump.length,
       fieldsAfter1, fieldsAfter4, fieldsLate: fld.map((v) => map.obj[v]),
-      fishIsolated: wet >= 0 ? map.fish[wet] : -1,
-      fishMigrated: wet2 >= 0 ? map.fish[wet2] : -1, cap: FSC.FISH_CAP, wet, wet2,
-      overCap: (() => { let n = 0; for (let v = 0; v < map.W * map.H; v++) if (map.fish[v] > FSC.FISH_CAP) n++; return n; })(),
       SAPLING_P: FSC.SAPLING_P,
     };
   });
@@ -394,10 +371,50 @@ H.run("farmstead-economy", async (t) => {
   t.check("fields keep ripening on later passes",
     sweep.fieldsAfter4.every((o, i) => o > sweep.fieldsAfter1[i]), sweep);
   t.check("fields finish as stubble and then clear", sweep.fieldsLate.some((o) => o === 0 || o === 16), sweep);
-  t.check("a shoal fished to ZERO never regrows on its own (confirmed original)",
-    sweep.fishIsolated === 0, sweep);
-  t.check("…but a stocked neighbour restocks it by migration (never past FSC.FISH_CAP)",
-    sweep.fishMigrated > 0 && sweep.fishMigrated <= sweep.cap && sweep.overCap === 0, sweep);
+
+  // ══════════════ fish: the >0 regrowth guard + migration-only recovery
+  // (own controlled block: with EVERY shoal zeroed there is nothing to migrate,
+  // so any fish appearing would prove regrowth-from-zero — the exact bug)
+  const fish = await page.evaluate(() => {
+    const FS = window.__FS__, T = window.T, FSC = FS.FSC;
+    T.fresh();
+    const G = FS.G, map = G.map, N = map.W * map.H;
+    const pass = T.sweepPass();
+    for (let v = 0; v < N; v++) map.fish[v] = 0;
+    FS.ff(pass * 2);
+    let deadTotal = 0;
+    for (let v = 0; v < N; v++) deadTotal += map.fish[v];
+    // seed ONE shoal; drift travels at most 1 hop per pass, so after 2 passes
+    // fish may exist only within 2 hops of the seed (regrowth needs fish>0)
+    let seed = -1;
+    FS.FSMap.forRadius(map, T.castle().v, 20, (u) => {
+      if (seed >= 0 || map.terr[u] !== FSC.TERR.WATER) return;
+      for (let k = 0; k < 6; k++) {
+        const n = FS.FSMap.nbr(map, u, k);
+        if (n >= 0 && map.terr[n] === FSC.TERR.WATER) { seed = u; return; }
+      }
+    });
+    map.fish[seed] = 6;
+    FS.ff(pass * 2);
+    // drift is 1 hop per visit, but the stride can visit a just-fed tile later
+    // in the SAME pass and chain the hop — allow a generous 5-hop envelope
+    const near = new Set();
+    FS.FSMap.forRadius(map, seed, 5, (u) => near.add(u));
+    let nearTotal = 0, farTotal = 0, spread = 0, overCap = 0;
+    for (let v = 0; v < N; v++) {
+      if (map.fish[v] > FSC.FISH_CAP) overCap++;
+      if (!map.fish[v]) continue;
+      if (near.has(v)) { nearTotal += map.fish[v]; if (v !== seed) spread++; }
+      else farTotal += map.fish[v];
+    }
+    return { pass, deadTotal, seed, nearTotal, farTotal, spread, overCap, cap: FSC.FISH_CAP };
+  });
+  t.check("water fished to ZERO everywhere never regrows (confirmed original >0 guard)",
+    fish.deadTotal === 0, fish);
+  t.check("one seeded shoal spreads by MIGRATION to its neighbours",
+    fish.spread > 0 && fish.nearTotal >= 6, fish);
+  t.check("…and drift stays inside its reach envelope (nothing past 5 hops, nothing over cap)",
+    fish.farTotal === 0 && fish.overCap === 0, fish);
 
   // ════════════════════════════════ wood: lumberjack → sawmill, forester
   const wood = await page.evaluate(() => {

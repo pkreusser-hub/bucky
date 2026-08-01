@@ -2333,7 +2333,12 @@
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onPointerUp);
     canvas.addEventListener("wheel", onWheel, { passive: false });
-    canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+    /* every OTHER listener in this block is stored on FSRender so dispose()
+     * (which runs at the top of every init(), i.e. on every New Game) can take
+     * it back off the shared, long-lived <canvas>. This one used to be an
+     * anonymous closure with no reference — one extra retained listener per
+     * game started in a single tab session, forever. */
+    canvas.addEventListener("contextmenu", FSRender._cm = (e) => e.preventDefault());
     window.addEventListener("keydown", FSRender._kd = (e) => onKey(e, true));
     window.addEventListener("keyup", FSRender._ku = (e) => onKey(e, false));
     window.addEventListener("resize", FSRender._rs = () => FSRender.resize());
@@ -2447,6 +2452,7 @@
     window.removeEventListener("pointerup", onPointerUp);
     window.removeEventListener("pointercancel", onPointerUp);
     canvas.removeEventListener("wheel", onWheel);
+    if (FSRender._cm) canvas.removeEventListener("contextmenu", FSRender._cm);
     if (FSRender._kd) window.removeEventListener("keydown", FSRender._kd);
     if (FSRender._ku) window.removeEventListener("keyup", FSRender._ku);
     if (FSRender._rs) window.removeEventListener("resize", FSRender._rs);

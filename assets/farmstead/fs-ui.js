@@ -118,9 +118,17 @@
   }
 
   function toast(text, kind) {
-    toastQueue.push({ id: ++toastGen, text, kind: kind || "info", t: 0 });
+    const t = { id: ++toastGen, text, kind: kind || "info", t: 0 };
+    toastQueue.push(t);
     if (toastQueue.length > 6) toastQueue.shift();     // never grow unbounded; render caps visible to 2
     renderToasts();
+    /* FSUI.frame() ages toasts out, and it doesn't run without a game — so a
+     * toast raised on the title screen (a save that wouldn't load) needs its
+     * own timer or it would sit there forever. */
+    if (!G()) setTimeout(() => {
+      const i = toastQueue.indexOf(t);
+      if (i >= 0) { toastQueue.splice(i, 1); renderToasts(); }
+    }, 5000);
   }
   FSUI.toast = toast;
 
@@ -514,8 +522,17 @@
     // screen's "How to play" link can open the Help sheet before any game
     // exists (its own .hidden class still governs its own visibility).
     document.body.appendChild(document.getElementById("fsSheetWrap"));
+    /* ===== quality#1: same treatment for the toast stack — the title screen
+     * has to be able to SAY something (a save that won't load), and inside the
+     * hidden root nothing it renders can ever be seen. It stays empty unless
+     * something is toasted, and #title sits at z-index 30, so it needs to ride
+     * above that (still under the game-over modal at 34). ===== */
+    const toastsEl = document.getElementById("fsToasts");
+    document.body.appendChild(toastsEl);
+    toastsEl.style.zIndex = "33";
     built = true;
     wireDom();
+    wireContinueButton();
   }
 
   function wireDom() {
@@ -795,7 +812,7 @@
     else if (b.state === "burn") html += '<div class="ctx-row"><span class="fs-dim">🔥 Burning down…</span></div>';
     else {
       if (def.warehouse) html += renderWarehousePanel(b, def);
-      if (def.job || def.in || def.out || def.outTool || def.outWeapon) html += renderProducerPanel(b, def);
+      if (def.job || def.in || def.out || def.outTool || def.outWeapon) html += renderProducerPanel(b, def, mine);
       if (def.mine) html += renderMinePanel(b, def);
       if (def.mil) html += renderMilitaryPanel(b, def, mine);
     }
@@ -804,8 +821,53 @@
     }
     return html;
   }
+  /* ═══════════════════════════════════════════════════════════════════════
+   * ===== longplay#1 (UI half): make a stalled site VISIBLE =================
+   * A site whose plank/stone request lost the flag-pickup race can sit under an
+   * idle builder for most of a session, and the only signal was a static
+   * "Waiting for materials" — indistinguishable from a site that started three
+   * seconds ago. The sim carries no per-site timestamp, so the wait is clocked
+   * here, in SIM TICKS (FSC.TICK_S = 0.1s → 600 ticks = 1 minute), and reset
+   * every time a delivery actually lands. Cheap: one pass over the player's
+   * buildings inside the existing ≤4 Hz block, the same cadence as idle alerts.
+   * (A sim-side b.waitSince would survive save/load and start from the site's
+   * real birth — noted for the sim owner; this half needs no sim change.)
+   * ═══════════════════════════════════════════════════════════════════════ */
+  const TICKS_PER_MIN = 600;                 // FSC.TICK_S 0.1s × 600 = 60s
+  const SITE_STALL_TICKS = TICKS_PER_MIN * 2;  // only shout once it's really stuck
+  const siteWait = new Map();                // bldId → {since, got}
+  function trackSiteWaits() {
+    const g = G();
+    if (!g) return;
+    const p = myPlayer();
+    for (const id in g.buildings) {
+      const b = g.buildings[id];
+      if (b.p !== p || b.state !== "site") { if (siteWait.has(b.id)) siteWait.delete(b.id); continue; }
+      const got = (b.matGot.plank || 0) + (b.matGot.stone || 0);
+      const cur = siteWait.get(b.id);
+      // prefer the sim's save-durable stamp (b.lastMatT) so a stall in progress
+      // when a save loads reports its TRUE age, not the HUD's first sighting
+      const base = b.lastMatT !== undefined ? b.lastMatT : g.tick;
+      if (!cur || cur.got !== got) siteWait.set(b.id, { since: base, got });   // a delivery landed → clock restarts
+    }
+    if (siteWait.size > 64) {                // prune ids that vanished (demolished / finished)
+      siteWait.forEach((v, k) => { if (!g.buildings[k]) siteWait.delete(k); });
+    }
+  }
+  /** How long this site has gone without a delivery, in ticks (0 = not waiting). */
+  function siteWaitTicks(b) {
+    const g = G(), cur = siteWait.get(b.id);
+    if (!g || !cur) return 0;
+    return Math.max(0, g.tick - cur.since);
+  }
   function labelForSiteState(b) {
-    if (b.state === "site") return "Waiting for materials";
+    if (b.state === "site") {
+      const waited = siteWaitTicks(b);
+      if (waited >= SITE_STALL_TICKS) {
+        return "⏳ Waiting for materials (" + Math.floor(waited / TICKS_PER_MIN) + " min)";
+      }
+      return "Waiting for materials";
+    }
     if (b.state === "leveling") return "Levelling the ground";
     if (b.state === "build") return "Under construction";
     return b.state;
@@ -818,7 +880,7 @@
     html += barRow("🔨 Hammering", Math.round(frac * 100), 100, "%");
     return html;
   }
-  function renderProducerPanel(b, def) {
+  function renderProducerPanel(b, def, mine) {
     let html = "";
     const workerLbl = b.worker ? ("👷 " + jobName(def.job) + " at work") :
       (b.workerReq ? ("⏳ waiting for a " + jobName(def.job)) : "—");
@@ -829,8 +891,15 @@
       html += '<div class="ctx-row"><span class="fs-dim">Produced</span><b>' + (b.cycles || 0) + " batches</b></div>";
       if (b.outHeld) html += '<div class="ctx-row fs-warn"><span>⚠ held back</span><b>' + b.outHeld + " (flag full)</b></div>";
     }
-    html += '<label class="fs-toggle"><input type="checkbox" data-act="ctx-halt" data-id="' + b.id + '"' +
-      (b.halted ? " checked" : "") + "> ⏸ pause production</label>";
+    /* ===== ux#1: the pause control only exists for buildings you actually
+     * command. On an enemy's producer the sim always refused ("not yours") yet
+     * the browser still drew the box checked — the UI showing a state that
+     * never happened. Their production is still readable above; only the lie
+     * is gone. ===== */
+    if (mine !== false) {
+      html += '<label class="fs-toggle"><input type="checkbox" data-act="ctx-halt" data-id="' + b.id + '"' +
+        (b.halted ? " checked" : "") + "> ⏸ pause production</label>";
+    }
     return html;
   }
   function renderMinePanel(b) {
@@ -858,9 +927,31 @@
     const m = (b.modes && b.modes[r]) || 0;
     return m === FSC.STOCK_MODE.STOP ? "⛔" : (m === FSC.STOCK_MODE.OUT ? "↗" : "↘");
   }
+  /* ===== fidelity#4: the garrison line used the STATIC def.mil.cap (12 for the
+   * castle) — but the castle has no fixed cap in the original (facts §13): its
+   * real target is the player's own castleKnights setting, which wantedFor()
+   * already honours. Read the live capacity from FSMil (tolerating either
+   * capacityOf signature while the military half lands) and fall back to the
+   * player's setting for the castle so the panel can never print 12 again. */
+  function garrisonCap(b, def) {
+    const g = G();
+    let cap = null;
+    try {
+      if (FSMil && typeof FSMil.capacityOf === "function") {
+        cap = FSMil.capacityOf.length >= 2 ? FSMil.capacityOf(g, b) : FSMil.capacityOf(b);
+      }
+    } catch (e) { cap = null; }
+    if (b.type === "castle") {
+      const pl = g && g.players[b.p];
+      const want = (pl && pl.knights) ? (pl.knights.castleKnights | 0) : null;
+      if (want !== null && cap !== want) cap = want;
+    }
+    if (!(cap >= 0)) cap = (def.mil && def.mil.cap) || 0;
+    return cap;
+  }
   function renderMilitaryPanel(b, def, mine) {
     const g = G();
-    let html = '<div class="ctx-sec">🛡 Garrison (' + b.mil.knights.length + "/" + def.mil.cap + ")</div><div class=\"ctx-garrison\">";
+    let html = '<div class="ctx-sec">🛡 Garrison (' + b.mil.knights.length + "/" + garrisonCap(b, def) + ")</div><div class=\"ctx-garrison\">";
     if (!b.mil.knights.length) html += '<span class="fs-dim">empty</span>';
     for (let i = 0; i < b.mil.knights.length; i++) {
       const rk = b.mil.knights[i];
@@ -932,8 +1023,13 @@
     issue("demolish", { id: demolishTargetId });
     noteIfQueued();
     const id = demolishTargetId;
+    /* ===== ux#1: the selection is dropped OPTIMISTICALLY on the next line —
+     * remember it so a refused raze (the castle) can put the panel back
+     * instead of leaving the player staring at nothing. ===== */
+    const wasSelected = (selKind === "bld" || selKind === "flag") && selId === id;
+    lastDemolishId = wasSelected ? id : 0;
     closeDemolishConfirm();
-    if ((selKind === "bld" || selKind === "flag") && selId === id) selectSubject(null, 0);
+    if (wasSelected) selectSubject(null, 0);
   }
   function describeId(id) {
     const g = G();
@@ -1066,8 +1162,23 @@
         '<label>Min <select data-act="knight-occ" data-tier="' + t + '" data-kind="min">' + occOptions(pair[0]) + "</select></label>" +
         '<label>Max <select data-act="knight-occ" data-tier="' + t + '" data-kind="max">' + occOptions(pair[1]) + "</select></label></div>";
     }
+    /* ===== ux#2: rotating garrisons home (plan §7 — the promotion-churn move)
+     * existed ONLY as the desktop 'C' key, so it was unreachable on a phone and
+     * undiscoverable everywhere. Same command, same toast, now a real button in
+     * the place people look for it. ===== */
+    html += '<div class="fs-sec-h">♻ Rotation</div>';
+    html += '<p class="fs-dim fs-note">Send the garrisons home so fresh knights take their place — the veterans return promoted.</p>';
+    html += '<button class="fs-btn" data-act="knight-cycle">♻ Rotate knights home <span class="fs-dim">(C)</span></button>';
     return html;
   }
+  /** The one cycle-knights path: the Knights-sheet button AND the 'C' key. */
+  function doCycleKnights() {
+    if (!G()) return;
+    issue("cycleKnights", {});
+    noteIfQueued();
+    toast("♻ knights rotating", "info");
+  }
+  FSUI.cycleKnights = doCycleKnights;
   function adjustCastleKnights(d) {
     const pl = G().players[myPlayer()];
     const v = Math.max(0, Math.min(FSC.CASTLE_KNIGHTS_MAX, (pl.knights.castleKnights || 0) + d));
@@ -1157,10 +1268,48 @@
     toast("💾 saved — " + (slot === "auto" ? "autosave" : "slot " + slot), "info");
     refreshOpenSheet();
   }
+  /* ═══════════════════════════════════════════════════════════════════════
+   * ===== quality#1 (UI half): a save that will not load ====================
+   * FSSim.deserialize refuses a foreign/older-format save. Both real load
+   * paths — this sheet's Load button and the title screen's "Continue your
+   * kingdom" — used to give the player NOTHING (the exception escaped and the
+   * click looked like it did nothing at all). The sim half now returns falsy
+   * instead of throwing; the try/catch stays so this half is honest either way.
+   * ═══════════════════════════════════════════════════════════════════════ */
+  const LOAD_FAIL_TEXT = "⚠ Couldn't load that save — it's from an older version";
+  function hasSavedSlot(slot) {
+    try { return !!localStorage.getItem("fs_save_" + slot); } catch (e) { return false; }
+  }
+  function hideContinueButton() {
+    const btn = document.getElementById("continueBtn");
+    if (btn) btn.classList.add("hidden");
+  }
   function doLoadSlot(slot) {
-    if (!FS.load(slot)) { toast("nothing saved there", "err"); return; }
+    if (!hasSavedSlot(slot)) { toast("nothing saved there", "err"); return; }
+    let ok = false;
+    try { ok = !!FS.load(slot); } catch (e) { ok = false; }
+    if (!ok) {
+      toast(LOAD_FAIL_TEXT, "err");
+      if (slot === "auto") hideContinueButton();
+      refreshOpenSheet();
+      return;
+    }
     toast("📂 loaded", "info");
     closeSheet();
+  }
+  /** The title screen's Continue button is wired in farmstead.html (it hides
+   *  itself on a falsy load). This adds the missing WORD for it: a listener
+   *  registered after that one, so it sees the outcome — still on the title
+   *  screen means the save didn't take. */
+  function wireContinueButton() {
+    const btn = document.getElementById("continueBtn");
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      if (G()) return;                       // loaded fine — we're in the game now
+      hideContinueButton();
+      toast(LOAD_FAIL_TEXT, "err");          // (not H.toastMode: it re-toasts, and its
+                                             //  #bmode pill sits under the title screen)
+    });
   }
 
   /* ===== PHASE F: Settings gains the real audio controls (mute / music
@@ -1235,7 +1384,11 @@
       "<h4>Controls</h4><ul>" +
       "<li>Drag to pan · wheel to zoom · Q/E turn · WASD move</li>" +
       "<li>Space / 1 / 2 / 3 — pause / 1× / 2× / 4× speed</li>" +
-      "<li>Dock: 🏠 build · 🚩 flag · 🛤 road · 🔥 demolish · ✋ select</li>" +
+      "<li>Dock: 🏠 build (B) · 🚩 flag (F) · 🛤 road (R) · 🔥 demolish (X) · ✋ select</li>" +
+      /* ===== ux#4: three real actions the list never mentioned ===== */
+      "<li>A — ⚔ attack the enemy building under the cursor (or Attack on its panel)</li>" +
+      "<li>G — 🔍 send a geologist from a mountain flag (or Send geologist on its panel)</li>" +
+      "<li>C — ♻ rotate knights home (or Rotate knights home in ☰ → Knights)</li>" +
       "<li>T — build-suitability overlay · P — ping the map · Esc — cancel / close</li>" +
       "</ul></div>";
   }
@@ -1281,6 +1434,7 @@
       case "prio-up": movePrio(btn, -1); break;
       case "prio-down": movePrio(btn, 1); break;
       case "knight-castle": adjustCastleKnights(parseInt(btn.getAttribute("data-d"), 10)); break;
+      case "knight-cycle": doCycleKnights(); break;                       /* ===== ux#2 ===== */
       case "knight-recruit-tick": FS.setKnightSetting("recruitRate", parseInt(btn.getAttribute("data-lvl"), 10) * FSC.PRIO_STEP); noteIfQueued(); refreshOpenSheet(); break;
       case "knight-strong-toggle": FS.setKnightSetting("attackStrong", !!btn.checked); noteIfQueued(); break;
       case "knight-occ": {
@@ -1423,6 +1577,108 @@
     const p = myPlayer();
     return g.notif.filter((n) => n.p === p);
   }
+  /* ═══════════════════════════════════════════════════════════════════════
+   * ===== ux#1: rejected commands ==========================================
+   * A command is armed CLIENT-side (the panel/dialog is optimistic) but only
+   * ruled on FSC.CMD_DELAY ticks later, inside the sim's execCommand — which
+   * logs a `cmdFail {cmd, by, why}` event and nothing else. Nothing in the UI
+   * ever read those, so a rejected order (raze the castle, pause an enemy's
+   * production, attack out of reach…) simply vanished: no toast, no rollback,
+   * and a checkbox/panel left showing a state the sim never accepted.
+   * This poller is the missing half — it mirrors pollMinimapPing's
+   * scan-the-tail-of-G.events shape, filtered to THIS seat's own orders.
+   * ═══════════════════════════════════════════════════════════════════════ */
+  /** why-code (fs-sim execCommand ← placeFlag/build/demolish/… , fs-military
+   *  attack/cycleKnights) → one short, kind, human line. */
+  const CMD_FAIL_TEXT = {
+    "the castle cannot be torn down": "Your castle can't be torn down.",
+    "already burning": "That is already burning down.",
+    "already done": "That one is already built.",
+    "not yours": "That isn't yours to command.",
+    "not your flag": "That flag isn't yours.",
+    "nothing there": "There's nothing there.",
+    "no building": "That building is gone.",
+    "no flag": "That flag is gone.",
+    "no road": "There's no road there.",
+    "a building uses this flag": "A building stands on that flag — demolish the building first.",
+    "flag is full": "That flag already has all 6 roads.",
+    "same flag": "A road needs two different flags.",
+    "no route": "No road can run that way.",
+    "path does not join the flags": "No road can run that way.",
+    "path repeats a vertex": "No road can run that way.",
+    "roads must meet at a flag": "Roads have to meet at a flag.",
+    "road too long": "That road would be too long.",
+    "both ends must stand on the shore": "A water road needs both ends on the shore.",
+    "off map": "That spot is off the map.",
+    "off the map": "That spot is off the map.",
+    "only one castle": "You only get one castle.",
+    "unknown building": "That building can't go there.",
+    "geologists survey mountains": "Geologists only survey mountains.",
+    "a geologist is already on the way": "A geologist is already on the way there.",
+    "the last rotation is still under way": "The knights are still rotating — give them a moment.",
+    "no knights in range": "No knights are close enough.",
+    "no knights to send": "No knights are free to send.",
+    "no route to the target": "No road route reaches that target.",
+    "nobody is home": "Nobody is home to fight.",
+    "not a military building": "That isn't a military building.",
+    "not finished": "That building isn't finished yet.",
+    "that one is yours": "That one is yours.",
+    "that is your ally's": "That belongs to your ally.",
+    "you are out of the game": "You're out of the game.",
+    "not a warehouse": "That isn't a warehouse.",
+  };
+  const CMD_FAIL_ICO = {
+    flag: "🚩", road: "🛤", build: "🏗", demolish: "🔥", geologist: "🔍",
+    attack: "⚔", halt: "⏸", cycleKnights: "♻", stockMode: "📦", knightSet: "🛡",
+  };
+  function cmdFailText(e) {
+    const known = CMD_FAIL_TEXT[e.why];
+    // renderToasts() esc()s the whole line, so the raw why-code goes in plain
+    return (CMD_FAIL_ICO[e.cmd] || "⚠") + " " + (known || ("That order didn't work — " + String(e.why || "rejected")));
+  }
+  /* the panel/dialog that armed the order may still be showing the state the
+   * sim just refused (the enemy "pause production" checkbox is the reproduced
+   * case: b.halted never changed, so setHTMLIfChanged saw identical markup and
+   * skipped the repaint, leaving the browser's own checked box on screen). */
+  function forceRenderContext() {
+    const body = el("fsContextBody");
+    if (body) body.__fsHtml = null;      // defeat the no-op guard: repaint from G
+    renderContext();
+  }
+  const cmdFailSeen = (typeof WeakSet === "function") ? new WeakSet() : null;
+  let cmdFailFromT = -1;
+  let lastDemolishId = 0;                // so a refused raze can restore its panel
+  function reportCmdFail(e) {
+    toast(cmdFailText(e), "err");
+    if (e.cmd === "demolish" && lastDemolishId) {
+      /* confirmDemolish() optimistically dropped the selection — the thing is
+       * still standing, so put its panel back rather than leave the player
+       * staring at an empty screen wondering what happened. */
+      const g = G();
+      const id = lastDemolishId;
+      if (g && g.buildings[id]) selectSubject("bld", id);
+      else if (g && g.flags[id]) selectSubject("flag", id);
+      lastDemolishId = 0;
+    }
+    forceRenderContext();
+  }
+  function pollCmdFails() {
+    const g = G();
+    if (!g || !g.events) return;
+    if (cmdFailFromT < 0) { cmdFailFromT = g.tick; return; }   // ignore anything from before this game
+    const seat = (FS.FSNet && FS.FSNet.state) ? (FS.FSNet.state().seat || 0) : 0;
+    const fresh = [];
+    for (let i = g.events.length - 1; i >= 0 && fresh.length < 4; i--) {
+      const ev = g.events[i];
+      if (ev.t < cmdFailFromT) break;                          // events are appended in tick order
+      if (ev.type !== "cmdFail" || (ev.by || 0) !== seat) continue;
+      if (cmdFailSeen) { if (cmdFailSeen.has(ev)) continue; cmdFailSeen.add(ev); }
+      fresh.push(ev);
+    }
+    cmdFailFromT = g.tick;
+    for (let i = fresh.length - 1; i >= 0; i--) reportCmdFail(fresh[i]);
+  }
+
   let toastSeenIdx = 0, bellSeenIdx = 0;
   function pollNotifications() {
     const g = G();
@@ -1598,6 +1854,8 @@
     buildTab = "basic"; buildPage = 0; buildType = null; filteredSuitFromBuild = false;
     menuOpen = false; bellOpen = false; alertOpen = false;
     mmPingV = -1; mmPingSeenT = -1;
+    cmdFailFromT = -1; lastDemolishId = 0;   /* ===== ux#1 ===== */
+    siteWait.clear();                        /* ===== longplay#1 ===== */
     el("fsMenu").classList.add("hidden");
     el("fsSheetWrap").classList.add("hidden");
     el("fsContext").classList.add("hidden");
@@ -1618,6 +1876,10 @@
     const root = el("fsui-root");
     if (root) root.classList.add("hidden");
     closeSheet();
+    // the toast stack now lives outside the root (see injectDom) — clear it so
+    // an in-game toast can't linger over the title screen
+    toastQueue = [];
+    renderToasts();
   };
 
   FSUI.frame = function (dt) {
@@ -1634,11 +1896,13 @@
     }
     if (toastsChanged) renderToasts();
     pollNotifications();
+    pollCmdFails();                 /* ===== ux#1: surface rejected commands ===== */
     checkGameOver();
     checkAutosave();
     if (frameAcc >= 0.25) {         // ≤4Hz per plan §11 (also drives idle alerts ≤1Hz in spirit)
       frameAcc = 0;
       updateTicker();
+      trackSiteWaits();               /* ===== longplay#1: clock stalled sites ===== */
       renderAlerts();
       if (selKind) renderContext();
       pollMinimapPing();
