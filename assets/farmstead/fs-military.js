@@ -445,13 +445,17 @@
   }
   function headTable(b) { return FSC.OCC_TABLE[b.type] || FSC.OCC_TABLE.hut; }
 
+  /** The castle has no occupancy table row — its target is the player-set
+   *  stepper (default CASTLE_KNIGHTS_DEFAULT, capped at CASTLE_KNIGHTS_MAX). */
+  function castleWant(G, b) {
+    const pl = G.players[b.p];
+    const n = (pl && pl.knights) ? pl.knights.castleKnights : FSC.CASTLE_KNIGHTS_DEFAULT;
+    return Math.max(0, Math.min(FSC.CASTLE_KNIGHTS_MAX, n | 0));
+  }
+
   /** How many knights this building wants to hold right now. */
   function wantedFor(G, b) {
-    const pl = G.players[b.p];
-    if (b.type === "castle") {
-      const n = (pl && pl.knights) ? pl.knights.castleKnights : FSC.CASTLE_KNIGHTS_DEFAULT;
-      return Math.max(0, Math.min(FSC.CASTLE_KNIGHTS_MAX, n | 0));
-    }
+    if (b.type === "castle") return castleWant(G, b);
     return headTable(b)[occLevels(G, b)[1]];
   }
   /** How many must stay behind when an attack is being put together. */
@@ -461,7 +465,17 @@
   }
   FSMil.wantedFor = wantedFor;
   FSMil.minGarrison = minGarrison;
-  FSMil.capacityOf = function (b) { return headTable(b)[FSC.OCC_LEVEL_MAX]; };
+  /**
+   * The most knights this building could ever hold. The castle has no fixed
+   * cap in the original (facts §13) — its ceiling is the player-set
+   * castleKnights stepper, same as wantedFor(), not the occupancy table (there
+   * is no "castle" row in OCC_TABLE, so that used to silently fall through to
+   * hut's and under-report a big castle's real capacity).
+   */
+  FSMil.capacityOf = function (G, b) {
+    if (b.type === "castle") return castleWant(G, b);
+    return headTable(b)[FSC.OCC_LEVEL_MAX];
+  };
 
   FSMil.refreshWanted = function (G, p) {
     for (const id in G.buildings) {
@@ -920,10 +934,26 @@
     b.reqInFlight = {};
     D.rescheduleFor(G, b.id);
 
-    const cap = FSMil.capacityOf(b);
-    b.mil.attackers.length = 0;
+    const cap = FSMil.capacityOf(G, b);
+    // Only the CAPTURING PLAYER's own arrived knights become the new garrison.
+    // A rival who happened to be besieging the same building at the same
+    // moment (two mutually hostile players sieging one victim) is not this
+    // capture's business — he is never absorbed, never deleted. He stays an
+    // attacker of the building under its new owner and resolves himself the
+    // very next tick through the ordinary state machine (tickKnight, called
+    // before tickFights each tick): same team as byP → the target is now
+    // friendly ground, standDown sends him home; a genuine rival → he keeps
+    // waiting in atkWait and either duels the fresh garrison (startDuel picks
+    // him up once byP's knights are in place) or gives up after
+    // SIEGE_GIVEUP_T like any other stalled siege — never stuck.
+    const stillBesieging = [];
     for (let i = 0; i < split.arrived.length; i++) {
       const s = split.arrived[i];
+      if (s.p !== byP) {
+        if (s.state === "fight") s.state = "atkWait";  // a duel can't outlive its building's owner
+        stillBesieging.push(s.id);
+        continue;
+      }
       s.atkTarget = 0;
       if (b.mil.knights.length < cap) {
         b.mil.knights.push(s.rank | 0);
@@ -938,6 +968,7 @@
       s.atkTarget = 0;
       D.sendHome(G, s);
     }
+    b.mil.attackers = stillBesieging;
     b.mil.wanted = wantedFor(G, b);
     b.mil.claimed = occupied(b);
     event(G, "bldCaptured", { id: b.id, btype: b.type, v: b.v, from: victim, p: byP });
@@ -1040,13 +1071,29 @@
     for (let q = 0; q < G.players.length; q++) {
       if (q !== p && !G.players[q].eliminated) FSSim.notify(G, q, pl.name + " has been wiped out.");
     }
-    for (const id in G.buildings) if (G.buildings[id].p === p) G.doomQ.push({ k: "b", id: G.buildings[id].id });
-    for (const id in G.flags) if (G.flags[id].p === p) G.doomQ.push({ k: "f", id: G.flags[id].id });
-    for (const id in G.serfs) if (G.serfs[id].p === p) G.doomQ.push({ k: "s", id: G.serfs[id].id });
+    // every entry remembers WHO was doomed (p) so the drain can re-check
+    // ownership: DOOM_PER_TICK trickles this out over tens/hundreds of ticks,
+    // and anything the doomed player still owned can be fought over and
+    // CAPTURED by someone else in that window — the queue must never raze a
+    // building or flag that changed hands away from p in the meantime.
+    for (const id in G.buildings) if (G.buildings[id].p === p) G.doomQ.push({ k: "b", id: G.buildings[id].id, p });
+    for (const id in G.flags) if (G.flags[id].p === p) G.doomQ.push({ k: "f", id: G.flags[id].id, p });
+    for (const id in G.serfs) if (G.serfs[id].p === p) G.doomQ.push({ k: "s", id: G.serfs[id].id, p });
     checkVictory(G);
     return true;
   };
 
+  /**
+   * Drain a few doom-queue entries. DOOM_PER_TICK trickles a big estate out
+   * over tens/hundreds of ticks — plenty of time for a LIVE building or flag
+   * still standing in that window to be fought over and captured by somebody
+   * else. Re-check ownership right here at drain time: an entry whose current
+   * owner is no longer the doomed player (d.p) is skipped outright, so the
+   * winner's freshly captured property is never burned by the loser's own
+   * elimination cascade. A serf id is never reused for a different player
+   * (fresh serf ids only go up), so the same check on "s" is just defensive
+   * symmetry with "b"/"f", not a live-exploitable path today.
+   */
   function tickDoom(G) {
     let n = 0;
     while (G.doomQ.length && n < FSC.DOOM_PER_TICK) {
@@ -1054,16 +1101,16 @@
       n++;
       if (d.k === "b") {
         const b = G.buildings[d.id];
-        if (b && b.state !== "burn") FSSim.burnBuilding(G, b, { noEscape: true });
+        if (b && b.state !== "burn" && b.p === d.p) FSSim.burnBuilding(G, b, { noEscape: true });
       } else if (d.k === "f") {
         const f = G.flags[d.id];
-        if (f) {
+        if (f && f.p === d.p) {
           if (f.bld) { const b = G.buildings[f.bld]; if (b) b.flag = 0; f.bld = 0; }
           FSSim.removeFlag(G, f.id);
         }
       } else if (d.k === "s") {
         const s = G.serfs[d.id];
-        if (s) { event(G, "serfFade", { id: s.id, p: s.p, v: s.v, job: s.job }); delete G.serfs[s.id]; }
+        if (s && s.p === d.p) { event(G, "serfFade", { id: s.id, p: s.p, v: s.v, job: s.job }); delete G.serfs[s.id]; }
       }
     }
   }

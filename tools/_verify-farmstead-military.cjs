@@ -308,7 +308,7 @@ H.run("farmstead-military", async (t) => {
     return { ok: true, quiet, hot, full, foe: !!foe, tiersMatchTable,
       bands: FSC.THREAT_NEAR,
       quietLevels: quietLevels, hotLevels: G.players[0].knights.occ[hot.tier].slice(),
-      table: FSC.OCC_TABLE.hut, cap: FSMil.capacityOf(hut),
+      table: FSC.OCC_TABLE.hut, cap: FSMil.capacityOf(G, hut),
       left: hut.mil.knights.slice(), wantedAfter: hut.mil.wanted,
       ejectedRanks: ejected.map((e) => e.rank) };
   });
@@ -936,7 +936,7 @@ H.run("farmstead-military", async (t) => {
 
   // ════════════════════════════════ the command layer (the route Phase E takes)
   const cmd = await page.evaluate(() => {
-    const FS = window.__FS__, T = window.T, FSC = FS.FSC;
+    const FS = window.__FS__, T = window.T, FSC = FS.FSC, FSMil = FS.FSMil;
     T.fresh();
     const G = FS.G;
     const ours = T.plantNear("hut", T.castle().v, 8, 11, 0);
@@ -947,7 +947,18 @@ H.run("farmstead-military", async (t) => {
     T.garrison(foe, [0]);
     const targets = FS.q.attackTargets(0);
     const max = FS.q.maxAttackers(foe.id, 0);
-    const g0 = FS.q.garrison(foe.id);
+    // NOTE: not FS.q.garrison(foe.id) here — that helper lives in farmstead.html
+    // (out of this suite's file-ownership scope) and still calls the pre-fix
+    // FSMil.capacityOf(b) single-arg form; mirror its shape directly against the
+    // corrected FSMil.capacityOf(G, b) instead of tripping that stale call.
+    const g0 = (() => {
+      const b = G.buildings[foe.id];
+      if (!b || !b.mil) return null;
+      return { id: b.id, type: b.type, p: b.p, ranks: b.mil.knights.slice(),
+        wanted: b.mil.wanted, gold: b.mil.gold, goldCap: (FSC.BLD[b.type].mil || {}).goldCap || 0,
+        defending: b.mil.defending, attackers: b.mil.attackers.length,
+        tier: FSMil.threatTier(G, b), min: FSMil.minGarrison(G, b), cap: FSMil.capacityOf(G, b) };
+    })();
     FS.attack(foe.id, 1, { strong: true });           // queued as a command
     FS.ff(FSC.CMD_DELAY + 1);
     const launched = T.ev("attackLaunched").length;
@@ -973,6 +984,207 @@ H.run("farmstead-military", async (t) => {
     cmd.ok && cmd.targets >= 1 && cmd.max > 0 && !!cmd.tgt && cmd.tgt.garrison === 1
     && cmd.g0 && cmd.g0.cap > 0 && cmd.g0.min >= 1 && cmd.strength > 0
     && cmd.knights > 0 && cmd.territory > 0 && cmd.morale > 0, cmd);
+
+  // ════════════════════════════════ FIX simlogic#3: capture() absorbs ONLY the
+  // capturing player's own arrived knights. Two mutually hostile players (p0, p2)
+  // besiege the same p1 fortress at once; a fortress is used deliberately — its
+  // cap (12) comfortably exceeds either single attacker's own arrived count, which
+  // is what actually proves the filter is by PLAYER and not just "ran out of room".
+  const crossSiege = await page.evaluate(() => {
+    const FS = window.__FS__, T = window.T, FSC = FS.FSC, FSMil = FS.FSMil, FSMap = FS.FSMap, FSSim = FS.FSSim;
+    T.fresh({ seed: 5, ais: 2 });
+    const G = FS.G;
+    G.players.forEach((p) => { p.repro = -1; });
+    const map = G.map;
+    function plant(p, type, v) {
+      const b = FSSim.makeBuilding(G, p, type, v, "site");
+      const door = FSMap.doorVertex(map, v);
+      const f = FSSim.makeFlag(G, p, door); f.bld = b.id; b.flag = f.id;
+      FSSim.forceComplete(G, b.id);
+      return b;
+    }
+    const castle = T.castle(0);
+    const spots = [];
+    FSMap.forRadius(map, castle.v, 18, (u, d) => {
+      if (d < 6 || map.terr[u] !== FSC.TERR.GRASS || map.obj[u] !== FSC.OBJ.NONE) return;
+      if (map.bldAt[u] || map.flagAt[u] || FSMap.doorVertex(map, u) < 0) return;
+      spots.push(u);
+    });
+    let T0 = -1, S0 = -1, S2 = -1;
+    outer:
+    for (const t0 of spots) {
+      const near = spots.filter((s) => s !== t0 && FSMap.dist(map, s, t0) >= 5 && FSMap.dist(map, s, t0) <= 14);
+      for (let i = 0; i < near.length; i++) for (let j = i + 1; j < near.length; j++)
+        if (FSMap.dist(map, near[i], near[j]) >= 5) { T0 = t0; S0 = near[i]; S2 = near[j]; break outer; }
+    }
+    if (T0 < 0) return { ok: false, why: "no geometry" };
+    const victim = plant(1, "fortress", T0), src0 = plant(0, "hut", S0), src2 = plant(2, "hut", S2);
+    victim.mil.knights = [0, 0, 0, 0, 0];
+    src0.mil.knights = [4, 4, 4, 4, 4, 4];
+    src2.mil.knights = [4, 4, 4, 4, 4, 4];
+    for (const b of [victim, src0, src2]) b.mil.wanted = 0;
+    for (let p = 0; p < 3; p++) G.players[p].knights.castleKnights = T.castle(p).mil.knights.length;
+    FSMil.recomputeOwnership(G, null);
+    const teams = G.players.map((p) => p.team);
+    FSMil.attack(G, victim.id, 4, 0, true);
+    FSMil.attack(G, victim.id, 4, 2, true);
+    let preArrived = null, capturedAt = -1;
+    for (let i = 0; i < 8000 && capturedAt < 0; i++) {
+      const b = G.buildings[victim.id];
+      if (b && b.p === 1) {
+        const arrived = b.mil.attackers.map((id) => G.serfs[id]).filter((s) => s && (s.state === "atkWait" || s.state === "fight"));
+        preArrived = { p0: arrived.filter((s) => s.p === 0).map((s) => s.id), p2: arrived.filter((s) => s.p === 2).map((s) => s.id) };
+      }
+      FS.ff(1);
+      if (T.ev("bldCaptured").length) capturedAt = G.tick;
+    }
+    if (capturedAt < 0 || !preArrived || !preArrived.p2.length) {
+      return { ok: false, why: "did not land on a genuinely contested capture this run", capturedAt, preArrived };
+    }
+    const b = G.buildings[victim.id];
+    const garrisonEvs = T.ev("knightGarrison").filter((e) => e.bld === victim.id);
+    const wrongOwnerAbsorbed = garrisonEvs.filter((e) => preArrived.p2.indexOf(e.id) >= 0).length;
+    const rivalUntouchedAtCapture = preArrived.p2.every((id) => {
+      const s = G.serfs[id];
+      return !!s && s.p === 2 && s.atkTarget === victim.id;
+    });
+    // let the siege fully resolve — the rival's leftover knights must never be
+    // stuck: they either die dueling the fresh garrison, get pulled home on a
+    // re-capture, or (worst case) give up after SIEGE_GIVEUP_T. Comfortably
+    // bounded on a garrison this small.
+    let resolvedAt = -1;
+    for (let i = 0; i < 6000 && resolvedAt < 0; i++) {
+      FS.ff(1);
+      const stillSieging = FSSim.serfsOf(G, 2).filter((s) => s.job === "knight" && s.atkTarget === victim.id);
+      if (!stillSieging.length) resolvedAt = G.tick;
+    }
+    const finalAttackers = b.mil.attackers.slice();
+    return { ok: true, teams, capturedAt, owner: b.p,
+      garrisonCount: garrisonEvs.length, wrongOwnerAbsorbed,
+      onlyByPAbsorbed: garrisonEvs.every((e) => e.p === b.p),
+      rivalUntouchedAtCapture, resolvedAt,
+      dangling: finalAttackers.filter((id) => !G.serfs[id]).length };
+  });
+  t.check("cross-siege: two rival players' columns both arrived before the decisive duel",
+    crossSiege.ok, crossSiege);
+  t.check("two enemy teams really were besieging (p0/p1/p2 all on separate teams)",
+    crossSiege.ok && crossSiege.teams.join() === "0,1,2", crossSiege);
+  t.check("capture() absorbs ONLY the capturing player's own arrived knights into the garrison",
+    crossSiege.ok && crossSiege.wrongOwnerAbsorbed === 0 && crossSiege.onlyByPAbsorbed
+    && crossSiege.garrisonCount > 0, crossSiege);
+  t.check("the rival's leftover besiegers are untouched at the instant of capture (alive, still targeting the building)",
+    crossSiege.ok && crossSiege.rivalUntouchedAtCapture, crossSiege);
+  t.check("…and the rival's siege resolves cleanly afterward — nobody is left stuck forever",
+    crossSiege.ok && crossSiege.resolvedAt > 0 && crossSiege.dangling === 0, crossSiege);
+
+  // ════════════════════════════════ FIX simlogic#4: tickDoom() re-checks
+  // ownership at drain time — a building captured out from under a doomed
+  // estate must survive the loser's own elimination cascade.
+  const doomSkip = await page.evaluate(() => {
+    const FS = window.__FS__, T = window.T, FSC = FS.FSC, FSMil = FS.FSMil, FSMap = FS.FSMap, FSSim = FS.FSSim;
+    T.fresh({ seed: 5, ais: 1 });
+    const G = FS.G;
+    G.players.forEach((p) => { p.repro = -1; });
+    const map = G.map;
+    function plant(p, type, v) {
+      const b = FSSim.makeBuilding(G, p, type, v, "site");
+      const door = FSMap.doorVertex(map, v);
+      if (door < 0) { delete G.buildings[b.id]; map.bldAt[v] = 0; return null; }
+      const f = FSSim.makeFlag(G, p, door); f.bld = b.id; b.flag = f.id;
+      FSSim.forceComplete(G, b.id);
+      return b;
+    }
+    function grassSpots(around, lo, hi) {
+      const out = [];
+      FSMap.forRadius(map, around, hi, (u, d) => {
+        if (d < lo || map.terr[u] !== FSC.TERR.GRASS || map.obj[u] !== FSC.OBJ.NONE) return;
+        if (map.bldAt[u] || map.flagAt[u] || FSMap.doorVertex(map, u) < 0) return;
+        out.push(u);
+      });
+      return out;
+    }
+    // a big estate for player 1 so DOOM_PER_TICK (a handful a tick) trickles it
+    // out over many ticks — one of these huts (planted LAST, near the tail of
+    // the queue) gets captured by player 0 in the window before the doom
+    // queue's drain reaches it.
+    const c1 = T.castle(1);
+    const filler = grassSpots(c1.v, 3, 14);
+    const fillerBlds = [];
+    for (const v of filler) { if (fillerBlds.length >= 26) break; const b = plant(1, "hut", v); if (b) fillerBlds.push(b); }
+    const spots = grassSpots(T.castle(0).v, 7, 15);
+    let target = null, src = null;
+    for (const t0 of spots) {
+      const near = spots.filter((s) => s !== t0 && FSMap.dist(map, s, t0) >= 5 && FSMap.dist(map, s, t0) <= 14);
+      if (near.length) { src = plant(0, "hut", near[0]); target = plant(1, "hut", t0); break; }
+    }
+    if (!target || !src || !fillerBlds.length) return { ok: false, why: "no geometry" };
+    target.mil.knights = [0]; src.mil.knights = [4, 4, 4, 4];
+    target.mil.wanted = 0; src.mil.wanted = 0;
+    G.players[0].knights.castleKnights = T.castle(0).mil.knights.length;
+    FSMil.recomputeOwnership(G, null);
+    FSMil.attack(G, target.id, 3, 0, true);
+    let g = 0;
+    while (g++ < 4000 && !(target.mil.fight && target.mil.fight.t <= 3)) FS.ff(1);
+    // the castle falls RIGHT NOW, mid-duel — queues player 1's WHOLE estate
+    // (including this contested hut) for the doom cascade
+    FSMil.eliminate(G, 1, 0);
+    const posInQueue = G.doomQ.findIndex((d) => d.k === "b" && d.id === target.id);
+    let capturedAt = -1;
+    for (let i = 0; i < 400 && capturedAt < 0; i++) { FS.ff(1); if (target.p === 0) capturedAt = G.tick; }
+    // drain the ENTIRE doom queue so we know the target's entry was actually
+    // reached and evaluated, not just missed by a lucky timing window
+    for (let i = 0; i < 4000 && G.doomQ.length; i++) FS.ff(1);
+    return { ok: true, posInQueue, capturedAt,
+      doomDrained: G.doomQ.length === 0,
+      captureHeld: target.p === 0, targetState: target.state,
+      siblingBurned: fillerBlds[0].state === "burn",
+      lostToFire: T.ev("serfLost").filter((e) => e.why === "fire" && e.p === 0).length };
+  });
+  t.check("doom-skip: a genuinely contested capture landed inside the cascade's drain window",
+    doomSkip.ok && doomSkip.capturedAt > 0 && doomSkip.posInQueue >= 0, doomSkip);
+  t.check("the doom queue actually reached (and fully drained past) the captured building's entry",
+    doomSkip.ok && doomSkip.doomDrained, doomSkip);
+  t.check("the winner's freshly captured building is NOT razed by the loser's elimination cascade",
+    doomSkip.ok && doomSkip.captureHeld && doomSkip.targetState !== "burn", doomSkip);
+  t.check("…while an untouched sibling of the doomed estate still burns normally (a targeted skip, not a blanket doom bypass)",
+    doomSkip.ok && doomSkip.siblingBurned, doomSkip);
+  t.check("no p0 knight is lost to 'fire' from the loser's own razing",
+    doomSkip.ok && doomSkip.lostToFire === 0, doomSkip);
+
+  // ════════════════════════════════ FIX fidelity#4: capacityOf() honors the
+  // castle's player-set castleKnights target instead of falling through to
+  // OCC_TABLE.hut (there is no "castle" row in that table).
+  const castleCap = await page.evaluate(() => {
+    const FS = window.__FS__, T = window.T, FSC = FS.FSC, FSMil = FS.FSMil;
+    T.fresh();
+    const G = FS.G;
+    const c = T.castle(0);
+    const atDefault = { setting: G.players[0].knights.castleKnights,
+      capacityOf: FSMil.capacityOf(G, c), wantedFor: FSMil.wantedFor(G, c) };
+    G.players[0].knights.castleKnights = 20;
+    FSMil.refreshWanted(G, 0);
+    const at20 = { capacityOf: FSMil.capacityOf(G, c), wantedFor: FSMil.wantedFor(G, c) };
+    G.players[0].knights.castleKnights = 500;             // past FSC.CASTLE_KNIGHTS_MAX
+    const clamped = FSMil.capacityOf(G, c);
+    // regression: non-castle buildings are untouched — still the occupancy
+    // table's own max row, nothing castle-specific leaking into them
+    const hv = T.spotNear("hut", c.v, 6, 10, 0);
+    const hut = hv >= 0 ? T.plant("hut", hv, 0) : null;
+    return { atDefault, at20, clamped, max: FSC.CASTLE_KNIGHTS_MAX,
+      hutCap: hut ? FSMil.capacityOf(G, hut) : null, hutTable: FSC.OCC_TABLE.hut[FSC.OCC_LEVEL_MAX],
+      towerCap: FSMil.capacityOf(G, { type: "tower" }), towerTable: FSC.OCC_TABLE.tower[FSC.OCC_LEVEL_MAX],
+      fortressCap: FSMil.capacityOf(G, { type: "fortress" }), fortressTable: FSC.OCC_TABLE.fortress[FSC.OCC_LEVEL_MAX] };
+  });
+  t.check("capacityOf(castle) matches the player-set castleKnights, not OCC_TABLE.hut's fallback 3",
+    castleCap.at20.capacityOf === 20 && castleCap.atDefault.capacityOf === castleCap.atDefault.setting, castleCap);
+  t.check("…and stays consistent with wantedFor() — the same castleKnights truth, at every setting",
+    castleCap.atDefault.capacityOf === castleCap.atDefault.wantedFor
+    && castleCap.at20.capacityOf === castleCap.at20.wantedFor, castleCap);
+  t.check("capacityOf(castle) is clamped at FSC.CASTLE_KNIGHTS_MAX like wantedFor() is",
+    castleCap.clamped === castleCap.max, castleCap);
+  t.check("non-castle capacityOf is unaffected — still the occupancy table's own max row",
+    castleCap.hutCap === castleCap.hutTable && castleCap.towerCap === castleCap.towerTable
+    && castleCap.fortressCap === castleCap.fortressTable, castleCap);
 
   // ════════════════════════════════ screenshots
   const shotBattle = await page.evaluate(() => {
