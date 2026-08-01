@@ -53,6 +53,42 @@ function startRelay(port) {
   return stat;
 }
 
+/**
+ * A RAW protocol client: one socket in a relay room that speaks (or abuses) the
+ * wire directly. Used by the netcode-hardening section — a hostile peer is the
+ * only way to prove the wire's own bounds, identity latch and backoff, since a
+ * real page never sends a malformed frame.
+ */
+function rawPeer(port, room, role) {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}?room=${room}&role=${role}`);
+  const P = {
+    ws, rx: [],
+    send(o) { try { ws.send(typeof o === "string" ? o : JSON.stringify(o)); return true; } catch (e) { return false; } },
+    close() { try { ws.close(); } catch (e) {} },
+    of(y) { return P.rx.filter((m) => m && m.y === y); },
+    last(y) { const a = P.of(y); return a[a.length - 1] || null; },
+    clear() { P.rx.length = 0; },
+    wait(y, ms) {
+      return new Promise((res, rej) => {
+        const t0 = Date.now();
+        const iv = setInterval(() => {
+          const m = P.last(y);
+          if (m) { clearInterval(iv); res(m); }
+          else if (Date.now() - t0 > (ms || 15000)) { clearInterval(iv); rej(new Error("timeout waiting " + y)); }
+        }, 30);
+      });
+    },
+    ready() { return new Promise((res, rej) => { ws.on("open", res); ws.on("error", rej); }); },
+    /** keep the seat alive the way a real page does (NET_TIMEOUT_MS is real) */
+    heartbeat(frame, ms) { P._hb = setInterval(() => P.send(frame), ms || 250); return P; },
+  };
+  ws.on("message", (d) => { let m = null; try { m = JSON.parse(d.toString()); } catch (e) { return; } P.rx.push(m); });
+  ws.on("error", () => {});
+  const rawClose = P.close;
+  P.close = function () { if (P._hb) { clearInterval(P._hb); P._hb = 0; } rawClose(); };
+  return P;
+}
+
 /* ─────────────────────────────── page helpers ─────────────────────────────── */
 function makePageFactory(t, errors, reqLog, blocked) {
   return async function mkPage(browser, tag) {
@@ -764,7 +800,307 @@ H.run("farmstead-mp", async (t) => {
   t.check("no Firestore request ever left the page in this suite", lobbyReq.length === 0, lobbyReq.slice(0, 4));
   await pr2.close();
 
-  /* ══════════════ 13. wrap up ═══════════════════════════════════════════ */
+  /* ══════════════ 13. netcode hardening: hostile wire ════════════════════
+   * Everything here is driven by a RAW socket, because a real page never sends
+   * a malformed frame. Every assertion reads the contract off FSNet._limits()
+   * or FSC, so tuning a bound updates the suite instead of breaking it.       */
+  const FSCn = require("../assets/farmstead/fs-const.js");
+  const hardHost = await mkPage(t.browser, "hard-host");
+  await bootPage(hardHost, url(t));
+  await hardHost.evaluate(() => { try { localStorage.setItem("choreUser", "Dad"); } catch (e) {} });
+  await hardHost.evaluate(() => window.__FS__.hostGame("shared", {
+    seed: 2468, size: "small", ais: 1, code: "HARD1", speed: 1,
+  }));
+  const LIMS = await hardHost.evaluate(() => window.FSNet._limits());
+  t.check("the wire bounds are published as a contract (frame/args/backoff/give-up)",
+    LIMS.CMD_FRAME > 0 && LIMS.ARG_DEPTH > 0 && LIMS.ARG_STR > 0 &&
+    LIMS.STATE_MIN_MS > 0 && LIMS.STATE_MAX_MS >= LIMS.STATE_MIN_MS && LIMS.SYNC_GIVEUP > 1, LIMS);
+
+  const mal = rawPeer(RELAY_PORT, "HARD1", "guest");
+  await mal.ready();
+  mal.send({ y: "hello", name: "Mallory", ver: 1, p: "mallory-pid" });
+  mal.heartbeat({ y: "gbeat", t: 0, p: "mallory-pid" }, FSCn.NET_BEAT_MS);
+  await mal.wait("stateEnd", 25000);
+  await t.sleep(300);
+
+  // ── (a) `beat` is a GUEST-only frame, and its speed rides a whitelist ─────
+  const drive = (n) => hardHost.evaluate((k) => {
+    const FS = window.__FS__, t0 = FS.G.tick;
+    for (let i = 0; i < k; i++) FS.step(0.1);
+    return { gained: FS.G.tick - t0, speed: FS.G.speed };
+  }, n);
+  const beatBase = await drive(20);
+  mal.send({ y: "beat", t: 12345, sp: "abc", p: "mallory-pid" });
+  await t.sleep(300);
+  const beatJunk = await drive(20);
+  mal.send({ y: "beat", t: 12346, sp: 9999, p: "mallory-pid" });
+  await t.sleep(300);
+  const beatWild = await hardHost.evaluate(() => {
+    const FS = window.__FS__;
+    const c = FS.cmd("flag", { v: -1 });            // any command: read its exec tick
+    return { speed: FS.G.speed, lead: c.t - FS.G.tick, gained: 0 };
+  });
+  const beatOut = await drive(20);
+  t.check("a peer's `beat` can never write the host's sim speed (FSC.SPEEDS whitelist)",
+    FSCn.SPEEDS.indexOf(beatJunk.speed) >= 0 && FSCn.SPEEDS.indexOf(beatWild.speed) >= 0,
+    { junk: beatJunk.speed, wild: beatWild.speed, SPEEDS: FSCn.SPEEDS });
+  // 20 × step(0.1 s) at 1× is 2 s of sim; the page's own accumulator runs
+  // alongside the driver, so allow a tick of slack either side of the ideal
+  const wantTicks = Math.round(20 * 0.1 / FSCn.TICK_S) - 2;
+  t.check("…so the host's shared clock never freezes on a wire value",
+    beatBase.gained >= wantTicks && beatJunk.gained >= wantTicks && beatOut.gained >= wantTicks,
+    { beatBase, beatJunk, beatOut, wantTicks });
+  t.check("…and the command lead stays inside the lockstep window",
+    beatWild.lead <= FSCn.CMD_DELAY_MP * Math.max(1, beatWild.speed), beatWild);
+  const beatsOut = mal.of("beat").map((m) => m.sp);
+  t.check("…and the host's own heartbeat never re-broadcasts a poisoned speed",
+    beatsOut.length > 0 && beatsOut.every((s) => FSCn.SPEEDS.indexOf(s) >= 0), beatsOut.slice(-3));
+
+  // ── (b) command frames are bounded in size AND shape ─────────────────────
+  const inflate0 = await hardHost.evaluate(() => ({ bytes: window.__FS__.serialize().length,
+    dropped: window.__FS__.netState().dropped }));
+  mal.send({ y: "cmd", type: "flag", p: "mallory-pid", rq: 900,
+    args: { v: 1, junk: "x".repeat(LIMS.CMD_FRAME * 8) } });
+  mal.send({ y: "cmd", type: "flag", p: "mallory-pid", rq: 901,
+    args: { deep: { deep: { deep: { deep: { deep: 1 } } } } } });          // past ARG_DEPTH
+  await t.sleep(500);
+  await hardHost.evaluate(() => window.__FS__.ff(30));
+  const inflate1 = await hardHost.evaluate(() => ({ bytes: window.__FS__.serialize().length,
+    dropped: window.__FS__.netState().dropped, st: window.__FS__.netState().status,
+    save: window.__FS__.save(9) }));
+  t.check("an oversized/mis-shaped command frame never reaches the sim (world stays its size)",
+    inflate1.bytes < inflate0.bytes * 2 && inflate1.save === true, { a: inflate0.bytes, b: inflate1.bytes });
+  t.check("…it is dropped and COUNTED, and the host plays on",
+    inflate1.dropped >= inflate0.dropped + 2 && inflate1.st === "playing", inflate1);
+  t.check("…and the sender is told why", mal.of("cmdNo").some((m) => /big/i.test(String(m.why || ""))),
+    mal.of("cmdNo").map((m) => m.rq + ":" + m.why));
+  // the SAME command shape, within bounds, still works (the bound is not a wall)
+  const legit = await hardHost.evaluate(() => {
+    const FS = window.__FS__, G = FS.G, FSMap = FS.FSMap;
+    const c = FS.FSSim.castleOf(G, 0);
+    let v = -1;
+    FSMap.forRadius(G.map, c.v, 7, (u) => { if (v < 0 && !FSMap.whyFlag(G.map, u, 0)) v = u; });
+    return v;
+  });
+  mal.send({ y: "cmd", type: "flag", args: { v: legit }, rq: 902, p: "mallory-pid" });
+  await t.sleep(300);
+  await hardHost.evaluate(() => window.__FS__.ff(30));
+  const legitOut = await hardHost.evaluate((v) => window.__FS__.q.flagAt(v), legit);
+  t.check("…while an in-bounds command from the same peer still lands", legitOut > 0, { legit, legitOut });
+
+  // ── (c) the seat is LATCHED: a third socket gets nothing ─────────────────
+  const st3a = await stateOf(hardHost);
+  const intruder = rawPeer(RELAY_PORT, "HARD1", "guest");
+  await intruder.ready();
+  intruder.clear();
+  intruder.send({ y: "hello", name: "Intruder", ver: 1, p: "intruder-pid" });
+  await t.sleep(900);
+  const st3b = await stateOf(hardHost);
+  t.check("a room that already seats a partner refuses a third peer (no welcome, no world)",
+    intruder.of("welcome").length === 0 && intruder.of("stateBegin").length === 0 &&
+    st3b.peerName === st3a.peerName && st3b.joins === st3a.joins,
+    { welcomes: intruder.of("welcome").length, states: intruder.of("stateBegin").length,
+      a: st3a.peerName, b: st3b.peerName });
+  t.check("…and it is told the room is full, addressed to it alone",
+    intruder.of("full").some((m) => m.to === "intruder-pid") && st3b.rejects > st3a.rejects,
+    { full: intruder.of("full"), rejects: [st3a.rejects, st3b.rejects] });
+  // …and its departure must not evict the REAL partner
+  intruder.close();
+  await t.sleep(LIMS.PEER_LEAVE_MS + 800);
+  const st3c = await stateOf(hardHost);
+  t.check("…and when the third peer leaves, the seated partner keeps its seat",
+    st3c.peerHere === true && st3c.status === "playing", st3c);
+
+  // ── (d) full-state transfers are rate-limited + escalate ─────────────────
+  mal.clear();
+  const sync0 = await hardHost.evaluate(() => window.FSNet._sync());
+  for (let i = 0; i < 12; i++) mal.send({ y: "desync", t: 100, h: 0, p: "mallory-pid" });
+  await t.sleep(900);
+  const burst = mal.of("stateBegin").length;
+  const sync1 = await hardHost.evaluate(() => window.FSNet._sync());
+  t.check("a burst of 12 `desync` frames ships ONE world, not twelve",
+    burst <= 1 && sync1.defers > sync0.defers, { burst, defers: [sync0.defers, sync1.defers] });
+  t.check("…the next transfer is deferred by the backoff, which escalates",
+    sync1.pending === "resync" && sync1.backoffMs > LIMS.STATE_MIN_MS &&
+    sync1.backoffMs <= LIMS.STATE_MAX_MS, sync1);
+  await t.sleep(LIMS.STATE_MAX_MS + 1200);
+  const after = mal.of("stateBegin").length;
+  const sync2 = await hardHost.evaluate(() => window.FSNet._sync());
+  t.check("…and the deferred transfer really does ship once the window opens",
+    after > burst && sync2.pending === "", { burst, after, sync2 });
+  const stD = await stateOf(hardHost);
+  t.check("…so 12 divergence reports cost at most a couple of worlds",
+    stD.resyncs <= 3 && stD.status !== "off", { resyncs: stD.resyncs, status: stD.status });
+  // a real save to hand to the hostile-host cases below
+  const world = await hardHost.evaluate(() => ({ s: window.__FS__.serialize(), t: window.__FS__.G.tick }));
+  mal.close();
+  await hardHost.close();
+
+  // ── (e) a hostile HOST: garbage stateChunk indices must not fault a guest ─
+  const hardGuest = await mkPage(b2, "hard-guest");
+  await bootPage(hardGuest, url(t));
+  const fakeHost = rawPeer(RELAY_PORT, "HARD2", "host");
+  await fakeHost.ready();
+  await hardGuest.evaluate(() => window.__FS__.joinGame("HARD2"));
+  await fakeHost.wait("hello", 15000);
+  const worldStr = world.s;
+  const CH = FSCn.NET_CHUNK;
+  const parts = [];
+  for (let i = 0; i * CH < worldStr.length; i++) parts.push(worldStr.substr(i * CH, CH));
+  fakeHost.send({ y: "welcome", seat: 1, mode: "shared", hostName: "Mal", tick: 0,
+    settings: { seed: 4242, size: "medium", ais: 1, mode: "shared" } });
+  fakeHost.send({ y: "stateBegin", id: 11, total: parts.length, bytes: worldStr.length,
+    tick: world.t, seq: 1, hash: 0, why: "join" });
+  fakeHost.send({ y: "stateChunk", id: 11, i: "length", s: "9999999999" });   // used to THROW
+  fakeHost.send({ y: "stateChunk", id: 11, i: -5, s: "nope" });
+  fakeHost.send({ y: "stateChunk", id: 11, i: 1e9, s: "nope" });
+  fakeHost.send({ y: "stateChunk", id: 11, i: 1.5, s: "nope" });
+  fakeHost.send({ y: "stateChunk", id: 11, i: { toString() { return "0"; } }, s: "nope" });
+  fakeHost.send({ y: "stateChunk", id: 11, i: 0, s: 12345 });                 // s not a string
+  fakeHost.send({ y: "stateChunk", id: 11, i: 0, s: "y".repeat(CH * 2) });    // oversized chunk
+  fakeHost.send({ y: "stateBegin", id: 12, total: -1 });                      // used to RangeError
+  fakeHost.send({ y: "stateBegin", id: 13, total: 1e9 });
+  for (let i = parts.length - 1; i >= 0; i--) {
+    fakeHost.send({ y: "stateChunk", id: 11, i: i, s: parts[i] });
+    fakeHost.send({ y: "stateChunk", id: 11, i: i, s: parts[i] });            // duplicate
+  }
+  fakeHost.send({ y: "stateEnd", id: 11 });
+  await hardGuest.waitForFunction(() => window.__FS__.netState().status === "playing", { timeout: 25000 })
+    .catch(() => {});
+  const chunkOut = await hardGuest.evaluate(() => ({
+    st: window.__FS__.netState(), started: window.__FS__.started(),
+    tick: window.__FS__.G ? window.__FS__.G.tick : -1,
+  }));
+  t.check("garbage stateChunk indices are dropped, counted, and never throw",
+    chunkOut.st.dropped >= 7 && errors.filter((e) => /hard-guest/.test(e)).length === 0,
+    { dropped: chunkOut.st.dropped, errs: errors.filter((e) => /hard-guest/.test(e)).slice(0, 3) });
+  // the guest may extrapolate up to the command lead past the snapshot tick — but
+  // never BEFORE it, and never anywhere else (a miscounted chunk = a broken world)
+  t.check("…and the transfer still rebuilds the exact world (duplicates never miscount)",
+    chunkOut.started === true && chunkOut.st.status === "playing" &&
+    chunkOut.tick >= world.t && chunkOut.tick <= world.t + FSCn.CMD_DELAY_MP * 4,
+    { chunkOut, want: world.t });
+  t.check("…and only a world that really ARRIVED counts as one", chunkOut.st.hasWorld === true, chunkOut.st);
+
+  // ── (f) …and a guest with NO world is never offered "continue solo" ───────
+  const noWorld = await mkPage(b2, "no-world");
+  await bootPage(noWorld, url(t));
+  const deadHost = rawPeer(RELAY_PORT, "HARD3", "host");
+  await deadHost.ready();
+  await noWorld.evaluate(() => window.__FS__.joinGame("HARD3"));
+  await deadHost.wait("hello", 15000);
+  deadHost.send({ y: "welcome", seat: 1, mode: "shared", hostName: "Mal", tick: 0,
+    settings: { seed: 1, size: "small", ais: 1, mode: "shared" } });
+  deadHost.send({ y: "stateBegin", id: 21, total: parts.length, bytes: worldStr.length,
+    tick: world.t, seq: 1, hash: 0, why: "join" });
+  for (let i = 0; i < Math.floor(parts.length / 2); i++) {
+    deadHost.send({ y: "stateChunk", id: 21, i: i, s: parts[i] });
+  }
+  await t.sleep(300);
+  deadHost.close();                                     // the host dies mid-transfer
+  await noWorld.waitForFunction(() => window.__FS__.netState().status === "hostLeft", { timeout: 20000 })
+    .catch(() => {});
+  const gone = await noWorld.evaluate(() => ({
+    st: window.__FS__.netState(), started: window.__FS__.started(),
+    modal: document.getElementById("hostLeft").classList.contains("on"),
+    soloOffered: !document.getElementById("soloBtn").classList.contains("off"),
+    titleOffered: !document.getElementById("hostGoneTitleBtn").classList.contains("off"),
+  }));
+  t.check("a host that dies during the FIRST transfer leaves the guest informed, not hung",
+    gone.st.status === "hostLeft" && gone.modal === true && gone.st.hasWorld === false, gone);
+  t.check("…and 'continue solo' is not offered with no world to continue",
+    gone.soloOffered === false && gone.titleOffered === true, gone);
+  await noWorld.click("#hostGoneTitleBtn");
+  await t.sleep(300);
+  const backHome = await noWorld.evaluate(() => ({
+    title: !document.getElementById("title").classList.contains("hidden"),
+    modal: document.getElementById("hostLeft").classList.contains("on"),
+    note: document.getElementById("netNote").textContent,
+    chipHidden: document.getElementById("netChip").classList.contains("hidden"),
+    st: window.__FS__.netState().status,
+  }));
+  t.check("…the way out lands cleanly on the title, with no stale co-op note or chip",
+    backHome.title === true && backHome.modal === false && backHome.note === "" &&
+    backHome.chipHidden === true && backHome.st === "off", backHome);
+  fakeHost.close();
+  await hardGuest.close();
+  await noWorld.close();
+
+  // ── (g) LIVENESS: a stalled tab is not a departure ───────────────────────
+  // An ordinary phone lock / GC pause / tab freeze runs past NET_TIMEOUT_MS with
+  // the socket still open. Both sides must notice, neither may burn the session.
+  const liveHost = await mkPage(t.browser, "live-host");
+  const liveGuest = await mkPage(b2, "live-guest");
+  await bootPage(liveHost, url(t));
+  await bootPage(liveGuest, url(t));
+  await liveHost.evaluate(() => { try { localStorage.setItem("choreUser", "Dad"); } catch (e) {} });
+  await liveGuest.evaluate(() => { try { localStorage.setItem("choreUser", "Eleanor"); } catch (e) {} });
+  await liveHost.evaluate(() => window.__FS__.hostGame("shared", {
+    seed: 13579, size: "small", ais: 1, code: "HARD4", speed: 0,
+  }));
+  await liveGuest.evaluate(() => window.__FS__.joinGame("HARD4"));
+  await liveGuest.waitForFunction(() => window.__FS__.netState().status === "playing", { timeout: 25000 });
+  await advance(liveHost, liveGuest, 30);
+  const live0 = await stateOf(liveHost);
+  const NAP = FSCn.NET_TIMEOUT_MS + 3000;
+
+  // the GUEST's tab freezes …
+  const napping = liveGuest.evaluate((ms) => { const t0 = Date.now(); while (Date.now() - t0 < ms) {} return 1; }, NAP);
+  let noticed = null;
+  for (let i = 0; i < Math.ceil(NAP / 500) && !noticed; i++) {
+    await t.sleep(500);
+    const s = await liveHost.evaluate(() => ({
+      st: window.__FS__.netState(),
+      left: window.__FS__.G.notif.filter((n) => /left the kingdom/i.test(n.text)).length,
+      gone: window.__FS__.events("netPeer").filter((e) => e.here === false).length,
+    }));
+    if (s.st.peerHere === false) noticed = s;
+  }
+  t.check("a partner whose tab freezes past NET_TIMEOUT_MS is noticed",
+    !!noticed && noticed.st.peerHere === false && noticed.st.status === "waiting", noticed);
+  t.check("…but silence is not a departure: nobody is told their partner left",
+    !!noticed && noticed.left === 0 && noticed.gone === 0, noticed);
+  await napping;
+  await liveHost.waitForFunction(() => window.__FS__.netState().peerHere === true, { timeout: 15000 })
+    .catch(() => {});
+  const live1 = await stateOf(liveHost);
+  t.check("…and the moment it breathes again the host has its partner back — no rejoin",
+    live1.peerHere === true && live1.status === "playing" && live1.joins === live0.joins,
+    { before: live0.joins, after: live1.joins, st: live1.status });
+  await advance(liveHost, liveGuest, 40, 30000);
+  const liveEq = await agree(liveHost, liveGuest);
+  t.check("…and the two worlds are still bit-identical afterwards", liveEq.ok, liveEq);
+
+  // … now the HOST's tab freezes: the guest must not lose its kingdom
+  const napping2 = liveHost.evaluate((ms) => { const t0 = Date.now(); while (Date.now() - t0 < ms) {} return 1; }, NAP);
+  let sawModal = null;
+  for (let i = 0; i < Math.ceil(NAP / 500) && !sawModal; i++) {
+    await t.sleep(500);
+    const s = await liveGuest.evaluate(() => ({
+      st: window.__FS__.netState(),
+      modal: document.getElementById("hostLeft").classList.contains("on"),
+    }));
+    if (s.st.status === "hostLeft") sawModal = s;
+  }
+  t.check("a HOST that freezes past NET_TIMEOUT_MS is noticed by the guest too",
+    !!sawModal && sawModal.st.status === "hostLeft" && sawModal.st.connected === true, sawModal);
+  await napping2;
+  await liveGuest.waitForFunction(() => window.__FS__.netState().status === "playing", { timeout: 15000 })
+    .catch(() => {});
+  const back = await liveGuest.evaluate(() => ({
+    st: window.__FS__.netState(),
+    modal: document.getElementById("hostLeft").classList.contains("on"),
+  }));
+  t.check("…and when it comes back the guest is re-admitted and the modal withdrawn",
+    back.st.status === "playing" && back.st.peerHere === true && back.modal === false,
+    { back, sawModalFirst: !!sawModal });
+  await advance(liveHost, liveGuest, 40, 30000);
+  const liveEq2 = await agree(liveHost, liveGuest);
+  t.check("…with the guest's clock following the host again, still in lockstep", liveEq2.ok, liveEq2);
+  await liveGuest.close();
+  await liveHost.close();
+
+  /* ══════════════ 14. wrap up ═══════════════════════════════════════════ */
   console.log("   relay: " + relay.conns + " connections, " + relay.msgs + " messages, " +
     (relay.bytes / 1024).toFixed(1) + " KB");
   for (const p of close) { try { await p.close(); } catch (e) {} }
