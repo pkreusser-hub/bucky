@@ -2143,29 +2143,45 @@
        * FSModels.serfLegGeo() so the renderer can actually walk them. The
        * body is still one merged, cached geometry per (job, player) and the
        * legs are one shared geometry for the whole workforce — the split
-       * costs exactly one extra draw call in total, not one per serf. ===== */
-      // smock + belt + the player's sash across the chest
-      parts.push({ geo: new THREE.BoxGeometry(0.29, 0.30, 0.21), color: cloth, matrix: M(0, 0.37, 0) });
-      parts.push({ geo: new THREE.BoxGeometry(0.31, 0.055, 0.23), color: 0x6b5137, matrix: M(0, 0.245, 0) });
-      parts.push({ geo: new THREE.BoxGeometry(0.055, 0.055, 0.035), color: 0xd8b25a, matrix: M(0, 0.245, 0.12) });
-      parts.push({ geo: new THREE.BoxGeometry(0.315, 0.085, 0.225), color: team, matrix: M(0, 0.40, 0, 0, 0, 0.34) });
-      // arms: sleeve + a bare hand at the end
+       * costs exactly one extra draw call in total, not one per serf. =====
+       *
+       * VILLAGER REBUILD (playtest: "the villagers are blocky and look like
+       * robots"). The old body was 18 stacked BoxGeometries — square shoulders,
+       * slab head, straight plank arms. It is now ROUND stock: a tunic that
+       * flares over the hips, sloped shoulders, a ball head at a friendly
+       * (slightly oversized) ratio, mitten hands. Everything is deliberately
+       * low-segment so it still faceted-shades like the rest of the world and
+       * stays inside the ~400-triangle minifig budget. The hip pivot
+       * (±SERF_HIP_X, 0.255 in fs-render) and the overall silhouette height are
+       * UNCHANGED, so the walk cycle, carry poses and tool anchors all still
+       * line up. */
+      // tunic: a tapered barrel that flares at the hem, plus a darker hem band
+      parts.push({ geo: new THREE.CylinderGeometry(0.135, 0.175, 0.27, 6), color: cloth, matrix: M(0, 0.385, 0) });
+      parts.push({ geo: new THREE.CylinderGeometry(0.178, 0.172, 0.045, 6), color: 0x6b5137, matrix: M(0, 0.262, 0) });
+      // rounded shoulders cap the barrel so the arms don't meet it at a corner
+      parts.push({ geo: new THREE.SphereGeometry(0.132, 6, 3), color: cloth, matrix: M(0, 0.505, 0, 0, 0, 0, 1, 0.55, 0.86) });
+      // the player's sash across the chest + a little brass buckle at the belt
+      // the player's sash is a real BAND wrapped round the tunic (an open-ended
+      // shell, 14 tris) — a box only ever showed its corners through the barrel
+      parts.push({ geo: new THREE.CylinderGeometry(0.158, 0.158, 0.062, 7, 1, true), color: team, matrix: M(0, 0.412, 0, 0, 0, 0.34) });
+      parts.push({ geo: new THREE.BoxGeometry(0.05, 0.05, 0.03), color: 0xd8b25a, matrix: M(0, 0.262, 0.105) });
+      // arms: a tapered sleeve that hangs with a slight outward swing, mitten hand
       for (let s = -1; s <= 1; s += 2) {
-        parts.push({ geo: new THREE.BoxGeometry(0.075, 0.20, 0.085), color: cloth, matrix: M(s * 0.185, 0.39, 0.02) });
-        parts.push({ geo: new THREE.BoxGeometry(0.075, 0.075, 0.085), color: skin, matrix: M(s * 0.195, 0.27, 0.04) });
+        parts.push({ geo: new THREE.CylinderGeometry(0.043, 0.034, 0.20, 4), color: cloth, matrix: M(s * 0.163, 0.40, 0.01, 0, 0, s * 0.12) });
+        parts.push({ geo: new THREE.SphereGeometry(0.042, 4, 3), color: skin, matrix: M(s * 0.187, 0.293, 0.018) });
       }
-      // neck, head, hair, face
-      parts.push({ geo: new THREE.BoxGeometry(0.09, 0.045, 0.09), color: skin, matrix: M(0, 0.535, 0) });
-      parts.push({ geo: new THREE.BoxGeometry(0.185, 0.17, 0.175), color: skin, matrix: M(0, 0.63, 0) });
-      parts.push({ geo: new THREE.BoxGeometry(0.195, 0.055, 0.185), color: hair, matrix: M(0, 0.685, -0.005) });
-      parts.push({ geo: new THREE.BoxGeometry(0.045, 0.045, 0.03), color: skin, matrix: M(0, 0.62, 0.095) });
+      // neck, ball head, a soft cap of hair, and a friendly face
+      parts.push({ geo: new THREE.CylinderGeometry(0.045, 0.052, 0.062, 4), color: skin, matrix: M(0, 0.558, 0) });
+      parts.push({ geo: new THREE.SphereGeometry(0.112, 7, 4), color: skin, matrix: M(0, 0.682, 0, 0, 0, 0, 1, 0.97, 0.95) });
+      parts.push({ geo: new THREE.SphereGeometry(0.115, 6, 3), color: hair, matrix: M(0, 0.716, -0.008, 0.10, 0, 0, 1, 0.60, 1) });
+      parts.push({ geo: new THREE.BoxGeometry(0.032, 0.026, 0.024), color: skin, matrix: M(0, 0.661, 0.098) });
       for (let s = -1; s <= 1; s += 2) {
-        parts.push({ geo: new THREE.BoxGeometry(0.032, 0.032, 0.02), color: 0x3a2c1e, matrix: M(s * 0.048, 0.655, 0.09) });
+        parts.push({ geo: new THREE.BoxGeometry(0.023, 0.027, 0.018), color: 0x3a2c1e, matrix: M(s * 0.037, 0.686, 0.090) });
       }
-      // profession cap: a crown and a brim in the job colour
-      parts.push({ geo: new THREE.CylinderGeometry(0.10, 0.115, 0.10, 6), color: hat, matrix: M(0, 0.765, 0) });
-      parts.push({ geo: new THREE.CylinderGeometry(0.155, 0.155, 0.035, 7), color: hat, matrix: M(0, 0.72, 0.01) });
-      if (job === FSC.JOB.KNIGHT) parts.push({ geo: new THREE.ConeGeometry(0.115, 0.13, 8), color: hat, matrix: M(0, 0.86, 0) });
+      // profession cap: a soft crown and a brim in the job colour
+      parts.push({ geo: new THREE.SphereGeometry(0.104, 6, 3), color: hat, matrix: M(0, 0.772, 0, 0, 0, 0, 1, 0.80, 1) });
+      parts.push({ geo: new THREE.CylinderGeometry(0.150, 0.150, 0.026, 7), color: hat, matrix: M(0, 0.760, 0.012) });
+      if (job === FSC.JOB.KNIGHT) parts.push({ geo: new THREE.ConeGeometry(0.108, 0.13, 7), color: hat, matrix: M(0, 0.882, 0) });
       // a carrier's pack; everyone else gets the tool of the trade
       if (job === FSC.JOB.TRANSPORTER || job === FSC.JOB.GENERIC || job === FSC.JOB.SAILOR) {
         parts.push({ geo: new THREE.BoxGeometry(0.20, 0.19, 0.12), color: 0xb08a56, matrix: M(0, 0.40, -0.155) });
@@ -2175,7 +2191,18 @@
         }
       }
       const tools = FSC.JOB_TOOLS[job] || [];
-      if (tools.length) toolParts(parts, tools[0], 0.255, 0.36, 0.06);
+      if (tools.length) {
+        // the shared tool kit is authored at full "prop" size, which on a
+        // 0.8-unit villager reads as a comically huge axe — build it at the
+        // origin and scale it down into his hand
+        const n0 = parts.length;
+        toolParts(parts, tools[0], 0, 0, 0);
+        const fit = new THREE.Matrix4().makeTranslation(0.232, 0.335, 0.055)
+          .multiply(new THREE.Matrix4().makeScale(0.60, 0.60, 0.60));
+        for (let i = n0; i < parts.length; i++) {
+          parts[i].matrix = fit.clone().multiply(parts[i].matrix || new THREE.Matrix4());
+        }
+      }
       return mergeColored(parts);
     });
   };

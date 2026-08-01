@@ -720,7 +720,9 @@
   FSC.COL.BEACH = 0xe4d3a4;        // warm shore sand
   FSC.COL.WATER_SURF = 0x2d7fae;
   FSC.COL.FIELD = [0x6b5236, 0x7a7440, 0x8b8f46, 0xb8a44c, 0xd2ab3e];   // warmer, less bleached
-  FSC.COL.SERF_CLOTH = 0xc4ad86;   // linen smock — reads as a person, not a white blob
+  // a villager's tunic must not share the skin's tone or he reads as one bare
+  // blob at game distance — dyed wool, cool against warm skin and green grass
+  FSC.COL.SERF_CLOTH = 0x77879c;
   FSC.COL.SERF_SKIN = 0xdba977;
   FSC.COL.SKY = 0xa8d0e8;
 
