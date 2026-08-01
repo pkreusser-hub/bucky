@@ -474,7 +474,7 @@
       <div id="storyBusy" class="thinkingDots" style="display:none">The storyteller is writing</div>
       <div id="choiceBtns"></div>
       <div class="writeRow" id="writeRow" style="display:none">
-        <input id="writeInput" maxlength="400" placeholder="…or write what YOU do next!" />
+        <input id="writeInput" maxlength="2000" placeholder="…or write what YOU do next!" />
         <button id="writeSend">Go</button>
       </div>
       <div id="chapterEndRow" style="display:none">
@@ -1067,11 +1067,23 @@
   // the on-screen story + bookshelf.
   const SEND_CHAPTERS = 4;      // recent chapters sent verbatim (≥ SUMMARIZE_EVERY, so nothing
                                 //   leaves the window before it's folded into the memory note)
+  // A redo removes the rejected scene from story.messages, which can leave two user turns in a
+  // row (the original instruction + the redo). The API needs alternating roles, so consecutive
+  // user turns are merged into one message at SEND time only — the transcript stays honest.
+  function mergeUserRuns(list) {
+    const out = [];
+    for (const m of list) {
+      const last = out[out.length - 1];
+      if (last && last.role === "user" && m.role === "user") last.content = textOf(last.content) + "\n\n" + textOf(m.content);
+      else out.push({ role: m.role, content: m.content });
+    }
+    return out;
+  }
   function buildSendMessages() {
     const msgs = story.messages;
     const asstIdx = msgs.map((m, i) => (m.role === "assistant" ? i : -1)).filter((i) => i >= 0);
     // Short story, or no memory note yet: send the whole thing (art stripped to stay lean).
-    if (asstIdx.length <= SEND_CHAPTERS || !story.recap) return msgs.map(strippedForSend);
+    if (asstIdx.length <= SEND_CHAPTERS || !story.recap) return mergeUserRuns(msgs.map(strippedForSend));
     const head = {
       role: "user",
       content: textOf(msgs[0].content) +
@@ -1079,7 +1091,7 @@
         story.recap + ")",
     };
     const cut = asstIdx[asstIdx.length - SEND_CHAPTERS];  // start at the Nth-from-last chapter
-    return [head, ...msgs.slice(cut).map(strippedForSend)];
+    return mergeUserRuns([head, ...msgs.slice(cut).map(strippedForSend)]);
   }
 
   // ---- Running memory via a dedicated summary call ----
@@ -1149,11 +1161,15 @@
     // stories are skipped server-side). sceneIdx = scenes so far; choice = the kid's last input.
     const lastMsg = story.messages[story.messages.length - 1];
     const rawChoice = lastMsg && lastMsg.role === "user" ? textOf(lastMsg.content) : "";
+    // sceneIdx is MONOTONIC (story.sceneSeq), not the live assistant count: a redo removes a scene
+    // from the transcript, and reusing its index would overwrite the rejected scene's log doc —
+    // the parent log keeps BOTH versions, and redone scenes still count against the daily cap.
+    const sceneIdx = Math.max(story.messages.filter((m) => m.role === "assistant").length, story.sceneSeq || 0);
     const logOpts = {
       user: localStorage.getItem("choreUser") || "",
       storyId: story.id,
       storyTitle: story.title,
-      sceneIdx: story.messages.filter((m) => m.role === "assistant").length,
+      sceneIdx,
       choice: (rawChoice === NEXT_CHAPTER_MSG ? "▶ Next chapter" : rawChoice).slice(0, 2000),
     };
     try {
@@ -1172,6 +1188,7 @@
         el.parentNode.insertBefore(artEl, el);
       }
       story.messages.push({ role: "assistant", content: full });
+      story.sceneSeq = sceneIdx + 1;               // next scene logs under a fresh index
       if (p.chapterEnd) story.closing = false;     // chapter closed cleanly — reset the latch
       if (p.ended) {                               // legacy safety (new stories never self-end)
         story.done = true;
@@ -1204,9 +1221,35 @@
     }
   }
 
+  // "Redo that…" write-ins REPLACE the rejected scene instead of stacking on top of it. The
+  // rejected scene is removed from the transcript entirely — otherwise its contradicted details
+  // bleed back into later scenes and the memory note (observed live: a scene's invented "chained
+  // in a cell" kept resurfacing in the choices even after the reader's correction, because the
+  // rejected text was still in the history). The redo text stays as its own user turn (merged
+  // with the previous instruction at send time by mergeUserRuns) and the scene regenerates.
+  const REDO_RE = /^\s*(please\s+)?re-?do\b/i;
+  function tryRedo(userText) {
+    const msgs = story.messages;
+    let li = -1;
+    for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].role === "assistant") { li = i; break; }
+    if (li < 1) return false;                       // no scene to redo yet — treat as a normal turn
+    const wasOpener = beatOpensChapter(msgs, li);   // redone opener must re-open the chapter (title)
+    msgs.splice(li, 1);
+    msgs.push({ role: "user", content: userText, opener: wasOpener });
+    // If the rejected scene was already folded into the memory note, pull the fold boundary back
+    // so the corrected version gets re-summarized over it on the next fold.
+    if ((story.summarizedIdx || 0) > li - 1) story.summarizedIdx = Math.max(0, li - 1);
+    saveStory();
+    paintTranscript();
+    scrollStory();
+    streamChapter({ newChapter: wasOpener });
+    return true;
+  }
+
   function takeTurn(userText) {
     if (busy || !story || story.done) return;
     if (guardStoryCap()) return;
+    if (REDO_RE.test(userText) && tryRedo(userText)) return;
     addPickedEl(userText);
     scrollStory();
     story.messages.push({ role: "user", content: userText });
@@ -1243,27 +1286,33 @@
     streamChapter({ newChapter: true });   // chapter 1 opens with a title
   });
 
-  function resumeStory(s) {
-    if (busy) return;
-    story = s;
-    if (typeof story.closing !== "boolean") story.closing = false;   // migrate older saves
+  // Repaints #storyScroll from story.messages (used by resume AND by redo, which removes a scene).
+  function paintTranscript() {
     const scroll = $("storyScroll");
     scroll.innerHTML = "";
     let chapterNo = 0;
-    let lastParsed = { choices: [], ended: s.done, chapterEnd: false };
-    s.messages.forEach((m, i) => {
+    let lastParsed = { choices: [], ended: story.done, chapterEnd: false };
+    story.messages.forEach((m, i) => {
       if (m.role === "user") {
         if (m.content === NEXT_CHAPTER_MSG) return;   // sentinel — the divider comes from the next scene
         addPickedEl(textOf(m.content));
       } else {
         const p = parseChapter(m.content);
-        if (beatOpensChapter(s.messages, i)) { chapterNo++; addChapterDivider(chapterNo, p.title); }
+        if (beatOpensChapter(story.messages, i)) { chapterNo++; addChapterDivider(chapterNo, p.title); }
         addArtEl(p.art);              // decorative — above the scene text
         addChapterEl(p.text);
         if (p.recap) story.recap = p.recap;   // recover the running memory from the latest scene
         lastParsed = p;
       }
     });
+    return { chapterNo, lastParsed };
+  }
+
+  function resumeStory(s) {
+    if (busy) return;
+    story = s;
+    if (typeof story.closing !== "boolean") story.closing = false;   // migrate older saves
+    const { chapterNo, lastParsed } = paintTranscript();
     story.chapter = Math.max(chapterNo, story.chapter || 1);   // keep numbering in sync (migrate legacy)
     if (s.done) {
       const fin = document.createElement("div");
@@ -1275,7 +1324,7 @@
     // A story saved mid-request ends on a user turn — pick up where it left off (unless capped;
     // setStoryControls above already painted the gentle notice in that case).
     const last = s.messages[s.messages.length - 1];
-    if (!s.done && last && last.role === "user" && !storyCapped()) streamChapter({ newChapter: last.content === NEXT_CHAPTER_MSG });
+    if (!s.done && last && last.role === "user" && !storyCapped()) streamChapter({ newChapter: last.content === NEXT_CHAPTER_MSG || !!last.opener });
     scrollStory();
   }
 

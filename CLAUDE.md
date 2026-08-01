@@ -1383,6 +1383,31 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   scratchpad client suite 24/24 + kidstory 54/54 + dnd 47/47 regressions. Flag QUALITY not
   live-testable from this env — spot-check the first real day post-deploy and tune
   STORY_LOG_SUMMARY_SYSTEM if flags read too twitchy or too quiet.
+- CONTINUITY BATCH (2026-08-01, user: "Eleanor often hits continuity issues" — diagnosed from her
+  live story log: the model narrated past a decision she reserved, and after her "Redo that…"
+  correction the rejected scene's invented details (chains/cuffs) kept resurfacing because the bad
+  scene stayed in the history; her most careful correction was ALSO silently clipped at the
+  write-in box's maxlength=400, mid-sentence, at exactly 400 chars): (1) REDO MECHANIC — a
+  write-in matching /^\s*(please\s+)?re-?do\b/i REMOVES the rejected scene from story.messages
+  entirely (tryRedo in farmgpt.html; the redo text stays as its own user turn tagged
+  {opener:bool}); consecutive user turns are merged ONLY at send time (mergeUserRuns in
+  buildSendMessages — the API needs alternating roles, the saved transcript stays honest);
+  paintTranscript (factored out of resumeStory) repaints the scroll; a redone chapter OPENER
+  regenerates with newChapter:true (resume honors last.opener too); summarizedIdx pulls back if
+  the rejected scene was already folded. sceneIdx for the parent log is now MONOTONIC
+  (story.sceneSeq) so a redo logs under a FRESH doc id — Dad sees both versions AND redos still
+  count against the 15/day cap (reusing the index would have overwritten the doc and made redos
+  cap-free). (2) write-in maxlength 400→2000 (server already caps at 12k). (3) STORY BIBLE — the
+  recap prompt (SUMMARY_SYSTEM, farmgpt.mjs) rewritten from "≤180-word bullet notes" to a
+  4-section bible (CHARACTERS w/ established physical details marked CANON · NOW = where everyone
+  is · FACTS & SECRETS incl. who-knows-what · THREADS), ≤400 words, maxTokens 400→800; redone
+  content: "corrected version is the ONLY truth". (4) STORY_RULES_REMINDER (rides every last user
+  turn) gains continuity law: reader-specified details are CANON, never contradicted; a reader-
+  reserved decision ("I want to decide that") means END THE SCENE BEFORE that point; a REDO
+  message means the flawed scene is already discarded — write fresh. Suites:
+  tools/_verify-story-reminder.mjs now 25/25 (+bible checks) + scratchpad story_redo_test.cjs
+  26/26 (wire/DOM/saved-story scene removal, role alternation, merged turns, fresh sceneIdx,
+  opener redo, resume, maxlength) + storylog-summary 77 / kidstory 54 / dnd 47 regressions green.
 - GUARDRAILS TIGHTENED (2026-07-30, user): FAMILY_RULES — torture scenes are never written even
   if explicitly/repeatedly requested (redirects in-story like other restricted topics);
   interrogation OK (questioning/pressure/bluffing/wits) but zero violence, torture, or threats
