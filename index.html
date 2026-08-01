@@ -5941,6 +5941,36 @@ async function mealUndoRemove(){
   mealScheduleSave(mealMonthOf(dayKey));
   if (currentTab === "mealplan") renderMealPlan();
 }
+// ---- Recent foods: previously logged add-ons, one tap to log again ----
+// Derived straight from the month shards (this month + last), so everything already entered —
+// AI estimates, custom items, widget-queued meals — shows up with no new storage. Only items
+// with the add:true marker count (template plan meals have their own catalog/quick-adds).
+function mealPrevMonthKey(month){
+  const [y, mo] = month.split("-").map(Number);
+  return mo === 1 ? (y - 1) + "-12" : y + "-" + String(mo - 1).padStart(2, "0");
+}
+async function mealRecentFoods(){
+  const thisMonth = mealMonthOf(mealToday());
+  const months = [mealPrevMonthKey(thisMonth), thisMonth];   // old → new, so later info wins
+  const seen = new Map();                                    // normalized name → entry
+  for (const month of months){
+    const m = await mealEnsureMonth(month);
+    for (const dk of Object.keys((m && m.days) || {}).sort()){
+      for (const it of (m.days[dk].items || [])){
+        if (!it.add || !it.n) continue;
+        const key = it.n.trim().toLowerCase().replace(/\s+/g, " ");
+        const prev = seen.get(key);
+        const e = { n: it.n, c: it.c || 0, last: dk, count: (prev ? prev.count : 0) + 1 };
+        if (it.ai) e.ai = true;
+        if (it.p || it.cb || it.f){ e.p = it.p || 0; e.cb = it.cb || 0; e.f = it.f || 0; }
+        seen.set(key, e);                                    // freshest calories/macros win
+      }
+    }
+  }
+  return [...seen.values()]
+    .sort((a, b) => b.last.localeCompare(a.last) || b.count - a.count)
+    .slice(0, 14);
+}
 async function mealSwap(dayKey, itemId, name, cal){
   const day = await mealMaterialize(dayKey);
   const it = day.items.find(x => x.id === itemId); if (!it) return;
@@ -6209,6 +6239,30 @@ function mealOpenAddSheet(dayKey, defaultMeal){
     arow.append(mic);
   }
   arow.append(abtn); inner.appendChild(arow);
+
+  // ⭐ Add again — foods logged on earlier days, one tap to re-log (counts as eaten, keeps the
+  // AI macros). Fills in async (last month's shard may need a fetch); hidden when empty.
+  const rl = document.createElement("label"); rl.textContent = "Add again"; rl.style.display = "none";
+  const rrow = document.createElement("div"); rrow.className = "meal-quickrow"; rrow.id = "mealRecentRow";
+  inner.append(rl, rrow);
+  mealRecentFoods().then((list) => {
+    if (!list.length || !document.body.contains(rrow)) return;
+    rl.style.display = "";
+    for (const f of list){
+      const b = document.createElement("button"); b.className = "meal-quickchip";
+      const nm = f.n.length > 30 ? f.n.slice(0, 29) + "…" : f.n;
+      b.textContent = (f.ai ? "✨ " : "") + nm + " +" + f.c;
+      b.title = f.n + " — " + f.c + " cal" + ((f.p || f.cb || f.f) ? " · " + (f.p||0) + "g protein / " + (f.cb||0) + "g carbs / " + (f.f||0) + "g fat" : "");
+      b.onclick = () => {
+        const opts = { done: true };
+        if (f.ai) opts.ai = true;
+        if (f.p || f.cb || f.f) opts.macros = { p: f.p, cb: f.cb, f: f.f };
+        mealAdd(dayKey, mealSheetMealSel, f.n, f.c, opts);
+        mealCloseSheet();
+      };
+      rrow.appendChild(b);
+    }
+  });
 
   if (mealProfile().template){
     const ql = document.createElement("label"); ql.textContent = "Quick adds"; inner.appendChild(ql);
@@ -6553,6 +6607,7 @@ window.__MEAL__ = {
   undoRemove: () => mealUndoRemove(),
   saveNow: (m) => mealSaveMonthNow(m || mealMonthOf(mealDayKey || mealToday())),
   ensureMonth: (m) => mealEnsureMonth(m),
+  recents: () => mealRecentFoods(),
   meta: () => mealMeta,
   weights: () => mealWeights,
   dayItems: (k) => mealDayItems(k),

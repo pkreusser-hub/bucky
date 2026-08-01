@@ -574,6 +574,15 @@ targets (Mom 90/155/47g, Dad 155/280/85g ≈ 25/45/30% of cal target); Today pag
 .mealmacros bars (eaten g vs target, >115% = .over tint); meallog result + toast show the
 macro line; inbox items carry p/cb/f through the drain. Suites now calories-server 24 ·
 meal_dad 38 · meallog 37.
+⭐ ADD AGAIN — recents (2026-08-01, user: re-select previously entered foods next day): the Add
+sheet gains an "Add again" chip row (below the AI row, both users) — mealRecentFoods() derives
+recents straight from the month shards (this + last month, mealPrevMonthKey), add:true items
+only (template plan meals excluded), deduped by normalized name w/ FRESHEST calories/macros
+winning, sorted last-day-desc then count-desc, cap 14, fills async (hidden when empty). Tap =
+mealAdd done:true carrying ai flag + macros → counts as eaten immediately. No new storage —
+works retroactively on everything already logged. Hook __MEAL__.recents(). Suite: scratchpad
+meal_recent_test.cjs 18/18 (dedupe/freshest/exclusions/order/macros/Mom-template-exclusion/
+suffix separation).
 VOICE MODE SAGA (2026-07-31, three iterations — the SURVIVOR is one-shot): (1) tap-to-finish
 (continuous=true + onend restart-until-⏹) fixed thinking-pause cutoffs but on the user's
 Android each restart REPLAYED THE MIC CHIME and dropped words between sessions; (2) a raw-audio
@@ -1665,6 +1674,14 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   persistence/mobile). NOT yet live-tested vs real Sonnet (env can't reach the API) — after
   deploy, spot-check: never-acts-for-player, ===ROLL=== adherence, sheet extraction, module
   fidelity. Netlify request-body limits cap a pasted module ~a few MB (600k chars is fine).
+- PARENT RESEARCH MODE (2026-08-01, user): research requests now carry `user` (choreUser) and
+  EXACTLY "Dad"/"Mom" get PARENT_RESEARCH_SYSTEM — direct answers, full ANSWER KEYS for pasted/
+  photographed worksheets (numbered, bold finals, one-line justifications), grade-a-kid's-work
+  checks; tutor restrictions absent; FAMILY_RULES + LaTeX/Markdown + ===ANSWERS=== protocol
+  kept; maxTokens unchanged. Everyone else (kids, "dad", "Dad ( :", missing) keeps the tutor
+  prompt (PARENT_RESEARCH_USERS exact-match — same soft-identity posture as the story cap's Dad
+  exemption; no PIN check server-side). Verify: tools/_verify-parent-research.mjs (25) +
+  scratchpad parent_research_client.cjs (4, wire carries user).
 - RESEARCH MODE: teen homework+coding chat; markdown via marked+DOMPurify CDN; adaptive
   thinking (default) w/ "Thinking…" indicator, max_tokens 4096; localStorage
   farmgpt_research_v1 (50 msgs; user msg saved BEFORE the reply streams so a mid-stream
