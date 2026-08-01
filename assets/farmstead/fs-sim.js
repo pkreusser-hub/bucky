@@ -2601,26 +2601,34 @@
     return FSMap.edgeCount(map, v) === 0;              // never plant across a road
   }
 
-  /** ONE uniformly-random tile of the work disc — the confirmed original samples
-   * a single spiral position per attempt (uniform per TILE, so the 42-tile outer
-   * ring is hit 7x as often as the 6-tile inner one; clearing runs disc-uniform,
-   * never inside-out, and output rate degrades with resource density). */
-  function sampleWorkTile(G, b, R) {
-    let k = FSC.rngInt(3 * R * (R + 1));       // hex-disc tile count at d 1..R
-    let hit = -1, hd = 0;
-    FSMap.forRadius(G.map, b.v, R, (u, d) => {
-      if (d < 1 || hit >= 0) return;
-      if (k === 0) { hit = u; hd = d; }
-      k--;
-    });
-    // map edges clip the disc: an off-map sample is simply a miss, like the original
-    return hit < 0 ? null : { u: hit, d: hd };
+  /** The ring a 1-based spiral index falls in (ring R ends at index 3R(R+1)). */
+  function ringOfSpiral(k) {
+    let R = 1;
+    while (3 * R * (R + 1) < k) R++;
+    return R;
+  }
+
+  /** ONE random tile per attempt, drawn the way the original draws it: a uniform
+   * SPIRAL INDEX inside the profession's range (FSC.WORK_SPIRAL), resolved to its
+   * ring and then to a uniform tile on that ring. Because ring R holds 6R tiles,
+   * the index range itself does the outer-ring weighting — so clearing never runs
+   * tidily inside-out and output degrades with resource density. */
+  function sampleWorkTile(G, b, def) {
+    const span = FSC.WORK_SPIRAL[def.job];
+    if (!span) return null;
+    const k = span[0] + FSC.rngInt(span[1] - span[0] + 1);
+    const R = ringOfSpiral(k);
+    const ring = [];
+    FSMap.forRadius(G.map, b.v, R, (u, d) => { if (d === R) ring.push(u); });
+    // map edges clip the ring: an off-map draw is simply a miss, like the original
+    if (!ring.length) return null;
+    return { u: ring[FSC.rngInt(ring.length)], d: R };
   }
 
   /** What should this worker do next? {v, kind, arg} or null (missed sample). */
   function pickTask(G, b, def) {
     const map = G.map, O = FSC.OBJ, R = def.radius;
-    const smp = sampleWorkTile(G, b, R);
+    const smp = sampleWorkTile(G, b, def);
     if (!smp) return null;
     const u = smp.u, d = smp.d;
     if (def.job === JOB.LUMBERJACK) {

@@ -40,6 +40,13 @@ systems*, never art, sound, text, or names from the original. Working title: **F
     higher-priority goods slowly gains effective priority, so plank/stone bound for a
     construction site can never be starved forever on a busy shared road. The classic
     can starve them indefinitely; a co-op family game shouldn't.
+12. The FORESTER plants inside ring 4 (`FSC.WORK_SPIRAL.forester = [1, 60]`, mean ≈ 2.9
+    tiles) instead of the classic's spiral index 1–128 (rings 1–6, mean ≈ 4.4, a quarter
+    of trips at the rim). The original scatters a forester's saplings so widely that his
+    grove reads as unrelated woodland and he spends his life walking; a grove that grows
+    visibly AROUND the hut is what players expect from the building. Every other
+    profession keeps its exact original spiral range. Restore `[1, 128]` for the classic
+    behaviour — it is a one-line change and nothing else depends on it.
 Everything else — building set, resource set, serf professions + tools, chains, ratios,
 flags/roads/carriers, geologists, mines+food, knights/morale/gold, territory, combat,
 distribution/priority controls — is implemented for real.

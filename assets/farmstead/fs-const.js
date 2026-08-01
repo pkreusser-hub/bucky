@@ -146,11 +146,12 @@
   def("fortress",    { size: 2, cost: { plank: 5, stone: 5 }, swings: 64, mil: { cap: 12, terrRadius: 8, goldCap: 8 } });
   // Offsite professions: the TRIP is the cycle (walk out, work, walk back); cycleT is
   // only the short hand-over pause inside the hut. Work lengths live in FSC.CHOP_T etc.
-  // fisher radius 4: the confirmed original spiral is dist 1..64 = rings 1-4
-  // (same source row the geologist's GEO_RING [1,4] came from)
-  def("fisher",      { size: 0, cost: { plank: 2, stone: 0 }, job: "fisher", radius: 4, out: "fish", cycleT: 26, swings: 16 });
+  /* `radius` is the outer bound the sampler enumerates; the ring WEIGHTS come
+     from FSC.WORK_SPIRAL, so each radius here is just the ring its own index
+     range can reach (fisher idx 64 → a sliver of ring 5, forester 60 → ring 4). */
+  def("fisher",      { size: 0, cost: { plank: 2, stone: 0 }, job: "fisher", radius: 5, out: "fish", cycleT: 26, swings: 16 });
   def("lumberjack",  { size: 0, cost: { plank: 2, stone: 0 }, job: "lumberjack", radius: 7, out: "lumber", cycleT: 26, swings: 16 });
-  def("forester",    { size: 0, cost: { plank: 2, stone: 0 }, job: "forester", radius: 7, cycleT: 26, swings: 16 });
+  def("forester",    { size: 0, cost: { plank: 2, stone: 0 }, job: "forester", radius: 4, cycleT: 26, swings: 16 });
   def("stonecutter", { size: 0, cost: { plank: 2, stone: 0 }, job: "stonecutter", radius: 7, out: "stone", cycleT: 26, swings: 16 });
   def("sawmill",     { size: 2, cost: { plank: 3, stone: 2 }, job: "sawyer", in: { lumber: 1 }, out: "plank", cycleT: 237, swings: 32 });
   def("farm",        { size: 2, cost: { plank: 4, stone: 1 }, job: "farmer", radius: 4, out: "wheat", cycleT: 26, swings: 32 });
@@ -512,6 +513,22 @@
   /* Confirmed original per-profession retry cadences after a MISSED random
    * sample (internal ticks ÷ 10, same conversion as every other timer). */
   FSC.WORK_RETRY = { lumberjack: 40, forester: 70, stonecutter: 10, fisher: 10, farmer: 50 };
+  /* Confirmed original SPIRAL-INDEX ranges (pos_add_spirally with a random dist).
+   * The spiral is a hex ring walk, so ring R holds 6R tiles and the cumulative
+   * boundaries are 6/18/36/60/90/126/168 — an index range therefore weights the
+   * OUTER rings by their size, which is why a worker roams instead of clearing
+   * inside-out. Ranges are [minIndex, maxIndex], 1-based.
+   *   FORESTER IS A DELIBERATE DEVIATION (plan §14.12): the original plants out
+   *   to index 128 (mean ≈ 4.4 tiles, a quarter of trips at the rim); we keep
+   *   his grove inside ring 4 so the trees grow AROUND the hut. Restore 128
+   *   here for the original's scattering. */
+  FSC.WORK_SPIRAL = {
+    lumberjack: [1, 128],      // rings 1-6 + a sliver of 7
+    forester: [1, 60],         // rings 1-4  (original: [1, 128])
+    stonecutter: [1, 128],
+    fisher: [1, 64],           // rings 1-4 + a sliver of 5
+    farmer: [7, 38],           // fields keep a MINIMUM distance: ring 2 out
+  };
   FSC.FARM_GIVEUP_N = 131;     // consecutive missed samples before the farmer rests
   FSC.FARM_GIVEUP_IDLE_T = 500;
   FSC.FIELD_MAX = 6;           // fields one farm keeps in rotation

@@ -451,7 +451,12 @@ H.run("farmstead-economy", async (t) => {
     };
   });
   t.check("a wood camp can be scripted", wood.built, wood);
-  t.check("the lumberjack fells mature trees", wood.felled > 0 && wood.trees1 < wood.trees0, wood);
+  t.check("the lumberjack fells mature trees", wood.felled > 0, wood);
+  // this camp has a FORESTER in it, so the stand is not expected to shrink — what
+  // must hold is that replanting offsets the axe (a bare felling run would leave
+  // trees0 − felled standing, and it must not read that low)
+  t.check("…and the forester's grove offsets the axe — the woods aren't stripped",
+    wood.trees1 > wood.trees0 - wood.felled && wood.trees1 > 0, wood);
   t.check("a felled tree leaves a stump", wood.stumpAtFelled, wood);
   t.check("logs come home as LUMBER", wood.lumber > 0, wood);
   t.check("the worker is visible outside doing the job", /goWork|doWork|backWork/.test(wood.seenOffsite), wood);

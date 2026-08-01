@@ -41,11 +41,11 @@ const sharp = require(path.join(__dirname, "node_modules", "sharp"));
  * legitimately changed evolution). The check's job is unchanged: any FUTURE
  * visual-layer work that moves these numbers touched the sim and fails here. */
 const SIM_BASELINE = [
-  { size: "small", seed: 101, ais: 1, ticks: 4000, hash: 1892248560, map: 3153557556 },
-  { size: "medium", seed: 4242, ais: 1, ticks: 6000, hash: 4265532716, map: 3410130282 },
-  { size: "medium", seed: 909, ais: 1, ticks: 6000, hash: 4280384701, map: 2605235534 },
-  { size: "large", seed: 31337, ais: 3, ticks: 5000, hash: 1343384282, map: 1140072814 },
-  { size: "medium", seed: 12345, ais: 2, ticks: 8000, hash: 1373180164, map: 1415969756 },
+  { size: "small", seed: 101, ais: 1, ticks: 4000, hash: 1278735086, map: 3104749947 },
+  { size: "medium", seed: 4242, ais: 1, ticks: 6000, hash: 298107806, map: 2287578245 },
+  { size: "medium", seed: 909, ais: 1, ticks: 6000, hash: 1831984076, map: 2870576308 },
+  { size: "large", seed: 31337, ais: 3, ticks: 5000, hash: 1321436909, map: 459194627 },
+  { size: "medium", seed: 12345, ais: 2, ticks: 8000, hash: 4123093451, map: 3157810762 },
 ];
 
 /* Installed in the page: the same lockstep beat the film-strip rig uses, so
