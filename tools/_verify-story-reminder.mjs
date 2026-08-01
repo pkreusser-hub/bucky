@@ -77,6 +77,21 @@ console.log("— story mode: reminder on the last user turn —");
   ok(t.includes("No blood, no gore"), "reminder names the blood/gore ban");
   ok(t.includes('"nothing inappropriate"'), "reminder pre-empts the 'nothing inappropriate' framing");
   ok(t.includes("different, fun direction"), "reminder instructs redirect-in-story, not refusal");
+  ok(t.includes("CANON") && t.includes("never be contradicted"), "reminder makes reader-specified details canon");
+  ok(t.includes("reserves a decision") && t.includes("BEFORE that decision point"), "reminder protects reader-reserved decisions");
+  ok(t.includes("REDO") && t.includes("already been discarded"), "reminder explains redo semantics (old scene discarded)");
+}
+
+console.log("— summary mode: story-bible format —");
+{
+  await call({ mode: "summary", messages: [{ role: "user", content: "EARLIER NOTES:\n(none)\n\nNEWEST PART:\nA scene.\n\nRewrite the continuity notes now." }] });
+  const a = lastAnt();
+  ok(a.max_tokens === 800, "summary budget raised to 800 tokens (bible needs room)");
+  const sys = typeof a.system === "string" ? a.system : JSON.stringify(a.system || "");
+  for (const h of ["CHARACTERS:", "NOW:", "FACTS & SECRETS:", "THREADS:"])
+    ok(sys.includes(h), "bible prompt has section " + h);
+  ok(sys.includes("CANON — copy them precisely"), "bible prompt locks reader-specified details");
+  ok(sys.includes("corrected version is the ONLY truth"), "bible prompt drops redone/contradicted details");
 }
 
 console.log("— story mode: composes with chapter directives, reminder last —");
