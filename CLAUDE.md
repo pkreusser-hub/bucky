@@ -1674,6 +1674,14 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   persistence/mobile). NOT yet live-tested vs real Sonnet (env can't reach the API) — after
   deploy, spot-check: never-acts-for-player, ===ROLL=== adherence, sheet extraction, module
   fidelity. Netlify request-body limits cap a pasted module ~a few MB (600k chars is fine).
+- PARENT RESEARCH MODE (2026-08-01, user): research requests now carry `user` (choreUser) and
+  EXACTLY "Dad"/"Mom" get PARENT_RESEARCH_SYSTEM — direct answers, full ANSWER KEYS for pasted/
+  photographed worksheets (numbered, bold finals, one-line justifications), grade-a-kid's-work
+  checks; tutor restrictions absent; FAMILY_RULES + LaTeX/Markdown + ===ANSWERS=== protocol
+  kept; maxTokens unchanged. Everyone else (kids, "dad", "Dad ( :", missing) keeps the tutor
+  prompt (PARENT_RESEARCH_USERS exact-match — same soft-identity posture as the story cap's Dad
+  exemption; no PIN check server-side). Verify: tools/_verify-parent-research.mjs (25) +
+  scratchpad parent_research_client.cjs (4, wire carries user).
 - RESEARCH MODE: teen homework+coding chat; markdown via marked+DOMPurify CDN; adaptive
   thinking (default) w/ "Thinking…" indicator, max_tokens 4096; localStorage
   farmgpt_research_v1 (50 msgs; user msg saved BEFORE the reply streams so a mid-stream

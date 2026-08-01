@@ -1578,9 +1578,11 @@
     try {
       // No auto-scroll while streaming — the reader can scroll and read at their
       // own pace as the answer arrives (scrollChat only fires on the user's turn).
+      // user rides along so the server can pick the parent prompt (direct answers + answer
+      // keys for exactly Dad/Mom) vs the kids' tutor prompt.
       const full = await callFarmGPT("research", researchMsgs, (sofar) => {
         renderAiInto(aiBubble, researchVisibleDuringStream(sofar));
-      });
+      }, { user: localStorage.getItem("choreUser") || "" });
       const { text, answers } = parseResearchReply(full);
       renderAiInto(aiBubble, text);
       researchMsgs.push({ role: "assistant", content: full });   // raw kept — model sees its own marker
