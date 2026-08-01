@@ -55,6 +55,10 @@ async function launch(opts = {}) {
   const exe = chromePath();
   const base = {
     headless: "new",
+    // single evaluates that render 1000+ SwiftShader frames (visual suite's
+    // film-strips) sit near puppeteer's default 180s protocol ceiling under
+    // load — give the CDP channel real headroom, timeouts stay per-check
+    protocolTimeout: 600000,
     args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-sandbox", "--disable-dev-shm-usage"],
   };
   if (exe) base.executablePath = exe; else base.channel = "chrome";
