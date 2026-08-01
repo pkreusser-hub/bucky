@@ -375,7 +375,7 @@ H.run("farmstead-economy", async (t) => {
   // ══════════════ fish: the >0 regrowth guard + migration-only recovery
   // (own controlled block: with EVERY shoal zeroed there is nothing to migrate,
   // so any fish appearing would prove regrowth-from-zero — the exact bug)
-  const fish = await page.evaluate(() => {
+  const fishGuard = await page.evaluate(() => {
     const FS = window.__FS__, T = window.T, FSC = FS.FSC;
     T.fresh();
     const G = FS.G, map = G.map, N = map.W * map.H;
@@ -410,11 +410,11 @@ H.run("farmstead-economy", async (t) => {
     return { pass, deadTotal, seed, nearTotal, farTotal, spread, overCap, cap: FSC.FISH_CAP };
   });
   t.check("water fished to ZERO everywhere never regrows (confirmed original >0 guard)",
-    fish.deadTotal === 0, fish);
+    fishGuard.deadTotal === 0, fishGuard);
   t.check("one seeded shoal spreads by MIGRATION to its neighbours",
-    fish.spread > 0 && fish.nearTotal >= 6, fish);
+    fishGuard.spread > 0 && fishGuard.nearTotal >= 6, fishGuard);
   t.check("…and drift stays inside its reach envelope (nothing past 5 hops, nothing over cap)",
-    fish.farTotal === 0 && fish.overCap === 0, fish);
+    fishGuard.farTotal === 0 && fishGuard.overCap === 0, fishGuard);
 
   // ════════════════════════════════ wood: lumberjack → sawmill, forester
   const wood = await page.evaluate(() => {

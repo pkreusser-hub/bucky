@@ -36,12 +36,16 @@ const sharp = require(path.join(__dirname, "node_modules", "sharp"));
  * edit. Phase P touches fs-render/fs-models/fs-fx/fs-ui only, so every one of
  * these must still match exactly. If one ever changes, a "visual" fix has
  * reached into the simulation and the change is wrong by construction. */
+/* Golden sim hashes. RE-PINNED 2026-08-01 after the adversarial-review sim
+ * fixes (tree growth, worker sampling, mine rolls, transport bookkeeping all
+ * legitimately changed evolution). The check's job is unchanged: any FUTURE
+ * visual-layer work that moves these numbers touched the sim and fails here. */
 const SIM_BASELINE = [
-  { size: "small", seed: 101, ais: 1, ticks: 4000, hash: 3219505266, map: 90116727 },
-  { size: "medium", seed: 4242, ais: 1, ticks: 6000, hash: 1127517418, map: 150469628 },
-  { size: "medium", seed: 909, ais: 1, ticks: 6000, hash: 91060572, map: 962970787 },
-  { size: "large", seed: 31337, ais: 3, ticks: 5000, hash: 3072196484, map: 3682185442 },
-  { size: "medium", seed: 12345, ais: 2, ticks: 8000, hash: 3996065110, map: 156179200 },
+  { size: "small", seed: 101, ais: 1, ticks: 4000, hash: 1892248560, map: 3153557556 },
+  { size: "medium", seed: 4242, ais: 1, ticks: 6000, hash: 4265532716, map: 3410130282 },
+  { size: "medium", seed: 909, ais: 1, ticks: 6000, hash: 4280384701, map: 2605235534 },
+  { size: "large", seed: 31337, ais: 3, ticks: 5000, hash: 1343384282, map: 1140072814 },
+  { size: "medium", seed: 12345, ais: 2, ticks: 8000, hash: 1373180164, map: 1415969756 },
 ];
 
 /* Installed in the page: the same lockstep beat the film-strip rig uses, so
