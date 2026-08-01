@@ -3527,3 +3527,43 @@ Battle MVP; name Cursor's concurrent Farm Party work in the commit).
   parallel-Chrome load only), fp_stampede.cjs 57/57 run from ITS session scratchpad
   (460d3b7d…/scratchpad — suites live in their OWN session dirs), fp_mp_local 10/10. Suite
   card-count assertions updated 3→4 cards / 1→2 playable for the new registry reality.
+
+---
+
+# 🏰 FARMSTEAD — mechanics-faithful Settlers-1 clone in 3D (2026-08-01, branch claude/settlers-3d-clone-rdg6wl, draft PR #2)
+
+`farmstead.html` + `assets/farmstead/fs-{const,map,sim,military,ai,net,models,render,fx,audio,ui}.js`
++ vendored `assets/vendor/three-r128.min.js` (cdn 403s through the proxy). 100% original
+code/assets/names ("Farmstead"); the ORIGINAL's mechanics were recovered as FACTS (research
++ DOSBox observation of the user's own copy) — never code/art/audio from it. NEVER commit
+any user-uploaded game asset; the custom-music loader keeps user audio in IndexedDB only.
+- **Determinism (lockstep law)**: sim files use FSC.rng ONLY — no Math.random/transcendentals/
+  Date.now (economy suite greps for violations). 100ms ticks; speeds 0/1/2/4; every mutation
+  through FSSim.issueCommand (t, by, seq). MP = command-lockstep (host-authoritative,
+  SYNC_HASH_T checkpoints, chunked resync; localws relay for tests, Playroom adapter live;
+  guest lead ≤ lastConfirmed + CMD_DELAY_MP×max(1,speed) − 1). Co-op modes: shared kingdom
+  AND separate allied kingdoms (teams: no displace/burn between allies, team victory).
+- **Original-exact systems**: costs, two 26-item priority lists, slope walk table
+  [51,45,38,32,26,32,51,77,102], per-building cycle ticks, mine dig-sampling + 16-bit
+  exhaustion, fish 0..7 regrow(>0-guarded)+migration, sweep (SAPLING: ONE 25% roll → mature),
+  construction swing accumulator, repro+knight credits, promotion tables, occupancy tiers,
+  influence territory r8, morale/gold, supplies table, offsite workers = ONE random disc
+  sample + per-profession retry (40/70/10/10/50t, farmer 131-miss rest). Deviations live in
+  farmstead-plan.md §14 (incl. §14.10 flag-removal goods lost, §14.11 pickup aging).
+- **Tests**: `tools/_fs_harness.cjs` + NINE suites `tools/_verify-farmstead-{world,transport,
+  economy,military,mp,ui,visuals,polish,visual}.cjs` (~830 checks post-review). UI-suite 2×/4×
+  speed-ratio checks are LOAD-SENSITIVE — run the board on an idle box. buildingDetail counts
+  indexed geo by index.count/3.
+- **ADVERSARIAL REVIEW 2026-08-01**: 6 finders + 6 paired refuting verifiers (Workflow) → 30
+  confirmed findings, ALL fixed in 4 waves (sim-core 6a6c52e · military 454575e · netcode
+  088661d · UX/integration follow-up). Highlights: tickRetry in-flight booking leak (zeroing
+  it.dest before scheduleItem), splitRoadsAt wedging a goRoad carrier, boatInFlight latch,
+  crew-watchdog double-request, per-player notif eviction, burning stores reporting ghost
+  stock, geologists refusing unconnected flags (now offroad), beat-frame authority, peer
+  identity latch, resync backoff, cmdFail toasts, castle capacityOf(G,b) = castleKnights.
+- **Castle**: user's Tripo GLB was tried and REPLACED by an original procedural model in its
+  design language (grey fieldstone + maroon spires, 870 tris, castleMat() cool-grey emissive
+  lift — the shared warm BLD_WALL lift creams out grey stone; motte frustums share seam rings
+  exactly or sky grins through). GLB + GLTFLoader removed (git history only).
+- **Not linked** from games.html/index PLAY_GAMES — happens at user-approved merge, never
+  push to main without preview approval (auto-deploy).

@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#233357">
+<title>BUCKY — Farmstead</title>
+<link rel="icon" href="bucky.png">
+<style>
+  :root{
+    --navy:#233357; --navy-d:#18233b; --red:#ba303e; --red-d:#7a1f28;
+    --cream:#f4efe4; --ink:#15233f; --line:rgba(255,255,255,.18);
+    --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{
+    margin:0; height:100%; overflow:hidden; background:#7fb0d8; color:#fff;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    user-select:none;
+  }
+  #stage{ position:fixed; inset:0; }
+  #view{ display:block; width:100%; height:100%; touch-action:none; cursor:grab; outline:none; }
+  #view:active{ cursor:grabbing; }
+
+  /* ───────────────── title / new game ───────────────── */
+  #title{
+    position:fixed; inset:0; z-index:30; overflow-y:auto;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:calc(24px + var(--sat)) 18px calc(24px + var(--sab));
+    background:
+      radial-gradient(ellipse at 50% 14%, rgba(255,255,255,.30), transparent 58%),
+      linear-gradient(180deg,#6f9fcd 0%,#9dc0a5 46%,#6d8a4c 100%);
+    text-align:center;
+  }
+  #title.hidden{ display:none; }
+  .logo{
+    font-size:clamp(42px,11vw,74px); font-weight:900; letter-spacing:2px; margin:0;
+    color:#fff; text-shadow:0 3px 0 var(--navy-d), 0 10px 22px rgba(0,0,0,.34);
+  }
+  .sub{
+    margin:8px 0 22px; font-size:14px; font-weight:800; letter-spacing:2px; text-transform:uppercase;
+    color:var(--navy); background:rgba(255,255,255,.72); padding:6px 16px; border-radius:999px;
+  }
+  .panel{
+    width:min(420px,100%); background:rgba(24,35,59,.86); border:2px solid var(--line);
+    border-radius:18px; padding:18px; box-shadow:0 14px 34px rgba(0,0,0,.32); backdrop-filter:blur(4px);
+  }
+  .panel h2{ margin:0 0 14px; font-size:13px; letter-spacing:2px; text-transform:uppercase; color:#cddcf5; }
+  .row{ display:flex; align-items:center; gap:8px; margin-bottom:14px; }
+  .row .lbl{ flex:0 0 74px; text-align:left; font-size:12.5px; font-weight:800; color:#a9bcdc;
+    text-transform:uppercase; letter-spacing:.6px; }
+  .seg{ display:flex; flex:1; gap:6px; }
+  .seg button{
+    flex:1; appearance:none; border:2px solid var(--line); background:rgba(255,255,255,.08);
+    color:#e8eefb; font-weight:800; font-size:14px; padding:9px 4px; border-radius:11px; cursor:pointer;
+  }
+  .seg button.on{ background:var(--red); border-color:#e2707c; box-shadow:0 3px 0 var(--red-d); }
+  #seed{
+    flex:1; min-width:0; background:rgba(255,255,255,.1); border:2px solid var(--line); color:#fff;
+    font-weight:800; font-size:15px; padding:9px 11px; border-radius:11px; font-family:inherit;
+  }
+  #dice{ appearance:none; border:2px solid var(--line); background:rgba(255,255,255,.08); color:#fff;
+    font-size:17px; padding:8px 12px; border-radius:11px; cursor:pointer; }
+  .playBtn{
+    width:100%; appearance:none; border:0; cursor:pointer; margin-top:4px;
+    background:var(--red); color:#fff; font-weight:900; font-size:21px; letter-spacing:1px;
+    padding:14px 20px; border-radius:14px; box-shadow:0 4px 0 var(--red-d),0 10px 22px rgba(0,0,0,.26);
+  }
+  .playBtn:active{ transform:translateY(2px); box-shadow:0 2px 0 var(--red-d); }
+  .hint{ margin:16px auto 0; max-width:380px; font-size:12.5px; line-height:1.6; font-weight:600;
+    color:var(--navy-d); opacity:.92; }
+  .back{ position:fixed; top:calc(10px + var(--sat)); left:10px; z-index:31;
+    color:#fff; text-decoration:none; font-weight:800; font-size:14px;
+    background:rgba(35,51,87,.72); padding:7px 12px; border-radius:10px; }
+
+  /* ───────────────── in-game chrome (Phase E replaces) ───────────────── */
+  #dbg{
+    position:fixed; top:calc(6px + var(--sat)); right:8px; z-index:20;
+    font:600 10.5px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;
+    color:#eaf2ff; background:rgba(24,35,59,.62); border:1px solid var(--line);
+    padding:4px 7px; border-radius:8px; pointer-events:none; white-space:pre;
+  }
+  #dbg.hidden{ display:none; }
+  #speedTag{
+    position:fixed; left:10px; bottom:calc(10px + var(--sab)); z-index:20;
+    font-size:12px; font-weight:800; color:#fff; background:rgba(24,35,59,.7);
+    border:1px solid var(--line); padding:6px 10px; border-radius:10px; pointer-events:none;
+  }
+  #speedTag.hidden{ display:none; }
+
+  /* PHASE-B temp UI — replaced wholesale by FSUI in Phase E */
+  #bhint{
+    position:fixed; left:50%; transform:translateX(-50%); bottom:calc(10px + var(--sab)); z-index:20;
+    font:700 11.5px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    color:#eaf2ff; background:rgba(24,35,59,.72); border:1px solid var(--line);
+    padding:6px 12px; border-radius:10px; pointer-events:none; text-align:center; max-width:92vw;
+  }
+  #bhint.hidden{ display:none; }
+  #bhint b{ color:#ffd98a; }
+  #bmode{
+    position:fixed; left:10px; bottom:calc(48px + var(--sab)); z-index:21;
+    font:800 12.5px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    color:#fff; background:var(--red); border:1px solid #e2707c;
+    padding:6px 11px; border-radius:10px; pointer-events:none;
+  }
+  #bmode.hidden{ display:none; }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="view" tabindex="0"></canvas></div>
+
+<div id="dbg" class="hidden">boot</div>
+<div id="speedTag" class="hidden">▶ 1×</div>
+<!-- PHASE-B temp UI -->
+<div id="bmode" class="hidden">mode</div>
+<div id="bhint" class="hidden">
+  <b>F</b> flag · <b>R</b> road (click flag → flag) · <b>B</b>+<b>1-9</b> build · <b>X</b> demolish · <b>Esc</b> cancel
+</div>
+
+<a class="back" href="games.html" id="backLink">← Bucky</a>
+<div id="title">
+  <h1 class="logo">FARMSTEAD 🏰</h1>
+  <p class="sub">build · connect · defend</p>
+  <div class="panel">
+    <h2>New game</h2>
+    <div class="row">
+      <span class="lbl">Map</span>
+      <div class="seg" id="sizeSeg">
+        <button data-size="small">Small</button>
+        <button data-size="medium" class="on">Medium</button>
+        <button data-size="large">Large</button>
+      </div>
+    </div>
+    <div class="row">
+      <span class="lbl">Seed</span>
+      <input id="seed" inputmode="numeric" autocomplete="off" value="">
+      <button id="dice" title="Random seed">🎲</button>
+    </div>
+    <div class="row">
+      <span class="lbl">Rivals</span>
+      <div class="seg" id="aiSeg">
+        <button data-ai="1" class="on">1</button>
+        <button data-ai="2">2</button>
+        <button data-ai="3">3</button>
+      </div>
+    </div>
+    <button class="playBtn" id="startBtn">START</button>
+  </div>
+  <p class="hint">
+    Drag to pan · wheel to zoom · <b>Q/E</b> turn · <b>WASD</b> move ·
+    <b>Space</b> pause · <b>1 2 3</b> speed
+  </p>
+</div>
+
+<script src="assets/vendor/three-r128.min.js"></script>
+<script src="assets/farmstead/fs-const.js"></script>
+<script src="assets/farmstead/fs-map.js"></script>
+<script src="assets/farmstead/fs-sim.js"></script>
+<script src="assets/farmstead/fs-models.js"></script>
+<script src="assets/farmstead/fs-render.js"></script>
+<script>
+(function () {
+  "use strict";
+  const FSC = window.FSC, FSMap = window.FSMap, FSSim = window.FSSim, FSRender = window.FSRender;
+
+  const el = (id) => document.getElementById(id);
+  const titleEl = el("title"), dbgEl = el("dbg"), speedEl = el("speedTag"), canvas = el("view");
+  const hintEl = el("bhint"), modeEl = el("bmode");
+
+  let G = null;
+  let running = false;
+  let acc = 0, lastT = 0, raf = 0;
+  let hiddenSpeed = 0;           // speed stashed while the page is hidden
+  let lastSpeed = 1;             // speed to restore when un-pausing
+  let tickMsAvg = 0, tickCount = 0;
+  const opts = { size: "medium", ais: 1, seed: 0 };
+
+  // ───────────────────────────────── new game UI
+  function randSeed() { return 100000 + Math.floor(Math.random() * 899999); }
+  el("seed").value = String(randSeed());
+  el("dice").addEventListener("click", () => { el("seed").value = String(randSeed()); });
+  function wireSeg(id, attr, apply) {
+    el(id).addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-" + attr + "]");
+      if (!b) return;
+      [].forEach.call(el(id).querySelectorAll("button"), (x) => x.classList.toggle("on", x === b));
+      apply(b.getAttribute("data-" + attr));
+    });
+  }
+  wireSeg("sizeSeg", "size", (v) => (opts.size = v));
+  wireSeg("aiSeg", "ai", (v) => (opts.ais = parseInt(v, 10)));
+  el("startBtn").addEventListener("click", () => {
+    const s = parseInt(el("seed").value, 10);
+    startGame({ size: opts.size, ais: opts.ais, seed: (isFinite(s) && s > 0) ? s : randSeed() });
+  });
+
+  // ───────────────────────────────── boot / loop
+  function startGame(o) {
+    o = o || {};
+    G = FSSim.newGame({
+      size: o.size || opts.size,
+      ais: o.ais === undefined ? opts.ais : o.ais,
+      seed: o.seed || randSeed(),
+    });
+    G.speed = o.speed === undefined ? 1 : o.speed;
+    lastSpeed = G.speed || 1;
+    tickMsAvg = 0; tickCount = 0;
+    FSRender.init(canvas, G);
+    titleEl.classList.add("hidden");
+    el("backLink").style.display = "none";
+    dbgEl.classList.remove("hidden");
+    speedEl.classList.remove("hidden");
+    hintEl.classList.remove("hidden");
+    setMode(null);
+    paintSpeed();
+    if (!running) { running = true; lastT = performance.now(); acc = 0; raf = requestAnimationFrame(loop); }
+    return G;
+  }
+
+  function runTick() {
+    const t0 = performance.now();
+    FSSim.tick(G);
+    const ms = performance.now() - t0;
+    tickCount++;
+    tickMsAvg += (ms - tickMsAvg) / Math.min(tickCount, 120);
+  }
+
+  function loop(now) {
+    raf = requestAnimationFrame(loop);
+    const dtReal = Math.min(0.25, (now - lastT) / 1000);
+    lastT = now;
+    if (G) {
+      acc += dtReal * (G.speed || 0);
+      let n = 0;
+      while (acc >= FSC.TICK_S && n < FSC.MAX_TICKS_PER_FRAME) { runTick(); acc -= FSC.TICK_S; n++; }
+      if (n >= FSC.MAX_TICKS_PER_FRAME) acc = 0;     // tab-return protection
+    }
+    const st = FSRender.frame(dtReal);
+    if (G && (st.frames & 7) === 0) paintDbg();
+  }
+
+  function paintDbg() {
+    if (!G) return "";
+    const st = FSRender.stats(), c = FSSim.counts(G, 0);
+    dbgEl.textContent = "fps " + st.fps + "  tick " + G.tick + "  x" + (G.speed || 0) +
+      "\ndraws " + st.drawCalls + "  tris " + (st.tris / 1000).toFixed(1) + "k" +
+      "\nserfs " + c.serfs + "  flags " + c.flags + "  roads " + c.roads +
+      "\nbld " + c.buildings + " (" + c.sites + " site)  goods " + c.goods;
+    return dbgEl.textContent;
+  }
+
+  function paintSpeed() {
+    if (!G) return;
+    speedEl.textContent = G.speed ? ("▶ " + G.speed + "×") : "⏸ paused";
+  }
+  function setSpeed(s) {
+    if (!G) return 0;
+    s = FSC.SPEEDS.indexOf(s) >= 0 ? s : 1;
+    // every mutating action is a command (plan §16); `speed` self-pumps so a
+    // paused sim still responds — see FSSim.issueCommand
+    FSSim.issueCommand(G, { type: "speed", args: { speed: s } });
+    if (s > 0) lastSpeed = s;
+    acc = 0;
+    paintSpeed();
+    return G.speed;
+  }
+
+  /* ───────────────────────── PHASE-B temp UI: build/road/flag/demolish ─────
+     Keyboard-driven placement so the transport core can be exercised by hand
+     (and by the suite) long before Phase E's real build menu exists. */
+  const BUILD_KEYS = ["hut", "lumberjack", "forester", "stonecutter", "sawmill",
+    "farm", "mill", "stock", "tower"];
+  let mode = null;            // null | 'road' | 'build'
+  let roadFrom = 0;
+
+  function setMode(m, note) {
+    mode = m; if (m !== "road") roadFrom = 0;
+    if (!m) { modeEl.classList.add("hidden"); return; }
+    modeEl.classList.remove("hidden");
+    modeEl.textContent = note || m;
+  }
+  function issue(type, args) {
+    if (!G) return null;
+    return FSSim.issueCommand(G, { type, args });
+  }
+  function hovered() { return FSRender.hoverVertex(); }
+
+  function doFlag(v) {
+    if (v < 0) return;
+    const why = FSMap.whyFlag(G.map, v, 0);
+    if (why) { setMode(null); toastMode("✗ " + why); return; }
+    issue("flag", { v });
+  }
+  function doBuild(type, v) {
+    if (v < 0) return;
+    const why = FSMap.whyBuilding(G.map, type, v, 0);
+    if (why) { toastMode("✗ " + why); return; }
+    issue("build", { type, v });
+    setMode(null);
+  }
+  function doDemolish(v) {
+    if (v < 0) return;
+    let id = G.map.bldAt[v] || G.map.flagAt[v] || 0;
+    if (!id) {
+      for (const rid in G.roads) if (G.roads[rid].path.indexOf(v) >= 0) { id = rid | 0; break; }
+    }
+    if (id) issue("demolish", { id: id | 0 });
+    setMode(null);
+  }
+  let toastT = 0;
+  function toastMode(msg) {
+    modeEl.classList.remove("hidden");
+    modeEl.textContent = msg;
+    toastT = Date.now();
+    setTimeout(() => { if (Date.now() - toastT >= 1400) setMode(mode); }, 1500);
+  }
+
+  // click = pointerdown+up within a few px (camera drags stay untouched)
+  let downAt = null;
+  canvas.addEventListener("pointerdown", (e) => { downAt = { x: e.clientX, y: e.clientY }; });
+  window.addEventListener("pointerup", (e) => {
+    if (!downAt || !G) { downAt = null; return; }
+    const moved = Math.abs(e.clientX - downAt.x) + Math.abs(e.clientY - downAt.y);
+    downAt = null;
+    if (moved > 6 || e.button !== 0) return;
+    const v = FSRender.pickVertex(e.clientX, e.clientY);
+    if (v < 0) return;
+    if (mode === "road") {
+      const fid = G.map.flagAt[v];
+      if (!fid) { toastMode("click a flag"); return; }
+      if (!roadFrom) { roadFrom = fid; setMode("road", "road: from flag " + fid + " → pick a flag"); return; }
+      if (fid === roadFrom) return;
+      issue("road", { f1: roadFrom, f2: fid });
+      setMode(null);
+    }
+  });
+
+  // ───────────────────────────────── keys (Phase E adds real buttons)
+  window.addEventListener("keydown", (e) => {
+    const tag = e.target && e.target.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    if (!G) return;
+    const k = e.key;
+    if (k === "Escape") { setMode(null); return; }
+    if (mode === "build" && k >= "1" && k <= "9") {
+      e.preventDefault();
+      doBuild(BUILD_KEYS[k.charCodeAt(0) - 49], hovered());
+      return;
+    }
+    if (e.code === "Space") { e.preventDefault(); setSpeed(G.speed ? 0 : lastSpeed); return; }
+    if (k === "1") return void setSpeed(1);
+    if (k === "2") return void setSpeed(2);
+    if (k === "3") return void setSpeed(4);
+    if (k === "." && !G.speed) { runTick(); return; }     // single-step while paused
+    if (k === "f" || k === "F") { doFlag(hovered()); return; }
+    if (k === "r" || k === "R") { setMode(mode === "road" ? null : "road", "road: click a flag"); return; }
+    if (k === "b" || k === "B") {
+      setMode(mode === "build" ? null : "build", "build: 1-9 = " + BUILD_KEYS.join(" "));
+      return;
+    }
+    if (k === "x" || k === "X") { doDemolish(hovered()); return; }
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (!G) return;
+    if (document.hidden) {
+      if (G.speed) { hiddenSpeed = G.speed; setSpeed(0); }
+    } else if (hiddenSpeed) {
+      const s = hiddenSpeed; hiddenSpeed = 0; setSpeed(s);
+    }
+  });
+
+  // ───────────────────────────────── debug hook (suite contract — keep stable)
+  window.__FS__ = {
+    get G() { return G; },
+    FSC: FSC, FSMap: FSMap, FSSim: FSSim, FSRender: FSRender, FSModels: window.FSModels,
+    version: FSC.VERSION,
+    newGame: function (o) { return startGame(o || {}); },
+    ff: function (n) { for (let i = 0; i < (n | 0); i++) runTick(); return G.tick; },
+    setSpeed: setSpeed,
+    mapHash: function () { return FSMap.hash(G.map); },
+    started: function () { return !!G; },
+    /* ===== PHASE-B: every mutating action goes through the command layer ===== */
+    cmd: function (type, args, o) {
+      return FSSim.issueCommand(G, Object.assign({ type, args: args || {} }, o || {}));
+    },
+    placeFlag: function (v, o) { return FSSim.issueCommand(G, Object.assign({ type: "flag", args: { v } }, o || {})); },
+    buildRoad: function (f1, f2, path, o) { return FSSim.issueCommand(G, Object.assign({ type: "road", args: { f1, f2, path } }, o || {})); },
+    build: function (type, v, o) { return FSSim.issueCommand(G, Object.assign({ type: "build", args: { type, v } }, o || {})); },
+    demolish: function (id, o) { return FSSim.issueCommand(G, Object.assign({ type: "demolish", args: { id } }, o || {})); },
+    hash: function () { return FSSim.hash(G); },
+    paintHud: function () { return paintDbg(); },   // headless renders ~1fps: force the HUD
+    events: function (type) { return type ? G.events.filter((e) => e.type === type) : G.events.slice(); },
+    mode: function () { return mode; },
+    q: {
+      flagAt: function (v) { return G.map.flagAt[v]; },
+      bldAt: function (v) { return G.map.bldAt[v]; },
+      invOf: function (p) { return FSSim.invOf(G, p); },
+      poolOf: function (p) { return FSSim.poolOf(G, p); },
+      counts: function (p) { return FSSim.counts(G, p); },
+      serfsOf: function (p) { return FSSim.serfsOf(G, p); },
+      itemsAt: function (f) { return FSSim.itemsAt(G, f); },
+      roadBetween: function (a, b) { return FSSim.roadBetween(G, a, b); },
+      route: function (a, b) { return { road: FSSim.nextRoad(G, a, b), hops: FSSim.hops(G, a, b) }; },
+    },
+    perf: {
+      get tickMsAvg() { return tickMsAvg; },
+      get drawCalls() { return FSRender.stats().drawCalls; },
+      get terrainMs() { return FSRender.stats().terrainMs || 0; },
+      get worldMs() { return FSRender.stats().worldMs || 0; },
+    },
+  };
+})();
+</script>
+</body>
+</html>

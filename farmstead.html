@@ -1,0 +1,1452 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#233357">
+<meta name="description" content="Farmstead — a mechanics-faithful 3D settlement-building game: flags, roads, serfs, knights and territory.">
+<title>Farmstead — BUCKY</title>
+<!-- PHASE F housekeeping: emoji favicon via data-URL SVG (house pattern — see farmparty.html) -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8F%B0%3C/text%3E%3C/svg%3E">
+<style>
+  :root{
+    --navy:#233357; --navy-d:#18233b; --red:#ba303e; --red-d:#7a1f28;
+    --cream:#f4efe4; --ink:#15233f; --line:rgba(255,255,255,.18);
+    --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{
+    margin:0; height:100%; overflow:hidden; background:#7fb0d8; color:#fff;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    user-select:none;
+  }
+  #stage{ position:fixed; inset:0; }
+  #view{ display:block; width:100%; height:100%; touch-action:none; cursor:grab; outline:none; }
+  #view:active{ cursor:grabbing; }
+
+  /* ───────────────── title / new game ───────────────── */
+  #title{
+    position:fixed; inset:0; z-index:30; overflow-y:auto;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:calc(24px + var(--sat)) 18px calc(24px + var(--sab));
+    background:
+      radial-gradient(ellipse at 50% 14%, rgba(255,255,255,.30), transparent 58%),
+      linear-gradient(180deg,#6f9fcd 0%,#9dc0a5 46%,#6d8a4c 100%);
+    text-align:center;
+  }
+  #title.hidden{ display:none; }
+  .logo{
+    font-size:clamp(42px,11vw,74px); font-weight:900; letter-spacing:2px; margin:0;
+    color:#fff; text-shadow:0 3px 0 var(--navy-d), 0 10px 22px rgba(0,0,0,.34);
+  }
+  .sub{
+    margin:8px 0 22px; font-size:14px; font-weight:800; letter-spacing:2px; text-transform:uppercase;
+    color:var(--navy); background:rgba(255,255,255,.72); padding:6px 16px; border-radius:999px;
+  }
+  .panel{
+    width:min(420px,100%); background:rgba(24,35,59,.86); border:2px solid var(--line);
+    border-radius:18px; padding:18px; box-shadow:0 14px 34px rgba(0,0,0,.32); backdrop-filter:blur(4px);
+  }
+  .panel h2{ margin:0 0 14px; font-size:13px; letter-spacing:2px; text-transform:uppercase; color:#cddcf5; }
+  .row{ display:flex; align-items:center; gap:8px; margin-bottom:14px; }
+  .row .lbl{ flex:0 0 74px; text-align:left; font-size:12.5px; font-weight:800; color:#a9bcdc;
+    text-transform:uppercase; letter-spacing:.6px; }
+  .seg{ display:flex; flex:1; gap:6px; }
+  .seg button{
+    flex:1; appearance:none; border:2px solid var(--line); background:rgba(255,255,255,.08);
+    color:#e8eefb; font-weight:800; font-size:14px; padding:9px 4px; border-radius:11px; cursor:pointer;
+  }
+  .seg button.on{ background:var(--red); border-color:#e2707c; box-shadow:0 3px 0 var(--red-d); }
+  #seed{
+    flex:1; min-width:0; background:rgba(255,255,255,.1); border:2px solid var(--line); color:#fff;
+    font-weight:800; font-size:15px; padding:9px 11px; border-radius:11px; font-family:inherit;
+  }
+  #dice{ appearance:none; border:2px solid var(--line); background:rgba(255,255,255,.08); color:#fff;
+    font-size:17px; padding:8px 12px; border-radius:11px; cursor:pointer; }
+  .playBtn{
+    width:100%; appearance:none; border:0; cursor:pointer; margin-top:4px;
+    background:var(--red); color:#fff; font-weight:900; font-size:21px; letter-spacing:1px;
+    padding:14px 20px; border-radius:14px; box-shadow:0 4px 0 var(--red-d),0 10px 22px rgba(0,0,0,.26);
+  }
+  .playBtn:active{ transform:translateY(2px); box-shadow:0 2px 0 var(--red-d); }
+  .hint{ margin:16px auto 0; max-width:380px; font-size:12.5px; line-height:1.6; font-weight:600;
+    color:var(--navy-d); opacity:.92; }
+  .hint a{ color:var(--navy-d); font-weight:800; }
+  .supStep{ flex:1; display:flex; align-items:center; justify-content:space-between; gap:8px;
+    background:rgba(255,255,255,.08); border:2px solid var(--line); border-radius:11px; padding:6px 10px; }
+  .supStep button{ appearance:none; border:0; background:rgba(255,255,255,.14); color:#fff; width:30px; height:30px;
+    border-radius:9px; font:900 17px inherit; }
+  .supStep span{ font:900 16px inherit; color:#fff; min-width:26px; text-align:center; }
+  .contBtn{
+    width:min(420px,100%); margin:12px 0 0; appearance:none; border:2px solid #ffd98a; cursor:pointer;
+    background:rgba(255,217,138,.16); color:#fff; font-weight:900; font-size:15px; padding:12px 16px;
+    border-radius:14px;
+  }
+  .contBtn.hidden{ display:none; }
+  .contBtn:active{ transform:translateY(1px); }
+  #coop .cbtn small{ display:block; font-weight:600; font-size:10.5px; text-transform:none; letter-spacing:0; color:#cddcf5; margin-top:2px; }
+  .back{ position:fixed; top:calc(10px + var(--sat)); left:10px; z-index:31;
+    color:#fff; text-decoration:none; font-weight:800; font-size:14px;
+    background:rgba(35,51,87,.72); padding:7px 12px; border-radius:10px; }
+
+  /* ───────────────── in-game chrome (Phase E replaces) ───────────────── */
+  #dbg{
+    position:fixed; top:calc(44px + var(--sat)); right:8px; z-index:20;
+    font:600 10.5px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;
+    color:#eaf2ff; background:rgba(24,35,59,.62); border:1px solid var(--line);
+    padding:4px 7px; border-radius:8px; pointer-events:none; white-space:pre;
+  }
+  #dbg.hidden{ display:none; }
+  #speedTag{
+    position:fixed; left:10px; bottom:calc(10px + var(--sab)); z-index:20;
+    font-size:12px; font-weight:800; color:#fff; background:rgba(24,35,59,.7);
+    border:1px solid var(--line); padding:6px 10px; border-radius:10px; pointer-events:none;
+  }
+  #speedTag.hidden{ display:none; }
+
+  /* PHASE-B temp UI — replaced wholesale by FSUI in Phase E */
+  #bhint{
+    position:fixed; left:50%; transform:translateX(-50%); bottom:calc(10px + var(--sab)); z-index:20;
+    font:700 11.5px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    color:#eaf2ff; background:rgba(24,35,59,.72); border:1px solid var(--line);
+    padding:6px 12px; border-radius:10px; pointer-events:none; text-align:center; max-width:92vw;
+  }
+  #bhint.hidden{ display:none; }
+  #bhint b{ color:#ffd98a; }
+  #bmode{
+    position:fixed; left:10px; bottom:calc(48px + var(--sab)); z-index:21;
+    font:800 12.5px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    color:#fff; background:var(--red); border:1px solid #e2707c;
+    padding:6px 11px; border-radius:10px; pointer-events:none;
+  }
+  #bmode.hidden{ display:none; }
+
+  /* ───────────── PHASE-M UI: co-op (Phase E polishes all of this) ───────── */
+  #coop{ margin-top:14px; }
+  #coop .cbtn{
+    width:100%; appearance:none; border:2px solid var(--line); cursor:pointer; margin-bottom:8px;
+    background:rgba(255,255,255,.10); color:#eaf2fb; font-weight:800; font-size:15px;
+    padding:11px 12px; border-radius:12px; text-align:center;
+  }
+  #coop .cbtn:active{ transform:translateY(1px); }
+  #coop .joinrow{ display:flex; gap:8px; }
+  #joinCode{
+    flex:1; min-width:0; background:rgba(255,255,255,.1); border:2px solid var(--line); color:#fff;
+    font-weight:800; font-size:15px; padding:9px 11px; border-radius:11px; font-family:inherit;
+    text-transform:uppercase; letter-spacing:2px;
+  }
+  #joinBtn{ flex:0 0 96px; }
+  #netNote{ margin-top:10px; font-size:12.5px; font-weight:700; color:#cddcf5; line-height:1.5; word-break:break-all; }
+  #netNote .code{ font:900 20px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing:3px; color:#ffd98a; }
+  #netNote.hidden{ display:none; }
+
+  #netChip{
+    position:fixed; top:calc(6px + var(--sat)); left:10px; z-index:22;
+    font:800 12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    color:#fff; background:rgba(24,35,59,.78); border:1px solid var(--line);
+    padding:6px 10px; border-radius:10px; max-width:52vw; white-space:nowrap; overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  #netChip.hidden{ display:none; }
+  #netChip.live{ border-color:#7fd08a; }
+  #netChip.wait{ border-color:#ffd98a; }
+  #netChip.gone{ border-color:#e2707c; }
+  #netInvite{
+    position:fixed; top:calc(36px + var(--sat)); left:10px; z-index:22;
+    background:rgba(24,35,59,.86); border:1px solid var(--line); border-radius:12px;
+    padding:9px 11px; max-width:min(340px,72vw);
+    font:700 11.5px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; color:#cddcf5;
+  }
+  #netInvite.hidden{ display:none; }
+  #netInvite .code{
+    font:900 22px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing:4px; color:#ffd98a;
+  }
+  #netInvite .lnk{ display:block; margin:4px 0 7px; word-break:break-all; user-select:text; opacity:.85; }
+  #copyLinkBtn{
+    appearance:none; border:1px solid var(--line); background:rgba(255,255,255,.1); color:#fff;
+    font:800 11.5px inherit; padding:5px 10px; border-radius:9px; cursor:pointer;
+  }
+  #pingBtn{
+    position:fixed; top:calc(40px + var(--sat)); left:10px; z-index:22;
+    appearance:none; border:1px solid var(--line); background:rgba(186,48,62,.85); color:#fff;
+    font:800 12px/1.4 inherit; padding:6px 10px; border-radius:10px; cursor:pointer;
+  }
+  #pingBtn.hidden{ display:none; }
+  #pingMark{
+    position:fixed; z-index:23; pointer-events:none; transform:translate(-50%,-100%);
+    font-size:38px; line-height:1;
+    filter:drop-shadow(0 0 6px rgba(255,255,255,.95)) drop-shadow(0 3px 5px rgba(0,0,0,.55));
+  }
+  #pingMark.hidden{ display:none; }
+  #veil{
+    position:fixed; inset:0; z-index:25; display:none; align-items:center; justify-content:center;
+    background:rgba(12,20,36,.55); color:#fff; font-weight:900; font-size:20px; letter-spacing:1px;
+    backdrop-filter:blur(2px); pointer-events:none;   /* never traps the player */
+  }
+  body.fs-catchup #veil{ display:flex; }
+  #hostLeft{
+    position:fixed; inset:0; z-index:32; display:none; align-items:center; justify-content:center;
+    background:rgba(12,20,36,.72); padding:20px;
+  }
+  #hostLeft.on{ display:flex; }
+  #hostLeft .box{
+    width:min(360px,100%); background:rgba(24,35,59,.96); border:2px solid var(--line);
+    border-radius:16px; padding:18px; text-align:center; box-shadow:0 14px 34px rgba(0,0,0,.4);
+  }
+  #hostLeft h3{ margin:0 0 8px; font-size:17px; }
+  #hostLeft p{ margin:0 0 14px; font-size:13px; color:#cddcf5; line-height:1.5; }
+  /* the modal offers CONTINUE SOLO or BACK TO THE TITLE — never both at once
+     (a host that died during the first transfer left nothing to continue) */
+  #hostLeft .off{ display:none; }
+
+  /* ═══════════════════════════════════════════════════════════════════════
+   * ===== PHASE E: the real UI (fs-ui.js builds this markup; CSS lives ======
+   * ===== here — house rule: self-contained CSS in the page) ================
+   * ═══════════════════════════════════════════════════════════════════════ */
+  #fsui-root.hidden{ display:none; }
+  #fsui-root button{ font-family:inherit; cursor:pointer; }
+  .fs-dim{ color:#a9bcdc; font-weight:600; }
+  .fs-note{ font-size:12px; line-height:1.5; margin:0 0 10px; }
+  .fs-btn{
+    display:block; width:100%; margin-top:8px; appearance:none; border:1px solid var(--line);
+    background:rgba(255,255,255,.10); color:#eaf2fb; font:800 13px inherit; padding:9px 10px;
+    border-radius:10px; text-align:center;
+  }
+  .fs-btn:active{ transform:translateY(1px); }
+  .fs-btn:disabled{ opacity:.4; pointer-events:none; }
+  .fs-primary{ background:var(--red); border-color:#e2707c; box-shadow:0 3px 0 var(--red-d); }
+  .fs-danger{ background:rgba(186,48,62,.28); border-color:#e2707c; color:#ffd9dc; }
+  .fs-ghost{ background:rgba(255,255,255,.08); }
+  .fs-x{
+    appearance:none; border:0; background:rgba(255,255,255,.12); color:#fff; width:26px; height:26px;
+    border-radius:8px; font-size:13px; line-height:1; float:right;
+  }
+
+  /* ───────────────────── top bar ───────────────────── */
+  #fsTopbar{
+    position:fixed; top:0; left:0; right:0; z-index:15;
+    padding:calc(6px + var(--sat)) 10px 6px; display:flex; align-items:center; gap:10px;
+    background:linear-gradient(180deg, rgba(15,22,38,.82), rgba(15,22,38,.42) 80%, transparent);
+    pointer-events:none;
+  }
+  #fsTicker{ display:flex; gap:3px; flex-wrap:wrap; pointer-events:auto; }
+  .tick-item{
+    display:flex; align-items:center; gap:3px; background:rgba(24,35,59,.72); border:1px solid var(--line);
+    border-radius:9px; padding:4px 7px; font:800 12px/1 ui-monospace,Consolas,monospace; color:#eaf2fb;
+    white-space:nowrap;
+  }
+  .tick-item .ico{ font-size:13px; }
+  .fs-top-right{ margin-left:auto; display:flex; align-items:center; gap:6px; pointer-events:auto; }
+  .fs-icobtn{
+    position:relative; appearance:none; border:1px solid var(--line); background:rgba(24,35,59,.72);
+    color:#fff; width:34px; height:34px; border-radius:10px; font-size:16px;
+  }
+  .fs-chip{
+    appearance:none; border:1px solid #e2707c; background:rgba(186,48,62,.55); color:#fff;
+    font:800 12.5px inherit; padding:6px 10px; border-radius:10px;
+  }
+  .fs-chip.hidden{ display:none; }
+  .fs-badge{
+    position:absolute; top:-5px; right:-5px; background:var(--red); color:#fff; font:800 10px/1 inherit;
+    padding:2.5px 5px; border-radius:999px; border:1px solid rgba(255,255,255,.5); min-width:10px; text-align:center;
+  }
+  .fs-badge.hidden{ display:none; }
+  .fs-dropwrap{ position:relative; }
+  .fs-drop{
+    position:absolute; top:40px; right:0; z-index:16; width:min(320px,84vw); max-height:60vh; overflow-y:auto;
+    background:rgba(20,29,49,.97); border:1px solid var(--line); border-radius:14px; padding:8px;
+    box-shadow:0 14px 30px rgba(0,0,0,.4);
+  }
+  .fs-drop.hidden{ display:none; }
+  .fs-notif-row{
+    display:flex; align-items:center; gap:8px; width:100%; text-align:left; appearance:none; border:0;
+    background:rgba(255,255,255,.05); color:#eaf2fb; font:700 12.5px/1.35 inherit; padding:8px 9px;
+    border-radius:9px; margin-bottom:5px;
+  }
+  .fs-notif-row .ico{ font-size:15px; flex:0 0 auto; }
+  .fs-notif-row .txt{ flex:1; }
+
+  /* ───────────────────── speed control (headline feature) ───────────────────── */
+  #fsSpeed{
+    position:fixed; top:calc(46px + var(--sat)); left:50%; transform:translateX(-50%); z-index:15;
+    display:flex; gap:4px; background:rgba(15,22,38,.78); border:2px solid var(--line); border-radius:14px;
+    padding:4px;
+  }
+  #fsSpeed button{
+    appearance:none; border:0; background:transparent; color:#cddcf5; font:900 15px inherit;
+    padding:8px 15px; border-radius:11px; min-width:46px;
+  }
+  #fsSpeed button.on{ background:var(--red); color:#fff; box-shadow:0 3px 0 var(--red-d); }
+
+  /* ───────────────────── bottom-left dock ───────────────────── */
+  #fsDock{
+    position:fixed; left:calc(8px + env(safe-area-inset-left,0px)); bottom:calc(8px + var(--sab)); z-index:15;
+    display:flex; gap:5px;
+  }
+  #fsDock button{
+    display:flex; flex-direction:column; align-items:center; gap:2px; appearance:none; border:2px solid var(--line);
+    background:rgba(24,35,59,.85); color:#eaf2fb; border-radius:13px; padding:8px 9px; font-size:19px;
+    min-width:52px;
+  }
+  #fsDock button b{ font-size:9.5px; font-weight:800; letter-spacing:.3px; text-transform:uppercase; color:#a9bcdc; }
+  #fsDock button.on{ background:var(--red); border-color:#e2707c; }
+  #fsDock button.on b{ color:#ffe1e4; }
+
+  /* ───────────────────── build panel ───────────────────── */
+  #fsBuildPanel{
+    position:fixed; left:calc(8px + env(safe-area-inset-left,0px)); bottom:calc(80px + var(--sab)); z-index:15;
+    width:min(360px, 92vw); background:rgba(20,29,49,.97); border:1px solid var(--line); border-radius:16px;
+    padding:10px; box-shadow:0 14px 30px rgba(0,0,0,.4);
+  }
+  #fsBuildPanel.hidden{ display:none; }
+  #fsBuildTabs{ display:flex; gap:4px; flex-wrap:wrap; margin-bottom:8px; }
+  .fs-tab{
+    appearance:none; border:1px solid var(--line); background:rgba(255,255,255,.06); color:#cddcf5;
+    font:800 11.5px inherit; padding:6px 9px; border-radius:9px;
+  }
+  .fs-tab.on{ background:var(--navy); border-color:#5a7bc4; color:#fff; }
+  #fsBuildGrid{ display:grid; grid-template-columns:repeat(3,1fr); gap:6px; max-height:44vh; overflow-y:auto; }
+  .build-item{
+    display:flex; flex-direction:column; align-items:center; gap:2px; appearance:none;
+    border:1px solid var(--line); background:rgba(255,255,255,.06); color:#eaf2fb; border-radius:11px;
+    padding:8px 4px;
+  }
+  .build-item .bi-ico{ font-size:20px; }
+  .build-item .bi-name{ font-size:10px; font-weight:800; text-align:center; line-height:1.15; }
+  .build-item .bi-cost{ font-size:10px; color:#cddcf5; font-weight:700; }
+  .build-item.armed{ background:var(--red); border-color:#e2707c; }
+  .build-item.bad{ opacity:.38; }
+
+  /* ───────────────────── connect chip (QoL#1) ───────────────────── */
+  #fsConnectChip{
+    position:fixed; left:50%; bottom:calc(80px + var(--sab)); transform:translateX(-50%); z-index:15;
+    display:flex; align-items:center; gap:8px; background:rgba(20,29,49,.96); border:1px solid #ffd98a;
+    border-radius:13px; padding:8px 10px; font:800 12.5px inherit; color:#eaf2fb;
+  }
+  #fsConnectChip.hidden{ display:none; }
+  #fsConnectChip button{ appearance:none; border:1px solid var(--line); border-radius:9px; padding:6px 10px; font:800 12px inherit; }
+  #fsConnectChip .fs-primary{ width:auto; margin:0; }
+  #fsConnectChip .fs-ghost{ width:auto; margin:0; color:#fff; background:rgba(255,255,255,.1); }
+
+  /* ───────────────────── context panel (flag / building) ───────────────────── */
+  #fsContext{
+    position:fixed; right:calc(8px + env(safe-area-inset-right,0px)); top:calc(96px + var(--sat)); z-index:15;
+    width:min(300px, 90vw); max-height:min(60vh, 520px); overflow-y:auto;
+    background:rgba(20,29,49,.97); border:1px solid var(--line); border-radius:16px; padding:12px;
+    box-shadow:0 14px 30px rgba(0,0,0,.4); color:#eaf2fb;
+  }
+  #fsContext.hidden{ display:none; }
+  #fsContextBody h3{ margin:0 0 8px; font-size:15px; }
+  .ctx-row{ display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:12.5px; margin:5px 0 2px; }
+  .ctx-row b{ font-weight:800; }
+  .ctx-row.fs-warn b{ color:#ffcf7a; }
+  .fs-bar{ height:7px; border-radius:5px; background:rgba(255,255,255,.12); overflow:hidden; margin-bottom:6px; }
+  .fs-bar-fill{ height:100%; background:linear-gradient(90deg,#6fd67a,#3fae54); }
+  .ctx-sec{ margin:10px 0 4px; font:800 11.5px inherit; letter-spacing:.4px; text-transform:uppercase; color:#a9bcdc; }
+  .ctx-goods{ display:flex; flex-wrap:wrap; gap:5px; margin:4px 0 6px; }
+  .ctx-good{
+    display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px;
+    background:rgba(255,255,255,.1); border-radius:8px; font-size:14px;
+  }
+  .ctx-inv-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:4px; }
+  .inv-cell{
+    position:relative; display:flex; flex-direction:column; align-items:center; background:rgba(255,255,255,.06);
+    border-radius:8px; padding:5px 2px; font-size:10.5px;
+  }
+  .inv-cell.zero{ opacity:.35; }
+  .inv-cell .ico{ font-size:13px; }
+  .inv-cell .n{ font-weight:800; }
+  .fs-modebtn{
+    position:absolute; top:1px; right:1px; appearance:none; border:0; background:transparent; font-size:9px;
+    padding:1px; line-height:1;
+  }
+  .ctx-pool{ display:flex; flex-wrap:wrap; gap:4px; }
+  .pool-chip{ background:rgba(255,255,255,.08); border-radius:7px; padding:3px 7px; font-size:10.5px; font-weight:700; }
+  .ctx-garrison{ display:flex; flex-wrap:wrap; gap:4px; margin-bottom:4px; }
+  .rank-chip{ border:2px solid; border-radius:8px; padding:2px 6px; font-size:11px; background:rgba(255,255,255,.06); }
+  .fs-toggle{ display:flex; align-items:center; gap:7px; font-size:12px; font-weight:700; margin-top:9px; color:#eaf2fb; }
+  .fs-note.fs-toggle{ margin-top:0; }
+
+  /* ───────────────────── attack / demolish dialogs + game over ───────────────────── */
+  .fs-modal{
+    position:fixed; inset:0; z-index:30; display:flex; align-items:center; justify-content:center;
+    background:rgba(8,13,24,.62); padding:16px;
+  }
+  .fs-modal.hidden{ display:none; }
+  .fs-modal-box{
+    width:min(360px,100%); background:rgba(20,29,49,.98); border:2px solid var(--line); border-radius:18px;
+    padding:18px; box-shadow:0 16px 36px rgba(0,0,0,.44); color:#eaf2fb;
+  }
+  .fs-modal-box h3{ margin:0 0 10px; font-size:17px; }
+  .fs-rowlbl{ display:block; font-size:12px; font-weight:700; color:#cddcf5; margin:8px 0 4px; }
+  #fsAttackCount{ width:100%; }
+  .fs-modal-actions{ display:flex; gap:8px; margin-top:14px; }
+  .fs-modal-actions button{ flex:1; margin:0; }
+  #fsGameOver{ z-index:34; }
+  .fs-gameover-box{ width:min(420px,100%); text-align:center; }
+  #fsGameOverTitle{ font:900 24px inherit; margin-bottom:10px; letter-spacing:1px; }
+  .go-win{ color:#ffd98a; } .go-lose{ color:#e2707c; }
+  #fsGameOverStats{ display:flex; flex-direction:column; gap:6px; margin-bottom:10px; text-align:left; }
+  .go-row{ display:flex; align-items:center; gap:8px; font:800 13px inherit; }
+  .go-row i{ width:12px; height:12px; border-radius:4px; display:inline-block; }
+  .go-row .fs-dim{ margin-left:auto; font-size:11.5px; }
+  #fsGameOverChart{ width:100%; height:auto; background:rgba(255,255,255,.05); border-radius:10px; }
+
+  /* ───────────────────── side menu + sheets ───────────────────── */
+  #fsMenu{
+    position:fixed; top:calc(46px + var(--sat)); right:calc(8px + env(safe-area-inset-right,0px)); z-index:16;
+    display:flex; flex-direction:column; gap:4px; background:rgba(20,29,49,.97); border:1px solid var(--line);
+    border-radius:14px; padding:7px; width:210px; box-shadow:0 14px 30px rgba(0,0,0,.4);
+  }
+  #fsMenu.hidden{ display:none; }
+  #fsMenu button{ appearance:none; border:0; background:transparent; color:#eaf2fb; text-align:left; font:800 13px inherit; padding:9px 10px; border-radius:9px; }
+  #fsMenu button:active{ background:rgba(255,255,255,.08); }
+  #fsSheetWrap{
+    position:fixed; inset:0; z-index:30; display:flex; align-items:center; justify-content:center; padding:16px;
+    background:rgba(8,13,24,.62);
+  }
+  #fsSheetWrap.hidden{ display:none; }
+  .fs-sheet{
+    width:min(460px,100%); max-height:min(78vh,640px); background:rgba(20,29,49,.98); border:2px solid var(--line);
+    border-radius:18px; display:flex; flex-direction:column; box-shadow:0 16px 36px rgba(0,0,0,.44); color:#eaf2fb;
+  }
+  .fs-sheet-head{ display:flex; align-items:center; justify-content:space-between; padding:14px 16px 8px; }
+  .fs-sheet-head h2{ margin:0; font-size:16px; }
+  #fsSheetBody{ padding:0 16px 16px; overflow-y:auto; }
+  .fs-sec-h{ font:800 11.5px inherit; letter-spacing:.4px; text-transform:uppercase; color:#a9bcdc; margin:14px 0 4px; }
+  .fs-row2{ display:flex; align-items:center; justify-content:space-between; font-size:12.5px; font-weight:700; margin:6px 0 3px; }
+  .fs-num{ color:#ffd98a; font-weight:800; }
+  .fs-stepper{ display:flex; gap:1.5px; margin-bottom:6px; }
+  .fs-tick{ flex:1; height:16px; appearance:none; border:0; background:rgba(255,255,255,.12); border-radius:2px; padding:0; }
+  .fs-tick.on{ background:var(--red); }
+  .fs-tick:first-child{ border-top-left-radius:5px; border-bottom-left-radius:5px; }
+  .fs-tick:last-child{ border-top-right-radius:5px; border-bottom-right-radius:5px; }
+  .fs-prio-list{ display:flex; flex-direction:column; gap:3px; max-height:52vh; overflow-y:auto; }
+  .fs-prio-row{ display:flex; align-items:center; gap:7px; background:rgba(255,255,255,.05); border-radius:8px; padding:5px 8px; }
+  .fs-prio-n{ width:18px; text-align:center; font:800 11px inherit; color:#a9bcdc; }
+  .fs-prio-ico{ font-size:14px; }
+  .fs-prio-name{ flex:1; font-size:12.5px; font-weight:700; text-transform:capitalize; }
+  .fs-arrow{ appearance:none; border:1px solid var(--line); background:rgba(255,255,255,.08); color:#fff; width:26px; height:24px; border-radius:7px; font-size:11px; }
+  .fs-arrow:disabled{ opacity:.25; }
+  .fs-stepbtns{ display:flex; gap:8px; margin:4px 0 6px; }
+  .fs-stepbtns .fs-btn{ margin:0; width:44px; }
+  .fs-occ-row{ display:flex; align-items:center; gap:8px; background:rgba(255,255,255,.05); border-radius:9px; padding:7px 9px; margin-bottom:5px; font-size:11.5px; }
+  .fs-occ-tier{ flex:0 0 58px; font-weight:800; }
+  .fs-occ-row label{ display:flex; align-items:center; gap:4px; font-weight:700; color:#cddcf5; }
+  .fs-occ-row select{ background:rgba(255,255,255,.1); color:#fff; border:1px solid var(--line); border-radius:6px; font:700 11px inherit; padding:3px 4px; }
+  #fsStatsTabs{ display:flex; gap:4px; flex-wrap:wrap; margin-bottom:8px; }
+  #fsStatsCanvas{ width:100%; height:auto; background:rgba(255,255,255,.05); border-radius:10px; }
+  #fsStatsLegend{ display:flex; gap:10px; flex-wrap:wrap; margin-top:8px; }
+  .fs-legend-chip{ display:flex; align-items:center; gap:5px; font-size:11.5px; font-weight:700; }
+  .fs-legend-chip i{ width:10px; height:10px; border-radius:3px; display:inline-block; }
+  .fs-save-row{ display:flex; align-items:center; justify-content:space-between; gap:8px; background:rgba(255,255,255,.05); border-radius:10px; padding:9px 10px; margin-bottom:6px; }
+  .fs-save-info{ display:flex; flex-direction:column; gap:2px; font-size:12.5px; }
+  .fs-save-info .fs-dim{ font-size:11px; }
+  .fs-save-btns{ display:flex; gap:6px; }
+  .fs-save-btns .fs-btn{ margin:0; width:auto; padding:7px 9px; font-size:11.5px; }
+  .fs-help h4{ margin:14px 0 4px; font-size:13px; color:#ffd98a; }
+  .fs-help h4:first-child{ margin-top:0; }
+  .fs-help p, .fs-help li{ font-size:12.5px; line-height:1.55; color:#eaf2fb; }
+  .fs-help pre{
+    white-space:pre-wrap; font:600 11.5px/1.6 ui-monospace,Consolas,monospace; background:rgba(255,255,255,.05);
+    border-radius:10px; padding:9px 10px; color:#cddcf5;
+  }
+  .fs-help ul{ margin:0; padding-left:18px; }
+
+  /* ───────────────────── minimap ───────────────────── */
+  #fsMinimap{
+    position:fixed; right:calc(8px + env(safe-area-inset-right,0px)); bottom:calc(8px + var(--sab)); z-index:15;
+    background:rgba(15,22,38,.75); border:2px solid var(--line); border-radius:14px; padding:5px;
+  }
+  #fsMinimapCanvas{ display:block; width:180px; height:180px; border-radius:9px; cursor:crosshair; touch-action:none; }
+  #fsMinimapToggle{ position:absolute; top:-14px; left:50%; transform:translateX(-50%); width:28px; height:20px; border-radius:8px; font-size:11px; }
+  #fsMinimap.collapsed #fsMinimapCanvas{ display:none; width:0; height:0; }
+  #fsMinimap.collapsed{ padding:5px 10px; }
+
+  /* ───────────────────── toasts ───────────────────── */
+  #fsToasts{
+    position:fixed; top:calc(92px + var(--sat)); left:50%; transform:translateX(-50%); z-index:18;
+    display:flex; flex-direction:column; gap:6px; align-items:center; pointer-events:none; width:min(360px,88vw);
+  }
+  .fs-toast{
+    background:rgba(20,29,49,.94); border:1px solid var(--line); border-radius:11px; padding:8px 14px;
+    font:800 12.5px inherit; color:#eaf2fb; box-shadow:0 8px 18px rgba(0,0,0,.3); text-align:center;
+  }
+  .fs-toast-err{ border-color:#e2707c; background:rgba(122,31,40,.85); }
+
+  /* ───────────────────── restyle the legacy temp UI (kept for suite/back-compat) ───────────────────── */
+  /* PHASE E fix: the old centered left:50%/translateX(-50%) shrink-to-fit box
+   * reached ~320-960px on a 1280-wide screen and got its left few characters
+   * silently painted over by #fsDock/#fsBuildPanel (same z-band, both anchored
+   * left:8px, right edge ~360px) — found via screenshot review. Pinning left/
+   * right instead of centering-by-transform keeps it provably clear of BOTH
+   * the dock/build-panel cluster (fixed ~360px from the left) and the minimap
+   * (fixed ~203px from the right) at any width the media query below leaves
+   * it visible at (it's display:none under 700px). */
+  #bhint{
+    z-index:8; opacity:.5; font-size:9.5px; padding:4px 9px; bottom:calc(3px + var(--sab));
+    left:calc(380px + env(safe-area-inset-left,0px)); right:calc(210px + env(safe-area-inset-right,0px));
+    transform:none; max-width:none;
+  }
+  #bhint:hover{ opacity:.95; }
+  #bmode{ z-index:17; bottom:calc(10px + var(--sab)); background:rgba(24,35,59,.9); }
+  #dbg{ z-index:9; opacity:.45; }
+  #dbg:hover{ opacity:.95; }
+  #speedTag{ display:none; }
+
+  /* co-op chrome sits above the base HUD, below dialogs */
+  #netChip, #netInvite, #pingBtn{ z-index:22; }
+  #pingMark{ z-index:23; animation:fsPingBounce 0.9s ease-in-out infinite; }
+  @keyframes fsPingBounce{ 0%,100%{ transform:translate(-50%,-100%); } 50%{ transform:translate(-50%,-118%); } }
+  #netInvite{
+    left:50%; top:calc(50px + var(--sat)); transform:translateX(-50%); width:min(320px,90vw);
+    text-align:center; padding:14px 16px;
+  }
+  #netInvite .code{ font-size:26px; }
+  #pingBtn{ left:auto; right:calc(8px + var(--sat)); top:calc(46px + var(--sat)); }
+
+  /* ───────────────── PHASE F: touch long-press context menu ───────────────── */
+  #fsTouchCtx{
+    position:fixed; z-index:26; display:flex; gap:6px; background:rgba(20,29,49,.97);
+    border:1px solid var(--line); border-radius:14px; padding:7px; box-shadow:0 14px 30px rgba(0,0,0,.4);
+  }
+  #fsTouchCtx.hidden{ display:none; }
+  #fsTouchCtx button{
+    appearance:none; border:1px solid var(--line); background:rgba(255,255,255,.10); color:#eaf2fb;
+    font:800 13px inherit; padding:10px 12px; border-radius:10px; min-height:44px; min-width:44px;
+    white-space:nowrap; cursor:pointer;
+  }
+  #fsTouchCtxFlag{ background:var(--red); border-color:#e2707c; }
+  #fsTouchCtxCancel{ min-width:44px; padding:10px; }
+
+  /* ───────────────────── mobile (≤700px) ───────────────────── */
+  @media (max-width:700px){
+    /* PHASE E fix: on narrow phones the huge centered clamp()-sized logo text
+     * reaches close to the left edge and, since #title's content overflows
+     * and top-aligns rather than truly centering, sat right under the
+     * fixed/high-z-index "← Bucky" back button — found via mobile screenshot
+     * review. Reserve clearance below it before the logo starts. */
+    #title{ padding-top:calc(56px + var(--sat)); }
+    /* PHASE E fix: #dbg's desktop top:44px was tuned for the 1-row ticker —
+     * on mobile the ticker wraps to 2 rows and #fsSpeed drops to top:58px,
+     * so the (right-anchored, multi-line, intrinsically wide) debug box's
+     * translucent background crept down and left into the speed control's
+     * band, two independent panels visibly colliding at their edges (found
+     * via mobile screenshot review, close-crop confirmed). It's dev-only
+     * telemetry (fps/draws/tris/…), not player-facing, so — same call as
+     * #bhint just below — simplest is to hide it where screen space is
+     * tightest; it's still there for a desktop devtools check. */
+    #dbg{ display:none; }
+    .tick-item{ padding:3px 5px; font-size:10.5px; gap:2px; }
+    .tick-item .ico{ font-size:11.5px; }
+    #fsTicker{ gap:2px; max-width:62vw; }
+    #fsSpeed{ top:calc(58px + var(--sat)); padding:3px; }
+    /* PHASE F: min-height (not padding) so this floor never disturbs any of
+     * Phase E's measured mobile clearances above/below — it only makes the
+     * tap TARGET taller, not the visual box any wider. */
+    #fsSpeed button{ padding:6px 10px; font-size:13px; min-width:36px; min-height:40px; }
+    #fsDock{ gap:3px; }
+    #fsDock button{ min-width:40px; min-height:40px; padding:6px 6px; font-size:16px; }
+    #fsDock button b{ display:none; }
+    /* PHASE E fix: both bottom panels used to run full-width (right:8px /
+     * width:min(320px,94vw)) straight under the bottom-right minimap's own
+     * ~110px column (96px canvas + padding/border) — on a tall panel (e.g.
+     * a Castle inventory list, or just a couple of buttons plus a hint line)
+     * the minimap visually sits ON TOP of the panel's bottom-right corner
+     * (confirmed both by rect math and elementFromPoint — found via mobile
+     * screenshot review). Both now stop clear of that column instead. */
+    #fsContext{
+      left:8px; right:calc(118px + env(safe-area-inset-right,0px)); top:auto; bottom:calc(66px + var(--sab)); width:auto;
+      max-height:34vh;
+    }
+    #fsMinimap{ }
+    #fsMinimapCanvas{ width:96px; height:96px; }
+    #fsBuildPanel{ width:min(256px, calc(94vw - 118px)); bottom:calc(66px + var(--sab)); }
+    #fsBuildGrid{ grid-template-columns:repeat(3,1fr); max-height:32vh; }
+    #bhint{ display:none; }
+    #fsToasts{ top:calc(96px + var(--sat)); width:88vw; }
+    #netInvite{ top:calc(58px + var(--sat)); }
+    /* ═══ PHASE F: touch-target floor (house/Apple/Android guidance: ≥40px) ═══
+     * min-height/min-width ONLY — never padding — so nothing above shifts.
+     * DELIBERATELY EXCLUDED: the 20-notch distribution/tool/knight steppers
+     * (.fs-tick) and the priority-list ↑/↓ arrows (.fs-arrow) — forcing every
+     * segment of a 20-way stepper to 40px would make it wider than the phone,
+     * and the arrows sit one per already-tight list row; both stay reachable
+     * as small-but-adjacent-and-forgiving targets instead, which is the more
+     * usable trade for those specific controls. */
+    .fs-icobtn{ min-width:40px; min-height:40px; }
+    .fs-tab{ min-height:40px; }
+    .build-item{ min-height:40px; }
+    .fs-modal-actions button{ min-height:44px; }
+    .fs-x{ width:40px; height:40px; font-size:15px; }
+    #fsMinimapToggle{ min-height:26px; }
+  }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="view" tabindex="0"></canvas></div>
+
+<div id="dbg" class="hidden">boot</div>
+<div id="speedTag" class="hidden">▶ 1×</div>
+<!-- PHASE-B temp UI -->
+<div id="bmode" class="hidden">mode</div>
+<div id="bhint" class="hidden">
+  <b>F</b> flag · <b>R</b> road (click flag → flag) · <b>B</b>+<b>1-9</b> build (<b>Tab</b> page) ·
+  <b>G</b> geologist · <b>X</b> demolish · <b>A</b> attack · <b>C</b> cycle knights · <b>P</b> ping ·
+  <b>T</b> suitability · <b>Esc</b> cancel
+</div>
+
+<a class="back" href="games.html" id="backLink">← Bucky</a>
+<div id="title">
+  <h1 class="logo">FARMSTEAD 🏰</h1>
+  <p class="sub">build · connect · defend</p>
+  <div class="panel">
+    <h2>New game</h2>
+    <div class="row">
+      <span class="lbl">Map</span>
+      <div class="seg" id="sizeSeg">
+        <button data-size="small">Small</button>
+        <button data-size="medium" class="on">Medium</button>
+        <button data-size="large">Large</button>
+      </div>
+    </div>
+    <div class="row">
+      <span class="lbl">Seed</span>
+      <input id="seed" inputmode="numeric" autocomplete="off" value="">
+      <button id="dice" title="Random seed">🎲</button>
+    </div>
+    <div class="row">
+      <span class="lbl">Rivals</span>
+      <div class="seg" id="aiSeg">
+        <button data-ai="1" class="on">1</button>
+        <button data-ai="2">2</button>
+        <button data-ai="3">3</button>
+      </div>
+    </div>
+    <!-- ===== PHASE E addendum 2 item 4: Supplies stepper (shared by solo + co-op) ===== -->
+    <div class="row">
+      <span class="lbl">Supplies</span>
+      <div class="supStep">
+        <button id="supMinus" type="button">−</button>
+        <span id="supVal">25</span>
+        <button id="supPlus" type="button">+</button>
+      </div>
+    </div>
+    <button class="playBtn" id="startBtn">START</button>
+    <!-- PHASE-M UI: co-op room controls (Phase E gives these a real lobby) -->
+    <div id="coop">
+      <h2>Co-op · 2 players</h2>
+      <button class="cbtn" id="hostSharedBtn">🤝 Host shared kingdom<small>one castle, two hands on the wheel</small></button>
+      <button class="cbtn" id="hostSepBtn">🏰🏰 Host separate kingdoms<small>your own castle, allied against the AI</small></button>
+      <div class="joinrow">
+        <input id="joinCode" inputmode="text" autocomplete="off" maxlength="8" placeholder="CODE">
+        <button class="cbtn" id="joinBtn" style="margin:0">JOIN</button>
+      </div>
+      <div id="netNote" class="hidden"></div>
+    </div>
+  </div>
+  <button class="contBtn hidden" id="continueBtn">▶ Continue your kingdom</button>
+  <p class="hint">
+    Drag to pan · wheel to zoom · <b>Q/E</b> turn · <b>WASD</b> move ·
+    <b>Space</b> pause · <b>1 2 3</b> speed
+    — <a href="#" id="howToPlayLink">❔ how to play</a>
+  </p>
+</div>
+
+<!-- PHASE-M UI: in-game co-op chrome -->
+<div id="netChip" class="hidden">co-op</div>
+<div id="netInvite" class="hidden">
+  waiting for your partner — send them this:
+  <div class="code" id="inviteCode">·····</div>
+  <span class="lnk" id="inviteLink"></span>
+  <button id="copyLinkBtn">📋 copy invite link</button>
+</div>
+<button id="pingBtn" class="hidden" title="Ping the spot under the cursor (P)">📍 PING</button>
+<div id="pingMark" class="hidden">📍</div>
+<!-- PHASE F: touch long-press context menu (flag/build at the pressed vertex) -->
+<div id="fsTouchCtx" class="hidden">
+  <button id="fsTouchCtxFlag">🚩 Flag here</button>
+  <button id="fsTouchCtxBuild">🏠 Build here</button>
+  <button id="fsTouchCtxCancel">✕</button>
+</div>
+<div id="veil">catching up…</div>
+<div id="hostLeft">
+  <div class="box">
+    <h3 id="hostLeftTitle">Your partner's game closed</h3>
+    <p id="hostLeftMsg">The host left the room. You still have the whole kingdom — carry on by yourself?</p>
+    <button class="playBtn" id="soloBtn">CONTINUE SOLO</button>
+    <button class="playBtn off" id="hostGoneTitleBtn">BACK TO THE TITLE</button>
+  </div>
+</div>
+
+<script src="assets/vendor/three-r128.min.js"></script>
+<script src="assets/farmstead/fs-const.js"></script>
+<script src="assets/farmstead/fs-map.js"></script>
+<script src="assets/farmstead/fs-sim.js"></script>
+<script src="assets/farmstead/fs-military.js"></script>
+<script src="assets/farmstead/fs-ai.js"></script>
+<script src="assets/farmstead/fs-net.js"></script>
+<script src="assets/farmstead/fs-models.js"></script>
+<script src="assets/farmstead/fs-fx.js"></script>
+<script src="assets/farmstead/fs-render.js"></script>
+<script src="assets/farmstead/fs-audio.js"></script>
+<script src="assets/farmstead/fs-ui.js"></script>
+<script>
+(function () {
+  "use strict";
+  const FSC = window.FSC, FSMap = window.FSMap, FSSim = window.FSSim, FSRender = window.FSRender;
+  const FSMil = window.FSMil, FSAI = window.FSAI;   /* ===== PHASE-D ===== */
+  const FSNet = window.FSNet;                       /* ===== PHASE-M ===== */
+
+  const el = (id) => document.getElementById(id);
+  const titleEl = el("title"), dbgEl = el("dbg"), speedEl = el("speedTag"), canvas = el("view");
+  const hintEl = el("bhint"), modeEl = el("bmode");
+
+  let G = null;
+  let running = false;
+  let acc = 0, lastT = 0, raf = 0;
+  let hiddenSpeed = 0;           // speed stashed while the page is hidden
+  let lastSpeed = 1;             // speed to restore when un-pausing
+  let tickMsAvg = 0, tickCount = 0;
+  let paintedSpeed = -1;         /* ===== PHASE-M: speed can change from the wire ===== */
+  const opts = { size: "medium", ais: 1, seed: 0 };
+
+  // ───────────────────────────────── new game UI
+  function randSeed() { return 100000 + Math.floor(Math.random() * 899999); }
+  el("seed").value = String(randSeed());
+  el("dice").addEventListener("click", () => { el("seed").value = String(randSeed()); });
+  function wireSeg(id, attr, apply) {
+    el(id).addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-" + attr + "]");
+      if (!b) return;
+      [].forEach.call(el(id).querySelectorAll("button"), (x) => x.classList.toggle("on", x === b));
+      apply(b.getAttribute("data-" + attr));
+    });
+  }
+  wireSeg("sizeSeg", "size", (v) => (opts.size = v));
+  wireSeg("aiSeg", "ai", (v) => (opts.ais = parseInt(v, 10)));
+  /* ===== PHASE E addendum 2 item 4: Supplies stepper, shared by solo + co-op ===== */
+  opts.supplies = FSC.SUPPLIES_DEFAULT;
+  function paintSupplies() { el("supVal").textContent = String(opts.supplies); }
+  paintSupplies();
+  el("supMinus").addEventListener("click", () => { opts.supplies = Math.max(0, opts.supplies - 5); paintSupplies(); });
+  el("supPlus").addEventListener("click", () => { opts.supplies = Math.min(50, opts.supplies + 5); paintSupplies(); });
+  el("startBtn").addEventListener("click", () => {
+    // starting a fresh game while still seated in a (possibly dead) room must
+    // LEAVE it first — a stale socket must never feed frames into the new world
+    try { const st = window.FSNet && FSNet.state(); if (st && st.role) FSNet.leave(); } catch (e) {}
+    const s = parseInt(el("seed").value, 10);
+    startGame({ size: opts.size, ais: opts.ais, seed: (isFinite(s) && s > 0) ? s : randSeed(), supplies: opts.supplies });
+  });
+  /* ===== PHASE E item 9: Continue button appears only when an autosave exists ===== */
+  (function () {
+    let has = false;
+    try { has = !!localStorage.getItem("fs_save_auto"); } catch (e) { has = false; }
+    if (has) el("continueBtn").classList.remove("hidden");
+  })();
+  el("continueBtn").addEventListener("click", () => {
+    if (!window.__FS__ || !window.__FS__.load("auto")) el("continueBtn").classList.add("hidden");
+  });
+  el("howToPlayLink").addEventListener("click", (e) => {
+    e.preventDefault();
+    if (window.FSUI) FSUI.openHelp();
+  });
+
+  // ───────────────────────────────── boot / loop
+  function startGame(o) {
+    o = o || {};
+    G = FSSim.newGame({
+      size: o.size || opts.size,
+      ais: o.ais === undefined ? opts.ais : o.ais,
+      seed: o.seed || randSeed(),
+      /* ===== PHASE-D: co-op shape + the suites' "park the opponents" switch ===== */
+      humans: o.humans, mode: o.mode, aiPlan: o.aiPlan,
+      supplies: o.supplies === undefined ? opts.supplies : o.supplies,
+    });
+    G.speed = o.speed === undefined ? 1 : o.speed;
+    FSRender.init(canvas, G);
+    enterGame();
+    return G;
+  }
+
+  /* ===== PHASE-M: shared "we are in a game now" chrome, used by startGame AND
+   * by a co-op guest adopting the world it just received over the wire. ===== */
+  function enterGame() {
+    lastSpeed = G.speed || 1;
+    tickMsAvg = 0; tickCount = 0;
+    acc = 0;
+    titleEl.classList.add("hidden");
+    el("backLink").style.display = "none";
+    dbgEl.classList.remove("hidden");
+    speedEl.classList.remove("hidden");
+    hintEl.classList.remove("hidden");
+    if (window.FSUI) FSUI.onGameStart();     /* ===== PHASE E: build/show the real HUD ===== */
+    if (window.FSAudio) FSAudio.onGameStart(); /* ===== PHASE F: BGM fades in, not on the title ===== */
+    paintSpeed();
+    paintNetChip();
+    if (!running) { running = true; lastT = performance.now(); raf = requestAnimationFrame(loop); }
+  }
+
+  /* ===== PHASE E item 5: New Game → title screen. Leaves any co-op room,
+   * stops ticking (a fresh startGame()/adoptWorld() resumes the rAF loop),
+   * and hands the HUD back to FSUI to hide. ===== */
+  function backToTitle() {
+    if (FSNet && FSNet.active()) FSNet.leave();
+    if (raf) cancelAnimationFrame(raf);
+    running = false;
+    G = null;
+    titleEl.classList.remove("hidden");
+    el("backLink").style.display = "";
+    dbgEl.classList.add("hidden");
+    speedEl.classList.add("hidden");
+    hintEl.classList.add("hidden");
+    if (window.FSUI) FSUI.onGameEnd();
+    if (window.FSAudio) FSAudio.onGameEnd(); /* ===== PHASE F: BGM fades out back on the title ===== */
+    try { if (localStorage.getItem("fs_save_auto")) el("continueBtn").classList.remove("hidden"); } catch (e) { /* noop */ }
+  }
+
+  /* ===== PHASE-M: adopt a whole world handed over by the host (join / resync).
+   * Disposes the old scene through FSRender.rebuildAll and keeps the camera. */
+  function adoptWorld(g2) {
+    const first = !G;
+    G = g2;
+    if (first) FSRender.init(canvas, G); else FSRender.rebuildAll(G);
+    enterGame();
+    return G;
+  }
+
+  function runTick() {
+    const t0 = performance.now();
+    FSSim.tick(G);
+    const ms = performance.now() - t0;
+    tickCount++;
+    tickMsAvg += (ms - tickMsAvg) / Math.min(tickCount, 120);
+    /* ===== PHASE-M: lockstep hash checkpoint every FSC.SYNC_HASH_T ticks ===== */
+    if (FSNet && FSNet.active()) FSNet.afterTick(G);
+  }
+
+  /* ===== PHASE-M: one sim step, driven by rAF when visible and by FSNet's
+   * 250 ms heartbeat when the tab is hidden (a co-op sim never stops).
+   *  solo / host — own accumulator, capped per frame (tab-return protection)
+   *  guest       — paced by FSNet toward the host's tick clock, never past it,
+   *                catching up in bigger slices when it has fallen behind. */
+  function step(dtReal) {
+    if (!G) return 0;
+    const net = FSNet && FSNet.active();
+    const pace = net ? FSNet.pace(G) : null;
+    let n = 0;
+    if (pace && pace.clock) {
+      acc = 0;
+      while (n < pace.budget && G.tick < pace.limit) { runTick(); n++; }
+      document.body.classList.toggle("fs-catchup", !!pace.catching);
+    } else {
+      const budget = pace ? pace.budget : FSC.MAX_TICKS_PER_FRAME;
+      acc += dtReal * (G.speed || 0);
+      while (acc >= FSC.TICK_S && n < budget) { runTick(); acc -= FSC.TICK_S; n++; }
+      if (n >= budget) acc = 0;                      // tab-return protection
+    }
+    if (G.speed !== paintedSpeed) paintSpeed();
+    return n;
+  }
+
+  function loop(now) {
+    raf = requestAnimationFrame(loop);
+    const dtReal = Math.min(0.25, (now - lastT) / 1000);
+    lastT = now;
+    step(dtReal);
+    const st = FSRender.frame(dtReal);
+    if (G) {
+      syncPingMark();                                /* ===== PHASE-M ===== */
+      if (window.FSUI) FSUI.frame(dtReal);            /* ===== PHASE E: the whole HUD ===== */
+      if (window.FSAudio) FSAudio.frame(dtReal, G);   /* ===== PHASE F: SFX + BGM (never during ff) ===== */
+      if ((st.frames & 7) === 0) { paintDbg(); paintNetChip(); }
+    }
+  }
+
+  function paintDbg() {
+    if (!G) return "";
+    const st = FSRender.stats(), c = FSSim.counts(G, 0);
+    dbgEl.textContent = "fps " + st.fps + "  tick " + G.tick + "  x" + (G.speed || 0) +
+      "\ndraws " + st.drawCalls + "  tris " + (st.tris / 1000).toFixed(1) + "k" +
+      "\nserfs " + c.serfs + "  flags " + c.flags + "  roads " + c.roads +
+      "\nbld " + c.buildings + " (" + c.sites + " site)  goods " + c.goods;
+    return dbgEl.textContent;
+  }
+
+  function paintSpeed() {
+    if (!G) return;
+    paintedSpeed = G.speed;
+    speedEl.textContent = G.speed ? ("▶ " + G.speed + "×") : "⏸ paused";
+  }
+  function setSpeed(s) {
+    if (!G) return 0;
+    s = FSC.SPEEDS.indexOf(s) >= 0 ? s : 1;
+    // every mutating action is a command (plan §16); `speed` self-pumps so a
+    // paused sim still responds — see FSSim.issueCommand
+    FSSim.issueCommand(G, { type: "speed", args: { speed: s } });
+    if (s > 0) lastSpeed = s;
+    acc = 0;
+    paintSpeed();
+    return G.speed;
+  }
+
+  /* ───────────────────────── input core: click detection + keyboard map ────
+     PHASE E moved every MODE/placement/panel behaviour into FSUI (fs-ui.js —
+     the real build/flag/road/demolish UI, attack + demolish dialogs, etc).
+     What stays here is the boot-level plumbing: distinguishing a click from
+     a camera drag, and the keyboard→action map (kept working exactly as
+     before — F/G/X/A/C/P are still instant hover actions, B/R/T still arm a
+     sticky mode, digits 1-9 still pick a build type while mode==='build' —
+     the transport/military/mp suites drive the game through these keys). */
+  function issue(type, args) {
+    if (!G) return null;
+    return FSSim.issueCommand(G, { type, args });
+  }
+  function hovered() { return FSRender.hoverVertex(); }
+
+  let toastGen = 0;
+  /** The small legacy status pill (#bmode) — kept for suite back-compat
+   *  (mp.cjs reads its textContent) and mirrored into FSUI's real toast
+   *  stack so the player only ever sees ONE toast language. */
+  function toastMode(msg) {
+    modeEl.classList.remove("hidden");
+    modeEl.textContent = msg;
+    const my = ++toastGen;
+    setTimeout(() => { if (my === toastGen) modeEl.classList.add("hidden"); }, 1600);
+    if (window.FSUI) FSUI.toast(msg);
+  }
+
+  // click = pointerdown+up within a few px (camera drags stay untouched)
+  let downAt = null;
+  canvas.addEventListener("pointerdown", (e) => { downAt = { x: e.clientX, y: e.clientY }; });
+  window.addEventListener("pointerup", (e) => {
+    if (!downAt || !G) { downAt = null; return; }
+    const moved = Math.abs(e.clientX - downAt.x) + Math.abs(e.clientY - downAt.y);
+    downAt = null;
+    if (moved > 6 || e.button !== 0) return;
+    const v = FSRender.pickVertex(e.clientX, e.clientY);
+    if (v < 0) return;
+    if (window.FSUI) FSUI.onCanvasClick(v, e);
+  });
+
+  /* ═══════════════════════════════════════════════════════════════════════
+   * ===== PHASE F: touch controls ============================================
+   * Coarse-pointer devices (house pattern: matchMedia, never UA-sniffing) get:
+   *   - 1-finger drag pan, tap = select, drag-then-release = camera pan — ALL
+   *     FREE from the click-detector just above and fs-render.js's existing
+   *     Pointer-Event-based pan/orbit (Pointer Events fire identically for
+   *     mouse/touch/pen — nothing to add for the single-finger case).
+   *   - pinch zoom + 2-finger twist rotate + 2-finger pan — genuinely new:
+   *     a single `drag` variable in fs-render.js has no concept of a SECOND
+   *     simultaneous contact. Handled here at `window`'s CAPTURE phase, which
+   *     — regardless of listener ADD ORDER — always runs before every
+   *     bubble-phase listener anywhere in the page (including fs-render's own
+   *     window-level pointermove/up and the click-detector just above), so a
+   *     live 2-finger gesture can fully own its two pointer streams via
+   *     stopPropagation() without any mouse-oriented handler ever seeing them.
+   *   - long-press (a still finger held ~520ms) = context menu: flag/build at
+   *     the pressed vertex (there is no Esc/right-click on a touchscreen).
+   * ═══════════════════════════════════════════════════════════════════════ */
+  const isCoarsePointer = (function () {
+    try { return !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches); } catch (e) { return false; }
+  })();
+
+  const touches = new Map();          // pointerId -> {x,y}, every currently-down touch
+  let sessionMulti = false;           // true once THIS touch session ever reached 2 fingers
+  let gPrevDist = 0, gPrevAngle = 0, gPrevCx = 0, gPrevCy = 0;
+
+  function twoTouchStats() {
+    const it = touches.values();
+    const a = it.next().value, b = it.next().value;
+    if (!a || !b) return null;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    return { dist: Math.hypot(dx, dy), angle: Math.atan2(dy, dx), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
+  }
+  function resetGestureBaseline() {
+    const s = twoTouchStats();
+    if (s) { gPrevDist = s.dist; gPrevAngle = s.angle; gPrevCx = s.cx; gPrevCy = s.cy; }
+    return s;
+  }
+  function applyGestureDelta(s) {
+    if (!s || !G) return;
+    const cs = FSRender.camState();
+    // pinch: fingers spreading (dist grows) zooms IN — same convention as the
+    // wheel handler (scroll "up"/negative deltaY also zooms in / dist shrinks).
+    const distRatio = (gPrevDist > 4 && s.dist > 4) ? (gPrevDist / s.dist) : 1;
+    let dAngle = s.angle - gPrevAngle;
+    if (dAngle > Math.PI) dAngle -= Math.PI * 2; else if (dAngle < -Math.PI) dAngle += Math.PI * 2;
+    const dx = s.cx - gPrevCx, dy = s.cy - gPrevCy;
+    // reuses fs-render's own drag-pan constant/formula (CAM.DRAG_PAN) so 2-
+    // finger pan feels identical in scale to the desktop 1-finger drag.
+    const k = cs.dist * FSC.CAM.DRAG_PAN, sinY = Math.sin(cs.yaw), cosY = Math.cos(cs.yaw);
+    FSRender.setCam({
+      dist: cs.dist * distRatio,
+      yaw: cs.yaw - dAngle,
+      tx: cs.tx + (-cosY * dx + -sinY * dy) * k,
+      tz: cs.tz + (sinY * dx + -cosY * dy) * k,
+    });
+  }
+
+  // ---- long-press → context menu (flag / build at the pressed vertex) ----
+  let longPress = null;    // {id,x,y,fired,timer}
+  const touchCtxEl = el("fsTouchCtx");
+  const touchCtxFlagBtn = el("fsTouchCtxFlag"), touchCtxBuildBtn = el("fsTouchCtxBuild"), touchCtxCancelBtn = el("fsTouchCtxCancel");
+  function dismissTouchCtx() { touchCtxEl.classList.add("hidden"); }
+  function openTouchCtx(x, y) {
+    if (!G || !window.FSUI) return;
+    const v = FSRender.pickVertex(x, y);
+    if (v < 0) return;
+    /* ===== PHASE P: the finger that opened this menu is STILL DOWN, and
+     * fs-render turned it into a camera drag 520 ms ago — without this the
+     * world keeps panning underneath the open menu. ===== */
+    if (FSRender.cancelDrag) FSRender.cancelDrag();
+    FSRender.setHover(v);
+    if (navigator.vibrate) { try { navigator.vibrate(12); } catch (e) { /* noop */ } }
+    const left = Math.max(8, Math.min(x - 90, window.innerWidth - 260));
+    const top = Math.max(8, Math.min(y - 60, window.innerHeight - 70));
+    touchCtxEl.style.left = left + "px";
+    touchCtxEl.style.top = top + "px";
+    touchCtxEl.classList.remove("hidden");
+  }
+  touchCtxFlagBtn.addEventListener("click", () => { dismissTouchCtx(); if (window.FSUI) FSUI.doFlagAtHover(); });
+  touchCtxBuildBtn.addEventListener("click", () => { dismissTouchCtx(); if (window.FSUI) FSUI.armBuildKey(); });
+  touchCtxCancelBtn.addEventListener("click", dismissTouchCtx);
+  function armLongPress(id, x, y) {
+    longPress = { id, x, y, fired: false, timer: null };
+    longPress.timer = setTimeout(() => {
+      if (!longPress || longPress.id !== id) return;
+      longPress.fired = true;
+      openTouchCtx(x, y);
+    }, 520);
+  }
+  function cancelLongPress() {
+    if (longPress && longPress.timer) clearTimeout(longPress.timer);
+    longPress = null;
+  }
+
+  window.addEventListener("pointerdown", (e) => {
+    if (!touchCtxEl.classList.contains("hidden") && !touchCtxEl.contains(e.target)) dismissTouchCtx();
+    if (!isCoarsePointer || e.pointerType !== "touch" || !G) return;
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    cancelLongPress();
+    if (touches.size >= 2) {
+      sessionMulti = true;
+      resetGestureBaseline();
+      dismissTouchCtx();
+      e.stopPropagation();
+      return;
+    }
+    if (sessionMulti) { e.stopPropagation(); return; }   // a late finger re-arriving mid-session
+    /* ===== ux#3: the long-press menu belongs to the MAP alone. This is a
+     * WINDOW-level capture listener, so without a target test a finger held on
+     * ANY chrome (a dock button, a build-panel item, a sheet control) armed the
+     * same "Flag here / Build here" popup — anchored to whatever terrain vertex
+     * happened to raycast behind that button. The canvas is childless, so
+     * contains() is just a null-safe identity test. ===== */
+    if (!(e.target && canvas.contains(e.target))) return;
+    armLongPress(e.pointerId, e.clientX, e.clientY);
+  }, { capture: true });
+
+  window.addEventListener("pointermove", (e) => {
+    if (!isCoarsePointer || e.pointerType !== "touch" || !touches.has(e.pointerId)) return;
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (sessionMulti) {
+      e.stopPropagation();
+      if (touches.size >= 2) { applyGestureDelta(twoTouchStats()); resetGestureBaseline(); }
+      return;               // a fading-out finger (session dropped to 1) is swallowed, not panned —
+    }                        // avoids a camera jump from fs-render's now-stale single-drag state
+    if (longPress && longPress.id === e.pointerId &&
+      (Math.abs(e.clientX - longPress.x) > 10 || Math.abs(e.clientY - longPress.y) > 10)) cancelLongPress();
+  }, { capture: true });
+
+  function endTouch(e) {
+    if (!isCoarsePointer || e.pointerType !== "touch") return;
+    const wasTracked = touches.has(e.pointerId);
+    touches.delete(e.pointerId);
+    if (wasTracked && sessionMulti) {
+      e.stopPropagation();
+      if (touches.size >= 2) resetGestureBaseline();   // 3→2 fingers: rebase, gesture continues
+    }
+    if (touches.size === 0) sessionMulti = false;       // session fully over — next touch starts fresh
+    if (longPress && longPress.id === e.pointerId) {
+      if (longPress.fired) e.stopPropagation();         // swallow the trailing tap-click after a long-press
+      cancelLongPress();
+    }
+  }
+  window.addEventListener("pointerup", endTouch, { capture: true });
+  window.addEventListener("pointercancel", endTouch, { capture: true });
+
+  // ───────────────────────────────── keys (FSUI's dock mirrors every one of these)
+  window.addEventListener("keydown", (e) => {
+    const tag = e.target && e.target.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    if (!G || !window.FSUI) return;
+    const k = e.key;
+    if (k === "Escape") { FSUI.escape(); return; }
+    if (FSUI.mode() === "build" && k >= "1" && k <= "9") {
+      e.preventDefault();
+      FSUI.instantBuildDigit(k.charCodeAt(0) - 49);
+      return;
+    }
+    /* ===== PHASE-C: G = send a geologist from the hovered mountain flag ===== */
+    if (k === "g" || k === "G") { FSUI.doGeologistAtHover(); return; }
+    if (k === "Tab") { e.preventDefault(); FSUI.cycleBuildPage(); return; }
+    if (e.code === "Space") { e.preventDefault(); setSpeed(G.speed ? 0 : lastSpeed); return; }
+    if (k === "1") return void setSpeed(1);
+    if (k === "2") return void setSpeed(2);
+    if (k === "3") return void setSpeed(4);
+    if (k === "." && !G.speed) { runTick(); return; }     // single-step while paused
+    if (k === "f" || k === "F") { FSUI.doFlagAtHover(); return; }
+    if (k === "r" || k === "R") { FSUI.toggleRoadMode(); return; }
+    if (k === "b" || k === "B") { FSUI.armBuildKey(); return; }
+    if (k === "x" || k === "X") { FSUI.doDemolishAtHover(); return; }
+    if (k === "a" || k === "A") { FSUI.doAttackAtHover(); return; }
+    if (k === "c" || k === "C") { issue("cycleKnights", {}); toastMode("♻ knights rotating"); return; }
+    /* ===== PHASE-M: P = ping the spot under the cursor (both screens see it) ===== */
+    if (k === "p" || k === "P") { doPing(hovered()); return; }
+    /* ===== PHASE E QoL#2: T = build-suitability overlay (territory tint moved
+       into the Settings panel, since both used to share this key) ===== */
+    if (k === "t" || k === "T") { FSUI.toggleSuitability(); return; }
+    /* ===== PHASE F: M = mute toggle (mirrors the Settings panel checkbox) ===== */
+    if (k === "m" || k === "M") {
+      if (window.FSAudio) { const on = FSAudio.toggleMuted(); toastMode(on ? "🔇 muted" : "🔊 sound on"); }
+      return;
+    }
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (!G) return;
+    /* ===== PHASE-M: co-op never pauses on hide — FSNet's heartbeat keeps the
+     * shared clock running and the tab catches up in slices on return. ===== */
+    if (FSNet && FSNet.active()) { lastT = performance.now(); acc = 0; return; }
+    if (document.hidden) {
+      if (G.speed) { hiddenSpeed = G.speed; setSpeed(0); }
+    } else if (hiddenSpeed) {
+      const s = hiddenSpeed; hiddenSpeed = 0; setSpeed(s);
+    }
+  });
+
+  /* ═══════════════════════════════════════════════════════════════════════
+   * ===== PHASE-M UI: co-op glue (title card, partner chip, ping, modal) ===
+   * Deliberately minimal — Phase E replaces this with the real lobby panel.
+   * ═══════════════════════════════════════════════════════════════════════ */
+  const netNoteEl = el("netNote"), netChipEl = el("netChip"), pingBtnEl = el("pingBtn");
+  const pingMarkEl = el("pingMark"), hostLeftEl = el("hostLeft"), inviteEl = el("netInvite");
+  let pingV = -1, pingUntil = 0, pingSeenT = -1;
+
+  function netSettings() {
+    const s = parseInt(el("seed").value, 10);
+    return {
+      size: opts.size, ais: opts.ais,
+      seed: (isFinite(s) && s > 0) ? s : randSeed(),
+      supplies: opts.supplies,          /* ===== PHASE E: shared settings block (addendum 2 §4) ===== */
+    };
+  }
+  function netNote(html) {
+    netNoteEl.innerHTML = html || "";
+    netNoteEl.classList.toggle("hidden", !html);
+  }
+  function paintNetChip() {
+    if (!FSNet) return;
+    const st = FSNet.state();
+    if (!st.role && st.status !== "solo") {
+      netChipEl.classList.add("hidden"); pingBtnEl.classList.add("hidden");
+      inviteEl.classList.add("hidden");
+      return;
+    }
+    netChipEl.classList.remove("hidden");
+    pingBtnEl.classList.toggle("hidden", !G);
+    // the host keeps the room code + a copyable link on screen until someone joins
+    const inviting = st.role === "host" && !st.peerHere && !!G;
+    inviteEl.classList.toggle("hidden", !inviting);
+    if (inviting) {
+      el("inviteCode").textContent = st.code;
+      el("inviteLink").textContent = st.link;
+      // the invite panel grows with the link — park the ping button under it
+      pingBtnEl.style.top = Math.round(inviteEl.getBoundingClientRect().bottom + 8) + "px";
+    } else pingBtnEl.style.top = "";
+    let txt, cls;
+    if (st.status === "solo") { txt = "🌾 solo (partner gone)"; cls = "gone"; }
+    else if (st.status === "hostLeft") { txt = "⚠ host left"; cls = "gone"; }
+    else if (!st.peerHere) { txt = "🤝 waiting for partner… " + (st.code || ""); cls = "wait"; }
+    else if (st.status === "unsynced") { txt = "⚠ out of sync — retrying"; cls = "gone"; }
+    else if (st.catching) { txt = "⏳ catching up… " + st.behind; cls = "wait"; }
+    else {
+      txt = "🤝 " + (st.peerName || "Partner") + " · " + (st.role === "host" ? "you host" : "seat " + (st.seat + 1)) +
+        " · " + (st.mode === "separate" ? "separate" : "shared");
+      if (st.desyncs) txt += " · ⟳" + st.desyncs;
+      cls = "live";
+    }
+    netChipEl.textContent = txt;
+    netChipEl.className = cls;
+  }
+  /** Ping markers ride on the event stream, so BOTH screens show the same one. */
+  function syncPingMark() {
+    if (!G) return;
+    const evs = G.events;
+    for (let i = evs.length - 1; i >= 0 && i >= evs.length - 40; i--) {
+      const e = evs[i];
+      if (e.type !== "ping") continue;
+      if (e.t > pingSeenT) { pingSeenT = e.t; pingV = e.v; pingUntil = G.tick + FSC.NET_PING_T; }
+      break;
+    }
+    if (pingV < 0 || G.tick > pingUntil) { pingMarkEl.classList.add("hidden"); return; }
+    const s = FSRender.vertexScreen(pingV);
+    if (!s || !s.inView) { pingMarkEl.classList.add("hidden"); return; }
+    pingMarkEl.style.left = s.x + "px";
+    pingMarkEl.style.top = s.y + "px";
+    pingMarkEl.classList.remove("hidden");
+  }
+  function doPing(v) {
+    if (!G || !FSNet) return null;
+    if (v === undefined || v < 0) v = hovered();
+    if (v < 0) { const c = FSSim.castleOf(G, G.seats ? G.seats[FSNet.state().seat] || 0 : 0); v = c ? c.v : 0; }
+    return FSNet.ping(v);
+  }
+
+  if (FSNet) {
+    FSNet.init({
+      getG: function () { return G; },
+      setG: function (g2) { adoptWorld(g2); },
+      startWorld: function (settings) {
+        startGame({ size: settings.size, ais: settings.ais, seed: settings.seed,
+          supplies: settings.supplies, mode: settings.mode, humans: settings.humans,
+          aiPlan: settings.aiPlan, speed: settings.speed === undefined ? 1 : settings.speed });
+      },
+      step: function (dt) { step(dt); },
+      toast: function (msg) { toastMode(msg); },
+      notify: function (kind, data) {
+        paintNetChip();
+        if (kind === "status") {
+          const st = FSNet.state();
+          if (st.role === "host" && !G) netNote("Opening room…");
+          else if (st.role === "host") {
+            netNote('room <span class="code">' + st.code + "</span><br>" +
+              (st.peerHere ? "🤝 " + st.peerName + " joined!" : "waiting for partner… share this link:<br>" + st.link));
+          } else if (st.role === "guest") {
+            netNote(st.status === "syncing" ? "receiving the world…"
+              : st.status === "hostLeft" ? "the host went quiet…"
+              : st.status === "playing" || st.status === "unsynced" ? ""
+              : "connected — waiting for the host…");
+          } else if (st.status === "failed") netNote("⚠ " + (st.err || "couldn't connect"));
+          else if (st.status === "off" || st.status === "solo") netNote("");   // no stale note
+        }
+        if (kind === "hostLeft") showHostLeft();
+        // the partner only STALLED — withdraw the modal, nobody has to decide
+        if (kind === "peerBack") hostLeftEl.classList.remove("on");
+        if (kind === "peer" && data && data.here) netNote("");
+        if (kind === "catchup") document.body.classList.toggle("fs-catchup", !!(data && data.on));
+      },
+    });
+  }
+
+  function hostRoom(mode) {
+    if (!FSNet) return null;
+    const s = netSettings();
+    netNote("Opening room…");
+    return FSNet.host({ mode: mode, size: s.size, ais: s.ais, seed: s.seed, supplies: s.supplies });
+  }
+  function joinRoom(code) {
+    if (!FSNet) return null;
+    netNote("Connecting…");
+    return FSNet.join(code);
+  }
+  el("hostSharedBtn").addEventListener("click", () => hostRoom("shared"));
+  el("hostSepBtn").addEventListener("click", () => hostRoom("separate"));
+  el("joinBtn").addEventListener("click", () => joinRoom(el("joinCode").value.trim()));
+  pingBtnEl.addEventListener("click", () => doPing());
+  el("copyLinkBtn").addEventListener("click", () => {
+    const link = FSNet.state().link;
+    let done = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(link).then(() => toastMode("📋 invite link copied"), () => {});
+        done = true;
+      }
+    } catch (e) { done = false; }
+    if (!done) toastMode("copy the link above ↑");
+  });
+  /**
+   * "Continue solo" is only an honest offer when a world actually ARRIVED. A
+   * host that dies during the FIRST state transfer leaves the guest with
+   * nothing to continue, so that case gets a clean way back to the title
+   * instead (and the stale "connected — waiting…" note goes with it).
+   */
+  function showHostLeft() {
+    const st = FSNet.state();
+    const has = !!G && st.hasWorld !== false;
+    el("hostLeftTitle").textContent = has ? "Your partner's game closed" : "That kingdom never arrived";
+    el("hostLeftMsg").textContent = has
+      ? "The host left the room. You still have the whole kingdom — carry on by yourself?"
+      : "The host left before the world finished arriving, so there is nothing here to carry on with yet.";
+    el("soloBtn").classList.toggle("off", !has);
+    el("hostGoneTitleBtn").classList.toggle("off", has);
+    hostLeftEl.classList.add("on");
+  }
+  function hostLeftToTitle() {
+    hostLeftEl.classList.remove("on");
+    backToTitle();                    // …which leaves the room for us (status → off)
+    netNote("");
+  }
+  el("soloBtn").addEventListener("click", () => {
+    hostLeftEl.classList.remove("on");
+    if (!G) { hostLeftToTitle(); toastMode("🌾 back to the title"); return; }
+    FSNet.detach();
+    toastMode("🌾 carrying on solo");
+  });
+  el("hostGoneTitleBtn").addEventListener("click", () => {
+    hostLeftToTitle();
+    toastMode("🌾 back to the title");
+  });
+  // deep link: farmstead.html#r=<code> joins straight away
+  if (FSNet && FSNet.linkCode()) {
+    netNote("Joining " + FSNet.linkCode() + "…");
+    setTimeout(() => joinRoom(FSNet.linkCode()), 0);
+  }
+
+  // ───────────────────────────────── debug hook (suite contract — keep stable)
+  window.__FS__ = {
+    get G() { return G; },
+    FSC: FSC, FSMap: FSMap, FSSim: FSSim, FSRender: FSRender, FSModels: window.FSModels,
+    FSMil: FSMil, FSAI: FSAI,                       /* ===== PHASE-D ===== */
+    FSAudio: window.FSAudio,                        /* ===== PHASE F ===== */
+    /* ===== PHASE F housekeeping: a distinct BUILD version string, decoupled
+     * from FSC.VERSION (the sim SAVE-FORMAT version, untouched by this phase —
+     * fs-const.js's mechanics/data tables are sim-owned and stay byte-for-byte
+     * so the sim-hash proof holds). Bumped so a loaded page visibly reports
+     * which phase's shell it's running. */
+    version: FSC.VERSION + "-f1",
+    newGame: function (o) { return startGame(o || {}); },
+    ff: function (n) { for (let i = 0; i < (n | 0); i++) runTick(); return G.tick; },
+    setSpeed: setSpeed,
+    mapHash: function () { return FSMap.hash(G.map); },
+    started: function () { return !!G; },
+    /* ===== PHASE-B: every mutating action goes through the command layer ===== */
+    cmd: function (type, args, o) {
+      return FSSim.issueCommand(G, Object.assign({ type, args: args || {} }, o || {}));
+    },
+    placeFlag: function (v, o) { return FSSim.issueCommand(G, Object.assign({ type: "flag", args: { v } }, o || {})); },
+    buildRoad: function (f1, f2, path, o) { return FSSim.issueCommand(G, Object.assign({ type: "road", args: { f1, f2, path } }, o || {})); },
+    build: function (type, v, o) { return FSSim.issueCommand(G, Object.assign({ type: "build", args: { type, v } }, o || {})); },
+    demolish: function (id, o) { return FSSim.issueCommand(G, Object.assign({ type: "demolish", args: { id } }, o || {})); },
+    /* ===== PHASE-C: economy controls, all through the command layer ===== */
+    sendGeologist: function (flag, o) { return FSSim.issueCommand(G, Object.assign({ type: "geologist", args: { flag } }, o || {})); },
+    setDist: function (key, value, o) { return FSSim.issueCommand(G, Object.assign({ type: "dist", args: { key, value } }, o || {})); },
+    setToolPrio: function (tool, value, o) { return FSSim.issueCommand(G, Object.assign({ type: "toolPrio", args: { tool, value } }, o || {})); },
+    setStockMode: function (id, res, mode, o) { return FSSim.issueCommand(G, Object.assign({ type: "stockMode", args: { id, res, mode } }, o || {})); },
+    halt: function (id, on, o) { return FSSim.issueCommand(G, Object.assign({ type: "halt", args: { id, on: on === undefined ? true : on } }, o || {})); },
+    /* ===== PHASE-D: military orders, all through the command layer ===== */
+    attack: function (id, count, o) {
+      return FSSim.issueCommand(G, Object.assign({ type: "attack", args: { id, count, strong: o && o.strong } }, o || {}));
+    },
+    setKnightSetting: function (key, value, tier, o) {
+      return FSSim.issueCommand(G, Object.assign({ type: "knightSet", args: { key, value, tier } }, o || {}));
+    },
+    cycleKnights: function (o) { return FSSim.issueCommand(G, Object.assign({ type: "cycleKnights", args: {} }, o || {})); },
+    setTerritoryTint: function (on) { return FSRender.setTerritoryTint(on); },
+    /* ===== PHASE-E: reorderable priority lists (mirrors setDist/setToolPrio) ===== */
+    setTransportPrio: function (order, o) { return FSSim.issueCommand(G, Object.assign({ type: "prio", args: { order } }, o || {})); },
+    setInvPrio: function (order, o) { return FSSim.issueCommand(G, Object.assign({ type: "invPrio", args: { order } }, o || {})); },
+    toTitle: function () { return backToTitle(); },
+    /* ═══ PHASE-M: co-op + serialization (plan §16) ═══ */
+    FSNet: FSNet,
+    hostGame: function (mode, o) {
+      o = o || {};
+      const s = netSettings();
+      return FSNet.host({
+        mode: mode, size: o.size || s.size,
+        ais: o.ais === undefined ? s.ais : o.ais,
+        seed: o.seed || s.seed, supplies: o.supplies, code: o.code, transport: o.transport,
+        aiPlan: o.aiPlan, speed: o.speed,
+      });
+    },
+    joinGame: function (code, o) { return FSNet.join(code, o); },
+    netState: function () { return FSNet.state(); },
+    netStats: function () { return FSNet.stats(); },
+    ping: function (v) { return doPing(v === undefined ? -1 : v); },
+    continueSolo: function () {
+      hostLeftEl.classList.remove("on");
+      return FSNet.detach();
+    },
+    leaveRoom: function () { return FSNet.leave(); },
+    serialize: function () { return FSSim.serialize(G); },
+    loadState: function (str) {
+      // deserialize THROWS on a foreign/older-version save — the UI paths must
+      // get a clean false (and toast), never an uncaught crash
+      try { return adoptWorld(FSSim.deserialize(str)); }
+      catch (e) { console.warn("loadState refused:", e.message); return false; }
+    },
+    save: function (slot) {
+      try {
+        localStorage.setItem("fs_save_" + (slot || 1), FSSim.serialize(G));
+        return true;
+      } catch (e) { return false; }
+    },
+    load: function (slot) {
+      let str = null;
+      try { str = localStorage.getItem("fs_save_" + (slot || 1)); } catch (e) { str = null; }
+      if (!str) return false;
+      try { adoptWorld(FSSim.deserialize(str)); }
+      catch (e) { console.warn("load refused:", e.message); return false; }
+      return true;
+    },
+    step: function (dt) { return step(dt === undefined ? FSC.TICK_S : dt); },
+    hash: function () { return FSSim.hash(G); },
+    // headless renders ~1fps: force the HUD (incl. the PHASE-M co-op chrome)
+    paintHud: function () { paintNetChip(); syncPingMark(); return paintDbg(); },
+    events: function (type) { return type ? G.events.filter((e) => e.type === type) : G.events.slice(); },
+    mode: function () { return window.FSUI ? FSUI.mode() : null; },   /* ===== PHASE E: FSUI now owns placement mode ===== */
+    q: {
+      flagAt: function (v) { return G.map.flagAt[v]; },
+      bldAt: function (v) { return G.map.bldAt[v]; },
+      invOf: function (p) { return FSSim.invOf(G, p); },
+      poolOf: function (p) { return FSSim.poolOf(G, p); },
+      counts: function (p) { return FSSim.counts(G, p); },
+      serfsOf: function (p) { return FSSim.serfsOf(G, p); },
+      itemsAt: function (f) { return FSSim.itemsAt(G, f); },
+      roadBetween: function (a, b) { return FSSim.roadBetween(G, a, b); },
+      route: function (a, b) { return { road: FSSim.nextRoad(G, a, b), hops: FSSim.hops(G, a, b) }; },
+      /* ===== PHASE-C ===== */
+      production: function (p) { return FSSim.production(G, p || 0); },
+      signAt: function (v) {
+        const c = G.map.sign[v] || 0;
+        return { code: c, mineral: FSSim.signMineral(c), big: FSSim.signDensity(c) };
+      },
+      objAt: function (v) { return { obj: G.map.obj[v], arg: G.map.objArg[v], fish: G.map.fish[v] }; },
+      mineralAt: function (v) { return { kind: G.map.mineral[v], amt: G.map.mineralAmt[v] }; },
+      /* ===== PHASE-D: military queries (Phase E's panels read these) ===== */
+      ownerAt: function (v) { return G.map.owner[v]; },
+      territoryOf: function (p) { return FSMil.territoryOf(G, p || 0); },
+      strength: function (p) { return FSMil.strength(G, p || 0); },
+      knights: function (p) { return FSMil.knightCount(G, p || 0); },
+      morale: function (p) { return FSMil.morale(G, p || 0); },
+      garrison: function (id) {
+        const b = G.buildings[id];
+        if (!b || !b.mil) return null;
+        return { id: b.id, type: b.type, p: b.p, ranks: b.mil.knights.slice(),
+          wanted: b.mil.wanted, gold: b.mil.gold, goldCap: (FSC.BLD[b.type].mil || {}).goldCap || 0,
+          defending: b.mil.defending, attackers: b.mil.attackers.length,
+          tier: FSMil.threatTier(G, b), min: FSMil.minGarrison(G, b), cap: FSMil.capacityOf(G, b) };
+      },
+      attackTargets: function (p) { return FSMil.attackTargets(G, p || 0); },
+      maxAttackers: function (id, p) { return FSMil.maxAttackers(G, id, p || 0); },
+      aiState: function (p) { return FSAI.state(G, p); },
+      gameOver: function () { return G.gameOver; },
+    },
+    perf: {
+      get tickMsAvg() { return tickMsAvg; },
+      get drawCalls() { return FSRender.stats().drawCalls; },
+      get terrainMs() { return FSRender.stats().terrainMs || 0; },
+      get worldMs() { return FSRender.stats().worldMs || 0; },
+    },
+  };
+
+  /* ===== PHASE E: the real UI — built once, shows/hides with the game ===== */
+  if (window.FSUI) FSUI.init(window.__FS__, { toastMode: toastMode, backToTitle: backToTitle });
+  /* ===== PHASE F: audio — init is safe pre-gesture; unlock() (nodes/context)
+   * only happens on the page's first real pointerdown/keydown (see fs-audio.js). ===== */
+  if (window.FSAudio) FSAudio.init(window.__FS__);
+})();
+</script>
+</body>
+</html>
