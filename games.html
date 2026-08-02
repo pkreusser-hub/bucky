@@ -155,6 +155,7 @@
     { ico:"🐐", name:"Baby Bucky",     desc:"raise & care for a baby goat", url:"goatcare.html" },
     { ico:"🍅", name:"Barnyard Bistro", desc:"cook together — 2-chef co-op", url:"barnyardbistro.html" },
     { ico:"🏁", name:"Farm Kart",      desc:"kart racing on the farm",       url:"farmkart.html" },
+    { ico:"🏰", name:"Castle Kruzer",  desc:"build a kingdom — flags, roads & knights", url:"castlekruzer.html" },
     { ico:"🌱", name:"Farm Life",      desc:"one family farm, always growing", url:"farmlife/dist/" }
   ];
   const grid = document.getElementById("gamesGrid");
@@ -223,6 +224,16 @@
       // key — no #r= room hash. bistro/farmkart omit `href` and keep the
       // default `<game>.html#r=<roomCode>` join link below.
       href: () => `farmlife/dist/`
+    },
+    // internal game id stays "farmstead" (see assets/farmstead/fs-net.js — the lobby
+    // doc's id/collection key are unchanged by the rename) but the launch page is
+    // castlekruzer.html (2026-08-02 rename to "Castle Kruzer"), so — like farmlife
+    // above — this needs an explicit href or the default `<game>.html#r=` scheme
+    // below would build the dead "farmstead.html#r=…" link.
+    farmstead: {
+      open: (d) => `🏰 ${d.hostName || "Someone"}'s kingdom is open! · ${d.playerCount || 1}/${d.maxPlayers || 2} rulers`,
+      started: (d) => `🏰 ${d.hostName || "Someone"}'s kingdom is mid-siege!`,
+      href: (d) => `castlekruzer.html#r=${encodeURIComponent(d.roomCode || "")}`
     }
   };
   function lobbyText(data, cooking){
@@ -232,9 +243,10 @@
       ? `${data.hostName || "Someone"} is hosting ${data.gameName || data.game}!`
       : `${data.hostName || "Someone"} is hosting ${data.gameName || data.game}! · ${data.playerCount || 1}/${data.maxPlayers || 2}`;
   }
-  // Per-game JOIN href. A game may supply `LOBBY_TEXT[game].href(data)`; every
-  // other game (bistro/farmkart/unknown) falls back to the original
-  // `<game>.html#r=<roomCode>` scheme, so this change touches only farmlife.
+  // Per-game JOIN href. A game may supply `LOBBY_TEXT[game].href(data)` — used
+  // by farmlife (no #r= hash at all) and farmstead/Castle Kruzer (id and page
+  // name diverged in the 2026-08-02 rename); every other game (bistro/farmkart/
+  // unknown) falls back to the original `<game>.html#r=<roomCode>` scheme below.
   function lobbyHref(data){
     const t = LOBBY_TEXT[data.game];
     if (t && typeof t.href === "function") return t.href(data);
