@@ -949,6 +949,186 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .mealcat-item.sug { background: var(--done); }
   .mealcat-name { min-width: 0; }
   .mealcat-cal { flex: 0 0 auto; font-weight: 800; }
+
+  /* ===== Fitness (daily 10-minute workout) — scoped under .fitwrap, flat fit* classes ===== */
+  .fitwrap { }
+  .fitpills { display: flex; gap: 6px; background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 999px; padding: 4px; margin-bottom: 12px; }
+  .fitpills button { flex: 1; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 800; padding: 12px 4px; min-height: 42px; border-radius: 999px; cursor: pointer; }
+  .fitpills button.sel { background: var(--card); color: var(--ink); box-shadow: var(--shadow); }
+
+  /* "Plan for" selector (parents only) */
+  .fitwho { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .fitwho-l { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); margin-right: 2px; }
+  .fitwho-b { border: 1px solid var(--line); background: var(--card); color: var(--ink-2); font: inherit; font-size: 12.5px; font-weight: 700; padding: 9px 13px; min-height: 40px; border-radius: 999px; cursor: pointer; }
+  .fitwho-b.sel { background: var(--green); border-color: var(--green); color: #fff; }
+
+  /* Shared-vs-own plan banner */
+  .fitfork { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+             background: var(--surface-2); border: 1px dashed var(--line); border-radius: 14px; padding: 11px 13px; margin-bottom: 12px; }
+  .fitfork.own { background: var(--done); border-style: solid; border-color: var(--good); }
+  .fitfork-t { font-size: 12.5px; font-weight: 700; color: var(--ink-2); }
+  .fitfork-b { flex: 0 0 auto; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; font-size: 12px; font-weight: 800; padding: 9px 12px; min-height: 40px; border-radius: 999px; cursor: pointer; }
+
+  /* Which plan the builder is about to change */
+  .fitscope { font-size: 11.5px; font-weight: 800; color: var(--muted); background: var(--surface-2); border-radius: 8px; padding: 7px 10px; margin: -8px 0 12px; }
+
+  .fitcard2 { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 14px; margin-bottom: 12px; }
+  .fithead { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 2px; }
+  .fithead h3 { margin: 0; font-size: 19px; letter-spacing: -.2px; }
+  .fitdate { font-size: 12px; color: var(--muted); font-weight: 700; }
+  .fitmeta { font-size: 13px; color: var(--ink-2); margin: 6px 0 12px; }
+  .fitchips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
+  .fitchip { font-size: 11.5px; font-weight: 800; padding: 5px 10px; border-radius: 999px; background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--line-2); }
+
+  .fitstart { display: block; width: 100%; border: 0; border-radius: 14px; background: var(--green); color: #fff; font: inherit; font-size: 17px; font-weight: 900; letter-spacing: .3px; padding: 16px; cursor: pointer; box-shadow: var(--shadow); }
+  .fitstart:active { transform: translateY(1px); }
+  .fitstart.again { background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--line); font-size: 14px; padding: 12px; box-shadow: none; }
+  .fitdone-banner { display: flex; align-items: center; gap: 10px; background: var(--done); border: 1px solid var(--good); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; }
+  .fitdone-banner b { font-size: 15px; color: var(--good-d, var(--good)); }
+  .fitdone-sub { font-size: 12.5px; color: var(--ink-2); }
+
+  /* Exercise list rows (Today preview + builder) */
+  .fitblock { margin-top: 14px; }
+  .fitblock-h { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 6px; }
+  .fitrow { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: var(--card); border: 1px solid var(--line-2); border-radius: 12px; padding: 7px 10px 7px 7px; margin-bottom: 6px; font: inherit; color: inherit; }
+  .fitrow.tap { cursor: pointer; font: inherit; color: inherit; text-align: left; }
+  .fitrow.tap:active { background: var(--surface-2); }
+  .fitrow-look { flex: 0 0 auto; font-size: 14px; opacity: .5; margin-left: 2px; }
+  .fitthumb { flex: 0 0 auto; width: 52px; height: 38px; border-radius: 8px; object-fit: cover; background: var(--surface-2); border: 1px solid var(--line-2); }
+  .fitrow-body { flex: 1; min-width: 0; }
+  .fitrow-name { font-size: 13.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fitrow-sub { font-size: 11.5px; color: var(--muted); }
+  .fitrow-amt { flex: 0 0 auto; font-size: 13px; font-weight: 800; color: var(--ink-2); }
+  .fitrow-x { flex: 0 0 auto; border: 0; background: transparent; color: var(--muted); font-size: 17px; line-height: 1; padding: 6px 4px; cursor: pointer; }
+
+  /* Week page */
+  .fitweek { display: grid; gap: 8px; }
+  .fitday { display: flex; align-items: center; gap: 11px; width: 100%; text-align: left; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px; font: inherit; color: inherit; cursor: pointer; box-shadow: var(--shadow); }
+  .fitday.today { border-color: var(--green); border-width: 2px; }
+  .fitday.restday { opacity: .72; }
+  .fitday-dow { flex: 0 0 42px; font-size: 12px; font-weight: 900; text-transform: uppercase; color: var(--muted); letter-spacing: .5px; }
+  .fitday-body { flex: 1; min-width: 0; }
+  .fitday-title { font-size: 14.5px; font-weight: 800; }
+  .fitday-sub { font-size: 11.5px; color: var(--muted); }
+  .fitday-ticks { flex: 0 0 auto; display: flex; gap: 4px; }
+  .fittick { font-size: 10px; font-weight: 800; padding: 3px 7px; border-radius: 999px; background: var(--surface-2); color: var(--muted); border: 1px solid var(--line-2); }
+  .fittick.on { background: var(--done); color: var(--good); border-color: var(--good); }
+
+  /* Progress page */
+  .fitstats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+  .fitstat { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 8px; text-align: center; box-shadow: var(--shadow); }
+  .fitstat .v { font-size: 22px; font-weight: 900; letter-spacing: -.5px; }
+  .fitstat .l { font-size: 10.5px; color: var(--muted); font-weight: 700; margin-top: 2px; }
+  .fitgrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+  .fitgcell { aspect-ratio: 1; border-radius: 7px; background: var(--surface-2); border: 1px solid var(--line-2); display: grid; place-items: center; font-size: 9.5px; font-weight: 800; color: var(--muted); }
+  .fitgcell.on { background: var(--good); border-color: var(--good); color: #fff; }
+  .fitgcell.rest { opacity: .45; }
+  .fitkidhead { font-size: 12px; font-weight: 800; color: var(--ink-2); margin: 12px 0 6px; }
+
+  /* Budget meter (builder) */
+  .fitmeter { margin: 10px 0 4px; }
+  .fitmeter-bar { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; border: 1px solid var(--line-2); }
+  .fitmeter-fill { height: 100%; background: var(--good); transition: width .2s; }
+  .fitmeter.warn .fitmeter-fill { background: var(--amber); }
+  .fitmeter-l { display: flex; justify-content: space-between; font-size: 11.5px; font-weight: 700; color: var(--muted); margin-top: 5px; }
+  .fitmeter.warn .fitmeter-l b { color: var(--amber); }
+
+  /* ---- Player overlay: its own full-screen surface, not a bottom sheet ---- */
+  #fitPlayOverlay { align-items: stretch; background: rgba(0,0,0,.55); z-index: 60; }
+  .fitplay { background: var(--bg); width: 100%; max-width: 760px; margin: 0 auto; display: flex; flex-direction: column;
+             padding: calc(env(safe-area-inset-top) + 10px) 14px calc(env(safe-area-inset-bottom) + 14px); overflow: hidden; }
+  .fitp-top { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+  .fitp-quit, .fitp-mute { border: 0; background: var(--surface-2); color: var(--ink-2); font-size: 15px; width: 40px; height: 40px; border-radius: 999px; cursor: pointer; flex: 0 0 auto; }
+  .fitp-prog { flex: 1; min-width: 0; }
+  .fitp-progbar { height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+  .fitp-progfill { height: 100%; background: var(--green); transition: width .25s; }
+  .fitp-progtext { font-size: 11px; font-weight: 800; color: var(--muted); margin-top: 4px; text-align: center; }
+  .fitp-body { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 10px; text-align: center; padding: 6px 0; }
+  .fitp-block { font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+  .fitp-name { font-size: 24px; font-weight: 900; letter-spacing: -.4px; line-height: 1.15; margin: 0; }
+  .fitp-amt { font-size: 40px; font-weight: 900; letter-spacing: -1px; line-height: 1; color: var(--green); font-variant-numeric: tabular-nums; }
+  .fitp-amt.rest { color: var(--ink-2); }
+  .fitp-amtsub { font-size: 12.5px; color: var(--muted); font-weight: 700; margin-top: -4px; }
+  .fitp-anim { position: relative; width: 100%; max-width: 420px; aspect-ratio: 3 / 2; border-radius: 16px; overflow: hidden; background: var(--surface-2); border: 1px solid var(--line-2); flex: 0 1 auto; }
+  .fitp-anim img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff; }
+  .fitp-anim img.f1 { opacity: 0; transition: opacity .3s ease-in-out; }
+  .fitp-anim.flip img.f1 { opacity: 1; }
+  .fitp-anim.tappable { cursor: pointer; }
+  .fitp-animhint { position: absolute; right: 8px; bottom: 8px; background: rgba(10,14,26,.6); color: #fff;
+                   font-size: 10.5px; font-weight: 800; padding: 5px 9px; border-radius: 999px; pointer-events: none; }
+  .fitp-steps { text-align: left; width: 100%; max-width: 420px; font-size: 12.5px; color: var(--ink-2); background: var(--card); border: 1px solid var(--line-2); border-radius: 12px; padding: 0; overflow: hidden; }
+  .fitp-steps summary { cursor: pointer; padding: 9px 12px; font-weight: 800; font-size: 12px; color: var(--muted); }
+  .fitp-steps ol { margin: 0; padding: 0 14px 12px 30px; }
+  .fitp-steps li { margin-bottom: 5px; }
+  .fitp-act { flex: 0 0 auto; display: flex; gap: 8px; }
+  .fitp-btn { flex: 1; border: 0; border-radius: 14px; padding: 17px 12px; font: inherit; font-size: 17px; font-weight: 900; cursor: pointer; background: var(--green); color: #fff; }
+  .fitp-btn.ghost { flex: 0 0 auto; background: var(--surface-2); color: var(--ink-2); font-size: 14px; font-weight: 800; padding: 17px 16px; }
+  .fitp-next { font-size: 13px; color: var(--muted); font-weight: 700; }
+  .fitp-next b { color: var(--ink); }
+  .fitp-finish-emoji { font-size: 56px; line-height: 1; }
+  .fitp-finish-stats { display: flex; gap: 18px; justify-content: center; margin-top: 4px; }
+  .fitp-finish-stats div { text-align: center; }
+  .fitp-finish-stats .v { font-size: 22px; font-weight: 900; }
+  .fitp-finish-stats .l { font-size: 10.5px; color: var(--muted); font-weight: 700; }
+  @media (min-height: 720px) { .fitp-anim { max-width: 480px; } .fitp-name { font-size: 27px; } }
+
+  /* ---- Exercise demo: the big looping "how do I do this?" view. Sits ABOVE the player
+     (z 70 vs 60) so a kid can check form mid-set without losing the workout. ---- */
+  #fitDemoOverlay { align-items: stretch; background: rgba(10,14,26,.72); z-index: 70; }
+  .fitdemo { background: var(--bg); width: 100%; max-width: 760px; margin: 0 auto; display: flex; flex-direction: column;
+             padding: calc(env(safe-area-inset-top) + 10px) 14px calc(env(safe-area-inset-bottom) + 14px); overflow: hidden; }
+  .fitdemo-top { display: flex; align-items: flex-start; gap: 10px; flex: 0 0 auto; }
+  .fitdemo-x { border: 0; background: var(--surface-2); color: var(--ink-2); font-size: 15px; width: 44px; height: 44px; border-radius: 999px; cursor: pointer; flex: 0 0 auto; }
+  .fitdemo-h { flex: 1; min-width: 0; }
+  .fitdemo-name { font-size: 21px; font-weight: 900; letter-spacing: -.3px; line-height: 1.15; margin: 2px 0 0; }
+  .fitdemo-meta { font-size: 12.5px; color: var(--muted); font-weight: 700; margin-top: 3px; }
+  /* The animation is the point of this screen, so it goes FULL-BLEED and the box hugs the
+     photo exactly. Most frames are 3:2 but a handful of exercises are portrait — sizing the
+     box from the image itself (rather than a fixed aspect) means neither ends up in a
+     letterbox of dead white space. Frame 0 defines the box; frame 1 lies exactly on top. */
+  .fitdemo-anim { position: relative; flex: 0 1 auto; min-height: 0; align-self: center;
+                  width: calc(100% + 28px); margin: 12px -14px 0; overflow: hidden;
+                  background: #fff; cursor: pointer; }
+  .fitdemo-anim img.f0 { display: block; width: auto; height: auto; max-width: 100%; max-height: 52vh; margin: 0 auto; }
+  .fitdemo-anim img.f1 { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+                         opacity: 0; transition: opacity .34s ease-in-out; }
+  .fitdemo-anim.flip img.f1 { opacity: 1; }
+  .fitdemo-anim.frozen img.f1 { transition: none; }
+  .fitdemo-badge { position: absolute; left: 10px; bottom: 10px; background: rgba(10,14,26,.72); color: #fff;
+                   font-size: 11px; font-weight: 800; padding: 6px 11px; border-radius: 999px; letter-spacing: .3px; }
+  .fitdemo-steps { flex: 0 1 auto; overflow-y: auto; margin-top: 12px; font-size: 13.5px; line-height: 1.5; color: var(--ink-2); }
+  .fitdemo-steps h4 { margin: 0 0 6px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+  .fitdemo-steps ol { margin: 0; padding-left: 20px; }
+  .fitdemo-steps li { margin-bottom: 6px; }
+  /* margin-top:auto parks the button at the bottom of the screen — thumb-reachable, and
+     the slack falls between the instructions and the button instead of below it. */
+  .fitdemo-act { flex: 0 0 auto; margin-top: auto; padding-top: 12px; }
+  .fitdemo-btn { width: 100%; border: 0; border-radius: 14px; padding: 16px; font: inherit; font-size: 16px; font-weight: 900; background: var(--green); color: #fff; cursor: pointer; }
+  @media (min-width: 700px){ .fitdemo-anim { min-height: 300px; } .fitdemo-name { font-size: 26px; } }
+
+  /* Picker sheet */
+  .fitpick-search { width: 100%; padding: 12px; font-size: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink); }
+  .fitpick-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 9px 0; }
+  .fitpick-chip { border: 1px solid var(--line); background: var(--card); color: var(--ink-2); font-size: 12px; font-weight: 700; padding: 7px 11px; border-radius: 999px; cursor: pointer; }
+  .fitpick-chip.sel { background: var(--green); border-color: var(--green); color: #fff; }
+  .fitpick-list { max-height: 46vh; overflow-y: auto; border: 1px solid var(--line-2); border-radius: 12px; }
+  .fitpick-h { position: sticky; top: 0; background: var(--surface-2); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); padding: 7px 12px; z-index: 1; }
+  .fitpick-row { display: flex; align-items: stretch; background: var(--card); border-bottom: 1px solid var(--line-2); }
+  .fitpick-look { flex: 0 0 auto; border: 0; background: transparent; padding: 8px 4px 8px 8px; cursor: pointer; display: flex; align-items: center; }
+  .fitpick-look:active { background: var(--surface-2); }
+  .fitpick-item { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; background: transparent; border: 0; padding: 8px 12px 8px 8px; font: inherit; color: var(--ink); text-align: left; cursor: pointer; }
+  .fitpick-plus { flex: 0 0 auto; font-size: 18px; font-weight: 800; color: var(--green); }
+  .fitpick-item .fitrow-name { font-size: 13px; }
+  .fitpick-empty { padding: 22px 12px; text-align: center; color: var(--muted); font-size: 13px; }
+
+  /* Home dashboard card */
+  .home2 .fitcard { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 12px 14px; cursor: pointer; text-align: left; width: 100%; font: inherit; color: inherit; display: block; margin-bottom: 12px; }
+  .home2 .fitcard:active { transform: scale(.995); }
+  .fitc-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .fitc-title { font-size: 14.5px; font-weight: 800; }
+  .fitc-sub { font-size: 12px; color: var(--muted); margin-top: 1px; }
+  .fitc-go { flex: 0 0 auto; font-size: 12px; font-weight: 900; color: #fff; background: var(--green); border-radius: 999px; padding: 8px 14px; }
+  .fitc-go.done { background: var(--done); color: var(--good); }
 </style>
 </head>
 <body>
@@ -1407,6 +1587,23 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   <div class="sheet" id="mealSheetInner"></div>
 </div>
 
+<!-- Fitness: the workout player. Full-screen (not a bottom sheet) — a kid mid-set should
+     see nothing but the current exercise. Contents rebuilt per step in JS. -->
+<div class="overlay" id="fitPlayOverlay">
+  <div class="fitplay" id="fitPlayInner"></div>
+</div>
+
+<!-- Fitness: day builder / exercise picker (contents built in JS per action) -->
+<div class="overlay" id="fitSheetOverlay">
+  <div class="sheet" id="fitSheetInner"></div>
+</div>
+
+<!-- Fitness: the big "how do I do this?" demo — a large looping animation. Layers above
+     the player so form can be checked mid-set without ending the workout. -->
+<div class="overlay" id="fitDemoOverlay">
+  <div class="fitdemo" id="fitDemoInner"></div>
+</div>
+
 <script type="module">
 /* ============================================================
    1) PASTE YOUR FIREBASE SETTINGS HERE  (see the setup guide)
@@ -1457,6 +1654,13 @@ function seesChores(){ return CHORE_USERS.includes(myName()); }
    gates). Only the "Mom" profile ever sees the Meals sub-nav chip or section. ---- */
 const MEAL_USERS = ["Mom"];
 function seesMeals(){ return MEAL_USERS.includes(myName()); }
+
+/* ---- Fitness. The SECTION is visible to everyone (Mom and Dad need to see and build the
+   week), and only EDITING is gated — behind the same Dad PIN as banking. FITNESS_USERS is
+   just who gets the Home dashboard card and a per-person completion log: the two kids it's
+   for. Anyone else can still open the tab and do the workout; nothing is logged for them. */
+const FITNESS_USERS = ["Isaac", "Eleanor"];
+function seesFitness(){ return FITNESS_USERS.includes(myName()); }
 
 /* ---- Work-order assignees (multi-capable, backward compatible) ----
    A work order may carry `assignees` (an ARRAY of names). Legacy docs (and other
@@ -1557,6 +1761,7 @@ const SECTIONS = [
   { key:"calendar",   ico:"📅",  name:"Calendar",        desc:"Family shared calendar" },
   { key:"animalcare", ico:"🐾",  name:"Animal Care",     desc:"Who's covering chores" },
   { key:"mealplan",   ico:"🍽️",  name:"Meals",           desc:"Calorie plan (Mom)" },
+  { key:"fitness",    ico:"💪",  name:"Fitness",         desc:"Today's 10-minute workout" },
   { key:"farmgpt",    ico:"🌾",  name:"FarmGPT",         desc:"story time & research AI", url:"farmgpt.html" },
   { key:"games",      ico:"🎮",  name:"Games",           desc:"games might just be real life", url:"games.html" }
 ];
@@ -1566,7 +1771,7 @@ const SECTIONS = [
 // workorders/farmbank are here too so email "View in BUCKY" buttons can land on the right tab.
 // Every tab is deep-linkable via index.html#<key> so the persistent icon nav on the
 // FarmGPT/Games pages can land you directly on any section here.
-const DEEP_LINK_TABS = ["dashboard", "chores", "workorders", "print3d", "shopping", "farmbank", "goathooves", "goatcare", "calendar", "animalcare", "mealplan", "game", "catgame", "play"];
+const DEEP_LINK_TABS = ["dashboard", "chores", "workorders", "print3d", "shopping", "farmbank", "goathooves", "goatcare", "calendar", "animalcare", "mealplan", "fitness", "game", "catgame", "play"];
 const initialHashTab = DEEP_LINK_TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "dashboard";
 let currentTab = initialHashTab;
 
@@ -1582,6 +1787,7 @@ const NAV_GROUPS = [
   { id:"home",  ico:"🏠",  name:"Home",   def:"dashboard",  members:["dashboard"] },
   { id:"plan",  ico:"📅",  name:"Plan",   def:"calendar",   members:["calendar","animalcare","mealplan"] },
   { id:"tasks", ico:"✅",  name:"Chores", def:"chores",     members:["chores"] },
+  { id:"fit",   ico:"💪",  name:"Fit",    def:"fitness",    members:["fitness"] },
   { id:"wo",    ico:"🛠️",  name:"Jobs",   def:"workorders", members:["workorders","print3d"] },
   { id:"shop",  ico:"🛒",  name:"Shop",   def:"shopping",   members:["shopping"] },
   { id:"bank",  ico:"💰",  name:"Bank",   def:"farmbank",   members:["farmbank"] },
@@ -1591,7 +1797,7 @@ const NAV_GROUPS = [
 const SECTION_BY_KEY = Object.fromEntries(SECTIONS.map(s => [s.key, s]));
 // Short chip labels for the segmented sub-nav (the full section names like
 // "Work Orders" / "3D Prints" would truncate in a 3-up segmented control).
-const SUBNAV_LABEL = { chores:"Chores", workorders:"Jobs", shopping:"Shopping", goathooves:"Goats", goatcare:"Care", print3d:"Prints", calendar:"Calendar", animalcare:"Care", mealplan:"Meals" };
+const SUBNAV_LABEL = { chores:"Chores", workorders:"Jobs", shopping:"Shopping", goathooves:"Goats", goatcare:"Care", print3d:"Prints", calendar:"Calendar", animalcare:"Care", mealplan:"Meals", fitness:"Fitness" };
 // Remembers the last section visited within a multi-section area so tapping the
 // bottom tab returns you where you were (only tracked for Tasks/Farm sub-nav).
 const groupLast = {};
@@ -2081,13 +2287,14 @@ function render(){
   document.body.classList.toggle("cal-fixed", currentTab === "calendar" && calView === "month");
   const cf = document.getElementById("careFilter");
   if (cf) cf.style.display = currentTab === "goatcare" ? "block" : "none";
-  document.getElementById("addFab").style.display = (currentTab === "dashboard" || currentTab === "goatcare" || currentTab === "shopping" || currentTab === "print3d" || currentTab === "game" || currentTab === "catgame" || currentTab === "farmbank" || currentTab === "play" || currentTab === "animalcare" || currentTab === "mealplan") ? "none" : "";
+  document.getElementById("addFab").style.display = (currentTab === "dashboard" || currentTab === "goatcare" || currentTab === "shopping" || currentTab === "print3d" || currentTab === "game" || currentTab === "catgame" || currentTab === "farmbank" || currentTab === "play" || currentTab === "animalcare" || currentTab === "mealplan" || currentTab === "fitness") ? "none" : "";
   document.getElementById("progress").classList.remove("greet");   // greeting styling is dashboard-only
   document.getElementById("progress").style.display = "";          // restored here; Home hides it (greeting is in the hero)
   if (currentTab === "dashboard") return renderDashboard();
   if (currentTab === "calendar") return renderCalendar();
   if (currentTab === "animalcare") return renderAnimalCare();
   if (currentTab === "mealplan") return renderMealPlan();
+  if (currentTab === "fitness") return renderFitness();
   if (currentTab === "play") return renderPlay();
   if (currentTab === "catgame") return renderCatGame();
   if (currentTab === "farmbank") return renderFarmBank();
@@ -2114,6 +2321,7 @@ const PLAY_GAMES = [
   { ico:"🐐", name:"Baby Bucky",      desc:"Raise a baby goat",            url:"goatcare.html" },
   { ico:"🍅", name:"Barnyard Bistro", desc:"Cook together — 2-chef co-op", url:"barnyardbistro.html" },
   { ico:"🏁", name:"Farm Kart",       desc:"Kart racing on the farm",      url:"farmkart.html" },
+  { ico:"🏰", name:"Castle Kruzer",   desc:"Build a kingdom — flags, roads & knights", url:"castlekruzer.html" },
   { ico:"🌱", name:"Farm Life",       desc:"One family farm, always growing", url:"farmlife/dist/" }
 ];
 function renderPlay(){
@@ -2465,6 +2673,19 @@ function renderDashboard(){
   home.appendChild(carew);
   paintCareWidget(carew);
   careHomeRefresh();
+
+  // ---- today's workout (Isaac + Eleanor only — it's their daily thing). Paints a
+  // sensible placeholder immediately, then fitHomeRefresh() background-loads the
+  // library/plan/log and repaints in place, but only while still on the dashboard
+  // (calwidget/carewidget/wxcard pattern).
+  if (seesFitness()){
+    const fitw = document.createElement("button"); fitw.className = "fitcard"; fitw.type = "button";
+    fitw.setAttribute("aria-label", "Open today's workout");
+    fitw.onclick = () => goTo("fitness");
+    home.appendChild(fitw);
+    paintFitCard(fitw);
+    fitHomeRefresh();
+  }
 
   // ---- 5-day weather for the farm (opens full weather.html: 7-day + radar) ----
   const wx = document.createElement("button"); wx.className = "wxcard";
@@ -6348,6 +6569,1437 @@ function mealRenderGuide(body){
 // Backdrop click closes the meal sheet.
 document.getElementById("mealSheetOverlay").onclick = (e) => { if (e.target.id === "mealSheetOverlay") mealCloseSheet(); };
 
+/* ============================================================================
+   💪 FITNESS — the kids' daily 10-minute workout
+
+   Three moving parts:
+     · a baked exercise LIBRARY in assets/fitness (311 exercises, both animation
+       frames each, public domain — see assets/fitness/LICENSE.txt). Fetched lazily,
+       never on the dashboard.
+     · a shared weekly PLAN (settings doc "fitPlan"). Dad edits it behind the PIN;
+       the baked default-plan.json is the fallback until he does. Merely LOOKING at
+       the section never writes anything.
+     · a per-kid COMPLETION LOG, month-sharded ("fitLog_<Kid>_<YYYY-MM>"), mirroring
+       mealLog_*. Per-day snapshots are the point: chores overwrite their doneLog in
+       place and keep no history, which is exactly why the old chore streak needed a
+       fragile localStorage counter. With real history the streak is DERIVED by
+       walking backwards — stateless, cloud-synced, same on every device.
+
+   Dates are the Plan-area scheme (America/Chicago, UTC-noon anchored) — not
+   dateKeyLocal. Isaac and Eleanor log from different devices against one cloud doc,
+   so a device-local key would disagree about which day "today" is.
+   ============================================================================ */
+
+const FIT_TARGET_SECS   = 600;          // the goal: a 10-minute workout
+const FIT_BAND          = [540, 660];   // 9:00–11:00 still counts as "on target"
+const FIT_REP_SECS      = 3;            // budgeting estimate only — reps are tapped, not timed
+const FIT_MIN_REP_SECS  = 20;
+const FIT_BLOCK_CARD_S  = 5;            // the "CORE — 3 exercises" card between blocks
+const FIT_FLIP_MS       = 900;          // animation frame cross-fade cadence
+const FIT_LIB_URL       = "assets/fitness/exercises.json";
+const FIT_PLAN_URL      = "assets/fitness/default-plan.json";
+const FIT_WD            = ["sun","mon","tue","wed","thu","fri","sat"];
+
+let fitPage = localStorage.getItem("bucky_fit_page") || "today";
+let fitNowOverride = null;      // deterministic-clock test hook (ms) or null
+let fitViewKey = null;          // Week page: which day is being previewed/edited
+let fitLib = null, fitLibById = null, fitLibPromise = null;
+/* Plans are keyed by WHO they belong to: "" is the shared family plan, a kid's name is
+   their own override. A kid with no override follows the shared one, so the common case
+   stays one plan to maintain and Dad only forks a kid off it when they actually need
+   something different. */
+const fitPlans = {}, fitPlansLoaded = {};
+let fitPlanView = localStorage.getItem("bucky_fit_view") || "";   // parents' "whose plan" selector
+const fitLogs = {}, fitLogLoaded = {}, fitLogTimers = {};
+
+// ---- Clock / day keys (America/Chicago, en-CA — tz-safe, DST-safe, testable) ----
+function fitNow(){ return fitNowOverride ? new Date(fitNowOverride) : new Date(); }
+function fitDateKey(d){ return d.toLocaleDateString("en-CA", { timeZone: "America/Chicago" }); }
+function fitToday(){ return fitDateKey(fitNow()); }
+function fitKeyToNoon(key){ const p = String(key).split("-").map(Number); return new Date(Date.UTC(p[0], (p[1]||1)-1, p[2]||1, 12)); }
+function fitKeyAddDays(key, n){ const d = fitKeyToNoon(key); d.setUTCDate(d.getUTCDate()+n); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`; }
+function fitWeekdayOfKey(key){ return FIT_WD[fitKeyToNoon(key).getUTCDay()]; }
+function fitKeyFmt(key, opts){ return fitKeyToNoon(key).toLocaleDateString(undefined, Object.assign({ timeZone:"UTC" }, opts)); }
+function fitMonthOf(key){ return key.slice(0,7); }
+function fitWeekStartKey(key){ const dow = fitKeyToNoon(key).getUTCDay(); return fitKeyAddDays(key, -((dow+6)%7)); }   // Monday
+function fitMMSS(secs){ const s = Math.max(0, Math.round(secs)); return Math.floor(s/60) + ":" + pad(s%60); }
+
+// ---- Library (lazy: the dashboard card must not pull 300 exercise records) ----
+function fitEnsureLib(){
+  if (fitLibPromise) return fitLibPromise;
+  fitLibPromise = fetch(FIT_LIB_URL)
+    .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .catch(() => ({ v:1, groups:[], exercises:[] }))     // never an error state — the UI degrades to names only
+    .then(j => { fitLib = j; fitLibById = new Map((j.exercises||[]).map(x => [x.id, x])); return j; });
+  return fitLibPromise;
+}
+function fitEx(id){ return (fitLibById && fitLibById.get(id)) || null; }
+function fitExName(id){ const e = fitEx(id); return e ? e.name : String(id).replace(/_/g, " "); }
+function fitImg(id, frame){ return `assets/fitness/img/${encodeURIComponent(id)}/${frame}.webp`; }
+function fitGroupMeta(gid){
+  const g = (fitLib && fitLib.groups || []).find(x => x.id === gid);
+  return g || { id: gid, label: gid || "Block", ico: "•" };
+}
+
+/* ---- Plans -----------------------------------------------------------------
+   Docs: "fitPlan" is the shared family plan (unchanged from before per-kid plans
+   existed, so an existing saved plan keeps working); "fitPlan_<Kid>" is an override.
+
+   TOMBSTONES: neither settings backend has a delete, and setSetting MERGES — so
+   "put this kid back on the shared plan" is written as {none:true} rather than by
+   removing the doc. fitHasOwnPlan() is the one place that knows this.            */
+
+function fitPlanDocId(who){ return who ? "fitPlan_" + who : "fitPlan"; }
+
+async function fitEnsurePlan(who = ""){
+  if (fitPlansLoaded[who]) return fitPlans[who];
+  let saved = null;
+  try { saved = await backend?.getSetting?.(fitPlanDocId(who)); } catch {}
+
+  if (saved && (saved.days || saved.none)) fitPlans[who] = saved;
+  else if (who) fitPlans[who] = null;                       // no override — follows the shared plan
+  else {
+    // The shared plan falls back to the baked default. Viewing never writes it.
+    let plan = null;
+    try { const r = await fetch(FIT_PLAN_URL); plan = r.ok ? await r.json() : null; } catch {}
+    fitPlans[""] = plan || { v:1, rest:20, days:{} };
+  }
+  const p = fitPlans[who];
+  if (p && p.days && typeof p.rest !== "number") p.rest = 20;
+  fitPlansLoaded[who] = true;
+  return p;
+}
+
+async function fitSavePlan(who = ""){
+  const p = fitPlans[who];
+  if (!p) return;
+  p.updatedAt = Date.now(); p.updatedBy = myName();
+  try { await backend?.setSetting?.(fitPlanDocId(who), p); } catch {}
+}
+
+/** True when this kid has been forked onto a plan of their own. */
+function fitHasOwnPlan(who){ const p = who && fitPlans[who]; return !!(p && p.days && !p.none); }
+/** The plan in effect for someone: their own if they have one, else the shared plan. */
+function fitPlanOf(who){ return (fitHasOwnPlan(who) ? fitPlans[who] : fitPlans[""]) || null; }
+/** Whose workout is on screen — a kid always sees their own; anyone else uses the selector. */
+function fitWhose(){ return seesFitness() ? myName() : fitPlanView; }
+
+function fitDayOf(key, who){
+  const p = fitPlanOf(who === undefined ? fitWhose() : who);
+  return (p && p.days && p.days[fitWeekdayOfKey(key)]) || null;
+}
+function fitRestSecs(who){
+  const p = fitPlanOf(who === undefined ? fitWhose() : who);
+  return (p && typeof p.rest === "number") ? p.rest : 20;
+}
+
+/** Give a kid their own copy of whatever they're following right now. */
+async function fitForkPlan(who){
+  if (!who) return;
+  const base = fitPlanOf(who) || { v:1, rest:20, days:{} };
+  fitPlans[who] = JSON.parse(JSON.stringify(base));
+  delete fitPlans[who].none;
+  fitPlansLoaded[who] = true;
+  await fitSavePlan(who);
+}
+/** Put a kid back on the shared plan (tombstone — see the note above). */
+async function fitUnforkPlan(who){
+  if (!who) return;
+  fitPlans[who] = { v:1, none:true, updatedAt: Date.now(), updatedBy: myName() };
+  fitPlansLoaded[who] = true;
+  try { await backend?.setSetting?.(fitPlanDocId(who), fitPlans[who]); } catch {}
+}
+
+// ---- Duration: ONE source of truth for the builder's meter and the player ----
+function fitItemSecs(it){
+  if (!it) return 0;
+  return it.mode === "time" ? (Number(it.secs) || 30)
+                            : Math.max(FIT_MIN_REP_SECS, (Number(it.reps) || 10) * FIT_REP_SECS);
+}
+function fitDayItems(day){
+  if (!day || day.rest || !Array.isArray(day.blocks)) return [];
+  return day.blocks.flatMap(b => (b.items || []).map(it => ({ ...it, group: b.group })));
+}
+function fitDuration(day, who){
+  if (!day || day.rest) return 0;
+  const items = fitDayItems(day);
+  if (!items.length) return 0;
+  const work = items.reduce((s, it) => s + fitItemSecs(it), 0);
+  return work + fitRestSecs(who) * (items.length - 1) + (day.blocks || []).length * FIT_BLOCK_CARD_S;
+}
+function fitInBand(secs){ return secs >= FIT_BAND[0] && secs <= FIT_BAND[1]; }
+
+// ---- Per-kid completion log ----
+function fitLogKey(kid, month){ return kid + "|" + month; }
+async function fitEnsureLog(kid, key){
+  const month = fitMonthOf(key), k = fitLogKey(kid, month);
+  if (fitLogLoaded[k]) return fitLogs[k];
+  try { const s = await backend?.getSetting?.(`fitLog_${kid}_${month}`); fitLogs[k] = (s && s.days) ? s : { days:{} }; }
+  catch { fitLogs[k] = { days:{} }; }
+  if (!fitLogs[k].days) fitLogs[k].days = {};
+  fitLogLoaded[k] = true;
+  return fitLogs[k];
+}
+function fitScheduleSaveLog(kid, month){
+  const k = fitLogKey(kid, month);
+  clearTimeout(fitLogTimers[k]);
+  fitLogTimers[k] = setTimeout(() => fitSaveLog(kid, month), 400);
+}
+async function fitSaveLog(kid, month){
+  const m = fitLogs[fitLogKey(kid, month)];
+  if (!m) return;
+  try { await backend?.setSetting?.(`fitLog_${kid}_${month}`, m); } catch {}
+}
+async function fitSaveLogNow(kid, month){ const k = fitLogKey(kid, month); clearTimeout(fitLogTimers[k]); await fitSaveLog(kid, month); }
+function fitRecord(kid, key){
+  const m = fitLogs[fitLogKey(kid, fitMonthOf(key))];
+  return (m && m.days && m.days[key]) || null;
+}
+function fitComplete(kid, key){ const r = fitRecord(kid, key); return !!(r && r.finished); }
+
+/** Write a workout result. `finished` false = they quit partway; we still keep the progress. */
+async function fitWriteRecord(kid, key, patch){
+  if (!kid) return;                                   // a guest profile does the workout but logs nothing
+  const month = fitMonthOf(key);
+  const m = await fitEnsureLog(kid, key);
+  m.days[key] = Object.assign({ done: [], skipped: [], secs: 0, at: Date.now(), finished: false }, m.days[key] || {}, patch);
+  fitScheduleSaveLog(kid, month);
+}
+
+/** Streak, DERIVED by walking backwards over persisted history.
+    - Rest days are skipped, never counted and never a break.
+    - One-day grace: today not done yet doesn't zero yesterday's streak all morning.
+    - Only reads months already loaded; an unloaded month stops the walk, so this
+      under-reports rather than inventing days. */
+function fitStreak(kid){
+  if (!kid) return 0;
+  let key = fitToday(), n = 0, guard = 0;
+  if (!fitComplete(kid, key)) key = fitKeyAddDays(key, -1);
+  while (guard++ < 400){
+    const month = fitMonthOf(key);
+    if (!fitLogLoaded[fitLogKey(kid, month)]) break;      // no data loaded this far back — stop honestly
+    const day = fitDayOf(key, kid);                       // rest days are THIS kid's, not the viewer's
+    if (day && day.rest){ key = fitKeyAddDays(key, -1); continue; }
+    if (!fitComplete(kid, key)) break;
+    n++; key = fitKeyAddDays(key, -1);
+  }
+  return n;
+}
+
+/** Load everything the Fitness section / Home card needs. Kid overrides load too, so the
+    Week ticks and the Progress page reason about each kid's OWN rest days. */
+async function fitEnsureAll(){
+  await Promise.all([
+    fitEnsureLib(),
+    fitEnsurePlan(""),
+    ...FITNESS_USERS.map((k) => fitEnsurePlan(k)),
+  ]);
+  const kid = myName();
+  if (kid){
+    const today = fitToday();
+    await Promise.all([fitEnsureLog(kid, today), fitEnsureLog(kid, fitKeyAddDays(today, -32))]);  // this month + last, for the streak walk
+  }
+}
+
+/* ------------------------------------------------------------------ SECTION */
+
+function renderFitness(){
+  document.querySelector(".bar").style.display = "none";
+  document.getElementById("empty").style.display = "none";
+  document.getElementById("progress").style.display = "none";
+
+  const list = document.getElementById("list"); list.innerHTML = "";
+  const wrap = document.createElement("li"); wrap.style.cssText = "background:transparent;border:0;box-shadow:none;padding:0;";
+  const root = document.createElement("div"); root.className = "fitwrap";
+
+  /* "Whose plan" selector — parents only. A kid never sees it; they always get their own
+     plan, so there is nothing for them to choose and no way to wander into a sibling's. */
+  if (!seesFitness()){
+    const who = document.createElement("div"); who.className = "fitwho"; who.id = "fitWhoRow";
+    const lab = document.createElement("span"); lab.className = "fitwho-l"; lab.textContent = "Plan for";
+    who.appendChild(lab);
+    for (const [id, label] of [["", "Everyone"], ...FITNESS_USERS.map((k) => [k, k])]){
+      const b = document.createElement("button"); b.type = "button"; b.className = "fitwho-b";
+      b.dataset.who = id;
+      b.textContent = label;
+      if (fitPlanView === id) b.classList.add("sel");
+      if (id && fitHasOwnPlan(id)) b.title = label + " has their own plan";
+      b.onclick = () => { fitPlanView = id; localStorage.setItem("bucky_fit_view", id); renderFitness(); };
+      who.appendChild(b);
+    }
+    root.appendChild(who);
+  }
+
+  const pills = document.createElement("div"); pills.className = "fitpills";
+  for (const [id, label] of [["today","Today"],["week","Week"],["progress","Progress"]]){
+    const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.dataset.page = id;
+    if (fitPage === id) b.classList.add("sel");
+    b.onclick = () => { fitPage = id; localStorage.setItem("bucky_fit_page", id); renderFitness(); };
+    pills.appendChild(b);
+  }
+  root.appendChild(pills);
+
+  const body = document.createElement("div"); body.className = "fitbody"; root.appendChild(body);
+  wrap.appendChild(root); list.appendChild(wrap);
+
+  // Everything below needs the library + plan. Paint a placeholder, then repaint.
+  if (!fitLib || !fitPlansLoaded[""]){
+    const load = document.createElement("div"); load.className = "fitcard2";
+    load.style.textAlign = "center"; load.style.color = "var(--muted)";
+    load.textContent = "Loading your workouts…";
+    body.appendChild(load);
+    fitEnsureAll().then(() => { if (currentTab === "fitness") renderFitness(); });
+    return;
+  }
+
+  if (fitPage === "today") fitRenderToday(body);
+  else if (fitPage === "week") fitRenderWeek(body);
+  else fitRenderProgress(body);
+}
+
+function fitRenderToday(body){
+  const who = fitWhose();
+  const key = fitToday(), day = fitDayOf(key, who);
+  // Whose completion this page reports: a kid sees their own; a parent viewing one kid
+  // sees that kid's; a parent on "Everyone" sees no single person's progress.
+  const kid = seesFitness() ? myName() : (fitPlanView || null);
+
+  if (!seesFitness() && fitPlanView) fitAppendForkNote(body, fitPlanView);
+
+  const card = document.createElement("div"); card.className = "fitcard2";
+  const head = document.createElement("div"); head.className = "fithead";
+  const h = document.createElement("h3"); h.textContent = day ? (day.title || "Workout") : "No workout set";
+  const dt = document.createElement("div"); dt.className = "fitdate";
+  dt.textContent = fitKeyFmt(key, { weekday:"long", month:"short", day:"numeric" });
+  head.appendChild(h); head.appendChild(dt); card.appendChild(head);
+
+  if (!day || day.rest){
+    const meta = document.createElement("div"); meta.className = "fitmeta";
+    meta.textContent = day ? "Rest day — go play outside. 🌳" : "Nothing scheduled for today.";
+    card.appendChild(meta);
+    body.appendChild(card);
+    fitAppendEditLink(body, key);
+    return;
+  }
+
+  const items = fitDayItems(day), secs = fitDuration(day, who);
+  const meta = document.createElement("div"); meta.className = "fitmeta";
+  meta.textContent = `${items.length} exercises · about ${Math.round(secs/60)} minutes`;
+  card.appendChild(meta);
+
+  const chips = document.createElement("div"); chips.className = "fitchips";
+  for (const b of day.blocks){
+    const g = fitGroupMeta(b.group);
+    const c = document.createElement("span"); c.className = "fitchip";
+    c.textContent = `${g.ico} ${g.label}`;
+    chips.appendChild(c);
+  }
+  card.appendChild(chips);
+  body.appendChild(card);
+
+  // Done banner (or the start button)
+  const rec = fitRecord(kid, key);
+  if (kid && rec && rec.finished){
+    const banner = document.createElement("div"); banner.className = "fitdone-banner";
+    const streak = fitStreak(kid);
+    const txt = document.createElement("div");
+    const b1 = document.createElement("b"); b1.textContent = "Done today! 🎉";
+    const sub = document.createElement("div"); sub.className = "fitdone-sub";
+    sub.textContent = `${(rec.done || []).length} exercises in ${fitMMSS(rec.secs || 0)}` + (streak > 1 ? ` · 🔥 ${streak}-day streak` : "");
+    txt.appendChild(b1); txt.appendChild(sub);
+    banner.appendChild(txt);
+    body.appendChild(banner);
+    const again = document.createElement("button"); again.type = "button"; again.className = "fitstart again";
+    again.textContent = "Do it again";
+    again.onclick = () => fitStartWorkout(key);
+    body.appendChild(again);
+  } else {
+    const start = document.createElement("button"); start.type = "button"; start.className = "fitstart"; start.id = "fitStartBtn";
+    start.textContent = (rec && (rec.done || []).length) ? "▶  Keep going" : "▶  Start workout";
+    start.onclick = () => fitStartWorkout(key);
+    body.appendChild(start);
+  }
+
+  fitAppendBlockList(body, day, false);
+  fitAppendEditLink(body, key);
+}
+
+/** The block-by-block preview shared by Today and the Week day view. */
+function fitAppendBlockList(body, day, dim){
+  if (!day || day.rest) return;
+  day.blocks.forEach((b) => {
+    const g = fitGroupMeta(b.group);
+    const wrap = document.createElement("div"); wrap.className = "fitblock";
+    const h = document.createElement("div"); h.className = "fitblock-h";
+    h.textContent = `${g.ico} ${g.label} · ${(b.items||[]).length} exercises`;
+    wrap.appendChild(h);
+    for (const it of (b.items || [])){
+      // A real button: tapping any exercise shows it big and looping. That's the whole
+      // point of having two frames — at row size you can't see how a movement works.
+      const row = document.createElement("button"); row.type = "button"; row.className = "fitrow tap";
+      row.dataset.ex = it.id;
+      const amtText = it.mode === "time" ? `${it.secs} seconds` : `${it.reps} reps`;
+      row.setAttribute("aria-label", `${fitExName(it.id)} — ${amtText}. Show me how.`);
+      if (dim) row.style.opacity = ".85";
+      const img = document.createElement("img"); img.className = "fitthumb"; img.loading = "lazy"; img.alt = "";
+      img.src = fitImg(it.id, 0);
+      img.onerror = () => { img.style.visibility = "hidden"; };
+      const bd = document.createElement("div"); bd.className = "fitrow-body";
+      const nm = document.createElement("div"); nm.className = "fitrow-name"; nm.textContent = fitExName(it.id);
+      const sb = document.createElement("div"); sb.className = "fitrow-sub";
+      const ex = fitEx(it.id);
+      sb.textContent = ex ? (ex.equipment === "none" || ex.equipment === "body only" ? "No equipment" : ex.equipment) : "";
+      bd.appendChild(nm); bd.appendChild(sb);
+      const amt = document.createElement("div"); amt.className = "fitrow-amt";
+      amt.textContent = it.mode === "time" ? `${it.secs}s` : `×${it.reps}`;
+      const look = document.createElement("span"); look.className = "fitrow-look"; look.textContent = "🔍";
+      look.setAttribute("aria-hidden", "true");
+      row.appendChild(img); row.appendChild(bd); row.appendChild(amt); row.appendChild(look);
+      row.onclick = () => fitOpenDemo(it.id, { amount: amtText });
+      wrap.appendChild(row);
+    }
+    body.appendChild(wrap);
+  });
+}
+
+/* Tells a parent, plainly, whether this kid is on the shared plan or their own — and
+   makes forking/reverting a single deliberate tap. Without this the "Plan for: Isaac"
+   view would silently be the shared plan and an edit would hit everyone. */
+function fitAppendForkNote(body, who){
+  const own = fitHasOwnPlan(who);
+  const note = document.createElement("div"); note.className = "fitfork" + (own ? " own" : "");
+  note.id = "fitForkNote";
+  note.dataset.own = own ? "1" : "0";
+
+  const txt = document.createElement("div"); txt.className = "fitfork-t";
+  txt.textContent = own ? `${who} has their own plan.` : `${who} follows the shared plan.`;
+  note.appendChild(txt);
+
+  const act = document.createElement("button"); act.type = "button"; act.className = "fitfork-b";
+  act.id = "fitForkBtn";
+  act.textContent = own ? "Use the shared plan" : `Give ${who} their own plan`;
+  act.onclick = async () => {
+    if (!isDadName() || !(dadUnlocked() || await gateDad())) return;
+    if (own){
+      if (!confirm(`Put ${who} back on the shared plan? Their own plan will be discarded.`)) return;
+      await fitUnforkPlan(who);
+    } else {
+      await fitForkPlan(who);
+      showToast(`${who} now has their own plan ✏️`);
+    }
+    if (currentTab === "fitness") renderFitness();
+  };
+  note.appendChild(act);
+  body.appendChild(note);
+}
+
+function fitAppendEditLink(body, key){
+  const who = fitWhose();
+  const link = document.createElement("button"); link.type = "button"; link.className = "fitstart again";
+  link.style.marginTop = "14px";
+  link.id = "fitEditLink";
+  // Be explicit about what an edit will touch — "edit this day" means something different
+  // when you're looking at Isaac's plan than when you're looking at everyone's.
+  const scope = who ? (fitHasOwnPlan(who) ? `${who}'s` : "the shared") : "the shared";
+  link.textContent = isDadName() ? `✏️  Edit ${scope} plan for this day` : "✏️  Edit this day (Dad only)";
+  link.onclick = () => fitOpenBuilder(key);
+  body.appendChild(link);
+}
+
+function fitRenderWeek(body){
+  const who = fitWhose();
+  const today = fitToday(), start = fitWeekStartKey(today);
+  if (!seesFitness() && fitPlanView) fitAppendForkNote(body, fitPlanView);
+  const grid = document.createElement("div"); grid.className = "fitweek";
+  for (let i = 0; i < 7; i++){
+    const key = fitKeyAddDays(start, i);
+    const day = fitDayOf(key, who);
+    const btn = document.createElement("button"); btn.type = "button"; btn.className = "fitday";
+    btn.dataset.day = fitWeekdayOfKey(key);
+    if (key === today) btn.classList.add("today");
+    if (!day || day.rest) btn.classList.add("restday");
+
+    const dow = document.createElement("div"); dow.className = "fitday-dow";
+    dow.textContent = fitKeyFmt(key, { weekday:"short" });
+    const bd = document.createElement("div"); bd.className = "fitday-body";
+    const t = document.createElement("div"); t.className = "fitday-title";
+    t.textContent = day ? (day.title || "Workout") : "Nothing set";
+    const s = document.createElement("div"); s.className = "fitday-sub";
+    s.textContent = (!day || day.rest) ? "Rest day"
+      : `${fitDayItems(day).length} exercises · ${fitMMSS(fitDuration(day, who))}`;
+    bd.appendChild(t); bd.appendChild(s);
+
+    // Completion ticks are per kid and read each kid's OWN plan — Isaac can be resting
+    // on a day Eleanor is working, so a tick is only meaningful against their own week.
+    const ticks = document.createElement("div"); ticks.className = "fitday-ticks";
+    const tickKids = seesFitness() ? [myName()] : (fitPlanView ? [fitPlanView] : FITNESS_USERS);
+    for (const k of tickKids){
+      const kday = fitDayOf(key, k);
+      if (!kday || kday.rest) continue;
+      const tk = document.createElement("span"); tk.className = "fittick";
+      if (fitComplete(k, key)) tk.classList.add("on");
+      tk.textContent = k[0];
+      tk.title = k;
+      ticks.appendChild(tk);
+    }
+    btn.appendChild(dow); btn.appendChild(bd); btn.appendChild(ticks);
+    btn.onclick = () => { fitViewKey = key; fitOpenBuilder(key); };
+    grid.appendChild(btn);
+  }
+  body.appendChild(grid);
+
+  const note = document.createElement("div"); note.className = "fitmeta";
+  note.style.marginTop = "12px"; note.style.textAlign = "center";
+  note.textContent = isDadName() ? "Tap a day to edit it." : "Tap a day to see what's on it.";
+  body.appendChild(note);
+}
+
+function fitRenderProgress(body){
+  const today = fitToday();
+  const kids = seesFitness() ? [myName()] : FITNESS_USERS.slice();
+
+  for (const kid of kids){
+    if (!kid) continue;
+    const head = document.createElement("div"); head.className = "fitkidhead"; head.textContent = kid;
+    body.appendChild(head);
+
+    // 30-day count + streak + this week
+    let last30 = 0;
+    for (let i = 0; i < 30; i++) if (fitComplete(kid, fitKeyAddDays(today, -i))) last30++;
+    const weekStart = fitWeekStartKey(today);
+    let thisWeek = 0;
+    for (let i = 0; i < 7; i++) if (fitComplete(kid, fitKeyAddDays(weekStart, i))) thisWeek++;
+
+    const stats = document.createElement("div"); stats.className = "fitstats";
+    for (const [v, l] of [[fitStreak(kid), "day streak"], [thisWeek, "this week"], [last30, "last 30 days"]]){
+      const s = document.createElement("div"); s.className = "fitstat";
+      const vv = document.createElement("div"); vv.className = "v"; vv.textContent = String(v);
+      const ll = document.createElement("div"); ll.className = "l"; ll.textContent = l;
+      s.appendChild(vv); s.appendChild(ll); stats.appendChild(s);
+    }
+    body.appendChild(stats);
+
+    // 4-week grid, oldest row first, Monday-aligned
+    const grid = document.createElement("div"); grid.className = "fitgrid"; grid.dataset.kid = kid;
+    for (let w = 3; w >= 0; w--){
+      const ws = fitKeyAddDays(weekStart, -7 * w);
+      for (let i = 0; i < 7; i++){
+        const key = fitKeyAddDays(ws, i);
+        const day = fitDayOf(key, kid);
+        const c = document.createElement("div"); c.className = "fitgcell";
+        if (day && day.rest) c.classList.add("rest");
+        if (fitComplete(kid, key)) c.classList.add("on");
+        c.textContent = fitKeyFmt(key, { day:"numeric" });
+        c.title = fitKeyFmt(key, { weekday:"long", month:"short", day:"numeric" });
+        grid.appendChild(c);
+      }
+    }
+    body.appendChild(grid);
+  }
+
+  const note = document.createElement("div"); note.className = "fitmeta";
+  note.style.marginTop = "14px"; note.style.textAlign = "center";
+  note.textContent = "Rest days don't break a streak.";
+  body.appendChild(note);
+}
+
+/* ---------------------------------------------------------------- THE PLAYER
+
+   A flat step list walked start to finish:
+     block card → exercise → rest → exercise → … → finish
+
+   TIMING READS THE WALL CLOCK, never an accumulated tick count, so a slow frame or a
+   throttled timer can't make a 40-second plank drift into 44. When the tab is hidden we
+   PAUSE rather than fast-forwarding — a phone that locked mid-set must not come back
+   three exercises further on, having "completed" work nobody did.                     */
+
+let fitRun = null;
+let fitTickTimer = null, fitFlipTimer = null, fitWakeLock = null;
+const fitReducedMotion = () => { try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } };
+const fitMuted = () => localStorage.getItem("bucky_fit_muted") === "1";
+
+function fitBuildSteps(day, who){
+  const steps = [], items = fitDayItems(day), rest = fitRestSecs(who);
+  let ord = 0;
+  (day.blocks || []).forEach((b) => {
+    steps.push({ type:"block", group: b.group, count: (b.items || []).length });
+    (b.items || []).forEach((it) => {
+      ord++;
+      steps.push({ type:"ex", it, group: b.group, ord, total: items.length });
+      if (ord < items.length) steps.push({ type:"rest", secs: rest, ord });
+    });
+  });
+  steps.push({ type:"finish" });
+  return steps;
+}
+
+/** How long the current step runs, in ms. null = waits for a tap (rep sets, finish). */
+function fitStepDur(s){
+  if (!s) return null;
+  if (s.type === "block") return FIT_BLOCK_CARD_S * 1000;
+  if (s.type === "rest")  return (s.secs || 0) * 1000;
+  if (s.type === "ex" && s.it.mode === "time") return (Number(s.it.secs) || 30) * 1000;
+  return null;
+}
+function fitStepElapsed(){
+  if (!fitRun) return 0;
+  const now = fitRun.paused ? fitRun.pausedAt : Date.now();
+  return Math.max(0, now - fitRun.stepStart - fitRun.pausedTotal);
+}
+function fitStepRemain(){
+  const dur = fitStepDur(fitRun && fitRun.steps[fitRun.i]);
+  return dur == null ? null : Math.max(0, dur - fitStepElapsed());
+}
+
+async function fitStartWorkout(dayKey){
+  const who = fitWhose();
+  const day = fitDayOf(dayKey, who);
+  if (!day || day.rest) return;
+  const kid = myName();
+  if (kid) await fitEnsureLog(kid, dayKey);
+
+  fitRun = {
+    kid, dayKey, steps: fitBuildSteps(day, who), i: 0,
+    startedAt: Date.now(), stepStart: Date.now(), pausedTotal: 0, paused: false, pausedAt: 0,
+    done: [], skipped: [], beeped: 0, animate: !fitReducedMotion(),
+  };
+  document.getElementById("fitPlayOverlay").classList.add("open");
+  fitRequestWake();
+  fitPaintStep();
+  fitStartTimers();
+}
+
+function fitStartTimers(){
+  clearInterval(fitTickTimer);
+  fitTickTimer = setInterval(fitTick, 200);
+  clearInterval(fitFlipTimer);
+  fitFlipTimer = setInterval(() => {
+    if (!fitRun || !fitRun.animate || fitRun.paused) return;
+    const a = document.querySelector("#fitPlayInner .fitp-anim");
+    if (a) a.classList.toggle("flip");
+  }, FIT_FLIP_MS);
+}
+function fitStopTimers(){ clearInterval(fitTickTimer); clearInterval(fitFlipTimer); fitTickTimer = fitFlipTimer = null; }
+
+function fitTick(){
+  if (!fitRun || fitRun.paused) return;
+  const remain = fitStepRemain();
+  if (remain == null) return;                     // tap-to-advance step — nothing to count
+  const s = fitRun.steps[fitRun.i];
+
+  // 3-2-1 cues, once each
+  const secsLeft = Math.ceil(remain / 1000);
+  if (secsLeft <= 3 && secsLeft >= 1 && fitRun.beeped !== secsLeft){ fitRun.beeped = secsLeft; fitCue("tick"); }
+
+  if (remain <= 0){ fitAdvance(s.type === "ex" ? "auto" : null); return; }
+  fitPaintTime();
+}
+
+/** Move to the next step. `how` = "auto" | "done" | "skip" for exercise steps. */
+function fitAdvance(how){
+  if (!fitRun) return;
+  const s = fitRun.steps[fitRun.i];
+  if (s && s.type === "ex"){
+    if (how === "skip"){ if (!fitRun.skipped.includes(s.it.id)) fitRun.skipped.push(s.it.id); }
+    else if (!fitRun.done.includes(s.it.id)) fitRun.done.push(s.it.id);
+  }
+  fitRun.i++;
+  fitRun.stepStart = Date.now(); fitRun.pausedTotal = 0; fitRun.paused = false; fitRun.beeped = 0;
+
+  const next = fitRun.steps[fitRun.i];
+  if (!next){ fitFinish(); return; }
+  if (next.type === "finish") fitFinish();
+  else { fitCue(next.type === "rest" ? "rest" : "go"); fitPaintStep(); }
+}
+
+async function fitFinish(){
+  if (!fitRun) return;
+  const secs = Math.round((Date.now() - fitRun.startedAt) / 1000);
+  const { kid, dayKey, done, skipped } = fitRun;
+  fitRun.finished = true;
+  fitStopTimers();
+  fitCue("finish");
+  await fitWriteRecord(kid, dayKey, { done: done.slice(), skipped: skipped.slice(), secs, at: Date.now(), finished: true });
+  fitPaintFinish(secs);
+}
+
+/** Quit part-way. Progress is kept (not marked finished) so "Keep going" is honest. */
+async function fitQuit(){
+  if (!fitRun) return;
+  const { kid, dayKey, done, skipped, startedAt, finished } = fitRun;
+  fitStopTimers(); fitReleaseWake();
+  if (!finished && done.length){
+    await fitWriteRecord(kid, dayKey, {
+      done: done.slice(), skipped: skipped.slice(),
+      secs: Math.round((Date.now() - startedAt) / 1000), at: Date.now(), finished: false,
+    });
+  }
+  fitRun = null;
+  document.getElementById("fitPlayOverlay").classList.remove("open");
+  if (currentTab === "fitness") renderFitness();
+  else if (currentTab === "dashboard") { const c = document.querySelector(".home2 .fitcard"); if (c) paintFitCard(c); }
+}
+
+function fitTogglePause(){
+  if (!fitRun) return;
+  if (fitRun.paused){ fitRun.pausedTotal += Date.now() - fitRun.pausedAt; fitRun.paused = false; fitRequestWake(); }
+  else { fitRun.pausedAt = Date.now(); fitRun.paused = true; }
+  fitPaintStep();
+}
+
+/* ---- Screen wake lock: a workout screen must not sleep between sets. Silently
+   unavailable on iOS Safari < 16.4 and in headless — never a hard dependency. */
+function fitRequestWake(){
+  try {
+    if (!navigator.wakeLock || fitWakeLock) return;
+    navigator.wakeLock.request("screen").then(l => { fitWakeLock = l; l.addEventListener("release", () => { fitWakeLock = null; }); }).catch(()=>{});
+  } catch {}
+}
+function fitReleaseWake(){ try { if (fitWakeLock){ fitWakeLock.release().catch(()=>{}); fitWakeLock = null; } } catch {} }
+
+/* ---- WebAudio cues. Synth only, no asset files — same approach as the game pages. */
+let fitAudioCtx = null;
+function fitCue(kind){
+  if (fitMuted()) return;
+  try {
+    fitAudioCtx = fitAudioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (fitAudioCtx.state === "suspended") fitAudioCtx.resume().catch(()=>{});
+    const beep = (freq, at, dur, gain) => {
+      const o = fitAudioCtx.createOscillator(), g = fitAudioCtx.createGain();
+      o.type = "sine"; o.frequency.value = freq;
+      const t = fitAudioCtx.currentTime + at;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(gain, t + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(fitAudioCtx.destination); o.start(t); o.stop(t + dur + 0.02);
+    };
+    if (kind === "tick")   beep(660, 0, 0.09, 0.14);
+    if (kind === "go")     { beep(880, 0, 0.16, 0.2); }
+    if (kind === "rest")   { beep(440, 0, 0.2, 0.14); }
+    if (kind === "finish") { [523, 659, 784, 1047].forEach((f, i) => beep(f, i * 0.13, 0.28, 0.18)); }
+  } catch {}
+}
+
+/* -------------------------------------------------------------- player paint */
+
+function fitPaintTime(){
+  const s = fitRun && fitRun.steps[fitRun.i];
+  if (!s) return;
+  const remain = fitStepRemain();
+  const amt = document.querySelector("#fitPlayInner .fitp-amt");
+  if (amt && remain != null) amt.textContent = String(Math.ceil(remain / 1000));
+  const fill = document.querySelector("#fitPlayInner .fitp-progfill");
+  if (fill) fill.style.width = fitRunPercent() + "%";
+}
+function fitRunPercent(){
+  if (!fitRun) return 0;
+  const total = fitRun.steps.filter(s => s.type === "ex").length || 1;
+  const doneN = fitRun.done.length + fitRun.skipped.length;
+  return Math.round((doneN / total) * 100);
+}
+
+function fitPaintStep(){
+  const inner = document.getElementById("fitPlayInner");
+  if (!inner || !fitRun) return;
+  const s = fitRun.steps[fitRun.i];
+  if (!s) return;
+  inner.innerHTML = "";
+
+  // --- top bar: quit · progress · mute
+  const top = document.createElement("div"); top.className = "fitp-top";
+  const quit = document.createElement("button"); quit.type = "button"; quit.className = "fitp-quit"; quit.id = "fitQuitBtn";
+  quit.textContent = "✕"; quit.setAttribute("aria-label", "Quit workout"); quit.onclick = fitQuit;
+  const prog = document.createElement("div"); prog.className = "fitp-prog";
+  const bar = document.createElement("div"); bar.className = "fitp-progbar";
+  const fill = document.createElement("div"); fill.className = "fitp-progfill"; fill.style.width = fitRunPercent() + "%";
+  bar.appendChild(fill);
+  const ptext = document.createElement("div"); ptext.className = "fitp-progtext";
+  const totalEx = fitRun.steps.filter(x => x.type === "ex").length;
+  ptext.textContent = s.type === "ex" ? `${s.ord} of ${s.total}` : `${fitRun.done.length + fitRun.skipped.length} of ${totalEx} done`;
+  prog.appendChild(bar); prog.appendChild(ptext);
+  const mute = document.createElement("button"); mute.type = "button"; mute.className = "fitp-mute"; mute.id = "fitMuteBtn";
+  mute.textContent = fitMuted() ? "🔇" : "🔊"; mute.setAttribute("aria-label", "Sound on or off");
+  mute.onclick = () => { localStorage.setItem("bucky_fit_muted", fitMuted() ? "0" : "1"); mute.textContent = fitMuted() ? "🔇" : "🔊"; };
+  top.appendChild(quit); top.appendChild(prog); top.appendChild(mute);
+  inner.appendChild(top);
+
+  const body = document.createElement("div"); body.className = "fitp-body"; body.id = "fitPlayBody";
+  const act = document.createElement("div"); act.className = "fitp-act";
+
+  if (s.type === "block"){
+    const g = fitGroupMeta(s.group);
+    const ico = document.createElement("div"); ico.className = "fitp-finish-emoji"; ico.textContent = g.ico;
+    const nm = document.createElement("h2"); nm.className = "fitp-name"; nm.textContent = g.label;
+    const sub = document.createElement("div"); sub.className = "fitp-next"; sub.textContent = `${s.count} exercises coming up`;
+    body.appendChild(ico); body.appendChild(nm); body.appendChild(sub);
+    const go = document.createElement("button"); go.type = "button"; go.className = "fitp-btn"; go.id = "fitNextBtn";
+    go.textContent = "Let's go"; go.onclick = () => fitAdvance();
+    act.appendChild(go);
+  }
+  else if (s.type === "rest"){
+    const lbl = document.createElement("div"); lbl.className = "fitp-block"; lbl.textContent = "Rest";
+    const amt = document.createElement("div"); amt.className = "fitp-amt rest"; amt.textContent = String(Math.ceil((fitStepRemain() || 0) / 1000));
+    const sub = document.createElement("div"); sub.className = "fitp-amtsub"; sub.textContent = "seconds";
+    body.appendChild(lbl); body.appendChild(amt); body.appendChild(sub);
+
+    const nextEx = fitRun.steps.slice(fitRun.i + 1).find(x => x.type === "ex");
+    if (nextEx){
+      const anim = fitAnimEl(nextEx.it.id, false);
+      body.appendChild(anim);
+      const nx = document.createElement("div"); nx.className = "fitp-next";
+      nx.innerHTML = "Next up: ";
+      const b = document.createElement("b"); b.textContent = fitExName(nextEx.it.id);
+      nx.appendChild(b);
+      body.appendChild(nx);
+    }
+    const skip = document.createElement("button"); skip.type = "button"; skip.className = "fitp-btn"; skip.id = "fitNextBtn";
+    skip.textContent = "Skip rest"; skip.onclick = () => fitAdvance();
+    act.appendChild(skip);
+  }
+  else if (s.type === "ex"){
+    const g = fitGroupMeta(s.group);
+    const lbl = document.createElement("div"); lbl.className = "fitp-block"; lbl.textContent = `${g.ico} ${g.label}`;
+    const nm = document.createElement("h2"); nm.className = "fitp-name"; nm.textContent = fitExName(s.it.id);
+    body.appendChild(lbl); body.appendChild(nm);
+
+    // Tapping the picture mid-set opens the big looping demo and pauses the clock.
+    const anim = fitAnimEl(s.it.id, fitRun.animate);
+    anim.classList.add("tappable");
+    anim.setAttribute("role", "button");
+    anim.setAttribute("aria-label", "Show me how to do " + fitExName(s.it.id));
+    anim.onclick = () => fitOpenDemo(s.it.id, { amount: s.it.mode === "time" ? `${s.it.secs} seconds` : `${s.it.reps} reps` });
+    const hint = document.createElement("div"); hint.className = "fitp-animhint"; hint.textContent = "tap for a closer look";
+    anim.appendChild(hint);
+    body.appendChild(anim);
+
+    const amt = document.createElement("div"); amt.className = "fitp-amt";
+    const sub = document.createElement("div"); sub.className = "fitp-amtsub";
+    if (s.it.mode === "time"){ amt.textContent = String(Math.ceil((fitStepRemain() || 0) / 1000)); sub.textContent = "seconds"; }
+    else { amt.textContent = String(s.it.reps); sub.textContent = "reps"; }
+    body.appendChild(amt); body.appendChild(sub);
+
+    const ex = fitEx(s.it.id);
+    if (ex && ex.steps && ex.steps.length){
+      const det = document.createElement("details"); det.className = "fitp-steps";
+      const sum = document.createElement("summary"); sum.textContent = "How do I do it?";
+      const ol = document.createElement("ol");
+      for (const line of ex.steps){ const li = document.createElement("li"); li.textContent = line; ol.appendChild(li); }
+      det.appendChild(sum); det.appendChild(ol);
+      body.appendChild(det);
+    }
+
+    const main = document.createElement("button"); main.type = "button"; main.className = "fitp-btn"; main.id = "fitDoneBtn";
+    main.textContent = s.it.mode === "time" ? (fitRun.paused ? "Resume" : "Done early") : "Done ✓";
+    main.onclick = () => { if (fitRun.paused) fitTogglePause(); else fitAdvance("done"); };
+    const skip = document.createElement("button"); skip.type = "button"; skip.className = "fitp-btn ghost"; skip.id = "fitSkipBtn";
+    skip.textContent = "Skip"; skip.onclick = () => fitAdvance("skip");
+    act.appendChild(main); act.appendChild(skip);
+  }
+
+  inner.appendChild(body);
+
+  if (fitRun.paused){
+    const p = document.createElement("div"); p.className = "fitp-next"; p.id = "fitPausedNote";
+    p.style.marginBottom = "8px";
+    p.textContent = "⏸ Paused";
+    inner.appendChild(p);
+  }
+  inner.appendChild(act);
+}
+
+/** The two-frame animation. The source database ships a START and an END photo per
+    exercise — no animated formats exist in it — so we cross-fade between them, which
+    is what actually reads as the movement. Class-toggle + CSS transition, deliberately
+    NOT a @keyframes animation (those stall under headless Chrome). */
+function fitAnimEl(id, animate){
+  const a = document.createElement("div"); a.className = "fitp-anim";
+  const i0 = document.createElement("img"); i0.className = "f0"; i0.src = fitImg(id, 0); i0.alt = fitExName(id);
+  const i1 = document.createElement("img"); i1.className = "f1"; i1.src = fitImg(id, 1); i1.alt = "";
+  i0.onerror = () => { a.style.display = "none"; };
+  a.appendChild(i0); a.appendChild(i1);
+  if (!animate){
+    // Reduced motion: hold the start frame, but keep the movement one tap away.
+    const t = document.createElement("button");
+    t.type = "button"; t.className = "fitp-btn ghost"; t.id = "fitAnimToggle";
+    t.style.cssText = "position:absolute;right:6px;bottom:6px;padding:7px 11px;font-size:12px;border-radius:999px;";
+    t.textContent = "Show movement";
+    t.onclick = (e) => { e.stopPropagation(); a.classList.toggle("flip"); };
+    a.appendChild(t);
+  }
+  return a;
+}
+
+function fitPaintFinish(secs){
+  const inner = document.getElementById("fitPlayInner");
+  if (!inner || !fitRun) return;
+  inner.innerHTML = "";
+  const body = document.createElement("div"); body.className = "fitp-body"; body.id = "fitFinishBody";
+  const emo = document.createElement("div"); emo.className = "fitp-finish-emoji"; emo.textContent = "🎉";
+  const nm = document.createElement("h2"); nm.className = "fitp-name"; nm.textContent = "Nice work!";
+  body.appendChild(emo); body.appendChild(nm);
+
+  const streak = fitStreak(fitRun.kid);
+  const stats = document.createElement("div"); stats.className = "fitp-finish-stats";
+  for (const [v, l] of [[String(fitRun.done.length), "exercises"], [fitMMSS(secs), "minutes"], [String(streak), "day streak"]]){
+    const d = document.createElement("div");
+    const vv = document.createElement("div"); vv.className = "v"; vv.textContent = v;
+    const ll = document.createElement("div"); ll.className = "l"; ll.textContent = l;
+    d.appendChild(vv); d.appendChild(ll); stats.appendChild(d);
+  }
+  body.appendChild(stats);
+  if (fitRun.skipped.length){
+    const sk = document.createElement("div"); sk.className = "fitp-next";
+    sk.textContent = `${fitRun.skipped.length} skipped — that's OK.`;
+    body.appendChild(sk);
+  }
+  inner.appendChild(body);
+
+  const act = document.createElement("div"); act.className = "fitp-act";
+  const close = document.createElement("button"); close.type = "button"; close.className = "fitp-btn"; close.id = "fitFinishBtn";
+  close.textContent = "Done"; close.onclick = fitQuit;
+  act.appendChild(close);
+  inner.appendChild(act);
+}
+
+/* A backgrounded tab must PAUSE, not fast-forward: coming back to find three exercises
+   auto-completed would be a lie about what the kid did. */
+document.addEventListener("visibilitychange", () => {
+  if (!fitRun || fitRun.finished) return;
+  if (document.hidden && !fitRun.paused){ fitRun.pausedAt = Date.now(); fitRun.paused = true; fitPaintStep(); }
+  else if (!document.hidden) fitRequestWake();
+});
+
+/* --------------------------------------------------------- THE DEMO ("show me")
+
+   Tap any exercise — in the day list, mid-workout, or in Dad's picker — and get it big
+   and looping. This is the one place the two-frame source data really earns its keep: at
+   this size the start↔end cross-fade reads as the actual movement.
+
+   Opening it from inside a running workout PAUSES the run and resuming is automatic on
+   close, so "wait, how do I do this?" costs a kid nothing.                            */
+
+let fitDemoId = null, fitDemoFlip = null, fitDemoFrozen = false, fitDemoResume = false;
+
+function fitOpenDemo(id, opts = {}){
+  const ex = fitEx(id);
+  fitDemoId = id;
+  fitDemoFrozen = false;
+  // Pause a running workout while they study the movement; remember to un-pause after.
+  fitDemoResume = false;
+  if (fitRun && !fitRun.finished && !fitRun.paused){ fitTogglePause(); fitDemoResume = true; }
+
+  const inner = document.getElementById("fitDemoInner");
+  inner.innerHTML = "";
+
+  const top = document.createElement("div"); top.className = "fitdemo-top";
+  const x = document.createElement("button"); x.type = "button"; x.className = "fitdemo-x"; x.id = "fitDemoClose";
+  x.textContent = "✕"; x.setAttribute("aria-label", "Close"); x.onclick = fitCloseDemo;
+  const h = document.createElement("div"); h.className = "fitdemo-h";
+  const nm = document.createElement("h2"); nm.className = "fitdemo-name"; nm.textContent = fitExName(id);
+  const meta = document.createElement("div"); meta.className = "fitdemo-meta";
+  const bits = [];
+  if (ex) bits.push(fitGroupMeta(ex.group).ico + " " + fitGroupMeta(ex.group).label);
+  if (opts.amount) bits.push(opts.amount);
+  if (ex) bits.push((ex.equipment === "none" || ex.equipment === "body only") ? "No equipment" : ex.equipment);
+  meta.textContent = bits.join(" · ");
+  h.appendChild(nm); h.appendChild(meta);
+  top.appendChild(x); top.appendChild(h);
+  inner.appendChild(top);
+
+  const anim = document.createElement("div"); anim.className = "fitdemo-anim"; anim.id = "fitDemoAnim";
+  const i0 = document.createElement("img"); i0.className = "f0"; i0.src = fitImg(id, 0); i0.alt = fitExName(id) + " — starting position";
+  const i1 = document.createElement("img"); i1.className = "f1"; i1.src = fitImg(id, 1); i1.alt = fitExName(id) + " — finishing position";
+  i0.onerror = () => { anim.style.display = "none"; };
+  const badge = document.createElement("div"); badge.className = "fitdemo-badge"; badge.id = "fitDemoBadge";
+  badge.textContent = "Tap to pause";
+  anim.appendChild(i0); anim.appendChild(i1); anim.appendChild(badge);
+  anim.onclick = fitDemoToggleFreeze;
+  inner.appendChild(anim);
+
+  if (ex && ex.steps && ex.steps.length){
+    const steps = document.createElement("div"); steps.className = "fitdemo-steps";
+    const sh = document.createElement("h4"); sh.textContent = "How to do it";
+    const ol = document.createElement("ol");
+    for (const line of ex.steps){ const li = document.createElement("li"); li.textContent = line; ol.appendChild(li); }
+    steps.appendChild(sh); steps.appendChild(ol);
+    inner.appendChild(steps);
+  }
+
+  const act = document.createElement("div"); act.className = "fitdemo-act";
+  const btn = document.createElement("button"); btn.type = "button"; btn.className = "fitdemo-btn"; btn.id = "fitDemoDone";
+  btn.textContent = fitDemoResume ? "Got it — keep going" : "Got it";
+  btn.onclick = fitCloseDemo;
+  act.appendChild(btn);
+  inner.appendChild(act);
+
+  document.getElementById("fitDemoOverlay").classList.add("open");
+
+  // Its own loop, independent of the player's (which is frozen while paused).
+  clearInterval(fitDemoFlip);
+  if (!fitReducedMotion()){
+    fitDemoFlip = setInterval(() => {
+      const a = document.getElementById("fitDemoAnim");
+      if (a && !fitDemoFrozen) a.classList.toggle("flip");
+    }, FIT_FLIP_MS);
+  } else {
+    fitDemoFrozen = true;
+    badge.textContent = "Tap to play";
+    anim.classList.add("frozen");
+  }
+}
+
+/** Freeze on the current frame — for "hold on, what are the arms doing?". */
+function fitDemoToggleFreeze(){
+  fitDemoFrozen = !fitDemoFrozen;
+  const a = document.getElementById("fitDemoAnim");
+  const b = document.getElementById("fitDemoBadge");
+  if (a) a.classList.toggle("frozen", fitDemoFrozen);
+  if (b) b.textContent = fitDemoFrozen ? "Tap to play" : "Tap to pause";
+}
+
+function fitCloseDemo(){
+  clearInterval(fitDemoFlip); fitDemoFlip = null;
+  fitDemoId = null;
+  document.getElementById("fitDemoOverlay").classList.remove("open");
+  if (fitDemoResume && fitRun && !fitRun.finished && fitRun.paused) fitTogglePause();
+  fitDemoResume = false;
+}
+
+// Backdrop tap closes the demo — harmless here, since the workout resumes rather than ends.
+document.getElementById("fitDemoOverlay").onclick = (e) => { if (e.target.id === "fitDemoOverlay") fitCloseDemo(); };
+
+/* -------------------------------------------------- BUILDER + EXERCISE PICKER
+
+   Editing is Dad-only, behind the same PIN as banking. Everyone else gets the same
+   sheet read-only, so a kid can still look up tomorrow's workout.
+
+   Edits run against a DRAFT deep-copy of the day, so Cancel really cancels. The budget
+   meter reads fitDuration() — the same function the player walks — so what Dad sees is
+   what the workout is, not a second estimate that can drift from it.                  */
+
+let fitDraft = null, fitDraftKey = null, fitDraftRO = false, fitDraftWho = "";
+let fitSheetMode = "builder";
+let fitPickTarget = null;                 // block index, or "new"
+let fitPickQuery = "", fitPickGroup = "all", fitPickEquip = "any";
+
+const FIT_EQUIP_FILTERS = [
+  ["any",      "Any"],
+  ["none",     "No equipment"],
+  ["dumbbell", "Dumbbells"],
+  ["bands",    "Bands"],
+];
+const fitEquipMatches = (ex, f) =>
+  f === "any" ? true
+  : f === "none" ? (ex.equipment === "none" || ex.equipment === "body only")
+  : ex.equipment === f;
+
+function fitCloseSheet(){ document.getElementById("fitSheetOverlay").classList.remove("open"); fitDraft = null; }
+
+async function fitOpenBuilder(dayKey){
+  await fitEnsureAll();
+  const readOnly = !isDadName() || !(dadUnlocked() || await gateDad());
+  if (!isDadName()){
+    // Not Dad at all — open the read-only view rather than nagging for a PIN they can't have.
+    fitDraftRO = true;
+  } else if (readOnly){
+    return;                                  // Dad cancelled or failed the PIN — do nothing
+  } else {
+    fitDraftRO = false;
+  }
+
+  // Edit whichever plan is actually IN EFFECT for the current view: a kid who has been
+  // forked edits their own; otherwise this is the shared plan and the sheet says so.
+  const view = fitWhose();
+  fitDraftWho = fitHasOwnPlan(view) ? view : "";
+  const plan = fitPlanOf(view) || { v:1, rest:20, days:{} };
+  const wd = fitWeekdayOfKey(dayKey);
+  const day = (plan.days && plan.days[wd]) || { title:"Workout", blocks:[] };
+  fitDraft = JSON.parse(JSON.stringify(day));
+  if (!fitDraft.blocks) fitDraft.blocks = [];
+  fitDraftKey = dayKey;
+  fitSheetMode = "builder";
+  document.getElementById("fitSheetOverlay").classList.add("open");
+  fitPaintSheet();
+}
+
+function fitPaintSheet(){
+  if (fitSheetMode === "picker") return fitPaintPicker();
+  fitPaintBuilder();
+}
+
+function fitPaintBuilder(){
+  const inner = document.getElementById("fitSheetInner");
+  if (!inner || !fitDraft) return;
+  inner.innerHTML = "";
+  const ro = fitDraftRO;
+
+  const h = document.createElement("h2");
+  h.textContent = fitKeyFmt(fitDraftKey, { weekday:"long" }) + (ro ? "" : " — edit");
+  inner.appendChild(h);
+
+  // Say out loud whose plan this edit lands on. Silence here is how you change everyone's
+  // Monday when you meant to change one kid's.
+  const scope = document.createElement("div"); scope.className = "fitscope"; scope.id = "fitScopeNote";
+  scope.dataset.who = fitDraftWho;
+  scope.textContent = fitDraftWho ? `${fitDraftWho}'s own plan` : "The shared plan — everyone on it";
+  inner.appendChild(scope);
+
+  // ---- rest-day toggle
+  const restRow = document.createElement("label");
+  restRow.style.cssText = "display:flex;align-items:center;gap:9px;font-size:13.5px;font-weight:700;margin-bottom:10px;";
+  const restCb = document.createElement("input"); restCb.type = "checkbox"; restCb.id = "fitRestToggle";
+  restCb.checked = !!fitDraft.rest; restCb.disabled = ro;
+  restCb.onchange = () => { fitDraft.rest = restCb.checked; fitPaintBuilder(); };
+  restRow.appendChild(restCb);
+  restRow.appendChild(document.createTextNode("Rest day"));
+  inner.appendChild(restRow);
+
+  if (!fitDraft.rest){
+    // ---- title
+    const tl = document.createElement("label");
+    tl.style.cssText = "display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:4px;";
+    tl.textContent = "Name";
+    const ti = document.createElement("input"); ti.type = "text"; ti.id = "fitTitleInput";
+    ti.className = "fitpick-search"; ti.value = fitDraft.title || ""; ti.placeholder = "Full Body";
+    ti.disabled = ro;
+    ti.oninput = () => { fitDraft.title = ti.value; };
+    inner.appendChild(tl); inner.appendChild(ti);
+
+    // ---- budget meter
+    const secs = fitDuration(fitDraft, fitDraftWho), inBand = fitInBand(secs);
+    const meter = document.createElement("div"); meter.className = "fitmeter" + (inBand ? "" : " warn"); meter.id = "fitMeter";
+    meter.dataset.secs = String(secs);
+    const bar = document.createElement("div"); bar.className = "fitmeter-bar";
+    const fill = document.createElement("div"); fill.className = "fitmeter-fill";
+    fill.style.width = Math.min(100, Math.round((secs / FIT_TARGET_SECS) * 100)) + "%";
+    bar.appendChild(fill);
+    const lab = document.createElement("div"); lab.className = "fitmeter-l";
+    const l1 = document.createElement("span");
+    const lb = document.createElement("b"); lb.textContent = fitMMSS(secs);
+    l1.appendChild(lb); l1.appendChild(document.createTextNode(" of ~10:00"));
+    const l2 = document.createElement("span");
+    l2.textContent = inBand ? "on target" : (secs < FIT_BAND[0] ? "a bit short" : "a bit long");
+    lab.appendChild(l1); lab.appendChild(l2);
+    meter.appendChild(bar); meter.appendChild(lab);
+    inner.appendChild(meter);
+
+    // ---- blocks
+    fitDraft.blocks.forEach((b, bi) => {
+      const g = fitGroupMeta(b.group);
+      const wrap = document.createElement("div"); wrap.className = "fitblock";
+      const hd = document.createElement("div"); hd.className = "fitblock-h";
+      hd.style.justifyContent = "space-between";
+      const hl = document.createElement("span"); hl.textContent = `${g.ico} ${g.label} · ${(b.items||[]).length}`;
+      hd.appendChild(hl);
+      if (!ro){
+        const addb = document.createElement("button"); addb.type = "button"; addb.className = "fitpick-chip";
+        addb.style.cssText = "padding:4px 9px;font-size:11px;"; addb.textContent = "+ Add";
+        addb.dataset.addBlock = String(bi);
+        addb.onclick = () => fitOpenPicker(bi);
+        const delb = document.createElement("button"); delb.type = "button"; delb.className = "fitrow-x";
+        delb.textContent = "🗑"; delb.title = "Remove this block";
+        delb.onclick = () => { fitDraft.blocks.splice(bi, 1); fitPaintBuilder(); };
+        const grp = document.createElement("span"); grp.style.cssText = "display:flex;gap:4px;align-items:center;";
+        grp.appendChild(addb); grp.appendChild(delb);
+        hd.appendChild(grp);
+      }
+      wrap.appendChild(hd);
+
+      (b.items || []).forEach((it, ii) => wrap.appendChild(fitBuilderRow(b, it, bi, ii, ro)));
+      inner.appendChild(wrap);
+    });
+
+    if (!ro){
+      const addBlock = document.createElement("button"); addBlock.type = "button"; addBlock.className = "fitstart again";
+      addBlock.id = "fitAddBlockBtn"; addBlock.style.marginTop = "12px";
+      addBlock.textContent = "+  Add a block";
+      addBlock.onclick = () => fitOpenPicker("new");
+      inner.appendChild(addBlock);
+    }
+  }
+
+  // ---- actions
+  const acts = document.createElement("div"); acts.className = "sheet-actions";
+  const cancel = document.createElement("button"); cancel.className = "btn ghost"; cancel.id = "fitCancelBtn";
+  cancel.textContent = ro ? "Close" : "Cancel";
+  cancel.onclick = fitCloseSheet;
+  acts.appendChild(cancel);
+  if (!ro){
+    const save = document.createElement("button"); save.className = "btn primary"; save.id = "fitSaveBtn";
+    save.textContent = "Save";
+    save.onclick = async () => {
+      const wd = fitWeekdayOfKey(fitDraftKey);
+      const plan = fitPlans[fitDraftWho];
+      if (!plan) return;
+      if (!plan.days) plan.days = {};
+      plan.days[wd] = fitDraft.rest
+        ? { rest: true, title: fitDraft.title || "Rest Day" }
+        : { title: fitDraft.title || "Workout", blocks: fitDraft.blocks.filter(b => (b.items||[]).length) };
+      await fitSavePlan(fitDraftWho);
+      fitCloseSheet();
+      if (currentTab === "fitness") renderFitness();
+      showToast("Workout saved ✅");
+    };
+    acts.appendChild(save);
+  }
+  inner.appendChild(acts);
+}
+
+function fitBuilderRow(block, it, bi, ii, ro){
+  const row = document.createElement("div"); row.className = "fitrow";
+  row.dataset.ex = it.id;
+  row.style.flexWrap = "wrap";
+
+  const img = document.createElement("img"); img.className = "fitthumb"; img.loading = "lazy"; img.alt = "";
+  img.src = fitImg(it.id, 0); img.onerror = () => { img.style.visibility = "hidden"; };
+  const bd = document.createElement("div"); bd.className = "fitrow-body";
+  const nm = document.createElement("div"); nm.className = "fitrow-name"; nm.textContent = fitExName(it.id);
+  bd.appendChild(nm);
+
+  if (ro){
+    const amt = document.createElement("div"); amt.className = "fitrow-amt";
+    amt.textContent = it.mode === "time" ? `${it.secs}s` : `×${it.reps}`;
+    row.appendChild(img); row.appendChild(bd); row.appendChild(amt);
+    return row;
+  }
+
+  const ctl = document.createElement("div");
+  ctl.style.cssText = "display:flex;align-items:center;gap:5px;flex:0 0 auto;";
+  const modeBtn = document.createElement("button"); modeBtn.type = "button"; modeBtn.className = "fitpick-chip";
+  modeBtn.style.cssText = "padding:5px 9px;font-size:11px;";
+  modeBtn.dataset.mode = it.mode;
+  modeBtn.textContent = it.mode === "time" ? "secs" : "reps";
+  modeBtn.onclick = () => {
+    if (it.mode === "time"){ it.mode = "reps"; it.reps = 12; delete it.secs; }
+    else { it.mode = "time"; it.secs = 40; delete it.reps; }
+    fitPaintBuilder();
+  };
+  const num = document.createElement("input"); num.type = "number"; num.className = "fitnum";
+  num.style.cssText = "width:62px;padding:7px;font-size:15px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--ink);";
+  num.min = "1"; num.max = "300";
+  num.value = String(it.mode === "time" ? (it.secs || 40) : (it.reps || 12));
+  num.oninput = () => {
+    const v = Math.max(1, Math.min(300, Number(num.value) || 1));
+    if (it.mode === "time") it.secs = v; else it.reps = v;
+    const m = document.getElementById("fitMeter");
+    if (m){                                   // live meter, without rebuilding the whole sheet mid-typing
+      const secs = fitDuration(fitDraft, fitDraftWho), inBand = fitInBand(secs);
+      m.dataset.secs = String(secs);
+      m.classList.toggle("warn", !inBand);
+      m.querySelector(".fitmeter-fill").style.width = Math.min(100, Math.round((secs / FIT_TARGET_SECS) * 100)) + "%";
+      m.querySelector(".fitmeter-l b").textContent = fitMMSS(secs);
+      m.querySelectorAll(".fitmeter-l span")[1].textContent = inBand ? "on target" : (secs < FIT_BAND[0] ? "a bit short" : "a bit long");
+    }
+  };
+  const del = document.createElement("button"); del.type = "button"; del.className = "fitrow-x";
+  del.textContent = "✕"; del.title = "Remove";
+  del.onclick = () => { block.items.splice(ii, 1); fitPaintBuilder(); };
+  ctl.appendChild(modeBtn); ctl.appendChild(num); ctl.appendChild(del);
+
+  row.appendChild(img); row.appendChild(bd); row.appendChild(ctl);
+  return row;
+}
+
+/* ---- Picker. Shares the one sheet overlay (swap contents + a Back button) rather than
+   stacking a second one — a sheet on a sheet on a phone is a scroll trap. */
+function fitOpenPicker(target){
+  fitPickTarget = target;
+  fitPickQuery = "";
+  fitPickEquip = "any";
+  fitPickGroup = (target !== "new" && fitDraft && fitDraft.blocks[target]) ? fitDraft.blocks[target].group : "all";
+  fitSheetMode = "picker";
+  fitPaintPicker();
+}
+
+function fitPaintPicker(){
+  const inner = document.getElementById("fitSheetInner");
+  if (!inner) return;
+  inner.innerHTML = "";
+
+  const h = document.createElement("h2"); h.textContent = "Add an exercise";
+  inner.appendChild(h);
+
+  const search = document.createElement("input"); search.type = "search"; search.className = "fitpick-search";
+  search.id = "fitPickSearch"; search.placeholder = "Search exercises…"; search.value = fitPickQuery;
+  search.oninput = () => { fitPickQuery = search.value; fitPaintPickList(); };
+  inner.appendChild(search);
+
+  // muscle-group filter
+  const gf = document.createElement("div"); gf.className = "fitpick-filters"; gf.id = "fitPickGroups";
+  const groups = [{ id:"all", label:"All", ico:"" }].concat(fitLib && fitLib.groups || []);
+  for (const g of groups){
+    const c = document.createElement("button"); c.type = "button"; c.className = "fitpick-chip";
+    c.dataset.group = g.id;
+    if (fitPickGroup === g.id) c.classList.add("sel");
+    c.textContent = (g.ico ? g.ico + " " : "") + g.label;
+    c.onclick = () => { fitPickGroup = g.id; fitPaintPicker(); };
+    gf.appendChild(c);
+  }
+  inner.appendChild(gf);
+
+  // equipment filter
+  const ef = document.createElement("div"); ef.className = "fitpick-filters"; ef.id = "fitPickEquip";
+  for (const [id, label] of FIT_EQUIP_FILTERS){
+    const c = document.createElement("button"); c.type = "button"; c.className = "fitpick-chip";
+    c.dataset.equip = id;
+    if (fitPickEquip === id) c.classList.add("sel");
+    c.textContent = label;
+    c.onclick = () => { fitPickEquip = id; fitPaintPicker(); };
+    ef.appendChild(c);
+  }
+  inner.appendChild(ef);
+
+  const listBox = document.createElement("div"); listBox.className = "fitpick-list"; listBox.id = "fitPickList";
+  inner.appendChild(listBox);
+  fitPaintPickList();
+
+  const acts = document.createElement("div"); acts.className = "sheet-actions";
+  const back = document.createElement("button"); back.className = "btn ghost"; back.id = "fitPickBackBtn";
+  back.textContent = "← Back";
+  back.onclick = () => { fitSheetMode = "builder"; fitPaintBuilder(); };
+  acts.appendChild(back);
+  inner.appendChild(acts);
+}
+
+function fitPaintPickList(){
+  const box = document.getElementById("fitPickList");
+  if (!box) return;
+  box.innerHTML = "";
+  const q = fitPickQuery.trim().toLowerCase();
+  const all = (fitLib && fitLib.exercises) || [];
+  const hits = all.filter(ex =>
+    (fitPickGroup === "all" || ex.group === fitPickGroup) &&
+    fitEquipMatches(ex, fitPickEquip) &&
+    (!q || ex.name.toLowerCase().includes(q) || (ex.primary || []).some(m => m.includes(q)))
+  );
+
+  if (!hits.length){
+    const e = document.createElement("div"); e.className = "fitpick-empty";
+    e.textContent = "Nothing matches — try a different filter.";
+    box.appendChild(e);
+    return;
+  }
+
+  // Grouped under muscle-group headers. This is the browse-by-muscle half of the
+  // feature: you build a Core block by looking at the Core list.
+  const order = (fitLib && fitLib.groups || []).map(g => g.id);
+  const byGroup = new Map();
+  for (const ex of hits){ if (!byGroup.has(ex.group)) byGroup.set(ex.group, []); byGroup.get(ex.group).push(ex); }
+  const gids = [...byGroup.keys()].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+
+  for (const gid of gids){
+    const g = fitGroupMeta(gid);
+    const hd = document.createElement("div"); hd.className = "fitpick-h"; hd.dataset.group = gid;
+    hd.textContent = `${g.ico} ${g.label} · ${byGroup.get(gid).length}`;
+    box.appendChild(hd);
+    for (const ex of byGroup.get(gid)){
+      // Two separate buttons — a button inside a button is invalid and unreachable by
+      // keyboard. The thumbnail shows you what it is; the rest of the row adds it.
+      const row = document.createElement("div"); row.className = "fitpick-row";
+      row.dataset.ex = ex.id; row.dataset.group = gid;
+
+      const look = document.createElement("button"); look.type = "button"; look.className = "fitpick-look";
+      look.setAttribute("aria-label", "Show me how to do " + ex.name);
+      look.dataset.ex = ex.id;
+      const img = document.createElement("img"); img.className = "fitthumb"; img.loading = "lazy"; img.alt = "";
+      img.src = fitImg(ex.id, 0); img.onerror = () => { img.style.visibility = "hidden"; };
+      look.appendChild(img);
+      look.onclick = () => fitOpenDemo(ex.id);
+
+      const b = document.createElement("button"); b.type = "button"; b.className = "fitpick-item";
+      b.dataset.ex = ex.id; b.dataset.group = gid;
+      const bd = document.createElement("div"); bd.className = "fitrow-body";
+      const nm = document.createElement("div"); nm.className = "fitrow-name"; nm.textContent = ex.name;
+      const sb = document.createElement("div"); sb.className = "fitrow-sub";
+      sb.textContent = (ex.equipment === "none" || ex.equipment === "body only") ? "No equipment" : ex.equipment;
+      bd.appendChild(nm); bd.appendChild(sb);
+      const add = document.createElement("span"); add.className = "fitpick-plus"; add.textContent = "＋";
+      add.setAttribute("aria-hidden", "true");
+      b.appendChild(bd); b.appendChild(add);
+      b.onclick = () => fitAddExercise(ex);
+
+      row.appendChild(look); row.appendChild(b);
+      box.appendChild(row);
+    }
+  }
+}
+
+function fitAddExercise(ex){
+  if (!fitDraft) return;
+  // A hold (Plank, Side Bridge) is timed; everything else counts reps. The source data
+  // marks holds as force:"static", so this is read from the library, not guessed per-name.
+  const item = ex.force === "static" || ex.category === "stretching"
+    ? { id: ex.id, mode: "time", secs: 40 }
+    : { id: ex.id, mode: "reps", reps: 12 };
+
+  if (fitPickTarget === "new"){
+    fitDraft.blocks.push({ group: ex.group, items: [item] });
+  } else {
+    const b = fitDraft.blocks[fitPickTarget];
+    if (!b) return;
+    (b.items = b.items || []).push(item);
+  }
+  fitSheetMode = "builder";
+  fitPaintBuilder();
+}
+
+// Backdrop click closes the fitness sheet (the player deliberately does NOT close on
+// backdrop — a stray tap mid-plank should not throw the workout away).
+document.getElementById("fitSheetOverlay").onclick = (e) => { if (e.target.id === "fitSheetOverlay") fitCloseSheet(); };
+
+/* ------------------------------------------------------- HOME DASHBOARD CARD */
+
+let fitHomeFetching = false;
+
+/** Never an error state: paints from whatever is loaded, defaults if nothing is. */
+function paintFitCard(el){
+  el.innerHTML = "";
+  const key = fitToday(), kid = myName();
+  const ready = !!(fitLib && fitPlansLoaded[""]);
+  const day = ready ? fitDayOf(key, kid) : null;   // the card is a kid's own — always their plan
+  const rec = ready && kid ? fitRecord(kid, key) : null;
+  const isRest = ready && (!day || day.rest);
+
+  const top = document.createElement("div"); top.className = "fitc-top";
+  const bd = document.createElement("div"); bd.style.minWidth = "0";
+  const t = document.createElement("div"); t.className = "fitc-title";
+  const s = document.createElement("div"); s.className = "fitc-sub";
+
+  if (!ready){
+    t.textContent = "💪 Today's workout";
+    s.textContent = "About 10 minutes";
+  } else if (isRest){
+    t.textContent = "💪 Rest day";
+    s.textContent = "No workout today — go play 🌳";
+  } else {
+    t.textContent = "💪 " + (day.title || "Workout");
+    const streak = fitStreak(kid);
+    s.textContent = (rec && rec.finished)
+      ? `Done today${streak > 1 ? ` · 🔥 ${streak}-day streak` : ""}`
+      : `${fitDayItems(day).length} exercises · about ${Math.round(fitDuration(day, kid) / 60)} minutes`;
+  }
+  bd.appendChild(t); bd.appendChild(s);
+  top.appendChild(bd);
+
+  if (!isRest){
+    const go = document.createElement("span"); go.className = "fitc-go";
+    if (rec && rec.finished){ go.classList.add("done"); go.textContent = "✓ Done"; }
+    else go.textContent = (rec && (rec.done || []).length) ? "RESUME" : "START";
+    top.appendChild(go);
+  }
+  el.appendChild(top);
+}
+
+function fitHomeRefresh(){
+  if (fitHomeFetching) return;
+  if (fitLib && fitPlansLoaded[""] && myName() && fitLogLoaded[fitLogKey(myName(), fitMonthOf(fitToday()))]) return;
+  fitHomeFetching = true;
+  fitEnsureAll()
+    .then(() => { const cur = document.querySelector(".home2 .fitcard"); if (cur && currentTab === "dashboard") paintFitCard(cur); })
+    .catch(() => {})
+    .finally(() => { fitHomeFetching = false; });
+}
+
 // ---- Test hooks (module globals are unreachable from page.evaluate; these expose the
 //      minimum surface the headless UI suites drive). No effect on production behavior. ----
 window.__MEAL__ = {
@@ -6405,6 +8057,65 @@ window.__CARE__ = {
   reload: ()=>loadAnimalCare(),
 };
 window.__NAV__ = { goTo, tab: ()=>currentTab };
+// Fitness hooks. Every mutating entry calls the REAL production function so the suite
+// exercises the shipping code path, not a parallel one.
+window.__FIT__ = {
+  setNow: (ts)=>{ fitNowOverride = ts || null; if (currentTab === "fitness") renderFitness(); },
+  ensure: ()=>fitEnsureAll(),
+  lib: ()=>fitLib,
+  plan: (who)=>fitPlanOf(who === undefined ? fitWhose() : who),
+  rawPlan: (who)=>fitPlans[who || ""],
+  today: ()=>fitToday(),
+  dayOf: (key, who)=>fitDayOf(key || fitToday(), who),
+  duration: (key, who)=>fitDuration(fitDayOf(key || fitToday(), who), who === undefined ? fitWhose() : who),
+  itemSecs: (it)=>fitItemSecs(it),
+  items: (key, who)=>fitDayItems(fitDayOf(key || fitToday(), who)),
+  // per-kid plans
+  whose: ()=>fitWhose(),
+  view: ()=>fitPlanView,
+  setView: (who)=>{ fitPlanView = who || ""; localStorage.setItem("bucky_fit_view", fitPlanView); if (currentTab === "fitness") renderFitness(); },
+  hasOwnPlan: (who)=>fitHasOwnPlan(who),
+  fork: (who)=>fitForkPlan(who),
+  unfork: (who)=>fitUnforkPlan(who),
+  draftWho: ()=>fitDraftWho,
+  streak: (kid)=>fitStreak(kid || myName()),
+  record: (kid, key)=>fitRecord(kid || myName(), key || fitToday()),
+  complete: (kid, key)=>fitComplete(kid || myName(), key || fitToday()),
+  // seed history without going through the player (streak tests)
+  seedLog: async (kid, key, patch)=>{ await fitWriteRecord(kid, key, Object.assign({ finished:true, done:["x"], secs:600 }, patch || {})); },
+  saveNow: (kid, month)=>fitSaveLogNow(kid || myName(), month || fitMonthOf(fitToday())),
+  loadLog: (kid, key)=>fitEnsureLog(kid || myName(), key || fitToday()),
+  // player
+  start: (key)=>fitStartWorkout(key || fitToday()),
+  run: ()=>fitRun && ({ i: fitRun.i, phase: fitRun.steps[fitRun.i] && fitRun.steps[fitRun.i].type,
+                        step: fitRun.steps[fitRun.i], paused: fitRun.paused, done: fitRun.done.slice(),
+                        skipped: fitRun.skipped.slice(), total: fitRun.steps.filter(s=>s.type==="ex").length,
+                        remain: fitStepRemain(), finished: !!fitRun.finished }),
+  steps: ()=>fitRun && fitRun.steps.map(s=>s.type),
+  advance: (how)=>fitAdvance(how),
+  pause: ()=>fitTogglePause(),
+  quit: ()=>fitQuit(),
+  // jump the run's clock backwards so a timed step expires on the next tick, without sleeping
+  warp: (ms)=>{ if (fitRun) fitRun.stepStart -= (ms || 0); },
+  tick: ()=>fitTick(),
+  // demo ("show me how")
+  openDemo: (id, opts)=>fitOpenDemo(id, opts || {}),
+  closeDemo: ()=>fitCloseDemo(),
+  demo: ()=>({ open: document.getElementById("fitDemoOverlay").classList.contains("open"),
+               id: fitDemoId, frozen: fitDemoFrozen, willResume: fitDemoResume }),
+  demoFreeze: ()=>fitDemoToggleFreeze(),
+  // builder / picker
+  openBuilder: (key)=>fitOpenBuilder(key || fitToday()),
+  sheetMode: ()=>fitSheetMode,
+  draft: ()=>fitDraft,
+  readOnly: ()=>fitDraftRO,
+  openPicker: (target)=>fitOpenPicker(target === undefined ? "new" : target),
+  pickState: ()=>({ q: fitPickQuery, group: fitPickGroup, equip: fitPickEquip, target: fitPickTarget }),
+  setPick: (o)=>{ if (o.q !== undefined) fitPickQuery = o.q; if (o.group) fitPickGroup = o.group; if (o.equip) fitPickEquip = o.equip; fitPaintPicker(); },
+  closeSheet: ()=>fitCloseSheet(),
+  users: FITNESS_USERS.slice(),
+  band: FIT_BAND.slice(),
+};
 // Bank-notification test hooks (drive the real credit paths + read the resulting bell inbox).
 window.__BANK__ = {
   notifyCredit: (kid, amt, src, id)=>notifyBankCredit(kid, amt, src, id),

@@ -1,0 +1,400 @@
+{
+ "v": 1,
+ "rest": 20,
+ "days": {
+  "mon": {
+   "title": "Full Body",
+   "blocks": [
+    {
+     "group": "core",
+     "items": [
+      {
+       "id": "Plank",
+       "mode": "time",
+       "secs": 45
+      },
+      {
+       "id": "Crunches",
+       "mode": "reps",
+       "reps": 18
+      },
+      {
+       "id": "Mountain_Climbers",
+       "mode": "time",
+       "secs": 45
+      }
+     ]
+    },
+    {
+     "group": "chest",
+     "items": [
+      {
+       "id": "Pushups",
+       "mode": "reps",
+       "reps": 12
+      },
+      {
+       "id": "Incline_Push-Up",
+       "mode": "reps",
+       "reps": 14
+      },
+      {
+       "id": "Bench_Dips",
+       "mode": "reps",
+       "reps": 12
+      }
+     ]
+    },
+    {
+     "group": "legs",
+     "items": [
+      {
+       "id": "Bodyweight_Squat",
+       "mode": "reps",
+       "reps": 18
+      },
+      {
+       "id": "Star_Jump",
+       "mode": "time",
+       "secs": 45
+      },
+      {
+       "id": "Bodyweight_Walking_Lunge",
+       "mode": "reps",
+       "reps": 14
+      }
+     ]
+    }
+   ]
+  },
+  "tue": {
+   "title": "Core & Cardio",
+   "blocks": [
+    {
+     "group": "core",
+     "items": [
+      {
+       "id": "Air_Bike",
+       "mode": "reps",
+       "reps": 20
+      },
+      {
+       "id": "Russian_Twist",
+       "mode": "reps",
+       "reps": 20
+      },
+      {
+       "id": "Side_Bridge",
+       "mode": "time",
+       "secs": 40
+      }
+     ]
+    },
+    {
+     "group": "legs",
+     "items": [
+      {
+       "id": "Rocket_Jump",
+       "mode": "reps",
+       "reps": 14
+      },
+      {
+       "id": "Split_Jump",
+       "mode": "reps",
+       "reps": 14
+      },
+      {
+       "id": "Knee_Tuck_Jump",
+       "mode": "reps",
+       "reps": 12
+      }
+     ]
+    },
+    {
+     "group": "glutes",
+     "items": [
+      {
+       "id": "Butt_Lift_Bridge",
+       "mode": "reps",
+       "reps": 16
+      },
+      {
+       "id": "Glute_Kickback",
+       "mode": "reps",
+       "reps": 14
+      },
+      {
+       "id": "Flutter_Kicks",
+       "mode": "time",
+       "secs": 40
+      }
+     ]
+    }
+   ]
+  },
+  "wed": {
+   "title": "Upper Body",
+   "blocks": [
+    {
+     "group": "chest",
+     "items": [
+      {
+       "id": "Pushups",
+       "mode": "reps",
+       "reps": 12
+      },
+      {
+       "id": "Push_Up_to_Side_Plank",
+       "mode": "reps",
+       "reps": 12
+      },
+      {
+       "id": "Decline_Push-Up",
+       "mode": "reps",
+       "reps": 10
+      }
+     ]
+    },
+    {
+     "group": "arms",
+     "items": [
+      {
+       "id": "Bench_Dips",
+       "mode": "reps",
+       "reps": 14
+      },
+      {
+       "id": "Body-Up",
+       "mode": "reps",
+       "reps": 14
+      },
+      {
+       "id": "Push-Ups_-_Close_Triceps_Position",
+       "mode": "reps",
+       "reps": 10
+      }
+     ]
+    },
+    {
+     "group": "core",
+     "items": [
+      {
+       "id": "Plank",
+       "mode": "time",
+       "secs": 45
+      },
+      {
+       "id": "Dead_Bug",
+       "mode": "reps",
+       "reps": 20
+      },
+      {
+       "id": "Cross-Body_Crunch",
+       "mode": "reps",
+       "reps": 20
+      }
+     ]
+    }
+   ]
+  },
+  "thu": {
+   "title": "Legs & Glutes",
+   "blocks": [
+    {
+     "group": "legs",
+     "items": [
+      {
+       "id": "Bodyweight_Squat",
+       "mode": "reps",
+       "reps": 18
+      },
+      {
+       "id": "Bodyweight_Walking_Lunge",
+       "mode": "reps",
+       "reps": 16
+      },
+      {
+       "id": "Freehand_Jump_Squat",
+       "mode": "reps",
+       "reps": 14
+      }
+     ]
+    },
+    {
+     "group": "glutes",
+     "items": [
+      {
+       "id": "Single_Leg_Glute_Bridge",
+       "mode": "reps",
+       "reps": 14
+      },
+      {
+       "id": "Step-up_with_Knee_Raise",
+       "mode": "reps",
+       "reps": 14
+      },
+      {
+       "id": "Leg_Lift",
+       "mode": "reps",
+       "reps": 16
+      }
+     ]
+    },
+    {
+     "group": "core",
+     "items": [
+      {
+       "id": "Mountain_Climbers",
+       "mode": "time",
+       "secs": 45
+      },
+      {
+       "id": "Bottoms_Up",
+       "mode": "reps",
+       "reps": 14
+      },
+      {
+       "id": "Plank",
+       "mode": "time",
+       "secs": 45
+      }
+     ]
+    }
+   ]
+  },
+  "fri": {
+   "title": "Full Body",
+   "blocks": [
+    {
+     "group": "core",
+     "items": [
+      {
+       "id": "Crunches",
+       "mode": "reps",
+       "reps": 20
+      },
+      {
+       "id": "Butt-Ups",
+       "mode": "reps",
+       "reps": 14
+      },
+      {
+       "id": "Air_Bike",
+       "mode": "reps",
+       "reps": 20
+      }
+     ]
+    },
+    {
+     "group": "chest",
+     "items": [
+      {
+       "id": "Push-Up_Wide",
+       "mode": "reps",
+       "reps": 12
+      },
+      {
+       "id": "Incline_Push-Up",
+       "mode": "reps",
+       "reps": 14
+      },
+      {
+       "id": "Isometric_Chest_Squeezes",
+       "mode": "time",
+       "secs": 35
+      }
+     ]
+    },
+    {
+     "group": "legs",
+     "items": [
+      {
+       "id": "Star_Jump",
+       "mode": "time",
+       "secs": 45
+      },
+      {
+       "id": "Scissors_Jump",
+       "mode": "reps",
+       "reps": 16
+      },
+      {
+       "id": "Bodyweight_Squat",
+       "mode": "reps",
+       "reps": 16
+      }
+     ]
+    }
+   ]
+  },
+  "sat": {
+   "title": "Play Day",
+   "blocks": [
+    {
+     "group": "legs",
+     "items": [
+      {
+       "id": "Fast_Skipping",
+       "mode": "time",
+       "secs": 50
+      },
+      {
+       "id": "Standing_Long_Jump",
+       "mode": "reps",
+       "reps": 10
+      },
+      {
+       "id": "Double_Leg_Butt_Kick",
+       "mode": "time",
+       "secs": 40
+      }
+     ]
+    },
+    {
+     "group": "core",
+     "items": [
+      {
+       "id": "Mountain_Climbers",
+       "mode": "time",
+       "secs": 45
+      },
+      {
+       "id": "Plank",
+       "mode": "time",
+       "secs": 45
+      },
+      {
+       "id": "Superman",
+       "mode": "reps",
+       "reps": 16
+      }
+     ]
+    },
+    {
+     "group": "other",
+     "items": [
+      {
+       "id": "Worlds_Greatest_Stretch",
+       "mode": "time",
+       "secs": 45
+      },
+      {
+       "id": "Hamstring_Stretch",
+       "mode": "time",
+       "secs": 40
+      },
+      {
+       "id": "Childs_Pose",
+       "mode": "time",
+       "secs": 40
+      }
+     ]
+    }
+   ]
+  },
+  "sun": {
+   "rest": true,
+   "title": "Rest Day"
+  }
+ }
+}

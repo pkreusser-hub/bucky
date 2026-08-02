@@ -3419,3 +3419,188 @@ Battle MVP; name Cursor's concurrent Farm Party work in the commit).
   parallel-Chrome load only), fp_stampede.cjs 57/57 run from ITS session scratchpad
   (460d3b7d…/scratchpad — suites live in their OWN session dirs), fp_mp_local 10/10. Suite
   card-count assertions updated 3→4 cards / 1→2 playable for the new registry reality.
+
+---
+
+# 💪 FITNESS — the kids' daily 10-minute workout (2026-08-02)
+
+A new `fitness` section in `index.html` (~1,370 lines) plus a baked exercise library in
+`assets/fitness/`. Isaac and Eleanor open it, tap Start, and are walked through ~9 exercises
+grouped into labelled muscle blocks, each with a target and a picture of the movement, resting
+between. Dad builds the week behind the PIN. Nearest precedent throughout is the Meals section.
+
+**USER DECISIONS** (asked up front, all four load-bearing): blocks *inside* each day (full-body,
+Core → Chest → Legs) rather than a weekday split · library scoped to **bodyweight + dumbbells +
+bands** · **Dad-only PIN gate** on editing · a section in the main app, not its own page.
+
+## The source data is NOT animated — and that shaped the design
+`free-exercise-db` (873 exercises, **Unlicense / public domain**) ships **exactly two static
+JPEGs per exercise**: the start position and the end position. There are no animations in it to
+pull. The player cross-fades frame 0 ↔ frame 1 on a 900 ms loop, which is what actually reads as
+the movement (Plank: kneel → plank). Verified all 873 carry exactly 2 frames, so this is uniform.
+Class-toggle + CSS transition, deliberately **not** `@keyframes` — those stall under headless
+Chrome (the Bistro lesson). True video would be a different, paid source.
+
+## The bake — `node tools/_fit_build_library.mjs [--force|--dry]`
+Downloads, filters, downscales, writes `assets/fitness/`. Idempotent (skips images on disk), and
+**validates the default week against the baked library before writing** — a typo fails the bake
+instead of shipping a broken Monday.
+- **311 exercises, 622 images, 9.8 MB.** Never downloaded wholesale by a user: images are
+  per-exercise and `loading="lazy"`, so a day's workout costs ~18 files.
+- **WebP 600px q72** — measured against the real photos: same total bytes as JPEG/480/q76 but 25%
+  more resolution. (`sharp` WORKS in this environment; the repo's "sharp is broken, use
+  System.Drawing" note is stale.)
+- `equipment: null` on 76 non-expert entries does **not** mean "unknown" — they are all
+  genuinely no-equipment (Mountain Climbers, walking lunges, the whole stretch catalogue).
+  Normalised to `"none"` and KEPT; the stretches are what a warm-up/cool-down block is built from.
+  Filtering them out silently (the obvious first pass) loses staples.
+- Exclusion list: both neck isometrics + the loaded-spine moves (Good Mornings, Dumbbell Clean,
+  Stiff-Legged Deadlift, Hyperextensions, neck stretches) — a physio's call for unsupervised kids.
+- 8 muscle groups. **The Back group's icon is 🧗, NOT 🔙** — that emoji renders as a literal
+  "BACK" arrow and reads as navigation next to the picker's own "← Back" button (caught in review).
+
+## Data model
+- **Plan** = ONE shared week, settings doc `fitPlan`; `assets/fitness/default-plan.json` is the
+  fallback until Dad edits. Merely viewing never writes (mealplan rule). Shape takes a per-kid key
+  later without a migration.
+- **Log** = per kid, month-sharded `fitLog_<Kid>_<YYYY-MM>`, 400 ms debounced. Per-day snapshots
+  are the whole point: chores overwrite `doneLog` in place and keep **no history**, which is
+  exactly why the old `choreStreak` needed a fragile localStorage counter and got deleted.
+- **Streak is DERIVED** by walking backwards (the `mealStreak` pattern) — stateless, cloud-synced,
+  same on every device. **Rest days are stepped over: never counted, never a break.** One-day
+  grace so an unfinished morning doesn't read as zero. Stops honestly at an unloaded month
+  (under-reports rather than inventing days).
+- Day keys are the Plan-area scheme (America/Chicago, UTC-noon anchored, `fitNowOverride` test
+  clock) — NOT `dateKeyLocal`. Two kids logging from two devices into one cloud doc would
+  otherwise disagree about which day "today" is.
+
+## The player
+Flat step list — `block card → exercise → rest → … → finish`. **Timing reads the wall clock**,
+never accumulated ticks, so a slow frame can't turn a 40-second plank into 44. A hidden tab
+**PAUSES rather than fast-forwarding** — coming back to three auto-completed exercises would be a
+lie about what the kid did. Quitting part-way keeps the progress but does not mark the day done
+("Keep going"). Timed sets auto-advance; rep sets wait for a tap. WebAudio synth cues (3-2-1 /
+go / rest / fanfare, `bucky_fit_muted`), `navigator.wakeLock`, `prefers-reduced-motion` holds
+frame 0 behind a "Show movement" tap.
+
+## Budget
+`fitDuration()` is the single source of truth for both the builder's meter and the player: time
+sets count their seconds, rep sets estimate `max(20, reps × 3)`, plus rest between and 5 s per
+block card. Default week measures **9:16–9:51, average 9:35** (band 9:00–11:00; the meter goes
+amber outside it). Rep estimates are deliberately conservative, so real elapsed runs a touch longer.
+
+## Builder + picker (Dad only)
+Edits run against a **draft deep-copy**, so Cancel really cancels. `gateDad()` always prompts, so
+the call site short-circuits on `dadUnlocked()` first. Non-Dad profiles get the same sheet
+read-only and are never asked for a PIN. Picker shares the one sheet overlay (swap contents +
+Back) rather than stacking — a sheet on a sheet on a phone is a scroll trap. Exercises are
+**grouped under muscle-group headers** with search + equipment filter. A new exercise defaults to
+a timed set when the library marks it `force:"static"` or a stretch, else reps — read from the
+data, not guessed per name.
+
+## Nav
+**9 bottom-nav areas now** (Home · Plan · Chores · **Fit** · Jobs · Shop · Bank · Farm · Play) —
+measured at 390 px: 0 clipped labels. The section is visible to everyone (Mom/Dad build it); only
+the Home card is gated on `FITNESS_USERS = ["Isaac","Eleanor"]`.
+
+## VERIFY: `node tools/_verify-fitness.cjs [--shots]` — **113/113, 0 page errors**
+Section A is pure Node (library/plan integrity, all 622 images present and non-empty, no excluded
+exercise shipped, every day in band — recomputed independently rather than asking the app to grade
+its own homework). B–F drive real Chrome at 390×844 + desktop. **Firebase is blocked throughout**
+(`googleapis|firestore|firebase|gstatic`) — an unblocked headless run against index.html has twice
+duplicated the live goat herd, and this suite exercises first-run paths.
+**THREE TEST GOTCHAS worth keeping:** (1) pages in a SHARED browser context share localStorage, so
+a "fresh" page inherits the previous section's saved plan and completion log — every page gets its
+own `createBrowserContext()`. (2) The test clock does **not** survive a reload; re-pin before
+asserting on the day you edited. (3) `pinWorkoutDay()` exists because the suite otherwise tests
+whatever day it happens to run on — a Sunday run hits the rest day and reads as a pile of bugs
+(this produced 5 false failures on the first pass before the real ones showed).
+Shots: `shots/fit_{today,week,progress,player,rest,finish,builder,picker,home_card,desktop}.png`.
+
+**UNPUSHED** — awaiting user preview (`main` auto-deploys). Deferred: push reminders (would clone
+`chorereminders.mjs` with its own allowlist), separate plans per kid, spoken exercise names,
+rep-count progression.
+
+## FITNESS follow-up — per-kid plans + phone preview (2026-08-02, same day)
+
+**📱 `node tools/phone-preview.mjs [fitness|<page>] [--port N]`** — serves the repo on
+**0.0.0.0** so the REAL phone loads it over wifi, and prints the LAN URL. Distinct from
+`mobile-preview.mjs`, which only opens a phone-SIZED desktop Chrome on this machine. A bare
+word argument is treated as an in-app tab and deep-links it (`index.html#fitness`), which
+matters on a phone where hunting for a tab is the whole friction. `no-store` on everything
+(a stale phone cache costs more than it saves) and, on Windows, prints the one-time
+`netsh advfirewall` rule — the firewall silently dropping inbound is the likely failure.
+DELIBERATELY NO QR CODE: no QR dep is installed, and a hand-rolled encoder can't be verified
+to actually scan from here — a wrong QR is worse than typing 18 characters.
+
+**👧🧒 PER-KID PLANS.** `fitPlan` is still the shared family plan (unchanged doc id, so
+existing saves keep working); `fitPlan_<Kid>` is an optional override. A kid with no override
+follows the shared plan, so the common case stays ONE plan to maintain and Dad forks a kid off
+it only when they actually need something different.
+- `fitPlanOf(who)` / `fitHasOwnPlan(who)` / `fitWhose()` are the whole contract. **`fitWhose()`
+  returns a kid's OWN name always** — a kid can never be pointed at a sibling's plan, and the
+  selector is not rendered for them.
+- **TOMBSTONES:** neither settings backend has a delete and `setSetting` MERGES, so "put this
+  kid back on the shared plan" writes `{none:true}` rather than removing the doc. `fitHasOwnPlan`
+  is the single place that knows this. Suite asserts the revert survives a reload — a naive
+  delete would silently restore the override.
+- Everything that reasons about rest days is now per-kid: `fitStreak(kid)` uses
+  `fitDayOf(key, kid)`, Week ticks skip a kid whose own plan rests that day, Progress grids
+  read each kid's plan. Isaac resting while Eleanor works is a legal, handled state.
+- `fitDuration(day, who)` and `fitBuildSteps(day, who)` take the owner because `rest` lives on
+  the plan.
+- UI: a **"Plan for: Everyone / Isaac / Eleanor"** selector (parents only), a banner stating
+  shared-vs-own with a one-tap fork/revert (PIN-gated), and the builder carries a `.fitscope`
+  line naming the plan the save will land on. Silence there is exactly how you change
+  everyone's Monday meaning to change one kid's — so it is always stated.
+- The Home card always reads the kid's OWN plan (`fitDayOf(key, kid)`), never the viewer's.
+
+**Suite: `_verify-fitness.cjs` 113 → 141 checks**, new section E2 (fork isolation both
+directions, persistence, reload, tombstoned revert, kid immunity to the selector).
+**TEST GOTCHA (4th of the set):** `dataset` is a `DOMStringMap` and does NOT survive
+puppeteer's structured clone — it arrives as `{}`. Read `el.dataset.foo` as a STRING inside
+`evaluate`, never return the map. Cost two false failures.
+Shot: `shots/fit_perkid.png`.
+
+## FITNESS follow-up 2 — the big looping demo (2026-08-02, same day)
+
+User: *"when a kid selects an exercise to do it should show a large version of the animation
+on loop so they can see exactly how to do it."* New full-screen demo overlay `#fitDemoOverlay`
+(`fitOpenDemo/fitCloseDemo/fitDemoToggleFreeze`) — **z-index 70, above the player's 60**, so
+form can be checked mid-set without ending the workout.
+
+**THREE ENTRY POINTS**, all the same component: every exercise row in Today/Week is now a real
+`<button class="fitrow tap">` with a 🔍 affordance and a "Show me how" aria-label · the
+player's own picture is tappable (`.fitp-anim.tappable` + a "tap for a closer look" hint) ·
+the picker's THUMBNAIL previews while the rest of the row still adds. That last one forced a
+markup change: a button inside a button is invalid and keyboard-unreachable, so a picker entry
+is now `.fitpick-row` wrapping a `.fitpick-look` button and the original `.fitpick-item` button
+(`data-group` moved onto the ROW, since the suite's grouping check walks `#fitPickList > *`).
+
+**MID-WORKOUT IT PAUSES AND RESUMES.** Opening the demo from a running workout calls
+`fitTogglePause()` and latches `fitDemoResume`; closing un-pauses. The button reads "Got it —
+keep going". Measured: **0ms drift over 900ms** with the demo open, and the remaining time is
+intact after resuming (45s → 45s). A kid asking "how do I do this?" costs nothing.
+
+**LAYOUT — the box hugs the photo, it does not letterbox it.** First cut gave the animation
+`flex:1` and got a 362×530 container holding a 362×241 photo: huge white bands, and the picture
+no bigger for it. Frames are NOT a uniform aspect (measured: 111/120 are 3:2, but **6 are
+portrait 2:3** plus a couple of odd ones), so a fixed `aspect-ratio` would have letterboxed the
+portrait ones instead. Fix: frame 0 is a normal block `<img>` (`max-width:100%; max-height:52vh`)
+that DEFINES the box; frame 1 is absolutely positioned on top. Full-bleed via
+`width:calc(100% + 28px); margin:0 -14px`. Result 390×260 on a 390px screen — **0% dead space,
+51× the list thumbnail's area**. `.fitdemo-act { margin-top:auto }` parks the button at the
+bottom where a thumb reaches it.
+
+Tap the picture to FREEZE on a frame (`.frozen` kills the transition) for "hold on, what are the
+arms doing?" — badge toggles "Tap to pause"/"Tap to play". `prefers-reduced-motion` opens frozen
+with "Tap to play". The demo runs its OWN flip interval, independent of the player's (which is
+correctly stopped while paused).
+
+**Suite 141 → 169.** New section C2. **TEST LESSON:** the first version used `__FIT__.warp()` to
+fake elapsed time while paused and "found" two bugs that did not exist — warp rewinds
+`stepStart`, which is precisely what pause accounting is designed to ignore, so it was testing
+the harness. Rewritten to wait REAL wall time (900ms) and assert the countdown is frozen.
+Also: measure the rendered `img`, never its container — a container larger than the photo is
+dead letterbox space and must not count as "large" (that assertion is what caught the
+letterboxing). Shot: `shots/fit_demo.png`.
