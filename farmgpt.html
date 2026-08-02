@@ -2139,13 +2139,108 @@
     return new Blob(parts, { type: TDOCX_MIME });
   }
   const tXml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  // ---- math mini-notation: the model wraps math in $...$ using a tiny LaTeX subset
+  // (\frac{a}{b}, ^{n}, _{n}, \sqrt{x}, \times \div \pi \le \ge \ne \pm, ^{\circ}). Parsed
+  // once here into nodes, then rendered as real OMML in the docx and typeset ops in the PDF. ----
+  const T_MATH_SYMS = { times: "×", div: "÷", pi: "π", le: "≤", ge: "≥", ne: "≠", pm: "±", cdot: "·", circ: "°", deg: "°", degree: "°" };
+  function tMathParse(src) {
+    src = String(src);
+    let i = 0;
+    function group() {          // one argument: a {...} group, a \command, or a single char
+      while (src[i] === " ") i++;
+      if (src[i] === "{") { i++; return seq("}"); }
+      if (src[i] === "\\") return seq(null, true);
+      return i < src.length ? [{ k: "t", s: src[i++] }] : [];
+    }
+    function seq(end, one) {    // node list until `end` (or one item when `one`)
+      const out = [];
+      const pushText = (ch) => {
+        const last = out[out.length - 1];
+        if (last && last.k === "t") last.s += ch; else out.push({ k: "t", s: ch });
+      };
+      const popBase = () => {   // what a ^ / _ binds to: the previous node, or a text node's trailing atom
+        const last = out[out.length - 1];
+        if (!last) return [];
+        if (last.k !== "t") return [out.pop()];
+        const m = /([0-9]+\.?[0-9]*|[A-Za-z]|\))\s*$/.exec(last.s);
+        if (!m) return [];
+        last.s = last.s.slice(0, m.index);
+        if (!last.s) out.pop();
+        return [{ k: "t", s: m[1] }];
+      };
+      while (i < src.length) {
+        const c = src[i];
+        if (end && c === end) { i++; break; }
+        if (c === "\\") {
+          i++;
+          let cmd = "";
+          while (i < src.length && /[a-zA-Z]/.test(src[i])) cmd += src[i++];
+          if (cmd === "frac" || cmd === "dfrac") out.push({ k: "f", n: group(), d: group() });
+          else if (cmd === "sqrt") out.push({ k: "r", e: group() });
+          else if (T_MATH_SYMS[cmd] != null) pushText(T_MATH_SYMS[cmd]);
+          else if (!cmd && i < src.length) pushText(src[i++]);   // \{ \$ etc → the literal char
+          // unknown command: dropped (the prompt bans them)
+        } else if (c === "^" || c === "_") {
+          i++;
+          const e = group();
+          if (e.length === 1 && e[0].k === "t" && e[0].s === "°") { pushText("°"); }   // 90^{\circ} → 90°
+          else out.push({ k: c === "^" ? "sup" : "sub", b: popBase(), e });
+        } else if (c === "{") { i++; out.push(...seq("}")); }
+        else { pushText(c); i++; }
+        if (one && out.length) break;
+      }
+      return out;
+    }
+    return seq(null);
+  }
+  // Split a string into literal-text and math segments. A $...$ span only counts as math when
+  // it plausibly IS math (has \cmd/^/_, or is a short symbol-y run) — so dollar amounts in word
+  // problems ("costs $4.50 and $2 more") stay literal text, dollar signs and all.
+  function tMathSplit(text) {
+    text = String(text).replace(/\\\$/g, "\u0001");
+    const out = [];
+    const pushText = (s) => { if (s) out.push({ s: s.replace(/\u0001/g, "$") }); };
+    let pos = 0;
+    while (true) {
+      const a = text.indexOf("$", pos);
+      if (a === -1) break;
+      const b = text.indexOf("$", a + 1);
+      if (b === -1) break;
+      const inner = text.slice(a + 1, b);
+      const mathy = /[\\^_]/.test(inner) || (inner.length <= 30 && /[0-9]/.test(inner) && !/[A-Za-z]{3,}/.test(inner) && !/\$/.test(inner));
+      if (mathy) {
+        pushText(text.slice(pos, a));
+        out.push({ math: tMathParse(inner) });
+        pos = b + 1;
+      } else {
+        pushText(text.slice(pos, a + 1));   // keep the $ literal; the closing $ may pair later
+        pos = a + 1;
+      }
+    }
+    pushText(text.slice(pos));
+    return out;
+  }
+  function tOmml(nodes) {
+    return nodes.map((n) => {
+      if (n.k === "t") return '<m:r><m:t xml:space="preserve">' + tXml(n.s) + "</m:t></m:r>";
+      if (n.k === "f") return "<m:f><m:num>" + tOmml(n.n) + "</m:num><m:den>" + tOmml(n.d) + "</m:den></m:f>";
+      if (n.k === "sup") return "<m:sSup><m:e>" + tOmml(n.b) + "</m:e><m:sup>" + tOmml(n.e) + "</m:sup></m:sSup>";
+      if (n.k === "sub") return "<m:sSub><m:e>" + tOmml(n.b) + "</m:e><m:sub>" + tOmml(n.e) + "</m:sub></m:sSub>";
+      if (n.k === "r") return '<m:rad><m:radPr><m:degHide m:val="1"/></m:radPr><m:deg/><m:e>' + tOmml(n.e) + "</m:e></m:rad>";
+      return "";
+    }).join("");
+  }
   function tPara(text, o) {
     o = o || {};
     const pPr = (o.keepNext ? "<w:keepNext/>" : "") + (o.keepLines ? "<w:keepLines/>" : "") +
       (o.center ? '<w:jc w:val="center"/>' : "");
     const rPr = (o.bold ? "<w:b/>" : "") + (o.size ? '<w:sz w:val="' + o.size + '"/><w:szCs w:val="' + o.size + '"/>' : "");
-    return "<w:p>" + (pPr ? "<w:pPr>" + pPr + "</w:pPr>" : "") +
-      "<w:r>" + (rPr ? "<w:rPr>" + rPr + "</w:rPr>" : "") + '<w:t xml:space="preserve">' + tXml(text) + "</w:t></w:r></w:p>";
+    const wrapRpr = rPr ? "<w:rPr>" + rPr + "</w:rPr>" : "";
+    let runs = tMathSplit(text).map((seg) => seg.math
+      ? "<m:oMath>" + tOmml(seg.math) + "</m:oMath>"
+      : "<w:r>" + wrapRpr + '<w:t xml:space="preserve">' + tXml(seg.s) + "</w:t></w:r>").join("");
+    if (!runs) runs = "<w:r>" + wrapRpr + '<w:t xml:space="preserve"></w:t></w:r>';   // empty spacer paragraph keeps its line height
+    return "<w:p>" + (pPr ? "<w:pPr>" + pPr + "</w:pPr>" : "") + runs + "</w:p>";
   }
   // Heading = "Chapter XX Quiz/Test" (chapter number pulled from the material's chapter string).
   function tHeading(q, kind) {
@@ -2181,7 +2276,7 @@
     // Narrow margins (0.5" all around = 720 twips), US Letter.
     const sect = '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="720" w:right="720" w:bottom="720" w:left="720" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>';
     const doc = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-      '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' +
+      '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"><w:body>' +
       ps.join("") + sect + "</w:body></w:document>";
     return tZipStored([
       { name: "[Content_Types].xml", text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>' },
@@ -2196,8 +2291,9 @@
   // answer key on its own page.
   function tPdfFold(s) {
     return String(s)
-      .replace(/[\u2014\u2013]/g, "-").replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"')
-      .replace(/\u2022/g, "-").replace(/\u00d7/g, "x").replace(/[^\x20-\xff]/g, "?");
+      .replace(/[\u2014\u2013\u2212]/g, "-").replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"')
+      .replace(/\u2022/g, "-").replace(/\u03C0/g, "pi").replace(/\u2264/g, "<=").replace(/\u2265/g, ">=")
+      .replace(/\u2260/g, "!=").replace(/[^\x20-\xff]/g, "?");
   }
   function tPdfEscape(s) { return tPdfFold(s).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)"); }
   function tPdfCharW(ch) {
@@ -2208,17 +2304,104 @@
     return 0.52;
   }
   function tPdfWidth(text, size) { let w = 0; for (const ch of tPdfFold(text)) w += tPdfCharW(ch); return w * size; }
-  function tPdfWrap(text, size, maxW) {
-    const words = tPdfFold(text).split(/\s+/).filter(Boolean);
-    if (!words.length) return [""];
-    const lines = []; let cur = "";
-    for (const w of words) {
-      const cand = cur ? cur + " " + w : w;
-      if (tPdfWidth(cand, size) <= maxW || !cur) cur = cand;
-      else { lines.push(cur); cur = w; }
+  // ---- typeset math for the PDF: stacked fractions with a drawn bar, raised exponents,
+  // radical signs drawn as line paths. \u03C0 \u2264 \u2265 \u2260 come from the base-14 Symbol font (F3);
+  // \u00d7 \u00F7 \u00B0 \u00B1 are WinAnsi so Helvetica already has them.
+  const T_PDF_SYM = { "\u03C0": "\x70", "\u2264": "\xa3", "\u2265": "\xb3", "\u2260": "\xb9" };
+  function tPdfEscRaw(s) { return s.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)"); }
+  function tPdfTextRun(s, x, y, size, bold, ops) {   // text w/ Symbol-font switching \u2192 returns new x
+    let i = 0;
+    while (i < s.length) {
+      const sym = !!T_PDF_SYM[s[i]];
+      let chunk = "";
+      while (i < s.length && !!T_PDF_SYM[s[i]] === sym) { chunk += s[i]; i++; }
+      const w = sym ? chunk.length * 0.55 * size : tPdfWidth(chunk, size);
+      const enc = sym ? [...chunk].map((c) => T_PDF_SYM[c]).join("") : tPdfFold(chunk);
+      ops.push("BT /" + (sym ? "F3" : bold ? "F2" : "F1") + " " + (Math.round(size * 100) / 100) + " Tf " + x.toFixed(1) + " " + y.toFixed(1) + " Td (" + tPdfEscRaw(enc) + ") Tj ET");
+      x += w;
     }
-    if (cur) lines.push(cur);
-    return lines;
+    return x;
+  }
+  function tPdfMathTextW(s, size) { let w = 0; for (const ch of s) w += (T_PDF_SYM[ch] ? 0.55 : tPdfCharW(ch)) * size; return w; }
+  function tPdfMathW(nodes, size) {
+    let w = 0;
+    for (const n of nodes) {
+      if (n.k === "t") w += tPdfMathTextW(n.s, size);
+      else if (n.k === "f") w += Math.max(tPdfMathW(n.n, size * 0.72), tPdfMathW(n.d, size * 0.72)) + size * 0.24;
+      else if (n.k === "sup" || n.k === "sub") w += tPdfMathW(n.b, size) + tPdfMathW(n.e, size * 0.66) + size * 0.05;
+      else if (n.k === "r") w += tPdfMathW(n.e, size) + size * 0.46;
+    }
+    return w;
+  }
+  function tPdfMathTall(nodes) {
+    return nodes.some((n) => n.k === "f" ||
+      (n.k === "r" && tPdfMathTall(n.e)) ||
+      ((n.k === "sup" || n.k === "sub") && (tPdfMathTall(n.b) || tPdfMathTall(n.e))));
+  }
+  function tPdfMathOps(nodes, x, y, size, ops) {   // draw node list at baseline y \u2192 returns new x
+    for (const n of nodes) {
+      if (n.k === "t") x = tPdfTextRun(n.s, x, y, size, false, ops);
+      else if (n.k === "f") {
+        const k = size * 0.72;
+        const nw = tPdfMathW(n.n, k), dw = tPdfMathW(n.d, k);
+        const fw = Math.max(nw, dw) + size * 0.24;
+        const axis = y + size * 0.3;   // fraction bar sits a bit above the baseline
+        tPdfMathOps(n.n, x + (fw - nw) / 2, axis + size * 0.16, k, ops);
+        tPdfMathOps(n.d, x + (fw - dw) / 2, axis - size * 0.16 - k * 0.72, k, ops);
+        ops.push("q 0.8 w " + (x + size * 0.04).toFixed(1) + " " + axis.toFixed(1) + " m " + (x + fw - size * 0.04).toFixed(1) + " " + axis.toFixed(1) + " l S Q");
+        x += fw;
+      } else if (n.k === "sup" || n.k === "sub") {
+        x = tPdfMathOps(n.b, x, y, size, ops) + size * 0.05;
+        x = tPdfMathOps(n.e, x, y + (n.k === "sup" ? size * 0.42 : -size * 0.2), size * 0.66, ops);
+      } else if (n.k === "r") {   // radical: tick + overbar drawn as a path over the content
+        const cw = tPdfMathW(n.e, size);
+        const top = y + size * 0.82;
+        ops.push("q 0.8 w " + x.toFixed(1) + " " + (y + size * 0.26).toFixed(1) + " m " +
+          (x + size * 0.1).toFixed(1) + " " + (y - size * 0.06).toFixed(1) + " l " +
+          (x + size * 0.22).toFixed(1) + " " + top.toFixed(1) + " l " +
+          (x + size * 0.42 + cw).toFixed(1) + " " + top.toFixed(1) + " l S Q");
+        tPdfMathOps(n.e, x + size * 0.34, y, size, ops);
+        x += cw + size * 0.46;
+      }
+    }
+    return x;
+  }
+  function tPdfTokens(text, size) {   // whitespace-split tokens; math segments glue to adjacent text
+    const toks = [];
+    let cur = null;
+    const open = () => { if (!cur) cur = { parts: [], w: 0, tall: false }; return cur; };
+    const flush = () => { if (cur && cur.parts.length) toks.push(cur); cur = null; };
+    for (const seg of tMathSplit(text)) {
+      if (seg.math) {
+        const c = open();
+        c.parts.push({ m: seg.math });
+        c.w += tPdfMathW(seg.math, size);
+        c.tall = c.tall || tPdfMathTall(seg.math);
+      } else {
+        for (const p of seg.s.split(/(\s+)/)) {
+          if (!p) continue;
+          if (/^\s+$/.test(p)) flush();
+          else { const c = open(); c.parts.push({ s: p }); c.w += tPdfWidth(p, size); }
+        }
+      }
+    }
+    flush();
+    return toks;
+  }
+  function tPdfRichLines(text, size, maxW, opts) {   // wrap into drawable line items (atoms)
+    opts = opts || {};
+    const ind = opts.indent || 0, ind2 = opts.indent2 != null ? opts.indent2 : ind;
+    const toks = tPdfTokens(text, size);
+    const sw = tPdfCharW(" ") * size;
+    const lines = []; let cur = [], w = ind;
+    for (const tok of toks) {
+      const cand = w + (cur.length ? sw : 0) + tok.w;
+      if (cur.length && cand > maxW) { lines.push(cur); cur = [tok]; w = ind2 + tok.w; }
+      else { cur.push(tok); w = cand; }
+    }
+    if (cur.length || !lines.length) lines.push(cur);
+    return lines.map((l, li) => ({ atoms: l, tall: l.some((t) => t.tall), indent: li ? ind2 : ind,
+      size, bold: false, center: false, gap: 0 }));
   }
   function buildTeacherPdf(res, className) {
     const q = res.quiz;
@@ -2233,37 +2416,50 @@
     if (className) head.push(line(className, { size: 12, center: true, gap: 4 }));
     head.push(line("", { gap: 2 }));
     head.push(line("Name: ______________________________________          Date: ______________________", { gap: 6 }));
-    if (q.instructions) for (const l of tPdfWrap("Instructions: " + q.instructions, 11, CW)) head.push(line(l));
+    if (q.instructions) for (const l of tPdfRichLines("Instructions: " + q.instructions, 11, CW)) head.push(l);
     head.push(line("", { gap: 4 }));
     block(head);
     q.questions.forEach((it, i) => {
       const items = [];
-      tPdfWrap((i + 1) + ". " + it.q, 11, CW).forEach((l) => items.push(line(l)));
+      tPdfRichLines((i + 1) + ". " + it.q, 11, CW).forEach((l) => items.push(l));
       if (it.choices && it.choices.length) it.choices.forEach((c, ci) =>
-        tPdfWrap(String.fromCharCode(65 + ci) + ")  " + c, 11, CW - 30).forEach((l, li) => items.push(line((li ? "      " : "    ") + l))));
+        tPdfRichLines(String.fromCharCode(65 + ci) + ")  " + c, 11, CW - 30, { indent: 14, indent2: 22 }).forEach((l) => items.push(l)));
       if (it.lines) items.push(line("", { gap: 17 * it.lines }));   // blank writing space (compact)
       items.push(line("", { gap: 8 }));
       block(items);
     });
     const key = [line("ANSWER KEY - " + heading, { size: 14, bold: true, gap: 6 })];
-    (q.answerKey || []).forEach((a, i) => tPdfWrap((i + 1) + ". " + a, 11, CW).forEach((l) => key.push(line(l))));
+    (q.answerKey || []).forEach((a, i) => tPdfRichLines((i + 1) + ". " + a, 11, CW).forEach((l) => key.push(l)));
     block(key, { newPage: true });
     // Paginate blocks into per-page draw ops.
     const pages = [];
     let ops = [], y = PH - M - 14;
     const newPage = () => { pages.push(ops); ops = []; y = PH - M - 14; };
-    const blockH = (b) => b.items.reduce((s2, it) => s2 + lead(it.size) + it.gap, 0);
+    // Lines carrying a stacked fraction need extra leading (numerator above + denominator below).
+    const effLead = (it) => lead(it.size) + (it.tall ? Math.round(it.size * 0.9) : 0);
+    const blockH = (b) => b.items.reduce((s2, it) => s2 + effLead(it) + it.gap, 0);
     for (const b of blocks) {
       const h = blockH(b);
       if (b.newPage && ops.length) newPage();
       else if (y - h < M && h < PH - 2 * M) newPage();
       for (const it of b.items) {
-        if (y < M + lead(it.size)) newPage();
-        if (it.text) {
+        if (y < M + effLead(it)) newPage();
+        if (it.tall) y -= Math.round(it.size * 0.5);   // headroom for numerators above the baseline
+        if (it.atoms) {
+          let x = M + (it.indent || 0);
+          const sw = tPdfCharW(" ") * it.size;
+          it.atoms.forEach((tok, ti) => {
+            if (ti) x += sw;
+            for (const part of tok.parts) {
+              if (part.s !== undefined) x = tPdfTextRun(part.s, x, y, it.size, it.bold, ops);
+              else x = tPdfMathOps(part.m, x, y, it.size, ops);
+            }
+          });
+        } else if (it.text) {
           const x = it.center ? Math.max(M, M + (CW - tPdfWidth(it.text, it.size)) / 2) : M;
           ops.push("BT /F" + (it.bold ? 2 : 1) + " " + it.size + " Tf " + x.toFixed(1) + " " + y.toFixed(1) + " Td (" + tPdfEscape(it.text) + ") Tj ET");
         }
-        y -= lead(it.size) + it.gap;
+        y -= lead(it.size) + it.gap + (it.tall ? Math.round(it.size * 0.4) : 0);
       }
     }
     if (ops.length) pages.push(ops);
@@ -2272,15 +2468,16 @@
     objs.push("<< /Type /Catalog /Pages 2 0 R >>");
     const pageIds = pages.map((_, i) => 3 + i * 2);
     objs.push("<< /Type /Pages /Kids [" + pageIds.map((n) => n + " 0 R").join(" ") + "] /Count " + pages.length + " >>");
-    const fontIds = { F1: 3 + pages.length * 2, F2: 4 + pages.length * 2 };
+    const fontIds = { F1: 3 + pages.length * 2, F2: 4 + pages.length * 2, F3: 5 + pages.length * 2 };
     pages.forEach((pOps, i) => {
       objs.push("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents " + (pageIds[i] + 1) +
-        " 0 R /Resources << /Font << /F1 " + fontIds.F1 + " 0 R /F2 " + fontIds.F2 + " 0 R >> >> >>");
+        " 0 R /Resources << /Font << /F1 " + fontIds.F1 + " 0 R /F2 " + fontIds.F2 + " 0 R /F3 " + fontIds.F3 + " 0 R >> >> >>");
       const stream = pOps.join("\n");
       objs.push("<< /Length " + stream.length + " >>\nstream\n" + stream + "\nendstream");
     });
     objs.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
     objs.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>");
+    objs.push("<< /Type /Font /Subtype /Type1 /BaseFont /Symbol >>");   // π ≤ ≥ ≠ (built-in encoding)
     let out = "%PDF-1.4\n";
     const offsets = [];
     objs.forEach((body, i) => { offsets.push(out.length); out += (i + 1) + " 0 obj\n" + body + "\nendobj\n"; });

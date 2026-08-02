@@ -962,8 +962,16 @@ OUTPUT — STRICT JSON ONLY, no markdown fences, no text before or after, exactl
 print under the question — MATCH it to the work the question actually requires: 0 for multiple
 choice, 1 for a single-word or single-number answer, 2-3 for a computation of a couple of
 steps, 4-6 ONLY for genuine multi-step show-your-work problems. Err on the SMALL side — extra
-white space just adds pages. Use plain text only — no emoji, no markdown. Write math readably
-in plain text (3/4, 12 x 8, 5.2 cm).`;
+white space just adds pages. Use plain text only — no emoji, no markdown.
+MATH NOTATION: the document renderer typesets real math (stacked fractions, exponents,
+radicals), so wrap every mathematical expression in $...$ using ONLY these commands:
+\\frac{3}{4} for fractions (mixed numbers: 2\\frac{1}{2}), ^{ } for exponents (5^{2}, 10^{-3}),
+_{ } for subscripts, \\sqrt{49} for square roots, \\times, \\div, \\pi, \\le, \\ge, \\ne,
+\\pm, and 90^{\\circ} for degrees. Examples: "What is $\\frac{1}{2} + \\frac{1}{4}$?",
+"Evaluate $5^{2} \\times \\sqrt{9}$.", "$12 \\times 8 =$ ?". Fractions ALWAYS use
+$\\frac{ }{ }$ — never a slash like 3/4. Units and ordinary words stay OUTSIDE the markers.
+Money is NOT math — write dollar amounts plainly ($4.50) with no closing marker. Use no other
+LaTeX commands. The same notation applies inside "choices" and "answerKey" entries.`;
 
 function parseTeacherJSON(text) {
   if (!text) return null;

@@ -559,7 +559,8 @@ real estimates for sane numbers.
 🎤 VOICE LOGGING + HOME-SCREEN WIDGET (2026-07-31, same batch): (1) in-app — the Add sheet AI
 row gains a 🎤 dictation button (Web Speech API, absent where unsupported; final transcript
 auto-runs Estimate & add). (2) meallog.html — standalone voice quick-log page ("the widget"):
-tap mic (auto-listens on open once meallog_mic_ok proves a prior successful listen) → speak →
+tap mic (NO auto-listen on open — user request 2026-08-02: listening only ever starts from a
+mic tap; the old meallog_mic_ok auto-listen gate is removed) → speak →
 mode "calories" → entry QUEUED to settings doc mealInbox<suffix> {items:[{k,meal,n,c}]}
 (meal-of-day by Chicago hour; cloud via inline-duplicated Firebase config w/ 4s race, else
 localStorage setting_ fallback — same keys the app's local backend reads); result screen w/
@@ -601,7 +602,7 @@ so a crash duplicates rather than loses; aborts mid-drain on profile switch. Sui
 scratchpad meallog_test.cjs 25/25. TEST GOTCHA: headless Chromium exposes UNPREFIXED
 window.SpeechRecognition natively — a fake must override BOTH names or the real one shadows
 it and errors not-allowed. Voice quality/mic UX not testable headless — playtest on the
-actual phone; if Android auto-listen on open proves flaky, drop meallog_mic_ok gating.
+actual phone. (Auto-listen on open was indeed unwanted — removed 2026-08-02, see above.)
 
 ---
 
@@ -1516,6 +1517,32 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   modes clean) + scratchpad teacher_client_test.cjs 21/21 (incl. unzipping the built docx
   with python zipfile and asserting the full print layout). NOT live-tested vs real Opus —
   post-deploy: run one real quiz, open the .docx in Word/Google Docs, check layout + print.
+  PLAYTEST BATCH (2026-08-02, PRs #17/#18): button = "Generate the quiz/test ✨"; 0.5" margins
+  (pgMar 720); heading EXACTLY "Chapter XX Quiz/Test" (tHeading regex; model title never prints);
+  #tClass class-name input under the heading; answer space = BLANK paragraphs not ruled lines,
+  keepNext+keepLines chains keep each question whole per page; "lines" prompt-matched to required
+  work (compact bias — Err on the SMALL side). SHARE SAGA: Android Chrome's Web Share file-type
+  allowlist REFUSES .docx (canShare() lies true, share() throws) → final UX = 💾 Save as Word doc
+  + 📤 Send as PDF (buildTeacherPdf: hand-rolled %PDF-1.4, letter, base-14 Helvetica/WinAnsi,
+  uncompressed streams, block-based keep-together pagination; PDFs ARE share-allowlisted; desktop/
+  refused-share falls back to saving). Headless quirk: blob-anchor downloads report
+  suggestedFilename "download" — assertions must tolerate.
+  TYPESET MATH (2026-08-02, user: "math notation that looks good in a document"): TEACHER_SYSTEM
+  now REQUIRES $...$ math with a tiny LaTeX subset (\frac{a}{b}, ^{n}, _{n}, \sqrt{x}, \times \div
+  \pi \le \ge \ne \pm, 90^{\circ}; fractions NEVER slashes; money = NOT math, bare $4.50). Client
+  tMathParse/tMathSplit (farmgpt.html, shared by both builders) parse to nodes; a $span$ only
+  counts as math if it has \cmd/^/_ or is a short symbol-y run — dollar amounts in word problems
+  stay literal ("costs $4.50 and $2" never becomes math; rejected spans re-scan from the 2nd $).
+  DOCX: real OMML (m:oMath/m:f/m:sSup/m:sSub/m:rad; xmlns:m on w:document) — Word/Google Docs
+  render native stacked fractions. PDF: hand-typeset — stacked fractions w/ drawn bar (0.72×
+  digits, axis y+0.30size), raised 0.66× superscripts, radical drawn as a line path, π≤≥≠ via
+  base-14 SYMBOL font F3 (built-in encoding — do NOT add /WinAnsiEncoding), ×÷°± are WinAnsi;
+  tokens wrap w/ math segs unbreakable+glued to adjacent text, frac lines get extra leading
+  (tall flag). GOTCHAS: JS template literals EAT backslashes (\f=formfeed, \s dropped) — prompt
+  source needs \\frac, and python embedded in a JS template must build backslashes via chr(92)/
+  chr(960); PDF op font sizes need rounding (11*0.72 prints 7.920000000000001). Suites now
+  server 36 + client 42 (OMML asserts, fraction-bar/radical path ops, Symbol font, money-literal
+  both formats). Math rendering verified visually via pdf.js render of the built PDF.
 - GUARDRAILS TIGHTENED (2026-07-30, user): FAMILY_RULES — torture scenes are never written even
   if explicitly/repeatedly requested (redirects in-story like other restricted topics);
   interrogation OK (questioning/pressure/bluffing/wits) but zero violence, torture, or threats
