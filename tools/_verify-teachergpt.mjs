@@ -19,11 +19,11 @@ const QUIZ = {
   title: "Fractions Review", chapter: "Chapter 7: Fractions",
   instructions: "Answer every question. Show your work where lines are given.",
   questions: [
-    { q: "What is 1/2 + 1/4?", choices: ["3/4", "2/6", "1/8", "2/4"], lines: 0 },
-    { q: "Write 6/8 in simplest form.", choices: null, lines: 1 },
+    { q: "What is $\\frac{1}{2} + \\frac{1}{4}$?", choices: ["$\\frac{3}{4}$", "$\\frac{2}{6}$", "$\\frac{1}{8}$", "$\\frac{2}{4}$"], lines: 0 },
+    { q: "Evaluate $5^{2} \\times \\sqrt{9}$.", choices: null, lines: 1 },
     { q: "Maria cuts a pizza into 8 equal slices and eats 3. What fraction is left? Show your work.", choices: null, lines: 3 },
   ],
-  answerKey: ["A — 3/4 (common denominator 4)", "3/4 (divide both by 2)", "5/8 (8 - 3 = 5 slices of 8)"],
+  answerKey: ["A — $\\frac{3}{4}$ (common denominator 4)", "75", "$\\frac{5}{8}$ (8 - 3 = 5 slices of 8)"],
 };
 
 const anthropicReqs = [];
@@ -95,6 +95,8 @@ console.log("— happy path: photos → Opus → structured quiz JSON —");
   ok(a.system.includes("DIFFERENT numbers") && a.system.includes("Never copy a problem verbatim"), "prompt: existing quizzes are rebuilt with different numbers");
   ok(a.system.includes("CHAPTER"), "prompt: chapter identified from the material");
   ok(a.system.includes("MATCH it to the work") && a.system.includes("Err on the SMALL side"), "prompt: answer space scales with required work (compact bias)");
+  ok(a.system.includes("MATH NOTATION") && a.system.includes("\\frac{3}{4}") && a.system.includes("\\sqrt{49}"), "prompt: $...$ math mini-notation required (frac/sqrt/exponents)");
+  ok(a.system.includes("never a slash like 3/4") && a.system.includes("Money is NOT math"), "prompt: fractions always stacked; dollar amounts stay literal");
   const content = a.messages[0].content;
   ok(Array.isArray(content) && content.filter((b) => b.type === "image").length === 2, "both photos sent as image blocks");
   const txt = content.find((b) => b.type === "text").text;
@@ -104,7 +106,8 @@ console.log("— happy path: photos → Opus → structured quiz JSON —");
   ok(q && q.title === "Fractions Review" && q.chapter === "Chapter 7: Fractions", "quiz JSON carries title + chapter");
   ok(q.instructions.includes("Answer every question"), "…and instructions");
   ok(q.questions.length === 3 && q.questions[0].choices.length === 4 && q.questions[2].lines === 3, "…and questions with choices/answer-line counts");
-  ok(q.answerKey.length === 3 && q.answerKey[2].includes("5/8"), "…and a full answer key");
+  ok(q.answerKey.length === 3 && q.answerKey[2].includes("\\frac{5}{8}"), "…and a full answer key");
+  ok(q.questions[0].q.includes("\\frac{1}{2}") && q.questions[1].q.includes("\\sqrt{9}"), "math markup survives the round trip untouched (typeset on-device)");
 }
 {
   const r = await call({ mode: "teachergpt", images: [IMG], kind: "test", count: 3 });
