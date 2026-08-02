@@ -137,7 +137,7 @@
   #tKindSeg button.on { background: var(--navy, #233357); color: #fff; }
   .tCount { font-size: 13.5px; font-weight: 700; color: var(--muted); display: inline-flex; align-items: center; gap: 8px; }
   .tCount input { width: 66px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; font-size: 15px; }
-  #tNotes { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; margin: 0 0 12px; font-size: 14px; }
+  #tNotes, #tClass { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; margin: 0 0 12px; font-size: 14px; }
   #tStatus { margin: 10px 0 0; color: var(--muted); font-size: 13.5px; }
   #tResult { margin-top: 14px; }
   #tResult .tDone { font-weight: 800; margin: 0 0 10px; }
@@ -465,8 +465,9 @@
         </div>
         <label class="tCount">Questions <input id="tCount" type="number" min="3" max="50" value="10" inputmode="numeric" /></label>
       </div>
+      <input id="tClass" type="text" maxlength="80" placeholder="Class name — printed at the top (e.g. Algebra 1, Period 3)" />
       <input id="tNotes" type="text" maxlength="500" placeholder="Optional notes for the AI (e.g. focus on word problems)" />
-      <button class="goBtn" id="tGoBtn">Create the printable Google Doc ✨</button>
+      <button class="goBtn" id="tGoBtn">Generate the quiz/test ✨</button>
       <div id="tStatus" style="display:none"></div>
       <div id="tResult" style="display:none">
         <div class="tDone">✅ <span id="tResTitle"></span> · <span id="tResCount"></span> questions</div>
@@ -2140,32 +2141,48 @@
   const tXml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   function tPara(text, o) {
     o = o || {};
-    const pPr = o.center ? '<w:jc w:val="center"/>' : "";
+    const pPr = (o.keepNext ? "<w:keepNext/>" : "") + (o.keepLines ? "<w:keepLines/>" : "") +
+      (o.center ? '<w:jc w:val="center"/>' : "");
     const rPr = (o.bold ? "<w:b/>" : "") + (o.size ? '<w:sz w:val="' + o.size + '"/><w:szCs w:val="' + o.size + '"/>' : "");
     return "<w:p>" + (pPr ? "<w:pPr>" + pPr + "</w:pPr>" : "") +
       "<w:r>" + (rPr ? "<w:rPr>" + rPr + "</w:rPr>" : "") + '<w:t xml:space="preserve">' + tXml(text) + "</w:t></w:r></w:p>";
   }
-  function buildTeacherDocx(res) {
-    const q = res.quiz, kindLabel = res.kind === "test" ? "TEST" : "QUIZ";
+  // Heading = "Chapter XX Quiz/Test" (chapter number pulled from the material's chapter string).
+  function tHeading(q, kind) {
+    const kindLabel = kind === "test" ? "Test" : "Quiz";
+    const m = /chapter\s*([0-9]+[A-Za-z]?)/i.exec(q.chapter || "");
+    if (m) return "Chapter " + m[1] + " " + kindLabel;
+    return (q.chapter ? q.chapter + " " : "") + kindLabel;
+  }
+  function buildTeacherDocx(res, className) {
+    const q = res.quiz;
+    const heading = tHeading(q, res.kind);
     const ps = [];
-    ps.push(tPara(q.title, { bold: true, center: true, size: 36 }));
-    ps.push(tPara((q.chapter || "Chapter ____") + "   •   " + kindLabel, { bold: true, center: true, size: 24 }));
+    ps.push(tPara(heading, { bold: true, center: true, size: 36 }));
+    if (className) ps.push(tPara(className, { center: true, size: 24 }));
     ps.push(tPara(""));
     ps.push(tPara("Name: ______________________________________          Date: ______________________"));
     ps.push(tPara(""));
     if (q.instructions) { ps.push(tPara("Instructions: " + q.instructions)); ps.push(tPara("")); }
     q.questions.forEach((it, i) => {
-      ps.push(tPara((i + 1) + ". " + it.q));
-      if (it.choices && it.choices.length) it.choices.forEach((c, ci) => ps.push(tPara("        " + String.fromCharCode(65 + ci) + ")  " + c)));
-      for (let l = 0; l < (it.lines || 0); l++) ps.push(tPara("    ____________________________________________________________"));
-      ps.push(tPara(""));
+      // The question, its choices, and its blank answer space are ONE block: keepNext chains
+      // them and keepLines stops mid-paragraph splits, so a question that doesn't fit moves
+      // whole to the next page — every page starts with a question at the top.
+      const block = [];
+      block.push(tPara((i + 1) + ". " + it.q, { keepNext: true, keepLines: true }));
+      if (it.choices && it.choices.length) it.choices.forEach((c, ci) => block.push(tPara("        " + String.fromCharCode(65 + ci) + ")  " + c, { keepNext: true, keepLines: true })));
+      for (let l = 0; l < (it.lines || 0); l++) block.push(tPara("", { keepNext: true }));   // blank space, no ruled lines
+      block.push(tPara(""));   // separator — NO keepNext, so pages may break between questions
+      ps.push(...block);
     });
     ps.push('<w:p><w:r><w:br w:type="page"/></w:r></w:p>');   // answer key on its own page
-    ps.push(tPara("ANSWER KEY — " + q.title + " (" + kindLabel.toLowerCase() + ")", { bold: true, size: 28 }));
+    ps.push(tPara("ANSWER KEY — " + heading, { bold: true, size: 28 }));
     (q.answerKey || []).forEach((a, i) => ps.push(tPara((i + 1) + ". " + a)));
+    // Narrow margins (0.5" all around = 720 twips), US Letter.
+    const sect = '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="720" w:right="720" w:bottom="720" w:left="720" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>';
     const doc = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
       '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' +
-      ps.join("") + "</w:body></w:document>";
+      ps.join("") + sect + "</w:body></w:document>";
     return tZipStored([
       { name: "[Content_Types].xml", text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>' },
       { name: "_rels/.rels", text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>' },
@@ -2256,10 +2273,12 @@
       }
       if (!j || !j.ok) throw new Error((j && j.error) || "Something went wrong — try again");
       $("tStatus").style.display = "none";
-      tLastDocx = buildTeacherDocx(j);
-      tLastName = ((j.quiz.chapter ? j.quiz.chapter + " " : "") + (j.kind === "test" ? "Test" : "Quiz") + " — " + j.quiz.title)
+      const className = $("tClass").value.trim();
+      tLastDocx = buildTeacherDocx(j, className);
+      const heading = tHeading(j.quiz, j.kind);
+      tLastName = (heading + (className ? " — " + className : ""))
         .replace(/[\\/:*?"<>|]/g, "-").slice(0, 80) + ".docx";
-      $("tResTitle").textContent = j.quiz.title;
+      $("tResTitle").textContent = heading;
       $("tResCount").textContent = j.questionCount;
       const canShare = !!(navigator.canShare && navigator.canShare({ files: [new File([tLastDocx], tLastName, { type: TDOCX_MIME })] }));
       $("tShareBtn").style.display = canShare ? "" : "none";
@@ -2273,18 +2292,24 @@
     }
     btn.disabled = false;
   });
-  $("tSaveBtn").addEventListener("click", () => {
+  function tSaveDocx() {
     if (!tLastDocx) return;
     const a = document.createElement("a");
     a.href = URL.createObjectURL(tLastDocx);
     a.download = tLastName;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 30000);
-  });
+  }
+  $("tSaveBtn").addEventListener("click", tSaveDocx);
   $("tShareBtn").addEventListener("click", async () => {
     if (!tLastDocx) return;
     try { await navigator.share({ files: [new File([tLastDocx], tLastName, { type: TDOCX_MIME })], title: tLastName.replace(/\.docx$/, "") }); }
-    catch { /* share sheet dismissed */ }
+    catch (e) {
+      if (e && e.name === "AbortError") return;   // teacher closed the share sheet — fine
+      // Some browsers advertise file-sharing but refuse it — never dead-end: save instead.
+      tSaveDocx();
+      toast("Sharing isn't available here — saved the file instead. Attach it from your files/downloads.");
+    }
   });
   // Test hook: headless suites unzip and inspect the built docx.
   window.__TEACHER__ = { get docx() { return tLastDocx; }, get name() { return tLastName; }, build: buildTeacherDocx };
