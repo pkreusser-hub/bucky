@@ -1061,6 +1061,70 @@ function buildTeacherDocRequests(t, kind) {
   };
 }
 
+// The whole photos→Opus→Google-Doc pipeline as one call. Returns the client-facing result
+// object ({ok,...} or {error}) — shared by the streamed mode and the background job.
+function teacherImageBlocks(body) {
+  const images = Array.isArray(body.images) ? body.images.slice(0, 8) : [];
+  const okTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+  const blocks = [];
+  for (const im of images) {
+    if (!im || !okTypes.has(im.media_type) || typeof im.data !== "string" || !im.data || im.data.length > 3_500_000) continue;
+    blocks.push({ type: "image", source: { type: "base64", media_type: im.media_type, data: im.data } });
+  }
+  return blocks;
+}
+async function teacherGenerate(body) {
+  const blocks = teacherImageBlocks(body);
+  if (!blocks.length) return { error: "Add at least one photo of the material first", badRequest: true };
+  const kind = body.kind === "test" ? "test" : "quiz";
+  const count = Math.max(3, Math.min(50, (body.count | 0) || 10));
+  const notes = String(body.notes || "").slice(0, 500);
+  blocks.push({ type: "text", text:
+    `Create a ${kind.toUpperCase()} with EXACTLY ${count} questions from the photographed material above.` +
+    (notes ? `\nTeacher's notes: ${notes}` : "") });
+  const r = await callAnthropicOnce(TEACHER_MODEL, TEACHER_SYSTEM, blocks, 8000);
+  if (!r) return { error: "TeacherGPT couldn't reach the model — try again" };
+  await logUsage("teacher", r.inTok, r.outTok, r.cacheWriteTok, r.cacheReadTok);
+  const t = parseTeacherJSON(r.text);
+  if (!t) return { error: "TeacherGPT couldn't format that — try again" };
+  const doc = await createTeacherGoogleDoc(t, kind);
+  if (doc.err === "docs-api-disabled") return { error:
+    "Google Docs/Drive isn't enabled for the farm account yet — in Google Cloud console (amen-farms-app), enable the Google Docs API and Google Drive API, then try again" };
+  if (doc.err) return { error: "The " + kind + " was written but the Google Doc couldn't be created (" + doc.err + ") — try again" };
+  return { ok: true, url: doc.url, title: doc.docTitle, chapter: t.chapter, kind,
+    questionCount: t.questions.length, shared: doc.shared, sharedWith: TEACHER_DOC_EMAIL };
+}
+
+// Background-job flavor: teachergpt-background.mjs invokes this with the raw POST body. The
+// endpoint is public, so the family secret is re-checked HERE; the outcome is written to a tiny
+// Firestore doc the page polls (mode "teachergpt_result"). Runs under Netlify's background
+// 15-minute allowance — immune to the synchronous/streaming execution caps a 60-90s Opus run
+// can blow through.
+const TEACHER_JOBS_COLLECTION = "farmgpt_teacher_jobs";
+export async function runTeacherJob(body) {
+  if (!body || body.secret !== process.env.BUCKY_NOTIFY_SECRET) return;
+  const jobId = typeof body.jobId === "string" && /^[a-z0-9]{6,40}$/i.test(body.jobId) ? body.jobId : null;
+  if (!jobId) return;
+  let res;
+  try { res = await teacherGenerate(body); }
+  catch { res = { error: "TeacherGPT hit a snag — try again" }; }
+  try {
+    const token = await getGoogleAccessToken();
+    if (!token) return;
+    const base = `projects/${PROJECT_ID}/databases/(default)/documents`;
+    const fields = { status: sv(res.ok ? "done" : "error"), createdAt: sv(new Date().toISOString()) };
+    if (res.ok) {
+      fields.url = sv(res.url); fields.title = sv(res.title); fields.chapter = sv(res.chapter);
+      fields.kind = sv(res.kind); fields.questionCount = iv(res.questionCount);
+      fields.shared = { booleanValue: !!res.shared }; fields.sharedWith = sv(res.sharedWith);
+    } else fields.error = sv(res.error || "Something went wrong");
+    await fetch(`${FIRESTORE_BASE}:commit`, {
+      method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ writes: [{ update: { name: `${base}/${TEACHER_JOBS_COLLECTION}/${jobId}`, fields } }] }),
+    });
+  } catch { /* the page's poll will time out with a friendly message */ }
+}
+
 // Creates the doc, fills it, and shares it to the teacher. Returns {url} or {err}.
 async function createTeacherGoogleDoc(t, kind) {
   const token = await getGoogleDocsToken();
@@ -1993,50 +2057,44 @@ export default async (req) => {
     return new Response(JSON.stringify({ scenes }), { status: 200, headers: jsonHeaders });
   }
 
-  // 🍎 TeacherGPT: photos of material → Opus 5 writes a quiz/test → Google Doc shared to the
-  // teacher. Secret-gated; JSON in/out (no SSE — the teacher waits once for a finished doc).
+  // 🍎 TeacherGPT (streamed fallback path): used only when the background function isn't
+  // available. Keepalive stream with the result JSON as the LAST line — survives longer than a
+  // plain response, but a very long Opus run may still hit the platform cap; the background
+  // job (teachergpt-background.mjs + teachergpt_result below) is the primary path.
   if (body.mode === "teachergpt") {
-    const images = Array.isArray(body.images) ? body.images.slice(0, 8) : [];
-    const okTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
-    const blocks = [];
-    for (const im of images) {
-      if (!im || !okTypes.has(im.media_type) || typeof im.data !== "string" || !im.data || im.data.length > 3_500_000) continue;
-      blocks.push({ type: "image", source: { type: "base64", media_type: im.media_type, data: im.data } });
-    }
-    if (!blocks.length) return jsonError(400, "Add at least one photo of the material first", jsonHeaders);
-    const kind = body.kind === "test" ? "test" : "quiz";
-    const count = Math.max(3, Math.min(50, (body.count | 0) || 10));
-    const notes = String(body.notes || "").slice(0, 500);
-    blocks.push({ type: "text", text:
-      `Create a ${kind.toUpperCase()} with EXACTLY ${count} questions from the photographed material above.` +
-      (notes ? `\nTeacher's notes: ${notes}` : "") });
-    // STREAMED response (like story/research): a non-streaming Opus run takes 30-90s, which
-    // blows past Netlify's synchronous-function timeout and surfaces as a generic error. The
-    // first byte goes out immediately, keepalive spaces flow while Opus writes and the doc is
-    // built, and the result rides the LAST LINE as JSON ({ok,...} or {error}).
+    if (!teacherImageBlocks(body).length) return jsonError(400, "Add at least one photo of the material first", jsonHeaders);
     const tEncoder = new TextEncoder();
     const tStream = new ReadableStream({
       async start(controller) {
         controller.enqueue(tEncoder.encode(" "));
         const tick = setInterval(() => { try { controller.enqueue(tEncoder.encode(" ")); } catch {} }, 5000);
-        const finish = (obj) => { try { controller.enqueue(tEncoder.encode("\n" + JSON.stringify(obj))); } catch {} };
         try {
-          const r = await callAnthropicOnce(TEACHER_MODEL, TEACHER_SYSTEM, blocks, 8000);
-          if (!r) { finish({ error: "TeacherGPT couldn't reach the model — try again" }); return; }
-          await logUsage("teacher", r.inTok, r.outTok, r.cacheWriteTok, r.cacheReadTok);
-          const t = parseTeacherJSON(r.text);
-          if (!t) { finish({ error: "TeacherGPT couldn't format that — try again" }); return; }
-          const doc = await createTeacherGoogleDoc(t, kind);
-          if (doc.err === "docs-api-disabled") { finish({ error:
-            "Google Docs/Drive isn't enabled for the farm account yet — in Google Cloud console (amen-farms-app), enable the Google Docs API and Google Drive API, then try again" }); return; }
-          if (doc.err) { finish({ error: "The " + kind + " was written but the Google Doc couldn't be created (" + doc.err + ") — try again" }); return; }
-          finish({ ok: true, url: doc.url, title: doc.docTitle, chapter: t.chapter, kind,
-            questionCount: t.questions.length, shared: doc.shared, sharedWith: TEACHER_DOC_EMAIL });
-        } catch { finish({ error: "TeacherGPT hit a snag — try again" }); }
+          const res = await teacherGenerate(body);
+          controller.enqueue(tEncoder.encode("\n" + JSON.stringify(res)));
+        } catch { try { controller.enqueue(tEncoder.encode("\n" + JSON.stringify({ error: "TeacherGPT hit a snag — try again" }))); } catch {} }
         finally { clearInterval(tick); try { controller.close(); } catch {} }
       },
     });
     return new Response(tStream, { status: 200, headers: { ...jsonHeaders, "content-type": "text/plain; charset=utf-8" } });
+  }
+  // Poll for a background TeacherGPT job's outcome. Missing doc = still working.
+  if (body.mode === "teachergpt_result") {
+    const jobId = typeof body.jobId === "string" && /^[a-z0-9]{6,40}$/i.test(body.jobId) ? body.jobId : null;
+    if (!jobId) return jsonError(400, "jobId required", jsonHeaders);
+    const token = await getGoogleAccessToken();
+    if (!token) return jsonError(500, "TeacherGPT isn't configured on the server", jsonHeaders);
+    const r = await fetch(`${FIRESTORE_BASE}/${TEACHER_JOBS_COLLECTION}/${jobId}`, { headers: { authorization: `Bearer ${token}` } });
+    if (!r.ok) return new Response(JSON.stringify({ pending: true }), { status: 200, headers: jsonHeaders });
+    const j = await r.json().catch(() => null);
+    const f = (j && j.fields) || {};
+    const s = (k) => (f[k] && f[k].stringValue) || "";
+    if (s("status") === "done") {
+      return new Response(JSON.stringify({ ok: true, url: s("url"), title: s("title"), chapter: s("chapter"),
+        kind: s("kind"), questionCount: parseInt((f.questionCount && f.questionCount.integerValue) || "0", 10),
+        shared: !!(f.shared && f.shared.booleanValue), sharedWith: s("sharedWith") }), { status: 200, headers: jsonHeaders });
+    }
+    if (s("status") === "error") return new Response(JSON.stringify({ error: s("error") || "Something went wrong" }), { status: 200, headers: jsonHeaders });
+    return new Response(JSON.stringify({ pending: true }), { status: 200, headers: jsonHeaders });
   }
 
   // 🍽 Meal calorie estimate (Meals tab). Secret-gated like everything else; JSON in/out, no
