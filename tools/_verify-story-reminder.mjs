@@ -84,6 +84,42 @@ console.log("— story mode: reminder on the last user turn —");
   ok(t.includes("crossovers") && t.includes("welcome"), "reminder welcomes franchise crossovers");
 }
 
+console.log("— universe bibles: auto-detected franchise fact sheets —");
+{
+  const sysOf = () => { const a = lastAnt(); return typeof a.system === "string" ? a.system : JSON.stringify(a.system || ""); };
+  await call({ mode: "story", messages: [{ role: "user", content: "I am a girl named Bree in how to train your dragon race to the edge, with a light fury named Breeze." }] });
+  let sys = sysOf();
+  ok(sys.includes("UNIVERSE GUIDE"), "HTTYD setup attaches a universe guide");
+  ok(sys.includes("DRAGONS NEVER TALK"), "…with the no-talking-dragons rule");
+  ok(sys.includes("Viggo Grimborn") && sys.includes("prosthetic"), "…with RTTE villains + Hiccup/Toothless prosthetic facts");
+  ok(sys.includes("reader's version wins"), "guide yields to the reader's explicit changes");
+
+  await call({ mode: "story", messages: [{ role: "user", content: "A story about a lonely lighthouse keeper and a mysterious storm." }] });
+  ok(!sysOf().includes("UNIVERSE GUIDE"), "no franchise mentioned → no guide");
+  await call({ mode: "story", messages: [{ role: "user", content: "We spent the day picking a ripe peach from the orchard tree." }] });
+  ok(!sysOf().includes("UNIVERSE GUIDE"), "the word 'peach' alone never triggers Mario (needs 'princess peach')");
+
+  await call({ mode: "story", messages: [{ role: "user", content: "Bowser stomped into the Mushroom Kingdom at dawn." }] });
+  sys = sysOf();
+  ok(sys.includes("Super Mario") && sys.includes("poof away"), "Mario guide attaches (cartoonish-enemies rule included)");
+
+  await call({ mode: "story", messages: [
+    { role: "user", content: "Hiccup opens a warp pipe and meets Mario." },
+    { role: "assistant", content: "Scene.\n\n===CHOICES===\n1. a\n2. b\n3. c" },
+    { role: "user", content: "keep going" },
+  ] });
+  sys = sysOf();
+  ok(sys.includes("UNIVERSE GUIDES") && sys.includes("Super Mario") && sys.includes("How to Train Your Dragon"), "crossover attaches BOTH guides");
+
+  await call({ mode: "story", messages: [
+    { role: "user", content: "An adventure. (STORY SO FAR: Toothless purred beside the campfire.)" },
+  ] });
+  ok(sysOf().includes("DRAGONS NEVER TALK"), "a character name in the recap alone keeps the guide attached (sticky after windowing)");
+
+  await call({ mode: "research", messages: [{ role: "user", content: "How does a lightsaber work in Star Wars physics terms?" }] });
+  ok(!sysOf().includes("UNIVERSE GUIDE"), "research mode never gets story universe guides");
+}
+
 console.log("— summary mode: story-bible format —");
 {
   await call({ mode: "summary", messages: [{ role: "user", content: "EARLIER NOTES:\n(none)\n\nNEWEST PART:\nA scene.\n\nRewrite the continuity notes now." }] });

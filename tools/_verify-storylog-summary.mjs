@@ -39,6 +39,8 @@ const runQueries = [];            // every :runQuery body
 const summaryReqs = [];           // every NON-streaming (summarizer) Anthropic request body
 const anthropicReqs = [];         // every STREAMING Anthropic request body
 let summaryBehavior = "ok";       // "ok" | "badjson" | "fail" — controls the fake summarizer reply
+const canonReqs = [];             // every family-canon bookkeeper Anthropic request body
+let canonBehavior = "ok";         // "ok" | "nochanges" — controls the fake canon reply
 let summaryVerdict = { about: "Default about.", prompting: "Default prompting.", flagged: false, flagNote: "" };
 let commitFailFor = null;         // collection name — :commit writes touching it are forced to fail
 
@@ -47,6 +49,7 @@ function resetAll() {
   store.clear();
   commits.length = 0; runQueries.length = 0; summaryReqs.length = 0; anthropicReqs.length = 0;
   summaryBehavior = "ok"; commitFailFor = null; seedSeq = 0;
+  canonReqs.length = 0; canonBehavior = "ok";
   summaryVerdict = { about: "Default about.", prompting: "Default prompting.", flagged: false, flagNote: "" };
 }
 function seedScene({ date, user, storyId, title, idx, choice, scene }) {
@@ -169,6 +172,16 @@ const antSrv = http.createServer(async (req, res) => {
     return res.end();
   }
   // non-streaming
+  const isCanon = typeof j.system === "string" && j.system.includes("FAMILY CANON for the");
+  if (isCanon) {
+    canonReqs.push(j);
+    res.writeHead(200, { "content-type": "application/json" });
+    return res.end(JSON.stringify({
+      content: [{ type: "text", text: canonBehavior === "nochanges" ? "NO_CHANGES"
+        : "- Bree: golden braid over one shoulder, light fury scale armor, double-headed axe; her dragon Breeze is a light fury" }],
+      usage: { input_tokens: 900, output_tokens: 150, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    }));
+  }
   summaryReqs.push(j);
   if (isSummary) {
     if (summaryBehavior === "fail") {
@@ -509,6 +522,38 @@ console.log("— story budget: Dad's refresh grant raises today's cap —");
   ok(dadB.json.ok && dadB.json.capped === false, "Dad's own budget check is always uncapped");
   const noAuth = await callBadSecret({ mode: "story_budget_grant" });
   ok(noAuth.status === 401, "grant is secret-gated (401 on bad secret)");
+}
+
+console.log("— family canon: kids' characters evolve the universe sheet —");
+{
+  resetAll();
+  const lastStream = () => anthropicReqs[anthropicReqs.length - 1];
+  const canonCommits = () => commits.flatMap((c) => c.writes || []).filter((w) => w.update && w.update.name.includes("/farmgpt_canon/")).length;
+
+  await call({ mode: "summary", messages: [{ role: "user", content: "EARLIER NOTES:\n(none)\n\nNEWEST PART OF THE STORY:\nA plain story about a lighthouse keeper.\n\nRewrite the continuity notes now." }] });
+  ok(canonReqs.length === 0, "a summary with no known universe never calls the canon bookkeeper");
+
+  await call({ mode: "summary", messages: [{ role: "user", content: "EARLIER NOTES:\n(none)\n\nNEWEST PART OF THE STORY:\nBree flew beside Hiccup and Toothless to Dragon's Edge.\n\nRewrite the continuity notes now." }] });
+  ok(canonReqs.length === 1, "an HTTYD-story summary triggers exactly one canon update");
+  const cq = canonReqs[0];
+  ok(cq.model === "claude-sonnet-5", "canon bookkeeper runs on Sonnet");
+  ok(cq.system.includes("never drop a reader-created character"), "bookkeeper is told kids' characters are forever");
+  ok(cq.messages[0].content.includes("(empty — nothing recorded yet)"), "first fold starts from an empty canon");
+  ok(cq.messages[0].content.includes("LATEST STORY BIBLE"), "bookkeeper receives the fresh story bible");
+  const doc = store.get(`${DOCBASE}/farmgpt_canon/httyd`);
+  ok(doc && doc.canon && doc.canon.stringValue.includes("Bree"), "family canon doc written with the reader-created character");
+
+  await call({ mode: "story", messages: [{ role: "user", content: "Bree lands at Dragon's Edge to meet Hiccup." }] });
+  const sys = lastStream().system || "";
+  ok(sys.includes("DRAGONS NEVER TALK") && sys.includes("FAMILY CANON"), "story prompt carries franchise facts + a family-canon block");
+  ok(sys.includes("Bree: golden braid"), "…and Bree's evolving entry rides along for every future story");
+
+  const before = canonCommits();
+  canonBehavior = "nochanges";
+  await call({ mode: "summary", messages: [{ role: "user", content: "EARLIER NOTES:\n- Bree exists\n\nNEWEST PART OF THE STORY:\nToothless napped at Dragon's Edge.\n\nRewrite the continuity notes now." }] });
+  ok(canonReqs.length === 2 && canonReqs[1].messages[0].content.includes("Bree: golden braid"), "the next fold receives the CURRENT canon for merging");
+  ok(canonCommits() === before, "NO_CHANGES reply → nothing rewritten");
+  canonBehavior = "ok";
 }
 
 console.log("— auth —");

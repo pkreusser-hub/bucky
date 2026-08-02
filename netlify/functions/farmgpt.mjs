@@ -167,6 +167,292 @@ newest part of the story corrects or redoes something earlier, the corrected ver
 truth — remove the contradicted details entirely. Output ONLY the bible — no preamble, no
 commentary.`;
 
+// ---------------- Universe bibles (auto-detected franchise fact sheets) ----------------
+// Kids constantly set stories in worlds they know and then have to CORRECT invented details —
+// a dragon that suddenly talks, the wrong villain name, the wrong weapon (observed live in
+// Eleanor's redo write-ins). When a story's text mentions a known universe, that universe's
+// compact fact sheet rides the STORY system prompt so canon is right the FIRST time. Detection
+// is a trigger regex over the request's message text: the world setup names the franchise, and
+// character names in later scenes/recaps keep it sticky after the send window slides. Facts
+// yield to the reader: anything the reader explicitly changes wins (reader is law). To add a
+// universe, append an entry — nothing else to wire.
+const UNIVERSE_BIBLES = [
+  { key: "httyd", name: "How to Train Your Dragon (movies + Race to the Edge)",
+    triggers: /how to train your dragon|httyd|race to the edge|night fury|light fury|toothless|hiccup|isle of berk|\bberk\b|astrid|stormfly|windshear|grimborn|deadly nadder|gronckle|zippleback|monstrous nightmare|hofferson|haddock|razorwhip|berserker tribe|dragon hunters|maces and talons|death song|triple stryke|singetail|eruptodon|\bgobber\b|stoick|\bvalka\b|\bkrogan\b|trader johann|dragon's edge|dragons edge|meatlug|hookfang|fishlegs|snotlout|ruffnut|tuffnut/i,
+    facts: `THE ONE UNBREAKABLE RULE — DRAGONS NEVER TALK. No dragon speaks words, ever. They are
+intelligent animals who communicate through growls, croons, purrs, screeches, and body language,
+and through their bond with their rider — they understand a great deal. A rider "reads" their
+dragon; the dragon never answers in speech.
+
+THE DRAGON RIDERS (Race to the Edge era — late teens, based at Dragon's Edge):
+- Hiccup Haddock: slim and wiry, scruffy auburn hair, green eyes, a small scar on his chin.
+  Dry wit, hates fighting when thinking will do, brilliant inventor (built his own flight
+  suit, the Dragon Eye lens holders, and Inferno — a sword whose blade ignites with Monstrous
+  Nightmare gel). His LEFT LEG below the knee is missing; he walks on a clever metal
+  prosthetic he designed. Heir of Berk; son of chief Stoick; his mother Valka was lost for
+  years. Natural leader of the riders.
+- Toothless: Hiccup's dragon and best friend, a Night Fury — believed the last of his kind.
+  Jet-black, sleek, big acid-green eyes, retractable teeth, ear-plates that telegraph his
+  mood. Fires whistling purple-blue plasma blasts; fastest and smartest of the dragons. His
+  LEFT TAIL FIN is missing: he CANNOT fly without the red prosthetic fin Hiccup built, steered
+  by Hiccup's foot stirrup — a solo Toothless is grounded.
+- Astrid Hofferson: Hiccup's closest ally (and eventually more). Fierce, driven, athletic;
+  blue eyes, long blonde bangs and a thick braid worn over one shoulder, leather headband,
+  spiked skirt and shoulder guards, arm wraps. Fights with a double-headed battle axe and
+  wins. Her dragon Stormfly is a Deadly Nadder: bright blue with gold accents, bird-like on
+  two legs, a crown of head spikes, blazing magnesium flame, and volleys of tail spines she
+  can fire on command ("Spine shot!").
+- Fishlegs Ingerman: big, husky, and gentle; blond hair, blue eyes. A walking dragon
+  encyclopedia — recites dragon stats and classes, keeps dragon cards, loves rocks and runes.
+  His dragon Meatlug is a Gronckle: squat, tan-brown, boulder-shaped, wings that buzz like a
+  bumblebee's. She eats rocks and spews molten lava blasts; sweet-natured and loves belly rubs.
+- Snotlout Jorgenson: stocky and muscular, black hair, blue eyes, horned helmet. Loud,
+  boastful, girl-crazy, secretly insecure but brave when it counts. His dragon Hookfang is a
+  Monstrous Nightmare: huge, crimson-red, long snake-like neck, and can SET HIS WHOLE BODY ON
+  FIRE. Stubborn — regularly ignores Snotlout, which everyone else finds hilarious.
+- Ruffnut and Tuffnut Thorston: lanky blond twins who live for mayhem and explosions and
+  finish each other's arguments. Ruffnut (the sister) wears her hair in long thin braids;
+  Tuffnut (the brother) has long blond dreadlocks and keeps a beloved pet chicken named
+  Chicken. They share Barf and Belch, a green two-headed Hideous Zippleback: Barf's head spews
+  thick green gas, Belch's head sparks it — BOOM.
+- Heather: a tough loner who joins the riders; raven-black hair in a thick braid, green eyes,
+  armor of silver dragon scales, fights with a double-bladed axe that folds. She is DAGUR'S
+  SISTER (a hard truth she wrestles with). Her dragon Windshear is a Razorwhip: silver,
+  armor-plated, with a blade-sharp tail.
+
+BERK AND FRIENDS:
+- Stoick the Vast: Hiccup's father, chief of Berk — a mountain of a man with a huge red beard,
+  crushing hugs, and a temper that hides deep love. Rides Skullcrusher, a Rumblehorn with a
+  battering-ram head and a bloodhound's nose for tracking.
+- Gobber: Berk's blacksmith and Stoick's oldest friend. Big blond mustache, missing one hand
+  (he swaps hook, hammer, and tongs attachments into the stump) and one leg (peg leg). Jokes
+  through everything.
+- Mala: the stern, honorable queen of the Defenders of the Wing, an island tribe that
+  PROTECTS dragons and guards the Eruptodon — the massive dragon that eats their volcano's
+  lava. Short blonde hair, elite swordswoman.
+- Gustav Larson: an eager teen who idolizes the riders and keeps trying to join them; black
+  hair, rides a Monstrous Nightmare he named Fanghook.
+- Trader Johann: a chatty traveling merchant full of tall tales who visits everyone — and
+  secretly the true mastermind: he has been spying for the dragons' enemies all along, a
+  villain revealed late in the series (the kids know; no need to tiptoe).
+
+VILLAINS:
+- Viggo Grimborn: leader of the dragon hunters. Calm, precise, softly-spoken and terrifyingly
+  smart — he treats war like his favorite strategy game, Maces and Talons, and is Hiccup's
+  intellectual equal. Neat dark hair and short beard. Later in the series he carries a burn
+  scar across one eye.
+- Ryker Grimborn: Viggo's older brother and the muscle — bald, broad as a door, twin swords,
+  no patience for Viggo's chess games.
+- Dagur the Deranged: chief of the Berserker tribe — wild auburn hair, claw-mark tattoos over
+  one eye, laughs at danger, calls Hiccup "brother." Starts as an unhinged enemy, later
+  REDEEMS himself and fights alongside the riders; rides Sleuther, a Triple Stryke with a
+  triple scorpion tail. He is Heather's brother.
+- Krogan: a cold mercenary who commands flyers mounted on Singetails; works with the hunters
+  in the later seasons.
+- The dragon hunters: trap and sell dragons; their ships and cages use dragon-proof metal, and
+  their arrows are dipped in dragon-root.
+
+THE DRAGON EYE & LORE:
+- The Dragon Eye: an ancient cylindrical artifact of lenses that projects hidden maps and
+  dragon knowledge when lit by dragon fire. Both the riders and the hunters fight to control
+  it; swapping lenses reveals different secrets.
+- Dragon classes (Fishlegs will happily recite them): Strike, Boulder, Tracker, Sharp, Stoker,
+  Tidal, Mystery. Every dragon has a SHOT LIMIT — only so many blasts before it must rest.
+- Eels repel and sicken dragons. Dragon nip (a grass) calms them; DRAGON-ROOT drives them into
+  a frenzy. The Death Song traps dragons in amber it spits and "sings" to lure them; Garff is
+  an orphaned baby Death Song the riders raised. Night Terrors are tiny dragons that swarm in
+  formation as one giant dragon shape; a white one, Smidvarg, leads the Edge's flock.
+- The white Light Fury (from the movies) can briefly turn INVISIBLE after heating her scales
+  with a plasma blast; she is sleek, cat-like, and wild.
+- Setting: the Viking isle of Berk (Stoick's village, the Great Hall) and Dragon's Edge, the
+  riders' island outpost with a clubhouse, stables, and each rider's hut.` },
+  { key: "mario", name: "Super Mario",
+    triggers: /\bmario\b|\bluigi\b|bowser|mushroom kingdom|princess peach|\byoshi\b|goomba|koopa|toadstool|piranha plant|warp pipe|wario|donkey kong/i,
+    facts: `- Mario and Luigi: mustached brother plumbers who talk in cheerful simple speech. Mario wears
+  a red cap and shirt with blue overalls; Luigi wears green, is taller, and is more timid.
+- Princess Peach rules the Mushroom Kingdom — pink gown, blonde hair, kind but capable. Bowser
+  is the huge spike-shelled Koopa king: breathes fire, has a castle with lava, endlessly
+  scheming (often kidnapping Peach); his son is Bowser Jr.
+- Yoshi: a friendly green dinosaur who can be ridden, grabs things with a long tongue,
+  swallows enemies, and lays spotted eggs. Yoshi mostly just says "Yoshi!".
+- Toads: little people with mushroom caps who talk normally and live throughout the kingdom.
+- Power-ups work reliably: Super Mushroom makes you grow, Fire Flower grants fireball
+  throwing, a Super Star gives short invincibility, a 1-Up Mushroom is green. Coins are
+  everywhere; hitting a ? Block from below pops out its contents; green warp pipes carry you
+  between places.
+- Enemies are cartoonish, never gory: Goombas (grumpy walking chestnut-brown mushrooms) are
+  stomped, Koopa Troopas hide in shells that slide when kicked, Piranha Plants snap from
+  pipes. Defeated enemies just poof away — nobody truly dies.
+- Go-kart racing is a beloved pastime (Mario Kart) with items like shells and banana peels.` },
+  { key: "starwars", name: "Star Wars",
+    triggers: /star wars|lightsaber|light saber|jedi|\bsith\b|darth|skywalker|millennium falcon|chewbacca|wookiee|stormtrooper|death star|grogu|mandalorian|\byoda\b|kenobi|blaster bolt|the force\b|kyber|padawan|darksaber|force push|force lightning/i,
+    facts: `THE FORCE — how it actually works:
+- The Force is an energy field created by all living things. It has a LIGHT SIDE, drawn on
+  through calm, focus, and selflessness, and a DARK SIDE, fed by anger, fear, and hate. The
+  dark side feels quicker and more powerful, but it corrupts the user (in deep cases their
+  eyes go sickly yellow). Force-sensitivity is something you are BORN with; training grows it.
+  Jedi ranks: youngling → Padawan (apprentice, often wears a thin braid) → Jedi Knight →
+  Jedi Master. Sith keep the Rule of Two: only a master and an apprentice, never more.
+- TELEKINESIS: pushing, pulling, lifting, and throwing with the mind. Strength scales with
+  skill and focus — a beginner shakes a pebble; a master can lift a sunken starfighter.
+  Force-push sends enemies flying; Force-pull yanks a weapon from a hand.
+- BODY: the Force grants superhuman leaps, bursts of speed, softened falls, and lightning
+  reflexes. Jedi deflect blaster bolts because the Force shows them the shot a heartbeat
+  BEFORE it comes (danger sense / precognition) — the same sense that warns of ambushes.
+- MIND: the "mind trick" nudges the WEAK-minded with a calm suggestion and a small hand wave
+  ("These aren't the droids you're looking for") — strong wills and some species resist it.
+  Jedi can sense feelings, life, and great events ("a disturbance in the Force").
+- TELEPATHY & FORCE BONDS: trained users can send words and feelings mind-to-mind. Two people
+  who are close — siblings, master and apprentice, partners in many battles — can form a
+  FORCE BOND: they speak silently to each other, feel each other's emotions and pain, and
+  sense each other across great distances. A bond like this is rare and precious.
+- DARK-SIDE POWERS: Force lightning crackles from the fingertips and causes agony (a
+  lightsaber blade can catch/absorb it); the Force choke squeezes a throat from across a
+  room. Every dark-side act pulls the user deeper.
+- LIMITS & COSTS: the Force tires its user like any muscle; big feats take total focus. A
+  strong unwilling mind cannot simply be read. Force healing exists but is rare and drains
+  the healer. Great masters who learn the secret can return after death as glowing blue
+  FORCE GHOSTS to advise the living.
+
+LIGHTSABERS — the blade and its lore:
+- A lightsaber is powered by a KYBER CRYSTAL, a living crystal that attunes to its owner —
+  Jedi say the crystal chooses. Building YOUR OWN saber is a rite of passage; the blade's
+  color comes from the bond: blue and green most common, purple rare, yellow for temple
+  guards, white for a purified crystal. Sith cannot be chosen — they "bleed" stolen crystals
+  by pouring rage into them, which turns the blade RED.
+- The blade has no weight — swinging pure energy takes long practice. It cauterizes as it
+  cuts (wounds don't bleed), melts through blast doors slowly, and blades CLASH and LOCK
+  against each other in a duel. Very rare metals (Mandalorian beskar) resist a saber's edge.
+- TYPES: the standard single blade; the DOUBLE-BLADED saber — ONE handle in the middle, a
+  blade igniting from EACH end (Darth Maul's weapon), spun like a staff; dual-wielding (a
+  saber in each hand); the shoto (a short off-hand blade); the crossguard saber (side-vent
+  quillons, Kylo Ren's); curved-hilt sabers built for elegant dueling; low-powered training
+  sabers for younglings. The DARKSABER is one of a kind: an ancient flat BLACK blade, won
+  only by defeating its bearer, tied to Mandalorian leadership.
+- Duelists study seven classic lightsaber forms — from Soresu (patient, impenetrable
+  defense) to Ataru (leaping acrobatics) to Djem So (overwhelming power strikes).
+
+THE WIDER GALAXY (quick color): blasters fire glowing bolts, not bullets; stormtroopers wear
+white armor and famously can't aim; astromech droids like R2-D2 speak in beeps, protocol
+droids like C-3PO chatter; Wookiees roar instead of speaking words; hyperspace jumps streak
+the stars into lines. Yoda — small, green, wise — speaks in inverted syntax ("Strong with the
+Force, you are"). Travel between planets is routine; aliens, droids, and humans mix everywhere.` },
+  { key: "pokemon", name: "Pokémon",
+    triggers: /pok[eé]mon|pikachu|charizard|charmander|bulbasaur|squirtle|eevee|pok[eé] ?ball|team rocket|\bpokedex\b|pok[eé]dex|gym leader|ash ketchum/i,
+    facts: `- Pokémon say ONLY their own names ("Pika, pika!") — they never speak human words. (The one
+  famous exception is Team Rocket's Meowth, who taught himself to talk.) They understand their
+  trainers well.
+- Trainers catch Pokémon in Poké Balls and carry up to six. Battles end when a Pokémon FAINTS
+  — Pokémon are never killed. Fainted Pokémon are healed at a Pokémon Center (run by Nurse
+  Joy).
+- Pikachu: small, yellow, red cheeks, lightning-bolt tail, electric attacks like Thunderbolt.
+  Ash's Pikachu famously refuses to ride in a Poké Ball.
+- Types matter like rock-paper-scissors: water douses fire, fire burns grass, grass drinks
+  water; electric shocks water and flying types; ground blocks electric.
+- Many Pokémon evolve into bigger forms (Charmander → Charmeleon → Charizard, a winged orange
+  dragon whose tail flame must never go out). Eevee can evolve many different ways.
+- Team Rocket (Jessie, James, Meowth) are comedic villains who scheme to steal Pokémon and
+  blast off dramatically when they lose. Legendary Pokémon are rare, powerful, and awe-inspiring.` },
+];
+function detectUniverses(messages) {
+  let text = "";
+  try { text = JSON.stringify(messages); } catch { return []; }
+  return UNIVERSE_BIBLES.filter((u) => u.triggers.test(text));
+}
+
+// ---- Evolving FAMILY CANON per universe ----
+// The kids' own creations (an original rider like Bree, her light fury, her gear) become part
+// of the universe: every time a story's bible folds (mode "summary"), a Sonnet bookkeeper
+// merges reader-created characters and lasting changes into farmgpt_canon/<universeKey>, and
+// the universe guide serves baked franchise facts + the family canon together. Shared across
+// the whole family — one kid's characters exist in a sibling's stories too.
+const CANON_COLLECTION = "farmgpt_canon";
+const CANON_MAX_CHARS = 6000;
+const canonCache = new Map();   // key -> { text, exp } (warm-invocation cache, 60s)
+async function fetchUniverseCanon(key) {
+  const hit = canonCache.get(key);
+  if (hit && Date.now() < hit.exp) return hit.text;
+  let text = "";
+  try {
+    const token = await getGoogleAccessToken();
+    if (token) {
+      const r = await fetch(`${FIRESTORE_BASE}/${CANON_COLLECTION}/${key}`, { headers: { authorization: `Bearer ${token}` } });
+      if (r.ok) {
+        const j = await r.json().catch(() => null);
+        text = (j && j.fields && j.fields.canon && j.fields.canon.stringValue) || "";
+      }
+    }
+  } catch { /* no canon this round — the baked facts still ride */ }
+  canonCache.set(key, { text, exp: Date.now() + 60 * 1000 });
+  return text;
+}
+async function writeUniverseCanon(key, text) {
+  try {
+    const token = await getGoogleAccessToken();
+    if (!token) return false;
+    const base = `projects/${PROJECT_ID}/databases/(default)/documents`;
+    const r = await fetch(`${FIRESTORE_BASE}:commit`, {
+      method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ writes: [{ update: { name: `${base}/${CANON_COLLECTION}/${key}`,
+        fields: { canon: sv(String(text).slice(0, CANON_MAX_CHARS)), updatedAt: sv(new Date().toISOString()) } } }] }),
+    });
+    if (r.ok) canonCache.set(key, { text, exp: Date.now() + 60 * 1000 });
+    return r.ok;
+  } catch { return false; }
+}
+
+async function universeGuides(messages) {
+  const hits = detectUniverses(messages);
+  if (!hits.length) return "";
+  const canons = await Promise.all(hits.map((u) => fetchUniverseCanon(u.key)));
+  return "\n\n===== UNIVERSE GUIDE" + (hits.length > 1 ? "S" : "") +
+    " — this story visits a world the reader already knows. The facts below are ESTABLISHED CANON of that world: get them right the FIRST time, without being corrected. If the reader explicitly changes one of these details in THEIR story, the reader's version wins — otherwise never contradict them. =====\n" +
+    hits.map((u, i) => "--- " + u.name + " ---\n" + u.facts +
+      (canons[i] ? "\nFAMILY CANON — original characters and lasting changes the readers themselves have added to this universe across their stories. Treat every detail here as established canon, exactly like the facts above (newest details win):\n" + canons[i] : "")
+    ).join("\n");
+}
+
+// Bookkeeper prompt: distills reader-created canon out of a story bible and merges it into the
+// universe's family canon. Runs on Sonnet (same accuracy-over-cost call as the bible itself).
+const CANON_UPDATE_SYSTEM = (name) => `You maintain the FAMILY CANON for the "${name}" universe in
+a family's story app. The kids write their own stories set in this universe, inventing original
+characters and sometimes changing things for good. You will receive the CURRENT FAMILY CANON
+(possibly empty) and the latest STORY BIBLE from one story in progress. Rewrite the family canon
+so it stays current:
+- ORIGINAL characters the readers created (NOT characters from the franchise): name, physical
+  description exactly as established, clothing/armor, weapons and possessions, companions or
+  dragons (with names and descriptions), relationships to franchise characters, and their goals.
+  When the new bible shows a change to an existing entry (a new weapon, a new scar, a new
+  companion), UPDATE the entry — newest details win.
+- LASTING changes or additions the readers made to the universe itself: new places, new
+  creatures or species, events that permanently changed things.
+- Do NOT restate standard franchise facts or describe franchise characters — only what the
+  readers added or changed.
+- Keep the whole canon under about 500 words, compressing the LEAST important old details
+  first — but never drop a reader-created character entirely (kids come back to them years
+  later); compress their entry instead.
+Output ONLY the updated canon as terse bullet lines — no preamble, no headings, no commentary.
+If the story bible contains nothing reader-created and nothing new for this universe, reply with
+exactly NO_CHANGES.`;
+
+async function updateUniverseCanons(messages, bibleText) {
+  try {
+    const hits = detectUniverses(messages);
+    for (const u of hits) {
+      const current = await fetchUniverseCanon(u.key);
+      const input = "CURRENT FAMILY CANON:\n" + (current || "(empty — nothing recorded yet)") +
+        "\n\nLATEST STORY BIBLE:\n" + String(bibleText).slice(0, 12000) +
+        "\n\nRewrite the family canon now.";
+      const r = await callAnthropicOnce(RESEARCH_MODEL, CANON_UPDATE_SYSTEM(u.name), input, 1000);
+      if (!r) continue;
+      await logUsage("summary", r.inTok, r.outTok, r.cacheWriteTok, r.cacheReadTok);
+      const out = (r.text || "").trim();
+      if (!out || /^NO_CHANGES\b/.test(out)) continue;
+      await writeUniverseCanon(u.key, out);
+    }
+  } catch { /* canon upkeep must never break a summary reply */ }
+}
+
 // Appended to STORY_SYSTEM only when the request asks for an illustration (maxTokens
 // bumped alongside). The <svg> is sanitized hard on the client before it ever renders.
 const STORY_ILLUSTRATION = `
@@ -1629,6 +1915,11 @@ export default async (req) => {
   let system = illustrate ? mode.system + "\n" + STORY_ILLUSTRATION : mode.system;
   const maxTokens = illustrate ? 3000 : mode.maxTokens;
 
+  // Known-universe fact sheets ride the story system prompt (auto-detected from the request's
+  // own text) so franchise details are right without the reader having to correct them —
+  // including the FAMILY CANON of characters the kids themselves have added to that universe.
+  if (body.mode === "story") system += await universeGuides(messages);
+
   // Parents get the direct-answer research prompt (answer keys allowed); kids keep the tutor.
   if (body.mode === "research" && PARENT_RESEARCH_USERS.includes(body.user)) system = PARENT_RESEARCH_SYSTEM;
 
@@ -1762,6 +2053,9 @@ export default async (req) => {
   const logStoryReq = (body.mode === "story" || body.mode === "kidstory") &&
     typeof body.user === "string" && body.user &&
     body.user !== "Dad" && typeof body.storyId === "string" && !!body.storyId;
+  // Summary replies are ALSO captured server-side: the finished story bible feeds the
+  // evolving per-universe FAMILY CANON (updateUniverseCanons) after the stream closes.
+  const captureReply = logStoryReq || body.mode === "summary";
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -1793,7 +2087,7 @@ export default async (req) => {
               const cand = ev.candidates && ev.candidates[0];
               if (cand && cand.content && cand.content.parts) {
                 const t = cand.content.parts.map((p) => p.text || "").join("");
-                if (t) { sentAnyText = true; if (logStoryReq) replyText += t; controller.enqueue(encoder.encode(t)); }
+                if (t) { sentAnyText = true; if (captureReply) replyText += t; controller.enqueue(encoder.encode(t)); }
               }
               // A safety/recitation block with no text → friendly stand-in (shared handler below).
               if (cand && (cand.finishReason === "SAFETY" || cand.finishReason === "RECITATION" || cand.finishReason === "OTHER")) stopReason = "refusal";
@@ -1804,7 +2098,7 @@ export default async (req) => {
               }
             } else if (ev.type === "content_block_delta" && ev.delta && ev.delta.type === "text_delta" && ev.delta.text) {
               sentAnyText = true;
-              if (logStoryReq) replyText += ev.delta.text;
+              if (captureReply) replyText += ev.delta.text;
               controller.enqueue(encoder.encode(ev.delta.text));
             } else if (ev.type === "message_start" && ev.message && ev.message.usage) {
               // input_tokens is the UNCACHED remainder only; cached tokens are reported
@@ -1834,6 +2128,10 @@ export default async (req) => {
             idx: body.sceneIdx | 0, choice: body.choice || "",
             scene: replyText.replace(/\n?===ART===[\s\S]*$/, "").trim(),   // drop the bulky SVG
           });
+        }
+        // A finished story bible folds the readers' own creations into the universe's canon.
+        if (body.mode === "summary" && sentAnyText && replyText.trim()) {
+          await updateUniverseCanons(messages, replyText);
         }
         controller.close();
       }
