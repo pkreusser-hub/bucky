@@ -956,8 +956,14 @@ OUTPUT — STRICT JSON ONLY, no markdown fences, no text before or after, exactl
 {"title": "short assessment title (subject + topic)",
  "chapter": "Chapter 7: Fractions" or "",
  "instructions": "one or two sentences of student-facing directions",
- "questions": [{"q": "question text", "choices": ["A text","B text","C text","D text"] or null, "lines": 0..6}],
+ "questions": [{"q": "question text", "section": "short directive or \\"\\"", "choices": ["A text","B text","C text","D text"] or null, "lines": 0..6}],
  "answerKey": ["answer for question 1", "answer for question 2", ...]}
+"section" groups consecutive related questions under ONE short italic directive the way
+textbooks do ("Write the word name for the number.", "Round to the specified place.", "Add.",
+"Solve. Show your work."). Give the SAME section string to every question of the group — it
+prints once above the group — and "" when a question needs no directive. When a section
+directive carries the instruction, do NOT repeat it inside each question's text: the question
+is just the problem itself ("704", "$-7 + (-26)$").
 "choices" is null for non-multiple-choice questions. "lines" is how many blank answer lines to
 print under the question — MATCH it to the work the question actually requires: 0 for multiple
 choice, 1 for a single-word or single-number answer, 2-3 for a computation of a couple of
@@ -969,7 +975,12 @@ radicals), so wrap every mathematical expression in $...$ using ONLY these comma
 _{ } for subscripts, \\sqrt{49} for square roots, \\times, \\div, \\pi, \\le, \\ge, \\ne,
 \\pm, and 90^{\\circ} for degrees. Examples: "What is $\\frac{1}{2} + \\frac{1}{4}$?",
 "Evaluate $5^{2} \\times \\sqrt{9}$.", "$12 \\times 8 =$ ?". Fractions ALWAYS use
-$\\frac{ }{ }$ — never a slash like 3/4. Units and ordinary words stay OUTSIDE the markers.
+$\\frac{ }{ }$ — never a slash like 3/4. Two more layout commands, used whenever the material
+presents a problem that way: $\\stack{641}{872}{+358}$ prints vertical column arithmetic
+(2-4 rows, right-aligned over an answer bar; put the operator on the last row: +358, -428,
+\\times 58) and $\\longdiv{47}{3,170}$ prints a long-division bracket (divisor first). Plain
+computation drills (column addition/subtraction/multiplication, long division) should use
+these instead of inline expressions. Units and ordinary words stay OUTSIDE the markers.
 Money is NOT math — write dollar amounts plainly ($4.50) with no closing marker. Use no other
 LaTeX commands. The same notation applies inside "choices" and "answerKey" entries.`;
 
@@ -983,6 +994,7 @@ function parseTeacherJSON(text) {
     if (!Array.isArray(o.questions) || !o.questions.length) return null;
     const questions = o.questions.slice(0, 60).map((q) => ({
       q: String((q && q.q) || "").slice(0, 2000),
+      section: String((q && q.section) || "").slice(0, 160),
       choices: Array.isArray(q && q.choices) ? q.choices.slice(0, 6).map((c) => String(c).slice(0, 400)) : null,
       lines: Math.max(0, Math.min(8, ((q && q.lines) | 0))),
     })).filter((q) => q.q);
