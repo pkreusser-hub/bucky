@@ -1417,6 +1417,31 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   tools/_verify-story-reminder.mjs now 25/25 (+bible checks) + scratchpad story_redo_test.cjs
   26/26 (wire/DOM/saved-story scene removal, role alternation, merged turns, fresh sceneIdx,
   opener redo, resume, maxlength) + storylog-summary 77 / kidstory 54 / dnd 47 regressions green.
+- COLLABORATIVE STORY BATCH (2026-08-01, user, 6 changes): (1) CHAPTER STEERING — chapterEndRow
+  gains #nextChapterIdea (maxlength 2000): filled → the idea IS the next chapter's opening user
+  turn (tagged {opener:true}, addPickedEl'd, logged as the choice); blank → NEXT_CHAPTER_MSG
+  sentinel as before; Enter submits. (2) SCROLL-GATED CHOICES — gateChoices()/storyAtBottom()
+  (farmgpt.html): after a scene lands, choiceBtns/writeRow/chapterEndRow hide (.gated class +
+  #scrollHint "⇣ keep reading") until #storyScroll is within 48px of the bottom; short scenes
+  never gate; capped/ended never gate. (3) MEMORY BEEF-UP (user-approved token spend): mode
+  "summary" now runs on SONNET always (provider resolution split from story; dashboard prices
+  u_* at Sonnet from 2026-08-01 — earlier u_* docs were Haiku, slight over-estimate is fine);
+  bible gains GOALS & MOTIVATIONS section + POSSESSIONS-per-character in CHARACTERS, ~700 words,
+  maxTokens 1200; SEND_CHAPTERS 4→6. (4) PARENT-REPORT FLAGS RECALIBRATED — franchise crossovers
+  (Star Wars/lightsabers) + ordinary fantasy combat are NEVER flag-worthy; flag only GRAPHIC
+  content (gore/torture/dwelled-on injuries), REPEATED pushes for more/harsher violence (>1
+  redirect), or sexual/political content. (5) TRANSCRIPTS RETAINED — raw farmgpt_story_log
+  scenes are NO LONGER deleted after summarization (the cleanup kind is gone; final-summary +
+  scenes = normal resting state); STORY_LOG_RETENTION_DAYS 30→90 (accessible for review via
+  Firestore REST — public rules, see scratchpad pull_eleanor.mjs pattern); new secret-gated
+  action storylog_scenes {date, canon} → the Story Log renders a "📜 Read the day's transcript"
+  toggle under each report card (slTrans* CSS; parseChapter strips markers). storylog_clear
+  still deletes both. (6) READER IS LAW — STORY_SYSTEM write-in line + STORY_RULES_REMINDER
+  gain co-author language: write-ins are direction not suggestion, never watered down, crossovers
+  welcome; content rules remain the only override. Suites: _verify-story-reminder 30/30 ·
+  _verify-storylog-summary 86/86 (deletion asserts inverted to retention + storylog_scenes +
+  flag-rule checks) · scratchpad story_ux_test.cjs 22/22 (gate/steer/transcript) ·
+  story_redo_test 26/26 + parent-research 25 / kidstory 54 / dnd 47 / calories 24.
 - GUARDRAILS TIGHTENED (2026-07-30, user): FAMILY_RULES — torture scenes are never written even
   if explicitly/repeatedly requested (redirects in-story like other restricted topics);
   interrogation OK (questioning/pressure/bluffing/wits) but zero violence, torture, or threats
