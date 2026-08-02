@@ -227,7 +227,6 @@ function startRecSession(){
   rec = new SR();
   rec.lang = "en-US"; rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
   rec.onresult = (e) => {
-    localStorage.setItem("meallog_mic_ok", "1");   // mic worked — future opens auto-listen
     sessionFinal = ""; sessionAll = "";
     for (const r of e.results){ sessionAll += r[0].transcript + " "; if (r.isFinal) sessionFinal += r[0].transcript + " "; }
     const t = sessionAll.replace(/\s+/g, " ").trim();
@@ -265,9 +264,8 @@ function paintWho(){ $("whoName").textContent = who; }
 $("whoSwap").onclick = () => { who = MEAL_USERS[(MEAL_USERS.indexOf(who) + 1) % MEAL_USERS.length]; localStorage.setItem("meallog_who", who); paintWho(); };
 paintWho();
 if (!SR){ $("status").textContent = "Voice isn't supported here — type what you ate"; }
-// Auto-listen on open (the one-tap widget flow): only once permission has been granted before,
-// so a brand-new install still gets the friendly tap-first prompt instead of a surprise dialog.
-else if (localStorage.getItem("meallog_mic_ok") === "1"){ setTimeout(listen, 250); }
+// No auto-listen on open (user request 2026-08-02): the page always waits for a mic tap —
+// opening the shortcut never starts a surprise recording.
 window.addEventListener("pagehide", () => { try { rec && rec.abort(); } catch {} });
 
 // Test hook (headless suites drive this; module globals are unreachable from evaluate).

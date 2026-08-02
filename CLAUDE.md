@@ -559,7 +559,8 @@ real estimates for sane numbers.
 🎤 VOICE LOGGING + HOME-SCREEN WIDGET (2026-07-31, same batch): (1) in-app — the Add sheet AI
 row gains a 🎤 dictation button (Web Speech API, absent where unsupported; final transcript
 auto-runs Estimate & add). (2) meallog.html — standalone voice quick-log page ("the widget"):
-tap mic (auto-listens on open once meallog_mic_ok proves a prior successful listen) → speak →
+tap mic (NO auto-listen on open — user request 2026-08-02: listening only ever starts from a
+mic tap; the old meallog_mic_ok auto-listen gate is removed) → speak →
 mode "calories" → entry QUEUED to settings doc mealInbox<suffix> {items:[{k,meal,n,c}]}
 (meal-of-day by Chicago hour; cloud via inline-duplicated Firebase config w/ 4s race, else
 localStorage setting_ fallback — same keys the app's local backend reads); result screen w/
@@ -601,7 +602,7 @@ so a crash duplicates rather than loses; aborts mid-drain on profile switch. Sui
 scratchpad meallog_test.cjs 25/25. TEST GOTCHA: headless Chromium exposes UNPREFIXED
 window.SpeechRecognition natively — a fake must override BOTH names or the real one shadows
 it and errors not-allowed. Voice quality/mic UX not testable headless — playtest on the
-actual phone; if Android auto-listen on open proves flaky, drop meallog_mic_ok gating.
+actual phone. (Auto-listen on open was indeed unwanted — removed 2026-08-02, see above.)
 
 ---
 
