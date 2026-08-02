@@ -1,0 +1,56 @@
+17:10:12 | INFO: Data are loaded, start creating Blender stuff
+17:10:12 | INFO: Blender create Mesh node tripo_mesh_892f0a1d-f2dd-4183-833e-68de37a15a3f
+17:10:12 | INFO: glTF import finished in 0.04s
+00:06.312  render           | Saved: 'C:\Users\pkreu\OneDrive\Documents\BUCKY\assets\farmstead\cast\sprites-test\_inspect\knight_split_front.png'
+00:06.375  render           | Saved: 'C:\Users\pkreu\OneDrive\Documents\BUCKY\assets\farmstead\cast\sprites-test\_inspect\knight_split_threequarter.png'
+using mesh object: tripo_node_892f0a1d-f2dd-4183-833e-68de37a15a3f polys: 8830
+world Z range: 0.0 0.9935
+Z histogram (bottom->top), 8064 verts:
+  z= 0.000  ################################# 364
+  z= 0.025  ########## 119
+  z= 0.050  ######## 95
+  z= 0.075  #### 45
+  z= 0.099  ### 43
+  z= 0.124  ##### 58
+  z= 0.149  ################### 209
+  z= 0.174  ############# 151
+  z= 0.199  ##### 59
+  z= 0.224  ######################### 277
+  z= 0.248  ############################################### 526
+  z= 0.273  ######################################### 454
+  z= 0.298  ##################################### 417
+  z= 0.323  ########################### 304
+  z= 0.348  ### 43
+  z= 0.373  ## 24
+  z= 0.397  ## 24
+  z= 0.422  ## 25
+  z= 0.447  # 14
+  z= 0.472  # 20
+  z= 0.497  ### 38
+  z= 0.522  ######## 88
+  z= 0.546  ######################################### 459
+  z= 0.571  ################################################################################ 883
+  z= 0.596  ################################################### 566
+  z= 0.621  ############################################## 514
+  z= 0.646  ########################################### 483
+  z= 0.671  ################### 216
+  z= 0.695  ######## 96
+  z= 0.720  #################### 229
+  z= 0.745  ########################### 303
+  z= 0.770  ####################### 253
+  z= 0.795  ################### 219
+  z= 0.820  ############# 148
+  z= 0.844  ####### 86
+  z= 0.869  ###### 71
+  z= 0.894  #### 50
+  z= 0.919  ### 35
+  z= 0.944  ## 23
+  z= 0.969  ### 33
+using Z_CUTOFF = 0.3179059982299805
+region counts: body=5344 legL=1384 legR=1336 (total 8064)
+face region counts: body=5558 legL=1672 legR=1600
+wrote C:/Users/pkreu/OneDrive/Documents/BUCKY/assets/farmstead/cast/sprites-test/_inspect/knight_split_front.png
+wrote C:/Users/pkreu/OneDrive/Documents/BUCKY/assets/farmstead/cast/sprites-test/_inspect/knight_split_threequarter.png
+Blender 5.1.2 (hash ec6e62d40fa9 built 2026-05-19 01:37:34)
+
+Blender quit

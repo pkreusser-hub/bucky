@@ -30,3 +30,6 @@ assets/cast/*/*/
 
 # Gator 3D RAW Tripo intermediates (57MB source + wheel experiments) — only farmkart-gator3d.glb ships
 assets/farmkart/gator3d/
+assets/farmstead/cast/villager/_raw_gen/
+assets/farmstead/cast/villager/_raw_rig/
+assets/farmstead/cast/villager/_blend/

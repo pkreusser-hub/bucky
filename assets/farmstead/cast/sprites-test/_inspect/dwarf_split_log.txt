@@ -1,0 +1,55 @@
+17:10:04 | INFO: Data are loaded, start creating Blender stuff
+17:10:04 | INFO: Blender create Mesh node tripo_mesh_9d73bc6c-c608-48c8-bd92-51b46ac21ae7
+17:10:04 | INFO: glTF import finished in 0.08s
+00:06.625  render           | Saved: 'C:\Users\pkreu\OneDrive\Documents\BUCKY\assets\farmstead\cast\sprites-test\_inspect\dwarf_split_front.png'
+00:06.719  render           | Saved: 'C:\Users\pkreu\OneDrive\Documents\BUCKY\assets\farmstead\cast\sprites-test\_inspect\dwarf_split_threequarter.png'
+using mesh object: tripo_node_9d73bc6c-c608-48c8-bd92-51b46ac21ae7 polys: 8529
+world Z range: -0.0 0.9049
+Z histogram (bottom->top), 7399 verts:
+  z=-0.000  ################################################################# 526
+  z= 0.023  ##################### 168
+  z= 0.045  #################### 163
+  z= 0.068  ################### 152
+  z= 0.090  #################################### 292
+  z= 0.113  ############################# 233
+  z= 0.136  ##################### 172
+  z= 0.158  ######### 72
+  z= 0.181  ####### 56
+  z= 0.204  ########### 90
+  z= 0.226  ######################## 192
+  z= 0.249  ########################################## 341
+  z= 0.271  ########################################################### 475
+  z= 0.294  ##################################################### 424
+  z= 0.317  ########################## 209
+  z= 0.339  ######################### 207
+  z= 0.362  ################# 138
+  z= 0.385  ######## 71
+  z= 0.407  #### 36
+  z= 0.430  #### 32
+  z= 0.452  ##### 44
+  z= 0.475  ######## 67
+  z= 0.498  ############### 122
+  z= 0.520  ####################################### 314
+  z= 0.543  ################################################################################ 689
+  z= 0.566  #################################################################### 549
+  z= 0.588  ######################## 194
+  z= 0.611  #################### 167
+  z= 0.633  ################# 137
+  z= 0.656  ################### 158
+  z= 0.679  ####### 58
+  z= 0.701  ########### 89
+  z= 0.724  ###################### 183
+  z= 0.747  ##################### 170
+  z= 0.769  #################### 165
+  z= 0.792  ############ 97
+  z= 0.814  ####### 59
+  z= 0.837  #### 32
+  z= 0.860  ### 30
+  z= 0.882  ### 26
+region counts: body=3790 legL=1847 legR=1762 (total 7399)
+face region counts: body=4147 legL=2194 legR=2188
+wrote C:/Users/pkreu/OneDrive/Documents/BUCKY/assets/farmstead/cast/sprites-test/_inspect/dwarf_split_front.png
+wrote C:/Users/pkreu/OneDrive/Documents/BUCKY/assets/farmstead/cast/sprites-test/_inspect/dwarf_split_threequarter.png
+Blender 5.1.2 (hash ec6e62d40fa9 built 2026-05-19 01:37:34)
+
+Blender quit

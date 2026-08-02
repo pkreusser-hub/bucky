@@ -1,0 +1,40 @@
+{
+  "name": "dwarf",
+  "mode": "skin",
+  "cutoff": null,
+  "rawHeight": 0.9048514381140542,
+  "targetHeight": 0.79,
+  "scale": 0.8730714974013475,
+  "srcTris": 8529,
+  "srcVerts": 7399,
+  "armRotDeg": 75,
+  "armCutoff": null,
+  "regionVertCounts": {
+    "body": 3790,
+    "legL": 1847,
+    "legR": 1762
+  },
+  "armSideCounts": {
+    "none": 5298,
+    "armL": 988,
+    "armR": 1113
+  },
+  "regionFaceCounts": {
+    "body": 4147,
+    "legL": 2194,
+    "legR": 2188
+  },
+  "hip": {
+    "legL": {
+      "x": 0.1273369290358621,
+      "y": 0.3114391016947922,
+      "z": 0.007926818536627422
+    },
+    "legR": {
+      "x": -0.12768428348771066,
+      "y": 0.30895483840527094,
+      "z": -0.011476377148311711
+    }
+  },
+  "finalHeight": 0.79
+}

@@ -1,0 +1,17 @@
+17:08:23 | INFO: Data are loaded, start creating Blender stuff
+17:08:23 | INFO: Blender create Mesh node tripo_mesh_892f0a1d-f2dd-4183-833e-68de37a15a3f
+17:08:23 | INFO: glTF import finished in 0.10s
+00:09.171  render           | Saved: 'C:\Users\pkreu\OneDrive\Documents\BUCKY\assets\farmstead\cast\sprites-test\_inspect\knight_front.png'
+00:09.265  render           | Saved: 'C:\Users\pkreu\OneDrive\Documents\BUCKY\assets\farmstead\cast\sprites-test\_inspect\knight_side.png'
+00:09.312  render           | Saved: 'C:\Users\pkreu\OneDrive\Documents\BUCKY\assets\farmstead\cast\sprites-test\_inspect\knight_threequarter.png'
+==== C:/Users/pkreu/Downloads/medieval+knight+3d+model.glb ====
+objects: 1  meshes: 1  armatures: 0
+  MESH         tripo_node_892f0a1d-f2dd-4183-833e-68de37a15a3f loc=(-0.0005, -0.0017, 0.0) rot_euler=(0.0, 0.0, 0.0) scale=(1.0, 1.0, 1.0)
+  MESH tripo_node_892f0a1d-f2dd-4183-833e-68de37a15a3f: polys=8830 tris~=8830 verts=8064 vgroups=[]
+  world bbox min=(-0.4977, -0.1915, 0.0) max=(0.4967, 0.1882, 0.9935) size=(0.9944, 0.3798, 0.9935)
+wrote C:/Users/pkreu/OneDrive/Documents/BUCKY/assets/farmstead/cast/sprites-test/_inspect/knight_front.png
+wrote C:/Users/pkreu/OneDrive/Documents/BUCKY/assets/farmstead/cast/sprites-test/_inspect/knight_side.png
+wrote C:/Users/pkreu/OneDrive/Documents/BUCKY/assets/farmstead/cast/sprites-test/_inspect/knight_threequarter.png
+Blender 5.1.2 (hash ec6e62d40fa9 built 2026-05-19 01:37:34)
+
+Blender quit

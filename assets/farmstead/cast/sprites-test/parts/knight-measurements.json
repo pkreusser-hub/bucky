@@ -1,0 +1,40 @@
+{
+  "name": "knight",
+  "mode": "plane",
+  "cutoff": 0.32,
+  "rawHeight": 0.993456244468689,
+  "targetHeight": 0.9985,
+  "scale": 1.005076978034406,
+  "srcTris": 8830,
+  "srcVerts": 8064,
+  "armRotDeg": 75,
+  "armCutoff": 0.24,
+  "regionVertCounts": {
+    "body": 5310,
+    "legL": 1403,
+    "legR": 1351
+  },
+  "armSideCounts": {
+    "none": 6705,
+    "armL": 709,
+    "armR": 650
+  },
+  "regionFaceCounts": {
+    "body": 5514,
+    "legL": 1696,
+    "legR": 1620
+  },
+  "hip": {
+    "legL": {
+      "x": 0.0916089525094826,
+      "y": 0.31137164026360803,
+      "z": 0.030619191164010996
+    },
+    "legR": {
+      "x": -0.0771028149486947,
+      "y": 0.31189080400163965,
+      "z": 0.0545088455105064
+    }
+  },
+  "finalHeight": 0.9985
+}

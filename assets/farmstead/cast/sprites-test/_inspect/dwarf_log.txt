@@ -1,0 +1,63 @@
+17:08:13 | INFO: Data are loaded, start creating Blender stuff
+17:08:13 | INFO: Blender create Mesh node tripo_mesh_9d73bc6c-c608-48c8-bd92-51b46ac21ae7
+17:08:13 | INFO: glTF import finished in 0.05s
+00:07.375  render           | Saved: 'C:\Users\pkreu\OneDrive\Documents\BUCKY\assets\farmstead\cast\sprites-test\_inspect\dwarf_front.png'
+00:07.453  render           | Saved: 'C:\Users\pkreu\OneDrive\Documents\BUCKY\assets\farmstead\cast\sprites-test\_inspect\dwarf_side.png'
+00:07.516  render           | Saved: 'C:\Users\pkreu\OneDrive\Documents\BUCKY\assets\farmstead\cast\sprites-test\_inspect\dwarf_threequarter.png'
+==== C:/Users/pkreu/Downloads/cartoon+dwarf+3d+model.glb ====
+objects: 3  meshes: 2  armatures: 1
+  ARMATURE     Armature                       loc=(0.0, 0.0, 0.0) rot_euler=(0.0, 0.0, 0.0) scale=(1.0, 1.0, 1.0)
+  MESH         tripo_node_9d73bc6c-c608-48c8-bd92-51b46ac21ae7 loc=(0.0, 0.0, 0.0) rot_euler=(0.0, 0.0, 0.0) scale=(1.0, 1.0, 1.0)
+  MESH         Icosphere                      loc=(0.0, 0.0, 0.0) rot_euler=(0.0, 0.0, 0.0) scale=(1.0, 1.0, 1.0)
+  MESH tripo_node_9d73bc6c-c608-48c8-bd92-51b46ac21ae7: polys=8529 tris~=8529 verts=7399 vgroups=['Root', 'Hip', 'Pelvis', 'L_Thigh', 'L_Calf', 'L_Foot', 'L_ToeBase', 'L_CalfTwist01', 'L_CalfTwist02', 'L_ThighTwist01', 'L_ThighTwist02', 'R_Thigh', 'R_ThighTwist01', 'R_ThighTwist02', 'R_Calf', 'R_Foot', 'R_ToeBase', 'R_CalfTwist01', 'R_CalfTwist02', 'Waist', 'Spine01', 'Spine02', 'NeckTwist01', 'NeckTwist02', 'Head', 'L_Clavicle', 'L_Upperarm', 'L_Forearm', 'L_ForearmTwist01', 'L_ForearmTwist02', 'L_Hand', 'L_UpperarmTwist01', 'L_UpperarmTwist02', 'R_Clavicle', 'R_Upperarm', 'R_UpperarmTwist01', 'R_UpperarmTwist02', 'R_Forearm', 'R_ForearmTwist01', 'R_ForearmTwist02', 'R_Hand']
+  world bbox min=(-0.4988, -0.1749, -0.0) max=(0.4988, 0.1749, 0.9049) size=(0.9976, 0.3497, 0.9049)
+  MESH Icosphere: polys=80 tris~=80 verts=42 vgroups=[]
+  world bbox min=(-0.9511, -1.0, -1.0) max=(0.9511, 1.0, 1.0) size=(1.9021, 2.0, 2.0)
+  ARMATURE Armature: bones=41
+    Root                 head_world=(0.0068, -0.0055, 0.0) parent=-
+    Hip                  head_world=(0.0068, -0.0055, 0.2956) parent=Root
+    Pelvis               head_world=(0.0068, -0.0055, 0.2956) parent=Hip
+    L_Thigh              head_world=(0.1075, -0.0042, 0.3002) parent=Pelvis
+    L_Calf               head_world=(0.1165, 0.0243, 0.1243) parent=L_Thigh
+    L_Foot               head_world=(0.1165, 0.0259, 0.0253) parent=L_Calf
+    L_ToeBase            head_world=(0.1233, -0.0128, 0.0218) parent=L_Foot
+    L_CalfTwist01        head_world=(0.1165, 0.0243, 0.1243) parent=L_Calf
+    L_CalfTwist02        head_world=(0.1165, 0.025, 0.083) parent=L_CalfTwist01
+    L_ThighTwist01       head_world=(0.1075, -0.0043, 0.3003) parent=L_Thigh
+    L_ThighTwist02       head_world=(0.112, 0.01, 0.2123) parent=L_ThighTwist01
+    R_Thigh              head_world=(-0.0939, -0.0067, 0.2908) parent=Pelvis
+    R_ThighTwist01       head_world=(-0.0939, -0.0067, 0.2908) parent=R_Thigh
+    R_ThighTwist02       head_world=(-0.0916, 0.0095, 0.203) parent=R_ThighTwist01
+    R_Calf               head_world=(-0.0894, 0.0257, 0.1152) parent=R_Thigh
+    R_Foot               head_world=(-0.1084, 0.0085, 0.0262) parent=R_Calf
+    R_ToeBase            head_world=(-0.1108, -0.0238, 0.0198) parent=R_Foot
+    R_CalfTwist01        head_world=(-0.0894, 0.0257, 0.1153) parent=R_Calf
+    R_CalfTwist02        head_world=(-0.0973, 0.0185, 0.0782) parent=R_CalfTwist01
+    Waist                head_world=(0.0068, -0.0055, 0.2957) parent=Hip
+    Spine01              head_world=(0.0097, -0.0089, 0.3521) parent=Waist
+    Spine02              head_world=(0.0156, -0.0156, 0.4647) parent=Spine01
+    NeckTwist01          head_world=(0.0208, -0.0215, 0.5631) parent=Spine02
+    NeckTwist02          head_world=(0.0234, -0.0245, 0.6132) parent=NeckTwist01
+    Head                 head_world=(0.0253, -0.0267, 0.6494) parent=NeckTwist02
+    L_Clavicle           head_world=(0.0407, -0.0215, 0.5631) parent=Spine02
+    L_Upperarm           head_world=(0.1981, -0.0061, 0.5683) parent=L_Clavicle
+    L_Forearm            head_world=(0.3337, 0.1079, 0.5585) parent=L_Upperarm
+    L_ForearmTwist01     head_world=(0.3337, 0.108, 0.5585) parent=L_Forearm
+    L_ForearmTwist02     head_world=(0.3688, 0.0509, 0.5585) parent=L_ForearmTwist01
+    L_Hand               head_world=(0.4038, -0.0062, 0.5585) parent=L_Forearm
+    L_UpperarmTwist01    head_world=(0.198, -0.0061, 0.5683) parent=L_Upperarm
+    L_UpperarmTwist02    head_world=(0.2659, 0.051, 0.5634) parent=L_UpperarmTwist01
+    R_Clavicle           head_world=(0.0008, -0.0215, 0.5631) parent=Spine02
+    R_Upperarm           head_world=(-0.1551, -0.0385, 0.586) parent=R_Clavicle
+    R_UpperarmTwist01    head_world=(-0.1551, -0.0385, 0.586) parent=R_Upperarm
+    R_UpperarmTwist02    head_world=(-0.2523, -0.0233, 0.5723) parent=R_UpperarmTwist01
+    R_Forearm            head_world=(-0.3495, -0.008, 0.5585) parent=R_Upperarm
+    R_ForearmTwist01     head_world=(-0.3495, -0.0081, 0.5585) parent=R_Forearm
+    R_ForearmTwist02     head_world=(-0.3767, 0.0143, 0.5585) parent=R_ForearmTwist01
+    R_Hand               head_world=(-0.4038, 0.0366, 0.5585) parent=R_Forearm
+wrote C:/Users/pkreu/OneDrive/Documents/BUCKY/assets/farmstead/cast/sprites-test/_inspect/dwarf_front.png
+wrote C:/Users/pkreu/OneDrive/Documents/BUCKY/assets/farmstead/cast/sprites-test/_inspect/dwarf_side.png
+wrote C:/Users/pkreu/OneDrive/Documents/BUCKY/assets/farmstead/cast/sprites-test/_inspect/dwarf_threequarter.png
+Blender 5.1.2 (hash ec6e62d40fa9 built 2026-05-19 01:37:34)
+
+Blender quit

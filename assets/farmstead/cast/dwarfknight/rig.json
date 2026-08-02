@@ -1,0 +1,110 @@
+{
+  "generated": "2026-08-02T00:21:11Z",
+  "method": "skeleton transfer: the dwarf's Tripo v1.0-20240301 41-joint biped, piecewise-height-fitted to the knight's measured landmarks, bound with ARMATURE_AUTO",
+  "heightMapBreakpoints": [
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.2149,
+      0.2277
+    ],
+    [
+      0.5618,
+      0.5837
+    ],
+    [
+      0.9049,
+      0.9935
+    ]
+  ],
+  "segmentScales": [
+    1.0595625872498837,
+    1.0262323436148746,
+    1.1944039638589332
+  ],
+  "horizontalScale": 1.0,
+  "dwarf": {
+    "targetHeight": 0.79,
+    "scale": 0.8730246436070284,
+    "skin": "source (already bound)"
+  },
+  "knight": {
+    "targetHeight": 0.9985,
+    "scale": 1.0050327126321088,
+    "bind": "ARMATURE_AUTO",
+    "limitInfluences": 2,
+    "nonDeformBones": 19,
+    "meanDominantWeight": 0.8498488243753033,
+    "dominantBoneHistogram": {
+      "Head": 855,
+      "R_Thigh": 570,
+      "L_Thigh": 534,
+      "L_Clavicle": 443,
+      "R_Clavicle": 438,
+      "Hip": 370,
+      "L_Hand": 133,
+      "R_Upperarm": 128,
+      "R_Forearm": 123,
+      "L_Forearm": 120,
+      "R_Hand": 103,
+      "R_Calf": 100,
+      "L_ToeBase": 96,
+      "L_Calf": 92,
+      "Spine01": 89,
+      "R_ToeBase": 74,
+      "L_Upperarm": 41,
+      "R_Foot": 26,
+      "L_Foot": 25,
+      "Waist": 11,
+      "Pelvis": 2
+    }
+  },
+  "armRotDeg": 72.0,
+  "knightStrideMul": 0.62,
+  "legSwing": 0.52,
+  "poseBones": [
+    "L_Thigh",
+    "R_Thigh",
+    "L_Upperarm",
+    "R_Upperarm",
+    "L_Forearm",
+    "R_Forearm"
+  ],
+  "shots": [
+    "assets/farmstead/cast/dwarfknight/_inspect/dwarf_rest_front.png",
+    "assets/farmstead/cast/dwarfknight/_inspect/dwarf_rest_side.png",
+    "assets/farmstead/cast/dwarfknight/_inspect/dwarf_strideA_front.png",
+    "assets/farmstead/cast/dwarfknight/_inspect/dwarf_strideA_side.png",
+    "assets/farmstead/cast/dwarfknight/_inspect/dwarf_strideB_front.png",
+    "assets/farmstead/cast/dwarfknight/_inspect/dwarf_strideB_side.png",
+    "assets/farmstead/cast/dwarfknight/_inspect/dwarf_work_front.png",
+    "assets/farmstead/cast/dwarfknight/_inspect/dwarf_work_side.png",
+    "assets/farmstead/cast/dwarfknight/_inspect/knight_rest_front.png",
+    "assets/farmstead/cast/dwarfknight/_inspect/knight_rest_side.png",
+    "assets/farmstead/cast/dwarfknight/_inspect/knight_strideA_front.png",
+    "assets/farmstead/cast/dwarfknight/_inspect/knight_strideA_side.png",
+    "assets/farmstead/cast/dwarfknight/_inspect/knight_strideB_front.png",
+    "assets/farmstead/cast/dwarfknight/_inspect/knight_strideB_side.png",
+    "assets/farmstead/cast/dwarfknight/_inspect/knight_work_front.png",
+    "assets/farmstead/cast/dwarfknight/_inspect/knight_work_side.png"
+  ],
+  "log": [
+    "dropping stray object Icosphere 42 verts",
+    "imported dwarf: DwarfBody 7399 verts, armature 41 bones \u00b7  knight: KnightBody 8064 verts",
+    "height map breakpoints (dwarf -> knight): ['0.0000->0.0000', '0.2149->0.2277', '0.5618->0.5837', '0.9049->0.9935']",
+    "  segment scales: ['1.0596', '1.0262', '1.1944']",
+    "scaled dwarf x0.87302 -> 0.7900 tall \u00b7 knight x1.00503 -> 0.9985 tall",
+    "marked 19 twist/root bones non-deform before auto-weighting",
+    "knight mesh cleaned for the solve: 4403 verts",
+    "ARMATURE_AUTO (bone heat) coverage: 99.3% of vertices weighted",
+    "locked 1736 vertices rigid to Clavicle/Head (plates must not rubber-band)",
+    "bound knight with ARMATURE_AUTO \u00b7 weights limited to 2 influences/vertex, cleaned at 0.02, renormalised",
+    "!! WARNING: knight still only 99.3% weighted after cleaning",
+    "dominant-bone histogram: {\"Head\": 855, \"R_Thigh\": 570, \"L_Thigh\": 534, \"L_Clavicle\": 443, \"R_Clavicle\": 438, \"Hip\": 370, \"L_Hand\": 133, \"R_Upperarm\": 128, \"R_Forearm\": 123, \"L_Forearm\": 120, \"R_Hand\": 103, \"R_Calf\": 100, \"L_ToeBase\": 96, \"L_Calf\": 92, \"Spine01\": 89, \"R_ToeBase\": 74, \"L_Upperarm\": 41, \"R_Foot\": 26, \"L_Foot\": 25, \"Waist\": 11, \"Pelvis\": 2}",
+    "mean dominant weight 0.850 (1.0 = fully rigid per bone)",
+    "wrote assets/farmstead/cast/dwarfknight/dwarf-rigged.glb 839.6 KB",
+    "wrote assets/farmstead/cast/dwarfknight/knight-rigged.glb 1030.5 KB"
+  ]
+}

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>FARMSTEAD — sprite-test bake (exploration only, never shipped)</title>
+<style>
+  html,body{ margin:0; height:100%; background:#0d1116; color:#dfe9f3;
+    font:600 12px/1.5 ui-monospace,Consolas,monospace; }
+  #log{ padding:12px; white-space:pre-wrap; }
+  canvas{ position:fixed; left:-4000px; top:0; }   /* the bake never needs to be seen */
+</style>
+</head>
+<body>
+<div id="log">idle</div>
+<canvas id="gl" width="8" height="8"></canvas>
+
+<!-- Sibling of bake.html — SAME shared, read-only scripts (three, GLTFLoader,
+     fs-const), but fs-cast-bake-test.js instead of fs-cast-bake.js so this
+     page never touches the production bake module. -->
+<script src="../../assets/vendor/three-r128.min.js"></script>
+<script src="./GLTFLoader.js"></script>
+<script src="./fs-const.js"></script>
+<script src="./fs-cast-bake-test.js"></script>
+<script>
+(function () {
+  "use strict";
+  const logEl = document.getElementById("log");
+  function log(s) { logEl.textContent = s; }
+
+  const renderer = new THREE.WebGLRenderer({
+    canvas: document.getElementById("gl"), antialias: true, alpha: true,
+    preserveDrawingBuffer: false,
+  });
+  renderer.setPixelRatio(1);
+  renderer.setSize(8, 8, false);
+
+  window.__BAKE_TEST__ = {
+    ready: true,
+    renderer: renderer,
+    run: async function (cfg) {
+      log("baking test sheets…");
+      const t0 = performance.now();
+      const out = await window.FSCastBakeTest.bakeAll(renderer, cfg || {});
+      const png = {};
+      let bytes = 0;
+      for (const name in out.sheets) {
+        const d = window.FSCastBakeTest.toPNG(out.sheets[name]);
+        png[name] = d;
+        bytes += Math.floor((d.length - (d.indexOf(",") + 1)) * 3 / 4);
+      }
+      const stats = { ms: Math.round(performance.now() - t0), pngBytes: bytes };
+      log("baked " + Object.keys(png).length + " test sheets in " + stats.ms + " ms, " +
+          Math.round(bytes / 1024) + " KB of PNG");
+      return { manifest: out.manifest, png: png, stats: stats };
+    },
+  };
+  log("ready — call __BAKE_TEST__.run()");
+})();
+</script>
+</body>
+</html>

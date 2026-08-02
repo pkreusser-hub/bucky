@@ -1,0 +1,18 @@
+17:18:15 | INFO: Data are loaded, start creating Blender stuff
+17:18:15 | INFO: Blender create Mesh node dwarf-body
+17:18:15 | INFO: glTF import finished in 0.03s
+17:18:15 | INFO: Data are loaded, start creating Blender stuff
+17:18:15 | INFO: Blender create Mesh node dwarf-legL
+17:18:15 | INFO: glTF import finished in 0.01s
+17:18:15 | INFO: Data are loaded, start creating Blender stuff
+17:18:15 | INFO: Blender create Mesh node dwarf-legR
+17:18:15 | INFO: glTF import finished in 0.02s
+00:07.782  render           | Saved: 'C:\Users\pkreu\OneDrive\Documents\BUCKY\assets\farmstead\cast\sprites-test\_inspect\dwarf_assemble_rest.png'
+00:07.891  render           | Saved: 'C:\Users\pkreu\OneDrive\Documents\BUCKY\assets\farmstead\cast\sprites-test\_inspect\dwarf_assemble_swingA.png'
+00:07.985  render           | Saved: 'C:\Users\pkreu\OneDrive\Documents\BUCKY\assets\farmstead\cast\sprites-test\_inspect\dwarf_assemble_swingB.png'
+wrote C:/Users/pkreu/OneDrive/Documents/BUCKY/assets/farmstead/cast/sprites-test/_inspect/dwarf_assemble_rest.png
+wrote C:/Users/pkreu/OneDrive/Documents/BUCKY/assets/farmstead/cast/sprites-test/_inspect/dwarf_assemble_swingA.png
+wrote C:/Users/pkreu/OneDrive/Documents/BUCKY/assets/farmstead/cast/sprites-test/_inspect/dwarf_assemble_swingB.png
+Blender 5.1.2 (hash ec6e62d40fa9 built 2026-05-19 01:37:34)
+
+Blender quit

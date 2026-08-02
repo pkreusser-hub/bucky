@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FARMSTEAD — sprite-test LOOK TEST (not shipped)</title>
+<style>
+  html,body{ margin:0; height:100%; overflow:hidden; background:#0d1116; }
+  #view{ display:block; width:100vw; height:100vh; }
+  #boot{
+    position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); z-index:20;
+    font:700 15px/1.5 ui-monospace,Consolas,monospace; color:#e8f0f8;
+    text-shadow:0 2px 6px rgba(0,0,0,.8); pointer-events:none;
+  }
+  #ui{
+    position:fixed; left:10px; top:10px; z-index:10; width:250px;
+    background:rgba(14,20,28,.84); border:1px solid rgba(255,255,255,.14); border-radius:10px;
+    padding:9px 10px 10px; color:#dfe9f3; backdrop-filter:blur(6px);
+    font:600 11px/1.35 ui-monospace,Consolas,monospace; user-select:none;
+  }
+  #ui h1{ font-size:12px; margin:0 0 7px; letter-spacing:.4px; color:#fff; }
+  .row{ display:flex; align-items:center; gap:4px; margin:0 0 5px; flex-wrap:wrap; }
+  .lbl{ width:54px; flex:0 0 54px; opacity:.62; font-weight:400; }
+  button{
+    font:600 11px/1 ui-monospace,Consolas,monospace; color:#cfdcea; cursor:pointer;
+    background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.16);
+    border-radius:6px; padding:4px 7px;
+  }
+  button:hover{ background:rgba(255,255,255,.13); }
+  button.on{ background:#2b6cb0; border-color:#2b6cb0; color:#fff; }
+  #stats{ margin-top:8px; padding-top:7px; border-top:1px solid rgba(255,255,255,.13);
+    font:400 10.5px/1.5 ui-monospace,Consolas,monospace; color:#9fb6cc; }
+  #stats b{ color:#eaf3fb; }
+  .note{ margin-top:7px; font:400 10px/1.4 ui-monospace,Consolas,monospace; color:#7d94aa; }
+  .warn{ margin-top:6px; padding:6px 7px; border-radius:6px; background:rgba(230,160,60,.14);
+    border:1px solid rgba(230,160,60,.4); font:600 10px/1.4 ui-monospace,Consolas,monospace; color:#f0c98a; }
+  #legend{
+    position:fixed; left:0; right:0; bottom:10px; z-index:9; text-align:center;
+    pointer-events:none; color:#fff; text-shadow:0 2px 6px rgba(0,0,0,.85);
+    font:700 12px/1 ui-monospace,Consolas,monospace; letter-spacing:.6px; opacity:.85;
+  }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="boot">booting…</div>
+<div id="legend">YAW-LOCKED CAMERA &middot; SPRITE-TEST LOOK TEST</div>
+
+<div id="ui">
+  <h1>FORK B — SPRITE TEST (not shipped)</h1>
+  <div class="row"><span class="lbl">source</span>
+    <button data-k="source" data-v="minifig">minifig</button>
+    <button data-k="source" data-v="test">test (dwarf/knight)</button>
+  </div>
+  <div class="row"><span class="lbl">scene</span>
+    <button data-k="scene" data-v="crowd">crowd</button>
+    <button data-k="scene" data-v="knight">strike loop</button>
+  </div>
+  <div class="row"><span class="lbl">units</span>
+    <button data-k="count" data-v="40">40</button>
+    <button data-k="count" data-v="90">90</button>
+    <button data-k="count" data-v="200">200</button>
+  </div>
+  <div class="row"><span class="lbl">walk</span>
+    <button data-k="walk" data-v="1">on</button>
+    <button data-k="walk" data-v="0">off</button>
+  </div>
+  <div id="stats">…</div>
+  <div class="note">drag = PAN &middot; wheel = zoom.<br>
+  Yaw does not orbit — that is the point.</div>
+  <div class="warn">TEST source = user-downloaded GLBs (dwarf, knight),
+  license unverified. Never shipped/committed.</div>
+</div>
+
+<!-- Same shared, READ-ONLY files forkb.html uses (fs-const/fs-map/sprite-world
+     — terrain + constants, unmodified). forkb-preview-test.js is this page's
+     own sibling module; it never touches or imports forkb-preview.js. -->
+<script src="../../assets/vendor/three-r128.min.js"></script>
+<script src="./fs-const.js"></script>
+<script src="./fs-map.js"></script>
+<script src="./sprite-world.js"></script>
+<script src="./forkb-preview-test.js"></script>
+<script>
+(function () {
+  function sync() {
+    const F = window.__FORKB_TEST__;
+    if (!F || !F.state) return;
+    const s = F.state();
+    document.querySelectorAll("button[data-k='source']").forEach((b) => b.classList.toggle("on", b.dataset.v === s.source));
+  }
+  document.getElementById("ui").addEventListener("click", function (e) {
+    const b = e.target.closest("button[data-k]");
+    if (!b || !window.__FORKB_TEST__) return;
+    window.__FORKB_TEST__.set(b.dataset.k, b.dataset.v);
+    sync();
+  });
+  setInterval(function () {
+    const F = window.__FORKB_TEST__;
+    if (!F || !F.state) return;
+    const s = F.state();
+    if (!s.ready) return;
+    sync();
+    document.getElementById("stats").innerHTML =
+      "source <b>" + s.source + "</b><br>" +
+      "minifig az <b>" + s.manifestMinifig.azimuths + "</b> pitch <b>" + s.manifestMinifig.pitchDeg + "&deg;</b> &middot; " +
+      "test az <b>" + s.manifestTest.azimuths + "</b> pitch <b>" + s.manifestTest.pitchDeg + "&deg;</b><br>" +
+      "units <b>" + s.spawned + "</b> &middot; calls <b>" + s.stats.calls + "</b> &middot; tris <b>" +
+      (s.stats.tris || 0).toLocaleString() + "</b><br>" +
+      "cam yaw <b>" + s.camYaw + "</b> (LOCKED) &middot; dist <b>" + s.camDist + "</b>";
+  }, 300);
+})();
+</script>
+</body>
+</html>
