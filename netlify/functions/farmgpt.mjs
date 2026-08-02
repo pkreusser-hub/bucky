@@ -178,32 +178,94 @@ commentary.`;
 // universe, append an entry — nothing else to wire.
 const UNIVERSE_BIBLES = [
   { name: "How to Train Your Dragon (movies + Race to the Edge)",
-    triggers: /how to train your dragon|httyd|race to the edge|night fury|light fury|toothless|hiccup|dragon rider|isle of berk|\bberk\b|astrid|stormfly|windshear|grimborn|deadly nadder|gronckle|zippleback|monstrous nightmare|hofferson|haddock/i,
-    facts: `- DRAGONS NEVER TALK. No dragon speaks words, ever. They are intelligent animals who
-  communicate through growls, croons, body language, and their bond with their rider — and they
-  understand a lot. A rider "reads" their dragon; the dragon never answers in speech.
-- Hiccup Haddock: slim, scruffy auburn hair, green eyes, dry wit, brilliant inventor. His LEFT
-  LEG below the knee is missing — he walks on a metal prosthetic he designed. Leather flight
-  armor, fireproof flame-sword Inferno. Son of chief Stoick the Vast; mother Valka.
-- Toothless: Hiccup's dragon, a Night Fury — jet-black, green eyes, retractable teeth, fires
-  purple-blue plasma blasts. His LEFT TAIL FIN is missing: he CANNOT fly without the red
-  prosthetic fin Hiccup built, which the rider controls with a foot stirrup.
-- Astrid Hofferson: tough, fierce, blonde hair in a braid, blue eyes, fights with a
-  double-headed battle axe. Her dragon Stormfly is a Deadly Nadder — bright blue and gold,
-  fires magnesium flame and can shoot tail spines.
-- Heather: black braided hair, double-bladed folding axe, rides Windshear, a silver armored
-  Razorwhip. Fishlegs is round and bookish, rides Meatlug (a Gronckle — eats rocks, lava
-  blasts). Snotlout is cocky, rides Hookfang (a Monstrous Nightmare — sets its own body on
-  fire). Twins Ruffnut and Tuffnut ride Barf & Belch, a two-headed Zippleback (one head spews
-  green gas, the other sparks it).
-- Race to the Edge villains: Viggo Grimborn — calm, brilliant, chess-master dragon hunter
-  (loves the strategy game Maces and Talons); his brother Ryker Grimborn is the blunt muscle.
-  Dagur the Deranged is an unhinged berserker. Dragon hunters trap and sell dragons, use
-  dragon-proof metal cages and arrows.
-- World: Viking islands — the village of Berk and the riders' outpost Dragon's Edge. Dragon
-  facts: eels repel dragons; dragon nip calms them; Night Furies are believed the last of
-  their kind; the white Light Fury can briefly turn invisible after heating her scales with a
-  plasma blast.` },
+    triggers: /how to train your dragon|httyd|race to the edge|night fury|light fury|toothless|hiccup|isle of berk|\bberk\b|astrid|stormfly|windshear|grimborn|deadly nadder|gronckle|zippleback|monstrous nightmare|hofferson|haddock|razorwhip|berserker tribe|dragon hunters|maces and talons|death song|triple stryke|singetail|eruptodon|\bgobber\b|stoick|\bvalka\b|\bkrogan\b|trader johann|dragon's edge|dragons edge|meatlug|hookfang|fishlegs|snotlout|ruffnut|tuffnut/i,
+    facts: `THE ONE UNBREAKABLE RULE — DRAGONS NEVER TALK. No dragon speaks words, ever. They are
+intelligent animals who communicate through growls, croons, purrs, screeches, and body language,
+and through their bond with their rider — they understand a great deal. A rider "reads" their
+dragon; the dragon never answers in speech.
+
+THE DRAGON RIDERS (Race to the Edge era — late teens, based at Dragon's Edge):
+- Hiccup Haddock: slim and wiry, scruffy auburn hair, green eyes, a small scar on his chin.
+  Dry wit, hates fighting when thinking will do, brilliant inventor (built his own flight
+  suit, the Dragon Eye lens holders, and Inferno — a sword whose blade ignites with Monstrous
+  Nightmare gel). His LEFT LEG below the knee is missing; he walks on a clever metal
+  prosthetic he designed. Heir of Berk; son of chief Stoick; his mother Valka was lost for
+  years. Natural leader of the riders.
+- Toothless: Hiccup's dragon and best friend, a Night Fury — believed the last of his kind.
+  Jet-black, sleek, big acid-green eyes, retractable teeth, ear-plates that telegraph his
+  mood. Fires whistling purple-blue plasma blasts; fastest and smartest of the dragons. His
+  LEFT TAIL FIN is missing: he CANNOT fly without the red prosthetic fin Hiccup built, steered
+  by Hiccup's foot stirrup — a solo Toothless is grounded.
+- Astrid Hofferson: Hiccup's closest ally (and eventually more). Fierce, driven, athletic;
+  blue eyes, long blonde bangs and a thick braid worn over one shoulder, leather headband,
+  spiked skirt and shoulder guards, arm wraps. Fights with a double-headed battle axe and
+  wins. Her dragon Stormfly is a Deadly Nadder: bright blue with gold accents, bird-like on
+  two legs, a crown of head spikes, blazing magnesium flame, and volleys of tail spines she
+  can fire on command ("Spine shot!").
+- Fishlegs Ingerman: big, husky, and gentle; blond hair, blue eyes. A walking dragon
+  encyclopedia — recites dragon stats and classes, keeps dragon cards, loves rocks and runes.
+  His dragon Meatlug is a Gronckle: squat, tan-brown, boulder-shaped, wings that buzz like a
+  bumblebee's. She eats rocks and spews molten lava blasts; sweet-natured and loves belly rubs.
+- Snotlout Jorgenson: stocky and muscular, black hair, blue eyes, horned helmet. Loud,
+  boastful, girl-crazy, secretly insecure but brave when it counts. His dragon Hookfang is a
+  Monstrous Nightmare: huge, crimson-red, long snake-like neck, and can SET HIS WHOLE BODY ON
+  FIRE. Stubborn — regularly ignores Snotlout, which everyone else finds hilarious.
+- Ruffnut and Tuffnut Thorston: lanky blond twins who live for mayhem and explosions and
+  finish each other's arguments. Ruffnut (the sister) wears her hair in long thin braids;
+  Tuffnut (the brother) has long blond dreadlocks and keeps a beloved pet chicken named
+  Chicken. They share Barf and Belch, a green two-headed Hideous Zippleback: Barf's head spews
+  thick green gas, Belch's head sparks it — BOOM.
+- Heather: a tough loner who joins the riders; raven-black hair in a thick braid, green eyes,
+  armor of silver dragon scales, fights with a double-bladed axe that folds. She is DAGUR'S
+  SISTER (a hard truth she wrestles with). Her dragon Windshear is a Razorwhip: silver,
+  armor-plated, with a blade-sharp tail.
+
+BERK AND FRIENDS:
+- Stoick the Vast: Hiccup's father, chief of Berk — a mountain of a man with a huge red beard,
+  crushing hugs, and a temper that hides deep love. Rides Skullcrusher, a Rumblehorn with a
+  battering-ram head and a bloodhound's nose for tracking.
+- Gobber: Berk's blacksmith and Stoick's oldest friend. Big blond mustache, missing one hand
+  (he swaps hook, hammer, and tongs attachments into the stump) and one leg (peg leg). Jokes
+  through everything.
+- Mala: the stern, honorable queen of the Defenders of the Wing, an island tribe that
+  PROTECTS dragons and guards the Eruptodon — the massive dragon that eats their volcano's
+  lava. Short blonde hair, elite swordswoman.
+- Gustav Larson: an eager teen who idolizes the riders and keeps trying to join them; black
+  hair, rides a Monstrous Nightmare he named Fanghook.
+- Trader Johann: a chatty traveling merchant full of tall tales who visits everyone. (LATE-
+  SERIES TWIST — only if the story goes there: Johann is secretly a villain who has been
+  spying all along.)
+
+VILLAINS:
+- Viggo Grimborn: leader of the dragon hunters. Calm, precise, softly-spoken and terrifyingly
+  smart — he treats war like his favorite strategy game, Maces and Talons, and is Hiccup's
+  intellectual equal. Neat dark hair and short beard. Later in the series he carries a burn
+  scar across one eye.
+- Ryker Grimborn: Viggo's older brother and the muscle — bald, broad as a door, twin swords,
+  no patience for Viggo's chess games.
+- Dagur the Deranged: chief of the Berserker tribe — wild auburn hair, claw-mark tattoos over
+  one eye, laughs at danger, calls Hiccup "brother." Starts as an unhinged enemy, later
+  REDEEMS himself and fights alongside the riders; rides Sleuther, a Triple Stryke with a
+  triple scorpion tail. He is Heather's brother.
+- Krogan: a cold mercenary who commands flyers mounted on Singetails; works with the hunters
+  in the later seasons.
+- The dragon hunters: trap and sell dragons; their ships and cages use dragon-proof metal, and
+  their arrows are dipped in dragon-root.
+
+THE DRAGON EYE & LORE:
+- The Dragon Eye: an ancient cylindrical artifact of lenses that projects hidden maps and
+  dragon knowledge when lit by dragon fire. Both the riders and the hunters fight to control
+  it; swapping lenses reveals different secrets.
+- Dragon classes (Fishlegs will happily recite them): Strike, Boulder, Tracker, Sharp, Stoker,
+  Tidal, Mystery. Every dragon has a SHOT LIMIT — only so many blasts before it must rest.
+- Eels repel and sicken dragons. Dragon nip (a grass) calms them; DRAGON-ROOT drives them into
+  a frenzy. The Death Song traps dragons in amber it spits and "sings" to lure them; Garff is
+  an orphaned baby Death Song the riders raised. Night Terrors are tiny dragons that swarm in
+  formation as one giant dragon shape; a white one, Smidvarg, leads the Edge's flock.
+- The white Light Fury (from the movies) can briefly turn INVISIBLE after heating her scales
+  with a plasma blast; she is sleek, cat-like, and wild.
+- Setting: the Viking isle of Berk (Stoick's village, the Great Hall) and Dragon's Edge, the
+  riders' island outpost with a clubhouse, stables, and each rider's hut.` },
   { name: "Super Mario",
     triggers: /\bmario\b|\bluigi\b|bowser|mushroom kingdom|princess peach|\byoshi\b|goomba|koopa|toadstool|piranha plant|warp pipe|wario|donkey kong/i,
     facts: `- Mario and Luigi: mustached brother plumbers who talk in cheerful simple speech. Mario wears
