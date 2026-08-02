@@ -2010,19 +2010,33 @@ export default async (req) => {
     blocks.push({ type: "text", text:
       `Create a ${kind.toUpperCase()} with EXACTLY ${count} questions from the photographed material above.` +
       (notes ? `\nTeacher's notes: ${notes}` : "") });
-    const r = await callAnthropicOnce(TEACHER_MODEL, TEACHER_SYSTEM, blocks, 8000);
-    if (!r) return jsonError(502, "TeacherGPT couldn't reach the model — try again", jsonHeaders);
-    await logUsage("teacher", r.inTok, r.outTok, r.cacheWriteTok, r.cacheReadTok);
-    const t = parseTeacherJSON(r.text);
-    if (!t) return jsonError(502, "TeacherGPT couldn't format that — try again", jsonHeaders);
-    const doc = await createTeacherGoogleDoc(t, kind);
-    if (doc.err === "docs-api-disabled") return jsonError(502,
-      "Google Docs/Drive isn't enabled for the farm account yet — in Google Cloud console (amen-farms-app), enable the Google Docs API and Google Drive API, then redeploy", jsonHeaders);
-    if (doc.err) return jsonError(502, "The " + kind + " was written but the Google Doc couldn't be created (" + doc.err + ") — try again", jsonHeaders);
-    return new Response(JSON.stringify({
-      ok: true, url: doc.url, title: doc.docTitle, chapter: t.chapter, kind,
-      questionCount: t.questions.length, shared: doc.shared, sharedWith: TEACHER_DOC_EMAIL,
-    }), { status: 200, headers: jsonHeaders });
+    // STREAMED response (like story/research): a non-streaming Opus run takes 30-90s, which
+    // blows past Netlify's synchronous-function timeout and surfaces as a generic error. The
+    // first byte goes out immediately, keepalive spaces flow while Opus writes and the doc is
+    // built, and the result rides the LAST LINE as JSON ({ok,...} or {error}).
+    const tEncoder = new TextEncoder();
+    const tStream = new ReadableStream({
+      async start(controller) {
+        controller.enqueue(tEncoder.encode(" "));
+        const tick = setInterval(() => { try { controller.enqueue(tEncoder.encode(" ")); } catch {} }, 5000);
+        const finish = (obj) => { try { controller.enqueue(tEncoder.encode("\n" + JSON.stringify(obj))); } catch {} };
+        try {
+          const r = await callAnthropicOnce(TEACHER_MODEL, TEACHER_SYSTEM, blocks, 8000);
+          if (!r) { finish({ error: "TeacherGPT couldn't reach the model — try again" }); return; }
+          await logUsage("teacher", r.inTok, r.outTok, r.cacheWriteTok, r.cacheReadTok);
+          const t = parseTeacherJSON(r.text);
+          if (!t) { finish({ error: "TeacherGPT couldn't format that — try again" }); return; }
+          const doc = await createTeacherGoogleDoc(t, kind);
+          if (doc.err === "docs-api-disabled") { finish({ error:
+            "Google Docs/Drive isn't enabled for the farm account yet — in Google Cloud console (amen-farms-app), enable the Google Docs API and Google Drive API, then try again" }); return; }
+          if (doc.err) { finish({ error: "The " + kind + " was written but the Google Doc couldn't be created (" + doc.err + ") — try again" }); return; }
+          finish({ ok: true, url: doc.url, title: doc.docTitle, chapter: t.chapter, kind,
+            questionCount: t.questions.length, shared: doc.shared, sharedWith: TEACHER_DOC_EMAIL });
+        } catch { finish({ error: "TeacherGPT hit a snag — try again" }); }
+        finally { clearInterval(tick); try { controller.close(); } catch {} }
+      },
+    });
+    return new Response(tStream, { status: 200, headers: { ...jsonHeaders, "content-type": "text/plain; charset=utf-8" } });
   }
 
   // 🍽 Meal calorie estimate (Meals tab). Secret-gated like everything else; JSON in/out, no

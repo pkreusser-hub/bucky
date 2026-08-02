@@ -84,9 +84,11 @@ async function call(body, secret = SECRET) {
     body: JSON.stringify({ secret, ...body }),
   });
   const resp = await handler(req);
+  // teachergpt success/model-error responses are 200 keepalive streams — the result JSON rides
+  // the LAST line; validation errors are plain JSON. Parsing the last line handles both.
   let json = null; const text = await resp.text();
-  try { json = JSON.parse(text); } catch {}
-  return { status: resp.status, json, text };
+  try { json = JSON.parse(text.trim().split("\n").pop()); } catch {}
+  return { status: resp.status, json, text, ct: resp.headers.get("content-type") || "" };
 }
 const IMG = { media_type: "image/jpeg", data: Buffer.from("fake-jpeg-bytes").toString("base64") };
 
@@ -94,6 +96,7 @@ console.log("— happy path: photos → Opus → shared Google Doc —");
 {
   const r = await call({ mode: "teachergpt", images: [IMG, IMG], kind: "quiz", count: 3, notes: "focus on pizza problems" });
   ok(r.status === 200 && r.json && r.json.ok === true, "returns ok JSON (got " + r.status + ")");
+  ok(r.ct.includes("text/plain") && r.text.startsWith(" "), "response is a keepalive STREAM (first byte immediate — survives Netlify's sync timeout)");
   const a = anthropicReqs[0];
   ok(a.model === "claude-opus-5", "runs on Opus 5");
   ok(a.max_tokens === 8000, "big output budget for a full assessment");
@@ -147,14 +150,14 @@ console.log("— validation + error surfaces —");
   ok(r1.status === 400, "unsupported image type alone → 400");
   antBehavior = "fail";
   const r2 = await call({ mode: "teachergpt", images: [IMG], kind: "quiz", count: 5 });
-  ok(r2.status === 502 && r2.json.error.includes("reach the model"), "model failure → friendly 502");
+  ok(r2.json && r2.json.error && r2.json.error.includes("reach the model"), "model failure → friendly error on the stream");
   antBehavior = "badjson";
   const r3 = await call({ mode: "teachergpt", images: [IMG], kind: "quiz", count: 5 });
-  ok(r3.status === 502 && r3.json.error.includes("format"), "unparseable reply → friendly 502");
+  ok(r3.json && r3.json.error && r3.json.error.includes("format"), "unparseable reply → friendly error on the stream");
   antBehavior = "ok";
   docsCreateStatus = 403;
   const r4 = await call({ mode: "teachergpt", images: [IMG], kind: "quiz", count: 5 });
-  ok(r4.status === 502 && r4.json.error.includes("enable the Google Docs API"), "Docs API not enabled → actionable setup message");
+  ok(r4.json && r4.json.error && r4.json.error.includes("enable the Google Docs API"), "Docs API not enabled → actionable setup message");
   docsCreateStatus = 200;
   const r5 = await call({ mode: "teachergpt", images: [IMG], kind: "quiz", count: 5 }, "wrong");
   ok(r5.status === 401, "bad secret → 401");
