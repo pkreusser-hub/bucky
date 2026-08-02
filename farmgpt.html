@@ -118,6 +118,12 @@
   #storyLogBody .slVerdict.bad { background: #fceaec; color: var(--red); }
   #storyLogBody .slVerdict.pending { background: #fbf3de; color: #8a6d1a; }
   #storyLogBody .slEmpty { color: var(--muted); text-align: center; padding: 20px; }
+  #budgetGrantRow { margin: 0 0 12px; }
+  #budgetGrantBtn {
+    border: 1px solid var(--line); background: #eaf6ec; color: #1f6d33; font-weight: 800;
+    font-size: 13.5px; padding: 9px 14px; border-radius: 12px; cursor: pointer; width: 100%;
+  }
+  #budgetGrantBtn:disabled { opacity: .5; }
   #storyLogBody .slTransBtn {
     margin: 10px 0 0; border: 1px solid var(--line); background: transparent; color: var(--muted);
     font-size: 12.5px; font-weight: 700; padding: 6px 11px; border-radius: 999px; cursor: pointer;
@@ -429,6 +435,9 @@
   <div class="view" id="viewStoryLog">
     <div class="panel">
       <div class="panelTitle">📖 Story Log — what the kids are reading</div>
+      <div id="budgetGrantRow">
+        <button id="budgetGrantBtn">🎁 Refresh today's story budget (+15 scenes for everyone)</button>
+      </div>
       <div id="storyLogBody">Loading…</div>
     </div>
   </div>
@@ -614,20 +623,52 @@
     try { s = JSON.parse(localStorage.getItem(STORY_COUNT_KEY)) || {}; } catch { s = {}; }
     const day = centralDay(), user = canonStoryUser(localStorage.getItem("choreUser") || "");
     if (s.day !== day || s.user !== user) s = { day, user, count: 0 };
+    // cap can exceed the base when Dad grants a refreshed budget (learned from the server).
+    s.cap = Math.max(STORY_DAILY_CAP, parseInt(s.cap, 10) || 0);
     return s;
   }
   function storyCountSave(s) { try { localStorage.setItem(STORY_COUNT_KEY, JSON.stringify(s)); } catch {} }
   // Exact "Dad" is never capped (matches the server's exemption — the server also never logs him).
   function storyCapped() {
     if ((localStorage.getItem("choreUser") || "") === "Dad") return false;
-    return storyCountState().count >= STORY_DAILY_CAP;
+    const s = storyCountState();
+    return s.count >= s.cap;
   }
   function bumpStoryCount() { const s = storyCountState(); s.count++; storyCountSave(s); return s.count; }
-  function forceStoryCapped() { const s = storyCountState(); s.count = STORY_DAILY_CAP; storyCountSave(s); }
+  function forceStoryCapped() { const s = storyCountState(); s.count = Math.max(s.count, s.cap); storyCountSave(s); }
+  // When locally capped, quietly ask the server whether Dad refreshed today's budget; if he
+  // did, adopt the new cap, restore the controls, and celebrate. Fire-and-forget + throttled:
+  // the local block stays instant, an unlock arrives a beat later.
+  let budgetCheckAt = 0;
+  async function refreshStoryBudget() {
+    const now = Date.now();
+    if (now - budgetCheckAt < 8000) return;
+    budgetCheckAt = now;
+    try {
+      const resp = await fetch(API_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ secret: FAMILY_PASSWORD, mode: "story_budget", user: localStorage.getItem("choreUser") || "" }),
+      });
+      if (!resp.ok) return;
+      const j = await resp.json();
+      if (!j || !j.ok) return;
+      const wasCapped = storyCapped();
+      const s = storyCountState();
+      s.count = j.used; s.cap = j.cap;
+      storyCountSave(s);
+      if (wasCapped && !j.capped && currentView === "story" && story && !busy) {
+        const last = story.messages[story.messages.length - 1];
+        const p = last && last.role === "assistant" ? parseChapter(last.content) : { choices: [], ended: false, chapterEnd: false };
+        setStoryControls({ choices: p.choices, ended: !!story.done, chapterEnd: p.chapterEnd, busyNow: false });
+        toast("🎁 Dad refreshed today's story budget — keep reading!");
+      }
+    } catch { /* stay capped locally — the next tap re-checks */ }
+  }
   // Call at the top of every user-initiated story action. Returns true (and shows the gentle
   // notice, or a toast if we're not on the reading view yet) if capped — the caller must stop.
   function guardStoryCap() {
     if (!storyCapped()) return false;
+    refreshStoryBudget();   // background: a granted budget unblocks a beat later
     if (currentView === "story") setStoryControls({ choices: [], ended: false, chapterEnd: false, busyNow: false });
     else toast("📚 You've read a LOT today! Come back tomorrow to keep the story going. 🌙");
     return true;
@@ -1069,6 +1110,7 @@
     // Daily cap takes priority over everything except "busy"/"the story already ended": no more
     // choices or write-in until the next Central day — the bookshelf (shelve) stays available.
     const capped = !busyNow && !ended && storyCapped();
+    if (capped) refreshStoryBudget();   // background: Dad may have refreshed today's budget
     // Mid-chapter: choices + write box. At a chapter end (or capped): the next-step prompt instead.
     const interactive = !busyNow && !ended && !chapterEnd && !capped;
     if (interactive) {
@@ -1850,6 +1892,18 @@
 
   $("usageBtn").addEventListener("click", () => { show("usage"); loadUsage(); });
   $("storyLogBtn").addEventListener("click", () => { show("storylog"); loadStoryLog(); });
+  // 🎁 Dad's budget refresh: adds a fresh STORY_DAILY_CAP to every reader's cap for TODAY only
+  // (a per-day bonus doc server-side; capped kids' devices discover it within a tap or two).
+  $("budgetGrantBtn").addEventListener("click", async () => {
+    if (!confirm("Give everyone " + STORY_DAILY_CAP + " more Story Time scenes for today?")) return;
+    const btn = $("budgetGrantBtn");
+    btn.disabled = true;
+    try {
+      const j = await fetchLog({ mode: "story_budget_grant" });
+      toast("🎁 Granted! Today's budget is now " + j.cap + " scenes per reader.");
+    } catch (e) { toast("😵 " + e.message); }
+    btn.disabled = false;
+  });
   $("dungeonBtn").addEventListener("click", () => { location.href = "dungeon.html"; });
   // The usage dashboard AND the Story Log are Dad-only and PIN-locked (kids shouldn't see spend or
   // each other's reading). The endpoints are also family-password gated; this is the client gate.

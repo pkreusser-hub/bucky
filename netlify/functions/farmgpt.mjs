@@ -795,6 +795,21 @@ const STORY_LOG_RETENTION_DAYS = 90;   // raw scenes now double as the reviewabl
 // Fails OPEN: any query failure (network/infra/auth) returns null, and the cap is skipped —
 // story time must never break because of a monitoring query.
 const STORY_DAILY_CAP = 15;
+// Dad's "refresh the budget" grant: one doc per Central day in farmgpt_story_bonus; `extra`
+// raises EVERY reader's effective cap for that day (STORY_DAILY_CAP + extra). Each grant tap
+// adds another STORY_DAILY_CAP. Read failure → 0 extra (the base cap still enforces — the
+// grant fails closed, unlike the count query which fails open).
+const STORY_BONUS_COLLECTION = "farmgpt_story_bonus";
+async function storyBonusToday() {
+  try {
+    const token = await getGoogleAccessToken();
+    if (!token) return 0;
+    const r = await fetch(`${FIRESTORE_BASE}/${STORY_BONUS_COLLECTION}/${farmDate()}`, { headers: { authorization: `Bearer ${token}` } });
+    if (!r.ok) return 0;
+    const j = await r.json().catch(() => null);
+    return parseInt((j && j.fields && j.fields.extra && j.fields.extra.integerValue) || "0", 10) || 0;
+  } catch { return 0; }
+}
 // Little-kid mode: a tapped choice is a handful of words. Anything longer is not a child
 // tapping a picture, so it gets truncated before it ever reaches the model.
 const KID_TURN_MAX_CHARS = 200;
@@ -1493,6 +1508,29 @@ export default async (req) => {
     const cleared = await clearStoryLog(typeof body.date === "string" ? body.date : "");
     return new Response(JSON.stringify({ cleared }), { status: 200, headers: jsonHeaders });
   }
+  // Daily story budget: a capped kid's device asks this to learn whether Dad refreshed today's
+  // budget; Dad's Story Log button calls the grant to give everyone a fresh STORY_DAILY_CAP.
+  if (body.mode === "story_budget") {
+    const user = typeof body.user === "string" ? body.user : "";
+    if (!user || user === "Dad") return new Response(JSON.stringify({ ok: true, used: 0, cap: STORY_DAILY_CAP, capped: false }), { status: 200, headers: jsonHeaders });
+    const count = await countStoryToday(user);
+    if (count === null) return jsonError(502, "Budget check unavailable right now", jsonHeaders);
+    const cap = STORY_DAILY_CAP + await storyBonusToday();
+    return new Response(JSON.stringify({ ok: true, used: count, cap, capped: count >= cap }), { status: 200, headers: jsonHeaders });
+  }
+  if (body.mode === "story_budget_grant") {
+    const token = await getGoogleAccessToken();
+    if (!token) return jsonError(500, "Story budget isn't configured on the server", jsonHeaders);
+    const base = `projects/${PROJECT_ID}/databases/(default)/documents`;
+    const r = await fetch(`${FIRESTORE_BASE}:commit`, {
+      method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ writes: [{ transform: { document: `${base}/${STORY_BONUS_COLLECTION}/${farmDate()}`,
+        fieldTransforms: [{ fieldPath: "extra", increment: { integerValue: String(STORY_DAILY_CAP) } }] } }] }),
+    });
+    if (!r.ok) return jsonError(502, "Couldn't grant the budget — try again", jsonHeaders);
+    const extra = await storyBonusToday();
+    return new Response(JSON.stringify({ ok: true, granted: STORY_DAILY_CAP, cap: STORY_DAILY_CAP + extra }), { status: 200, headers: jsonHeaders });
+  }
   // Full transcript for one (date, reader) report card — the raw scenes are retained now, so
   // the parent can read exactly what the kid read (and wrote) under each day's summary.
   if (body.mode === "storylog_scenes") {
@@ -1574,7 +1612,7 @@ export default async (req) => {
   // response (never a scary error) the client recognizes and turns into a kid-friendly notice.
   if (body.mode === "story" && typeof body.user === "string" && body.user && body.user !== "Dad") {
     const count = await countStoryToday(body.user);
-    if (count !== null && count >= STORY_DAILY_CAP) {
+    if (count !== null && count >= STORY_DAILY_CAP + await storyBonusToday()) {
       return new Response(JSON.stringify({
         capped: true,
         message: "You've read a LOT today! The story will be waiting for you tomorrow — come back then to find out what happens next!",

@@ -102,7 +102,16 @@ const fsSrv = http.createServer(async (req, res) => {
         } else if (w.update.fields) store.set(w.update.name, w.update.fields);
       }
       if (w.delete) store.delete(w.delete);
-      // w.transform (usage increments) — recorded via commits[] only, matching _verify-dnd-server.mjs.
+      if (w.transform) {   // integer increments applied for real (story-budget grants need them)
+        const cur = store.get(w.transform.document) || {};
+        for (const t of w.transform.fieldTransforms || []) {
+          if (t.increment && t.increment.integerValue !== undefined) {
+            const prev = parseInt((cur[t.fieldPath] && cur[t.fieldPath].integerValue) || "0", 10);
+            cur[t.fieldPath] = { integerValue: String(prev + parseInt(t.increment.integerValue, 10)) };
+          }
+        }
+        store.set(w.transform.document, cur);
+      }
     }
     return send(200, {});
   }
@@ -473,6 +482,33 @@ console.log("— retention: summaries AND raw scenes both pruned past 90 days �
   ok(!sceneDocExists("scene_1"), "a raw scene older than 90 days is pruned (transcript retention window)");
   ok(summaryReqs.length === 0, "the pruned scene was never summarized (no model call)");
   ok(summariesFor(r.json.summaries, oldSceneDate, "isaac").length === 0, "…and never appears as a report either");
+}
+
+console.log("— story budget: Dad's refresh grant raises today's cap —");
+{
+  resetAll();
+  const T = farmDate();
+  for (let i = 0; i < 15; i++) {
+    seedScene({ date: T, user: "Isaac", storyId: "sB", title: "Budget Saga", idx: i, choice: "go " + i, scene: "Scene " + i + ".\n\n===CHOICES===\n1. A\n2. B\n3. C" });
+  }
+  const capped = await call({ mode: "story", user: "Isaac", storyId: "sB", messages: [{ role: "user", content: "more" }] });
+  ok(capped.json && capped.json.capped === true, "15 scenes today → capped before any grant");
+  const b1 = await call({ mode: "story_budget", user: "Isaac" });
+  ok(b1.json.ok && b1.json.used === 15 && b1.json.cap === 15 && b1.json.capped === true, "story_budget reports used 15 / cap 15 / capped");
+
+  const g1 = await call({ mode: "story_budget_grant" });
+  ok(g1.status === 200 && g1.json.ok && g1.json.granted === 15 && g1.json.cap === 30, "grant adds a fresh 15 → cap 30");
+  const b2 = await call({ mode: "story_budget", user: "Isaac" });
+  ok(b2.json.used === 15 && b2.json.cap === 30 && b2.json.capped === false, "after the grant the same reader is uncapped (15/30)");
+  const streamNow = await call({ mode: "story", user: "Isaac", storyId: "sB", messages: [{ role: "user", content: "more" }] });
+  ok(!streamNow.ct.includes("json"), "a story request now streams instead of the capped notice");
+
+  const g2 = await call({ mode: "story_budget_grant" });
+  ok(g2.json.cap === 45, "grants stack (second tap → cap 45)");
+  const dadB = await call({ mode: "story_budget", user: "Dad" });
+  ok(dadB.json.ok && dadB.json.capped === false, "Dad's own budget check is always uncapped");
+  const noAuth = await callBadSecret({ mode: "story_budget_grant" });
+  ok(noAuth.status === 401, "grant is secret-gated (401 on bad secret)");
 }
 
 console.log("— auth —");

@@ -1442,6 +1442,16 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   _verify-storylog-summary 86/86 (deletion asserts inverted to retention + storylog_scenes +
   flag-rule checks) · scratchpad story_ux_test.cjs 22/22 (gate/steer/transcript) ·
   story_redo_test 26/26 + parent-research 25 / kidstory 54 / dnd 47 / calories 24.
+🎁 STORY BUDGET REFRESH (2026-08-01, user): Dad-only button atop the Story Log view
+  (#budgetGrantBtn) → mode story_budget_grant increments farmgpt_story_bonus/<farmDate> .extra
+  by STORY_DAILY_CAP — everyone's effective cap that day = 15 + extra (grants stack; bonus read
+  fails CLOSED to the base cap, unlike the count query which fails open). Server cap check +
+  new mode story_budget {user} → {used, cap, capped}. CLIENT: farmgpt_story_count_v1 gains
+  .cap (default 15); when locally capped, guardStoryCap + the capped-UI paint fire a THROTTLED
+  (8s) background refreshStoryBudget() — a granted device adopts the new cap, repaints the
+  controls, toasts "🎁 Dad refreshed…" (no reload needed; local block stays instant). Suites:
+  _verify-storylog-summary 94/94 (+8 budget: stack/uncap/stream/Dad/401; fake Firestore now
+  APPLIES integer increment transforms) + story_ux_test 28/28.
 - GUARDRAILS TIGHTENED (2026-07-30, user): FAMILY_RULES — torture scenes are never written even
   if explicitly/repeatedly requested (redirects in-story like other restricted topics);
   interrogation OK (questioning/pressure/bluffing/wits) but zero violence, torture, or threats
