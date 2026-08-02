@@ -959,9 +959,11 @@ OUTPUT — STRICT JSON ONLY, no markdown fences, no text before or after, exactl
  "questions": [{"q": "question text", "choices": ["A text","B text","C text","D text"] or null, "lines": 0..6}],
  "answerKey": ["answer for question 1", "answer for question 2", ...]}
 "choices" is null for non-multiple-choice questions. "lines" is how many blank answer lines to
-print under the question (0 for multiple choice, 1-2 for short answer, 3-6 when work must be
-shown). Use plain text only — no emoji, no markdown. Write math readably in plain text
-(3/4, 12 x 8, 5.2 cm).`;
+print under the question — MATCH it to the work the question actually requires: 0 for multiple
+choice, 1 for a single-word or single-number answer, 2-3 for a computation of a couple of
+steps, 4-6 ONLY for genuine multi-step show-your-work problems. Err on the SMALL side — extra
+white space just adds pages. Use plain text only — no emoji, no markdown. Write math readably
+in plain text (3/4, 12 x 8, 5.2 cm).`;
 
 function parseTeacherJSON(text) {
   if (!text) return null;

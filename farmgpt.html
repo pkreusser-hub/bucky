@@ -472,8 +472,8 @@
       <div id="tResult" style="display:none">
         <div class="tDone">✅ <span id="tResTitle"></span> · <span id="tResCount"></span> questions</div>
         <div class="tBtnRow">
-          <button class="goBtn" id="tSaveBtn" type="button">💾 Save the Word doc</button>
-          <button class="goBtn" id="tShareBtn" type="button" style="display:none">📤 Share…</button>
+          <button class="goBtn" id="tSaveBtn" type="button">💾 Save as Word doc</button>
+          <button class="goBtn" id="tPdfBtn" type="button">📤 Send as PDF</button>
         </div>
         <div class="tShare" id="tResShare"></div>
       </div>
@@ -2189,6 +2189,110 @@
       { name: "word/document.xml", text: doc },
     ]);
   }
+  // ---- .pdf built ON DEVICE too: Android's share sheet refuses .docx but accepts PDFs, so
+  // "Send as PDF" gives a one-tap email/print on any phone. Text-only PDF, hand-assembled
+  // (uncompressed streams, base-14 Helvetica — no fonts to embed, no dependencies), same
+  // layout rules as the docx: narrow margins, chapter heading, questions kept whole per page,
+  // answer key on its own page.
+  function tPdfFold(s) {
+    return String(s)
+      .replace(/[\u2014\u2013]/g, "-").replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"')
+      .replace(/\u2022/g, "-").replace(/\u00d7/g, "x").replace(/[^\x20-\xff]/g, "?");
+  }
+  function tPdfEscape(s) { return tPdfFold(s).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)"); }
+  function tPdfCharW(ch) {
+    if ("iIl.,:;'|!()[]".includes(ch)) return 0.32;
+    if ("mwMW@".includes(ch)) return 0.85;
+    if (ch === " ") return 0.28;
+    if (ch >= "A" && ch <= "Z") return 0.68;
+    return 0.52;
+  }
+  function tPdfWidth(text, size) { let w = 0; for (const ch of tPdfFold(text)) w += tPdfCharW(ch); return w * size; }
+  function tPdfWrap(text, size, maxW) {
+    const words = tPdfFold(text).split(/\s+/).filter(Boolean);
+    if (!words.length) return [""];
+    const lines = []; let cur = "";
+    for (const w of words) {
+      const cand = cur ? cur + " " + w : w;
+      if (tPdfWidth(cand, size) <= maxW || !cur) cur = cand;
+      else { lines.push(cur); cur = w; }
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+  function buildTeacherPdf(res, className) {
+    const q = res.quiz;
+    const heading = tHeading(q, res.kind);
+    const M = 36, PW = 612, PH = 792, CW = PW - 2 * M;      // letter, 0.5in margins
+    const lead = (size) => Math.round(size * 1.4);
+    // Blocks of lines; a block never splits across pages (questions stay whole).
+    const blocks = [];
+    const block = (items, opts) => blocks.push({ items, newPage: !!(opts && opts.newPage) });
+    const line = (text, o) => ({ text, size: (o && o.size) || 11, bold: !!(o && o.bold), center: !!(o && o.center), gap: (o && o.gap) || 0 });
+    const head = [line(heading, { size: 18, bold: true, center: true, gap: 4 })];
+    if (className) head.push(line(className, { size: 12, center: true, gap: 4 }));
+    head.push(line("", { gap: 2 }));
+    head.push(line("Name: ______________________________________          Date: ______________________", { gap: 6 }));
+    if (q.instructions) for (const l of tPdfWrap("Instructions: " + q.instructions, 11, CW)) head.push(line(l));
+    head.push(line("", { gap: 4 }));
+    block(head);
+    q.questions.forEach((it, i) => {
+      const items = [];
+      tPdfWrap((i + 1) + ". " + it.q, 11, CW).forEach((l) => items.push(line(l)));
+      if (it.choices && it.choices.length) it.choices.forEach((c, ci) =>
+        tPdfWrap(String.fromCharCode(65 + ci) + ")  " + c, 11, CW - 30).forEach((l, li) => items.push(line((li ? "      " : "    ") + l))));
+      if (it.lines) items.push(line("", { gap: 17 * it.lines }));   // blank writing space (compact)
+      items.push(line("", { gap: 8 }));
+      block(items);
+    });
+    const key = [line("ANSWER KEY - " + heading, { size: 14, bold: true, gap: 6 })];
+    (q.answerKey || []).forEach((a, i) => tPdfWrap((i + 1) + ". " + a, 11, CW).forEach((l) => key.push(line(l))));
+    block(key, { newPage: true });
+    // Paginate blocks into per-page draw ops.
+    const pages = [];
+    let ops = [], y = PH - M - 14;
+    const newPage = () => { pages.push(ops); ops = []; y = PH - M - 14; };
+    const blockH = (b) => b.items.reduce((s2, it) => s2 + lead(it.size) + it.gap, 0);
+    for (const b of blocks) {
+      const h = blockH(b);
+      if (b.newPage && ops.length) newPage();
+      else if (y - h < M && h < PH - 2 * M) newPage();
+      for (const it of b.items) {
+        if (y < M + lead(it.size)) newPage();
+        if (it.text) {
+          const x = it.center ? Math.max(M, M + (CW - tPdfWidth(it.text, it.size)) / 2) : M;
+          ops.push("BT /F" + (it.bold ? 2 : 1) + " " + it.size + " Tf " + x.toFixed(1) + " " + y.toFixed(1) + " Td (" + tPdfEscape(it.text) + ") Tj ET");
+        }
+        y -= lead(it.size) + it.gap;
+      }
+    }
+    if (ops.length) pages.push(ops);
+    // Assemble the file (latin1 bytes; stream length = string length after folding).
+    const objs = [];   // 1-indexed object bodies
+    objs.push("<< /Type /Catalog /Pages 2 0 R >>");
+    const pageIds = pages.map((_, i) => 3 + i * 2);
+    objs.push("<< /Type /Pages /Kids [" + pageIds.map((n) => n + " 0 R").join(" ") + "] /Count " + pages.length + " >>");
+    const fontIds = { F1: 3 + pages.length * 2, F2: 4 + pages.length * 2 };
+    pages.forEach((pOps, i) => {
+      objs.push("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents " + (pageIds[i] + 1) +
+        " 0 R /Resources << /Font << /F1 " + fontIds.F1 + " 0 R /F2 " + fontIds.F2 + " 0 R >> >> >>");
+      const stream = pOps.join("\n");
+      objs.push("<< /Length " + stream.length + " >>\nstream\n" + stream + "\nendstream");
+    });
+    objs.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+    objs.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>");
+    let out = "%PDF-1.4\n";
+    const offsets = [];
+    objs.forEach((body, i) => { offsets.push(out.length); out += (i + 1) + " 0 obj\n" + body + "\nendobj\n"; });
+    const xref = out.length;
+    out += "xref\n0 " + (objs.length + 1) + "\n0000000000 65535 f \n" +
+      offsets.map((o) => String(o).padStart(10, "0") + " 00000 n \n").join("") +
+      "trailer\n<< /Size " + (objs.length + 1) + " /Root 1 0 R >>\nstartxref\n" + xref + "\n%%EOF";
+    const bytes = new Uint8Array(out.length);
+    for (let i = 0; i < out.length; i++) bytes[i] = out.charCodeAt(i) & 0xff;
+    return new Blob([bytes], { type: "application/pdf" });
+  }
+  let tLastResult = null, tLastClass = "";
   let tLastDocx = null, tLastName = "quiz.docx";
   const tPhotos = [];   // { data(b64 jpeg), thumb(dataURL) }
   function tRenderPhotos() {
@@ -2274,17 +2378,14 @@
       if (!j || !j.ok) throw new Error((j && j.error) || "Something went wrong — try again");
       $("tStatus").style.display = "none";
       const className = $("tClass").value.trim();
+      tLastResult = j; tLastClass = className;
       tLastDocx = buildTeacherDocx(j, className);
       const heading = tHeading(j.quiz, j.kind);
       tLastName = (heading + (className ? " — " + className : ""))
         .replace(/[\\/:*?"<>|]/g, "-").slice(0, 80) + ".docx";
       $("tResTitle").textContent = heading;
       $("tResCount").textContent = j.questionCount;
-      const canShare = !!(navigator.canShare && navigator.canShare({ files: [new File([tLastDocx], tLastName, { type: TDOCX_MIME })] }));
-      $("tShareBtn").style.display = canShare ? "" : "none";
-      $("tResShare").textContent = canShare
-        ? "It's a Word document (.docx) — Save it here, or Share to email it to anyone, print it, or drop it in Google Drive (it opens in Google Docs). The answer key is on the last page."
-        : "It's a Word document (.docx) — open it in Word, or upload to Google Drive and it opens in Google Docs. The answer key is on the last page.";
+      $("tResShare").textContent = "Save as Word doc to keep an editable copy, or Send as PDF to email or print it straight from the share sheet. The answer key is the last page of both.";
       $("tResult").style.display = "block";
     } catch (e) {
       $("tStatus").style.display = "none";
@@ -2299,20 +2400,28 @@
     a.download = tLastName;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    $("tResShare").textContent = "Saved ✓ “" + tLastName + "” is in Downloads. To email it: Gmail → 📎 → Attach file → Downloads. It opens in Word or Google Docs.";
   }
   $("tSaveBtn").addEventListener("click", tSaveDocx);
-  $("tShareBtn").addEventListener("click", async () => {
-    if (!tLastDocx) return;
-    try { await navigator.share({ files: [new File([tLastDocx], tLastName, { type: TDOCX_MIME })], title: tLastName.replace(/\.docx$/, "") }); }
-    catch (e) {
-      if (e && e.name === "AbortError") return;   // teacher closed the share sheet — fine
-      // Some browsers advertise file-sharing but refuse it — never dead-end: save instead.
-      tSaveDocx();
-      toast("Sharing isn't available here — saved the file instead. Attach it from your files/downloads.");
+  $("tPdfBtn").addEventListener("click", async () => {
+    if (!tLastResult) return;
+    const pdf = buildTeacherPdf(tLastResult, tLastClass);
+    const name = tLastName.replace(/\.docx$/, ".pdf");
+    const file = new File([pdf], name, { type: "application/pdf" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: name.replace(/\.pdf$/, "") }); return; }
+      catch (e) { if (e && e.name === "AbortError") return; /* else fall through to save */ }
     }
+    // No working share here (desktop, or a refusing browser) → save the PDF instead.
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(pdf);
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    $("tResShare").textContent = "Saved ✓ “" + name + "” is in Downloads — email it as an attachment or print it.";
   });
   // Test hook: headless suites unzip and inspect the built docx.
-  window.__TEACHER__ = { get docx() { return tLastDocx; }, get name() { return tLastName; }, build: buildTeacherDocx };
+  window.__TEACHER__ = { get docx() { return tLastDocx; }, get name() { return tLastName; }, build: buildTeacherDocx, buildPdf: () => tLastResult ? buildTeacherPdf(tLastResult, tLastClass) : null };
 
   $("cardStory").addEventListener("click", () => { renderBookshelf(); show("storySetup"); });
   $("cardResearch").addEventListener("click", () => {
