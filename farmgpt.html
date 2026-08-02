@@ -2136,6 +2136,10 @@
   });
   $("tGoBtn").addEventListener("click", async () => {
     if (!tPhotos.length) { toast("Add at least one photo of the material first"); return; }
+    // Netlify caps the request body around ~6MB — catch an oversized batch up front with a
+    // useful message instead of a mid-flight failure.
+    const totalB64 = tPhotos.reduce((s, p) => s + p.data.length, 0);
+    if (totalB64 > 4_500_000) { toast("That's too many megapixels for one run — remove a photo or two and try again"); return; }
     const btn = $("tGoBtn");
     btn.disabled = true;
     $("tResult").style.display = "none";
@@ -2149,7 +2153,10 @@
           kind: tKind, count: Math.max(3, Math.min(50, parseInt($("tCount").value, 10) || 10)),
           notes: $("tNotes").value.trim() }),
       });
-      let j = null; try { j = await resp.json(); } catch {}
+      // Success is a 200 keepalive STREAM whose last line is the result JSON; validation
+      // errors (400/401) are still plain JSON responses.
+      let j = null;
+      try { j = JSON.parse((await resp.text()).trim().split("\n").pop()); } catch {}
       if (!resp.ok || !j || !j.ok) throw new Error((j && j.error) || "Something went wrong — try again");
       $("tStatus").style.display = "none";
       $("tResTitle").textContent = j.title;
