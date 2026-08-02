@@ -167,6 +167,106 @@ newest part of the story corrects or redoes something earlier, the corrected ver
 truth — remove the contradicted details entirely. Output ONLY the bible — no preamble, no
 commentary.`;
 
+// ---------------- Universe bibles (auto-detected franchise fact sheets) ----------------
+// Kids constantly set stories in worlds they know and then have to CORRECT invented details —
+// a dragon that suddenly talks, the wrong villain name, the wrong weapon (observed live in
+// Eleanor's redo write-ins). When a story's text mentions a known universe, that universe's
+// compact fact sheet rides the STORY system prompt so canon is right the FIRST time. Detection
+// is a trigger regex over the request's message text: the world setup names the franchise, and
+// character names in later scenes/recaps keep it sticky after the send window slides. Facts
+// yield to the reader: anything the reader explicitly changes wins (reader is law). To add a
+// universe, append an entry — nothing else to wire.
+const UNIVERSE_BIBLES = [
+  { name: "How to Train Your Dragon (movies + Race to the Edge)",
+    triggers: /how to train your dragon|httyd|race to the edge|night fury|light fury|toothless|hiccup|dragon rider|isle of berk|\bberk\b|astrid|stormfly|windshear|grimborn|deadly nadder|gronckle|zippleback|monstrous nightmare|hofferson|haddock/i,
+    facts: `- DRAGONS NEVER TALK. No dragon speaks words, ever. They are intelligent animals who
+  communicate through growls, croons, body language, and their bond with their rider — and they
+  understand a lot. A rider "reads" their dragon; the dragon never answers in speech.
+- Hiccup Haddock: slim, scruffy auburn hair, green eyes, dry wit, brilliant inventor. His LEFT
+  LEG below the knee is missing — he walks on a metal prosthetic he designed. Leather flight
+  armor, fireproof flame-sword Inferno. Son of chief Stoick the Vast; mother Valka.
+- Toothless: Hiccup's dragon, a Night Fury — jet-black, green eyes, retractable teeth, fires
+  purple-blue plasma blasts. His LEFT TAIL FIN is missing: he CANNOT fly without the red
+  prosthetic fin Hiccup built, which the rider controls with a foot stirrup.
+- Astrid Hofferson: tough, fierce, blonde hair in a braid, blue eyes, fights with a
+  double-headed battle axe. Her dragon Stormfly is a Deadly Nadder — bright blue and gold,
+  fires magnesium flame and can shoot tail spines.
+- Heather: black braided hair, double-bladed folding axe, rides Windshear, a silver armored
+  Razorwhip. Fishlegs is round and bookish, rides Meatlug (a Gronckle — eats rocks, lava
+  blasts). Snotlout is cocky, rides Hookfang (a Monstrous Nightmare — sets its own body on
+  fire). Twins Ruffnut and Tuffnut ride Barf & Belch, a two-headed Zippleback (one head spews
+  green gas, the other sparks it).
+- Race to the Edge villains: Viggo Grimborn — calm, brilliant, chess-master dragon hunter
+  (loves the strategy game Maces and Talons); his brother Ryker Grimborn is the blunt muscle.
+  Dagur the Deranged is an unhinged berserker. Dragon hunters trap and sell dragons, use
+  dragon-proof metal cages and arrows.
+- World: Viking islands — the village of Berk and the riders' outpost Dragon's Edge. Dragon
+  facts: eels repel dragons; dragon nip calms them; Night Furies are believed the last of
+  their kind; the white Light Fury can briefly turn invisible after heating her scales with a
+  plasma blast.` },
+  { name: "Super Mario",
+    triggers: /\bmario\b|\bluigi\b|bowser|mushroom kingdom|princess peach|\byoshi\b|goomba|koopa|toadstool|piranha plant|warp pipe|wario|donkey kong/i,
+    facts: `- Mario and Luigi: mustached brother plumbers who talk in cheerful simple speech. Mario wears
+  a red cap and shirt with blue overalls; Luigi wears green, is taller, and is more timid.
+- Princess Peach rules the Mushroom Kingdom — pink gown, blonde hair, kind but capable. Bowser
+  is the huge spike-shelled Koopa king: breathes fire, has a castle with lava, endlessly
+  scheming (often kidnapping Peach); his son is Bowser Jr.
+- Yoshi: a friendly green dinosaur who can be ridden, grabs things with a long tongue,
+  swallows enemies, and lays spotted eggs. Yoshi mostly just says "Yoshi!".
+- Toads: little people with mushroom caps who talk normally and live throughout the kingdom.
+- Power-ups work reliably: Super Mushroom makes you grow, Fire Flower grants fireball
+  throwing, a Super Star gives short invincibility, a 1-Up Mushroom is green. Coins are
+  everywhere; hitting a ? Block from below pops out its contents; green warp pipes carry you
+  between places.
+- Enemies are cartoonish, never gory: Goombas (grumpy walking chestnut-brown mushrooms) are
+  stomped, Koopa Troopas hide in shells that slide when kicked, Piranha Plants snap from
+  pipes. Defeated enemies just poof away — nobody truly dies.
+- Go-kart racing is a beloved pastime (Mario Kart) with items like shells and banana peels.` },
+  { name: "Star Wars",
+    triggers: /star wars|lightsaber|light saber|jedi|\bsith\b|darth|skywalker|millennium falcon|chewbacca|wookiee|stormtrooper|death star|grogu|mandalorian|\byoda\b|kenobi|blaster bolt|the force\b/i,
+    facts: `- Lightsabers: humming blades of pure energy that cut through almost anything and deflect
+  blaster bolts. Jedi carry blue or green (sometimes purple/yellow); Sith blades are red.
+- The Force: an energy field connecting all living things. Trained users can move objects with
+  their mind, leap huge distances, sense danger, and nudge weak minds ("mind tricks"). Jedi
+  draw on calm and discipline; the dark side feeds on anger and fear.
+- Droids: R2-D2 is a squat astromech who speaks only in beeps and whistles; C-3PO is a fussy
+  golden protocol droid who talks constantly; BB-8 rolls on a ball body and beeps.
+- Chewbacca is a towering Wookiee who roars and growls (he never speaks words, but friends
+  understand him). Han Solo flies the Millennium Falcon — a battered freighter that jumps to
+  lightspeed (hyperspace: stars streak into lines).
+- Stormtroopers wear white armor and are famously bad shots. Blasters fire glowing colored
+  bolts, not bullets. TIE fighters scream; X-wings have four wing-tips that open into an X.
+- Yoda: small, green, long-eared, immensely wise and powerful, speaks in inverted syntax
+  ("Strong with the Force, you are"). Darth Vader: black armor and cape, deep mechanical
+  breathing, red lightsaber.
+- Travel between planets is routine; droids, aliens, and humans mix everywhere.` },
+  { name: "Pokémon",
+    triggers: /pok[eé]mon|pikachu|charizard|charmander|bulbasaur|squirtle|eevee|pok[eé] ?ball|team rocket|\bpokedex\b|pok[eé]dex|gym leader|ash ketchum/i,
+    facts: `- Pokémon say ONLY their own names ("Pika, pika!") — they never speak human words. (The one
+  famous exception is Team Rocket's Meowth, who taught himself to talk.) They understand their
+  trainers well.
+- Trainers catch Pokémon in Poké Balls and carry up to six. Battles end when a Pokémon FAINTS
+  — Pokémon are never killed. Fainted Pokémon are healed at a Pokémon Center (run by Nurse
+  Joy).
+- Pikachu: small, yellow, red cheeks, lightning-bolt tail, electric attacks like Thunderbolt.
+  Ash's Pikachu famously refuses to ride in a Poké Ball.
+- Types matter like rock-paper-scissors: water douses fire, fire burns grass, grass drinks
+  water; electric shocks water and flying types; ground blocks electric.
+- Many Pokémon evolve into bigger forms (Charmander → Charmeleon → Charizard, a winged orange
+  dragon whose tail flame must never go out). Eevee can evolve many different ways.
+- Team Rocket (Jessie, James, Meowth) are comedic villains who scheme to steal Pokémon and
+  blast off dramatically when they lose. Legendary Pokémon are rare, powerful, and awe-inspiring.` },
+];
+function universeGuides(messages) {
+  let text = "";
+  try { text = JSON.stringify(messages); } catch { return ""; }
+  const hits = UNIVERSE_BIBLES.filter((u) => u.triggers.test(text));
+  if (!hits.length) return "";
+  return "\n\n===== UNIVERSE GUIDE" + (hits.length > 1 ? "S" : "") +
+    " — this story visits a world the reader already knows. The facts below are ESTABLISHED CANON of that world: get them right the FIRST time, without being corrected. If the reader explicitly changes one of these details in THEIR story, the reader's version wins — otherwise never contradict them. =====\n" +
+    hits.map((u) => "--- " + u.name + " ---\n" + u.facts).join("\n");
+}
+
 // Appended to STORY_SYSTEM only when the request asks for an illustration (maxTokens
 // bumped alongside). The <svg> is sanitized hard on the client before it ever renders.
 const STORY_ILLUSTRATION = `
@@ -1628,6 +1728,10 @@ export default async (req) => {
   const illustrate = body.mode === "story" && body.illustrate === true;
   let system = illustrate ? mode.system + "\n" + STORY_ILLUSTRATION : mode.system;
   const maxTokens = illustrate ? 3000 : mode.maxTokens;
+
+  // Known-universe fact sheets ride the story system prompt (auto-detected from the request's
+  // own text) so franchise details are right without the reader having to correct them.
+  if (body.mode === "story") system += universeGuides(messages);
 
   // Parents get the direct-answer research prompt (answer keys allowed); kids keep the tutor.
   if (body.mode === "research" && PARENT_RESEARCH_USERS.includes(body.user)) system = PARENT_RESEARCH_SYSTEM;

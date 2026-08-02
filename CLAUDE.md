@@ -1442,6 +1442,19 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   _verify-storylog-summary 86/86 (deletion asserts inverted to retention + storylog_scenes +
   flag-rule checks) · scratchpad story_ux_test.cjs 22/22 (gate/steer/transcript) ·
   story_redo_test 26/26 + parent-research 25 / kidstory 54 / dnd 47 / calories 24.
+📚 UNIVERSE BIBLES (2026-08-01, user: Eleanor's redos mostly correct HTTYD canon): server-side
+  UNIVERSE_BIBLES in farmgpt.mjs — compact franchise fact sheets (HTTYD incl. RTTE · Super Mario ·
+  Star Wars · Pokémon; ~250 words each) AUTO-ATTACHED to the STORY system prompt when the
+  request's message text matches a trigger regex (universeGuides(messages) — JSON.stringify scan;
+  no picker, the world setup names the franchise and character names in scenes/recap keep it
+  sticky after windowing; crossovers attach multiple guides). Key facts encode the exact redo
+  classes: dragons NEVER talk, Hiccup/Toothless prosthetics, Grimborns, per-character
+  weapons/dragons; Pokémon say only their names + faint-never-die; Mario poof-not-die. Guide
+  header: reader's explicit changes WIN (reader-is-law compatible). story mode only (research/
+  kidstory/summary untouched). False-positive care: bare "peach"/"toad" don't trigger ("princess
+  peach" does). To add a universe: append an entry, nothing else to wire. Verify:
+  _verify-story-reminder.mjs now 40/40 (+10: attach/facts/yield-line, no-trigger, peach guard,
+  Mario, crossover BOTH, recap-sticky, research-never).
 🎁 STORY BUDGET REFRESH (2026-08-01, user): Dad-only button atop the Story Log view
   (#budgetGrantBtn) → mode story_budget_grant increments farmgpt_story_bonus/<farmDate> .extra
   by STORY_DAILY_CAP — everyone's effective cap that day = 15 + extra (grants stack; bonus read
