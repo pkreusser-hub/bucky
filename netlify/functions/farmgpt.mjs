@@ -287,7 +287,9 @@ THE DRAGON EYE & LORE:
   { key: "starwars", name: "Star Wars",
     triggers: /star wars|lightsaber|light saber|jedi|\bsith\b|darth|skywalker|millennium falcon|chewbacca|wookiee|stormtrooper|death star|grogu|mandalorian|\byoda\b|kenobi|blaster bolt|the force\b/i,
     facts: `- Lightsabers: humming blades of pure energy that cut through almost anything and deflect
-  blaster bolts. Jedi carry blue or green (sometimes purple/yellow); Sith blades are red.
+  blaster bolts. Jedi carry blue or green (sometimes purple/yellow); Sith blades are red. A
+  DOUBLE-BLADED lightsaber has ONE handle in the middle with a blade igniting from each end
+  (like Darth Maul's) — two blades, one grip.
 - The Force: an energy field connecting all living things. Trained users can move objects with
   their mind, leap huge distances, sense danger, and nudge weak minds ("mind tricks"). Jedi
   draw on calm and discipline; the dark side feeds on anger and fear.
