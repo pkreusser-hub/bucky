@@ -94,6 +94,7 @@ console.log("— happy path: photos → Opus → structured quiz JSON —");
   ok(a.max_tokens === 8000, "big output budget for a full assessment");
   ok(a.system.includes("DIFFERENT numbers") && a.system.includes("Never copy a problem verbatim"), "prompt: existing quizzes are rebuilt with different numbers");
   ok(a.system.includes("CHAPTER"), "prompt: chapter identified from the material");
+  ok(a.system.includes("MATCH it to the work") && a.system.includes("Err on the SMALL side"), "prompt: answer space scales with required work (compact bias)");
   const content = a.messages[0].content;
   ok(Array.isArray(content) && content.filter((b) => b.type === "image").length === 2, "both photos sent as image blocks");
   const txt = content.find((b) => b.type === "text").text;
