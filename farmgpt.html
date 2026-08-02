@@ -2280,11 +2280,16 @@
         .replace(/[\\/:*?"<>|]/g, "-").slice(0, 80) + ".docx";
       $("tResTitle").textContent = heading;
       $("tResCount").textContent = j.questionCount;
-      const canShare = !!(navigator.canShare && navigator.canShare({ files: [new File([tLastDocx], tLastName, { type: TDOCX_MIME })] }));
+      // Android Chrome's share sheet only accepts an allowlist of file types (images/video/
+      // pdf/plain text) — .docx is NOT on it, and canShare() falsely says yes before share()
+      // refuses (observed live). So: no Share button on Android; Save + Gmail-attach is the
+      // reliable flow there. iOS/iPadOS shares any file type happily.
+      const tIsAndroid = /android/i.test(navigator.userAgent);
+      const canShare = !tIsAndroid && !!(navigator.canShare && navigator.canShare({ files: [new File([tLastDocx], tLastName, { type: TDOCX_MIME })] }));
       $("tShareBtn").style.display = canShare ? "" : "none";
       $("tResShare").textContent = canShare
         ? "It's a Word document (.docx) — Save it here, or Share to email it to anyone, print it, or drop it in Google Drive (it opens in Google Docs). The answer key is on the last page."
-        : "It's a Word document (.docx) — open it in Word, or upload to Google Drive and it opens in Google Docs. The answer key is on the last page.";
+        : "It's a Word document (.docx). Tap Save — it goes to Downloads. To email it: in Gmail tap 📎 → Attach file, or share it from the Files app. It also opens in Google Docs if you upload it to Drive. The answer key is on the last page.";
       $("tResult").style.display = "block";
     } catch (e) {
       $("tStatus").style.display = "none";
@@ -2299,6 +2304,7 @@
     a.download = tLastName;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    $("tResShare").textContent = "Saved ✓ “" + tLastName + "” is in Downloads. To email it: Gmail → 📎 → Attach file → Downloads. It opens in Word or Google Docs.";
   }
   $("tSaveBtn").addEventListener("click", tSaveDocx);
   $("tShareBtn").addEventListener("click", async () => {
