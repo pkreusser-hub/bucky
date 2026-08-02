@@ -1489,6 +1489,24 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   controls, toasts "🎁 Dad refreshed…" (no reload needed; local block stays instant). Suites:
   _verify-storylog-summary 94/94 (+8 budget: stack/uncap/stream/Dad/401; fake Firestore now
   APPLIES integer increment transforms) + story_ux_test 28/28.
+🍎 TEACHERGPT (2026-08-02, user): FarmGPT home card + viewTeacher — a teacher photographs
+  material (≤8 photos, client-resized 1568px JPEG), picks Quiz/Test + question count (3-50) +
+  optional notes → mode "teachergpt" (OPUS 5, callAnthropicOnce w/ image blocks, maxTokens
+  8000, strict JSON {title,chapter,instructions,questions[{q,choices?,lines}],answerKey}) →
+  server builds a print-ready GOOGLE DOC (buildTeacherDocRequests: centered TITLE + chapter ·
+  QUIZ/TEST line + Name/Date line + instructions + numbered questions w/ lettered choices or
+  answer lines + PAGE BREAK + ANSWER KEY heading; Docs indexes = UTF-16 units = JS .length,
+  prompt bans emoji) and SHARES it to TEACHER_DOC_EMAIL (default dbadams@gmail.com, env
+  override) as writer w/ email notification. Existing-quiz photos → same problems DIFFERENT
+  numbers (prompt-enforced). SA creates the doc in its own Drive (getGoogleDocsToken — separate
+  token cache, docs+drive scopes; TEACHER_DOCS_BASE_URL/TEACHER_DRIVE_BASE_URL test overrides).
+  ONE-TIME SETUP: enable Google Docs API + Google Drive API on amen-farms-app (403 → actionable
+  error, calendar-API pattern). Usage bucket t_* priced at Opus 5 ($5/$25) w/ 🍎 dashboard row.
+  Verify: tools/_verify-teachergpt.mjs (34: prompt rules, doc layout incl. name/date + page
+  break + key, share recipient/role/notification, scopes, validation/403/401, other modes
+  clean) + scratchpad teacher_client_test.cjs (14). NOT live-tested vs real Opus/Google (env
+  blocks both) — post-deploy: enable the two APIs, run one real quiz, check the doc lands in
+  dbadams@gmail.com's Shared-with-me and prints cleanly.
 - GUARDRAILS TIGHTENED (2026-07-30, user): FAMILY_RULES — torture scenes are never written even
   if explicitly/repeatedly requested (redirects in-story like other restricted topics);
   interrogation OK (questioning/pressure/bluffing/wits) but zero violence, torture, or threats

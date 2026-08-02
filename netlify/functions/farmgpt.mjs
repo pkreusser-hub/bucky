@@ -925,6 +925,165 @@ const PROJECT_ID = "amen-farms-app";
 const FIRESTORE_BASE = process.env.FARMGPT_FIRESTORE_BASE ||
   `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
 const GOOGLE_TOKEN_URL = process.env.FARMGPT_GOOGLE_TOKEN_URL || "https://oauth2.googleapis.com/token";
+
+// ---------------- TeacherGPT (quiz/test maker → Google Doc) ----------------
+// A teacher photographs material (textbook pages, notes, or an existing quiz), picks quiz vs
+// test + a question count, and Opus 5 writes a print-ready assessment which lands as a Google
+// Doc shared to TEACHER_DOC_EMAIL. The service account CREATES the doc in its own Drive and
+// shares it out (same SA as Firestore/Calendar — the Docs API and Drive API must be enabled
+// once on the amen-farms-app GCP project, like the Calendar API was). Env overrides for tests.
+const TEACHER_MODEL = "claude-opus-5";      // explicitly Opus — assessment quality is the product
+const TEACHER_DOC_EMAIL = process.env.TEACHER_DOC_EMAIL || "dbadams@gmail.com";
+const TEACHER_DOCS_BASE = process.env.TEACHER_DOCS_BASE_URL || "https://docs.googleapis.com";
+const TEACHER_DRIVE_BASE = process.env.TEACHER_DRIVE_BASE_URL || "https://www.googleapis.com";
+const TEACHER_SCOPE = "https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive";
+let cachedDocsToken = null;   // separate cache — different scope than the Firestore token
+async function getGoogleDocsToken() {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (!raw) return null;
+  if (cachedDocsToken && Date.now() < cachedDocsToken.exp - 60000) return cachedDocsToken.token;
+  try {
+    const sa = JSON.parse(raw);
+    const crypto = await import("node:crypto");
+    const nowSec = Math.floor(Date.now() / 1000);
+    const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+    const claims = base64url(JSON.stringify({
+      iss: sa.client_email, scope: TEACHER_SCOPE,
+      aud: "https://oauth2.googleapis.com/token", iat: nowSec, exp: nowSec + 3600,
+    }));
+    const signer = crypto.createSign("RSA-SHA256");
+    signer.update(header + "." + claims);
+    const jwt = header + "." + claims + "." + base64url(signer.sign(sa.private_key));
+    const resp = await fetch(GOOGLE_TOKEN_URL, {
+      method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: jwt }),
+    });
+    if (!resp.ok) return null;
+    const j = await resp.json();
+    cachedDocsToken = { token: j.access_token, exp: Date.now() + (j.expires_in || 3600) * 1000 };
+    return cachedDocsToken.token;
+  } catch { return null; }
+}
+
+const TEACHER_SYSTEM = `You are TeacherGPT: you write polished, print-ready quizzes and tests for
+a real classroom teacher, from photographs of teaching material. The photos may show textbook
+pages, worksheets, notes, or an EXISTING quiz/test.
+
+WHAT TO WRITE:
+- Build the assessment STRICTLY from the photographed material — its topics, vocabulary, level,
+  and methods. Never quiz concepts the material doesn't cover.
+- If the photos show an existing quiz or test: recreate an equivalent one — the SAME kinds of
+  problems, same difficulty, same coverage — but with DIFFERENT numbers, values, names, and
+  specifics, so a student who saw the original can't reuse answers. Never copy a problem verbatim.
+- Produce EXACTLY the requested number of questions, numbered 1..N. Use question formats that
+  fit the material (multiple choice with exactly 4 choices, short answer, computation). For
+  computation, choose numbers that work out cleanly at this grade level. Double-check every
+  answer's arithmetic.
+- Identify the CHAPTER (and topic) from the material — headings like "Chapter 7: Fractions".
+  If no chapter is visible, use an empty string.
+- Include a complete answer key: for computation give the final answer plus a one-line solution;
+  for multiple choice give the letter and answer.
+
+OUTPUT — STRICT JSON ONLY, no markdown fences, no text before or after, exactly this shape:
+{"title": "short assessment title (subject + topic)",
+ "chapter": "Chapter 7: Fractions" or "",
+ "instructions": "one or two sentences of student-facing directions",
+ "questions": [{"q": "question text", "choices": ["A text","B text","C text","D text"] or null, "lines": 0..6}],
+ "answerKey": ["answer for question 1", "answer for question 2", ...]}
+"choices" is null for non-multiple-choice questions. "lines" is how many blank answer lines to
+print under the question (0 for multiple choice, 1-2 for short answer, 3-6 when work must be
+shown). Use plain text only — no emoji, no markdown. Write math readably in plain text
+(3/4, 12 x 8, 5.2 cm).`;
+
+function parseTeacherJSON(text) {
+  if (!text) return null;
+  let s = String(text).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  const start = s.indexOf("{"), end = s.lastIndexOf("}");
+  if (start === -1 || end < start) return null;
+  try {
+    const o = JSON.parse(s.slice(start, end + 1));
+    if (!Array.isArray(o.questions) || !o.questions.length) return null;
+    const questions = o.questions.slice(0, 60).map((q) => ({
+      q: String((q && q.q) || "").slice(0, 2000),
+      choices: Array.isArray(q && q.choices) ? q.choices.slice(0, 6).map((c) => String(c).slice(0, 400)) : null,
+      lines: Math.max(0, Math.min(8, ((q && q.lines) | 0))),
+    })).filter((q) => q.q);
+    if (!questions.length) return null;
+    const answerKey = (Array.isArray(o.answerKey) ? o.answerKey : []).map((a) => String(a).slice(0, 600));
+    while (answerKey.length < questions.length) answerKey.push("—");
+    return {
+      title: String(o.title || "Assessment").slice(0, 120),
+      chapter: String(o.chapter || "").slice(0, 120),
+      instructions: String(o.instructions || "").slice(0, 600),
+      questions, answerKey: answerKey.slice(0, questions.length),
+    };
+  } catch { return null; }
+}
+
+// Composes the printable document text + Docs API requests. One body insert, a page break,
+// then the answer key — with the header block centered. (Docs indexes are UTF-16 units, which
+// is exactly JS string .length; the prompt bans emoji so lengths stay simple.)
+function buildTeacherDocRequests(t, kind) {
+  const kindLabel = kind === "test" ? "TEST" : "QUIZ";
+  const titleLine = t.title + "\n";
+  const subLine = (t.chapter || "Chapter ____") + "   •   " + kindLabel + "\n";
+  const nameLine = "Name: ______________________________________          Date: ______________________\n";
+  let body = titleLine + subLine + "\n" + nameLine + "\n";
+  if (t.instructions) body += "Instructions: " + t.instructions + "\n\n";
+  t.questions.forEach((q, i) => {
+    body += (i + 1) + ". " + q.q + "\n";
+    if (q.choices && q.choices.length) {
+      q.choices.forEach((c, ci) => { body += "        " + String.fromCharCode(65 + ci) + ")  " + c + "\n"; });
+    }
+    for (let l = 0; l < q.lines; l++) body += "    ________________________________________________________________\n";
+    body += "\n";
+  });
+  const keyHead = "ANSWER KEY — " + t.title + " (" + kindLabel.toLowerCase() + ")\n";
+  let key = keyHead;
+  t.answerKey.forEach((a, i) => { key += (i + 1) + ". " + a + "\n"; });
+  const bodyStart = 1;                       // Docs body content begins at index 1
+  const keyStart = bodyStart + body.length + 1;   // +1 for the page break character
+  return {
+    requests: [
+      { insertText: { location: { index: bodyStart }, text: body } },
+      { insertPageBreak: { location: { index: bodyStart + body.length } } },
+      { insertText: { location: { index: keyStart }, text: key } },
+      // Header block styling: big centered title, centered subtitle.
+      { updateParagraphStyle: { range: { startIndex: bodyStart, endIndex: bodyStart + titleLine.length },
+        paragraphStyle: { namedStyleType: "TITLE", alignment: "CENTER" }, fields: "namedStyleType,alignment" } },
+      { updateParagraphStyle: { range: { startIndex: bodyStart + titleLine.length, endIndex: bodyStart + titleLine.length + subLine.length },
+        paragraphStyle: { alignment: "CENTER" }, fields: "alignment" } },
+      { updateTextStyle: { range: { startIndex: bodyStart + titleLine.length, endIndex: bodyStart + titleLine.length + subLine.length },
+        textStyle: { bold: true }, fields: "bold" } },
+      { updateParagraphStyle: { range: { startIndex: keyStart, endIndex: keyStart + keyHead.length },
+        paragraphStyle: { namedStyleType: "HEADING_1" }, fields: "namedStyleType" } },
+    ],
+  };
+}
+
+// Creates the doc, fills it, and shares it to the teacher. Returns {url} or {err}.
+async function createTeacherGoogleDoc(t, kind) {
+  const token = await getGoogleDocsToken();
+  if (!token) return { err: "no-token" };
+  const auth = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+  const docTitle = (t.chapter ? t.chapter + " " : "") + (kind === "test" ? "Test" : "Quiz") + " — " + t.title;
+  const mk = await fetch(`${TEACHER_DOCS_BASE}/v1/documents`, { method: "POST", headers: auth, body: JSON.stringify({ title: docTitle.slice(0, 150) }) });
+  if (mk.status === 403) return { err: "docs-api-disabled" };
+  if (!mk.ok) return { err: "create-failed" };
+  const doc = await mk.json().catch(() => null);
+  const docId = doc && doc.documentId;
+  if (!docId) return { err: "create-failed" };
+  const { requests } = buildTeacherDocRequests(t, kind);
+  const up = await fetch(`${TEACHER_DOCS_BASE}/v1/documents/${docId}:batchUpdate`, { method: "POST", headers: auth, body: JSON.stringify({ requests }) });
+  if (!up.ok) return { err: "write-failed" };
+  let shared = true;
+  const perm = await fetch(`${TEACHER_DRIVE_BASE}/drive/v3/files/${docId}/permissions?sendNotificationEmail=true`, {
+    method: "POST", headers: auth,
+    body: JSON.stringify({ role: "writer", type: "user", emailAddress: TEACHER_DOC_EMAIL }),
+  });
+  if (!perm.ok) shared = false;
+  return { url: `https://docs.google.com/document/d/${docId}/edit`, shared, docTitle };
+}
 const USAGE_COLLECTION = "farmgpt_usage";               // one doc per Central-time day
 const USAGE_COLLECTION_HOURLY = "farmgpt_usage_hourly"; // one doc per Central-time hour
 
@@ -992,7 +1151,8 @@ async function logUsage(modeName, inTok, outTok, cacheWriteTok = 0, cacheReadTok
     const key = modeName === "story" ? "s" : modeName === "summary" ? "u"
       : String(modeName).startsWith("dnd") ? "d"
       : modeName === "kidstory" ? "k" : modeName === "kidart" ? "a"
-      : modeName === "kidimage" ? "g" : modeName === "calories" ? "c" : "r";
+      : modeName === "kidimage" ? "g" : modeName === "calories" ? "c"
+      : modeName === "teacher" ? "t" : "r";
     const base = `projects/${PROJECT_ID}/databases/(default)/documents`;
     const tf = (f, n) => ({ fieldPath: f, increment: { integerValue: String(n) } });
     const fields = [
@@ -1831,6 +1991,38 @@ export default async (req) => {
       .sort((a, b) => a.storyId.localeCompare(b.storyId) || a.idx - b.idx)
       .map((e) => ({ user: e.user, storyId: e.storyId, title: e.title, idx: e.idx, choice: e.choice, scene: e.scene }));
     return new Response(JSON.stringify({ scenes }), { status: 200, headers: jsonHeaders });
+  }
+
+  // 🍎 TeacherGPT: photos of material → Opus 5 writes a quiz/test → Google Doc shared to the
+  // teacher. Secret-gated; JSON in/out (no SSE — the teacher waits once for a finished doc).
+  if (body.mode === "teachergpt") {
+    const images = Array.isArray(body.images) ? body.images.slice(0, 8) : [];
+    const okTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+    const blocks = [];
+    for (const im of images) {
+      if (!im || !okTypes.has(im.media_type) || typeof im.data !== "string" || !im.data || im.data.length > 3_500_000) continue;
+      blocks.push({ type: "image", source: { type: "base64", media_type: im.media_type, data: im.data } });
+    }
+    if (!blocks.length) return jsonError(400, "Add at least one photo of the material first", jsonHeaders);
+    const kind = body.kind === "test" ? "test" : "quiz";
+    const count = Math.max(3, Math.min(50, (body.count | 0) || 10));
+    const notes = String(body.notes || "").slice(0, 500);
+    blocks.push({ type: "text", text:
+      `Create a ${kind.toUpperCase()} with EXACTLY ${count} questions from the photographed material above.` +
+      (notes ? `\nTeacher's notes: ${notes}` : "") });
+    const r = await callAnthropicOnce(TEACHER_MODEL, TEACHER_SYSTEM, blocks, 8000);
+    if (!r) return jsonError(502, "TeacherGPT couldn't reach the model — try again", jsonHeaders);
+    await logUsage("teacher", r.inTok, r.outTok, r.cacheWriteTok, r.cacheReadTok);
+    const t = parseTeacherJSON(r.text);
+    if (!t) return jsonError(502, "TeacherGPT couldn't format that — try again", jsonHeaders);
+    const doc = await createTeacherGoogleDoc(t, kind);
+    if (doc.err === "docs-api-disabled") return jsonError(502,
+      "Google Docs/Drive isn't enabled for the farm account yet — in Google Cloud console (amen-farms-app), enable the Google Docs API and Google Drive API, then redeploy", jsonHeaders);
+    if (doc.err) return jsonError(502, "The " + kind + " was written but the Google Doc couldn't be created (" + doc.err + ") — try again", jsonHeaders);
+    return new Response(JSON.stringify({
+      ok: true, url: doc.url, title: doc.docTitle, chapter: t.chapter, kind,
+      questionCount: t.questions.length, shared: doc.shared, sharedWith: TEACHER_DOC_EMAIL,
+    }), { status: 200, headers: jsonHeaders });
   }
 
   // 🍽 Meal calorie estimate (Meals tab). Secret-gated like everything else; JSON in/out, no
