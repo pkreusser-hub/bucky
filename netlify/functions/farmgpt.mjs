@@ -926,45 +926,13 @@ const FIRESTORE_BASE = process.env.FARMGPT_FIRESTORE_BASE ||
   `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
 const GOOGLE_TOKEN_URL = process.env.FARMGPT_GOOGLE_TOKEN_URL || "https://oauth2.googleapis.com/token";
 
-// ---------------- TeacherGPT (quiz/test maker → Google Doc) ----------------
+// ---------------- TeacherGPT (quiz/test maker → Word doc) ----------------
 // A teacher photographs material (textbook pages, notes, or an existing quiz), picks quiz vs
-// test + a question count, and Opus 5 writes a print-ready assessment which lands as a Google
-// Doc shared to TEACHER_DOC_EMAIL. The service account CREATES the doc in its own Drive and
-// shares it out (same SA as Firestore/Calendar — the Docs API and Drive API must be enabled
-// once on the amen-farms-app GCP project, like the Calendar API was). Env overrides for tests.
-const TEACHER_MODEL = "claude-opus-5";      // explicitly Opus — assessment quality is the product
-const TEACHER_DOC_EMAIL = process.env.TEACHER_DOC_EMAIL || "dbadams@gmail.com";
-const TEACHER_DOCS_BASE = process.env.TEACHER_DOCS_BASE_URL || "https://docs.googleapis.com";
-const TEACHER_DRIVE_BASE = process.env.TEACHER_DRIVE_BASE_URL || "https://www.googleapis.com";
-const TEACHER_SCOPE = "https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive";
-let cachedDocsToken = null;   // separate cache — different scope than the Firestore token
-async function getGoogleDocsToken() {
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (!raw) return null;
-  if (cachedDocsToken && Date.now() < cachedDocsToken.exp - 60000) return cachedDocsToken.token;
-  try {
-    const sa = JSON.parse(raw);
-    const crypto = await import("node:crypto");
-    const nowSec = Math.floor(Date.now() / 1000);
-    const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-    const claims = base64url(JSON.stringify({
-      iss: sa.client_email, scope: TEACHER_SCOPE,
-      aud: "https://oauth2.googleapis.com/token", iat: nowSec, exp: nowSec + 3600,
-    }));
-    const signer = crypto.createSign("RSA-SHA256");
-    signer.update(header + "." + claims);
-    const jwt = header + "." + claims + "." + base64url(signer.sign(sa.private_key));
-    const resp = await fetch(GOOGLE_TOKEN_URL, {
-      method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: jwt }),
-    });
-    if (!resp.ok) return null;
-    const j = await resp.json();
-    cachedDocsToken = { token: j.access_token, exp: Date.now() + (j.expires_in || 3600) * 1000 };
-    return cachedDocsToken.token;
-  } catch { return null; }
-}
-
+// test + a question count, and Opus 5 writes a print-ready assessment. The server returns the
+// STRUCTURED quiz JSON; the PAGE builds a .docx on the device (save / native share sheet) —
+// no Google APIs, no service account storage, nothing to enable. (The Google-Docs pipeline
+// died on the SA's zero Drive quota; docx opens in Word AND imports cleanly into Google Docs.)
+const TEACHER_MODEL = "claude-opus-5";   // explicitly Opus — assessment quality is the product
 const TEACHER_SYSTEM = `You are TeacherGPT: you write polished, print-ready quizzes and tests for
 a real classroom teacher, from photographs of teaching material. The photos may show textbook
 pages, worksheets, notes, or an EXISTING quiz/test.
@@ -1020,49 +988,6 @@ function parseTeacherJSON(text) {
   } catch { return null; }
 }
 
-// Composes the printable document text + Docs API requests. One body insert, a page break,
-// then the answer key — with the header block centered. (Docs indexes are UTF-16 units, which
-// is exactly JS string .length; the prompt bans emoji so lengths stay simple.)
-function buildTeacherDocRequests(t, kind) {
-  const kindLabel = kind === "test" ? "TEST" : "QUIZ";
-  const titleLine = t.title + "\n";
-  const subLine = (t.chapter || "Chapter ____") + "   •   " + kindLabel + "\n";
-  const nameLine = "Name: ______________________________________          Date: ______________________\n";
-  let body = titleLine + subLine + "\n" + nameLine + "\n";
-  if (t.instructions) body += "Instructions: " + t.instructions + "\n\n";
-  t.questions.forEach((q, i) => {
-    body += (i + 1) + ". " + q.q + "\n";
-    if (q.choices && q.choices.length) {
-      q.choices.forEach((c, ci) => { body += "        " + String.fromCharCode(65 + ci) + ")  " + c + "\n"; });
-    }
-    for (let l = 0; l < q.lines; l++) body += "    ________________________________________________________________\n";
-    body += "\n";
-  });
-  const keyHead = "ANSWER KEY — " + t.title + " (" + kindLabel.toLowerCase() + ")\n";
-  let key = keyHead;
-  t.answerKey.forEach((a, i) => { key += (i + 1) + ". " + a + "\n"; });
-  const bodyStart = 1;                       // Docs body content begins at index 1
-  const keyStart = bodyStart + body.length + 1;   // +1 for the page break character
-  return {
-    requests: [
-      { insertText: { location: { index: bodyStart }, text: body } },
-      { insertPageBreak: { location: { index: bodyStart + body.length } } },
-      { insertText: { location: { index: keyStart }, text: key } },
-      // Header block styling: big centered title, centered subtitle.
-      { updateParagraphStyle: { range: { startIndex: bodyStart, endIndex: bodyStart + titleLine.length },
-        paragraphStyle: { namedStyleType: "TITLE", alignment: "CENTER" }, fields: "namedStyleType,alignment" } },
-      { updateParagraphStyle: { range: { startIndex: bodyStart + titleLine.length, endIndex: bodyStart + titleLine.length + subLine.length },
-        paragraphStyle: { alignment: "CENTER" }, fields: "alignment" } },
-      { updateTextStyle: { range: { startIndex: bodyStart + titleLine.length, endIndex: bodyStart + titleLine.length + subLine.length },
-        textStyle: { bold: true }, fields: "bold" } },
-      { updateParagraphStyle: { range: { startIndex: keyStart, endIndex: keyStart + keyHead.length },
-        paragraphStyle: { namedStyleType: "HEADING_1" }, fields: "namedStyleType" } },
-    ],
-  };
-}
-
-// The whole photos→Opus→Google-Doc pipeline as one call. Returns the client-facing result
-// object ({ok,...} or {error}) — shared by the streamed mode and the background job.
 function teacherImageBlocks(body) {
   const images = Array.isArray(body.images) ? body.images.slice(0, 8) : [];
   const okTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -1087,12 +1012,7 @@ async function teacherGenerate(body) {
   await logUsage("teacher", r.inTok, r.outTok, r.cacheWriteTok, r.cacheReadTok);
   const t = parseTeacherJSON(r.text);
   if (!t) return { error: "TeacherGPT couldn't format that — try again" };
-  const doc = await createTeacherGoogleDoc(t, kind);
-  if (doc.err === "docs-api-disabled") return { error:
-    "Google Docs/Drive isn't enabled for the farm account yet — in Google Cloud console (amen-farms-app), enable the Google Docs API and Google Drive API, then try again" };
-  if (doc.err) return { error: "The " + kind + " was written but the Google Doc couldn't be created (" + doc.err + ") — try again" };
-  return { ok: true, url: doc.url, title: doc.docTitle, chapter: t.chapter, kind,
-    questionCount: t.questions.length, shared: doc.shared, sharedWith: TEACHER_DOC_EMAIL };
+  return { ok: true, kind, questionCount: t.questions.length, quiz: t };
 }
 
 // Background-job flavor: teachergpt-background.mjs invokes this with the raw POST body. The
@@ -1114,9 +1034,8 @@ export async function runTeacherJob(body) {
     const base = `projects/${PROJECT_ID}/databases/(default)/documents`;
     const fields = { status: sv(res.ok ? "done" : "error"), createdAt: sv(new Date().toISOString()) };
     if (res.ok) {
-      fields.url = sv(res.url); fields.title = sv(res.title); fields.chapter = sv(res.chapter);
       fields.kind = sv(res.kind); fields.questionCount = iv(res.questionCount);
-      fields.shared = { booleanValue: !!res.shared }; fields.sharedWith = sv(res.sharedWith);
+      fields.quiz = sv(JSON.stringify(res.quiz));   // ≤50 questions ≈ tens of KB, well under the doc cap
     } else fields.error = sv(res.error || "Something went wrong");
     await fetch(`${FIRESTORE_BASE}:commit`, {
       method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
@@ -1125,40 +1044,6 @@ export async function runTeacherJob(body) {
   } catch { /* the page's poll will time out with a friendly message */ }
 }
 
-// Creates the doc, fills it, and shares it to the teacher. Returns {url} or {err}.
-async function createTeacherGoogleDoc(t, kind) {
-  const token = await getGoogleDocsToken();
-  if (!token) return { err: "no-token" };
-  const auth = { authorization: `Bearer ${token}`, "content-type": "application/json" };
-  const docTitle = (t.chapter ? t.chapter + " " : "") + (kind === "test" ? "Test" : "Quiz") + " — " + t.title;
-  const mk = await fetch(`${TEACHER_DOCS_BASE}/v1/documents`, { method: "POST", headers: auth, body: JSON.stringify({ title: docTitle.slice(0, 150) }) });
-  if (!mk.ok) {
-    // Surface Google's ACTUAL complaint — "API disabled", "storage quota", and scope errors
-    // are all 403s, and collapsing them to one guess sent us in circles once already.
-    let g = null; try { g = JSON.parse(await mk.text()); } catch {}
-    const reason = (g && g.error && (g.error.status || "")) + " " +
-      ((g && g.error && g.error.errors && g.error.errors[0] && g.error.errors[0].reason) || "");
-    const msg = (g && g.error && g.error.message) || "";
-    if (/SERVICE_DISABLED|accessNotConfigured/i.test(reason + " " + msg)) return { err: "docs-api-disabled" };
-    return { err: "create-failed: Google said " + mk.status + " " + reason.trim() + " — " + msg.slice(0, 300) };
-  }
-  const doc = await mk.json().catch(() => null);
-  const docId = doc && doc.documentId;
-  if (!docId) return { err: "create-failed" };
-  const { requests } = buildTeacherDocRequests(t, kind);
-  const up = await fetch(`${TEACHER_DOCS_BASE}/v1/documents/${docId}:batchUpdate`, { method: "POST", headers: auth, body: JSON.stringify({ requests }) });
-  if (!up.ok) {
-    let g = null; try { g = JSON.parse(await up.text()); } catch {}
-    return { err: "write-failed: Google said " + up.status + " — " + (((g || {}).error || {}).message || "").slice(0, 300) };
-  }
-  let shared = true;
-  const perm = await fetch(`${TEACHER_DRIVE_BASE}/drive/v3/files/${docId}/permissions?sendNotificationEmail=true`, {
-    method: "POST", headers: auth,
-    body: JSON.stringify({ role: "writer", type: "user", emailAddress: TEACHER_DOC_EMAIL }),
-  });
-  if (!perm.ok) shared = false;
-  return { url: `https://docs.google.com/document/d/${docId}/edit`, shared, docTitle };
-}
 const USAGE_COLLECTION = "farmgpt_usage";               // one doc per Central-time day
 const USAGE_COLLECTION_HOURLY = "farmgpt_usage_hourly"; // one doc per Central-time hour
 
@@ -2100,9 +1985,10 @@ export default async (req) => {
     const f = (j && j.fields) || {};
     const s = (k) => (f[k] && f[k].stringValue) || "";
     if (s("status") === "done") {
-      return new Response(JSON.stringify({ ok: true, url: s("url"), title: s("title"), chapter: s("chapter"),
-        kind: s("kind"), questionCount: parseInt((f.questionCount && f.questionCount.integerValue) || "0", 10),
-        shared: !!(f.shared && f.shared.booleanValue), sharedWith: s("sharedWith") }), { status: 200, headers: jsonHeaders });
+      let quiz = null; try { quiz = JSON.parse(s("quiz")); } catch {}
+      if (!quiz) return new Response(JSON.stringify({ error: "The finished quiz couldn't be read — try again" }), { status: 200, headers: jsonHeaders });
+      return new Response(JSON.stringify({ ok: true, kind: s("kind"),
+        questionCount: parseInt((f.questionCount && f.questionCount.integerValue) || "0", 10), quiz }), { status: 200, headers: jsonHeaders });
     }
     if (s("status") === "error") return new Response(JSON.stringify({ error: s("error") || "Something went wrong" }), { status: 200, headers: jsonHeaders });
     return new Response(JSON.stringify({ pending: true }), { status: 200, headers: jsonHeaders });

@@ -1489,35 +1489,33 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   controls, toasts "🎁 Dad refreshed…" (no reload needed; local block stays instant). Suites:
   _verify-storylog-summary 94/94 (+8 budget: stack/uncap/stream/Dad/401; fake Firestore now
   APPLIES integer increment transforms) + story_ux_test 28/28.
-🍎 TEACHERGPT (2026-08-02, user): FarmGPT home card + viewTeacher — a teacher photographs
-  material (≤8 photos, client-resized 1568px JPEG), picks Quiz/Test + question count (3-50) +
-  optional notes → mode "teachergpt" (OPUS 5, callAnthropicOnce w/ image blocks, maxTokens
-  8000, strict JSON {title,chapter,instructions,questions[{q,choices?,lines}],answerKey}) →
-  server builds a print-ready GOOGLE DOC (buildTeacherDocRequests: centered TITLE + chapter ·
-  QUIZ/TEST line + Name/Date line + instructions + numbered questions w/ lettered choices or
-  answer lines + PAGE BREAK + ANSWER KEY heading; Docs indexes = UTF-16 units = JS .length,
-  prompt bans emoji) and SHARES it to TEACHER_DOC_EMAIL (default dbadams@gmail.com, env
-  override) as writer w/ email notification. Existing-quiz photos → same problems DIFFERENT
-  numbers (prompt-enforced). SA creates the doc in its own Drive (getGoogleDocsToken — separate
-  token cache, docs+drive scopes; TEACHER_DOCS_BASE_URL/TEACHER_DRIVE_BASE_URL test overrides).
-  ONE-TIME SETUP: enable Google Docs API + Google Drive API on amen-farms-app (403 → actionable
-  error, calendar-API pattern). Usage bucket t_* priced at Opus 5 ($5/$25) w/ 🍎 dashboard row.
-  Verify: tools/_verify-teachergpt.mjs (34: prompt rules, doc layout incl. name/date + page
-  break + key, share recipient/role/notification, scopes, validation/403/401, other modes
-  clean) + scratchpad teacher_client_test.cjs. NOT live-tested vs real Opus/Google (env
-  blocks both) — post-deploy: enable the two APIs, run one real quiz, check the doc lands in
-  dbadams@gmail.com's Shared-with-me and prints cleanly.
-  TIMEOUT SAGA (2026-08-02, two live failures): a 60-90s Opus run dies in a normal Netlify
-  function (sync cap), and a keepalive STREAM alone also failed live (~45s) — long jobs must
-  not run inside the request. FINAL ARCHITECTURE: netlify/functions/teachergpt-background.mjs
-  (the -background suffix = Netlify background function, 202 immediately, 15-min allowance)
-  → runTeacherJob (exported from farmgpt.mjs; re-checks the secret — the endpoint is public;
-  validates jobId) → teacherGenerate (shared pipeline) → writes farmgpt_teacher_jobs/<jobId>
-  {status done/error, url…}; the page polls mode teachergpt_result every 5s (missing doc =
-  pending, 5-min client timeout). The streamed in-function path is KEPT as an automatic
-  fallback when the background endpoint 404s (plan without background functions). Client also
-  pre-blocks >4.5MB photo batches (Netlify ~6MB body cap = same generic error). Suite now
-  45/45 + client 18/18 (bg payload/poll/error/fallback).
+🍎 TEACHERGPT (2026-08-02, user; FINAL SHAPE = on-device .docx, NO Google APIs): FarmGPT home
+  card + viewTeacher — a teacher photographs material (≤8 photos, client-resized 1568px JPEG,
+  >4.5MB batches pre-blocked: Netlify ~6MB body cap), picks Quiz/Test + question count (3-50)
+  + optional notes → mode "teachergpt" (OPUS 5, callAnthropicOnce w/ image blocks, maxTokens
+  8000, strict JSON {title,chapter,instructions,questions[{q,choices?,lines}],answerKey};
+  existing-quiz photos → same problems DIFFERENT numbers, prompt-enforced) → server returns
+  the QUIZ JSON; the PAGE builds a .docx ON DEVICE (buildTeacherDocx in farmgpt.html:
+  hand-rolled STORED-entry zip + CRC32 + minimal WordprocessingML — centered bold title,
+  chapter · QUIZ/TEST line, Name/Date line, instructions, numbered questions w/ lettered
+  choices or ruled answer lines, PAGE BREAK, ANSWER KEY page) → 💾 Save (a[download]) + 📤
+  Share (Web Share API w/ files — native sheet: email anyone/print/Drive; hidden where
+  unsupported; docx imports into Google Docs). Test hook __TEACHER__ (docx blob/name/build).
+  TIMEOUT SAGA (three live failures shaped this): (1) plain response → Netlify sync cap kills
+  60-90s Opus runs; (2) keepalive stream ALSO died live (~45s); (3) Google-Docs delivery via
+  the SA died 403 despite both APIs verified enabled (suspect: 2025 zero-Drive-quota for
+  service accounts) → Google axed entirely per user ("word doc + share = simpler").
+  ARCHITECTURE: netlify/functions/teachergpt-background.mjs (-background suffix = 202
+  immediately, 15-min allowance) → runTeacherJob (exported from farmgpt.mjs; re-checks the
+  secret — endpoint is public; validates jobId) → teacherGenerate → writes
+  farmgpt_teacher_jobs/<jobId> {status, quiz JSON, error}; the page polls mode
+  teachergpt_result every 5s (missing doc = pending, 5-min client timeout); the streamed
+  in-function path remains an automatic fallback when the background endpoint 404s. Usage
+  bucket t_* priced at Opus 5 ($5/$25) w/ 🍎 dashboard row. Verify: tools/
+  _verify-teachergpt.mjs 32/32 (prompt rules, quiz-JSON contract, bg job/poll/auth, other
+  modes clean) + scratchpad teacher_client_test.cjs 21/21 (incl. unzipping the built docx
+  with python zipfile and asserting the full print layout). NOT live-tested vs real Opus —
+  post-deploy: run one real quiz, open the .docx in Word/Google Docs, check layout + print.
 - GUARDRAILS TIGHTENED (2026-07-30, user): FAMILY_RULES — torture scenes are never written even
   if explicitly/repeatedly requested (redirects in-story like other restricted topics);
   interrogation OK (questioning/pressure/bluffing/wits) but zero violence, torture, or threats
