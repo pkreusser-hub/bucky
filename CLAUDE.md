@@ -1455,6 +1455,21 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   peach" does). To add a universe: append an entry, nothing else to wire. Verify:
   _verify-story-reminder.mjs now 40/40 (+10: attach/facts/yield-line, no-trigger, peach guard,
   Mario, crossover BOTH, recap-sticky, research-never).
+🧬 EVOLVING FAMILY CANON (2026-08-01, user: kid-created characters like Bree should become part
+  of the universe sheet and evolve): farmgpt_canon/<universeKey> Firestore doc per universe —
+  after every mode-"summary" story-bible fold, the server detects the story's universe(s) and a
+  Sonnet bookkeeper (CANON_UPDATE_SYSTEM, ≤500 words, NO_CHANGES sentinel skips writes, never
+  drops a reader-created character — compresses instead) merges reader-created characters +
+  lasting universe changes into the doc (updateUniverseCanons in the stream finally;
+  captureReply = logStoryReq || summary). universeGuides() is now ASYNC: serves baked facts +
+  "FAMILY CANON" block (fetchUniverseCanon, 60s warm cache; write updates cache). Canon is
+  FAMILY-SHARED — one kid's characters exist in siblings' stories. Usage logs under u_*
+  (Sonnet-priced ✓). HTTYD sheet also expanded 3x (~1,050 words, full RTTE cast w/ physical
+  descriptions, Dragon Eye, lore; Johann twist stated plainly — kids have seen everything;
+  "dragon rider" trigger REMOVED as too generic — an original dragon world must never get
+  "dragons never talk" imposed). Verify: _verify-storylog-summary 105/105 (+11 canon:
+  no-universe skip, Sonnet fold, empty-canon first fold, doc write, story-prompt injection,
+  current-canon merge, NO_CHANGES no-write) + reminder 40/40.
 🎁 STORY BUDGET REFRESH (2026-08-01, user): Dad-only button atop the Story Log view
   (#budgetGrantBtn) → mode story_budget_grant increments farmgpt_story_bonus/<farmDate> .extra
   by STORY_DAILY_CAP — everyone's effective cap that day = 15 + extra (grants stack; bonus read

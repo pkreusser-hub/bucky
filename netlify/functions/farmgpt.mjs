@@ -177,7 +177,7 @@ commentary.`;
 // yield to the reader: anything the reader explicitly changes wins (reader is law). To add a
 // universe, append an entry — nothing else to wire.
 const UNIVERSE_BIBLES = [
-  { name: "How to Train Your Dragon (movies + Race to the Edge)",
+  { key: "httyd", name: "How to Train Your Dragon (movies + Race to the Edge)",
     triggers: /how to train your dragon|httyd|race to the edge|night fury|light fury|toothless|hiccup|isle of berk|\bberk\b|astrid|stormfly|windshear|grimborn|deadly nadder|gronckle|zippleback|monstrous nightmare|hofferson|haddock|razorwhip|berserker tribe|dragon hunters|maces and talons|death song|triple stryke|singetail|eruptodon|\bgobber\b|stoick|\bvalka\b|\bkrogan\b|trader johann|dragon's edge|dragons edge|meatlug|hookfang|fishlegs|snotlout|ruffnut|tuffnut/i,
     facts: `THE ONE UNBREAKABLE RULE — DRAGONS NEVER TALK. No dragon speaks words, ever. They are
 intelligent animals who communicate through growls, croons, purrs, screeches, and body language,
@@ -232,9 +232,9 @@ BERK AND FRIENDS:
   lava. Short blonde hair, elite swordswoman.
 - Gustav Larson: an eager teen who idolizes the riders and keeps trying to join them; black
   hair, rides a Monstrous Nightmare he named Fanghook.
-- Trader Johann: a chatty traveling merchant full of tall tales who visits everyone. (LATE-
-  SERIES TWIST — only if the story goes there: Johann is secretly a villain who has been
-  spying all along.)
+- Trader Johann: a chatty traveling merchant full of tall tales who visits everyone — and
+  secretly the true mastermind: he has been spying for the dragons' enemies all along, a
+  villain revealed late in the series (the kids know; no need to tiptoe).
 
 VILLAINS:
 - Viggo Grimborn: leader of the dragon hunters. Calm, precise, softly-spoken and terrifyingly
@@ -266,7 +266,7 @@ THE DRAGON EYE & LORE:
   with a plasma blast; she is sleek, cat-like, and wild.
 - Setting: the Viking isle of Berk (Stoick's village, the Great Hall) and Dragon's Edge, the
   riders' island outpost with a clubhouse, stables, and each rider's hut.` },
-  { name: "Super Mario",
+  { key: "mario", name: "Super Mario",
     triggers: /\bmario\b|\bluigi\b|bowser|mushroom kingdom|princess peach|\byoshi\b|goomba|koopa|toadstool|piranha plant|warp pipe|wario|donkey kong/i,
     facts: `- Mario and Luigi: mustached brother plumbers who talk in cheerful simple speech. Mario wears
   a red cap and shirt with blue overalls; Luigi wears green, is taller, and is more timid.
@@ -284,7 +284,7 @@ THE DRAGON EYE & LORE:
   stomped, Koopa Troopas hide in shells that slide when kicked, Piranha Plants snap from
   pipes. Defeated enemies just poof away — nobody truly dies.
 - Go-kart racing is a beloved pastime (Mario Kart) with items like shells and banana peels.` },
-  { name: "Star Wars",
+  { key: "starwars", name: "Star Wars",
     triggers: /star wars|lightsaber|light saber|jedi|\bsith\b|darth|skywalker|millennium falcon|chewbacca|wookiee|stormtrooper|death star|grogu|mandalorian|\byoda\b|kenobi|blaster bolt|the force\b/i,
     facts: `- Lightsabers: humming blades of pure energy that cut through almost anything and deflect
   blaster bolts. Jedi carry blue or green (sometimes purple/yellow); Sith blades are red.
@@ -302,7 +302,7 @@ THE DRAGON EYE & LORE:
   ("Strong with the Force, you are"). Darth Vader: black armor and cape, deep mechanical
   breathing, red lightsaber.
 - Travel between planets is routine; droids, aliens, and humans mix everywhere.` },
-  { name: "Pokémon",
+  { key: "pokemon", name: "Pokémon",
     triggers: /pok[eé]mon|pikachu|charizard|charmander|bulbasaur|squirtle|eevee|pok[eé] ?ball|team rocket|\bpokedex\b|pok[eé]dex|gym leader|ash ketchum/i,
     facts: `- Pokémon say ONLY their own names ("Pika, pika!") — they never speak human words. (The one
   famous exception is Team Rocket's Meowth, who taught himself to talk.) They understand their
@@ -319,14 +319,103 @@ THE DRAGON EYE & LORE:
 - Team Rocket (Jessie, James, Meowth) are comedic villains who scheme to steal Pokémon and
   blast off dramatically when they lose. Legendary Pokémon are rare, powerful, and awe-inspiring.` },
 ];
-function universeGuides(messages) {
+function detectUniverses(messages) {
   let text = "";
-  try { text = JSON.stringify(messages); } catch { return ""; }
-  const hits = UNIVERSE_BIBLES.filter((u) => u.triggers.test(text));
+  try { text = JSON.stringify(messages); } catch { return []; }
+  return UNIVERSE_BIBLES.filter((u) => u.triggers.test(text));
+}
+
+// ---- Evolving FAMILY CANON per universe ----
+// The kids' own creations (an original rider like Bree, her light fury, her gear) become part
+// of the universe: every time a story's bible folds (mode "summary"), a Sonnet bookkeeper
+// merges reader-created characters and lasting changes into farmgpt_canon/<universeKey>, and
+// the universe guide serves baked franchise facts + the family canon together. Shared across
+// the whole family — one kid's characters exist in a sibling's stories too.
+const CANON_COLLECTION = "farmgpt_canon";
+const CANON_MAX_CHARS = 6000;
+const canonCache = new Map();   // key -> { text, exp } (warm-invocation cache, 60s)
+async function fetchUniverseCanon(key) {
+  const hit = canonCache.get(key);
+  if (hit && Date.now() < hit.exp) return hit.text;
+  let text = "";
+  try {
+    const token = await getGoogleAccessToken();
+    if (token) {
+      const r = await fetch(`${FIRESTORE_BASE}/${CANON_COLLECTION}/${key}`, { headers: { authorization: `Bearer ${token}` } });
+      if (r.ok) {
+        const j = await r.json().catch(() => null);
+        text = (j && j.fields && j.fields.canon && j.fields.canon.stringValue) || "";
+      }
+    }
+  } catch { /* no canon this round — the baked facts still ride */ }
+  canonCache.set(key, { text, exp: Date.now() + 60 * 1000 });
+  return text;
+}
+async function writeUniverseCanon(key, text) {
+  try {
+    const token = await getGoogleAccessToken();
+    if (!token) return false;
+    const base = `projects/${PROJECT_ID}/databases/(default)/documents`;
+    const r = await fetch(`${FIRESTORE_BASE}:commit`, {
+      method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ writes: [{ update: { name: `${base}/${CANON_COLLECTION}/${key}`,
+        fields: { canon: sv(String(text).slice(0, CANON_MAX_CHARS)), updatedAt: sv(new Date().toISOString()) } } }] }),
+    });
+    if (r.ok) canonCache.set(key, { text, exp: Date.now() + 60 * 1000 });
+    return r.ok;
+  } catch { return false; }
+}
+
+async function universeGuides(messages) {
+  const hits = detectUniverses(messages);
   if (!hits.length) return "";
+  const canons = await Promise.all(hits.map((u) => fetchUniverseCanon(u.key)));
   return "\n\n===== UNIVERSE GUIDE" + (hits.length > 1 ? "S" : "") +
     " — this story visits a world the reader already knows. The facts below are ESTABLISHED CANON of that world: get them right the FIRST time, without being corrected. If the reader explicitly changes one of these details in THEIR story, the reader's version wins — otherwise never contradict them. =====\n" +
-    hits.map((u) => "--- " + u.name + " ---\n" + u.facts).join("\n");
+    hits.map((u, i) => "--- " + u.name + " ---\n" + u.facts +
+      (canons[i] ? "\nFAMILY CANON — original characters and lasting changes the readers themselves have added to this universe across their stories. Treat every detail here as established canon, exactly like the facts above (newest details win):\n" + canons[i] : "")
+    ).join("\n");
+}
+
+// Bookkeeper prompt: distills reader-created canon out of a story bible and merges it into the
+// universe's family canon. Runs on Sonnet (same accuracy-over-cost call as the bible itself).
+const CANON_UPDATE_SYSTEM = (name) => `You maintain the FAMILY CANON for the "${name}" universe in
+a family's story app. The kids write their own stories set in this universe, inventing original
+characters and sometimes changing things for good. You will receive the CURRENT FAMILY CANON
+(possibly empty) and the latest STORY BIBLE from one story in progress. Rewrite the family canon
+so it stays current:
+- ORIGINAL characters the readers created (NOT characters from the franchise): name, physical
+  description exactly as established, clothing/armor, weapons and possessions, companions or
+  dragons (with names and descriptions), relationships to franchise characters, and their goals.
+  When the new bible shows a change to an existing entry (a new weapon, a new scar, a new
+  companion), UPDATE the entry — newest details win.
+- LASTING changes or additions the readers made to the universe itself: new places, new
+  creatures or species, events that permanently changed things.
+- Do NOT restate standard franchise facts or describe franchise characters — only what the
+  readers added or changed.
+- Keep the whole canon under about 500 words, compressing the LEAST important old details
+  first — but never drop a reader-created character entirely (kids come back to them years
+  later); compress their entry instead.
+Output ONLY the updated canon as terse bullet lines — no preamble, no headings, no commentary.
+If the story bible contains nothing reader-created and nothing new for this universe, reply with
+exactly NO_CHANGES.`;
+
+async function updateUniverseCanons(messages, bibleText) {
+  try {
+    const hits = detectUniverses(messages);
+    for (const u of hits) {
+      const current = await fetchUniverseCanon(u.key);
+      const input = "CURRENT FAMILY CANON:\n" + (current || "(empty — nothing recorded yet)") +
+        "\n\nLATEST STORY BIBLE:\n" + String(bibleText).slice(0, 12000) +
+        "\n\nRewrite the family canon now.";
+      const r = await callAnthropicOnce(RESEARCH_MODEL, CANON_UPDATE_SYSTEM(u.name), input, 1000);
+      if (!r) continue;
+      await logUsage("summary", r.inTok, r.outTok, r.cacheWriteTok, r.cacheReadTok);
+      const out = (r.text || "").trim();
+      if (!out || /^NO_CHANGES\b/.test(out)) continue;
+      await writeUniverseCanon(u.key, out);
+    }
+  } catch { /* canon upkeep must never break a summary reply */ }
 }
 
 // Appended to STORY_SYSTEM only when the request asks for an illustration (maxTokens
@@ -1792,8 +1881,9 @@ export default async (req) => {
   const maxTokens = illustrate ? 3000 : mode.maxTokens;
 
   // Known-universe fact sheets ride the story system prompt (auto-detected from the request's
-  // own text) so franchise details are right without the reader having to correct them.
-  if (body.mode === "story") system += universeGuides(messages);
+  // own text) so franchise details are right without the reader having to correct them —
+  // including the FAMILY CANON of characters the kids themselves have added to that universe.
+  if (body.mode === "story") system += await universeGuides(messages);
 
   // Parents get the direct-answer research prompt (answer keys allowed); kids keep the tutor.
   if (body.mode === "research" && PARENT_RESEARCH_USERS.includes(body.user)) system = PARENT_RESEARCH_SYSTEM;
@@ -1928,6 +2018,9 @@ export default async (req) => {
   const logStoryReq = (body.mode === "story" || body.mode === "kidstory") &&
     typeof body.user === "string" && body.user &&
     body.user !== "Dad" && typeof body.storyId === "string" && !!body.storyId;
+  // Summary replies are ALSO captured server-side: the finished story bible feeds the
+  // evolving per-universe FAMILY CANON (updateUniverseCanons) after the stream closes.
+  const captureReply = logStoryReq || body.mode === "summary";
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -1959,7 +2052,7 @@ export default async (req) => {
               const cand = ev.candidates && ev.candidates[0];
               if (cand && cand.content && cand.content.parts) {
                 const t = cand.content.parts.map((p) => p.text || "").join("");
-                if (t) { sentAnyText = true; if (logStoryReq) replyText += t; controller.enqueue(encoder.encode(t)); }
+                if (t) { sentAnyText = true; if (captureReply) replyText += t; controller.enqueue(encoder.encode(t)); }
               }
               // A safety/recitation block with no text → friendly stand-in (shared handler below).
               if (cand && (cand.finishReason === "SAFETY" || cand.finishReason === "RECITATION" || cand.finishReason === "OTHER")) stopReason = "refusal";
@@ -1970,7 +2063,7 @@ export default async (req) => {
               }
             } else if (ev.type === "content_block_delta" && ev.delta && ev.delta.type === "text_delta" && ev.delta.text) {
               sentAnyText = true;
-              if (logStoryReq) replyText += ev.delta.text;
+              if (captureReply) replyText += ev.delta.text;
               controller.enqueue(encoder.encode(ev.delta.text));
             } else if (ev.type === "message_start" && ev.message && ev.message.usage) {
               // input_tokens is the UNCACHED remainder only; cached tokens are reported
@@ -2000,6 +2093,10 @@ export default async (req) => {
             idx: body.sceneIdx | 0, choice: body.choice || "",
             scene: replyText.replace(/\n?===ART===[\s\S]*$/, "").trim(),   // drop the bulky SVG
           });
+        }
+        // A finished story bible folds the readers' own creations into the universe's canon.
+        if (body.mode === "summary" && sentAnyText && replyText.trim()) {
+          await updateUniverseCanons(messages, replyText);
         }
         controller.close();
       }
