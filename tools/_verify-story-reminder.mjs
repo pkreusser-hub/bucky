@@ -80,18 +80,22 @@ console.log("— story mode: reminder on the last user turn —");
   ok(t.includes("CANON") && t.includes("never be contradicted"), "reminder makes reader-specified details canon");
   ok(t.includes("reserves a decision") && t.includes("BEFORE that decision point"), "reminder protects reader-reserved decisions");
   ok(t.includes("REDO") && t.includes("already been discarded"), "reminder explains redo semantics (old scene discarded)");
+  ok(t.includes("CO-AUTHOR") && t.includes("LAW"), "reminder makes the reader's decisions law (collaboration)");
+  ok(t.includes("crossovers") && t.includes("welcome"), "reminder welcomes franchise crossovers");
 }
 
 console.log("— summary mode: story-bible format —");
 {
   await call({ mode: "summary", messages: [{ role: "user", content: "EARLIER NOTES:\n(none)\n\nNEWEST PART:\nA scene.\n\nRewrite the continuity notes now." }] });
   const a = lastAnt();
-  ok(a.max_tokens === 800, "summary budget raised to 800 tokens (bible needs room)");
+  ok(a.max_tokens === 1200, "summary budget raised to 1200 tokens (bible needs room)");
+  ok(a.model === "claude-sonnet-5", "bible runs on Sonnet (memory accuracy over cost)");
   const sys = typeof a.system === "string" ? a.system : JSON.stringify(a.system || "");
-  for (const h of ["CHARACTERS:", "NOW:", "FACTS & SECRETS:", "THREADS:"])
+  for (const h of ["CHARACTERS:", "NOW:", "GOALS & MOTIVATIONS:", "FACTS & SECRETS:", "THREADS:"])
     ok(sys.includes(h), "bible prompt has section " + h);
+  ok(sys.includes("POSSESSIONS"), "bible prompt tracks per-character possessions");
   ok(sys.includes("CANON — copy them precisely"), "bible prompt locks reader-specified details");
-  ok(sys.includes("corrected version is the ONLY truth"), "bible prompt drops redone/contradicted details");
+  ok(/corrected version is the ONLY\s+truth/.test(sys), "bible prompt drops redone/contradicted details");
 }
 
 console.log("— story mode: composes with chapter directives, reminder last —");

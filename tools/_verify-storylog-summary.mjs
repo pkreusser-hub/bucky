@@ -102,7 +102,16 @@ const fsSrv = http.createServer(async (req, res) => {
         } else if (w.update.fields) store.set(w.update.name, w.update.fields);
       }
       if (w.delete) store.delete(w.delete);
-      // w.transform (usage increments) — recorded via commits[] only, matching _verify-dnd-server.mjs.
+      if (w.transform) {   // integer increments applied for real (story-budget grants need them)
+        const cur = store.get(w.transform.document) || {};
+        for (const t of w.transform.fieldTransforms || []) {
+          if (t.increment && t.increment.integerValue !== undefined) {
+            const prev = parseInt((cur[t.fieldPath] && cur[t.fieldPath].integerValue) || "0", 10);
+            cur[t.fieldPath] = { integerValue: String(prev + parseInt(t.increment.integerValue, 10)) };
+          }
+        }
+        store.set(w.transform.document, cur);
+      }
     }
     return send(200, {});
   }
@@ -241,6 +250,8 @@ console.log("— grouping + prompt content (pick vs write-in) + verdict round-tr
   const sreq = summaryReqs[0];
   ok(sreq.model === "claude-haiku-4-5", "summarizer runs on Haiku (STORY_MODEL)");
   ok(sreq.max_tokens === 600, "summarizer max_tokens 600");
+  ok(/NEVER a\s+reason to flag/.test(sreq.system) && sreq.system.includes("lightsaber"), "flag rules: franchises/crossovers + fantasy combat are never flag-worthy");
+  ok(sreq.system.includes("REPEATEDLY pushing") && sreq.system.includes("GRAPHIC"), "flag rules: graphic content or escalating-violence pattern IS flag-worthy");
   ok(sreq.stream === undefined, "summarizer call is non-streaming");
   ok(typeof sreq.messages[0].content === "string" && sreq.messages[0].content.includes('Reader PICKED one of the offered choices: "Explore the cave"'),
     "prompt labels a picked choice as a PICK");
@@ -249,7 +260,7 @@ console.log("— grouping + prompt content (pick vs write-in) + verdict round-tr
   ok(sreq.messages[0].content.includes("The Hidden Cave"), "story title present in the prompt");
 
   const scene0 = store.has(`${DOCBASE}/${STORY_LOG}/scene_1`);
-  ok(!scene0, "raw scenes for the (now-summarized) past date were deleted");
+  ok(scene0, "raw scenes for the (now-summarized) past date are RETAINED (transcript archive)");
 
   const usage = commits.flatMap((c) => c.writes || []).filter((w) => w.transform && w.transform.document.includes("farmgpt_usage/"));
   const fields = usage.length ? usage[usage.length - 1].transform.fieldTransforms.map((t) => t.fieldPath) : [];
@@ -302,7 +313,7 @@ console.log("— ordering guarantee: summary write must succeed BEFORE any scene
 
   commitFailFor = null;   // let the write through this time
   const r2 = await call({ mode: "storylog_summaries" });
-  ok(!sceneDocExists(sceneId), "once the write succeeds, the raw scene is now deleted");
+  ok(sceneDocExists(sceneId), "write succeeded and the raw scene is STILL retained (transcript)");
   ok(summariesFor(r2.json.summaries, D, "grandma").length === 1, "summary now appears");
   ok(r2.json.pending === 0, "group no longer pending");
 }
@@ -357,7 +368,7 @@ console.log("— model call fails (HTTP failure): no deletion, group stays re-at
 
   summaryBehavior = "ok";
   const r3 = await call({ mode: "storylog_summaries" });
-  ok(!sceneDocExists("scene_1"), "once the model succeeds, the scene is finally deleted");
+  ok(sceneDocExists("scene_1"), "scene retained after the model finally succeeds (transcript)");
   const row3 = summariesFor(r3.json.summaries, D, "grandpa")[0];
   ok(row3.flagged === summaryVerdict.flagged && row3.partial === false, "final report replaces the failure doc");
 }
@@ -379,7 +390,7 @@ console.log("— model replies with unparseable JSON: flagged:null, but usage WA
   ok(usage.length > 0, "usage IS logged — the model responded (and was billed), it just didn't parse");
 }
 
-console.log("— retry-deletion path: final summary + leftover raw scenes → deleted, ZERO model calls —");
+console.log("— resting state: final summary + retained scenes → ZERO model calls, nothing deleted —");
 {
   resetAll();
   const D = daysAgo(8);
@@ -389,11 +400,34 @@ console.log("— retry-deletion path: final summary + leftover raw scenes → de
   seedScene({ date: D, user: "Eleanor", storyId: "sH", title: "Old Story", idx: 1, choice: "seed2", scene: "leftover2" });
 
   const r = await call({ mode: "storylog_summaries" });
-  ok(summaryReqs.length === 0, "no model call needed — the report already exists");
-  ok(!sceneDocExists("scene_1") && !sceneDocExists("scene_2"), "leftover raw scenes are swept up (an interrupted delete gets finished)");
+  ok(summaryReqs.length === 0, "no model call — the report already exists");
+  ok(sceneDocExists("scene_1") && sceneDocExists("scene_2"), "retained scenes beside a final summary are the NORMAL resting state (not re-deleted)");
   const row = summariesFor(r.json.summaries, D, "eleanor")[0];
   ok(row.about === "Already summarized.", "the existing final report is left exactly as it was, not rewritten");
-  ok(r.json.pending === 0, "cleanup-only group resolves in one request");
+  ok(r.json.pending === 0, "resting-state group is not pending");
+}
+
+console.log("— storylog_scenes: the day's transcript for one report card —");
+{
+  resetAll();
+  const D = daysAgo(3);
+  seedSummary({ date: D, canon: "eleanor", users: ["Eleanor"], titles: ["Two Tales"], sceneCount: 3, storyCount: 2, partial: false });
+  seedScene({ date: D, user: "Eleanor", storyId: "sB", title: "Second Tale", idx: 0, choice: "world B", scene: "B0" });
+  seedScene({ date: D, user: "Eleanor ( :", storyId: "sA", title: "First Tale", idx: 1, choice: "go", scene: "A1" });
+  seedScene({ date: D, user: "Eleanor", storyId: "sA", title: "First Tale", idx: 0, choice: "world A", scene: "A0" });
+  seedScene({ date: D, user: "Isaac", storyId: "sC", title: "Not Hers", idx: 0, choice: "x", scene: "C0" });
+  seedScene({ date: daysAgo(4), user: "Eleanor", storyId: "sA", title: "First Tale", idx: 2, choice: "y", scene: "WRONG DAY" });
+
+  const r = await call({ mode: "storylog_scenes", date: D, canon: "eleanor" });
+  ok(r.status === 200 && Array.isArray(r.json.scenes), "returns a scenes array");
+  ok(r.json.scenes.length === 3, "exactly the (date, canon) group's scenes — got " + r.json.scenes.length);
+  ok(r.json.scenes.map((s) => s.scene).join(",") === "A0,A1,B0", "sorted by story then scene index (renamed identity merged in)");
+  ok(r.json.scenes.some((s) => s.user === "Eleanor ( :"), "raw identity strings preserved in the transcript");
+  ok(!r.json.scenes.some((s) => s.scene === "C0" || s.scene === "WRONG DAY"), "other readers and other days excluded");
+  const bad = await call({ mode: "storylog_scenes", date: D });
+  ok(bad.status === 400, "missing canon → 400");
+  const noAuth = await callBadSecret({ mode: "storylog_scenes", date: D, canon: "eleanor" });
+  ok(noAuth.status === 401, "bad secret → 401");
 }
 
 console.log("— pending arithmetic: 7 pending groups process in batches of 3, 3, then 1 —");
@@ -434,20 +468,47 @@ console.log("— storylog_clear removes both scenes AND summaries for a date, an
   ok(sceneDocExists("scene_2") && summaryDocExists(`${D2}__isaac`), "the OTHER date's docs are untouched");
 }
 
-console.log("— retention: summaries >90d pruned, raw scenes >30d pruned before ever being grouped —");
+console.log("— retention: summaries AND raw scenes both pruned past 90 days —");
 {
   resetAll();
   const oldSummaryDate = daysAgo(100);
   seedSummary({ date: oldSummaryDate, canon: "eleanor", users: ["Eleanor"], titles: ["Ancient"], sceneCount: 1, storyCount: 1, partial: false });
-  const oldSceneDate = daysAgo(40);
+  const oldSceneDate = daysAgo(95);
   seedScene({ date: oldSceneDate, user: "Isaac", storyId: "sK", title: "Ancient Scene", idx: 0, choice: "x", scene: "y" });
 
   const r = await call({ mode: "storylog_summaries" });
   ok(!summaryDocExists(`${oldSummaryDate}__eleanor`), "a summary older than 90 days is pruned");
   ok(summariesFor(r.json.summaries, oldSummaryDate, "eleanor").length === 0, "…and absent from the response");
-  ok(!sceneDocExists("scene_1"), "a raw scene older than 30 days is pruned (unchanged legacy policy)");
+  ok(!sceneDocExists("scene_1"), "a raw scene older than 90 days is pruned (transcript retention window)");
   ok(summaryReqs.length === 0, "the pruned scene was never summarized (no model call)");
   ok(summariesFor(r.json.summaries, oldSceneDate, "isaac").length === 0, "…and never appears as a report either");
+}
+
+console.log("— story budget: Dad's refresh grant raises today's cap —");
+{
+  resetAll();
+  const T = farmDate();
+  for (let i = 0; i < 15; i++) {
+    seedScene({ date: T, user: "Isaac", storyId: "sB", title: "Budget Saga", idx: i, choice: "go " + i, scene: "Scene " + i + ".\n\n===CHOICES===\n1. A\n2. B\n3. C" });
+  }
+  const capped = await call({ mode: "story", user: "Isaac", storyId: "sB", messages: [{ role: "user", content: "more" }] });
+  ok(capped.json && capped.json.capped === true, "15 scenes today → capped before any grant");
+  const b1 = await call({ mode: "story_budget", user: "Isaac" });
+  ok(b1.json.ok && b1.json.used === 15 && b1.json.cap === 15 && b1.json.capped === true, "story_budget reports used 15 / cap 15 / capped");
+
+  const g1 = await call({ mode: "story_budget_grant" });
+  ok(g1.status === 200 && g1.json.ok && g1.json.granted === 15 && g1.json.cap === 30, "grant adds a fresh 15 → cap 30");
+  const b2 = await call({ mode: "story_budget", user: "Isaac" });
+  ok(b2.json.used === 15 && b2.json.cap === 30 && b2.json.capped === false, "after the grant the same reader is uncapped (15/30)");
+  const streamNow = await call({ mode: "story", user: "Isaac", storyId: "sB", messages: [{ role: "user", content: "more" }] });
+  ok(!streamNow.ct.includes("json"), "a story request now streams instead of the capped notice");
+
+  const g2 = await call({ mode: "story_budget_grant" });
+  ok(g2.json.cap === 45, "grants stack (second tap → cap 45)");
+  const dadB = await call({ mode: "story_budget", user: "Dad" });
+  ok(dadB.json.ok && dadB.json.capped === false, "Dad's own budget check is always uncapped");
+  const noAuth = await callBadSecret({ mode: "story_budget_grant" });
+  ok(noAuth.status === 401, "grant is secret-gated (401 on bad secret)");
 }
 
 console.log("— auth —");

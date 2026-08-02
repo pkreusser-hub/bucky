@@ -118,6 +118,24 @@
   #storyLogBody .slVerdict.bad { background: #fceaec; color: var(--red); }
   #storyLogBody .slVerdict.pending { background: #fbf3de; color: #8a6d1a; }
   #storyLogBody .slEmpty { color: var(--muted); text-align: center; padding: 20px; }
+  #budgetGrantRow { margin: 0 0 12px; }
+  #budgetGrantBtn {
+    border: 1px solid var(--line); background: #eaf6ec; color: #1f6d33; font-weight: 800;
+    font-size: 13.5px; padding: 9px 14px; border-radius: 12px; cursor: pointer; width: 100%;
+  }
+  #budgetGrantBtn:disabled { opacity: .5; }
+  #storyLogBody .slTransBtn {
+    margin: 10px 0 0; border: 1px solid var(--line); background: transparent; color: var(--muted);
+    font-size: 12.5px; font-weight: 700; padding: 6px 11px; border-radius: 999px; cursor: pointer;
+  }
+  #storyLogBody .slTranscript {
+    margin: 10px 0 0; padding: 10px 12px; border-left: 3px solid var(--line); max-height: 55vh;
+    overflow-y: auto; overscroll-behavior: contain; font-size: 13.5px; line-height: 1.55;
+  }
+  #storyLogBody .slTransTitle { font-family: Georgia, serif; font-weight: 700; color: #6d5410; margin: 10px 0 4px; }
+  #storyLogBody .slTransChap { text-align: center; font-weight: 700; color: var(--muted); margin: 8px 0 4px; }
+  #storyLogBody .slTransChoice { font-weight: 700; color: var(--navy, #233357); margin: 8px 0 4px; }
+  #storyLogBody .slTransScene { white-space: pre-wrap; color: var(--ink); margin: 0 0 6px; }
 
   /* ---------- usage ---------- */
   #usageBig { text-align: center; margin: 8px 0 2px; }
@@ -252,7 +270,11 @@
   .writeRow button:disabled { opacity: .5; }
   #storyBusy, #newStoryRow { margin-top: 10px; }
   #newStoryRow .goBtn { margin-top: 0; }
+  /* Choices hide until the reader scrolls to the end of the scene (class set in gateChoices). */
+  #storyControls.gated #choiceBtns, #storyControls.gated #writeRow, #storyControls.gated #chapterEndRow { display: none !important; }
+  #scrollHint { text-align: center; opacity: .55; font-size: 12.5px; padding: 4px 0 6px; }
   #chapterEndRow { margin-top: 12px; text-align: center; }
+  #nextIdeaRow { margin-bottom: 10px; }
   #chapterEndRow .chEndNote {
     font-family: Georgia, serif; font-style: italic; color: #8a6d1a; font-size: 15px; margin-bottom: 10px;
   }
@@ -413,6 +435,9 @@
   <div class="view" id="viewStoryLog">
     <div class="panel">
       <div class="panelTitle">📖 Story Log — what the kids are reading</div>
+      <div id="budgetGrantRow">
+        <button id="budgetGrantBtn">🎁 Refresh today's story budget (+15 scenes for everyone)</button>
+      </div>
       <div id="storyLogBody">Loading…</div>
     </div>
   </div>
@@ -472,6 +497,7 @@
     <div id="storyScroll"></div>
     <div id="storyControls">
       <div id="storyBusy" class="thinkingDots" style="display:none">The storyteller is writing</div>
+      <div id="scrollHint" style="display:none">⇣ keep reading — your choices are waiting at the end ⇣</div>
       <div id="choiceBtns"></div>
       <div class="writeRow" id="writeRow" style="display:none">
         <input id="writeInput" maxlength="2000" placeholder="…or write what YOU do next!" />
@@ -479,6 +505,9 @@
       </div>
       <div id="chapterEndRow" style="display:none">
         <div class="chEndNote">🌙 End of the chapter</div>
+        <div class="writeRow" id="nextIdeaRow">
+          <input id="nextChapterIdea" maxlength="2000" placeholder="What should the next chapter be about? (or leave blank and I'll decide)" />
+        </div>
         <button class="goBtn" id="nextChapterBtn">Read the next chapter →</button>
         <button id="shelveBtn" type="button">📚 Shelve for now</button>
       </div>
@@ -594,20 +623,52 @@
     try { s = JSON.parse(localStorage.getItem(STORY_COUNT_KEY)) || {}; } catch { s = {}; }
     const day = centralDay(), user = canonStoryUser(localStorage.getItem("choreUser") || "");
     if (s.day !== day || s.user !== user) s = { day, user, count: 0 };
+    // cap can exceed the base when Dad grants a refreshed budget (learned from the server).
+    s.cap = Math.max(STORY_DAILY_CAP, parseInt(s.cap, 10) || 0);
     return s;
   }
   function storyCountSave(s) { try { localStorage.setItem(STORY_COUNT_KEY, JSON.stringify(s)); } catch {} }
   // Exact "Dad" is never capped (matches the server's exemption — the server also never logs him).
   function storyCapped() {
     if ((localStorage.getItem("choreUser") || "") === "Dad") return false;
-    return storyCountState().count >= STORY_DAILY_CAP;
+    const s = storyCountState();
+    return s.count >= s.cap;
   }
   function bumpStoryCount() { const s = storyCountState(); s.count++; storyCountSave(s); return s.count; }
-  function forceStoryCapped() { const s = storyCountState(); s.count = STORY_DAILY_CAP; storyCountSave(s); }
+  function forceStoryCapped() { const s = storyCountState(); s.count = Math.max(s.count, s.cap); storyCountSave(s); }
+  // When locally capped, quietly ask the server whether Dad refreshed today's budget; if he
+  // did, adopt the new cap, restore the controls, and celebrate. Fire-and-forget + throttled:
+  // the local block stays instant, an unlock arrives a beat later.
+  let budgetCheckAt = 0;
+  async function refreshStoryBudget() {
+    const now = Date.now();
+    if (now - budgetCheckAt < 8000) return;
+    budgetCheckAt = now;
+    try {
+      const resp = await fetch(API_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ secret: FAMILY_PASSWORD, mode: "story_budget", user: localStorage.getItem("choreUser") || "" }),
+      });
+      if (!resp.ok) return;
+      const j = await resp.json();
+      if (!j || !j.ok) return;
+      const wasCapped = storyCapped();
+      const s = storyCountState();
+      s.count = j.used; s.cap = j.cap;
+      storyCountSave(s);
+      if (wasCapped && !j.capped && currentView === "story" && story && !busy) {
+        const last = story.messages[story.messages.length - 1];
+        const p = last && last.role === "assistant" ? parseChapter(last.content) : { choices: [], ended: false, chapterEnd: false };
+        setStoryControls({ choices: p.choices, ended: !!story.done, chapterEnd: p.chapterEnd, busyNow: false });
+        toast("🎁 Dad refreshed today's story budget — keep reading!");
+      }
+    } catch { /* stay capped locally — the next tap re-checks */ }
+  }
   // Call at the top of every user-initiated story action. Returns true (and shows the gentle
   // notice, or a toast if we're not on the reading view yet) if capped — the caller must stop.
   function guardStoryCap() {
     if (!storyCapped()) return false;
+    refreshStoryBudget();   // background: a granted budget unblocks a beat later
     if (currentView === "story") setStoryControls({ choices: [], ended: false, chapterEnd: false, busyNow: false });
     else toast("📚 You've read a LOT today! Come back tomorrow to keep the story going. 🌙");
     return true;
@@ -1025,6 +1086,23 @@
   }
   function scrollStory() { const s = $("storyScroll"); s.scrollTop = s.scrollHeight; }
 
+  // Choices/write-in/next-chapter stay OFF the screen until the reader reaches the bottom of
+  // the text, so a fresh scene isn't crowded by the tap targets. Released by scrolling to the
+  // end (or immediately when the scene already fits / we're already at the bottom).
+  let storyGatePending = false;
+  function storyAtBottom() {
+    const s = $("storyScroll");
+    return s.scrollHeight - s.scrollTop - s.clientHeight < 48;
+  }
+  function gateChoices(on) {
+    storyGatePending = on && !storyAtBottom();
+    $("storyControls").classList.toggle("gated", storyGatePending);
+    $("scrollHint").style.display = storyGatePending ? "block" : "none";
+  }
+  $("storyScroll").addEventListener("scroll", () => {
+    if (storyGatePending && storyAtBottom()) gateChoices(false);
+  });
+
   function setStoryControls({ choices = [], ended = false, chapterEnd = false, busyNow = false }) {
     $("storyBusy").style.display = busyNow ? "block" : "none";
     const btns = $("choiceBtns");
@@ -1032,6 +1110,7 @@
     // Daily cap takes priority over everything except "busy"/"the story already ended": no more
     // choices or write-in until the next Central day — the bookshelf (shelve) stays available.
     const capped = !busyNow && !ended && storyCapped();
+    if (capped) refreshStoryBudget();   // background: Dad may have refreshed today's budget
     // Mid-chapter: choices + write box. At a chapter end (or capped): the next-step prompt instead.
     const interactive = !busyNow && !ended && !chapterEnd && !capped;
     if (interactive) {
@@ -1050,6 +1129,7 @@
     $("chapterEndRow").style.display = (!busyNow && chapterEnd && !capped) ? "block" : "none";
     if (!busyNow && chapterEnd) $("nextChapterBtn").textContent = "Read Chapter " + (((story && story.chapter) || 1) + 1) + " →";
     $("newStoryRow").style.display = (!busyNow && ended) ? "block" : "none";
+    gateChoices(!busyNow && !ended && !capped && (interactive || chapterEnd));
   }
 
   // Strips a stored assistant reply down to just the chapter text + choices for re-sending
@@ -1065,8 +1145,9 @@
   // This keeps every chapter coherent with the WHOLE story while holding per-request cost roughly
   // FLAT no matter how long the story gets. The full transcript still lives in story.messages for
   // the on-screen story + bookshelf.
-  const SEND_CHAPTERS = 4;      // recent chapters sent verbatim (≥ SUMMARIZE_EVERY, so nothing
-                                //   leaves the window before it's folded into the memory note)
+  const SEND_CHAPTERS = 6;      // recent chapters sent verbatim (≥ SUMMARIZE_EVERY, so nothing
+                                //   leaves the window before it's folded into the memory note).
+                                //   6 (was 4): user-approved token spend for stronger continuity.
   // A redo removes the rejected scene from story.messages, which can leave two user turns in a
   // row (the original instruction + the redo). The API needs alternating roles, so consecutive
   // user turns are merged into one message at SEND time only — the transcript stays honest.
@@ -1334,14 +1415,26 @@
     $("writeInput").value = "";
     takeTurn(v);
   });
-  // At a chapter's end, the reader keeps going into the next chapter…
+  // At a chapter's end, the reader keeps going into the next chapter — either steering it with
+  // their own idea (the write-in becomes the chapter's direction) or leaving the box blank to
+  // let the storyteller decide (the plain sentinel, exactly as before).
   $("nextChapterBtn").addEventListener("click", () => {
     if (busy || !story || story.done) return;
     if (guardStoryCap()) return;
     story.chapter = (story.chapter || 1) + 1;
     story.closing = false;
-    story.messages.push({ role: "user", content: NEXT_CHAPTER_MSG });
+    const idea = $("nextChapterIdea").value.trim();
+    $("nextChapterIdea").value = "";
+    if (idea){
+      addPickedEl(idea);
+      story.messages.push({ role: "user", content: idea, opener: true });
+    } else {
+      story.messages.push({ role: "user", content: NEXT_CHAPTER_MSG });
+    }
     streamChapter({ newChapter: true });
+  });
+  $("nextChapterIdea").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); $("nextChapterBtn").click(); }
   });
   // …or shelves the book to pick up later. Shared by the normal chapter-end row AND the daily-cap
   // notice — the bookshelf stays fully usable even after the cap is hit.
@@ -1695,7 +1788,8 @@
   const priced = (d, p, inR, outR) => cw(d, p + "_in") * inR + cw(d, p + "_cw") * inR * 1.25
     + cw(d, p + "_cr") * inR * 0.1 + cw(d, p + "_out") * outR;
   const IMG_EACH = 0.039;   // generated picture, billed per image rather than per token
-  const rowCost = (d) => (priced(d, "s", S_IN, S_OUT) + priced(d, "u", S_IN, S_OUT) + priced(d, "r", R_IN, R_OUT) + priced(d, "d", R_IN, R_OUT) + priced(d, "k", S_IN, S_OUT) + priced(d, "a", R_IN, R_OUT) + priced(d, "c", R_IN, R_OUT)) / 1e6
+  // u (story-bible recaps) moved to Sonnet 2026-08-01 — priced at Sonnet rates from here on.
+  const rowCost = (d) => (priced(d, "s", S_IN, S_OUT) + priced(d, "u", R_IN, R_OUT) + priced(d, "r", R_IN, R_OUT) + priced(d, "d", R_IN, R_OUT) + priced(d, "k", S_IN, S_OUT) + priced(d, "a", R_IN, R_OUT) + priced(d, "c", R_IN, R_OUT)) / 1e6
     + cw(d, "g_req") * IMG_EACH;
   const dayCost = rowCost;
   const fmt$ = (v) => "$" + (v < 0.10 ? v.toFixed(3) : v.toFixed(2));
@@ -1798,6 +1892,18 @@
 
   $("usageBtn").addEventListener("click", () => { show("usage"); loadUsage(); });
   $("storyLogBtn").addEventListener("click", () => { show("storylog"); loadStoryLog(); });
+  // 🎁 Dad's budget refresh: adds a fresh STORY_DAILY_CAP to every reader's cap for TODAY only
+  // (a per-day bonus doc server-side; capped kids' devices discover it within a tap or two).
+  $("budgetGrantBtn").addEventListener("click", async () => {
+    if (!confirm("Give everyone " + STORY_DAILY_CAP + " more Story Time scenes for today?")) return;
+    const btn = $("budgetGrantBtn");
+    btn.disabled = true;
+    try {
+      const j = await fetchLog({ mode: "story_budget_grant" });
+      toast("🎁 Granted! Today's budget is now " + j.cap + " scenes per reader.");
+    } catch (e) { toast("😵 " + e.message); }
+    btn.disabled = false;
+  });
   $("dungeonBtn").addEventListener("click", () => { location.href = "dungeon.html"; });
   // The usage dashboard AND the Story Log are Dad-only and PIN-locked (kids shouldn't see spend or
   // each other's reading). The endpoints are also family-password gated; this is the client gate.
@@ -1892,6 +1998,42 @@
     else if (s.flagged === false) { verdict.classList.add("good"); verdict.textContent = "✅ Nothing needed redirecting"; }
     else { verdict.classList.add("pending"); verdict.textContent = "⚠️ Summary incomplete — will retry next open"; }
     card.appendChild(verdict);
+    // 📜 Full transcript on demand — the raw scenes are retained server-side now (90 days), so
+    // the parent can read exactly what the kid read and typed, right under the summary.
+    const tBtn = document.createElement("button"); tBtn.className = "slTransBtn"; tBtn.textContent = "📜 Read the day's transcript";
+    const tBox = document.createElement("div"); tBox.className = "slTranscript"; tBox.style.display = "none";
+    let tLoaded = false;
+    tBtn.addEventListener("click", async () => {
+      if (tBox.style.display !== "none") { tBox.style.display = "none"; tBtn.textContent = "📜 Read the day's transcript"; return; }
+      tBox.style.display = "block"; tBtn.textContent = "▲ Hide the transcript";
+      if (tLoaded) return;
+      tBox.textContent = "Loading…";
+      try {
+        const data = await fetchLog({ mode: "storylog_scenes", date: s.date, canon: s.canon });
+        tBox.innerHTML = "";
+        if (!data.scenes || !data.scenes.length) { tBox.textContent = "No scenes on file for this day."; tLoaded = true; return; }
+        let lastStory = null;
+        for (const sc of data.scenes) {
+          if (sc.storyId !== lastStory) {
+            lastStory = sc.storyId;
+            const st = document.createElement("div"); st.className = "slTransTitle";
+            st.textContent = "📖 " + (sc.title || "Untitled story");
+            tBox.appendChild(st);
+          }
+          if (sc.choice) {
+            const ch = document.createElement("div"); ch.className = "slTransChoice";
+            ch.textContent = (sc.idx === 0 ? "🌍 " : "➤ ") + sc.choice;
+            tBox.appendChild(ch);
+          }
+          const p = parseChapter(sc.scene || "");
+          if (p.title) { const ct = document.createElement("div"); ct.className = "slTransChap"; ct.textContent = "— " + p.title + " —"; tBox.appendChild(ct); }
+          const tx = document.createElement("div"); tx.className = "slTransScene"; tx.textContent = p.text;
+          tBox.appendChild(tx);
+        }
+        tLoaded = true;
+      } catch (e) { tBox.textContent = "Couldn't load the transcript — " + e.message; }
+    });
+    card.append(tBtn, tBox);
     return card;
   }
   async function clearStoryDay(date) {
