@@ -1543,6 +1543,19 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   chr(960); PDF op font sizes need rounding (11*0.72 prints 7.920000000000001). Suites now
   server 36 + client 42 (OMML asserts, fraction-bar/radical path ops, Symbol font, money-literal
   both formats). Math rendering verified visually via pdf.js render of the built PDF.
+  FORM-B STYLE PASS (2026-08-02, user brought a LaTeX-made sample: "better style especially the
+  way it shows formulas"): (1) header = navy #233357 bold heading + chapter-topic SUBTITLE (text
+  after ":" in q.chapter) + Name/Date/SCORE ___/N row over a navy rule; (2) per-question "section"
+  field in the quiz JSON — consecutive questions sharing it print ONE italic textbook directive
+  ("Add." / "Solve. Show your work.") and question text stops repeating instructions; (3) NEW math
+  commands \\stack{641}{872}{+358} (vertical column arithmetic, rows right-aligned over an answer
+  bar; docx = m:eqArr + figure-space \\u2007 padding + m:bar pos=bot on the last row) and
+  \\longdiv{47}{3,170} (docx = divisor + ")" + m:bar pos=top vinculum; PDF draws both); (4) bold
+  question-number prefix runs; (5) PDF gains F4 Helvetica-Oblique for the italic directives + rg/RG
+  navy color ops + rule items; boolean "tall" leading replaced by MEASURED tPdfMathExtra {up,down}
+  per line (stacks rise a full row per addend). Suites now server 39 · client 48. Regenerating a
+  sample: scratchpad make_test.cjs + ch1_quiz.json drive the REAL page builders headless via
+  route-mocks (the pattern for making a test by hand: write the quiz JSON, run make_test.cjs).
 - GUARDRAILS TIGHTENED (2026-07-30, user): FAMILY_RULES — torture scenes are never written even
   if explicitly/repeatedly requested (redirects in-story like other restricted topics);
   interrogation OK (questioning/pressure/bluffing/wits) but zero violence, torture, or threats

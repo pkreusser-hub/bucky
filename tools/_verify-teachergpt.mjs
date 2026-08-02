@@ -19,9 +19,9 @@ const QUIZ = {
   title: "Fractions Review", chapter: "Chapter 7: Fractions",
   instructions: "Answer every question. Show your work where lines are given.",
   questions: [
-    { q: "What is $\\frac{1}{2} + \\frac{1}{4}$?", choices: ["$\\frac{3}{4}$", "$\\frac{2}{6}$", "$\\frac{1}{8}$", "$\\frac{2}{4}$"], lines: 0 },
-    { q: "Evaluate $5^{2} \\times \\sqrt{9}$.", choices: null, lines: 1 },
-    { q: "Maria cuts a pizza into 8 equal slices and eats 3. What fraction is left? Show your work.", choices: null, lines: 3 },
+    { q: "What is $\\frac{1}{2} + \\frac{1}{4}$?", section: "Add the fractions.", choices: ["$\\frac{3}{4}$", "$\\frac{2}{6}$", "$\\frac{1}{8}$", "$\\frac{2}{4}$"], lines: 0 },
+    { q: "Evaluate $5^{2} \\times \\sqrt{9}$.", section: "", choices: null, lines: 1 },
+    { q: "Maria cuts a pizza into 8 equal slices and eats 3. What fraction is left? Show your work.", section: "Solve.", choices: null, lines: 3 },
   ],
   answerKey: ["A — $\\frac{3}{4}$ (common denominator 4)", "75", "$\\frac{5}{8}$ (8 - 3 = 5 slices of 8)"],
 };
@@ -97,6 +97,8 @@ console.log("— happy path: photos → Opus → structured quiz JSON —");
   ok(a.system.includes("MATCH it to the work") && a.system.includes("Err on the SMALL side"), "prompt: answer space scales with required work (compact bias)");
   ok(a.system.includes("MATH NOTATION") && a.system.includes("\\frac{3}{4}") && a.system.includes("\\sqrt{49}"), "prompt: $...$ math mini-notation required (frac/sqrt/exponents)");
   ok(a.system.includes("never a slash like 3/4") && a.system.includes("Money is NOT math"), "prompt: fractions always stacked; dollar amounts stay literal");
+  ok(a.system.includes("\\stack{641}{872}{+358}") && a.system.includes("\\longdiv{47}{3,170}"), "prompt: vertical column arithmetic + long-division bracket notation");
+  ok(a.system.includes('"section"') && a.system.includes("SAME section string"), "prompt: textbook-style grouped section directives");
   const content = a.messages[0].content;
   ok(Array.isArray(content) && content.filter((b) => b.type === "image").length === 2, "both photos sent as image blocks");
   const txt = content.find((b) => b.type === "text").text;
@@ -108,6 +110,7 @@ console.log("— happy path: photos → Opus → structured quiz JSON —");
   ok(q.questions.length === 3 && q.questions[0].choices.length === 4 && q.questions[2].lines === 3, "…and questions with choices/answer-line counts");
   ok(q.answerKey.length === 3 && q.answerKey[2].includes("\\frac{5}{8}"), "…and a full answer key");
   ok(q.questions[0].q.includes("\\frac{1}{2}") && q.questions[1].q.includes("\\sqrt{9}"), "math markup survives the round trip untouched (typeset on-device)");
+  ok(q.questions[0].section === "Add the fractions." && q.questions[1].section === "" && q.questions[2].section === "Solve.", "section directives pass through");
 }
 {
   const r = await call({ mode: "teachergpt", images: [IMG], kind: "test", count: 3 });
