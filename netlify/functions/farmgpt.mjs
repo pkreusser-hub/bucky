@@ -1132,14 +1132,25 @@ async function createTeacherGoogleDoc(t, kind) {
   const auth = { authorization: `Bearer ${token}`, "content-type": "application/json" };
   const docTitle = (t.chapter ? t.chapter + " " : "") + (kind === "test" ? "Test" : "Quiz") + " — " + t.title;
   const mk = await fetch(`${TEACHER_DOCS_BASE}/v1/documents`, { method: "POST", headers: auth, body: JSON.stringify({ title: docTitle.slice(0, 150) }) });
-  if (mk.status === 403) return { err: "docs-api-disabled" };
-  if (!mk.ok) return { err: "create-failed" };
+  if (!mk.ok) {
+    // Surface Google's ACTUAL complaint — "API disabled", "storage quota", and scope errors
+    // are all 403s, and collapsing them to one guess sent us in circles once already.
+    let g = null; try { g = JSON.parse(await mk.text()); } catch {}
+    const reason = (g && g.error && (g.error.status || "")) + " " +
+      ((g && g.error && g.error.errors && g.error.errors[0] && g.error.errors[0].reason) || "");
+    const msg = (g && g.error && g.error.message) || "";
+    if (/SERVICE_DISABLED|accessNotConfigured/i.test(reason + " " + msg)) return { err: "docs-api-disabled" };
+    return { err: "create-failed: Google said " + mk.status + " " + reason.trim() + " — " + msg.slice(0, 300) };
+  }
   const doc = await mk.json().catch(() => null);
   const docId = doc && doc.documentId;
   if (!docId) return { err: "create-failed" };
   const { requests } = buildTeacherDocRequests(t, kind);
   const up = await fetch(`${TEACHER_DOCS_BASE}/v1/documents/${docId}:batchUpdate`, { method: "POST", headers: auth, body: JSON.stringify({ requests }) });
-  if (!up.ok) return { err: "write-failed" };
+  if (!up.ok) {
+    let g = null; try { g = JSON.parse(await up.text()); } catch {}
+    return { err: "write-failed: Google said " + up.status + " — " + (((g || {}).error || {}).message || "").slice(0, 300) };
+  }
   let shared = true;
   const perm = await fetch(`${TEACHER_DRIVE_BASE}/drive/v3/files/${docId}/permissions?sendNotificationEmail=true`, {
     method: "POST", headers: auth,

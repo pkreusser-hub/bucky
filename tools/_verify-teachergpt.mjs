@@ -67,7 +67,13 @@ const gSrv = http.createServer(async (q, s) => {
   const send = (c, o) => { s.writeHead(c, { "content-type": "application/json" }); s.end(JSON.stringify(o)); };
   docsReqs.push({ path: q.url, body: body ? JSON.parse(body) : null });
   if (q.url === "/v1/documents") {
-    if (docsCreateStatus !== 200) return send(docsCreateStatus, { error: { message: "API not enabled" } });
+    if (docsCreateStatus === 403) return send(403, { error: { status: "PERMISSION_DENIED",
+      message: "Google Docs API has not been used in project 12345 before or it is disabled.",
+      errors: [{ reason: "accessNotConfigured" }] } });
+    if (docsCreateStatus === 4031) return send(403, { error: { status: "PERMISSION_DENIED",
+      message: "The user's Drive storage quota has been exceeded.",
+      errors: [{ reason: "storageQuotaExceeded" }] } });
+    if (docsCreateStatus !== 200) return send(docsCreateStatus, { error: { message: "boom" } });
     return send(200, { documentId: "DOC123" });
   }
   if (q.url.includes(":batchUpdate")) return send(200, {});
@@ -170,6 +176,10 @@ console.log("— validation + error surfaces —");
   docsCreateStatus = 403;
   const r4 = await call({ mode: "teachergpt", images: [IMG], kind: "quiz", count: 5 });
   ok(r4.json && r4.json.error && r4.json.error.includes("enable the Google Docs API"), "Docs API not enabled → actionable setup message");
+  docsCreateStatus = 4031;   // a DIFFERENT 403 (storage quota) must NOT masquerade as the setup message
+  const r4b = await call({ mode: "teachergpt", images: [IMG], kind: "quiz", count: 5 });
+  ok(r4b.json && r4b.json.error && r4b.json.error.includes("Google said 403") && r4b.json.error.includes("storage quota"), "other 403s surface Google's actual message (quota case)");
+  ok(!r4b.json.error.includes("enable the Google Docs API"), "…and never claim the API is disabled");
   docsCreateStatus = 200;
   const r5 = await call({ mode: "teachergpt", images: [IMG], kind: "quiz", count: 5 }, "wrong");
   ok(r5.status === 401, "bad secret → 401");
