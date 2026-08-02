@@ -1455,6 +1455,15 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   peach" does). To add a universe: append an entry, nothing else to wire. Verify:
   _verify-story-reminder.mjs now 40/40 (+10: attach/facts/yield-line, no-trigger, peach guard,
   Mario, crossover BOTH, recap-sticky, research-never).
+⚔️ STAR WARS SHEET REBUILT MECHANICS-FIRST (2026-08-02, user: "she needs more force awareness,
+  not characters"): ~680 words — THE FORCE (light/dark, born-not-learned, ranks, Rule of Two;
+  telekinesis scaling; body powers + deflection-via-precognition; mind trick limits; TELEPATHY
+  & FORCE BONDS — siblings/partners speak mind-to-mind, feel each other, sense across distance,
+  the exact mechanic Eleanor plays; dark powers; limits/costs/Force ghosts) + LIGHTSABERS
+  (kyber crystals choose/bleeding-makes-red, weightless blade/cauterizes/locks, beskar resists;
+  TYPES incl. double-bladed = ONE central handle — evidenced by her ASCII-art redo — shoto,
+  crossguard, curved, darksaber; seven dueling forms) + compressed galaxy color. Triggers +=
+  kyber|padawan|darksaber|force push|force lightning.
 🧬 EVOLVING FAMILY CANON (2026-08-01, user: kid-created characters like Bree should become part
   of the universe sheet and evolve): farmgpt_canon/<universeKey> Firestore doc per universe —
   after every mode-"summary" story-bible fold, the server detects the story's universe(s) and a

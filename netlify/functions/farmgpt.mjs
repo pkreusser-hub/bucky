@@ -285,25 +285,58 @@ THE DRAGON EYE & LORE:
   pipes. Defeated enemies just poof away — nobody truly dies.
 - Go-kart racing is a beloved pastime (Mario Kart) with items like shells and banana peels.` },
   { key: "starwars", name: "Star Wars",
-    triggers: /star wars|lightsaber|light saber|jedi|\bsith\b|darth|skywalker|millennium falcon|chewbacca|wookiee|stormtrooper|death star|grogu|mandalorian|\byoda\b|kenobi|blaster bolt|the force\b/i,
-    facts: `- Lightsabers: humming blades of pure energy that cut through almost anything and deflect
-  blaster bolts. Jedi carry blue or green (sometimes purple/yellow); Sith blades are red. A
-  DOUBLE-BLADED lightsaber has ONE handle in the middle with a blade igniting from each end
-  (like Darth Maul's) — two blades, one grip.
-- The Force: an energy field connecting all living things. Trained users can move objects with
-  their mind, leap huge distances, sense danger, and nudge weak minds ("mind tricks"). Jedi
-  draw on calm and discipline; the dark side feeds on anger and fear.
-- Droids: R2-D2 is a squat astromech who speaks only in beeps and whistles; C-3PO is a fussy
-  golden protocol droid who talks constantly; BB-8 rolls on a ball body and beeps.
-- Chewbacca is a towering Wookiee who roars and growls (he never speaks words, but friends
-  understand him). Han Solo flies the Millennium Falcon — a battered freighter that jumps to
-  lightspeed (hyperspace: stars streak into lines).
-- Stormtroopers wear white armor and are famously bad shots. Blasters fire glowing colored
-  bolts, not bullets. TIE fighters scream; X-wings have four wing-tips that open into an X.
-- Yoda: small, green, long-eared, immensely wise and powerful, speaks in inverted syntax
-  ("Strong with the Force, you are"). Darth Vader: black armor and cape, deep mechanical
-  breathing, red lightsaber.
-- Travel between planets is routine; droids, aliens, and humans mix everywhere.` },
+    triggers: /star wars|lightsaber|light saber|jedi|\bsith\b|darth|skywalker|millennium falcon|chewbacca|wookiee|stormtrooper|death star|grogu|mandalorian|\byoda\b|kenobi|blaster bolt|the force\b|kyber|padawan|darksaber|force push|force lightning/i,
+    facts: `THE FORCE — how it actually works:
+- The Force is an energy field created by all living things. It has a LIGHT SIDE, drawn on
+  through calm, focus, and selflessness, and a DARK SIDE, fed by anger, fear, and hate. The
+  dark side feels quicker and more powerful, but it corrupts the user (in deep cases their
+  eyes go sickly yellow). Force-sensitivity is something you are BORN with; training grows it.
+  Jedi ranks: youngling → Padawan (apprentice, often wears a thin braid) → Jedi Knight →
+  Jedi Master. Sith keep the Rule of Two: only a master and an apprentice, never more.
+- TELEKINESIS: pushing, pulling, lifting, and throwing with the mind. Strength scales with
+  skill and focus — a beginner shakes a pebble; a master can lift a sunken starfighter.
+  Force-push sends enemies flying; Force-pull yanks a weapon from a hand.
+- BODY: the Force grants superhuman leaps, bursts of speed, softened falls, and lightning
+  reflexes. Jedi deflect blaster bolts because the Force shows them the shot a heartbeat
+  BEFORE it comes (danger sense / precognition) — the same sense that warns of ambushes.
+- MIND: the "mind trick" nudges the WEAK-minded with a calm suggestion and a small hand wave
+  ("These aren't the droids you're looking for") — strong wills and some species resist it.
+  Jedi can sense feelings, life, and great events ("a disturbance in the Force").
+- TELEPATHY & FORCE BONDS: trained users can send words and feelings mind-to-mind. Two people
+  who are close — siblings, master and apprentice, partners in many battles — can form a
+  FORCE BOND: they speak silently to each other, feel each other's emotions and pain, and
+  sense each other across great distances. A bond like this is rare and precious.
+- DARK-SIDE POWERS: Force lightning crackles from the fingertips and causes agony (a
+  lightsaber blade can catch/absorb it); the Force choke squeezes a throat from across a
+  room. Every dark-side act pulls the user deeper.
+- LIMITS & COSTS: the Force tires its user like any muscle; big feats take total focus. A
+  strong unwilling mind cannot simply be read. Force healing exists but is rare and drains
+  the healer. Great masters who learn the secret can return after death as glowing blue
+  FORCE GHOSTS to advise the living.
+
+LIGHTSABERS — the blade and its lore:
+- A lightsaber is powered by a KYBER CRYSTAL, a living crystal that attunes to its owner —
+  Jedi say the crystal chooses. Building YOUR OWN saber is a rite of passage; the blade's
+  color comes from the bond: blue and green most common, purple rare, yellow for temple
+  guards, white for a purified crystal. Sith cannot be chosen — they "bleed" stolen crystals
+  by pouring rage into them, which turns the blade RED.
+- The blade has no weight — swinging pure energy takes long practice. It cauterizes as it
+  cuts (wounds don't bleed), melts through blast doors slowly, and blades CLASH and LOCK
+  against each other in a duel. Very rare metals (Mandalorian beskar) resist a saber's edge.
+- TYPES: the standard single blade; the DOUBLE-BLADED saber — ONE handle in the middle, a
+  blade igniting from EACH end (Darth Maul's weapon), spun like a staff; dual-wielding (a
+  saber in each hand); the shoto (a short off-hand blade); the crossguard saber (side-vent
+  quillons, Kylo Ren's); curved-hilt sabers built for elegant dueling; low-powered training
+  sabers for younglings. The DARKSABER is one of a kind: an ancient flat BLACK blade, won
+  only by defeating its bearer, tied to Mandalorian leadership.
+- Duelists study seven classic lightsaber forms — from Soresu (patient, impenetrable
+  defense) to Ataru (leaping acrobatics) to Djem So (overwhelming power strikes).
+
+THE WIDER GALAXY (quick color): blasters fire glowing bolts, not bullets; stormtroopers wear
+white armor and famously can't aim; astromech droids like R2-D2 speak in beeps, protocol
+droids like C-3PO chatter; Wookiees roar instead of speaking words; hyperspace jumps streak
+the stars into lines. Yoda — small, green, wise — speaks in inverted syntax ("Strong with the
+Force, you are"). Travel between planets is routine; aliens, droids, and humans mix everywhere.` },
   { key: "pokemon", name: "Pokémon",
     triggers: /pok[eé]mon|pikachu|charizard|charmander|bulbasaur|squirtle|eevee|pok[eé] ?ball|team rocket|\bpokedex\b|pok[eé]dex|gym leader|ash ketchum/i,
     facts: `- Pokémon say ONLY their own names ("Pika, pika!") — they never speak human words. (The one
