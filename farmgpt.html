@@ -2207,7 +2207,14 @@
       const b = text.indexOf("$", a + 1);
       if (b === -1) break;
       const inner = text.slice(a + 1, b);
-      const mathy = /[\\^_]/.test(inner) || (inner.length <= 30 && /[0-9]/.test(inner) && !/[A-Za-z]{3,}/.test(inner) && !/\$/.test(inner));
+      // Backslash commands / ^ / _ are explicit math. A plain span only counts as math when it
+      // reads as a COMPLETE expression: short, no words, ends cleanly (not a dangling "+", ","
+      // or "(") and is either pure number or carries an operator — so adjacent dollar amounts
+      // ("losses of $4,218, $2,907" / "$68 + $52") keep their dollar signs.
+      const t = inner.trim();
+      const plainMathy = inner.length <= 30 && /[0-9]/.test(inner) && !/[A-Za-z]{3,}/.test(inner) &&
+        /[0-9A-Za-z)]$/.test(t) && (/[+\-*/=^<>]/.test(inner) || /^[0-9][0-9,. ]*$/.test(t));
+      const mathy = /[\\^_]/.test(inner) || plainMathy;
       if (mathy) {
         pushText(text.slice(pos, a));
         out.push({ math: tMathParse(inner) });
@@ -2296,13 +2303,20 @@
       .replace(/\u2260/g, "!=").replace(/[^\x20-\xff]/g, "?");
   }
   function tPdfEscape(s) { return tPdfFold(s).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)"); }
-  function tPdfCharW(ch) {
-    if ("iIl.,:;'|!()[]".includes(ch)) return 0.32;
-    if ("mwMW@".includes(ch)) return 0.85;
-    if (ch === " ") return 0.28;
-    if (ch >= "A" && ch <= "Z") return 0.68;
-    return 0.52;
-  }
+  // Real Helvetica advance widths (per 1000 em, from the AFM) — words are drawn as individually
+  // positioned runs, so estimated widths visibly bunch/spread the words; exact ones don't.
+  const T_PDF_W = (() => {
+    const m = {};
+    const put = (chars, w) => { for (const c of chars) m[c] = w; };
+    put("ijl", 0.222); put(" !,./:;I\\[]ft", 0.278); put("()-`r", 0.333);
+    put("cksvxyzJ", 0.5); put("#$0123456789?_abdeghnopquL", 0.556);
+    put("+<=>^~×÷±", 0.584); put("FTZ", 0.611); put("&ABEKPSVXY", 0.667);
+    put("CDHNRUw", 0.722); put("GOQ", 0.778); put("Mm", 0.833); put("%", 0.889);
+    put("W", 0.944); put("@", 1.015); m["'"] = 0.191; m['"'] = 0.355; m["*"] = 0.389;
+    m["|"] = 0.26; m["{"] = 0.334; m["}"] = 0.334; m["°"] = 0.4;
+    return m;
+  })();
+  function tPdfCharW(ch) { return T_PDF_W[ch] !== undefined ? T_PDF_W[ch] : 0.556; }
   function tPdfWidth(text, size) { let w = 0; for (const ch of tPdfFold(text)) w += tPdfCharW(ch); return w * size; }
   // ---- typeset math for the PDF: stacked fractions with a drawn bar, raised exponents,
   // radical signs drawn as line paths. \u03C0 \u2264 \u2265 \u2260 come from the base-14 Symbol font (F3);
