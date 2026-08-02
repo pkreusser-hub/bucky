@@ -38,12 +38,21 @@ const tokenSrv = http.createServer(async (q, s) => {
   tokenScopes.push(JSON.parse(Buffer.from(jwtPart, "base64url").toString()).scope);
   s.writeHead(200, { "content-type": "application/json" }); s.end(JSON.stringify({ access_token: "t", expires_in: 3600 }));
 });
+const store = new Map();   // Firestore doc name -> fields (job-result docs need real reads)
 const fsSrv = http.createServer(async (q, s) => {
-  await readBody(q);
+  const body = await readBody(q);
   const send = (c, o) => { s.writeHead(c, { "content-type": "application/json" }); s.end(JSON.stringify(o)); };
-  if (q.url.includes(":commit")) return send(200, {});
+  if (q.url.includes(":commit")) {
+    try { for (const w of JSON.parse(body).writes || []) if (w.update && w.update.fields) store.set(w.update.name, w.update.fields); } catch {}
+    return send(200, {});
+  }
   if (q.url.includes(":runQuery")) return send(200, [{}]);
-  if (q.method === "GET") return send(404, { error: { code: 404 } });
+  if (q.method === "GET") {
+    const rel = q.url.split("?")[0].replace(/^.*documents\//, "");
+    const full = `${DOCBASE}/${rel}`;
+    if (store.has(full)) return send(200, { name: full, fields: store.get(full) });
+    return send(404, { error: { code: 404 } });
+  }
   send(200, {});
 });
 const antSrv = http.createServer(async (q, s) => {
@@ -77,7 +86,10 @@ process.env.TEACHER_DOCS_BASE_URL = `http://127.0.0.1:${gSrv.address().port}`;
 process.env.TEACHER_DRIVE_BASE_URL = `http://127.0.0.1:${gSrv.address().port}`;
 delete process.env.TEACHER_DOC_EMAIL;
 
-const handler = (await import(new URL("../netlify/functions/farmgpt.mjs", import.meta.url).href)).default;
+const farmgptModule = await import(new URL("../netlify/functions/farmgpt.mjs", import.meta.url).href);
+const handler = farmgptModule.default;
+const { runTeacherJob } = farmgptModule;
+const bgHandler = (await import(new URL("../netlify/functions/teachergpt-background.mjs", import.meta.url).href)).default;
 async function call(body, secret = SECRET) {
   const req = new Request("http://localhost/.netlify/functions/farmgpt", {
     method: "POST", headers: { "content-type": "application/json", origin: "https://amenfarms.netlify.app" },
@@ -161,6 +173,41 @@ console.log("— validation + error surfaces —");
   docsCreateStatus = 200;
   const r5 = await call({ mode: "teachergpt", images: [IMG], kind: "quiz", count: 5 }, "wrong");
   ok(r5.status === 401, "bad secret → 401");
+}
+
+console.log("— background job path (the primary one): runTeacherJob + poll —");
+{
+  const before = anthropicReqs.length;
+  await runTeacherJob({ secret: "wrong", jobId: "jobbad1", images: [IMG], kind: "quiz", count: 3 });
+  ok(anthropicReqs.length === before, "wrong secret → the job never runs (endpoint is public)");
+  ok(!store.has(`${DOCBASE}/farmgpt_teacher_jobs/jobbad1`), "…and writes nothing");
+  await runTeacherJob({ secret: SECRET, jobId: "not ok!", images: [IMG], kind: "quiz", count: 3 });
+  ok(anthropicReqs.length === before, "bad jobId → refused");
+
+  const p0 = await call({ mode: "teachergpt_result", jobId: "jobxyz1" });
+  ok(p0.status === 200 && p0.json.pending === true, "polling before the job lands → pending");
+
+  await runTeacherJob({ secret: SECRET, jobId: "jobxyz1", images: [IMG, IMG], kind: "test", count: 3 });
+  ok(store.has(`${DOCBASE}/farmgpt_teacher_jobs/jobxyz1`), "job outcome written to the result doc");
+  const p1 = await call({ mode: "teachergpt_result", jobId: "jobxyz1" });
+  ok(p1.json.ok === true && p1.json.url === "https://docs.google.com/document/d/DOC123/edit", "poll returns the finished doc link");
+  ok(p1.json.kind === "test" && p1.json.questionCount === 3 && p1.json.sharedWith === "dbadams@gmail.com", "poll carries kind/count/recipient");
+
+  antBehavior = "fail";
+  await runTeacherJob({ secret: SECRET, jobId: "jobfail1", images: [IMG], kind: "quiz", count: 3 });
+  const p2 = await call({ mode: "teachergpt_result", jobId: "jobfail1" });
+  ok(p2.json.error && p2.json.error.includes("reach the model"), "a failed job's error reaches the poller");
+  antBehavior = "ok";
+
+  const bad = await call({ mode: "teachergpt_result", jobId: "###" });
+  ok(bad.status === 400, "malformed jobId → 400");
+
+  // The background wrapper endpoint drives the same job (proves the file wiring).
+  const resp = await bgHandler(new Request("http://localhost/.netlify/functions/teachergpt-background", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ secret: SECRET, jobId: "jobbg001", images: [IMG], kind: "quiz", count: 3 }),
+  }));
+  ok(resp.status === 200 && store.has(`${DOCBASE}/farmgpt_teacher_jobs/jobbg001`), "teachergpt-background endpoint runs the job end-to-end");
 }
 
 console.log("— other modes untouched —");

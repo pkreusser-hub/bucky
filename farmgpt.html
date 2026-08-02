@@ -2146,18 +2146,41 @@
     $("tStatus").style.display = "block";
     $("tStatus").textContent = "Reading the material and writing your " + tKind + "… this can take a minute or two ⏳";
     try {
-      const resp = await fetch(API_URL, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ secret: FAMILY_PASSWORD, mode: "teachergpt",
-          images: tPhotos.map((p) => ({ media_type: "image/jpeg", data: p.data })),
-          kind: tKind, count: Math.max(3, Math.min(50, parseInt($("tCount").value, 10) || 10)),
-          notes: $("tNotes").value.trim() }),
-      });
-      // Success is a 200 keepalive STREAM whose last line is the result JSON; validation
-      // errors (400/401) are still plain JSON responses.
+      const payload = { secret: FAMILY_PASSWORD, mode: "teachergpt",
+        images: tPhotos.map((p) => ({ media_type: "image/jpeg", data: p.data })),
+        kind: tKind, count: Math.max(3, Math.min(50, parseInt($("tCount").value, 10) || 10)),
+        notes: $("tNotes").value.trim() };
       let j = null;
-      try { j = JSON.parse((await resp.text()).trim().split("\n").pop()); } catch {}
-      if (!resp.ok || !j || !j.ok) throw new Error((j && j.error) || "Something went wrong — try again");
+      // PRIMARY path: hand the job to the background worker (15-minute allowance — a big Opus
+      // run takes a while) and poll for the result doc every 5s.
+      const jobId = "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      const bg = await fetch("/.netlify/functions/teachergpt-background", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...payload, jobId }),
+      }).catch(() => null);
+      if (bg && (bg.status === 202 || bg.status === 200)) {
+        const t0 = Date.now();
+        while (Date.now() - t0 < 5 * 60 * 1000) {
+          await new Promise((r) => setTimeout(r, 5000));
+          $("tStatus").textContent = "Writing your " + tKind + "… " + Math.round((Date.now() - t0) / 1000) + "s (a big test can take a couple of minutes) ⏳";
+          let p = null;
+          try {
+            p = await (await fetch(API_URL, { method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ secret: FAMILY_PASSWORD, mode: "teachergpt_result", jobId }) })).json();
+          } catch { /* transient — keep polling */ }
+          if (p && !p.pending) { j = p; break; }
+        }
+        if (!j) throw new Error("This one's taking unusually long — wait a minute and tap again, or try fewer questions");
+      } else {
+        // FALLBACK: the streamed in-function path (background worker unavailable). Success is a
+        // keepalive stream whose LAST line is the result JSON; validation errors are plain JSON.
+        const resp = await fetch(API_URL, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+        });
+        try { j = JSON.parse((await resp.text()).trim().split("\n").pop()); } catch {}
+        if (!resp.ok) throw new Error((j && j.error) || "Something went wrong — try again");
+      }
+      if (!j || !j.ok) throw new Error((j && j.error) || "Something went wrong — try again");
       $("tStatus").style.display = "none";
       $("tResTitle").textContent = j.title;
       $("tResCount").textContent = j.questionCount;

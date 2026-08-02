@@ -1504,9 +1504,20 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   error, calendar-API pattern). Usage bucket t_* priced at Opus 5 ($5/$25) w/ 🍎 dashboard row.
   Verify: tools/_verify-teachergpt.mjs (34: prompt rules, doc layout incl. name/date + page
   break + key, share recipient/role/notification, scopes, validation/403/401, other modes
-  clean) + scratchpad teacher_client_test.cjs (14). NOT live-tested vs real Opus/Google (env
+  clean) + scratchpad teacher_client_test.cjs. NOT live-tested vs real Opus/Google (env
   blocks both) — post-deploy: enable the two APIs, run one real quiz, check the doc lands in
   dbadams@gmail.com's Shared-with-me and prints cleanly.
+  TIMEOUT SAGA (2026-08-02, two live failures): a 60-90s Opus run dies in a normal Netlify
+  function (sync cap), and a keepalive STREAM alone also failed live (~45s) — long jobs must
+  not run inside the request. FINAL ARCHITECTURE: netlify/functions/teachergpt-background.mjs
+  (the -background suffix = Netlify background function, 202 immediately, 15-min allowance)
+  → runTeacherJob (exported from farmgpt.mjs; re-checks the secret — the endpoint is public;
+  validates jobId) → teacherGenerate (shared pipeline) → writes farmgpt_teacher_jobs/<jobId>
+  {status done/error, url…}; the page polls mode teachergpt_result every 5s (missing doc =
+  pending, 5-min client timeout). The streamed in-function path is KEPT as an automatic
+  fallback when the background endpoint 404s (plan without background functions). Client also
+  pre-blocks >4.5MB photo batches (Netlify ~6MB body cap = same generic error). Suite now
+  45/45 + client 18/18 (bg payload/poll/error/fallback).
 - GUARDRAILS TIGHTENED (2026-07-30, user): FAMILY_RULES — torture scenes are never written even
   if explicitly/repeatedly requested (redirects in-story like other restricted topics);
   interrogation OK (questioning/pressure/bluffing/wits) but zero violence, torture, or threats
