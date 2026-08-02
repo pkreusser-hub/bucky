@@ -1,0 +1,16 @@
+Exercise data and photographs in this folder come from the free-exercise-db project:
+
+    https://github.com/yuhonas/free-exercise-db
+
+That project releases its contents into the PUBLIC DOMAIN under the Unlicense
+(https://unlicense.org). No attribution is required; it is recorded here anyway
+because knowing where an asset came from matters more than the licence demanding it.
+
+WHAT WAS CHANGED IN THIS COPY
+  - Scoped to equipment we own: none / body only / dumbbell / bands.
+  - Dropped "expert" difficulty, and a short exclusion list of loaded-spine and
+    neck-loading movements that do not belong in an unsupervised kids' workout.
+  - Both frames per exercise re-encoded to 600px-wide WebP at quality 72.
+  - Records trimmed to the fields the app reads.
+
+Regenerate with:  node tools/_fit_build_library.mjs
