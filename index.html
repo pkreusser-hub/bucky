@@ -46,41 +46,46 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     background: var(--bg);
     color: var(--ink);
-    padding-bottom: calc(env(safe-area-inset-bottom) + 156px);   /* clears the fixed bottom nav (~78) + the FAB above it (top ~140px) so the last row's controls are never covered */
+    padding-bottom: calc(env(safe-area-inset-bottom) + 196px);   /* clears the fixed two-row bottom nav (~104) + the FAB above it so the last row's controls are never covered */
     -webkit-font-smoothing: antialiased;
   }
   /* Month view pins everything (grid fixed, events scroll inside their card), so the page
      itself must not scroll — drop the nav-clearance padding that would otherwise leave the
      document taller than the viewport (2026-07-23). */
   body.cal-fixed { padding-bottom: 0; }
+  /* The logo is gone and the bar is half its old height; the space bought the bottom nav
+     a second row (see #bnav). Title and subtitle sit on ONE baseline now — stacking them
+     was most of the height. */
   header {
     background: linear-gradient(180deg, #0d3d76 0%, var(--green) 100%);
     color: #fff;
-    padding: calc(env(safe-area-inset-top) + 16px) 16px 14px;
+    padding: calc(env(safe-area-inset-top) + 5px) 14px 5px;
     position: sticky; top: 0; z-index: 20;
     box-shadow: var(--shadow);
   }
-  .titlerow { display: flex; align-items: center; gap: 10px; }
-  .titletext { flex: 1; min-width: 0; }
-  .titlerow h1 { font-size: 18px; margin: 0; font-weight: 800; letter-spacing: .2px; line-height: 1.1; }
-  .subtitle { font-size: 11.5px; font-weight: 600; color: rgba(255,255,255,.72); letter-spacing: .4px; line-height: 1.2; margin-top: 1px; }
-  .logo { width: 40px; height: 40px; flex: 0 0 auto; border-radius: 9px; object-fit: cover; }
+  .titlerow { display: flex; align-items: center; gap: 8px; }
+  .titletext { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 7px; }
+  .titlerow h1 { font-size: 16px; margin: 0; font-weight: 800; letter-spacing: .2px; line-height: 1.1; flex: 0 0 auto; }
+  .subtitle {
+    font-size: 10.5px; font-weight: 600; color: rgba(255,255,255,.68); letter-spacing: .3px;
+    line-height: 1.1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .stripes {
-    height: 6px; margin: 10px -16px -14px;
+    height: 3px; margin: 4px -14px -5px;
     background: repeating-linear-gradient(90deg, var(--red) 0 18px, #fff 18px 36px);
   }
   .titlerow .who {
-    margin-left: auto; display: flex; align-items: center; gap: 6px;
+    margin-left: auto; display: flex; align-items: center; gap: 5px;
     background: rgba(255,255,255,.16); border: 0; color: #fff;
-    padding: 6px 10px; border-radius: 999px; font-size: 13px; cursor: pointer;
+    padding: 4px 9px; border-radius: 999px; font-size: 12px; cursor: pointer;
   }
   .bell {
     position: relative; flex: 0 0 auto; margin-left: auto;
     background: rgba(255,255,255,.16); border: 0; color: #fff;
-    width: 34px; height: 34px; border-radius: 50%; font-size: 16px; cursor: pointer;
+    width: 28px; height: 28px; border-radius: 50%; font-size: 14px; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
   }
-  .bell + .who { margin-left: 8px; }
+  .bell + .who { margin-left: 6px; }
   .bell-badge {
     position: absolute; top: -3px; right: -3px; min-width: 16px; height: 16px; padding: 0 4px;
     background: var(--red); color: #fff; border-radius: 999px; font-size: 10px; font-weight: 800;
@@ -107,7 +112,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .invite-join { align-self: flex-start; margin-top: 8px; background: var(--red); color: #fff; border: 0; font-weight: 800; font-size: 13.5px; padding: 10px 16px; border-radius: 10px; cursor: pointer; }
 
   /* Live toast */
-  #toastWrap { position: fixed; top: calc(env(safe-area-inset-top) + 88px); left: 0; right: 0; z-index: 90; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
+  #toastWrap { position: fixed; top: calc(env(safe-area-inset-top) + 56px); left: 0; right: 0; z-index: 90; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
   .toast {
     pointer-events: auto; max-width: 92%; width: 420px; background: #ffffff; color: var(--ink);
     border: 1px solid var(--line); border-left: 5px solid var(--red);
@@ -116,7 +121,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
     animation: toast-in .25s ease;
   }
   @keyframes toast-in { from { transform: translateY(-16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-  .status { font-size: 12px; opacity: .9; margin-top: 4px; min-height: 16px; overflow: hidden; transition: max-height .4s ease, opacity .4s ease, margin-top .4s ease; max-height: 20px; }
+  .status { font-size: 11px; opacity: .9; margin-top: 2px; min-height: 13px; overflow: hidden; transition: max-height .4s ease, opacity .4s ease, margin-top .4s ease; max-height: 16px; }
   .status.tucked { max-height: 0; min-height: 0; opacity: 0; margin-top: 0; }
   .status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle; background: #ffd24a; }
   .status.live .dot { background: #8ff0a4; }
@@ -153,20 +158,27 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
 
   /* Bottom navigation — 5 grouped areas (Home / Tasks / Bank / Farm / Play).
      Frosted card that floats over content; the active area lifts in navy. */
+  /* TWO ROWS on a phone. Ten areas in one row gave each 36px, which is cramped to hit and
+     clips a six-letter label; the header gave up its logo and half its height to pay for
+     the second row, so the total chrome cost is unchanged (asserted in _verify-news.cjs).
+     --bnav-cols is set in buildBottomNav so the rows stay BALANCED however many areas this
+     person can see — 10 → 5+5, 9 → 5+4, 8 → 4+4. */
   #bnav {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
-    display: flex; gap: 2px;
+    display: grid;
+    grid-template-columns: repeat(var(--bnav-cols, 5), minmax(0, 1fr));
+    gap: 2px 4px;
     background: rgba(255,255,255,.9);
     -webkit-backdrop-filter: saturate(1.3) blur(14px);
     backdrop-filter: saturate(1.3) blur(14px);
     border-top: 1px solid var(--line);
-    padding: 6px 5px calc(env(safe-area-inset-bottom) + 6px);   /* horizontal padding trimmed so 8 areas fit at 390px */
+    padding: 3px 6px calc(env(safe-area-inset-bottom) + 3px);
     box-shadow: 0 -2px 16px rgba(35,51,87,.08);
   }
   .bnav-btn {
-    flex: 1 1 0; min-width: 0; border: 0; background: transparent; cursor: pointer;
-    display: flex; flex-direction: column; align-items: center; gap: 3px;
-    padding: 7px 0 5px; border-radius: 12px; color: var(--muted);
+    min-width: 0; border: 0; background: transparent; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 5px 0 4px; border-radius: 12px; color: var(--muted);
     transition: color .15s ease, background .15s ease, transform .1s ease;
   }
   .bnav-btn .bico { font-size: 21px; line-height: 1; filter: grayscale(.4) opacity(.75); transition: filter .15s ease, transform .12s ease; }
@@ -174,11 +186,13 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .bnav-btn:active { transform: scale(.93); }
   .bnav-btn.active { color: var(--green); background: var(--done); }
   .bnav-btn.active .bico { filter: none; transform: translateY(-1px) scale(1.08); }
-  /* On wide screens the frosted bar still spans full width, but cluster the 5 items
-     toward the center so they line up under the centered content column. */
+  /* Desktop has the width for a single row, so it keeps one — the two-row layout exists
+     to solve a phone problem. Centred under the 760px content column as before. */
   @media (min-width: 700px) {
-    #bnav { justify-content: center; gap: 6px; }
-    .bnav-btn { flex: 0 1 132px; }
+    #bnav {
+      grid-template-columns: repeat(var(--bnav-all, 10), minmax(0, 96px));
+      justify-content: center; gap: 6px;
+    }
   }
 
   /* Sub-nav: a segmented pill control shown only for the multi-section areas
@@ -1137,6 +1151,55 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .fitc-sub { font-size: 12px; color: var(--muted); margin-top: 1px; }
   .fitc-go { flex: 0 0 auto; font-size: 12px; font-weight: 900; color: #fff; background: var(--green); border-radius: 999px; padding: 8px 14px; }
   .fitc-go.done { background: var(--done); color: var(--good); }
+
+  /* ===== News (daily feed from Dad's chosen publications) — scoped under .newswrap ===== */
+  .newswrap { }
+  .newshead { display: flex; align-items: center; gap: 8px; margin: 0 2px 12px; }
+  .newshead-t { flex: 1 1 auto; min-width: 0; }
+  .newshead h3 { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: -.2px; }
+  .newsdate { font-size: 12px; color: var(--muted); margin-top: 1px; }
+  .newsbtn { flex: 0 0 auto; border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 999px; padding: 8px 12px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+  .newsbtn:active { transform: scale(.96); }
+  .newsbtn.busy { opacity: .55; pointer-events: none; }
+
+  /* Publication filter chips — "from each" without breaking the one daily feed */
+  .newsfilter { display: flex; gap: 6px; overflow-x: auto; padding: 0 2px 2px; margin-bottom: 12px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .newsfilter::-webkit-scrollbar { display: none; }
+  .newsfilter button { flex: 0 0 auto; border: 1px solid var(--line); background: var(--card); color: var(--muted); border-radius: 999px; padding: 7px 13px; font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+  .newsfilter button.sel { background: var(--navy, #233357); border-color: var(--navy, #233357); color: #fff; }
+
+  /* An article */
+  .newscard { display: flex; gap: 12px; align-items: flex-start; width: 100%; text-align: left; font: inherit; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 13px 14px; margin-bottom: 10px; cursor: pointer; }
+  .newscard:active { transform: scale(.995); }
+  .newscard.read { opacity: .62; }
+  .newsc-body { flex: 1 1 auto; min-width: 0; }
+  .newsc-src { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 800; color: var(--red, #ba303e); text-transform: uppercase; letter-spacing: .3px; }
+  .newsc-when { color: var(--muted); font-weight: 700; text-transform: none; letter-spacing: 0; }
+  .newsc-title { font-size: 15px; font-weight: 800; line-height: 1.32; margin: 4px 0 0; }
+  .newsc-sum { font-size: 13px; line-height: 1.5; color: var(--ink-2, var(--muted)); margin-top: 5px; }
+  .newsc-thumb { flex: 0 0 auto; width: 72px; height: 72px; border-radius: 12px; object-fit: cover; background: var(--done); }
+
+  .newsempty { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 26px 18px; text-align: center; }
+  .newsempty h4 { margin: 0 0 6px; font-size: 15px; font-weight: 800; }
+  .newsempty p { margin: 0 0 14px; font-size: 13px; color: var(--muted); line-height: 1.5; }
+  .newsnote { font-size: 12px; color: var(--muted); text-align: center; padding: 8px 4px 2px; line-height: 1.5; }
+  .newsnote.warn { color: var(--red, #ba303e); }
+
+  /* Chores: "someone else has the animals" note (see choreOnDuty) */
+  .care-off { background: var(--card); border: 1px dashed var(--line); border-radius: 14px; box-shadow: none; padding: 11px 14px; font-size: 12.5px; color: var(--muted); text-align: center; }
+
+  /* Sources sheet */
+  .newssrc { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+  .newssrc:last-of-type { border-bottom: 0; }
+  .newssrc-b { flex: 1 1 auto; min-width: 0; }
+  .newssrc-t { font-size: 14px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .newssrc-u { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .newssrc-x { flex: 0 0 auto; border: 1px solid var(--line); background: var(--card); color: var(--red, #ba303e); border-radius: 10px; width: 34px; height: 34px; font-size: 15px; cursor: pointer; }
+  .newsadd { display: flex; gap: 8px; margin-top: 12px; }
+  .newsadd input { flex: 1 1 auto; min-width: 0; }
+  .newshint { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+  .newshint.err { color: var(--red, #ba303e); }
+
 </style>
 </head>
 <body>
@@ -1160,7 +1223,6 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
 <header>
   <div class="titlerow">
     <div id="homeBtn" title="Back to dashboard">
-      <img class="logo" src="/bucky.png" alt="Bucky" />
       <div class="titletext">
         <h1>Bucky</h1>
         <div class="subtitle">Family Farm Hub</div>
@@ -1612,6 +1674,11 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   <div class="fitdemo" id="fitDemoInner"></div>
 </div>
 
+<!-- News: the publications sheet (contents built in JS — read-only unless Dad is unlocked) -->
+<div class="overlay" id="newsSheetOverlay">
+  <div class="sheet" id="newsSheetInner"></div>
+</div>
+
 <script type="module">
 /* ============================================================
    1) PASTE YOUR FIREBASE SETTINGS HERE  (see the setup guide)
@@ -1777,6 +1844,7 @@ const SECTIONS = [
   { key:"animalcare", ico:"🐾",  name:"Animal Care",     desc:"Who's covering chores" },
   { key:"mealplan",   ico:"🍽️",  name:"Meals",           desc:"Calorie plan (Mom)" },
   { key:"fitness",    ico:"💪",  name:"Fitness",         desc:"Today's 10-minute workout" },
+  { key:"news",       ico:"📰",  name:"News",            desc:"Today's headlines" },
   { key:"farmgpt",    ico:"🌾",  name:"FarmGPT",         desc:"story time & research AI", url:"farmgpt.html" },
   { key:"games",      ico:"🎮",  name:"Games",           desc:"games might just be real life", url:"games.html" }
 ];
@@ -1786,7 +1854,7 @@ const SECTIONS = [
 // workorders/farmbank are here too so email "View in BUCKY" buttons can land on the right tab.
 // Every tab is deep-linkable via index.html#<key> so the persistent icon nav on the
 // FarmGPT/Games pages can land you directly on any section here.
-const DEEP_LINK_TABS = ["dashboard", "chores", "workorders", "print3d", "shopping", "farmbank", "goathooves", "goatcare", "calendar", "animalcare", "mealplan", "fitness", "game", "catgame", "play"];
+const DEEP_LINK_TABS = ["dashboard", "chores", "workorders", "print3d", "shopping", "farmbank", "goathooves", "goatcare", "calendar", "animalcare", "mealplan", "fitness", "news", "game", "catgame", "play"];
 const initialHashTab = DEEP_LINK_TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "dashboard";
 let currentTab = initialHashTab;
 
@@ -1803,6 +1871,7 @@ const NAV_GROUPS = [
   { id:"plan",  ico:"📅",  name:"Plan",   def:"calendar",   members:["calendar","animalcare","mealplan"] },
   { id:"tasks", ico:"✅",  name:"Chores", def:"chores",     members:["chores"] },
   { id:"fit",   ico:"💪",  name:"Fit",    def:"fitness",    members:["fitness"] },
+  { id:"news",  ico:"📰",  name:"News",   def:"news",       members:["news"] },
   { id:"wo",    ico:"🛠️",  name:"Jobs",   def:"workorders", members:["workorders","print3d"] },
   { id:"shop",  ico:"🛒",  name:"Shop",   def:"shopping",   members:["shopping"] },
   { id:"bank",  ico:"💰",  name:"Bank",   def:"farmbank",   members:["farmbank"] },
@@ -1812,7 +1881,7 @@ const NAV_GROUPS = [
 const SECTION_BY_KEY = Object.fromEntries(SECTIONS.map(s => [s.key, s]));
 // Short chip labels for the segmented sub-nav (the full section names like
 // "Work Orders" / "3D Prints" would truncate in a 3-up segmented control).
-const SUBNAV_LABEL = { chores:"Chores", workorders:"Jobs", shopping:"Shopping", goathooves:"Goats", goatcare:"Care", print3d:"Prints", calendar:"Calendar", animalcare:"Care", mealplan:"Meals", fitness:"Fitness" };
+const SUBNAV_LABEL = { chores:"Chores", workorders:"Jobs", shopping:"Shopping", goathooves:"Goats", goatcare:"Care", print3d:"Prints", calendar:"Calendar", animalcare:"Care", mealplan:"Meals", fitness:"Fitness", news:"News" };
 // Remembers the last section visited within a multi-section area so tapping the
 // bottom tab returns you where you were (only tracked for Tasks/Farm sub-nav).
 const groupLast = {};
@@ -1824,9 +1893,14 @@ function groupForTab(tab){
 function navKeyVisible(key){
   if (key === "farmbank") return seesBank();
   if (key === "mealplan") return seesMeals();
+  if (key === "fitness") return seesFitness();   // Isaac, Eleanor and Dad — nobody else runs it
   return true;
 }
-function navGroupVisible(gid){ return seesBank() || gid !== "bank"; }
+function navGroupVisible(gid){
+  if (gid === "bank") return seesBank();
+  if (gid === "fit") return seesFitness();
+  return true;
+}
 let careView = "hooves";    // which activity the Goat Care tab is updating
 const expandedGoats = new Set();  // ids of goats expanded on the Goats tab
 const collapsedGroups = new Set();  // collapsed group headers (Goats by type, Work Orders by assignee)
@@ -2297,12 +2371,14 @@ function render(){
   if (!seesBank() && currentTab === "farmbank") currentTab = "dashboard";
   // Meals is Mom-only — bounce a non-Mom user who lands on it via a stale tab / deep-link.
   if (!seesMeals() && currentTab === "mealplan") currentTab = "dashboard";
+  // Same for Fitness, which only Isaac, Eleanor and Dad use.
+  if (!seesFitness() && currentTab === "fitness") currentTab = "dashboard";
   renderSubnav();   // keep the Tasks/Farm sub-nav in sync no matter who changed currentTab
   // the month view's no-page-scroll mode must never leak onto other tabs
   document.body.classList.toggle("cal-fixed", currentTab === "calendar" && calView === "month");
   const cf = document.getElementById("careFilter");
   if (cf) cf.style.display = currentTab === "goatcare" ? "block" : "none";
-  document.getElementById("addFab").style.display = (currentTab === "dashboard" || currentTab === "goatcare" || currentTab === "shopping" || currentTab === "print3d" || currentTab === "game" || currentTab === "catgame" || currentTab === "farmbank" || currentTab === "play" || currentTab === "animalcare" || currentTab === "mealplan" || currentTab === "fitness") ? "none" : "";
+  document.getElementById("addFab").style.display = (currentTab === "dashboard" || currentTab === "goatcare" || currentTab === "shopping" || currentTab === "print3d" || currentTab === "game" || currentTab === "catgame" || currentTab === "farmbank" || currentTab === "play" || currentTab === "animalcare" || currentTab === "mealplan" || currentTab === "fitness" || currentTab === "news") ? "none" : "";
   document.getElementById("progress").classList.remove("greet");   // greeting styling is dashboard-only
   document.getElementById("progress").style.display = "";          // restored here; Home hides it (greeting is in the hero)
   if (currentTab === "dashboard") return renderDashboard();
@@ -2310,6 +2386,7 @@ function render(){
   if (currentTab === "animalcare") return renderAnimalCare();
   if (currentTab === "mealplan") return renderMealPlan();
   if (currentTab === "fitness") return renderFitness();
+  if (currentTab === "news") return renderNews();
   if (currentTab === "play") return renderPlay();
   if (currentTab === "catgame") return renderCatGame();
   if (currentTab === "farmbank") return renderFarmBank();
@@ -2616,7 +2693,8 @@ function renderDashboard(){
   const eyebrow = new Date().toLocaleDateString(undefined, { weekday:"long", month:"long", day:"numeric" }).toUpperCase();
 
   // ---- live data ----
-  const dayChores = chores.filter(c => FREQS.includes(c.frequency)).sort((a,b)=> (a.order||0)-(b.order||0));
+  // Same rota rule as the Chores tab — the hero ring must count only what is ours today.
+  const dayChores = chores.filter(c => FREQS.includes(c.frequency) && choreOnDuty(c)).sort((a,b)=> (a.order||0)-(b.order||0));
   const total = dayChores.length;
   const done  = dayChores.filter(isDone).length;
   const left  = total - done;
@@ -2892,7 +2970,25 @@ function renderChores(){
   document.querySelector(".bar").style.display = "block";
   document.getElementById("empty").textContent = "";
 
-  const all = chores.filter(c => FREQS.includes(c.frequency));
+  // Daily chores in a slot someone else is covering today are not ours to do.
+  const all = chores.filter(c => FREQS.includes(c.frequency) && choreOnDuty(c));
+
+  /* Say who has the animals when it isn't us, or the missing chores just look like a bug.
+     One quiet line per uncovered slot, not a row per hidden chore. This sits ABOVE the
+     frequency loop deliberately: when a whole slot is someone else's there are no daily
+     chores left to hang it off, which is exactly when the explanation matters most. */
+  {
+    const today = new Date();
+    for (const [slot, ico, when] of [["am","🌅","this morning"],["pm","🌙","tonight"]]){
+      const who = careCoverNote(today, slot);
+      if (!who) continue;
+      const li = document.createElement("li");
+      li.className = "care-off";
+      li.dataset.slot = slot;
+      li.textContent = `${ico} ${who} have the animals ${when} — nothing to do.`;
+      list.appendChild(li);
+    }
+  }
 
   let doneCount = 0;
   const doneChores = [];   // all completed chores collect into one collapsible group at the bottom
@@ -4455,9 +4551,40 @@ async function ensureKidSeeds(){
 // per-person assignee (they're shared family chores), so this is a household-wide gate, not
 // per-kid — both kids are paid together when the daily list is clear. Weekly/monthly/yearly
 // chores and work orders are NOT part of this check (only "daily" frequency counts as "due today").
+/* ---- Chores follow the animal-care rota ----------------------------------
+   The daily chores ARE the animal chores, so they only belong to the kids on the days
+   the Kreussers are actually covering. Morning chores follow the 🌅 am slot; noon and
+   night chores both follow the 🌙 pm slot (there are two care slots, not three).
+
+   A chore in a slot someone else has is HIDDEN, not greyed: everything a kid can see on
+   the list is something they have to do, so "all done" means all done. Only DAILY chores
+   follow the rota — a weekly barn muck-out is ours whoever fed the goats that morning.
+
+   Partial days still pay: finish the slots we DO have and the $2 lands. A day with no
+   Kreusser slot at all has no chores and no allowance.                                  */
+const CARE_OWNER_GROUP = "Kreussers";
+function choreCareSlot(c){ return (c.timeOfDay === "noon" || c.timeOfDay === "night") ? "pm" : "am"; }
+function careOursOn(d, slot){
+  // Until the schedule has loaded we cannot know whose turn it is. Showing everything is
+  // the safe failure here — hiding a kid's real chores would be worse than showing one
+  // extra. The allowance takes the opposite view and waits (see ensureDailyAllowance).
+  if (!careLoaded || !animalCareData) return true;
+  return careSlotValue(d, slot).group === CARE_OWNER_GROUP;
+}
+function choreOnDuty(c, d = new Date()){
+  if (c.frequency !== "daily") return true;
+  return careOursOn(d, choreCareSlot(c));
+}
+/** Whoever has a slot today, named for the UI. Null when it is ours. */
+function careCoverNote(d, slot){
+  if (!careLoaded || !animalCareData) return null;
+  const g = careSlotValue(d, slot).group;
+  return g === CARE_OWNER_GROUP ? null : careGroupById(g).label;
+}
+
 function allDailyChoresDone(){
-  const daily = chores.filter(c => c.frequency === "daily");
-  if (!daily.length) return false;   // no daily chores configured yet — nothing to reward
+  const daily = chores.filter(c => c.frequency === "daily" && choreOnDuty(c));
+  if (!daily.length) return false;   // nothing configured, or not our turn today — nothing to reward
   return daily.every(c => isDone(c));
 }
 function todayKey(){
@@ -4475,6 +4602,10 @@ function todayKey(){
 let allowanceChecked = new Set();   // in-memory guard so we don't re-query every render on top of the doc check
 async function ensureDailyAllowance(){
   if (!dataReady || !backend) return;
+  // Minting is irreversible in practice (the 4x-mint incident below), so unlike the chore
+  // list this waits for the rota rather than guessing. loadAnimalCare re-renders the moment
+  // it lands — including when the loaded rota matches the default — so this gets retried.
+  if (!careLoaded) return;
   sweepKidbankDuplicates("allowance", d => d.kid + "|" + d.day, "allowance");
   const day = todayKey();
   if (!allDailyChoresDone()) return;
@@ -5709,16 +5840,27 @@ function pruneCareOverrides(){
 }
 async function loadAnimalCare(){
   if (!backend) return;
+  let changed = false;
+  // Anything gated on careLoaded (the chore list, the hero ring, the allowance) has to be
+  // re-evaluated the first time the rota arrives EVEN IF it matches what was already in
+  // memory. It usually does match — "Kreussers on every slot" is the shipped default — and
+  // repainting only on `changed` meant the most ordinary family never minted their $2.
+  const wasLoaded = careLoaded;
   try {
     const s = await backend.getSetting("animalCare");
     let data = null;
     if (s && typeof s.json === "string"){ try { data = JSON.parse(s.json); } catch {} }
     if (!data || !data.defaults) data = defaultCareData();
     if (!data.overrides) data.overrides = {};
-    const changed = JSON.stringify(data) !== JSON.stringify(animalCareData);
+    changed = JSON.stringify(data) !== JSON.stringify(animalCareData);
     animalCareData = data; careLoaded = true;
-    if (changed && currentTab === "animalcare") renderAnimalCare();
-  } catch (e){ if (!animalCareData){ animalCareData = defaultCareData(); careLoaded = true; } }
+  } catch (e){
+    if (!animalCareData){ animalCareData = defaultCareData(); careLoaded = true; changed = true; }
+  }
+  // OUTSIDE the try on purpose. The catch above is for the settings FETCH; with the repaint
+  // inside it, any error thrown by render() would be swallowed here — silently, with no
+  // page error to show for it.
+  if (changed || !wasLoaded) render();
 }
 async function saveAnimalCare(){
   pruneCareOverrides();
@@ -8154,6 +8296,14 @@ window.__CARE__ = {
   reload: ()=>loadAnimalCare(),
 };
 window.__NAV__ = { goTo, tab: ()=>currentTab };
+// Chore-rota hooks (the daily chores follow the animal-care schedule — see choreOnDuty).
+window.__CHORES__ = {
+  careLoaded: ()=>careLoaded,
+  onDuty: (id)=>{ const c = chores.find(x=>x.id===id); return c ? choreOnDuty(c) : null; },
+  allDone: ()=>allDailyChoresDone(),
+  mine: ()=>chores.filter(c => FREQS.includes(c.frequency) && choreOnDuty(c)).map(c=>c.id),
+  mint: ()=>ensureDailyAllowance(),
+};
 // Fitness hooks. Every mutating entry calls the REAL production function so the suite
 // exercises the shipping code path, not a parallel one.
 window.__FIT__ = {
@@ -9075,10 +9225,552 @@ function syncTabsUI(){
   });
 }
 
+/* ============================================================================
+   📰 NEWS — the family's daily feed
+   ============================================================================
+   Dad subscribes publications by pasting their web address; the server finds the
+   RSS feed, pulls today's articles and writes a short summary for each (Sonnet 5,
+   one batched call for the whole digest). Everyone reads the feed; only Dad can
+   change which publications are in it.
+
+   TWO DOCS, and the split is deliberate:
+     newsSources  — the subscription list. Small, changes rarely, edited by Dad.
+     newsDigest   — TODAY's finished articles + summaries. ONE doc, overwritten each
+                    day, so it needs no pruning (the settings backend has no delete,
+                    which is why the Fitness revert had to invent a tombstone).
+
+   The digest is shared, not per-device, and that is the whole cost story: the first
+   person to open News today pays for one model call and everyone else reads what
+   they generated. A device paints its localStorage copy instantly, then reconciles
+   against the cloud, and only calls the server when the day rolls over or the
+   subscription list actually changes (newsSig).
+
+   Dates are the Plan-area scheme (America/Chicago, UTC-noon anchored), matching
+   Meals/Fitness — a family reading from several devices must agree on "today".
+   ============================================================================ */
+
+const NEWS_MAX_SOURCES = 25;
+let newsSources = null;            // [{id,title,url,feedUrl,added,addedBy}] once loaded
+let newsSourcesLoaded = false;
+let newsDigest = null;             // {day, sig, generatedAt, items:[...]}
+let newsDigestLoaded = false;
+let newsBusy = false;              // a feed fetch is in flight
+let newsSummarizing = false;       // summary batches are in flight
+let newsLastFail = 0;              // when a fetch last FAILED (retry floor)
+const NEWS_RETRY_MS = 60000;       // don't auto-retry a failing fetch more than once a minute
+let newsError = "";                // last fetch problem, shown under the feed
+let newsFilter = localStorage.getItem("bucky_news_filter") || "";   // "" = all publications
+let newsNowOverride = null;        // tests only
+
+// ---- Clock / day keys (America/Chicago, en-CA — tz-safe, DST-safe, testable) ----
+function newsNow(){ return newsNowOverride ? new Date(newsNowOverride) : new Date(); }
+function newsToday(){ return newsNow().toLocaleDateString("en-CA", { timeZone: "America/Chicago" }); }
+
+/** Identity of the current subscription list — a change here means the digest is stale. */
+function newsSig(list){
+  return (list || []).map(s => s.id).sort().join("|");
+}
+function newsReadSet(){
+  try { return new Set(JSON.parse(localStorage.getItem("bucky_news_read")) || []); } catch { return new Set(); }
+}
+function newsMarkRead(id){
+  const s = newsReadSet(); s.add(id);
+  // Only today's ids matter; cap so the key can't grow without bound.
+  try { localStorage.setItem("bucky_news_read", JSON.stringify([...s].slice(-400))); } catch {}
+}
+
+/* ---- Storage ---- */
+async function newsEnsureSources(){
+  if (newsSourcesLoaded) return newsSources;
+  let saved = null;
+  try { saved = await backend?.getSetting?.("newsSources"); } catch {}
+  newsSources = (saved && Array.isArray(saved.list)) ? saved.list : [];
+  newsSourcesLoaded = true;
+  return newsSources;
+}
+async function newsSaveSources(){
+  try { await backend?.setSetting?.("newsSources", { list: newsSources, updatedAt: Date.now(), updatedBy: myName() }); } catch {}
+}
+async function newsEnsureDigest(){
+  if (newsDigestLoaded) return newsDigest;
+  // Paint from this device's copy first so the feed is never a blank wait.
+  try { newsDigest = JSON.parse(localStorage.getItem("bucky_news_cache")) || null; } catch { newsDigest = null; }
+  let cloud = null;
+  try { cloud = await backend?.getSetting?.("newsDigest"); } catch {}
+  // Whoever generated more recently wins — another phone may already have paid for today.
+  if (cloud && Array.isArray(cloud.items) && (!newsDigest || (cloud.generatedAt || 0) > (newsDigest.generatedAt || 0))){
+    newsDigest = cloud;
+    try { localStorage.setItem("bucky_news_cache", JSON.stringify(cloud)); } catch {}
+  }
+  newsDigestLoaded = true;
+  return newsDigest;
+}
+function newsDigestFresh(){
+  if (!newsDigest || !Array.isArray(newsDigest.items)) return false;
+  if (newsDigest.day !== newsToday()) return false;
+  return newsDigest.sig === newsSig(newsSources || []);
+}
+
+/* ---- The server ---- */
+async function newsCall(action, extra){
+  const r = await fetch("/.netlify/functions/news", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ secret: FAMILY_PASSWORD, action, ...(extra || {}) }),
+  });
+  const j = await r.json().catch(() => null);
+  if (!r.ok) throw new Error((j && j.error) || ("HTTP " + r.status));
+  return j || {};
+}
+
+function newsSaveDigest(){
+  try { localStorage.setItem("bucky_news_cache", JSON.stringify(newsDigest)); } catch {}
+  try { backend?.setSetting?.("newsDigest", newsDigest); } catch {}
+}
+
+/** Pull a fresh digest. Never throws — a failure leaves yesterday's feed on screen. */
+async function newsRefresh(force){
+  // Claimed SYNCHRONOUSLY, before the first await. Deep-linking straight to #news renders
+  // the section twice in quick succession (boot, then the navigator), and with the claim
+  // after an await both renders got past this guard — two fetches, the second landing on
+  // top of the digest the first one's summaries had just been written into.
+  if (newsBusy) return;
+  newsBusy = true;
+  try {
+    await newsEnsureSources();
+    if (!newsSources.length) return;
+    if (!force && newsDigestFresh()) return;
+    // A failed fetch leaves the digest stale, and renderNews auto-refreshes on a stale
+    // digest — without this floor those two would spin against each other forever. It keys
+    // on the last FAILURE, not the last attempt: a successful fetch must not stop the feed
+    // refetching the moment the day rolls over or Dad changes the list.
+    if (!force && newsLastFail && (Date.now() - newsLastFail) < NEWS_RETRY_MS) return;
+
+    newsError = "";
+    if (currentTab === "news") renderNews();
+    const res = await newsCall("feed", {
+      sources: newsSources.map(s => ({ id: s.id, title: s.title, feedUrl: s.feedUrl })),
+      perSource: 4,
+    });
+    const items = Array.isArray(res.items) ? res.items : [];
+    // A total wipeout (every feed down at once) must not replace a good digest with nothing.
+    if (!items.length && newsDigest && (newsDigest.items || []).length){
+      newsError = "Couldn't reach the publications just now — showing the last feed.";
+      newsLastFail = Date.now();
+    } else {
+      newsDigest = { day: newsToday(), sig: newsSig(newsSources), generatedAt: res.generatedAt || Date.now(), items };
+      newsSaveDigest();
+      newsLastFail = 0;
+      const bad = (res.sources || []).filter(s => !s.ok);
+      if (bad.length) newsError = `${bad.length} publication${bad.length > 1 ? "s" : ""} couldn't be read.`;
+    }
+  } catch (e){
+    newsError = "Couldn't load the news just now.";
+    newsLastFail = Date.now();
+  } finally {
+    newsBusy = false;
+    if (currentTab === "news") renderNews();
+  }
+  // Headlines are on screen; now fill in the written summaries.
+  await newsSummarizePending();
+}
+
+/* Written summaries, a few articles at a time.
+
+   Chunked because one call for the whole digest would run past the function's ~10s
+   ceiling (see news.mjs). Run a few chunks at once so ~40 articles finish in a few
+   seconds rather than a minute, and repaint after each so the summaries visibly land
+   instead of appearing all at once at the end. A chunk that fails costs only its own
+   cards, which keep the publisher's blurb. */
+const NEWS_SUM_CHUNK = 8, NEWS_SUM_PARALLEL = 3;
+
+async function newsSummarizePending(){
+  if (newsSummarizing) return;
+  const items = (newsDigest && Array.isArray(newsDigest.items)) ? newsDigest.items : [];
+  const todo = items.filter(it => it.summarySource !== "ai" && (it.title || it.excerpt));
+  if (!todo.length) return;
+
+  const chunks = [];
+  for (let i = 0; i < todo.length; i += NEWS_SUM_CHUNK) chunks.push(todo.slice(i, i + NEWS_SUM_CHUNK));
+
+  newsSummarizing = true;
+  const byId = new Map(items.map(it => [it.id, it]));
+  let failed = 0;
+  try {
+    for (let i = 0; i < chunks.length; i += NEWS_SUM_PARALLEL){
+      const wave = chunks.slice(i, i + NEWS_SUM_PARALLEL);
+      const results = await Promise.all(wave.map(async (chunk) => {
+        try {
+          return await newsCall("summarize", {
+            articles: chunk.map(it => ({ id: it.id, sourceTitle: it.sourceTitle, title: it.title, excerpt: it.excerpt || "" })),
+          });
+        } catch { return null; }
+      }));
+      let landed = 0;
+      for (const res of results){
+        if (!res || !res.summaries){ failed++; continue; }
+        for (const [id, text] of Object.entries(res.summaries)){
+          const it = byId.get(id);
+          if (!it || !text) continue;
+          it.summary = text;
+          it.summarySource = "ai";
+          delete it.excerpt;      // done with the raw body — keeps the shared doc lean
+          landed++;
+        }
+      }
+      if (landed && currentTab === "news") renderNews();
+    }
+  } finally {
+    newsSummarizing = false;
+    if (failed && !newsError) newsError = "Some summaries didn't come through — those cards show the publication's own blurb.";
+    newsSaveDigest();
+    if (currentTab === "news") renderNews();
+  }
+}
+
+/* ---- Rendering ---- */
+function newsAgo(ms){
+  if (!ms) return "";
+  const mins = Math.round((newsNow().getTime() - ms) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return mins + "m ago";
+  const h = Math.round(mins / 60);
+  if (h < 24) return h + "h ago";
+  const d = Math.round(h / 24);
+  return d === 1 ? "yesterday" : d + "d ago";
+}
+
+function renderNews(){
+  document.querySelector(".bar").style.display = "none";
+  document.getElementById("empty").style.display = "none";
+  document.getElementById("progress").style.display = "none";
+
+  const list = document.getElementById("list"); list.innerHTML = "";
+  const wrap = document.createElement("li"); wrap.style.cssText = "background:transparent;border:0;box-shadow:none;padding:0;";
+  const root = document.createElement("div"); root.className = "newswrap";
+  wrap.appendChild(root); list.appendChild(wrap);
+
+  // Header: the day, a refresh, and the way in to the publication list.
+  const head = document.createElement("div"); head.className = "newshead";
+  const ht = document.createElement("div"); ht.className = "newshead-t";
+  const h3 = document.createElement("h3"); h3.textContent = "Today's news";
+  const dt = document.createElement("div"); dt.className = "newsdate";
+  dt.textContent = newsNow().toLocaleDateString("en-US", { timeZone: "America/Chicago", weekday: "long", month: "long", day: "numeric" });
+  ht.appendChild(h3); ht.appendChild(dt); head.appendChild(ht);
+
+  const refresh = document.createElement("button");
+  refresh.type = "button"; refresh.className = "newsbtn" + (newsBusy ? " busy" : "");
+  refresh.id = "newsRefreshBtn";
+  refresh.textContent = newsBusy ? "Loading…" : "↻";
+  refresh.title = "Get the latest";
+  refresh.setAttribute("aria-label", "Refresh the news");
+  refresh.onclick = () => newsRefresh(true);
+  head.appendChild(refresh);
+
+  const srcBtn = document.createElement("button");
+  srcBtn.type = "button"; srcBtn.className = "newsbtn"; srcBtn.id = "newsSourcesBtn";
+  srcBtn.textContent = "📚 Publications";
+  srcBtn.onclick = () => newsOpenSources();
+  head.appendChild(srcBtn);
+  root.appendChild(head);
+
+  const body = document.createElement("div"); body.id = "newsBody"; root.appendChild(body);
+
+  // Still loading the subscription list / digest — paint a placeholder, then repaint.
+  if (!newsSourcesLoaded || !newsDigestLoaded){
+    const load = document.createElement("div"); load.className = "newsempty";
+    load.innerHTML = "";
+    const p = document.createElement("p"); p.textContent = "Loading your feed…"; p.style.margin = "0";
+    load.appendChild(p); body.appendChild(load);
+    newsEnsureAll().then(() => { if (currentTab === "news") renderNews(); });
+    return;
+  }
+
+  if (!newsSources.length){
+    const e = document.createElement("div"); e.className = "newsempty";
+    const h4 = document.createElement("h4"); h4.textContent = "No publications yet";
+    const p = document.createElement("p");
+    p.textContent = isDadName()
+      ? "Add the websites you want to follow and Bucky will pull their headlines here every day, each with a short summary."
+      : "Ask Dad to add some publications and the day's headlines will show up here.";
+    e.appendChild(h4); e.appendChild(p);
+    if (isDadName()){
+      const b = document.createElement("button"); b.className = "btn primary"; b.id = "newsAddFirstBtn";
+      b.textContent = "Add a publication";
+      b.onclick = () => newsOpenSources();
+      e.appendChild(b);
+    }
+    body.appendChild(e);
+    return;
+  }
+
+  const items = (newsDigest && Array.isArray(newsDigest.items)) ? newsDigest.items : [];
+
+  // Publication filter. Only worth showing once there's more than one to choose between.
+  if (newsSources.length > 1){
+    const f = document.createElement("div"); f.className = "newsfilter"; f.id = "newsFilter";
+    const mk = (id, label) => {
+      const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.dataset.src = id;
+      if (newsFilter === id) b.classList.add("sel");
+      b.onclick = () => { newsFilter = id; localStorage.setItem("bucky_news_filter", id); renderNews(); };
+      f.appendChild(b);
+    };
+    mk("", "All");
+    for (const s of newsSources) mk(s.id, s.title || s.url);
+    root.insertBefore(f, body);
+  }
+
+  // A filter pointing at a publication Dad has since removed shows nothing and looks
+  // broken, so fall back to All rather than leaving the reader stranded.
+  if (newsFilter && !newsSources.some(s => s.id === newsFilter)) newsFilter = "";
+  const shown = newsFilter ? items.filter(it => it.sourceId === newsFilter) : items;
+
+  if (!shown.length){
+    const e = document.createElement("div"); e.className = "newsempty";
+    const h4 = document.createElement("h4"); h4.textContent = newsBusy ? "Fetching the headlines…" : "Nothing new yet";
+    const p = document.createElement("p");
+    p.textContent = newsBusy ? "Reading your publications and writing the summaries."
+      : "No articles came through. Pull down the refresh button to try again.";
+    e.appendChild(h4); e.appendChild(p); body.appendChild(e);
+  } else {
+    const read = newsReadSet();
+    for (const it of shown) body.appendChild(newsCard(it, read));
+  }
+
+  if (newsError){
+    const n = document.createElement("div"); n.className = "newsnote warn"; n.id = "newsErrNote";
+    n.textContent = newsError; body.appendChild(n);
+  } else if (newsSummarizing){
+    const n = document.createElement("div"); n.className = "newsnote"; n.id = "newsStamp";
+    n.textContent = "Writing the summaries…";
+    body.appendChild(n);
+  } else if (newsDigest && newsDigest.generatedAt){
+    const n = document.createElement("div"); n.className = "newsnote"; n.id = "newsStamp";
+    n.textContent = "Updated " + newsAgo(newsDigest.generatedAt) + " · summaries written by Bucky";
+    body.appendChild(n);
+  }
+
+  // Day rolled over (or Dad changed the list) while this page sat open — go get it.
+  if (!newsDigestFresh() && !newsBusy) newsRefresh(false);
+}
+
+function newsCard(it, read){
+  const card = document.createElement("button");
+  card.type = "button";
+  card.className = "newscard" + (read.has(it.id) ? " read" : "");
+  card.dataset.newsId = it.id;
+  card.dataset.src = it.sourceId || "";
+
+  const b = document.createElement("div"); b.className = "newsc-body";
+  const src = document.createElement("div"); src.className = "newsc-src";
+  const sName = document.createElement("span"); sName.textContent = it.sourceTitle || "";
+  src.appendChild(sName);
+  if (it.published){
+    const w = document.createElement("span"); w.className = "newsc-when"; w.textContent = "· " + newsAgo(it.published);
+    src.appendChild(w);
+  }
+  b.appendChild(src);
+
+  const t = document.createElement("div"); t.className = "newsc-title"; t.textContent = it.title || "";
+  b.appendChild(t);
+
+  if (it.summary){
+    const s = document.createElement("div"); s.className = "newsc-sum"; s.textContent = it.summary;
+    b.appendChild(s);
+  }
+  card.appendChild(b);
+
+  // Thumbnails are the publisher's own images; a broken one just leaves the card text-only.
+  if (it.image && /^https:\/\//i.test(it.image)){
+    const img = document.createElement("img");
+    img.className = "newsc-thumb"; img.src = it.image; img.alt = ""; img.loading = "lazy"; img.referrerPolicy = "no-referrer";
+    img.onerror = () => img.remove();
+    card.appendChild(img);
+  }
+
+  card.onclick = () => {
+    if (!it.link) return;
+    newsMarkRead(it.id);
+    card.classList.add("read");
+    window.open(it.link, "_blank", "noopener,noreferrer");
+  };
+  return card;
+}
+
+/* ---- The publications sheet ---- */
+function newsCloseSources(){ document.getElementById("newsSheetOverlay").classList.remove("open"); }
+
+async function newsOpenSources(){
+  await newsEnsureSources();
+  // Dad only. Everyone else may look at the list but not change it — same shape as the
+  // Fitness builder (read-only for non-Dad, PIN for Dad).
+  const readOnly = !isDadName() || !(dadUnlocked() || await gateDad());
+  newsPaintSources(readOnly);
+  document.getElementById("newsSheetOverlay").classList.add("open");
+}
+
+function newsPaintSources(readOnly){
+  const el = document.getElementById("newsSheetInner");
+  el.innerHTML = "";
+  el.dataset.readonly = readOnly ? "1" : "0";
+
+  const h = document.createElement("h2"); h.textContent = "Publications"; el.appendChild(h);
+  const sub = document.createElement("div"); sub.className = "newshint";
+  sub.textContent = readOnly
+    ? "Dad's PIN is needed to change this list."
+    : "Paste a publication's web address — Bucky finds its news feed for you.";
+  sub.style.marginTop = "0"; el.appendChild(sub);
+
+  const listEl = document.createElement("div"); listEl.id = "newsSrcList"; listEl.style.marginTop = "10px";
+  if (!newsSources.length){
+    const p = document.createElement("div"); p.className = "newshint"; p.textContent = "Nothing subscribed yet.";
+    listEl.appendChild(p);
+  }
+  for (const s of newsSources){
+    const row = document.createElement("div"); row.className = "newssrc"; row.dataset.src = s.id;
+    const b = document.createElement("div"); b.className = "newssrc-b";
+    const t = document.createElement("div"); t.className = "newssrc-t"; t.textContent = s.title || s.url;
+    const u = document.createElement("div"); u.className = "newssrc-u"; u.textContent = s.url || s.feedUrl;
+    b.appendChild(t); b.appendChild(u); row.appendChild(b);
+    if (!readOnly){
+      const x = document.createElement("button"); x.type = "button"; x.className = "newssrc-x";
+      x.textContent = "✕"; x.title = "Remove"; x.setAttribute("aria-label", "Remove " + (s.title || s.url));
+      x.onclick = async () => {
+        newsSources = newsSources.filter(v => v.id !== s.id);
+        await newsSaveSources();
+        newsPaintSources(false);
+        // The digest still holds this publication's articles; drop them on the spot
+        // rather than making the reader wait for the next fetch to notice.
+        if (newsDigest && Array.isArray(newsDigest.items)){
+          newsDigest.items = newsDigest.items.filter(it => it.sourceId !== s.id);
+          newsDigest.sig = newsSig(newsSources);
+          try { localStorage.setItem("bucky_news_cache", JSON.stringify(newsDigest)); } catch {}
+        }
+        if (currentTab === "news") renderNews();
+      };
+      row.appendChild(x);
+    }
+    listEl.appendChild(row);
+  }
+  el.appendChild(listEl);
+
+  if (!readOnly){
+    const add = document.createElement("div"); add.className = "newsadd";
+    const inp = document.createElement("input");
+    inp.type = "url"; inp.id = "newsAddInput"; inp.placeholder = "npr.org";
+    inp.autocomplete = "off"; inp.spellcheck = false;
+    const go = document.createElement("button"); go.className = "btn primary"; go.id = "newsAddBtn"; go.textContent = "Add";
+    add.appendChild(inp); add.appendChild(go); el.appendChild(add);
+
+    const hint = document.createElement("div"); hint.className = "newshint"; hint.id = "newsAddHint";
+    hint.textContent = `${newsSources.length} of ${NEWS_MAX_SOURCES} publications.`;
+    el.appendChild(hint);
+
+    const submit = () => newsAddSource(inp.value);
+    go.onclick = submit;
+    inp.onkeydown = (e) => { if (e.key === "Enter"){ e.preventDefault(); submit(); } };
+  }
+
+  const done = document.createElement("button");
+  done.className = "btn"; done.id = "newsSrcDone"; done.textContent = "Done";
+  done.style.cssText = "width:100%;margin-top:14px;";
+  done.onclick = () => { newsCloseSources(); newsRefresh(false); };
+  el.appendChild(done);
+}
+
+function newsSetHint(text, isErr){
+  const h = document.getElementById("newsAddHint");
+  if (!h) return;
+  h.textContent = text;
+  h.classList.toggle("err", !!isErr);
+}
+
+const NEWS_DISCOVER_REASON = {
+  "bad-url": "That doesn't look like a web address.",
+  "bad-scheme": "Only web addresses (http/https) work here.",
+  "bad-port": "That address uses a port Bucky won't fetch.",
+  "private": "That address is on a private network, so Bucky can't reach it.",
+  "dns": "Couldn't find that website.",
+  "no-feed": "That site doesn't seem to publish a news feed.",
+  "timeout": "That site took too long to answer.",
+  "unreachable": "Couldn't reach that site.",
+  "too-big": "That page was too large to read.",
+};
+
+async function newsAddSource(raw){
+  const url = String(raw || "").trim();
+  if (!url) return;
+  if (newsSources.length >= NEWS_MAX_SOURCES){ newsSetHint(`That's the limit of ${NEWS_MAX_SOURCES} publications.`, true); return; }
+
+  const btn = document.getElementById("newsAddBtn");
+  if (btn){ btn.disabled = true; btn.textContent = "Looking…"; }
+  newsSetHint("Looking for a news feed…", false);
+  try {
+    const res = await newsCall("discover", { url });
+    if (!res.ok){
+      newsSetHint(NEWS_DISCOVER_REASON[res.reason] || "Couldn't find a news feed there.", true);
+      return;
+    }
+    if (newsSources.some(s => s.feedUrl === res.feedUrl)){
+      newsSetHint("You're already following that one.", true);
+      return;
+    }
+    newsSources.push({
+      id: "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      title: (res.title || "").trim() || new URL(res.feedUrl).hostname.replace(/^www\./, ""),
+      url: res.siteUrl || url,
+      feedUrl: res.feedUrl,
+      added: Date.now(),
+      addedBy: myName(),
+    });
+    await newsSaveSources();
+    newsPaintSources(false);
+    newsSetHint("Added. Tap Done to load its headlines.", false);
+  } catch (e){
+    newsSetHint("Couldn't check that address just now.", true);
+  } finally {
+    const b = document.getElementById("newsAddBtn");
+    if (b){ b.disabled = false; b.textContent = "Add"; }
+  }
+}
+
+/** One-shot load of everything the section needs, then a refresh if the digest is stale. */
+async function newsEnsureAll(){
+  await newsEnsureSources();
+  await newsEnsureDigest();
+  if (newsSources.length && !newsDigestFresh()) newsRefresh(false);
+}
+
+document.getElementById("newsSheetOverlay").onclick = (e) => { if (e.target.id === "newsSheetOverlay") newsCloseSources(); };
+
+// Test hook — mirrors __FIT__ / __MEAL__ so the suite can drive the section deterministically.
+window.__NEWS__ = {
+  setNow: (iso) => { newsNowOverride = iso ? new Date(iso).getTime() : null; if (currentTab === "news") renderNews(); },
+  sources: () => (newsSources || []).slice(),
+  digest: () => newsDigest,
+  fresh: () => newsDigestFresh(),
+  sig: () => newsSig(newsSources || []),
+  refresh: (force) => newsRefresh(force),
+  add: (url) => newsAddSource(url),
+  openSources: () => newsOpenSources(),
+  paintSources: (ro) => newsPaintSources(ro),
+  filter: () => newsFilter,
+  error: () => newsError,
+  busy: () => newsBusy || newsSummarizing,
+  summarize: () => newsSummarizePending(),
+  reload: () => { newsSourcesLoaded = false; newsDigestLoaded = false; return newsEnsureAll(); },
+};
+
 // Build the fixed 5-area bottom bar from NAV_GROUPS.
 function buildBottomNav(){
   const nav = document.getElementById("bnav");
   nav.innerHTML = "";
+  // Balance the two phone rows against however many areas THIS person can see: the count
+  // changes with the Bank and Fit gates, and a hard-coded 5 columns would leave a guest
+  // with a row of 5 and a row of 3.
+  const shown = NAV_GROUPS.filter(g => navGroupVisible(g.id)).length;
+  nav.style.setProperty("--bnav-cols", Math.ceil(shown / 2));
+  nav.style.setProperty("--bnav-all", shown);
   for (const g of NAV_GROUPS){
     if (!navGroupVisible(g.id)) continue;   // hide Bank area for non chore/bank users
     const b = document.createElement("button");
@@ -9688,6 +10380,9 @@ async function bootApp(){
 // Once the backend is up: sync the Dad PIN hash to this device, and if the current user is Dad
 // but locked this session, prompt to unlock (or set a PIN the first time). Never blocks boot.
 async function afterBackendReady(){
+  // The chore list and the allowance both depend on the animal-care rota now, so it has
+  // to load at boot rather than only when someone opens the Animal Care tab.
+  loadAnimalCare();
   await syncDadPin();
   if (isDadName() && !dadUnlocked()){
     await gateDad();

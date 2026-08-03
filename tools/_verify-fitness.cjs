@@ -204,7 +204,9 @@ async function sectionApp(browser){
     };
   });
   ok(nav.ids.includes("fit"), "a 💪 Fit area is in the bottom nav");
-  ok(nav.count === 9, `nav shows 9 areas (got ${nav.count})`);
+  // Not a fixed count — areas get added (News made it ten). What matters to Fitness is
+  // that its own area survived the crowding, which the clipping/width checks below cover.
+  ok(nav.count >= 9 && nav.ids.length === nav.count, `nav shows every area (got ${nav.count})`);
   ok(nav.clipped.length === 0, "0 clipped nav labels at 390px" + (nav.clipped.length ? ": " + nav.clipped.join(",") : ""));
   ok(Math.min(...nav.widths) >= 34, `nav buttons stay tappable (min ${Math.min(...nav.widths)}px)`);
 
@@ -280,7 +282,10 @@ async function sectionApp(browser){
       navHasFit: [...document.querySelectorAll("#bnav .bnav-btn")].some((b) => b.dataset.gid === "fit"),
     }));
     ok(!grandma.card, "a non-kid profile gets no Home workout card");
-    ok(grandma.navHasFit, "…but the Fitness tab is still reachable for parents/guests");
+    // 2026-08-03: the Fitness area is now hidden outright for anyone outside
+    // FITNESS_USERS. It used to be reachable by everyone; the user asked for it to show
+    // only for the three people who actually use it.
+    ok(!grandma.navHasFit, "…and no Fitness tab either — the area is hidden for everyone else");
     await g.close();
   }
 
