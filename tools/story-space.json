@@ -1,0 +1,228 @@
+{
+  "id": "space",
+  "title": "Benjie Goes to Space",
+  "em": "🚀",
+  "cast": "bnjyboy is a cheerful boy in a white astronaut spacesuit with a round clear helmet and blue boots. He is the ONLY person in this story and he is always alone. His rocket is a cardboard box painted silver with a round window and little fins.",
+  "keep": "bnjyboy in a white astronaut spacesuit with a round clear helmet. Exactly ONE child in the picture, alone. No other people.",
+  "nodes": {
+    "p1": {
+      "text": "Benjie found a big cardboard box. It was taller than he was. He knew just what to do.",
+      "art": "bnjyboy standing beside a very big cardboard box in a sunny back garden, looking up at it with a huge grin.",
+      "next": "p2"
+    },
+    "p2": {
+      "text": "He painted it silver all over. He drew a round window. He added three little fins.",
+      "art": "bnjyboy painting the big cardboard box silver in the garden, a round window drawn on the front and three paper fins taped to the bottom.",
+      "next": "p3"
+    },
+    "p3": {
+      "text": "He put on his space helmet. He climbed inside the rocket. He counted down from three.",
+      "art": "bnjyboy in a white spacesuit and round clear helmet climbing into the silver cardboard rocket in the garden.",
+      "next": "p4"
+    },
+    "p4": {
+      "text": "Three. Two. One. The rocket rumbled and shook. Then up it went!",
+      "art": "The little silver cardboard rocket lifting off from the garden in a puff of white smoke, bnjyboy waving from the round window.",
+      "next": "p5"
+    },
+    "p5": {
+      "text": "The Earth got small below him. It looked blue and swirly. Two things waited ahead.",
+      "art": "bnjyboy's silver rocket high above a small blue and white Earth, deep starry space all around, the Moon on one side and a bright comet on the other.",
+      "choices": [
+        { "em": "🌙", "text": "Fly to the Moon", "to": "a1" },
+        { "em": "☄️", "text": "Follow the comet", "to": "b1" }
+      ]
+    },
+
+    "a1": {
+      "text": "The Moon got bigger and bigger. It was grey and dusty. It had holes all over it.",
+      "art": "bnjyboy's silver rocket flying toward a big grey Moon covered in round craters, stars behind.",
+      "next": "a2"
+    },
+    "a2": {
+      "text": "He landed with a soft bump. Grey dust puffed up. He hopped down very slowly.",
+      "art": "bnjyboy in his spacesuit hopping down from the little silver rocket onto grey moon dust, a puff of dust around his boots.",
+      "next": "a3"
+    },
+    "a3": {
+      "text": "His boots made deep footprints. A wide crater sat one way. A little flag stood the other.",
+      "art": "bnjyboy standing on the grey Moon between a wide round crater on one side and a small stiff flag planted in the dust on the other.",
+      "choices": [
+        { "em": "🕳️", "text": "Look in the crater", "to": "aa1" },
+        { "em": "🚩", "text": "Go to the flag", "to": "ab1" }
+      ]
+    },
+    "b1": {
+      "text": "The comet had a long tail. It was silver and sparkly. Benjie flew along beside it.",
+      "art": "bnjyboy's silver rocket flying alongside a bright comet with a long sparkling silver tail across deep space.",
+      "next": "b2"
+    },
+    "b2": {
+      "text": "Tiny bits of ice floated past. They tapped on his window. It sounded like soft rain.",
+      "art": "Small glittering ice crystals drifting past the round window of the rocket, bnjyboy peering out at them delighted.",
+      "next": "b3"
+    },
+    "b3": {
+      "text": "The comet swept past two places. One had bright rings. One was full of stars.",
+      "art": "The comet's tail sweeping between a planet with wide bright rings on one side and a glowing cloud of coloured stars on the other.",
+      "choices": [
+        { "em": "🪐", "text": "Visit the ringed planet", "to": "ba1" },
+        { "em": "✨", "text": "Fly into the stars", "to": "bb1" }
+      ]
+    },
+
+    "aa1": {
+      "text": "The crater was deep and round. Its walls were steep and grey. It was very, very quiet.",
+      "art": "bnjyboy in his spacesuit standing at the rim of a deep round crater on the Moon, looking down into it.",
+      "next": "aa2"
+    },
+    "aa2": {
+      "text": "Something glowed at the bottom. It was soft and blue. It blinked slowly at him.",
+      "art": "A soft blue glow coming from the bottom of the dark moon crater, bnjyboy leaning over the edge to see.",
+      "next": "aa3"
+    },
+    "aa3": {
+      "text": "He had a torch in his pocket. He could shine it down. Or he could climb down himself.",
+      "art": "bnjyboy at the crater rim holding a small torch in one hand, a rope of moon rock leading down into the dark.",
+      "choices": [
+        { "em": "🔦", "text": "Shine the torch down", "to": "aaa1" },
+        { "em": "🧗", "text": "Climb down and see", "to": "aab1" }
+      ]
+    },
+    "ab1": {
+      "text": "The flag was old and stiff. It did not flap at all. There is no wind on the Moon.",
+      "art": "bnjyboy standing beside a small stiff flag planted in grey moon dust, no wind, stars above.",
+      "next": "ab2"
+    },
+    "ab2": {
+      "text": "Beside it sat a little rover. It had six small wheels. One light was still blinking.",
+      "art": "A small six-wheeled metal rover sitting in the moon dust beside the flag, one little light blinking, bnjyboy crouching to look.",
+      "next": "ab3"
+    },
+    "ab3": {
+      "text": "The rover beeped twice at him. It wanted to show him something. Or maybe it needed help.",
+      "art": "The little rover turning its camera toward bnjyboy, one wheel stuck crookedly in the dust.",
+      "choices": [
+        { "em": "🤖", "text": "Follow the rover", "to": "aba1" },
+        { "em": "🔧", "text": "Fix the rover", "to": "abb1" }
+      ]
+    },
+    "ba1": {
+      "text": "The rings were made of ice. Millions of pieces spun round. They shone like glass.",
+      "art": "bnjyboy's rocket approaching a huge planet with wide rings made of glittering ice pieces, deep space behind.",
+      "next": "ba2"
+    },
+    "ba2": {
+      "text": "He flew slowly through them. Ice floated all around. Some pieces were bigger than his rocket.",
+      "art": "The little silver rocket drifting between enormous glittering ice boulders inside the planet's rings, bnjyboy amazed at the window.",
+      "next": "ba3"
+    },
+    "ba3": {
+      "text": "A tiny moon spun below. The rings sparkled all around. Both looked worth a closer look.",
+      "art": "A small round moon spinning below the ring system, the bright icy rings arcing overhead, the rocket hovering between them.",
+      "choices": [
+        { "em": "🌑", "text": "Land on the little moon", "to": "baa1" },
+        { "em": "💍", "text": "Stay in the rings", "to": "bab1" }
+      ]
+    },
+    "bb1": {
+      "text": "Stars drifted past like snow. Some were pink. Some were blue.",
+      "art": "bnjyboy's rocket floating inside a glowing cloud of pink and blue stars, drifting like snowflakes.",
+      "next": "bb2"
+    },
+    "bb2": {
+      "text": "The cloud hummed a low hum. It felt warm and friendly. Benjie hummed back at it.",
+      "art": "bnjyboy at the rocket window inside the glowing star cloud, eyes wide, soft pink and blue light on his helmet.",
+      "next": "bb3"
+    },
+    "bb3": {
+      "text": "One star shot past very fast. Behind it lay a dark patch. Something was hiding there.",
+      "art": "A bright shooting star streaking across the star cloud with a quiet dark patch of space beyond it.",
+      "choices": [
+        { "em": "💫", "text": "Chase the shooting star", "to": "bba1" },
+        { "em": "🌌", "text": "Look at the dark patch", "to": "bbb1" }
+      ]
+    },
+
+    "aaa1": {
+      "text": "He shone his torch down. The blue glow shone back. It was a pool of ice!",
+      "art": "bnjyboy shining a torch down into the crater, lighting up a smooth pool of pale blue ice at the bottom.",
+      "next": "aaa2"
+    },
+    "aaa2": {
+      "text": "Frozen water on the Moon. He had found something special. He drew it in his notebook.",
+      "art": "bnjyboy sitting on the crater rim drawing the blue ice pool in a small notebook, torch beside him.",
+      "end": true
+    },
+    "aab1": {
+      "text": "He climbed down very carefully. The moon dust was soft. He landed with a puff.",
+      "art": "bnjyboy climbing down the steep grey wall of the crater, moon dust puffing around his boots.",
+      "next": "aab2"
+    },
+    "aab2": {
+      "text": "Inside was a cave of ice. It glowed soft and blue. It was the quietest place ever.",
+      "art": "bnjyboy standing inside a glowing pale blue ice cave at the bottom of the crater, wonder on his face.",
+      "end": true
+    },
+    "aba1": {
+      "text": "The rover rolled off slowly. Benjie hopped along behind. Its wheels made little tracks.",
+      "art": "The small six-wheeled rover rolling across the grey Moon with bnjyboy hopping along behind it, tracks in the dust.",
+      "next": "aba2"
+    },
+    "aba2": {
+      "text": "It stopped at a sunny ridge. Earth hung right above them. They watched it together.",
+      "art": "bnjyboy and the little rover side by side on a moon ridge, the blue Earth hanging large in the black sky above.",
+      "end": true
+    },
+    "abb1": {
+      "text": "One wheel was stuck fast. Benjie dug out the dust. He gave it a gentle push.",
+      "art": "bnjyboy kneeling in the moon dust digging a stuck wheel free on the little rover.",
+      "next": "abb2"
+    },
+    "abb2": {
+      "text": "The rover rolled forward again. All its lights blinked happily. It beeped a thank you.",
+      "art": "The little rover rolling forward with all its lights lit, bnjyboy cheering with both arms up on the Moon.",
+      "end": true
+    },
+    "baa1": {
+      "text": "The little moon was tiny. He could see all the way round. His steps were very bouncy.",
+      "art": "bnjyboy bouncing high above the surface of a very small round moon, the ringed planet huge behind him.",
+      "next": "baa2"
+    },
+    "baa2": {
+      "text": "One hop went very high. He floated slowly back down. He did it eleven more times.",
+      "art": "bnjyboy floating slowly back down from a huge bounce on the tiny moon, arms out, laughing inside his helmet.",
+      "end": true
+    },
+    "bab1": {
+      "text": "He stayed among the rings. He stepped out onto the ice. It was smooth as glass.",
+      "art": "bnjyboy standing on a wide flat sheet of ring ice, glittering ice stretching away on all sides.",
+      "next": "bab2"
+    },
+    "bab2": {
+      "text": "He slid along on his boots. Round and round he went. The best ice rink in space.",
+      "art": "bnjyboy sliding across the smooth ring ice with his arms out like a skater, the ringed planet glowing behind him.",
+      "end": true
+    },
+    "bba1": {
+      "text": "He chased the shooting star. It zoomed and looped about. It seemed to be playing.",
+      "art": "bnjyboy's little rocket looping through space chasing a bright playful shooting star leaving a glittering trail.",
+      "next": "bba2"
+    },
+    "bba2": {
+      "text": "At last it slowed right down. It circled his rocket twice. Then it lit up the way home.",
+      "art": "The shooting star circling bnjyboy's rocket and lighting a bright path through the stars ahead.",
+      "end": true
+    },
+    "bbb1": {
+      "text": "The dark patch was not empty. Something soft glowed inside. It was pink and very small.",
+      "art": "bnjyboy's rocket approaching a dark patch of space where a small soft pink glow shines in the middle.",
+      "next": "bbb2"
+    },
+    "bbb2": {
+      "text": "It was a brand new star. It was only just beginning. Benjie watched it start to shine.",
+      "art": "bnjyboy at his rocket window watching a tiny new pink star begin to glow brightly in the dark.",
+      "end": true
+    }
+  }
+}

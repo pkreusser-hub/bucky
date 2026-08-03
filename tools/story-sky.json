@@ -1,0 +1,654 @@
+{
+  "id": "sky",
+  "title": "The Cloud Kingdom",
+  "em": "🐉",
+  "cast": "bnjyboy is a cheerful boy wearing a brown leather flying cap with round goggles, a long red scarf, and a brown leather jacket. His best friend is Puff, a round green dragon the size of a pony with small leathery wings and a long curled tail. He is the ONLY person in this story and he is always alone. The sky kingdom is full of floating islands, fluffy clouds and gentle magical creatures.",
+  "keep": "bnjyboy in a brown leather flying cap with round goggles, a long red scarf, and a brown leather jacket. Exactly ONE child in the picture, alone. No other people.",
+  "nodes": {
+    "p1": {
+      "text": "Benjie loved playing in the hayloft. Puff poked her head through the hay. She flapped her wings with excitement.",
+      "art": "Inside a wooden hayloft filled with bales of hay, bnjyboy playing among the hay while Puff, a round green dragon the size of a pony with small leathery wings and a long curled tail, pokes her head up over a bale, both delighted. Interior of a barn loft, not outdoors.",
+      "next": "p2"
+    },
+    "p2": {
+      "text": "Puff nudged him toward the barn door. Outside, a grassy hill sloped upward. This was their favorite launching spot.",
+      "art": "bnjyboy walking behind Puff, a round green dragon the size of a pony with small leathery wings and a long curled tail, out of the barn toward a grassy hill behind it.",
+      "next": "p3"
+    },
+    "p3": {
+      "text": "Benjie climbed onto her broad back. He held tight to her warm scales. Puff crouched low, then began to run.",
+      "art": "bnjyboy climbing onto the back of Puff, a round green dragon the size of a pony with small leathery wings and a long curled tail, crouched low on the grassy hilltop, ready to run.",
+      "next": "p4"
+    },
+    "p4": {
+      "text": "Puff ran fast and spread her wings. They leapt off the edge together. The ground dropped away below them.",
+      "art": "bnjyboy riding on the back of the round green dragon with small leathery wings, both flying up off the edge of a grassy hill, the farm shrinking below. The whole scene sits on a floating island high in the sky, with white clouds drifting below its rocky underside and open blue sky all around.",
+      "next": "p5"
+    },
+    "p5": {
+      "text": "Up they climbed, past treetops and birds. The farm looked tiny and far away. Fluffy white clouds waited just ahead.",
+      "art": "bnjyboy riding on the back of the round green dragon, both flying high above a tiny farm far below, soft white clouds close ahead.",
+      "next": "p6"
+    },
+    "p6": {
+      "text": "They burst up through the fluffy clouds. Golden light spilled over everything. Two high green lands lay ahead.",
+      "art": "bnjyboy riding on the back of the round green dragon, both flying up through fluffy white clouds into golden sunlight, with a sunny golden island floating to one side and a misty rainbow-coloured island floating to the other.",
+      "choices": [
+        {
+          "em": "☀️",
+          "text": "Fly to the sunny island",
+          "to": "a1"
+        },
+        {
+          "em": "🌈",
+          "text": "Fly to the rainbow island",
+          "to": "b1"
+        }
+      ]
+    },
+    "a1": {
+      "text": "Puff swooped down toward the golden island. Soft fields glowed under warm sunlight. Fluffy cloud sheep grazed in the grass.",
+      "art": "bnjyboy riding on the back of the round green dragon, swooping down toward a floating golden island covered in glowing fields, small fluffy white sheep made of cloud grazing below.",
+      "next": "a2"
+    },
+    "a2": {
+      "text": "They landed softly in the golden grass. A cloud sheep trotted over to sniff. Its wool felt light as a pillow.",
+      "art": "bnjyboy kneeling in a golden field beside a small fluffy sheep made of soft white cloud, Puff the round green dragon standing nearby.",
+      "next": "a3"
+    },
+    "a3": {
+      "text": "More cloud sheep gathered around him. One path led to tall golden sunflowers. Another path led to a small orchard.",
+      "art": "bnjyboy standing in the golden field surrounded by several small fluffy cloud sheep, a grove of giant sunflowers rising one way and a small floating orchard visible the other way.",
+      "choices": [
+        {
+          "em": "🌻",
+          "text": "Visit the sunflower grove",
+          "to": "aa1"
+        },
+        {
+          "em": "🍎",
+          "text": "Explore the little orchard",
+          "to": "ab1"
+        }
+      ]
+    },
+    "b1": {
+      "text": "Puff glided toward the misty island. Soft rainbow colors curled through the air. Everything smelled like rain and flowers.",
+      "art": "bnjyboy riding on the back of the round green dragon, gliding toward a misty floating island wrapped in soft rainbow-coloured light.",
+      "next": "b2"
+    },
+    "b2": {
+      "text": "They landed on damp, mossy stone. A rainbow arched high above them. Somewhere nearby, water rushed and splashed.",
+      "art": "bnjyboy standing with the round green dragon on damp mossy stone, a bright rainbow arching overhead on the misty island. This is on a floating sky island far above the clouds — soft white cloudtops stretch away below the edge, blue sky beyond.",
+      "next": "b3"
+    },
+    "b3": {
+      "text": "One path led toward a roaring waterfall. Another led to a hooting, humming bridge. Both sounded wonderful and strange.",
+      "art": "bnjyboy on the misty island looking between a roaring rainbow waterfall one way and a curved stone bridge that hums softly the other way, Puff the round green dragon beside him. Everything here floats high above the clouds on a drifting sky island, with more floating islands visible in the distance.",
+      "choices": [
+        {
+          "em": "💧",
+          "text": "Follow the waterfall",
+          "to": "ba1"
+        },
+        {
+          "em": "🌉",
+          "text": "Cross the singing bridge",
+          "to": "bb1"
+        }
+      ]
+    },
+    "aa1": {
+      "text": "The sunflowers towered over his head. Each one was taller than the barn. Golden pollen drifted like glowing dust.",
+      "art": "bnjyboy standing beneath giant golden sunflowers much taller than a barn, glowing golden pollen drifting through the air like dust, the round green dragon beside him. The ground is the top of a floating island in the sky; clouds roll past its edges and the horizon is open blue sky.",
+      "next": "aa2"
+    },
+    "aa2": {
+      "text": "A trail of pollen glowed on the ground. It sparkled brighter near one big stem. Puff sniffed at it, curious too.",
+      "art": "bnjyboy following a glowing trail of golden pollen across the ground toward the base of one giant sunflower stem, the round green dragon sniffing beside him. The whole scene sits on a floating island high in the sky, with white clouds drifting below its rocky underside and open blue sky all around.",
+      "next": "aa3"
+    },
+    "aa3": {
+      "text": "The stem was thick enough to climb. Nearby, a soft hollow opened in the roots. Both places looked worth exploring.",
+      "art": "bnjyboy standing at the base of a giant sunflower, a thick climbable stem rising one way and a soft glowing hollow opening in the roots the other way. This is on a floating sky island far above the clouds — soft white cloudtops stretch away below the edge, blue sky beyond.",
+      "choices": [
+        {
+          "em": "🧗",
+          "text": "Climb to the top",
+          "to": "aaa1"
+        },
+        {
+          "em": "🕳️",
+          "text": "Peek into the hollow",
+          "to": "aab1"
+        }
+      ]
+    },
+    "ab1": {
+      "text": "The orchard trees floated gently in place. Round golden apples hung from every branch. Small cloud bunnies nibbled on windfalls.",
+      "art": "bnjyboy walking into a small floating orchard of gently drifting apple trees heavy with round golden apples, small fluffy cloud-white bunnies nibbling fallen apples on the ground.",
+      "next": "ab2"
+    },
+    "ab2": {
+      "text": "A bunny hopped over to greet him. Benjie picked a warm golden apple. Puff sniffed it, then licked her lips.",
+      "art": "bnjyboy crouching to greet a small fluffy cloud-white bunny in the orchard, holding a round golden apple, the round green dragon sniffing at it.",
+      "next": "ab3"
+    },
+    "ab3": {
+      "text": "A little treehouse sat in one branch. A stream of nectar flowed nearby too. Small apple-shaped boats bobbed on it.",
+      "art": "bnjyboy in the floating orchard looking between a small treehouse built into one apple tree and a sparkling stream of nectar with tiny apple-shaped boats bobbing on it. Everything here floats high above the clouds on a drifting sky island, with more floating islands visible in the distance.",
+      "choices": [
+        {
+          "em": "🏠",
+          "text": "Climb into the treehouse",
+          "to": "aba1"
+        },
+        {
+          "em": "🛶",
+          "text": "Ride the nectar stream",
+          "to": "abb1"
+        }
+      ]
+    },
+    "ba1": {
+      "text": "The waterfall poured down in every color. Mist rose up and tickled his nose. Puff shook rainbow droplets from her wings.",
+      "art": "bnjyboy standing before a wide waterfall pouring down in bright rainbow colors, soft mist rising, the round green dragon shaking droplets from her small wings. The ground is the top of a floating island in the sky; clouds roll past its edges and the horizon is open blue sky.",
+      "next": "ba2"
+    },
+    "ba2": {
+      "text": "A smooth slide curved beside the falls. A calm pool waited at the bottom. Both looked cool and inviting.",
+      "art": "bnjyboy beside the rainbow waterfall looking between a smooth curved slide running down next to it and a calm glowing pool at the bottom. The whole scene sits on a floating island high in the sky, with white clouds drifting below its rocky underside and open blue sky all around.",
+      "next": "ba3"
+    },
+    "ba3": {
+      "text": "Benjie leaned over the edge to look. The slide twisted down out of sight. The pool below sparkled and rippled.",
+      "art": "bnjyboy leaning over the edge near the top of the rainbow waterfall, a twisting slide curving down one way and a sparkling rippling pool visible the other way. This is on a floating sky island far above the clouds — soft white cloudtops stretch away below the edge, blue sky beyond.",
+      "choices": [
+        {
+          "em": "🎢",
+          "text": "Zoom down the slide",
+          "to": "baa1"
+        },
+        {
+          "em": "🐟",
+          "text": "Swim in the pool",
+          "to": "bab1"
+        }
+      ]
+    },
+    "bb1": {
+      "text": "The stone bridge hummed a gentle tune. Each step made a different soft note. Puff tapped a paw and giggled.",
+      "art": "bnjyboy standing before a curved stone bridge that glows faintly and hums a gentle tune, the round green dragon tapping one paw on it and giggling. Everything here floats high above the clouds on a drifting sky island, with more floating islands visible in the distance.",
+      "next": "bb2"
+    },
+    "bb2": {
+      "text": "Benjie stepped onto the humming bridge. Little bells seemed to chime below it. A tower stood at the far end.",
+      "art": "bnjyboy stepping onto the glowing stone bridge, small chiming bells hanging underneath, a tall bell tower visible at the far end. The ground is the top of a floating island in the sky; clouds roll past its edges and the horizon is open blue sky.",
+      "next": "bb3"
+    },
+    "bb3": {
+      "text": "The tower rose high with a big bell. Below the bridge, soft nests were tucked. Both places hummed with gentle music.",
+      "art": "bnjyboy on the humming bridge looking up at a tall tower with a big bell and down at soft nests tucked beneath the bridge, the round green dragon beside him. The whole scene sits on a floating island high in the sky, with white clouds drifting below its rocky underside and open blue sky all around.",
+      "choices": [
+        {
+          "em": "🔔",
+          "text": "Climb the bell tower",
+          "to": "bba1"
+        },
+        {
+          "em": "🪺",
+          "text": "Look under the bridge",
+          "to": "bbb1"
+        }
+      ]
+    },
+    "aaa1": {
+      "text": "Benjie climbed the thick sunflower stem. Puff flew alongside, keeping him company. Higher and higher they went together.",
+      "art": "bnjyboy climbing the thick stem of a giant sunflower, the round green dragon flying alongside him with her small wings. This is on a floating sky island far above the clouds — soft white cloudtops stretch away below the edge, blue sky beyond.",
+      "next": "aaa2"
+    },
+    "aaa2": {
+      "text": "At the top, golden petals spread wide. The whole sky kingdom stretched below. The view took his breath away.",
+      "art": "bnjyboy standing on wide golden sunflower petals at the very top of the giant flower, the whole floating sky kingdom spread out far below. Everything here floats high above the clouds on a drifting sky island, with more floating islands visible in the distance.",
+      "next": "aaa3"
+    },
+    "aaa3": {
+      "text": "A soft nest sat tucked among the petals. A little jar of sparkling drops sat there too. Both looked like special treasures.",
+      "art": "bnjyboy at the sunflower top looking between a soft nest tucked among the petals and a small jar filled with sparkling dew drops sitting nearby. The ground is the top of a floating island in the sky; clouds roll past its edges and the horizon is open blue sky.",
+      "choices": [
+        {
+          "em": "🐦",
+          "text": "Peek into the nest",
+          "to": "aaaa1"
+        },
+        {
+          "em": "💧",
+          "text": "Look at the sparkling jar",
+          "to": "aaab1"
+        }
+      ]
+    },
+    "aab1": {
+      "text": "The hollow was soft and glowing warm. Benjie crawled in on his hands and knees. Puff's tail followed close behind.",
+      "art": "bnjyboy crawling on hands and knees into a soft glowing hollow beneath the giant sunflower roots, the round green dragon's tail following close behind. The whole scene sits on a floating island high in the sky, with white clouds drifting below its rocky underside and open blue sky all around.",
+      "next": "aab2"
+    },
+    "aab2": {
+      "text": "Inside, everything glowed a gentle gold. Soft humming sounds came from deeper in. Something small was curled up ahead.",
+      "art": "bnjyboy inside a gently glowing golden hollow beneath the sunflower roots, something small and curled resting further ahead in the soft light. This is on a floating sky island far above the clouds — soft white cloudtops stretch away below the edge, blue sky beyond.",
+      "next": "aab3"
+    },
+    "aab3": {
+      "text": "A tiny stream trickled through the hollow. Sleepy cloud sheep were curled up nearby. Both were worth a closer look.",
+      "art": "bnjyboy inside the glowing hollow looking between a tiny trickling stream and several small fluffy cloud sheep curled up asleep nearby.",
+      "choices": [
+        {
+          "em": "🐑",
+          "text": "Cuddle the sleepy sheep",
+          "to": "aaba1"
+        },
+        {
+          "em": "🌊",
+          "text": "Follow the tiny stream",
+          "to": "aabb1"
+        }
+      ]
+    },
+    "aba1": {
+      "text": "Benjie climbed the ladder to the treehouse. Inside, the walls were made of soft bark. A window looked out over the orchard.",
+      "art": "bnjyboy climbing a wooden ladder up into a small treehouse built into a floating apple tree, a round window looking out over the orchard. Everything here floats high above the clouds on a drifting sky island, with more floating islands visible in the distance.",
+      "next": "aba2"
+    },
+    "aba2": {
+      "text": "Through the window, apples glowed like lanterns. A soft rustle came from one corner. A gentle squeak answered his hello.",
+      "art": "bnjyboy looking through the treehouse window at apples glowing softly like lanterns in the orchard below, a small shape rustling in the corner behind him. The ground is the top of a floating island in the sky; clouds roll past its edges and the horizon is open blue sky.",
+      "next": "aba3"
+    },
+    "aba3": {
+      "text": "In the corner sat a tiny nest. By the window hung a long vine swing. Both looked like fun to try.",
+      "art": "bnjyboy inside the treehouse looking between a tiny nest tucked in the corner and a long vine swing hanging by the round window. The whole scene sits on a floating island high in the sky, with white clouds drifting below its rocky underside and open blue sky all around.",
+      "choices": [
+        {
+          "em": "🥚",
+          "text": "Look inside the nest",
+          "to": "abaa1"
+        },
+        {
+          "em": "🌿",
+          "text": "Swing on the vine",
+          "to": "abab1"
+        }
+      ]
+    },
+    "abb1": {
+      "text": "Benjie hopped into a little apple boat. The nectar stream carried him along smoothly. Puff flew low, watching over him.",
+      "art": "bnjyboy sitting inside a small hollowed apple-shaped boat floating along a sparkling nectar stream, the round green dragon flying low overhead watching him. This is on a floating sky island far above the clouds — soft white cloudtops stretch away below the edge, blue sky beyond.",
+      "next": "abb2"
+    },
+    "abb2": {
+      "text": "The stream wound gently through the orchard. Petals floated past like tiny boats. Ahead, the stream split into two ways.",
+      "art": "bnjyboy floating in his apple-shaped boat along the winding nectar stream through the orchard, flower petals drifting past, the stream splitting ahead into two paths. Everything here floats high above the clouds on a drifting sky island, with more floating islands visible in the distance.",
+      "next": "abb3"
+    },
+    "abb3": {
+      "text": "One way led toward a giant nest. The other opened into a glowing garden. Benjie steered gently toward one side.",
+      "art": "bnjyboy in his little boat at the fork in the nectar stream, a giant bird's nest visible one way and a glowing flower garden the other. The ground is the top of a floating island in the sky; clouds roll past its edges and the horizon is open blue sky.",
+      "choices": [
+        {
+          "em": "🪹",
+          "text": "Visit the giant nest",
+          "to": "abba1"
+        },
+        {
+          "em": "🌺",
+          "text": "Enter the glowing garden",
+          "to": "abbb1"
+        }
+      ]
+    },
+    "baa1": {
+      "text": "Benjie sat down at the top of the slide. Puff nudged him gently forward. Down he zoomed through rainbow spray.",
+      "art": "bnjyboy sitting at the top of a rainbow-colored slide beside the waterfall, the round green dragon nudging him gently forward, colorful spray misting the air. The whole scene sits on a floating island high in the sky, with white clouds drifting below its rocky underside and open blue sky all around.",
+      "next": "baa2"
+    },
+    "baa2": {
+      "text": "The slide curved and looped around. Rainbow light flashed past on every side. He laughed the whole way down.",
+      "art": "bnjyboy sliding down a looping rainbow-colored waterslide, bright rainbow light flashing past on every side, laughing with joy. This is on a floating sky island far above the clouds — soft white cloudtops stretch away below the edge, blue sky beyond.",
+      "next": "baa3"
+    },
+    "baa3": {
+      "text": "Near the bottom, the slide split apart. One curl led into a glowing tunnel. The other opened onto soft cloud cushions.",
+      "art": "bnjyboy on the waterslide approaching a split near the bottom, one curl leading into a glowing rainbow tunnel and the other opening onto a pile of soft cloud cushions.",
+      "choices": [
+        {
+          "em": "🌈",
+          "text": "Follow the glowing tunnel",
+          "to": "baaa1"
+        },
+        {
+          "em": "☁️",
+          "text": "Land on the cloud cushions",
+          "to": "baab1"
+        }
+      ]
+    },
+    "bab1": {
+      "text": "Benjie waded into the sparkling pool. Tiny fish made of soft light darted by. One brushed gently against his hand.",
+      "art": "bnjyboy wading into a sparkling rainbow pool at the base of the waterfall, tiny fish made of soft glowing light darting through the water around him. Everything here floats high above the clouds on a drifting sky island, with more floating islands visible in the distance.",
+      "next": "bab2"
+    },
+    "bab2": {
+      "text": "More light-fish gathered close around him. They glowed brighter whenever he laughed. Puff splashed in to join the fun.",
+      "art": "bnjyboy standing in the glowing pool surrounded by small fish made of soft light, the round green dragon splashing in to join him. The ground is the top of a floating island in the sky; clouds roll past its edges and the horizon is open blue sky.",
+      "next": "bab3"
+    },
+    "bab3": {
+      "text": "Deeper in the pool, something glimmered gold. Near the surface, the fish made patterns. Both were beautiful to watch.",
+      "art": "bnjyboy in the glowing pool looking between a golden glimmer deep in the water and a school of light-fish forming patterns near the surface. The whole scene sits on a floating island high in the sky, with white clouds drifting below its rocky underside and open blue sky all around.",
+      "choices": [
+        {
+          "em": "✨",
+          "text": "Look for the gold glimmer",
+          "to": "baba1"
+        },
+        {
+          "em": "🎨",
+          "text": "Watch the fish patterns",
+          "to": "babb1"
+        }
+      ]
+    },
+    "bba1": {
+      "text": "Benjie climbed the spiraling tower stairs. Each step chimed a soft little note. Puff hummed along as they climbed.",
+      "art": "bnjyboy climbing spiraling stone stairs inside a tall bell tower, each step glowing and chiming softly, the round green dragon humming alongside him. This is on a floating sky island far above the clouds — soft white cloudtops stretch away below the edge, blue sky beyond.",
+      "next": "bba2"
+    },
+    "bba2": {
+      "text": "At the top hung an enormous bell. Sunlight glinted off its smooth curves. A long rope dangled down beside it.",
+      "art": "bnjyboy at the top of the tower standing beside an enormous gleaming bell, a long rope hanging down next to it, sunlight glinting off the metal. Everything here floats high above the clouds on a drifting sky island, with more floating islands visible in the distance.",
+      "next": "bba3"
+    },
+    "bba3": {
+      "text": "Pulling the rope would ring the bell. Nearby, small chime-birds rested on a ledge. Both seemed like they might make music.",
+      "art": "bnjyboy at the top of the bell tower looking between a long bell-rope and a small ledge where tiny chime-birds rest quietly. The ground is the top of a floating island in the sky; clouds roll past its edges and the horizon is open blue sky.",
+      "choices": [
+        {
+          "em": "🔔",
+          "text": "Ring the big bell",
+          "to": "bbaa1"
+        },
+        {
+          "em": "🐦",
+          "text": "Visit the chime-birds",
+          "to": "bbab1"
+        }
+      ]
+    },
+    "bbb1": {
+      "text": "Benjie ducked under the humming bridge. Soft nests were tucked into every arch. Puff folded her wings to fit through.",
+      "art": "bnjyboy ducking under the glowing stone bridge, soft nests tucked into the arches above him, the round green dragon folding her small wings to fit through. The whole scene sits on a floating island high in the sky, with white clouds drifting below its rocky underside and open blue sky all around.",
+      "next": "bbb2"
+    },
+    "bbb2": {
+      "text": "Underneath, everything glowed a soft blue. Tiny lights drifted like lazy fireflies. Something rustled inside one nest.",
+      "art": "bnjyboy beneath the bridge in a softly glowing blue space, tiny drifting lights like lazy fireflies, something rustling gently inside one of the tucked nests. This is on a floating sky island far above the clouds — soft white cloudtops stretch away below the edge, blue sky beyond.",
+      "next": "bbb3"
+    },
+    "bbb3": {
+      "text": "One nest held tiny drifting stars. Another glowed with soft mossy light. Both nests looked magical and rare.",
+      "art": "bnjyboy under the bridge looking between one nest holding tiny drifting stars and another nest glowing softly with mossy light. Everything here floats high above the clouds on a drifting sky island, with more floating islands visible in the distance.",
+      "choices": [
+        {
+          "em": "⭐",
+          "text": "Look at the star nest",
+          "to": "bbba1"
+        },
+        {
+          "em": "🌙",
+          "text": "Look at the mossy nest",
+          "to": "bbbb1"
+        }
+      ]
+    },
+    "aaaa1": {
+      "text": "Benjie peeked gently into the soft nest. Two fluffy cloud-birds blinked up at him. They chirped a tiny, happy song.",
+      "art": "bnjyboy peeking gently into a soft nest at the sunflower top, two small fluffy cloud-white birds blinking up at him.",
+      "next": "aaaa2"
+    },
+    "aaaa2": {
+      "text": "One bird hopped onto his open hand. It was lighter than a feather pillow. The other bird hopped on too.",
+      "art": "bnjyboy holding out his hand as one small fluffy cloud-white bird hops onto it at the sunflower top, another bird hopping over to join.",
+      "next": "aaaa3"
+    },
+    "aaaa3": {
+      "text": "Both birds nestled into his palms. They fell asleep in his hands. Benjie sat very still and smiled.",
+      "art": "bnjyboy sitting very still on the sunflower petals, two small fluffy cloud-white birds asleep and nestled in his open palms.",
+      "end": true
+    },
+    "aaab1": {
+      "text": "Benjie lifted the little glowing jar. Drops inside sparkled like tiny stars. He held it up to the sunlight.",
+      "art": "bnjyboy lifting a small glowing jar filled with sparkling dew drops at the top of the sunflower, holding it up toward the sunlight. The ground is the top of a floating island in the sky; clouds roll past its edges and the horizon is open blue sky.",
+      "next": "aaab2"
+    },
+    "aaab2": {
+      "text": "The drops swirled softly inside the glass. Each one shimmered a different color. Puff watched, her tail curling happily.",
+      "art": "bnjyboy watching sparkling multicolored dew drops swirl inside the small glass jar, the round green dragon watching too with her tail curled happily. The whole scene sits on a floating island high in the sky, with white clouds drifting below its rocky underside and open blue sky all around.",
+      "next": "aaab3"
+    },
+    "aaab3": {
+      "text": "Benjie tucked the jar into his jacket. It would sparkle all the way home. A real treasure from the sunflower top.",
+      "art": "bnjyboy tucking the small glowing jar of sparkling dew drops into his jacket pocket, standing among the giant sunflower petals with the sky kingdom below. This is on a floating sky island far above the clouds — soft white cloudtops stretch away below the edge, blue sky beyond.",
+      "end": true
+    },
+    "aaba1": {
+      "text": "Benjie sat down beside the sleepy sheep. One lifted its head and yawned. It leaned softly against his arm.",
+      "art": "bnjyboy sitting down beside several small fluffy cloud sheep curled up asleep in the glowing hollow, one sheep leaning its head against his arm.",
+      "next": "aaba2"
+    },
+    "aaba2": {
+      "text": "More sheep shuffled closer for cuddles. Soon he was surrounded by soft wool. It felt like a warm cloud blanket.",
+      "art": "bnjyboy sitting surrounded by several small fluffy cloud sheep cuddled close around him in the glowing hollow, like a soft warm blanket.",
+      "next": "aaba3"
+    },
+    "aaba3": {
+      "text": "Benjie grew sleepy too, just briefly. Puff curled around them all gently. It was the coziest nap spot ever.",
+      "art": "bnjyboy resting sleepily among a cuddle of small fluffy cloud sheep in the glowing hollow, the round green dragon curled protectively around them all.",
+      "end": true
+    },
+    "aabb1": {
+      "text": "Benjie followed the tiny glowing stream. A small leaf floated along its surface. He climbed aboard and drifted along.",
+      "art": "bnjyboy climbing onto a small floating leaf drifting along a tiny glowing stream inside the sunflower hollow. Everything here floats high above the clouds on a drifting sky island, with more floating islands visible in the distance.",
+      "next": "aabb2"
+    },
+    "aabb2": {
+      "text": "The leaf boat bobbed gently along. Tiny glowing fish swam alongside him. The stream curved deeper into the hollow.",
+      "art": "bnjyboy riding a small leaf boat along the glowing stream, tiny glowing fish swimming alongside as the stream curves deeper into the hollow. The ground is the top of a floating island in the sky; clouds roll past its edges and the horizon is open blue sky.",
+      "next": "aabb3"
+    },
+    "aabb3": {
+      "text": "The stream opened into a hidden pool. Golden light shimmered across the water. Benjie floated there, calm and happy.",
+      "art": "bnjyboy floating peacefully in his little leaf boat on a hidden glowing pool inside the sunflower hollow, golden light shimmering across the water. The whole scene sits on a floating island high in the sky, with white clouds drifting below its rocky underside and open blue sky all around.",
+      "end": true
+    },
+    "abaa1": {
+      "text": "Benjie looked closer into the tiny nest. Three baby dragons blinked back at him. They looked just like little Puffs.",
+      "art": "bnjyboy looking closely into a small nest inside the treehouse, three tiny round green baby a round green dragon the size of a pony with small leathery wings with small wings blinking up at him. This is on a floating sky island far above the clouds — soft white cloudtops stretch away below the edge, blue sky beyond.",
+      "next": "abaa2"
+    },
+    "abaa2": {
+      "text": "One baby dragon hiccuped a tiny spark. Puff nuzzled them like proud family. Benjie laughed at their wobbly wings.",
+      "art": "bnjyboy laughing gently as one tiny round green baby dragon hiccups a small friendly spark, Puff the round green dragon nuzzling the babies warmly. Everything here floats high above the clouds on a drifting sky island, with more floating islands visible in the distance.",
+      "next": "abaa3"
+    },
+    "abaa3": {
+      "text": "The baby dragons piled onto his lap. They were warm and softly scaled. Benjie had made three new friends.",
+      "art": "bnjyboy sitting in the treehouse with three tiny round green baby a round green dragon the size of a pony with small leathery wings piled warmly onto his lap, Puff watching happily nearby. The ground is the top of a floating island in the sky; clouds roll past its edges and the horizon is open blue sky.",
+      "end": true
+    },
+    "abab1": {
+      "text": "Benjie grabbed the long vine swing. He pushed off from the window ledge. The swing carried him out over the orchard.",
+      "art": "bnjyboy swinging out from the treehouse window on a long vine swing, the floating orchard spread out below him. The whole scene sits on a floating island high in the sky, with white clouds drifting below its rocky underside and open blue sky all around.",
+      "next": "abab2"
+    },
+    "abab2": {
+      "text": "Wind rushed past as he swung high. Golden apples blurred below his feet. Puff flew loops around him, cheering.",
+      "art": "bnjyboy swinging high on the vine above the orchard, golden apples blurring below, the round green dragon flying playful loops around him. This is on a floating sky island far above the clouds — soft white cloudtops stretch away below the edge, blue sky beyond.",
+      "next": "abab3"
+    },
+    "abab3": {
+      "text": "The swing slowed gently near the treehouse. Benjie hopped off, breathless and grinning. That was the best swing ever.",
+      "art": "bnjyboy hopping off the vine swing back near the treehouse window, grinning and breathless, the round green dragon landing beside him. Everything here floats high above the clouds on a drifting sky island, with more floating islands visible in the distance.",
+      "end": true
+    },
+    "abba1": {
+      "text": "The stream carried him to a huge nest. A giant gentle bird sat inside it. It tilted its head at him kindly.",
+      "art": "bnjyboy in his apple-shaped boat arriving at a huge nest where a giant gentle bird rests, the bird tilting its head kindly at him. The ground is the top of a floating island in the sky; clouds roll past its edges and the horizon is open blue sky.",
+      "next": "abba2"
+    },
+    "abba2": {
+      "text": "The bird lowered a broad feathered wing. Benjie climbed carefully onto its back. Puff flew alongside them both.",
+      "art": "bnjyboy climbing carefully onto the back of a giant gentle bird that has lowered its broad wing like a ramp, the round green dragon flying alongside. The whole scene sits on a floating island high in the sky, with white clouds drifting below its rocky underside and open blue sky all around.",
+      "next": "abba3"
+    },
+    "abba3": {
+      "text": "The bird lifted off, smooth and slow. They glided high above the orchard. Benjie held on and grinned wide.",
+      "art": "bnjyboy riding on the back of a giant gentle bird gliding smoothly above the orchard, both flying, the round green dragon flying beside them. This is on a floating sky island far above the clouds — soft white cloudtops stretch away below the edge, blue sky beyond.",
+      "end": true
+    },
+    "abbb1": {
+      "text": "The stream opened into a hidden garden. Flowers there glowed a soft starry blue. They opened slowly as he watched.",
+      "art": "bnjyboy arriving in a hidden garden of soft glowing star-blue flowers that are slowly opening, floating just off the nectar stream. Everything here floats high above the clouds on a drifting sky island, with more floating islands visible in the distance.",
+      "next": "abbb2"
+    },
+    "abbb2": {
+      "text": "Each flower held a tiny point of light. Together they looked like fallen stars. Puff walked gently between the blooms.",
+      "art": "bnjyboy walking among glowing star-blue flowers each holding a tiny point of light, the round green dragon stepping gently between the blooms. The ground is the top of a floating island in the sky; clouds roll past its edges and the horizon is open blue sky.",
+      "next": "abbb3"
+    },
+    "abbb3": {
+      "text": "Benjie sat among the glowing flowers. The whole garden twinkled around him. It felt like sitting among the stars.",
+      "art": "bnjyboy sitting peacefully among the glowing star-blue flowers as the whole garden twinkles softly around him, the round green dragon curled beside him. The whole scene sits on a floating island high in the sky, with white clouds drifting below its rocky underside and open blue sky all around.",
+      "end": true
+    },
+    "baaa1": {
+      "text": "Benjie followed the curl into the tunnel. Rainbow light wrapped around him completely. It felt like flying through a prism.",
+      "art": "bnjyboy sliding through a glowing rainbow-colored tunnel, bright rainbow light wrapping completely around him like flying through a prism. This is on a floating sky island far above the clouds — soft white cloudtops stretch away below the edge, blue sky beyond.",
+      "next": "baaa2"
+    },
+    "baaa2": {
+      "text": "The tunnel twisted gently up and down. Colors blurred together in every direction. He could hear Puff laughing somewhere close.",
+      "art": "bnjyboy inside the twisting rainbow tunnel, bright colors blurring in every direction around him. Everything here floats high above the clouds on a drifting sky island, with more floating islands visible in the distance.",
+      "next": "baaa3"
+    },
+    "baaa3": {
+      "text": "The tunnel opened into a glowing cave. Rainbow crystals lined every single wall. Benjie had found a secret rainbow room.",
+      "art": "bnjyboy arriving inside a glowing cave with rainbow-colored crystals lining every wall, the round green dragon squeezing in beside him. The ground is the top of a floating island in the sky; clouds roll past its edges and the horizon is open blue sky.",
+      "end": true
+    },
+    "baab1": {
+      "text": "Benjie landed softly on the cloud cushions. They bounced him gently up and down. He laughed with each little bounce.",
+      "art": "bnjyboy landing softly on a pile of large soft cloud cushions at the bottom of the waterslide, bouncing gently and laughing.",
+      "next": "baab2"
+    },
+    "baab2": {
+      "text": "Puff landed beside him with a thump. She bounced too, wings flapping happily. They bounced higher together each time.",
+      "art": "bnjyboy and the round green dragon bouncing together on the soft cloud cushions, both laughing, her small wings flapping happily.",
+      "next": "baab3"
+    },
+    "baab3": {
+      "text": "Finally they flopped down, worn out. The cushions were soft as pillows. Benjie could have napped right there.",
+      "art": "bnjyboy lying flopped happily on the soft cloud cushions, worn out from bouncing, the round green dragon resting curled up beside him.",
+      "end": true
+    },
+    "baba1": {
+      "text": "Benjie followed the golden glimmer down. At the bottom sat a small pot. It was not gold, but soft fluff.",
+      "art": "bnjyboy kneeling underwater near a small pot resting at the bottom of the glowing pool, discovering it is filled with soft white cloud fluff instead of gold.",
+      "next": "baba2"
+    },
+    "baba2": {
+      "text": "He scooped up a handful of fluff. It was warm and lighter than air. Puff sniffed it, then sneezed happily.",
+      "art": "bnjyboy scooping a handful of soft white cloud fluff from the little pot, the round green dragon sniffing it and sneezing happily.",
+      "next": "baba3"
+    },
+    "baba3": {
+      "text": "Benjie tucked some fluff into his scarf. It would keep him warm all night. A cozier treasure than gold, he thought.",
+      "art": "bnjyboy tucking a small tuft of soft cloud fluff into his red scarf, sitting beside the glowing pool with the round green dragon.",
+      "end": true
+    },
+    "babb1": {
+      "text": "The light-fish swirled into a bright circle. Their glow shifted through every color. Benjie watched, completely amazed.",
+      "art": "bnjyboy watching small fish made of soft glowing light swirl into a bright circular pattern in the pool, their glow shifting through many colors. The whole scene sits on a floating island high in the sky, with white clouds drifting below its rocky underside and open blue sky all around.",
+      "next": "babb2"
+    },
+    "babb2": {
+      "text": "He waved his hand through the water. The fish followed, trailing color behind them. A tiny rainbow curved across the pool.",
+      "art": "bnjyboy waving his hand gently through the glowing pool as the light-fish trail behind it, forming a small rainbow curving across the water. This is on a floating sky island far above the clouds — soft white cloudtops stretch away below the edge, blue sky beyond.",
+      "next": "babb3"
+    },
+    "babb3": {
+      "text": "Benjie had made his very own rainbow. Puff clapped her front paws together. It was small, but it was his.",
+      "art": "bnjyboy smiling beside a small rainbow curving across the glowing pool that the light-fish made, the round green dragon clapping her front paws. Everything here floats high above the clouds on a drifting sky island, with more floating islands visible in the distance.",
+      "end": true
+    },
+    "bbaa1": {
+      "text": "Benjie pulled the long bell rope. A deep, warm gong rang out. Puffy clouds drifted up from the sound.",
+      "art": "bnjyboy pulling a long rope to ring an enormous bell at the top of the tower, soft puffy clouds drifting up from the sound.",
+      "next": "bbaa2"
+    },
+    "bbaa2": {
+      "text": "The clouds curled into gentle shapes. One looked like a sleepy sheep. Another looked like a small dragon.",
+      "art": "bnjyboy watching soft clouds curl into gentle shapes above the bell tower, one shaped like a sleepy sheep and another shaped like a small a round green dragon the size of a pony with small leathery wings.",
+      "next": "bbaa3"
+    },
+    "bbaa3": {
+      "text": "Benjie rang the bell again, delighted. New cloud shapes floated up each time. He could have played that all day.",
+      "art": "bnjyboy ringing the bell again happily, new soft cloud shapes drifting up above the tower, the round green dragon watching beside him.",
+      "end": true
+    },
+    "bbab1": {
+      "text": "Benjie stepped onto the quiet ledge. Tiny chime-birds perched there, glowing softly. One rang a little note at him.",
+      "art": "bnjyboy stepping onto a quiet ledge at the top of the bell tower, tiny softly glowing chime-birds perched there, one ringing a small note. The ground is the top of a floating island in the sky; clouds roll past its edges and the horizon is open blue sky.",
+      "next": "bbab2"
+    },
+    "bbab2": {
+      "text": "More birds joined in with soft notes. Together they made a gentle little tune. Puff hummed along, swaying her tail.",
+      "art": "bnjyboy listening to a small flock of glowing chime-birds ringing gentle notes together on the ledge, the round green dragon humming and swaying her tail. The whole scene sits on a floating island high in the sky, with white clouds drifting below its rocky underside and open blue sky all around.",
+      "next": "bbab3"
+    },
+    "bbab3": {
+      "text": "Benjie hummed the tune back to them. The birds chimed happily in reply. He had learned a brand new song.",
+      "art": "bnjyboy humming happily with a small flock of glowing chime-birds on the tower ledge, the round green dragon nearby, sky kingdom stretching below. This is on a floating sky island far above the clouds — soft white cloudtops stretch away below the edge, blue sky beyond.",
+      "end": true
+    },
+    "bbba1": {
+      "text": "Benjie peeked into the star-filled nest. Tiny shooting stars rested there, glowing. They twinkled softly at his touch.",
+      "art": "bnjyboy peeking into a soft nest under the bridge filled with tiny glowing shooting stars, the stars twinkling softly. Everything here floats high above the clouds on a drifting sky island, with more floating islands visible in the distance.",
+      "next": "bbba2"
+    },
+    "bbba2": {
+      "text": "He cupped one star in his palms. It was warm and light as air. It left a trail of soft sparkles.",
+      "art": "bnjyboy cupping a small glowing shooting star gently in his palms under the bridge, soft sparkles trailing from it. The ground is the top of a floating island in the sky; clouds roll past its edges and the horizon is open blue sky.",
+      "next": "bbba3"
+    },
+    "bbba3": {
+      "text": "Benjie set the star back down gently. It nestled back among the others. He had held a real shooting star.",
+      "art": "bnjyboy gently placing the glowing shooting star back into its soft nest under the bridge, the round green dragon watching warmly. The whole scene sits on a floating island high in the sky, with white clouds drifting below its rocky underside and open blue sky all around.",
+      "end": true
+    },
+    "bbbb1": {
+      "text": "Benjie touched the glowing mossy nest. Soft light pulsed under his fingers. Tiny star-shaped moss patterns glimmered there.",
+      "art": "bnjyboy gently touching a nest glowing with soft mossy light under the bridge, tiny star-shaped patterns glimmering in the moss. This is on a floating sky island far above the clouds — soft white cloudtops stretch away below the edge, blue sky beyond.",
+      "next": "bbbb2"
+    },
+    "bbbb2": {
+      "text": "The moss glowed brighter with his touch. Puff pressed her nose in curiously. The whole nest shimmered like starlight.",
+      "art": "bnjyboy watching the mossy nest glow brighter under the bridge, the round green dragon pressing her nose in curiously, soft shimmering light all around. Everything here floats high above the clouds on a drifting sky island, with more floating islands visible in the distance.",
+      "next": "bbbb3"
+    },
+    "bbbb3": {
+      "text": "Benjie closed his eyes and made a wish. The moss glimmered one last time. It felt like the wish was heard.",
+      "art": "bnjyboy sitting peacefully beside the glowing mossy star nest under the bridge, making a quiet wish, the round green dragon curled beside him, soft light glimmering one last time. The ground is the top of a floating island in the sky; clouds roll past its edges and the horizon is open blue sky.",
+      "end": true
+    }
+  }
+}

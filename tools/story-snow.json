@@ -1,0 +1,654 @@
+{
+  "id": "snow",
+  "title": "The Little Wooden Sled",
+  "em": "❄️",
+  "cast": "bnjyboy is a cheerful boy in a bright BRIGHT RED hooded parka with white fur trim, blue mittens and brown snow boots. He is the ONLY person in this story and he is always alone. He pulls a little wooden sled tied with a loop of rope. The frozen north is a wide snowy world of soft drifts, blue ice and glowing northern lights.",
+  "keep": "bnjyboy in a bright BRIGHT RED hooded parka (always red, never blue) with white fur trim, blue mittens and snow boots, pulling a little wooden sled. Exactly ONE child in the picture, alone. No other people.",
+  "nodes": {
+    "p1": {
+      "text": "Benjie found an old sled in the barn. It had a loop of red rope. He pulled it out into the snow.",
+      "art": "Inside a rustic wooden barn lit by a warm hanging lantern, bnjyboy pulling an old wooden sled by its rope loop towards the open doors, bright snow glowing outside.",
+      "next": "p2"
+    },
+    "p2": {
+      "text": "He walked past the last fence post. Snow grew deep and soft there. Everything sparkled white and blue.",
+      "art": "bnjyboy in his bright red hood pulling his little wooden sled past a snow-capped fence post at the edge of a farm, sparkling blue-white snow and dark pines stretching beyond.",
+      "next": "p3"
+    },
+    "p3": {
+      "text": "A trail of paw prints crossed his path. They were bigger than his hand. Something big had passed this way.",
+      "art": "bnjyboy in his bright red parka crouching beside a line of huge paw prints pressed into the snow, his little wooden sled resting behind him, dark pine forest at the clearing's edge under warm afternoon light.",
+      "next": "p4"
+    },
+    "p4": {
+      "text": "Far off he heard a howl. Then another howl answered back. He pulled his sled towards the sound.",
+      "art": "bnjyboy standing still on the snow listening, sled rope in his blue mitten, distant fluffy grey-and-white husky dogs howling together on a snowy ridge under a soft pink sky.",
+      "next": "p5"
+    },
+    "p5": {
+      "text": "Over the hill sat six husky dogs. They pulled empty sleds in circles. One dog looked right at him.",
+      "art": "bnjyboy standing atop a snowy hill looking down at six fluffy grey-and-white husky dogs with pointed ears and curled tails circling with empty sleds below, warm golden late sun lighting the snow.",
+      "next": "p6"
+    },
+    "p6": {
+      "text": "The dogs trotted up to greet him. Far beyond them lay the frozen sea. Two paths stretched out before him.",
+      "art": "bnjyboy patting a friendly fluffy grey-and-white husky dog nuzzling his red mitten, a flat white frozen sea glinting far off under a warm orange sunset.",
+      "choices": [
+        {
+          "em": "🐕",
+          "text": "Follow the huskies",
+          "to": "a1"
+        },
+        {
+          "em": "🧊",
+          "text": "Head to the frozen sea",
+          "to": "b1"
+        }
+      ]
+    },
+    "a1": {
+      "text": "The huskies bounced around his boots. Their tails wagged like little flags. One nudged his mitten with its nose.",
+      "art": "Several fluffy grey-and-white husky dogs with pointed ears and curled tails bouncing playfully around bnjyboy's snow boots, one nudging his blue mitten with its nose, warm late sunlight on the snow.",
+      "next": "a2"
+    },
+    "a2": {
+      "text": "A big husky brought him a harness. It dropped the harness by his boots. Then it looked at his little sled.",
+      "art": "A big fluffy grey-and-white husky dog dropping a leather harness in the snow beside bnjyboy's boots, then looking towards his little wooden sled, warm lantern light glowing from a nearby snow hut.",
+      "next": "a3"
+    },
+    "a3": {
+      "text": "Benjie clipped the harness on gently. The dogs pulled eagerly at the rope. A yip came from a nearby snowbank.",
+      "art": "bnjyboy clipping a leather harness onto three eager fluffy grey-and-white husky dogs beside his little wooden sled, a small yip sounding from a snowbank den nearby, warm orange evening light.",
+      "choices": [
+        {
+          "em": "🛷",
+          "text": "Ride off on the sled",
+          "to": "aa1"
+        },
+        {
+          "em": "🐾",
+          "text": "Visit the puppy den",
+          "to": "ab1"
+        }
+      ]
+    },
+    "b1": {
+      "text": "The frozen sea stretched flat and wide. Ice creaked softly under his boots. It felt thick and safe to walk.",
+      "art": "bnjyboy pulling his little wooden sled onto a wide flat frozen sea, thick blue ice stretching to the horizon under a warm orange sunset sky.",
+      "next": "b2"
+    },
+    "b2": {
+      "text": "A round grey head popped from a hole. Two big dark eyes blinked at him. It watched him without any fear.",
+      "art": "A round grey seal with big dark eyes and smooth flippers poking its head up through a hole in the blue ice, bnjyboy crouching nearby in his red parka, warm sunset light on the ice.",
+      "next": "b3"
+    },
+    "b3": {
+      "text": "The seal slipped back under the ice. Further off rose tall blue ice cliffs. Two ways opened up before him.",
+      "art": "bnjyboy standing on the flat frozen sea, tall glowing blue ice cliffs rising in the distance one way and smooth open ice stretching ahead the other, warm sunset colours on the horizon.",
+      "choices": [
+        {
+          "em": "🦭",
+          "text": "Walk onto the sea ice",
+          "to": "ba1"
+        },
+        {
+          "em": "⛰️",
+          "text": "Climb the ice cliffs",
+          "to": "bb1"
+        }
+      ]
+    },
+    "aa1": {
+      "text": "The sled took off with a jolt. Cold wind rushed past his hood. He held on tight and laughed.",
+      "art": "bnjyboy riding his little wooden sled pulled fast by three fluffy grey-and-white husky dogs across open snow, his red hood streaming behind him, warm low sun lighting the trail.",
+      "next": "aa2"
+    },
+    "aa2": {
+      "text": "They raced past a frozen lake. Ahead stood shapes carved from snow. The huskies slowed down to look.",
+      "art": "bnjyboy on his sled pulled by fluffy grey-and-white husky dogs slowing beside a wide frozen lake, tall snow sculptures of animals standing ahead in the distance, warm pink evening sky.",
+      "next": "aa3"
+    },
+    "aa3": {
+      "text": "The lake ice looked smooth and shiny. The snow shapes stood tall and still. Benjie could not decide which first.",
+      "art": "bnjyboy standing between his sled team of fluffy grey-and-white husky dogs, a smooth frozen lake glinting one way and tall carved snow sculptures standing the other, warm sunset light over the snow.",
+      "choices": [
+        {
+          "em": "❄️",
+          "text": "Race across the frozen lake",
+          "to": "aaa1"
+        },
+        {
+          "em": "⛄",
+          "text": "Look at the snow sculptures",
+          "to": "aab1"
+        }
+      ]
+    },
+    "ab1": {
+      "text": "The yip led to a snow bank. A small den was dug inside. Tiny puppies tumbled out to see.",
+      "art": "bnjyboy kneeling beside a cosy den dug into a snow bank, several small fluffy grey-and-white husky puppies tumbling out to greet him, warm lantern glow from a nearby snow hut.",
+      "next": "ab2"
+    },
+    "ab2": {
+      "text": "The puppies climbed onto his boots. One chewed gently on his mitten. Their fur felt soft and warm.",
+      "art": "Small fluffy grey-and-white husky puppies climbing over bnjyboy's snow boots and chewing gently on his blue mitten, warm golden light from a lantern hanging above the den.",
+      "next": "ab3"
+    },
+    "ab3": {
+      "text": "A puppy grabbed his mitten string. It pulled with all its might. The others rolled and tumbled nearby.",
+      "art": "A small fluffy grey-and-white husky puppy tugging playfully on a loose mitten string held by bnjyboy, other puppies rolling and tumbling in the snow beside them, warm lantern light nearby.",
+      "choices": [
+        {
+          "em": "🪢",
+          "text": "Play tug of war",
+          "to": "aba1"
+        },
+        {
+          "em": "🍼",
+          "text": "Help feed the puppies",
+          "to": "abb1"
+        }
+      ]
+    },
+    "ba1": {
+      "text": "Benjie walked further onto the ice. The seal popped up again nearby. It slid closer across the ice.",
+      "art": "bnjyboy walking further out onto the flat frozen sea, a round grey seal with big dark eyes and smooth flippers sliding closer across the blue ice towards him, warm orange sunset glow.",
+      "next": "ba2"
+    },
+    "ba2": {
+      "text": "The seal rolled onto its back. It flapped its flippers happily. Benjie clapped his mittens together.",
+      "art": "A round grey seal with big dark eyes rolling playfully onto its back on the blue ice, flippers flapping, bnjyboy clapping his blue mittens beside it in warm sunset light.",
+      "next": "ba3"
+    },
+    "ba3": {
+      "text": "Near the seal was a breathing hole. Small fish darted below the surface. The seal seemed ready to show him.",
+      "art": "bnjyboy kneeling beside a round breathing hole in the blue ice where small fish dart below, the round grey seal with big dark eyes waiting close by, warm sunset colours on the ice.",
+      "choices": [
+        {
+          "em": "🐟",
+          "text": "Watch it fish for dinner",
+          "to": "baa1"
+        },
+        {
+          "em": "🛝",
+          "text": "Slide across the ice together",
+          "to": "bab1"
+        }
+      ]
+    },
+    "bb1": {
+      "text": "The ice cliffs rose up high. Benjie found sturdy steps of ice. He climbed carefully, one step up.",
+      "art": "bnjyboy climbing sturdy natural steps carved into a tall glowing blue ice cliff, his little wooden sled left behind on the frozen sea below, warm sunset light on the ice.",
+      "next": "bb2"
+    },
+    "bb2": {
+      "text": "At the top he stopped to look. A big white shape lay resting. Nearby a dark gap led downward.",
+      "art": "bnjyboy standing at the top of the ice cliff, a huge white white polar bear with a black nose and thick furry paws resting peacefully nearby, a dark cave opening in the ice behind them, warm sunset light.",
+      "next": "bb3"
+    },
+    "bb3": {
+      "text": "The big bear opened one sleepy eye. The dark gap glowed faintly blue. Benjie looked between the two wonders.",
+      "art": "A huge white white polar bear with a black nose and thick furry paws opening one sleepy eye on the ice cliff top, a faint blue glow coming from a dark cave gap nearby, bnjyboy looking between them, warm sunset light.",
+      "choices": [
+        {
+          "em": "🐻‍❄️",
+          "text": "Meet the polar bear",
+          "to": "bba1"
+        },
+        {
+          "em": "🕳️",
+          "text": "Look inside the cave",
+          "to": "bbb1"
+        }
+      ]
+    },
+    "aaa1": {
+      "text": "The huskies dashed onto the lake. The sled slid smooth and fast. Benjie whooped with pure delight.",
+      "art": "bnjyboy on his little wooden sled pulled fast by fluffy grey-and-white husky dogs sliding smoothly across a wide frozen lake, spray of snow behind them, warm pink evening sky above.",
+      "next": "aaa2"
+    },
+    "aaa2": {
+      "text": "The sky above began to change. Soft green ribbons started to glow. The huskies slowed to watch too.",
+      "art": "bnjyboy and his fluffy grey-and-white husky dog team slowing to a stop on the frozen lake, soft green ribbons of northern lights beginning to glow across the darkening sky above them.",
+      "next": "aaa3"
+    },
+    "aaa3": {
+      "text": "One edge of the lake had smooth ice. Above him the lights grew brighter. Benjie wanted to do both things.",
+      "art": "bnjyboy standing on the frozen lake beside his husky sled team, smooth ice stretching to one side and swirling green northern lights growing brighter overhead, warm lantern glow from his sled lamp.",
+      "choices": [
+        {
+          "em": "🌌",
+          "text": "Watch the lights grow bright",
+          "to": "aaaa1"
+        },
+        {
+          "em": "⛸️",
+          "text": "Skate across the smooth ice",
+          "to": "aaab1"
+        }
+      ]
+    },
+    "aab1": {
+      "text": "The snow shapes stood in a row. One looked like a round owl. Another looked like a sitting bear.",
+      "art": "bnjyboy standing beside a row of carved snow sculptures, one shaped like a round fluffy owl and another shaped like a sitting bear, warm lantern light glowing on the snow around them.",
+      "next": "aab2"
+    },
+    "aab2": {
+      "text": "Benjie touched the smooth carved snow. Someone had shaped every tiny feather. The huskies sniffed around the statues.",
+      "art": "bnjyboy touching the smooth carved feathers on a snow sculpture shaped like an owl, fluffy grey-and-white husky dogs sniffing curiously around the snow statues, warm golden lantern light.",
+      "next": "aab3"
+    },
+    "aab3": {
+      "text": "The owl sculpture faced the dark sky. The bear sculpture faced a soft slope. Both statues seemed to invite him closer.",
+      "art": "bnjyboy standing between two snow sculptures, a carved owl facing the darkening sky and a carved bear facing a soft snowy slope, warm lantern glow lighting both statues.",
+      "choices": [
+        {
+          "em": "🦉",
+          "text": "Look up at the owl",
+          "to": "aaba1"
+        },
+        {
+          "em": "🐻",
+          "text": "Look at the bear statue",
+          "to": "aabb1"
+        }
+      ]
+    },
+    "aba1": {
+      "text": "Benjie grabbed the rope end tight. A puppy grabbed the other end. They pulled back and forth happily.",
+      "art": "bnjyboy tugging playfully on a rope with a small fluffy grey-and-white husky puppy gripping the other end, both pulling back and forth in the snow, warm lantern light glowing nearby.",
+      "next": "aba2"
+    },
+    "aba2": {
+      "text": "The puppy braced its little paws. It growled a tiny fierce growl. Benjie laughed and pulled back gently.",
+      "art": "A small fluffy grey-and-white husky puppy bracing its paws in the snow gripping a rope, bnjyboy laughing as he pulls back gently, warm golden lantern light on the snowy ground.",
+      "next": "aba3"
+    },
+    "aba3": {
+      "text": "The rope finally slipped from his mittens. The puppy tumbled backward with the rope. Other puppies came bouncing over too.",
+      "art": "A small fluffy grey-and-white husky puppy tumbling backward proudly with a rope in its mouth, more puppies bouncing over through the snow towards bnjyboy, warm lantern light glowing behind them.",
+      "choices": [
+        {
+          "em": "🏆",
+          "text": "Let the puppy keep it",
+          "to": "abaa1"
+        },
+        {
+          "em": "😆",
+          "text": "Tumble into the snow",
+          "to": "abab1"
+        }
+      ]
+    },
+    "abb1": {
+      "text": "A big husky nosed a food bowl. It was the puppies' mother dog. She looked at Benjie for help.",
+      "art": "A large fluffy grey-and-white mother husky dog nosing an empty wooden food bowl in the snow, looking up at bnjyboy for help, warm lantern light glowing from the den entrance.",
+      "next": "abb2"
+    },
+    "abb2": {
+      "text": "He carried the bowl inside the den. Warm milk sat ready in a jug. He poured it carefully into the bowl.",
+      "art": "bnjyboy carrying a wooden bowl into a cosy snow den, pouring warm milk from a jug for a litter of fluffy grey-and-white husky puppies, warm lantern glow lighting the den walls.",
+      "next": "abb3"
+    },
+    "abb3": {
+      "text": "The puppies lapped up the warm milk. The mother dog nuzzled his mitten. Then every puppy grew very sleepy.",
+      "art": "Several fluffy grey-and-white husky puppies lapping warm milk from a wooden bowl while the mother husky nuzzles bnjyboy's blue mitten, warm lantern light glowing softly over the den.",
+      "choices": [
+        {
+          "em": "🥛",
+          "text": "Warm up one more bowl",
+          "to": "abba1"
+        },
+        {
+          "em": "💤",
+          "text": "Nap with the sleepy puppies",
+          "to": "abbb1"
+        }
+      ]
+    },
+    "baa1": {
+      "text": "The seal dove into the hole. Bubbles rose up from below. Benjie watched, holding his breath.",
+      "art": "A round grey seal with big dark eyes diving through a breathing hole into dark blue water, bubbles rising to the surface, bnjyboy watching closely in warm sunset light.",
+      "next": "baa2"
+    },
+    "baa2": {
+      "text": "Up popped the seal with a fish. Silver scales flashed in the light. It flipped the fish onto the ice.",
+      "art": "A round grey seal with big dark eyes popping up through the ice hole holding a silver fish, flipping it onto the blue ice beside bnjyboy, warm sunset light glinting off the scales.",
+      "next": "baa3"
+    },
+    "baa3": {
+      "text": "The seal nudged the fish towards him. It seemed to want to share. Or it might dive for another.",
+      "art": "A round grey seal with big dark eyes nudging a shiny silver fish across the blue ice towards bnjyboy, the breathing hole open behind it, warm sunset colours on the ice.",
+      "choices": [
+        {
+          "em": "🎁",
+          "text": "Accept the seal's gift",
+          "to": "baaa1"
+        },
+        {
+          "em": "🌊",
+          "text": "Watch it dive back down",
+          "to": "baab1"
+        }
+      ]
+    },
+    "bab1": {
+      "text": "Benjie sat down on the ice. The seal bumped him from behind. He slid a little way forward.",
+      "art": "bnjyboy sitting on the smooth blue ice being gently bumped forward by a round grey seal with big dark eyes and smooth flippers, both sliding a little way, warm sunset light on the ice.",
+      "next": "bab2"
+    },
+    "bab2": {
+      "text": "They slid back and forth together. The seal barked a happy bark. Benjie slid faster every time.",
+      "art": "bnjyboy and a round grey seal with big dark eyes sliding back and forth together across the smooth blue ice, both moving faster each time, warm sunset glow reflecting on the surface.",
+      "next": "bab3"
+    },
+    "bab3": {
+      "text": "The ice curved into a smooth circle. A clear patch showed the water below. Benjie had two fun ideas now.",
+      "art": "bnjyboy on a smooth curved patch of blue ice beside a round grey seal with big dark eyes, a clear icy window showing the water below nearby, warm sunset colours glowing on the ice.",
+      "choices": [
+        {
+          "em": "🌀",
+          "text": "Spin around on the ice",
+          "to": "baba1"
+        },
+        {
+          "em": "🔍",
+          "text": "Peek through the icy window",
+          "to": "babb1"
+        }
+      ]
+    },
+    "bba1": {
+      "text": "Benjie stepped closer to the bear. It lifted its big furry head. It sniffed the air towards him.",
+      "art": "bnjyboy stepping carefully towards a huge white white polar bear with a black nose and thick furry paws lifting its head to sniff the air, warm sunset light glowing across the ice cliff.",
+      "next": "bba2"
+    },
+    "bba2": {
+      "text": "The bear rolled onto its side. It patted the snow beside it. Benjie sat down close to it.",
+      "art": "A huge white white polar bear with a black nose and thick furry paws rolling onto its side and patting the snow, bnjyboy sitting down beside it, warm sunset light on the ice cliff top.",
+      "next": "bba3"
+    },
+    "bba3": {
+      "text": "The bear had caught a big fish. A soft snowbank sloped down nearby. The bear looked ready for either.",
+      "art": "A huge white white polar bear with a black nose and thick furry paws resting beside a caught fish on the ice, a soft snowbank sloping down close by, bnjyboy deciding what to do, warm sunset light.",
+      "choices": [
+        {
+          "em": "🐟",
+          "text": "Share the fish together",
+          "to": "bbaa1"
+        },
+        {
+          "em": "🛷",
+          "text": "Slide down the snowbank",
+          "to": "bbab1"
+        }
+      ]
+    },
+    "bbb1": {
+      "text": "Benjie stepped into the dark gap. Blue light glowed from further in. The air felt cool and still.",
+      "art": "bnjyboy stepping through a dark gap into an ice cave, soft blue light glowing from deeper inside, warm lantern glow held in his mitten.",
+      "next": "bbb2"
+    },
+    "bbb2": {
+      "text": "He walked deeper into the cave. The walls sparkled with tiny crystals. Somewhere ahead came a soft hiss.",
+      "art": "bnjyboy walking deeper into a glowing blue ice cave, walls sparkling with tiny ice crystals, warm lantern light in his hand lighting the way ahead.",
+      "next": "bbb3"
+    },
+    "bbb3": {
+      "text": "One tunnel glittered with blue crystals. Another tunnel had warm rising steam. Benjie chose a way to go.",
+      "art": "bnjyboy standing where an ice cave splits into two tunnels, one sparkling with blue crystals and the other filled with warm rising steam, lantern light glowing in his mitten.",
+      "choices": [
+        {
+          "em": "💎",
+          "text": "Follow the sparkling crystals",
+          "to": "bbba1"
+        },
+        {
+          "em": "♨️",
+          "text": "Follow the warm steam",
+          "to": "bbbb1"
+        }
+      ]
+    },
+    "aaaa1": {
+      "text": "The green ribbons spread wide overhead. Benjie lay back on his sled. The huskies curled up around him.",
+      "art": "bnjyboy lying back on his little wooden sled, wide green ribbons of northern lights spreading across the dark sky above, fluffy grey-and-white husky dogs curling up warmly around him.",
+      "next": "aaaa2"
+    },
+    "aaaa2": {
+      "text": "Purple and pink joined the green. The whole sky seemed to dance. Light rippled like a soft curtain.",
+      "art": "bnjyboy watching from his sled as purple and pink join swirling green northern lights rippling like a curtain across the whole night sky, husky dogs resting warmly beside him.",
+      "next": "aaaa3"
+    },
+    "aaaa3": {
+      "text": "Benjie had never seen anything so bright. The lights lit up the whole lake. He watched until his eyes grew heavy.",
+      "art": "bnjyboy resting happily against a warm husky dog, brilliant swirling northern lights of green, pink and purple lighting up the whole frozen lake around them.",
+      "end": true
+    },
+    "aaab1": {
+      "text": "Benjie slid across on his boots. The ice was smooth as glass. He glided further than he expected.",
+      "art": "bnjyboy gliding on his snow boots across glassy smooth ice, his red parka bright against the blue-white lake, fluffy grey-and-white husky dogs trotting along the shore beside him.",
+      "next": "aaab2"
+    },
+    "aaab2": {
+      "text": "A roaring sound grew up ahead. Huge icicles hung like glass spikes. A whole waterfall stood frozen solid.",
+      "art": "bnjyboy skating up to a huge frozen waterfall, giant icicles hanging like glass spikes down the frozen cascade, warm orange sunset light glowing through the ice.",
+      "next": "aaab3"
+    },
+    "aaab3": {
+      "text": "Benjie touched one giant icicle gently. It rang like a soft bell. The whole frozen waterfall softly hummed.",
+      "art": "bnjyboy gently touching a giant icicle on a frozen waterfall, warm golden sunset light glowing through the towering frozen cascade behind him.",
+      "end": true
+    },
+    "aaba1": {
+      "text": "Benjie looked up at the sculpture. Soft wings fluttered right above it. A real snowy owl swooped down.",
+      "art": "bnjyboy looking up at a snow sculpture shaped like an owl as a real fluffy white snowy owl with round yellow eyes swoops down from the dark sky, warm lantern light glowing below.",
+      "next": "aaba2"
+    },
+    "aaba2": {
+      "text": "The owl landed on the sculpture's head. It looked exactly like its twin. Benjie could hardly tell them apart.",
+      "art": "A real fluffy white snowy owl with round yellow eyes landing beside the carved snow owl sculpture, its head level with the sculpture's head, bnjyboy watching close by in warm lantern light.",
+      "next": "aaba3"
+    },
+    "aaba3": {
+      "text": "The owl blinked its big yellow eyes. Then it hooted softly at him. Benjie hooted back as best he could.",
+      "art": "bnjyboy standing beside the carved snow owl, a real fluffy white snowy owl with round yellow eyes perched close by hooting softly, warm lantern light glowing over the snowy scene.",
+      "end": true
+    },
+    "aabb1": {
+      "text": "Benjie walked around the snow bear. One paw looked still unfinished. A little pile of snow sat ready.",
+      "art": "bnjyboy walking around a large snow sculpture shaped like a sitting bear, one paw left unfinished with a small pile of extra snow beside it, warm lantern light glowing nearby.",
+      "next": "aabb2"
+    },
+    "aabb2": {
+      "text": "He patted snow onto the paw. He smoothed it round and neat. The bear looked finished at last.",
+      "art": "bnjyboy patting fresh snow onto the unfinished paw of a snow bear sculpture, smoothing it round and neat, warm lantern light glowing on the snow around him.",
+      "next": "aabb3"
+    },
+    "aabb3": {
+      "text": "Benjie stepped back to see his work. The bear stood tall and proud. He had helped finish something wonderful.",
+      "art": "bnjyboy standing back proudly admiring the finished snow bear sculpture, warm lantern light glowing over the snow sculptures around him under a darkening sky.",
+      "end": true
+    },
+    "abaa1": {
+      "text": "The puppy trotted off with its prize. It looked very proud indeed. Benjie clapped for its big win.",
+      "art": "A small fluffy grey-and-white husky puppy trotting proudly with a rope in its mouth, bnjyboy clapping happily nearby, warm lantern light glowing over the snowy den.",
+      "next": "abaa2"
+    },
+    "abaa2": {
+      "text": "The puppy came back to Benjie. It flopped down onto his lap. Other puppies piled on top too.",
+      "art": "A small fluffy grey-and-white husky puppy resting against bnjyboy while more puppies gather closely around him in the snow, warm lantern light glowing softly over the den.",
+      "next": "abaa3"
+    },
+    "abaa3": {
+      "text": "Soon a whole warm pile of puppies covered him. They all fell asleep together. Benjie smiled and closed his eyes too.",
+      "art": "bnjyboy surrounded by a warm heap of sleepy fluffy grey-and-white husky puppies curled together in the snow den, warm lantern light glowing gently over them.",
+      "end": true
+    },
+    "abab1": {
+      "text": "Benjie fell backward into soft snow. Puppies bounced onto him happily. He waved his arms and legs.",
+      "art": "bnjyboy lying back in soft snow making a snow angel, several fluffy grey-and-white husky puppies bouncing playfully around him, warm lantern light glowing over the scene.",
+      "next": "abab2"
+    },
+    "abab2": {
+      "text": "A perfect snow angel appeared beneath him. The puppies made tiny prints beside it. Benjie laughed at the funny pattern.",
+      "art": "bnjyboy standing up to admire a snow angel shape in the snow surrounded by tiny paw prints from fluffy grey-and-white husky puppies, warm lantern light glowing over the den.",
+      "next": "abab3"
+    },
+    "abab3": {
+      "text": "They made angel after angel together. Soon the whole yard was covered. Benjie had never laughed so much.",
+      "art": "bnjyboy standing among a whole yard of snow angel shapes and tiny paw prints made with fluffy grey-and-white husky puppies, warm lantern light glowing over the snowy scene.",
+      "end": true
+    },
+    "abba1": {
+      "text": "Benjie poured a second warm bowl. He set it down for the mother. She lapped it up gratefully.",
+      "art": "bnjyboy setting down a wooden bowl of warm milk for a large fluffy grey-and-white mother husky dog lapping gratefully, warm lantern light glowing inside the snow den.",
+      "next": "abba2"
+    },
+    "abba2": {
+      "text": "She nuzzled his mitten with her nose. Her breath felt warm on his hand. The puppies gathered close around them.",
+      "art": "A large fluffy grey-and-white mother husky dog nuzzling bnjyboy's blue mitten gently, several husky puppies gathering close around them, warm lantern light glowing in the den.",
+      "next": "abba3"
+    },
+    "abba3": {
+      "text": "The whole family settled down together. Benjie sat quietly among the pack. He felt like part of the family.",
+      "art": "bnjyboy sitting quietly among a whole family of fluffy grey-and-white husky dogs and puppies curled together, warm lantern light glowing softly over the snow den.",
+      "end": true
+    },
+    "abbb1": {
+      "text": "Benjie lay down among the puppies. Soft fur pressed against his parka. His eyes grew heavy and warm.",
+      "art": "bnjyboy lying down among a litter of sleepy fluffy grey-and-white husky puppies curled against his red parka, warm lantern light glowing softly in the snow den.",
+      "next": "abbb2"
+    },
+    "abbb2": {
+      "text": "He drifted off into a soft sleep. He dreamed of running with the pack. Paws pattered softly beside him.",
+      "art": "bnjyboy fast asleep curled together with a litter of fluffy grey-and-white husky puppies, warm lantern glow lighting the cosy snow den around them.",
+      "next": "abbb3"
+    },
+    "abbb3": {
+      "text": "When he woke the puppies had not moved. They were all still cuddled close. It had been the best nap ever.",
+      "art": "bnjyboy waking up surrounded by a group of cuddled fluffy grey-and-white husky puppies still fast asleep, warm lantern light glowing gently over the snow den.",
+      "end": true
+    },
+    "baaa1": {
+      "text": "Benjie picked up the shiny fish. The seal watched him happily. One silver scale came loose in his mitten.",
+      "art": "bnjyboy holding a shiny silver fish given by a round grey seal with big dark eyes on the blue ice, warm sunset light glinting off the scales.",
+      "next": "baaa2"
+    },
+    "baaa2": {
+      "text": "He held the tiny scale up high. It shimmered like a small mirror. The seal barked as if pleased.",
+      "art": "bnjyboy holding up a tiny shimmering silver fish scale in his blue mitten, a round grey seal with big dark eyes watching happily nearby, warm sunset colours glowing on the ice.",
+      "next": "baaa3"
+    },
+    "baaa3": {
+      "text": "Benjie tucked the scale into his pocket. It would remind him of the seal. A real gift from the frozen sea.",
+      "art": "bnjyboy tucking a tiny shimmering fish scale into his parka pocket, the round grey seal with big dark eyes resting nearby on the ice, warm sunset light glowing across the frozen sea.",
+      "end": true
+    },
+    "baab1": {
+      "text": "The seal dove deep below the ice. Benjie peered down through the hole. Something glowed softly in the dark water.",
+      "art": "bnjyboy peering down through a round breathing hole in the blue ice, a round grey seal with big dark eyes diving deep into glowing dark water below.",
+      "next": "baab2"
+    },
+    "baab2": {
+      "text": "Tiny lights drifted like floating stars. More seals swam past down there. The whole sea seemed to sparkle.",
+      "art": "bnjyboy looking down through the ice hole at tiny glowing lights drifting like floating stars underwater, several round grey seals with big dark eyes swimming past below, warm lantern light in his mitten.",
+      "next": "baab3"
+    },
+    "baab3": {
+      "text": "Benjie watched the glow for a long time. It looked like an upside down sky. The frozen sea kept its own stars.",
+      "art": "bnjyboy gazing down through the breathing hole at a glowing underwater world of tiny drifting lights and swimming seals, warm lantern glow reflecting on the blue ice around him.",
+      "end": true
+    },
+    "baba1": {
+      "text": "Benjie pushed off and started spinning. The seal spun in a circle too. Snow and sky blurred together.",
+      "art": "bnjyboy spinning happily on smooth blue ice beside a round grey seal with big dark eyes also spinning in a circle, warm sunset colours blurring around them.",
+      "next": "baba2"
+    },
+    "baba2": {
+      "text": "Benjie wobbled to a dizzy stop. The seal flopped over, laughing loudly. Benjie flopped down right beside it.",
+      "art": "bnjyboy wobbling to a dizzy stop and flopping down in the snow beside a round grey seal with big dark eyes also flopped over, warm sunset light glowing on the ice.",
+      "next": "baba3"
+    },
+    "baba3": {
+      "text": "They lay there giggling at the sky. The world slowly stopped spinning around them. It had been the dizziest, happiest game.",
+      "art": "bnjyboy lying happily in the snow beside a round grey seal with big dark eyes, both looking up at the sky after spinning, warm sunset colours glowing above the frozen sea.",
+      "end": true
+    },
+    "babb1": {
+      "text": "Benjie knelt by the clear ice patch. He cupped his mittens around his eyes. He peered through like a window.",
+      "art": "bnjyboy kneeling on the blue ice, cupping his blue mittens around his eyes and peering through a clear icy patch like a window, warm sunset light glowing on the surface.",
+      "next": "babb2"
+    },
+    "babb2": {
+      "text": "A whole school of silver fish hung there. They floated frozen in mid-swim. It looked like a painted picture.",
+      "art": "bnjyboy peering through clear blue ice at a whole school of silvery fish floating frozen mid-swim beneath the surface, warm sunset light glowing through the ice.",
+      "next": "babb3"
+    },
+    "babb3": {
+      "text": "Benjie pressed his mitten flat on the ice. The fish seemed to shimmer beneath it. He had found a secret painting.",
+      "art": "bnjyboy pressing his blue mitten flat against clear ice above a shimmering school of frozen silver fish, warm sunset light glowing through the icy window.",
+      "end": true
+    },
+    "bbaa1": {
+      "text": "Benjie sat down beside the big bear. The bear pushed the fish towards him. He broke off a small piece.",
+      "art": "bnjyboy sitting beside a huge white white polar bear with a black nose and thick furry paws, the bear pushing a caught fish towards him on the ice cliff top, warm sunset light glowing.",
+      "next": "bbaa2"
+    },
+    "bbaa2": {
+      "text": "They shared the fish quietly together. The bear hummed a low rumble. The sun sank low and orange.",
+      "art": "bnjyboy and a huge white white polar bear with a black nose and thick furry paws sharing a fish quietly on the ice cliff, warm orange sunset sinking low behind them.",
+      "next": "bbaa3"
+    },
+    "bbaa3": {
+      "text": "They watched the whole sky turn orange. The bear rested its head nearby. Benjie had made a giant friend.",
+      "art": "bnjyboy resting beside a huge white white polar bear with a black nose and thick furry paws on the ice cliff top, brilliant orange sunset filling the whole sky behind them.",
+      "end": true
+    },
+    "bbab1": {
+      "text": "Benjie climbed onto the soft snowbank. The bear climbed up right beside him. Together they pushed off down it.",
+      "art": "bnjyboy and a huge white white polar bear with a black nose and thick furry paws climbing to the top of a soft snowbank together, warm sunset light glowing over the ice cliff.",
+      "next": "bbab2"
+    },
+    "bbab2": {
+      "text": "They slid down in a rush. Snow sprayed up on both sides. Benjie laughed the whole way down.",
+      "art": "bnjyboy sliding down a snowbank in a spray of snow beside a huge white white polar bear with a black nose and thick furry paws, both laughing, warm sunset light around them.",
+      "next": "bbab3"
+    },
+    "bbab3": {
+      "text": "They climbed back up again and again. Every slide felt faster than the last. Benjie never wanted the fun to stop.",
+      "art": "bnjyboy and a huge white white polar bear with a black nose and thick furry paws sliding down the snowbank together again, warm sunset light glowing across the snow and ice.",
+      "end": true
+    },
+    "bbba1": {
+      "text": "Benjie followed the sparkling blue tunnel. Crystals grew right out of the walls. His lantern lit them up brightly.",
+      "art": "bnjyboy walking through a narrow ice tunnel lined with huge sparkling blue crystals growing from the walls, warm lantern light glowing in his mitten.",
+      "next": "bbba2"
+    },
+    "bbba2": {
+      "text": "The whole tunnel opened into a hall. Every wall glittered like a jewel. Benjie spun slowly to see it all.",
+      "art": "bnjyboy standing in a wide ice cave hall with every wall glittering with huge blue crystals, warm lantern light in his mitten reflecting off every surface.",
+      "next": "bbba3"
+    },
+    "bbba3": {
+      "text": "Benjie had found a whole room of jewels. None of it was cold to touch. He stayed and watched the sparkle glow.",
+      "art": "bnjyboy standing amazed inside a glittering ice cave completely covered in blue crystals, warm lantern glow lighting up the whole sparkling room.",
+      "end": true
+    },
+    "bbbb1": {
+      "text": "Benjie followed the warm rising steam. The air grew warmer with every step. Ahead the tunnel glowed soft orange.",
+      "art": "bnjyboy walking through a narrow ice tunnel filled with warm rising steam, soft orange light glowing ahead in the tunnel.",
+      "next": "bbbb2"
+    },
+    "bbbb2": {
+      "text": "The tunnel opened to a steaming pool. Warm water bubbled among the ice. Steam curled up into the cold air.",
+      "art": "bnjyboy stepping into a wide ice cave chamber with a steaming warm pool bubbling among the blue ice, curling steam glowing orange in the lantern light.",
+      "next": "bbbb3"
+    },
+    "bbbb3": {
+      "text": "Benjie dipped his boots into the water. It felt warm as a bath. He sat by the hot spring, cosy.",
+      "art": "bnjyboy sitting at the edge of a warm steaming hot spring pool inside the ice cave, feet dipped in the water, soft orange steam glowing around him.",
+      "end": true
+    }
+  }
+}

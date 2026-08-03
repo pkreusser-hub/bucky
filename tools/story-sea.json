@@ -1,0 +1,654 @@
+{
+  "id": "sea",
+  "title": "Benjie's Yellow Submarine",
+  "em": "🐙",
+  "cast": "bnjyboy is a cheerful boy in a BRIGHT YELLOW wetsuit and a round diving helmet with a clear visor. He pilots a little yellow submarine with round portholes and a small periscope. He is the ONLY person in this story and he is always alone. The ocean is warm and blue, full of coral reefs, shipwrecks and gentle sea creatures.",
+  "keep": "bnjyboy in a BRIGHT YELLOW wetsuit (always yellow, never grey or black or teal) and a round diving helmet. Exactly ONE child in the picture, alone. No other people.",
+  "nodes": {
+    "p1": {
+      "text": "Benjie walked along the old dock. A little yellow submarine bobbed there. No one else was around.",
+      "art": "bnjyboy standing on a wooden dock beside a small round yellow submarine floating in the water, bright sunny harbor.",
+      "next": "p2"
+    },
+    "p2": {
+      "text": "He climbed down through the hatch. Round buttons glowed on the wall. A little window showed the sea.",
+      "art": "Inside the small submarine cabin, bnjyboy climbing down through the open round hatch, glowing buttons on the wall and a round window showing the sea outside.",
+      "next": "p3"
+    },
+    "p3": {
+      "text": "He pulled the big lever down. The submarine sank slowly and softly. Bubbles rose past the round window.",
+      "art": "bnjyboy pulling a big lever inside the submarine cabin, bubbles rising past the round window as the submarine sinks. Bright shafts of sunlight slant down through clear turquoise water.",
+      "next": "p4"
+    },
+    "p4": {
+      "text": "Sunlight faded into soft blue light. Round silver fish swam past outside. The ocean seemed to go forever.",
+      "art": "Through the submarine's round window, bnjyboy watching round silver fish swim past in soft fading blue light, the deep ocean stretching into the distance. Clear sunlit blue water, bright and colourful.",
+      "next": "p5"
+    },
+    "p5": {
+      "text": "A tall coral reef rose ahead. It glowed soft pink and orange. Something sparkled deep inside the reef.",
+      "art": "bnjyboy piloting the little yellow submarine toward a tall coral reef glowing pink and orange, a small sparkle glimmering deep within it.",
+      "next": "p6"
+    },
+    "p6": {
+      "text": "Two openings appeared in the reef. One glowed with soft green light. One had bubbles streaming out fast.",
+      "art": "Two tunnel openings in the coral reef in front of bnjyboy's submarine, one glowing soft green and one with a stream of bubbles rushing out.",
+      "choices": [
+        {
+          "em": "💚",
+          "text": "Swim into the green tunnel",
+          "to": "a1"
+        },
+        {
+          "em": "🫧",
+          "text": "Follow the streaming bubbles",
+          "to": "b1"
+        }
+      ]
+    },
+    "a1": {
+      "text": "The tunnel glowed soft green light. Little lights blinked along the walls. The submarine hummed as it glided.",
+      "art": "bnjyboy piloting the submarine through a glowing green coral tunnel, small lights blinking along the walls.",
+      "next": "a2"
+    },
+    "a2": {
+      "text": "The tunnel opened into bright water. Fish of every color swam past. A big shadow moved up ahead.",
+      "art": "bnjyboy's submarine emerging from the tunnel into bright open water full of colorful fish, a large shadow moving in the distance ahead.",
+      "next": "a3"
+    },
+    "a3": {
+      "text": "The shadow was a giant turtle. It swam along in no hurry. Ahead, a swirl of fish appeared.",
+      "art": "A giant sea turtle with a big round shell and flippers swimming calmly near bnjyboy's submarine, a swirling ball of small fish visible ahead. Warm light from the submarine glows across the scene.",
+      "choices": [
+        {
+          "em": "🐢",
+          "text": "Follow the sea turtle",
+          "to": "aa1"
+        },
+        {
+          "em": "🐟",
+          "text": "Chase the fish tornado",
+          "to": "ab1"
+        }
+      ]
+    },
+    "b1": {
+      "text": "Bubbles rushed up past the window. Benjie steered the submarine after them. They led toward a rocky ledge.",
+      "art": "bnjyboy steering the little submarine after a rushing stream of bubbles, heading toward a rocky underwater ledge. Sunlight ripples over everything in bright turquoise water.",
+      "next": "b2"
+    },
+    "b2": {
+      "text": "An old ship rested on the ledge. Seaweed draped over its wooden deck. Barnacles covered its faded hull.",
+      "art": "An old wooden shipwreck resting on a rocky underwater ledge, seaweed draped over its deck and barnacles covering the hull, bnjyboy's submarine approaching. Bright shafts of sunlight slant down through clear turquoise water.",
+      "next": "b3"
+    },
+    "b3": {
+      "text": "Benjie parked the submarine beside it. The deck looked old and quiet. A dark hold sat down below.",
+      "art": "bnjyboy's little submarine parked beside the old shipwreck, a quiet mossy deck above and a dark open hold below. Clear sunlit blue water, bright and colourful.",
+      "choices": [
+        {
+          "em": "⚓",
+          "text": "Climb onto the deck",
+          "to": "ba1"
+        },
+        {
+          "em": "🕳️",
+          "text": "Dive into the dark hold",
+          "to": "bb1"
+        }
+      ]
+    },
+    "aa1": {
+      "text": "Benjie swam out beside the turtle. It let him hold its shell. Together they glided through the water.",
+      "art": "bnjyboy swimming outside the submarine in his yellow diving suit and round helmet, one hand resting gently on the shell of a giant sea turtle beside him. Warm light from the submarine glows across the scene.",
+      "next": "aa2"
+    },
+    "aa2": {
+      "text": "The turtle led him past the reef. Small cleaner fish darted all around. Ahead, a patch of kelp waved.",
+      "art": "bnjyboy swimming alongside the sea turtle past a coral reef, small striped fish darting around them, a tall patch of kelp swaying ahead. Sunlight ripples over everything in bright turquoise water.",
+      "next": "aa3"
+    },
+    "aa3": {
+      "text": "The turtle slowed near the kelp. Little fish gathered at a rock. Benjie could go either way now.",
+      "art": "The sea turtle slowing beside bnjyboy near a tall swaying kelp forest, small fish gathering at a nearby cleaning rock, both paths open ahead. Bright shafts of sunlight slant down through clear turquoise water.",
+      "choices": [
+        {
+          "em": "🌿",
+          "text": "Swim into the kelp forest",
+          "to": "aaa1"
+        },
+        {
+          "em": "✨",
+          "text": "Stop at the cleaning station",
+          "to": "aab1"
+        }
+      ]
+    },
+    "ab1": {
+      "text": "Benjie swam toward the fish tornado. Hundreds of fish spun in circles. They shimmered like a silver ribbon.",
+      "art": "bnjyboy in his diving suit swimming toward a huge swirling ball of small silver fish, the fish moving together like a shimmering ribbon. Clear sunlit blue water, bright and colourful.",
+      "next": "ab2"
+    },
+    "ab2": {
+      "text": "The fish tornado spun all around him. Benjie floated right in the middle. It felt like a gentle silver storm.",
+      "art": "bnjyboy floating in the calm center of a swirling silver fish tornado, thousands of small fish circling all around him. Warm light from the submarine glows across the scene.",
+      "next": "ab3"
+    },
+    "ab3": {
+      "text": "The tornado began to slowly stretch. It opened like a curtain parting. Two different sights waited on either side.",
+      "art": "The swirling fish tornado stretching open like a parting curtain around bnjyboy, two different underwater scenes visible on either side. Sunlight ripples over everything in bright turquoise water.",
+      "choices": [
+        {
+          "em": "🌪️",
+          "text": "Swim deeper into the swirl",
+          "to": "aba1"
+        },
+        {
+          "em": "🏖️",
+          "text": "Swim down to the sand",
+          "to": "abb1"
+        }
+      ]
+    },
+    "ba1": {
+      "text": "Benjie climbed up onto the deck. Green moss covered the old boards. A tall broken mast rose upward.",
+      "art": "bnjyboy in his diving suit climbing onto the mossy wooden deck of the old shipwreck, a tall broken mast rising above him. Bright shafts of sunlight slant down through clear turquoise water.",
+      "next": "ba2"
+    },
+    "ba2": {
+      "text": "Small crabs scuttled across the boards. Round portholes lined the ship's side. The crow's nest sat high above.",
+      "art": "Small crabs scuttling across the mossy deck, a row of round glowing portholes along the ship's side, and a crow's nest high on the mast above, bnjyboy looking around.",
+      "next": "ba3"
+    },
+    "ba3": {
+      "text": "Benjie stood between the two spots. The crow's nest looked high and windy. The portholes glowed soft and warm.",
+      "art": "bnjyboy standing on the shipwreck deck between the tall crow's nest above and a row of glowing round portholes along the hull beside him.",
+      "choices": [
+        {
+          "em": "🔭",
+          "text": "Climb to the crow's nest",
+          "to": "baa1"
+        },
+        {
+          "em": "🔵",
+          "text": "Peek through the portholes",
+          "to": "bab1"
+        }
+      ]
+    },
+    "bb1": {
+      "text": "Benjie swam down into the hold. It was dark, cool, and quiet. Two things caught his eye at once.",
+      "art": "bnjyboy swimming down into the dark quiet hold of the shipwreck, two glimmers of interest visible in the shadows. Clear sunlit blue water, bright and colourful.",
+      "next": "bb2"
+    },
+    "bb2": {
+      "text": "A wooden chest sat in one corner. A soft light glowed in the other. A rusty chain led off somewhere else.",
+      "art": "Inside the dark ship's hold, bnjyboy looking at an old wooden chest in one corner, a soft glow in another corner, and a rusty chain trailing off into the dark.",
+      "next": "bb3"
+    },
+    "bb3": {
+      "text": "Benjie shone his helmet light around. The chest glinted, and the glow pulsed. He had to pick just one.",
+      "art": "bnjyboy shining a light from his diving helmet around the dark hold, an old glinting chest on one side and a soft pulsing glow on the other.",
+      "choices": [
+        {
+          "em": "💰",
+          "text": "Open the old chest",
+          "to": "bba1"
+        },
+        {
+          "em": "🔦",
+          "text": "Follow the soft glow",
+          "to": "bbb1"
+        }
+      ]
+    },
+    "aaa1": {
+      "text": "Benjie swam into the kelp forest. Tall green fronds swayed all around. Sunlight speckled down through the leaves.",
+      "art": "bnjyboy in his diving suit swimming into a tall swaying kelp forest, sunlight speckling down through the green fronds.",
+      "next": "aaa2"
+    },
+    "aaa2": {
+      "text": "Something small moved among the kelp. Benjie floated closer to take a look. Two round eyes peeked out shyly.",
+      "art": "bnjyboy floating closer to a patch of swaying kelp fronds where two round eyes peek out shyly from inside. Warm light from the submarine glows across the scene.",
+      "next": "aaa3"
+    },
+    "aaa3": {
+      "text": "The kelp forest held many secrets. Splashing sounded from somewhere close by. Something else lay hidden in the fronds.",
+      "art": "bnjyboy hovering in the swaying kelp forest, playful splashing visible on one side and something camouflaged hidden among the fronds on the other. Sunlight ripples over everything in bright turquoise water.",
+      "choices": [
+        {
+          "em": "🦦",
+          "text": "Watch the splashing otters",
+          "to": "aaaa1"
+        },
+        {
+          "em": "🔍",
+          "text": "Look closer at the kelp",
+          "to": "aaab1"
+        }
+      ]
+    },
+    "aab1": {
+      "text": "The turtle stopped near a big rock. Small fish waited in a busy line. This was a cleaning station, it seemed.",
+      "art": "The sea turtle pausing beside bnjyboy near a large rock where small striped fish wait in a busy line, a cleaning station. Bright shafts of sunlight slant down through clear turquoise water.",
+      "next": "aab2"
+    },
+    "aab2": {
+      "text": "Fish nibbled gently at the turtle's shell. It looked very relaxed and happy. Then a few fish turned to Benjie.",
+      "art": "Small striped cleaner fish nibbling gently at the sea turtle's shell, the turtle looking relaxed, a few fish turning toward bnjyboy nearby. Clear sunlit blue water, bright and colourful.",
+      "next": "aab3"
+    },
+    "aab3": {
+      "text": "A huge shape glided in from the blue. Little fish darted up to greet it. Benjie had a choice of his own.",
+      "art": "A huge manta ray with wide flat wings gliding in from the open blue water toward the cleaning station, small fish darting up to greet it, bnjyboy watching nearby. Warm light from the submarine glows across the scene.",
+      "choices": [
+        {
+          "em": "🌊",
+          "text": "Glide with the manta ray",
+          "to": "aaba1"
+        },
+        {
+          "em": "🤭",
+          "text": "Stay for a ticklish clean",
+          "to": "aabb1"
+        }
+      ]
+    },
+    "aba1": {
+      "text": "Benjie swam deeper into the swirl. Fish thinned out around him slowly. Something big waited beyond the silver.",
+      "art": "bnjyboy swimming deeper into the thinning silver fish tornado, a large shape waiting in the blue water beyond. Sunlight ripples over everything in bright turquoise water.",
+      "next": "aba2"
+    },
+    "aba2": {
+      "text": "A huge spotted shape drifted closer. Far off, a deep sound echoed too. Both pulled at him at once.",
+      "art": "A huge spotted whale shark drifting closer to bnjyboy through the open water, a faint ripple of distant sound reaching him from far away. Bright shafts of sunlight slant down through clear turquoise water.",
+      "next": "aba3"
+    },
+    "aba3": {
+      "text": "The spotted shape glided calm and slow. The deep sound rolled on steadily. Benjie picked which one to follow.",
+      "art": "bnjyboy floating between a huge calm spotted whale shark nearby and the open blue distance where a deep sound seems to come from. Clear sunlit blue water, bright and colourful.",
+      "choices": [
+        {
+          "em": "🐋",
+          "text": "Swim up to the shape",
+          "to": "abaa1"
+        },
+        {
+          "em": "🎶",
+          "text": "Follow the deep sound",
+          "to": "abab1"
+        }
+      ]
+    },
+    "abb1": {
+      "text": "Benjie followed the fish to the sand. The sea floor here was flat and pale. Little shapes dotted the sandy ground.",
+      "art": "bnjyboy swimming down to a flat pale sandy clearing on the sea floor, small shapes dotted across the sand. Warm light from the submarine glows across the scene.",
+      "next": "abb2"
+    },
+    "abb2": {
+      "text": "He swam down close to look. Some shapes were curled little seahorses. Others were bright, star-shaped creatures.",
+      "art": "bnjyboy swimming close to the sandy sea floor where small curled seahorses and bright star-shaped starfish rest scattered across the sand.",
+      "next": "abb3"
+    },
+    "abb3": {
+      "text": "One seahorse had tiny babies riding along. One patch of sand glowed softly too. Benjie wanted to see both closely.",
+      "art": "A seahorse with tiny baby seahorses curled on its tail on one side, and a patch of gently glowing starfish on the sand on the other, bnjyboy deciding between them.",
+      "choices": [
+        {
+          "em": "🐴",
+          "text": "Watch the seahorse dad",
+          "to": "abba1"
+        },
+        {
+          "em": "⭐",
+          "text": "Look at the glowing sand",
+          "to": "abbb1"
+        }
+      ]
+    },
+    "baa1": {
+      "text": "Benjie climbed the tall old mast. Seaweed wrapped around the wooden rungs. The crow's nest waited near the top.",
+      "art": "bnjyboy in his diving suit climbing the tall seaweed-wrapped mast of the shipwreck toward a small crow's nest near the top. Sunlight ripples over everything in bright turquoise water.",
+      "next": "baa2"
+    },
+    "baa2": {
+      "text": "Inside sat an old brass telescope. A bell hung just below the nest. Both were covered in tiny barnacles.",
+      "art": "Inside the small crow's nest, an old brass telescope and a barnacle-covered bell hanging just below it, bnjyboy reaching to look. Bright shafts of sunlight slant down through clear turquoise water.",
+      "next": "baa3"
+    },
+    "baa3": {
+      "text": "Benjie picked up first one, then the other. The telescope was heavy and cold. The bell felt smooth under his glove.",
+      "art": "bnjyboy in the crow's nest holding the old brass telescope in one hand and touching the smooth bell with the other, deciding which to try. Clear sunlit blue water, bright and colourful.",
+      "choices": [
+        {
+          "em": "👀",
+          "text": "Look through the telescope",
+          "to": "baaa1"
+        },
+        {
+          "em": "🔔",
+          "text": "Ring the old bell",
+          "to": "baab1"
+        }
+      ]
+    },
+    "bab1": {
+      "text": "Benjie swam down to the portholes. Warm light glowed through round glass. Two rooms waited on the other side.",
+      "art": "bnjyboy swimming down to a row of round glowing portholes on the shipwreck's hull, two different lit rooms visible through the glass.",
+      "next": "bab2"
+    },
+    "bab2": {
+      "text": "One porthole showed a sparkly floor. The other showed darting orange fish. Benjie pressed his helmet to the glass.",
+      "art": "bnjyboy pressing his round diving helmet against a glowing porthole, one window showing a sparkling floor and another showing small orange fish darting past.",
+      "next": "bab3"
+    },
+    "bab3": {
+      "text": "He found a small open porthole nearby. It was just his size to enter. He picked a room to explore first.",
+      "art": "bnjyboy fitting himself through a small open porthole in the shipwreck's hull, deciding which glowing room to explore.",
+      "choices": [
+        {
+          "em": "💠",
+          "text": "Explore the sparkly room",
+          "to": "baba1"
+        },
+        {
+          "em": "🐠",
+          "text": "Explore the fish room",
+          "to": "babb1"
+        }
+      ]
+    },
+    "bba1": {
+      "text": "Benjie tugged at the heavy lid. It creaked open after one good pull. Something rattled and chimed inside it.",
+      "art": "bnjyboy pulling open the heavy lid of an old wooden chest in the ship's hold, something rattling inside. Warm light from the submarine glows across the scene.",
+      "next": "bba2"
+    },
+    "bba2": {
+      "text": "A rusty chain slipped from the lid. It led down through a floor gap. Gold coins glinted up at him too.",
+      "art": "Inside the open chest, gold coins glinting, with a rusty chain slipping down through a gap in the floor beside it, bnjyboy looking at both. Sunlight ripples over everything in bright turquoise water.",
+      "next": "bba3"
+    },
+    "bba3": {
+      "text": "Benjie could dig through the coins. Or he could follow the chain down. Both paths pulled at his curiosity.",
+      "art": "bnjyboy kneeling beside the open treasure chest of gold coins, one hand on the rusty chain leading down through the floor gap. Bright shafts of sunlight slant down through clear turquoise water.",
+      "choices": [
+        {
+          "em": "💰",
+          "text": "Dig through the coins",
+          "to": "bbaa1"
+        },
+        {
+          "em": "⛓️",
+          "text": "Follow the chain down",
+          "to": "bbab1"
+        }
+      ]
+    },
+    "bbb1": {
+      "text": "Benjie swam toward the soft glow. It came from deeper in the hold. The light pulsed slow, like breathing.",
+      "art": "bnjyboy swimming through the dark ship's hold toward a soft pulsing glow deeper inside.",
+      "next": "bbb2"
+    },
+    "bbb2": {
+      "text": "The glow came from a small school. Squid drifted together, flashing soft colors. They lit up blue, then green.",
+      "art": "A small school of squid with long trailing tentacles drifting together in the dark hold, their bodies flashing soft blue and green light, bnjyboy watching nearby. Clear sunlit blue water, bright and colourful.",
+      "next": "bbb3"
+    },
+    "bbb3": {
+      "text": "Deeper still sat an old logbook. It was soft and swollen with water. He could open it, or just watch.",
+      "art": "Beyond the flashing squid, a small waterlogged sketchbook resting on a ledge in the dark hold, bnjyboy deciding whether to open it or keep watching the squid. Warm light from the submarine glows across the scene.",
+      "choices": [
+        {
+          "em": "✨",
+          "text": "Watch the squid light show",
+          "to": "bbba1"
+        },
+        {
+          "em": "📖",
+          "text": "Open the old logbook",
+          "to": "bbbb1"
+        }
+      ]
+    },
+    "aaaa1": {
+      "text": "A family of otters rolled and splashed. They floated on their fuzzy backs. One held a shell on its tummy.",
+      "art": "A family of round furry sea otters rolling and splashing near bnjyboy in the kelp forest, one otter floating on its back holding a shell on its tummy. Sunlight ripples over everything in bright turquoise water.",
+      "next": "aaaa2"
+    },
+    "aaaa2": {
+      "text": "The otter cracked the shell open. It shared a bite with its baby. Benjie floated quietly and watched them.",
+      "art": "The furry sea otter cracking open a shell while floating on its back, a smaller baby otter beside it, bnjyboy watching quietly nearby. Bright shafts of sunlight slant down through clear turquoise water.",
+      "next": "aaaa3"
+    },
+    "aaaa3": {
+      "text": "The baby otter paddled over to him. It bumped gently against his glove. Then it rolled away, laughing in bubbles.",
+      "art": "A small furry baby otter paddling up to bump gently against bnjyboy's gloved hand before rolling away trailing bubbles. Clear sunlit blue water, bright and colourful.",
+      "end": true
+    },
+    "aaab1": {
+      "text": "Benjie looked closer at the kelp. Some fronds had tiny leaf-shaped fins. They were not kelp at all.",
+      "art": "bnjyboy peering closely at swaying kelp fronds, some of which are actually small orange fish with long leaf-shaped fins camouflaged among the real kelp. Warm light from the submarine glows across the scene.",
+      "next": "aaab2"
+    },
+    "aaab2": {
+      "text": "Little fish drifted, looking just like kelp. They bobbed gently with the current. Benjie could barely tell them apart.",
+      "art": "Several small orange fish with long leaf-shaped fins drifting and bobbing among real kelp fronds, camouflaged perfectly, bnjyboy studying them closely. Sunlight ripples over everything in bright turquoise water.",
+      "next": "aaab3"
+    },
+    "aaab3": {
+      "text": "One drifted right past his visor. Up close, its fins looked like lace. Benjie had never seen anything so clever.",
+      "art": "A small orange fish with long leaf-shaped fins drifting close past bnjyboy's diving helmet visor, its fins delicate like lace. Bright shafts of sunlight slant down through clear turquoise water.",
+      "end": true
+    },
+    "aaba1": {
+      "text": "Benjie swam up beside the manta ray. Its wide wings moved like slow wings. He matched his speed to glide along.",
+      "art": "bnjyboy swimming beside a giant manta ray with wide flat wings, matching its slow graceful movement through the open water. Clear sunlit blue water, bright and colourful.",
+      "next": "aaba2"
+    },
+    "aaba2": {
+      "text": "The manta ray dipped low, then high. Benjie dipped and rose along with it. It felt like flying underwater together.",
+      "art": "bnjyboy gliding through the water beside the manta ray as it dips low and rises high, moving together like underwater flight. Warm light from the submarine glows across the scene.",
+      "next": "aaba3"
+    },
+    "aaba3": {
+      "text": "The manta ray looped in one lazy circle. Benjie looped right along beside it. Then it glided off into the blue.",
+      "art": "The giant manta ray looping in one wide slow circle with bnjyboy gliding beside it, before drifting off into the open blue water. Sunlight ripples over everything in bright turquoise water.",
+      "end": true
+    },
+    "aabb1": {
+      "text": "Benjie floated still at the cleaning station. Tiny fish swam up all around him. They started nibbling at his gloves.",
+      "art": "bnjyboy floating still at the cleaning station with tiny striped fish swimming around him and nibbling gently at his gloves. Bright shafts of sunlight slant down through clear turquoise water.",
+      "next": "aabb2"
+    },
+    "aabb2": {
+      "text": "It tickled more than he expected. He tried hard not to giggle. Bubbles escaped from his helmet anyway.",
+      "art": "bnjyboy laughing with bubbles escaping his diving helmet as tiny cleaner fish tickle his gloves and suit at the cleaning station. Clear sunlit blue water, bright and colourful.",
+      "next": "aabb3"
+    },
+    "aabb3": {
+      "text": "The fish cleaned every finger carefully. Benjie had never felt so clean. He waved a ticklish thank-you goodbye.",
+      "art": "bnjyboy waving goodbye to a small cluster of cleaner fish at the cleaning station, still smiling from the tickling. Warm light from the submarine glows across the scene.",
+      "end": true
+    },
+    "abaa1": {
+      "text": "Benjie swam up to the spotted shape. It was a huge, gentle whale shark. Its mouth was wide as a door.",
+      "art": "bnjyboy swimming up close to a huge spotted whale shark with a wide flat mouth, gliding calmly through the water. Sunlight ripples over everything in bright turquoise water.",
+      "next": "abaa2"
+    },
+    "abaa2": {
+      "text": "It only ate the tiniest of fish. Benjie floated right beside its huge side. It did not mind him there at all.",
+      "art": "bnjyboy floating close beside the huge spotted side of the gentle whale shark as it glides slowly past. Bright shafts of sunlight slant down through clear turquoise water.",
+      "next": "abaa3"
+    },
+    "abaa3": {
+      "text": "He reached out and touched its side. Its skin felt rough, like sandpaper. It swam on, gentle as ever.",
+      "art": "bnjyboy reaching out to touch the rough spotted side of the huge whale shark as it glides calmly past him. Clear sunlit blue water, bright and colourful.",
+      "end": true
+    },
+    "abab1": {
+      "text": "Benjie followed the deep, rolling sound. It grew slowly louder as he swam. The water itself seemed to hum.",
+      "art": "bnjyboy swimming through open blue water following a deep rolling sound, the water around him seeming to hum gently. Warm light from the submarine glows across the scene.",
+      "next": "abab2"
+    },
+    "abab2": {
+      "text": "Far ahead, a huge shape rose slowly. It was longer than his little submarine. The song came rolling straight from it.",
+      "art": "In the distance, a huge whale much longer than bnjyboy's little yellow submarine rising slowly through the blue water, its song rolling through the sea toward bnjyboy. Sunlight ripples over everything in bright turquoise water.",
+      "next": "abab3"
+    },
+    "abab3": {
+      "text": "Benjie floated still and simply listened. The song rumbled gently in his chest. He had never heard anything so big.",
+      "art": "bnjyboy floating motionless in the open water, listening to the huge distant whale's song rumbling through the sea around him. Bright shafts of sunlight slant down through clear turquoise water.",
+      "end": true
+    },
+    "abba1": {
+      "text": "Benjie floated near the little seahorse. Tiny babies clung to its curled tail. There were five of them in all.",
+      "art": "bnjyboy floating close to a small seahorse with a curled tail, five tiny baby seahorses clinging along its tail. Clear sunlit blue water, bright and colourful.",
+      "next": "abba2"
+    },
+    "abba2": {
+      "text": "One baby seahorse let go by accident. It drifted, spinning slowly in the water. Benjie gently nudged it back home.",
+      "art": "bnjyboy gently nudging a tiny drifting baby seahorse back toward its parent's curled tail. Warm light from the submarine glows across the scene.",
+      "next": "abba3"
+    },
+    "abba3": {
+      "text": "The dad seahorse held all five again. It bobbed a little bow of thanks. Benjie bowed back, very pleased indeed.",
+      "art": "The small seahorse with all five tiny babies safely back on its curled tail, bobbing near bnjyboy in the sandy clearing. Sunlight ripples over everything in bright turquoise water.",
+      "end": true
+    },
+    "abbb1": {
+      "text": "Benjie swam over the glowing patch. Dozens of starfish lit the sand. They glowed soft blue and gold.",
+      "art": "bnjyboy swimming above a patch of sandy sea floor where dozens of star-shaped starfish glow soft blue and gold light.",
+      "next": "abbb2"
+    },
+    "abbb2": {
+      "text": "It looked like stars turned upside down. Benjie hovered just above the glow. The whole floor twinkled like the sky.",
+      "art": "bnjyboy hovering just above a wide patch of glowing starfish scattered across the sand, the whole sea floor twinkling like a night sky.",
+      "next": "abbb3"
+    },
+    "abbb3": {
+      "text": "He reached down and touched one gently. It glowed a little brighter for him. Benjie smiled at his own upside-down sky.",
+      "art": "bnjyboy gently touching one glowing starfish on the sandy floor, it glowing brighter under his glove, the whole patch twinkling around him.",
+      "end": true
+    },
+    "baaa1": {
+      "text": "Benjie held the telescope up high. He pointed it toward the surface. Bright shapes leaped through the sunlight.",
+      "art": "bnjyboy looking through the brass telescope up toward the sunlit surface far above, where sleek gray shapes leap through the light.",
+      "next": "baaa2"
+    },
+    "baaa2": {
+      "text": "The shapes were dolphins, jumping high. They twisted and dove back down. Benjie watched them play for ages.",
+      "art": "Through the telescope's view, several sleek gray dolphins with curved fins leaping and twisting above the sunlit surface, bnjyboy watching in wonder.",
+      "next": "baaa3"
+    },
+    "baaa3": {
+      "text": "One dolphin dove all the way down. It looked right into the telescope. Then it winked and swam away.",
+      "art": "One gray dolphin with a curved fin diving deep to look directly toward bnjyboy through the telescope lens, close and friendly. Bright shafts of sunlight slant down through clear turquoise water.",
+      "end": true
+    },
+    "baab1": {
+      "text": "Benjie gave the old bell a tap. Something large stirred inside the bell. Two big eyes blinked out at him.",
+      "art": "bnjyboy tapping the old barnacle-covered ship's bell, two big round eyes blinking out from inside it. Clear sunlit blue water, bright and colourful.",
+      "next": "baab2"
+    },
+    "baab2": {
+      "text": "A huge friendly grouper lived inside. It was the size of a chair. It swam out slowly to greet him.",
+      "art": "A huge round friendly grouper fish, gray and speckled and about the size of a chair, swimming slowly out of the ship's bell toward bnjyboy. Warm light from the submarine glows across the scene.",
+      "next": "baab3"
+    },
+    "baab3": {
+      "text": "The grouper bumped the bell gently. It rang out, low and soft. Benjie bumped it too, and smiled.",
+      "art": "The huge speckled grouper fish gently bumping the ship's bell with its nose beside bnjyboy, both making it ring softly. Sunlight ripples over everything in bright turquoise water.",
+      "end": true
+    },
+    "baba1": {
+      "text": "The sparkly floor was made of pearls. Hundreds of them lay in the sand. They glowed soft white in the dark.",
+      "art": "Inside an old ship's cabin, hundreds of round white pearls scattered across the sandy floor glowing softly, bnjyboy kneeling to look.",
+      "next": "baba2"
+    },
+    "baba2": {
+      "text": "Benjie scooped a handful up gently. They rolled smooth between his gloves. Tiny fish nibbled at the pile.",
+      "art": "bnjyboy scooping a handful of glowing white pearls in his gloved hands, small fish nibbling at the pearl pile nearby.",
+      "next": "baba3"
+    },
+    "baba3": {
+      "text": "He chose one small, perfect pearl. He tucked it inside his glove. The rest he left glowing there.",
+      "art": "bnjyboy tucking one small glowing pearl into his glove, the rest of the pearl pile left glowing softly on the cabin floor behind him.",
+      "end": true
+    },
+    "babb1": {
+      "text": "The fish room was a small garden. Sea anemones waved their soft arms. Orange fish darted in and out.",
+      "art": "Inside an old ship's cabin turned into a small garden, soft waving sea anemones and small orange-and-white striped fish darting in and out, bnjyboy watching from the doorway. Bright shafts of sunlight slant down through clear turquoise water.",
+      "next": "babb2"
+    },
+    "babb2": {
+      "text": "One little fish swam right to him. It hid behind his gloved hand. Then it darted back to its anemone.",
+      "art": "A small orange-and-white striped fish swimming close to bnjyboy and hiding behind his gloved hand before darting back to a soft waving anemone. Clear sunlit blue water, bright and colourful.",
+      "next": "babb3"
+    },
+    "babb3": {
+      "text": "More little fish came out to play. They took turns hiding and darting. Benjie played along until his air ran low.",
+      "art": "Several small orange-and-white striped fish playing hide and seek around bnjyboy's hands among the waving anemones in the old cabin garden. Warm light from the submarine glows across the scene.",
+      "end": true
+    },
+    "bbaa1": {
+      "text": "Benjie's gloves sifted through the coins. Underneath them, something glowed soft white. It was a single round pearl.",
+      "art": "bnjyboy's gloved hands sifting through a pile of gold coins in the chest, a single glowing white pearl uncovered underneath.",
+      "next": "bbaa2"
+    },
+    "bbaa2": {
+      "text": "He lifted the pearl up carefully. It was warm, and softly glowing. It looked like a tiny moon.",
+      "art": "bnjyboy holding up a single glowing white pearl from the treasure chest, cupped carefully in both gloved hands.",
+      "next": "bbaa3"
+    },
+    "bbaa3": {
+      "text": "He tucked it safely into his pocket. The rest of the gold stayed put. One pearl was treasure enough today.",
+      "art": "bnjyboy tucking the glowing pearl into a pocket on his diving suit, the open treasure chest of gold left behind him in the hold.",
+      "end": true
+    },
+    "bbab1": {
+      "text": "Benjie followed the rusty chain down. It led through a crack in the hull. Warm water rushed past him suddenly.",
+      "art": "bnjyboy following a rusty chain down through a crack in the shipwreck's hull, warm water swirling around him. Sunlight ripples over everything in bright turquoise water.",
+      "next": "bbab2"
+    },
+    "bbab2": {
+      "text": "Below sat a glowing rocky vent. Tiny shrimp glowed pink all around it. Tall tube worms swayed gently nearby.",
+      "art": "A glowing rocky underwater vent on the seafloor, small pink glowing shrimp clustered around it and tall white tube worms swaying nearby, bnjyboy floating close by.",
+      "next": "bbab3"
+    },
+    "bbab3": {
+      "text": "Warm bubbles tickled past his helmet. The shrimp glowed brighter as he watched. It was like a tiny glowing city.",
+      "art": "bnjyboy floating beside the glowing vent, warm bubbles rising past his helmet, pink shrimp and tall tube worms glowing like a tiny underwater city around him.",
+      "end": true
+    },
+    "bbba1": {
+      "text": "Benjie floated still and watched closely. The squid flashed in little patterns. Blue, then green, then blue again.",
+      "art": "bnjyboy floating still in the dark hold watching a small school of squid flash blue and green light in patterns around him. Bright shafts of sunlight slant down through clear turquoise water.",
+      "next": "bbba2"
+    },
+    "bbba2": {
+      "text": "One squid flashed right beside him. The whole school copied its pattern. It felt like fireworks underwater.",
+      "art": "The school of squid flashing lights in matching patterns around bnjyboy, glowing blue and green like underwater fireworks.",
+      "next": "bbba3"
+    },
+    "bbba3": {
+      "text": "Benjie flashed his own helmet light back. The squid seemed to flash in reply. They talked in light for a while.",
+      "art": "bnjyboy flashing his diving helmet light at the school of glowing squid, their lights flashing back in reply in the dark hold.",
+      "end": true
+    },
+    "bbbb1": {
+      "text": "Benjie opened the soft old logbook. Its pages were wrinkled and swollen. Faded drawings of fish filled them.",
+      "art": "bnjyboy opening a small waterlogged sketchbook, its wrinkled pages showing faded drawings of fish, no writing anywhere. Clear sunlit blue water, bright and colourful.",
+      "next": "bbbb2"
+    },
+    "bbbb2": {
+      "text": "Someone had drawn every fish carefully. Some looked just like ones he'd seen. Some looked strange and wonderful still.",
+      "art": "Close view of the sketchbook's wrinkled pages full of faded fish drawings, bnjyboy turning the pages carefully with his gloved hand. Warm light from the submarine glows across the scene.",
+      "next": "bbbb3"
+    },
+    "bbbb3": {
+      "text": "Someone had explored here long ago. They had loved it here too. Benjie closed the book gently, smiling.",
+      "art": "bnjyboy gently closing the old waterlogged sketchbook of fish drawings, smiling inside the dark ship's hold. Sunlight ripples over everything in bright turquoise water.",
+      "end": true
+    }
+  }
+}

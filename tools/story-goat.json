@@ -1,0 +1,110 @@
+{
+  "id": "goat",
+  "title": "The Goat Who Got Out",
+  "em": "🐐",
+  "cast": "Bo is a young goat with a soft cream-white coat, two small pale horns, floppy white ears, a short tail, and a bright red collar around his neck. The farm around him has a big red barn, a wooden fence, green grass, a blue duck pond, and a field of yellow flowers.",
+  "keep": "Bo is a young goat with a soft cream-white coat, two small pale horns, floppy white ears, a short tail, and a bright red collar with a small gold heart charm.",
+  "nodes": {
+    "p1": {
+      "text": "Bo pushed on his gate. It swung open wide. The whole farm was waiting!",
+      "art": "Bo the goat pushing his wooden gate open with his nose and stepping out into the sunny farmyard, looking excited. The big red barn stands behind him.",
+      "choices": [
+        { "em": "🦆", "text": "Go see the duck", "to": "a" },
+        { "em": "🏚️", "text": "Peek in the barn", "to": "b" },
+        { "em": "🌻", "text": "Run to the flowers", "to": "c" }
+      ]
+    },
+
+    "a": {
+      "text": "A duck sat by the pond. She had a row of ducklings. They all quacked at Bo.",
+      "art": "Bo the goat meeting a white duck and her fluffy yellow ducklings at the edge of the blue pond.",
+      "next": "a2"
+    },
+    "b": {
+      "text": "The barn smelled like warm hay. A tiny kitten blinked at him. Then it climbed the hay.",
+      "art": "Bo the goat inside the barn among golden hay bales, meeting a small orange kitten that is climbing a hay bale.",
+      "next": "b2"
+    },
+    "c": {
+      "text": "The field was full of flowers. A fat bee buzzed past. Bo sneezed a big sneeze.",
+      "art": "Bo the goat standing in the field of yellow flowers with a fat bumblebee buzzing past his nose, mid-sneeze.",
+      "next": "c2"
+    },
+
+    "a2": {
+      "text": "The ducklings swam in a line. Bo dipped in one hoof. The water was very cold!",
+      "art": "Bo the goat dipping one hoof into the pond while the little yellow ducklings swim past in a neat line.",
+      "choices": [
+        { "em": "💦", "text": "Splash in the water", "to": "a2x" },
+        { "em": "🐟", "text": "Look for fish", "to": "a2y" },
+        { "em": "🪺", "text": "See the duck nest", "to": "a2z" }
+      ]
+    },
+    "b2": {
+      "text": "The kitten came to say hi. It sat down in the hay. Bo held very still.",
+      "art": "Inside a barn full of golden hay: one white goat standing still, and beside him one small ginger tabby CAT — a fluffy orange kitten with pointed cat ears, long whiskers and a long striped tail — sitting in the hay looking up at him. Exactly one goat and one cat.",
+      "choices": [
+        { "em": "🐱", "text": "Walk around together", "to": "b2x" },
+        { "em": "🌾", "text": "Jump in the hay", "to": "b2y" },
+        { "em": "🥛", "text": "Go find some milk", "to": "b2z" }
+      ]
+    },
+    "c2": {
+      "text": "Bo followed the buzzy bee. It landed on a red flower. More bees came to look.",
+      "art": "Bo the goat following a bumblebee that has landed on a single red flower among the yellow flowers.",
+      "choices": [
+        { "em": "🌼", "text": "Pick a flower", "to": "c2x" },
+        { "em": "🐝", "text": "Follow the bee home", "to": "c2y" },
+        { "em": "🦋", "text": "Chase a butterfly", "to": "c2z" }
+      ]
+    },
+
+    "a2x": {
+      "text": "Bo jumped in with a splash. The ducklings splashed him back. Everyone got very wet.",
+      "art": "Bo the goat splashing in the shallow edge of the pond with the ducklings splashing water back at him, droplets flying, all delighted.",
+      "end": true
+    },
+    "a2y": {
+      "text": "They looked down in the water. One little fish swam by. It waved its tail hello.",
+      "art": "Bo the goat and the ducklings peering down into the clear pond water at one small orange fish waving its tail.",
+      "end": true
+    },
+    "a2z": {
+      "text": "The duck showed Bo her nest. It was soft and warm. One egg wiggled a little!",
+      "art": "The white duck showing Bo the goat her cozy straw nest beside the pond, with one speckled egg wiggling in it.",
+      "end": true
+    },
+
+    "b2x": {
+      "text": "They walked all around the barn. The kitten stayed right beside him. It purred the whole time.",
+      "art": "Bo the goat and the small ginger tabby kitten walking side by side along the path around the outside of the barn, both looking very pleased.",
+      "end": true
+    },
+    "b2y": {
+      "text": "They jumped in the soft hay. Hay flew up in the air. Bo had hay on his nose.",
+      "art": "Bo the goat and the orange kitten jumping into a big pile of loose golden hay, hay flying up around them, a wisp of hay on Bo's nose.",
+      "end": true
+    },
+    "b2z": {
+      "text": "Bo found the milk bowl. The kitten drank it all up. Bo chewed a carrot instead.",
+      "art": "The orange kitten drinking from a milk bowl on the barn floor while Bo the goat chews an orange carrot beside it.",
+      "end": true
+    },
+
+    "c2x": {
+      "text": "Bo picked one yellow flower. He held it in his teeth. It tickled his nose.",
+      "art": "Bo the goat holding a single yellow flower in his teeth, the petals tickling his nose, standing in the flower field.",
+      "end": true
+    },
+    "c2y": {
+      "text": "The bee flew to its hive. Bo watched from far away. The hive hummed a song.",
+      "art": "Bo the goat watching from a safe distance as the bumblebee returns to a round hive hanging in a tree at the edge of the sunny field.",
+      "end": true
+    },
+    "c2z": {
+      "text": "A blue butterfly floated by. Bo chased it through the grass. It danced right past his nose.",
+      "art": "Bo the goat standing alone in tall green grass, watching a single bright blue butterfly flutter just in front of his nose. Only one goat in the picture.",
+      "end": true
+    }
+  }
+}

@@ -1,0 +1,654 @@
+{
+  "id": "dino2",
+  "title": "The Door in the Shed",
+  "em": "🦕",
+  "cast": "bnjyboy is a cheerful boy in a green t-shirt, khaki shorts and a bright red backpack. He is the ONLY person in this story and he is always alone. The valley is warm and green, full of giant ferns, tall trees and friendly dinosaurs.",
+  "keep": "bnjyboy in a green t-shirt, khaki shorts and a red backpack. Exactly ONE child in the picture, alone. No other people.",
+  "nodes": {
+    "p1": {
+      "text": "Benjie was tidying the garden shed. Behind the flowerpots was a door. He had never seen it before.",
+      "art": "Inside a dim wooden garden shed: bnjyboy crouching among terracotta flowerpots and garden tools, pulling pots aside to uncover a small wooden door set in the plank wall behind them. Interior of a shed, not outdoors.",
+      "next": "p2"
+    },
+    "p2": {
+      "text": "The handle was warm to touch. Green light shone underneath. Benjie took a deep breath.",
+      "art": "bnjyboy crouching at the little shed door, warm green light glowing out from underneath it, his hand on the handle.",
+      "next": "p3"
+    },
+    "p3": {
+      "text": "He opened it and stepped through. Warm air smelled of leaves. It was not the garden.",
+      "art": "bnjyboy stepping through the open door into bright warm sunlight and enormous green ferns.",
+      "next": "p4"
+    },
+    "p4": {
+      "text": "Ferns grew taller than houses. Bright bugs hummed past his ears. Everything was very, very big.",
+      "art": "bnjyboy standing among giant ferns much taller than he is, huge bright dragonflies humming past.",
+      "next": "p5"
+    },
+    "p5": {
+      "text": "Then he saw a footprint. It was bigger than his bed. Something enormous lived here.",
+      "art": "bnjyboy standing INSIDE one single gigantic three-toed dinosaur footprint pressed deep into wet mud — the footprint is far bigger than he is, its walls rising past his knees, and he stands in the middle of it with his arms out in amazement.",
+      "next": "p6"
+    },
+    "p6": {
+      "text": "A shadow slid over the ferns. Something huge flew above. Two ways lay ahead of him.",
+      "art": "A great winged shadow passing over bnjyboy in the fern valley, a line of footprints leading one way and a green hill rising the other.",
+      "choices": [
+        {
+          "em": "👣",
+          "text": "Follow the footprints",
+          "to": "a1"
+        },
+        {
+          "em": "⛰️",
+          "text": "Climb the green hill",
+          "to": "b1"
+        }
+      ]
+    },
+    "a1": {
+      "text": "The footprints went in a line. Each one held a puddle. Benjie hopped from one to another.",
+      "art": "bnjyboy hopping along a line of enormous dinosaur footprints, each one holding a little puddle of rainwater.",
+      "next": "a2"
+    },
+    "a2": {
+      "text": "Something rustled in the ferns. Out popped a small green head. It blinked at him twice.",
+      "art": "A small friendly green dinosaur head popping out of the giant ferns to look at bnjyboy, both surprised.",
+      "next": "a3"
+    },
+    "a3": {
+      "text": "The little dinosaur trotted off. It kept looking back at him. It wanted him to follow.",
+      "art": "A small green dinosaur trotting ahead through the ferns looking back over its shoulder at bnjyboy, a stream one way and a mound of earth the other.",
+      "choices": [
+        {
+          "em": "💧",
+          "text": "Go towards the stream",
+          "to": "aa1"
+        },
+        {
+          "em": "🥚",
+          "text": "Go to the round mound",
+          "to": "ab1"
+        }
+      ]
+    },
+    "b1": {
+      "text": "The hill was steep and grassy. He climbed on his hands and knees. The top took a long time.",
+      "art": "bnjyboy climbing a steep grassy hill on his hands and knees, giant ferns below him.",
+      "next": "b2"
+    },
+    "b2": {
+      "text": "From the top he saw everything. A green valley. A blue lake. A dark forest.",
+      "art": "bnjyboy standing on a hilltop looking out over a huge green prehistoric valley with a blue lake and a dark forest.",
+      "next": "b3"
+    },
+    "b3": {
+      "text": "Long necks moved in the forest. Something splashed in the lake. Both looked wonderful.",
+      "art": "From the hilltop, tall dinosaur necks rising above a dark forest on one side and splashes in a wide blue lake on the other, bnjyboy pointing.",
+      "choices": [
+        {
+          "em": "🌳",
+          "text": "Go to the forest",
+          "to": "ba1"
+        },
+        {
+          "em": "🏞️",
+          "text": "Go down to the lake",
+          "to": "bb1"
+        }
+      ]
+    },
+    "aa1": {
+      "text": "The stream was cool and clear. Round stones sat in the water. Little fish darted about.",
+      "art": "bnjyboy paddling in a clear prehistoric stream over smooth round stones, tiny fish darting, the small green dinosaur beside him.",
+      "next": "aa2"
+    },
+    "aa2": {
+      "text": "The little dinosaur drank noisily. Then it splashed him on purpose. Benjie splashed it back.",
+      "art": "The small green dinosaur splashing water at bnjyboy in the stream, both mid-splash and delighted.",
+      "next": "aa3"
+    },
+    "aa3": {
+      "text": "The stream went two ways. One roared over a fall. One had stepping stones.",
+      "art": "The stream splitting: a roaring waterfall dropping away one side, flat stepping stones crossing the other, bnjyboy choosing.",
+      "choices": [
+        {
+          "em": "💦",
+          "text": "Go to the waterfall",
+          "to": "aaa1"
+        },
+        {
+          "em": "🪨",
+          "text": "Cross the stepping stones",
+          "to": "aab1"
+        }
+      ]
+    },
+    "ab1": {
+      "text": "The mound was made of leaves. It was as wide as a car. Something moved inside it.",
+      "art": "bnjyboy kneeling beside a huge round nest mound built of leaves and soft earth, the small green dinosaur watching.",
+      "next": "ab2"
+    },
+    "ab2": {
+      "text": "He brushed the leaves away gently. Underneath were speckled eggs. They were bigger than melons.",
+      "art": "bnjyboy gently brushing leaves off a clutch of huge speckled dinosaur eggs in the nest mound.",
+      "next": "ab3"
+    },
+    "ab3": {
+      "text": "One egg wobbled and cracked. Then heavy footsteps came near. The mother was coming home.",
+      "art": "A large speckled egg cracking open in the nest while a big dinosaur shadow falls across the ferns behind bnjyboy.",
+      "choices": [
+        {
+          "em": "🐣",
+          "text": "Watch the egg hatch",
+          "to": "aba1"
+        },
+        {
+          "em": "🦖",
+          "text": "Meet the mother",
+          "to": "abb1"
+        }
+      ]
+    },
+    "ba1": {
+      "text": "The forest was cool and shady. The trees went up forever. Everything smelled green.",
+      "art": "bnjyboy walking into a cool shady prehistoric forest of enormous tree trunks, green light filtering down.",
+      "next": "ba2"
+    },
+    "ba2": {
+      "text": "A long neck came down slowly. It was as thick as a tree. A gentle eye looked at him.",
+      "art": "An enormous gentle sauropod neck lowering down through the trees so its big kind eye is level with bnjyboy.",
+      "next": "ba3"
+    },
+    "ba3": {
+      "text": "The big dinosaur hummed softly. Deeper in, mushrooms glowed blue. Up high, more long necks fed.",
+      "art": "In the forest, a glade of glowing blue mushrooms one way and tall sauropods feeding in high treetops the other, bnjyboy between.",
+      "choices": [
+        {
+          "em": "🦕",
+          "text": "Go up to the treetops",
+          "to": "baa1"
+        },
+        {
+          "em": "🍄",
+          "text": "Visit the glowing glade",
+          "to": "bab1"
+        }
+      ]
+    },
+    "bb1": {
+      "text": "The lake was wide and blue. Warm mud squished underfoot. Big ripples crossed the water.",
+      "art": "bnjyboy at the edge of a wide blue prehistoric lake, warm mud underfoot, big ripples crossing the surface.",
+      "next": "bb2"
+    },
+    "bb2": {
+      "text": "A long neck rose from the water. Then another. Then four more.",
+      "art": "Several long dinosaur necks rising gracefully out of the blue lake in front of an amazed bnjyboy.",
+      "next": "bb3"
+    },
+    "bb3": {
+      "text": "They swam slowly past him. A small island sat far out. The shallow water was warm.",
+      "art": "Long-necked dinosaurs swimming slowly across the lake, a small green island far out in the middle, bnjyboy paddling at the edge.",
+      "choices": [
+        {
+          "em": "🏊",
+          "text": "Swim with the dinosaurs",
+          "to": "bba1"
+        },
+        {
+          "em": "🏝️",
+          "text": "Head for the island",
+          "to": "bbb1"
+        }
+      ]
+    },
+    "aaa1": {
+      "text": "The waterfall roared and sparkled. Cold spray landed on his face. It was very loud.",
+      "art": "bnjyboy standing before a roaring prehistoric waterfall, cold spray on his face, rainbow in the mist.",
+      "next": "aaa2"
+    },
+    "aaa2": {
+      "text": "Behind the water was a gap. It was a dry dark cave. He squeezed inside carefully.",
+      "art": "bnjyboy squeezing through a gap behind the curtain of falling water into a dark dry cave.",
+      "next": "aaa3"
+    },
+    "aaa3": {
+      "text": "Something glittered on the walls. Something else was painted there. He could not see both.",
+      "art": "Inside the cave behind the waterfall, glittering crystals on one wall and faded painted handprints on the other, bnjyboy with a torch.",
+      "choices": [
+        {
+          "em": "💎",
+          "text": "Look at the glitter",
+          "to": "aaaa1"
+        },
+        {
+          "em": "🖐️",
+          "text": "Look at the paintings",
+          "to": "aaab1"
+        }
+      ]
+    },
+    "aab1": {
+      "text": "The stones were flat and dry. He stepped from one to another. His arms went out wide.",
+      "art": "bnjyboy balancing with arms out as he steps across flat stepping stones in the prehistoric stream.",
+      "next": "aab2"
+    },
+    "aab2": {
+      "text": "The other side was a meadow. Flowers grew up to his knees. Everything buzzed and hummed.",
+      "art": "bnjyboy stepping into a sunny prehistoric meadow of tall flowers buzzing with big colourful insects.",
+      "next": "aab3"
+    },
+    "aab3": {
+      "text": "Tiny dinosaurs hopped in the flowers. A bigger one watched from the edge. It had a curved beak.",
+      "art": "small green two-legged dinosaurs with long tails and scaly skin hopping among tall meadow flowers while a larger gentle beaked dinosaur watches from the edge, bnjyboy delighted.",
+      "choices": [
+        {
+          "em": "🐥",
+          "text": "Play with the tiny ones",
+          "to": "aaba1"
+        },
+        {
+          "em": "🦜",
+          "text": "Go to the beaked one",
+          "to": "aabb1"
+        }
+      ]
+    },
+    "aba1": {
+      "text": "The crack grew bigger and bigger. A wet nose poked out. Then two blinking eyes.",
+      "art": "A hatchling dinosaur's wet nose and blinking eyes poking out of a cracked speckled egg, bnjyboy watching closely.",
+      "next": "aba2"
+    },
+    "aba2": {
+      "text": "The baby wriggled right out. It was green and wobbly. It fell over twice.",
+      "art": "A wobbly newly hatched small green two-legged dinosaur with a long tail and scaly skin tumbling out of its shell beside bnjyboy.",
+      "next": "aba3"
+    },
+    "aba3": {
+      "text": "It looked straight at Benjie. Then it made a small squeak. Other eggs began to move.",
+      "art": "The wobbly hatchling small green two-legged dinosaur with a long tail and scaly skin squeaking up at bnjyboy while the other eggs in the nest begin to rock.",
+      "choices": [
+        {
+          "em": "🤲",
+          "text": "Help the next one out",
+          "to": "abaa1"
+        },
+        {
+          "em": "📛",
+          "text": "Give them all names",
+          "to": "abab1"
+        }
+      ]
+    },
+    "abb1": {
+      "text": "The mother was enormous. Her head blocked out the sun. She did not look cross at all.",
+      "art": "An enormous gentle mother dinosaur lowering her huge head towards a small brave bnjyboy beside her nest.",
+      "next": "abb2"
+    },
+    "abb2": {
+      "text": "She sniffed him all over. Her breath smelled of leaves. Then she made a low hum.",
+      "art": "The huge mother dinosaur sniffing bnjyboy gently, his hair blown back by her warm breath, both calm.",
+      "next": "abb3"
+    },
+    "abb3": {
+      "text": "She lowered her neck flat. It made a ramp to her back. Or she could show him her nest.",
+      "art": "The mother dinosaur lowering her long neck flat to the ground like a ramp, her leafy nest visible behind, bnjyboy deciding.",
+      "choices": [
+        {
+          "em": "🧗",
+          "text": "Climb up her neck",
+          "to": "abba1"
+        },
+        {
+          "em": "🪹",
+          "text": "See the whole nest",
+          "to": "abbb1"
+        }
+      ]
+    },
+    "baa1": {
+      "text": "The long necks fed up high. They pulled leaves off the treetops. Their chewing sounded like thunder.",
+      "art": "Enormous sauropods pulling leaves from the very tops of prehistoric trees, tiny bnjyboy looking up from far below.",
+      "next": "baa2"
+    },
+    "baa2": {
+      "text": "One noticed him down below. It swung its head to him. It sniffed his red backpack.",
+      "art": "A huge sauropod head lowering to sniff bnjyboy's red backpack, the boy laughing and holding still.",
+      "next": "baa3"
+    },
+    "baa3": {
+      "text": "Benjie had leaves in his bag. The dinosaur seemed to know. Its back looked flat and wide.",
+      "art": "bnjyboy holding out a bunch of green leaves to the enormous sauropod, its broad flat back visible behind it.",
+      "choices": [
+        {
+          "em": "🌿",
+          "text": "Feed it the leaves",
+          "to": "baaa1"
+        },
+        {
+          "em": "🎢",
+          "text": "Ride up on its back",
+          "to": "baab1"
+        }
+      ]
+    },
+    "bab1": {
+      "text": "The glade glowed soft blue. Mushrooms grew tall as chairs. The light moved when he walked.",
+      "art": "bnjyboy standing in a shady glade of tall glowing blue mushrooms, soft blue light on his face.",
+      "next": "bab2"
+    },
+    "bab2": {
+      "text": "Something snuffled in the dark. It was warm and slow. It was fast asleep.",
+      "art": "A large gentle dinosaur curled up fast asleep among the glowing blue mushrooms, bnjyboy tiptoeing near.",
+      "next": "bab3"
+    },
+    "bab3": {
+      "text": "Tiny dinosaurs slept in the mushrooms. The big one snored softly. Benjie stayed very quiet.",
+      "art": "small green two-legged dinosaurs with long tails and scaly skin curled asleep inside the caps of glowing mushrooms while a big one snores nearby, bnjyboy with a finger to his lips.",
+      "choices": [
+        {
+          "em": "🔦",
+          "text": "Peek in a mushroom",
+          "to": "baba1"
+        },
+        {
+          "em": "😴",
+          "text": "Sit with the sleeper",
+          "to": "babb1"
+        }
+      ]
+    },
+    "bba1": {
+      "text": "The water was warm and shallow. He waded in up to his knees. The big shapes came closer.",
+      "art": "bnjyboy wading knee deep into the warm blue lake as long-necked dinosaurs swim slowly closer.",
+      "next": "bba2"
+    },
+    "bba2": {
+      "text": "One swam right beside him. It was gentle as a boat. He held onto a fin.",
+      "art": "bnjyboy holding gently onto the side of a swimming long-necked dinosaur in the shallow lake water.",
+      "next": "bba3"
+    },
+    "bba3": {
+      "text": "It towed him slowly along. The water was warm and calm. It could go far or near.",
+      "art": "A long-necked dinosaur towing bnjyboy slowly through the calm blue lake, the far shore ahead and shallows behind.",
+      "choices": [
+        {
+          "em": "🌊",
+          "text": "Ride out to the deep",
+          "to": "bbaa1"
+        },
+        {
+          "em": "🐢",
+          "text": "Stay in the shallows",
+          "to": "bbab1"
+        }
+      ]
+    },
+    "bbb1": {
+      "text": "The island was not far. He waded and then floated. His backpack helped him bob along.",
+      "art": "bnjyboy floating across the warm blue lake towards a small green island, his red backpack keeping him afloat.",
+      "next": "bbb2"
+    },
+    "bbb2": {
+      "text": "The island was small and green. Ferns grew right to the water. It was very quiet there.",
+      "art": "bnjyboy climbing out onto a small green island in the middle of the lake, ferns growing to the waterline.",
+      "next": "bbb3"
+    },
+    "bbb3": {
+      "text": "Something rustled in the middle. A tall rock stood at one end. Both were worth a look.",
+      "art": "On the little island, ferns rustling in the middle and a tall lookout rock at one end, bnjyboy deciding which way.",
+      "choices": [
+        {
+          "em": "🌿",
+          "text": "See what is rustling",
+          "to": "bbba1"
+        },
+        {
+          "em": "🪨",
+          "text": "Climb the tall rock",
+          "to": "bbbb1"
+        }
+      ]
+    },
+    "aaaa1": {
+      "text": "The glitter was purple crystal. It grew right out of the rock. It was cool and smooth.",
+      "art": "bnjyboy touching a wall of large purple crystals growing out of the cave rock, torchlight sparkling.",
+      "next": "aaaa2"
+    },
+    "aaaa2": {
+      "text": "He shone his torch at it. The whole cave lit up purple. It looked like being inside a jewel.",
+      "art": "Inside a dark cave, huge purple amethyst crystals cover every wall and ceiling, and bnjyboy shines a torch so the whole cave blazes with purple light reflecting off the crystal faces.",
+      "next": "aaaa3"
+    },
+    "aaaa3": {
+      "text": "He took one small loose piece. It fitted in his pocket. A real crystal from a real valley.",
+      "art": "bnjyboy slipping one small purple crystal into his pocket, standing in front of a cave wall completely covered in large glittering purple crystals.",
+      "end": true
+    },
+    "aaab1": {
+      "text": "The paintings were red and brown. Handprints marched across the rock. They were smaller than his own.",
+      "art": "A cave wall covered in faded red handprints, bnjyboy holding his own hand up beside one to compare.",
+      "next": "aaab2"
+    },
+    "aaab2": {
+      "text": "Painted dinosaurs walked below them. Long necks. Round backs. A little one at the end.",
+      "art": "A rough cave wall PAINTED with flat red ochre pictures of long-necked dinosaurs — cave-painting style, flat rusty-red paint smeared on stone, not real animals. bnjyboy holds a torch up to the painted wall.",
+      "next": "aaab3"
+    },
+    "aaab3": {
+      "text": "Someone had been here before. They had liked it too. Benjie waved at the wall.",
+      "art": "bnjyboy waving cheerfully at the painted handprints on the cave wall, warm torchlight around him.",
+      "end": true
+    },
+    "aaba1": {
+      "text": "The tiny dinosaurs were not shy. They hopped around his boots. One sat on his shoe.",
+      "art": "Several small green two-legged dinosaurs with long tails and scaly skin hopping around bnjyboy's boots in the flower meadow, one perched on his shoe.",
+      "next": "aaba2"
+    },
+    "aaba2": {
+      "text": "He crouched down very slowly. They climbed onto his knees. Their feet were tickly.",
+      "art": "bnjyboy crouching in the meadow with small green two-legged dinosaurs with long tails and scaly skin climbing onto his knees and arms, laughing.",
+      "next": "aaba3"
+    },
+    "aaba3": {
+      "text": "They played chase in the flowers. Benjie was always it. He did not mind one bit.",
+      "art": "bnjyboy running happily through the tall meadow flowers with a crowd of small green two-legged dinosaurs with long tails and scaly skin chasing after him.",
+      "end": true
+    },
+    "aabb1": {
+      "text": "The beaked one stepped closer. It was as tall as a pony. Its beak looked like a parrot's.",
+      "art": "A gentle pony-sized beaked dinosaur stepping carefully towards bnjyboy at the edge of the flower meadow.",
+      "next": "aabb2"
+    },
+    "aabb2": {
+      "text": "It bent down and picked a flower. Then it held it out to him. Benjie took it politely.",
+      "art": "The beaked dinosaur gently offering a picked flower to bnjyboy, who takes it with both hands.",
+      "next": "aabb3"
+    },
+    "aabb3": {
+      "text": "They picked flowers together all afternoon. She made him a small crown. He wore it home.",
+      "art": "bnjyboy wearing a crown of meadow flowers beside the gentle beaked dinosaur, both surrounded by picked blooms.",
+      "end": true
+    },
+    "abaa1": {
+      "text": "The next egg was stuck fast. Benjie peeled the shell gently. Out tumbled another baby.",
+      "art": "bnjyboy carefully peeling shell away from a hatching egg as a second hatchling small green two-legged dinosaur with a long tail and scaly skin tumbles free.",
+      "next": "abaa2"
+    },
+    "abaa2": {
+      "text": "Then a third. Then a fourth. Soon babies were everywhere.",
+      "art": "Four wobbly hatchling small green two-legged dinosaur with a long tail and scaly skins tumbling about the leafy nest around a delighted bnjyboy.",
+      "next": "abaa3"
+    },
+    "abaa3": {
+      "text": "They all followed him in a line. They thought he was their family. He walked very slowly.",
+      "art": "bnjyboy walking slowly through the ferns with a wobbly line of four hatchling small green two-legged dinosaurs with long tails and scaly skin following behind him.",
+      "end": true
+    },
+    "abab1": {
+      "text": "The first one he called Pip. The second one he called Bud. The third one he called Socks.",
+      "art": "bnjyboy sitting in the leafy nest pointing at three wobbly hatchling small green two-legged dinosaur with a long tail and scaly skins, naming them one by one.",
+      "next": "abab2"
+    },
+    "abab2": {
+      "text": "Socks had pale green feet. Bud had a bump on his nose. Pip was the noisiest one.",
+      "art": "Three hatchling small green two-legged dinosaurs with long tails and scaly skin with different markings crowding round bnjyboy in the nest, each looking distinct.",
+      "next": "abab3"
+    },
+    "abab3": {
+      "text": "He wrote the names in the mud. They squeaked when he said them. They liked their names.",
+      "art": "bnjyboy writing names in soft mud with a stick while three hatchling small green two-legged dinosaurs with long tails and scaly skin squeak around him.",
+      "end": true
+    },
+    "abba1": {
+      "text": "He climbed up her long neck. It was warm and rough. He held on very tight.",
+      "art": "bnjyboy climbing carefully up the long warm neck of the enormous mother dinosaur.",
+      "next": "abba2"
+    },
+    "abba2": {
+      "text": "She lifted her head slowly. Up went the whole valley. He could see for miles.",
+      "art": "The mother dinosaur raising her head high with bnjyboy holding on, the whole green valley spread out below.",
+      "next": "abba3"
+    },
+    "abba3": {
+      "text": "The ferns looked like grass now. The lake was a blue coin. Benjie held on and laughed.",
+      "art": "bnjyboy high on the mother dinosaur's neck laughing, the valley tiny below with a coin-sized blue lake.",
+      "end": true
+    },
+    "abbb1": {
+      "text": "She nudged the leaves aside. There were nine eggs in all. Some were already rocking.",
+      "art": "The mother dinosaur gently nudging leaves aside to show bnjyboy nine big speckled eggs in her nest.",
+      "next": "abbb2"
+    },
+    "abbb2": {
+      "text": "She showed him how to listen. He put his ear to a shell. Something tapped back at him.",
+      "art": "bnjyboy pressing his ear to a large speckled egg with a look of wonder, the mother dinosaur watching.",
+      "next": "abbb3"
+    },
+    "abbb3": {
+      "text": "Tap. Tap tap. Benjie tapped back. The whole nest began to answer.",
+      "art": "bnjyboy tapping gently on an egg while all nine eggs in the nest rock and tap in reply.",
+      "end": true
+    },
+    "baaa1": {
+      "text": "He held the leaves up high. The huge head came down slowly. Its lips were soft as velvet.",
+      "art": "bnjyboy holding a bunch of leaves high as the enormous sauropod's soft mouth reaches gently down.",
+      "next": "baaa2"
+    },
+    "baaa2": {
+      "text": "It took them very gently. It did not touch his hand. Then it hummed a happy hum.",
+      "art": "The sauropod taking leaves delicately from bnjyboy's hand without touching him, both content.",
+      "next": "baaa3"
+    },
+    "baaa3": {
+      "text": "He fed it every leaf he had. It stayed beside him afterwards. They watched the sun go down.",
+      "art": "bnjyboy sitting against the huge foot of the sauropod as the sun sets golden over the prehistoric forest.",
+      "end": true
+    },
+    "baab1": {
+      "text": "It knelt down in the ferns. Its back was broad and warm. Benjie climbed carefully aboard.",
+      "art": "The enormous sauropod kneeling among ferns while bnjyboy climbs onto its broad warm back.",
+      "next": "baab2"
+    },
+    "baab2": {
+      "text": "Up he went, and up again. The treetops came to meet him. He was above the whole forest.",
+      "art": "bnjyboy riding high on the sauropod's back level with the prehistoric treetops, forest stretching away.",
+      "next": "baab3"
+    },
+    "baab3": {
+      "text": "Birds flew below his feet. The wind smelled of green leaves. It was the best seat anywhere.",
+      "art": "bnjyboy on the sauropod's back above the canopy, prehistoric birds flying below him in golden light.",
+      "end": true
+    },
+    "baba1": {
+      "text": "He lifted a mushroom cap. Three tiny dinosaurs slept inside. They were curled like kittens.",
+      "art": "bnjyboy lifting the cap of a glowing blue mushroom to reveal three small green scaly two-legged dinosaurs with long stiff tails and tiny clawed hands (definitely dinosaurs, not foxes, cats or rabbits) curled asleep inside.",
+      "next": "baba2"
+    },
+    "baba2": {
+      "text": "One opened a sleepy eye. It yawned an enormous yawn. Then it went back to sleep.",
+      "art": "A tiny dinosaur yawning hugely inside the glowing mushroom while bnjyboy grins at it.",
+      "next": "baba3"
+    },
+    "baba3": {
+      "text": "He lowered the cap gently down. He tiptoed all the way out. Some things need their sleep.",
+      "art": "bnjyboy tiptoeing carefully away through the glowing blue mushroom glade, looking back with a smile.",
+      "end": true
+    },
+    "babb1": {
+      "text": "He sat beside the sleeping one. Its side went up and down. It was warm as a radiator.",
+      "art": "bnjyboy sitting with his back against the warm side of a large sleeping dinosaur in the glowing glade.",
+      "next": "babb2"
+    },
+    "babb2": {
+      "text": "The blue light moved slowly. The snoring was very calming. Benjie's eyes went heavy.",
+      "art": "bnjyboy leaning sleepily against the sleeping dinosaur, soft blue mushroom light all around.",
+      "next": "babb3"
+    },
+    "babb3": {
+      "text": "He had a small nap too. He dreamed of enormous footprints. It was the best nap ever.",
+      "art": "bnjyboy fast asleep curled against the big sleeping dinosaur among the glowing blue mushrooms.",
+      "end": true
+    },
+    "bbaa1": {
+      "text": "They swam out to the deep. The water turned dark blue. Benjie held on tight.",
+      "art": "bnjyboy in the water up to his chest, swimming in a deep blue lake and holding onto the neck of a huge long-necked dinosaur that is swimming beside him.",
+      "next": "bbaa2"
+    },
+    "bbaa2": {
+      "text": "Shapes moved far below them. Big and slow and peaceful. Nothing was in a hurry.",
+      "art": "bnjyboy swimming in deep blue water holding a swimming long-necked dinosaur, with the large dark shapes of more swimming creatures visible far below in the water.",
+      "next": "bbaa3"
+    },
+    "bbaa3": {
+      "text": "The whole herd swam together. Necks up like tall masts. Benjie was one of them.",
+      "art": "bnjyboy swimming in the middle of a whole herd of long-necked dinosaurs, all of them in the water with their necks raised above the surface like tall masts.",
+      "end": true
+    },
+    "bbab1": {
+      "text": "He stayed where it was shallow. The mud was soft and warm. Little creatures scooted past.",
+      "art": "bnjyboy sitting in the warm shallow lake edge with small prehistoric creatures scooting past his legs.",
+      "next": "bbab2"
+    },
+    "bbab2": {
+      "text": "A round shell floated by. It had a head and flippers. A turtle bigger than a table.",
+      "art": "An enormous prehistoric turtle with a shell wider than a table paddling gently past bnjyboy in the shallows.",
+      "next": "bbab3"
+    },
+    "bbab3": {
+      "text": "It let him rest one hand there. They floated along together. Slow was very nice indeed.",
+      "art": "bnjyboy floating along with one hand resting on the huge turtle's shell in the sunny shallow lake.",
+      "end": true
+    },
+    "bbba1": {
+      "text": "He parted the ferns slowly. A nest sat in the middle. Three eggs lay side by side.",
+      "art": "bnjyboy parting island ferns to reveal a small hidden nest with three eggs inside.",
+      "next": "bbba2"
+    },
+    "bbba2": {
+      "text": "A small parent watched him closely. It did not run away. It seemed to trust him.",
+      "art": "A small watchful parent dinosaur standing calmly by its island nest as bnjyboy kneels nearby.",
+      "next": "bbba3"
+    },
+    "bbba3": {
+      "text": "He covered the nest back up. He left it just as found. Some secrets should stay secret.",
+      "art": "bnjyboy gently covering the little island nest with ferns again, the parent dinosaur watching approvingly.",
+      "end": true
+    },
+    "bbbb1": {
+      "text": "The rock was warm from the sun. He climbed it hand over hand. The top was flat and wide.",
+      "art": "bnjyboy climbing a warm sunlit rock on the little island, hand over hand.",
+      "next": "bbbb2"
+    },
+    "bbbb2": {
+      "text": "From up there he saw it all. The lake. The forest. The green hill and the ferns.",
+      "art": "bnjyboy standing on the flat rock top looking out over the whole prehistoric valley, lake and forest and hills.",
+      "next": "bbbb3"
+    },
+    "bbbb3": {
+      "text": "Somewhere down there was a door. It would still be waiting. But not quite yet.",
+      "art": "bnjyboy sitting on the lookout rock at golden hour, the whole dinosaur valley spread out below him.",
+      "end": true
+    }
+  }
+}

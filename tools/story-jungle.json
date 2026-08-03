@@ -1,0 +1,654 @@
+{
+  "id": "jungle",
+  "title": "The Jungle Temple",
+  "em": "🌴",
+  "cast": "bnjyboy is a curious boy in a wide khaki sun hat, a sandy explorer shirt and a canvas satchel. He is the ONLY person in this story and he is always alone. The jungle is warm and green, full of tangled vines, rushing waterfalls, chattering monkeys and an old moss-covered stone temple.",
+  "keep": "bnjyboy in a wide khaki sun hat, a sandy explorer shirt and a canvas satchel. Exactly ONE child in the picture, alone. No other people.",
+  "nodes": {
+    "p1": {
+      "text": "Benjie was exploring the back garden. Behind the shed was a wall of vines. He spotted a small gap between them.",
+      "art": "In a back garden, bnjyboy crouching beside a thick wall of green vines behind a wooden shed, peering into a small gap where the vines part.",
+      "next": "p2"
+    },
+    "p2": {
+      "text": "He pushed the vines aside. Warm, wet air rushed out. Birds called from somewhere close.",
+      "art": "bnjyboy pushing aside a curtain of green jungle vines with both hands, warm golden light and thick greenery visible beyond.",
+      "next": "p3"
+    },
+    "p3": {
+      "text": "He stepped through the gap. It was not his garden anymore. Giant leaves dripped with rain.",
+      "art": "bnjyboy stepping through a curtain of vines into a dense green jungle, enormous dripping leaves all around him.",
+      "next": "p4"
+    },
+    "p4": {
+      "text": "Vines hung down like ropes. Bright flowers glowed orange and pink. Somewhere, water rushed loudly.",
+      "art": "bnjyboy standing in a lush jungle clearing, thick vines hanging like ropes from the trees, bright orange and pink flowers all around, soft mist in the air.",
+      "next": "p5"
+    },
+    "p5": {
+      "text": "Then he saw something grey. Old stones peeked through the leaves. A temple was hiding there.",
+      "art": "bnjyboy pushing through jungle leaves to reveal a glimpse of an ancient moss-covered grey stone temple wall half-hidden by the greenery.",
+      "next": "p6"
+    },
+    "p6": {
+      "text": "A rope bridge swayed over a gorge. A stone path led into the trees. Two ways lay ahead of him.",
+      "art": "A swaying rope bridge crossing a jungle gorge on one side, an old moss-covered stone path leading into thick trees on the other, bnjyboy deciding between them.",
+      "choices": [
+        {
+          "em": "🌉",
+          "text": "Cross the rope bridge",
+          "to": "a1"
+        },
+        {
+          "em": "🪨",
+          "text": "Follow the stone path",
+          "to": "b1"
+        }
+      ]
+    },
+    "a1": {
+      "text": "The bridge swung side to side. Boards creaked beneath his feet. Below, a river rushed by.",
+      "art": "bnjyboy crossing a swaying wooden rope bridge over a rushing jungle river gorge, gripping the rope rails tightly.",
+      "next": "a2"
+    },
+    "a2": {
+      "text": "A small monkey watched him closely. It had a long curling tail. It swung down to look closer.",
+      "art": "A small brown monkey with a long curling tail and round ears swinging down on a vine to look closely at bnjyboy on the bridge.",
+      "next": "a3"
+    },
+    "a3": {
+      "text": "The monkey chattered and pointed. One way led to a waterfall. The other led to tall trees.",
+      "art": "The small brown monkey with a long curling tail and round ears pointing from the bridge, a roaring waterfall visible one way and tall trees the other, bnjyboy looking between them.",
+      "choices": [
+        {
+          "em": "💦",
+          "text": "Follow the waterfall",
+          "to": "aa1"
+        },
+        {
+          "em": "🌳",
+          "text": "Climb into the trees",
+          "to": "ab1"
+        }
+      ]
+    },
+    "b1": {
+      "text": "The stone path was old and cracked. Soft moss grew between the stones. It wound deeper into the jungle.",
+      "art": "bnjyboy walking along an old cracked stone path lined with soft green moss, jungle pressing close on both sides.",
+      "next": "b2"
+    },
+    "b2": {
+      "text": "The path led to a big archway. Carved leaves twisted around the stone. Beyond it, the jungle opened wide.",
+      "art": "bnjyboy standing before a tall stone archway carved with twisting leaf patterns, the jungle opening up wide beyond it. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "next": "b3"
+    },
+    "b3": {
+      "text": "Through the arch he saw two things. A pool glinted between tall palms. Mossy steps climbed a nearby hill.",
+      "art": "Beyond the stone archway, a glinting natural rocky jungle pool between tall palm trees on one side and mossy stone steps climbing a hill on the other, bnjyboy choosing.",
+      "choices": [
+        {
+          "em": "🏞️",
+          "text": "Go to the pool",
+          "to": "ba1"
+        },
+        {
+          "em": "🪜",
+          "text": "Climb the mossy steps",
+          "to": "bb1"
+        }
+      ]
+    },
+    "aa1": {
+      "text": "The waterfall roared and sparkled. Rainbow mist filled the air. Ferns grew thick along the edge.",
+      "art": "bnjyboy standing before a roaring jungle waterfall crashing into a natural rocky jungle pool of clear water among mossy stones, a rainbow shimmering in the rising mist, thick ferns along the rocky edge.",
+      "next": "aa2"
+    },
+    "aa2": {
+      "text": "Behind the water was a gap. Soft green light glowed through it. He peeked through very carefully.",
+      "art": "bnjyboy peeking through a narrow gap behind the curtain of falling water, soft green light glowing from within.",
+      "next": "aa3"
+    },
+    "aa3": {
+      "text": "Inside, the cave split in two. One way glowed with soft moss. One way had a round stone door.",
+      "art": "Inside the cave behind the waterfall, one passage glowing softly with green moss and another blocked by a round carved stone door, bnjyboy deciding.",
+      "choices": [
+        {
+          "em": "🌿",
+          "text": "Follow the glowing moss",
+          "to": "aaa1"
+        },
+        {
+          "em": "🚪",
+          "text": "Open the stone door",
+          "to": "aab1"
+        }
+      ]
+    },
+    "ab1": {
+      "text": "He climbed onto a low branch. Vines looped between the trees. The monkey scampered on ahead.",
+      "art": "bnjyboy climbing onto a low jungle tree branch, thick vines looping between neighboring trees, the small brown monkey with a long curling tail and round ears scampering ahead along a branch.",
+      "next": "ab2"
+    },
+    "ab2": {
+      "text": "More monkeys peeked from the leaves. They had round curious eyes. One tugged gently at his sleeve.",
+      "art": "Several small brown monkeys with long curling tails and round ears peeking out from jungle leaves around bnjyboy, one tugging gently at his sleeve.",
+      "next": "ab3"
+    },
+    "ab3": {
+      "text": "The monkeys pointed two ways. Up led to a high nest. Down led to a hollow trunk.",
+      "art": "Several small brown monkeys with long curling tails and round ears pointing from a branch, a woven nest platform high above and a hollow tree trunk below, bnjyboy deciding.",
+      "choices": [
+        {
+          "em": "🪺",
+          "text": "Climb to the nest",
+          "to": "aba1"
+        },
+        {
+          "em": "🌲",
+          "text": "Look in the trunk",
+          "to": "abb1"
+        }
+      ]
+    },
+    "ba1": {
+      "text": "The pool was cool and clear. Round lily pads floated on top. Little fish flickered underneath them.",
+      "art": "bnjyboy kneeling at the edge of a clear jungle natural rocky jungle pool with round lily pads floating on the surface, small colorful fish flickering below.",
+      "next": "ba2"
+    },
+    "ba2": {
+      "text": "Something rippled near the middle. A round green head popped up. It blinked at him slowly.",
+      "art": "A round gentle green head with big calm eyes popping up from the middle of the jungle natural rocky jungle pool near bnjyboy, ripples spreading outward.",
+      "next": "ba3"
+    },
+    "ba3": {
+      "text": "It swam toward the far bank. There, a stone spout poured water. Lily pads also made a path.",
+      "art": "The round green head swimming toward a carved stone spout on the far bank, a path of lily pads leading across the natural rocky jungle pool of clear water among mossy stones the other way, bnjyboy deciding.",
+      "choices": [
+        {
+          "em": "🐸",
+          "text": "Follow it to the bank",
+          "to": "baa1"
+        },
+        {
+          "em": "🪷",
+          "text": "Cross the lily pads",
+          "to": "bab1"
+        }
+      ]
+    },
+    "bb1": {
+      "text": "The steps were steep and mossy. Ferns brushed against his knees. He climbed slowly up them.",
+      "art": "bnjyboy climbing steep mossy stone steps with ferns brushing against his knees on both sides.",
+      "next": "bb2"
+    },
+    "bb2": {
+      "text": "At the top stood the temple. Grey towers rose through the leaves. Vines wrapped every single stone.",
+      "art": "bnjyboy standing before a moss-covered ancient stone temple with tall crumbling towers, thick vines wrapping every stone surface.",
+      "next": "bb3"
+    },
+    "bb3": {
+      "text": "Two doorways opened before him. One was round and low. One was tall and carved.",
+      "art": "Two temple doorways side by side, one small and round and one tall and carved with leaf patterns, bnjyboy standing between them. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "choices": [
+        {
+          "em": "⭕",
+          "text": "Go through the round door",
+          "to": "bba1"
+        },
+        {
+          "em": "🗿",
+          "text": "Go through the carved door",
+          "to": "bbb1"
+        }
+      ]
+    },
+    "aaa1": {
+      "text": "The moss glowed a soft green. It lit the whole tunnel. His footsteps echoed gently.",
+      "art": "bnjyboy walking through a narrow cave tunnel lit entirely by soft glowing green moss covering the walls.",
+      "next": "aaa2"
+    },
+    "aaa2": {
+      "text": "The tunnel opened into a room. Glowing moss covered the ceiling. It looked like tiny stars.",
+      "art": "bnjyboy stepping into a round cave chamber with a ceiling completely covered in glowing green moss, like tiny stars overhead.",
+      "next": "aaa3"
+    },
+    "aaa3": {
+      "text": "A clear pool sat below. Carved stone frogs ringed the edge. Something small sparkled at the bottom.",
+      "art": "A ring of carved stone frog statues around a small glowing natural rocky jungle pool, something small glinting at the bottom, bnjyboy kneeling at the edge. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "choices": [
+        {
+          "em": "💧",
+          "text": "Look in the water",
+          "to": "aaaa1"
+        },
+        {
+          "em": "🐸",
+          "text": "Look at the frogs",
+          "to": "aaab1"
+        }
+      ]
+    },
+    "aab1": {
+      "text": "The stone door was round and heavy. He pushed it with both hands. It rumbled slowly open.",
+      "art": "bnjyboy pushing open a heavy round stone door in the cave wall with both hands, the door rumbling slowly aside. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "next": "aab2"
+    },
+    "aab2": {
+      "text": "Inside was a small round room. Carved animals lined the walls. Dust floated in a sunbeam.",
+      "art": "bnjyboy standing in a small round stone chamber lined with carved animal shapes, a beam of sunlight filled with drifting dust falling from a crack above. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "next": "aab3"
+    },
+    "aab3": {
+      "text": "One wall showed a carved monkey. One wall showed a carved bird. Both looked ready to wake up.",
+      "art": "A stone wall carved with a monkey shape on one side and a bird shape on the other, bnjyboy reaching toward them. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "choices": [
+        {
+          "em": "🐒",
+          "text": "Touch the carved monkey",
+          "to": "aaba1"
+        },
+        {
+          "em": "🦜",
+          "text": "Touch the carved bird",
+          "to": "aabb1"
+        }
+      ]
+    },
+    "aba1": {
+      "text": "The nest platform was wide and woven. Twigs and soft leaves lined it. Monkeys curled up there, napping.",
+      "art": "bnjyboy climbing onto a wide woven twig nest platform high in the jungle trees, several small brown monkeys with long curling tails and round ears curled up napping among the leaves.",
+      "next": "aba2"
+    },
+    "aba2": {
+      "text": "One monkey woke up slowly. It handed him a round fruit. Then it patted the spot beside it.",
+      "art": "A small brown monkey with a long curling tail and round ears handing bnjyboy a round yellow fruit while patting the woven platform beside itself.",
+      "next": "aba3"
+    },
+    "aba3": {
+      "text": "From the nest he saw far. Mist rose from a hidden clearing. A big fruit tree stood nearby.",
+      "art": "From the high nest platform, soft mist rising from a hidden jungle clearing one way and a tall fruit tree standing the other, bnjyboy looking out.",
+      "choices": [
+        {
+          "em": "🌫️",
+          "text": "Go toward the mist",
+          "to": "abaa1"
+        },
+        {
+          "em": "🍈",
+          "text": "Visit the fruit tree",
+          "to": "abab1"
+        }
+      ]
+    },
+    "abb1": {
+      "text": "The tree trunk was hollow and wide. Soft light glowed from inside it. He stepped in very carefully.",
+      "art": "bnjyboy stepping carefully into a wide hollow jungle tree trunk glowing softly from within.",
+      "next": "abb2"
+    },
+    "abb2": {
+      "text": "Inside, roots curled like stairs. Little frogs sat on the ledges. Water dripped somewhere down deep.",
+      "art": "bnjyboy standing inside the hollow tree where curling tree roots form natural steps, small green frogs resting on the ledges, water dripping in the shadows below. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "next": "abb3"
+    },
+    "abb3": {
+      "text": "The roots led down into darkness. A small hole led up to daylight. Both looked very interesting indeed.",
+      "art": "Inside the hollow tree, roots curling down into darkness one way and a small hole opening up to daylight the other, bnjyboy deciding.",
+      "choices": [
+        {
+          "em": "⬇️",
+          "text": "Climb down the roots",
+          "to": "abba1"
+        },
+        {
+          "em": "⬆️",
+          "text": "Climb up to the light",
+          "to": "abbb1"
+        }
+      ]
+    },
+    "baa1": {
+      "text": "The far bank was sandy and warm. A stone spout poured out water. It splashed into a little pool.",
+      "art": "bnjyboy standing on a warm sandy bank of the jungle natural rocky jungle pool beside a carved stone spout pouring water into a small splash natural rocky jungle pool. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "next": "baa2"
+    },
+    "baa2": {
+      "text": "Carved leaves circled the spout. The water tasted cool and sweet. Little fish gathered where it splashed.",
+      "art": "bnjyboy cupping his hands to drink from the carved stone spout, small fish gathering in the splashing water below. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "next": "baa3"
+    },
+    "baa3": {
+      "text": "Behind the spout was a gap. Sandy steps also led up a bank. Both paths looked worth trying.",
+      "art": "A narrow gap behind the carved stone spout on one side, sandy steps climbing the natural rocky jungle pool of clear water among mossy stones bank on the other, bnjyboy deciding.",
+      "choices": [
+        {
+          "em": "🕳️",
+          "text": "Look behind the spout",
+          "to": "baaa1"
+        },
+        {
+          "em": "🪜",
+          "text": "Climb the sandy steps",
+          "to": "baab1"
+        }
+      ]
+    },
+    "bab1": {
+      "text": "The lily pads were big and flat. He hopped from one to the next. Each one wobbled gently underfoot.",
+      "art": "bnjyboy hopping carefully across large flat lily pads on the jungle natural rocky jungle pool, each pad wobbling slightly under his feet.",
+      "next": "bab2"
+    },
+    "bab2": {
+      "text": "A dragonfly landed on his hand. Its wings shone blue and green. It stayed there a whole minute.",
+      "art": "A large dragonfly with shimmering blue-green wings resting on bnjyboy's outstretched hand as he balances on a lily pad.",
+      "next": "bab3"
+    },
+    "bab3": {
+      "text": "The pads led to two spots. One was a tiny mossy island. One was a curtain of vines.",
+      "art": "Beyond the lily pads, a tiny mossy island one way and a curtain of hanging jungle vines the other, bnjyboy choosing.",
+      "choices": [
+        {
+          "em": "🏝️",
+          "text": "Land on the island",
+          "to": "baba1"
+        },
+        {
+          "em": "🌿",
+          "text": "Push through the vines",
+          "to": "babb1"
+        }
+      ]
+    },
+    "bba1": {
+      "text": "The round door led to a courtyard. Sunlight poured through broken stone. Soft moss grew in patches.",
+      "art": "bnjyboy stepping into an open temple courtyard through the round doorway, sunlight pouring through gaps in the broken stone roof above, soft moss patches on the ground.",
+      "next": "bba2"
+    },
+    "bba2": {
+      "text": "In the middle stood a fountain. Water trickled from a carved shape. Little birds bathed in it.",
+      "art": "bnjyboy standing in a hidden temple garden of mossy carved stone, green ferns and bright flowers growing between the old stones, warm golden light through the leaves.",
+      "next": "bba3"
+    },
+    "bba3": {
+      "text": "Stairs went down one side. A carved doorway stood on the other. He looked between the two.",
+      "art": "In the temple courtyard, stone stairs leading down on one side and a carved stone doorway on the other, bnjyboy deciding. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "choices": [
+        {
+          "em": "🪨",
+          "text": "Go down the stairs",
+          "to": "bbaa1"
+        },
+        {
+          "em": "🚪",
+          "text": "Go through the doorway",
+          "to": "bbab1"
+        }
+      ]
+    },
+    "bbb1": {
+      "text": "The carved door showed leaves and vines. He pushed it open slowly. Dust drifted in the light.",
+      "art": "bnjyboy pushing open a tall stone temple door carved with leaf and vine patterns, dust drifting through a shaft of light.",
+      "next": "bbb2"
+    },
+    "bbb2": {
+      "text": "Inside was a long hallway. Carved monkeys lined the walls. Sunbeams fell through cracks above.",
+      "art": "bnjyboy walking down a long temple hallway with carved monkey shapes along the walls, sunbeams falling through cracks in the ceiling. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "next": "bbb3"
+    },
+    "bbb3": {
+      "text": "The hallway split into two. One side glowed with sunlight. One side felt cool and shadowy.",
+      "art": "A temple hallway forking in two, one side glowing with sunlight and the other cool and shadowy, bnjyboy deciding which way. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "choices": [
+        {
+          "em": "☀️",
+          "text": "Go toward the sunlight",
+          "to": "bbba1"
+        },
+        {
+          "em": "🌑",
+          "text": "Go into the shadows",
+          "to": "bbbb1"
+        }
+      ]
+    },
+    "aaaa1": {
+      "text": "The water was clear and still. Something round glinted down below. He reached in very carefully.",
+      "art": "bnjyboy kneeling at the edge of the glowing natural rocky jungle pool, reaching carefully into the clear water where something round glints on the bottom.",
+      "next": "aaaa2"
+    },
+    "aaaa2": {
+      "text": "It was a smooth green stone. It felt warm in his hand. Tiny patterns covered its surface.",
+      "art": "bnjyboy holding up a smooth warm green stone covered in tiny carved patterns, dripping with natural rocky jungle pool water. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "next": "aaaa3"
+    },
+    "aaaa3": {
+      "text": "He tucked it in his satchel. A little piece of the glowing cave. He would keep it forever.",
+      "art": "bnjyboy slipping the small carved green stone into his canvas satchel, glowing green moss lighting the cave chamber behind him.",
+      "end": true
+    },
+    "aaab1": {
+      "text": "The stone frogs sat in a ring. Each one had a different face. One had wide surprised eyes.",
+      "art": "bnjyboy crouching beside a ring of carved stone frog statues around the glowing natural rocky jungle pool, each carved with a different expression. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "next": "aaab2"
+    },
+    "aaab2": {
+      "text": "He touched the surprised frog's back. Water trickled from its mouth. It filled a little stone cup.",
+      "art": "bnjyboy touching the back of a carved stone frog statue as water trickles from its open mouth into a small stone cup below. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "next": "aaab3"
+    },
+    "aaab3": {
+      "text": "He drank from the cool cup. Somewhere, real frogs croaked back. It felt like they said thanks.",
+      "art": "bnjyboy sipping water from the small stone cup, soft glowing moss light around him, a contented smile.",
+      "end": true
+    },
+    "aaba1": {
+      "text": "He touched the carved monkey shape. It felt smooth and cool. Suddenly a real one popped out.",
+      "art": "bnjyboy touching a carved stone monkey shape on the chamber wall, a real small brown monkey with a long curling tail and round ears poking its head out from a hidden gap beside the carving. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "next": "aaba2"
+    },
+    "aaba2": {
+      "text": "It had been hiding in a hole. Behind it sat a stash of nuts. It offered him one shyly.",
+      "art": "The small brown monkey with a long curling tail and round ears holding out a nut to bnjyboy from its hidden hole in the wall, more nuts piled behind it.",
+      "next": "aaba3"
+    },
+    "aaba3": {
+      "text": "They cracked nuts together happily. The little room echoed with laughter. It was a very good snack.",
+      "art": "bnjyboy sitting on the stone floor cracking nuts alongside the small brown monkey with a long curling tail and round ears, both delighted. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "end": true
+    },
+    "aabb1": {
+      "text": "He touched the carved bird next. A soft whistle rang out. Dust puffed from its beak.",
+      "art": "bnjyboy touching a carved stone bird shape on the wall, a puff of dust and a soft whistling sound coming from its carved beak. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "next": "aabb2"
+    },
+    "aabb2": {
+      "text": "A hidden shelf slid open. Old feathers lay inside it. Each one was a bright color.",
+      "art": "bnjyboy discovering a small stone shelf that has slid open in the wall, filled with bright colorful feathers. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "next": "aabb3"
+    },
+    "aabb3": {
+      "text": "He picked the brightest blue one. It fit neatly behind his ear. He felt like a real explorer.",
+      "art": "bnjyboy tucking a bright blue feather behind his ear, smiling proudly inside the small stone chamber. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "end": true
+    },
+    "abaa1": {
+      "text": "The mist grew thicker ahead. Warm water bubbled from the ground. Steam curled upward very slowly.",
+      "art": "bnjyboy walking toward a hidden jungle clearing filled with warm rising steam, bubbling warm water pools on the ground.",
+      "next": "abaa2"
+    },
+    "abaa2": {
+      "text": "It was a warm bubbling pool. Monkeys sat around the edge. They looked very relaxed indeed.",
+      "art": "bnjyboy watching several small brown monkeys with long curling tails and round ears sitting around the edge of a warm bubbling jungle natural rocky jungle pool, steam rising gently.",
+      "next": "abaa3"
+    },
+    "abaa3": {
+      "text": "Benjie dipped his feet in too. The warm water felt wonderful. He sat with the monkeys a while.",
+      "art": "bnjyboy sitting at the edge of the warm bubbling natural rocky jungle pool with his feet in the water, small brown monkeys with long curling tails and round ears relaxing beside him.",
+      "end": true
+    },
+    "abab1": {
+      "text": "The fruit tree was tall and heavy. Round orange fruits hung everywhere. Monkeys were already feasting there.",
+      "art": "bnjyboy standing beneath a tall jungle fruit tree heavy with round orange fruit, several small brown monkeys with long curling tails and round ears already eating in the branches.",
+      "next": "abab2"
+    },
+    "abab2": {
+      "text": "One monkey tossed a fruit down. Benjie caught it in both hands. It smelled sweet, like mango.",
+      "art": "bnjyboy catching a round orange fruit tossed down by a small brown monkey with a long curling tail and round ears in the branches above.",
+      "next": "abab3"
+    },
+    "abab3": {
+      "text": "He shared it with his monkey friend. It was warm, sweet and sticky. It was the best snack ever.",
+      "art": "bnjyboy sharing a bitten orange fruit with a small brown monkey with a long curling tail and round ears perched beside him under the tree.",
+      "end": true
+    },
+    "abba1": {
+      "text": "He climbed down the twisting roots. Cool air rose up from below. Small glowing bugs lit the way.",
+      "art": "bnjyboy climbing down natural steps made of twisting tree roots inside the hollow trunk, small glowing bugs lighting the dark passage below. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "next": "abba2"
+    },
+    "abba2": {
+      "text": "At the bottom was a hidden spring. Clear water bubbled up from stone. Little fish swam round in circles.",
+      "art": "bnjyboy kneeling beside a hidden underground spring at the base of the roots, clear water bubbling up through stone, small fish swimming in circles. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "next": "abba3"
+    },
+    "abba3": {
+      "text": "He splashed his face with water. It felt cool and very fresh. Then he climbed happily back up.",
+      "art": "bnjyboy splashing cool water from the hidden spring onto his face, glowing bugs lighting the root chamber around him. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "end": true
+    },
+    "abbb1": {
+      "text": "He climbed up toward the light. The hole opened onto a branch. He popped out high above ground.",
+      "art": "bnjyboy climbing up through a hole in the hollow tree trunk and emerging onto a high jungle branch, the ground far below.",
+      "next": "abbb2"
+    },
+    "abbb2": {
+      "text": "From up there he saw everything. The temple, the river, the trees. Monkeys leaped from tree to tree.",
+      "art": "bnjyboy sitting on the high branch looking out over the whole jungle view, the mossy temple, a winding river, and small brown monkeys with long curling tails and round ears leaping between trees.",
+      "next": "abbb3"
+    },
+    "abbb3": {
+      "text": "A gentle breeze rocked the branch. Birds sang all around him. It was the best view ever.",
+      "art": "bnjyboy relaxing on the high jungle branch in golden sunlight, colorful birds singing nearby.",
+      "end": true
+    },
+    "baaa1": {
+      "text": "Behind the spout was a gap. He squeezed through very carefully. Old carved shelves lined the space.",
+      "art": "bnjyboy squeezing through a narrow gap behind the carved stone water spout into a small hidden space lined with old carved stone shelves. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "next": "baaa2"
+    },
+    "baaa2": {
+      "text": "One shelf held a stone monkey. It held a tiny stone fruit. Both were worn smooth with age.",
+      "art": "bnjyboy looking closely at a small worn stone monkey carving holding a tiny stone fruit, resting on a carved shelf. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "next": "baaa3"
+    },
+    "baaa3": {
+      "text": "He left the little statue there. It had waited a long time. Some things belong right where they are.",
+      "art": "bnjyboy carefully placing the small stone monkey carving back on its shelf, smiling, inside the hidden space behind the spout. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "end": true
+    },
+    "baab1": {
+      "text": "Sandy steps led up the bank. Paw prints crossed the sand. Something had passed this way.",
+      "art": "bnjyboy climbing sandy steps beside the natural rocky jungle pool of clear water among mossy stones, small paw prints crossing the sand nearby.",
+      "next": "baab2"
+    },
+    "baab2": {
+      "text": "At the top sat a turtle. Its shell had painted patterns. It blinked at him slowly.",
+      "art": "A large turtle with painted patterns on its shell resting at the top of the sandy steps, blinking slowly at bnjyboy. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "next": "baab3"
+    },
+    "baab3": {
+      "text": "The turtle let him stroke its shell. It felt warm from the sun. Then it ambled off happily.",
+      "art": "bnjyboy gently stroking the patterned shell of the large turtle at the top of the sandy bank, warm sunlight around them.",
+      "end": true
+    },
+    "baba1": {
+      "text": "The mossy island was tiny and round. Soft moss covered every stone. It felt like a green cushion.",
+      "art": "bnjyboy stepping onto a small round mossy island in the middle of the jungle natural rocky jungle pool, thick soft moss covering every stone.",
+      "next": "baba2"
+    },
+    "baba2": {
+      "text": "Dragonflies circled above his head. Little frogs hopped through the moss. The island seemed to hum gently.",
+      "art": "bnjyboy sitting on the soft mossy island as dragonflies circle above and small green frogs hop through the moss around him.",
+      "next": "baba3"
+    },
+    "baba3": {
+      "text": "He lay back on the moss. Clouds drifted slowly overhead. It was the coziest spot around.",
+      "art": "bnjyboy lying back peacefully on the soft green moss island, looking up at the sky, the calm jungle natural rocky jungle pool all around.",
+      "end": true
+    },
+    "babb1": {
+      "text": "He pushed through hanging vines. They swayed like green curtains. Behind them was a quiet grotto.",
+      "art": "bnjyboy pushing through a curtain of hanging jungle vines to reveal a quiet hidden grotto behind them.",
+      "next": "babb2"
+    },
+    "babb2": {
+      "text": "Water trickled down mossy rocks. Little orchids grew in the cracks. Everything smelled sweet and green.",
+      "art": "bnjyboy standing in the quiet grotto where water trickles down moss-covered rocks, small orchid flowers growing from the cracks.",
+      "next": "babb3"
+    },
+    "babb3": {
+      "text": "He picked one small orchid. He tucked it behind his ear. The grotto became his own secret.",
+      "art": "bnjyboy tucking a small orchid flower behind his ear, smiling inside the peaceful hidden grotto.",
+      "end": true
+    },
+    "bbaa1": {
+      "text": "The stairs wound down and down. He pulled a torch from his satchel. Its light bounced off wet stone.",
+      "art": "bnjyboy walking down a winding stone staircase inside the temple, holding a small torch that lights up the wet stone walls. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "next": "bbaa2"
+    },
+    "bbaa2": {
+      "text": "At the bottom was a round room. Carved vines circled the ceiling. A stone bowl sat in the middle.",
+      "art": "bnjyboy standing in a round underground temple chamber with carved vine patterns circling the ceiling, a carved stone bowl in the center of the floor.",
+      "next": "bbaa3"
+    },
+    "bbaa3": {
+      "text": "The bowl was full of pebbles. Each one was a different color. He picked his favorite to keep.",
+      "art": "bnjyboy picking a smooth colorful pebble from the stone bowl in the underground chamber, torchlight around him.",
+      "end": true
+    },
+    "bbab1": {
+      "text": "The carved doorway led outside. A quiet garden grew there. Flowers climbed every crumbling wall.",
+      "art": "bnjyboy stepping through a carved stone doorway into a hidden temple garden, flowering vines climbing over every crumbling wall.",
+      "next": "bbab2"
+    },
+    "bbab2": {
+      "text": "Butterflies drifted between the blossoms. A stone bench sat in shade. It looked made just for resting.",
+      "art": "bnjyboy standing beside an old stone bench in the shaded temple garden, butterflies drifting between colorful blossoms. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "next": "bbab3"
+    },
+    "bbab3": {
+      "text": "He rested there a good while. Petals drifted down around him. It was the calmest place around.",
+      "art": "bnjyboy relaxing peacefully on the stone bench as flower petals drift down around him in the hidden garden. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "end": true
+    },
+    "bbba1": {
+      "text": "The sunny hallway opened outside. He stepped onto a high ledge. The whole jungle spread out below.",
+      "art": "bnjyboy stepping out of the temple hallway onto a high stone ledge, the whole green jungle canopy spreading out far below. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "next": "bbba2"
+    },
+    "bbba2": {
+      "text": "Birds circled below the ledge. Their feathers flashed red and blue. Benjie waved down at them.",
+      "art": "bnjyboy waving from the high ledge as colorful red and blue birds circle in the jungle air below.",
+      "next": "bbba3"
+    },
+    "bbba3": {
+      "text": "He sat and watched the sun move. Shadows crept slowly over the trees. It was a perfect place to rest.",
+      "art": "bnjyboy sitting on the sunny temple ledge watching the sun and shifting shadows over the jungle canopy. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "end": true
+    },
+    "bbbb1": {
+      "text": "The shadowy hallway felt cool. Soft moss grew on the floor. Tiny glowing bugs floated past.",
+      "art": "bnjyboy walking down a cool shadowy temple hallway with soft moss on the floor, tiny glowing bugs floating through the air.",
+      "next": "bbbb2"
+    },
+    "bbbb2": {
+      "text": "The hall ended in a small room. Carved stars covered the ceiling. It felt quiet and peaceful.",
+      "art": "bnjyboy inside a mossy stone chamber whose walls are covered in carved star shapes, tiny glowing bugs drifting in the air, warm golden light and green vines at the edges.",
+      "next": "bbbb3"
+    },
+    "bbbb3": {
+      "text": "He lay down and looked up. The carved stars seemed to twinkle. He stayed until the bugs left.",
+      "art": "bnjyboy lying on the temple floor looking up at the carved star ceiling, soft glowing bugs drifting above him. The old stone is covered in green moss and hanging vines, with warm golden shafts of light and bright green jungle leaves framing the scene.",
+      "end": true
+    }
+  }
+}

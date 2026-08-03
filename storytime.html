@@ -246,7 +246,7 @@
     <div class="dots"><span>🐾</span><span>🐾</span><span>🐾</span></div>
   </div>
   <div id="pickWrap">
-    <p class="pickTitle">What happens next?</p>
+    <p class="pickTitle" id="pickTitle">What happens next?</p>
     <div id="choices"></div>
   </div>
   <div id="oops" style="display:none">
@@ -272,14 +272,23 @@
   // this is a choice the storyteller itself wrote — so nothing a child can tap ever introduces
   // new instructions into the conversation.
   const STARTERS = [
-    { em: "🐐", nm: "The Goat Who Got Out",  seed: "A funny farm story about a goat named Bo who opens his gate and goes exploring around the farm." },
-    { em: "🦖", nm: "My Dinosaur Friend",    seed: "A happy story about a kid who finds a small, friendly, polka-dotted dinosaur in the back yard." },
-    { em: "🚀", nm: "Trip to the Moon",      seed: "A cheerful story about a kid who builds a cardboard rocket and flies to the moon to have a picnic." },
-    { em: "🐙", nm: "Under the Sea",         seed: "A gentle story about a kid in a yellow submarine who makes friends with a silly octopus." },
-    { em: "🏴‍☠️", nm: "The Silly Pirates",   seed: "A goofy story about friendly pirates whose treasure map leads to something surprising and sweet." },
-    { em: "🐉", nm: "A Very Small Dragon",   seed: "A warm story about a tiny dragon, no bigger than a kitten, who can only puff smoke rings." },
+    { em: "🐐", nm: "The Goat Who Got Out",  baked: "goat", seed: "A funny farm story about a goat named Bo who opens his gate and goes exploring around the farm." },
+    { em: "🦖", nm: "My Dinosaur Friend",    baked: "dino", seed: "A happy story about a kid who finds a small, friendly, polka-dotted dinosaur in the back yard." },
+    { em: "🌴", nm: "The Jungle Temple",   baked: "jungle", seed: "An adventure about a boy exploring a green jungle full of vines, waterfalls, monkeys and an old stone temple." },
+    { em: "🦕", nm: "The Door in the Shed",  baked: "dino2", seed: "An adventure about a boy who finds a door in the garden shed that leads to a valley full of friendly dinosaurs." },
+    // space + pirates: their bakes never finished (space has pictures but no story.json,
+    // pirates is an empty folder), so they run as LIVE stories off their seeds until a
+    // future session finishes baking them — a baked: flag pointing at a missing story.json
+    // is a dead card ("This story could not open") for a six-year-old.
+    { em: "🚀", nm: "Benjie Goes to Space",  seed: "A cheerful story about a kid who builds a cardboard rocket and flies to the moon to have a picnic." },
+    { em: "🐙", nm: "Benjie's Yellow Submarine", baked: "sea", seed: "A gentle story about a kid in a yellow submarine exploring the deep sea." },
+    { em: "🐠", nm: "Under the Sea",         seed: "A gentle story about a kid in a yellow submarine who makes friends with a silly octopus." },
+    { em: "🏴‍☠️", nm: "Captain Plum's Map",  seed: "A goofy story about a friendly pirate whose treasure map leads to something surprising and sweet." },
+    { em: "🐉", nm: "The Cloud Kingdom",     baked: "sky", seed: "An adventure about a boy who flies above the clouds on a friendly green dragon." },
+    { em: "🦎", nm: "A Very Small Dragon",   seed: "A warm story about a tiny dragon, no bigger than a kitten, who can only puff smoke rings." },
     { em: "🚂", nm: "The Talking Train",     seed: "A happy story about a little train who talks and takes animals on a trip through the hills." },
     { em: "🍪", nm: "The Cookie Mystery",    seed: "A silly mystery about who took the cookies from the kitchen. It turns out to be something funny." },
+    { em: "❄️", nm: "The Little Wooden Sled", baked: "snow", seed: "A cosy adventure about a boy crossing the snowy north with a sled, huskies and polar bears." },
     { em: "🐻", nm: "Camping With Bear",     seed: "A cozy story about a kid camping in the yard with a big, gentle, marshmallow-loving bear." },
     { em: "🕷️", nm: "Spider-Man Helps",      seed: "A happy story about Spider-Man in the city. There are no bad guys at all — he swings between buildings and helps his neighbors with everyday things, like getting a kitten down from a tree or carrying groceries." },
   ];
@@ -318,6 +327,13 @@
   let story = null;          // { id, title, msgs:[{role,content}], scene:{text,choices}, art }
   let busy = false;
   let speechReady = false;   // iOS needs a real tap before it will ever speak
+  // Baked narration, when a story has been through tools/_bake-audio.mjs: pageId -> {src, words}
+  // where words[i] is {w,s,e} for the SAME i as wordEls[i]. Absent for live stories, and absent
+  // for baked stories whose audio hasn't been generated — both fall back to SpeechSynthesis.
+  let audioMap = null;
+  let pageAudio = null;      // preloaded <audio> for the page on screen
+  let narrRaf = 0;           // rAF driving the word highlight from currentTime
+  let narrStopAt = 0;        // > 0 while playing a single tapped word
 
   // ---------- view switching ----------
   function show(v) {
@@ -343,6 +359,10 @@
     { r: 0.70, em: "🚶", nm: "Medium" },
     { r: 0.90, em: "🐇", nm: "Fast" },
   ];
+  // The RATES above are tuned for SpeechSynthesis, which needs heavy slowing to be followable.
+  // Real narration is already paced for a child, so the same index maps to a much gentler
+  // playbackRate — 0.42x on a recorded voice is a warble, not a reading. Same 4 labels either way.
+  const AUDIO_RATES = [0.75, 0.85, 1.00, 1.15];
   let rateIdx = (() => { try { const n = parseInt(localStorage.getItem(RATE_KEY), 10); return (n >= 0 && n < RATES.length) ? n : 1; } catch { return 1; } })();
   function paintSpeed() { $("speedBtn").textContent = RATES[rateIdx].em + " " + RATES[rateIdx].nm; }
   $("speedBtn").onclick = () => {
@@ -432,8 +452,59 @@
     speaking = false;                 // set BEFORE cancel — cancel fires onend on some engines
     speakIdx = -1;
     try { synth && synth.cancel(); } catch {}
+    if (narrRaf) { cancelAnimationFrame(narrRaf); narrRaf = 0; }
+    narrStopAt = 0;
+    if (pageAudio) { try { pageAudio.pause(); pageAudio.currentTime = 0; } catch {} }
     for (const el of wordEls) el.classList.remove("now");
     setReadBtn(false);
+  }
+
+  // ---------- baked narration ----------
+  // One natural MP3 per page plus per-word start/end times, so a whole sentence is spoken with
+  // real rhythm while the highlight still lands on the exact word being said. The word-per-
+  // utterance SpeechSynthesis path below stays as the fallback and is still what live stories use.
+  function narrationFor(id) {
+    const a = audioMap && id && audioMap[id];
+    if (!a || !Array.isArray(a.words) || !a.words.length) return null;
+    // If the timings don't line up with the spans on screen the highlight would point at the
+    // wrong words — refuse and let the (always-correct) per-word fallback take over.
+    return a.words.length === wordEls.length ? a : null;
+  }
+  function preloadNarration(id) {
+    if (pageAudio) { try { pageAudio.pause(); } catch {} pageAudio = null; }
+    const a = audioMap && id && audioMap[id];
+    if (!a || !a.src) return;
+    try { pageAudio = new Audio(a.src); pageAudio.preload = "auto"; } catch { pageAudio = null; }
+  }
+  function wordAt(words, t) {
+    // last word whose start has passed; -1 before the first word begins
+    let lo = 0, hi = words.length - 1, hit = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (words[mid].s <= t) { hit = mid; lo = mid + 1; } else { hi = mid - 1; }
+    }
+    return hit;
+  }
+  function playNarration(a, fromIdx) {
+    if (!pageAudio) return false;
+    const start = fromIdx > 0 ? a.words[fromIdx].s : 0;
+    pageAudio.playbackRate = AUDIO_RATES[rateIdx] || 1;
+    try { pageAudio.currentTime = start; } catch {}
+    const p = pageAudio.play();
+    if (p && p.catch) p.catch(() => { stopSpeech(); });   // autoplay refusal: fall back silently
+    speaking = true;
+    setReadBtn(true);
+    const tick = () => {
+      if (!speaking || !pageAudio) return;
+      const t = pageAudio.currentTime;
+      if (narrStopAt && t >= narrStopAt) { stopSpeech(); return; }
+      const i = wordAt(a.words, t);
+      if (i !== speakIdx) { speakIdx = i; highlight(i); }
+      narrRaf = requestAnimationFrame(tick);
+    };
+    pageAudio.onended = () => stopSpeech();
+    narrRaf = requestAnimationFrame(tick);
+    return true;
   }
   function highlight(i) {
     for (const el of wordEls) el.classList.remove("now");
@@ -467,10 +538,14 @@
     try { synth.speak(u); } catch { stopSpeech(); }
   }
   function speakScene() {
-    if (!synth || !story || !story.scene) return;
+    if (!story || !story.scene) return;
     if (speaking) { stopSpeech(); return; }     // the button doubles as Stop
+    speakIdx = -1;
+    const a = narrationFor(story.node);
+    if (a && playNarration(a, 0)) return;       // baked narration when this page has it
+    if (!synth) return;
     try { synth.cancel(); } catch {}
-    speaking = true; speakIdx = -1;
+    speaking = true;
     setReadBtn(true);
     speakNext();
   }
@@ -478,6 +553,16 @@
   // makes constantly at this level.
   function speakWord(el) {
     stopSpeech();
+    // With baked narration, replay that word straight out of the recording — the child hears the
+    // same voice saying the same word, rather than a second, different-sounding synthesizer.
+    const a = narrationFor(story && story.node);
+    const idx = wordEls.indexOf(el);
+    if (a && idx > -1 && pageAudio) {
+      narrStopAt = a.words[idx].e;
+      el.classList.add("now");
+      if (playNarration(a, idx)) return;
+      narrStopAt = 0;
+    }
     const say = forSpeech(el.dataset.w);
     if (!synth || !say) return;
     const u = makeUtter(say);
@@ -687,12 +772,79 @@
 
   function pickChoice(c) {
     if (busy) return;
+    if (story && story.baked) {          // baked stories just walk their own tree — no network
+      if (c.restart) story.page = 0;
+      showBakedPage(c.to);
+      return;
+    }
     story.lastChoice = c.text;
     story.pendingNext = c.next || null;   // demo mode routes by id; live mode ignores it
     advance(c.em + " " + c.text);
   }
 
+  function showOops(msg) {
+    if (msg) $("oopsMsg").textContent = msg;
+    $("oops").style.display = "";
+  }
+  // ---------- baked stories ----------
+  // The child never types, so a story is just a tree of pages — which means the whole thing
+  // (words, choices AND pictures) can be generated once, ahead of time, by tools/_bake-story.mjs.
+  // A baked story costs nothing to read, appears with no wait, works with no network, and can
+  // never drift off its own plot. Live AI stories keep working exactly as before.
+  async function startBaked(s) {
+    primeSpeech();
+    show("storyView");
+    setArt(null); paintText(""); paintChoices([]);
+    setBusy(true);
+    let data;
+    try {
+      const r = await fetch("assets/storytime/" + s.baked + "/story.json");
+      data = await r.json();
+      // Narration is optional and separate from story.json (the picture bake rewrites that file).
+      // A story with no audio.json simply reads aloud the old way.
+      audioMap = null;
+      try {
+        const ar = await fetch("assets/storytime/" + s.baked + "/audio.json");
+        if (ar.ok) { const am = await ar.json(); audioMap = (am && am.pages) || null; }
+      } catch {}
+    } catch { setBusy(false); showOops("This story could not open."); return; }
+    setBusy(false);
+    story = { id: "b" + Date.now().toString(36), baked: s.baked, title: data.title, data,
+              node: data.root, page: 0, scene: null, art: null, msgs: [] };
+    showBakedPage(data.root);
+  }
+  function showBakedPage(id, opts) {
+    const p = story.data.pages[id];
+    if (!p) return;
+    // Turning the page mid-sentence must not leave the previous page still reading aloud, and
+    // paintText() is about to replace every span the highlight points at.
+    stopSpeech();
+    story.node = id;
+    if (!(opts && opts.keepPage)) story.page = (story.page || 0) + 1;
+    turnPage();
+    paintText(p.text);
+    preloadNarration(id);          // fetch this page's MP3 while the child looks at the picture
+    setArt(p.img || null, true);
+    paintPageNo();
+    // the page's own shape decides what the buttons are: a real choice, a page turn, or the end
+    if (p.choices && p.choices.length) {
+      $("pickTitle").textContent = "What happens next?";
+      paintChoices(p.choices);
+    } else if (p.next) {
+      $("pickTitle").textContent = "";
+      paintChoices([{ em: "📖", text: "Turn the page", to: p.next }]);
+    } else {
+      $("pickTitle").textContent = "The End 🎉";
+      paintChoices([{ em: "🔄", text: "Read it again", to: story.data.root, restart: true }]);
+    }
+    // the scene shape the rest of the page (speech, saving, resume) already understands
+    story.scene = { text: p.text, choices: [] };
+    save();
+  }
+
   function startStory(s) {
+    if (s.baked) return startBaked(s);
+    audioMap = null; preloadNarration(null);   // a live story has no baked narration
     primeSpeech();
     story = { id: "k" + Date.now().toString(36), title: s.nm, seed: s.seed || "", msgs: [], scene: null, art: null, lastImg: "", lastChoice: "", page: 0, pendingNext: DEMO ? "s1" : null };
     show("storyView");
@@ -708,14 +860,29 @@
     // next page's art call), so it never goes to disk; and if the remaining picture still
     // overflows the storage quota we save the story WITHOUT it rather than saving nothing —
     // losing the picture on resume is survivable, losing the story is not.
-    const { lastImg, ...keep } = story;
+    // a baked story is a whole book on disk already — remember only which page we're on
+    const { lastImg, data, ...keep } = story;
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(keep)); return; } catch {}
     try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...keep, art: null })); } catch {}
   }
   function loadSaved() {
-    try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); return (s && s.scene && Array.isArray(s.msgs)) ? s : null; } catch { return null; }
+    try {
+      const s = JSON.parse(localStorage.getItem(SAVE_KEY));
+      if (s && s.baked && s.node) return s;                       // baked: just a page marker
+      return (s && s.scene && Array.isArray(s.msgs)) ? s : null;
+    } catch { return null; }
   }
-  function resume(s) {
+  async function resume(s) {
+    if (s.baked) {                       // re-open the book, then jump back to the saved page
+      show("storyView"); setArt(null); paintText(""); paintChoices([]); setBusy(true);
+      try {
+        const r = await fetch("assets/storytime/" + s.baked + "/story.json");
+        story = { ...s, data: await r.json() };
+      } catch { setBusy(false); showOops("This story could not open."); return; }
+      setBusy(false);
+      showBakedPage(story.node || story.data.root, { keepPage: true });
+      return;
+    }
     story = s;
     // carry the saved picture back into the in-memory reference so the cast stays consistent
     // across a reload, not just within one sitting
@@ -797,6 +964,16 @@
     who: WHO, speak: speakScene, stop: stopSpeech,
     get words(){ return wordEls.length; },
     get page(){ return story && story.page; },
+    get node(){ return story && story.node; },
+    // narration, for tests: is it baked, is it actually playing, and which word is lit
+    get hasAudio(){ return !!narrationFor(story && story.node); },
+    get audioPages(){ return audioMap ? Object.keys(audioMap).length : 0; },
+    get playing(){ return !!(pageAudio && !pageAudio.paused); },
+    get audioTime(){ return pageAudio ? pageAudio.currentTime : -1; },
+    get audioRate(){ return pageAudio ? pageAudio.playbackRate : -1; },
+    get litWord(){ const i = wordEls.findIndex(e => e.classList.contains("now")); return i; },
+    get litText(){ const e = wordEls.find(e => e.classList.contains("now")); return e ? e.textContent : null; },
+    tapWord: (i) => { const e = wordEls[i]; if (e) speakWord(e); },
     save,
   };
 })();

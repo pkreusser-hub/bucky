@@ -1,0 +1,639 @@
+{
+  "id": "pirates",
+  "title": "Benjie's Treasure Map",
+  "em": "🏴‍☠️",
+  "cast": "bnjyboy is a cheerful little boy about five years old playing at being a pirate. He wears a purple tricorn hat with a yellow feather, a striped shirt and brown boots. He is the ONLY person in this story and he is always alone. He sails a little wooden ship with a patched white sail on a calm blue sea beside a sandy island with palm trees.",
+  "keep": "bnjyboy, a cheerful little boy about five years old in a purple tricorn hat and a striped shirt. Exactly ONE child in the picture, alone. No other people.",
+  "nodes": {
+    "p1": {
+      "text": "A glass bottle bumped the ship. Benjie fished it out. Something was rolled up inside!",
+      "art": "bnjyboy alone, leaning over the rail of his little wooden ship, lifting a corked glass bottle out of the calm blue sea.",
+      "next": "p2"
+    },
+    "p2": {
+      "text": "Inside was an old paper map. It showed an island. A big red X sat on it.",
+      "art": "bnjyboy alone on his ship's deck, holding an old treasure map open, a big red X marked on the island drawn on it.",
+      "next": "p3"
+    },
+    "p3": {
+      "text": "The island came into view. Waves crashed on a bright reef. A quiet cove lay left.",
+      "art": "bnjyboy alone at the wheel of his little ship approaching a sandy island, a colourful reef with white waves on one side and a calm cove on the other.",
+      "choices": [
+        {
+          "em": "🌊",
+          "text": "Sail around the reef",
+          "to": "a1"
+        },
+        {
+          "em": "🚣",
+          "text": "Row into the cove",
+          "to": "b1"
+        }
+      ]
+    },
+    "a1": {
+      "text": "He sailed around the shiny reef. The water was clear as glass. Bright fish swam below.",
+      "art": "bnjyboy's little ship sailing over a shallow coral reef in clear turquoise water, bright tropical fish visible below.",
+      "next": "a2"
+    },
+    "a2": {
+      "text": "A grey dolphin popped up. It squeaked a hello. Benjie squeaked back!",
+      "art": "A friendly grey dolphin leaping beside the ship while bnjyboy leans over the rail squeaking back at it.",
+      "next": "a3"
+    },
+    "a3": {
+      "text": "He landed on a sandy beach. A rope bridge hung over a ravine. A warm shell pool sat nearby.",
+      "art": "bnjyboy standing alone on a wide sandy beach, a rope bridge over a leafy green ravine behind him and a shallow pool of shells to the side.",
+      "choices": [
+        {
+          "em": "🌉",
+          "text": "Cross the rope bridge",
+          "to": "aa1"
+        },
+        {
+          "em": "🐚",
+          "text": "Wade in the shell pool",
+          "to": "ab1"
+        }
+      ]
+    },
+    "b1": {
+      "text": "He rowed a small boat in. The water was still and green. His oars went plip, plop.",
+      "art": "bnjyboy alone, rowing a small wooden rowboat into a calm green sheltered cove with tall rocks on both sides.",
+      "next": "b2"
+    },
+    "b2": {
+      "text": "A round grey seal popped up. It honked a big honk. Benjie honked back.",
+      "art": "A round grey seal popping its head out of the water beside the rowboat while bnjyboy honks back with his hands cupped.",
+      "next": "b3"
+    },
+    "b3": {
+      "text": "He pulled the boat onto pebbles. Crab tracks led one way. Tall grass grew the other.",
+      "art": "bnjyboy pulling his rowboat onto a pebble shore, small crab tracks in the sand on one side and very tall grass on the other.",
+      "choices": [
+        {
+          "em": "🦀",
+          "text": "Follow the crab tracks",
+          "to": "ba1"
+        },
+        {
+          "em": "🌾",
+          "text": "Push through the grass",
+          "to": "bb1"
+        }
+      ]
+    },
+    "aa1": {
+      "text": "The rope bridge swayed a little. He stepped on slowly. He held the ropes tight.",
+      "art": "bnjyboy stepping carefully onto a swaying rope bridge above a leafy green ravine, holding the ropes tightly.",
+      "next": "aa2"
+    },
+    "aa2": {
+      "text": "Halfway across he looked down. Green leaves waved far below. He did not look again!",
+      "art": "bnjyboy in the middle of the rope bridge peeking down at the leafy green ravine far below, eyes wide.",
+      "next": "aa3"
+    },
+    "aa3": {
+      "text": "Two big rocks stood there. One had a dark round hole. Pink flowers led past the other.",
+      "art": "Two large mossy boulders at the end of the bridge, one with a dark round opening and a trail of pink flowers leading around the other. bnjyboy looking at both.",
+      "choices": [
+        {
+          "em": "🕳️",
+          "text": "Peek in the dark hole",
+          "to": "aaa1"
+        },
+        {
+          "em": "🌸",
+          "text": "Follow the flower trail",
+          "to": "aab1"
+        }
+      ]
+    },
+    "ab1": {
+      "text": "The pool was warm as a bath. Shells covered the whole bottom. He picked up a pink one.",
+      "art": "bnjyboy wading alone in a warm shallow pool with a sandy bottom covered in seashells, holding up a pink shell.",
+      "next": "ab2"
+    },
+    "ab2": {
+      "text": "The pink shell made a hum. He held it to his ear. It hummed a little tune.",
+      "art": "bnjyboy holding a large pink seashell up to his ear with a delighted face, standing in the shallow pool.",
+      "next": "ab3"
+    },
+    "ab3": {
+      "text": "The humming got louder two ways. A slow turtle walked one way. A little stream ran the other.",
+      "art": "At the edge of the shell pool, a slow green sea turtle walking one way and a narrow clear stream running the other way into the palms. bnjyboy standing between them.",
+      "choices": [
+        {
+          "em": "🐢",
+          "text": "Follow the turtle",
+          "to": "aba1"
+        },
+        {
+          "em": "💧",
+          "text": "Follow the little stream",
+          "to": "abb1"
+        }
+      ]
+    },
+    "ba1": {
+      "text": "The crab tracks made tiny dots. They went up the beach. He followed them along.",
+      "art": "A trail of tiny crab footprints in wet sand leading up the beach, bnjyboy following them.",
+      "next": "ba2"
+    },
+    "ba2": {
+      "text": "Then he saw the crabs. A hundred little crabs! They all waved one claw.",
+      "art": "A great many tiny orange crabs on the sand all raising one claw at once, bnjyboy laughing at them.",
+      "next": "ba3"
+    },
+    "ba3": {
+      "text": "The tracks split at a log. Half went under the driftwood. Half went to the palms.",
+      "art": "A big grey driftwood log on the sand with crab tracks going underneath it, and more tracks leading off toward palm trees. bnjyboy deciding.",
+      "choices": [
+        {
+          "em": "🪵",
+          "text": "Look under the log",
+          "to": "baa1"
+        },
+        {
+          "em": "🌴",
+          "text": "Go to the palm trees",
+          "to": "bab1"
+        }
+      ]
+    },
+    "bb1": {
+      "text": "The grass was taller than him. It tickled his nose. Benjie sneezed twice.",
+      "art": "bnjyboy pushing through grass taller than he is, mid-sneeze with his purple hat tipped back.",
+      "next": "bb2"
+    },
+    "bb2": {
+      "text": "Something rustled near his boots. Out came a spotted piglet. It grunted hello.",
+      "art": "A small pink spotted piglet stepping out of the tall grass in front of bnjyboy, grunting cheerfully.",
+      "next": "bb3"
+    },
+    "bb3": {
+      "text": "The grass opened up wide. A tall green hill rose ahead. A shady path went sideways.",
+      "art": "The tall grass opening onto a view of a tall green hill ahead and a shady path under leafy trees leading off to the side. bnjyboy looking out.",
+      "choices": [
+        {
+          "em": "⛰️",
+          "text": "Climb the tall hill",
+          "to": "bba1"
+        },
+        {
+          "em": "🌴",
+          "text": "Take the shady path",
+          "to": "bbb1"
+        }
+      ]
+    },
+    "aaa1": {
+      "text": "The hole smelled like wet stone. His voice came back twice. It was a little cave!",
+      "art": "bnjyboy peering into a dark round cave opening in a mossy boulder, calling into it.",
+      "next": "aaa2"
+    },
+    "aaa2": {
+      "text": "Something glittered far inside. He took a slow breath. Then he stepped in.",
+      "art": "bnjyboy stepping into a small dark cave while a faint glitter shines deeper inside.",
+      "next": "aaa3"
+    },
+    "aaa3": {
+      "text": "The glitter was too far away. He had a brass lantern. There was also a small gap.",
+      "art": "Inside the small cave, bnjyboy holding up an unlit brass lantern, with a narrow gap between two rocks glittering faintly beyond.",
+      "choices": [
+        {
+          "em": "🔦",
+          "text": "Light the lantern",
+          "to": "aaaa1"
+        },
+        {
+          "em": "👋",
+          "text": "Reach through the gap",
+          "to": "aaab1"
+        }
+      ]
+    },
+    "aab1": {
+      "text": "The flowers were bright pink. They grew in a long line. The line went uphill.",
+      "art": "A long winding trail of bright pink flowers leading up a green hillside, bnjyboy walking along it.",
+      "next": "aab2"
+    },
+    "aab2": {
+      "text": "The air smelled sweet and warm. Bees hummed over the flowers. Butterflies danced above them.",
+      "art": "bnjyboy walking through pink flowers with fat bumblebees humming low and blue butterflies fluttering above.",
+      "next": "aab3"
+    },
+    "aab3": {
+      "text": "The bees flew off one way. The butterflies went the other. Both looked worth following.",
+      "art": "At the top of the flower hill, bumblebees flying off toward a hollow tree and blue butterflies drifting the other way. bnjyboy watching.",
+      "choices": [
+        {
+          "em": "🐝",
+          "text": "Follow the bees",
+          "to": "aaba1"
+        },
+        {
+          "em": "🦋",
+          "text": "Follow the butterflies",
+          "to": "aabb1"
+        }
+      ]
+    },
+    "aba1": {
+      "text": "The turtle was very slow. He walked slowly too. Nobody was in a hurry.",
+      "art": "A large green sea turtle walking slowly across the sand with bnjyboy strolling patiently behind it.",
+      "next": "aba2"
+    },
+    "aba2": {
+      "text": "The turtle stopped by a rock. It blinked at him kindly. Then it began to dig.",
+      "art": "The green turtle stopping beside a flat grey rock and starting to dig in the sand with one flipper, bnjyboy watching closely.",
+      "next": "aba3"
+    },
+    "aba3": {
+      "text": "Sand flew everywhere. The turtle looked at the sea. Then it looked at its hole.",
+      "art": "The turtle beside a small dug hole in the sand, looking back toward the blue sea while bnjyboy kneels by the hole.",
+      "choices": [
+        {
+          "em": "🌊",
+          "text": "Go with the turtle",
+          "to": "abaa1"
+        },
+        {
+          "em": "🏖️",
+          "text": "Dig where it stopped",
+          "to": "abab1"
+        }
+      ]
+    },
+    "abb1": {
+      "text": "The stream was cold and clear. It ran over smooth stones. His boots went splish, splash.",
+      "art": "bnjyboy walking up a shallow clear stream running over smooth round stones between palm trees.",
+      "next": "abb2"
+    },
+    "abb2": {
+      "text": "Small silver fish swam past. They all went upstream. A big rock sat ahead.",
+      "art": "A group of small silver fish swimming upstream past bnjyboy's boots toward a large round mossy rock ahead.",
+      "next": "abb3"
+    },
+    "abb3": {
+      "text": "The fish slipped under the rock. The rock looked easy to move. Or he could keep following.",
+      "art": "A large round mossy rock sitting in the streambed with silver fish darting underneath it, bnjyboy standing beside it.",
+      "choices": [
+        {
+          "em": "🐟",
+          "text": "Follow the fish",
+          "to": "abba1"
+        },
+        {
+          "em": "🪨",
+          "text": "Move the round rock",
+          "to": "abbb1"
+        }
+      ]
+    },
+    "baa1": {
+      "text": "The log was old and grey. He tipped it up slowly. Underneath was cool damp sand.",
+      "art": "bnjyboy tipping up a big grey driftwood log, revealing cool damp sand underneath.",
+      "next": "baa2"
+    },
+    "baa2": {
+      "text": "Something small and shiny sat there. It was a tiny brass key. He picked it up.",
+      "art": "A tiny brass key lying in the damp sand under the lifted log, bnjyboy picking it up carefully.",
+      "next": "baa3"
+    },
+    "baa3": {
+      "text": "A key needs a lock. The sand looked soft below. But maybe a lock was near.",
+      "art": "bnjyboy holding a tiny brass key up to the light, the soft sand where the log had been beside him.",
+      "choices": [
+        {
+          "em": "🪱",
+          "text": "Dig down deeper",
+          "to": "baaa1"
+        },
+        {
+          "em": "🗝️",
+          "text": "Go look for the lock",
+          "to": "baab1"
+        }
+      ]
+    },
+    "bab1": {
+      "text": "The palm trees were very tall. Their leaves clapped in the wind. Coconuts hung up high.",
+      "art": "A group of very tall palm trees with green leaves moving in the wind and clusters of coconuts high up, bnjyboy looking up.",
+      "next": "bab2"
+    },
+    "bab2": {
+      "text": "One coconut wobbled up there. The wind pushed it around. It did not fall down.",
+      "art": "A cluster of coconuts high in a windy palm tree, bnjyboy watching them from below.",
+      "next": "bab3"
+    },
+    "bab3": {
+      "text": "One palm stood taller than all. Something was tied near its top. A coconut could be shaken down.",
+      "art": "One palm tree taller than the rest with a small cloth bundle tied near its top, and lower coconuts on a shorter palm nearby.",
+      "choices": [
+        {
+          "em": "🥥",
+          "text": "Shake a coconut down",
+          "to": "baba1"
+        },
+        {
+          "em": "🧗",
+          "text": "Climb the tallest palm",
+          "to": "babb1"
+        }
+      ]
+    },
+    "bba1": {
+      "text": "The hill was steep and green. He climbed it slowly. The piglet came too.",
+      "art": "bnjyboy climbing a steep green grassy hill with the small spotted piglet trotting along behind him.",
+      "next": "bba2"
+    },
+    "bba2": {
+      "text": "At the top he saw everything. The sea went on and on. His ship looked tiny.",
+      "art": "bnjyboy standing on a green hilltop looking out over the wide blue sea with his little ship far below.",
+      "next": "bba3"
+    },
+    "bba3": {
+      "text": "He had a brass spyglass. Then something bright flew past. It was a red kite!",
+      "art": "bnjyboy raising a brass spyglass on the hilltop while a bright red paper kite sails past on the wind.",
+      "choices": [
+        {
+          "em": "🔭",
+          "text": "Look through the spyglass",
+          "to": "bbaa1"
+        },
+        {
+          "em": "🪁",
+          "text": "Chase the red kite",
+          "to": "bbab1"
+        }
+      ]
+    },
+    "bbb1": {
+      "text": "The shady path was cool. Big leaves hung overhead. Everything was quiet and green.",
+      "art": "bnjyboy walking along a cool shady path under very large green leaves, soft light coming through.",
+      "next": "bbb2"
+    },
+    "bbb2": {
+      "text": "Round toadstools grew in a ring. They were red with white spots. He did not step inside.",
+      "art": "A neat ring of red toadstools with white spots growing on the shady path floor, bnjyboy crouching to look at them.",
+      "next": "bbb3"
+    },
+    "bbb3": {
+      "text": "It grew darker under the leaves. Little lights blinked on. Fireflies! Or he could peek inside.",
+      "art": "Dusk on the shady path with many small glowing fireflies blinking in the air above a ring of red spotted toadstools. bnjyboy watching.",
+      "choices": [
+        {
+          "em": "🍄",
+          "text": "Peek inside the ring",
+          "to": "bbba1"
+        },
+        {
+          "em": "🕯️",
+          "text": "Follow the fireflies",
+          "to": "bbbb1"
+        }
+      ]
+    },
+    "aaaa1": {
+      "text": "The lantern lit the whole cave. Gold light danced on the walls. And there sat a chest!",
+      "art": "A lit brass lantern filling a small cave with warm gold light, showing an old wooden chest sitting against the back wall. bnjyboy amazed.",
+      "next": "aaaa2"
+    },
+    "aaaa2": {
+      "text": "The lid came up with a creak. Warm sweet air puffed out. It was full of cookies!",
+      "art": "The wooden chest open in the lantern light, completely full of round golden cookies, bnjyboy astonished.",
+      "next": "aaaa3"
+    },
+    "aaaa3": {
+      "text": "He ate cookies in the cave. Crumbs went everywhere. It was a very good day.",
+      "art": "bnjyboy sitting alone on the cave floor eating cookies by warm lantern light, crumbs on his chin.",
+      "end": true
+    },
+    "aaab1": {
+      "text": "He reached through the gap. His hand found something soft. He pulled it out slowly.",
+      "art": "bnjyboy reaching his arm through a narrow gap between two cave rocks, feeling for something.",
+      "next": "aaab2"
+    },
+    "aaab2": {
+      "text": "It was a bundle of blankets. They were thick and warm. Something was rolled inside.",
+      "art": "bnjyboy pulling a bundle of thick striped blankets out of a gap in the cave rocks, something wrapped in the middle.",
+      "next": "aaab3"
+    },
+    "aaab3": {
+      "text": "Inside was a sleepy kitten. It yawned a tiny yawn. It liked him straight away.",
+      "art": "A small sleepy grey kitten curled in the middle of unrolled blankets, yawning, while bnjyboy smiles down at it in the cave.",
+      "end": true
+    },
+    "aaba1": {
+      "text": "The bees flew to a hollow tree. They hummed a happy hum. The bark was sticky.",
+      "art": "Bumblebees flying into a hole in a hollow tree trunk with golden sticky honey running down the bark, bnjyboy watching.",
+      "next": "aaba2"
+    },
+    "aaba2": {
+      "text": "Honey dripped from the hole. He caught some on his finger. It tasted like warm flowers.",
+      "art": "Golden honey dripping from a hole in a tree trunk onto bnjyboy's finger as he tastes it with a delighted face.",
+      "next": "aaba3"
+    },
+    "aaba3": {
+      "text": "The bees let him fill a jar. He said thank you politely. Honey on ship bread is best.",
+      "art": "bnjyboy carefully filling a glass jar with golden honey while friendly bumblebees hum around him.",
+      "end": true
+    },
+    "aabb1": {
+      "text": "The butterflies flew in a line. Blue wings flashed in the sun. They led over a hill.",
+      "art": "A line of blue butterflies flying over a small grassy hill in bright sunshine, bnjyboy following below.",
+      "next": "aabb2"
+    },
+    "aabb2": {
+      "text": "Behind the hill was a garden. Someone planted it long ago. Now it grew by itself.",
+      "art": "A wild overgrown garden of vegetables and flowers hidden behind a hill, blue butterflies drifting over it.",
+      "next": "aabb3"
+    },
+    "aabb3": {
+      "text": "He picked ripe red tomatoes. And beans and fat carrots. Dinner would be very good.",
+      "art": "bnjyboy picking ripe red tomatoes, green beans and carrots in the wild garden, his arms full of vegetables.",
+      "end": true
+    },
+    "abaa1": {
+      "text": "He walked with the turtle. It went straight to the sea. It stopped by the waves.",
+      "art": "The green turtle walking down the wet sand to the edge of the sea, bnjyboy walking beside it.",
+      "next": "abaa2"
+    },
+    "abaa2": {
+      "text": "The sand there was wiggling. Tiny flippers pushed up. Baby turtles, lots of them!",
+      "art": "Many tiny baby turtles pushing up out of the wet sand near the water's edge, bnjyboy kneeling in delight.",
+      "next": "abaa3"
+    },
+    "abaa3": {
+      "text": "He helped them to the water. Every single one made it. That beat gold any day.",
+      "art": "bnjyboy gently guiding tiny baby turtles across the sand into the shallow waves, the big turtle watching.",
+      "end": true
+    },
+    "abab1": {
+      "text": "He dug where the turtle stopped. The sand came out easily. His hands hit something hard.",
+      "art": "bnjyboy digging with his hands in the sand beside the flat grey rock, a hard shape appearing in the hole.",
+      "next": "abab2"
+    },
+    "abab2": {
+      "text": "It was a small tin box. The lid was painted blue. Something rattled inside it.",
+      "art": "A small tin box with faded blue paint lifted out of a sandy hole, held in bnjyboy's hands.",
+      "next": "abab3"
+    },
+    "abab3": {
+      "text": "Inside were seeds in packets. Someone loved this island. Now he could plant more.",
+      "art": "The open tin box full of small paper seed packets, bnjyboy looking at them thoughtfully on the beach.",
+      "end": true
+    },
+    "abba1": {
+      "text": "He followed the silver fish. The stream got wider and wider. Then it opened up.",
+      "art": "The shallow stream widening into a clear round pool ringed by ferns, silver fish swimming ahead of bnjyboy.",
+      "next": "abba2"
+    },
+    "abba2": {
+      "text": "A little waterfall splashed down. The pool was deep and cool. The fish swam in circles.",
+      "art": "A small waterfall splashing into a clear deep pool with silver fish circling, ferns all around, bnjyboy arriving.",
+      "next": "abba3"
+    },
+    "abba3": {
+      "text": "He swam all afternoon. He floated on his back. Nobody thought about treasure.",
+      "art": "bnjyboy swimming happily in the clear pool below the little waterfall, his purple hat resting on a rock.",
+      "end": true
+    },
+    "abbb1": {
+      "text": "The rock rolled away slowly. Water rushed into the hole. Something round sat below.",
+      "art": "bnjyboy rolling the large mossy rock aside in the streambed, water rushing into the hollow, a round shape below.",
+      "next": "abbb2"
+    },
+    "abbb2": {
+      "text": "It was a stone jar with a lid. The lid was stuck fast. He twisted it hard.",
+      "art": "bnjyboy twisting the stuck lid of a round stone jar lifted from the streambed.",
+      "next": "abbb3"
+    },
+    "abbb3": {
+      "text": "Pop! Out came a music box. It played a slow little song. He listened all the way.",
+      "art": "A small open music box sitting on a flat rock by the stream playing a tune, bnjyboy listening quietly.",
+      "end": true
+    },
+    "baaa1": {
+      "text": "He dug down into the sand. Deeper and deeper he went. The hole got quite big.",
+      "art": "bnjyboy digging a deep hole in the sand where the driftwood log had been, sand piled up beside him.",
+      "next": "baaa2"
+    },
+    "baaa2": {
+      "text": "Then came a wooden thump. It was a little chest! It had a small brass lock.",
+      "art": "A small wooden chest with a brass lock sitting at the bottom of the sandy hole, bnjyboy reaching for it.",
+      "next": "baaa3"
+    },
+    "baaa3": {
+      "text": "The key fit the lock. Inside were round glass marbles. Every colour he could name.",
+      "art": "The little chest open on the sand, full of shiny glass marbles in many colours, the tiny brass key lying beside it.",
+      "end": true
+    },
+    "baab1": {
+      "text": "He looked for the lock everywhere. Under rocks and in shells. Then he found it.",
+      "art": "bnjyboy searching along the pebble shore, pointing at something hidden in the rocks.",
+      "next": "baab2"
+    },
+    "baab2": {
+      "text": "A tiny door sat in a rock. It was no taller than his boot. The little key went in.",
+      "art": "A tiny wooden door set into a large rock on the shore, no taller than a boot, with a small brass keyhole.",
+      "next": "baab3"
+    },
+    "baab3": {
+      "text": "Inside was a little tea set. Four small cups and a pot. Someone tiny lived well.",
+      "art": "Behind the tiny open door, a miniature china tea set with four little cups and a teapot on a shelf of rock.",
+      "end": true
+    },
+    "baba1": {
+      "text": "He shook the shorter palm. Thump! Down came a coconut. It rolled to his boots.",
+      "art": "A coconut falling from a shaken palm tree and rolling to a stop at bnjyboy's brown boots.",
+      "next": "baba2"
+    },
+    "baba2": {
+      "text": "He cracked it on a rock. Sweet white milk spilled out. He drank it right there.",
+      "art": "bnjyboy cracking a coconut open on a rock with coconut milk spilling out, catching it in a tin cup.",
+      "next": "baba3"
+    },
+    "baba3": {
+      "text": "More coconuts came down. He carried them all back. Coconut milk for the trip home.",
+      "art": "bnjyboy walking back along the beach with his arms full of coconuts, one balanced on his purple hat.",
+      "end": true
+    },
+    "babb1": {
+      "text": "He climbed the tallest palm. It was slow work. His hat nearly fell off.",
+      "art": "bnjyboy climbing high up the trunk of the tallest palm tree, holding his purple hat on with one hand.",
+      "next": "babb2"
+    },
+    "babb2": {
+      "text": "The bundle was tied with rope. He untied it carefully. Down it came on a string.",
+      "art": "bnjyboy near the top of the palm untying a small cloth bundle and lowering it down on a string.",
+      "next": "babb3"
+    },
+    "babb3": {
+      "text": "Inside was a soft teddy bear. Someone had missed it. He gave it a hug.",
+      "art": "A soft worn teddy bear sitting in an opened cloth bundle on the sand, bnjyboy hugging it gently.",
+      "end": true
+    },
+    "bbaa1": {
+      "text": "He looked through the spyglass. He turned it slowly around. Then he said, \"Oh my!\"",
+      "art": "bnjyboy on the green hilltop looking through a brass spyglass with a very surprised face.",
+      "next": "bbaa2"
+    },
+    "bbaa2": {
+      "text": "Below sat a little cottage. Smoke curled from its chimney. A cat sat on the step.",
+      "art": "A small cottage in a green valley below the hill with smoke rising from the chimney and an orange cat sitting on the doorstep.",
+      "next": "bbaa3"
+    },
+    "bbaa3": {
+      "text": "He went down for a look. Warm scones sat on a table. The cat shared them nicely.",
+      "art": "bnjyboy sitting at a small table outside the valley cottage with scones and a mug, an orange cat beside him.",
+      "end": true
+    },
+    "bbab1": {
+      "text": "He chased the red kite. It dipped and swooped. He caught its long tail.",
+      "art": "bnjyboy running across the green hilltop catching the tail of a bright red paper kite.",
+      "next": "bbab2"
+    },
+    "bbab2": {
+      "text": "The string was long and loose. Nobody was holding it. The wind had set it free.",
+      "art": "bnjyboy holding a red kite and its long loose string on the breezy green hilltop, looking around.",
+      "next": "bbab3"
+    },
+    "bbab3": {
+      "text": "He flew it all afternoon. It danced above the sea. Pirates make good kite flyers.",
+      "art": "bnjyboy flying the bright red kite high above the green hilltop with the blue sea behind him.",
+      "end": true
+    },
+    "bbba1": {
+      "text": "He peeked into the ring. The grass inside was soft. Someone made a little bed.",
+      "art": "Looking down into a ring of red spotted toadstools where the soft grass has been flattened into a small round nest.",
+      "next": "bbba2"
+    },
+    "bbba2": {
+      "text": "Two round eyes blinked up. It was a tiny brown mouse. It was not scared.",
+      "art": "A tiny brown mouse sitting in the small grass nest inside the toadstool ring, looking up calmly.",
+      "next": "bbba3"
+    },
+    "bbba3": {
+      "text": "The mouse showed him its store. Nuts and berries, neatly stacked. It shared one berry.",
+      "art": "The tiny brown mouse beside a neat little pile of nuts and red berries, handing a berry to bnjyboy's fingertip.",
+      "end": true
+    },
+    "bbbb1": {
+      "text": "He followed the little lights. The fireflies drifted slowly. The path glowed around him.",
+      "art": "bnjyboy walking along the dark shady path surrounded by many glowing fireflies lighting his way.",
+      "next": "bbbb2"
+    },
+    "bbbb2": {
+      "text": "The fireflies filled a clearing. There were thousands of them. It looked like a sky.",
+      "art": "A dark forest clearing completely filled with thousands of glowing fireflies like a field of stars, bnjyboy standing amazed.",
+      "next": "bbbb3"
+    },
+    "bbbb3": {
+      "text": "He sat down and watched. He did not say a word. It was the best treasure.",
+      "art": "bnjyboy sitting quietly on the ground watching thousands of fireflies glow all around him.",
+      "end": true
+    }
+  }
+}
