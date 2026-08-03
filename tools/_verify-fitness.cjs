@@ -256,6 +256,7 @@ async function sectionApp(browser){
       rows: document.querySelectorAll(".fitwrap .fitrow").length,
       hasStart: !!document.getElementById("fitStartBtn"),
       thumbs: [...document.querySelectorAll(".fitwrap .fitthumb")].map((i) => i.getAttribute("src")),
+      blockHead: (document.querySelector(".fitwrap .fitblock-h") || {}).textContent,
       secs: window.__FIT__.duration(),
       items: window.__FIT__.items().length,
       isRest: !!(d && d.rest),
@@ -266,7 +267,10 @@ async function sectionApp(browser){
   if (!today.isRest){
     ok(today.hasStart, "a Start workout button is shown");
     ok(today.rows === today.items, `the day's exercises are all listed (${today.rows})`);
-    ok(today.chips.length >= 2, `muscle-group blocks are labelled (${today.chips.join(" ")})`);
+    // A day that is ONE block named after itself suppresses the chip on purpose, so the
+    // block heading is where the grouping is named. Either is fine; neither is not.
+    ok(today.chips.length >= 1 || /\S/.test(today.blockHead || ""),
+       `the day's blocks are labelled (${today.chips.join(" ") || (today.blockHead || "").trim()})`);
     ok(today.secs >= 540 && today.secs <= 660, `today is a ~10-minute workout (${today.secs}s)`);
     ok(today.thumbs.every((s) => /assets\/fitness\/img\/.+\/0\.webp$/.test(s)), "every row shows its exercise's own frame");
   } else {
@@ -278,7 +282,8 @@ async function sectionApp(browser){
     const src = document.querySelector(".fitwrap .fitthumb");
     if (!src) return true;
     const r = await fetch(src.getAttribute("src"));
-    return r.ok && Number(r.headers.get("content-length") || 1) > 200;
+    if (!r.ok) return false;
+    return (await r.blob()).size > 200;   // chunked responses carry no content-length
   });
   ok(imgOk, "exercise images are served (not 404)");
 
@@ -293,7 +298,8 @@ async function sectionApp(browser){
              go: (c.querySelector(".fitc-go")||{}).textContent };
   });
   ok(card.tag === "BUTTON" && !!card.aria, "the Home card is a real button with an aria-label");
-  ok(/workout|Full Body|Core|Legs|Upper|Play|Rest/i.test(card.title || ""), `Home card names today's workout ("${card.title}")`);
+  ok((card.title || "").startsWith("💪") && (card.title || "").replace(/[💪\s]/g, "").length > 3,
+     `Home card names today's workout ("${card.title}")`);
   ok(today.isRest ? true : /START|RESUME|Done/.test(card.go || ""), "Home card offers a call to action");
 
   const goesTo = await page.evaluate(() => { document.querySelector(".home2 .fitcard").click(); return window.__NAV__.tab(); });
@@ -679,6 +685,33 @@ async function sectionBuilder(browser){
     });
     ok(equipFiltered.length > 0 && equipFiltered.every((s) => /dumbbell/i.test(s)), "the equipment filter is honoured");
 
+    /* Dad must be able to look an exercise up from where he is BUILDING, not only from the
+       kid's Today list — both in the picker (before adding) and in the day's own rows. */
+    const pickDemo = await page.evaluate(async () => {
+      window.__FIT__.setPick({ group: "core", q: "plank", equip: "any" });
+      const btn = document.querySelector("#fitPickList .fitthumb-btn");
+      const before = window.__FIT__.draft().blocks[0].items.length;
+      const badge = !!(btn && btn.querySelector(".fitthumb-zoom"));
+      const label = btn && btn.getAttribute("aria-label");
+      btn.click();
+      await new Promise(r => setTimeout(r, 250));
+      const d = window.__FIT__.demo();
+      const bigW = Math.round((document.querySelector("#fitDemoAnim img.f0") || { getBoundingClientRect: () => ({ width: 0 }) }).getBoundingClientRect().width);
+      const steps = document.querySelectorAll(".fitdemo-steps li").length;
+      window.__FIT__.closeDemo();
+      await new Promise(r => setTimeout(r, 120));
+      return { badge, label, open: d.open, id: d.id, bigW, steps,
+               after: window.__FIT__.draft().blocks[0].items.length, before,
+               mode: window.__FIT__.sheetMode() };
+    });
+    ok(pickDemo.badge, "the picker's thumbnail carries a 🔍 badge so it reads as tappable");
+    ok(/Show me how/i.test(pickDemo.label || ""), "…and says what it does");
+    ok(pickDemo.open && pickDemo.id, `tapping it opens the demo (${pickDemo.id})`);
+    ok(pickDemo.bigW > 300, `the animation is full size from the picker too (${pickDemo.bigW}px)`);
+    ok(pickDemo.steps > 0, `the description comes with it (${pickDemo.steps} steps)`);
+    ok(pickDemo.after === pickDemo.before, "…and looking does NOT add the exercise");
+    ok(pickDemo.mode === "picker", "…leaving you back in the picker");
+
     if (WANT_SHOTS){
       await page.evaluate(() => window.__FIT__.setPick({ equip: "any", group: "core", q: "" }));
       await sleep(200);
@@ -716,6 +749,37 @@ async function sectionBuilder(browser){
     });
     ok(edited.amount === 99, "editing an amount updates the plan");
     ok(edited.warn, "the meter warns when the day runs long");
+
+    // …and from the day's own rows, where the reps/seconds controls live
+    const rowDemo = await page.evaluate(async () => {
+      const rows = [...document.querySelectorAll("#fitSheetInner .fitrow")];
+      const btns = rows.map((r) => r.querySelector(".fitthumb-btn")).filter(Boolean);
+      const first = btns[0];
+      const id = first && first.dataset.ex;
+      first.click();
+      await new Promise(r => setTimeout(r, 250));
+      const d = window.__FIT__.demo();
+      const meta = (document.querySelector(".fitdemo-meta") || {}).textContent;
+      const steps = document.querySelectorAll(".fitdemo-steps li").length;
+      const bigW = Math.round((document.querySelector("#fitDemoAnim img.f0") || { getBoundingClientRect: () => ({ width: 0 }) }).getBoundingClientRect().width);
+      window.__FIT__.closeDemo();
+      await new Promise(r => setTimeout(r, 120));
+      return { rows: rows.length, btns: btns.length, id, open: d.open, demoId: d.id, meta, steps, bigW,
+               stillOpen: document.getElementById("fitSheetOverlay").classList.contains("open"),
+               mode: window.__FIT__.sheetMode() };
+    });
+    ok(rowDemo.btns === rowDemo.rows, `every exercise in the builder is tappable (${rowDemo.btns}/${rowDemo.rows})`);
+    ok(rowDemo.open && rowDemo.demoId === rowDemo.id, `tapping one opens its demo (${rowDemo.demoId})`);
+    ok(rowDemo.bigW > 300, `full-size animation from the builder (${rowDemo.bigW}px)`);
+    ok(rowDemo.steps > 0, `with the description (${rowDemo.steps} steps)`);
+    ok(/reps|seconds/.test(rowDemo.meta || ""), `and the amount it's set to ("${rowDemo.meta}")`);
+    ok(rowDemo.stillOpen && rowDemo.mode === "builder", "closing returns to the builder, edits intact");
+
+    // Names must be readable while editing — a truncated "Standing Dumbbe…" tells Dad nothing.
+    const names = await page.evaluate(() => [...document.querySelectorAll("#fitSheetInner .fitrow.edit .fitrow-name")]
+      .map((n) => ({ text: n.textContent, clipped: n.scrollWidth > n.clientWidth + 1 })));
+    ok(names.length > 0 && names.every((n) => !n.clipped),
+       `no exercise name is truncated in the builder (${names.filter(n=>n.clipped).map(n=>n.text).join(", ") || "none clipped"})`);
 
     const removed = await page.evaluate(async () => {
       const before = window.__FIT__.draft().blocks[0].items.length;

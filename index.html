@@ -1007,9 +1007,16 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .fitrow.tap { cursor: pointer; font: inherit; color: inherit; text-align: left; }
   .fitrow.tap:active { background: var(--surface-2); }
   .fitrow-look { flex: 0 0 auto; font-size: 14px; opacity: .5; margin-left: 2px; }
+  /* Tappable thumbnail (builder + picker) — the badge is the affordance. */
+  .fitthumb-btn { position: relative; flex: 0 0 auto; border: 0; background: transparent; padding: 0; cursor: pointer; line-height: 0; border-radius: 8px; }
+  .fitthumb-btn:active { transform: scale(.96); }
+  .fitthumb-zoom { position: absolute; right: -3px; bottom: -3px; font-size: 9px; line-height: 1;
+                   background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 2px 3px; }
   .fitthumb { flex: 0 0 auto; width: 52px; height: 38px; border-radius: 8px; object-fit: cover; background: var(--surface-2); border: 1px solid var(--line-2); }
   .fitrow-body { flex: 1; min-width: 0; }
   .fitrow-name { font-size: 13.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fitrow.edit .fitrow-name { white-space: normal; overflow: visible; line-height: 1.25; }
+  .fitrow.edit .fitrow-sub { white-space: normal; }
   .fitrow-sub { font-size: 11.5px; color: var(--muted); }
   .fitrow-amt { flex: 0 0 auto; font-size: 13px; font-weight: 800; color: var(--ink-2); }
   .fitrow-x { flex: 0 0 auto; border: 0; background: transparent; color: var(--muted); font-size: 17px; line-height: 1; padding: 6px 4px; cursor: pointer; }
@@ -1128,8 +1135,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .fitpick-list { max-height: 46vh; overflow-y: auto; border: 1px solid var(--line-2); border-radius: 12px; }
   .fitpick-h { position: sticky; top: 0; background: var(--surface-2); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); padding: 7px 12px; z-index: 1; }
   .fitpick-row { display: flex; align-items: stretch; background: var(--card); border-bottom: 1px solid var(--line-2); }
-  .fitpick-look { flex: 0 0 auto; border: 0; background: transparent; padding: 8px 4px 8px 8px; cursor: pointer; display: flex; align-items: center; }
-  .fitpick-look:active { background: var(--surface-2); }
+  .fitpick-look { flex: 0 0 auto; padding: 8px 6px 8px 8px; display: flex; align-items: center; }
   .fitpick-item { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; background: transparent; border: 0; padding: 8px 12px 8px 8px; font: inherit; color: var(--ink); text-align: left; cursor: pointer; }
   .fitpick-plus { flex: 0 0 auto; font-size: 18px; font-weight: 800; color: var(--green); }
   .fitpick-item .fitrow-name { font-size: 13px; }
@@ -7812,6 +7818,25 @@ function fitPaintStep(){
     exercise — no animated formats exist in it — so we cross-fade between them, which
     is what actually reads as the movement. Class-toggle + CSS transition, deliberately
     NOT a @keyframes animation (those stall under headless Chrome). */
+/** A thumbnail that opens the big looping demo. Used anywhere an exercise is listed but
+    the row itself can't be a button — the builder rows hold number inputs, and the picker
+    row's main tap already means "add this". The 🔍 badge is what makes it discoverable;
+    without it the picture reads as decoration and nobody finds the demo. */
+function fitThumbButton(id, opts = {}){
+  const b = document.createElement("button"); b.type = "button"; b.className = "fitthumb-btn";
+  b.dataset.ex = id;
+  b.setAttribute("aria-label", "Show me how to do " + fitExName(id));
+  b.title = "Tap to see how it's done";
+  const img = document.createElement("img"); img.className = "fitthumb"; img.loading = "lazy"; img.alt = "";
+  img.src = fitImg(id, 0);
+  img.onerror = () => { img.style.visibility = "hidden"; };
+  const badge = document.createElement("span"); badge.className = "fitthumb-zoom"; badge.textContent = "🔍";
+  badge.setAttribute("aria-hidden", "true");
+  b.appendChild(img); b.appendChild(badge);
+  b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); fitOpenDemo(id, opts); };
+  return b;
+}
+
 function fitAnimEl(id, animate){
   const a = document.createElement("div"); a.className = "fitp-anim";
   const i0 = document.createElement("img"); i0.className = "f0"; i0.src = fitImg(id, 0); i0.alt = fitExName(id);
@@ -8169,15 +8194,22 @@ function fitPaintBuilder(){
 }
 
 function fitBuilderRow(block, it, bi, ii, ro){
-  const row = document.createElement("div"); row.className = "fitrow";
+  // `edit` lets the name WRAP instead of truncating — with a mode chip, a number field and
+  // a remove button on the row, "Standing Dumbbell Calf Raise" ellipsises into nothing
+  // useful, and there is vertical room here.
+  const row = document.createElement("div"); row.className = "fitrow" + (ro ? "" : " edit");
   row.dataset.ex = it.id;
   row.style.flexWrap = "wrap";
 
-  const img = document.createElement("img"); img.className = "fitthumb"; img.loading = "lazy"; img.alt = "";
-  img.src = fitImg(it.id, 0); img.onerror = () => { img.style.visibility = "hidden"; };
+  const amtText = `${it.mode === "time" ? it.secs : it.reps} ${fitAmountUnit(it)}`;
+  const img = fitThumbButton(it.id, { amount: amtText });
   const bd = document.createElement("div"); bd.className = "fitrow-body";
   const nm = document.createElement("div"); nm.className = "fitrow-name"; nm.textContent = fitExName(it.id);
   bd.appendChild(nm);
+  if (it.note){
+    const sb = document.createElement("div"); sb.className = "fitrow-sub"; sb.textContent = it.note;
+    bd.appendChild(sb);
+  }
 
   if (ro){
     const amt = document.createElement("div"); amt.className = "fitrow-amt";
@@ -8321,13 +8353,8 @@ function fitPaintPickList(){
       const row = document.createElement("div"); row.className = "fitpick-row";
       row.dataset.ex = ex.id; row.dataset.group = gid;
 
-      const look = document.createElement("button"); look.type = "button"; look.className = "fitpick-look";
-      look.setAttribute("aria-label", "Show me how to do " + ex.name);
-      look.dataset.ex = ex.id;
-      const img = document.createElement("img"); img.className = "fitthumb"; img.loading = "lazy"; img.alt = "";
-      img.src = fitImg(ex.id, 0); img.onerror = () => { img.style.visibility = "hidden"; };
-      look.appendChild(img);
-      look.onclick = () => fitOpenDemo(ex.id);
+      const look = document.createElement("span"); look.className = "fitpick-look";
+      look.appendChild(fitThumbButton(ex.id));
 
       const b = document.createElement("button"); b.type = "button"; b.className = "fitpick-item";
       b.dataset.ex = ex.id; b.dataset.group = gid;
