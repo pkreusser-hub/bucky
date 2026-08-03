@@ -10,6 +10,9 @@
 <title>BUCKY</title>
 <!-- Add-to-home-screen icon: BUCKY (bucky.png + manifest.webmanifest live alongside this file) -->
 <link rel="icon" href="/bucky.png" />
+<!-- Roboto so desktop renders in the same face Android does (iOS keeps San Francisco via -apple-system) -->
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;600;700;800;900&display=swap" />
 <link rel="apple-touch-icon" href="/bucky.png" />
 <link rel="manifest" href="/manifest.webmanifest" />
 <script src="/push-client.js" defer></script>
@@ -43,7 +46,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; padding: 0; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, Roboto, "Segoe UI", Helvetica, Arial, sans-serif;
     background: var(--bg);
     color: var(--ink);
     padding-bottom: calc(env(safe-area-inset-bottom) + 196px);   /* clears the fixed two-row bottom nav (~104) + the FAB above it so the last row's controls are never covered */
@@ -1196,7 +1199,8 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .newsc-when { color: var(--muted); font-weight: 700; text-transform: none; letter-spacing: 0; }
   .newsc-title { font-size: 15px; font-weight: 800; line-height: 1.32; margin: 4px 0 0; }
   .newsc-sum { font-size: 13px; line-height: 1.5; color: var(--ink-2, var(--muted)); margin-top: 5px; }
-  .newsc-thumb { flex: 0 0 auto; width: 72px; height: 72px; border-radius: 12px; object-fit: cover; background: var(--done); }
+  .newsc-thumb { flex: 0 0 auto; width: 104px; height: 104px; border-radius: 12px; object-fit: cover; background: var(--done); }
+  @media (min-width: 1024px) { .newsc-thumb { width: 132px; height: 132px; } }
 
   .newsempty { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 26px 18px; text-align: center; }
   .newsempty h4 { margin: 0 0 6px; font-size: 15px; font-weight: 800; }

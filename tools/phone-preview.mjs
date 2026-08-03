@@ -4,7 +4,7 @@
  *
  *   node tools/phone-preview.mjs                 # → index.html
  *   node tools/phone-preview.mjs fitness         # → index.html#fitness  (deep-links the tab)
- *   node tools/phone-preview.mjs storytime.html  # → any page
+ *   node tools/phone-preview.mjs farmgpt.html    # → any page
  *   node tools/phone-preview.mjs --port 8791
  *
  * Different from `mobile-preview.mjs`, which opens a phone-SIZED desktop Chrome on this
