@@ -441,6 +441,64 @@ H.run("farmstead-visuals", async (t) => {
   t.check("roads: …and the terrain's own emissive lift, exactly",
     road.decalEmissive === road.terrEmissive, road);
 
+  /* ═══ THE PATH IS A FOOTPATH, NOT A HIGHWAY (batch #5, 2026-08-02) ═════════
+   * User playtest: the roads read too wide. The paint half-width went from
+   * 1.45 to 1.12 of FSC.ROAD_W. Two things have to be true at once and only
+   * one of them is "narrower": the SOLID body has to come in, and the FEATHER
+   * beyond it has to stay — a crisp thin stripe is a sticker on the grass, and
+   * the soft edge is the entire reason the decal reads as trodden earth. So
+   * this measures a real cross-section of the sheet: sweep out from the middle
+   * of a road segment along its own perpendicular and record where the paint
+   * stops being solid and where it stops altogether. */
+  const width = await page.evaluate(() => {
+    const FS = window.__FS__, R = FS.FSRender, FSMap = FS.FSMap, G = FS.G, map = G.map;
+    const a = [0, 0], b = [0, 0];
+    const body = [], edge = [];
+    let samples = 0;
+    for (const id in G.roads) {
+      const p = G.roads[id].path;
+      for (let i = 1; i < p.length && samples < 24; i++) {
+        FSMap.worldXZ(map, p[i - 1], a); FSMap.worldXZ(map, p[i], b);
+        const dx = b[0] - a[0], dz = b[1] - a[1];
+        const L = Math.hypot(dx, dz);
+        if (L < 0.2) continue;
+        const nx = -dz / L, nz = dx / L;                    // the segment's own perpendicular
+        const cx = (a[0] + b[0]) * 0.5, cz = (a[1] + b[1]) * 0.5;
+        if (R.roadCover(cx, cz) < 150) continue;            // not a clean mid-segment sample
+        for (const sgn of [-1, 1]) {
+          /* STOP AT THE FIRST GAP, never take the farthest painted sample: a
+           * town's roads run within a couple of units of each other, so a
+           * sweep that kept going measured this road plus the next one plus
+           * the junction blob between them (it read 1.18 world units, which is
+           * three roads, and is how this check first failed). */
+          let solid = 0, any = 0, s = 0;
+          for (; s <= 1.2; s += 0.02) {
+            if (R.roadCover(cx + nx * sgn * s, cz + nz * sgn * s) < 150) break;
+            solid = s;
+          }
+          for (any = solid; any <= 1.2; any += 0.02) {
+            if (R.roadCover(cx + nx * sgn * any, cz + nz * sgn * any) < 12) break;
+          }
+          body.push(solid); edge.push(any);
+        }
+        samples++;
+      }
+    }
+    const av = (x) => x.reduce((p, q) => p + q, 0) / Math.max(1, x.length);
+    return { n: body.length, body: +av(body).toFixed(3), edge: +av(edge).toFixed(3),
+      bodyMax: +Math.max.apply(null, body).toFixed(3),
+      ROAD_W: FS.FSC.ROAD_W };
+  });
+  console.log("   road cross-section: solid half-width " + width.body + " · outer feather "
+    + width.edge + " world units (FSC.ROAD_W " + width.ROAD_W + ")");
+  /* Before this batch the same sweep measured a solid half-width of ~0.47 and a
+   * feathered edge out past 0.85. The bar is expressed against FSC.ROAD_W so it
+   * cannot drift if the ribbon width is ever retuned. */
+  t.check("roads: the solid path is a FOOTPATH — half-width between 1.0 and 1.4 of ROAD_W",
+    width.n >= 8 && width.body > width.ROAD_W * 1.0 && width.body < width.ROAD_W * 1.4, width);
+  t.check("roads: …and the FEATHER survives the narrowing (a real verge past the body)",
+    width.edge > width.body * 1.35 && width.edge > width.body + 0.14, width);
+
   const roadEdit = await page.evaluate(() => {
     const FS = window.__FS__, R = FS.FSRender, G = FS.G, xz = [0, 0];
     /* A terrain edit RE-SEATS the decal's triangles but must NOT repaint the
@@ -1246,6 +1304,145 @@ H.run("farmstead-visuals", async (t) => {
    * so the darkest sash pixels land near-grey under any hue. */
   t.check("…and the moved pixels actually take the colour they were given",
     tint.ok && tint.redder > tint.moved * 0.5 && tint.greener > tint.moved * 0.5, tint);
+
+  /* ══ 6b-iv. THE LOAD IS IN HIS HANDS, AND ONLY ONE ARM SWINGS ══════════════
+   * Two playtest bugs from batch #5, on BOTH looks, asserted the way they were
+   * diagnosed:
+   *  · the carried good came out at the settler's FEET (measured −0.015 world
+   *    units on the shipping look — below his boots) because the seat dropped
+   *    it by 0.30 of the shared 0.551-unit QUAD instead of a fraction of the
+   *    good's own height. So: where the good is actually seated, against the
+   *    hands anchor that decides it and against his own height.
+   *  · the work swing raised BOTH arms on one scalar. So: how far the tool hand
+   *    and the OFF hand travel through a full stroke, measured RELATIVE TO THE
+   *    TORSO (the `pack` anchor) — the off hand rides the body's lean and bob
+   *    whatever it does, and that is not arm movement. */
+  for (const look of ["dwarfknight", "minifig"]) {
+    const lp = await t.browser.newPage();
+    await lp.setViewport({ width: 900, height: 700, deviceScaleFactor: 1 });
+    lp.on("pageerror", (e) => t.errors.push(String((e && e.message) || e)));
+    await lp.setRequestInterception(true);
+    lp.on("request", (req) => (req.url().startsWith(t.BASE) ? req.continue() : req.abort()));
+    await lp.goto(t.BASE + "/castlekruzer.html?look=" + look, { waitUntil: "domcontentloaded" });
+    await lp.waitForFunction(() => !!window.__FS__ && !!window.THREE, { timeout: 60000 });
+    const arms = await lp.evaluate(async () => {
+      const FS = window.__FS__, R = FS.FSRender;
+      await R.spritesLoaded;
+      if (R.loadGoodSprites) await R.loadGoodSprites();
+      const M = R.spriteInfo();
+      const step = Math.PI * 2 / M.azimuths;
+      const rows = [];
+      for (let az = 0; az < M.azimuths; az++) {
+        const tl = [], of = [], pk = [];
+        for (let k = 0; k < 6; k++) {
+          const c = R.spriteResolve({ kind: "serf", pose: "work", swing: k / 5, yaw: az * step, camYaw: 0 });
+          if (!c || !c.anchors.offhand) return { look: M.look, noOffhand: true };
+          tl.push([c.anchors.tool.x, c.anchors.tool.y]);
+          of.push([c.anchors.offhand.x, c.anchors.offhand.y]);
+          pk.push([c.anchors.pack.x, c.anchors.pack.y]);
+        }
+        const span = (a) => Math.hypot(
+          Math.max.apply(null, a.map((p) => p[0])) - Math.min.apply(null, a.map((p) => p[0])),
+          Math.max.apply(null, a.map((p) => p[1])) - Math.min.apply(null, a.map((p) => p[1])));
+        const rel = (a) => a.map((p, i) => [p[0] - pk[i][0], p[1] - pk[i][1]]);
+        rows.push({ tool: span(rel(tl)), off: span(rel(of)), torso: span(pk), offAbs: span(of) });
+      }
+      const mx = (k) => Math.max.apply(null, rows.map((r) => r[k]));
+      return { look: M.look, tool: +mx("tool").toFixed(1), off: +mx("off").toFixed(1),
+        torso: +mx("torso").toFixed(1), offAbs: +mx("offAbs").toFixed(1) };
+    });
+    t.check(look + ": the sheets carry an off-hand anchor to measure", !arms.noOffhand && arms.look === look, arms);
+    t.check(look + ": a work stroke swings the TOOL arm, not both",
+      arms.off < arms.tool * 0.45, arms);
+    t.check(look + ": …the off hand only rides the torso's own lean",
+      arms.offAbs < arms.torso * 1.35, arms);
+
+    const carried = await lp.evaluate(() => {
+      const FS = window.__FS__, R = FS.FSRender, FSMap = FS.FSMap, FSSim = FS.FSSim;
+      FS.newGame({ size: "medium", seed: 12345, ais: 1, speed: 0, aiPlan: false });
+      const G = FS.G;                       // AFTER newGame — the old handle is stale
+      R.setQuality(1); R.setSpriteTrace(true);
+      // a settlement, so there is something to haul
+      const castle = FSSim.castleOf(G, 0), from = G.flags[castle.flag];
+      for (const type of ["lumberjack", "sawmill", "forester"]) {
+        let best = -1;
+        FSMap.forRadius(G.map, castle.v, 12, (u, d) => {
+          if (best >= 0 || d < 4) return;
+          if (!FSMap.canPlaceBuilding(type, u, 0)) return;
+          if (!FSSim.roadPath(G, from.v, FSMap.doorVertex(G.map, u), 0)) return;
+          best = u;
+        });
+        if (best < 0) continue;
+        const r = FSSim.build(G, type, best, 0);
+        if (!r || !r.id) continue;
+        const b = G.buildings[r.id];
+        const p = FSSim.roadPath(G, from.v, G.flags[b.flag].v, 0);
+        if (p) FSSim.buildRoad(G, from.id, b.flag, p, 0);
+      }
+      FS.ff(1200);
+      const seen = [];
+      for (let i = 0; i < 5000 && seen.length < 30; i++) {
+        FS.ff(1);
+        /* ONE frame at the tick's own dt. Stepping the visual layer twice per
+         * tick (a syncDynamic AND a frame) runs every settler to the end of his
+         * edge, and every sample then reads back speed 0 — which is how this
+         * check first reported "0 walking, 30 standing". */
+        /* SWEEP THE CAMERA. Which cell a carrier is drawn in is his facing
+         * RELATIVE to the camera, and a load held in front projects high from
+         * behind him and low from in front — so a sample taken at one heading
+         * measures one azimuth of sixteen. Turning the camera as the sim runs
+         * puts the whole ring in the set, and the bars below are then bars on
+         * the WORST azimuth, which is the one that mattered. */
+        R.setCam({ yaw: (i % 32) * (Math.PI / 16) });
+        R.frame(0.1);
+        for (const id in G.serfs) {
+          const s = G.serfs[id];
+          if (!s.carry || s.state === "work" || s.state === "garrison") continue;
+          const v = R.serfPose(s.id);
+          if (!v || v.appear < 0.98) continue;
+          const tr = R.spritePose(s.id);
+          if (!tr || !tr.good) continue;
+          seen.push({ res: tr.good.res, pose: tr.pose, moving: v.speed > 0.02, az: tr.az,
+            hands: tr.good.handsY, base: tr.good.baseY, seat: tr.good.seatY, head: tr.good.headY });
+          break;                       // one sample per tick, so the set spreads
+        }
+      }
+      if (!seen.length) return null;
+      const mn = (k) => Math.min.apply(null, seen.map((x) => x[k]));
+      const poses = {};
+      seen.forEach((x) => { poses[x.pose] = (poses[x.pose] || 0) + 1; });
+      return { n: seen.length, poses,
+        minSeat: +mn("seat").toFixed(3), minBase: +mn("base").toFixed(3), minHead: +mn("head").toFixed(3),
+        worstOffHands: +Math.max.apply(null, seen.map((x) => Math.abs(x.seat - x.hands))).toFixed(3),
+        moving: seen.filter((x) => x.moving).length, still: seen.filter((x) => !x.moving).length,
+        azimuths: Object.keys(seen.reduce((a, x) => (a[x.az] = 1, a), {})).length,
+        goods: Object.keys(seen.reduce((a, x) => (a[x.res] = 1, a), {})).length };
+    });
+    t.check(look + ": hauling serfs were caught with a load drawn on them",
+      !!carried && carried.n >= 8, carried);
+    t.check(look + ": …and every one of them walks the CARRY rows",
+      !!carried && carried.poses.carry === carried.n, carried && carried.poses);
+    /* THE BAR THAT WOULD HAVE FAILED BEFORE THE FIX, and it is the LOWER EDGE
+     * of the load that fails it: with the old constant the good's base sat at
+     * −0.015 world units on the worst azimuth of the shipping look — under the
+     * settler's boots. Both edges are asserted (base clear of the ground, and
+     * the load's middle a real fraction of the man's own height) because the
+     * middle alone would have squeaked past. */
+    t.check(look + ": …with the load carried well above his boots, never at his feet",
+      !!carried && carried.minBase > carried.minHead * 0.12
+      && carried.minSeat > carried.minHead * 0.33, carried);
+    t.check(look + ": …seated ON the hands anchor rather than slung far off it",
+      !!carried && carried.worstOffHands < carried.minHead * 0.45, carried);
+    t.check(look + ": …both standing still and walking, all round the compass",
+      !!carried && carried.moving > 0 && carried.still > 0 && carried.azimuths >= 6, carried);
+    console.log("   " + look + ": carry base ≥ " + (carried && carried.minBase) + " seat ≥ " + (carried && carried.minSeat)
+      + " (head " + (carried && carried.minHead) + ") · work swing tool "
+      + arms.tool + " vs off " + arms.off);
+    /* `?look=` PERSISTS to localStorage for the whole origin, so a page opened
+     * later in this suite would inherit whichever look ran last. Clear it. */
+    await lp.evaluate(() => { try { localStorage.removeItem("fs_look"); } catch (e) { /* noop */ } });
+    await lp.close();
+  }
 
   /* ── 6b-iii. the doorway fade survives the port ───────────────────────────
    * A serf walking into a hut shrinks toward his own foot pixel (the per-

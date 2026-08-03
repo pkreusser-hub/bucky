@@ -303,7 +303,13 @@
     const nPlayers = Math.min(4, humans + ais);
     const seed = (opts.seed >>> 0) || 1;
 
-    const map = FSMap.generate({ seed, size: opts.size, players: nPlayers });
+    /* batch #5: the generator is told how many of the LEADING starts are allied
+     * (= `humans`, since plan §16 seats every human on team 0), so separate-
+     * kingdoms co-op puts the two human castles within reach of each other and
+     * the AIs far away. Solo and shared co-op pass 1 and get the map they
+     * always got. Part of the seed contract — it rides in the same settings
+     * block as the seed and the size. */
+    const map = FSMap.generate({ seed, size: opts.size, players: nPlayers, allies: humans });
     FSMap.bind(map);
 
     const G = {

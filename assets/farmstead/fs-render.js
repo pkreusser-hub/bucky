@@ -1439,7 +1439,19 @@
   const ROAD_MASK_PX = 2048;                    // one sheet for the whole network
   const ROAD_BOX_PAD = 2.4;                     // world units of grass kept around it
   const ROAD_BOX_MIN = 12;                      // never magnify a two-flag network past this
-  const ROAD_PAINT_HW = FSC.ROAD_W * 1.45;      // painted half-width (worn wider than the old ribbon)
+  /* ═══ THE PATH IS NARROWER (batch #5, 2026-08-02, user playtest: "the roads
+   * read too wide") ═════════════════════════════════════════════════════════
+   * 1.45 → 1.12 of FSC.ROAD_W, a 23% narrower paint. The COAT RATIOS moved
+   * with it rather than riding along (see ROAD_COATS in fs-models.js): the
+   * body and the packed core come in by the full 23%, while the outermost
+   * SCUFF coat is widened relative to the new half-width so the feathered
+   * verge keeps the same ABSOLUTE width in world units it always had. That is
+   * the whole trick — the feather is what makes the paint read as ground
+   * rather than as a stripe laid on it, so it must not scale with the road.
+   * Measured (nominal half-width, world units): scuff 0.842 → 0.719, body
+   * 0.464 → 0.351, packed core 0.273 → 0.203, and the feather BAND between
+   * the scuff and the body 0.223 → 0.221. */
+  const ROAD_PAINT_HW = FSC.ROAD_W * 1.12;      // painted half-width (a worn footpath, not a highway)
   /* half of FSC.ROAD_LIFT: a coplanar copy of the terrain needs far less
    * clearance than an independently-extruded ribbon did, and less lift means
    * less chance of catching daylight under a feathered edge on a steep bank.
@@ -1560,7 +1572,11 @@
       for (let i = 0; i < feet.length; i++) {
         FSMap.worldXZ(map, feet[i].v, xz);
         blobs.push({ x: (xz[0] - bx0) * S, y: (xz[1] - bz0) * S,
-          r: hw * (1.0 + Math.min(4, feet[i].n) * 0.15), seed: feet[i].v * 31 + 7 });
+          /* batch #5: 1.0 → 1.18 of the narrower half-width. A junction is the
+           * most walked-over ground on the map and has to keep reading as a
+           * trodden PATCH rather than as a bulge in the path, so it gives back
+           * a little of the 23% the road itself lost. */
+          r: hw * (1.18 + Math.min(4, feet[i].n) * 0.15), seed: feet[i].v * 31 + 7 });
       }
       dyn.roadTex = FSModels.paintRoadMask(ROAD_MASK_PX, strokes, blobs);
     }
@@ -2351,7 +2367,14 @@ varying vec2 vAtlas; varying vec3 vTint; varying vec3 vTint2; varying float vTin
         GSPR.anchorY = -(man.bake.footPx.y - cell / 2) / ppu;
         GSPR.bias = SPR_BIAS_Q * GSPR.quad;
         GSPR.rowOf = Object.create(null);
-        for (const id in man.rows) GSPR.rowOf[id] = man.rows[id].row;
+        GSPR.hOf = Object.create(null);
+        /* batch #5: the bake already measures every good's own WORLD HEIGHT and
+         * writes it into the manifest (`rows[id].h`). Seating a carried good on
+         * a settler's hands needs it — see gsprHeight. */
+        for (const id in man.rows) {
+          GSPR.rowOf[id] = man.rows[id].row;
+          GSPR.hOf[id] = man.rows[id].h || 0;
+        }
         GSPR.err = null;
         GSPR.ready = true;
         GSPR.gen++;
@@ -2508,7 +2531,33 @@ varying vec2 vAtlas; varying vec3 vTint; varying vec3 vTint2; varying float vTin
     return out;
   }
   const handsAt = { x: 0, y: 0 };
-  const GOOD_HAND_DROP = 0.30;      // × the good's own quad, so it rests IN the hands
+  /* ═══ HOW FAR A CARRIED GOOD DROPS BELOW THE HANDS (batch #5, 2026-08-02) ══
+   * THE BUG, and it is arithmetic rather than plumbing: batch #4 dropped the
+   * good by 0.30 of its own QUAD — and the quad is the whole 64 px cell, 0.551
+   * world units, so the drop was 0.165. A settler is 0.48 world units from his
+   * boots to the top of his head. The load was therefore being pushed down by
+   * a THIRD OF A MAN from wherever his hands were, and on the shipping look
+   * (dwarfknight) the carry pose's hands anchor projects to 0.15–0.44
+   * depending on which way the camera is standing, so the good came out at
+   * −0.015 world units at the front azimuths: BELOW HIS FEET. Measured in the
+   * live game before the fix, seed 12345, azimuth 4: hands 0.217, drop 0.165,
+   * good seated at 0.052 — on his boots, which is exactly what was reported.
+   * A constant tuned against the tallest good in the set was never going to
+   * fit the shortest one either.
+   * The fix is to drop by a fraction of THAT GOOD'S OWN measured height — the
+   * bake writes it into the manifest — so a plank and a loaf both land with
+   * their lower edge in the hands and the hands' own fingers curl over it. */
+  /* 0.12 of the good's own height, MEASURED rather than picked: at 0.18 the
+   * lower edge of a plank still came down to 0.062 world units on the worst
+   * azimuth of the dwarf look, which is his ankle. 0.12 is enough overlap for
+   * the fingers to close over the load and puts the worst case at 0.11 — a
+   * quarter of his height, clear of his boots at every heading. */
+  const GOOD_HAND_DROP = 0.12;      // × the good's OWN height (manifest rows[].h)
+  const GOOD_H_FALLBACK = 0.32;     // a manifest from before rows[].h existed
+  function gsprHeight(res) {
+    const h = GSPR.hOf && GSPR.hOf[res];
+    return h > 0 ? h : GOOD_H_FALLBACK;
+  }
 
   /* ------------------------------------------------------------------- pushes */
   const sprV = new THREE.Vector3(), sprM = new THREE.Matrix4();
@@ -2580,7 +2629,21 @@ varying vec2 vAtlas; varying vec3 vTint; varying vec3 vTint2; varying float vTin
     if (!r) { r = { overlays: [] }; SPR.last.set(id, r); }
     r.kind = kind; r.pose = pose; r.k = k; r.az = az; r.row = row; r.cell = cell;
     r.overlays.length = 0;
+    r.good = null;
     return r;
+  }
+  /* batch #5: where the CARRIED GOOD was actually seated on the last frame, in
+   * the same camera-plane world units every overlay is placed in — so the
+   * suites can assert "it is in his hands", not merely "it exists". All four
+   * numbers are relative to the settler's own ground point. */
+  function sprRecGood(id, res, handsY, baseY, seatY, headY, appear) {
+    if (!SPR.trace) return;
+    const r = SPR.last.get(id);
+    /* `appear` is the doorway fade, which scales the WHOLE cell toward its foot
+     * pixel — a serf caught halfway into a hut legitimately carries his load
+     * near the ground. A caller that wants the pose's own geometry filters on
+     * it rather than reading a fading man's numbers as the rule. */
+    if (r) r.good = { res: res, handsY: handsY, baseY: baseY, seatY: seatY, headY: headY, appear: appear };
   }
 
   /* ═══ STANDING STILL IS NOT STANDING STATUE (playtest 2026-08-02) ════════
@@ -2878,8 +2941,16 @@ varying vec2 vAtlas; varying vec3 vTint; varying vec3 vTint2; varying float vTin
         /* a good's own cell STANDS it on its anchor (they are all authored on
          * y=0 in a ~0.5-unit box), so seating one on the hands unmodified puts
          * its whole mass above them — a plank floating at chest height. Drop it
-         * by a fraction of its own quad and it rests IN the hands instead. */
-        const drop = hOK ? GSPR.quad * GOOD_HAND_DROP * appear : 0;
+         * by a fraction of ITS OWN HEIGHT (never of the shared quad — see
+         * GOOD_HAND_DROP) and it rests IN the hands instead. */
+        const drop = hOK ? gsprHeight(s.carry) * GOOD_HAND_DROP * appear : 0;
+        if (hOK && sprCell) {
+          const hatA = sprCell.anchors && sprCell.anchors.hat;
+          const gh = gsprHeight(s.carry);
+          sprRecGood(s.id, s.carry, hp.y, hp.y - gh * GOOD_HAND_DROP,
+            hp.y - gh * GOOD_HAND_DROP + gh * 0.5,
+            hatA ? (SPR.man.footPx.y - hatA.y) / SPR.man.bake.pxPerCameraUnit : 0, appear);
+        }
         if (!(hOK
           ? gsprPush(s.carry, x, y, z, yaw, appear, hp.x * appear, hp.y * appear - drop)
           : (goodSpritesActive() && gsprPush(s.carry, x, cy2, z, yaw, appear)))) {
@@ -3502,6 +3573,8 @@ varying vec2 vAtlas; varying vec3 vTint; varying vec3 vTint2; varying float vTin
     const r = SPR.last.get(id | 0);
     if (!r) return null;
     return { kind: r.kind, pose: r.pose, k: r.k, az: r.az, row: r.row, cell: r.cell,
+      good: r.good ? { res: r.good.res, handsY: r.good.handsY, baseY: r.good.baseY,
+        seatY: r.good.seatY, headY: r.good.headY, appear: r.good.appear } : null,
       overlays: r.overlays.map((o) => ({ id: o.id, cell: o.cell, ox: o.ox, oy: o.oy, rot: o.rot || 0 })) };
   };
   /* ===== ROAD DECAL test hooks — the painted network is not something you can

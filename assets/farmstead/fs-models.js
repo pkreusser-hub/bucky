@@ -1309,11 +1309,18 @@
    * verge), then the body, then the packed core. Each coat carries its OWN
    * independent edge jitter, so no two boundaries line up and the path never
    * reads as a stroked line with a fixed outline. */
+  /* batch #5: the paint got 23% narrower (ROAD_PAINT_HW 1.45 → 1.12 × ROAD_W)
+   * and these ratios are re-tuned rather than left alone, so the narrowing
+   * lands on the BODY and the CORE and not on the verge. k rises on the outer
+   * scuff coat and its jitter rises with it, which keeps the feathered edge —
+   * and the raggedness of that edge — the same absolute width on the ground as
+   * before. Shrinking all four uniformly makes a crisp thin stripe, which is a
+   * sticker; the soft edge is the whole reason it reads as trodden earth. */
   const ROAD_COATS = [
-    [1.85, 0.44, "SCUFF", 0.15],
-    [1.36, 0.28, "DIRT", 0.33],
-    [1.02, 0.18, "DIRT", 0.80],
-    [0.60, 0.20, "PACK", 0.60],
+    [2.05, 0.56, "SCUFF", 0.15],
+    [1.42, 0.33, "DIRT", 0.33],
+    [1.00, 0.20, "DIRT", 0.80],
+    [0.58, 0.22, "PACK", 0.60],
   ];
   function paintRoadStroke(g, st) {
     const rnd = jr(st.seed | 0);
@@ -1385,7 +1392,10 @@
     const blots = Math.max(3, Math.round(n * 0.34));
     for (let i = 0; i < blots; i++) {
       const j = Math.min(n - 1, (rnd() * n) | 0);
-      const d = (rnd() * 2 - 1) * half[j] * 1.45;
+      /* batch #5: 1.45 → 1.75 of the (now narrower) half-width, so the spilled
+       * wear still reaches as far off the path in WORLD units as it used to —
+       * these blots are what tie the paint into the grass */
+      const d = (rnd() * 2 - 1) * half[j] * 1.75;
       const x = s[j][0] + nor[j * 2] * d, y = s[j][1] + nor[j * 2 + 1] * d;
       const r = hw * (0.18 + rnd() * 0.55);
       g.fillStyle = "rgba(" + (rnd() < 0.45 ? ROADPAINT.PALE : ROADPAINT.RUT) + "," +

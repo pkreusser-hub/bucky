@@ -398,11 +398,20 @@
       : (FSC.MAP_SIZES[opts.size || "medium"] || FSC.MAP_SIZES.medium);
     const seed = (opts.seed >>> 0) || 1;
     const players = Math.max(1, Math.min(4, opts.players || 4));
+    /* ═══ THE MAP KNOWS WHO IS ALLIED WITH WHOM (batch #5, 2026-08-02) ════════
+     * `allies` = how many of the LEADING starts share a team. That is exactly
+     * FSSim's `humans` (plan §16 seats every human on team 0 and gives every AI
+     * a team of its own), so 1 in solo and in shared co-op — where the code
+     * below takes the untouched path — and 2 in separate-allied-kingdoms co-op.
+     * It is part of the SEED CONTRACT: the same seed with a different team
+     * layout is a different map, deliberately, and both machines derive it from
+     * the host's settings block, which already carries `humans`. */
+    const allies = Math.max(1, Math.min(players, opts.allies === undefined ? 1 : opts.allies | 0));
     FSC.reseed(seed);
 
     const W = size, H = size, N = W * H;
     const map = {
-      W, H, seed, size, players,
+      W, H, seed, size, players, allies,
       height: new Float32Array(N),
       terr: new Uint8Array(N),
       obj: new Uint8Array(N),
@@ -566,7 +575,7 @@
     }
 
     // ---- fair start sites --------------------------------------------------
-    map.starts = findStartSites(map, players, { waterDist, mountDist, mineDist, wideLand });
+    map.starts = findStartSites(map, players, { waterDist, mountDist, mineDist, wideLand }, allies);
     for (let i = 0; i < map.starts.length; i++) topUpStart(map, map.starts[i]);
     balanceStarts(map);
 
@@ -703,8 +712,22 @@
    * first, separation only afterwards; the last tiers keep only the HARD
    * requirements so a castle is always placeable on whatever comes back.
    */
-  function findStartSites(map, n, fields) {
+  function findStartSites(map, n, fields, allies) {
     const W = map.W, H = map.H;
+    /* ═══ ALLIES ARE NEIGHBOURS (batch #5, 2026-08-02, user playtest) ═════════
+     * The ladder below MAXIMISES the smallest gap, which is exactly right for
+     * a free-for-all and exactly wrong for the two seats of a co-op kingdom:
+     * batch #3 doubled the boards and pushed every start to 23/32/52 road
+     * steps apart, so two allies who wanted to help each other spent the first
+     * ten minutes walking. So the ALLIED BLOCK IS PLACED AS ONE SITE — the
+     * ladder runs for (enemies + 1) kingdoms, which also widens the enemy
+     * spacing it aims for, because SEP_FRAC is indexed by that count — and the
+     * remaining allies are then seated in a band around the anchor.
+     * `allies < 2` is the untouched path, byte-for-byte: solo and shared co-op
+     * call the same code they always did, so no recorded map or sim hash for
+     * a single-kingdom game moves. */
+    const nAlly = Math.max(1, Math.min(n, allies === undefined ? 1 : allies | 0));
+    const nBase = n - nAlly + 1;
     const tiers = [];
     function candsFor(tier) {
       if (tiers[tier]) return tiers[tier];
@@ -726,42 +749,95 @@
         for (let j = i + 1; j < sites.length; j++) md = Math.min(md, dist(map, sites[i], sites[j]));
       return md;
     }
-    const sep0 = Math.round(W * (ST.SEP_FRAC[n] || 0.46));
     const hardFloor = Math.max(4, Math.round(W * ST.SEP_HARD_FLOOR));
-    for (let pass = 0; pass < ST.SEP_PASSES; pass++) {
-      const floor = Math.max(4, Math.round(W * (ST.SEP_FLOOR_FRAC - pass * ST.SEP_FLOOR_STEP)));
-      for (let tier = 0; tier <= 6; tier++) {
-        const cands = candsFor(tier);
-        if (cands.length < n) continue;
-        /* Farthest-point sampling MAXIMISES the smallest gap by construction, so
-         * it is weighed at every rung of the ladder — not, as it used to be,
-         * only once the whole ladder had failed. A candidate pool that clusters
-         * around the best-scoring corner used to walk all the way down to the
-         * floor and hand back castles a dozen steps apart; now the spread set
-         * wins the moment greedy stops clearing the same bar. Greedy still goes
-         * first at each rung, because when both reach a separation the greedy
-         * one is made of higher-scoring ground. */
-        const sp = spreadPick(map, cands, n);
-        const spMd = sp ? minPair(sp) : -1;
-        let sep = sep0;
-        while (sep >= floor) {
-          const pick = greedyPick(map, cands, n, sep);
-          if (pick) { map.startTier = tier; return pick; }
-          if (spMd >= sep) { map.startTier = tier; return sp; }
-          sep = Math.min(sep - 1, Math.round(sep * ST.SEP_RELAX));
-        }
-        if (sp && (spMd >= hardFloor || (pass === ST.SEP_PASSES - 1 && tier === 6))) {
-          map.startTier = tier; return sp;
+    /** the original ladder, verbatim, over `nb` KINGDOMS (an allied block is one) */
+    function pickBase(nb) {
+      const sep0 = Math.round(W * (ST.SEP_FRAC[nb] || 0.46));
+      for (let pass = 0; pass < ST.SEP_PASSES; pass++) {
+        const floor = Math.max(4, Math.round(W * (ST.SEP_FLOOR_FRAC - pass * ST.SEP_FLOOR_STEP)));
+        for (let tier = 0; tier <= 6; tier++) {
+          const cands = candsFor(tier);
+          if (cands.length < nb) continue;
+          /* Farthest-point sampling MAXIMISES the smallest gap by construction, so
+           * it is weighed at every rung of the ladder — not, as it used to be,
+           * only once the whole ladder had failed. A candidate pool that clusters
+           * around the best-scoring corner used to walk all the way down to the
+           * floor and hand back castles a dozen steps apart; now the spread set
+           * wins the moment greedy stops clearing the same bar. Greedy still goes
+           * first at each rung, because when both reach a separation the greedy
+           * one is made of higher-scoring ground. */
+          const sp = spreadPick(map, cands, nb);
+          const spMd = sp ? minPair(sp) : -1;
+          let sep = sep0;
+          while (sep >= floor) {
+            const pick = greedyPick(map, cands, nb, sep);
+            if (pick) { map.startTier = tier; return pick; }
+            if (spMd >= sep) { map.startTier = tier; return sp; }
+            sep = Math.min(sep - 1, Math.round(sep * ST.SEP_RELAX));
+          }
+          if (sp && (spMd >= hardFloor || (pass === ST.SEP_PASSES - 1 && tier === 6))) {
+            map.startTier = tier; return sp;
+          }
         }
       }
+      // desperation (should be unreachable): spread whatever grass exists
+      const grass = [];
+      for (let v = 0; v < W * H; v++) if (map.terr[v] === T.GRASS) grass.push(v);
+      const out = [];
+      for (let i = 0; i < nb; i++) out.push(grass.length ? grass[Math.floor((i + 0.5) * grass.length / nb)] : 0);
+      map.startTier = -1;
+      return out;
     }
-    // desperation (should be unreachable): spread whatever grass exists
-    const grass = [];
-    for (let v = 0; v < W * H; v++) if (map.terr[v] === T.GRASS) grass.push(v);
-    const out = [];
-    for (let i = 0; i < n; i++) out.push(grass.length ? grass[Math.floor((i + 0.5) * grass.length / n)] : 0);
-    map.startTier = -1;
-    return out;
+
+    const base = pickBase(nBase);
+    if (nAlly < 2) return base;
+
+    /* ═══ THE ALLIED BAND ═════════════════════════════════════════════════════
+     * base[0] is the anchor of the allied kingdom and base[1..] are the rival
+     * kingdoms, each already as far from the anchor as the board allows. Every
+     * remaining ally is seated in a BAND around the anchor: close enough to
+     * reinforce and to trade, far enough that each still owns its own ground
+     * and can be given its own coal and iron by guaranteeStartOre (whose reach
+     * is ST.MOUNTAIN_MAX road steps — two allies inside that of each other
+     * would be one mine field with two castles on it, so the floor is set from
+     * that number, not guessed).
+     * Rivals keep the separation the ladder won them: an ally may not be seated
+     * nearer a RIVAL than the generator's own hard floor. */
+    const allyTarget = Math.max(ST.ALLY_SEP_MIN,
+      Math.round(W * (ST.SEP_FRAC[nBase] || 0.46) * ST.ALLY_SEP_FRAC));
+    const enemies = base.slice(1);
+    const out = [base[0]];
+    for (let a = 1; a < nAlly; a++) {
+      let best = -1;
+      /* widen the band a rung at a time — never the floor, which is what keeps
+       * two allies off one ore field */
+      for (let widen = 0; widen < ST.ALLY_BAND_PASSES && best < 0; widen++) {
+        const lo = ST.ALLY_SEP_MIN;
+        const hi = Math.round(allyTarget * (1 + widen * ST.ALLY_BAND_STEP));
+        for (let tier = 0; tier <= 6 && best < 0; tier++) {
+          const cands = candsFor(tier);
+          for (let i = 0; i < cands.length; i++) {
+            const v = cands[i][0];
+            let ok = true;
+            for (let k = 0; k < out.length && ok; k++) {
+              const d = dist(map, v, out[k]);
+              if (d < lo || d > hi) ok = false;
+            }
+            for (let k = 0; k < enemies.length && ok; k++) {
+              if (dist(map, v, enemies[k]) < hardFloor) ok = false;
+            }
+            // cands are score-sorted, so the first that fits is the best that fits
+            if (ok) { best = v; break; }
+          }
+        }
+      }
+      /* nothing in the band at any tier (a board whose only good ground is one
+       * headland): fall back to the plain n-way spread, which is the behaviour
+       * before this batch and is always placeable. */
+      if (best < 0) return pickBase(n);
+      out.push(best);
+    }
+    return out.concat(enemies);
   }
   FSMap.findStartSites = findStartSites;
 

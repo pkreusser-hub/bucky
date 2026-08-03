@@ -349,32 +349,51 @@ H.run("farmstead-mp", async (t) => {
   const failEv = await guest.evaluate(() => window.__FS__.events("cmdFail").length);
   t.check("the losing command is logged as cmdFail, not silently dropped", failEv >= 1, { failEv });
 
-  /* ═══ CO-OP RUNS AT 1x — RESTAGED 2026-08-02 (batch #4, user request) ══════
-   * This section used to prove "speed is a command: a guest raises it and both
-   * screens follow". The rule changed: the speed rail is inert for the whole
-   * session, host and guest alike, because speed scales every client's command
-   * LEAD (CMD_DELAY_MP x max(1, speed)) and two seats disagreeing about the
-   * clock is two seats disagreeing about when an order lands. What the section
-   * proves now is the SAME machinery from the other side — the UI refuses, the
-   * host corrects a clock that arrived wrong, and the two sims stay in lockstep
-   * through it. The accumulator check below keeps its job (the live wall-clock
-   * path really advances) at the speed the session actually runs. */
-  const railLocked = await guest.evaluate(() => {
+  /* ═══ CO-OP RUNS UP TO 2x — RESTAGED 2026-08-02 (batch #5, user request) ═══
+   * RESTAGE HISTORY, because this section has now been rewritten twice for two
+   * genuine rule changes and the reason matters more than the assertions:
+   *   · originally  "speed is a command — a guest raises it and both screens
+   *                 follow", which is the lockstep property.
+   *   · batch #4    the rail went INERT for the whole session at 1x.
+   *   · batch #5    the playtest said 1x is unplayable for an hour together, so
+   *                 the ceiling moved to FSC.MP_MAX_SPEED. Pause, 1x and 2x are
+   *                 live for either seat; only 4x is refused.
+   * So this proves all three halves of the new rule: a GUEST's pick really
+   * moves both screens (it is routed to the host and comes back as the host's
+   * own broadcast — no client invents a speed locally), the button above the
+   * ceiling is visibly dead and does nothing when clicked, and a clock that
+   * ARRIVES above the ceiling is pulled back to it by the host alone. */
+  const MPMAX = require("../assets/farmstead/fs-const.js").MP_MAX_SPEED;
+  const railPick = await guest.evaluate((mx) => {
     const row = document.getElementById("fsSpeed");
-    const btn = row && row.querySelector('[data-speed="2"]');
-    const was = window.__FS__.G.speed;          // whatever the section left it at
+    const btn = row && row.querySelector('[data-speed="' + mx + '"]');
+    const was = window.__FS__.G.speed;
     if (btn) btn.click();                       // the real control, really clicked
-    return { locked: !!(row && row.classList.contains("locked")),
-      disabled: !!(btn && btn.disabled), was: was, now: window.__FS__.G.speed };
+    return { disabled: !!(btn && btn.disabled), was: was };
+  }, MPMAX);
+  await t.sleep(900);
+  const pickH = await host.evaluate(() => window.__FS__.G.speed);
+  const pickG = await guest.evaluate(() => window.__FS__.G.speed);
+  t.check("the speed rail is LIVE on a connected client up to the co-op ceiling",
+    !railPick.disabled, railPick);
+  t.check("…and a GUEST's pick moves BOTH screens (routed through the host)",
+    pickH === MPMAX && pickG === MPMAX, { railPick, pickH, pickG, MPMAX });
+  const railOver = await guest.evaluate(() => {
+    const row = document.getElementById("fsSpeed");
+    const btn = row && row.querySelector('[data-speed="4"]');
+    const was = window.__FS__.G.speed;
+    if (btn) btn.click();
+    return { disabled: !!(btn && btn.disabled), was: was, now: window.__FS__.G.speed };
   });
-  t.check("the speed rail is visibly locked and inert on a connected client",
-    railLocked.locked && railLocked.disabled && railLocked.now === railLocked.was, railLocked);
-  // …and a clock that arrives wrong is pulled back by the HOST alone
+  t.check("…while the speed ABOVE the ceiling is greyed and inert",
+    railOver.disabled && railOver.now === railOver.was, railOver);
+  // …and a clock that arrives wrong is pulled back to the ceiling by the HOST alone
   await host.evaluate(() => window.__FS__.setSpeed(4));
   await t.sleep(900);
   const spH = await host.evaluate(() => window.__FS__.G.speed);
   const spG = await guest.evaluate(() => window.__FS__.G.speed);
-  t.check("a co-op session is pinned back to 1× on BOTH screens", spH === 1 && spG === 1, { spH, spG });
+  t.check("a co-op session that arrives too fast is pinned to the ceiling on BOTH screens",
+    spH === MPMAX && spG === MPMAX, { spH, spG, MPMAX });
   const t0 = await tickOf(host);
   // Wall-clock check under variable machine load: bounded retries widen the window
   // instead of weakening what it proves (the accumulator genuinely advances at speed).
@@ -384,7 +403,7 @@ H.run("farmstead-mp", async (t) => {
     g1 = await tickOf(guest); t1 = await tickOf(host);
     if (t1 - t0 > 6) break;
   }
-  t.check("the live accumulator path really advances at 1×", t1 - t0 > 6, { t0, t1 });
+  t.check("the live accumulator path really advances at the session's speed", t1 - t0 > 6, { t0, t1 });
   // The REAL lockstep invariant: guest never exceeds lastConfirmedHostTick + lead − 1.
   // lastConfirmed ≤ the host tick we just read, so the sound cross-browser bound is
   // t1 + lead − 1 (a starved HOST tab may lag while the guest extrapolates to its

@@ -462,6 +462,24 @@
     SEP_FRAC: [0, 0.60, 0.60, 0.52, 0.46],   // min separation as a fraction of W, by player count
     SEP_RELAX: 0.94, SEP_PASSES: 3,
     SEP_FLOOR_FRAC: 0.36, SEP_FLOOR_STEP: 0.04, SEP_HARD_FLOOR: 0.22,
+    /* PLAYTEST 2026-08-02 (batch #5): in SEPARATE ALLIED KINGDOMS co-op the two
+     * human starts are NEIGHBOURS, not opposite corners. The rule above is the
+     * right rule for rivals and the wrong one for teammates — after the boards
+     * doubled, two allies landed 32 road steps apart on a medium map and could
+     * not help each other for the first ten minutes.
+     *  · ALLY_SEP_FRAC — the ally band's outer edge as a fraction of the RIVAL
+     *    separation the ladder was aiming for (indexed by kingdom count, so an
+     *    allied pair counts once). 0.42 puts two allies about a third of the
+     *    way to a rival: their own room, one short walk apart.
+     *  · ALLY_SEP_MIN — the floor, and it is DERIVED, not chosen: it is a shade
+     *    over MOUNTAIN_MAX (18), the radius guaranteeStartOre searches, so two
+     *    allies can never be inside each other's guaranteed-ore reach and be
+     *    handed the same seam twice. Below that they would be one mining town
+     *    with two castles in it.
+     *  · the band widens by ALLY_BAND_STEP for ALLY_BAND_PASSES rungs when a
+     *    board has nothing seatable at the first radius; the floor never moves. */
+    ALLY_SEP_FRAC: 0.42, ALLY_SEP_MIN: 19,
+    ALLY_BAND_STEP: 0.22, ALLY_BAND_PASSES: 6,
     TOPUP_TREES: 14, TOPUP_TREE_R: 7,        // fairness top-up around every start site
     TOPUP_STONES: 4, TOPUP_STONE_R: 9,
     REACH_MIN: 60,        // HARD floor: road-reachable vertices from the castle door
@@ -603,6 +621,17 @@
   // stamp execTick = hostTick + CMD_DELAY_MP so both sides run them in lockstep.
   FSC.CMD_DELAY = 1;
   FSC.CMD_DELAY_MP = 4;
+  /* ═══ HOW FAST CO-OP MAY RUN (batch #5, 2026-08-02, user request) ══════════
+   * Batch #4 pinned a connected room to 1× outright. Playtest: 1× is too slow
+   * to play together for an hour, and 2× costs the wire nothing — the command
+   * lead is CMD_DELAY_MP × speed TICKS, i.e. a CONSTANT ~400 ms of real time
+   * at any speed, so the transport has exactly as long to deliver an order at
+   * 2× as at 1×. What speed really buys is per-second sim THROUGHPUT, and that
+   * is where the ceiling comes from: at 4× a client must sustain 40 ticks and
+   * 40 frames a second or it lives permanently in FSNet's catch-up path, and
+   * the slowest seat sets the pace for the room. 2× leaves that margin; 4×
+   * does not, so it stays off. Solo is unchanged — FSC.SPEEDS in full. */
+  FSC.MP_MAX_SPEED = 2;
   FSC.CMD_TYPES = ["flag", "road", "build", "demolish", "speed", "prio",
     /* ===== PHASE-C ===== */ "geologist", "dist", "toolPrio", "stockMode", "halt",
     /* ===== PHASE-D ===== */ "attack", "knightSet", "cycleKnights",

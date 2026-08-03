@@ -112,6 +112,35 @@ systems*, never art, sound, text, or names from the original. Working title: **F
     KNOWN CONSEQUENCE: the visual suite's `SIM_BASELINE` golden hashes move (the world is in
     a different state at any given tick), and construction-timed staging in the economy and
     transport suites shifts — both re-derived rather than bent.
+16. **ALLIED STARTS ARE NEIGHBOURS** (2026-08-02, user playtest). The generator maximises
+    the smallest gap between kingdoms, which is right for rivals and wrong for the two seats
+    of a SEPARATE-ALLIED-KINGDOMS co-op game: after the boards doubled in area, two allies
+    landed 32 road steps apart on a medium map and could not help each other for the first
+    ten minutes of a game whose entire point is helping each other. `FSMap.generate` now
+    takes `allies` (= `FSSim`'s `humans`, since every human is on team 0) and places the
+    ALLIED BLOCK AS ONE SITE on the existing quality ladder — so the rival spacing is
+    computed for one fewer kingdom and comes out slightly WIDER — then seats the remaining
+    allies in a band around the anchor: outer edge `ST.ALLY_SEP_FRAC` (0.42) of the rival
+    target, floor `ST.ALLY_SEP_MIN` (19), which is derived from `ST.MOUNTAIN_MAX` (18) so
+    two allies can never sit inside each other's guaranteed-ore reach and be handed the same
+    seam. Measured over 8 seeds × 3 sizes: allies 19–30 steps (mean 20.4) against rivals'
+    31.9 / 52.5 / 81.5 by size, with the per-start coal+iron guarantee unchanged.
+    `allies` is part of the SEED CONTRACT — the same seed with a different team layout is a
+    different map, deliberately — and it rides in the host's settings block, which already
+    carries `humans`. `allies < 2` is the untouched code path, so no solo or shared-kingdom
+    map or sim hash moves (re-derived twice: `SIM_BASELINE` is unchanged).
+17. **CO-OP RUNS UP TO 2×, NOT 4×** (2026-08-02, user request; supersedes the batch-#4 rule
+    that pinned a connected room to 1×). `FSC.MP_MAX_SPEED = 2`. The wire is indifferent to
+    speed — the command lead is `CMD_DELAY_MP × speed` TICKS, i.e. a constant ~400 ms of
+    real time at any of them — so the ceiling is about per-second THROUGHPUT: at 4× a client
+    must sustain 40 ticks and 40 frames a second or it lives in FSNet's catch-up path, and
+    the slowest seat sets the room's pace. Either seat may pick pause / 1× / 2×; the pick
+    travels the ordinary command road (`speed` is `CMD_HASH_NEUTRAL`, a guest's request is
+    routed to the host and comes back as the host's own broadcast), and a clock that arrives
+    above the ceiling is pulled back to it by the HOST alone, on a tick boundary. The gate
+    lives in FSUI and the keydown handler and NOT in `setSpeed()` — see the batch-#4 note:
+    `issueCommand` takes `G.cmdSeq++` before a guest's copy is routed, so a corrective
+    command raised independently on both machines diverges the two sims.
 
 Everything else — building set, resource set, serf professions + tools, chains, ratios,
 flags/roads/carriers, geologists, mines+food, knights/morale/gold, territory, combat,
@@ -537,6 +566,8 @@ deterministic sim; only player commands travel the network.
 ## Teams (implemented in sim regardless of MP)
 - Player.team int. Solo: human team 0, each AI its own team. Shared co-op: same. Separate
   co-op: players 0+1 both team 0 (human alliance), AIs teams 1+.
+- The team layout reaches WORLD GENERATION: allied starts are seated as neighbours and
+  rivals stay far away (deviation 16). `FSMap.generate({..., allies})`, `allies = humans`.
 - Attack validation rejects same-team targets (UI greys allied buildings). AI targets
   enemy teams only.
 - Territory between SAME-TEAM players never displaces: an owned vertex keeps its owner

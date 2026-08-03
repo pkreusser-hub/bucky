@@ -719,19 +719,33 @@
     dispatchAction(btn.getAttribute("data-act"), btn, e);
   }
 
-  /* ═══ MULTIPLAYER RUNS AT ONE SPEED (batch #4, 2026-08-02) ═════════════════
-   * Speed is not a per-player preference in a lockstep co-op game: it scales
-   * the command lead every client stamps its orders with (FSNet's delay hook
-   * is CMD_DELAY_MP x max(1, speed)), so two players disagreeing about the
-   * clock is two players disagreeing about when an order lands. The rail is
-   * inert for the whole session — host AND guest, so neither can drag the
-   * other's game — and farmstead.html pins the sim to 1x independently, which
-   * is what actually enforces it. */
-  function speedLocked() {
-    return !!(window.FSNet && FSNet.active && FSNet.active());
+  /* ═══ MULTIPLAYER RUNS UP TO 2× (batch #5, 2026-08-02, user request) ═══════
+   * Batch #4 made the whole rail inert in co-op. It is LIVE again at pause, 1×
+   * and 2×; only 4× is greyed. See FSC.MP_MAX_SPEED for why the ceiling is
+   * where it is (the wire is indifferent to speed — the command lead is a
+   * constant ~400 ms of real time at any of them — but per-second throughput
+   * is not, and the slowest seat sets the room's pace).
+   *
+   * WHERE THE GATE LIVES IS STILL LOAD-BEARING, and it is still not inside
+   * setSpeed(): that is also the debug hook and FSNet's own path, and a
+   * refusal buried there stops the HOST correcting a clock that arrived wrong.
+   * It lives here and in the keydown handler. A speed the player DOES pick
+   * travels the ordinary command road — `speed` is CMD_HASH_NEUTRAL, a guest's
+   * pick is routed to the host by FSSim.netHook and comes back as the host's
+   * own broadcast, so every client applies the same change from the same
+   * stamped command and no client invents one locally. */
+  function mpMaxSpeed() {
+    if (!(window.FSNet && FSNet.active && FSNet.active())) return Infinity;
+    return FSC.MP_MAX_SPEED === undefined ? 2 : FSC.MP_MAX_SPEED;
   }
+  function speedAllowed(s) { return s <= mpMaxSpeed(); }
+  FSUI.speedAllowed = speedAllowed;
   function doSetSpeed(s) {
-    if (speedLocked()) { updateSpeedUI(); return; }
+    if (!speedAllowed(s)) {
+      FSUI.toast("Co-op runs up to " + mpMaxSpeed() + "×", "info", 1.6);
+      updateSpeedUI();
+      return;
+    }
     if (FS) { FS.setSpeed(s); updateSpeedUI(); }
   }
   function updateSpeedUI() {
@@ -739,12 +753,15 @@
     const s = g ? (g.speed || 0) : 1;
     const row = el("fsSpeed");
     if (!row) return;
-    const locked = speedLocked();
-    row.classList.toggle("locked", locked);
+    const cap = mpMaxSpeed();
+    /* `locked` now means "some button on this rail is out of reach", not "the
+     * rail is dead" — the class only dims the disabled buttons. */
+    row.classList.toggle("locked", cap !== Infinity);
     [].forEach.call(row.querySelectorAll("[data-speed]"), (b) => {
-      b.classList.toggle("on", parseInt(b.getAttribute("data-speed"), 10) === s);
-      b.disabled = locked;
-      b.title = locked ? "Co-op runs at 1×" : (b.getAttribute("data-title") || b.title);
+      const bs = parseInt(b.getAttribute("data-speed"), 10);
+      b.classList.toggle("on", bs === s);
+      b.disabled = bs > cap;
+      b.title = b.disabled ? "Co-op runs up to " + cap + "×" : (b.getAttribute("data-title") || b.title);
     });
   }
 

@@ -108,6 +108,17 @@
   const ARM_CARRY_BEND = 0.55;                   // …and the elbows bend, or he sleepwalks (skinned rig only)
   const ARM_WORK_LO = 0.30;                      // tool low, in front of him
   const ARM_WORK_HI = 2.05;                      // ~117° — tool up and behind the shoulder
+  /* ═══ ONLY THE TOOL ARM SWINGS (batch #5, 2026-08-02, user playtest) ═══════
+   * Batch #4 raised BOTH arms through the whole stroke on the same scalar, so
+   * every builder and every woodcutter chopped with two mirrored arms and no
+   * tool in one of them. A man swinging a hammer moves the hammer arm; the
+   * other one COUNTERBALANCES — it drifts a little the other way and it never
+   * mirrors. armXR is the TOOL arm on both rigs (the tool and toolTip anchors
+   * are taken from the side-+1 hand), so the split is: armXR keeps the whole
+   * stroke, armX gets these, which top out at 14% of it. */
+  const ARM_OFF_BASE = 0.06;                     // the idle hand, barely off the seam
+  const ARM_OFF_SWING = 0.22;                    // …drifting forward as the tool goes back
+  const ARM_OFF_OUT = 0.06;                      // and it does NOT splay with the swing
   B.LEG_SWING = LEG_SWING;
   B.SERF_HIP_X = SERF_HIP_X; B.SERF_HIP_Y = SERF_HIP_Y;
   B.KNIGHT_HIP_X = KNIGHT_HIP_X; B.KNIGHT_HIP_Y = KNIGHT_HIP_Y;
@@ -126,6 +137,12 @@
      * body-local value here is only the rest position, for a rig that cannot
      * offer a posed one. */
     hands: [0, 0.34, 0.20],
+    /* batch #5: the OFF hand (side −1) on its own, resolved from the posed arm
+     * like `tool` is. Nothing is drawn on it — it exists so a test can measure
+     * how far the empty hand travels through a work stroke against how far the
+     * tool hand does, which is the only way to assert "one arm swings" from
+     * outside the bake. */
+    offhand: [-0.187, 0.293, 0.018],
   };
   /* the minifig's shoulder joint — the pivot the arm limb hangs from. Taken
    * from the arm cylinder's own top (centre 0.40, length 0.20) and the torso's
@@ -476,6 +493,7 @@
           ANCHOR_SERF.tool[2] - SERF_SHOULDER.z);
         const handLocal = (s) => new THREE.Vector3(
           s * 0.187 - s * SERF_SHOULDER.x, 0.293 - SERF_SHOULDER.y, 0.018 - SERF_SHOULDER.z);
+        if (name === "offhand" && L) return L.localToWorld(handLocal(-1));
         if (name === "tool" && R) return R.localToWorld(toolLocal());
         if (name === "toolTip" && R) return R.localToWorld(toolLocal().add(new THREE.Vector3(0, 0.30, 0)));
         if (name === "hands" && R && L) {
@@ -631,17 +649,22 @@
        * work now, and a 24° bow ON TOP of a raised tool folds him in half */
       rx: -swing * 0.21, twist: 0, rz: 0,
       stride: 0, brace: swing,
-      /* both arms come up together (a two-handed swing reads far better at 26
-       * px than one arm), backwards past vertical at the top of the raise */
-      armX: -ARM_WORK_LO - swing * (ARM_WORK_HI - ARM_WORK_LO),
+      /* THE TOOL ARM (armXR, side +1 — the hand the tool anchor comes off)
+       * carries the whole stroke, backwards past vertical at the top of the
+       * raise. The OFF HAND (armX) only counterbalances: it drifts the other
+       * way by at most 0.28 rad against the tool arm's 2.05. Batch #4 gave
+       * both arms the same scalar and the result was a man striking with two
+       * mirrored empty fists. */
       armXR: -ARM_WORK_LO - swing * (ARM_WORK_HI - ARM_WORK_LO),
-      /* THE ARMS SPLAY AS THEY RISE, and that is not decoration. The raise is
-       * a rotation in the SAGITTAL plane, so from dead ahead or dead behind
+      armX: ARM_OFF_BASE + swing * ARM_OFF_SWING,
+      /* THE TOOL ARM SPLAYS AS IT RISES, and that is not decoration. The raise
+       * is a rotation in the SAGITTAL plane, so from dead ahead or dead behind
        * (azimuths 0 and 8) it is pure foreshortening and the whole swing reads
        * as a man standing still — which is exactly what the first bake's
-       * contact sheet showed. Opening the elbows out as the tool goes up puts
-       * lateral travel into every azimuth. */
-      armOut: 0.10 + swing * 0.45,
+       * contact sheet showed. Opening the elbow out as the tool goes up puts
+       * lateral travel into every azimuth. The off hand stays where it is. */
+      armOutR: 0.10 + swing * 0.45,
+      armOut: ARM_OFF_OUT,
       meta: { swing: round4(swing) },
     };
   }
@@ -690,7 +713,26 @@
     for (let i = 0; i < list.length; i++) {
       const s2 = list[i].userData.side;
       const fwd = s2 < 0 ? (p.armX || 0) : (p.armXR === undefined ? (p.armX || 0) : p.armXR);
-      list[i].rotation.set(fwd, 0, -s2 * (p.armOut || 0));
+      const out = s2 < 0 ? (p.armOut || 0)
+        : (p.armOutR === undefined ? (p.armOut || 0) : p.armOutR);
+      /* ═══ BOTH SIGNS ARE FLIPPED HERE (batch #5, 2026-08-02) ═══════════════
+       * MEASURED, not derived, the same way DK.armSignX was. This minifig
+       * faces +Z and the bake's camera stands on +Z, so an arm swung the way
+       * the pose MEANT by "forward" should project DOWN the cell at azimuth 0
+       * and UP at azimuth 8. It did the exact opposite: the carry pose's
+       * `hands` anchor peaked at 0.469 world units at azimuth 0 and bottomed
+       * at 0.175 at azimuth 8 — the mirror image of the skinned dwarf, whose
+       * sign batch #4 had already corrected. So on this rig every arm has
+       * been swinging BEHIND him since the arms were separated: the carry held
+       * its load at his back (which is why the good then had to be shoved down
+       * to meet it), the walk counter-swung the wrong way, and the tool went
+       * up in FRONT of the shoulder instead of over it.
+       *   · rotation.x — a positive Euler-X on a limb hanging at −Y sends it
+       *     to −Z, i.e. away from the face. Negate, and +armX is forward.
+       *   · rotation.z — `armOut` was pulling the elbows IN (the +X arm moved
+       *     toward −X). Negate, and "out" is out, as it already is on the
+       *     dwarf's shoulder drop. */
+      list[i].rotation.set(-fwd, 0, s2 * out);
     }
     rig.root.updateMatrixWorld(true);
   };
@@ -699,7 +741,7 @@
   function round2(v) { return Math.round(v * 100) / 100; }
   /** a copy of a pose with every ARM scalar zeroed (the overlay bake's frame) */
   function noArms(p) {
-    return Object.assign({}, p, { armX: 0, armXR: 0, armOut: 0, armBend: 0 });
+    return Object.assign({}, p, { armX: 0, armXR: 0, armOut: 0, armOutR: 0, armBend: 0 });
   }
   B.noArms = noArms;
 
@@ -1694,8 +1736,14 @@
           /* T-pose → arms at the sides. A +x arm rotates about +Z by a NEGATIVE
            * angle to come down; the mirror goes the other way.
            * batch #4: `armOut` lifts them back OUT of the side-drop a little,
-           * which is what gives a carried load a shelf to sit on. */
-          boneRot(side + "_Upperarm", Z, -(DK.armDown - (p.armOut || 0)) * s);
+           * which is what gives a carried load a shelf to sit on.
+           * batch #5: PER SIDE — the tool arm (side +1) splays through a work
+           * swing and the off hand does not, so the two can no longer share
+           * one scalar. `armOutR` falls back to `armOut` when a pose sets only
+           * the one, which every pose but `work` does. */
+          const out = s < 0 ? (p.armOut || 0)
+            : (p.armOutR === undefined ? (p.armOut || 0) : p.armOutR);
+          boneRot(side + "_Upperarm", Z, -(DK.armDown - out) * s);
           /* the elbow bends more when he is carrying: a straight-armed carry
            * reads as a sleepwalker, and the load wants to come in to the chest */
           boneRot(side + "_Forearm", X, DK.elbow + (p.armBend || 0));
@@ -1728,6 +1776,10 @@
           for (const side of ["L", "R"]) if (sideOf[side] === want) return B2[side + "_Hand"];
           return null;
         };
+        if (name === "offhand") {                       // batch #5, see ANCHOR_SERF
+          const h = bySide(-1);
+          return h ? h.getWorldPosition(new THREE.Vector3()) : null;
+        }
         if (name === "tool") {
           const h = bySide(1) || B2.L_Hand || B2.R_Hand;
           return h ? h.getWorldPosition(new THREE.Vector3()) : null;
@@ -1794,6 +1846,7 @@
          * hand BONES (anchorWorld); this rest value only exists so the key is
          * in anchorDefs at all. */
         hands: ANCHOR_SERF.hands,
+        offhand: ANCHOR_SERF.offhand,                  // batch #5 (posed, see anchorWorld)
       },
       knight: {
         helmTop: [0, K.headTopY, 0],

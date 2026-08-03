@@ -531,8 +531,10 @@
      so the clock is not a per-player preference — the rail is inert and says
      so rather than disappearing, because a control that vanishes reads as a
      bug and a greyed one reads as a rule. */
-  #fsSpeed.locked button{ opacity:.45; filter:grayscale(.7); cursor:default; }
-  #fsSpeed.locked button.on{ opacity:.72; filter:grayscale(.35); }
+  /* batch #5: co-op greys only the speeds it will not run (4×), not the rail —
+     1× and 2× stay live, so the dimming is keyed off `disabled`, not `.locked` */
+  #fsSpeed button:disabled{ opacity:.45; filter:grayscale(.7); cursor:default; }
+  #fsSpeed button:disabled.on{ opacity:.72; filter:grayscale(.35); }
 
   /* ───────────────────── bottom-left dock ───────────────────── */
   /* THE TOOL RACK: stone tool-tiles set into an oak board. The dock is the
@@ -1041,8 +1043,9 @@
 <div id="bmode" class="hidden">mode</div>
 <div id="bhint" class="hidden">
   <b>F</b> flag · <b>R</b> road (click flag → flag) · <b>B</b>+<b>1-9</b> build (<b>Tab</b> page) ·
-  <b>G</b> geologist · <b>X</b> demolish · <b>A</b> attack · <b>C</b> cycle knights · <b>P</b> ping ·
-  <b>T</b> suitability · <b>Esc</b> cancel
+  <b>G</b> geologist · <b>X</b> demolish · <b>C</b> cycle knights · <b>P</b> ping ·
+  <b>T</b> suitability · <b>Esc</b> cancel · <b>WASD</b>/<b>QE</b> move the map ·
+  attack from a building's own panel
 </div>
 
 <a class="back" href="games.html" id="backLink">← Bucky</a>
@@ -1307,27 +1310,28 @@
   function step(dtReal) {
     if (!G) return 0;
     const net = FSNet && FSNet.active();
-    /* CO-OP RUNS AT 1x, and this is what makes it true rather than advisory.
-     * The rail and the speed keys are already inert while connected, but a
-     * session can go live with the clock somewhere else — a room opened from a
-     * 4x solo game, a rejoin, a host whose saved settings carried a speed — so
-     * the HOST corrects it once.
+    /* CO-OP RUNS UP TO FSC.MP_MAX_SPEED, and this is what makes it true rather
+     * than advisory. The rail and the speed keys already refuse anything above
+     * it while connected, but a session can go live with the clock somewhere
+     * else — a room opened from a 4x solo game, a rejoin, a host whose saved
+     * settings carried a speed — so the HOST corrects it once, DOWN TO THE
+     * CEILING (batch #5) rather than all the way to 1x.
      * THREE things here are load-bearing, all learned the hard way:
      *  · only the HOST issues. A guest raising its own corrective command
      *    advances G.cmdSeq before the copy is routed, and cmdSeq is serialized
      *    state, so it is in the sync hash: the two sims diverged inside 900
      *    ticks the first time this was written symmetrically.
-     *  · only speed ABOVE 1. Pulling a PAUSED room back to 1x would fight
-     *    every legitimate reason a connected sim sits at 0 (the QA hook, a
-     *    hash comparison, FSNet's own catch-up) and is not what "runs at 1x"
-     *    is protecting against.
+     *  · only speed ABOVE the ceiling. Pulling a PAUSED room back up would
+     *    fight every legitimate reason a connected sim sits at 0 (the QA hook,
+     *    a hash comparison, FSNet's own catch-up), and 1x and 2x are now both
+     *    speeds a player is entitled to choose.
      *  · latched on a tick boundary, so a command still in flight is never
      *    issued twice. */
-    if (net && G.speed > 1) {
+    if (net && G.speed > FSC.MP_MAX_SPEED) {
       const st = FSNet.state();
       if (st.role === "host" && G.tick >= mpPinT) {
         mpPinT = G.tick + FSC.CMD_DELAY_MP * 8;
-        FSSim.issueCommand(G, { type: "speed", args: { speed: 1 } });
+        FSSim.issueCommand(G, { type: "speed", args: { speed: FSC.MP_MAX_SPEED } });
         acc = 0; paintSpeed();
       }
     } else if (!net) mpPinT = 0;
@@ -1600,23 +1604,20 @@
     /* ===== PHASE-C: G = send a geologist from the hovered mountain flag ===== */
     if (k === "g" || k === "G") { FSUI.doGeologistAtHover(); return; }
     if (k === "Tab") { e.preventDefault(); FSUI.cycleBuildPage(); return; }
-    /* ═══ THE SPEED KEYS ARE INERT IN CO-OP (batch #4, 2026-08-02, user
-     * request) ═══════════════════════════════════════════════════════════════
-     * Speed multiplies every client's command LEAD (FSNet's delay hook is
-     * CMD_DELAY_MP x max(1, speed)), so it is a property of the SESSION rather
-     * than of one player's patience, and a room where either seat can change
-     * the clock is a room where the two seats disagree about when an order
-     * lands. The rail is greyed for the same reason (FSUI.speedLocked) and its
-     * keyboard twins have to go with it, or the rule would be advisory.
-     * The gate is HERE and in FSUI — deliberately NOT inside setSpeed(), which
-     * is also the debug hook and FSNet's own path; a refusal buried there
-     * stops the host correcting a clock that is already wrong. */
-    if (window.FSNet && FSNet.active()) {
-      if (e.code === "Space" || k === "1" || k === "2" || k === "3") {
-        e.preventDefault();
-        if (window.FSUI && FSUI.toast) FSUI.toast("Co-op runs at 1×", "info", 1.6);
-        return;
-      }
+    /* ═══ CO-OP RUNS UP TO 2× (batch #5, 2026-08-02, user request) ═══════════
+     * Batch #4 made pause and 1/2/3 inert while connected. They are live again
+     * up to FSC.MP_MAX_SPEED; only the 4× key is refused, and it says so. The
+     * pick itself goes down the ordinary command road (`speed` is
+     * CMD_HASH_NEUTRAL, so a guest's request is routed to the host and comes
+     * back as the host's broadcast — every client applies the SAME stamped
+     * command and none of them invents one locally).
+     * The gate stays HERE and in FSUI — deliberately NOT inside setSpeed(),
+     * which is also the debug hook and FSNet's own path; a refusal buried
+     * there stops the host correcting a clock that arrived wrong. */
+    if (window.FSNet && FSNet.active() && k === "3" && FSC.MP_MAX_SPEED < 4) {
+      e.preventDefault();
+      if (window.FSUI && FSUI.toast) FSUI.toast("Co-op runs up to " + FSC.MP_MAX_SPEED + "×", "info", 1.6);
+      return;
     }
     if (e.code === "Space") { e.preventDefault(); setSpeed(G.speed ? 0 : lastSpeed); return; }
     if (k === "1") return void setSpeed(1);
@@ -1627,7 +1628,19 @@
     if (k === "r" || k === "R") { FSUI.toggleRoadMode(); return; }
     if (k === "b" || k === "B") { FSUI.armBuildKey(); return; }
     if (k === "x" || k === "X") { FSUI.doDemolishAtHover(); return; }
-    if (k === "a" || k === "A") { FSUI.doAttackAtHover(); return; }
+    /* ═══ THERE IS NO ATTACK KEY (batch #5, 2026-08-02, user playtest) ════════
+     * A was "attack whatever is under the cursor", and A is also PAN LEFT
+     * (fs-render claims w/a/s/d/q/e for the camera). So panning the map west
+     * launched knights at whatever the cursor happened to be over — the single
+     * worst kind of key collision, because the two meanings are a held key and
+     * an irreversible order. WASD is movement and movement wins; attacking is
+     * a deliberate act and keeps its deliberate route: select the enemy
+     * building → ⚔ Attack → the dialog with the knight-count slider, which was
+     * always the main path (FSUI.doAttackAtHover was the shortcut, and it is
+     * unreferenced now — kept as API for the suites).
+     * AUDIT of the whole map against the camera's w/a/s/d/q/e + arrows: A was
+     * the ONLY collision. The rest of the shell's keys are f r b x c p t m g,
+     * Tab, Escape, Space, 1-3, '.' and (in build mode) the digits 1-9. */
     if (k === "c" || k === "C") { issue("cycleKnights", {}); toastMode("♻ knights rotating"); return; }
     /* ===== PHASE-M: P = ping the spot under the cursor (both screens see it) ===== */
     if (k === "p" || k === "P") { doPing(hovered()); return; }

@@ -347,6 +347,47 @@ H.run("farmstead-world", async (t) => {
     camc.yaws.every((y, i) => Math.abs(y - camc.wanted[i]) < 1e-9), camc);
   t.check("…and the q/e turn keys move it", Math.abs(camc.afterKeys - camc.before) > 0.05, camc);
 
+  /* ═══ WASD IS MOVEMENT AND NOTHING ELSE (batch #5, 2026-08-02, playtest) ═══
+   * `A` used to be "attack whatever is under the cursor" as well as "pan left",
+   * so panning the map west launched knights at whatever the cursor happened
+   * to be over. The binding is gone. This asserts the general property rather
+   * than the one key: every camera key must move the camera and must not reach
+   * any game action, and the on-screen hint must not advertise one that is not
+   * there. Attacking keeps its deliberate route (select the building → ⚔). */
+  const keymap = await page.evaluate(async () => {
+    const FS = window.__FS__, R = FS.FSRender;
+    const hit = {};
+    const real = {};
+    /* stub every hover ACTION the shell can reach from a key, and count it */
+    for (const fn of ["doAttackAtHover", "doFlagAtHover", "doGeologistAtHover", "doDemolishAtHover"]) {
+      real[fn] = window.FSUI[fn];
+      hit[fn] = 0;
+      window.FSUI[fn] = function () { hit[fn]++; };
+    }
+    const moved = {};
+    for (const k of ["w", "a", "s", "d", "q", "e"]) {
+      R.setCam({ tx: 40, tz: 40, dist: 34, yaw: 0, pitch: window.FSC.CAM.PITCH_START });
+      const c0 = R.camState();
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true }));
+      for (let i = 0; i < 20; i++) R.frame(0.05);
+      window.dispatchEvent(new KeyboardEvent("keyup", { key: k, bubbles: true }));
+      const c1 = R.camState();
+      moved[k] = Math.abs(c1.tx - c0.tx) + Math.abs(c1.tz - c0.tz) + Math.abs(c1.yaw - c0.yaw) > 0.05;
+      // …and the upper-case twin, which is what a caps-lock or shift press sends
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: k.toUpperCase(), bubbles: true }));
+      window.dispatchEvent(new KeyboardEvent("keyup", { key: k.toUpperCase(), bubbles: true }));
+    }
+    for (const fn in real) window.FSUI[fn] = real[fn];
+    const hint = (document.getElementById("bhint") || { textContent: "" }).textContent;
+    return { moved, hit, hintMentionsAttackKey: /\bA\b[^·]*attack/i.test(hint), hint: hint.trim().slice(0, 200) };
+  });
+  t.check("every camera key really moves the camera",
+    ["w", "a", "s", "d", "q", "e"].every((k) => keymap.moved[k]), keymap.moved);
+  t.check("…and NONE of them reaches a game action — A no longer attacks",
+    Object.keys(keymap.hit).every((k) => keymap.hit[k] === 0), keymap.hit);
+  t.check("…and the on-screen hint no longer advertises an attack key",
+    !keymap.hintMentionsAttackKey && /WASD/.test(keymap.hint), keymap);
+
   // ───────────────────────────────────────────────────── speed / pause / hidden
   const speed = await page.evaluate(() => {
     const FS = window.__FS__;
@@ -574,6 +615,72 @@ H.run("farmstead-world", async (t) => {
   t.check("kingdoms open on comparable wood and stone",
     gen.relTrees < 0.35 && gen.relStone < 0.45, gen);
   t.check("…and on comparable ore in reach", gen.relOre < 0.85, gen);
+
+  /* ═══ ALLIES ARE NEIGHBOURS, RIVALS ARE NOT (batch #5, 2026-08-02) ═════════
+   * The rule above is the FREE-FOR-ALL rule and it is still the rule for
+   * rivals. In separate-allied-kingdoms co-op the two human starts have to be
+   * a short walk apart instead, or the co-op the mode exists for cannot happen
+   * for the first ten minutes — but not so close that they share one ore field
+   * (see ST.ALLY_SEP_MIN, derived from ST.MOUNTAIN_MAX). Eight seeds × three
+   * sizes, measured the same way the block above measures rivals. */
+  const ally = await page.evaluate(() => {
+    const FSMap = window.__FS__.FSMap, FSC = window.__FS__.FSC;
+    const seeds = [101, 909, 4242, 12345, 31337, 7, 555, 90210];
+    const out = { allies: [], foes: [], oreFar: 0, starts: 0, byShape: {} };
+    for (const size of ["small", "medium", "large"]) {
+      for (const seed of seeds) {
+        const m = FSMap.generate({ seed, size, players: 4, allies: 2 });
+        FSMap.bind(m);
+        const S = m.starts;
+        out.allies.push(FSMap.dist(m, S[0], S[1]));
+        for (let i = 0; i < 2; i++) for (let j = 2; j < 4; j++) out.foes.push(FSMap.dist(m, S[i], S[j]));
+        /* the guarantee still has to hold PER START: each ally its own coal and
+         * its own iron inside ST.MOUNTAIN_MAX road steps */
+        for (let i = 0; i < 2; i++) {
+          const near = { 2: 99, 3: 99 };
+          FSMap.forRadius(m, S[i], 30, (u, d) => {
+            const k = m.mineral[u];
+            if ((k === 2 || k === 3) && m.mineralAmt[u] > 0 && d < near[k]) near[k] = d;
+          });
+          out.starts++;
+          if (near[2] > FSC.START.MOUNTAIN_MAX || near[3] > FSC.START.MOUNTAIN_MAX) out.oreFar++;
+        }
+      }
+    }
+    // …and the SHARED-kingdom / solo path must be byte-identical to allies:1
+    const a = FSMap.generate({ seed: 4242, size: "medium", players: 4 });
+    const b = FSMap.generate({ seed: 4242, size: "medium", players: 4, allies: 1 });
+    out.soloUnchanged = FSMap.hash(a) === FSMap.hash(b);
+    out.teamMatters = FSMap.hash(a) !== FSMap.hash(
+      FSMap.generate({ seed: 4242, size: "medium", players: 4, allies: 2 }));
+    out.repeatable = FSMap.hash(FSMap.generate({ seed: 4242, size: "medium", players: 4, allies: 2 }))
+      === FSMap.hash(FSMap.generate({ seed: 4242, size: "medium", players: 4, allies: 2 }));
+    const mn = (x) => Math.min.apply(null, x), mx = (x) => Math.max.apply(null, x);
+    const av = (x) => x.reduce((p, q) => p + q, 0) / x.length;
+    return { allyMin: mn(out.allies), allyMax: mx(out.allies), allyAvg: +av(out.allies).toFixed(1),
+      foeMin: mn(out.foes), foeAvg: +av(out.foes).toFixed(1),
+      oreFar: out.oreFar, starts: out.starts,
+      soloUnchanged: out.soloUnchanged, teamMatters: out.teamMatters, repeatable: out.repeatable,
+      floor: window.__FS__.FSC.START.ALLY_SEP_MIN };
+  });
+  console.log("   allied starts: " + ally.allyMin + "-" + ally.allyMax + " steps (avg "
+    + ally.allyAvg + ") vs rivals avg " + ally.foeAvg);
+  /* the ceiling is a fraction of the RIVAL average rather than an absolute:
+   * "close" means close relative to the board, and the boards differ by 4x in
+   * area. The worst case is a large map, where the ALLY floor (19) is what
+   * decides and the rivals are 80+ steps away. */
+  t.check("allied human starts are NEIGHBOURS — averaging under half the rival distance",
+    ally.allyAvg < ally.foeAvg * 0.5 && ally.allyMax < ally.foeAvg * 0.67, ally);
+  t.check("…but never inside each other's guaranteed-ore reach",
+    ally.allyMin >= ally.floor, ally);
+  t.check("…and rivals stay as far from the allied block as they ever were",
+    ally.foeMin >= 15 && ally.foeAvg >= 30, ally);
+  t.check("…with each ally still handed its OWN coal and iron in reach",
+    ally.oreFar <= Math.ceil(ally.starts * 0.05), ally);
+  t.check("a solo / shared-kingdom map is byte-identical to the pre-batch generator",
+    ally.soloUnchanged, ally);
+  t.check("…the team layout is part of the seed contract (same seed, different map)",
+    ally.teamMatters && ally.repeatable, ally);
 
   t.check("0 page errors", t.errors.length === 0, t.errors.slice(0, 5));
 });
