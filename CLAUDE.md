@@ -6326,3 +6326,48 @@ bash double-quoted string lets the SHELL run command substitution on the templat
 It silently produced `/S/` where `/\S/` was meant and emptied two `ok()` messages — the
 checks then passed while testing almost nothing. Use the Edit tool for anything containing
 backticks.
+
+## FITNESS follow-up 6 — one plan per person, no "everybody" (2026-08-03)
+
+User: *"lets also get rid of the shared plan, get rid of the reset programme, and add a dad
+plan. there will never be an 'everybody' plan."* The shared plan was the root of the two
+bugs above — a fork copied it, a tombstone reverted to it, and a parent landed on it — so
+removing it deletes that whole class of problem rather than patching it again.
+
+**THE MODEL IS NOW FLAT.** `FITNESS_USERS = ["Isaac","Eleanor","Dad"]` — each has
+`settings_<fam>/fitPlan_<Name>` for Dad's edits, falling back to the plan they ship with,
+`assets/fitness/plan-<name>.json`. `fitPlanOf(who)` returns **their plan or null**; there is
+no inheritance. Someone not on the list (Mom, Grandma) has no plan and gets `null` — they
+can still open the tab and look at someone else's.
+
+GONE: `default-plan.json` (the bake now deletes it), the `fitPlan` doc id, `fitForkPlan`,
+`fitUnforkPlan`, `fitBakedDiffers`, `fitResetToBaked`, `fitAppendForkNote`, the `{none:true}`
+tombstone semantics (a legacy one now just reads as "no saved edits"), and the "Everyone"
+option. Function count 89 → 85, and the removals are exactly those five.
+
+**NEW: `FIT_LOCKED_USERS` / `fitLocked()`** splits two ideas that `seesFitness()` was
+conflating — *has a plan* vs *may choose whose plan to look at*. The kids are LOCKED to
+their own (no selector, no wandering into a sibling's); everyone else gets the selector, so
+Dad can build all three. Dad defaults to **his own** plan, a non-participant to the first
+person who has one. `fitViewNow()` also rejects a stale saved name, so a renamed profile
+can't strand the view.
+
+**DAD'S PLAN** is a deep copy of Isaac's general-strength programme — a starting point, not
+something invented for him. Flagged to the user; he can edit or replace it.
+
+**Suite 251 → 253.** E2 was rewritten from "fork/unfork/shared" (all deleted) to the new
+model: no "Everyone" option, all three have plans, someone without one gets null with
+nothing to inherit, editing one person cannot touch another, no `setting_fitPlan` doc is
+ever written, the builder names the person it will change, the fork/reset controls AND their
+hooks are gone, kids are locked, Dad gets a Home card. Section A dropped its default-plan
+validation (E3 covers the three real plans) and now asserts the shared file is NOT shipped.
+
+**INCIDENT WORTH REMEMBERING.** Deleting the fork helpers with an index-based
+`cut(startMark, endMark)` swallowed ~100 lines beyond the intended range — the entire
+duration / log / streak layer (`fitItemSecs`, `fitDuration`, `fitEnsureLog`, `fitRecord`,
+`fitStreak`, `fitWriteRecord`, …). The syntax check still PASSED, because deleting whole
+function declarations leaves valid JavaScript; only running the suite caught it
+("fitEnsurePlan is not defined"). Recovered by extracting the exact span from
+`git show HEAD:index.html` rather than retyping it from memory. Two lessons: a marker-pair
+cut needs its end marker verified to be the NEXT occurrence, and after any bulk deletion,
+diff the defined-function list against HEAD — `node --check` will not tell you.

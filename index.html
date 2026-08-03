@@ -1679,8 +1679,15 @@ function seesMeals(){ return MEAL_USERS.includes(myName()); }
    week), and only EDITING is gated — behind the same Dad PIN as banking. FITNESS_USERS is
    just who gets the Home dashboard card and a per-person completion log: the two kids it's
    for. Anyone else can still open the tab and do the workout; nothing is logged for them. */
-const FITNESS_USERS = ["Isaac", "Eleanor"];
+/* Everyone with a workout of their own. There is NO shared/"everybody" plan — each of
+   these people has their own, and anyone not listed simply has no plan (they can still
+   open the tab and look at someone else's). */
+const FITNESS_USERS = ["Isaac", "Eleanor", "Dad"];
+/* The kids are LOCKED to their own plan: no whose-plan selector, no wandering into a
+   sibling's. Everyone else gets the selector so Dad can build all three. */
+const FIT_LOCKED_USERS = ["Isaac", "Eleanor"];
 function seesFitness(){ return FITNESS_USERS.includes(myName()); }
+function fitLocked(){ return FIT_LOCKED_USERS.includes(myName()); }
 
 /* ---- Work-order assignees (multi-capable, backward compatible) ----
    A work order may carry `assignees` (an ARRAY of names). Legacy docs (and other
@@ -6828,10 +6835,10 @@ document.getElementById("mealSheetOverlay").onclick = (e) => { if (e.target.id =
      · a baked exercise LIBRARY in assets/fitness (311 exercises, both animation
        frames each, public domain — see assets/fitness/LICENSE.txt). Fetched lazily,
        never on the dashboard.
-     · a shared weekly PLAN (settings doc "fitPlan"). Dad edits it behind the PIN;
-       the baked default-plan.json is the fallback until he does. Merely LOOKING at
-       the section never writes anything.
-     · a per-kid COMPLETION LOG, month-sharded ("fitLog_<Kid>_<YYYY-MM>"), mirroring
+     · a weekly PLAN PER PERSON (settings doc "fitPlan_<Name>"). Dad edits them behind
+       the PIN; each person's baked plan-<name>.json is the fallback until he does.
+       There is no shared plan. Merely LOOKING at the section never writes anything.
+     · a per-person COMPLETION LOG, month-sharded ("fitLog_<Name>_<YYYY-MM>"), mirroring
        mealLog_*. Per-day snapshots are the point: chores overwrite their doneLog in
        place and keep no history, which is exactly why the old chore streak needed a
        fragile localStorage counter. With real history the streak is DERIVED by
@@ -6849,22 +6856,17 @@ const FIT_MIN_REP_SECS  = 20;
 const FIT_BLOCK_CARD_S  = 5;            // the "CORE — 3 exercises" card between blocks
 const FIT_FLIP_MS       = 900;          // animation frame cross-fade cadence
 const FIT_LIB_URL       = "assets/fitness/exercises.json";
-const FIT_PLAN_URL      = "assets/fitness/default-plan.json";
 const FIT_WD            = ["sun","mon","tue","wed","thu","fri","sat"];
 
 let fitPage = localStorage.getItem("bucky_fit_page") || "today";
 let fitNowOverride = null;      // deterministic-clock test hook (ms) or null
 let fitViewKey = null;          // Week page: which day is being previewed/edited
 let fitLib = null, fitLibById = null, fitLibPromise = null;
-/* Plans are keyed by WHO they belong to: "" is the shared family plan, a kid's name is
-   their own override. A kid with no override follows the shared one, so the common case
-   stays one plan to maintain and Dad only forks a kid off it when they actually need
-   something different. */
+/* Plans are keyed by WHO they belong to — Isaac, Eleanor, Dad. There is no shared or
+   "everybody" plan: you have your own or you have none. */
 const fitPlans = {}, fitPlansLoaded = {};
-/* Parents' "whose plan" selector. null means "never chosen" — and in that case we land on
-   a kid who actually has a plan rather than on the shared week, because once both kids are
-   forked the shared week is the one plan NOBODY is doing, and showing it to Dad by default
-   makes it look like the kids' programmes never arrived. */
+/* The "whose plan" selector, for anyone not locked to their own. null means "never
+   chosen", which resolves to yourself if you have a plan. */
 let fitPlanView = localStorage.getItem("bucky_fit_view");
 const fitLogs = {}, fitLogLoaded = {}, fitLogTimers = {};
 
@@ -6898,19 +6900,13 @@ function fitGroupMeta(gid){
 }
 
 /* ---- Plans -----------------------------------------------------------------
-   Docs: "fitPlan" is the shared family plan (unchanged from before per-kid plans
-   existed, so an existing saved plan keeps working); "fitPlan_<Kid>" is an override.
+   One doc per person: settings_<fam>/fitPlan_<Name>, holding Dad's saved edits. With no
+   saved doc a person falls back to the plan they ship with, assets/fitness/plan-<name>.json.
+   Nothing is shared between people — editing Isaac's week cannot touch Eleanor's.       */
 
-   TOMBSTONES: neither settings backend has a delete, and setSetting MERGES — so
-   "put this kid back on the shared plan" is written as {none:true} rather than by
-   removing the doc. fitHasOwnPlan() is the one place that knows this.            */
+function fitPlanDocId(who){ return "fitPlan_" + who; }
 
-function fitPlanDocId(who){ return who ? "fitPlan_" + who : "fitPlan"; }
-
-/* The plan a kid SHIPS with, kept separately from whatever override is saved. Loaded even
-   when an override exists, so Dad can always get back to it — a fork taken before a
-   programme was written would otherwise shadow that programme forever, with the revert
-   button leading only to the shared week. */
+/* The plan a person SHIPS with — the fallback when Dad hasn't saved any edits for them. */
 const fitBaked = {}, fitBakedLoaded = {};
 async function fitEnsureBaked(who){
   if (!who) return null;
@@ -6922,67 +6918,48 @@ async function fitEnsureBaked(who){
   fitBakedLoaded[who] = true;
   return fitBaked[who];
 }
-/** True when a shipped programme exists for this kid and isn't what they're currently on. */
-function fitBakedDiffers(who){
-  const b = who && fitBaked[who];
-  if (!b || !b.days) return false;
-  const cur = fitPlanOf(who);
-  if (!cur || !cur.days) return true;
-  return JSON.stringify(cur.days) !== JSON.stringify(b.days);
-}
-/** Put a kid back on the programme they shipped with. */
-async function fitResetToBaked(who){
-  const b = who && fitBaked[who];
-  if (!b) return;
-  fitPlans[who] = JSON.parse(JSON.stringify(b));
-  fitPlansLoaded[who] = true;
-  await fitSavePlan(who);
-}
 
-async function fitEnsurePlan(who = ""){
+async function fitEnsurePlan(who){
+  if (!who) return null;
   if (fitPlansLoaded[who]) return fitPlans[who];
   let saved = null;
   try { saved = await backend?.getSetting?.(fitPlanDocId(who)); } catch {}
 
-  if (saved && (saved.days || saved.none)) fitPlans[who] = saved;   // Dad's override, or a tombstone
-  else if (who){
-    /* No override saved — but a kid can still SHIP with a plan of their own
-       (assets/fitness/plan-<kid>.json). Absent that, fitPlans[who] stays null and they
-       follow the shared week. */
-    fitPlans[who] = await fitEnsureBaked(who);
-  }
-  else {
-    // The shared plan falls back to the baked default. Viewing never writes it.
-    let plan = null;
-    try { const r = await fetch(FIT_PLAN_URL); plan = r.ok ? await r.json() : null; } catch {}
-    fitPlans[""] = plan || { v:1, rest:20, days:{} };
-  }
+  // Dad's saved edits win; otherwise the plan this person ships with. A legacy {none:true}
+  // tombstone (from when a shared plan existed) now just means "no saved edits".
+  if (saved && saved.days && !saved.none) fitPlans[who] = saved;
+  else fitPlans[who] = await fitEnsureBaked(who);
+
   const p = fitPlans[who];
   if (p && p.days && typeof p.rest !== "number") p.rest = 20;
   fitPlansLoaded[who] = true;
   return p;
 }
 
-async function fitSavePlan(who = ""){
-  const p = fitPlans[who];
+async function fitSavePlan(who){
+  const p = who && fitPlans[who];
   if (!p) return;
   p.updatedAt = Date.now(); p.updatedBy = myName();
   try { await backend?.setSetting?.(fitPlanDocId(who), p); } catch {}
 }
 
-/** True when this kid has been forked onto a plan of their own. */
+/** True when this person has a plan at all. */
 function fitHasOwnPlan(who){ const p = who && fitPlans[who]; return !!(p && p.days && !p.none); }
-/** The plan in effect for someone: their own if they have one, else the shared plan. */
-function fitPlanOf(who){ return (fitHasOwnPlan(who) ? fitPlans[who] : fitPlans[""]) || null; }
-/** The first kid running a plan of their own — where a parent lands before choosing. */
+/** The plan in effect for someone. No shared fallback — you have your own or none. */
+function fitPlanOf(who){ return (fitHasOwnPlan(who) ? fitPlans[who] : null); }
+/** Where the selector starts: yourself if you have a plan, else the first person who does. */
 function fitDefaultView(){
+  if (fitHasOwnPlan(myName())) return myName();
   for (const k of FITNESS_USERS) if (fitHasOwnPlan(k)) return k;
-  return "";
+  return FITNESS_USERS[0];
 }
 /** The selector's effective value: an explicit choice, else the sensible default. */
-function fitViewNow(){ return fitPlanView === null ? fitDefaultView() : fitPlanView; }
+function fitViewNow(){
+  const v = fitPlanView === null ? fitDefaultView() : fitPlanView;
+  return FITNESS_USERS.includes(v) ? v : fitDefaultView();   // a stale saved name can't strand you
+}
 /** Whose workout is on screen — a kid always sees their own; anyone else uses the selector. */
-function fitWhose(){ return seesFitness() ? myName() : fitViewNow(); }
+function fitWhose(){ return fitLocked() ? myName() : fitViewNow(); }
 
 function fitDayOf(key, who){
   const p = fitPlanOf(who === undefined ? fitWhose() : who);
@@ -6991,23 +6968,6 @@ function fitDayOf(key, who){
 function fitRestSecs(who){
   const p = fitPlanOf(who === undefined ? fitWhose() : who);
   return (p && typeof p.rest === "number") ? p.rest : 20;
-}
-
-/** Give a kid their own copy of whatever they're following right now. */
-async function fitForkPlan(who){
-  if (!who) return;
-  const base = fitPlanOf(who) || { v:1, rest:20, days:{} };
-  fitPlans[who] = JSON.parse(JSON.stringify(base));
-  delete fitPlans[who].none;
-  fitPlansLoaded[who] = true;
-  await fitSavePlan(who);
-}
-/** Put a kid back on the shared plan (tombstone — see the note above). */
-async function fitUnforkPlan(who){
-  if (!who) return;
-  fitPlans[who] = { v:1, none:true, updatedAt: Date.now(), updatedBy: myName() };
-  fitPlansLoaded[who] = true;
-  try { await backend?.setSetting?.(fitPlanDocId(who), fitPlans[who]); } catch {}
 }
 
 // ---- Duration: ONE source of truth for the builder's meter and the player ----
@@ -7111,12 +7071,11 @@ function fitStreak(kid){
   return n;
 }
 
-/** Load everything the Fitness section / Home card needs. Kid overrides load too, so the
-    Week ticks and the Progress page reason about each kid's OWN rest days. */
+/** Load everything the Fitness section / Home card needs — every person's plan, so the
+    Week ticks and the Progress page reason about each person's OWN rest days. */
 async function fitEnsureAll(){
   await Promise.all([
     fitEnsureLib(),
-    fitEnsurePlan(""),
     ...FITNESS_USERS.map((k) => fitEnsureBaked(k)),
   ]);
   await Promise.all(FITNESS_USERS.map((k) => fitEnsurePlan(k)));
@@ -7140,16 +7099,15 @@ function renderFitness(){
 
   /* "Whose plan" selector — parents only. A kid never sees it; they always get their own
      plan, so there is nothing for them to choose and no way to wander into a sibling's. */
-  if (!seesFitness()){
+  if (!fitLocked()){
     const who = document.createElement("div"); who.className = "fitwho"; who.id = "fitWhoRow";
     const lab = document.createElement("span"); lab.className = "fitwho-l"; lab.textContent = "Plan for";
     who.appendChild(lab);
-    for (const [id, label] of [["", "Everyone"], ...FITNESS_USERS.map((k) => [k, k])]){
+    for (const [id, label] of FITNESS_USERS.map((k) => [k, k])){
       const b = document.createElement("button"); b.type = "button"; b.className = "fitwho-b";
       b.dataset.who = id;
       b.textContent = label;
       if (fitViewNow() === id) b.classList.add("sel");
-      if (id && fitHasOwnPlan(id)) b.title = label + " has their own plan";
       b.onclick = () => { fitPlanView = id; localStorage.setItem("bucky_fit_view", id); renderFitness(); };
       who.appendChild(b);
     }
@@ -7169,7 +7127,7 @@ function renderFitness(){
   wrap.appendChild(root); list.appendChild(wrap);
 
   // Everything below needs the library + plan. Paint a placeholder, then repaint.
-  if (!fitLib || !fitPlansLoaded[""]){
+  if (!fitLib || !fitPlansLoaded[fitWhose()]){
     const load = document.createElement("div"); load.className = "fitcard2";
     load.style.textAlign = "center"; load.style.color = "var(--muted)";
     load.textContent = "Loading your workouts…";
@@ -7186,11 +7144,9 @@ function renderFitness(){
 function fitRenderToday(body){
   const who = fitWhose();
   const key = fitToday(), day = fitDayOf(key, who);
-  // Whose completion this page reports: a kid sees their own; a parent viewing one kid
-  // sees that kid's; a parent on "Everyone" sees no single person's progress.
-  const kid = seesFitness() ? myName() : (fitViewNow() || null);
+  // Whose completion this page reports — always the person whose plan is on screen.
+  const kid = fitWhose() || null;
 
-  if (!seesFitness()) fitAppendForkNote(body, fitViewNow());
 
   const card = document.createElement("div"); card.className = "fitcard2";
   const head = document.createElement("div"); head.className = "fithead";
@@ -7302,68 +7258,6 @@ function fitAppendBlockList(body, day, dim){
   });
 }
 
-/* Tells a parent, plainly, whether this kid is on the shared plan or their own — and
-   makes forking/reverting a single deliberate tap. Without this the "Plan for: Isaac"
-   view would silently be the shared plan and an edit would hit everyone. */
-function fitAppendForkNote(body, who){
-  if (!who){
-    // Viewing "Everyone". Say plainly who is actually on this shared week — once both kids
-    // are forked it is a plan nobody does, and silence here reads as "their plans are missing".
-    const following = FITNESS_USERS.filter((k) => !fitHasOwnPlan(k));
-    const note = document.createElement("div"); note.className = "fitfork"; note.id = "fitForkNote";
-    note.dataset.own = "shared"; note.dataset.following = following.join(",");
-    const txt = document.createElement("div"); txt.className = "fitfork-t";
-    txt.textContent = following.length
-      ? `The shared week — ${following.join(" and ")} ${following.length > 1 ? "are" : "is"} on it.`
-      : `${FITNESS_USERS.join(" and ")} are both on their own plans, so nobody is doing this one.`;
-    note.appendChild(txt);
-    body.appendChild(note);
-    return;
-  }
-  const own = fitHasOwnPlan(who);
-  const note = document.createElement("div"); note.className = "fitfork" + (own ? " own" : "");
-  note.id = "fitForkNote";
-  note.dataset.own = own ? "1" : "0";
-
-  const txt = document.createElement("div"); txt.className = "fitfork-t";
-  txt.textContent = own ? `${who} has their own plan.` : `${who} follows the shared plan.`;
-  note.appendChild(txt);
-
-  const act = document.createElement("button"); act.type = "button"; act.className = "fitfork-b";
-  act.id = "fitForkBtn";
-  act.textContent = own ? "Use the shared plan" : `Give ${who} their own plan`;
-  act.onclick = async () => {
-    if (!isDadName() || !(dadUnlocked() || await gateDad())) return;
-    if (own){
-      if (!confirm(`Put ${who} back on the shared plan? Their own plan will be discarded.`)) return;
-      await fitUnforkPlan(who);
-    } else {
-      await fitForkPlan(who);
-      showToast(`${who} now has their own plan ✏️`);
-    }
-    if (currentTab === "fitness") renderFitness();
-  };
-  note.appendChild(act);
-
-  /* Escape hatch. If a shipped programme exists and they're not on it — the classic case
-     being a fork taken before that programme was written — offer it back in one tap. */
-  if (fitBakedDiffers(who)){
-    const reset = document.createElement("button"); reset.type = "button"; reset.className = "fitfork-b";
-    reset.id = "fitResetBtn";
-    reset.textContent = `Reset to ${who}'s programme`;
-    reset.onclick = async () => {
-      if (!isDadName() || !(dadUnlocked() || await gateDad())) return;
-      if (!confirm(`Put ${who} back on the programme they were given? Any changes to their plan are replaced.`)) return;
-      await fitResetToBaked(who);
-      showToast(`${who} is back on their programme ✅`);
-      if (currentTab === "fitness") renderFitness();
-    };
-    note.appendChild(reset);
-  }
-
-  body.appendChild(note);
-}
-
 function fitAppendEditLink(body, key){
   const who = fitWhose();
   const link = document.createElement("button"); link.type = "button"; link.className = "fitstart again";
@@ -7371,8 +7265,7 @@ function fitAppendEditLink(body, key){
   link.id = "fitEditLink";
   // Be explicit about what an edit will touch — "edit this day" means something different
   // when you're looking at Isaac's plan than when you're looking at everyone's.
-  const scope = who ? (fitHasOwnPlan(who) ? `${who}'s` : "the shared") : "the shared";
-  link.textContent = isDadName() ? `✏️  Edit ${scope} plan for this day` : "✏️  Edit this day (Dad only)";
+  link.textContent = isDadName() ? `✏️  Edit ${who}'s plan for this day` : "✏️  Edit this day (Dad only)";
   link.onclick = () => fitOpenBuilder(key);
   body.appendChild(link);
 }
@@ -7380,7 +7273,6 @@ function fitAppendEditLink(body, key){
 function fitRenderWeek(body){
   const who = fitWhose();
   const today = fitToday(), start = fitWeekStartKey(today);
-  if (!seesFitness()) fitAppendForkNote(body, fitViewNow());
   const grid = document.createElement("div"); grid.className = "fitweek";
   for (let i = 0; i < 7; i++){
     const key = fitKeyAddDays(start, i);
@@ -7403,7 +7295,7 @@ function fitRenderWeek(body){
     // Completion ticks are per kid and read each kid's OWN plan — Isaac can be resting
     // on a day Eleanor is working, so a tick is only meaningful against their own week.
     const ticks = document.createElement("div"); ticks.className = "fitday-ticks";
-    const tickKids = seesFitness() ? [myName()] : (fitViewNow() ? [fitViewNow()] : FITNESS_USERS);
+    const tickKids = fitLocked() ? [myName()] : FITNESS_USERS;
     for (const k of tickKids){
       const kday = fitDayOf(key, k);
       if (!kday || kday.rest) continue;
@@ -7427,7 +7319,7 @@ function fitRenderWeek(body){
 
 function fitRenderProgress(body){
   const today = fitToday();
-  const kids = seesFitness() ? [myName()] : FITNESS_USERS.slice();
+  const kids = fitLocked() ? [myName()] : FITNESS_USERS.slice();
 
   for (const kid of kids){
     if (!kid) continue;
@@ -8034,11 +7926,10 @@ async function fitOpenBuilder(dayKey){
     fitDraftRO = false;
   }
 
-  // Edit whichever plan is actually IN EFFECT for the current view: a kid who has been
-  // forked edits their own; otherwise this is the shared plan and the sheet says so.
+  // Always edit the plan of whoever is on screen — there is no shared plan to fall into.
   const view = fitWhose();
-  fitDraftWho = fitHasOwnPlan(view) ? view : "";
-  const plan = fitPlanOf(view) || { v:1, rest:20, days:{} };
+  fitDraftWho = view;
+  const plan = fitPlanOf(view) || { v:1, rest:30, days:{} };
   const wd = fitWeekdayOfKey(dayKey);
   const day = (plan.days && plan.days[wd]) || { title:"Workout", blocks:[] };
   fitDraft = JSON.parse(JSON.stringify(day));
@@ -8068,7 +7959,7 @@ function fitPaintBuilder(){
   // Monday when you meant to change one kid's.
   const scope = document.createElement("div"); scope.className = "fitscope"; scope.id = "fitScopeNote";
   scope.dataset.who = fitDraftWho;
-  scope.textContent = fitDraftWho ? `${fitDraftWho}'s own plan` : "The shared plan — everyone on it";
+  scope.textContent = `${fitDraftWho}'s plan`;
   inner.appendChild(scope);
 
   // ---- rest-day toggle
@@ -8405,7 +8296,7 @@ let fitHomeFetching = false;
 function paintFitCard(el){
   el.innerHTML = "";
   const key = fitToday(), kid = myName();
-  const ready = !!(fitLib && fitPlansLoaded[""]);
+  const ready = !!(fitLib && fitPlansLoaded[myName()]);
   const day = ready ? fitDayOf(key, kid) : null;   // the card is a kid's own — always their plan
   const rec = ready && kid ? fitRecord(kid, key) : null;
   const isRest = ready && (!day || day.rest);
@@ -8442,7 +8333,7 @@ function paintFitCard(el){
 
 function fitHomeRefresh(){
   if (fitHomeFetching) return;
-  if (fitLib && fitPlansLoaded[""] && myName() && fitLogLoaded[fitLogKey(myName(), fitMonthOf(fitToday()))]) return;
+  if (fitLib && fitPlansLoaded[myName()] && myName() && fitLogLoaded[fitLogKey(myName(), fitMonthOf(fitToday()))]) return;
   fitHomeFetching = true;
   fitEnsureAll()
     .then(() => { const cur = document.querySelector(".home2 .fitcard"); if (cur && currentTab === "dashboard") paintFitCard(cur); })
@@ -8533,12 +8424,8 @@ window.__FIT__ = {
   setView: (who)=>{ fitPlanView = who || ""; localStorage.setItem("bucky_fit_view", fitPlanView); if (currentTab === "fitness") renderFitness(); },
   hasOwnPlan: (who)=>fitHasOwnPlan(who),
   // repaint after, exactly as the real fork/revert button does
-  fork: async (who)=>{ await fitForkPlan(who); if (currentTab === "fitness") renderFitness(); },
-  unfork: async (who)=>{ await fitUnforkPlan(who); if (currentTab === "fitness") renderFitness(); },
   draftWho: ()=>fitDraftWho,
   baked: (who)=>fitBaked[who],
-  bakedDiffers: (who)=>fitBakedDiffers(who),
-  resetToBaked: async (who)=>{ await fitResetToBaked(who); if (currentTab === "fitness") renderFitness(); },
   streak: (kid)=>fitStreak(kid || myName()),
   record: (kid, key)=>fitRecord(kid || myName(), key || fitToday()),
   complete: (kid, key)=>fitComplete(kid || myName(), key || fitToday()),

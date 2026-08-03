@@ -145,14 +145,13 @@ function sectionLibrary(){
   section("A. Library integrity (no browser)");
 
   const libPath = path.join(FIT, "exercises.json");
-  const planPath = path.join(FIT, "default-plan.json");
   ok(fs.existsSync(libPath), "exercises.json exists");
-  ok(fs.existsSync(planPath), "default-plan.json exists");
   ok(fs.existsSync(path.join(FIT, "LICENSE.txt")), "LICENSE.txt exists");
-  if (!fs.existsSync(libPath) || !fs.existsSync(planPath)) return null;
+  // No shared plan exists any more — every person has their own (checked in E3).
+  ok(!fs.existsSync(path.join(FIT, "default-plan.json")), "no shared default-plan.json is shipped");
+  if (!fs.existsSync(libPath)) return null;
 
   const lib = JSON.parse(fs.readFileSync(libPath, "utf8"));
-  const plan = JSON.parse(fs.readFileSync(planPath, "utf8"));
   const license = fs.readFileSync(path.join(FIT, "LICENSE.txt"), "utf8");
 
   ok(/unlicense/i.test(license) && /free-exercise-db/.test(license), "LICENSE.txt records the Unlicense + upstream project");
@@ -185,41 +184,7 @@ function sectionLibrary(){
   ok(missingImg === 0, `both animation frames exist for all ${lib.exercises.length} exercises` + (missingImg ? ` (${missingImg} missing)` : ""));
   ok(emptyImg === 0, "no truncated/empty image files" + (emptyImg ? ` (${emptyImg} bad)` : ""));
 
-  // ---- default plan
-  const days = ["mon","tue","wed","thu","fri","sat","sun"];
-  ok(days.every((d) => plan.days && plan.days[d]), "default plan covers all 7 weekdays");
-  ok(typeof plan.rest === "number" && plan.rest > 0, "default plan declares a rest interval");
-
-  const itemSecs = (it) => it.mode === "time" ? it.secs : Math.max(MIN_REP_SECS, it.reps * REP_SECS);
-  let planMissing = [], outOfBand = [], workDays = 0;
-  for (const d of days){
-    const day = plan.days[d];
-    if (!day || day.rest) continue;
-    workDays++;
-    let n = 0, work = 0;
-    for (const b of day.blocks){
-      ok_groupKnown(b, groupIds, d);
-      for (const it of b.items){
-        n++; work += itemSecs(it);
-        if (!byId.has(it.id)) planMissing.push(`${d}:${it.id}`);
-        const valid = (it.mode === "time" && it.secs > 0) || (it.mode === "reps" && it.reps > 0);
-        if (!valid) planMissing.push(`${d}:${it.id} (bad amount)`);
-      }
-    }
-    const total = work + plan.rest * (n - 1) + day.blocks.length * BLOCK_CARD_S;
-    if (total < BAND[0] || total > BAND[1]) outOfBand.push(`${d}=${Math.floor(total/60)}:${String(total%60).padStart(2,"0")}`);
-  }
-  ok(workDays >= 5, `default plan has a real week of workouts (${workDays} work days)`);
-  ok(planMissing.length === 0, "every default-plan exercise exists in the library" + (planMissing.length ? ": " + planMissing.slice(0,5).join(", ") : ""));
-  ok(outOfBand.length === 0, "every default workout lands in the 9:00–11:00 band" + (outOfBand.length ? ": " + outOfBand.join(", ") : ""));
-
-  return { lib, plan, byId };
-}
-let groupWarned = false;
-function ok_groupKnown(b, groupIds, d){
-  if (groupIds.has(b.group) || groupWarned) return;
-  groupWarned = true;
-  ok(false, `default plan block on ${d} uses unknown group "${b.group}"`);
+  return { lib, byId };
 }
 
 /* ================================ B. THE APP =============================== */
@@ -984,9 +949,9 @@ async function sectionDemo(browser){
   await page.close();
 }
 
-/* ========================== E2. PER-KID PLANS ============================== */
+/* ================= E2. ONE PLAN PER PERSON, NOTHING SHARED ================= */
 async function sectionPerKid(browser){
-  section("E2. Separate plans per kid");
+  section("E2. One plan per person — no shared plan");
 
   const { page, errors } = await newPage(browser, { user: "Dad", prompts: ["1234", "1234"] });
   await gotoApp(page);
@@ -994,190 +959,119 @@ async function sectionPerKid(browser){
   await page.evaluate(() => window.__NAV__.goTo("fitness"));
   await page.waitForFunction(() => document.getElementById("fitWhoRow"), { timeout: 10000 });
 
-  // NB: read dataset STRINGS, never the DOMStringMap itself — it doesn't survive
-  // puppeteer's structured-clone and arrives as an empty object.
   const sel = await page.evaluate(() => ({
     options: [...document.querySelectorAll("#fitWhoRow .fitwho-b")].map((b) => b.dataset.who),
-    labels: [...document.querySelectorAll("#fitWhoRow .fitwho-b")].map((b) => b.textContent),
     selected: (document.querySelector("#fitWhoRow .fitwho-b.sel") || { dataset:{} }).dataset.who,
-    selCount: document.querySelectorAll("#fitWhoRow .fitwho-b.sel").length,
+    users: window.__FIT__.users,
   }));
-  ok(sel.options.join(",") === ",Isaac,Eleanor", `a parent can pick whose plan to look at (${sel.labels.join(" / ")})`);
-  /* A parent who has never chosen must land on a kid who actually HAS a plan. Landing on
-     the shared week — which nobody does once both kids are forked — is how "the new plans
-     didn't deploy" happens when they deployed perfectly well. */
-  ok(sel.selCount === 1 && sel.selected === "Isaac",
-     `an undecided parent lands on a kid's real plan, not the unused shared week (${sel.selected})`);
-  const landed = await page.evaluate(() => ({
-    whose: window.__FIT__.whose(),
-    title: window.__FIT__.dayOf().title,
-    shared: window.__FIT__.dayOf(undefined, "").title,
+  ok(!sel.options.includes(""), "there is no \"Everyone\" option — the shared plan is gone");
+  ok(sel.options.join(",") === "Isaac,Eleanor,Dad", `the selector lists people only (${sel.options.join(" / ")})`);
+  ok(sel.selected === "Dad", `Dad lands on his OWN plan (${sel.selected})`);
+
+  // everyone has a plan of their own
+  const all = await page.evaluate(() => window.__FIT__.users.map((u) => ({
+    who: u, has: window.__FIT__.hasOwnPlan(u), title: (window.__FIT__.dayOf(undefined, u) || {}).title,
+  })));
+  ok(all.every((p) => p.has), `all three have a plan (${all.map(p => p.who).join(", ")})`);
+  ok(all.every((p) => p.title), `each names its day (${all.map(p => p.who + ": " + p.title).join(" · ")})`);
+
+  // a person with no plan gets nothing shared to fall back on
+  const stranger = await page.evaluate(() => ({
+    has: window.__FIT__.hasOwnPlan("Grandma"),
+    plan: window.__FIT__.plan("Grandma"),
+    day: window.__FIT__.dayOf(undefined, "Grandma"),
   }));
-  ok(landed.whose === "Isaac" && landed.title !== landed.shared,
-     `…and sees his programme ("${landed.title}") rather than the shared one ("${landed.shared}")`);
+  ok(!stranger.has && stranger.plan === null && stranger.day === null,
+     "someone without a plan gets null — there is no shared plan to inherit");
 
-  // Choosing "Everyone" explicitly still works, and says who is on it.
-  await page.evaluate(() => window.__FIT__.setView(""));
-  await sleep(200);
-  const everyone = await page.evaluate(() => ({
-    view: window.__FIT__.view(),
-    own: (document.getElementById("fitForkNote") || { dataset:{} }).dataset.own,
-    text: (document.querySelector("#fitForkNote .fitfork-t") || {}).textContent,
+  // editing one person's plan cannot touch another's
+  const before = await page.evaluate(() => ({
+    isaac: window.__FIT__.dayOf(undefined, "Isaac").title,
+    eleanor: window.__FIT__.dayOf(undefined, "Eleanor").title,
+    dad: window.__FIT__.dayOf(undefined, "Dad").title,
   }));
-  ok(everyone.view === "" && everyone.own === "shared", "a parent can still choose the shared week");
-  ok(/nobody is doing this one|is on it|are on it/.test(everyone.text || ""),
-     `…and it says who is actually on it ("${(everyone.text||"").trim()}")`);
-  await page.evaluate(() => { localStorage.removeItem("bucky_fit_view"); });
-
-  // Both kids now SHIP with a plan of their own (see E3), so to exercise the fork flow
-  // from the top this puts Isaac back on the shared plan first.
-  const start = await page.evaluate(() => ({
-    isaac: window.__FIT__.hasOwnPlan("Isaac"),
-    eleanor: window.__FIT__.hasOwnPlan("Eleanor"),
-  }));
-  ok(start.isaac && start.eleanor, "both kids ship with a plan of their own");
-
-  await page.evaluate(async () => { window.__FIT__.setView("Isaac"); await window.__FIT__.unfork("Isaac"); });
-  await sleep(250);
-  const reverted0 = await page.evaluate(() => window.__FIT__.hasOwnPlan("Isaac"));
-  ok(!reverted0, "…and can be put back on the shared plan");
-
-  // ---- viewing a kid on the shared plan says so, and offers the fork
-  await sleep(150);
-  const beforeFork = await page.evaluate(() => ({
-    own: (document.getElementById("fitForkNote") || { dataset:{} }).dataset.own,
-    text: (document.querySelector("#fitForkNote .fitfork-t") || {}).textContent,
-    btn: (document.getElementById("fitForkBtn") || {}).textContent,
-    editLabel: (document.getElementById("fitEditLink") || {}).textContent,
-  }));
-  ok(beforeFork.own === "0" && /follows the shared plan/.test(beforeFork.text || ""),
-     `viewing Isaac says he follows the shared plan ("${(beforeFork.text||"").trim()}")`);
-  ok(/Give Isaac their own plan/.test(beforeFork.btn || ""), "…and offers to give him his own");
-  ok(/shared plan/.test(beforeFork.editLabel || ""), `the edit button names what it will change ("${(beforeFork.editLabel||"").trim()}")`);
-
-  // ---- fork Isaac
-  await page.evaluate(() => document.getElementById("fitForkBtn").click());
-  await page.waitForFunction(() => window.__FIT__.hasOwnPlan("Isaac"), { timeout: 5000 });
-  const forked = await page.evaluate(() => ({
-    isaac: window.__FIT__.hasOwnPlan("Isaac"),
-    eleanor: window.__FIT__.hasOwnPlan("Eleanor"),
-    own: (document.getElementById("fitForkNote") || {}).dataset.own,
-    btn: (document.getElementById("fitForkBtn") || {}).textContent,
-    editLabel: (document.getElementById("fitEditLink") || {}).textContent,
-    stored: !!localStorage.getItem("setting_fitPlan_Isaac"),
-  }));
-  ok(forked.isaac, "Isaac now has his own plan");
-  ok(forked.eleanor === start.eleanor, "…and forking Isaac doesn't change Eleanor's state");
-  ok(forked.own === "1" && /Use the shared plan/.test(forked.btn || ""), "the banner flips to offer going back");
-  ok(/Isaac's plan/.test(forked.editLabel || ""), `the edit button now names Isaac ("${(forked.editLabel||"").trim()}")`);
-  ok(forked.stored, "Isaac's plan is persisted to its own doc");
-
-  if (WANT_SHOTS){
-    await sleep(250);
-    await page.screenshot({ path: path.join(SHOTS, "fit_perkid.png") });
-  }
-
-  // ---- editing Isaac's plan does NOT change the shared one
-  const shared0 = await page.evaluate(() => window.__FIT__.plan("").days[Object.keys(window.__FIT__.plan("").days)[0]] && JSON.stringify(window.__FIT__.plan("")));
   await page.evaluate(async () => {
+    window.__FIT__.setView("Isaac");
+    await new Promise(r => setTimeout(r, 150));
     await window.__FIT__.openBuilder();
-    await new Promise(r => setTimeout(r, 200));
-  });
-  const scope = await page.evaluate(() => ({
-    who: (document.getElementById("fitScopeNote") || {}).dataset.who,
-    text: (document.getElementById("fitScopeNote") || {}).textContent,
-    draftWho: window.__FIT__.draftWho(),
-  }));
-  ok(scope.who === "Isaac" && /Isaac's own plan/.test(scope.text || ""), "the builder states it is editing Isaac's own plan");
-
-  await page.evaluate(async () => {
+    await new Promise(r => setTimeout(r, 250));
     const t = document.getElementById("fitTitleInput");
     t.value = "Isaac Only"; t.dispatchEvent(new Event("input", { bubbles: true }));
     document.getElementById("fitSaveBtn").click();
-    await new Promise(r => setTimeout(r, 250));
+    await new Promise(r => setTimeout(r, 300));
   });
-  const afterEdit = await page.evaluate(() => ({
-    isaacTitle: window.__FIT__.dayOf(undefined, "Isaac").title,
-    sharedTitle: window.__FIT__.dayOf(undefined, "").title,
-    eleanorTitle: window.__FIT__.dayOf(undefined, "Eleanor").title,
-  }));
-  ok(afterEdit.isaacTitle === "Isaac Only", "the edit lands on Isaac's plan");
-  ok(afterEdit.sharedTitle !== "Isaac Only", `the shared plan is unchanged ("${afterEdit.sharedTitle}")`);
-  ok(afterEdit.eleanorTitle !== "Isaac Only", `Eleanor's plan is unaffected ("${afterEdit.eleanorTitle}")`);
-
-  // ---- and it survives a reload
-  await gotoApp(page);
-  await pinWorkoutDay(page);
-  const reloaded = await page.evaluate(() => ({
-    isaac: window.__FIT__.dayOf(undefined, "Isaac").title,
-    shared: window.__FIT__.dayOf(undefined, "").title,
-    hasOwn: window.__FIT__.hasOwnPlan("Isaac"),
-  }));
-  ok(reloaded.hasOwn && reloaded.isaac === "Isaac Only", "Isaac's own plan survives a reload");
-  ok(reloaded.shared !== "Isaac Only", "…still without touching the shared plan");
-
-  // ---- editing the SHARED plan doesn't leak into Isaac's
-  await page.evaluate(async () => {
-    window.__FIT__.setView("");
-    await new Promise(r => setTimeout(r, 120));
-    await window.__FIT__.openBuilder();
-    await new Promise(r => setTimeout(r, 200));
-    const t = document.getElementById("fitTitleInput");
-    t.value = "Everyone Else"; t.dispatchEvent(new Event("input", { bubbles: true }));
-    document.getElementById("fitSaveBtn").click();
-    await new Promise(r => setTimeout(r, 250));
-  });
-  const bothWays = await page.evaluate(() => ({
-    shared: window.__FIT__.dayOf(undefined, "").title,
+  const after = await page.evaluate(() => ({
     isaac: window.__FIT__.dayOf(undefined, "Isaac").title,
     eleanor: window.__FIT__.dayOf(undefined, "Eleanor").title,
+    dad: window.__FIT__.dayOf(undefined, "Dad").title,
+    stored: !!localStorage.getItem("setting_fitPlan_Isaac"),
+    noShared: !localStorage.getItem("setting_fitPlan"),
   }));
-  ok(bothWays.shared === "Everyone Else", "the shared plan can still be edited");
-  ok(bothWays.isaac === "Isaac Only", "…without disturbing Isaac's own plan");
-  // Eleanor is on a plan of her own, so a shared-plan edit must not reach her either.
-  ok(bothWays.eleanor !== "Everyone Else" && bothWays.eleanor !== "Isaac Only",
-     `…nor Eleanor's ("${bothWays.eleanor}")`);
+  ok(after.isaac === "Isaac Only", "the edit lands on Isaac's plan");
+  ok(after.eleanor === before.eleanor, `Eleanor is untouched ("${after.eleanor}")`);
+  ok(after.dad === before.dad, `Dad is untouched ("${after.dad}")`);
+  ok(after.stored, "it saves to Isaac's own doc");
+  ok(after.noShared, "…and no shared plan doc is ever written");
 
-  // ---- reverting Isaac puts him back
-  await page.evaluate(async () => { window.__FIT__.setView("Isaac"); await new Promise(r => setTimeout(r, 150)); await window.__FIT__.unfork("Isaac"); });
-  await sleep(150);
-  const reverted = await page.evaluate(() => ({ hasOwn: window.__FIT__.hasOwnPlan("Isaac"), title: window.__FIT__.dayOf(undefined, "Isaac").title }));
-  ok(!reverted.hasOwn, "Isaac can be put back on the shared plan");
-  ok(reverted.title === "Everyone Else", "…and immediately follows it again");
+  // the builder always names the person it will change
+  const scope = await page.evaluate(async () => {
+    window.__FIT__.setView("Dad");
+    await new Promise(r => setTimeout(r, 150));
+    await window.__FIT__.openBuilder();
+    await new Promise(r => setTimeout(r, 250));
+    const s = { who: (document.getElementById("fitScopeNote") || { dataset:{} }).dataset.who,
+                text: (document.getElementById("fitScopeNote") || {}).textContent,
+                draftWho: window.__FIT__.draftWho() };
+    window.__FIT__.closeSheet();
+    return s;
+  });
+  ok(scope.who === "Dad" && scope.draftWho === "Dad", "the builder edits whoever is on screen");
+  ok(/Dad's plan/.test(scope.text || ""), `…and says so ("${scope.text}")`);
 
-  // the revert is a tombstone, not a delete — it must survive a reload
-  await gotoApp(page);
-  await pinWorkoutDay(page);
-  const revertStuck = await page.evaluate(() => ({ hasOwn: window.__FIT__.hasOwnPlan("Isaac"), title: window.__FIT__.dayOf(undefined, "Isaac").title }));
-  ok(!revertStuck.hasOwn && revertStuck.title === "Everyone Else", "the revert survives a reload (tombstoned, not silently restored)");
+  // the reset/fork controls are gone
+  const gone = await page.evaluate(() => ({
+    fork: !!document.getElementById("fitForkBtn"),
+    reset: !!document.getElementById("fitResetBtn"),
+    note: !!document.getElementById("fitForkNote"),
+    hooks: ["fork", "unfork", "resetToBaked", "bakedDiffers"].filter((k) => typeof window.__FIT__[k] === "function"),
+  }));
+  ok(!gone.fork && !gone.reset && !gone.note, "no fork / reset / shared-plan banner remains");
+  ok(gone.hooks.length === 0, "…and their hooks are gone too" + (gone.hooks.length ? ": " + gone.hooks.join(",") : ""));
 
-  ok(errors.length === 0, "0 JS page errors (per-kid pass)" + (errors.length ? ": " + errors.slice(0,3).join(" | ") : ""));
+  ok(errors.length === 0, "0 JS page errors (per-person pass)" + (errors.length ? ": " + errors.slice(0,3).join(" | ") : ""));
   await page.close();
 
-  // ---- a KID never sees the selector and always gets their own plan
+  // ---- a KID is locked to their own plan
   {
     const { page: k, errors: kErr } = await newPage(browser, { user: "Isaac" });
     await gotoApp(k);
     await pinWorkoutDay(k);
-    // give Isaac an override behind the scenes, then confirm he lands on it
     await k.evaluate(async () => {
-      await window.__FIT__.fork("Isaac");
-      const p = window.__FIT__.rawPlan("Isaac");
-      p.days[Object.keys(p.days)[0]].title = "Isaac Only";
       window.__FIT__.setView("Eleanor");        // a kid must be immune to this
       window.__NAV__.goTo("fitness");
       await new Promise(r => setTimeout(r, 250));
     });
     const kid = await k.evaluate(() => ({
       selector: !!document.getElementById("fitWhoRow"),
-      forkNote: !!document.getElementById("fitForkNote"),
       whose: window.__FIT__.whose(),
     }));
     ok(!kid.selector, "a kid never sees the whose-plan selector");
-    ok(!kid.forkNote, "…nor the shared-vs-own banner");
-    ok(kid.whose === "Isaac", "a kid always gets their own plan, whatever the selector says");
+    ok(kid.whose === "Isaac", "…and always gets their own plan, whatever the selector says");
     ok(kErr.length === 0, "0 JS page errors (kid pass)" + (kErr.length ? ": " + kErr.slice(0,2).join(" | ") : ""));
     await k.close();
+  }
+
+  // ---- Dad gets a Home card of his own now
+  {
+    const { page: d } = await newPage(browser, { user: "Dad", prompts: ["1234", "1234"] });
+    await gotoApp(d);
+    const card = await d.evaluate(() => {
+      const c = document.querySelector(".home2 .fitcard");
+      return { there: !!c, title: c && (c.querySelector(".fitc-title") || {}).textContent };
+    });
+    ok(card.there, "Dad gets a Home workout card too");
+    ok(/\S/.test((card.title || "").replace(/[💪\s]/g, "")), `…naming his own day ("${card.title}")`);
+    await d.close();
   }
 }
 
@@ -1190,7 +1084,7 @@ async function sectionKidPlans(browser){
   const ids = new Set(lib.exercises.map((x) => x.id));
   const WD = ["mon","tue","wed","thu","fri","sat","sun"];
 
-  for (const kid of ["isaac", "eleanor"]){
+  for (const kid of ["isaac", "eleanor", "dad"]){
     const p = path.join(FIT, `plan-${kid}.json`);
     ok(fs.existsSync(p), `plan-${kid}.json is baked`);
     if (!fs.existsSync(p)) continue;
@@ -1236,14 +1130,16 @@ async function sectionKidPlans(browser){
   const own = await page.evaluate(() => ({
     isaac: window.__FIT__.hasOwnPlan("Isaac"),
     eleanor: window.__FIT__.hasOwnPlan("Eleanor"),
+    dad: window.__FIT__.hasOwnPlan("Dad"),
     isaacTitle: window.__FIT__.dayOf(undefined, "Isaac").title,
     eleanorTitle: window.__FIT__.dayOf(undefined, "Eleanor").title,
-    sharedTitle: window.__FIT__.dayOf(undefined, "").title,
+    shared: window.__FIT__.dayOf(undefined, ""),
   }));
-  ok(own.isaac && own.eleanor, "both kids arrive with a plan of their own, no setup needed");
-  ok(own.isaacTitle !== own.sharedTitle, `Isaac is on his own plan ("${own.isaacTitle}") not the shared one ("${own.sharedTitle}")`);
-  ok(/Lower Body|Upper Body|Athletic|Posterior|Core/.test(own.isaacTitle), "…and it's the programme Dad wrote");
-  ok(own.eleanorTitle !== own.sharedTitle, `Eleanor likewise ("${own.eleanorTitle}")`);
+  ok(own.isaac && own.eleanor && own.dad, "all three arrive with a plan of their own, no setup needed");
+  ok(own.shared === null, "there is no shared plan to fall back on");
+  ok(/Lower Body|Upper Body|Athletic|Posterior|Core/.test(own.isaacTitle), `Isaac is on the programme Dad wrote ("${own.isaacTitle}")`);
+  ok(own.eleanorTitle !== own.isaacTitle,
+     `Eleanor is on hers, which differs from his ("${own.eleanorTitle}" vs "${own.isaacTitle}")`);
 
   // per-side arithmetic: 8 per leg is sixteen reps of work
   const maths = await page.evaluate(() => ({
