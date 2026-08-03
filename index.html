@@ -990,6 +990,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   /* Exercise list rows (Today preview + builder) */
   .fitblock { margin-top: 14px; }
   .fitblock-h { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 6px; }
+  .fitblock-focus { font-size: 12px; color: var(--ink-2); margin: -2px 0 8px; line-height: 1.4; }
   .fitrow { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: var(--card); border: 1px solid var(--line-2); border-radius: 12px; padding: 7px 10px 7px 7px; margin-bottom: 6px; font: inherit; color: inherit; }
   .fitrow.tap { cursor: pointer; font: inherit; color: inherit; text-align: left; }
   .fitrow.tap:active { background: var(--surface-2); }
@@ -1049,6 +1050,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .fitp-amt { font-size: 40px; font-weight: 900; letter-spacing: -1px; line-height: 1; color: var(--green); font-variant-numeric: tabular-nums; }
   .fitp-amt.rest { color: var(--ink-2); }
   .fitp-amtsub { font-size: 12.5px; color: var(--muted); font-weight: 700; margin-top: -4px; }
+  .fitp-note { font-size: 12.5px; color: var(--ink-2); font-weight: 700; background: var(--surface-2); border-radius: 999px; padding: 6px 13px; max-width: 92%; }
   .fitp-anim { position: relative; width: 100%; max-width: 420px; aspect-ratio: 3 / 2; border-radius: 16px; overflow: hidden; background: var(--surface-2); border: 1px solid var(--line-2); flex: 0 1 auto; }
   .fitp-anim img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff; }
   .fitp-anim img.f1 { opacity: 0; transition: opacity .3s ease-in-out; }
@@ -6656,8 +6658,18 @@ async function fitEnsurePlan(who = ""){
   let saved = null;
   try { saved = await backend?.getSetting?.(fitPlanDocId(who)); } catch {}
 
-  if (saved && (saved.days || saved.none)) fitPlans[who] = saved;
-  else if (who) fitPlans[who] = null;                       // no override — follows the shared plan
+  if (saved && (saved.days || saved.none)) fitPlans[who] = saved;   // Dad's override, or a tombstone
+  else if (who){
+    /* No override saved — but a kid can still SHIP with a plan of their own
+       (assets/fitness/plan-<kid>.json, baked from what Dad wrote down). Absent that,
+       fitPlans[who] stays null and they follow the shared week. */
+    let baked = null;
+    try {
+      const r = await fetch(`assets/fitness/plan-${who.toLowerCase()}.json`);
+      baked = r.ok ? await r.json() : null;
+    } catch {}
+    fitPlans[who] = baked;
+  }
   else {
     // The shared plan falls back to the baked default. Viewing never writes it.
     let plan = null;
@@ -6713,19 +6725,44 @@ async function fitUnforkPlan(who){
 // ---- Duration: ONE source of truth for the builder's meter and the player ----
 function fitItemSecs(it){
   if (!it) return 0;
-  return it.mode === "time" ? (Number(it.secs) || 30)
-                            : Math.max(FIT_MIN_REP_SECS, (Number(it.reps) || 10) * FIT_REP_SECS);
+  const base = it.mode === "time" ? (Number(it.secs) || 30)
+                                  : Math.max(FIT_MIN_REP_SECS, (Number(it.reps) || 10) * FIT_REP_SECS);
+  // `side` means the number is PER SIDE — "8 per leg" is sixteen reps of work, and a
+  // budget that counted eight would under-read every single-leg day by half.
+  return it.side ? base * 2 : base;
+}
+/** Compact amount for list rows: "×8 ea", "45s". */
+function fitAmountShort(it){
+  const n = it.mode === "time" ? `${it.secs}s` : `×${it.reps}`;
+  return it.side ? n + " ea" : n;
+}
+/** Unit line under the big number in the player: "reps per leg", "seconds". */
+function fitAmountUnit(it){
+  const u = it.mode === "time" ? "seconds" : "reps";
+  return it.side ? `${u} ${it.side}` : u;
+}
+/** Block heading — a plan may name its own block ("Legs & Jump Power"). */
+function fitBlockLabel(b){
+  const g = fitGroupMeta(b.group);
+  return { ico: g.ico, label: b.label || g.label };
 }
 function fitDayItems(day){
   if (!day || day.rest || !Array.isArray(day.blocks)) return [];
   return day.blocks.flatMap(b => (b.items || []).map(it => ({ ...it, group: b.group })));
 }
+/** Rounds = how many times the day's list is run as a circuit. Absent means once. */
+function fitRounds(day){ return Math.max(1, Number(day && day.rounds) || 1); }
+function fitTotalSets(day){ return fitDayItems(day).length * fitRounds(day); }
+
 function fitDuration(day, who){
   if (!day || day.rest) return 0;
   const items = fitDayItems(day);
   if (!items.length) return 0;
-  const work = items.reduce((s, it) => s + fitItemSecs(it), 0);
-  return work + fitRestSecs(who) * (items.length - 1) + (day.blocks || []).length * FIT_BLOCK_CARD_S;
+  const rounds = fitRounds(day), sets = items.length * rounds;
+  const work = items.reduce((s, it) => s + fitItemSecs(it), 0) * rounds;
+  // A round card replaces the per-block cards once there's more than one round.
+  const cards = rounds > 1 ? rounds : (day.blocks || []).length;
+  return work + fitRestSecs(who) * (sets - 1) + cards * FIT_BLOCK_CARD_S;
 }
 function fitInBand(secs){ return secs >= FIT_BAND[0] && secs <= FIT_BAND[1]; }
 
@@ -6882,19 +6919,26 @@ function fitRenderToday(body){
     return;
   }
 
-  const items = fitDayItems(day), secs = fitDuration(day, who);
+  const items = fitDayItems(day), secs = fitDuration(day, who), rounds = fitRounds(day);
   const meta = document.createElement("div"); meta.className = "fitmeta";
-  meta.textContent = `${items.length} exercises · about ${Math.round(secs/60)} minutes`;
+  meta.textContent = rounds > 1
+    ? `${items.length} exercises × ${rounds} rounds · ${fitTotalSets(day)} sets · about ${Math.round(secs/60)} minutes`
+    : `${items.length} exercises · about ${Math.round(secs/60)} minutes`;
   card.appendChild(meta);
 
-  const chips = document.createElement("div"); chips.className = "fitchips";
-  for (const b of day.blocks){
-    const g = fitGroupMeta(b.group);
-    const c = document.createElement("span"); c.className = "fitchip";
-    c.textContent = `${g.ico} ${g.label}`;
-    chips.appendChild(c);
+  // Chips summarise the day's blocks — but a single block named after the day itself just
+  // repeats the heading, so skip it in that case.
+  const oneBlockNamedLikeTheDay = day.blocks.length === 1 && (day.blocks[0].label || "") === (day.title || "");
+  if (!oneBlockNamedLikeTheDay){
+    const chips = document.createElement("div"); chips.className = "fitchips";
+    for (const b of day.blocks){
+      const g = fitBlockLabel(b);
+      const c = document.createElement("span"); c.className = "fitchip";
+      c.textContent = `${g.ico} ${g.label}`;
+      chips.appendChild(c);
+    }
+    card.appendChild(chips);
   }
-  card.appendChild(chips);
   body.appendChild(card);
 
   // Done banner (or the start button)
@@ -6905,7 +6949,7 @@ function fitRenderToday(body){
     const txt = document.createElement("div");
     const b1 = document.createElement("b"); b1.textContent = "Done today! 🎉";
     const sub = document.createElement("div"); sub.className = "fitdone-sub";
-    sub.textContent = `${(rec.done || []).length} exercises in ${fitMMSS(rec.secs || 0)}` + (streak > 1 ? ` · 🔥 ${streak}-day streak` : "");
+    sub.textContent = `${rec.sets || (rec.done || []).length} ${rec.sets > (rec.done||[]).length ? "sets" : "exercises"} in ${fitMMSS(rec.secs || 0)}` + (streak > 1 ? ` · 🔥 ${streak}-day streak` : "");
     txt.appendChild(b1); txt.appendChild(sub);
     banner.appendChild(txt);
     body.appendChild(banner);
@@ -6928,17 +6972,22 @@ function fitRenderToday(body){
 function fitAppendBlockList(body, day, dim){
   if (!day || day.rest) return;
   day.blocks.forEach((b) => {
-    const g = fitGroupMeta(b.group);
+    const g = fitBlockLabel(b);
     const wrap = document.createElement("div"); wrap.className = "fitblock";
     const h = document.createElement("div"); h.className = "fitblock-h";
     h.textContent = `${g.ico} ${g.label} · ${(b.items||[]).length} exercises`;
     wrap.appendChild(h);
+    if (b.focus){
+      const f = document.createElement("div"); f.className = "fitblock-focus";
+      f.textContent = b.focus;
+      wrap.appendChild(f);
+    }
     for (const it of (b.items || [])){
       // A real button: tapping any exercise shows it big and looping. That's the whole
       // point of having two frames — at row size you can't see how a movement works.
       const row = document.createElement("button"); row.type = "button"; row.className = "fitrow tap";
       row.dataset.ex = it.id;
-      const amtText = it.mode === "time" ? `${it.secs} seconds` : `${it.reps} reps`;
+      const amtText = `${it.mode === "time" ? it.secs : it.reps} ${fitAmountUnit(it)}`;
       row.setAttribute("aria-label", `${fitExName(it.id)} — ${amtText}. Show me how.`);
       if (dim) row.style.opacity = ".85";
       const img = document.createElement("img"); img.className = "fitthumb"; img.loading = "lazy"; img.alt = "";
@@ -6948,10 +6997,12 @@ function fitAppendBlockList(body, day, dim){
       const nm = document.createElement("div"); nm.className = "fitrow-name"; nm.textContent = fitExName(it.id);
       const sb = document.createElement("div"); sb.className = "fitrow-sub";
       const ex = fitEx(it.id);
-      sb.textContent = ex ? (ex.equipment === "none" || ex.equipment === "body only" ? "No equipment" : ex.equipment) : "";
+      // Dad's own note wins over the equipment line — "or bodyweight lunges" is the more
+      // useful thing to read at a glance than "dumbbell".
+      sb.textContent = it.note || (ex ? (ex.equipment === "none" || ex.equipment === "body only" ? "No equipment" : ex.equipment) : "");
       bd.appendChild(nm); bd.appendChild(sb);
       const amt = document.createElement("div"); amt.className = "fitrow-amt";
-      amt.textContent = it.mode === "time" ? `${it.secs}s` : `×${it.reps}`;
+      amt.textContent = fitAmountShort(it);
       const look = document.createElement("span"); look.className = "fitrow-look"; look.textContent = "🔍";
       look.setAttribute("aria-hidden", "true");
       row.appendChild(img); row.appendChild(bd); row.appendChild(amt); row.appendChild(look);
@@ -7026,7 +7077,7 @@ function fitRenderWeek(body){
     t.textContent = day ? (day.title || "Workout") : "Nothing set";
     const s = document.createElement("div"); s.className = "fitday-sub";
     s.textContent = (!day || day.rest) ? "Rest day"
-      : `${fitDayItems(day).length} exercises · ${fitMMSS(fitDuration(day, who))}`;
+      : `${fitDayItems(day).length} exercises${fitRounds(day) > 1 ? ` × ${fitRounds(day)}` : ""} · ${fitMMSS(fitDuration(day, who))}`;
     bd.appendChild(t); bd.appendChild(s);
 
     // Completion ticks are per kid and read each kid's OWN plan — Isaac can be resting
@@ -7118,17 +7169,25 @@ let fitTickTimer = null, fitFlipTimer = null, fitWakeLock = null;
 const fitReducedMotion = () => { try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } };
 const fitMuted = () => localStorage.getItem("bucky_fit_muted") === "1";
 
+/* A CIRCUIT: run the whole list, rest, run it again. Rests sit between every set —
+   including across the round boundary — so 5 exercises x 2 rounds is 10 sets and 9 rests. */
 function fitBuildSteps(day, who){
   const steps = [], items = fitDayItems(day), rest = fitRestSecs(who);
+  const rounds = fitRounds(day), total = items.length * rounds;
   let ord = 0;
-  (day.blocks || []).forEach((b) => {
-    steps.push({ type:"block", group: b.group, count: (b.items || []).length });
-    (b.items || []).forEach((it) => {
-      ord++;
-      steps.push({ type:"ex", it, group: b.group, ord, total: items.length });
-      if (ord < items.length) steps.push({ type:"rest", secs: rest, ord });
+  for (let r = 1; r <= rounds; r++){
+    if (rounds > 1) steps.push({ type:"round", round: r, rounds, count: items.length });
+    (day.blocks || []).forEach((b) => {
+      // With one round the per-block cards are the signposts; with several, the round
+      // card is, and carding both would interrupt the circuit twice over.
+      if (rounds === 1) steps.push({ type:"block", group: b.group, label: b.label, focus: b.focus, count: (b.items || []).length });
+      (b.items || []).forEach((it) => {
+        ord++;
+        steps.push({ type:"ex", it, group: b.group, blockLabel: b.label, ord, total, round: r, rounds });
+        if (ord < total) steps.push({ type:"rest", secs: rest, ord });
+      });
     });
-  });
+  }
   steps.push({ type:"finish" });
   return steps;
 }
@@ -7136,7 +7195,7 @@ function fitBuildSteps(day, who){
 /** How long the current step runs, in ms. null = waits for a tap (rep sets, finish). */
 function fitStepDur(s){
   if (!s) return null;
-  if (s.type === "block") return FIT_BLOCK_CARD_S * 1000;
+  if (s.type === "block" || s.type === "round") return FIT_BLOCK_CARD_S * 1000;
   if (s.type === "rest")  return (s.secs || 0) * 1000;
   if (s.type === "ex" && s.it.mode === "time") return (Number(s.it.secs) || 30) * 1000;
   return null;
@@ -7161,7 +7220,8 @@ async function fitStartWorkout(dayKey){
   fitRun = {
     kid, dayKey, steps: fitBuildSteps(day, who), i: 0,
     startedAt: Date.now(), stepStart: Date.now(), pausedTotal: 0, paused: false, pausedAt: 0,
-    done: [], skipped: [], beeped: 0, animate: !fitReducedMotion(),
+    done: [], skipped: [], setsDone: 0, setsSkipped: 0, rounds: fitRounds(day),
+    beeped: 0, animate: !fitReducedMotion(),
   };
   document.getElementById("fitPlayOverlay").classList.add("open");
   fitRequestWake();
@@ -7200,8 +7260,17 @@ function fitAdvance(how){
   if (!fitRun) return;
   const s = fitRun.steps[fitRun.i];
   if (s && s.type === "ex"){
-    if (how === "skip"){ if (!fitRun.skipped.includes(s.it.id)) fitRun.skipped.push(s.it.id); }
-    else if (!fitRun.done.includes(s.it.id)) fitRun.done.push(s.it.id);
+    /* Count SETS, not distinct exercises. In a circuit the same movement comes round
+       again, and a unique-id list would stall the progress bar at 50% on round two. The
+       id lists stay unique — they're for the log, where "which exercises did you do"
+       is the useful question. */
+    if (how === "skip"){
+      fitRun.setsSkipped++;
+      if (!fitRun.skipped.includes(s.it.id)) fitRun.skipped.push(s.it.id);
+    } else {
+      fitRun.setsDone++;
+      if (!fitRun.done.includes(s.it.id)) fitRun.done.push(s.it.id);
+    }
   }
   fitRun.i++;
   fitRun.stepStart = Date.now(); fitRun.pausedTotal = 0; fitRun.paused = false; fitRun.beeped = 0;
@@ -7219,18 +7288,18 @@ async function fitFinish(){
   fitRun.finished = true;
   fitStopTimers();
   fitCue("finish");
-  await fitWriteRecord(kid, dayKey, { done: done.slice(), skipped: skipped.slice(), secs, at: Date.now(), finished: true });
+  await fitWriteRecord(kid, dayKey, { done: done.slice(), skipped: skipped.slice(), sets: fitRun.setsDone, secs, at: Date.now(), finished: true });
   fitPaintFinish(secs);
 }
 
 /** Quit part-way. Progress is kept (not marked finished) so "Keep going" is honest. */
 async function fitQuit(){
   if (!fitRun) return;
-  const { kid, dayKey, done, skipped, startedAt, finished } = fitRun;
+  const { kid, dayKey, done, skipped, setsDone, startedAt, finished } = fitRun;
   fitStopTimers(); fitReleaseWake();
   if (!finished && done.length){
     await fitWriteRecord(kid, dayKey, {
-      done: done.slice(), skipped: skipped.slice(),
+      done: done.slice(), skipped: skipped.slice(), sets: setsDone,
       secs: Math.round((Date.now() - startedAt) / 1000), at: Date.now(), finished: false,
     });
   }
@@ -7294,8 +7363,7 @@ function fitPaintTime(){
 function fitRunPercent(){
   if (!fitRun) return 0;
   const total = fitRun.steps.filter(s => s.type === "ex").length || 1;
-  const doneN = fitRun.done.length + fitRun.skipped.length;
-  return Math.round((doneN / total) * 100);
+  return Math.round(((fitRun.setsDone + fitRun.setsSkipped) / total) * 100);
 }
 
 function fitPaintStep(){
@@ -7315,7 +7383,7 @@ function fitPaintStep(){
   bar.appendChild(fill);
   const ptext = document.createElement("div"); ptext.className = "fitp-progtext";
   const totalEx = fitRun.steps.filter(x => x.type === "ex").length;
-  ptext.textContent = s.type === "ex" ? `${s.ord} of ${s.total}` : `${fitRun.done.length + fitRun.skipped.length} of ${totalEx} done`;
+  ptext.textContent = s.type === "ex" ? `${s.ord} of ${s.total}` : `${fitRun.setsDone + fitRun.setsSkipped} of ${totalEx} done`;
   prog.appendChild(bar); prog.appendChild(ptext);
   const mute = document.createElement("button"); mute.type = "button"; mute.className = "fitp-mute"; mute.id = "fitMuteBtn";
   mute.textContent = fitMuted() ? "🔇" : "🔊"; mute.setAttribute("aria-label", "Sound on or off");
@@ -7326,8 +7394,20 @@ function fitPaintStep(){
   const body = document.createElement("div"); body.className = "fitp-body"; body.id = "fitPlayBody";
   const act = document.createElement("div"); act.className = "fitp-act";
 
-  if (s.type === "block"){
-    const g = fitGroupMeta(s.group);
+  if (s.type === "round"){
+    const ico = document.createElement("div"); ico.className = "fitp-finish-emoji"; ico.textContent = s.round === 1 ? "🏁" : "🔁";
+    const nm = document.createElement("h2"); nm.className = "fitp-name"; nm.textContent = `Round ${s.round} of ${s.rounds}`;
+    const sub = document.createElement("div"); sub.className = "fitp-next";
+    sub.textContent = s.round === 1 ? `${s.count} exercises, then you do them all again`
+                                    : `Same ${s.count} exercises — last time through`;
+    body.appendChild(ico); body.appendChild(nm); body.appendChild(sub);
+    const go = document.createElement("button"); go.type = "button"; go.className = "fitp-btn"; go.id = "fitNextBtn";
+    go.textContent = s.round === 1 ? "Let's go" : "Round 2, go";
+    go.onclick = () => fitAdvance();
+    act.appendChild(go);
+  }
+  else if (s.type === "block"){
+    const g = fitBlockLabel({ group: s.group, label: s.label });
     const ico = document.createElement("div"); ico.className = "fitp-finish-emoji"; ico.textContent = g.ico;
     const nm = document.createElement("h2"); nm.className = "fitp-name"; nm.textContent = g.label;
     const sub = document.createElement("div"); sub.className = "fitp-next"; sub.textContent = `${s.count} exercises coming up`;
@@ -7357,8 +7437,9 @@ function fitPaintStep(){
     act.appendChild(skip);
   }
   else if (s.type === "ex"){
-    const g = fitGroupMeta(s.group);
-    const lbl = document.createElement("div"); lbl.className = "fitp-block"; lbl.textContent = `${g.ico} ${g.label}`;
+    const g = fitBlockLabel({ group: s.group, label: s.blockLabel });
+    const lbl = document.createElement("div"); lbl.className = "fitp-block";
+    lbl.textContent = `${g.ico} ${g.label}` + (s.rounds > 1 ? ` · Round ${s.round} of ${s.rounds}` : "");
     const nm = document.createElement("h2"); nm.className = "fitp-name"; nm.textContent = fitExName(s.it.id);
     body.appendChild(lbl); body.appendChild(nm);
 
@@ -7374,9 +7455,15 @@ function fitPaintStep(){
 
     const amt = document.createElement("div"); amt.className = "fitp-amt";
     const sub = document.createElement("div"); sub.className = "fitp-amtsub";
-    if (s.it.mode === "time"){ amt.textContent = String(Math.ceil((fitStepRemain() || 0) / 1000)); sub.textContent = "seconds"; }
-    else { amt.textContent = String(s.it.reps); sub.textContent = "reps"; }
+    if (s.it.mode === "time"){ amt.textContent = String(Math.ceil((fitStepRemain() || 0) / 1000)); }
+    else { amt.textContent = String(s.it.reps); }
+    sub.textContent = fitAmountUnit(s.it);
     body.appendChild(amt); body.appendChild(sub);
+    if (s.it.note){
+      const note = document.createElement("div"); note.className = "fitp-note";
+      note.textContent = s.it.note;
+      body.appendChild(note);
+    }
 
     const ex = fitEx(s.it.id);
     if (ex && ex.steps && ex.steps.length){
@@ -7440,7 +7527,8 @@ function fitPaintFinish(secs){
 
   const streak = fitStreak(fitRun.kid);
   const stats = document.createElement("div"); stats.className = "fitp-finish-stats";
-  for (const [v, l] of [[String(fitRun.done.length), "exercises"], [fitMMSS(secs), "minutes"], [String(streak), "day streak"]]){
+  const unit = fitRun.rounds > 1 ? "sets" : "exercises";
+  for (const [v, l] of [[String(fitRun.setsDone), unit], [fitMMSS(secs), "minutes"], [String(streak), "day streak"]]){
     const d = document.createElement("div");
     const vv = document.createElement("div"); vv.className = "v"; vv.textContent = v;
     const ll = document.createElement("div"); ll.className = "l"; ll.textContent = l;
@@ -7449,7 +7537,7 @@ function fitPaintFinish(secs){
   body.appendChild(stats);
   if (fitRun.skipped.length){
     const sk = document.createElement("div"); sk.className = "fitp-next";
-    sk.textContent = `${fitRun.skipped.length} skipped — that's OK.`;
+    sk.textContent = `${fitRun.setsSkipped} skipped — that's OK.`;
     body.appendChild(sk);
   }
   inner.appendChild(body);
@@ -7665,6 +7753,24 @@ function fitPaintBuilder(){
     ti.oninput = () => { fitDraft.title = ti.value; };
     inner.appendChild(tl); inner.appendChild(ti);
 
+    // ---- rounds (circuit): run the whole list this many times
+    const rr = document.createElement("div"); rr.className = "fitwho"; rr.id = "fitRoundsRow";
+    rr.style.marginTop = "10px";
+    const rl = document.createElement("span"); rl.className = "fitwho-l"; rl.textContent = "Rounds";
+    rr.appendChild(rl);
+    for (const n of [1, 2, 3]){
+      const b = document.createElement("button"); b.type = "button"; b.className = "fitwho-b";
+      b.dataset.rounds = String(n); b.textContent = String(n);
+      if (fitRounds(fitDraft) === n) b.classList.add("sel");
+      b.disabled = ro;
+      b.onclick = () => { if (n === 1) delete fitDraft.rounds; else fitDraft.rounds = n; fitPaintBuilder(); };
+      rr.appendChild(b);
+    }
+    const rn = document.createElement("span"); rn.className = "fitrow-sub"; rn.style.marginLeft = "4px";
+    rn.textContent = fitRounds(fitDraft) > 1 ? `${fitTotalSets(fitDraft)} sets in all` : "straight through";
+    rr.appendChild(rn);
+    inner.appendChild(rr);
+
     // ---- budget meter
     const secs = fitDuration(fitDraft, fitDraftWho), inBand = fitInBand(secs);
     const meter = document.createElement("div"); meter.className = "fitmeter" + (inBand ? "" : " warn"); meter.id = "fitMeter";
@@ -7685,7 +7791,7 @@ function fitPaintBuilder(){
 
     // ---- blocks
     fitDraft.blocks.forEach((b, bi) => {
-      const g = fitGroupMeta(b.group);
+      const g = fitBlockLabel(b);
       const wrap = document.createElement("div"); wrap.className = "fitblock";
       const hd = document.createElement("div"); hd.className = "fitblock-h";
       hd.style.justifyContent = "space-between";
@@ -7734,7 +7840,10 @@ function fitPaintBuilder(){
       if (!plan.days) plan.days = {};
       plan.days[wd] = fitDraft.rest
         ? { rest: true, title: fitDraft.title || "Rest Day" }
-        : { title: fitDraft.title || "Workout", blocks: fitDraft.blocks.filter(b => (b.items||[]).length) };
+        : Object.assign(
+            { title: fitDraft.title || "Workout", blocks: fitDraft.blocks.filter(b => (b.items||[]).length) },
+            fitRounds(fitDraft) > 1 ? { rounds: fitRounds(fitDraft) } : {}
+          );
       await fitSavePlan(fitDraftWho);
       fitCloseSheet();
       if (currentTab === "fitness") renderFitness();
@@ -7758,7 +7867,7 @@ function fitBuilderRow(block, it, bi, ii, ro){
 
   if (ro){
     const amt = document.createElement("div"); amt.className = "fitrow-amt";
-    amt.textContent = it.mode === "time" ? `${it.secs}s` : `×${it.reps}`;
+    amt.textContent = fitAmountShort(it);
     row.appendChild(img); row.appendChild(bd); row.appendChild(amt);
     return row;
   }
@@ -8075,8 +8184,9 @@ window.__FIT__ = {
   view: ()=>fitPlanView,
   setView: (who)=>{ fitPlanView = who || ""; localStorage.setItem("bucky_fit_view", fitPlanView); if (currentTab === "fitness") renderFitness(); },
   hasOwnPlan: (who)=>fitHasOwnPlan(who),
-  fork: (who)=>fitForkPlan(who),
-  unfork: (who)=>fitUnforkPlan(who),
+  // repaint after, exactly as the real fork/revert button does
+  fork: async (who)=>{ await fitForkPlan(who); if (currentTab === "fitness") renderFitness(); },
+  unfork: async (who)=>{ await fitUnforkPlan(who); if (currentTab === "fitness") renderFitness(); },
   draftWho: ()=>fitDraftWho,
   streak: (kid)=>fitStreak(kid || myName()),
   record: (kid, key)=>fitRecord(kid || myName(), key || fitToday()),
@@ -8090,6 +8200,7 @@ window.__FIT__ = {
   run: ()=>fitRun && ({ i: fitRun.i, phase: fitRun.steps[fitRun.i] && fitRun.steps[fitRun.i].type,
                         step: fitRun.steps[fitRun.i], paused: fitRun.paused, done: fitRun.done.slice(),
                         skipped: fitRun.skipped.slice(), total: fitRun.steps.filter(s=>s.type==="ex").length,
+                        setsDone: fitRun.setsDone, setsSkipped: fitRun.setsSkipped, rounds: fitRun.rounds,
                         remain: fitStepRemain(), finished: !!fitRun.finished }),
   steps: ()=>fitRun && fitRun.steps.map(s=>s.type),
   advance: (how)=>fitAdvance(how),

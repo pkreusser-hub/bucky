@@ -37,6 +37,9 @@ const SRC_IMG = "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main
 
 const IMG_WIDTH = 600;
 const IMG_QUALITY = 72;
+/* Mirrors of the app's budget constants, used only to PRINT each plan's length at bake
+   time so a plan that drifts off ~10 minutes is visible here rather than in the game. */
+const REP_SECS_EST = 3, MIN_REP_SECS_EST = 20, BLOCK_CARD_S_EST = 5;
 const CONCURRENCY = 8;
 const RETRIES = 3;
 
@@ -139,6 +142,107 @@ const DEFAULT_PLAN = {
   },
 };
 
+/* ---------------------------------------------------- the kids' own plans
+   Written by Dad (2026-08-02), transcribed verbatim. Eleanor's is volleyball-leaning;
+   Isaac's is the general-strength cut of the same programme. Five training days,
+   Mon–Fri, with the weekend off.
+
+   Item form here is [id, mode, amount, extra?] where extra may carry:
+     side — the reps are PER SIDE. Doubles the time estimate (8 per leg is 16 reps of
+            work) and is printed next to the number so nobody halves their sets.
+     note — the range or the swap Dad wrote down, kept in his words.
+
+   Every id is validated against the baked library before these files are written. */
+const KID_PLANS = {
+  Eleanor: {
+    rest: 30,
+    rounds: 2,
+    days: {
+      mon: { title: "Legs & Jump Power", group: "legs", focus: "Squatting strength and explosive power for blocking and spiking.", items: [
+        ["Bodyweight_Squat", "reps", 10, { note: "10–12 reps" }],
+        ["Freehand_Jump_Squat", "reps", 8, { note: "soft, controlled reps" }],
+        ["Dumbbell_Lunges", "reps", 8, { side: "per leg", note: "bodyweight lunges are fine" }],
+        ["Single_Leg_Glute_Bridge", "reps", 8, { side: "per leg" }],
+        ["Standing_Dumbbell_Calf_Raise", "reps", 12, { note: "or bodyweight calf raises" }],
+      ]},
+      tue: { title: "Upper Body Push + Core", group: "chest", focus: "Pushing strength and trunk control for serving and posture.", items: [
+        ["Incline_Push-Up", "reps", 8, { note: "8–10 · knees or a higher surface if needed" }],
+        ["Band_Pull_Apart", "reps", 12, { note: "or slow arm openings" }],
+        ["Dumbbell_Shoulder_Press", "reps", 8, { note: "8–10 · light dumbbells" }],
+        ["Plank", "time", 20, { note: "20–30 seconds" }],
+        ["Dead_Bug", "reps", 8, { side: "per side" }],
+      ]},
+      wed: { title: "Athletic Movement", group: "back", focus: "Hip stability, back strength and coordination.", items: [
+        ["Inchworm", "reps", 6, { note: "6–8" }],
+        ["Monster_Walk", "reps", 8, { side: "steps each way", note: "or side steps without a band" }],
+        ["Glute_Kickback", "reps", 10, { side: "per leg" }],
+        ["Bent_Over_Two-Dumbbell_Row", "reps", 10, { note: "or bodyweight Superman holds" }],
+        ["Air_Bike", "reps", 12, { note: "slow reps" }],
+      ]},
+      thu: { title: "Shoulders, Back & Glutes", group: "shoulders", focus: "Shoulder health for overhead actions, and a strong posterior chain.", items: [
+        ["Butt_Lift_Bridge", "reps", 12],
+        ["Superman", "reps", 8, { note: "8–10 · hold 1–2 sec at the top" }],
+        ["Side_Lateral_Raise", "reps", 10, { note: "or lateral raises with bands" }],
+        ["One-Arm_Dumbbell_Row", "reps", 8, { side: "per arm" }],
+        ["Plank", "time", 20, { note: "20–25 seconds · a short side plank works too" }],
+      ]},
+      fri: { title: "Core + Lateral Power", group: "core", focus: "Rotational core and side-to-side strength for court movement.", items: [
+        ["Side_Leg_Raises", "reps", 10, { side: "per side" }],
+        ["Cross-Body_Crunch", "reps", 12, { note: "or regular crunches" }],
+        ["Hip_Circles_prone", "reps", 8, { side: "each direction", note: "8–10" }],
+        ["Band_Pull_Apart", "reps", 10, { note: "10–12 · or side lateral raises" }],
+        ["Bodyweight_Squat", "reps", 10, { note: "or light jump squats" }],
+      ]},
+      sat: { rest: true, title: "Rest Day" },
+      sun: { rest: true, title: "Rest Day" },
+    },
+  },
+
+  Isaac: {
+    rest: 30,
+    rounds: 2,
+    days: {
+      mon: { title: "Lower Body Strength & Power", group: "legs", items: [
+        ["Bodyweight_Squat", "reps", 10, { note: "10–12 reps" }],
+        ["Freehand_Jump_Squat", "reps", 8, { note: "soft, controlled reps" }],
+        ["Dumbbell_Lunges", "reps", 8, { side: "per leg", note: "bodyweight lunges are fine" }],
+        ["Single_Leg_Glute_Bridge", "reps", 8, { side: "per leg" }],
+        ["Standing_Dumbbell_Calf_Raise", "reps", 12, { note: "or bodyweight" }],
+      ]},
+      tue: { title: "Upper Body Push + Core", group: "chest", items: [
+        ["Pushups", "reps", 8, { note: "8–12 · knees or elevated hands if needed" }],
+        ["Dumbbell_Shoulder_Press", "reps", 8, { note: "8–10 · light dumbbells, or the overhead press motion" }],
+        ["Band_Pull_Apart", "reps", 12, { note: "or a slow reverse fly motion" }],
+        ["Plank", "time", 20, { note: "20–30 seconds" }],
+        ["Dead_Bug", "reps", 8, { side: "per side" }],
+      ]},
+      wed: { title: "Full-Body Athletic Movement", group: "back", items: [
+        ["Inchworm", "reps", 6, { note: "6–8" }],
+        ["Monster_Walk", "reps", 8, { side: "steps each way", note: "or side steps without a band" }],
+        ["Glute_Kickback", "reps", 10, { side: "per leg" }],
+        ["Bent_Over_Two-Dumbbell_Row", "reps", 10, { note: "or bodyweight Superman" }],
+        ["Air_Bike", "reps", 12, { note: "controlled reps" }],
+      ]},
+      thu: { title: "Posterior Chain & Shoulders", group: "shoulders", items: [
+        ["Butt_Lift_Bridge", "reps", 12],
+        ["Superman", "reps", 8, { note: "8–10 · brief hold at the top" }],
+        ["Side_Lateral_Raise", "reps", 10, { note: "or lateral raises with bands" }],
+        ["One-Arm_Dumbbell_Row", "reps", 8, { side: "per arm", note: "8–10 · or the two-arm version" }],
+        ["Plank", "time", 20, { note: "20–25 seconds · a short side plank works too" }],
+      ]},
+      fri: { title: "Core + Balanced Strength", group: "core", items: [
+        ["Side_Leg_Raises", "reps", 10, { side: "per side" }],
+        ["Cross-Body_Crunch", "reps", 12, { note: "or regular crunches" }],
+        ["Hip_Circles_prone", "reps", 8, { side: "each direction", note: "8–10" }],
+        ["Band_Pull_Apart", "reps", 10, { note: "10–12 · or side lateral raises" }],
+        ["Bodyweight_Squat", "reps", 10, { note: "or light jump squats" }],
+      ]},
+      sat: { rest: true, title: "Rest Day" },
+      sun: { rest: true, title: "Rest Day" },
+    },
+  },
+};
+
 /* ------------------------------------------------------------------- plumbing */
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -224,12 +328,18 @@ async function main() {
       for (const [id] of block.items) if (!byId.has(id)) missing.push(`${dayKey}: ${id}`);
     }
   }
+  for (const [kid, kp] of Object.entries(KID_PLANS)){
+    for (const [dayKey, day] of Object.entries(kp.days)){
+      if (day.rest) continue;
+      for (const [id] of day.items) if (!byId.has(id)) missing.push(`${kid}/${dayKey}: ${id}`);
+    }
+  }
   if (missing.length) {
-    console.error("✗ default plan references exercises that are not in the library:");
+    console.error("✗ a plan references exercises that are not in the library:");
     for (const m of missing) console.error("    " + m);
     process.exit(1);
   }
-  console.log("  ✓ default plan validated — every referenced exercise exists");
+  console.log("  ✓ plans validated — every referenced exercise exists");
 
   /* Expand the compact tuple form into the shape index.html consumes. */
   const plan = {
@@ -314,6 +424,46 @@ async function main() {
     JSON.stringify({ v: 1, groups: MUSCLE_GROUPS.map(({ id, label, ico }) => ({ id, label, ico })), exercises: library }));
 
   fs.writeFileSync(path.join(OUT, "default-plan.json"), JSON.stringify(plan, null, 1));
+
+  /* Per-kid plans. These are the DEFAULT content of that kid's own plan — the app falls
+     back to them when Dad hasn't saved an override, so Isaac and Eleanor arrive with
+     their real programme rather than the generic shared week. */
+  const estimate = (it) => {
+    const base = it.mode === "time" ? it.secs : Math.max(MIN_REP_SECS_EST, it.reps * REP_SECS_EST);
+    return it.side ? base * 2 : base;
+  };
+  for (const [kid, kp] of Object.entries(KID_PLANS)){
+    const rounds = kp.rounds || 1;
+    const out = { v: 1, rest: kp.rest, forKid: kid, days: {} };
+    for (const [dayKey, day] of Object.entries(kp.days)){
+      if (day.rest){ out.days[dayKey] = { rest: true, title: day.title }; continue; }
+      out.days[dayKey] = {
+        title: day.title,
+        // A CIRCUIT: run the whole list, then run it again. 5 exercises x 2 rounds is
+        // 10 sets with a rest between every one of them.
+        rounds,
+        blocks: [{
+          group: day.group,
+          label: day.title,
+          focus: day.focus || undefined,
+          items: day.items.map(([id, mode, amount, extra]) => Object.assign(
+            mode === "time" ? { id, mode: "time", secs: amount } : { id, mode: "reps", reps: amount },
+            extra || {}
+          )),
+        }],
+      };
+    }
+    fs.writeFileSync(path.join(OUT, `plan-${kid.toLowerCase()}.json`), JSON.stringify(out, null, 1));
+
+    const mins = Object.entries(out.days).filter(([, d]) => !d.rest).map(([k, d]) => {
+      const items = d.blocks.flatMap((b) => b.items);
+      const r = d.rounds || 1, sets = items.length * r;
+      const cards = r > 1 ? r : d.blocks.length;
+      const secs = items.reduce((s, it) => s + estimate(it), 0) * r + out.rest * (sets - 1) + cards * BLOCK_CARD_S_EST;
+      return `${k} ${Math.floor(secs/60)}:${String(secs%60).padStart(2,"0")}`;
+    });
+    console.log(`  ✓ plan-${kid.toLowerCase()}.json — ${rounds} rounds, ${out.rest}s rest — ${mins.join(" · ")}`);
+  }
 
   fs.writeFileSync(path.join(OUT, "LICENSE.txt"),
 `Exercise data and photographs in this folder come from the free-exercise-db project:
