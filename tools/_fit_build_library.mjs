@@ -81,71 +81,14 @@ const MUSCLE_GROUPS = [
 const groupForMuscle = (m) =>
   (MUSCLE_GROUPS.find((g) => g.muscles.includes(m)) || MUSCLE_GROUPS[MUSCLE_GROUPS.length - 1]).id;
 
-/* ---------------------------------------------------------------- default week */
-/* 3 blocks x 3 exercises, ~40s work / 20s rest, lands ~9-10 min. Deliberately
-   ZERO-EQUIPMENT so the very first workout needs nothing but floor space. Every id
-   here is validated against the baked library before this file is written — a typo
-   fails the bake rather than shipping a broken Monday. */
-const DEFAULT_PLAN = {
-  v: 1,
-  rest: 20,
-  days: {
-    mon: {
-      title: "Full Body",
-      blocks: [
-        { group: "core",   items: [ ["Plank", "time", 45], ["Crunches", "reps", 18], ["Mountain_Climbers", "time", 45] ] },
-        { group: "chest",  items: [ ["Pushups", "reps", 12], ["Incline_Push-Up", "reps", 14], ["Bench_Dips", "reps", 12] ] },
-        { group: "legs",   items: [ ["Bodyweight_Squat", "reps", 18], ["Star_Jump", "time", 45], ["Bodyweight_Walking_Lunge", "reps", 14] ] },
-      ],
-    },
-    tue: {
-      title: "Core & Cardio",
-      blocks: [
-        { group: "core",   items: [ ["Air_Bike", "reps", 20], ["Russian_Twist", "reps", 20], ["Side_Bridge", "time", 40] ] },
-        { group: "legs",   items: [ ["Rocket_Jump", "reps", 14], ["Split_Jump", "reps", 14], ["Knee_Tuck_Jump", "reps", 12] ] },
-        { group: "glutes", items: [ ["Butt_Lift_Bridge", "reps", 16], ["Glute_Kickback", "reps", 14], ["Flutter_Kicks", "time", 40] ] },
-      ],
-    },
-    wed: {
-      title: "Upper Body",
-      blocks: [
-        { group: "chest",  items: [ ["Pushups", "reps", 12], ["Push_Up_to_Side_Plank", "reps", 12], ["Decline_Push-Up", "reps", 10] ] },
-        { group: "arms",   items: [ ["Bench_Dips", "reps", 14], ["Body-Up", "reps", 14], ["Push-Ups_-_Close_Triceps_Position", "reps", 10] ] },
-        { group: "core",   items: [ ["Plank", "time", 45], ["Dead_Bug", "reps", 20], ["Cross-Body_Crunch", "reps", 20] ] },
-      ],
-    },
-    thu: {
-      title: "Legs & Glutes",
-      blocks: [
-        { group: "legs",   items: [ ["Bodyweight_Squat", "reps", 18], ["Bodyweight_Walking_Lunge", "reps", 16], ["Freehand_Jump_Squat", "reps", 14] ] },
-        { group: "glutes", items: [ ["Single_Leg_Glute_Bridge", "reps", 14], ["Step-up_with_Knee_Raise", "reps", 14], ["Leg_Lift", "reps", 16] ] },
-        { group: "core",   items: [ ["Mountain_Climbers", "time", 45], ["Bottoms_Up", "reps", 14], ["Plank", "time", 45] ] },
-      ],
-    },
-    fri: {
-      title: "Full Body",
-      blocks: [
-        { group: "core",   items: [ ["Crunches", "reps", 20], ["Butt-Ups", "reps", 14], ["Air_Bike", "reps", 20] ] },
-        { group: "chest",  items: [ ["Push-Up_Wide", "reps", 12], ["Incline_Push-Up", "reps", 14], ["Isometric_Chest_Squeezes", "time", 35] ] },
-        { group: "legs",   items: [ ["Star_Jump", "time", 45], ["Scissors_Jump", "reps", 16], ["Bodyweight_Squat", "reps", 16] ] },
-      ],
-    },
-    sat: {
-      title: "Play Day",
-      blocks: [
-        { group: "legs",   items: [ ["Fast_Skipping", "time", 50], ["Standing_Long_Jump", "reps", 10], ["Double_Leg_Butt_Kick", "time", 40] ] },
-        { group: "core",   items: [ ["Mountain_Climbers", "time", 45], ["Plank", "time", 45], ["Superman", "reps", 16] ] },
-        { group: "other",  items: [ ["Worlds_Greatest_Stretch", "time", 45], ["Hamstring_Stretch", "time", 40], ["Childs_Pose", "time", 40] ] },
-      ],
-    },
-    sun: { rest: true, title: "Rest Day" },
-  },
-};
-
-/* ---------------------------------------------------- the kids' own plans
+/* ------------------------------------------------------- everyone's own plan
+   There is NO shared plan — each person has their own, full stop (2026-08-03 decision).
    Written by Dad (2026-08-02), transcribed verbatim. Eleanor's is volleyball-leaning;
    Isaac's is the general-strength cut of the same programme. Five training days,
    Mon–Fri, with the weekend off.
+
+   DAD'S is a copy of Isaac's general-strength programme — a starting point he can edit,
+   not something invented for him; he hasn't written his own down yet.
 
    Item form here is [id, mode, amount, extra?] where extra may carry:
      side — the reps are PER SIDE. Doubles the time estimate (8 per leg is 16 reps of
@@ -153,7 +96,7 @@ const DEFAULT_PLAN = {
      note — the range or the swap Dad wrote down, kept in his words.
 
    Every id is validated against the baked library before these files are written. */
-const KID_PLANS = {
+const PERSON_PLANS = {
   Eleanor: {
     rest: 30,
     rounds: 2,
@@ -243,6 +186,10 @@ const KID_PLANS = {
   },
 };
 
+/* Dad runs Isaac's general-strength programme until he writes his own. Deep-cloned rather
+   than aliased so editing one can never quietly edit the other. */
+PERSON_PLANS.Dad = JSON.parse(JSON.stringify(PERSON_PLANS.Isaac));
+
 /* ------------------------------------------------------------------- plumbing */
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -322,16 +269,10 @@ async function main() {
   /* --- validate the default plan against what we actually kept, BEFORE writing --- */
   const byId = new Map(library.map((x) => [x.id, x]));
   const missing = [];
-  for (const [dayKey, day] of Object.entries(DEFAULT_PLAN.days)) {
-    if (day.rest) continue;
-    for (const block of day.blocks) {
-      for (const [id] of block.items) if (!byId.has(id)) missing.push(`${dayKey}: ${id}`);
-    }
-  }
-  for (const [kid, kp] of Object.entries(KID_PLANS)){
+  for (const [person, kp] of Object.entries(PERSON_PLANS)){
     for (const [dayKey, day] of Object.entries(kp.days)){
       if (day.rest) continue;
-      for (const [id] of day.items) if (!byId.has(id)) missing.push(`${kid}/${dayKey}: ${id}`);
+      for (const [id] of day.items) if (!byId.has(id)) missing.push(`${person}/${dayKey}: ${id}`);
     }
   }
   if (missing.length) {
@@ -340,28 +281,6 @@ async function main() {
     process.exit(1);
   }
   console.log("  ✓ plans validated — every referenced exercise exists");
-
-  /* Expand the compact tuple form into the shape index.html consumes. */
-  const plan = {
-    v: DEFAULT_PLAN.v,
-    rest: DEFAULT_PLAN.rest,
-    days: Object.fromEntries(
-      Object.entries(DEFAULT_PLAN.days).map(([k, day]) => [
-        k,
-        day.rest
-          ? { rest: true, title: day.title }
-          : {
-              title: day.title,
-              blocks: day.blocks.map((b) => ({
-                group: b.group,
-                items: b.items.map(([id, mode, amount]) =>
-                  mode === "time" ? { id, mode: "time", secs: amount } : { id, mode: "reps", reps: amount }
-                ),
-              })),
-            },
-      ])
-    ),
-  };
 
   if (DRY) {
     const counts = {};
@@ -423,7 +342,8 @@ async function main() {
   fs.writeFileSync(path.join(OUT, "exercises.json"),
     JSON.stringify({ v: 1, groups: MUSCLE_GROUPS.map(({ id, label, ico }) => ({ id, label, ico })), exercises: library }));
 
-  fs.writeFileSync(path.join(OUT, "default-plan.json"), JSON.stringify(plan, null, 1));
+  // There is no shared/"everybody" plan — every person has their own (2026-08-03 decision).
+  try { fs.unlinkSync(path.join(OUT, "default-plan.json")); } catch {}
 
   /* Per-kid plans. These are the DEFAULT content of that kid's own plan — the app falls
      back to them when Dad hasn't saved an override, so Isaac and Eleanor arrive with
@@ -432,9 +352,9 @@ async function main() {
     const base = it.mode === "time" ? it.secs : Math.max(MIN_REP_SECS_EST, it.reps * REP_SECS_EST);
     return it.side ? base * 2 : base;
   };
-  for (const [kid, kp] of Object.entries(KID_PLANS)){
+  for (const [person, kp] of Object.entries(PERSON_PLANS)){
     const rounds = kp.rounds || 1;
-    const out = { v: 1, rest: kp.rest, forKid: kid, days: {} };
+    const out = { v: 1, rest: kp.rest, forPerson: person, days: {} };
     for (const [dayKey, day] of Object.entries(kp.days)){
       if (day.rest){ out.days[dayKey] = { rest: true, title: day.title }; continue; }
       out.days[dayKey] = {
@@ -453,7 +373,7 @@ async function main() {
         }],
       };
     }
-    fs.writeFileSync(path.join(OUT, `plan-${kid.toLowerCase()}.json`), JSON.stringify(out, null, 1));
+    fs.writeFileSync(path.join(OUT, `plan-${person.toLowerCase()}.json`), JSON.stringify(out, null, 1));
 
     const mins = Object.entries(out.days).filter(([, d]) => !d.rest).map(([k, d]) => {
       const items = d.blocks.flatMap((b) => b.items);
@@ -462,7 +382,7 @@ async function main() {
       const secs = items.reduce((s, it) => s + estimate(it), 0) * r + out.rest * (sets - 1) + cards * BLOCK_CARD_S_EST;
       return `${k} ${Math.floor(secs/60)}:${String(secs%60).padStart(2,"0")}`;
     });
-    console.log(`  ✓ plan-${kid.toLowerCase()}.json — ${rounds} rounds, ${out.rest}s rest — ${mins.join(" · ")}`);
+    console.log(`  ✓ plan-${person.toLowerCase()}.json — ${rounds} rounds, ${out.rest}s rest — ${mins.join(" · ")}`);
   }
 
   fs.writeFileSync(path.join(OUT, "LICENSE.txt"),
