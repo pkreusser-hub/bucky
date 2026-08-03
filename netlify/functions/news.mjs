@@ -25,7 +25,7 @@
 // server-side sidesteps CORS entirely and lets us set a real User-Agent (several publishers
 // 403 the default one). It is also the only place the Anthropic key may live.
 //
-// SUMMARIES are written by Sonnet 5 in BATCHES of a few articles rather than one call each —
+// SUMMARIES are written by Haiku in BATCHES of a few articles rather than one call each —
 // cheaper, and a batch that fails only costs its own handful of cards (they keep the
 // publisher's blurb). The client caches the finished digest for the whole family (see
 // newsDigest in index.html), so a normal day costs one set of calls no matter how many
@@ -50,7 +50,10 @@ const ALLOWED_ORIGINS = new Set([
   "http://127.0.0.1:3000",
 ]);
 
-const SUMMARY_MODEL = "claude-sonnet-5";
+// Haiku, not Sonnet (user call 2026-08-03): a 40-word factual compression of a supplied
+// excerpt doesn't need the bigger model, and Haiku is ~a third the price. Same id
+// convention as farmgpt.mjs's STORY_MODEL.
+const SUMMARY_MODEL = "claude-haiku-4-5";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36 BuckyNews/1.0";
 
 const MAX_SOURCES = 25;         // how many publications one request may carry
@@ -358,7 +361,7 @@ function itemId(sourceId, link, title) {
 }
 
 /* ---------------------------------------------------------------------------
-   The summariser: ONE Sonnet call for the whole digest.
+   The summariser: ONE model call per batch.
    --------------------------------------------------------------------------- */
 const SUMMARY_SYSTEM = `You write the one-line summaries under headlines in a family's daily news digest.
 

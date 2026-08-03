@@ -9,7 +9,8 @@
 <link rel="apple-touch-icon" href="bucky.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Source+Sans+3:wght@500;600;700;800&display=swap" rel="stylesheet" />
+<!-- Roboto added to the same request so desktop's rail/nav renders in the same face Android does (iOS keeps San Francisco via -apple-system) — mirrors index.html / farmgpt.html -->
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Source+Sans+3:wght@500;600;700;800&family=Roboto:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
   integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
 <style>
@@ -30,14 +31,14 @@
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; padding: 0; }
   body {
-    font-family: "Source Sans 3", system-ui, sans-serif;
+    font-family: "Source Sans 3", -apple-system, BlinkMacSystemFont, Roboto, "Segoe UI", Helvetica, Arial, sans-serif;
     color: var(--ink);
     min-height: 100dvh;
     background:
       radial-gradient(120% 80% at 50% -10%, #fff8e8 0%, transparent 45%),
       linear-gradient(180deg, var(--sky-top) 0%, var(--sky-mid) 28%, var(--sky-bot) 55%, #eef2fa 100%);
     background-attachment: fixed;
-    padding-bottom: calc(env(safe-area-inset-bottom) + 88px);
+    padding-bottom: calc(env(safe-area-inset-bottom) + 118px);   /* clears the fixed two-row bottom nav */
     -webkit-font-smoothing: antialiased;
   }
 
@@ -280,20 +281,26 @@
     box-shadow: 0 1px 6px rgba(0,0,0,.35);
   }
 
-  /* Bottom Bucky nav — same pattern as games.html / farmgpt.html */
+  /* Bottom Bucky nav — same pattern as games.html / farmgpt.html: balanced
+     two-row-on-phone grid (--bnav-cols set from JS so the rows stay balanced
+     whatever areas this person can see). Fixed on mobile (this page has no
+     composer to protect); hidden entirely on desktop (see the #sidenav rail
+     below). */
   #buckyNav {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
-    display: flex; gap: 2px;
+    display: grid;
+    grid-template-columns: repeat(var(--bnav-cols, 6), minmax(0, 1fr));
+    gap: 2px 4px;
     background: rgba(255,255,255,.9);
     -webkit-backdrop-filter: saturate(1.3) blur(14px); backdrop-filter: saturate(1.3) blur(14px);
     border-top: 1px solid #d7e0f0;
-    padding: 6px 5px calc(env(safe-area-inset-bottom) + 6px);   /* trimmed so 8 areas fit at 390px */
+    padding: 3px 6px calc(env(safe-area-inset-bottom) + 3px);
     box-shadow: 0 -2px 16px rgba(35,51,87,.08);
   }
   #buckyNav a {
-    flex: 1 1 0; min-width: 0; text-decoration: none; cursor: pointer;
-    display: flex; flex-direction: column; align-items: center; gap: 3px;
-    padding: 7px 0 5px; border-radius: 13px; color: #5d6b86;
+    min-width: 0; text-decoration: none; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 5px 0 4px; border-radius: 12px; color: #5d6b86;
     transition: color .15s ease, background .15s ease, transform .1s ease;
   }
   #buckyNav a .bico { font-size: 21px; line-height: 1; filter: grayscale(.4) opacity(.75); transition: filter .15s ease, transform .12s ease; }
@@ -301,18 +308,83 @@
   #buckyNav a:active { transform: scale(.93); }
   #buckyNav a.active { color: #233357; background: #e7eefb; }
   #buckyNav a.active .bico { filter: none; transform: translateY(-1px) scale(1.08); }
-  @media (min-width: 700px) {
-    #buckyNav { justify-content: center; gap: 6px; }
-    #buckyNav a { flex: 0 1 132px; }
+  @media (min-width: 700px) and (max-width: 1023.98px) {
+    #buckyNav { grid-template-columns: repeat(var(--bnav-all, 12), minmax(0, 96px)); justify-content: center; gap: 6px; }
     .fday { width: calc((100% - 56px) / 7); min-width: 0; }
+  }
+  @media (min-width: 700px) and (max-width: 1279.98px) {
+    .fday { width: calc((100% - 56px) / 7); min-width: 0; }
+  }
+
+  /* ==========================================================================
+     Desktop left rail (>=1024px) — mirrors index.html's #sidenav/buildSideNav
+     and games.html/farmgpt.html's copies. Below 1024px this page is
+     unchanged: sticky header + the fixed two-row bottom nav. The rail is
+     fixed at the left; body gets padding-left so header/main slide right of
+     it. The Leaflet radar map keeps working — its container just gets
+     narrower and a resize is nudged via map.invalidateSize() once layout
+     settles (see the map script below). */
+  #sidenav { display: none; }
+  @media (min-width: 1024px) {
+    :root { --sidenav-w: 230px; }
+    body { padding-left: var(--sidenav-w); padding-bottom: 0; }
+    #sidenav {
+      display: flex; flex-direction: column;
+      position: fixed; top: 0; bottom: 0; left: 0; width: var(--sidenav-w); z-index: 50;
+      background: linear-gradient(180deg, #0d3d76 0%, var(--navy) 55%, var(--navy-d) 100%);
+      border-right: 1px solid rgba(255,255,255,.10);
+      box-shadow: 2px 0 18px rgba(35,51,87,.14);
+      overflow-y: auto; overscroll-behavior: contain;
+    }
+    .sn-brand {
+      display: block; width: 100%; text-align: left; text-decoration: none; cursor: pointer;
+      background: transparent; border: 0; color: #fff; font: inherit;
+      padding: 20px 18px 16px; border-bottom: 1px solid rgba(255,255,255,.12);
+    }
+    .sn-brand .sn-name { font-size: 22px; font-weight: 800; letter-spacing: .2px; line-height: 1.05; }
+    .sn-brand .sn-sub {
+      font-size: 10.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+      color: rgba(255,255,255,.62); margin-top: 4px;
+    }
+    .sn-brand::after {
+      content: ""; display: block; height: 3px; width: 46px; margin-top: 10px; border-radius: 2px;
+      background: repeating-linear-gradient(90deg, var(--red) 0 9px, #fff 9px 18px);
+    }
+    .sn-list { display: flex; flex-direction: column; gap: 2px; padding: 12px 10px 20px; }
+    .sn-item {
+      display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+      text-decoration: none; border: 0; background: transparent; cursor: pointer; font: inherit;
+      color: rgba(255,255,255,.80); padding: 10px 12px; border-radius: 11px;
+      border-left: 3px solid transparent;
+      transition: background .15s ease, color .15s ease;
+    }
+    .sn-item:hover { background: rgba(255,255,255,.09); color: #fff; }
+    .sn-item .sn-ico { font-size: 18px; line-height: 1; flex: 0 0 auto; filter: grayscale(.35) opacity(.9); }
+    .sn-item .sn-label { font-size: 14.5px; font-weight: 700; letter-spacing: .1px; }
+    .sn-item.active {
+      background: rgba(255,255,255,.15); color: #fff; border-left-color: var(--red); cursor: default;
+    }
+    .sn-item.active .sn-ico { filter: none; }
+
+    /* The rail already carries the wordmark, so the header's own back link is
+       redundant chrome on desktop — the title stays. */
+    #backLink { display: none; }
+
+    #buckyNav { display: none; }
+
+    main { max-width: 900px; padding: 20px 24px 32px; }
   }
 </style>
 </head>
 <body>
 
+<!-- Desktop left rail (>=1024px, hidden below): same NAV_GROUPS data + gates as
+     the mobile #buckyNav bar below — see the nav-building script after </main>. -->
+<nav id="sidenav" aria-label="BUCKY sections"></nav>
+
 <header>
   <div id="bar">
-    <a href="index.html">← Bucky</a>
+    <a href="index.html" id="backLink">← Bucky</a>
     <span class="t">Weather</span>
   </div>
 </header>
@@ -374,31 +446,73 @@
 <script>
 (function () {
   // ---- Bucky bottom nav (mirrors games.html / farmgpt.html) ----
+  // Mirrors index.html's NAV_GROUPS (12 areas: Home/Plan/Meals/Chores/Fit/News/Jobs/
+  // Shop/Bank/Farm/AI/Play). This page is a farm utility, not its own nav area, so
+  // Farm is marked active (weather info belongs there) while still linking normally.
+  // Gate lists duplicated from index.html — keep in sync with index.html.
   var BANK_USERS = ["Eleanor", "Isaac", "Dad", "Mom"];
+  var MEAL_USERS = ["Mom", "Dad"];
+  var FITNESS_USERS = ["Isaac", "Eleanor", "Dad"];
   var me = localStorage.getItem("choreUser") || "";
-  var NAV = [
-    ["🏠", "index.html#dashboard", "Home"],
-    ["📅", "index.html#calendar", "Plan"],
-    ["✅", "index.html#chores", "Chores"],
-    ["🛠️", "index.html#workorders", "Jobs"],
-    ["🛒", "index.html#shopping", "Shop"],
-    ["💰", "index.html#farmbank", "Bank"],
-    ["🐐", "index.html#goathooves", "Farm"],
-    ["🎮", "games.html", "Play"]
-  ].filter(function (n) { return n[2] !== "Bank" || BANK_USERS.indexOf(me) >= 0; });
-  var el = document.getElementById("buckyNav");
-  NAV.forEach(function (n) {
+  function seesBank(){ return BANK_USERS.indexOf(me) >= 0; }
+  function seesMeals(){ return MEAL_USERS.indexOf(me) >= 0; }
+  function seesFitness(){ return FITNESS_USERS.indexOf(me) >= 0; }
+
+  var NAV_GROUPS = [
+    { ico:"🏠", name:"Home",  href:"index.html#dashboard" },
+    { ico:"📅", name:"Plan",  href:"index.html#calendar" },
+    { ico:"🍽️", name:"Meals", href:"index.html#mealplan", gate:seesMeals },
+    { ico:"✅", name:"Chores",href:"index.html#chores" },
+    { ico:"💪", name:"Fit",   href:"index.html#fitness",  gate:seesFitness },
+    { ico:"📰", name:"News",  href:"index.html#news" },
+    { ico:"🛠️", name:"Jobs",  href:"index.html#workorders" },
+    { ico:"🛒", name:"Shop",  href:"index.html#shopping" },
+    { ico:"💰", name:"Bank",  href:"index.html#farmbank", gate:seesBank },
+    { ico:"🐐", name:"Farm",  href:"index.html#goathooves", active:true },   // weather lives here
+    { ico:"🌾", name:"AI",    href:"farmgpt.html" },
+    { ico:"🎮", name:"Play",  href:"games.html" },
+  ];
+  var shown = NAV_GROUPS.filter(function (g) { return !g.gate || g.gate(); });
+
+  // Mobile/tablet fixed bar — balanced two rows on a phone (same --bnav-cols
+  // technique as index.html's buildBottomNav / games.html / farmgpt.html).
+  var bnav = document.getElementById("buckyNav");
+  bnav.style.setProperty("--bnav-cols", Math.ceil(shown.length / 2));
+  bnav.style.setProperty("--bnav-all", shown.length);
+  shown.forEach(function (g) {
     var a = document.createElement("a");
-    a.href = n[1];
-    // Highlight Farm — weather is a farm utility page
-    if (n[2] === "Farm") a.className = "active";
-    var ico = document.createElement("span"); ico.className = "bico"; ico.textContent = n[0];
-    var lbl = document.createElement("span"); lbl.className = "blabel"; lbl.textContent = n[2];
+    a.href = g.href;
+    if (g.active) a.className = "active";
+    var ico = document.createElement("span"); ico.className = "bico"; ico.textContent = g.ico;
+    var lbl = document.createElement("span"); lbl.className = "blabel"; lbl.textContent = g.name;
     a.append(ico, lbl);
-    a.title = n[2];
-    a.setAttribute("aria-label", n[2]);
-    el.appendChild(a);
+    a.title = g.name;
+    a.setAttribute("aria-label", g.name);
+    bnav.appendChild(a);
   });
+
+  // Desktop (>=1024px) left rail — same data/gates, index.html's #sidenav look.
+  var sn = document.getElementById("sidenav");
+  var brand = document.createElement("a");
+  brand.className = "sn-brand"; brand.href = "index.html#dashboard";
+  brand.setAttribute("aria-label", "Back to dashboard");
+  var bn = document.createElement("div"); bn.className = "sn-name"; bn.textContent = "Bucky";
+  var bs = document.createElement("div"); bs.className = "sn-sub"; bs.textContent = "Family Farm Hub";
+  brand.append(bn, bs);
+  sn.appendChild(brand);
+
+  var list = document.createElement("div"); list.className = "sn-list";
+  shown.forEach(function (g) {
+    var a = document.createElement("a");
+    a.className = "sn-item" + (g.active ? " active" : "");
+    a.href = g.href;
+    a.setAttribute("aria-label", g.name);
+    var ico = document.createElement("span"); ico.className = "sn-ico"; ico.textContent = g.ico;
+    var lbl = document.createElement("span"); lbl.className = "sn-label"; lbl.textContent = g.name;
+    a.append(ico, lbl);
+    list.appendChild(a);
+  });
+  sn.appendChild(list);
 })();
 </script>
 <script>
@@ -852,6 +966,19 @@
   // (rebuilt after moveend via cache clear + current frame)
 
   initMap();
+
+  // Desktop rail breakpoint changes #map's width — Leaflet caches tile layout,
+  // so nudge it once layout settles (matchMedia fires immediately + on every
+  // crossing; the small timeout lets the CSS layout finish first).
+  (function () {
+    var mq = window.matchMedia("(min-width: 1024px)");
+    function nudge() { setTimeout(function () { if (map) map.invalidateSize(); }, 60); }
+    nudge();
+    if (mq.addEventListener) mq.addEventListener("change", nudge);
+    else if (mq.addListener) mq.addListener(nudge);
+    window.addEventListener("resize", nudge);
+  })();
+
   map.on("movestart", function () {
     // Keep current frame; clear unused cached layers on move to save memory
   });

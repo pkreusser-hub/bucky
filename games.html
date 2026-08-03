@@ -6,6 +6,9 @@
 <meta name="theme-color" content="#233357" />
 <title>BUCKY — Games</title>
 <link rel="icon" href="bucky.png" />
+<!-- Roboto so desktop renders in the same face Android does (iOS keeps San Francisco via -apple-system) — mirrors index.html / farmgpt.html -->
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;600;700;800;900&display=swap" />
 <link rel="apple-touch-icon" href="bucky.png" />
 <style>
   :root {
@@ -22,10 +25,10 @@
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; padding: 0; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, Roboto, "Segoe UI", Helvetica, Arial, sans-serif;
     background: var(--bg);
     color: var(--ink);
-    padding-bottom: calc(env(safe-area-inset-bottom) + 78px);   /* clears the fixed bottom nav */
+    padding-bottom: calc(env(safe-area-inset-bottom) + 112px);   /* clears the fixed two-row bottom nav */
     -webkit-font-smoothing: antialiased;
   }
   header {
@@ -68,33 +71,102 @@
   .lobby-ico { font-size: 24px; flex: 0 0 auto; }
   .lobby-text { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; }
   .lobby-join { flex: 0 0 auto; background: var(--red); color: #fff; font-weight: 800; font-size: 13px; padding: 7px 12px; border-radius: 9px; }
+
+  /* ==========================================================================
+     Desktop left rail (>=1024px) - mirrors index.html's #sidenav/buildSideNav
+     and farmgpt.html's copy. Below 1024px this page is unchanged: sticky
+     header + the fixed two-row bottom nav (this page has no composer to
+     protect, so keeping the bar position:fixed - unlike farmgpt's in-flow
+     bar - is correct here). The rail is fixed at the left; body gets
+     padding-left so header/main slide right of it. */
+  #sidenav { display: none; }
+  @media (min-width: 1024px) {
+    :root { --sidenav-w: 230px; }
+    body { padding-left: var(--sidenav-w); padding-bottom: 0; }
+    #sidenav {
+      display: flex; flex-direction: column;
+      position: fixed; top: 0; bottom: 0; left: 0; width: var(--sidenav-w); z-index: 30;
+      background: linear-gradient(180deg, #0d3d76 0%, var(--green) 55%, var(--green-d) 100%);
+      border-right: 1px solid rgba(255,255,255,.10);
+      box-shadow: 2px 0 18px rgba(35,51,87,.14);
+      overflow-y: auto; overscroll-behavior: contain;
+    }
+    .sn-brand {
+      display: block; width: 100%; text-align: left; text-decoration: none; cursor: pointer;
+      background: transparent; border: 0; color: #fff; font: inherit;
+      padding: 20px 18px 16px; border-bottom: 1px solid rgba(255,255,255,.12);
+    }
+    .sn-brand .sn-name { font-size: 22px; font-weight: 800; letter-spacing: .2px; line-height: 1.05; }
+    .sn-brand .sn-sub {
+      font-size: 10.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+      color: rgba(255,255,255,.62); margin-top: 4px;
+    }
+    .sn-brand::after {
+      content: ""; display: block; height: 3px; width: 46px; margin-top: 10px; border-radius: 2px;
+      background: repeating-linear-gradient(90deg, var(--red) 0 9px, #fff 9px 18px);
+    }
+    .sn-list { display: flex; flex-direction: column; gap: 2px; padding: 12px 10px 20px; }
+    .sn-item {
+      display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+      text-decoration: none; border: 0; background: transparent; cursor: pointer; font: inherit;
+      color: rgba(255,255,255,.80); padding: 10px 12px; border-radius: 11px;
+      border-left: 3px solid transparent;
+      transition: background .15s ease, color .15s ease;
+    }
+    .sn-item:hover { background: rgba(255,255,255,.09); color: #fff; }
+    .sn-item .sn-ico { font-size: 18px; line-height: 1; flex: 0 0 auto; filter: grayscale(.35) opacity(.9); }
+    .sn-item .sn-label { font-size: 14.5px; font-weight: 700; letter-spacing: .1px; }
+    .sn-item.active {
+      background: rgba(255,255,255,.15); color: #fff; border-left-color: var(--red); cursor: default;
+    }
+    .sn-item.active .sn-ico { filter: none; }
+
+    /* The rail already carries the wordmark, so the header's own back link is
+       redundant chrome on desktop -- the title stays. */
+    #backLink { display: none; }
+
+    #buckyNav { display: none; }
+
+    main { max-width: 900px; padding: 20px 24px; }
+  }
 </style>
 </head>
 <body>
 
+<!-- Desktop left rail (>=1024px, hidden below): same NAV_GROUPS data + gates as
+     the mobile #buckyNav bar below -- see the nav-building script placed after
+     the main content block. -->
+<nav id="sidenav" aria-label="BUCKY sections"></nav>
+
 <header>
   <div id="bar">
-    <a href="index.html">← Bucky</a>
+    <a href="index.html" id="backLink">← Bucky</a>
     <span class="t">🎮 Games</span>
   </div>
   <div class="stripes"></div>
 </header>
 
-<!-- Persistent BUCKY bottom nav — mirrors index.html's 5-area bar (Old Glory palette) -->
+<!-- Persistent BUCKY bottom nav -- mirrors index.html's bar (Old Glory palette),
+     balanced two-row-on-phone grid (--bnav-cols set from JS so the rows stay
+     balanced whatever areas this person can see). Fixed on mobile (this page
+     has no composer to protect); hidden entirely on desktop (see the #sidenav
+     rail above). Built by the script placed after the main content block. -->
 <style>
   #buckyNav {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
-    display: flex; gap: 2px;
+    display: grid;
+    grid-template-columns: repeat(var(--bnav-cols, 6), minmax(0, 1fr));
+    gap: 2px 4px;
     background: rgba(255,255,255,.9);
     -webkit-backdrop-filter: saturate(1.3) blur(14px); backdrop-filter: saturate(1.3) blur(14px);
     border-top: 1px solid #d7e0f0;
-    padding: 6px 5px calc(env(safe-area-inset-bottom) + 6px);   /* trimmed so 8 areas fit at 390px */
+    padding: 3px 6px calc(env(safe-area-inset-bottom) + 3px);
     box-shadow: 0 -2px 16px rgba(35,51,87,.08);
   }
   #buckyNav a {
-    flex: 1 1 0; min-width: 0; text-decoration: none; cursor: pointer;
-    display: flex; flex-direction: column; align-items: center; gap: 3px;
-    padding: 7px 0 5px; border-radius: 13px; color: #5d6b86;
+    min-width: 0; text-decoration: none; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 5px 0 4px; border-radius: 12px; color: #5d6b86;
     transition: color .15s ease, background .15s ease, transform .1s ease;
   }
   #buckyNav a .bico { font-size: 21px; line-height: 1; filter: grayscale(.4) opacity(.75); transition: filter .15s ease, transform .12s ease; }
@@ -102,37 +174,16 @@
   #buckyNav a:active { transform: scale(.93); }
   #buckyNav a.active { color: #233357; background: #e7eefb; }
   #buckyNav a.active .bico { filter: none; transform: translateY(-1px) scale(1.08); }
-  @media (min-width: 700px) { #buckyNav { justify-content: center; gap: 6px; } #buckyNav a { flex: 0 1 132px; } }
+  @media (min-width: 700px) and (max-width: 1023.98px) {
+    #buckyNav { grid-template-columns: repeat(var(--bnav-all, 12), minmax(0, 96px)); justify-content: center; gap: 6px; }
+  }
+  /* The head <style> already hides #buckyNav at >=1024px, but this block's own
+     unconditional #buckyNav rule (above) shares the same specificity and comes
+     later in source order, so it would otherwise win the cascade -- restate the
+     hide here, last, so it actually sticks. */
+  @media (min-width: 1024px) { #buckyNav { display: none; } }
 </style>
 <nav id="buckyNav" aria-label="BUCKY sections"></nav>
-<script>
-(function () {
-  // 7 areas matching index.html's bottom bar (NAV_GROUPS). Both farmgpt + games live
-  // under "Play", so Play is the active tab on both pages. Bank is family-only —
-  // same BANK_USERS gate as index.html (keep the two lists in sync).
-  var BANK_USERS = ["Eleanor", "Isaac", "Dad", "Mom"];
-  var me = localStorage.getItem("choreUser") || "";
-  var NAV = [
-    ["🏠","index.html#dashboard","Home"],
-    ["📅","index.html#calendar","Plan"],
-    ["✅","index.html#chores","Chores"],
-    ["🛠️","index.html#workorders","Jobs"],
-    ["🛒","index.html#shopping","Shop"],
-    ["💰","index.html#farmbank","Bank"],
-    ["🐐","index.html#goathooves","Farm"],
-    ["🎮","games.html","Play"]
-  ].filter(function (n) { return n[2] !== "Bank" || BANK_USERS.indexOf(me) >= 0; });
-  var here = "games.html", el = document.getElementById("buckyNav");
-  NAV.forEach(function (n) {
-    var a = document.createElement("a"); a.href = n[1];
-    var ico = document.createElement("span"); ico.className = "bico"; ico.textContent = n[0];
-    var lbl = document.createElement("span"); lbl.className = "blabel"; lbl.textContent = n[2];
-    a.append(ico, lbl); a.title = n[2]; a.setAttribute("aria-label", n[2]);
-    if (n[1] === here) a.className = "active";
-    el.appendChild(a);
-  });
-})();
-</script>
 
 <main>
   <div id="lobbyBanners"></div>
@@ -141,6 +192,76 @@
     <li class="dash-grid" id="gamesGrid"></li>
   </ul>
 </main>
+<script>
+(function () {
+  // Mirrors index.html's NAV_GROUPS (12 areas: Home/Plan/Meals/Chores/Fit/News/Jobs/
+  // Shop/Bank/Farm/AI/Play). This page IS the "Play" area (games live under Play),
+  // so its entry has no href and renders active/inert instead of linking anywhere.
+  // Gate lists duplicated from index.html -- keep in sync with index.html.
+  var BANK_USERS = ["Eleanor", "Isaac", "Dad", "Mom"];
+  var MEAL_USERS = ["Mom", "Dad"];
+  var FITNESS_USERS = ["Isaac", "Eleanor", "Dad"];
+  var me = localStorage.getItem("choreUser") || "";
+  function seesBank(){ return BANK_USERS.indexOf(me) >= 0; }
+  function seesMeals(){ return MEAL_USERS.indexOf(me) >= 0; }
+  function seesFitness(){ return FITNESS_USERS.indexOf(me) >= 0; }
+
+  var NAV_GROUPS = [
+    { ico:"🏠", name:"Home",  href:"index.html#dashboard" },
+    { ico:"📅", name:"Plan",  href:"index.html#calendar" },
+    { ico:"🍽️", name:"Meals", href:"index.html#mealplan", gate:seesMeals },
+    { ico:"✅", name:"Chores",href:"index.html#chores" },
+    { ico:"💪", name:"Fit",   href:"index.html#fitness",  gate:seesFitness },
+    { ico:"📰", name:"News",  href:"index.html#news" },
+    { ico:"🛠️", name:"Jobs",  href:"index.html#workorders" },
+    { ico:"🛒", name:"Shop",  href:"index.html#shopping" },
+    { ico:"💰", name:"Bank",  href:"index.html#farmbank", gate:seesBank },
+    { ico:"🐐", name:"Farm",  href:"index.html#goathooves" },
+    { ico:"🌾", name:"AI",    href:"farmgpt.html" },
+    { ico:"🎮", name:"Play",  href:null, active:true },   // this page
+  ];
+  var shown = NAV_GROUPS.filter(function (g) { return !g.gate || g.gate(); });
+
+  // Mobile/tablet fixed bar -- balanced two rows on a phone (same --bnav-cols
+  // technique as index.html's buildBottomNav / farmgpt.html).
+  var bnav = document.getElementById("buckyNav");
+  bnav.style.setProperty("--bnav-cols", Math.ceil(shown.length / 2));
+  bnav.style.setProperty("--bnav-all", shown.length);
+  shown.forEach(function (g) {
+    var a = document.createElement("a");
+    if (g.href) a.href = g.href; else a.href = "javascript:void(0)";
+    var ico = document.createElement("span"); ico.className = "bico"; ico.textContent = g.ico;
+    var lbl = document.createElement("span"); lbl.className = "blabel"; lbl.textContent = g.name;
+    a.append(ico, lbl); a.title = g.name; a.setAttribute("aria-label", g.name);
+    if (g.active) a.className = "active";
+    bnav.appendChild(a);
+  });
+
+  // Desktop (>=1024px) left rail -- same data/gates, index.html's #sidenav look.
+  var sn = document.getElementById("sidenav");
+  var brand = document.createElement("a");
+  brand.className = "sn-brand"; brand.href = "index.html#dashboard";
+  brand.setAttribute("aria-label", "Back to dashboard");
+  var bn = document.createElement("div"); bn.className = "sn-name"; bn.textContent = "Bucky";
+  var bs = document.createElement("div"); bs.className = "sn-sub"; bs.textContent = "Family Farm Hub";
+  brand.append(bn, bs);
+  sn.appendChild(brand);
+
+  var list = document.createElement("div"); list.className = "sn-list";
+  shown.forEach(function (g) {
+    var a = document.createElement("a");
+    a.className = "sn-item" + (g.active ? " active" : "");
+    if (g.href) a.href = g.href; else a.href = "javascript:void(0)";
+    a.setAttribute("aria-label", g.name);
+    var ico = document.createElement("span"); ico.className = "sn-ico"; ico.textContent = g.ico;
+    var lbl = document.createElement("span"); lbl.className = "sn-label"; lbl.textContent = g.name;
+    a.append(ico, lbl);
+    list.appendChild(a);
+  });
+  sn.appendChild(list);
+})();
+</script>
+
 
 <script>
   // Every game the family can play. Add a tile here to add it to the games hub.

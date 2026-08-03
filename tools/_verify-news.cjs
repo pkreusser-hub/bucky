@@ -341,7 +341,9 @@ async function sectionServer(){
   ok(Object.keys(sum.body.summaries || {}).length === 2, "every article in the batch comes back with a summary");
   ok(sum.body.summaries[items[0].id] === "Written summary number 1.", "summaries are keyed back to the right article");
   ok(anthCalls === 1, "a batch of articles costs ONE model call, not one per article");
-  ok(anthLastBody && anthLastBody.model === "claude-sonnet-5", "summaries are written by Sonnet 5");
+  // 2026-08-03: switched Sonnet 5 -> Haiku (user call — a 40-word compression doesn't need
+  // the bigger model, and Haiku is ~a third the price).
+  ok(anthLastBody && anthLastBody.model === "claude-haiku-4-5", "summaries are written by Haiku");
   ok(anthLastBody && /Publication: The Daily Trumpet/.test(anthLastBody.messages[0].content),
     "the prompt carries the publication name and headline");
   ok(anthLastBody && /never add facts/i.test(anthLastBody.system), "the system prompt forbids inventing facts");
