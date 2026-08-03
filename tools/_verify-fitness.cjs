@@ -1142,9 +1142,13 @@ async function sectionKidPlans(browser){
   }));
   ok(own.isaac && own.eleanor && own.dad, "all three arrive with a plan of their own, no setup needed");
   ok(own.shared === null, "there is no shared plan to fall back on");
-  ok(/Lower Body|Upper Body|Athletic|Posterior|Core/.test(own.isaacTitle), `Isaac is on the programme Dad wrote ("${own.isaacTitle}")`);
-  ok(own.eleanorTitle !== own.isaacTitle,
-     `Eleanor is on hers, which differs from his ("${own.eleanorTitle}" vs "${own.isaacTitle}")`);
+  // 2026-08-03: the user copied Eleanor's programme onto Isaac and Dad, so all three now
+  // share ONE plan (per-person plumbing intact — three separate docs that happen to match).
+  // The old check asserted Isaac's plan DIFFERED from Eleanor's; that is no longer the spec.
+  ok(/Legs & Jump Power|Upper Body Push|Athletic Movement|Shoulders|Core \+ Lateral/.test(own.isaacTitle),
+     `Isaac is on the shared programme ("${own.isaacTitle}")`);
+  ok(own.eleanorTitle === own.isaacTitle,
+     `Eleanor's and Isaac's plans are the same programme by design ("${own.eleanorTitle}")`);
 
   // per-side arithmetic: 8 per leg is sixteen reps of work
   const maths = await page.evaluate(() => ({
@@ -1168,7 +1172,8 @@ async function sectionKidPlans(browser){
     meta: (document.querySelector(".fitmeta") || {}).textContent,
   }));
   ok(ui.rows === 5, `the day shows its five exercises (${ui.rows})`);
-  ok(/Lower Body|Upper Body|Athletic|Posterior|Core/i.test(ui.block || ""), `the block is named by the plan ("${(ui.block||"").trim()}")`);
+  // 2026-08-03: block names come from the shared (Eleanor-derived) programme now.
+  ok(/Legs & Jump Power|Upper Body|Athletic|Shoulders|Core/i.test(ui.block || ""), `the block is named by the plan ("${(ui.block||"").trim()}")`);
   ok(ui.amounts.some((a) => / ea$/.test(a)), `per-side sets read as "ea" on the row (${ui.amounts.join(" ")})`);
   ok(ui.subs.some((s) => /bodyweight|fine|reps|or /i.test(s)), "Dad's notes show under the exercise names");
 

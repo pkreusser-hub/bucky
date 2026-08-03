@@ -58,30 +58,51 @@
   /* candy stripe retired with the 2026-07 app-shell redesign (index.html dropped it too) */
   .stripes { display: none; }
 
-  main { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; max-width: 820px; width: 100%; margin: 0 auto; padding: 12px 12px 16px; }
+  main { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; max-width: 820px; width: 100%; margin: 0 auto; padding: 12px 12px 16px; }
   .view { display: none; flex: 1; min-height: 0; flex-direction: column; }
   .view.on { display: flex; }
 
-  /* ---------- home ---------- */
-  #homeCards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; }
-  @media (max-width: 560px){ #homeCards { grid-template-columns: 1fr; } }
+  /* ---------- home ----------
+     Everything on this view — the compact header row, the card grid, and the
+     Dad-only pill row — must fit a 390x844 phone (down to 390x700) with ZERO
+     document scroll, above the in-flow bottom nav. Every measurement below is
+     tight on purpose; grow with care and re-check against a small phone. */
+  #viewHome { gap: 10px; }
+  #homeIntro {
+    display: flex; align-items: center; gap: 10px; text-align: left;
+    color: var(--muted); font-size: 12px; line-height: 1.35; margin: 2px 0 0;
+  }
+  #homeIntro .bigIco { font-size: 30px; line-height: 1; flex: 0 0 auto; }
+  #homeIntro .hiTitle { font-weight: 800; font-size: 16px; color: var(--ink); }
+  #homeCards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
   .bigCard {
-    background: var(--card); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow);
-    padding: 26px 18px; cursor: pointer; text-align: center; display: flex; flex-direction: column; gap: 8px;
-    align-items: center; transition: transform .08s ease;
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
+    padding: 10px 10px; cursor: pointer; text-align: center; display: flex; flex-direction: column; gap: 3px;
+    align-items: center; transition: transform .08s ease; min-height: 0;
   }
   .bigCard:active { transform: scale(.98); }
-  .bigCard .ico { font-size: 46px; line-height: 1; }
-  .bigCard .nm { font-weight: 800; font-size: 20px; }
-  .bigCard .ds { font-size: 13px; color: var(--muted); line-height: 1.4; }
-  #homeIntro { text-align: center; color: var(--muted); font-size: 14px; margin-top: 22px; }
-  #homeIntro .bigIco { font-size: 54px; }
-  #usageLink { text-align: center; margin-top: 18px; }
-  #storyLogLink, #dungeonLink { text-align: center; margin-top: 8px; }
-  #dadUnlockLink { text-align: center; margin-top: 18px; }
+  .bigCard .ico { font-size: 26px; line-height: 1; }
+  .bigCard .nm { font-weight: 800; font-size: 13px; }
+  .bigCard .ds {
+    font-size: 10.5px; color: var(--muted); line-height: 1.3;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  /* Third card spans both columns on a 2-col phone grid so it isn't stranded alone. */
+  #homeCards .bigCard:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  @media (min-width: 640px) {
+    #homeCards { grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    #homeCards .bigCard:last-child:nth-child(odd) { grid-column: auto; }
+    .bigCard { padding: 16px 12px; gap: 6px; }
+    .bigCard .ico { font-size: 34px; }
+    .bigCard .nm { font-size: 15px; }
+    .bigCard .ds { font-size: 12px; -webkit-line-clamp: 3; }
+  }
+  /* Dad-only links: a compact wrapping pill row instead of stacked full-width buttons. */
+  #dadRow { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 2px; }
+  #usageLink, #storyLogLink, #dungeonLink, #dadUnlockLink { display: contents; }
   #usageLink button, #storyLogLink button, #dungeonLink button, #dadUnlockLink button {
-    background: none; border: 0; color: var(--muted); font-family: inherit; font-size: 13px;
-    font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px;
+    background: #eef3fc; border: 1px solid var(--line); color: var(--muted); font-family: inherit; font-size: 11.5px;
+    font-weight: 700; cursor: pointer; border-radius: 999px; padding: 6px 11px; text-decoration: none; white-space: nowrap;
   }
   /* Story Log (Dad monitoring) — one AI-written report per reader per day, not a transcript */
   #storyLogBody .slPending {
@@ -160,19 +181,42 @@
   #storyLogBody .slTransChoice { font-weight: 700; color: var(--navy, #233357); margin: 8px 0 4px; }
   #storyLogBody .slTransScene { white-space: pre-wrap; color: var(--ink); margin: 0 0 6px; }
 
-  /* ---------- usage ---------- */
+  /* ---------- usage ----------
+     The dashboard's tables have many narrow numeric columns (📖📝🔬🎲🧒 + tokens + cost) —
+     too many to ever fit 390px comfortably. Each table lives in its own horizontally
+     scrollable strip (never the page/body) so every figure stays reachable on mobile;
+     the summary tiles above it just wrap instead. */
   #usageBig { text-align: center; margin: 8px 0 2px; }
   #usageBig .amt { font-size: 40px; font-weight: 800; color: var(--green); }
   #usageBig .lbl { font-size: 13px; color: var(--muted); }
-  #usageSplit { display: flex; gap: 10px; justify-content: center; margin: 14px 0 4px; }
-  .usplit { flex: 1; max-width: 220px; background: #f4f7fd; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; text-align: center; }
-  .usplit .un { font-weight: 800; font-size: 14px; }
-  .usplit .ud { font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.5; }
-  #usageTable { width: 100%; border-collapse: collapse; margin-top: 14px; }
-  #usageTable th, #usageTable td { text-align: right; padding: 6px 8px; font-size: 13px; border-bottom: 1px solid var(--line); }
-  #usageTable th { color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .4px; }
-  #usageTable th:first-child, #usageTable td:first-child { text-align: left; }
+  #usageSplit { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 14px 0 4px; }
+  .usplit { flex: 1 1 150px; max-width: 220px; background: #f4f7fd; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; text-align: center; }
+  .usplit .un { font-weight: 800; font-size: 13px; }
+  .usplit .ud { font-size: 11.5px; color: var(--muted); margin-top: 2px; line-height: 1.5; }
+  .tblOuter { position: relative; margin-top: 14px; }
+  .tblScroll {
+    overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch;
+    border-radius: 8px; scrollbar-width: thin;
+  }
+  /* Right-edge fade — the affordance that says "there's more this way". Hidden once you've
+     scrolled all the way (JS toggles .end on the outer wrapper). */
+  .tblOuter::after {
+    content: ""; position: absolute; top: 0; right: 0; bottom: 0; width: 20px; pointer-events: none;
+    background: linear-gradient(to right, rgba(255,255,255,0), var(--card));
+    opacity: 1; transition: opacity .15s ease;
+  }
+  .tblOuter.end::after { opacity: 0; }
+  .tblHint { font-size: 10.5px; color: var(--muted); text-align: right; margin: 3px 2px 0; }
+  .usageTable { width: 100%; min-width: 480px; border-collapse: collapse; }
+  .usageTable th, .usageTable td { text-align: right; padding: 6px 8px; font-size: 12.5px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .usageTable th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .3px; position: sticky; top: 0; background: var(--card); }
+  .usageTable th:first-child, .usageTable td:first-child { text-align: left; position: sticky; left: 0; background: var(--card); }
+  .usageTable tr:last-child td { border-bottom: 0; }
   #usageNote { font-size: 11.5px; color: var(--muted); margin-top: 12px; line-height: 1.5; }
+  @media (max-width: 480px) {
+    .usageTable { min-width: 440px; }
+    .usageTable th, .usageTable td { padding: 5px 6px; font-size: 11.5px; }
+  }
 
   /* ---------- story: setup ---------- */
   .panel { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 16px; }
@@ -499,30 +543,34 @@
   <div class="view on" id="viewHome">
     <div id="homeIntro">
       <div class="bigIco">🌾</div>
-      <div style="font-weight:800; font-size:22px; color:var(--ink); margin:6px 0 4px;">FarmGPT</div>
-      <div>The Amen Farms family AI. What are we doing today?</div>
+      <div>
+        <div class="hiTitle">FarmGPT</div>
+        <div>The Amen Farms family AI. What are we doing today?</div>
+      </div>
     </div>
     <div id="homeCards">
       <div class="bigCard" id="cardStory">
         <div class="ico">📖</div>
         <div class="nm">Story Time</div>
-        <div class="ds">Choose-your-own-adventure! Describe a world and live the story, one choice at a time.</div>
+        <div class="ds">Choose-your-own-adventure, one choice at a time.</div>
       </div>
       <div class="bigCard" id="cardResearch">
         <div class="ico">🔬</div>
         <div class="nm">Research</div>
-        <div class="ds">Homework help, school research, and coding questions — with real explanations.</div>
+        <div class="ds">Homework help &amp; real explanations.</div>
       </div>
       <div class="bigCard" id="cardTeacher">
         <div class="ico">🍎</div>
         <div class="nm">TeacherGPT</div>
-        <div class="ds">Photograph teaching material — get a polished, printable quiz or test as a Google Doc.</div>
+        <div class="ds">Photograph material, get a printable quiz.</div>
       </div>
     </div>
-    <div id="usageLink"><button id="usageBtn">📊 API usage &amp; cost</button></div>
-    <div id="storyLogLink"><button id="storyLogBtn">📖 Story Log &mdash; kids' reading</button></div>
-    <div id="dungeonLink"><button id="dungeonBtn">🎲 Dungeon &mdash; D&amp;D table</button></div>
-    <div id="dadUnlockLink"><button id="dadUnlockBtn">🔒 Unlock Dad tools</button></div>
+    <div id="dadRow">
+      <div id="usageLink"><button id="usageBtn">📊 API usage</button></div>
+      <div id="storyLogLink"><button id="storyLogBtn">📖 Story Log</button></div>
+      <div id="dungeonLink"><button id="dungeonBtn">🎲 Dungeon</button></div>
+      <div id="dadUnlockLink"><button id="dadUnlockBtn">🔒 Unlock Dad tools</button></div>
+    </div>
   </div>
 
   <!-- ============ TEACHERGPT ============ -->
@@ -2029,8 +2077,30 @@
     }
     body.appendChild(split);
 
+    // A table this wide (many narrow numeric columns) never fits 390px — wrap it in its own
+    // horizontally-scrollable strip (never the page/body) with a fading affordance that clears
+    // once you've panned to the end. The totals row is the label column pinned via position:sticky
+    // so "which row is this" — and the always-visible #usageBig total above — need no panning.
+    function scrollWrap(tableEl) {
+      const outer = document.createElement("div"); outer.className = "tblOuter";
+      const scroller = document.createElement("div"); scroller.className = "tblScroll";
+      scroller.appendChild(tableEl);
+      outer.appendChild(scroller);
+      const hint = document.createElement("div"); hint.className = "tblHint"; hint.textContent = "↔ swipe for more";
+      const update = () => {
+        const atEnd = scroller.scrollWidth - scroller.clientWidth - scroller.scrollLeft < 4;
+        outer.classList.toggle("end", atEnd || scroller.scrollWidth <= scroller.clientWidth + 1);
+        hint.style.display = scroller.scrollWidth > scroller.clientWidth + 1 ? "" : "none";
+      };
+      scroller.addEventListener("scroll", update, { passive: true });
+      requestAnimationFrame(update);
+      const frag = document.createDocumentFragment();
+      frag.appendChild(outer); frag.appendChild(hint);
+      return frag;
+    }
+
     const table = document.createElement("table");
-    table.id = "usageTable";
+    table.className = "usageTable";
     const tokTotal = (d) => ["s", "u", "r", "d", "k", "a", "g", "c"].reduce((a, p) =>
       a + cw(d, p + "_in") + cw(d, p + "_out") + cw(d, p + "_cw") + cw(d, p + "_cr"), 0);
     table.innerHTML = "<tr><th>Day</th><th>📖</th><th>📝</th><th>🔬</th><th>🎲</th><th>🧒</th><th>Tokens</th><th>Est. cost</th></tr>";
@@ -2040,7 +2110,7 @@
       for (const c of cells) { const td = document.createElement("td"); td.textContent = c; tr.appendChild(td); }
       table.appendChild(tr);
     }
-    body.appendChild(table);
+    body.appendChild(scrollWrap(table));
 
     // Recent-hours breakdown (Central time). Hour ids are "YYYY-MM-DD-HH".
     if (hours && hours.length) {
@@ -2048,7 +2118,7 @@
       hHead.className = "panelTitle"; hHead.style.margin = "22px 2px 2px"; hHead.textContent = "🕐 Recent hours";
       body.appendChild(hHead);
       const ht = document.createElement("table");
-      ht.id = "usageTable";
+      ht.className = "usageTable";
       ht.innerHTML = "<tr><th>Hour (CT)</th><th>📖</th><th>📝</th><th>🔬</th><th>🎲</th><th>🧒</th><th>Tokens</th><th>Est. cost</th></tr>";
       for (const h of hours.slice(0, 18)) {
         const tr = document.createElement("tr");
@@ -2057,7 +2127,7 @@
         for (const c of cells) { const td = document.createElement("td"); td.textContent = c; tr.appendChild(td); }
         ht.appendChild(tr);
       }
-      body.appendChild(ht);
+      body.appendChild(scrollWrap(ht));
     }
 
     const note = document.createElement("div");

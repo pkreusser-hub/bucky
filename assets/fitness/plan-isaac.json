@@ -4,12 +4,13 @@
  "forKid": "Isaac",
  "days": {
   "mon": {
-   "title": "Lower Body Strength & Power",
+   "title": "Legs & Jump Power",
    "rounds": 2,
    "blocks": [
     {
      "group": "legs",
-     "label": "Lower Body Strength & Power",
+     "label": "Legs & Jump Power",
+     "focus": "Squatting strength and explosive power for blocking and spiking.",
      "items": [
       {
        "id": "Bodyweight_Squat",
@@ -40,7 +41,7 @@
        "id": "Standing_Dumbbell_Calf_Raise",
        "mode": "reps",
        "reps": 12,
-       "note": "or bodyweight"
+       "note": "or bodyweight calf raises"
       }
      ]
     }
@@ -53,24 +54,25 @@
     {
      "group": "chest",
      "label": "Upper Body Push + Core",
+     "focus": "Pushing strength and trunk control for serving and posture.",
      "items": [
       {
-       "id": "Pushups",
+       "id": "Incline_Push-Up",
        "mode": "reps",
        "reps": 8,
-       "note": "8–12 · knees or elevated hands if needed"
-      },
-      {
-       "id": "Dumbbell_Shoulder_Press",
-       "mode": "reps",
-       "reps": 8,
-       "note": "8–10 · light dumbbells, or the overhead press motion"
+       "note": "8–10 · knees or a higher surface if needed"
       },
       {
        "id": "Band_Pull_Apart",
        "mode": "reps",
        "reps": 12,
-       "note": "or a slow reverse fly motion"
+       "note": "or slow arm openings"
+      },
+      {
+       "id": "Dumbbell_Shoulder_Press",
+       "mode": "reps",
+       "reps": 8,
+       "note": "8–10 · light dumbbells"
       },
       {
        "id": "Plank",
@@ -89,12 +91,13 @@
    ]
   },
   "wed": {
-   "title": "Full-Body Athletic Movement",
+   "title": "Athletic Movement",
    "rounds": 2,
    "blocks": [
     {
      "group": "back",
-     "label": "Full-Body Athletic Movement",
+     "label": "Athletic Movement",
+     "focus": "Hip stability, back strength and coordination.",
      "items": [
       {
        "id": "Inchworm",
@@ -119,25 +122,26 @@
        "id": "Bent_Over_Two-Dumbbell_Row",
        "mode": "reps",
        "reps": 10,
-       "note": "or bodyweight Superman"
+       "note": "or bodyweight Superman holds"
       },
       {
        "id": "Air_Bike",
        "mode": "reps",
        "reps": 12,
-       "note": "controlled reps"
+       "note": "slow reps"
       }
      ]
     }
    ]
   },
   "thu": {
-   "title": "Posterior Chain & Shoulders",
+   "title": "Shoulders, Back & Glutes",
    "rounds": 2,
    "blocks": [
     {
      "group": "shoulders",
-     "label": "Posterior Chain & Shoulders",
+     "label": "Shoulders, Back & Glutes",
+     "focus": "Shoulder health for overhead actions, and a strong posterior chain.",
      "items": [
       {
        "id": "Butt_Lift_Bridge",
@@ -148,7 +152,7 @@
        "id": "Superman",
        "mode": "reps",
        "reps": 8,
-       "note": "8–10 · brief hold at the top"
+       "note": "8–10 · hold 1–2 sec at the top"
       },
       {
        "id": "Side_Lateral_Raise",
@@ -160,8 +164,7 @@
        "id": "One-Arm_Dumbbell_Row",
        "mode": "reps",
        "reps": 8,
-       "side": "per arm",
-       "note": "8–10 · or the two-arm version"
+       "side": "per arm"
       },
       {
        "id": "Plank",
@@ -174,12 +177,13 @@
    ]
   },
   "fri": {
-   "title": "Core + Balanced Strength",
+   "title": "Core + Lateral Power",
    "rounds": 2,
    "blocks": [
     {
      "group": "core",
-     "label": "Core + Balanced Strength",
+     "label": "Core + Lateral Power",
+     "focus": "Rotational core and side-to-side strength for court movement.",
      "items": [
       {
        "id": "Side_Leg_Raises",
