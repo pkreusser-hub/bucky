@@ -5748,3 +5748,55 @@ the harness. Rewritten to wait REAL wall time (900ms) and assert the countdown i
 Also: measure the rendered `img`, never its container — a container larger than the photo is
 dead letterbox space and must not count as "large" (that assertion is what caught the
 letterboxing). Shot: `shots/fit_demo.png`.
+
+## FITNESS follow-up 3 — the kids' real plans, as circuits (2026-08-02, same day)
+
+Dad supplied Isaac's and Eleanor's actual programmes (5 exercises × 5 days; Eleanor's is
+the volleyball cut, Isaac's the general-strength one). **All 25 named exercises already
+existed in the baked library — zero substitutions.** They ship as
+`assets/fitness/plan-{isaac,eleanor}.json`, validated at bake time like default-plan.json.
+
+**PER-KID DEFAULTS.** `fitEnsurePlan(who)` now falls back to `plan-<kid>.json` when no
+`fitPlan_<Kid>` override doc exists, so both kids arrive on their own programme with no
+setup. Precedence: **override doc > baked per-kid plan > shared plan**. The `{none:true}`
+tombstone suppresses BOTH the doc and the baked file, so "use the shared plan" still means
+what it says.
+
+**THREE ADDITIONS TO THE ITEM SHAPE**, all driven by what Dad actually wrote:
+- `side` ("per leg", "per arm", "each way") — the number is PER SIDE. Displays as `×8 ea`
+  and **doubles the time estimate**: eight per leg is sixteen reps of work, and counting
+  eight would under-read every single-leg day by half.
+- `note` — his ranges and swaps ("10–12 reps", "bodyweight lunges are fine", "hold 1–2 sec
+  at the top"), shown under the exercise name in place of the equipment line.
+- block `label` + `focus` — days carry their own names ("Legs & Jump Power") instead of a
+  generic muscle label. The Today chip is suppressed when a lone block just repeats the
+  day title.
+
+**CIRCUITS (`day.rounds`).** Dad: *"each exercise gets done twice, but in a circuit, so if
+there are 5 exercises then that's 10 total sets with rests between them."* `fitBuildSteps`
+runs the whole list `rounds` times with a rest between EVERY set including across the round
+boundary — 5 exercises × 2 rounds = 10 sets, 9 rests. A round card ("Round 2 of 2")
+replaces the per-block cards when rounds > 1 (carding both interrupts the circuit twice);
+it auto-advances on the same short timer the block card always used. Builder gets a
+Rounds 1/2/3 control.
+
+**THE ARITHMETIC, because the first two answers were wrong.** Plans as written: 4:24/day.
+Raising rest 20s → 30s only reached 5:04 — **five exercises is four gaps, so +10s each buys
+40 seconds**; the shortfall was never in the rests, it was ~3 minutes of actual work.
+Running the list twice is what fixed it: **10:52 · 9:44 · 11:08 · 9:56 · 11:28** (avg 10:33).
+
+**BUG THE CIRCUIT EXPOSED — progress was counted as DISTINCT EXERCISE IDS.** In a circuit the
+same movement comes round again, so round two credited nothing: the bar would have stalled at
+50% and the finish screen would have read "5 exercises" after ten sets. Now `setsDone` /
+`setsSkipped` count sets (player, progress bar, finish screen, `rec.sets`) while the id
+arrays stay unique — "which exercises did you do" is the useful question in the LOG, "how
+many sets" is the useful question DURING. Suite asserts both.
+
+**Suite 169 → 230.** New E3 (both plan files: 5 days Mon–Fri, weekend off, named blocks,
+per-side marks, notes preserved, Eleanor's focus lines; per-side doubling for reps AND
+timed holds; the circuit's step shape; a full 10-set walk reaching 100%). Restaged, with
+reasons: E2 assumed kids START on the shared plan — the premise this change reverses — so it
+now unforks Isaac first and asserts isolation as "Eleanor is UNAFFECTED" rather than "Eleanor
+follows the shared plan"; section C's "opens on a block card" became "opens on an intro card"
+(a circuit opens on a round card). **TEST GOTCHA:** `__FIT__.start()` is async — calling
+`steps()` straight after returns null.

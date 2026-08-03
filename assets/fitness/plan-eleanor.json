@@ -1,0 +1,232 @@
+{
+ "v": 1,
+ "rest": 30,
+ "forKid": "Eleanor",
+ "days": {
+  "mon": {
+   "title": "Legs & Jump Power",
+   "rounds": 2,
+   "blocks": [
+    {
+     "group": "legs",
+     "label": "Legs & Jump Power",
+     "focus": "Squatting strength and explosive power for blocking and spiking.",
+     "items": [
+      {
+       "id": "Bodyweight_Squat",
+       "mode": "reps",
+       "reps": 10,
+       "note": "10–12 reps"
+      },
+      {
+       "id": "Freehand_Jump_Squat",
+       "mode": "reps",
+       "reps": 8,
+       "note": "soft, controlled reps"
+      },
+      {
+       "id": "Dumbbell_Lunges",
+       "mode": "reps",
+       "reps": 8,
+       "side": "per leg",
+       "note": "bodyweight lunges are fine"
+      },
+      {
+       "id": "Single_Leg_Glute_Bridge",
+       "mode": "reps",
+       "reps": 8,
+       "side": "per leg"
+      },
+      {
+       "id": "Standing_Dumbbell_Calf_Raise",
+       "mode": "reps",
+       "reps": 12,
+       "note": "or bodyweight calf raises"
+      }
+     ]
+    }
+   ]
+  },
+  "tue": {
+   "title": "Upper Body Push + Core",
+   "rounds": 2,
+   "blocks": [
+    {
+     "group": "chest",
+     "label": "Upper Body Push + Core",
+     "focus": "Pushing strength and trunk control for serving and posture.",
+     "items": [
+      {
+       "id": "Incline_Push-Up",
+       "mode": "reps",
+       "reps": 8,
+       "note": "8–10 · knees or a higher surface if needed"
+      },
+      {
+       "id": "Band_Pull_Apart",
+       "mode": "reps",
+       "reps": 12,
+       "note": "or slow arm openings"
+      },
+      {
+       "id": "Dumbbell_Shoulder_Press",
+       "mode": "reps",
+       "reps": 8,
+       "note": "8–10 · light dumbbells"
+      },
+      {
+       "id": "Plank",
+       "mode": "time",
+       "secs": 20,
+       "note": "20–30 seconds"
+      },
+      {
+       "id": "Dead_Bug",
+       "mode": "reps",
+       "reps": 8,
+       "side": "per side"
+      }
+     ]
+    }
+   ]
+  },
+  "wed": {
+   "title": "Athletic Movement",
+   "rounds": 2,
+   "blocks": [
+    {
+     "group": "back",
+     "label": "Athletic Movement",
+     "focus": "Hip stability, back strength and coordination.",
+     "items": [
+      {
+       "id": "Inchworm",
+       "mode": "reps",
+       "reps": 6,
+       "note": "6–8"
+      },
+      {
+       "id": "Monster_Walk",
+       "mode": "reps",
+       "reps": 8,
+       "side": "steps each way",
+       "note": "or side steps without a band"
+      },
+      {
+       "id": "Glute_Kickback",
+       "mode": "reps",
+       "reps": 10,
+       "side": "per leg"
+      },
+      {
+       "id": "Bent_Over_Two-Dumbbell_Row",
+       "mode": "reps",
+       "reps": 10,
+       "note": "or bodyweight Superman holds"
+      },
+      {
+       "id": "Air_Bike",
+       "mode": "reps",
+       "reps": 12,
+       "note": "slow reps"
+      }
+     ]
+    }
+   ]
+  },
+  "thu": {
+   "title": "Shoulders, Back & Glutes",
+   "rounds": 2,
+   "blocks": [
+    {
+     "group": "shoulders",
+     "label": "Shoulders, Back & Glutes",
+     "focus": "Shoulder health for overhead actions, and a strong posterior chain.",
+     "items": [
+      {
+       "id": "Butt_Lift_Bridge",
+       "mode": "reps",
+       "reps": 12
+      },
+      {
+       "id": "Superman",
+       "mode": "reps",
+       "reps": 8,
+       "note": "8–10 · hold 1–2 sec at the top"
+      },
+      {
+       "id": "Side_Lateral_Raise",
+       "mode": "reps",
+       "reps": 10,
+       "note": "or lateral raises with bands"
+      },
+      {
+       "id": "One-Arm_Dumbbell_Row",
+       "mode": "reps",
+       "reps": 8,
+       "side": "per arm"
+      },
+      {
+       "id": "Plank",
+       "mode": "time",
+       "secs": 20,
+       "note": "20–25 seconds · a short side plank works too"
+      }
+     ]
+    }
+   ]
+  },
+  "fri": {
+   "title": "Core + Lateral Power",
+   "rounds": 2,
+   "blocks": [
+    {
+     "group": "core",
+     "label": "Core + Lateral Power",
+     "focus": "Rotational core and side-to-side strength for court movement.",
+     "items": [
+      {
+       "id": "Side_Leg_Raises",
+       "mode": "reps",
+       "reps": 10,
+       "side": "per side"
+      },
+      {
+       "id": "Cross-Body_Crunch",
+       "mode": "reps",
+       "reps": 12,
+       "note": "or regular crunches"
+      },
+      {
+       "id": "Hip_Circles_prone",
+       "mode": "reps",
+       "reps": 8,
+       "side": "each direction",
+       "note": "8–10"
+      },
+      {
+       "id": "Band_Pull_Apart",
+       "mode": "reps",
+       "reps": 10,
+       "note": "10–12 · or side lateral raises"
+      },
+      {
+       "id": "Bodyweight_Squat",
+       "mode": "reps",
+       "reps": 10,
+       "note": "or light jump squats"
+      }
+     ]
+    }
+   ]
+  },
+  "sat": {
+   "rest": true,
+   "title": "Rest Day"
+  },
+  "sun": {
+   "rest": true,
+   "title": "Rest Day"
+  }
+ }
+}

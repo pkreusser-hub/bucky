@@ -348,15 +348,20 @@ async function sectionPlayer(browser){
     return { phase: r.phase, steps: window.__FIT__.steps(), total: r.total,
              fullscreen: getComputedStyle(document.getElementById("fitPlayOverlay")).alignItems };
   });
-  ok(opened.phase === "block", "the workout opens on a muscle-group block card");
+  // A plain day opens on its muscle-group block card; a circuit opens on "Round 1 of N".
+  ok(opened.phase === "block" || opened.phase === "round",
+     `the workout opens on an intro card (${opened.phase})`);
   ok(opened.steps[opened.steps.length - 1] === "finish", "the step list ends with a finish screen");
   ok(opened.steps.filter((s) => s === "rest").length === opened.total - 1, "there is a rest between every pair of exercises (and not after the last)");
   ok(opened.fullscreen === "stretch", "the player is full-screen, not a bottom sheet");
 
   // ---- block card auto-advances on its own timer
-  await page.evaluate(() => { window.__FIT__.warp(9999); window.__FIT__.tick(); });
+  // Intro cards run on their own short timer — walk past whatever is there.
+  await page.evaluate(() => {
+    for (let i = 0; i < 4 && window.__FIT__.run().phase !== "ex"; i++){ window.__FIT__.warp(9999); window.__FIT__.tick(); }
+  });
   let st = await page.evaluate(() => window.__FIT__.run());
-  ok(st.phase === "ex", "the block card advances to the first exercise");
+  ok(st.phase === "ex", "the intro card advances itself to the first exercise");
 
   // ---- exercise screen contents
   const exUI = await page.evaluate(() => {
@@ -421,10 +426,10 @@ async function sectionPlayer(browser){
       await new Promise(res => setTimeout(res, 5));
     }
     const r = window.__FIT__.run();
-    return { done: r ? r.done.length : -1, skipped: r ? r.skipped.length : -1, total: r ? r.total : -1, finished: r ? r.finished : false, guard };
+    return { done: r ? r.setsDone : -1, skipped: r ? r.setsSkipped : -1, total: r ? r.total : -1, finished: r ? r.finished : false, guard };
   });
   ok(walked.finished, "the workout reaches its finish screen");
-  ok(walked.done === walked.total, `every exercise was completed (${walked.done}/${walked.total})`);
+  ok(walked.done === walked.total, `every set was completed (${walked.done}/${walked.total})`);
   ok(walked.skipped === 0, "nothing was skipped in a clean run");
 
   const finishUI = await page.evaluate(() => ({
@@ -433,7 +438,8 @@ async function sectionPlayer(browser){
     labels: [...document.querySelectorAll(".fitp-finish-stats .l")].map((v) => v.textContent),
   }));
   ok(finishUI.body, "a finish screen is shown");
-  ok(finishUI.labels.join("|") === "exercises|minutes|day streak", "the finish screen reports exercises, time and streak");
+  ok(/^(exercises|sets)\|minutes\|day streak$/.test(finishUI.labels.join("|")),
+     `the finish screen reports work, time and streak (${finishUI.labels.join(" / ")})`);
 
   if (WANT_SHOTS) await page.screenshot({ path: path.join(SHOTS, "fit_finish.png") });
 
@@ -921,16 +927,21 @@ async function sectionPerKid(browser){
   ok(sel.options.join(",") === ",Isaac,Eleanor", `a parent can pick whose plan to look at (${sel.labels.join(" / ")})`);
   ok(sel.selCount === 1 && sel.selected === "", "it starts on the shared plan");
 
-  // ---- both kids start out on the shared plan
+  // Both kids now SHIP with a plan of their own (see E3), so to exercise the fork flow
+  // from the top this puts Isaac back on the shared plan first.
   const start = await page.evaluate(() => ({
     isaac: window.__FIT__.hasOwnPlan("Isaac"),
     eleanor: window.__FIT__.hasOwnPlan("Eleanor"),
   }));
-  ok(!start.isaac && !start.eleanor, "out of the box both kids follow one shared plan");
+  ok(start.isaac && start.eleanor, "both kids ship with a plan of their own");
 
-  // ---- viewing a kid says so, and offers the fork
-  await page.evaluate(() => window.__FIT__.setView("Isaac"));
-  await sleep(200);
+  await page.evaluate(async () => { window.__FIT__.setView("Isaac"); await window.__FIT__.unfork("Isaac"); });
+  await sleep(250);
+  const reverted0 = await page.evaluate(() => window.__FIT__.hasOwnPlan("Isaac"));
+  ok(!reverted0, "…and can be put back on the shared plan");
+
+  // ---- viewing a kid on the shared plan says so, and offers the fork
+  await sleep(150);
   const beforeFork = await page.evaluate(() => ({
     own: (document.getElementById("fitForkNote") || { dataset:{} }).dataset.own,
     text: (document.querySelector("#fitForkNote .fitfork-t") || {}).textContent,
@@ -954,7 +965,7 @@ async function sectionPerKid(browser){
     stored: !!localStorage.getItem("setting_fitPlan_Isaac"),
   }));
   ok(forked.isaac, "Isaac now has his own plan");
-  ok(!forked.eleanor, "…and Eleanor is untouched by that");
+  ok(forked.eleanor === start.eleanor, "…and forking Isaac doesn't change Eleanor's state");
   ok(forked.own === "1" && /Use the shared plan/.test(forked.btn || ""), "the banner flips to offer going back");
   ok(/Isaac's plan/.test(forked.editLabel || ""), `the edit button now names Isaac ("${(forked.editLabel||"").trim()}")`);
   ok(forked.stored, "Isaac's plan is persisted to its own doc");
@@ -990,7 +1001,7 @@ async function sectionPerKid(browser){
   }));
   ok(afterEdit.isaacTitle === "Isaac Only", "the edit lands on Isaac's plan");
   ok(afterEdit.sharedTitle !== "Isaac Only", `the shared plan is unchanged ("${afterEdit.sharedTitle}")`);
-  ok(afterEdit.eleanorTitle === afterEdit.sharedTitle, "Eleanor still follows the shared plan");
+  ok(afterEdit.eleanorTitle !== "Isaac Only", `Eleanor's plan is unaffected ("${afterEdit.eleanorTitle}")`);
 
   // ---- and it survives a reload
   await gotoApp(page);
@@ -1021,7 +1032,9 @@ async function sectionPerKid(browser){
   }));
   ok(bothWays.shared === "Everyone Else", "the shared plan can still be edited");
   ok(bothWays.isaac === "Isaac Only", "…without disturbing Isaac's own plan");
-  ok(bothWays.eleanor === "Everyone Else", "Eleanor, still on the shared plan, follows the change");
+  // Eleanor is on a plan of her own, so a shared-plan edit must not reach her either.
+  ok(bothWays.eleanor !== "Everyone Else" && bothWays.eleanor !== "Isaac Only",
+     `…nor Eleanor's ("${bothWays.eleanor}")`);
 
   // ---- reverting Isaac puts him back
   await page.evaluate(async () => { window.__FIT__.setView("Isaac"); await new Promise(r => setTimeout(r, 150)); await window.__FIT__.unfork("Isaac"); });
@@ -1064,6 +1077,179 @@ async function sectionPerKid(browser){
     ok(kErr.length === 0, "0 JS page errors (kid pass)" + (kErr.length ? ": " + kErr.slice(0,2).join(" | ") : ""));
     await k.close();
   }
+}
+
+/* ====================== E3. THE KIDS' OWN PLANS ============================ */
+async function sectionKidPlans(browser){
+  section("E3. Isaac's and Eleanor's real plans");
+
+  // ---- the baked files themselves (pure Node)
+  const lib = JSON.parse(fs.readFileSync(path.join(FIT, "exercises.json"), "utf8"));
+  const ids = new Set(lib.exercises.map((x) => x.id));
+  const WD = ["mon","tue","wed","thu","fri","sat","sun"];
+
+  for (const kid of ["isaac", "eleanor"]){
+    const p = path.join(FIT, `plan-${kid}.json`);
+    ok(fs.existsSync(p), `plan-${kid}.json is baked`);
+    if (!fs.existsSync(p)) continue;
+    const plan = JSON.parse(fs.readFileSync(p, "utf8"));
+
+    ok(WD.every((d) => plan.days[d]), `${kid}: all 7 weekdays are covered`);
+    const work = WD.filter((d) => !plan.days[d].rest);
+    const rest = WD.filter((d) => plan.days[d].rest);
+    ok(work.length === 5 && work.join() === "mon,tue,wed,thu,fri", `${kid}: five training days, Mon–Fri`);
+    ok(rest.length === 2 && rest.join() === "sat,sun", `${kid}: the weekend is off`);
+
+    let bad = [], counts = [], sided = 0, noted = 0;
+    for (const d of work){
+      const day = plan.days[d];
+      ok(!!day.title, `${kid}/${d}: the day is named ("${day.title}")`);
+      const items = day.blocks.flatMap((b) => b.items);
+      counts.push(items.length);
+      for (const it of items){
+        if (!ids.has(it.id)) bad.push(`${d}:${it.id}`);
+        if (it.side) sided++;
+        if (it.note) noted++;
+        const okAmt = (it.mode === "time" && it.secs > 0) || (it.mode === "reps" && it.reps > 0);
+        if (!okAmt) bad.push(`${d}:${it.id} bad amount`);
+      }
+      ok(day.blocks.every((b) => b.label), `${kid}/${d}: the block carries its own name`);
+    }
+    ok(bad.length === 0, `${kid}: every exercise exists and has a real amount` + (bad.length ? ": " + bad.slice(0,4).join(", ") : ""));
+    ok(counts.every((c) => c === 5), `${kid}: five exercises every day (${counts.join(",")})`);
+    ok(sided >= 5, `${kid}: per-side sets are marked (${sided} of them)`);
+    ok(noted >= 8, `${kid}: Dad's notes and swaps are kept (${noted})`);
+  }
+
+  // Eleanor's plan is the volleyball cut — it carries her focus lines
+  const el = JSON.parse(fs.readFileSync(path.join(FIT, "plan-eleanor.json"), "utf8"));
+  const focuses = ["mon","tue","wed","thu","fri"].filter((d) => el.days[d].blocks[0].focus).length;
+  ok(focuses === 5, `Eleanor's plan keeps her per-day focus lines (${focuses}/5)`);
+
+  // ---- in the app
+  const { page, errors } = await newPage(browser, { user: "Isaac" });
+  await gotoApp(page);
+  await pinWorkoutDay(page);
+
+  const own = await page.evaluate(() => ({
+    isaac: window.__FIT__.hasOwnPlan("Isaac"),
+    eleanor: window.__FIT__.hasOwnPlan("Eleanor"),
+    isaacTitle: window.__FIT__.dayOf(undefined, "Isaac").title,
+    eleanorTitle: window.__FIT__.dayOf(undefined, "Eleanor").title,
+    sharedTitle: window.__FIT__.dayOf(undefined, "").title,
+  }));
+  ok(own.isaac && own.eleanor, "both kids arrive with a plan of their own, no setup needed");
+  ok(own.isaacTitle !== own.sharedTitle, `Isaac is on his own plan ("${own.isaacTitle}") not the shared one ("${own.sharedTitle}")`);
+  ok(/Lower Body|Upper Body|Athletic|Posterior|Core/.test(own.isaacTitle), "…and it's the programme Dad wrote");
+  ok(own.eleanorTitle !== own.sharedTitle, `Eleanor likewise ("${own.eleanorTitle}")`);
+
+  // per-side arithmetic: 8 per leg is sixteen reps of work
+  const maths = await page.evaluate(() => ({
+    plain: window.__FIT__.itemSecs({ mode:"reps", reps:8 }),
+    perSide: window.__FIT__.itemSecs({ mode:"reps", reps:8, side:"per leg" }),
+    timePlain: window.__FIT__.itemSecs({ mode:"time", secs:20 }),
+    timeSide: window.__FIT__.itemSecs({ mode:"time", secs:20, side:"per side" }),
+  }));
+  ok(maths.perSide === maths.plain * 2, `a per-side set counts double (${maths.plain}s → ${maths.perSide}s)`);
+  ok(maths.timeSide === maths.timePlain * 2, "…for timed holds too");
+
+  // and it reaches the screen
+  await page.evaluate(() => window.__NAV__.goTo("fitness"));
+  await page.waitForFunction(() => document.querySelector(".fitwrap .fitrow.tap"), { timeout: 10000 });
+  const ui = await page.evaluate(() => ({
+    title: (document.querySelector(".fithead h3") || {}).textContent,
+    block: (document.querySelector(".fitblock-h") || {}).textContent,
+    rows: document.querySelectorAll(".fitwrap .fitrow.tap").length,
+    amounts: [...document.querySelectorAll(".fitwrap .fitrow-amt")].map((a) => a.textContent),
+    subs: [...document.querySelectorAll(".fitwrap .fitrow-sub")].map((a) => a.textContent),
+    meta: (document.querySelector(".fitmeta") || {}).textContent,
+  }));
+  ok(ui.rows === 5, `the day shows its five exercises (${ui.rows})`);
+  ok(/Lower Body|Upper Body|Athletic|Posterior|Core/i.test(ui.block || ""), `the block is named by the plan ("${(ui.block||"").trim()}")`);
+  ok(ui.amounts.some((a) => / ea$/.test(a)), `per-side sets read as "ea" on the row (${ui.amounts.join(" ")})`);
+  ok(ui.subs.some((s) => /bodyweight|fine|reps|or /i.test(s)), "Dad's notes show under the exercise names");
+
+  // the player says "per leg" rather than a bare "reps"
+  const inPlayer = await page.evaluate(async () => {
+    await window.__FIT__.start();
+    window.__FIT__.warp(9999); window.__FIT__.tick();
+    let guard = 0;
+    while (guard++ < 40){
+      const r = window.__FIT__.run();
+      if (r && r.phase === "ex" && r.step.it.side) break;
+      if (r && r.phase === "ex") window.__FIT__.advance("done");
+      else { window.__FIT__.warp(999999); window.__FIT__.tick(); }
+      await new Promise(res => setTimeout(res, 5));
+    }
+    await new Promise(res => setTimeout(res, 60));
+    return { unit: (document.querySelector(".fitp-amtsub") || {}).textContent,
+             note: (document.querySelector(".fitp-note") || {}).textContent,
+             side: (window.__FIT__.run().step.it || {}).side };
+  });
+  ok(/per leg|per side|per arm|each way/.test(inPlayer.unit || ""),
+     `the player spells out the side ("${inPlayer.unit}")`);
+  await page.evaluate(() => window.__FIT__.quit());
+
+  /* ---- the circuit: five exercises run twice, with a rest between all ten sets ---- */
+  const circuit = await page.evaluate(async () => {
+    const day = window.__FIT__.dayOf();
+    await window.__FIT__.start();
+    const steps = window.__FIT__.steps();
+    const r = window.__FIT__.run();
+    window.__FIT__.quit();
+    return { rounds: day.rounds, exercises: day.blocks.flatMap(b => b.items).length,
+             steps, ex: steps.filter(s => s === "ex").length, rest: steps.filter(s => s === "rest").length,
+             roundCards: steps.filter(s => s === "round").length, total: r.total,
+             secs: window.__FIT__.duration() };
+  });
+  ok(circuit.rounds === 2, "the day is a 2-round circuit");
+  ok(circuit.ex === circuit.exercises * 2, `${circuit.exercises} exercises become ${circuit.ex} sets`);
+  ok(circuit.rest === circuit.ex - 1, `a rest sits between all of them (${circuit.rest} rests for ${circuit.ex} sets)`);
+  ok(circuit.roundCards === 2, "each round is announced");
+  ok(circuit.total === circuit.ex, "the player counts sets, not exercises");
+  ok(circuit.secs >= 540 && circuit.secs <= 720,
+     `the circuit lands near ten minutes (${Math.floor(circuit.secs/60)}:${String(circuit.secs%60).padStart(2,"0")})`);
+
+  // rest length is the plan's, not the old default
+  const restLen = await page.evaluate(async () => {
+    await window.__FIT__.start();
+    const s = window.__FIT__.steps();
+    const step = window.__FIT__.run();
+    const rest = (function(){ let i = 0; for (const t of s){ if (t === "rest") return i; i++; } return -1; })();
+    window.__FIT__.quit();
+    return window.__FIT__.plan().rest;
+  });
+  ok(restLen === 30, `the rest between sets is 30 seconds (${restLen})`);
+
+  /* Walking the whole circuit must reach 100% — the same movement comes round twice, and
+     a unique-id progress count would stall at half. */
+  const walked = await page.evaluate(async () => {
+    await window.__FIT__.start();
+    let guard = 0;
+    while (guard++ < 500){
+      const r = window.__FIT__.run();
+      if (!r || r.finished) break;
+      if (r.phase === "ex" && r.step.it.mode === "reps") window.__FIT__.advance("done");
+      else { window.__FIT__.warp(999999); window.__FIT__.tick(); }
+      await new Promise(res => setTimeout(res, 3));
+    }
+    const r = window.__FIT__.run();
+    const stats = [...document.querySelectorAll(".fitp-finish-stats .v")].map(v => v.textContent);
+    const labels = [...document.querySelectorAll(".fitp-finish-stats .l")].map(v => v.textContent);
+    const rec = window.__FIT__.record();
+    return { setsDone: r.setsDone, total: r.total, finished: r.finished, stats, labels,
+             recSets: rec && rec.sets, recDone: rec && rec.done.length };
+  });
+  ok(walked.finished && walked.setsDone === walked.total,
+     `every set is credited across both rounds (${walked.setsDone}/${walked.total})`);
+  ok(walked.stats[0] === String(walked.total) && walked.labels[0] === "sets",
+     `the finish screen reports ${walked.stats[0]} ${walked.labels[0]}`);
+  ok(walked.recSets === walked.total, "the log records the set count");
+  ok(walked.recDone === circuit.exercises, `…and the distinct exercises separately (${walked.recDone})`);
+  await page.evaluate(() => window.__FIT__.quit());
+
+  ok(errors.length === 0, "0 JS page errors" + (errors.length ? ": " + errors.slice(0,3).join(" | ") : ""));
+  await page.close();
 }
 
 /* ============================== F. LAYOUT ================================== */
@@ -1155,6 +1341,7 @@ async function sectionLayout(browser){
     await sectionStreak(browser);
     await sectionBuilder(browser);
     await sectionPerKid(browser);
+    await sectionKidPlans(browser);
     await sectionLayout(browser);
   } catch (err) {
     fail++; failures.push("suite crashed: " + err.message);
