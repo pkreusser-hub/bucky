@@ -6593,3 +6593,55 @@ shipped default, which is precisely what makes it the important case to test.
 Regressions: news **137/137**, fitness **253/253** (one assertion updated for the new Fitness
 gate). New hook `window.__CHORES__` (careLoaded/onDuty/allDone/mine/mint).
 Shots: `shots/chores_offduty.png`, `shots/chrome_2row.png`.
+
+---
+
+# 🖥 NAV ICONS · NEWS TOPICS · DESKTOP SITE (2026-08-03, orchestrated batch: sonnet nav/news + opus desktop)
+
+Three user asks, all in index.html. Suites: news **157/157** · chore-care **49/49** · fitness
+**253/253**, 0 page errors.
+
+## Nav
+- **🌾 AI** is its own bottom-nav area (NAV_GROUPS entry with `url:"farmgpt.html"` — a group
+  with `.url` navigates instead of calling navGroup, never highlights). The FarmGPT feature
+  card was removed from renderPlay.
+- **🍽️ Meals** is its own area (pulled out of Plan), gated by seesMeals(); using the nav
+  button forces `bucky_meal_page = "today"` before render so it always lands on Today.
+- 12 areas now; the two-row phone grid balances automatically via `--bnav-cols`.
+
+## News: topics, not publication names
+- Each source carries a `topic` (preset list incl. US News/World/Defense/Sports/…; default
+  "News"; legacy sources without the field read "News" via `NEWS_TOPIC_DEFAULT`). Dad sets it
+  per-row in the Publications sheet; saves immediately.
+- Filter chips = "All" + distinct topics of the user's ENABLED publications, `flex-wrap` so
+  they all fit with no scrolling. Pick persisted in `bucky_news_topic`.
+- **📰 dropdown** (everyone, not Dad-gated): checkbox per publication, per-USER via
+  localStorage `bucky_news_off_<name>`. Disabling hides that pub's articles and its topic chip
+  when orphaned; the SHARED digest fetch is untouched (other users still need those sources).
+- Hook additions: `__NEWS__.topics/topic/offIds/togglePub/setTopic`.
+- TEST GOTCHA (cost the sonnet agent real time): `newPage`'s `evaluateOnNewDocument` re-seeds
+  `choreUser` on EVERY navigation, silently stomping a mid-test profile switch on reload — it
+  now only seeds when nothing is set. And the 📰 dropdown stays open across its own re-render,
+  so a test must not "reopen" it blindly.
+
+## Desktop website layout (≥1024px only)
+- **Left rail 230px** (`buildSideNav`, rebuilt from `syncTabsUI` so the highlight can't
+  drift): wordmark + vertical nav from the SAME NAV_GROUPS/gates/SUBNAV_LABEL, active-group
+  child links indented. Bell/who are NOT moved — `body{padding-left:230px}` slides the
+  existing header right of the rail; its title hides and `#deskCrumb` names the open section
+  (so "Bucky" appears once, in the rail). `#bnav` + `#subnav` hidden, body's 196px nav
+  clearance returned.
+- Content `main` max-width 900px centred right of the rail.
+- **Home is two-column at desktop** — the ONE DOM change: renderDashboard builds
+  `.home2-main`/`.home2-rail` wrappers ONLY when `matchMedia(min-width:1024px)` matches
+  (below, both names alias the flat container, so the phone DOM is byte-identical — a pure
+  CSS grid over the flat list left holes because columns share rows). A matchMedia change
+  listener re-renders Home at the boundary crossing only.
+- 390px behaviour is sacred and asserted unchanged; the 700–1023px band keeps the old
+  clustered one-row bar.
+- SUITE RESTAGE OF NOTE: chore-care's old "desktop keeps a single nav row" had become
+  VACUOUS (hidden buttons all report top 0 → one-entry Set) — replaced with real assertions:
+  bnav hidden, rail visible with ≥10 entries, active highlight, content clear of the rail,
+  crumb correct, two-column Home, rail click switches tabs, and 390px restores everything.
+
+Shots: worktree `shots/desk_{home,news,chores,mobile_unchanged}.png`.

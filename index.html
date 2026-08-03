@@ -1174,11 +1174,18 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .newsbtn:active { transform: scale(.96); }
   .newsbtn.busy { opacity: .55; pointer-events: none; }
 
-  /* Publication filter chips — "from each" without breaking the one daily feed */
-  .newsfilter { display: flex; gap: 6px; overflow-x: auto; padding: 0 2px 2px; margin-bottom: 12px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
-  .newsfilter::-webkit-scrollbar { display: none; }
-  .newsfilter button { flex: 0 0 auto; border: 1px solid var(--line); background: var(--card); color: var(--muted); border-radius: 999px; padding: 7px 13px; font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+  /* Topic filter chips — wraps rather than scrolling, so the whole row is visible at
+     once; kept compact so ~6 topics fit in two wrapped lines at 390px. */
+  .newsfilter { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 2px 2px; margin-bottom: 12px; }
+  .newsfilter button { flex: 0 0 auto; border: 1px solid var(--line); background: var(--card); color: var(--muted); border-radius: 999px; padding: 6px 11px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; }
   .newsfilter button.sel { background: var(--navy, #233357); border-color: var(--navy, #233357); color: #fff; }
+
+  /* Per-reader publication toggle (📰) — everyone gets this, unlike the Dad-only
+     Publications sheet. Small dropdown anchored under the header. */
+  .newspubmenu { position: relative; z-index: 5; background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 10px 12px; margin: 0 2px 12px; }
+  .newspubmenu-h { font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; margin-bottom: 6px; }
+  .newspubrow { display: flex; align-items: center; gap: 10px; padding: 7px 0; font-size: 13.5px; cursor: pointer; }
+  .newspubrow input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; }
 
   /* An article */
   .newscard { display: flex; gap: 12px; align-items: flex-start; width: 100%; text-align: left; font: inherit; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 13px 14px; margin-bottom: 10px; cursor: pointer; }
@@ -1206,11 +1213,119 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .newssrc-b { flex: 1 1 auto; min-width: 0; }
   .newssrc-t { font-size: 14px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .newssrc-u { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .newssrc-topic { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  .newssrc-topicsel { margin-top: 4px; font: inherit; font-size: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); padding: 3px 6px; }
   .newssrc-x { flex: 0 0 auto; border: 1px solid var(--line); background: var(--card); color: var(--red, #ba303e); border-radius: 10px; width: 34px; height: 34px; font-size: 15px; cursor: pointer; }
   .newsadd { display: flex; gap: 8px; margin-top: 12px; }
   .newsadd input { flex: 1 1 auto; min-width: 0; }
   .newshint { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
   .newshint.err { color: var(--red, #ba303e); }
+
+  /* ==========================================================================
+     🖥 DESKTOP (2026-08-03) — a website, not a stretched phone.
+     Everything in this block is gated on min-width:1024px and NOTHING outside it
+     changed: below 1024px the app is byte-identical to the phone build (same
+     header, same two-row bottom nav, same single-column Home). The 700px rule
+     that gives the bottom nav one row still governs the 700–1023px tablet band.
+
+     The layout: a fixed left rail carries the wordmark and the whole of
+     NAV_GROUPS (built by buildSideNav from the same data + gates as #bnav), the
+     bottom nav is hidden and the body padding it reserved is handed back, and
+     the existing <header> stays exactly where it is in the DOM — body's
+     padding-left slides it right of the rail, so #bellBtn / #whoBtn keep their
+     original nodes and handlers. The header's own title hides so "Bucky /
+     Family Farm Hub" is never on screen twice; a section crumb takes its place.
+     ========================================================================== */
+  #sidenav, .crumb { display: none; }
+  @media (min-width: 1024px) {
+    :root { --sidenav-w: 230px; }
+    body {
+      padding-left: var(--sidenav-w);
+      padding-bottom: 28px;   /* the fixed bottom nav is gone — give the space back */
+    }
+    body.cal-fixed { padding-bottom: 0; }
+
+    #sidenav {
+      display: flex; flex-direction: column;
+      position: fixed; top: 0; bottom: 0; left: 0; width: var(--sidenav-w); z-index: 30;
+      background: linear-gradient(180deg, #0d3d76 0%, var(--green) 55%, var(--green-d) 100%);
+      border-right: 1px solid rgba(255,255,255,.10);
+      box-shadow: 2px 0 18px rgba(35,51,87,.14);
+      overflow-y: auto; overscroll-behavior: contain;
+    }
+    .sn-brand {
+      display: block; width: 100%; text-align: left; cursor: pointer;
+      background: transparent; border: 0; color: #fff; font: inherit;
+      padding: 20px 18px 16px; border-bottom: 1px solid rgba(255,255,255,.12);
+    }
+    .sn-brand .sn-name { font-size: 22px; font-weight: 800; letter-spacing: .2px; line-height: 1.05; }
+    .sn-brand .sn-sub {
+      font-size: 10.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+      color: rgba(255,255,255,.62); margin-top: 4px;
+    }
+    .sn-brand::after {
+      content: ""; display: block; height: 3px; width: 46px; margin-top: 10px; border-radius: 2px;
+      background: repeating-linear-gradient(90deg, var(--red) 0 9px, #fff 9px 18px);
+    }
+    .sn-list { display: flex; flex-direction: column; gap: 2px; padding: 12px 10px 20px; }
+    .sn-item {
+      display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+      border: 0; background: transparent; cursor: pointer; font: inherit;
+      color: rgba(255,255,255,.80); padding: 10px 12px; border-radius: 11px;
+      border-left: 3px solid transparent;
+      transition: background .15s ease, color .15s ease;
+    }
+    .sn-item:hover { background: rgba(255,255,255,.09); color: #fff; }
+    .sn-item .sn-ico { font-size: 18px; line-height: 1; flex: 0 0 auto; filter: grayscale(.35) opacity(.9); }
+    .sn-item .sn-label { font-size: 14.5px; font-weight: 700; letter-spacing: .1px; }
+    .sn-item.active {
+      background: rgba(255,255,255,.15); color: #fff; border-left-color: var(--red);
+    }
+    .sn-item.active .sn-ico { filter: none; }
+    .sn-sub-item {
+      display: block; width: 100%; text-align: left; border: 0; background: transparent;
+      cursor: pointer; font: inherit; font-size: 13px; font-weight: 700;
+      color: rgba(255,255,255,.62); padding: 7px 12px 7px 46px; border-radius: 9px;
+      transition: background .15s ease, color .15s ease;
+    }
+    .sn-sub-item:hover { background: rgba(255,255,255,.07); color: #fff; }
+    .sn-sub-item.sel { color: #fff; }
+    .sn-sub-item.sel::before { content: "› "; color: var(--red); font-weight: 800; }
+
+    /* The header becomes a slim strip over the content column. Its title hides
+       (the rail carries the wordmark); the crumb names the open section, and the
+       bell + profile buttons stay put — same nodes, same handlers. */
+    header { padding-top: 8px; padding-bottom: 7px; }
+    header .titletext { display: none; }
+    header #homeBtn { display: none; }
+    .crumb {
+      display: block; flex: 1; min-width: 0; font-size: 15px; font-weight: 800; letter-spacing: .2px;
+      color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .bell { width: 32px; height: 32px; font-size: 15px; }
+    .titlerow .who { font-size: 13px; padding: 6px 12px; }
+
+    #bnav { display: none; }
+    /* The rail already lists the active area's sections as child links — a second
+       segmented copy under the header would say the same thing twice. */
+    #subnav.on { display: none; }
+
+    main { max-width: 900px; margin: 0 auto; padding: 20px 24px 32px; }
+    .fab { bottom: 28px; right: 32px; }
+
+    /* Home reads as a homepage: a full-width hero over a wide main column and a
+       narrower right rail. The two column wrappers are built by renderDashboard
+       ONLY at this breakpoint (see the deskCols branch there) — on a phone the
+       cards stay the flat, same-order flex column they have always been. */
+    .home2 {
+      display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+      gap: 16px; align-items: start;
+    }
+    .home2 > .hero, .home2 > .hfoot { grid-column: 1 / -1; }
+    .home2-main, .home2-rail { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+    .home2 .hero { padding: 22px 24px; }
+    .home2 .hero h1 { font-size: 27px; }
+  }
 
 </style>
 </head>
@@ -1232,6 +1347,10 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   </div>
 </div>
 
+<!-- Desktop left rail (≥1024px, hidden below): same NAV_GROUPS data and the same
+     navGroupVisible/navKeyVisible gates as the bottom bar — see buildSideNav. -->
+<nav id="sidenav"></nav>
+
 <header>
   <div class="titlerow">
     <div id="homeBtn" title="Back to dashboard">
@@ -1240,6 +1359,9 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
         <div class="subtitle">Family Farm Hub</div>
       </div>
     </div>
+    <!-- Desktop only (≥1024px): names the open section where the wordmark used to sit,
+         so "Bucky / Family Farm Hub" appears once, in the left rail. -->
+    <div class="crumb" id="deskCrumb"></div>
     <button class="bell" id="bellBtn" title="Notifications">🔔<span class="bell-badge" id="bellBadge" style="display:none;">0</span></button>
     <button class="who" id="whoBtn">👤 <span id="whoName">Set name</span></button>
   </div>
@@ -1880,7 +2002,8 @@ let currentTab = initialHashTab;
 // Home — 2026-07-20 user request; keep the mirrored navs in farmgpt/games/weather in sync).
 const NAV_GROUPS = [
   { id:"home",  ico:"🏠",  name:"Home",   def:"dashboard",  members:["dashboard"] },
-  { id:"plan",  ico:"📅",  name:"Plan",   def:"calendar",   members:["calendar","animalcare","mealplan"] },
+  { id:"plan",  ico:"📅",  name:"Plan",   def:"calendar",   members:["calendar","animalcare"] },
+  { id:"meals", ico:"🍽️",  name:"Meals",  def:"mealplan",   members:["mealplan"] },
   { id:"tasks", ico:"✅",  name:"Chores", def:"chores",     members:["chores"] },
   { id:"fit",   ico:"💪",  name:"Fit",    def:"fitness",    members:["fitness"] },
   { id:"news",  ico:"📰",  name:"News",   def:"news",       members:["news"] },
@@ -1888,6 +2011,7 @@ const NAV_GROUPS = [
   { id:"shop",  ico:"🛒",  name:"Shop",   def:"shopping",   members:["shopping"] },
   { id:"bank",  ico:"💰",  name:"Bank",   def:"farmbank",   members:["farmbank"] },
   { id:"farm",  ico:"🐐",  name:"Farm",   def:"goathooves", members:["goathooves","goatcare"] },
+  { id:"gpt",   ico:"🌾",  name:"AI",     url:"farmgpt.html" },
   { id:"play",  ico:"🎮",  name:"Play",   def:"play",       members:["play","game","catgame"] },
 ];
 const SECTION_BY_KEY = Object.fromEntries(SECTIONS.map(s => [s.key, s]));
@@ -1898,10 +2022,10 @@ const SUBNAV_LABEL = { chores:"Chores", workorders:"Jobs", shopping:"Shopping", 
 // bottom tab returns you where you were (only tracked for Tasks/Farm sub-nav).
 const groupLast = {};
 function groupForTab(tab){
-  return NAV_GROUPS.find(g => g.members.includes(tab)) || NAV_GROUPS[0];
+  return NAV_GROUPS.find(g => (g.members || []).includes(tab)) || NAV_GROUPS[0];
 }
-// Farm Bank is hidden from the nav for non-family users; Meals is Mom-only; everything else
-// is visible to all. (Precedent: the farmbank chip gate.)
+// Farm Bank is hidden from the nav for non-family users; Meals is Mom/Dad only; everything
+// else is visible to all. (Precedent: the farmbank chip gate.)
 function navKeyVisible(key){
   if (key === "farmbank") return seesBank();
   if (key === "mealplan") return seesMeals();
@@ -1911,6 +2035,7 @@ function navKeyVisible(key){
 function navGroupVisible(gid){
   if (gid === "bank") return seesBank();
   if (gid === "fit") return seesFitness();
+  if (gid === "meals") return seesMeals();
   return true;
 }
 let careView = "hooves";    // which activity the Goat Care tab is updating
@@ -2438,16 +2563,8 @@ function renderPlay(){
   wrap.style.cssText = "background:transparent;border:0;box-shadow:none;padding:0;";
   const menu = document.createElement("div"); menu.className = "playmenu";
 
-  // FarmGPT feature card
-  const gpt = document.createElement("button");
-  gpt.className = "playcard gpt";
-  gpt.innerHTML = `<span class="pcico">🌾</span>`
-    + `<span class="pctext"><span class="pctitle"></span><span class="pcdesc"></span></span>`
-    + `<span class="pcarrow">›</span>`;
-  gpt.querySelector(".pctitle").textContent = "FarmGPT";
-  gpt.querySelector(".pcdesc").textContent = "Story time & homework helper AI";
-  gpt.onclick = () => { location.href = "farmgpt.html"; };
-  menu.appendChild(gpt);
+  // FarmGPT now has its own bottom-nav icon (🌾 AI), so Play no longer carries a
+  // feature card for it — just the games grid + hub link.
 
   // the arcade shelf
   const grid = document.createElement("div"); grid.className = "pgrid";
@@ -2718,6 +2835,15 @@ function renderDashboard(){
   const home = document.createElement("div"); home.className = "home2";
   li.appendChild(home);
 
+  // 2026-08-03 — DESKTOP ONLY: split the cards into a wide main column and a right rail.
+  // A CSS-only two-column grid over the flat card list can't work: the columns would
+  // share ROWS, so a short card beside a tall one leaves a visible hole. Two wrappers
+  // give each column its own flow. Below 1024px both names point at `home`, so every
+  // append below lands in exactly the order (and the flat DOM) the phone has always had.
+  const deskCols = window.matchMedia("(min-width: 1024px)").matches;
+  const mainCol = deskCols ? Object.assign(document.createElement("div"), { className:"home2-main" }) : home;
+  const railCol = deskCols ? Object.assign(document.createElement("div"), { className:"home2-rail" }) : home;
+
   // ---- hero: greeting (+ chore progress ring for the kids with chores) ----
   const showChores = seesChores();
   const CIRC = 2 * Math.PI * 30, pct = total ? done/total : 0;   // r=30
@@ -2754,6 +2880,7 @@ function renderDashboard(){
   hero.querySelector("h1").textContent = `${part[0]}${who ? ", " + who : ""} ${part[1]}`;
   if (showChores) hero.onclick = () => goTo("chores");
   home.appendChild(hero);
+  if (deskCols) home.append(mainCol, railCol);   // hero spans both; the columns follow it
 
   // ---- calendar widget: today's date + the next few family events (universal — no
   // audience gating). Whole card taps into Plan → Calendar; paints instantly from the
@@ -2762,7 +2889,7 @@ function renderDashboard(){
   const calw = document.createElement("button"); calw.className = "calwidget"; calw.type = "button";
   calw.setAttribute("aria-label", "Open the family calendar");
   calw.onclick = () => goTo("calendar");
-  home.appendChild(calw);
+  railCol.appendChild(calw);
   paintCalWidget(calw);
   calHomeRefresh();
 
@@ -2775,7 +2902,7 @@ function renderDashboard(){
   const carew = document.createElement("button"); carew.className = "carewidget"; carew.type = "button";
   carew.setAttribute("aria-label", "Open animal care coverage");
   carew.onclick = () => goTo("animalcare");
-  home.appendChild(carew);
+  railCol.appendChild(carew);
   paintCareWidget(carew);
   careHomeRefresh();
 
@@ -2787,7 +2914,7 @@ function renderDashboard(){
     const fitw = document.createElement("button"); fitw.className = "fitcard"; fitw.type = "button";
     fitw.setAttribute("aria-label", "Open today's workout");
     fitw.onclick = () => goTo("fitness");
-    home.appendChild(fitw);
+    railCol.appendChild(fitw);
     paintFitCard(fitw);
     fitHomeRefresh();
   }
@@ -2797,7 +2924,7 @@ function renderDashboard(){
   wx.type = "button";
   wx.setAttribute("aria-label", "Open Woodville weather and radar");
   wx.onclick = () => { location.href = "weather.html"; };
-  home.appendChild(wx);
+  railCol.appendChild(wx);
   renderWxInto(wx);
 
   // ---- FarmGPT research ask bar → hands the question (and optionally a photo) to
@@ -2828,7 +2955,7 @@ function renderDashboard(){
       location.href = "farmgpt.html?ask=" + encodeURIComponent(q) + "&photo=1";
     });
   });
-  home.appendChild(ask);
+  mainCol.appendChild(ask);
 
   // ---- Today's chores card (Isaac & Eleanor only) ----
   // Only NOT-done chores show here (the hero ring above still counts done/total across ALL of
@@ -2874,7 +3001,7 @@ function renderDashboard(){
       }
     }
     card2.appendChild(rows);
-    home.appendChild(card2);
+    mainCol.appendChild(card2);
   }
 
   // (Open work orders card removed from Home 2026-07-23 — see the Jobs tab.)
@@ -2893,11 +3020,11 @@ function renderDashboard(){
   };
   jb.onclick = () => { jokeExtra++; showJoke(); };
   showJoke();
-  home.appendChild(joke);
+  mainCol.appendChild(joke);
 
   // ---- stock watchlist (bottom of the dashboard) ----
   const stocks = document.createElement("div"); stocks.className = "stockcard";
-  home.appendChild(stocks);
+  railCol.appendChild(stocks);
   paintStocks(stocks);
   stocksRefresh();
 
@@ -9474,6 +9601,7 @@ function syncTabsUI(){
   document.querySelectorAll("#tabs .tab").forEach(t=>{
     t.classList.toggle("active", t.dataset.freq === currentTab);
   });
+  buildSideNav();   // 2026-08-03 — desktop rail: highlight + child links follow the tab
 }
 
 /* ============================================================================
@@ -9501,7 +9629,7 @@ function syncTabsUI(){
    ============================================================================ */
 
 const NEWS_MAX_SOURCES = 25;
-let newsSources = null;            // [{id,title,url,feedUrl,added,addedBy}] once loaded
+let newsSources = null;            // [{id,title,url,feedUrl,topic,added,addedBy}] once loaded
 let newsSourcesLoaded = false;
 let newsDigest = null;             // {day, sig, generatedAt, items:[...]}
 let newsDigestLoaded = false;
@@ -9510,8 +9638,13 @@ let newsSummarizing = false;       // summary batches are in flight
 let newsLastFail = 0;              // when a fetch last FAILED (retry floor)
 const NEWS_RETRY_MS = 60000;       // don't auto-retry a failing fetch more than once a minute
 let newsError = "";                // last fetch problem, shown under the feed
-let newsFilter = localStorage.getItem("bucky_news_filter") || "";   // "" = all publications
+// The filter chips are TOPICS (a publication's own subject, e.g. "Sports"), not
+// publication names — several publications can share one topic. "" = All.
+const NEWS_TOPIC_PRESETS = ["US News","World","Defense","Sports","Tech","Business","Farm & Rural","Local","Fun","News"];
+const NEWS_TOPIC_DEFAULT = "News";
+let newsTopic = localStorage.getItem("bucky_news_topic") || "";
 let newsNowOverride = null;        // tests only
+let newsPubMenuOpen = false;       // the 📰 per-user publication toggle dropdown
 
 // ---- Clock / day keys (America/Chicago, en-CA — tz-safe, DST-safe, testable) ----
 function newsNow(){ return newsNowOverride ? new Date(newsNowOverride) : new Date(); }
@@ -9528,6 +9661,41 @@ function newsMarkRead(id){
   const s = newsReadSet(); s.add(id);
   // Only today's ids matter; cap so the key can't grow without bound.
   try { localStorage.setItem("bucky_news_read", JSON.stringify([...s].slice(-400))); } catch {}
+}
+
+/** A source's topic — a publication saved before this feature (or with the field cleared)
+    reads as the default "News" everywhere, never undefined. */
+function newsSourceTopic(s){
+  return (s && s.topic) || NEWS_TOPIC_DEFAULT;
+}
+
+/* ---- Per-user publication on/off (this device's reader, not the shared subscription
+   list) — keyed by profile so Isaac turning off Sports doesn't touch what Dad reads. ---- */
+function newsOffKey(){ return "bucky_news_off_" + (myName() || "anon"); }
+function newsOffIds(){
+  try { return new Set(JSON.parse(localStorage.getItem(newsOffKey())) || []); } catch { return new Set(); }
+}
+function newsSetOffIds(set){
+  try { localStorage.setItem(newsOffKey(), JSON.stringify([...set])); } catch {}
+}
+function newsTogglePub(id){
+  const s = newsOffIds();
+  if (s.has(id)) s.delete(id); else s.add(id);
+  newsSetOffIds(s);
+  if (currentTab === "news") renderNews();
+}
+/** Publications THIS reader has left on — the shared digest fetch is untouched; this only
+    filters what one device's feed shows. */
+function newsEnabledSources(){
+  const off = newsOffIds();
+  return (newsSources || []).filter(s => !off.has(s.id));
+}
+/** Topic chips: "All" plus every distinct topic among this reader's enabled publications,
+    in the preset's own order (so the row is stable rather than reordering as sources come
+    and go). A topic with no enabled publication left simply has no chip. */
+function newsChipTopics(){
+  const present = new Set(newsEnabledSources().map(s => newsSourceTopic(s)));
+  return NEWS_TOPIC_PRESETS.filter(t => present.has(t));
 }
 
 /* ---- Storage ---- */
@@ -9723,7 +9891,37 @@ function renderNews(){
   srcBtn.textContent = "📚 Publications";
   srcBtn.onclick = () => newsOpenSources();
   head.appendChild(srcBtn);
+
+  // Per-reader publication toggle — everyone gets this (unlike 📚 Publications, which is
+  // Dad's shared subscription list). Stays open across the re-render it triggers via
+  // newsPubMenuOpen.
+  const pubBtn = document.createElement("button");
+  pubBtn.type = "button"; pubBtn.className = "newsbtn"; pubBtn.id = "newsPubBtn";
+  pubBtn.textContent = "📰";
+  pubBtn.title = "Choose which publications you see";
+  pubBtn.setAttribute("aria-label", "Choose which publications you see");
+  pubBtn.onclick = (e) => { e.stopPropagation(); newsPubMenuOpen = !newsPubMenuOpen; renderNews(); };
+  head.appendChild(pubBtn);
   root.appendChild(head);
+
+  if (newsPubMenuOpen && newsSourcesLoaded && newsSources.length){
+    const off = newsOffIds();
+    const menu = document.createElement("div"); menu.className = "newspubmenu"; menu.id = "newsPubMenu";
+    menu.onclick = (e) => e.stopPropagation();
+    const h = document.createElement("div"); h.className = "newspubmenu-h"; h.textContent = "Your publications";
+    menu.appendChild(h);
+    for (const s of newsSources){
+      const row = document.createElement("label"); row.className = "newspubrow";
+      const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !off.has(s.id);
+      cb.dataset.pub = s.id;
+      cb.onclick = (e) => e.stopPropagation();
+      cb.onchange = () => newsTogglePub(s.id);
+      const t = document.createElement("span"); t.textContent = s.title || s.url;
+      row.appendChild(cb); row.appendChild(t);
+      menu.appendChild(row);
+    }
+    root.appendChild(menu);
+  }
 
   const body = document.createElement("div"); body.id = "newsBody"; root.appendChild(body);
 
@@ -9756,32 +9954,45 @@ function renderNews(){
   }
 
   const items = (newsDigest && Array.isArray(newsDigest.items)) ? newsDigest.items : [];
+  const enabledSources = newsEnabledSources();
+  const enabledIds = new Set(enabledSources.map(s => s.id));
+  const topicById = new Map((newsSources || []).map(s => [s.id, newsSourceTopic(s)]));
 
-  // Publication filter. Only worth showing once there's more than one to choose between.
-  if (newsSources.length > 1){
+  // Topic filter. Only worth showing once there's more than one topic among what THIS
+  // reader has left enabled — a topic with every publication turned off just has no chip.
+  const chipTopics = newsChipTopics();
+  // A pick pointing at a topic that no longer exists (its last publication was removed,
+  // retopicked, or turned off) shows nothing and looks broken — fall back to All.
+  if (newsTopic && !chipTopics.includes(newsTopic)) newsTopic = "";
+  if (chipTopics.length > 1){
     const f = document.createElement("div"); f.className = "newsfilter"; f.id = "newsFilter";
-    const mk = (id, label) => {
-      const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.dataset.src = id;
-      if (newsFilter === id) b.classList.add("sel");
-      b.onclick = () => { newsFilter = id; localStorage.setItem("bucky_news_filter", id); renderNews(); };
+    const mk = (val, label) => {
+      const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.dataset.topic = val;
+      if (newsTopic === val) b.classList.add("sel");
+      b.onclick = () => { newsTopic = val; localStorage.setItem("bucky_news_topic", val); renderNews(); };
       f.appendChild(b);
     };
     mk("", "All");
-    for (const s of newsSources) mk(s.id, s.title || s.url);
+    for (const t of chipTopics) mk(t, t);
     root.insertBefore(f, body);
   }
 
-  // A filter pointing at a publication Dad has since removed shows nothing and looks
-  // broken, so fall back to All rather than leaving the reader stranded.
-  if (newsFilter && !newsSources.some(s => s.id === newsFilter)) newsFilter = "";
-  const shown = newsFilter ? items.filter(it => it.sourceId === newsFilter) : items;
+  const shown = items.filter(it => enabledIds.has(it.sourceId) && (!newsTopic || topicById.get(it.sourceId) === newsTopic));
 
   if (!shown.length){
     const e = document.createElement("div"); e.className = "newsempty";
-    const h4 = document.createElement("h4"); h4.textContent = newsBusy ? "Fetching the headlines…" : "Nothing new yet";
+    const h4 = document.createElement("h4");
     const p = document.createElement("p");
-    p.textContent = newsBusy ? "Reading your publications and writing the summaries."
-      : "No articles came through. Pull down the refresh button to try again.";
+    if (newsSources.length && enabledSources.length === 0){
+      h4.textContent = "You've turned off every publication";
+      p.textContent = "Tap 📰 above to turn some back on.";
+    } else if (newsBusy){
+      h4.textContent = "Fetching the headlines…";
+      p.textContent = "Reading your publications and writing the summaries.";
+    } else {
+      h4.textContent = "Nothing new yet";
+      p.textContent = "No articles came through. Pull down the refresh button to try again.";
+    }
     e.appendChild(h4); e.appendChild(p); body.appendChild(e);
   } else {
     const read = newsReadSet();
@@ -9882,7 +10093,28 @@ function newsPaintSources(readOnly){
     const b = document.createElement("div"); b.className = "newssrc-b";
     const t = document.createElement("div"); t.className = "newssrc-t"; t.textContent = s.title || s.url;
     const u = document.createElement("div"); u.className = "newssrc-u"; u.textContent = s.url || s.feedUrl;
-    b.appendChild(t); b.appendChild(u); row.appendChild(b);
+    b.appendChild(t); b.appendChild(u);
+    // Topic: editable (Dad, unlocked) or a plain line (everyone else). Legacy sources
+    // saved before this feature carry no `topic` field at all — newsSourceTopic() reads
+    // those as "News", never undefined, in both modes.
+    if (readOnly){
+      const tp = document.createElement("div"); tp.className = "newssrc-topic"; tp.textContent = newsSourceTopic(s);
+      b.appendChild(tp);
+    } else {
+      const sel = document.createElement("select"); sel.className = "newssrc-topicsel"; sel.dataset.topicFor = s.id;
+      for (const opt of NEWS_TOPIC_PRESETS){
+        const o = document.createElement("option"); o.value = opt; o.textContent = opt;
+        if (newsSourceTopic(s) === opt) o.selected = true;
+        sel.appendChild(o);
+      }
+      sel.onchange = async () => {
+        s.topic = sel.value;
+        await newsSaveSources();
+        if (currentTab === "news") renderNews();
+      };
+      b.appendChild(sel);
+    }
+    row.appendChild(b);
     if (!readOnly){
       const x = document.createElement("button"); x.type = "button"; x.className = "newssrc-x";
       x.textContent = "✕"; x.title = "Remove"; x.setAttribute("aria-label", "Remove " + (s.title || s.url));
@@ -9971,6 +10203,7 @@ async function newsAddSource(raw){
       title: (res.title || "").trim() || new URL(res.feedUrl).hostname.replace(/^www\./, ""),
       url: res.siteUrl || url,
       feedUrl: res.feedUrl,
+      topic: NEWS_TOPIC_DEFAULT,
       added: Date.now(),
       addedBy: myName(),
     });
@@ -9994,6 +10227,16 @@ async function newsEnsureAll(){
 
 document.getElementById("newsSheetOverlay").onclick = (e) => { if (e.target.id === "newsSheetOverlay") newsCloseSources(); };
 
+// The 📰 publication dropdown closes on any tap outside it. Interactive elements INSIDE
+// the menu (and the 📰 button itself) stop propagation on click, so this only ever sees
+// genuine outside taps — never a stale reference to a checkbox the menu's own re-render
+// just replaced.
+document.addEventListener("click", () => {
+  if (!newsPubMenuOpen) return;
+  newsPubMenuOpen = false;
+  if (currentTab === "news") renderNews();
+});
+
 // Test hook — mirrors __FIT__ / __MEAL__ so the suite can drive the section deterministically.
 window.__NEWS__ = {
   setNow: (iso) => { newsNowOverride = iso ? new Date(iso).getTime() : null; if (currentTab === "news") renderNews(); },
@@ -10005,11 +10248,16 @@ window.__NEWS__ = {
   add: (url) => newsAddSource(url),
   openSources: () => newsOpenSources(),
   paintSources: (ro) => newsPaintSources(ro),
-  filter: () => newsFilter,
   error: () => newsError,
   busy: () => newsBusy || newsSummarizing,
   summarize: () => newsSummarizePending(),
   reload: () => { newsSourcesLoaded = false; newsDigestLoaded = false; return newsEnsureAll(); },
+  // Topics (Task 3): the filter is now per-topic, not per-publication.
+  topics: () => newsChipTopics(),
+  topic: () => newsTopic,
+  setTopic: (t) => { newsTopic = t || ""; localStorage.setItem("bucky_news_topic", newsTopic); if (currentTab === "news") renderNews(); },
+  offIds: () => [...newsOffIds()],
+  togglePub: (id) => newsTogglePub(id),
 };
 
 // Build the fixed 5-area bottom bar from NAV_GROUPS.
@@ -10031,8 +10279,73 @@ function buildBottomNav(){
     const ico = document.createElement("span"); ico.className = "bico"; ico.textContent = g.ico;
     const lbl = document.createElement("span"); lbl.className = "blabel"; lbl.textContent = g.name;
     b.append(ico, lbl);
-    b.onclick = () => navGroup(g.id);
+    // A group with a `.url` (FarmGPT) is an out-of-app link — it navigates the page
+    // straight there instead of switching tabs, and is therefore never "active".
+    b.onclick = g.url ? (() => { location.href = g.url; }) : (() => navGroup(g.id));
     nav.appendChild(b);
+  }
+}
+
+// 2026-08-03 — the desktop left rail. Same NAV_GROUPS, same navGroupVisible gate and the
+// same click behaviour as buildBottomNav (a group with a .url navigates away, everything
+// else calls navGroup); the ACTIVE area additionally lists its sections as indented child
+// links, using the sub-nav's own navKeyVisible gate and SUBNAV_LABEL names. Rebuilt from
+// syncTabsUI so the highlight and the child list follow the open tab. Cheap: ~12 buttons.
+function buildSideNav(){
+  const nav = document.getElementById("sidenav");
+  if (!nav) return;
+  nav.innerHTML = "";
+
+  const brand = document.createElement("button");
+  brand.className = "sn-brand"; brand.type = "button";
+  brand.setAttribute("aria-label", "Back to dashboard");
+  const bn = document.createElement("div"); bn.className = "sn-name"; bn.textContent = "Bucky";
+  const bs = document.createElement("div"); bs.className = "sn-sub"; bs.textContent = "Family Farm Hub";
+  brand.append(bn, bs);
+  brand.onclick = () => goTo("dashboard");
+  nav.appendChild(brand);
+
+  const listEl = document.createElement("div"); listEl.className = "sn-list";
+  const activeGid = groupForTab(currentTab).id;
+  for (const g of NAV_GROUPS){
+    if (!navGroupVisible(g.id)) continue;
+    const isActive = !g.url && g.id === activeGid;
+    const b = document.createElement("button");
+    b.className = "sn-item" + (isActive ? " active" : "");
+    b.type = "button";
+    b.dataset.gid = g.id;
+    b.setAttribute("aria-label", g.name);
+    const ico = document.createElement("span"); ico.className = "sn-ico"; ico.textContent = g.ico;
+    const lbl = document.createElement("span"); lbl.className = "sn-label"; lbl.textContent = g.name;
+    b.append(ico, lbl);
+    b.onclick = g.url ? (() => { location.href = g.url; }) : (() => navGroup(g.id));
+    listEl.appendChild(b);
+
+    if (isActive){
+      const subs = (g.members || []).filter(k => SECTION_BY_KEY[k] && navKeyVisible(k));
+      if (subs.length > 1){
+        for (const key of subs){
+          const c = document.createElement("button");
+          c.className = "sn-sub-item" + (key === currentTab ? " sel" : "");
+          c.type = "button";
+          c.dataset.key = key;
+          c.textContent = SUBNAV_LABEL[key] || SECTION_BY_KEY[key].name;
+          c.onclick = () => goTo(key);
+          listEl.appendChild(c);
+        }
+      }
+    }
+  }
+  nav.appendChild(listEl);
+
+  // The header's own wordmark hides on desktop, so the strip names the open section
+  // instead — one "Bucky / Family Farm Hub" on screen, never two.
+  const crumb = document.getElementById("deskCrumb");
+  if (crumb){
+    const g = NAV_GROUPS.find(x => x.id === activeGid);
+    const s = SECTION_BY_KEY[currentTab];
+    crumb.textContent = currentTab === "dashboard" ? "Home"
+      : (SUBNAV_LABEL[currentTab] || (s && s.name) || (g && g.name) || "Home");
   }
 }
 
@@ -10040,6 +10353,9 @@ function buildBottomNav(){
 // skipping any section hidden for this user (e.g. Tasks lands on Jobs when Chores is hidden).
 function navGroup(gid){
   const g = NAV_GROUPS.find(x => x.id === gid); if (!g) return;
+  if (g.url){ location.href = g.url; return; }
+  // Meals always lands on Today, not wherever the reader last scrolled to.
+  if (gid === "meals"){ mealPage = "today"; localStorage.setItem("bucky_meal_page", "today"); }
   let target = groupLast[gid];
   if (!target || !navKeyVisible(target)) target = g.def;
   if (!navKeyVisible(target)) target = g.members.find(navKeyVisible) || g.def;
@@ -10051,7 +10367,7 @@ function renderSubnav(){
   const el = document.getElementById("subnav");
   if (!el) return;
   const g = groupForTab(currentTab);
-  const subs = g.members.filter(k => SECTION_BY_KEY[k] && navKeyVisible(k));   // only real, visible sections get a chip
+  const subs = (g.members || []).filter(k => SECTION_BY_KEY[k] && navKeyVisible(k));   // only real, visible sections get a chip
   if (subs.length < 2){ el.className = ""; el.innerHTML = ""; return; }
   el.className = "on";
   el.innerHTML = "";
@@ -10097,7 +10413,16 @@ function buildTabs(){
 // ---- Wire up UI ----
 buildTabs();
 buildBottomNav();
-syncTabsUI();
+syncTabsUI();   // also builds the desktop rail
+// 2026-08-03 — Home is built flat on a phone and in two columns on a desktop, so it has to
+// be rebuilt when the window crosses 1024px. matchMedia fires only at the boundary itself,
+// so this is not a resize handler and costs nothing while dragging.
+try {
+  const deskMQ = window.matchMedia("(min-width: 1024px)");
+  const onDeskChange = () => { syncTabsUI(); if (currentTab === "dashboard") render(); };
+  if (deskMQ.addEventListener) deskMQ.addEventListener("change", onDeskChange);
+  else if (deskMQ.addListener) deskMQ.addListener(onDeskChange);
+} catch {}
 document.getElementById("homeBtn").onclick = () => goTo("dashboard");
 // Seed the history baseline so the first Back press returns to the initial tab (not straight out).
 try { history.replaceState({ buckyTab: currentTab }, ""); } catch {}

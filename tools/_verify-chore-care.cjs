@@ -324,11 +324,68 @@ async function sectionChrome(browser){
     }
   }
 
-  // Desktop keeps ONE row — the two-row layout solves a phone problem.
+  /* 2026-08-03 RESTAGE — this used to assert "desktop keeps a single nav row". At ≥1024px
+     there is no bottom nav at all: the areas moved into a fixed left rail and the body
+     padding the bar reserved was handed back. (The old check would in fact still have
+     PASSED vacuously — every hidden button reports top 0, so the Set has one entry — which
+     is exactly why it is replaced rather than deleted.) */
   await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });
-  await sleep(400);
-  const deskRows = await page.evaluate(() => new Set([...document.querySelectorAll("#bnav .bnav-btn")].map(b => Math.round(b.getBoundingClientRect().top))).size);
-  ok(deskRows === 1, `desktop keeps a single nav row (${deskRows})`);
+  await page.evaluate(() => window.__NAV__.goTo("dashboard"));
+  await sleep(600);
+  const desk = await page.evaluate(() => {
+    const nav = document.getElementById("bnav");
+    const sn = document.getElementById("sidenav");
+    const items = [...document.querySelectorAll("#sidenav .sn-item")];
+    const snBox = sn.getBoundingClientRect();
+    const main = document.querySelector(".home2-main"), rail = document.querySelector(".home2-rail");
+    const mBox = document.querySelector("main").getBoundingClientRect();
+    return {
+      bnav: getComputedStyle(nav).display,
+      bnavVisible: nav.getBoundingClientRect().height > 0,
+      sidenav: getComputedStyle(sn).display,
+      snWidth: Math.round(snBox.width), snRight: Math.round(snBox.right),
+      items: items.length,
+      active: (document.querySelector("#sidenav .sn-item.active .sn-label") || {}).textContent,
+      mainLeft: Math.round(mBox.left),
+      twoCols: !!(main && rail) && Math.abs(main.getBoundingClientRect().top - rail.getBoundingClientRect().top) < 2
+               && rail.getBoundingClientRect().left >= main.getBoundingClientRect().right,
+      titleHidden: getComputedStyle(document.querySelector("header .titletext")).display === "none",
+      crumb: document.getElementById("deskCrumb").textContent,
+      bell: !!document.getElementById("bellBtn") && document.getElementById("bellBtn").getBoundingClientRect().width > 0,
+      who: !!document.getElementById("whoBtn") && document.getElementById("whoBtn").getBoundingClientRect().width > 0,
+    };
+  });
+  ok(desk.bnav === "none" && !desk.bnavVisible, `the bottom nav is gone on desktop (${desk.bnav})`);
+  ok(desk.sidenav !== "none" && desk.snWidth >= 200, `a left rail takes its place (${desk.snWidth}px wide)`);
+  ok(desk.items >= 10, `the rail lists every area this person can see (${desk.items})`);
+  ok(desk.active === "Home", `the open area is highlighted in the rail (${desk.active})`);
+  ok(desk.mainLeft >= desk.snRight, `the content column sits right of the rail (${desk.mainLeft} ≥ ${desk.snRight})`);
+  // Only ONE "Bucky / Family Farm Hub" on screen: the rail carries it, the header names the section.
+  ok(desk.titleHidden && desk.crumb === "Home", `the header names the section instead of repeating the wordmark ("${desk.crumb}")`);
+  ok(desk.bell && desk.who, "the bell and profile buttons are still on screen and their own nodes");
+
+  // The Home dashboard is a two-column homepage at this width, not one narrow phone column.
+  ok(desk.twoCols, "the Home dashboard renders in two columns on desktop");
+
+  // The rail is real navigation, not decoration.
+  const switched = await page.evaluate(() => {
+    const b = [...document.querySelectorAll("#sidenav .sn-item")].find(x => x.dataset.gid === "tasks");
+    b.click();
+    return { tab: window.__NAV__.tab(), active: (document.querySelector("#sidenav .sn-item.active") || {}).dataset.gid };
+  });
+  ok(switched.tab === "chores" && switched.active === "tasks", `clicking a rail entry switches tabs (${switched.tab})`);
+
+  // …and the phone layout is untouched on the way back down.
+  await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
+  await page.evaluate(() => window.__NAV__.goTo("dashboard"));
+  await sleep(500);
+  const backToPhone = await page.evaluate(() => ({
+    rows: new Set([...document.querySelectorAll("#bnav .bnav-btn")].map(b => Math.round(b.getBoundingClientRect().top))).size,
+    sidenav: getComputedStyle(document.getElementById("sidenav")).display,
+    wrappers: document.querySelectorAll(".home2-main, .home2-rail").length,
+  }));
+  ok(backToPhone.rows === 2 && backToPhone.sidenav === "none" && backToPhone.wrappers === 0,
+    `back at 390px the phone gets its two-row nav and flat Home (${backToPhone.rows} rows, ${backToPhone.wrappers} column wrappers)`);
 
   ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors[0] : ""));
 }

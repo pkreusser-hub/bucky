@@ -466,7 +466,13 @@ async function newPage(browser, mock, { user = "Dad", viewport = { width:390, he
 
   await page.evaluateOnNewDocument((u, pr) => {
     localStorage.setItem("choreUnlocked", "amenfarms");
-    if (u) localStorage.setItem("choreUser", u); else localStorage.removeItem("choreUser");
+    // evaluateOnNewDocument re-runs on EVERY navigation in this page/context, so a plain
+    // unconditional setItem would stomp a mid-test profile switch (e.g. Task 3's per-user
+    // News preference check, which sets choreUser then reloads) back to the original user
+    // on the very reload meant to prove the switch stuck. Only seed it when nothing is
+    // already there — i.e. the context's first navigation.
+    if (u) { if (!localStorage.getItem("choreUser")) localStorage.setItem("choreUser", u); }
+    else localStorage.removeItem("choreUser");
     window.__PROMPTS__ = pr.slice();
     window.__PROMPTED__ = [];
     window.prompt = (msg) => { window.__PROMPTED__.push(msg); return window.__PROMPTS__.length ? window.__PROMPTS__.shift() : null; };
@@ -499,9 +505,13 @@ async function seedSources(page, list){
     localStorage.setItem("setting_newsSources", JSON.stringify({ list: l }));
   }, list);
 }
+// 2026-08-03 restage: the feed's filter chips became TOPICS, not publication names (a
+// topic can be shared by several publications). These two carry DIFFERENT topics so the
+// filter-chip checks below exercise the real feature instead of the old per-publication
+// picker.
 const TWO_SOURCES = [
-  { id:"s1", title:"The Daily Trumpet", url:"https://trumpet.example.com", feedUrl:"https://trumpet.example.com/rss.xml" },
-  { id:"s2", title:"Gazette", url:"https://gazette.example.com", feedUrl:"https://gazette.example.com/atom.xml" },
+  { id:"s1", title:"The Daily Trumpet", url:"https://trumpet.example.com", feedUrl:"https://trumpet.example.com/rss.xml", topic:"US News" },
+  { id:"s2", title:"Gazette", url:"https://gazette.example.com", feedUrl:"https://gazette.example.com/atom.xml", topic:"Sports" },
 ];
 
 /* ========================= B. the section + nav =========================== */
@@ -600,15 +610,78 @@ async function sectionFeed(browser, mock){
 
   if (WANT_SHOTS){ fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, "news_feed.png") }); }
 
-  /* -- the filter -- */
-  ok(await page.evaluate(() => !!document.querySelector("#newsFilter")), "a publication filter shows once there is more than one");
-  await tap(page, '#newsFilter button[data-src="s2"]');
+  /* -- the topic filter (2026-08-03: chips are TOPICS now, not publication names — the
+     two seeded sources carry different topics, "US News" and "Sports") -- */
+  ok(await page.evaluate(() => !!document.querySelector("#newsFilter")), "a topic filter shows once there is more than one topic");
+  const chipLabels = await page.evaluate(() => [...document.querySelectorAll("#newsFilter button")].map(b => b.textContent));
+  ok(chipLabels.includes("All") && chipLabels.includes("US News") && chipLabels.includes("Sports"),
+    "the chips are All + each publication's topic, not the publication names (" + chipLabels.join(", ") + ")");
+  ok(await page.evaluate(() => document.querySelector('.newsfilter').scrollWidth <= document.querySelector('.newsfilter').clientWidth + 1),
+    "the topic row wraps rather than scrolling sideways");
+  await tap(page, '#newsFilter button[data-topic="Sports"]');
   await settle(page, 200);
   const only = await page.evaluate(() => [...document.querySelectorAll(".newscard")].map(c => c.dataset.src));
-  ok(only.length === 1 && only[0] === "s2", "filtering to one publication shows only its articles");
-  await tap(page, '#newsFilter button[data-src=""]');
+  ok(only.length === 1 && only[0] === "s2", "filtering to one topic shows only that topic's articles");
+  await tap(page, '#newsFilter button[data-topic=""]');
   await settle(page, 200);
   ok(await page.evaluate(() => document.querySelectorAll(".newscard").length === 3), "All brings the whole feed back");
+
+  /* -- the 📰 per-user publication toggle -- */
+  ok(await page.evaluate(() => !!document.querySelector("#newsPubBtn")), "the 📰 publication toggle button exists");
+  await tap(page, "#newsPubBtn");
+  await settle(page, 200);
+  ok(await page.evaluate(() => document.querySelectorAll("#newsPubMenu .newspubrow").length === 2), "…and lists both publications");
+  ok(await page.evaluate(() => [...document.querySelectorAll('#newsPubMenu input[type="checkbox"]')].every(c => c.checked)),
+    "…both start on");
+  await tap(page, '#newsPubMenu input[data-pub="s2"]');
+  await settle(page, 250);
+  ok(await page.evaluate(() => [...document.querySelectorAll(".newscard")].every(c => c.dataset.src === "s1")),
+    "turning off a publication hides its articles from the feed");
+  ok(await page.evaluate(() => ![...document.querySelectorAll("#newsFilter button")].some(b => b.dataset.topic === "Sports")),
+    "…and its topic disappears from the chips since no enabled source carries it any more");
+  // The dropdown stays OPEN across the toggle's re-render (newsTogglePub only repaints
+  // News, it never touches newsPubMenuOpen) — re-tapping #newsPubBtn here would CLOSE it.
+  await tap(page, '#newsPubMenu input[data-pub="s2"]');
+  await settle(page, 250);
+  ok(await page.evaluate(() => document.querySelectorAll(".newscard").length === 3), "re-enabling it restores its articles");
+  ok(await page.evaluate(() => [...document.querySelectorAll("#newsFilter button")].some(b => b.dataset.topic === "Sports")),
+    "…and its topic chip comes back");
+
+  // Outside tap closes the dropdown. The re-enable step above left it OPEN, so close it
+  // first rather than assuming its state — a stray tap on #newsPubBtn here would toggle
+  // it the wrong way depending on what ran before.
+  if (await page.evaluate(() => !!document.getElementById("newsPubMenu"))){
+    await page.click(".newshead-t");
+    await settle(page, 150);
+  }
+  await tap(page, "#newsPubBtn");
+  await settle(page, 150);
+  ok(await page.evaluate(() => !!document.getElementById("newsPubMenu")), "the dropdown is open");
+  await page.click(".newshead-t");
+  await settle(page, 150);
+  ok(await page.evaluate(() => !document.getElementById("newsPubMenu")), "…and a tap outside it closes it");
+
+  // The preference is PER-USER: switching profiles on the same device must not carry
+  // Dad's "Gazette off" choice to Isaac.
+  await tap(page, "#newsPubBtn");
+  await settle(page, 150);
+  await tap(page, '#newsPubMenu input[data-pub="s2"]');
+  await settle(page, 250);
+  ok(await page.evaluate(() => document.querySelectorAll(".newscard").length === 2), "Dad's own preference took effect");
+  await page.evaluate(() => localStorage.setItem("choreUser", "Isaac"));
+  await gotoNews(page);
+  await page.waitForFunction(() => document.querySelectorAll(".newscard").length >= 1, { timeout: 15000 });
+  ok(await page.evaluate(() => document.querySelectorAll(".newscard").length === 3), "…but Isaac still sees every publication, unaffected");
+  await page.evaluate(() => localStorage.setItem("choreUser", "Dad"));
+  await gotoNews(page);
+  await page.waitForFunction(() => document.querySelectorAll(".newscard").length >= 1, { timeout: 15000 });
+  ok(await page.evaluate(() => document.querySelectorAll(".newscard").length === 2), "…and Dad's own preference is still there when he comes back");
+  // Restore both on for the rest of this section.
+  await tap(page, "#newsPubBtn");
+  await settle(page, 150);
+  await tap(page, '#newsPubMenu input[data-pub="s2"]');
+  await settle(page, 250);
+  ok(await page.evaluate(() => document.querySelectorAll(".newscard").length === 3), "restored to the full feed for the rest of the section");
 
   /* -- reading -- */
   await tap(page, '.newscard[data-news-id="a1"]');
@@ -683,6 +756,25 @@ async function sectionSources(browser, mock){
   ok(await kid.page.evaluate(() => window.__PROMPTED__.length === 0), "…and is never asked for Dad's PIN");
   ok(await kid.page.evaluate(() => /dad's pin/i.test(document.getElementById("newsSheetInner").textContent)), "…the sheet says why it is read-only");
 
+  // 2026-08-03: a source saved before the topic feature (no `topic` field at all) reads
+  // as the default "News" in the read-only sheet, never "undefined".
+  await tap(kid.page, "#newsSrcDone");
+  await settle(kid.page, 200);
+  await seedSources(kid.page, [...TWO_SOURCES, { id:"s3", title:"Old Paper", url:"https://old.example.com", feedUrl:"https://old.example.com/rss.xml" }]);
+  await gotoNews(kid.page);
+  await settle(kid.page, 400);
+  await tap(kid.page, "#newsSourcesBtn");
+  await settle(kid.page, 300);
+  const legacyTopicText = await kid.page.evaluate(() => {
+    const row = [...document.querySelectorAll("#newsSrcList .newssrc")].find(r => r.textContent.includes("Old Paper"));
+    const t = row && row.querySelector(".newssrc-topic");
+    return t ? t.textContent : null;
+  });
+  ok(legacyTopicText === "News", "a topic-less legacy source reads \"News\" (" + legacyTopicText + ")");
+  await tap(kid.page, "#newsSrcDone");
+  await settle(kid.page, 200);
+  await seedSources(kid.page, TWO_SOURCES);   // restore for the rest of this section
+
   /* -- Dad with the wrong PIN gets the same read-only list -- */
   const wrong = await newPage(browser, mock, { user: "Dad", prompts: ["1234", "1234"] });
   await wrong.page.goto(BASE + "/index.html?n=" + Date.now(), { waitUntil: "domcontentloaded", timeout: 60000 });
@@ -714,6 +806,19 @@ async function sectionSources(browser, mock){
   ok(added.title === "The Daily Trumpet", "the publication is stored under its real name, not the typed address");
   ok(added.feedUrl === "https://trumpet.example.com/rss.xml", "…and remembers the discovered feed");
   ok(await page.evaluate(() => !!localStorage.getItem("setting_newsSources")), "the subscription list is saved for the whole family");
+
+  // 2026-08-03: an unlocked Dad gets an editable topic <select> per source, and picking
+  // one saves it immediately (no separate Save button — same pattern as everything else
+  // in this sheet).
+  const topicSaved = await page.evaluate(async () => {
+    const sel = document.querySelector(".newssrc-topicsel");
+    if (!sel) return null;
+    sel.value = "Sports";
+    sel.dispatchEvent(new Event("change"));
+    await new Promise(r => setTimeout(r, 400));
+    return window.__NEWS__.sources()[0].topic;
+  });
+  ok(topicSaved === "Sports", "the topic select in the sheet saves (" + topicSaved + ")");
 
   // Adding the same one twice is refused rather than duplicated.
   await page.evaluate(() => { document.querySelector("#newsAddInput").value = ""; });
@@ -856,6 +961,25 @@ async function sectionLayout(browser, mock){
   await settle(page, 400);
   ok(await page.evaluate(() => document.querySelectorAll(".newscard").length >= 3), "the feed renders on desktop too");
   ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), "…with no sideways scroll");
+
+  /* 2026-08-03 — at ≥1024px the app is a website: a fixed left rail carries the nav and
+     the feed lives in the content column beside it, never underneath it. */
+  const deskGeo = await page.evaluate(() => {
+    const sn = document.getElementById("sidenav").getBoundingClientRect();
+    const cards = [...document.querySelectorAll(".newscard")].map(c => c.getBoundingClientRect());
+    return {
+      railRight: Math.round(sn.right),
+      railVisible: getComputedStyle(document.getElementById("sidenav")).display !== "none",
+      feedLeft: Math.round(Math.min(...cards.map(c => c.left))),
+      feedRight: Math.round(Math.max(...cards.map(c => c.right))),
+      bnav: getComputedStyle(document.getElementById("bnav")).display,
+      viewport: window.innerWidth,
+    };
+  });
+  ok(deskGeo.railVisible && deskGeo.bnav === "none", "the bottom bar has become a left rail");
+  ok(deskGeo.feedLeft > deskGeo.railRight,
+    `the feed sits in the content column right of the rail (${deskGeo.feedLeft} > ${deskGeo.railRight})`);
+  ok(deskGeo.feedRight <= deskGeo.viewport, `…and inside the viewport (${deskGeo.feedRight} ≤ ${deskGeo.viewport})`);
 
   if (WANT_SHOTS){
     fs.mkdirSync(SHOTS, { recursive: true });
