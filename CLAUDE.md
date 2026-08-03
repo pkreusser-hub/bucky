@@ -3700,3 +3700,37 @@ errors and zero unhandled rejections. New `tap(page, sel)` helper scrolls it to 
 first, the way a thumb would. Also restaged: the persistence check asserted
 `setting_fitPlan`, but a save now lands on `setting_fitPlan_<Kid>` since Dad defaults to a
 kid's view.
+
+## FITNESS follow-up 5 — look an exercise up while BUILDING, not just from Today (2026-08-02)
+
+User: *"When I am adding new exercises in the Dad account, I need to be able to click in and
+see the animation and description from that view, not just in the today view."* Two real
+gaps: the builder's own rows had **no way in at all**, and the picker's thumbnail opened the
+demo but had nothing to say so, making it undiscoverable.
+
+`fitThumbButton(id, opts)` is now the one control for "tap the picture to see it" — used
+wherever a row can't itself be a button: the builder rows hold number inputs, and a picker
+row's main tap already means *add this*. It carries a **🔍 badge**, which is the whole point;
+without it the picture reads as decoration. `stopPropagation` keeps a look from becoming an
+add. The demo it opens is the same full-screen looping view, and from the builder it also
+shows the amount that row is set to ("🦵 Legs · 10 reps · No equipment").
+
+Also: builder rows gained `.edit`, which lets the name WRAP. With a mode chip, a number
+field and a remove button on the row, "Standing Dumbbell Calf Raise" was ellipsising to
+"Standing Dumbbe…" — useless when you are choosing between similar movements. Notes now
+show under the name in the builder too.
+
+**Suite 233 → 251.** New: the picker badge exists and says what it does, tapping it opens a
+full-size demo WITH the description and does NOT add the exercise, every builder row is
+tappable, closing returns to the builder with edits intact, and no name is clipped.
+Restaged three that the kids' real plans invalidated: the Today "chips" check (a day that is
+one block named after itself suppresses the chip by design — the block heading names it
+instead), the Home-card title regex (it names a kid's own plan now), and the image-serving
+check (measure `blob().size`, not `content-length` — the suite's own server streams chunked
+and sends no such header, so that assertion had been reading `1`).
+
+**TOOLING GOTCHA, cost real time:** patching the suite via `node -e` with backticks inside a
+bash double-quoted string lets the SHELL run command substitution on the template literals.
+It silently produced `/S/` where `/\S/` was meant and emptied two `ok()` messages — the
+checks then passed while testing almost nothing. Use the Edit tool for anything containing
+backticks.
