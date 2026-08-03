@@ -5,10 +5,16 @@
  *   - Math.random() is fine here (unlike the sim modules, which must stay on
  *     FSC.rng for cross-device determinism) — audio never needs to replay
  *     identically, and every co-op screen hears its OWN local mix.
- *   - Everything is synthesized (oscillators/noise/filters) — no audio files
- *     ship with the game. The one exception is the user's OWN music, loaded
- *     locally via the file picker and never uploaded anywhere (see the MUSIC
- *     SOURCE ABSTRACTION section).
+ *   - SFX are synthesized (oscillators/noise/filters). Default BGM is the
+ *     user's OWN ORIGINAL COMPOSITION — "Castle Kruzer" (assets/farmstead/
+ *     music/castlekruzer-theme.mp3, 5.3MB/5:55) — looped via BufferSource.
+ *     (2026-08-03: replaced the earlier Settlers-derived OGG/MIDI, which the
+ *     project's own rule never permits — see CLAUDE.md FARMSTEAD section.)
+ *     LAZY LOAD: the file is fetched+decoded only when music actually needs
+ *     to start (see ensureBuiltinTheme(), called from startMusicNodes()) —
+ *     never at boot/init, so the title screen never pays its 5.3MB. Users
+ *     may still override with their OWN audio file via the file picker
+ *     (never uploaded).
  *   - init/first-gesture-gated: browsers refuse to start an AudioContext
  *     before a real user gesture, so nothing gets created until unlock().
  *
@@ -20,7 +26,7 @@
  *   muted() / setMuted(b) / toggleMuted()               — fs_muted (master)
  *   musicOff() / setMusicOff(b) / toggleMusicOff()      — fs_music_off (BGM only)
  *   setCustomMusic(file) -> Promise{ok,why?}            — "use my own music"
- *   clearCustomMusic() -> Promise<true>                 — back to the synth track
+ *   clearCustomMusic() -> Promise<true>                 — back to the built-in theme
  *   musicInfo() -> {source, ready, name}
  *   proximityGain(wx, wz) -> 0..1    — the house gainAt pattern, exposed for tests
  *   debug() -> {...}                 — full state dump for the polish suite
@@ -41,7 +47,7 @@
 
   let muted = false;              // fs_muted — silences EVERYTHING (master)
   let musicIsOff = false;         // fs_music_off — silences BGM only
-  const MUSIC_LEVEL = 0.30;       // musicGain's un-muted, un-ducked resting level
+  const MUSIC_LEVEL = 0.42;       // musicGain's un-muted, un-ducked resting level
   const MASTER_LEVEL = 1;
 
   try { muted = localStorage.getItem("fs_muted") === "1"; } catch (e) { /* noop */ }
@@ -318,16 +324,65 @@
   function musicLevel() { return (muted || musicIsOff) ? 0 : MUSIC_LEVEL; }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // ===== MUSIC — the "medieval village" synth composition ==================
+  // ===== MUSIC — built-in "Castle Kruzer" theme (+ optional custom file / synth) ==
   // ═══════════════════════════════════════════════════════════════════════
-  // A single MUSIC SOURCE ABSTRACTION: 'synth' (procedural, default) |
-  // 'file' (the user's own decoded track). Both are driven by the exact same
-  // onGameStart/onGameEnd/musicOff plumbing below — swapping the source is
-  // just picking which node graph feeds musicGain.
-  let musicSource = "synth";
+  // MUSIC SOURCE ABSTRACTION:
+  //   'theme' — the shipped MP3 (the user's own original composition), default
+  //   'file'  — the user's own decoded track (uploaded override)
+  //   'synth' — procedural fallback if the theme fails to load
+  // Same onGameStart/onGameEnd/musicOff plumbing for all three.
+  //
+  // LAZY: nothing about this file is fetched at page load / init(). The fetch
+  // only starts inside ensureBuiltinTheme(), which is only ever called from
+  // startMusicNodes() — i.e. the moment music is actually about to play
+  // (onGameStart, or a reload that resumes an already-armed game). A slow or
+  // failed fetch degrades silently to the synth fallback; the title screen
+  // and boot never pay the file's cost.
+  const BUILTIN_THEME_URL = "assets/farmstead/music/castlekruzer-theme.mp3";
+  const BUILTIN_THEME_NAME = "Castle Kruzer (theme)";
+  let musicSource = "theme";
   let musicArmed = false;         // "should be audible" — true while in-game
   let synthMusicOn = false;       // the step-scheduler is actively generating
   let fileBuffer = null, fileSourceNode = null, customName = null;
+  let themeBuffer = null;         // decoded built-in theme
+  let themeRaw = null;            // fetched bytes awaiting AudioContext decode
+  let themeLoadState = "idle";    // idle | loading | ready | error
+
+  function ensureBuiltinTheme() {
+    if (themeBuffer || themeLoadState === "loading" || themeLoadState === "ready") return;
+    if (themeRaw) { decodeThemeBuffer(); return; }
+    themeLoadState = "loading";
+    fetch(BUILTIN_THEME_URL).then((r) => {
+      if (!r.ok) throw new Error("theme fetch " + r.status);
+      return r.arrayBuffer();
+    }).then((buf) => {
+      themeRaw = buf;
+      decodeThemeBuffer();
+    }).catch(() => {
+      themeLoadState = "error";
+      if (musicSource === "theme") {
+        musicSource = "synth";
+        if (musicArmed && ctx) restartMusicIfArmed();
+      }
+    });
+  }
+  function decodeThemeBuffer() {
+    if (!themeRaw) return;
+    if (!ctx) return; // wait for unlock — raw stays cached
+    const copy = themeRaw.slice ? themeRaw.slice(0) : themeRaw;
+    ctx.decodeAudioData(copy).then((decoded) => {
+      themeBuffer = decoded;
+      themeLoadState = "ready";
+      themeRaw = null; // free the duplicate once decoded
+      if (musicSource === "theme" && musicArmed) restartMusicIfArmed();
+    }).catch(() => {
+      themeLoadState = "error";
+      if (musicSource === "theme") {
+        musicSource = "synth";
+        if (musicArmed && ctx) restartMusicIfArmed();
+      }
+    });
+  }
 
   // Dorian mode from a warm mid-register root — a classic "folk/medieval" colour
   // (it's neither major nor minor: the natural 6th against a minor 3rd is what
@@ -465,15 +520,23 @@
     if (padVoices) { stopPad(padVoices); padVoices = null; }
     musicStep = 0; musicStepAcc = 0; leadNextAllowedStep = 0;
   }
+  function startLoopedBuffer(buf) {
+    fileSourceNode = ctx.createBufferSource();
+    fileSourceNode.buffer = buf;
+    fileSourceNode.loop = true;
+    fileSourceNode.connect(musicGain);
+    fileSourceNode.start();
+  }
   function startMusicNodes() {
     if (!ctx || !musicArmed) return;
     stopMusicNodes();
     if (musicSource === "file" && fileBuffer) {
-      fileSourceNode = ctx.createBufferSource();
-      fileSourceNode.buffer = fileBuffer;
-      fileSourceNode.loop = true;
-      fileSourceNode.connect(musicGain);
-      fileSourceNode.start();
+      startLoopedBuffer(fileBuffer);
+    } else if (musicSource === "theme" && themeBuffer) {
+      startLoopedBuffer(themeBuffer);
+    } else if (musicSource === "theme") {
+      ensureBuiltinTheme(); // still loading — synth keeps silence from settling in
+      synthMusicOn = true;
     } else {
       synthMusicOn = true;
     }
@@ -614,15 +677,22 @@
     if (!buildGraph()) return false;
     unlocked = true;
     if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    // NOTE: the built-in theme is deliberately NOT fetched here — unlock()
+    // fires on every gesture, including idle taps on the title screen, long
+    // before music is meant to play. startMusicNodes() (called from
+    // onGameStart / restartMusicIfArmed) is the one place that lazily kicks
+    // off ensureBuiltinTheme(), so the 5.3MB file is only ever requested once
+    // gameplay actually begins.
     // pick up a previously-saved custom track, if any (survives reloads);
-    // never throws — a corrupt/unsupported stored file just stays on synth.
+    // never throws — a corrupt/unsupported stored file just stays on the
+    // built-in theme.
     idbGetMusic().then((rec) => {
       if (!rec || !rec.data) return;
       return ctx.decodeAudioData(rec.data.slice ? rec.data.slice(0) : rec.data).then((decoded) => {
         fileBuffer = decoded; customName = rec.name || "custom track"; musicSource = "file";
         restartMusicIfArmed();
       });
-    }).catch(() => { /* decode/storage failure — stays on the synth track */ });
+    }).catch(() => { /* decode/storage failure — stays on the built-in theme */ });
     if (musicArmed) startMusicNodes();
     return true;
   };
@@ -656,7 +726,12 @@
   FSAudio.toggleMusicOff = function () { return FSAudio.setMusicOff(!musicIsOff); };
 
   FSAudio.musicInfo = function () {
-    return { source: musicSource, ready: musicSource === "synth" || !!fileBuffer, name: customName };
+    const ready = musicSource === "synth"
+      || (musicSource === "file" && !!fileBuffer)
+      || (musicSource === "theme" && !!themeBuffer);
+    const name = musicSource === "file" ? customName
+      : (musicSource === "theme" ? BUILTIN_THEME_NAME : null);
+    return { source: musicSource, ready: ready, name: name, themeLoad: themeLoadState };
   };
   FSAudio.setCustomMusic = function (file) {
     if (!file) return Promise.resolve({ ok: false, why: "no file" });
@@ -671,12 +746,14 @@
           restartMusicIfArmed();
           return { ok: true };
         });
-      }, () => ({ ok: false, why: "decode failed — kept the synth track" }));
+      }, () => ({ ok: false, why: "decode failed — kept the built-in theme" }));
     }, () => ({ ok: false, why: "could not read the file" }));
   };
   FSAudio.clearCustomMusic = function () {
     return idbClearMusic().catch(() => {}).then(() => {
-      fileBuffer = null; customName = null; musicSource = "synth";
+      fileBuffer = null; customName = null;
+      musicSource = (themeBuffer || themeLoadState !== "error") ? "theme" : "synth";
+      ensureBuiltinTheme();
       restartMusicIfArmed();
       return true;
     });
@@ -687,7 +764,11 @@
   // ═══════════════════════════════════════════════════════════════════════
   FSAudio.onGameStart = function () {
     musicArmed = true;
-    if (ctx) { startMusicNodes(); fadeMusicGainTo(musicLevel(), 1.2); }
+    if (ctx) {
+      if (ctx.state === "suspended") ctx.resume().catch(() => {});
+      startMusicNodes();
+      fadeMusicGainTo(musicLevel(), 1.2);
+    }
   };
   FSAudio.onGameEnd = function () {
     musicArmed = false;
@@ -712,7 +793,14 @@
       hammerScan(G, dt);
     }
     if (ctx) {
-      if (synthMusicOn) synthMusicFrame(dt);
+      if (ctx.state === "suspended") ctx.resume().catch(() => {});
+      // once the real theme buffer is driving, drop temporary synth filler
+      if (fileSourceNode && synthMusicOn && (musicSource === "theme" || musicSource === "file")) {
+        synthMusicOn = false;
+        if (padVoices) { stopPad(padVoices); padVoices = null; }
+      } else if (synthMusicOn) {
+        synthMusicFrame(dt);
+      }
       birdT -= dt;
       if (birdT <= 0 && G) { birdT = 5 + Math.random() * 11; birdChirp(); }
     }
@@ -737,6 +825,8 @@
   FSAudio.init = function (FSref) {
     FS = FSref;
     FSMap = FS && FS.FSMap;
+    // deliberately NO ensureBuiltinTheme() here — this runs at page boot,
+    // long before any gesture/gameplay; see the lazy-load note above.
     return FSAudio;
   };
   FSAudio.debug = function () {
@@ -752,6 +842,9 @@
       musicArmed: musicArmed,
       synthMusicOn: synthMusicOn,
       customName: customName,
+      themeLoad: themeLoadState,
+      themeReady: !!themeBuffer,
+      themePlaying: !!(fileSourceNode && musicSource === "theme"),
       activeVoices: activeVoices,
       ducking: duckT > now(),
     };

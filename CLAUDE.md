@@ -5734,6 +5734,42 @@ front azimuths, which is batch #4's deliberate `armOut` splay, not a regression.
 
 ---
 
+## 🎵 THE USER'S OWN SONG IS THE BUILT-IN BGM (2026-08-03)
+
+The default background music is now the user's OWN ORIGINAL COMPOSITION, "Castle Kruzer"
+(`assets/farmstead/music/castlekruzer-theme.mp3`, 5.28 MB / 5:55, from
+`Downloads/CastleKruzer.mp3` — same ownership standing as the user's Tripo-generated
+models, commit-safe). It replaces `02-settlers.ogg` + `02-settlers.mid`, which are **DELETED
+from the repo** — those were rendered from the original Settlers-1 MIDI, and CLAUDE.md's own
+Farmstead rule is that the original's mechanics were recovered as facts but "never code/art/
+audio from it"; a soundtrack derived from the original's own MIDI is exactly the audio that
+rule forbids, and the game (now Castle Kruzer, public-facing) should not ship it.
+- **LAZY LOAD, unchanged contract otherwise**: `fs-audio.js`'s `ensureBuiltinTheme()` used to
+  fire from both `unlock()` (every gesture, including idle title-screen taps) and `init()`
+  (page boot) — eagerly fetching the file before gameplay ever starts. Both eager calls are
+  removed; the ONLY place that triggers the fetch now is `startMusicNodes()` (called from
+  `onGameStart()`), so the 5.3MB file is requested only once actual gameplay begins. Measured:
+  boot-time network cost for the theme went from 5,539,047 bytes fetched at page load to
+  **0 bytes** until `onGameStart()` fires; title screen and boot pay nothing. A slow/failed
+  fetch still degrades silently to the synth fallback (unchanged behavior) — no pageerrors, no
+  stuck loading state.
+- Looping (`BufferSourceNode.loop = true`), the file/synth/theme source abstraction, the
+  IndexedDB custom-music override (still wins over the built-in; `clearCustomMusic()` still
+  falls back to the theme, not to synth, once it has decoded), `musicOff`/`fs_music_off`,
+  `MUSIC_LEVEL`, `duckMusic` on attack horns, and the in-game-only `onGameStart`/`onGameEnd`
+  gating are all UNCHANGED — this was a source swap + a load-timing fix, not a rewrite.
+  `musicInfo().name` now reads "Castle Kruzer (theme)".
+  Verified: `node tools/_verify-farmstead-polish.cjs` **73/73** (grew from 68 — added lazy-load-
+  at-boot, lazy-load-at-unlock, fetched-after-onGameStart, and no-Settlers-file-requested
+  checks; 3 pre-existing stale assertions from an earlier synth-default era were also fixed to
+  match the shipped theme-by-default behavior) + `node tools/_verify-farmstead-ui.cjs`
+  **149/149**, 0 page errors both. No flakes this run (the suite's own doc notes a known
+  custom-music-after-reload flake and an attack-horn-ducks-music timing flake — neither
+  reproduced).
+
+---
+
+
 # 💪 FITNESS — the kids' daily 10-minute workout (2026-08-02)
 
 A new `fitness` section in `index.html` (~1,370 lines) plus a baked exercise library in

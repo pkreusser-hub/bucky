@@ -54,12 +54,17 @@ H.run("farmstead-polish", async (t) => {
 
   // ═══════════════════════════════════════════════════════════ 1. audio state machine
   const page = await t.newPage({ width: 1280, height: 800, deviceScaleFactor: 1 });
+  const netReqs = [];
+  page.on("request", (req) => { netReqs.push(req.url()); });
   await page.goto(t.BASE + "/castlekruzer.html", { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => !!window.__FS__ && !!window.FSAudio, { timeout: 20000 });
+  await t.sleep(400);   // let any accidental boot-time async settle before we judge it
 
   const preGesture = await page.evaluate(() => window.FSAudio.debug());
   t.check("before any gesture: audio is NOT unlocked (no AudioContext yet)", preGesture.unlocked === false, preGesture);
   t.check("mute/musicOff read their persisted defaults (both off) pre-gesture", preGesture.muted === false && preGesture.musicOff === false, preGesture);
+  t.check("boot never fetched the built-in theme file (lazy — no gesture, no gameplay yet)",
+    netReqs.filter((u) => /castlekruzer-theme\.mp3/i.test(u)).length === 0, netReqs.filter((u) => /music/i.test(u)));
 
   const postGesture = await page.evaluate(() => {
     document.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
@@ -68,6 +73,9 @@ H.run("farmstead-polish", async (t) => {
   t.check("a synthesized pointerdown unlocks audio (nodes created on gesture only)", postGesture.unlocked === true, postGesture);
   t.check("the AudioContext is running after unlock", postGesture.ctxState === "running", postGesture);
   t.check("master/sfx/music gain nodes all exist post-unlock", postGesture.masterGain !== null && postGesture.sfxGain !== null && postGesture.musicGain !== null, postGesture);
+  await t.sleep(300);
+  t.check("unlock() alone (no gameplay) STILL never fetches the theme — only startMusicNodes()/onGameStart() does",
+    netReqs.filter((u) => /castlekruzer-theme\.mp3/i.test(u)).length === 0, netReqs.filter((u) => /music/i.test(u)));
 
   const muteTest = await page.evaluate(() => {
     const before = window.FSAudio.setMuted(true);
@@ -110,11 +118,18 @@ H.run("farmstead-polish", async (t) => {
   t.check("musicOff zeroes ONLY the music gain (sfx gain untouched)",
     musicOffTest.after.musicGain === 0 && musicOffTest.after.sfxGain === musicOffTest.before.sfxGain, musicOffTest);
   t.check("turning music back on restores its gain", musicOffTest.restored.musicGain > 0, musicOffTest);
-  t.check("music defaults to the SYNTH source", musicOffTest.before.musicSource === "synth", musicOffTest.before);
-  t.check("the synth score is actively scheduling once armed (onGameStart)", musicOffTest.before.musicArmed === true && musicOffTest.before.synthMusicOn === true, musicOffTest.before);
+  t.check("music defaults to the built-in THEME source (the user's own 'Castle Kruzer' track)", musicOffTest.before.musicSource === "theme", musicOffTest.before);
+  t.check("armed at boot, the theme is still loading (lazy fetch just kicked off) so synth fills in until it decodes", musicOffTest.before.musicArmed === true && musicOffTest.before.synthMusicOn === true, musicOffTest.before);
 
+  // give the 5.3MB theme file time to fetch+decode (kicked off lazily by the
+  // onGameStart() above, via startMusicNodes() -> ensureBuiltinTheme())
+  await t.sleep(3500);
   const musicInfoDefault = await page.evaluate(() => window.FSAudio.musicInfo());
-  t.check("musicInfo() reports the synth default", musicInfoDefault.source === "synth" && musicInfoDefault.ready === true, musicInfoDefault);
+  t.check("musicInfo() reports the built-in theme, ready, correctly named", musicInfoDefault.source === "theme" && musicInfoDefault.ready === true && musicInfoDefault.name === "Castle Kruzer (theme)", musicInfoDefault);
+  const dbgAfterLoad = await page.evaluate(() => window.FSAudio.debug());
+  t.check("once the real theme buffer is playing, the synth filler stands down", dbgAfterLoad.themePlaying === true && dbgAfterLoad.synthMusicOn === false, dbgAfterLoad);
+  t.check("the theme file WAS fetched now that music actually started (onGameStart)",
+    netReqs.filter((u) => /castlekruzer-theme\.mp3/i.test(u)).length >= 1, netReqs.filter((u) => /music/i.test(u)));
 
   // ═══════════════════════════════════════════════════════════ 3. custom music: the file loader end to end
   await page.evaluate(() => { window.FSUI.escape(); });
@@ -180,11 +195,14 @@ H.run("farmstead-polish", async (t) => {
   });
   t.check("setCustomMusic() on garbage resolves {ok:false} — it never throws/rejects", directDecodeFail.threw === false && directDecodeFail.r.ok === false, directDecodeFail);
 
-  // ---- remove custom music -> back to synth
+  // ---- remove custom music -> back to the built-in theme (already decoded
+  // earlier in this session, so it resumes the real track, not the synth
+  // fallback — clearCustomMusic() only falls to synth if the theme never
+  // loaded at all)
   await page.evaluate(() => { const b = document.querySelector('[data-act="settings-music-remove"]'); if (b) b.click(); });
   await t.sleep(300);
   const afterRemove = await page.evaluate(() => window.FSAudio.musicInfo());
-  t.check("'Back to the built-in theme' reverts the source to synth", afterRemove.source === "synth", afterRemove);
+  t.check("'Back to the built-in theme' reverts the source to the theme (not synth) once it has decoded", afterRemove.source === "theme" && afterRemove.name === "Castle Kruzer (theme)", afterRemove);
   await page.evaluate(() => { window.FSUI.escape(); });
 
   // ═══════════════════════════════════════════════════════════ 4. event -> sound trigger counters + proximity
@@ -291,6 +309,8 @@ H.run("farmstead-polish", async (t) => {
   });
   t.check("an attack horn ducks the music gain down", duck.duringDucking.musicGain < duck.before, duck);
 
+  t.check("the deleted Settlers-derived files (02-settlers.ogg/.mid) are never requested by the page",
+    netReqs.filter((u) => /02-settlers/i.test(u)).length === 0, netReqs.filter((u) => /music/i.test(u)));
   t.check("0 page errors through the audio/music sections", t.errors.length === 0, t.errors.slice(0, 10));
 
   // ═══════════════════════════════════════════════════════════ 6. touch controls
