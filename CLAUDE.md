@@ -5800,3 +5800,47 @@ now unforks Isaac first and asserts isolation as "Eleanor is UNAFFECTED" rather 
 follows the shared plan"; section C's "opens on a block card" became "opens on an intro card"
 (a circuit opens on a round card). **TEST GOTCHA:** `__FIT__.start()` is async — calling
 `steps()` straight after returns null.
+
+## FITNESS follow-up 4 — a stale fork shadowed the shipped plans (2026-08-02)
+
+User, twice: *"I don't see the new set of exercises"* / *"I logged in from kid profile and
+they still have the old 9 exercises."* **The deploy was fine; the cause was data.**
+
+At 23:35 and 23:36 Dad had tapped "Give Isaac their own plan" / "Give Eleanor their own
+plan" while looking at the FIRST fitness deploy. That forked a copy of the generic
+9-exercise shared week into `settings_<fam>/fitPlan_Isaac` and `_Eleanor`. Precedence is
+**override doc > baked plan > shared**, so those forks shadowed the real programmes for
+both kids on every device.
+
+TWO DESIGN FAULTS, both fixed:
+1. **A parent landed on the shared week by default.** `fitWhose()` returned the selector's
+   value, which defaulted to `""`. Once both kids are forked the shared week is the plan
+   NOBODY does — so Dad opened Fitness, saw the old generic exercises, and reasonably
+   concluded the deploy had failed. `fitPlanView` is now `null` until explicitly chosen and
+   `fitViewNow()` resolves that to the first kid who HAS a plan. Choosing "Everyone" still
+   works and now states who is actually on it ("Isaac and Eleanor are both on their own
+   plans, so nobody is doing this one").
+2. **There was no way back to a shipped plan.** The revert wrote a `{none:true}` tombstone
+   which suppresses the baked file too, so "use the shared plan" was the only exit and it
+   led somewhere wrong. `fitEnsureBaked` now loads `plan-<kid>.json` ALONGSIDE any override,
+   and when they differ the banner offers **"Reset to <Kid>'s programme"** (PIN-gated,
+   confirm-gated).
+
+DATA FIX (user-approved, both docs backed up to the session scratchpad first): the two
+override docs were OVERWRITTEN with the real plans via the Firestore REST API rather than
+deleted — a replace keeps Dad's future edits working exactly as before, and an empty doc is
+a state the app had never run against on live data. Read back and verified: 5 exercises ×
+2 rounds = 10 sets, 30s rest, correct titles, Sat/Sun rest.
+GOTCHA: Firestore REST needs `integerValue` for whole numbers — send `rounds` as a double
+and `rounds === 2` stops being true in the app. And PATCH was given an explicit
+`updateMask.fieldPaths` covering every field so no stale key survived the replace.
+
+**Suite 230 → 233.** New: an undecided parent lands on a kid's real plan (not the unused
+shared week), and "Everyone" still selectable and self-describing.
+**TEST GOTCHA that cost the most time here:** `page.click()` scrolls only minimally, so a
+control at the page bottom can be left under the fixed `#bnav` and the click lands on the
+nav instead — silently, with no error. Symptom was "the builder never opens" with zero page
+errors and zero unhandled rejections. New `tap(page, sel)` helper scrolls it to centre
+first, the way a thumb would. Also restaged: the persistence check asserted
+`setting_fitPlan`, but a save now lands on `setting_fitPlan_<Kid>` since Dad defaults to a
+kid's view.

@@ -115,6 +115,14 @@ async function gotoApp(page, hash = ""){
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** Click like a person: bring it into view, then tap. Puppeteer scrolls only minimally,
+    which can leave a page-bottom control sitting under the fixed #bnav. */
+async function tap(page, sel){
+  await page.evaluate((s) => { const e = document.querySelector(s); if (e) e.scrollIntoView({ block: "center" }); }, sel);
+  await sleep(80);
+  await page.click(sel);
+}
+
 /** Pin the app clock to the next day that actually HAS a workout.
     Without this, a suite run on a Sunday tests the rest day and reads as broken. */
 async function pinWorkoutDay(page){
@@ -341,7 +349,7 @@ async function sectionPlayer(browser){
   await page.waitForFunction(() => document.getElementById("fitStartBtn"), { timeout: 10000 });
 
   // ---- start via a real tap
-  await page.click("#fitStartBtn");
+  await tap(page, "#fitStartBtn");
   await page.waitForFunction(() => document.getElementById("fitPlayOverlay").classList.contains("open"), { timeout: 5000 });
   const opened = await page.evaluate(() => {
     const r = window.__FIT__.run();
@@ -480,7 +488,7 @@ async function sectionStreak(browser){
   // ---- quit after two exercises: progress kept, day NOT marked done
   await page.evaluate(() => window.__NAV__.goTo("fitness"));
   await page.waitForFunction(() => document.getElementById("fitStartBtn"), { timeout: 10000 });
-  await page.click("#fitStartBtn");
+  await tap(page, "#fitStartBtn");
   await page.evaluate(async () => {
     let did = 0, guard = 0;
     while (did < 2 && guard++ < 60){
@@ -562,7 +570,7 @@ async function sectionBuilder(browser){
     await pinWorkoutDay(page);   // never test the builder against a rest day
     await page.evaluate(() => window.__NAV__.goTo("fitness"));
     await page.waitForFunction(() => document.getElementById("fitEditLink"), { timeout: 10000 });
-    await page.click("#fitEditLink");
+    await tap(page, "#fitEditLink");
     await page.waitForFunction(() => document.getElementById("fitSheetOverlay").classList.contains("open"), { timeout: 5000 });
     const kid = await page.evaluate(() => ({
       ro: window.__FIT__.readOnly(),
@@ -587,14 +595,14 @@ async function sectionBuilder(browser){
     // first two prompts create the PIN (1234); then re-lock and try 9999
     await page.evaluate(() => window.__NAV__.goTo("fitness"));
     await page.waitForFunction(() => document.getElementById("fitEditLink"), { timeout: 10000 });
-    await page.click("#fitEditLink");
+    await tap(page, "#fitEditLink");
     await page.waitForFunction(() => document.getElementById("fitSheetOverlay").classList.contains("open"), { timeout: 5000 });
     const created = await page.evaluate(() => ({ ro: window.__FIT__.readOnly(), save: !!document.getElementById("fitSaveBtn") }));
     ok(created.ro === false && created.save, "Dad who sets a PIN gets an editable builder");
 
     // re-lock the session and try a wrong PIN
     await page.evaluate(() => { window.__FIT__.closeSheet(); sessionStorage.removeItem("dadUnlocked"); localStorage.removeItem("dadUnlockedDevice"); });
-    await page.click("#fitEditLink");
+    await tap(page, "#fitEditLink");
     await sleep(300);
     const wrong = await page.evaluate(() => ({
       open: document.getElementById("fitSheetOverlay").classList.contains("open"),
@@ -612,7 +620,7 @@ async function sectionBuilder(browser){
     await pinWorkoutDay(page);   // never test the builder against a rest day
     await page.evaluate(() => window.__NAV__.goTo("fitness"));
     await page.waitForFunction(() => document.getElementById("fitEditLink"), { timeout: 10000 });
-    await page.click("#fitEditLink");
+    await tap(page, "#fitEditLink");
     await page.waitForFunction(() => document.getElementById("fitSaveBtn"), { timeout: 5000 });
 
     const meter0 = await page.evaluate(() => {
@@ -724,14 +732,20 @@ async function sectionBuilder(browser){
       document.getElementById("fitSaveBtn").click();
       await new Promise(r => setTimeout(r, 200));
     });
-    const saved = await page.evaluate(() => ({
-      open: document.getElementById("fitSheetOverlay").classList.contains("open"),
-      title: window.__FIT__.dayOf().title,
-      storedPlan: !!localStorage.getItem("setting_fitPlan"),
-    }));
+    // The save lands on whichever plan was being viewed — which is a KID's by default now,
+    // not the shared doc.
+    const saved = await page.evaluate(() => {
+      const who = window.__FIT__.view();
+      const key = "setting_fitPlan" + (who ? "_" + who : "");
+      return {
+        open: document.getElementById("fitSheetOverlay").classList.contains("open"),
+        title: window.__FIT__.dayOf().title,
+        who, key, storedPlan: !!localStorage.getItem(key),
+      };
+    });
     ok(!saved.open, "saving closes the sheet");
     ok(saved.title === "Dad Test Day", "the edit is applied to the plan");
-    ok(saved.storedPlan, "the plan is persisted");
+    ok(saved.storedPlan, `the plan is persisted (${saved.key})`);
 
     // The test clock does not survive a reload, so re-pin before asking about the day
     // that was edited — otherwise this reads the real (Sunday) rest day.
@@ -853,7 +867,7 @@ async function sectionDemo(browser){
   ok(!closed.open && closed.id === null, "the demo closes cleanly");
 
   // ---- mid-workout: opens, pauses the clock, resumes on close
-  await page.click("#fitStartBtn");
+  await tap(page, "#fitStartBtn");
   await page.evaluate(() => { window.__FIT__.warp(9999); window.__FIT__.tick(); });
   await sleep(150);
   const beforeTap = await page.evaluate(() => {
@@ -925,7 +939,31 @@ async function sectionPerKid(browser){
     selCount: document.querySelectorAll("#fitWhoRow .fitwho-b.sel").length,
   }));
   ok(sel.options.join(",") === ",Isaac,Eleanor", `a parent can pick whose plan to look at (${sel.labels.join(" / ")})`);
-  ok(sel.selCount === 1 && sel.selected === "", "it starts on the shared plan");
+  /* A parent who has never chosen must land on a kid who actually HAS a plan. Landing on
+     the shared week — which nobody does once both kids are forked — is how "the new plans
+     didn't deploy" happens when they deployed perfectly well. */
+  ok(sel.selCount === 1 && sel.selected === "Isaac",
+     `an undecided parent lands on a kid's real plan, not the unused shared week (${sel.selected})`);
+  const landed = await page.evaluate(() => ({
+    whose: window.__FIT__.whose(),
+    title: window.__FIT__.dayOf().title,
+    shared: window.__FIT__.dayOf(undefined, "").title,
+  }));
+  ok(landed.whose === "Isaac" && landed.title !== landed.shared,
+     `…and sees his programme ("${landed.title}") rather than the shared one ("${landed.shared}")`);
+
+  // Choosing "Everyone" explicitly still works, and says who is on it.
+  await page.evaluate(() => window.__FIT__.setView(""));
+  await sleep(200);
+  const everyone = await page.evaluate(() => ({
+    view: window.__FIT__.view(),
+    own: (document.getElementById("fitForkNote") || { dataset:{} }).dataset.own,
+    text: (document.querySelector("#fitForkNote .fitfork-t") || {}).textContent,
+  }));
+  ok(everyone.view === "" && everyone.own === "shared", "a parent can still choose the shared week");
+  ok(/nobody is doing this one|is on it|are on it/.test(everyone.text || ""),
+     `…and it says who is actually on it ("${(everyone.text||"").trim()}")`);
+  await page.evaluate(() => { localStorage.removeItem("bucky_fit_view"); });
 
   // Both kids now SHIP with a plan of their own (see E3), so to exercise the fork flow
   // from the top this puts Isaac back on the shared plan first.
@@ -1274,7 +1312,7 @@ async function sectionLayout(browser){
   await pinWorkoutDay(page);
   await page.evaluate(() => window.__NAV__.goTo("fitness"));
   await page.waitForFunction(() => document.getElementById("fitStartBtn"), { timeout: 10000 });
-  await page.click("#fitStartBtn");
+  await tap(page, "#fitStartBtn");
   await page.evaluate(() => { window.__FIT__.warp(9999); window.__FIT__.tick(); });
   await sleep(200);
 
