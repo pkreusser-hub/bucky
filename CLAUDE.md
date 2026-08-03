@@ -6407,3 +6407,189 @@ function declarations leaves valid JavaScript; only running the suite caught it
 `git show HEAD:index.html` rather than retyping it from memory. Two lessons: a marker-pair
 cut needs its end marker verified to be the NEXT occurrence, and after any bulk deletion,
 diff the defined-function list against HEAD — `node --check` will not tell you.
+---
+
+# 📰 NEWS — the family's daily feed (2026-08-03)
+
+A `news` section in `index.html` (~430 lines) plus `netlify/functions/news.mjs`. Dad pastes a
+publication's web address, the server finds its RSS feed, and every day the section shows that
+morning's articles from every subscribed publication in one feed, each with a short summary
+written by Sonnet 5. Everyone reads it; only Dad changes the list.
+
+**USER DECISIONS** (asked up front, all three load-bearing): AI summaries on **Sonnet 5** (not
+Haiku) · **custom URLs only**, no curated starter list · visible to everyone, **Dad-PIN-gated
+editing**. Nearest precedent throughout is Fitness (Dad-edits/everyone-reads) and stocks.mjs
+(the server-proxy argument).
+
+## Why a server proxy at all
+Publishers send no CORS headers on their feeds, so a browser fetch of any RSS URL fails before
+it starts — the same reason `stocks.mjs` exists for Yahoo. Server-side also lets us set a real
+User-Agent (several publishers 403 the default) and is the only place the Anthropic key may
+live. **No new env vars**: `BUCKY_NOTIFY_SECRET` and `ANTHROPIC_API_KEY` are both already set
+for FarmGPT.
+
+## TWO CALLS, NOT ONE — the shape the timeout forced
+A Netlify function has ~10s to answer and Sonnet writing forty 40-word summaries is a minute of
+generation, so one combined call would time out **every single day**. Split:
+- `feed` — fetch + parse only (a few seconds), returning each article with the publisher's own
+  blurb already in `summary`. The client paints headlines immediately.
+- `summarize` — a batch of ≤8 articles. The client fires several in parallel (3 at a time) and
+  swaps each card's text as its batch lands.
+
+Progressive by necessity, better by accident: headlines in about a second instead of a spinner.
+A batch that fails costs only its own cards, which keep the publisher's blurb — the feed
+degrades, it never blanks.
+
+## Storage — two docs, and the split is deliberate
+- `newsSources` — the subscription list. Small, rarely changes, Dad-edited.
+- `newsDigest` — TODAY's finished articles + summaries. **ONE doc, overwritten daily**, so it
+  needs no pruning (the settings backend has no delete — which is why the Fitness revert had to
+  invent a `{none:true}` tombstone).
+
+The digest is **shared, not per-device**, and that is the whole cost story: the first person to
+open News today pays for one set of calls and everyone else reads what they generated;
+re-opening the app costs nothing. A device paints its `localStorage` copy instantly, reconciles
+against the cloud (whoever generated more recently wins), and only calls the server when the day
+rolls over or the subscription list actually changes (`newsSig`). Read state is per-device
+(`bucky_news_read`) — reading is personal. Day keys are the Plan-area scheme
+(America/Chicago, UTC-noon anchored), matching Meals/Fitness.
+
+## SSRF — closed properly, not trusted
+The function fetches a URL a person typed. Only Dad can add one, so the threat model is mild,
+but "our server will GET any address you name" is exactly the shape of an SSRF. `guardUrl`:
+https/http only, no credentials, no non-standard ports, and the hostname must **resolve**
+(`dns.lookup`, all addresses checked) outside private/loopback/link-local ranges —
+169.254.169.254 is the cloud metadata endpoint. `NEWS_ALLOW_PRIVATE=1` is the test-harness
+escape hatch and is checked **before** the port rule so a fake publisher can serve on any
+loopback port.
+
+## Discovery ladder
+The URL itself if it's already a feed → `<link rel="alternate" type=".../rss+xml">` on the page
+(RSS preferred over Atom) → the well-known paths (`/feed`, `/rss`, `/rss.xml`, `/feed.xml`,
+`/index.xml`, `/atom.xml`, …). The feed's own title is read from **before the first `<item>`**,
+or a channel with a chatty first article gets named after that article.
+
+## THREE BUGS WORTH REMEMBERING
+1. **A synchronous claim, not an `await`-then-claim.** Deep-linking to `#news` renders the
+   section twice in quick succession (boot, then the navigator). With `newsBusy = true` set
+   after the first `await`, both renders got past the guard — two fetches, and the second
+   landed on top of the digest the first one's summaries had just been written into. The claim
+   is now taken before any await.
+2. **The retry floor keyed on the wrong event.** A failed fetch leaves the digest stale and
+   `renderNews` auto-refreshes on a stale digest, so a floor is needed or they spin forever.
+   Keying it on the last *attempt* also blocked the legitimate day-rollover refetch. It keys on
+   the last **failure** (`newsLastFail`), cleared on success.
+3. **Double-escaped feeds need a second decode.** A feed carrying `&amp;ndash;` inside escaped
+   HTML leaves `7&ndash;2` on the card after one pass. Safe to decode twice **here** and only
+   here: this text is written with `textContent`, never `innerHTML`, so there is no markup to
+   smuggle back in.
+
+## Nav
+**Ten bottom-nav areas now** (Home · Plan · Chores · Fit · News · Jobs · Shop · Bank · Farm ·
+Play). Ten at 390px is ~36px each, which clips a 6-character label, so a `max-width:460px` rule
+tightens the bar (gap 1px, label 9.5px, no letter-spacing). Measured: 0 clipped labels.
+
+## VERIFY: `node tools/_verify-news.cjs [--shots]` — **136/136, 0 page errors**
+Section A runs `news.mjs` **in process** against a fake publisher (RSS + Atom + a homepage
+advertising its feed + a quiet weekly) and a fake Anthropic — no real internet, no real
+publishers, no API spend. Covers the discovery ladder, RSS/Atom/CDATA/entity parsing, the SSRF
+guard both ways, per-source caps, a broken publication not sinking healthy ones, batching
+(one model call per batch, Sonnet 5, prompt content), and every summariser failure mode.
+Sections B–G drive real Chrome at 390×844 + desktop with the function **route-mocked**, so the
+client's caching, gating and two-phase flow are what's under test.
+**FIREBASE IS BLOCKED THROUGHOUT** — this suite exercises first-run paths, and an unblocked
+headless run against index.html has twice duplicated the live goat herd.
+
+**TEST GOTCHAS** (all cost real time here):
+- `page.goto(BASE + "/index.html#news?n=1")` puts the query **inside the hash**, so
+  `location.hash.slice(1)` is `"news?n=1"`, not a deep-link tab — boot lands on Home and
+  re-highlights it *after* you navigate. Query before hash. This produced a screenshot showing
+  News content under a lit-up Home button, which reads exactly like a nav bug and wasn't one.
+- Navigate by **tapping the nav button**, not just by calling `goTo` — that is what catches an
+  area that renders its section but never lights up.
+- A mock that answers instantly means a "before" snapshot can already be the "after". Compare
+  against blurbs taken from the **mock**, not read off the screen.
+- Mock feed handlers keyed to fixed source ids silently hand an empty feed to a
+  newly-added publication, whose id is generated at runtime.
+- The suite's own `hours` is clamped (min 6), so testing the quiet-publication fallback needs a
+  genuinely stale feed, not a narrow window.
+
+**Shots**: `shots/news_{empty,feed,sources,desktop}.png`.
+
+**UNPUSHED** — awaiting user preview (`main` auto-deploys). Deferred: a Home dashboard card
+(the weather/calendar/stocks slot is the obvious home for a headline or two), per-person
+subscriptions, and a "read it here" reader view instead of opening the publisher's site.
+
+---
+
+# ✅ CHORE ROTA · FITNESS GATE · CHROME REWORK (2026-08-03, same session as News)
+
+Four changes asked for before the News push. `index.html` only, plus a new suite
+`tools/_verify-chore-care.cjs` (**40/40**).
+
+## 1 · The daily chores follow the animal-care rota
+The daily chores ARE the animal chores, so they only belong to the kids on the days the
+Kreussers are actually covering. `choreOnDuty(c)`: **morning → the 🌅 am slot; noon AND
+night → the 🌙 pm slot** (there are two care slots, not three). Only DAILY chores follow the
+rota — a weekly barn muck-out is ours whoever fed the goats that morning.
+- **USER DECISIONS**: off-duty chores are **hidden**, not greyed ("everything a kid can see
+  is something they have to do, so 'all done' means all done"); a **partial day still pays**
+  — finish the slots we DO have and the $2 lands. A day with no Kreusser slot has no chores
+  and no allowance.
+- One quiet `.care-off` line per uncovered slot says who has them, or the missing chores
+  just look like a bug. It sits **above** the frequency loop deliberately: when a whole slot
+  is someone else's there are no daily chores left to hang it off, which is exactly when the
+  explanation matters most (first version put it inside the loop, which `continue`d past it).
+- Applied in all three places that must agree: the Chores tab, the Home hero ring
+  (`dayChores`), and `allDailyChoresDone()` → the allowance.
+- **Failure directions are deliberately opposite.** Until the rota loads, the chore list
+  shows everything (hiding a kid's real chores is worse than showing one extra) while the
+  allowance *waits* (minting is irreversible in practice — see the 4x-mint incident).
+  `loadAnimalCare()` now runs at boot from `afterBackendReady`, not only when someone opens
+  the Animal Care tab.
+
+**THE BUG THIS UNCOVERED — the most ordinary family never got paid.** `loadAnimalCare`
+repainted only when the fetched rota *differed* from what was in memory. The shipped default
+is "Kreussers on every slot", so for a family that never overrides anything the fetch matched
+byte-for-byte, `changed` was false, and nothing re-rendered — even though `careLoaded` had
+just flipped false→true. Everything gated on `careLoaded` (now: the chore list, the ring, the
+allowance) therefore never re-evaluated, and `ensureDailyAllowance` ran exactly once, before
+the rota existed. Fixed by repainting when `changed || !wasLoaded`. Also moved that `render()`
+**out of the try/catch** that wraps the settings fetch — with it inside, any error render()
+threw was swallowed silently, with no page error to show for it.
+Found by tracing exit reasons, not by reading: the trace read `["no-care"]`, one entry, which
+is what proved it was never called again rather than called-and-refused.
+
+## 2 · Fitness is only for the three people who use it
+`navKeyVisible("fitness")` and a new `navGroupVisible("fit")` branch both gate on
+`seesFitness()` (`FITNESS_USERS` = Isaac, Eleanor, Dad), and `render()` bounces a stale
+`#fitness` deep-link to Home. It used to be reachable by everyone; the fitness suite's
+assertion to that effect was updated rather than bent.
+
+## 3+4 · Half-height header paying for a two-row nav
+**MEASURED before and after at 390x844, because "net result of space should be equal" is a
+number**: header **90 → 55px**, nav **59 → 95px**, total **149 → 150px**.
+- Header: the goat logo is gone; title and subtitle sit on ONE baseline (stacking them was
+  most of the height); bell 34→28px, padding 16/14→5/5, stripes 6→3px, status 12→11px.
+  `#toastWrap` moved up with it (88→56px).
+- `#bnav` is a **grid** now, two rows on a phone. `--bnav-cols` is set in `buildBottomNav`
+  to `ceil(shown/2)` so the rows stay BALANCED however many areas that person can see —
+  10 → 5+5, 9 → 5+4, 8 → 4+4 (the Bank and Fit gates change the count). Desktop keeps ONE
+  row via `--bnav-all`; the two-row layout solves a phone problem.
+- Buttons went **38px → 72px** wide, so the `max-width:460px` label-shrinking hack the News
+  entry added for ten one-row areas was deleted. Body clearance 156 → 196px.
+
+## VERIFY
+`node tools/_verify-chore-care.cjs [--shots]` — **40/40**, 0 page errors. Section A drives the
+rota (full day / Joy on nights / Grandparents all day, incl. the Home ring agreeing with the
+list and the weekly chore being exempt); B drives the allowance (unfinished pays nothing, the
+DEFAULT rota pays with no prompting, a no-slot day never pays, a partial day does); C measures
+the chrome and walks four profiles through the Fitness gate.
+Firebase blocked throughout — this suite writes chores and allowance docs.
+**Test notes**: the local backend keeps every chore (allowance rows included) in ONE
+`buckyData1` array, not per-chore keys; a chore is done when `donePeriod` matches today's
+period key and `doneLog` fills its target; and `rota("Kreussers")` is byte-identical to the
+shipped default, which is precisely what makes it the important case to test.
+Regressions: news **137/137**, fitness **253/253** (one assertion updated for the new Fitness
+gate). New hook `window.__CHORES__` (careLoaded/onDuty/allDone/mine/mint).
+Shots: `shots/chores_offduty.png`, `shots/chrome_2row.png`.
