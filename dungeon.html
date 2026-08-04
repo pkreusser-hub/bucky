@@ -132,6 +132,10 @@
     padding: 10px 16px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 60; max-width: 88vw; }
   #toast.on { opacity: 1; }
 </style>
+<!-- Activity beacon: records that this page was opened, and how long it was actually on
+     screen, for the Dad-only dashboard at activity.html. Deferred and fully self-guarded —
+     if it fails to load, this page behaves exactly as it did before it existed. -->
+<script src="/assets/activity.js" data-feature="dungeon" defer></script>
 </head>
 <body>
 <header>

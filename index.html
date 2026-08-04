@@ -1332,6 +1332,10 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   }
 
 </style>
+<!-- Activity beacon: records that this page was opened, and how long it was actually on
+     screen, for the Dad-only dashboard at activity.html. Deferred and fully self-guarded —
+     if it fails to load, this page behaves exactly as it did before it existed. -->
+<script src="/assets/activity.js" data-feature="app" defer></script>
 </head>
 <body>
 
@@ -2622,6 +2626,10 @@ function jokeOfDay(){
 function goTo(tab, push = true){
   const changed = tab !== currentTab;
   currentTab = tab;
+  // Section-level activity: index.html is ONE page, so without this every visit to News,
+  // Meals or Chores would read as "somebody opened the app". Guarded so a blocked or
+  // missing beacon can never break navigation.
+  try { if (window.BuckyActivity) window.BuckyActivity.hit("app_" + tab); } catch {}
   const g = groupForTab(tab);
   if (SECTION_BY_KEY[tab]) groupLast[g.id] = tab;
   syncTabsUI(); renderSubnav(); render();

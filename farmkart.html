@@ -548,6 +548,10 @@
     #rContinue{ margin-top:9px; padding:8px 20px; font-size:16px; }
   }
 </style>
+<!-- Activity beacon: records that this page was opened, and how long it was actually on
+     screen, for the Dad-only dashboard at activity.html. Deferred and fully self-guarded —
+     if it fails to load, this page behaves exactly as it did before it existed. -->
+<script src="/assets/activity.js" data-feature="farmkart" defer></script>
 </head>
 <body>
   <div id="stage"></div>

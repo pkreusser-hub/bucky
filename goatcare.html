@@ -131,6 +131,10 @@
                     box-shadow:0 5px 0 #a86f10, 0 8px 18px rgba(0,0,0,.45); transition:transform .08s; }
   .overlay button.big:active{ transform:translateY(3px); box-shadow:0 2px 0 #a86f10, 0 4px 10px rgba(0,0,0,.45); }
 </style>
+<!-- Activity beacon: records that this page was opened, and how long it was actually on
+     screen, for the Dad-only dashboard at activity.html. Deferred and fully self-guarded —
+     if it fails to load, this page behaves exactly as it did before it existed. -->
+<script src="/assets/activity.js" data-feature="goatcare" defer></script>
 </head>
 <body>
   <div id="bar"><a href="index.html">← BUCKY</a><span class="t">🐐 Baby Bucky</span></div>

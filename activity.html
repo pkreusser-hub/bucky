@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#233357" />
+<title>BUCKY — Activity</title>
+<link rel="icon" href="bucky.png" />
+<link rel="apple-touch-icon" href="bucky.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<!-- Roboto added to the same request so desktop's rail/nav renders in the same face Android does (iOS keeps San Francisco via -apple-system) — mirrors index.html / weather.html -->
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Source+Sans+3:wght@500;600;700;800&family=Roboto:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --navy: #233357;
+    --navy-d: #18233b;
+    --red: #ba303e;
+    --ink: #15233f;
+    --ink-2: #3a4a66;
+    --muted: #5d6b86;
+    --line: #d7e0f0;
+    --card: #fff;
+    --shadow: 0 1px 3px rgba(35,51,87,.10), 0 8px 24px rgba(35,51,87,.07);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "Source Sans 3", -apple-system, BlinkMacSystemFont, Roboto, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    min-height: 100dvh;
+    background: linear-gradient(180deg, #eef3fb 0%, #f6f8fc 40%, #f7f9fc 100%);
+    background-attachment: fixed;
+    padding-bottom: calc(env(safe-area-inset-bottom) + 118px);   /* clears the fixed two-row bottom nav */
+    -webkit-font-smoothing: antialiased;
+  }
+
+  header {
+    background: linear-gradient(160deg, var(--navy) 0%, var(--navy-d) 100%);
+    color: #fff;
+    padding: calc(env(safe-area-inset-top) + 14px) 16px 16px;
+    position: sticky; top: 0; z-index: 30;
+    box-shadow: 0 4px 20px rgba(24,35,59,.28);
+  }
+  #bar { display: flex; align-items: center; gap: 10px; }
+  #bar a {
+    color: #fff; text-decoration: none; font-weight: 800; font-size: 14px;
+    background: rgba(255,255,255,.16); padding: 7px 12px; border-radius: 9px; flex: 0 0 auto;
+  }
+  #bar .t { font-family: Fraunces, Georgia, serif; font-size: 20px; font-weight: 700; letter-spacing: .2px; }
+  .subloc { margin: 8px 0 0; font-size: 13px; font-weight: 600; color: rgba(255,255,255,.78); }
+
+  main { max-width: 760px; margin: 0 auto; padding: 16px 14px 24px; display: flex; flex-direction: column; gap: 18px; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+    box-shadow: var(--shadow); padding: 14px;
+  }
+  .section-label {
+    font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .55px;
+    color: var(--navy); margin: 0 0 4px;
+  }
+  .section-note { font-size: 12.5px; font-weight: 600; color: var(--muted); margin: 0 0 12px; }
+
+  /* --- range switch --- */
+  #ranges { display: flex; gap: 8px; }
+  #ranges button {
+    flex: 1; border: 1px solid var(--line); background: #fff; color: var(--ink-2);
+    font: inherit; font-weight: 800; font-size: 14px; padding: 11px 8px; border-radius: 12px; cursor: pointer;
+  }
+  #ranges button.on { background: var(--navy); border-color: var(--navy); color: #fff; }
+  #ranges button:active { transform: scale(.98); }
+
+  /* --- gate / empty / loading --- */
+  .notice { text-align: center; padding: 30px 16px; }
+  .notice .big { font-size: 34px; line-height: 1; margin-bottom: 10px; }
+  .notice h2 { font-family: Fraunces, Georgia, serif; font-size: 20px; margin: 0 0 6px; color: var(--navy-d); }
+  .notice p { margin: 0 auto; max-width: 34em; font-size: 14.5px; font-weight: 600; color: var(--muted); line-height: 1.5; }
+  .notice button {
+    margin-top: 14px; border: 0; background: var(--navy); color: #fff; font: inherit; font-weight: 800;
+    padding: 11px 18px; border-radius: 12px; cursor: pointer;
+  }
+  .hidden { display: none !important; }
+
+  /* --- per-person cards --- */
+  .people { display: grid; grid-template-columns: 1fr; gap: 10px; }
+  @media (min-width: 560px) { .people { grid-template-columns: 1fr 1fr; } }
+  .person {
+    border: 1px solid var(--line); border-radius: 14px; background: #fff;
+    padding: 12px 13px; box-shadow: var(--shadow);
+  }
+  .person .who {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px;
+  }
+  .person .name { font-family: Fraunces, Georgia, serif; font-size: 19px; font-weight: 700; color: var(--navy-d); }
+  .person .seen { font-size: 11.5px; font-weight: 700; color: var(--muted); white-space: nowrap; }
+  .person .nums { display: flex; gap: 16px; margin-bottom: 9px; }
+  .person .num .n {
+    font-size: 22px; font-weight: 800; color: var(--navy); font-variant-numeric: tabular-nums; line-height: 1.05;
+  }
+  .person .num .l {
+    font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; color: var(--muted);
+  }
+  .person .tops { display: flex; flex-wrap: wrap; gap: 5px; }
+  .chip {
+    font-size: 11.5px; font-weight: 700; color: var(--ink-2);
+    background: #eef3fb; border: 1px solid #dde6f5; border-radius: 999px; padding: 3px 9px; white-space: nowrap;
+  }
+
+  /* --- feature breakdown --- */
+  .feat { padding: 10px 0; border-top: 1px solid #eef1f7; }
+  .feat:first-of-type { border-top: 0; padding-top: 2px; }
+  .feat .head {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 7px;
+  }
+  .feat .fname { font-size: 15px; font-weight: 800; color: var(--ink); }
+  .feat .ftot { font-size: 12px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .barrow { display: grid; grid-template-columns: 74px 1fr auto; align-items: center; gap: 8px; margin: 4px 0; }
+  .barrow .bwho {
+    font-size: 12px; font-weight: 700; color: var(--ink-2);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* display:block is load-bearing on both: these are spans, and a percentage width (or a
+     height) on an INLINE box does nothing at all — the first cut rendered every bar as an
+     empty grey track. */
+  .barrow .btrack { display: block; background: #eef1f7; border-radius: 5px; height: 12px; overflow: hidden; }
+  .barrow .bfill { display: block; height: 100%; border-radius: 5px; background: var(--navy); min-width: 3px; }
+  .barrow .bval {
+    font-size: 11.5px; font-weight: 700; color: var(--muted);
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+
+  /* --- day-by-day --- */
+  .days { display: flex; align-items: flex-end; gap: 3px; height: 92px; }
+  .daycol { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; }
+  .daycol .dbar { background: var(--navy); border-radius: 3px 3px 0 0; min-height: 2px; width: 100%; }
+  .daycol.zero .dbar { background: #dfe6f2; }
+  .daycol.today .dbar { background: var(--red); }
+  .dayaxis { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px; font-weight: 700; color: var(--muted); }
+
+  /* Wide content pans inside its own container, like the usage page — the page body
+     itself must never scroll sideways on a phone. */
+  .panner { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .panner > * { min-width: 300px; }
+
+  .foot { font-size: 12px; font-weight: 600; color: var(--muted); text-align: center; padding: 0 6px 6px; line-height: 1.5; }
+
+  /* Bottom Bucky nav — same pattern as weather.html / games.html / farmgpt.html:
+     balanced two-row-on-phone grid (--bnav-cols set from JS so the rows stay balanced
+     whatever areas this person can see). Hidden on desktop (see the rail below). */
+  #buckyNav {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    display: grid;
+    grid-template-columns: repeat(var(--bnav-cols, 6), minmax(0, 1fr));
+    gap: 2px 4px;
+    background: rgba(255,255,255,.9);
+    -webkit-backdrop-filter: saturate(1.3) blur(14px); backdrop-filter: saturate(1.3) blur(14px);
+    border-top: 1px solid #d7e0f0;
+    padding: 3px 6px calc(env(safe-area-inset-bottom) + 3px);
+    box-shadow: 0 -2px 16px rgba(35,51,87,.08);
+  }
+  #buckyNav a {
+    min-width: 0; text-decoration: none; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 5px 0 4px; border-radius: 12px; color: #5d6b86;
+    transition: color .15s ease, background .15s ease, transform .1s ease;
+  }
+  #buckyNav a .bico { font-size: 21px; line-height: 1; filter: grayscale(.4) opacity(.75); transition: filter .15s ease, transform .12s ease; }
+  #buckyNav a .blabel { font-size: 10px; font-weight: 700; letter-spacing: .1px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #buckyNav a:active { transform: scale(.93); }
+  #buckyNav a.active { color: #233357; background: #e7eefb; }
+  #buckyNav a.active .bico { filter: none; transform: translateY(-1px) scale(1.08); }
+  @media (min-width: 700px) and (max-width: 1023.98px) {
+    #buckyNav { grid-template-columns: repeat(var(--bnav-all, 12), minmax(0, 96px)); justify-content: center; gap: 6px; }
+  }
+
+  /* ==========================================================================
+     Desktop left rail (>=1024px) — mirrors index.html's #sidenav/buildSideNav and
+     weather.html's copy.
+     ========================================================================== */
+  #sidenav { display: none; }
+  @media (min-width: 1024px) {
+    :root { --sidenav-w: 230px; }
+    body { padding-left: var(--sidenav-w); padding-bottom: 0; }
+    #sidenav {
+      display: flex; flex-direction: column;
+      position: fixed; top: 0; bottom: 0; left: 0; width: var(--sidenav-w); z-index: 50;
+      background: linear-gradient(180deg, #0d3d76 0%, var(--navy) 55%, var(--navy-d) 100%);
+      border-right: 1px solid rgba(255,255,255,.10);
+      box-shadow: 2px 0 18px rgba(35,51,87,.14);
+      overflow-y: auto; overscroll-behavior: contain;
+    }
+    .sn-brand {
+      display: block; width: 100%; text-align: left; text-decoration: none; cursor: pointer;
+      background: transparent; border: 0; color: #fff; font: inherit;
+      padding: 20px 18px 16px; border-bottom: 1px solid rgba(255,255,255,.12);
+    }
+    .sn-brand .sn-name { font-size: 22px; font-weight: 800; letter-spacing: .2px; line-height: 1.05; }
+    .sn-brand .sn-sub {
+      font-size: 10.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+      color: rgba(255,255,255,.62); margin-top: 4px;
+    }
+    .sn-brand::after {
+      content: ""; display: block; height: 3px; width: 46px; margin-top: 10px; border-radius: 2px;
+      background: repeating-linear-gradient(90deg, var(--red) 0 9px, #fff 9px 18px);
+    }
+    .sn-list { display: flex; flex-direction: column; gap: 2px; padding: 12px 10px 20px; }
+    .sn-item {
+      display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+      text-decoration: none; border: 0; background: transparent; cursor: pointer; font: inherit;
+      color: rgba(255,255,255,.80); padding: 10px 12px; border-radius: 11px;
+      border-left: 3px solid transparent;
+      transition: background .15s ease, color .15s ease;
+    }
+    .sn-item:hover { background: rgba(255,255,255,.09); color: #fff; }
+    .sn-item .sn-ico { font-size: 18px; line-height: 1; flex: 0 0 auto; filter: grayscale(.35) opacity(.9); }
+    .sn-item .sn-label { font-size: 14.5px; font-weight: 700; letter-spacing: .1px; }
+    .sn-item.active { background: rgba(255,255,255,.15); color: #fff; border-left-color: var(--red); cursor: default; }
+    .sn-item.active .sn-ico { filter: none; }
+
+    /* The rail already carries the wordmark, so the header's own back link is redundant
+       chrome on desktop — the title stays. */
+    #backLink { display: none; }
+    #buckyNav { display: none; }
+    main { max-width: 900px; padding: 20px 24px 32px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Desktop left rail (>=1024px, hidden below): same NAV_GROUPS data + gates as the
+     mobile #buckyNav bar below — see the nav-building script after </main>. -->
+<nav id="sidenav" aria-label="BUCKY sections"></nav>
+
+<header>
+  <div id="bar">
+    <a href="index.html" id="backLink">← Bucky</a>
+    <span class="t">Activity</span>
+  </div>
+  <p class="subloc">Who's using Bucky, and how much</p>
+</header>
+
+<main>
+  <!-- Non-Dad profiles get this and nothing else. -->
+  <section id="gate" class="card notice hidden">
+    <div class="big">🔒</div>
+    <h2>This page is just for Dad.</h2>
+    <p id="gateMsg">Switch to the Dad profile in Bucky to see it.</p>
+    <button id="unlockBtn" class="hidden">Unlock Dad tools</button>
+  </section>
+
+  <div id="dash" class="hidden">
+    <div id="ranges" role="group" aria-label="Date range">
+      <button id="r7" class="on" data-days="7">Last 7 days</button>
+      <button id="r30" data-days="30">Last 30 days</button>
+    </div>
+
+    <section id="loading" class="card notice">
+      <div class="big">⏳</div>
+      <h2>Reading the log…</h2>
+      <p>One moment.</p>
+    </section>
+
+    <section id="empty" class="card notice hidden">
+      <div class="big">🌱</div>
+      <h2>Nothing recorded yet</h2>
+      <p id="emptyMsg"></p>
+    </section>
+
+    <section id="errBox" class="card notice hidden">
+      <div class="big">😕</div>
+      <h2>Couldn't read the activity log</h2>
+      <p id="errMsg"></p>
+    </section>
+
+    <div id="content" class="hidden">
+      <section class="card" style="margin-top:14px">
+        <p class="section-label">Every day</p>
+        <p class="section-note" id="daysNote"></p>
+        <div class="panner"><div>
+          <div class="days" id="dayBars"></div>
+          <div class="dayaxis" id="dayAxis"></div>
+        </div></div>
+      </section>
+
+      <section style="margin-top:14px">
+        <p class="section-label" style="margin-left:2px">Who's using it</p>
+        <p class="section-note" style="margin-left:2px" id="peopleNote"></p>
+        <div class="people" id="people"></div>
+      </section>
+
+      <section class="card" style="margin-top:14px">
+        <p class="section-label">What they're using</p>
+        <p class="section-note" id="featNote"></p>
+        <div id="feats"></div>
+      </section>
+    </div>
+  </div>
+
+  <p class="foot" id="foot"></p>
+</main>
+
+<nav id="buckyNav" aria-label="BUCKY sections"></nav>
+
+<script>
+(function () {
+  // ---- Bucky bottom nav (mirrors weather.html / games.html / farmgpt.html) ----
+  // Mirrors index.html's NAV_GROUPS (12 areas: Home/Plan/Meals/Chores/Fit/News/Jobs/
+  // Shop/Bank/AI/Farm/Play). This page is a Dad-only tool, not one of the family's nav
+  // areas, so NO entry is marked active — every one of them links away from here, and
+  // lighting one up would claim this page belongs to a section it doesn't.
+  // Gate lists duplicated from index.html — keep in sync with index.html.
+  var BANK_USERS = ["Eleanor", "Isaac", "Dad", "Mom"];
+  var MEAL_USERS = ["Mom", "Dad"];
+  var FITNESS_USERS = ["Isaac", "Eleanor", "Dad"];
+  var me = localStorage.getItem("choreUser") || "";
+  function seesBank(){ return BANK_USERS.indexOf(me) >= 0; }
+  function seesMeals(){ return MEAL_USERS.indexOf(me) >= 0; }
+  function seesFitness(){ return FITNESS_USERS.indexOf(me) >= 0; }
+
+  var NAV_GROUPS = [
+    { ico:"🏠", name:"Home",  href:"index.html#dashboard" },
+    { ico:"📅", name:"Plan",  href:"index.html#calendar" },
+    { ico:"🍽️", name:"Meals", href:"index.html#mealplan", gate:seesMeals },
+    { ico:"✅", name:"Chores",href:"index.html#chores" },
+    { ico:"💪", name:"Fit",   href:"index.html#fitness",  gate:seesFitness },
+    { ico:"📰", name:"News",  href:"index.html#news" },
+    { ico:"🛠️", name:"Jobs",  href:"index.html#workorders" },
+    { ico:"🛒", name:"Shop",  href:"index.html#shopping" },
+    { ico:"💰", name:"Bank",  href:"index.html#farmbank", gate:seesBank },
+    { ico:"🐐", name:"Farm",  href:"index.html#goathooves" },
+    { ico:"🌾", name:"AI",    href:"farmgpt.html" },
+    { ico:"🎮", name:"Play",  href:"games.html" },
+  ];
+  var shown = NAV_GROUPS.filter(function (g) { return !g.gate || g.gate(); });
+
+  var bnav = document.getElementById("buckyNav");
+  bnav.style.setProperty("--bnav-cols", Math.ceil(shown.length / 2));
+  bnav.style.setProperty("--bnav-all", shown.length);
+  shown.forEach(function (g) {
+    var a = document.createElement("a");
+    a.href = g.href;
+    var ico = document.createElement("span"); ico.className = "bico"; ico.textContent = g.ico;
+    var lbl = document.createElement("span"); lbl.className = "blabel"; lbl.textContent = g.name;
+    a.append(ico, lbl);
+    a.title = g.name;
+    a.setAttribute("aria-label", g.name);
+    bnav.appendChild(a);
+  });
+
+  var sn = document.getElementById("sidenav");
+  var brand = document.createElement("a");
+  brand.className = "sn-brand"; brand.href = "index.html#dashboard";
+  brand.setAttribute("aria-label", "Back to dashboard");
+  var bn = document.createElement("div"); bn.className = "sn-name"; bn.textContent = "Bucky";
+  var bs = document.createElement("div"); bs.className = "sn-sub"; bs.textContent = "Family Farm Hub";
+  brand.append(bn, bs);
+  sn.appendChild(brand);
+  var list = document.createElement("div"); list.className = "sn-list";
+  shown.forEach(function (g) {
+    var a = document.createElement("a");
+    a.className = "sn-item";
+    a.href = g.href;
+    a.setAttribute("aria-label", g.name);
+    var ico = document.createElement("span"); ico.className = "sn-ico"; ico.textContent = g.ico;
+    var lbl = document.createElement("span"); lbl.className = "sn-label"; lbl.textContent = g.name;
+    a.append(ico, lbl);
+    list.appendChild(a);
+  });
+  sn.appendChild(list);
+})();
+</script>
+
+<script>
+(function () {
+  "use strict";
+
+  var API_URL = "/.netlify/functions/activity";
+  var FAMILY_PASSWORD = "amenfarms";
+
+  // The day the beacon shipped. Nothing before this exists to be shown, and the empty
+  // state says so out loud rather than implying the family has been idle.
+  var TRACKING_SINCE = "2026-08-03";
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  /* ---------------- Dad account lock ----------------
+     Identical to farmgpt.html's gate: the PIN hash is created in the main app and mirrored
+     to localStorage["dadPinHash"]; unlocking sets a flag shared across this origin. Soft
+     gate — the endpoint is family-password gated like every other one, this keeps the page
+     out of the kids' hands. */
+  async function sha256Hex(s) {
+    var buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+    return [].slice.call(new Uint8Array(buf)).map(function (b) { return b.toString(16).padStart(2, "0"); }).join("");
+  }
+  var dadPinHash = function () { return localStorage.getItem("dadPinHash") || ""; };
+  var dadConfigured = function () { return !!dadPinHash(); };
+  var dadUnlocked = function () {
+    return sessionStorage.getItem("dadUnlocked") === "1" || localStorage.getItem("dadUnlockedDevice") === "1";
+  };
+  var isDadName = function () { return (localStorage.getItem("choreUser") || "") === "Dad"; };
+  var isDad = function () { return isDadName() && dadUnlocked(); };
+  async function tryUnlockDad(pin) {
+    if (!dadConfigured() || !pin) return false;
+    var ok = (await sha256Hex(pin + ":" + FAMILY_PASSWORD)) === dadPinHash();
+    if (ok) {
+      sessionStorage.setItem("dadUnlocked", "1");
+      try { localStorage.setItem("dadUnlockedDevice", "1"); } catch (e) {}
+    }
+    return ok;
+  }
+
+  /* ---------------- names ---------------- */
+  // A feature id is a slug; these are the names a person would use for them. Anything not
+  // listed falls back to a title-cased version of the slug, so a page added later shows up
+  // legibly without an edit here.
+  var LABELS = {
+    app: "Bucky app", app_dashboard: "Home", app_chores: "Chores", app_news: "News",
+    app_mealplan: "Meals", app_fitness: "Fitness", app_calendar: "Calendar",
+    app_animalcare: "Animal care", app_workorders: "Work orders", app_shopping: "Shopping",
+    app_farmbank: "Farm Bank", app_goathooves: "Goats", app_goatcare: "Goat care",
+    app_print3d: "3D prints", app_game: "Bucky Jump", app_catgame: "Cat Rescue",
+    app_play: "Play menu",
+    farmgpt: "FarmGPT", farmgpt_story: "Story Time", farmgpt_storysetup: "Story Time",
+    farmgpt_research: "Research", farmgpt_teacher: "TeacherGPT", farmgpt_home: "FarmGPT home",
+    farmgpt_usage: "API usage", farmgpt_storylog: "Story log",
+    games: "Games hub", weather: "Weather", meallog: "Meal log", dungeon: "Dungeon",
+    farmparty: "Farm Party", farmkart: "Farm Kart", castlekruzer: "Castle Kruzer",
+    hayhaul: "Hay Haul", hayhem: "Hayhem", branchmanager: "Branch Manager",
+    pasturepanic: "Pasture Panic", goatcare: "Baby Bucky", barnyardbistro: "Barnyard Bistro",
+  };
+  var ICONS = {
+    app: "🏠", app_news: "📰", app_chores: "✅", app_mealplan: "🍽️", app_fitness: "💪",
+    app_calendar: "📅", app_animalcare: "🐾", app_workorders: "🛠️", app_shopping: "🛒",
+    app_farmbank: "💰", app_goathooves: "🐐", app_goatcare: "🩺", app_print3d: "🖨️",
+    app_game: "🐐", app_catgame: "🐱", app_dashboard: "🏠", app_play: "🎮",
+    farmgpt: "🌾", farmgpt_story: "📖", farmgpt_storysetup: "📖", farmgpt_research: "🔬",
+    farmgpt_teacher: "🍎", games: "🎮", weather: "🌤️", meallog: "🍽️", dungeon: "🎲",
+    farmparty: "🎉", farmkart: "🏁", castlekruzer: "🏰", hayhaul: "🚜", hayhem: "🎃",
+    branchmanager: "🪵", pasturepanic: "🌽", goatcare: "🐐", barnyardbistro: "🍅",
+  };
+  function label(f) {
+    if (LABELS[f]) return LABELS[f];
+    return String(f || "").split("_").map(function (w) {
+      return w ? w.charAt(0).toUpperCase() + w.slice(1) : "";
+    }).join(" ").trim() || "Unknown";
+  }
+  function icon(f) { return ICONS[f] || "•"; }
+
+  /* ---------------- formatting ---------------- */
+  function fmtMinutes(m) {
+    if (!m || m < 1) return m > 0 ? "<1m" : "0m";
+    if (m < 60) return Math.round(m) + "m";
+    var h = Math.floor(m / 60), rem = Math.round(m - h * 60);
+    return rem ? h + "h " + rem + "m" : h + "h";
+  }
+  function plural(n, one, many) { return n + " " + (n === 1 ? one : (many || one + "s")); }
+  var MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  function prettyDate(key) {
+    var p = String(key).split("-");
+    if (p.length !== 3) return key;
+    return Number(p[2]) + " " + (MONTHS[Number(p[1]) - 1] || "") + " " + p[0];
+  }
+  /** Days are the only resolution we have, so "last seen" is honest at day granularity. */
+  function lastSeen(dayKey, today) {
+    var diff = Math.round((Date.parse(today + "T00:00:00Z") - Date.parse(dayKey + "T00:00:00Z")) / 86400000);
+    if (!isFinite(diff)) return "";
+    if (diff <= 0) return "today";
+    if (diff === 1) return "yesterday";
+    if (diff < 7) return diff + " days ago";
+    if (diff < 14) return "last week";
+    return prettyDate(dayKey);
+  }
+
+  /* ---------------- day maths (Central, matching the beacon) ---------------- */
+  function todayKey() {
+    try { return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" }); }
+    catch (e) { return new Date().toISOString().slice(0, 10); }
+  }
+  function shiftDay(key, delta) {
+    var d = new Date(Date.parse(key + "T00:00:00Z") + delta * 86400000);
+    return d.toISOString().slice(0, 10);
+  }
+  /** Every month a range touches, so the server hands back both sides of a boundary. */
+  function monthsFor(fromKey, toKey) {
+    var out = [], cur = fromKey.slice(0, 7), end = toKey.slice(0, 7), guard = 0;
+    while (guard++ < 12) {
+      out.push(cur);
+      if (cur === end) break;
+      var y = Number(cur.slice(0, 4)), m = Number(cur.slice(5, 7)) + 1;
+      if (m > 12) { m = 1; y++; }
+      cur = y + "-" + String(m).padStart(2, "0");
+    }
+    return out;
+  }
+
+  /* ---------------- state ---------------- */
+  var rangeDays = 7;
+  var stats = null;         // last successful { users:[...] }
+  var loadedFor = null;     // months the cached stats cover
+
+  function show(id, on) { $(id).classList.toggle("hidden", !on); }
+
+  async function load() {
+    var today = todayKey();
+    var from = shiftDay(today, -(rangeDays - 1));
+    var months = monthsFor(from, today);
+    var key = months.join(",");
+
+    if (loadedFor === key && stats) { paint(); return; }
+
+    show("loading", true); show("empty", false); show("errBox", false); show("content", false);
+    var j = null;
+    try {
+      var resp = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ secret: FAMILY_PASSWORD, action: "stats", months: months }),
+      });
+      j = await resp.json();
+      if (!resp.ok) throw new Error((j && j.error) || ("Request failed (" + resp.status + ")"));
+    } catch (e) {
+      show("loading", false); show("errBox", true);
+      $("errMsg").textContent = (e && e.message) || "The request didn't get through. Try again in a moment.";
+      return;
+    }
+    show("loading", false);
+    if (!j || j.ok === false) {
+      show("errBox", true);
+      $("errMsg").textContent = j && j.reason === "no-service-account"
+        ? "The server can't reach Firestore — FIREBASE_SERVICE_ACCOUNT isn't set."
+        : "The server couldn't read the log. Try again in a moment.";
+      return;
+    }
+    stats = j;
+    loadedFor = key;
+    paint();
+  }
+
+  /** Collapse the raw per-person day maps into what each panel needs. */
+  function summarise() {
+    var today = todayKey();
+    var from = shiftDay(today, -(rangeDays - 1));
+    var dates = [];
+    for (var i = 0; i < rangeDays; i++) dates.push(shiftDay(from, i));
+    var inRange = {};
+    dates.forEach(function (d) { inRange[d] = true; });
+
+    var people = [], byDay = {}, byFeature = {}, total = 0;
+    dates.forEach(function (d) { byDay[d] = 0; });
+
+    (stats && stats.users || []).forEach(function (u) {
+      var person = { user: u.user || u.slug, views: 0, minutes: 0, last: "", feats: {} };
+      Object.keys(u.days || {}).forEach(function (date) {
+        if (!inRange[date]) return;
+        var cell = u.days[date] || {};
+        Object.keys(cell).forEach(function (f) {
+          var v = cell[f].v || 0, m = cell[f].m || 0;
+          if (!v && !m) return;
+          person.views += v; person.minutes += m;
+          if (!person.last || date > person.last) person.last = date;
+          var pf = person.feats[f] || (person.feats[f] = { v: 0, m: 0 });
+          pf.v += v; pf.m += m;
+          byDay[date] = (byDay[date] || 0) + v;
+          total += v;
+          var bf = byFeature[f] || (byFeature[f] = { v: 0, m: 0, users: {} });
+          bf.v += v; bf.m += m;
+          var bu = bf.users[person.user] || (bf.users[person.user] = { v: 0, m: 0 });
+          bu.v += v; bu.m += m;
+        });
+      });
+      if (person.views || person.minutes) people.push(person);
+    });
+
+    people.sort(function (a, b) { return b.minutes - a.minutes || b.views - a.views; });
+    return { dates: dates, people: people, byDay: byDay, byFeature: byFeature, total: total, today: today };
+  }
+
+  function paint() {
+    var s = summarise();
+    var rangeWord = "the last " + rangeDays + " days";
+
+    if (!s.people.length) {
+      show("content", false);
+      show("empty", true);
+      $("emptyMsg").textContent = (stats && (stats.users || []).length)
+        ? "Nobody opened Bucky in " + rangeWord + ". Activity tracking started " + prettyDate(TRACKING_SINCE) + "."
+        : "Nothing has been recorded yet — activity tracking started " + prettyDate(TRACKING_SINCE)
+          + ". Numbers appear here as the family uses Bucky.";
+      $("foot").textContent = "";
+      return;
+    }
+    show("empty", false);
+    show("content", true);
+
+    /* ---- day-by-day ---- */
+    var max = 1;
+    s.dates.forEach(function (d) { if (s.byDay[d] > max) max = s.byDay[d]; });
+    var bars = $("dayBars"); bars.textContent = "";
+    s.dates.forEach(function (d) {
+      var col = document.createElement("div");
+      col.className = "daycol" + (s.byDay[d] ? "" : " zero") + (d === s.today ? " today" : "");
+      var bar = document.createElement("div");
+      bar.className = "dbar";
+      bar.style.height = Math.max(2, Math.round((s.byDay[d] / max) * 88)) + "px";
+      col.appendChild(bar);
+      col.title = prettyDate(d) + " — " + plural(s.byDay[d] || 0, "opening");
+      col.setAttribute("data-day", d);
+      col.setAttribute("data-views", String(s.byDay[d] || 0));
+      bars.appendChild(col);
+    });
+    var axis = $("dayAxis"); axis.textContent = "";
+    var l = document.createElement("span"); l.textContent = prettyDate(s.dates[0]).replace(/ \d{4}$/, "");
+    var r = document.createElement("span"); r.textContent = "Today";
+    axis.append(l, r);
+    $("daysNote").textContent = plural(s.total, "opening") + " across " + rangeWord + ".";
+
+    /* ---- people ---- */
+    var box = $("people"); box.textContent = "";
+    s.people.forEach(function (p) {
+      var card = document.createElement("div");
+      card.className = "person";
+      card.setAttribute("data-user", p.user);
+
+      var who = document.createElement("div"); who.className = "who";
+      var nm = document.createElement("span"); nm.className = "name"; nm.textContent = p.user;
+      var sn2 = document.createElement("span"); sn2.className = "seen";
+      sn2.textContent = p.last ? lastSeen(p.last, s.today) : "";
+      who.append(nm, sn2);
+
+      var nums = document.createElement("div"); nums.className = "nums";
+      [["sessions", String(p.views)], ["time", fmtMinutes(p.minutes)]].forEach(function (pair) {
+        var d = document.createElement("div"); d.className = "num";
+        var n = document.createElement("div"); n.className = "n"; n.textContent = pair[1];
+        var lb = document.createElement("div"); lb.className = "l"; lb.textContent = pair[0];
+        d.append(n, lb); nums.appendChild(d);
+      });
+
+      var tops = document.createElement("div"); tops.className = "tops";
+      Object.keys(p.feats)
+        .sort(function (a, b) { return p.feats[b].m - p.feats[a].m || p.feats[b].v - p.feats[a].v; })
+        .slice(0, 4)
+        .forEach(function (f) {
+          var c = document.createElement("span"); c.className = "chip";
+          c.textContent = icon(f) + " " + label(f) + " · " + fmtMinutes(p.feats[f].m);
+          tops.appendChild(c);
+        });
+
+      card.append(who, nums, tops);
+      box.appendChild(card);
+    });
+    $("peopleNote").textContent = plural(s.people.length, "person", "people") + " opened Bucky in " + rangeWord + ".";
+
+    /* ---- features ---- */
+    var feats = $("feats"); feats.textContent = "";
+    var order = Object.keys(s.byFeature).sort(function (a, b) {
+      return s.byFeature[b].m - s.byFeature[a].m || s.byFeature[b].v - s.byFeature[a].v;
+    });
+    order.forEach(function (f) {
+      var info = s.byFeature[f];
+      var wrap = document.createElement("div"); wrap.className = "feat";
+      wrap.setAttribute("data-feature", f);
+
+      var head = document.createElement("div"); head.className = "head";
+      var fn = document.createElement("span"); fn.className = "fname";
+      fn.textContent = icon(f) + " " + label(f);
+      var ft = document.createElement("span"); ft.className = "ftot";
+      ft.textContent = plural(info.v, "opening") + " · " + fmtMinutes(info.m);
+      head.append(fn, ft);
+      wrap.appendChild(head);
+
+      var users = Object.keys(info.users).sort(function (a, b) {
+        return info.users[b].m - info.users[a].m || info.users[b].v - info.users[a].v;
+      });
+      var top = 0;
+      users.forEach(function (u) { if (info.users[u].m > top) top = info.users[u].m; });
+      // A person who opened it but never lingered still deserves a visible bar, so an
+      // all-zero-minutes feature scales by openings instead.
+      var byViews = top <= 0;
+      if (byViews) users.forEach(function (u) { if (info.users[u].v > top) top = info.users[u].v; });
+      if (top <= 0) top = 1;
+
+      users.forEach(function (u) {
+        var row = document.createElement("div"); row.className = "barrow";
+        row.setAttribute("data-user", u);
+        var w = document.createElement("span"); w.className = "bwho"; w.textContent = u;
+        var track = document.createElement("span"); track.className = "btrack";
+        var fill = document.createElement("span"); fill.className = "bfill";
+        var val = byViews ? info.users[u].v : info.users[u].m;
+        fill.style.width = Math.max(3, Math.round((val / top) * 100)) + "%";
+        track.appendChild(fill);
+        var v2 = document.createElement("span"); v2.className = "bval";
+        v2.textContent = byViews
+          ? plural(info.users[u].v, "open")
+          : fmtMinutes(info.users[u].m) + " · " + info.users[u].v + "×";
+        row.append(w, track, v2);
+        wrap.appendChild(row);
+      });
+      feats.appendChild(wrap);
+    });
+    $("featNote").textContent = plural(order.length, "feature") + " opened in " + rangeWord
+      + ", busiest first (bars are time spent).";
+
+    $("foot").textContent = "Tracking started " + prettyDate(TRACKING_SINCE)
+      + ". Time is measured only while a page is actually on screen.";
+  }
+
+  /* ---------------- gate + wiring ---------------- */
+  function applyGate() {
+    var dad = isDad();
+    show("gate", !dad);
+    show("dash", dad);
+    if (!dad) {
+      var canUnlock = isDadName() && dadConfigured();
+      $("gateMsg").textContent = canUnlock
+        ? "Enter the Dad PIN to unlock it on this device."
+        : "Switch to the Dad profile in Bucky to see it.";
+      show("unlockBtn", canUnlock);
+      $("foot").textContent = "";
+      return false;
+    }
+    return true;
+  }
+
+  $("unlockBtn").addEventListener("click", async function () {
+    var pin = prompt("Enter your Dad PIN to unlock:");
+    if (pin == null) return;
+    if (await tryUnlockDad(pin)) { if (applyGate()) load(); }
+    else $("gateMsg").textContent = "That PIN didn't match. Try again.";
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll("#ranges button"), function (b) {
+    b.addEventListener("click", function () {
+      rangeDays = Number(b.getAttribute("data-days")) || 7;
+      Array.prototype.forEach.call(document.querySelectorAll("#ranges button"), function (o) {
+        o.classList.toggle("on", o === b);
+      });
+      load();
+    });
+  });
+
+  // Test hook, matching the house convention (__NEWS__ / __FIT__ / __CAL__).
+  window.__ACT__ = {
+    isDad: isDad,
+    setRange: function (d) { rangeDays = d; return load(); },
+    reload: function () { loadedFor = null; return load(); },
+    summarise: function () { return summarise(); },
+    stats: function () { return stats; },
+    since: TRACKING_SINCE,
+  };
+
+  if (applyGate()) load();
+})();
+</script>
+</body>
+</html>

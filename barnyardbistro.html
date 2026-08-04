@@ -564,6 +564,10 @@
     .touchAware #musicBtn{ width:22px; height:22px; font-size:11px; line-height:22px; right:38px; }
   }
 </style>
+<!-- Activity beacon: records that this page was opened, and how long it was actually on
+     screen, for the Dad-only dashboard at activity.html. Deferred and fully self-guarded —
+     if it fails to load, this page behaves exactly as it did before it existed. -->
+<script src="/assets/activity.js" data-feature="barnyardbistro" defer></script>
 </head>
 <body>
   <div id="bar"><a href="index.html">← BUCKY</a><span class="t">🍅 Barnyard Bistro</span></div>

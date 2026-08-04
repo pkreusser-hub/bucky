@@ -418,6 +418,10 @@
   #statsPanel .stVal{ flex:0 0 auto; font-size:11.5px; color:#c9d8c2; min-width:40px; text-align:right; }
   #statsPanel .stMisc{ display:flex; flex-wrap:wrap; gap:6px 16px; font-size:12px; color:#c9d8c2; margin-top:4px; }
 </style>
+<!-- Activity beacon: records that this page was opened, and how long it was actually on
+     screen, for the Dad-only dashboard at activity.html. Deferred and fully self-guarded —
+     if it fails to load, this page behaves exactly as it did before it existed. -->
+<script src="/assets/activity.js" data-feature="pasturepanic" defer></script>
 </head>
 <body>
   <div id="bar"><a href="index.html">← BUCKY</a><span class="t">🌽 Pasture Panic</span>

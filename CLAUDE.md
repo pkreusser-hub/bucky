@@ -6645,3 +6645,57 @@ Three user asks, all in index.html. Suites: news **157/157** · chore-care **49/
   crumb correct, two-column Home, rail click switches tabs, and 390px restores everything.
 
 Shots: worktree `shots/desk_{home,news,chores,mobile_unchanged}.png`.
+
+---
+
+# 📈 ACTIVITY — who's using Bucky, and how much (2026-08-03, Dad-only)
+
+User: "how users are engaging with bucky — who is using the news app and how often, who is
+using story time, are games being played, meals logged." Nothing recorded who OPENED
+anything, so this is a NEW telemetry path: the dashboard starts empty and fills from deploy
+day. **No backfill, nothing inferred** — `TRACKING_SINCE` in activity.html is the one date to
+bump if the deploy slips.
+
+## Three parts
+- **`assets/activity.js`** — the beacon, one `<script src="/assets/activity.js" defer
+  data-feature="…">` on 15 family pages (NOT the editors/demos, not activity.html). Identity =
+  localStorage `choreUser`, else "Unknown" — never invented. Auto-view on load; **dwell** ticks
+  every 30s only while `visibilityState === "visible"` (accumulating REAL elapsed), which is
+  what separates "opened" from "played". Aggregates into localStorage `bucky_act_buf`, flushes
+  on pagehide / hidden / ~90s via `sendBeacon` (fetch keepalive fallback), KEEPS the buffer on
+  a failed flush, caps it so it can't grow unbounded offline.
+- **`netlify/functions/activity.mjs`** — `log` + `stats`, zero deps, NO NEW ENV VARS
+  (BUCKY_NOTIFY_SECRET gate + FIREBASE_SERVICE_ACCOUNT, same JWT/Firestore-REST technique as
+  farmgpt.mjs). ONE DOC PER USER PER MONTH in `bucky_activity`, id `<YYYY-MM>__<userSlug>`,
+  counter fields `<DD>_<feature>_v` / `_m` so every write is an INCREMENT fieldTransform and
+  concurrent devices converge instead of clobbering. Minutes are `doubleValue` on purpose —
+  rounding a 40-second visit to 0 would systematically erase exactly the short visits that
+  distinguish opened from played. `log` ALWAYS returns 200 (it's a beacon on a page someone is
+  mid-use of). 6-month retention pruned on read.
+- **`activity.html`** — Dad-gated (same soft posture as the API-usage page: endpoint is
+  family-secret gated, UI is `isDad()` + PIN). Day bars, per-person cards (sessions / time /
+  last seen / top features), and a per-feature breakdown with a bar per user. Same chrome as
+  weather.html (12-area nav + desktop rail); NO nav entry is marked active — it is a Dad tool,
+  not one of the family areas. Unlinked, direct-URL only, like leveleditor.html.
+
+## Index/farmgpt get finer-grained hits
+`goTo(tab)` → `app_<tab>` and farmgpt's `show(name)` → `farmgpt_<name>`, both guarded with
+`window.BuckyActivity &&` so a missing or blocked beacon can never break navigation.
+
+## VERIFY
+`node tools/_verify-activity.cjs` **147/147** (Section A drives the function in-process against
+a FAKE Google token + FAKE Firestore that really APPLIES the transforms, so convergence is
+measured not asserted; B+ drives real Chrome with Firebase blocked).
+`node tools/_verify-beacon-safety.cjs` **90/90** — the important one, because the beacon now
+sits on 15 pages: each page is loaded three ways (beacon present · beacon 404 · beacon present
+with its own `setItem` and `sendBeacon` THROWING) and must render the same character count and
+stay error-free every time.
+**TEST GOTCHAS**: (1) sabotaging `localStorage` wholesale proves NOTHING about the beacon — it
+just breaks every page's own profile code; scope the throw to keys starting `bucky_act`.
+(2) weather.html reports `L is not defined` under a no-external-hosts harness because Leaflet's
+CDN is blocked — it appears identically with the beacon 404'd, which is how you know it isn't
+yours. (3) A percentage width on an inline `<span>` does nothing: the first dashboard bars
+rendered flat AND the test passed because it read `style.width` ("100%") instead of geometry —
+measure `getBoundingClientRect()` against the track.
+Regressions green: news 157 · chore-care 49 · fitness 253.
+Shots: `shots/activity_{desktop,mobile,empty}.png`.

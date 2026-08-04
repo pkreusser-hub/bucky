@@ -64,6 +64,10 @@
   .overlay .scores .title{ font-weight:800; color:#fff; font-size:14px; margin-bottom:6px; }
   .overlay .scores .row{ font-size:13px; color:#dcecd4; }
 </style>
+<!-- Activity beacon: records that this page was opened, and how long it was actually on
+     screen, for the Dad-only dashboard at activity.html. Deferred and fully self-guarded —
+     if it fails to load, this page behaves exactly as it did before it existed. -->
+<script src="/assets/activity.js" data-feature="branchmanager" defer></script>
 </head>
 <body>
   <div id="bar"><a href="index.html">← BUCKY</a><span class="t">🪵 Branch Manager</span>

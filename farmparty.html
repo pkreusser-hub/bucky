@@ -251,6 +251,10 @@
   #smpWarn.on{opacity:1;animation:smpWarnPulse .45s infinite;}
   @keyframes smpWarnPulse{0%,100%{transform:scale(1) rotate(-1deg);}50%{transform:scale(1.07) rotate(1deg);}}
 </style>
+<!-- Activity beacon: records that this page was opened, and how long it was actually on
+     screen, for the Dad-only dashboard at activity.html. Deferred and fully self-guarded —
+     if it fails to load, this page behaves exactly as it did before it existed. -->
+<script src="/assets/activity.js" data-feature="farmparty" defer></script>
 </head>
 <body>
 <div id="stage"></div>
