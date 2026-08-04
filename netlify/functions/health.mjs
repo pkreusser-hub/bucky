@@ -367,53 +367,46 @@ async function probeNetlify(signal) {
   const acct = Array.isArray(accounts) ? accounts[0] : null;
   if (!acct || !acct.slug) return okResult("Connected", "The Netlify token is valid.", null);
 
+  /* Shapes below were read off the LIVE API via the temporary netlify_shape action
+     (2026-08-04), not guessed:
+     - /bandwidth: { used:number, included:number|NULL, additional:number, period_end_date }
+       — `included` is NULL on the credit-based free plan, which is exactly why the first
+       parser (typeof included === "number") threw the metric away.
+     - the account itself carries the real alarms: `usages_exceeded` (truthy = a budget is
+       blown right now) and `days_until_disabled` (non-null = Netlify has started a shutdown
+       countdown). Those outrank any percentage we could compute. */
+  if (acct.days_until_disabled != null) {
+    return { status: "down", headline: `Netlify: ${acct.days_until_disabled} days until disabled`,
+      detail: "Netlify has flagged this account for disablement — open app.netlify.com now.",
+      metric: null, configHint: null };
+  }
+
   const br = await timedFetch(`${base}/api/v1/accounts/${encodeURIComponent(acct.slug)}/bandwidth`,
     { headers: { authorization: `Bearer ${token}` } }, signal);
-  if (br.ok && br.status === 200) {
-    let bw; try { bw = JSON.parse(br.text); } catch { bw = null; }
-    const used = bw && typeof bw.used === "number" ? bw.used : null;
-    const included = bw && typeof bw.included === "number" ? bw.included : null;
-    if (used != null && included) {
-      const pct = round1((used / included) * 100);
-      const metric = { used, limit: included, pct, unit: "bytes", periodEnd: (bw && bw.period_end_date) || null };
-      if (pct > WARN_PCT) return { status: "warn", headline: `${Math.round(pct)}% of bandwidth used`, detail: "Bandwidth usage is getting high for this billing period.", metric, configHint: null };
-      return { status: "ok", headline: "Connected", detail: "Bandwidth usage looks fine.", metric, configHint: null };
-    }
-  }
-  // Report honestly rather than inventing fields — the exact usage endpoint shape isn't
-  // guaranteed, so a connected-but-unrecognized response is still "ok", just without a metric.
-  return okResult("Connected", "The Netlify token is valid; usage details weren't in the shape this dashboard expects — check the Netlify dashboard directly.", null);
-}
+  let bw = null;
+  if (br.ok && br.status === 200) { try { bw = JSON.parse(br.text); } catch { bw = null; } }
+  const used = bw && typeof bw.used === "number" ? bw.used : null;
+  const includedRaw = bw ? bw.included : null;
+  const additional = bw && typeof bw.additional === "number" ? bw.additional : 0;
+  const limit = typeof includedRaw === "number" ? includedRaw + additional : null;
+  const periodEnd = (bw && bw.period_end_date) || null;
+  const exceeded = !!acct.usages_exceeded;
 
-/* TEMPORARY DEBUG — netlify_shape. The live /bandwidth response isn't the shape the probe
-   expects and the token rightly never leaves the server, so this returns the response's KEY
-   STRUCTURE ONLY (key names + value types, no values) so the parser can be fixed against
-   reality. Remove once the metric parses. */
-function shapeOf(v, depth = 0) {
-  if (depth > 3) return typeof v;
-  if (Array.isArray(v)) return v.length ? [shapeOf(v[0], depth + 1)] : [];
-  if (v && typeof v === "object") {
-    const o = {};
-    for (const k of Object.keys(v).slice(0, 40)) o[k] = shapeOf(v[k], depth + 1);
-    return o;
+  if (used != null) {
+    const gb = round1(used / 1073741824);
+    const metric = { used, limit, pct: limit ? round1((used / limit) * 100) : null, unit: "bytes", periodEnd };
+    if (exceeded) return { status: "warn", headline: "A Netlify usage limit is exceeded",
+      detail: "The account reports usages_exceeded — check app.netlify.com before something is throttled.", metric, configHint: null };
+    if (limit && metric.pct > WARN_PCT) return { status: "warn", headline: `${Math.round(metric.pct)}% of bandwidth used`,
+      detail: "Bandwidth usage is getting high for this billing period.", metric, configHint: null };
+    // The free plan reports no bandwidth allowance (included is null), so show the real
+    // usage without inventing a percentage.
+    return { status: "ok", headline: limit ? "Connected" : `${gb} GB bandwidth this period`,
+      detail: limit ? "Bandwidth usage looks fine." : "Netlify's free plan doesn't report an allowance over the API; usage counts against your plan's credits.", metric, configHint: null };
   }
-  return typeof v;
-}
-async function netlifyShape() {
-  const token = process.env.NETLIFY_API_TOKEN;
-  if (!token) return { error: "no token" };
-  const base = process.env.HEALTH_NETLIFY_BASE || "https://api.netlify.com";
-  const out = {};
-  const a = await timedFetch(`${base}/api/v1/accounts`, { headers: { authorization: `Bearer ${token}` } });
-  out.accountsStatus = a.status || String(a.error || a.timeout);
-  let slug = null;
-  try { const j = JSON.parse(a.text); out.accounts = shapeOf(j); slug = Array.isArray(j) && j[0] && j[0].slug; } catch {}
-  if (slug) {
-    const b = await timedFetch(`${base}/api/v1/accounts/${encodeURIComponent(slug)}/bandwidth`, { headers: { authorization: `Bearer ${token}` } });
-    out.bandwidthStatus = b.status || String(b.error || b.timeout);
-    try { out.bandwidth = shapeOf(JSON.parse(b.text)); } catch { out.bandwidthRawLen = (b.text || "").length; }
-  } else out.note = "no slug in first account";
-  return out;
+  if (exceeded) return warnResult("A Netlify usage limit is exceeded",
+    "The account reports usages_exceeded — check app.netlify.com before something is throttled.", null);
+  return okResult("Connected", "The Netlify token is valid; the bandwidth endpoint didn't answer this time.", null);
 }
 
 async function probeFirebase(signal) {
@@ -874,7 +867,6 @@ export default async (req) => {
     if (body.action === "summary") return json(await handleSummary(body), 200, headers);
     if (body.action === "probe_anthropic_credit") return json(await handleProbeCredit(), 200, headers);
     if (body.action === "firestore_usage") return json(await handleFirestoreUsage(body), 200, headers);
-    if (body.action === "netlify_shape") return json(await netlifyShape(), 200, headers);   // TEMPORARY DEBUG
   } catch (e) {
     // Whatever happens inside a handler, the caller never sees a raw error — see the
     // "always degrade gracefully" posture documented at the top of this file.

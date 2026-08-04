@@ -179,7 +179,8 @@ const paidState = {
   netlifySlug: "amenfarms-team",
   netlifyAccountsStatus: 200,
   netlifyBandwidthStatus: 200,
-  netlifyBandwidth: { used: 500, included: 1000, period_end_date: "2026-09-01" },
+  netlifyBandwidth: { used: 500, included: 1000, additional: 0, period_end_date: "2026-09-01" },   // real live shape (netlify_shape probe)
+  netlifyAccountFlags: { usages_exceeded: false, days_until_disabled: null },
   elevenlabsStatus: 200,
   elevenlabsUsage: { tier: "creator", character_count: 400, character_limit: 1000 },
   tripoStatus: 200,
@@ -191,7 +192,8 @@ function paidReset() {
   paidState.anthropicModelsStatus = 200; paidState.anthropicHangModels = false; paidState.anthropicMessagesMode = "ok";
   paidState.xaiStatus = 200; paidState.geminiStatus = 200;
   paidState.netlifyAccountsStatus = 200; paidState.netlifyBandwidthStatus = 200;
-  paidState.netlifyBandwidth = { used: 500, included: 1000, period_end_date: "2026-09-01" };
+  paidState.netlifyBandwidth = { used: 500, included: 1000, additional: 0, period_end_date: "2026-09-01" };
+  paidState.netlifyAccountFlags = { usages_exceeded: false, days_until_disabled: null };
   paidState.elevenlabsStatus = 200; paidState.elevenlabsUsage = { tier: "creator", character_count: 400, character_limit: 1000 };
   paidState.tripoStatus = 200; paidState.tripoBalance = { code: 0, data: { balance: 42, frozen: 0 } };
   paidState.force500 = null;
@@ -227,7 +229,7 @@ function servePaid() {
         }
         if (u.pathname === "/xai/v1/models") return json({ data: [] }, paidState.xaiStatus);
         if (u.pathname === "/gemini/v1beta/models") return json({ models: [] }, paidState.geminiStatus);
-        if (u.pathname === "/netlify/api/v1/accounts") return json([{ id: "acc1", slug: paidState.netlifySlug, name: "Amen Farms" }], paidState.netlifyAccountsStatus);
+        if (u.pathname === "/netlify/api/v1/accounts") return json([{ id: "acc1", slug: paidState.netlifySlug, name: "Amen Farms", ...paidState.netlifyAccountFlags }], paidState.netlifyAccountsStatus);
         if (u.pathname === `/netlify/api/v1/accounts/${paidState.netlifySlug}/bandwidth`) return json(paidState.netlifyBandwidth, paidState.netlifyBandwidthStatus);
         if (u.pathname === "/elevenlabs/v1/user/subscription") return json(paidState.elevenlabsUsage, paidState.elevenlabsStatus);
         if (u.pathname === "/tripo/v2/openapi/user/balance") return json(paidState.tripoBalance, paidState.tripoStatus);
@@ -918,12 +920,36 @@ async function sectionUiLayout(browser) {
     ok(svc(resp, "elevenlabs").status === "ok", "elevenlabs at 40% usage is ok, not warn");
 
     // warn thresholds
-    paidState.netlifyBandwidth = { used: 850, included: 1000, period_end_date: "2026-09-01" };
+    paidState.netlifyBandwidth = { used: 850, included: 1000, additional: 0, period_end_date: "2026-09-01" };
     paidState.elevenlabsUsage = { tier: "creator", character_count: 900, character_limit: 1000 };
     resp = await call({ secret: SECRET, action: "summary", force: true });
     ok(svc(resp, "netlify").status === "warn" && svc(resp, "netlify").metric.pct === 85, "netlify bandwidth at 85% used -> warn");
     ok(svc(resp, "elevenlabs").status === "warn" && svc(resp, "elevenlabs").metric.pct === 90, "elevenlabs at 90% used -> warn");
     ok(svc(resp, "anthropic").status === "ok", "an unrelated service (anthropic) is unaffected by another service's warn");
+    paidReset();
+
+    /* The FREE-PLAN shape, learned from the live API (netlify_shape, 2026-08-04): `included`
+       is NULL — the first parser demanded a number and threw the whole metric away, which is
+       exactly the mock-more-permissive-than-reality trap again. */
+    paidState.netlifyBandwidth = { used: 3221225472, included: null, additional: 0, period_end_date: "2026-09-01" };
+    // NOTE svc() unwraps .body itself — pass the FULL call result, like every other check.
+    resp = await call({ secret: SECRET, action: "summary", force: true });
+    {
+      const n = svc(resp, "netlify");
+      ok(n.status === "ok" && /3 GB bandwidth/.test(n.headline), `free plan (included:null) still shows real usage ("${n.headline}")`);
+      ok(n.metric && n.metric.used === 3221225472 && n.metric.pct === null, "…metric keeps used bytes and honestly has no percentage");
+    }
+    paidReset();
+
+    // The account's own alarm fields outrank any computed percentage.
+    paidState.netlifyAccountFlags = { usages_exceeded: true, days_until_disabled: null };
+    resp = await call({ secret: SECRET, action: "summary", force: true });
+    ok(svc(resp, "netlify").status === "warn" && /usage limit is exceeded/i.test(svc(resp, "netlify").headline),
+      "account usages_exceeded -> warn regardless of the bandwidth numbers");
+    paidState.netlifyAccountFlags = { usages_exceeded: false, days_until_disabled: 14 };
+    resp = await call({ secret: SECRET, action: "summary", force: true });
+    ok(svc(resp, "netlify").status === "down" && /14 days until disabled/.test(svc(resp, "netlify").headline),
+      "days_until_disabled -> DOWN with the countdown in the headline");
     paidReset();
 
     /* ==================== C. summary — no optional keys ======================= */
