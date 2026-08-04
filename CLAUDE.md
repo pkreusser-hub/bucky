@@ -7343,34 +7343,31 @@ scenes in order, final ledger valid, 0 page errors.
 prefix it writes, so that dashboard row always shows zero. Left alone — it is another session's
 feature and a one-word fix belongs with them.
 
+
 ## ⚠ THE FIELD-PATH BUG — twelve hours of silence (2026-08-04)
 
-Shipped 2026-08-03 with 147/147 green; recorded NOTHING for twelve hours. Root cause:
-counter fields were named , and **Firestore rejects any unquoted property path
-that does not match ** — every commit came back HTTP 400. Fields
-are  now; the leading  is load-bearing.
+Shipped 2026-08-03 with 147/147 green; recorded NOTHING for twelve hours. Root cause: the
+counter fields were named `03_news_v`, and **Firestore rejects any unquoted property path
+that does not match `([a-zA-Z_][a-zA-Z_0-9]*)`** — every commit came back HTTP 400. They are
+`d03_news_v` now, and that leading `d` is load-bearing, not decoration.
 
-TWO THINGS HID IT, and both are fixed:
+TWO THINGS HID IT, both fixed here:
 1. **The fake Firestore was more permissive than the real one.** It stored whatever field
-   name it was handed. A mock that accepts what the service rejects is worse than no mock —
-   it manufactures confidence. It now enforces the grammar and answers the same 400.
-2. ** always returns 200** (correct — it is a beacon on a page someone is mid-use of),
-   so the 400 was swallowed into a  nobody read. Diagnosis was one curl:
-    —  is the tell.
+   name it was handed. A mock that accepts what the real service rejects is worse than no
+   mock — it manufactures confidence. It now enforces the same grammar and answers the same
+   400, so this exact bug fails the suite instead of passing it.
+2. **`log` always returns 200** (correct — it is a beacon on a page someone is mid-use of),
+   so the 400 was swallowed into a `reason` field nobody read. Diagnosis was one curl against
+   production: `{"ok":true,"wrote":0,"reason":"http-400"}`. **`wrote:0` is the tell** — when
+   this dashboard looks empty, curl the live `log` action before touching any code.
 
-NEW:   ✓ planWrites produced one document
-  · field paths: d04_news_v, d04_news_m, d04_app_mealplan_v, d04_app_mealplan_m
-  ✓ every property path satisfies Firestore's unquoted grammar
-  ✓ REAL Firestore ACCEPTS the write
-  ✓ the document reads back
-  ✓ parseDoc recovers the display name (DiagTest)
-  ✓ two commits ADDED: news views = 4 (4)
-  ✓ minutes kept their fraction: 3 (3)
-  ✓ an underscored feature name survives the round trip
-  ✓ the scratch document was cleaned up
+NEW SUITE: `node tools/_verify-activity-live.mjs` (9 checks) sends the function's REAL write
+to REAL Firestore, reads it back, proves two commits ADD rather than clobber, and deletes
+after itself. It uses the scratch collection `diag_activity` and the public web key — never
+`bucky_activity`, never the service account. A fake can only ever encode the rules we already
+know about, so run this whenever the write shape changes.
 
-ACTIVITY LIVE: 9/9 passed (9 checks) sends the function's REAL write to
-REAL Firestore, reads it back, proves two commits ADD, and cleans up after itself. It uses
-the scratch collection  and the public web key, never  and
-never the service account. A fake can only encode rules we already know; run this whenever
-the write shape changes.
+THE SHELL GOTCHA, AGAIN (this file already warned about it and I still hit it): appending
+this very entry with `node -e "..."` containing backticks let bash run command substitution —
+it EXECUTED the verify script and spliced its output into the docs. Use a quoted heredoc
+(`<< 'EOF'`) or the Edit tool for any text containing backticks.
