@@ -11,24 +11,32 @@
 // Zero-dependency by design, same as notify.mjs: raw fetch against the Anthropic Messages
 // API (SSE streaming parsed by hand below), so Netlify's bundler has nothing to pull in.
 //
-// Per-mode model: STORY mode (and its background summary) run on Anthropic's Haiku 4.5 —
-// cheap ($1/$5 per MTok), reliable at the ===CHOICES===/guardrail contract, no rate-limit
-// cliff, and it reuses the same key + request path as research. RESEARCH mode stays on
-// Sonnet 5 (stronger homework/coding reasoning). STORY_PROVIDER flips story to Gemini (free
-// tier, needs GEMINI_API_KEY) or to Sonnet, without a code change.
+// Per-mode model. THE SHIPPING STACK (2026-08-04, user-approved on measured evidence):
+//   · the STORY NARRATOR runs on xAI's grok-4.5 — measurably richer scenes at the same
+//     ===CHOICES=== reliability, $2/$6 per MTok.
+//   · the LEDGER SEEDER runs on Anthropic's Fable 5 — once per story, and what it builds shapes
+//     every scene after it, so it is the cheapest place in the engine to spend on capability.
+//   · the KEEPER STAYS ON HAIKU 4.5. Grok's keeper scored 40/40 on judgement but ran a median
+//     47.8s against the client's 45s abort and lost 3 of 8 scenes' bookkeeping in a real run.
+//     KEEPER_PROVIDER exists so that can be re-measured; it must stay defaulted to haiku.
+//   · RESEARCH stays on Sonnet 5 (stronger homework/coding reasoning).
+// EVERY xAI route DEGRADES TO HAIKU BY ITSELF — a missing XAI_API_KEY resolves to Anthropic
+// before the request is built, and an xAI outage mid-request retries once on Anthropic — so a
+// site with no xAI key configured is a working site, just a Haiku-narrated one.
 //
 // Required environment variables (set in Netlify site settings):
-//   ANTHROPIC_API_KEY    - Anthropic API key (console.anthropic.com) — story + research
+//   ANTHROPIC_API_KEY    - Anthropic API key (console.anthropic.com) — research, seeder, keeper
 //   BUCKY_NOTIFY_SECRET  - shared family passphrase (same one notify.mjs already uses)
+//   XAI_API_KEY          - xAI key (console.x.ai) — the story narrator. WITHOUT IT the story
+//                          silently runs on Haiku; nothing breaks, the prose is just weaker.
 // Optional:
-//   STORY_PROVIDER       - "haiku" (default) | "gemini" | "sonnet" | "grok" for story mode
-//   GEMINI_API_KEY       - Google AI Studio key — only needed when STORY_PROVIDER=gemini
-//   XAI_API_KEY          - xAI key — only needed when a mode is routed to "grok"
+//   STORY_PROVIDER       - "grok" (DEFAULT) | "haiku" | "gemini" | "sonnet" for story mode
 //   XAI_MODEL            - xAI model id (default "grok-4.5")
-//   KEEPER_PROVIDER      - "haiku" (default) | "grok" | "sonnet" for the ledger keeper
+//   GEMINI_API_KEY       - Google AI Studio key — only needed when STORY_PROVIDER=gemini
+//   KEEPER_PROVIDER      - "haiku" (DEFAULT — see above) | "grok" | "sonnet" for the keeper
 //   KEEPER_MODEL         - override the keeper's model id within its provider
 //   KEEPER_PROMPT        - "auto" (default; grok provider → grok-tuned) | "haiku" | "grok"
-//   STORY_SEED_PROVIDER  - UNSET = the seeder is DORMANT. "fable" | "sonnet" | "grok" to enable.
+//   STORY_SEED_PROVIDER  - "fable" (DEFAULT) | "sonnet" | "grok" | "off" to disable the seeder
 //   STORY_SEED_MODEL     - override the seeder's model id within its provider
 //   ANTHROPIC_BASE_URL   - override for local testing against a fake Anthropic server
 //   GEMINI_BASE_URL      - override for local testing against a fake Gemini server
@@ -459,7 +467,7 @@ async function updateUniverseCanons(messages, bibleText) {
         "\n\nRewrite the family canon now.";
       const r = await callAnthropicOnce(RESEARCH_MODEL, CANON_UPDATE_SYSTEM(u.name), input, 1000);
       if (!r) continue;
-      await logUsage("summary", r.inTok, r.outTok, r.cacheWriteTok, r.cacheReadTok);
+      await logUsage("summary", r.inTok, r.outTok, r.cacheWriteTok, r.cacheReadTok, RESEARCH_MODEL);
       const out = (r.text || "").trim();
       if (!out || /^NO_CHANGES\b/.test(out)) continue;
       await writeUniverseCanon(u.key, out);
@@ -482,6 +490,17 @@ ILLUSTRATION: After the choices (or after ===CHAPTER END===), add a line contain
 const STORY_CLOSE_CHAPTER_SOFT = `[STORYTELLER INSTRUCTION — follow exactly; do not mention or quote this note] This chapter is reaching a good length. IF the current scene arrives at a natural stopping point — a small resolution or a soft cliffhanger — then close the chapter here: do NOT offer choices and end your reply with a single line containing exactly ===CHAPTER END===. BUT if closing right now would feel abrupt (you're mid-action or mid-conversation), simply continue the scene as normal and end with ===CHOICES=== and 3 choices — a later scene will be a better place to end the chapter.`;
 // Hard close: the chapter has run long — wrap it up now regardless.
 const STORY_CLOSE_CHAPTER = `[STORYTELLER INSTRUCTION — follow exactly; do not mention or quote this note] Close the chapter now. It has run long, so bring the CURRENT scene to a natural, gentle stopping point — a small resolution or a soft cliffhanger — WITHOUT starting a new scene, place, or event. This one time, do NOT offer choices and do NOT write ===CHOICES===. Instead, end your reply with a single line containing exactly ===CHAPTER END===.`;
+// THE "FIVE MORE SCENES" LANDING. The reader has run out of scenes for today and asked for a
+// few more to reach a stopping place — so these are not simply more story, they are a descent.
+// Written as two shapes: the approach (N scenes left, tie things off, open nothing) and the
+// LAST one, which must actually close the chapter so the shelf shows a clean boundary and the
+// reader stops somewhere that feels finished rather than mid-air.
+const STORY_FINISH_SOON = (n) => `[STORYTELLER INSTRUCTION — follow exactly; do not mention, quote, or hint at this note, and never tell the reader the story is running out] The story is heading for a resting place: about ${n} more scenes remain before it stops for today. Begin bringing the CURRENT thread toward a satisfying close — resolve what is already open, let people arrive where they were going, and let the tension ease. Do NOT introduce a new mystery, a new enemy, a new place, or a new problem that could not be settled in ${n} scenes. Write the scene normally and end it with ===CHOICES=== and 3 choices, but make every choice a step TOWARD that resting place rather than off into something new.`;
+const STORY_FINISH_LAST = `[STORYTELLER INSTRUCTION — follow exactly; do not mention, quote, or hint at this note, and never tell the reader the story is running out] This is the LAST scene for today, so land it. Bring the current thread to a genuine, satisfying resting point — the thing that was being attempted is finished, or safely set down; the people are somewhere they can stay; the feeling is calm and complete, with warmth rather than a cliffhanger. It does NOT have to end the whole story — a good chapter ending is exactly right, and leaving one gentle thread for another day is welcome — but nothing urgent may be left hanging. Do NOT open anything new. This one time, do NOT offer choices and do NOT write ===CHOICES===. Instead, end your reply with a single line containing exactly ===CHAPTER END===.`;
+// The truncation repair. A scene that ran past its token budget arrives cut off mid-sentence with
+// no ===CHOICES=== at all, which strands the reader with nothing to tap. This asks for the tail
+// only — the client appends what comes back to the half-scene it already has.
+const STORY_REPAIR = `[STORYTELLER INSTRUCTION — follow exactly; do not mention or quote this note] Your previous reply was cut off mid-sentence before you finished. Continue from EXACTLY where it stopped — your first words must complete the interrupted sentence — and bring the scene to a close within a few short sentences. Do NOT restart the scene, do NOT repeat anything you already wrote, and do NOT summarise it. Then end your reply with ===CHOICES=== and exactly 3 numbered choices.`;
 const STORY_NEW_CHAPTER = `[STORYTELLER INSTRUCTION — follow exactly; do not mention or quote this note] Open a NEW chapter now. Begin your reply with a line containing exactly ===CHAPTER=== followed by a short, evocative chapter title (nothing else on that line). Then write the opening scene and end it normally with ===CHOICES=== and 3 choices. Continue with the SAME protagonist — the reader's own character — in second person; never switch to another character's perspective. Keep full continuity.`;
 
 // ---------------- story ledger (continuity engine, schema v1) ----------------
@@ -1260,7 +1279,13 @@ function parseCalorieJSON(text) {
 // REVISIT IF: story ever moves to Sonnet (1,024-token minimum) AND the ledger's stable half is
 // made genuinely byte-stable, which today would mean giving up cast hydration.
 const MODES = {
-  story:       { system: STORY_SYSTEM,      maxTokens: 1200, thinking: { type: "disabled" }, cache: false },
+  // 1600, not the long-standing 1200, and this is a MEASURED fix, not headroom for its own sake:
+  // at 1200 a Haiku scene sometimes ran past the budget and arrived cut off mid-sentence with no
+  // ===CHOICES=== at all, stranding the reader with nothing to tap (2 of 8 scenes in one live run,
+  // with a third offering 2 choices instead of 3). Output tokens bill only for what is produced,
+  // so the extra 400 costs nothing on an ordinary scene. The budget is the FIRST of two defences —
+  // it lowers the rate; STORY_REPAIR + the client's recovery pass are what make it survivable.
+  story:       { system: STORY_SYSTEM,      maxTokens: 1600, thinking: { type: "disabled" }, cache: false },
   research:    { system: RESEARCH_SYSTEM,   maxTokens: 4096, thinking: undefined },
   summary:     { system: SUMMARY_SYSTEM,    maxTokens: 1200, thinking: { type: "disabled" } },
   // The story ledger's keeper (build-order step 3). JSON only, so thinking is off.
@@ -1424,7 +1449,7 @@ async function teacherGenerate(body) {
     (notes ? `\nTeacher's notes: ${notes}` : "") });
   const r = await callAnthropicOnce(TEACHER_MODEL, TEACHER_SYSTEM, blocks, 8000);
   if (!r) return { error: "TeacherGPT couldn't reach the model — try again" };
-  await logUsage("teacher", r.inTok, r.outTok, r.cacheWriteTok, r.cacheReadTok);
+  await logUsage("teacher", r.inTok, r.outTok, r.cacheWriteTok, r.cacheReadTok, TEACHER_MODEL);
   const t = parseTeacherJSON(r.text);
   if (!t) return { error: "TeacherGPT couldn't format that — try again" };
   return { ok: true, kind, questionCount: t.questions.length, quiz: t };
@@ -1513,7 +1538,20 @@ function farmHour() {
   return `${g("year")}-${g("month")}-${g("day")}-${hh}`;
 }
 
-async function logUsage(modeName, inTok, outTok, cacheWriteTok = 0, cacheReadTok = 0) {
+// WHICH MODEL produced a usage record, as a short stable field-safe slug. Cost has to follow the
+// MODEL, not the mode: the moment story mode moved to Grok, every figure on a dashboard that
+// prices "story" at Haiku rates became silently wrong — including for months already past.
+// So each record is written TWICE: once into its mode bucket (unchanged, so every existing row
+// and every existing reader keeps working) and once into `<bucket>_<slug>_*`. The dashboard
+// prices the per-model fields at that model's real rate and prices only the REMAINDER — bucket
+// total minus the per-model rows — at the old fixed rate, which is exactly zero for anything
+// written from here on and exactly everything for rows written before today.
+function modelSlug(model) {
+  const s = String(model || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  return s ? s.slice(0, 24) : "unknown";
+}
+
+async function logUsage(modeName, inTok, outTok, cacheWriteTok = 0, cacheReadTok = 0, model = "") {
   try {
     const token = await getGoogleAccessToken();
     if (!token) return;
@@ -1547,6 +1585,13 @@ async function logUsage(modeName, inTok, outTok, cacheWriteTok = 0, cacheReadTok
       // cache writes (~1.25x input rate) and cache reads (~0.1x input rate)
       tf(key + "_cw", cacheWriteTok), tf(key + "_cr", cacheReadTok),
     ];
+    // …and the same numbers again under the model that produced them. Same document, same
+    // commit, so a bucket and its per-model breakdown can never disagree about a request.
+    if (model) {
+      const mk = `${key}_${modelSlug(model)}`;
+      fields.push(tf(mk + "_in", inTok), tf(mk + "_out", outTok), tf(mk + "_req", 1),
+        tf(mk + "_cw", cacheWriteTok), tf(mk + "_cr", cacheReadTok));
+    }
     // One commit increments both the daily rollup and the hourly bucket.
     await fetch(`${FIRESTORE_BASE}:commit`, {
       method: "POST",
@@ -1561,14 +1606,23 @@ async function logUsage(modeName, inTok, outTok, cacheWriteTok = 0, cacheReadTok
   } catch { /* usage logging must never break a reply */ }
 }
 
+// Every mode bucket the dashboard knows about. Keep in sync with logUsage's key map above.
+const USAGE_BUCKETS = ["s", "u", "r", "d", "k", "a", "g", "c", "l", "x", "t", "f"];
 // Maps one Firestore usage doc → a flat row. `label` is "date" (daily) or "hour" (hourly).
 function usageRow(d, label) {
   const f = d.fields || {};
   const n = (k) => parseInt((f[k] && f[k].integerValue) || "0", 10);
   const row = { [label]: d.name.split("/").pop() };
   // s = story chapters, u = story summaries, r = research, d = dungeon (D&D), c = calorie lookups,
-  // l = the story ledger's keeper, x = the Dad-only contradiction audit
-  for (const p of ["s", "u", "r", "d", "k", "a", "g", "c", "l", "x"]) for (const m of ["in", "out", "req", "cw", "cr"]) row[`${p}_${m}`] = n(`${p}_${m}`);
+  // l = the story ledger's keeper, x = the Dad-only contradiction audit, t = TeacherGPT,
+  // f = the ledger seeder (Fable). `t` was MISSING from this list, which is why the dashboard's
+  // TeacherGPT row read zero however much Opus it had actually burned — logUsage wrote t_* all
+  // along and nothing ever read it back.
+  for (const p of USAGE_BUCKETS) for (const m of ["in", "out", "req", "cw", "cr"]) row[`${p}_${m}`] = n(`${p}_${m}`);
+  // Per-model breakdown fields (`<bucket>_<slug>_in` …) are passed through verbatim — the set of
+  // models is open-ended, so this enumerates what the document actually has rather than a list
+  // that would need editing every time a model changes.
+  for (const k of Object.keys(f)) if (/^[a-z]_[a-z0-9]+_(in|out|req|cw|cr)$/.test(k)) row[k] = n(k);
   return row;
 }
 async function readCollection(collection, label, cap) {
@@ -1634,6 +1688,29 @@ const STORY_DAILY_CAP = 15;
 // adds another STORY_DAILY_CAP. Read failure → 0 extra (the base cap still enforces — the
 // grant fails closed, unlike the count query which fails open).
 const STORY_BONUS_COLLECTION = "farmgpt_story_bonus";
+// The reader's OWN "let me finish this bit" grant: 5 more scenes, ONCE per reader per Central
+// day, steered toward a real ending rather than just more story. Enforced here for the same
+// reason the cap is — a client-side grant is a checkbox a kid can tick, and this house has
+// already had one cap bypass (the "Eleanor ( :" rename, see canonStoryUser below). One doc per
+// (day, canonical reader): `farmgpt_story_finish/<date>__<bucket>`, created with an
+// exists:false precondition so a second tap CANNOT stack a second grant even if two devices
+// race. Read failure → 0 (fails CLOSED, like the bonus: a grant we can't verify isn't given).
+const STORY_FINISH_COLLECTION = "farmgpt_story_finish";
+const STORY_FINISH_SCENES = 5;
+const finishDocId = (bucket) => `${farmDate()}__${sanId(bucket)}`;
+async function storyFinishGrant(user) {
+  const bucket = canonStoryUser(user);
+  if (!bucket) return 0;
+  try {
+    const token = await getGoogleAccessToken();
+    if (!token) return 0;
+    const r = await fetch(`${FIRESTORE_BASE}/${STORY_FINISH_COLLECTION}/${finishDocId(bucket)}`,
+      { headers: { authorization: `Bearer ${token}` } });
+    if (!r.ok) return 0;
+    const j = await r.json().catch(() => null);
+    return parseInt((j && j.fields && j.fields.scenes && j.fields.scenes.integerValue) || "0", 10) || 0;
+  } catch { return 0; }
+}
 async function storyBonusToday() {
   try {
     const token = await getGoogleAccessToken();
@@ -1945,7 +2022,7 @@ async function processStoryLogGroup(token, item, summaryMap) {
   for (let attempt = 0; attempt < 2 && !verdict; attempt++) {   // one retry
     const r = await callAnthropicOnce(STORY_MODEL, STORY_LOG_SUMMARY_SYSTEM, input, 600);
     if (!r) continue;
-    await logUsage("summary", r.inTok, r.outTok, r.cacheWriteTok, r.cacheReadTok);   // billed either way
+    await logUsage("summary", r.inTok, r.outTok, r.cacheWriteTok, r.cacheReadTok, STORY_MODEL);   // billed either way
     verdict = parseSummaryJSON(r.text);
   }
 
@@ -2737,8 +2814,45 @@ export default async (req) => {
     if (!user || user === "Dad") return new Response(JSON.stringify({ ok: true, used: 0, cap: STORY_DAILY_CAP, capped: false }), { status: 200, headers: jsonHeaders });
     const count = await countStoryToday(user);
     if (count === null) return jsonError(502, "Budget check unavailable right now", jsonHeaders);
-    const cap = STORY_DAILY_CAP + await storyBonusToday();
-    return new Response(JSON.stringify({ ok: true, used: count, cap, capped: count >= cap }), { status: 200, headers: jsonHeaders });
+    const granted = await storyFinishGrant(user);
+    const cap = STORY_DAILY_CAP + await storyBonusToday() + granted;
+    // finishAvailable is what the capped screen keys its offer off — so the button only ever
+    // appears when the server would actually honour the tap.
+    return new Response(JSON.stringify({
+      ok: true, used: count, cap, capped: count >= cap,
+      finishGranted: granted, finishAvailable: granted === 0, finishScenes: STORY_FINISH_SCENES,
+    }), { status: 200, headers: jsonHeaders });
+  }
+  // The reader's own once-a-day "five more scenes to reach a good stopping place". Server-enforced
+  // in the only way that matters: the doc is created with an exists:false precondition, so the
+  // SECOND tap loses the write and gets {already:true} — no stacking, no racing two devices into
+  // ten scenes, and no amount of client tampering turns one grant into two.
+  if (body.mode === "story_finish_grant") {
+    const user = typeof body.user === "string" ? body.user : "";
+    const bucket = canonStoryUser(user);
+    if (!bucket || user === "Dad") return new Response(JSON.stringify({ ok: false, reason: "not-capped" }), { status: 200, headers: jsonHeaders });
+    const token = await getGoogleAccessToken();
+    if (!token) return jsonError(500, "Story budget isn't configured on the server", jsonHeaders);
+    const base = `projects/${PROJECT_ID}/databases/(default)/documents`;
+    const r = await fetch(`${FIRESTORE_BASE}:commit`, {
+      method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ writes: [{
+        update: {
+          name: `${base}/${STORY_FINISH_COLLECTION}/${finishDocId(bucket)}`,
+          fields: { scenes: { integerValue: String(STORY_FINISH_SCENES) }, user: { stringValue: bucket }, date: { stringValue: farmDate() } },
+        },
+        currentDocument: { exists: false },
+      }] }),
+    });
+    if (!r.ok) {
+      // A precondition failure means the grant already exists today — that is a normal answer,
+      // not an error. Anything else is a real failure and the reader keeps their cap.
+      const already = await storyFinishGrant(user);
+      if (already > 0) return new Response(JSON.stringify({ ok: false, already: true, granted: already }), { status: 200, headers: jsonHeaders });
+      return jsonError(502, "Couldn't add those scenes — try again", jsonHeaders);
+    }
+    const cap = STORY_DAILY_CAP + await storyBonusToday() + STORY_FINISH_SCENES;
+    return new Response(JSON.stringify({ ok: true, granted: STORY_FINISH_SCENES, cap }), { status: 200, headers: jsonHeaders });
   }
   if (body.mode === "story_budget_grant") {
     const token = await getGoogleAccessToken();
@@ -2818,7 +2932,7 @@ export default async (req) => {
     if (!text) return jsonError(400, "Nothing to estimate", jsonHeaders);
     const r = await callAnthropicOnce(RESEARCH_MODEL, CALORIE_SYSTEM, text, 800);
     if (!r) return jsonError(502, "The calorie estimator isn't reachable right now", jsonHeaders);
-    await logUsage("calories", r.inTok, r.outTok, r.cacheWriteTok, r.cacheReadTok);
+    await logUsage("calories", r.inTok, r.outTok, r.cacheWriteTok, r.cacheReadTok, RESEARCH_MODEL);
     const parsed = parseCalorieJSON(r.text);
     if (!parsed) return jsonError(502, "Couldn't read the estimate — try rewording it", jsonHeaders);
     if (parsed.notFood) return new Response(JSON.stringify({ ok: false, message: "That didn't look like a food description — try naming the dish or its parts." }), { status: 200, headers: jsonHeaders });
@@ -2851,7 +2965,7 @@ export default async (req) => {
     const img = await generateKidImage(typeof body.scene === "string" ? body.scene : "",
       { premise: typeof body.premise === "string" ? body.premise : "", prev });
     if (img) {
-      await logUsage("kidimage", 0, 0, 0, 0);   // billed per image, so just count them
+      await logUsage("kidimage", 0, 0, 0, 0, GEMINI_IMAGE_MODEL);   // billed per image, so just count them
       return new Response(JSON.stringify({ image: `data:${img.mime};base64,${img.data}`, source: "gemini" }), { status: 200, headers: jsonHeaders });
     }
     // fall through to the SVG drawing below so a picture always appears
@@ -2873,14 +2987,26 @@ export default async (req) => {
 
   // Daily response cap — story mode only, before the model is ever called. A gentle 200/JSON
   // response (never a scary error) the client recognizes and turns into a kid-friendly notice.
+  // How many scenes of the reader's "finish this bit" grant are left, or 0. Computed HERE, from
+  // the server's own count, so the closure steering can never be spoofed or mistimed by a client.
+  let finishScenesLeft = 0;
   if (body.mode === "story" && typeof body.user === "string" && body.user && body.user !== "Dad") {
     const count = await countStoryToday(body.user);
-    if (count !== null && count >= STORY_DAILY_CAP + await storyBonusToday()) {
+    const base = STORY_DAILY_CAP + await storyBonusToday();
+    const granted = await storyFinishGrant(body.user);
+    if (count !== null && count >= base + granted) {
       return new Response(JSON.stringify({
         capped: true,
-        message: "You've read a LOT today! The story will be waiting for you tomorrow — come back then to find out what happens next!",
+        // Once the grant has been spent the day really is over — say so warmly, and don't
+        // dangle an offer that no longer exists.
+        finishSpent: granted > 0,
+        message: granted > 0
+          ? "That's a good place to stop for today. The story will be right here waiting for you tomorrow!"
+          : "You've read a LOT today! The story will be waiting for you tomorrow — come back then to find out what happens next!",
       }), { status: 200, headers: jsonHeaders });
     }
+    // Inside the granted tail: this scene is one of the last few, so steer it toward a landing.
+    if (count !== null && granted > 0 && count >= base) finishScenesLeft = base + granted - count;
   }
 
   // The KEEPER builds its own single turn from named fields (ledger + scene + choice) — it never
@@ -2888,11 +3014,13 @@ export default async (req) => {
   // cap above is `body.mode === "story"` only, and logStoryReq below is story/kidstory only, so a
   // keeper call can neither eat a scene of a kid's daily allowance nor write a second copy of a
   // scene into Dad's Story Log.
-  // The SEEDER is DORMANT unless STORY_SEED_PROVIDER is set: with the flag unset the mode answers
-  // 200 + {seeded:false} immediately, without calling any model, and the client falls back to the
-  // ordinary empty/pack-seeded start. A curious kid setting the client-side flag gets nothing.
-  const SEED_PROVIDER_ENV = (process.env.STORY_SEED_PROVIDER || "").toLowerCase();
-  if (body.mode === "storyseed" && !SEED_PROVIDER_ENV) {
+  // The SEEDER is ON by default (Fable). STORY_SEED_PROVIDER=off (or "none"/"0") turns it back
+  // off, in which case the mode answers 200 + {seeded:false} immediately without calling any
+  // model and the client falls back to the ordinary empty/pack-seeded start — the same graceful
+  // path a failed seed takes, so switching it off can never break story creation.
+  const SEED_PROVIDER_ENV = (process.env.STORY_SEED_PROVIDER || "fable").toLowerCase();
+  const SEED_OFF = ["off", "none", "0", "false"].includes(SEED_PROVIDER_ENV);
+  if (body.mode === "storyseed" && SEED_OFF) {
     return new Response(JSON.stringify({ seeded: false, reason: "disabled" }),
       { status: 200, headers: jsonHeaders });
   }
@@ -2966,8 +3094,16 @@ export default async (req) => {
   // Chapter flow (story mode only): open a titled chapter, softly offer to
   // close it at a natural beat, or firmly close it. The directive rides on the LAST user turn so
   // it reliably overrides the base "end every scene with choices" rule. Priority: new > hard > soft.
-  if (body.mode === "story" && (body.newChapter === true || body.endChapter === true || body.endChapterSoft === true)) {
-    const note = body.newChapter === true ? STORY_NEW_CHAPTER
+  // The repair pass and the finishing tail both ride this same slot, and both OUTRANK the
+  // ordinary chapter flow: a scene being salvaged has no business opening a chapter, and a
+  // reader on their last granted scene must land whatever the word count says.
+  const repairing = body.mode === "story" && body.repair === true;
+  if (body.mode === "story" && (repairing || finishScenesLeft > 0
+      || body.newChapter === true || body.endChapter === true || body.endChapterSoft === true)) {
+    const note = repairing ? STORY_REPAIR
+      : finishScenesLeft === 1 ? STORY_FINISH_LAST
+      : finishScenesLeft > 1 ? STORY_FINISH_SOON(finishScenesLeft)
+      : body.newChapter === true ? STORY_NEW_CHAPTER
       : body.endChapter === true ? STORY_CLOSE_CHAPTER
       : STORY_CLOSE_CHAPTER_SOFT;
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -2998,13 +3134,13 @@ export default async (req) => {
 
   // Resolve provider + model. Research → Sonnet (Anthropic). Story + its background summary →
   // Haiku (Anthropic) by default; STORY_PROVIDER=gemini/sonnet flips story without a code change.
-  const STORY_PROVIDER = (process.env.STORY_PROVIDER || "haiku").toLowerCase();
+  const STORY_PROVIDER = (process.env.STORY_PROVIDER || "grok").toLowerCase();
   let provider = "anthropic", model = RESEARCH_MODEL;
   if (body.mode === "story") {
     if (STORY_PROVIDER === "gemini") { provider = "gemini"; model = GEMINI_MODEL; }
     else if (STORY_PROVIDER === "grok") { provider = "xai"; model = XAI_MODEL; }
     else if (STORY_PROVIDER === "sonnet") { provider = "anthropic"; model = RESEARCH_MODEL; }
-    else { provider = "anthropic"; model = STORY_MODEL; }   // haiku (default)
+    else { provider = "anthropic"; model = STORY_MODEL; }   // haiku
   }
   // The story bible IS the story's long-term memory — run it on Sonnet regardless of the story
   // provider (user-approved token spend: continuity accuracy beats the ~3x summary cost).
@@ -3034,94 +3170,123 @@ export default async (req) => {
   else if (body.mode === "audit") { provider = "anthropic"; model = RESEARCH_MODEL; }
   else if (body.mode === "kidart") { provider = "anthropic"; model = KID_ART_MODEL; }
 
-  let upstream;
-  if (provider === "gemini") {
-    const geminiKey = process.env.GEMINI_API_KEY;
-    if (!geminiKey) return jsonError(500, "Server misconfigured: GEMINI_API_KEY is not set", jsonHeaders);
-    const geminiBase = process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com";
-    // Gemini shape: system prompt → system_instruction; user/assistant → user/model turns.
-    // thinkingBudget 0 keeps story turns snappy (matches Sonnet's thinking-off story config).
-    const geminiReq = {
-      system_instruction: { parts: [{ text: system }] },
-      contents: messages.map(toGeminiContent),
-      generationConfig: { maxOutputTokens: maxTokens, thinkingConfig: { thinkingBudget: 0 } },
-    };
-    try {
-      upstream = await fetch(`${geminiBase}/v1beta/models/${model}:streamGenerateContent?alt=sse`, {
-        method: "POST",
-        headers: { "x-goog-api-key": geminiKey, "content-type": "application/json" },
-        body: JSON.stringify(geminiReq),
-      });
-    } catch (err) {
-      return jsonError(502, "Could not reach the AI service: " + String((err && err.message) || err), jsonHeaders);
-    }
-  } else if (provider === "xai") {
-    const xaiKey = process.env.XAI_API_KEY;
-    if (!xaiKey) return jsonError(500, "Server misconfigured: XAI_API_KEY is not set", jsonHeaders);
-    const xaiBase = process.env.XAI_BASE_URL || "https://api.x.ai";
-    // xAI is OpenAI-compatible: the system prompt is just the FIRST MESSAGE with role "system"
-    // rather than a top-level field. That is the ONLY structural difference from the Anthropic
-    // request — the guardrail text itself is byte-identical, and still stamped server-side here.
-    // stream_options.include_usage asks for the final usage-only chunk (xAI also reports a running
-    // usage on ordinary chunks; the parser below takes the largest it sees either way, so a server
-    // that ignores the option still gets counted).
-    const xaiReq = {
-      model,
-      messages: [{ role: "system", content: system }, ...messages.map(toOpenAIMessage)],
-      max_tokens: maxTokens,
-      stream: true,
-      stream_options: { include_usage: true },
-    };
-    try {
-      upstream = await fetch(`${xaiBase}/v1/chat/completions`, {
-        method: "POST",
-        headers: { authorization: `Bearer ${xaiKey}`, "content-type": "application/json" },
-        body: JSON.stringify(xaiReq),
-      });
-    } catch (err) {
-      return jsonError(502, "Could not reach the AI service: " + String((err && err.message) || err), jsonHeaders);
-    }
-  } else {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) return jsonError(500, "Server misconfigured: ANTHROPIC_API_KEY is not set", jsonHeaders);
-    const apiBase = process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com";
-    const apiReq = {
-      model,
-      max_tokens: maxTokens,
-      system,
-      messages,
-      stream: true,
-    };
-    // PROMPT CACHING — ON ONLY WHERE IT IS MEASURED TO PAY (see MODES.<mode>.cache).
-    // The top-level flag auto-places one breakpoint on the LAST cacheable block, so the cached
-    // entry is the WHOLE prompt: a later turn reads it only if its own prompt starts with those
-    // exact bytes. That holds for research and dungeon mode (append-only history, big stable
-    // system prompt, Sonnet's 1024-token minimum) and provably does NOT hold for a ledger story
-    // — measured 0% reads and a 21.8% write surcharge, see MODES.story.
-    if (mode.cache !== false) apiReq.cache_control = { type: "ephemeral" };
-    if (mode.thinking) apiReq.thinking = mode.thinking;
-    try {
-      upstream = await fetch(`${apiBase}/v1/messages`, {
-        method: "POST",
-        headers: {
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(apiReq),
-      });
-    } catch (err) {
-      return jsonError(502, "Could not reach the AI service: " + String((err && err.message) || err), jsonHeaders);
-    }
+  // DEGRADE BEFORE WE EVEN ASK. A site with no XAI_API_KEY is a working site: every xAI route
+  // resolves back to its Anthropic equivalent here, so the reader gets a Haiku-narrated story
+  // rather than a 500. (The mid-request outage fallback is further down, after the first fetch.)
+  if (provider === "xai" && !process.env.XAI_API_KEY) {
+    provider = "anthropic";
+    model = body.mode === "storyseed" ? FABLE_MODEL : STORY_MODEL;
   }
 
-  if (!upstream.ok) {
-    const detail = await upstream.text().catch(() => "");
-    // Don't leak upstream internals to the browser beyond the status + error type.
-    let msg = `AI service error (${upstream.status})`;
-    try { const j = JSON.parse(detail); msg += ": " + (j.error?.type || j.error?.status || ""); } catch { /* keep generic */ }
-    return jsonError(502, msg, jsonHeaders);
+  let upstream;
+  // One attempt at one provider. Returns {ok:true, upstream} or {ok:false, status, msg} — an
+  // upstream that answers with an error status is a FAILURE here (not just a thrown fetch), so a
+  // 429/500 from the narrator's provider is recoverable the same way an outage is.
+  const openUpstream = async (prov, mdl) => {
+    let resp;
+    if (prov === "gemini") {
+      const geminiKey = process.env.GEMINI_API_KEY;
+      if (!geminiKey) return { ok: false, status: 500, msg: "Server misconfigured: GEMINI_API_KEY is not set" };
+      const geminiBase = process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com";
+      // Gemini shape: system prompt → system_instruction; user/assistant → user/model turns.
+      // thinkingBudget 0 keeps story turns snappy (matches Sonnet's thinking-off story config).
+      const geminiReq = {
+        system_instruction: { parts: [{ text: system }] },
+        contents: messages.map(toGeminiContent),
+        generationConfig: { maxOutputTokens: maxTokens, thinkingConfig: { thinkingBudget: 0 } },
+      };
+      try {
+        resp = await fetch(`${geminiBase}/v1beta/models/${mdl}:streamGenerateContent?alt=sse`, {
+          method: "POST",
+          headers: { "x-goog-api-key": geminiKey, "content-type": "application/json" },
+          body: JSON.stringify(geminiReq),
+        });
+      } catch (err) {
+        return { ok: false, status: 502, msg: "Could not reach the AI service: " + String((err && err.message) || err) };
+      }
+    } else if (prov === "xai") {
+      const xaiKey = process.env.XAI_API_KEY;
+      if (!xaiKey) return { ok: false, status: 500, msg: "Server misconfigured: XAI_API_KEY is not set" };
+      const xaiBase = process.env.XAI_BASE_URL || "https://api.x.ai";
+      // xAI is OpenAI-compatible: the system prompt is just the FIRST MESSAGE with role "system"
+      // rather than a top-level field. That is the ONLY structural difference from the Anthropic
+      // request — the guardrail text itself is byte-identical, and still stamped server-side here.
+      // stream_options.include_usage asks for the final usage-only chunk (xAI also reports a running
+      // usage on ordinary chunks; the parser below takes the largest it sees either way, so a server
+      // that ignores the option still gets counted).
+      const xaiReq = {
+        model: mdl,
+        messages: [{ role: "system", content: system }, ...messages.map(toOpenAIMessage)],
+        max_tokens: maxTokens,
+        stream: true,
+        stream_options: { include_usage: true },
+      };
+      try {
+        resp = await fetch(`${xaiBase}/v1/chat/completions`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${xaiKey}`, "content-type": "application/json" },
+          body: JSON.stringify(xaiReq),
+        });
+      } catch (err) {
+        return { ok: false, status: 502, msg: "Could not reach the AI service: " + String((err && err.message) || err) };
+      }
+    } else {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) return { ok: false, status: 500, msg: "Server misconfigured: ANTHROPIC_API_KEY is not set" };
+      const apiBase = process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com";
+      const apiReq = {
+        model: mdl,
+        max_tokens: maxTokens,
+        system,
+        messages,
+        stream: true,
+      };
+      // PROMPT CACHING — ON ONLY WHERE IT IS MEASURED TO PAY (see MODES.<mode>.cache).
+      // The top-level flag auto-places one breakpoint on the LAST cacheable block, so the cached
+      // entry is the WHOLE prompt: a later turn reads it only if its own prompt starts with those
+      // exact bytes. That holds for research and dungeon mode (append-only history, big stable
+      // system prompt, Sonnet's 1024-token minimum) and provably does NOT hold for a ledger story
+      // — measured 0% reads and a 21.8% write surcharge, see MODES.story.
+      if (mode.cache !== false) apiReq.cache_control = { type: "ephemeral" };
+      if (mode.thinking) apiReq.thinking = mode.thinking;
+      try {
+        resp = await fetch(`${apiBase}/v1/messages`, {
+          method: "POST",
+          headers: {
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(apiReq),
+        });
+      } catch (err) {
+        return { ok: false, status: 502, msg: "Could not reach the AI service: " + String((err && err.message) || err) };
+      }
+    }
+    if (!resp.ok) {
+      const detail = await resp.text().catch(() => "");
+      // Don't leak upstream internals to the browser beyond the status + error type.
+      let msg = `AI service error (${resp.status})`;
+      try { const j = JSON.parse(detail); msg += ": " + (j.error?.type || j.error?.status || ""); } catch { /* keep generic */ }
+      return { ok: false, status: 502, msg };
+    }
+    return { ok: true, upstream: resp };
+  };
+
+  let attempt = await openUpstream(provider, model);
+  // THE OUTAGE FALLBACK. A reader in the middle of a chapter must never meet an error page
+  // because a third-party API is having a bad afternoon: if the narrator's provider fails for any
+  // reason — unreachable, rate-limited, 500 — the same request is retried ONCE on the Anthropic
+  // default, and the scene arrives as if nothing happened. Deliberately story-only: the seeder
+  // already fails open into an ordinary story start, the keeper is on Anthropic anyway, and
+  // silently swapping the model under research/dungeon would hide a real misconfiguration.
+  if (!attempt.ok && body.mode === "story" && provider !== "anthropic") {
+    provider = "anthropic";
+    model = STORY_MODEL;
+    attempt = await openUpstream(provider, model);
   }
+  if (!attempt.ok) return jsonError(attempt.status, attempt.msg, jsonHeaders);
+  upstream = attempt.upstream;
 
   // Re-stream: parse Anthropic's SSE and forward only the text deltas as plain text.
   // A refusal stop (safety classifiers) with no text gets a friendly stand-in line.
@@ -3228,7 +3393,7 @@ export default async (req) => {
         // Upstream connection dropped mid-stream — end what we have; the client keeps the partial.
       } finally {
         // Log before closing so the lambda stays alive for the writes (both fail silently).
-        if (inTok || outTok || cacheWriteTok || cacheReadTok) await logUsage(body.mode, inTok, outTok, cacheWriteTok, cacheReadTok);
+        if (inTok || outTok || cacheWriteTok || cacheReadTok) await logUsage(body.mode, inTok, outTok, cacheWriteTok, cacheReadTok, model);
         if (logStoryReq && sentAnyText) {
           await logStory({
             user: body.user, storyId: body.storyId, title: body.storyTitle || "Untitled",

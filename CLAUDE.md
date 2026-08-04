@@ -7371,3 +7371,161 @@ THE SHELL GOTCHA, AGAIN (this file already warned about it and I still hit it): 
 this very entry with `node -e "..."` containing backticks let bash run command substitution —
 it EXECUTED the verify script and spliced its output into the docs. Use a quoted heredoc
 (`<< 'EOF'`) or the Edit tool for any text containing backticks.
+
+---
+
+# 📖 STORY TIME — THE SHIPPING STACK: Fable seeds, Grok narrates, Haiku keeps the books (2026-08-04)
+
+The comparison experiment is over and its result is now the default. `farmgpt.html` +
+`netlify/functions/farmgpt.mjs`; suite `tools/_verify-storyledger.cjs` **545 → 602**; new live
+probe `tools/_probe-storyship.mjs` and plate script `tools/_shot-usage-before.cjs`.
+
+## The stack, and why each seat is filled the way it is
+- **NARRATOR = grok-4.5.** `STORY_PROVIDER` defaults to `"grok"` (was `"haiku"`). Approved on the
+  measured prose comparison.
+- **SEEDER = Fable 5.** `STORY_SEED_PROVIDER` defaults to `"fable"` (was UNSET = dormant); `off` /
+  `none` / `0` / `false` switch it back off. The client's `?seed=1` opt-in is gone — the flag now
+  reads `!== "0"`, so `?seed=0` or `localStorage farmgpt_seed="0"` forces it off for testing.
+- **THE KEEPER STAYS ON HAIKU 4.5, and this is the load-bearing negative result.** Grok's keeper
+  scored 40/40 on judgement but ran a **median 47.8s against the client's 45s abort** and lost
+  **3 of 8** scenes' bookkeeping in a real run. `KEEPER_PROVIDER` exists so that can be
+  re-measured; it must stay defaulted to haiku. A bookkeeper that is right but late is worse than
+  one that is merely good, because the failure is silent — the diff is simply never filed.
+- Audit unchanged (Sonnet). Research unchanged.
+
+## EVERY xAI ROUTE DEGRADES BY ITSELF — proven both ways, live
+A Netlify site that has this code but no `XAI_API_KEY` is a working site, just a Haiku-narrated
+one. Two independent guards:
+1. **Before the request is built**: `provider === "xai" && !XAI_API_KEY` resolves back to
+   Anthropic. No 500, and nothing is said to the reader.
+2. **After it fails**: `openUpstream()` was extracted so a whole attempt — including a non-ok
+   STATUS, not just a thrown fetch — is retryable, and a failed story-mode attempt is retried ONCE
+   on Haiku. Deliberately **story-only**: the seeder already fails open into an ordinary story
+   start, the keeper is on Anthropic anyway, and silently swapping the model under research or
+   dungeon would hide a real misconfiguration instead of protecting a reader.
+Live-verified with xAI pointed at a dead socket, at a 429, and with the key deleted outright: a
+real Haiku scene arrived every time, with its choices, and the usage was billed to **the model
+that actually wrote it** (`s_claudehaiku45_req`), not the one we asked for.
+
+## ✨ FIVE MORE SCENES — the reader's own once-a-day grant
+At the cap the screen used to just stop. It now offers **five more scenes to reach a stopping
+place**, once per reader per Central day. `farmgpt_story_finish/<date>__<bucket>`, keyed on the
+same `canonStoryUser` bucket the cap uses (a renamed profile shares one grant — this house has
+already had that exact bypass in production). **Server-enforced by a
+`currentDocument:{exists:false}` precondition**, so a second tap, or a second device racing the
+first, LOSES the write and gets `{already:true}`. 15 + one grant = 20, and no more.
+
+**IT IS A DESCENT, NOT SIMPLY MORE STORY.** The server computes how many granted scenes remain
+from its OWN count — never from the client, which could lie about it — and injects
+`STORY_FINISH_SOON(n)` ("about N more scenes remain… do NOT introduce a new mystery, enemy, place
+or problem") on the LAST USER TURN. The final one gets `STORY_FINISH_LAST`, which forbids choices
+and demands a real `===CHAPTER END===`, so the shelf shows a clean boundary. Live against real
+Grok, the last granted scene came back as a lamplit landing with soup and "whatever strange quiet
+had settled over the boats could wait until morning", then `===CHAPTER END===`. Once the five are
+spent the message changes from "come back tomorrow" to a warm goodnight, and the offer does not
+come back.
+
+## ✂️ THE TRUNCATION BUG — it was the token ceiling, and the measurement says so
+Reported live: scenes arriving cut off mid-sentence with **no `===CHOICES===` at all**, stranding
+the reader (2 of 8 in one run; a third offered 2 choices). Measured directly against both real
+APIs on the same ~900-word prompt:
+
+| max_tokens | Haiku stop reason | Grok stop reason | choices? |
+|---|---|---|---|
+| **1200** | `max_tokens` (1200 out) | `length` (1200 out) | **NO** |
+| **1600** | `end_turn` (1210 out) | `stop` (1197 out) | **yes** |
+
+A 900-word scene wants ~1200 tokens, which sat exactly ON the old ceiling — hence the
+intermittency. `MODES.story.maxTokens` 1200 → **1600**. Output bills only for what is produced, so
+the headroom is free on an ordinary scene. Three defences, in order:
+1. the bigger budget, which lowers the rate;
+2. **`repairIfTruncated`** — a choice-less reply triggers exactly ONE repair call, never a loop:
+   the half-scene goes back as the assistant turn it is, `STORY_REPAIR` rides the last user turn
+   asking for the tail only, and the halves are joined at the break. It carries **no `user`
+   field**, so it costs no scene of the daily cap and writes no second Story Log doc. A repair
+   that also comes back truncated is DISCARDED rather than adopted;
+3. **"▶ Keep going"** — a choice-less scene still renders a tappable control beside the write-in
+   box. The reader is never stranded, whatever the cause.
+Provider-agnostic by construction: the test is on the REPLY, not on who wrote it.
+
+## 📊 THE USAGE DASHBOARD — cost follows the MODEL, not the mode
+**The bug this had to fix first**: the moment story mode moved to Grok, every figure on this page
+became silently wrong, including for months already closed. So `logUsage` now writes each record
+TWICE in one commit — into its mode bucket (unchanged, so every existing row keeps working) and
+into `<bucket>_<modelSlug>_*`. A row's cost is Σ(per-model tokens × that model's real rate) + the
+REMAINDER priced at the mode's historical rate. For a row written before today the breakdown is
+empty and everything falls to the old rate; for a row written after, the remainder is exactly
+zero. **A closed month does not move** — verified, 2026-07 still prices at $0.20.
+- Rates: Haiku 4.5 $1/$5 · Sonnet 5 $3/$15 · Opus 5 $5/$25 · Fable 5 $10/$50 · **grok-4.5 $2 in /
+  $0.30 cached / $6 out** (docs.x.ai, re-verified — those are the <200k-prompt rates; ≥200k
+  doubles, and our prompts are ~8k).
+- **QUIET ROWS FOLD BY RULE, not by a list**: under 1% of the month's cost AND under 2% of its
+  requests → a single 🧩 **Other** line that NAMES what it swallowed, with story and research as
+  an always-show floor. The rows (Other included) reconcile to the headline — a table whose rows
+  do not add up is its own bug, and the suite asserts it to within a cent per displayed row.
+- **`t` (TeacherGPT) and `f` (the seeder) added to `usageRow`.** `t` is the pre-existing bug the
+  last session flagged and left for its owner: `logUsage` wrote `t_*` faithfully and nothing ever
+  read it back, so that row always showed zero however much Opus it had burned. Picked up here on
+  request.
+- Fixed while measuring: `sum()` did `a + d[k]`, so a day's document missing a bucket rendered the
+  whole column as **NaN**. The `|| 0` there is load-bearing, not defensive habit.
+- BEFORE → AFTER on the same fixture month: **11 rows (five of them reading "0 requests"), $4.51,
+  story mislabelled "Haiku 4.5", no seeder row at all** → **five rows + Other, $6.00, every row
+  naming the model that did the work**. Plates `shots/st_usage_{before,after}{,_mobile}.png`;
+  390px verified (main's `scrollWrap` work intact, the page never scrolls sideways).
+
+## ⚠️ LATENCY — the thing to watch after deploy
+Measured through the real function, streamed:
+
+| | TTFB | total | words | choices |
+|---|---|---|---|---|
+| **grok-4.5** | 4.0–13.2s | **23–29s** | 478–536 | 3 ✓ |
+| **haiku** (fallback) | 0.7–1.6s | 12.2s | 622–730 | 3 ✓ |
+| **Fable seeder** | **~14s** | **~52s** | (a whole world) | — |
+
+**Netlify documents a 10-second synchronous function limit, and says a streaming response STOPS
+when it is reached.** The live app has been serving ~12s Haiku scenes successfully, so the
+effective limit on this deployment is demonstrably higher than the documented one — but nobody has
+proven it is higher than 29s, and the seeder at ~52s is the biggest exposure. Mitigations are
+already in place: the repair pass recovers a cut-off scene whatever cut it, and
+`seedLedgerWithAI` now has a **75s AbortController timeout** whose expiry is just another
+fail-open (the story starts on the ordinary pack/empty ledger). If Grok proves too slow in
+production the rollback is one env var: `STORY_PROVIDER=haiku`. Grok also writes noticeably
+SHORTER scenes than Haiku (478–536 vs 622–730 words) — worth reading a few before concluding it is
+the better narrator for the kids.
+
+## 🔑 NETLIFY ENV VARS THE USER MUST SET BY HAND
+Exactly **one**, on purpose — everything else is a code-side default, so shipping the code and
+enabling the feature are one step rather than two:
+- **`XAI_API_KEY`** — from console.x.ai. **Without it the site still works**, on Haiku, silently.
+Nothing else is needed. `STORY_PROVIDER`, `STORY_SEED_PROVIDER` and `KEEPER_PROVIDER` all default
+correctly in code and exist only as overrides and rollbacks.
+
+## Verified
+storyledger **602/602** · kidstory-server **54/54** · dnd-server **47/47** · news **157/157** ·
+fitness **253/253** = **1,113 checks, 0 page errors**. New suite sections: A16 (Grok default +
+the outage fallback), A17 (the grant), A18 (the repair directive), A19 (usage buckets), M (repair
+in the browser), N (the grant UI), O (the dashboard).
+**RESTAGED, each with its reason recorded in the file, never bent**: story `maxTokens` 1200 →
+1600; the seeder's "dormant by default" block → "on by default, and still switchable off"; "grok
+with no key fails loudly" → "degrades to Anthropic" (no-key is the state every deploy is in until
+the key is added, and a reader must never meet it); the keeper-independence check now pins the
+NARRATOR to Haiku and proves the keeper stays on Grok (the old form was really asserting the old
+haiku-by-default narrator); and kidstory-server's "big-kid story unchanged (Haiku, 1200 tok)" →
+1600 tokens with Haiku as the fallback.
+LIVE, against real Fable + real Grok + real Haiku, with a fake Firestore so nothing touched the
+family's data: `node tools/_probe-storyship.mjs [--gate seed|narrate|grant|fallback]` — 6/6,
+12/12, 16/16, 5/5.
+
+**TEST-HARNESS NOTE worth keeping**: the suite's fake Firestore grew a real document store — it
+honours increments AND the `exists:false` precondition — because "once per day" cannot be
+demonstrated against a mock that accepts every write. That is the same lesson the activity
+field-path bug taught two entries above: a mock more permissive than the real service manufactures
+confidence. Also, `clearFlags()` does NOT clear `XAI_API_KEY`, so any section that wants to read
+the narrator's prompt off the Anthropic fake has to delete it first — three checks failed on that
+alone.
+
+**KNOWN / DEFERRED**: a repair sends no `user`, so Dad's Story Log keeps the TRUNCATED half of a
+repaired scene (what the model genuinely produced) while the reader saw the mended one; the grant
+is five scenes and once a day, with both numbers as server constants rather than settings; and the
+seeder's ~14s time-to-first-byte is the one number to re-check on the real host after deploy.

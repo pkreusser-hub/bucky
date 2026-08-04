@@ -774,8 +774,9 @@
         <button id="shelveBtn" type="button">📚 Shelve for now</button>
       </div>
       <div id="storyCappedRow" style="display:none">
-        <div class="chEndNote">📚 Wow, you've read a LOT today! The story will be waiting for you
+        <div class="chEndNote" id="cappedNote">📚 Wow, you've read a LOT today! The story will be waiting for you
           tomorrow — come back then to find out what happens next! 🌙</div>
+        <button class="goBtn" id="finishGrantBtn" type="button" style="display:none">✨ Five more scenes to finish this bit</button>
         <button id="shelveCappedBtn" type="button">📚 Shelve for now</button>
       </div>
       <div id="newStoryRow" style="display:none">
@@ -1480,18 +1481,20 @@
   // the recap path for the rest of their life.
   const hasLedger = (s) => !!(s && s.ledger && s.ledger.meta);
 
-  // ---- AI ledger seeder (EXPERIMENTAL; two gates, both must be on) ---------
-  // Gate 1, this device: `?seed=1` or localStorage farmgpt_seed="1". Without it a story start
-  // makes ZERO extra network requests, so the shipped default path is untouched.
-  // Gate 2, the server: STORY_SEED_PROVIDER. The client flag alone buys nothing — which model
-  // builds the world (or whether one does at all) is decided server-side, as it must be.
+  // ---- AI ledger seeder (SHIPPING DEFAULT — Fable builds the world before scene one) -------
+  // ON unless explicitly switched off. `?seed=0` (or localStorage farmgpt_seed="0") forces it
+  // off on this device for testing; `?seed=1` puts it back. Both forms write the flag, so a
+  // link sticks — and, like every other localStorage flag in this app, it therefore leaks
+  // between same-origin pages sharing one browser profile.
+  // The SERVER still has the final say: STORY_SEED_PROVIDER decides which model builds the
+  // world, or whether one does at all, and a device flag alone buys nothing.
   const SEED_FLAG_KEY = "farmgpt_seed";
   const seedAiEnabled = (() => {
     try {
       const q = new URLSearchParams(location.search).get("seed");
       if (q === "1" || q === "0") localStorage.setItem(SEED_FLAG_KEY, q);
-      return localStorage.getItem(SEED_FLAG_KEY) === "1";
-    } catch { return false; }
+      return localStorage.getItem(SEED_FLAG_KEY) !== "0";
+    } catch { return true; }
   })();
 
   // Turn the seeder's world into a diff and let applyLedgerDiff apply it — the same validator,
@@ -1533,12 +1536,22 @@
   // network error, unparseable JSON, or a patch that fails validation all leave `led` exactly as
   // it was, and the story starts on the ordinary empty/pack-seeded ledger. Story creation must
   // never be blocked by an experiment.
+  // MEASURED against real Fable: ~14s to the first byte (it thinks before it writes) and ~50s to
+  // a finished world. That is a long time to keep a child staring at a Begin button, and a
+  // hosting platform can cut a slow function off without warning — so the wait is BOUNDED here.
+  // Timing out is not a failure state: the seed fails open like every other way it can fail, and
+  // the story starts on the ordinary pack/empty ledger. Generous, because a world that arrives is
+  // worth waiting for; finite, because a story that never starts is not.
+  const SEED_TIMEOUT_MS = 75000;
   async function seedLedgerWithAI(led, opts) {
     if (!seedAiEnabled) return { seeded: false, reason: "off" };
+    const ctl = typeof AbortController === "function" ? new AbortController() : null;
+    const timer = ctl ? setTimeout(() => ctl.abort(), SEED_TIMEOUT_MS) : null;
     try {
       const resp = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        ...(ctl ? { signal: ctl.signal } : {}),
         body: JSON.stringify({
           secret: FAMILY_PASSWORD, mode: "storyseed",
           setup: opts.setup || "", heroName: opts.heroName || "",
@@ -1562,7 +1575,10 @@
       if (!res.ok) return { seeded: false, reason: res.reason };
       return { seeded: true, ledger: res.ledger };
     } catch (err) {
+      if (err && err.name === "AbortError") return { seeded: false, reason: "timeout" };
       return { seeded: false, reason: String((err && err.message) || err) };
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 
@@ -1591,9 +1607,11 @@
     let s;
     try { s = JSON.parse(localStorage.getItem(STORY_COUNT_KEY)) || {}; } catch { s = {}; }
     const day = centralDay(), user = canonStoryUser(localStorage.getItem("choreUser") || "");
-    if (s.day !== day || s.user !== user) s = { day, user, count: 0 };
-    // cap can exceed the base when Dad grants a refreshed budget (learned from the server).
+    if (s.day !== day || s.user !== user) s = { day, user, count: 0, finish: 0 };
+    // cap can exceed the base when Dad grants a refreshed budget (learned from the server), or
+    // when this reader has taken their own once-a-day "five more scenes" grant.
     s.cap = Math.max(STORY_DAILY_CAP, parseInt(s.cap, 10) || 0);
+    s.finish = parseInt(s.finish, 10) || 0;      // scenes granted to this reader today (0 or 5)
     return s;
   }
   function storyCountSave(s) { try { localStorage.setItem(STORY_COUNT_KEY, JSON.stringify(s)); } catch {} }
@@ -1605,6 +1623,30 @@
   }
   function bumpStoryCount() { const s = storyCountState(); s.count++; storyCountSave(s); return s.count; }
   function forceStoryCapped() { const s = storyCountState(); s.count = Math.max(s.count, s.cap); storyCountSave(s); }
+  // Has this reader still got their "five more scenes" offer today? The SERVER decides (the
+  // once-a-day rule is a create-if-absent write there); this mirror only decides whether to draw
+  // the button, and refreshStoryBudget corrects it within a tap either way.
+  function finishOfferAvailable() {
+    if ((localStorage.getItem("choreUser") || "") === "Dad") return false;
+    return storyCountState().finish === 0;
+  }
+  // Take the grant. Returns true if the server actually granted it.
+  const STORY_FINISH_SCENES = 5;
+  async function takeFinishGrant() {
+    try {
+      const resp = await fetch(API_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ secret: FAMILY_PASSWORD, mode: "story_finish_grant", user: localStorage.getItem("choreUser") || "" }),
+      });
+      if (!resp.ok) return false;
+      const j = await resp.json();
+      const s = storyCountState();
+      if (j && j.ok) { s.cap = j.cap; s.finish = j.granted; storyCountSave(s); return true; }
+      // Already taken today (a second device, or a double tap) — adopt that truth and stop offering.
+      if (j && j.already) { s.finish = j.granted || STORY_FINISH_SCENES; storyCountSave(s); }
+      return false;
+    } catch { return false; }
+  }
   // When locally capped, quietly ask the server whether Dad refreshed today's budget; if he
   // did, adopt the new cap, restore the controls, and celebrate. Fire-and-forget + throttled:
   // the local block stays instant, an unlock arrives a beat later.
@@ -1624,6 +1666,10 @@
       const wasCapped = storyCapped();
       const s = storyCountState();
       s.count = j.used; s.cap = j.cap;
+      // The server owns "has this reader used their finish grant today" — adopt its answer so
+      // the offer can't linger on one device after being spent on another.
+      if (typeof j.finishGranted === "number") s.finish = j.finishGranted;
+      else if (j.finishAvailable === false) s.finish = STORY_FINISH_SCENES;
       storyCountSave(s);
       if (wasCapped && !j.capped && currentView === "story" && story && !busy) {
         const last = story.messages[story.messages.length - 1];
@@ -1745,6 +1791,9 @@
       if (data && data.capped) {
         const err = new Error(data.message || "You've read a lot today — come back tomorrow!");
         err.capped = true;
+        // The server says whether the finish grant has already been spent. Adopt that BEFORE the
+        // capped screen paints, or a reader who has used their five would be offered five more.
+        if (data.finishSpent) { const s = storyCountState(); s.finish = STORY_FINISH_SCENES; storyCountSave(s); }
         throw err;
       }
       throw new Error("Unexpected response from the server");
@@ -2151,6 +2200,21 @@
         b.addEventListener("click", () => takeTurn(c));
         btns.appendChild(b);
       });
+      // THE LAST LINE OF DEFENCE AGAINST A STRANDED READER. A scene can arrive with no choices at
+      // all — the model ran past its token budget and was cut off before it wrote them. The
+      // repair pass in streamChapter fixes almost all of those; if it did not, the reader must
+      // STILL have something to tap. The write-in box below is technically enough, but an empty
+      // choice list with a blinking text field reads as "the app is broken", so say so plainly
+      // and offer the obvious move.
+      if (!choices.length) {
+        const b = document.createElement("button");
+        b.className = "choiceBtn";
+        const n = document.createElement("span"); n.className = "n"; n.textContent = "▶";
+        const t = document.createElement("span"); t.textContent = "Keep going";
+        b.append(n, t);
+        b.addEventListener("click", () => takeTurn("Keep going from exactly where the scene stopped."));
+        btns.appendChild(b);
+      }
     }
     $("writeRow").style.display = interactive ? "flex" : "none";
     // Redo is offered whenever there IS a last scene to replace and the story is waiting on the
@@ -2168,6 +2232,16 @@
     $("rewindBtn").style.display = canRewind ? "inline-block" : "none";
     if (!canRewind) $("rewindPanel").style.display = "none";
     $("storyCappedRow").style.display = capped ? "block" : "none";
+    // The "five more scenes" offer: only while capped, only if this reader hasn't taken it today.
+    // Once it HAS been taken and spent, the note changes to a genuine goodnight rather than
+    // dangling an offer that no longer exists.
+    if (capped) {
+      const offer = finishOfferAvailable();
+      $("finishGrantBtn").style.display = offer ? "block" : "none";
+      $("cappedNote").textContent = offer
+        ? "📚 That's all your story scenes for today! Want to finish this bit? I can give you five more scenes to reach a good stopping place. ✨"
+        : "🌙 That's a good place to stop for today. The story will be right here waiting for you tomorrow!";
+    }
     $("chapterEndRow").style.display = (!busyNow && chapterEnd && !capped) ? "block" : "none";
     if (!busyNow && chapterEnd) $("nextChapterBtn").textContent = "Read Chapter " + (((story && story.chapter) || 1) + 1) + " →";
     $("newStoryRow").style.display = (!busyNow && ended) ? "block" : "none";
@@ -2426,6 +2500,50 @@
     } finally { clearTimeout(timer); keeping = false; }
   }
 
+  // ---- TRUNCATION REPAIR --------------------------------------------------
+  // A scene that runs past the model's token budget arrives cut off mid-sentence, with no
+  // ===CHOICES=== block at all — so the reader is handed half a scene and nothing to tap.
+  // Measured live on Haiku at the old 1200-token budget: 2 of 8 scenes in one run, with a third
+  // offering 2 choices instead of 3. It is PROVIDER-AGNOSTIC by construction — the test is on the
+  // reply, not on who wrote it — so Grok, Haiku, Sonnet and Gemini are all covered.
+  //
+  // Three defences, in order:
+  //   1. a bigger budget (MODES.story.maxTokens 1200 -> 1600) — lowers the rate;
+  //   2. THIS: one bounded repair call that asks only for the tail, appended to what arrived;
+  //   3. failing that, the "▶ Keep going" control in setStoryControls — the reader is never stuck.
+  // A repair is ONE extra call, never a loop.
+  const truncated = (raw) => {
+    const p = parseChapter(raw);
+    // A clean chapter close and a legacy ===THE END=== both legitimately have no choices.
+    if (p.chapterEnd || p.ended) return false;
+    return p.choices.length === 0;
+  };
+  async function repairIfTruncated(full, el) {
+    if (!truncated(full)) return full;
+    try {
+      // The half-scene goes in as the assistant turn it is, and the repair ask is the last USER
+      // turn — which is the slot the server injects STORY_REPAIR onto, and the slot models
+      // actually obey (a system-prompt directive loses to the most recent instruction here).
+      const msgs = [...buildSendMessages(), { role: "assistant", content: full },
+        { role: "user", content: "Please finish that scene." }];
+      // NO `user` field: this is a salvage of a scene the reader already paid for, so it must not
+      // eat another scene of their daily cap, and it must not write a second copy into Dad's
+      // Story Log. (The consequence, deliberately accepted: the parent log keeps the truncated
+      // half, which is what the model genuinely produced.)
+      const tail = await callFarmGPT("story", msgs, (sofar) => {
+        el.textContent = parseChapter(full).text + visibleDuringStream(sofar);
+      }, { repair: true, ...(hasLedger(story) ? { ledger: ledgerForSend(story.ledger) } : {}) });
+      if (!tail || !tail.trim()) return full;
+      // Join the halves: the tail completes an interrupted sentence, so no separator.
+      const merged = full.replace(/\s+$/, "") + (/[\s]$/.test(full) ? " " : " ") + tail.replace(/^\s+/, "");
+      // Only adopt the repair if it actually produced a usable scene — a repair that came back
+      // truncated too leaves the reader exactly where they were, with the Keep going control.
+      return truncated(merged) ? full : merged;
+    } catch {
+      return full;   // never turn a half-scene into an error page
+    }
+  }
+
   // Requests the next scene given story.messages (last entry must be a user turn).
   // opts.newChapter — this scene OPENS a chapter (titled, may switch POV).
   // Otherwise, if the open chapter has passed CHAPTER_TARGET_WORDS, ask the model to CLOSE it.
@@ -2462,7 +2580,7 @@
     };
     try {
       // No auto-scroll while streaming — the reader reads at their own pace as the scene arrives.
-      const full = await callFarmGPT("story", buildSendMessages(), (sofar) => {
+      let full = await callFarmGPT("story", buildSendMessages(), (sofar) => {
         el.textContent = visibleDuringStream(sofar);
       }, { illustrate: shouldIllustrate(), newChapter, endChapter, endChapterSoft,
            // Ledger stories carry their memory in its own field (a 30KB ledger stuffed into a
@@ -2470,6 +2588,7 @@
            // here so the server's cap stays a backstop. Legacy stories send nothing.
            ...(hasLedger(story) ? { ledger: ledgerForSend(story.ledger) } : {}),
            ...logOpts });
+      full = await repairIfTruncated(full, el);
       const p = parseChapter(full);
       el.textContent = p.text;
       if (divider) divider.querySelector(".ct").textContent = p.title || "";
@@ -2919,6 +3038,35 @@
   }
   $("shelveCappedBtn").addEventListener("click", doShelveStory);
   $("shelveBtn").addEventListener("click", doShelveStory);
+  // ✨ "Five more scenes to finish this bit". The grant is the server's to give — this only asks,
+  // and only continues the story if the answer was yes. From here the server steers every one of
+  // those scenes toward a landing, and the last one closes the chapter.
+  $("finishGrantBtn").addEventListener("click", async () => {
+    const btn = $("finishGrantBtn");
+    if (btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = "✨ Finding a good ending…";
+    const got = await takeFinishGrant();
+    btn.disabled = false;
+    btn.textContent = "✨ Five more scenes to finish this bit";
+    if (!got) {
+      // Either it was already used today (the note below re-renders saying so) or the server
+      // couldn't be reached. Never a scary error on a kid's screen.
+      setStoryControls({ choices: [], ended: false, chapterEnd: false, busyNow: false });
+      if (!finishOfferAvailable()) toast("🌙 Those extra scenes are used up for today.");
+      else toast("😴 Couldn't add those scenes just now — try again in a moment.");
+      return;
+    }
+    toast("✨ Five more scenes — let's find a good place to stop!");
+    // Pick the story back up exactly where the reader left it: if the last scene ended on
+    // choices they choose again; if the story was mid-turn, continue it.
+    const last = story && story.messages[story.messages.length - 1];
+    if (last && last.role === "user") streamChapter({});
+    else {
+      const p = last && last.role === "assistant" ? parseChapter(last.content) : { choices: [], ended: false, chapterEnd: false };
+      setStoryControls({ choices: p.choices, ended: !!(story && story.done), chapterEnd: p.chapterEnd, busyNow: false });
+    }
+  });
   $("writeInput").addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); $("writeSend").click(); }
   });
@@ -2937,8 +3085,11 @@
     emptyLedger, validateLedger, applyLedgerDiff, compactLedger, ledgerForSend,
     seedLedger, loadUniversePack, recordLedgerDiff, replayLedgerDiffs, hasLedger,
     buildSendMessages, canonPreserved, matchFact,
-    // experiment — the AI ledger seeder (dormant unless both gates are on)
+    // the AI ledger seeder (shipping default; ?seed=0 forces it off)
     seedAiEnabled, seedPatchToDiff, seedLedgerWithAI,
+    // truncation recovery + the reader's once-a-day "five more scenes" grant
+    truncated, repairIfTruncated, finishOfferAvailable, takeFinishGrant,
+    storyCountState, storyCountSave, storyCapped, STORY_FINISH_SCENES,
     // step 3 — the keeper, reader canon, redo
     runKeeper, parseKeeperJSON, sanitizeKeeperDiff, readerAssertionOf, redoScene,
     takeTurn, streamChapter, saveStoryObj, isNextChapterTurn, loadStories,
@@ -2949,6 +3100,20 @@
     auditTranscript, keeperNotes, parseAuditJSON, renderAuditList, runAudit,
     setKeeperTimeout(ms) { KEEPER_TIMEOUT_MS = ms; },
     keeperBusy() { return keeping; },
+    parseChapter,
+    showView(name) { show(name); },
+    // Repaint the story controls from whatever the current story's last scene says — the same
+    // thing every real code path does after a turn. Lets a test change the cap state and see
+    // the screen react without faking a turn.
+    paintStoryControls() {
+      const last = story && story.messages[story.messages.length - 1];
+      const p = last && last.role === "assistant" ? parseChapter(last.content)
+        : { choices: [], ended: false, chapterEnd: false };
+      setStoryControls({ choices: p.choices, ended: !!(story && story.done), chapterEnd: p.chapterEnd, busyNow: false });
+    },
+    get busyNow() { return busy; },
+    // usage dashboard
+    loadUsage, usageDayCost(d) { return dayCost(d); },
     get story() { return story; },
     setStory(s) { story = s; },
     universe(id) { if (id !== undefined) { selectedUniverse = id; paintUniverse(); } return selectedUniverse; },
@@ -3275,20 +3440,84 @@
   // =====================================================================
   // USAGE DASHBOARD
   // =====================================================================
-  // Estimated at list pricing (actual billing at console.anthropic.com). Story (s = chapters,
-  // u = summaries) runs on Haiku 4.5 ($1/$5 per MTok); research (r) on Sonnet 5 ($3/$15). Cache
-  // writes bill at 1.25x input, reads at 0.1x. Older usage docs predate cache tracking (0).
-  const S_IN = 1, S_OUT = 5;    // $/MTok — Haiku 4.5 (story + summary)
-  const R_IN = 3, R_OUT = 15;   // $/MTok — Sonnet 5 (research)
+  // Estimated at list pricing (actual billing at console.anthropic.com / console.x.ai).
+  // Cache writes bill at 1.25x input, reads at 0.1x — except Grok, which publishes a flat cached
+  // input rate. Older usage docs predate cache tracking (0).
+  //
+  // PRICING FOLLOWS THE MODEL, NOT THE MODE. Each usage record is written twice server-side: into
+  // its mode bucket (`s_in`…) and into a per-model breakdown (`s_grok45_in`…). A row's cost is
+  // therefore Σ(per-model tokens × that model's real rate) + whatever the buckets hold that no
+  // model claimed, priced at the mode's historical rate. For a row written before this shipped
+  // the breakdown is empty and everything falls to the historical rate — the numbers that were
+  // shown yesterday are the numbers still shown for yesterday. For a row written after, the
+  // remainder is exactly zero. Without this, moving story mode to Grok would have silently
+  // rewritten every cost figure on this page, including for months already closed.
+  const RATES = {
+    // slug (modelSlug() in farmgpt.mjs: lowercase, non-alphanumerics stripped) → $/MTok
+    claudehaiku45:  { in: 1,  out: 5 },                    // Haiku 4.5
+    claudesonnet5:  { in: 3,  out: 15 },                   // Sonnet 5
+    claudeopus5:    { in: 5,  out: 25 },                   // Opus 5
+    claudefable5:   { in: 10, out: 50 },                    // Fable 5 — the ledger seeder
+    grok45:         { in: 2,  out: 6, cached: 0.30 },       // grok-4.5 (<200k prompts), docs.x.ai
+    gemini25flash:  { in: 0.30, out: 2.50 },
+  };
+  const S_IN = 1, S_OUT = 5;    // $/MTok — Haiku 4.5 (the historical story/keeper/kid rate)
+  const R_IN = 3, R_OUT = 15;   // $/MTok — Sonnet 5 (research, audit, recaps, calories)
   const O_IN = 5, O_OUT = 25;   // $/MTok — Opus 5 (TeacherGPT)
+  const F_IN = 10, F_OUT = 50;  // $/MTok — Fable 5 (the seeder)
   const cw = (d, k) => d[k] || 0;
   // Cost of one prefix at rate r: in + 1.25x cache-write + 0.1x cache-read, out at out-rate.
-  const priced = (d, p, inR, outR) => cw(d, p + "_in") * inR + cw(d, p + "_cw") * inR * 1.25
-    + cw(d, p + "_cr") * inR * 0.1 + cw(d, p + "_out") * outR;
+  // `cached` overrides the 0.1x convention for providers that publish a flat cached-input price.
+  const pricedAt = (d, p, inR, outR, cachedR) =>
+    cw(d, p + "_in") * inR + cw(d, p + "_cw") * inR * 1.25
+    + cw(d, p + "_cr") * (cachedR == null ? inR * 0.1 : cachedR) + cw(d, p + "_out") * outR;
+  const priced = (d, p, inR, outR) => pricedAt(d, p, inR, outR, null);
   const IMG_EACH = 0.039;   // generated picture, billed per image rather than per token
-  // u (story-bible recaps) moved to Sonnet 2026-08-01 — priced at Sonnet rates from here on.
-  const rowCost = (d) => (priced(d, "s", S_IN, S_OUT) + priced(d, "u", R_IN, R_OUT) + priced(d, "r", R_IN, R_OUT) + priced(d, "d", R_IN, R_OUT) + priced(d, "k", S_IN, S_OUT) + priced(d, "a", R_IN, R_OUT) + priced(d, "c", R_IN, R_OUT) + priced(d, "t", O_IN, O_OUT) + priced(d, "l", S_IN, S_OUT) + priced(d, "x", R_IN, R_OUT)) / 1e6
-    + cw(d, "g_req") * IMG_EACH;
+  // Every mode bucket + the rate its rows were historically priced at (the fallback for any
+  // tokens with no model recorded). u (story-bible recaps) moved to Sonnet 2026-08-01.
+  const BUCKETS = [
+    { p: "s", icon: "📖", name: "Story chapters",       inR: S_IN, outR: S_OUT },
+    { p: "f", icon: "🌱", name: "Story world-building", inR: F_IN, outR: F_OUT },
+    { p: "l", icon: "📒", name: "Story ledger (keeper)", inR: S_IN, outR: S_OUT },
+    { p: "u", icon: "📝", name: "Story recaps",         inR: R_IN, outR: R_OUT },
+    { p: "x", icon: "🔎", name: "Story audits",         inR: R_IN, outR: R_OUT },
+    { p: "r", icon: "🔬", name: "Research",             inR: R_IN, outR: R_OUT },
+    { p: "d", icon: "🎲", name: "Dungeon",              inR: R_IN, outR: R_OUT },
+    { p: "t", icon: "🍎", name: "TeacherGPT",           inR: O_IN, outR: O_OUT },
+    { p: "k", icon: "🧒", name: "Little-kid stories",   inR: S_IN, outR: S_OUT },
+    { p: "a", icon: "🎨", name: "Story pictures",       inR: R_IN, outR: R_OUT },
+    { p: "g", icon: "🖼", name: "Generated images",     inR: 0, outR: 0, perImage: true },
+    { p: "c", icon: "🍽", name: "Calorie lookups",      inR: R_IN, outR: R_OUT },
+  ];
+  // Which models actually appear in a row, per bucket (read off the passed-through
+  // `<bucket>_<slug>_<metric>` fields rather than a hardcoded list, so a new model needs no edit).
+  function modelsIn(d, p) {
+    const re = new RegExp("^" + p + "_([a-z0-9]+)_(in|out|req|cw|cr)$");
+    const out = new Set();
+    for (const k of Object.keys(d)) { const m = re.exec(k); if (m) out.add(m[1]); }
+    return [...out];
+  }
+  // Cost of ONE bucket in ONE row, model-aware.
+  function bucketCost(d, b) {
+    if (b.perImage) return cw(d, b.p + "_req") * IMG_EACH;
+    let cents = 0;
+    const claimed = { in: 0, out: 0, cw: 0, cr: 0 };
+    for (const slug of modelsIn(d, b.p)) {
+      const r = RATES[slug];
+      const key = b.p + "_" + slug;
+      for (const m of ["in", "out", "cw", "cr"]) claimed[m] += cw(d, key + "_" + m);
+      // An unrecognised model (a new id nobody has priced yet) falls back to the bucket's own
+      // historical rate rather than silently costing nothing.
+      cents += pricedAt(d, key, r ? r.in : b.inR, r ? r.out : b.outR, r ? r.cached : null);
+    }
+    // The remainder: tokens in the bucket that no per-model record claimed — i.e. everything
+    // written before per-model logging existed. Clamped at 0 so a partially-migrated row can
+    // never go negative.
+    const rest = {};
+    for (const m of ["in", "out", "cw", "cr"]) rest[b.p + "_" + m] = Math.max(0, cw(d, b.p + "_" + m) - claimed[m]);
+    return (cents + priced(rest, b.p, b.inR, b.outR)) / 1e6;
+  }
+  const rowCost = (d) => BUCKETS.reduce((a, b) => a + bucketCost(d, b), 0);
   const dayCost = rowCost;
   const fmt$ = (v) => "$" + (v < 0.10 ? v.toFixed(3) : v.toFixed(2));
   const fmtTok = (n) => n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n);
@@ -3316,7 +3545,10 @@
     }
     const month = new Date().toISOString().slice(0, 7);
     const monthDays = days.filter((d) => d.date.startsWith(month));
-    const sum = (arr, k) => arr.reduce((a, d) => a + d[k], 0);
+    // `|| 0` is load-bearing, not defensive habit: a bucket a row simply doesn't carry (an old
+    // document, or a bucket added after that day was written) otherwise turns the whole column
+    // into NaN — and a dashboard printing "NaN in · NaN out" is worse than one printing zero.
+    const sum = (arr, k) => arr.reduce((a, d) => a + (d[k] || 0), 0);
     const monthCost = monthDays.reduce((a, d) => a + dayCost(d), 0);
     const allCost = days.reduce((a, d) => a + dayCost(d), 0);
 
@@ -3327,28 +3559,61 @@
     big.querySelector(".amt").textContent = fmt$(monthCost);
     body.appendChild(big);
 
+    // ---- which buckets are worth a row of their own -----------------------
+    // A dashboard nobody reads is worse than no dashboard, and a dozen rows of which nine say
+    // "0 requests" is how that happens. Buckets are hidden BY RULE rather than by a list, so a
+    // quiet feature disappears on its own and a busy one comes back on its own: anything under
+    // 1% of the month's cost AND under 2% of its requests folds into a single "Other" line.
+    // ALWAYS_SHOW is the floor — the things worth seeing even on a quiet month.
+    // The folded line carries the folded buckets' real totals, so the rows still add up to the
+    // headline figure. A table whose rows don't reconcile is its own bug.
+    const ALWAYS_SHOW = ["s", "r"];
+    const MINOR_COST_SHARE = 0.01, MINOR_REQ_SHARE = 0.02;
+    const monthTotals = {};
+    for (const b of BUCKETS) {
+      const t = { b, req: sum(monthDays, b.p + "_req"), tin: sum(monthDays, b.p + "_in"),
+        tout: sum(monthDays, b.p + "_out"),
+        cached: sum(monthDays, b.p + "_cw") + sum(monthDays, b.p + "_cr"),
+        cost: monthDays.reduce((a, d) => a + bucketCost(d, b), 0) };
+      // Which models actually did this bucket's work this month — the row says so, because
+      // "Story chapters · Haiku 4.5" stops being true the day the narrator changes.
+      const slugs = new Set();
+      for (const d of monthDays) for (const s of modelsIn(d, b.p)) if (cw(d, `${b.p}_${s}_req`)) slugs.add(s);
+      t.models = [...slugs];
+      monthTotals[b.p] = t;
+    }
+    const totalReq = BUCKETS.reduce((a, b) => a + monthTotals[b.p].req, 0) || 1;
+    const shown = [], folded = [];
+    for (const b of BUCKETS) {
+      const t = monthTotals[b.p];
+      const minor = t.cost < monthCost * MINOR_COST_SHARE && t.req < totalReq * MINOR_REQ_SHARE;
+      (ALWAYS_SHOW.includes(b.p) || !minor ? shown : folded).push(t);
+    }
+    const MODEL_LABEL = {
+      claudehaiku45: "Haiku 4.5", claudesonnet5: "Sonnet 5", claudeopus5: "Opus 5",
+      claudefable5: "Fable 5", grok45: "Grok 4.5", gemini25flash: "Gemini 2.5 Flash",
+    };
+    const modelNote = (t) => t.b.perImage ? "Gemini · ~$" + IMG_EACH.toFixed(3) + " each"
+      : t.models.length ? t.models.map((s) => MODEL_LABEL[s] || s).join(" + ")
+      : "—";
+
     const split = document.createElement("div");
     split.id = "usageSplit";
-    for (const [icon, name, rq, ti, to, tc, note] of [
-      ["📖", "Story chapters", sum(monthDays, "s_req"), sum(monthDays, "s_in"), sum(monthDays, "s_out"), sum(monthDays, "s_cw") + sum(monthDays, "s_cr"), "Haiku 4.5"],
-      ["📝", "Story recaps", sum(monthDays, "u_req"), sum(monthDays, "u_in"), sum(monthDays, "u_out"), sum(monthDays, "u_cw") + sum(monthDays, "u_cr"), "Haiku 4.5"],
-      ["📒", "Story ledger (keeper)", sum(monthDays, "l_req"), sum(monthDays, "l_in"), sum(monthDays, "l_out"), sum(monthDays, "l_cw") + sum(monthDays, "l_cr"), "Haiku 4.5"],
-      ["🔎", "Story audits", sum(monthDays, "x_req"), sum(monthDays, "x_in"), sum(monthDays, "x_out"), sum(monthDays, "x_cw") + sum(monthDays, "x_cr"), "Sonnet 5"],
-      ["🔬", "Research", sum(monthDays, "r_req"), sum(monthDays, "r_in"), sum(monthDays, "r_out"), sum(monthDays, "r_cw") + sum(monthDays, "r_cr"), "Sonnet 5"],
-      ["🎲", "Dungeon", sum(monthDays, "d_req"), sum(monthDays, "d_in"), sum(monthDays, "d_out"), sum(monthDays, "d_cw") + sum(monthDays, "d_cr"), "Sonnet 5"],
-      ["🧒", "Little-kid stories", sum(monthDays, "k_req"), sum(monthDays, "k_in"), sum(monthDays, "k_out"), sum(monthDays, "k_cw") + sum(monthDays, "k_cr"), "Haiku 4.5"],
-      ["🎨", "Story pictures", sum(monthDays, "a_req"), sum(monthDays, "a_in"), sum(monthDays, "a_out"), sum(monthDays, "a_cw") + sum(monthDays, "a_cr"), "Sonnet 5"],
-      ["🖼", "Generated images", sum(monthDays, "g_req"), 0, 0, 0, "Gemini · ~$" + IMG_EACH.toFixed(3) + " each"],
-      ["🍽", "Calorie lookups", sum(monthDays, "c_req"), sum(monthDays, "c_in"), sum(monthDays, "c_out"), sum(monthDays, "c_cw") + sum(monthDays, "c_cr"), "Sonnet 5"],
-      ["🍎", "TeacherGPT", sum(monthDays, "t_req"), sum(monthDays, "t_in"), sum(monthDays, "t_out"), sum(monthDays, "t_cw") + sum(monthDays, "t_cr"), "Opus 5"],
-    ]) {
+    const splitRow = (icon, name, note, rq, ti, to, tc, cost) => {
       const el = document.createElement("div");
       el.className = "usplit";
       el.innerHTML = `<div class="un"></div><div class="ud"></div>`;
       el.querySelector(".un").textContent = icon + " " + name + " · " + note;
-      el.querySelector(".ud").innerHTML = rq + " requests this month<br>" + fmtTok(ti) + " in · " + fmtTok(to) + " out" +
-        (tc ? "<br>" + fmtTok(tc) + " cached 💰" : "");
+      el.querySelector(".ud").innerHTML = rq + " requests this month · " + fmt$(cost) + "<br>" +
+        fmtTok(ti) + " in · " + fmtTok(to) + " out" + (tc ? "<br>" + fmtTok(tc) + " cached 💰" : "");
       split.appendChild(el);
+    };
+    for (const t of shown) splitRow(t.b.icon, t.b.name, modelNote(t), t.req, t.tin, t.tout, t.cached, t.cost);
+    if (folded.length) {
+      const f = folded.reduce((a, t) => ({ req: a.req + t.req, tin: a.tin + t.tin, tout: a.tout + t.tout,
+        cached: a.cached + t.cached, cost: a.cost + t.cost }), { req: 0, tin: 0, tout: 0, cached: 0, cost: 0 });
+      splitRow("🧩", "Other (" + folded.length + " quiet)",
+        folded.map((t) => t.b.name).join(", "), f.req, f.tin, f.tout, f.cached, f.cost);
     }
     body.appendChild(split);
 
@@ -3374,15 +3639,28 @@
       return frag;
     }
 
+    // The tables carry a column per SHOWN bucket plus one 🧩 for everything folded, so the
+    // per-day request counts across the row still add up to what the row's cost is made of —
+    // and a phone isn't asked to scroll past columns of zeroes.
+    const tokTotal = (d) => BUCKETS.reduce((a, b) =>
+      a + cw(d, b.p + "_in") + cw(d, b.p + "_out") + cw(d, b.p + "_cw") + cw(d, b.p + "_cr"), 0);
+    const foldedReq = (d) => folded.reduce((a, t) => a + cw(d, t.b.p + "_req"), 0);
+    const headRow = (first) => "<tr><th>" + first + "</th>" +
+      shown.map((t) => `<th title="${t.b.name}">${t.b.icon}</th>`).join("") +
+      (folded.length ? `<th title="${folded.map((t) => t.b.name).join(", ")}">🧩</th>` : "") +
+      "<th>Tokens</th><th>Est. cost</th></tr>";
+    const dataCells = (d) => [
+      ...shown.map((t) => cw(d, t.b.p + "_req")),
+      ...(folded.length ? [foldedReq(d)] : []),
+      fmtTok(tokTotal(d)), fmt$(rowCost(d)),
+    ];
+
     const table = document.createElement("table");
     table.className = "usageTable";
-    const tokTotal = (d) => ["s", "u", "r", "d", "k", "a", "g", "c", "l", "x"].reduce((a, p) =>
-      a + cw(d, p + "_in") + cw(d, p + "_out") + cw(d, p + "_cw") + cw(d, p + "_cr"), 0);
-    table.innerHTML = "<tr><th>Day</th><th>📖</th><th>📒</th><th>📝</th><th>🔬</th><th>🎲</th><th>🧒</th><th>🔎</th><th>Tokens</th><th>Est. cost</th></tr>";
+    table.innerHTML = headRow("Day");
     for (const d of days.slice(0, 21)) {
       const tr = document.createElement("tr");
-      const cells = [d.date, d.s_req, cw(d, "l_req"), cw(d, "u_req"), d.r_req, cw(d, "d_req"), cw(d, "k_req"), cw(d, "x_req"), fmtTok(tokTotal(d)), fmt$(dayCost(d))];
-      for (const c of cells) { const td = document.createElement("td"); td.textContent = c; tr.appendChild(td); }
+      for (const c of [d.date, ...dataCells(d)]) { const td = document.createElement("td"); td.textContent = c; tr.appendChild(td); }
       table.appendChild(tr);
     }
     body.appendChild(scrollWrap(table));
@@ -3394,12 +3672,11 @@
       body.appendChild(hHead);
       const ht = document.createElement("table");
       ht.className = "usageTable";
-      ht.innerHTML = "<tr><th>Hour (CT)</th><th>📖</th><th>📒</th><th>📝</th><th>🔬</th><th>🎲</th><th>🧒</th><th>🔎</th><th>Tokens</th><th>Est. cost</th></tr>";
+      ht.innerHTML = headRow("Hour (CT)");
       for (const h of hours.slice(0, 18)) {
         const tr = document.createElement("tr");
         const label = h.hour.replace(/^(\d{4})-(\d{2})-(\d{2})-(\d{2})$/, "$2/$3 $4:00");
-        const cells = [label, h.s_req, cw(h, "l_req"), cw(h, "u_req"), h.r_req, cw(h, "d_req"), cw(h, "k_req"), cw(h, "x_req"), fmtTok(tokTotal(h)), fmt$(rowCost(h))];
-        for (const c of cells) { const td = document.createElement("td"); td.textContent = c; tr.appendChild(td); }
+        for (const c of [label, ...dataCells(h)]) { const td = document.createElement("td"); td.textContent = c; tr.appendChild(td); }
         ht.appendChild(tr);
       }
       body.appendChild(scrollWrap(ht));
@@ -3407,9 +3684,10 @@
 
     const note = document.createElement("div");
     note.id = "usageNote";
-    note.textContent = "Estimated at list pricing — story on Haiku 4.5 ($" + S_IN + " in / $" + S_OUT +
-      " out per MTok), research + dungeon on Sonnet 5 ($" + R_IN + " in / $" + R_OUT + " out); cached tokens 💰 " +
-      "re-read at 10% of the input rate. Exact billing is at console.anthropic.com.";
+    note.textContent = "Estimated at list pricing, per model: Grok 4.5 $2/$6 · Haiku 4.5 $" + S_IN + "/$" + S_OUT +
+      " · Sonnet 5 $" + R_IN + "/$" + R_OUT + " · Opus 5 $" + O_IN + "/$" + O_OUT + " · Fable 5 $" + F_IN + "/$" + F_OUT +
+      " per MTok (in/out); cached tokens 💰 re-read at 10% of the input rate. Quiet features are folded " +
+      "into 🧩 Other. Exact billing is at console.anthropic.com and console.x.ai.";
     body.appendChild(note);
   }
 

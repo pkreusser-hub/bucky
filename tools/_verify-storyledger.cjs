@@ -35,7 +35,7 @@ const puppeteer = require("puppeteer-core");
 const ROOT = path.resolve(__dirname, "..");
 const SHOTS = path.join(ROOT, "shots");
 const WANT_SHOTS = process.argv.includes("--shots");
-const PORT = 8881, ANTH_PORT = 8882, GOOG_PORT = 8883, XAI_PORT = 8884;
+const PORT = 8881, ANTH_PORT = 8882, GOOG_PORT = 8883, XAI_PORT = 8884, XAI_ERR_PORT = 8885;
 const BASE = `http://127.0.0.1:${PORT}`;
 const SECRET = "amenfarms";
 
@@ -81,6 +81,7 @@ const FIXTURE_PACK = {
 const anthReqs = [];       // every body the fake Anthropic was handed
 const xaiReqs = [];        // every body the fake xAI was handed (the experiment's provider)
 const commits = [];        // every Firestore :commit body
+const fakeDocs = {};       // a tiny document store, keyed by "<collection>/<id>" (see the goog fake)
 let runQueryRows = [];      // what the fake :runQuery returns (drives the daily cap)
 let lastAnthStorySystem = "";   // the last STORY system prompt Anthropic saw, for byte-comparison
 
@@ -124,7 +125,44 @@ function startFakes() {
     res.setHeader("content-type", "application/json");
     if (url === "/token") return res.end(JSON.stringify({ access_token: "fake-token", expires_in: 3600 }));
     if (url.endsWith(":runQuery")) return res.end(JSON.stringify(runQueryRows));
-    if (url.endsWith(":commit")) { try { commits.push(JSON.parse(raw)); } catch {} return res.end("{}"); }
+    if (url.endsWith(":commit")) {
+      let body = null;
+      try { body = JSON.parse(raw); commits.push(body); } catch {}
+      // Enough of Firestore's write semantics for the once-a-day grant to be tested honestly:
+      // a plain `update` write stores the doc, and `currentDocument:{exists:false}` FAILS with
+      // 400 when it is already there — which is the whole mechanism behind "once per day".
+      for (const w of ((body && body.writes) || [])) {
+        if (w.update && w.update.name) {
+          const id = w.update.name.split("/documents/")[1];
+          if (w.currentDocument && w.currentDocument.exists === false && fakeDocs[id]) {
+            res.statusCode = 400;
+            return res.end(JSON.stringify({ error: { status: "FAILED_PRECONDITION" } }));
+          }
+          fakeDocs[id] = { fields: w.update.fields || {} };
+        }
+        // …and APPLY the increments, so the usage documents really accumulate. Without this the
+        // stats assertions below would be reading an empty collection and passing vacuously.
+        if (w.transform && w.transform.document) {
+          const id = w.transform.document.split("/documents/")[1];
+          const doc = fakeDocs[id] || (fakeDocs[id] = { fields: {} });
+          for (const t of (w.transform.fieldTransforms || [])) {
+            const prev = parseInt((doc.fields[t.fieldPath] || {}).integerValue || "0", 10) || 0;
+            const add = parseInt(((t.increment || {}).integerValue) || "0", 10) || 0;
+            doc.fields[t.fieldPath] = { integerValue: String(prev + add) };
+          }
+        }
+      }
+      return res.end("{}");
+    }
+    const docId = url.split("/documents/")[1];
+    // A COLLECTION listing (readCollection's shape) — every stored doc under that prefix.
+    if (req.method === "GET" && docId && !docId.includes("/")) {
+      const documents = Object.keys(fakeDocs).filter((k) => k.startsWith(docId + "/"))
+        .map((k) => ({ name: "projects/x/databases/(default)/documents/" + k, fields: fakeDocs[k].fields }));
+      if (documents.length) return res.end(JSON.stringify({ documents }));
+    }
+    // A plain document GET — the shape storyFinishGrant/storyBonusToday read.
+    if (req.method === "GET" && docId && fakeDocs[docId]) return res.end(JSON.stringify(fakeDocs[docId]));
     res.statusCode = 404; res.end("{}");
   });
   // The fake xAI: OpenAI-compatible chunks, an empty-choices usage chunk, and the [DONE]
@@ -135,7 +173,16 @@ function startFakes() {
     res.setHeader("content-type", "text/event-stream");
     res.end(XAI_SSE);
   });
+  // An xAI that is UP but unhappy — a rate limit or a 500. Distinct from a dead socket, and the
+  // fallback has to treat both as recoverable.
+  const xaiErr = http.createServer(async (req, res) => {
+    await readBody(req);
+    res.statusCode = 429;
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ error: { type: "rate_limit_error" } }));
+  });
   return Promise.all([
+    new Promise((r) => xaiErr.listen(XAI_ERR_PORT, "127.0.0.1", () => r(xaiErr))),
     new Promise((r) => xai.listen(XAI_PORT, "127.0.0.1", () => r(xai))),
     new Promise((r) => anth.listen(ANTH_PORT, "127.0.0.1", () => r(anth))),
     new Promise((r) => goog.listen(GOOG_PORT, "127.0.0.1", () => r(goog))),
@@ -299,7 +346,12 @@ async function sectionServer() {
   ok(!/meaningfully different kinds/.test(sys1), "the spec's rejected 'meaningfully different kinds' phrasing was NOT restored");
   ok(/Never offer a choice whose outcome is obvious/.test(sys1) && /Never offer a choice whose outcome is obvious/.test(sys2),
     "new choice rule: never offer a choice whose outcome is obvious");
-  ok(r1.last.max_tokens === 1200 && r2.last.max_tokens === 1200, "story maxTokens still 1200");
+  // RESTAGED 2026-08-04: 1200 -> 1600. The old number was the CAUSE of the truncation bug this
+  // batch fixes — a scene that ran past it arrived cut off with no ===CHOICES===. The budget is
+  // the first of three defences (see MODES.story and repairIfTruncated); the assertion moves with
+  // it because what it is really guarding is "an ordinary scene and an illustrated scene get
+  // different budgets", and that still holds.
+  ok(r1.last.max_tokens === 1600 && r2.last.max_tokens === 1600, "story maxTokens is 1600 (was 1200 — the truncation fix)");
   ok(r1.last.thinking && r1.last.thinking.type === "disabled", "story thinking still disabled");
   // RESTAGED in step 4. Prompt caching is now OFF for story (and for the keeper), because it was
   // MEASURED against real Haiku and it never once paid: 25,919 cache-written tokens over a real
@@ -596,7 +648,7 @@ async function sectionServer() {
   // shipped behaviour is unchanged and no extra model is ever called — and that WHICH model runs
   // is decided here, on the server, never by the client.
   // =========================================================================
-  section("A15 — experiment: seeder / xAI provider (dormant by default)");
+  section("A15 — the shipping stack: Fable seeds, Grok narrates, Haiku keeps the books");
 
   process.env.XAI_BASE_URL = `http://127.0.0.1:${XAI_PORT}`;
   const seedBody = () => ({
@@ -611,19 +663,35 @@ async function sectionServer() {
     delete process.env.KEEPER_MODEL;
   };
 
-  // ---- DORMANT: the shipped default ---------------------------------------
+  // ---- THE SHIPPING DEFAULT ------------------------------------------------
+  // RESTAGED 2026-08-04: this block used to assert the seeder was DORMANT with the flag unset,
+  // which was true while it was an experiment and is the exact thing this batch reverses. What
+  // it asserts now is the shipped stack — seeder on, and every xAI route degrading by itself on
+  // a site with no key, which is the state a Netlify deploy is in until XAI_API_KEY is added.
   clearFlags();
+  delete process.env.XAI_API_KEY;
+  anthReqs.length = 0; xaiReqs.length = 0;
+  const seeded = await call(seedBody());
+  ok(seeded.status === 200, "with STORY_SEED_PROVIDER unset the seeder answers 200, never an error");
+  ok(anthReqs.length === 1 && (anthReqs[0] || {}).model === "claude-fable-5",
+    "…and it is ON by default, building the world on Fable 5");
+
+  // …and it can still be switched off, landing on the same graceful shape the client already
+  // falls back from (a failed seed and a disabled seeder are the same story start).
+  process.env.STORY_SEED_PROVIDER = "off";
   anthReqs.length = 0; xaiReqs.length = 0;
   const dorm = await call(seedBody());
-  ok(dorm.status === 200, "with STORY_SEED_PROVIDER unset the seeder answers 200, never an error");
   ok(!!dorm.json && dorm.json.seeded === false && dorm.json.reason === "disabled",
-    "…with {seeded:false, reason:\"disabled\"} — the shape the client falls back on");
+    "STORY_SEED_PROVIDER=off answers {seeded:false, reason:\"disabled\"} — the shape the client falls back on");
   ok(anthReqs.length === 0 && xaiReqs.length === 0, "…and NO model is called at all");
+  delete process.env.STORY_SEED_PROVIDER;
 
+  // THE NO-KEY DEGRADATION. STORY_PROVIDER now defaults to grok, so this is a site that has
+  // shipped the code but not yet added the key: the reader must get a story, not a 500.
   anthReqs.length = 0; xaiReqs.length = 0;
   const dormStory = await call({ mode: "story", messages: storyMessages(), ledger: fixtureLedger() });
   ok(dormStory.status === 200 && anthReqs.length === 1 && xaiReqs.length === 0,
-    "with STORY_PROVIDER unset a story still goes to Anthropic, never to xAI");
+    "with no XAI_API_KEY a story degrades to Anthropic, never a misconfiguration error");
   ok((anthReqs[0] || {}).model === "claude-haiku-4-5", "…on Haiku, exactly as it shipped");
 
   anthReqs.length = 0; xaiReqs.length = 0;
@@ -711,10 +779,15 @@ async function sectionServer() {
   ok(JSON.stringify(commits).includes("s_in"),
     "xAI token usage is mapped into the same daily buckets Anthropic's is");
 
+  // RESTAGED 2026-08-04: grok is the DEFAULT narrator now, so "no key" is no longer a
+  // misconfiguration to shout about — it is the state every deploy is in until the key is added,
+  // and the reader must never meet it. It degrades instead, silently and completely.
   delete process.env.XAI_API_KEY;
+  anthReqs.length = 0; xaiReqs.length = 0;
   const noKey = await call({ mode: "story", messages: storyMessages() });
-  ok(noKey.status === 500 && /XAI_API_KEY/.test(noKey.text),
-    "STORY_PROVIDER=grok with no key fails loudly at the server, never silently");
+  ok(noKey.status === 200 && anthReqs.length === 1 && xaiReqs.length === 0,
+    "STORY_PROVIDER=grok with no key degrades to Anthropic — the reader still gets a scene");
+  ok((anthReqs[0] || {}).model === "claude-haiku-4-5", "…on Haiku, and nothing is said about it");
   process.env.XAI_API_KEY = "test-xai-key";
 
   // ---- xAI as keeper ------------------------------------------------------
@@ -725,15 +798,223 @@ async function sectionServer() {
   ok(xaiReqs.length === 1 && anthReqs.length === 0, "KEEPER_PROVIDER=grok moves ONLY the keeper");
   ok(String((((xaiReqs[0] || {}).messages || [])[0] || {}).content || "").includes("RECORDS CLERK"),
     "…and it is still the same keeper prompt, stamped server-side");
+  // RESTAGED 2026-08-04: the property under test is INDEPENDENCE, and it is now demonstrated in
+  // the other direction — pinning the NARRATOR to Haiku must not drag the keeper off Grok. (The
+  // old form set only KEEPER_PROVIDER and expected the narrator on Anthropic, which was really
+  // asserting the old haiku-by-default narrator rather than independence.)
+  process.env.STORY_PROVIDER = "haiku";
   anthReqs.length = 0; xaiReqs.length = 0;
   await call({ mode: "story", messages: storyMessages(), ledger: fixtureLedger() });
-  ok(anthReqs.length === 1 && xaiReqs.length === 0,
+  ok(anthReqs.length === 1 && xaiReqs.length === 0 && (anthReqs[0] || {}).model === "claude-haiku-4-5",
     "…the narrator is not dragged along with it — the two knobs are independent");
+  delete process.env.STORY_PROVIDER;
 
   process.env.KEEPER_MODEL = "grok-4.3";
   xaiReqs.length = 0;
   await call({ mode: "ledger", ledger: fixtureLedger(), scene: "A short scene.", turn: 4 });
   ok((xaiReqs[0] || {}).model === "grok-4.3", "KEEPER_MODEL picks a model within the provider");
+
+  clearFlags();
+
+  // =========================================================================
+  section("A16 — Grok narrates by default, and degrades on an outage");
+  // =========================================================================
+  process.env.XAI_API_KEY = "test-xai-key";
+  anthReqs.length = 0; xaiReqs.length = 0;
+  const grokDefault = await call({ mode: "story", messages: storyMessages(), ledger: fixtureLedger() });
+  ok(grokDefault.status === 200 && xaiReqs.length === 1 && anthReqs.length === 0,
+    "with the key set and no flags, the narrator IS Grok — the approved stack is the default");
+  ok((xaiReqs[0] || {}).model === "grok-4.5", "…on grok-4.5");
+  ok(JSON.stringify(commits).includes("s_grok45_in"),
+    "…and the usage record says WHICH model wrote it, so the cost can follow the model");
+
+  // The seeder and the keeper must NOT have followed the narrator.
+  anthReqs.length = 0; xaiReqs.length = 0;
+  await call(seedBody());
+  ok(anthReqs.length === 1 && (anthReqs[0] || {}).model === "claude-fable-5" && xaiReqs.length === 0,
+    "the seeder stays on Fable while Grok narrates");
+  anthReqs.length = 0; xaiReqs.length = 0;
+  await call({ mode: "ledger", ledger: fixtureLedger(), scene: "A short scene.", turn: 4 });
+  ok(anthReqs.length === 1 && (anthReqs[0] || {}).model === "claude-haiku-4-5" && xaiReqs.length === 0,
+    "THE KEEPER STAYS ON HAIKU — measured: Grok's keeper ran a median 47.8s against a 45s abort");
+
+  // THE OUTAGE. Point the xAI base at a port nothing is listening on: the fetch throws, and the
+  // reader must still get their scene.
+  const goodXai = process.env.XAI_BASE_URL;
+  process.env.XAI_BASE_URL = "http://127.0.0.1:9";     // discard port — nothing answers
+  anthReqs.length = 0; xaiReqs.length = 0;
+  const outage = await call({ mode: "story", messages: storyMessages(), ledger: fixtureLedger() });
+  ok(outage.status === 200, "an xAI OUTAGE is not an error page — the reader never sees it");
+  ok(anthReqs.length === 1 && (anthReqs[0] || {}).model === "claude-haiku-4-5",
+    "…the same request is retried once on Haiku and the scene arrives");
+  ok(/===CHOICES===/.test(outage.text), "…with its choices intact, so the reader can carry on");
+  ok(JSON.stringify(commits.slice(-1)).includes("s_claudehaiku45_in"),
+    "…and the usage is billed to the model that ACTUALLY wrote it, not the one we asked for");
+
+  // An xAI that answers, but with an error status, is the same class of failure.
+  process.env.XAI_BASE_URL = `http://127.0.0.1:${XAI_ERR_PORT}`;
+  anthReqs.length = 0; xaiReqs.length = 0;
+  const rate = await call({ mode: "story", messages: storyMessages() });
+  ok(rate.status === 200 && anthReqs.length === 1,
+    "an xAI 429/500 falls back the same way a dead socket does");
+  process.env.XAI_BASE_URL = goodXai;
+
+  // The fallback is deliberately story-only: silently swapping the model under research would
+  // hide a real misconfiguration rather than protect a reader.
+  process.env.KEEPER_PROVIDER = "grok";
+  process.env.XAI_BASE_URL = "http://127.0.0.1:9";
+  anthReqs.length = 0; xaiReqs.length = 0;
+  const keeperOut = await call({ mode: "ledger", ledger: fixtureLedger(), scene: "A scene.", turn: 4 });
+  ok(keeperOut.status === 502 && anthReqs.length === 0,
+    "a NON-story mode does not silently swap providers — that would hide a misconfiguration");
+  process.env.XAI_BASE_URL = goodXai;
+  clearFlags();
+
+  // =========================================================================
+  section("A17 — the reader's once-a-day 'five more scenes'");
+  // =========================================================================
+  // The cap counts today's story-log docs; drive it by handing the fake :runQuery that many rows.
+  const rowsFor = (n, user) => Array.from({ length: n }, () => ({
+    document: { fields: { user: { stringValue: user } } } }));
+  for (const k of Object.keys(fakeDocs)) delete fakeDocs[k];
+  // Read the narrator's prompt off the Anthropic fake for the rest of this run: the grant and the
+  // repair are both PROVIDER-INDEPENDENT (they are injected before the provider is even resolved),
+  // and A15 already proves the same injection site works on the xAI path.
+  delete process.env.XAI_API_KEY;
+
+  runQueryRows = rowsFor(15, "Eleanor");
+  anthReqs.length = 0; xaiReqs.length = 0;
+  const atCap = await call({ mode: "story", messages: storyMessages(), user: "Eleanor" });
+  ok(!!atCap.json && atCap.json.capped === true, "at 15 scenes the reader is capped, exactly as before");
+  ok(anthReqs.length === 0 && xaiReqs.length === 0, "…and no model is called");
+  ok(atCap.json.finishSpent !== true, "…with the grant still unspent, so the offer can be made");
+
+  const budget = await call({ mode: "story_budget", user: "Eleanor" });
+  ok(!!budget.json && budget.json.cap === 15 && budget.json.finishAvailable === true,
+    "the budget endpoint tells the page the offer is available");
+  ok(budget.json.finishScenes === 5, "…and that it is worth five scenes");
+
+  const grant = await call({ mode: "story_finish_grant", user: "Eleanor" });
+  ok(!!grant.json && grant.json.ok === true && grant.json.granted === 5,
+    "taking the grant gives exactly 5 scenes");
+  ok(grant.json.cap === 20, "…raising the cap to 20, and no further");
+
+  // THE ONCE-A-DAY RULE, which is the whole reason this is server-side. A second tap — or a
+  // second device racing the first — must not stack another five.
+  const again = await call({ mode: "story_finish_grant", user: "Eleanor" });
+  ok(!!again.json && again.json.ok === false && again.json.already === true,
+    "a SECOND tap is refused — the grant is once per reader per day, enforced by the server");
+  const budget2 = await call({ mode: "story_budget", user: "Eleanor" });
+  ok(budget2.json.cap === 20 && budget2.json.finishAvailable === false,
+    "…and the budget endpoint stops offering it");
+
+  // A kid renaming their profile must not mint a fresh grant — the same canonical bucket the
+  // cap uses (this house has had exactly that bypass in production).
+  const renamed = await call({ mode: "story_finish_grant", user: "Eleanor ( :" });
+  ok(!!renamed.json && renamed.json.ok === false,
+    "a renamed profile shares the same grant — no bypass by editing choreUser");
+
+  // 16 scenes read of a 20 cap: inside the granted tail, four to go.
+  runQueryRows = rowsFor(16, "Eleanor");
+  anthReqs.length = 0; xaiReqs.length = 0;
+  const tail = await call({ mode: "story", messages: storyMessages(), user: "Eleanor" });
+  ok(tail.status === 200 && anthReqs.length === 1, "inside the granted tail the story continues");
+  const tailLast = (((anthReqs[0] || {}).messages || []).slice(-1)[0] || {}).content || "";
+  ok(/4 more scenes remain/.test(String(tailLast)),
+    "…and the narrator is told, ON THE LAST USER TURN, how many scenes are left");
+  ok(/resting place/.test(String(tailLast)) && /Do NOT introduce a new/.test(String(tailLast)),
+    "…and told to tie things off rather than open anything new");
+  ok(/===CHOICES===/.test(String(tailLast)), "…while still offering choices — it isn't over yet");
+
+  // The LAST granted scene has to actually land.
+  runQueryRows = rowsFor(19, "Eleanor");
+  anthReqs.length = 0;
+  await call({ mode: "story", messages: storyMessages(), user: "Eleanor" });
+  const lastLast = String((((anthReqs[0] || {}).messages || []).slice(-1)[0] || {}).content || "");
+  ok(/This is the LAST scene for today/.test(lastLast), "the final granted scene is told to land it");
+  ok(/===CHAPTER END===/.test(lastLast) && /do NOT write ===CHOICES===/.test(lastLast),
+    "…and to close the chapter, so the shelf shows a clean boundary");
+  ok(/satisfying resting point/.test(lastLast), "…on a satisfying note, not a cliffhanger");
+
+  // Spent. The day is genuinely done.
+  runQueryRows = rowsFor(20, "Eleanor");
+  anthReqs.length = 0; xaiReqs.length = 0;
+  const spent = await call({ mode: "story", messages: storyMessages(), user: "Eleanor" });
+  ok(!!spent.json && spent.json.capped === true && anthReqs.length === 0,
+    "at 20 the reader is capped again — 15 + one grant, and no more");
+  ok(spent.json.finishSpent === true, "…and the page is told the offer is gone");
+  ok(/good place to stop/.test(String(spent.json.message)),
+    "…with a warm goodnight rather than the same 'come back tomorrow' notice");
+
+  // Nobody else's grant is touched, and Dad has no cap to grant against.
+  runQueryRows = rowsFor(15, "Isaac");
+  const isaacBudget = await call({ mode: "story_budget", user: "Isaac" });
+  ok(isaacBudget.json.cap === 15 && isaacBudget.json.finishAvailable === true,
+    "one reader's grant is theirs alone — Isaac still has his");
+  const dadGrant = await call({ mode: "story_finish_grant", user: "Dad" });
+  ok(!!dadGrant.json && dadGrant.json.ok === false, "Dad has no cap, so there is nothing to grant");
+  runQueryRows = [];
+
+  // =========================================================================
+  section("A18 — a truncated scene is repaired, not left to strand the reader");
+  // =========================================================================
+  anthReqs.length = 0;
+  const rep = await call({ mode: "story", messages: [
+    ...storyMessages(),
+    { role: "assistant", content: "The lamp guttered and Bramblewick turned, his mouth already" },
+    { role: "user", content: "Please finish that scene." },
+  ], repair: true });
+  ok(rep.status === 200 && anthReqs.length === 1, "a repair request is an ordinary story call");
+  const repLast = String((((anthReqs[0] || {}).messages || []).slice(-1)[0] || {}).content || "");
+  ok(/cut off mid-sentence/.test(repLast),
+    "the repair directive rides the LAST user turn — the slot a model actually obeys");
+  ok(/Continue from EXACTLY where it stopped/.test(repLast) && /do NOT repeat/i.test(repLast),
+    "…asking for the tail only, never a restart");
+  ok(/===CHOICES=== and exactly 3/.test(repLast), "…and for the choices that went missing");
+
+  // A repair OUTRANKS the chapter flow: a scene being salvaged has no business opening a chapter.
+  anthReqs.length = 0;
+  await call({ mode: "story", messages: storyMessages(), repair: true, newChapter: true, endChapter: true });
+  const repWins = String((((anthReqs[0] || {}).messages || []).slice(-1)[0] || {}).content || "");
+  ok(/cut off mid-sentence/.test(repWins) && !/Open a NEW chapter/.test(repWins),
+    "a repair outranks the chapter directives it arrives alongside");
+
+  // A repair carries no `user`, so it can neither eat a scene of the reader's day nor write a
+  // second copy of the scene into Dad's Story Log. Prove the server honours that.
+  runQueryRows = rowsFor(14, "Eleanor");
+  commits.length = 0; anthReqs.length = 0;
+  await call({ mode: "story", messages: storyMessages(), repair: true });
+  ok(anthReqs.length === 1 && !JSON.stringify(commits).includes("farmgpt_story_log"),
+    "a repair writes no story-log doc — the reader is not charged twice for one scene");
+  runQueryRows = [];
+
+  // =========================================================================
+  section("A19 — usage buckets: TeacherGPT is no longer invisible");
+  // =========================================================================
+  // usageRow enumerated s,u,r,d,k,a,g,c,l,x and NOT t — so logUsage wrote t_* faithfully and the
+  // dashboard read back zero, however much Opus TeacherGPT had actually burned.
+  // One real seeder call, so the f_* bucket in today's usage doc is genuinely earned rather than
+  // left over from an earlier section (A17 clears the store).
+  await call(seedBody());
+  // Put a TeacherGPT-shaped record into today's usage doc by hand — the mode itself needs photos
+  // and a non-streaming Anthropic, neither of which this fake serves, and what is under test here
+  // is the READ-BACK, not TeacherGPT.
+  const today = Object.keys(fakeDocs).find((k) => k.startsWith("farmgpt_usage/"));
+  ok(!!today, "the fake Firestore accumulated a real usage document to read back");
+  fakeDocs[today].fields.t_in = { integerValue: "5000" };
+  fakeDocs[today].fields.t_out = { integerValue: "900" };
+  fakeDocs[today].fields.t_req = { integerValue: "3" };
+
+  const stats = await call({ mode: "stats" });
+  const dayRow = ((stats.json || {}).days || [])[0] || {};
+  ok(dayRow.t_req === 3 && dayRow.t_in === 5000,
+    "the stats row now carries t_* — TeacherGPT's row can stop reading zero");
+  ok(Object.prototype.hasOwnProperty.call(dayRow, "f_req"),
+    "…and f_*, the ledger seeder's own bucket");
+  ok(dayRow.f_req > 0 && dayRow.f_claudefable5_req > 0,
+    "…with the seeder's requests recorded against Fable, the model that did them");
+  ok(Object.keys(dayRow).some((k) => /^[a-z]_[a-z0-9]+_(in|out|req|cw|cr)$/.test(k)),
+    "…and the per-model breakdown fields ride along, so cost can follow the model");
 
   clearFlags();
   delete process.env.XAI_API_KEY;
@@ -2595,10 +2876,377 @@ async function sectionAudit(browser) {
 }
 
 // ---------------------------------------------------------------------------
+// A page whose farmgpt function calls are answered by `reply(body, n)` — n counting from 1.
+// Returns { page, sent, errors }.
+async function mockedPage(browser, reply, opts) {
+  const o = opts || {};
+  const page = await browser.newPage();
+  await page.setViewport({ width: o.width || 390, height: o.height || 844 });
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(String(e && e.message || e)));
+  const sent = [];
+  await page.setRequestInterception(true);
+  page.on("request", (req) => {
+    const url = req.url();
+    if (/cdn\.jsdelivr\.net/.test(url)) return req.respond({ status: 200, contentType: "text/javascript", body: CDN_STUB });
+    if (/\/assets\/storytime\/universes\//.test(url)) {
+      return req.respond({ status: 200, contentType: "application/json", body: JSON.stringify(FIXTURE_PACK) });
+    }
+    if (/functions\/farmgpt/.test(url)) {
+      let body = {};
+      try { body = JSON.parse(req.postData() || "{}"); } catch {}
+      sent.push(body);
+      const r = reply(body, sent.length) || {};
+      return req.respond({ status: r.status || 200,
+        contentType: r.json ? "application/json" : "text/plain; charset=utf-8",
+        body: r.json ? JSON.stringify(r.json) : String(r.body == null ? "" : r.body) });
+    }
+    if (/googleapis|firestore|firebase|gstatic/.test(url)) return req.abort();
+    if (url.startsWith(BASE)) return req.continue();
+    return req.abort();
+  });
+  await page.goto(BASE + "/farmgpt.html", { waitUntil: "domcontentloaded" });
+  await page.waitForFunction("!!window.__STORY__", { timeout: 15000 });
+  return { page, sent, errors };
+}
+
+const SCENE_OK = "The lamps guttered.\n\n===CHOICES===\n1. Ask about the ferry.\n2. Walk to the water.\n3. Light your lantern.";
+// A scene that ran out of tokens: cut off mid-sentence, no ===CHOICES=== at all. This is the
+// shape that stranded a reader in production.
+const SCENE_CUT = "The lamp guttered and Bramblewick turned, his mouth already opening on a word he";
+
+// A story object parked on the shelf, mid-chapter, ready to be resumed by a test.
+const seedStoryScript = (extra) => `(() => {
+  const s = { id: "t1", title: "Marrowmere", created: 1, done: false, chapter: 1, sceneSeq: 1,
+    messages: [{ role: "user", content: "A cosy mystery on a foggy harbour." },
+               { role: "assistant", content: ${JSON.stringify(SCENE_OK)} }] };
+  localStorage.setItem("farmgpt_stories_v1", JSON.stringify([s]));
+  window.__STORY__.setStory(s);
+  ${extra || ""}
+  return true;
+})()`;
+
+// ---------------------------------------------------------------------------
+async function sectionRepair(browser) {
+  section("M — a truncated scene is repaired, and the reader is never stranded");
+  // ONE truncated scene, then a good tail. The reader should end up with a whole scene and
+  // three choices, and never see the half-scene as a final state.
+  const { page, sent, errors } = await mockedPage(browser, (body, n) => {
+    if (body.mode !== "story") return { body: SCENE_OK };
+    if (n === 1) return { body: SCENE_CUT };
+    return { body: " had not decided on.\n\n===CHOICES===\n1. Wait.\n2. Speak first.\n3. Step back." };
+  });
+  await page.evaluate(seedStoryScript());
+  await page.evaluate(() => { document.getElementById("cardStory").click(); });
+  await page.evaluate(() => window.__STORY__.takeTurn("Ask about the ferry."));
+  await page.waitForFunction("!window.__STORY__.busyNow && window.__STORY__.story.messages.length >= 4", { timeout: 20000 })
+    .catch(() => {});
+  await new Promise((r) => setTimeout(r, 400));
+
+  const st = await page.evaluate(() => {
+    const S = window.__STORY__, s = S.story;
+    const last = s.messages.filter((m) => m.role === "assistant").pop();
+    const p = S.parseChapter(last.content);
+    return { text: p.text, choices: p.choices.length, truncated: S.truncated(last.content),
+             btns: [...document.querySelectorAll("#choiceBtns .choiceBtn")].map((b) => b.textContent) };
+  });
+  const repairs = sent.filter((b) => b.repair === true);
+  ok(repairs.length === 1, "a choice-less scene triggers exactly ONE repair call — never a loop");
+  ok(!repairs[0].user, "…carrying no reader identity, so it costs no scene of the daily cap");
+  ok(String(repairs[0].messages.slice(-1)[0].content) === "Please finish that scene.",
+    "…and asking for the tail on the last user turn, where the server injects the directive");
+  ok(String(repairs[0].messages.slice(-2)[0].content).includes("his mouth already"),
+    "…with the half-scene handed back as the assistant turn it is");
+  ok(!st.truncated && st.choices === 3, "the reader ends up with a whole scene and three choices");
+  ok(/mouth already opening on a word he had not decided on/.test(st.text),
+    "…the halves joined at the break, with no restart and no repetition");
+  ok(st.btns.length === 3 && !st.btns.some((t) => /Keep going/.test(t)),
+    "…and the ordinary choice buttons, not the fallback");
+  ok(errors.length === 0, "no page errors (repair)");
+  await page.close();
+
+  // A repair that ALSO comes back truncated must not make things worse — and the reader still
+  // has to have something to tap. This is the guarantee that matters most.
+  const p2 = await mockedPage(browser, (body) => body.mode === "story" ? { body: SCENE_CUT } : { body: SCENE_OK });
+  await p2.page.evaluate(seedStoryScript());
+  await p2.page.evaluate(() => { document.getElementById("cardStory").click(); });
+  await p2.page.evaluate(() => window.__STORY__.takeTurn("Ask about the ferry."));
+  await new Promise((r) => setTimeout(r, 1200));
+  const st2 = await p2.page.evaluate(() => {
+    const S = window.__STORY__, s = S.story;
+    const last = s.messages.filter((m) => m.role === "assistant").pop();
+    return { scenes: s.messages.filter((m) => m.role === "assistant").length,
+             text: S.parseChapter(last.content).text,
+             btns: [...document.querySelectorAll("#choiceBtns .choiceBtn")].map((b) => b.textContent.trim()),
+             writeShown: getComputedStyle(document.getElementById("writeRow")).display !== "none" };
+  });
+  ok(p2.sent.filter((b) => b.repair === true).length === 1,
+    "a repair that fails too is still only attempted once");
+  ok(!/his mouth already opening on a word hehis mouth/.test(st2.text),
+    "…and a failed repair is discarded rather than duplicating the half-scene");
+  ok(st2.btns.some((t) => /Keep going/.test(t)),
+    "THE READER IS NEVER STRANDED — a choice-less scene still offers '▶ Keep going'");
+  ok(st2.writeShown, "…and the write-in box, so they can say anything they like instead");
+  ok(p2.errors.length === 0, "no page errors (failed repair)");
+  await p2.page.close();
+
+  // The detector itself: a clean chapter close legitimately has no choices and must NOT be
+  // treated as damage, or every chapter ending would trigger a pointless repair call.
+  const p3 = await newPage(browser);
+  const det = await p3.evaluate(() => {
+    const S = window.__STORY__;
+    return {
+      cut: S.truncated("A scene that stops"),
+      good: S.truncated("A scene.\n\n===CHOICES===\n1. a\n2. b\n3. c"),
+      chapEnd: S.truncated("A gentle close.\n\n===CHAPTER END==="),
+      theEnd: S.truncated("All done.\n\n===THE END==="),
+    };
+  });
+  ok(det.cut === true, "the detector catches a scene with no choice block");
+  ok(det.good === false, "…passes an ordinary scene");
+  ok(det.chapEnd === false, "…and does NOT mistake a clean chapter close for damage");
+  ok(det.theEnd === false, "…nor a legacy ending");
+  ok(p3.__errors.length === 0, "no page errors (detector)");
+  await p3.close();
+}
+
+// ---------------------------------------------------------------------------
+async function sectionFinishGrant(browser) {
+  section("N — 'five more scenes' on the capped screen");
+  let granted = false;
+  const { page, sent, errors } = await mockedPage(browser, (body) => {
+    if (body.mode === "story_budget") {
+      return { json: { ok: true, used: 15, cap: granted ? 20 : 15, capped: !granted,
+                       finishGranted: granted ? 5 : 0, finishAvailable: !granted, finishScenes: 5 } };
+    }
+    if (body.mode === "story_finish_grant") {
+      if (granted) return { json: { ok: false, already: true, granted: 5 } };
+      granted = true;
+      return { json: { ok: true, granted: 5, cap: 20 } };
+    }
+    return { body: SCENE_OK };
+  });
+  // A capped reader, mid-story.
+  await page.evaluate(seedStoryScript(`
+    localStorage.setItem("choreUser", "Eleanor");
+    const d = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date());
+    localStorage.setItem("farmgpt_story_count_v1", JSON.stringify({ day: d, user: "eleanor", count: 15, cap: 15, finish: 0 }));
+  `));
+  // Open the READING view (not the setup screen) and paint the controls the way a real turn
+  // would — the capped screen lives there, and a screenshot of the wrong view proves nothing.
+  await page.evaluate(() => { window.__STORY__.showView("story"); window.__STORY__.paintStoryControls(); });
+  await new Promise((r) => setTimeout(r, 200));
+
+  const capped = await page.evaluate(() => ({
+    row: getComputedStyle(document.getElementById("storyCappedRow")).display !== "none",
+    offer: getComputedStyle(document.getElementById("finishGrantBtn")).display !== "none",
+    note: document.getElementById("cappedNote").textContent,
+    btn: document.getElementById("finishGrantBtn").textContent,
+    choices: document.querySelectorAll("#choiceBtns .choiceBtn").length,
+  }));
+  ok(capped.row, "a capped reader gets the capped screen, exactly as before");
+  ok(capped.offer, "…and now an offer of five more scenes");
+  ok(/five more scenes/i.test(capped.btn) && /finish this bit/i.test(capped.btn),
+    "…worded as finishing this bit, not as more story");
+  ok(/Want to finish this bit/i.test(capped.note) && !/come back tomorrow/i.test(capped.note),
+    "…with warm copy, not a punitive one");
+  ok(capped.choices === 0, "…and no choices until the grant is taken");
+  if (WANT_SHOTS) {
+    fs.mkdirSync(SHOTS, { recursive: true });
+    await page.evaluate(() => document.getElementById("storyCappedRow").scrollIntoView());
+    await page.screenshot({ path: path.join(SHOTS, "st_finish_offer.png") });
+  }
+
+  await page.evaluate(() => document.getElementById("finishGrantBtn").click());
+  await page.waitForFunction("window.__STORY__.storyCountState().cap === 20", { timeout: 10000 });
+  await new Promise((r) => setTimeout(r, 300));
+  const after = await page.evaluate(() => ({
+    cap: window.__STORY__.storyCountState().cap,
+    finish: window.__STORY__.storyCountState().finish,
+    cappedNow: window.__STORY__.storyCapped(),
+    row: getComputedStyle(document.getElementById("storyCappedRow")).display !== "none",
+    choices: document.querySelectorAll("#choiceBtns .choiceBtn").length,
+  }));
+  ok(sent.filter((b) => b.mode === "story_finish_grant").length === 1, "tapping it asks the server exactly once");
+  ok(after.cap === 20 && after.finish === 5, "…and the local mirror adopts the server's cap of 20");
+  ok(!after.cappedNow && !after.row, "…the capped screen clears");
+  ok(after.choices === 3, "…and the reader is reading again, with their choices back");
+
+  // Spend all five. At 20 the day really is over — and the offer must NOT come back.
+  await page.evaluate(() => {
+    const S = window.__STORY__, s = S.storyCountState();
+    s.count = 20; S.storyCountSave(s);
+    S.paintStoryControls();
+  });
+  await new Promise((r) => setTimeout(r, 200));
+  const done = await page.evaluate(() => ({
+    row: getComputedStyle(document.getElementById("storyCappedRow")).display !== "none",
+    offer: getComputedStyle(document.getElementById("finishGrantBtn")).display !== "none",
+    note: document.getElementById("cappedNote").textContent,
+    avail: window.__STORY__.finishOfferAvailable(),
+  }));
+  ok(done.row && !done.offer, "once the five are spent the offer is gone — the day is genuinely done");
+  ok(!done.avail, "…and the client agrees it has been used");
+  ok(/waiting for you tomorrow/i.test(done.note) && /good place to stop/i.test(done.note),
+    "…with a goodnight rather than a dangling offer");
+
+  // A second device (or a double tap) that asks anyway is refused, and adopts that truth.
+  const again = await page.evaluate(async () => {
+    const S = window.__STORY__;
+    const s = S.storyCountState(); s.finish = 0; S.storyCountSave(s);   // pretend this device forgot
+    const got = await S.takeFinishGrant();
+    return { got, finish: S.storyCountState().finish };
+  });
+  ok(again.got === false, "a device that asks twice is refused by the server");
+  ok(again.finish === 5, "…and adopts the server's answer, so the button stops being offered here too");
+  ok(errors.length === 0, "no page errors (grant)");
+  await page.close();
+
+  // Dad has no cap and is never offered the grant.
+  const p2 = await newPage(browser);
+  const dad = await p2.evaluate(() => {
+    localStorage.setItem("choreUser", "Dad");
+    return { capped: window.__STORY__.storyCapped(), offer: window.__STORY__.finishOfferAvailable() };
+  });
+  ok(dad.capped === false && dad.offer === false, "Dad is never capped, so he is never offered the grant");
+  await p2.close();
+}
+
+// ---------------------------------------------------------------------------
+async function sectionDashboard(browser) {
+  section("O — the usage dashboard: quiet rows fold, and cost follows the model");
+  // A month with one very busy feature, one moderately busy one, and several near-silent ones —
+  // plus a day of pre-per-model history, which must keep pricing at its old rate.
+  const DAYS = [
+    { date: "2026-08-04",
+      // story: 900k in / 300k out on GROK — at Haiku's old rate this would read $2.40, at Grok's $3.60
+      s_in: 900000, s_out: 300000, s_req: 120, s_cw: 0, s_cr: 0,
+      s_grok45_in: 900000, s_grok45_out: 300000, s_grok45_req: 120, s_grok45_cw: 0, s_grok45_cr: 0,
+      r_in: 200000, r_out: 40000, r_req: 30, r_cw: 0, r_cr: 0,
+      r_claudesonnet5_in: 200000, r_claudesonnet5_out: 40000, r_claudesonnet5_req: 30, r_claudesonnet5_cw: 0, r_claudesonnet5_cr: 0,
+      t_in: 60000, t_out: 20000, t_req: 6, t_cw: 0, t_cr: 0,
+      t_claudeopus5_in: 60000, t_claudeopus5_out: 20000, t_claudeopus5_req: 6, t_claudeopus5_cw: 0, t_claudeopus5_cr: 0,
+      f_in: 4000, f_out: 5000, f_req: 2, f_cw: 0, f_cr: 0,
+      f_claudefable5_in: 4000, f_claudefable5_out: 5000, f_claudefable5_req: 2, f_claudefable5_cw: 0, f_claudefable5_cr: 0,
+      // the quiet ones
+      k_in: 300, k_out: 120, k_req: 1, k_cw: 0, k_cr: 0,
+      a_in: 200, a_out: 400, a_req: 1, a_cw: 0, a_cr: 0,
+      g_req: 1, c_in: 100, c_out: 40, c_req: 1,
+      u_in: 0, u_out: 0, u_req: 0, d_in: 0, d_out: 0, d_req: 0,
+      l_in: 20000, l_out: 8000, l_req: 100, l_cw: 0, l_cr: 0,
+      l_claudehaiku45_in: 20000, l_claudehaiku45_out: 8000, l_claudehaiku45_req: 100, l_claudehaiku45_cw: 0, l_claudehaiku45_cr: 0,
+      x_in: 0, x_out: 0, x_req: 0 },
+    // A day from BEFORE per-model logging: no breakdown fields at all.
+    { date: "2026-07-02", s_in: 100000, s_out: 20000, s_req: 10, s_cw: 0, s_cr: 0,
+      r_in: 0, r_out: 0, r_req: 0, u_in: 0, u_out: 0, u_req: 0, d_in: 0, d_out: 0, d_req: 0,
+      k_in: 0, k_out: 0, k_req: 0, a_in: 0, a_out: 0, a_req: 0, g_req: 0,
+      c_in: 0, c_out: 0, c_req: 0, l_in: 0, l_out: 0, l_req: 0, x_in: 0, x_out: 0, x_req: 0,
+      t_in: 0, t_out: 0, t_req: 0, f_in: 0, f_out: 0, f_req: 0 },
+  ];
+  const { page, errors } = await mockedPage(browser, (body) => {
+    if (body.mode === "stats") return { json: { days: DAYS, hours: [] } };
+    return { body: SCENE_OK };
+  });
+  // Open it the way Dad does — the button is Dad-gated, and driving it for real is also what
+  // makes the screenshot show the dashboard rather than whatever view happened to be on.
+  await page.evaluate(() => { localStorage.setItem("choreUser", "Dad"); sessionStorage.setItem("dadUnlocked", "1"); });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForFunction("!!window.__STORY__", { timeout: 15000 });
+  await page.waitForSelector("#usageBtn", { timeout: 15000 });
+  await page.evaluate(() => document.getElementById("usageBtn").click());
+  await page.waitForFunction("document.querySelectorAll('#usageSplit .usplit').length > 0", { timeout: 15000 });
+  await new Promise((r) => setTimeout(r, 300));
+  ok(await page.evaluate(() => document.getElementById("viewUsage").classList.contains("on")),
+    "the dashboard opens from Dad's own button");
+
+  const dash = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll("#usageSplit .usplit")].map((el) => ({
+      name: el.querySelector(".un").textContent, detail: el.querySelector(".ud").textContent }));
+    const head = [...document.querySelectorAll(".usageTable tr:first-child th")].map((th) => th.textContent);
+    const firstRow = [...document.querySelectorAll(".usageTable tr:nth-child(2) td")].map((td) => td.textContent);
+    return { rows, head, firstRow, big: document.querySelector("#usageBig .amt").textContent,
+             note: document.getElementById("usageNote").textContent };
+  });
+  const names = dash.rows.map((r) => r.name);
+  // The fixture deliberately leaves some bucket keys off the older day (a document written before
+  // a bucket existed looks exactly like this). Nothing on the page may render as NaN because of it.
+  ok(!dash.rows.some((r) => /NaN/.test(r.detail + r.name)) && !/NaN/.test(dash.firstRow.join("")),
+    "no row prints NaN, even when a day's document is missing a bucket entirely");
+  ok(names.some((n) => /Story chapters/.test(n)), "the busy rows are shown");
+  ok(names.some((n) => /Research/.test(n)), "…including research");
+  ok(names.some((n) => /TeacherGPT/.test(n)), "…and TeacherGPT, which used to read zero however much it burned");
+  // …checked against the rows that are NOT the fold, since the fold's own label deliberately
+  // names everything it swallowed.
+  ok(!names.filter((n) => !/Other \(/.test(n)).some((n) => /Little-kid stories|Generated images|Calorie/.test(n)),
+    "the near-silent features are NOT given rows of their own");
+  ok(names.some((n) => /Other \(\d+ quiet\)/.test(n)), "…they fold into a single 🧩 Other line");
+  const other = dash.rows.find((r) => /Other/.test(r.name));
+  ok(/Little-kid stories/.test(other.name) && /Calorie lookups/.test(other.name),
+    "…which names what it swallowed, so nothing simply vanishes");
+
+  // RECONCILIATION. A table whose rows don't add up to the headline is its own bug.
+  const money = (s) => parseFloat(String(s).replace(/[^0-9.]/g, "")) || 0;
+  const rowSum = dash.rows.reduce((a, r) => a + money((r.detail.match(/\$[0-9.]+/) || [])[0]), 0);
+  const headline = money(dash.big);
+  // Tolerance is one cent per DISPLAYED row: each row's figure is rounded for the screen, so a
+  // few cents of rounding is arithmetic, not a reconciliation failure. Anything larger means a
+  // bucket is being counted in the headline and shown nowhere, which is the bug this guards.
+  ok(Math.abs(rowSum - headline) < 0.01 * dash.rows.length,
+    `the rows (incl. Other) reconcile to the headline total — $${rowSum.toFixed(2)} vs $${headline.toFixed(2)}`);
+
+  // PRICING FOLLOWS THE MODEL. 900k in + 300k out of story on grok-4.5 is 900*2 + 300*6 = $3.60.
+  // At the old fixed Haiku rate it would have read 900*1 + 300*5 = $2.40 — silently wrong.
+  const storyRow = dash.rows.find((r) => /Story chapters/.test(r.name));
+  ok(Math.abs(money((storyRow.detail.match(/\$[0-9.]+/) || [])[0]) - 3.60) < 0.01,
+    "story is priced at GROK's rate ($3.60), not the Haiku rate it used to assume ($2.40)");
+  ok(/Grok 4\.5/.test(storyRow.name), "…and the row says which model did the work");
+  const teachRow = dash.rows.find((r) => /TeacherGPT/.test(r.name));
+  ok(/6 requests/.test(teachRow.detail), "TeacherGPT's request count is real now, not zero");
+  ok(Math.abs(money((teachRow.detail.match(/\$[0-9.]+/) || [])[0]) - 0.80) < 0.01,
+    "…priced at Opus 5 (60k*$5 + 20k*$25 = $0.80)");
+
+  // THE HISTORICAL FALLBACK. July has no per-model fields, so it must still price at the rate it
+  // always did: 100k in + 20k out of story at Haiku = $0.20. Moving the narrator must not rewrite
+  // a month that is already closed.
+  const july = await page.evaluate((d) => window.__STORY__.usageDayCost(d), DAYS[1]);
+  ok(Math.abs(july - 0.20) < 0.001,
+    "a day written BEFORE per-model logging still prices at its historical rate — closed months don't move");
+
+  // The tables carry a column per shown bucket + one for the folded remainder.
+  ok(dash.head[0] === "Day" && dash.head.slice(-2).join("|") === "Tokens|Est. cost",
+    "the day table keeps its Day / Tokens / Est. cost columns");
+  ok(dash.head.includes("🧩"), "…and a 🧩 column so the folded features' requests are still counted");
+  ok(dash.head.length === dash.firstRow.length, "…with a header for every cell, so the table lines up");
+  ok(/per model/.test(dash.note) && /Grok 4\.5/.test(dash.note), "the footnote prices per model");
+  ok(/🧩 Other/.test(dash.note), "…and says where the quiet features went");
+
+  // MOBILE — main's scrollWrap work must not regress: the page itself must never scroll sideways.
+  const mob = await page.evaluate(() => ({
+    bodyOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    wrapped: document.querySelectorAll(".tblScroll .usageTable").length,
+    hint: !!document.querySelector(".tblHint"),
+  }));
+  ok(mob.bodyOverflow <= 1, "at 390px the PAGE never scrolls sideways (main's scrollWrap work intact)");
+  ok(mob.wrapped >= 1, "…the wide table is inside its own horizontal scroller");
+  ok(mob.hint, "…with the swipe affordance");
+  if (WANT_SHOTS) {
+    fs.mkdirSync(SHOTS, { recursive: true });
+    await page.screenshot({ path: path.join(SHOTS, "st_usage_after_mobile.png"), fullPage: true });
+    await page.setViewport({ width: 1100, height: 900 });
+    await page.evaluate(() => document.getElementById("usageBtn").click());
+    await new Promise((r) => setTimeout(r, 400));
+    await page.screenshot({ path: path.join(SHOTS, "st_usage_after.png"), fullPage: true });
+  }
+  ok(errors.length === 0, "no page errors (dashboard)");
+  await page.close();
+}
+
+// ---------------------------------------------------------------------------
 (async () => {
-  const [xai, anth, goog] = await startFakes();
+  const [xaiErr, xai, anth, goog] = await startFakes();
   try { await sectionServer(); }
   catch (err) { fail++; failures.push("section A crashed"); console.log("\n✗ SECTION A ERROR: " + (err && err.stack || err)); }
+  void sectionRepair; void sectionFinishGrant; void sectionDashboard;
 
   const srv = await serve();
   const browser = await puppeteer.launch({
@@ -2619,12 +3267,15 @@ async function sectionAudit(browser) {
     await sectionCompaction(browser);
     await sectionRewind(browser);
     await sectionAudit(browser);
+    await sectionRepair(browser);
+    await sectionFinishGrant(browser);
+    await sectionDashboard(browser);
   } catch (err) {
     fail++; failures.push("browser suite crashed");
     console.log("\n✗ SUITE ERROR: " + (err && err.stack || err));
   } finally {
     await browser.close();
-    srv.close(); anth.close(); goog.close(); xai.close();
+    srv.close(); anth.close(); goog.close(); xai.close(); xaiErr.close();
   }
 
   console.log("\n" + "=".repeat(52));

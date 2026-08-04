@@ -222,7 +222,11 @@ console.log("— the other modes are untouched —");
 {
   const r = await call({ mode: "story", messages: [{ role: "user", content: "A space story" }] });
   const a = lastAnt();
-  ok(r.status === 200 && a.model === "claude-haiku-4-5" && a.max_tokens === 1200, "big-kid story unchanged (Haiku, 1200 tok)");
+  // RESTAGED 2026-08-04: the big-kid story's budget went 1200 -> 1600 (the truncation fix), and
+  // its narrator now defaults to Grok — with no XAI_API_KEY set here it degrades to Haiku, which
+  // is the state this suite runs in and exactly the fallback it should be seeing. What this check
+  // is really for is "little-kid mode did not disturb big-kid mode", and that still holds.
+  ok(r.status === 200 && a.model === "claude-haiku-4-5" && a.max_tokens === 1600, "big-kid story unchanged (Haiku fallback, 1600 tok)");
   ok(a.system.includes("CONTENT RULES") && !a.system.includes("LITTLE-KID SAFETY"), "…and does NOT get the little-kid rules");
   const longOk = await call({ mode: "story", messages: [{ role: "user", content: "y".repeat(3000) }] });
   // Big-kid story turns now also carry the appended STORY_RULES_REMINDER (2026-07-31), so
