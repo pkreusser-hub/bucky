@@ -385,6 +385,37 @@ async function probeNetlify(signal) {
   return okResult("Connected", "The Netlify token is valid; usage details weren't in the shape this dashboard expects — check the Netlify dashboard directly.", null);
 }
 
+/* TEMPORARY DEBUG — netlify_shape. The live /bandwidth response isn't the shape the probe
+   expects and the token rightly never leaves the server, so this returns the response's KEY
+   STRUCTURE ONLY (key names + value types, no values) so the parser can be fixed against
+   reality. Remove once the metric parses. */
+function shapeOf(v, depth = 0) {
+  if (depth > 3) return typeof v;
+  if (Array.isArray(v)) return v.length ? [shapeOf(v[0], depth + 1)] : [];
+  if (v && typeof v === "object") {
+    const o = {};
+    for (const k of Object.keys(v).slice(0, 40)) o[k] = shapeOf(v[k], depth + 1);
+    return o;
+  }
+  return typeof v;
+}
+async function netlifyShape() {
+  const token = process.env.NETLIFY_API_TOKEN;
+  if (!token) return { error: "no token" };
+  const base = process.env.HEALTH_NETLIFY_BASE || "https://api.netlify.com";
+  const out = {};
+  const a = await timedFetch(`${base}/api/v1/accounts`, { headers: { authorization: `Bearer ${token}` } });
+  out.accountsStatus = a.status || String(a.error || a.timeout);
+  let slug = null;
+  try { const j = JSON.parse(a.text); out.accounts = shapeOf(j); slug = Array.isArray(j) && j[0] && j[0].slug; } catch {}
+  if (slug) {
+    const b = await timedFetch(`${base}/api/v1/accounts/${encodeURIComponent(slug)}/bandwidth`, { headers: { authorization: `Bearer ${token}` } });
+    out.bandwidthStatus = b.status || String(b.error || b.timeout);
+    try { out.bandwidth = shapeOf(JSON.parse(b.text)); } catch { out.bandwidthRawLen = (b.text || "").length; }
+  } else out.note = "no slug in first account";
+  return out;
+}
+
 async function probeFirebase(signal) {
   const sa = parseServiceAccount();
   if (!process.env.FIREBASE_SERVICE_ACCOUNT) return unconfiguredResult(
@@ -843,6 +874,7 @@ export default async (req) => {
     if (body.action === "summary") return json(await handleSummary(body), 200, headers);
     if (body.action === "probe_anthropic_credit") return json(await handleProbeCredit(), 200, headers);
     if (body.action === "firestore_usage") return json(await handleFirestoreUsage(body), 200, headers);
+    if (body.action === "netlify_shape") return json(await netlifyShape(), 200, headers);   // TEMPORARY DEBUG
   } catch (e) {
     // Whatever happens inside a handler, the caller never sees a raw error — see the
     // "always degrade gracefully" posture documented at the top of this file.
