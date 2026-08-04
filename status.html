@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#233357" />
+<title>BUCKY — Ops</title>
+<link rel="icon" href="bucky.png" />
+<link rel="apple-touch-icon" href="bucky.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<!-- Roboto added to the same request so desktop's rail/nav renders in the same face Android does (iOS keeps San Francisco via -apple-system) — mirrors index.html / weather.html / activity.html -->
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Source+Sans+3:wght@500;600;700;800&family=Roboto:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --navy: #233357;
+    --navy-d: #18233b;
+    --red: #ba303e;
+    --ink: #15233f;
+    --ink-2: #3a4a66;
+    --muted: #5d6b86;
+    --line: #d7e0f0;
+    --card: #fff;
+    --shadow: 0 1px 3px rgba(35,51,87,.10), 0 8px 24px rgba(35,51,87,.07);
+    --ok: #2f9e58;
+    --warn: #c9820f;
+    --down: #c0392b;
+    --unconf: #9aa7bd;
+    --unknown-c: #b7c0d1;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "Source Sans 3", -apple-system, BlinkMacSystemFont, Roboto, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    min-height: 100dvh;
+    background: linear-gradient(180deg, #eef3fb 0%, #f6f8fc 40%, #f7f9fc 100%);
+    background-attachment: fixed;
+    padding-bottom: calc(env(safe-area-inset-bottom) + 118px);   /* clears the fixed two-row bottom nav */
+    -webkit-font-smoothing: antialiased;
+  }
+
+  header {
+    background: linear-gradient(160deg, var(--navy) 0%, var(--navy-d) 100%);
+    color: #fff;
+    padding: calc(env(safe-area-inset-top) + 14px) 16px 16px;
+    position: sticky; top: 0; z-index: 30;
+    box-shadow: 0 4px 20px rgba(24,35,59,.28);
+  }
+  #bar { display: flex; align-items: center; gap: 10px; }
+  #bar a {
+    color: #fff; text-decoration: none; font-weight: 800; font-size: 14px;
+    background: rgba(255,255,255,.16); padding: 7px 12px; border-radius: 9px; flex: 0 0 auto;
+  }
+  #bar .t { font-family: Fraunces, Georgia, serif; font-size: 20px; font-weight: 700; letter-spacing: .2px; }
+  .subloc { margin: 8px 0 0; font-size: 13px; font-weight: 600; color: rgba(255,255,255,.78); }
+
+  main { max-width: 760px; margin: 0 auto; padding: 16px 14px 24px; display: flex; flex-direction: column; gap: 18px; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+    box-shadow: var(--shadow); padding: 14px;
+  }
+  .section-label {
+    font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .55px;
+    color: var(--navy); margin: 0 0 4px;
+  }
+  .section-note { font-size: 12.5px; font-weight: 600; color: var(--muted); margin: 0 0 12px; }
+
+  /* --- gate / loading / fetch-failure --- */
+  .notice { text-align: center; padding: 30px 16px; }
+  .notice .big { font-size: 34px; line-height: 1; margin-bottom: 10px; }
+  .notice h2 { font-family: Fraunces, Georgia, serif; font-size: 20px; margin: 0 0 6px; color: var(--navy-d); }
+  .notice p { margin: 0 auto; max-width: 34em; font-size: 14.5px; font-weight: 600; color: var(--muted); line-height: 1.5; }
+  .notice button {
+    margin-top: 14px; border: 0; background: var(--navy); color: #fff; font: inherit; font-weight: 800;
+    padding: 11px 18px; border-radius: 12px; cursor: pointer;
+  }
+  .notice button:disabled { opacity: .55; cursor: default; }
+  .hidden { display: none !important; }
+
+  /* --- top-line verdict --- */
+  #topline .verdict-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  #topline .verdict-icon { font-size: 26px; line-height: 1; }
+  #topline .verdict-text { font-family: Fraunces, Georgia, serif; font-size: 19px; font-weight: 700; color: var(--navy-d); }
+  #topline.attn .verdict-text { color: var(--down); }
+  .counts-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .count-chip {
+    font-size: 11.5px; font-weight: 800; color: var(--ink-2);
+    background: #eef3fb; border: 1px solid #dde6f5; border-radius: 999px; padding: 4px 10px; white-space: nowrap;
+  }
+  .count-chip.c-warn { background: #fbf1e0; border-color: #f0dcb8; color: #8a5a00; }
+  .count-chip.c-down { background: #fbe4e2; border-color: #f3c6c1; color: #8a2419; }
+  .meta-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .meta-age { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+  .recheck-btn {
+    border: 1px solid var(--line); background: #fff; color: var(--navy); font: inherit; font-weight: 800;
+    font-size: 13px; padding: 8px 14px; border-radius: 11px; cursor: pointer;
+  }
+  .recheck-btn:disabled { opacity: .55; cursor: default; }
+  .stale-note { font-size: 12px; font-weight: 700; color: #8a5a00; margin: 8px 0 0; }
+
+  /* --- service rows --- */
+  .svc-list { display: flex; flex-direction: column; }
+  .svc { padding: 12px 0; border-top: 1px solid #eef1f7; }
+  .svc:first-of-type { border-top: 0; padding-top: 2px; }
+  .svc-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto; position: relative; top: 1px; }
+  .dot.ok { background: var(--ok); }
+  .dot.warn { background: var(--warn); }
+  .dot.down { background: var(--down); }
+  .dot.unknown { background: var(--unknown-c); }
+  .dot.unconfigured { width: 9px; height: 9px; background: #fff; border: 2px solid var(--unconf); top: 2px; }
+  .svc-name { font-size: 14.5px; font-weight: 800; color: var(--ink); }
+  .svc-headline { font-size: 12.5px; font-weight: 700; color: var(--muted); }
+  .svc-breaks { margin: 5px 0 0; font-size: 12px; font-weight: 600; color: var(--ink-2); line-height: 1.5; }
+  .svc-detail { margin: 5px 0 0; font-size: 11.5px; font-weight: 500; color: var(--muted); line-height: 1.5; }
+
+  /* --- metric bar --- */
+  .metric-bar { margin: 8px 0 0; }
+  .mb-track { display: block; background: #eef1f7; border-radius: 5px; height: 10px; overflow: hidden; }
+  .mb-fill { display: block; height: 100%; border-radius: 5px; background: var(--navy); min-width: 3px; }
+  .mb-fill.hot { background: var(--warn); }
+  .mb-label { display: block; margin-top: 4px; font-size: 11.5px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .metric-num { margin: 6px 0 0; font-size: 13px; font-weight: 800; color: var(--navy-d); font-variant-numeric: tabular-nums; }
+  .metric-num.small { font-size: 12px; font-weight: 700; color: var(--ink-2); }
+
+  /* --- unconfigured "how to wire it" box --- */
+  .confighint {
+    margin: 8px 0 0; background: #f4f7fc; border: 1px dashed #c7d3ea; border-radius: 10px; padding: 9px 11px;
+  }
+  .confighint-label { margin: 0 0 3px; font-size: 11px; font-weight: 800; color: var(--navy); letter-spacing: .3px; }
+  .confighint-text { margin: 0; font-size: 12px; font-weight: 600; color: var(--ink-2); line-height: 1.5; }
+
+  /* --- Anthropic credit panel --- */
+  .credit-panel { margin: 10px 0 0; padding: 10px; background: #f7f8fb; border-radius: 10px; }
+  .credit-btn {
+    border: 0; background: var(--navy); color: #fff; font: inherit; font-weight: 800; font-size: 12.5px;
+    padding: 9px 14px; border-radius: 10px; cursor: pointer;
+  }
+  .credit-btn:disabled { opacity: .55; cursor: default; }
+  .credit-note { margin: 6px 0 0; font-size: 11px; font-weight: 600; color: var(--muted); }
+  .credit-result { margin-top: 8px; padding: 7px 10px; border-radius: 9px; font-size: 12.5px; font-weight: 700; }
+  .credit-result.cr-ok { background: #e5f5ea; color: #1c6b3a; }
+  .credit-result.cr-credit-low { background: #fbe4e2; color: #a4241a; }
+  .credit-result.cr-key-bad { background: #fbe4e2; color: #a4241a; }
+  .credit-result.cr-down { background: #f4f7fc; color: var(--ink-2); }
+  .credit-result.cr-unconfigured { background: #f4f7fc; color: var(--ink-2); }
+
+  /* --- Firestore usage panel --- */
+  .firestore-panel { margin: 10px 0 0; padding: 10px; background: #f7f8fb; border-radius: 10px; }
+  .firestore-label { margin: 0 0 6px; font-size: 12px; font-weight: 800; color: var(--navy); }
+  .firestore-btn {
+    border: 1px solid var(--line); background: #fff; color: var(--navy); font: inherit; font-weight: 800;
+    font-size: 12.5px; padding: 9px 14px; border-radius: 10px; cursor: pointer;
+  }
+  .firestore-btn:disabled { opacity: .55; cursor: default; }
+  .firestore-age { margin: 8px 0 0; font-size: 11.5px; font-weight: 700; color: var(--muted); }
+  .firestore-err { margin: 8px 0 0; font-size: 12px; font-weight: 700; color: #a4241a; }
+  .firestore-note { margin: 8px 0 0; font-size: 11px; font-weight: 500; color: var(--muted); line-height: 1.5; }
+  .firestore-table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  .firestore-table th, .firestore-table td { text-align: left; padding: 6px 10px; white-space: nowrap; }
+  .firestore-table thead th { font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); border-bottom: 1px solid var(--line); }
+  .firestore-table tbody td { border-bottom: 1px solid #eef1f7; color: var(--ink-2); font-weight: 600; }
+  .firestore-table tfoot td { font-weight: 800; color: var(--navy-d); border-top: 2px solid var(--line); }
+
+  /* Wide content pans inside its own container, like the activity/usage pages — the page
+     body itself must never scroll sideways on a phone. */
+  .panner { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .panner > * { min-width: 300px; }
+
+  .foot { font-size: 12px; font-weight: 600; color: var(--muted); text-align: center; padding: 0 6px 6px; line-height: 1.5; }
+
+  /* Bottom Bucky nav — same pattern as weather.html / games.html / farmgpt.html /
+     activity.html: balanced two-row-on-phone grid. This is a Dad ops tool, not one of the
+     family's nav areas, so NO entry is ever marked active. Hidden on desktop (see rail below). */
+  #buckyNav {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    display: grid;
+    grid-template-columns: repeat(var(--bnav-cols, 6), minmax(0, 1fr));
+    gap: 2px 4px;
+    background: rgba(255,255,255,.9);
+    -webkit-backdrop-filter: saturate(1.3) blur(14px); backdrop-filter: saturate(1.3) blur(14px);
+    border-top: 1px solid #d7e0f0;
+    padding: 3px 6px calc(env(safe-area-inset-bottom) + 3px);
+    box-shadow: 0 -2px 16px rgba(35,51,87,.08);
+  }
+  #buckyNav a {
+    min-width: 0; text-decoration: none; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 5px 0 4px; border-radius: 12px; color: #5d6b86;
+    transition: color .15s ease, background .15s ease, transform .1s ease;
+  }
+  #buckyNav a .bico { font-size: 21px; line-height: 1; filter: grayscale(.4) opacity(.75); transition: filter .15s ease, transform .12s ease; }
+  #buckyNav a .blabel { font-size: 10px; font-weight: 700; letter-spacing: .1px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #buckyNav a:active { transform: scale(.93); }
+  #buckyNav a.active { color: #233357; background: #e7eefb; }
+  #buckyNav a.active .bico { filter: none; transform: translateY(-1px) scale(1.08); }
+  @media (min-width: 700px) and (max-width: 1023.98px) {
+    #buckyNav { grid-template-columns: repeat(var(--bnav-all, 12), minmax(0, 96px)); justify-content: center; gap: 6px; }
+  }
+
+  /* ==========================================================================
+     Desktop left rail (>=1024px) — mirrors index.html's #sidenav/buildSideNav and
+     weather.html's / activity.html's copy.
+     ========================================================================== */
+  #sidenav { display: none; }
+  @media (min-width: 1024px) {
+    :root { --sidenav-w: 230px; }
+    body { padding-left: var(--sidenav-w); padding-bottom: 0; }
+    #sidenav {
+      display: flex; flex-direction: column;
+      position: fixed; top: 0; bottom: 0; left: 0; width: var(--sidenav-w); z-index: 50;
+      background: linear-gradient(180deg, #0d3d76 0%, var(--navy) 55%, var(--navy-d) 100%);
+      border-right: 1px solid rgba(255,255,255,.10);
+      box-shadow: 2px 0 18px rgba(35,51,87,.14);
+      overflow-y: auto; overscroll-behavior: contain;
+    }
+    .sn-brand {
+      display: block; width: 100%; text-align: left; text-decoration: none; cursor: pointer;
+      background: transparent; border: 0; color: #fff; font: inherit;
+      padding: 20px 18px 16px; border-bottom: 1px solid rgba(255,255,255,.12);
+    }
+    .sn-brand .sn-name { font-size: 22px; font-weight: 800; letter-spacing: .2px; line-height: 1.05; }
+    .sn-brand .sn-sub {
+      font-size: 10.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+      color: rgba(255,255,255,.62); margin-top: 4px;
+    }
+    .sn-brand::after {
+      content: ""; display: block; height: 3px; width: 46px; margin-top: 10px; border-radius: 2px;
+      background: repeating-linear-gradient(90deg, var(--red) 0 9px, #fff 9px 18px);
+    }
+    .sn-list { display: flex; flex-direction: column; gap: 2px; padding: 12px 10px 20px; }
+    .sn-item {
+      display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+      text-decoration: none; border: 0; background: transparent; cursor: pointer; font: inherit;
+      color: rgba(255,255,255,.80); padding: 10px 12px; border-radius: 11px;
+      border-left: 3px solid transparent;
+      transition: background .15s ease, color .15s ease;
+    }
+    .sn-item:hover { background: rgba(255,255,255,.09); color: #fff; }
+    .sn-item .sn-ico { font-size: 18px; line-height: 1; flex: 0 0 auto; filter: grayscale(.35) opacity(.9); }
+    .sn-item .sn-label { font-size: 14.5px; font-weight: 700; letter-spacing: .1px; }
+    .sn-item.active { background: rgba(255,255,255,.15); color: #fff; border-left-color: var(--red); cursor: default; }
+    .sn-item.active .sn-ico { filter: none; }
+
+    /* The rail already carries the wordmark, so the header's own back link is redundant
+       chrome on desktop — the title stays. */
+    #backLink { display: none; }
+    #buckyNav { display: none; }
+    main { max-width: 900px; padding: 20px 24px 32px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Desktop left rail (>=1024px, hidden below): same NAV_GROUPS data + gates as the
+     mobile #buckyNav bar below — see the nav-building script after </main>. -->
+<nav id="sidenav" aria-label="BUCKY sections"></nav>
+
+<header>
+  <div id="bar">
+    <a href="index.html" id="backLink">← Bucky</a>
+    <span class="t">Ops</span>
+  </div>
+  <p class="subloc">Everything Bucky depends on, at a glance</p>
+</header>
+
+<main>
+  <!-- Non-Dad profiles get this and nothing else. -->
+  <section id="gate" class="card notice hidden">
+    <div class="big">🔒</div>
+    <h2>This page is just for Dad.</h2>
+    <p id="gateMsg">Switch to the Dad profile in Bucky to see it.</p>
+    <button id="unlockBtn" class="hidden">Unlock Dad tools</button>
+  </section>
+
+  <div id="dash" class="hidden">
+    <section id="loading" class="card notice">
+      <div class="big">⏳</div>
+      <h2>Checking everything…</h2>
+      <p>One moment.</p>
+    </section>
+
+    <section id="fetchFail" class="card notice hidden">
+      <div class="big">😕</div>
+      <h2>Couldn't reach the health function</h2>
+      <p id="fetchFailMsg">The request didn't get through. Try again in a moment.</p>
+      <button id="retryBtn">Try again</button>
+    </section>
+
+    <div id="content" class="hidden">
+      <section id="topline" class="card">
+        <div class="verdict-row">
+          <span class="verdict-icon" id="verdictIcon"></span>
+          <span class="verdict-text" id="verdictText"></span>
+        </div>
+        <div class="counts-row" id="countsRow"></div>
+        <p class="stale-note hidden" id="staleNote"></p>
+        <div class="meta-row">
+          <span class="meta-age" id="metaAge"></span>
+          <button id="recheckBtn" class="recheck-btn">↻ Re-check</button>
+        </div>
+      </section>
+
+      <section class="card" id="sectionPaid">
+        <p class="section-label">💳 Paid accounts</p>
+        <p class="section-note">The ones with a bill or a login. If one of these lapses, the family notices.</p>
+        <div class="svc-list" id="listPaid"></div>
+      </section>
+
+      <section class="card" id="sectionFree">
+        <p class="section-label">🔌 Free services Bucky leans on</p>
+        <p class="section-note">No account, no bill — but Bucky asks them for something, and any of them could go dark on their own schedule.</p>
+        <div class="svc-list" id="listFree"></div>
+      </section>
+
+      <section class="card" id="sectionSelf">
+        <p class="section-label">⚙️ Bucky's own functions</p>
+        <p class="section-note">This site's own server-side pieces, checked by pinging each one.</p>
+        <div class="svc-list" id="listSelf"></div>
+      </section>
+    </div>
+  </div>
+
+  <p class="foot" id="foot"></p>
+</main>
+
+<nav id="buckyNav" aria-label="BUCKY sections"></nav>
+
+<script>
+(function () {
+  // ---- Bucky bottom nav (mirrors weather.html / games.html / farmgpt.html / activity.html) ----
+  // Mirrors index.html's NAV_GROUPS (12 areas: Home/Plan/Meals/Chores/Fit/News/Jobs/
+  // Shop/Bank/AI/Farm/Play). This page is a Dad-only ops tool, not one of the family's nav
+  // areas, so NO entry is marked active — every one of them links away from here, and
+  // lighting one up would claim this page belongs to a section it doesn't.
+  // Gate lists duplicated from index.html — keep in sync with index.html.
+  var BANK_USERS = ["Eleanor", "Isaac", "Dad", "Mom"];
+  var MEAL_USERS = ["Mom", "Dad"];
+  var FITNESS_USERS = ["Isaac", "Eleanor", "Dad"];
+  var me = localStorage.getItem("choreUser") || "";
+  function seesBank(){ return BANK_USERS.indexOf(me) >= 0; }
+  function seesMeals(){ return MEAL_USERS.indexOf(me) >= 0; }
+  function seesFitness(){ return FITNESS_USERS.indexOf(me) >= 0; }
+
+  var NAV_GROUPS = [
+    { ico:"🏠", name:"Home",  href:"index.html#dashboard" },
+    { ico:"📅", name:"Plan",  href:"index.html#calendar" },
+    { ico:"🍽️", name:"Meals", href:"index.html#mealplan", gate:seesMeals },
+    { ico:"✅", name:"Chores",href:"index.html#chores" },
+    { ico:"💪", name:"Fit",   href:"index.html#fitness",  gate:seesFitness },
+    { ico:"📰", name:"News",  href:"index.html#news" },
+    { ico:"🛠️", name:"Jobs",  href:"index.html#workorders" },
+    { ico:"🛒", name:"Shop",  href:"index.html#shopping" },
+    { ico:"💰", name:"Bank",  href:"index.html#farmbank", gate:seesBank },
+    { ico:"🐐", name:"Farm",  href:"index.html#goathooves" },
+    { ico:"🌾", name:"AI",    href:"farmgpt.html" },
+    { ico:"🎮", name:"Play",  href:"games.html" },
+  ];
+  var shown = NAV_GROUPS.filter(function (g) { return !g.gate || g.gate(); });
+
+  var bnav = document.getElementById("buckyNav");
+  bnav.style.setProperty("--bnav-cols", Math.ceil(shown.length / 2));
+  bnav.style.setProperty("--bnav-all", shown.length);
+  shown.forEach(function (g) {
+    var a = document.createElement("a");
+    a.href = g.href;
+    var ico = document.createElement("span"); ico.className = "bico"; ico.textContent = g.ico;
+    var lbl = document.createElement("span"); lbl.className = "blabel"; lbl.textContent = g.name;
+    a.append(ico, lbl);
+    a.title = g.name;
+    a.setAttribute("aria-label", g.name);
+    bnav.appendChild(a);
+  });
+
+  var sn = document.getElementById("sidenav");
+  var brand = document.createElement("a");
+  brand.className = "sn-brand"; brand.href = "index.html#dashboard";
+  brand.setAttribute("aria-label", "Back to dashboard");
+  var bn = document.createElement("div"); bn.className = "sn-name"; bn.textContent = "Bucky";
+  var bs = document.createElement("div"); bs.className = "sn-sub"; bs.textContent = "Family Farm Hub";
+  brand.append(bn, bs);
+  sn.appendChild(brand);
+  var list = document.createElement("div"); list.className = "sn-list";
+  shown.forEach(function (g) {
+    var a = document.createElement("a");
+    a.className = "sn-item";
+    a.href = g.href;
+    a.setAttribute("aria-label", g.name);
+    var ico = document.createElement("span"); ico.className = "sn-ico"; ico.textContent = g.ico;
+    var lbl = document.createElement("span"); lbl.className = "sn-label"; lbl.textContent = g.name;
+    a.append(ico, lbl);
+    list.appendChild(a);
+  });
+  sn.appendChild(list);
+})();
+</script>
+
+<script>
+(function () {
+  "use strict";
+
+  var API_URL = "/.netlify/functions/health";
+  var FAMILY_PASSWORD = "amenfarms";
+
+  var $ = function (id) { return document.getElementById(id); };
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  /* ---------------- Dad account lock ----------------
+     Identical to activity.html's / farmgpt.html's gate: the PIN hash is created in the main
+     app and mirrored to localStorage["dadPinHash"]; unlocking sets a flag shared across this
+     origin. Soft gate — the endpoint is family-password gated like every other one, this
+     keeps the page out of the kids' hands. */
+  async function sha256Hex(s) {
+    var buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+    return [].slice.call(new Uint8Array(buf)).map(function (b) { return b.toString(16).padStart(2, "0"); }).join("");
+  }
+  var dadPinHash = function () { return localStorage.getItem("dadPinHash") || ""; };
+  var dadConfigured = function () { return !!dadPinHash(); };
+  var dadUnlocked = function () {
+    return sessionStorage.getItem("dadUnlocked") === "1" || localStorage.getItem("dadUnlockedDevice") === "1";
+  };
+  var isDadName = function () { return (localStorage.getItem("choreUser") || "") === "Dad"; };
+  var isDad = function () { return isDadName() && dadUnlocked(); };
+  async function tryUnlockDad(pin) {
+    if (!dadConfigured() || !pin) return false;
+    var ok = (await sha256Hex(pin + ":" + FAMILY_PASSWORD)) === dadPinHash();
+    if (ok) {
+      sessionStorage.setItem("dadUnlocked", "1");
+      try { localStorage.setItem("dadUnlockedDevice", "1"); } catch (e) {}
+    }
+    return ok;
+  }
+
+  /* ---------------- formatting ---------------- */
+  function humanBytes(n) {
+    if (n == null || !isFinite(n)) return "—";
+    var units = ["B", "KB", "MB", "GB", "TB"];
+    var v = Math.max(0, n), i = 0;
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+    return (v >= 100 || i === 0 ? Math.round(v) : Math.round(v * 10) / 10) + " " + units[i];
+  }
+  function humanCount(n) {
+    if (n == null || !isFinite(n)) return "—";
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
+    return String(Math.round(n));
+  }
+  // Returns the WHOLE phrase ("just now" / "5 min ago" / "1 hr ago" / "2 days ago") so a
+  // caller never has to special-case "just now" to avoid a doubled "ago ago".
+  function humanAge(ms) {
+    if (ms == null || !isFinite(ms)) return "";
+    if (ms < 0) ms = 0;
+    var m = Math.round(ms / 60000);
+    if (m < 1) return "just now";
+    if (m === 1) return "1 min ago";
+    if (m < 60) return m + " min ago";
+    var h = Math.round(m / 60);
+    if (h === 1) return "1 hr ago";
+    if (h < 24) return h + " hr ago";
+    var d = Math.round(h / 24);
+    return d === 1 ? "1 day ago" : d + " days ago";
+  }
+
+  var COUNT_ORDER = [
+    ["ok", "✅", "ok"],
+    ["warn", "⚠️", "warn"],
+    ["down", "🔴", "down"],
+    ["unconfigured", "⚙️", "not set up"],
+    ["unknown", "❔", "unknown"],
+  ];
+  var CREDIT_MESSAGES = {
+    ok: "✅ Key live, credit available.",
+    "credit-low": "🔴 Credit balance low — top up at console.anthropic.com",
+    "key-bad": "❌ The API key was rejected — it may be revoked or wrong.",
+    down: "⚠️ Couldn't reach Anthropic to check right now.",
+    unconfigured: "ANTHROPIC_API_KEY isn't set — nothing to check.",
+  };
+
+  /* ---------------- state ---------------- */
+  var state = {
+    summary: null,          // last successful { ok, generatedAt, cachedUntil, cached, counts, services }
+    checkingSummary: false,
+    fetchFailed: false,     // the most recent summary fetch itself failed (network/parse/HTTP)
+    usage: null,            // last successful firestore_usage response
+    usageErr: null,
+    checkingUsage: false,
+    creditResult: null,     // { status, detail } from probe_anthropic_credit
+    checkingCredit: false,
+  };
+
+  async function callHealth(action, extra) {
+    var body = Object.assign({ secret: FAMILY_PASSWORD, action: action }, extra || {});
+    var resp = await fetch(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    var j = null;
+    try { j = await resp.json(); } catch (e) {}
+    if (!resp.ok) throw new Error((j && j.error) || ("Request failed (" + resp.status + ")"));
+    return j;
+  }
+
+  async function loadSummary(force) {
+    if (state.checkingSummary) return;
+    state.checkingSummary = true;
+    paint();
+    try {
+      var j = await callHealth("summary", { force: !!force });
+      if (!j || j.ok !== true) throw new Error("bad response shape");
+      state.summary = j;
+      state.fetchFailed = false;
+    } catch (e) {
+      state.fetchFailed = true;
+    }
+    state.checkingSummary = false;
+    paint();
+  }
+
+  async function loadUsage(force) {
+    if (state.checkingUsage) return;
+    state.checkingUsage = true;
+    paint();
+    try {
+      var j = await callHealth("firestore_usage", { force: !!force });
+      if (j && j.ok === true) { state.usage = j; state.usageErr = null; }
+      else { state.usage = null; state.usageErr = (j && j.reason) || "unavailable"; }
+    } catch (e) {
+      state.usage = null;
+      state.usageErr = "unreachable";
+    }
+    state.checkingUsage = false;
+    paint();
+  }
+
+  async function runCreditCheck() {
+    if (state.checkingCredit) return;
+    state.checkingCredit = true;
+    paint();
+    try {
+      var j = await callHealth("probe_anthropic_credit");
+      state.creditResult = (j && j.ok) ? j : { status: "down", detail: "Couldn't reach the server." };
+    } catch (e) {
+      state.creditResult = { status: "down", detail: "The request didn't get through." };
+    }
+    state.checkingCredit = false;
+    paint();
+  }
+
+  /* ---------------- rendering: one service row ---------------- */
+  function buildMetric(svc) {
+    var m = svc.metric;
+    if (!m) return null;
+    if (svc.id === "netlify" || svc.id === "elevenlabs") {
+      if (m.pct == null) return null;
+      var wrap = el("div", "metric-bar");
+      var track = el("span", "mb-track");
+      var fill = el("span", "mb-fill");
+      fill.style.width = Math.max(2, Math.min(100, m.pct)) + "%";
+      if (m.pct > 80) fill.classList.add("hot");
+      track.appendChild(fill);
+      var used = m.unit === "bytes" ? humanBytes(m.used) : humanCount(m.used);
+      var lim = m.unit === "bytes" ? humanBytes(m.limit) : humanCount(m.limit);
+      var label = el("span", "mb-label", used + " / " + lim + " (" + Math.round(m.pct) + "%)");
+      wrap.append(track, label);
+      return wrap;
+    }
+    if (svc.id === "tripo") {
+      if (m.balance == null) return null;
+      return el("div", "metric-num", m.balance + " credits");
+    }
+    if (svc.id === "firebase") {
+      if (m.totalDocs == null && m.totalBytes == null) return null;
+      var parts = [];
+      if (m.totalDocs != null) parts.push(humanCount(m.totalDocs) + " docs");
+      if (m.totalBytes != null) parts.push(humanBytes(m.totalBytes));
+      var txt = parts.join(" · ");
+      var stale = m.staleMs != null ? m.staleMs : (m.measuredAt ? Date.now() - m.measuredAt : null);
+      if (stale != null) txt += " (measured " + humanAge(stale) + ")";
+      return el("div", "metric-num small", txt);
+    }
+    return null;
+  }
+
+  function buildCreditPanel(anthropicSvc) {
+    var box = el("div", "credit-panel");
+    var btn = document.createElement("button");
+    btn.id = "creditBtn";
+    btn.className = "credit-btn";
+    btn.textContent = state.checkingCredit ? "Checking…" : "Run credit check (~1¢)";
+    btn.disabled = state.checkingCredit || anthropicSvc.status === "unconfigured";
+    btn.addEventListener("click", runCreditCheck);
+    box.appendChild(btn);
+    box.appendChild(el("p", "credit-note",
+      "This makes one tiny real request to Anthropic — about a penny. It never runs on its own."));
+    if (state.creditResult) {
+      var r = state.creditResult;
+      var res = el("div", "credit-result cr-" + r.status);
+      res.setAttribute("data-status", r.status);
+      res.textContent = CREDIT_MESSAGES[r.status] || r.detail || "Checked.";
+      box.appendChild(res);
+    }
+    return box;
+  }
+
+  function buildFirestorePanel() {
+    var box = el("div", "firestore-panel");
+    box.appendChild(el("p", "firestore-label", "📊 Firestore storage"));
+    var btn = document.createElement("button");
+    btn.id = "usageBtn";
+    btn.className = "firestore-btn";
+    btn.textContent = state.checkingUsage ? "Measuring…" : "Measure storage";
+    btn.disabled = state.checkingUsage;
+    btn.addEventListener("click", function () { loadUsage(true); });
+    box.appendChild(btn);
+
+    if (state.usageErr) {
+      box.appendChild(el("p", "firestore-err",
+        "Couldn't measure storage right now (" + state.usageErr + ")."));
+    } else if (state.usage) {
+      var d = state.usage;
+      var ageTxt = (d.cached ? "Cached — measured " : "Measured ") + humanAge(Date.now() - d.generatedAt);
+      box.appendChild(el("p", "firestore-age", ageTxt));
+
+      var panner = el("div", "panner");
+      var inner = document.createElement("div");
+      var table = document.createElement("table");
+      table.className = "firestore-table";
+      var thead = document.createElement("thead");
+      var htr = document.createElement("tr");
+      ["Collection", "Docs", "~Size"].forEach(function (h) { htr.appendChild(el("th", null, h)); });
+      thead.appendChild(htr);
+      table.appendChild(thead);
+      var tbody = document.createElement("tbody");
+      (d.collections || []).forEach(function (c) {
+        var tr = document.createElement("tr");
+        tr.setAttribute("data-collection", c.id);
+        if (c.truncated) tr.setAttribute("data-truncated", "1");
+        tr.appendChild(el("td", null, c.id));
+        tr.appendChild(el("td", null, (c.truncated ? ">= " : "") + humanCount(c.count)));
+        tr.appendChild(el("td", null, (c.truncated ? ">= " : "") + humanBytes(c.bytes)));
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      var tfoot = document.createElement("tfoot");
+      var ftr = document.createElement("tr");
+      ftr.className = "firestore-total-row";
+      ftr.appendChild(el("td", null, "Total" + (d.anyTruncated ? " (>= )" : "")));
+      ftr.appendChild(el("td", null, humanCount(d.totalDocs)));
+      ftr.appendChild(el("td", null, humanBytes(d.totalBytes)));
+      tfoot.appendChild(ftr);
+      table.appendChild(tfoot);
+      inner.appendChild(table);
+      panner.appendChild(inner);
+      box.appendChild(panner);
+      if (d.note) box.appendChild(el("p", "firestore-note", d.note));
+    }
+    return box;
+  }
+
+  function buildSvcRow(svc) {
+    var wrap = el("div", "svc");
+    wrap.setAttribute("data-id", svc.id);
+    wrap.setAttribute("data-status", svc.status);
+
+    var head = el("div", "svc-head");
+    var dot = el("span", "dot " + svc.status);
+    var name = el("span", "svc-name", svc.name);
+    var headline = el("span", "svc-headline", svc.headline || "");
+    head.append(dot, name, headline);
+    wrap.appendChild(head);
+
+    if (svc.breaks && svc.breaks.length) {
+      wrap.appendChild(el("p", "svc-breaks", "If this dies: " + svc.breaks.join(" · ")));
+    }
+
+    var metric = buildMetric(svc);
+    if (metric) wrap.appendChild(metric);
+
+    if (svc.detail) wrap.appendChild(el("p", "svc-detail", svc.detail));
+
+    if (svc.status === "unconfigured" && svc.configHint) {
+      var hint = el("div", "confighint");
+      hint.appendChild(el("p", "confighint-label", "🔧 How to wire it"));
+      hint.appendChild(el("p", "confighint-text", svc.configHint));
+      wrap.appendChild(hint);
+    }
+
+    if (svc.id === "anthropic") wrap.appendChild(buildCreditPanel(svc));
+    if (svc.id === "firebase") wrap.appendChild(buildFirestorePanel());
+
+    return wrap;
+  }
+
+  function fillList(elId, services) {
+    var box = $(elId);
+    box.textContent = "";
+    services.forEach(function (svc) { box.appendChild(buildSvcRow(svc)); });
+  }
+
+  /* ---------------- top-of-page verdict ---------------- */
+  function paintTopline() {
+    var s = state.summary;
+    if (!s) return;
+    var counts = s.counts || {};
+    var attn = (counts.warn || 0) + (counts.down || 0);
+    $("topline").classList.toggle("attn", attn > 0);
+    $("verdictIcon").textContent = attn > 0 ? "⚠️" : "✅";
+    $("verdictText").textContent = attn > 0
+      ? attn + " thing" + (attn === 1 ? "" : "s") + " need" + (attn === 1 ? "s" : "") + " attention"
+      : "All systems go";
+
+    var chips = $("countsRow"); chips.textContent = "";
+    COUNT_ORDER.forEach(function (row) {
+      var key = row[0], icon = row[1], word = row[2];
+      var n = counts[key] || 0;
+      if (!n) return;
+      var chip = el("span", "count-chip" + (key === "warn" ? " c-warn" : key === "down" ? " c-down" : ""),
+        icon + " " + n + " " + word);
+      chips.appendChild(chip);
+    });
+
+    var ageTxt = "Checked " + humanAge(Date.now() - s.generatedAt) + (s.cached ? " (cached)" : "");
+    $("metaAge").textContent = ageTxt;
+
+    $("staleNote").classList.toggle("hidden", !state.fetchFailed);
+    if (state.fetchFailed) {
+      $("staleNote").textContent = "Couldn't refresh just now — showing the last check from "
+        + humanAge(Date.now() - s.generatedAt) + ".";
+    }
+  }
+
+  function paint() {
+    var dad = isDad();
+    $("gate").classList.toggle("hidden", dad);
+    $("dash").classList.toggle("hidden", !dad);
+    if (!dad) {
+      var canUnlock = isDadName() && dadConfigured();
+      $("gateMsg").textContent = canUnlock
+        ? "Enter the Dad PIN to unlock it on this device."
+        : "Switch to the Dad profile in Bucky to see it.";
+      $("unlockBtn").classList.toggle("hidden", !canUnlock);
+      $("foot").textContent = "";
+      return;
+    }
+
+    var haveData = !!state.summary;
+    var showLoading = state.checkingSummary && !haveData;
+    var showFail = !haveData && state.fetchFailed && !state.checkingSummary;
+    var showContent = haveData;
+
+    $("loading").classList.toggle("hidden", !showLoading);
+    $("fetchFail").classList.toggle("hidden", !showFail);
+    $("content").classList.toggle("hidden", !showContent);
+
+    if (showFail) {
+      $("fetchFailMsg").textContent = "The request didn't get through. Try again in a moment.";
+    }
+
+    if (showContent) {
+      paintTopline();
+      var services = state.summary.services || [];
+      fillList("listPaid", services.filter(function (s) { return s.tier === "paid"; }));
+      fillList("listFree", services.filter(function (s) { return s.tier === "free"; }));
+      fillList("listSelf", services.filter(function (s) { return s.tier === "self"; }));
+    }
+
+    $("recheckBtn").disabled = state.checkingSummary;
+    $("recheckBtn").textContent = state.checkingSummary ? "Checking…" : "↻ Re-check";
+    $("retryBtn").disabled = state.checkingSummary;
+
+    $("foot").textContent = "This checks the accounts and services Bucky depends on — never your family's data.";
+  }
+
+  /* ---------------- wiring ---------------- */
+  $("unlockBtn").addEventListener("click", async function () {
+    var pin = prompt("Enter your Dad PIN to unlock:");
+    if (pin == null) return;
+    if (await tryUnlockDad(pin)) { paint(); load(); }
+    else $("gateMsg").textContent = "That PIN didn't match. Try again.";
+  });
+  $("recheckBtn").addEventListener("click", function () { loadSummary(true); });
+  $("retryBtn").addEventListener("click", function () { loadSummary(false); });
+
+  function load() {
+    loadSummary(false);
+    loadUsage(false);
+  }
+
+  // Test hook, matching the house convention (__ACT__ / __NEWS__ / __FIT__ / __CAL__).
+  window.__STATUS__ = {
+    isDad: isDad,
+    load: load,
+    recheck: function () { return loadSummary(true); },
+    loadUsage: function (force) { return loadUsage(!!force); },
+    runCreditCheck: runCreditCheck,
+    state: function () { return state; },
+  };
+
+  paint();
+  if (isDad()) load();
+})();
+</script>
+</body>
+</html>

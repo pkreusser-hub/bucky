@@ -7532,6 +7532,92 @@ seeder's ~14s time-to-first-byte is the one number to re-check on the real host 
 
 ---
 
+# 🩺 STATUS — the ops dashboard (2026-08-04)
+
+`status.html` (Dad-only, unlinked/direct-URL like `activity.html`/`leveleditor.html`) answers
+one question: *"everything I've signed up for or paid for that could go dark and break one of my
+tools."* Server half `netlify/functions/health.mjs` (its own top-comment is the API contract —
+read that first, not this). No new env vars are REQUIRED — the page works and tells the truth
+with zero of the optional ones set.
+
+**THE REGISTRY IS THREE TIERS**, rendered as three sections in this order: 💳 **paid**
+(Anthropic/xAI/Gemini/Netlify/Firebase/ElevenLabs/Tripo — an account with a bill or a login) ·
+🔌 **free** (Open-Meteo/RainViewer/IEM HRRR/Yahoo Finance/jsDelivr/unpkg×2/gstatic/Google
+Fonts — no account, but Bucky depends on them staying up) · ⚙️ **self** (this site's own sibling
+functions, pinged with a harmless malformed request — farmgpt/news/stocks/calendar/activity/
+goats/notify/teachergpt-background/chorereminders). Every row carries its own `breaks[]` list
+("If this dies: …") — that mapping from "this account lapsed" to "here's what a kid notices
+broken" is the entire point of the page, not a nice-to-have.
+
+**UNCONFIGURED IS A FIRST-CLASS STATE, not an error.** A paid service with no key set renders as
+a grey OUTLINE dot (visually distinct from "unknown"'s grey FILLED dot) with a dashed "🔧 How to
+wire it" box carrying the server's `configHint` verbatim — literally which env var to add and
+where to get it. Most of the paid tier is OPTIONAL (xAI/Gemini/ElevenLabs/Tripo — Story Time and
+dev-time asset generation quietly degrade without them) and the page says so in plain words
+rather than painting them red. Only Anthropic/Netlify/Firebase are load-bearing.
+
+**OPTIONAL ENV VARS Dad can add later** (none required to ship): `NETLIFY_API_TOKEN` (bandwidth
+usage bar — a Personal Access Token from app.netlify.com), `ELEVENLABS_API_KEY`/`TRIPO_API_KEY`
+(dev-time asset generation only — nothing shipped ever depends on these staying set),
+`XAI_API_KEY` (Story Time's Grok narrator experiment — falls back to Haiku silently). Every one
+of these renders its own `configHint` when absent; adding one later needs no code change, only
+the Netlify env var + a redeploy.
+
+**TWO PAID PROBES, NEITHER EVER AUTO-RUNS**: `firestore_usage` (free to call, per-collection doc
+count/size table, `>= N` when a collection's walk hit its page cap — the number is a FLOOR, not
+an estimate) auto-loads its CACHED result on page open (24h TTL) so Dad sees an age-stamped
+number without doing anything; the "Measure storage" button forces a fresh walk.
+`probe_anthropic_credit` (~1¢, one real completion) is different — it costs real money, so it
+NEVER fires from a page load or a Re-check, only an explicit button click, and says so in the
+UI ("This makes one tiny real request… about a penny. It never runs on its own."). A
+`credit-low` result renders in its own red state naming exactly where to go
+(console.anthropic.com) — the one status this page is loudest about, because it's the one that
+silently breaks everything downstream first.
+
+**CACHING**: `summary` is Firestore-cached 10 minutes (`settings_fam2jan2g/opsHealth`);
+`firestore_usage` 24 hours (`settings_fam2jan2g/opsFirestoreUsage`). The client's own "↻
+Re-check" button is the only thing that sends `force:true` for summary; page load always asks
+for the cached copy first. A `cached:true` response still shows its real `generatedAt` age
+("Checked 4 min ago (cached)") — never re-stamped to "just now".
+
+**SECRET HYGIENE**: the function never forwards an upstream body verbatim (every probe writes
+its own headline/detail from known-safe fields), and `redactSecrets()` scrubs every response
+text for the literal value of every secret env var plus any Bearer token, as a backstop. The
+client only ever sends the family password + an action name — it never sees a raw API key.
+
+**HONESTY RULES the client itself follows**: a service marked `unknown` (chorereminders) shows
+the server's own explanation of *why* it can't be probed (it's on a cron, not a request) rather
+than just labeling it mysteriously. If the health function itself is unreachable (bad network,
+non-200, unparseable body) the page shows a dedicated "Couldn't reach the health function" state
+with a retry — never a blank page, never fabricated numbers. If a Re-check fails but a previous
+summary is still in memory, the stale data stays on screen with a small inline note instead of
+being replaced by an error.
+
+**Layout**: same activity.html shell — 12-area two-row bottom nav / navy rail at ≥1024px, but
+with NO nav entry ever marked active (this is a Dad ops tool, not one of the family's sections).
+The Firestore table pans inside its own `overflow-x:auto` container so it never widens the page
+on a phone (the same `.panner` convention as `activity.html`'s day chart and the API-usage page).
+
+**Verify**: `node tools/_verify-health.cjs [--shots]` — **204/204**, 0 page errors. Sections A-N
+are the pre-existing pure-Node server suite (127 checks, unchanged, in-process against realistic
+fakes for every upstream). New sections O-T drive real Chrome against `status.html` with
+`/.netlify/functions/health` ROUTE-MOCKED (77 checks): the Dad gate (incl. a non-Dad visitor
+triggering zero fetches), dot colors/counts/breaks/configHint across an all-ok and a
+warn+down+unconfigured+unknown mixed fixture, Re-check's `force:true` + repaint, the credit
+probe's never-on-load/fires-on-click/credit-low-is-red contract, the Firestore table (incl. a
+truncated `>= ` row and its panner), the fetch-failure retry state, and layout at 390×844 +
+1280×800. Firebase blocked throughout (googleapis/firestore/firebase/gstatic) per house rule,
+even though `status.html` never talks to Firestore directly itself.
+
+**TEST GOTCHA worth keeping**: a button positioned near the bottom of a short (844px) viewport
+can be brought "into view" by Puppeteer's auto-scroll while still sitting BEHIND this page's
+`position:fixed` bottom nav (z-index 40) — a synthetic mouse click at that screen point lands on
+the nav, not the button, and silently does nothing (no error, no page error, just zero effect).
+Fixed with a `clickSafely()` helper that `scrollIntoView({block:"center"})`s before clicking —
+used for every button in the suite, not just the one that first exposed it.
+
+Shots: `shots/ops_desktop.png` (the mixed fixture — the interesting one), `shots/ops_mobile.png`,
+`shots/ops_gate.png` (non-Dad).
 # ⏳ STORY TIME — THE WORLD-CREATION WAIT SCREEN (2026-08-04, UNPUSHED)
 
 User: *"because Fable takes some serious time to set up, the user doesnt really know to wait and
