@@ -10,10 +10,10 @@
 //          sources:[{id, ok, count, reason}] }
 //
 //   { secret, action:"summarize", articles:[{id,sourceTitle,title,excerpt}] }
-//     -> { summaries:{ id: "..." }, ok }
+//     -> { summaries:{ id: "..." }, ok, usage:{in,out} }
 //
 // WHY THOSE ARE TWO CALLS AND NOT ONE. A Netlify function has ~10 seconds to answer, and
-// Sonnet writing forty 40-word summaries is a minute of generation — one combined call would
+// writing forty paragraph-length summaries is minutes of generation — one combined call would
 // time out every single day. So "feed" does the fast part (fetch + parse, a few seconds) and
 // returns each article with the publisher's own blurb already in `summary`; the client paints
 // those headlines immediately and then fires several small "summarize" calls in parallel,
@@ -37,7 +37,10 @@
 // Required env: BUCKY_NOTIFY_SECRET (the shared family passphrase), ANTHROPIC_API_KEY
 //   (already set for FarmGPT; without it articles still arrive, just with the publisher's own
 //   blurb instead of a written summary — the feed degrades, it never fails).
-// Optional env: NEWS_ANTHROPIC_BASE_URL / ANTHROPIC_BASE_URL to point at a fake server in tests,
+// Optional env: FIREBASE_SERVICE_ACCOUNT (already set for FarmGPT) turns on usage logging —
+//   without it the summaries are identical, they just don't appear on the cost dashboard;
+//   NEWS_ANTHROPIC_BASE_URL / ANTHROPIC_BASE_URL to point at a fake server in tests,
+//   FARMGPT_GOOGLE_TOKEN_URL / FARMGPT_FIRESTORE_BASE to do the same for the usage write,
 //   NEWS_ALLOW_PRIVATE=1 to permit private-network fetches (test harness only — see guardUrl).
 
 import { lookup as dnsLookup } from "node:dns/promises";
@@ -50,8 +53,9 @@ const ALLOWED_ORIGINS = new Set([
   "http://127.0.0.1:3000",
 ]);
 
-// Haiku, not Sonnet (user call 2026-08-03): a 40-word factual compression of a supplied
-// excerpt doesn't need the bigger model, and Haiku is ~a third the price. Same id
+// Haiku, not Sonnet (user call 2026-08-03): a factual compression of a supplied excerpt
+// doesn't need the bigger model, and Haiku is ~a third the price. Still true at the longer
+// 2026-08-04 summary length — see the live samples in that day's CLAUDE.md entry. Same id
 // convention as farmgpt.mjs's STORY_MODEL.
 const SUMMARY_MODEL = "claude-haiku-4-5";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36 BuckyNews/1.0";
@@ -59,11 +63,45 @@ const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 const MAX_SOURCES = 25;         // how many publications one request may carry
 const MAX_PER_SOURCE = 6;       // articles kept from any single publication
 const MAX_ITEMS = 40;           // total articles in a digest (caps the summariser's bill)
-const MAX_SUMMARIZE = 8;        // articles per summarize call — sized to land inside ~10s
+/* MAX_SUMMARIZE 8 -> 6 (2026-08-04). Netlify answers a synchronous function in ~10s, and
+   4-5 sentence summaries take three times the generation of the old one-liners. MEASURED
+   against real Haiku with every excerpt at the full 1800 chars — the case that produces the
+   longest replies: batches of 8 ran 4.4 / 4.4 / 6.3s, batches of 6 ran 3.8 / 4.0 / 4.1s.
+   Eight would work on a good day, which is the problem: a batch that overruns fails WHOLE
+   and every one of its cards drops silently back to the publisher's blurb. Six keeps ~6s of
+   margin instead of ~4s. The client pays for it with one more parallel batch, not with time
+   (NEWS_SUM_CHUNK / NEWS_SUM_PARALLEL in index.html — keep the chunk equal to this). */
+const MAX_SUMMARIZE = 6;        // articles per summarize call — MEASURED, see above
 const DEFAULT_HOURS = 36;       // "today's news" window; a quiet feed falls back to its newest
 const FETCH_TIMEOUT_MS = 6000;  // one slow publisher must not sink the whole request
 const MAX_BODY_BYTES = 3 * 1024 * 1024;
-const EXCERPT_CHARS = 700;      // per-article text handed to the summariser
+/* EXCERPT_CHARS 700 -> 1800 (2026-08-04, with the move to 4-5 sentence summaries).
+   700 characters is ~120 words of source. Asking for a 95-word summary from that is not
+   summarising, it is padding, and it fights the invent-nothing rule directly. 1800 is ~300
+   words: about three times the summary, which is a real compression ratio, and it is where
+   the returns stop — news writing is an inverted pyramid, so the first 300 words carry the
+   substance and the rest is quotes and background that a family digest would drop anyway.
+   MEASURED on five real feeds (NPR, BBC, The Verge, Science Daily, Ars Technica): excerpt
+   lengths run min 89 / median 306 / max 1379, so this only bites on the publications that
+   put real text in content:encoded — which is exactly the handful that were being cut at
+   700 (Ars alone had four articles between 877 and 1379). The others ship a teaser and
+   there is nothing more to have. */
+const EXCERPT_CHARS = 1800;     // per-article text handed to the summariser
+
+/* max_tokens — a HARD FLOOR, not a tuning knob.
+   If the cap falls short the reply is cut off MID-JSON, the array never parses, and every
+   card in the batch silently falls back to the publisher's blurb — shorter summaries, no
+   error, nobody notices. That is exactly how the story keeper was quietly losing scenes at
+   600 tokens, and the OLD formula (220 + n*90) was already there: a measured worst-case
+   batch of 8 rich articles produced 995 output tokens against its cap of 940. It would have
+   failed, in production, on the days with the most to read.
+   MEASURED worst case (every excerpt at the full 1800 chars, real Haiku): 6 articles ->
+   689-743 output tokens, i.e. ~124 each. 250 each is twice that, plus a base covering the
+   array brackets and the odd ```json fence. Output bills for what is PRODUCED, never for
+   the ceiling, so the headroom costs nothing. */
+const SUMMARY_BASE_TOKENS = 300;
+const SUMMARY_TOKENS_PER_ARTICLE = 250;
+const summaryMaxTokens = (n) => Math.min(4096, SUMMARY_BASE_TOKENS + n * SUMMARY_TOKENS_PER_ARTICLE);
 
 function corsHeaders(origin) {
   const allowOrigin = ALLOWED_ORIGINS.has(origin) ? origin : "https://amenfarms.netlify.app";
@@ -363,14 +401,15 @@ function itemId(sourceId, link, title) {
 /* ---------------------------------------------------------------------------
    The summariser: ONE model call per batch.
    --------------------------------------------------------------------------- */
-const SUMMARY_SYSTEM = `You write the one-line summaries under headlines in a family's daily news digest.
+const SUMMARY_SYSTEM = `You write the summaries under headlines in a family's daily news digest.
 
 For each numbered article you are given a headline and, usually, an excerpt of the article's own text.
 
-Write 1-2 plain sentences, 25-45 words, saying what actually happened and why it matters.
+Write 4-5 plain sentences, 80-110 words, saying what actually happened, who it involves, and why it matters.
 - Lead with the substance. Never open with "This article..." or "The piece discusses...".
-- Use ONLY the headline and excerpt given. Never add facts, figures, names, or outcomes that are not there.
-- If the excerpt is missing or too thin to say anything real, write a single neutral sentence from the headline alone and nothing more. Do not speculate about what the article probably says.
+- Use ONLY the headline and excerpt given. Never add facts, figures, names, dates, causes, reactions or outcomes that are not there. Do not fill the length with background you happen to know, with what usually happens in situations like this, or with what is likely to happen next. If you are reaching for something to say, you have already written enough — stop.
+- LENGTH IS A CEILING, NOT A QUOTA. A short honest summary is always better than a long padded one. Say everything the excerpt actually contains, then stop, however short that turns out to be.
+- If the excerpt is missing, or is only a teaser sentence or two, write ONE neutral sentence from what you were given and nothing more. That is the right answer, not a failure — do not speculate about what the rest of the article probably says in order to reach four sentences.
 - Neutral and factual. No opinion, no editorialising, no hype, no clickbait.
 - This is read by a whole family including children: no graphic detail. Summarise difficult news plainly and gently rather than vividly.
 - Plain prose only. No markdown, no bullets, no quotation marks around the whole summary.
@@ -382,6 +421,10 @@ No prose before or after the array.`;
 function fallbackSummary(item) {
   // The publisher's own blurb, trimmed at a sentence boundary — used when the model is
   // unavailable or skipped an article. Never leaves a card blank.
+  // The 220 is DELIBERATELY independent of EXCERPT_CHARS: the excerpt grew to 1800 to give
+  // the summariser something to compress, but this is the card the reader sees when there is
+  // no summary, and 1800 characters of raw article body on a phone card is not a fallback,
+  // it is a wall. Raising EXCERPT_CHARS must never lengthen this.
   const t = String(item.excerpt || "").trim();
   if (!t) return "";
   if (t.length <= 220) return t;
@@ -412,7 +455,7 @@ async function summarize(items, timeoutMs) {
       headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({
         model: SUMMARY_MODEL,
-        max_tokens: Math.min(4096, 220 + items.length * 90),
+        max_tokens: summaryMaxTokens(items.length),
         system: SUMMARY_SYSTEM,
         messages: [{ role: "user", content: `Summarise these ${items.length} articles.\n\n${lines}` }],
       }),
@@ -442,9 +485,113 @@ async function summarize(items, timeoutMs) {
     if (!row || typeof row !== "object") continue;
     const i = Number(row.i);
     const s = typeof row.s === "string" ? row.s.trim() : "";
-    if (Number.isInteger(i) && i >= 1 && i <= items.length && s) byIndex.set(i, s.slice(0, 400));
+    // 900, not 400: at 80-110 words a summary runs ~500-700 characters, so the old cap (sized
+    // for the 25-45 word version) would have lopped the last sentence off every long one —
+    // mid-word, with no error. Still a cap, so a model that ignores the brief can't post an essay.
+    if (Number.isInteger(i) && i >= 1 && i <= items.length && s) byIndex.set(i, s.slice(0, 900));
   }
   return { ok: true, byIndex, usage: (j && j.usage) || null };
+}
+
+/* ---------------------------------------------------------------------------
+   Usage logging — bucket "n" on the SAME dashboard as everything else.
+
+   News had no telemetry at all, which is why its running cost could only ever be
+   estimated. It writes into farmgpt_usage / farmgpt_usage_hourly exactly like
+   farmgpt.mjs's logUsage: same Firestore docs, same `<bucket>_<metric>` and
+   `<bucket>_<modelslug>_<metric>` field shapes, so the existing dashboard reader needs
+   nothing but a row added to its BUCKETS table. "n" was free (s u r d k a g c l x t f
+   were taken).
+
+   The token-minting and commit code is DUPLICATED from farmgpt.mjs rather than shared:
+   these are separate Netlify functions with no shared module in this repo (the same
+   house convention that duplicates the Firebase config on every page). Like its
+   original it can never break a reply — the whole thing is inside one try/catch and is
+   awaited only after the summaries are already in hand.
+   --------------------------------------------------------------------------- */
+const USAGE_PROJECT_ID = "amen-farms-app";
+const USAGE_FIRESTORE_BASE = process.env.FARMGPT_FIRESTORE_BASE ||
+  `https://firestore.googleapis.com/v1/projects/${USAGE_PROJECT_ID}/databases/(default)/documents`;
+const USAGE_GOOGLE_TOKEN_URL = process.env.FARMGPT_GOOGLE_TOKEN_URL || "https://oauth2.googleapis.com/token";
+const USAGE_BUCKET = "n";
+
+let cachedGoogleToken = null;   // { token, exp(ms) } — survives across warm invocations
+
+function base64url(input) {
+  const buf = Buffer.isBuffer(input) ? input : Buffer.from(input);
+  return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+async function getGoogleAccessToken() {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (!raw) return null;
+  if (cachedGoogleToken && Date.now() < cachedGoogleToken.exp - 60000) return cachedGoogleToken.token;
+  const sa = JSON.parse(raw);
+  const crypto = await import("node:crypto");
+  const nowSec = Math.floor(Date.now() / 1000);
+  const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const claims = base64url(JSON.stringify({
+    iss: sa.client_email,
+    scope: "https://www.googleapis.com/auth/datastore",
+    aud: "https://oauth2.googleapis.com/token",
+    iat: nowSec, exp: nowSec + 3600,
+  }));
+  const signer = crypto.createSign("RSA-SHA256");
+  signer.update(header + "." + claims);
+  const jwt = header + "." + claims + "." + base64url(signer.sign(sa.private_key));
+  const resp = await fetch(USAGE_GOOGLE_TOKEN_URL, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: jwt }),
+  });
+  if (!resp.ok) return null;
+  const j = await resp.json();
+  cachedGoogleToken = { token: j.access_token, exp: Date.now() + (j.expires_in || 3600) * 1000 };
+  return cachedGoogleToken.token;
+}
+function farmDate() {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+}
+function farmHour() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", hour12: false,
+  }).formatToParts(new Date());
+  const g = (t) => parts.find((p) => p.type === t).value;
+  const hh = g("hour") === "24" ? "00" : g("hour");   // en-CA reports midnight as "24"
+  return `${g("year")}-${g("month")}-${g("day")}-${hh}`;
+}
+function modelSlug(model) {
+  const s = String(model || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  return s ? s.slice(0, 24) : "unknown";
+}
+
+async function logUsage(inTok, outTok, cacheWriteTok = 0, cacheReadTok = 0, model = SUMMARY_MODEL) {
+  try {
+    const token = await getGoogleAccessToken();
+    if (!token) return;
+    const base = `projects/${USAGE_PROJECT_ID}/databases/(default)/documents`;
+    const tf = (f, n) => ({ fieldPath: f, increment: { integerValue: String(n) } });
+    const k = USAGE_BUCKET;
+    const fields = [
+      tf(k + "_in", inTok), tf(k + "_out", outTok), tf(k + "_req", 1),
+      tf(k + "_cw", cacheWriteTok), tf(k + "_cr", cacheReadTok),
+    ];
+    if (model) {
+      const mk = `${k}_${modelSlug(model)}`;
+      fields.push(tf(mk + "_in", inTok), tf(mk + "_out", outTok), tf(mk + "_req", 1),
+        tf(mk + "_cw", cacheWriteTok), tf(mk + "_cr", cacheReadTok));
+    }
+    await fetch(`${USAGE_FIRESTORE_BASE}:commit`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        writes: [
+          { transform: { document: `${base}/farmgpt_usage/${farmDate()}`, fieldTransforms: fields } },
+          { transform: { document: `${base}/farmgpt_usage_hourly/${farmHour()}`, fieldTransforms: fields } },
+        ],
+      }),
+    });
+  } catch { /* telemetry must never break a summary */ }
 }
 
 /* ---------------------------------------------------------------------------
@@ -506,7 +653,21 @@ export default async (req) => {
         if (s) summaries[articles[i].id] = s;
       }
     }
-    return json({ ok: !!sum.ok, reason: sum.ok ? "" : (sum.reason || ""), summaries }, 200, headers);
+    // Telemetry after the work, never before it, and awaited only so the lambda stays alive
+    // long enough for the commit (the farmgpt.mjs convention).
+    const u = sum.usage || null;
+    const inTok = Number(u && u.input_tokens) || 0;
+    const outTok = Number(u && u.output_tokens) || 0;
+    if (inTok || outTok) {
+      await logUsage(inTok, outTok,
+        Number(u.cache_creation_input_tokens) || 0, Number(u.cache_read_input_tokens) || 0);
+    }
+    return json({
+      ok: !!sum.ok, reason: sum.ok ? "" : (sum.reason || ""), summaries,
+      // Reported so a run can be MEASURED rather than estimated — this whole batch size was
+      // once a guess for exactly the want of it.
+      usage: (inTok || outTok) ? { in: inTok, out: outTok } : null,
+    }, 200, headers);
   }
 
   /* ---- feed ---- */

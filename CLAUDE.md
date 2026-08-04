@@ -7748,3 +7748,121 @@ scene finishes parsing (pre-existing streaming behaviour, now simply visible a b
 `SEED_TIMEOUT_MS`/`WORLD_SEED_DEADLINE_MS` are `let` so the suite can shrink them, which means a
 devtools reader could too — harmless, and the alternative was asserting about constants instead
 of exercising the path.
+
+---
+
+# 📰 NEWS — summaries that say something (2026-08-04)
+
+The user asked for 4-5 sentence summaries instead of 1-2. Doing only that would have made the
+feed WORSE, silently, so three changes shipped together. Files: `netlify/functions/news.mjs`,
+`index.html` (the two batching constants), `netlify/functions/farmgpt.mjs` + `farmgpt.html`
+(one dashboard bucket each), `tools/_verify-news.cjs` (157 → **200** checks).
+
+## 1 · The brief: 4-5 sentences, 80-110 words
+`SUMMARY_SYSTEM` moved from "1-2 plain sentences, 25-45 words". Every other rule survives
+verbatim and the suite asserts each one individually rather than trusting the diff — lead with
+substance, never open with "This article", use only what you were given, neutral, family-safe
+(difficult news plain rather than vivid), plain prose, strict JSON array.
+**The invent-nothing rule got STRONGER, not left alone.** A model asked for 95 words from a
+teaser will pad, and padding a news summary is fabrication. Three additions: the ban now names
+dates, causes, reactions and outcomes and explicitly forbids filling with background the model
+happens to know or with what usually happens next; **"LENGTH IS A CEILING, NOT A QUOTA"**; and
+the thin-excerpt escape hatch is spelled out as the RIGHT answer rather than a failure ("write
+ONE neutral sentence… do not speculate about what the rest of the article probably says in
+order to reach four sentences").
+LIVE, it holds. A BBC story with a 78-character teaser got 28 words; a 1,379-character Ars
+piece got 79. **Summary length tracks excerpt length almost linearly** — which is the whole
+design working, and it means the source data, not the prompt, is what caps most cards.
+
+## 2 · The output cap — a hard blocker, and the old one was ALREADY too small
+`max_tokens: 220 + n*90` gave 940 for a batch of 8. **Measured against real Haiku, a batch of 8
+rich articles produces 995 output tokens.** It would have been cut off mid-JSON, the array would
+have failed to parse, and all 8 cards would have dropped silently back to the publisher's blurb
+— shorter summaries, no error, nobody notices. The identical failure that was quietly losing
+story-keeper scenes at 600 tokens. Now `SUMMARY_BASE_TOKENS 300 + n * SUMMARY_TOKENS_PER_ARTICLE
+250` (1,800 for a batch of 6) against a measured worst case of 689-743. Output bills for what is
+produced, never for the ceiling, so the headroom is free.
+**A FOURTH CAP was hiding behind it**, not in the brief and not in the plan: `s.slice(0, 400)`
+on each summary as it comes off the wire, sized for the 25-45 word version. At 80-110 words a
+summary runs 500-700 characters, so every long one would have lost its last sentence — mid-word,
+with no error anywhere. Now 900. **When a length target moves, grep for every cap between the
+model and the screen, not just the one named in the ticket.**
+
+## 3 · Richer source text — and the honest finding
+`EXCERPT_CHARS` 700 → **1800**. 700 is ~120 words; asking for a 95-word summary from that is
+padding, not summarising, and it fights rule 1 directly. 1800 is ~300 words, about three times
+the summary — a real compression ratio, and where the returns stop, because news writing is an
+inverted pyramid and the rest is quotes and background a family digest drops anyway.
+**MEASURED on five real feeds (NPR, BBC, The Verge, Science Daily, Ars Technica): excerpt lengths
+run min 78 / median 306 / max 1379.** So this only bites on publications that put real text in
+`content:encoded` — Ars alone had four articles between 877 and 1,379 characters that were being
+cut at 700. The rest ship a teaser and there is nothing more to have. Raising the cap further
+would buy nothing; **the ceiling on summary length is the publishers, not us.**
+The FALLBACK card is deliberately unchanged at 220 characters and the suite pins it there: 1,800
+characters of raw article body on a phone card is not a fallback, it is a wall.
+
+## MAX_SUMMARIZE 8 → 6, measured not guessed
+Netlify answers a synchronous function in ~10s. Worst case (every excerpt at the full 1800, real
+Haiku): **8 articles ran 4.4 / 4.4 / 6.3s; 6 ran 3.8 / 4.0 / 4.1s** — and an ordinary run of the
+OLD code was once seen at 7.5s for a batch of 8. Eight works on a good day, which is exactly the
+problem: an overrun fails WHOLE and every card in it reverts silently. Six keeps ~6s of margin.
+The client pays in parallelism, not time: `NEWS_SUM_CHUNK` 8 → 6 and `NEWS_SUM_PARALLEL` 3 → 4,
+so 40 articles still finish in two waves. **The chunk MUST equal the server's MAX_SUMMARIZE** —
+ask for more and the overflow is dropped with nothing said — so the suite now reads both files
+and compares them.
+
+## Cost — measured on both sides, and it barely moved
+Same 20 real articles through `origin/main`'s news.mjs and through this one:
+
+| | input tok | output tok | 20 articles | 40-article digest | /month |
+|---|---|---|---|---|---|
+| before | 3,110 | 1,216 | $0.0092 | ~$0.018 | ~$0.55 |
+| **after** | **4,197** | **1,483** | **$0.0116** | **~$0.024** | **~$0.73** |
+
+**+32%, not the ~4x a first estimate suggested** — because the excerpt raise barely moves input
+when the median feed ships 306 characters, and output only rose ~30% for the same reason.
+Median summary went 30 → 41 words, max 48 → 92.
+
+## Usage logging — bucket `n`
+news.mjs received `usage` from the API and threw it away, which is why the cost above could only
+ever have been estimated. It now writes `n_in/n_out/n_req/n_cw/n_cr` plus the per-model
+`n_claudehaiku45_*` breakdown into the same `farmgpt_usage` / `farmgpt_usage_hourly` docs as
+everything else, one commit for both, in a try/catch that can never break a summary.
+`getGoogleAccessToken`/`logUsage` are DUPLICATED from farmgpt.mjs — separate Netlify functions
+with no shared module, the same house convention that duplicates the Firebase config on every
+page. Dashboard: `"n"` added to farmgpt.mjs's `USAGE_BUCKETS` and a 📰 **News summaries** row to
+farmgpt.html's `BUCKETS`, priced at Haiku. The summarize response also returns `usage:{in,out}`,
+which is what made the table above measurable. Bucket letters now in use: **s u r d k a g c l x
+t f n**.
+
+## Verified
+`_verify-news.cjs` **200/200**, 0 page errors — the 157 that existed all still green, +43 in two
+new sections. **A2** covers the length target, the old target's absence, all seven surviving
+guardrails one at a time, the three strengthened rules, a full batch at the top of the band
+fitting under the cap WITH headroom, an explicit tripwire that the old formula could not have
+carried it, a 574-character summary surviving whole down to its last sentence, a full-text
+article reaching the summariser past the old 700-char cut and still clamping at 1800, the
+fallback card still short, and the client/server batch sizes matching. **A3** stands up a
+throwaway RSA service account and fake Google token + Firestore endpoints and proves the commit:
+both docs, both field shapes, the real token count, authenticated — plus the backend down and
+the summaries still arriving. New fixtures: a `/long.xml` publication with its real body in
+`content:encoded`, and an Anthropic `long` mode returning a genuine 4-5 sentence summary.
+The browser mock's three summaries were LENGTHENED to real 85-100 word ones, because the
+screenshots are the density review and reviewing placeholder strings would review the wrong
+thing. LIVE: `scratchpad/news_live.mjs` + `news_worst.mjs` (real feeds, real Haiku, through the
+real handler). Regressions: fitness **253/253**, storyledger **683/683**.
+Shots: `shots/news_long_390.png` + `news_long_390_full.png`.
+
+## DENSITY — flagged, not silently shipped
+Measured at 390×844: cards **247 / 228 / 208px** where they were ~120, so **2.5 cards on screen
+instead of ~5**, and a 40-article digest is roughly 9,000px of scroll. Each card reads well — 8
+lines, not a wall — and a whole card still fits on screen (asserted). But **headline scanning got
+harder**: you can no longer see four headlines at once. If that turns out to bother the family,
+the fix is a `-webkit-line-clamp: 4` on `.newsc-sum` with a "more" affordance — and it needs a
+design decision first, because the card is already a button that opens the article, so "more"
+would have to be its own tap target rather than a tap on the card.
+
+**KNOWN**: the model occasionally omits one article from a batch (19 of 20 summarised in two
+consecutive live runs) — that card keeps the publisher's blurb, and it is PRE-EXISTING, not a
+side effect of the longer format: `origin/main`'s code scored the identical 19 of 20 on the same
+feeds. Two near-duplicate wire stories in one batch is the usual cause.

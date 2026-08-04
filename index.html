@@ -9812,8 +9812,14 @@ async function newsRefresh(force){
    ceiling (see news.mjs). Run a few chunks at once so ~40 articles finish in a few
    seconds rather than a minute, and repaint after each so the summaries visibly land
    instead of appearing all at once at the end. A chunk that fails costs only its own
-   cards, which keep the publisher's blurb. */
-const NEWS_SUM_CHUNK = 8, NEWS_SUM_PARALLEL = 3;
+   cards, which keep the publisher's blurb.
+
+   THE CHUNK MUST EQUAL news.mjs's MAX_SUMMARIZE (6). Ask for more and the server silently
+   drops the overflow — those cards would never be summarised and nothing would say so.
+   It went 8 -> 6 on 2026-08-04 when summaries grew to 4-5 sentences and a batch of 8
+   measured up to 6.3s against the function's ~10s ceiling; parallel went 3 -> 4 so 40
+   articles still finish in the same two waves. */
+const NEWS_SUM_CHUNK = 6, NEWS_SUM_PARALLEL = 4;
 
 async function newsSummarizePending(){
   if (newsSummarizing) return;

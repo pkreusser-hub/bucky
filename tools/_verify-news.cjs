@@ -28,7 +28,7 @@ const puppeteer = require("puppeteer-core");
 const ROOT = path.resolve(__dirname, "..");
 const SHOTS = path.join(ROOT, "shots");
 const WANT_SHOTS = process.argv.includes("--shots");
-const PORT = 8874, PUB_PORT = 8875, NOFEED_PORT = 8876, ANTH_PORT = 8877;
+const PORT = 8874, PUB_PORT = 8875, NOFEED_PORT = 8876, ANTH_PORT = 8877, GOOG_PORT = 8878;
 const BASE = `http://127.0.0.1:${PORT}`;
 const PUB = `http://127.0.0.1:${PUB_PORT}`;
 const NOFEED = `http://127.0.0.1:${NOFEED_PORT}`;
@@ -97,6 +97,25 @@ const ALT_FEED = `<?xml version="1.0"?><rss version="2.0"><channel><title>Discov
 <item><title>Found via a link tag</title><link>${PUB}/alt/1</link><pubDate>__FRESH1__</pubDate>
 <description>Proof the alternate link was followed.</description></item></channel></rss>`;
 
+/* A publication that puts the REAL article body in content:encoded rather than a teaser.
+   ~2,600 characters, so it is long enough to be cut by EXCERPT_CHARS at either the old 700
+   or the new 1800 — which is what makes it able to tell them apart. */
+const LONG_BODY = ("The county commission voted on Tuesday evening to advance the Mill Road bridge "
+  + "replacement to a final reading in September. ").repeat(1)
+  + ("Officials presented a forty-page report covering costs, timelines and the objections raised at "
+  + "three earlier public hearings, and the plan would be funded through a mix of state grants and a "
+  + "small increase in the local levy phased in over four years. Commissioner Alvarez said the plan "
+  + "had been revised twice since March to address concerns about traffic on the eastern approach. A "
+  + "representative from the regional planning office told the meeting that construction could begin "
+  + "next spring if the permits clear by January. Several residents spoke against the timeline, saying "
+  + "it did not leave enough room for the seasonal closure of the ford crossing. ").repeat(2)
+  + "The county administrator confirmed that the existing structure would remain open throughout "
+  + "construction, and copies of the full report have been posted to the county website.";
+const LONG_XML = `<?xml version="1.0"?><rss version="2.0"><channel><title>The County Record</title>
+<item><title>Commission advances the bridge plan</title><link>${PUB}/c/bridge</link><pubDate>__FRESH1__</pubDate>
+<description>A short teaser the publisher shows in a reader.</description>
+<content:encoded><![CDATA[<p>${LONG_BODY}</p>]]></content:encoded></item></channel></rss>`;
+
 /* A weekly that has posted nothing recently — the fallback path. */
 const QUIET_XML = `<?xml version="1.0"?><rss version="2.0"><channel><title>The Weekly Quiet</title>
 <item><title>Last month's edition</title><link>${PUB}/q/1</link><pubDate>__OLD__</pubDate>
@@ -121,6 +140,7 @@ function servePublisher(){
       if (p === "/atom.xml"){ res.setHeader("content-type", "application/atom+xml"); return res.end(stamped(ATOM_XML)); }
       if (p === "/alt-feed.xml") return xml(ALT_FEED);
       if (p === "/quiet.xml") return xml(QUIET_XML);
+      if (p === "/long.xml") return xml(LONG_XML);
       if (p === "/home"){
         res.setHeader("content-type", "text/html");
         return res.end(`<html><head><title>Home</title>
@@ -164,11 +184,64 @@ function serveAnthropic(){
         const user = ((body && body.messages && body.messages[0] && body.messages[0].content) || "");
         const n = (user.match(/### Article /g) || []).length;
         const arr = [];
+        if (anthMode === "long"){
+          // A real 4-5 sentence, 110-word summary — ~700 characters, which the pre-2026-08-04
+          // 400-char cap would have lopped the last two sentences off, silently and mid-word.
+          const long = ("Councillors voted seven to two on Tuesday evening to fund the Mill Road bridge "
+            + "replacement after four years of debate. The work is due to begin in the spring and will "
+            + "close the ford crossing for the whole of the season. Funding comes from a mix of state "
+            + "grants and a small rise in the local levy, phased in over four years. Two councillors who "
+            + "voted against said they wanted an independent review of the cost estimates first. The "
+            + "existing bridge will stay open until the new one is finished, and the full report has been "
+            + "posted to the county website and left at the library.");
+          for (let i = 1; i <= n; i++) arr.push({ i, s: long });
+          return res.end(JSON.stringify({ content: [{ type:"text", text: JSON.stringify(arr) }], usage:{ input_tokens: 2151, output_tokens: 743 } }));
+        }
         for (let i = 1; i <= n; i++) arr.push({ i, s: `Written summary number ${i}.` });
         res.end(JSON.stringify({ content: [{ type:"text", text: "```json\n" + JSON.stringify(arr) + "\n```" }], usage:{ input_tokens: 100, output_tokens: 50 } }));
       });
     });
     srv.listen(ANTH_PORT, "127.0.0.1", () => resolve(srv));
+  });
+}
+
+/* ==================== fake Google token + fake Firestore ==================
+   News had no telemetry at all until 2026-08-04, which is why its running cost could only
+   be estimated. It now writes into the SAME farmgpt_usage docs as everything else, under
+   bucket "n". Proving that needs a service account, so the suite mints a throwaway RSA
+   key and stands up the two endpoints news.mjs talks to — nothing here touches Google. */
+let usageCommits = [];
+let googleTokenCalls = 0;
+function makeServiceAccount(){
+  const crypto = require("crypto");
+  const { privateKey } = crypto.generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    publicKeyEncoding: { type: "spki", format: "pem" },
+  });
+  return JSON.stringify({ client_email: "news-test@amen-farms-app.iam.gserviceaccount.com", private_key: privateKey });
+}
+function serveGoogle(port){
+  return new Promise((resolve) => {
+    const srv = http.createServer((req, res) => {
+      let raw = ""; req.on("data", (c) => { raw += c; });
+      req.on("end", () => {
+        res.setHeader("content-type", "application/json");
+        const p = req.url.split("?")[0];
+        if (p === "/token"){
+          googleTokenCalls++;
+          // A real JWT arrives here; the point is that news.mjs got far enough to sign one.
+          return res.end(JSON.stringify({ access_token: "fake-token", expires_in: 3600 }));
+        }
+        if (p.endsWith(":commit")){
+          let b = null; try { b = JSON.parse(raw); } catch {}
+          usageCommits.push({ auth: req.headers.authorization || "", body: b });
+          return res.end(JSON.stringify({ writeResults: [] }));
+        }
+        res.statusCode = 404; res.end("{}");
+      });
+    });
+    srv.listen(port, "127.0.0.1", () => resolve(srv));
   });
 }
 
@@ -351,7 +424,156 @@ async function sectionServer(){
 
   const many = Array.from({ length: 20 }, (_, i) => ({ id: "x" + i, title: "T" + i, excerpt: "e", sourceTitle: "S" }));
   const capSum = await call({ secret: SECRET, action: "summarize", articles: many });
-  ok(Object.keys(capSum.body.summaries || {}).length <= 8, "a summarize call is capped so it cannot outrun the function timeout");
+  const batchCap = Object.keys(capSum.body.summaries || {}).length;
+  ok(batchCap <= 8, "a summarize call is capped so it cannot outrun the function timeout");
+
+  /* ---------------------------------------------------------------------------
+     A2. THE LONGER SUMMARIES (2026-08-04). The brief moved from 1-2 sentences to 4-5,
+     and three separate caps sized for the SHORT version sat between the model and the
+     screen. Every one of them fails the same silent way: the reader just gets less.
+     --------------------------------------------------------------------------- */
+  section("A2. Longer summaries — the length target and the caps that used to clip it");
+
+  const sys = anthLastBody.system;
+  ok(/4-5 plain sentences/.test(sys) && /80-110 words/.test(sys),
+    "the brief asks for 4-5 sentences, 80-110 words");
+  ok(!/1-2 plain sentences/.test(sys) && !/25-45 words/.test(sys),
+    "…and the old 1-2 sentence / 25-45 word target is gone, not left alongside it");
+  // The invent-nothing rule matters MORE at this length, not less: a model asked for 95
+  // words from a teaser will pad, and padding in a news summary is fabrication.
+  ok(/Never add facts, figures, names, dates, causes, reactions or outcomes that are not there/.test(sys),
+    "the invent-nothing rule is stated in full and covers dates, causes and outcomes too");
+  ok(/LENGTH IS A CEILING, NOT A QUOTA/.test(sys), "the length is explicitly a ceiling rather than a quota");
+  ok(/do not speculate about what the rest of the article probably says in order to reach four sentences/i.test(sys),
+    "…and the model is told in as many words not to pad a thin excerpt up to the target");
+  ok(/write ONE neutral sentence/.test(sys) && /That is the right answer, not a failure/.test(sys),
+    "the thin-excerpt escape hatch is explicit and easy to take");
+  // Everything the prompt already promised, still promised.
+  ok(/Lead with the substance/.test(sys) && /Never open with "This article/.test(sys), "lead-with-substance survives");
+  ok(/Neutral and factual/.test(sys) && /No opinion, no editorialising/.test(sys), "neutral / no-editorialising survives");
+  ok(/whole family including children/.test(sys) && /plainly and gently rather than vividly/.test(sys),
+    "the family-safe rule survives, difficult news plain rather than vivid");
+  ok(/Plain prose only\. No markdown/.test(sys), "no-markdown survives");
+  ok(/Reply with ONLY a JSON array/.test(sys) && /\{"i":1,"s":"\.\.\."\}/.test(sys), "the strict JSON reply shape survives");
+
+  /* THE HARD BLOCKER. A full batch at maximum plausible length must fit under max_tokens,
+     or the reply is cut off mid-JSON and the WHOLE batch silently reverts to publisher
+     blurbs. The old formula did not: measured against real Haiku, a batch of 8 rich
+     articles produced 995 output tokens against a cap of 940. */
+  const src = fs.readFileSync(path.join(ROOT, "netlify", "functions", "news.mjs"), "utf8");
+  const maxBatch = Number(/const MAX_SUMMARIZE = (\d+)/.exec(src)[1]);
+  const capOf = (n) => {
+    const base = Number(/const SUMMARY_BASE_TOKENS = (\d+)/.exec(src)[1]);
+    const per = Number(/const SUMMARY_TOKENS_PER_ARTICLE = (\d+)/.exec(src)[1]);
+    return Math.min(4096, base + n * per);
+  };
+  // 110 words at ~1.4 tokens/word (news prose, names and figures included) = 154, plus ~12
+  // for the {"i":n,"s":"…"} wrapper. That is the worst case the brief can legitimately ask for.
+  const WORST_PER_ARTICLE = 166;
+  ok(capOf(maxBatch) >= maxBatch * WORST_PER_ARTICLE,
+    `a FULL batch of ${maxBatch} at the top of the length band (${maxBatch * WORST_PER_ARTICLE} tokens) fits under the cap (${capOf(maxBatch)})`);
+  ok(capOf(maxBatch) >= maxBatch * WORST_PER_ARTICLE * 1.3,
+    "…with real headroom for a model that overshoots the word target, not a hairline fit");
+  ok(capOf(maxBatch) <= 4096, "…and the ceiling is still sane (4096)");
+  ok(220 + maxBatch * 90 < maxBatch * WORST_PER_ARTICLE,
+    "the OLD formula (220 + n*90) provably could not have carried this length — this is the regression tripwire");
+
+  anthMode = "long";
+  const longArts = [{ id: "L1", sourceTitle: "The County Record", title: "Commission advances the bridge plan", excerpt: LONG_BODY.slice(0, 900) }];
+  const longSum = await call({ secret: SECRET, action: "summarize", articles: longArts });
+  ok(anthLastBody.max_tokens === capOf(1), "the cap on the wire is the one the constants derive, not a literal");
+  const written = (longSum.body.summaries || {}).L1 || "";
+  // 400 is the exact bar — that was the old cap, sized for 25-45 words. A measured live
+  // summary at the top of the new band ran 610 characters; this fixture is 574.
+  ok(written.length > 500, `a real 4-5 sentence summary survives whole (${written.length} chars; the old 400 cap would have cut it)`);
+  ok(/posted to the county website and left at the library\.$/.test(written),
+    "…right down to its last sentence — no silent mid-word truncation");
+  ok(written.split(/(?<=[.!?])\s+/).filter(Boolean).length >= 4, "…and it really is 4+ sentences on the card");
+  anthMode = "good";
+
+  /* THE RICHER SOURCE TEXT. A publication that ships its real body in content:encoded now
+     hands the summariser ~300 words instead of ~120. */
+  const longFeed = await call({ secret: SECRET, action: "feed",
+    sources: [{ id: "rec", title: "The County Record", feedUrl: PUB + "/long.xml" }] });
+  const longItem = (longFeed.body.items || [])[0];
+  ok(longItem && longItem.excerpt.length > 700,
+    `a full-text article now reaches the summariser past the old 700-char cut (${longItem ? longItem.excerpt.length : 0} chars)`);
+  ok(longItem && longItem.excerpt.length <= 1800, "…and is still capped, so one verbose publisher cannot flood a batch");
+  ok(longItem && /forty-page report/.test(longItem.excerpt),
+    "…and the text that arrives is the article body, not the teaser");
+  // The FALLBACK card is a different question and must NOT have grown with it: 1800
+  // characters of raw article body on a phone card is not a fallback, it is a wall.
+  ok(longItem && longItem.summary.length <= 240,
+    `the no-model fallback card is still trimmed short (${longItem ? longItem.summary.length : 0} chars) even from a long excerpt`);
+  ok(longItem && longItem.summarySource === "feed", "…and still says it came from the publisher, not from Bucky");
+
+  // A long excerpt has to survive the summarize endpoint's own input sanitiser too.
+  await call({ secret: SECRET, action: "summarize",
+    articles: [{ id: "L2", sourceTitle: "S", title: "T", excerpt: "z".repeat(4000) }] });
+  const sent = /Excerpt: (z+)/.exec(anthLastBody.messages[0].content);
+  ok(sent && sent[1].length === 1800, `the endpoint passes the excerpt through at the full length and clamps there (${sent ? sent[1].length : 0})`);
+
+  // THE CROSS-FILE ONE. Ask the server for more than it will take and the overflow is
+  // dropped with nothing said — those cards would never be summarised at all.
+  const clientSrc = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
+  const chunk = Number(/const NEWS_SUM_CHUNK = (\d+)/.exec(clientSrc)[1]);
+  ok(chunk === maxBatch, `the client's batch size (${chunk}) matches the server's MAX_SUMMARIZE (${maxBatch})`);
+  ok(batchCap === maxBatch, "…and the server really does clamp there");
+
+  /* ---------------------------------------------------------------------------
+     A3. USAGE TELEMETRY. News burned tokens invisibly; it now writes bucket "n" into the
+     same farmgpt_usage docs everything else uses.
+     --------------------------------------------------------------------------- */
+  section("A3. Usage telemetry — the news line on the cost dashboard");
+
+  usageCommits = []; googleTokenCalls = 0;
+  process.env.FIREBASE_SERVICE_ACCOUNT = makeServiceAccount();
+  process.env.FARMGPT_GOOGLE_TOKEN_URL = `http://127.0.0.1:${GOOG_PORT}/token`;
+  process.env.FARMGPT_FIRESTORE_BASE = `http://127.0.0.1:${GOOG_PORT}/v1/projects/amen-farms-app/databases/(default)/documents`;
+  // Re-import under a fresh specifier: the module reads these at load time.
+  const mod2 = await import("file://" + path.join(ROOT, "netlify", "functions", "news.mjs").replace(/\\/g, "/") + "?usage=1");
+  const prevHandler = handler;
+  handler = mod2.default;
+
+  const uSum = await call({ secret: SECRET, action: "summarize", articles: arts });
+  ok(uSum.body.ok === true && Object.keys(uSum.body.summaries).length === 2, "summaries still land with telemetry wired in");
+  ok(uSum.body.usage && uSum.body.usage.in === 100 && uSum.body.usage.out === 50,
+    "the response reports what the batch actually cost, so a run can be measured rather than estimated");
+  ok(googleTokenCalls === 1, "a service-account token is minted for the write");
+  ok(usageCommits.length === 1, "one commit per summarize call");
+  const writes = ((usageCommits[0] || {}).body || {}).writes || [];
+  ok(writes.length === 2, "…carrying both the daily rollup and the hourly bucket, in ONE commit");
+  ok(/farmgpt_usage\/\d{4}-\d{2}-\d{2}$/.test(writes[0].transform.document), "the daily doc is keyed by the farm's own date");
+  ok(/farmgpt_usage_hourly\/\d{4}-\d{2}-\d{2}-\d{2}$/.test(writes[1].transform.document), "the hourly doc is keyed by the farm's own hour");
+  const paths = writes[0].transform.fieldTransforms.map((f) => f.fieldPath);
+  ok(paths.includes("n_in") && paths.includes("n_out") && paths.includes("n_req"),
+    "the tokens land in bucket n — free when this shipped; s u r d k a g c l x t f were taken");
+  ok(paths.includes("n_claudehaiku45_in") && paths.includes("n_claudehaiku45_out"),
+    "…and again under the model that produced them, so a model change can't silently rewrite old costs");
+  const inTf = writes[0].transform.fieldTransforms.find((f) => f.fieldPath === "n_in");
+  ok(inTf && inTf.increment.integerValue === "100", "the increment is the real token count, not a placeholder");
+  ok((usageCommits[0].auth || "").startsWith("Bearer "), "the commit is authenticated");
+
+  // Telemetry must never be able to break a summary — that is the whole point of the try/catch.
+  process.env.FARMGPT_GOOGLE_TOKEN_URL = `http://127.0.0.1:${GOOG_PORT}/nope`;
+  const mod3 = await import("file://" + path.join(ROOT, "netlify", "functions", "news.mjs").replace(/\\/g, "/") + "?usage=2");
+  handler = mod3.default;
+  const brokenLog = await call({ secret: SECRET, action: "summarize", articles: arts });
+  ok(brokenLog.body.ok === true && Object.keys(brokenLog.body.summaries).length === 2,
+    "with the usage backend down the summaries still arrive — telemetry never breaks a reply");
+
+  delete process.env.FIREBASE_SERVICE_ACCOUNT;
+  delete process.env.FARMGPT_GOOGLE_TOKEN_URL;
+  delete process.env.FARMGPT_FIRESTORE_BASE;
+  handler = prevHandler;
+
+  // The dashboard has to know the bucket exists, in both halves, or the row reads zero forever.
+  const fgSrc = fs.readFileSync(path.join(ROOT, "netlify", "functions", "farmgpt.mjs"), "utf8");
+  ok(/const USAGE_BUCKETS = \[[^\]]*"n"/.test(fgSrc), "farmgpt.mjs's reader knows about bucket n");
+  const fgHtml = fs.readFileSync(path.join(ROOT, "farmgpt.html"), "utf8");
+  ok(/\{ p: "n", icon: "📰", name: "News summaries"/.test(fgHtml), "the usage dashboard carries a News row");
+
+  section("A. (continued)");
 
   anthMode = "garbage";
   const bad = await call({ secret: SECRET, action: "summarize", articles: arts });
@@ -382,12 +604,27 @@ function makeNewsMock(){
     feedFails: false, discoverOk: true, discoverReason: "no-feed", summarizeOk: true,
     items: null,
   };
-  // What a real Sonnet summary reads like — the screenshots are the design review, so a
-  // placeholder string here would review the wrong thing.
+  // What a real summary reads like — the screenshots ARE the design review, so a placeholder
+  // string here would review the wrong thing. Lengthened 2026-08-04 with the move to 4-5
+  // sentences: these are 85-100 words, matching the live measurements, because the whole
+  // question the screenshot has to answer is what that does to the feed's density.
   state.written = {
-    a1: "Councillors voted 7-2 on Tuesday to fund the Mill Road bridge after four years of debate. Construction is due to start in the spring and will close the ford crossing.",
-    a2: "Steady rain is forecast every day through Friday, with the heaviest falls on Wednesday afternoon. Forecasters expect standing water on low-lying roads.",
-    b1: "The harvest festival returns to the fairground this weekend after a three-year gap. Organisers have added a livestock show and moved the parade to Sunday morning.",
+    a1: "Councillors voted seven to two on Tuesday evening to fund the Mill Road bridge replacement, "
+      + "ending four years of debate. Construction is due to start in the spring and will close the ford "
+      + "crossing for the season. The money comes from a mix of state grants and a small rise in the "
+      + "local levy, phased in over four years. Two councillors who voted against said they wanted an "
+      + "independent review of the cost estimates first. The existing bridge stays open until the new "
+      + "one is finished.",
+    a2: "Steady rain is forecast every day through Friday, with the heaviest falls expected on Wednesday "
+      + "afternoon. Forecasters say up to two inches could arrive in the space of six hours across the "
+      + "eastern half of the county. Standing water is likely on low-lying roads, and the ford crossing "
+      + "may be impassable by Thursday morning. The rain is expected to clear on Saturday, though the "
+      + "ground will stay saturated into next week.",
+    b1: "The harvest festival returns to the fairground this weekend after a three-year gap. Organisers "
+      + "have added a livestock show and moved the parade to Sunday morning so it no longer clashes with "
+      + "the judging. Entry is free for children, and the produce tent opens at nine on Saturday. The "
+      + "committee says it has doubled the number of stalls after the last festival sold out its pitches "
+      + "within a fortnight.",
   };
   state.defaultItems = () => ([
     { id:"a1", sourceId:"s1", sourceTitle:"The Daily Trumpet", title:"Council approves the new bridge",
@@ -947,6 +1184,19 @@ async function sectionLayout(browser, mock){
   });
   ok(clipped.length === 0, "no headline or summary is cut off" + (clipped.length ? ": " + clipped[0] : ""));
 
+  /* DENSITY (2026-08-04). 4-5 sentences per card is roughly three times the text the feed
+     carried at 1-2, and that is a real change to how far a reader scrolls. Measured rather
+     than eyeballed, and REPORTED as well as asserted — the number is the point. */
+  const density = await page.evaluate(() => {
+    const cards = [...document.querySelectorAll(".newscard")].map(c => Math.round(c.getBoundingClientRect().height));
+    const sums = [...document.querySelectorAll(".newsc-sum")].map(s => s.textContent.trim().split(/\s+/).length);
+    return { cards, sums, viewport: window.innerHeight, feed: Math.round(document.querySelector("#newsBody").getBoundingClientRect().height) };
+  });
+  console.log(`    · card heights ${density.cards.join("/")}px on a ${density.viewport}px screen; summaries ${density.sums.join("/")} words; ${density.cards.length} cards = ${density.feed}px of feed`);
+  ok(Math.max(...density.cards) < density.viewport,
+    `a whole card still fits on the screen at once (tallest ${Math.max(...density.cards)}px of ${density.viewport}px)`);
+  ok(Math.max(...density.sums) >= 60, `the cards really are carrying the longer summaries (up to ${Math.max(...density.sums)} words)`);
+
   const overlap = await page.evaluate(() => {
     const nav = document.getElementById("bnav").getBoundingClientRect();
     const cards = [...document.querySelectorAll(".newscard")];
@@ -955,6 +1205,14 @@ async function sectionLayout(browser, mock){
     return { navTop: nav.top, bodyBottom: document.querySelector("#newsBody").getBoundingClientRect().bottom };
   });
   ok(typeof overlap.navTop === "number", "the bottom nav is measurable over the feed");
+
+  if (WANT_SHOTS){
+    fs.mkdirSync(SHOTS, { recursive: true });
+    // The density review: the top of the feed as a phone sees it, and the whole scroll
+    // length, because "how heavy does this feel" is a question about both.
+    await page.screenshot({ path: path.join(SHOTS, "news_long_390.png") });
+    await page.screenshot({ path: path.join(SHOTS, "news_long_390_full.png"), fullPage: true });
+  }
 
   // Desktop.
   await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });
@@ -996,6 +1254,7 @@ async function sectionLayout(browser, mock){
   const pub = await servePublisher();
   const nofeed = await serveNoFeed();
   const anth = await serveAnthropic();
+  const goog = await serveGoogle(GOOG_PORT);
 
   try {
     await sectionServer();
@@ -1025,7 +1284,7 @@ async function sectionLayout(browser, mock){
     console.log("\n✗ SUITE ERROR: " + (err && err.stack || err));
   } finally {
     await browser.close();
-    srv.close(); pub.close(); nofeed.close(); anth.close();
+    srv.close(); pub.close(); nofeed.close(); anth.close(); goog.close();
   }
 
   console.log(`\n${"=".repeat(52)}`);
