@@ -7529,3 +7529,136 @@ alone.
 repaired scene (what the model genuinely produced) while the reader saw the mended one; the grant
 is five scenes and once a day, with both numbers as server constants rather than settings; and the
 seeder's ~14s time-to-first-byte is the one number to re-check on the real host after deploy.
+
+---
+
+# ⏳ STORY TIME — THE WORLD-CREATION WAIT SCREEN (2026-08-04, UNPUSHED)
+
+User: *"because Fable takes some serious time to set up, the user doesnt really know to wait and
+might get frustrated, a status bar would be helpful or even show the blank page and say the story
+world is being created, please wait."* Files: `farmgpt.html` (a new view, a new module, a streamed
+seeder) and `tools/_verify-storyledger.cjs` (602 → **683**), plus a new live probe
+`tools/_probe-storyworld.mjs`.
+
+## The rule the screen is built on: IT MAY NOT LIE
+Every stage transition and every millimetre the bar moves is a REAL event — a request opening, a
+character finishing, the first word of the story arriving. The bar is stages FINISHED over stages
+total, so it is structurally incapable of moving without one. The only thing on screen that moves
+on its own is the pulsing dot beside the running stage, and it claims nothing except "alive".
+Stages are chosen from what will ACTUALLY happen: no pack, no notes stage; the seeder switched
+off, no world stage. A bar over stages that were never going to run is the first way a progress
+screen lies.
+
+## THE SEEDER IS READ AS A STREAM NOW — that is what made the screen interesting
+`seedLedgerWithAI` used to `await resp.text()`. The server already streams every model mode as
+`text/plain`, so buffering threw away every event in the ~40s between the request and the world,
+and those events are the only honest progress this screen has. It now reads the body with a
+reader and calls back on two things: the FIRST BYTE (Fable thinks before it writes), and each
+character or place the moment it is finished — `partialArrayObjects(raw, key)` walks balanced
+braces inside a half-written JSON document and returns only the complete objects, so a name
+appears on screen the instant the world-builder finishes writing it. Falls back to a plain read
+where no body reader exists. The scanner is scoped BY KEY and is only ever called for
+`characters` and `locations`, so it never walks `player_knowledge` at all.
+
+## HOW SECRETS ARE GUARANTEED NOT TO LEAK
+The seeder's whole point is planted secrets, so a leak here would destroy the feature. Three
+layers, and the third is the one that earns its keep:
+1. **An ALLOWLIST, not a denylist.** `WORLD_SAFE_FIELDS = {characters:["name","role"],
+   locations:["name"]}`, read by name. Nothing is spread, nothing is iterated generically.
+   `hidden_from_player` and `open_threads` are never read for display — only COUNTED, and a count
+   ("3 secrets hidden for you to find") teases without telling, which is the nicest line on the
+   screen.
+2. **A phrase scrub.** `role` is model-written and CAN come back carrying a secret's own wording.
+   Any candidate sharing a run of 4 consecutive words with a hidden secret or an open thread is
+   dropped. WORD RUNS, not single words — a character's name appears inside their own secret
+   constantly, and dropping the name would delete the feature to protect nothing. The suite's
+   fixture plants the secret verbatim as a character's `role`: the allowlist alone does not save
+   you there, the scrub does.
+3. **Mid-stream, names only.** When a character arrives the secrets usually have not (they are
+   written last), so there is nothing to scrub a `role` against. Streaming shows the NAME alone;
+   the roles fill in at the end from the finished world, when the scrub has the whole list. A
+   second beat, and provably safe rather than carefully safe.
+
+The test is not "we filtered it": a sentinel watches every DOM mutation AND polls the painted text
+every 25ms for the whole run, and the assertion is that the planted string was on screen zero
+times over ~3,000 sampled frames. The live probe runs the same sentinel against real secrets.
+
+## THE HANDOFF — the screen dies on the first word, not the last
+`streamChapter` gained `opts.onFirstToken`, fired on the first chunk carrying visible prose. The
+wait screen owns the storyteller's stage too and tears down the moment there are words, so it is
+up exactly as long as there is nothing to read. For an opening scene the first readable text is
+the chapter's own title, one chunk ahead of the prose — that is the right moment: the instant
+there are words the child should be looking at them. It is a VIEW, not an overlay (`show()`
+toggles views mutually exclusive), so it is structurally incapable of ending up painted on top of
+scene one, and awaiting `streamChapter` in a `try/finally` covers the error path — a scene that
+never arrives still lands the reader in the book with the storyteller's own toast.
+
+## THE UNHAPPY PATHS ALL END IN A STORY
+The seeder already fails open; the screen matches. A server error, a seeder switched off
+server-side, a world that comes back as nonsense, a hung request — all of them simply mean less
+to show, never an error a child can act on. `WORLD_SEED_DEADLINE_MS = SEED_TIMEOUT_MS + 4000`
+races the seed at the FLOW level, so the screen can never outlive the seeder's own abort even if
+something upstream wedges (the suite shrinks both clocks and exercises it for real rather than
+asserting about constants). Backing out mid-build cancels: the screen's own 46px button and the
+header link both abort the request and return to setup with no half-made story and nothing on the
+shelf. Once the first page is being written the cancel goes away rather than lying about what it
+can do — that request is in flight and already logged.
+
+## MEASURED LIVE — what the child actually experiences
+`node tools/_probe-storyworld.mjs [--runs N] [--universe httyd]` drives the real page through a
+real creation against real Fable + real Grok (Firestore dead-hosted; the probe is Dad, so it
+neither counts against the cap nor writes to the Story Log). Elapsed from the Begin tap:
+
+| | original world (3 runs) | with the HTTYD pack |
+|---|---|---|
+| Fable's first byte | 4.5 / 5.2 / **21.0**s | 18.6–35.6s |
+| first NAME on screen | 13.1 / 13.8 / **28.0**s | 24.4s |
+| world finished | 39.7 / 43.6 / 53.4s | 41.9s |
+| FIRST WORD (into the book) | 47.7 / 63.0 / 57.9s | 46.0s |
+| scene finished streaming | 62.3 / 85.0 / 79.8s | 72.1s |
+
+**Fable thinks for 4–21s on an original world and 18–36s on a packed one** (23KB of established
+canon to read first), then writes for another 20–38s. Grok reaches its first word in 4–19s.
+So: **~13–28s before there is anything to look at, ~46–63s to the first word, ~62–86s to a
+finished opening scene.** Two design decisions came straight out of those numbers.
+- **The reassurance ladder is SPLIT per phase** (`pre` at 9s and 25s, `post` at 18s and 40s from
+  the first byte). One ladder would have described thinking while it was writing, or the reverse
+  — a screen saying the wrong thing about what is happening is exactly what this set out not to
+  do. `note()` swaps ladders on the real event. Reassurance never touches the bar.
+- **The cast is capped at 8 characters and 4 places, with "…and 16 more to meet"** — the real
+  HTTYD pack seeds 24 characters and unbounded that is a wall of names burying the once-only line
+  and the way out under a scroll. Caught by a live run, not by reasoning.
+
+## THREE BUGS THE WORK FOUND
+1. **`paint()` discarded the stage's sub-line**, so any repaint put the generic text back over
+   what a real event had just said — a screen that forgets what it told you reads as broken. The
+   notes live in module state now and `paint()` reads them.
+2. **Duplicate cast entries.** A pack names its people and the seeder is told not to name them
+   again, but a model that does anyway put Bramblewick on screen twice. `worldReveal` dedupes by
+   lowercased name, first entry (the pack's better wording) winning. Caught by a SCREENSHOT, not
+   a test.
+3. The reader's own entry read as *"Wren — the hero of this story — the reader's own character"*.
+   It is now **"Wren — that's you!"**, sorted to the top of the cast; seeing your own name first
+   is the best thing on the screen.
+
+## Verified
+storyledger **683/683** (was 602 — 81 new checks, every original one still green) ·
+kidstory-server **54/54** · dnd-server **47/47**, 0 page errors. New section **P**: the filter
+(allowlist, the phrase scrub, the planted-role trap, dedupe, the cap, counts-not-text), the
+partial-JSON scanner, the live screen against a REAL chunked response served by the suite's own
+static server (puppeteer's `req.respond` can only hand back a finished body, so the server grew a
+scriptable `/.netlify/functions/farmgpt` route — armed only when a plan is set, so every other
+section 404s on that path exactly as it always did), every unhappy path, the deadline for real,
+cancel, "not on resume", 390px + desktop, and `prefers-reduced-motion`.
+LIVE: `node tools/_probe-storyworld.mjs` — 4 real creations, all clean, 0 secrets on screen over
+~12,000 sampled frames.
+Shots: `shots/st_world_{mid_390,mid_desktop,handoff_390,handoff_desktop}.png`.
+
+**KNOWN / DEFERRED**: the ~13–28s before the first name is the honest floor of a single
+non-streamed thinking phase — the only way to shorten it is a faster seeder or a two-call seed
+(cast first, then the rest), and neither is worth doing before the family has used this; the
+handoff fires on the chapter TITLE, which then jumps from the body into the divider when the
+scene finishes parsing (pre-existing streaming behaviour, now simply visible a beat earlier); and
+`SEED_TIMEOUT_MS`/`WORLD_SEED_DEADLINE_MS` are `let` so the suite can shrink them, which means a
+devtools reader could too — harmless, and the alternative was asserting about constants instead
+of exercising the path.

@@ -1026,10 +1026,54 @@ async function sectionServer() {
 // ---------------------------------------------------------------------------
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".json": "application/json",
                ".css": "text/css", ".png": "image/png", ".svg": "image/svg+xml" };
+// SECTION P drives the world-creation screen against a REAL chunked response, because the whole
+// point of that screen is that it reacts to bytes arriving over time — and puppeteer's
+// req.respond() can only hand back a finished body. So the suite's own static server grows a
+// scriptable /.netlify/functions/farmgpt route. Sections that intercept the function call are
+// untouched: req.respond() short-circuits before anything reaches this server.
+let worldPlan = null;   // { seed, scene } — see sectionWorldWait
+function planFor(body) {
+  if (!worldPlan) return null;
+  return body.mode === "storyseed" ? worldPlan.seed : worldPlan.scene;
+}
+async function runPlan(plan, res) {
+  if (plan === "hang") return;                                   // never answered
+  if (plan && plan.status) {
+    res.statusCode = plan.status;
+    res.setHeader("content-type", "application/json");
+    return res.end(JSON.stringify({ error: "nope" }));
+  }
+  if (plan && plan.json) {
+    res.setHeader("content-type", "application/json");
+    return res.end(JSON.stringify(plan.json));
+  }
+  res.setHeader("content-type", "text/plain; charset=utf-8");
+  res.setHeader("cache-control", "no-store");
+  for (const step of (plan && plan.chunks) || []) {
+    if (step.delay) await new Promise((r) => setTimeout(r, step.delay));
+    res.write(step.text);
+    if (typeof res.flush === "function") res.flush();
+  }
+  res.end();
+}
 function serve() {
   return new Promise((resolve) => {
     const srv = http.createServer((req, res) => {
       const p = decodeURIComponent(req.url.split("?")[0]);
+      // Only when a plan is armed. With none, this path 404s exactly as it always did, so every
+      // other section's behaviour is byte-for-byte what it was before this route existed.
+      if (p === "/.netlify/functions/farmgpt" && worldPlan) {
+        let raw = "";
+        req.on("data", (c) => { raw += c; });
+        req.on("end", () => {
+          let body = {};
+          try { body = JSON.parse(raw || "{}"); } catch { /* keep {} */ }
+          const plan = planFor(body);
+          if (!plan) { res.statusCode = 404; return res.end("not found"); }
+          runPlan(plan, res).catch(() => { try { res.end(); } catch {} });
+        });
+        return;
+      }
       const file = path.join(ROOT, p === "/" ? "index.html" : p);
       if (!file.startsWith(ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
         res.statusCode = 404; return res.end("not found");
@@ -3113,6 +3157,488 @@ async function sectionFinishGrant(browser) {
 }
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// SECTION P — the world-creation wait screen
+// ---------------------------------------------------------------------------
+// THE SECRET. Planted in hidden_from_player, and — the nastier half — repeated verbatim inside a
+// character's `role`, which is a field the screen is allowed to show. The allowlist alone does not
+// save you there; the phrase scrub does.
+const WORLD_SECRET = "Bramblewick has been putting out the lamps to keep the ferry from sailing";
+const WORLD_THREAD = "who has been putting out the lamps on the quay";
+
+// A seeder response, streamed in pieces so the screen has real events to react to. Characters
+// arrive one at a time; the secrets arrive LAST, exactly as the real seeder writes them.
+const WORLD_SEED_CHUNKS = [
+  { delay: 120, text: '{ "meta": {"genre_and_tone":"cosy harbour mystery"},\n "canon": [{"rule":"A lantern only lights for the truthful."},{"rule":"The ferry will not sail after dark."}],\n "characters": [' },
+  { delay: 120, text: '{"name":"Bramblewick","role":"the harbour lamplighter","voice":"clipped and gruff","motivation":"keep the quay dark until his brother is safe","status":"anxious","knows":["where the ferry rope went"]}' },
+  { delay: 120, text: ',{"name":"Pell","role":"a ferry-girl who wants the boats moving","voice":"sing-song","motivation":"get the ferry running"}' },
+  // The trap: a role that repeats the secret's own wording word for word.
+  { delay: 120, text: ',{"name":"Maren","role":"' + WORLD_SECRET + '","voice":"quiet"}' },
+  { delay: 120, text: '],\n "locations": [{"name":"Marrowmere quay","description":"a crooked stone harbour","state":"half-dark because someone keeps dousing the lamps"}' },
+  { delay: 120, text: ',{"name":"the boathouse","description":"something is under the tarp"}],\n' },
+  { delay: 120, text: ' "open_threads": [{"thread":"' + WORLD_THREAD + '","urgency":"soon"}],\n' },
+  { delay: 120, text: ' "player_knowledge": {"hidden_from_player":["' + WORLD_SECRET + '","The boathouse tarp hides the ferry rope"]} }' },
+];
+const WORLD_SCENE_CHUNKS = [
+  { delay: 150, text: "===CHAPTER===\nThe Crooked Quay\n" },
+  { delay: 150, text: "The lamps guttered as you stepped onto the wet stones." },
+  { delay: 100, text: "\n\n===CHOICES===\n1. Ask about the ferry.\n2. Walk to the water.\n3. Light your lantern." },
+];
+const WORLD_SCENE_OK = { chunks: WORLD_SCENE_CHUNKS };
+
+// A page with a SENTINEL running: it watches every DOM mutation and also polls the rendered text,
+// recording whether the secret (or the open thread) was EVER on screen, however briefly. A single
+// end-of-run check would miss a leak that was painted and repainted away.
+async function worldPage(browser, opts) {
+  const o = opts || {};
+  const page = await browser.newPage();
+  await page.setViewport({ width: o.width || 390, height: o.height || 844 });
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(String(e && e.message || e)));
+  if (o.reducedMotion) await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
+  await page.setRequestInterception(true);
+  page.on("request", (req) => {
+    const url = req.url();
+    if (/cdn\.jsdelivr\.net/.test(url)) return req.respond({ status: 200, contentType: "text/javascript", body: CDN_STUB });
+    if (/\/assets\/storytime\/universes\//.test(url)) {
+      return req.respond({ status: 200, contentType: "application/json", body: JSON.stringify(FIXTURE_PACK) });
+    }
+    if (/googleapis|firestore|firebase|gstatic/.test(url)) return req.abort();
+    if (url.startsWith(BASE)) return req.continue();     // incl. the function — the server has the plan
+    return req.abort();
+  });
+  await page.evaluateOnNewDocument((secret, thread) => {
+    // Pages in one browser context share localStorage, so a story shelved by an earlier page in
+    // this section would otherwise turn up on this one's bookshelf. Start each page empty.
+    try { localStorage.removeItem("farmgpt_stories_v1"); } catch {}
+    window.__LEAK__ = { seen: [], samples: 0 };
+    const check = (text, how) => {
+      if (!text) return;
+      if (text.includes(secret)) window.__LEAK__.seen.push("secret/" + how);
+      if (text.includes(thread)) window.__LEAK__.seen.push("thread/" + how);
+    };
+    const start = () => {
+      new MutationObserver((muts) => {
+        for (const m of muts) {
+          for (const n of m.addedNodes) check(n.textContent, "added");
+          if (m.type === "characterData") check(m.target.textContent, "chardata");
+        }
+      }).observe(document.body, { childList: true, subtree: true, characterData: true });
+      setInterval(() => { window.__LEAK__.samples++; check(document.body.innerText, "painted"); }, 25);
+    };
+    if (document.body) start();
+    else document.addEventListener("DOMContentLoaded", start, { once: true });
+  }, WORLD_SECRET, WORLD_THREAD);
+  await page.goto(BASE + "/farmgpt.html", { waitUntil: "domcontentloaded" });
+  await page.waitForFunction("!!window.__STORY__", { timeout: 15000 });
+  page.__errors = errors;
+  return page;
+}
+
+// Drives the setup screen up to (and including) the Begin tap.
+async function worldBegin(page, o) {
+  const opts = o || {};
+  await page.evaluate(() => document.getElementById("cardStory").click());
+  await page.waitForSelector("#viewStorySetup.on");
+  await page.evaluate((universe, hero, idea) => {
+    const chip = document.querySelector('#universeChips .chip[data-u="' + universe + '"]');
+    if (chip) chip.click();
+    document.getElementById("heroName").value = hero;
+    document.getElementById("worldInput").value = idea;
+  }, opts.universe || "httyd", opts.hero || "Wren", opts.idea || "A cosy mystery on a foggy harbour.");
+  await page.evaluate(() => document.getElementById("beginBtn").click());
+}
+
+const worldUi = (page) => page.evaluate(() => {
+  const S = window.__STORY__;
+  const rows = [...document.querySelectorAll("#worldStages .wStage")].map((r) => ({
+    id: r.id.replace("wStage_", ""),
+    state: r.classList.contains("done") ? "done" : r.classList.contains("doing") ? "doing" : "wait",
+    label: r.querySelector(".wTxt").firstChild.textContent,
+    sub: r.querySelector(".wSub").textContent,
+  }));
+  return {
+    worldOn: document.getElementById("viewWorld").classList.contains("on"),
+    storyOn: document.getElementById("viewStory").classList.contains("on"),
+    setupOn: document.getElementById("viewStorySetup").classList.contains("on"),
+    rows, bar: S.worldWait.barPct(),
+    chips: [...document.querySelectorAll("#worldReveal .wChip")].map((c) => c.textContent),
+    counts: document.getElementById("worldCounts").textContent,
+    countsShown: document.getElementById("worldCounts").style.display !== "none",
+    once: document.getElementById("worldOnce").textContent.replace(/\s+/g, " ").trim(),
+    onceInView: (() => { const r = document.getElementById("worldOnce").getBoundingClientRect();
+                         return r.height > 0 && r.top < window.innerHeight && r.bottom > 0; })(),
+    cancelShown: document.getElementById("worldCancel").style.display !== "none",
+    text: document.getElementById("viewWorld").innerText,
+  };
+});
+
+async function sectionWorldWait(browser) {
+  section("P — the world-creation wait screen");
+
+  // ---- P1: the filter, before anything is on screen -------------------------------------
+  const page = await newPage(browser);
+  const filt = await page.evaluate((secret, thread) => {
+    const S = window.__STORY__;
+    const led = S.emptyLedger();
+    led.canon = [{ id: "C1", rule: "a" }, { id: "C2", rule: "b" }, { id: "C3", rule: "c" }];
+    led.characters = [
+      { id: "CH1", name: "Bramblewick", role: "the harbour lamplighter", voice: "clipped and gruff",
+        motivation: "keep the quay dark until his brother is safe", status: "anxious",
+        knows: ["where the ferry rope went"], does_not_know: ["who cut it"] },
+      { id: "CH2", name: "Maren", role: secret, voice: "quiet" },        // the trap
+      { id: "CH3", role: "a nameless somebody" },                        // nothing to show
+    ];
+    led.locations = [{ id: "L1", name: "Marrowmere quay", description: "a crooked stone harbour",
+                       state: "half-dark because someone keeps dousing the lamps" }];
+    led.open_threads = [{ id: "T1", thread, status: "unresolved" }];
+    led.player_knowledge.hidden_from_player = [secret, "The boathouse tarp hides the ferry rope"];
+    const r = S.worldReveal(led);
+    return {
+      r, json: JSON.stringify(r),
+      forbidden: S.worldForbidden(led).length,
+      fields: S.WORLD_SAFE_FIELDS,
+      // a name is one word and must NEVER be dropped just because a secret mentions it
+      nameKept: r.characters.some((c) => c.name === "Maren"),
+      phraseTrips: S.worldSharesPhrase("the harbour lamplighter who has been putting out the lamps", [secret, thread]),
+      phraseSafe: S.worldSharesPhrase("the harbour lamplighter", [secret, thread]),
+    };
+  }, WORLD_SECRET, WORLD_THREAD);
+  ok(JSON.stringify(filt.fields) === JSON.stringify({ characters: ["name", "role"], locations: ["name"] }),
+    "the reveal is an ALLOWLIST — two fields off a character, one off a place");
+  ok(!filt.json.includes(WORLD_SECRET), "a planted secret is nowhere in the reveal");
+  ok(!filt.json.includes(WORLD_THREAD), "…nor is an open thread (naming it spoils the question)");
+  ok(!/motivation|voice|status|knows|description|half-dark/.test(filt.json),
+    "…and no field outside the allowlist comes along for the ride");
+  ok(filt.r.characters.length === 2, "a nameless entry is nothing to show, so it isn't shown");
+  ok(filt.nameKept, "a character's NAME survives even though the secret names her");
+  ok(!filt.r.characters.some((c) => c.role === WORLD_SECRET), "…but her secret-echoing ROLE is dropped");
+  ok(filt.r.characters.some((c) => c.role === "the harbour lamplighter"), "an ordinary role is kept");
+  ok(filt.phraseTrips && !filt.phraseSafe, "the scrub trips on a shared PHRASE, not on a shared word");
+  ok(filt.r.locations.length === 1 && filt.r.locations[0].name === "Marrowmere quay" && !filt.r.locations[0].description,
+    "a place gives its name and nothing else");
+  ok(filt.r.rules === 3 && filt.r.secrets === 2, "rules and secrets are COUNTED — a count teases without telling");
+  ok(filt.forbidden === 3, "everything unsayable is collected: both secrets and the open thread");
+
+  // A pack names its cast and a model may name them again. On screen that reads as a bug.
+  const dedupe = await page.evaluate(() => {
+    const S = window.__STORY__;
+    const led = S.emptyLedger();
+    led.characters = [
+      { id: "CH1", name: "Bramblewick", role: "the harbour's lamplighter", origin: "pack" },
+      { id: "CH2", name: "Wren", role: "the hero of this story — the reader's own character", origin: "reader" },
+      { id: "CH3", name: "bramblewick", role: "the harbour lamplighter" },     // the model, again
+    ];
+    led.locations = [{ id: "L1", name: "Marrowmere quay" }, { id: "L2", name: "Marrowmere quay" }];
+    const r = S.worldReveal(led);
+    return { names: r.characters.map((c) => c.name), first: r.characters[0], places: r.locations.length };
+  });
+  ok(dedupe.names.length === 2 && dedupe.places === 1, "the same character (or place) is never shown twice");
+  ok(dedupe.names.includes("Bramblewick") && !dedupe.names.includes("bramblewick"), "…the first, better-worded entry wins");
+  ok(dedupe.first.name === "Wren" && dedupe.first.role === "that's you!",
+    "the reader is top of the cast, and told so plainly");
+
+  // The real How to Train Your Dragon pack seeds 24 characters. Unbounded, that is a wall of
+  // names with the way out somewhere below it.
+  const big = await page.evaluate(() => {
+    const S = window.__STORY__;
+    const led = S.emptyLedger();
+    for (let i = 0; i < 24; i++) led.characters.push({ id: "CH" + i, name: "Rider " + i, role: "a dragon rider" });
+    for (let i = 0; i < 7; i++) led.locations.push({ id: "L" + i, name: "Isle " + i });
+    const r = S.worldReveal(led);
+    return { shown: r.characters.length, more: r.moreCharacters, places: r.locations.length, morePlaces: r.moreLocations };
+  });
+  ok(big.shown === 8 && big.more === 16, "a 24-strong cast shows 8 and counts the other 16");
+  ok(big.places === 4 && big.morePlaces === 3, "…and the same for a world with a lot of places");
+
+  // ---- P2: reading a half-written world ---------------------------------------------------
+  const partial = await page.evaluate(() => {
+    const S = window.__STORY__;
+    const head = '{"canon":[{"rule":"x"}],"characters":[{"name":"A","role":"one"},{"name":"B"';
+    const more = head + ',"role":"two"},{"name":"C","role":"three"}],"player_knowledge":{"hidden_from_player":["a secret"]}}';
+    return {
+      early: S.partialArrayObjects(head, "characters").map((o) => o.name),
+      late: S.partialArrayObjects(more, "characters").map((o) => o.name),
+      places: S.partialArrayObjects(more, "locations").length,
+      // scoped BY KEY: asked for characters, it never wanders into another array
+      notLeaky: JSON.stringify(S.partialArrayObjects(more, "characters")).includes("a secret"),
+    };
+  });
+  ok(partial.early.join() === "A", "a half-written character simply isn't there yet");
+  ok(partial.late.join() === "A,B,C", "…and turns up once the world-builder finishes writing it");
+  ok(partial.places === 0 && !partial.notLeaky, "the scanner is scoped by key — it never walks another array");
+  ok(page.__errors.length === 0, "no page errors (filter)");
+  await page.close();
+
+  // ---- P3: the screen, live, against a real chunked seed ----------------------------------
+  worldPlan = { seed: { chunks: WORLD_SEED_CHUNKS }, scene: WORLD_SCENE_OK };
+  const p3 = await worldPage(browser);
+  await worldBegin(p3);
+  await p3.waitForSelector("#viewWorld.on", { timeout: 10000 });
+  const atStart = await worldUi(p3);
+  ok(atStart.worldOn && !atStart.storyOn && !atStart.setupOn, "tapping Begin opens the world screen, not the book");
+  ok(atStart.rows.map((r) => r.id).join(",") === "pack,seed,scene",
+    "the stages are the ones that will actually run — notes, world, first page");
+  ok(/once/i.test(atStart.once) && /seconds/i.test(atStart.once),
+    "the screen says this happens once and the rest arrives in seconds");
+  ok(atStart.onceInView, "…and says it up front, in view, before the reveals push anything down");
+
+  // The bar moves only when a stage FINISHES. Watch it cross each boundary.
+  await p3.waitForFunction(() => window.__STORY__.worldWait.stageState("seed") === "doing", { timeout: 10000 });
+  const onSeed = await worldUi(p3);
+  ok(onSeed.rows[0].state === "done" && onSeed.rows[1].state === "doing", "the pack lands and the world-builder starts");
+  ok(Math.round(onSeed.bar) === 33, "…and the bar moves exactly one stage — 1 of 3");
+  ok(onSeed.cancelShown, "there is a way out while the world is still being built");
+
+  // The seeder's first byte is a real event, and it says so.
+  await p3.waitForFunction(() => /on paper/.test(document.getElementById("wStage_seed").querySelector(".wSub").textContent),
+    { timeout: 10000 });
+  ok(true, "the first byte back changes what the stage says — a real event, not a timer");
+
+  // Characters appear ONE AT A TIME as the world-builder finishes each one.
+  await p3.waitForFunction(() => document.querySelectorAll("#worldReveal .wChip").length >= 1, { timeout: 10000 });
+  const oneChip = (await worldUi(p3)).chips.length;
+  await p3.waitForFunction(() => document.querySelectorAll("#worldReveal .wChip").length >= 3, { timeout: 10000 });
+  ok(oneChip < 3, "the cast arrives a name at a time, as each one is finished");
+  if (WANT_SHOTS) {
+    fs.mkdirSync(SHOTS, { recursive: true });
+    await p3.screenshot({ path: path.join(SHOTS, "st_world_mid_390.png") });
+  }
+
+  // The world lands.
+  await p3.waitForFunction(() => window.__STORY__.worldWait.stageState("seed") === "done", { timeout: 20000 });
+  const built = await worldUi(p3);
+  ok(Math.round(built.bar) === 67, "the finished world moves the bar to 2 of 3");
+  ok(built.chips.some((c) => /Bramblewick/.test(c)) && built.chips.some((c) => /Marrowmere quay/.test(c)),
+    "the reader sees who lives there and where it happens");
+  ok(built.chips.some((c) => /lamplighter/.test(c)), "…with their ordinary roles filled in");
+  ok(built.chips.filter((c) => /Bramblewick/.test(c)).length === 1 &&
+     built.chips.filter((c) => /Marrowmere quay/.test(c)).length === 1,
+    "…each of them exactly once, though the pack and the seeder both named them");
+  ok(/Wren/.test(built.chips[0]) && /that's you/.test(built.chips[0]), "…and the reader at the top of their own cast");
+  ok(!built.chips.some((c) => c.includes(WORLD_SECRET)), "…and the secret-echoing role still dropped, on screen");
+  // 4 rules = the fixture pack's 2 plus the 2 the seeder wrote; 2 secrets, both planted.
+  ok(/4 rules/.test(built.counts) && /2 secrets/.test(built.counts),
+    "the counts tease what is waiting: " + JSON.stringify(built.counts));
+  ok(built.countsShown && built.worldOn && !built.storyOn, "the screen is still the screen — the book has not opened yet");
+
+  // The storyteller's stage, then the handoff on the FIRST WORD.
+  await p3.waitForFunction(() => window.__STORY__.worldWait.stageState("scene") === "doing", { timeout: 10000 });
+  const writing = await worldUi(p3);
+  ok(!writing.cancelShown, "once the first page is being written the cancel is gone — there is nothing left to cancel");
+  ok(writing.rows[2].state === "doing" && Math.round(writing.bar) === 67, "…and the bar does NOT move for a stage merely starting");
+
+  await p3.waitForSelector("#viewStory.on", { timeout: 15000 });
+  const handed = await p3.evaluate(() => ({
+    worldOn: document.getElementById("viewWorld").classList.contains("on"),
+    worldBox: document.getElementById("viewWorld").getBoundingClientRect().height,
+    live: window.__STORY__.worldWait.active(),
+    text: document.querySelector("#storyScroll .chapter") ? document.querySelector("#storyScroll .chapter").textContent : "",
+    body: document.body.innerText,
+  }));
+  ok(!handed.worldOn && handed.worldBox === 0, "the screen tears down completely — it cannot overlay scene one");
+  ok(handed.live === false, "…and the module knows it is finished");
+  // The handoff fires on the first READABLE text, which for an opening scene is the chapter's
+  // own title — one chunk ahead of the prose. That is the right moment: the instant there are
+  // words, the child should be looking at them and not at a loading screen.
+  ok(handed.text.trim().length > 0, "…on the first readable words, not after the whole scene — " +
+    JSON.stringify(handed.text.slice(0, 60)));
+  await p3.waitForFunction(() => /lamps guttered/.test(document.querySelector("#storyScroll .chapter").textContent),
+    { timeout: 10000 });
+  ok(true, "the reader watches the rest of the scene arrive in the book");
+  if (WANT_SHOTS) await p3.screenshot({ path: path.join(SHOTS, "st_world_handoff_390.png") });
+
+  await p3.waitForFunction("window.__STORY__.story && window.__STORY__.story.messages.length >= 2", { timeout: 15000 });
+  const after = await p3.evaluate(() => {
+    const s = window.__STORY__.story;
+    return { valid: window.__STORY__.validateLedger(s.ledger).ok, chars: s.ledger.characters.length,
+             secrets: s.ledger.player_knowledge.hidden_from_player.length,
+             body: document.body.innerText, leak: window.__LEAK__ };
+  });
+  ok(after.valid && after.chars >= 4 && after.secrets === 2, "the seeded world really did reach the story");
+  ok(!after.body.includes(WORLD_SECRET) && !after.body.includes(WORLD_THREAD),
+    "the secret is in the ledger and NOT on the page");
+  ok(after.leak.seen.length === 0 && after.leak.samples > 20,
+    "…and the sentinel watched every mutation and " + after.leak.samples + " painted frames without ever seeing it");
+  ok(p3.__errors.length === 0, "no page errors (world screen)");
+  await p3.close();
+
+  // ---- P4: the unhappy paths all end in a working story -----------------------------------
+  for (const [name, seedPlan] of [["a server error", { status: 500 }],
+                                  ["the seeder switched off server-side", { json: { seeded: false, reason: "disabled" } }],
+                                  ["a world that arrives as nonsense", { chunks: [{ text: "sorry, I can't do that" }] }]]) {
+    worldPlan = { seed: seedPlan, scene: WORLD_SCENE_OK };
+    const p = await worldPage(browser);
+    await worldBegin(p);
+    await p.waitForSelector("#viewStory.on", { timeout: 20000 });
+    const st = await p.evaluate(() => ({
+      hasLedger: window.__STORY__.hasLedger(window.__STORY__.story),
+      valid: window.__STORY__.validateLedger(window.__STORY__.story.ledger).ok,
+      chars: window.__STORY__.story.ledger.characters.length,
+      live: window.__STORY__.worldWait.active(),
+      err: /error|failed|sorry/i.test(document.getElementById("storyScroll").innerText),
+    }));
+    ok(st.hasLedger && st.valid && !st.live, name + " → the reader still lands in a working story");
+    ok(st.chars === FIXTURE_PACK.characters.length + 1, "…on the ordinary pack ledger, no error to act on");
+    ok(p.__errors.length === 0, "no page errors (" + name + ")");
+    await p.close();
+  }
+
+  // A seed that never answers. The real deadline is 79s; shrink both clocks so the guarantee is
+  // exercised for real rather than asserted about.
+  worldPlan = { seed: "hang", scene: WORLD_SCENE_OK };
+  const pHang = await worldPage(browser);
+  const clocks = await pHang.evaluate(() => {
+    const before = window.__STORY__.seedTimeouts();
+    window.__STORY__.setSeedTimeouts(1500, 2500);
+    return before;
+  });
+  ok(clocks.deadline > clocks.timeout, "the screen's deadline sits BEYOND the seeder's own abort (" +
+    clocks.timeout + "ms → " + clocks.deadline + "ms), so it can never outlive it");
+  await worldBegin(pHang);
+  const tHang = Date.now();
+  await pHang.waitForSelector("#viewStory.on", { timeout: 20000 });
+  ok(Date.now() - tHang < 12000, "a seed that never answers still opens the book, on the deadline");
+  ok(await pHang.evaluate(() => window.__STORY__.hasLedger(window.__STORY__.story) && !window.__STORY__.worldWait.active()),
+    "…with a working story and the screen torn down");
+  ok(pHang.__errors.length === 0, "no page errors (hung seed)");
+  await pHang.close();
+
+  // ---- P5: backing out mid-creation -------------------------------------------------------
+  worldPlan = { seed: { chunks: [{ delay: 6000, text: "{}" }] }, scene: WORLD_SCENE_OK };
+  const pCancel = await worldPage(browser);
+  await worldBegin(pCancel);
+  await pCancel.waitForFunction(() => window.__STORY__.worldWait.stageState("seed") === "doing", { timeout: 10000 });
+  await pCancel.evaluate(() => document.getElementById("worldCancel").click());
+  await pCancel.waitForSelector("#viewStorySetup.on", { timeout: 5000 });
+  const cancelled = await pCancel.evaluate(() => ({
+    live: window.__STORY__.worldWait.active(),
+    story: !!window.__STORY__.story,
+    busy: window.__STORY__.busyNow,
+    shelf: JSON.parse(localStorage.getItem("farmgpt_stories_v1") || "[]").length,
+  }));
+  ok(!cancelled.live && !cancelled.story, "backing out mid-build returns to setup with no half-made story");
+  ok(!cancelled.busy, "…and nothing is left holding the page busy");
+  ok(cancelled.shelf === 0, "…and nothing reached the bookshelf");
+  // Give the abandoned request a moment; it must not drag the reader back.
+  await new Promise((r) => setTimeout(r, 800));
+  ok(await pCancel.evaluate(() => document.getElementById("viewStorySetup").classList.contains("on")),
+    "…and the abandoned world never yanks them out of the setup screen");
+  ok(pCancel.__errors.length === 0, "no page errors (cancel)");
+  await pCancel.close();
+
+  // ---- P5b: a slow stage reassures, and never about the wrong phase -----------------------
+  // Measured live, Fable thinks for 4-21s before writing a byte and then writes for another
+  // 32-38s. The pre-byte ladder must NOT still be running once it has started writing, or the
+  // screen ends up saying "thinking it over" at a world that is halfway onto the page.
+  worldPlan = { seed: { chunks: [{ delay: 11000, text: '{"characters":[{"name":"Tobbin",' },
+                                 { delay: 2500, text: '"role":"the lamplighter"}]}' }] }, scene: WORLD_SCENE_OK };
+  const pSlow = await worldPage(browser);
+  await worldBegin(pSlow);
+  const sub = () => pSlow.evaluate(() => document.getElementById("wStage_seed").querySelector(".wSub").textContent);
+  await pSlow.waitForFunction(() => /Thinking/.test(document.getElementById("wStage_seed").querySelector(".wSub").textContent),
+    { timeout: 15000 });
+  ok(true, "a seeder that thinks for a while says so, rather than looking stuck");
+  const barWhileSlow = await pSlow.evaluate(() => window.__STORY__.worldWait.barPct());
+  ok(Math.round(barWhileSlow) === 33, "…and reassurance never nudges the bar — it is not progress");
+  await pSlow.waitForFunction(() => /on paper/.test(document.getElementById("wStage_seed").querySelector(".wSub").textContent),
+    { timeout: 20000 });
+  await new Promise((r) => setTimeout(r, 1200));
+  ok(/on paper/.test(await sub()), "…and the moment it starts writing, the thinking line is gone for good");
+  // A repaint (any stage change) must not put the generic line back — a screen that forgets what
+  // it just told you reads as broken.
+  const kept = await pSlow.evaluate(() => {
+    window.__STORY__.worldWait.begin("seed");
+    return document.getElementById("wStage_seed").querySelector(".wSub").textContent;
+  });
+  ok(/on paper/.test(kept), "…and a repaint keeps what the screen last said, rather than reverting");
+  await pSlow.waitForSelector("#viewStory.on", { timeout: 20000 });
+  ok(pSlow.__errors.length === 0, "no page errors (slow stage)");
+  await pSlow.close();
+
+  // ---- P6: it is a NEW-story screen, and only that ----------------------------------------
+  worldPlan = { seed: { chunks: WORLD_SEED_CHUNKS }, scene: WORLD_SCENE_OK };
+  const pResume = await worldPage(browser);
+  const resumed = await pResume.evaluate(() => {
+    const S = window.__STORY__;
+    const led = S.seedLedger({ title: "An older tale", universe: "original", heroName: "Wren" });
+    led.meta.turn = 1;
+    const s = { id: "R1", title: "An older tale", created: 1, done: false, chapter: 1, closing: false,
+      schemaVersion: 1, ledger: led, ledgerSeed: JSON.parse(JSON.stringify(led)),
+      ledgerDiffs: [{ scene: 0, diff: null, ok: false, reason: "x" }],
+      messages: [{ role: "user", content: "an old world" },
+                 { role: "assistant", content: "An old scene.\n\n===CHOICES===\n1. a\n2. b\n3. c" }] };
+    S.saveStoryObj ? S.saveStoryObj(s) : localStorage.setItem("farmgpt_stories_v1", JSON.stringify([s]));
+    return true;
+  });
+  await pResume.evaluate(() => document.getElementById("cardStory").click());
+  await pResume.waitForSelector("#viewStorySetup.on");
+  await pResume.evaluate(() => {
+    const item = document.querySelector("#bookshelf .shelfItem");
+    if (item) item.click();
+  });
+  await pResume.waitForSelector("#viewStory.on", { timeout: 10000 });
+  const onResume = await pResume.evaluate(() => ({
+    worldOn: document.getElementById("viewWorld").classList.contains("on"),
+    live: window.__STORY__.worldWait.active(),
+    scenes: document.querySelectorAll("#storyScroll .chapter").length,
+  }));
+  ok(resumed && !onResume.worldOn && !onResume.live && onResume.scenes >= 1,
+    "resuming a shelved story goes straight to the book — no world screen, nothing to wait for");
+  ok(pResume.__errors.length === 0, "no page errors (resume)");
+  await pResume.close();
+
+  // ---- P7: it fits, and it respects a reader who doesn't want motion -----------------------
+  // The cast lands early and the world finishes late, so the whole screen is on show at once —
+  // and the measurement happens while the seed stage is still RUNNING, because that is when the
+  // way out exists (lockIn hides it the moment the first page starts).
+  worldPlan = { seed: { chunks: WORLD_SEED_CHUNKS.map((c, i) => ({ ...c, delay: i === WORLD_SEED_CHUNKS.length - 1 ? 4000 : c.delay })) },
+                scene: WORLD_SCENE_OK };
+  const pPhone = await worldPage(browser, { reducedMotion: true });
+  await worldBegin(pPhone);
+  await pPhone.waitForFunction(() => document.querySelectorAll("#worldReveal .wChip").length >= 3, { timeout: 15000 });
+  const fit = await pPhone.evaluate(() => {
+    const card = document.getElementById("worldCard");
+    const btn = document.getElementById("worldCancel").getBoundingClientRect();
+    const chip = document.querySelector("#worldReveal .wChip");
+    const dot = document.querySelector(".wStage.doing .wIco");
+    return {
+      hScroll: document.documentElement.scrollWidth > document.documentElement.clientWidth ||
+               card.scrollWidth > card.clientWidth,
+      btnH: btn.height, btnW: btn.width,
+      chipAnim: chip ? getComputedStyle(chip).animationName : "none",
+      dotAnim: dot ? getComputedStyle(dot, "::after").animationName : "none",
+      barAnim: getComputedStyle(document.getElementById("worldBarFill")).transitionDuration,
+      onceVisible: document.getElementById("worldOnce").getBoundingClientRect().height > 0,
+    };
+  });
+  ok(!fit.hScroll, "at 390px nothing runs off the side");
+  ok(fit.btnH >= 44 && fit.btnW > 200, "the way out is a real touch target (" + Math.round(fit.btnH) + "px)");
+  ok(fit.onceVisible, "the once-only line is still there once the world has filled the card in");
+  ok(fit.chipAnim === "none" && fit.dotAnim === "none" && fit.barAnim === "0s",
+    "a reader who asked for less motion gets a still screen");
+  ok(pPhone.__errors.length === 0, "no page errors (phone/reduced motion)");
+  await pPhone.close();
+
+  const pDesk = await worldPage(browser, { width: 1280, height: 800 });
+  await worldBegin(pDesk);
+  // The plate is taken mid-build, with the cast up and the last chunk still to come — the reveal
+  // animation gets time to settle without the handoff overtaking it.
+  await pDesk.waitForFunction(() => document.querySelectorAll("#worldReveal .wChip").length >= 3, { timeout: 15000 });
+  await new Promise((r) => setTimeout(r, 600));
+  if (WANT_SHOTS) await pDesk.screenshot({ path: path.join(SHOTS, "st_world_mid_desktop.png") });
+  await pDesk.waitForFunction(() => window.__STORY__.worldWait.stageState("seed") === "done", { timeout: 15000 });
+  const desk = await worldUi(pDesk);
+  ok(desk.worldOn && desk.chips.length >= 3 && desk.countsShown, "the same screen reads on a desktop width");
+  ok(!desk.text.includes(WORLD_SECRET) && !desk.text.includes(WORLD_THREAD), "…still with nothing it shouldn't say");
+  await pDesk.waitForSelector("#viewStory.on", { timeout: 15000 });
+  await new Promise((r) => setTimeout(r, 400));      // let the first words land before the plate
+  if (WANT_SHOTS) await pDesk.screenshot({ path: path.join(SHOTS, "st_world_handoff_desktop.png") });
+  ok(pDesk.__errors.length === 0, "no page errors (desktop)");
+  await pDesk.close();
+  worldPlan = null;
+}
+
 async function sectionDashboard(browser) {
   section("O — the usage dashboard: quiet rows fold, and cost follows the model");
   // A month with one very busy feature, one moderately busy one, and several near-silent ones —
@@ -3270,6 +3796,7 @@ async function sectionDashboard(browser) {
     await sectionRepair(browser);
     await sectionFinishGrant(browser);
     await sectionDashboard(browser);
+    await sectionWorldWait(browser);
   } catch (err) {
     fail++; failures.push("browser suite crashed");
     console.log("\n✗ SUITE ERROR: " + (err && err.stack || err));
