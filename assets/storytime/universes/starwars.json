@@ -1,0 +1,86 @@
+{
+  "meta": {
+    "universe": "starwars",
+    "title": "Star Wars",
+    "timeline_point": "era-agnostic — no fixed point in the timeline unless the reader sets one in their story setup",
+    "genre_and_tone": "hopeful space adventure — daring rescues, strange worlds and hard choices, with danger that always lands gently",
+    "narrative_voice": "close third person, cinematic and swift, alive to the quiet moments between the action",
+    "schema_version": 1,
+    "pack_version": 1
+  },
+  "canon": [
+    { "id": "C1", "rule": "The Force is an energy field created by all living things, flowing through everything and binding the galaxy together.", "source": "pack", "turn": 0 },
+    { "id": "C2", "rule": "Sensitivity to the Force is something a person is born with — it cannot be handed to anyone — and in the films it shows as midi-chlorians, tiny living things in every cell.", "source": "pack", "turn": 0 },
+    { "id": "C3", "rule": "Training matters more than raw talent: an untrained sensitive gets flashes and lucky instincts, never control.", "source": "pack", "turn": 0 },
+    { "id": "C4", "rule": "The Force answers calm, breathing and letting go, and it slips away from anyone who grabs at it in a temper.", "source": "pack", "turn": 0 },
+    { "id": "C5", "rule": "The light side is fed by patience, compassion and service to life, and it asks its users to let go of fear and of wanting to own things.", "source": "pack", "turn": 0 },
+    { "id": "C6", "rule": "The dark side is fed by fear, anger, hatred and the wish to control, and it offers quick power at a steep price to the one who takes it.", "source": "pack", "turn": 0 },
+    { "id": "C7", "rule": "Falling to the dark side happens in small steps rather than one moment, and coming back from it is possible but very hard.", "source": "pack", "turn": 0 },
+    { "id": "C8", "rule": "A trained Force user can move objects with the mind — lifting, pushing, pulling, holding — limited by focus and belief rather than muscle.", "source": "pack", "turn": 0 },
+    { "id": "C9", "rule": "The Force sharpens reflexes and lets its users leap, run and react far past ordinary limits.", "source": "pack", "turn": 0 },
+    { "id": "C10", "rule": "A Force user can sense living things nearby and feel danger a heartbeat before it arrives.", "source": "pack", "turn": 0 },
+    { "id": "C11", "rule": "Some Force users glimpse visions of things to come, but a vision shows one possible future, not a fixed one — and acting on it rashly is often how it comes true.", "source": "pack", "turn": 0 },
+    { "id": "C12", "rule": "The mind trick pushes a suggestion into a weak-willed mind; strong-willed beings such as Hutts and Toydarians shrug it off, and droids have no mind to push, so it never works on them.", "source": "pack", "turn": 0 },
+    { "id": "C13", "rule": "Force users can steady, strengthen or calm others, and the rarest of them can heal an injury at real cost to themselves.", "source": "pack", "turn": 0 },
+    { "id": "C14", "rule": "Dark-side powers such as Force lightning exist, and every use tightens the dark side's grip on whoever uses it.", "source": "pack", "turn": 0 },
+    { "id": "C15", "rule": "The Jedi are an order of Force users who serve life and keep the peace, trained from childhood and taught to master fear rather than feed it.", "source": "pack", "turn": 0 },
+    { "id": "C16", "rule": "The Sith are the dark mirror of the Jedi, seeking power through passion and domination, and by their own old rule there are only ever two at a time — a master and an apprentice.", "source": "pack", "turn": 0 },
+    { "id": "C17", "rule": "A lightsaber is a blade of pure energy thrown from a handmade hilt, and the heart of the weapon is a kyber crystal.", "source": "pack", "turn": 0 },
+    { "id": "C18", "rule": "Kyber crystals are rare, living, Force-attuned crystals that must be found and bonded with before they will light a blade for anyone.", "source": "pack", "turn": 0 },
+    { "id": "C19", "rule": "A kyber crystal is colourless until it is attuned, and the bond decides the blade's colour — blue and green are the commonest Jedi blades, with purple, yellow and others besides.", "source": "pack", "turn": 0 },
+    { "id": "C20", "rule": "A dark-side user can 'bleed' a crystal by pouring anger and pain into it, turning the blade red, and a bled crystal can afterwards be healed back by someone who understands that pain.", "source": "pack", "turn": 0 },
+    { "id": "C21", "rule": "Building your own lightsaber is a rite of passage, and a Jedi treats the finished weapon as part of themselves rather than as a tool to lend around.", "source": "pack", "turn": 0 },
+    { "id": "C22", "rule": "A lightsaber blade has no weight to swing, only balance, and given a moment's work it cuts through nearly anything — metal, stone, a sealed blast door.", "source": "pack", "turn": 0 },
+    { "id": "C23", "rule": "A few rare substances defy it: beskar, the Mandalorian iron, turns a blade aside; cortosis shorts one out on contact; and phrik holds against a strike, which is why some guards carry phrik staffs.", "source": "pack", "turn": 0 },
+    { "id": "C24", "rule": "One blade will not pass through another — lightsabers lock and clash — and a trained user can bat blaster bolts away, even back at whoever fired them.", "source": "pack", "turn": 0 },
+    { "id": "C25", "rule": "A lit blade is dangerous in an untrained hand and burns whatever it brushes, so lightsaber training is a matter of safety long before it is a matter of duelling.", "source": "pack", "turn": 0 }
+  ],
+  "characters": [
+    {
+      "id": "CH1", "name": "Yoda", "origin": "pack",
+      "role": "Grand Master of the Jedi Order, teacher of Force users for some nine hundred years",
+      "status": "era-flagged: alive and teaching through the Clone Wars and the Empire's early years; in exile on Dagobah by the time of the Rebellion",
+      "physical": "very small, green-skinned and long-eared, leaning on a gimer stick; ancient and quick",
+      "voice": "inverts his sentences, teaches by riddle and rebuke, laughs at the wrong moment, and lands the hard truth in the fewest words",
+      "motivation": "passing on what he knows before the light is lost",
+      "possessions": ["his gimer stick", "a green-bladed lightsaber, rarely drawn"],
+      "knows": ["that fear is the first step toward the dark side", "that a student must unlearn before they can learn"],
+      "does_not_know": ["how much of the future the Force is hiding from him"],
+      "last_seen": { "turn": 0, "location": "wherever the reader's era places him", "state": "teaching, or waiting in exile, depending on the era chosen" }
+    },
+    {
+      "id": "CH2", "name": "Obi-Wan Kenobi", "origin": "pack",
+      "role": "Jedi Knight and later Master, a duellist and negotiator",
+      "status": "era-flagged: a young knight during the Clone Wars; a hermit on Tatooine calling himself Ben by the Rebellion's dawn",
+      "physical": "bearded, in layered Jedi robes; upright bearing, tired eyes in the later years",
+      "voice": "dry, courteous and faintly amused — defuses a crisis with an understatement and only sounds stern when he is frightened for someone",
+      "motivation": "duty to the Order, and to the people he has promised to protect",
+      "possessions": ["his blue-bladed lightsaber", "Jedi robes"],
+      "knows": ["that patience wins more fights than aggression", "that attachment is what the Order warns against and what he keeps anyway"],
+      "does_not_know": ["how the choices of those he loves will turn out"],
+      "last_seen": { "turn": 0, "location": "wherever the reader's era places him", "state": "on a mission, or in quiet exile, depending on the era chosen" }
+    },
+    {
+      "id": "CH3", "name": "Darth Vader", "origin": "pack",
+      "role": "Sith Lord and enforcer of the Empire, once the Jedi Anakin Skywalker",
+      "status": "era-flagged: exists only in the Imperial era; before that he is Anakin Skywalker, a Jedi",
+      "physical": "very tall in black armour and a helmet, cloak to the floor, breathing in a slow mechanical rhythm you hear before you see him",
+      "voice": "deep, unhurried and quiet; states an order once and lets the silence do the threatening",
+      "motivation": "order imposed by force, and a buried grief he will not look at",
+      "possessions": ["his red-bladed lightsaber", "life-sustaining armour"],
+      "knows": ["that the dark side made him powerful", "that his master does not trust him"],
+      "does_not_know": ["that the good in him is not gone"],
+      "last_seen": { "turn": 0, "location": "wherever the reader's era places him", "state": "serving the Empire — and not present at all in stories set before it" }
+    }
+  ],
+  "relationships": [
+    { "between": ["the Jedi", "the Sith"], "state": "ancient enemies — the same power used to serve life or to rule it", "changed_turn": 0, "history": "Both orders draw on the Force; they split long ago over whether it is to be served or commanded." },
+    { "between": ["a Jedi Master", "their Padawan"], "state": "the standard teaching bond: one master, one apprentice, learning by travelling together", "changed_turn": 0, "history": "The Order has trained this way for a thousand generations, and the bond usually outlasts the training." },
+    { "between": ["a Force user", "their kyber crystal"], "state": "a genuine bond — the crystal chooses as much as it is chosen, and answers to that user afterwards", "changed_turn": 0, "history": "The crystal is found, not bought, and attuning to it is the first real test of a young Force user's patience." }
+  ],
+  "locations": [
+    { "id": "L1", "name": "Ilum", "description": "An ice world whose frozen caves grow kyber crystals, where young Jedi are sent to find the crystal that will become their lightsaber", "state": "sacred to the Jedi and known to few others; a place of trial rather than of fighting", "visited_turns": [] },
+    { "id": "L2", "name": "The Jedi Temple on Coruscant", "description": "The Order's great home on the galaxy's capital world: training halls, archives, council chamber and spires above endless city", "state": "era-flagged — the Order's beating heart while the Jedi stand, and lost to them afterwards", "visited_turns": [] },
+    { "id": "L3", "name": "Dagobah", "description": "A humid swamp world thick with mist, vines and life, strong in the Force and easy to hide in", "state": "remote and unmapped; a place people come to disappear or to learn", "visited_turns": [] }
+  ]
+}

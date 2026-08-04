@@ -6699,3 +6699,646 @@ rendered flat AND the test passed because it read `style.width` ("100%") instead
 measure `getBoundingClientRect()` against the track.
 Regressions green: news 157 · chore-care 49 · fitness 253.
 Shots: `shots/activity_{desktop,mobile,empty}.png`.
+
+---
+
+# 📖 STORY TIME CONTINUITY — the ledger engine, steps 1-2 (2026-08-03, UNPUSHED)
+
+Plan of record: `storytime-continuity-plan.md`. Steps 1 (schema + plumbing) and 2 (narrator
+path) are done; the KEEPER (step 3) is deliberately NOT built — the plan's own rule is that the
+narrator has to be right before bookkeeping is automated. Files: `farmgpt.html`,
+`netlify/functions/farmgpt.mjs`, new `tools/_verify-storyledger.cjs` (**212/212**, 0 page
+errors) and `tools/_probe-storyledger.mjs`. Built on top of the parallel session's uncommitted
+baked-stories WIP; none of its hunks were touched.
+
+## What a ledger story is
+A story object created from here on carries `ledger` (schema v1), `ledgerDiffs[]` and
+`schemaVersion`. A story saved BEFORE this — no `ledger` field — is legacy forever and keeps
+the "STORY SO FAR" recap path byte-identical, including `maybeSummarize`. `hasLedger(s)` is the
+only switch, and every branch (send, save, resume, export) reads it. A ledger that comes back
+malformed (hand-edited localStorage, a partial write) is DELETED on resume: the story drops to
+the legacy path and still reads and still continues, rather than shipping a broken ledger to
+the narrator.
+
+## Step 1 — plumbing, no AI
+- `validateLedger` is structural, not semantic: right shape ⇒ always renderable. It rejects a
+  wrong `schema_version`, any list that isn't a list, a canon entry with no rule, and a ledger
+  far past the cap.
+- **Canon is append-only and `canonPreserved` proves it by comparison, not by intent** — it
+  diffs the canon before and after and catches an edit, a delete, AND a reorder (a reorder is
+  an edit in disguise once entries are referenced by position). `update.canon` is rejected on
+  sight as malformed.
+- `applyLedgerDiff` is **all-or-nothing**: everything lands on a deep copy, and the copy is
+  adopted only once canon survives intact and the result validates. A patch that is half good
+  applies NOTHING (tested). The original object is never mutated, so a rejected diff can't
+  half-write. Ids are assigned by the CLIENT, never taken from the patch — a keeper can't
+  collide or renumber.
+- **`ledgerDiffs` is load-bearing for step 5's rewind**, so the contract is complete + ordered +
+  no gaps: exactly one entry per scene, at its own index. A scene whose keeper hasn't run (right
+  now: every scene) still records an honest empty entry, and `recordLedgerDiff` backfills any
+  hole — a hole would silently shift every later replay. `replayLedgerDiffs(seed, log, N)`
+  rebuilds the ledger at scene N and is asserted equal to the live one.
+- **Universe picker** (🐉 HTTYD · ⚔️ Star Wars · ✨ My own world, default). A pack is fetched at
+  story creation from `assets/storytime/universes/<id>.json` and seeds the ledger; the story's
+  COPY is what evolves, so editing a pack file never rewrites a story in progress. A missing or
+  broken pack degrades to a valid empty original-world ledger plus a quiet toast — a content
+  workstream's uptime can never stop a story starting.
+- **PROTAGONIST CAPTURE = a name field on the setup screen** (`#heroName`), applied to both the
+  typed box and the builder, appended to the opening prompt as "My name is X." Both blocks are
+  created either way: `protagonist` AND a full `characters[]` entry with `origin:"reader"` and
+  the same sheet fields a pack character gets. With no name given they exist unnamed, for the
+  keeper to fill from scene 1 — the renderer prints "(unnamed — the reader's own character; take
+  the name from the story)", which reads fine to the narrator.
+- Bookshelf size math: art still goes first; if the shelf is STILL over 300KB every ledger on it
+  is compacted to 8KB (timeline first, then resolved threads — a character is NEVER dropped, so
+  a 23KB HTTYD ledger simply stays; 20 of them is ~470KB of localStorage, well inside budget).
+  20-story cap unchanged.
+
+## Step 2 — the narrator path
+- `SEND_SCENES = 3` verbatim for ledger stories (replacing the 4-CHAPTER window) — smaller AND
+  more reliable, because the memory is now structure instead of prose. Legacy keeps
+  `SEND_CHAPTERS = 4` + the recap fold-in.
+- **THE LEDGER RIDES IN ITS OWN REQUEST FIELD (`body.ledger`), NOT INSIDE A MESSAGE.**
+  `MAX_CONTENT_CHARS` is 12000 per message, so a 30KB ledger stuffed into `messages[0]` would be
+  sliced mid-JSON — silently, and the narrator would read half a world. Keeping it separate also
+  lets the SERVER own the rendering, the cap and the placement.
+- **DEVIATION FROM THE PLAN, deliberate, and it serves the plan's own stated reason.** The plan
+  orders the prompt "meta+canon → characters/locations/relationships → protagonist/flags/threads/
+  player_knowledge → last N scenes → choice", justified as "by volatility (cache-friendly)". The
+  ledger blocks keep exactly that ORDER, but the split lands the STABLE half (meta, canon, cast,
+  places, bonds) on the world-setup turn and the VOLATILE half (hero, flags, live threads, what
+  the reader knows) on the reader's newest message — i.e. AFTER the scenes, not before. Putting
+  the volatile half in `messages[0]` would change the cached prefix every single turn and destroy
+  caching outright, which is the opposite of the ordering's purpose. Recency is a bonus: "how
+  things stand right now" sits where the model attends most. Asserted both ways in the suite.
+- `STORY_LEDGER_RULES` is appended to the system prompt **only when a ledger is actually
+  present**, so a legacy story's prompt is provably byte-identical to what it was. Rules: the
+  ledger outranks recent prose · canon contradictions FAIL DIEGETICALLY (the world refuses, never
+  the narrator) · `hidden_from_player` may not leak by statement, implication, hint or
+  foreshadowing · recorded voices are mandatory · threads resolve only when earned · **FAMILY_RULES
+  outrank every line of the ledger, canon included** (the ledger arrives from an untrusted
+  client — the house cap-bypass threat model).
+- `hidden_from_player` IS sent to the narrator, on purpose: it has to know the secret to write
+  toward it without giving it away. The timeline is NOT sent — it is an audit trail for the
+  keeper, and it is therefore also the first thing compaction drops.
+- **Multi-POV retired** (single protagonist per the plan): the STORY_SYSTEM chapter clause and
+  the `STORY_NEW_CHAPTER` directive both said a new chapter MAY switch whose eyes we follow.
+  Both now pin the same hero. `SUMMARY_SYSTEM`'s "may follow SEVERAL protagonists" was left
+  alone — that is the legacy recap path, and the brief said retire just the next-chapter
+  affordance.
+- Preserved verbatim and asserted: the ===CHOICES===/===CHAPTER===/===CHAPTER END=== protocol,
+  directives-on-the-LAST-USER-TURN (the volatile ledger block is appended BEFORE the chapter
+  directive so the directive stays last), the pacing section, "natural next steps" (the spec's
+  rejected "meaningfully different kinds" was NOT restored), maxTokens 1200, thinking disabled,
+  `cache_control`. ADDED per the plan: "never offer a choice whose outcome is obvious".
+- Server size cap 30KB is a **backstop, not the mechanism**: the client trims to 28KB before
+  sending, and an oversized ledger that arrives anyway is COMPACTED, never rejected — bookkeeping
+  must never be the reason a scene fails to arrive.
+
+## CAST HYDRATION — why the wire never truncates the cast
+The real `httyd.json` carries **22 characters in 23.1KB**, of which ~16.5KB is character sheets.
+An earlier version of `compactLedger` fit the budget by `pop()`ing the tail of `characters` —
+which would have silently deleted Mala, the Grimborns and Johann from the world somewhere around
+scene 10-20 of every HTTYD story. A kid asks about Snotlout and he no longer exists, with no
+error anywhere. **That is the exact failure this engine exists to prevent, and it fails
+silently, which is worse.** Truncation was the wrong tool; hydration is the right one (the
+plan's step-5 "dormant characters" idea, applied from turn zero).
+- The **STORED ledger always holds every character's full sheet.** Nothing is ever lost on disk.
+- `shapeLedgerForWire` sends FULL sheets only for who is **ON STAGE**: the protagonist · the
+  reader's character · anyone who has actually appeared (`last_seen.turn > 0`) · anyone named in
+  an unresolved thread. Everyone else becomes a **CAST ROSTER** line — id, name, ≤10-word role,
+  and nothing else (voice/physical/knows/does_not_know are where the bytes are).
+- **HYDRATION IS AUTOMATIC**: the turn after the keeper sets `last_seen` on a first appearance,
+  that character arrives with a full sheet. The narrator is told so — roster names are real,
+  present-but-off-screen people it may walk into a scene, and it must NOT invent a voice or a
+  history for one, because the sheet arrives the moment they enter. The roster block's wording
+  is load-bearing: a roster that reads like a list of *absent* people invites the narrator to
+  write the world as if they don't exist.
+- **THREAD-NAME MATCHING IS STRENGTH-RANKED, and a test fixture caught why.** A cast whose names
+  share a leading word ("Character 7…", "Character 19…") made a bare first-name substring match
+  pull ALL 22 on stage, crowding out the one the thread was actually about. Matching is now
+  word-bounded, full-name matches outrank first-name ones, and the over-`ONSTAGE_MAX` sort is
+  most-recently-seen then thread-strength. The reader is never cut.
+- **Truncation order, and nothing outside it is ever dropped**: timeline (oldest first) →
+  resolved threads → roster ROLE LINES → locations. Canon, the protagonist, every on-stage sheet
+  and every roster ENTRY are untouchable — a character may lose their role line, never their name.
+- **THE TIMELINE NEVER TRAVELS.** `renderLedgerBlocks` never shows it to the narrator (it is the
+  keeper's and the rewind tool's audit trail, both of which read the STORED ledger), so sending
+  it bought nothing — and it was 5.5-10KB of every request, the single thing pinning a long story
+  at 100% of budget. Dropped from the wire copy; the stored copy keeps every entry.
+
+**MEASURED (`_verify-storyledger.cjs` section H prints these every run, against the REAL packs):**
+
+| httyd.json (23 chars, 23.6KB stored) | wire bytes | % of 28KB | on stage | on the wire |
+|---|---|---|---|---|
+| fresh story | 9,128 | 33% | 1 | all 23 |
+| ~scene 40 | 16,135 | 58% | 6 | all 23 |
+| ~scene 100, heavy | 22,466 | 80% | 10 | all 23 |
+
+(starwars.json, 4 chars: 7,572 / 13,378 / 17,759 — 27% / 48% / 63%.) At scene 100 the bytes are
+onstage 6,532 · knowledge 4,240 · threads 3,691 · canon 2,957 · rels 1,852 · locations 1,376 ·
+roster 1,281. **RECOMMENDATION: LEDGER_WIRE_BUDGET stays at 28,000.** With hydration and the
+timeline off the wire there is 20% headroom on the worst realistic case, and compaction is not
+touching content at any length — the suite asserts exactly that (`at ~scene 100 compaction has
+not had to bite into roster roles or locations`). If that assertion ever trips, RAISE THE BUDGET
+rather than lose content; at Haiku prices the cap is far cheaper than a missing character.
+
+**ANSWERING THE PACK SECTION'S FLAG** (see "universe packs" below — it closes by noting ~7KB of
+headroom is tight and offering two outs: seed only the characters a story touches, or let step 5
+collapse dormant ones). That was the engine's call and this is it: **neither out was needed, and
+the first one would have been the wrong answer** — a pack seeds every character precisely so the
+narrator knows who exists, and a story cannot "touch" a character it was never told about. What
+was actually expensive was sending 22 full SHEETS on every turn, not storing 22 characters. Step
+5's dormant-character idea is pulled forward to turn zero as hydration, so the pack should keep
+seeding its whole cast at full detail. **Packs do not need to get smaller for the engine's sake.**
+
+## ⚠ NOT LIVE-VERIFIED — the step-2 gate is still open
+There is no `ANTHROPIC_API_KEY` in this environment (`tools/.env` has only ELEVENLABS and TRIPO)
+and api.anthropic.com is unreachable, so **the narrator prompt has never been run against a real
+model.** Everything above is proven on the WIRE and in the CLIENT against a fake Anthropic.
+`node tools/_probe-storyledger.mjs [--url <base>] [--gate canon|hidden|voice|choices]` runs the
+four acceptance gates against the deployed function and prints the transcripts: a canon rule
+("nobody in Saltmere can swim") attacked by a write-in that assumes swimming · a
+`hidden_from_player` secret hunted across 5 consecutive scenes including a direct question ·
+a terse character's voice under pressure to monologue · the choice contract. It sends **no
+`user` field**, so it neither counts against the 15/day cap nor writes to the kids' Story Log.
+Its automated checks are TRIPWIRES; the transcripts are the deliverable. Tune
+`STORY_LEDGER_RULES` and re-run.
+
+## Tests
+`node tools/_verify-storyledger.cjs [--shots]` — **212/212**. Section A runs farmgpt.mjs IN
+PROCESS against a fake Anthropic (which records every request body), a fake Google token signed
+with a throwaway RSA key, and a fake Firestore: block order both halves, every ledger rule
+stamped, the timeline withheld, legacy byte-identity, the preserved machinery, single POV, the
+size backstop, and the regressions that matter — **the daily cap still fires (and the model is
+never called), scenes still log, FAMILY_RULES still stamped**. Sections B-F drive the real page
+in headless Chrome over a local http origin: validator accept/reject incl. all four canon-drift
+shapes, ~12 diff rejections each proving the ledger is unchanged, all-or-nothing, the diff-log
+contract, replay, seeding, graceful pack failure, the wire window for both paths, and a real
+story start → shelve → reload → resume with a legacy story on the same shelf.
+Section G is the hydration battery (a 22-character synthetic pack the same size as the real one:
+nobody vanishes at any budget including 500 bytes, on-stage keeps its sheet while the unseen stay
+roster lines, hydration lands the turn after first appearance, canon + protagonist survive, and a
+long-story simulation still ships all 23). Section H MEASURES the REAL packs and reports rather
+than asserting their content, so a pack edit can never fail the suite.
+Regressions: `_verify-kidstory-server.mjs` 54/54, `_verify-dnd-server.mjs` 47/47.
+**THE PACKS ARE NOT THIS SUITE'S TO ASSERT ON** — `assets/storytime/universes/*.json` is a
+parallel content workstream; every pack FETCH is intercepted and answered with a FIXTURE defined
+in the suite (an invented harbour town), so what is under test is the seeding CONTRACT, not
+anyone's prose. The real packs are read only by section H, only to measure bytes.
+New test hook `window.__STORY__`.
+**TEST GOTCHAS**: the CDN libraries must be stubbed by request interception — jsdelivr is
+unreachable here and `marked.setOptions` runs at page-script top level, so an unstubbed CDN
+takes the whole script (test hook included) down with it, which reads as "the page is broken".
+And the fake Anthropic response must be DRAINED FULLY (`await resp.text()`), or the handler's
+`finally{}` logging never runs and the cap/log assertions test nothing.
+Shots: `shots/st_ledger_setup.png`, `shots/st_ledger_universe.png`.
+
+**DEFERRED to the keeper (step 3), by design**: nothing writes a diff yet, so every
+`ledgerDiffs` entry is currently an honest `{diff:null, ok:false, reason:"no keeper yet"}` at
+its own scene index; `meta.turn` advances per scene. Reader-canon promotion (`source:"reader"`
+from a write-in or redo) has its schema field and its precedence documented but no
+implementation, and there is no redo affordance yet.
+
+---
+
+# 📖 STORY TIME CONTINUITY — universe packs (2026-08-03)
+
+The rebuilt "universe info sheet" the family lost. Packs seed a new Story Time story's
+ledger so the world starts out knowing itself; they exist because Story Time kept getting
+franchise facts wrong and the kids noticed (wrong character details, wrong lightsaber
+mechanics). **Pack accuracy is the product** — every load-bearing claim was web-verified
+during authoring, sources listed per pack in the directory README. Schema, precedence
+rules and how a pack seeds a story live in `storytime-continuity-plan.md` (repo root);
+this entry does not restate them. Engine side (farmgpt.html / farmgpt.mjs / storytime.html)
+was built by a parallel agent and is NOT touched by this work.
+
+**Files** — `assets/storytime/universes/`: `httyd.json` · `starwars.json` ·
+`_validate.mjs` (reusable pack validator) · `README.md` (format, sources, judgment calls).
+
+- **httyd.json** — timeline point **"conclusion of Race to the Edge (before HTTYD 2)"**,
+  the user's explicit spec: every status true as of series end, not the films. 22
+  characters (six riders AND their six dragons as full entries, Stoick, Gobber, Heather +
+  Windshear, Dagur + Sleuther, Mala, and the four antagonists), 17 canon rules, 7
+  relationships, 5 locations. The era subtleties are the point and live in the right
+  buckets: Valka believed dead (Hiccup AND Stoick), Toothless believed the last Night
+  Fury, no Hidden World or Light Fury, Hiccup not yet chief, Hiccup+Astrid together but
+  NOT engaged, Berk at peace, both Dragon Eyes destroyed. Antagonists at series end —
+  Viggo dead (sacrificed himself after Johann's betrayal), Ryker dead (Submaripper took
+  his ship), Johann dead (frozen by the Bewilderbeast), **Krogan ALIVE and vanished**
+  (commonly misremembered as a death; he is the one RTTE villain a new story can reuse).
+- **starwars.json** — RULES pack per the user, not a cast dump: 25 canon entries on how
+  the Force works and how lightsabers work (light/dark and what feeds each, training,
+  telekinesis, reflexes, sensing, visions as one possible future, mind trick + who resists
+  it + droids immune, kyber crystals as the living heart of a blade, attunement/colour,
+  bleeding red and healing back, what a blade cuts and what resists it — beskar, cortosis,
+  phrik — blade-on-blade locking, deflecting bolts). **Era-agnostic**; the reader sets an
+  era in setup. Only 3 characters, each era-flagged inside `status` so a pre-Empire story
+  correctly has no Vader. Jedi and Sith are canon entries, not characters.
+
+**VERIFY**: `node assets/storytime/universes/_validate.mjs [file.json]` — **928/928, exit 0**
+(schema subset complete, no empty field, unique/well-formed C*/CH*/L* ids, one-sentence
+canon rules, pack turns all 0, no stray top-level keys, seed size under the ledger cap).
+A 14-case negative test (deliberately corrupted packs) proved every rule actually fires —
+and immediately caught a real bug in the validator itself: `argv.map(basename)` hands
+`basename()` the array INDEX as its `suffix` argument, so single-file mode crashed on every
+invocation. **A validator that has only ever passed is untested.**
+
+**SIZE / the ledger budget** — the number that matters is the MINIFIED seed, since that is
+what counts against the server's ~30KB ledger cap: httyd **22.7KB**, starwars **9.5KB**.
+HTTYD is over the 4-8KB hoped for and that is a genuine trade-off, not an oversight: 22
+characters × 8 prose fields plus JSON keys floors near 16KB however tightly worded, and the
+prose was cut twice — what remains is `voice` (voice drift was a family complaint), `status`
+(the timeline point's actual payload) and the knowledge buckets, i.e. the three things the
+pack exists to fix. **Flagged for the engine**: ~7KB of headroom is tight; the easy outs are
+seeding only the characters a story touches, or letting the planned compaction step (plan
+doc build step 5) collapse dormant ones. That is the engine's call, not the pack's.
+
+---
+
+# 📖 STORY TIME CONTINUITY — the KEEPER, step 3 (2026-08-03, UNPUSHED)
+
+Plan of record: `storytime-continuity-plan.md`, build step 3, now ticked. The ledger stops being
+plumbing and starts remembering: after every scene of a ledger story a second tiny model call —
+the KEEPER — reads what was just written and returns a DIFF, which the client validates, applies
+and files. Files: `netlify/functions/farmgpt.mjs`, `farmgpt.html`, `tools/_verify-storyledger.cjs`
+(212 → **374**, 0 page errors), new `tools/_probe-storykeeper.mjs`. **Verified LIVE against real
+Haiku** — an `ANTHROPIC_API_KEY` exists in `tools/.env` now and api.anthropic.com is reachable, so
+unlike steps 1-2 nothing below is fake-server-only. Built on top of the parallel session's WIP;
+none of its hunks were touched.
+
+## The keeper
+Server mode `"ledger"`: Haiku, thinking off, JSON only, **its own** records-clerk system prompt
+(`LEDGER_KEEPER_SYSTEM`) — it is not a storyteller, and FAMILY_RULES is deliberately NOT re-sent to
+it (one short "leave that material out of the ledger, and stay JSON" line instead: a clerk that
+refuses returns prose, and prose is a lost scene). Its single user turn is built SERVER-SIDE from
+named body fields (`ledger` + `scene` + `choice` + `readerAssert` + `turn`); a `messages` array from
+the client is ignored, because `MAX_CONTENT_CHARS` would slice a 28KB ledger mid-JSON.
+`renderLedgerForKeeper` is deliberately NOT `renderLedgerBlocks`: the narrator is shown a world, the
+clerk is shown a **filing system** — every entry carries the id an update must quote back, and
+HIDDEN is a working list to promote FROM rather than a secret to write around.
+- **It costs no daily cap and writes no Story Log.** Both gates were already `mode === "story"`, so
+  this is structural rather than a new exception — the scene it reads was logged by the story call
+  that produced it, and a second copy would corrupt Dad's review view AND double-count the cap.
+- Usage lands in a new bucket **`l`** (`l_in/l_out/l_req/l_cw/l_cr`), with a 📒 row and column in the
+  dashboard. Folding it into `s` would make a chapter look twice as expensive as it is.
+- Pinned to Haiku regardless of `STORY_PROVIDER`: flipping the narrator to Gemini or Sonnet is a
+  prose decision and must not silently move the bookkeeper onto a provider whose JSON adherence
+  nobody has measured.
+
+## Client: fail-open is the contract
+`runKeeper` sits in the `maybeSummarize` slot (legacy stories keep the recap path untouched). EVERY
+failure — network, unparseable JSON, a rejected patch, a canon violation, a timeout — leaves the
+previous ledger byte-identical, records an honest empty entry so the diff log stays gapless, and
+says nothing to the reader. A keeper failure is invisible from the reading chair.
+- **Keeper calls QUEUE, they never overlap and are never dropped.** The first cut used a boolean
+  latch, which silently threw away a scene's bookkeeping whenever the reader chose faster than the
+  keeper answered — and diffs must apply in scene order anyway, each written against the ledger the
+  one before it left behind.
+- A 45s abort. Without it a hung request latched the keeper closed for the rest of the session —
+  the one failure mode fail-open does not cover by itself.
+- The failure REASON now carries a 200-char snippet of what actually came back. "Wasn't JSON" alone
+  is unfalsifiable a week later, it is the field step 5's audit tool will read, and it is what found
+  the max_tokens bug below.
+
+## `promote_knowledge` — the reveal-preserving move
+A new diff op, and **the only way anything ever leaves `hidden_from_player`**. Everything else in a
+diff is additive (which is what makes a bad patch harmless), but player_knowledge has to move a line
+between buckets: a secret still marked HIDDEN after the reader has learned it makes the narrator
+hide something the reader is already holding. Two rungs, per the step-2 gate's finding:
+**hidden → suspected** (the reader earned doubt) → **known** (the story confirmed it). Matching is
+exact → normalised → containment-either-way with a ≥12-char overlap guard, because a model told to
+"copy the line exactly" still paraphrases; the LEDGER'S wording is what moves, never the paraphrase.
+A fact that was never hidden is simply added rather than lost. Re-promoting to the rung it is
+already on is a no-op — the keeper does re-report.
+
+## Reader canon
+A write-in or a redo note is a READER ASSERTION and can become permanent canon with
+`source:"reader"`, which the narrator is now told **outranks any other canon rule it contradicts**
+(the pack FILE is never touched — only this story's copy). The rendered CANON block marks those
+lines; FAMILY_RULES still has the last word.
+**The CLIENT, not the model, decides when that authority may be minted.** `sanitizeKeeperDiff`
+downgrades any `source:"reader"` the model invents on a turn that carried no assertion, and `"pack"`
+is denied outright (only the seeder mints pack canon). Permanence is free: canon is append-only and
+`canonPreserved` already catches an edit, a delete or a reorder.
+
+## Redo
+"↻ redo this scene" + an optional note, offered whenever a scene is on the page and the story is
+waiting on the reader (including at a chapter end). It throws the last scene away, **truncates the
+diff log so no entry outlives its scene**, and rewinds the ledger through `ledgerPrev` — the
+keeper's snapshot from immediately before the diff it applied. A stale keeper still in flight for
+the discarded scene abandons quietly (`story.keeperGen`) rather than stamping its diff onto the
+index the replacement now occupies — a silent, unfindable corruption otherwise. `ledgerPrev` doubles
+a ledger story's footprint, so under shelf pressure it is shed OLDEST BOOK FIRST, before any ledger
+is compacted, and the book on top keeps its undo.
+A redo can leave the reader's note attached to the NEXT_CHAPTER sentinel, so every "is this the
+next-chapter turn?" test is now a PREFIX test (`isNextChapterTurn`) — four call sites.
+
+## Two fixes this step made to steps 1-2, both found by the live work
+- **`update.meta` now applies BEFORE the adds.** New canon and timeline entries are stamped from
+  `meta.turn`, so with the update running last a replay stamped them differently from the live run —
+  i.e. `seed + diffs 0..N` did NOT reproduce the ledger exactly, quietly breaking step 5's rewind
+  primitive. Caught by asserting the WHOLE ledger rather than just its canon.
+- The keeper stamps the scene's turn into the diff itself, for the same reason (a replay never runs
+  the client code that sets `meta.turn`).
+- Plus one tolerated misplacement: the model repeatedly emits `player_knowledge` at the TOP level
+  instead of under `add`. Unshimmed that is an unknown key — the diff "succeeds" while silently
+  losing what the reader learned. Only this one key is folded; an ambiguous misplacement
+  (`protagonist`, which could mean add OR update) is left alone rather than guessed at.
+
+## LIVE — what the model actually did
+`node tools/_probe-storykeeper.mjs [--promo N] [--habits N] [--play N]` hosts the real function
+in-process with the real key and Firestore pointed at a dead host (so probe scenes never touch the
+Story Log and the cap query fails open), and `--play` drives the REAL page end to end.
+- **PROMOTION, 5 fixed scenes × N trials** — fixed scenes so only the keeper's judgement varies;
+  narrator variance would otherwise dominate the number. **Before tuning 31/40 = 22% failure**, in
+  two clear shapes: found evidence read as PROOF (promoted straight to `known`), and mere
+  topic-relevance read as suspicion (a confident accusation of the WRONG person promoted the
+  secret). After rewriting that section as an ordered 3-question test plus an explicit WHEN NOT TO
+  PROMOTE: **136/140 pooled over three runs = 3% failure**, then 40/40 on a fourth after the
+  reader-canon tightening; the residue is the safe direction (over-knowing a fact nearly earned,
+  not the narrator hiding one already learned). `last_seen` coverage — the other most-missed
+  update — ran 39/40 · 60/60 · 38/40 across runs, i.e. ~95%+ and never the cause of a rejected
+  diff. Invented ids: **0 in every run** — worth knowing, because one would throw a whole diff away.
+- **READING EVERY DIFF OF A REAL STORY** is what found the rest, and NONE of it reproduced on short
+  fixtures — the pre-tune prompt scores 32/32 on the isolated versions of all of these. They only
+  appear once a ledger has accumulated. Found: canon minted from a QUESTION ("[C6] Wren asked Maren
+  directly if she is putting out the lamps" — permanent, append-only, from a turn that asserted
+  nothing) and later from an ACTION ("[C3] Wren walks from the quay to the lighthouse via the shoal
+  path" — that is where she went, not a rule of the world); a character's DENIAL written into
+  `known` while that very fact sat on the HIDDEN list, the ledger contradicting itself; and `known`
+  growing five entries a scene to 38 by turn 15, every one re-read forever. Prompt rules fixed all
+  of them — the reader-assertion section now carries three WORKED EXAMPLES (question / action /
+  statement) because naming the categories abstractly left the action case failing 1-in-8. A
+  regression battery for exactly these, `--habits`: **39/40 before the worked examples, 50/50
+  after**, with the `known` bloat down to 20 entries at the same 15 turns and denials correctly
+  recorded as "Maren SAYS she is not…".
+- **THE max_tokens BUG, and it is the one worth remembering.** Three consecutive keeper failures
+  mid-playthrough were invisible to every isolated test — 12/12 clean by direct POST, 8/8 clean
+  through the client — because the untested variable was SCENE LENGTH. On a long, event-dense scene:
+  **7 of 8 truncated MID-JSON at the plan's sketched 600 tokens, 0 of 8 at 1200.** The failure is
+  silent and total (unparseable → fail-open → that scene's bookkeeping simply gone), and output
+  tokens bill only for what is produced, so the headroom is free on ordinary scenes. A short-scene
+  fixture will never reproduce it: do not lower `MODES.ledger.maxTokens` without re-measuring on a
+  long one.
+- **A PROBE FINDING, NOT A PRODUCT BUG, and it cost three runs**: every `--play` run stopped dead at
+  exactly 15 turns. That is `STORY_DAILY_CAP` — the client counts every scene it renders, so a
+  20-turn probe walks into the "you've read a LOT today" notice and correctly refuses to continue.
+  The probe now identifies as **Dad**, the one identity exempt from the cap on both sides (it still
+  sends no `user` on the wire, so the server counts and logs nothing either way). Worth remembering
+  for any future long automated playthrough of story mode.
+- **THE FINAL 20-TURN RUN, everything in**: 20 scenes, **20/20 keeper diffs applied, 0 not applied**,
+  diff log 20 entries for 20 scenes and ordered, 3 promotions (hidden → suspected → known, the
+  ladder walking on its own), the redo landing its note as the run's ONE reader-canon rule
+  ("Bramblewick has a wooden leg."), 0 canon minted from a question, 0 denials in `known`, 0 leaks,
+  0 page errors, ledger valid, 22 known entries / 8047 bytes on the wire.
+- **ONE MORE BUG, caught by reading that run's diffs rather than by any test**: the keeper
+  re-reports a fact it has already moved, and PARAPHRASES when it does — so a "…to known" for
+  something already sitting in `suspected` matched nothing (it was no longer hidden) and landed a
+  SECOND copy of the same secret in a second bucket. The narrator was then told the reader both
+  knew it and merely suspected it. `promote_knowledge` now fuzzy-matches the OTHER rungs too, moves
+  the ledger's own wording between them, and refuses to regress a known fact back to suspected.
+
+## Suites
+`tools/_verify-storyledger.cjs` **374/374**, 0 page errors — same house pattern (in-process handler
++ fake Anthropic/Google/Firestore for the wire; real Chrome over a local origin for the client).
+New: A8-A11 (the keeper's wire, no-cap/no-log, its edges, reader-canon precedence for the narrator),
+G (promote_knowledge incl. both rungs and wholesale rejection), H (the keeper: the happy path with
+THE test — a secret learned on the page moves HIDDEN → KNOWN — then **eight failure modes one at a
+time**, a timeout, the queue, and a redo racing a keeper), I (reader canon minted, persisted and
+un-editable; the model downgraded on a non-asserting turn; redo's log truncation and ledger rewind;
+replay-after-redo reproducing the live ledger EXACTLY; the shelf shedding `ledgerPrev` first).
+
+**KNOWN / DEFERRED**: `known` still grows ~1.5 lines a scene, which is fine at 20 turns and wants
+step 5's compaction by 100; `ledgerPrev` is a ONE-step undo, so redo replaces the last scene only;
+and the probe's leak tripwire only fires while a fact is still hidden (once promoted the narrator is
+entitled to play with it, and flagging that would be flagging the feature working).
+
+---
+
+# 📖 STORY TIME CONTINUITY — caching + the operating loop, steps 4-5 (2026-08-03, UNPUSHED)
+
+Plan of record: `storytime-continuity-plan.md`, build steps 4 and 5, both now ticked — **the
+continuity engine is complete**. Files: `netlify/functions/farmgpt.mjs`, `farmgpt.html`,
+`tools/_verify-storyledger.cjs` (374 → **457**, 0 page errors), new `tools/_probe-storycache.mjs`
+and `tools/_probe-storystep5.mjs`. Everything below was MEASURED or run against real models, not
+reasoned about. Built on top of the parallel session's WIP; none of its hunks were touched.
+
+## Step 4 — caching: the answer is 0.0%, and that is the finding
+
+Step 2 chose the prompt block order FOR caching and never observed a cache field. So this step read
+what the API actually reports. `tools/_probe-storycache.mjs` wraps global `fetch` before the
+function module is imported, tees each upstream SSE response, and records
+`cache_creation_input_tokens` / `cache_read_input_tokens` per request — narrator and keeper
+separately — across a real 6-turn story driven through the real page. It also fingerprints the
+system prompt and `messages[0]` per turn, so a zero hit rate can be **explained** rather than just
+reported.
+
+| real 6-turn story, real Haiku | input | cache write | cache read | hit rate |
+|---|---|---|---|---|
+| narrator | 3,777 | **25,919** | **0** | **0.0%** |
+| keeper | 20,436 | 0 | 0 | 0.0% |
+
+- **The narrator was paying a pure surcharge.** A cache WRITE bills at 1.25x input, so 25,919
+  written-and-never-read tokens is **+21.8% on input for nothing**.
+- **WHY IT CAN NEVER HIT.** The top-level flag auto-places ONE breakpoint on the last cacheable
+  block, so the cached entry is the WHOLE prompt — and a story's prompt is never byte-identical
+  twice. The probe's fingerprints show `messages[0]` changing every single turn: the keeper rewrites
+  `last_seen` on the "stable" ledger half every scene, and cast hydration reshapes that half **by
+  design** the turn a character first appears. (The system prompt also flips between two hashes —
+  that is `shouldIllustrate()` appending `STORY_ILLUSTRATION` every third scene.)
+- **A SYSTEM-ONLY BREAKPOINT DOES NOT RESCUE IT, and this was measured, not assumed.** Sent as a
+  cache-controlled block on its own, the narrator's system prompt is 2,839 tokens and the keeper's
+  2,215, and **both write nothing** — under Haiku 4.5's minimum cacheable prefix. The playthrough
+  brackets that minimum independently: no write at 3,762 tokens, a write at 4,334. The documented
+  figure is 4,096. **The minimum is not monotonic across models** — 1,024 on Sonnet 5, 4,096 on
+  Haiku 4.5 — so "it caches on Sonnet" tells you nothing about Haiku.
+- **THE CHEAP FIX, TAKEN**: `cache_control` is now per-mode (`MODES.<mode>.cache`, default on),
+  **off for `story` and `ledger`**, unchanged for research and dungeon — where the prefix genuinely
+  is append-only, the system prompt is large, and the model is Sonnet. The dungeon entry's claim
+  that a pasted module re-reads at ~10% after the first turn is therefore intact.
+- **THE EXPENSIVE FIX, NOT TAKEN, and this is the recommendation**: the spec's stabilized/split
+  ledger would mean giving up cast hydration (a character moving from roster to full sheet IS a
+  prefix change) to buy back roughly **$1/month at the family's absolute ceiling**. The plan's own
+  rule is "no stabilized-ledger engineering until costs demand it"; they do not. REVISIT only if
+  story moves to Sonnet AND the stable half is made byte-stable.
+
+## Step 5a — compaction: one principle, and everything follows from it
+
+> **COMPACTION NEVER DELETES A FACT FROM DISK.** What it removes from the STORED ledger is only
+> structure already rewritten losslessly elsewhere in the same ledger. Everything else is shaping
+> for THE WIRE, with the stored copy left whole — exactly like cast hydration.
+
+That is what makes it reversible-safe, and it is asserted rather than assumed.
+- **Resolved threads fold** into ONE timeline line carrying the thread's own sentence verbatim, then
+  leave `open_threads`. Stored, deterministic (a pure function of the ledger — it reads `meta.turn`,
+  never a clock), and **idempotent**, which is what lets it run inside every `applyLedgerDiff` so a
+  replay folds at the same moments and `seed + diffs` still reproduces the live ledger BYTE for
+  byte. The fold also had to teach `resolve_threads` tolerance: the keeper re-reports a resolution
+  it has already reported, and without recognising an already-folded id that would throw away a
+  whole otherwise-good diff (a genuinely unknown id still rejects it).
+- **Dormancy is ONE MORE CONDITION on the on-stage test hydration already uses** — deliberately, so
+  the two compose instead of fighting. Hydration asks "has this person ever appeared?"; fifty turns
+  later the honest answer is "yes, long ago", and a full sheet for someone the story left behind
+  costs the same bytes as a never-met one. Past `DORMANT_AFTER` 20 turns a character drops to a
+  roster line **marked with `lastSeen`** — load-bearing, because the roster block otherwise tells
+  the narrator that someone it has already written scenes for has never been on screen — and
+  **rehydrates automatically** the turn the keeper moves `last_seen`. An unresolved thread naming
+  them overrides dormancy. **Nothing is removed from disk.**
+- **Stale places and a runaway KNOWN list, wire-only**: a place unvisited for 20+ turns travels as
+  name + current state without its description (a place with no recorded `state` keeps it — a bare
+  name tells the narrator nothing), and `known` is capped to its newest 24 (it grew ~1.5 lines a
+  scene in the step-3 live runs and is most of the volatile block by turn 100).
+- **MEASURED on a synthetic 120-scene story** (a timeline line, a known fact and a thread every
+  scene, a character every tenth, a third of threads resolving): stored **28,651 bytes** — inside
+  the 30KB cap — wire **9,843**, every canon rule and every character intact, every character still
+  reaching the narrator in some form, and the whole run replaying **byte-identically**.
+- KNOWN LIMIT, and it is the pre-existing timeline shedding rather than a new one: once a ledger
+  nears its cap the budget compaction drops timeline entries oldest-first, folded thread lines
+  included. The guarantee is "a folded thread keeps its sentence until the whole timeline is being
+  shed", and the suite checks a RECENT fold for exactly that reason.
+
+## Step 5b — go back: rewind and branching on the diff log
+
+The primitive has been sitting there since step 1 (`ledger@N === seed + diffs 0..N`); this makes it
+a reader-facing feature. A 🕰 **go back** button on the same bar as the redo affordance opens a list
+of the choices the reader made, newest first; picking one confirms, then unwrites that scene and
+everything after it, leaving the reader standing at that choice again.
+- **`story.ledgerSeed` is new and load-bearing** — the world at turn 0, stored at creation and never
+  written to again. Without it there is nothing to replay onto, so a story that predates the field
+  **refuses honestly** instead of guessing at a starting world. It is shed LAST under shelf
+  pressure and never from the book being read (it never grows, so it is rarely what put the shelf
+  over).
+- **THE OLD VERSION IS ALWAYS KEPT**, on the shelf under its own id as "<title> (the old way)".
+  Going back is the one action here that destroys reading the family already did, so nothing is
+  destroyed and there is no decision to make.
+- What moves together, all asserted: the transcript (cut to end on a scene, so the choices are
+  offered again), the diff log (cut to match, still one entry per scene with no gaps), `meta.turn`,
+  the chapter number (recomputed), the `closing` latch, `ledgerPrev` (redo's undo pointed at a scene
+  that no longer exists), and `keeperGen` — bumped, so a keeper still in flight abandons instead of
+  stamping its diff onto an index that now belongs to a different scene.
+
+## Step 5c — the contradiction audit (Dad only)
+
+Server mode **`"audit"`**: Sonnet (a reasoning job over a whole story, read by a parent deciding
+whether the engine works — the cheapest place to be wrong), its own `STORY_AUDIT_SYSTEM`, its own
+single turn built SERVER-SIDE from `ledger` + `transcript` (same reason as the keeper's: a 28KB
+ledger inside a message would be sliced at `MAX_CONTENT_CHARS`), **no daily cap, no Story Log** —
+both gates are `mode === "story"`-only, so this is structural rather than a new exception. Usage
+lands in a new bucket **`c`** with a 🔎 row and column in the dashboard. `cache:false` — a one-shot
+call's cached prefix is never read.
+- It gets the FULL ledger **including the timeline**, which the narrator never sees, because the
+  timeline is precisely the audit trail a contradiction is checked against.
+- The client page is Dad-gated exactly like the Story Log, lists the shelf (stories live only in
+  this device's localStorage — there is no server story store), and renders findings by severity
+  with the evidence a parent can check for themselves.
+- **The keeper's accumulated `notes` are surfaced alongside**, plus any scene whose bookkeeping
+  failed outright. `notes` is free text the diff format has always allowed and nothing had ever
+  displayed — it is the bookkeeper's drift alarm, written at the moment it was unsure.
+
+## LIVE — what the real models actually did
+`node tools/_probe-storystep5.mjs [--rewind N] [--audit]` (real function in process, real key,
+Firestore dead-hosted, probe identifies as **Dad** or the 15/day cap stops it at turn 16).
+- **REWIND, a real 7-scene story**: rewound to scene 3 and every diff printed before and after. The
+  rewound ledger is **byte-equal to a fresh replay of seed + surviving diffs**; the discarded
+  version landed on the shelf whole (7 scenes); a different choice from the same moment produced a
+  new scene with the log still gapless at 4/4 and the turn counter following. 0 page errors.
+- **AUDIT, against three planted contradictions** (canon: nobody in Saltmere can swim, and the hero
+  swims the channel · voice: warm wandering Maren speaking "clipped and short, the way Bramblewick
+  would have" · a hidden fact the prose gives away): it found the canon break at HIGH severity with
+  both quotations, found the voice break, AND found a real one nobody planted (the lighthouse
+  recorded as lit while the scene ends with its lamp doused). **The control — the same world, a
+  story that breaks nothing — returned ZERO findings**, which is the half that matters most: a
+  checker that invents contradictions is worse than none.
+- ONE PROMPT ITERATION, and it was worth it: the first live run found only the canon break. Adding a
+  HOW TO WORK section that walks the ledger's lists in turn ("every character's VOICE: read their
+  actual dialogue… the obvious break is rarely the only one") took it from 1 finding to 3 with the
+  control still clean.
+
+## Suites
+`tools/_verify-storyledger.cjs` **457/457**, 0 page errors. New: **A12-A13** (the audit's wire —
+its own system prompt with neither of the others leaking in, Sonnet, server-built turn, the timeline
+included, no cap consumed, no Story Log written, usage in bucket `c`), **A14** (caching: the wire
+facts asserted, the MEASURED numbers **reported not asserted** — cache behaviour depends on a
+5-minute TTL and a model-dependent minimum, and an assertion on it would be a flaky test rather than
+a useful one, the same treatment the pack-size measurements get), **J** (compaction: fold /
+idempotence / re-report tolerance, replay identity across a fold, stale places, the KNOWN cap, disk
+untouched, and the 120-scene simulation), **K** (rewind: points, truncation, `meta.turn`, chapter,
+`keeperGen`, the shelf copy, refusals at both ends, a real branch, and THE test — the replayed
+ledger byte-equal to a fresh play), **L** (the audit client: transcript building, keeper notes, JSON
+tolerance, Dad gating, and the whole flow against a stubbed report).
+Regressions: `_verify-kidstory-server.mjs` 54/54, `_verify-dnd-server.mjs` 47/47.
+**RESTAGED, each with its reason in the file**: "prompt caching still requested" → story now asks
+for NO breakpoint; two "a thread is resolved" checks → a resolved thread is now folded into the
+timeline, so the same fact is checked where it now lives; the hydration battery's long-story case →
+its fixture puts five characters 55 turns past their `last_seen`, which is exactly what dormancy
+exists for, so it now asserts the dormant round trip instead; and the redo bar lays out as `flex`
+rather than `block` now that it carries two affordances.
+**TEST GOTCHA worth keeping**: every page in this suite shares one browser profile and therefore one
+localStorage. Two things in it are cumulative and will silently break a later section — the daily
+story counter (past `STORY_DAILY_CAP`, `takeTurn` stops doing anything at all, with no error) and
+the bookshelf. Sections that drive many turns now clear both.
+
+**KNOWN / DEFERRED**: the audit still misses the subtlest plant (a hidden fact the prose gave away)
+about as often as it catches it; a story created before this step has no `ledgerSeed` and cannot be
+rewound; and the shelf copy a rewind leaves behind counts against the 20-book cap like any other.
+
+---
+
+# 📖 STORY TIME CONTINUITY — landed on main (2026-08-03)
+
+The four sections above were built on a base copy of `farmgpt.html` / `netlify/functions/farmgpt.mjs`
+that was ~1,385 lines behind `origin/main`. Copying those files over main would have reverted three
+other sessions' shipped work, and a branch merge produced 15 unrelated add/add conflicts across
+fitness/news/castlekruzer. So the engine was landed as a NARROW three-way merge instead —
+base = the ledger session's own HEAD, ours = `origin/main`, theirs = the ledger working tree — on
+those two files only. **16 conflict hunks in the page, 5 in the function**, each resolved by hand.
+Everything else in the branch is a new file.
+
+**FIVE THINGS THE MERGE HAD TO DECIDE, and why:**
+- **THE `c` USAGE BUCKET WAS ALREADY TAKEN.** The audit shipped writing `c_in/c_out/c_req` on the
+  shared `farmgpt_usage` doc — and main's Meals calorie estimator has owned "c" there since
+  2026-08-01. Two modes incrementing one bucket makes BOTH dashboard rows lie, and Firestore
+  increments are not separable after the fact. The newcomer moved: **the audit is bucket `x`**
+  (server map, `usageRow`'s read list, `rowCost`, `tokTotal`, the monthly split row, and the daily +
+  hourly 🔎 columns). The suite assertion moved with it and now also pins that it is NOT "c".
+- **TWO SESSIONS BUILT REDO INDEPENDENTLY.** Main has a typed one (`REDO_RE` / `tryRedo` — a
+  write-in starting "redo…" splices the rejected scene out); the ledger has the ↻ button
+  (`redoScene`, which additionally bumps `keeperGen` and truncates `ledgerDiffs`/`meta.turn`). Main's
+  splice is CORRECT for a legacy story and CORRUPTING for a ledger one — `ledgerDiffs[N]` describes
+  scene N, so a scene removed without its entry shifts every later replay and silently breaks 🕰 go
+  back. `tryRedo` now delegates to `redoScene` when `hasLedger(story)`, and keeps its own body
+  verbatim otherwise. Both roads, one destination.
+- **BOTH SESSIONS EXTRACTED THE SAME PAINTER.** Main called it `paintTranscript()` (closes over the
+  global `story`), the ledger `paintStoryScroll(s)`. The ledger's is a strict superset — it also
+  renders a redo note left on the next-chapter sentinel, and validates a malformed ledger on resume
+  — so it won, and main's one call site was repointed. (The auto-merge left one `story.messages`
+  inside the `s`-parameterised body; caught by reading, not by a test.)
+- **`SEND_CHAPTERS` IS MAIN'S KNOB, 6 NOT 4.** Main raised it for stronger continuity. The suite's
+  legacy-window checks were written against a hardcoded 4 and a 6-scene fixture, which at 6 makes
+  the whole transcript short enough to skip the recap path entirely — two failures that were the
+  TEST being stale, not the code. The fixture is now sized off `S.SEND_CHAPTERS` and asserts against
+  it. Ledger stories are unaffected: they travel on `SEND_SCENES = 3`.
+- **THE PARALLEL SESSION'S WORK WAS ALREADY ON MAIN, and newer.** The story-log summary engine
+  (`buildStoryLogCard`, `STORY_LOG_SUMMARY_SYSTEM`, the summary job) appeared on BOTH sides — main's
+  version retains raw scenes as a 90-day readable transcript and has the refined flagging prompt, so
+  main's won outright in both files (a 640-line hunk and a 106-line one).
+Also merged rather than chosen: the `views` map (main's `teacher` + the ledger's `audit`), the
+`sceneIdx` source (main's monotonic `story.sceneSeq` + the ledger's chapter-note-aware choice label),
+the resume path (`isNextChapterTurn(...) || !!last.opener`), and `rowCost` (main's Sonnet-priced `u`,
+`c`, Opus `t` + the ledger's `l` and `x`). The 🔎 audit button joined main's compact `#dadRow` pill
+row rather than restoring the old stacked block.
+**GOTCHA:** the ledger session wrote `farmgpt.mjs` with CRLF endings while main is LF, so the first
+three-way merge reported "1 conflict" that was really the whole file. Normalise line endings before
+trusting a merge-file count. Shipped LF, matching main.
+**VERIFIED on the merge:** storyledger **457/457** · kidstory-server **54/54** · dnd-server **47/47**
+· news **157/157** · fitness **253/253** · activity **147/147** · beacon-safety **90/90**, plus a
+headless farmgpt.html boot at 390×844 and 1280×800 (0 page errors, all 16 hook functions and all 8
+views present, home still fits one screen: 658/844 and 698/800) and a usage-dashboard render with
+mocked stats (10/10 columns on both tables, all 11 mode rows, no sideways body scroll). LIVE against
+real Haiku through the merged function AND the merged page (`_probe-storykeeper.mjs --promo 3
+--play 4`): 4 scenes, 4 keeper diffs applied / 0 failed, a promotion fired, diff log 5 entries for 5
+scenes in order, final ledger valid, 0 page errors.
+**KNOWN, pre-existing, NOT introduced here:** main's `usageRow` never reads the `t_*` (TeacherGPT)
+prefix it writes, so that dashboard row always shows zero. Left alone — it is another session's
+feature and a one-word fix belongs with them.

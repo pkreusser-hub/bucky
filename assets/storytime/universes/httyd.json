@@ -1,0 +1,769 @@
+{
+  "meta": {
+    "universe": "httyd",
+    "title": "How To Train Your Dragon",
+    "timeline_point": "conclusion of Race to the Edge (before How To Train Your Dragon 2)",
+    "genre_and_tone": "warm Viking adventure — flying, friendship and daring rescues, with danger that always lands gently",
+    "narrative_voice": "close third person, wry and affectionate, rich in dragon detail",
+    "schema_version": 1,
+    "pack_version": 1
+  },
+  "canon": [
+    {
+      "id": "C1",
+      "rule": "Dragons are intelligent, feeling creatures who choose their riders; they are partners, never property.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C2",
+      "rule": "A dragon is trained by earning trust — an open hand, a turned-away gaze, patience — and a bond once made lasts for life.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C3",
+      "rule": "Every dragon belongs to a class — Stoker, Boulder, Tracker, Sharp, Tidal, Strike, Mystery or Fear — which predicts how it flies and fights.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C4",
+      "rule": "A dragon carries only so many shots before it must rest and reload, and Hiccup counts Toothless at about six plasma blasts.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C5",
+      "rule": "A Night Fury is Strike Class: the fastest and quietest flier known, firing explosive blue-white plasma blasts with uncanny accuracy.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C6",
+      "rule": "In darkness or fog a Night Fury navigates by echolocation, crying out and reading the sound that returns.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C7",
+      "rule": "Toothless lost his left tail fin years ago, and the replacement Hiccup built is worked from the saddle, so he cannot fly properly without his rider.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C8",
+      "rule": "Nearly every dragon is terrified of eels, and the sight of one will panic even a calm dragon.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C9",
+      "rule": "Dragon Nip is a herb that soothes and delights dragons; Dragon Root does the opposite and turns a gentle dragon wild.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C10",
+      "rule": "Gronckle Iron is made by feeding a Gronckle iron ore and limestone, and what it spits out is lighter and far stronger than ordinary iron.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C11",
+      "rule": "Dragon fire has personality: a Monstrous Nightmare sets its whole body alight, a Zippleback sprays gas from one head and sparks it with the other, and a Gronckle spits molten lava.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C12",
+      "rule": "Berk and its dragons live in peace — dragons nest on the rooftops and share the work — and the Riders defend the archipelago instead of fighting dragons.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C13",
+      "rule": "Dragon Hunters trap and sell dragons for gold, and Dragon Flyers ride captured dragons that obey out of fear rather than trust.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C14",
+      "rule": "Dragons must obey the call of an Alpha, and the mightiest Alpha the Riders have seen is a Bewilderbeast.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C15",
+      "rule": "Some dragon eggs, Gronckle eggs especially, explode when they hatch, which makes a stolen egg worth a war.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C16",
+      "rule": "Rider gear is homemade — saddles, flight suits, prosthetics and blades all come off Gobber's forge — and anything broken gets mended, not replaced.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C17",
+      "rule": "Vanaheim is a hidden sanctuary dragons find their own way to, and the Riders have sworn to keep its location secret.",
+      "source": "pack",
+      "turn": 0
+    }
+  ],
+  "characters": [
+    {
+      "id": "CH1",
+      "name": "Hiccup Horrendous Haddock III",
+      "origin": "pack",
+      "role": "leader of the Dragon Riders, Stoick's son, inventor and mapmaker",
+      "status": "alive and well, moved back to Berk from Dragon's Edge; not chief yet",
+      "physical": "lean, about twenty, auburn hair, freckles, scarred chin, a prosthetic left leg of his own design",
+      "voice": "thinks out loud in quick self-deprecating tangents, jokes when nervous, goes quiet and very certain when asking someone to trust him",
+      "motivation": "peace between people and dragons",
+      "possessions": [
+        "Inferno, a retractable sword fed by Monstrous Nightmare gel and Zippleback gas",
+        "flight suit with fold-out wings",
+        "his maps and sketchbook"
+      ],
+      "knows": [
+        "how to read almost any dragon's mood",
+        "that both Dragon Eyes were destroyed on his own order"
+      ],
+      "does_not_know": [
+        "that his mother Valka is alive",
+        "that any other Night Fury exists",
+        "that there is a Hidden World beneath the sea",
+        "anything of a warlord named Drago Bludvist"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Berk",
+        "state": "restless for the next map"
+      }
+    },
+    {
+      "id": "CH2",
+      "name": "Toothless",
+      "origin": "pack",
+      "role": "Night Fury, Hiccup's bonded dragon and closest friend",
+      "status": "alive and thriving; believed by all, himself included, to be the last of his kind",
+      "physical": "sleek black dragon the size of a small horse, retractable teeth, huge green eyes; his left tail fin is a red leather-and-metal prosthetic",
+      "voice": "does not speak — warbles, croons, gummy grins, hard clicking growl when unimpressed; halfway between a cat and a very loyal dog",
+      "motivation": "Hiccup first and last, then flying fast and sleeping warm",
+      "possessions": [
+        "his prosthetic tail fin and saddle rig"
+      ],
+      "knows": [
+        "every handhold of Hiccup's saddle and every tone of his voice"
+      ],
+      "does_not_know": [
+        "that he is not the last Night Fury",
+        "that a Light Fury exists"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Berk",
+        "state": "curled on his warm slab"
+      }
+    },
+    {
+      "id": "CH3",
+      "name": "Astrid Hofferson",
+      "origin": "pack",
+      "role": "Dragon Rider, Hiccup's second-in-command and his girlfriend",
+      "status": "alive and well on Berk; openly together with Hiccup",
+      "physical": "athletic, long blonde braid, spiked shoulder guards, carries an axe",
+      "voice": "blunt, dry and a step ahead — names the plan's flaw in one line, punches Hiccup's shoulder before she kisses him, never softens bad news",
+      "motivation": "keeping the team alive and Hiccup honest about his risks",
+      "possessions": [
+        "a battle axe (her old one was smashed over the King of Dragons)",
+        "Stormfly's saddle"
+      ],
+      "knows": [
+        "that Hiccup will be chief and is not ready to hear it"
+      ],
+      "does_not_know": [
+        "that Valka is alive"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Berk",
+        "state": "flying patrols, missing the Edge"
+      }
+    },
+    {
+      "id": "CH4",
+      "name": "Stormfly",
+      "origin": "pack",
+      "role": "Deadly Nadder, Astrid's bonded dragon",
+      "status": "alive and well, nesting on Berk",
+      "physical": "tall blue-and-yellow Nadder, horned beak, spiked tail she fires like darts",
+      "voice": "does not speak — chirps, preens and struts; a proud affectionate hen with a magpie's love of shiny things",
+      "motivation": "Astrid's approval, chicken, and anything that glitters",
+      "possessions": [
+        "her saddle and a small hoard of trinkets"
+      ],
+      "knows": [
+        "the 'Stormfly, spine shot!' command"
+      ],
+      "does_not_know": [
+        "why humans mind when she takes their jewellery"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Berk",
+        "state": "preening on a rooftop"
+      }
+    },
+    {
+      "id": "CH5",
+      "name": "Fishlegs Ingerman",
+      "origin": "pack",
+      "role": "Dragon Rider, the team's dragon scholar",
+      "status": "alive and well, back on Berk",
+      "physical": "broad and soft-featured in a fur-trimmed tunic, always carrying notes",
+      "voice": "excited cataloguing — reels off class, wingspan, firepower and shot limit in one breath, squeaks when frightened, calls Meatlug 'my precious girl'",
+      "motivation": "recording every dragon alive and keeping Meatlug safe",
+      "possessions": [
+        "his dragon notes and stat cards",
+        "Meatlug's saddle"
+      ],
+      "knows": [
+        "the class and habits of nearly every dragon the Riders have met"
+      ],
+      "does_not_know": [
+        "that there are species no book of his has ever named"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Berk",
+        "state": "recopying his dragon notes"
+      }
+    },
+    {
+      "id": "CH6",
+      "name": "Meatlug",
+      "origin": "pack",
+      "role": "Gronckle, Fishlegs's bonded dragon",
+      "status": "alive and well, on Berk",
+      "physical": "round brown boulder of a dragon, stubby bumblebee wings, club tail",
+      "voice": "does not speak — snuffles, drools and hums; a slow, doting, endlessly affectionate lump",
+      "motivation": "rocks to eat and staying close to Fishlegs",
+      "possessions": [
+        "her saddle"
+      ],
+      "knows": [
+        "which stones make the best Gronckle Iron"
+      ],
+      "does_not_know": [
+        "that she is far too large to be a lap dog"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Berk",
+        "state": "asleep on Fishlegs's feet"
+      }
+    },
+    {
+      "id": "CH7",
+      "name": "Snotlout Jorgenson",
+      "origin": "pack",
+      "role": "Dragon Rider, Hiccup's cousin",
+      "status": "alive and well, back on Berk",
+      "physical": "short and thick-set in a horned helmet, permanently posing",
+      "voice": "boasts in the third person — 'Snotlout! Snotlout! Oi, oi, oi!' — claims every success, blames the twins for the rest, then quietly does the brave thing",
+      "motivation": "glory; underneath, not letting the team down",
+      "possessions": [
+        "his horned helmet",
+        "Hookfang's saddle"
+      ],
+      "knows": [
+        "that Hookfang lights himself on fire with him still aboard, and that this is fine"
+      ],
+      "does_not_know": [
+        "how obvious it is that he would die for any of them"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Berk",
+        "state": "retelling the last battle"
+      }
+    },
+    {
+      "id": "CH8",
+      "name": "Hookfang",
+      "origin": "pack",
+      "role": "Monstrous Nightmare, Snotlout's bonded dragon",
+      "status": "alive and well, on Berk",
+      "physical": "huge red-and-orange dragon with curling horns who sets his whole body ablaze at will",
+      "voice": "does not speak — roars, snorts smoke, drops Snotlout in puddles on purpose; the two bicker like brothers",
+      "motivation": "doing as he pleases, then saving Snotlout at the last second",
+      "possessions": [
+        "his saddle"
+      ],
+      "knows": [
+        "exactly how far he can push Snotlout"
+      ],
+      "does_not_know": [
+        "that Snotlout brags about him constantly"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Berk",
+        "state": "smouldering on a cliff"
+      }
+    },
+    {
+      "id": "CH9",
+      "name": "Ruffnut Thorston",
+      "origin": "pack",
+      "role": "Dragon Rider, one half of the twins, shares Barf and Belch",
+      "status": "alive and well, back on Berk",
+      "physical": "lanky, long blonde braids and a horned helmet, usually mid-shove",
+      "voice": "gleeful and contrary — argues with Tuffnut about nothing at full volume, then agrees with him instantly if anyone else objects",
+      "motivation": "chaos, and being the one who caused it",
+      "possessions": [
+        "her half of the Zippleback saddle",
+        "a mace"
+      ],
+      "knows": [
+        "that Barf's gas plus Belch's spark equals an explosion"
+      ],
+      "does_not_know": [
+        "that the plan she is about to suggest is a terrible one"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Berk",
+        "state": "shoving her brother"
+      }
+    },
+    {
+      "id": "CH10",
+      "name": "Tuffnut Thorston",
+      "origin": "pack",
+      "role": "Dragon Rider, the other half of the twins",
+      "status": "alive and well, back on Berk",
+      "physical": "lanky, dreadlocked and helmeted, identical in build to his sister",
+      "voice": "long solemn tangents about his hair, his chicken and the philosophy of the moment, delivered with total confidence and no relevance; lands on wisdom by accident",
+      "motivation": "glory, drama, and the wellbeing of Chicken",
+      "possessions": [
+        "his half of the Zippleback saddle",
+        "Chicken, his pet hen"
+      ],
+      "knows": [
+        "that Chicken is the smartest member of the team"
+      ],
+      "does_not_know": [
+        "what anyone was just talking about"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Berk",
+        "state": "talking at length to Chicken"
+      }
+    },
+    {
+      "id": "CH11",
+      "name": "Barf and Belch",
+      "origin": "pack",
+      "role": "Hideous Zippleback, the twins' shared dragon",
+      "status": "alive and well, on Berk",
+      "physical": "two-headed green dragon on one body; Barf sprays the gas, Belch strikes the spark",
+      "voice": "does not speak — hisses and clicks; the heads squabble exactly as much as their riders and cooperate perfectly when it counts",
+      "motivation": "explosions, and carrying both twins at once",
+      "possessions": [
+        "the twins' double saddle"
+      ],
+      "knows": [
+        "that neither head can make a boom without the other"
+      ],
+      "does_not_know": [
+        "which twin is which, on a bad day"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Berk",
+        "state": "one head asleep, one chewing a boot"
+      }
+    },
+    {
+      "id": "CH12",
+      "name": "Stoick the Vast",
+      "origin": "pack",
+      "role": "Chief of Berk, Hiccup's father",
+      "status": "alive and still chief, quietly ready to hand the village over",
+      "physical": "mountain of a man, red beard and braids, horned helmet, bear cloak",
+      "voice": "booming and blunt, warming into gruff tenderness with Hiccup, and calls him 'son' when it matters most",
+      "motivation": "Berk's safety and Hiccup's future",
+      "possessions": [
+        "his chief's helmet, made from Valka's old breastplate",
+        "a war hammer"
+      ],
+      "knows": [
+        "that Hiccup is ready to be chief before Hiccup does",
+        "that years ago a warlord named Drago Bludvist demanded the chiefs' loyalty and destroyed everyone who laughed"
+      ],
+      "does_not_know": [
+        "that Valka is alive"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Berk, the Great Hall",
+        "state": "putting off the succession talk"
+      }
+    },
+    {
+      "id": "CH13",
+      "name": "Gobber the Belch",
+      "origin": "pack",
+      "role": "Berk's blacksmith, Stoick's oldest friend, Hiccup's mentor",
+      "status": "alive and well, working the forge on Berk",
+      "physical": "big and blond-moustached, missing a hand and a leg, both replaced with screw-on tools",
+      "voice": "cheerful gallows humour and terrible timing — tells alarming stories as light conversation and gives genuinely good advice sideways",
+      "motivation": "the forge, his friends, and dragon dentistry",
+      "possessions": [
+        "his interchangeable prosthetic tools",
+        "the forge"
+      ],
+      "knows": [
+        "how every piece of rider gear on Berk was made, because he made it"
+      ],
+      "does_not_know": [
+        "when to stop talking"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Berk, the forge",
+        "state": "hammering at the forge"
+      }
+    },
+    {
+      "id": "CH14",
+      "name": "Heather",
+      "origin": "pack",
+      "role": "dragon rider, Dagur's long-lost sister, once a spy inside the Dragon Hunters",
+      "status": "alive and well; has chosen to live on Berserker Island with Dagur, her only family",
+      "physical": "dark-haired, black-and-green scaled armour, double-bladed axe",
+      "voice": "measured and watchful, warmest with Astrid; speaks like someone long used to keeping a secret and glad to have set it down",
+      "motivation": "family, and making up for the years spent under cover",
+      "possessions": [
+        "her double-bladed axe",
+        "Windshear's saddle"
+      ],
+      "knows": [
+        "how the Dragon Hunters worked from the inside",
+        "that Dagur's change of heart is real"
+      ],
+      "does_not_know": [
+        "what to do with a peaceful life now that she has one"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Berserker Island",
+        "state": "home at last"
+      }
+    },
+    {
+      "id": "CH15",
+      "name": "Windshear",
+      "origin": "pack",
+      "role": "Razorwhip, Heather's bonded dragon",
+      "status": "alive and well, on Berserker Island",
+      "physical": "silver dragon in razor-edged metallic scales with a bladed tail that cuts rope and rigging",
+      "voice": "does not speak — a low metallic rasp; wary of strangers, fiercely protective of Heather alone",
+      "motivation": "Heather's safety",
+      "possessions": [
+        "her saddle"
+      ],
+      "knows": [
+        "Heather's whistle from a mile off"
+      ],
+      "does_not_know": [
+        "how to be gentle with furniture"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Berserker Island",
+        "state": "watching the harbour"
+      }
+    },
+    {
+      "id": "CH16",
+      "name": "Dagur the Deranged",
+      "origin": "pack",
+      "role": "Chief of the Berserker Tribe, ally of the Riders, Heather's brother",
+      "status": "alive, redeemed and newly married to Mala; rules alongside her",
+      "physical": "red-haired and tattooed, scarred face, Berserker's grin",
+      "voice": "still loud and unhinged in delivery, but the menace has turned into ferocious affection — says 'brother' constantly and means it",
+      "motivation": "holding the family and alliance he nearly threw away",
+      "possessions": [
+        "his axe",
+        "Sleuther's saddle"
+      ],
+      "knows": [
+        "how Dragon Hunters think, having once been their partner"
+      ],
+      "does_not_know": [
+        "how to be quiet about anything"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Berserker Island",
+        "state": "newly married, hosting everyone"
+      }
+    },
+    {
+      "id": "CH17",
+      "name": "Sleuther",
+      "origin": "pack",
+      "role": "Triple Stryke, Dagur's bonded dragon",
+      "status": "alive and well, on Berserker Island",
+      "physical": "armoured brown-and-orange dragon with three stinger-tipped tails",
+      "voice": "does not speak — a deep rumble; calm and steady, the exact opposite of his rider",
+      "motivation": "Dagur, and a warm place to sun himself",
+      "possessions": [
+        "his saddle"
+      ],
+      "knows": [
+        "that Dagur's shouting is not anger"
+      ],
+      "does_not_know": [
+        "what all the fuss is about"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Berserker Island",
+        "state": "dozing through the feast"
+      }
+    },
+    {
+      "id": "CH18",
+      "name": "Mala",
+      "origin": "pack",
+      "role": "Queen of the Defenders of the Wing, now Dagur's wife",
+      "status": "alive and reigning; her tribe and the Berserkers united by the marriage",
+      "physical": "tall warrior queen in gold-trimmed green armour, long braid, spear",
+      "voice": "formal, ceremonial and absolutely direct — speaks in vows and declarations, and takes a joke half a beat too late",
+      "motivation": "the Great Protector, her people, and now her husband",
+      "possessions": [
+        "her spear",
+        "the crown of the Defenders of the Wing"
+      ],
+      "knows": [
+        "that her island's Eruptodon, the Great Protector, keeps the volcano from destroying them"
+      ],
+      "does_not_know": [
+        "how to be informal"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Berserker Island",
+        "state": "splitting her time between two islands"
+      }
+    },
+    {
+      "id": "CH19",
+      "name": "Viggo Grimborn",
+      "origin": "pack",
+      "role": "former leader of the Dragon Hunters, Hiccup's cleverest enemy and, at the last, his reluctant ally",
+      "status": "dead — betrayed by Johann, he turned on his old partners and gave his life so Hiccup and Toothless could escape",
+      "physical": "was lean and dark-bearded in black furs, and never hurried",
+      "voice": "spoke softly and precisely, like a man moving a game piece, and enjoyed being understood more than he enjoyed winning",
+      "motivation": "was the game itself, and at the end denying Johann his victory",
+      "possessions": [
+        "his chess set and war maps, left behind"
+      ],
+      "knows": [
+        "nothing further — his story is finished"
+      ],
+      "does_not_know": [
+        "nothing further — his story is finished"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "the caves near the King of Dragons",
+        "state": "gone; remembered as an enemy who ended as something else"
+      }
+    },
+    {
+      "id": "CH20",
+      "name": "Ryker Grimborn",
+      "origin": "pack",
+      "role": "Viggo's older brother, brawler and one-time leader of the Dragon Hunters",
+      "status": "dead — his ship was dragged under the sea by a Submaripper in the battle over the Shellfire",
+      "physical": "was huge, bearded and heavily armoured, and fought with a broadsword",
+      "voice": "spoke in blunt threats and had no patience for his brother's schemes",
+      "motivation": "was gold and command, and escaping Viggo's shadow",
+      "possessions": [
+        "his broadsword, lost with the ship"
+      ],
+      "knows": [
+        "nothing further — his story is finished"
+      ],
+      "does_not_know": [
+        "nothing further — his story is finished"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "the open sea",
+        "state": "gone; his Hunters are scattered"
+      }
+    },
+    {
+      "id": "CH21",
+      "name": "Krogan",
+      "origin": "pack",
+      "role": "commander of the Dragon Flyers, who rode dragons broken by force",
+      "status": "alive but vanished — driven off by Toothless at the King of Dragons' nest, he leapt from the cliff and escaped without a trace",
+      "physical": "tall and dark-armoured, shaved head, heavy fur mantle",
+      "voice": "cold, clipped and contemptuous; never raises his voice and never explains himself twice",
+      "motivation": "control — of dragons, of the Flyers, of whoever pays him next",
+      "possessions": [
+        "his armour",
+        "the cruel pinch-hold he uses to force a dragon to obey"
+      ],
+      "knows": [
+        "how to break a dragon's will by force",
+        "the Flyers' hidden routes through the archipelago"
+      ],
+      "does_not_know": [
+        "that the Riders destroyed both Dragon Eyes",
+        "that his own Singetail is free and will never carry him again"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "somewhere beyond the archipelago",
+        "state": "at large and dragonless"
+      }
+    },
+    {
+      "id": "CH22",
+      "name": "Johann",
+      "origin": "pack",
+      "role": "the trader who visited Berk for years, secretly the mastermind behind the Dragon Hunters",
+      "status": "dead — frozen by the Bewilderbeast, the true King of Dragons, as he moved against Hiccup",
+      "physical": "was round and cheerful and elaborately dressed, with a ship full of curiosities",
+      "voice": "spoke in flowery endless anecdotes — 'but that is a tale for another time' — which turned out to be a very long disguise",
+      "motivation": "was the King of Dragons, and power over every dragon alive",
+      "possessions": [
+        "his trading ship and hoard of maps, abandoned"
+      ],
+      "knows": [
+        "nothing further — his story is finished"
+      ],
+      "does_not_know": [
+        "nothing further — his story is finished"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "the nest of the King of Dragons",
+        "state": "gone; the Riders still struggle to believe it"
+      }
+    }
+  ],
+  "relationships": [
+    {
+      "between": [
+        "Hiccup Horrendous Haddock III",
+        "Toothless"
+      ],
+      "state": "inseparable — one mind in two bodies",
+      "changed_turn": 0,
+      "history": "Hiccup shot Toothless down and could not finish him; the tail fin he built made them need each other to fly."
+    },
+    {
+      "between": [
+        "Hiccup Horrendous Haddock III",
+        "Astrid Hofferson"
+      ],
+      "state": "openly a couple, easy and affectionate; not engaged and not discussing it",
+      "changed_turn": 0,
+      "history": "Years of rivalry became partnership on the Edge, and by the end neither pretends otherwise."
+    },
+    {
+      "between": [
+        "Hiccup Horrendous Haddock III",
+        "Stoick the Vast"
+      ],
+      "state": "warm and proud, with an unspoken question about when Hiccup takes the chiefdom",
+      "changed_turn": 0,
+      "history": "Father and son spent years failing to understand each other and finally do."
+    },
+    {
+      "between": [
+        "Hiccup Horrendous Haddock III",
+        "Dagur the Deranged"
+      ],
+      "state": "allies and, in Dagur's insistent telling, brothers",
+      "changed_turn": 0,
+      "history": "Dagur hunted Hiccup for years before turning on the Hunters and earning his way back."
+    },
+    {
+      "between": [
+        "Heather",
+        "Dagur the Deranged"
+      ],
+      "state": "reunited siblings; Heather has chosen to live on Berserker Island with him",
+      "changed_turn": 0,
+      "history": "She learned he was her brother while spying on the Hunters, and refused to believe in him until he proved it."
+    },
+    {
+      "between": [
+        "Dagur the Deranged",
+        "Mala"
+      ],
+      "state": "newly married, joining the Berserkers and the Defenders of the Wing",
+      "changed_turn": 0,
+      "history": "A courtship of grand gestures and mutual bafflement, ending in a wedding the whole archipelago attended."
+    },
+    {
+      "between": [
+        "the Dragon Riders",
+        "their dragons"
+      ],
+      "state": "six riders and their bonded dragons, bickering constantly and ready to die for each other",
+      "changed_turn": 0,
+      "history": "Three years together on Dragon's Edge welded them into one crew."
+    }
+  ],
+  "locations": [
+    {
+      "id": "L1",
+      "name": "Berk",
+      "description": "A rocky island village of steep roofs and longhouses, twelve days north of hopeless, where dragons nest on the rooftops and help with the work",
+      "state": "home again — the Riders have moved back, the village is at peace, Stoick still chief",
+      "visited_turns": []
+    },
+    {
+      "id": "L2",
+      "name": "Dragon's Edge",
+      "description": "The Riders' outpost on a far island: clubhouse, stables, launch platforms and Hiccup's workshop, built by the six of them",
+      "state": "empty — they said goodbye and returned to Berk; the buildings still stand, scarred by volcano and hunters",
+      "visited_turns": []
+    },
+    {
+      "id": "L3",
+      "name": "Berserker Island",
+      "description": "The Berserker Tribe's stronghold of dark timber halls and high walls",
+      "state": "peaceful and allied to Berk, ruled by Dagur and Mala together; Heather lives there",
+      "visited_turns": []
+    },
+    {
+      "id": "L4",
+      "name": "Caldera Cay",
+      "description": "Island of the Defenders of the Wing, built around a live volcano that an Eruptodon called the Great Protector keeps from erupting",
+      "state": "at peace, united with the Berserkers by Mala's marriage",
+      "visited_turns": []
+    },
+    {
+      "id": "L5",
+      "name": "Vanaheim",
+      "description": "A hidden island sanctuary dragons find their own way to, where the King of Dragons — a Bewilderbeast — nests",
+      "state": "safe and secret; both Dragon Eyes were destroyed so no map could lead a hunter there",
+      "visited_turns": []
+    }
+  ]
+}

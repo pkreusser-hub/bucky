@@ -99,8 +99,8 @@
   }
   /* Dad-only links: a compact wrapping pill row instead of stacked full-width buttons. */
   #dadRow { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 2px; }
-  #usageLink, #storyLogLink, #dungeonLink, #dadUnlockLink { display: contents; }
-  #usageLink button, #storyLogLink button, #dungeonLink button, #dadUnlockLink button {
+  #usageLink, #storyLogLink, #auditLink, #dungeonLink, #dadUnlockLink { display: contents; }
+  #usageLink button, #storyLogLink button, #auditLink button, #dungeonLink button, #dadUnlockLink button {
     background: #eef3fc; border: 1px solid var(--line); color: var(--muted); font-family: inherit; font-size: 11.5px;
     font-weight: 700; cursor: pointer; border-radius: 999px; padding: 6px 11px; text-decoration: none; white-space: nowrap;
   }
@@ -243,6 +243,8 @@
   .field { margin: 0 0 12px; }
   .fieldLabel { display: block; font-size: 13.5px; font-weight: 700; color: var(--ink); margin: 0 0 6px; }
   .fieldLabel .opt { font-weight: 500; color: var(--muted); font-size: 12px; }
+  /* The one-line explanation under the universe chips (shown only for a packed world). */
+  #universeNote { font-size: 12px; color: var(--muted); line-height: 1.4; margin-top: 4px; }
   .fieldInput {
     width: 100%; font-family: inherit; font-size: 15px; color: var(--ink); background: #fbfcff;
     border: 2px solid var(--line); border-radius: 12px; padding: 11px 12px;
@@ -335,6 +337,40 @@
     font-family: inherit; font-weight: 800; font-size: 15px; padding: 0 18px; cursor: pointer;
   }
   .writeRow button:disabled { opacity: .5; }
+  .writeRow button.ghost { background: none; color: var(--muted); padding: 0 12px; font-weight: 700; }
+  #redoBar { margin-top: 8px; text-align: right; display: flex; justify-content: flex-end; gap: 4px; }
+  #redoBtn, #rewindBtn, .rwCancel {
+    background: none; border: none; color: var(--muted); font: inherit; font-size: 13px;
+    cursor: pointer; padding: 4px 6px; border-radius: 8px; text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  #redoBtn:hover, #rewindBtn:hover, .rwCancel:hover { color: var(--red); }
+  /* Go back: a list of earlier moments, each one a tap target sized for a thumb. */
+  #rewindPanel { margin-top: 10px; border: 1px solid var(--line); border-radius: 14px; padding: 12px; background: #fff; }
+  #rewindPanel .rwHead { font-weight: 800; font-size: 14px; margin-bottom: 8px; }
+  #rewindList { display: flex; flex-direction: column; gap: 6px; max-height: 46vh; overflow-y: auto; }
+  .rwItem {
+    text-align: left; width: 100%; background: #f7f8fa; border: 1px solid var(--line);
+    border-radius: 12px; padding: 10px 12px; font: inherit; font-size: 14px; cursor: pointer;
+  }
+  .rwItem:hover { border-color: var(--green); }
+  .rwItem .rwWhen { display: block; font-size: 12px; color: var(--muted); font-weight: 700; }
+  .rwItem .rwWhat { display: block; margin-top: 2px; }
+  .rwCancel { display: block; margin: 10px auto 0; }
+  /* Story check (Dad only) */
+  .auIntro { color: var(--muted); font-size: 14px; margin-bottom: 10px; }
+  .auPick { margin-bottom: 6px; }
+  .auHead { font-weight: 800; font-size: 15px; margin-bottom: 4px; }
+  .auVerdict { font-family: Georgia, serif; font-style: italic; margin: 8px 0 12px; }
+  .auClean { color: var(--green); font-weight: 700; margin-bottom: 10px; }
+  .auErr { color: var(--red); margin: 10px 0; }
+  .auFind { border-left: 4px solid var(--line); background: #f7f8fa; border-radius: 0 10px 10px 0; padding: 9px 12px; margin-bottom: 8px; }
+  .auFind.hi { border-left-color: var(--red); }
+  .auTag { font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; }
+  .auWhat { margin-top: 3px; font-size: 14px; }
+  .auEv { margin-top: 5px; font-size: 13px; color: var(--muted); font-family: Georgia, serif; font-style: italic; }
+  .auNote { font-size: 13px; color: var(--muted); padding: 5px 2px; border-bottom: 1px solid var(--line); }
+  .auNote.bad { color: var(--red); }
   #storyBusy, #newStoryRow { margin-top: 10px; }
   #newStoryRow .goBtn { margin-top: 0; }
   /* Choices hide until the reader scrolls to the end of the scene (class set in gateChoices). */
@@ -572,6 +608,7 @@
     <div id="dadRow">
       <div id="usageLink"><button id="usageBtn">📊 API usage</button></div>
       <div id="storyLogLink"><button id="storyLogBtn">📖 Story Log</button></div>
+      <div id="auditLink"><button id="auditBtn">🔎 Story check</button></div>
       <div id="dungeonLink"><button id="dungeonBtn">🎲 Dungeon</button></div>
       <div id="dadUnlockLink"><button id="dadUnlockBtn">🔒 Unlock Dad tools</button></div>
     </div>
@@ -628,10 +665,31 @@
     </div>
   </div>
 
+  <!-- ============ STORY AUDIT (Dad only) ============ -->
+  <div class="view" id="viewAudit">
+    <div class="panel">
+      <div class="panelTitle">🔎 Check a story</div>
+      <div id="auditBody">Loading…</div>
+    </div>
+  </div>
+
   <!-- ============ STORY: SETUP ============ -->
   <div class="view" id="viewStorySetup">
     <div class="panel">
       <div class="panelTitle">📖 Describe your story!</div>
+
+      <div class="field">
+        <div class="fieldLabel">🌌 Which world?</div>
+        <div class="chips" id="universeChips"></div>
+        <div class="opt" id="universeNote" style="display:none"></div>
+      </div>
+
+      <div class="field">
+        <label class="fieldLabel" for="heroName">✍️ Your character's name <span class="opt">(optional)</span></label>
+        <input id="heroName" class="fieldInput" maxlength="40"
+          placeholder="you are the hero — what's your name?" />
+      </div>
+
       <textarea id="worldInput" maxlength="2000"
         placeholder="Tell me your idea in your own words… Example: I'm a young starship captain on my first mission, and something strange just appeared on the scanner!"></textarea>
 
@@ -688,6 +746,24 @@
       <div class="writeRow" id="writeRow" style="display:none">
         <input id="writeInput" maxlength="2000" placeholder="…or write what YOU do next!" />
         <button id="writeSend">Go</button>
+      </div>
+      <!-- Redo: throw the last scene away and ask for it again. The optional note is a READER
+           ASSERTION — whatever the reader says here becomes permanent canon (source:"reader"). -->
+      <div id="redoBar" style="display:none">
+        <button id="rewindBtn" type="button">🕰 go back</button>
+        <button id="redoBtn" type="button">↻ redo this scene</button>
+      </div>
+      <!-- GO BACK: pick an earlier moment and choose differently. Two taps and a confirm, because
+           it unwrites scenes; the old version is always kept on the shelf. -->
+      <div id="rewindPanel" style="display:none">
+        <div class="rwHead">🕰 Where would you like to go back to?</div>
+        <div id="rewindList"></div>
+        <button id="rewindCancel" class="rwCancel" type="button">✕ never mind</button>
+      </div>
+      <div class="writeRow" id="redoRow" style="display:none">
+        <input id="redoNote" maxlength="300" placeholder="What was wrong? (optional)" />
+        <button id="redoGo">Try again</button>
+        <button id="redoCancel" class="ghost" type="button">✕</button>
       </div>
       <div id="chapterEndRow" style="display:none">
         <div class="chEndNote">🌙 End of the chapter</div>
@@ -823,6 +899,586 @@
   const CHAPTER_HARD_WORDS = 4200;
   // Sentinel user turn that advances to the next chapter (not shown as a picked choice).
   const NEXT_CHAPTER_MSG = "(Continue to the next chapter.)";
+  // A redo can append the reader's note to whatever the last user turn was — including the
+  // sentinel — so every "is this the next-chapter turn?" test is a PREFIX test, never equality.
+  const isNextChapterTurn = (c) => typeof c === "string" && c.indexOf(NEXT_CHAPTER_MSG) === 0;
+  // What the reader typed alongside the sentinel, if anything (the sentinel itself is machinery
+  // and is never shown to them).
+  const afterNextChapter = (c) => String(c || "").slice(NEXT_CHAPTER_MSG.length).trim();
+
+  // =====================================================================
+  // STORY LEDGER — the continuity engine (schema v1)
+  // =====================================================================
+  // A structured memory of the world, its people, and what has actually happened, carried inside
+  // the story object in localStorage (there is deliberately no server story store). It REPLACES
+  // the "STORY SO FAR" recap for stories created from here on; stories saved BEFORE the ledger
+  // existed have no `ledger` field and keep the old recap path forever, untouched.
+  //
+  // Everything below is plumbing only — no AI writes to it yet. The KEEPER (a later step) is what
+  // produces a diff per scene; this file provides the shape, the validator, the apply, and the
+  // diff log it will append to.
+  const LEDGER_SCHEMA_VERSION = 1;
+  const LEDGER_MAX_CHARS = 30000;    // must match LEDGER_MAX_CHARS in netlify/functions/farmgpt.mjs
+  const LEDGER_WIRE_BUDGET = 28000;  // trim to fit BEFORE sending — the server cap is a backstop
+  const UNIVERSE_DIR = "assets/storytime/universes/";
+  const UNIVERSES = [
+    { id: "original", label: "✨ My own world", pack: false },
+    { id: "httyd",    label: "🐉 How To Train Your Dragon", pack: true },
+    { id: "starwars", label: "⚔️ Star Wars", pack: true },
+  ];
+  // Arrays the ledger is made of, and the id prefix each one's entries use.
+  const LEDGER_LISTS = {
+    canon: "C", characters: "CH", locations: "L",
+    relationships: "R", open_threads: "T", timeline: "",
+  };
+
+  const deepCopy = (v) => JSON.parse(JSON.stringify(v));
+
+  // An empty schema-v1 ledger. `meta` fields are filled in by the seeder below.
+  function emptyLedger() {
+    return {
+      meta: { title: "", universe: "original", timeline_point: "", genre_and_tone: "",
+              narrative_voice: "second person, past tense", turn: 0, schema_version: LEDGER_SCHEMA_VERSION },
+      canon: [], characters: [], locations: [],
+      protagonist: { name: "", inventory: [], conditions: [], abilities: [], reputation: {} },
+      relationships: [],
+      player_knowledge: { known: [], suspected: [], hidden_from_player: [] },
+      open_threads: [], flags: {}, timeline: [],
+    };
+  }
+
+  // ---- validation ----------------------------------------------------------
+  // Shape check + size guard. Returns { ok, reason }. Deliberately structural, not semantic:
+  // a ledger that is the right SHAPE can always be rendered for the narrator, and a wrong shape
+  // must never reach the wire (or be written over a good one).
+  function validateLedger(led) {
+    const bad = (reason) => ({ ok: false, reason });
+    if (!led || typeof led !== "object" || Array.isArray(led)) return bad("not an object");
+    if (!led.meta || typeof led.meta !== "object" || Array.isArray(led.meta)) return bad("meta missing");
+    if (led.meta.schema_version !== LEDGER_SCHEMA_VERSION) return bad("unknown schema_version");
+    for (const key of Object.keys(LEDGER_LISTS)) {
+      if (!Array.isArray(led[key])) return bad(key + " must be an array");
+      for (const row of led[key]) if (!row || typeof row !== "object" || Array.isArray(row)) return bad(key + " holds a non-object");
+    }
+    for (const c of led.canon) if (typeof c.rule !== "string" || !c.rule.trim()) return bad("a canon entry has no rule");
+    const p = led.protagonist;
+    if (!p || typeof p !== "object" || Array.isArray(p)) return bad("protagonist missing");
+    if (!Array.isArray(p.inventory) || !Array.isArray(p.conditions) || !Array.isArray(p.abilities)) return bad("protagonist lists malformed");
+    const pk = led.player_knowledge;
+    if (!pk || typeof pk !== "object" || Array.isArray(pk)) return bad("player_knowledge missing");
+    for (const k of ["known", "suspected", "hidden_from_player"]) if (!Array.isArray(pk[k])) return bad("player_knowledge." + k + " must be an array");
+    if (!led.flags || typeof led.flags !== "object" || Array.isArray(led.flags)) return bad("flags must be an object");
+    if (JSON.stringify(led).length > LEDGER_MAX_CHARS * 2) return bad("ledger far past the size cap");
+    return { ok: true, reason: "" };
+  }
+
+  // Canon is APPEND-ONLY: an applied diff may add rules, never edit or delete one. This compares
+  // the canon BEFORE a diff with the canon after and rejects any drift in the entries that
+  // already existed (order and content both — an edit disguised as a reorder is still an edit).
+  function canonPreserved(before, after) {
+    if (!Array.isArray(after) || after.length < before.length) return false;
+    for (let i = 0; i < before.length; i++) {
+      const a = before[i], b = after[i];
+      if (!b || a.id !== b.id || a.rule !== b.rule || a.source !== b.source) return false;
+    }
+    return true;
+  }
+
+  // Which line of a player_knowledge bucket a promotion is talking about. Exact first; then a
+  // normalised compare (case, spacing, trailing punctuation); then containment either way, because
+  // a model asked to "copy the line exactly" will still sometimes shorten it. The containment arm
+  // needs a real overlap (≥12 chars of the shorter side) so two unrelated secrets can't collide on
+  // a common phrase. Returns an index, or -1.
+  const normFact = (s) => String(s || "").trim().toLowerCase().replace(/\s+/g, " ").replace(/[.,;:!?"']+$/, "");
+  function matchFact(list, fact) {
+    if (!Array.isArray(list)) return -1;
+    const f = normFact(fact);
+    if (!f) return -1;
+    for (let i = 0; i < list.length; i++) if (String(list[i]) === fact) return i;
+    for (let i = 0; i < list.length; i++) if (normFact(list[i]) === f) return i;
+    for (let i = 0; i < list.length; i++) {
+      const h = normFact(list[i]);
+      const short = h.length <= f.length ? h : f, long = h.length <= f.length ? f : h;
+      if (short.length >= 12 && long.includes(short)) return i;
+    }
+    return -1;
+  }
+
+  // ---- diff apply ----------------------------------------------------------
+  // Diff shape (what the future keeper returns):
+  //   { add:    { canon:[], characters:[], locations:[], relationships:[], open_threads:[],
+  //               timeline:[], player_knowledge:{known:[],suspected:[],hidden_from_player:[]},
+  //               protagonist:{inventory:[],conditions:[],abilities:[]} },
+  //     update: { meta:{}, flags:{}, protagonist:{}, characters:[{id,…}], locations:[{id,…}],
+  //               relationships:[{id,…}] },
+  //     promote_knowledge: [{ fact: "<a hidden_from_player line>", to: "suspected"|"known" }],
+  //     resolve_threads: ["T1", …],
+  //     notes: "free text, ignored by the narrator" }
+  //
+  // FAIL-OPEN CONTRACT: a malformed patch changes NOTHING. Everything is applied to a COPY and
+  // the copy is only adopted once it validates and canon survives intact — so a bad diff can
+  // never half-apply, and bookkeeping can never be the reason story time breaks.
+  // Returns { ok, ledger, reason }; `ledger` is the ORIGINAL object on failure.
+  function applyLedgerDiff(ledger, diff) {
+    const fail = (reason) => ({ ok: false, ledger, reason });
+    if (!diff || typeof diff !== "object" || Array.isArray(diff)) return fail("diff is not an object");
+    const base = validateLedger(ledger);
+    if (!base.ok) return fail("base ledger invalid: " + base.reason);
+
+    let next;
+    try { next = deepCopy(ledger); } catch { return fail("ledger not serializable"); }
+    const canonBefore = deepCopy(ledger.canon);
+
+    const add = diff.add, upd = diff.update;
+    if (add != null && (typeof add !== "object" || Array.isArray(add))) return fail("add is not an object");
+    if (upd != null && (typeof upd !== "object" || Array.isArray(upd))) return fail("update is not an object");
+    // Canon may only ever be ADDED to. A patch that even mentions editing it is malformed.
+    if (upd && upd.canon !== undefined) return fail("canon is append-only — update.canon is not allowed");
+
+    try {
+      // meta goes FIRST, before anything is added. New canon and timeline entries are stamped with
+      // meta.turn, so if the update ran last they would carry the PREVIOUS turn — and a replay
+      // (which never runs the client code that also sets meta.turn) would stamp them differently
+      // from the live run. Same input, same output is the whole point of the diff log.
+      if (upd && upd.meta !== undefined) {
+        if (!upd.meta || typeof upd.meta !== "object" || Array.isArray(upd.meta)) return fail("update.meta is not an object");
+        // schema_version is ours, not the model's.
+        for (const k of Object.keys(upd.meta)) if (k !== "schema_version") next.meta[k] = upd.meta[k];
+      }
+      if (add) {
+        for (const key of Object.keys(LEDGER_LISTS)) {
+          if (add[key] === undefined) continue;
+          if (!Array.isArray(add[key])) return fail("add." + key + " must be an array");
+          for (const row of add[key]) {
+            if (!row || typeof row !== "object" || Array.isArray(row)) return fail("add." + key + " holds a non-object");
+            const e = deepCopy(row);
+            // Ids are assigned HERE, never by the model — the keeper can't collide or renumber.
+            const pre = LEDGER_LISTS[key];
+            if (pre && !e.id) e.id = pre + (next[key].length + 1);
+            if (e.turn === undefined && (key === "canon" || key === "timeline")) e.turn = next.meta.turn || 0;
+            next[key].push(e);
+          }
+        }
+        if (add.player_knowledge !== undefined) {
+          const pk = add.player_knowledge;
+          if (!pk || typeof pk !== "object" || Array.isArray(pk)) return fail("add.player_knowledge is not an object");
+          for (const k of ["known", "suspected", "hidden_from_player"]) {
+            if (pk[k] === undefined) continue;
+            if (!Array.isArray(pk[k])) return fail("add.player_knowledge." + k + " must be an array");
+            for (const v of pk[k]) if (typeof v === "string" && v.trim() && !next.player_knowledge[k].includes(v)) next.player_knowledge[k].push(v);
+          }
+        }
+        if (add.protagonist !== undefined) {
+          const ap = add.protagonist;
+          if (!ap || typeof ap !== "object" || Array.isArray(ap)) return fail("add.protagonist is not an object");
+          for (const k of ["inventory", "conditions", "abilities"]) {
+            if (ap[k] === undefined) continue;
+            if (!Array.isArray(ap[k])) return fail("add.protagonist." + k + " must be an array");
+            for (const v of ap[k]) next.protagonist[k].push(typeof v === "object" && v ? deepCopy(v) : v);
+          }
+        }
+      }
+
+      if (upd) {
+        // (update.meta was applied above, before the adds.)
+        if (upd.flags !== undefined) {
+          if (!upd.flags || typeof upd.flags !== "object" || Array.isArray(upd.flags)) return fail("update.flags is not an object");
+          for (const k of Object.keys(upd.flags)) next.flags[k] = upd.flags[k];
+        }
+        if (upd.protagonist !== undefined) {
+          const up = upd.protagonist;
+          if (!up || typeof up !== "object" || Array.isArray(up)) return fail("update.protagonist is not an object");
+          for (const k of Object.keys(up)) {
+            if (k === "inventory" || k === "conditions" || k === "abilities") {
+              if (!Array.isArray(up[k])) return fail("update.protagonist." + k + " must be an array");
+              next.protagonist[k] = deepCopy(up[k]);
+            } else if (k === "reputation") {
+              if (!up[k] || typeof up[k] !== "object" || Array.isArray(up[k])) return fail("update.protagonist.reputation is not an object");
+              for (const r of Object.keys(up[k])) next.protagonist.reputation[r] = up[k][r];
+            } else next.protagonist[k] = up[k];
+          }
+        }
+        for (const key of ["characters", "locations", "relationships", "open_threads"]) {
+          if (upd[key] === undefined) continue;
+          if (!Array.isArray(upd[key])) return fail("update." + key + " must be an array");
+          for (const row of upd[key]) {
+            if (!row || typeof row !== "object" || Array.isArray(row) || !row.id) return fail("update." + key + " needs an id on every entry");
+            const target = next[key].find((x) => x.id === row.id);
+            if (!target) return fail("update." + key + " references unknown id " + row.id);
+            for (const k of Object.keys(row)) if (k !== "id") target[k] = deepCopy(row[k]);
+          }
+        }
+      }
+
+      // ---- promotion: a secret the reader has now earned -------------------
+      // The ONLY way anything leaves hidden_from_player. Everything else in a diff is additive,
+      // which is what makes a bad patch harmless — but player_knowledge has to be able to move a
+      // line between buckets, because a secret that stays HIDDEN after the reader has learned it
+      // makes the narrator hide something the reader is already holding.
+      if (diff.promote_knowledge !== undefined) {
+        if (!Array.isArray(diff.promote_knowledge)) return fail("promote_knowledge must be an array");
+        for (const row of diff.promote_knowledge) {
+          if (!row || typeof row !== "object" || Array.isArray(row)) return fail("promote_knowledge holds a non-object");
+          const fact = typeof row.fact === "string" ? row.fact.trim() : "";
+          const to = row.to === "known" ? "known" : row.to === "suspected" ? "suspected" : "";
+          if (!fact) return fail("a promote_knowledge entry has no fact");
+          if (!to) return fail("promote_knowledge.to must be \"suspected\" or \"known\"");
+          const pk = next.player_knowledge;
+          const from = to === "known" ? pk.suspected : pk.known;   // the rung below / above
+          // The LEDGER'S wording is what moves, never the model's paraphrase — a promoted secret
+          // still reads exactly as it did when it was written.
+          let i = matchFact(pk.hidden_from_player, fact);
+          let text = i >= 0 ? pk.hidden_from_player[i] : fact;
+          if (i >= 0) pk.hidden_from_player.splice(i, 1);
+          else {
+            // Already out of hiding. It is then sitting on one of the other rungs under ITS OWN
+            // wording, and the keeper does re-report a fact it has moved before — live, that meant
+            // a paraphrased "…to known" landed a SECOND copy of the same secret in a second
+            // bucket, so the narrator was told the reader both knew it and merely suspected it.
+            const j = matchFact(from, fact);
+            if (j >= 0) {
+              if (to === "suspected") continue;    // already KNOWN — knowledge never regresses
+              text = from[j];
+            } else if (matchFact(pk[to], fact) >= 0) {
+              continue;                            // already on this rung, under some wording
+            }
+            // Otherwise it was never hidden and is new: the reader learned something either way,
+            // and the model could already have added it through add.player_knowledge, so allowing
+            // it here grants no new power.
+          }
+          if (to === "known") {   // knowing supersedes suspecting, whatever the wording
+            for (let k = pk.suspected.length - 1; k >= 0; k--) {
+              if (matchFact([pk.suspected[k]], text) >= 0) pk.suspected.splice(k, 1);
+            }
+          }
+          if (!pk[to].includes(text)) pk[to].push(text);
+        }
+      }
+
+      if (diff.resolve_threads !== undefined) {
+        if (!Array.isArray(diff.resolve_threads)) return fail("resolve_threads must be an array");
+        for (const id of diff.resolve_threads) {
+          const t = next.open_threads.find((x) => x.id === id);
+          if (!t) {
+            // Not an open thread — but it may be one COMPACTION already folded into the timeline
+            // (see foldResolvedThreads). The keeper does re-report a resolution it has reported
+            // before, and failing the whole diff for that would throw away everything else in it.
+            if (threadWasFolded(next, id)) continue;
+            return fail("resolve_threads references unknown id " + id);
+          }
+          t.status = "resolved";
+          t.resolved_turn = next.meta.turn || 0;
+        }
+      }
+      // COMPACTION (build-order step 5a) runs on every apply, so the live run and a replay of the
+      // same diffs reach byte-identical ledgers — it is a pure function of the ledger and nothing
+      // else (it reads meta.turn, never the wall clock or the story object).
+      foldResolvedThreads(next);
+    } catch (err) {
+      return fail("diff threw: " + String((err && err.message) || err));
+    }
+
+    if (!canonPreserved(canonBefore, next.canon)) return fail("the diff altered existing canon");
+    // Growth is expected, runaway growth is a bug: compact before judging the size.
+    compactLedger(next, LEDGER_MAX_CHARS);
+    const after = validateLedger(next);
+    if (!after.ok) return fail("result invalid: " + after.reason);
+    return { ok: true, ledger: next, reason: "" };
+  }
+
+  // ---- COMPACTION (build-order step 5a) ------------------------------------
+  // THE PRINCIPLE, and every rule below follows from it:
+  //   COMPACTION NEVER DELETES A FACT FROM DISK. What it removes from the STORED ledger is only
+  //   structure that has already been rewritten losslessly somewhere else in the same ledger — a
+  //   resolved thread becomes a timeline line carrying that thread's own sentence, verbatim.
+  //   Everything else compaction does (dormant cast, stale place descriptions, an over-long
+  //   KNOWN list) is shaping for THE WIRE only, exactly like cast hydration: the stored ledger
+  //   keeps every character's full sheet and every description forever.
+  // That is what makes it reversible-safe. A replay rebuilds the ledger by re-applying the same
+  // diffs to the same states, so it performs the same folds at the same moments and lands on the
+  // same bytes — asserted in the suite, not assumed.
+  const DORMANT_AFTER = 20;          // turns since last_seen before a character stops travelling
+  const LOCATION_STALE_AFTER = 20;   // turns since a visit before a place is name + state only
+  const KNOWN_WIRE_MAX = 24;         // most recent KNOWN facts on the wire (all of them stay on disk)
+
+  // Has this thread id already been folded into the timeline by a previous compaction?
+  function threadWasFolded(led, id) {
+    return Array.isArray(led.timeline) && led.timeline.some((e) => e && e.thread === id);
+  }
+  // A resolved thread is finished business. It collapses to ONE timeline line that keeps its own
+  // sentence word for word, then leaves open_threads — so the narrator's "unfinished business"
+  // list stays about what is actually unfinished, and a 100-turn story's thread list stays short.
+  // Idempotent by construction (the fold is skipped if this thread already has its timeline line),
+  // which is what lets it run on every apply without a replay duplicating anything.
+  function foldResolvedThreads(led) {
+    if (!Array.isArray(led.open_threads) || !Array.isArray(led.timeline)) return led;
+    const keep = [];
+    for (const t of led.open_threads) {
+      if (!t || t.status !== "resolved") { keep.push(t); continue; }
+      const text = String((t && t.thread) || "").trim();
+      if (!text) continue;                                    // nothing to preserve; just drop it
+      if (!threadWasFolded(led, t.id)) {
+        led.timeline.push({
+          turn: (t.resolved_turn | 0) || (led.meta && led.meta.turn | 0) || 0,
+          event: "Resolved — " + text,
+          thread: t.id,
+        });
+      }
+    }
+    led.open_threads = keep;
+    return led;
+  }
+
+  // Shrink a ledger IN PLACE to fit a byte budget.
+  //
+  // WHAT IT MAY NEVER DO: drop a character. The HTTYD pack alone carries 22 (≈16.5KB of a 23KB
+  // ledger), so an earlier version that popped the tail of `characters` would have quietly
+  // deleted Mala, the Grimborns and Johann from the world on turn one of every story — a
+  // silently missing character is the exact continuity failure this whole engine exists to
+  // prevent. Cast is shaped for the wire by HYDRATION instead (shapeLedgerForWire below); this
+  // function only ever removes things nothing depends on, in order of how little they cost:
+  //     timeline (oldest first — an audit trail the narrator never reads)
+  //   → resolved threads (finished business)
+  //   → roster ROLE LINES (a name survives even when its one-line role doesn't)
+  //   → locations (oldest first, the first one kept as an anchor)
+  // Canon, the protagonist, every on-stage character and every roster ENTRY are untouchable.
+  // Mirrors compactLedgerForCap on the server (which only runs if this somehow didn't).
+  function compactLedger(led, budget) {
+    const size = () => JSON.stringify(led).length;
+    if (size() <= budget) return led;
+    while (Array.isArray(led.timeline) && led.timeline.length && size() > budget) led.timeline.shift();
+    if (size() > budget && Array.isArray(led.open_threads)) {
+      led.open_threads = led.open_threads.filter((t) => t && t.status !== "resolved");
+    }
+    if (size() > budget && Array.isArray(led.roster)) {
+      for (const r of led.roster) { if (size() <= budget) break; if (r.role) delete r.role; }
+    }
+    while (Array.isArray(led.locations) && led.locations.length > 1 && size() > budget) led.locations.shift();
+    return led;
+  }
+
+  // ---- hydration: who gets a full sheet on the wire ------------------------
+  // The STORED ledger always holds every character's full sheet — nothing is ever lost on disk.
+  // What travels is shaped: characters who are ON STAGE carry their whole sheet (voice, physical,
+  // knows, does_not_know, possessions), and everyone else appears as a one-line CAST ROSTER entry
+  // so the narrator knows they EXIST and can walk them into a scene. The turn after a roster
+  // character first appears, the keeper's last_seen update puts them on stage and they hydrate to
+  // a full sheet automatically — which is why the narrator is told (in STORY_LEDGER_RULES) not to
+  // invent a voice or a history for a roster name, but to let them walk on and be filled in.
+  //
+  // ON STAGE = the protagonist · the reader's own character · anyone who has actually appeared
+  // (last_seen.turn > 0) · anyone named in an unresolved open thread. If that set somehow grows
+  // past ONSTAGE_MAX, the protagonist and the reader are kept and the rest is cut to the most
+  // recently seen — a cast that big means the older ones have not been on screen for a while.
+  const ONSTAGE_MAX = 10;
+  const ROSTER_ROLE_WORDS = 10;
+  function shortRole(role) {
+    const w = String(role || "").trim().split(/\s+/).filter(Boolean);
+    if (!w.length) return "";
+    return w.length <= ROSTER_ROLE_WORDS ? w.join(" ") : w.slice(0, ROSTER_ROLE_WORDS).join(" ") + "…";
+  }
+  // What the WIRE copy drops that disk keeps (step 5a). None of this touches the stored ledger.
+  //   · a place nobody has visited for LOCATION_STALE_AFTER turns travels as name + current state,
+  //     without its description — where a place IS matters long after what it looked like does,
+  //     and the description is the expensive half. A place with no recorded state keeps its
+  //     description, because a bare name tells the narrator nothing.
+  //   · the KNOWN list is capped to its most recent entries. It grew ~1.5 lines a scene in the
+  //     step-3 live runs, which is fine at 20 turns and is most of the volatile block by 100. The
+  //     oldest known facts are the ones already woven into the prose the narrator can still see.
+  function shapeWireBody(wire, turn) {
+    if (Array.isArray(wire.locations)) {
+      wire.locations = wire.locations.map((l) => {
+        if (!l || typeof l !== "object") return l;
+        const visits = Array.isArray(l.visited_turns) ? l.visited_turns.map((v) => +v || 0) : [];
+        const last = visits.length ? Math.max.apply(null, visits) : 0;
+        const stale = last > 0 && turn - last >= LOCATION_STALE_AFTER;
+        if (!stale || !String(l.state || "").trim()) return l;
+        const e = Object.assign({}, l);
+        delete e.description;
+        return e;
+      });
+    }
+    const pk = wire.player_knowledge;
+    if (pk && typeof pk === "object" && Array.isArray(pk.known) && pk.known.length > KNOWN_WIRE_MAX) {
+      wire.player_knowledge = Object.assign({}, pk, { known: pk.known.slice(-KNOWN_WIRE_MAX) });
+    }
+    return wire;
+  }
+
+  function shapeLedgerForWire(led) {
+    const turn = (led.meta && led.meta.turn | 0) || 0;
+    const chars = Array.isArray(led.characters) ? led.characters : [];
+    if (!chars.length) return shapeWireBody(led, turn);
+    const protagName = (led.protagonist && led.protagonist.name || "").trim().toLowerCase();
+    // Names mentioned in still-open threads keep their owner on stage — a thread about Viggo is
+    // useless to the narrator if Viggo is a bare name.
+    const threadText = (Array.isArray(led.open_threads) ? led.open_threads : [])
+      .filter((t) => t && t.status !== "resolved").map((t) => String(t.thread || "")).join(" ").toLowerCase();
+    const seenTurn = (c) => (c && c.last_seen && +c.last_seen.turn) || 0;
+    const isReader = (c) => c.origin === "reader" || (protagName && String(c.name || "").trim().toLowerCase() === protagName);
+    // How strongly a thread names this character: 2 = the whole name, 1 = just the first name
+    // (word-bounded, so "Nab" can't match "Nabbed"). STRENGTH MATTERS because first names are not
+    // always distinctive — a cast whose names share a leading word would otherwise ALL match a
+    // thread equally and crowd out the one the thread is actually about.
+    const wordBounded = (needle) => {
+      const i = threadText.indexOf(needle);
+      if (i === -1) return false;
+      const before = i === 0 ? " " : threadText[i - 1];
+      const after = threadText[i + needle.length] === undefined ? " " : threadText[i + needle.length];
+      return !/[a-z0-9]/.test(before) && !/[a-z0-9]/.test(after);
+    };
+    const threadStrength = (c) => {
+      const name = String(c.name || "").trim().toLowerCase();
+      if (!name || !threadText) return 0;
+      if (wordBounded(name)) return 2;
+      const first = name.split(/\s+/)[0];
+      return first.length >= 3 && wordBounded(first) ? 1 : 0;
+    };
+    // DORMANCY (step 5a) is one more condition on the SAME on-stage test hydration already uses,
+    // deliberately — the two compose instead of fighting. Hydration asks "has this person ever
+    // appeared?"; over a 100-turn story the honest answer becomes "yes, forty turns ago", and a
+    // full sheet for someone the story left behind is the same wasted bytes a never-seen
+    // character's sheet would be. A dormant character drops to a roster line (marked, so the
+    // narrator knows they are off-page rather than never-met) and REHYDRATES automatically the
+    // turn the keeper records a new last_seen — the same mechanism, no new machinery.
+    // An unresolved thread that names them overrides dormancy: a live thread is the story saying
+    // they still matter.
+    const dormant = (c) => seenTurn(c) > 0 && turn - seenTurn(c) >= DORMANT_AFTER;
+    let onstage = chars.filter((c) => isReader(c) || (seenTurn(c) > 0 && !dormant(c)) || threadStrength(c) > 0);
+    if (onstage.length > ONSTAGE_MAX) {
+      // The reader is never cut. After that: who has actually been on screen most recently, then
+      // who a live thread names most specifically.
+      const readers = onstage.filter(isReader);
+      const rest = onstage.filter((c) => !isReader(c))
+        .sort((a, b) => (seenTurn(b) - seenTurn(a)) || (threadStrength(b) - threadStrength(a)));
+      onstage = readers.concat(rest.slice(0, Math.max(0, ONSTAGE_MAX - readers.length)));
+    }
+    const onstageIds = new Set(onstage.map((c) => c.id));
+    const wire = Object.assign({}, led);
+    // THE TIMELINE NEVER TRAVELS. renderLedgerBlocks on the server does not put it in front of
+    // the narrator at all — it is an audit trail for the keeper and the later rewind tool, both
+    // of which read the STORED ledger. Sending it was 5.5-10KB of every request buying nothing,
+    // and it was what pushed a long HTTYD story to 100% of the wire budget.
+    wire.timeline = [];
+    wire.characters = chars.filter((c) => onstageIds.has(c.id));
+    // EVERY other character, without exception. A roster line is id + name + a ≤10-word role —
+    // never voice, physical, knows or does_not_know, which is where the bytes are.
+    wire.roster = chars.filter((c) => !onstageIds.has(c.id)).map((c) => {
+      const e = { id: c.id, name: c.name };
+      const r = shortRole(c.role);
+      if (r) e.role = r;
+      // A dormant name is NOT a never-met name, and the roster block says so out loud. Without
+      // this the narrator is told a character it has already written scenes for "hasn't been on
+      // screen yet" — the same class of wording bug the roster's own paragraph exists to avoid.
+      if (dormant(c) && !threadStrength(c)) e.lastSeen = seenTurn(c);
+      return e;
+    });
+    return shapeWireBody(wire, turn);
+  }
+
+  // The copy that goes on the wire: cast shaped by hydration, then trimmed to fit so the server's
+  // cap is a backstop and never the mechanism. The stored ledger is untouched.
+  function ledgerForSend(led) {
+    return compactLedger(shapeLedgerForWire(deepCopy(led)), LEDGER_WIRE_BUDGET);
+  }
+
+  // ---- the per-scene diff log ---------------------------------------------
+  // CONTRACT (load-bearing for the later rewind/audit tooling): story.ledgerDiffs is COMPLETE and
+  // ORDERED — exactly one entry per scene, in scene order, no gaps — so that
+  //     ledger at scene N === seed ledger replayed through diffs 0..N
+  // holds for every N. A scene whose keeper call failed or was rejected still records an entry,
+  // with an empty diff and the reason, so the sequence never skips a scene index.
+  function recordLedgerDiff(s, sceneIdx, diff, ok, reason) {
+    if (!s || !Array.isArray(s.ledgerDiffs)) return;
+    s.ledgerDiffs[sceneIdx] = { scene: sceneIdx, diff: ok ? diff : null, ok: !!ok, reason: reason || "" };
+    // Guard the "no gaps" half of the contract: a scene that somehow never recorded gets a
+    // placeholder rather than a hole (a hole would silently shift every later replay).
+    for (let i = 0; i < s.ledgerDiffs.length; i++) {
+      if (!s.ledgerDiffs[i]) s.ledgerDiffs[i] = { scene: i, diff: null, ok: false, reason: "not recorded" };
+    }
+  }
+  // Rebuild a ledger from its seed by replaying the log (the later rewind tool's primitive).
+  function replayLedgerDiffs(seed, diffs, upto) {
+    let led = deepCopy(seed);
+    const n = upto === undefined ? diffs.length : Math.min(upto + 1, diffs.length);
+    for (let i = 0; i < n; i++) {
+      const d = diffs[i];
+      if (!d || !d.ok || !d.diff) continue;
+      const r = applyLedgerDiff(led, d.diff);
+      if (r.ok) led = r.ledger;
+    }
+    return led;
+  }
+
+  // ---- universe packs ------------------------------------------------------
+  // A pack is a PARTIAL ledger (meta.timeline_point, canon[], characters[], relationships[],
+  // locations[]) authored as data under assets/storytime/universes/. It seeds a NEW story's
+  // ledger and is then never consulted again — the story's copy is what evolves, so editing a
+  // pack file never rewrites a story already in progress.
+  let selectedUniverse = "original";
+  async function loadUniversePack(id) {
+    if (!id || id === "original") return { pack: null, note: "" };
+    try {
+      const r = await fetch(UNIVERSE_DIR + id + ".json", { cache: "no-cache" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const pack = await r.json();
+      if (!pack || typeof pack !== "object" || Array.isArray(pack)) throw new Error("not an object");
+      return { pack, note: "" };
+    } catch (err) {
+      // Graceful: an absent or broken pack must never stop a story starting. The reader gets
+      // their own world instead, and a quiet note saying so.
+      return { pack: null, note: "That world's notes couldn't be loaded — starting an original story instead." };
+    }
+  }
+
+  // Builds the story's starting ledger: an empty schema-v1 ledger, plus whatever the pack seeds,
+  // plus the reader themself. The reader's character is a FIRST-CLASS citizen of the universe —
+  // it is both `protagonist` and a full characters[] entry with origin:"reader", the same sheet
+  // fields Hiccup gets. Every pack-supplied entry is stamped source/origin "pack".
+  function seedLedger(opts) {
+    const led = emptyLedger();
+    led.meta.title = opts.title || "";
+    led.meta.universe = opts.universe || "original";
+    led.meta.genre_and_tone = opts.genre || "";
+    const pack = opts.pack;
+    if (pack && typeof pack === "object") {
+      if (pack.meta && typeof pack.meta === "object") {
+        for (const k of ["timeline_point", "genre_and_tone", "narrative_voice"]) {
+          if (typeof pack.meta[k] === "string" && pack.meta[k].trim() && !led.meta[k]) led.meta[k] = pack.meta[k];
+        }
+      }
+      for (const key of ["canon", "characters", "locations", "relationships"]) {
+        if (!Array.isArray(pack[key])) continue;
+        for (const row of pack[key]) {
+          if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+          const e = deepCopy(row);
+          const pre = LEDGER_LISTS[key];
+          if (pre && !e.id) e.id = pre + (led[key].length + 1);
+          if (key === "canon") { e.source = "pack"; e.turn = 0; }
+          if (key === "characters") e.origin = "pack";
+          led[key].push(e);
+        }
+      }
+    }
+    // The reader, in both places.
+    const name = (opts.heroName || "").trim();
+    led.protagonist.name = name;
+    led.characters.push({
+      id: "CH" + (led.characters.length + 1),
+      name,
+      origin: "reader",
+      role: "the hero of this story — the reader's own character",
+      status: "", physical: "", voice: "", motivation: "",
+      possessions: [], knows: [], does_not_know: [],
+      last_seen: { turn: 0, location: "", state: "" },
+    });
+    compactLedger(led, LEDGER_MAX_CHARS);
+    return led;
+  }
+
+  // A story uses the ledger path if it HAS one. Legacy (pre-ledger) saves never will, and keep
+  // the recap path for the rest of their life.
+  const hasLedger = (s) => !!(s && s.ledger && s.ledger.meta);
 
   // ---- daily response cap (client-side pre-check + UX; the SERVER is the real enforcement) ----
   // A cheap local counter (per user, per Central calendar day — same "farmDay" the server uses)
@@ -902,7 +1558,7 @@
   }
 
   const $ = (id) => document.getElementById(id);
-  const views = { home: $("viewHome"), storySetup: $("viewStorySetup"), story: $("viewStory"), research: $("viewResearch"), teacher: $("viewTeacher"), usage: $("viewUsage"), storylog: $("viewStoryLog") };
+  const views = { home: $("viewHome"), storySetup: $("viewStorySetup"), story: $("viewStory"), research: $("viewResearch"), teacher: $("viewTeacher"), usage: $("viewUsage"), storylog: $("viewStoryLog"), audit: $("viewAudit") };
 
   let currentView = "home";
   let busy = false;                 // one in-flight request at a time, app-wide
@@ -932,6 +1588,7 @@
       name === "usage" ? "📊 API Usage" :
       name === "teacher" ? "🍎 TeacherGPT" :
       name === "storylog" ? "📖 Story Log" :
+      name === "audit" ? "🔎 Story check" :
       (name === "story" || name === "storySetup") ? "📖 Story Time" : "🌾 FarmGPT";
     $("clearChatBtn").style.display = name === "research" ? "block" : "none";
   }
@@ -962,6 +1619,7 @@
     const unlocked = isDad();
     $("usageLink").style.display = unlocked ? "" : "none";
     $("storyLogLink").style.display = unlocked ? "" : "none";
+    $("auditLink").style.display = unlocked ? "" : "none";
     $("dungeonLink").style.display = unlocked ? "" : "none";
     // A Dad who's locked this session (PIN already synced locally) can unlock right here.
     $("dadUnlockLink").style.display = (isDadName() && !unlocked && dadConfigured()) ? "" : "none";
@@ -977,11 +1635,14 @@
 
   // ---------------- shared streaming call ----------------
   // POSTs the conversation, streams plain-text chunks to onChunk, resolves with full text.
-  async function callFarmGPT(mode, messages, onChunk, opts) {
+  // `signal` is only used by background calls that must be able to give up (the keeper) — a story
+  // request is never aborted, because the reader is sitting there waiting for it.
+  async function callFarmGPT(mode, messages, onChunk, opts, signal) {
     const resp = await fetch(API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ secret: FAMILY_PASSWORD, mode, messages, ...(opts || {}) }),
+      ...(signal ? { signal } : {}),
     });
     if (!resp.ok) {
       let msg = "Request failed (" + resp.status + ")";
@@ -1042,6 +1703,25 @@
     return s === "every" || (s === "every3" && (n - 1) % 3 === 0) || (s === "first" && n === 1);
   }
 
+  // Universe picker (single-select chips; "✨ My own world" is the default and needs no pack).
+  const universeEl = $("universeChips");
+  function paintUniverse() {
+    for (const c of universeEl.children) c.classList.toggle("sel", c.dataset.u === selectedUniverse);
+    const u = UNIVERSES.find((x) => x.id === selectedUniverse);
+    const note = $("universeNote");
+    if (u && u.pack) {
+      note.textContent = "The storyteller will know this world — its people, its rules, and how they talk.";
+      note.style.display = "block";
+    } else note.style.display = "none";
+  }
+  for (const u of UNIVERSES) {
+    const b = document.createElement("button");
+    b.className = "chip"; b.textContent = u.label; b.dataset.u = u.id;
+    b.addEventListener("click", () => { selectedUniverse = u.id; paintUniverse(); });
+    universeEl.appendChild(b);
+  }
+  paintUniverse();
+
   // Genre picker (single-select chips).
   const genreEl = $("genreChips");
   for (const g of GENRES) {
@@ -1099,21 +1779,51 @@
     const i = content.indexOf(ART_MARK);
     return i === -1 ? content : content.slice(0, i).replace(/\s+$/, "");
   }
-  function saveStory() {
-    if (!story) return;
-    const all = loadStories().filter((s) => s.id !== story.id);
-    all.unshift(story);
+  // Saves ONE story object to the shelf. Takes the story explicitly because the keeper runs in the
+  // background: by the time its diff comes back the reader may have shelved this book and opened
+  // another, and `story` would then point at the wrong one.
+  function saveStoryObj(s) {
+    if (!s) return;
+    const all = loadStories().filter((x) => x.id !== s.id);
+    all.unshift(s);
     while (all.length > 20) all.pop();               // bookshelf cap
     // Size guard: SVG art is decorative and bulky. If the shelf JSON blows past ~300KB,
     // drop art from the OLDEST assistant messages first until it fits (never text/choices).
     if (JSON.stringify(all).length > 300000) {
-      for (const m of story.messages) {
+      for (const m of s.messages) {
         if (JSON.stringify(all).length <= 300000) break;
         if (m.role === "assistant" && m.content.includes(ART_MARK)) m.content = stripArt(m.content);
+      }
+      // `ledgerPrev` is the one-step undo the redo button uses. It is a convenience, not memory, so
+      // it goes before any ledger is compacted — OLDEST BOOK FIRST (the shelf is newest-first, so
+      // this walks backwards), because the book you are reading is the one whose last scene you
+      // might actually want to redo. Only as many as are needed are shed; all[0] is never touched.
+      for (let i = all.length - 1; i >= 1; i--) {
+        if (JSON.stringify(all).length <= 300000) break;
+        if (all[i].ledgerPrev) delete all[i].ledgerPrev;
+      }
+      // Ledgers are small next to SVG art, but 20 of them plus their diff logs still count. Art
+      // goes first (decorative); then, if the shelf is STILL over, every ledger on it is compacted
+      // — the timeline is an audit trail, the canon and the cast are the story's memory and are
+      // never dropped here. The 20-story cap is unchanged.
+      if (JSON.stringify(all).length > 300000) {
+        for (const x of all) {
+          if (JSON.stringify(all).length <= 300000) break;
+          if (x.ledger && x.ledger.meta) compactLedger(x.ledger, 8000);
+          if (x.ledgerPrev && x.ledgerPrev.meta) compactLedger(x.ledgerPrev, 8000);
+        }
+      }
+      // `ledgerSeed` is shed LAST and only from the oldest books, because losing it costs a book
+      // its "go back" for good — and unlike ledgerPrev it never grows (it is the world at turn 0),
+      // so it is rarely what put the shelf over. all[0], the book being read, keeps its seed.
+      for (let i = all.length - 1; i >= 1; i--) {
+        if (JSON.stringify(all).length <= 300000) break;
+        if (all[i].ledgerSeed) delete all[i].ledgerSeed;
       }
     }
     try { localStorage.setItem(STORIES_KEY, JSON.stringify(all)); } catch { /* full — story survives in memory */ }
   }
+  function saveStory() { saveStoryObj(story); }
 
   // Turns one saved story into a readable transcript (setup, chapters, and the choices taken).
   function storyToText(s) {
@@ -1123,8 +1833,8 @@
     let chapterNo = 0;
     s.messages.forEach((m, i) => {
       if (m.role === "user") {
-        if (m.content === NEXT_CHAPTER_MSG) return;
-        const t = typeof m.content === "string" ? m.content : textOf(m.content);
+        let t = typeof m.content === "string" ? m.content : textOf(m.content);
+        if (isNextChapterTurn(t)) { t = afterNextChapter(t); if (!t) return; }
         out.push("", i === 0 ? "[The world] " + t : "➤ (You chose) " + t);
       } else {
         const p = parseChapter(m.content);
@@ -1357,6 +2067,20 @@
       });
     }
     $("writeRow").style.display = interactive ? "flex" : "none";
+    // Redo is offered whenever there IS a last scene to replace and the story is waiting on the
+    // reader — including at a chapter end, which is exactly where a scene that landed wrong is
+    // most annoying. Not while streaming, not once the story is over, not while capped.
+    const canRedo = !busyNow && !ended && !capped && !!story &&
+      story.messages && story.messages.length > 1 &&
+      story.messages[story.messages.length - 1].role === "assistant";
+    $("redoBar").dataset.avail = canRedo ? "1" : "0";
+    $("redoBar").style.display = canRedo ? "flex" : "none";
+    if (!canRedo) { $("redoRow").style.display = "none"; $("redoNote").value = ""; }
+    // "Go back" lives on the same bar and under the same conditions, and it is only worth showing
+    // once there is more than one scene to go back past.
+    const canRewind = canRedo && rewindPoints(story).length > 0 && (!hasLedger(story) || !!story.ledgerSeed);
+    $("rewindBtn").style.display = canRewind ? "inline-block" : "none";
+    if (!canRewind) $("rewindPanel").style.display = "none";
     $("storyCappedRow").style.display = capped ? "block" : "none";
     $("chapterEndRow").style.display = (!busyNow && chapterEnd && !capped) ? "block" : "none";
     if (!busyNow && chapterEnd) $("nextChapterBtn").textContent = "Read Chapter " + (((story && story.chapter) || 1) + 1) + " →";
@@ -1392,9 +2116,21 @@
     }
     return out;
   }
+  // Ledger stories carry their memory as STRUCTURE instead of prose, so the verbatim window only
+  // has to cover "what just happened" — a much smaller and more reliable job than the recap's.
+  const SEND_SCENES = 3;
   function buildSendMessages() {
     const msgs = story.messages;
     const asstIdx = msgs.map((m, i) => (m.role === "assistant" ? i : -1)).filter((i) => i >= 0);
+    // LEDGER PATH. The wire is: world setup (+ the stable ledger blocks, appended server-side) →
+    // the last few scenes verbatim → the reader's choice (+ the volatile blocks). The ledger
+    // itself rides in its own request field, never inside a message — see streamChapter.
+    if (hasLedger(story)) {
+      if (asstIdx.length <= SEND_SCENES) return msgs.map(strippedForSend);
+      const cut = asstIdx[asstIdx.length - SEND_SCENES];
+      return [strippedForSend(msgs[0]), ...msgs.slice(cut).map(strippedForSend)];
+    }
+    // LEGACY PATH (pre-ledger stories) — the recap window, unchanged.
     // Short story, or no memory note yet: send the whole thing (art stripped to stay lean).
     if (asstIdx.length <= SEND_CHAPTERS || !story.recap) return mergeUserRuns(msgs.map(strippedForSend));
     const head = {
@@ -1421,7 +2157,7 @@
       const m = story.messages[i];
       const t = typeof m.content === "string" ? m.content : textOf(m.content);
       if (m.role === "user") {
-        out.push(t === NEXT_CHAPTER_MSG ? "(A new chapter begins.)" : "Reader chose: " + t);
+        out.push(isNextChapterTurn(t) ? "(A new chapter begins.)" : "Reader chose: " + t);
       } else {
         const p = parseChapter(t);
         out.push((p.title ? "[New chapter — " + p.title + "] " : "") + p.text);
@@ -1430,6 +2166,9 @@
     return out.join("\n\n");
   }
   async function maybeSummarize() {
+    // Ledger stories don't keep a prose recap — the ledger IS the memory. (The keeper call that
+    // maintains it lands in this same background slot in a later step.)
+    if (hasLedger(story)) return;
     if (summarizing || !story || story.done) return;
     const fromIdx = story.summarizedIdx || 0;
     const newChapters = story.messages.slice(fromIdx).filter((m) => m.role === "assistant").length;
@@ -1449,6 +2188,156 @@
       }
     } catch { /* keep the previous note — a failed summary must never disrupt the story */ }
     summarizing = false;
+  }
+
+  // ---- THE KEEPER: the ledger's bookkeeper (build-order step 3) ------------
+  // Runs in the background after each scene of a LEDGER story, in the same slot maybeSummarize
+  // occupies for legacy ones. Reads the scene that was just written, returns a diff, and the diff
+  // is validated and applied here.
+  //
+  // FAIL-OPEN IS THE WHOLE CONTRACT. Every failure mode — the network, unparseable JSON, a patch
+  // the validator rejects, a patch that touched canon — leaves the previous ledger exactly as it
+  // was, records an honest empty entry in the diff log so the log stays gapless, and says nothing
+  // to the reader. A keeper failure must be invisible from the reading chair.
+  const KEEPER_SCENE_MAX = 20000;
+  // A hung request would otherwise hold the queue below open forever and silently stop the ledger
+  // updating for the rest of the session — the one failure mode fail-open doesn't cover by itself.
+  let KEEPER_TIMEOUT_MS = 45000;
+  let keeping = false;
+  // Keeper calls QUEUE, they never overlap and they are never dropped. Two reasons: diffs must be
+  // applied in scene order (each one is written against the ledger the previous one left behind),
+  // and a reader who chooses quickly must not silently lose a scene's bookkeeping — an entry stuck
+  // on "keeper pending" forever is a hole in the ledger that nothing would ever fill.
+  let keeperChain = Promise.resolve();
+
+  // The model is told to emit bare JSON, and mostly does; a fence or a stray sentence around it is
+  // not worth throwing a scene's bookkeeping away for. Anything that isn't a single object → null.
+  function parseKeeperJSON(raw) {
+    if (typeof raw !== "string") return null;
+    let t = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+    const a = t.indexOf("{"), b = t.lastIndexOf("}");
+    if (a === -1 || b <= a) return null;
+    t = t.slice(a, b + 1);
+    let v = null;
+    try { v = JSON.parse(t); } catch { return null; }
+    return v && typeof v === "object" && !Array.isArray(v) ? v : null;
+  }
+
+  // The model is untrusted about ONE thing in particular: whose authority a canon rule carries.
+  // source:"reader" outranks pack and story canon, so the model may only stamp it on a turn where
+  // the reader actually asserted something — and the CLIENT is what knows whether they did.
+  // Anything else falls back to "story". (Nothing else here is a security matter; applyLedgerDiff
+  // already rejects everything structurally wrong.)
+  // It also stamps the SCENE'S TURN NUMBER into the diff. meta.turn is set on the live ledger by
+  // streamChapter, which a replay never runs — so without this, replaying seed + diffs rebuilds a
+  // ledger whose turn (and every canon/timeline entry stamped from it) is wrong. That would make
+  // step 5's rewind quietly produce a near-identical-but-not-identical world.
+  function sanitizeKeeperDiff(diff, readerAsserted, turn) {
+    // ONE tolerated misplacement, seen repeatedly in live runs: the model puts `player_knowledge`
+    // at the top level instead of under `add`. There is exactly one place it can belong, so the
+    // shape is unambiguous — and without this the facts are silently DROPPED (an unknown top-level
+    // key is ignored, so the diff still "succeeds" while losing what the reader learned). No other
+    // key gets this treatment: `protagonist` at the top level, for instance, could mean add OR
+    // update, and guessing there would be inventing intent.
+    if (diff && diff.player_knowledge && typeof diff.player_knowledge === "object" && !Array.isArray(diff.player_knowledge)) {
+      if (diff.add === undefined) diff.add = {};
+      if (diff.add && typeof diff.add === "object" && !Array.isArray(diff.add) && diff.add.player_knowledge === undefined) {
+        diff.add.player_knowledge = diff.player_knowledge;
+      }
+      delete diff.player_knowledge;
+    }
+    if (diff && diff.add && Array.isArray(diff.add.canon)) {
+      for (const c of diff.add.canon) {
+        if (!c || typeof c !== "object") continue;
+        // Only the seeder mints "pack" canon; only an asserting turn mints "reader" canon.
+        if (c.source === "reader" && readerAsserted) continue;
+        c.source = "story";
+      }
+    }
+    if (diff && typeof turn === "number" &&
+        (diff.update === undefined || (diff.update && typeof diff.update === "object" && !Array.isArray(diff.update)))) {
+      // A malformed `update` is left exactly as it is, so applyLedgerDiff still rejects it.
+      diff.update = diff.update || {};
+      if (diff.update.meta === undefined || (diff.update.meta && typeof diff.update.meta === "object" && !Array.isArray(diff.update.meta))) {
+        diff.update.meta = Object.assign({}, diff.update.meta, { turn });
+      }
+    }
+    return diff;
+  }
+
+  // The reader's own words this turn, if the turn was one they wrote (a write-in, or a redo note).
+  // A tapped choice is the storyteller's sentence, not the reader's, so it asserts nothing.
+  function readerAssertionOf(s) {
+    for (let i = s.messages.length - 1; i >= 0; i--) {
+      const m = s.messages[i];
+      if (m.role !== "user") continue;
+      return m.writeIn === true ? textOf(m.content) : "";
+    }
+    return "";
+  }
+
+  function runKeeper(s, sceneIdx) {
+    const gen = s ? (s.keeperGen | 0) : 0;
+    keeperChain = keeperChain.then(() => keeperOnce(s, sceneIdx, gen)).catch(() => {});
+    return keeperChain;
+  }
+
+  // `gen` is the story's keeper generation when this call was queued. A REDO bumps it, so a keeper
+  // that was already in flight for the discarded scene abandons quietly instead of stamping its
+  // diff onto the scene index the replacement now occupies.
+  async function keeperOnce(s, sceneIdx, gen) {
+    if (!s || !hasLedger(s)) return;
+    if ((s.keeperGen | 0) !== (gen | 0)) return;
+    const scene = s.messages[s.messages.length - 1];
+    if (!scene || scene.role !== "assistant") return;
+    const sceneText = parseChapter(typeof scene.content === "string" ? scene.content : "").text;
+    if (!sceneText || !sceneText.trim()) return;
+    // Whatever happens below, this scene ends up with an entry at its own index — unless a redo
+    // threw the scene away while we were out, in which case there is nothing left to file.
+    const record = (diff, okFlag, reason) => {
+      if ((s.keeperGen | 0) !== (gen | 0)) return;
+      recordLedgerDiff(s, sceneIdx, diff, okFlag, reason);
+      saveStoryObj(s);
+    };
+    let choice = "";
+    for (let i = s.messages.length - 2; i >= 0; i--) {
+      if (s.messages[i].role === "user") {
+        const t = textOf(s.messages[i].content);
+        choice = isNextChapterTurn(t)
+          ? ("(the reader turned to a new chapter)" + (afterNextChapter(t) ? " " + afterNextChapter(t) : ""))
+          : t;
+        break;
+      }
+    }
+    const assertion = readerAssertionOf(s);
+    const turn = (s.ledger.meta && s.ledger.meta.turn) || sceneIdx + 1;
+    keeping = true;
+    const ctl = typeof AbortController === "function" ? new AbortController() : null;
+    const timer = ctl ? setTimeout(() => ctl.abort(), KEEPER_TIMEOUT_MS) : 0;
+    try {
+      const raw = await callFarmGPT("ledger", [], () => {}, {
+        ledger: ledgerForSend(s.ledger),
+        scene: sceneText.slice(0, KEEPER_SCENE_MAX),
+        choice, readerAssert: !!assertion, turn,
+      }, ctl ? ctl.signal : undefined);
+      const diff = parseKeeperJSON(raw);
+      // Keep a snippet of what DID come back. A diff-log entry that only says "wasn't JSON" is
+      // unfalsifiable a week later — and this is the field step 5's audit tool reads.
+      if (!diff) {
+        record(null, false, "the keeper's reply wasn't JSON — got: " +
+          String(raw == null ? "(nothing)" : raw).trim().slice(0, 200));
+        return;
+      }
+      sanitizeKeeperDiff(diff, !!assertion, turn);
+      const prev = deepCopy(s.ledger);
+      const res = applyLedgerDiff(s.ledger, diff);
+      if (!res.ok) { record(null, false, "rejected: " + res.reason); return; }
+      s.ledgerPrev = prev;             // one-step undo, for redo
+      s.ledger = res.ledger;
+      record(diff, true, "");
+    } catch (err) {
+      record(null, false, "keeper call failed: " + String((err && err.message) || err));
+    } finally { clearTimeout(timer); keeping = false; }
   }
 
   // Requests the next scene given story.messages (last entry must be a user turn).
@@ -1483,13 +2372,18 @@
       storyId: story.id,
       storyTitle: story.title,
       sceneIdx,
-      choice: (rawChoice === NEXT_CHAPTER_MSG ? "▶ Next chapter" : rawChoice).slice(0, 2000),
+      choice: (isNextChapterTurn(rawChoice) ? "▶ Next chapter " + afterNextChapter(rawChoice) : rawChoice).trim().slice(0, 2000),
     };
     try {
       // No auto-scroll while streaming — the reader reads at their own pace as the scene arrives.
       const full = await callFarmGPT("story", buildSendMessages(), (sofar) => {
         el.textContent = visibleDuringStream(sofar);
-      }, { illustrate: shouldIllustrate(), newChapter, endChapter, endChapterSoft, ...logOpts });
+      }, { illustrate: shouldIllustrate(), newChapter, endChapter, endChapterSoft,
+           // Ledger stories carry their memory in its own field (a 30KB ledger stuffed into a
+           // message would be sliced mid-JSON by the server's per-message cap). Trimmed to fit
+           // here so the server's cap stays a backstop. Legacy stories send nothing.
+           ...(hasLedger(story) ? { ledger: ledgerForSend(story.ledger) } : {}),
+           ...logOpts });
       const p = parseChapter(full);
       el.textContent = p.text;
       if (divider) divider.querySelector(".ct").textContent = p.title || "";
@@ -1502,6 +2396,15 @@
       }
       story.messages.push({ role: "assistant", content: full });
       story.sceneSeq = sceneIdx + 1;               // next scene logs under a fresh index
+      let keeperFor = null;
+      if (hasLedger(story)) {
+        // One diff-log entry per scene, in scene order, no gaps (see recordLedgerDiff's contract).
+        // The placeholder goes in FIRST and the keeper overwrites it: if the keeper never comes
+        // back at all, the entry is still there and the INDEX still lines up with the scenes.
+        story.ledger.meta.turn = story.messages.filter((m) => m.role === "assistant").length;
+        recordLedgerDiff(story, story.ledger.meta.turn - 1, null, false, "keeper pending");
+        keeperFor = { s: story, idx: story.ledger.meta.turn - 1 };
+      }
       if (p.chapterEnd) story.closing = false;     // chapter closed cleanly — reset the latch
       if (p.ended) {                               // legacy safety (new stories never self-end)
         story.done = true;
@@ -1514,7 +2417,8 @@
       busy = false;
       setStoryControls({ choices: p.choices, ended: p.ended, chapterEnd: p.chapterEnd, busyNow: false });
       if (p.chapterEnd) scrollStory();             // bring the "next chapter / shelve" prompt into view
-      maybeSummarize();                            // background: fold new scenes into the memory note
+      maybeSummarize();                            // background: legacy stories fold scenes into the memory note
+      if (keeperFor) runKeeper(keeperFor.s, keeperFor.idx);   // background: ledger stories file the diff
     } catch (err) {
       el.remove();
       if (divider) divider.remove();
@@ -1540,8 +2444,15 @@
   // in a cell" kept resurfacing in the choices even after the reader's correction, because the
   // rejected text was still in the history). The redo text stays as its own user turn (merged
   // with the previous instruction at send time by mergeUserRuns) and the scene regenerates.
+  // LEDGER STORIES TAKE THE OTHER ROAD. A ledger story keeps `ledgerDiffs[N]` describing scene N,
+  // so a scene may not be spliced out of the transcript without its diff-log entry going with it —
+  // otherwise every later replay (and the whole 🕰 go-back feature) is shifted by one. redoScene()
+  // is the ledger-aware version of exactly this operation: same "throw the last scene away and ask
+  // again", plus the keeper-generation bump and the log/meta.turn rewind. So a typed "redo that…"
+  // and the ↻ button end up in the same place, and legacy stories keep the behaviour below verbatim.
   const REDO_RE = /^\s*(please\s+)?re-?do\b/i;
   function tryRedo(userText) {
+    if (hasLedger(story)) return redoScene(userText);
     const msgs = story.messages;
     let li = -1;
     for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].role === "assistant") { li = i; break; }
@@ -1553,26 +2464,33 @@
     // so the corrected version gets re-summarized over it on the next fold.
     if ((story.summarizedIdx || 0) > li - 1) story.summarizedIdx = Math.max(0, li - 1);
     saveStory();
-    paintTranscript();
+    paintStoryScroll(story);
     scrollStory();
     streamChapter({ newChapter: wasOpener });
     return true;
   }
 
-  function takeTurn(userText) {
+  // opts.writeIn — the reader TYPED this rather than tapping a choice, so anything they state as
+  // fact is a READER ASSERTION and becomes permanent canon (source:"reader"). The flag rides on
+  // the stored message so it survives a shelve/resume; the server rebuilds messages from role +
+  // content only, so it never reaches the model as a stray field.
+  function takeTurn(userText, opts) {
     if (busy || !story || story.done) return;
     if (guardStoryCap()) return;
     if (REDO_RE.test(userText) && tryRedo(userText)) return;
     addPickedEl(userText);
     scrollStory();
-    story.messages.push({ role: "user", content: userText });
+    const m = { role: "user", content: userText };
+    if (opts && opts.writeIn) m.writeIn = true;
+    story.messages.push(m);
     streamChapter();
   }
 
-  $("beginBtn").addEventListener("click", () => {
+  $("beginBtn").addEventListener("click", async () => {
     if (busy) return;
     if (guardStoryCap()) return;
     const typed = $("worldInput").value.trim();
+    const heroName = $("heroName").value.trim();
     let seed, title;
     if (typed) {                                   // the open-ended box wins if it's filled
       seed = typed;
@@ -1580,10 +2498,28 @@
     } else if (hasBuilder()) {                      // otherwise assemble from the builder fields
       seed = buildPromptFromFields();
       title = titleFromFields();
+    } else if (selectedUniverse !== "original") {   // a picked universe is an idea all on its own
+      const u = UNIVERSES.find((x) => x.id === selectedUniverse);
+      seed = "Tell me an interactive story set in the world of " + u.label.replace(/^\S+\s/, "") +
+        ". Begin the very first chapter now.";
+      title = u.label.replace(/^\S+\s/, "");
     } else {
       toast("Tell me your idea up top, or fill in a few boxes below!");
       return;
     }
+    if (heroName) seed += " My name is " + heroName + ".";
+    // The universe pack seeds the ledger. A missing or broken pack is never fatal: the reader
+    // gets their own world plus a quiet note, and the story starts either way.
+    busy = true;
+    let packRes;
+    try { packRes = await loadUniversePack(selectedUniverse); }
+    catch { packRes = { pack: null, note: "" }; }
+    busy = false;
+    if (packRes.note) toast("📖 " + packRes.note);
+    const ledger = seedLedger({
+      title, universe: packRes.pack ? selectedUniverse : "original",
+      genre: bldGenreWord(), heroName, pack: packRes.pack,
+    });
     story = {
       id: "s" + Date.now(),
       title: title.length > 46 ? title.slice(0, 46) + "…" : title,
@@ -1592,6 +2528,14 @@
       chapter: 1,          // current chapter number
       closing: false,      // latched true while we're asking the model to close the chapter
       done: false,
+      schemaVersion: LEDGER_SCHEMA_VERSION,
+      ledger,              // the continuity engine's memory (legacy stories have no such field)
+      // The world as it stood at turn 0, kept forever and never written to again. It is the half
+      // of `ledger@N === seed + diffs 0..N` that isn't the diff log, and therefore the thing that
+      // makes "go back to scene N" possible at all (step 5b). A deep copy, because `ledger` is
+      // about to start being patched in place.
+      ledgerSeed: deepCopy(ledger),
+      ledgerDiffs: [],     // one entry per scene, in order, no gaps — see recordLedgerDiff
     };
     $("storyScroll").innerHTML = "";
     addPickedEl(seed);
@@ -1599,22 +2543,30 @@
     streamChapter({ newChapter: true });   // chapter 1 opens with a title
   });
 
-  // Repaints #storyScroll from story.messages (used by resume AND by redo, which removes a scene).
-  function paintTranscript() {
+  // Repaints the whole reading view from a story's transcript. Shared by resume and by redo (which
+  // has to redraw after throwing the last scene away). Returns what the last scene parsed to, and
+  // the chapter count, so the caller can restore the controls.
+  function paintStoryScroll(s) {
     const scroll = $("storyScroll");
     scroll.innerHTML = "";
     let chapterNo = 0;
-    let lastParsed = { choices: [], ended: story.done, chapterEnd: false };
-    story.messages.forEach((m, i) => {
+    let lastParsed = { choices: [], ended: !!s.done, chapterEnd: false };
+    s.messages.forEach((m, i) => {
       if (m.role === "user") {
-        if (m.content === NEXT_CHAPTER_MSG) return;   // sentinel — the divider comes from the next scene
+        // The sentinel is machinery — but a redo can have left the reader's own note attached to
+        // it, and that they DID write, so it shows.
+        if (isNextChapterTurn(m.content)) {
+          const note = afterNextChapter(m.content);
+          if (note) addPickedEl(note);
+          return;
+        }
         addPickedEl(textOf(m.content));
       } else {
         const p = parseChapter(m.content);
-        if (beatOpensChapter(story.messages, i)) { chapterNo++; addChapterDivider(chapterNo, p.title); }
+        if (beatOpensChapter(s.messages, i)) { chapterNo++; addChapterDivider(chapterNo, p.title); }
         addArtEl(p.art);              // decorative — above the scene text
         addChapterEl(p.text);
-        if (p.recap) story.recap = p.recap;   // recover the running memory from the latest scene
+        if (p.recap) s.recap = p.recap;   // recover the running memory from the latest scene
         lastParsed = p;
       }
     });
@@ -1625,7 +2577,13 @@
     if (busy) return;
     story = s;
     if (typeof story.closing !== "boolean") story.closing = false;   // migrate older saves
-    const { chapterNo, lastParsed } = paintTranscript();
+    // A ledger-era story that somehow came back malformed (hand-edited localStorage, a partial
+    // write) drops to the legacy path rather than shipping a broken ledger to the narrator —
+    // the story still reads and still continues, it just loses its structured memory.
+    if (story.ledger && !validateLedger(story.ledger).ok) delete story.ledger;
+    if (hasLedger(story) && !Array.isArray(story.ledgerDiffs)) story.ledgerDiffs = [];
+    const scroll = $("storyScroll");
+    const { chapterNo, lastParsed } = paintStoryScroll(s);
     story.chapter = Math.max(chapterNo, story.chapter || 1);   // keep numbering in sync (migrate legacy)
     if (s.done) {
       const fin = document.createElement("div");
@@ -1637,15 +2595,202 @@
     // A story saved mid-request ends on a user turn — pick up where it left off (unless capped;
     // setStoryControls above already painted the gentle notice in that case).
     const last = s.messages[s.messages.length - 1];
-    if (!s.done && last && last.role === "user" && !storyCapped()) streamChapter({ newChapter: last.content === NEXT_CHAPTER_MSG || !!last.opener });
+    if (!s.done && last && last.role === "user" && !storyCapped()) streamChapter({ newChapter: isNextChapterTurn(last.content) || !!last.opener });
     scrollStory();
   }
+
+  // ---- REDO: throw the last scene away and ask for it again -----------------
+  // `note` (optional) is what the reader says was wrong. It is a READER ASSERTION: it rides on the
+  // user turn, reaches the storyteller as the reader's own words, and reaches the keeper flagged
+  // so that anything stated as fact becomes canon with source:"reader".
+  //
+  // THE DIFF LOG AND THE TRANSCRIPT MUST STAY IN STEP. `ledgerDiffs[N]` describes scene N, so a
+  // scene that no longer exists may not keep an entry — otherwise every later replay is shifted by
+  // one and the step-5 rewind silently rebuilds the wrong world. The ledger itself rewinds through
+  // `ledgerPrev`, the keeper's snapshot from immediately before the diff it applied.
+  function redoScene(note) {
+    if (busy || !story || story.done) return false;
+    const last = story.messages[story.messages.length - 1];
+    if (!last || last.role !== "assistant") { toast("There's nothing to redo yet!"); return false; }
+    if (guardStoryCap()) return false;
+    story.messages.pop();
+    story.keeperGen = (story.keeperGen | 0) + 1;   // any keeper still out for that scene now abandons
+    const sceneIdx = story.messages.filter((m) => m.role === "assistant").length;   // the scene just removed
+    if (hasLedger(story)) {
+      const entry = story.ledgerDiffs[sceneIdx];
+      if (entry && entry.ok && story.ledgerPrev && validateLedger(story.ledgerPrev).ok) {
+        story.ledger = story.ledgerPrev;      // undo the keeper's patch for the scene being replaced
+      }
+      story.ledgerPrev = null;
+      story.ledgerDiffs.length = sceneIdx;    // no entry may outlive its scene
+      story.ledger.meta.turn = sceneIdx;
+    }
+    if (note) {
+      for (let i = story.messages.length - 1; i >= 0; i--) {
+        const m = story.messages[i];
+        if (m.role !== "user") continue;
+        m.content = textOf(m.content) + "\n\n(" + note + ")";
+        m.writeIn = true;                     // the reader typed it → it can become reader canon
+        break;
+      }
+    }
+    paintStoryScroll(story);
+    saveStory();
+    const nowLast = story.messages[story.messages.length - 1];
+    streamChapter({ newChapter: story.messages.length === 1 || isNextChapterTurn(nowLast && nowLast.content) });
+    return true;
+  }
+  // ---- GO BACK: rewind to an earlier moment and choose differently (step 5b) ----------------
+  // The primitive is the diff log, which has held the identity `ledger@N === seed + diffs 0..N`
+  // since step 1: to stand where the story stood after scene N, truncate the transcript, truncate
+  // the log to N+1 entries, and REPLAY the seed through what's left. That is why the seed itself
+  // is stored (`story.ledgerSeed`) — without it there is nothing to replay onto, and a story that
+  // predates this field honestly refuses rather than guessing at a starting world.
+  //
+  // WHAT MUST STAY IN STEP, and every one of these is asserted in the suite: the transcript, the
+  // diff log (one entry per scene, no gaps), meta.turn, the chapter number, the closing latch, and
+  // any keeper still in flight (its generation is bumped, so it abandons instead of writing its
+  // diff onto an index that now belongs to a different scene).
+
+  // Where a reader may go back TO. One entry per choice they made, newest first — going back to
+  // entry k un-makes that choice and everything after it, leaving the story sitting at the end of
+  // scene k-1 with its choices offered again. Scene 0 is not offered: un-making the story's own
+  // opening is "start a new story", which has its own button.
+  function rewindPoints(s) {
+    if (!s || !Array.isArray(s.messages)) return [];
+    const out = [];
+    let scene = 0, chapter = 1;
+    for (let i = 0; i < s.messages.length; i++) {
+      const m = s.messages[i];
+      if (m.role === "assistant") {
+        if (beatOpensChapter(s.messages, i)) chapter = out.length ? chapter + 1 : 1;
+        scene++;
+        continue;
+      }
+      if (scene === 0) continue;               // the world-setup turn — not a choice point
+      const raw = textOf(m.content);
+      const label = isNextChapterTurn(raw) ? (afterNextChapter(raw) || "you turned to a new chapter") : raw;
+      out.push({ scene, chapter, choice: label.trim().slice(0, 120) });
+    }
+    return out.reverse();
+  }
+
+  // Rewind so that scene `sceneIdx` and everything after it never happened. Returns { ok, reason }.
+  function rewindToScene(s, sceneIdx) {
+    if (!s || busy) return { ok: false, reason: "busy" };
+    if (!Array.isArray(s.messages)) return { ok: false, reason: "no story" };
+    const scenes = s.messages.filter((m) => m.role === "assistant").length;
+    if (!(sceneIdx >= 1 && sceneIdx < scenes)) return { ok: false, reason: "nothing to go back to" };
+    if (hasLedger(s) && !s.ledgerSeed) return { ok: false, reason: "this story started before going back was possible" };
+
+    // THE OLD VERSION IS KEPT. Going back is the one action here that destroys reading the family
+    // already did, so it is never actually destroyed — a copy of the whole book goes on the shelf
+    // under its own id first. Nothing to decide, nothing to lose.
+    const kept = deepCopy(s);
+    kept.id = s.id + "_b" + Date.now();
+    kept.title = (s.title || "Story").replace(/\s*\(the old way.*$/, "") + " (the old way)";
+    kept.branchedFrom = s.id;
+    saveStoryObj(kept);
+
+    // Cut the transcript back to just after scene sceneIdx-1, dropping the user turn that led to
+    // the scene being unwritten — so the reader is standing at that choice again.
+    let seen = 0, cut = s.messages.length;
+    for (let i = 0; i < s.messages.length; i++) {
+      if (s.messages[i].role !== "assistant") continue;
+      if (seen === sceneIdx) { cut = i; break; }
+      seen++;
+    }
+    while (cut > 0 && s.messages[cut - 1].role === "user") cut--;   // drop that turn's choice too
+    s.messages.length = cut;
+
+    s.keeperGen = (s.keeperGen | 0) + 1;    // anything still in flight for a discarded scene abandons
+    s.done = false;
+    s.closing = false;                      // the close latch belongs to a chapter that no longer ran
+    s.ledgerPrev = null;                    // redo's one-step undo pointed at a scene that is gone
+    if (hasLedger(s)) {
+      s.ledgerDiffs.length = sceneIdx;      // one entry per surviving scene, still gapless
+      const replayed = replayLedgerDiffs(s.ledgerSeed, s.ledgerDiffs, sceneIdx - 1);
+      // Fail-open, same contract as everywhere else: an unreplayable seed leaves the story
+      // readable rather than shipping a broken ledger. (validateLedger is structural, so this
+      // catches a hand-edited seed, not a merely surprising one.)
+      if (validateLedger(replayed).ok) s.ledger = replayed;
+      s.ledger.meta.turn = sceneIdx;
+    }
+    const { chapterNo, lastParsed } = paintStoryScroll(s);
+    s.chapter = Math.max(chapterNo, 1);
+    saveStoryObj(s);
+    setStoryControls({ choices: lastParsed.choices, ended: false, chapterEnd: lastParsed.chapterEnd, busyNow: false });
+    scrollStory();
+    return { ok: true, reason: "", keptAs: kept.id };
+  }
+
+  function renderRewindPanel() {
+    const list = $("rewindList");
+    list.innerHTML = "";
+    const pts = rewindPoints(story);
+    if (!pts.length) {
+      const p = document.createElement("div");
+      p.className = "rwWhen";
+      p.textContent = "There's nothing to go back to yet — this is where the story started!";
+      list.appendChild(p);
+      return;
+    }
+    for (const pt of pts) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "rwItem";
+      b.dataset.scene = String(pt.scene);
+      const when = document.createElement("span");
+      when.className = "rwWhen";
+      when.textContent = "Chapter " + pt.chapter + " · scene " + pt.scene;
+      const what = document.createElement("span");
+      what.className = "rwWhat";
+      what.textContent = "you chose: " + pt.choice;
+      b.append(when, what);
+      b.addEventListener("click", () => {
+        const scenes = story.messages.filter((m) => m.role === "assistant").length;
+        const lose = scenes - pt.scene;
+        if (!confirm("Go back to just before this?\n\nThe " + lose + " scene" + (lose === 1 ? "" : "s") +
+          " after it will be unwritten so you can choose differently.\n\n" +
+          "(The story as it is now will be kept on your shelf.)")) return;
+        showRewindPanel(false);
+        const res = rewindToScene(story, pt.scene);
+        if (!res.ok) { toast("🕰 " + res.reason); return; }
+        toast("🕰 Here we are again — choose differently!");
+      });
+      list.appendChild(b);
+    }
+  }
+  function showRewindPanel(on) {
+    if (on) renderRewindPanel();
+    $("rewindPanel").style.display = on ? "block" : "none";
+    $("redoBar").style.display = on ? "none" : ($("redoBar").dataset.avail === "1" ? "flex" : "none");
+  }
+  $("rewindBtn").addEventListener("click", () => showRewindPanel(true));
+  $("rewindCancel").addEventListener("click", () => showRewindPanel(false));
+
+  function showRedoRow(on) {
+    $("redoRow").style.display = on ? "flex" : "none";
+    $("redoBar").style.display = on ? "none" : ($("redoBar").dataset.avail === "1" ? "flex" : "none");
+    if (on) { $("rewindPanel").style.display = "none"; $("redoNote").focus(); }
+  }
+  $("redoBtn").addEventListener("click", () => showRedoRow(true));
+  $("redoCancel").addEventListener("click", () => { $("redoNote").value = ""; showRedoRow(false); });
+  $("redoGo").addEventListener("click", () => {
+    const n = $("redoNote").value.trim();
+    $("redoNote").value = "";
+    showRedoRow(false);
+    redoScene(n);
+  });
+  $("redoNote").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); $("redoGo").click(); }
+  });
 
   $("writeSend").addEventListener("click", () => {
     const v = $("writeInput").value.trim();
     if (!v) return;
     $("writeInput").value = "";
-    takeTurn(v);
+    takeTurn(v, { writeIn: true });
   });
   // At a chapter's end, the reader keeps going into the next chapter — either steering it with
   // their own idea (the write-in becomes the chapter's direction) or leaving the box blank to
@@ -1688,6 +2833,29 @@
     renderBookshelf();
     show("storySetup");
   });
+
+  // Test hook for tools/_verify-storyledger.cjs. The page is a module-scoped IIFE, so headless
+  // tests otherwise can't reach any of this; exposing the pure functions lets the suite check the
+  // validator, the diff apply and the wire shape without faking a whole browser session.
+  window.__STORY__ = {
+    LEDGER_SCHEMA_VERSION, LEDGER_MAX_CHARS, LEDGER_WIRE_BUDGET, SEND_SCENES, SEND_CHAPTERS, UNIVERSES,
+    emptyLedger, validateLedger, applyLedgerDiff, compactLedger, ledgerForSend,
+    seedLedger, loadUniversePack, recordLedgerDiff, replayLedgerDiffs, hasLedger,
+    buildSendMessages, canonPreserved, matchFact,
+    // step 3 — the keeper, reader canon, redo
+    runKeeper, parseKeeperJSON, sanitizeKeeperDiff, readerAssertionOf, redoScene,
+    takeTurn, saveStoryObj, isNextChapterTurn, loadStories,
+    // step 5 — compaction, rewind/branching, the contradiction audit
+    DORMANT_AFTER, LOCATION_STALE_AFTER, KNOWN_WIRE_MAX,
+    foldResolvedThreads, threadWasFolded, shapeLedgerForWire,
+    rewindPoints, rewindToScene, renderRewindPanel,
+    auditTranscript, keeperNotes, parseAuditJSON, renderAuditList, runAudit,
+    setKeeperTimeout(ms) { KEEPER_TIMEOUT_MS = ms; },
+    keeperBusy() { return keeping; },
+    get story() { return story; },
+    setStory(s) { story = s; },
+    universe(id) { if (id !== undefined) { selectedUniverse = id; paintUniverse(); } return selectedUniverse; },
+  };
 
   // =====================================================================
   // RESEARCH MODE
@@ -2022,7 +3190,7 @@
     + cw(d, p + "_cr") * inR * 0.1 + cw(d, p + "_out") * outR;
   const IMG_EACH = 0.039;   // generated picture, billed per image rather than per token
   // u (story-bible recaps) moved to Sonnet 2026-08-01 — priced at Sonnet rates from here on.
-  const rowCost = (d) => (priced(d, "s", S_IN, S_OUT) + priced(d, "u", R_IN, R_OUT) + priced(d, "r", R_IN, R_OUT) + priced(d, "d", R_IN, R_OUT) + priced(d, "k", S_IN, S_OUT) + priced(d, "a", R_IN, R_OUT) + priced(d, "c", R_IN, R_OUT) + priced(d, "t", O_IN, O_OUT)) / 1e6
+  const rowCost = (d) => (priced(d, "s", S_IN, S_OUT) + priced(d, "u", R_IN, R_OUT) + priced(d, "r", R_IN, R_OUT) + priced(d, "d", R_IN, R_OUT) + priced(d, "k", S_IN, S_OUT) + priced(d, "a", R_IN, R_OUT) + priced(d, "c", R_IN, R_OUT) + priced(d, "t", O_IN, O_OUT) + priced(d, "l", S_IN, S_OUT) + priced(d, "x", R_IN, R_OUT)) / 1e6
     + cw(d, "g_req") * IMG_EACH;
   const dayCost = rowCost;
   const fmt$ = (v) => "$" + (v < 0.10 ? v.toFixed(3) : v.toFixed(2));
@@ -2067,6 +3235,8 @@
     for (const [icon, name, rq, ti, to, tc, note] of [
       ["📖", "Story chapters", sum(monthDays, "s_req"), sum(monthDays, "s_in"), sum(monthDays, "s_out"), sum(monthDays, "s_cw") + sum(monthDays, "s_cr"), "Haiku 4.5"],
       ["📝", "Story recaps", sum(monthDays, "u_req"), sum(monthDays, "u_in"), sum(monthDays, "u_out"), sum(monthDays, "u_cw") + sum(monthDays, "u_cr"), "Haiku 4.5"],
+      ["📒", "Story ledger (keeper)", sum(monthDays, "l_req"), sum(monthDays, "l_in"), sum(monthDays, "l_out"), sum(monthDays, "l_cw") + sum(monthDays, "l_cr"), "Haiku 4.5"],
+      ["🔎", "Story audits", sum(monthDays, "x_req"), sum(monthDays, "x_in"), sum(monthDays, "x_out"), sum(monthDays, "x_cw") + sum(monthDays, "x_cr"), "Sonnet 5"],
       ["🔬", "Research", sum(monthDays, "r_req"), sum(monthDays, "r_in"), sum(monthDays, "r_out"), sum(monthDays, "r_cw") + sum(monthDays, "r_cr"), "Sonnet 5"],
       ["🎲", "Dungeon", sum(monthDays, "d_req"), sum(monthDays, "d_in"), sum(monthDays, "d_out"), sum(monthDays, "d_cw") + sum(monthDays, "d_cr"), "Sonnet 5"],
       ["🧒", "Little-kid stories", sum(monthDays, "k_req"), sum(monthDays, "k_in"), sum(monthDays, "k_out"), sum(monthDays, "k_cw") + sum(monthDays, "k_cr"), "Haiku 4.5"],
@@ -2109,12 +3279,12 @@
 
     const table = document.createElement("table");
     table.className = "usageTable";
-    const tokTotal = (d) => ["s", "u", "r", "d", "k", "a", "g", "c"].reduce((a, p) =>
+    const tokTotal = (d) => ["s", "u", "r", "d", "k", "a", "g", "c", "l", "x"].reduce((a, p) =>
       a + cw(d, p + "_in") + cw(d, p + "_out") + cw(d, p + "_cw") + cw(d, p + "_cr"), 0);
-    table.innerHTML = "<tr><th>Day</th><th>📖</th><th>📝</th><th>🔬</th><th>🎲</th><th>🧒</th><th>Tokens</th><th>Est. cost</th></tr>";
+    table.innerHTML = "<tr><th>Day</th><th>📖</th><th>📒</th><th>📝</th><th>🔬</th><th>🎲</th><th>🧒</th><th>🔎</th><th>Tokens</th><th>Est. cost</th></tr>";
     for (const d of days.slice(0, 21)) {
       const tr = document.createElement("tr");
-      const cells = [d.date, d.s_req, cw(d, "u_req"), d.r_req, cw(d, "d_req"), cw(d, "k_req"), fmtTok(tokTotal(d)), fmt$(dayCost(d))];
+      const cells = [d.date, d.s_req, cw(d, "l_req"), cw(d, "u_req"), d.r_req, cw(d, "d_req"), cw(d, "k_req"), cw(d, "x_req"), fmtTok(tokTotal(d)), fmt$(dayCost(d))];
       for (const c of cells) { const td = document.createElement("td"); td.textContent = c; tr.appendChild(td); }
       table.appendChild(tr);
     }
@@ -2127,11 +3297,11 @@
       body.appendChild(hHead);
       const ht = document.createElement("table");
       ht.className = "usageTable";
-      ht.innerHTML = "<tr><th>Hour (CT)</th><th>📖</th><th>📝</th><th>🔬</th><th>🎲</th><th>🧒</th><th>Tokens</th><th>Est. cost</th></tr>";
+      ht.innerHTML = "<tr><th>Hour (CT)</th><th>📖</th><th>📒</th><th>📝</th><th>🔬</th><th>🎲</th><th>🧒</th><th>🔎</th><th>Tokens</th><th>Est. cost</th></tr>";
       for (const h of hours.slice(0, 18)) {
         const tr = document.createElement("tr");
         const label = h.hour.replace(/^(\d{4})-(\d{2})-(\d{2})-(\d{2})$/, "$2/$3 $4:00");
-        const cells = [label, h.s_req, cw(h, "u_req"), h.r_req, cw(h, "d_req"), cw(h, "k_req"), fmtTok(tokTotal(h)), fmt$(rowCost(h))];
+        const cells = [label, h.s_req, cw(h, "l_req"), cw(h, "u_req"), h.r_req, cw(h, "d_req"), cw(h, "k_req"), cw(h, "x_req"), fmtTok(tokTotal(h)), fmt$(rowCost(h))];
         for (const c of cells) { const td = document.createElement("td"); td.textContent = c; tr.appendChild(td); }
         ht.appendChild(tr);
       }
@@ -2145,6 +3315,163 @@
       "re-read at 10% of the input rate. Exact billing is at console.anthropic.com.";
     body.appendChild(note);
   }
+
+  // ---------------- CONTRADICTION AUDIT (Dad only, build-order step 5c) ----------------
+  // "Check this story": a fresh Sonnet pass over the ledger AND the transcript together, listing
+  // where they disagree. It is not the keeper re-run — the keeper sees one scene at a time and has
+  // never read the story whole, which is exactly how drift accumulates without any single diff
+  // looking wrong. The keeper's own accumulated `notes` are surfaced alongside: those are its
+  // drift alarm, written at the moment it was unsure, and nothing else has ever read them.
+  //
+  // Stories live only in this device's localStorage, so the audit reads the shelf, not a server.
+  function auditTranscript(s) {
+    const out = [];
+    let chapterNo = 0;
+    s.messages.forEach((m, i) => {
+      if (m.role === "user") {
+        const t = textOf(m.content);
+        if (i === 0) { out.push("[The world] " + t); return; }
+        out.push(isNextChapterTurn(t)
+          ? "(the reader turned to a new chapter" + (afterNextChapter(t) ? ", saying: " + afterNextChapter(t) : "") + ")"
+          : "(the reader chose: " + t + ")");
+        return;
+      }
+      const p = parseChapter(m.content);
+      if (beatOpensChapter(s.messages, i)) { chapterNo++; out.push("--- CHAPTER " + chapterNo + (p.title ? " — " + p.title : "") + " ---"); }
+      out.push("SCENE " + (out.filter((l) => l.startsWith("SCENE ")).length + 1) + ":\n" + p.text);
+    });
+    return out.join("\n\n");
+  }
+  // Every note the keeper left, with the scene it was written on. `notes` is free text the diff
+  // format has always allowed and nothing has ever displayed; a keeper that was unsure about
+  // something usually said so there.
+  function keeperNotes(s) {
+    if (!Array.isArray(s.ledgerDiffs)) return [];
+    const out = [];
+    s.ledgerDiffs.forEach((e, i) => {
+      if (e && e.diff && typeof e.diff.notes === "string" && e.diff.notes.trim()) out.push({ scene: i, note: e.diff.notes.trim() });
+      if (e && !e.ok && e.reason && e.reason !== "seeded" && e.reason !== "keeper pending") out.push({ scene: i, note: "⚠ bookkeeping failed here — " + e.reason, failed: true });
+    });
+    return out;
+  }
+  function parseAuditJSON(raw) {
+    if (typeof raw !== "string") return null;
+    let t = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+    const a = t.indexOf("{"), b = t.lastIndexOf("}");
+    if (a === -1 || b <= a) return null;
+    let v = null;
+    try { v = JSON.parse(t.slice(a, b + 1)); } catch { return null; }
+    if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+    if (!Array.isArray(v.findings)) v.findings = [];
+    return v;
+  }
+  function renderAuditList() {
+    const body = $("auditBody");
+    body.innerHTML = "";
+    const shelf = loadStories();
+    if (!shelf.length) {
+      body.innerHTML = '<div class="slEmpty">No stories on this device yet. The check reads the shelf on the device it runs on — stories are never stored on a server.</div>';
+      return;
+    }
+    const intro = document.createElement("div");
+    intro.className = "auIntro";
+    intro.textContent = "Pick a story and a fresh reader will go through it against its ledger, looking for places where the world contradicts itself.";
+    body.appendChild(intro);
+    for (const s of shelf) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "rwItem auPick";
+      b.dataset.storyId = s.id;
+      const when = document.createElement("span");
+      when.className = "rwWhen";
+      const scenes = s.messages.filter((m) => m.role === "assistant").length;
+      when.textContent = scenes + " scene" + (scenes === 1 ? "" : "s") + (hasLedger(s) ? " · has a ledger" : " · no ledger (older story)");
+      const what = document.createElement("span");
+      what.className = "rwWhat";
+      what.textContent = s.title || "Untitled";
+      b.append(what, when);
+      b.addEventListener("click", () => runAudit(s));
+      body.appendChild(b);
+    }
+  }
+  let auditing = false;
+  async function runAudit(s) {
+    if (auditing) return;
+    auditing = true;
+    const body = $("auditBody");
+    body.innerHTML = '<div class="auIntro">🔎 Reading “' + escapeHtml(s.title || "Untitled") + '” from the beginning…</div>';
+    let parsed = null, err = "";
+    try {
+      const raw = await callFarmGPT("audit", [], () => {}, {
+        ledger: hasLedger(s) ? s.ledger : undefined,
+        transcript: auditTranscript(s),
+      });
+      parsed = parseAuditJSON(raw);
+      if (!parsed) err = "The checker didn't answer in a form I could read. Try again.";
+    } catch (e) { err = (e && e.message) || String(e); }
+    auditing = false;
+    renderAuditReport(s, parsed, err);
+  }
+  function renderAuditReport(s, parsed, err) {
+    const body = $("auditBody");
+    body.innerHTML = "";
+    const back = document.createElement("button");
+    back.type = "button"; back.className = "rwCancel"; back.textContent = "← check a different story";
+    back.addEventListener("click", renderAuditList);
+    const head = document.createElement("div");
+    head.className = "auHead"; head.textContent = "🔎 " + (s.title || "Untitled");
+    body.append(head, back);
+    if (err) {
+      const e = document.createElement("div");
+      e.className = "auErr"; e.textContent = "😵 " + err;
+      body.appendChild(e);
+    } else {
+      const v = document.createElement("div");
+      v.className = "auVerdict"; v.textContent = parsed.verdict || "";
+      body.appendChild(v);
+      if (!parsed.findings.length) {
+        const ok = document.createElement("div");
+        ok.className = "auClean"; ok.textContent = "✅ No contradictions found.";
+        body.appendChild(ok);
+      }
+      for (const f of parsed.findings) {
+        const card = document.createElement("div");
+        card.className = "auFind" + (f && f.severity === "high" ? " hi" : "");
+        const tag = document.createElement("div");
+        tag.className = "auTag";
+        tag.textContent = (f && f.severity === "high" ? "⚠ " : "· ") + String((f && f.kind) || "issue") +
+          ((f && f.where) ? " — " + f.where : "");
+        const what = document.createElement("div");
+        what.className = "auWhat"; what.textContent = (f && f.what) || "";
+        card.append(tag, what);
+        if (f && f.evidence) {
+          const ev = document.createElement("div");
+          ev.className = "auEv"; ev.textContent = f.evidence;
+          card.appendChild(ev);
+        }
+        body.appendChild(card);
+      }
+    }
+    // The keeper's own drift flags, whatever the checker said. They are a different signal: the
+    // bookkeeper telling you it was unsure at the time, rather than a reader spotting a clash now.
+    const notes = keeperNotes(s);
+    const nh = document.createElement("div");
+    nh.className = "auHead"; nh.style.marginTop = "18px";
+    nh.textContent = "📒 What the bookkeeper flagged as it went (" + notes.length + ")";
+    body.appendChild(nh);
+    if (!notes.length) {
+      const none = document.createElement("div");
+      none.className = "auIntro"; none.textContent = "Nothing — every scene filed cleanly and the bookkeeper raised no notes.";
+      body.appendChild(none);
+    }
+    for (const n of notes) {
+      const el = document.createElement("div");
+      el.className = "auNote" + (n.failed ? " bad" : "");
+      el.textContent = "scene " + (n.scene + 1) + ": " + n.note;
+      body.appendChild(el);
+    }
+  }
+  $("auditBtn").addEventListener("click", () => { show("audit"); renderAuditList(); });
 
   $("usageBtn").addEventListener("click", () => { show("usage"); loadUsage(); });
   $("storyLogBtn").addEventListener("click", () => { show("storylog"); loadStoryLog(); });

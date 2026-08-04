@@ -90,6 +90,8 @@ HOW A STORY WORKS:
   followed by exactly 3 numbered choices (1., 2., 3.), each ONE short sentence. Each should be a
   natural next step the reader could take right now — meaningfully different from one another, but
   all fitting the current moment (small, grounded choices, not wild jumps in tone or scale).
+  Never offer a choice whose outcome is obvious — if the reader can already tell exactly what will
+  happen, it isn't a choice; make each one a step into something they don't yet know.
   Nothing after the third choice.
 - The reader replies with a choice or types their own idea. Their write-ins are LAW: make exactly
   what they wrote happen, the way they wrote it — the reader is your co-author, and their story
@@ -131,10 +133,9 @@ CHAPTERS — the saga is told in chapters, like a novel:
   pause (a small resolution or a soft cliffhanger) and end with ===CHAPTER END=== instead of
   choices — no choices that time.
 - When a message tells you to OPEN A NEW CHAPTER, begin with a ===CHAPTER=== title line and a fresh
-  scene. A new chapter is a natural place to change whose eyes we follow: you MAY open it from a
-  DIFFERENT character's perspective when it enriches the tale (the saga can have several
-  protagonists), or stay with the same one — just make any shift immediately clear. Keep every name,
-  place, and thread consistent with everything that came before.
+  scene. This saga follows ONE hero — the reader's own character — from beginning to end. A new
+  chapter never changes whose eyes we follow: stay with the same protagonist, in second person,
+  every chapter. Keep every name, place, and thread consistent with everything that came before.
 
 CONTINUITY: the message history you receive may open with a "STORY SO FAR" note — that is a memory
 of everything that happened earlier in this same adventure. Treat it as true past events and keep
@@ -468,7 +469,260 @@ ILLUSTRATION: After the choices (or after ===CHAPTER END===), add a line contain
 const STORY_CLOSE_CHAPTER_SOFT = `[STORYTELLER INSTRUCTION — follow exactly; do not mention or quote this note] This chapter is reaching a good length. IF the current scene arrives at a natural stopping point — a small resolution or a soft cliffhanger — then close the chapter here: do NOT offer choices and end your reply with a single line containing exactly ===CHAPTER END===. BUT if closing right now would feel abrupt (you're mid-action or mid-conversation), simply continue the scene as normal and end with ===CHOICES=== and 3 choices — a later scene will be a better place to end the chapter.`;
 // Hard close: the chapter has run long — wrap it up now regardless.
 const STORY_CLOSE_CHAPTER = `[STORYTELLER INSTRUCTION — follow exactly; do not mention or quote this note] Close the chapter now. It has run long, so bring the CURRENT scene to a natural, gentle stopping point — a small resolution or a soft cliffhanger — WITHOUT starting a new scene, place, or event. This one time, do NOT offer choices and do NOT write ===CHOICES===. Instead, end your reply with a single line containing exactly ===CHAPTER END===.`;
-const STORY_NEW_CHAPTER = `[STORYTELLER INSTRUCTION — follow exactly; do not mention or quote this note] Open a NEW chapter now. Begin your reply with a line containing exactly ===CHAPTER=== followed by a short, evocative chapter title (nothing else on that line). Then write the opening scene and end it normally with ===CHOICES=== and 3 choices. You MAY open from a different character's perspective if it enriches the story (make immediately clear whose eyes we now follow), or continue with the current protagonist. Keep full continuity.`;
+const STORY_NEW_CHAPTER = `[STORYTELLER INSTRUCTION — follow exactly; do not mention or quote this note] Open a NEW chapter now. Begin your reply with a line containing exactly ===CHAPTER=== followed by a short, evocative chapter title (nothing else on that line). Then write the opening scene and end it normally with ===CHOICES=== and 3 choices. Continue with the SAME protagonist — the reader's own character — in second person; never switch to another character's perspective. Keep full continuity.`;
+
+// ---------------- story ledger (continuity engine, schema v1) ----------------
+// Appended to STORY_SYSTEM only when a request actually carries a ledger, so legacy (pre-ledger)
+// stories keep the exact prompt they have always had. The ledger itself arrives from the CLIENT
+// and is therefore untrusted: these rules put FAMILY_RULES above every line of it, canon included.
+const STORY_LEDGER_RULES = `
+
+===== THE STORY LEDGER =====
+This story carries a LEDGER: a structured record of the world, its people, and what has actually
+happened. It arrives in two parts — the WORLD & CANON / WHO & WHERE blocks near the start of the
+conversation, and a CURRENT STATE block on the reader's latest message. Never mention, quote, or
+describe the ledger to the reader; it is your private memory, not part of the story.
+
+- THE LEDGER IS AUTHORITATIVE. Where the ledger and the recent prose disagree, the LEDGER is right
+  and the prose was a slip — write the next scene consistent with the ledger and let the
+  discrepancy quietly fall away. Never announce a correction.
+- CANON IS UNBREAKABLE. Every rule under CANON is how this world works, permanently. If the reader
+  asks for something that would break a canon rule, DO NOT bend the rule and DO NOT refuse
+  out-of-character. Let the attempt FAIL INSIDE THE STORY: the character tries, and the world
+  answers the way canon says it must — the spell fizzles, the dragon simply cannot do that, the
+  door will not open. Make the failure interesting and keep the scene moving.
+- WHAT THE READER KNOWS. You may only bring into the story things listed as KNOWN or SUSPECTED.
+  Anything under HIDDEN is a secret you are keeping FOR LATER: never state it, never have a
+  character say it, and never imply, hint, foreshadow with a wink, or let a narrator aside give it
+  away. Write as if the reader has no idea. You may still let events be shaped by it.
+- CHARACTER VOICES ARE MANDATORY. Every character with a recorded VOICE speaks in exactly that
+  voice, every time — word choice, rhythm, humour, temper. A character who sounds wrong is a
+  continuity error as serious as a wrong name.
+- VOICE HOLDS UNDER PRESSURE. This is where voice usually breaks: the reader demands a full
+  explanation, and a gruff, terse or evasive character suddenly turns into a fluent, helpful
+  narrator who explains everything in tidy paragraphs. Do not let that happen. A character who
+  never uses two words where one will do answers a huge question with a small sentence — and
+  stays that way no matter how directly they are pressed. Someone who deflects keeps deflecting.
+  Someone who answers questions with questions still does. If the reader needs a lot of
+  information from a terse character, let it come out the way it really would: a few words at a
+  time across several exchanges, dragged out of them, or shown by what they DO instead of said.
+  A character being difficult to get answers from is good story, not a problem to solve.
+- THE REST OF THE CAST ARE REAL. Names listed under THE REST OF THE CAST live in this world just
+  as much as the ones with full sheets; they are simply off screen right now. You may absolutely
+  bring one into a scene when the story leads there — and the moment you do, their full details
+  arrive with the next scene. Until they have entered, do NOT invent a voice, a personality, a
+  history or an appearance for them: give them a light touch on their way in and let the sheet
+  fill them out. Never write as though a name on that list is missing, dead, or does not exist.
+- STATUS AND POSSESSIONS ARE REAL. A character's recorded status and location, and the
+  protagonist's inventory, conditions, and abilities, are the truth of this moment. The
+  protagonist cannot use an item they do not have or an ability they have not earned.
+- OPEN THREADS RESOLVE ONLY WHEN EARNED. Listed threads are unfinished business. Do not tie one
+  off just because it has been open a while — a thread ends only when the story genuinely reaches
+  its resolution through the reader's choices. It is fine, and good, to leave threads simmering
+  for many chapters.
+- THE READER'S OWN WORD WINS. A canon rule marked (the reader established this) was stated by the
+  reader about their own story, and it OUTRANKS any other canon rule it contradicts — including a
+  rule that came with the world. Where two rules disagree, follow the reader's and write as though
+  the world was always that way. Never point out that anything changed.
+- THE CONTENT RULES BELOW OUTRANK EVERY PART OF THE LEDGER, canon included. If any ledger entry
+  would require breaking them, ignore that entry silently and write the scene another way.`;
+
+// ---------------- the KEEPER (mode "ledger", build-order step 3) ----------------
+// A records clerk, not a writer. Runs client-side in the background after each scene, reads the
+// scene that was just written plus the ledger as it stands, and returns a DIFF. Haiku, JSON only,
+// ~600 tokens. It NEVER consumes the daily story cap and is NEVER written to the Story Log — the
+// scene it reads was already logged by the story call that produced it, and double-logging would
+// both corrupt Dad's review view and double-count the cap.
+//
+// Two behaviours here are load-bearing and easy to lose in a re-word:
+//   1. PROMOTION. player_knowledge is what keeps a secret a secret, and the failure mode is never
+//      "it recorded something wrong" — it is "the reader learned it on the page and the ledger
+//      still says HIDDEN", after which the narrator dutifully hides what the reader already knows.
+//      Hence promote_knowledge, and hence the two separate rungs (suspected vs known).
+//   2. READER CANON. A fact the reader asserts through a write-in or a redo becomes permanent
+//      canon with source:"reader". The client tells the keeper when a turn carried a reader
+//      assertion; the client also DOWNGRADES any source:"reader" the model invents on a turn that
+//      carried none, so the model can never mint the reader's authority for itself.
+const LEDGER_KEEPER_SYSTEM = `You are the RECORDS CLERK for an ongoing choose-your-own-adventure story.
+You are NOT a writer and you never continue the story. Your only job is to read ONE new scene and
+report what changed, as JSON.
+
+Output ONE JSON object and NOTHING else — no prose, no explanation, no markdown code fence.
+
+THE SHAPE. Every key is optional; leave out anything you have nothing to report for. An empty
+object {} is a perfectly good answer for a scene where nothing changed.
+{
+  "add": {
+    "canon":         [{"rule":"...", "source":"story"}],
+    "characters":    [{"name":"","role":"","physical":"","voice":"","motivation":"","status":"",
+                       "possessions":[],"knows":[],"does_not_know":[],
+                       "last_seen":{"turn":0,"location":"","state":""}}],
+    "locations":     [{"name":"","description":"","state":""}],
+    "relationships": [{"between":["",""],"state":"","history":""}],
+    "open_threads":  [{"thread":"","urgency":""}],
+    "timeline":      [{"event":"one short line: what happened this scene"}],
+    "player_knowledge": {"known":[],"suspected":[],"hidden_from_player":[]},
+    "protagonist":   {"inventory":[{"item":"","notes":""}],"conditions":[],"abilities":[]}
+  },
+  "update": {
+    "meta":          {},
+    "flags":         {},
+    "protagonist":   {"name":"","conditions":[],"abilities":[],"reputation":{}},
+    "characters":    [{"id":"CH1","status":"","last_seen":{"turn":0,"location":"","state":""}}],
+    "locations":     [{"id":"L1","state":""}],
+    "relationships": [{"id":"R1","state":""}],
+    "open_threads":  [{"id":"T1","urgency":""}]
+  },
+  "promote_knowledge": [{"fact":"the exact HIDDEN line, copied word for word","to":"suspected"}],
+  "resolve_threads": ["T1"],
+  "notes": "anything that looked contradictory — free text, nobody acts on it automatically"
+}
+
+HOW TO DO THE JOB
+- RECORD ONLY WHAT THE SCENE SHOWS. If it is on the page, or unambiguous from it, record it. If
+  you are guessing, leave it out. Never record a motive, a feeling or a plan that a character has
+  not said out loud or plainly acted on. You invent nothing — not a name, not a place, not an
+  item, not a rule.
+- A DIFF IS ONLY WHAT CHANGED. Never restate something the ledger already says.
+- WHAT A CHARACTER SAYS IS A CLAIM, NOT A FACT. People in stories are wrong, and people in stories
+  lie — a denial especially. Never write a character's statement into the ledger as though it were
+  established truth. If it matters, record it as what they SAID (their status, what they know, a
+  timeline line), never as a fact about the world. And NEVER record anything that contradicts a
+  line on the HIDDEN list: the hidden line is the truth of this story, and a character denying it
+  is a character denying it.
+- BE BRIEF, AND BE SPARING. Roughly three entries is a lot for any one list in one report. The
+  ledger is a memory, not a transcript: ordinary scene detail — what the weather did, what someone
+  was holding, a passing remark — belongs nowhere in it. Record the handful of things that change
+  what happens next.
+- IDS ARE NOT YOURS. Never put an "id" on anything under "add" — ids are assigned for you. Under
+  "update" you MUST use an id exactly as it appears in the ledger (CH1, L2, T1…), and only for an
+  entry that already exists. An id you made up throws the whole report away.
+- CANON IS APPEND-ONLY. You may add a rule; you may never change or remove one. Add canon only for
+  a permanent RULE OF THE WORLD ("no one in this town can swim", "a lantern only lights for
+  someone who told the truth") — never for an event, a mood, or a one-off.
+- WHERE EVERYONE IS. Every character who appeared in this scene gets an "update" carrying
+  last_seen {turn, location, state} for the turn number given below. Do this every single time —
+  it is the update that gets forgotten most.
+- A NEW FACE. Someone who speaks or acts in the scene and is not in the ledger at all goes under
+  add.characters, with whatever the scene actually showed (and nothing it didn't). If their name
+  IS in the ledger already — including as a name with no details — do NOT add them again: update
+  the entry that exists.
+
+WHAT THE READER KNOWS — the most important thing you keep
+The story hides things from the reader on purpose, and the storyteller is told never to reveal
+anything on the HIDDEN list. So the moment the reader actually learns something, the ledger has
+to say so, or the storyteller will go on hiding a secret the reader is already holding.
+
+Take each HIDDEN line in turn and ask these questions IN THIS ORDER. Stop at the first yes.
+1. Did the scene STATE this fact, or SHOW it happening? Someone said it out loud, a character
+   admitted it, or the reader watched it happen in front of them. → promote to "known".
+   NOTHING ELSE IS "known". However damning a piece of evidence is, evidence is not the fact:
+   finding the knife is not watching the cut. If you are reasoning from clues, the answer is not
+   "known" — go to question 2.
+2. Did the scene point at THIS PARTICULAR FACT and give the reader real reason to believe it?
+   They accused the right person to their face and got a telling reaction; they searched and found
+   something that makes little sense unless this fact is true; someone as good as told them.
+   → promote to "suspected".
+3. Otherwise → leave it alone. THIS IS THE ORDINARY ANSWER. Most scenes promote nothing.
+
+WHEN NOT TO PROMOTE — read this before you promote anything. Do NOT promote merely because the
+scene was ABOUT the mystery, mentioned the person the secret concerns, felt tense, or moved things
+along. In particular:
+- The reader accusing the WRONG person, or chasing the wrong idea, earns NOTHING — no matter how
+  certain they sounded or how long they talked. A confident wrong guess is still a wrong guess.
+- A clue that does not point at this particular fact earns nothing.
+- A suspicion the reader already had is not new suspicion.
+If you are promoting on most scenes, you are promoting far too much.
+
+To promote, copy the HIDDEN line EXACTLY as written into promote_knowledge.fact and set "to" to
+"suspected" or "known". Something the reader learns that was never on the HIDDEN list is not a
+promotion at all — it goes in add.player_knowledge.known.
+
+KEEP "known" SHORT. It exists so the storyteller knows what it may speak about openly, and every
+line in it is re-read on every future scene. It is not a record of everything the reader saw. Add
+at most a line or two per scene, and only for something that changes what the reader can do or ask
+next. If you are tempted to add five things, you are writing a transcript, not a memory.
+
+THE READER'S OWN WORD
+When the input below is marked READER ASSERTION, the reader typed it themselves rather than tapping
+a choice. If they STATED something as true about their story — "my lantern only ever burns blue",
+"Bramblewick has a wooden leg" — that is not a suggestion, it is true from now on: record it as
+add.canon with "source":"reader", worded as a permanent rule, EVEN IF it contradicts a rule already
+on the list. Do not touch the old rule; just add the reader's.
+
+A QUESTION IS NOT AN ASSERTION, AND NEITHER IS AN ACTION. Most of what a reader types is not a
+claim about the world at all — it is a question, an accusation, an order, or simply what their
+character does next. Worked examples, and the answer is the same for all three:
+- "Ask Maren if she is the one putting out the lamps"  → a question. NO canon.
+- "Walk out to the lighthouse and knock on her door"   → an action. NO canon. Do not turn it into
+  a rule about the world either ("Wren can reach the lighthouse by the shoal path" is NOT canon —
+  it is just where she went, and the CANON IS APPEND-ONLY rule above already forbids it).
+- "My lantern was my grandmother's and it only ever burns blue" → a statement of fact. THIS is
+  canon, source "reader".
+Only a statement about how their story IS becomes canon. Most reader turns, even flagged ones, add
+no canon at all — when in doubt, add none.
+Facts from the scene itself always use "source":"story".
+
+ONE CONTENT RULE. This is a children's story. Never write anything crude, graphic, sexual or
+political into the ledger — if a reader tried to assert something like that, simply leave it out
+of your report and record everything else. Do not comment on it, and do not stop being JSON.`;
+
+// ---------------- the contradiction audit (build-order step 5c) ----------------
+// A parent-facing "check this story" pass: a FRESH model reads the whole ledger and the whole
+// transcript together and reports where they disagree. It is deliberately not the keeper — the
+// keeper reports what changed one scene at a time and has never seen the story whole, which is
+// exactly why drift can accumulate without any single diff looking wrong.
+const STORY_AUDIT_SYSTEM = `You are a CONTINUITY EDITOR checking one children's choose-your-own-adventure
+story for contradictions. You are not the storyteller and you never continue the story.
+
+You will be given THE LEDGER (a structured record of the world, its people, and what has happened)
+and THE TRANSCRIPT (the story as the reader actually read it, scene by scene). Report every place
+where they disagree, or where the story disagrees with itself.
+
+Output ONE JSON object and NOTHING else — no prose, no explanation, no markdown code fence:
+
+{
+  "findings": [
+    { "severity": "high" | "low",
+      "kind": "canon" | "character" | "knowledge" | "place" | "object" | "thread" | "timeline" | "voice",
+      "what": "one plain sentence a parent can read, naming who or what is inconsistent",
+      "evidence": "the specific ledger line and the specific scene detail that clash, quoted briefly",
+      "where": "roughly where in the story — e.g. \\"chapter 2\\" or \\"the scene where Wren reaches the lighthouse\\"" }
+  ],
+  "verdict": "one sentence: is this story holding together?"
+}
+
+WHAT COUNTS AS A CONTRADICTION:
+- A CANON rule the story broke. Canon lines are permanent rules of that world; a scene that
+  quietly ignores one is the most serious kind of finding (severity "high").
+- A character who acted against their recorded VOICE, status, or what they know — including a
+  character who knew something the ledger says they do not know.
+- Something in the reader's KNOWN list that the story never actually showed them, or something
+  the story clearly revealed that is still filed as HIDDEN. (Being told a secret is still hidden
+  while the prose has already given it away is a high-severity finding.)
+- A place, an object, or a possession that changed without the story changing it.
+- A thread marked resolved that the story never resolved, or vice versa.
+- Two scenes that simply disagree with each other about a fact.
+
+WHAT DOES NOT COUNT — do not report these:
+- The story adding something new. A story is allowed to invent; only conflict is a finding.
+- The ledger being incomplete. A detail in the prose that never made it into the ledger is
+  bookkeeping falling behind, not a contradiction, unless the ledger asserts the opposite.
+- Style, pacing, quality, spelling, or whether you would have written it differently.
+- Anything you are only guessing at. If you cannot point at the two things that clash, leave it out.
+
+HOW TO WORK. Go through the ledger deliberately rather than only reading the story and noticing
+what jumps out. Take each list in turn and check it against the transcript:
+- Every CANON line: did any scene break it?
+- Every character's VOICE: read their actual dialogue in the transcript. Does it sound like the
+  voice on their sheet? A character written in someone else's register — a warm, wandering talker
+  suddenly clipped and terse — is a real finding even when the scene reads well.
+- Every HIDDEN line: has the story already shown it to the reader while the ledger still hides it?
+- Every KNOWN line: did the story actually show it?
+The obvious break is rarely the only one. Report each of them, not just the loudest.
+
+Be exact and be brief. If the story holds together, return an empty "findings" array and say so in
+the verdict — a clean report is a real and useful answer. Order findings by severity, high first.`;
 
 // Content-rules reminder — appended to the LAST USER TURN of EVERY story request, AFTER any
 // chapter directive, so it is the final instruction the model reads. The rules already live in
@@ -889,10 +1143,38 @@ function parseCalorieJSON(text) {
   } catch { return null; }
 }
 
+// `cache: false` turns OFF the top-level prompt-cache breakpoint for a mode. It is not a default
+// worth having everywhere: a cache WRITE bills at 1.25x input, so a breakpoint whose entry is
+// never read is a pure surcharge. MEASURED on a real 6-turn ledger story against real Haiku
+// (tools/_probe-storycache.mjs): narrator 25,919 cache-written tokens, 0 read — 0.0% hit rate and
+// +21.8% on input for nothing; keeper 0 written and 0 read (its whole prompt is ~3.4k tokens,
+// under Haiku 4.5's ~4,096-token minimum cacheable prefix, so caching silently never engaged).
+// WHY it can never hit: the cached entry is the whole prompt, and a story's prompt is never
+// byte-identical twice — the keeper rewrites `last_seen` on the "stable" ledger half every single
+// scene, and cast hydration reshapes that half by design the turn a character first appears.
+// A system-only breakpoint doesn't rescue it either: measured live, the narrator's system prompt
+// is 2,839 tokens and the keeper's 2,215, both under the minimum, so both write nothing (the same
+// run brackets Haiku's minimum between 3,762 and 4,334 tokens — the documented 4,096).
+// REVISIT IF: story ever moves to Sonnet (1,024-token minimum) AND the ledger's stable half is
+// made genuinely byte-stable, which today would mean giving up cast hydration.
 const MODES = {
-  story:       { system: STORY_SYSTEM,      maxTokens: 1200, thinking: { type: "disabled" } },
+  story:       { system: STORY_SYSTEM,      maxTokens: 1200, thinking: { type: "disabled" }, cache: false },
   research:    { system: RESEARCH_SYSTEM,   maxTokens: 4096, thinking: undefined },
   summary:     { system: SUMMARY_SYSTEM,    maxTokens: 1200, thinking: { type: "disabled" } },
+  // The story ledger's keeper (build-order step 3). JSON only, so thinking is off.
+  // 1200, NOT the 600 the plan sketched, and the 600 was MEASURED WRONG. An ordinary scene's diff
+  // really is ~350 tokens — but a long, event-dense scene (a new character, a new place, a
+  // revelation, three threads moving) runs past 600 and the reply is then cut off MID-JSON. That
+  // fails silently and totally: the client can't parse it, fails open, and the scene's bookkeeping
+  // is simply lost. Measured live: 7 of 8 dense scenes truncated at 600, 0 of 8 at 1200. Output
+  // tokens are billed only for what is produced, so the headroom is free on ordinary scenes.
+  ledger:      { system: LEDGER_KEEPER_SYSTEM, maxTokens: 1200, thinking: { type: "disabled" }, cache: false },
+  // The contradiction audit: Sonnet, not Haiku. It is a reasoning job over a whole story rather
+  // than a bookkeeping job over one scene, it runs at most a handful of times per story, and it is
+  // read by a parent deciding whether the engine is working — the cheapest place in this whole
+  // engine to be wrong. Thinking is left at the provider default (adaptive) for the same reason.
+  // cache:false — a one-shot call's cached prefix is never read, so a breakpoint is pure surcharge.
+  audit:       { system: STORY_AUDIT_SYSTEM, maxTokens: 2500, thinking: undefined, cache: false },
   dnd:         { system: DND_SYSTEM,        maxTokens: 3000, thinking: undefined },
   dnd_update:  { system: DND_UPDATE_SYSTEM, maxTokens: 1500, thinking: { type: "disabled" } },
   dnd_summary: { system: DND_SUMMARY_SYSTEM, maxTokens: 600, thinking: { type: "disabled" } },
@@ -1130,11 +1412,19 @@ async function logUsage(modeName, inTok, outTok, cacheWriteTok = 0, cacheReadTok
     // text is Haiku (fractions of a cent) while each picture is a Sonnet drawing.
     // Generated photo-style pictures get their own "g" bucket: they bill PER IMAGE, not per
     // token, so mixing them into the token-priced buckets would make the dashboard lie.
+    // The story ledger's keeper gets its own bucket "l": it runs once per scene alongside the
+    // story call, so folding it into "s" would make a chapter look twice as expensive as it is.
+    // The contradiction audit gets its own bucket "x": it is a Dad-only, once-in-a-while Sonnet
+    // pass over a whole story, so folding it into the per-scene buckets would make an ordinary
+    // reading night look like it cost several times what it did. ("c" was the natural letter and
+    // is already taken by the Meals calorie estimator — two modes sharing one bucket would make
+    // both dashboard rows lie, so the newcomer moved.)
     const key = modeName === "story" ? "s" : modeName === "summary" ? "u"
       : String(modeName).startsWith("dnd") ? "d"
       : modeName === "kidstory" ? "k" : modeName === "kidart" ? "a"
       : modeName === "kidimage" ? "g" : modeName === "calories" ? "c"
-      : modeName === "teacher" ? "t" : "r";
+      : modeName === "teacher" ? "t" : modeName === "ledger" ? "l"
+      : modeName === "audit" ? "x" : "r";
     const base = `projects/${PROJECT_ID}/databases/(default)/documents`;
     const tf = (f, n) => ({ fieldPath: f, increment: { integerValue: String(n) } });
     const fields = [
@@ -1161,8 +1451,9 @@ function usageRow(d, label) {
   const f = d.fields || {};
   const n = (k) => parseInt((f[k] && f[k].integerValue) || "0", 10);
   const row = { [label]: d.name.split("/").pop() };
-  // s = story chapters, u = story summaries, r = research, d = dungeon (D&D), c = calorie lookups
-  for (const p of ["s", "u", "r", "d", "k", "a", "g", "c"]) for (const m of ["in", "out", "req", "cw", "cr"]) row[`${p}_${m}`] = n(`${p}_${m}`);
+  // s = story chapters, u = story summaries, r = research, d = dungeon (D&D), c = calorie lookups,
+  // l = the story ledger's keeper, x = the Dad-only contradiction audit
+  for (const p of ["s", "u", "r", "d", "k", "a", "g", "c", "l", "x"]) for (const m of ["in", "out", "req", "cw", "cr"]) row[`${p}_${m}`] = n(`${p}_${m}`);
   return row;
 }
 async function readCollection(collection, label, cap) {
@@ -1884,6 +2175,349 @@ function sanitizeMessages(raw, mode) {
   return msgs;
 }
 
+// ---------------- story ledger rendering (schema v1) ----------------
+// The ledger travels as its own body field (body.ledger), NOT inside the messages array — a
+// 30KB ledger stuffed into a message would be sliced to MAX_CONTENT_CHARS mid-JSON. Keeping it
+// separate lets the server own the cap, the compaction, and where each block lands.
+//
+// Blocks are split by VOLATILITY so prompt caching keeps working: the STABLE half (meta, canon,
+// cast, places, bonds) rides on the world-setup turn at the head of the conversation and is
+// byte-identical turn after turn; the VOLATILE half (what the hero carries, flags, live threads,
+// what the reader knows) rides on the reader's newest message, after which nothing is cacheable
+// anyway. Recency also puts "how things stand right now" where the model attends most.
+const LEDGER_MAX_CHARS = 30000;   // backstop; the client trims to fit before sending
+
+// Shrink an oversized ledger deterministically. A CHARACTER IS NEVER DROPPED — not from
+// `characters`, not from `roster`. The client shapes the cast by hydration before sending (full
+// sheets for whoever is on stage, one-line roster entries for everyone else), so by the time
+// anything reaches here the expensive part is already gone; what is left to shed is only what
+// nothing depends on: timeline (oldest first) → resolved threads → roster role lines → locations.
+// Canon and the protagonist are untouchable. Mirrors compactLedger in farmgpt.html.
+function compactLedgerForCap(led) {
+  const size = () => JSON.stringify(led).length;
+  if (size() <= LEDGER_MAX_CHARS) return led;
+  if (Array.isArray(led.timeline)) {
+    while (led.timeline.length && size() > LEDGER_MAX_CHARS) led.timeline.shift();
+  }
+  if (Array.isArray(led.open_threads) && size() > LEDGER_MAX_CHARS) {
+    led.open_threads = led.open_threads.filter((t) => t && t.status === "unresolved");
+  }
+  if (Array.isArray(led.roster) && size() > LEDGER_MAX_CHARS) {
+    for (const r of led.roster) { if (size() <= LEDGER_MAX_CHARS) break; if (r && r.role) delete r.role; }
+  }
+  while (Array.isArray(led.locations) && led.locations.length > 1 && size() > LEDGER_MAX_CHARS) led.locations.shift();
+  return led;
+}
+
+const ledStr = (v) => (typeof v === "string" ? v.trim() : "");
+const ledList = (v) => (Array.isArray(v) ? v.map(ledStr).filter(Boolean) : []);
+// "key: value" pieces joined into one readable line, skipping anything empty.
+function ledFields(pairs) {
+  return pairs.filter((p) => p[1]).map((p) => p[0] + ": " + p[1]).join(" · ");
+}
+
+function renderLedgerBlocks(raw) {
+  const led = raw && typeof raw === "object" ? raw : {};
+  const meta = led.meta && typeof led.meta === "object" ? led.meta : {};
+  const S = [], V = [];
+
+  // --- STABLE: meta + canon -------------------------------------------------
+  S.push("===== STORY LEDGER — WORLD & CANON =====");
+  const m = ledFields([
+    ["Universe", ledStr(meta.universe)],
+    ["Where in that story", ledStr(meta.timeline_point)],
+    ["Genre and tone", ledStr(meta.genre_and_tone)],
+    ["Narrative voice", ledStr(meta.narrative_voice)],
+  ]);
+  if (m) S.push(m);
+  const canon = Array.isArray(led.canon) ? led.canon : [];
+  if (canon.length) {
+    S.push("", "CANON — permanent rules of this world (never bend one; a violation must fail inside the story):");
+    for (const c of canon) {
+      const rule = ledStr(c && c.rule);
+      // A rule the READER established outranks every other rule (see STORY_LEDGER_RULES). It is
+      // marked here rather than sorted to the top so ids keep matching their position in the log.
+      if (rule) S.push("- [" + (ledStr(c.id) || "C?") + "] " + rule +
+        (c && c.source === "reader" ? "  (the reader established this — it outranks any earlier rule it contradicts)" : ""));
+    }
+  }
+
+  // --- STABLE: characters / locations / relationships ------------------------
+  const chars = Array.isArray(led.characters) ? led.characters : [];
+  if (chars.length) {
+    S.push("", "WHO — every named character. Each speaks in their recorded VOICE, always:");
+    for (const c of chars) {
+      const name = ledStr(c && c.name) || "(unnamed — the reader's own character; take the name from the story)";
+      const ls = c && c.last_seen && typeof c.last_seen === "object" ? c.last_seen : {};
+      S.push("- " + name + (ledStr(c.role) ? " — " + ledStr(c.role) : ""));
+      const line = ledFields([
+        ["looks", ledStr(c.physical)],
+        ["VOICE", ledStr(c.voice)],
+        ["wants", ledStr(c.motivation)],
+        ["status", ledStr(c.status)],
+        ["carries", ledList(c.possessions).join(", ")],
+        ["knows", ledList(c.knows).join("; ")],
+        ["does NOT know", ledList(c.does_not_know).join("; ")],
+        ["last seen", ledFields([["turn", ls.turn ? String(ls.turn) : ""], ["at", ledStr(ls.location)], ["", ledStr(ls.state)]])],
+      ]);
+      if (line) S.push("    " + line);
+    }
+  }
+  // The rest of the cast, one line each. These people are ALIVE AND PRESENT in this world —
+  // they simply haven't been on screen yet, so their full sheets aren't taking up room. The
+  // wording matters: a roster that reads like a list of absent people invites the narrator to
+  // write the world as if they don't exist.
+  const roster = Array.isArray(led.roster) ? led.roster : [];
+  if (roster.length) {
+    S.push("", "THE REST OF THE CAST — everyone else who lives in this world. They are all real and");
+    S.push("available; you simply have their names for now. Any of them may walk into a scene, and the");
+    S.push("moment one does, their full sheet (voice, appearance, what they know) is given to you.");
+    S.push("Until then, do NOT invent a voice, a history or a personality for one of these names.");
+    S.push("Some are marked \"last seen turn N\" — those HAVE been in this story and have simply been");
+    S.push("away for a while; their full sheet comes back the moment they walk on again. Everyone");
+    S.push("else here has not appeared yet.");
+    for (const c of roster) {
+      const name = ledStr(c && c.name);
+      if (!name) continue;
+      // `lastSeen` is set by the client's dormancy pass on characters who HAVE appeared and then
+      // dropped off the page. Saying so matters: the paragraph above otherwise tells the narrator
+      // that someone it has already written scenes for has never been on screen.
+      const seen = (c && +c.lastSeen) || 0;
+      S.push("- " + name + (ledStr(c.role) ? " — " + ledStr(c.role) : "") +
+        (seen > 0 ? "  (last seen turn " + seen + ")" : ""));
+    }
+  }
+  const locs = Array.isArray(led.locations) ? led.locations : [];
+  if (locs.length) {
+    S.push("", "WHERE — places established in this story:");
+    for (const l of locs) {
+      const name = ledStr(l && l.name);
+      if (!name) continue;
+      S.push("- " + name + (ledFields([["", ledStr(l.description)], ["now", ledStr(l.state)]]) ? " — " + ledFields([["", ledStr(l.description)], ["now", ledStr(l.state)]]) : ""));
+    }
+  }
+  const rels = Array.isArray(led.relationships) ? led.relationships : [];
+  if (rels.length) {
+    S.push("", "BONDS — how these people stand with one another:");
+    for (const r of rels) {
+      const between = ledList(r && r.between);
+      if (between.length < 2) continue;
+      S.push("- " + between.join(" ↔ ") + ": " + ledFields([["", ledStr(r.state)], ["history", ledStr(r.history)]]));
+    }
+  }
+  S.push("===== END WORLD & CANON =====");
+
+  // --- VOLATILE: protagonist / flags / threads / player_knowledge ------------
+  V.push("===== STORY LEDGER — CURRENT STATE (how things stand right now) =====");
+  const p = led.protagonist && typeof led.protagonist === "object" ? led.protagonist : {};
+  const inv = Array.isArray(p.inventory)
+    ? p.inventory.map((i) => (i && typeof i === "object" ? ledStr(i.item) : ledStr(i))).filter(Boolean)
+    : [];
+  V.push("THE HERO (the reader — write to them as \"you\"): " + (ledStr(p.name) || "(name not yet given)"));
+  const pl = ledFields([
+    ["carrying", inv.join(", ") || "nothing of note"],
+    ["condition", ledList(p.conditions).join(", ")],
+    ["can do", ledList(p.abilities).join(", ")],
+  ]);
+  if (pl) V.push("    " + pl);
+  if (p.reputation && typeof p.reputation === "object") {
+    const rep = Object.keys(p.reputation).map((k) => k + ": " + ledStr(String(p.reputation[k]))).filter(Boolean);
+    if (rep.length) V.push("    known for — " + rep.join(" · "));
+  }
+  if (led.flags && typeof led.flags === "object") {
+    const f = Object.keys(led.flags).map((k) => k + "=" + JSON.stringify(led.flags[k]));
+    if (f.length) V.push("", "STATE FLAGS: " + f.join(" · "));
+  }
+  const threads = (Array.isArray(led.open_threads) ? led.open_threads : []).filter((t) => t && t.status !== "resolved");
+  if (threads.length) {
+    V.push("", "OPEN THREADS — unfinished business. Resolve one ONLY when the story genuinely earns it:");
+    for (const t of threads) {
+      const th = ledStr(t.thread);
+      if (th) V.push("- [" + (ledStr(t.id) || "T?") + "] " + th + (ledStr(t.urgency) ? " (" + ledStr(t.urgency) + ")" : ""));
+    }
+  }
+  const pk = led.player_knowledge && typeof led.player_knowledge === "object" ? led.player_knowledge : {};
+  const known = ledList(pk.known), susp = ledList(pk.suspected), hidden = ledList(pk.hidden_from_player);
+  if (known.length || susp.length || hidden.length) {
+    V.push("", "WHAT THE READER KNOWS:");
+    if (known.length) V.push("- KNOWN (safe to use openly): " + known.join(" · "));
+    if (susp.length) V.push("- SUSPECTED (they wonder; you may play with the doubt): " + susp.join(" · "));
+    if (hidden.length) {
+      V.push("- HIDDEN — the reader does NOT know these and must not find out yet. Never state, imply,");
+      V.push("  hint at, or foreshadow them. Write as if the reader has no idea: " + hidden.join(" · "));
+    }
+  }
+  V.push("===== END CURRENT STATE =====");
+
+  return { stable: S.join("\n"), volatile: V.join("\n") };
+}
+
+// ---------------- the keeper's view of the ledger ----------------
+// Deliberately NOT renderLedgerBlocks. The narrator is shown a world; the clerk is shown a FILING
+// SYSTEM — every entry carries the id it must quote back in an update, the timeline is a fresh
+// page rather than something to re-read, and HIDDEN is a working list to promote from rather than
+// a secret to write around. Roster names are shown too, with their ids, because a character who
+// walked on stage this scene needs their last_seen updated and their id is the only way to say so.
+function renderLedgerForKeeper(raw) {
+  const led = raw && typeof raw === "object" ? raw : {};
+  const meta = led.meta && typeof led.meta === "object" ? led.meta : {};
+  const O = [];
+  const idOf = (e, dflt) => "[" + (ledStr(e && e.id) || dflt) + "] ";
+  O.push("===== THE LEDGER AS IT STANDS =====");
+  O.push(ledFields([
+    ["Universe", ledStr(meta.universe)],
+    ["Where in that story", ledStr(meta.timeline_point)],
+    ["Turn just written", String((meta.turn | 0) || 0)],
+  ]));
+  const canon = Array.isArray(led.canon) ? led.canon : [];
+  O.push("", "CANON (append-only — never edit or remove one of these):");
+  if (!canon.length) O.push("  (none yet)");
+  for (const c of canon) {
+    const rule = ledStr(c && c.rule);
+    if (rule) O.push("  " + idOf(c, "C?") + rule + " (source: " + (ledStr(c.source) || "story") + ")");
+  }
+  const chars = Array.isArray(led.characters) ? led.characters : [];
+  O.push("", "CHARACTERS:");
+  if (!chars.length) O.push("  (none yet)");
+  for (const c of chars) {
+    const ls = c && c.last_seen && typeof c.last_seen === "object" ? c.last_seen : {};
+    O.push("  " + idOf(c, "CH?") + (ledStr(c.name) || "(unnamed — the reader's own character)") +
+      (ledStr(c.role) ? " — " + ledStr(c.role) : ""));
+    const line = ledFields([
+      ["status", ledStr(c.status)],
+      ["carries", ledList(c.possessions).join(", ")],
+      ["knows", ledList(c.knows).join("; ")],
+      ["does NOT know", ledList(c.does_not_know).join("; ")],
+      ["last seen", ledFields([["turn", ls.turn ? String(ls.turn) : "never"], ["at", ledStr(ls.location)], ["", ledStr(ls.state)]])],
+    ]);
+    if (line) O.push("      " + line);
+  }
+  const roster = Array.isArray(led.roster) ? led.roster : [];
+  if (roster.length) {
+    O.push("", "CHARACTERS WHO EXIST BUT HAVE NOT BEEN ON STAGE (same ids — update one the moment they appear):");
+    for (const c of roster) {
+      const name = ledStr(c && c.name);
+      if (name) O.push("  " + idOf(c, "CH?") + name + (ledStr(c.role) ? " — " + ledStr(c.role) : ""));
+    }
+  }
+  const locs = Array.isArray(led.locations) ? led.locations : [];
+  O.push("", "LOCATIONS:");
+  if (!locs.length) O.push("  (none yet)");
+  for (const l of locs) {
+    const name = ledStr(l && l.name);
+    if (name) O.push("  " + idOf(l, "L?") + name + (ledStr(l.state) ? " — now: " + ledStr(l.state) : ""));
+  }
+  const rels = Array.isArray(led.relationships) ? led.relationships : [];
+  if (rels.length) {
+    O.push("", "RELATIONSHIPS:");
+    for (const r of rels) {
+      const between = ledList(r && r.between);
+      if (between.length >= 2) O.push("  " + idOf(r, "R?") + between.join(" ↔ ") + ": " + ledStr(r.state));
+    }
+  }
+  const p = led.protagonist && typeof led.protagonist === "object" ? led.protagonist : {};
+  const inv = Array.isArray(p.inventory)
+    ? p.inventory.map((i) => (i && typeof i === "object" ? ledStr(i.item) : ledStr(i))).filter(Boolean) : [];
+  O.push("", "PROTAGONIST (the reader's own character): " + (ledStr(p.name) || "(name not recorded yet)"));
+  const pl = ledFields([
+    ["carrying", inv.join(", ")],
+    ["condition", ledList(p.conditions).join(", ")],
+    ["can do", ledList(p.abilities).join(", ")],
+  ]);
+  if (pl) O.push("      " + pl);
+  const pk = led.player_knowledge && typeof led.player_knowledge === "object" ? led.player_knowledge : {};
+  O.push("", "WHAT THE READER KNOWS:");
+  O.push("  KNOWN: " + (ledList(pk.known).join(" · ") || "(nothing yet)"));
+  O.push("  SUSPECTED: " + (ledList(pk.suspected).join(" · ") || "(nothing yet)"));
+  const hidden = ledList(pk.hidden_from_player);
+  O.push("  HIDDEN (promote one the moment the scene puts it in front of the reader — copy the line exactly):");
+  if (!hidden.length) O.push("    (nothing hidden)");
+  for (const h of hidden) O.push("    - " + h);
+  const threads = Array.isArray(led.open_threads) ? led.open_threads : [];
+  O.push("", "OPEN THREADS:");
+  if (!threads.length) O.push("  (none yet)");
+  for (const t of threads) {
+    const th = ledStr(t && t.thread);
+    if (th) O.push("  " + idOf(t, "T?") + th + " (" + (ledStr(t.status) || "unresolved") + ")");
+  }
+  if (led.flags && typeof led.flags === "object" && !Array.isArray(led.flags)) {
+    const f = Object.keys(led.flags).map((k) => k + "=" + JSON.stringify(led.flags[k]));
+    if (f.length) O.push("", "FLAGS: " + f.join(" · "));
+  }
+  O.push("===== END LEDGER =====");
+  return O.join("\n");
+}
+
+// The keeper's single user turn. Built HERE, from named body fields, rather than trusting a
+// messages array: the ledger alone can be 28KB and sanitizeMessages would slice it mid-JSON at
+// MAX_CONTENT_CHARS. Each piece gets its own cap instead.
+const KEEPER_SCENE_MAX = 20000;
+const KEEPER_CHOICE_MAX = 2000;
+function buildKeeperMessages(body) {
+  let led = body.ledger && typeof body.ledger === "object" && !Array.isArray(body.ledger) ? body.ledger : null;
+  if (led && JSON.stringify(led).length > LEDGER_MAX_CHARS) {
+    try { led = compactLedgerForCap(JSON.parse(JSON.stringify(led))); } catch { led = null; }
+  }
+  const scene = typeof body.scene === "string" ? body.scene.slice(0, KEEPER_SCENE_MAX).trim() : "";
+  if (!scene) return null;                       // nothing to file
+  const choice = typeof body.choice === "string" ? body.choice.slice(0, KEEPER_CHOICE_MAX).trim() : "";
+  const turn = Number.isFinite(+body.turn) ? Math.max(0, Math.min(100000, +body.turn | 0)) : ((led && led.meta && led.meta.turn | 0) || 0);
+  const parts = [];
+  if (led) parts.push(renderLedgerForKeeper(led));
+  parts.push("", "This scene is TURN " + turn + ". Any last_seen you record uses that turn number.");
+  if (choice) {
+    parts.push("", body.readerAssert === true
+      ? "===== WHAT THE READER DID — READER ASSERTION =====\n" +
+        "The reader wrote this themselves. Anything they state as a fact about their story is TRUE from\n" +
+        "now on: record it as add.canon with \"source\":\"reader\", even if it contradicts an existing rule.\n" + choice
+      : "===== WHAT THE READER CHOSE =====\n" + choice);
+  }
+  parts.push("", "===== THE NEW SCENE =====", scene, "===== END OF SCENE =====", "",
+    "Report what changed. JSON only.");
+  return [{ role: "user", content: parts.join("\n") }];
+}
+
+// ---------------- the audit's single turn ----------------
+// Same reason as the keeper's: the ledger alone can be 28KB, so it rides in named body fields and
+// the turn is assembled here rather than passing a client-built messages array through
+// sanitizeMessages (which would slice it at MAX_CONTENT_CHARS, mid-JSON).
+//
+// It gets the FULL ledger — including the timeline, which the narrator never sees — because the
+// timeline is precisely the audit trail a contradiction is checked against. The transcript is the
+// story as the reader read it, oldest first, trimmed from the FRONT if it is too long: a
+// contradiction is nearly always with something recent, and the ledger already carries the old
+// facts in structured form.
+const AUDIT_TRANSCRIPT_MAX = 120000;
+function buildAuditMessages(body) {
+  let led = body.ledger && typeof body.ledger === "object" && !Array.isArray(body.ledger) ? body.ledger : null;
+  if (led && JSON.stringify(led).length > LEDGER_MAX_CHARS) {
+    try { led = compactLedgerForCap(JSON.parse(JSON.stringify(led))); } catch { led = null; }
+  }
+  let transcript = typeof body.transcript === "string" ? body.transcript.trim() : "";
+  if (!transcript) return null;
+  let trimmed = false;
+  if (transcript.length > AUDIT_TRANSCRIPT_MAX) {
+    transcript = transcript.slice(transcript.length - AUDIT_TRANSCRIPT_MAX);
+    trimmed = true;
+  }
+  const parts = [];
+  if (led) parts.push(renderLedgerForKeeper(led), "");
+  const tl = led && Array.isArray(led.timeline) ? led.timeline : [];
+  if (tl.length) {
+    parts.push("TIMELINE — what the ledger says happened, in order:");
+    for (const e of tl) {
+      const ev = ledStr(e && e.event);
+      if (ev) parts.push("  turn " + ((e.turn | 0) || 0) + ": " + ev);
+    }
+    parts.push("");
+  }
+  parts.push("===== THE TRANSCRIPT — the story as the reader actually read it =====");
+  if (trimmed) parts.push("(the earliest scenes are omitted; judge only what is shown here)");
+  parts.push(transcript, "===== END OF TRANSCRIPT =====", "",
+    "Report the contradictions between the ledger and the transcript, and within the transcript. JSON only.");
+  return [{ role: "user", content: parts.join("\n") }];
+}
+
 // Anthropic-shaped message → Gemini "contents" entry. Roles: assistant→model, user→user.
 // Story/summary content is always a plain string; the array/image branch is defensive only
 // (research photos never reach Gemini).
@@ -2089,8 +2723,18 @@ export default async (req) => {
     }
   }
 
-  const messages = sanitizeMessages(body.messages, body.mode);
-  if (!messages) return jsonError(400, "Bad messages array", jsonHeaders);
+  // The KEEPER builds its own single turn from named fields (ledger + scene + choice) — it never
+  // takes a messages array from the client. Note what it does NOT pass through: the daily story
+  // cap above is `body.mode === "story"` only, and logStoryReq below is story/kidstory only, so a
+  // keeper call can neither eat a scene of a kid's daily allowance nor write a second copy of a
+  // scene into Dad's Story Log.
+  const messages = body.mode === "ledger" ? buildKeeperMessages(body)
+    : body.mode === "audit" ? buildAuditMessages(body)
+    : sanitizeMessages(body.messages, body.mode);
+  if (!messages) {
+    return jsonError(400, body.mode === "ledger" ? "Bad ledger request"
+      : body.mode === "audit" ? "Bad audit request" : "Bad messages array", jsonHeaders);
+  }
 
   // Story illustrations: opt-in per request. Bump the token budget so the <svg> fits
   // after the chapter + choices without truncating either. Research ignores the flag.
@@ -2114,7 +2758,34 @@ export default async (req) => {
       body.dndModule.slice(0, MAX_MODULE_CHARS);
   }
 
-  // Chapter flow (story mode only): open a titled chapter (possible POV switch), softly offer to
+  // Story ledger (continuity engine): present only on ledger-era stories — legacy stories send no
+  // ledger and take the exact path they always did. The stable half lands on the world-setup turn
+  // (cacheable prefix), the volatile half on the reader's newest message (freshest, and nothing
+  // after it caches anyway). Runs BEFORE the chapter directive below so that directive stays last.
+  if (body.mode === "story" && body.ledger && typeof body.ledger === "object" && !Array.isArray(body.ledger)) {
+    let led = body.ledger;
+    // Backstop only — the client trims to fit first. Oversize is compacted, never rejected:
+    // bookkeeping must never be the reason a scene fails to arrive.
+    if (JSON.stringify(led).length > LEDGER_MAX_CHARS) {
+      try { led = compactLedgerForCap(JSON.parse(JSON.stringify(led))); } catch { led = null; }
+    }
+    if (led) {
+      const { stable, volatile: vol } = renderLedgerBlocks(led);
+      system += STORY_LEDGER_RULES;
+      const appendTo = (i, text) => {
+        const c = messages[i].content;
+        messages[i] = typeof c === "string"
+          ? { role: messages[i].role, content: c + "\n\n" + text }
+          : { role: messages[i].role, content: [...c, { type: "text", text }] };
+      };
+      appendTo(0, stable);
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === "user") { appendTo(i, vol); break; }
+      }
+    }
+  }
+
+  // Chapter flow (story mode only): open a titled chapter, softly offer to
   // close it at a natural beat, or firmly close it. The directive rides on the LAST user turn so
   // it reliably overrides the base "end every scene with choices" rule. Priority: new > hard > soft.
   if (body.mode === "story" && (body.newChapter === true || body.endChapter === true || body.endChapterSoft === true)) {
@@ -2162,6 +2833,13 @@ export default async (req) => {
   // Little-kid story: Haiku is plenty for 4 short sentences and keeps it fast for a child
   // waiting. Its illustration runs on Sonnet, which draws far cleaner shapes.
   else if (body.mode === "kidstory") { provider = "anthropic"; model = STORY_MODEL; }
+  // The keeper is pinned to Haiku on Anthropic and does NOT follow STORY_PROVIDER: flipping the
+  // narrator to Gemini or Sonnet is a prose decision, and it must not quietly move the bookkeeper
+  // onto a provider whose JSON adherence nobody has measured.
+  else if (body.mode === "ledger") { provider = "anthropic"; model = STORY_MODEL; }
+  // The audit is pinned to Sonnet for the same reason the keeper is pinned to Haiku: which model
+  // reads the story is a prose decision, and which model checks it is not.
+  else if (body.mode === "audit") { provider = "anthropic"; model = RESEARCH_MODEL; }
   else if (body.mode === "kidart") { provider = "anthropic"; model = KID_ART_MODEL; }
 
   let upstream;
@@ -2195,11 +2873,14 @@ export default async (req) => {
       system,
       messages,
       stream: true,
-      // Prompt caching: auto-places a breakpoint on the last cacheable block, so each
-      // turn re-reads the system prompt + prior conversation at ~10% of input price
-      // (5-minute TTL). Below the model's min prefix (~2048 tok) caching silently skips.
-      cache_control: { type: "ephemeral" },
     };
+    // PROMPT CACHING — ON ONLY WHERE IT IS MEASURED TO PAY (see MODES.<mode>.cache).
+    // The top-level flag auto-places one breakpoint on the LAST cacheable block, so the cached
+    // entry is the WHOLE prompt: a later turn reads it only if its own prompt starts with those
+    // exact bytes. That holds for research and dungeon mode (append-only history, big stable
+    // system prompt, Sonnet's 1024-token minimum) and provably does NOT hold for a ledger story
+    // — measured 0% reads and a 21.8% write surcharge, see MODES.story.
+    if (mode.cache !== false) apiReq.cache_control = { type: "ephemeral" };
     if (mode.thinking) apiReq.thinking = mode.thinking;
     try {
       upstream = await fetch(`${apiBase}/v1/messages`, {
