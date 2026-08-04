@@ -7342,3 +7342,35 @@ scenes in order, final ledger valid, 0 page errors.
 **KNOWN, pre-existing, NOT introduced here:** main's `usageRow` never reads the `t_*` (TeacherGPT)
 prefix it writes, so that dashboard row always shows zero. Left alone — it is another session's
 feature and a one-word fix belongs with them.
+
+## ⚠ THE FIELD-PATH BUG — twelve hours of silence (2026-08-04)
+
+Shipped 2026-08-03 with 147/147 green; recorded NOTHING for twelve hours. Root cause:
+counter fields were named , and **Firestore rejects any unquoted property path
+that does not match ** — every commit came back HTTP 400. Fields
+are  now; the leading  is load-bearing.
+
+TWO THINGS HID IT, and both are fixed:
+1. **The fake Firestore was more permissive than the real one.** It stored whatever field
+   name it was handed. A mock that accepts what the service rejects is worse than no mock —
+   it manufactures confidence. It now enforces the grammar and answers the same 400.
+2. ** always returns 200** (correct — it is a beacon on a page someone is mid-use of),
+   so the 400 was swallowed into a  nobody read. Diagnosis was one curl:
+    —  is the tell.
+
+NEW:   ✓ planWrites produced one document
+  · field paths: d04_news_v, d04_news_m, d04_app_mealplan_v, d04_app_mealplan_m
+  ✓ every property path satisfies Firestore's unquoted grammar
+  ✓ REAL Firestore ACCEPTS the write
+  ✓ the document reads back
+  ✓ parseDoc recovers the display name (DiagTest)
+  ✓ two commits ADDED: news views = 4 (4)
+  ✓ minutes kept their fraction: 3 (3)
+  ✓ an underscored feature name survives the round trip
+  ✓ the scratch document was cleaned up
+
+ACTIVITY LIVE: 9/9 passed (9 checks) sends the function's REAL write to
+REAL Firestore, reads it back, proves two commits ADD, and cleans up after itself. It uses
+the scratch collection  and the public web key, never  and
+never the service account. A fake can only encode rules we already know; run this whenever
+the write shape changes.

@@ -87,6 +87,32 @@ function serveFirestore() {
         if (url.endsWith(":commit")) {
           fsState.commits++;
           let body = null; try { body = JSON.parse(raw); } catch {}
+
+          /* ENFORCE THE REAL GRAMMAR. A fake that accepts what the real service rejects is
+             worse than no fake at all: the first version of this function wrote fields named
+             `03_news_v`, every test passed here, and PRODUCTION rejected all twelve hours of
+             it with "Invalid property path ... must match ([a-zA-Z_][a-zA-Z_0-9]*)". Firestore
+             validated it; this mock did not. Now it does — and answers 400 exactly as
+             Firestore does, so that bug can never pass again. */
+          const badPath = [];
+          for (const w of ((body && body.writes) || [])) {
+            for (const t of (w.updateTransforms || [])) {
+              const p = String(t.fieldPath || "");
+              const legal = /^[a-zA-Z_][a-zA-Z_0-9]*$/.test(p) || /^`[^`]+`$/.test(p);
+              if (!legal) badPath.push(p);
+            }
+            for (const p of ((w.updateMask && w.updateMask.fieldPaths) || [])) {
+              const legal = /^[a-zA-Z_][a-zA-Z_0-9]*$/.test(p) || /^`[^`]+`$/.test(p);
+              if (!legal) badPath.push(p);
+            }
+          }
+          if (badPath.length) {
+            fsState.rejected = (fsState.rejected || 0) + 1;
+            res.statusCode = 400;
+            return res.end(JSON.stringify({ error: { code: 400, status: "INVALID_ARGUMENT",
+              message: `Invalid property path "${badPath[0]}". Unquoted property paths must match ([a-zA-Z_][a-zA-Z_0-9]*), and quoted ones must be non-empty.` } }));
+          }
+
           for (const w of ((body && body.writes) || [])) {
             if (w.delete) {
               const id = String(w.delete).split("/").pop();
@@ -216,9 +242,9 @@ async function sectionServer() {
   const el = plan.docs.find((d) => d.docId === `${MM(T)}__eleanor`);
   ok(!!el, `the document id is <YYYY-MM>__<userSlug> (${MM(T)}__eleanor)`);
   ok(el && el.user === "Eleanor", "the document keeps the real display name, not the slug");
-  ok(el && el.fields.get(`${DD(T)}_news`).v === 2 && el.fields.get(`${DD(T)}_news`).m === 3,
+  ok(el && el.fields.get(`d${DD(T)}_news`).v === 2 && el.fields.get(`d${DD(T)}_news`).m === 3,
     "two rows for the same person/day/feature merge before the write");
-  ok(plan.docs.some((d) => d.fields.has(`${DD(T)}_app_news`)),
+  ok(plan.docs.some((d) => d.fields.has(`d${DD(T)}_app_news`)),
     "a feature may contain an underscore (index.html sends app_news)");
 
   ok(mod.slugName("Eleanor ( :") === "eleanor", "a punctuated profile name slugs to the person");
@@ -244,8 +270,8 @@ async function sectionServer() {
   ok(capped.kept === 100, "no more than 100 rows are taken from one request");
 
   const clamped = mod.planWrites([{ user: "A", day: T, feature: "news", v: 9e9, m: 9e9 }], T);
-  ok(clamped.docs[0].fields.get(`${DD(T)}_news`).v === 1000
-    && clamped.docs[0].fields.get(`${DD(T)}_news`).m === 1440,
+  ok(clamped.docs[0].fields.get(`d${DD(T)}_news`).v === 1000
+    && clamped.docs[0].fields.get(`d${DD(T)}_news`).m === 1440,
     "absurd view/minute counts are clamped, not stored");
   const anon = mod.planWrites([{ user: "", day: T, feature: "news", v: 1, m: 0 }], T);
   ok(anon.docs[0].docId === `${MM(T)}__unknown` && anon.docs[0].user === "Unknown",
@@ -261,17 +287,17 @@ async function sectionServer() {
   ok(googState.calls > 0 && googState.lastAssertion.split(".").length === 3, "the Google token was minted with a hand-signed JWT");
   const docE = store.get(`${MM(T)}__eleanor`);
   ok(!!docE, "the document lands at bucky_activity/<YYYY-MM>__<userSlug>");
-  ok(docE && docE.fields[`${DD(T)}_news_v`] && docE.fields[`${DD(T)}_news_v`].integerValue === "1",
-    `views are stored as ${DD(T)}_news_v`);
-  ok(docE && docE.fields[`${DD(T)}_news_m`] && Number(docE.fields[`${DD(T)}_news_m`].doubleValue) === 3,
-    `minutes are stored as ${DD(T)}_news_m`);
+  ok(docE && docE.fields[`d${DD(T)}_news_v`] && docE.fields[`d${DD(T)}_news_v`].integerValue === "1",
+    `views are stored as d${DD(T)}_news_v (the d prefix is what Firestore requires)`);
+  ok(docE && docE.fields[`d${DD(T)}_news_m`] && Number(docE.fields[`d${DD(T)}_news_m`].doubleValue) === 3,
+    `minutes are stored as d${DD(T)}_news_m`);
   ok(docE && docE.fields.user.stringValue === "Eleanor", "the display name rides along on the document");
 
   /* -- convergence: the reason every counter is a transform -- */
   await call({ secret: SECRET, action: "log", rows: [{ user: "Eleanor", day: T, feature: "news", v: 2, m: 1.25 }] });
   const after = store.get(`${MM(T)}__eleanor`);
-  ok(after.fields[`${DD(T)}_news_v`].integerValue === "3", "a second device's views ADD to the first's, they don't replace them");
-  ok(Number(after.fields[`${DD(T)}_news_m`].doubleValue) === 4.25, "minutes add too, keeping the fraction");
+  ok(after.fields[`d${DD(T)}_news_v`].integerValue === "3", "a second device's views ADD to the first's, they don't replace them");
+  ok(Number(after.fields[`d${DD(T)}_news_m`].doubleValue) === 4.25, "minutes add too, keeping the fraction");
   ok(after.fields.user.stringValue === "Eleanor", "re-writing the display name did not wipe the counters (updateMask)");
 
   /* -- log never surfaces a failure -- */

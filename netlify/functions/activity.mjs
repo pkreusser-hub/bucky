@@ -10,7 +10,8 @@
 //
 // ONE DOC PER PERSON PER MONTH: bucky_activity/<YYYY-MM>__<userSlug>, holding a `user`
 // string (the real display name, so the dashboard can show "Eleanor" and not "eleanor")
-// and a flat field per day-and-feature: `03_news_v` views, `03_news_m` minutes.
+// and a flat field per day-and-feature: `d03_news_v` views, `d03_news_m` minutes. The leading
+// "d" is required — Firestore rejects an unquoted property path that starts with a digit.
 //
 // WHY THAT SHAPE. Every counter is written as an INCREMENT fieldTransform, exactly as
 // farmgpt.mjs logs token usage — two devices flushing at the same moment converge instead
@@ -159,7 +160,12 @@ export function planWrites(rows, today) {
     let doc = byDoc.get(docId);
     if (!doc) { doc = { docId, user: display, slug: userSlug, month, fields: new Map() }; byDoc.set(docId, doc); }
 
-    const key = `${dd}_${feature}`;
+    // The "d" prefix is LOAD-BEARING, not decoration. A Firestore property path must match
+    // ([a-zA-Z_][a-zA-Z_0-9]*) unless it is backtick-quoted, so the obvious `03_news_v`
+    // makes the whole commit fail with HTTP 400 — which is how the first version of this
+    // silently recorded nothing for twelve hours while every test passed against a fake
+    // Firestore that did not enforce the grammar.
+    const key = `d${dd}_${feature}`;
     const cur = doc.fields.get(key) || { v: 0, m: 0 };
     cur.v += v;
     cur.m = Math.round((cur.m + m) * 100) / 100;
@@ -229,7 +235,7 @@ async function listDocs(token) {
   return out;
 }
 
-/** A doc's flat `03_news_v` fields -> { "2026-08-03": { news: {v,m} } }. */
+/** A doc's flat `d03_news_v` fields -> { "2026-08-03": { news: {v,m} } }. */
 export function parseDoc(doc) {
   const id = String(doc.name || "").split("/").pop();
   const f = doc.fields || {};
@@ -237,7 +243,7 @@ export function parseDoc(doc) {
   const user = (f.user && f.user.stringValue) || (id.split("__")[1] || "unknown");
   const days = {};
   for (const key of Object.keys(f)) {
-    const m = /^(\d{2})_(.+)_([vm])$/.exec(key);
+    const m = /^d(\d{2})_(.+)_([vm])$/.exec(key);
     if (!m) continue;
     const cell = f[key] || {};
     const num = cell.integerValue !== undefined ? parseInt(cell.integerValue, 10)
