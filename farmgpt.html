@@ -1480,6 +1480,92 @@
   // the recap path for the rest of their life.
   const hasLedger = (s) => !!(s && s.ledger && s.ledger.meta);
 
+  // ---- AI ledger seeder (EXPERIMENTAL; two gates, both must be on) ---------
+  // Gate 1, this device: `?seed=1` or localStorage farmgpt_seed="1". Without it a story start
+  // makes ZERO extra network requests, so the shipped default path is untouched.
+  // Gate 2, the server: STORY_SEED_PROVIDER. The client flag alone buys nothing — which model
+  // builds the world (or whether one does at all) is decided server-side, as it must be.
+  const SEED_FLAG_KEY = "farmgpt_seed";
+  const seedAiEnabled = (() => {
+    try {
+      const q = new URLSearchParams(location.search).get("seed");
+      if (q === "1" || q === "0") localStorage.setItem(SEED_FLAG_KEY, q);
+      return localStorage.getItem(SEED_FLAG_KEY) === "1";
+    } catch { return false; }
+  })();
+
+  // Turn the seeder's world into a diff and let applyLedgerDiff apply it — the same validator,
+  // the same id assignment, the same all-or-nothing adoption every keeper diff goes through.
+  // Nothing bespoke: a seed that fails validation is a seed that changed nothing.
+  function seedPatchToDiff(patch) {
+    if (!patch || typeof patch !== "object" || Array.isArray(patch)) return null;
+    const add = {}, upd = {};
+    for (const key of ["canon", "characters", "locations", "relationships", "open_threads"]) {
+      if (Array.isArray(patch[key]) && patch[key].length) add[key] = patch[key];
+    }
+    // The seeder plants secrets. It does NOT get to decide what the reader already knows —
+    // at turn zero the reader knows nothing, so `known` and `suspected` are dropped on the floor.
+    const pk = patch.player_knowledge;
+    if (pk && typeof pk === "object" && !Array.isArray(pk) && Array.isArray(pk.hidden_from_player)) {
+      add.player_knowledge = { hidden_from_player: pk.hidden_from_player };
+    }
+    const p = patch.protagonist;
+    if (p && typeof p === "object" && !Array.isArray(p)) {
+      const ap = {};
+      for (const k of ["inventory", "abilities", "conditions"]) if (Array.isArray(p[k]) && p[k].length) ap[k] = p[k];
+      if (Object.keys(ap).length) add.protagonist = ap;
+      // `name` is the reader's, never the model's — seedLedger already set it.
+    }
+    const m = patch.meta;
+    if (m && typeof m === "object" && !Array.isArray(m)) {
+      for (const k of ["timeline_point", "genre_and_tone", "narrative_voice"]) {
+        if (typeof m[k] === "string" && m[k].trim()) { upd.meta = upd.meta || {}; upd.meta[k] = m[k].trim(); }
+      }
+    }
+    if (!Object.keys(add).length && !Object.keys(upd).length) return null;
+    const diff = {};
+    if (Object.keys(add).length) diff.add = add;
+    if (Object.keys(upd).length) diff.update = upd;
+    return diff;
+  }
+
+  // Ask the server to build a starting world. FAIL-OPEN, always: a disabled server flag, a
+  // network error, unparseable JSON, or a patch that fails validation all leave `led` exactly as
+  // it was, and the story starts on the ordinary empty/pack-seeded ledger. Story creation must
+  // never be blocked by an experiment.
+  async function seedLedgerWithAI(led, opts) {
+    if (!seedAiEnabled) return { seeded: false, reason: "off" };
+    try {
+      const resp = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          secret: FAMILY_PASSWORD, mode: "storyseed",
+          setup: opts.setup || "", heroName: opts.heroName || "",
+          // The pack half of the ledger, so the seeder sees the world the narrator will see.
+          packLedger: opts.pack ? led : null,
+        }),
+      });
+      if (!resp.ok) return { seeded: false, reason: "http " + resp.status };
+      const ct = resp.headers.get("content-type") || "";
+      if (ct.includes("application/json")) {
+        // The dormant path: {seeded:false, reason:"disabled"}.
+        let d = null; try { d = await resp.json(); } catch { /* ignore */ }
+        return { seeded: false, reason: (d && d.reason) || "json" };
+      }
+      const raw = await resp.text();
+      const patch = parseKeeperJSON(raw);
+      if (!patch) return { seeded: false, reason: "unparseable" };
+      const diff = seedPatchToDiff(patch);
+      if (!diff) return { seeded: false, reason: "empty" };
+      const res = applyLedgerDiff(led, diff);
+      if (!res.ok) return { seeded: false, reason: res.reason };
+      return { seeded: true, ledger: res.ledger };
+    } catch (err) {
+      return { seeded: false, reason: String((err && err.message) || err) };
+    }
+  }
+
   // ---- daily response cap (client-side pre-check + UX; the SERVER is the real enforcement) ----
   // A cheap local counter (per user, per Central calendar day — same "farmDay" the server uses)
   // so a capped kid never even burns a request, and the UI can show/hide the notice instantly.
@@ -2516,10 +2602,19 @@
     catch { packRes = { pack: null, note: "" }; }
     busy = false;
     if (packRes.note) toast("📖 " + packRes.note);
-    const ledger = seedLedger({
+    let ledger = seedLedger({
       title, universe: packRes.pack ? selectedUniverse : "original",
       genre: bldGenreWord(), heroName, pack: packRes.pack,
     });
+    // EXPERIMENTAL, both gates off by default: have a model build the starting world before
+    // scene one. Fails open in every direction — see seedLedgerWithAI.
+    if (seedAiEnabled) {
+      busy = true;
+      toast("✨ Building your world…");
+      const seedRes = await seedLedgerWithAI(ledger, { setup: seed, heroName, pack: !!packRes.pack });
+      busy = false;
+      if (seedRes.seeded) ledger = seedRes.ledger;
+    }
     story = {
       id: "s" + Date.now(),
       title: title.length > 46 ? title.slice(0, 46) + "…" : title,
@@ -2842,9 +2937,11 @@
     emptyLedger, validateLedger, applyLedgerDiff, compactLedger, ledgerForSend,
     seedLedger, loadUniversePack, recordLedgerDiff, replayLedgerDiffs, hasLedger,
     buildSendMessages, canonPreserved, matchFact,
+    // experiment — the AI ledger seeder (dormant unless both gates are on)
+    seedAiEnabled, seedPatchToDiff, seedLedgerWithAI,
     // step 3 — the keeper, reader canon, redo
     runKeeper, parseKeeperJSON, sanitizeKeeperDiff, readerAssertionOf, redoScene,
-    takeTurn, saveStoryObj, isNextChapterTurn, loadStories,
+    takeTurn, streamChapter, saveStoryObj, isNextChapterTurn, loadStories,
     // step 5 — compaction, rewind/branching, the contradiction audit
     DORMANT_AFTER, LOCATION_STALE_AFTER, KNOWN_WIRE_MAX,
     foldResolvedThreads, threadWasFolded, shapeLedgerForWire,

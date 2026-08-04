@@ -21,14 +21,27 @@
 //   ANTHROPIC_API_KEY    - Anthropic API key (console.anthropic.com) — story + research
 //   BUCKY_NOTIFY_SECRET  - shared family passphrase (same one notify.mjs already uses)
 // Optional:
-//   STORY_PROVIDER       - "haiku" (default) | "gemini" | "sonnet" for story mode
+//   STORY_PROVIDER       - "haiku" (default) | "gemini" | "sonnet" | "grok" for story mode
 //   GEMINI_API_KEY       - Google AI Studio key — only needed when STORY_PROVIDER=gemini
+//   XAI_API_KEY          - xAI key — only needed when a mode is routed to "grok"
+//   XAI_MODEL            - xAI model id (default "grok-4.5")
+//   KEEPER_PROVIDER      - "haiku" (default) | "grok" | "sonnet" for the ledger keeper
+//   KEEPER_MODEL         - override the keeper's model id within its provider
+//   KEEPER_PROMPT        - "auto" (default; grok provider → grok-tuned) | "haiku" | "grok"
+//   STORY_SEED_PROVIDER  - UNSET = the seeder is DORMANT. "fable" | "sonnet" | "grok" to enable.
+//   STORY_SEED_MODEL     - override the seeder's model id within its provider
 //   ANTHROPIC_BASE_URL   - override for local testing against a fake Anthropic server
 //   GEMINI_BASE_URL      - override for local testing against a fake Gemini server
+//   XAI_BASE_URL         - override for local testing against a fake xAI server
 
 const RESEARCH_MODEL = "claude-sonnet-5";   // research mode (Anthropic)
 const STORY_MODEL = "claude-haiku-4-5";     // story + summary (Anthropic, default)
 const GEMINI_MODEL = "gemini-2.5-flash";    // story + summary when STORY_PROVIDER=gemini
+const FABLE_MODEL = "claude-fable-5";       // the ledger seeder, when enabled
+// xAI is OpenAI-compatible. grok-4.5 is the default; the other published ids
+// (grok-4.3, grok-4.20-0309-{reasoning,non-reasoning}, grok-4.20-multi-agent-0309,
+// grok-build-0.1) are selectable through XAI_MODEL without a code change.
+const XAI_MODEL = process.env.XAI_MODEL || "grok-4.5";
 
 const ALLOWED_ORIGINS = new Set([
   "https://amenfarms.netlify.app",
@@ -731,6 +744,95 @@ the verdict — a clean report is a real and useful answer. Order findings by se
 // user turn and reliably beats a system-prompt rule on the story model — the same lesson that
 // moved the chapter-close directive onto the last user turn. This puts the hard bans on that
 // same turn, every time, and pre-empts the "reader said keep it clean, so it's fine" framing.
+// ---------------- the ledger SEEDER (experimental, dormant unless STORY_SEED_PROVIDER is set) ---
+// A story normally begins with an EMPTY ledger (plus whatever a universe pack supplies) and the
+// world fills in as the narrator writes it. The seeder runs ONCE, before scene one, and hands the
+// narrator a world that already knows itself: rules that govern it, a small cast with distinct
+// voices, threads that are already in motion, and — the point of the whole thing — secrets sitting
+// in hidden_from_player, so there are real reveals waiting from turn one instead of only whatever
+// the narrator happens to invent later.
+//
+// IT DOES NOT WRITE THE STORY. The narrator writes every word the reader reads, scene one
+// included. A gorgeous chapter one from one model followed by a visible drop into another model's
+// voice is worse than one consistent voice throughout.
+const STORY_SEED_SYSTEM = `You are the WORLD-BUILDER for a children's choose-your-own-adventure story.
+You are NOT the storyteller. You will never write a scene, a line of dialogue, or a word the reader
+will read. You build the world the storyteller is about to tell a story in, and you hand it over as
+JSON — the story's starting LEDGER.
+
+Output ONE JSON object and NOTHING else — no prose, no explanation, no markdown code fence.
+
+THE SHAPE. Every key is optional. Ids are assigned for you: never write an "id" field.
+{
+  "meta":       {"timeline_point":"", "genre_and_tone":""},
+  "canon":      [{"rule":"one permanent rule of this world, one sentence"}],
+  "characters": [{"name":"","role":"","physical":"","voice":"","motivation":"","status":"",
+                  "possessions":[],"knows":[],"does_not_know":[]}],
+  "locations":  [{"name":"","description":"","state":""}],
+  "relationships": [{"between":["Name A","Name B"],"state":"","history":""}],
+  "open_threads":  [{"thread":"","urgency":""}],
+  "player_knowledge": {"hidden_from_player":["a secret the reader must not learn yet"]},
+  "protagonist":   {"inventory":[{"item":"","notes":""}],"abilities":[]}
+}
+
+WHAT TO BUILD
+- CANON: 3 to 6 rules, and each one is a RULE, not an event or a mood. "The tide only turns when
+  someone on the island tells a lie." "Nobody in Saltmere can swim." A rule is permanent, it is
+  the same for everyone, and a scene that breaks it is a scene that goes wrong inside the story.
+  Ordinary physics needs no rule. Write each in one plain sentence a nine-year-old can hold onto.
+- CHARACTERS: three to five, not counting the reader's own. Each needs a VOICE the storyteller can
+  actually perform — say how they talk, not what they are like. "Answers questions with questions;
+  never uses a word over two syllables" is a voice. "Wise and kind" is not. Give each one a want
+  that can put them at odds with someone else. Fill "knows" and "does_not_know" — the gap between
+  what two characters know is where a story comes from.
+- LOCATIONS: two or three, each with something in it that can be done, entered, opened or broken.
+- OPEN THREADS: two or three questions already in motion before the story starts. Not "will the
+  hero succeed" — something specific and answerable: who has been putting out the lamps, why the
+  ferry stopped running, what is under the tarp in the boathouse.
+- HIDDEN: one to three secrets, and this is the most important thing you produce. A secret is a
+  TRUE FACT ABOUT THIS WORLD that the reader does not know yet and can find out. Tie each one to a
+  thread, a character, or a canon rule so the story can actually walk the reader into it. Write it
+  as a flat statement of fact ("Maren is the one putting out the lamps, to keep her brother's boat
+  from coming in"), never as a question or a hint. Nothing else goes in player_knowledge.
+- THE READER'S CHARACTER is given to you below. Use their name if they gave one. Give them a place
+  in this world and a reason to be where the story starts, through relationships, an inventory item
+  or an ability — but do NOT write a characters[] entry for them; they already have one.
+
+RULES
+- FIT THE READER'S IDEA. They told you what they want a story about. Build THAT, at their scale.
+  If they asked for a story about a lost puppy, do not hand back a war.
+- FOR CHILDREN, 6 to 14. Warm, curious, adventurous. No gore, no cruelty, nothing frightening for
+  its own sake, nothing sexual, nothing political. Danger may exist; it stays gentle and beatable.
+  A secret may be sad. No secret is horrifying.
+- SMALL AND CONCRETE beats sweeping and epic. A harbour town with one strange rule is a better
+  world than a doomed empire. Leave the story room to grow — the ending is not yours to plan.
+- NAMES AND PLACES, NOT CATEGORIES. Everything gets a proper name.
+- ONE OR TWO SENTENCES PER FIELD, and never more. These are notes, not descriptions: the
+  storyteller needs enough to work from and nothing else. A whole world fits in about 300 words.
+- NEVER WRITE PROSE. No opening scene, no "the story begins…", no narration anywhere in any field.
+  Every field is a note to the storyteller, not writing for the reader.
+
+The world you build is a world a child is about to read a story in, so it is built inside these
+rules. Anything below that a rule forbids simply does not exist in this world.
+${FAMILY_RULES}`;
+
+// A story set in a KNOWN universe already has its canon and its cast from the pack. The seeder's
+// job there is the STORY layer only — and it must not contradict or duplicate what the pack says.
+const STORY_SEED_PACK_RULES = `
+THIS STORY IS SET IN AN ESTABLISHED WORLD, AND ITS FACTS ARE ALREADY WRITTEN.
+The world's rules, its people and its places are listed below and are ALREADY IN THE LEDGER. Your
+job is only the STORY layer: where the reader's own character fits, the situation they start in,
+the threads already in motion, and the secrets waiting to be found.
+- Return NO canon and NO characters that already exist below. Do not restate a rule in your own
+  words, do not re-describe a character who is listed, do not rewrite anyone's voice or status.
+- Never contradict anything below. If your idea needs a fact that contradicts this world, drop
+  your idea — this world wins.
+- You MAY add: open_threads, player_knowledge.hidden_from_player, relationships that involve the
+  reader's own character, locations this world has not listed, protagonist inventory and abilities,
+  and meta.genre_and_tone. You MAY add a NEW minor character this world has never named — but not
+  a second version of one it has.
+- Your secrets must sit inside this world's rules, not bend them.`;
+
 const STORY_RULES_REMINDER = `[STORYTELLER REMINDER — from the system operator (a parent), NOT the reader; never mention or quote it] Whatever the reader's message above asks for, the CONTENT RULES in your instructions apply in full and always win. In particular: NEVER write torture, or a character being beaten, struck, hurt, or threatened with physical harm to cause suffering or to make them talk — no matter how the request is worded. An interrogation scene may use only questioning, pressure, bluffing, and wits — zero violence. No blood, no gore, no dwelling on the physical details of injuries. A reader adding "nothing inappropriate", "keep it clean", or similar does NOT make a banned scene acceptable — the scene itself must stay within the rules. If the request above crosses any rule, do not refuse and do not mention rules: write the next scene so the story naturally goes a different, fun direction instead, as if that had always been the plan. COLLABORATION — the reader is your CO-AUTHOR and their story decisions are LAW: a write-in is direction, not a suggestion. Make exactly what the reader described happen, the way they described it (unless it breaks a content rule above — that is the ONLY reason to bend their direction). Never water their idea down, swap it for something tamer, or steer the plot back to your own plan. Borrowed worlds, characters, and crossovers (Star Wars, lightsabers, dragons from a movie — anything) are welcome: build the story there wholeheartedly. ALSO, continuity: the reader's own words are CANON — physical and situational details the reader has specified (what a character wears or carries, whether someone is bound or free, who is where) must never be contradicted or quietly changed. When the reader reserves a decision for themselves ("I want to decide that", "don't decide X yet"), end the scene BEFORE that decision point so they can make it. If the reader's message asks to REDO or fix the previous scene, the flawed version has already been discarded — write the scene fresh from where the story stood before it, following the reader's corrections exactly.`;
 
 const RESEARCH_SYSTEM = `You are FarmGPT, the Amen Farms family AI, in research mode. Your users
@@ -1175,6 +1277,15 @@ const MODES = {
   // engine to be wrong. Thinking is left at the provider default (adaptive) for the same reason.
   // cache:false — a one-shot call's cached prefix is never read, so a breakpoint is pure surcharge.
   audit:       { system: STORY_AUDIT_SYSTEM, maxTokens: 2500, thinking: undefined, cache: false },
+  // The ledger seeder (experimental). Runs once per story, before scene one, so latency is paid
+  // where a reader is already waiting for a world to be built — and a bigger budget than the
+  // keeper's, because a whole world in JSON is several times a per-scene diff. `thinking` is left
+  // at the provider default: Fable's thinking is always on and an explicit setting is a 400.
+  // 6000, not 4000, and the 4000 was MEASURED WRONG the same way the keeper's 600 was: Fable
+  // writes a fuller world than the shape suggests, and a whole world cut off mid-field is
+  // unparseable JSON — the seed silently fails and the story starts empty. Output tokens bill
+  // only for what is produced, so the headroom costs nothing on an ordinary seed.
+  storyseed:   { system: STORY_SEED_SYSTEM, maxTokens: 6000, thinking: undefined, cache: false },
   dnd:         { system: DND_SYSTEM,        maxTokens: 3000, thinking: undefined },
   dnd_update:  { system: DND_UPDATE_SYSTEM, maxTokens: 1500, thinking: { type: "disabled" } },
   dnd_summary: { system: DND_SUMMARY_SYSTEM, maxTokens: 600, thinking: { type: "disabled" } },
@@ -1424,6 +1535,10 @@ async function logUsage(modeName, inTok, outTok, cacheWriteTok = 0, cacheReadTok
       : modeName === "kidstory" ? "k" : modeName === "kidart" ? "a"
       : modeName === "kidimage" ? "g" : modeName === "calories" ? "c"
       : modeName === "teacher" ? "t" : modeName === "ledger" ? "l"
+      // The ledger seeder gets bucket "f" (for Fable, its default model): it runs at most ONCE per
+      // story on a far pricier model than the per-scene calls, so folding it into "s" would make
+      // every chapter of that story look like it cost a share of a one-time build.
+      : modeName === "storyseed" ? "f"
       : modeName === "audit" ? "x" : "r";
     const base = `projects/${PROJECT_ID}/databases/(default)/documents`;
     const tf = (f, n) => ({ fieldPath: f, increment: { integerValue: String(n) } });
@@ -2518,6 +2633,51 @@ function buildAuditMessages(body) {
   return [{ role: "user", content: parts.join("\n") }];
 }
 
+// The SEEDER's single user turn, built server-side from named fields for the same reason the
+// keeper's is: a universe pack is far past MAX_CONTENT_CHARS and sanitizeMessages would slice it.
+const SEED_SETUP_MAX = 4000;
+const SEED_PACK_MAX = 40000;
+function buildSeedMessages(body) {
+  const setup = typeof body.setup === "string" ? body.setup.slice(0, SEED_SETUP_MAX).trim() : "";
+  if (!setup) return null;                       // nothing to build a world from
+  const hero = typeof body.heroName === "string" ? body.heroName.slice(0, 80).trim() : "";
+  // The pack is passed as the PARTIAL LEDGER the client already seeded from it, so the seeder is
+  // shown exactly the world the narrator will be shown — not the pack file's own wire format.
+  let pack = body.packLedger && typeof body.packLedger === "object" && !Array.isArray(body.packLedger)
+    ? body.packLedger : null;
+  const parts = [];
+  if (pack) {
+    let rendered = "";
+    try { rendered = renderLedgerForKeeper(pack); } catch { rendered = ""; }
+    if (rendered) {
+      parts.push("===== THIS WORLD, AS ALREADY WRITTEN =====",
+        rendered.slice(0, SEED_PACK_MAX), "===== END OF THIS WORLD =====", "");
+    } else pack = null;
+  }
+  parts.push("===== WHAT THE READER ASKED FOR =====", setup, "===== END =====", "");
+  parts.push(hero
+    ? "The reader's own character is named " + hero + ". Build them a place in this world."
+    : "The reader has not given their character a name. Do not invent one — leave the name to the story.");
+  parts.push("", "Build the starting ledger for this story. JSON only.");
+  return { messages: [{ role: "user", content: parts.join("\n") }], hasPack: !!pack };
+}
+
+// Anthropic-shaped message → OpenAI-compatible entry (xAI). The only structural difference from
+// the Anthropic shape is that image parts use image_url rather than a source object; text-only
+// story turns pass through as plain strings.
+function toOpenAIMessage(m) {
+  const role = m.role === "assistant" ? "assistant" : "user";
+  if (typeof m.content === "string") return { role, content: m.content };
+  const parts = [];
+  for (const b of m.content) {
+    if (b.type === "text") parts.push({ type: "text", text: b.text });
+    else if (b.type === "image" && b.source) {
+      parts.push({ type: "image_url", image_url: { url: "data:" + b.source.media_type + ";base64," + b.source.data } });
+    }
+  }
+  return { role, content: parts.length ? parts : "" };
+}
+
 // Anthropic-shaped message → Gemini "contents" entry. Roles: assistant→model, user→user.
 // Story/summary content is always a plain string; the array/image branch is defensive only
 // (research photos never reach Gemini).
@@ -2728,18 +2888,36 @@ export default async (req) => {
   // cap above is `body.mode === "story"` only, and logStoryReq below is story/kidstory only, so a
   // keeper call can neither eat a scene of a kid's daily allowance nor write a second copy of a
   // scene into Dad's Story Log.
-  const messages = body.mode === "ledger" ? buildKeeperMessages(body)
-    : body.mode === "audit" ? buildAuditMessages(body)
-    : sanitizeMessages(body.messages, body.mode);
+  // The SEEDER is DORMANT unless STORY_SEED_PROVIDER is set: with the flag unset the mode answers
+  // 200 + {seeded:false} immediately, without calling any model, and the client falls back to the
+  // ordinary empty/pack-seeded start. A curious kid setting the client-side flag gets nothing.
+  const SEED_PROVIDER_ENV = (process.env.STORY_SEED_PROVIDER || "").toLowerCase();
+  if (body.mode === "storyseed" && !SEED_PROVIDER_ENV) {
+    return new Response(JSON.stringify({ seeded: false, reason: "disabled" }),
+      { status: 200, headers: jsonHeaders });
+  }
+
+  let seedHasPack = false;
+  let messages;
+  if (body.mode === "ledger") messages = buildKeeperMessages(body);
+  else if (body.mode === "audit") messages = buildAuditMessages(body);
+  else if (body.mode === "storyseed") {
+    const built = buildSeedMessages(body);
+    if (built) { messages = built.messages; seedHasPack = built.hasPack; }
+  } else messages = sanitizeMessages(body.messages, body.mode);
   if (!messages) {
     return jsonError(400, body.mode === "ledger" ? "Bad ledger request"
-      : body.mode === "audit" ? "Bad audit request" : "Bad messages array", jsonHeaders);
+      : body.mode === "audit" ? "Bad audit request"
+      : body.mode === "storyseed" ? "Bad seed request" : "Bad messages array", jsonHeaders);
   }
 
   // Story illustrations: opt-in per request. Bump the token budget so the <svg> fits
   // after the chapter + choices without truncating either. Research ignores the flag.
   const illustrate = body.mode === "story" && body.illustrate === true;
   let system = illustrate ? mode.system + "\n" + STORY_ILLUSTRATION : mode.system;
+  // A fan-universe seed gets the don't-contradict-the-pack rules appended. (FAMILY_RULES is
+  // already inside STORY_SEED_SYSTEM, the same way it is inside every other scene-writing mode.)
+  if (body.mode === "storyseed" && seedHasPack) system += "\n" + STORY_SEED_PACK_RULES;
   const maxTokens = illustrate ? 3000 : mode.maxTokens;
 
   // Known-universe fact sheets ride the story system prompt (auto-detected from the request's
@@ -2824,6 +3002,7 @@ export default async (req) => {
   let provider = "anthropic", model = RESEARCH_MODEL;
   if (body.mode === "story") {
     if (STORY_PROVIDER === "gemini") { provider = "gemini"; model = GEMINI_MODEL; }
+    else if (STORY_PROVIDER === "grok") { provider = "xai"; model = XAI_MODEL; }
     else if (STORY_PROVIDER === "sonnet") { provider = "anthropic"; model = RESEARCH_MODEL; }
     else { provider = "anthropic"; model = STORY_MODEL; }   // haiku (default)
   }
@@ -2833,10 +3012,23 @@ export default async (req) => {
   // Little-kid story: Haiku is plenty for 4 short sentences and keeps it fast for a child
   // waiting. Its illustration runs on Sonnet, which draws far cleaner shapes.
   else if (body.mode === "kidstory") { provider = "anthropic"; model = STORY_MODEL; }
-  // The keeper is pinned to Haiku on Anthropic and does NOT follow STORY_PROVIDER: flipping the
-  // narrator to Gemini or Sonnet is a prose decision, and it must not quietly move the bookkeeper
-  // onto a provider whose JSON adherence nobody has measured.
-  else if (body.mode === "ledger") { provider = "anthropic"; model = STORY_MODEL; }
+  // The keeper still does NOT follow STORY_PROVIDER — flipping the narrator is a prose decision
+  // and must not quietly move the bookkeeper — but it now has its own knob, so a keeper model can
+  // be chosen (and measured) independently of who is telling the story. Default is unchanged:
+  // Haiku on Anthropic, the model the keeper prompt was tuned against.
+  else if (body.mode === "ledger") {
+    const kp = (process.env.KEEPER_PROVIDER || "haiku").toLowerCase();
+    if (kp === "grok") { provider = "xai"; model = process.env.KEEPER_MODEL || XAI_MODEL; }
+    else if (kp === "sonnet") { provider = "anthropic"; model = process.env.KEEPER_MODEL || RESEARCH_MODEL; }
+    else { provider = "anthropic"; model = process.env.KEEPER_MODEL || STORY_MODEL; }
+  }
+  // The seeder. Fable by default — it runs once per story and what it produces shapes every scene
+  // after it, which makes it the cheapest place in the engine to spend on capability.
+  else if (body.mode === "storyseed") {
+    if (SEED_PROVIDER_ENV === "grok") { provider = "xai"; model = process.env.STORY_SEED_MODEL || XAI_MODEL; }
+    else if (SEED_PROVIDER_ENV === "sonnet") { provider = "anthropic"; model = process.env.STORY_SEED_MODEL || RESEARCH_MODEL; }
+    else { provider = "anthropic"; model = process.env.STORY_SEED_MODEL || FABLE_MODEL; }
+  }
   // The audit is pinned to Sonnet for the same reason the keeper is pinned to Haiku: which model
   // reads the story is a prose decision, and which model checks it is not.
   else if (body.mode === "audit") { provider = "anthropic"; model = RESEARCH_MODEL; }
@@ -2859,6 +3051,32 @@ export default async (req) => {
         method: "POST",
         headers: { "x-goog-api-key": geminiKey, "content-type": "application/json" },
         body: JSON.stringify(geminiReq),
+      });
+    } catch (err) {
+      return jsonError(502, "Could not reach the AI service: " + String((err && err.message) || err), jsonHeaders);
+    }
+  } else if (provider === "xai") {
+    const xaiKey = process.env.XAI_API_KEY;
+    if (!xaiKey) return jsonError(500, "Server misconfigured: XAI_API_KEY is not set", jsonHeaders);
+    const xaiBase = process.env.XAI_BASE_URL || "https://api.x.ai";
+    // xAI is OpenAI-compatible: the system prompt is just the FIRST MESSAGE with role "system"
+    // rather than a top-level field. That is the ONLY structural difference from the Anthropic
+    // request — the guardrail text itself is byte-identical, and still stamped server-side here.
+    // stream_options.include_usage asks for the final usage-only chunk (xAI also reports a running
+    // usage on ordinary chunks; the parser below takes the largest it sees either way, so a server
+    // that ignores the option still gets counted).
+    const xaiReq = {
+      model,
+      messages: [{ role: "system", content: system }, ...messages.map(toOpenAIMessage)],
+      max_tokens: maxTokens,
+      stream: true,
+      stream_options: { include_usage: true },
+    };
+    try {
+      upstream = await fetch(`${xaiBase}/v1/chat/completions`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${xaiKey}`, "content-type": "application/json" },
+        body: JSON.stringify(xaiReq),
       });
     } catch (err) {
       return jsonError(502, "Could not reach the AI service: " + String((err && err.message) || err), jsonHeaders);
@@ -2911,6 +3129,7 @@ export default async (req) => {
   const decoder = new TextDecoder();
   const reader = upstream.body.getReader();
   const isGemini = provider === "gemini";
+  const isXai = provider === "xai";
   // Parent-monitoring: log this scene's text to Firestore (story mode, a named non-Dad kid).
   // Parent monitoring: little-kid scenes are logged too (same Dad-only Story Log), so a
   // grown-up can read back everything the child was shown.
@@ -2943,9 +3162,33 @@ export default async (req) => {
             buf = buf.slice(sep + 2);
             const dataLine = rawEvent.split("\n").find((l) => l.startsWith("data:"));
             if (!dataLine) continue;
+            const payload = dataLine.slice(5).trim();
+            // OpenAI-compatible streams end with a literal "[DONE]" sentinel, which is not JSON.
+            if (payload === "[DONE]") continue;
             let ev;
-            try { ev = JSON.parse(dataLine.slice(5).trim()); } catch { continue; }
-            if (isGemini) {
+            try { ev = JSON.parse(payload); } catch { continue; }
+            if (isXai) {
+              // xAI / OpenAI-compatible chunk: choices[0].delta.content carries the incremental
+              // text; the final usage-only chunk has an EMPTY choices array, so every read below
+              // is guarded rather than assumed.
+              const ch = ev.choices && ev.choices[0];
+              const t = ch && ch.delta && typeof ch.delta.content === "string" ? ch.delta.content : "";
+              if (t) { sentAnyText = true; if (captureReply) replyText += t; controller.enqueue(encoder.encode(t)); }
+              // A hard content-filter stop, or an explicit refusal delta, maps to the same friendly
+              // stand-in every other provider's refusal does. "length" is NOT a refusal — a truncated
+              // scene is still a scene, and the client keeps the partial exactly as it does today.
+              if (ch && ch.finish_reason === "content_filter") stopReason = "refusal";
+              if (ch && ch.delta && ch.delta.refusal) stopReason = "refusal";
+              if (ev.usage) {
+                // Bucket semantics are ANTHROPIC's (see message_start below): inTok is the UNCACHED
+                // remainder and cached reads are counted separately, because logUsage prices them at
+                // different rates. OpenAI-style prompt_tokens INCLUDES the cached part, so subtract it.
+                const cached = (ev.usage.prompt_tokens_details && ev.usage.prompt_tokens_details.cached_tokens) || 0;
+                inTok = Math.max(inTok, (ev.usage.prompt_tokens || 0) - cached);
+                outTok = Math.max(outTok, ev.usage.completion_tokens || 0);
+                cacheReadTok = Math.max(cacheReadTok, cached);
+              }
+            } else if (isGemini) {
               // Gemini streamGenerateContent (alt=sse): each event carries an incremental
               // text chunk in candidates[0].content.parts and a running usageMetadata.
               const cand = ev.candidates && ev.candidates[0];
