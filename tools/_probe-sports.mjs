@@ -171,6 +171,24 @@ async function probeDeployedFunction() {
     }
   }
 
+  // College football through the same proxy.
+  const cs = await call({ action: "ncaa_scoreboard" });
+  if (!cs || cs.ok !== true) { console.log("  ⚠ ncaa_scoreboard failed: " + JSON.stringify(cs).slice(0, 200)); flagged++; }
+  else {
+    const ranked = cs.events.filter((e) => e.teams.some((t) => t.rank));
+    console.log(`  ok — college week ${cs.week}, ${cs.events.length} events, ${ranked.length} with a ranked team`);
+    if (cs.events.length && !ranked.length) { console.log("  ⚠ no curatedRank anywhere — the Top 25 filter would show nothing"); flagged++; }
+    const sec = await call({ action: "ncaa_scoreboard", group: 8 });
+    if (!sec || sec.ok !== true) { console.log("  ⚠ groups=8 (SEC) failed: " + JSON.stringify(sec).slice(0, 160)); flagged++; }
+    else console.log(`  ok — SEC slate: ${sec.events.length} events`);
+    const cev = cs.events[0];
+    if (cev) {
+      const cg = await call({ action: "ncaa_game", eventId: cev.id });
+      if (!cg || cg.ok !== true) { console.log("  ⚠ ncaa_game failed: " + JSON.stringify(cg).slice(0, 160)); flagged++; }
+      else console.log(`  ok — ${cg.teams.map((t) => t.abbrev + " " + t.score).join(" · ")} (${cg.status.detail})`);
+    }
+  }
+
   // Fantasy: the private league through the deployed cookies.
   const lg = await call({ action: "ff_league" });
   if (lg && lg.ok === false && lg.reason === "fantasy-not-configured") {
@@ -182,6 +200,15 @@ async function probeDeployedFunction() {
   } else {
     console.log(`  ok — "${lg.leagueName}" (${lg.teams.length} teams, week ${lg.week}), family team id ${lg.familyTeamId}`);
     if (lg.familyTeamId == null) { console.log("  ⚠ no team named like \"battle kreussers\" — check the team name in the league."); flagged++; }
+    // Per-user teams the app follows — each must resolve to a real team id.
+    for (const name of ["The Goat Kids", "Wyoming Cowboys"]) {
+      const t = await call({ action: "ff_league", teamName: name });
+      if (!t || !t.ok || t.familyTeamId == null) { console.log(`  ⚠ teamName "${name}" didn't resolve — check the name in the league.`); flagged++; }
+      else console.log(`  ok — "${name}" → team id ${t.familyTeamId}`);
+    }
+    const fsb = await call({ action: "ff_scoreboard" });
+    if (!fsb || !fsb.ok) { console.log("  ⚠ ff_scoreboard failed: " + JSON.stringify(fsb).slice(0, 160)); flagged++; }
+    else console.log(`  ok — week ${fsb.week} scoreboard: ${fsb.matchups.length} matchups (8 teams → expect 4 in season)`);
     const fm = await call({ action: "ff_matchup" });
     if (fm && fm.ok && fm.matchup) {
       console.log(`  ok — ${fm.matchup.home.name} ${fm.matchup.home.points} vs ${fm.matchup.away.points} ${fm.matchup.away.name}`);

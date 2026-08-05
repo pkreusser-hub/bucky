@@ -78,6 +78,8 @@ async function fetchUpstream(url) {
 
 function slimCompetitor(c) {
   const t = c?.team || {};
+  // curatedRank.current: 1-25 = AP rank (college), 99 = unranked. NFL has no ranks.
+  const rank = c?.curatedRank?.current;
   return {
     id: String(c?.id ?? t?.id ?? ""),
     homeAway: c?.homeAway || "",
@@ -88,6 +90,7 @@ function slimCompetitor(c) {
     record: (Array.isArray(c?.records) ? c.records.find((r) => r?.type === "total")?.summary : "") || "",
     score: c?.score != null ? String(c.score) : "",
     winner: c?.winner === true,
+    rank: Number.isInteger(rank) && rank >= 1 && rank <= 25 ? rank : null,
   };
 }
 
@@ -145,15 +148,22 @@ function slimScoreboard(j) {
   };
 }
 
-async function nflScoreboard(body) {
+// One implementation serves both leagues — the site API's NFL and
+// college-football endpoints share their whole shape. `groups` is the college
+// conference filter (e.g. 8 = SEC, 80 = all FBS; omitted = the full FBS slate,
+// measured live 2026-08-05 — NOT a Top-25 cut, so "Top 25" is the CLIENT's
+// filter on each competitor's curatedRank).
+async function siteScoreboard(leaguePath, body, allowGroups) {
   const params = [];
   const week = Number(body?.week);
   const seasontype = Number(body?.seasontype);
   const year = Number(body?.year);
+  const group = Number(body?.group);
   if (Number.isInteger(week) && week >= 1 && week <= 30) params.push("week=" + week);
   if (Number.isInteger(seasontype) && seasontype >= 1 && seasontype <= 4) params.push("seasontype=" + seasontype);
   if (Number.isInteger(year) && year >= 2000 && year <= 2100) params.push("dates=" + year);
-  const url = `${NFL_BASE}/apis/site/v2/sports/football/nfl/scoreboard` + (params.length ? "?" + params.join("&") : "");
+  if (allowGroups && Number.isInteger(group) && group >= 1 && group <= 999) params.push("groups=" + group);
+  const url = `${NFL_BASE}/apis/site/v2/sports/football/${leaguePath}/scoreboard` + (params.length ? "?" + params.join("&") : "");
   const { data, err } = await fetchUpstream(url);
   if (err) return { ok: false, reason: err };
   try {
@@ -304,10 +314,10 @@ function slimGame(j) {
   };
 }
 
-async function nflGame(body) {
+async function siteGame(leaguePath, body) {
   const eventId = String(body?.eventId ?? "").trim();
   if (!/^\d{5,12}$/.test(eventId)) return { ok: false, reason: "bad-event-id" };
-  const url = `${NFL_BASE}/apis/site/v2/sports/football/nfl/summary?event=${eventId}`;
+  const url = `${NFL_BASE}/apis/site/v2/sports/football/${leaguePath}/summary?event=${eventId}`;
   const { data, err } = await fetchUpstream(url);
   if (err) return { ok: false, reason: err };
   try {
@@ -395,14 +405,24 @@ function ffSlimTeam(t, members) {
     seed: t?.playoffSeed ?? 0,
   };
 }
-function ffFamilyTeamId(teams) {
-  const hit = (teams || []).find((t) => ffTeamName(t).trim().toLowerCase() === FF_TEAM_NAME)
-    || (teams || []).find((t) => ffTeamName(t).trim().toLowerCase().includes(FF_TEAM_NAME));
+// Resolve "my team" by name — the client sends teamName per signed-in family
+// member (Isaac follows The Goat Kids, Grandpa the Wyoming Cowboys, default
+// Battle Kreussers); a missing/unmatched name falls back to the env default.
+function ffWantedName(body) {
+  const n = String(body?.teamName || "").trim().toLowerCase().slice(0, 60);
+  return n || FF_TEAM_NAME;
+}
+function ffFamilyTeamId(teams, wanted) {
+  const w = wanted || FF_TEAM_NAME;
+  const hit = (teams || []).find((t) => ffTeamName(t).trim().toLowerCase() === w)
+    || (teams || []).find((t) => ffTeamName(t).trim().toLowerCase().includes(w))
+    || (w !== FF_TEAM_NAME ? (teams || []).find((t) => ffTeamName(t).trim().toLowerCase() === FF_TEAM_NAME) : null);
   return hit ? hit.id : null;
 }
 const r1 = (n) => (typeof n === "number" && isFinite(n) ? Math.round(n * 10) / 10 : null);
 
 async function ffLeague(body) {
+  const wanted = ffWantedName(body);
   const { data: j, err, year } = await ffFetch(["mTeam", "mSettings"], "", body);
   if (err) return { ok: false, reason: err };
   try {
@@ -413,7 +433,7 @@ async function ffLeague(body) {
       season: year,
       week: j?.status?.currentMatchupPeriod ?? null,
       scoringPeriodId: j?.scoringPeriodId ?? j?.status?.latestScoringPeriod ?? null,
-      familyTeamId: ffFamilyTeamId(j?.teams),
+      familyTeamId: ffFamilyTeamId(j?.teams, wanted),
       teams,
     };
   } catch {
@@ -422,6 +442,7 @@ async function ffLeague(body) {
 }
 
 async function ffScoreboard(body) {
+  const wanted = ffWantedName(body);
   const { data: j, err, year } = await ffFetch(["mMatchupScore", "mTeam", "mSettings"], "", body);
   if (err) return { ok: false, reason: err };
   try {
@@ -451,7 +472,7 @@ async function ffScoreboard(body) {
       ok: true,
       leagueName: j?.settings?.name || "Fantasy league",
       season: year, week,
-      familyTeamId: ffFamilyTeamId(j?.teams),
+      familyTeamId: ffFamilyTeamId(j?.teams, wanted),
       matchups,
     };
   } catch {
@@ -460,6 +481,7 @@ async function ffScoreboard(body) {
 }
 
 async function ffMatchup(body) {
+  const wanted = ffWantedName(body);
   // One call answers the whole family-matchup screen: both lineups with live
   // points + projections, PLUS each player's real NFL game state (joined from
   // the site API's scoreboard, same upstream the NFL tab uses).
@@ -472,7 +494,7 @@ async function ffMatchup(body) {
     const teams = Array.isArray(j?.teams) ? j.teams : [];
     const byId = new Map(teams.map((t) => [t.id, ffSlimTeam(t, j?.members)]));
     let teamId = Number(body?.teamId);
-    if (!byId.has(teamId)) teamId = ffFamilyTeamId(teams);
+    if (!byId.has(teamId)) teamId = ffFamilyTeamId(teams, wanted);
     const m = (Array.isArray(j?.schedule) ? j.schedule : []).find((x) =>
       x?.matchupPeriodId === week && (x?.home?.teamId === teamId || x?.away?.teamId === teamId));
     if (!m) return { ok: true, season: year, week, familyTeamId: teamId, matchup: null };
@@ -562,8 +584,10 @@ export default async (req) => {
   try { body = await req.json(); } catch { return json({ error: "Invalid JSON" }, 400, headers); }
   if (!body || body.secret !== familySecret) return json({ error: "Wrong family password" }, 401, headers);
 
-  if (body.action === "nfl_scoreboard") return json(await nflScoreboard(body), 200, headers);
-  if (body.action === "nfl_game") return json(await nflGame(body), 200, headers);
+  if (body.action === "nfl_scoreboard") return json(await siteScoreboard("nfl", body, false), 200, headers);
+  if (body.action === "nfl_game") return json(await siteGame("nfl", body), 200, headers);
+  if (body.action === "ncaa_scoreboard") return json(await siteScoreboard("college-football", body, true), 200, headers);
+  if (body.action === "ncaa_game") return json(await siteGame("college-football", body), 200, headers);
   if (body.action === "ff_league") return json(await ffLeague(body), 200, headers);
   if (body.action === "ff_scoreboard") return json(await ffScoreboard(body), 200, headers);
   if (body.action === "ff_matchup") return json(await ffMatchup(body), 200, headers);

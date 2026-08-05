@@ -8136,5 +8136,51 @@ no cache, or another suite's blanket `{}` function mock (all five states asserte
 `[hidden]{display:none}` restatement is REQUIRED). All card text renders via textContent
 (API text is external data). Suite section G; **156/156** total.
 
+**STAGE 5 — FANTASY SCOREBOARD + MATCHUP DETAIL · PER-USER TEAMS · COLLEGE FOOTBALL
+(2026-08-05)**: three user asks in one batch.
+- **Fantasy is a SCOREBOARD now** (`#fantasy`): every matchup in the 8-team league as a
+  tappable row (`.gbtn[data-ffteam]`, away side on top like the NFL rows), the family's
+  pinned under "Your matchup", the rest under "Around the league", standings (all 8) below.
+  Tapping opens **`#ffm=<teamId>`** — the matchup LINEUP detail (the old paintFf body moved
+  to `paintFfm`/`#ffmView`; server `ff_matchup` already took `teamId`, so ANY matchup opens).
+  The `ff` view loads only `ff_scoreboard` (+cached `ff_league`); `ffm` loads `ff_matchup`.
+  Gate cards (not-configured/expired) factored into `ffGateHTML()` shared by both views.
+- **PER-USER TEAMS**: `FF_TEAM_BY_USER` = { isaac: "The Goat Kids", grandpa: "Wyoming
+  Cowboys" }, default Battle Kreussers — matched by `choreUser`, lowercased. DUPLICATED in
+  three places, keep in sync: sports.html `myFfTeamName()`, index.html `sportsHomeFfTeam()`
+  (the home ffcard passes `teamName` and treats a cached copy for ANOTHER team as stale via
+  the cache's `team` field), and the server resolves `body.teamName` (exact → includes →
+  env-default fallback; "End Zone Goats" vs "The Goat Kids" is the near-name trap the exact
+  pass exists for). Server-side `ffWantedName`/`ffFamilyTeamId` in sports.mjs.
+- **COLLEGE (`#college`, 🎓 pill)**: same shared week-list machinery — `siteScoreboard/
+  siteGame` were already league-parameterized, so `ncaa_scoreboard`/`ncaa_game` are the same
+  code on `college-football`. **The upstream default is the FULL FBS slate (measured live
+  2026-08-05), NOT a Top-25 cut** — "Top 25" is the CLIENT's filter on `curatedRank`
+  (slimmed to `team.rank`, 1-25 else null; rendered as `#N` badges). Conference dropdown
+  (`#cfbGroup`, persisted `bucky_cfb_group`, default top25): real ESPN `groups=` ids —
+  80 all-FBS · 8 SEC · 5 B1G · 4 B12 · 1 ACC · 9 Pac-12 · 151 AAC · 17 MWC · 37 Sun Belt ·
+  15 MAC · 12 CUSA · 18 Indep. College games deep-link **`#cgame=<id>`** ("cgame" contains
+  "game", so the router matches cgame FIRST); the game view is sport-aware via `gameSport`
+  (back button reads "‹ College"). College has its own week picker (`flatWeeksOf`/
+  `weekIndexOf`/`stepWeekOf` — the old NFL-only fns parameterized) + stale-note/error card.
+- **RACE FIXED (`cfbReload` latch)**: changing the filter while a fetch is in flight used to
+  no-op on the `cfbLoading` guard and paint the STALE in-flight group; now the latch re-runs
+  `loadCfb` with the latest group when the in-flight one lands (suite polls the URL rather
+  than reading `lastUrl` once).
+- **BUG FIXED — `.pills[hidden]`**: `.pills { display:flex }` beat the UA `[hidden]` rule, so
+  the "hidden" top pills stayed painted on every game detail since stage 1 (same class as
+  the `.nflcard` note above — THIRD time this class of bug has bitten; any styled container
+  toggled via the `hidden` attribute needs a `[hidden]{display:none}` restatement, and
+  suites must assert GEOMETRY (`offsetParent === null`), not the attribute).
+- One delegated document click handler routes all score rows (`data-eid`+`data-sport` →
+  game/cgame, `data-ffteam` → ffm) — per-paint handlers are gone.
+- Fixtures: the real "Nerd Fantasy Football League" shape (8 teams incl. the two per-user
+  ones + the near-name trap), 4 live + 4 decided matchups, small rosters on the extra live
+  ones; college slate (ranked live/pre + unranked pre/final, SEC filter on groups=8) + a
+  college summary. Suite **212/212** (+A college/rank/groups checks, +E per-user resolution,
+  F rewritten for scoreboard→detail incl. Isaac/Grandpa contexts, +H the college view,
+  +G Isaac's home card). Probe extended (ncaa actions, ff_scoreboard, both per-user names
+  must resolve). chore-care 50/50 regression green.
+
 **DEFERRED** (per plan): status.html registry rows for ESPN (free NFL row + a
 cookie-configured fantasy row surfacing `fantasy-auth-expired` on the ops page).

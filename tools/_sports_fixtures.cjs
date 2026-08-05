@@ -340,10 +340,14 @@ const SUMMARIES = {
 // in (KC/BUF/PHI/DAL) · post (HOU/IND) · pre (GB/MIN/MIA/LV) · absent (bye).
 
 const FF_MEMBERS = [
-  { id: "{AAAA-1}", displayName: "pkreusser", firstName: "Peter", lastName: "K" },
+  { id: "{AAAA-1}", displayName: "KreusserFTW", firstName: "Peter", lastName: "K" },
   { id: "{AAAA-2}", displayName: "mike", firstName: "Mike", lastName: "W" },
-  { id: "{AAAA-3}", displayName: "sarah", firstName: "Sarah", lastName: "P" },
+  { id: "{AAAA-3}", displayName: "isaac", firstName: "Isaac", lastName: "K" },
   { id: "{AAAA-4}", displayName: "ben", firstName: "Ben", lastName: "T" },
+  { id: "{AAAA-5}", displayName: "grandpa", firstName: "John", lastName: "K" },
+  { id: "{AAAA-6}", displayName: "sarah", firstName: "Sarah", lastName: "P" },
+  { id: "{AAAA-7}", displayName: "dave", firstName: "Dave", lastName: "R" },
+  { id: "{AAAA-8}", displayName: "emma", firstName: "Emma", lastName: "L" },
 ];
 function ffTeam(id, name, abbrev, ownerGuid, wins, losses, pf, pa, seed) {
   return {
@@ -399,32 +403,62 @@ function ffRosterTeam2() {   // Waffle House Warriors — actual Σ 76.2, proj �
     ffEntry(20, "Kenneth Walker III", 2, 25, 0, 12.6),
   ] };
 }
+// Small lineups for the non-family matchups a suite click opens — the detail
+// view renders whatever roster the doc carries, so 3 entries each is plenty.
+function ffRosterSmall(qb, qbTeam, rb, rbTeam, k, kTeam) {
+  return { entries: [
+    ffEntry(0, qb, 1, qbTeam, 14.1, 18.0),
+    ffEntry(2, rb, 2, rbTeam, 7.7, 10.5),
+    ffEntry(20, k, 5, kTeam, 0, 6.5),
+  ] };
+}
+// The real "Nerd Fantasy Football League": 8 teams, incl. the three the family
+// follows — Battle Kreussers (default), The Goat Kids (Isaac), Wyoming Cowboys
+// (Grandpa). "End Zone Goats" is a deliberate near-name trap for the matcher.
 function ffLeagueDoc() {
   ffPlayerId = 5000;
   return {
     id: 705063, seasonId: 2026, scoringPeriodId: 2,
     status: { currentMatchupPeriod: 2, latestScoringPeriod: 2 },
-    settings: { name: "Kreusser Family League", size: 4 },
+    settings: { name: "Nerd Fantasy Football League", size: 8 },
     members: FF_MEMBERS,
     teams: [
       ffTeam(1, "Battle Kreussers", "BATT", "{AAAA-1}", 1, 0, 121.4, 98.0, 1),
-      ffTeam(2, "Waffle House Warriors", "WAFF", "{AAAA-2}", 0, 1, 98.0, 121.4, 3),
-      ffTeam(3, "Draft Punks", "DRFT", "{AAAA-3}", 1, 0, 110.2, 87.9, 2),
-      ffTeam(4, "End Zone Goats", "GOAT", "{AAAA-4}", 0, 1, 87.9, 110.2, 4),
+      ffTeam(2, "Waffle House Warriors", "WAFF", "{AAAA-2}", 0, 1, 98.0, 121.4, 5),
+      ffTeam(3, "The Goat Kids", "GOAT", "{AAAA-3}", 1, 0, 110.2, 87.9, 2),
+      ffTeam(4, "End Zone Goats", "ENDZ", "{AAAA-4}", 0, 1, 87.9, 110.2, 6),
+      ffTeam(5, "Wyoming Cowboys", "WYO", "{AAAA-5}", 1, 0, 104.6, 90.1, 3),
+      ffTeam(6, "Draft Punks", "DRFT", "{AAAA-6}", 0, 1, 90.1, 104.6, 7),
+      ffTeam(7, "Turf Burners", "TURF", "{AAAA-7}", 1, 0, 99.5, 95.2, 4),
+      ffTeam(8, "Hay Bale Hail Marys", "HAY", "{AAAA-8}", 0, 1, 95.2, 99.5, 8),
     ],
     schedule: [
       { id: 1, matchupPeriodId: 1, winner: "HOME",
         home: { teamId: 1, totalPoints: 121.4 }, away: { teamId: 4, totalPoints: 87.9 } },
       { id: 2, matchupPeriodId: 1, winner: "AWAY",
         home: { teamId: 2, totalPoints: 98.0 }, away: { teamId: 3, totalPoints: 110.2 } },
-      { id: 3, matchupPeriodId: 2, winner: "UNDECIDED",
+      { id: 3, matchupPeriodId: 1, winner: "HOME",
+        home: { teamId: 5, totalPoints: 104.6 }, away: { teamId: 6, totalPoints: 90.1 } },
+      { id: 4, matchupPeriodId: 1, winner: "HOME",
+        home: { teamId: 7, totalPoints: 99.5 }, away: { teamId: 8, totalPoints: 95.2 } },
+      { id: 5, matchupPeriodId: 2, winner: "UNDECIDED",
         home: { teamId: 1, totalPoints: 0, totalPointsLive: 87.4, totalProjectedPointsLive: 112.6,
           rosterForCurrentScoringPeriod: ffRosterTeam1() },
         away: { teamId: 2, totalPoints: 0, totalPointsLive: 76.2, totalProjectedPointsLive: 98.1,
           rosterForCurrentScoringPeriod: ffRosterTeam2() } },
-      { id: 4, matchupPeriodId: 2, winner: "UNDECIDED",
-        home: { teamId: 3, totalPoints: 0, totalPointsLive: 65.0, totalProjectedPointsLive: 101.4 },
-        away: { teamId: 4, totalPoints: 0, totalPointsLive: 55.1, totalProjectedPointsLive: 95.5 } },
+      { id: 6, matchupPeriodId: 2, winner: "UNDECIDED",
+        home: { teamId: 3, totalPoints: 0, totalPointsLive: 65.0, totalProjectedPointsLive: 101.4,
+          rosterForCurrentScoringPeriod: ffRosterSmall("Lamar Jackson", 33, "Derrick Henry", 33, "Justin Tucker", 33) },
+        away: { teamId: 6, totalPoints: 0, totalPointsLive: 55.1, totalProjectedPointsLive: 95.5,
+          rosterForCurrentScoringPeriod: ffRosterSmall("Joe Burrow", 4, "Chase Brown", 4, "Evan McPherson", 4) } },
+      { id: 7, matchupPeriodId: 2, winner: "UNDECIDED",
+        home: { teamId: 5, totalPoints: 0, totalPointsLive: 71.9, totalProjectedPointsLive: 104.0,
+          rosterForCurrentScoringPeriod: ffRosterSmall("Jordan Love", 9, "Josh Jacobs", 9, "Brandon McManus", 9) },
+        away: { teamId: 8, totalPoints: 0, totalPointsLive: 60.3, totalProjectedPointsLive: 99.7,
+          rosterForCurrentScoringPeriod: ffRosterSmall("Baker Mayfield", 27, "Bucky Irving", 27, "Chase McLaughlin", 27) } },
+      { id: 8, matchupPeriodId: 2, winner: "UNDECIDED",
+        home: { teamId: 7, totalPoints: 0, totalPointsLive: 44.0, totalProjectedPointsLive: 88.8 },
+        away: { teamId: 4, totalPoints: 0, totalPointsLive: 49.5, totalProjectedPointsLive: 91.2 } },
     ],
     // Junk the slimmer must drop:
     draftDetail: { drafted: true, picks: new Array(20).fill({ playerId: 1 }) },
@@ -432,4 +466,105 @@ function ffLeagueDoc() {
   };
 }
 
-module.exports = { scoreboardLive, scoreboardIdle, SUMMARIES, TEAMS, ffLeagueDoc };
+// ---------------- college football (site API, same shape as the NFL) ----------------
+// The upstream default (no groups param) is the FULL FBS slate — measured live
+// 2026-08-05 — so "Top 25" is the client's cut on curatedRank. groups=8 is the
+// SEC. curatedRank.current: 1-25 = AP rank, 99 = unranked.
+
+const CTEAMS = {
+  UGA:  { id: "61",   abbrev: "UGA",  name: "Georgia",       full: "Georgia Bulldogs",       color: "cc0000", alt: "000000", rank: 1 },
+  ALA:  { id: "333",  abbrev: "ALA",  name: "Alabama",       full: "Alabama Crimson Tide",   color: "9e1b32", alt: "828a8f", rank: 4 },
+  OSU:  { id: "194",  abbrev: "OSU",  name: "Ohio State",    full: "Ohio State Buckeyes",    color: "ce1141", alt: "666666", rank: 2 },
+  MICH: { id: "130",  abbrev: "MICH", name: "Michigan",      full: "Michigan Wolverines",    color: "00274c", alt: "ffcb05", rank: 12 },
+  WYO:  { id: "2751", abbrev: "WYO",  name: "Wyoming",       full: "Wyoming Cowboys",        color: "492f24", alt: "ffc425", rank: null },
+  CSU:  { id: "36",   abbrev: "CSU",  name: "Colorado State", full: "Colorado State Rams",   color: "1e4d2b", alt: "c8c372", rank: null },
+  VAN:  { id: "238",  abbrev: "VAN",  name: "Vanderbilt",    full: "Vanderbilt Commodores",  color: "866d4b", alt: "000000", rank: null },
+  UK:   { id: "96",   abbrev: "UK",   name: "Kentucky",      full: "Kentucky Wildcats",      color: "0033a0", alt: "ffffff", rank: null },
+};
+const SEC_IDS = new Set(["61", "333", "238", "96"]);
+
+function cfbCompetitor(t, homeAway, score, winner) {
+  const c = sbCompetitor(t, homeAway, score, winner);
+  c.curatedRank = { current: t.rank == null ? 99 : t.rank };
+  c.team.logo = "https://a.espncdn.com/i/teamlogos/ncaa/500/" + t.id + ".png";
+  return c;
+}
+
+const CFB_CALENDAR = [
+  {
+    label: "Regular Season", value: "2",
+    entries: [1, 2, 3].map((n) => ({
+      label: "Week " + n, value: String(n),
+      startDate: iso((n - 1) * 7 * 86400000 - 3 * 86400000), endDate: iso((n - 1) * 7 * 86400000 + 4 * 86400000),
+    })),
+  },
+];
+
+// Full FBS slate (the default fetch): a ranked live game, a ranked pregame, an
+// unranked pregame, an unranked final. groups=8 narrows to the two SEC games.
+function cfbScoreboard(groups) {
+  const events = [
+    sbEvent({
+      id: "401820001", date: iso(-70 * 60000), name: "Georgia Bulldogs at Alabama Crimson Tide", shortName: "UGA @ ALA",
+      competitors: [cfbCompetitor(CTEAMS.ALA, "home", 13), cfbCompetitor(CTEAMS.UGA, "away", 17)],
+      status: { clock: 344, displayClock: "5:44", period: 2, type: { id: "2", name: "STATUS_IN_PROGRESS", state: "in", completed: false, description: "In Progress", detail: "5:44 - 2nd Quarter", shortDetail: "5:44 - 2nd" } },
+      broadcast: "CBS",
+      situation: {
+        lastPlay: { id: "40182000144", text: "G. Bowers pass from C. Beck for 11 yards." },
+        down: 1, distance: 10, downDistanceText: "1st & 10 at ALA 34", shortDownDistanceText: "1st & 10",
+        possessionText: "UGA ball at ALA 34", possession: "61",
+      },
+    }),
+    sbEvent({
+      id: "401820002", date: iso(5 * 3600000), name: "Ohio State Buckeyes at Michigan Wolverines", shortName: "OSU @ MICH",
+      competitors: [cfbCompetitor(CTEAMS.MICH, "home", 0), cfbCompetitor(CTEAMS.OSU, "away", 0)],
+      status: { clock: 0, displayClock: "0:00", period: 0, type: { id: "1", name: "STATUS_SCHEDULED", state: "pre", completed: false, description: "Scheduled", detail: "Scheduled", shortDetail: "6:30 PM CT" } },
+      broadcast: "FOX",
+    }),
+    sbEvent({
+      id: "401820003", date: iso(26 * 3600000), name: "Wyoming Cowboys at Colorado State Rams", shortName: "WYO @ CSU",
+      competitors: [cfbCompetitor(CTEAMS.CSU, "home", 0), cfbCompetitor(CTEAMS.WYO, "away", 0)],
+      status: { clock: 0, displayClock: "0:00", period: 0, type: { id: "1", name: "STATUS_SCHEDULED", state: "pre", completed: false, description: "Scheduled", detail: "Scheduled", shortDetail: "2:00 PM CT" } },
+      broadcast: "MW Network",
+    }),
+    sbEvent({
+      id: "401820004", date: iso(-6 * 3600000), name: "Vanderbilt Commodores at Kentucky Wildcats", shortName: "VAN @ UK",
+      competitors: [cfbCompetitor(CTEAMS.UK, "home", 20), cfbCompetitor(CTEAMS.VAN, "away", 27, true)],
+      status: { clock: 0, displayClock: "0:00", period: 4, type: { id: "3", name: "STATUS_FINAL", state: "post", completed: true, description: "Final", detail: "Final", shortDetail: "Final" } },
+      broadcast: "SEC Network",
+    }),
+  ];
+  const keep = String(groups) === "8"
+    ? events.filter((ev) => ev.competitions[0].competitors.every((c) => SEC_IDS.has(String(c.id))))
+    : events;
+  return {
+    leagues: [{ id: "23", name: "NCAA Football", calendar: CFB_CALENDAR }],
+    season: { type: 2, year: 2026 },
+    week: { number: 1 },
+    events: keep,
+  };
+}
+
+// One college game summary (the VAN @ UK final) — the summary endpoint's shape
+// is identical to the NFL's, so the detail view renders through the same code.
+function cfbSummaryFinal() {
+  const s = summaryFinal();
+  s.header.id = "401820004";
+  s.header.competitions[0].id = "401820004";
+  s.header.competitions[0].competitors = [
+    sumCompetitor(CTEAMS.UK, "home", 20, [7, 3, 3, 7]),
+    sumCompetitor(CTEAMS.VAN, "away", 27, [10, 7, 3, 7], true),
+  ];
+  s.drives.previous = [
+    { id: "cd1", team: { id: CTEAMS.UK.id, abbreviation: "UK" }, description: "3 plays, 4 yards, 1:12", displayResult: "Punt", isScore: false },
+    { id: "cd2", team: { id: CTEAMS.VAN.id, abbreviation: "VAN" }, description: "8 plays, 66 yards, 3:40", displayResult: "Touchdown", isScore: true },
+  ];
+  s.boxscore = boxscoreFor(CTEAMS.VAN, CTEAMS.UK);
+  s.gameInfo = { venue: { fullName: "Kroger Field" } };
+  return s;
+}
+const CFB_SUMMARIES = {
+  "401820004": cfbSummaryFinal,
+};
+
+module.exports = { scoreboardLive, scoreboardIdle, SUMMARIES, TEAMS, ffLeagueDoc, cfbScoreboard, CFB_SUMMARIES, CTEAMS };

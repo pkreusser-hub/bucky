@@ -2820,15 +2820,21 @@ function sportsHomeAnyLive(){
   return !!((sb && (sb.data.events || []).some(e => e.status && e.status.state === "in"))
     || (ff && ff.data && ff.data.anyProLive));
 }
-async function sportsHomeApi(action){
+async function sportsHomeApi(action, params){
   const r = await fetch(SPORTS_FN_URL, {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ secret: FAMILY_PASSWORD, action }),
+    body: JSON.stringify(Object.assign({ secret: FAMILY_PASSWORD, action }, params || {})),
   });
   if (!r.ok) throw new Error("sports " + r.status);
   const d = await r.json();
   if (!d || d.ok !== true) throw new Error((d && d.reason) || "sports");
   return d;
+}
+// Which fantasy team this profile follows (matched server-side by name).
+// DUPLICATED in sports.html's FF_TEAM_BY_USER — keep the two in sync.
+function sportsHomeFfTeam(){
+  const me = (myName() || "").trim().toLowerCase();
+  return { isaac: "The Goat Kids", grandpa: "Wyoming Cowboys" }[me] || "Battle Kreussers";
 }
 function sportsKick(iso){
   try { return new Date(iso).toLocaleString("en-US", { timeZone: "America/Chicago", weekday: "short", hour: "numeric", minute: "2-digit" }); }
@@ -2910,15 +2916,19 @@ function paintFfCard(el){
 function sportsHomeRefresh(force){
   if (sportsHomeFetching) return;
   const sbC = sportsHomeCached("bucky_nfl_home"), ffC = sportsHomeCached("bucky_ff_home");
+  const ffTeam = sportsHomeFfTeam();
   const ttl = sportsHomeAnyLive() ? 60 * 1000 : 10 * 60 * 1000;
   const oldest = Math.min(sbC ? sbC.ts : 0, ffC ? ffC.ts : 0);
-  if (!force && sbC && ffC && Date.now() - oldest <= ttl) return;
+  // A profile switch changes whose matchup the card shows — the cached copy is
+  // another team's, so it doesn't count as fresh.
+  const ffTeamStale = ffC && ffC.team !== ffTeam;
+  if (!force && sbC && ffC && !ffTeamStale && Date.now() - oldest <= ttl) return;
   sportsHomeFetching = true;
-  Promise.allSettled([sportsHomeApi("nfl_scoreboard"), sportsHomeApi("ff_matchup")])
+  Promise.allSettled([sportsHomeApi("nfl_scoreboard"), sportsHomeApi("ff_matchup", { teamName: ffTeam })])
     .then(([sb, ff]) => {
       const now = Date.now();
       if (sb.status === "fulfilled"){ try { localStorage.setItem("bucky_nfl_home", JSON.stringify({ ts: now, data: sb.value })); } catch {} }
-      if (ff.status === "fulfilled"){ try { localStorage.setItem("bucky_ff_home", JSON.stringify({ ts: now, data: ff.value })); } catch {} }
+      if (ff.status === "fulfilled"){ try { localStorage.setItem("bucky_ff_home", JSON.stringify({ ts: now, team: ffTeam, data: ff.value })); } catch {} }
       if (currentTab !== "dashboard") return;
       const n = document.querySelector(".home2 .nflcard"); if (n) paintNflCard(n);
       const f = document.querySelector(".home2 .ffcard"); if (f) paintFfCard(f);
