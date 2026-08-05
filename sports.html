@@ -953,15 +953,22 @@
     stampUpdated(cfbTs);
     var groups = $("cfbGroups");
     var evs = cfbSb.events || [];
+    var note = "";
     // "Top 25" is a client-side cut: ESPN's default college scoreboard is the
     // whole FBS slate (~99 games/week, measured live), so the filter keeps
-    // games where either team carries an AP rank.
-    if (cfbGroup === "top25") evs = evs.filter(function (e) { return e.teams.some(function (t) { return t.rank; }); });
+    // games where either team carries an AP rank. Preseason has NO ranks at
+    // all (measured live 2026-08-05: 99 events, 0 ranked) — an empty tab there
+    // would read as broken, so fall back to the full slate and say so.
+    if (cfbGroup === "top25") {
+      var ranked = evs.filter(function (e) { return e.teams.some(function (t) { return t.rank; }); });
+      if (ranked.length) evs = ranked;
+      else if (evs.length) note = '<div class="card"><div class="loadrow">🏅 No AP Top 25 rankings yet this week — showing every game.</div></div>';
+    }
     if (!evs.length) {
       groups.innerHTML = '<div class="card"><div class="loadrow">No games match this filter this week.</div></div>';
       return;
     }
-    groups.innerHTML = weekGroupsHTML(evs, "ncaa");
+    groups.innerHTML = note + weekGroupsHTML(evs, "ncaa");
   }
 
   function paintWeekError() {

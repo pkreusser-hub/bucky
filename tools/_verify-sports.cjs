@@ -56,6 +56,10 @@ function startUpstream() {
       const data = college
         ? FIX.cfbScoreboard(u.searchParams.get("groups"))
         : (upstream.sbVariant === "idle" ? FIX.scoreboardIdle() : FIX.scoreboardLive());
+      // Preseason reality (measured live 2026-08-05): every curatedRank is 99.
+      if (college && upstream.cfbUnranked) {
+        data.events.forEach((ev) => ev.competitions[0].competitors.forEach((c) => { c.curatedRank = { current: 99 }; }));
+      }
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(data));
       return;
@@ -832,6 +836,23 @@ async function sectionCollege(browser) {
       "…without touching the NFL picker");
     await page.click("#cfbPrev");
     await page.waitForFunction(() => document.getElementById("cfbTitle").textContent === "Week 1", { timeout: 20000 });
+
+    // Preseason: no AP ranks anywhere -> Top 25 falls back to the full slate
+    // with a note instead of an empty tab (the live slate reads exactly this
+    // way until the first rankings publish).
+    upstream.cfbUnranked = true;
+    await page.waitForFunction(() => {
+      window.__SPORTS__.loadCfb();
+      return document.querySelectorAll("#cfbGroups .gbtn").length === 4
+        && /No AP Top 25 rankings yet/.test(document.getElementById("cfbGroups").textContent);
+    }, { polling: 250, timeout: 8000 });
+    ok(true, "an unranked (preseason) week shows every game with a friendly note, never an empty Top 25");
+    upstream.cfbUnranked = false;
+    await page.waitForFunction(() => {
+      window.__SPORTS__.loadCfb();
+      return document.querySelectorAll("#cfbGroups .gbtn").length === 2;
+    }, { polling: 250, timeout: 8000 });
+    ok(true, "…and the rank filter comes back once rankings exist");
 
     // a failed refresh keeps the stale slate + says so
     upstream.mode = "http500";
