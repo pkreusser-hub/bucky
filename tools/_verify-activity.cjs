@@ -838,13 +838,13 @@ async function sectionLayout(browser, mock) {
   }));
   ok(m.scrollW <= m.clientW + 1, `no horizontal page scroll at 390px (${m.scrollW} <= ${m.clientW})`);
   ok(!m.railShown, "the desktop rail is hidden on a phone");
-  // RESTAGED 2026-08-05 — the Farmstead re-skin flattened the bottom nav from a balanced
-  // two-row bar (6 columns x 2 rows) to a single row of all 12 areas (--bnav-cols now set
-  // to shown.length, not Math.ceil(shown.length/2); see the max-width:460px tightening in
-  // activity.html's farmstead-theme block). navRows is really a COLUMN count read off
-  // gridTemplateColumns, so one row of 12 areas reads 12, not 6. Behaviour (12 links, 0
-  // clipped, nothing marked active) is unchanged and still asserted below.
-  ok(m.links === 12 && m.navRows === 12, "the bottom nav is the 12-area, single-row bar");
+  // RESTAGED 2026-08-05 (again) — one row of twelve made the icons too small (user ruling
+  // after a day's use), so the nav is back to a balanced TWO-row bar (--bnav-cols =
+  // Math.ceil(shown.length/2) = 6, --bnav-all = shown.length = 12). navRows is really a
+  // COLUMN count read off gridTemplateColumns, so a 2-row/6-column bar reads 6, not 12.
+  // Behaviour (12 links, 0 clipped, nothing marked active) is unchanged and still asserted
+  // below.
+  ok(m.links === 12 && m.navRows === 6, "the bottom nav is the 12-area, two-row bar");
   ok(m.clipped === 0, "no nav label is clipped at 390px");
   ok(m.active === 0, "no nav area is marked active — this page is not one of them");
   ok(m.navBottom <= m.innerH + 1, "the nav sits at the bottom of the viewport, not below it");

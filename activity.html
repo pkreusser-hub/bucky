@@ -250,18 +250,13 @@
   /* Bottom nav: one row of small line-icon buttons */
   #bnav { background: rgba(255,253,248,.94); }
   .bnav-btn { padding: 6px 0 4px; border-radius: 11px; }
-  .bnav-btn .bico { font-size: 18px; filter: none; display: flex; align-items: center; justify-content: center; height: 19px; }
+  .bnav-btn .bico { font-size: 20px; filter: none; display: flex; align-items: center; justify-content: center; height: 20px; }
   .bnav-btn.active .bico { filter: none; transform: none; }
   .bnav-btn.active { color: #fffdf8; background: var(--green); }
-  .bnav-btn .blabel { font-size: 8.5px; letter-spacing: .1px; }
-  /* Twelve areas in ONE row is 27.8px a button at 390px, and "Chores" ellipsised to "Cho…"
-     for anyone who sees all twelve (Dad). Give the row its gutters back and drop the label a
-     half-step: 31.1px a button, which is what the eleven-area profiles already fit cleanly.
-     Measured, not guessed — see the nav-fit checks in _verify-chore-care.cjs. */
-  @media (max-width: 460px) {
-    #bnav { gap: 2px 1px; padding-left: 3px; padding-right: 3px; }
-    .bnav-btn .blabel { font-size: 8px; letter-spacing: 0; }
-  }
+  .bnav-btn .blabel { font-size: 10px; letter-spacing: .1px; }
+  /* 2026-08-05: back to two rows — one row of twelve made the icons too small (user
+     ruling after a day’s use); the max-width:460px label-shrinking rule from that
+     experiment is gone, two balanced rows don’t need it. */
   @media (min-width: 700px) { #bnav { grid-template-columns: repeat(var(--bnav-all, 12), minmax(0, 96px)); } }
   /* FAB in clay */
   .fab { box-shadow: 0 6px 18px rgba(184,85,47,.4); }
@@ -302,12 +297,11 @@
      tag after </head> — this page's own #buckyNav rules are all in the head <style>, so it
      wasn't strictly required here, but the extra specificity keeps it order-independent). */
   .sn-item .sn-ico { filter: none; display: flex; align-items: center; justify-content: center; }
-  body #buckyNav a .bico { filter: none; display: flex; align-items: center; justify-content: center; height: 19px; }
+  body #buckyNav a .bico { filter: none; display: flex; align-items: center; justify-content: center; height: 20px; }
   body #buckyNav a.active { color: #fffdf8; background: var(--green); }   /* solid pill, matching index.html */
-  @media (max-width: 460px) {
-    body #buckyNav { gap: 2px 1px; padding-left: 3px; padding-right: 3px; }
-    body #buckyNav a .blabel { font-size: 8.5px; letter-spacing: 0; }
-  }
+  /* 2026-08-05: back to two rows — one row of twelve made the icons too small (user
+     ruling after a day’s use); the max-width:460px label-shrinking rule from that
+     experiment is gone, two balanced rows don’t need it. */
 </style>
 </head>
 <body>
@@ -419,7 +413,7 @@
     play:  "M8 6 L18 12 L8 18 Z",
   };
   function svgIcon(gid){
-    return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + NAV_PATHS[gid] + '"/></svg>';
+    return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + NAV_PATHS[gid] + '"/></svg>';
   }
 
   var NAV_GROUPS = [
@@ -438,11 +432,10 @@
   ];
   var shown = NAV_GROUPS.filter(function (g) { return !g.gate || g.gate(); });
 
-  // Farmstead redesign: ONE row, every area one tap away (was Math.ceil(shown.length/2)
-  // two-row balancing; see the max-width:460px tightening in the farmstead-theme-page
-  // style block for the fit).
+  // 2026-08-05: back to two rows — one row of twelve made the icons too small (user
+  // ruling after a day’s use).
   var bnav = document.getElementById("buckyNav");
-  bnav.style.setProperty("--bnav-cols", shown.length);
+  bnav.style.setProperty("--bnav-cols", Math.ceil(shown.length / 2));
   bnav.style.setProperty("--bnav-all", shown.length);
   shown.forEach(function (g) {
     var a = document.createElement("a");

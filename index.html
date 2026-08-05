@@ -1190,15 +1190,19 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .newspubrow { display: flex; align-items: center; gap: 10px; padding: 7px 0; font-size: 13.5px; cursor: pointer; }
   .newspubrow input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; }
 
-  /* An article */
-  .newscard { display: flex; gap: 12px; align-items: flex-start; width: 100%; text-align: left; font: inherit; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 13px 14px; margin-bottom: 10px; cursor: pointer; }
+  /* An article — 2026-08-05: the card is a block now, not one flex row. A top row
+     (.newsc-top) carries the headline (source + title) beside the thumbnail; the
+     summary is its own block BELOW that, spanning the full card width — a narrow
+     column beside a 104px image was crushing the summary into a tall wrapped sliver. */
+  .newscard { display: block; width: 100%; text-align: left; font: inherit; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 13px 14px; margin-bottom: 10px; cursor: pointer; }
   .newscard:active { transform: scale(.995); }
   .newscard.read { opacity: .62; }
+  .newsc-top { display: flex; gap: 12px; align-items: flex-start; width: 100%; }
   .newsc-body { flex: 1 1 auto; min-width: 0; }
   .newsc-src { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 800; color: var(--red, #ba303e); text-transform: uppercase; letter-spacing: .3px; }
   .newsc-when { color: var(--muted); font-weight: 700; text-transform: none; letter-spacing: 0; }
   .newsc-title { font-size: 15px; font-weight: 800; line-height: 1.32; margin: 4px 0 0; }
-  .newsc-sum { font-size: 13px; line-height: 1.5; color: var(--ink-2, var(--muted)); margin-top: 5px; }
+  .newsc-sum { font-size: 13px; line-height: 1.5; color: var(--ink-2, var(--muted)); margin-top: 9px; width: 100%; }
   .newsc-thumb { flex: 0 0 auto; width: 104px; height: 104px; border-radius: 12px; object-fit: cover; background: var(--done); }
   @media (min-width: 1024px) { .newsc-thumb { width: 132px; height: 132px; } }
 
@@ -1361,18 +1365,13 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   /* Bottom nav: one row of small line-icon buttons */
   #bnav { background: rgba(255,253,248,.94); }
   .bnav-btn { padding: 6px 0 4px; border-radius: 11px; }
-  .bnav-btn .bico { font-size: 18px; filter: none; display: flex; align-items: center; justify-content: center; height: 19px; }
+  .bnav-btn .bico { font-size: 20px; filter: none; display: flex; align-items: center; justify-content: center; height: 20px; }
   .bnav-btn.active .bico { filter: none; transform: none; }
   .bnav-btn.active { color: #fffdf8; background: var(--green); }
-  .bnav-btn .blabel { font-size: 8.5px; letter-spacing: .1px; }
-  /* Twelve areas in ONE row is 27.8px a button at 390px, and "Chores" ellipsised to "Cho…"
-     for anyone who sees all twelve (Dad). Give the row its gutters back and drop the label a
-     half-step: 31.1px a button, which is what the eleven-area profiles already fit cleanly.
-     Measured, not guessed — see the nav-fit checks in _verify-chore-care.cjs. */
-  @media (max-width: 460px) {
-    #bnav { gap: 2px 1px; padding-left: 3px; padding-right: 3px; }
-    .bnav-btn .blabel { font-size: 8px; letter-spacing: 0; }
-  }
+  .bnav-btn .blabel { font-size: 10px; letter-spacing: .1px; }
+  /* 2026-08-05: back to two rows — one row of twelve made the icons too small (user
+     ruling after a day’s use); the max-width:460px label-shrinking rule from that
+     experiment is gone, two balanced rows don’t need it. */
   @media (min-width: 700px) { #bnav { grid-template-columns: repeat(var(--bnav-all, 12), minmax(0, 96px)); } }
   /* FAB in clay */
   .fab { box-shadow: 0 6px 18px rgba(184,85,47,.4); }
@@ -10123,6 +10122,8 @@ function newsCard(it, read){
   card.dataset.newsId = it.id;
   card.dataset.src = it.sourceId || "";
 
+  // Top row: headline (source + title) on the left, thumbnail on the right.
+  const top = document.createElement("div"); top.className = "newsc-top";
   const b = document.createElement("div"); b.className = "newsc-body";
   const src = document.createElement("div"); src.className = "newsc-src";
   const sName = document.createElement("span"); sName.textContent = it.sourceTitle || "";
@@ -10135,19 +10136,22 @@ function newsCard(it, read){
 
   const t = document.createElement("div"); t.className = "newsc-title"; t.textContent = it.title || "";
   b.appendChild(t);
-
-  if (it.summary){
-    const s = document.createElement("div"); s.className = "newsc-sum"; s.textContent = it.summary;
-    b.appendChild(s);
-  }
-  card.appendChild(b);
+  top.appendChild(b);
 
   // Thumbnails are the publisher's own images; a broken one just leaves the card text-only.
   if (it.image && /^https:\/\//i.test(it.image)){
     const img = document.createElement("img");
     img.className = "newsc-thumb"; img.src = it.image; img.alt = ""; img.loading = "lazy"; img.referrerPolicy = "no-referrer";
     img.onerror = () => img.remove();
-    card.appendChild(img);
+    top.appendChild(img);
+  }
+  card.appendChild(top);
+
+  // Below the top row, full card width — a picture beside it used to crush this into
+  // a narrow wrapped column.
+  if (it.summary){
+    const s = document.createElement("div"); s.className = "newsc-sum"; s.textContent = it.summary;
+    card.appendChild(s);
   }
 
   card.onclick = () => {
@@ -10368,7 +10372,9 @@ function buildBottomNav(){
   // changes with the Bank and Fit gates, and a hard-coded 5 columns would leave a guest
   // with a row of 5 and a row of 3.
   const shown = NAV_GROUPS.filter(g => navGroupVisible(g.id)).length;
-  nav.style.setProperty("--bnav-cols", shown);   // Farmstead redesign: ONE row, every area one tap away
+  // 2026-08-05: back to two rows — one row of twelve made the icons too small (user
+  // ruling after a day's use).
+  nav.style.setProperty("--bnav-cols", Math.ceil(shown / 2));
   nav.style.setProperty("--bnav-all", shown);
   for (const g of NAV_GROUPS){
     if (!navGroupVisible(g.id)) continue;   // hide Bank area for non chore/bank users
@@ -10377,7 +10383,7 @@ function buildBottomNav(){
     b.dataset.gid = g.id;
     b.setAttribute("aria-label", g.name);
     const ico = document.createElement("span"); ico.className = "bico";
-    if (NAV_PATHS[g.id]) ico.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + NAV_PATHS[g.id] + '"/></svg>';
+    if (NAV_PATHS[g.id]) ico.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + NAV_PATHS[g.id] + '"/></svg>';
     else ico.textContent = g.ico;
     const lbl = document.createElement("span"); lbl.className = "blabel"; lbl.textContent = g.name;
     b.append(ico, lbl);
@@ -10420,7 +10426,7 @@ function buildSideNav(){
     // Same line icons as the bottom bar and as the other pages' rails — otherwise the
     // desktop rail is the one place in the app still showing emoji.
     const ico = document.createElement("span"); ico.className = "sn-ico";
-    if (NAV_PATHS[g.id]) ico.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + NAV_PATHS[g.id] + '"/></svg>';
+    if (NAV_PATHS[g.id]) ico.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + NAV_PATHS[g.id] + '"/></svg>';
     else ico.textContent = g.ico;
     const lbl = document.createElement("span"); lbl.className = "sn-label"; lbl.textContent = g.name;
     b.append(ico, lbl);

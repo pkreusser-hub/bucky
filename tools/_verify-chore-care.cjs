@@ -275,9 +275,11 @@ async function sectionChrome(browser){
     const h = document.querySelector("header").getBoundingClientRect();
     const n = document.getElementById("bnav").getBoundingClientRect();
     const btns = [...document.querySelectorAll("#bnav .bnav-btn")];
-    const rows = new Set(btns.map(b => Math.round(b.getBoundingClientRect().top)));
+    const tops = btns.map(b => Math.round(b.getBoundingClientRect().top));
+    const rowSet = [...new Set(tops)];
+    const counts = rowSet.map(t => tops.filter(x => x === t).length);
     return {
-      header: Math.round(h.height), nav: Math.round(n.height), rows: rows.size,
+      header: Math.round(h.height), nav: Math.round(n.height), rows: rowSet.length, rowCounts: counts,
       count: btns.length, minW: Math.min(...btns.map(b => Math.round(b.getBoundingClientRect().width))),
       logo: !!document.querySelector("header .logo"),
       clipped: btns.filter(b => { const l = b.querySelector(".blabel"); return l && l.scrollWidth > l.clientWidth + 1; }).length,
@@ -288,15 +290,16 @@ async function sectionChrome(browser){
   ok(!geo.logo, "the goat logo is gone from the header");
   ok(geo.title === "Bucky" && /Family Farm Hub/.test(geo.subtitle), "…but the name and subtitle survive");
   ok(geo.header <= 60, `the header is about half its old height (${geo.header}px, was 90px)`);
-  /* 2026-08-05, the Farmstead re-skin: the nav went back to ONE row of small line-icon
-     buttons, so the old "two rows / >=60px wide" pair is superseded — it described the
-     previous design, not a property worth preserving. What still has to hold is that every
-     area is reachable in one tap and NOTHING is clipped, which is the check that actually
-     caught a real defect here ("Chores" ellipsised to "Cho…" for the 12-area profile). */
-  ok(geo.rows === 1, `the bottom nav is a single row (${geo.rows})`);
+  /* 2026-08-05: back to TWO balanced rows — one row of twelve made the icons too small (user
+     ruling after a day's use of the Farmstead re-skin). Every area still has to be reachable
+     in one tap and nothing clipped; now also check the two rows are actually balanced
+     (differ by at most one button) rather than one packed row + one nearly-empty row. */
+  ok(geo.rows === 2, `the bottom nav is two rows (${geo.rows})`);
+  ok(geo.rowCounts.length === 2 && Math.abs(geo.rowCounts[0] - geo.rowCounts[1]) <= 1,
+    `…and the rows are balanced (${geo.rowCounts.join(" vs ")})`);
   ok(geo.clipped === 0, "no nav label is clipped, even at twelve areas");
-  ok(geo.minW >= 27, `nav buttons stay tappable (${geo.minW}px)`);
-  ok(geo.header + geo.nav <= 152, `total chrome fits its budget (${geo.header + geo.nav}px, was 149px)`);
+  ok(geo.minW >= 55, `nav buttons stay comfortably tappable (${geo.minW}px)`);
+  ok(geo.header + geo.nav <= 210, `total chrome fits its budget (${geo.header + geo.nav}px, was 149px one-row / ~196px pre-re-skin two-row)`);
 
   // The FAB and the last of the page must clear a taller nav.
   await page.evaluate(() => window.__NAV__.goTo("chores"));
@@ -324,15 +327,19 @@ async function sectionChrome(browser){
     if (!shouldSee){
       const bounced = await p.evaluate(() => { window.__NAV__.goTo("fitness"); return window.__NAV__.tab(); });
       ok(bounced !== "fitness", `…and a stale #fitness deep-link bounces ${who} to Home`);
-      // Re-skin (2026-08-05): one row, and a profile with fewer areas simply gets wider buttons.
+      // 2026-08-05: two balanced rows, and a profile with fewer areas just gets a shorter
+      // (or more balanced) second row rather than a single packed row.
       const fit = await p.evaluate(() => {
         const btns = [...document.querySelectorAll("#bnav .bnav-btn")];
+        const tops = btns.map((b) => Math.round(b.getBoundingClientRect().top));
+        const rowSet = [...new Set(tops)];
         return {
-          rows: new Set(btns.map((b) => Math.round(b.getBoundingClientRect().top))).size,
+          rows: rowSet.length,
+          rowCounts: rowSet.map(t => tops.filter(x => x === t).length),
           clipped: btns.filter((b) => { const l = b.querySelector(".blabel"); return l && l.scrollWidth > l.clientWidth + 1; }).length,
         };
       });
-      ok(fit.rows === 1 && fit.clipped === 0, `…and the nav stays one unclipped row for ${who}`);
+      ok(fit.rows === 2 && fit.clipped === 0, `…and the nav stays two unclipped rows for ${who}`);
     }
   }
 
@@ -396,8 +403,9 @@ async function sectionChrome(browser){
     sidenav: getComputedStyle(document.getElementById("sidenav")).display,
     wrappers: document.querySelectorAll(".home2-main, .home2-rail").length,
   }));
-  ok(backToPhone.rows === 1 && backToPhone.sidenav === "none" && backToPhone.wrappers === 0,
-    `back at 390px the phone gets its single-row nav and flat Home (${backToPhone.rows} rows, ${backToPhone.wrappers} column wrappers)`);
+  // 2026-08-05: two rows again (was one-row, briefly, in the Farmstead re-skin).
+  ok(backToPhone.rows === 2 && backToPhone.sidenav === "none" && backToPhone.wrappers === 0,
+    `back at 390px the phone gets its two-row nav and flat Home (${backToPhone.rows} rows, ${backToPhone.wrappers} column wrappers)`);
 
   ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors[0] : ""));
 }
