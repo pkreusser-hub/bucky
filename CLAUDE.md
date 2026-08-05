@@ -8034,3 +8034,96 @@ builder's meter was painting two real training days amber for being what Dad wro
 
 Battery green: chore-care 49 · news 200 · fitness 253 · activity 147 · health 208 ·
 beacon-safety 90. Shots: `shots/skin_*.png` (six pages, phone + desktop).
+
+---
+
+# 🏈 SPORTS — NFL scores page + live game detail (2026-08-05, branch claude/fantasy-nfl-sports-integration-9uc6z1, PR #21)
+
+Stage 1+2 of `sports-plan.md` (the plan of record — fantasy + home cards are later stages).
+Files: `sports.html` · `netlify/functions/sports.mjs` · `tools/_sports_fixtures.cjs` ·
+`tools/_verify-sports.cjs` (**96/96**, 0 page errors) · `tools/_probe-sports.mjs`.
+
+**THE FUNCTION** (stocks.mjs pattern, zero deps, no new env vars): actions `nfl_scoreboard
+{week,seasontype,year}` and `nfl_game {eventId}` proxy ESPN's unofficial site API
+(site.api.espn.com — free, keyless) and SLIM aggressively (raw scoreboard ~1MB → a few KB;
+the suite pins slim < raw/2). Odds/pickcenter/news are never mapped (family app). Every read
+is optional-chained; upstream failure = `{ok:false, reason}` at HTTP 200 → honest cards, never
+a blank page. `SPORTS_NFL_BASE_URL` points tests at a fake server. **The live `situation` is
+DERIVED server-side from the current drive's last play `end`** — the summary endpoint carries
+no reliable top-level situation; `end.yardsToEndzone` is the field visual's anchor.
+
+**THE PAGE**: week list (games grouped by Chicago day, LIVE NOW pinned first, away team
+listed first, possession ◂, loser dimmed on finals, kickoff+TV on upcoming) with a week
+picker driven by the response's flattened season `calendar`; hash-routed game detail
+(`sports.html#game=<id>`) with score header + linescore, the SVG FIELD (end zones in team
+colors, drive band from `startYardsToEndzone`, gold first-down line, LOS + ball marker,
+direction arrow), last-play callout, this-drive plays NEWEST FIRST, previous drives, win-prob
+sparkline (server thins the series to ≤80 pts), team stat bars matched by stat `name`, player
+box-score tables in `.panner`s, scoring plays. **FIELD MATH** (unit-tested through the DOM):
+field coord 0..100 from the LEFT (away) goal line; away possession → `pos = 100 − yTE`
+(drives →), home possession → `pos = yTE` (drives ←); first down = pos ± distance;
+`x = 83.33 + pos·8.3334` on the 1000-wide viewBox. POLLING: 15s live game / 25s live week /
+2min pregame detail / 5min quiet week; document.hidden clears the timer and visibilitychange
+refreshes immediately (both asserted). localStorage `bucky_nfl_sb` caches the default week for
+instant paint; a failed refresh keeps the stale copy + shows a note. `window.__SPORTS__` hook.
+
+**NAV: 13 AREAS NOW** — `sports` (🏈, `url:"sports.html"`, the gpt-style url area) inserted
+after News in index.html's NAV_GROUPS + NAV_PATHS AND the 5 mirrored navs (farmgpt, games,
+weather, activity, status) + sports.html's own. Two-row phone bar balances 7+6 for Dad
+(ceil(13/2)); measured 0 clipped at 390px. RESTAGED for the 13th area: `_verify-activity.cjs`
+links 12→13, navRows(=columns) 6→7, rail 12→13; `_verify-beacon-safety.cjs` PAGES gained
+sports.html (`data-feature="sports"` beacon on the page). chore-care needed NO restage (its
+counts are per-gated-user and float).
+
+**FANTASY (stage 3, same day)**: `ff_league` / `ff_scoreboard` / `ff_matchup` proxy the
+fantasy v3 API (lm-api-reads.fantasy.espn.com) for the family's PRIVATE league — **league
+705063, team "Battle Kreussers", both baked as defaults** (env overrides ESPN_LEAGUE_ID /
+ESPN_TEAM_NAME / ESPN_SEASON). Private = cookies: **ESPN_S2 + ESPN_SWID env vars** (from a
+logged-in espn.com browser's cookies; SWID braces added server-side if missing; espn_s2
+expires ~yearly). Cookies are read AT CALL TIME (env update + redeploy = fixed, no code
+change), sent upstream only, never echoed. Missing → `fantasy-not-configured`; ESPN 401/403
+→ `fantasy-auth-expired` — the page renders a Dad-facing setup/fix card for each, and the
+suite pins both. `ffSeason()`: Jan/Feb belong to the PREVIOUS league year. `ff_matchup`
+returns both lineups (slot-sorted via SLOT_ORDER, actual + projected from the player stats
+array: statSourceId 0=actual 1=projection at the scoringPeriodId) AND joins each player's
+REAL NFL game state by fetching the site scoreboard — **fantasy proTeamId and the site
+API's team ids are the same id space** (PRO_ABBREV map in sports.mjs; the probe cross-checks
+it against the live scoreboard's own id↔abbrev pairs). Page: 🏆 Fantasy pill / `#fantasy`
+hash → family matchup pinned with side-by-side lineups (live dots, muted "proj N" until a
+player's game starts, injury letter), Around-the-league matchups, standings from a ~1h-cached
+`ff_league` (localStorage `bucky_ff_league`). Poll 60s during NFL game windows (ESPN's own
+fantasy scoring lags ~30-60s — faster buys nothing), 15min otherwise.
+
+**⚠ NOT LIVE-VERIFIED**: ESPN hosts are egress-blocked from this sandbox, so
+`_sports_fixtures.cjs` is authored from documented shapes, not captured. POST-DEPLOY:
+`node tools/_probe-sports.mjs --site https://amenfarms.netlify.app` from a normal machine —
+it checks every field the app reads incl. the fantasy league + pro-team map (run once during
+a LIVE game for the situation/drive fields) and flags drift. The slimmer is defensive, so
+drift = missing sections, not crashes. Suite now **138/138**.
+
+**TEST GOTCHAS (new)**: (1) seeding `choreUser="Dad"` makes index.html AUTO-PROMPT for the
+Dad PIN on load — a native `prompt()` wedges headless Chrome silently (no error, no render);
+stub `window.prompt/alert/confirm` in every init script (chore-care already knew this — copy
+its harness, don't re-derive it). (2) A blanket "abort everything non-localhost" interception
+also kills `data:` URLs and wedges index.html's boot — abort only external http(s) +
+firebase-ish hosts. (3) In THIS cloud env suites' `channel:"chrome"` needs
+`mkdir -p /opt/google/chrome && ln -sf /opt/pw-browsers/chromium-1194/chrome-linux/chrome
+/opt/google/chrome/chrome` once per container; `_verify-sports.cjs` itself falls back to
+`/opt/pw-browsers/chromium` (or `BUCKY_CHROME`) automatically.
+
+**HOME CARDS (stage 4, same day)**: `nflcard` + `ffcard` in renderDashboard, slotted right
+after the weather card (wxcard discipline: instant localStorage paint from `bucky_nfl_home`/
+`bucky_ff_home`, quiet refresh when stale — 60s during live windows via `sportsHomeAnyLive()`,
+10 min otherwise — repaint only if still on dashboard). NFL card: up to 3 live games
+(away @ home scores, possession ◂, red clock, situation line on the featured game only),
+else next kickoffs, else last finals; "+N more this week ›" footer; tap → sports.html.
+Fantasy card: the family matchup (trailing side dimmed), proj line + "N starters yet to
+play"; tap → sports.html#fantasy. **BOTH CARDS START `hidden` AND STAY HIDDEN when there is
+nothing to show** — off-season/empty scoreboard, fantasy not configured, a failed fetch with
+no cache, or another suite's blanket `{}` function mock (all five states asserted; the
+`.home2 .nflcard` `display:block` rule outweighs the UA's `[hidden]` rule, so a
+`[hidden]{display:none}` restatement is REQUIRED). All card text renders via textContent
+(API text is external data). Suite section G; **156/156** total.
+
+**DEFERRED** (per plan): status.html registry rows for ESPN (free NFL row + a
+cookie-configured fantasy row surfacing `fantasy-auth-expired` on the ops page).
