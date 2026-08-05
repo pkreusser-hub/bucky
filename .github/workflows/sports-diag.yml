@@ -1,0 +1,40 @@
+# One-shot diagnostic for the sports feature: what do ESPN's API and the live
+# sports function actually return from a neutral datacenter? Dispatch by hand
+# (Actions tab or API). The family passphrase in the POST below is not a
+# secret — it ships in every page's client source; the real gates are
+# server-side env vars this workflow never sees.
+name: sports-diag
+on: workflow_dispatch
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: espn scoreboard direct
+        run: |
+          code=$(curl -sS -o /tmp/sb.json -w "%{http_code}" \
+            "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard" \
+            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36" \
+            -H "accept: application/json" || echo FAIL)
+          echo "ESPN scoreboard HTTP $code, $(wc -c < /tmp/sb.json) bytes"
+          head -c 700 /tmp/sb.json; echo
+      - name: espn scoreboard no-UA
+        run: |
+          code=$(curl -sS -o /tmp/sb2.json -w "%{http_code}" \
+            "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard" || echo FAIL)
+          echo "ESPN (default curl UA) HTTP $code, $(wc -c < /tmp/sb2.json) bytes"
+      - name: live sports function
+        run: |
+          code=$(curl -sS -o /tmp/fn.json -w "%{http_code}" -X POST \
+            "https://amenfarms.netlify.app/.netlify/functions/sports" \
+            -H "Content-Type: application/json" \
+            --data '{"secret":"amenfarms","action":"nfl_scoreboard"}' || echo FAIL)
+          echo "function HTTP $code, $(wc -c < /tmp/fn.json) bytes"
+          head -c 900 /tmp/fn.json; echo
+      - name: live fantasy action
+        run: |
+          code=$(curl -sS -o /tmp/ff.json -w "%{http_code}" -X POST \
+            "https://amenfarms.netlify.app/.netlify/functions/sports" \
+            -H "Content-Type: application/json" \
+            --data '{"secret":"amenfarms","action":"ff_league"}' || echo FAIL)
+          echo "ff_league HTTP $code, $(wc -c < /tmp/ff.json) bytes"
+          head -c 600 /tmp/ff.json; echo
