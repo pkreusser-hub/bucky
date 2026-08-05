@@ -32,19 +32,22 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  /* Header matches index.html's app header (cream, wordmark left) — this is a
+     bottom-nav TAB, so it must not read as a separate place with a back bar. */
   header {
-    background: linear-gradient(160deg, var(--green) 0%, var(--green-d) 100%);
-    color: #fff;
-    padding: calc(env(safe-area-inset-top) + 14px) 16px 14px;
+    background: var(--bg); color: var(--ink);
+    padding: calc(env(safe-area-inset-top) + 8px) 14px 7px;
     position: sticky; top: 0; z-index: 30;
-    box-shadow: 0 4px 20px rgba(38,51,43,.24);
+    border-bottom: 1px solid var(--line);
   }
   #bar { display: flex; align-items: center; gap: 10px; }
-  #bar a#backLink {
-    color: #fff; text-decoration: none; font-weight: 800; font-size: 14px;
-    background: rgba(255,255,255,.16); padding: 7px 12px; border-radius: 9px; flex: 0 0 auto;
+  #bar a#backLink { display: flex; align-items: baseline; gap: 7px; text-decoration: none; flex: 0 0 auto; }
+  #bar a#backLink h1 {
+    margin: 0; font-family: Fraunces, Georgia, serif; font-size: 18px; font-weight: 700;
+    color: var(--green); line-height: 1.1; letter-spacing: .2px;
   }
-  #bar .t { font-family: Fraunces, Georgia, serif; font-size: 20px; font-weight: 700; letter-spacing: .2px; }
+  #bar a#backLink .subtitle { font-size: 10.5px; font-weight: 600; color: var(--muted); letter-spacing: .3px; line-height: 1.1; }
+  #bar .t { margin-left: auto; font-size: 12.5px; font-weight: 700; color: var(--muted); letter-spacing: .2px; }
 
   main { max-width: 720px; margin: 0 auto; padding: 14px 12px 24px; }
 
@@ -344,7 +347,10 @@
     .sn-item .sn-label { font-size: 14.5px; font-weight: 700; letter-spacing: .1px; }
     .sn-item.active { background: rgba(255,255,255,.15); color: #fff; border-left-color: var(--red); cursor: default; }
 
-    #backLink { display: none; }
+    /* The rail carries the wordmark on desktop — the page name becomes the
+       header crumb, exactly like index.html's sections. */
+    #bar a#backLink { display: none; }
+    #bar .t { margin-left: 0; font-size: 15px; font-weight: 800; color: var(--ink); }
     #buckyNav { display: none; }
     main { max-width: 900px; padding: 20px 24px 32px; }
   }
@@ -360,7 +366,10 @@
 
 <header>
   <div id="bar">
-    <a href="index.html" id="backLink">← Bucky</a>
+    <a href="index.html" id="backLink" title="Back to the Bucky dashboard">
+      <h1>Bucky</h1>
+      <span class="subtitle">Family Farm Hub</span>
+    </a>
     <span class="t">🏈 Sports</span>
   </div>
 </header>

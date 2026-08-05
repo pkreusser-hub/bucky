@@ -8205,5 +8205,20 @@ no cache, or another suite's blanket `{}` function mock (all five states asserte
 - Suite **227/227** (spread string-only leak checks, records/spread/badge row checks incl.
   live-vs-pre placement, win% hand-computed 31%/69%, separation + nowrap + no-owner).
 
+**TAB HEADERS UNIFIED (2026-08-05, user: "AI and Sports … have a green header with a back
+button, they should have the same header as every other tab")**: sports.html + farmgpt.html
+headers re-styled to index.html's app header — cream `--bg`, 1px `--line` bottom border,
+"Bucky" Fraunces-green wordmark + "Family Farm Hub" subtitle on one baseline (the wordmark
+IS the link home, keeping the `#backLink` id so nothing else moved), the page/view name as
+a QUIET right-aligned muted label (`#bar .t`; farmgpt's `#barTitle` still swaps per view and
+the 🧹 Clear button restyled as a light chip). Desktop (≥1024px): wordmark hidden (the rail
+carries it) and `.t` becomes the ink crumb — index's exact pattern. farmgpt's green came
+from its `farmstead-theme-page` OVERRIDE block (appended last, wins) — that had to be
+emptied, not just the head rule. **SPECIFICITY GOTCHA**: the head rule `#bar a#backLink`
+(2 ids) beats the desktop media block's old `#backLink { display:none }` (1 id) — media
+queries don't add specificity; the hider had to become `#bar a#backLink` too. games.html +
+weather.html deliberately untouched (not direct nav tabs; user scoped the ask). Suites:
+sports 227/227 · storyledger 683/683.
+
 **DEFERRED** (per plan): status.html registry rows for ESPN (free NFL row + a
 cookie-configured fantasy row surfacing `fantasy-auth-expired` on the ops page).

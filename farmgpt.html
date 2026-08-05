@@ -42,19 +42,29 @@
     display: flex; flex-direction: column;
     -webkit-font-smoothing: antialiased;
   }
+  /* Header matches index.html's app header (cream, wordmark left) — this is a
+     bottom-nav TAB, so it must not read as a separate place with a back bar.
+     The active view's name sits quietly on the right (barTitle still swaps). */
   header {
-    background: var(--green); color: #fff;
-    padding: calc(env(safe-area-inset-top) + 14px) 16px 12px;
-    position: sticky; top: 0; z-index: 20; box-shadow: var(--shadow);
+    background: var(--bg); color: var(--ink);
+    padding: calc(env(safe-area-inset-top) + 8px) 14px 7px;
+    position: sticky; top: 0; z-index: 20;
+    border-bottom: 1px solid var(--line);
     flex: 0 0 auto;
   }
   #bar { display: flex; align-items: center; gap: 10px; }
-  #bar a, #bar button {
-    color: #fff; text-decoration: none; font-weight: 800; font-size: 14px;
-    background: rgba(255,255,255,.16); padding: 7px 12px; border-radius: 9px;
-    border: 0; cursor: pointer; font-family: inherit; flex: 0 0 auto;
+  #bar a#backLink { display: flex; align-items: baseline; gap: 7px; text-decoration: none; flex: 0 0 auto; }
+  #bar a#backLink h1 {
+    margin: 0; font-family: Fraunces, Georgia, serif; font-size: 18px; font-weight: 700;
+    color: var(--green); line-height: 1.1; letter-spacing: .2px;
   }
-  #bar .t { font-size: 18px; font-weight: 800; letter-spacing: .2px; flex: 1; }
+  #bar a#backLink .subtitle { font-size: 10.5px; font-weight: 600; color: var(--muted); letter-spacing: .3px; line-height: 1.1; }
+  #bar .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; font-size: 12.5px; font-weight: 700; color: var(--muted); letter-spacing: .2px; }
+  #bar button {
+    background: var(--card); border: 1px solid var(--line); color: var(--ink);
+    font-weight: 700; font-size: 12.5px; padding: 5px 10px; border-radius: 999px;
+    cursor: pointer; font-family: inherit; flex: 0 0 auto;
+  }
   /* candy stripe retired with the 2026-07 app-shell redesign (index.html dropped it too) */
   .stripes { display: none; }
 
@@ -581,10 +591,11 @@
     }
     .sn-item.active .sn-ico { filter: none; }
 
-    /* The rail already carries the wordmark, so the header's own back link is
-       redundant chrome on desktop — the title stays. */
-    #backLink { display: none; }
-    #bar .t { margin-left: 0; }
+    /* The rail already carries the wordmark, so the header's own wordmark is
+       redundant chrome on desktop — the view name becomes the header crumb,
+       exactly like index.html's sections. */
+    #bar a#backLink { display: none; }
+    #bar .t { margin-left: 0; text-align: left; font-size: 15px; font-weight: 800; color: var(--ink); }
 
     #buckyNav { display: none; }
 
@@ -654,10 +665,8 @@
      the same redesign onto THIS page's #bar/#buckyNav/#sidenav structure. -->
 <style id="farmstead-theme-page">
   :root { --navy: #3f5c46; --navy-d: #2f4634; }
-  header {
-    background: var(--green); color: #fff;
-    border-bottom: 0; box-shadow: var(--shadow);
-  }
+  /* 2026-08-05: the green header bar is gone — AI is a bottom-nav TAB, so its
+     header matches index.html's (cream, wordmark left; styled in the head CSS). */
   .sn-brand .sn-name { font-family: Fraunces, Georgia, serif; }
   /* .sn-item .sn-ico matches the base rule's own specificity (2 classes) so source order
      decides — this block is appended last. body #buckyNav... adds an element to beat the
@@ -680,7 +689,10 @@
 
 <header>
   <div id="bar">
-    <a href="index.html" id="backLink">← Bucky</a>
+    <a href="index.html" id="backLink" title="Back to the Bucky dashboard">
+      <h1>Bucky</h1>
+      <span class="subtitle">Family Farm Hub</span>
+    </a>
     <span class="t" id="barTitle">🌾 FarmGPT</span>
     <button id="clearChatBtn" style="display:none">🧹 Clear</button>
   </div>
