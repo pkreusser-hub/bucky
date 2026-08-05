@@ -8239,6 +8239,14 @@ Storage-only, so nothing calls `getFirestore` on the default app before `initial
 headless (house rule: Firebase blocked), so post-deploy: open the app, bounce to Sports and
 back — content should be there instantly with a brief "Syncing…" instead of "Connecting…".
 chore-care 50/50 · sports 227/227.
+**🚨 THE STUCK-ON-SYNCING BUG (same day, user report, live for ~1 deploy)**: the listener
+MUST pass **`{ includeMetadataChanges: true }`**. Without it, when the server confirms the
+cached data UNCHANGED (the overwhelmingly common case), that confirmation is a metadata-only
+change (fromCache true→false) and **no snapshot event fires at all** — the status sticks on
+"Syncing…" forever AND `serverConfirmed` never flips, silently blocking the allowance mint
+and importHerd. Invisible pre-cache because the first snapshot always came from the server.
+Cost: one extra (ack) event per local write — one render, already-guarded seeding. RULE:
+any Firestore listener whose logic branches on `snap.metadata.fromCache` needs the flag.
 
 **DEFERRED** (per plan): status.html registry rows for ESPN (free NFL row + a
 cookie-configured fantasy row surfacing `fantasy-auth-expired` on the ops page).

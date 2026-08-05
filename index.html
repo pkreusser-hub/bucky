@@ -11180,9 +11180,14 @@ async function makeCloudBackend(){
   }
   const col = fs.collection(db, "chores_" + familyKey);
 
-  // Live listener: whenever anyone changes a chore, everyone's list updates
+  // Live listener: whenever anyone changes a chore, everyone's list updates.
+  // includeMetadataChanges is LOAD-BEARING with the persistent cache: when the
+  // server confirms the cached data UNCHANGED, that confirmation is a metadata-
+  // only change (fromCache true→false) — without the flag no event fires, the
+  // status sticks on "Syncing…" forever, and serverConfirmed (which gates the
+  // allowance mint + importHerd) never flips.
   let seedChecked = false;
-  fs.onSnapshot(col, async (snap)=>{
+  fs.onSnapshot(col, { includeMetadataChanges: true }, async (snap)=>{
     chores = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     dataReady = true;
     if (!snap.metadata.fromCache) serverConfirmed = true;   // we've now seen the real, server-side herd
