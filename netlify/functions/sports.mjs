@@ -125,6 +125,9 @@ function slimScoreboard(j) {
         clock: st?.displayClock || "",
       },
       broadcast: comp?.broadcasts?.[0]?.names?.[0] || comp?.broadcast || "",
+      // The betting line's display string only ("KC -3.5") — the full odds
+      // object (provider, prices, links) stays server-side.
+      spread: (typeof comp?.odds?.[0]?.details === "string" ? comp.odds[0].details : "").slice(0, 24),
       teams: (Array.isArray(comp?.competitors) ? comp.competitors : []).map(slimCompetitor),
       situation: slimSituation(comp?.situation),
     };
@@ -304,6 +307,8 @@ function slimGame(j) {
     id: String(comp?.id ?? j?.header?.id ?? ""),
     date: comp?.date || "",
     venue: j?.gameInfo?.venue?.fullName || "",
+    // The summary endpoint keeps its line under pickcenter — display string only.
+    spread: (typeof j?.pickcenter?.[0]?.details === "string" ? j.pickcenter[0].details : "").slice(0, 24),
     status,
     teams,
     situation,

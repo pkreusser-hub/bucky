@@ -158,6 +158,9 @@ async function sectionA() {
     "a final event is completed with the winner flagged and no situation");
   ok(!!sb && !/odds|pickcenter|geoBroadcasts|headlines|"leaders"/.test(r.text),
     "odds / leaders / headline junk never reaches the client");
+  ok(!!sb && sb.events.find((e) => e.id === "401770003").spread === "MIN -2.5"
+    && !/provider|ESPN BET|overUnder/.test(r.text),
+    "the betting line survives as a display string only — provider/prices never leak");
   ok(r.text.length < rawSb.length / 2, `the slimmed scoreboard is under half the raw payload (${r.text.length} vs ${rawSb.length} bytes)`);
   ok(!!sb && sb.calendar.length === 2 && sb.calendar[1].label === "Regular Season"
     && sb.calendar[1].weeks.length === 3 && sb.calendar[1].weeks[0].label === "Week 1",
@@ -214,6 +217,8 @@ async function sectionA() {
   ok(!!r.json && r.json.ok && r.json.status.state === "pre" && r.json.situation === null
     && r.json.scoringPlays.length === 0 && /U\.S\. Bank/.test(r.json.venue),
     "a pregame summary is ok with venue and empty sections");
+  ok(r.json.spread === "MIN -2.5" && !/pickcenter|provider/.test(r.text),
+    "the pregame detail carries the line from pickcenter, as a string only");
 
   // college football: the same slimmer, plus AP ranks + the conference groups param
   r = await call({ secret: "amenfarms", action: "ncaa_scoreboard" });
@@ -513,6 +518,36 @@ async function sectionWeekGame(browser) {
   ok(wk.prevOn && wk.nextOn, "week arrows are enabled (calendar has weeks both ways)");
   ok(wk.cached, "the default-week scoreboard is cached for instant paint");
   ok(wk.pollIv === 25000, "with live games the week view polls every 25s");
+
+  // Records next to names + the betting line on upcoming rows.
+  const extras = await page.evaluate(() => {
+    const kcRow = [...document.querySelectorAll(".gbtn")].find((b) => b.dataset.eid === "401770001");
+    const gbRow = [...document.querySelectorAll(".gbtn")].find((b) => b.dataset.eid === "401770003");
+    return {
+      recs: kcRow ? kcRow.querySelectorAll(".tn .trec").length : 0,
+      recText: kcRow ? (kcRow.querySelector(".tn .trec") || {}).textContent : "",
+      preSitu: gbRow ? (gbRow.querySelector(".situ") || {}).textContent || "" : "",
+      liveSpreadless: kcRow ? !/-3\.5/.test((kcRow.querySelector(".situ") || {}).textContent || "") : false,
+    };
+  });
+  ok(extras.recs === 2 && extras.recText === "0-0", "team records sit next to the names");
+  ok(/MIN -2\.5/.test(extras.preSitu), "an upcoming row shows the spread");
+  ok(extras.liveSpreadless, "a live row shows the situation, not the stale pregame line");
+
+  // My fantasy starters badge each NFL game (loads in the background from ff_matchup).
+  await page.waitForFunction(() => !!window.__SPORTS__.state().ffMine, { timeout: 20000 });
+  const badges = await page.evaluate(() => {
+    const get = (id) => {
+      const b = [...document.querySelectorAll(".gbtn")].find((x) => x.dataset.eid === id);
+      const f = b && b.querySelector(".ffct");
+      return f ? f.textContent : "";
+    };
+    return { kc: get("401770001"), gb: get("401770003"), fin: get("401770004") };
+  });
+  ok(/🏆 5 of yours/.test(badges.kc), "the featured game counts my 5 starters (BUF 2 + KC 3)");
+  ok(/🏆 1 of yours/.test(badges.gb) && /MIN -2\.5/.test(extras.preSitu),
+    "an upcoming row carries both the spread and my starter count");
+  ok(/🏆 1 of yours/.test(badges.fin), "a final still notes my starters who played");
   await shot(page, "sports_week_390.png");
 
   // week stepping forwards + back
@@ -915,9 +950,24 @@ async function sectionFantasyUI(browser) {
         othersText: othersCard ? othersCard.textContent : "",
         othersBtns: othersCard ? othersCard.querySelectorAll(".gbtn[data-ffteam]").length : 0,
         lineupRows: document.querySelectorAll("#ffBody .ffrow").length,
+        minePcts: mineCard ? [...mineCard.querySelectorAll(".wpct")].map((w) => w.textContent) : [],
+        pctCount: document.querySelectorAll("#ffBody .wpct").length,
+        // separation: every matchup row is padded, and stacked rows get a divider
+        vsPad: parseFloat(getComputedStyle(document.querySelector("#ffBody .ffvs")).paddingTop) || 0,
+        vsDivider: (() => {
+          const stacked = [...document.querySelectorAll("#ffBody .gbtn + .gbtn .ffvs")];
+          return stacked.length && stacked.every((v) => parseFloat(getComputedStyle(v).borderTopWidth) >= 1);
+        })(),
         standCount: standRows.length,
         standFirst: standRows.length ? standRows[0].textContent : "",
         famBoldName: (document.querySelector("table.stand td.fam") || {}).textContent || "",
+        // the W-L cell must never wrap "1-0" onto two lines
+        wlNowrap: (() => {
+          const td = standRows[0] && standRows[0].children[2];
+          if (!td) return false;
+          return getComputedStyle(td).whiteSpace === "nowrap" && td.getBoundingClientRect().height < 30;
+        })(),
+        owners: /KreusserFTW|isaac|grandpa/.test(document.querySelector("table.stand").textContent),
         pollIv: window.__SPORTS__.state().pollIv,
       };
     });
@@ -933,8 +983,14 @@ async function sectionFantasyUI(browser) {
       && /Turf Burners/.test(ff.othersText) && /End Zone Goats/.test(ff.othersText),
       "the other 3 matchups (all 6 remaining teams) render under Around the league");
     ok(ff.lineupRows === 0, "the scoreboard itself carries NO lineups — those live in the matchup detail");
+    // 112.6 vs 98.1 projected finals -> Φ((112.6-98.1)/30) ≈ 69% (hand-computed)
+    ok(ff.minePcts.join(",") === "31%,69%", `win chances sit next to the scores (${ff.minePcts.join("/")})`);
+    ok(ff.pctCount === 8, "every live matchup carries a chance for both sides");
+    ok(ff.vsPad >= 8 && ff.vsDivider, "matchups get breathing room + a divider between stacked rows");
     ok(ff.standCount === 8 && /Battle Kreussers/.test(ff.standFirst) && /Battle Kreussers/.test(ff.famBoldName),
       "standings list all 8 teams, wins→points-for, family row bold");
+    ok(!ff.owners, "standings show team names only — no usernames");
+    ok(ff.wlNowrap, "the W-L record renders on one line");
     ok(ff.pollIv === 60000, "with matchups live, fantasy polls every 60s");
     await shot(page, "sports_ff_390.png");
 

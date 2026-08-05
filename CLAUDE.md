@@ -8185,5 +8185,25 @@ no cache, or another suite's blanket `{}` function mock (all five states asserte
   +G Isaac's home card). Probe extended (ncaa actions, ff_scoreboard, both per-user names
   must resolve). chore-care 50/50 regression green.
 
+**STAGE 6 — SPREADS · RECORDS · MY-STARTERS BADGES · FANTASY WIN% + POLISH (2026-08-05)**:
+- Game rows (NFL + college): team RECORD beside the name (`.trec`, data was already
+  slimmed); the BETTING LINE on upcoming rows (new `spread` field — scoreboard from
+  `comp.odds[0].details`, game detail from `pickcenter[0].details`, DISPLAY STRING ONLY,
+  provider/prices asserted never to leak; pregame detail card gains a "Spread:" line);
+  and **🏆 N of yours** — how many of MY fantasy starters play in each NFL game
+  (`loadMyFfCounts()` fires once at boot via ff_matchup w/ the per-user teamName, builds
+  a proTeam→count map, repaints the week; NFL-ONLY by `sport` gate — college MIA/etc.
+  abbrevs collide with pro ones). Live rows append the badge to the situation line;
+  pre rows get spread+badge on their own `.situ` line; finals badge-only.
+- Fantasy scoreboard: **estimated win% beside each score** (`ffWinPct` — normal model on
+  projected finals, σ=30, Φ≈logistic 1.702x; OUR estimate, not ESPN's; decided matchups
+  skip it). Matchup rows got air (`.ffvs` padding 10px + divider between stacked rows —
+  the wpct span carries `margin-left:auto` so rows WITHOUT one keep the old score
+  alignment). Standings: usernames REMOVED (team name only) and the W-L wrap fixed
+  (`table.stand th,td { white-space:nowrap }` + the name column takes `width:100%;
+  max-width:0; ellipsis` so nowrap can't blow the table wide).
+- Suite **227/227** (spread string-only leak checks, records/spread/badge row checks incl.
+  live-vs-pre placement, win% hand-computed 31%/69%, separation + nowrap + no-owner).
+
 **DEFERRED** (per plan): status.html registry rows for ESPN (free NFL row + a
 cookie-configured fantasy row surfacing `fantasy-auth-expired` on the ops page).

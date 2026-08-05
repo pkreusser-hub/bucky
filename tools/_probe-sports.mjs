@@ -158,6 +158,9 @@ async function probeDeployedFunction() {
   console.log(`  ok — week ${sb.week}, ${sb.events.length} events, ${sb.calendar.length} calendar groups`);
   check(sb, "events.0.teams.0.abbrev");
   check(sb, "events.0.status.state");
+  // Informational — lines legitimately come and go (offseason, closed markets).
+  const withSpread = sb.events.filter((e) => e.spread).length;
+  console.log(`  ${withSpread}/${sb.events.length} events carry a betting line (spread)`);
   const ev = sb.events.find((e) => e.status.state === "in") || sb.events[0];
   if (ev) {
     const gm = await call({ action: "nfl_game", eventId: ev.id });

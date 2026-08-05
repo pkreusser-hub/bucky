@@ -120,6 +120,8 @@
   .g .chev { align-self: center; color: var(--muted); font-size: 15px; }
   .g .situ { grid-column: 1 / -1; font-size: 12px; color: var(--muted); padding: 2px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .g .situ b { color: var(--ink); font-weight: 700; }
+  .g .tm .trec { color: var(--muted); font-weight: 600; font-size: 11px; margin-left: 5px; }
+  .ffct { font-weight: 700; }
 
   .loadrow, .errcard { font-size: 14px; font-weight: 600; color: var(--muted); padding: 14px 6px; }
   .errcard { color: var(--red); }
@@ -241,7 +243,10 @@
 
   table.stand { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
   table.stand th { text-align: right; font-weight: 700; color: var(--muted); font-size: 10.5px; letter-spacing: .06em; padding: 4px 6px; border-bottom: 1px solid var(--line); }
-  table.stand th:nth-child(2), table.stand td:nth-child(2) { text-align: left; width: 100%; }
+  /* Every cell nowraps (the "1-0" record was wrapping to two lines); the NAME
+     column absorbs the width and ellipsizes instead. */
+  table.stand th, table.stand td { white-space: nowrap; }
+  table.stand th:nth-child(2), table.stand td:nth-child(2) { text-align: left; width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
   table.stand td { padding: 6px 6px; text-align: right; border-bottom: 1px solid var(--line); }
   table.stand tr:last-child td { border-bottom: 0; }
   table.stand td.fam { font-weight: 800; }
@@ -259,13 +264,18 @@
     padding: 9px 12px; box-shadow: var(--shadow);
   }
   .tn .rk { color: var(--muted); font-weight: 800; font-size: 11px; margin-right: 3px; }
-  .ffmini { display: flex; flex-direction: column; gap: 0; min-width: 0; flex: 1; }
-  .ffmini .ffhome { padding: 1px 0; font-size: 13.5px; }
+  .ffmini { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+  .ffmini .ffhome { padding: 2px 0; font-size: 13.5px; }
   .ffmini .fhp { font-size: 17px; }
-  .ffvs { display: flex; align-items: center; gap: 8px; }
+  .ffvs { display: flex; align-items: center; gap: 8px; padding: 10px 2px; }
+  #ffBody .gbtn + .gbtn .ffvs { border-top: 1px solid var(--line); }
   .ffvs .chev { color: var(--muted); font-size: 15px; flex: 0 0 auto; }
   .ffvs .stat { flex: 0 0 auto; font-size: 11px; font-weight: 800; color: var(--muted); width: 40px; text-align: right; }
   .ffvs .stat.live { color: var(--live); }
+  /* win% sits between the name and the score: IT carries the auto margin, so a
+     row without one keeps the score's own auto margin working as before. */
+  .fftm .wpct { flex: 0 0 auto; margin-left: auto; font-size: 11px; font-weight: 700; color: var(--muted); min-width: 32px; text-align: right; font-variant-numeric: tabular-nums; }
+  .fftm .wpct + .pts { margin-left: 0; }
 
   /* Bottom Bucky nav — same pattern as games.html / farmgpt.html / weather.html:
      balanced two-row-on-phone grid (--bnav-cols set from JS). */
@@ -856,7 +866,30 @@
     var cls = "tm" + (poss ? " poss" : "") + (dim ? " dim" : "");
     var score = (live || done) && t.score !== "" ? '<span class="score">' + esc(t.score) + "</span>" : "";
     var rank = t.rank ? '<span class="rk">#' + esc(t.rank) + "</span>" : "";
-    return '<div class="' + cls + '">' + teamMono(t) + '<span class="tn">' + rank + esc(t.name || t.abbrev) + "</span>" + score + "</div>";
+    var rec = t.record ? '<span class="trec">' + esc(t.record) + "</span>" : "";
+    return '<div class="' + cls + '">' + teamMono(t) + '<span class="tn">' + rank + esc(t.name || t.abbrev) + rec + "</span>" + score + "</div>";
+  }
+
+  // How many of MY fantasy starters play in a given NFL game — built once per
+  // page load from ff_matchup (silently absent when fantasy isn't configured).
+  var ffMine = null;   // { proAbbrev: starterCount }
+  async function loadMyFfCounts() {
+    try {
+      var d = await api("ff_matchup", { teamName: myFfTeamName() });
+      if (!d || d.ok !== true || !d.matchup) return;
+      var mine = d.matchup.home && d.matchup.home.teamId === d.familyTeamId ? d.matchup.home : d.matchup.away;
+      if (!mine) return;
+      var by = {};
+      (mine.roster || []).forEach(function (p) {
+        if (p.starter && p.proTeam) by[p.proTeam] = (by[p.proTeam] || 0) + 1;
+      });
+      ffMine = by;
+      if (view === "week" && sb) paintWeek();
+    } catch (e) { /* no badges — never break the scores */ }
+  }
+  function ffCountFor(ev) {
+    if (!ffMine) return 0;
+    return ev.teams.reduce(function (n, t) { return n + (ffMine[t.abbrev] || 0); }, 0);
   }
 
   function gameRowHTML(ev, sport) {
@@ -872,14 +905,19 @@
       st = "<span>" + esc(kickTime(ev.date)) + "</span>"
         + (ev.broadcast ? "<span>" + esc(ev.broadcast) + "</span>" : "");
     }
-    var situ = "";
+    var mineN = sport === "nfl" || !sport ? ffCountFor(ev) : 0;
+    var mineBit = mineN ? '<span class="ffct" title="Your fantasy starters in this game">🏆 ' + mineN + " of yours</span>" : "";
+    var bits = [];
     if (live && ev.situation && (ev.situation.downDistanceText || ev.situation.lastPlay)) {
-      var bits = [];
       if (ev.situation.downDistanceText) bits.push("<b>" + esc(ev.situation.downDistanceText) + "</b>");
       if (ev.situation.possessionText) bits.push(esc(ev.situation.possessionText));
       else if (ev.situation.lastPlay) bits.push(esc(ev.situation.lastPlay));
-      situ = '<div class="situ">' + bits.join(" · ") + "</div>";
+    } else if (!live && !done && ev.spread) {
+      // Upcoming: the betting line rides the quiet bottom line.
+      bits.push("<b>" + esc(ev.spread) + "</b>");
     }
+    if (mineBit) bits.push(mineBit);
+    var situ = bits.length ? '<div class="situ">' + bits.join(" · ") + "</div>" : "";
     // Away team first — the US "BUF @ KC" convention.
     var teams = ev.teams.slice().sort(function (a) { return a.homeAway === "away" ? -1 : 1; });
     return '<button type="button" class="gbtn" data-eid="' + esc(ev.id) + '" data-sport="' + (sport || "nfl") + '">'
@@ -1169,7 +1207,8 @@
 
     if (pre) {
       html += '<div class="card"><div class="kick"><b>Kickoff:</b> ' + esc(kickFull(g.date))
-        + (g.venue ? "<br><b>Where:</b> " + esc(g.venue) : "") + "</div></div>";
+        + (g.venue ? "<br><b>Where:</b> " + esc(g.venue) : "")
+        + (g.spread ? "<br><b>Spread:</b> " + esc(g.spread) : "") + "</div></div>";
     }
 
     if (live) {
@@ -1344,13 +1383,24 @@
   function ffMatchupInvolves(m, teamId) {
     return !!((m.home && m.home.teamId === teamId) || (m.away && m.away.teamId === teamId));
   }
-  function ffMiniRow(side, other) {
+  // Estimated chance to win, from each side's projected FINAL total (a normal
+  // model, σ≈30 pts of remaining-game variance — OUR estimate, not ESPN's).
+  function ffWinPct(side, other) {
+    if (!side || !other) return null;
+    var a = side.proj != null ? side.proj : side.points;
+    var b = other.proj != null ? other.proj : other.points;
+    if (a == null || b == null || (!a && !b)) return null;
+    var p = 1 / (1 + Math.exp(-1.702 * (a - b) / 30));
+    return Math.round(p * 100);
+  }
+  function ffMiniRow(side, other, pct) {
     if (!side) {
       return '<div class="fftm ffhome"><span style="color:var(--muted)">Bye week</span></div>';
     }
     var losing = other && side.points < other.points && (side.points || other.points);
     return '<div class="fftm ffhome' + (losing ? " losing" : "") + '">' + ffTeamMono(side)
       + '<span>' + esc(side.name) + ' <span class="rec">' + esc(side.record || "") + "</span></span>"
+      + (pct != null ? '<span class="wpct" title="Estimated chance to win">' + pct + "%</span>" : "")
       + '<span class="pts fhp">' + (side.points != null ? side.points.toFixed(1) : "0.0") + "</span></div>";
   }
   function ffMatchupBtn(m, famId) {
@@ -1362,8 +1412,10 @@
     var lv = (m.home && m.home.live) || (m.away && m.away.live);
     var stat = lv ? '<span class="stat live">LIVE</span>'
       : (m.winner ? '<span class="stat">FINAL</span>' : '<span class="stat"></span>');
+    var awayPct = m.winner ? null : ffWinPct(m.away, m.home);
+    var homePct = m.winner ? null : ffWinPct(m.home, m.away);
     return '<button type="button" class="gbtn" data-ffteam="' + esc(openId) + '">'
-      + '<div class="ffvs"><div class="ffmini">' + ffMiniRow(m.away, m.home) + ffMiniRow(m.home, m.away)
+      + '<div class="ffvs"><div class="ffmini">' + ffMiniRow(m.away, m.home, awayPct) + ffMiniRow(m.home, m.away, homePct)
       + "</div>" + stat + '<span class="chev">›</span></div></button>';
   }
 
@@ -1405,8 +1457,7 @@
         + "<tr><th>#</th><th></th><th>W-L</th><th>PF</th></tr>";
       rows.forEach(function (t, i) {
         var fam2 = t.id === famId;
-        html += "<tr><td>" + (i + 1) + '</td><td class="' + (fam2 ? "fam" : "") + '">' + esc(t.name)
-          + (t.owner ? ' <span style="color:var(--muted);font-weight:600;font-size:11px">' + esc(t.owner) + "</span>" : "") + "</td>"
+        html += "<tr><td>" + (i + 1) + '</td><td class="' + (fam2 ? "fam" : "") + '">' + esc(t.name) + "</td>"
           + "<td>" + t.wins + "-" + t.losses + (t.ties ? "-" + t.ties : "") + "</td>"
           + "<td>" + (t.pointsFor != null ? t.pointsFor.toFixed(1) : "—") + "</td></tr>";
       });
@@ -1624,6 +1675,7 @@
         ffTeamName: myFfTeamName(),
         ffAnyLive: anyFfLive(),
         ffmAnyLive: !!(ffmD && ffmD.anyProLive),
+        ffMine: ffMine,
         pollScheduled: !!pollT, pollIv: lastIv,
         events: sb ? sb.events.length : 0,
       };
@@ -1634,6 +1686,7 @@
   };
 
   route();
+  loadMyFfCounts();   // background — badges the NFL rows with my fantasy starters
 })();
 </script>
 </body>

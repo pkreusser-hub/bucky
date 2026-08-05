@@ -46,7 +46,7 @@ function sbEvent(o) {
       status: o.status,
       broadcasts: o.broadcast ? [{ market: "national", names: [o.broadcast] }] : [],
       // Junk the slimmer must drop:
-      odds: [{ details: "KC -3.5", overUnder: 47.5, provider: { name: "ESPN BET" } }],
+      odds: [{ details: o.spread || "KC -3.5", overUnder: 47.5, provider: { name: "ESPN BET" } }],
       geoBroadcasts: [{ type: { shortName: "TV" } }],
       headlines: [{ description: "A very long headline blob ".repeat(20) }],
     }],
@@ -118,13 +118,13 @@ function scoreboardLive() {
         id: "401770003", date: iso(4 * 3600000), name: "Green Bay Packers at Minnesota Vikings", shortName: "GB @ MIN",
         competitors: [sbCompetitor(TEAMS.MIN, "home", 0), sbCompetitor(TEAMS.GB, "away", 0)],
         status: { clock: 0, displayClock: "0:00", period: 0, type: { id: "1", name: "STATUS_SCHEDULED", state: "pre", completed: false, description: "Scheduled", detail: "Scheduled", shortDetail: "7:20 PM CT" } },
-        broadcast: "NBC",
+        broadcast: "NBC", spread: "MIN -2.5",
       }),
       sbEvent({
         id: "401770005", date: iso(28 * 3600000), name: "Miami Dolphins at Las Vegas Raiders", shortName: "MIA @ LV",
         competitors: [sbCompetitor(TEAMS.LV, "home", 0), sbCompetitor(TEAMS.MIA, "away", 0)],
         status: { clock: 0, displayClock: "0:00", period: 0, type: { id: "1", name: "STATUS_SCHEDULED", state: "pre", completed: false, description: "Scheduled", detail: "Scheduled", shortDetail: "9:15 PM CT" } },
-        broadcast: "ESPN",
+        broadcast: "ESPN", spread: "MIA -1.5",
       }),
     ],
   };
@@ -322,6 +322,7 @@ function summaryPre() {
     scoringPlays: [],
     winprobability: [],
     gameInfo: { venue: { fullName: "U.S. Bank Stadium" } },
+    pickcenter: [{ details: "MIN -2.5", overUnder: 44.5, provider: { name: "ESPN BET" } }],
   };
 }
 
@@ -519,13 +520,13 @@ function cfbScoreboard(groups) {
       id: "401820002", date: iso(5 * 3600000), name: "Ohio State Buckeyes at Michigan Wolverines", shortName: "OSU @ MICH",
       competitors: [cfbCompetitor(CTEAMS.MICH, "home", 0), cfbCompetitor(CTEAMS.OSU, "away", 0)],
       status: { clock: 0, displayClock: "0:00", period: 0, type: { id: "1", name: "STATUS_SCHEDULED", state: "pre", completed: false, description: "Scheduled", detail: "Scheduled", shortDetail: "6:30 PM CT" } },
-      broadcast: "FOX",
+      broadcast: "FOX", spread: "OSU -3.5",
     }),
     sbEvent({
       id: "401820003", date: iso(26 * 3600000), name: "Wyoming Cowboys at Colorado State Rams", shortName: "WYO @ CSU",
       competitors: [cfbCompetitor(CTEAMS.CSU, "home", 0), cfbCompetitor(CTEAMS.WYO, "away", 0)],
       status: { clock: 0, displayClock: "0:00", period: 0, type: { id: "1", name: "STATUS_SCHEDULED", state: "pre", completed: false, description: "Scheduled", detail: "Scheduled", shortDetail: "2:00 PM CT" } },
-      broadcast: "MW Network",
+      broadcast: "MW Network", spread: "WYO -7",
     }),
     sbEvent({
       id: "401820004", date: iso(-6 * 3600000), name: "Vanderbilt Commodores at Kentucky Wildcats", shortName: "VAN @ UK",
