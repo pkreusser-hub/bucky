@@ -370,6 +370,12 @@ async function newPage(ctx, o) {
     const u = req.url();
     try {
       if (u.includes("/.netlify/functions/sports")) {
+        if (o.sportsEmpty) {
+          // Simulates the OTHER suites' blanket "/.netlify/ -> 200 {}" mocks — the
+          // home cards must treat that as nothing-to-show, never an error.
+          await req.respond({ status: 200, contentType: "application/json", body: "{}" });
+          return;
+        }
         const resp = await handler(new Request(u, {
           method: req.method(),
           headers: { "content-type": "application/json", origin: BASE },
@@ -816,6 +822,113 @@ async function sectionDesktopIndex(browser) {
   }
 }
 
+// ---------------- section G: the Home snapshot cards ----------------
+async function sectionHomeCards(browser) {
+  section("G · the Home snapshot cards on index.html");
+  ffAuthGood();
+  {
+    const ctx = await browser.createBrowserContext();
+    const page = await newPage(ctx);
+    await page.goto(BASE + "/index.html?n=" + Date.now(), { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.waitForFunction(() => {
+      const n = document.querySelector(".home2 .nflcard"), f = document.querySelector(".home2 .ffcard");
+      return n && !n.hidden && f && !f.hidden;
+    }, { timeout: 20000 });
+    const h = await page.evaluate(() => {
+      const n = document.querySelector(".home2 .nflcard"), f = document.querySelector(".home2 .ffcard");
+      const rows = [...n.querySelectorAll(".spg")];
+      const ffRows = [...f.querySelectorAll(".ffhome")];
+      return {
+        nflHead: n.querySelector(".sph").textContent,
+        rowCount: rows.length,
+        firstRow: rows[0] ? rows[0].textContent : "",
+        liveClock: n.querySelector(".sps.live") ? n.querySelector(".sps.live").textContent : "",
+        situ: n.querySelector(".spsitu") ? n.querySelector(".spsitu").textContent : "",
+        foot: n.querySelector(".spfoot") ? n.querySelector(".spfoot").textContent : "",
+        ffHead: f.querySelector(".sph").textContent,
+        ffNames: ffRows.map((r) => r.querySelector(".fhn").textContent),
+        ffPts: ffRows.map((r) => r.querySelector(".fhp").textContent),
+        oppDim: ffRows[1] ? ffRows[1].classList.contains("down") : false,
+        ffSub: f.querySelector(".ffhsub") ? f.querySelector(".ffhsub").textContent : "",
+        afterWeather: n.previousElementSibling && n.previousElementSibling.classList.contains("wxcard"),
+      };
+    });
+    ok(/🏈 NFL · Week 1/.test(h.nflHead) && /LIVE/.test(h.nflHead), "the NFL card heads with the week + LIVE");
+    ok(h.rowCount === 2 && /BUF 14/.test(h.firstRow) && /KC 17/.test(h.firstRow) && /◂/.test(h.firstRow),
+      "live games render away @ home with scores + possession");
+    ok(/8:42 - 3rd/.test(h.liveClock), "the live clock is on the row");
+    ok(/2nd & 7/.test(h.situ), "the featured game carries its situation line");
+    ok(/\+ 3 more this week/.test(h.foot), "the rest of the week folds into the footer");
+    ok(h.afterWeather, "the cards slot in right after the weather card");
+    ok(/🏆 Fantasy · Week 2/.test(h.ffHead) && /LIVE/.test(h.ffHead), "the fantasy card heads with its week + LIVE");
+    ok(/Battle Kreussers/.test(h.ffNames[0]) && h.ffPts[0] === "87.4" && h.ffPts[1] === "76.2" && h.oppDim,
+      "the family matchup shows live scores with the trailing side dimmed");
+    ok(/proj 112\.6 – 98\.1/.test(h.ffSub) && /2 starters yet to play/.test(h.ffSub),
+      "projections + the yet-to-play count read at a glance");
+    await shot(page, "sports_home_390.png");
+
+    await page.click(".home2 .nflcard");
+    await sleep(600);
+    ok(await page.evaluate(() => location.pathname).then((p) => p.endsWith("/sports.html")).catch(() => false),
+      "tapping the NFL card opens the sports page");
+    ok(page._errs.length === 0, "0 page errors with the cards live");
+    await ctx.close();
+  }
+  {
+    const ctx = await browser.createBrowserContext();
+    const page = await newPage(ctx);
+    await page.goto(BASE + "/index.html?n=" + Date.now(), { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.waitForFunction(() => { const f = document.querySelector(".home2 .ffcard"); return f && !f.hidden; }, { timeout: 20000 });
+    await page.click(".home2 .ffcard");
+    await sleep(600);
+    const where = await page.evaluate(() => location.pathname + location.hash).catch(() => "");
+    ok(where.endsWith("sports.html#fantasy"), "tapping the fantasy card lands on the Fantasy view");
+    await ctx.close();
+  }
+  // Fantasy unconfigured -> the fantasy card simply isn't there; NFL unaffected.
+  ffAuthNone();
+  {
+    const ctx = await browser.createBrowserContext();
+    const page = await newPage(ctx);
+    await page.goto(BASE + "/index.html?n=" + Date.now(), { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.waitForFunction(() => { const n = document.querySelector(".home2 .nflcard"); return n && !n.hidden; }, { timeout: 20000 });
+    ok(await page.evaluate(() => document.querySelector(".home2 .ffcard").hidden === true),
+      "an unconfigured fantasy league leaves no card (setup lives on the sports page)");
+    ok(page._errs.length === 0, "0 page errors with fantasy unconfigured");
+    await ctx.close();
+  }
+  ffAuthGood();
+  // Everything down + no cache -> no cards, no shells, no errors.
+  upstream.mode = "http500"; ffUp.mode = "http500";
+  {
+    const ctx = await browser.createBrowserContext();
+    const page = await newPage(ctx);
+    await page.goto(BASE + "/index.html?n=" + Date.now(), { waitUntil: "domcontentloaded", timeout: 60000 });
+    await sleep(1200);
+    ok(await page.evaluate(() =>
+      document.querySelector(".home2 .nflcard").hidden === true
+      && document.querySelector(".home2 .ffcard").hidden === true
+      && !!document.querySelector(".home2 .hero")),
+      "with the API down and no cache, the dashboard simply has no sports cards");
+    ok(page._errs.length === 0, "0 page errors with the API down");
+    await ctx.close();
+  }
+  upstream.mode = "normal"; ffUp.mode = "normal";
+  // The other suites mock every function as 200 {} — cards must read that as nothing.
+  {
+    const ctx = await browser.createBrowserContext();
+    const page = await newPage(ctx, { sportsEmpty: true });
+    await page.goto(BASE + "/index.html?n=" + Date.now(), { waitUntil: "domcontentloaded", timeout: 60000 });
+    await sleep(1200);
+    ok(await page.evaluate(() =>
+      document.querySelector(".home2 .nflcard").hidden === true
+      && document.querySelector(".home2 .ffcard").hidden === true),
+      "a blanket {} function mock (other suites' harness) hides the cards cleanly");
+    ok(page._errs.length === 0, "0 page errors under the {} mock");
+    await ctx.close();
+  }
+}
+
 // ---------------- run ----------------
 (async () => {
   const up = await startUpstream();
@@ -836,6 +949,7 @@ async function sectionDesktopIndex(browser) {
     await sectionQuietAndErrors(browser);
     await sectionFantasyUI(browser);
     await sectionDesktopIndex(browser);
+    await sectionHomeCards(browser);
   } catch (e) {
     fail++; failures.push("suite crashed: " + e.message);
     console.log("\n✗ SUITE ERROR: " + (e && e.stack || e));

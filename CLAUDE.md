@@ -8111,6 +8111,19 @@ firebase-ish hosts. (3) In THIS cloud env suites' `channel:"chrome"` needs
 /opt/google/chrome/chrome` once per container; `_verify-sports.cjs` itself falls back to
 `/opt/pw-browsers/chromium` (or `BUCKY_CHROME`) automatically.
 
-**DEFERRED** (per plan): home snapshot cards (stage 4), status.html registry rows for ESPN
-(free NFL row + a cookie-configured fantasy row surfacing `fantasy-auth-expired` on the ops
-page).
+**HOME CARDS (stage 4, same day)**: `nflcard` + `ffcard` in renderDashboard, slotted right
+after the weather card (wxcard discipline: instant localStorage paint from `bucky_nfl_home`/
+`bucky_ff_home`, quiet refresh when stale — 60s during live windows via `sportsHomeAnyLive()`,
+10 min otherwise — repaint only if still on dashboard). NFL card: up to 3 live games
+(away @ home scores, possession ◂, red clock, situation line on the featured game only),
+else next kickoffs, else last finals; "+N more this week ›" footer; tap → sports.html.
+Fantasy card: the family matchup (trailing side dimmed), proj line + "N starters yet to
+play"; tap → sports.html#fantasy. **BOTH CARDS START `hidden` AND STAY HIDDEN when there is
+nothing to show** — off-season/empty scoreboard, fantasy not configured, a failed fetch with
+no cache, or another suite's blanket `{}` function mock (all five states asserted; the
+`.home2 .nflcard` `display:block` rule outweighs the UA's `[hidden]` rule, so a
+`[hidden]{display:none}` restatement is REQUIRED). All card text renders via textContent
+(API text is external data). Suite section G; **156/156** total.
+
+**DEFERRED** (per plan): status.html registry rows for ESPN (free NFL row + a
+cookie-configured fantasy row surfacing `fantasy-auth-expired` on the ops page).

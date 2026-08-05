@@ -617,6 +617,26 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   /* 5-day weather (taps through to weather.html full page) */
   .home2 .wxcard { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 12px 14px; cursor: pointer; text-align: left; width: 100%; font: inherit; color: inherit; display: block; }
   .home2 .wxcard:active { background: var(--done, #e7eefb); }
+  /* Sports snapshot cards (NFL week + the family fantasy matchup) — wxcard family. */
+  .home2 .nflcard, .home2 .ffcard { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 12px 14px; cursor: pointer; text-align: left; width: 100%; font: inherit; color: inherit; display: block; }
+  .home2 .nflcard:active, .home2 .ffcard:active { background: var(--done, #e7eefb); }
+  /* display:block above outweighs the UA's [hidden]{display:none} — restate it. */
+  .home2 .nflcard[hidden], .home2 .ffcard[hidden] { display: none; }
+  .sph { display: flex; justify-content: space-between; align-items: center; font-weight: 800; font-size: 13.5px; margin-bottom: 4px; }
+  .sph .splive { color: var(--red); font-size: 11px; font-weight: 800; letter-spacing: .04em; }
+  .sph .spmore { color: var(--muted); font-size: 12px; font-weight: 700; }
+  .spg { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 5px 0 2px; border-top: 1px solid var(--line-2, #eee9dc); font-size: 13.5px; font-weight: 600; }
+  .sph + .spg { border-top: 0; }
+  .spg .spt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .spg .sps { color: var(--muted); font-weight: 700; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .spg .sps.live { color: var(--red); }
+  .spsitu { font-size: 11.5px; color: var(--muted); font-weight: 600; padding: 0 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .spfoot { color: var(--muted); font-size: 12px; font-weight: 700; padding-top: 5px; text-align: center; }
+  .ffhome { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 2px 0; font-weight: 700; font-size: 14px; }
+  .ffhome .fhn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ffhome .fhp { font-family: Fraunces, Georgia, serif; font-size: 21px; font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+  .ffhome.down, .ffhome.down .fhp { color: var(--muted); font-weight: 600; }
+  .ffhsub { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 11.5px; font-weight: 600; margin-top: 3px; }
   .home2 .wxhead { font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .home2 .wxhead .wxmore { color: var(--green); font-weight: 800; text-transform: none; letter-spacing: 0; font-size: 12px; }
   .home2 .wxdays { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
@@ -1379,7 +1399,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .home2 { gap: 9px; }
   .home2 .hero { background: transparent; border: 0; box-shadow: none; border-radius: 0; padding: 6px 4px 2px; }
   .home2 .hero h1 { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 24px; letter-spacing: 0; }
-  .home2 .calwidget, .home2 .carewidget, .home2 .wxcard, .home2 .stockcard, .home2 .fitcard { padding: 10px 14px; border-radius: 16px; }
+  .home2 .calwidget, .home2 .carewidget, .home2 .wxcard, .home2 .stockcard, .home2 .fitcard, .home2 .nflcard, .home2 .ffcard { padding: 10px 14px; border-radius: 16px; }
   .home2 .fitcard { margin-bottom: 0; }
   .home2 .card2 { border-radius: 16px; }
   .home2 .chd { padding: 11px 14px 3px; }
@@ -2786,6 +2806,131 @@ function renderWxInto(el){
   }
 }
 
+// ---- Sports snapshot cards (nflcard + ffcard, 2026-08-05) ----
+// wxcard discipline: instant paint from localStorage, quiet background refresh when
+// stale (60s during live NFL windows, 10 min otherwise), repaint only if still on the
+// dashboard. Both cards are HIDDEN entirely when there's nothing worth showing —
+// off-season, the fantasy league not configured, a failed fetch with no cache — never
+// an empty shell. Everything renders through textContent (API text is external data).
+const SPORTS_FN_URL = "/.netlify/functions/sports";
+let sportsHomeFetching = false;
+function sportsHomeCached(key){ try { const c = JSON.parse(localStorage.getItem(key) || "null"); return c && c.data ? c : null; } catch { return null; } }
+function sportsHomeAnyLive(){
+  const sb = sportsHomeCached("bucky_nfl_home"), ff = sportsHomeCached("bucky_ff_home");
+  return !!((sb && (sb.data.events || []).some(e => e.status && e.status.state === "in"))
+    || (ff && ff.data && ff.data.anyProLive));
+}
+async function sportsHomeApi(action){
+  const r = await fetch(SPORTS_FN_URL, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ secret: FAMILY_PASSWORD, action }),
+  });
+  if (!r.ok) throw new Error("sports " + r.status);
+  const d = await r.json();
+  if (!d || d.ok !== true) throw new Error((d && d.reason) || "sports");
+  return d;
+}
+function sportsKick(iso){
+  try { return new Date(iso).toLocaleString("en-US", { timeZone: "America/Chicago", weekday: "short", hour: "numeric", minute: "2-digit" }); }
+  catch { return ""; }
+}
+function paintNflCard(el){
+  const c = sportsHomeCached("bucky_nfl_home");
+  const evs = c && Array.isArray(c.data.events) ? c.data.events : [];
+  if (!evs.length){ el.hidden = true; return; }
+  const live = evs.filter(e => e.status && e.status.state === "in");
+  let pick = live.slice(0, 3);
+  if (!pick.length) pick = evs.filter(e => e.status && e.status.state === "pre").slice(0, 3);
+  if (!pick.length) pick = evs.slice(-3);
+  el.hidden = false;
+  el.textContent = "";
+  const head = document.createElement("div"); head.className = "sph";
+  const hl = document.createElement("span"); hl.textContent = "🏈 NFL" + (c.data.week ? " · Week " + c.data.week : "");
+  const hr = document.createElement("span");
+  if (live.length){ hr.className = "splive"; hr.textContent = "● LIVE"; }
+  else { hr.className = "spmore"; hr.textContent = "Scores →"; }
+  head.append(hl, hr); el.appendChild(head);
+  pick.forEach((ev, i) => {
+    const away = (ev.teams || []).find(t => t.homeAway === "away") || (ev.teams || [])[0] || {};
+    const home = (ev.teams || []).find(t => t.homeAway === "home") || (ev.teams || [])[1] || {};
+    const liveG = ev.status.state === "in", done = ev.status.state === "post";
+    const possId = liveG && ev.situation && ev.situation.possession ? String(ev.situation.possession) : "";
+    const row = document.createElement("div"); row.className = "spg";
+    const t = document.createElement("span"); t.className = "spt";
+    const half = (tm) => (tm.abbrev || "?") + ((liveG || done) && tm.score !== "" ? " " + tm.score : "") + (possId && possId === String(tm.id) ? " ◂" : "");
+    t.textContent = half(away) + "  @  " + half(home);
+    const s = document.createElement("span"); s.className = "sps" + (liveG ? " live" : "");
+    s.textContent = liveG ? (ev.status.detail || "LIVE") : done ? "Final" : sportsKick(ev.date);
+    row.append(t, s); el.appendChild(row);
+    // One situation line, on the first live game only — the card stays a glance.
+    if (liveG && i === 0 && ev.situation && ev.situation.downDistanceText){
+      const su = document.createElement("div"); su.className = "spsitu";
+      su.textContent = ev.situation.downDistanceText + (ev.situation.possessionText ? " · " + ev.situation.possessionText : "");
+      el.appendChild(su);
+    }
+  });
+  if (evs.length > pick.length){
+    const f = document.createElement("div"); f.className = "spfoot";
+    f.textContent = "+ " + (evs.length - pick.length) + " more this week ›";
+    el.appendChild(f);
+  }
+}
+function paintFfCard(el){
+  const c = sportsHomeCached("bucky_ff_home");
+  const d = c && c.data;
+  if (!d || !d.matchup || !d.matchup.home || !d.matchup.away){ el.hidden = true; return; }
+  const fam = d.matchup.home.teamId === d.familyTeamId ? d.matchup.home : d.matchup.away;
+  const opp = fam === d.matchup.home ? d.matchup.away : d.matchup.home;
+  el.hidden = false;
+  el.textContent = "";
+  const head = document.createElement("div"); head.className = "sph";
+  const hl = document.createElement("span"); hl.textContent = "🏆 Fantasy" + (d.week ? " · Week " + d.week : "");
+  const hr = document.createElement("span");
+  if (d.anyProLive){ hr.className = "splive"; hr.textContent = "● LIVE"; }
+  else { hr.className = "spmore"; hr.textContent = "League →"; }
+  head.append(hl, hr); el.appendChild(head);
+  [fam, opp].forEach(side => {
+    const other = side === fam ? opp : fam;
+    const row = document.createElement("div");
+    row.className = "ffhome" + ((side.points || other.points) && side.points < other.points ? " down" : "");
+    const n = document.createElement("span"); n.className = "fhn"; n.textContent = side.name || "—";
+    const p = document.createElement("span"); p.className = "fhp";
+    p.textContent = side.points != null ? side.points.toFixed(1) : "0.0";
+    row.append(n, p); el.appendChild(row);
+  });
+  const sub = document.createElement("div"); sub.className = "ffhsub";
+  const l = document.createElement("span");
+  l.textContent = (fam.proj != null && opp.proj != null) ? "proj " + fam.proj.toFixed(1) + " – " + opp.proj.toFixed(1) : "";
+  const yet = (fam.roster || []).filter(p => p.starter && p.game && p.game.state === "pre").length;
+  const rsp = document.createElement("span");
+  rsp.textContent = yet ? yet + (yet === 1 ? " starter" : " starters") + " yet to play" : "";
+  sub.append(l, rsp);
+  if (l.textContent || rsp.textContent) el.appendChild(sub);
+}
+function sportsHomeRefresh(force){
+  if (sportsHomeFetching) return;
+  const sbC = sportsHomeCached("bucky_nfl_home"), ffC = sportsHomeCached("bucky_ff_home");
+  const ttl = sportsHomeAnyLive() ? 60 * 1000 : 10 * 60 * 1000;
+  const oldest = Math.min(sbC ? sbC.ts : 0, ffC ? ffC.ts : 0);
+  if (!force && sbC && ffC && Date.now() - oldest <= ttl) return;
+  sportsHomeFetching = true;
+  Promise.allSettled([sportsHomeApi("nfl_scoreboard"), sportsHomeApi("ff_matchup")])
+    .then(([sb, ff]) => {
+      const now = Date.now();
+      if (sb.status === "fulfilled"){ try { localStorage.setItem("bucky_nfl_home", JSON.stringify({ ts: now, data: sb.value })); } catch {} }
+      if (ff.status === "fulfilled"){ try { localStorage.setItem("bucky_ff_home", JSON.stringify({ ts: now, data: ff.value })); } catch {} }
+      if (currentTab !== "dashboard") return;
+      const n = document.querySelector(".home2 .nflcard"); if (n) paintNflCard(n);
+      const f = document.querySelector(".home2 .ffcard"); if (f) paintFfCard(f);
+    })
+    .finally(() => { sportsHomeFetching = false; });
+}
+function renderSportsCards(nflEl, ffEl){
+  paintNflCard(nflEl);
+  paintFfCard(ffEl);
+  sportsHomeRefresh();
+}
+
 // ---- Stock watchlist (dashboard, 2026-07-23) ----
 // Per-device list (localStorage bucky_stocks = ["AAPL",...]) + a quote cache for instant
 // paint, refreshed in the background through the stocks Netlify function (Yahoo can't be
@@ -3017,6 +3162,20 @@ function renderDashboard(){
   wx.onclick = () => { location.href = "weather.html"; };
   railCol.appendChild(wx);
   renderWxInto(wx);
+
+  // ---- Sports snapshots: this week's NFL + the family fantasy matchup (sports.html).
+  // Both start hidden and only appear once there's something to show.
+  const nflC = document.createElement("button"); nflC.className = "nflcard"; nflC.type = "button";
+  nflC.hidden = true;
+  nflC.setAttribute("aria-label", "Open NFL scores");
+  nflC.onclick = () => { location.href = "sports.html"; };
+  railCol.appendChild(nflC);
+  const ffC = document.createElement("button"); ffC.className = "ffcard"; ffC.type = "button";
+  ffC.hidden = true;
+  ffC.setAttribute("aria-label", "Open the fantasy league");
+  ffC.onclick = () => { location.href = "sports.html#fantasy"; };
+  railCol.appendChild(ffC);
+  renderSportsCards(nflC, ffC);
 
   // ---- FarmGPT research ask bar → hands the question (and optionally a photo) to
   // farmgpt.html Research. The 📷 button snaps/picks a photo, downscales it client-side
