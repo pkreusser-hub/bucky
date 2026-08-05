@@ -8220,5 +8220,25 @@ queries don't add specificity; the hider had to become `#bar a#backLink` too. ga
 weather.html deliberately untouched (not direct nav tabs; user scoped the ask). Suites:
 sports 227/227 · storyledger 683/683.
 
+**⚡ FIRESTORE PERSISTENT CACHE (2026-08-05, user: "when I go between the sports page or AI
+page and any other page it makes me reconnect to Bucky")**: Sports + AI are the only two
+bottom-nav tabs that are REAL PAGES, so hopping to one and back fully reloads index.html —
+and `makeCloudBackend` used `getFirestore()` (memory cache), so every return re-downloaded
+the whole chores collection over the network behind "Connecting…" + empty content: the
+"reconnect". FIX: `initializeFirestore(app, { localCache: persistentLocalCache({ tabManager:
+persistentMultipleTabManager() }) })` — a reload paints the family's data instantly from
+IndexedDB, the server snapshot follows quietly. try/catch falls back to `getFirestore()`
+(the exact old behavior). Status honesty: a `fromCache` snapshot sets a quiet "Syncing…"
+(never "live" over unconfirmed data, never "Connecting…" over real data); the server
+snapshot flips to live (which tucks). SAFE BY PRIOR HARDENING: seeding + `serverConfirmed`
+(→ allowance mint, importHerd) already gate on `!snap.metadata.fromCache` — the 2026-07
+herd-duplication lessons are exactly why cache-first snapshots can't corrupt anything.
+CHECKED: push-client.js uses a NAMED app ("bucky-push") and the photo-email uploader is
+Storage-only, so nothing calls `getFirestore` on the default app before `initializeFirestore`
+(which would failed-precondition it into the fallback). The cloud path can't be exercised
+headless (house rule: Firebase blocked), so post-deploy: open the app, bounce to Sports and
+back — content should be there instantly with a brief "Syncing…" instead of "Connecting…".
+chore-care 50/50 · sports 227/227.
+
 **DEFERRED** (per plan): status.html registry rows for ESPN (free NFL row + a
 cookie-configured fantasy row surfacing `fantasy-auth-expired` on the ops page).

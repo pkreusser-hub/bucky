@@ -11161,7 +11161,23 @@ async function makeCloudBackend(){
   const appMod = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
   const fs = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
   const app = appMod.initializeApp(firebaseConfig);
-  const db = fs.getFirestore(app);
+  // Persistent local cache (IndexedDB): a full page load — which is what tapping the
+  // Sports or AI tab and coming back does, since those two areas are real pages —
+  // paints the family's data INSTANTLY from the last sync instead of re-downloading
+  // the whole collection behind a "Connecting…" banner. Multi-tab so a PWA window
+  // and a browser tab share one cache. Every cache-first consumer downstream is
+  // already guarded (seeding + serverConfirmed check snap.metadata.fromCache — the
+  // 2026-07 herd-duplication lessons). Unsupported browsers fall back to the old
+  // memory cache, which is exactly the previous behavior.
+  let db;
+  try {
+    db = fs.initializeFirestore(app, {
+      localCache: fs.persistentLocalCache({ tabManager: fs.persistentMultipleTabManager() }),
+    });
+  } catch (e) {
+    console.warn("persistent cache unavailable, using memory cache", e);
+    db = fs.getFirestore(app);
+  }
   const col = fs.collection(db, "chores_" + familyKey);
 
   // Live listener: whenever anyone changes a chore, everyone's list updates
@@ -11171,7 +11187,10 @@ async function makeCloudBackend(){
     dataReady = true;
     if (!snap.metadata.fromCache) serverConfirmed = true;   // we've now seen the real, server-side herd
     render(); refreshGoatDetail();
-    setStatus("live", "Synced with your family");
+    // A cached paint says so quietly (never "Connecting…" over real data); the
+    // server snapshot that follows flips it to live, which tucks the line away.
+    if (snap.metadata.fromCache) setStatus("", "Syncing…");
+    else setStatus("live", "Synced with your family");
     // One-time: if this family's database is empty, load the starter data + goat herd.
     // ONLY on a server-confirmed snapshot: a fresh device with no cache and a slow/blocked
     // connection gets an EMPTY fromCache snapshot first, and seeding on that duplicated the
