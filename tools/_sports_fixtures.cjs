@@ -332,4 +332,104 @@ const SUMMARIES = {
   "401770004": summaryFinal,
 };
 
-module.exports = { scoreboardLive, scoreboardIdle, SUMMARIES, TEAMS };
+// ---------------- fantasy (ESPN v3, league 705063) ----------------
+// Week 2 is CURRENT and live; week 1 is decided. Player actual/proj totals sum
+// exactly to the matchup's totalPointsLive/totalProjectedPointsLive so the
+// lineup math is self-consistent. Pro teams are chosen from the NFL scoreboard
+// fixture above so the game-state join has all four states to hit:
+// in (KC/BUF/PHI/DAL) · post (HOU/IND) · pre (GB/MIN/MIA/LV) · absent (bye).
+
+const FF_MEMBERS = [
+  { id: "{AAAA-1}", displayName: "pkreusser", firstName: "Peter", lastName: "K" },
+  { id: "{AAAA-2}", displayName: "mike", firstName: "Mike", lastName: "W" },
+  { id: "{AAAA-3}", displayName: "sarah", firstName: "Sarah", lastName: "P" },
+  { id: "{AAAA-4}", displayName: "ben", firstName: "Ben", lastName: "T" },
+];
+function ffTeam(id, name, abbrev, ownerGuid, wins, losses, pf, pa, seed) {
+  return {
+    id, abbrev, name,
+    logo: "https://g.espncdn.com/lm-app/lm-logos/team" + id + ".png",
+    owners: [ownerGuid],
+    playoffSeed: seed,
+    record: { overall: { wins, losses, ties: 0, pointsFor: pf, pointsAgainst: pa } },
+  };
+}
+let ffPlayerId = 5000;
+function ffEntry(slotId, name, posId, proTeamId, actual, proj, injury) {
+  const stats = [];
+  if (actual != null) stats.push({ scoringPeriodId: 2, statSourceId: 0, statSplitTypeId: 1, appliedTotal: actual });
+  if (proj != null) stats.push({ scoringPeriodId: 2, statSourceId: 1, statSplitTypeId: 1, appliedTotal: proj });
+  return {
+    lineupSlotId: slotId,
+    playerPoolEntry: {
+      appliedStatTotal: actual != null ? actual : 0,
+      player: {
+        id: ffPlayerId++, fullName: name, defaultPositionId: posId, proTeamId,
+        injuryStatus: injury || "ACTIVE", stats,
+      },
+    },
+  };
+}
+function ffRosterTeam1() {   // Battle Kreussers — actual Σ 87.4, proj Σ 112.6
+  return { entries: [
+    ffEntry(0, "Josh Allen", 1, 2, 22.4, 21.3),
+    ffEntry(2, "Isiah Pacheco", 2, 12, 9.8, 12.4),
+    ffEntry(2, "James Cook", 2, 2, 8.1, 11.0),
+    ffEntry(4, "A.J. Brown", 3, 21, 12.6, 13.8),
+    ffEntry(4, "Justin Jefferson", 3, 16, 0, 16.4, "QUESTIONABLE"),
+    ffEntry(6, "Travis Kelce", 4, 12, 11.2, 10.9),
+    ffEntry(23, "De'Von Achane", 2, 15, 0, 13.1),
+    ffEntry(16, "Texans D/ST", 16, 34, 12.0, 6.7),
+    ffEntry(17, "Harrison Butker", 5, 12, 11.3, 7.0),
+    ffEntry(20, "Saquon Barkley", 2, 21, 0, 15.2),
+    ffEntry(20, "Bijan Robinson", 2, 1, 0, 14.8),
+  ] };
+}
+function ffRosterTeam2() {   // Waffle House Warriors — actual Σ 76.2, proj Σ 98.1
+  return { entries: [
+    ffEntry(0, "Jalen Hurts", 1, 21, 19.9, 20.1),
+    ffEntry(2, "Jonathan Taylor", 2, 11, 14.2, 13.5),
+    ffEntry(2, "Aaron Jones", 2, 16, 0, 11.2),
+    ffEntry(4, "CeeDee Lamb", 3, 6, 15.4, 14.9),
+    ffEntry(4, "Tyreek Hill", 3, 15, 0, 15.8),
+    ffEntry(6, "Dallas Goedert", 4, 21, 7.6, 8.3),
+    ffEntry(23, "James Conner", 2, 22, 0, 9.1),
+    ffEntry(16, "Cowboys D/ST", 16, 6, 8.9, 2.2),
+    ffEntry(17, "Jake Elliott", 5, 21, 10.2, 3.0),
+    ffEntry(20, "Kenneth Walker III", 2, 25, 0, 12.6),
+  ] };
+}
+function ffLeagueDoc() {
+  ffPlayerId = 5000;
+  return {
+    id: 705063, seasonId: 2026, scoringPeriodId: 2,
+    status: { currentMatchupPeriod: 2, latestScoringPeriod: 2 },
+    settings: { name: "Kreusser Family League", size: 4 },
+    members: FF_MEMBERS,
+    teams: [
+      ffTeam(1, "Battle Kreussers", "BATT", "{AAAA-1}", 1, 0, 121.4, 98.0, 1),
+      ffTeam(2, "Waffle House Warriors", "WAFF", "{AAAA-2}", 0, 1, 98.0, 121.4, 3),
+      ffTeam(3, "Draft Punks", "DRFT", "{AAAA-3}", 1, 0, 110.2, 87.9, 2),
+      ffTeam(4, "End Zone Goats", "GOAT", "{AAAA-4}", 0, 1, 87.9, 110.2, 4),
+    ],
+    schedule: [
+      { id: 1, matchupPeriodId: 1, winner: "HOME",
+        home: { teamId: 1, totalPoints: 121.4 }, away: { teamId: 4, totalPoints: 87.9 } },
+      { id: 2, matchupPeriodId: 1, winner: "AWAY",
+        home: { teamId: 2, totalPoints: 98.0 }, away: { teamId: 3, totalPoints: 110.2 } },
+      { id: 3, matchupPeriodId: 2, winner: "UNDECIDED",
+        home: { teamId: 1, totalPoints: 0, totalPointsLive: 87.4, totalProjectedPointsLive: 112.6,
+          rosterForCurrentScoringPeriod: ffRosterTeam1() },
+        away: { teamId: 2, totalPoints: 0, totalPointsLive: 76.2, totalProjectedPointsLive: 98.1,
+          rosterForCurrentScoringPeriod: ffRosterTeam2() } },
+      { id: 4, matchupPeriodId: 2, winner: "UNDECIDED",
+        home: { teamId: 3, totalPoints: 0, totalPointsLive: 65.0, totalProjectedPointsLive: 101.4 },
+        away: { teamId: 4, totalPoints: 0, totalPointsLive: 55.1, totalProjectedPointsLive: 95.5 } },
+    ],
+    // Junk the slimmer must drop:
+    draftDetail: { drafted: true, picks: new Array(20).fill({ playerId: 1 }) },
+    transactions: [{ id: "t1" }],
+  };
+}
+
+module.exports = { scoreboardLive, scoreboardIdle, SUMMARIES, TEAMS, ffLeagueDoc };

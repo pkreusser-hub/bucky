@@ -62,6 +62,7 @@ async function probeEspnDirect() {
   check(sb, "events.0.competitions.0.competitors.0.homeAway");
   check(sb, "events.0.competitions.0.status.type.state");
   check(sb, "events.0.status.type.shortDetail");
+  checkProTeamMap(sb);
 
   const events = sb?.events || [];
   const live = events.find((e) => e?.status?.type?.state === "in");
@@ -112,6 +113,31 @@ async function probeEspnDirect() {
   }
 }
 
+// Must match sports.mjs's PRO_ABBREV (the fantasy join keys on these ids) — this
+// probe cross-checks the map against the ids ESPN's own scoreboard reports.
+const PRO_ABBREV = {
+  1: "ATL", 2: "BUF", 3: "CHI", 4: "CIN", 5: "CLE", 6: "DAL", 7: "DEN", 8: "DET",
+  9: "GB", 10: "TEN", 11: "IND", 12: "KC", 13: "LV", 14: "LAR", 15: "MIA", 16: "MIN",
+  17: "NE", 18: "NO", 19: "NYG", 20: "NYJ", 21: "PHI", 22: "ARI", 23: "PIT", 24: "LAC",
+  25: "SF", 26: "SEA", 27: "TB", 28: "WSH", 29: "CAR", 30: "JAX", 33: "BAL", 34: "HOU",
+};
+function checkProTeamMap(sb) {
+  let bad = 0, seen = 0;
+  for (const ev of (sb?.events || [])) {
+    for (const c of (ev?.competitions?.[0]?.competitors || [])) {
+      const id = Number(c?.id ?? c?.team?.id);
+      const ab = c?.team?.abbreviation;
+      if (!id || !ab) continue;
+      seen++;
+      if (PRO_ABBREV[id] && PRO_ABBREV[id] !== ab) {
+        console.log(`  ⚠ PRO_ABBREV drift: id ${id} is ${ab} on the scoreboard, map says ${PRO_ABBREV[id]}`);
+        bad++; flagged++;
+      }
+    }
+  }
+  console.log(`  ${bad ? "⚠" : "✓"}  pro-team id map vs the scoreboard's own ids (${seen} teams this week, ${bad} mismatches)`);
+}
+
 async function probeDeployedFunction() {
   console.log("\n== deployed sports.mjs at " + SITE + " ==");
   async function call(body) {
@@ -141,6 +167,27 @@ async function probeDeployedFunction() {
         check(gm, "drives.current.plays.0.text", "current drive plays");
       }
     }
+  }
+
+  // Fantasy: the private league through the deployed cookies.
+  const lg = await call({ action: "ff_league" });
+  if (lg && lg.ok === false && lg.reason === "fantasy-not-configured") {
+    console.log("  🔧 fantasy not configured yet — add ESPN_S2 + ESPN_SWID env vars in Netlify and redeploy.");
+  } else if (lg && lg.ok === false && lg.reason === "fantasy-auth-expired") {
+    console.log("  ⚠ fantasy cookies rejected by ESPN — refresh espn_s2 from a logged-in browser."); flagged++;
+  } else if (!lg || lg.ok !== true) {
+    console.log("  ⚠ ff_league failed: " + JSON.stringify(lg).slice(0, 200)); flagged++;
+  } else {
+    console.log(`  ok — "${lg.leagueName}" (${lg.teams.length} teams, week ${lg.week}), family team id ${lg.familyTeamId}`);
+    if (lg.familyTeamId == null) { console.log("  ⚠ no team named like \"battle kreussers\" — check the team name in the league."); flagged++; }
+    const fm = await call({ action: "ff_matchup" });
+    if (fm && fm.ok && fm.matchup) {
+      console.log(`  ok — ${fm.matchup.home.name} ${fm.matchup.home.points} vs ${fm.matchup.away.points} ${fm.matchup.away.name}`);
+      check(fm, "matchup.home.roster.0.name", "lineup entries");
+      check(fm, "matchup.home.roster.0.proj", "player projections");
+    } else if (fm && fm.ok) {
+      console.log("  (no matchup this week — pre-draft/offseason is fine)");
+    } else { console.log("  ⚠ ff_matchup failed: " + JSON.stringify(fm).slice(0, 200)); flagged++; }
   }
 }
 

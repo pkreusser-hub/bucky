@@ -21,8 +21,11 @@ const puppeteer = require("puppeteer-core");
 const ROOT = path.join(__dirname, "..");
 const UP_PORT = 8813;
 const SRV_PORT = 8814;
+const FF_PORT = 8815;
 const BASE = "http://127.0.0.1:" + SRV_PORT;
 const SHOTS = process.argv.includes("--shots");
+const GOOD_S2 = "TEST_S2_COOKIE_VALUE";
+const GOOD_SWID = "TEST-SWID-GUID";
 
 let pass = 0, fail = 0; const failures = [];
 function ok(cond, msg) {
@@ -66,11 +69,35 @@ function startUpstream() {
   return new Promise((resolve) => srv.listen(UP_PORT, "127.0.0.1", () => resolve(srv)));
 }
 
+// ---------------- fake ESPN fantasy upstream ----------------
+const ffUp = { mode: "normal", lastUrl: "", lastCookie: "", calls: 0 };
+function startFfUpstream() {
+  const srv = http.createServer((req, res) => {
+    ffUp.calls++;
+    ffUp.lastUrl = req.url;
+    ffUp.lastCookie = req.headers.cookie || "";
+    if (ffUp.mode === "http500") { res.writeHead(500); res.end("nope"); return; }
+    // A private league answers 401 unless BOTH cookies are the good pair.
+    const okAuth = ffUp.lastCookie.includes("espn_s2=" + GOOD_S2) && ffUp.lastCookie.includes("SWID={" + GOOD_SWID + "}");
+    if (!okAuth) { res.writeHead(401, { "Content-Type": "application/json" }); res.end('{"messages":["You are not authorized"]}'); return; }
+    if (!/\/apis\/v3\/games\/ffl\/seasons\/\d{4}\/segments\/0\/leagues\/705063/.test(req.url)) {
+      res.writeHead(404); res.end("{}"); return;
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(FIX.ffLeagueDoc()));
+  });
+  return new Promise((resolve) => srv.listen(FF_PORT, "127.0.0.1", () => resolve(srv)));
+}
+function ffAuthGood() { process.env.ESPN_S2 = GOOD_S2; process.env.ESPN_SWID = GOOD_SWID; }   // unbraced SWID on purpose
+function ffAuthWrong() { process.env.ESPN_S2 = "stale-cookie"; process.env.ESPN_SWID = GOOD_SWID; }
+function ffAuthNone() { delete process.env.ESPN_S2; delete process.env.ESPN_SWID; }
+
 // ---------------- in-process function ----------------
 let handler = null;
 async function initHandler() {
   process.env.BUCKY_NOTIFY_SECRET = "amenfarms";
   process.env.SPORTS_NFL_BASE_URL = "http://127.0.0.1:" + UP_PORT;
+  process.env.SPORTS_FF_BASE_URL = "http://127.0.0.1:" + FF_PORT;
   const mod = await import(pathToFileURL(path.join(ROOT, "netlify", "functions", "sports.mjs")).href);
   handler = mod.default;
 }
@@ -198,6 +225,94 @@ async function sectionA() {
   ok(r.headers.get("access-control-allow-origin") === "http://localhost:8080", "an allowed origin is echoed");
   r = await call({ secret: "amenfarms", action: "nfl_scoreboard" }, { origin: "https://evil.example" });
   ok(r.headers.get("access-control-allow-origin") === "https://amenfarms.netlify.app", "a foreign origin falls back to the site origin");
+}
+
+// ---------------- section E: the fantasy actions ----------------
+async function sectionFantasy() {
+  section("E · ff_* fantasy actions (private league, fake ESPN fantasy upstream)");
+
+  // no cookies configured -> honest reason, no upstream call
+  ffAuthNone();
+  let calls0 = ffUp.calls;
+  let r = await call({ secret: "amenfarms", action: "ff_league" });
+  ok(r.json && r.json.ok === false && r.json.reason === "fantasy-not-configured" && ffUp.calls === calls0,
+    "with no cookies set, ff_* answers fantasy-not-configured without calling ESPN");
+
+  ffAuthGood();
+  r = await call({ secret: "amenfarms", action: "ff_league" });
+  const lg = r.json;
+  ok(!!lg && lg.ok === true && lg.leagueName === "Kreusser Family League" && lg.teams.length === 4,
+    "ff_league returns the league with all 4 teams");
+  ok(ffUp.lastCookie.includes("espn_s2=" + GOOD_S2) && ffUp.lastCookie.includes("SWID={" + GOOD_SWID + "}"),
+    "the espn_s2 + SWID cookies go upstream, SWID braced even when stored bare");
+  ok(!r.text.includes(GOOD_S2), "the cookie value is never echoed to the client");
+  ok(new RegExp("/seasons/" + (new Date().getUTCMonth() < 2 ? new Date().getUTCFullYear() - 1 : new Date().getUTCFullYear()) + "/").test(ffUp.lastUrl),
+    "the current fantasy season is derived (Jan/Feb still belong to last season)");
+  ok(lg.familyTeamId === 1, "the family team resolves by name (\"battle kreussers\" → Battle Kreussers)");
+  const bat = lg.teams.find((t) => t.id === 1);
+  ok(!!bat && bat.wins === 1 && bat.losses === 0 && bat.pointsFor === 121.4 && bat.owner === "pkreusser",
+    "teams carry record/points-for/owner for the standings");
+  ok(!/draftDetail|transactions/.test(r.text), "draft/transaction junk never reaches the client");
+
+  await call({ secret: "amenfarms", action: "ff_league", year: 2025 });
+  ok(/\/seasons\/2025\//.test(ffUp.lastUrl), "a year override reaches the upstream URL");
+
+  // scoreboard: current week by default, live totals; past week decided
+  r = await call({ secret: "amenfarms", action: "ff_scoreboard" });
+  const sc = r.json;
+  ok(!!sc && sc.ok && sc.week === 2 && sc.matchups.length === 2, "ff_scoreboard defaults to the current matchup week");
+  const famM = sc.matchups.find((m) => m.home && m.home.teamId === 1);
+  ok(!!famM && famM.home.points === 87.4 && famM.home.live === true && famM.home.proj === 112.6
+    && famM.away.points === 76.2 && famM.away.record === "0-1",
+    "matchup sides carry live points, projections and records");
+  r = await call({ secret: "amenfarms", action: "ff_scoreboard", week: 1 });
+  ok(!!r.json && r.json.week === 1 && r.json.matchups.length === 2 && r.json.matchups[0].winner === "HOME"
+    && r.json.matchups[0].home.points === 121.4 && r.json.matchups[0].home.live === false,
+    "a past week shows decided matchups with final totals");
+
+  // the family matchup with lineups + the pro-game join
+  r = await call({ secret: "amenfarms", action: "ff_matchup" });
+  const fm = r.json;
+  ok(!!fm && fm.ok && fm.week === 2 && fm.anyProLive === true && fm.matchup
+    && fm.matchup.home.name === "Battle Kreussers" && fm.matchup.away.name === "Waffle House Warriors",
+    "ff_matchup finds the family matchup by default");
+  const ros = fm.matchup.home.roster;
+  const starters = ros.filter((p) => p.starter);
+  ok(starters.length === 9 && ros.length === 11 && starters[0].slot === "QB" && starters[0].name === "Josh Allen"
+    && starters[8].slot === "K" && ros[9].slot === "Bench",
+    "the lineup sorts QB→K then bench");
+  const allen = starters[0];
+  ok(allen.proTeam === "BUF" && allen.actual === 22.4 && allen.proj === 21.3
+    && allen.game && allen.game.state === "in" && /8:42/.test(allen.game.detail),
+    "a live player joins his real NFL game (BUF, in progress, clock)");
+  const jj = starters.find((p) => p.name === "Justin Jefferson");
+  ok(!!jj && jj.game && jj.game.state === "pre" && jj.injury === "QUESTIONABLE",
+    "a yet-to-play player carries kickoff state + injury tag");
+  const dst = starters.find((p) => p.slot === "D/ST");
+  ok(!!dst && dst.game && dst.game.state === "post", "a finished player's game reads post");
+  const conner = fm.matchup.away.roster.find((p) => p.name === "James Conner");
+  ok(!!conner && conner.game === null, "a player whose team isn't on the scoreboard (bye) has no game");
+  ok(fm.matchup.home.points === 87.4 && fm.matchup.home.proj === 112.6
+    && fm.matchup.away.points === 76.2 && fm.matchup.away.proj === 98.1,
+    "team totals + projected totals (Σ of starters) are exact");
+
+  r = await call({ secret: "amenfarms", action: "ff_matchup", teamId: 3 });
+  ok(!!r.json && r.json.matchup && r.json.matchup.home.teamId === 3 && r.json.matchup.away.teamId === 4,
+    "ff_matchup can target another team's matchup");
+  r = await call({ secret: "amenfarms", action: "ff_matchup", teamId: 99 });
+  ok(!!r.json && r.json.matchup && (r.json.matchup.home.teamId === 1 || r.json.matchup.away.teamId === 1),
+    "an unknown teamId falls back to the family team");
+
+  // failure modes
+  ffAuthWrong();
+  r = await call({ secret: "amenfarms", action: "ff_matchup" });
+  ok(!!r.json && r.json.ok === false && r.json.reason === "fantasy-auth-expired",
+    "a stale espn_s2 cookie becomes fantasy-auth-expired (ESPN 401)");
+  ffAuthGood();
+  ffUp.mode = "http500";
+  r = await call({ secret: "amenfarms", action: "ff_league" });
+  ok(!!r.json && r.json.ok === false && r.json.reason === "http-500", "an upstream 500 becomes ok:false http-500");
+  ffUp.mode = "normal";
 }
 
 // ---------------- static server ----------------
@@ -421,16 +536,22 @@ async function sectionWeekGame(browser) {
   ok(await page.evaluate(() => !document.getElementById("weekView").hidden && document.querySelectorAll("#wkGroups .gbtn").length === 5),
     "‹ Scores returns to the week list");
 
-  // stale-copy honesty: a failed refresh keeps the scores + shows the note
+  // stale-copy honesty: a failed refresh keeps the scores + shows the note.
+  // (Retry-driven: the route's own in-flight loadWeek can make a single explicit
+  // call a guarded no-op — poll until a failure actually lands.)
   upstream.mode = "http500";
-  await page.evaluate(() => window.__SPORTS__.loadWeek());
-  await sleep(250);
-  ok(await page.evaluate(() => !document.getElementById("wkStale").hidden && document.querySelectorAll("#wkGroups .gbtn").length === 5),
+  await page.waitForFunction(() => {
+    window.__SPORTS__.loadWeek();
+    return !document.getElementById("wkStale").hidden;
+  }, { polling: 250, timeout: 8000 });
+  ok(await page.evaluate(() => document.querySelectorAll("#wkGroups .gbtn").length === 5),
     "a failed refresh keeps the last scores and says so");
   upstream.mode = "normal";
-  await page.evaluate(() => window.__SPORTS__.loadWeek());
-  await sleep(250);
-  ok(await page.evaluate(() => document.getElementById("wkStale").hidden), "the stale note clears on the next good refresh");
+  await page.waitForFunction(() => {
+    window.__SPORTS__.loadWeek();
+    return document.getElementById("wkStale").hidden;
+  }, { polling: 250, timeout: 8000 });
+  ok(true, "the stale note clears on the next good refresh");
 
   // deep links: away-possession live game (mirrored field), pregame, final
   await page.evaluate(() => { location.hash = "game=401770002"; });
@@ -544,6 +665,102 @@ async function sectionQuietAndErrors(browser) {
   }
 }
 
+// ---------------- section F: the fantasy view ----------------
+async function sectionFantasyUI(browser) {
+  section("F · the Fantasy view (390×844)");
+  ffAuthGood();
+  {
+    const ctx = await browser.createBrowserContext();
+    const page = await newPage(ctx);
+    await page.goto(BASE + "/sports.html#fantasy", { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.waitForFunction(() => window.__SPORTS__ && window.__SPORTS__.state().hasFf, { timeout: 20000 });
+    await page.waitForFunction(() => window.__SPORTS__.state().hasFfLg, { timeout: 20000 });
+    const ff = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll(".ffrow")];
+      const firstRow = rows[0];
+      const standRows = [...document.querySelectorAll("table.stand tr")].slice(1);
+      const jj = rows.map((r) => r.textContent).find((t) => /Justin Jefferson/.test(t)) || "";
+      return {
+        view: window.__SPORTS__.state().view,
+        pillOn: document.getElementById("pillFf").classList.contains("on"),
+        league: (document.querySelector(".ffleague") || {}).textContent || "",
+        week: (document.querySelector(".ffweek") || {}).textContent || "",
+        famNames: [...document.querySelectorAll(".fftm")].slice(0, 2).map((t) => t.textContent),
+        famPts: [...document.querySelectorAll(".fftm .pts")].slice(0, 2).map((t) => t.textContent),
+        rowCount: rows.length,
+        firstSlot: firstRow ? firstRow.querySelector(".slot").textContent : "",
+        firstText: firstRow ? firstRow.textContent : "",
+        benchHead: rows.some((r) => r.classList.contains("benchhead")),
+        liveDots: document.querySelectorAll(".gdot.in").length,
+        projStyled: document.querySelectorAll(".ffp .nm b.projpts").length,
+        jjHasInjury: /Q/.test(jj) && /proj 16\.4/.test(jj),
+        others: (document.querySelectorAll(".card") .length && [...document.querySelectorAll(".card")].some((c) => /Around the league/.test(c.textContent) && /Draft Punks/.test(c.textContent))),
+        standCount: standRows.length,
+        standFirst: standRows.length ? standRows[0].textContent : "",
+        famBold: !!document.querySelector("table.stand td.fam"),
+        pollIv: window.__SPORTS__.state().pollIv,
+      };
+    });
+    ok(ff.view === "ff" && ff.pillOn, "#fantasy deep-links straight into the Fantasy view");
+    ok(ff.league === "Kreusser Family League" && /Week 2/.test(ff.week), "the league name + week head the page");
+    ok(/Battle Kreussers/.test(ff.famNames[0]) && /Waffle House Warriors/.test(ff.famNames[1]),
+      "the family matchup is pinned first, family side on top");
+    ok(ff.famPts[0] === "87.4" && ff.famPts[1] === "76.2", "live matchup totals are the big numbers");
+    ok(ff.rowCount === 12 && ff.firstSlot === "QB" && /Josh Allen/.test(ff.firstText) && /22\.4/.test(ff.firstText),
+      "lineups render slot by slot — QB first with live points");
+    ok(ff.benchHead, "the bench sits under its own divider");
+    ok(ff.liveDots >= 5, `in-play players carry live dots (${ff.liveDots})`);
+    ok(ff.projStyled >= 3 && ff.jjHasInjury, "yet-to-play players show muted projections (+ injury tag on Jefferson)");
+    ok(ff.others, "the rest of the league's matchups render");
+    ok(ff.standCount === 4 && /Battle Kreussers/.test(ff.standFirst) && ff.famBold,
+      "standings sort wins→points-for with the family row bold");
+    ok(ff.pollIv === 60000, "with NFL games live, fantasy polls every 60s");
+    await shot(page, "sports_ff_390.png");
+
+    // pill back to NFL
+    await page.click("#pillNfl");
+    await page.waitForFunction(() => window.__SPORTS__.state().view === "week" && window.__SPORTS__.state().hasSb, { timeout: 20000 });
+    ok(await page.evaluate(() => !document.getElementById("weekView").hidden && document.getElementById("pillNfl").classList.contains("on")),
+      "the NFL pill switches back to the week list");
+    await page.click("#pillFf");
+    await page.waitForFunction(() => window.__SPORTS__.state().view === "ff", { timeout: 20000 });
+    ok(true, "…and the Fantasy pill returns");
+    ok(page._errs.length === 0, "0 page errors on the fantasy view");
+    await ctx.close();
+  }
+
+  // Not configured: an honest setup card for Dad, nothing scary.
+  ffAuthNone();
+  {
+    const ctx = await browser.createBrowserContext();
+    const page = await newPage(ctx);
+    await page.goto(BASE + "/sports.html#fantasy", { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.waitForFunction(() => window.__SPORTS__ && window.__SPORTS__.state().ffState === "fantasy-not-configured", { timeout: 20000 });
+    const t = await page.evaluate(() => document.getElementById("ffBody").textContent);
+    ok(/one-time setup by Dad/.test(t) && /ESPN_S2/.test(t) && /ESPN_SWID/.test(t) && /705063/.test(t),
+      "an unconfigured league walks Dad through the cookie setup");
+    ok(await page.evaluate(() => window.__SPORTS__.state().pollScheduled === false),
+      "an unconfigured fantasy view doesn't poll");
+    ok(page._errs.length === 0, "0 page errors on the setup card");
+    await ctx.close();
+  }
+
+  // Expired cookie: names the fix.
+  ffAuthWrong();
+  {
+    const ctx = await browser.createBrowserContext();
+    const page = await newPage(ctx);
+    await page.goto(BASE + "/sports.html#fantasy", { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.waitForFunction(() => window.__SPORTS__ && window.__SPORTS__.state().ffState === "fantasy-auth-expired", { timeout: 20000 });
+    ok(await page.evaluate(() => /signed us out/.test(document.getElementById("ffBody").textContent)
+      && /ESPN_S2/.test(document.getElementById("ffBody").textContent)),
+      "an expired cookie names the exact fix");
+    ok(page._errs.length === 0, "0 page errors on the expired card");
+    await ctx.close();
+  }
+  ffAuthGood();
+}
+
 // ---------------- section D: desktop + index.html nav ----------------
 async function sectionDesktopIndex(browser) {
   section("D · desktop rail + the Sports area on index.html");
@@ -602,12 +819,14 @@ async function sectionDesktopIndex(browser) {
 // ---------------- run ----------------
 (async () => {
   const up = await startUpstream();
+  const ffSrv = await startFfUpstream();
   await initHandler();
   try {
     await sectionA();
+    await sectionFantasy();
   } catch (e) {
-    fail++; failures.push("section A crashed: " + e.message);
-    console.log("\n✗ SECTION A ERROR: " + (e && e.stack || e));
+    fail++; failures.push("server sections crashed: " + e.message);
+    console.log("\n✗ SERVER SECTION ERROR: " + (e && e.stack || e));
   }
 
   const srv = await startStatic();
@@ -615,13 +834,14 @@ async function sectionDesktopIndex(browser) {
   try {
     await sectionWeekGame(browser);
     await sectionQuietAndErrors(browser);
+    await sectionFantasyUI(browser);
     await sectionDesktopIndex(browser);
   } catch (e) {
     fail++; failures.push("suite crashed: " + e.message);
     console.log("\n✗ SUITE ERROR: " + (e && e.stack || e));
   } finally {
     await browser.close();
-    srv.close(); up.close();
+    srv.close(); up.close(); ffSrv.close();
   }
 
   console.log("\n" + "=".repeat(52));

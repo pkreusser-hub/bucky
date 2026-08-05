@@ -207,6 +207,49 @@
   .kick { font-size: 14px; color: var(--ink-2); font-weight: 600; line-height: 1.6; }
   .kick b { color: var(--ink); }
 
+  /* ---------- fantasy ---------- */
+  .ffleague { font-family: Fraunces, Georgia, serif; font-size: 17px; font-weight: 700; text-align: center; margin: 2px 0 2px; }
+  .ffweek { text-align: center; color: var(--muted); font-size: 12px; font-weight: 700; margin: 0 0 12px; }
+  .fftm { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-weight: 700; font-size: 14.5px; }
+  .fftm .rec { color: var(--muted); font-weight: 600; font-size: 11.5px; }
+  .fftm .pts { margin-left: auto; font-family: Fraunces, Georgia, serif; font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .fftm.losing, .fftm.losing .pts { color: var(--muted); }
+  .fftm .mono { width: 28px; height: 28px; font-size: 10px; }
+  .ffproj { display: flex; justify-content: space-between; color: var(--muted); font-size: 11.5px; font-weight: 600; padding: 2px 2px 8px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+  .ffbar { height: 5px; border-radius: 3px; background: var(--surface-2); overflow: hidden; display: flex; margin: 6px 0 8px; }
+  .ffbar i, .ffbar em { height: 100%; }
+  .ffbar i { background: var(--green); } .ffbar em { background: var(--red); }
+
+  .ffrow { display: grid; grid-template-columns: 1fr 42px 1fr; gap: 6px; padding: 6px 0; border-top: 1px solid var(--line); align-items: center; }
+  .ffrow:first-of-type { border-top: 0; }
+  .ffrow .slot { text-align: center; font-size: 10px; font-weight: 800; letter-spacing: .04em; color: var(--muted); }
+  .ffrow.benchhead { border-top: 1px solid var(--line); padding: 8px 0 2px; }
+  .ffrow.benchhead .slot { color: var(--muted); }
+  .ffrow.bench .ffp .nm { font-weight: 600; color: var(--ink-2); }
+  .ffp { min-width: 0; }
+  .ffp .nm { display: flex; align-items: baseline; gap: 6px; font-weight: 700; font-size: 12.5px; }
+  .ffp .nm span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .ffp .nm b { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 800; }
+  .ffp .nm b.projpts { color: var(--muted); font-weight: 600; }
+  .ffp .sub { display: flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--muted); font-weight: 600; white-space: nowrap; overflow: hidden; }
+  .ffp .sub .inj { color: var(--red); font-weight: 800; }
+  .gdot { width: 6px; height: 6px; border-radius: 50%; background: var(--line); flex: 0 0 auto; }
+  .gdot.in { background: var(--live); animation: pulse 1.6s infinite; }
+  .gdot.post { background: var(--muted); }
+  .ffp .sub .glive { color: var(--live); font-weight: 700; }
+
+  table.stand { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+  table.stand th { text-align: right; font-weight: 700; color: var(--muted); font-size: 10.5px; letter-spacing: .06em; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+  table.stand th:nth-child(2), table.stand td:nth-child(2) { text-align: left; width: 100%; }
+  table.stand td { padding: 6px 6px; text-align: right; border-bottom: 1px solid var(--line); }
+  table.stand tr:last-child td { border-bottom: 0; }
+  table.stand td.fam { font-weight: 800; }
+  .ffsetup { font-size: 13.5px; color: var(--ink-2); font-weight: 600; line-height: 1.55; }
+  .ffsetup b { color: var(--ink); }
+  .ffsetup ol { margin: 8px 0 0; padding-left: 20px; }
+  .ffsetup li { margin: 4px 0; }
+  .ffsetup code { background: var(--surface-2); border-radius: 6px; padding: 1px 6px; font-size: 12px; }
+
   /* Bottom Bucky nav — same pattern as games.html / farmgpt.html / weather.html:
      balanced two-row-on-phone grid (--bnav-cols set from JS). */
   #buckyNav {
@@ -296,13 +339,14 @@
 </header>
 
 <main>
+  <div class="pills" id="topPills">
+    <button type="button" class="pill on" id="pillNfl">🏈 NFL</button>
+    <button type="button" class="pill" id="pillFf">🏆 Fantasy</button>
+    <button type="button" class="upd" id="wkUpdated" title="Refresh now" aria-label="Refresh scores now"></button>
+  </div>
+
   <!-- ================= WEEK VIEW ================= -->
   <section id="weekView">
-    <div class="pills">
-      <span class="pill on">🏈 NFL</span>
-      <span class="pill" title="Fantasy league — coming soon">🏆 Fantasy · soon</span>
-      <button type="button" class="upd" id="wkUpdated" title="Refresh now" aria-label="Refresh scores now"></button>
-    </div>
     <div class="wkrow">
       <button type="button" class="wkbtn" id="wkPrev" aria-label="Previous week" disabled>‹</button>
       <span>
@@ -314,6 +358,13 @@
     <div id="wkStale" class="stalenote" hidden>Couldn’t refresh — showing the last scores loaded.</div>
     <div id="wkGroups">
       <div class="card"><div class="loadrow">Loading this week’s games…</div></div>
+    </div>
+  </section>
+
+  <!-- ================= FANTASY VIEW ================= -->
+  <section id="ffView" hidden>
+    <div id="ffBody">
+      <div class="card"><div class="loadrow">Loading the league…</div></div>
     </div>
   </section>
 
@@ -431,21 +482,29 @@
   var FN = "/.netlify/functions/sports";
   var TZ = "America/Chicago";
   var LS_SB = "bucky_nfl_sb";
+  var LS_FF_LG = "bucky_ff_league";
 
   // Poll cadences (ms). Live polling pauses whenever the tab is hidden and
   // refreshes immediately on return — see schedule()/visibilitychange below.
-  var IV = { gameLive: 15000, gamePre: 120000, sbLive: 25000, sbIdle: 300000 };
+  // Fantasy at 60s during NFL game windows: ESPN's own fantasy scoring lags
+  // real plays by ~30-60s, so faster polling buys nothing.
+  var IV = { gameLive: 15000, gamePre: 120000, sbLive: 25000, sbIdle: 300000, ffLive: 60000, ffIdle: 900000 };
 
   // ---------------- state ----------------
-  var view = "week";          // "week" | "game"
+  var view = "week";          // "week" | "ff" | "game"
   var gameId = null;
   var cur = { week: null, seasontype: null, year: null };   // null = server's current week
   var sb = null;              // latest scoreboard payload
   var sbTs = 0;
   var game = null;            // latest game payload
+  var ffM = null;             // latest ff_matchup payload (the family matchup + lineups)
+  var ffSb = null;            // latest ff_scoreboard payload (every matchup this week)
+  var ffLg = null;            // ff_league payload (standings; cached ~1h)
+  var ffState = "";           // "" | "ok" | "fantasy-not-configured" | "fantasy-auth-expired"
+  var ffTs = 0;
   var pollT = null;
   var lastIv = 0;
-  var wkLoading = false, gmLoading = false;
+  var wkLoading = false, gmLoading = false, ffLoading = false;
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -533,20 +592,26 @@
     if (view === "game") {
       if (gameLive()) iv = IV.gameLive;
       else if (game && game.status && game.status.state === "pre") iv = IV.gamePre;
+    } else if (view === "ff") {
+      if (ffState === "ok") iv = (ffM && ffM.anyProLive) ? IV.ffLive : IV.ffIdle;
     } else {
       iv = anyLive() ? IV.sbLive : IV.sbIdle;
     }
     if (iv) {
       lastIv = iv;
       pollT = setTimeout(function () {
-        if (view === "game") loadGame(true); else loadWeek(true);
+        if (view === "game") loadGame(true);
+        else if (view === "ff") loadFF(true);
+        else loadWeek(true);
       }, iv);
     }
   }
 
   document.addEventListener("visibilitychange", function () {
     if (document.hidden) { clearTimeout(pollT); pollT = null; lastIv = 0; }
-    else { if (view === "game") loadGame(true); else loadWeek(true); }
+    else if (view === "game") loadGame(true);
+    else if (view === "ff") loadFF(true);
+    else loadWeek(true);
   });
 
   // ---------------- data ----------------
@@ -586,6 +651,50 @@
       gmLoading = false;
       schedule();
     }
+  }
+
+  async function loadFF(quiet) {
+    if (ffLoading) return;
+    ffLoading = true;
+    try {
+      var res = await Promise.all([api("ff_matchup", {}), api("ff_scoreboard", {})]);
+      var m = res[0], s = res[1];
+      var gated = m && m.ok === false && (m.reason === "fantasy-not-configured" || m.reason === "fantasy-auth-expired");
+      if (gated) {
+        ffState = m.reason; ffM = null; ffSb = null;
+        if (view === "ff") paintFf();
+        return;
+      }
+      if (!m || m.ok === false || !s || s.ok === false) throw new Error((m && m.reason) || (s && s.reason) || "bad");
+      ffState = "ok"; ffM = m; ffSb = s; ffTs = Date.now();
+      if (!ffLg) loadFfLeague();   // standings, cached ~1h — fire and forget
+      if (view === "ff") paintFf();
+    } catch (e) {
+      if (view === "ff" && !ffM) paintFfError();
+      // With a stale copy on screen we keep it — next poll retries.
+    } finally {
+      ffLoading = false;
+      schedule();
+    }
+  }
+
+  async function loadFfLeague() {
+    try {
+      var c = JSON.parse(localStorage.getItem(LS_FF_LG) || "null");
+      if (c && c.data && c.data.ok && Date.now() - (c.ts || 0) < 3600000) {
+        ffLg = c.data;
+        if (view === "ff") paintFf();
+        return;
+      }
+    } catch (e) {}
+    try {
+      var d = await api("ff_league", {});
+      if (d && d.ok) {
+        ffLg = d;
+        try { localStorage.setItem(LS_FF_LG, JSON.stringify({ ts: Date.now(), data: d })); } catch (e) {}
+        if (view === "ff") paintFf();
+      }
+    } catch (e) {}
   }
 
   // ---------------- week rendering ----------------
@@ -984,6 +1093,141 @@
     $("gameBody").innerHTML = html;
   }
 
+  // ---------------- fantasy rendering ----------------
+  function kickShort(iso) {
+    try {
+      return new Date(iso).toLocaleString("en-US", { timeZone: TZ, weekday: "short", hour: "numeric", minute: "2-digit" });
+    } catch (e) { return ""; }
+  }
+  function ffTeamMono(t, cls) {
+    return teamMono({ abbrev: t.abbrev || t.name, color: "3f5c46", logo: t.logo }, cls);
+  }
+  function ffPlayerCell(p) {
+    if (!p) return '<div class="ffp"></div>';
+    var dot = "", txt = "bye", live = false;
+    if (p.game) {
+      if (p.game.state === "in") { dot = "in"; txt = p.game.detail || "LIVE"; live = true; }
+      else if (p.game.state === "post") { dot = "post"; txt = "final"; }
+      else { txt = kickShort(p.game.date); }
+    }
+    var started = !!(p.game && p.game.state !== "pre");
+    var pts, ptsCls = "";
+    if (started) pts = p.actual != null ? p.actual.toFixed(1) : "0.0";
+    else if (p.proj != null) { pts = "proj " + p.proj.toFixed(1); ptsCls = " projpts"; }
+    else { pts = "—"; ptsCls = " projpts"; }
+    return '<div class="ffp"><div class="nm"><span>' + esc(p.name) + '</span><b class="' + ptsCls.trim() + '">' + pts + "</b></div>"
+      + '<div class="sub"><span class="gdot ' + dot + '"></span>'
+      + (p.proTeam ? esc(p.proTeam) + " · " : "")
+      + (p.injury ? '<span class="inj">' + esc(p.injury.slice(0, 1)) + "</span> " : "")
+      + '<span class="' + (live ? "glive" : "") + '">' + esc(txt) + "</span></div></div>";
+  }
+  function ffTeamRow(side, other) {
+    var losing = other && side.points < other.points && (side.points || other.points);
+    return '<div class="fftm' + (losing ? " losing" : "") + '">' + ffTeamMono(side)
+      + '<span>' + esc(side.name) + ' <span class="rec">' + esc(side.record || "") + "</span></span>"
+      + '<span class="pts">' + (side.points != null ? side.points.toFixed(1) : "0.0") + "</span></div>";
+  }
+
+  function paintFf() {
+    $("wkUpdated").textContent = ffTs ? "updated " + new Date(ffTs).toLocaleTimeString("en-US", { timeZone: TZ, hour: "numeric", minute: "2-digit", second: "2-digit" }) + " ↻" : "";
+
+    var body = $("ffBody");
+    if (ffState === "fantasy-not-configured") {
+      body.innerHTML = '<div class="card"><div class="ffsetup"><b>🏆 Fantasy needs a one-time setup by Dad.</b> '
+        + "The league is private, so ESPN wants the login cookies from a signed-in browser:"
+        + "<ol><li>On a computer logged in to <b>espn.com</b>, open DevTools → Application → Cookies → espn.com.</li>"
+        + "<li>Copy the values of <code>espn_s2</code> and <code>SWID</code>.</li>"
+        + "<li>In Netlify → Site configuration → Environment variables, add <code>ESPN_S2</code> and <code>ESPN_SWID</code> with those values, then redeploy.</li></ol>"
+        + "League <b>705063</b> and team <b>Battle Kreussers</b> are already built in.</div></div>";
+      return;
+    }
+    if (ffState === "fantasy-auth-expired") {
+      body.innerHTML = '<div class="card"><div class="ffsetup"><b>ESPN signed us out.</b> The <code>espn_s2</code> cookie expires about once a year. '
+        + "Dad: copy a fresh <code>espn_s2</code> value from espn.com's cookies and update the <code>ESPN_S2</code> "
+        + "environment variable in Netlify, then redeploy. Scores come right back.</div></div>";
+      return;
+    }
+    if (!ffM || !ffSb) return;
+
+    var html = '<div class="ffleague">' + esc(ffM.leagueName || "Fantasy league") + "</div>"
+      + '<div class="ffweek">Week ' + esc(ffM.week || "") + "</div>";
+
+    var mu = ffM.matchup;
+    if (!mu) {
+      html += '<div class="card"><div class="loadrow">No matchup this week — lineups appear once the season kicks off. 🏈</div></div>';
+    } else {
+      var fam = mu.home.teamId === ffM.familyTeamId ? mu.home : mu.away;
+      var opp = fam === mu.home ? mu.away : mu.home;
+      var tot = (fam.points || 0) + (opp.points || 0);
+      var famW = tot ? Math.round(((fam.points || 0) / tot) * 100) : 50;
+      html += '<div class="card">' + ffTeamRow(fam, opp) + ffTeamRow(opp, fam)
+        + '<div class="ffbar"><i style="width:' + famW + '%"></i><em style="width:' + (100 - famW) + '%"></em></div>'
+        + '<div class="ffproj"><span>proj ' + (fam.proj != null ? fam.proj.toFixed(1) : "—") + "</span>"
+        + "<span>proj " + (opp.proj != null ? opp.proj.toFixed(1) : "—") + "</span></div>";
+      var famS = (fam.roster || []).filter(function (p) { return p.starter; });
+      var oppS = (opp.roster || []).filter(function (p) { return p.starter; });
+      var n = Math.max(famS.length, oppS.length);
+      for (var i = 0; i < n; i++) {
+        var slot = (famS[i] && famS[i].slot) || (oppS[i] && oppS[i].slot) || "";
+        html += '<div class="ffrow">' + ffPlayerCell(famS[i]) + '<span class="slot">' + esc(slot) + "</span>" + ffPlayerCell(oppS[i]) + "</div>";
+      }
+      var famB = (fam.roster || []).filter(function (p) { return !p.starter; });
+      var oppB = (opp.roster || []).filter(function (p) { return !p.starter; });
+      var nb = Math.max(famB.length, oppB.length);
+      if (nb) {
+        html += '<div class="ffrow benchhead"><span></span><span class="slot">BENCH</span><span></span></div>';
+        for (var b = 0; b < nb; b++) {
+          html += '<div class="ffrow bench">' + ffPlayerCell(famB[b]) + '<span class="slot">' + esc((famB[b] && famB[b].slot) || (oppB[b] && oppB[b].slot) || "") + "</span>" + ffPlayerCell(oppB[b]) + "</div>";
+        }
+      }
+      html += "</div>";
+    }
+
+    // The rest of the league's matchups.
+    var others = (ffSb.matchups || []).filter(function (m) {
+      return !m.home || !m.away || (m.home.teamId !== ffM.familyTeamId && m.away.teamId !== ffM.familyTeamId);
+    });
+    if (others.length) {
+      html += '<div class="card"><div class="seclabel"><b>Around the league</b></div>';
+      others.forEach(function (m) {
+        if (m.away) html += ffTeamRow(m.away, m.home);
+        if (m.home) html += ffTeamRow(m.home, m.away);
+        html += '<div style="border-top:1px solid var(--line);margin:4px 0"></div>';
+      });
+      html += "</div>";
+    }
+
+    // Standings (from the cached league doc).
+    if (ffLg && ffLg.teams && ffLg.teams.length) {
+      var rows = ffLg.teams.slice().sort(function (a, b) {
+        return (b.wins - a.wins) || (b.pointsFor - a.pointsFor);
+      });
+      html += '<div class="card"><div class="seclabel"><b>Standings</b></div><table class="stand">'
+        + "<tr><th>#</th><th></th><th>W-L</th><th>PF</th></tr>";
+      rows.forEach(function (t, i) {
+        var fam2 = t.id === ffM.familyTeamId;
+        html += "<tr><td>" + (i + 1) + '</td><td class="' + (fam2 ? "fam" : "") + '">' + esc(t.name)
+          + (t.owner ? ' <span style="color:var(--muted);font-weight:600;font-size:11px">' + esc(t.owner) + "</span>" : "") + "</td>"
+          + "<td>" + t.wins + "-" + t.losses + (t.ties ? "-" + t.ties : "") + "</td>"
+          + "<td>" + (t.pointsFor != null ? t.pointsFor.toFixed(1) : "—") + "</td></tr>";
+      });
+      html += "</table></div>";
+    }
+
+    body.innerHTML = html;
+  }
+
+  function paintFfError() {
+    $("ffBody").innerHTML =
+      '<div class="card"><div class="errcard">Couldn’t load the fantasy league right now. Check your connection and try again.'
+      + '<button type="button" id="ffRetry">Try again</button></div></div>';
+    var btn = $("ffRetry");
+    if (btn) btn.addEventListener("click", function () {
+      $("ffBody").innerHTML = '<div class="card"><div class="loadrow">Loading the league…</div></div>';
+      loadFF();
+    });
+  }
+
   function paintGameError() {
     $("gameBody").innerHTML =
       '<div class="card"><div class="errcard">Couldn’t load this game right now. Check your connection and try again.'
@@ -998,19 +1242,33 @@
   // ---------------- router ----------------
   function route() {
     var m = /game=(\d{5,12})/.exec(location.hash || "");
+    var ff = /^#fantasy/.test(location.hash || "");
+    $("topPills").hidden = !!m;
+    $("pillNfl").classList.toggle("on", !m && !ff);
+    $("pillFf").classList.toggle("on", !m && ff);
     if (m) {
       if (view !== "game" || gameId !== m[1]) { game = null; }
       view = "game"; gameId = m[1];
       $("weekView").hidden = true;
+      $("ffView").hidden = true;
       $("gameView").hidden = false;
       $("gameChip").innerHTML = "";
       $("gameMeta").textContent = "";
       if (!game) $("gameBody").innerHTML = '<div class="card"><div class="loadrow">Loading game…</div></div>';
       loadGame();
       window.scrollTo(0, 0);
+    } else if (ff) {
+      view = "ff"; gameId = null; game = null;
+      $("gameView").hidden = true;
+      $("weekView").hidden = true;
+      $("ffView").hidden = false;
+      if (ffState) paintFf();
+      loadFF(true);
+      window.scrollTo(0, 0);
     } else {
       view = "week"; gameId = null; game = null;
       $("gameView").hidden = true;
+      $("ffView").hidden = true;
       $("weekView").hidden = false;
       if (sb) paintWeek();
       loadWeek(true);
@@ -1026,7 +1284,11 @@
   });
   $("wkPrev").addEventListener("click", function () { stepWeek(-1); });
   $("wkNext").addEventListener("click", function () { stepWeek(1); });
-  $("wkUpdated").addEventListener("click", function () { loadWeek(); });
+  $("wkUpdated").addEventListener("click", function () { if (view === "ff") loadFF(); else loadWeek(); });
+  $("pillNfl").addEventListener("click", function () {
+    if (location.hash) location.hash = ""; else route();
+  });
+  $("pillFf").addEventListener("click", function () { location.hash = "fantasy"; });
 
   // ---------------- boot ----------------
   // Instant paint from the last cached default-week scoreboard, then refresh.
@@ -1042,12 +1304,14 @@
         view: view, gameId: gameId, cur: cur,
         hasSb: !!sb, hasGame: !!game,
         anyLive: anyLive(), gameLive: gameLive(),
+        ffState: ffState, hasFf: !!ffM, hasFfLg: !!ffLg,
+        ffAnyLive: !!(ffM && ffM.anyProLive),
         pollScheduled: !!pollT, pollIv: lastIv,
         events: sb ? sb.events.length : 0,
       };
     },
     fieldPos: fieldPos, firstDownPos: firstDownPos, fieldX: fieldX,
-    loadWeek: loadWeek, loadGame: loadGame, route: route,
+    loadWeek: loadWeek, loadGame: loadGame, loadFF: loadFF, route: route,
     setIntervals: function (o) { Object.assign(IV, o || {}); },
   };
 

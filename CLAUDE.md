@@ -8075,11 +8075,31 @@ links 12→13, navRows(=columns) 6→7, rail 12→13; `_verify-beacon-safety.cjs
 sports.html (`data-feature="sports"` beacon on the page). chore-care needed NO restage (its
 counts are per-gated-user and float).
 
+**FANTASY (stage 3, same day)**: `ff_league` / `ff_scoreboard` / `ff_matchup` proxy the
+fantasy v3 API (lm-api-reads.fantasy.espn.com) for the family's PRIVATE league — **league
+705063, team "Battle Kreussers", both baked as defaults** (env overrides ESPN_LEAGUE_ID /
+ESPN_TEAM_NAME / ESPN_SEASON). Private = cookies: **ESPN_S2 + ESPN_SWID env vars** (from a
+logged-in espn.com browser's cookies; SWID braces added server-side if missing; espn_s2
+expires ~yearly). Cookies are read AT CALL TIME (env update + redeploy = fixed, no code
+change), sent upstream only, never echoed. Missing → `fantasy-not-configured`; ESPN 401/403
+→ `fantasy-auth-expired` — the page renders a Dad-facing setup/fix card for each, and the
+suite pins both. `ffSeason()`: Jan/Feb belong to the PREVIOUS league year. `ff_matchup`
+returns both lineups (slot-sorted via SLOT_ORDER, actual + projected from the player stats
+array: statSourceId 0=actual 1=projection at the scoringPeriodId) AND joins each player's
+REAL NFL game state by fetching the site scoreboard — **fantasy proTeamId and the site
+API's team ids are the same id space** (PRO_ABBREV map in sports.mjs; the probe cross-checks
+it against the live scoreboard's own id↔abbrev pairs). Page: 🏆 Fantasy pill / `#fantasy`
+hash → family matchup pinned with side-by-side lineups (live dots, muted "proj N" until a
+player's game starts, injury letter), Around-the-league matchups, standings from a ~1h-cached
+`ff_league` (localStorage `bucky_ff_league`). Poll 60s during NFL game windows (ESPN's own
+fantasy scoring lags ~30-60s — faster buys nothing), 15min otherwise.
+
 **⚠ NOT LIVE-VERIFIED**: ESPN hosts are egress-blocked from this sandbox, so
 `_sports_fixtures.cjs` is authored from documented shapes, not captured. POST-DEPLOY:
 `node tools/_probe-sports.mjs --site https://amenfarms.netlify.app` from a normal machine —
-it checks every field the app reads (run once during a LIVE game for the situation/drive
-fields) and flags drift. The slimmer is defensive, so drift = missing sections, not crashes.
+it checks every field the app reads incl. the fantasy league + pro-team map (run once during
+a LIVE game for the situation/drive fields) and flags drift. The slimmer is defensive, so
+drift = missing sections, not crashes. Suite now **138/138**.
 
 **TEST GOTCHAS (new)**: (1) seeding `choreUser="Dad"` makes index.html AUTO-PROMPT for the
 Dad PIN on load — a native `prompt()` wedges headless Chrome silently (no error, no render);
@@ -8091,5 +8111,6 @@ firebase-ish hosts. (3) In THIS cloud env suites' `channel:"chrome"` needs
 /opt/google/chrome/chrome` once per container; `_verify-sports.cjs` itself falls back to
 `/opt/pw-browsers/chromium` (or `BUCKY_CHROME`) automatically.
 
-**DEFERRED** (per plan): fantasy (needs the user's league id + espn_s2/SWID cookies →
-`ff_*` actions), home snapshot cards, status.html registry rows for ESPN.
+**DEFERRED** (per plan): home snapshot cards (stage 4), status.html registry rows for ESPN
+(free NFL row + a cookie-configured fantasy row surfacing `fantasy-auth-expired` on the ops
+page).
