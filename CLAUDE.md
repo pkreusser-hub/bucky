@@ -7985,3 +7985,52 @@ its own evidence under `farmstead_rehost_*`.
 comes back paused (honest, and the speed rail is right there); the picker lists slots from THIS
 device only, since saves are `localStorage` and always have been; and a save older than the
 current `FSC.VERSION` is still refused outright rather than migrated.
+
+---
+
+# 🌾 THE FARMSTEAD RE-SKIN (2026-08-05)
+
+The user brought a redesign of index.html built by Claude Design and asked for it across
+Bucky. Warm cream `#f4f1e8` + pine green `#3f5c46` + clay `#b8552f`, **Source Sans 3** body
+with **Fraunces** as the display serif (greeting, wordmark, dad joke), SVG line icons
+replacing the emoji nav, and the bottom bar back to **ONE row** of twelve.
+
+## Why adopting it was safe
+The dropped file was a whole 11,090-line copy of index.html — the same trap as the stale
+`story-local` branch. It was diffed against main BEFORE anything was copied: **75 changed
+lines in 6 hunks**, and every recent feature marker (activity beacon, news topics, meals/AI
+nav areas, chore rota, side rail) present at identical counts. A surgical re-skin, not a
+fork. Implemented as a self-contained `<style id="farmstead-theme">` OVERRIDE block plus a
+`NAV_PATHS` map — which is exactly what made it portable to the other five pages verbatim.
+
+## Three real defects found by LOOKING, not by the suites
+1. **"Chores" ellipsised to "Cho…"** — twelve areas in one row is 27.8px a button at 390px.
+   Fixed with a `max-width:460px` rule giving the row its gutters back (gap 1px, padding 3px,
+   label 8px) → 31.1px, which is what the eleven-area profiles already fit cleanly. Clean at
+   360px too.
+2. **The desktop rail was a navy→green gradient** on all five propagated pages: `#0d3d76` is
+   a HARDCODED first stop that redefining `--navy` cannot reach. The porting agent's own
+   check ("background contains no rgb(35,51,87)") passed straight over it, because that is a
+   *different* navy. Caught by rendering every page and walking the DOM for any element still
+   PAINTING a navy computed value — `scratchpad/coloraudit.cjs`, the reliable way to ask
+   "what won the cascade". Root-fixed to `#4a6b52`.
+3. **The active nav pill** was pale-sage-with-dark-text on the five pages vs index.html's
+   solid green pill with cream text. Normalized.
+Also fixed: index.html's OWN desktop rail was the last place in the app still rendering emoji.
+
+## Suite restaging, all dated in place
+`_verify-chore-care.cjs` asserted "two rows / buttons ≥60px" — that described the PREVIOUS
+design, so it is superseded, not weakened: it now asserts ONE row, **zero clipped labels**
+(the check that caught defect 1), and a tappable floor. `_verify-activity.cjs` had the same
+two-row assumption (`navRows === 6` → `12`).
+
+## A PRE-EXISTING failure this uncovered, unrelated to the re-skin
+`_verify-fitness.cjs` was failing on clean main — proven by running it against a reverted
+index.html before touching anything. Copying Eleanor's plan to everyone (2026-08-03) gave
+Wednesday an 11:08 workout and Friday 11:28, outside the 9:00–11:00 `FIT_BAND`. **A latent,
+day-of-the-week-dependent failure** that only shows on Wed/Fri. The plan is the intent, so
+the band moved to 9:00–12:00 — in the product (`FIT_BAND`) as well as the suite, since the
+builder's meter was painting two real training days amber for being what Dad wrote.
+
+Battery green: chore-care 49 · news 200 · fitness 253 · activity 147 · health 208 ·
+beacon-safety 90. Shots: `shots/skin_*.png` (six pages, phone + desktop).

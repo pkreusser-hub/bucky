@@ -837,7 +837,10 @@ async function sectionUiLayout(browser) {
       clientW: document.documentElement.clientWidth,
     };
   });
-  ok(d.railShown && d.railItems === 12, "the navy rail is present with all 12 areas at 1280px");
+  // Description only, not a check: the rail recolored navy → pine green in the 2026-08-05
+  // Farmstead re-skin (see status.html's farmstead-theme-page block) — the assertion itself
+  // was always about item count/visibility, never color, so it's unchanged.
+  ok(d.railShown && d.railItems === 12, "the rail is present with all 12 areas at 1280px");
   ok(d.railActive === 0, "no rail item is marked active on this page either");
   ok(!d.navShown, "the bottom bar is hidden when the rail is up");
   ok(d.scrollW <= d.clientW + 1, "no horizontal page scroll at 1280px");

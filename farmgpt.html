@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<meta name="theme-color" content="#233357" />
+<meta name="theme-color" content="#3f5c46" />
 <title>BUCKY — FarmGPT</title>
 <link rel="icon" href="bucky.png" />
-<!-- Roboto so desktop renders in the same face Android does (iOS keeps San Francisco via -apple-system) — mirrors index.html -->
+<!-- Farmstead redesign: Source Sans 3 body + Fraunces display, exact link from index.html -->
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;600;700;800;900&display=swap" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700;800&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" />
 <link rel="apple-touch-icon" href="bucky.png" />
 <!-- markdown rendering for research mode (model output is still sanitized before render) -->
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
@@ -37,7 +37,7 @@
      whole body (including the in-flow bottom nav) up when you drag past an inner scroller's edge. */
   html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, Roboto, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-family: "Source Sans 3", -apple-system, BlinkMacSystemFont, Roboto, "Segoe UI", Helvetica, Arial, sans-serif;
     background: var(--bg); color: var(--ink);
     display: flex; flex-direction: column;
     -webkit-font-smoothing: antialiased;
@@ -546,7 +546,7 @@
     #sidenav {
       display: flex; flex-direction: column;
       position: fixed; top: 0; bottom: 0; left: 0; width: var(--sidenav-w); z-index: 30;
-      background: linear-gradient(180deg, #0d3d76 0%, var(--green) 55%, var(--green-d) 100%);
+      background: linear-gradient(180deg, #4a6b52 0%, var(--green) 55%, var(--green-d) 100%);
       border-right: 1px solid rgba(255,255,255,.10);
       box-shadow: 2px 0 18px rgba(35,51,87,.14);
       overflow-y: auto; overscroll-behavior: contain;
@@ -595,6 +595,88 @@
      screen, for the Dad-only dashboard at activity.html. Deferred and fully self-guarded —
      if it fails to load, this page behaves exactly as it did before it existed. -->
 <script src="/assets/activity.js" data-feature="farmgpt" defer></script>
+<style id="farmstead-theme">
+  /* ===== Farmstead redesign (2a): warm cream + pine green, Fraunces display,
+     line-icon single-row nav, tighter density. Overrides only — base rules untouched. ===== */
+  :root {
+    --bg: #f4f1e8; --card: #fffdf8; --ink: #26332b; --muted: #8b9184;
+    --green: #3f5c46; --green-d: #2f4634; --red: #b8552f;
+    --line: #e3ded0; --done: #eee9dc;
+    --shadow: 0 1px 2px rgba(38,51,43,.06), 0 4px 12px rgba(38,51,43,.05);
+    --ink-2: #4b584e; --line-2: #eee9dc; --surface-2: #efeadd;
+    --navy-soft: #e6e9e2; --red-soft: #f3e4dc;
+    --good: #3e7d51; --good-d: #2f6440; --good-soft: #e4eee6;
+    --amber: #c08a3e; --amber-soft: #f5ecdb;
+    --purple: #7c6aa6; --purple-soft: #ece8f4;
+  }
+  body { font-family: "Source Sans 3", -apple-system, BlinkMacSystemFont, Roboto, "Segoe UI", Helvetica, Arial, sans-serif; }
+  /* Header: light, wordmark in Fraunces green */
+  header { background: var(--bg); color: var(--ink); border-bottom: 1px solid var(--line); box-shadow: none; }
+  .titlerow h1 { font-family: Fraunces, Georgia, serif; font-weight: 700; font-size: 18px; color: var(--green); }
+  .subtitle { color: var(--muted); }
+  .titlerow .who, .bell { background: var(--card); border: 1px solid var(--line); color: var(--ink); }
+  .bell-badge { border-color: var(--bg); background: var(--red); }
+  .status { color: var(--muted); opacity: 1; }
+  /* Bottom nav: one row of small line-icon buttons */
+  #bnav { background: rgba(255,253,248,.94); }
+  .bnav-btn { padding: 6px 0 4px; border-radius: 11px; }
+  .bnav-btn .bico { font-size: 18px; filter: none; display: flex; align-items: center; justify-content: center; height: 19px; }
+  .bnav-btn.active .bico { filter: none; transform: none; }
+  .bnav-btn.active { color: #fffdf8; background: var(--green); }
+  .bnav-btn .blabel { font-size: 8.5px; letter-spacing: .1px; }
+  /* Twelve areas in ONE row is 27.8px a button at 390px, and "Chores" ellipsised to "Cho…"
+     for anyone who sees all twelve (Dad). Give the row its gutters back and drop the label a
+     half-step: 31.1px a button, which is what the eleven-area profiles already fit cleanly.
+     Measured, not guessed — see the nav-fit checks in _verify-chore-care.cjs. */
+  @media (max-width: 460px) {
+    #bnav { gap: 2px 1px; padding-left: 3px; padding-right: 3px; }
+    .bnav-btn .blabel { font-size: 8px; letter-spacing: 0; }
+  }
+  @media (min-width: 700px) { #bnav { grid-template-columns: repeat(var(--bnav-all, 12), minmax(0, 96px)); } }
+  /* FAB in clay */
+  .fab { box-shadow: 0 6px 18px rgba(184,85,47,.4); }
+  /* Home: flat greeting (no hero card), Fraunces greeting, tighter stack */
+  .home2 { gap: 9px; }
+  .home2 .hero { background: transparent; border: 0; box-shadow: none; border-radius: 0; padding: 6px 4px 2px; }
+  .home2 .hero h1 { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 24px; letter-spacing: 0; }
+  .home2 .calwidget, .home2 .carewidget, .home2 .wxcard, .home2 .stockcard, .home2 .fitcard { padding: 10px 14px; border-radius: 16px; }
+  .home2 .fitcard { margin-bottom: 0; }
+  .home2 .card2 { border-radius: 16px; }
+  .home2 .chd { padding: 11px 14px 3px; }
+  .home2 .crow { padding: 9px 14px; }
+  .home2 .joke2 { background: transparent; border: 0; box-shadow: none; padding: 4px 14px 2px; text-align: center; }
+  .home2 .joke2 .q, .home2 .joke2 .a { font-family: Fraunces, Georgia, serif; font-style: italic; font-weight: 500; display: inline; font-size: 13px; color: var(--muted); }
+  .home2 .joke2 .q::after { content: " "; }
+  .home2 .joke2 .lab { display: none; }
+  .home2 .joke2 .again { display: block; margin: 4px auto 0; }
+  /* Section headers / sub-nav quieter */
+  .subseg { border-radius: 999px; }
+  .subseg button { border-radius: 999px; }
+</style>
+<!-- Page-specific: this page duplicates its own nav/header CSS (no shared module in this
+     repo — house convention) rather than index.html's #bnav/.bnav-btn/.home2 markup, so the
+     shared block above leaves its own header/nav selectors untouched. These overrides carry
+     the same redesign onto THIS page's #bar/#buckyNav/#sidenav structure. -->
+<style id="farmstead-theme-page">
+  :root { --navy: #3f5c46; --navy-d: #2f4634; }
+  header {
+    background: var(--green); color: #fff;
+    border-bottom: 0; box-shadow: var(--shadow);
+  }
+  .sn-brand .sn-name { font-family: Fraunces, Georgia, serif; }
+  /* .sn-item .sn-ico matches the base rule's own specificity (2 classes) so source order
+     decides — this block is appended last. body #buckyNav... adds an element to beat the
+     #buckyNav CSS this page defines in a SEPARATE <style> tag further down the document
+     (after </head>), which would otherwise win on source order alone despite equal
+     specificity — see the note on _skin_check.cjs's "zero clipped nav labels" finding. */
+  .sn-item .sn-ico { filter: none; display: flex; align-items: center; justify-content: center; }
+  body #buckyNav a .bico { filter: none; display: flex; align-items: center; justify-content: center; height: 19px; }
+  body #buckyNav a.active { color: #fffdf8; background: var(--green); }   /* solid pill, matching index.html */
+  @media (max-width: 460px) {
+    body #buckyNav { gap: 2px 1px; padding-left: 3px; padding-right: 3px; }
+    body #buckyNav a .blabel { font-size: 8.5px; letter-spacing: 0; }
+  }
+</style>
 </head>
 <body>
 
@@ -903,31 +985,52 @@
   function seesMeals(){ return MEAL_USERS.indexOf(me) >= 0; }
   function seesFitness(){ return FITNESS_USERS.indexOf(me) >= 0; }
 
+  // Farmstead redesign: line icons for the nav (24x24 stroke paths), replacing emoji.
+  // Copied verbatim from index.html's NAV_PATHS — keep in sync.
+  var NAV_PATHS = {
+    home:  "M3 11 L12 4 L21 11 M5 10 V20 H19 V10",
+    plan:  "M4 6 H20 V20 H4 Z M4 10 H20 M8 4 V8 M16 4 V8",
+    meals: "M4 12 A8 8 0 1 0 20 12 A8 8 0 1 0 4 12 M9 12 A3 3 0 1 0 15 12 A3 3 0 1 0 9 12",
+    tasks: "M4 12 A8 8 0 1 0 20 12 A8 8 0 1 0 4 12 M8.5 12.5 L11 15 L15.5 9.5",
+    fit:   "M7 8 V16 M4 10 V14 M17 8 V16 M20 10 V14 M7 12 H17",
+    news:  "M5 5 H19 V19 H5 Z M8 9 H16 M8 12 H16 M8 15 H13",
+    wo:    "M4 9 H20 V19 H4 Z M9 9 V7 A3 3 0 0 1 15 7 V9 M4 13 H20",
+    shop:  "M6 8 H18 L17 20 H7 Z M9 8 V6 A3 3 0 0 1 15 6 V8",
+    bank:  "M12 4 V20 M16 7 H10 A2.5 2.5 0 0 0 10 12 H14 A2.5 2.5 0 0 1 14 17 H8",
+    farm:  "M4 11 L12 4 L20 11 V20 H4 Z M10 20 V14 H14 V20",
+    gpt:   "M12 3 L14 10 L21 12 L14 14 L12 21 L10 14 L3 12 L10 10 Z",
+    play:  "M8 6 L18 12 L8 18 Z",
+  };
+  function svgIcon(gid){
+    return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + NAV_PATHS[gid] + '"/></svg>';
+  }
+
   var NAV_GROUPS = [
-    { ico:"🏠", name:"Home",  href:"index.html#dashboard" },
-    { ico:"📅", name:"Plan",  href:"index.html#calendar" },
-    { ico:"🍽️", name:"Meals", href:"index.html#mealplan", gate:seesMeals },
-    { ico:"✅", name:"Chores",href:"index.html#chores" },
-    { ico:"💪", name:"Fit",   href:"index.html#fitness",  gate:seesFitness },
-    { ico:"📰", name:"News",  href:"index.html#news" },
-    { ico:"🛠️", name:"Jobs",  href:"index.html#workorders" },
-    { ico:"🛒", name:"Shop",  href:"index.html#shopping" },
-    { ico:"💰", name:"Bank",  href:"index.html#farmbank", gate:seesBank },
-    { ico:"🐐", name:"Farm",  href:"index.html#goathooves" },
-    { ico:"🌾", name:"AI",    href:null, active:true },   // this page
-    { ico:"🎮", name:"Play",  href:"index.html#play" },
+    { gid:"home",  ico:"🏠", name:"Home",  href:"index.html#dashboard" },
+    { gid:"plan",  ico:"📅", name:"Plan",  href:"index.html#calendar" },
+    { gid:"meals", ico:"🍽️", name:"Meals", href:"index.html#mealplan", gate:seesMeals },
+    { gid:"tasks", ico:"✅", name:"Chores",href:"index.html#chores" },
+    { gid:"fit",   ico:"💪", name:"Fit",   href:"index.html#fitness",  gate:seesFitness },
+    { gid:"news",  ico:"📰", name:"News",  href:"index.html#news" },
+    { gid:"wo",    ico:"🛠️", name:"Jobs",  href:"index.html#workorders" },
+    { gid:"shop",  ico:"🛒", name:"Shop",  href:"index.html#shopping" },
+    { gid:"bank",  ico:"💰", name:"Bank",  href:"index.html#farmbank", gate:seesBank },
+    { gid:"farm",  ico:"🐐", name:"Farm",  href:"index.html#goathooves" },
+    { gid:"gpt",   ico:"🌾", name:"AI",    href:null, active:true },   // this page
+    { gid:"play",  ico:"🎮", name:"Play",  href:"index.html#play" },
   ];
   var shown = NAV_GROUPS.filter(function (g) { return !g.gate || g.gate(); });
 
-  // Mobile/tablet in-flow bar — balanced two rows on a phone (same --bnav-cols
-  // technique as index.html's buildBottomNav).
+  // Mobile/tablet in-flow bar — Farmstead redesign: ONE row, every area one tap
+  // away (was Math.ceil(shown.length/2) two-row balancing; see the max-width:460px
+  // tightening in the farmstead-theme-page style block for the fit).
   var bnav = document.getElementById("buckyNav");
-  bnav.style.setProperty("--bnav-cols", Math.ceil(shown.length / 2));
+  bnav.style.setProperty("--bnav-cols", shown.length);
   bnav.style.setProperty("--bnav-all", shown.length);
   shown.forEach(function (g) {
     var a = document.createElement("a");
     if (g.href) a.href = g.href; else a.href = "javascript:void(0)";
-    var ico = document.createElement("span"); ico.className = "bico"; ico.textContent = g.ico;
+    var ico = document.createElement("span"); ico.className = "bico"; ico.innerHTML = svgIcon(g.gid);
     var lbl = document.createElement("span"); lbl.className = "blabel"; lbl.textContent = g.name;
     a.append(ico, lbl); a.title = g.name; a.setAttribute("aria-label", g.name);
     if (g.active) a.className = "active";
@@ -950,7 +1053,7 @@
     a.className = "sn-item" + (g.active ? " active" : "");
     if (g.href) a.href = g.href; else a.href = "javascript:void(0)";
     a.setAttribute("aria-label", g.name);
-    var ico = document.createElement("span"); ico.className = "sn-ico"; ico.textContent = g.ico;
+    var ico = document.createElement("span"); ico.className = "sn-ico"; ico.innerHTML = svgIcon(g.gid);
     var lbl = document.createElement("span"); lbl.className = "sn-label"; lbl.textContent = g.name;
     a.append(ico, lbl);
     list.appendChild(a);

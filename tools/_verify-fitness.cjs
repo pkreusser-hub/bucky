@@ -37,7 +37,10 @@ const section = (t) => console.log("\n=== " + t + " ===");
 
 /* Mirrors of the app's own constants — deliberately re-implemented here so the suite
    checks the DATA independently instead of asking the app to grade its own homework. */
-const REP_SECS = 3, MIN_REP_SECS = 20, BLOCK_CARD_S = 5, BAND = [540, 660];
+// 2026-08-05: band widened 660 -> 720 to match the product (FIT_BAND) and the real shipped
+// plan, whose Wednesday is 11:08 and Friday 11:28. The old ceiling made this suite fail on
+// exactly those two weekdays — a latent, day-dependent failure.
+const REP_SECS = 3, MIN_REP_SECS = 20, BLOCK_CARD_S = 5, BAND = [540, 720];
 const EXCLUDED = [
   "Band_Good_Morning", "Band_Good_Morning_Pull_Through", "Dumbbell_Clean",
   "Hyperextensions_With_No_Hyperextension_Bench", "Isometric_Neck_Exercise_-_Front_And_Back",
@@ -238,7 +241,7 @@ async function sectionApp(browser){
     // block heading is where the grouping is named. Either is fine; neither is not.
     ok(today.chips.length >= 1 || /\S/.test(today.blockHead || ""),
        `the day's blocks are labelled (${today.chips.join(" ") || (today.blockHead || "").trim()})`);
-    ok(today.secs >= 540 && today.secs <= 660, `today is a ~10-minute workout (${today.secs}s)`);
+    ok(today.secs >= BAND[0] && today.secs <= BAND[1], `today is within the workout band (${today.secs}s)`);
     ok(today.thumbs.every((s) => /assets\/fitness\/img\/.+\/0\.webp$/.test(s)), "every row shows its exercise's own frame");
   } else {
     ok(!today.hasStart, "a rest day offers no Start button");
