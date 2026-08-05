@@ -22,6 +22,21 @@ jobs:
           code=$(curl -sS -o /tmp/sb2.json -w "%{http_code}" \
             "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard" || echo FAIL)
           echo "ESPN (default curl UA) HTTP $code, $(wc -c < /tmp/sb2.json) bytes"
+      - name: espn UA variants
+        run: |
+          for ua in "EMPTY" "node" "bucky-family-app/1.0"; do
+            if [ "$ua" = "EMPTY" ]; then
+              code=$(curl -sS -o /tmp/v.json -w "%{http_code}" -H "User-Agent:" \
+                "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard" || echo FAIL)
+            else
+              code=$(curl -sS -o /tmp/v.json -w "%{http_code}" -A "$ua" \
+                "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard" || echo FAIL)
+            fi
+            echo "UA [$ua] -> HTTP $code, $(wc -c < /tmp/v.json) bytes"
+          done
+          code=$(curl -sS -o /tmp/sum.json -w "%{http_code}" -A "bucky-family-app/1.0" \
+            "https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=$(python3 -c "import json;d=json.load(open('/tmp/sb2.json'));print(d['events'][0]['id'])" 2>/dev/null || echo 401772510)" || echo FAIL)
+          echo "summary with bucky UA -> HTTP $code, $(wc -c < /tmp/sum.json) bytes"
       - name: live sports function
         run: |
           code=$(curl -sS -o /tmp/fn.json -w "%{http_code}" -X POST \
