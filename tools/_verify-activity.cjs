@@ -840,11 +840,11 @@ async function sectionLayout(browser, mock) {
   ok(!m.railShown, "the desktop rail is hidden on a phone");
   // RESTAGED 2026-08-05 (again) — one row of twelve made the icons too small (user ruling
   // after a day's use), so the nav is back to a balanced TWO-row bar (--bnav-cols =
-  // Math.ceil(shown.length/2) = 6, --bnav-all = shown.length = 12). navRows is really a
-  // COLUMN count read off gridTemplateColumns, so a 2-row/6-column bar reads 6, not 12.
-  // Behaviour (12 links, 0 clipped, nothing marked active) is unchanged and still asserted
-  // below.
-  ok(m.links === 12 && m.navRows === 6, "the bottom nav is the 12-area, two-row bar");
+  // Math.ceil(shown.length/2), --bnav-all = shown.length). navRows is really a
+  // COLUMN count read off gridTemplateColumns, so the 2-row bar reads its column count.
+  // RESTAGED 2026-08-05 (sports): the 🏈 Sports area is the 13th (Dad sees all 13,
+  // ceil(13/2) = 7 columns). Behaviour (0 clipped, nothing active) unchanged below.
+  ok(m.links === 13 && m.navRows === 7, "the bottom nav is the 13-area, two-row bar");
   ok(m.clipped === 0, "no nav label is clipped at 390px");
   ok(m.active === 0, "no nav area is marked active — this page is not one of them");
   ok(m.navBottom <= m.innerH + 1, "the nav sits at the bottom of the viewport, not below it");
@@ -875,7 +875,8 @@ async function sectionLayout(browser, mock) {
   // Description only, not a check: the rail recolored navy → pine green in the 2026-08-05
   // Farmstead re-skin (see activity.html's farmstead-theme-page block) — the assertion
   // itself was always about item count/visibility, never color, so it's unchanged.
-  ok(d.railShown && d.railItems === 12, "the 12-item rail is used at 1280px");
+  // 12 → 13 on 2026-08-05: the 🏈 Sports area joined the nav.
+  ok(d.railShown && d.railItems === 13, "the 13-item rail is used at 1280px");
   ok(d.brand === "Bucky", "the rail carries the wordmark");
   ok(!d.navShown, "the bottom bar is hidden when the rail is up");
   ok(d.mainLeft >= d.railRight, "the content clears the rail rather than hiding under it");

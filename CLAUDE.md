@@ -8034,3 +8034,62 @@ builder's meter was painting two real training days amber for being what Dad wro
 
 Battery green: chore-care 49 · news 200 · fitness 253 · activity 147 · health 208 ·
 beacon-safety 90. Shots: `shots/skin_*.png` (six pages, phone + desktop).
+
+---
+
+# 🏈 SPORTS — NFL scores page + live game detail (2026-08-05, branch claude/fantasy-nfl-sports-integration-9uc6z1, PR #21)
+
+Stage 1+2 of `sports-plan.md` (the plan of record — fantasy + home cards are later stages).
+Files: `sports.html` · `netlify/functions/sports.mjs` · `tools/_sports_fixtures.cjs` ·
+`tools/_verify-sports.cjs` (**96/96**, 0 page errors) · `tools/_probe-sports.mjs`.
+
+**THE FUNCTION** (stocks.mjs pattern, zero deps, no new env vars): actions `nfl_scoreboard
+{week,seasontype,year}` and `nfl_game {eventId}` proxy ESPN's unofficial site API
+(site.api.espn.com — free, keyless) and SLIM aggressively (raw scoreboard ~1MB → a few KB;
+the suite pins slim < raw/2). Odds/pickcenter/news are never mapped (family app). Every read
+is optional-chained; upstream failure = `{ok:false, reason}` at HTTP 200 → honest cards, never
+a blank page. `SPORTS_NFL_BASE_URL` points tests at a fake server. **The live `situation` is
+DERIVED server-side from the current drive's last play `end`** — the summary endpoint carries
+no reliable top-level situation; `end.yardsToEndzone` is the field visual's anchor.
+
+**THE PAGE**: week list (games grouped by Chicago day, LIVE NOW pinned first, away team
+listed first, possession ◂, loser dimmed on finals, kickoff+TV on upcoming) with a week
+picker driven by the response's flattened season `calendar`; hash-routed game detail
+(`sports.html#game=<id>`) with score header + linescore, the SVG FIELD (end zones in team
+colors, drive band from `startYardsToEndzone`, gold first-down line, LOS + ball marker,
+direction arrow), last-play callout, this-drive plays NEWEST FIRST, previous drives, win-prob
+sparkline (server thins the series to ≤80 pts), team stat bars matched by stat `name`, player
+box-score tables in `.panner`s, scoring plays. **FIELD MATH** (unit-tested through the DOM):
+field coord 0..100 from the LEFT (away) goal line; away possession → `pos = 100 − yTE`
+(drives →), home possession → `pos = yTE` (drives ←); first down = pos ± distance;
+`x = 83.33 + pos·8.3334` on the 1000-wide viewBox. POLLING: 15s live game / 25s live week /
+2min pregame detail / 5min quiet week; document.hidden clears the timer and visibilitychange
+refreshes immediately (both asserted). localStorage `bucky_nfl_sb` caches the default week for
+instant paint; a failed refresh keeps the stale copy + shows a note. `window.__SPORTS__` hook.
+
+**NAV: 13 AREAS NOW** — `sports` (🏈, `url:"sports.html"`, the gpt-style url area) inserted
+after News in index.html's NAV_GROUPS + NAV_PATHS AND the 5 mirrored navs (farmgpt, games,
+weather, activity, status) + sports.html's own. Two-row phone bar balances 7+6 for Dad
+(ceil(13/2)); measured 0 clipped at 390px. RESTAGED for the 13th area: `_verify-activity.cjs`
+links 12→13, navRows(=columns) 6→7, rail 12→13; `_verify-beacon-safety.cjs` PAGES gained
+sports.html (`data-feature="sports"` beacon on the page). chore-care needed NO restage (its
+counts are per-gated-user and float).
+
+**⚠ NOT LIVE-VERIFIED**: ESPN hosts are egress-blocked from this sandbox, so
+`_sports_fixtures.cjs` is authored from documented shapes, not captured. POST-DEPLOY:
+`node tools/_probe-sports.mjs --site https://amenfarms.netlify.app` from a normal machine —
+it checks every field the app reads (run once during a LIVE game for the situation/drive
+fields) and flags drift. The slimmer is defensive, so drift = missing sections, not crashes.
+
+**TEST GOTCHAS (new)**: (1) seeding `choreUser="Dad"` makes index.html AUTO-PROMPT for the
+Dad PIN on load — a native `prompt()` wedges headless Chrome silently (no error, no render);
+stub `window.prompt/alert/confirm` in every init script (chore-care already knew this — copy
+its harness, don't re-derive it). (2) A blanket "abort everything non-localhost" interception
+also kills `data:` URLs and wedges index.html's boot — abort only external http(s) +
+firebase-ish hosts. (3) In THIS cloud env suites' `channel:"chrome"` needs
+`mkdir -p /opt/google/chrome && ln -sf /opt/pw-browsers/chromium-1194/chrome-linux/chrome
+/opt/google/chrome/chrome` once per container; `_verify-sports.cjs` itself falls back to
+`/opt/pw-browsers/chromium` (or `BUCKY_CHROME`) automatically.
+
+**DEFERRED** (per plan): fantasy (needs the user's league id + espn_s2/SWID cookies →
+`ff_*` actions), home snapshot cards, status.html registry rows for ESPN.

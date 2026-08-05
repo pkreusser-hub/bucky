@@ -3,7 +3,9 @@
 // present but with localStorage and sendBeacon sabotaged to throw — and must render
 // the same and stay error-free every time.
 const fs = require("fs"), path = require("path"), http = require("http");
-const puppeteer = require("C:/Users/pkreu/OneDrive/Documents/BUCKY/tools/node_modules/puppeteer-core");
+// 2026-08-05: was a hardcoded C:/Users/... absolute path — plain require resolves
+// tools/node_modules on any machine (this suite lives in tools/).
+const puppeteer = require("puppeteer-core");
 const ROOT = path.resolve(__dirname, "..");
 const PORT = 8891;
 const MIME = { ".html":"text/html", ".js":"text/javascript", ".mjs":"text/javascript", ".json":"application/json",
@@ -27,7 +29,7 @@ const srv = http.createServer((req, res) => {
 // Every page the beacon was added to.
 const PAGES = ["index.html","farmgpt.html","games.html","weather.html","meallog.html",
   "barnyardbistro.html","branchmanager.html","castlekruzer.html","farmkart.html","farmparty.html",
-  "goatcare.html","hayhaul.html","hayhem.html","pasturepanic.html","dungeon.html"];
+  "goatcare.html","hayhaul.html","hayhem.html","pasturepanic.html","dungeon.html","sports.html"];
 
 // Noise that is this harness's own doing (blocked CDNs/Firebase), not a page fault.
 const NOISE = /Failed to load resource|dynamically imported module|gstatic|firebase|googleapis|ERR_FAILED|ERR_BLOCKED|net::|marked|DOMPurify|KaTeX|Leaflet|playroom|THREE|WebGL|AudioContext|activity.js|is not defined/i;
