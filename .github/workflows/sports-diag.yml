@@ -45,6 +45,33 @@ jobs:
             --data '{"secret":"amenfarms","action":"nfl_scoreboard"}' || echo FAIL)
           echo "function HTTP $code, $(wc -c < /tmp/fn.json) bytes"
           head -c 900 /tmp/fn.json; echo
+      - name: ncaa scoreboard shapes
+        run: |
+          for g in "" "80" "8" "5"; do
+            if [ -z "$g" ]; then u="https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard";
+            else u="https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups=$g"; fi
+            code=$(curl -sS -o /tmp/cfb.json -w "%{http_code}" "$u" || echo FAIL)
+            n=$(python3 -c "import json;d=json.load(open('/tmp/cfb.json'));print(len(d.get('events',[])))" 2>/dev/null || echo "?")
+            echo "CFB groups=[$g] -> HTTP $code, $n events"
+          done
+          python3 <<'PY'
+          import json
+          d = json.load(open('/tmp/cfb.json'))
+          evs = d.get('events', [])
+          print('season', d.get('season'), 'week', d.get('week'))
+          cal = (d.get('leagues') or [{}])[0].get('calendar') or []
+          print('calendar groups:', [c.get('label') for c in cal][:4])
+          if evs:
+              ev = evs[0]
+              comp = ev['competitions'][0]
+              c0 = comp['competitors'][0]
+              print('first event:', ev.get('shortName'), ev.get('date'), comp.get('status', {}).get('type', {}).get('state'))
+              print('competitor keys:', sorted(c0.keys()))
+              print('curatedRank:', c0.get('curatedRank'))
+              print('team abbrev/name:', c0.get('team', {}).get('abbreviation'), '/', c0.get('team', {}).get('shortDisplayName'))
+              print('records:', c0.get('records') and c0['records'][0])
+              print('broadcast:', comp.get('broadcasts'))
+          PY
       - name: live fantasy action
         run: |
           code=$(curl -sS -o /tmp/ff.json -w "%{http_code}" -X POST \
