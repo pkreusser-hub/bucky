@@ -8101,6 +8101,17 @@ it checks every field the app reads incl. the fantasy league + pro-team map (run
 a LIVE game for the situation/drive fields) and flags drift. The slimmer is defensive, so
 drift = missing sections, not crashes. Suite now **138/138**.
 
+**🚨 THE UA GOTCHA (2026-08-05, found live — the site shipped broken for ~20 min)**:
+site.api.espn.com's Akamai edge **403s datacenter requests with a BROWSER User-Agent but
+answers `curl/*` with 200** — the EXACT INVERSE of the Yahoo/stocks.mjs lesson this function
+originally copied. Measured twice from GitHub runners: browser UA / empty / "node" /
+"bucky-family-app" all 403, default curl 200 both times. `NFL_UA = "curl/8.6.0"` in
+sports.mjs (suite-pinned); the fantasy host (lm-api-reads) is FINE with the browser UA and
+keeps it — don't unify. DIAGNOSIS PATTERN when the sandbox can't reach a host:
+`.github/workflows/sports-diag.yml` (hand-dispatched) curls ESPN + the live function from a
+GitHub runner and prints bodies — that's how both the 403 and the fix were proven (the live
+fix confirmed the same way: function returns ok:true with real events post-deploy).
+
 **TEST GOTCHAS (new)**: (1) seeding `choreUser="Dad"` makes index.html AUTO-PROMPT for the
 Dad PIN on load — a native `prompt()` wedges headless Chrome silently (no error, no render);
 stub `window.prompt/alert/confirm` in every init script (chore-care already knew this — copy

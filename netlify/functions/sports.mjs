@@ -42,6 +42,13 @@ const ALLOWED_ORIGINS = new Set([
 
 const NFL_BASE = process.env.SPORTS_NFL_BASE_URL || "https://site.api.espn.com";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
+// site.api.espn.com's Akamai edge BLOCKS datacenter requests that claim to be a
+// browser (403 "Access Denied") but ALLOWS the curl user-agent — measured twice
+// from GitHub runners on 2026-08-05 (browser UA/empty/"node"/custom all 403;
+// default curl 200 both runs; see .github/workflows/sports-diag.yml). The exact
+// inverse of the Yahoo/stocks.mjs lesson. The fantasy host (lm-api-reads) is
+// fine with the browser UA and keeps it — don't "unify" these.
+const NFL_UA = "curl/8.6.0";
 
 function corsHeaders(origin) {
   const allowOrigin = ALLOWED_ORIGINS.has(origin) ? origin : "https://amenfarms.netlify.app";
@@ -59,7 +66,7 @@ function json(obj, status, headers) {
 async function fetchUpstream(url) {
   let r;
   try {
-    r = await fetch(url, { headers: { "User-Agent": UA, accept: "application/json" } });
+    r = await fetch(url, { headers: { "User-Agent": NFL_UA, accept: "*/*" } });
   } catch {
     return { err: "unreachable" };
   }

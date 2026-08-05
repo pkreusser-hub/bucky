@@ -18,7 +18,9 @@ const SITE = (() => {
   return i >= 0 ? process.argv[i + 1].replace(/\/$/, "") : null;
 })();
 const SECRET = process.env.BUCKY_SECRET || "amenfarms";
-const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
+// Same UA the server uses: ESPN's edge 403s browser UAs from datacenter IPs but
+// allows curl (measured 2026-08-05 — see sports.mjs NFL_UA).
+const UA = "curl/8.6.0";
 
 let flagged = 0;
 function has(obj, pathStr) {

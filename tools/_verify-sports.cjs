@@ -41,11 +41,12 @@ const fx = (pos) => EZ + pos * PER_YD;
 function near(a, b, tol) { return a != null && Math.abs(a - b) <= (tol || 0.7); }
 
 // ---------------- fake ESPN upstream ----------------
-const upstream = { mode: "normal", sbVariant: "live", lastUrl: "", calls: 0 };
+const upstream = { mode: "normal", sbVariant: "live", lastUrl: "", lastUA: "", calls: 0 };
 function startUpstream() {
   const srv = http.createServer((req, res) => {
     upstream.calls++;
     upstream.lastUrl = req.url;
+    upstream.lastUA = req.headers["user-agent"] || "";
     if (upstream.mode === "http500") { res.writeHead(500); res.end("nope"); return; }
     if (upstream.mode === "badjson") { res.writeHead(200, { "Content-Type": "application/json" }); res.end("{oops"); return; }
     if (upstream.mode === "drop") { req.socket.destroy(); return; }
@@ -155,6 +156,9 @@ async function sectionA() {
     && sb.calendar[1].weeks.length === 3 && sb.calendar[1].weeks[0].label === "Week 1",
     "the season calendar is flattened for the week picker");
   ok(!!sb && sb.week === 1 && sb.season.year === 2026 && sb.season.type === 2, "week/season identify the response");
+  // ESPN's edge 403s browser UAs from datacenter IPs but allows curl (measured
+  // live 2026-08-05, twice) — the NFL upstream MUST identify as curl.
+  ok(/^curl\//.test(upstream.lastUA), `the NFL upstream request identifies as curl (${upstream.lastUA})`);
 
   await call({ secret: "amenfarms", action: "nfl_scoreboard", week: 2, seasontype: 2, year: 2026 });
   ok(/week=2/.test(upstream.lastUrl) && /seasontype=2/.test(upstream.lastUrl) && /dates=2026/.test(upstream.lastUrl),
