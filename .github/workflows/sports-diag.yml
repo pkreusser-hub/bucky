@@ -80,3 +80,19 @@ jobs:
             --data '{"secret":"amenfarms","action":"ff_league"}' || echo FAIL)
           echo "ff_league HTTP $code, $(wc -c < /tmp/ff.json) bytes"
           head -c 600 /tmp/ff.json; echo
+      - name: live stage-5 actions
+        run: |
+          fn() { curl -sS -o /tmp/o.json -w "%{http_code}" -X POST \
+            "https://amenfarms.netlify.app/.netlify/functions/sports" \
+            -H "Content-Type: application/json" --data "$1"; }
+          code=$(fn '{"secret":"amenfarms","action":"ncaa_scoreboard"}' || echo FAIL)
+          echo "ncaa_scoreboard HTTP $code, $(wc -c < /tmp/o.json) bytes"
+          python3 -c "import json;d=json.load(open('/tmp/o.json'));evs=d.get('events',[]);ranked=[e for e in evs if any(t.get('rank') for t in e['teams'])];print('ok',d.get('ok'),'week',d.get('week'),len(evs),'events,',len(ranked),'ranked')" || head -c 300 /tmp/o.json
+          code=$(fn '{"secret":"amenfarms","action":"ncaa_scoreboard","group":8}' || echo FAIL)
+          python3 -c "import json;d=json.load(open('/tmp/o.json'));print('SEC: ok',d.get('ok'),len(d.get('events',[])),'events')" || head -c 300 /tmp/o.json
+          code=$(fn '{"secret":"amenfarms","action":"ff_scoreboard"}' || echo FAIL)
+          python3 -c "import json;d=json.load(open('/tmp/o.json'));print('ff_scoreboard: ok',d.get('ok'),'week',d.get('week'),len(d.get('matchups',[])),'matchups, famId',d.get('familyTeamId'))" || head -c 300 /tmp/o.json
+          for nm in "The Goat Kids" "Wyoming Cowboys"; do
+            code=$(fn "{\"secret\":\"amenfarms\",\"action\":\"ff_league\",\"teamName\":\"$nm\"}" || echo FAIL)
+            python3 -c "import json;d=json.load(open('/tmp/o.json'));print('$nm ->','famId',d.get('familyTeamId'))" || head -c 200 /tmp/o.json
+          done
