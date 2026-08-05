@@ -106,6 +106,8 @@ function makePageFactory(t, errors, reqLog, blocked) {
     page.on("request", (req) => {
       const u = req.url();
       reqLog.push(tag + " " + u);
+      // the activity beacon has no backend here — see _fs_harness.cjs
+      if (u.startsWith(t.BASE + "/.netlify/")) return req.respond({ status: 204, body: "" });
       if (u.startsWith(t.BASE)) return req.continue();
       return req.abort();
     });
@@ -1141,7 +1143,360 @@ H.run("farmstead-mp", async (t) => {
   await liveGuest.close();
   await liveHost.close();
 
-  /* ══════════════ 14. wrap up ═══════════════════════════════════════════ */
+  /* ══════════════ 14. SAVE → RE-HOST (2026-08-05) ════════════════════════
+   * "Save a co-op game, and later host a game from that saved file that
+   * another person can then join." The hard part is NOT the snapshot — a
+   * mid-game joiner already gets the whole world (section 9). It is the SEAT
+   * LIFECYCLE across the save boundary: seat 1 was occupied when the file was
+   * written, and it has to come back genuinely EMPTY and claimable by whoever
+   * turns up — a different person, keyed by seat INDEX, inheriting the second
+   * kingdom exactly as it was left.
+   * ═══════════════════════════════════════════════════════════════════════ */
+
+  /** boot a page that identifies as `who` (the wire reads localStorage). */
+  async function bootAs(browser, tag, who, extra) {
+    const p = await mkPage(browser, tag);
+    await p.evaluateOnNewDocument((n) => { try { localStorage.setItem("choreUser", n); } catch (e) {} }, who);
+    await bootPage(p, url(t, extra));
+    return p;
+  }
+
+  // ── the original co-op session: two separate kingdoms, then a save ───────
+  const rhA = await bootAs(t.browser, "rehostA", "Dad");
+  const rgA = await bootAs(b2, "rejoinA", "Isaac");
+  await rhA.evaluate(() => window.__FS__.hostGame("separate", {
+    seed: 606060, size: "small", ais: 1, code: "SAVE1", speed: 0,
+  }));
+  await rgA.evaluate(() => window.__FS__.joinGame("SAVE1"));
+  await rgA.waitForFunction(() => window.__FS__.netState().status === "playing", { timeout: 25000 });
+  // seat 1 does real work in ITS OWN kingdom, so the save has something to inherit
+  const rhBuilt = await rgA.evaluate(() => {
+    const FS = window.__FS__, G = FS.G, FSMap = FS.FSMap;
+    const mine = FS.FSSim.castleOf(G, 1);
+    let v = -1;
+    FSMap.forRadius(G.map, mine.v, 6, (u) => { if (v < 0 && !FSMap.whyFlag(G.map, u, 1)) v = u; });
+    FS.placeFlag(v);
+    return v;
+  });
+  await t.sleep(300);
+  await advance(rhA, rgA, 220, 25000);
+  const preEq = await agree(rhA, rgA);
+  t.check("the original co-op session is in lockstep before the save", preEq.ok, preEq);
+  const saved = await rhA.evaluate((v) => {
+    const FS = window.__FS__;
+    const ok = FS.save("2");
+    try { localStorage.setItem("fs_save_2_meta", JSON.stringify({ ts: Date.now() })); } catch (e) {}
+    return { ok, tick: FS.G.tick, hash: FS.hash(), map: FS.mapHash(),
+      seats: FS.G.seats.slice(), flagP: FS.G.flags[FS.q.flagAt(v)] ? FS.G.flags[FS.q.flagAt(v)].p : -1,
+      c1: FS.q.counts(1), info: FS.saveInfo("2") };
+  }, rhBuilt);
+  t.check("a co-op host can save the shared session", saved.ok === true && saved.flagP === 1, saved);
+  t.check("…and the save file knows what it is: mode, kingdoms, how far in",
+    saved.info.info.ok === true && saved.info.info.mode === "separate" &&
+    saved.info.info.humans === 2 && saved.info.info.ais === 1 &&
+    saved.info.info.tick === saved.tick && typeof saved.info.info.played === "string" &&
+    saved.info.info.played.length > 0 && !!saved.info.when,
+    saved.info);
+  t.check("…and it offers BOTH co-op shapes (it has two player kingdoms)",
+    saved.info.info.canShared === true && saved.info.info.canSeparate === true, saved.info.info);
+  await rgA.close();
+  await rhA.close();
+
+  // ── a NEW room, opened from that file, joined by a DIFFERENT person ──────
+  const rhB = await bootAs(t.browser, "rehostB", "Dad");
+  const openedB = await rhB.evaluate(() => window.__FS__.hostSavedGame("2", "separate").then((s) => ({
+    st: s, tick: window.__FS__.G ? window.__FS__.G.tick : -1,
+  })));
+  t.check("hosting a saved kingdom opens a real room with an invite link",
+    openedB.st.role === "host" && !!openedB.st.code && /#r=/.test(openedB.st.link || ""), openedB.st);
+  const loadedB = await rhB.evaluate(() => {
+    const FS = window.__FS__;
+    return { tick: FS.G.tick, hash: FS.hash(), map: FS.mapHash(), seats: FS.G.seats.slice(),
+      mode: FS.G.mode, humans: FS.G.humans, c1: FS.q.counts(1),
+      st: FS.netState() };
+  });
+  t.check("…and it really RESUMES the saved world, it does not start a fresh one",
+    loadedB.tick === saved.tick && loadedB.hash === saved.hash && loadedB.map === saved.map,
+    { got: loadedB, want: saved });
+  t.check("…with seat 1 mapped to the second kingdom and nobody in it yet",
+    loadedB.seats[0] === 0 && loadedB.seats[1] === 1 && loadedB.humans === 2 &&
+    loadedB.st.peerHere === false && loadedB.st.seated === false, loadedB);
+  t.check("…and no trace of the partner who played it last",
+    loadedB.st.peerName === "", loadedB.st);
+
+  const rgB = await bootAs(b2, "rejoinB", "Eleanor");     // a DIFFERENT person
+  await rgB.evaluate((c) => window.__FS__.joinGame(c), openedB.st.code);
+  await rgB.waitForFunction(() => window.__FS__.netState().status === "playing", { timeout: 30000 });
+  const seatedB = await rhB.evaluate(() => window.__FS__.netState());
+  t.check("a different person claims the empty seat — by index, not by who sat there",
+    seatedB.peerHere === true && seatedB.peerName === "Eleanor", seatedB);
+  const inherit = await rgB.evaluate((v) => {
+    const FS = window.__FS__;
+    const fid = FS.q.flagAt(v);
+    return { seats: FS.G.seats.slice(), mySeat: FS.netState().seat,
+      flagP: fid ? FS.G.flags[fid].p : -1, c1: FS.q.counts(1), tick: FS.G.tick };
+  }, rhBuilt);
+  t.check("…and INHERITS that kingdom whole — its land, buildings, serfs and stock",
+    inherit.seats[1] === 1 && inherit.mySeat === 1 &&
+    inherit.c1.buildings === saved.c1.buildings && inherit.c1.land === saved.c1.land &&
+    inherit.c1.people === saved.c1.people && inherit.flagP === 1,
+    { got: inherit.c1, want: saved.c1, flagP: inherit.flagP });
+
+  // the newcomer really COMMANDS the inherited kingdom
+  const cmdV = await rgB.evaluate(() => {
+    const FS = window.__FS__, G = FS.G, FSMap = FS.FSMap;
+    const mine = FS.FSSim.castleOf(G, 1);
+    let v = -1;
+    FSMap.forRadius(G.map, mine.v, 7, (u) => { if (v < 0 && !FSMap.whyFlag(G.map, u, 1)) v = u; });
+    FS.placeFlag(v);
+    return v;
+  });
+  await t.sleep(300);
+  await advance(rhB, rgB, 40, 25000);
+  const landed = await rhB.evaluate((v) => {
+    const FS = window.__FS__, fid = FS.q.flagAt(v);
+    return { p: fid ? FS.G.flags[fid].p : -1, fails: FS.events("cmdFail").filter((e) => e.by === 1).length };
+  }, cmdV);
+  t.check("…and a command it issues lands, as PLAYER 1, on the host's world too",
+    landed.p === 1 && landed.fails === 0, landed);
+
+  // LOCKSTEP ACROSS THE BOUNDARY: thousands of ticks, real hash checkpoints
+  await advance(rhB, rgB, 2400, 90000);
+  const eqB = await agree(rhB, rgB);
+  const netB = await rgB.evaluate(() => window.__FS__.netState());
+  t.check("a rehosted game stays bit-identical over thousands of ticks", eqB.ok, eqB);
+  t.check("…across many real sync-hash checkpoints, with zero desyncs and zero resyncs",
+    netB.checkpoints >= 20 && netB.desyncs === 0 && netB.resyncs === 0,
+    { checkpoints: netB.checkpoints, desyncs: netB.desyncs, resyncs: netB.resyncs, tick: eqB.ht });
+
+  // ── generation 2: save the rehosted game and rehost it AGAIN ─────────────
+  const saved2 = await rhB.evaluate(() => {
+    const FS = window.__FS__;
+    FS.save("3");
+    try { localStorage.setItem("fs_save_3_meta", JSON.stringify({ ts: Date.now() })); } catch (e) {}
+    return { tick: FS.G.tick, hash: FS.hash(), c1: FS.q.counts(1) };
+  });
+  await rgB.close();
+  await rhB.close();
+
+  const rhC = await bootAs(t.browser, "rehostC", "Dad");
+  const openedC = await rhC.evaluate(() => window.__FS__.hostSavedGame("3", "separate"));
+  const rgC = await bootAs(b2, "rejoinC", "Mom");        // a THIRD person again
+  await rgC.evaluate((c) => window.__FS__.joinGame(c), openedC.code);
+  await rgC.waitForFunction(() => window.__FS__.netState().status === "playing", { timeout: 30000 });
+  await advance(rhC, rgC, 300, 40000);
+  const eqC = await agree(rhC, rgC);
+  const genC = await rgC.evaluate(() => ({ st: window.__FS__.netState(),
+    tick: window.__FS__.G.tick, c1: window.__FS__.q.counts(1) }));
+  t.check("a SECOND generation works too — this is not a one-shot",
+    eqC.ok && genC.tick > saved2.tick && genC.c1.buildings === saved2.c1.buildings,
+    { eqC, saved2: saved2.c1, got: genC.c1 });
+  t.check("…and the third player is seated and named correctly",
+    genC.st.peerName === "Dad" && genC.st.seat === 1, genC.st);
+  await rgC.close();
+  await rhC.close();
+
+  // ── a SOLO save hosted as a shared kingdom, and the honest refusal ───────
+  const rhS = await bootAs(t.browser, "rehostSolo", "Dad");
+  const soloSave = await rhS.evaluate(() => {
+    const FS = window.__FS__;
+    FS.newGame({ size: "small", seed: 121212, ais: 1, speed: 0 });
+    FS.ff(200);
+    FS.save("1");
+    try { localStorage.setItem("fs_save_1_meta", JSON.stringify({ ts: Date.now() })); } catch (e) {}
+    const info = FS.saveInfo("1");
+    const snap = { tick: FS.G.tick, hash: FS.hash() };
+    FS.toTitle();                                   // …which nulls G, so read it FIRST
+    return { tick: snap.tick, hash: snap.hash, info: info.info };
+  });
+  t.check("a SOLO save offers shared co-op and honestly refuses separate kingdoms",
+    soloSave.info.ok && soloSave.info.canShared === true && soloSave.info.canSeparate === false &&
+    soloSave.info.separateWhy === "no-second-kingdom", soloSave.info);
+  const refused = await rhS.evaluate(() => {
+    const r = window.__FS__.hostSavedGame("1", "separate");
+    return { returned: r, started: window.__FS__.started(),
+      st: window.__FS__.netState(), note: document.getElementById("netNote").textContent };
+  });
+  t.check("…so asking for separate kingdoms opens NO room and starts NO world",
+    refused.returned === null && refused.started === false && refused.st.role === null, refused);
+  t.check("…and says why, in words a family can act on",
+    /shared kingdom/i.test(refused.note) && /one player kingdom/i.test(refused.note), refused.note);
+
+  await rhS.evaluate(() => window.__FS__.hostSavedGame("1", "shared"));
+  const soloShared = await rhS.evaluate(() => ({
+    tick: window.__FS__.G.tick, hash: window.__FS__.hash(), seats: window.__FS__.G.seats.slice(),
+    humans: window.__FS__.G.humans, mode: window.__FS__.G.mode, st: window.__FS__.netState(),
+  }));
+  t.check("…while hosting it SHARED resumes the same world with both seats on player 0",
+    soloShared.tick === soloSave.tick && soloShared.hash === soloSave.hash &&
+    soloShared.seats[0] === 0 && soloShared.seats[1] === 0 &&
+    soloShared.humans === 1 && soloShared.mode === "shared" && soloShared.st.role === "host",
+    soloShared);
+  const rgS = await bootAs(b2, "rejoinSolo", "Isaac");
+  await rgS.evaluate((c) => window.__FS__.joinGame(c), soloShared.st.code);
+  await rgS.waitForFunction(() => window.__FS__.netState().status === "playing", { timeout: 30000 });
+  const sharedCmd = await rgS.evaluate(() => {
+    const FS = window.__FS__, G = FS.G, FSMap = FS.FSMap;
+    const c = FS.FSSim.castleOf(G, 0);
+    let v = -1;
+    FSMap.forRadius(G.map, c.v, 7, (u) => { if (v < 0 && !FSMap.whyFlag(G.map, u, 0)) v = u; });
+    FS.placeFlag(v);
+    return { v, seats: G.seats.slice() };
+  });
+  await t.sleep(300);
+  await advance(rhS, rgS, 400, 40000);
+  const sharedOut = await rhS.evaluate((v) => {
+    const FS = window.__FS__, fid = FS.q.flagAt(v);
+    return { p: fid ? FS.G.flags[fid].p : -1 };
+  }, sharedCmd.v);
+  const eqS = await agree(rhS, rgS);
+  t.check("…and the guest co-commands player 0 in the resumed solo kingdom",
+    sharedCmd.seats[1] === 0 && sharedOut.p === 0, { sharedCmd, sharedOut });
+  t.check("…in lockstep", eqS.ok, eqS);
+  await rgS.close();
+  await rhS.close();
+
+  // ── the negatives: a bad save is refused exactly as it always was ────────
+  const rhN = await bootAs(t.browser, "rehostBad", "Dad");
+  const bad = await rhN.evaluate(() => {
+    const FS = window.__FS__;
+    FS.newGame({ size: "small", seed: 5, ais: 1, speed: 0 });
+    const good = JSON.parse(FS.serialize());
+    FS.toTitle();
+    const out = {};
+    out.foreign = FS.describeSave(JSON.stringify({ hello: "world" }));
+    out.garbage = FS.describeSave("{not json");
+    out.version = FS.describeSave(JSON.stringify(Object.assign({}, good, { v: 99 })));
+    out.truncated = FS.describeSave(JSON.stringify(Object.assign({}, good, { g: {} })));
+    return out;
+  });
+  t.check("a foreign save is refused", bad.foreign.ok === false && bad.foreign.why === "foreign", bad.foreign);
+  t.check("an unparseable save is refused", bad.garbage.ok === false && bad.garbage.why === "unreadable", bad.garbage);
+  t.check("a wrong-version save is refused, exactly as before",
+    bad.version.ok === false && bad.version.why === "version", bad.version);
+  t.check("a structurally broken save is refused", bad.truncated.ok === false, bad.truncated);
+  const badHost = await rhN.evaluate(() => {
+    const FS = window.__FS__;
+    const out = {};
+    try { localStorage.setItem("fs_save_2", "{corrupt"); } catch (e) {}
+    out.corrupt = { returned: FS.hostSavedGame("2", "shared"), started: FS.started(),
+      role: FS.netState().role, note: document.getElementById("netNote").textContent };
+    try { localStorage.removeItem("fs_save_9"); } catch (e) {}
+    out.empty = { returned: FS.hostSavedGame("9", "shared"), started: FS.started(),
+      role: FS.netState().role };
+    return out;
+  });
+  t.check("hosting a CORRUPT save opens no room and — the important half — never quietly starts a fresh world",
+    badHost.corrupt.returned === null && badHost.corrupt.started === false &&
+    badHost.corrupt.role === null && /damaged|save/i.test(badHost.corrupt.note), badHost.corrupt);
+  t.check("hosting an EMPTY slot is refused the same way",
+    badHost.empty.returned === null && badHost.empty.started === false && badHost.empty.role === null,
+    badHost.empty);
+
+  // the title picker itself: identity on screen, impossible options greyed out
+  await rhN.evaluate(() => {
+    const FS = window.__FS__;
+    // put a readable co-op save back in slot 2 for the screenshot
+    FS.newGame({ size: "small", seed: 606060, ais: 1, mode: "separate", humans: 2, speed: 0 });
+    FS.ff(900);
+    FS.save("2");
+    try { localStorage.setItem("fs_save_2_meta", JSON.stringify({ ts: Date.now() })); } catch (e) {}
+    FS.toTitle();
+  });
+  await rhN.click("#hostSaveBtn");
+  await t.sleep(250);
+  const pick = await rhN.evaluate(() => {
+    const box = document.getElementById("savePick");
+    const rows = [].map.call(box.querySelectorAll(".srow"), (r) => {
+      const b = r.querySelector("button[data-mode=separate]");
+      return {
+        title: r.querySelector(".sinfo b").textContent,
+        line: r.querySelector(".sinfo span").textContent,
+        // null = the save could not be read at all, so it offers no buttons
+        sep: b ? !!b.disabled : null,
+      };
+    });
+    const btns = [].map.call(box.querySelectorAll("button"), (b) => b.getBoundingClientRect().height);
+    return { hidden: box.classList.contains("hidden"), rows, minH: Math.min.apply(null, btns) };
+  });
+  const readable = pick.rows.filter((r) => r.sep !== null);
+  t.check("the picker lists every saved kingdom with real identity on it",
+    !pick.hidden && readable.length >= 2 &&
+    readable.every((r) => /kingdom/.test(r.line) && /(in|started)/.test(r.line)), pick.rows);
+  t.check("…greys out separate kingdoms only for the saves that cannot offer it",
+    readable.some((r) => r.sep === true) && readable.some((r) => r.sep === false), pick.rows);
+  t.check("…with finger-sized targets (≥44px)", pick.minH >= 44, pick);
+  await t.shot(rhN, "farmstead_rehost_savelist");
+  await rhN.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
+  await t.sleep(200);
+  const narrow = await rhN.evaluate(() => {
+    const box = document.getElementById("savePick");
+    return { over: document.documentElement.scrollWidth > window.innerWidth + 1,
+      h: Math.min.apply(null, [].map.call(box.querySelectorAll("button"), (b) => b.getBoundingClientRect().height)) };
+  });
+  t.check("…and it fits a phone with no sideways scroll and 44px targets",
+    narrow.over === false && narrow.h >= 44, narrow);
+  await t.shot(rhN, "farmstead_rehost_savelist_mobile");
+  await rhN.close();
+
+  // ── the host loads a save WHILE hosting: the room survives, the guest follows
+  const rhL = await bootAs(t.browser, "liveLoadHost", "Dad");
+  const rgL = await bootAs(b2, "liveLoadGuest", "Isaac");
+  await rhL.evaluate(() => window.__FS__.hostGame("shared", {
+    seed: 424242, size: "small", ais: 1, code: "LOAD1", speed: 0,
+  }));
+  await rgL.evaluate(() => window.__FS__.joinGame("LOAD1"));
+  await rgL.waitForFunction(() => window.__FS__.netState().status === "playing", { timeout: 25000 });
+  await advance(rhL, rgL, 60, 25000);
+  const rhBefore = await rgL.evaluate(() => ({ tick: window.__FS__.G.tick, hash: window.__FS__.hash() }));
+  const swapped = await rhL.evaluate(() => {
+    const FS = window.__FS__;
+    const code = FS.netState().code;
+    const ok = FS.load("2");                      // the separate-kingdoms save
+    return { ok, code, after: FS.netState().code, tick: FS.G.tick, hash: FS.hash(),
+      role: FS.netState().role, seats: FS.G.seats.slice() };
+  });
+  t.check("a host that loads a save mid-room keeps the room, the code and the link",
+    swapped.ok === true && swapped.role === "host" && swapped.after === swapped.code, swapped);
+  await rgL.waitForFunction((h) => window.__FS__.G && window.__FS__.hash() !== h,
+    { timeout: 30000, polling: 80 }, rhBefore.hash).catch(() => {});
+  await t.sleep(600);
+  await advance(rhL, rgL, 220, 40000);
+  const eqL = await agree(rhL, rgL);
+  const noteL = await rgL.evaluate(() => window.__FS__.G.notif.filter((n) => /saved kingdom/i.test(n.text)).length);
+  t.check("…and the partner is handed that kingdom and stays in lockstep on it",
+    eqL.ok && eqL.ht > swapped.tick, { eqL, swappedTick: swapped.tick });
+  t.check("…and is told what happened rather than being silently teleported", noteL >= 1, { noteL });
+  await t.shot(rgL, "farmstead_rehost_guest_inherited");
+
+  /* CO-OP OWNS ITS OWN AUTOSAVE SLOT. A family that plays co-op on Sunday and
+   * solo on Monday must not have Monday's autosave quietly eat the kingdom
+   * they meant to come back to together — and a host that drops mid-session
+   * must not lose it either. So the host autosaves to "coop", never "auto". */
+  await rhL.evaluate(() => {
+    try { localStorage.setItem("fs_save_auto", "SOLO-SENTINEL"); } catch (e) {}
+    try { localStorage.removeItem("fs_save_coop"); } catch (e) {}
+  });
+  await rhL.evaluate((n) => window.__FS__.ff(n), FSCn.AUTOSAVE_T + 60);
+  await rhL.waitForFunction(() => {
+    try { return !!localStorage.getItem("fs_save_coop"); } catch (e) { return false; }
+  }, { timeout: 25000, polling: 120 }).catch(() => {});
+  const slots = await rhL.evaluate(() => {
+    const FS = window.__FS__;
+    let auto = null, coop = null;
+    try { auto = localStorage.getItem("fs_save_auto"); coop = localStorage.getItem("fs_save_coop"); } catch (e) {}
+    return { auto: auto, coopOk: !!coop && FS.describeSave(coop).ok,
+      coopTick: coop ? FS.describeSave(coop).tick : -1, tick: FS.G.tick,
+      hasCoopSlot: FS.saveSlots().some((s) => s.id === "coop") };
+  });
+  t.check("a co-op host autosaves the shared kingdom into co-op's OWN slot",
+    slots.hasCoopSlot === true && slots.coopOk === true && slots.coopTick > 0, slots);
+  t.check("…and the solo autosave it would otherwise have clobbered is untouched",
+    slots.auto === "SOLO-SENTINEL", { auto: String(slots.auto).slice(0, 40) });
+  await rgL.close();
+  await rhL.close();
+
+  /* ══════════════ 15. wrap up ═══════════════════════════════════════════ */
   console.log("   relay: " + relay.conns + " connections, " + relay.msgs + " messages, " +
     (relay.bytes / 1024).toFixed(1) + " KB");
   for (const p of close) { try { await p.close(); } catch (e) {} }

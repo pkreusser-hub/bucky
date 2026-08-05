@@ -1511,33 +1511,81 @@
     drawSeries(el("fsStatsCanvas"), (p) => g.stats[p][statsTab] || [], (p) => "#" + colHex(g.players[p].color));
   }
 
-  function peekSaveMeta(slot) {
+  /* ═══════════════════════════════════════════════════════════════════════
+   * ===== SAVE SLOTS (2026-08-05: identity, and a slot co-op owns) =========
+   * "auto" is the SOLO autosave and the one the title's Continue button reads.
+   * "coop" is its own slot, written only while a room is live: a family that
+   * plays co-op on Sunday and solo on Monday would otherwise have Monday's
+   * autosave quietly eat the kingdom they mean to come back to together —
+   * and a dropped connection mid-session should never cost that kingdom.
+   * Manual slots 1-3 are shared by both, because they are a deliberate act.
+   * ═══════════════════════════════════════════════════════════════════════ */
+  const SAVE_SLOTS = [
+    { id: "auto", label: "Autosave", auto: true },
+    { id: "coop", label: "Co-op autosave", auto: true },
+    { id: "1", label: "Slot 1" }, { id: "2", label: "Slot 2" }, { id: "3", label: "Slot 3" },
+  ];
+  FSUI.saveSlots = function () { return SAVE_SLOTS.map((s) => Object.assign({}, s)); };
+
+  const SAVE_BAD = {
+    empty: "nothing saved there",
+    foreign: "that isn't a Castle Kruzer save",
+    version: "that save is from an older version",
+    unreadable: "that save file is damaged",
+  };
+  FSUI.saveFailText = function (why) { return SAVE_BAD[why] || "couldn't read that save"; };
+
+  /**
+   * FSUI.saveInfo(slot) — everything a person needs to pick the RIGHT save:
+   * when it was written, how far in, which mode, how many kingdoms — plus the
+   * co-op eligibility FSSim.describeSave works out. Never throws; a slot that
+   * cannot be read comes back { exists:true, info:{ok:false, why} } so the UI
+   * can say WHY instead of just hiding it.
+   */
+  FSUI.saveInfo = function (slot) {
+    const def = SAVE_SLOTS.filter((s) => s.id === slot)[0] || { id: slot, label: "Slot " + slot };
     let raw = null;
-    try { raw = localStorage.getItem("fs_save_" + slot); } catch (e) { return null; }
-    if (!raw) return null;
-    let tick = "?";
-    try { tick = JSON.parse(raw).t; } catch (e) { /* noop */ }
-    let when = "—";
+    try { raw = localStorage.getItem("fs_save_" + slot); } catch (e) { raw = null; }
+    if (!raw) return { slot: slot, label: def.label, exists: false, info: { ok: false, why: "empty" } };
+    let when = "";
     try {
       const m = JSON.parse(localStorage.getItem("fs_save_" + slot + "_meta") || "null");
       if (m && m.ts) when = new Date(m.ts).toLocaleString();
     } catch (e) { /* noop */ }
-    return { tick, when };
-  }
+    const S = window.FSSim || FSSim;
+    const info = S && S.describeSave ? S.describeSave(raw) : { ok: false, why: "unreadable" };
+    return { slot: slot, label: def.label, exists: true, when: when, bytes: raw.length, info: info };
+  };
+  /** One human line: "Medium · 2 kingdoms + 1 rival · 1h 12m in". */
+  FSUI.saveLine = function (rec) {
+    if (!rec || !rec.exists) return "empty";
+    const i = rec.info;
+    if (!i.ok) return "⚠ " + FSUI.saveFailText(i.why);
+    const size = String(i.size || "medium");
+    const kingdoms = i.humans + (i.humans === 1 ? " kingdom" : " kingdoms");
+    const rivals = i.ais + (i.ais === 1 ? " rival" : " rivals");
+    return size.charAt(0).toUpperCase() + size.slice(1) + " · " +
+      (i.mode === "separate" ? "separate kingdoms" : "shared kingdom") + " · " +
+      kingdoms + " + " + rivals + " · " + i.played + (rec.when ? " · " + rec.when : "");
+  };
+
   function renderSaveLoad() {
     const net = FS.FSNet;
-    const isGuest = !!(net && net.active && net.active() && net.state().role === "guest");
+    const st = net && net.active && net.active() ? net.state() : null;
+    const isGuest = !!(st && st.role === "guest");
+    const isHost = !!(st && st.role === "host");
     let html = "";
     if (isGuest) html += '<p class="fs-dim fs-note">Your host keeps the saves — saving is off for the guest seat.</p>';
-    const slots = [["auto", "Autosave"], ["1", "Slot 1"], ["2", "Slot 2"], ["3", "Slot 3"]];
-    for (let i = 0; i < slots.length; i++) {
-      const slot = slots[i][0], label = slots[i][1], meta = peekSaveMeta(slot);
-      html += '<div class="fs-save-row" data-slot="' + slot + '">';
-      html += '<div class="fs-save-info"><b>' + label + "</b><span class=\"fs-dim\">" +
-        (meta ? ("tick " + meta.tick + " · " + meta.when) : "empty") + "</span></div>";
+    if (isHost) html += '<p class="fs-dim fs-note">You are hosting. Saving keeps the room open — and loading hands your partner the saved kingdom too.</p>';
+    for (let i = 0; i < SAVE_SLOTS.length; i++) {
+      const def = SAVE_SLOTS[i], rec = FSUI.saveInfo(def.id);
+      const loadable = rec.exists && rec.info.ok;
+      html += '<div class="fs-save-row" data-slot="' + def.id + '">';
+      html += '<div class="fs-save-info"><b>' + esc(def.label) + "</b><span class=\"fs-dim\">" +
+        esc(FSUI.saveLine(rec)) + "</span></div>";
       html += '<div class="fs-save-btns">';
-      if (slot !== "auto" && !isGuest) html += '<button class="fs-btn" data-act="save-slot" data-slot="' + slot + '">💾 Save</button>';
-      if (meta) html += '<button class="fs-btn" data-act="load-slot" data-slot="' + slot + '">📂 Load</button>';
+      if (!def.auto && !isGuest) html += '<button class="fs-btn" data-act="save-slot" data-slot="' + def.id + '">💾 Save</button>';
+      if (loadable) html += '<button class="fs-btn" data-act="load-slot" data-slot="' + def.id + '">📂 Load</button>';
       html += "</div></div>";
     }
     html += '<button class="fs-btn fs-danger" data-act="newgame-fromsheet">🏠 New game</button>';
@@ -1546,7 +1594,8 @@
   function doSaveSlot(slot) {
     if (!FS.save(slot)) { toast("save failed", "err"); return; }
     try { localStorage.setItem("fs_save_" + slot + "_meta", JSON.stringify({ ts: Date.now() })); } catch (e) { /* noop */ }
-    toast("💾 saved — " + (slot === "auto" ? "autosave" : "slot " + slot), "info");
+    const def = SAVE_SLOTS.filter((s) => s.id === slot)[0];
+    toast("💾 saved — " + (def ? def.label.toLowerCase() : "slot " + slot), "info");
     refreshOpenSheet();
   }
   /* ═══════════════════════════════════════════════════════════════════════
@@ -1575,7 +1624,12 @@
       refreshOpenSheet();
       return;
     }
-    toast("📂 loaded", "info");
+    /* HOSTING? The room stayed open and FS.load has already handed the partner
+     * the saved kingdom (see loadWorld in castlekruzer.html) — say so, because
+     * from their side the world just changed under them. */
+    const net = FS.FSNet;
+    const hosting = !!(net && net.active && net.active() && net.state().role === "host");
+    toast(hosting ? "📂 loaded — your partner is getting this kingdom too" : "📂 loaded", "info");
     closeSheet();
   }
   /** The title screen's Continue button is wired in farmstead.html (it hides
@@ -2108,9 +2162,14 @@
     const g = G();
     if (!g) return;
     const net = FS.FSNet;
-    if (net && net.active && net.active() && net.state().role === "guest") return;   // host owns persistence
+    const st = net && net.active && net.active() ? net.state() : null;
+    if (st && st.role === "guest") return;                        // host owns persistence
+    /* A CO-OP HOST AUTOSAVES TOO, into co-op's own slot: a dropped connection
+     * mid-session must not cost the kingdom, and the shared world must not be
+     * clobbered by (or clobber) the next solo evening's autosave. */
+    const slot = st && st.role === "host" ? "coop" : "auto";
     if (lastAutosaveTick < 0) lastAutosaveTick = g.tick;
-    if (g.tick - lastAutosaveTick >= FSC.AUTOSAVE_T) { lastAutosaveTick = g.tick; doSaveSlot("auto"); }
+    if (g.tick - lastAutosaveTick >= FSC.AUTOSAVE_T) { lastAutosaveTick = g.tick; doSaveSlot(slot); }
   }
 
   // ═══════════════════════════════════════════════════════════════════════

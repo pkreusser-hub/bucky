@@ -107,7 +107,18 @@ async function run(suiteName, fn, opts = {}) {
       // deterministic: block everything off-origin (no CDNs, no cloud)
       await page.setRequestInterception(true);
       page.on("request", (req) => {
-        if (req.url().startsWith(`http://127.0.0.1:${port}`)) return req.continue();
+        const u = req.url();
+        /* The page's activity beacon posts to /.netlify/functions/activity —
+         * SAME ORIGIN, so it sails past the off-origin block and the static
+         * test server 404s it. That 404 is console noise indistinguishable
+         * from a page fault, and it only appears when a run lasts long enough
+         * for the beacon's flush to fire, which makes it a coin-flip failure
+         * in any suite that asserts a clean console. There is no functions
+         * backend here by design: answer it, don't fail it. */
+        if (u.startsWith(`http://127.0.0.1:${port}/.netlify/`)) {
+          return req.respond({ status: 204, body: "" });
+        }
+        if (u.startsWith(`http://127.0.0.1:${port}`)) return req.continue();
         return req.abort();
       });
       return page;

@@ -3385,6 +3385,149 @@
     return { ok: true, seats: G.seats.slice() };
   };
 
+  /* ─────────────── SAVE → RE-HOST (2026-08-05, plan §16 addendum) ───────────
+   * A co-op save was written with seat 1 OCCUPIED. When that world is opened
+   * again to host a NEW room the partner is a different person (or nobody yet),
+   * so the seat has to come back EMPTY and CLAIMABLE — and it has to be
+   * claimable by seat INDEX, never by who sat there before. That is the whole
+   * of the seat lifecycle, and it works because a seat is only ever an index
+   * into G.seats: nothing in G stores a peer name, id or socket (the partner's
+   * name lives in fs-net's S and is cleared when a room opens). So the ONLY
+   * thing a rehost has to get right is the seat→player MAP, and these two
+   * functions are where that decision lives — deliberately in the sim, so the
+   * suites can prove it without a browser and both machines derive the same
+   * world from the same bytes.
+   * ─────────────────────────────────────────────────────────────────────── */
+
+  /** first non-AI, living player id, or -1 */
+  function firstHuman(players, skip) {
+    for (let i = 0; i < players.length; i++) {
+      const p = players[i];
+      if (!p || p.isAI || p.eliminated) continue;
+      if (skip !== undefined && i === skip) continue;
+      return i;
+    }
+    return -1;
+  }
+
+  /**
+   * FSSim.coopSeating(G, mode) → { ok, seats, hostPlayer, humans, why }
+   * PURE: reads only { seats, players }, so it also answers the title screen's
+   * "can this SAVE be hosted as separate kingdoms?" question straight off a
+   * parsed save file (see describeSave) without building a world.
+   *
+   *   shared   — every seat commands the host's own player. Always possible,
+   *              including from a plain SOLO save (both seats drive player 0).
+   *   separate — seat 1 INHERITS a second human kingdom: its buildings, land,
+   *              knights and stock, exactly as the save left them. That needs
+   *              such a kingdom to exist, so a solo save honestly cannot offer
+   *              it (why:"no-second-kingdom"). We never invent a kingdom
+   *              mid-game and never hand a player one of the AI's.
+   */
+  FSSim.coopSeating = function (G, mode) {
+    mode = mode === "separate" ? "separate" : "shared";
+    const players = (G && G.players) || [];
+    if (!players.length) return { ok: false, mode: mode, why: "no-players" };
+    const seats = (G && G.seats && G.seats.length) ? G.seats : (G && G.mode === "separate" ? [0, 1] : [0, 0]);
+    /* The host takes the seat the LOCAL player already held. Usually 0; a guest
+     * who carried on solo after their host quit has seats [p,p] (FSNet.detach),
+     * so seats[0] is genuinely their own kingdom and not the one that left. */
+    let hostP = seats[0] | 0;
+    if (!players[hostP] || players[hostP].isAI || players[hostP].eliminated) hostP = firstHuman(players);
+    if (hostP < 0) return { ok: false, mode: mode, why: "no-human-kingdom" };
+    if (mode === "shared") {
+      return { ok: true, mode: mode, seats: [hostP, hostP], hostPlayer: hostP, humans: 1 };
+    }
+    const other = firstHuman(players, hostP);
+    if (other < 0) return { ok: false, mode: mode, why: "no-second-kingdom", hostPlayer: hostP };
+    return { ok: true, mode: mode, seats: [hostP, other], hostPlayer: hostP, humans: 2 };
+  };
+
+  /**
+   * FSSim.seatForHost(G, mode) — APPLY that seating to a world about to be
+   * hosted. Called on the HOST only, and always BEFORE the room can hand the
+   * world to anybody: the guest receives the serialized G verbatim, so seats
+   * settled here are the seats both machines run (see fs-net's join path).
+   * Changing seats after a partner is seated would re-route their commands
+   * under them — that is why this is a load-time decision, not a live one.
+   */
+  FSSim.seatForHost = function (G, mode) {
+    const s = FSSim.coopSeating(G, mode);
+    if (!s.ok) return s;
+    G.seats = s.seats.slice();
+    G.mode = s.mode;
+    G.humans = s.humans;
+    /* both human seats are ALLIES — a separate-kingdoms room whose two humans
+     * sat on different teams would let them besiege each other */
+    const a = G.players[s.seats[0]], b = G.players[s.seats[1]];
+    if (a && b && b !== a) b.team = a.team;
+    return s;
+  };
+
+  /**
+   * The next command sequence number that is safe to hand out in a room opened
+   * from this world. A save carries G.cmdSeq AND any commands still queued
+   * ahead of its tick, each stamped with the PREVIOUS session's sequence; the
+   * new host restarts its wire counter, so without this a fresh command could
+   * be issued with a seq already present in the queue. Commands sort by
+   * (t, by, seq) — a tie there is the one place two machines could legally
+   * disagree about order, so we simply never create one.
+   */
+  FSSim.seqFloor = function (G) {
+    let n = Math.max(1, (G && G.cmdSeq) | 0);
+    const q = (G && G.cmdQueue) || [];
+    for (let i = 0; i < q.length; i++) { const s = ((q[i].seq | 0) + 1); if (s > n) n = s; }
+    return n;
+  };
+
+  /** "1h 12m" / "6m" — how far into a game a save is, in game time. */
+  FSSim.playedLabel = function (tick) {
+    const mins = Math.floor(((tick | 0) * FSC.TICK_S) / 60);
+    if (mins < 1) return "just started";
+    if (mins < 60) return mins + "m in";
+    return Math.floor(mins / 60) + "h " + (mins % 60) + "m in";
+  };
+
+  /**
+   * FSSim.describeSave(str) → identity + co-op eligibility for a save FILE,
+   * without building a world. Never throws: a foreign, corrupt or
+   * wrong-version save comes back { ok:false, why } and the caller can say so.
+   * This is what puts real identity on the save list (when, how far in, which
+   * mode, how many kingdoms) and what greys out an impossible co-op option
+   * BEFORE a room is ever opened.
+   */
+  FSSim.describeSave = function (str) {
+    let doc = null;
+    try { doc = typeof str === "string" ? JSON.parse(str) : str; } catch (e) { return { ok: false, why: "unreadable" }; }
+    if (!doc || doc.fs !== "farmstead") return { ok: false, why: "foreign" };
+    if ((doc.v | 0) !== (FSC.VERSION | 0)) return { ok: false, why: "version", v: doc.v | 0 };
+    const g = doc.g || {};
+    if (!g.players || !g.players.length || !doc.map) return { ok: false, why: "unreadable" };
+    const seats = (g.seats && g.seats.length) ? g.seats.map((s) => s | 0)
+      : (g.mode === "separate" ? [0, 1] : [0, 0]);
+    const view = { seats: seats, players: g.players, mode: g.mode };
+    const shared = FSSim.coopSeating(view, "shared");
+    const sep = FSSim.coopSeating(view, "separate");
+    let humanCount = 0, aiCount = 0;
+    for (let i = 0; i < g.players.length; i++) {
+      if (g.players[i] && g.players[i].isAI) aiCount++; else humanCount++;
+    }
+    return {
+      ok: true, v: doc.v | 0,
+      tick: g.tick | 0, played: FSSim.playedLabel(g.tick | 0),
+      mode: g.mode === "separate" ? "separate" : "shared",
+      size: g.size || "medium", seed: g.seed >>> 0,
+      difficulty: g.difficulty, speed: g.speed === undefined ? 1 : g.speed | 0,
+      seats: seats, humans: humanCount, ais: aiCount,
+      players: g.players.map((p) => ({ id: p.id | 0, name: String(p.name || ""),
+        isAI: !!p.isAI, eliminated: !!p.eliminated })),
+      hostPlayer: shared.ok ? shared.hostPlayer : -1,
+      canShared: !!shared.ok, canSeparate: !!sep.ok,
+      separateWhy: sep.ok ? "" : (sep.why || ""),
+      gameOver: !!g.gameOver,
+    };
+  };
+
   /** True on the tick boundaries where both machines exchange a state hash. */
   FSSim.isCheckpoint = function (G) { return (G.tick % FSC.SYNC_HASH_T) === 0; };
   /** Hash + tick in one object — what a checkpoint message carries. */

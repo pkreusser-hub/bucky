@@ -339,6 +339,25 @@
   #coop .joinrow{ display:flex; gap:8px; }
   #joinCode{ text-transform:uppercase; letter-spacing:3px; }
   #joinBtn{ flex:0 0 96px; }
+  /* SAVE → RE-HOST: the saved-kingdom picker. Parchment leaves pinned on the
+     oak panel — same language as the in-game save sheet, no new chrome. */
+  #savePick{ margin:2px 0 4px; }
+  #savePick.hidden{ display:none; }
+  #savePick .srow{
+    background-color:var(--parch-d); background-image:var(--fs-tex-parch);
+    background-size:128px 128px; background-blend-mode:multiply;
+    border:1px solid var(--oak-dd); border-radius:3px; padding:8px 9px; margin-bottom:6px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.42), inset 0 -2px 4px rgba(150,116,66,.28);
+  }
+  #savePick .sinfo b{ display:block; font-family:var(--serif); font-size:13px; letter-spacing:.8px;
+    text-transform:uppercase; color:var(--oak-d); }
+  #savePick .sinfo span{ display:block; font-family:var(--sans); font-size:11px; font-weight:600;
+    line-height:1.45; color:var(--ink-2); margin-top:1px; }
+  #savePick .sbtns{ display:flex; gap:6px; margin-top:7px; }
+  #savePick .sbtns button{ flex:1; min-height:44px; font-weight:700; font-size:13px; padding:8px 6px; cursor:pointer; }
+  #savePick .sbtns button[disabled]{ opacity:.45; cursor:not-allowed; filter:grayscale(.6); }
+  #savePick .swhy{ margin:6px 0 0; font:600 10.5px/1.45 var(--sans); color:var(--ink-3); }
+  #hostSaveBtn{ min-height:44px; }
   #netNote{ margin-top:10px; font-size:12.5px; font-weight:700; color:var(--ink-2); line-height:1.5; word-break:break-all; }
   #netNote .code{ font:800 20px/1.3 var(--mono); letter-spacing:3px; color:var(--seal-ink); }
   #netNote.hidden{ display:none; }
@@ -1106,6 +1125,10 @@
         <input id="joinCode" inputmode="text" autocomplete="off" maxlength="8" placeholder="CODE">
         <button class="cbtn" id="joinBtn" style="margin:0">JOIN</button>
       </div>
+      <!-- SAVE → RE-HOST (2026-08-05): open a saved kingdom as a new room -->
+      <button class="cbtn" id="hostSaveBtn" aria-expanded="false" aria-controls="savePick"
+        style="margin-top:8px">📂 Host a saved kingdom<small>carry on a co-op game — anyone can take the second seat</small></button>
+      <div id="savePick" class="hidden"></div>
       <div id="netNote" class="hidden"></div>
     </div>
   </div>
@@ -1283,6 +1306,9 @@
     if (window.FSUI) FSUI.onGameEnd();
     if (window.FSAudio) FSAudio.onGameEnd(); /* ===== PHASE F: BGM fades out back on the title ===== */
     try { if (localStorage.getItem("fs_save_auto")) el("continueBtn").classList.remove("hidden"); } catch (e) { /* noop */ }
+    // the saved-kingdom list must not show the slots as they were an hour ago
+    const pick = el("savePick");
+    if (pick && !pick.classList.contains("hidden")) renderSavePick();
   }
 
   /* ===== PHASE-M: adopt a whole world handed over by the host (join / resync).
@@ -1753,7 +1779,28 @@
     FSNet.init({
       getG: function () { return G; },
       setG: function (g2) { adoptWorld(g2); },
-      startWorld: function (settings) {
+      startWorld: function (settings, saveStr) {
+        /* SAVE → RE-HOST. The bytes come straight from the host's own device
+         * (never the wire). If they will not load we create NO world at all and
+         * say so — a room that quietly opened a brand-new kingdom while looking
+         * like it restored one is the single worst outcome here, so the caller
+         * checks for a missing G and closes the room. */
+        if (saveStr) {
+          let g2 = null;
+          try { g2 = FSSim.deserialize(saveStr); } catch (e) { g2 = null; }
+          if (!g2) { netNote("⚠ " + saveFailText("unreadable")); toastMode("⚠ " + saveFailText("unreadable")); return; }
+          const seat = FSSim.seatForHost(g2, settings.mode);
+          if (!seat.ok) {
+            const why = seat.why === "no-second-kingdom"
+              ? "that save has only one player kingdom — host it as a shared kingdom instead"
+              : "that save has no player kingdom left to open";
+            netNote("⚠ " + why); toastMode("⚠ " + why);
+            return;
+          }
+          if (g2.speed > FSC.MP_MAX_SPEED) g2.speed = FSC.MP_MAX_SPEED;   // co-op ceiling
+          adoptWorld(g2);
+          return;
+        }
         startGame({ size: settings.size, ais: settings.ais, seed: settings.seed,
           supplies: settings.supplies, difficulty: settings.difficulty,
           mode: settings.mode, humans: settings.humans,
@@ -1793,6 +1840,107 @@
     return FSNet.host({ mode: mode, size: s.size, ais: s.ais, seed: s.seed,
       supplies: s.supplies, difficulty: s.difficulty });
   }
+
+  /* ═══════════════════════════════════════════════════════════════════════
+   * ===== SAVE → RE-HOST (2026-08-05) =====================================
+   * Save a co-op game today; open the same kingdom as a NEW room tomorrow and
+   * send the link to whoever is free. The partner need not be the person who
+   * played it the first time: seat 1 is claimed by index, and in a
+   * separate-kingdoms save whoever arrives INHERITS the second kingdom whole.
+   * ═══════════════════════════════════════════════════════════════════════ */
+  function saveFailText(why) {
+    return window.FSUI ? FSUI.saveFailText(why) : "couldn't read that save";
+  }
+  function readSave(slot) {
+    try { return localStorage.getItem("fs_save_" + slot); } catch (e) { return null; }
+  }
+  /**
+   * THE ONE LOAD PATH (save sheet, title Continue, __FS__.load/loadState).
+   * deserialize THROWS on a foreign/older save, so callers get a clean false.
+   * And if we are HOSTING, the partner is handed the new kingdom straight away
+   * — a host that silently swaps its own world leaves two different games on
+   * one wire until a checkpoint notices, which is a repair nobody asked for.
+   */
+  function loadWorld(str) {
+    let g2 = null;
+    try { g2 = FSSim.deserialize(str); }
+    catch (e) { console.warn("load refused:", e.message); return false; }
+    adoptWorld(g2);
+    try {
+      if (FSNet && FSNet.active() && FSNet.state().role === "host" && FSNet.hostReplaceWorld) {
+        FSNet.hostReplaceWorld(G);
+      }
+    } catch (e) { /* the world is loaded either way — the wire heals itself */ }
+    return G;
+  }
+  /**
+   * Every refusal happens HERE, before a room is opened, so a player never
+   * watches an invite link appear for a game that cannot start.
+   */
+  function hostSavedRoom(slot, mode) {
+    if (!FSNet) return null;
+    const raw = readSave(slot);
+    const info = raw ? FSSim.describeSave(raw) : { ok: false, why: "empty" };
+    if (!info.ok) { netNote("⚠ " + saveFailText(info.why)); toastMode("⚠ " + saveFailText(info.why)); return null; }
+    if (mode === "separate" && !info.canSeparate) {
+      const why = "that save has only one player kingdom — host it as a shared kingdom instead";
+      netNote("⚠ " + why); toastMode("⚠ " + why);
+      return null;
+    }
+    // starting from a save while still seated in a (possibly dead) room must
+    // LEAVE it first — same rule the START button follows
+    try { const st = FSNet.state(); if (st && st.role) FSNet.leave(); } catch (e) {}
+    netNote("Opening room…");
+    return FSNet.host({
+      mode: mode, load: raw, size: info.size, seed: info.seed, ais: info.ais,
+      difficulty: info.difficulty, speed: Math.min(info.speed || 1, FSC.MP_MAX_SPEED),
+    }).then((st) => {
+      // startWorld refused the bytes after all: never leave a room open over a
+      // world that does not exist
+      if (!G) { try { FSNet.leave(); } catch (e) {} }
+      return st;
+    });
+  }
+  function renderSavePick() {
+    const box = el("savePick");
+    if (!box || !window.FSUI) return;
+    // the summary line is composed from FILE data (a save's own size/mode
+    // fields) — our own file, on our own device, but it is still not markup
+    const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    const slots = FSUI.saveSlots();
+    let html = "", any = false;
+    for (let i = 0; i < slots.length; i++) {
+      const rec = FSUI.saveInfo(slots[i].id);
+      if (!rec.exists) continue;
+      any = true;
+      const ok = rec.info.ok;
+      html += '<div class="srow">';
+      html += '<div class="sinfo"><b>' + esc(slots[i].label) + "</b><span>" + esc(FSUI.saveLine(rec)) + "</span></div>";
+      if (ok) {
+        html += '<div class="sbtns">' +
+          '<button class="fs-btn" data-slot="' + slots[i].id + '" data-mode="shared">🤝 Shared</button>' +
+          '<button class="fs-btn" data-slot="' + slots[i].id + '" data-mode="separate"' +
+          (rec.info.canSeparate ? "" : ' disabled title="this save has only one player kingdom"') +
+          ">🏰🏰 Separate</button></div>";
+        if (!rec.info.canSeparate) html += '<p class="swhy">Separate kingdoms needs a second player kingdom in the save — this one has one, so host it shared.</p>';
+      }
+      html += "</div>";
+    }
+    box.innerHTML = any ? html : '<p class="swhy">No saved kingdoms on this device yet — save a game first.</p>';
+  }
+  el("hostSaveBtn").addEventListener("click", () => {
+    const box = el("savePick");
+    const show = box.classList.contains("hidden");
+    if (show) renderSavePick();
+    box.classList.toggle("hidden", !show);
+    el("hostSaveBtn").setAttribute("aria-expanded", show ? "true" : "false");
+  });
+  el("savePick").addEventListener("click", (ev) => {
+    const b = ev.target.closest ? ev.target.closest("button[data-slot]") : null;
+    if (!b || b.disabled) return;
+    hostSavedRoom(b.getAttribute("data-slot"), b.getAttribute("data-mode"));
+  });
   function joinRoom(code) {
     if (!FSNet) return null;
     netNote("Connecting…");
@@ -1907,6 +2055,11 @@
         aiPlan: o.aiPlan, speed: o.speed,
       });
     },
+    /* ═══ SAVE → RE-HOST (2026-08-05) ═══ */
+    hostSavedGame: function (slot, mode) { return hostSavedRoom(String(slot), mode); },
+    saveInfo: function (slot) { return window.FSUI ? FSUI.saveInfo(String(slot)) : null; },
+    saveSlots: function () { return window.FSUI ? FSUI.saveSlots() : []; },
+    describeSave: function (str) { return FSSim.describeSave(str); },
     joinGame: function (code, o) { return FSNet.join(code, o); },
     netState: function () { return FSNet.state(); },
     netStats: function () { return FSNet.stats(); },
@@ -1917,12 +2070,7 @@
     },
     leaveRoom: function () { return FSNet.leave(); },
     serialize: function () { return FSSim.serialize(G); },
-    loadState: function (str) {
-      // deserialize THROWS on a foreign/older-version save — the UI paths must
-      // get a clean false (and toast), never an uncaught crash
-      try { return adoptWorld(FSSim.deserialize(str)); }
-      catch (e) { console.warn("loadState refused:", e.message); return false; }
-    },
+    loadState: function (str) { return loadWorld(str); },
     save: function (slot) {
       try {
         localStorage.setItem("fs_save_" + (slot || 1), FSSim.serialize(G));
@@ -1930,12 +2078,8 @@
       } catch (e) { return false; }
     },
     load: function (slot) {
-      let str = null;
-      try { str = localStorage.getItem("fs_save_" + (slot || 1)); } catch (e) { str = null; }
-      if (!str) return false;
-      try { adoptWorld(FSSim.deserialize(str)); }
-      catch (e) { console.warn("load refused:", e.message); return false; }
-      return true;
+      const str = readSave(slot || 1);
+      return str ? !!loadWorld(str) : false;
     },
     step: function (dt) { return step(dt === undefined ? FSC.TICK_S : dt); },
     hash: function () { return FSSim.hash(G); },

@@ -699,6 +699,37 @@
     hookInstalled = false;
   }
 
+  /**
+   * The floor for this room's wire sequence counter. Never goes DOWN: a guest
+   * dedupes the commands it buffered during a transfer with `seq >= snapshot
+   * seq`, so a counter that rewound would silently replay or swallow orders.
+   */
+  function seqFloor() {
+    const g = G();
+    const want = g ? FSSim.seqFloor(g) : 1;
+    return Math.max(S.netSeq, want, 1);
+  }
+
+  /**
+   * FSNet.hostReplaceWorld(g) — the host swapped its whole world (it loaded a
+   * save while the room was already open). The room, the code and the invite
+   * link all survive; the partner simply receives the new kingdom the same way
+   * they received the first one. Deliberately bypasses the repair BACKOFF: this
+   * is a player action, not a symptom, and making them wait 4 s for a world
+   * they asked for would read as a broken button.
+   */
+  FSNet.hostReplaceWorld = function (g) {
+    if (S.role !== "host" || !g) return false;
+    S.netSeq = seqFloor();
+    S.syncFails = 0;
+    S.stateBackoffMs = LIM.STATE_MIN_MS;
+    S.statePending = "";
+    S.lastStateMs = 0;
+    if (S.peerHere) sendState("rehost");
+    note("status", FSNet.state());
+    return true;
+  };
+
   function applyCmd(c) {
     const g = G();
     if (!g || !c) return;
@@ -816,7 +847,9 @@
     S.catchT0 = NOW(); S.catchFrom = g2.tick;
     FSSim.event(g2, "netResync", { t: g2.tick, bytes: r.bytes, why: r.why });
     FSSim.notify(g2, g2.seats ? g2.seats[S.seat] : 0,
-      r.why === "resync" ? "Back in step with your partner." : "Joined your partner's kingdom.");
+      r.why === "resync" ? "Back in step with your partner."
+        : r.why === "rehost" ? "Your partner opened a saved kingdom."
+          : "Joined your partner's kingdom.");
     send({ y: "stateOk", t: g2.tick, h: FSSim.hash(g2), ms: STATS.joinMs });
     note("loaded", { tick: g2.tick, bytes: r.bytes, ms: STATS.joinMs, why: r.why });
     note("status", FSNet.state());
@@ -1049,11 +1082,22 @@
       humans: mode === "separate" ? 2 : 1,
       aiPlan: opts.aiPlan,        // suites park the opponents; travels inside the save too
       speed: opts.speed,
+      /* SAVE → RE-HOST: a flag only. The save STRING never rides in `settings`
+       * (settings is echoed in every `welcome` and `stateBegin`; a ~130 KB world
+       * bolted to a control frame would be sent again on every repair). The
+       * bytes go straight to the page through startWorld's second argument, and
+       * the guest gets the world the way it always does — as a chunked snapshot. */
+      fromSave: !!opts.load,
     };
     S.mode = mode; S.seat = 0; S.settings = settings;
     S.code = (opts.code || makeCode()).toUpperCase();
     S.status = "connecting"; S.err = "";
-    S.peerPid = ""; S.peerSockId = ""; S.peerLostWhy = ""; S.leaveSuspectMs = 0;
+    /* THE SEAT COMES BACK EMPTY. A save may have been written with a partner in
+     * seat 1; none of that survives into the new room — no latched protocol id,
+     * no transport id, and no NAME (which is what would otherwise mislabel the
+     * newcomer as whoever played last). Seat 1 is claimed by index, by whoever
+     * says hello first. */
+    S.peerPid = ""; S.peerSockId = ""; S.peerName = ""; S.peerLostWhy = ""; S.leaveSuspectMs = 0;
     S.syncFails = 0; S.giveUpMs = 0; S.lastStateMs = 0; S.stateBackoffMs = 0; S.statePending = "";
     S.awaitState = false;
     note("status", FSNet.state());
@@ -1063,7 +1107,12 @@
       S.role = "host"; S.seat = 0; S.connected = true;
       S.status = "waiting"; S.netSeq = 1; S.peerHere = false;
       installHook();
-      env.startWorld(settings);
+      /* A guest cannot interleave here: onMessage only ever runs from a socket
+       * callback, and this whole .then body is one synchronous turn — so the
+       * world (and its SEATS) are settled before anyone can say hello. */
+      env.startWorld(settings, opts.load || null);
+      // …and the wire's sequence counter starts above anything the save carried
+      S.netSeq = seqFloor();
       startTimer();
       if (S.transport === "playroom") lobbyEnsure();
       note("status", FSNet.state());
@@ -1075,8 +1124,10 @@
       removeHook();
       adapter = null;
       toast("🌾 Couldn't open a co-op room — playing solo.");
-      // solo shape: one human, no dormant second kingdom (never a blank page)
-      env.startWorld(Object.assign({}, settings, { mode: "shared", humans: 1 }));
+      // solo shape: one human, no dormant second kingdom (never a blank page).
+      // A save being hosted is still LOADED here — the player asked for that
+      // kingdom, and losing it to a transport hiccup would be the worst answer.
+      env.startWorld(Object.assign({}, settings, { mode: "shared", humans: 1 }), opts.load || null);
       note("status", FSNet.state());
       return FSNet.state();
     });

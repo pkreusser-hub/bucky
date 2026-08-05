@@ -7866,3 +7866,122 @@ would have to be its own tap target rather than a tap on the card.
 consecutive live runs) — that card keeps the publisher's blurb, and it is PRE-EXISTING, not a
 side effect of the longer format: `origin/main`'s code scored the identical 19 of 20 on the same
 feeds. Two near-duplicate wire stories in one batch is the usual cause.
+
+---
+
+# 🏰 CASTLE KRUZER — SAVE A CO-OP GAME, HOST IT AGAIN LATER (2026-08-05)
+
+User: *"in castle kruzer we need the ability in a co-op game for the host to save the game and
+then at a future time host a game from that saved file that another person can then join."*
+Files: `assets/farmstead/fs-{sim,net,ui}.js`, `castlekruzer.html`, `tools/_fs_harness.cjs`,
+`tools/_verify-farmstead-mp.cjs` (127 → **165**), new `tools/_ck_rehost_shots.cjs`.
+
+## The gap was the SEAT, not the snapshot
+A mid-game joiner already receives the whole world (mp §9), and a save already serializes all of
+it. What a save cannot carry forward is that **seat 1 was OCCUPIED when the file was written**.
+Open it again and that seat has to come back genuinely EMPTY — otherwise `onPeerFrame`'s "only
+into an EMPTY seat" rule refuses the newcomer.
+**It turned out the world side of that was free, and knowing WHY is the load-bearing part:
+nothing in `G` stores a peer's name, id or socket.** A seat is only ever an index into
+`G.seats`; the partner's identity lives entirely in fs-net's `S` (`peerPid`/`peerSockId`/
+`peerName`), which `FSNet.host()` already reset on `peerPid`/`peerSockId`. So the whole seat
+lifecycle reduces to two things:
+1. **`S.peerName` was NOT being cleared** — the one piece of stale identity that survived a
+   rehost and could have labelled the newcomer as whoever played last. Now cleared with the rest.
+2. **The seat→player MAP has to be re-derived**, and that is `FSSim.seatForHost(G, mode)` over the
+   pure `FSSim.coopSeating(G, mode)`. Deliberately in the SIM: the suites can prove it without a
+   browser, and both machines derive the same world from the same bytes.
+   - The host takes **`G.seats[0]`**, not "player 0" — a guest who carried on solo after their
+     host quit has `seats [p,p]` (`FSNet.detach`), so `seats[0]` really is their own kingdom and
+     not the one that left. Rehosting THAT save separate seats the newcomer onto player 0, the
+     original host's kingdom. Falls back to the first living non-AI player if seat 0 is gone.
+   - `shared` → `[hostP, hostP]`, always available, **including from a plain solo save**.
+   - `separate` → `[hostP, otherHuman]`; the arriving player inherits that kingdom whole.
+   - Both human seats are forced onto **the same team**, or a separate-kingdoms room would let
+     two allies besiege each other.
+   - **Timing is the invariant**: seats are settled at LOAD time, before the room can hand the
+     world to anybody. Changing them after a partner is seated would re-route their commands
+     under them. Safe by construction — `FSNet.host`'s `.then` body (installHook → startWorld →
+     netSeq → startTimer) is ONE synchronous turn, and `onMessage` only ever runs from a socket
+     callback, so no `hello` can interleave.
+
+## Lockstep across the boundary
+The guest receives the host's serialized `G` verbatim, so tick, `rngState`, `cmdQueue`, `seats`
+and every structure `deserialize` rebuilds (`map.bldFoot`, `FSMap.bind`, the `invPrio`/`cons`
+backfills) all cross the boundary as bytes. **The one thing that does NOT is the wire's sequence
+counter**, and that is the trap this codebase has hit before. `FSNet.host` used to set
+`S.netSeq = 1`; a save carries `G.cmdSeq` AND any commands still queued ahead of its tick, each
+stamped with the PREVIOUS session's sequence. Commands sort by `(t, by, seq)` — a tie there is
+the one place two machines could legally disagree about order — so `FSSim.seqFloor(G)` returns
+`max(cmdSeq, max(queued seq)+1)` and the room simply never creates one. It is applied AFTER
+`startWorld` (the world has to exist first) and **never goes down**: a guest dedupes the commands
+it buffered during a transfer with `seq >= snapshotSeq`, so a rewound counter would silently
+replay or swallow orders.
+`cmdSeq` itself is NOT in `FSSim.hash` (checked — the hash mixes `tick`/`nextId`/`routeGen`), and
+host and guest already drift on it in ordinary play, so it is the ORDERING that had to be
+protected, not the value.
+**EVIDENCE**: a rehosted separate-kingdoms room run **2400 ticks** — `checkpoints ≥ 20` real
+sync-hash comparisons, `desyncs 0`, `resyncs 0`, host and guest hash identical at the end — then
+saved and rehosted AGAIN with a third person joining (generation 2, still identical).
+
+## Solo → co-op: honest, not invented
+A solo save has one human kingdom. **Shared works naturally** (both seats command player 0, and
+the resumed world is byte-identical to what was saved — asserted on tick AND hash).
+**Separate is refused**, with the reason on screen: *"that save has only one player kingdom —
+host it as a shared kingdom instead"*. The Separate button is `disabled` on that row with the
+sentence under it, so the refusal happens before anyone taps. No kingdom is invented mid-game and
+nobody is handed an AI's — `coopSeating` skips `isAI` and `eliminated` players outright.
+
+## Never a fresh world wearing a restored world's clothes
+Every refusal happens in `hostSavedRoom` BEFORE `FSNet.host` is called, so a player never watches
+an invite link appear for a game that cannot start. `startWorld`'s save branch is the defensive
+half: if the bytes will not load it creates **NO world at all** and says so, and the caller sees a
+missing `G` and closes the room. Foreign / unparseable / wrong-version / structurally-broken saves
+are refused exactly as before (`FSSim.describeSave` never throws; `deserialize` still does, and is
+still wrapped).
+
+## The rest of it
+- **`FSSim.describeSave(str)`** — identity + co-op eligibility off a save FILE without building a
+  world (parses the doc, ignores the packed map). Feeds the picker's identity line and the greying.
+  `FSSim.playedLabel(tick)` turns ticks into "1h 12m in".
+- **UI, iPad-first**: a "📂 Host a saved kingdom" button under JOIN discloses a list of every
+  saved slot — *"Small · separate kingdoms · 2 kingdoms + 1 rival · 4m in · 8/5/2026, 8:32 AM"* —
+  with 🤝 Shared / 🏰🏰 Separate per row. 44px targets, 390px and desktop, and it re-renders on
+  `backToTitle` so it can never show hour-old slots. Skin language only (parchment leaf on the oak
+  panel, `.fs-btn` stone). The in-game save sheet got the same identity lines.
+- **`FSNet.hostReplaceWorld(g)`** — the host loads a save WHILE hosting: the room, code and invite
+  link all survive and the partner is handed the new kingdom as a normal chunked snapshot
+  (`why:"rehost"` → *"Your partner opened a saved kingdom."*). Deliberately bypasses the repair
+  BACKOFF — this is a player action, not a symptom. Wired into a NEW single load path
+  `loadWorld()` in the page (used by `__FS__.load`, `loadState`, the sheet and title Continue),
+  because a host that swaps its own world silently leaves two different games on one wire until a
+  checkpoint notices, and the FSUI sheet must not be the only route that gets it right.
+- **A CO-OP AUTOSAVE SLOT**: a host in a live room autosaves to `fs_save_coop`, not `fs_save_auto`
+  (guests still never autosave — the host owns persistence). A dropped connection mid-session must
+  not cost the kingdom, and the family's solo evening must not quietly eat the co-op one. Asserted
+  both ways with a sentinel. `Continue your kingdom` still reads `auto`.
+- The world resumes at the SAVE'S OWN SPEED, clamped to `FSC.MP_MAX_SPEED`.
+
+## Suites — all nine green, 1112 checks
+world **93** · transport **138** · economy **107** · visuals **205** · visual **60** ·
+military **124** · **mp 165** (+38) · ui **149** · polish **73**. Plus
+`node tools/_ck_rehost_shots.cjs` **8/8**.
+**A LATENT FLAKE THE LONGER RUN EXPOSED, fixed in the harness rather than papered over**: the
+page's activity beacon posts to `/.netlify/functions/activity` — **same origin**, so it sails past
+the off-origin block and the static test server 404s it. That 404 is console noise
+indistinguishable from a page fault, and it only appears once a run lasts long enough for the
+beacon's flush to fire, which made "0 page errors" a coin flip in any suite. There is no functions
+backend in the harness by design, so it is now answered with a 204.
+**TEST BUGS worth remembering** (both mine, both cost a run): `FS.toTitle()` NULLS `G`, so a
+snapshot taken after it reads −1 — read the tick and hash first; and `__FS__.load` is not the UI's
+load path, so a check written against the raw hook proved nothing about what the sheet does (the
+fix was to give the page ONE load path rather than to test the other one).
+`shots/` is gitignored, so `_ck_rehost_shots.cjs` — not the suite — regenerates the plates, and
+every plate ASSERTS what its filename claims before it is written (including that the picker is
+actually IN FRAME: the first desktop plate was a screenshot of the new-game form above it).
+Shots: `shots/ck_rehost_{savelist,savelist_mobile,hostflow,guest_inherited}.png`; the suite keeps
+its own evidence under `farmstead_rehost_*`.
+**KNOWN / DEFERRED**: a rehosted room opens at the save's speed, so a game saved while PAUSED
+comes back paused (honest, and the speed rail is right there); the picker lists slots from THIS
+device only, since saves are `localStorage` and always have been; and a save older than the
+current `FSC.VERSION` is still refused outright rather than migrated.
