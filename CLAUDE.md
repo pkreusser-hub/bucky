@@ -8156,7 +8156,10 @@ no cache, or another suite's blanket `{}` function mock (all five states asserte
   siteGame` were already league-parameterized, so `ncaa_scoreboard`/`ncaa_game` are the same
   code on `college-football`. **The upstream default is the FULL FBS slate (measured live
   2026-08-05), NOT a Top-25 cut** — "Top 25" is the CLIENT's filter on `curatedRank`
-  (slimmed to `team.rank`, 1-25 else null; rendered as `#N` badges). Conference dropdown
+  (slimmed to `team.rank`, 1-25 else null; rendered as `#N` badges). **PRESEASON has NO
+  ranks at all** (live 2026-08-05: 99 events, 0 ranked) — Top 25 falls back to the full
+  slate with a friendly note instead of an empty tab, and re-engages once rankings publish
+  (suite fakes it via `upstream.cfbUnranked`). Conference dropdown
   (`#cfbGroup`, persisted `bucky_cfb_group`, default top25): real ESPN `groups=` ids —
   80 all-FBS · 8 SEC · 5 B1G · 4 B12 · 1 ACC · 9 Pac-12 · 151 AAC · 17 MWC · 37 Sun Belt ·
   15 MAC · 12 CUSA · 18 Indep. College games deep-link **`#cgame=<id>`** ("cgame" contains
