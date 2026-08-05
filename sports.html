@@ -59,6 +59,14 @@
   /* pills (NFL / Fantasy) */
   .pills { display: flex; gap: 6px; margin: 2px 2px 10px; align-items: center; }
   .pills[hidden] { display: none; }   /* display:flex beats the UA [hidden] rule without this */
+
+  /* Embedded inside index.html (the Sports tab hosts this page in a persistent
+     iframe): the app supplies the header + nav, so this page's own chrome hides
+     and the content fills the frame edge to edge. The .embedded class is set by
+     an inline script before first paint (window.self !== window.top). */
+  .embedded header, .embedded #buckyNav, .embedded #sidenav { display: none !important; }
+  .embedded body { padding-bottom: calc(env(safe-area-inset-bottom) + 16px) !important; padding-left: 0 !important; }
+  .embedded main { padding-top: 10px; }
   .pills .pill {
     font-size: 12.5px; font-weight: 700; padding: 6px 13px; border-radius: 999px;
     border: 1px solid var(--line); background: var(--card); color: var(--muted);
@@ -361,6 +369,11 @@
 <script src="/assets/activity.js" data-feature="sports" defer></script>
 </head>
 <body>
+<script>
+// Embedded-mode detection MUST run before first paint or the standalone chrome
+// flashes inside the app's Sports tab. Same-origin frame, so this never throws.
+if (window.self !== window.top) document.documentElement.classList.add("embedded");
+</script>
 
 <nav id="sidenav" aria-label="BUCKY sections"></nav>
 
@@ -505,12 +518,12 @@
     { gid:"tasks", ico:"✅", name:"Chores",href:"index.html#chores" },
     { gid:"fit",   ico:"💪", name:"Fit",   href:"index.html#fitness",  gate:seesFitness },
     { gid:"news",  ico:"📰", name:"News",  href:"index.html#news" },
-    { gid:"sports",ico:"🏈", name:"Sports",href:"sports.html", active:true },
+    { gid:"sports",ico:"🏈", name:"Sports",href:"index.html#sports", active:true },
     { gid:"wo",    ico:"🛠️", name:"Jobs",  href:"index.html#workorders" },
     { gid:"shop",  ico:"🛒", name:"Shop",  href:"index.html#shopping" },
     { gid:"bank",  ico:"💰", name:"Bank",  href:"index.html#farmbank", gate:seesBank },
     { gid:"farm",  ico:"🐐", name:"Farm",  href:"index.html#goathooves" },
-    { gid:"gpt",   ico:"🌾", name:"AI",    href:"farmgpt.html" },
+    { gid:"gpt",   ico:"🌾", name:"AI",    href:"index.html#farmgpt" },
     { gid:"play",  ico:"🎮", name:"Play",  href:"games.html" },
   ];
   var shown = NAV_GROUPS.filter(function (g) { return !g.gate || g.gate(); });
@@ -703,7 +716,9 @@
 
   function schedule() {
     clearTimeout(pollT); pollT = null; lastIv = 0;
-    if (document.hidden) return;
+    // Embedded in index.html, this page's document never reports hidden while
+    // another tab covers it — the app sets __buckyEmbedVisible instead.
+    if (document.hidden || window.__buckyEmbedVisible === false) return;
     var iv = null;
     if (view === "game") {
       if (gameLive()) iv = IV.gameLive;
@@ -725,6 +740,12 @@
 
   document.addEventListener("visibilitychange", function () {
     if (document.hidden) { clearTimeout(pollT); pollT = null; lastIv = 0; }
+    else refreshCurrentView();
+  });
+  // The app's Sports tab hides/shows this frame — same pause/refresh semantics
+  // as the tab going hidden/visible.
+  window.addEventListener("bucky-embed-visibility", function () {
+    if (window.__buckyEmbedVisible === false) { clearTimeout(pollT); pollT = null; lastIv = 0; }
     else refreshCurrentView();
   });
 

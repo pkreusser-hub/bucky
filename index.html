@@ -622,6 +622,18 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .home2 .nflcard:active, .home2 .ffcard:active { background: var(--done, #e7eefb); }
   /* display:block above outweighs the UA's [hidden]{display:none} — restate it. */
   .home2 .nflcard[hidden], .home2 .ffcard[hidden] { display: none; }
+
+  /* Embedded Sports/AI tabs: a persistent iframe filling the space between the
+     sticky header and the bottom nav (both measured into the vars by sizeEmbeds). */
+  .embedwrap {
+    position: fixed; left: 0; right: 0;
+    top: var(--embed-top, 60px); bottom: var(--embed-bottom, 0px);
+    z-index: 15; background: var(--bg);
+  }
+  .embedwrap[hidden] { display: none; }
+  .embedframe { width: 100%; height: 100%; border: 0; display: block; }
+  body.embed-open { overflow: hidden; }   /* nothing behind the frame should rubber-band */
+  @media (min-width: 1024px) { .embedwrap { left: var(--sidenav-w, 230px); } }
   .sph { display: flex; justify-content: space-between; align-items: center; font-weight: 800; font-size: 13.5px; margin-bottom: 4px; }
   .sph .splive { color: var(--red); font-size: 11px; font-weight: 800; letter-spacing: .04em; }
   .sph .spmore { color: var(--muted); font-size: 12px; font-weight: 700; }
@@ -1328,7 +1340,9 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
     header #homeBtn { display: none; }
     .crumb {
       display: block; flex: 1; min-width: 0; font-size: 15px; font-weight: 800; letter-spacing: .2px;
-      color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      /* ink, not #fff — that was the navy-header era; on the farmstead cream header a
+         white crumb was invisible (spotted on the embedded-Sports desktop plate). */
+      color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .bell { width: 32px; height: 32px; font-size: 15px; }
     .titlerow .who { font-size: 13px; padding: 6px 12px; }
@@ -2078,7 +2092,7 @@ const SECTIONS = [
 // workorders/farmbank are here too so email "View in BUCKY" buttons can land on the right tab.
 // Every tab is deep-linkable via index.html#<key> so the persistent icon nav on the
 // FarmGPT/Games pages can land you directly on any section here.
-const DEEP_LINK_TABS = ["dashboard", "chores", "workorders", "print3d", "shopping", "farmbank", "goathooves", "goatcare", "calendar", "animalcare", "mealplan", "fitness", "news", "game", "catgame", "play"];
+const DEEP_LINK_TABS = ["dashboard", "chores", "workorders", "print3d", "shopping", "farmbank", "goathooves", "goatcare", "calendar", "animalcare", "mealplan", "fitness", "news", "sports", "farmgpt", "game", "catgame", "play"];
 const initialHashTab = DEEP_LINK_TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "dashboard";
 let currentTab = initialHashTab;
 
@@ -2097,12 +2111,12 @@ const NAV_GROUPS = [
   { id:"tasks", ico:"✅",  name:"Chores", def:"chores",     members:["chores"] },
   { id:"fit",   ico:"💪",  name:"Fit",    def:"fitness",    members:["fitness"] },
   { id:"news",  ico:"📰",  name:"News",   def:"news",       members:["news"] },
-  { id:"sports",ico:"🏈",  name:"Sports", url:"sports.html" },
+  { id:"sports",ico:"🏈",  name:"Sports", def:"sports",     members:["sports"] },
   { id:"wo",    ico:"🛠️",  name:"Jobs",   def:"workorders", members:["workorders","print3d"] },
   { id:"shop",  ico:"🛒",  name:"Shop",   def:"shopping",   members:["shopping"] },
   { id:"bank",  ico:"💰",  name:"Bank",   def:"farmbank",   members:["farmbank"] },
   { id:"farm",  ico:"🐐",  name:"Farm",   def:"goathooves", members:["goathooves","goatcare"] },
-  { id:"gpt",   ico:"🌾",  name:"AI",     url:"farmgpt.html" },
+  { id:"gpt",   ico:"🌾",  name:"AI",     def:"farmgpt",    members:["farmgpt"] },
   { id:"play",  ico:"🎮",  name:"Play",   def:"play",       members:["play","game","catgame"] },
 ];
 // Farmstead redesign: line icons for the bottom nav (24x24 stroke paths), replacing emoji.
@@ -2622,9 +2636,12 @@ function render(){
   document.body.classList.toggle("cal-fixed", currentTab === "calendar" && calView === "month");
   const cf = document.getElementById("careFilter");
   if (cf) cf.style.display = currentTab === "goatcare" ? "block" : "none";
-  document.getElementById("addFab").style.display = (currentTab === "dashboard" || currentTab === "goatcare" || currentTab === "shopping" || currentTab === "print3d" || currentTab === "game" || currentTab === "catgame" || currentTab === "farmbank" || currentTab === "play" || currentTab === "animalcare" || currentTab === "mealplan" || currentTab === "fitness" || currentTab === "news") ? "none" : "";
+  document.getElementById("addFab").style.display = (currentTab === "dashboard" || currentTab === "goatcare" || currentTab === "shopping" || currentTab === "print3d" || currentTab === "game" || currentTab === "catgame" || currentTab === "farmbank" || currentTab === "play" || currentTab === "animalcare" || currentTab === "mealplan" || currentTab === "fitness" || currentTab === "news" || currentTab === "sports" || currentTab === "farmgpt") ? "none" : "";
   document.getElementById("progress").classList.remove("greet");   // greeting styling is dashboard-only
   document.getElementById("progress").style.display = "";          // restored here; Home hides it (greeting is in the hero)
+  syncEmbedTabs();   // hide the Sports/AI frames whenever another tab takes over
+  if (currentTab === "sports") return renderEmbedTab("sports");
+  if (currentTab === "farmgpt") return renderEmbedTab("farmgpt");
   if (currentTab === "dashboard") return renderDashboard();
   if (currentTab === "calendar") return renderCalendar();
   if (currentTab === "animalcare") return renderAnimalCare();
@@ -2804,6 +2821,107 @@ function renderWxInto(el){
     wxFetch().then(d => { const cur = document.querySelector(".wxcard"); if (cur && currentTab === "dashboard") paintWx(cur, d); })
       .catch(() => { if (!cached){ const cur = document.querySelector(".wxcard"); if (cur) cur.innerHTML = WX_HEAD + `<div class="wxload">Forecast unavailable</div>`; } });
   }
+}
+
+// ---- Embedded Sports + AI tabs (2026-08-05) ----
+// sports.html and farmgpt.html are complete pages of their own; hosting each in a
+// PERSISTENT same-origin iframe makes them behave like every other tab: index.html
+// never reloads when you hop between areas (the "reconnect to Bucky" complaint),
+// and the framed page's own state — an open game, a chat mid-stream — survives
+// leaving and coming back. The frame is created on first visit and then only
+// hidden/shown. The framed page detects it's embedded (window.self !== window.top)
+// and hides its own header/nav; index tells it when its tab is hidden via
+// __buckyEmbedVisible + a "bucky-embed-visibility" event so its polling loops and
+// activity beacon don't run while another tab is on screen (an iframe's own
+// document.visibilityState follows the TOP page, never CSS display).
+const EMBEDS = {
+  sports:  { src: "sports.html",  title: "Sports" },
+  farmgpt: { src: "farmgpt.html", title: "FarmGPT" },
+};
+function embedWrap(tab){ return document.getElementById("embed_" + tab); }
+function embedFrameWindow(tab){
+  const wrap = embedWrap(tab);
+  try { return wrap ? wrap.firstChild.contentWindow : null; } catch { return null; }
+}
+function ensureEmbed(tab, hash){
+  let wrap = embedWrap(tab);
+  if (!wrap){
+    wrap = document.createElement("div");
+    wrap.id = "embed_" + tab;
+    wrap.className = "embedwrap";
+    wrap.hidden = true;
+    const f = document.createElement("iframe");
+    f.className = "embedframe";
+    f.title = EMBEDS[tab].title;
+    f.src = EMBEDS[tab].src + (hash ? "#" + hash : "");
+    wrap.appendChild(f);
+    document.body.appendChild(wrap);
+  } else if (hash != null){
+    // Re-point an existing frame (e.g. the fantasy home card) — a hash change
+    // drives the framed page's own router without reloading it.
+    const w = embedFrameWindow(tab);
+    try { if (w) w.location.hash = hash; } catch {}
+  }
+  return wrap;
+}
+function setEmbedShown(wrap, tab, shown){
+  wrap.hidden = !shown;
+  const w = embedFrameWindow(tab);
+  try {
+    if (w && w.__buckyEmbedVisible !== shown){
+      w.__buckyEmbedVisible = shown;
+      w.dispatchEvent(new Event("bucky-embed-visibility"));
+    }
+  } catch {}
+}
+function syncEmbedTabs(){
+  for (const tab of Object.keys(EMBEDS)){
+    const wrap = embedWrap(tab);
+    if (wrap) setEmbedShown(wrap, tab, currentTab === tab);
+  }
+  document.body.classList.toggle("embed-open", !!EMBEDS[currentTab]);
+  if (EMBEDS[currentTab]) sizeEmbeds();
+}
+// The frame fills the space between the (sticky, height-varies-as-the-status-line-
+// tucks) header and the bottom nav — measured, not assumed, and re-measured by a
+// ResizeObserver on the header (the --fs-topbar-h / --subnav-top precedent).
+function sizeEmbeds(){
+  const header = document.querySelector("header");
+  const bnav = document.getElementById("bnav");
+  const top = header ? header.getBoundingClientRect().height : 0;
+  const bnavOn = bnav && getComputedStyle(bnav).display !== "none";
+  const bottom = bnavOn ? bnav.getBoundingClientRect().height : 0;
+  document.documentElement.style.setProperty("--embed-top", top.toFixed(1) + "px");
+  document.documentElement.style.setProperty("--embed-bottom", bottom.toFixed(1) + "px");
+}
+window.addEventListener("resize", () => { if (EMBEDS[currentTab]) sizeEmbeds(); });
+try { new ResizeObserver(() => { if (EMBEDS[currentTab]) sizeEmbeds(); }).observe(document.querySelector("header")); } catch {}
+function renderEmbedTab(tab){
+  document.querySelector(".bar").style.display = "none";
+  document.getElementById("empty").style.display = "none";
+  document.getElementById("progress").style.display = "none";
+  document.getElementById("list").innerHTML = "";
+  ensureEmbed(tab);
+  syncEmbedTabs();
+}
+// Open the Sports tab on a specific view ("" = the NFL week list, "fantasy" = the league).
+function openSportsAt(hash){
+  ensureEmbed("sports", hash);
+  goTo("sports");
+}
+// Open the AI tab, optionally handing off a research question ("?ask=...&photo=1") —
+// that one genuinely reloads the FRAME (never the app) so farmgpt's own ?ask= boot
+// path runs; sessionStorage (the photo handoff) is shared with a same-origin frame.
+function openFarmgptWith(query){
+  let wrap = embedWrap("farmgpt");
+  if (!wrap){
+    wrap = ensureEmbed("farmgpt");
+    if (query){ try { wrap.firstChild.src = "farmgpt.html" + query; } catch {} }
+  } else if (query){
+    const w = embedFrameWindow("farmgpt");
+    try { if (w) w.location.href = "farmgpt.html" + query; } catch {}
+  }
+  goTo("farmgpt");
 }
 
 // ---- Sports snapshot cards (nflcard + ffcard, 2026-08-05) ----
@@ -3178,12 +3296,12 @@ function renderDashboard(){
   const nflC = document.createElement("button"); nflC.className = "nflcard"; nflC.type = "button";
   nflC.hidden = true;
   nflC.setAttribute("aria-label", "Open NFL scores");
-  nflC.onclick = () => { location.href = "sports.html"; };
+  nflC.onclick = () => openSportsAt("");   // the embedded Sports tab, NFL week view
   railCol.appendChild(nflC);
   const ffC = document.createElement("button"); ffC.className = "ffcard"; ffC.type = "button";
   ffC.hidden = true;
   ffC.setAttribute("aria-label", "Open the fantasy league");
-  ffC.onclick = () => { location.href = "sports.html#fantasy"; };
+  ffC.onclick = () => openSportsAt("fantasy");   // the embedded Sports tab, league view
   railCol.appendChild(ffC);
   renderSportsCards(nflC, ffC);
 
@@ -3201,7 +3319,7 @@ function renderDashboard(){
   ask.onsubmit = (e) => {
     e.preventDefault();
     const q = ask.querySelector(".askinput").value.trim();
-    if (q) location.href = "farmgpt.html?ask=" + encodeURIComponent(q);
+    if (q) openFarmgptWith("?ask=" + encodeURIComponent(q));   // reloads only the AI FRAME
   };
   const askPhotoInput = ask.querySelector(".askphoto");
   ask.querySelector(".askcam").onclick = () => askPhotoInput.click();
@@ -3212,7 +3330,7 @@ function renderDashboard(){
     resizeImage(f, 1280, (durl) => {
       try { sessionStorage.setItem("farmgpt_ask_photo", durl); } catch {}
       const q = ask.querySelector(".askinput").value.trim();
-      location.href = "farmgpt.html?ask=" + encodeURIComponent(q) + "&photo=1";
+      openFarmgptWith("?ask=" + encodeURIComponent(q) + "&photo=1");
     });
   });
   mainCol.appendChild(ask);
@@ -9773,7 +9891,9 @@ function setStatus(kind, text){
   // When everything's healthy the line is just noise — tuck it away after a moment
   // (buys back a header row on every page). Any non-live status brings it right back.
   clearTimeout(statusHideTimer);
-  if (kind === "live") statusHideTimer = setTimeout(() => { el.classList.add("tucked"); }, 4000);
+  // "quiet" = informational over usable data (e.g. "Syncing…" over a cached
+  // paint) — tucks exactly like live instead of hanging over the header.
+  if (kind === "live" || kind === "quiet") statusHideTimer = setTimeout(() => { el.classList.add("tucked"); }, 4000);
 }
 
 // ---- Actions ----
@@ -11194,7 +11314,7 @@ async function makeCloudBackend(){
     render(); refreshGoatDetail();
     // A cached paint says so quietly (never "Connecting…" over real data); the
     // server snapshot that follows flips it to live, which tucks the line away.
-    if (snap.metadata.fromCache) setStatus("", "Syncing…");
+    if (snap.metadata.fromCache) setStatus(chores.length ? "quiet" : "", "Syncing…");
     else setStatus("live", "Synced with your family");
     // One-time: if this family's database is empty, load the starter data + goat herd.
     // ONLY on a server-confirmed snapshot: a fresh device with no cache and a slow/blocked

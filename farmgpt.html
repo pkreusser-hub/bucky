@@ -68,6 +68,16 @@
   /* candy stripe retired with the 2026-07 app-shell redesign (index.html dropped it too) */
   .stripes { display: none; }
 
+  /* Embedded inside index.html (the AI tab hosts this page in a persistent iframe):
+     the app supplies branding + nav, so the wordmark and this page's own navs hide —
+     but the bar itself stays as a slim toolbar (view title + the 🧹 Clear button).
+     The .embedded class is set on <html> by an inline script before first paint. */
+  .embedded #bar a#backLink { display: none !important; }
+  .embedded header { padding: 5px 14px; }
+  .embedded #bar .t { text-align: left; margin-left: 0; }
+  .embedded #buckyNav, .embedded #sidenav { display: none !important; }
+  .embedded body { padding-left: 0 !important; }
+
   main { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; max-width: 820px; width: 100%; margin: 0 auto; padding: 12px 12px 16px; }
   .view { display: none; flex: 1; min-height: 0; flex-direction: column; }
   .view.on { display: flex; }
@@ -682,6 +692,11 @@
 </style>
 </head>
 <body>
+<script>
+// Embedded-mode detection MUST run before first paint or the standalone chrome
+// flashes inside the app's AI tab. Same-origin frame, so this never throws.
+if (window.self !== window.top) document.documentElement.classList.add("embedded");
+</script>
 
 <!-- Desktop left rail (≥1024px, hidden below): same NAV_GROUPS data + gates as
      the mobile #buckyNav bar below — see the nav-building script after </main>. -->
@@ -1019,7 +1034,7 @@
     { gid:"tasks", ico:"✅", name:"Chores",href:"index.html#chores" },
     { gid:"fit",   ico:"💪", name:"Fit",   href:"index.html#fitness",  gate:seesFitness },
     { gid:"news",  ico:"📰", name:"News",  href:"index.html#news" },
-    { gid:"sports",ico:"🏈", name:"Sports",href:"sports.html" },
+    { gid:"sports",ico:"🏈", name:"Sports",href:"index.html#sports" },
     { gid:"wo",    ico:"🛠️", name:"Jobs",  href:"index.html#workorders" },
     { gid:"shop",  ico:"🛒", name:"Shop",  href:"index.html#shopping" },
     { gid:"bank",  ico:"💰", name:"Bank",  href:"index.html#farmbank", gate:seesBank },

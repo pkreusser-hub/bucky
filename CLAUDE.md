@@ -8248,5 +8248,44 @@ and importHerd. Invisible pre-cache because the first snapshot always came from 
 Cost: one extra (ack) event per local write — one render, already-guarded seeding. RULE:
 any Firestore listener whose logic branches on `snap.metadata.fromCache` needs the flag.
 
+**🖼 SPORTS + AI ARE REAL IN-APP TABS NOW — persistent iframes (2026-08-05, user: "still
+stuck on syncing 10-15s sometimes, is there a way to get sports and AI in the app the same
+way as the other tabs")**: NAV_GROUPS' sports/gpt areas lost their `url:` and became
+pseudo-tabs (`members:["sports"]/["farmgpt"]`, in DEEP_LINK_TABS → `#sports`/`#farmgpt`
+deep links). `renderEmbedTab` hosts each page in a PERSISTENT same-origin iframe
+(`ensureEmbed` creates on first visit, then only hides/shows) — index.html never reloads on
+tab hops, and the framed page's own state (open game, chat mid-stream) survives leaving.
+- **Frame geometry is MEASURED, not assumed**: `.embedwrap` is fixed between the sticky
+  header and #bnav via `--embed-top/--embed-bottom` set by `sizeEmbeds()` + a
+  ResizeObserver on the header (the status line tucking changes its height 4s in);
+  desktop `left: var(--sidenav-w)`, bnav 0. `body.embed-open { overflow:hidden }`.
+- **Framed pages self-detect** (`window.self !== window.top` in an inline script BEFORE
+  first paint or the standalone chrome flashes) → `.embedded` on <html>: sports hides its
+  whole header+navs; farmgpt hides wordmark+navs but KEEPS its bar as a slim toolbar (the
+  view title + 🧹 Clear live there).
+- **A hidden iframe's document NEVER reports hidden** (visibilityState follows the TOP
+  page, not CSS display) — so index sets `w.__buckyEmbedVisible` + dispatches
+  "bucky-embed-visibility" on the frame's window: sports pauses/resumes its polling
+  (schedule() also guards on the flag), and assets/activity.js's dwell accrue() returns 0
+  while covered (else Dad's dashboard counts covered time as reading). The flag dies with
+  the window on a frame reload — syncEmbedTabs re-reconciles it on every render.
+- Home cards route in-app: `openSportsAt(hash)` (existing frame = set contentWindow hash,
+  drives the framed router without a reload); the ask bar's `openFarmgptWith("?ask=…")`
+  reloads only the FRAME so farmgpt's ?ask boot path runs (sessionStorage photo handoff is
+  shared with a same-origin frame). Satellite pages' nav entries for sports/AI now point at
+  `index.html#sports`/`#farmgpt`.
+- **Syncing quieted**: `setStatus` gained kind "quiet" (tucks like live); a fromCache
+  snapshot over real data shows a tucking "Syncing…" instead of hanging over the header
+  (the 10-15s wait is the Firestore watch stream confirming — content is already painted).
+- Pre-existing fix spotted on a plate: index's desktop `.crumb` was still `color:#fff`
+  (navy-header era) — invisible on the cream header since the re-skin. Now `var(--ink)`.
+- **SUITE HARNESS**: embedding farmgpt means index.html contexts now need the CDN stubs
+  (marked/DOMPurify/renderMathInElement) or the frame's top-level script dies (storyledger
+  lesson); `evaluateOnNewDocument` + request interception both apply to same-origin frames.
+- Suites: sports **234/234** (embed create/hide/show-without-reload, pause/resume, exact
+  header↔nav geometry, embedded-chrome checks both pages, desktop rail geometry, home-card
+  routing) · chore-care 50 · activity 147 · beacon-safety 96 · news 200 · fitness 253 ·
+  storyledger 683. Shots: sports_embed_390 / ai_embed_390 / sports_embed_desktop.
+
 **DEFERRED** (per plan): status.html registry rows for ESPN (free NFL row + a
 cookie-configured fantasy row surfacing `fantasy-auth-expired` on the ops page).

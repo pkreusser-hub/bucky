@@ -427,6 +427,12 @@ async function newPage(ctx, o) {
     window.prompt = () => null;
     window.alert = () => {};
     window.confirm = () => true;
+    // farmgpt.html (embedded in the AI tab) references CDN globals at script top
+    // level; with external hosts aborted the whole script would die unstubbed
+    // (storyledger harness lesson). Harmless on every other page.
+    window.marked = { parse: (s) => s, setOptions: () => {} };
+    window.DOMPurify = { sanitize: (s) => s };
+    window.renderMathInElement = () => {};
   }, o.choreUser === undefined ? "Dad" : o.choreUser);
   await page.setRequestInterception(true);
   page.on("request", async (req) => {
@@ -1165,17 +1171,105 @@ async function sectionDesktopIndex(browser) {
     });
     ok(n.hasSports && n.count === 13, "index.html's bottom nav gained the Sports area (13 for Dad)");
     ok(n.rows === 2 && n.clipped === 0, "index.html still lays out two clean rows, no clipped labels");
-    const navigated = await page.evaluate(() => new Promise((res) => {
-      const b = [...document.querySelectorAll("#bnav .bnav-btn")].find((x) => x.dataset.gid === "sports");
-      const orig = location.href;
-      b.click();
-      setTimeout(() => res(location.href !== orig ? location.pathname : ""), 400);
-    })).catch(() => "");
-    // click() triggers a real navigation — confirm it landed on sports.html
+
+    // Sports is an IN-APP tab now: tapping it hosts sports.html in a persistent
+    // iframe — index.html itself never navigates (the "reconnect" fix).
+    await page.evaluate(() => {
+      [...document.querySelectorAll("#bnav .bnav-btn")].find((x) => x.dataset.gid === "sports").click();
+    });
+    await page.waitForFunction(() => {
+      const w = document.getElementById("embed_sports");
+      return w && !w.hidden && w.querySelector("iframe");
+    }, { timeout: 20000 });
+    ok(await page.evaluate(() => location.pathname).then((p) => !p.endsWith("/sports.html")),
+      "tapping Sports does NOT navigate away — the app stays loaded");
+    const sportsFrame = () => page.frames().find((f) => f.url().includes("sports.html"));
+    await page.waitForFunction(() => {
+      const f = document.getElementById("embed_sports").querySelector("iframe");
+      try { return f.contentWindow.__SPORTS__ && f.contentWindow.__SPORTS__.state().hasSb; } catch { return false; }
+    }, { timeout: 20000 });
+    const emb = await sportsFrame().evaluate(() => ({
+      embedded: document.documentElement.classList.contains("embedded"),
+      headerGone: getComputedStyle(document.querySelector("header")).display === "none",
+      navGone: getComputedStyle(document.getElementById("buckyNav")).display === "none",
+      rows: document.querySelectorAll("#wkGroups .gbtn").length,
+    }));
+    ok(emb.embedded && emb.headerGone && emb.navGone,
+      "the framed page knows it's embedded and hides its own header + nav");
+    ok(emb.rows === 5, "the embedded Sports tab shows the full week");
+    const geo = await page.evaluate(() => {
+      const w = document.getElementById("embed_sports").getBoundingClientRect();
+      const h = document.querySelector("header").getBoundingClientRect();
+      const b = document.getElementById("bnav").getBoundingClientRect();
+      const bOn = getComputedStyle(document.getElementById("bnav")).display !== "none";
+      return { top: w.top, hBottom: h.bottom, bottom: w.bottom, bTop: bOn ? b.top : innerHeight, vw: innerWidth, w: w.width };
+    });
+    ok(Math.abs(geo.top - geo.hBottom) < 2 && Math.abs(geo.bottom - geo.bTop) < 2,
+      "the frame fills exactly the space between the header and the bottom nav");
+
+    // Leaving pauses the frame (kept alive, not reloaded); returning resumes it.
+    await sportsFrame().evaluate(() => { window.__embedMarker = "alive"; });
+    await page.evaluate(() => {
+      [...document.querySelectorAll("#bnav .bnav-btn")].find((x) => x.dataset.gid === "home").click();
+    });
     await sleep(300);
-    const where = await page.evaluate(() => location.pathname).catch(() => "");
-    ok(where.endsWith("/sports.html") || String(navigated).endsWith("sports.html"),
-      "tapping Sports on index.html lands on sports.html");
+    const hidden = await page.evaluate(() => document.getElementById("embed_sports").hidden === true);
+    const paused = await sportsFrame().evaluate(() => ({
+      flag: window.__buckyEmbedVisible === false,
+      poll: window.__SPORTS__.state().pollScheduled,
+    }));
+    ok(hidden && paused.flag && paused.poll === false,
+      "switching to Home hides the frame and pauses its polling");
+    await page.evaluate(() => {
+      [...document.querySelectorAll("#bnav .bnav-btn")].find((x) => x.dataset.gid === "sports").click();
+    });
+    await page.waitForFunction(() => !document.getElementById("embed_sports").hidden, { timeout: 8000 });
+    await sleep(300);
+    const back = await sportsFrame().evaluate(() => ({
+      marker: window.__embedMarker,
+      poll: window.__SPORTS__.state().pollScheduled,
+    }));
+    ok(back.marker === "alive" && back.poll === true,
+      "returning shows the SAME frame (state preserved, no reload) and re-arms polling");
+    await shot(page, "sports_embed_390.png");
+
+    // The AI tab embeds the same way — farmgpt keeps its slim toolbar (the view
+    // title + 🧹 Clear live there) but loses the wordmark + its own navs.
+    await page.evaluate(() => {
+      [...document.querySelectorAll("#bnav .bnav-btn")].find((x) => x.dataset.gid === "gpt").click();
+    });
+    await page.waitForFunction(() => {
+      const w = document.getElementById("embed_farmgpt");
+      return w && !w.hidden && w.querySelector("iframe");
+    }, { timeout: 20000 });
+    await sleep(700);
+    const gptFrame = page.frames().find((f) => f.url().includes("farmgpt.html"));
+    const ai = await gptFrame.evaluate(() => ({
+      embedded: document.documentElement.classList.contains("embedded"),
+      navGone: getComputedStyle(document.getElementById("buckyNav")).display === "none",
+      wordmarkGone: getComputedStyle(document.querySelector("#bar a#backLink")).display === "none",
+      barKept: getComputedStyle(document.querySelector("header")).display !== "none",
+      home: !!document.getElementById("viewHome"),
+    }));
+    ok(ai.embedded && ai.navGone && ai.wordmarkGone && ai.barKept && ai.home,
+      "the AI tab embeds farmgpt: slim toolbar kept, wordmark + navs gone, home view up");
+    await shot(page, "ai_embed_390.png");
+
+    // Desktop: the frame sits right of the rail and reaches the bottom (no bottom nav).
+    await page.setViewport({ width: 1280, height: 900 });
+    await sleep(400);
+    await page.evaluate(() => {
+      [...document.querySelectorAll("#sidenav .sn-item")].find((x) => x.dataset.gid === "sports").click();
+    });
+    await page.waitForFunction(() => !document.getElementById("embed_sports").hidden, { timeout: 8000 });
+    await sleep(400);
+    const dgeo = await page.evaluate(() => {
+      const w = document.getElementById("embed_sports").getBoundingClientRect();
+      return { left: w.left, bottom: w.bottom, ih: innerHeight, railW: document.getElementById("sidenav").getBoundingClientRect().width };
+    });
+    ok(dgeo.railW > 100 && Math.abs(dgeo.left - dgeo.railW) < 2 && Math.abs(dgeo.bottom - dgeo.ih) < 2,
+      "desktop: the frame sits right of the rail and reaches the bottom");
+    await shot(page, "sports_embed_desktop.png");
     ok(page._errs.length === 0, "0 page errors on index.html (Firebase blocked)" + (page._errs.length ? " — " + page._errs[0] : ""));
     await ctx.close();
   }
@@ -1227,9 +1321,12 @@ async function sectionHomeCards(browser) {
     await shot(page, "sports_home_390.png");
 
     await page.click(".home2 .nflcard");
-    await sleep(600);
-    ok(await page.evaluate(() => location.pathname).then((p) => p.endsWith("/sports.html")).catch(() => false),
-      "tapping the NFL card opens the sports page");
+    await page.waitForFunction(() => {
+      const w = document.getElementById("embed_sports");
+      return w && !w.hidden;
+    }, { timeout: 20000 });
+    ok(await page.evaluate(() => !location.pathname.endsWith("/sports.html")),
+      "tapping the NFL card opens the embedded Sports tab (no navigation)");
     ok(page._errs.length === 0, "0 page errors with the cards live");
     await ctx.close();
   }
@@ -1239,9 +1336,15 @@ async function sectionHomeCards(browser) {
     await page.goto(BASE + "/index.html?n=" + Date.now(), { waitUntil: "domcontentloaded", timeout: 60000 });
     await page.waitForFunction(() => { const f = document.querySelector(".home2 .ffcard"); return f && !f.hidden; }, { timeout: 20000 });
     await page.click(".home2 .ffcard");
-    await sleep(600);
-    const where = await page.evaluate(() => location.pathname + location.hash).catch(() => "");
-    ok(where.endsWith("sports.html#fantasy"), "tapping the fantasy card lands on the Fantasy view");
+    await page.waitForFunction(() => {
+      const w = document.getElementById("embed_sports");
+      if (!w || w.hidden) return false;
+      try {
+        const s = w.querySelector("iframe").contentWindow.__SPORTS__;
+        return s && s.state().view === "ff";
+      } catch { return false; }
+    }, { timeout: 20000 });
+    ok(true, "tapping the fantasy card opens the embedded Sports tab on the Fantasy view");
     await ctx.close();
   }
   // Per-user home card: Isaac's dashboard shows HIS team's matchup.

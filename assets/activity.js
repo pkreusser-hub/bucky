@@ -154,6 +154,10 @@
     var now = Date.now();
     var gap = now - mark;
     mark = now;
+    // Hosted in a hidden iframe (index.html's embedded Sports/AI tabs), this
+    // document still reports "visible" — the app sets __buckyEmbedVisible=false
+    // when another tab covers the frame, so covered time never counts as reading.
+    if (window.__buckyEmbedVisible === false) return 0;
     if (!visible || !(gap > 0) || gap > MAX_GAP_MS) return 0;
     var minutes = gap / 60000;
     if (minutes <= 0) return 0;
