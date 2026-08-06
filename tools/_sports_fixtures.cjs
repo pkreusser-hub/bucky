@@ -738,21 +738,45 @@ function ffLastDraftDoc() {
   }
   pk(4002, 1, 1, true); pk(4001, 1, 2); pk(4003, 1, 3); pk(4004, 1, 4);
   pk(4009, 1, 5); pk(4005, 1, 6); pk(4006, 1, 7); pk(4008, 1, 8);
-  pk(4010, 2, 8); pk(4007, 2, 7); pk(4013, 2, 6); pk(4011, 2, 5);
+  pk(4010, 2, 8); pk(4007, 2, 7); pk(4011, 2, 5);
   pk(4020, 3, 7); pk(4012, 3, 2);
-  pk(4019, 4, 3, true);
+  pk(4019, 4, 3, true); pk(4013, 4, 3);
   pk(4014, 6, 1); pk(4022, 6, 2);
   return {
     id: 705063, seasonId: 2025,
     draftDetail: { drafted: true, inProgress: false, picks },
     teams: [
       { id: 1, abbrev: "BATT", roster: { entries: [4002, 4014, 4021, 4022, 4016].map(lastRosterEntry) } },
-      { id: 3, abbrev: "GOAT", roster: { entries: [4019, 4010, 4003].map(lastRosterEntry) } },
+      { id: 3, abbrev: "GOAT", roster: { entries: [4019, 4013, 4010, 4003].map(lastRosterEntry) } },
       { id: 5, abbrev: "WYO", roster: { entries: [4011, 4009].map(lastRosterEntry) } },
     ],
     // Junk the slimmer must drop:
     members: FF_MEMBERS, positionAgainstOpponent: { positionalRatings: {} },
   };
+}
+
+// Keep-chain HISTORY (yearsBack 1..3 behind last season). Kelce (4019) has
+// been kept by team 3 three straight years — drafted each year AND on team
+// 3's final roster the year before → chain 3 → INELIGIBLE next season.
+// Bijan (4002): drafted 2024 by team 1 + on its 2023 roster, but NOT drafted
+// 2023 by them (a 2023 waiver pickup) → chain stops at 2 → a keep next year
+// is his 3rd and last. Achane (4014) is NOT on team 1's roster a year back →
+// chain 0 even though he was drafted last season.
+function ffHistoryDoc(yearsBack) {
+  const pk = (pid, round, teamId, overall) => ({
+    id: overall, overallPickNumber: overall, roundId: round, roundPickNumber: 1,
+    playerId: pid, teamId, keeper: false,
+  });
+  const team = (id, abbrev, pids) => ({ id, abbrev, roster: { entries: pids.map(lastRosterEntry) } });
+  if (yearsBack === 1) return {
+    id: 705063, draftDetail: { drafted: true, inProgress: false, picks: [pk(4002, 2, 1, 1), pk(4019, 5, 3, 2)] },
+    teams: [team(1, "BATT", [4002, 4016]), team(3, "GOAT", [4019])],
+  };
+  if (yearsBack === 2) return {
+    id: 705063, draftDetail: { drafted: true, inProgress: false, picks: [pk(4019, 6, 3, 1)] },
+    teams: [team(1, "BATT", [4002, 4016]), team(3, "GOAT", [4019])],
+  };
+  return { id: 705063, teams: [team(3, "GOAT", [4019])] };   // roster-only fetch
 }
 
 // Season-level bye weeks (NOT league-scoped): settings.proTeams[].byeWeek.
@@ -773,4 +797,4 @@ function proTeamSchedulesDoc() {
   };
 }
 
-module.exports = { scoreboardLive, scoreboardIdle, SUMMARIES, TEAMS, ffLeagueDoc, ffFreeAgentsDoc, cfbScoreboard, CFB_SUMMARIES, CTEAMS, ffDraftPoolDoc, ffLastDraftDoc, proTeamSchedulesDoc };
+module.exports = { scoreboardLive, scoreboardIdle, SUMMARIES, TEAMS, ffLeagueDoc, ffFreeAgentsDoc, cfbScoreboard, CFB_SUMMARIES, CTEAMS, ffDraftPoolDoc, ffLastDraftDoc, ffHistoryDoc, proTeamSchedulesDoc };

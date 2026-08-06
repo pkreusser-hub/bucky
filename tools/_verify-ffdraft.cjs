@@ -29,6 +29,12 @@ const BASE = "http://127.0.0.1:" + SRV_PORT;
 const SHOTS = process.argv.includes("--shots");
 const GOOD_S2 = "TEST_S2_COOKIE_VALUE";
 const GOOD_SWID = "TEST-SWID-GUID";
+// Same Jan/Feb rule as sports.mjs ffSeason(): the "last season" whose draft
+// doc ff_lastdraft asks for — history years are relative to it.
+const LAST_SEASON = (() => {
+  const d = new Date();
+  return (d.getUTCMonth() < 2 ? d.getUTCFullYear() - 1 : d.getUTCFullYear()) - 1;
+})();
 
 let pass = 0, fail = 0; const failures = [];
 function ok(cond, msg) {
@@ -48,11 +54,12 @@ function startUpstream() {
 }
 
 // ---------------- fake ESPN fantasy upstream ----------------
-const ffUp = { lastUrl: "", lastFilter: "", standard: false, byesDown: false, mode: "normal", calls: 0 };
+const ffUp = { lastUrl: "", urls: [], lastFilter: "", standard: false, byesDown: false, historyDown: false, mode: "normal", calls: 0 };
 function startFfUpstream() {
   const srv = http.createServer((req, res) => {
     ffUp.calls++;
     ffUp.lastUrl = req.url;
+    ffUp.urls.push(req.url);
     if (ffUp.mode === "http500") { res.writeHead(500); res.end("nope"); return; }
     // The season-level proTeamSchedules doc is PUBLIC (no cookie sent by the
     // function) — route it before the auth gate.
@@ -84,8 +91,17 @@ function startFfUpstream() {
       res.end(JSON.stringify(FIX.ffDraftPoolDoc()));
       return;
     }
-    if (req.url.includes("view=mDraftDetail")) {
-      res.end(JSON.stringify(FIX.ffLastDraftDoc()));
+    if (req.url.includes("view=mDraftDetail") || req.url.includes("view=mRoster")) {
+      // Per-year routing: the main year serves last season's draft doc; the
+      // three older years serve the keep-chain history (the 2022-analog is an
+      // mRoster-ONLY fetch, hence the mRoster route). ffUp.historyDown kills
+      // just the history years to prove the permissive degrade.
+      const yr = Number((req.url.match(/\/seasons\/(\d{4})\//) || [])[1]);
+      const back = LAST_SEASON - yr;
+      // 200 headers are already sent here — a dead history year answers with
+      // unparseable JSON, which ffFetch reads as bad-json (same degrade path).
+      if (back > 0 && ffUp.historyDown) { res.end("nope"); return; }
+      res.end(JSON.stringify(back > 0 ? FIX.ffHistoryDoc(back) : FIX.ffLastDraftDoc()));
       return;
     }
     const doc = FIX.ffLeagueDoc();
@@ -178,9 +194,10 @@ async function sectionServer() {
   const now = new Date();
   const seasonNow = now.getUTCMonth() < 2 ? now.getUTCFullYear() - 1 : now.getUTCFullYear();
   const lastSeason = seasonNow - 1;
+  ffUp.urls = [];
   r = await call({ secret: "amenfarms", action: "ff_lastdraft" });
   ok(!!r.json && r.json.ok === true && r.json.drafted === true, "ff_lastdraft answers ok");
-  ok(new RegExp("/seasons/" + lastSeason + "/").test(ffUp.lastUrl), "defaults to LAST season (" + lastSeason + ")");
+  ok(new RegExp("/seasons/" + lastSeason + "/").test(ffUp.urls[0] || ""), "defaults to LAST season (" + lastSeason + ")");
   ok(r.json.season === lastSeason, "season echoed");
   const lp = (r.json.picks || []).find((p) => p.pid === 4002);
   ok(lp && lp.round === 1 && lp.keeper === true && lp.teamId === 1, "keeper flag + round survive slimming");
@@ -192,8 +209,30 @@ async function sectionServer() {
   ok(ros1 && ros1.players.some((p) => p.pid === 4021), "last-season rosters ride along (waiver pickup present)");
   ok(ros1 && JSON.stringify(Object.keys(ros1.players[0]).sort()) === JSON.stringify(["name", "pid", "pos", "proTeam", "proTeamId"]),
     "roster players are slim");
+
+  // keep-chains — derived from the 4-year history (kept(Y) = drafted year Y by
+  // team T AND on T's final (Y−1) roster; validated against the family's own
+  // roster/draft PDFs). Kelce = 3 straight keeps → ineligible next season;
+  // Bijan stops at 2 (his 2023 was a waiver year); Achane 0 (not on the
+  // prior-year roster despite being drafted last season).
+  ok(r.json.historyOk === true, "all three history years fetched → historyOk:true");
+  ok(!!r.json.chains && r.json.chains[4019] === 3 && r.json.chains[4002] === 2,
+    "chains: Kelce 3 straight keeps, Bijan 2");
+  ok(!(4014 in (r.json.chains || {})) && !(4013 in (r.json.chains || {}))
+    && Object.keys(r.json.chains || {}).length === 2,
+    "Achane/Bowers carry NO chain — nobody else does either");
+  ok([0, 1, 2, 3].every((b) => ffUp.urls.some((u) => u.includes("/seasons/" + (lastSeason - b) + "/"))),
+    "the main year + all three history years were requested");
+  ffUp.historyDown = true;
+  r = await call({ secret: "amenfarms", action: "ff_lastdraft" });
+  ok(!!r.json && r.json.ok === true && r.json.historyOk === false
+    && Object.keys(r.json.chains || {}).length === 0 && (r.json.picks || []).length > 0,
+    "history years down → still ok:true with chains {} + historyOk:false (permissive degrade)");
+  ffUp.historyDown = false;
+
+  ffUp.urls = [];
   r = await call({ secret: "amenfarms", action: "ff_lastdraft", year: 2024 });
-  ok(/\/seasons\/2024\//.test(ffUp.lastUrl), "an explicit year is honored");
+  ok(ffUp.urls.some((u) => /\/seasons\/2024\//.test(u)), "an explicit year is honored");
 
   // ff_player — the detail card's payload
   r = await call({ secret: "amenfarms", action: "ff_player", pid: 4002 });
@@ -406,6 +445,8 @@ async function sectionRoom(browser) {
   await clickSafely(page, '#tabs button[data-v="players"]');
   await page.type("#pSearch", "Achane");
   await page.waitForFunction(() => document.querySelectorAll("#pList .prow").length === 1, { timeout: 3000 });
+  ok(await page.evaluate(() => document.querySelector("#pList .pKeep").textContent.trim() === "Keep R5"),
+    "the pool row's Keep button prints the automated cost");
   await clickSafely(page, "#pList .pKeep");
   ok(await page.evaluate(() => {
     const t = document.getElementById("confirmBar").textContent;
@@ -416,10 +457,20 @@ async function sectionRoom(browser) {
   ok((d.keepers[1] || []).length === 1 && d.keepers[1][0].pid === 4014 && d.keepers[1][0].round === 5,
     "Achane kept at a Round 5 cost");
 
+  // a player who was never on your roster carries no keep affordance at all
+  await page.evaluate(() => { const s = document.getElementById("pSearch"); s.value = "Chase"; s.dispatchEvent(new Event("input")); });
+  await page.waitForFunction(() => document.querySelectorAll("#pList .prow").length === 1, { timeout: 3000 });
+  ok(await page.evaluate(() => !document.querySelector("#pList .pKeep") && !document.querySelector("#pList .pLock")),
+    "no Keep button on a player who isn't on your roster");
+  await page.evaluate(() => { const s = document.getElementById("pSearch"); s.value = "Achane"; s.dispatchEvent(new Event("input")); });
+
   await hook(page, () => window.__DRAFT__.addKeeper(1, window.__DRAFT__.pool.find((p) => p.pid === 4002)));
   d = await D(page);
   const bij = d.keepers[1].find((k) => k.pid === 4002);
-  ok(bij && bij.keptCount === 2, "a player ESPN flags as last year's keeper starts at kept ×2");
+  ok(bij && bij.keptCount === 3, "Bijan's history (kept '24 and '25) makes this his 3rd straight keep — computed, not typed");
+  ok(await page.evaluate(() => Array.from(document.querySelectorAll(".keepCard .krow"))
+    .some((r) => r.textContent.includes("3rd straight keep") && r.textContent.includes("last time"))),
+    "…and the panel warns it's the last time");
 
   await hook(page, () => window.__DRAFT__.addKeeper(1, window.__DRAFT__.pool.find((p) => p.pid === 4022)));
   const resolved = await hook(page, () => window.__DRAFT__.resolveKeeperRounds(window.__DRAFT__.D.keepers[1], 16));
@@ -440,26 +491,52 @@ async function sectionRoom(browser) {
   d = await D(page);
   ok(d.keepers[1].length === 3, "a 4th keeper is refused (3 max)");
 
-  // Mike keeps Kelce; can't keep someone already spoken for
+  // Mike: Kelce is CHAIN-LOCKED (kept '23/'24/'25 — three straight), so the
+  // engine refuses him automatically; Bowers (drafted R4) is the eligible keep.
   await hook(page, () => window.__DRAFT__.setMe("Mike", "dev-mike", ""));
+  const kelSt = await hook(page, () => window.__DRAFT__.keeperStatusOf(4019, 3));
+  ok(kelSt && kelSt.eligible === false && kelSt.chain === 3 && /3 straight/.test(kelSt.reason),
+    "Kelce reads chain 3 → automatically ineligible, with the reason");
   await hook(page, () => window.__DRAFT__.addKeeper(3, window.__DRAFT__.pool.find((p) => p.pid === 4019)));
-  await hook(page, () => window.__DRAFT__.addKeeper(3, window.__DRAFT__.pool.find((p) => p.pid === 4002)));
   await sleep(50);
   d = await D(page);
-  ok((d.keepers[3] || []).length === 1 && d.keepers[3][0].round === 3, "Mike keeps Kelce at R3");
-  ok((await toastText(page)).includes("already spoken for"), "keeping another team's keeper is refused");
+  ok((d.keepers[3] || []).length === 0 && (await toastText(page)).includes("can't be kept"),
+    "keeping him is refused outright — no dropdown to argue with");
+  ok(await page.evaluate(() => {
+    const chip = Array.from(document.querySelectorAll(".keepCard .kQuick.kNo")).find((c) => c.textContent.includes("Kelce"));
+    return !!(chip && chip.querySelector(".kb") && /straight years/.test(chip.textContent));
+  }), "the roster list greys Kelce with a lock + the reason");
+  await page.evaluate(() => { const s = document.getElementById("pSearch"); s.value = "Kelce"; s.dispatchEvent(new Event("input")); });
+  await page.waitForFunction(() => document.querySelectorAll("#pList .prow").length === 1, { timeout: 3000 });
+  ok(await page.evaluate(() => !!document.querySelector("#pList .pLock") && !document.querySelector("#pList .pKeep")),
+    "the pool row shows a lock instead of a Keep button for him");
+  await page.evaluate(() => { const s = document.getElementById("pSearch"); s.value = ""; s.dispatchEvent(new Event("input")); });
+  await hook(page, () => window.__DRAFT__.addKeeper(3, window.__DRAFT__.pool.find((p) => p.pid === 4002)));
+  await sleep(50);
+  ok((await toastText(page)).includes("not on your"), "another team's player fails the roster rule");
+  await hook(page, () => window.__DRAFT__.addKeeper(3, window.__DRAFT__.pool.find((p) => p.pid === 4013)));
+  d = await D(page);
+  ok((d.keepers[3] || []).length === 1 && d.keepers[3][0].pid === 4013 && d.keepers[3][0].round === 3,
+    "Mike keeps Bowers at the automated R3 cost instead");
 
   // swap Conner for the waiver guy via the last-year-roster quick chips
   await hook(page, (k, dev) => window.__DRAFT__.setMe("Paul", dev, k), ckey, paulDev);
   await hook(page, () => window.__DRAFT__.removeKeeper(1, 4022));
   await page.waitForFunction(() => document.querySelector('.kQuick[data-pid="4021"]'), { timeout: 3000 });
   ok(true, "last season's roster renders as quick keeper chips (incl. the waiver pickup)");
+  ok(await page.evaluate(() => {
+    const c = document.querySelector('.kQuick[data-pid="4021"] .kcost');
+    return !!c && c.textContent === "R16";
+  }), "every roster chip prints its automated cost (waiver → R16)");
   await clickSafely(page, '.kQuick[data-pid="4021"]');
   ok(await page.evaluate(() => document.getElementById("confirmBar").textContent.includes("Round 16")),
     "waiver keeper confirm quotes the latest-pick cost");
   await clickSafely(page, "#cbGo");
   d = await D(page);
   ok(d.keepers[1].length === 3 && d.keepers[1].some((k) => k.pid === 4021), "team 1 keeps Bijan + Achane + the waiver pickup");
+  await hook(page, () => window.__DRAFT__.addKeeper(1, window.__DRAFT__.pool.find((p) => p.pid === 4002)));
+  await sleep(50);
+  ok((await toastText(page)).includes("already spoken for"), "re-keeping an already-kept player is refused");
 
   // keepers hit the board IMMEDIATELY — before the draft ever starts
   await hook(page, () => window.__DRAFT__.setView("board"));
@@ -467,15 +544,15 @@ async function sectionRoom(browser) {
     const c1 = document.querySelector('#boardGrid .cell[data-key="r1_t1"]');
     const c3 = document.querySelector('#boardGrid .cell[data-key="r3_t3"]');
     return !!(c1 && c1.textContent.includes("B. Robinson") && c1.querySelector(".kb")
-      && c3 && c3.textContent.includes("T. Kelce"));
+      && c3 && c3.textContent.includes("B. Bowers"));
   }), "keepers land on the board the moment they're entered (draft not started)");
   await hook(page, () => window.__DRAFT__.setView("players"));
 
-  // commish keeper override
-  await hook(page, () => window.__DRAFT__.setKeeperField(3, 4019, "overrideRound", 2));
-  d = await D(page);
-  ok(d.keepers[3][0].overrideRound === 2, "commish can override a keeper's round");
-  await hook(page, () => window.__DRAFT__.setKeeperField(3, 4019, "overrideRound", null));
+  // The commissioner override dropdowns are GONE — eligibility and costs are
+  // fully automated off the league's own history now.
+  ok(await page.evaluate(() => !document.querySelector(".kOver") && !document.querySelector(".kCount")
+    && !window.__DRAFT__.setKeeperField),
+    "no override/kept-count dropdowns anywhere — the keeper engine is automated");
 
   // --- start the draft: keepers materialize ---
   await clickSafely(page, '#tabs button[data-v="commish"]');
@@ -486,7 +563,7 @@ async function sectionRoom(browser) {
     "Bijan locks onto the board at R1 as a keeper");
   ok(d.picks["r5_t1"] && d.picks["r5_t1"].pid === 4014 && d.picks["r16_t1"] && d.picks["r16_t1"].pid === 4021,
     "Achane at R5 and the waiver keeper at R16");
-  ok(d.picks["r3_t3"] && d.picks["r3_t3"].pid === 4019, "Kelce locks at R3 for The Goat Kids");
+  ok(d.picks["r3_t3"] && d.picks["r3_t3"].pid === 4013, "Bowers locks at R3 for The Goat Kids");
   let cur = await hook(page, () => window.__DRAFT__.currentSlot());
   ok(cur && cur.key === "r1_t2" && cur.label === "1.02",
     "the clock opens at pick 1.02 — the keeper-filled 1.01 is skipped");
@@ -536,10 +613,11 @@ async function sectionRoom(browser) {
   ok(cur && cur.round === 2 && cur.teamId === d.teams[7].id && cur.label === "2.01",
     "round 2 snakes back — pick 2.01 belongs to the last team in the order");
 
-  // fill round 2, then verify the keeper slot mid-round-3 is skipped
+  // fill round 2 (Kelce goes to team 3 as an ordinary DRAFT pick — chain-locked
+  // players return to the pool), then verify the keeper slot mid-round-3 skips
   await hook(page, () => {
     const H = window.__DRAFT__;
-    const pids = [4010, 4012, 4013, 4015, 4017, 4018, 4020, 4023];
+    const pids = [4010, 4012, 4018, 4015, 4017, 4019, 4020, 4023];
     return pids.reduce((p, pid) => p.then(() => H.makePick(H.pool.find((x) => x.pid === pid))), Promise.resolve());
   });
   cur = await hook(page, () => window.__DRAFT__.currentSlot());
@@ -547,7 +625,7 @@ async function sectionRoom(browser) {
   await hook(page, () => window.__DRAFT__.makePick(window.__DRAFT__.pool.find((p) => p.pid === 4024)));
   await hook(page, () => window.__DRAFT__.makePick(window.__DRAFT__.pool.find((p) => p.pid === 4025)));
   cur = await hook(page, () => window.__DRAFT__.currentSlot());
-  ok(cur && cur.key === "r3_t4", "the clock SKIPS 3.03 — Kelce's keeper slot is already filled");
+  ok(cur && cur.key === "r3_t4", "the clock SKIPS 3.03 — Bowers's keeper slot is already filled");
 
   // undo
   await hook(page, () => window.__DRAFT__.undoLast());

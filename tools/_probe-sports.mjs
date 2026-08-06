@@ -257,6 +257,27 @@ async function probeDeployedFunction() {
         console.log(`  ok — ${ld.season} draft: ${ld.picks.length} picks (${keepers} flagged keepers), ${ld.rosters.length} rosters`);
         if (!ld.drafted || !ld.picks.length) { console.log("  ⚠ last season's draft is empty — keeper costs will all read as waiver."); flagged++; }
         if (!keepers) console.log("  (0 keeper flags — fine if last year's draft wasn't run with keepers marked in ESPN)");
+        // Keep-chains vs the family's own PDFs (2022-2025 rosters + the 2025
+        // draft recap): those name exactly FOUR 3-straight-keep players
+        // entering 2026. The API derivation must agree.
+        const nameOf = {};
+        for (const r of (ld.rosters || [])) for (const p of (r.players || [])) nameOf[p.pid] = p.name;
+        const chains = ld.chains || {};
+        if (ld.historyOk !== true) { console.log("  ⚠ historyOk:false — the 3 history years didn't all fetch; chains are empty."); flagged++; }
+        const chained = Object.keys(chains).map((pid) => `${nameOf[pid] || pid}=${chains[pid]}`).sort();
+        console.log(`  keep-chains (${chained.length}): ${chained.join(", ") || "none"}`);
+        if (ld.season === 2025) {
+          const expect3 = ["Saquon Barkley", "Amon-Ra St. Brown", "Davante Adams", "Garrett Wilson"];
+          for (const nm of expect3) {
+            const pid = Object.keys(nameOf).find((k) => nameOf[k] === nm);
+            if (!pid || chains[pid] !== 3) {
+              console.log(`  ⚠ PDF ground truth says ${nm} is a 3-straight keep (ineligible 2026) — API reads ${pid ? chains[pid] || 0 : "pid?"}`);
+              flagged++;
+            }
+          }
+          const extra3 = Object.keys(chains).filter((pid) => chains[pid] === 3 && !expect3.includes(nameOf[pid]));
+          if (extra3.length) console.log(`  (extra chain-3 beyond the PDF set: ${extra3.map((p) => nameOf[p] || p).join(", ")} — check the PDFs)`);
+        }
       }
     }
     // Free agents (the waiver-advice AI's payload) — kona_player_info + X-Fantasy-Filter.

@@ -261,6 +261,22 @@ input::placeholder{color:#5b6579}
 }
 .keepCard .krow .basis{color:var(--muted); font-size:11.5px}
 .kslot{color:var(--muted); font-style:italic; padding:7px 0; font-size:13px}
+/* roster candidates: cost chip on every eligible player, greyed lock + reason
+   on the ineligible (3 straight keeps / not on the roster) */
+.chips .kQuick{display:inline-flex; align-items:center; gap:6px}
+.kcost{
+  background:var(--navy); color:#fff; border-radius:4px; padding:1px 6px; font-weight:700;
+  font-size:11px; font-family:var(--disp); letter-spacing:.5px; flex:0 0 auto;
+}
+.kchain{color:var(--gold); font-size:10px; font-weight:700; letter-spacing:.4px; text-transform:uppercase}
+.kQuick.kNo{
+  border:1px solid var(--line); border-radius:6px; padding:5px 12px; color:var(--muted);
+  opacity:.5; font-size:13px; cursor:not-allowed;
+}
+.kQuick.kNo svg{width:12px; height:12px; flex:0 0 auto}
+.kQuick.kNo .kwhy{font-size:10px; letter-spacing:.3px}
+.pLock{color:#4b5570; line-height:0; flex:0 0 auto}
+.pLock svg{width:15px; height:15px}
 
 /* ---------- teams ---------- */
 .tchips{display:flex; gap:5px; flex-wrap:wrap; margin-bottom:10px}
@@ -675,7 +691,7 @@ body.tv #boardLegend{display:none}
     }).catch(function () { return pool; });
   }
   function loadLastDraft(force) {
-    var k = "ffd_last_" + SEASON;
+    var k = "ffd_last2_" + SEASON;   // 2: shape gained chains/historyOk
     var c = lsGet(k);
     if (c && !force) { lastDraft = c.data; }
     if (c && !force && Date.now() - c.ts < 24 * 3600000) return Promise.resolve(lastDraft);
@@ -754,8 +770,7 @@ body.tv #boardLegend{display:none}
   // Kept or drafted last year: this year costs one round EARLIER (a 1st stays
   // a 1st) — last year's ESPN draft shows a keeper AT his cost round, so
   // "last round − 1" covers both cases. Waiver pickups (absent from last
-  // year's draft) cost the team's LATEST pick. The commissioner can override
-  // any cost and tracks the kept-count (3 keeps max per player).
+  // year's draft) cost the team's LATEST pick.
   function keeperCostOf(pid, d) {
     var lp = null;
     if (lastDraft && lastDraft.picks) {
@@ -772,6 +787,34 @@ body.tv #boardLegend{display:none}
       keptBefore: lp.keeper === true,
     };
   }
+  // Automated eligibility (no more commissioner dropdowns): the server derives
+  // keep-CHAINS from the league's own 4-year history — kept(Y) = drafted in
+  // year Y by team T AND on T's final (Y−1) roster; validated against the
+  // family's roster/draft PDFs for 2022-2025. chain 3 = kept three straight
+  // years = he must return to the pool. A keeper must also be on YOUR final
+  // roster from last season. Degrades permissively: no roster data for the
+  // team (or a custom player) → the roster rule is skipped; history fetch
+  // failed → chains empty → nobody is locked out by the 3-keep rule.
+  function keeperStatusOf(pid, teamId, d) {
+    var chain = (lastDraft && lastDraft.chains && lastDraft.chains[pid]) || 0;
+    var cost = keeperCostOf(pid, d);
+    var custom = typeof pid === "string" && pid.charAt(0) === "c";
+    var ros = lastDraft && lastDraft.rosters
+      ? lastDraft.rosters.find(function (r) { return r.teamId === teamId; }) : null;
+    var onRoster = custom ? null
+      : (ros && ros.players.length
+        ? ros.players.some(function (p) { return p.pid === pid; }) : null);
+    var st = { chain: chain, cost: cost, onRoster: onRoster, keptCount: chain + 1, eligible: true, reason: "" };
+    if (onRoster === false) {
+      st.eligible = false;
+      st.reason = "not on your " + (lastDraft ? lastDraft.season : SEASON - 1) + " roster";
+    } else if (chain >= MAX_KEEPS_OF_ONE_PLAYER) {
+      st.eligible = false;
+      st.reason = "kept " + chain + " straight years — back to the pool";
+    }
+    return st;
+  }
+  function ordinal(n) { return n + (n === 1 ? "st" : n === 2 ? "nd" : n === 3 ? "rd" : "th"); }
   // Resolve a team's keepers onto distinct rounds. Requested round first; on a
   // collision, walk EARLIER (a keeper never gets cheaper from a collision),
   // then later from the requested round if nothing earlier is free. Pure and
@@ -858,16 +901,17 @@ body.tv #boardLegend{display:none}
     return act(function (d) {
       if (!d || (d.phase !== "keepers" && d.phase !== "setup")) throw new Error("Keeper picking isn't open");
       if (!canPickFor(d, teamId)) throw new Error("That's not your team");
-      var list = (d.keepers[teamId] = d.keepers[teamId] || []);
-      if (list.length >= MAX_KEEPERS) throw new Error("You already have " + MAX_KEEPERS + " keepers");
+      var st = keeperStatusOf(player.pid, teamId, d);
+      if (!st.eligible) throw new Error(player.name + " can't be kept — " + st.reason);
       var tk = takenPids(d);
       if (tk[player.pid]) throw new Error(player.name + " is already spoken for");
-      var cost = keeperCostOf(player.pid, d);
+      var list = (d.keepers[teamId] = d.keepers[teamId] || []);
+      if (list.length >= MAX_KEEPERS) throw new Error("You already have " + MAX_KEEPERS + " keepers");
       list.push({
         pid: player.pid, name: player.name, pos: player.pos || "?",
         proTeam: player.proTeam || "", proTeamId: player.proTeamId || 0,
-        round: cost.round, basis: cost.basis,
-        keptCount: cost.keptBefore ? 2 : 1,   // Nth consecutive year kept, counting this one
+        round: st.cost.round, basis: st.cost.basis,
+        keptCount: st.keptCount,   // Nth consecutive year kept, counting this one
         overrideRound: null,
       });
       return d;
@@ -878,15 +922,6 @@ body.tv #boardLegend{display:none}
       if (!canPickFor(d, teamId)) throw new Error("That's not your team");
       if (d.phase === "live" || d.phase === "done") throw new Error("The draft already started");
       d.keepers[teamId] = (d.keepers[teamId] || []).filter(function (k) { return k.pid !== pid; });
-      return d;
-    });
-  }
-  function setKeeperField(teamId, pid, field, value) {
-    return act(function (d) {
-      if (!isCommish(d)) throw new Error("Commissioner only");
-      var k = (d.keepers[teamId] || []).find(function (x) { return x.pid === pid; });
-      if (!k) return d;
-      k[field] = value;
       return d;
     });
   }
@@ -1572,39 +1607,47 @@ body.tv #boardLegend{display:none}
     }
     var list = (D.keepers[t.id] || []);
     var resolved = resolveKeeperRounds(list, D.rounds);
-    h += '<p class="mut">' + esc(t.name) + " can keep up to " + MAX_KEEPERS + ". A keeper costs one round earlier than last year (1sts stay 1sts); waiver pickups cost your latest pick.</p>";
+    h += '<p class="mut">' + esc(t.name) + " can keep up to " + MAX_KEEPERS + ". A keeper costs one round earlier than last year (1sts stay 1sts); waiver pickups cost your latest pick. Nobody can be kept more than " + MAX_KEEPS_OF_ONE_PLAYER + " years in a row.</p>";
     resolved.forEach(function (k) {
       var overKept = (k.keptCount || 1) > MAX_KEEPS_OF_ONE_PLAYER;
       h += '<div class="krow" data-pid="' + esc(k.pid) + '">' +
         '<span class="cost">R' + k.finalRound + (k.bumped ? "*" : "") + "</span>" +
         "<div style='flex:1'><b>" + esc(k.name) + "</b> <span class='mut'>" + esc(k.pos) + (k.proTeam ? " · " + esc(k.proTeam) : "") + "</span>" +
         '<div class="basis">' + esc(k.basis) + (k.bumped ? " · bumped (round taken by another keeper)" : "") +
-        " · kept ×" + (k.keptCount || 1) + (overKept ? ' <span class="inj">— over the 3-keep limit!</span>' : "") + "</div></div>" +
-        (isCommish(D) ?
-          '<select class="kOver" data-pid="' + esc(k.pid) + '" title="Commissioner: override the round">' +
-          '<option value="">auto</option>' +
-          Array.from({ length: D.rounds }, function (_, i) {
-            return '<option value="' + (i + 1) + '"' + (k.overrideRound === i + 1 ? " selected" : "") + ">R" + (i + 1) + "</option>";
-          }).join("") + "</select>" +
-          '<select class="kCount" data-pid="' + esc(k.pid) + '" title="Years kept in a row (counting this one)">' +
-          [1, 2, 3, 4].map(function (n) { return '<option value="' + n + '"' + ((k.keptCount || 1) === n ? " selected" : "") + ">×" + n + "</option>"; }).join("") +
-          "</select>"
-          : "") +
+        " · " + ordinal(k.keptCount || 1) + " straight keep" +
+        ((k.keptCount || 1) === MAX_KEEPS_OF_ONE_PLAYER ? " (last time — back to the pool next year)" : "") +
+        (overKept ? ' <span class="inj">— over the ' + MAX_KEEPS_OF_ONE_PLAYER + "-keep limit!</span>" : "") + "</div></div>" +
         '<button class="btn ghost sm kDel" data-pid="' + esc(k.pid) + '">×</button>' +
         "</div>";
     });
     for (var i = list.length; i < MAX_KEEPERS; i++) {
-      h += '<div class="kslot">Keeper slot ' + (i + 1) + " — tap Keep on a player below</div>";
+      h += '<div class="kslot">Keeper slot ' + (i + 1) + " — tap a player below</div>";
     }
-    // Last year's roster = the natural keeper candidates.
+    // Last year's roster = the ONLY keeper candidates. Every player shows his
+    // automated cost; ineligible players are greyed with the reason.
     if (lastDraft && lastDraft.rosters) {
       var ros = lastDraft.rosters.find(function (r) { return r.teamId === t.id; });
       if (ros && ros.players.length) {
         var tk = takenPids(D);
-        h += "<h3>Your " + esc(String(lastDraft.season)) + " roster</h3><div class='chips'>";
+        h += "<h3>Your " + esc(String(lastDraft.season)) + " roster — tap to keep</h3>";
+        if (lastDraft.historyOk === false) {
+          h += '<p class="mut">Keep history could not be loaded, so the ' + MAX_KEEPS_OF_ONE_PLAYER + "-straight-keeps limit isn't being enforced.</p>";
+        }
+        h += "<div class='chips'>";
         ros.players.forEach(function (p) {
           if (tk[p.pid]) return;
-          h += '<button class="kQuick" data-pid="' + esc(p.pid) + '">' + esc(fmtName(p.name)) + " <span class='mut'>" + esc(p.pos) + "</span></button>";
+          var st = keeperStatusOf(p.pid, t.id, D);
+          if (st.eligible) {
+            h += '<button class="kQuick" data-pid="' + esc(p.pid) + '" title="' + esc(st.cost.basis) + '">' +
+              '<span class="kcost">R' + st.cost.round + "</span>" + esc(fmtName(p.name)) +
+              " <span class='mut'>" + esc(p.pos) + "</span>" +
+              (st.keptCount > 1 ? '<span class="kchain">' + ordinal(st.keptCount) + " straight</span>" : "") +
+              "</button>";
+          } else {
+            h += '<span class="kQuick kNo" title="' + esc(st.reason) + '">' + KB_LOCK + esc(fmtName(p.name)) +
+              " <span class='mut'>" + esc(p.pos) + "</span>" +
+              '<span class="kwhy">' + esc(st.reason) + "</span></span>";
+          }
         });
         h += "</div>";
       }
@@ -1616,13 +1659,7 @@ body.tv #boardLegend{display:none}
     el.querySelectorAll(".kDel").forEach(function (b) {
       b.onclick = function () { removeKeeper(t.id, castPid(b.dataset.pid)); };
     });
-    el.querySelectorAll(".kOver").forEach(function (s) {
-      s.onchange = function () { setKeeperField(t.id, castPid(s.dataset.pid), "overrideRound", s.value ? Number(s.value) : null); };
-    });
-    el.querySelectorAll(".kCount").forEach(function (s) {
-      s.onchange = function () { setKeeperField(t.id, castPid(s.dataset.pid), "keptCount", Number(s.value)); };
-    });
-    el.querySelectorAll(".kQuick").forEach(function (b) {
+    el.querySelectorAll(".kQuick:not(.kNo)").forEach(function (b) {
       b.onclick = function () {
         var pid = castPid(b.dataset.pid);
         var p = poolByPid[pid] || rosterPlayer(t.id, pid);
@@ -1704,6 +1741,20 @@ body.tv #boardLegend{display:none}
     list.forEach(function (p) {
       var taken = tk[p.pid];
       var bye = playerBye(p);
+      // Keep affordance only where keeping is actually possible: on YOUR
+      // roster and eligible → button with the automated cost; on your roster
+      // but chain-locked → greyed marker; not yours → no keep control at all.
+      var keepCell = "";
+      if (keepMode && t && !taken) {
+        var st = keeperStatusOf(p.pid, t.id, D);
+        if (st.eligible && st.onRoster !== false) {
+          keepCell = st.onRoster === null
+            ? '<button class="btn ghost sm pKeep" data-pid="' + esc(p.pid) + '">Keep</button>'
+            : '<button class="btn ghost sm pKeep" data-pid="' + esc(p.pid) + '" title="' + esc(st.cost.basis) + '">Keep R' + st.cost.round + "</button>";
+        } else if (st.onRoster && !st.eligible) {
+          keepCell = '<span class="pLock" title="' + esc(st.reason) + '">' + KB_LOCK + "</span>";
+        }
+      }
       h += '<div class="prow' + (taken ? " taken" : "") + '" data-pid="' + esc(p.pid) + '" title="Tap for stats & outlook">' +
         '<span class="rk">' + (p.rank != null ? p.rank : "—") + "</span>" +
         '<span class="dot" style="background:' + posColor(p.pos) + '">' + esc(p.pos || "?") + "</span>" +
@@ -1714,7 +1765,7 @@ body.tv #boardLegend{display:none}
         (p.lastPts != null ? " · " + p.lastPts + " " + lastYr : "") + "</span></span>" +
         (taken ? '<span class="tk">' + esc(taken ? (taken.abbrev || taken.name || "taken") : "") + "</span>"
           : '<button class="qbtn' + (inQueue(p.pid) ? " on" : "") + '" data-pid="' + esc(p.pid) + '" title="Queue">' + STAR_SVG + "</button>" +
-            (keepMode && t ? '<button class="btn ghost sm pKeep" data-pid="' + esc(p.pid) + '">Keep</button>' : "") +
+            keepCell +
             (D.phase === "live" ? '<button class="btn sm pDraft" data-pid="' + esc(p.pid) + '"' + (canDraftNow ? "" : " disabled") + ">Draft</button>" : "")) +
         "</div>";
     });
@@ -1756,6 +1807,11 @@ body.tv #boardLegend{display:none}
   }
 
   function armConfirm(player, mode) {
+    if (mode === "keep") {
+      var t0 = keeperTargetTeam();
+      var st0 = t0 ? keeperStatusOf(player.pid, t0.id, D) : null;
+      if (st0 && !st0.eligible) { toast(player.name + " can't be kept — " + st0.reason, true); return; }
+    }
     selPlayer = { player: player, mode: mode };
     renderConfirm();
   }
@@ -1767,9 +1823,11 @@ body.tv #boardLegend{display:none}
     var h = "";
     if (selPlayer.mode === "keep") {
       var t = keeperTargetTeam();
-      var cost = keeperCostOf(p.pid, D);
+      var st = t ? keeperStatusOf(p.pid, t.id, D) : { cost: keeperCostOf(p.pid, D), keptCount: 1 };
       h = '<span class="what">Keep <b>' + esc(p.name) + "</b> for " + esc(t ? t.name : "?") +
-        " — costs <b>Round " + cost.round + "</b> <span style='opacity:.7'>(" + esc(cost.basis) + ")</span></span>";
+        " — costs <b>Round " + st.cost.round + "</b> <span style='opacity:.7'>(" + esc(st.cost.basis) +
+        (st.keptCount > 1 ? " · " + ordinal(st.keptCount) + " straight keep" +
+          (st.keptCount === MAX_KEEPS_OF_ONE_PLAYER ? " — last time" : "") : "") + ")</span></span>";
     } else {
       var cur = currentSlot(D);
       var ct = cur ? teamById(D, cur.teamId) : null;
@@ -2036,6 +2094,7 @@ body.tv #boardLegend{display:none}
     slotSeq: function () { return D ? slotSeq(D) : []; },
     currentSlot: function () { return D ? currentSlot(D) : null; },
     keeperCostOf: function (pid) { return D ? keeperCostOf(pid, D) : null; },
+    keeperStatusOf: function (pid, teamId) { return D ? keeperStatusOf(pid, teamId, D) : null; },
     resolveKeeperRounds: resolveKeeperRounds,
     takenPids: function () { return takenPids(D); },
     createDraft: createDraft,
@@ -2043,7 +2102,6 @@ body.tv #boardLegend{display:none}
     releaseTeam: releaseTeam,
     addKeeper: addKeeper,
     removeKeeper: removeKeeper,
-    setKeeperField: setKeeperField,
     setPhase: setPhase,
     makePick: makePick,
     undoLast: undoLast,

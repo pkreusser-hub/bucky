@@ -753,11 +753,54 @@ async function ffDraftPool(body) {
 // previously-kept players uniformly. A waiver pickup (absent from last year's
 // draft) costs the team's latest pick; the client resolves that. Final rosters
 // ride along so the keeper picker can offer "your team from last year".
+// Keep-chain helpers: kept(Y) = drafted in year Y by team T AND on T's final
+// (Y−1) roster. The league's 2025 draft carries ZERO ESPN keeper flags (offline
+// draft type, keepers baked in at their cost rounds — measured live), so the
+// roster-intersection definition is the only recoverable signal, and it was
+// validated against the family's own roster/draft PDFs for 2022-2025.
+function ffDraftedBy(j) {
+  const m = new Map();
+  for (const p of (Array.isArray(j?.draftDetail?.picks) ? j.draftDetail.picks : []))
+    if (p?.playerId != null) m.set(p.playerId, p?.teamId ?? 0);
+  return m;
+}
+function ffRosterSets(j) {
+  const m = new Map();
+  for (const t of (Array.isArray(j?.teams) ? j.teams : []))
+    m.set(t?.id ?? 0, new Set(
+      (Array.isArray(t?.roster?.entries) ? t.roster.entries : [])
+        .map((e) => e?.playerPoolEntry?.player?.id).filter((x) => x != null)));
+  return m;
+}
+
 async function ffLastDraft(body) {
   const year = Number(body?.year) >= 2000 && Number(body?.year) <= 2100
     ? Number(body.year) : ffSeason() - 1;
   const { data: j, err } = await ffFetch(["mDraftDetail", "mRoster"], "", { ...body, year });
   if (err) return { ok: false, reason: err };
+  // History for keep-chains: drafts for year−1/−2 plus rosters back to year−3.
+  // Any miss degrades to chains {} + historyOk:false (everyone eligible) — a
+  // dead history year must never take down the draft room.
+  let chains = {}, historyOk = false;
+  try {
+    const [h1, h2, h3] = await Promise.all([
+      ffFetch(["mDraftDetail", "mRoster"], "", { ...body, year: year - 1 }),
+      ffFetch(["mDraftDetail", "mRoster"], "", { ...body, year: year - 2 }),
+      ffFetch(["mRoster"], "", { ...body, year: year - 3 }),
+    ]);
+    if (!h1.err && !h2.err && !h3.err) {
+      const dY = ffDraftedBy(j), dY1 = ffDraftedBy(h1.data), dY2 = ffDraftedBy(h2.data);
+      const rY1 = ffRosterSets(h1.data), rY2 = ffRosterSets(h2.data), rY3 = ffRosterSets(h3.data);
+      const kept = (pid, t, dMap, rPrev) => dMap.get(pid) === t && rPrev.get(t)?.has(pid) === true;
+      for (const [pid, t] of dY) {
+        if (!kept(pid, t, dY, rY1)) continue;
+        let n = 1;
+        if (kept(pid, t, dY1, rY2)) { n = 2; if (kept(pid, t, dY2, rY3)) n = 3; }
+        chains[pid] = n;
+      }
+      historyOk = true;
+    }
+  } catch { chains = {}; historyOk = false; }
   try {
     const dd = j?.draftDetail || {};
     const picks = (Array.isArray(dd?.picks) ? dd.picks : [])
@@ -786,7 +829,7 @@ async function ffLastDraft(body) {
         })
         .filter((p) => p.pid != null && p.name),
     }));
-    return { ok: true, season: year, drafted: dd?.drafted === true, picks, rosters };
+    return { ok: true, season: year, drafted: dd?.drafted === true, picks, rosters, chains, historyOk };
   } catch {
     return { ok: false, reason: "bad-shape" };
   }

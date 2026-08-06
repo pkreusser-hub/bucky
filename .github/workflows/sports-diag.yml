@@ -123,6 +123,18 @@ jobs:
           ps=d.get('picks',[]);ks=[p for p in ps if p.get('keeper')]
           print('ok',d.get('ok'),d.get('reason',''),'| season',d.get('season'),'| drafted',d.get('drafted'),'|',len(ps),'picks,',len(ks),'keeper-flagged,',len(d.get('rosters',[])),'rosters')
           print('keeper-flagged:',[(k['pid'],'R'+str(k['round']),'team',k['teamId']) for k in ks][:12])
+          # keep-chains vs the family's PDFs: exactly FOUR 3-straight keeps
+          # entering 2026 — Saquon Barkley, Amon-Ra St. Brown, Davante Adams,
+          # Garrett Wilson. Anything else here is drift worth reading.
+          nm={p['pid']:p['name'] for r in d.get('rosters',[]) for p in r.get('players',[])}
+          ch=d.get('chains',{}) or {}
+          print('historyOk',d.get('historyOk'),'| chained players:',len(ch))
+          print(sorted((n, nm.get(int(p), p)) for p, n in ch.items()) if ch else 'NO CHAINS')
+          exp={'Saquon Barkley','Amon-Ra St. Brown','Davante Adams','Garrett Wilson'}
+          got={nm.get(int(p), str(p)) for p, n in ch.items() if n == 3}
+          print('chain-3 expected:', sorted(exp))
+          print('chain-3 from API:', sorted(got))
+          print('MATCH' if exp == got else 'MISMATCH — investigate before trusting eligibility')
           " || head -c 400 /tmp/o.json
       - name: live fantasy-AI actions
         run: |
