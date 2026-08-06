@@ -84,7 +84,7 @@
     </div>
     <div class="hint">Sleeper stats bucket: <span class="mono">
       /v1/stats/nfl/<input type="text" id="slpType" class="short mono" value="pre">/<input type="text" id="slpSeason" class="short mono" value="2026">/wk <input type="text" id="slpWeek" class="short mono" value="1" style="width:44px"></span>
-      <span class="mut">(prefilled from Sleeper's own /state — override only if the bucket looks empty)</span></div>
+      <span class="mut">(prefilled from Sleeper's /state; if the bucket stays empty the page cycles candidate weeks automatically — typing here takes manual control)</span></div>
   </div>
 
   <div class="card">
@@ -177,6 +177,12 @@ const S = {
   gameId: null, teams: [], slpTeams: [], gameLabel: "",
   running: false, timer: null,
   espnSeeded: false, slpSeeded: false,
+  // Sleeper week-bucket auto-detection. Live finding (diag 2026-08-06): ESPN
+  // calls tonight preseason WEEK 1 while Sleeper's /state says week 0, and
+  // every candidate bucket is empty until kickoff — so the right bucket can't
+  // be known in advance. We cycle candidates until one produces stats, then lock.
+  slpWeekCandidates: ["1", "0", "2"], slpWeekIdx: 0, slpBucketLocked: false,
+  slpWeekManual: false, slpRotateLogged: false,
   players: new Map(),        // matchKey -> row
   espnIds: new Set(),        // espn athlete ids seen in the boxscore
   matchedIds: new Set(),     // espn ids that a Sleeper player also claimed
@@ -271,15 +277,19 @@ async function slpBootstrap() {
     if (st) {
       if (st.season_type) $("#slpType").value = st.season_type;
       if (st.season) $("#slpSeason").value = st.season;
-      const wk = st.week || st.leg;
-      if (wk) $("#slpWeek").value = wk;
+      const wk = st.week != null ? st.week : st.leg;
+      if (wk != null) {
+        $("#slpWeek").value = wk;
+        S.slpWeekCandidates = [...new Set([String(wk), String(wk + 1), "1", "0"])];
+        S.slpWeekIdx = 0;
+      }
     }
   } catch (e) { /* endpoint table carries the failure */ }
   renderEndpoints();
 }
 async function slpLoadPlayers() {
   if (S.slpById) return;
-  $("#runstate").textContent = "loading Sleeper player directory (~5MB, once)…";
+  $("#runstate").textContent = "loading Sleeper player directory (~15MB, once)…";
   const dump = await fx("sleeper players", `${SLP}/players/nfl`);
   const byEspn = new Map(), byId = new Map();
   let withEspn = 0, defs = 0;
@@ -470,7 +480,17 @@ async function pollSleeper() {
     applySide("slp", key, {}, normSlpStats(st), st);
     n++;
   }
-  if (n) S.slpSeeded = true;
+  if (n) { S.slpSeeded = true; S.slpBucketLocked = true; }
+  else if (!S.slpBucketLocked && !S.slpWeekManual) {
+    // Wrong (or not-yet-live) week bucket — try the next candidate on the next
+    // poll. Cheap: an empty bucket is a 2-byte response.
+    S.slpWeekIdx = (S.slpWeekIdx + 1) % S.slpWeekCandidates.length;
+    $("#slpWeek").value = S.slpWeekCandidates[S.slpWeekIdx];
+    if (!S.slpRotateLogged) {
+      S.slpRotateLogged = true;
+      log(`Sleeper stats bucket has no players from this game yet — cycling wk ${S.slpWeekCandidates.join("/")} until stats appear (ESPN says wk 1, Sleeper's state says wk 0)`, "slp");
+    }
+  }
 }
 
 // ---------------- run loop ----------------
@@ -667,6 +687,7 @@ $("#manualGo").addEventListener("click", () => {
   const id = $("#manualEvent").value.trim();
   if (/^\d{5,12}$/.test(id)) pickGame(id, "", "", "event " + id, null);
 });
+$("#slpWeek").addEventListener("input", () => { S.slpWeekManual = true; });
 $("#startBtn").addEventListener("click", start);
 $("#pauseBtn").addEventListener("click", pause);
 $("#exportBtn").addEventListener("click", doExport);
