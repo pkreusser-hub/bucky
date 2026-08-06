@@ -96,6 +96,25 @@ jobs:
             code=$(fn "{\"secret\":\"amenfarms\",\"action\":\"ff_league\",\"teamName\":\"$nm\"}" || echo FAIL)
             python3 -c "import json;d=json.load(open('/tmp/o.json'));print('$nm ->','famId',d.get('familyTeamId'))" || head -c 200 /tmp/o.json
           done
+      - name: live draft-room actions
+        run: |
+          fn() { curl -sS -o /tmp/o.json -w "%{http_code}" -X POST \
+            "https://amenfarms.netlify.app/.netlify/functions/sports" \
+            -H "Content-Type: application/json" --data "$1"; }
+          code=$(fn '{"secret":"amenfarms","action":"ff_draftinfo"}' || echo FAIL)
+          echo "ff_draftinfo HTTP $code, $(wc -c < /tmp/o.json) bytes"
+          python3 -c "import json;d=json.load(open('/tmp/o.json'));print('ok',d.get('ok'),d.get('reason',''),'| teams',len(d.get('teams',[])),'| rosterSize',d.get('rosterSize'),'| ppr',d.get('ppr'),'| byes',len(d.get('byes',{})));print([t['name'] for t in d.get('teams',[])])" || head -c 400 /tmp/o.json
+          code=$(fn '{"secret":"amenfarms","action":"ff_draftpool","format":"ppr"}' || echo FAIL)
+          echo "ff_draftpool HTTP $code, $(wc -c < /tmp/o.json) bytes"
+          python3 -c "import json;d=json.load(open('/tmp/o.json'));ps=d.get('players',[]);print('ok',d.get('ok'),d.get('reason',''),len(ps),'players; top5:',[(p['rank'],p['name'],p['pos'],p['proTeam'],p['adp']) for p in ps[:5]])" || head -c 400 /tmp/o.json
+          code=$(fn '{"secret":"amenfarms","action":"ff_lastdraft"}' || echo FAIL)
+          echo "ff_lastdraft HTTP $code, $(wc -c < /tmp/o.json) bytes"
+          python3 -c "
+          import json;d=json.load(open('/tmp/o.json'))
+          ps=d.get('picks',[]);ks=[p for p in ps if p.get('keeper')]
+          print('ok',d.get('ok'),d.get('reason',''),'| season',d.get('season'),'| drafted',d.get('drafted'),'|',len(ps),'picks,',len(ks),'keeper-flagged,',len(d.get('rosters',[])),'rosters')
+          print('keeper-flagged:',[(k['pid'],'R'+str(k['round']),'team',k['teamId']) for k in ks][:12])
+          " || head -c 400 /tmp/o.json
       - name: live fantasy-AI actions
         run: |
           fn() { curl -sS -o /tmp/o.json -w "%{http_code}" -X POST \
