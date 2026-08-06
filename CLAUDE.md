@@ -8329,3 +8329,12 @@ TEST GOTCHA (new): background repaints replace #ffBody nodes — a coordinate `p
 after `hasFf` can land on a stale spot; wait for the guard card (ffMyM landed) and dispatch
 `el.click()` in-page. Diag workflow gained live ff_freeagents + ONE real Grok fantasy smoke
 (never trigger live ffrecap from CI — it would WRITE a junk preseason column the family reads).
+**LIVE-VERIFIED 2026-08-06** (diag runs 31059976938/31060131978): real ff_freeagents = 50
+players through the real X-Fantasy-Filter (top: Jahmyr Gibbs 99.9% owned — PRE-DRAFT, everyone
+is a free agent, that's correct); real Grok answered the fantasy smoke ("**Yes — start Josh
+Allen.**"). AND THE LIVE RUN CAUGHT A REAL BUG: the league's team is literally **"Nails  For
+Breakfast" — a DOUBLE SPACE** — so the exact-match resolver silently fell back to Battle
+Kreussers for Mom. Fix: `ffNorm` in sports.mjs collapses whitespace runs before matching
+(client config keeps the natural single-space spelling); the fixture now carries the
+double-space name verbatim so the suite (263) proves the normalization against the shape that
+actually broke. Real league ids: Goat Kids 12 · Wyoming Cowboys 3 · Nails For Breakfast 5.

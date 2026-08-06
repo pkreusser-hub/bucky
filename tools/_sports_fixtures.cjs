@@ -430,7 +430,10 @@ function ffLeagueDoc() {
       ffTeam(4, "End Zone Goats", "ENDZ", "{AAAA-4}", 0, 1, 87.9, 110.2, 6),
       ffTeam(5, "Wyoming Cowboys", "WYO", "{AAAA-5}", 1, 0, 104.6, 90.1, 3),
       ffTeam(6, "Draft Punks", "DRFT", "{AAAA-6}", 0, 1, 90.1, 104.6, 7),
-      ffTeam(7, "Nails for Breakfast", "NAIL", "{AAAA-7}", 1, 0, 99.5, 95.2, 4),
+      // The REAL league's name has a DOUBLE SPACE ("Nails  For Breakfast", measured
+      // live 2026-08-06) — kept verbatim so the whitespace-normalizing matcher is
+      // proven against the shape that actually broke the exact match.
+      ffTeam(7, "Nails  For Breakfast", "NAIL", "{AAAA-7}", 1, 0, 99.5, 95.2, 4),
       ffTeam(8, "Hay Bale Hail Marys", "HAY", "{AAAA-8}", 0, 1, 95.2, 99.5, 8),
     ],
     schedule: [

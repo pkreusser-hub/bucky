@@ -310,6 +310,9 @@ async function sectionFantasy() {
   ok(r.json.familyTeamId === 5, "teamName matching is case-insensitive (Wyoming Cowboys → id 5)");
   r = await call({ secret: "amenfarms", action: "ff_league", teamName: "End Zone Goats" });
   ok(r.json.familyTeamId === 4, "an exact name beats the near-name trap (End Zone Goats ≠ The Goat Kids)");
+  r = await call({ secret: "amenfarms", action: "ff_league", teamName: "Nails for Breakfast" });
+  ok(r.json.familyTeamId === 7,
+    "whitespace normalizes: \"Nails for Breakfast\" matches the league's literal \"Nails  For Breakfast\" (the live double-space)");
   r = await call({ secret: "amenfarms", action: "ff_league", teamName: "No Such Team" });
   ok(r.json.familyTeamId === 1, "an unknown teamName falls back to the default family team");
 
@@ -1031,7 +1034,7 @@ async function sectionFantasyUI(browser) {
       "it carries both live totals and a LIVE tag");
     ok(ff.othersBtns === 3 && /The Goat Kids/.test(ff.othersText) && /Draft Punks/.test(ff.othersText)
       && /Wyoming Cowboys/.test(ff.othersText) && /Hay Bale Hail Marys/.test(ff.othersText)
-      && /Nails for Breakfast/.test(ff.othersText) && /End Zone Goats/.test(ff.othersText),
+      && /Nails\s+For Breakfast/.test(ff.othersText) && /End Zone Goats/.test(ff.othersText),
       "the other 3 matchups (all 6 remaining teams) render under Around the league");
     ok(ff.lineupRows === 0, "the scoreboard itself carries NO lineups — those live in the matchup detail");
     // 112.6 vs 98.1 projected finals -> Φ((112.6-98.1)/30) ≈ 69% (hand-computed)
@@ -1206,8 +1209,13 @@ async function sectionFantasyUI(browser) {
   }
 
   // Per-user teams: Isaac follows The Goat Kids, Grandpa the Wyoming Cowboys,
-  // Mom the Nails for Breakfast.
-  for (const [who, team, oppo] of [["Isaac", "The Goat Kids", "Draft Punks"], ["Grandpa", "Wyoming Cowboys", "Hay Bale Hail Marys"], ["Mom", "Nails for Breakfast", "End Zone Goats"]]) {
+  // Mom the Nails for Breakfast (whose LEAGUE name carries the double space — the
+  // pinned card shows the league's own spelling, the app's config the natural one).
+  for (const [who, team, disp, oppo] of [
+    ["Isaac", "The Goat Kids", /The Goat Kids/, "Draft Punks"],
+    ["Grandpa", "Wyoming Cowboys", /Wyoming Cowboys/, "Hay Bale Hail Marys"],
+    ["Mom", "Nails for Breakfast", /Nails\s+For Breakfast/, "End Zone Goats"],
+  ]) {
     const ctx = await browser.createBrowserContext();
     const page = await newPage(ctx, { choreUser: who });
     await page.goto(BASE + "/sports.html#fantasy", { waitUntil: "domcontentloaded", timeout: 60000 });
@@ -1220,7 +1228,7 @@ async function sectionFantasyUI(browser) {
         mineText: mineCard ? mineCard.textContent : "",
       };
     });
-    ok(p.teamName === team && /Your matchup/.test(p.mineText) && p.mineText.includes(team) && p.mineText.includes(oppo),
+    ok(p.teamName === team && /Your matchup/.test(p.mineText) && disp.test(p.mineText) && p.mineText.includes(oppo),
       `${who}'s scoreboard pins ${team} (vs ${oppo}) as "Your matchup"`);
     ok(page._errs.length === 0, `0 page errors as ${who}`);
     await ctx.close();

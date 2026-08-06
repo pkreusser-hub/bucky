@@ -411,17 +411,22 @@ function ffSlimTeam(t, members) {
   };
 }
 // Resolve "my team" by name — the client sends teamName per signed-in family
-// member (Isaac follows The Goat Kids, Grandpa the Wyoming Cowboys, default
-// Battle Kreussers); a missing/unmatched name falls back to the env default.
+// member (Isaac follows The Goat Kids, Grandpa the Wyoming Cowboys, Mom the
+// Nails for Breakfast); a missing/unmatched name falls back to the env default.
+// Matching NORMALIZES WHITESPACE (collapse runs, lowercase): the real league's
+// team is literally "Nails  For Breakfast" — an invisible double space the
+// owner could "fix" any day — measured live 2026-08-06 when the exact match
+// silently fell back to the default team.
+const ffNorm = (s) => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
 function ffWantedName(body) {
-  const n = String(body?.teamName || "").trim().toLowerCase().slice(0, 60);
+  const n = ffNorm(body?.teamName).slice(0, 60);
   return n || FF_TEAM_NAME;
 }
 function ffFamilyTeamId(teams, wanted) {
-  const w = wanted || FF_TEAM_NAME;
-  const hit = (teams || []).find((t) => ffTeamName(t).trim().toLowerCase() === w)
-    || (teams || []).find((t) => ffTeamName(t).trim().toLowerCase().includes(w))
-    || (w !== FF_TEAM_NAME ? (teams || []).find((t) => ffTeamName(t).trim().toLowerCase() === FF_TEAM_NAME) : null);
+  const w = ffNorm(wanted || FF_TEAM_NAME);
+  const hit = (teams || []).find((t) => ffNorm(ffTeamName(t)) === w)
+    || (teams || []).find((t) => ffNorm(ffTeamName(t)).includes(w))
+    || (w !== FF_TEAM_NAME ? (teams || []).find((t) => ffNorm(ffTeamName(t)) === FF_TEAM_NAME) : null);
   return hit ? hit.id : null;
 }
 const r1 = (n) => (typeof n === "number" && isFinite(n) ? Math.round(n * 10) / 10 : null);
