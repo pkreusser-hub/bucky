@@ -1,0 +1,109 @@
+# One-shot diagnostic for the fantasy-data feasibility test (fftest.html):
+# what do Sleeper's public API and ESPN's site API actually return TODAY, from
+# a neutral datacenter, and do both send CORS headers so a browser page can
+# poll them directly? Dispatch by hand (Actions tab or API) — nothing here is
+# secret; both APIs are keyless and public.
+name: ff-data-diag
+on: workflow_dispatch
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: sleeper state + CORS
+        run: |
+          code=$(curl -sS -D /tmp/h.txt -o /tmp/state.json -w "%{http_code}" "https://api.sleeper.app/v1/state/nfl" || echo FAIL)
+          echo "state HTTP $code"; cat /tmp/state.json; echo
+          echo "CORS headers:"; grep -i "access-control" /tmp/h.txt || echo "  NONE"
+      - name: sleeper players dump
+        run: |
+          code=$(curl -sS -o /tmp/players.json -w "%{http_code}" "https://api.sleeper.app/v1/players/nfl" || echo FAIL)
+          echo "players HTTP $code, $(wc -c < /tmp/players.json) bytes"
+          python3 <<'PY'
+          import json
+          d = json.load(open('/tmp/players.json'))
+          print('players:', len(d))
+          withespn = 0; defenses = []
+          sample = None
+          for pid, p in d.items():
+              if not isinstance(p, dict): continue
+              if p.get('espn_id'): withespn += 1
+              if p.get('position') == 'DEF': defenses.append(pid)
+              if p.get('full_name') == 'Josh Allen' and p.get('position') == 'QB' and p.get('team'):
+                  sample = (pid, p)
+          print('with espn_id:', withespn, '| team defenses:', len(defenses), defenses[:6])
+          if sample:
+              pid, p = sample
+              keep = {k: p.get(k) for k in ('full_name','team','position','espn_id','yahoo_id','injury_status','status','active','depth_chart_order')}
+              print('sample', pid, keep)
+          PY
+      - name: sleeper stats + projections shapes
+        run: |
+          wk=$(python3 -c "import json;print(json.load(open('/tmp/state.json')).get('week',1))" 2>/dev/null || echo 1)
+          st=$(python3 -c "import json;print(json.load(open('/tmp/state.json')).get('season_type','pre'))" 2>/dev/null || echo pre)
+          echo "state says week=$wk season_type=$st"
+          for u in \
+            "https://api.sleeper.app/v1/stats/nfl/pre/2026/1" \
+            "https://api.sleeper.app/v1/stats/nfl/$st/2026/$wk" \
+            "https://api.sleeper.app/v1/projections/nfl/pre/2026/1" \
+            "https://api.sleeper.com/stats/nfl/2026/1?season_type=pre"; do
+            code=$(curl -sS -D /tmp/h.txt -o /tmp/o.json -w "%{http_code}" "$u" || echo FAIL)
+            echo "$u -> HTTP $code, $(wc -c < /tmp/o.json) bytes"
+            grep -i "access-control-allow-origin" /tmp/h.txt || echo "  (no CORS header)"
+            python3 <<'PY'
+          import json
+          try:
+              d = json.load(open('/tmp/o.json'))
+          except Exception as e:
+              print('  parse fail:', e); raise SystemExit
+          if isinstance(d, dict):
+              print('  map of', len(d), 'players')
+              for pid, st in list(d.items())[:2]:
+                  if isinstance(st, dict):
+                      print('  ', pid, dict(list(st.items())[:16]))
+          elif isinstance(d, list):
+              print('  list of', len(d))
+              if d: print('  first:', json.dumps(d[0])[:500])
+          PY
+          done
+      - name: espn tonight + CORS
+        run: |
+          code=$(curl -sS -D /tmp/h.txt -o /tmp/sb.json -w "%{http_code}" "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=20260806" || echo FAIL)
+          echo "scoreboard(20260806) HTTP $code, $(wc -c < /tmp/sb.json) bytes"
+          echo "CORS headers:"; grep -i "access-control" /tmp/h.txt || echo "  NONE"
+          python3 <<'PY'
+          import json
+          d = json.load(open('/tmp/sb.json'))
+          print('week', d.get('week'), 'season', d.get('season'))
+          for e in d.get('events', []):
+              c = e['competitions'][0]
+              print(e['id'], e.get('shortName'), e.get('date'), c['status']['type'].get('state'), c['status']['type'].get('shortDetail'))
+          PY
+      - name: espn recent final preseason boxscore shape
+        run: |
+          code=$(curl -sS -o /tmp/sbr.json -w "%{http_code}" "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=20260728-20260806" || echo FAIL)
+          echo "scoreboard(range) HTTP $code"
+          eid=$(python3 -c "
+          import json
+          d = json.load(open('/tmp/sbr.json'))
+          done = [e for e in d.get('events', []) if e['competitions'][0]['status']['type'].get('state') == 'post']
+          print(done[-1]['id'] if done else '')")
+          echo "most recent FINAL preseason event: [$eid]"
+          if [ -n "$eid" ]; then
+            curl -sS -o /tmp/sum.json "https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=$eid"
+            echo "summary $(wc -c < /tmp/sum.json) bytes"
+            python3 <<'PY'
+          import json
+          d = json.load(open('/tmp/sum.json'))
+          bp = d.get('boxscore', {}).get('players', [])
+          for t in bp[:1]:
+              print('team', t.get('team', {}).get('abbreviation'))
+              for g in t.get('statistics', []):
+                  a = (g.get('athletes') or [{}])[0]
+                  ath = a.get('athlete', {})
+                  print(' ', g.get('name'), '| labels', g.get('labels'), '| keys', g.get('keys'))
+                  print('    first athlete:', ath.get('id'), ath.get('displayName'), (ath.get('position') or {}).get('abbreviation'), a.get('stats'))
+          hdr = (d.get('header', {}).get('competitions') or [{}])[0]
+          st = hdr.get('status', {})
+          print('header status:', st.get('type', {}).get('state'), '| clock', st.get('displayClock'), '| period', st.get('period'))
+          PY
+          fi
