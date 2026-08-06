@@ -767,6 +767,25 @@ async function sectionRoom(browser) {
   await page.evaluate(() => { document.getElementById("pSearch").value = ""; document.getElementById("pSearch").dispatchEvent(new Event("input")); });
   await shot(page, "ffdraft_players_390.png");
 
+  // The D/ST chip — the filter nobody had ever exercised: the chip used to say
+  // "DST" while every defense's pos is "D/ST", so the live pool's defenses
+  // were invisible on EVERY device (reported 2026-08-06, two devices).
+  await page.evaluate(() => {
+    Array.from(document.querySelectorAll("#posChips button")).find((b) => b.dataset.pos === "D/ST").click();
+  });
+  ok(await page.evaluate(() => {
+    const rows = Array.from(document.querySelectorAll("#pList .prow"));
+    return rows.length === 2 && rows.every((r) => /D\/ST/.test(r.textContent));
+  }), "tapping the D/ST chip shows exactly the pool's defenses");
+  ok(await page.evaluate(() => {
+    const dot = document.querySelector("#pList .prow .dot");
+    const want = getComputedStyle(document.documentElement).getPropertyValue("--pos-DST").trim();
+    return !!dot && dot.getAttribute("style").includes(want);
+  }), "…colored with the D/ST position color, not the unknown-pos gray");
+  await page.evaluate(() => {
+    Array.from(document.querySelectorAll("#posChips button")).find((b) => b.dataset.pos === "ALL").click();
+  });
+
   // --- own scroll + richer rows + the detail card ---
   await sleep(120);   // sizePList runs in a rAF after render
   ok(await page.evaluate(() => {

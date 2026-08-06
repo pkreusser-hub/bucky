@@ -459,7 +459,9 @@ body.tv #boardLegend{display:none}
   // The real gate is server-side: sports.mjs checks this against BUCKY_NOTIFY_SECRET.
   var FAMILY_PASSWORD = "amenfarms";
   var FN = "/.netlify/functions/sports";
-  var POS = ["QB", "RB", "WR", "TE", "K", "DST"];
+  var POS = ["QB", "RB", "WR", "TE", "K", "D/ST"];
+  // CSS class/var names can't carry a slash — "D/ST" maps to the DST token.
+  function cssPos(pos) { return pos === "D/ST" ? "DST" : pos; }
   var MAX_KEEPERS = 3;
   var MAX_KEEPS_OF_ONE_PLAYER = 3;   // "no player can be kept more than 3 times"
 
@@ -1183,7 +1185,7 @@ body.tv #boardLegend{display:none}
 
   // ---------------- roster needs (my starting slots vs my picks) ----------------
   function teamPosCounts(teamId) {
-    var counts = { QB: 0, RB: 0, WR: 0, TE: 0, K: 0, DST: 0 };
+    var counts = { QB: 0, RB: 0, WR: 0, TE: 0, K: 0, "D/ST": 0 };
     if (!D) return counts;
     Object.keys(D.picks || {}).forEach(function (k) {
       if (k.split("_t")[1] !== String(teamId)) return;
@@ -1200,7 +1202,7 @@ body.tv #boardLegend{display:none}
     if (!sl || !D) return null;
     var c = teamPosCounts(teamId);
     var out = [], spill = 0;
-    [["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"], ["D/ST", "DST"], ["K", "K"]].forEach(function (pair) {
+    [["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"], ["D/ST", "D/ST"], ["K", "K"]].forEach(function (pair) {
       var need = sl[pair[0]] || 0;
       if (!need) return;
       if (pair[1] === "RB" || pair[1] === "WR" || pair[1] === "TE") spill += Math.max(0, c[pair[1]] - need);
@@ -1286,9 +1288,9 @@ body.tv #boardLegend{display:none}
     var c = teamPosCounts(teamId);
     var avail = pool.filter(function (p) { return !tk[p.pid]; });
     var picks = avail.filter(function (p) {
-      if ((p.pos === "K" || p.pos === "DST") && !late) return false;
+      if ((p.pos === "K" || p.pos === "D/ST") && !late) return false;
       if (p.pos === "K" && c.K >= 1) return false;
-      if (p.pos === "DST" && c.DST >= 1) return false;
+      if (p.pos === "D/ST" && c["D/ST"] >= 1) return false;
       if (p.pos === "QB" && c.QB >= 2) return false;
       if (p.pos === "TE" && c.TE >= 2) return false;
       return true;
@@ -1560,9 +1562,9 @@ body.tv #boardLegend{display:none}
     if (b) b.onclick = createDraft;
   }
 
-  function posClass(pos) { return POS.indexOf(pos) >= 0 ? "pos-" + pos : "pos-X"; }
+  function posClass(pos) { return POS.indexOf(pos) >= 0 ? "pos-" + cssPos(pos) : "pos-X"; }
   function posColor(pos) {
-    return getComputedStyle(document.documentElement).getPropertyValue("--" + (POS.indexOf(pos) >= 0 ? "pos-" + pos : "pos-X")) || "#4a4f5a";
+    return getComputedStyle(document.documentElement).getPropertyValue("--" + (POS.indexOf(pos) >= 0 ? "pos-" + cssPos(pos) : "pos-X")) || "#4a4f5a";
   }
 
   function renderBoard() {
