@@ -699,6 +699,25 @@ function seasonStat(stats, seasonId, sourceId) {
     s?.seasonId === seasonId && s?.statSourceId === sourceId && s?.statSplitTypeId === 0);
 }
 
+function ffPoolEntry(e, fmt, year) {
+  const p = e?.player || e || {};
+  const rk = p?.draftRanksByRankType || {};
+  const rank = rk?.[fmt]?.rank ?? rk?.PPR?.rank ?? rk?.STANDARD?.rank ?? null;
+  const proId = p?.proTeamId ?? 0;
+  const stats = Array.isArray(p?.stats) ? p.stats : [];
+  return {
+    pid: p?.id ?? null,
+    name: p?.fullName || "",
+    pos: POS_LABEL[p?.defaultPositionId] || "",
+    proTeamId: proId,
+    proTeam: PRO_ABBREV[proId] || "",
+    injury: p?.injuryStatus && p.injuryStatus !== "ACTIVE" ? p.injuryStatus : "",
+    rank: Number.isFinite(rank) ? rank : null,
+    adp: r1(p?.ownership?.averageDraftPosition),
+    proj: r1(seasonStat(stats, year, 1)?.appliedTotal),
+    lastPts: r1(seasonStat(stats, year - 1, 0)?.appliedTotal),
+  };
+}
 async function ffDraftPool(body) {
   const fmt = body?.format === "standard" ? "STANDARD" : "PPR";
   const filter = {
@@ -715,31 +734,38 @@ async function ffDraftPool(body) {
   const { data: j, err, year } = await ffFetch(["kona_player_info"], "", body,
     { "x-fantasy-filter": JSON.stringify(filter) });
   if (err) return { ok: false, reason: err };
+  // D/ST + K sweep: the draft-rank-sorted fetch can EXCLUDE whole positions
+  // that don't carry the requested rank type (reported live 2026-08-06 —
+  // zero defenses in the pool). Sweep lineup slots 16 (D/ST) and 17 (K)
+  // separately — the same filterSlotIds recipe ff_freeagents uses — and
+  // merge. A failed sweep just means the main pool ships as-is.
+  let sweep = [];
   try {
-    const players = (Array.isArray(j?.players) ? j.players : [])
-      .map((e) => {
-        const p = e?.player || e || {};
-        const rk = p?.draftRanksByRankType || {};
-        const rank = rk?.[fmt]?.rank ?? rk?.PPR?.rank ?? rk?.STANDARD?.rank ?? null;
-        const proId = p?.proTeamId ?? 0;
-        const stats = Array.isArray(p?.stats) ? p.stats : [];
-        return {
-          pid: p?.id ?? null,
-          name: p?.fullName || "",
-          pos: POS_LABEL[p?.defaultPositionId] || "",
-          proTeamId: proId,
-          proTeam: PRO_ABBREV[proId] || "",
-          injury: p?.injuryStatus && p.injuryStatus !== "ACTIVE" ? p.injuryStatus : "",
-          rank: Number.isFinite(rank) ? rank : null,
-          adp: r1(p?.ownership?.averageDraftPosition),
-          proj: r1(seasonStat(stats, year, 1)?.appliedTotal),
-          lastPts: r1(seasonStat(stats, year - 1, 0)?.appliedTotal),
-        };
-      })
+    const sf = {
+      players: {
+        limit: 80,
+        filterSlotIds: { value: [16, 17] },
+        sortPercOwned: { sortPriority: 1, sortAsc: false },
+        filterStatsForSourceIds: { value: [0, 1] },
+        filterStatsForSplitTypeIds: { value: [0] },
+      },
+    };
+    const r2 = await ffFetch(["kona_player_info"], "", body, { "x-fantasy-filter": JSON.stringify(sf) });
+    if (!r2.err && Array.isArray(r2.data?.players)) sweep = r2.data.players;
+  } catch { sweep = []; }
+  try {
+    const main = (Array.isArray(j?.players) ? j.players : [])
+      .map((e) => ffPoolEntry(e, fmt, year))
       .filter((p) => p.pid != null && p.name)
       // Don't trust the upstream sort blindly — rank asc, unranked last.
       .sort((a, b) => (a.rank ?? 9999) - (b.rank ?? 9999))
       .slice(0, 300);
+    const seen = new Set(main.map((p) => p.pid));
+    const extras = sweep.map((e) => ffPoolEntry(e, fmt, year))
+      .filter((p) => p.pid != null && p.name && !seen.has(p.pid));
+    // Merged sort is STABLE: ranked extras interleave by rank; unranked ones
+    // land at the bottom in ESPN's own most-owned order.
+    const players = main.concat(extras).sort((a, b) => (a.rank ?? 9999) - (b.rank ?? 9999));
     return { ok: true, season: year, format: fmt.toLowerCase(), players };
   } catch {
     return { ok: false, reason: "bad-shape" };

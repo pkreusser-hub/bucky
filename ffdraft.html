@@ -1057,6 +1057,15 @@ body.tv #boardLegend{display:none}
       return d;
     }, "Draft board cleared");
   }
+  // Release every claim in one go (mis-claims, stale test devices, draft-day
+  // do-overs). Ownership only — keepers, picks, and the phase are untouched.
+  function resetClaims() {
+    return act(function (d) {
+      if (!isCommish(d)) throw new Error("Commissioner only");
+      d.teams.forEach(function (t) { t.owner = null; });
+      return d;
+    }, "All team claims released — everyone re-claims");
+  }
 
   // ---------------- on-the-clock alerts ----------------
   // A two-tone chime + a flashing tab title the moment the clock becomes
@@ -2009,6 +2018,7 @@ body.tv #boardLegend{display:none}
       (LOCAL ? '<label class="row" style="margin:8px 0"><input type="checkbox" id="mockToggle"' + (d.mock ? " checked" : "") +
         "> Mock draft — auto-pick for unclaimed teams (practice mode)</label>" : "") +
       '<div class="row"><button class="btn ghost sm" id="refreshData">Refresh ESPN data</button>' +
+      '<button class="btn ghost sm" id="resetClaims">Reset team claims</button>' +
       '<button class="btn warn sm" id="resetBoard">Reset the board</button></div></div>';
 
     h += '<div class="card"><h2>Draft order</h2>' +
@@ -2053,6 +2063,7 @@ body.tv #boardLegend{display:none}
       Promise.all([loadInfo(true), loadLastDraft(true)]).then(function () { return loadPool(true); }).then(renderAll);
     });
     on("resetBoard", function () { if (confirm("Clear every pick and go back to setup? Keepers are kept.")) resetDraft(); });
+    on("resetClaims", function () { if (confirm("Release EVERY team claim? Everyone re-claims their team (keepers and picks stay).")) resetClaims(); });
     var mt = $("mockToggle");
     if (mt) mt.onchange = function () {
       var v = mt.checked;
@@ -2142,6 +2153,7 @@ body.tv #boardLegend{display:none}
     moveTeam: moveTeam,
     setSetting: setSetting,
     resetDraft: resetDraft,
+    resetClaims: resetClaims,
     renderAll: renderAll,
     backendReady: function () { return backendReady; },
     loads: function () { return Promise.all([loadInfo(), loadPool(), loadLastDraft()]); },

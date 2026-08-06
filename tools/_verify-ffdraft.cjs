@@ -54,7 +54,7 @@ function startUpstream() {
 }
 
 // ---------------- fake ESPN fantasy upstream ----------------
-const ffUp = { lastUrl: "", urls: [], lastFilter: "", standard: false, byesDown: false, historyDown: false, mode: "normal", calls: 0 };
+const ffUp = { lastUrl: "", urls: [], lastFilter: "", filters: [], standard: false, byesDown: false, historyDown: false, mode: "normal", calls: 0 };
 function startFfUpstream() {
   const srv = http.createServer((req, res) => {
     ffUp.calls++;
@@ -87,8 +87,18 @@ function startFfUpstream() {
     }
     if (req.url.includes("view=kona_player_info")) {
       ffUp.lastFilter = req.headers["x-fantasy-filter"] || "";
+      ffUp.filters.push(ffUp.lastFilter);
       if (ffUp.lastFilter.includes("filterIds")) { res.writeHead(400); res.end('{"messages":["filter not supported"]}'); return; }
-      res.end(JSON.stringify(FIX.ffDraftPoolDoc()));
+      const pdoc = FIX.ffDraftPoolDoc();
+      if (ffUp.lastFilter.includes("filterSlotIds")) {
+        // The slot sweep: only D/ST (16) + K (5) rows come back.
+        pdoc.players = pdoc.players.filter((e) => [16, 5].includes(e.player.defaultPositionId));
+      } else {
+        // Mirror the LIVE bug (2026-08-06): the draft-rank-sorted fetch
+        // excludes defenses outright — the merge must restore them.
+        pdoc.players = pdoc.players.filter((e) => e.player.defaultPositionId !== 16);
+      }
+      res.end(JSON.stringify(pdoc));
       return;
     }
     if (req.url.includes("view=mDraftDetail") || req.url.includes("view=mRoster")) {
@@ -169,9 +179,19 @@ async function sectionServer() {
   // ff_draftpool
   r = await call({ secret: "amenfarms", action: "ff_draftpool" });
   ok(!!r.json && r.json.ok === true && r.json.format === "ppr", "ff_draftpool defaults to PPR");
-  ok(ffUp.lastFilter.includes("sortDraftRanks") && ffUp.lastFilter.includes('"PPR"'),
+  ok(ffUp.filters.some((f) => f.includes("sortDraftRanks") && f.includes('"PPR"')),
     "the X-Fantasy-Filter header asks for PPR draft ranks");
   ok(Array.isArray(r.json.players) && r.json.players.length === 36, "pool carries every fixture player");
+  // The D/ST sweep: the ranked fetch came back with ZERO defenses (the live
+  // 2026-08-06 bug, mirrored by the fake) — the slot-16/17 sweep restores
+  // them, ranks intact, interleaved by rank.
+  ok(ffUp.filters.some((f) => f.includes("filterSlotIds") && f.includes("16") && f.includes("17")),
+    "a second fetch sweeps lineup slots 16 (D/ST) + 17 (K)");
+  const dsts = r.json.players.filter((p) => p.pos === "D/ST");
+  ok(dsts.length === 2 && dsts.some((p) => p.pid === 4034) && dsts.some((p) => p.pid === 4035),
+    "both defenses are IN the pool even though the ranked fetch excluded them");
+  ok(r.json.players.findIndex((p) => p.pid === 4034) === 33,
+    "a swept defense interleaves at its own rank (Broncos D/ST at #34)");
   ok(r.json.players[0].pid === 4001 && r.json.players[0].rank === 1,
     "pool is sorted by rank (Chase #1 in PPR) even though the upstream came back unsorted");
   ok(r.json.players[r.json.players.length - 1].pid === 4036, "an unranked player sorts last");
@@ -184,10 +204,12 @@ async function sectionServer() {
   const puka = r.json.players.find((p) => p.pid === 4007);
   ok(puka && puka.injury === "QUESTIONABLE", "injury status carried (ACTIVE dropped)");
 
+  ffUp.filters = [];
   r = await call({ secret: "amenfarms", action: "ff_draftpool", format: "standard" });
   ok(!!r.json && r.json.format === "standard" && r.json.players[0].pid === 4002,
     "format:standard sorts by STANDARD ranks (Bijan #1)");
-  ok(ffUp.lastFilter.includes('"STANDARD"'), "the filter header switches to STANDARD too");
+  ok(ffUp.filters.some((f) => f.includes("sortDraftRanks") && f.includes('"STANDARD"')),
+    "the filter header switches to STANDARD too");
 
   // ff_lastdraft — "last season" tracks the league-year rule (Jan/Feb belong
   // to the previous season), so compute the expectation the same way.
@@ -862,6 +884,22 @@ async function sectionRoom(browser) {
   ok(d.phase === "setup" && Object.keys(d.picks).length === 0
     && d.keepers[1].length === 3 && d.keepers[3].length === 1,
     "reset clears the board but keeps everyone's keepers");
+
+  // commish mass-release (mis-claims / stale test devices): ownership only
+  await hook(page, () => window.__DRAFT__.resetClaims());
+  d = await D(page);
+  ok(d.teams.every((t) => !t.owner) && d.keepers[1].length === 3,
+    "Reset team claims releases every owner in one tap — keepers untouched");
+  await hook(page, () => window.__DRAFT__.claimTeam(1));
+  await hook(page, () => window.__DRAFT__.setMe("Mike", "dev-mike", ""));
+  await hook(page, () => window.__DRAFT__.resetClaims());
+  await sleep(50);
+  ok((await toastText(page)).includes("Commissioner only"), "…and only the commissioner can do it");
+  await hook(page, () => window.__DRAFT__.claimTeam(3));
+  await hook(page, (k, dev) => window.__DRAFT__.setMe("Paul", dev, k), ckey, paulDev);
+  d = await D(page);
+  ok(d.teams.find((t) => t.id === 1).owner.name === "Paul" && d.teams.find((t) => t.id === 3).owner.name === "Mike",
+    "…and everyone re-claims immediately");
   await hook(page, () => window.__DRAFT__.setSetting("rounds", 4));
   await hook(page, () => window.__DRAFT__.setPhase("keepers"));
   await hook(page, () => window.__DRAFT__.setPhase("live"));

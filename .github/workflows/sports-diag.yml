@@ -107,6 +107,15 @@ jobs:
           code=$(fn '{"secret":"amenfarms","action":"ff_draftpool","format":"ppr"}' || echo FAIL)
           echo "ff_draftpool HTTP $code, $(wc -c < /tmp/o.json) bytes"
           python3 -c "import json;d=json.load(open('/tmp/o.json'));ps=d.get('players',[]);print('ok',d.get('ok'),d.get('reason',''),len(ps),'players; top5:',[(p['rank'],p['name'],p['pos'],p['proTeam'],p['adp'],'proj',p.get('proj'),'last',p.get('lastPts')) for p in ps[:5]]);print('with proj:',sum(1 for p in ps if p.get('proj') is not None),'with lastPts:',sum(1 for p in ps if p.get('lastPts') is not None))" || head -c 400 /tmp/o.json
+          # position coverage — D/ST went missing live 2026-08-06 (the rank-sorted
+          # fetch excludes them); the slot sweep must bring them back.
+          python3 -c "
+          import json,collections;d=json.load(open('/tmp/o.json'));ps=d.get('players',[])
+          print('by pos:',dict(collections.Counter(p['pos'] for p in ps)))
+          dst=[p for p in ps if p['pos']=='D/ST']
+          print(len(dst),'defenses; first 3:',[(p.get('rank'),p['name'],'adp',p.get('adp'),'proj',p.get('proj')) for p in dst[:3]])
+          print('DEFENSES OK' if len(dst) >= 20 else 'DEFENSES MISSING — dig into the slot sweep')
+          " || true
           pid=$(python3 -c "import json;d=json.load(open('/tmp/o.json'));print(d['players'][0]['pid'])" 2>/dev/null || echo 0)
           code=$(fn "{\"secret\":\"amenfarms\",\"action\":\"ff_player\",\"pid\":$pid}" || echo FAIL)
           echo "ff_player($pid) HTTP $code, $(wc -c < /tmp/o.json) bytes"
