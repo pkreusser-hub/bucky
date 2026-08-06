@@ -231,6 +231,41 @@ async function probeDeployedFunction() {
       console.log(`  ok — ${fa.players.length} free agents, top: ${p0.name} (${p0.pos} ${p0.proTeam}, ${p0.pctOwned}% owned)`);
       if (!p0.name || !p0.pos) { console.log("  ⚠ free-agent slim shape is off (name/pos missing)."); flagged++; }
     }
+
+    // Draft HQ: settings + board. The fixture shapes here were authored from
+    // documented mDraftDetail/draftSettings fields, NOT captured — this is the
+    // live check that the real league carries them.
+    const dr = await call({ action: "ff_draft" });
+    if (!dr || !dr.ok) { console.log("  ⚠ ff_draft failed: " + JSON.stringify(dr).slice(0, 200)); flagged++; }
+    else {
+      console.log(`  ok — draft: drafted=${dr.drafted} inProgress=${dr.inProgress}, ${dr.picks.length} picks`);
+      const st = dr.settings || {};
+      console.log(`  settings: type=${st.type || "?"} keeperCount=${st.keeperCount} date=${st.date ? new Date(st.date).toISOString() : "unset"} order=${(st.pickOrder || []).length} teams`);
+      if (st.keeperCount == null) { console.log("  ⚠ keeperCount missing — is the league really a keeper league / has ESPN moved the field?"); flagged++; }
+      if (!st.date) console.log("  (draft date unset — fine until the commish schedules it)");
+      if (dr.picks.length) {
+        check(dr, "picks.0.player.name", "draft picks resolve player names");
+        const keepers = dr.picks.filter((p) => p.keeper).length;
+        console.log(`  ${keepers} pick(s) flagged keeper on the board`);
+      } else console.log("  (no picks yet — pre-draft; re-run after draft day for the board check)");
+    }
+    const kp = await call({ action: "ff_keepers" });
+    if (!kp || !kp.ok) { console.log("  ⚠ ff_keepers failed: " + JSON.stringify(kp).slice(0, 200)); flagged++; }
+    else {
+      const my = kp.teams.find((t) => t.teamId === kp.familyTeamId) || kp.teams[0];
+      const n = my ? my.players.length : 0;
+      console.log(`  ok — keeper prep: ${kp.teams.length} rosters, keeperCount=${kp.keeperCount}, my team "${my ? my.name : "?"}" has ${n} players`);
+      if (!kp.teams.length || !n) { console.log("  ⚠ empty rosters — mRoster shape drift, or the rosters really are empty pre-carryover."); flagged++; }
+      else {
+        const withLast = my.players.filter((p) => p.lastPts != null).length;
+        const withProj = my.players.filter((p) => p.proj != null).length;
+        console.log(`  ${withLast}/${n} players carry last-year points, ${withProj}/${n} a season projection`);
+        if (!withLast) { console.log("  ⚠ NO last-year points anywhere — the prev-season join found nothing (check the season-doc stats shape)."); flagged++; }
+        if (!withProj) { console.log("  ⚠ NO projections anywhere — the kona filterIds join found nothing."); flagged++; }
+        const p0 = my.players[0];
+        console.log(`  top of my table: ${p0.name} (${p0.pos} ${p0.proTeam}) last=${p0.lastPts} proj=${p0.proj} rank=${p0.rank}`);
+      }
+    }
   }
 }
 

@@ -224,6 +224,37 @@ async function main() {
   r = await call({ mode: "fantasy", kind: "lineup", matchup: [1, 2, 3] });
   ok(r.status === 400, "an array where the matchup object belongs → 400");
 
+  // -- kind "keepers": pre-draft advice with NO matchup — the payload is the
+  // keeper prep (roster + last-year points + projections + the league rule).
+  const keeperPayload = () => ({
+    keeperCount: 3,
+    myTeam: { name: "Battle Kreussers", players: [
+      { id: 1, name: "Josh Allen", pos: "QB", proTeam: "BUF", injury: "", lastPts: 381.4, proj: 352.2, rank: 18 },
+      { id: 2, name: "Saquon Barkley", pos: "RB", proTeam: "PHI", injury: "", lastPts: 322.3, proj: 298.0, rank: 3 },
+      { id: 3, name: "Jeremiah Smith", pos: "WR", proTeam: "CIN", injury: "", lastPts: null, proj: 188.5, rank: 39 },
+    ] },
+  });
+  r = await call({ mode: "fantasy", kind: "keepers", keepers: keeperPayload() });
+  ok(r.status === 200, "kind keepers streams advice with NO matchup in the request");
+  w = xaiReqs[xaiReqs.length - 1];
+  const kturn = w.messages[1].content;
+  ok(/MY ROSTER \(carryover from last season\)/.test(kturn) && kturn.includes('"Josh Allen"') && kturn.includes('"lastPts":381.4'),
+    "the keeper turn carries the roster with the joined numbers");
+  ok(/TASK: Which players should I keep\?/.test(kturn) && /keep up to 3/.test(kturn) && /Recommend exactly 3/.test(kturn),
+    "…and the TASK names the league's exact keeper count");
+  ok(!/MY MATCHUP/.test(kturn), "no matchup block on a keeper ask");
+  ok(/KEEPER ADVICE/.test(w.messages[0].content) && /recommend EXACTLY the allowed number/.test(w.messages[0].content),
+    "FANTASY_SYSTEM carries the keeper-advice rules");
+  const kpNoCount = keeperPayload(); delete kpNoCount.keeperCount;
+  r = await call({ mode: "fantasy", kind: "keepers", keepers: kpNoCount });
+  w = xaiReqs[xaiReqs.length - 1];
+  ok(/a limited number of players/.test(w.messages[1].content) && /Recommend the best set/.test(w.messages[1].content),
+    "a league without a known keeper count gets the honest phrasing, not an invented number");
+  r = await call({ mode: "fantasy", kind: "keepers" });
+  ok(r.status === 400, "kind keepers without the keeper payload → 400");
+  r = await call({ mode: "fantasy", kind: "keepers", keepers: { keeperCount: 3, myTeam: { name: "X", players: [] } } });
+  ok(r.status === 400, "…and an empty roster → 400 (nothing to advise on)");
+
   const u1 = usageDoc();
   ok(parseInt((u1.w_req || {}).integerValue || "0", 10) >= 4 && parseInt((u1.w_out || {}).integerValue || "0", 10) > 0,
     "usage lands in the w_* bucket (fantasy AI), really incremented in Firestore");

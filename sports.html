@@ -326,6 +326,40 @@
   .recapbody p { margin: 0 0 8px; }
   .recapbody ul { margin: 0 0 8px; padding-left: 20px; }
 
+  /* Draft HQ (keepers + draft board) */
+  .dhqrow { display: flex; align-items: baseline; gap: 8px; padding: 10px 2px; min-width: 0; }
+  .dhqrow > b { font-size: 14px; flex: 0 0 auto; }
+  .dhqrow .dhqsub { color: var(--muted); font-size: 12px; font-weight: 600; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .dhqrow .chev { color: var(--muted); font-size: 15px; flex: 0 0 auto; }
+  .dhqline { font-size: 13.5px; color: var(--ink-2); font-weight: 600; line-height: 1.55; }
+  .dhqline b { color: var(--ink); }
+  .dhqline .clock { color: var(--live); font-weight: 800; }
+  .dhqorder { margin-top: 6px; font-size: 12px; color: var(--muted); font-weight: 600; line-height: 1.5; }
+  table.kp { border-collapse: collapse; width: 100%; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  table.kp th { text-align: right; font-weight: 700; color: var(--muted); font-size: 10px; letter-spacing: .05em; padding: 4px 5px; border-bottom: 1px solid var(--line); }
+  table.kp th, table.kp td { white-space: nowrap; }
+  /* The NAME column absorbs the width and ellipsizes — the numbers never wrap. */
+  table.kp th:first-child, table.kp td:first-child { text-align: left; width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  table.kp td { padding: 6px 5px; text-align: right; border-bottom: 1px solid var(--line); }
+  table.kp tr:last-child td { border-bottom: 0; }
+  table.kp td .sub { color: var(--muted); font-weight: 600; font-size: 10.5px; margin-left: 5px; }
+  table.kp td .inj { color: var(--red); font-weight: 800; font-size: 10px; margin-left: 4px; }
+  .scout summary { cursor: pointer; font-weight: 800; font-size: 13.5px; list-style: none; position: relative; padding: 8px 20px 8px 2px; }
+  .scout summary::-webkit-details-marker { display: none; }
+  .scout summary::after { content: "▾"; position: absolute; right: 2px; color: var(--muted); }
+  .scout[open] summary::after { content: "▴"; }
+  .scout summary .meta { color: var(--muted); font-size: 11px; font-weight: 700; margin-left: 6px; }
+  .scout + .scout { border-top: 1px solid var(--line); }
+  .roundhead { font-size: 10.5px; font-weight: 800; letter-spacing: .08em; color: var(--muted); padding: 9px 2px 4px; }
+  .pick { display: flex; align-items: baseline; gap: 7px; padding: 6px 2px; border-bottom: 1px solid var(--line); font-size: 13px; min-width: 0; }
+  .pick:last-child { border-bottom: 0; }
+  .pick .pn { flex: 0 0 auto; color: var(--muted); font-weight: 700; font-size: 11px; min-width: 34px; font-variant-numeric: tabular-nums; }
+  .pick .pp { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pick .pp .sub { color: var(--muted); font-weight: 600; font-size: 10.5px; margin-left: 5px; }
+  .pick .pt { flex: 0 0 auto; margin-left: auto; color: var(--muted); font-weight: 600; font-size: 11.5px; max-width: 38%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pick.mine .pt { color: var(--green); font-weight: 800; }
+  .pick .keeplock { flex: 0 0 auto; font-size: 11px; }
+
   /* Bottom Bucky nav — same pattern as games.html / farmgpt.html / weather.html:
      balanced two-row-on-phone grid (--bnav-cols set from JS). */
   #buckyNav {
@@ -500,6 +534,17 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     </div>
   </section>
 
+  <!-- ================= DRAFT HQ (keepers + draft board) ================= -->
+  <section id="draftView" hidden>
+    <div class="backrow">
+      <button type="button" class="backbtn" id="dhqBack">‹ Fantasy</button>
+      <span id="dhqMeta"></span>
+    </div>
+    <div id="dhqBody">
+      <div class="card"><div class="loadrow">Loading Draft HQ…</div></div>
+    </div>
+  </section>
+
   <!-- ================= GAME VIEW ================= -->
   <section id="gameView" hidden>
     <div class="backrow">
@@ -621,7 +666,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   // refreshes immediately on return — see schedule()/visibilitychange below.
   // Fantasy at 60s during NFL game windows: ESPN's own fantasy scoring lags
   // real plays by ~30-60s, so faster polling buys nothing.
-  var IV = { gameLive: 15000, gamePre: 120000, sbLive: 25000, sbIdle: 300000, ffLive: 60000, ffIdle: 900000 };
+  var IV = { gameLive: 15000, gamePre: 120000, sbLive: 25000, sbIdle: 300000, ffLive: 60000, ffIdle: 900000, draftLive: 30000 };
 
   // Which fantasy team each family member follows (matched by name against the
   // league, case-insensitive; unknown profiles follow the default). DUPLICATED
@@ -655,9 +700,12 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   var ffTs = 0;
   var ffmTeamId = null;       // fantasy matchup detail: the team whose matchup is open
   var ffmD = null;            // ff_matchup payload for the detail view
+  var dhqDraft = null;        // ff_draft payload (Draft HQ)
+  var dhqKeepers = null;      // ff_keepers payload (Draft HQ)
+  var dhqTs = 0;
   var pollT = null;
   var lastIv = 0;
-  var wkLoading = false, cfbLoading = false, gmLoading = false, ffLoading = false, ffmLoading = false;
+  var wkLoading = false, cfbLoading = false, gmLoading = false, ffLoading = false, ffmLoading = false, dhqLoading = false;
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -751,6 +799,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     else if (view === "cfb") loadCfb(true);
     else if (view === "ff") loadFF(true);
     else if (view === "ffm") loadFfm(true);
+    else if (view === "draft") loadDhq(true);
     else loadWeek(true);
   }
 
@@ -769,6 +818,9 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       if (ffState === "ok") iv = anyFfLive() ? IV.ffLive : IV.ffIdle;
     } else if (view === "ffm") {
       if (ffState === "ok") iv = (ffmD && ffmD.anyProLive) ? IV.ffLive : IV.ffIdle;
+    } else if (view === "draft") {
+      // Only a RUNNING draft polls — the settings/keeper prep are static pages.
+      if (ffState === "ok" && dhqDraft && dhqDraft.inProgress) iv = IV.draftLive;
     } else {
       iv = anyLive() ? IV.sbLive : IV.sbIdle;
     }
@@ -897,6 +949,40 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       if (view === "ffm" && !ffmD) paintFfmError();
     } finally {
       ffmLoading = false;
+      schedule();
+    }
+  }
+
+  // Draft HQ: the draft board and the keeper prep load in parallel — either half
+  // can paint without the other (a failed keepers join still shows the draft
+  // card, and vice versa). Only both missing is an error card.
+  async function loadDhq(quiet) {
+    if (dhqLoading) return;
+    dhqLoading = true;
+    try {
+      var pair = await Promise.all([
+        api("ff_draft", { teamName: myFfTeamName() }).catch(function () { return null; }),
+        api("ff_keepers", { teamName: myFfTeamName() }).catch(function () { return null; }),
+      ]);
+      var d = pair[0], k = pair[1];
+      var gr = [d, k].map(function (x) { return x && x.ok === false ? x.reason : ""; })
+        .filter(function (r) { return r === "fantasy-not-configured" || r === "fantasy-auth-expired"; })[0];
+      if (gr) {
+        ffState = gr; dhqDraft = null; dhqKeepers = null;
+        if (view === "draft") paintDhq();
+        return;
+      }
+      if (d && d.ok) dhqDraft = d;
+      if (k && k.ok) dhqKeepers = k;
+      if (dhqDraft || dhqKeepers) { ffState = "ok"; dhqTs = Date.now(); }
+      if (view === "draft") {
+        if (dhqDraft || dhqKeepers) paintDhq();
+        else paintDhqError();
+      }
+    } catch (e) {
+      if (view === "draft" && !dhqDraft && !dhqKeepers) paintDhqError();
+    } finally {
+      dhqLoading = false;
       schedule();
     }
   }
@@ -1138,6 +1224,197 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     if (!ffRecap || !ffRecap.text) return "";
     return '<details class="card recapcard"><summary>📰 The Nerd Report — Week ' + esc(ffRecap.week) + "</summary>"
       + '<div class="recapbody">' + ffFmt(ffRecap.text) + "</div></details>";
+  }
+
+  // ---------------- Draft HQ (keepers + draft board) ----------------
+  function dhqMyTeam() {
+    if (!dhqKeepers || !dhqKeepers.teams) return null;
+    return dhqKeepers.teams.find(function (t) { return t.teamId === dhqKeepers.familyTeamId; }) || null;
+  }
+  function dhqCountdown(ms) {
+    var d = ms - Date.now();
+    if (d <= 0) return "";
+    var days = Math.floor(d / 86400000);
+    if (days >= 2) return "in " + days + " days";
+    if (days === 1) return "tomorrow";
+    var h = Math.floor(d / 3600000);
+    if (h >= 1) return "in " + h + (h === 1 ? " hour" : " hours");
+    return "in " + Math.max(1, Math.floor(d / 60000)) + " min";
+  }
+  function kpTableHTML(players, keepN) {
+    var rows = (players || []).map(function (p, i) {
+      var kept = keepN != null && i < keepN;   // visual hint only — the top-N by projection
+      return "<tr>"
+        + "<td>" + (kept ? "🧢 " : "") + "<b>" + esc(p.name) + "</b>"
+        + '<span class="sub">' + esc([p.pos, p.proTeam].filter(Boolean).join(" · ")) + "</span>"
+        + (p.injury ? '<span class="inj">' + esc(p.injury === "INJURY_RESERVE" ? "IR" : p.injury.slice(0, 1)) + "</span>" : "")
+        + "</td>"
+        + "<td>" + (p.lastPts != null ? p.lastPts.toFixed(1) : "—") + "</td>"
+        + "<td>" + (p.proj != null ? p.proj.toFixed(1) : "—") + "</td>"
+        + "<td>" + (p.rank != null ? "#" + p.rank : "—") + "</td>"
+        + "</tr>";
+    }).join("");
+    return '<table class="kp"><tr><th>Player</th><th title="Last season’s actual points">Last yr</th>'
+      + '<th title="This season’s projected points">Proj</th><th title="Draft rank — lower is better">Rank</th></tr>' + rows + "</table>";
+  }
+  // The keeper AI — its own tiny state beside ffAi so the two answer boxes never
+  // clobber each other (the fantasy tab's card streams into #ffAiAns, this one
+  // into #kAiAns).
+  var kAi = { busy: false, text: "", error: "" };
+  async function askKeeperAi() {
+    if (kAi.busy) return;
+    var myT = dhqMyTeam();
+    if (!myT || !myT.players || !myT.players.length) return;
+    kAi = { busy: true, text: "", error: "" };
+    paintKAi();
+    try {
+      var r = await fetch(FN_GPT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          secret: FAMILY_PASSWORD, mode: "fantasy", kind: "keepers",
+          keepers: {
+            keeperCount: dhqKeepers.keeperCount,
+            myTeam: { name: myT.name, players: myT.players },
+          },
+        }),
+      });
+      if (!r.ok) throw new Error("ai-" + r.status);
+      var reader = r.body.getReader(), dec = new TextDecoder();
+      for (;;) {
+        var c = await reader.read();
+        if (c.done) break;
+        kAi.text += dec.decode(c.value, { stream: true });
+        paintKAi();
+      }
+      if (!kAi.text.trim()) throw new Error("empty");
+    } catch (e) {
+      if (!kAi.text) kAi.error = "The keeper AI couldn’t answer right now — try again in a minute.";
+    } finally {
+      kAi.busy = false;
+      paintKAi();
+    }
+  }
+  function paintKAi() {
+    var box = $("kAiAns");
+    if (!box) return;
+    var busyNote = kAi.busy && !kAi.text ? '<p class="aithinking">Grok is weighing your keepers…</p>' : "";
+    box.hidden = !(kAi.text || kAi.busy || kAi.error);
+    box.innerHTML = kAi.error ? '<p class="aierr">' + esc(kAi.error) + "</p>" : busyNote + ffFmt(kAi.text);
+    var b = $("kAiBtn");
+    if (b) b.disabled = kAi.busy;
+  }
+
+  function paintDhq() {
+    var body = $("dhqBody");
+    var gate = ffGateHTML();
+    if (gate) { body.innerHTML = gate; $("dhqMeta").textContent = ""; return; }
+    if (!dhqDraft && !dhqKeepers) return;
+    stampUpdated(dhqTs);
+    $("dhqMeta").textContent = (dhqDraft && dhqDraft.leagueName) || (dhqKeepers && dhqKeepers.leagueName) || "";
+    var html = "";
+    var famId = (dhqKeepers && dhqKeepers.familyTeamId) != null ? dhqKeepers.familyTeamId
+      : (dhqDraft ? dhqDraft.familyTeamId : null);
+
+    // --- the draft itself: date/countdown, format, order
+    if (dhqDraft) {
+      var st = dhqDraft.settings || {};
+      var line;
+      if (dhqDraft.inProgress) line = '<span class="clock">DRAFT IN PROGRESS</span> — picks land below as they happen.';
+      else if (dhqDraft.drafted) line = "The draft is <b>done</b> — the full board is below.";
+      else if (st.date) {
+        var cd = dhqCountdown(st.date);
+        line = "Draft day: <b>" + esc(kickFull(new Date(st.date).toISOString())) + "</b>" + (cd ? " · <b>" + esc(cd) + "</b>" : "");
+      } else line = "The draft date isn’t set yet — check the ESPN app.";
+      var bits = [];
+      if (st.type) bits.push(esc(st.type === "SNAKE" ? "Snake draft" : st.type.toLowerCase().replace(/^./, function (c) { return c.toUpperCase(); }) + " draft"));
+      if (st.leagueSize) bits.push(st.leagueSize + " teams");
+      if (st.keeperCount != null) bits.push("keep up to <b>" + st.keeperCount + "</b>");
+      if (st.timePerPick) bits.push(st.timePerPick + "s per pick");
+      html += '<div class="card"><div class="seclabel"><b>📅 The draft</b></div>'
+        + '<div class="dhqline">' + line + (bits.length ? "<br>" + bits.join(" · ") : "") + "</div>";
+      if (!dhqDraft.drafted && !dhqDraft.inProgress && st.pickOrder && st.pickOrder.length && dhqDraft.teams) {
+        var nameById = {};
+        dhqDraft.teams.forEach(function (t) { nameById[t.id] = t.name; });
+        html += '<div class="dhqorder">Draft order: ' + st.pickOrder.map(function (id, i) {
+          return (i + 1) + ". " + esc(nameById[id] || "Team " + id);
+        }).join(" · ") + "</div>";
+      }
+      html += "</div>";
+    }
+
+    // --- my keeper prep + the AI
+    var myT = dhqMyTeam();
+    if (myT) {
+      var keepN = dhqKeepers.keeperCount;
+      html += '<div class="card"><div class="seclabel"><b>🧢 My keeper picks</b>'
+        + '<span class="meta">' + esc(myT.name) + "</span></div>"
+        + kpTableHTML(myT.players, keepN)
+        + '<div class="gwsub">' + (keepN != null
+          ? "You can keep up to <b>" + keepN + "</b> — 🧢 marks the top " + keepN + " by this season’s projection."
+          : "Sorted by this season’s projection.")
+        + "</div>"
+        + '<div class="aibtns" style="margin-top:10px"><button type="button" class="aibtn" id="kAiBtn"'
+        + (kAi.busy ? " disabled" : "") + ">🧠 Who should I keep?</button></div>"
+        + '<div class="aians" id="kAiAns"' + (kAi.text || kAi.busy || kAi.error ? "" : " hidden") + "></div></div>";
+    }
+
+    // --- the draft board
+    if (dhqDraft) {
+      var picks = dhqDraft.picks || [];
+      if (picks.length) {
+        var head = dhqDraft.inProgress ? picks.length + " picks so far" : picks.length + " picks";
+        html += '<div class="card"><div class="seclabel"><b>📋 Draft board</b><span class="meta">' + esc(head) + "</span></div>";
+        var lastRound = null;
+        picks.forEach(function (p) {
+          if (p.round !== lastRound) {
+            lastRound = p.round;
+            html += '<div class="roundhead">ROUND ' + esc(p.round) + "</div>";
+          }
+          var who = p.player
+            ? "<b>" + esc(p.player.name) + "</b>" + '<span class="sub">' + esc([p.player.pos, p.player.proTeam].filter(Boolean).join(" · ")) + "</span>"
+            : '<span class="sub">Pick #' + esc(p.playerId || "?") + "</span>";
+          html += '<div class="pick' + (p.teamId === famId ? " mine" : "") + '">'
+            + '<span class="pn">' + esc(p.round + "." + String(p.roundPick).padStart(2, "0")) + "</span>"
+            + '<span class="pp">' + who + "</span>"
+            + (p.keeper ? '<span class="keeplock" title="Keeper">🔒</span>' : "")
+            + '<span class="pt">' + esc(p.team) + "</span>"
+            + "</div>";
+        });
+        html += "</div>";
+      } else if (!dhqDraft.drafted) {
+        html += '<div class="card"><div class="seclabel"><b>📋 Draft board</b></div>'
+          + '<div class="dhqline">No picks yet — the board fills in live once the draft starts.</div></div>';
+      }
+    }
+
+    // --- scouting: every team's roster, mine first
+    if (dhqKeepers && dhqKeepers.teams && dhqKeepers.teams.length) {
+      var order = dhqKeepers.teams.slice().sort(function (a, b) {
+        return (a.teamId === famId ? -1 : 0) - (b.teamId === famId ? -1 : 0);
+      });
+      html += '<div class="card"><div class="seclabel"><b>🔭 League rosters</b>'
+        + '<span class="meta">who might keep whom</span></div>'
+        + order.map(function (t) {
+          return '<details class="scout"' + (t.teamId === famId ? " open" : "") + "><summary>" + esc(t.name)
+            + (t.teamId === famId ? '<span class="meta">(you)</span>' : (t.owner ? '<span class="meta">' + esc(t.owner) + "</span>" : ""))
+            + "</summary>" + kpTableHTML(t.players, dhqKeepers.keeperCount) + "</details>";
+        }).join("") + "</div>";
+    }
+
+    body.innerHTML = html;
+    paintKAi();
+  }
+
+  function paintDhqError() {
+    $("dhqBody").innerHTML =
+      '<div class="card"><div class="errcard">Couldn’t load Draft HQ right now. Check your connection and try again.'
+      + '<button type="button" id="dhqRetry">Try again</button></div></div>';
+    var btn = $("dhqRetry");
+    if (btn) btn.addEventListener("click", function () {
+      $("dhqBody").innerHTML = '<div class="card"><div class="loadrow">Loading Draft HQ…</div></div>';
+      loadDhq();
+    });
   }
 
   function gameRowHTML(ev, sport) {
@@ -1679,6 +1956,11 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
 
     html += ffGuardHTML();   // starters who are hurt/on bye and fixable — before anything else
 
+    // Draft HQ door — keepers, the draft board and draft-day countdown live there.
+    html += '<div class="card"><button type="button" class="gbtn" id="dhqOpen"><div class="dhqrow">'
+      + "<b>🧢 Keepers &amp; Draft HQ</b>"
+      + '<span class="dhqsub">keeper picks · draft board</span><span class="chev">›</span></div></button></div>';
+
     var famId = ffSb.familyTeamId;
     var ms = ffSb.matchups || [];
     var mine = ms.filter(function (m) { return ffMatchupInvolves(m, famId); });
@@ -1807,7 +2089,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   }
 
   // ---------------- router ----------------
-  var VIEW_SECTIONS = ["weekView", "cfbView", "ffView", "ffmView", "gameView"];
+  var VIEW_SECTIONS = ["weekView", "cfbView", "ffView", "ffmView", "draftView", "gameView"];
   function showSection(id) {
     VIEW_SECTIONS.forEach(function (v) { $(v).hidden = (v !== id); });
   }
@@ -1820,7 +2102,8 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     var mFfm = /ffm=(\d{1,6})/.exec(h);
     var ff = /^#fantasy/.test(h);
     var cfb = /^#college/.test(h);
-    var detail = !!(mNfl || mCfb || mFfm);
+    var draft = /^#draft/.test(h);
+    var detail = !!(mNfl || mCfb || mFfm || draft);
     $("topPills").hidden = detail;
     $("pillNfl").classList.toggle("on", !detail && !ff && !cfb);
     $("pillCfb").classList.toggle("on", !detail && cfb);
@@ -1848,6 +2131,16 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
         $("ffmBody").innerHTML = '<div class="card"><div class="loadrow">Loading the matchup…</div></div>';
       }
       loadFfm();
+      window.scrollTo(0, 0);
+    } else if (draft) {
+      view = "draft"; gameId = null; game = null;
+      showSection("draftView");
+      if (dhqDraft || dhqKeepers || (ffState && ffState !== "ok")) paintDhq();
+      else {
+        $("dhqMeta").textContent = "";
+        $("dhqBody").innerHTML = '<div class="card"><div class="loadrow">Loading Draft HQ…</div></div>';
+      }
+      loadDhq(true);
       window.scrollTo(0, 0);
     } else if (ff) {
       view = "ff"; gameId = null; game = null;
@@ -1889,8 +2182,16 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   document.addEventListener("click", function (ev) {
     var el = ev.target;
     while (el && el !== document && !(el.classList && el.classList.contains("aibtn"))) el = el.parentNode;
-    if (!el || el === document || !el.dataset.ffai) return;
+    if (!el || el === document) return;
+    if (el.id === "kAiBtn") { askKeeperAi(); return; }
+    if (!el.dataset.ffai) return;
     askFantasyAi(el.dataset.ffai, "");
+  });
+  // The Draft HQ door on the fantasy tab (delegated — paintFf repaints it).
+  document.addEventListener("click", function (ev) {
+    var el = ev.target;
+    while (el && el !== document && el.id !== "dhqOpen") el = el.parentNode;
+    if (el && el.id === "dhqOpen") location.hash = "draft";
   });
   document.addEventListener("submit", function (ev) {
     if (!ev.target || ev.target.id !== "ffAiForm") return;
@@ -1903,6 +2204,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     route();
   });
   $("ffmBack").addEventListener("click", function () { location.hash = "fantasy"; });
+  $("dhqBack").addEventListener("click", function () { location.hash = "fantasy"; });
   $("wkPrev").addEventListener("click", function () { stepWeek(-1); });
   $("wkNext").addEventListener("click", function () { stepWeek(1); });
   $("cfbPrev").addEventListener("click", function () { stepCfbWeek(-1); });
@@ -1946,12 +2248,14 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
         ffAnyLive: anyFfLive(),
         ffmAnyLive: !!(ffmD && ffmD.anyProLive),
         ffMine: ffMine,
+        hasDhqDraft: !!dhqDraft, hasDhqKeepers: !!dhqKeepers,
+        dhqInProgress: !!(dhqDraft && dhqDraft.inProgress),
         pollScheduled: !!pollT, pollIv: lastIv,
         events: sb ? sb.events.length : 0,
       };
     },
     fieldPos: fieldPos, firstDownPos: firstDownPos, fieldX: fieldX,
-    loadWeek: loadWeek, loadGame: loadGame, loadFF: loadFF, loadCfb: loadCfb, loadFfm: loadFfm, route: route,
+    loadWeek: loadWeek, loadGame: loadGame, loadFF: loadFF, loadCfb: loadCfb, loadFfm: loadFfm, loadDhq: loadDhq, route: route,
     setIntervals: function (o) { Object.assign(IV, o || {}); },
   };
 

@@ -607,4 +607,190 @@ function ffFreeAgentsDoc() {
   };
 }
 
-module.exports = { scoreboardLive, scoreboardIdle, SUMMARIES, TEAMS, ffLeagueDoc, ffFreeAgentsDoc, cfbScoreboard, CFB_SUMMARIES, CTEAMS };
+// ---------------- keepers + draft (Draft HQ) ----------------
+// STABLE player ids, unlike ffPlayerId above: the draft picks, the prev-season
+// stats and the kona projections all have to reference the SAME player across
+// three different docs, so ids here come from a name registry.
+const KP = {}; let kpNext = 7000;
+function kpId(name) { if (!(name in KP)) KP[name] = kpNext++; return KP[name]; }
+
+function kpRosterEntry(name, posId, proTeamId, injury) {
+  return {
+    lineupSlotId: 20,
+    playerPoolEntry: {
+      player: {
+        id: kpId(name), fullName: name, defaultPositionId: posId, proTeamId,
+        injuryStatus: injury || "ACTIVE",
+      },
+    },
+  };
+}
+// [name, posId, proTeamId, lastPts(2025 actual), proj(2026 season projection), rank, injury]
+// lastPts null = a rookie with no prior season; proj/rank null = kona doesn't know him.
+const KP_ROSTERS = {
+  1: [ // Battle Kreussers (Dad)
+    ["Josh Allen", 1, 2, 381.4, 352.2, 18],
+    ["Saquon Barkley", 2, 21, 322.3, 298.0, 3],
+    ["James Cook", 2, 2, 211.9, 205.4, 22],
+    ["A.J. Brown", 3, 21, 224.6, 241.7, 12],
+    ["Justin Jefferson", 3, 16, 245.1, 262.3, 6, "QUESTIONABLE"],
+    ["Travis Kelce", 4, 12, 158.9, 141.0, 61],
+    ["Jeremiah Smith", 3, 4, null, 188.5, 39],        // rookie — no 2025 line
+    ["Harrison Butker", 5, 12, 128.2, null, null],     // kona doesn't carry him
+  ],
+  2: [ // Waffle House Warriors
+    ["Jalen Hurts", 1, 21, 352.8, 331.5, 21],
+    ["Jonathan Taylor", 2, 11, 260.1, 244.9, 9],
+    ["CeeDee Lamb", 3, 6, 271.4, 265.2, 5],
+  ],
+  3: [ // The Goat Kids (Isaac)
+    ["Lamar Jackson", 1, 33, 398.6, 361.0, 15],
+    ["Derrick Henry", 2, 33, 301.2, 251.6, 11],
+    ["Jahmyr Gibbs", 2, 8, 331.5, 320.8, 1],
+    ["Amon-Ra St. Brown", 3, 8, 262.9, 258.4, 7],
+  ],
+  4: [ // End Zone Goats
+    ["Joe Burrow", 1, 4, 371.9, 340.2, 19],
+    ["Chase Brown", 2, 4, 228.7, 219.5, 17],
+    ["Ja'Marr Chase", 3, 4, 345.6, 330.1, 2],
+  ],
+  5: [ // Wyoming Cowboys (Grandpa)
+    ["Jordan Love", 1, 9, 289.3, 301.7, 32],
+    ["Josh Jacobs", 2, 9, 274.5, 260.3, 8],
+    ["Jaylen Waddle", 3, 15, 175.8, 196.2, 44],
+  ],
+  6: [ // Draft Punks
+    ["Patrick Mahomes", 1, 12, 312.4, 328.6, 24],
+    ["Kyren Williams", 2, 14, 249.8, 236.1, 16],
+    ["Nico Collins", 3, 34, 231.0, 240.7, 14],
+  ],
+  7: [ // Nails  For Breakfast (Mom)
+    ["Baker Mayfield", 1, 27, 341.7, 305.9, 28],
+    ["Bucky Irving", 2, 27, 242.6, 255.3, 10],
+    ["Mike Evans", 3, 27, 219.4, 214.8, 20],
+  ],
+  8: [ // Hay Bale Hail Marys
+    ["C.J. Stroud", 1, 34, 268.5, 291.4, 34],
+    ["Bijan Robinson", 2, 1, 338.9, 335.2, 4],
+    ["Puka Nacua", 3, 14, 254.2, 269.8, 13],
+  ],
+};
+const KP_DRAFT_DATE = Date.now() + 5 * 86400000;   // five days out — the countdown case
+function kpDraftSettings() {
+  return {
+    date: KP_DRAFT_DATE,
+    type: "SNAKE",
+    timePerSelection: 90,
+    pickOrder: [3, 1, 5, 7, 2, 8, 4, 6],
+    keeperCount: 3,
+    keeperCountFuture: 3,
+    orderType: "MANUAL",
+    leagueSubType: "KEEPER",
+  };
+}
+// One merged doc answers BOTH ff_draft (mDraftDetail+mTeam+mSettings+mRoster in
+// one URL) and ff_keepers' current-season call (mRoster+mTeam+mSettings) — the
+// real API merges views into one response exactly like this.
+// state: "pre" (no picks yet) | "mid" (draft running) | "done".
+function ffDraftDoc(state) {
+  const teams = [1, 2, 3, 4, 5, 6, 7, 8].map((id) => {
+    const base = ffLeagueDoc().teams[id - 1];
+    base.roster = { entries: KP_ROSTERS[id].map((p) => kpRosterEntry(p[0], p[1], p[2], p[6])) };
+    return base;
+  });
+  const pickAt = (overall, round, roundPick, teamId, playerName, keeper) => ({
+    overallPickNumber: overall, roundId: round, roundPickNumber: roundPick,
+    teamId, playerId: kpId(playerName), keeper: !!keeper,
+    lineupSlotId: 20, autoDraftTypeId: 0, tradeLocked: false,   // junk the slimmer drops
+  });
+  // Snake order 3,1,5,7,2,8,4,6 — round 1 carries two KEEPER picks.
+  const round1 = [
+    pickAt(1, 1, 1, 3, "Jahmyr Gibbs", true),
+    pickAt(2, 1, 2, 1, "Saquon Barkley", true),
+    pickAt(3, 1, 3, 5, "Josh Jacobs", false),
+    pickAt(4, 1, 4, 7, "Bucky Irving", false),
+    pickAt(5, 1, 5, 2, "CeeDee Lamb", false),
+    pickAt(6, 1, 6, 8, "Bijan Robinson", false),
+    pickAt(7, 1, 7, 4, "Ja'Marr Chase", true),
+    pickAt(8, 1, 8, 6, "Kyren Williams", false),
+  ];
+  const round2 = [
+    pickAt(9, 2, 1, 6, "Patrick Mahomes", false),
+    pickAt(10, 2, 2, 4, "Joe Burrow", false),
+    pickAt(11, 2, 3, 8, "Puka Nacua", false),
+    pickAt(12, 2, 4, 2, "Jonathan Taylor", false),
+    pickAt(13, 2, 5, 7, "Mike Evans", false),
+    pickAt(14, 2, 6, 5, "Jordan Love", false),
+    pickAt(15, 2, 7, 1, "Josh Allen", false),
+    pickAt(16, 2, 8, 3, "Lamar Jackson", false),
+  ];
+  const picks = state === "done" ? round1.concat(round2)
+    : state === "mid" ? round1.slice(0, 5)
+    : [];
+  return {
+    id: 705063, seasonId: 2026, scoringPeriodId: 1,
+    status: { currentMatchupPeriod: 1, latestScoringPeriod: 1 },
+    settings: { name: "Nerd Fantasy Football League", size: 8, draftSettings: kpDraftSettings() },
+    members: FF_MEMBERS,
+    teams,
+    draftDetail: {
+      drafted: state === "done",
+      inProgress: state === "mid",
+      picks,
+    },
+  };
+}
+// The PREVIOUS season's league doc (ff_keepers joins last-year points off it).
+// Rosters are last season's finals = the carryover rosters, stats carry the
+// full-season actual (scoringPeriodId 0, statSourceId 0) plus a per-week junk
+// entry the join must skip.
+function ffPrevSeasonDoc(prevYear) {
+  const teams = [1, 2, 3, 4, 5, 6, 7, 8].map((id) => {
+    const base = ffLeagueDoc().teams[id - 1];
+    base.roster = { entries: KP_ROSTERS[id].filter((p) => p[3] != null).map((p) => {
+      const e = kpRosterEntry(p[0], p[1], p[2]);
+      e.playerPoolEntry.player.stats = [
+        { seasonId: prevYear, scoringPeriodId: 7, statSourceId: 0, statSplitTypeId: 1, appliedTotal: 9.9 },   // one week — junk
+        { seasonId: prevYear, scoringPeriodId: 0, statSourceId: 1, statSplitTypeId: 0, appliedTotal: 1.1 },   // last year's PROJECTION — junk
+        { seasonId: prevYear, scoringPeriodId: 0, statSourceId: 0, statSplitTypeId: 0, appliedTotal: p[3] },  // the season total
+      ];
+      return e;
+    }) };
+    return base;
+  });
+  return {
+    id: 705063, seasonId: prevYear, scoringPeriodId: 18,
+    status: { currentMatchupPeriod: 17, latestScoringPeriod: 18 },
+    settings: { name: "Nerd Fantasy Football League", size: 8 },
+    members: FF_MEMBERS,
+    teams,
+  };
+}
+// The kona_player_info answer for a filterIds request: this-season projections
+// (scoringPeriodId 0, statSourceId 1) + draft rank for every id asked about —
+// except the ones the pool genuinely doesn't carry (Butker above).
+function ffProjectionsDoc(ids) {
+  const all = Object.values(KP_ROSTERS).flat();
+  const players = [];
+  for (const p of all) {
+    if (p[4] == null) continue;                       // kona doesn't know him
+    if (Array.isArray(ids) && ids.length && !ids.includes(kpId(p[0]))) continue;
+    players.push({
+      onTeamId: 0, status: "ONTEAM",
+      player: {
+        id: kpId(p[0]), fullName: p[0], defaultPositionId: p[1], proTeamId: p[2],
+        injuryStatus: p[6] || "ACTIVE",
+        stats: [
+          { scoringPeriodId: 1, statSourceId: 1, statSplitTypeId: 1, appliedTotal: 11.1 },  // week 1 — junk
+          { scoringPeriodId: 0, statSourceId: 1, statSplitTypeId: 0, appliedTotal: p[4] },  // season projection
+        ],
+        draftRanksByRankType: { PPR: { rank: p[5] }, STANDARD: { rank: (p[5] || 0) + 2 } },
+        seasonOutlook: "y".repeat(300),               // junk the slimmer must drop
+      },
+    });
+  }
+  return { id: 705063, seasonId: 2026, scoringPeriodId: 1, players };
+}
+
+module.exports = { scoreboardLive, scoreboardIdle, SUMMARIES, TEAMS, ffLeagueDoc, ffFreeAgentsDoc, cfbScoreboard, CFB_SUMMARIES, CTEAMS,
+  ffDraftDoc, ffPrevSeasonDoc, ffProjectionsDoc, kpId, KP_ROSTERS, KP_DRAFT_DATE };

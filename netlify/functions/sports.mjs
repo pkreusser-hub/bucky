@@ -18,7 +18,8 @@
 // the client renders an honest "scores unavailable" card, never an error page.
 // Betting odds/pickcenter fields are deliberately never mapped (family app).
 //
-// FANTASY (ff_* actions): the family's private ESPN league (id 705063, team
+// FANTASY (ff_* actions — ff_league / ff_scoreboard / ff_matchup / ff_freeagents
+// + the Draft HQ pair ff_draft / ff_keepers): the family's private ESPN league (id 705063, team
 // "Battle Kreussers") through the fantasy v3 API. A private league requires two
 // cookies from a logged-in espn.com browser session — set them as Netlify env
 // vars ESPN_S2 + ESPN_SWID (espn_s2 expires ~yearly; when it does, every ff_*
@@ -621,6 +622,182 @@ async function ffFreeAgents(body) {
   }
 }
 
+// ---------------- keepers + draft (Draft HQ) ----------------
+// This is a KEEPER league (leagueSubType "KEEPER"): rosters carry over between
+// seasons, each team locks in a few keepers before the draft, and the draft
+// fills the rest. Two actions serve the Draft HQ view:
+//   ff_draft   — the draft's settings (date/type/keeper count/pick order) plus
+//                the board: every made pick with its player name resolved and
+//                keepers flagged. Pre-draft the picks list is honestly empty.
+//   ff_keepers — every team's carryover roster with the three numbers a keeper
+//                decision needs per player: LAST season's actual points (joined
+//                from the previous season's league doc), THIS season's projection
+//                and draft rank (joined from kona_player_info by id).
+// Both degrade exactly like the other ff_* actions (not-configured / auth-expired),
+// and the two JOIN fetches inside ff_keepers fail SOFT — a missing prev-season doc
+// or kona answer just leaves those columns null, never sinks the roster list.
+
+function ffDraftSettings(j) {
+  const ds = j?.settings?.draftSettings || {};
+  const date = Number(ds?.date);
+  return {
+    date: Number.isFinite(date) && date > 0 ? date : null,
+    type: typeof ds?.type === "string" ? ds.type : "",
+    timePerPick: Number.isFinite(Number(ds?.timePerSelection)) ? Number(ds.timePerSelection) : null,
+    keeperCount: Number.isInteger(ds?.keeperCount) ? ds.keeperCount : null,
+    orderType: typeof ds?.orderType === "string" ? ds.orderType : "",
+    pickOrder: (Array.isArray(ds?.pickOrder) ? ds.pickOrder : []).map((t) => Number(t)).filter(Number.isInteger).slice(0, 20),
+    leagueSize: Array.isArray(j?.teams) ? j.teams.length : 0,
+  };
+}
+// playerId -> {name,pos,proTeam} off the merged doc's rosters. After (and during)
+// the draft every picked player sits on a roster, so this resolves the board.
+function ffRosterPlayerMap(j) {
+  const map = new Map();
+  for (const t of (Array.isArray(j?.teams) ? j.teams : [])) {
+    for (const e of (t?.roster?.entries || [])) {
+      const p = e?.playerPoolEntry?.player;
+      if (p?.id != null) map.set(Number(p.id), {
+        name: p?.fullName || "",
+        pos: POS_LABEL[p?.defaultPositionId] || "",
+        proTeam: PRO_ABBREV[p?.proTeamId ?? 0] || "",
+      });
+    }
+  }
+  return map;
+}
+
+async function ffDraft(body) {
+  const wanted = ffWantedName(body);
+  const { data: j, err, year } = await ffFetch(["mDraftDetail", "mTeam", "mSettings", "mRoster"], "", body);
+  if (err) return { ok: false, reason: err };
+  try {
+    const teams = (Array.isArray(j?.teams) ? j.teams : []).map((t) => {
+      const s = ffSlimTeam(t, j?.members);
+      return { id: s.id, name: s.name, abbrev: s.abbrev, logo: s.logo };
+    });
+    const nameById = new Map(teams.map((t) => [t.id, t.name]));
+    const players = ffRosterPlayerMap(j);
+    const dd = j?.draftDetail || {};
+    const picks = (Array.isArray(dd?.picks) ? dd.picks : []).slice(0, 400).map((p) => {
+      const pid = Number(p?.playerId) || 0;
+      return {
+        overall: p?.overallPickNumber ?? 0,
+        round: p?.roundId ?? 0,
+        roundPick: p?.roundPickNumber ?? 0,
+        teamId: p?.teamId ?? 0,
+        team: nameById.get(p?.teamId) || "Team " + p?.teamId,
+        playerId: pid,
+        player: players.get(pid) || null,
+        keeper: p?.keeper === true,
+      };
+    });
+    return {
+      ok: true,
+      leagueName: j?.settings?.name || "Fantasy league",
+      season: year,
+      familyTeamId: ffFamilyTeamId(j?.teams, wanted),
+      settings: ffDraftSettings(j),
+      drafted: dd?.drafted === true,
+      inProgress: dd?.inProgress === true,
+      teams,
+      picks,
+    };
+  } catch {
+    return { ok: false, reason: "bad-shape" };
+  }
+}
+
+async function ffKeepers(body) {
+  const wanted = ffWantedName(body);
+  const { data: j, err, year } = await ffFetch(["mRoster", "mTeam", "mSettings"], "", body);
+  if (err) return { ok: false, reason: err };
+  try {
+    const teamsRaw = Array.isArray(j?.teams) ? j.teams : [];
+    const allIds = [];
+    for (const t of teamsRaw) for (const e of (t?.roster?.entries || [])) {
+      const id = Number(e?.playerPoolEntry?.player?.id);
+      if (Number.isInteger(id)) allIds.push(id);
+    }
+
+    // JOIN 1 (soft): last season's actual points, playerId -> total, off the
+    // previous season's league doc. Some hosts answer historical seasons as a
+    // one-element ARRAY (the leagueHistory shape) — accept both.
+    const prevYear = year - 1;
+    const lastPts = new Map();
+    try {
+      const prev = await ffFetch(["mRoster"], "", { ...body, year: prevYear });
+      let pj = prev.data;
+      if (Array.isArray(pj)) pj = pj[0];
+      for (const t of (Array.isArray(pj?.teams) ? pj.teams : [])) {
+        for (const e of (t?.roster?.entries || [])) {
+          const p = e?.playerPoolEntry?.player;
+          const tot = (Array.isArray(p?.stats) ? p.stats : [])
+            .find((s) => s?.scoringPeriodId === 0 && s?.statSourceId === 0)?.appliedTotal;
+          if (p?.id != null && typeof tot === "number") lastPts.set(Number(p.id), tot);
+        }
+      }
+    } catch { /* column stays null */ }
+
+    // JOIN 2 (soft): this season's projection + draft rank, by id, through the
+    // same X-Fantasy-Filter header convention as ff_freeagents.
+    const proj = new Map();
+    try {
+      if (allIds.length) {
+        const filter = { players: { filterIds: { value: allIds.slice(0, 300) }, limit: Math.min(allIds.length, 300) } };
+        const kona = await ffFetch(["kona_player_info"], "", body, { "x-fantasy-filter": JSON.stringify(filter) });
+        for (const e of (Array.isArray(kona.data?.players) ? kona.data.players : [])) {
+          const p = e?.player || e || {};
+          const season = (Array.isArray(p?.stats) ? p.stats : [])
+            .find((s) => s?.scoringPeriodId === 0 && s?.statSourceId === 1)?.appliedTotal;
+          const rank = p?.draftRanksByRankType?.PPR?.rank ?? p?.draftRanksByRankType?.STANDARD?.rank;
+          if (p?.id != null) proj.set(Number(p.id), {
+            proj: typeof season === "number" ? season : null,
+            rank: Number.isInteger(rank) ? rank : null,
+          });
+        }
+      }
+    } catch { /* columns stay null */ }
+
+    const teams = teamsRaw.map((t) => {
+      const s = ffSlimTeam(t, j?.members);
+      const players = (t?.roster?.entries || []).map((e) => {
+        const p = e?.playerPoolEntry?.player || {};
+        const id = Number(p?.id) || 0;
+        const k = proj.get(id) || {};
+        return {
+          id,
+          name: p?.fullName || "—",
+          pos: POS_LABEL[p?.defaultPositionId] || "",
+          proTeam: PRO_ABBREV[p?.proTeamId ?? 0] || "",
+          injury: p?.injuryStatus && p.injuryStatus !== "ACTIVE" ? p.injuryStatus : "",
+          lastPts: r1(lastPts.get(id) ?? null),
+          proj: r1(k.proj ?? null),
+          rank: k.rank ?? null,
+        };
+      });
+      // Best keeper candidates first: this season's projection, unknowns last.
+      players.sort((a, b) => (b.proj ?? -1) - (a.proj ?? -1));
+      return { teamId: s.id, name: s.name, abbrev: s.abbrev, logo: s.logo, owner: s.owner, players };
+    });
+
+    const ds = ffDraftSettings(j);
+    return {
+      ok: true,
+      leagueName: j?.settings?.name || "Fantasy league",
+      season: year,
+      prevSeason: prevYear,
+      familyTeamId: ffFamilyTeamId(teamsRaw, wanted),
+      keeperCount: ds.keeperCount,
+      draftDate: ds.date,
+      drafted: j?.draftDetail?.drafted === true,
+      teams,
+    };
+  } catch {
+    return { ok: false, reason: "bad-shape" };
+  }
+}
+
 // ---------------- handler ----------------
 
 export default async (req) => {
@@ -644,6 +821,8 @@ export default async (req) => {
   if (body.action === "ff_scoreboard") return json(await ffScoreboard(body), 200, headers);
   if (body.action === "ff_matchup") return json(await ffMatchup(body), 200, headers);
   if (body.action === "ff_freeagents") return json(await ffFreeAgents(body), 200, headers);
+  if (body.action === "ff_draft") return json(await ffDraft(body), 200, headers);
+  if (body.action === "ff_keepers") return json(await ffKeepers(body), 200, headers);
   return json({ error: "Unknown action" }, 400, headers);
 };
 

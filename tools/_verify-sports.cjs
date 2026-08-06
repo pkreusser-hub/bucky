@@ -78,7 +78,7 @@ function startUpstream() {
 }
 
 // ---------------- fake ESPN fantasy upstream ----------------
-const ffUp = { mode: "normal", lastUrl: "", lastCookie: "", lastFilter: "", calls: 0 };
+const ffUp = { mode: "normal", lastUrl: "", lastCookie: "", lastFilter: "", calls: 0, draftState: "pre", prevMode: "normal" };
 function startFfUpstream() {
   const srv = http.createServer((req, res) => {
     ffUp.calls++;
@@ -92,10 +92,28 @@ function startFfUpstream() {
       res.writeHead(404); res.end("{}"); return;
     }
     res.writeHead(200, { "Content-Type": "application/json" });
-    // The free-agent pool is its own view, filtered through the X-Fantasy-Filter HEADER.
+    // kona_player_info serves TWO callers, told apart by the X-Fantasy-Filter
+    // header: a filterIds request is ff_keepers' projections join, the
+    // status-filtered one is the free-agent pool.
     if (req.url.includes("view=kona_player_info")) {
       ffUp.lastFilter = req.headers["x-fantasy-filter"] || "";
+      let ids = null;
+      try { ids = JSON.parse(ffUp.lastFilter).players.filterIds.value; } catch (e) {}
+      if (Array.isArray(ids)) { res.end(JSON.stringify(FIX.ffProjectionsDoc(ids))); return; }
       res.end(JSON.stringify(FIX.ffFreeAgentsDoc()));
+      return;
+    }
+    // The Draft HQ calls: mDraftDetail (ff_draft) and any mRoster request
+    // (ff_keepers' current + previous season) get the keeper-league doc; the
+    // PREVIOUS season's URL gets the historical doc with last-year totals.
+    const season = (/\/seasons\/(\d{4})\//.exec(req.url) || [])[1];
+    if (season && Number(season) < 2026) {
+      if (ffUp.prevMode === "http500") { /* the join must fail SOFT */ res.end("{oops"); return; }
+      res.end(JSON.stringify(FIX.ffPrevSeasonDoc(Number(season))));
+      return;
+    }
+    if (req.url.includes("view=mDraftDetail") || req.url.includes("view=mRoster")) {
+      res.end(JSON.stringify(FIX.ffDraftDoc(ffUp.draftState || "pre")));
       return;
     }
     res.end(JSON.stringify(FIX.ffLeagueDoc()));
@@ -407,6 +425,103 @@ async function sectionFantasy() {
   r = await call({ secret: "amenfarms", action: "ff_league" });
   ok(!!r.json && r.json.ok === false && r.json.reason === "http-500", "an upstream 500 becomes ok:false http-500");
   ffUp.mode = "normal";
+}
+
+// ---------------- section E2: Draft HQ server actions ----------------
+async function sectionDraftServer() {
+  section("E2 · ff_draft + ff_keepers (Draft HQ server actions)");
+  ffAuthGood();
+  ffUp.draftState = "pre";
+  ffUp.prevMode = "normal";
+
+  // -- ff_draft, pre-draft: settings but an honestly empty board
+  let r = await call({ secret: "amenfarms", action: "ff_draft" });
+  let d = r.json;
+  ok(!!d && d.ok === true && d.drafted === false && d.inProgress === false && Array.isArray(d.picks) && d.picks.length === 0,
+    "pre-draft, ff_draft answers ok with an empty picks list");
+  ok(d.settings && d.settings.keeperCount === 3 && d.settings.type === "SNAKE" && d.settings.leagueSize === 8,
+    "draft settings carry keeper count, format and league size");
+  ok(d.settings.date === FIX.KP_DRAFT_DATE && d.settings.timePerPick === 90,
+    "the draft date + clock come through");
+  ok(Array.isArray(d.settings.pickOrder) && d.settings.pickOrder.length === 8 && d.settings.pickOrder[0] === 3,
+    "the pick order lists all 8 teams (The Goat Kids draft first)");
+  ok(Array.isArray(d.teams) && d.teams.length === 8 && d.teams.some((t) => t.name === "Battle Kreussers"),
+    "the id→name team list rides along for the client");
+  ok(d.familyTeamId === 1, "the default family team resolves on ff_draft too");
+
+  // -- ff_draft, finished: every pick resolved, keepers flagged
+  ffUp.draftState = "done";
+  r = await call({ secret: "amenfarms", action: "ff_draft" });
+  d = r.json;
+  ok(d.ok === true && d.drafted === true && d.picks.length === 16, "a finished draft returns the whole board");
+  const p1 = d.picks[0];
+  ok(p1.overall === 1 && p1.round === 1 && p1.roundPick === 1 && p1.team === "The Goat Kids" && p1.keeper === true,
+    "pick 1.01 carries its team name and the keeper flag");
+  ok(p1.player && p1.player.name === "Jahmyr Gibbs" && p1.player.pos === "RB" && p1.player.proTeam === "DET",
+    "the pick's player resolves to name/pos/pro-team off the rosters");
+  ok(d.picks.every((p) => p.player && p.player.name), "every pick on the board resolves a player name");
+  ok(d.picks.filter((p) => p.keeper).length === 3, "exactly the three keeper picks are flagged");
+  ok(!/autoDraftTypeId|tradeLocked|lineupSlotId/.test(r.text), "raw pick junk never reaches the client");
+
+  // -- ff_draft, mid-draft: the live case the 30s poll serves
+  ffUp.draftState = "mid";
+  r = await call({ secret: "amenfarms", action: "ff_draft" });
+  ok(r.json.ok === true && r.json.inProgress === true && r.json.drafted === false && r.json.picks.length === 5,
+    "a running draft reads inProgress with the picks made so far");
+  ffUp.draftState = "pre";
+
+  // -- ff_keepers: the three-way join
+  r = await call({ secret: "amenfarms", action: "ff_keepers" });
+  const k = r.json;
+  ok(!!k && k.ok === true && k.teams.length === 8 && k.keeperCount === 3 && k.draftDate === FIX.KP_DRAFT_DATE,
+    "ff_keepers returns all 8 rosters with the keeper rules");
+  ok(k.prevSeason === k.season - 1, "the last-year column names the season it came from");
+  const t1 = k.teams.find((t) => t.teamId === 1);
+  ok(!!t1 && t1.players.length === 8 && t1.players[0].name === "Josh Allen",
+    "my roster sorts by THIS season's projection (Allen first)");
+  const allen = t1.players[0];
+  ok(allen.lastPts === 381.4 && allen.proj === 352.2 && allen.rank === 18,
+    "a player joins last-year points + this-year projection + draft rank");
+  const rook = t1.players.find((p) => p.name === "Jeremiah Smith");
+  ok(!!rook && rook.lastPts === null && rook.proj === 188.5,
+    "a rookie has no last-year line — null, never invented");
+  const butker = t1.players.find((p) => p.name === "Harrison Butker");
+  ok(!!butker && butker.proj === null && butker.rank === null && butker.lastPts === 128.2,
+    "a player kona doesn't carry keeps his history but projects null");
+  ok(t1.players[t1.players.length - 1] === butker, "an unknown projection sorts last, not first");
+  const jj = t1.players.find((p) => p.name === "Justin Jefferson");
+  ok(!!jj && jj.injury === "QUESTIONABLE", "injury flags ride into the keeper table");
+  let filter = null;
+  try { filter = JSON.parse(ffUp.lastFilter); } catch (e) {}
+  const ids = filter && filter.players && filter.players.filterIds && filter.players.filterIds.value;
+  ok(Array.isArray(ids) && ids.length >= 25 && ids.includes(FIX.kpId("Josh Allen")),
+    "the projections join asks kona for exactly the rostered ids (X-Fantasy-Filter)");
+  ok(!/seasonOutlook|draftRanksByRankType/.test(r.text), "kona junk never reaches the client");
+
+  // per-user resolution
+  r = await call({ secret: "amenfarms", action: "ff_keepers", teamName: "The Goat Kids" });
+  ok(r.json.familyTeamId === 3, "ff_keepers resolves Isaac's team by name");
+  r = await call({ secret: "amenfarms", action: "ff_keepers", teamName: "Nails for Breakfast" });
+  ok(r.json.familyTeamId === 7, "…and Mom's, through the whitespace-normalizing matcher");
+
+  // -- the joins fail SOFT: a dead prev-season doc leaves the column null,
+  // never sinks the roster list
+  ffUp.prevMode = "http500";
+  r = await call({ secret: "amenfarms", action: "ff_keepers" });
+  ok(r.json.ok === true && r.json.teams.length === 8,
+    "a broken prev-season fetch still returns every roster");
+  ok(r.json.teams.every((t) => t.players.every((p) => p.lastPts === null)),
+    "…with the last-year column honestly null");
+  ffUp.prevMode = "normal";
+
+  // -- the same auth gates as every ff_* action
+  ffAuthWrong();
+  r = await call({ secret: "amenfarms", action: "ff_draft" });
+  ok(r.json.ok === false && r.json.reason === "fantasy-auth-expired", "ff_draft rides the cookie gate");
+  ffAuthNone();
+  r = await call({ secret: "amenfarms", action: "ff_keepers" });
+  ok(r.json.ok === false && r.json.reason === "fantasy-not-configured", "ff_keepers reports the unconfigured state");
+  ffAuthGood();
 }
 
 // ---------------- static server ----------------
@@ -1296,6 +1411,179 @@ async function sectionFantasyUI(browser) {
 }
 
 // ---------------- section D: desktop + index.html nav ----------------
+// ---------------- section F2: the Draft HQ view ----------------
+async function sectionDraftUI(browser) {
+  section("F2 · the Draft HQ view (390×844)");
+  ffAuthGood();
+  ffUp.draftState = "pre";
+  ffUp.prevMode = "normal";
+  {
+    const ctx = await browser.createBrowserContext();
+    const page = await newPage(ctx);
+    await page.goto(BASE + "/sports.html#fantasy", { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.waitForFunction(() => window.__SPORTS__ && window.__SPORTS__.state().hasFf, { timeout: 20000 });
+    ok(await page.evaluate(() => {
+      const b = document.getElementById("dhqOpen");
+      return !!b && b.offsetParent !== null && /Keepers & Draft HQ/.test(b.textContent);
+    }), "the fantasy tab carries the Draft HQ door");
+
+    // through the door
+    await page.evaluate(() => document.getElementById("dhqOpen").click());
+    await page.waitForFunction(() => window.__SPORTS__.state().view === "draft" && window.__SPORTS__.state().hasDhqKeepers, { timeout: 20000 });
+    ok(await page.evaluate(() => location.hash === "#draft" && !document.getElementById("draftView").hidden
+      && document.getElementById("topPills").offsetParent === null),
+      "the door routes to #draft — its own view, pills hidden like every detail");
+    ok(await page.evaluate(() => document.getElementById("dhqMeta").textContent === "Nerd Fantasy Football League"),
+      "the header names the league");
+
+    // the draft card
+    const draftCard = await page.evaluate(() => {
+      const c = [...document.querySelectorAll("#dhqBody .card")].find((x) => /The draft/.test(x.textContent));
+      return c ? c.textContent : "";
+    });
+    ok(/Draft day:/.test(draftCard) && /in \d+ days/.test(draftCard),
+      "the draft card shows the date with a countdown");
+    ok(/Snake draft · 8 teams · keep up to 3 · 90s per pick/.test(draftCard.replace(/\s+/g, " ")),
+      "…and the format line: snake, 8 teams, keep up to 3");
+    ok(/Draft order: 1\. The Goat Kids/.test(draftCard), "…and the draft order, Goat Kids first");
+
+    // my keeper prep
+    const kp = await page.evaluate(() => {
+      const c = [...document.querySelectorAll("#dhqBody .card")].find((x) => /My keeper picks/.test(x.textContent));
+      if (!c) return null;
+      const rows = [...c.querySelectorAll("table.kp tr")].slice(1);
+      return {
+        meta: c.querySelector(".seclabel .meta").textContent,
+        n: rows.length,
+        first: rows[0].textContent.replace(/\s+/g, " "),
+        capped: rows.filter((r) => /🧢/.test(r.textContent)).length,
+        rookie: (rows.find((r) => /Jeremiah Smith/.test(r.textContent)) || {}).textContent || "",
+        note: (c.querySelector(".gwsub") || {}).textContent || "",
+      };
+    });
+    ok(!!kp && kp.meta === "Battle Kreussers" && kp.n === 8, "my keeper table lists my whole roster");
+    ok(/Josh Allen/.test(kp.first) && /381\.4/.test(kp.first) && /352\.2/.test(kp.first) && /#18/.test(kp.first),
+      "the top row reads Allen with last-year points, projection and rank");
+    ok(kp.capped === 3, "🧢 marks exactly the top three (the keeper count)");
+    ok(/—/.test(kp.rookie), "the rookie's missing last year reads as — , never a number");
+    ok(/keep up to 3/.test(kp.note), "the card explains the keeper rule");
+
+    // the AI ask
+    gpt.calls.length = 0;
+    await page.evaluate(() => document.getElementById("kAiBtn").click());
+    await page.waitForFunction(() => {
+      const a = document.getElementById("kAiAns");
+      return a && !a.hidden && /start De'Von Achane/.test(a.textContent);
+    }, { timeout: 15000 });
+    const kcall = gpt.calls[gpt.calls.length - 1];
+    ok(!!kcall && kcall.mode === "fantasy" && kcall.kind === "keepers", "the AI button posts mode fantasy / kind keepers");
+    ok(kcall.keepers && kcall.keepers.keeperCount === 3 && kcall.keepers.myTeam.name === "Battle Kreussers"
+      && kcall.keepers.myTeam.players.length === 8 && !kcall.matchup,
+      "…with the keeper payload (rules + my roster), no matchup required pre-draft");
+    ok(kcall.keepers.myTeam.players[0].lastPts === 381.4, "the payload carries the joined numbers the advice needs");
+
+    // the board, pre-draft
+    ok(await page.evaluate(() => {
+      const c = [...document.querySelectorAll("#dhqBody .card")].find((x) => /Draft board/.test(x.textContent));
+      return !!c && /No picks yet/.test(c.textContent);
+    }), "pre-draft the board says so instead of rendering nothing");
+    ok(await page.evaluate(() => !window.__SPORTS__.state().pollScheduled),
+      "a pre-draft Draft HQ never polls (it's a static page)");
+
+    // scouting
+    const scout = await page.evaluate(() => {
+      const c = [...document.querySelectorAll("#dhqBody .card")].find((x) => /League rosters/.test(x.textContent));
+      const ds = c ? [...c.querySelectorAll("details.scout")] : [];
+      return {
+        n: ds.length,
+        firstOpen: !!(ds[0] && ds[0].open),
+        first: ds[0] ? ds[0].querySelector("summary").textContent : "",
+        goatRows: (() => {
+          const g = ds.find((x) => /The Goat Kids/.test(x.querySelector("summary").textContent));
+          return g ? g.querySelectorAll("table.kp tr").length - 1 : 0;
+        })(),
+      };
+    });
+    ok(scout.n === 8, "the scouting card folds out all 8 rosters");
+    ok(scout.firstOpen && /Battle Kreussers/.test(scout.first) && /\(you\)/.test(scout.first),
+      "my own team sits first, open, marked (you)");
+    ok(scout.goatRows === 4, "another team's fold-out lists its players");
+    await shot(page, "sports_draft_390.png");
+
+    // the draft finishes -> the board renders, my picks highlighted
+    ffUp.draftState = "done";
+    await page.evaluate(() => window.__SPORTS__.loadDhq());
+    await page.waitForFunction(() => window.__SPORTS__.state().hasDhqDraft
+      && document.querySelectorAll("#dhqBody .pick").length === 16, { timeout: 20000 });
+    const board = await page.evaluate(() => ({
+      rounds: [...document.querySelectorAll("#dhqBody .roundhead")].map((r) => r.textContent),
+      picks: document.querySelectorAll("#dhqBody .pick").length,
+      locks: document.querySelectorAll("#dhqBody .pick .keeplock").length,
+      mine: [...document.querySelectorAll("#dhqBody .pick.mine")].map((p) => p.textContent.replace(/\s+/g, " ")),
+      first: document.querySelector("#dhqBody .pick").textContent.replace(/\s+/g, " "),
+    }));
+    ok(board.rounds.length === 2 && board.rounds[0] === "ROUND 1", "the board groups by round");
+    ok(board.picks === 16 && board.locks === 3, "all 16 picks render, keepers locked 🔒");
+    ok(/1\.01/.test(board.first) && /Jahmyr Gibbs/.test(board.first) && /The Goat Kids/.test(board.first),
+      "pick 1.01 reads Gibbs to The Goat Kids");
+    ok(board.mine.length === 2 && board.mine.every((t) => /Battle Kreussers/.test(t)),
+      "my own picks are highlighted (both of Battle Kreussers')");
+
+    // a RUNNING draft polls at the live cadence
+    ffUp.draftState = "mid";
+    await page.evaluate(() => window.__SPORTS__.loadDhq());
+    await page.waitForFunction(() => window.__SPORTS__.state().dhqInProgress, { timeout: 20000 });
+    ok(await page.evaluate(() => {
+      const s = window.__SPORTS__.state();
+      return s.pollScheduled && s.pollIv === 30000;
+    }), "a draft in progress polls every 30s");
+    ok(await page.evaluate(() => /DRAFT IN PROGRESS/.test(document.getElementById("dhqBody").textContent)
+      && document.querySelectorAll("#dhqBody .pick").length === 5),
+      "mid-draft the card says so and shows the picks made so far");
+
+    // back out
+    await page.evaluate(() => document.getElementById("dhqBack").click());
+    await page.waitForFunction(() => window.__SPORTS__.state().view === "ff", { timeout: 10000 });
+    ok(await page.evaluate(() => location.hash === "#fantasy" && !document.getElementById("ffView").hidden),
+      "‹ Fantasy returns to the fantasy tab");
+    ok(page._errs.length === 0, "0 page errors through the whole Draft HQ flow");
+    await ctx.close();
+    ffUp.draftState = "pre";
+  }
+
+  // Isaac's Draft HQ follows HIS team.
+  {
+    const ctx = await browser.createBrowserContext();
+    const page = await newPage(ctx, { choreUser: "Isaac" });
+    await page.goto(BASE + "/sports.html#draft", { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.waitForFunction(() => window.__SPORTS__ && window.__SPORTS__.state().hasDhqKeepers, { timeout: 20000 });
+    const mine = await page.evaluate(() => {
+      const c = [...document.querySelectorAll("#dhqBody .card")].find((x) => /My keeper picks/.test(x.textContent));
+      return {
+        meta: c ? c.querySelector(".seclabel .meta").textContent : "",
+        first: c ? c.querySelector("table.kp tr:nth-child(2)").textContent : "",
+      };
+    });
+    ok(mine.meta === "The Goat Kids" && /Lamar Jackson/.test(mine.first),
+      "Isaac's Draft HQ preps The Goat Kids' keepers (Lamar tops the projections)");
+    ok(page._errs.length === 0, "0 page errors on Isaac's Draft HQ");
+    await ctx.close();
+  }
+
+  // Unconfigured fantasy shows the same setup card here, never an error.
+  {
+    ffAuthNone();
+    const ctx = await browser.createBrowserContext();
+    const page = await newPage(ctx);
+    await page.goto(BASE + "/sports.html#draft", { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.waitForFunction(() => /one-time setup by Dad/.test(document.getElementById("dhqBody").textContent), { timeout: 20000 });
+    ok(true, "unconfigured fantasy renders Dad's setup card on the draft view too");
+    ok(page._errs.length === 0, "0 page errors on the unconfigured draft view");
+    await ctx.close();
+    ffAuthGood();
+  }
+}
+
 async function sectionDesktopIndex(browser) {
   section("D · desktop rail + the Sports area on index.html");
   {
@@ -1587,6 +1875,7 @@ async function sectionHomeCards(browser) {
   try {
     await sectionA();
     await sectionFantasy();
+    await sectionDraftServer();
   } catch (e) {
     fail++; failures.push("server sections crashed: " + e.message);
     console.log("\n✗ SERVER SECTION ERROR: " + (e && e.stack || e));
@@ -1599,6 +1888,7 @@ async function sectionHomeCards(browser) {
     await sectionQuietAndErrors(browser);
     await sectionCollege(browser);
     await sectionFantasyUI(browser);
+    await sectionDraftUI(browser);
     await sectionDesktopIndex(browser);
     await sectionHomeCards(browser);
   } catch (e) {

@@ -1300,6 +1300,11 @@ HOW TO ANSWER
   lineup already looks right, say so plainly — do not invent problems.
 - WAIVER ADVICE: recommend the 2-4 best available pickups FOR THIS ROSTER (fit beats raw
   points), each with who to drop for them. Percent-owned helps make the case.
+- KEEPER ADVICE (this is a keeper league — pre-draft, each team locks in a few players from
+  last year's roster): recommend EXACTLY the allowed number of keepers from MY roster, ranked,
+  each with the short why — then name the closest cut and what would change the call. Weigh
+  THIS season's projection and draft rank over last season's points (last year is evidence,
+  not destiny); an injury flag or a rookie's missing history is worth naming, not disqualifying.
 - Use ONLY the numbers in the data. Never invent stats, news, players or games that are not
   in the data. If something the answer needs is missing (practice reports, weather, next
   week's schedule), say so instead of guessing.
@@ -2737,10 +2742,34 @@ function clipJson(v, cap) {
   try { s = JSON.stringify(v); } catch { return ""; }
   return s.length > cap ? s.slice(0, cap) + ' …(truncated)"' : s;
 }
-const FF_KINDS = new Set(["lineup", "waivers", "question"]);
+const FF_KINDS = new Set(["lineup", "waivers", "question", "keepers"]);
 function buildFantasyMessages(body) {
   const kind = FF_KINDS.has(body.kind) ? body.kind : "question";
   const q = typeof body.question === "string" ? body.question.trim().slice(0, 400) : "";
+
+  // KEEPER advice runs PRE-DRAFT, when there is no matchup to send — its payload
+  // is the keeper prep instead: my carryover roster (last-year points + this
+  // season's projection/rank per player) and the league's keeper rules.
+  if (kind === "keepers") {
+    const kp = body.keepers && typeof body.keepers === "object" && !Array.isArray(body.keepers) ? body.keepers : null;
+    const players = kp && Array.isArray(kp?.myTeam?.players) ? kp.myTeam.players : null;
+    if (!players || !players.length) return null;
+    const n = Number.isInteger(kp.keeperCount) && kp.keeperCount >= 1 && kp.keeperCount <= 10 ? kp.keeperCount : null;
+    const payload = {
+      keeperCount: n,
+      myTeam: { name: typeof kp?.myTeam?.name === "string" ? kp.myTeam.name.slice(0, 60) : "", players: players.slice(0, 30) },
+    };
+    const parts = [
+      "MY ROSTER (carryover from last season) — per player: lastPts = last season's actual fantasy points, proj = THIS season's projected points, rank = draft rank (lower is better), injury when flagged (JSON):",
+      clipJson(payload, 14000),
+      "",
+      "TASK: Which players should I keep? The league lets me keep " + (n != null ? "up to " + n : "a limited number of")
+        + " players. Recommend " + (n != null ? "exactly " + n : "the best set") + ", ranked, with the why for each — then the closest cut.",
+    ];
+    if (q) parts.push("", "ALSO: " + q);
+    return [{ role: "user", content: parts.join("\n") }];
+  }
+
   const mu = body.matchup && typeof body.matchup === "object" && !Array.isArray(body.matchup) ? body.matchup : null;
   if (!mu) return null;
   const fa = Array.isArray(body.freeAgents) ? body.freeAgents.slice(0, 50) : [];

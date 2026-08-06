@@ -114,3 +114,34 @@ jobs:
             --data '{"secret":"amenfarms","mode":"fantasy","kind":"question","question":"One sentence: is my QB fine this week?","matchup":{"familyTeamId":1,"matchup":{"home":{"teamId":1,"name":"Battle Kreussers","roster":[{"name":"Josh Allen","slot":"QB","starter":true,"proj":21.3,"injury":""}]},"away":{"teamId":2,"name":"Test","roster":[]}}},"freeAgents":[]}' || echo FAIL)
           echo "fantasy AI HTTP $code, $(wc -c < /tmp/ai.txt) bytes"
           head -c 400 /tmp/ai.txt; echo
+      - name: live draft-hq actions
+        run: |
+          fn() { curl -sS -o /tmp/o.json -w "%{http_code}" -X POST \
+            "https://amenfarms.netlify.app/.netlify/functions/sports" \
+            -H "Content-Type: application/json" --data "$1"; }
+          # ff_draft: the real league's draftSettings + board (pre-draft: picks []).
+          code=$(fn '{"secret":"amenfarms","action":"ff_draft"}' || echo FAIL)
+          echo "ff_draft HTTP $code, $(wc -c < /tmp/o.json) bytes"
+          python3 -c "
+          import json,datetime
+          d=json.load(open('/tmp/o.json'))
+          st=d.get('settings') or {}
+          print('ok',d.get('ok'),'drafted',d.get('drafted'),'inProgress',d.get('inProgress'),len(d.get('picks',[])),'picks')
+          print('type',st.get('type'),'keeperCount',st.get('keeperCount'),'timePerPick',st.get('timePerPick'))
+          print('date', datetime.datetime.utcfromtimestamp(st['date']/1000).isoformat() if st.get('date') else 'unset')
+          print('pickOrder', st.get('pickOrder'))
+          " || head -c 400 /tmp/o.json
+          # ff_keepers: rosters + the two joins (last-year points, projections).
+          code=$(fn '{"secret":"amenfarms","action":"ff_keepers"}' || echo FAIL)
+          echo "ff_keepers HTTP $code, $(wc -c < /tmp/o.json) bytes"
+          python3 -c "
+          import json
+          d=json.load(open('/tmp/o.json'))
+          ts=d.get('teams',[])
+          print('ok',d.get('ok'),'keeperCount',d.get('keeperCount'),len(ts),'teams, famId',d.get('familyTeamId'))
+          my=next((t for t in ts if t['teamId']==d.get('familyTeamId')), ts[0] if ts else None)
+          if my:
+            ps=my['players']
+            print(my['name'],len(ps),'players;',sum(1 for p in ps if p['lastPts'] is not None),'with lastPts,',sum(1 for p in ps if p['proj'] is not None),'with proj')
+            for p in ps[:5]: print(' ',p['name'],p['pos'],p['proTeam'],'last',p['lastPts'],'proj',p['proj'],'rank',p['rank'])
+          " || head -c 400 /tmp/o.json

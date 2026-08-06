@@ -8290,6 +8290,48 @@ tab hops, and the framed page's own state (open game, chat mid-stream) survives 
 **DEFERRED** (per plan): status.html registry rows for ESPN (free NFL row + a
 cookie-configured fantasy row surfacing `fantasy-auth-expired` on the ops page).
 
+**🧢 DRAFT HQ — keepers + the draft board (2026-08-06, branch claude/fantasy-keeper-draft-tool-go0wye)**:
+the Nerd league is a KEEPER league and it's draft season, so the fantasy tab gained a
+"🧢 Keepers & Draft HQ" door → hash `#draft` (own view, back to `#fantasy`, pills hidden
+like every detail). SERVER (sports.mjs): `ff_draft` (views mDraftDetail+mTeam+mSettings+
+mRoster, ONE merged call) → draftSettings slimmed {date,type,timePerPick,keeperCount,
+orderType,pickOrder,leagueSize} + the board: every made pick {overall,round,roundPick,
+teamId,team,playerId,player{name,pos,proTeam},keeper} with names resolved off the SAME
+doc's rosters (post-draft every picked player is on a roster — no second fetch); pre-draft
+picks=[] honestly. `ff_keepers` = the three-way join a keeper decision needs: current
+rosters (mRoster) + LAST season's actual points (a second ffFetch at year-1, view mRoster,
+reading stats scoringPeriodId 0 + statSourceId 0; tolerates the leagueHistory ARRAY shape)
++ THIS season's projection & draft rank (kona_player_info with an X-Fantasy-Filter
+**filterIds** header on all rostered ids — the ff_freeagents header convention; PPR rank
+w/ STANDARD fallback). BOTH JOINS FAIL SOFT — a dead prev-season doc or kona answer leaves
+those columns null, never sinks the roster list (only the current-season fetch can fail
+the action); players sort by proj desc, nulls last; rookie lastPts / unknown proj render
+"—" never invented. AI: FF_KINDS + "keepers" in farmgpt.mjs — buildFantasyMessages takes
+`body.keepers` {keeperCount, myTeam{name,players}} INSTEAD of a matchup (pre-draft there
+is none), TASK names the exact allowed count ("Recommend exactly N"), count-less leagues
+get honest phrasing; FANTASY_SYSTEM gained the KEEPER ADVICE rules (projection+rank over
+last year's points, closest cut, injuries named not disqualifying). CLIENT (sports.html):
+draft card (kickFull date + dhqCountdown "in N days", format line, draft order), my keeper
+table (table.kp — name column absorbs width like table.stand; 🧢 marks top-keeperCount by
+projection), "🧠 Who should I keep?" (own kAi state + #kAiAns so it never clobbers the
+fantasy tab's ffAi box), 🔭 League rosters scouting (details.scout per team, mine first+
+open+"(you)"), draft board grouped by ROUND w/ keeper 🔒 + .pick.mine highlight. POLLING:
+only a RUNNING draft polls (IV.draftLive 30s, keyed on draftDetail.inProgress); settings/
+prep pages are static. ff_draft/ff_keepers load in PARALLEL and either half paints without
+the other. Per-user: the whole view follows myFfTeamName() (Isaac preps The Goat Kids).
+Suite: _verify-sports.cjs **323** (+60: E2 server + F2 view; fake ff upstream now
+dispatches kona by filter content — filterIds→projections doc, else free agents — and
+mRoster/mDraftDetail/prev-season URLs to the new fixtures; ffUp.draftState pre/mid/done +
+prevMode kill the joins) · _verify-ffai.cjs **40** (+8 keepers wire) · farmgpt regressions
+storyledger 683 / kidstory 54 / dnd 47. Fixtures: KP registry (STABLE player ids — picks,
+prev-season stats and kona all reference the same player across three docs, unlike the
+mutable ffPlayerId). ⚠ NOT LIVE-VERIFIED (ESPN egress-blocked in the sandbox; the real
+draftSettings/mDraftDetail shapes are authored from docs): post-deploy run
+`node tools/_probe-sports.mjs --site https://amenfarms.netlify.app` (now also probes
+ff_draft + ff_keepers incl. join coverage counts) or dispatch sports-diag.yml (new
+"live draft-hq actions" step dumps the real league's draft settings + keeper joins) —
+if keeperCount comes back null or the joins find nothing, that's the drift to chase.
+
 **FANTASY AI BATCH (2026-08-06)**: Grok 4.5 advice + the weekly columnist + the lineup guard;
 Mom follows **"Nails for Breakfast"** (FF_TEAM_BY_USER in sports.html + sportsHomeFfTeam in
 index.html — keep in sync). SERVER (farmgpt.mjs, not sports.mjs — that's where the model
