@@ -1052,6 +1052,9 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   shown.forEach(function (g) {
     var a = document.createElement("a");
     if (g.href) a.href = g.href; else a.href = "javascript:void(0)";
+    // The AI entry is THIS page: tapping it always returns to the main AI screen (defined
+    // in the app script below; guarded — a missing hook leaves the old inert behavior).
+    if (!g.href) a.onclick = function (e) { e.preventDefault(); if (window.farmgptGoHome) window.farmgptGoHome(); };
     var ico = document.createElement("span"); ico.className = "bico"; ico.innerHTML = svgIcon(g.gid);
     var lbl = document.createElement("span"); lbl.className = "blabel"; lbl.textContent = g.name;
     a.append(ico, lbl); a.title = g.name; a.setAttribute("aria-label", g.name);
@@ -1074,6 +1077,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     var a = document.createElement("a");
     a.className = "sn-item" + (g.active ? " active" : "");
     if (g.href) a.href = g.href; else a.href = "javascript:void(0)";
+    if (!g.href) a.onclick = function (e) { e.preventDefault(); if (window.farmgptGoHome) window.farmgptGoHome(); };
     a.setAttribute("aria-label", g.name);
     var ico = document.createElement("span"); ico.className = "sn-ico"; ico.innerHTML = svgIcon(g.gid);
     var lbl = document.createElement("span"); lbl.className = "sn-label"; lbl.textContent = g.name;
@@ -2050,6 +2054,20 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     if (currentView === "story") { renderBookshelf(); show("storySetup"); }
     else show("home");
   });
+
+  /* The bottom bar's AI button (and the rail's). It used to be inert — "this page is the AI
+     area" — which stranded anyone inside Story Time with no way back to the AI home screen
+     (user report, 2026-08-06). It now ALWAYS returns to the main AI page, through the same
+     guards as the header link: a world still being built is cancelled (nothing to lose yet),
+     but a scene mid-write holds the reader where they are rather than abandoning the request. */
+  window.farmgptGoHome = function () {
+    if (currentView === "home") { window.scrollTo(0, 0); return; }
+    if (currentView === "world" && worldWait.cancel()) { show("home"); window.scrollTo(0, 0); return; }
+    if (busy) { toast("Hold on — still writing!"); return; }
+    if (currentView === "story") renderBookshelf();   // keep the shelf fresh for next time
+    show("home");
+    window.scrollTo(0, 0);
+  };
 
   // ---------------- shared streaming call ----------------
   // POSTs the conversation, streams plain-text chunks to onChunk, resolves with full text.
