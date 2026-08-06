@@ -664,11 +664,27 @@ const DRAFT_POOL_ROWS = [
   [4035, "Ravens D/ST", 16, 33, 35, 35, 118.0],
   [4036, "Deep Sleeper", 2, 9, null, null, null],
 ];
+// The season the fantasy API is currently serving (Jan/Feb belong to the
+// previous league year) — the pool's stat entries key on real seasonIds.
+const FF_SEASON_NOW = (() => {
+  const d = new Date();
+  return d.getUTCMonth() < 2 ? d.getUTCFullYear() - 1 : d.getUTCFullYear();
+})();
+// Position-appropriate per-stat breakdown (community stat ids: 3/4/20 passing,
+// 23/24/25 rushing, 58/53/42/43 receiving, 72 fumbles).
+function draftStatBreakdown(posId, seed) {
+  if (posId === 1) return { 3: 4100 + seed, 4: 30, 20: 9, 23: 88, 24: 420 + seed, 25: 4 };
+  if (posId === 2) return { 23: 260 + seed, 24: 1240 + seed, 25: 10, 58: 62, 53: 48, 42: 350, 43: 2, 72: 1 };
+  if (posId === 3 || posId === 4) return { 58: 130 + seed, 53: 92, 42: 1230 + seed, 43: 8, 23: 4, 24: 22 };
+  return {};   // K / D/ST — totals only, no decoded lines
+}
 function draftPoolEntry(row) {
   const [pid, name, posId, proTeamId, ppr, std, adp] = row;
   const ranks = {};
   if (ppr != null) ranks.PPR = { rank: ppr, rankType: "PPR", auctionValue: 61, published: true };
   if (std != null) ranks.STANDARD = { rank: std, rankType: "STANDARD", auctionValue: 58, published: true };
+  const projT = ppr != null ? 380 - ppr * 6 : 120;      // deterministic, rank-shaped
+  const lastT = projT - 14;
   return {
     onTeamId: 0, status: "FREEAGENT",
     player: {
@@ -676,9 +692,20 @@ function draftPoolEntry(row) {
       injuryStatus: pid === 4007 ? "QUESTIONABLE" : "ACTIVE",
       ownership: { averageDraftPosition: adp, percentOwned: 92.1, percentChange: 0.4 },
       draftRanksByRankType: ranks,
-      // Junk the slimmer must drop:
-      stats: [{ scoringPeriodId: 0, statSourceId: 1, appliedTotal: 250.5 }],
-      seasonOutlook: "x".repeat(300),
+      stats: [
+        // This season's projection + LAST season's actual (both season splits)…
+        { id: "10" + FF_SEASON_NOW, seasonId: FF_SEASON_NOW, statSourceId: 1, statSplitTypeId: 0,
+          appliedTotal: projT, appliedAverage: Math.round((projT / 17) * 10) / 10,
+          stats: draftStatBreakdown(posId, (ppr || 30)) },
+        { id: "00" + (FF_SEASON_NOW - 1), seasonId: FF_SEASON_NOW - 1, statSourceId: 0, statSplitTypeId: 0,
+          appliedTotal: lastT, appliedAverage: Math.round((lastT / 16) * 10) / 10,
+          stats: draftStatBreakdown(posId, (ppr || 30) + 3) },
+        // …and a WEEKLY split the season readers must never pick up.
+        { scoringPeriodId: 1, seasonId: FF_SEASON_NOW, statSourceId: 1, statSplitTypeId: 1, appliedTotal: 17.2 },
+      ],
+      seasonOutlook: pid === 4002
+        ? "Bijan Robinson enters the season as the centerpiece of the offense — an every-down back with elite receiving chops and 400-touch upside if the line holds."
+        : "x".repeat(300),
       eligibleSlots: [2, 3, 23, 20],
     },
   };

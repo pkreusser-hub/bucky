@@ -71,7 +71,13 @@ function startFfUpstream() {
     res.writeHead(200, { "Content-Type": "application/json" });
     if (req.url.includes("view=kona_player_info")) {
       ffUp.lastFilter = req.headers["x-fantasy-filter"] || "";
-      res.end(JSON.stringify(FIX.ffDraftPoolDoc()));
+      let doc = FIX.ffDraftPoolDoc();
+      // Honor a filterIds filter the way the real upstream does (ff_player).
+      try {
+        const ids = JSON.parse(ffUp.lastFilter)?.players?.filterIds?.value;
+        if (Array.isArray(ids)) doc = { players: doc.players.filter((e) => ids.includes(e.player.id)) };
+      } catch (e) {}
+      res.end(JSON.stringify(doc));
       return;
     }
     if (req.url.includes("view=mDraftDetail")) {
@@ -148,9 +154,11 @@ async function sectionServer() {
     "pool is sorted by rank (Chase #1 in PPR) even though the upstream came back unsorted");
   ok(r.json.players[r.json.players.length - 1].pid === 4036, "an unranked player sorts last");
   const pp = r.json.players[0];
-  ok(JSON.stringify(Object.keys(pp).sort()) === JSON.stringify(["adp", "injury", "name", "pid", "pos", "proTeam", "proTeamId", "rank"]),
-    "pool players are slim (no stats/seasonOutlook/junk)");
+  ok(JSON.stringify(Object.keys(pp).sort()) === JSON.stringify(["adp", "injury", "lastPts", "name", "pid", "pos", "proTeam", "proTeamId", "proj", "rank"]),
+    "pool players are slim (no raw stats/seasonOutlook/junk)");
   ok(pp.pos === "WR" && pp.proTeam === "CIN" && pp.adp === 1.6, "pos/proTeam/adp mapped");
+  ok(pp.proj === 374 && pp.lastPts === 360,
+    "season projection + last-year points ride on every pool row (never the weekly split)");
   const puka = r.json.players.find((p) => p.pid === 4007);
   ok(puka && puka.injury === "QUESTIONABLE", "injury status carried (ACTIVE dropped)");
 
@@ -180,6 +188,22 @@ async function sectionServer() {
     "roster players are slim");
   r = await call({ secret: "amenfarms", action: "ff_lastdraft", year: 2024 });
   ok(/\/seasons\/2024\//.test(ffUp.lastUrl), "an explicit year is honored");
+
+  // ff_player — the detail card's payload
+  r = await call({ secret: "amenfarms", action: "ff_player", pid: 4002 });
+  ok(!!r.json && r.json.ok === true && r.json.player.name === "Bijan Robinson", "ff_player answers with the player");
+  ok(ffUp.lastFilter.includes("filterIds"), "…fetched through a filterIds filter (one player, not the whole pool)");
+  ok(r.json.player.outlook.includes("every-down back"), "ESPN's seasonOutlook analysis rides along");
+  ok(r.json.player.proj && r.json.player.proj.total === 368 && r.json.player.last.total === 354,
+    "projected + last-year totals (Bijan: 368 proj / 354 actual)");
+  ok((r.json.player.proj.lines || []).some((l) => l.label === "Rush yds")
+    && (r.json.player.last.lines || []).some((l) => l.label === "Catches"),
+    "stat breakdowns decode to labeled lines both seasons");
+  ok(r.json.player.rank.ppr === 2 && r.json.player.rank.standard === 1, "both rank flavors carried");
+  r = await call({ secret: "amenfarms", action: "ff_player", pid: 999999 });
+  ok(!!r.json && r.json.ok === false && r.json.reason === "not-found", "an unknown pid is not-found, never a crash");
+  r = await call({ secret: "amenfarms", action: "ff_player", pid: "junk" });
+  ok(!!r.json && r.json.ok === false && r.json.reason === "bad-pid", "a garbage pid is rejected");
 
   // failure paths
   ffAuthNone();
@@ -544,6 +568,29 @@ async function sectionRoom(browser) {
   ok(board.curKey === "r3_t4", "the on-the-clock cell is highlighted");
   await shot(page, "ffdraft_board_390.png");
 
+  // --- draft chat (board view) ---
+  ok(await page.evaluate(() => {
+    const c = document.getElementById("chatCard");
+    return !c.hidden && c.closest("#vBoard") != null;
+  }), "the chat card sits on the Board view");
+  await page.evaluate(() => { document.getElementById("chatIn").value = "Who's taking a kicker in round 4? 😂"; });
+  await clickSafely(page, "#chatSend");
+  await page.waitForFunction(() => document.getElementById("chatMsgs").textContent.includes("kicker in round 4"), { timeout: 3000 });
+  ok(true, "sending a message renders it in the chat");
+  ok(await page.evaluate(() => document.querySelector("#chatMsgs .cmsg b").textContent === "Paul"),
+    "messages carry the sender's name");
+  await page.evaluate(() => window.__DRAFT__.setMe("", null, null));
+  await page.evaluate(() => { document.getElementById("chatIn").value = "anonymous heckling"; });
+  await clickSafely(page, "#chatSend");
+  await sleep(80);
+  ok(await page.evaluate(() => !document.getElementById("chatMsgs").textContent.includes("anonymous heckling")),
+    "no name, no message — you're nudged to set one first");
+  await hook(page, (k, dev) => window.__DRAFT__.setMe("Paul", dev, k), ckey, paulDev);
+  await clickSafely(page, '#tabs button[data-v="players"]');
+  ok(await page.evaluate(() => document.getElementById("chatCard").closest("#vPlayers") != null),
+    "…and the chat follows you to the Players view");
+  await clickSafely(page, '#tabs button[data-v="board"]');
+
   // --- players list states ---
   await clickSafely(page, '#tabs button[data-v="players"]');
   await page.type("#pSearch", "Kelce");
@@ -570,6 +617,38 @@ async function sectionRoom(browser) {
   await page.evaluate(() => { document.getElementById("pSearch").value = ""; document.getElementById("pSearch").dispatchEvent(new Event("input")); });
   await shot(page, "ffdraft_players_390.png");
 
+  // --- own scroll + richer rows + the detail card ---
+  await sleep(120);   // sizePList runs in a rAF after render
+  ok(await page.evaluate(() => {
+    const el = document.getElementById("pList");
+    return getComputedStyle(el).overflowY === "auto" && el.scrollHeight > el.clientHeight + 40;
+  }), "the players list scrolls inside itself, not the page");
+  ok(await page.evaluate(() => {
+    const row = document.querySelector("#pList .prow");
+    const logo = row.querySelector(".tlogo");
+    return !!logo && /espncdn\.com\/i\/teamlogos\/nfl/.test(logo.src)
+      && /proj/.test(row.querySelector(".pstat").textContent);
+  }), "rows carry the team logo + this-year proj + last-year points");
+  await page.evaluate(() => { document.querySelector('#pList .prow[data-pid="4002"] .nm').click(); });
+  await page.waitForFunction(() => !document.getElementById("pcOverlay").hidden
+    && document.getElementById("pcCard").textContent.includes("every-down back"), { timeout: 5000 });
+  ok(true, "tapping a row opens the detail card with ESPN's outlook");
+  ok(await page.evaluate(() => {
+    const t = document.getElementById("pcCard").textContent;
+    return t.includes("Rush yds") && t.includes("projected pts") && t.includes("actual pts");
+  }), "the card tables last-year actuals against this-year projections");
+  ok(await page.evaluate(() => document.getElementById("pcCard").textContent.includes("On Battle Kreussers")),
+    "a taken player's card says whose he is instead of offering Draft");
+  await page.evaluate(() => window.__DRAFT__.closePlayerCard());
+  await page.evaluate(() => { document.querySelector('#pList .prow[data-pid="4009"]').click(); });
+  await page.waitForFunction(() => !document.getElementById("pcOverlay").hidden && document.getElementById("pcDraft"), { timeout: 5000 });
+  await shot(page, "ffdraft_card_390.png");
+  await clickSafely(page, "#pcDraft");
+  await clickSafely(page, "#cbGo");
+  d = await D(page);
+  ok(d.picks["r3_t4"] && d.picks["r3_t4"].pid === 4009, "Draft him straight from the detail card");
+  await hook(page, () => window.__DRAFT__.undoLast());
+
   // --- teams view roster ---
   await clickSafely(page, '#tabs button[data-v="teams"]');
   await page.evaluate(() => {
@@ -580,6 +659,14 @@ async function sectionRoom(browser) {
     const rows = Array.from(document.querySelectorAll("#teamRoster .rrow")).map((r) => r.textContent);
     return rows.some((t) => t.includes("Bijan Robinson") && t.includes("keeper"));
   }), "the team view shows the roster round-by-round with keepers marked");
+  ok(await page.evaluate(() => {
+    const cc = document.getElementById("claimCard");
+    return cc.textContent.includes("You run") && !cc.querySelector(".claimBtn");
+  }), "after you claim, the claim section collapses to a single line");
+  await hook(page, () => window.__DRAFT__.setMe("Visitor", "dev-visitor", ""));
+  ok(await page.evaluate(() => document.querySelectorAll("#claimCard .claimrow").length === 8
+    && !!document.getElementById("nameIn")), "an unclaimed visitor still gets the full claim list");
+  await hook(page, (k, dev) => window.__DRAFT__.setMe("Paul", dev, k), ckey, paulDev);
 
   // no sideways scroll on a phone (the board pans inside its own container)
   ok(await page.evaluate(() => document.scrollingElement.scrollWidth <= window.innerWidth + 1),
@@ -632,6 +719,22 @@ async function sectionRoom(browser) {
   await dpage.evaluate(() => window.__DRAFT__.setView("board"));
   ok(await dpage.evaluate(() => document.querySelectorAll("#boardGrid .cell").length === 32),
     "a second device sees the same finished board");
+  ok(await dpage.evaluate(() => {
+    const rail = document.getElementById("boardRail");
+    return !rail.hidden && rail.contains(document.getElementById("playersPanel"))
+      && document.querySelectorAll("#boardRail #pList .prow").length > 0;
+  }), "desktop docks the players panel beside the board");
+  ok(await dpage.evaluate(() => !document.getElementById("chatCard").hidden
+    && document.getElementById("chatCard").closest("#vBoard") != null),
+    "…with the draft chat under the board");
+  ok(await dpage.evaluate(() => document.getElementById("chatMsgs").textContent.includes("kicker in round 4")),
+    "chat written on the other device is already here");
+  await dpage.evaluate(() => window.__DRAFT__.undoLast());
+  await dpage.waitForFunction(() => window.__DRAFT__.D.phase === "live", { timeout: 3000 });
+  await dpage.evaluate(() => { document.querySelector("#boardRail #pList .pDraft:not([disabled])").click(); });
+  await clickSafely(dpage, "#cbGo");
+  ok(await dpage.evaluate(() => window.__DRAFT__.D.phase === "done"),
+    "you can draft straight from the board-side players column");
   await shot(dpage, "ffdraft_board_desktop.png");
 
   ok(page._errs.length === 0, "0 page errors on the phone page" + (page._errs.length ? " — " + page._errs[0] : ""));

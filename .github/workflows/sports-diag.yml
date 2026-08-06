@@ -106,7 +106,16 @@ jobs:
           python3 -c "import json;d=json.load(open('/tmp/o.json'));print('ok',d.get('ok'),d.get('reason',''),'| teams',len(d.get('teams',[])),'| rosterSize',d.get('rosterSize'),'| ppr',d.get('ppr'),'| byes',len(d.get('byes',{})));print([t['name'] for t in d.get('teams',[])])" || head -c 400 /tmp/o.json
           code=$(fn '{"secret":"amenfarms","action":"ff_draftpool","format":"ppr"}' || echo FAIL)
           echo "ff_draftpool HTTP $code, $(wc -c < /tmp/o.json) bytes"
-          python3 -c "import json;d=json.load(open('/tmp/o.json'));ps=d.get('players',[]);print('ok',d.get('ok'),d.get('reason',''),len(ps),'players; top5:',[(p['rank'],p['name'],p['pos'],p['proTeam'],p['adp']) for p in ps[:5]])" || head -c 400 /tmp/o.json
+          python3 -c "import json;d=json.load(open('/tmp/o.json'));ps=d.get('players',[]);print('ok',d.get('ok'),d.get('reason',''),len(ps),'players; top5:',[(p['rank'],p['name'],p['pos'],p['proTeam'],p['adp'],'proj',p.get('proj'),'last',p.get('lastPts')) for p in ps[:5]]);print('with proj:',sum(1 for p in ps if p.get('proj') is not None),'with lastPts:',sum(1 for p in ps if p.get('lastPts') is not None))" || head -c 400 /tmp/o.json
+          pid=$(python3 -c "import json;d=json.load(open('/tmp/o.json'));print(d['players'][0]['pid'])" 2>/dev/null || echo 0)
+          code=$(fn "{\"secret\":\"amenfarms\",\"action\":\"ff_player\",\"pid\":$pid}" || echo FAIL)
+          echo "ff_player($pid) HTTP $code, $(wc -c < /tmp/o.json) bytes"
+          python3 -c "
+          import json;d=json.load(open('/tmp/o.json'));p=d.get('player',{})
+          print('ok',d.get('ok'),d.get('reason',''),'|',p.get('name'),'| outlook',len(p.get('outlook','')),'chars | proj',(p.get('proj') or {}).get('total'),'| last',(p.get('last') or {}).get('total'))
+          print('proj lines:',(p.get('proj') or {}).get('lines'))
+          print('last lines:',(p.get('last') or {}).get('lines'))
+          " || head -c 400 /tmp/o.json
           code=$(fn '{"secret":"amenfarms","action":"ff_lastdraft"}' || echo FAIL)
           echo "ff_lastdraft HTTP $code, $(wc -c < /tmp/o.json) bytes"
           python3 -c "

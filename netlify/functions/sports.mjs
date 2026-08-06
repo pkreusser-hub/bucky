@@ -19,8 +19,10 @@
 // Betting odds/pickcenter fields are deliberately never mapped (family app).
 //
 // DRAFT ROOM (ffdraft.html, standalone): ff_draftinfo (teams + roster size +
-// scoring flavor + byes), ff_draftpool (ESPN-ranked draftable pool),
-// ff_lastdraft (last season's draft + rosters, for keeper costs).
+// scoring flavor + byes), ff_draftpool (ESPN-ranked draftable pool w/ season
+// projections + last-year points), ff_lastdraft (last season's draft +
+// rosters, for keeper costs), ff_player (one player's stat breakdown + ESPN's
+// seasonOutlook analysis, for the detail card).
 //
 // FANTASY (ff_* actions): the family's private ESPN league (id 705063, team
 // "Battle Kreussers") through the fantasy v3 API. A private league requires two
@@ -685,6 +687,13 @@ async function ffDraftInfo(body) {
 // The draftable player pool, sorted by ESPN's draft rankings in the league's
 // scoring flavor. No filterStatus — pre-draft, EVERY player belongs in the
 // pool (rostered-in-ESPN players included; keepers are subtracted client-side).
+// A player's SEASON-level stat entry: split 0 = full season; source 0 = what
+// actually happened, 1 = the projection.
+function seasonStat(stats, seasonId, sourceId) {
+  return (Array.isArray(stats) ? stats : []).find((s) =>
+    s?.seasonId === seasonId && s?.statSourceId === sourceId && s?.statSplitTypeId === 0);
+}
+
 async function ffDraftPool(body) {
   const fmt = body?.format === "standard" ? "STANDARD" : "PPR";
   const filter = {
@@ -692,6 +701,10 @@ async function ffDraftPool(body) {
       limit: 320,
       sortDraftRanks: { sortPriority: 100, sortAsc: true, value: fmt },
       filterRanksForRankTypes: { value: [fmt] },
+      // Ask for season-level splits (this year's projection + last year's
+      // actual). Harmless if the upstream ignores it — the reads are optional.
+      filterStatsForSourceIds: { value: [0, 1] },
+      filterStatsForSplitTypeIds: { value: [0] },
     },
   };
   const { data: j, err, year } = await ffFetch(["kona_player_info"], "", body,
@@ -704,6 +717,7 @@ async function ffDraftPool(body) {
         const rk = p?.draftRanksByRankType || {};
         const rank = rk?.[fmt]?.rank ?? rk?.PPR?.rank ?? rk?.STANDARD?.rank ?? null;
         const proId = p?.proTeamId ?? 0;
+        const stats = Array.isArray(p?.stats) ? p.stats : [];
         return {
           pid: p?.id ?? null,
           name: p?.fullName || "",
@@ -713,6 +727,8 @@ async function ffDraftPool(body) {
           injury: p?.injuryStatus && p.injuryStatus !== "ACTIVE" ? p.injuryStatus : "",
           rank: Number.isFinite(rank) ? rank : null,
           adp: r1(p?.ownership?.averageDraftPosition),
+          proj: r1(seasonStat(stats, year, 1)?.appliedTotal),
+          lastPts: r1(seasonStat(stats, year - 1, 0)?.appliedTotal),
         };
       })
       .filter((p) => p.pid != null && p.name)
@@ -771,6 +787,64 @@ async function ffLastDraft(body) {
   }
 }
 
+// One player's full picture, for the draft room's detail card: season stat
+// BREAKDOWN (last year actual vs this year projected, decoded through the
+// community-documented stat ids) + ESPN's own seasonOutlook analysis text.
+// Fetched on demand per click — the outlook paragraphs would triple the pool
+// payload if they rode along on every player.
+const STAT_LINES = [
+  [3, "Pass yds"], [4, "Pass TD"], [20, "INT"],
+  [23, "Carries"], [24, "Rush yds"], [25, "Rush TD"],
+  [58, "Targets"], [53, "Catches"], [42, "Rec yds"], [43, "Rec TD"],
+  [72, "Fumbles lost"],
+];
+function statBundle(entry) {
+  if (!entry) return null;
+  const map = entry?.stats || {};
+  const lines = [];
+  for (const [id, label] of STAT_LINES) {
+    const v = map[id];
+    if (typeof v === "number" && isFinite(v) && Math.abs(v) >= 0.5) lines.push({ label, val: r1(v) });
+  }
+  return { total: r1(entry?.appliedTotal), avg: r1(entry?.appliedAverage), lines };
+}
+async function ffPlayer(body) {
+  const pid = Number(body?.pid);
+  if (!Number.isFinite(pid) || pid <= 0) return { ok: false, reason: "bad-pid" };
+  const filter = { players: { filterIds: { value: [pid] }, limit: 2 } };
+  const { data: j, err, year } = await ffFetch(["kona_player_info"], "", body,
+    { "x-fantasy-filter": JSON.stringify(filter) });
+  if (err) return { ok: false, reason: err };
+  try {
+    const e = (Array.isArray(j?.players) ? j.players : []).find((x) => (x?.player?.id ?? x?.id) === pid);
+    const p = e?.player || e || null;
+    if (!p || p.id !== pid) return { ok: false, reason: "not-found" };
+    const stats = Array.isArray(p?.stats) ? p.stats : [];
+    const rk = p?.draftRanksByRankType || {};
+    return {
+      ok: true,
+      season: year,
+      player: {
+        pid,
+        name: p?.fullName || "",
+        pos: POS_LABEL[p?.defaultPositionId] || "",
+        proTeamId: p?.proTeamId ?? 0,
+        proTeam: PRO_ABBREV[p?.proTeamId ?? 0] || "",
+        injury: p?.injuryStatus && p.injuryStatus !== "ACTIVE" ? p.injuryStatus : "",
+        pctOwned: Math.round((p?.ownership?.percentOwned ?? 0) * 10) / 10,
+        adp: r1(p?.ownership?.averageDraftPosition),
+        rank: { ppr: rk?.PPR?.rank ?? null, standard: rk?.STANDARD?.rank ?? null },
+        outlook: String(p?.seasonOutlook || "").slice(0, 1500),
+        proj: statBundle(seasonStat(stats, year, 1)),
+        last: Object.assign({ season: year - 1 },
+          statBundle(seasonStat(stats, year - 1, 0)) || { total: null, avg: null, lines: [] }),
+      },
+    };
+  } catch {
+    return { ok: false, reason: "bad-shape" };
+  }
+}
+
 // ---------------- handler ----------------
 
 export default async (req) => {
@@ -797,6 +871,7 @@ export default async (req) => {
   if (body.action === "ff_draftinfo") return json(await ffDraftInfo(body), 200, headers);
   if (body.action === "ff_draftpool") return json(await ffDraftPool(body), 200, headers);
   if (body.action === "ff_lastdraft") return json(await ffLastDraft(body), 200, headers);
+  if (body.action === "ff_player") return json(await ffPlayer(body), 200, headers);
   return json({ error: "Unknown action" }, 400, headers);
 };
 

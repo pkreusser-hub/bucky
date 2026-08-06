@@ -207,6 +207,45 @@ input[type=text],input[type=number],select{
 .ordrow .n{width:22px; color:var(--muted); font-weight:700; text-align:right}
 .ordrow b{flex:1}
 
+/* ---------- desktop: board + players side by side ---------- */
+#boardRail{min-width:0}
+@media (min-width:1100px){
+  #vBoard .boardwrap{display:grid; grid-template-columns:minmax(0,1fr) 380px; gap:14px; align-items:start}
+}
+
+/* ---------- players list: its own scroll, richer rows ---------- */
+#pList{overflow-y:auto; -webkit-overflow-scrolling:touch; border-radius:10px}
+.prow .tlogo{width:22px; height:22px; object-fit:contain; flex:0 0 auto}
+.prow .pstat{width:72px; text-align:right; font-size:11px; color:var(--muted); line-height:1.3; font-variant-numeric:tabular-nums; flex:0 0 auto}
+.prow .pstat b{color:var(--ink); font-weight:700}
+.prow{cursor:pointer}
+
+/* ---------- player detail card ---------- */
+#pcOverlay{position:fixed; inset:0; background:rgba(24,28,20,.55); z-index:50; display:flex; align-items:center; justify-content:center; padding:14px}
+#pcCard{background:var(--card); border-radius:16px; max-width:460px; width:100%; max-height:88vh; overflow-y:auto; padding:16px; border:1px solid var(--line)}
+#pcCard h2{margin:0; font-family:Fraunces,Georgia,serif; color:var(--pine); font-size:20px}
+#pcCard .tlogo{width:42px; height:42px; object-fit:contain}
+.pctotals{display:flex; gap:10px; margin:12px 0 4px}
+.pctotals .tot{flex:1; background:#f0ede1; border-radius:10px; padding:8px 10px; text-align:center}
+.pctotals .tot b{display:block; font-size:18px}
+.pctotals .tot span{font-size:11px; color:var(--muted)}
+.pcstats{width:100%; border-collapse:collapse; margin:8px 0; font-size:13px}
+.pcstats th,.pcstats td{padding:4px 6px; border-bottom:1px dashed var(--line); text-align:right; font-variant-numeric:tabular-nums}
+.pcstats th:first-child,.pcstats td:first-child{text-align:left}
+.pcstats th{color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.4px}
+.pcout{font-size:13.5px; line-height:1.5; overflow-wrap:anywhere}
+.pcact{display:flex; gap:8px; margin-top:12px; align-items:center}
+
+/* ---------- draft chat ---------- */
+#chatCard{margin-top:12px}
+#chatMsgs{height:230px; overflow-y:auto; background:#faf8f0; border:1px solid var(--line); border-radius:10px; padding:8px 10px; font-size:13.5px}
+#chatMsgs .cmsg{margin-bottom:6px; overflow-wrap:anywhere}
+#chatMsgs .cmsg b{color:var(--pine-d)}
+#chatMsgs .cmsg .ct{color:var(--muted); font-size:10.5px; margin-left:6px}
+#chatMsgs .cempty{color:var(--muted); font-style:italic}
+#chatRow{display:flex; gap:8px; margin-top:8px}
+#chatIn{flex:1; min-width:0}
+
 /* ---------- toasts ---------- */
 #toastWrap{position:fixed; left:50%; transform:translateX(-50%); bottom:70px; z-index:60; display:flex; flex-direction:column; gap:6px}
 .toast{
@@ -242,18 +281,27 @@ input[type=text],input[type=number],select{
 <main>
   <section id="vLanding" hidden></section>
   <section id="vBoard" hidden>
-    <div class="panner"><div id="boardGrid"></div></div>
-    <p class="mut" id="boardLegend" style="margin-top:8px"></p>
+    <div class="boardwrap">
+      <div class="boardmain">
+        <div class="panner"><div id="boardGrid"></div></div>
+        <p class="mut" id="boardLegend" style="margin-top:8px"></p>
+        <div id="boardChatSlot"></div>
+      </div>
+      <aside id="boardRail" hidden></aside>
+    </div>
   </section>
   <section id="vPlayers" hidden>
-    <div id="keeperPanel"></div>
-    <div id="pSearchRow">
-      <input type="text" id="pSearch" placeholder="Search players…" autocomplete="off">
-      <button class="btn ghost sm" id="pHideTaken">Hide taken</button>
-    </div>
-    <div class="chips" id="posChips"></div>
-    <div id="pList"></div>
-    <p class="mut" id="poolNote" style="margin-top:8px"></p>
+    <div id="playersHost"><div id="playersPanel">
+      <div id="keeperPanel"></div>
+      <div id="pSearchRow">
+        <input type="text" id="pSearch" placeholder="Search players…" autocomplete="off">
+        <button class="btn ghost sm" id="pHideTaken">Hide taken</button>
+      </div>
+      <div class="chips" id="posChips"></div>
+      <div id="pList"></div>
+      <p class="mut" id="poolNote" style="margin-top:8px"></p>
+    </div></div>
+    <div id="playersChatSlot"></div>
   </section>
   <section id="vTeams" hidden>
     <div id="claimCard"></div>
@@ -262,6 +310,15 @@ input[type=text],input[type=number],select{
   </section>
   <section id="vCommish" hidden></section>
 </main>
+<div class="card" id="chatCard" hidden>
+  <h2>💬 Draft chat</h2>
+  <div id="chatMsgs"></div>
+  <div id="chatRow">
+    <input type="text" id="chatIn" placeholder="Say something…" maxlength="300" autocomplete="off">
+    <button class="btn sm" id="chatSend">Send</button>
+  </div>
+</div>
+<div id="pcOverlay" hidden><div id="pcCard"></div></div>
 <div id="confirmBar" hidden></div>
 <div id="toastWrap"></div>
 
@@ -353,6 +410,10 @@ input[type=text],input[type=number],select{
   var keepFor = null;        // commish: which team keepers are being set for
   var connState = "boot";    // boot | ok | dead
   var backendReady = null;
+  var chatMsgs = [];         // the shared draft chat
+  var pcPid = null;          // player detail card: open pid (null = closed)
+  var cardCache = {};        // pid -> ff_player payload (or {err})
+  var DESK_MQ = window.matchMedia("(min-width:1100px)");
 
   // ---------------- backend: Firestore doc, or localStorage in practice mode ----
   // ONE draft doc; every mutation is a transaction-style read-modify-write so
@@ -368,15 +429,21 @@ input[type=text],input[type=number],select{
   function localWrite(d) {
     localStorage.setItem("ffd_local_" + SEASON, JSON.stringify(d));
   }
+  var CHAT_KEY = "ffd_localchat_" + SEASON;
+  function localChatRead() {
+    try { return JSON.parse(localStorage.getItem(CHAT_KEY) || "[]") || []; } catch (e) { return []; }
+  }
 
   function initBackend() {
     if (LOCAL) {
       connState = "ok";
       $("localBadge").hidden = false;
       D = localRead();
+      chatMsgs = localChatRead();
       // Another tab on this device counts as another "device" in practice mode.
       window.addEventListener("storage", function (e) {
         if (e.key === "ffd_local_" + SEASON) { D = localRead(); renderAll(); }
+        if (e.key === CHAT_KEY) { chatMsgs = localChatRead(); renderChat(); }
       });
       renderAll();
       return Promise.resolve();
@@ -403,6 +470,13 @@ input[type=text],input[type=number],select{
           connState = "dead";
           $("connBanner").hidden = false;
         });
+        // The draft chat is its OWN doc — chat writes are plain arrayUnions
+        // that never contend with the pick transactions on the draft doc.
+        Cloud.chatRef = fs.doc(Cloud.db, DOC_COLL, "chat_" + SEASON);
+        fs.onSnapshot(Cloud.chatRef, function (snap) {
+          chatMsgs = (snap.exists() && Array.isArray(snap.data().messages)) ? snap.data().messages : [];
+          renderChat();
+        }, function () {});
       });
     }).catch(function () {
       connState = "dead";
@@ -807,6 +881,127 @@ input[type=text],input[type=number],select{
     }, "Draft board cleared");
   }
 
+  // ---------------- draft chat ----------------
+  function sendChat(text) {
+    text = String(text == null ? $("chatIn").value : text).trim().slice(0, 300);
+    if (!text) return;
+    if (!me.name) { toast("Set your name in the Teams tab so people know who's talking", true); return; }
+    var m = { n: me.name, t: text, ts: Date.now() };
+    if (LOCAL) {
+      var arr = localChatRead();
+      arr.push(m);
+      try { localStorage.setItem(CHAT_KEY, JSON.stringify(arr)); } catch (e) {}
+      chatMsgs = arr;
+      $("chatIn").value = "";
+      renderChat();
+      return;
+    }
+    if (connState !== "ok" || !Cloud.chatRef) { toast("Not connected — reload and try again", true); return; }
+    $("chatIn").value = "";
+    Cloud.fs.setDoc(Cloud.chatRef, { messages: Cloud.fs.arrayUnion(m) }, { merge: true })
+      .catch(function () { toast("Message didn't send", true); });
+  }
+  function chatTime(ts) {
+    try { return new Date(ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); } catch (e) { return ""; }
+  }
+  function renderChat() {
+    var box = $("chatMsgs");
+    if (!box) return;
+    var stick = box.scrollHeight - box.scrollTop - box.clientHeight < 48 || !box.childElementCount;
+    var msgs = chatMsgs.slice(-150);
+    box.innerHTML = msgs.length
+      ? msgs.map(function (m) {
+          return '<div class="cmsg"><b>' + esc(m.n) + "</b> " + esc(m.t) +
+            '<span class="ct">' + esc(chatTime(m.ts)) + "</span></div>";
+        }).join("")
+      : '<div class="cempty">Nothing yet — talk some smack.</div>';
+    if (stick) box.scrollTop = box.scrollHeight;
+  }
+
+  // ---------------- player detail card ----------------
+  function openPlayerCard(pid) {
+    pcPid = pid;
+    renderPlayerCard();
+    if (cardCache[pid] || !/^\d+$/.test(String(pid))) return;
+    api("ff_player", { pid: pid }).then(function (j) {
+      cardCache[pid] = (j && j.ok) ? j.player : { err: (j && j.reason) || "error" };
+      renderPlayerCard();
+    }).catch(function () {
+      cardCache[pid] = { err: "network" };
+      renderPlayerCard();
+    });
+  }
+  function closePlayerCard() { pcPid = null; renderPlayerCard(); }
+  function teamLogoImg(abbrev, cls) {
+    if (!abbrev) return "";
+    return '<img class="' + (cls || "tlogo") + '" alt="" loading="lazy" onerror="this.style.display=\'none\'" ' +
+      'src="https://a.espncdn.com/i/teamlogos/nfl/500/' + esc(String(abbrev).toLowerCase()) + '.png">';
+  }
+  function renderPlayerCard() {
+    var ov = $("pcOverlay");
+    if (pcPid == null || !D) { ov.hidden = true; return; }
+    ov.hidden = false;
+    var base = poolByPid[pcPid] || { pid: pcPid, name: "Player", pos: "", proTeam: "" };
+    var det = cardCache[pcPid];
+    var bye = playerBye(base);
+    var tk = takenPids(D);
+    var taken = tk[pcPid];
+    var h = '<div class="row" style="justify-content:space-between;align-items:flex-start">' +
+      '<div class="row" style="gap:10px">' + teamLogoImg(base.proTeam) +
+      "<div><h2>" + esc(base.name) + "</h2><div class='mut'>" + esc(base.pos || "?") +
+      (base.proTeam ? " · " + esc(base.proTeam) : "") + (bye ? " · bye " + bye : "") +
+      (base.injury ? ' · <span class="inj">' + esc(base.injury) + "</span>" : "") + "</div></div></div>" +
+      '<button class="btn ghost sm" id="pcClose">✕</button></div>';
+    if (!det) {
+      h += '<p class="mut">Loading stats…</p>';
+    } else if (det.err) {
+      h += '<p class="mut">Couldn\'t load the full stats (' + esc(det.err) + ") — rankings above still stand.</p>";
+    } else {
+      var lastLabel = "’" + String(det.last && det.last.season != null ? det.last.season : SEASON - 1).slice(2);
+      h += '<div class="pctotals">' +
+        '<div class="tot"><b>' + (det.proj && det.proj.total != null ? det.proj.total : "—") + "</b><span>" + SEASON + " projected pts</span></div>" +
+        '<div class="tot"><b>' + (det.last && det.last.total != null ? det.last.total : "—") + "</b><span>" + lastLabel + " actual pts</span></div>" +
+        "</div>";
+      h += '<p class="mut" style="margin:2px 0 6px">' +
+        (det.rank && det.rank.ppr != null ? "PPR rank " + det.rank.ppr + " · " : "") +
+        (det.adp != null ? "ADP " + det.adp + " · " : "") +
+        (det.pctOwned != null ? det.pctOwned + "% rostered" : "") + "</p>";
+      // Merge the two stat-line sets into one table, keeping the server's order.
+      var labels = [];
+      var byLabel = {};
+      [["last", det.last], ["proj", det.proj]].forEach(function (pair) {
+        ((pair[1] && pair[1].lines) || []).forEach(function (l) {
+          if (!byLabel[l.label]) { byLabel[l.label] = {}; labels.push(l.label); }
+          byLabel[l.label][pair[0]] = l.val;
+        });
+      });
+      if (labels.length) {
+        h += '<table class="pcstats"><tr><th></th><th>' + esc(lastLabel) + " actual</th><th>" + SEASON + " proj</th></tr>" +
+          labels.map(function (lb) {
+            var r = byLabel[lb];
+            return "<tr><td>" + esc(lb) + "</td><td>" + (r.last != null ? r.last : "—") + "</td><td>" + (r.proj != null ? r.proj : "—") + "</td></tr>";
+          }).join("") + "</table>";
+      }
+      if (det.outlook) h += '<h3 style="margin:10px 0 4px">📝 ESPN\'s outlook</h3><p class="pcout">' + esc(det.outlook) + "</p>";
+    }
+    // Context action: same rules as the list rows.
+    var keepMode = D.phase === "keepers" || D.phase === "setup";
+    var t = keeperTargetTeam();
+    var cur = D.phase === "live" ? currentSlot(D) : null;
+    var canDraftNow = !!(cur && canPickFor(D, cur.teamId) && !D.paused);
+    h += '<div class="pcact">';
+    if (taken) h += '<span class="mut">On ' + esc(taken.name || "a roster") + "</span>";
+    else if (keepMode && t) h += '<button class="btn" id="pcKeep">🔒 Keep him</button>';
+    else if (D.phase === "live") h += '<button class="btn" id="pcDraft"' + (canDraftNow ? "" : " disabled") + ">Draft him</button>";
+    h += "</div>";
+    $("pcCard").innerHTML = h;
+    $("pcClose").onclick = closePlayerCard;
+    var kb = $("pcKeep"), db = $("pcDraft");
+    var player = poolByPid[pcPid];
+    if (kb && player) kb.onclick = function () { closePlayerCard(); armConfirm(player, "keep"); };
+    if (db && player) db.onclick = function () { closePlayerCard(); armConfirm(player, "pick"); };
+  }
+
   // ---------------- rendering ----------------
   function fmtName(full) {
     var parts = String(full || "").split(" ");
@@ -1043,10 +1238,38 @@ input[type=text],input[type=number],select{
   // pids are numbers from ESPN but strings in data- attributes; customs are "c…" strings.
   function castPid(v) { return /^\d+$/.test(v) ? Number(v) : v; }
 
+  // Desktop shows the players panel BESIDE the board so you can draft without
+  // leaving the wall; placePanels() moves the one panel node between homes.
+  function panelOnBoard() { return view === "board" && DESK_MQ.matches; }
+  function placePanels() {
+    var deskBoard = panelOnBoard() && !!D;
+    var rail = $("boardRail");
+    var panel = $("playersPanel");
+    if (deskBoard) {
+      rail.hidden = false;
+      if (panel.parentNode !== rail) rail.appendChild(panel);
+    } else {
+      rail.hidden = true;
+      var host = $("playersHost");
+      if (panel.parentNode !== host) host.appendChild(panel);
+    }
+    var chat = $("chatCard");
+    var slot = D && view === "board" ? $("boardChatSlot") : (D && view === "players" ? $("playersChatSlot") : null);
+    chat.hidden = !slot;
+    if (slot && chat.parentNode !== slot) slot.appendChild(chat);
+  }
+  // The list scrolls INSIDE itself — scrolling players must never scroll the page.
+  function sizePList() {
+    var el = $("pList");
+    if (!el || !el.offsetParent) return;
+    var top = el.getBoundingClientRect().top;
+    el.style.maxHeight = Math.max(200, window.innerHeight - top - (selPlayer ? 84 : 16)) + "px";
+  }
+  window.addEventListener("resize", sizePList);
+
   function renderPlayers() {
-    var el = $("vPlayers");
-    el.hidden = view !== "players" || !D;
-    if (el.hidden) return;
+    $("vPlayers").hidden = view !== "players" || !D;
+    if (!D || (view !== "players" && !panelOnBoard())) return;
     renderKeeperPanel();
     var chips = $("posChips");
     chips.innerHTML = ["ALL"].concat(POS).map(function (p) {
@@ -1071,16 +1294,19 @@ input[type=text],input[type=number],select{
     var t = keeperTargetTeam();
     var cur = D.phase === "live" ? currentSlot(D) : null;
     var canDraftNow = !!(cur && canPickFor(D, cur.teamId) && !D.paused);
+    var lastYr = "’" + String(SEASON - 1).slice(2);
     var h = "";
     list.forEach(function (p) {
       var taken = tk[p.pid];
       var bye = playerBye(p);
-      h += '<div class="prow' + (taken ? " taken" : "") + '">' +
+      h += '<div class="prow' + (taken ? " taken" : "") + '" data-pid="' + esc(p.pid) + '" title="Tap for stats & outlook">' +
         '<span class="rk">' + (p.rank != null ? p.rank : "—") + "</span>" +
         '<span class="dot" style="background:' + posColor(p.pos) + '">' + esc(p.pos || "?") + "</span>" +
+        teamLogoImg(p.proTeam) +
         '<span class="nm"><b>' + esc(p.name) + (p.injury ? ' <span class="inj">' + esc(p.injury[0]) + "</span>" : "") + "</b>" +
         '<span class="mut">' + esc(p.proTeam || "FA") + (bye ? " · bye " + bye : "") + "</span></span>" +
-        '<span class="adp">' + (p.adp != null ? "ADP " + p.adp : "") + "</span>" +
+        '<span class="pstat">' + (p.proj != null ? "<b>" + p.proj + "</b> proj" : "") +
+        (p.lastPts != null ? "<br>" + p.lastPts + " " + lastYr : "") + "</span>" +
         (taken ? '<span class="tk">' + esc(taken ? (taken.abbrev || taken.name || "taken") : "") + "</span>"
           : (keepMode && t ? '<button class="btn ghost sm pKeep" data-pid="' + esc(p.pid) + '">🔒 Keep</button>' : "") +
             (D.phase === "live" ? '<button class="btn sm pDraft" data-pid="' + esc(p.pid) + '"' + (canDraftNow ? "" : " disabled") + ">Draft</button>" : "")) +
@@ -1098,6 +1324,14 @@ input[type=text],input[type=number],select{
     $("pList").querySelectorAll(".pKeep").forEach(function (b) {
       b.onclick = function () { var p = poolByPid[castPid(b.dataset.pid)]; if (p) armConfirm(p, "keep"); };
     });
+    // Tapping the row itself (not its buttons) opens the stats/outlook card.
+    $("pList").querySelectorAll(".prow").forEach(function (row) {
+      row.addEventListener("click", function (e) {
+        if (e.target.closest("button")) return;
+        openPlayerCard(castPid(row.dataset.pid));
+      });
+    });
+    requestAnimationFrame(sizePList);
     var ca = $("customAdd");
     if (ca) ca.onclick = function () {
       var nm = searchQ.trim();
@@ -1158,27 +1392,35 @@ input[type=text],input[type=number],select{
     var el = $("vTeams");
     el.hidden = view !== "teams" || !D;
     if (el.hidden) return;
-    // Claim card
+    // Claim card — once you've picked your team the whole section collapses
+    // to one line (release stays as the escape hatch).
     var mine = myTeam(D);
-    var ch = '<div class="card"><h2>👋 Who are you?</h2>' +
-      '<div class="row"><input type="text" id="nameIn" placeholder="Your name" value="' + esc(me.name) + '" maxlength="24">' +
-      '<button class="btn ghost sm" id="nameSave">Save</button>' +
-      (mine ? '<span class="ownchip">You run ' + esc(mine.name) + "</span>" : "") + "</div>";
-    if (!mine) ch += '<p class="mut">Type your name, then claim your team below.</p>';
-    D.teams.forEach(function (t) {
-      ch += '<div class="claimrow"><b>' + esc(t.name) + "</b>" +
-        (t.espnOwner ? '<span class="mut">' + esc(t.espnOwner) + "</span>" : "") +
-        (t.owner
-          ? '<span class="ownchip">' + esc(t.owner.name) + "</span>" +
-            (t.owner.dev === me.dev || isCommish(D) ? ' <button class="btn ghost sm relBtn" data-tid="' + t.id + '">release</button>' : "")
-          : '<button class="btn sm claimBtn" data-tid="' + t.id + '">That\'s me</button>') +
-        "</div>";
-    });
-    ch += "</div>";
+    var ch;
+    if (mine) {
+      ch = '<div class="card"><div class="row" style="justify-content:space-between">' +
+        "<span>✅ You run <b>" + esc(mine.name) + "</b> <span class='mut'>(" + esc(me.name) + ")</span></span>" +
+        '<button class="btn ghost sm relBtn" data-tid="' + mine.id + '">release</button></div></div>';
+    } else {
+      ch = '<div class="card"><h2>👋 Who are you?</h2>' +
+        '<div class="row"><input type="text" id="nameIn" placeholder="Your name" value="' + esc(me.name) + '" maxlength="24">' +
+        '<button class="btn ghost sm" id="nameSave">Save</button></div>' +
+        '<p class="mut">Type your name, then claim your team below.</p>';
+      D.teams.forEach(function (t) {
+        ch += '<div class="claimrow"><b>' + esc(t.name) + "</b>" +
+          (t.espnOwner ? '<span class="mut">' + esc(t.espnOwner) + "</span>" : "") +
+          (t.owner
+            ? '<span class="ownchip">' + esc(t.owner.name) + "</span>" +
+              (isCommish(D) ? ' <button class="btn ghost sm relBtn" data-tid="' + t.id + '">release</button>' : "")
+            : '<button class="btn sm claimBtn" data-tid="' + t.id + '">That\'s me</button>') +
+          "</div>";
+      });
+      ch += "</div>";
+    }
     $("claimCard").innerHTML = ch;
-    $("nameSave").onclick = function () { setMyName($("nameIn").value); toast("Hi, " + (me.name || "friend") + "!"); renderAll(); };
+    var ns = $("nameSave");
+    if (ns) ns.onclick = function () { setMyName($("nameIn").value); toast("Hi, " + (me.name || "friend") + "!"); renderAll(); };
     document.querySelectorAll(".claimBtn").forEach(function (b) {
-      b.onclick = function () { setMyName($("nameIn").value); claimTeam(Number(b.dataset.tid)); };
+      b.onclick = function () { var ni = $("nameIn"); if (ni) setMyName(ni.value); claimTeam(Number(b.dataset.tid)); };
     });
     document.querySelectorAll(".relBtn").forEach(function (b) {
       b.onclick = function () { releaseTeam(Number(b.dataset.tid)); };
@@ -1324,11 +1566,14 @@ input[type=text],input[type=number],select{
     renderClock();
     renderTabs();
     renderLanding();
+    placePanels();
     renderBoard();
     renderPlayers();
     renderTeams();
     renderCommish();
     renderConfirm();
+    renderChat();
+    renderPlayerCard();
   }
 
   // ---------------- wiring ----------------
@@ -1337,6 +1582,10 @@ input[type=text],input[type=number],select{
   });
   $("pSearch").addEventListener("input", function () { searchQ = $("pSearch").value; renderPlayers(); });
   $("pHideTaken").onclick = function () { hideTaken = !hideTaken; renderPlayers(); };
+  $("chatSend").onclick = function () { sendChat(); };
+  $("chatIn").addEventListener("keydown", function (e) { if (e.key === "Enter") sendChat(); });
+  $("pcOverlay").addEventListener("click", function (e) { if (e.target === $("pcOverlay")) closePlayerCard(); });
+  if (DESK_MQ.addEventListener) DESK_MQ.addEventListener("change", function () { renderAll(); });
 
   // ---------------- boot ----------------
   backendReady = initBackend();
@@ -1379,6 +1628,11 @@ input[type=text],input[type=number],select{
     renderAll: renderAll,
     backendReady: function () { return backendReady; },
     loads: function () { return Promise.all([loadInfo(), loadPool(), loadLastDraft()]); },
+    get chat() { return chatMsgs; },
+    sendChat: sendChat,
+    openPlayerCard: openPlayerCard,
+    closePlayerCard: closePlayerCard,
+    panelOnBoard: panelOnBoard,
   };
 })();
 </script>

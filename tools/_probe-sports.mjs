@@ -232,8 +232,23 @@ async function probeDeployedFunction() {
         console.log("  ⚠ ff_draftpool thin/failed: " + JSON.stringify(dp).slice(0, 160)); flagged++;
       } else {
         const p0 = dp.players[0];
-        console.log(`  ok — draft pool: ${dp.players.length} players, #1 ${p0.name} (${p0.pos} ${p0.proTeam}, rank ${p0.rank}, ADP ${p0.adp})`);
+        console.log(`  ok — draft pool: ${dp.players.length} players, #1 ${p0.name} (${p0.pos} ${p0.proTeam}, rank ${p0.rank}, ADP ${p0.adp}, proj ${p0.proj}, last ${p0.lastPts})`);
         if (p0.rank !== 1) { console.log("  ⚠ pool isn't rank-sorted — check sortDraftRanks in the filter header."); flagged++; }
+        const withProj = dp.players.filter((p) => p.proj != null).length;
+        const withLast = dp.players.filter((p) => p.lastPts != null).length;
+        console.log(`  ${withProj}/${dp.players.length} rows carry a projection, ${withLast} carry last-year points`);
+        if (!withProj) { console.log("  ⚠ no projections at all — check the season-split stat filter."); flagged++; }
+        if (!withLast) console.log("  (no last-year points — the rows just show proj only)");
+        const pc = await call({ action: "ff_player", pid: p0.pid });
+        if (!pc || !pc.ok) { console.log("  ⚠ ff_player failed: " + JSON.stringify(pc).slice(0, 160)); flagged++; }
+        else {
+          const pl = pc.player;
+          console.log(`  ok — player card: ${pl.name}, outlook ${pl.outlook.length} chars, proj ${pl.proj && pl.proj.total}, last ${pl.last && pl.last.total}, ${((pl.proj || {}).lines || []).length}+${((pl.last || {}).lines || []).length} stat lines`);
+          if (!pl.outlook) console.log("  (no seasonOutlook for him — ESPN doesn't write one for everyone)");
+          if (!(pl.proj && pl.proj.total != null) && !(pl.last && pl.last.total != null)) {
+            console.log("  ⚠ card has NEITHER proj nor last-year totals — check seasonStat reads."); flagged++;
+          }
+        }
       }
       const ld = await call({ action: "ff_lastdraft" });
       if (!ld || !ld.ok) { console.log("  ⚠ ff_lastdraft failed: " + JSON.stringify(ld).slice(0, 200)); flagged++; }
