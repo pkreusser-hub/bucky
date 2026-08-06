@@ -175,6 +175,11 @@ input::placeholder{color:#5b6579}
 #recapCard .grrow b{font-size:13.5px}
 #recapCard .grv{font-variant-numeric:tabular-nums; font-weight:700; color:var(--gold)}
 
+/* ---------- combined Players & Teams: players left, teams right ---------- */
+@media (min-width:1100px){
+  #vPlayers .pwrap{display:grid; grid-template-columns:minmax(0,1fr) 380px; gap:14px; align-items:start}
+}
+
 /* ---------- desktop: board + players side by side ---------- */
 #boardRail{min-width:0}
 @media (min-width:1100px){
@@ -369,8 +374,7 @@ body.tv #boardLegend{display:none}
 <div id="clockStrip" hidden></div>
 <nav id="tabs" hidden>
   <button data-v="board">Board</button>
-  <button data-v="players">Players</button>
-  <button data-v="teams">Teams</button>
+  <button data-v="players">Players &amp; Teams</button>
   <button data-v="commish" id="tabCommish" hidden>Commish</button>
 </nav>
 <main>
@@ -387,24 +391,26 @@ body.tv #boardLegend{display:none}
     </div>
   </section>
   <section id="vPlayers" hidden>
-    <div id="playersHost"><div id="playersPanel">
-      <div id="keeperPanel"></div>
-      <div id="needsBar" hidden></div>
-      <div id="qStrip" hidden></div>
-      <div id="pSearchRow">
-        <input type="text" id="pSearch" placeholder="Search players…" autocomplete="off">
-        <button class="btn ghost sm" id="pHideTaken">Hide taken</button>
-      </div>
-      <div class="chips" id="posChips"></div>
-      <div id="pList"></div>
-      <p class="mut" id="poolNote" style="margin-top:8px"></p>
-    </div></div>
+    <div class="pwrap">
+      <div id="playersHost"><div id="playersPanel">
+        <div id="keeperPanel"></div>
+        <div id="needsBar" hidden></div>
+        <div id="qStrip" hidden></div>
+        <div id="pSearchRow">
+          <input type="text" id="pSearch" placeholder="Search players…" autocomplete="off">
+          <button class="btn ghost sm" id="pHideTaken">Hide taken</button>
+        </div>
+        <div class="chips" id="posChips"></div>
+        <div id="pList"></div>
+        <p class="mut" id="poolNote" style="margin-top:8px"></p>
+      </div></div>
+      <aside id="teamsCol">
+        <div id="claimCard"></div>
+        <div class="tchips" id="teamChips"></div>
+        <div id="teamRoster"></div>
+      </aside>
+    </div>
     <div id="playersChatSlot"></div>
-  </section>
-  <section id="vTeams" hidden>
-    <div id="claimCard"></div>
-    <div class="tchips" id="teamChips"></div>
-    <div id="teamRoster"></div>
   </section>
   <section id="vCommish" hidden></section>
 </main>
@@ -1260,7 +1266,7 @@ body.tv #boardLegend{display:none}
   function sendChat(text) {
     text = String(text == null ? $("chatIn").value : text).trim().slice(0, 300);
     if (!text) return;
-    if (!me.name) { toast("Set your name in the Teams tab so people know who's talking", true); return; }
+    if (!me.name) { toast("Set your name under Players & Teams so people know who's talking", true); return; }
     var m = { n: me.name, t: text, ts: Date.now() };
     if (LOCAL) {
       var arr = localChatRead();
@@ -1388,7 +1394,7 @@ body.tv #boardLegend{display:none}
   }
   function phaseText(d) {
     if (!d) return "";
-    if (d.phase === "setup") return "Getting set up — claim your team in the Teams tab.";
+    if (d.phase === "setup") return "Getting set up — claim your team under Players & Teams.";
     if (d.phase === "keepers") {
       var total = 0;
       Object.keys(d.keepers || {}).forEach(function (k) { total += (d.keepers[k] || []).length; });
@@ -1560,7 +1566,7 @@ body.tv #boardLegend{display:none}
         }).join("") + "</select></div>";
     }
     if (!t) {
-      h += '<p class="mut">Claim your team (Teams tab) to pick your keepers.</p></div>';
+      h += '<p class="mut">Claim your team (in the column beside the player list) to pick your keepers.</p></div>';
       el.innerHTML = h;
       return;
     }
@@ -1794,9 +1800,8 @@ body.tv #boardLegend{display:none}
 
   // ---------------- teams view ----------------
   function renderTeams() {
-    var el = $("vTeams");
-    el.hidden = view !== "teams" || !D;
-    if (el.hidden) return;
+    // Lives in the right column of the combined Players & Teams view.
+    if (!D) return;
     // Claim card — once you've picked your team the whole section collapses
     // to one line (release stays as the escape hatch).
     var mine = myTeam(D);

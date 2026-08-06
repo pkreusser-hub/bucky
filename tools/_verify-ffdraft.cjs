@@ -339,7 +339,7 @@ async function sectionRoom(browser) {
   const paulDev = await page.evaluate(() => window.__DRAFT__.me.dev);
 
   // --- claim (real UI) ---
-  await clickSafely(page, '#tabs button[data-v="teams"]');
+  await clickSafely(page, '#tabs button[data-v="players"]');
   await page.evaluate(() => { document.getElementById("nameIn").value = "Paul"; });
   await clickSafely(page, "#nameSave");
   await clickSafely(page, '.claimBtn[data-tid="1"]');
@@ -727,7 +727,7 @@ async function sectionRoom(browser) {
   }), "the sound toggle flips and persists");
 
   // --- teams view roster ---
-  await clickSafely(page, '#tabs button[data-v="teams"]');
+  await clickSafely(page, '#tabs button[data-v="players"]');
   await page.evaluate(() => {
     const b = Array.from(document.querySelectorAll("#teamChips button")).find((x) => x.dataset.tid === "1");
     b.click();
@@ -740,6 +740,15 @@ async function sectionRoom(browser) {
     const cc = document.getElementById("claimCard");
     return cc.textContent.includes("You run") && !cc.querySelector(".claimBtn");
   }), "after you claim, the claim section collapses to a single line");
+  ok(await page.evaluate(() => {
+    // ONE combined view now: no Teams tab, and on a phone the teams column
+    // stacks under the player list inside the same section.
+    const teamsTab = document.querySelector('#tabs button[data-v="teams"]');
+    const col = document.getElementById("teamsCol");
+    const panel = document.getElementById("playersPanel");
+    return !teamsTab && col.closest("#vPlayers") != null
+      && col.getBoundingClientRect().top >= panel.getBoundingClientRect().bottom - 6;
+  }), "Players & Teams are ONE tab — teams stack below the list on a phone");
   await hook(page, () => window.__DRAFT__.setMe("Visitor", "dev-visitor", ""));
   ok(await page.evaluate(() => document.querySelectorAll("#claimCard .claimrow").length === 8
     && !!document.getElementById("nameIn")), "an unclaimed visitor still gets the full claim list");
@@ -828,6 +837,15 @@ async function sectionRoom(browser) {
     return !rail.hidden && rail.contains(document.getElementById("playersPanel"))
       && document.querySelectorAll("#boardRail #pList .prow").length > 0;
   }), "desktop docks the players panel beside the board");
+  await dpage.evaluate(() => window.__DRAFT__.setView("players"));
+  ok(await dpage.evaluate(() => {
+    const p = document.getElementById("playersPanel").getBoundingClientRect();
+    const t = document.getElementById("teamsCol").getBoundingClientRect();
+    return t.left >= p.right - 6 && Math.abs(t.top - p.top) < 40
+      && document.querySelectorAll("#teamRoster .rrow").length > 0;
+  }), "desktop Players & Teams: players on the LEFT, team rosters on the RIGHT");
+  await shot(dpage, "ffdraft_playersteams_desktop.png");
+  await dpage.evaluate(() => window.__DRAFT__.setView("board"));
   ok(await dpage.evaluate(() => {
     const p = document.querySelector("#vBoard .panner");
     const headers = document.querySelectorAll("#boardGrid .bhead").length;
