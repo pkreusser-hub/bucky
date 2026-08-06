@@ -956,7 +956,7 @@ async function sectionRoom(browser) {
     chat.innerHTML = saved;
     return clean;
   }), "no emojis anywhere in the UI chrome (professional theme; chat text excluded)");
-  ok(await page.evaluate(() => !!JSON.parse(localStorage.getItem("ffd_pool2_2026") || "null")),
+  ok(await page.evaluate(() => !!JSON.parse(localStorage.getItem("ffd_pool3_2026") || "null")),
     "the player pool is cached for instant reopen");
   await shot(page, "ffdraft_done_390.png");
 

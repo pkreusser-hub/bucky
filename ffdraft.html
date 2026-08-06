@@ -686,7 +686,7 @@ body.tv #boardLegend{display:none}
   }
   function loadPool(force) {
     var fmt = (info && info.ppr === false) ? "standard" : "ppr";
-    var k = "ffd_pool2_" + SEASON;   // v2: +proj/lastPts
+    var k = "ffd_pool3_" + SEASON;   // v3: +the D/ST/K slot sweep — old caches have no defenses
     var c = lsGet(k);
     if (c && !force && c.format === fmt) { pool = c.players || []; indexPool(); }
     if (c && !force && c.format === fmt && Date.now() - c.ts < 24 * 3600000) return Promise.resolve(pool);
