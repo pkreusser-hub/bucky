@@ -656,13 +656,17 @@ async function sectionRoom(browser) {
     const row = document.querySelector("#pList .prow");
     const logo = row.querySelector(".tlogo");
     return !!logo && /espncdn\.com\/i\/teamlogos\/nfl/.test(logo.src)
-      && /proj/.test(row.querySelector(".pstat").textContent);
+      && /proj/.test(row.textContent);
   }), "rows carry the team logo + this-year proj + last-year points");
   ok(await page.evaluate(() => {
-    const names = Array.from(document.querySelectorAll("#pList .prow .nm b")).map((b) => b.textContent);
-    return /^J\. Chase/.test(names.find((n) => n.includes("Chase")) || "")
-      && names.some((n) => n === "Broncos D/ST");
-  }), "list names are first-initial + last name (but a D/ST keeps its whole name)");
+    // FULL names in the list, never truncated to initials — and the name
+    // element may wrap but must not be clipped mid-name at rail width.
+    const names = Array.from(document.querySelectorAll("#pList .prow .nm b")).map((b) => b.textContent.trim());
+    const chase = document.querySelector('#pList .prow[data-pid="4001"] .nm b');
+    return names.some((n) => n.startsWith("Ja'Marr Chase"))
+      && names.some((n) => n === "Broncos D/ST")
+      && chase && chase.scrollHeight <= chase.clientHeight + 2;
+  }), "list rows show the player's FULL name (wrapping, not clipping)");
   await page.evaluate(() => { document.querySelector('#pList .prow[data-pid="4002"] .nm').click(); });
   await page.waitForFunction(() => !document.getElementById("pcOverlay").hidden
     && document.getElementById("pcCard").textContent.includes("every-down back"), { timeout: 5000 });

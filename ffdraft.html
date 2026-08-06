@@ -207,10 +207,12 @@ input::placeholder{color:#5b6579}
 .prow .dot{width:34px; text-align:center; border-radius:4px; color:#fff; font-size:10px; font-weight:800; padding:3px 0; letter-spacing:.5px; flex:0 0 auto}
 .prow .tlogo{width:22px; height:22px; object-fit:contain; flex:0 0 auto}
 .prow .nm{flex:1; min-width:0}
-.prow .nm b{display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600}
-.prow .nm .mut{font-size:11px}
-.prow .pstat{width:70px; text-align:right; font-size:10.5px; color:var(--muted); line-height:1.35; font-variant-numeric:tabular-nums; flex:0 0 auto}
-.prow .pstat b{color:var(--ink); font-weight:700}
+.prow .nm b{
+  /* FULL name always — wrap to a second line before ever truncating */
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+  overflow:hidden; font-weight:600; line-height:1.25;
+}
+.prow .nm .mut{font-size:11px; display:block}
 .prow .tk{font-size:10.5px; color:var(--muted); font-weight:700; white-space:nowrap}
 .inj{color:#ef6a4d; font-weight:700; font-size:10px}
 .qbtn{
@@ -1700,10 +1702,10 @@ body.tv #boardLegend{display:none}
         '<span class="rk">' + (p.rank != null ? p.rank : "—") + "</span>" +
         '<span class="dot" style="background:' + posColor(p.pos) + '">' + esc(p.pos || "?") + "</span>" +
         teamLogoImg(p.proTeam) +
-        '<span class="nm"><b>' + esc(fmtName(p.name)) + (p.injury ? ' <span class="inj">' + esc(p.injury[0]) + "</span>" : "") + "</b>" +
-        '<span class="mut">' + esc(p.proTeam || "FA") + (bye ? " · bye " + bye : "") + "</span></span>" +
-        '<span class="pstat">' + (p.proj != null ? "<b>" + p.proj + "</b> proj" : "") +
-        (p.lastPts != null ? "<br>" + p.lastPts + " " + lastYr : "") + "</span>" +
+        '<span class="nm"><b>' + esc(p.name) + (p.injury ? ' <span class="inj">' + esc(p.injury[0]) + "</span>" : "") + "</b>" +
+        '<span class="mut">' + esc(p.proTeam || "FA") + (bye ? " · bye " + bye : "") +
+        (p.proj != null ? " · " + p.proj + " proj" : "") +
+        (p.lastPts != null ? " · " + p.lastPts + " " + lastYr : "") + "</span></span>" +
         (taken ? '<span class="tk">' + esc(taken ? (taken.abbrev || taken.name || "taken") : "") + "</span>"
           : '<button class="qbtn' + (inQueue(p.pid) ? " on" : "") + '" data-pid="' + esc(p.pid) + '" title="Queue">' + STAR_SVG + "</button>" +
             (keepMode && t ? '<button class="btn ghost sm pKeep" data-pid="' + esc(p.pid) + '">Keep</button>' : "") +
