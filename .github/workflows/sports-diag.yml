@@ -79,7 +79,7 @@ jobs:
             -H "Content-Type: application/json" \
             --data '{"secret":"amenfarms","action":"ff_league"}' || echo FAIL)
           echo "ff_league HTTP $code, $(wc -c < /tmp/ff.json) bytes"
-          head -c 600 /tmp/ff.json; echo
+          python3 -c "import json;d=json.load(open('/tmp/ff.json'));print('teams:',[ (t['id'],t['name'],t.get('owner')) for t in d.get('teams',[]) ])" || head -c 600 /tmp/ff.json; echo
       - name: live stage-5 actions
         run: |
           fn() { curl -sS -o /tmp/o.json -w "%{http_code}" -X POST \
