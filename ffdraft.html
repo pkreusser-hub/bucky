@@ -269,6 +269,14 @@ input::placeholder{color:#5b6579}
   font-size:11px; font-family:var(--disp); letter-spacing:.5px; flex:0 0 auto;
 }
 .kchain{color:var(--gold); font-size:10px; font-weight:700; letter-spacing:.4px; text-transform:uppercase}
+/* keep cost vs market: ADP expressed as a round — green when the keep is
+   cheaper than his draft price, red when you could just draft him there */
+.kadp{
+  font-size:10px; font-weight:700; letter-spacing:.4px; text-transform:uppercase;
+  color:var(--muted); border-radius:4px; padding:1px 5px; background:#161c29; flex:0 0 auto;
+}
+.kadp.good{background:#0d3b24; color:#7ee2ae}
+.kadp.bad{background:#42210c; color:#f0a35f}
 .kQuick.kNo{
   border:1px solid var(--line); border-radius:6px; padding:5px 12px; color:var(--muted);
   opacity:.5; font-size:13px; cursor:not-allowed;
@@ -815,6 +823,25 @@ body.tv #boardLegend{display:none}
     return st;
   }
   function ordinal(n) { return n + (n === 1 ? "st" : n === 2 ? "nd" : n === 3 ? "rd" : "th"); }
+  // Keeper cost vs the market: turn ESPN's ADP (an overall pick number) into a
+  // ROUND for this league and compare it to the keep cost. Keeping a player a
+  // round or more LATER than his ADP round = value (green); a round or more
+  // EARLIER = you could just draft him there (red). No ADP (off the top-300
+  // pool) → no badge.
+  function keeperAdpBadge(costRound, pid, d) {
+    var p = poolByPid[pid];
+    if (!p || p.adp == null || !d) return null;
+    var teams = (d.teams && d.teams.length) || 8;
+    var round = Math.max(1, Math.min(d.rounds, Math.ceil(p.adp / teams)));
+    var diff = costRound - round;
+    return { round: round, diff: diff, cls: diff >= 1 ? "good" : diff <= -1 ? "bad" : "" };
+  }
+  function adpBadgeHTML(costRound, pid, d) {
+    var b = keeperAdpBadge(costRound, pid, d);
+    if (!b) return "";
+    return '<span class="kadp ' + b.cls + '" title="' + (b.cls === "good" ? "cheaper than his draft price"
+      : b.cls === "bad" ? "he usually goes later than this cost" : "about his draft price") + '">ADP R' + b.round + "</span>";
+  }
   // Resolve a team's keepers onto distinct rounds. Requested round first; on a
   // collision, walk EARLIER (a keeper never gets cheaper from a collision),
   // then later from the requested round if nothing earlier is free. Pure and
@@ -1616,7 +1643,8 @@ body.tv #boardLegend{display:none}
         '<div class="basis">' + esc(k.basis) + (k.bumped ? " · bumped (round taken by another keeper)" : "") +
         " · " + ordinal(k.keptCount || 1) + " straight keep" +
         ((k.keptCount || 1) === MAX_KEEPS_OF_ONE_PLAYER ? " (last time — back to the pool next year)" : "") +
-        (overKept ? ' <span class="inj">— over the ' + MAX_KEEPS_OF_ONE_PLAYER + "-keep limit!</span>" : "") + "</div></div>" +
+        (overKept ? ' <span class="inj">— over the ' + MAX_KEEPS_OF_ONE_PLAYER + "-keep limit!</span>" : "") +
+        " " + adpBadgeHTML(k.finalRound, k.pid, D) + "</div></div>" +
         '<button class="btn ghost sm kDel" data-pid="' + esc(k.pid) + '">×</button>' +
         "</div>";
     });
@@ -1641,11 +1669,13 @@ body.tv #boardLegend{display:none}
             h += '<button class="kQuick" data-pid="' + esc(p.pid) + '" title="' + esc(st.cost.basis) + '">' +
               '<span class="kcost">R' + st.cost.round + "</span>" + esc(fmtName(p.name)) +
               " <span class='mut'>" + esc(p.pos) + "</span>" +
+              adpBadgeHTML(st.cost.round, p.pid, D) +
               (st.keptCount > 1 ? '<span class="kchain">' + ordinal(st.keptCount) + " straight</span>" : "") +
               "</button>";
           } else {
             h += '<span class="kQuick kNo" title="' + esc(st.reason) + '">' + KB_LOCK + esc(fmtName(p.name)) +
               " <span class='mut'>" + esc(p.pos) + "</span>" +
+              adpBadgeHTML(st.cost.round, p.pid, D) +
               '<span class="kwhy">' + esc(st.reason) + "</span></span>";
           }
         });
@@ -1824,8 +1854,10 @@ body.tv #boardLegend{display:none}
     if (selPlayer.mode === "keep") {
       var t = keeperTargetTeam();
       var st = t ? keeperStatusOf(p.pid, t.id, D) : { cost: keeperCostOf(p.pid, D), keptCount: 1 };
+      var ab = keeperAdpBadge(st.cost.round, p.pid, D);
       h = '<span class="what">Keep <b>' + esc(p.name) + "</b> for " + esc(t ? t.name : "?") +
         " — costs <b>Round " + st.cost.round + "</b> <span style='opacity:.7'>(" + esc(st.cost.basis) +
+        (ab ? " · goes ~R" + ab.round + " in drafts" : "") +
         (st.keptCount > 1 ? " · " + ordinal(st.keptCount) + " straight keep" +
           (st.keptCount === MAX_KEEPS_OF_ONE_PLAYER ? " — last time" : "") : "") + ")</span></span>";
     } else {
@@ -2095,6 +2127,7 @@ body.tv #boardLegend{display:none}
     currentSlot: function () { return D ? currentSlot(D) : null; },
     keeperCostOf: function (pid) { return D ? keeperCostOf(pid, D) : null; },
     keeperStatusOf: function (pid, teamId) { return D ? keeperStatusOf(pid, teamId, D) : null; },
+    keeperAdpBadge: function (costRound, pid) { return D ? keeperAdpBadge(costRound, pid, D) : null; },
     resolveKeeperRounds: resolveKeeperRounds,
     takenPids: function () { return takenPids(D); },
     createDraft: createDraft,

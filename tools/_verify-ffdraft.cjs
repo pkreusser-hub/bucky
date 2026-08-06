@@ -450,8 +450,8 @@ async function sectionRoom(browser) {
   await clickSafely(page, "#pList .pKeep");
   ok(await page.evaluate(() => {
     const t = document.getElementById("confirmBar").textContent;
-    return t.includes("Round 5") && t.includes("drafted R6 last year");
-  }), "the keep-confirm bar quotes the cost and its basis");
+    return t.includes("Round 5") && t.includes("drafted R6 last year") && t.includes("goes ~R2 in drafts");
+  }), "the keep-confirm bar quotes the cost, its basis, and his market round");
   await clickSafely(page, "#cbGo");
   d = await D(page);
   ok((d.keepers[1] || []).length === 1 && d.keepers[1][0].pid === 4014 && d.keepers[1][0].round === 5,
@@ -471,6 +471,19 @@ async function sectionRoom(browser) {
   ok(await page.evaluate(() => Array.from(document.querySelectorAll(".keepCard .krow"))
     .some((r) => r.textContent.includes("3rd straight keep") && r.textContent.includes("last time"))),
     "…and the panel warns it's the last time");
+  ok(await page.evaluate(() => {
+    const row = Array.from(document.querySelectorAll(".keepCard .krow")).find((r) => r.textContent.includes("Bijan"));
+    const b = row && row.querySelector(".kadp");
+    return !!b && b.textContent === "ADP R1" && !/good|bad/.test(b.className);
+  }), "keeper rows show cost vs market: Bijan R1 at ADP R1 reads even (no color)");
+  const adp = await hook(page, () => ({
+    good: window.__DRAFT__.keeperAdpBadge(5, 4014),
+    bad: window.__DRAFT__.keeperAdpBadge(1, 4014),
+    none: window.__DRAFT__.keeperAdpBadge(5, 4036),
+  }));
+  ok(adp.good && adp.good.round === 2 && adp.good.cls === "good"
+    && adp.bad && adp.bad.cls === "bad" && adp.none === null,
+    "ADP-round math: keeping an ADP-R2 player at R5 = value, at R1 = overpay, no ADP = no badge");
 
   await hook(page, () => window.__DRAFT__.addKeeper(1, window.__DRAFT__.pool.find((p) => p.pid === 4022)));
   const resolved = await hook(page, () => window.__DRAFT__.resolveKeeperRounds(window.__DRAFT__.D.keepers[1], 16));
@@ -528,6 +541,12 @@ async function sectionRoom(browser) {
     const c = document.querySelector('.kQuick[data-pid="4021"] .kcost');
     return !!c && c.textContent === "R16";
   }), "every roster chip prints its automated cost (waiver → R16)");
+  ok(await page.evaluate(() => {
+    const conner = document.querySelector('.kQuick[data-pid="4022"] .kadp');
+    const bucky = document.querySelector('.kQuick[data-pid="4021"] .kadp');
+    return !!conner && conner.textContent === "ADP R3" && conner.className.includes("good")
+      && !!bucky && bucky.textContent === "ADP R3" && bucky.className.includes("good");
+  }), "…and his market beside it: Conner R5 vs ADP R3 + the R16 waiver keep both read green");
   await clickSafely(page, '.kQuick[data-pid="4021"]');
   ok(await page.evaluate(() => document.getElementById("confirmBar").textContent.includes("Round 16")),
     "waiver keeper confirm quotes the latest-pick cost");
