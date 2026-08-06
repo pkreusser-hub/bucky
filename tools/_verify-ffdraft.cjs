@@ -54,7 +54,7 @@ function startUpstream() {
 }
 
 // ---------------- fake ESPN fantasy upstream ----------------
-const ffUp = { lastUrl: "", urls: [], lastFilter: "", filters: [], standard: false, byesDown: false, historyDown: false, mode: "normal", calls: 0 };
+const ffUp = { lastUrl: "", urls: [], lastFilter: "", filters: [], standard: false, byesDown: false, historyDown: false, sweepDown: false, mode: "normal", calls: 0 };
 function startFfUpstream() {
   const srv = http.createServer((req, res) => {
     ffUp.calls++;
@@ -91,7 +91,9 @@ function startFfUpstream() {
       if (ffUp.lastFilter.includes("filterIds")) { res.writeHead(400); res.end('{"messages":["filter not supported"]}'); return; }
       const pdoc = FIX.ffDraftPoolDoc();
       if (ffUp.lastFilter.includes("filterSlotIds")) {
-        // The slot sweep: only D/ST (16) + K (5) rows come back.
+        // The slot sweep: only D/ST (16) + K (5) rows come back —
+        // ffUp.sweepDown simulates it silently failing (bad JSON).
+        if (ffUp.sweepDown) { res.end("nope"); return; }
         pdoc.players = pdoc.players.filter((e) => [16, 5].includes(e.player.defaultPositionId));
       } else {
         // Mirror the LIVE bug (2026-08-06): the draft-rank-sorted fetch
@@ -1023,6 +1025,48 @@ async function sectionRoom(browser) {
   await ctx.close();
 }
 
+// ---------------- section B2: a defense-less pool is shown but NEVER trusted ----
+// The live 2026-08-06 incident: the sweep can fail silently, and a pool with
+// zero defenses must not be cached for 24h — on read OR write.
+async function sectionPoolHealth(browser) {
+  section("B2 · pool health — zero defenses is never cached");
+  ffUp.sweepDown = true;
+  let ctx = await browser.createBrowserContext();
+  let page = await newPage(ctx);
+  await page.goto(BASE + "/ffdraft.html?local=1&fam=famhealth&season=2026", { waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.waitForFunction(() => window.__DRAFT__ && window.__DRAFT__.pool.length > 0, { timeout: 15000 });
+  ok(await page.evaluate(() => window.__DRAFT__.pool.length === 34
+    && !window.__DRAFT__.pool.some((p) => p.pos === "D/ST")), "sweep down → the pool arrives with no defenses");
+  ok(await page.evaluate(() => localStorage.getItem("ffd_pool3_2026") == null),
+    "…and that pool is NOT written to the 24h cache");
+  await page.evaluate(() => window.__DRAFT__.createDraft());
+  await page.evaluate(() => window.__DRAFT__.setView("players"));
+  ok(await page.evaluate(() => document.getElementById("poolNote").textContent.includes("didn't send the defenses")),
+    "…and the pool note says so instead of hiding it");
+  // Upstream heals → a plain reload refetches (no cache to stick on) and caches.
+  ffUp.sweepDown = false;
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => window.__DRAFT__ && window.__DRAFT__.pool.some((p) => p.pos === "D/ST"), { timeout: 15000 });
+  ok(true, "after the upstream heals, a plain reload brings the defenses in");
+  ok(await page.evaluate(() => {
+    const c = JSON.parse(localStorage.getItem("ffd_pool3_2026") || "null");
+    return !!c && c.players.some((p) => p.pos === "D/ST");
+  }), "…and the healthy pool IS cached");
+  // Read-side guard: a poisoned fresh-looking cache (the incident's leftover)
+  // is ignored and refetched over.
+  await page.evaluate(() => {
+    const c = JSON.parse(localStorage.getItem("ffd_pool3_2026"));
+    c.players = c.players.filter((p) => p.pos !== "D/ST");
+    c.ts = Date.now();
+    localStorage.setItem("ffd_pool3_2026", JSON.stringify(c));
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => window.__DRAFT__ && window.__DRAFT__.pool.some((p) => p.pos === "D/ST"), { timeout: 15000 });
+  ok(true, "a poisoned defense-less cache is refetched over, even inside its 24h window");
+  ok(page._errs.length === 0, "0 page errors" + (page._errs.length ? " — " + page._errs[0] : ""));
+  await ctx.close();
+}
+
 // ---------------- section C: cloud unreachable = honest banner, never silent local ----
 async function sectionCloudDead(browser) {
   section("C · Firestore unreachable → red banner (no silent per-device draft)");
@@ -1050,6 +1094,7 @@ async function sectionCloudDead(browser) {
   const browser = await launchBrowser();
   try {
     await sectionRoom(browser);
+    await sectionPoolHealth(browser);
     await sectionCloudDead(browser);
   } finally {
     await browser.close();

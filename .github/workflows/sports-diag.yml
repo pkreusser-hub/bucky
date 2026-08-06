@@ -101,6 +101,9 @@ jobs:
           fn() { curl -sS -o /tmp/o.json -w "%{http_code}" -X POST \
             "https://amenfarms.netlify.app/.netlify/functions/sports" \
             -H "Content-Type: application/json" --data "$1"; }
+          # deployed PAGE check — which pool-cache generation is the CDN serving?
+          curl -sS -o /tmp/page.html "https://amenfarms.netlify.app/ffdraft.html"
+          echo "ffdraft.html $(wc -c < /tmp/page.html) bytes | pool cache gen: $(grep -o 'ffd_pool[0-9]*_' /tmp/page.html | sort -u | tr '\n' ' ')| poolHealthy refs: $(grep -c poolHealthy /tmp/page.html)"
           code=$(fn '{"secret":"amenfarms","action":"ff_draftinfo"}' || echo FAIL)
           echo "ff_draftinfo HTTP $code, $(wc -c < /tmp/o.json) bytes"
           python3 -c "import json;d=json.load(open('/tmp/o.json'));print('ok',d.get('ok'),d.get('reason',''),'| teams',len(d.get('teams',[])),'| rosterSize',d.get('rosterSize'),'| ppr',d.get('ppr'),'| byes',len(d.get('byes',{})));print([t['name'] for t in d.get('teams',[])])" || head -c 400 /tmp/o.json

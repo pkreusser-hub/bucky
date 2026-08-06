@@ -684,16 +684,26 @@ body.tv #boardLegend{display:none}
     poolByPid = {};
     for (var i = 0; i < pool.length; i++) poolByPid[pool[i].pid] = pool[i];
   }
+  // A real ESPN pool ALWAYS contains defenses; a sizable pool with zero D/ST
+  // means the slot sweep failed upstream (or the copy predates it). Such a
+  // pool is fine to SHOW but never to trust for 24 hours.
+  function poolHealthy(list) {
+    if (!list || list.length < 20) return true;
+    for (var i = 0; i < list.length; i++) if (list[i].pos === "D/ST") return true;
+    return false;
+  }
   function loadPool(force) {
     var fmt = (info && info.ppr === false) ? "standard" : "ppr";
     var k = "ffd_pool3_" + SEASON;   // v3: +the D/ST/K slot sweep — old caches have no defenses
     var c = lsGet(k);
-    if (c && !force && c.format === fmt) { pool = c.players || []; indexPool(); }
-    if (c && !force && c.format === fmt && Date.now() - c.ts < 24 * 3600000) return Promise.resolve(pool);
+    var cacheOk = c && c.format === fmt && poolHealthy(c.players);
+    if (cacheOk && !force) { pool = c.players || []; indexPool(); }
+    if (cacheOk && !force && Date.now() - c.ts < 24 * 3600000) return Promise.resolve(pool);
     return api("ff_draftpool", { format: fmt }).then(function (j) {
       if (j && j.ok && j.players && j.players.length) {
         pool = j.players; indexPool();
-        lsSet(k, { ts: Date.now(), format: fmt, players: pool });
+        // An unhealthy fetch renders but is never cached — the next open retries.
+        if (poolHealthy(pool)) lsSet(k, { ts: Date.now(), format: fmt, players: pool });
       }
       return pool;
     }).catch(function () { return pool; });
@@ -1842,6 +1852,7 @@ body.tv #boardLegend{display:none}
     };
     $("poolNote").textContent = pool.length
       ? "ESPN " + ((info && info.ppr === false) ? "standard" : "PPR") + " rankings · " + pool.length + " players"
+        + (poolHealthy(pool) ? "" : " — ESPN didn't send the defenses this time; reload to retry")
       : "Player rankings haven't loaded — search still works once they do, or add custom players.";
   }
 
