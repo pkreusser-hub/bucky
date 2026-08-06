@@ -421,7 +421,18 @@ function ffLeagueDoc() {
   return {
     id: 705063, seasonId: 2026, scoringPeriodId: 2,
     status: { currentMatchupPeriod: 2, latestScoringPeriod: 2 },
-    settings: { name: "Nerd Fantasy Football League", size: 8 },
+    settings: {
+      name: "Nerd Fantasy Football League", size: 8,
+      // mSettings shapes the draft room reads: roster slots (draft rounds =
+      // all slots except IR/21 → 16 here) + scoring (statId 53 = receptions;
+      // points > 0 means PPR draft ranks).
+      rosterSettings: { lineupSlotCounts: { 0: 1, 2: 2, 4: 2, 6: 1, 23: 1, 16: 1, 17: 1, 20: 7, 21: 1 } },
+      scoringSettings: { scoringItems: [
+        { statId: 53, points: 1 },      // receptions → PPR
+        { statId: 42, points: 0.04 },   // receiving yards
+        { statId: 43, points: 4 },      // receiving TD (nonsense value, junk realism)
+      ] },
+    },
     members: FF_MEMBERS,
     teams: [
       ffTeam(1, "Battle Kreussers", "BATT", "{AAAA-1}", 1, 0, 121.4, 98.0, 1),
@@ -607,4 +618,132 @@ function ffFreeAgentsDoc() {
   };
 }
 
-module.exports = { scoreboardLive, scoreboardIdle, SUMMARIES, TEAMS, ffLeagueDoc, ffFreeAgentsDoc, cfbScoreboard, CFB_SUMMARIES, CTEAMS };
+// ---------------- draft room (ffdraft.html) fixtures ----------------
+// kona_player_info under a sortDraftRanks X-Fantasy-Filter (the draft pool),
+// mDraftDetail+mRoster for LAST season (keeper costs), and the season-level
+// proTeamSchedules_wl doc (bye weeks).
+
+// [pid, name, posId, proTeamId, pprRank, stdRank, adp] — the PPR and STANDARD
+// orders deliberately DIFFER at the top (Chase/Bijan swap) so the requested
+// format is provable from the sorted result. 4036 has NO ranks (sorts last).
+const DRAFT_POOL_ROWS = [
+  [4001, "Ja'Marr Chase", 3, 4, 1, 2, 1.6],
+  [4002, "Bijan Robinson", 2, 1, 2, 1, 2.0],
+  [4003, "Saquon Barkley", 2, 21, 3, 3, 3.2],
+  [4004, "Jahmyr Gibbs", 2, 8, 4, 4, 4.4],
+  [4005, "CeeDee Lamb", 3, 6, 5, 6, 5.9],
+  [4006, "Justin Jefferson", 3, 16, 6, 5, 6.1],
+  [4007, "Puka Nacua", 3, 14, 7, 8, 7.7],
+  [4008, "Amon-Ra St. Brown", 3, 8, 8, 7, 8.2],
+  [4009, "Christian McCaffrey", 2, 25, 9, 9, 9.0],
+  [4010, "Derrick Henry", 2, 33, 10, 10, 10.3],
+  [4011, "Josh Allen", 1, 2, 11, 12, 11.5],
+  [4012, "Lamar Jackson", 1, 33, 12, 13, 12.8],
+  [4013, "Brock Bowers", 4, 13, 13, 15, 13.4],
+  [4014, "De'Von Achane", 2, 15, 14, 16, 14.9],
+  [4015, "Nico Collins", 3, 34, 15, 11, 15.2],
+  [4016, "Drake London", 3, 1, 16, 14, 16.8],
+  [4017, "A.J. Brown", 3, 21, 17, 17, 17.5],
+  [4018, "Jonathan Taylor", 2, 11, 18, 18, 18.1],
+  [4019, "Travis Kelce", 4, 12, 19, 21, 20.6],
+  [4020, "Jalen Hurts", 1, 21, 20, 19, 21.2],
+  [4021, "Bucky Irving", 2, 27, 21, 20, 22.4],
+  [4022, "James Conner", 2, 22, 22, 22, 23.0],
+  [4023, "Jaxon Smith-Njigba", 3, 26, 23, 23, 24.1],
+  [4024, "Trey McBride", 4, 22, 24, 25, 25.5],
+  [4025, "Kyren Williams", 2, 14, 25, 24, 26.0],
+  [4026, "Davante Adams", 3, 14, 26, 26, 27.7],
+  [4027, "Tee Higgins", 3, 4, 27, 27, 28.9],
+  [4028, "Patrick Mahomes", 1, 12, 28, 28, 30.2],
+  [4029, "Garrett Wilson", 3, 20, 29, 29, 31.0],
+  [4030, "Breece Hall", 2, 20, 30, 30, 32.4],
+  [4031, "George Kittle", 4, 25, 31, 31, 33.8],
+  [4032, "Rashee Rice", 3, 12, 32, 32, 35.1],
+  [4033, "Brandon Aubrey", 5, 6, 33, 33, 96.0],
+  [4034, "Broncos D/ST", 16, 7, 34, 34, 110.0],
+  [4035, "Ravens D/ST", 16, 33, 35, 35, 118.0],
+  [4036, "Deep Sleeper", 2, 9, null, null, null],
+];
+function draftPoolEntry(row) {
+  const [pid, name, posId, proTeamId, ppr, std, adp] = row;
+  const ranks = {};
+  if (ppr != null) ranks.PPR = { rank: ppr, rankType: "PPR", auctionValue: 61, published: true };
+  if (std != null) ranks.STANDARD = { rank: std, rankType: "STANDARD", auctionValue: 58, published: true };
+  return {
+    onTeamId: 0, status: "FREEAGENT",
+    player: {
+      id: pid, fullName: name, defaultPositionId: posId, proTeamId,
+      injuryStatus: pid === 4007 ? "QUESTIONABLE" : "ACTIVE",
+      ownership: { averageDraftPosition: adp, percentOwned: 92.1, percentChange: 0.4 },
+      draftRanksByRankType: ranks,
+      // Junk the slimmer must drop:
+      stats: [{ scoringPeriodId: 0, statSourceId: 1, appliedTotal: 250.5 }],
+      seasonOutlook: "x".repeat(300),
+      eligibleSlots: [2, 3, 23, 20],
+    },
+  };
+}
+function ffDraftPoolDoc() {
+  // Returned UNSORTED (reverse rank order) on purpose — the server must sort.
+  return { id: 705063, seasonId: 2026, players: DRAFT_POOL_ROWS.slice().reverse().map(draftPoolEntry) };
+}
+
+function draftPoolRow(pid) { return DRAFT_POOL_ROWS.find((r) => r[0] === pid); }
+function lastRosterEntry(pid) {
+  const r = draftPoolRow(pid);
+  return { playerId: pid, playerPoolEntry: { player: { id: pid, fullName: r[1], defaultPositionId: r[2], proTeamId: r[3] } } };
+}
+// LAST season's draft. Keeper-rule scenarios baked in: 4002 kept at R1 (a 1st
+// stays a 1st), 4019 kept at R4 (→ R3), 4014 drafted R6 (→ R5), 4022 drafted
+// R6 (→ R5, collides with 4014 when the same team keeps both), 4021 ABSENT
+// from the draft (waiver pickup → the team's latest pick). Rosters carry each
+// team's season-end squad — 4021 ended on team 1.
+function ffLastDraftDoc() {
+  let overall = 0;
+  const picks = [];
+  function pk(pid, round, teamId, keeper) {
+    overall++;
+    picks.push({
+      id: overall, overallPickNumber: overall, roundId: round, roundPickNumber: ((overall - 1) % 8) + 1,
+      playerId: pid, teamId, keeper: keeper === true,
+      bidAmount: 0, autoDraftTypeId: 0, reservedForKeeper: false, memberId: "{AAAA-1}",
+    });
+  }
+  pk(4002, 1, 1, true); pk(4001, 1, 2); pk(4003, 1, 3); pk(4004, 1, 4);
+  pk(4009, 1, 5); pk(4005, 1, 6); pk(4006, 1, 7); pk(4008, 1, 8);
+  pk(4010, 2, 8); pk(4007, 2, 7); pk(4013, 2, 6); pk(4011, 2, 5);
+  pk(4020, 3, 7); pk(4012, 3, 2);
+  pk(4019, 4, 3, true);
+  pk(4014, 6, 1); pk(4022, 6, 2);
+  return {
+    id: 705063, seasonId: 2025,
+    draftDetail: { drafted: true, inProgress: false, picks },
+    teams: [
+      { id: 1, abbrev: "BATT", roster: { entries: [4002, 4014, 4021, 4022, 4016].map(lastRosterEntry) } },
+      { id: 3, abbrev: "GOAT", roster: { entries: [4019, 4010, 4003].map(lastRosterEntry) } },
+      { id: 5, abbrev: "WYO", roster: { entries: [4011, 4009].map(lastRosterEntry) } },
+    ],
+    // Junk the slimmer must drop:
+    members: FF_MEMBERS, positionAgainstOpponent: { positionalRatings: {} },
+  };
+}
+
+// Season-level bye weeks (NOT league-scoped): settings.proTeams[].byeWeek.
+function proTeamSchedulesDoc() {
+  const byes = {
+    1: 5, 2: 7, 4: 10, 6: 7, 7: 12, 8: 8, 9: 10, 11: 11, 12: 10, 13: 8, 14: 6,
+    15: 6, 16: 13, 20: 12, 21: 9, 22: 11, 25: 14, 26: 5, 27: 9, 33: 14, 34: 14,
+  };
+  return {
+    display: true,
+    settings: {
+      proTeams: Object.keys(byes).map((id) => ({
+        id: Number(id), abbrev: "T" + id, location: "City", name: "Team",
+        byeWeek: byes[id],
+        proGamesByScoringPeriod: { 1: [{ id: 1 }] },   // junk the slimmer must drop
+      })),
+    },
+  };
+}
+
+module.exports = { scoreboardLive, scoreboardIdle, SUMMARIES, TEAMS, ffLeagueDoc, ffFreeAgentsDoc, cfbScoreboard, CFB_SUMMARIES, CTEAMS, ffDraftPoolDoc, ffLastDraftDoc, proTeamSchedulesDoc };

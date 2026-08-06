@@ -220,6 +220,30 @@ async function probeDeployedFunction() {
     } else if (fm && fm.ok) {
       console.log("  (no matchup this week — pre-draft/offseason is fine)");
     } else { console.log("  ⚠ ff_matchup failed: " + JSON.stringify(fm).slice(0, 200)); flagged++; }
+    // Draft room (ffdraft.html): league facts, the ranked pool, last year's draft.
+    const di = await call({ action: "ff_draftinfo" });
+    if (!di || !di.ok) { console.log("  ⚠ ff_draftinfo failed: " + JSON.stringify(di).slice(0, 200)); flagged++; }
+    else {
+      console.log(`  ok — draftinfo: ${di.teams.length} teams, ${di.rosterSize} roster spots, ${di.ppr ? "PPR" : "standard"}, ${Object.keys(di.byes || {}).length} bye weeks`);
+      if (di.rosterSize < 8 || di.rosterSize > 25) { console.log("  ⚠ rosterSize looks wrong — check lineupSlotCounts mapping."); flagged++; }
+      if (!Object.keys(di.byes || {}).length) console.log("  (no bye weeks — proTeamSchedules_wl may not be published yet; the draft room just hides the bye column)");
+      const dp = await call({ action: "ff_draftpool", format: di.ppr === false ? "standard" : "ppr" });
+      if (!dp || !dp.ok || !Array.isArray(dp.players) || dp.players.length < 100) {
+        console.log("  ⚠ ff_draftpool thin/failed: " + JSON.stringify(dp).slice(0, 160)); flagged++;
+      } else {
+        const p0 = dp.players[0];
+        console.log(`  ok — draft pool: ${dp.players.length} players, #1 ${p0.name} (${p0.pos} ${p0.proTeam}, rank ${p0.rank}, ADP ${p0.adp})`);
+        if (p0.rank !== 1) { console.log("  ⚠ pool isn't rank-sorted — check sortDraftRanks in the filter header."); flagged++; }
+      }
+      const ld = await call({ action: "ff_lastdraft" });
+      if (!ld || !ld.ok) { console.log("  ⚠ ff_lastdraft failed: " + JSON.stringify(ld).slice(0, 200)); flagged++; }
+      else {
+        const keepers = (ld.picks || []).filter((p) => p.keeper).length;
+        console.log(`  ok — ${ld.season} draft: ${ld.picks.length} picks (${keepers} flagged keepers), ${ld.rosters.length} rosters`);
+        if (!ld.drafted || !ld.picks.length) { console.log("  ⚠ last season's draft is empty — keeper costs will all read as waiver."); flagged++; }
+        if (!keepers) console.log("  (0 keeper flags — fine if last year's draft wasn't run with keepers marked in ESPN)");
+      }
+    }
     // Free agents (the waiver-advice AI's payload) — kona_player_info + X-Fantasy-Filter.
     const fa = await call({ action: "ff_freeagents" });
     if (!fa || !fa.ok || !Array.isArray(fa.players)) {

@@ -18,6 +18,10 @@
 // the client renders an honest "scores unavailable" card, never an error page.
 // Betting odds/pickcenter fields are deliberately never mapped (family app).
 //
+// DRAFT ROOM (ffdraft.html, standalone): ff_draftinfo (teams + roster size +
+// scoring flavor + byes), ff_draftpool (ESPN-ranked draftable pool),
+// ff_lastdraft (last season's draft + rosters, for keeper costs).
+//
 // FANTASY (ff_* actions): the family's private ESPN league (id 705063, team
 // "Battle Kreussers") through the fantasy v3 API. A private league requires two
 // cookies from a logged-in espn.com browser session — set them as Netlify env
@@ -621,6 +625,152 @@ async function ffFreeAgents(body) {
   }
 }
 
+// ---------------- draft room (ffdraft.html) ----------------
+// Three actions feed the standalone keeper-draft page. Same league, same
+// cookies, same slimming discipline: every read optional-chained, failures are
+// { ok:false, reason } at HTTP 200.
+
+// League facts the draft room needs to set itself up, in ONE action: the teams,
+// the roster size (= draft rounds), the scoring format (which ESPN draft-rank
+// flavor to sort by), and every pro team's bye week.
+async function ffDraftInfo(body) {
+  const { data: j, err, year } = await ffFetch(["mTeam", "mSettings"], "", body);
+  if (err) return { ok: false, reason: err };
+  try {
+    const teams = (Array.isArray(j?.teams) ? j.teams : []).map((t) => ({
+      id: t?.id ?? 0,
+      name: ffTeamName(t),
+      abbrev: t?.abbrev || "",
+      logo: typeof t?.logo === "string" && /^https:\/\//.test(t.logo) ? t.logo : "",
+      owner: ffOwnerName(t, j?.members),
+    }));
+    // Draft rounds = roster spots excluding IR (slot 21) — IR isn't drafted.
+    const slotCounts = j?.settings?.rosterSettings?.lineupSlotCounts || {};
+    let rosterSize = 0;
+    for (const k of Object.keys(slotCounts)) {
+      if (Number(k) !== 21) rosterSize += Number(slotCounts[k]) || 0;
+    }
+    // PPR when receptions (statId 53) score points — half-PPR counts as PPR for
+    // rank-flavor purposes (ESPN publishes only STANDARD and PPR rank sets).
+    const items = j?.settings?.scoringSettings?.scoringItems;
+    const rec = (Array.isArray(items) ? items : []).find((i) => i?.statId === 53);
+    const ppr = !!(rec && Number(rec?.points) > 0);
+    // Bye weeks come from the season-level doc (not league-scoped). Optional:
+    // a failure just means the client shows no bye column.
+    const byes = {};
+    try {
+      const r = await fetch(FF_BASE + "/apis/v3/games/ffl/seasons/" + year + "?view=proTeamSchedules_wl",
+        { headers: { "User-Agent": UA, accept: "application/json" } });
+      if (r.ok) {
+        const s = await r.json();
+        for (const pt of (Array.isArray(s?.settings?.proTeams) ? s.settings.proTeams : [])) {
+          if (pt?.id != null) byes[pt.id] = pt?.byeWeek ?? null;
+        }
+      }
+    } catch {}
+    return {
+      ok: true,
+      leagueName: j?.settings?.name || "Fantasy league",
+      season: year,
+      teams,
+      rosterSize: rosterSize || 16,
+      ppr,
+      byes,
+    };
+  } catch {
+    return { ok: false, reason: "bad-shape" };
+  }
+}
+
+// The draftable player pool, sorted by ESPN's draft rankings in the league's
+// scoring flavor. No filterStatus — pre-draft, EVERY player belongs in the
+// pool (rostered-in-ESPN players included; keepers are subtracted client-side).
+async function ffDraftPool(body) {
+  const fmt = body?.format === "standard" ? "STANDARD" : "PPR";
+  const filter = {
+    players: {
+      limit: 320,
+      sortDraftRanks: { sortPriority: 100, sortAsc: true, value: fmt },
+      filterRanksForRankTypes: { value: [fmt] },
+    },
+  };
+  const { data: j, err, year } = await ffFetch(["kona_player_info"], "", body,
+    { "x-fantasy-filter": JSON.stringify(filter) });
+  if (err) return { ok: false, reason: err };
+  try {
+    const players = (Array.isArray(j?.players) ? j.players : [])
+      .map((e) => {
+        const p = e?.player || e || {};
+        const rk = p?.draftRanksByRankType || {};
+        const rank = rk?.[fmt]?.rank ?? rk?.PPR?.rank ?? rk?.STANDARD?.rank ?? null;
+        const proId = p?.proTeamId ?? 0;
+        return {
+          pid: p?.id ?? null,
+          name: p?.fullName || "",
+          pos: POS_LABEL[p?.defaultPositionId] || "",
+          proTeamId: proId,
+          proTeam: PRO_ABBREV[proId] || "",
+          injury: p?.injuryStatus && p.injuryStatus !== "ACTIVE" ? p.injuryStatus : "",
+          rank: Number.isFinite(rank) ? rank : null,
+          adp: r1(p?.ownership?.averageDraftPosition),
+        };
+      })
+      .filter((p) => p.pid != null && p.name)
+      // Don't trust the upstream sort blindly — rank asc, unranked last.
+      .sort((a, b) => (a.rank ?? 9999) - (b.rank ?? 9999))
+      .slice(0, 300);
+    return { ok: true, season: year, format: fmt.toLowerCase(), players };
+  } catch {
+    return { ok: false, reason: "bad-shape" };
+  }
+}
+
+// Last season's draft + final rosters, for keeper costs. The keeper rule (the
+// family's): a kept player costs one round EARLIER than he cost last year
+// (floor: a 1st stays a 1st) — and since a keeper appears in last year's ESPN
+// draft AT his cost round, "last year's draft round − 1" covers drafted AND
+// previously-kept players uniformly. A waiver pickup (absent from last year's
+// draft) costs the team's latest pick; the client resolves that. Final rosters
+// ride along so the keeper picker can offer "your team from last year".
+async function ffLastDraft(body) {
+  const year = Number(body?.year) >= 2000 && Number(body?.year) <= 2100
+    ? Number(body.year) : ffSeason() - 1;
+  const { data: j, err } = await ffFetch(["mDraftDetail", "mRoster"], "", { ...body, year });
+  if (err) return { ok: false, reason: err };
+  try {
+    const dd = j?.draftDetail || {};
+    const picks = (Array.isArray(dd?.picks) ? dd.picks : [])
+      .map((p) => ({
+        pid: p?.playerId ?? null,
+        round: p?.roundId ?? 0,
+        pick: p?.roundPickNumber ?? 0,
+        overall: p?.overallPickNumber ?? 0,
+        teamId: p?.teamId ?? 0,
+        keeper: p?.keeper === true,
+      }))
+      .filter((p) => p.pid != null);
+    const rosters = (Array.isArray(j?.teams) ? j.teams : []).map((t) => ({
+      teamId: t?.id ?? 0,
+      players: (Array.isArray(t?.roster?.entries) ? t.roster.entries : [])
+        .map((e) => {
+          const p = e?.playerPoolEntry?.player || {};
+          const proId = p?.proTeamId ?? 0;
+          return {
+            pid: p?.id ?? null,
+            name: p?.fullName || "",
+            pos: POS_LABEL[p?.defaultPositionId] || "",
+            proTeamId: proId,
+            proTeam: PRO_ABBREV[proId] || "",
+          };
+        })
+        .filter((p) => p.pid != null && p.name),
+    }));
+    return { ok: true, season: year, drafted: dd?.drafted === true, picks, rosters };
+  } catch {
+    return { ok: false, reason: "bad-shape" };
+  }
+}
+
 // ---------------- handler ----------------
 
 export default async (req) => {
@@ -644,6 +794,9 @@ export default async (req) => {
   if (body.action === "ff_scoreboard") return json(await ffScoreboard(body), 200, headers);
   if (body.action === "ff_matchup") return json(await ffMatchup(body), 200, headers);
   if (body.action === "ff_freeagents") return json(await ffFreeAgents(body), 200, headers);
+  if (body.action === "ff_draftinfo") return json(await ffDraftInfo(body), 200, headers);
+  if (body.action === "ff_draftpool") return json(await ffDraftPool(body), 200, headers);
+  if (body.action === "ff_lastdraft") return json(await ffLastDraft(body), 200, headers);
   return json({ error: "Unknown action" }, 400, headers);
 };
 
