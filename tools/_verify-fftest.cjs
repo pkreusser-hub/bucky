@@ -34,7 +34,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // ---------------- fixtures ----------------
 // Phase 1 = pregame baseline stats · phase 2 = ESPN reports new stats first ·
 // phase 3 = Sleeper catches up to the same values (latency pairs form).
-const fixture = { phase: 1, sleeperDown: false };
+const fixture = { phase: 1, sleeperDown: false, slpDataWeek: "1" };
 
 const EID = "401850001";
 function sbFix() {
@@ -191,7 +191,12 @@ async function newTestPage(browser, opts) {
         if (fixture.sleeperDown) return req.respond({ status: 503, contentType: "application/json", headers: cors, body: '{"error":"down"}' });
         if (u.endsWith("/state/nfl")) return json(slpStateFix);
         if (u.endsWith("/players/nfl")) return json(slpPlayersFix);
-        if (u.includes("/stats/nfl/")) return json(slpStatsFix());
+        if (u.includes("/stats/nfl/")) {
+          // The real API serves ONE week per bucket; the wrong week is {} (2 bytes).
+          const m = u.match(/\/stats\/nfl\/\w+\/\d{4}\/(\w+)/);
+          if (!m || m[1] !== fixture.slpDataWeek) return json({});
+          return json(slpStatsFix());
+        }
         if (u.includes("/projections/nfl/")) return json(slpProjFix);
         return req.respond({ status: 404, headers: cors, body: "{}" });
       }
@@ -347,6 +352,38 @@ const rowByName = async (page, name) => page.evaluate((nm) => {
     ok(ep >= 1, "endpoint table shows the Sleeper 503s in red instead of hiding them");
     ok(errors.length === 0, "0 page errors with Sleeper down");
     await ctx.close();
+  }
+
+  // ---- G: Sleeper week-bucket auto-detection ----
+  // Live finding (diag 2026-08-06): ESPN calls tonight wk 1, Sleeper's state
+  // says wk 0, and every bucket is empty until kickoff — the page must find
+  // the live bucket on its own.
+  section("G · Sleeper week-bucket auto-detection");
+  {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.slpDataWeek = "2";
+    const { ctx, page, errors } = await newTestPage(browser);
+    await page.goto(BASE + "/fftest.html", { waitUntil: "networkidle0" });
+    await page.waitForSelector(".gamebtn", { timeout: 8000 });
+    await page.click(".gamebtn");
+    await page.click("#startBtn");
+    // First poll hits wk 1 (empty) and rotates; poll again until the page
+    // lands on the data-bearing bucket and locks.
+    await page.waitForFunction(() => window.__FFTEST__.S.slpById, { timeout: 8000 });
+    await page.evaluate(() => window.__FFTEST__.pause());
+    for (let i = 0; i < 4 && !(await page.evaluate(() => window.__FFTEST__.S.slpBucketLocked)); i++) await poll(page);
+    ok(await page.evaluate(() => window.__FFTEST__.S.slpBucketLocked), "page cycled candidate weeks and locked onto the live bucket");
+    ok((await page.$eval("#slpWeek", (i) => i.value)) === "2", "week input now shows the discovered bucket (2)");
+    const wr = await rowByName(page, "W. Receiver");
+    ok(wr && wr[4] === "7.1", "Sleeper stats flow once the right bucket is found");
+    const cyc = await page.evaluate(() => window.__FFTEST__.S.events.some((e) => e.msg && /cycling/.test(e.msg)));
+    ok(cyc, "the cycling is announced once in the event feed");
+    // Locked: an empty poll no longer rotates the input.
+    fixture.slpDataWeek = "9";
+    await poll(page);
+    ok((await page.$eval("#slpWeek", (i) => i.value)) === "2", "a transient empty response after lock does NOT rotate away");
+    ok(errors.length === 0, "0 page errors through the bucket hunt");
+    await ctx.close();
+    fixture.slpDataWeek = "1";
   }
 
   // ---- F: mobile ----
