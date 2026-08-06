@@ -991,6 +991,10 @@ body.tv #boardLegend{display:none}
     });
   }
   function undoLast() {
+    // Re-arm the mock bot: an undo restores the EXACT pre-pick state (same
+    // slot, same pick count), so the one-shot signature would still read
+    // "already fired" and the mock would wedge on that slot forever.
+    mockArmKey = null;
     return act(function (d) {
       if (!isCommish(d)) throw new Error("Commissioner only");
       var key = (d.history || []).pop();
@@ -1332,6 +1336,23 @@ body.tv #boardLegend{display:none}
     var late = cur && cur.round >= D.rounds - 1;
     var c = teamPosCounts(teamId);
     var avail = pool.filter(function (p) { return !tk[p.pid]; });
+    // A bot FILLS its required K/D-ST slots once its remaining EMPTY rounds
+    // run short — merely allowing them late meant skill players always
+    // outranked them, and "last two rounds" wasn't enough either when a
+    // waiver keeper already occupied R16 (both full-rehearsal findings).
+    var mine = 0;
+    Object.keys(D.picks || {}).forEach(function (k) { if (k.split("_t")[1] === String(teamId)) mine++; });
+    var needSpecial = (c["D/ST"] ? 0 : 1) + (c.K ? 0 : 1);
+    if (needSpecial && D.rounds - mine <= needSpecial + 1) {
+      if (!c["D/ST"]) {
+        var dst = avail.filter(function (p) { return p.pos === "D/ST"; });
+        if (dst.length) return dst[0];
+      }
+      if (!c.K) {
+        var kk = avail.filter(function (p) { return p.pos === "K"; });
+        if (kk.length) return kk[0];
+      }
+    }
     var picks = avail.filter(function (p) {
       if ((p.pos === "K" || p.pos === "D/ST") && !late) return false;
       if (p.pos === "K" && c.K >= 1) return false;
@@ -1350,9 +1371,14 @@ body.tv #boardLegend{display:none}
     if (!cur) return;
     var t = teamById(D, cur.teamId);
     if (!t || t.owner) { mockArmKey = null; return; }
-    if (mockArmKey !== cur.key) { mockArmKey = cur.key; mockArmAt = Date.now(); return; }
+    // One shot per (slot, pick count) — keyed on BOTH so an undo re-arms the
+    // bot: keyed on the slot alone, undoing a bot's pick before the next tick
+    // left the one-shot latched and the mock wedged on that slot forever
+    // (found by the full mock-draft rehearsal, 2026-08-06).
+    var sig = cur.key + ":" + Object.keys(D.picks || {}).length;
+    if (mockArmKey !== sig) { mockArmKey = sig; mockArmAt = Date.now(); return; }
     if (Date.now() - mockArmAt < mockDelayMs) return;
-    mockArmAt = Date.now() + 3600000;   // one shot per slot; re-arms when the clock moves
+    mockArmAt = Date.now() + 3600000;
     var p = mockChoice(cur.teamId);
     if (p) makePick(p, "MOCK");
   }, 300);
