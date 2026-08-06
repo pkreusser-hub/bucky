@@ -210,8 +210,15 @@ input[type=text],input[type=number],select{
 /* ---------- desktop: board + players side by side ---------- */
 #boardRail{min-width:0}
 @media (min-width:1100px){
-  #vBoard .boardwrap{display:grid; grid-template-columns:minmax(0,1fr) 380px; gap:14px; align-items:start}
+  #vBoard .boardwrap{display:grid; grid-template-columns:minmax(0,1fr) 360px; gap:14px; align-items:start}
 }
+/* Desktop board FITS — all columns on screen at once, names ellipsize.
+   Phones keep the wide grid panning inside .panner. */
+#boardGrid.fit{width:100%; min-width:0}
+#boardGrid.fit .cell{padding:4px 5px; min-width:0}
+#boardGrid.fit .cell b{padding-right:22px}   /* keep names clear of the pick number */
+#boardGrid.fit .bhead{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+#boardGrid.fit .bhead .own{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 
 /* ---------- players list: its own scroll, richer rows ---------- */
 #pList{overflow-y:auto; -webkit-overflow-scrolling:touch; border-radius:10px}
@@ -1004,7 +1011,10 @@ input[type=text],input[type=number],select{
 
   // ---------------- rendering ----------------
   function fmtName(full) {
-    var parts = String(full || "").split(" ");
+    full = String(full || "");
+    // "Broncos D/ST" must never become "B. D/ST".
+    if (/D\/ST/i.test(full)) return full;
+    var parts = full.split(" ");
     if (parts.length < 2) return full;
     return parts[0][0] + ". " + parts.slice(1).join(" ");
   }
@@ -1108,7 +1118,9 @@ input[type=text],input[type=number],select{
     var cur = D.phase === "live" ? currentSlot(D) : null;
     var deck = cur ? nextSlotAfter(D, cur) : null;
     var cols = D.teams.length;
-    g.style.gridTemplateColumns = "40px repeat(" + cols + ", minmax(88px, 1fr))";
+    var fit = DESK_MQ.matches;
+    g.classList.toggle("fit", fit);
+    g.style.gridTemplateColumns = (fit ? "30px" : "40px") + " repeat(" + cols + ", minmax(" + (fit ? "0" : "88px") + ", 1fr))";
     var h = '<div class="bhead" style="color:#8b93a3">RD</div>';
     D.teams.forEach(function (t) {
       h += '<div class="bhead">' + esc(t.abbrev || t.name) +
@@ -1303,7 +1315,7 @@ input[type=text],input[type=number],select{
         '<span class="rk">' + (p.rank != null ? p.rank : "—") + "</span>" +
         '<span class="dot" style="background:' + posColor(p.pos) + '">' + esc(p.pos || "?") + "</span>" +
         teamLogoImg(p.proTeam) +
-        '<span class="nm"><b>' + esc(p.name) + (p.injury ? ' <span class="inj">' + esc(p.injury[0]) + "</span>" : "") + "</b>" +
+        '<span class="nm"><b>' + esc(fmtName(p.name)) + (p.injury ? ' <span class="inj">' + esc(p.injury[0]) + "</span>" : "") + "</b>" +
         '<span class="mut">' + esc(p.proTeam || "FA") + (bye ? " · bye " + bye : "") + "</span></span>" +
         '<span class="pstat">' + (p.proj != null ? "<b>" + p.proj + "</b> proj" : "") +
         (p.lastPts != null ? "<br>" + p.lastPts + " " + lastYr : "") + "</span>" +

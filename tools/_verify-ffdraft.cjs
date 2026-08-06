@@ -573,6 +573,10 @@ async function sectionRoom(browser) {
   ok(board.keeperCell.includes("🔒") && board.keeperCell.includes("B. Robinson"), "keeper cells carry the lock + the player");
   ok(/pos-RB/.test(board.keeperPos), "cells are position-colored");
   ok(board.curKey === "r3_t4", "the on-the-clock cell is highlighted");
+  ok(await page.evaluate(() => {
+    const p = document.querySelector("#vBoard .panner");
+    return p.scrollWidth > p.clientWidth + 40;
+  }), "on a phone the board pans inside its container instead of shrinking to mush");
   await shot(page, "ffdraft_board_390.png");
 
   // --- draft chat (board view) ---
@@ -636,6 +640,11 @@ async function sectionRoom(browser) {
     return !!logo && /espncdn\.com\/i\/teamlogos\/nfl/.test(logo.src)
       && /proj/.test(row.querySelector(".pstat").textContent);
   }), "rows carry the team logo + this-year proj + last-year points");
+  ok(await page.evaluate(() => {
+    const names = Array.from(document.querySelectorAll("#pList .prow .nm b")).map((b) => b.textContent);
+    return /^J\. Chase/.test(names.find((n) => n.includes("Chase")) || "")
+      && names.some((n) => n === "Broncos D/ST");
+  }), "list names are first-initial + last name (but a D/ST keeps its whole name)");
   await page.evaluate(() => { document.querySelector('#pList .prow[data-pid="4002"] .nm').click(); });
   await page.waitForFunction(() => !document.getElementById("pcOverlay").hidden
     && document.getElementById("pcCard").textContent.includes("every-down back"), { timeout: 5000 });
@@ -731,6 +740,11 @@ async function sectionRoom(browser) {
     return !rail.hidden && rail.contains(document.getElementById("playersPanel"))
       && document.querySelectorAll("#boardRail #pList .prow").length > 0;
   }), "desktop docks the players panel beside the board");
+  ok(await dpage.evaluate(() => {
+    const p = document.querySelector("#vBoard .panner");
+    const headers = document.querySelectorAll("#boardGrid .bhead").length;
+    return p.scrollWidth <= p.clientWidth + 2 && headers === 9;
+  }), "ALL 8 team columns fit on the desktop screen at once — no board panning");
   ok(await dpage.evaluate(() => !document.getElementById("chatCard").hidden
     && document.getElementById("chatCard").closest("#vBoard") != null),
     "…with the draft chat under the board");
