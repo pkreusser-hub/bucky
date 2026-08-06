@@ -638,6 +638,8 @@ async function sectionRoom(browser) {
   d = await D(page);
   ok(d.picks["r1_t3"] && d.picks["r1_t3"].pid === 4003, "Mike drafts Barkley from his own phone at 1.03");
   ok(await page.evaluate(() => !window.__DRAFT__.titleFlashing()), "…and the title flash stops once he picks");
+  ok(await page.evaluate(() => window.__DRAFT__.sndLog.includes("pick")),
+    "every landed pick fires the draft sound (headless: the trigger trail)");
   await page.evaluate(() => { document.getElementById("pSearch").value = ""; document.getElementById("pSearch").dispatchEvent(new Event("input")); });
 
   await hook(page, (k, dev) => window.__DRAFT__.setMe("Paul", dev, k), ckey, paulDev);
@@ -682,6 +684,13 @@ async function sectionRoom(browser) {
   d = await D(page);
   ok(d.deadline > Date.now() + 85000 && d.deadline < Date.now() + 95000, "setting a 90s clock arms the deadline");
   ok(await page.evaluate(() => !!document.getElementById("cdown")), "the countdown renders in the clock strip");
+  // Timer expiry buzzer: once per deadline, the moment it crosses zero.
+  await page.evaluate(() => { window.__DRAFT__.D.deadline = Date.now() - 20; });
+  await page.waitForFunction(() => window.__DRAFT__.sndLog.includes("buzzer"), { timeout: 3000 });
+  ok(true, "the buzzer fires when the clock hits 0");
+  await sleep(1100);
+  ok(await page.evaluate(() => window.__DRAFT__.sndLog.filter((x) => x === "buzzer").length === 1),
+    "…exactly once per deadline, not every tick");
   await hook(page, () => window.__DRAFT__.togglePause());
   await hook(page, () => window.__DRAFT__.makePick(window.__DRAFT__.pool.find((p) => p.pid === 4026)));
   await sleep(50);
@@ -737,8 +746,12 @@ async function sectionRoom(browser) {
     "no name, no message — you're nudged to set one first");
   await hook(page, (k, dev) => window.__DRAFT__.setMe("Paul", dev, k), ckey, paulDev);
   await clickSafely(page, '#tabs button[data-v="players"]');
-  ok(await page.evaluate(() => document.getElementById("chatCard").closest("#vPlayers") != null),
-    "…and the chat follows you to the Players view");
+  ok(await page.evaluate(() => {
+    const chat = document.getElementById("chatCard");
+    const claim = document.getElementById("claimCard");
+    return chat.closest("#teamsCol") != null && chat.classList.contains("slim")
+      && chat.getBoundingClientRect().bottom <= claim.getBoundingClientRect().top + 4;
+  }), "…and the chat follows you to Players & Teams, slimmed above the teams column");
   await clickSafely(page, '#tabs button[data-v="board"]');
 
   // --- players list states ---
@@ -792,6 +805,11 @@ async function sectionRoom(browser) {
     const el = document.getElementById("pList");
     return getComputedStyle(el).overflowY === "auto" && el.scrollHeight > el.clientHeight + 40;
   }), "the players list scrolls inside itself, not the page");
+  ok(await page.evaluate(() => {
+    const el = document.getElementById("pList");
+    const row = el.querySelector(".prow");
+    return !!row && el.clientHeight <= row.offsetHeight * 10 + 8 && el.clientHeight >= row.offsetHeight * 5;
+  }), "on a phone the list caps at ~10 rows so the teams column below stays reachable");
   ok(await page.evaluate(() => {
     const row = document.querySelector("#pList .prow");
     const logo = row.querySelector(".tlogo");
@@ -934,16 +952,26 @@ async function sectionRoom(browser) {
   await hook(page, () => window.__DRAFT__.setMockDelay(20));
   d = await D(page);
   ok(d.mock === true, "mock drafting switches on (practice-mode commish toggle)");
+  ok(await page.evaluate(() => {
+    const t = document.getElementById("vCommish").textContent;
+    return t.includes("practice copy") && !!document.querySelector('#vCommish a[href="ffdraft.html"]');
+  }), "the practice room explains mock drafting + links back to the real room");
   await page.evaluate(async () => {
     const H = window.__DRAFT__;
     const t0 = Date.now();
+    // The bots pick semi-randomly, so guarantee at least one off-ADP pick for
+    // the value-badge check: the first human turn reaches for the kicker
+    // (ADP 96) instead of best-available.
+    let firstHuman = true;
     while (Date.now() - t0 < 40000) {
       const cur = H.currentSlot();
       if (!cur) break;
       const team = H.D.teams.find((t) => t.id === cur.teamId);
       if (team && team.owner) {
         const tk = H.takenPids();
-        await H.makePick(H.pool.find((p) => !tk[p.pid]));
+        const reach = firstHuman && !tk[4033] ? H.pool.find((p) => p.pid === 4033) : null;
+        firstHuman = false;
+        await H.makePick(reach || H.pool.find((p) => !tk[p.pid]));
       } else {
         await new Promise((r) => setTimeout(r, 60));
       }
@@ -1007,9 +1035,13 @@ async function sectionRoom(browser) {
     const headers = document.querySelectorAll("#boardGrid .bhead").length;
     return p.scrollWidth <= p.clientWidth + 2 && headers === 9;
   }), "ALL 8 team columns fit on the desktop screen at once — no board panning");
-  ok(await dpage.evaluate(() => !document.getElementById("chatCard").hidden
-    && document.getElementById("chatCard").closest("#vBoard") != null),
-    "…with the draft chat under the board");
+  ok(await dpage.evaluate(() => {
+    const chat = document.getElementById("chatCard");
+    const panel = document.getElementById("playersPanel");
+    return !chat.hidden && chat.closest("#boardRail") != null
+      && chat.classList.contains("slim")
+      && chat.getBoundingClientRect().bottom <= panel.getBoundingClientRect().top + 4;
+  }), "…with the draft chat slimmed ABOVE the players column in the rail");
   ok(await dpage.evaluate(() => document.getElementById("chatMsgs").textContent.includes("kicker in round 4")),
     "chat written on the other device is already here");
   await dpage.evaluate(() => window.__DRAFT__.undoLast());
