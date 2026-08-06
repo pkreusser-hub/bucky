@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FF Data Test — ESPN vs Sleeper</title>
+<style>
+  :root {
+    --bg:#12161c; --card:#1a2027; --line:#2b3441; --ink:#e8edf3; --mut:#8b98a8;
+    --green:#4cc38a; --red:#e5534b; --amber:#e2b93b; --blue:#6cb6ff; --mono:Consolas,Menlo,monospace;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif; }
+  main { max-width:1150px; margin:0 auto; padding:12px 12px 60px; }
+  h1 { font-size:18px; margin:8px 0 2px; }
+  h2 { font-size:13px; margin:0 0 8px; color:var(--mut); text-transform:uppercase; letter-spacing:.06em; }
+  .sub { color:var(--mut); font-size:12px; margin-bottom:12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:12px; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  button { background:#243040; color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:8px 14px; font-size:14px; cursor:pointer; }
+  button.primary { background:#2b5c40; border-color:#3a7a55; }
+  button.stop { background:#5c2b2b; border-color:#7a3a3a; }
+  button:disabled { opacity:.45; cursor:default; }
+  select, input[type=text] { background:#0f1319; color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:7px 9px; font-size:14px; }
+  input.short { width:70px; }
+  table { border-collapse:collapse; width:100%; font-size:12.5px; }
+  th, td { text-align:left; padding:4px 8px; border-bottom:1px solid var(--line); white-space:nowrap; vertical-align:top; }
+  th { color:var(--mut); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+  td.num, th.num { text-align:right; font-family:var(--mono); }
+  .panner { overflow-x:auto; }
+  .mono { font-family:var(--mono); }
+  .ok { color:var(--green); } .bad { color:var(--red); } .warn { color:var(--amber); } .mut { color:var(--mut); }
+  .pill { display:inline-block; padding:1px 8px; border-radius:99px; font-size:11px; border:1px solid var(--line); color:var(--mut); }
+  .pill.live { color:#0f1319; background:var(--green); border-color:var(--green); font-weight:700; }
+  .gamebtn { display:block; width:100%; text-align:left; margin-bottom:6px; padding:10px 12px; }
+  .gamebtn small { color:var(--mut); }
+  .gamebtn.sel { outline:2px solid var(--blue); }
+  #scorehdr { font-size:22px; font-weight:700; font-family:var(--mono); }
+  #clockline { color:var(--amber); font-family:var(--mono); }
+  .agefresh { color:var(--green); } .ageold { color:var(--mut); }
+  #events { max-height:340px; overflow-y:auto; font-family:var(--mono); font-size:12px; }
+  #events div { padding:1px 0; border-bottom:1px dotted #222b36; }
+  .src-espn { color:var(--blue); } .src-slp { color:var(--green); }
+  .statuschip { font-family:var(--mono); font-size:12px; }
+  .checklist td:first-child { white-space:normal; min-width:180px; }
+  .checklist td.note { white-space:normal; color:var(--mut); font-size:11.5px; min-width:200px; }
+  .hint { color:var(--mut); font-size:12px; margin-top:6px; }
+  .big { font-size:16px; font-weight:700; }
+  @media (max-width:700px){ th,td{ padding:4px 5px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>🏈 FF Data Test <span class="mut">— can ESPN + Sleeper power our own league?</span></h1>
+  <div class="sub">Polls both providers straight from this browser during a live game. Every stat change is
+    timestamped the moment this page first sees it — compare against the TV broadcast and against the ESPN/Sleeper apps.
+    Keep this tab visible (browsers throttle hidden tabs). <span id="wallclock" class="mono"></span></div>
+
+  <div class="card" id="setupCard">
+    <h2>1 · Pick tonight's game</h2>
+    <div id="gamesList" class="mut">Loading tonight's slate from ESPN…</div>
+    <div class="row" style="margin-top:8px">
+      <button id="refreshGames">↻ Refresh slate</button>
+      <span class="mut">or event id:</span>
+      <input type="text" id="manualEvent" class="short mono" placeholder="4017…">
+      <button id="manualGo">Use</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>2 · Run the test</h2>
+    <div class="row">
+      <button id="startBtn" class="primary" disabled>▶ Start polling</button>
+      <button id="pauseBtn" class="stop" disabled>⏸ Pause</button>
+      <label class="mut">every
+        <select id="pollSel">
+          <option value="5000">5s</option>
+          <option value="10000" selected>10s</option>
+          <option value="20000">20s</option>
+          <option value="30000">30s</option>
+        </select></label>
+      <button id="exportBtn" disabled>⬇ Export log (JSON)</button>
+      <span id="runstate" class="mut"></span>
+    </div>
+    <div class="hint">Sleeper stats bucket: <span class="mono">
+      /v1/stats/nfl/<input type="text" id="slpType" class="short mono" value="pre">/<input type="text" id="slpSeason" class="short mono" value="2026">/wk <input type="text" id="slpWeek" class="short mono" value="1" style="width:44px"></span>
+      <span class="mut">(prefilled from Sleeper's own /state — override only if the bucket looks empty)</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Endpoint health</h2>
+    <div class="panner"><table id="epTable">
+      <thead><tr><th>Endpoint</th><th class="num">HTTP</th><th class="num">Fetches</th><th class="num">Last ms</th><th class="num">Bytes</th><th>Last fetch</th><th>Error</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+  </div>
+
+  <div class="card" id="gameCard" hidden>
+    <div class="row" style="justify-content:space-between">
+      <div>
+        <div id="scorehdr">—</div>
+        <div id="clockline">—</div>
+      </div>
+      <div class="statuschip">
+        <div>last ESPN change: <span id="ageEspn">—</span></div>
+        <div>last Sleeper change: <span id="ageSlp">—</span></div>
+        <div class="mut" id="matchline"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="playersCard" hidden>
+    <h2>Players — fantasy points computed from each provider's raw stats (PPR)</h2>
+    <div class="panner"><table id="pTable">
+      <thead><tr>
+        <th>Player</th><th>Pos</th><th>Tm</th>
+        <th class="num">ESPN pts</th><th class="num">Slpr pts</th><th class="num">Δ</th>
+        <th class="num">Slpr official</th><th>engine</th>
+        <th>ESPN line</th><th>Sleeper line</th>
+        <th>ESPN upd</th><th>Slpr upd</th>
+        <th class="num">Proj</th><th>Inj</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table></div>
+    <div class="hint" id="rowsHint"></div>
+  </div>
+
+  <div class="card" id="latCard" hidden>
+    <h2>Latency — who reported each stat value first?</h2>
+    <div id="latSummary" class="big mut">No paired samples yet — needs a live game producing stats.</div>
+    <div class="panner" style="margin-top:8px"><table id="latTable">
+      <thead><tr><th>Player</th><th>Stat</th><th class="num">Value</th><th>ESPN saw it</th><th>Sleeper saw it</th><th class="num">Sleeper lag (s)</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+  </div>
+
+  <div class="card">
+    <h2>League-feasibility checklist <span class="mut" style="text-transform:none">(flips ✓ as real data is observed tonight)</span></h2>
+    <div class="panner"><table id="ckTable" class="checklist">
+      <thead><tr><th>Capability (8-team league needs)</th><th>ESPN</th><th>Sleeper</th><th class="note">Notes</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+  </div>
+
+  <div class="card">
+    <h2>Event feed — every stat change, wall-clock stamped <span id="evCount" class="mut"></span></h2>
+    <div id="events"><div class="mut">Nothing yet.</div></div>
+  </div>
+</main>
+
+<script>
+"use strict";
+/* FF Data Test console. Fully client-side: both APIs are keyless and send
+   Access-Control-Allow-Origin:* , and a residential browser IP avoids the
+   Akamai datacenter block that forces the Netlify function through a curl UA
+   (sports.mjs NFL_UA lesson — does not apply to browsers at home). */
+
+const $ = (s) => document.querySelector(s);
+const ESPN = "https://site.api.espn.com/apis/site/v2/sports/football/nfl";
+const SLP = "https://api.sleeper.app/v1";
+
+// 8-team-league PPR scoring — the engine under test.
+const SCORING = {
+  pass_yd: 0.04, pass_td: 4, pass_int: -2,
+  rush_yd: 0.1, rush_td: 6,
+  rec: 1, rec_yd: 0.1, rec_td: 6,
+  fum_lost: -2, two_pt: 2, fg_made: 3, xp_made: 1,
+};
+const STAT_KEYS = Object.keys(SCORING);
+function scoreOf(st) { let p = 0; for (const k of STAT_KEYS) p += (st[k] || 0) * SCORING[k]; return Math.round(p * 100) / 100; }
+
+// ESPN team abbrev -> Sleeper team abbrev (they agree except Washington).
+function slpTeam(ab) { return ab === "WSH" ? "WAS" : ab; }
+
+// ---------------- state ----------------
+const S = {
+  gameId: null, teams: [], slpTeams: [], gameLabel: "",
+  running: false, timer: null,
+  espnSeeded: false, slpSeeded: false,
+  players: new Map(),        // matchKey -> row
+  espnIds: new Set(),        // espn athlete ids seen in the boxscore
+  matchedIds: new Set(),     // espn ids that a Sleeper player also claimed
+  events: [],                // newest first
+  samples: [],               // latency pairs
+  firstSeen: new Map(),      // key|stat|val -> {espn:t, slp:t}
+  seen: new Set(),           // checklist flags
+  lastChange: { espn: 0, slp: 0 },
+  slpPlayers: null,          // espn_id-indexed sleeper metadata
+  slpById: null,             // sleeper player_id -> meta
+  proj: null,                // sleeper projections map
+  startedAt: null,
+};
+const EP = {};               // endpoint bookkeeping
+
+async function fx(name, url) {
+  const ep = EP[name] || (EP[name] = { name, n: 0, okN: 0, status: "—", ms: 0, bytes: 0, lastAt: 0, err: "" });
+  ep.url = url; ep.n++;
+  const t0 = performance.now();
+  try {
+    const r = await fetch(url, { cache: "no-store" });
+    ep.status = r.status; ep.ms = Math.round(performance.now() - t0);
+    const txt = await r.text();
+    ep.bytes = txt.length; ep.lastAt = Date.now();
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const j = JSON.parse(txt);
+    ep.okN++; ep.err = "";
+    return j;
+  } catch (e) {
+    ep.err = String(e && e.message || e); ep.lastAt = Date.now();
+    if (!ep.status || ep.status === "—") ep.status = "ERR";
+    renderEndpoints();
+    throw e;
+  }
+}
+
+const hhmmss = (t) => new Date(t).toLocaleTimeString("en-US", { hour12: false });
+function agoStr(t) {
+  if (!t) return "—";
+  const s = Math.round((Date.now() - t) / 1000);
+  return s < 90 ? s + "s ago" : Math.round(s / 60) + "m ago";
+}
+
+// ---------------- game discovery ----------------
+function todayYMD() {
+  // The family's games are Central; ESPN's dates param is calendar-day based.
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" }).replace(/-/g, "");
+}
+async function discoverGames() {
+  $("#gamesList").textContent = "Loading tonight's slate from ESPN…";
+  try {
+    const j = await fx("espn scoreboard", `${ESPN}/scoreboard?dates=${todayYMD()}`);
+    renderEndpoints();
+    const evs = j && Array.isArray(j.events) ? j.events : [];
+    if (!evs.length) { $("#gamesList").innerHTML = '<span class="warn">No NFL games on ESPN\'s slate today.</span> Paste an event id below.'; return; }
+    S.seen.add("espn.game");
+    const box = $("#gamesList"); box.innerHTML = "";
+    for (const ev of evs) {
+      const c = ev.competitions && ev.competitions[0]; if (!c) continue;
+      const st = c.status && c.status.type || {};
+      const away = (c.competitors || []).find((x) => x.homeAway === "away") || {};
+      const home = (c.competitors || []).find((x) => x.homeAway === "home") || {};
+      const b = document.createElement("button");
+      b.className = "gamebtn"; b.dataset.eid = ev.id;
+      b.dataset.away = away.team && away.team.abbreviation || "";
+      b.dataset.home = home.team && home.team.abbreviation || "";
+      const live = st.state === "in";
+      b.innerHTML = `<b>${ev.shortName || ev.name || ev.id}</b> ${live ? '<span class="pill live">LIVE</span>' : `<span class="pill">${st.shortDetail || st.state || ""}</span>`}<br><small>${new Date(ev.date).toLocaleString()} · event ${ev.id}</small>`;
+      b.addEventListener("click", () => pickGame(ev.id, b.dataset.away, b.dataset.home, ev.shortName || ev.id, b));
+      box.appendChild(b);
+    }
+  } catch (e) {
+    $("#gamesList").innerHTML = `<span class="bad">ESPN scoreboard failed: ${e.message}.</span> Paste an event id below, or check the endpoint table.`;
+  }
+}
+function pickGame(eid, away, home, label, btn) {
+  S.gameId = String(eid);
+  S.teams = [away, home].filter(Boolean);
+  S.slpTeams = S.teams.map(slpTeam);
+  S.gameLabel = label;
+  document.querySelectorAll(".gamebtn").forEach((b) => b.classList.remove("sel"));
+  if (btn) btn.classList.add("sel");
+  $("#startBtn").disabled = false;
+  $("#runstate").textContent = `ready — ${label} (event ${eid})`;
+}
+
+// ---------------- sleeper bootstrap (state, players, projections) ----------------
+async function slpBootstrap() {
+  try {
+    const st = await fx("sleeper state", `${SLP}/state/nfl`);
+    S.seen.add("slp.state");
+    if (st) {
+      if (st.season_type) $("#slpType").value = st.season_type;
+      if (st.season) $("#slpSeason").value = st.season;
+      const wk = st.week || st.leg;
+      if (wk) $("#slpWeek").value = wk;
+    }
+  } catch (e) { /* endpoint table carries the failure */ }
+  renderEndpoints();
+}
+async function slpLoadPlayers() {
+  if (S.slpById) return;
+  $("#runstate").textContent = "loading Sleeper player directory (~5MB, once)…";
+  const dump = await fx("sleeper players", `${SLP}/players/nfl`);
+  const byEspn = new Map(), byId = new Map();
+  let withEspn = 0, defs = 0;
+  for (const pid in dump) {
+    const p = dump[pid]; if (!p || typeof p !== "object") continue;
+    const meta = {
+      pid, name: p.full_name || ((p.first_name || "") + " " + (p.last_name || "")).trim() || pid,
+      team: p.team || "", pos: p.position || "", espn_id: p.espn_id != null ? String(p.espn_id) : null,
+      injury: p.injury_status || "",
+    };
+    if (meta.pos === "DEF") { defs++; meta.name = pid + " D/ST"; }
+    if (meta.espn_id) { withEspn++; byEspn.set(meta.espn_id, meta); }
+    byId.set(pid, meta);
+  }
+  S.slpPlayers = byEspn; S.slpById = byId;
+  S.seen.add("slp.players");
+  if ([...byId.values()].some((m) => m.injury)) S.seen.add("slp.inj");
+  log(`Sleeper directory: ${byId.size} players, ${withEspn} carry an espn_id, ${defs} team defenses`, "slp");
+  renderEndpoints();
+}
+function slpStatsUrl() {
+  return `${SLP}/stats/nfl/${$("#slpType").value.trim()}/${$("#slpSeason").value.trim()}/${$("#slpWeek").value.trim()}`;
+}
+async function slpLoadProjections() {
+  if (S.proj) return;
+  try {
+    const j = await fx("sleeper projections", `${SLP}/projections/nfl/${$("#slpType").value.trim()}/${$("#slpSeason").value.trim()}/${$("#slpWeek").value.trim()}`);
+    if (j && typeof j === "object" && Object.keys(j).length) { S.proj = j; S.seen.add("slp.proj"); }
+  } catch (e) { /* optional */ }
+  renderEndpoints();
+}
+
+// ---------------- normalization ----------------
+function parseEspnBox(summary) {
+  const out = new Map();
+  const teams = summary && summary.boxscore && Array.isArray(summary.boxscore.players) ? summary.boxscore.players : [];
+  for (const t of teams) {
+    const teamAb = t.team && t.team.abbreviation || "";
+    for (const cat of (t.statistics || [])) {
+      const name = cat.name || "";
+      const labels = cat.labels || [];
+      const gi = {}; labels.forEach((l, i) => { gi[l] = i; });
+      for (const a of (cat.athletes || [])) {
+        const ath = a.athlete || {};
+        const id = ath.id != null ? String(ath.id) : null;
+        if (!id) continue;
+        const rec = out.get(id) || {
+          meta: { name: ath.displayName || ath.shortName || id, pos: (ath.position || {}).abbreviation || "", team: teamAb },
+          stats: {}, raw: {},
+        };
+        const v = a.stats || [];
+        const g = (lab) => gi[lab] != null ? v[gi[lab]] : undefined;
+        const num = (lab) => { const x = parseFloat(g(lab)); return isNaN(x) ? 0 : x; };
+        const Sx = rec.stats, R = rec.raw;
+        if (name === "passing") {
+          const ca = String(g("C/ATT") || "");
+          if (ca.includes("/")) { const [c, at] = ca.split("/").map(Number); R.pass_cmp = c || 0; R.pass_att = at || 0; }
+          Sx.pass_yd = num("YDS"); Sx.pass_td = num("TD"); Sx.pass_int = num("INT");
+          S.seen.add("espn.pass");
+        } else if (name === "rushing") {
+          R.rush_att = num("CAR"); Sx.rush_yd = num("YDS"); Sx.rush_td = num("TD");
+          S.seen.add("espn.rush");
+        } else if (name === "receiving") {
+          Sx.rec = num("REC"); Sx.rec_yd = num("YDS"); Sx.rec_td = num("TD"); R.rec_tgt = num("TGTS");
+          S.seen.add("espn.rec");
+        } else if (name === "fumbles") {
+          R.fum = num("FUM"); Sx.fum_lost = num("LOST");
+          S.seen.add("espn.fum");
+        } else if (name === "kicking") {
+          const fg = String(g("FG") || ""), xp = String(g("XP") || "");
+          if (fg.includes("/")) { const [m, at] = fg.split("/").map(Number); Sx.fg_made = m || 0; R.fg_att = at || 0; }
+          if (xp.includes("/")) { const [m, at] = xp.split("/").map(Number); Sx.xp_made = m || 0; R.xp_att = at || 0; }
+          S.seen.add("espn.kick");
+        }
+        out.set(id, rec);
+      }
+    }
+  }
+  return out;
+}
+function normSlpStats(st) {
+  const n = {
+    pass_yd: st.pass_yd || 0, pass_td: st.pass_td || 0, pass_int: st.pass_int || 0,
+    rush_yd: st.rush_yd || 0, rush_td: st.rush_td || 0,
+    rec: st.rec || 0, rec_yd: st.rec_yd || 0, rec_td: st.rec_td || 0,
+    fum_lost: st.fum_lost || 0,
+    two_pt: (st.pass_2pt || 0) + (st.rush_2pt || 0) + (st.rec_2pt || 0),
+    fg_made: st.fgm || 0, xp_made: st.xpm || 0,
+  };
+  if (n.pass_yd || n.pass_td || st.pass_att) S.seen.add("slp.pass");
+  if (n.rush_yd || st.rush_att) S.seen.add("slp.rush");
+  if (n.rec || st.rec_tgt) S.seen.add("slp.rec");
+  if (n.fum_lost) S.seen.add("slp.fum");
+  if (n.fg_made || n.xp_made || st.fga || st.xpa) S.seen.add("slp.kick");
+  if (st.fgm_0_19 != null || st.fgm_20_29 != null || st.fgm_30_39 != null || st.fgm_40_49 != null || st.fgm_50p != null) S.seen.add("slp.kickDist");
+  if (n.two_pt) S.seen.add("slp.twoPt");
+  if (st.off_snp != null || st.def_snp != null || st.st_snp != null) S.seen.add("slp.snaps");
+  if (st.pts_ppr != null) S.seen.add("slp.official");
+  return n;
+}
+
+// ---------------- diff / latency engine ----------------
+function rowFor(key, meta) {
+  let row = S.players.get(key);
+  if (!row) { row = { key, name: meta.name || key, pos: meta.pos || "", team: meta.team || "", espn: null, slp: null, official: null, proj: null, injury: "" }; S.players.set(key, row); }
+  if (meta.name) row.name = meta.name;
+  if (meta.pos && !row.pos) row.pos = meta.pos;
+  if (meta.team && !row.team) row.team = meta.team;
+  return row;
+}
+function applySide(src, key, meta, norm, raw) {
+  const row = rowFor(key, meta);
+  const side = row[src] || (row[src] = { stats: {}, raw: {}, pts: 0, last: 0 });
+  const baseline = src === "espn" ? !S.espnSeeded : !S.slpSeeded;
+  for (const k of STAT_KEYS) {
+    const nv = norm[k] || 0, ov = side.stats[k] || 0;
+    if (nv !== ov) {
+      side.last = Date.now();
+      S.lastChange[src] = Date.now();
+      if (!baseline) {
+        S.events.unshift({ t: Date.now(), src, key, name: row.name, stat: k, from: ov, to: nv });
+        S.seen.add(src + ".change");
+        pairFirstSeen(src, key, k, nv, row.name);
+      }
+    }
+  }
+  side.stats = norm; side.raw = raw || side.raw; side.pts = scoreOf(norm);
+}
+function pairFirstSeen(src, key, stat, val, name) {
+  const pk = key + "|" + stat + "|" + val;
+  let rec = S.firstSeen.get(pk);
+  if (!rec) { rec = {}; S.firstSeen.set(pk, rec); }
+  if (rec[src] != null) return;
+  rec[src] = Date.now();
+  const other = src === "espn" ? "slp" : "espn";
+  if (rec[other] != null) {
+    S.samples.push({ key, name, stat, val, tE: rec.espn, tS: rec.slp, d: Math.round((rec.slp - rec.espn) / 100) / 10 });
+  }
+}
+
+// ---------------- pollers ----------------
+async function pollEspn() {
+  const j = await fx("espn summary", `${ESPN}/summary?event=${S.gameId}`);
+  // Header: score + clock.
+  const comp = j && j.header && Array.isArray(j.header.competitions) ? j.header.competitions[0] : null;
+  if (comp) {
+    const cs = comp.competitors || [];
+    const away = cs.find((c) => c.homeAway === "away") || cs[1] || {};
+    const home = cs.find((c) => c.homeAway === "home") || cs[0] || {};
+    $("#scorehdr").textContent =
+      `${(away.team || {}).abbreviation || "?"} ${away.score != null ? away.score : "-"} — ${home.score != null ? home.score : "-"} ${(home.team || {}).abbreviation || "?"}`;
+    const st = comp.status || {};
+    const ty = st.type || {};
+    $("#clockline").textContent = ty.state === "in"
+      ? `Q${st.period || "?"} · ${st.displayClock || ""} · LIVE`
+      : (ty.shortDetail || ty.description || ty.state || "");
+    if (ty.state === "in" || st.displayClock) S.seen.add("espn.clock");
+    $("#gameCard").hidden = false;
+  }
+  const box = parseEspnBox(j);
+  for (const [id, rec] of box) {
+    S.espnIds.add(id);
+    const slpMeta = S.slpPlayers && S.slpPlayers.get(id);
+    if (slpMeta) S.matchedIds.add(id);
+    applySide("espn", id, rec.meta, { ...emptyNorm(), ...rec.stats }, rec.raw);
+  }
+  // Cross-provider identity is "good" when at least half the box score maps.
+  if (S.espnIds.size && S.matchedIds.size / S.espnIds.size >= 0.5) S.seen.add("slp.espnIds");
+  if (box.size) S.espnSeeded = true;
+}
+function emptyNorm() { const o = {}; for (const k of STAT_KEYS) o[k] = 0; return o; }
+
+async function pollSleeper() {
+  const j = await fx("sleeper stats", slpStatsUrl());
+  if (!j || typeof j !== "object") return;
+  let n = 0;
+  for (const pid in j) {
+    const st = j[pid]; if (!st || typeof st !== "object") continue;
+    const meta = S.slpById && S.slpById.get(pid);
+    if (!meta) continue;
+    if (!S.slpTeams.includes(meta.team)) continue;           // only this game's two teams
+    if (meta.pos === "DEF") S.seen.add("slp.dst");
+    const key = meta.espn_id || ("slp_" + pid);
+    const row = rowFor(key, { name: meta.name, pos: meta.pos, team: meta.team });
+    row.injury = meta.injury || row.injury;
+    if (st.pts_ppr != null) row.official = st.pts_ppr;
+    if (S.proj && S.proj[pid] && S.proj[pid].pts_ppr != null) row.proj = S.proj[pid].pts_ppr;
+    applySide("slp", key, {}, normSlpStats(st), st);
+    n++;
+  }
+  if (n) S.slpSeeded = true;
+}
+
+// ---------------- run loop ----------------
+async function tick() {
+  if (!S.running) return;
+  const results = await Promise.allSettled([pollEspn(), pollSleeper()]);
+  results.forEach((r) => { if (r.status === "rejected") log("poll error: " + (r.reason && r.reason.message || r.reason), "err"); });
+  renderAll();
+  S.timer = setTimeout(tick, parseInt($("#pollSel").value, 10));
+}
+async function start() {
+  if (S.running || !S.gameId) return;
+  S.running = true; S.startedAt = S.startedAt || Date.now();
+  $("#startBtn").disabled = true; $("#pauseBtn").disabled = false; $("#exportBtn").disabled = false;
+  $("#playersCard").hidden = false; $("#latCard").hidden = false;
+  try {
+    await slpLoadPlayers();
+    await slpLoadProjections();
+  } catch (e) { log("Sleeper bootstrap failed: " + e.message + " — ESPN side still runs", "err"); }
+  $("#runstate").textContent = `polling ${S.gameLabel} every ${parseInt($("#pollSel").value, 10) / 1000}s`;
+  tick();
+}
+function pause() {
+  S.running = false; clearTimeout(S.timer);
+  $("#startBtn").disabled = false; $("#pauseBtn").disabled = true;
+  $("#runstate").textContent = "paused";
+}
+
+// ---------------- rendering ----------------
+function log(msg, cls) {
+  S.events.unshift({ t: Date.now(), src: cls || "note", name: "", stat: "", from: null, to: null, msg });
+  renderEvents();
+}
+function renderEndpoints() {
+  const tb = $("#epTable tbody"); tb.innerHTML = "";
+  for (const name of Object.keys(EP)) {
+    const e = EP[name];
+    const tr = document.createElement("tr");
+    const okCls = e.err ? "bad" : (String(e.status) === "200" ? "ok" : "warn");
+    tr.innerHTML = `<td>${name}<br><small class="mut mono">${(e.url || "").replace("https://", "")}</small></td>
+      <td class="num ${okCls}">${e.status}</td><td class="num">${e.okN}/${e.n}</td>
+      <td class="num">${e.ms}</td><td class="num">${e.bytes.toLocaleString()}</td>
+      <td class="mono">${e.lastAt ? hhmmss(e.lastAt) : "—"}</td><td class="bad">${e.err}</td>`;
+    tb.appendChild(tr);
+  }
+}
+function fmtLine(side) {
+  if (!side) return "";
+  const s = side.stats, r = side.raw || {};
+  const parts = [];
+  if (s.pass_yd || r.pass_att) parts.push(`${r.pass_cmp != null ? r.pass_cmp + "/" + r.pass_att + " " : ""}${s.pass_yd}yd ${s.pass_td}TD ${s.pass_int}INT`);
+  if (s.rush_yd || r.rush_att) parts.push(`${r.rush_att != null ? r.rush_att + "car " : ""}${s.rush_yd}ryd${s.rush_td ? " " + s.rush_td + "rTD" : ""}`);
+  if (s.rec || s.rec_yd) parts.push(`${s.rec}rec ${s.rec_yd}yd${s.rec_td ? " " + s.rec_td + "TD" : ""}`);
+  if (s.fum_lost) parts.push(`${s.fum_lost}FL`);
+  if (s.fg_made || s.xp_made || r.fg_att || r.xp_att) parts.push(`FG ${s.fg_made || 0}${r.fg_att != null ? "/" + r.fg_att : ""} XP ${s.xp_made || 0}`);
+  if (s.two_pt) parts.push(`${s.two_pt}×2pt`);
+  return parts.join(" · ");
+}
+function ageCell(t) {
+  if (!t) return '<span class="mut">—</span>';
+  const s = Math.round((Date.now() - t) / 1000);
+  return `<span class="${s < 45 ? "agefresh" : "ageold"} mono">${hhmmss(t)}</span>`;
+}
+function renderPlayers() {
+  const rows = [...S.players.values()];
+  rows.sort((a, b) => Math.max(b.espn ? b.espn.pts : -99, b.slp ? b.slp.pts : -99) - Math.max(a.espn ? a.espn.pts : -99, a.slp ? a.slp.pts : -99));
+  const tb = $("#pTable tbody"); tb.innerHTML = "";
+  let shown = 0;
+  for (const r of rows) {
+    const e = r.espn, s = r.slp;
+    const eP = e ? e.pts : null, sP = s ? s.pts : null;
+    if (eP == null && sP == null) continue;
+    if (shown >= 80) break;
+    shown++;
+    const d = eP != null && sP != null ? Math.round((eP - sP) * 10) / 10 : null;
+    // DEF rows: our engine has no DST scoring (deliberate — checklist notes it),
+    // so an engine-vs-official comparison there would just be noise.
+    const engine = s && r.official != null && r.pos !== "DEF"
+      ? (Math.abs(s.pts - r.official) <= 0.11 ? '<span class="ok">✓</span>' : `<span class="warn">Δ${(Math.round((s.pts - r.official) * 10) / 10)}</span>`)
+      : '<span class="mut">—</span>';
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${r.name}</td><td>${r.pos}</td><td>${r.team}</td>
+      <td class="num">${eP != null ? eP.toFixed(1) : "—"}</td>
+      <td class="num">${sP != null ? sP.toFixed(1) : "—"}</td>
+      <td class="num ${d != null && Math.abs(d) > 0.55 ? "warn" : "mut"}">${d != null && Math.abs(d) >= 0.05 ? (d > 0 ? "+" : "") + d.toFixed(1) : ""}</td>
+      <td class="num">${r.official != null ? r.official.toFixed(1) : "—"}</td><td>${engine}</td>
+      <td class="mono mut">${fmtLine(e)}</td><td class="mono mut">${fmtLine(s)}</td>
+      <td>${ageCell(e && e.last)}</td><td>${ageCell(s && s.last)}</td>
+      <td class="num mut">${r.proj != null ? Number(r.proj).toFixed(1) : ""}</td>
+      <td class="${r.injury ? "warn" : "mut"}">${r.injury || ""}</td>`;
+    tb.appendChild(tr);
+  }
+  $("#rowsHint").textContent = `${shown} of ${rows.length} tracked players shown (sorted by points). "engine ✓" = our PPR math matches Sleeper's official pts_ppr within 0.1.`;
+}
+function renderLatency() {
+  const tb = $("#latTable tbody"); tb.innerHTML = "";
+  const last = S.samples.slice(-30).reverse();
+  for (const smp of last) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${smp.name}</td><td class="mono">${smp.stat}</td><td class="num mono">${smp.val}</td>
+      <td class="mono">${hhmmss(smp.tE)}</td><td class="mono">${hhmmss(smp.tS)}</td>
+      <td class="num ${smp.d > 0 ? "src-espn" : "src-slp"}">${smp.d > 0 ? "+" : ""}${smp.d}</td>`;
+    tb.appendChild(tr);
+  }
+  if (S.samples.length) {
+    const ds = S.samples.map((x) => x.d).sort((a, b) => a - b);
+    const med = ds[Math.floor(ds.length / 2)];
+    const eFirst = S.samples.filter((x) => x.d > 0).length;
+    const sFirst = S.samples.filter((x) => x.d < 0).length;
+    $("#latSummary").innerHTML = `${S.samples.length} paired samples · median Sleeper lag <b class="${med >= 0 ? "src-espn" : "src-slp"}">${med > 0 ? "+" : ""}${med}s</b> · ESPN first ${eFirst}× · Sleeper first ${sFirst}× <span class="mut">(positive = ESPN reported it first)</span>`;
+  }
+}
+const CHECKS = [
+  { label: "Tonight's slate + game discovery", e: "espn.game", s: "slp.state", note: "ESPN scoreboard by date · Sleeper /state gives season/week" },
+  { label: "Live score / clock / quarter", e: "espn.clock", s: "no", note: "Sleeper's public API has no game clock — pair it with ESPN's scoreboard" },
+  { label: "Passing yds / TD / INT", e: "espn.pass", s: "slp.pass" },
+  { label: "Rushing yds / TD", e: "espn.rush", s: "slp.rush" },
+  { label: "Receptions + rec yds / TD (PPR)", e: "espn.rec", s: "slp.rec" },
+  { label: "Fumbles lost", e: "espn.fum", s: "slp.fum" },
+  { label: "Kicker FG / XP", e: "espn.kick", s: "slp.kick" },
+  { label: "FG distance splits (40-49, 50+)", e: "no", s: "slp.kickDist", note: "ESPN box has FG made/att only — distance needs play-by-play parsing" },
+  { label: "2-point conversions", e: "no", s: "slp.twoPt", note: "Not in ESPN's box score (scoring-plays parsing needed); Sleeper has pass/rush/rec_2pt — also why the two computed totals can differ" },
+  { label: "Team defense (D/ST) stat rows", e: "no", s: "slp.dst", note: "Sleeper ships DEF pseudo-players (sacks, INTs, pts allowed); ESPN needs deriving from the team box" },
+  { label: "Cross-provider player IDs", e: null, s: "slp.espnIds", note: "Sleeper's directory carries espn_id — match quality shown above the table" },
+  { label: "Injury status", e: null, s: "slp.inj", note: "In Sleeper's free player directory; ESPN has it in the fantasy API (already used by Bucky)" },
+  { label: "Weekly projections", e: null, s: "slp.proj", note: "Sleeper projections are free; ESPN's live behind the fantasy API (proven in Bucky)" },
+  { label: "Official fantasy pts to audit our engine", e: "no", s: "slp.official", note: "Sleeper's pts_ppr — the 'engine' column cross-checks our scoring math" },
+  { label: "Snap counts", e: "no", s: "slp.snaps", note: "off_snp / def_snp in Sleeper stat lines" },
+  { label: "Stats actually updating during play", e: "espn.change", s: "slp.change", note: "THE question tonight — flips ✓ on the first in-game change each source reports" },
+];
+function ckMark(flag) {
+  if (flag === "no") return '<span class="bad">✗</span>';
+  if (flag === null) return '<span class="mut">n/a</span>';
+  return S.seen.has(flag) ? '<span class="ok">✓</span>' : '<span class="mut">…</span>';
+}
+function renderChecklist() {
+  const tb = $("#ckTable tbody"); tb.innerHTML = "";
+  for (const c of CHECKS) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${c.label}</td><td>${ckMark(c.e)}</td><td>${ckMark(c.s)}</td><td class="note">${c.note || ""}</td>`;
+    tb.appendChild(tr);
+  }
+}
+function renderEvents() {
+  const box = $("#events");
+  const evs = S.events.slice(0, 400);
+  $("#evCount").textContent = `(${S.events.length})`;
+  if (!evs.length) { box.innerHTML = '<div class="mut">Nothing yet.</div>'; return; }
+  box.innerHTML = evs.map((e) => {
+    const t = hhmmss(e.t);
+    if (e.msg) return `<div><span class="mut">${t}</span> <span class="${e.src === "err" ? "bad" : "mut"}">${e.msg}</span></div>`;
+    return `<div><span class="mut">${t}</span> <b class="src-${e.src}">${e.src === "espn" ? "ESPN" : "SLPR"}</b> ${e.name} <span class="mono">${e.stat} ${e.from}→${e.to}</span></div>`;
+  }).join("");
+}
+function renderHeader() {
+  $("#ageEspn").textContent = agoStr(S.lastChange.espn);
+  $("#ageSlp").textContent = agoStr(S.lastChange.slp);
+  $("#ageEspn").className = S.lastChange.espn && Date.now() - S.lastChange.espn < 60000 ? "ok mono" : "mut mono";
+  $("#ageSlp").className = S.lastChange.slp && Date.now() - S.lastChange.slp < 60000 ? "ok mono" : "mut mono";
+  if (S.espnIds.size) $("#matchline").textContent = `id match: ${S.matchedIds.size}/${S.espnIds.size} ESPN box-score players found in Sleeper's directory`;
+}
+function renderAll() {
+  renderEndpoints(); renderPlayers(); renderLatency(); renderChecklist(); renderEvents(); renderHeader();
+}
+
+// ---------------- export ----------------
+function doExport() {
+  const data = {
+    tool: "fftest", startedAt: S.startedAt, exportedAt: Date.now(),
+    game: { id: S.gameId, label: S.gameLabel, teams: S.teams },
+    scoring: SCORING,
+    endpoints: EP,
+    seen: [...S.seen],
+    events: S.events,
+    latencySamples: S.samples,
+    players: [...S.players.values()].map((r) => ({
+      key: r.key, name: r.name, pos: r.pos, team: r.team,
+      espn: r.espn ? { pts: r.espn.pts, stats: r.espn.stats, last: r.espn.last } : null,
+      slp: r.slp ? { pts: r.slp.pts, stats: r.slp.stats, last: r.slp.last } : null,
+      official: r.official, proj: r.proj, injury: r.injury,
+    })),
+  };
+  const blob = new Blob([JSON.stringify(data, null, 1)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `fftest-${S.gameId || "run"}-${new Date().toISOString().slice(0, 16).replace(/[T:]/g, "")}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+// ---------------- wiring ----------------
+$("#refreshGames").addEventListener("click", discoverGames);
+$("#manualGo").addEventListener("click", () => {
+  const id = $("#manualEvent").value.trim();
+  if (/^\d{5,12}$/.test(id)) pickGame(id, "", "", "event " + id, null);
+});
+$("#startBtn").addEventListener("click", start);
+$("#pauseBtn").addEventListener("click", pause);
+$("#exportBtn").addEventListener("click", doExport);
+setInterval(() => { $("#wallclock").textContent = hhmmss(Date.now()); if (S.running) renderHeader(); }, 1000);
+
+renderChecklist();
+discoverGames();
+slpBootstrap();
+
+// Test hook.
+window.__FFTEST__ = {
+  S, EP, scoreOf, parseEspnBox, normSlpStats, slpTeam,
+  pickGame, start, pause, tick, doExport,
+  pollEspn, pollSleeper, renderAll,
+};
+</script>
+</body>
+</html>
