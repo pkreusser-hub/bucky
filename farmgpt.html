@@ -4141,6 +4141,8 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     { p: "c", icon: "🍽", name: "Calorie lookups",      inR: R_IN, outR: R_OUT },
     // Written by news.mjs rather than farmgpt.mjs — a different function, the same two docs.
     { p: "n", icon: "📰", name: "News summaries",       inR: S_IN, outR: S_OUT },
+    // Fantasy advice + the weekly league column — Grok 4.5 rates as the no-breakdown fallback.
+    { p: "w", icon: "🏈", name: "Fantasy AI",           inR: 2, outR: 6 },
   ];
   // Which models actually appear in a row, per bucket (read off the passed-through
   // `<bucket>_<slug>_<metric>` fields rather than a hardcoded list, so a new model needs no edit).

@@ -430,7 +430,7 @@ function ffLeagueDoc() {
       ffTeam(4, "End Zone Goats", "ENDZ", "{AAAA-4}", 0, 1, 87.9, 110.2, 6),
       ffTeam(5, "Wyoming Cowboys", "WYO", "{AAAA-5}", 1, 0, 104.6, 90.1, 3),
       ffTeam(6, "Draft Punks", "DRFT", "{AAAA-6}", 0, 1, 90.1, 104.6, 7),
-      ffTeam(7, "Turf Burners", "TURF", "{AAAA-7}", 1, 0, 99.5, 95.2, 4),
+      ffTeam(7, "Nails for Breakfast", "NAIL", "{AAAA-7}", 1, 0, 99.5, 95.2, 4),
       ffTeam(8, "Hay Bale Hail Marys", "HAY", "{AAAA-8}", 0, 1, 95.2, 99.5, 8),
     ],
     schedule: [
@@ -568,4 +568,40 @@ const CFB_SUMMARIES = {
   "401820004": cfbSummaryFinal,
 };
 
-module.exports = { scoreboardLive, scoreboardIdle, SUMMARIES, TEAMS, ffLeagueDoc, cfbScoreboard, CFB_SUMMARIES, CTEAMS };
+// The kona_player_info response for the X-Fantasy-Filter'd free-agent pool: a
+// realistic mix — a hot pickup, an injured flyer, a D/ST, a kicker, a stashed rook.
+// scoringPeriodId 2 matches the league doc; percOwned descending like the real sort.
+function ffFreeAgentEntry(name, posId, proTeamId, pct, proj, seasonProj, injury) {
+  return {
+    onTeamId: 0, status: "FREEAGENT",
+    player: {
+      id: ffPlayerId++, fullName: name, defaultPositionId: posId, proTeamId,
+      injuryStatus: injury || "ACTIVE",
+      ownership: { percentOwned: pct, percentChange: 1.2, auctionValueAverage: 0 },
+      stats: [
+        { scoringPeriodId: 2, statSourceId: 1, statSplitTypeId: 1, appliedTotal: proj },
+        { scoringPeriodId: 0, statSourceId: 1, statSplitTypeId: 0, appliedTotal: seasonProj },
+      ],
+      // Junk the slimmer must drop:
+      draftRanksByRankType: { STANDARD: { rank: 40 } }, seasonOutlook: "x".repeat(400),
+    },
+  };
+}
+function ffFreeAgentsDoc() {
+  ffPlayerId = 9000;
+  return {
+    id: 705063, seasonId: 2026, scoringPeriodId: 2,
+    status: { currentMatchupPeriod: 2, latestScoringPeriod: 2 },
+    players: [
+      ffFreeAgentEntry("Tyjae Spears", 2, 10, 61.2, 11.8, 152.4),
+      ffFreeAgentEntry("Romeo Doubs", 3, 9, 48.7, 9.9, 128.0),
+      ffFreeAgentEntry("Tyler Allgeier", 2, 1, 37.1, 8.4, 118.6),
+      ffFreeAgentEntry("Broncos D/ST", 16, 7, 29.5, 6.8, 98.5),
+      ffFreeAgentEntry("Cam Little", 5, 30, 18.2, 7.6, 121.0),
+      ffFreeAgentEntry("Marvin Mims Jr.", 3, 7, 12.9, 6.1, 84.2, "QUESTIONABLE"),
+      ffFreeAgentEntry("Tyrone Tracy Jr.", 2, 19, 8.4, 5.2, 71.9),
+    ],
+  };
+}
+
+module.exports = { scoreboardLive, scoreboardIdle, SUMMARIES, TEAMS, ffLeagueDoc, ffFreeAgentsDoc, cfbScoreboard, CFB_SUMMARIES, CTEAMS };

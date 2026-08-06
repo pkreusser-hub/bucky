@@ -649,6 +649,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .ffhome .fhp { font-family: Fraunces, Georgia, serif; font-size: 21px; font-variant-numeric: tabular-nums; flex: 0 0 auto; }
   .ffhome.down, .ffhome.down .fhp { color: var(--muted); font-weight: 600; }
   .ffhsub { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 11.5px; font-weight: 600; margin-top: 3px; }
+  .ffwarnline { color: var(--red, #b8552f); font-size: 12px; font-weight: 700; margin-top: 5px; }
   .home2 .wxhead { font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .home2 .wxhead .wxmore { color: var(--green); font-weight: 800; text-transform: none; letter-spacing: 0; font-size: 12px; }
   .home2 .wxdays { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
@@ -2952,7 +2953,7 @@ async function sportsHomeApi(action, params){
 // DUPLICATED in sports.html's FF_TEAM_BY_USER — keep the two in sync.
 function sportsHomeFfTeam(){
   const me = (myName() || "").trim().toLowerCase();
-  return { isaac: "The Goat Kids", grandpa: "Wyoming Cowboys" }[me] || "Battle Kreussers";
+  return { isaac: "The Goat Kids", grandpa: "Wyoming Cowboys", mom: "Nails for Breakfast" }[me] || "Battle Kreussers";
 }
 function sportsKick(iso){
   try { return new Date(iso).toLocaleString("en-US", { timeZone: "America/Chicago", weekday: "short", hour: "numeric", minute: "2-digit" }); }
@@ -3030,6 +3031,21 @@ function paintFfCard(el){
   rsp.textContent = yet ? yet + (yet === 1 ? " starter" : " starters") + " yet to play" : "";
   sub.append(l, rsp);
   if (l.textContent || rsp.textContent) el.appendChild(sub);
+  // Lineup guard: a STARTER who is hurt/suspended/on bye and hasn't kicked off is a
+  // fixable mistake — surface it right here on Home. (Same rules as sports.html's
+  // ffLineupWarnings — keep the two in sync.)
+  const warns = (fam.roster || []).filter(p => {
+    if (!p.starter) return false;
+    if (p.game && p.game.state !== "pre") return false;   // already playing/played
+    return !p.game || !!p.injury;                          // bye, or any injury tag
+  });
+  if (warns.length){
+    const w = document.createElement("div"); w.className = "ffwarnline";
+    w.textContent = warns.length === 1
+      ? "⚠️ " + (warns[0].name || "A starter") + " is " + (warns[0].game ? (warns[0].injury || "").toLowerCase().replace(/_/g, " ") : "on a bye") + " and still in your lineup"
+      : "⚠️ " + warns.length + " lineup problems: " + warns.map(p => p.name).join(", ");
+    el.appendChild(w);
+  }
 }
 function sportsHomeRefresh(force){
   if (sportsHomeFetching) return;

@@ -8289,3 +8289,43 @@ tab hops, and the framed page's own state (open game, chat mid-stream) survives 
 
 **DEFERRED** (per plan): status.html registry rows for ESPN (free NFL row + a
 cookie-configured fantasy row surfacing `fantasy-auth-expired` on the ops page).
+
+**FANTASY AI BATCH (2026-08-06)**: Grok 4.5 advice + the weekly columnist + the lineup guard;
+Mom follows **"Nails for Breakfast"** (FF_TEAM_BY_USER in sports.html + sportsHomeFfTeam in
+index.html — keep in sync). SERVER (farmgpt.mjs, not sports.mjs — that's where the model
+plumbing lives): modes `fantasy` (FANTASY_SYSTEM: lineup checks name the exact bench
+replacement, waivers pick 2-4 with drops, ONLY the data in the payload, ≤300 words, maxTokens
+1400) + `ffrecap` (FFRECAP_SYSTEM "The Nerd Report": 200-300 words, EVERY matchup covered,
+roast TEAMS never people). Both on **Grok 4.5 (XAI_MODEL)** → RESEARCH_MODEL Sonnet at both
+the no-key degrade AND the mid-request outage fallback (the story pattern). League data rides
+in NAMED BODY FIELDS (`matchup`/`freeAgents`/`matchups`/`standings`) and the user turn is
+built SERVER-SIDE (`buildFantasyMessages`/`buildRecapMessages`) — the ledger lesson:
+MAX_CONTENT_CHARS would slice JSON stuffed into messages[]. Kinds lineup/waivers/question
+(question capped 400; unknown → question). **THE RECAP GENERATES ONCE PER FINISHED WEEK,
+family-wide**: the handler checks `farmgpt_ffrecap/<season>_w<week>` BEFORE building messages
+(hit → JSON `{ok:true,cached:true,text}`, no model call); the first device streams the
+generation and the stream's finally{} saves the doc (`captureReply` gained ffrecap);
+buildRecapMessages 400s unless EVERY matchup is decided. Usage bucket **"w"** (+ per-model
+`w_grok45_*`), 🏈 "Fantasy AI" row in farmgpt.html's dashboard. sports.mjs: `ff_freeagents` —
+kona_player_info view filtered through the **X-Fantasy-Filter HEADER** (FREEAGENT+WAIVERS,
+sortPercOwned desc, limit 75 → slimmed to 50: {name,pos,proTeam,injury,pctOwned,proj,
+seasonProj}); `ffFetch` gained an extraHeaders arg. CLIENT (sports.html fantasy tab):
+**guard card** (`ffLineupWarnings`: a STARTER whose game is still `pre` and who is on bye /
+OUT / IR / suspended / Doubtful (🚫) / Questionable (🟡) — once his game starts, no nagging)
+leads the page; **🧠 Fantasy AI card** (🩺 lineup / 🔎 waivers / free-text ask → streams
+mode-fantasy into `.aians`; lineup skips the FA fetch, waivers/question load `ff_freeagents`
+cached 30 min; `ffFmt` = tiny **bold**+bullet formatter, no markdown lib); **📰 Nerd Report**
+collapsed `<details class="recapcard">` (client picks the finished week = current-if-all-
+decided else week-1-verified-decided, caches localStorage `bucky_ffrecap`); paintFf preserves
+the typed `#ffAiQ` across the 60s repaint. index.html home ffcard gets `.ffwarnline` (same
+guard rules — keep in sync). VERIFY: `node tools/_verify-ffai.cjs` (32: wire/degrade/
+fallback/recap-cache-no-second-call/w-bucket really incremented — SNAPSHOT the fake-Firestore
+fields before comparing, the increments mutate in place) + sports suite now **262** (fake ff
+upstream serves ffFreeAgentsDoc on view=kona_player_info + records the filter header; fake
+farmgpt route mock answers canned advice/column and counts calls NODE-side — the mock answers
+instantly, so "the second ask happened" must be waited for node-side, not on the DOM; fixture
+team 7 renamed Nails for Breakfast/NAIL). Regressions: storyledger 683 · kidstory 54 · dnd 47.
+TEST GOTCHA (new): background repaints replace #ffBody nodes — a coordinate `page.click` right
+after `hasFf` can land on a stale spot; wait for the guard card (ffMyM landed) and dispatch
+`el.click()` in-page. Diag workflow gained live ff_freeagents + ONE real Grok fantasy smoke
+(never trigger live ffrecap from CI — it would WRITE a junk preseason column the family reads).

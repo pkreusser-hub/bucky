@@ -92,7 +92,25 @@ jobs:
           python3 -c "import json;d=json.load(open('/tmp/o.json'));print('SEC: ok',d.get('ok'),len(d.get('events',[])),'events')" || head -c 300 /tmp/o.json
           code=$(fn '{"secret":"amenfarms","action":"ff_scoreboard"}' || echo FAIL)
           python3 -c "import json;d=json.load(open('/tmp/o.json'));print('ff_scoreboard: ok',d.get('ok'),'week',d.get('week'),len(d.get('matchups',[])),'matchups, famId',d.get('familyTeamId'))" || head -c 300 /tmp/o.json
-          for nm in "The Goat Kids" "Wyoming Cowboys"; do
+          for nm in "The Goat Kids" "Wyoming Cowboys" "Nails for Breakfast"; do
             code=$(fn "{\"secret\":\"amenfarms\",\"action\":\"ff_league\",\"teamName\":\"$nm\"}" || echo FAIL)
             python3 -c "import json;d=json.load(open('/tmp/o.json'));print('$nm ->','famId',d.get('familyTeamId'))" || head -c 200 /tmp/o.json
           done
+      - name: live fantasy-AI actions
+        run: |
+          fn() { curl -sS -o /tmp/o.json -w "%{http_code}" -X POST \
+            "https://amenfarms.netlify.app/.netlify/functions/sports" \
+            -H "Content-Type: application/json" --data "$1"; }
+          # Free agents through the real kona_player_info view + X-Fantasy-Filter header.
+          code=$(fn '{"secret":"amenfarms","action":"ff_freeagents"}' || echo FAIL)
+          echo "ff_freeagents HTTP $code, $(wc -c < /tmp/o.json) bytes"
+          python3 -c "import json;d=json.load(open('/tmp/o.json'));ps=d.get('players',[]);print('ok',d.get('ok'),len(ps),'players; top:',ps[0] if ps else None)" || head -c 300 /tmp/o.json
+          # One real Grok fantasy smoke through the live farmgpt function (a tiny stub
+          # matchup — costs a fraction of a cent; do NOT trigger ffrecap here, it would
+          # WRITE a junk preseason column doc the whole family then reads).
+          code=$(curl -sS -o /tmp/ai.txt -w "%{http_code}" -X POST \
+            "https://amenfarms.netlify.app/.netlify/functions/farmgpt" \
+            -H "Content-Type: application/json" \
+            --data '{"secret":"amenfarms","mode":"fantasy","kind":"question","question":"One sentence: is my QB fine this week?","matchup":{"familyTeamId":1,"matchup":{"home":{"teamId":1,"name":"Battle Kreussers","roster":[{"name":"Josh Allen","slot":"QB","starter":true,"proj":21.3,"injury":""}]},"away":{"teamId":2,"name":"Test","roster":[]}}},"freeAgents":[]}' || echo FAIL)
+          echo "fantasy AI HTTP $code, $(wc -c < /tmp/ai.txt) bytes"
+          head -c 400 /tmp/ai.txt; echo

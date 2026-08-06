@@ -370,7 +370,7 @@ function ffSeason() {
   return d.getUTCMonth() < 2 ? d.getUTCFullYear() - 1 : d.getUTCFullYear();
 }
 
-async function ffFetch(views, extra, body) {
+async function ffFetch(views, extra, body, extraHeaders) {
   const cookie = ffCookies();
   if (!cookie) return { err: "fantasy-not-configured" };
   const year = Number(body?.year) >= 2000 && Number(body?.year) <= 2100 ? Number(body.year) : ffSeason();
@@ -378,7 +378,7 @@ async function ffFetch(views, extra, body) {
     + "?" + views.map((v) => "view=" + v).join("&") + (extra || "");
   let r;
   try {
-    r = await fetch(url, { headers: { "User-Agent": UA, accept: "application/json", cookie } });
+    r = await fetch(url, { headers: { "User-Agent": UA, accept: "application/json", cookie, ...(extraHeaders || {}) } });
   } catch {
     return { err: "unreachable" };
   }
@@ -574,6 +574,48 @@ async function ffMatchup(body) {
   }
 }
 
+// Best available free agents, for the waiver-advice AI + a browse list. The fantasy v3
+// API's player pool is filtered through the X-Fantasy-Filter HEADER (the documented
+// community convention — the query string can't express it): free agents + waivers,
+// sorted by percent-owned so the list is "players real managers are picking up", capped
+// upstream at 75 and slimmed to 50 here.
+async function ffFreeAgents(body) {
+  const filter = {
+    players: {
+      filterStatus: { value: ["FREEAGENT", "WAIVERS"] },
+      sortPercOwned: { sortPriority: 1, sortAsc: false },
+      limit: 75,
+    },
+  };
+  const { data: j, err, year } = await ffFetch(["kona_player_info"], "", body,
+    { "x-fantasy-filter": JSON.stringify(filter) });
+  if (err) return { ok: false, reason: err };
+  try {
+    const sp = j?.scoringPeriodId ?? j?.status?.latestScoringPeriod ?? null;
+    const players = (Array.isArray(j?.players) ? j.players : [])
+      .map((e) => {
+        const p = e?.player || e || {};
+        const stats = Array.isArray(p?.stats) ? p.stats : [];
+        const proj = stats.find((s) => s?.scoringPeriodId === sp && s?.statSourceId === 1)?.appliedTotal;
+        const seasonProj = stats.find((s) => s?.scoringPeriodId === 0 && s?.statSourceId === 1)?.appliedTotal;
+        return {
+          name: p?.fullName || "",
+          pos: POS_LABEL[p?.defaultPositionId] || "",
+          proTeam: PRO_ABBREV[p?.proTeamId ?? 0] || "",
+          injury: p?.injuryStatus && p.injuryStatus !== "ACTIVE" ? p.injuryStatus : "",
+          pctOwned: Math.round((p?.ownership?.percentOwned ?? 0) * 10) / 10,
+          proj: r1(proj),
+          seasonProj: r1(seasonProj),
+        };
+      })
+      .filter((p) => p.name)
+      .slice(0, 50);
+    return { ok: true, season: year, scoringPeriodId: sp, players };
+  } catch {
+    return { ok: false, reason: "bad-shape" };
+  }
+}
+
 // ---------------- handler ----------------
 
 export default async (req) => {
@@ -596,6 +638,7 @@ export default async (req) => {
   if (body.action === "ff_league") return json(await ffLeague(body), 200, headers);
   if (body.action === "ff_scoreboard") return json(await ffScoreboard(body), 200, headers);
   if (body.action === "ff_matchup") return json(await ffMatchup(body), 200, headers);
+  if (body.action === "ff_freeagents") return json(await ffFreeAgents(body), 200, headers);
   return json({ error: "Unknown action" }, 400, headers);
 };
 

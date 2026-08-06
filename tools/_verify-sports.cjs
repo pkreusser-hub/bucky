@@ -78,7 +78,7 @@ function startUpstream() {
 }
 
 // ---------------- fake ESPN fantasy upstream ----------------
-const ffUp = { mode: "normal", lastUrl: "", lastCookie: "", calls: 0 };
+const ffUp = { mode: "normal", lastUrl: "", lastCookie: "", lastFilter: "", calls: 0 };
 function startFfUpstream() {
   const srv = http.createServer((req, res) => {
     ffUp.calls++;
@@ -92,6 +92,12 @@ function startFfUpstream() {
       res.writeHead(404); res.end("{}"); return;
     }
     res.writeHead(200, { "Content-Type": "application/json" });
+    // The free-agent pool is its own view, filtered through the X-Fantasy-Filter HEADER.
+    if (req.url.includes("view=kona_player_info")) {
+      ffUp.lastFilter = req.headers["x-fantasy-filter"] || "";
+      res.end(JSON.stringify(FIX.ffFreeAgentsDoc()));
+      return;
+    }
     res.end(JSON.stringify(FIX.ffLeagueDoc()));
   });
   return new Promise((resolve) => srv.listen(FF_PORT, "127.0.0.1", () => resolve(srv)));
@@ -366,11 +372,33 @@ async function sectionFantasy() {
   ok(!!r.json && r.json.matchup && (r.json.matchup.home.teamId === 1 || r.json.matchup.away.teamId === 1),
     "an unknown teamId falls back to the family team");
 
+  // free agents (the waiver-advice AI's payload): X-Fantasy-Filter header + slim shape
+  r = await call({ secret: "amenfarms", action: "ff_freeagents" });
+  const fa = r.json;
+  ok(!!fa && fa.ok === true && fa.scoringPeriodId === 2 && Array.isArray(fa.players) && fa.players.length === 7,
+    "ff_freeagents returns the filtered player pool");
+  ok(/view=kona_player_info/.test(ffUp.lastUrl), "…through the kona_player_info view");
+  let filt = null; try { filt = JSON.parse(ffUp.lastFilter); } catch (e) {}
+  ok(!!filt && filt.players && filt.players.filterStatus.value.join(",") === "FREEAGENT,WAIVERS"
+    && filt.players.sortPercOwned && filt.players.sortPercOwned.sortAsc === false && filt.players.limit === 75,
+    "the X-Fantasy-Filter HEADER carries the FA/waivers filter, sorted by percent-owned, capped 75");
+  const spears = fa.players[0];
+  ok(spears.name === "Tyjae Spears" && spears.pos === "RB" && spears.proTeam === "TEN"
+    && spears.pctOwned === 61.2 && spears.proj === 11.8 && spears.seasonProj === 152.4,
+    "each player slims to {name,pos,proTeam,pctOwned,proj,seasonProj} with the pro-team abbrev resolved");
+  const mims = fa.players.find((p) => /Mims/.test(p.name));
+  ok(!!mims && mims.injury === "QUESTIONABLE" && spears.injury === "",
+    "injuries tag through; ACTIVE reads as no tag");
+  ok(!/seasonOutlook|draftRanksByRankType|ownership/.test(r.text), "player-card junk never reaches the client");
+
   // failure modes
   ffAuthWrong();
   r = await call({ secret: "amenfarms", action: "ff_matchup" });
   ok(!!r.json && r.json.ok === false && r.json.reason === "fantasy-auth-expired",
     "a stale espn_s2 cookie becomes fantasy-auth-expired (ESPN 401)");
+  r = await call({ secret: "amenfarms", action: "ff_freeagents" });
+  ok(!!r.json && r.json.ok === false && r.json.reason === "fantasy-auth-expired",
+    "ff_freeagents rides the same cookie gate");
   ffAuthGood();
   ffUp.mode = "http500";
   r = await call({ secret: "amenfarms", action: "ff_league" });
@@ -396,6 +424,14 @@ function startStatic() {
   });
   return new Promise((resolve) => srv.listen(SRV_PORT, "127.0.0.1", () => resolve(srv)));
 }
+
+// ---------------- fake farmgpt (the fantasy AI + weekly column) ----------------
+// sports.html POSTs /.netlify/functions/farmgpt for Grok advice (mode "fantasy") and
+// the Nerd Report column (mode "ffrecap"). The mock answers with canned text and
+// records every call NODE-SIDE so "one recap generation per week" is countable.
+const gpt = { calls: [] };
+const GPT_ADVICE = "**Bottom line:** start De'Von Achane over Justin Jefferson.\n\n- Jefferson is Questionable and Achane projects 13.1.\n- Everyone else checks out.";
+const GPT_COLUMN = "**Week 1: the Kreussers strike first.** Battle Kreussers rolled End Zone Goats 121.4-87.9 while The Goat Kids stunned the Waffle House Warriors.";
 
 // ---------------- browser plumbing ----------------
 function chromeExe() {
@@ -455,6 +491,14 @@ async function newPage(ctx, o) {
         return;
       }
       if (/googleapis|firestore|firebase|gstatic/i.test(u)) { await req.abort(); return; }
+      if (u.includes("/.netlify/functions/farmgpt")) {
+        let body = {}; try { body = JSON.parse(req.postData() || "{}"); } catch (e) {}
+        gpt.calls.push(body);
+        if (o.gptDown) { await req.respond({ status: 502, contentType: "application/json", body: '{"error":"down"}' }); return; }
+        const text = body.mode === "ffrecap" ? GPT_COLUMN : GPT_ADVICE;
+        await req.respond({ status: 200, contentType: "text/plain; charset=utf-8", body: text });
+        return;
+      }
       if (u.includes("/.netlify/")) { await req.respond({ status: 204, body: "" }); return; }
       // Abort external http(s) (fonts, espncdn logos); data:/blob:/same-origin continue —
       // aborting data: URLs wedges index.html's boot (chore-care harness lesson).
@@ -932,6 +976,7 @@ async function sectionCollege(browser) {
 async function sectionFantasyUI(browser) {
   section("F · the Fantasy view (390×844)");
   ffAuthGood();
+  gpt.calls.length = 0;
   {
     const ctx = await browser.createBrowserContext();
     const page = await newPage(ctx);
@@ -986,7 +1031,7 @@ async function sectionFantasyUI(browser) {
       "it carries both live totals and a LIVE tag");
     ok(ff.othersBtns === 3 && /The Goat Kids/.test(ff.othersText) && /Draft Punks/.test(ff.othersText)
       && /Wyoming Cowboys/.test(ff.othersText) && /Hay Bale Hail Marys/.test(ff.othersText)
-      && /Turf Burners/.test(ff.othersText) && /End Zone Goats/.test(ff.othersText),
+      && /Nails for Breakfast/.test(ff.othersText) && /End Zone Goats/.test(ff.othersText),
       "the other 3 matchups (all 6 remaining teams) render under Around the league");
     ok(ff.lineupRows === 0, "the scoreboard itself carries NO lineups — those live in the matchup detail");
     // 112.6 vs 98.1 projected finals -> Φ((112.6-98.1)/30) ≈ 69% (hand-computed)
@@ -998,6 +1043,90 @@ async function sectionFantasyUI(browser) {
     ok(!ff.owners, "standings show team names only — no usernames");
     ok(ff.wlNowrap, "the W-L record renders on one line");
     ok(ff.pollIv === 60000, "with matchups live, fantasy polls every 60s");
+
+    // -------- the lineup guard (needs ffMyM, which loads in the background) --------
+    await page.waitForSelector("#ffBody .guardcard", { timeout: 20000 });
+    const guard = await page.evaluate(() => {
+      const g = document.querySelector("#ffBody .guardcard");
+      const cards = [...document.querySelectorAll("#ffBody .card")];
+      return {
+        rows: g.querySelectorAll(".gw").length,
+        text: g.textContent,
+        first: cards.indexOf(g) === 0,
+        sub: (g.querySelector(".gwsub") || {}).textContent || "",
+      };
+    });
+    ok(guard.rows === 1 && /Justin Jefferson/.test(guard.text) && /Questionable/.test(guard.text)
+      && /still in your lineup/.test(guard.text) && /🟡/.test(guard.text),
+      "the lineup guard flags the Questionable starter (Jefferson), soft-marked 🟡");
+    ok(!/Josh Allen|Achane|Bijan/.test(guard.text),
+      "…and ONLY him: live starters, healthy pre-game starters and the bench-bye are never flagged");
+    ok(guard.first && /Battle Kreussers/.test(guard.text), "the guard card leads the page, named to my team");
+    ok(/Fix it in the ESPN app/.test(guard.sub) && /ask the AI below/.test(guard.sub),
+      "…and says where the fix actually happens");
+
+    // -------- the Nerd Report (mode ffrecap, generated for the finished week 1) --------
+    await page.waitForSelector("#ffBody details.recapcard", { timeout: 20000 });
+    const recap = await page.evaluate(() => {
+      const d = document.querySelector("#ffBody details.recapcard");
+      d.open = true;
+      let cached = null; try { cached = JSON.parse(localStorage.getItem("bucky_ffrecap") || "null"); } catch (e) {}
+      return {
+        summary: d.querySelector("summary").textContent,
+        body: (d.querySelector(".recapbody") || {}).textContent || "",
+        bolded: d.querySelectorAll(".recapbody b").length,
+        openByDefault: false,
+        cached,
+      };
+    });
+    ok(/The Nerd Report — Week 1/.test(recap.summary), "the weekly column renders as a collapsed card, titled to the FINISHED week");
+    ok(/Kreussers strike first/.test(recap.body) && recap.bolded >= 1,
+      "…with the column text inside, **bold** formatted");
+    ok(!!recap.cached && recap.cached.week === 1 && /Kreussers strike first/.test(recap.cached.text),
+      "the column caches to localStorage bucky_ffrecap for an instant paint next open");
+    const recapCalls = gpt.calls.filter((c) => c.mode === "ffrecap");
+    ok(recapCalls.length === 1 && recapCalls[0].week === 1 && recapCalls[0].season === 2026
+      && Array.isArray(recapCalls[0].matchups) && recapCalls[0].matchups.length === 4
+      && recapCalls[0].matchups.every((m) => m.winner === "HOME" || m.winner === "AWAY"),
+      "ONE ffrecap call across every repaint, carrying week 1's four DECIDED matchups");
+
+    // -------- the Grok advice card --------
+    const aiCard = await page.evaluate(() => ({
+      btns: [...document.querySelectorAll("#ffAiCard .aibtn")].map((b) => b.dataset.ffai),
+      hasForm: !!document.querySelector("#ffAiForm #ffAiQ"),
+      ansHidden: document.getElementById("ffAiAns").hidden,
+    }));
+    ok(aiCard.btns.join(",") === "lineup,waivers" && aiCard.hasForm && aiCard.ansHidden,
+      "the Fantasy AI card offers lineup check + waiver ideas + a free question, answer box hidden until asked");
+    await page.click('#ffAiCard .aibtn[data-ffai="lineup"]');
+    await page.waitForFunction(() => /start De'Von Achane/.test((document.getElementById("ffAiAns") || {}).textContent || ""), { timeout: 20000 });
+    const lineupCall = gpt.calls.filter((c) => c.mode === "fantasy").pop();
+    ok(!!lineupCall && lineupCall.kind === "lineup" && lineupCall.matchup && lineupCall.matchup.familyTeamId === 1
+      && lineupCall.matchup.matchup.home.roster.length === 11 && (lineupCall.freeAgents || []).length === 0,
+      "🩺 Check my lineup posts mode fantasy/kind lineup with my FULL matchup payload and NO free agents");
+    ok(await page.evaluate(() => document.querySelectorAll("#ffAiAns b").length >= 1
+      && document.querySelectorAll("#ffAiAns li").length >= 2),
+      "the streamed advice renders **bold** + bullets in the answer box");
+    // The mock answers instantly, so waiting on the DOM can't distinguish the second
+    // ask from the first — wait NODE-SIDE for the recorded call instead.
+    const gptWait = async (pred) => {
+      for (let i = 0; i < 100; i++) {
+        if (gpt.calls.filter((c) => c.mode === "fantasy").some(pred)) return true;
+        await sleep(50);
+      }
+      return false;
+    };
+    await page.click('#ffAiCard .aibtn[data-ffai="waivers"]');
+    ok(await gptWait((c) => c.kind === "waivers"), "🔎 Waiver ideas reaches the AI");
+    const wCall = gpt.calls.filter((c) => c.mode === "fantasy" && c.kind === "waivers").pop();
+    ok(!!wCall && Array.isArray(wCall.freeAgents) && wCall.freeAgents.length === 7
+      && wCall.freeAgents[0].name === "Tyjae Spears" && wCall.freeAgents[0].pctOwned === 61.2,
+      "…fetching ff_freeagents first and shipping the slim FA list to Grok");
+    await page.type("#ffAiQ", "Should I trade Kelce?");
+    await page.evaluate(() => document.getElementById("ffAiForm").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    ok(await gptWait((c) => c.kind === "question"), "the free-text ask reaches the AI");
+    const qCall = gpt.calls.filter((c) => c.mode === "fantasy" && c.kind === "question").pop();
+    ok(!!qCall && qCall.question === "Should I trade Kelce?", "…as kind question with the typed question");
     await shot(page, "sports_ff_390.png");
 
     // tap the family matchup -> lineup detail
@@ -1076,8 +1205,9 @@ async function sectionFantasyUI(browser) {
     await ctx.close();
   }
 
-  // Per-user teams: Isaac follows The Goat Kids, Grandpa the Wyoming Cowboys.
-  for (const [who, team, oppo] of [["Isaac", "The Goat Kids", "Draft Punks"], ["Grandpa", "Wyoming Cowboys", "Hay Bale Hail Marys"]]) {
+  // Per-user teams: Isaac follows The Goat Kids, Grandpa the Wyoming Cowboys,
+  // Mom the Nails for Breakfast.
+  for (const [who, team, oppo] of [["Isaac", "The Goat Kids", "Draft Punks"], ["Grandpa", "Wyoming Cowboys", "Hay Bale Hail Marys"], ["Mom", "Nails for Breakfast", "End Zone Goats"]]) {
     const ctx = await browser.createBrowserContext();
     const page = await newPage(ctx, { choreUser: who });
     await page.goto(BASE + "/sports.html#fantasy", { waitUntil: "domcontentloaded", timeout: 60000 });
@@ -1093,6 +1223,31 @@ async function sectionFantasyUI(browser) {
     ok(p.teamName === team && /Your matchup/.test(p.mineText) && p.mineText.includes(team) && p.mineText.includes(oppo),
       `${who}'s scoreboard pins ${team} (vs ${oppo}) as "Your matchup"`);
     ok(page._errs.length === 0, `0 page errors as ${who}`);
+    await ctx.close();
+  }
+
+  // The AI down: a friendly line in the answer box, the recap simply absent — the
+  // scoreboard itself must stand untouched.
+  {
+    const ctx = await browser.createBrowserContext();
+    const page = await newPage(ctx, { gptDown: true });
+    await page.goto(BASE + "/sports.html#fantasy", { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.waitForFunction(() => window.__SPORTS__ && window.__SPORTS__.state().hasFf, { timeout: 20000 });
+    // Background loads (ffMyM, the league doc) repaint #ffBody and replace the button
+    // node — a coordinate click can land on a stale spot. Wait for the guard card
+    // (ffMyM landed) and dispatch el.click() so delegation catches it regardless.
+    await page.waitForSelector("#ffBody .guardcard", { timeout: 20000 });
+    await page.evaluate(() => document.querySelector('#ffAiCard .aibtn[data-ffai="lineup"]').click());
+    await page.waitForFunction(() => /couldn.t answer right now/.test((document.getElementById("ffAiAns") || {}).textContent || ""), { timeout: 20000 });
+    ok(true, "a dead AI answers with a friendly try-again line, never a raw error");
+    const after = await page.evaluate(() => ({
+      recap: !!document.querySelector("#ffBody .recapcard"),
+      matchups: document.querySelectorAll("#ffBody .gbtn[data-ffteam]").length,
+      btnEnabled: !document.querySelector('#ffAiCard .aibtn[data-ffai="lineup"]').disabled,
+    }));
+    ok(!after.recap && after.matchups === 4 && after.btnEnabled,
+      "no column card when the AI is down, the scoreboard stands, and the buttons re-enable");
+    ok(page._errs.length === 0, "0 page errors with the AI down");
     await ctx.close();
   }
 
@@ -1318,6 +1473,12 @@ async function sectionHomeCards(browser) {
       "the family matchup shows live scores with the trailing side dimmed");
     ok(/proj 112\.6 – 98\.1/.test(h.ffSub) && /2 starters yet to play/.test(h.ffSub),
       "projections + the yet-to-play count read at a glance");
+    // The home-card lineup guard (same rules as sports.html's — keep in sync):
+    // Jefferson is the only fixable problem, so it names him in the single form.
+    ok(await page.evaluate(() => {
+      const w = document.querySelector(".home2 .ffcard .ffwarnline");
+      return !!w && /⚠️ Justin Jefferson is questionable and still in your lineup/.test(w.textContent);
+    }), "the ⚠️ lineup-guard line warns about the Questionable starter right on Home");
     await shot(page, "sports_home_390.png");
 
     await page.click(".home2 .nflcard");

@@ -204,7 +204,7 @@ async function probeDeployedFunction() {
     console.log(`  ok — "${lg.leagueName}" (${lg.teams.length} teams, week ${lg.week}), family team id ${lg.familyTeamId}`);
     if (lg.familyTeamId == null) { console.log("  ⚠ no team named like \"battle kreussers\" — check the team name in the league."); flagged++; }
     // Per-user teams the app follows — each must resolve to a real team id.
-    for (const name of ["The Goat Kids", "Wyoming Cowboys"]) {
+    for (const name of ["The Goat Kids", "Wyoming Cowboys", "Nails for Breakfast"]) {
       const t = await call({ action: "ff_league", teamName: name });
       if (!t || !t.ok || t.familyTeamId == null) { console.log(`  ⚠ teamName "${name}" didn't resolve — check the name in the league.`); flagged++; }
       else console.log(`  ok — "${name}" → team id ${t.familyTeamId}`);
@@ -220,6 +220,17 @@ async function probeDeployedFunction() {
     } else if (fm && fm.ok) {
       console.log("  (no matchup this week — pre-draft/offseason is fine)");
     } else { console.log("  ⚠ ff_matchup failed: " + JSON.stringify(fm).slice(0, 200)); flagged++; }
+    // Free agents (the waiver-advice AI's payload) — kona_player_info + X-Fantasy-Filter.
+    const fa = await call({ action: "ff_freeagents" });
+    if (!fa || !fa.ok || !Array.isArray(fa.players)) {
+      console.log("  ⚠ ff_freeagents failed: " + JSON.stringify(fa).slice(0, 200)); flagged++;
+    } else if (!fa.players.length) {
+      console.log("  ⚠ ff_freeagents returned 0 players — the X-Fantasy-Filter header may not be honored."); flagged++;
+    } else {
+      const p0 = fa.players[0];
+      console.log(`  ok — ${fa.players.length} free agents, top: ${p0.name} (${p0.pos} ${p0.proTeam}, ${p0.pctOwned}% owned)`);
+      if (!p0.name || !p0.pos) { console.log("  ⚠ free-agent slim shape is off (name/pos missing)."); flagged++; }
+    }
   }
 }
 
