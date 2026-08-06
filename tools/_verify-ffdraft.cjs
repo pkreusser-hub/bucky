@@ -134,6 +134,8 @@ async function sectionServer() {
   ok(JSON.stringify(Object.keys(t1).sort()) === JSON.stringify(["abbrev", "id", "logo", "name", "owner"]),
     "team objects are slim (id/name/abbrev/logo/owner only)");
   ok(r.json.rosterSize === 16, "rosterSize sums lineup slots EXCLUDING IR (16)");
+  ok(r.json.slots && r.json.slots.RB === 2 && r.json.slots.FLEX === 1 && r.json.slots["D/ST"] === 1 && r.json.slots.Bench === 7,
+    "the labeled slot map rides along (feeds the roster-needs tracker)");
   ok(r.json.ppr === true, "receptions scoring (statId 53 > 0) reads as PPR");
   ok(r.json.byes && r.json.byes["12"] === 10, "bye weeks joined from the season doc (KC=10)");
 
@@ -459,6 +461,16 @@ async function sectionRoom(browser) {
   d = await D(page);
   ok(d.keepers[1].length === 3 && d.keepers[1].some((k) => k.pid === 4021), "team 1 keeps Bijan + Achane + the waiver pickup");
 
+  // keepers hit the board IMMEDIATELY — before the draft ever starts
+  await hook(page, () => window.__DRAFT__.setView("board"));
+  ok(await page.evaluate(() => {
+    const c1 = document.querySelector('#boardGrid .cell[data-key="r1_t1"]');
+    const c3 = document.querySelector('#boardGrid .cell[data-key="r3_t3"]');
+    return !!(c1 && c1.textContent.includes("B. Robinson") && c1.querySelector(".kb")
+      && c3 && c3.textContent.includes("T. Kelce"));
+  }), "keepers land on the board the moment they're entered (draft not started)");
+  await hook(page, () => window.__DRAFT__.setView("players"));
+
   // commish keeper override
   await hook(page, () => window.__DRAFT__.setKeeperField(3, 4019, "overrideRound", 2));
   d = await D(page);
@@ -492,8 +504,12 @@ async function sectionRoom(browser) {
   d = await D(page);
   ok(d.picks["r1_t2"] && d.picks["r1_t2"].pid === 4001, "the commissioner can pick for the team on the clock");
 
-  // Mike picks through the real UI at 1.03
+  // Mike picks through the real UI at 1.03 — and the clock alerts HIM
   await hook(page, () => window.__DRAFT__.setMe("Mike", "dev-mike", ""));
+  ok(await page.evaluate(() => window.__DRAFT__.clockMine() && window.__DRAFT__.titleFlashing()
+    && document.getElementById("clockStrip").className.includes("mine")
+    && /YOUR PICK|Draft Day/.test(document.title)),
+    "when the clock becomes yours the strip goes red and the tab title flashes");
   await clickSafely(page, '#tabs button[data-v="players"]');
   await page.type("#pSearch", "Saquon");
   await page.waitForFunction(() => document.querySelectorAll("#pList .pDraft:not([disabled])").length === 1, { timeout: 3000 });
@@ -501,6 +517,7 @@ async function sectionRoom(browser) {
   await clickSafely(page, "#cbGo");
   d = await D(page);
   ok(d.picks["r1_t3"] && d.picks["r1_t3"].pid === 4003, "Mike drafts Barkley from his own phone at 1.03");
+  ok(await page.evaluate(() => !window.__DRAFT__.titleFlashing()), "…and the title flash stops once he picks");
   await page.evaluate(() => { document.getElementById("pSearch").value = ""; document.getElementById("pSearch").dispatchEvent(new Event("input")); });
 
   await hook(page, (k, dev) => window.__DRAFT__.setMe("Paul", dev, k), ckey, paulDev);
@@ -564,13 +581,14 @@ async function sectionRoom(browser) {
     return {
       cells: cells.length,
       keeperCell: k ? k.textContent : "",
+      keeperLock: !!(k && k.querySelector(".kb")),
       keeperPos: k ? k.className : "",
       curKey: c ? c.dataset.key : null,
       filledHavePos: cells.filter((x) => x.querySelector("b")).every((x) => /pos-(QB|RB|WR|TE|K|DST|X)/.test(x.className)),
     };
   });
   ok(board.cells === 16 * 8, "the board renders every slot (16 rounds × 8 teams)");
-  ok(board.keeperCell.includes("🔒") && board.keeperCell.includes("B. Robinson"), "keeper cells carry the lock + the player");
+  ok(board.keeperLock && board.keeperCell.includes("B. Robinson"), "keeper cells carry the lock glyph + the player");
   ok(/pos-RB/.test(board.keeperPos), "cells are position-colored");
   ok(board.curKey === "r3_t4", "the on-the-clock cell is highlighted");
   ok(await page.evaluate(() => {
@@ -665,6 +683,45 @@ async function sectionRoom(browser) {
   ok(d.picks["r3_t4"] && d.picks["r3_t4"].pid === 4009, "Draft him straight from the detail card");
   await hook(page, () => window.__DRAFT__.undoLast());
 
+  // --- queue, needs, alerts hardware ---
+  await hook(page, (k, dev) => window.__DRAFT__.setMe("Paul", dev, k), ckey, paulDev);
+  await page.evaluate(() => { document.querySelector('#pList .prow[data-pid="4016"] .qbtn').click(); });
+  ok(await page.evaluate(() => window.__DRAFT__.queue.includes(4016)
+    && !document.getElementById("qStrip").hidden
+    && document.getElementById("qStrip").textContent.includes("D. London")), "starring a player queues him");
+  await hook(page, () => window.__DRAFT__.makePick(window.__DRAFT__.pool.find((p) => p.pid === 4016)));
+  await sleep(100);
+  ok((await toastText(page)).includes("took your queued player"), "…and you're told when someone takes your queued guy");
+  ok(await page.evaluate(() => document.querySelector("#qStrip .qchip").className.includes("qtaken")),
+    "the queued chip strikes through");
+  await hook(page, () => window.__DRAFT__.undoLast());
+  await hook(page, () => window.__DRAFT__.toggleQueue(4016));
+
+  const needs = await hook(page, () => window.__DRAFT__.needsFor(1));
+  ok(!!needs && needs.find((n) => n.label === "RB").have === 2 && needs.find((n) => n.label === "RB").need === 2
+    && needs.find((n) => n.label === "QB").have === 0
+    && needs.find((n) => n.label === "FLX").have === 1,
+    "roster-needs math: three RB keepers = RB 2/2 filled + the flex");
+  ok(await page.evaluate(() => !document.getElementById("needsBar").hidden
+    && document.getElementById("needsBar").textContent.includes("NEEDS")), "the needs strip renders for your team");
+  await page.evaluate(() => { document.querySelector('#posChips button[data-pos="NEED"]').click(); });
+  ok(await page.evaluate(() => {
+    const rows = Array.from(document.querySelectorAll("#pList .prow .dot")).map((d) => d.textContent);
+    return rows.length > 0 && !rows.includes("RB");
+  }), "the NEED filter hides positions you've already filled");
+  await page.evaluate(() => { document.querySelector('#posChips button[data-pos="ALL"]').click(); });
+
+  ok(await hook(page, () => window.__DRAFT__.valueBadge(30, 17) === "steal"
+    && window.__DRAFT__.valueBadge(5, 40) === "reach"
+    && window.__DRAFT__.valueBadge(12, 11) === null), "value-vs-ADP badge math (steal / reach / neither)");
+  ok(await page.evaluate(() => {
+    const b = document.getElementById("soundBtn");
+    if (b.hidden) return false;
+    const t1 = b.textContent; b.click();
+    const changed = b.textContent !== t1; b.click();
+    return changed;
+  }), "the sound toggle flips and persists");
+
   // --- teams view roster ---
   await clickSafely(page, '#tabs button[data-v="teams"]');
   await page.evaluate(() => {
@@ -701,19 +758,31 @@ async function sectionRoom(browser) {
   d = await D(page);
   ok(d.picks["r1_t1"] && d.picks["r4_t1"] && d.picks["r3_t1"] && d.picks["r3_t3"],
     "shrinking to 4 rounds clamps the R5/R16 keepers onto the board (R4, bumped R3)");
-  await hook(page, () => {
+  // MOCK MODE finishes the draft: bots pick for the six unclaimed teams while
+  // the two humans (Paul t1, Mike t3) pick their own turns.
+  await clickSafely(page, '#tabs button[data-v="commish"]');
+  await clickSafely(page, "#mockToggle");
+  await hook(page, () => window.__DRAFT__.setMockDelay(20));
+  d = await D(page);
+  ok(d.mock === true, "mock drafting switches on (practice-mode commish toggle)");
+  await page.evaluate(async () => {
     const H = window.__DRAFT__;
-    function step() {
+    const t0 = Date.now();
+    while (Date.now() - t0 < 40000) {
       const cur = H.currentSlot();
-      if (!cur) return Promise.resolve();
-      const taken = H.takenPids();
-      const p = H.pool.find((x) => !taken[x.pid]);
-      return H.makePick(p).then(step);
+      if (!cur) break;
+      const team = H.D.teams.find((t) => t.id === cur.teamId);
+      if (team && team.owner) {
+        const tk = H.takenPids();
+        await H.makePick(H.pool.find((p) => !tk[p.pid]));
+      } else {
+        await new Promise((r) => setTimeout(r, 60));
+      }
     }
-    return step();
   });
   d = await D(page);
-  ok(d.phase === "done", "picking every open slot completes the draft");
+  ok(d.phase === "done", "mock bots + the humans finish the whole draft");
+  ok(Object.keys(d.picks).some((k) => d.picks[k].by === "MOCK"), "bot picks are labeled MOCK");
   ok(await page.evaluate(() => document.getElementById("clockStrip").textContent.includes("wrap")),
     "the strip celebrates the finish");
   await hook(page, () => window.__DRAFT__.makePick(window.__DRAFT__.pool[0]));
@@ -724,7 +793,22 @@ async function sectionRoom(browser) {
     const cells = Array.from(document.querySelectorAll("#boardGrid .cell"));
     return cells.length === 32 && cells.every((c) => c.querySelector("b"));
   }), "the finished board has a player in every cell");
-  ok(await page.evaluate(() => !!JSON.parse(localStorage.getItem("ffd_pool_2026") || "null")),
+  ok(await page.evaluate(() => document.querySelectorAll("#boardGrid .vbadge").length > 0),
+    "value badges appear on off-ADP picks");
+  ok(await page.evaluate(() => {
+    const rc = document.getElementById("recapCard");
+    return !!rc && rc.querySelectorAll(".grrow").length === 8 && /^A/.test(rc.querySelector(".gr").textContent);
+  }), "the finished board grades all 8 teams (value-vs-ADP recap)");
+  ok(await page.evaluate(() => {
+    // Chat is USER content — people may emoji all they like. The CHROME may not.
+    const chat = document.getElementById("chatMsgs");
+    const saved = chat.innerHTML;
+    chat.textContent = "";
+    const clean = !/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(document.body.innerText);
+    chat.innerHTML = saved;
+    return clean;
+  }), "no emojis anywhere in the UI chrome (professional theme; chat text excluded)");
+  ok(await page.evaluate(() => !!JSON.parse(localStorage.getItem("ffd_pool2_2026") || "null")),
     "the player pool is cached for instant reopen");
   await shot(page, "ffdraft_done_390.png");
 
@@ -757,6 +841,25 @@ async function sectionRoom(browser) {
   ok(await dpage.evaluate(() => window.__DRAFT__.D.phase === "done"),
     "you can draft straight from the board-side players column");
   await shot(dpage, "ffdraft_board_desktop.png");
+
+  // --- TV mode ---
+  const tpage = await newPage(ctx, { vw: { width: 1280, height: 720 } });
+  await tpage.goto(PAGE_URL + "&tv=1", { waitUntil: "domcontentloaded", timeout: 60000 });
+  await tpage.waitForFunction(() => window.__DRAFT__ && window.__DRAFT__.D, { timeout: 15000 });
+  ok(await tpage.evaluate(() => document.body.classList.contains("tv")
+    && document.getElementById("tabs").hidden
+    && !document.getElementById("tvTicker").hidden
+    && document.getElementById("tvTicker").textContent.length > 0
+    && document.getElementById("boardGrid").classList.contains("fit")
+    && document.getElementById("chatCard").hidden
+    && document.getElementById("boardRail").hidden),
+    "TV mode: chrome-less fitted board with a recent-picks ticker");
+  await tpage.evaluate(() => window.__DRAFT__.spotlight("3.04", { name: "Test Player", pos: "RB", proTeam: "DET" }));
+  ok(await tpage.evaluate(() => !document.getElementById("tvSpot").hidden
+    && document.getElementById("tvSpot").textContent.includes("Test Player")),
+    "…and the latest-pick spotlight renders");
+  await shot(tpage, "ffdraft_tv.png");
+  ok(tpage._errs.length === 0, "0 page errors on the TV page");
 
   ok(page._errs.length === 0, "0 page errors on the phone page" + (page._errs.length ? " — " + page._errs[0] : ""));
   ok(dpage._errs.length === 0, "0 page errors on the desktop page");

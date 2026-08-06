@@ -7,128 +7,147 @@
 <meta name="description" content="Live fantasy football keeper draft board — claim your team, set your keepers, draft from ESPN rankings.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
+
 /* ============================================================================
-   DRAFT DAY — standalone page, deliberately NO Bucky chrome. Anyone with the
-   link can use it; the commissioner's link carries ?c=<key>. Warm-cream app
-   chrome (the site's palette) around a DARK draft board (the projector look).
+   DRAFT DAY — standalone page, deliberately NOT the family-app look.
+   Broadcast-dark NFL theme: deep navy chrome, condensed display type, red
+   accent, position-colored board wall. No emojis anywhere — text + a couple
+   of inline SVG glyphs (keeper lock, queue star).
    ========================================================================== */
 :root{
-  --bg:#f4f1e8; --card:#fffdf7; --ink:#24312b; --muted:#6b7a70; --line:#e2ddcc;
-  --pine:#3f5c46; --pine-d:#324a38; --clay:#b8552f; --gold:#e0a83a;
-  --board-bg:#171a20; --board-line:#262b35; --board-ink:#f2f2ee;
-  --pos-QB:#8e3b4e; --pos-RB:#2f7a55; --pos-WR:#33639b; --pos-TE:#b0742f;
-  --pos-K:#7b5ea7; --pos-DST:#6b6154; --pos-X:#4a4f5a;
-  --ok:#2f7a55; --bad:#a8442e;
+  --bg:#0c1017; --card:#151b26; --card2:#1a2231; --line:#263043;
+  --ink:#e9edf4; --muted:#8a94a7;
+  --accent:#d50a0a; --accent-d:#a30808; --navy:#013369; --gold:#ffb612;
+  --board-bg:#080b11; --board-line:#1b2333; --board-ink:#f2f2ee;
+  --pos-QB:#a03449; --pos-RB:#2e8659; --pos-WR:#3a72b5; --pos-TE:#c07c2b;
+  --pos-K:#7b5ea7; --pos-DST:#6b6154; --pos-X:#454c5c;
+  --ok:#2e8659; --bad:#c23b25;
+  --disp:"Barlow Condensed","Arial Narrow",sans-serif;
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
 body{
   background:var(--bg); color:var(--ink);
-  font:15px/1.45 "Source Sans 3",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font:14.5px/1.5 Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
   padding-bottom:64px;
 }
 button{font:inherit;cursor:pointer}
 input,select{font:inherit;color:var(--ink)}
 [hidden]{display:none !important}
+h1,h2,h3{font-family:var(--disp); letter-spacing:.4px}
 
 /* ---------- header ---------- */
 header{
-  background:var(--card); border-bottom:1px solid var(--line);
-  padding:10px 14px 8px;
+  background:linear-gradient(180deg,#101724,#0d1320);
+  border-top:3px solid var(--accent);
+  border-bottom:1px solid var(--line);
+  padding:12px 16px 10px;
 }
-.brand{display:flex; align-items:baseline; gap:10px; flex-wrap:wrap}
+.brand{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap}
 .wordmark{
-  font-family:Fraunces,Georgia,serif; font-weight:700; font-size:21px; color:var(--pine);
-  letter-spacing:.2px; white-space:nowrap;
+  font-family:var(--disp); font-weight:700; font-size:24px; color:#fff;
+  letter-spacing:1.5px; white-space:nowrap;
 }
-#lgName{color:var(--muted); font-size:13px; font-weight:600}
-#phaseLine{color:var(--muted); font-size:12.5px; margin-top:2px}
-#connBanner{
-  background:#7e2f1d; color:#fff; padding:8px 14px; font-size:13.5px; font-weight:600;
+#lgName{color:var(--muted); font-size:12.5px; font-weight:600; text-transform:uppercase; letter-spacing:.8px}
+#phaseLine{color:var(--muted); font-size:12.5px; margin-top:3px}
+#soundBtn{
+  margin-left:auto; background:none; border:1px solid var(--line); color:var(--muted);
+  border-radius:6px; padding:3px 10px; font-size:10.5px; font-weight:700; letter-spacing:.8px;
 }
+#soundBtn.off{opacity:.55}
+#connBanner{background:var(--accent-d); color:#fff; padding:8px 14px; font-size:13px; font-weight:600}
 #localBadge{
-  background:#eadfa9; color:#5d4a12; padding:6px 14px; font-size:12.5px; font-weight:600;
+  background:#2a2f1d; color:#cfd68a; padding:6px 14px; font-size:11.5px; font-weight:700; letter-spacing:.6px;
 }
 
 /* ---------- on-the-clock strip ---------- */
 #clockStrip{
-  background:var(--pine); color:#fff; padding:8px 14px;
-  display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+  background:linear-gradient(90deg,var(--navy),#0a2a52);
+  color:#fff; padding:9px 16px;
+  display:flex; align-items:center; gap:14px; flex-wrap:wrap;
   position:sticky; top:0; z-index:29;
+  border-bottom:2px solid var(--accent);
 }
 #clockStrip .pickno{
-  font-family:Fraunces,Georgia,serif; font-weight:700; font-size:19px; white-space:nowrap;
+  font-family:var(--disp); font-weight:700; font-size:22px; letter-spacing:1px; white-space:nowrap;
 }
-#clockStrip .who{font-weight:700; font-size:16px}
-#clockStrip .own{opacity:.75; font-size:12.5px}
-#clockStrip .next{opacity:.8; font-size:12.5px; margin-left:auto; text-align:right}
+#clockStrip .who{font-weight:700; font-size:15.5px}
+#clockStrip .own{opacity:.7; font-size:12.5px}
+#clockStrip .next{opacity:.75; font-size:12.5px; margin-left:auto; text-align:right}
 #clockStrip .cd{
-  font-variant-numeric:tabular-nums; font-weight:700; font-size:18px;
-  background:rgba(0,0,0,.25); border-radius:8px; padding:2px 10px; white-space:nowrap;
+  font-variant-numeric:tabular-nums; font-weight:700; font-size:18px; font-family:var(--disp);
+  background:rgba(0,0,0,.35); border-radius:6px; padding:2px 12px; white-space:nowrap; letter-spacing:1px;
 }
-#clockStrip .cd.low{background:var(--clay); animation:cdpulse 1s infinite}
+#clockStrip .cd.low{background:var(--accent); animation:cdpulse 1s infinite}
 @keyframes cdpulse{50%{opacity:.55}}
-#clockStrip.paused{background:#6b6154}
-#clockStrip.done{background:var(--gold); color:#3a2c07}
+#clockStrip.paused{background:#3a4152}
+#clockStrip.done{background:linear-gradient(90deg,#2a3444,#1c2534)}
+#clockStrip.mine{background:linear-gradient(90deg,var(--accent-d),var(--accent)); animation:minepulse 1.6s infinite}
+@keyframes minepulse{50%{filter:brightness(1.22)}}
 
 /* ---------- tabs ---------- */
 nav#tabs{
-  display:flex; gap:6px; padding:8px 12px; background:var(--bg);
-  border-bottom:1px solid var(--line);
-  overflow-x:auto;
+  display:flex; gap:2px; padding:0 12px; background:#0d1320;
+  border-bottom:1px solid var(--line); overflow-x:auto;
 }
 nav#tabs button{
-  border:1px solid var(--line); background:var(--card); color:var(--ink);
-  border-radius:999px; padding:7px 15px; font-weight:700; font-size:13.5px; white-space:nowrap;
+  border:none; background:none; color:var(--muted);
+  padding:11px 16px 9px; font-family:var(--disp); font-weight:600; font-size:15.5px;
+  letter-spacing:1.2px; text-transform:uppercase; white-space:nowrap;
+  border-bottom:3px solid transparent;
 }
-nav#tabs button.on{background:var(--pine); border-color:var(--pine); color:#fff}
+nav#tabs button.on{color:#fff; border-bottom-color:var(--accent)}
 
-main{max-width:1160px; margin:0 auto; padding:12px}
+main{max-width:1220px; margin:0 auto; padding:14px 12px}
 .card{
-  background:var(--card); border:1px solid var(--line); border-radius:14px;
-  padding:14px; margin-bottom:12px;
+  background:var(--card); border:1px solid var(--line); border-radius:10px;
+  padding:14px 16px; margin-bottom:12px;
 }
-.card h2{font-family:Fraunces,Georgia,serif; font-size:17px; margin:0 0 8px; color:var(--pine)}
-.card h3{font-size:14px; margin:12px 0 6px}
+.card h2{font-size:17px; margin:0 0 8px; color:#fff; text-transform:uppercase; letter-spacing:1px}
+.card h3{font-size:13px; margin:12px 0 6px; text-transform:uppercase; letter-spacing:.8px; color:var(--muted)}
 .mut{color:var(--muted); font-size:12.5px}
 .btn{
-  border:1px solid var(--pine); background:var(--pine); color:#fff; border-radius:10px;
-  padding:9px 16px; font-weight:700; font-size:14px;
+  border:1px solid var(--accent); background:var(--accent); color:#fff; border-radius:7px;
+  padding:9px 18px; font-weight:700; font-size:13.5px; letter-spacing:.3px;
 }
-.btn.ghost{background:var(--card); color:var(--pine)}
-.btn.warn{background:var(--clay); border-color:var(--clay)}
-.btn.sm{padding:5px 10px; font-size:12.5px; border-radius:8px}
-.btn:disabled{opacity:.45; cursor:default}
+.btn:hover{background:var(--accent-d)}
+.btn.ghost{background:transparent; color:var(--ink); border-color:var(--line)}
+.btn.ghost:hover{background:var(--card2)}
+.btn.warn{background:transparent; color:#e08972; border-color:#7e3a2a}
+.btn.sm{padding:5px 11px; font-size:12px; border-radius:6px}
+.btn:disabled{opacity:.4; cursor:default}
 .row{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
 input[type=text],input[type=number],select{
-  border:1px solid var(--line); border-radius:9px; padding:8px 10px; background:#fff;
+  border:1px solid var(--line); border-radius:7px; padding:8px 10px; background:#0e131d; color:var(--ink);
 }
+input::placeholder{color:#5b6579}
 
 /* ---------- board ---------- */
 .panner{overflow-x:auto; -webkit-overflow-scrolling:touch}
 #boardGrid{
-  background:var(--board-bg); border-radius:12px; padding:8px;
+  background:var(--board-bg); border-radius:10px; padding:8px; border:1px solid var(--line);
   display:grid; gap:3px; width:max-content; min-width:100%;
 }
 .bhead{
-  color:var(--board-ink); font-weight:700; font-size:12px; text-align:center;
-  padding:6px 4px 4px; line-height:1.15;
+  color:var(--board-ink); font-family:var(--disp); font-weight:600; font-size:14px;
+  letter-spacing:.8px; text-align:center; padding:6px 4px 4px; line-height:1.1;
 }
-.bhead .own{display:block; font-weight:400; font-size:10px; opacity:.6}
+.bhead .own{display:block; font-family:Inter; font-weight:400; font-size:9.5px; opacity:.55; letter-spacing:0}
 .brnd{
-  color:#8b93a3; font-weight:700; font-size:11px; display:flex; align-items:center;
-  justify-content:center; gap:2px;
+  color:#5f6a80; font-family:var(--disp); font-weight:600; font-size:12px;
+  display:flex; align-items:center; justify-content:center; gap:2px; letter-spacing:.5px;
 }
 .cell{
-  border-radius:6px; min-height:44px; padding:4px 6px; color:#fff; position:relative;
-  font-size:11.5px; line-height:1.2; background:#20242d; border:1px solid var(--board-line);
+  border-radius:5px; min-height:46px; padding:5px 6px; color:#fff; position:relative;
+  font-size:11.5px; line-height:1.25; background:#131926; border:1px solid var(--board-line);
   overflow:hidden;
 }
-.cell b{display:block; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-.cell .pn{position:absolute; top:2px; right:5px; font-size:9px; opacity:.65}
-.cell .pt{font-size:10px; opacity:.75}
+.cell b{display:block; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600}
+.cell .pn{position:absolute; top:3px; right:5px; font-size:9px; opacity:.6; font-variant-numeric:tabular-nums}
+.cell .pt{font-size:10px; opacity:.72}
+.cell .kb{width:9px; height:9px; margin-right:3px; opacity:.9; vertical-align:baseline}
 .cell.pos-QB{background:var(--pos-QB); border-color:transparent}
 .cell.pos-RB{background:var(--pos-RB); border-color:transparent}
 .cell.pos-WR{background:var(--pos-WR); border-color:transparent}
@@ -137,118 +156,155 @@ input[type=text],input[type=number],select{
 .cell.pos-DST{background:var(--pos-DST); border-color:transparent}
 .cell.pos-X{background:var(--pos-X); border-color:transparent}
 .cell.cur{outline:2px solid var(--gold); animation:curpulse 1.4s infinite}
-@keyframes curpulse{50%{outline-color:rgba(224,168,58,.35)}}
-.cell.deck{outline:1.5px dashed rgba(224,168,58,.55)}
-.cell .kb{font-size:10px}
+@keyframes curpulse{50%{outline-color:rgba(255,182,18,.35)}}
+.cell.deck{outline:1.5px dashed rgba(255,182,18,.5)}
+.vbadge{
+  position:absolute; bottom:3px; right:4px; font-size:8px; font-weight:800; letter-spacing:.5px;
+  border-radius:3px; padding:1px 4px;
+}
+.vbadge.steal{background:#0d3b24; color:#7ee2ae}
+.vbadge.reach{background:#42210c; color:#f0a35f}
+#boardLegend .kb{width:10px;height:10px;vertical-align:middle}
 
-/* ---------- players ---------- */
-#pSearchRow{display:flex; gap:8px; margin-bottom:8px}
-#pSearch{flex:1}
-.chips{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px}
-.chips button{
-  border:1px solid var(--line); background:var(--card); border-radius:999px;
-  padding:5px 12px; font-weight:700; font-size:12.5px;
+/* recap (draft grades) */
+#recapCard .grrow{display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px dashed var(--line); flex-wrap:wrap}
+#recapCard .gr{
+  font-family:var(--disp); font-weight:700; font-size:19px; width:38px; height:38px; border-radius:7px;
+  display:flex; align-items:center; justify-content:center; background:var(--navy); color:#fff; flex:0 0 auto;
 }
-.chips button.on{background:var(--ink); color:#fff; border-color:var(--ink)}
-.prow{
-  display:flex; align-items:center; gap:10px; padding:8px 10px; border-bottom:1px solid var(--line);
-  background:var(--card);
-}
-.prow:first-child{border-radius:10px 10px 0 0}
-.prow.taken{opacity:.45}
-.prow .rk{width:30px; text-align:right; color:var(--muted); font-variant-numeric:tabular-nums; font-weight:700; font-size:12.5px}
-.prow .dot{width:34px; text-align:center; border-radius:6px; color:#fff; font-size:10.5px; font-weight:700; padding:3px 0}
-.prow .nm{flex:1; min-width:0}
-.prow .nm b{display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-.prow .nm .mut{font-size:11.5px}
-.prow .adp{color:var(--muted); font-size:11.5px; width:52px; text-align:right}
-.prow .tk{font-size:11px; color:var(--muted); font-weight:700; white-space:nowrap}
-.inj{color:var(--clay); font-weight:700; font-size:10.5px}
-#confirmBar{
-  position:fixed; left:0; right:0; bottom:0; z-index:40;
-  background:var(--ink); color:#fff; padding:10px 14px;
-  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
-}
-#confirmBar .what{flex:1; min-width:180px; font-size:14px}
-#confirmBar select{border-radius:8px; padding:6px}
-
-/* ---------- keepers ---------- */
-.keepCard .krow{
-  display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px dashed var(--line);
-}
-.keepCard .krow .cost{
-  background:var(--pine); color:#fff; border-radius:8px; padding:2px 9px; font-weight:700;
-  font-size:12.5px; white-space:nowrap;
-}
-.keepCard .krow .basis{color:var(--muted); font-size:11.5px}
-.kslot{color:var(--muted); font-style:italic; padding:7px 0}
-
-/* ---------- teams ---------- */
-.tchips{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px}
-.tchips button{
-  border:1px solid var(--line); background:var(--card); border-radius:10px; padding:6px 11px;
-  font-weight:700; font-size:12.5px;
-}
-.tchips button.on{background:var(--pine); color:#fff; border-color:var(--pine)}
-.rrow{display:flex; gap:10px; padding:6px 0; border-bottom:1px dashed var(--line); align-items:center}
-.rrow .rd{width:34px; color:var(--muted); font-weight:700; font-size:12px; text-align:right}
-.rrow .pos{width:34px; text-align:center; border-radius:6px; color:#fff; font-size:10.5px; font-weight:700; padding:3px 0}
-.rrow.empty{color:var(--muted); font-style:italic}
-.claimrow{display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px dashed var(--line)}
-.claimrow b{flex:1}
-.ownchip{background:#e8efe9; color:var(--pine-d); border-radius:999px; padding:3px 10px; font-size:12px; font-weight:700}
-
-/* ---------- commish ---------- */
-.linkbox{
-  background:#f0ede1; border:1px dashed var(--line); border-radius:10px; padding:9px 11px;
-  font-size:12px; word-break:break-all; margin:4px 0 8px; font-family:ui-monospace,monospace;
-}
-.ordrow{display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px dashed var(--line)}
-.ordrow .n{width:22px; color:var(--muted); font-weight:700; text-align:right}
-.ordrow b{flex:1}
+#recapCard .grrow b{font-size:13.5px}
+#recapCard .grv{font-variant-numeric:tabular-nums; font-weight:700; color:var(--gold)}
 
 /* ---------- desktop: board + players side by side ---------- */
 #boardRail{min-width:0}
 @media (min-width:1100px){
   #vBoard .boardwrap{display:grid; grid-template-columns:minmax(0,1fr) 360px; gap:14px; align-items:start}
 }
-/* Desktop board FITS — all columns on screen at once, names ellipsize.
-   Phones keep the wide grid panning inside .panner. */
 #boardGrid.fit{width:100%; min-width:0}
 #boardGrid.fit .cell{padding:4px 5px; min-width:0}
-#boardGrid.fit .cell b{padding-right:22px}   /* keep names clear of the pick number */
+#boardGrid.fit .cell b{padding-right:22px}
 #boardGrid.fit .bhead{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 #boardGrid.fit .bhead .own{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 
-/* ---------- players list: its own scroll, richer rows ---------- */
-#pList{overflow-y:auto; -webkit-overflow-scrolling:touch; border-radius:10px}
+/* ---------- players ---------- */
+#pSearchRow{display:flex; gap:8px; margin-bottom:8px}
+#pSearch{flex:1}
+.chips{display:flex; gap:5px; flex-wrap:wrap; margin-bottom:10px}
+.chips button{
+  border:1px solid var(--line); background:transparent; color:var(--muted); border-radius:6px;
+  padding:5px 12px; font-family:var(--disp); font-weight:600; font-size:13px; letter-spacing:.8px;
+}
+.chips button.on{background:var(--navy); color:#fff; border-color:var(--navy)}
+#pList{overflow-y:auto; -webkit-overflow-scrolling:touch; border-radius:8px; border:1px solid var(--line)}
+.prow{
+  display:flex; align-items:center; gap:9px; padding:8px 10px; border-bottom:1px solid var(--line);
+  background:var(--card); cursor:pointer;
+}
+.prow:last-child{border-bottom:none}
+.prow:hover{background:var(--card2)}
+.prow.taken{opacity:.4}
+.prow .rk{width:26px; text-align:right; color:var(--muted); font-variant-numeric:tabular-nums; font-weight:700; font-size:12px}
+.prow .dot{width:34px; text-align:center; border-radius:4px; color:#fff; font-size:10px; font-weight:800; padding:3px 0; letter-spacing:.5px; flex:0 0 auto}
 .prow .tlogo{width:22px; height:22px; object-fit:contain; flex:0 0 auto}
-.prow .pstat{width:72px; text-align:right; font-size:11px; color:var(--muted); line-height:1.3; font-variant-numeric:tabular-nums; flex:0 0 auto}
+.prow .nm{flex:1; min-width:0}
+.prow .nm b{display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600}
+.prow .nm .mut{font-size:11px}
+.prow .pstat{width:70px; text-align:right; font-size:10.5px; color:var(--muted); line-height:1.35; font-variant-numeric:tabular-nums; flex:0 0 auto}
 .prow .pstat b{color:var(--ink); font-weight:700}
-.prow{cursor:pointer}
+.prow .tk{font-size:10.5px; color:var(--muted); font-weight:700; white-space:nowrap}
+.inj{color:#ef6a4d; font-weight:700; font-size:10px}
+.qbtn{
+  background:none; border:none; padding:2px; color:#4b5570; flex:0 0 auto; line-height:0;
+}
+.qbtn.on{color:var(--gold)}
+.qbtn svg{width:17px; height:17px}
+
+/* queue + needs strips */
+#qStrip{display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:8px}
+#qStrip .qtitle,#needsBar .ntitle{
+  font-family:var(--disp); font-weight:700; font-size:12px; letter-spacing:1px; color:var(--muted);
+}
+.qchip{
+  background:var(--card2); border:1px solid var(--line); color:var(--ink); border-radius:6px;
+  padding:4px 8px; font-size:12px; font-weight:600;
+}
+.qchip .qx{color:var(--muted); margin-left:4px}
+.qchip.qtaken{text-decoration:line-through; opacity:.45}
+#needsBar{display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:8px}
+.nslot{
+  background:var(--card2); border:1px solid var(--line); border-radius:6px; padding:3px 8px;
+  font-size:11px; font-weight:700; color:var(--muted); font-variant-numeric:tabular-nums;
+}
+.nslot.unfilled{color:var(--gold); border-color:#5b4a17}
+
+/* ---------- confirm bar ---------- */
+#confirmBar{
+  position:fixed; left:0; right:0; bottom:0; z-index:40;
+  background:#05070c; border-top:2px solid var(--accent); color:#fff; padding:10px 14px;
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+}
+#confirmBar .what{flex:1; min-width:180px; font-size:14px}
+#confirmBar select{border-radius:6px; padding:6px; background:#0e131d}
+
+/* ---------- keepers ---------- */
+.keepCard .krow{display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px dashed var(--line)}
+.keepCard .krow .cost{
+  background:var(--navy); color:#fff; border-radius:6px; padding:2px 9px; font-weight:700;
+  font-size:12.5px; white-space:nowrap; font-family:var(--disp); letter-spacing:.5px;
+}
+.keepCard .krow .basis{color:var(--muted); font-size:11.5px}
+.kslot{color:var(--muted); font-style:italic; padding:7px 0; font-size:13px}
+
+/* ---------- teams ---------- */
+.tchips{display:flex; gap:5px; flex-wrap:wrap; margin-bottom:10px}
+.tchips button{
+  border:1px solid var(--line); background:transparent; color:var(--muted); border-radius:6px; padding:6px 11px;
+  font-family:var(--disp); font-weight:600; font-size:13.5px; letter-spacing:.8px;
+}
+.tchips button.on{background:var(--navy); color:#fff; border-color:var(--navy)}
+.rrow{display:flex; gap:10px; padding:6px 0; border-bottom:1px dashed var(--line); align-items:center}
+.rrow .rd{width:34px; color:var(--muted); font-weight:700; font-size:12px; text-align:right; font-variant-numeric:tabular-nums}
+.rrow .pos{width:34px; text-align:center; border-radius:4px; color:#fff; font-size:10px; font-weight:800; padding:3px 0; letter-spacing:.5px}
+.rrow.empty{color:#4b5570; font-style:italic}
+.claimrow{display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px dashed var(--line)}
+.claimrow b{flex:1}
+.ownchip{background:#1c2e4d; color:#9fc0f0; border-radius:5px; padding:3px 10px; font-size:12px; font-weight:700}
+
+/* ---------- commish ---------- */
+.linkbox{
+  background:#0e131d; border:1px dashed var(--line); border-radius:8px; padding:9px 11px;
+  font-size:11.5px; word-break:break-all; margin:4px 0 8px; font-family:ui-monospace,monospace; color:#a9b3c6;
+}
+.ordrow{display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px dashed var(--line)}
+.ordrow .n{width:22px; color:var(--muted); font-weight:700; text-align:right; font-variant-numeric:tabular-nums}
+.ordrow b{flex:1}
+@media (min-width:760px){ .cols2{display:grid; grid-template-columns:1fr 1fr; gap:12px} }
 
 /* ---------- player detail card ---------- */
-#pcOverlay{position:fixed; inset:0; background:rgba(24,28,20,.55); z-index:50; display:flex; align-items:center; justify-content:center; padding:14px}
-#pcCard{background:var(--card); border-radius:16px; max-width:460px; width:100%; max-height:88vh; overflow-y:auto; padding:16px; border:1px solid var(--line)}
-#pcCard h2{margin:0; font-family:Fraunces,Georgia,serif; color:var(--pine); font-size:20px}
+#pcOverlay{position:fixed; inset:0; background:rgba(4,6,10,.72); z-index:50; display:flex; align-items:center; justify-content:center; padding:14px}
+#pcCard{
+  background:var(--card); border-radius:12px; max-width:460px; width:100%; max-height:88vh;
+  overflow-y:auto; padding:16px; border:1px solid var(--line); border-top:3px solid var(--accent);
+}
+#pcCard h2{margin:0; font-size:22px; color:#fff; letter-spacing:.5px}
 #pcCard .tlogo{width:42px; height:42px; object-fit:contain}
 .pctotals{display:flex; gap:10px; margin:12px 0 4px}
-.pctotals .tot{flex:1; background:#f0ede1; border-radius:10px; padding:8px 10px; text-align:center}
-.pctotals .tot b{display:block; font-size:18px}
-.pctotals .tot span{font-size:11px; color:var(--muted)}
+.pctotals .tot{flex:1; background:var(--card2); border:1px solid var(--line); border-radius:8px; padding:8px 10px; text-align:center}
+.pctotals .tot b{display:block; font-size:22px; font-family:var(--disp); letter-spacing:.5px}
+.pctotals .tot span{font-size:10.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px}
 .pcstats{width:100%; border-collapse:collapse; margin:8px 0; font-size:13px}
 .pcstats th,.pcstats td{padding:4px 6px; border-bottom:1px dashed var(--line); text-align:right; font-variant-numeric:tabular-nums}
 .pcstats th:first-child,.pcstats td:first-child{text-align:left}
-.pcstats th{color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.4px}
-.pcout{font-size:13.5px; line-height:1.5; overflow-wrap:anywhere}
+.pcstats th{color:var(--muted); font-size:10.5px; text-transform:uppercase; letter-spacing:.6px}
+.pcout{font-size:13.5px; line-height:1.55; overflow-wrap:anywhere; color:#c9d1e0}
 .pcact{display:flex; gap:8px; margin-top:12px; align-items:center}
 
 /* ---------- draft chat ---------- */
 #chatCard{margin-top:12px}
-#chatMsgs{height:230px; overflow-y:auto; background:#faf8f0; border:1px solid var(--line); border-radius:10px; padding:8px 10px; font-size:13.5px}
+#chatMsgs{height:230px; overflow-y:auto; background:#0e131d; border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:13.5px}
 #chatMsgs .cmsg{margin-bottom:6px; overflow-wrap:anywhere}
-#chatMsgs .cmsg b{color:var(--pine-d)}
-#chatMsgs .cmsg .ct{color:var(--muted); font-size:10.5px; margin-left:6px}
+#chatMsgs .cmsg b{color:#9fc0f0}
+#chatMsgs .cmsg .ct{color:#4b5570; font-size:10.5px; margin-left:6px}
 #chatMsgs .cempty{color:var(--muted); font-style:italic}
 #chatRow{display:flex; gap:8px; margin-top:8px}
 #chatIn{flex:1; min-width:0}
@@ -256,34 +312,64 @@ input[type=text],input[type=number],select{
 /* ---------- toasts ---------- */
 #toastWrap{position:fixed; left:50%; transform:translateX(-50%); bottom:70px; z-index:60; display:flex; flex-direction:column; gap:6px}
 .toast{
-  background:var(--ink); color:#fff; border-radius:10px; padding:9px 16px; font-weight:600;
-  font-size:13.5px; box-shadow:0 4px 14px rgba(0,0,0,.25); max-width:88vw;
+  background:#05070c; border:1px solid var(--line); border-left:3px solid var(--navy); color:#fff;
+  border-radius:8px; padding:9px 16px; font-weight:600; font-size:13px;
+  box-shadow:0 6px 18px rgba(0,0,0,.5); max-width:88vw;
 }
-.toast.err{background:var(--bad)}
+.toast.err{border-left-color:var(--accent)}
 
 /* ---------- landing ---------- */
-#vLanding .hero{
-  text-align:center; padding:34px 16px;
+#vLanding .hero{text-align:center; padding:44px 16px}
+#vLanding .hero h1{
+  font-size:44px; margin:0 0 8px; color:#fff; letter-spacing:3px; font-weight:700;
 }
-#vLanding .hero h1{font-family:Fraunces,Georgia,serif; color:var(--pine); font-size:30px; margin:0 0 6px}
-@media (min-width:760px){
-  .cols2{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+#vLanding .hero h1::after{content:""; display:block; width:64px; height:3px; background:var(--accent); margin:10px auto 0}
+
+/* ---------- TV mode ---------- */
+body.tv{padding-bottom:64px}
+body.tv header{padding:8px 18px 7px}
+body.tv #phaseLine,body.tv #soundBtn{display:none}
+body.tv main{max-width:none; padding:12px 18px}
+body.tv .cell{min-height:56px; font-size:13px}
+body.tv .cell b{font-size:14.5px}
+body.tv .cell .pt{font-size:11px}
+body.tv #clockStrip .pickno{font-size:28px}
+body.tv #clockStrip .who{font-size:19px}
+body.tv #boardLegend{display:none}
+#tvTicker{
+  position:fixed; bottom:0; left:0; right:0; z-index:45;
+  background:#05070b; border-top:2px solid var(--accent);
+  display:flex; gap:26px; padding:12px 18px; overflow:hidden; white-space:nowrap;
 }
+#tvTicker .tvpick{color:#cfd6e2; font-size:15px}
+#tvTicker .tvpick b{color:var(--gold); font-family:var(--disp); letter-spacing:.5px; margin-right:4px}
+#tvSpot{
+  position:fixed; inset:0; z-index:48; display:flex; align-items:center; justify-content:center;
+  background:rgba(4,7,11,.78);
+}
+#tvSpot .spin{
+  background:var(--card); border:1px solid var(--line); border-top:5px solid var(--accent);
+  border-radius:12px; padding:30px 60px; text-align:center; animation:spotin .25s ease-out;
+}
+#tvSpot .spl{display:block; font-family:var(--disp); font-weight:600; color:var(--gold); font-size:20px; letter-spacing:2px}
+#tvSpot b{display:block; font-family:var(--disp); font-size:42px; color:#fff; letter-spacing:1px; margin:6px 0 2px}
+#tvSpot .spin>span:last-child{color:var(--muted); font-size:15px}
+@keyframes spotin{from{transform:scale(.85); opacity:0}}
 </style>
 </head>
 <body>
-<div id="connBanner" hidden>⚠️ Can't reach the draft room — check your connection and reload.</div>
-<div id="localBadge" hidden>🧪 Practice mode — this draft lives on this device only.</div>
+<div id="connBanner" hidden>CAN'T REACH THE DRAFT ROOM — check your connection and reload.</div>
+<div id="localBadge" hidden>PRACTICE MODE — this draft lives on this device only.</div>
 <header>
-  <div class="brand"><span class="wordmark">🏈 Draft Day</span><span id="lgName"></span></div>
+  <div class="brand"><span class="wordmark">DRAFT DAY</span><span id="lgName"></span><button id="soundBtn" hidden>SOUND ON</button></div>
   <div id="phaseLine"></div>
 </header>
 <div id="clockStrip" hidden></div>
 <nav id="tabs" hidden>
-  <button data-v="board">📋 Board</button>
-  <button data-v="players">👤 Players</button>
-  <button data-v="teams">🏈 Teams</button>
-  <button data-v="commish" id="tabCommish" hidden>⚙️ Commish</button>
+  <button data-v="board">Board</button>
+  <button data-v="players">Players</button>
+  <button data-v="teams">Teams</button>
+  <button data-v="commish" id="tabCommish" hidden>Commish</button>
 </nav>
 <main>
   <section id="vLanding" hidden></section>
@@ -292,6 +378,7 @@ input[type=text],input[type=number],select{
       <div class="boardmain">
         <div class="panner"><div id="boardGrid"></div></div>
         <p class="mut" id="boardLegend" style="margin-top:8px"></p>
+        <div id="recapHost"></div>
         <div id="boardChatSlot"></div>
       </div>
       <aside id="boardRail" hidden></aside>
@@ -300,6 +387,8 @@ input[type=text],input[type=number],select{
   <section id="vPlayers" hidden>
     <div id="playersHost"><div id="playersPanel">
       <div id="keeperPanel"></div>
+      <div id="needsBar" hidden></div>
+      <div id="qStrip" hidden></div>
       <div id="pSearchRow">
         <input type="text" id="pSearch" placeholder="Search players…" autocomplete="off">
         <button class="btn ghost sm" id="pHideTaken">Hide taken</button>
@@ -318,13 +407,15 @@ input[type=text],input[type=number],select{
   <section id="vCommish" hidden></section>
 </main>
 <div class="card" id="chatCard" hidden>
-  <h2>💬 Draft chat</h2>
+  <h2>Draft chat</h2>
   <div id="chatMsgs"></div>
   <div id="chatRow">
     <input type="text" id="chatIn" placeholder="Say something…" maxlength="300" autocomplete="off">
     <button class="btn sm" id="chatSend">Send</button>
   </div>
 </div>
+<div id="tvTicker" hidden></div>
+<div id="tvSpot" hidden></div>
 <div id="pcOverlay" hidden><div id="pcCard"></div></div>
 <div id="confirmBar" hidden></div>
 <div id="toastWrap"></div>
@@ -342,6 +433,9 @@ input[type=text],input[type=number],select{
 
   var qs = new URLSearchParams(location.search);
   var LOCAL = qs.get("local") === "1";
+  var TV = qs.get("tv") === "1";   // read-only broadcast board for the living-room TV
+  var KB_LOCK = '<svg class="kb" viewBox="0 0 24 24" aria-label="keeper"><path fill="currentColor" d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5zm-3 8V7a3 3 0 1 1 6 0v3H9z"/></svg>';
+  var STAR_SVG = '<svg viewBox="0 0 24 24" aria-label="queue"><path fill="currentColor" d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.2 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"/></svg>';
 
   // The league year this draft belongs to (Jan/Feb still belong to LAST season).
   function seasonNow() {
@@ -421,6 +515,12 @@ input[type=text],input[type=number],select{
   var pcPid = null;          // player detail card: open pid (null = closed)
   var cardCache = {};        // pid -> ff_player payload (or {err})
   var DESK_MQ = window.matchMedia("(min-width:1100px)");
+  var queue = lsGet2("ffd_queue_" + SEASON) || [];   // my watchlist (this device)
+  var queueNotified = null;  // pids already announced as taken (null = not seeded yet)
+  var soundOn = localStorage.getItem("ffd_sound") !== "0";
+  var mockDelayMs = 1500, mockArmKey = null, mockArmAt = 0;
+  var tvSeen = null, spotT = null;
+  function lsGet2(k) { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch (e) { return null; } }
 
   // ---------------- backend: Firestore doc, or localStorage in practice mode ----
   // ONE draft doc; every mutation is a transaction-style read-modify-write so
@@ -538,7 +638,7 @@ input[type=text],input[type=number],select{
   function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
   function loadInfo(force) {
-    var k = "ffd_info_" + SEASON;
+    var k = "ffd_info2_" + SEASON;   // v2: +slots (needs tracker)
     var c = lsGet(k);
     if (c && !force) { info = c.data; }
     if (c && !force && Date.now() - c.ts < 6 * 3600000) return Promise.resolve(info);
@@ -554,7 +654,7 @@ input[type=text],input[type=number],select{
   }
   function loadPool(force) {
     var fmt = (info && info.ppr === false) ? "standard" : "ppr";
-    var k = "ffd_pool_" + SEASON;
+    var k = "ffd_pool2_" + SEASON;   // v2: +proj/lastPts
     var c = lsGet(k);
     if (c && !force && c.format === fmt) { pool = c.players || []; indexPool(); }
     if (c && !force && c.format === fmt && Date.now() - c.ts < 24 * 3600000) return Promise.resolve(pool);
@@ -720,7 +820,7 @@ input[type=text],input[type=number],select{
     return act(function (d) {
       if (d) throw new Error("A draft room already exists");
       return doc;
-    }, "Draft room created — you're the commissioner 🎩");
+    }, "Draft room created — you're the commissioner.");
   }
   function claimTeam(teamId) {
     if (!me.name) { toast("Type your name first", true); return; }
@@ -735,7 +835,7 @@ input[type=text],input[type=number],select{
       d.teams.forEach(function (x) { if (x.owner && x.owner.dev === me.dev) x.owner = null; });
       t.owner = { name: me.name, dev: me.dev };
       return d;
-    }, "You've got " + (teamById(D, teamId) || {}).name + " 🎉");
+    }, "You've got " + (teamById(D, teamId) || {}).name + ".");
   }
   function releaseTeam(teamId) {
     return act(function (d) {
@@ -785,7 +885,7 @@ input[type=text],input[type=number],select{
   function armDeadline(d) {
     d.deadline = (d.timerSecs > 0 && d.phase === "live" && !d.paused) ? Date.now() + d.timerSecs * 1000 : null;
   }
-  function makePick(player) {
+  function makePick(player, byLabel) {
     return act(function (d) {
       if (!d || d.phase !== "live") throw new Error("The draft isn't live");
       if (d.paused) throw new Error("The draft is paused");
@@ -796,7 +896,7 @@ input[type=text],input[type=number],select{
       d.picks[cur.key] = {
         pid: player.pid, name: player.name, pos: player.pos || "?",
         proTeam: player.proTeam || "", keeper: false,
-        by: me.name || "?", ts: Date.now(),
+        by: byLabel || me.name || "?", ts: Date.now(),
       };
       d.history.push(cur.key);
       if (!currentSlot(d)) { d.phase = "done"; d.deadline = null; }
@@ -864,7 +964,7 @@ input[type=text],input[type=number],select{
         var tmp = d.teams[i]; d.teams[i] = d.teams[j]; d.teams[j] = tmp;
       }
       return d;
-    }, "Order shuffled 🎲");
+    }, "Order shuffled");
   }
   function setSetting(field, value) {
     return act(function (d) {
@@ -886,6 +986,272 @@ input[type=text],input[type=number],select{
       d.picks = {}; d.history = []; d.phase = "setup"; d.paused = false; d.deadline = null;
       return d;
     }, "Draft board cleared");
+  }
+
+  // ---------------- on-the-clock alerts ----------------
+  // A two-tone chime + a flashing tab title the moment the clock becomes
+  // YOURS. WebAudio needs one prior user gesture; without it we stay silent.
+  var audioCtx = null, lastClockKey = null, titleTimer = null, flashFlip = false;
+  document.addEventListener("pointerdown", function () {
+    if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+  }, { once: true });
+  function chime() {
+    if (!soundOn || !audioCtx) return;
+    try {
+      var t = audioCtx.currentTime;
+      [523.25, 784].forEach(function (f, i) {
+        var o = audioCtx.createOscillator(), g = audioCtx.createGain();
+        o.frequency.value = f; o.type = "sine";
+        g.gain.setValueAtTime(0.0001, t + i * 0.18);
+        g.gain.exponentialRampToValueAtTime(0.22, t + i * 0.18 + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.18 + 0.5);
+        o.connect(g); g.connect(audioCtx.destination);
+        o.start(t + i * 0.18); o.stop(t + i * 0.18 + 0.55);
+      });
+    } catch (e) {}
+  }
+  function myClockNow() {
+    if (!D || D.phase !== "live" || D.paused) return { key: null, mine: false };
+    var cur = currentSlot(D);
+    if (!cur) return { key: null, mine: false };
+    var t = teamById(D, cur.teamId);
+    return { key: cur.key, mine: !!(t && t.owner && t.owner.dev === me.dev) };
+  }
+  function watchClock() {
+    var st = myClockNow();
+    if (st.key !== lastClockKey) {
+      lastClockKey = st.key;
+      if (st.mine) chime();
+    }
+    if (st.mine && !titleTimer) {
+      document.title = "YOUR PICK — Draft Day";
+      titleTimer = setInterval(function () {
+        flashFlip = !flashFlip;
+        document.title = flashFlip ? "Draft Day" : "YOUR PICK — Draft Day";
+      }, 900);
+    } else if (!st.mine && titleTimer) {
+      clearInterval(titleTimer); titleTimer = null;
+      renderHeader();
+    }
+  }
+  function renderSound() {
+    var b = $("soundBtn");
+    b.hidden = !D || TV;
+    b.textContent = soundOn ? "SOUND ON" : "SOUND OFF";
+    b.classList.toggle("off", !soundOn);
+  }
+  $("soundBtn").onclick = function () {
+    soundOn = !soundOn;
+    localStorage.setItem("ffd_sound", soundOn ? "1" : "0");
+    renderSound();
+  };
+
+  // ---------------- player queue (per-device watchlist) ----------------
+  function inQueue(pid) { return queue.indexOf(pid) >= 0; }
+  function toggleQueue(pid) {
+    var i = queue.indexOf(pid);
+    if (i >= 0) queue.splice(i, 1); else queue.push(pid);
+    lsSet("ffd_queue_" + SEASON, queue);
+    renderPlayers();
+  }
+  function renderQueue() {
+    var el = $("qStrip");
+    if (!el) return;
+    if (!D || !queue.length) { el.hidden = true; el.innerHTML = ""; return; }
+    el.hidden = false;
+    var tk = takenPids(D);
+    el.innerHTML = '<span class="qtitle">QUEUE</span>' + queue.map(function (pid) {
+      var p = poolByPid[pid];
+      if (!p) return "";
+      return '<button class="qchip' + (tk[pid] ? " qtaken" : "") + '" data-pid="' + esc(pid) + '">' +
+        esc(fmtName(p.name)) + ' <span class="qx" data-pid="' + esc(pid) + '">×</span></button>';
+    }).join("");
+    el.querySelectorAll(".qchip").forEach(function (c) {
+      c.onclick = function (e) {
+        if (e.target.classList.contains("qx")) { toggleQueue(castPid(c.dataset.pid)); return; }
+        openPlayerCard(castPid(c.dataset.pid));
+      };
+    });
+  }
+  // "Mike took your guy" — announce a queued player the moment SOMEONE ELSE
+  // drafts him. First call after load just seeds (no toast spam on reopen).
+  function watchQueue() {
+    if (!D || !pool.length) return;
+    var tk = takenPids(D);
+    var seeding = queueNotified === null;
+    if (seeding) queueNotified = {};
+    var mine = myTeam(D);
+    queue.forEach(function (pid) {
+      if (!tk[pid] || queueNotified[pid]) return;
+      queueNotified[pid] = true;
+      if (seeding) return;
+      var t = tk[pid], p = poolByPid[pid];
+      if (p && (!mine || !t || t.id !== mine.id)) {
+        toast((t && t.name ? t.name : "Someone") + " took your queued player: " + p.name, true, 5000);
+      }
+    });
+  }
+
+  // ---------------- roster needs (my starting slots vs my picks) ----------------
+  function teamPosCounts(teamId) {
+    var counts = { QB: 0, RB: 0, WR: 0, TE: 0, K: 0, DST: 0 };
+    if (!D) return counts;
+    Object.keys(D.picks || {}).forEach(function (k) {
+      if (k.split("_t")[1] !== String(teamId)) return;
+      var pos = D.picks[k].pos;
+      if (counts[pos] != null) counts[pos]++;
+    });
+    if (D.phase === "setup" || D.phase === "keepers") {
+      (D.keepers[teamId] || []).forEach(function (kp) { if (counts[kp.pos] != null) counts[kp.pos]++; });
+    }
+    return counts;
+  }
+  function needsFor(teamId) {
+    var sl = info && info.slots;
+    if (!sl || !D) return null;
+    var c = teamPosCounts(teamId);
+    var out = [], spill = 0;
+    [["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"], ["D/ST", "DST"], ["K", "K"]].forEach(function (pair) {
+      var need = sl[pair[0]] || 0;
+      if (!need) return;
+      if (pair[1] === "RB" || pair[1] === "WR" || pair[1] === "TE") spill += Math.max(0, c[pair[1]] - need);
+      out.push({ label: pair[1], have: Math.min(c[pair[1]], need), need: need });
+    });
+    var flexNeed = (sl["FLEX"] || 0) + (sl["OP"] || 0) + (sl["RB/WR"] || 0) + (sl["WR/TE"] || 0);
+    if (flexNeed) out.push({ label: "FLX", have: Math.min(spill, flexNeed), need: flexNeed });
+    return out.length ? out : null;
+  }
+  function neededPositions() {
+    var t = myTeam(D);
+    if (!t) return null;
+    var needs = needsFor(t.id);
+    if (!needs) return null;
+    var set = {};
+    needs.forEach(function (n) {
+      if (n.have >= n.need) return;
+      if (n.label === "FLX") { set.RB = 1; set.WR = 1; set.TE = 1; }
+      else set[n.label] = 1;
+    });
+    return set;
+  }
+  function renderNeeds() {
+    var el = $("needsBar");
+    if (!el) return;
+    var t = myTeam(D);
+    var needs = D && t ? needsFor(t.id) : null;
+    if (!needs) { el.hidden = true; el.innerHTML = ""; return; }
+    el.hidden = false;
+    el.innerHTML = '<span class="ntitle">' + esc(t.abbrev || t.name) + " NEEDS</span>" + needs.map(function (n) {
+      return '<span class="nslot' + (n.have < n.need ? " unfilled" : "") + '">' + esc(n.label) + " " + n.have + "/" + n.need + "</span>";
+    }).join("");
+  }
+
+  // ---------------- value vs ADP (badges + recap grades) ----------------
+  function valueBadge(overall, adp) {
+    if (adp == null || overall == null) return null;
+    if (overall - adp >= 10) return "steal";   // fell well past his ADP to you
+    if (adp - overall >= 10) return "reach";   // taken well before his ADP
+    return null;
+  }
+  function renderRecap() {
+    var host = $("recapHost");
+    if (!host) return;
+    if (!D || D.phase !== "done" || !pool.length) { host.innerHTML = ""; return; }
+    var overallByKey = {};
+    slotSeq(D).forEach(function (s, i) { overallByKey[s.key] = i + 1; });
+    var rows = D.teams.map(function (t) {
+      var val = 0, best = null, worst = null;
+      Object.keys(D.picks).forEach(function (k) {
+        if (k.split("_t")[1] !== String(t.id)) return;
+        var p = D.picks[k];
+        if (p.keeper) return;
+        var adp = (poolByPid[p.pid] || {}).adp;
+        if (adp == null) return;
+        var v = overallByKey[k] - adp;
+        val += v;
+        if (!best || v > best.v) best = { v: v, p: p };
+        if (!worst || v < worst.v) worst = { v: v, p: p };
+      });
+      return { t: t, val: Math.round(val), best: best, worst: worst };
+    }).sort(function (a, b) { return b.val - a.val; });
+    var GRADES = ["A", "A-", "B+", "B", "B", "B-", "C+", "C"];
+    host.innerHTML = '<div class="card" id="recapCard"><h2>Draft recap — value vs ADP</h2>' +
+      rows.map(function (r, i) {
+        return '<div class="grrow"><span class="gr">' + GRADES[Math.min(i, GRADES.length - 1)] + "</span><b>" + esc(r.t.name) + "</b>" +
+          '<span class="grv">' + (r.val >= 0 ? "+" : "") + r.val + "</span>" +
+          (r.best && r.best.v >= 8 ? '<span class="mut">best value: ' + esc(fmtName(r.best.p.name)) + " (+" + Math.round(r.best.v) + ")</span>" : "") +
+          (r.worst && r.worst.v <= -8 ? '<span class="mut">biggest reach: ' + esc(fmtName(r.worst.p.name)) + " (" + Math.round(r.worst.v) + ")</span>" : "") +
+          "</div>";
+      }).join("") +
+      '<p class="mut" style="margin-top:8px">Positive = ADP value that fell to that team. Keepers excluded.</p></div>';
+  }
+
+  // ---------------- mock draft (practice mode) ----------------
+  // Unclaimed teams auto-pick from the rankings with a touch of randomness so
+  // one person can rehearse a full draft. Only the commissioner's device runs
+  // the bots, only in practice mode, and only for teams nobody has claimed.
+  function mockChoice(teamId) {
+    var tk = takenPids(D);
+    var cur = currentSlot(D);
+    var late = cur && cur.round >= D.rounds - 1;
+    var c = teamPosCounts(teamId);
+    var avail = pool.filter(function (p) { return !tk[p.pid]; });
+    var picks = avail.filter(function (p) {
+      if ((p.pos === "K" || p.pos === "DST") && !late) return false;
+      if (p.pos === "K" && c.K >= 1) return false;
+      if (p.pos === "DST" && c.DST >= 1) return false;
+      if (p.pos === "QB" && c.QB >= 2) return false;
+      if (p.pos === "TE" && c.TE >= 2) return false;
+      return true;
+    });
+    if (!picks.length) picks = avail;
+    if (!picks.length) return null;
+    return picks[Math.floor(Math.random() * Math.min(3, picks.length))];
+  }
+  setInterval(function () {
+    if (!LOCAL || TV || !D || D.phase !== "live" || D.paused || !D.mock || !isCommish(D)) return;
+    var cur = currentSlot(D);
+    if (!cur) return;
+    var t = teamById(D, cur.teamId);
+    if (!t || t.owner) { mockArmKey = null; return; }
+    if (mockArmKey !== cur.key) { mockArmKey = cur.key; mockArmAt = Date.now(); return; }
+    if (Date.now() - mockArmAt < mockDelayMs) return;
+    mockArmAt = Date.now() + 3600000;   // one shot per slot; re-arms when the clock moves
+    var p = mockChoice(cur.teamId);
+    if (p) makePick(p, "MOCK");
+  }, 300);
+
+  // ---------------- TV mode ----------------
+  function renderTv() {
+    if (!TV) return;
+    var tick = $("tvTicker");
+    var hist = (D && D.history) || [];
+    if (!hist.length) { tick.hidden = true; }
+    else {
+      tick.hidden = false;
+      var labelByKey = {};
+      slotSeq(D).forEach(function (s) { labelByKey[s.key] = s.label; });
+      tick.innerHTML = hist.slice(-6).reverse().map(function (k) {
+        var p = D.picks[k];
+        if (!p) return "";
+        return '<span class="tvpick"><b>' + esc(labelByKey[k] || "") + "</b>" + esc(fmtName(p.name)) + " · " + esc(p.pos) + "</span>";
+      }).join("");
+      var n = hist.length;
+      if (tvSeen != null && n > tvSeen) {
+        var k = hist[n - 1], p = D.picks[k];
+        if (p) spotlight(labelByKey[k] || "", p);
+      }
+      tvSeen = n;
+    }
+    if (tvSeen == null) tvSeen = hist.length;
+  }
+  function spotlight(label, p) {
+    var el = $("tvSpot");
+    el.hidden = false;
+    el.innerHTML = '<div class="spin"><span class="spl">PICK ' + esc(label) + "</span><b>" + esc(p.name) + "</b><span>" +
+      esc(p.pos) + (p.proTeam ? " · " + esc(p.proTeam) : "") + "</span></div>";
+    clearTimeout(spotT);
+    spotT = setTimeout(function () { $("tvSpot").hidden = true; }, 4000);
   }
 
   // ---------------- draft chat ----------------
@@ -958,7 +1324,7 @@ input[type=text],input[type=number],select{
       "<div><h2>" + esc(base.name) + "</h2><div class='mut'>" + esc(base.pos || "?") +
       (base.proTeam ? " · " + esc(base.proTeam) : "") + (bye ? " · bye " + bye : "") +
       (base.injury ? ' · <span class="inj">' + esc(base.injury) + "</span>" : "") + "</div></div></div>" +
-      '<button class="btn ghost sm" id="pcClose">✕</button></div>';
+      '<button class="btn ghost sm" id="pcClose">×</button></div>';
     if (!det) {
       h += '<p class="mut">Loading stats…</p>';
     } else if (det.err) {
@@ -989,7 +1355,7 @@ input[type=text],input[type=number],select{
             return "<tr><td>" + esc(lb) + "</td><td>" + (r.last != null ? r.last : "—") + "</td><td>" + (r.proj != null ? r.proj : "—") + "</td></tr>";
           }).join("") + "</table>";
       }
-      if (det.outlook) h += '<h3 style="margin:10px 0 4px">📝 ESPN\'s outlook</h3><p class="pcout">' + esc(det.outlook) + "</p>";
+      if (det.outlook) h += '<h3 style="margin:10px 0 4px">ESPN\'s outlook</h3><p class="pcout">' + esc(det.outlook) + "</p>";
     }
     // Context action: same rules as the list rows.
     var keepMode = D.phase === "keepers" || D.phase === "setup";
@@ -998,7 +1364,7 @@ input[type=text],input[type=number],select{
     var canDraftNow = !!(cur && canPickFor(D, cur.teamId) && !D.paused);
     h += '<div class="pcact">';
     if (taken) h += '<span class="mut">On ' + esc(taken.name || "a roster") + "</span>";
-    else if (keepMode && t) h += '<button class="btn" id="pcKeep">🔒 Keep him</button>';
+    else if (keepMode && t) h += '<button class="btn" id="pcKeep">Keep him</button>';
     else if (D.phase === "live") h += '<button class="btn" id="pcDraft"' + (canDraftNow ? "" : " disabled") + ">Draft him</button>";
     h += "</div>";
     $("pcCard").innerHTML = h;
@@ -1024,26 +1390,26 @@ input[type=text],input[type=number],select{
     if (d.phase === "keepers") {
       var total = 0;
       Object.keys(d.keepers || {}).forEach(function (k) { total += (d.keepers[k] || []).length; });
-      return "🔒 Keeper picking is open — choose up to " + MAX_KEEPERS + " in the Players tab (" + total + " kept so far).";
+      return "Keeper picking is open — choose up to " + MAX_KEEPERS + " in the Players tab (" + total + " kept so far).";
     }
     if (d.phase === "live") return "The draft is LIVE.";
-    if (d.phase === "done") return "🏆 Draft complete!";
+    if (d.phase === "done") return "Draft complete.";
     return "";
   }
 
   function renderHeader() {
     $("lgName").textContent = D ? D.leagueName + " · " + D.season : "";
     $("phaseLine").textContent = phaseText(D);
-    document.title = (D ? D.leagueName + " — " : "") + "Draft Day";
+    if (!titleTimer) document.title = (D ? D.leagueName + " — " : "") + "Draft Day";
   }
 
   function renderClock() {
     var el = $("clockStrip");
     if (!D || (D.phase !== "live" && D.phase !== "done")) { el.hidden = true; return; }
     el.hidden = false;
-    el.className = D.phase === "done" ? "done" : (D.paused ? "paused" : "");
+    el.className = D.phase === "done" ? "done" : (D.paused ? "paused" : (myClockNow().mine ? "mine" : ""));
     if (D.phase === "done") {
-      el.innerHTML = '<span class="pickno">🏆 That\'s a wrap!</span><span class="who">Draft complete — see the Board.</span>';
+      el.innerHTML = '<span class="pickno">FINAL</span><span class="who">That\'s a wrap — the draft is complete.</span>';
       return;
     }
     var cur = currentSlot(D);
@@ -1053,8 +1419,8 @@ input[type=text],input[type=number],select{
     var nt = nxt ? teamById(D, nxt.teamId) : null;
     var mine = canPickFor(D, cur.teamId) && !isCommish(D);
     el.innerHTML =
-      '<span class="pickno">' + (D.paused ? "⏸" : "⏰") + " Pick " + esc(cur.label) + "</span>" +
-      '<span class="who">' + esc(t ? t.name : "?") + (mine ? " — YOU'RE UP!" : "") + "</span>" +
+      '<span class="pickno">PICK ' + esc(cur.label) + "</span>" +
+      '<span class="who">' + esc(t ? t.name : "?") + (mine ? " — YOU\u2019RE UP" : "") + "</span>" +
       (t && t.owner ? '<span class="own">' + esc(t.owner.name) + "</span>" : "") +
       (D.timerSecs > 0 && !D.paused ? '<span class="cd" id="cdown">–:––</span>' : "") +
       (D.paused ? '<span class="cd">paused</span>' : "") +
@@ -1066,14 +1432,14 @@ input[type=text],input[type=number],select{
     if (!el || !D || !D.deadline) return;
     var left = Math.max(0, D.deadline - Date.now());
     var s = Math.ceil(left / 1000);
-    el.textContent = left <= 0 ? "TIME ⏰" : Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+    el.textContent = left <= 0 ? "TIME" : Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
     el.classList.toggle("low", s <= 15);
   }
   setInterval(tickClock, 500);
 
   function renderTabs() {
     var nav = $("tabs");
-    nav.hidden = !D;
+    nav.hidden = !D || TV;
     $("tabCommish").hidden = !isCommish(D);
     nav.querySelectorAll("button").forEach(function (b) {
       b.classList.toggle("on", b.dataset.v === view);
@@ -1085,21 +1451,21 @@ input[type=text],input[type=number],select{
     if (D) { el.hidden = true; return; }
     el.hidden = false;
     if (connState === "dead") {
-      el.innerHTML = '<div class="hero"><h1>Draft Day</h1><p class="mut">Can\'t reach the draft room right now. Check your connection and reload.</p></div>';
+      el.innerHTML = '<div class="hero"><h1>DRAFT DAY</h1><p class="mut">Can\'t reach the draft room right now. Check your connection and reload.</p></div>';
       return;
     }
     if (connState === "boot") {
-      el.innerHTML = '<div class="hero"><h1>Draft Day</h1><p class="mut">Connecting…</p></div>';
+      el.innerHTML = '<div class="hero"><h1>DRAFT DAY</h1><p class="mut">Connecting…</p></div>';
       return;
     }
     el.innerHTML =
-      '<div class="hero"><h1>Draft Day ' + SEASON + '</h1>' +
+      '<div class="hero"><h1>DRAFT DAY ' + SEASON + '</h1>' +
       '<p>No draft room exists yet for this season.</p>' +
       '<p class="mut">Whoever creates it becomes the commissioner and gets a private commissioner link.</p>' +
       '<p style="margin-top:16px"><button class="btn" id="createBtn">Create the draft room</button></p>' +
       (info === null ? '<p class="mut">Loading league info from ESPN…</p>' :
         (info && info.ok ? '<p class="mut">League found: <b>' + esc(info.leagueName) + "</b> · " + info.teams.length + " teams · " + info.rosterSize + " roster spots</p>"
-          : '<p class="mut">⚠️ Couldn\'t load the ESPN league (' + esc((info && info.reason) || "error") + ") — the room will start with placeholder team names the commissioner can fix later.</p>")) +
+          : '<p class="mut">Couldn\'t load the ESPN league (' + esc((info && info.reason) || "error") + ") — the room will start with placeholder team names the commissioner can fix later.</p>")) +
       "</div>";
     var b = $("createBtn");
     if (b) b.onclick = createDraft;
@@ -1118,9 +1484,21 @@ input[type=text],input[type=number],select{
     var cur = D.phase === "live" ? currentSlot(D) : null;
     var deck = cur ? nextSlotAfter(D, cur) : null;
     var cols = D.teams.length;
-    var fit = DESK_MQ.matches;
+    var fit = DESK_MQ.matches || TV;
     g.classList.toggle("fit", fit);
     g.style.gridTemplateColumns = (fit ? "30px" : "40px") + " repeat(" + cols + ", minmax(" + (fit ? "0" : "88px") + ", 1fr))";
+    // Keepers land on the wall the moment they're entered — before the draft
+    // starts they render from the live keeper lists at their resolved rounds.
+    var pre = {};
+    if (D.phase === "setup" || D.phase === "keepers") {
+      D.teams.forEach(function (t) {
+        resolveKeeperRounds(D.keepers[t.id] || [], D.rounds).forEach(function (k) {
+          pre["r" + k.finalRound + "_t" + t.id] = { pid: k.pid, name: k.name, pos: k.pos, proTeam: k.proTeam, keeper: true };
+        });
+      });
+    }
+    var overallByKey = {};
+    slotSeq(D).forEach(function (s, i) { overallByKey[s.key] = i + 1; });
     var h = '<div class="bhead" style="color:#8b93a3">RD</div>';
     D.teams.forEach(function (t) {
       h += '<div class="bhead">' + esc(t.abbrev || t.name) +
@@ -1132,17 +1510,19 @@ input[type=text],input[type=number],select{
       // Cells render in TEAM-COLUMN order; the snake lives in the pick labels.
       D.teams.forEach(function (t) {
         var key = "r" + r + "_t" + t.id;
-        var p = D.picks[key];
+        var p = D.picks[key] || pre[key];
         var seqIdx = (r % 2 === 1 ? D.teams.indexOf(t) : cols - 1 - D.teams.indexOf(t)) + 1;
         var label = r + "." + String(seqIdx).padStart(2, "0");
         var cls = "cell";
         if (p) cls += " " + posClass(p.pos);
         if (cur && cur.key === key) cls += " cur";
         else if (deck && deck.key === key) cls += " deck";
+        var vb = p && !p.keeper ? valueBadge(overallByKey[key], (poolByPid[p.pid] || {}).adp) : null;
         h += '<div class="' + cls + '" data-key="' + key + '">' +
           '<span class="pn">' + esc(label) + "</span>" +
-          (p ? ((p.keeper ? '<span class="kb">🔒 </span>' : "") + "<b>" + esc(fmtName(p.name)) + "</b>" +
-            '<span class="pt">' + esc(p.pos) + (p.proTeam ? " · " + esc(p.proTeam) : "") + "</span>")
+          (p ? ((p.keeper ? KB_LOCK : "") + "<b>" + esc(fmtName(p.name)) + "</b>" +
+            '<span class="pt">' + esc(p.pos) + (p.proTeam ? " · " + esc(p.proTeam) : "") + "</span>" +
+            (vb ? '<span class="vbadge ' + vb + '">' + vb.toUpperCase() + "</span>" : ""))
             : "") +
           "</div>";
       });
@@ -1151,7 +1531,8 @@ input[type=text],input[type=number],select{
     $("boardLegend").innerHTML = POS.map(function (p) {
       return '<span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:' +
         posColor(p) + ';margin-right:4px"></span>' + p + "&nbsp;&nbsp;";
-    }).join("") + " · 🔒 keeper";
+    }).join("") + " · " + KB_LOCK + " keeper";
+    renderRecap();
   }
 
   // ---------------- players view ----------------
@@ -1169,7 +1550,7 @@ input[type=text],input[type=number],select{
     var el = $("keeperPanel");
     if (!D || (D.phase !== "keepers" && D.phase !== "setup")) { el.innerHTML = ""; return; }
     var t = keeperTargetTeam();
-    var h = '<div class="card keepCard"><h2>🔒 Keepers</h2>';
+    var h = '<div class="card keepCard"><h2>Keepers</h2>';
     if (isCommish(D)) {
       h += '<div class="row" style="margin-bottom:6px"><span class="mut">Setting keepers for:</span>' +
         '<select id="keepForSel">' + D.teams.map(function (x) {
@@ -1201,11 +1582,11 @@ input[type=text],input[type=number],select{
           [1, 2, 3, 4].map(function (n) { return '<option value="' + n + '"' + ((k.keptCount || 1) === n ? " selected" : "") + ">×" + n + "</option>"; }).join("") +
           "</select>"
           : "") +
-        '<button class="btn ghost sm kDel" data-pid="' + esc(k.pid) + '">✕</button>' +
+        '<button class="btn ghost sm kDel" data-pid="' + esc(k.pid) + '">×</button>' +
         "</div>";
     });
     for (var i = list.length; i < MAX_KEEPERS; i++) {
-      h += '<div class="kslot">Keeper slot ' + (i + 1) + " — tap 🔒 Keep on a player below</div>";
+      h += '<div class="kslot">Keeper slot ' + (i + 1) + " — tap Keep on a player below</div>";
     }
     // Last year's roster = the natural keeper candidates.
     if (lastDraft && lastDraft.rosters) {
@@ -1254,7 +1635,7 @@ input[type=text],input[type=number],select{
   // leaving the wall; placePanels() moves the one panel node between homes.
   function panelOnBoard() { return view === "board" && DESK_MQ.matches; }
   function placePanels() {
-    var deskBoard = panelOnBoard() && !!D;
+    var deskBoard = panelOnBoard() && !!D && !TV;
     var rail = $("boardRail");
     var panel = $("playersPanel");
     if (deskBoard) {
@@ -1266,7 +1647,7 @@ input[type=text],input[type=number],select{
       if (panel.parentNode !== host) host.appendChild(panel);
     }
     var chat = $("chatCard");
-    var slot = D && view === "board" ? $("boardChatSlot") : (D && view === "players" ? $("playersChatSlot") : null);
+    var slot = TV ? null : (D && view === "board" ? $("boardChatSlot") : (D && view === "players" ? $("playersChatSlot") : null));
     chat.hidden = !slot;
     if (slot && chat.parentNode !== slot) slot.appendChild(chat);
   }
@@ -1284,7 +1665,9 @@ input[type=text],input[type=number],select{
     if (!D || (view !== "players" && !panelOnBoard())) return;
     renderKeeperPanel();
     var chips = $("posChips");
-    chips.innerHTML = ["ALL"].concat(POS).map(function (p) {
+    var chipList = ["ALL"].concat(POS);
+    if (myTeam(D) && info && info.slots) chipList.push("NEED");
+    chips.innerHTML = chipList.map(function (p) {
       return '<button data-pos="' + p + '" class="' + (posFilter === p ? "on" : "") + '">' + p + "</button>";
     }).join("");
     chips.querySelectorAll("button").forEach(function (b) {
@@ -1295,8 +1678,10 @@ input[type=text],input[type=number],select{
 
     var tk = takenPids(D);
     var q = searchQ.trim().toLowerCase();
+    var needSet = posFilter === "NEED" ? (neededPositions() || {}) : null;
     var list = pool.filter(function (p) {
-      if (posFilter !== "ALL" && p.pos !== posFilter) return false;
+      if (needSet) { if (!needSet[p.pos]) return false; }
+      else if (posFilter !== "ALL" && p.pos !== posFilter) return false;
       if (q && p.name.toLowerCase().indexOf(q) < 0) return false;
       if (hideTaken && tk[p.pid]) return false;
       return true;
@@ -1320,13 +1705,14 @@ input[type=text],input[type=number],select{
         '<span class="pstat">' + (p.proj != null ? "<b>" + p.proj + "</b> proj" : "") +
         (p.lastPts != null ? "<br>" + p.lastPts + " " + lastYr : "") + "</span>" +
         (taken ? '<span class="tk">' + esc(taken ? (taken.abbrev || taken.name || "taken") : "") + "</span>"
-          : (keepMode && t ? '<button class="btn ghost sm pKeep" data-pid="' + esc(p.pid) + '">🔒 Keep</button>' : "") +
+          : '<button class="qbtn' + (inQueue(p.pid) ? " on" : "") + '" data-pid="' + esc(p.pid) + '" title="Queue">' + STAR_SVG + "</button>" +
+            (keepMode && t ? '<button class="btn ghost sm pKeep" data-pid="' + esc(p.pid) + '">Keep</button>' : "") +
             (D.phase === "live" ? '<button class="btn sm pDraft" data-pid="' + esc(p.pid) + '"' + (canDraftNow ? "" : " disabled") + ">Draft</button>" : "")) +
         "</div>";
     });
     if (!list.length) {
       h += '<div class="card"><p class="mut">No players match' + (q ? ' "' + esc(q) + '"' : "") + ".</p>" +
-        (q && (keepMode || D.phase === "live") ? '<button class="btn ghost sm" id="customAdd">＋ Add "' + esc(q) + '" as a custom player</button>' : "") +
+        (q && (keepMode || D.phase === "live") ? '<button class="btn ghost sm" id="customAdd">+ Add "' + esc(q) + '" as a custom player</button>' : "") +
         "</div>";
     }
     $("pList").innerHTML = h;
@@ -1336,6 +1722,11 @@ input[type=text],input[type=number],select{
     $("pList").querySelectorAll(".pKeep").forEach(function (b) {
       b.onclick = function () { var p = poolByPid[castPid(b.dataset.pid)]; if (p) armConfirm(p, "keep"); };
     });
+    $("pList").querySelectorAll(".qbtn").forEach(function (b) {
+      b.onclick = function () { toggleQueue(castPid(b.dataset.pid)); };
+    });
+    renderNeeds();
+    renderQueue();
     // Tapping the row itself (not its buttons) opens the stats/outlook card.
     $("pList").querySelectorAll(".prow").forEach(function (row) {
       row.addEventListener("click", function (e) {
@@ -1369,7 +1760,7 @@ input[type=text],input[type=number],select{
     if (selPlayer.mode === "keep") {
       var t = keeperTargetTeam();
       var cost = keeperCostOf(p.pid, D);
-      h = '<span class="what">🔒 Keep <b>' + esc(p.name) + "</b> for " + esc(t ? t.name : "?") +
+      h = '<span class="what">Keep <b>' + esc(p.name) + "</b> for " + esc(t ? t.name : "?") +
         " — costs <b>Round " + cost.round + "</b> <span style='opacity:.7'>(" + esc(cost.basis) + ")</span></span>";
     } else {
       var cur = currentSlot(D);
@@ -1410,10 +1801,10 @@ input[type=text],input[type=number],select{
     var ch;
     if (mine) {
       ch = '<div class="card"><div class="row" style="justify-content:space-between">' +
-        "<span>✅ You run <b>" + esc(mine.name) + "</b> <span class='mut'>(" + esc(me.name) + ")</span></span>" +
+        "<span>You run <b>" + esc(mine.name) + "</b> <span class='mut'>(" + esc(me.name) + ")</span></span>" +
         '<button class="btn ghost sm relBtn" data-tid="' + mine.id + '">release</button></div></div>';
     } else {
-      ch = '<div class="card"><h2>👋 Who are you?</h2>' +
+      ch = '<div class="card"><h2>Who are you?</h2>' +
         '<div class="row"><input type="text" id="nameIn" placeholder="Your name" value="' + esc(me.name) + '" maxlength="24">' +
         '<button class="btn ghost sm" id="nameSave">Save</button></div>' +
         '<p class="mut">Type your name, then claim your team below.</p>';
@@ -1462,7 +1853,7 @@ input[type=text],input[type=number],select{
       for (var r = 1; r <= D.rounds; r++) {
         var p = D.picks["r" + r + "_t" + t.id];
         h += p
-          ? '<div class="rrow"><span class="rd">R' + r + '</span><span class="pos" style="background:' + posColor(p.pos) + '">' + esc(p.pos) + "</span><b>" + esc(p.name) + "</b><span class='mut'>" + esc(p.proTeam || "") + (p.keeper ? " · 🔒 keeper" : "") + "</span></div>"
+          ? '<div class="rrow"><span class="rd">R' + r + '</span><span class="pos" style="background:' + posColor(p.pos) + '">' + esc(p.pos) + "</span><b>" + esc(p.name) + "</b><span class='mut'>" + esc(p.proTeam || "") + (p.keeper ? " · keeper" : "") + "</span></div>"
           : '<div class="rrow empty"><span class="rd">R' + r + "</span><span>—</span></div>";
       }
     }
@@ -1488,40 +1879,42 @@ input[type=text],input[type=number],select{
     var d = D;
     var h = '<div class="cols2">';
 
-    h += '<div class="card"><h2>🔗 Share</h2>' +
+    h += '<div class="card"><h2>Share links</h2>' +
       '<p class="mut">Send everyone the guest link. Keep the commissioner link to yourself — it\'s the only admin control.</p>' +
       "<b>Guest link</b><div class='linkbox' id='glink'>" + esc(guestLink()) + "</div>" +
       '<button class="btn ghost sm" id="copyGuest">Copy guest link</button> ' +
       "<b style='display:block;margin-top:10px'>Commissioner link</b><div class='linkbox'>" + esc(commishLink(d)) + "</div>" +
       '<button class="btn ghost sm" id="copyCommish">Copy commissioner link</button></div>';
 
-    h += '<div class="card"><h2>🚦 Run the draft</h2>';
+    h += '<div class="card"><h2>Run the draft</h2>';
     if (d.phase === "setup") {
       h += '<p class="mut">1) Everyone claims a team → 2) open keeper picking → 3) start the draft.</p>' +
         '<button class="btn" id="phKeepers">Open keeper picking</button> ' +
         '<button class="btn ghost" id="phLiveDirect">Skip keepers → start draft</button>';
     } else if (d.phase === "keepers") {
       h += '<p class="mut">Keepers lock onto the board when you start. Rows marked * were bumped by a same-round collision.</p>' +
-        '<button class="btn" id="phLive">🏈 Start the draft</button> ' +
+        '<button class="btn" id="phLive">Start the draft</button> ' +
         '<button class="btn ghost sm" id="phBackSetup">Back to setup</button>';
     } else if (d.phase === "live") {
-      h += '<button class="btn" id="phPause">' + (d.paused ? "▶ Resume" : "⏸ Pause") + "</button> " +
-        '<button class="btn ghost" id="phUndo">↩ Undo last pick</button> ' +
+      h += '<button class="btn" id="phPause">' + (d.paused ? "Resume" : "Pause") + "</button> " +
+        '<button class="btn ghost" id="phUndo">Undo last pick</button> ' +
         '<button class="btn warn" id="phEnd">End draft</button>';
     } else {
-      h += '<p>🏆 Draft complete.</p><button class="btn ghost" id="phReopen">Reopen (back to live)</button>';
+      h += '<p>Draft complete.</p><button class="btn ghost" id="phReopen">Reopen (back to live)</button>';
     }
     h += "</div>";
 
-    h += '<div class="card"><h2>⚙️ Settings</h2>' +
+    h += '<div class="card"><h2>Settings</h2>' +
       '<div class="row"><label>Rounds <input type="number" id="setRounds" min="4" max="30" value="' + d.rounds + '" style="width:70px"' + (d.phase === "live" || d.phase === "done" ? " disabled" : "") + "></label>" +
       '<label>Pick clock (sec, 0 = off) <input type="number" id="setTimer" min="0" max="600" value="' + d.timerSecs + '" style="width:80px"></label>' +
       '<button class="btn ghost sm" id="setSave">Apply</button></div>' +
       '<p class="mut">Format: ' + ((info && info.ppr === false) ? "Standard" : "PPR") + " rankings · " + d.teams.length + " teams</p>" +
-      '<div class="row"><button class="btn ghost sm" id="refreshData">↻ Refresh ESPN data</button>' +
+      (LOCAL ? '<label class="row" style="margin:8px 0"><input type="checkbox" id="mockToggle"' + (d.mock ? " checked" : "") +
+        "> Mock draft — auto-pick for unclaimed teams (practice mode)</label>" : "") +
+      '<div class="row"><button class="btn ghost sm" id="refreshData">Refresh ESPN data</button>' +
       '<button class="btn warn sm" id="resetBoard">Reset the board</button></div></div>';
 
-    h += '<div class="card"><h2>🔀 Draft order</h2>' +
+    h += '<div class="card"><h2>Draft order</h2>' +
       '<p class="mut">Round 1 order, top to bottom (snakes each round).' + (d.phase === "live" || d.phase === "done" ? " Locked — the draft has started." : "") + "</p>";
     d.teams.forEach(function (t, i) {
       h += '<div class="ordrow"><span class="n">' + (i + 1) + "</span><b>" + esc(t.name) + "</b>" +
@@ -1532,7 +1925,7 @@ input[type=text],input[type=number],select{
         "</div>";
     });
     if (d.phase === "setup" || d.phase === "keepers") {
-      h += '<p style="margin-top:8px"><button class="btn ghost sm" id="ordShuffle">🎲 Shuffle order</button></p>';
+      h += '<p style="margin-top:8px"><button class="btn ghost sm" id="ordShuffle">Shuffle order</button></p>';
     }
     h += "</div></div>";
     el.innerHTML = h;
@@ -1563,6 +1956,15 @@ input[type=text],input[type=number],select{
       Promise.all([loadInfo(true), loadLastDraft(true)]).then(function () { return loadPool(true); }).then(renderAll);
     });
     on("resetBoard", function () { if (confirm("Clear every pick and go back to setup? Keepers are kept.")) resetDraft(); });
+    var mt = $("mockToggle");
+    if (mt) mt.onchange = function () {
+      var v = mt.checked;
+      act(function (dd) {
+        if (!isCommish(dd)) throw new Error("Commissioner only");
+        dd.mock = v;
+        return dd;
+      }, v ? "Mock draft ON — bots pick for unclaimed teams" : "Mock draft off");
+    };
     on("ordShuffle", shuffleOrder);
     el.querySelectorAll(".ordUp").forEach(function (b) { b.onclick = function () { moveTeam(Number(b.dataset.i), -1); }; });
     el.querySelectorAll(".ordDn").forEach(function (b) { b.onclick = function () { moveTeam(Number(b.dataset.i), 1); }; });
@@ -1586,6 +1988,10 @@ input[type=text],input[type=number],select{
     renderConfirm();
     renderChat();
     renderPlayerCard();
+    renderSound();
+    watchClock();
+    watchQueue();
+    renderTv();
   }
 
   // ---------------- wiring ----------------
@@ -1600,6 +2006,7 @@ input[type=text],input[type=number],select{
   if (DESK_MQ.addEventListener) DESK_MQ.addEventListener("change", function () { renderAll(); });
 
   // ---------------- boot ----------------
+  if (TV) { document.body.classList.add("tv"); view = "board"; }
   backendReady = initBackend();
   loadInfo().then(function () { return Promise.all([loadPool(), loadLastDraft()]); }).then(renderAll);
   renderAll();
@@ -1645,6 +2052,14 @@ input[type=text],input[type=number],select{
     openPlayerCard: openPlayerCard,
     closePlayerCard: closePlayerCard,
     panelOnBoard: panelOnBoard,
+    valueBadge: valueBadge,
+    get queue() { return queue; },
+    toggleQueue: toggleQueue,
+    needsFor: needsFor,
+    titleFlashing: function () { return !!titleTimer; },
+    clockMine: function () { return myClockNow().mine; },
+    setMockDelay: function (ms) { mockDelayMs = ms; },
+    spotlight: spotlight,
   };
 })();
 </script>

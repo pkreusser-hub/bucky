@@ -647,10 +647,14 @@ async function ffDraftInfo(body) {
       owner: ffOwnerName(t, j?.members),
     }));
     // Draft rounds = roster spots excluding IR (slot 21) — IR isn't drafted.
+    // The labeled slot map feeds the draft room's roster-needs tracker.
     const slotCounts = j?.settings?.rosterSettings?.lineupSlotCounts || {};
     let rosterSize = 0;
+    const slots = {};
     for (const k of Object.keys(slotCounts)) {
-      if (Number(k) !== 21) rosterSize += Number(slotCounts[k]) || 0;
+      const n = Number(slotCounts[k]) || 0;
+      if (Number(k) !== 21) rosterSize += n;
+      if (n > 0 && Number(k) !== 21) slots[SLOT_LABEL[Number(k)] || ("slot" + k)] = n;
     }
     // PPR when receptions (statId 53) score points — half-PPR counts as PPR for
     // rank-flavor purposes (ESPN publishes only STANDARD and PPR rank sets).
@@ -676,6 +680,7 @@ async function ffDraftInfo(body) {
       season: year,
       teams,
       rosterSize: rosterSize || 16,
+      slots,
       ppr,
       byes,
     };
