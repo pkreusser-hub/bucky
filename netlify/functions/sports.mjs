@@ -811,8 +811,23 @@ function statBundle(entry) {
 async function ffPlayer(body) {
   const pid = Number(body?.pid);
   if (!Number.isFinite(pid) || pid <= 0) return { ok: false, reason: "bad-pid" };
-  const filter = { players: { filterIds: { value: [pid] }, limit: 2 } };
-  const { data: j, err, year } = await ffFetch(["kona_player_info"], "", body,
+  // ESPN 400s a filterIds filter on kona_player_info (measured live
+  // 2026-08-06); the single-player recipe is the kona_playercard view + a
+  // top-scoring-periods filter whose additionalValue names the season splits
+  // ("00<yr>" = actuals, "10<yr>" = projections) — the same combo the
+  // espn-api community library uses for player cards.
+  const year = Number(body?.year) >= 2000 && Number(body?.year) <= 2100
+    ? Number(body.year) : ffSeason();
+  const filter = {
+    players: {
+      filterIds: { value: [pid] },
+      filterStatsForTopScoringPeriodIds: {
+        value: 17,
+        additionalValue: ["00" + year, "10" + year, "00" + (year - 1)],
+      },
+    },
+  };
+  const { data: j, err } = await ffFetch(["kona_playercard"], "", { ...body, year },
     { "x-fantasy-filter": JSON.stringify(filter) });
   if (err) return { ok: false, reason: err };
   try {

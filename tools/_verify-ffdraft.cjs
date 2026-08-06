@@ -69,15 +69,19 @@ function startFfUpstream() {
       res.writeHead(404); res.end("{}"); return;
     }
     res.writeHead(200, { "Content-Type": "application/json" });
+    // The single-player card view (the real upstream 400s filterIds on
+    // kona_player_info — cards must come through kona_playercard).
+    if (req.url.includes("view=kona_playercard")) {
+      ffUp.lastFilter = req.headers["x-fantasy-filter"] || "";
+      let ids = [];
+      try { ids = JSON.parse(ffUp.lastFilter)?.players?.filterIds?.value || []; } catch (e) {}
+      res.end(JSON.stringify({ players: FIX.ffDraftPoolDoc().players.filter((e) => ids.includes(e.player.id)) }));
+      return;
+    }
     if (req.url.includes("view=kona_player_info")) {
       ffUp.lastFilter = req.headers["x-fantasy-filter"] || "";
-      let doc = FIX.ffDraftPoolDoc();
-      // Honor a filterIds filter the way the real upstream does (ff_player).
-      try {
-        const ids = JSON.parse(ffUp.lastFilter)?.players?.filterIds?.value;
-        if (Array.isArray(ids)) doc = { players: doc.players.filter((e) => ids.includes(e.player.id)) };
-      } catch (e) {}
-      res.end(JSON.stringify(doc));
+      if (ffUp.lastFilter.includes("filterIds")) { res.writeHead(400); res.end('{"messages":["filter not supported"]}'); return; }
+      res.end(JSON.stringify(FIX.ffDraftPoolDoc()));
       return;
     }
     if (req.url.includes("view=mDraftDetail")) {
@@ -192,7 +196,10 @@ async function sectionServer() {
   // ff_player — the detail card's payload
   r = await call({ secret: "amenfarms", action: "ff_player", pid: 4002 });
   ok(!!r.json && r.json.ok === true && r.json.player.name === "Bijan Robinson", "ff_player answers with the player");
-  ok(ffUp.lastFilter.includes("filterIds"), "…fetched through a filterIds filter (one player, not the whole pool)");
+  ok(ffUp.lastFilter.includes("filterIds") && /view=kona_playercard/.test(ffUp.lastUrl),
+    "…fetched through the kona_playercard view + filterIds (kona_player_info 400s that filter live)");
+  ok(ffUp.lastFilter.includes('"00' + (seasonNow - 1) + '"') && ffUp.lastFilter.includes('"10' + seasonNow + '"'),
+    "…and the stats filter names last year's actuals + this year's projections");
   ok(r.json.player.outlook.includes("every-down back"), "ESPN's seasonOutlook analysis rides along");
   ok(r.json.player.proj && r.json.player.proj.total === 368 && r.json.player.last.total === 354,
     "projected + last-year totals (Bijan: 368 proj / 354 actual)");
