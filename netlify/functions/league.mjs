@@ -193,6 +193,61 @@ async function lgEspnRosters(body) {
   }
 }
 
+// Kicker scoring audit — the live league's scoring carries NO conventional
+// FG-made ids (74/77/80/83), only the uncertain 206/209/214. appliedStats on a
+// real season's kicker names exactly what each statId paid: coefficient =
+// appliedStats[id] / stats[id]. Read-only, feeds the pre-week-1 confirmation.
+async function lgEspnKickerAudit(body) {
+  const cookies = ffCookies();
+  if (!cookies) return { ok: false, reason: "fantasy-not-configured" };
+  const year = Number(body?.season) >= 2020 ? Number(body.season) : 2025;
+  const url = `${FF_BASE}/apis/v3/games/ffl/seasons/${year}/segments/0/leagues/${FF_LEAGUE_ID}?view=kona_player_info`;
+  const filter = { players: { filterSlotIds: { value: [17] }, limit: 5, sortAppliedTotal: { sortPriority: 1, sortAsc: false } } };
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": UA, accept: "application/json", Cookie: cookies, "X-Fantasy-Filter": JSON.stringify(filter) } });
+    if (r.status === 401 || r.status === 403) return { ok: false, reason: "fantasy-auth-expired" };
+    if (!r.ok) return { ok: false, reason: "http-" + r.status };
+    const j = await r.json();
+    const kickers = (j?.players || []).map((e) => {
+      const p = e?.player || {};
+      // Season-total ACTUAL line: statSourceId 0 (real), statSplitTypeId 0 (full season).
+      const line = (p?.stats || []).find((s) => s?.statSourceId === 0 && s?.statSplitTypeId === 0 && Number(s?.seasonId) === year);
+      return {
+        name: p?.fullName || "", espnId: p?.id ?? null,
+        appliedTotal: line?.appliedTotal ?? null,
+        stats: line?.stats || {}, appliedStats: line?.appliedStats || {},
+      };
+    }).filter((k) => k.appliedTotal != null);
+    return { ok: true, season: year, kickers };
+  } catch {
+    return { ok: false, reason: "fetch-failed" };
+  }
+}
+
+// GIF search proxy (plan §4.5) — Tenor, free API, key stays server-side. No
+// key configured -> { ok:false, reason:"gif-not-configured" }, never a 500;
+// the client hides the GIF affordance on that reason and never bothers again.
+async function lgGifSearch(body) {
+  const key = process.env.TENOR_API_KEY;
+  if (!key) return { ok: false, reason: "gif-not-configured" };
+  const q = String(body?.q || "").trim();
+  if (!q) return { ok: true, gifs: [] };
+  const base = process.env.TENOR_BASE_URL || "https://tenor.googleapis.com";
+  const url = `${base}/v2/search?q=${encodeURIComponent(q)}&key=${encodeURIComponent(key)}&limit=12&contentfilter=high&media_filter=tinygif,nanogif`;
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return { ok: false, reason: "http-" + r.status };
+    const j = await r.json();
+    const gifs = (Array.isArray(j?.results) ? j.results : []).map((res) => {
+      const mf = res?.media_formats || {};
+      return { url: mf?.tinygif?.url || "", preview: mf?.nanogif?.url || mf?.tinygif?.url || "" };
+    }).filter((g) => g.url);
+    return { ok: true, gifs };
+  } catch (e) {
+    return { ok: false, reason: "fetch-failed" };
+  }
+}
+
 export default async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   if (req.method !== "POST") return json({ ok: false, reason: "method" }, 405);
@@ -204,5 +259,7 @@ export default async (req) => {
   const action = String(body?.action || "");
   if (action === "lg_espn_settings") return json(await lgEspnSettings(body));
   if (action === "lg_espn_rosters") return json(await lgEspnRosters(body));
+  if (action === "lg_espn_kicker_audit") return json(await lgEspnKickerAudit(body));
+  if (action === "lg_gif_search") return json(await lgGifSearch(body));
   return json({ ok: false, reason: "unknown-action" });
 };

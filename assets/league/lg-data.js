@@ -283,7 +283,7 @@
           const meta = {
             pid, name: p.full_name || ((p.first_name || "") + " " + (p.last_name || "")).trim() || pid,
             team: p.team || "", pos: p.position || "", espn_id: p.espn_id != null ? String(p.espn_id) : null,
-            injury: p.injury_status || "",
+            injury: p.injury_status || "", searchRank: p.search_rank != null ? p.search_rank : null,
           };
           if (meta.pos === "DEF") meta.name = pid + " D/ST";
           if (meta.espn_id) byEspn.set(meta.espn_id, meta);
@@ -319,6 +319,29 @@
     const st = pid != null ? D.S.slpProj[pid] : null;
     if (!st) return null;
     return D.score(normSlp(st));
+  };
+
+  // ---------------- free agent search (S3 waivers) ----------------
+  // Name search over the Sleeper directory (the only whole-NFL player list we
+  // have). null = directory not loaded yet ("player search is warming up");
+  // [] = loaded but nothing matched. Keys follow the SAME convention pollSleeper
+  // uses (dst_<abbrev> / espn_id / slp_<pid> fallback) so a claimed/added
+  // player's key matches whatever the live poll will key their stats under.
+  D.searchFA = function (q, ownedKeys, limit) {
+    if (!D.S.slpPlayers) return null;
+    const needle = normName(q);
+    if (needle.length < 3) return [];
+    const owned = ownedKeys || new Set();
+    const out = [];
+    for (const [pid, m] of D.S.slpPlayers) {
+      if (!m.name || !m.team) continue;
+      if (!normName(m.name).includes(needle)) continue;
+      const key = m.pos === "DEF" ? "dst_" + pid : (m.espn_id || "slp_" + pid);
+      if (owned.has(key)) continue;
+      out.push({ key, name: m.name, pos: m.pos === "DEF" ? "DST" : m.pos, team: m.team, injury: m.injury || "", searchRank: m.searchRank });
+    }
+    out.sort((a, b) => (a.searchRank ?? 1e9) - (b.searchRank ?? 1e9) || a.name.localeCompare(b.name));
+    return out.slice(0, limit || 20);
   };
 
   // ---------------- diff engine ----------------

@@ -19,6 +19,7 @@ const puppeteer = require("puppeteer-core");
 const ROOT = path.join(__dirname, "..");
 const SRV_PORT = 8843;
 const FF_PORT = 8844;
+const TENOR_PORT = 8845;
 const BASE = "http://127.0.0.1:" + SRV_PORT;
 const SHOTS = process.argv.includes("--shots");
 
@@ -92,6 +93,18 @@ function startFfUpstream() {
     else res.end(JSON.stringify(ffSettingsDoc()));
   });
   return new Promise((r) => srv.listen(FF_PORT, "127.0.0.1", () => r(srv)));
+}
+
+// -- fake Tenor (S4 chat GIF search) — 2 fixture results, any query --
+function startTenorUpstream() {
+  const srv = http.createServer((req, res) => {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ results: [
+      { media_formats: { tinygif: { url: "http://tenor.test/goat1.gif" }, nanogif: { url: "http://tenor.test/goat1n.gif" } } },
+      { media_formats: { tinygif: { url: "http://tenor.test/goat2.gif" }, nanogif: { url: "http://tenor.test/goat2n.gif" } } },
+    ] }));
+  });
+  return new Promise((r) => srv.listen(TENOR_PORT, "127.0.0.1", () => r(srv)));
 }
 
 // -- live-data fixtures (site API + sleeper) --
@@ -350,6 +363,31 @@ async function waitLive(page) {
   await poll(page); // one controlled extra pass so merge/paint settle
 }
 const text = (page, sel) => page.$eval(sel, (el) => el.textContent).catch(() => null);
+const readDoc = (page, id) => page.evaluate((k) => { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; }, LSPFX + id);
+// Whole-dataset snapshot — the local backend is per-context storage, so a
+// "second device" (chat/lockers spanning two browser contexts) is simulated
+// by handing a fresh context the FULL current doc set, same trick Section I
+// already uses for a single claims doc, generalized to every doc kind
+// (chat messages have dynamic ids, so a single readDoc() can't target them).
+const snapshotAllDocs = (page) => page.evaluate((pfx) => {
+  const out = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith(pfx)) out[k.slice(pfx.length)] = JSON.parse(localStorage.getItem(k));
+  }
+  return out;
+}, LSPFX);
+// A snapshot MERGE (used above) can't represent a deletion — a key simply
+// absent from the snapshot is left untouched on the target. This clears the
+// target's whole doc set first, so a delete propagates like it would through
+// a real shared store.
+const replaceAllDocs = (page, docs) => page.evaluate((docs, pfx) => {
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith(pfx)) localStorage.removeItem(k);
+  }
+  for (const id of Object.keys(docs)) localStorage.setItem(pfx + id, JSON.stringify(docs[id]));
+}, docs, LSPFX);
 const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
   const els = [...document.querySelectorAll(sel)];
   const el = ft ? els.find((e) => e.textContent.includes(ft)) : els[0];
@@ -362,6 +400,7 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
   // Section A: the real function, in process, against the fake upstream.
   section("A · league.mjs — ESPN import actions");
   const ffSrv = await startFfUpstream();
+  const tenorSrv = await startTenorUpstream();
   process.env.SPORTS_FF_BASE_URL = "http://127.0.0.1:" + FF_PORT;
   process.env.BUCKY_NOTIFY_SECRET = "amenfarms";
   process.env.ESPN_S2 = "s2test"; process.env.ESPN_SWID = "{SWID-TEST}";
@@ -396,6 +435,18 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
       "roster import: IR slot + injury status carried");
     const unk = await call({ secret: "amenfarms", action: "nope" });
     ok(unk.j.ok === false && unk.j.reason === "unknown-action", "unknown action refused");
+
+    // S4 · Tenor GIF search proxy — no key, then keyed against the fake upstream.
+    const noKey = await call({ secret: "amenfarms", action: "lg_gif_search", q: "goat" });
+    ok(noKey.j.ok === false && noKey.j.reason === "gif-not-configured", "gif search with no TENOR_API_KEY -> gif-not-configured, never a 500");
+    process.env.TENOR_API_KEY = "testkey";
+    process.env.TENOR_BASE_URL = "http://127.0.0.1:" + TENOR_PORT;
+    const empty = await call({ secret: "amenfarms", action: "lg_gif_search", q: "" });
+    ok(empty.j.ok === true && Array.isArray(empty.j.gifs) && empty.j.gifs.length === 0, "empty query short-circuits to an empty result without hitting Tenor");
+    const gif = await call({ secret: "amenfarms", action: "lg_gif_search", q: "goat" });
+    ok(gif.j.ok === true && gif.j.gifs.length === 2 && gif.j.gifs[0].url === "http://tenor.test/goat1.gif" && gif.j.gifs[0].preview === "http://tenor.test/goat1n.gif",
+      "gif search maps tenor's tinygif/nanogif into {url,preview}");
+    delete process.env.TENOR_API_KEY;
   }
 
   const srv = await startStatic();
@@ -737,8 +788,655 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     await ctx.close();
   }
 
+  // ---- I: waivers (FAAB) — blind claims, tie-break, FAAB math, auto-process ----
+  section("I · waivers — blind claims, FAAB bids, deadline, idempotency");
+  {
+    // I1: claim → MY PENDING on the claiming device; the other team's own
+    // device (same underlying claims doc, seeded independently) never shows
+    // it pre-processing — blind by UI convention, not storage isolation.
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx: ctx1, page: page1, errors: err1 } = await newTestPage(browser, fullSeed());
+    await bootPage(page1);
+    await page1.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page1);
+    await page1.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page1.waitForSelector("#faSearch", { timeout: 9000 });
+    await page1.type("#faSearch", "dst");
+    await page1.waitForFunction(() => document.querySelectorAll("#faResults [data-fi]").length > 0, { timeout: 5000 });
+    await clickIn(page1, "#faResults [data-fi]", "KC D/ST");
+    await page1.waitForSelector("#claimSheet [data-di]", { timeout: 5000 });
+    await clickIn(page1, "#claimSheet [data-di]", "B. Backup");
+    await page1.$eval("#claimBid", (el) => { el.value = "25"; });
+    await clickIn(page1, "#claimGo");
+    await page1.waitForFunction(() => (document.querySelector("#mvMyClaims") || {}).textContent && document.querySelector("#mvMyClaims").textContent.includes("KC D/ST"), { timeout: 5000 });
+    ok(true, "claim submitted via search+sheet shows in MY PENDING on the claiming device");
+    ok(/\$25/.test(await text(page1, "#mvMyClaims")), "…with the bid amount shown");
+    const claimsDoc = await readDoc(page1, "claims_2026_w1");
+    ok(claimsDoc && claimsDoc.claims.length === 1 && claimsDoc.claims[0].bid === 25 && claimsDoc.claims[0].teamId === 1,
+      "claims doc persisted (team 1, $25, unprocessed)");
+
+    const base2 = fullSeed();
+    const { ctx: ctx2, page: page2, errors: err2 } = await newTestPage(browser,
+      { docs: { ...base2.docs, claims_2026_w1: claimsDoc }, pass: "amenfarms", team: 2, who: "Rival" });
+    await bootPage(page2);
+    await page2.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page2);
+    await page2.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page2.waitForSelector("#faSearch", { timeout: 9000 });
+    ok(/No pending claims/.test((await text(page2, "#mvMyClaims")) || ""), "the OTHER team's own device shows nothing pending (blind)");
+    const p2body = await page2.evaluate(() => document.body.textContent);
+    ok(!p2body.includes("$25"), "…and the bid amount never leaks to their screen");
+    ok(err1.length === 0 && err2.length === 0, "0 page errors across both devices");
+    await ctx1.close(); await ctx2.close();
+  }
+
+  // I2: processWaivers correctness — bid comparison, standings tie-break,
+  // insufficient FAAB, idempotency. Direct core calls (single page = single
+  // shared truth) rather than simulating two logged-in devices for pure
+  // algorithm checks.
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+
+    // Higher bid wins; the lower bid on the SAME player is "outbid".
+    const r1 = await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      await LG.addClaim(1, { id: "c1", teamId: 1, addKey: "dst_KC", addName: "KC D/ST", addPos: "DST", addTeam: "KC", dropKey: "111333", dropName: "B. Backup", bid: 30, t: 1 });
+      await LG.addClaim(1, { id: "c2", teamId: 2, addKey: "dst_KC", addName: "KC D/ST", addPos: "DST", addTeam: "KC", dropKey: "dst_DAL", dropName: "DAL D/ST", bid: 20, t: 2 });
+      const doc = await LG.processWaivers(1);
+      const t1 = await LG.db.get("team_1");
+      const ros1 = await LG.loadRoster(1, 1);
+      const ros2 = await LG.loadRoster(1, 2);
+      return { doc, faab1: LG.teamFaab(t1), hasKcT1: ros1.some((p) => p.key === "dst_KC"), hasBackupT1: ros1.some((p) => p.key === "111333"), ros2keys: ros2.map((p) => p.key) };
+    });
+    ok(r1.doc.processed === true, "claims doc marked processed");
+    const res1 = r1.doc.results.find((x) => x.id === "c1"), res2 = r1.doc.results.find((x) => x.id === "c2");
+    ok(res1 && res1.ok === true && res1.reason === "won", "higher bid ($30) wins");
+    ok(res2 && res2.ok === false && res2.reason === "outbid", "lower bid ($20) on the SAME player loses as 'outbid'");
+    ok(r1.hasKcT1 && !r1.hasBackupT1, "winner's roster gains the player (BENCH) and loses the drop");
+    ok(r1.faab1 === 70, "winner's FAAB deducted by the winning bid (100 → 70)");
+    ok(r1.ros2keys.includes("dst_DAL"), "loser's roster is untouched");
+    const txAfter1 = await page.evaluate(() => window.__GFFL__.LG.loadTx());
+    ok(txAfter1.length === 1 && txAfter1[0].type === "waiver" && txAfter1[0].teamId === 1, "exactly one waiver tx logged, for the winner only");
+
+    // Idempotent re-run.
+    const r2 = await page.evaluate(() => window.__GFFL__.LG.processWaivers(1));
+    ok(r2.processed === true && r2.results.length === 2, "re-processing an already-processed week is a no-op");
+    const txAfter2 = await page.evaluate(() => window.__GFFL__.LG.loadTx());
+    ok(txAfter2.length === 1, "…no duplicate tx entries from re-processing");
+    const faabAfter2 = await page.evaluate(async () => { const LG = window.__GFFL__.LG; return LG.teamFaab(await LG.db.get("team_1")); });
+    ok(faabAfter2 === 70, "…and FAAB isn't deducted twice");
+
+    // Tie bid: worse-standing team wins, NOT lower teamId (team1 < team2, but
+    // team1 has the winning record here — team2 must still win the tie).
+    await page.evaluate(() => window.__GFFL__.LG.db.set("weekly_x", { kind: "weekly", matchups: [{ home: 1, away: 2, homePts: 50, awayPts: 10 }] }));
+    const r3 = await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      await LG.addClaim(2, { id: "c3", teamId: 1, addKey: "dst_DEN", addName: "DEN D/ST", addPos: "DST", addTeam: "DEN", dropKey: "111777", dropName: "H. Healthy", bid: 20, t: 10 });
+      await LG.addClaim(2, { id: "c4", teamId: 2, addKey: "dst_DEN", addName: "DEN D/ST", addPos: "DST", addTeam: "DEN", dropKey: "222333", dropName: "X. Wideout", bid: 20, t: 11 });
+      return LG.processWaivers(2);
+    });
+    const res3 = r3.results.find((x) => x.id === "c3"), res4 = r3.results.find((x) => x.id === "c4");
+    ok(res4 && res4.ok === true && res4.reason === "won", "equal bids: the WORSE-standing team (0-1) wins the tie");
+    ok(res3 && res3.ok === false && res3.reason === "outbid", "…and the better-standing team (1-0) loses despite the lower teamId");
+
+    // Insufficient FAAB: team1 has $70 left; a $999 bid can't win.
+    const r4 = await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      await LG.addClaim(3, { id: "c5", teamId: 1, addKey: "111333", addName: "B. Backup", addPos: "RB", addTeam: "KC", dropKey: "dst_KC", dropName: "KC D/ST", bid: 999, t: 20 });
+      const doc = await LG.processWaivers(3);
+      const t1 = await LG.db.get("team_1");
+      const ros1 = await LG.loadRoster(3, 1);
+      return { doc, faab1: LG.teamFaab(t1), hasBackup: ros1.some((p) => p.key === "111333") };
+    });
+    const res5 = r4.doc.results.find((x) => x.id === "c5");
+    ok(res5 && res5.ok === false && res5.reason === "insufficient-faab", "a bid over remaining FAAB loses as 'insufficient-faab'");
+    ok(!r4.hasBackup && r4.faab1 === 70, "…nothing moved, FAAB unchanged");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // I3: auto-process on boot, once the deadline has passed.
+  {
+    const claimsSeed = { kind: "claims", week: 1, claims: [
+      { id: "cX", teamId: 1, addKey: "dst_KC", addName: "KC D/ST", addPos: "DST", addTeam: "KC", dropKey: "111333", dropName: "B. Backup", bid: 15, t: 1 },
+    ], processed: false, results: null };
+    const base = fullSeed();
+    const { ctx, page, errors } = await newTestPage(browser, { docs: { ...base.docs, claims_2026_w1: claimsSeed }, pass: base.pass, team: base.team, who: base.who });
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    const pre = await page.evaluate(() => window.__GFFL__.LG.loadClaims(1));
+    ok(pre.processed === false, "a normal boot (before the deadline) leaves the pending claim untouched");
+    const deadline = await page.evaluate(() => window.__GFFL__.LG.waiverDeadline(1));
+    const post = await page.evaluate(async (ts) => {
+      const LG = window.__GFFL__.LG;
+      LG.nowOverride = ts;
+      await window.__GFFL__.UI.boot();
+      return LG.loadClaims(1);
+    }, deadline + 3600000);
+    ok(post.processed === true, "re-booting past the deadline auto-processes the pending claims doc (any client)");
+    const won = (post.results || []).find((r) => r.id === "cX");
+    ok(won && won.ok === true, "…and the claim actually resolved (won, the only claim on the board)");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // I4: FAAB shown in the UI, and never goes negative.
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page.waitForSelector("#mvFaab", { timeout: 9000 });
+    ok((await text(page, "#mvFaab")) === "100", "FAAB remaining shown in the Waivers card (starts at $100)");
+    await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      await LG.addClaim(1, { id: "d1", teamId: 1, addKey: "dst_KC", addName: "KC D/ST", addPos: "DST", addTeam: "KC", dropKey: "111333", dropName: "B. Backup", bid: 100, t: 1 });
+      await LG.processWaivers(1);
+    });
+    const faabAfter = await page.evaluate(() => { const LG = window.__GFFL__.LG; return LG.teamFaab(LG.teamById(1)); });
+    ok(faabAfter === 0, "a full-budget win leaves FAAB at exactly 0 (not negative)");
+    const tryMore = await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      await LG.addClaim(2, { id: "d2", teamId: 1, addKey: "dst_DEN", addName: "DEN D/ST", addPos: "DST", addTeam: "DEN", dropKey: "111777", dropName: "H. Healthy", bid: 1, t: 2 });
+      const doc = await LG.processWaivers(2);
+      return { doc, faab: LG.teamFaab(await LG.db.get("team_1")) };
+    });
+    ok(tryMore.doc.results[0].ok === false && tryMore.doc.results[0].reason === "insufficient-faab", "even a $1 bid fails once FAAB is exhausted");
+    ok(tryMore.faab === 0, "FAAB never goes negative");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // I5: cancelling a claim.
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page.waitForSelector("#faSearch", { timeout: 9000 });
+    await page.type("#faSearch", "dst");
+    await page.waitForFunction(() => document.querySelectorAll("#faResults [data-fi]").length > 0, { timeout: 5000 });
+    await clickIn(page, "#faResults [data-fi]", "KC D/ST");
+    await page.waitForSelector("#claimSheet [data-di]", { timeout: 5000 });
+    await clickIn(page, "#claimSheet [data-di]", "B. Backup");
+    await clickIn(page, "#claimGo");
+    await page.waitForFunction(() => (document.querySelector("#mvMyClaims") || {}).textContent && document.querySelector("#mvMyClaims").textContent.includes("KC D/ST"), { timeout: 5000 });
+    await clickIn(page, ".mvcancel");
+    await page.waitForFunction(() => (document.querySelector("#mvMyClaims") || {}).textContent && document.querySelector("#mvMyClaims").textContent.includes("No pending claims"), { timeout: 5000 });
+    ok(true, "cancelling a pending claim removes it from MY PENDING");
+    const doc = await readDoc(page, "claims_2026_w1");
+    ok(doc.claims.length === 0, "…and from the claims doc itself");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // ---- J: trades — offer/accept/review/execute, veto, decline/cancel, deadline ----
+  section("J · trades — offer/accept/review/execute, veto, decline/cancel, deadline");
+  {
+    // J1: UI flow both directions — team1 proposes via the form, team2 (a
+    // separate device) accepts via the form; review holds; past the window,
+    // opening Moves executes the swap both ways + logs the tx.
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx: ctx1, page: page1, errors: err1 } = await newTestPage(browser, fullSeed());
+    await bootPage(page1);
+    await page1.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page1);
+    await page1.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page1.waitForSelector("#mvTradeTeam", { timeout: 9000 });
+    await page1.select("#mvTradeTeam", "2");
+    await page1.waitForFunction(() => document.querySelectorAll("#mvGet .pickchip").length > 0, { timeout: 5000 });
+    await clickIn(page1, "#mvGive .pickchip", "B. Backup");
+    await clickIn(page1, "#mvGet .pickchip", "X. Wideout");
+    await clickIn(page1, "#mvTradeSend");
+    await page1.waitForFunction(() => (document.querySelector("#mvMyTrades") || {}).textContent && document.querySelector("#mvMyTrades").textContent.includes("X. Wideout"), { timeout: 5000 });
+    ok(true, "trade offer sent from the UI form and shows in MY PENDING");
+    const trades1 = await page1.evaluate(() => window.__GFFL__.LG.loadTrades());
+    ok(trades1.length === 1 && trades1[0].status === "offered" && trades1[0].give[0] === "111333" && trades1[0].get[0] === "222333",
+      "trade doc: give/get are the picked player keys, status offered");
+    const tradeId = trades1[0].id;
+
+    const seed2 = fullSeed();
+    const { ctx: ctx2, page: page2, errors: err2 } = await newTestPage(browser,
+      { docs: { ...seed2.docs, [tradeId]: trades1[0] }, pass: "amenfarms", team: 2, who: "Rival" });
+    await bootPage(page2);
+    await page2.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page2);
+    await page2.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page2.waitForSelector(".mvaccept", { timeout: 9000 });
+    ok(true, "the counterparty sees Accept/Decline for the offer on their own device");
+    await clickIn(page2, ".mvaccept");
+    await page2.waitForFunction(() => document.body.textContent.includes("reviews until"), { timeout: 5000 });
+    const accepted = await page2.evaluate((id) => window.__GFFL__.LG.loadTrade(id), tradeId);
+    ok(accepted.status === "accepted" && accepted.reviewEndsAt > accepted.acceptedAt, "accepting starts the review window");
+
+    await page2.evaluate(() => window.__GFFL__.UI.renderMoves());
+    const stillAccepted = await page2.evaluate((id) => window.__GFFL__.LG.loadTrade(id), tradeId);
+    ok(stillAccepted.status === "accepted", "review window holds — reopening Moves before it ends does NOT execute");
+
+    await page2.evaluate((ts) => { window.__GFFL__.LG.nowOverride = ts; }, accepted.reviewEndsAt + 1000);
+    await page2.evaluate(() => window.__GFFL__.UI.renderMoves());
+    const executed = await page2.evaluate((id) => window.__GFFL__.LG.loadTrade(id), tradeId);
+    ok(executed.status === "executed", "past the review window, opening Moves auto-executes the trade");
+    const ros1 = await page2.evaluate(() => window.__GFFL__.LG.loadRoster(1, 1));
+    const ros2 = await page2.evaluate(() => window.__GFFL__.LG.loadRoster(1, 2));
+    ok(ros1.some((p) => p.key === "222333") && !ros1.some((p) => p.key === "111333"), "team1's roster gained the GET player and lost the GIVE player");
+    ok(ros2.some((p) => p.key === "111333") && !ros2.some((p) => p.key === "222333"), "team2's roster gained the GIVE player and lost the GET player — swap both directions");
+    const tx = await page2.evaluate(() => window.__GFFL__.LG.loadTx());
+    ok(tx.some((t) => t.type === "trade" && t.detail.result === "executed" && t.detail.tradeId === tradeId), "executed trade logged to the transactions log");
+    ok(err1.length === 0 && err2.length === 0, "0 page errors across both devices");
+    await ctx1.close(); await ctx2.close();
+  }
+
+  // J2: veto path — enough OTHER owners kill an accepted trade before it executes.
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    const r = await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      const off = await LG.offerTrade(1, 2, ["111333"], ["222333"], "veto test");
+      const acc = await LG.acceptTrade(off.trade.id, 2);
+      const selfVeto1 = await LG.vetoTrade(off.trade.id, 1);
+      const selfVeto2 = await LG.vetoTrade(off.trade.id, 2);
+      await LG.vetoTrade(off.trade.id, 3);
+      const v4 = await LG.vetoTrade(off.trade.id, 4);
+      const dup = await LG.vetoTrade(off.trade.id, 3); // repeat vote while still under review
+      await LG.vetoTrade(off.trade.id, 5);
+      const v6 = await LG.vetoTrade(off.trade.id, 6); // 4th distinct vote -> vetoed
+      return { off, acc, selfVeto1, selfVeto2, v4, dup, v6, tx: await LG.loadTx(), ros1: await LG.loadRoster(1, 1) };
+    });
+    ok(r.off.ok && r.acc.status === "accepted", "second trade offered + accepted");
+    ok(r.selfVeto1.vetoes.length === 0 && r.selfVeto2.vetoes.length === 0, "a party to the trade can't veto their own trade");
+    ok(r.v4.status === "accepted" && r.v4.vetoes.length === 2, "2 distinct outside vetoes: still under review, not enough yet");
+    ok(r.dup.vetoes.length === 2, "a repeat vote from the same team doesn't double-count");
+    ok(r.v6.status === "vetoed" && r.v6.vetoes.length === 4, "4 distinct outside vetoes (the league's rule) kills the trade");
+    ok(!r.ros1.some((p) => p.key === "222333"), "a vetoed trade never executes — roster untouched");
+    ok(r.tx.some((t) => t.type === "trade" && t.detail.result === "vetoed"), "the veto is logged to the transactions log");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // J3: decline + cancel paths.
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    const r = await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      const off1 = await LG.offerTrade(1, 2, ["111333"], ["222333"], "");
+      const declined = await LG.declineTrade(off1.trade.id, 2);
+      const acceptAfterDecline = await LG.acceptTrade(off1.trade.id, 2);
+      const off2 = await LG.offerTrade(1, 2, ["111777"], ["222111"], "");
+      const cancelled = await LG.cancelTrade(off2.trade.id, 1);
+      const acceptAfterCancel = await LG.acceptTrade(off2.trade.id, 2);
+      const wrongCancel = await LG.cancelTrade(off1.trade.id, 3);
+      return { declined, acceptAfterDecline, cancelled, acceptAfterCancel, wrongCancel };
+    });
+    ok(r.declined.status === "declined", "counterparty can decline an offer");
+    ok(r.acceptAfterDecline === null, "a declined offer can no longer be accepted");
+    ok(r.cancelled.status === "cancelled", "the offerer can cancel their own pending offer");
+    ok(r.acceptAfterCancel === null, "a cancelled offer can no longer be accepted");
+    ok(r.wrongCancel === null, "only the offering team may cancel it");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // J4: trade deadline week blocks new offers.
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    const r = await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      const deadlineWeek = LG.rules.trades.deadlineWeek;
+      const start = new Date(LG.SEASON_START + "T05:00:00-05:00").getTime();
+      const wk = deadlineWeek + 1;
+      LG.nowOverride = start + (wk - 1) * 7 * 24 * 3600 * 1000 + 3600000;
+      const blocked = await LG.offerTrade(1, 2, ["111333"], ["222333"], "");
+      LG.nowOverride = null;
+      const allowed = await LG.offerTrade(1, 2, ["111333"], ["222333"], "");
+      return { blocked, allowed, deadlineWeek };
+    });
+    ok(r.blocked.ok === false && r.blocked.reason === "deadline-passed", "offers are blocked after the trade deadline week (wk " + r.deadlineWeek + ")");
+    ok(r.allowed.ok === true, "…and allowed again once nowOverride resets to a normal in-season time");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // ---- K: chat — text/reactions/reply/delete/images/gifs/sys posts/threads ----
+  section("K · chat — gifs, memes, event posts, reactions, threads");
+  {
+    // K1: post text -> renders on the posting device + persists to the store.
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx: ctx1, page: page1, errors: err1 } = await newTestPage(browser, fullSeed());
+    await bootPage(page1);
+    await page1.waitForSelector(".mucard", { timeout: 9000 });
+    await page1.evaluate(() => window.__GFFL__.UI.show("chat"));
+    await page1.waitForSelector("#chatText", { timeout: 9000 });
+    // The house [hidden]-override lesson (CLAUDE.md): a styled panel toggled
+    // via the `hidden` attribute needs its `display` restated for it —
+    // measure GEOMETRY, never the attribute, or a rule like `.chatmeme,
+    // .chatGifGrid { display:grid }` silently un-hides it.
+    const hiddenGeom = await page1.evaluate(() => ["chatMeme", "chatGifBox", "chatReplyPreview", "chatPending"]
+      .map((id) => document.getElementById(id).getBoundingClientRect().height));
+    ok(hiddenGeom.every((h) => h === 0), "the meme/gif/reply/pending panels are ACTUALLY hidden (0 height) before any of them is opened — not just the `hidden` attribute set (" + hiddenGeom.join(",") + ")");
+    await page1.type("#chatText", "Hello league!");
+    await page1.click("#chatSend");
+    await page1.waitForFunction(() => document.querySelector("#chatList").textContent.includes("Hello league!"), { timeout: 5000 });
+    ok(true, "typed text posts and renders in the list on the posting device");
+    const msgs1 = await page1.evaluate(() => window.__GFFL__.LG.loadChat(null));
+    const msg1 = msgs1.find((m) => m.text === "Hello league!");
+    ok(!!msg1 && msg1.teamId === 1 && msg1.who === "Peter" && !msg1.sys, "the message doc persisted with the poster's identity");
+
+    // K2: a second device sees it — via a fresh snapshot (the local backend's
+    // per-context storage stand-in for a second real device), and again after
+    // explicitly driving the refresh hook (the poll's own code path).
+    const snap1 = await snapshotAllDocs(page1);
+    const { ctx: ctx2, page: page2, errors: err2 } = await newTestPage(browser, { docs: snap1, pass: "amenfarms", team: 2, who: "Rival" });
+    await bootPage(page2);
+    await page2.waitForSelector(".mucard", { timeout: 9000 });
+    await page2.evaluate(() => window.__GFFL__.UI.show("chat"));
+    await page2.waitForSelector("#chatText", { timeout: 9000 });
+    ok((await page2.evaluate(() => document.querySelector("#chatList").textContent)).includes("Hello league!"),
+      "a second device (fresh snapshot of the store) sees the message on open");
+    await page1.evaluate(() => window.__GFFL__.LG.postChat({ text: "second message" }));
+    const snap1b = await snapshotAllDocs(page1);
+    await page2.evaluate((docs, pfx) => { for (const id of Object.keys(docs)) localStorage.setItem(pfx + id, JSON.stringify(docs[id])); }, snap1b, LSPFX);
+    await page2.evaluate(() => window.__GFFL__.UI.refreshChatList("chat", null));
+    ok((await page2.evaluate(() => document.querySelector("#chatList").textContent)).includes("second message"),
+      "…and a later message shows up once the refresh hook (the 8s poll's own code path) is driven");
+
+    // K3: reactions toggle on/off and render counts.
+    const mid = await page1.evaluate(() => window.__GFFL__.LG.loadChat(null).then((m) => m.find((x) => x.text === "Hello league!").id));
+    await page1.evaluate((id) => document.querySelector(`.chatReact[data-mid="${id}"][data-e="🔥"]`).click(), mid);
+    await page1.waitForFunction((id) => document.querySelector(`.chatReact[data-mid="${id}"][data-e="🔥"]`).textContent.includes("1"), { timeout: 5000 }, mid);
+    ok(true, "tapping a reaction toggles it on and the count renders");
+    const after1 = await page1.evaluate((id) => window.__GFFL__.LG.loadChat(null).then((m) => m.find((x) => x.id === id).reactions["🔥"]), mid);
+    ok(Array.isArray(after1) && after1.includes(1), "reaction doc carries the reacting team's id");
+    await page1.evaluate((id) => document.querySelector(`.chatReact[data-mid="${id}"][data-e="🔥"]`).click(), mid);
+    await page1.waitForFunction((id) => !document.querySelector(`.chatReact[data-mid="${id}"][data-e="🔥"]`).textContent.includes("1"), { timeout: 5000 }, mid);
+    ok(true, "tapping the same reaction again toggles it back off");
+
+    // K4: reply renders a quote of the original.
+    await page1.evaluate((id) => document.querySelector(`.chatReply[data-mid="${id}"]`).click(), mid);
+    await page1.waitForSelector("#chatReplyPreview:not([hidden])", { timeout: 5000 });
+    await page1.type("#chatText", "totally agree");
+    await page1.click("#chatSend");
+    await page1.waitForFunction(() => document.querySelectorAll(".chatQuote").length > 0, { timeout: 5000 });
+    const quoteTxt = await page1.evaluate(() => [...document.querySelectorAll(".chatQuote")].map((e) => e.textContent).join("|"));
+    ok(/Hello league!/.test(quoteTxt), "a reply renders a quoted snippet of the message it replies to");
+
+    // K5: delete — own-only for a regular team, absent for someone else's
+    // message, and present for the commissioner on ANY message.
+    const ownDelPresent = await page1.evaluate((id) => !!document.querySelector(`.chatDel[data-mid="${id}"]`), mid);
+    ok(ownDelPresent, "the poster sees a delete button on their own message");
+    await page2.evaluate(() => window.__GFFL__.UI.refreshChatList("chat", null));
+    const otherHasDelete = await page2.evaluate((id) => !!document.querySelector(`.chatDel[data-mid="${id}"]`), mid);
+    ok(!otherHasDelete, "a non-owner, non-commissioner device has NO delete button on someone else's message");
+    const delAsOther = await page2.evaluate((id, tid) => window.__GFFL__.LG.deleteChat(id, tid, false), mid, 2);
+    ok(delAsOther.ok === false && delAsOther.reason === "not-yours", "…and the core call refuses it too, defense in depth");
+    await page2.evaluate(() => window.__GFFL__.LG.gateCommish()); // stubbed prompt "1234" creates+unlocks
+    await page2.evaluate(() => window.__GFFL__.UI.show("chat"));
+    await page2.waitForSelector("#chatText", { timeout: 9000 });
+    const commishHasDelete = await page2.evaluate((id) => !!document.querySelector(`.chatDel[data-mid="${id}"]`), mid);
+    ok(commishHasDelete, "once commissioner-unlocked, delete appears on every message, not just their own");
+    await page2.evaluate((id) => document.querySelector(`.chatDel[data-mid="${id}"]`).click(), mid);
+    await page2.waitForFunction((id) => !document.querySelector(`.chatRowMsg[data-mid="${id}"]`), { timeout: 5000 }, mid);
+    const goneOnDeleter = await page2.evaluate((id) => window.__GFFL__.LG.loadChat(null).then((m) => !m.some((x) => x.id === id)), mid);
+    ok(goneOnDeleter, "commissioner delete calls LG.db.del — the doc is gone from the store, not just hidden client-side");
+    // Propagate (this suite's stand-in for the shared cloud store — see K2)
+    // to prove a real LG.db.del, not a per-context filter.
+    const snapAfterDel = await snapshotAllDocs(page2);
+    await replaceAllDocs(page1, snapAfterDel);
+    const goneFor1 = await page1.evaluate((id) => window.__GFFL__.LG.loadChat(null).then((m) => !m.some((x) => x.id === id)), mid);
+    ok(goneFor1, "…so once propagated, the message is gone for everyone else too");
+    ok(err1.length === 0 && err2.length === 0, "0 page errors across both devices through post/react/reply/delete");
+    if (SHOTS) { await page1.screenshot({ path: path.join(ROOT, "shots", "gffl_chat_390.png"), fullPage: true }); console.log("  📸 shots/gffl_chat_390.png"); }
+    await ctx1.close(); await ctx2.close();
+  }
+
+  // K6: images — file-pick resize path lands under the cap; the oversized
+  // path is exercised directly (no need for a real >320px source image).
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await page.evaluate(() => window.__GFFL__.UI.show("chat"));
+    await page.waitForSelector("#chatText", { timeout: 9000 });
+    const bigOk = await page.evaluate(() => window.__GFFL__.UI.attachImage("chat", "data:image/jpeg;base64," + "A".repeat(90000)));
+    ok(bigOk === false, "an oversized (~90KB) dataURL is refused");
+    ok(/too big/.test((await text(page, "#toast")) || ""), "…with a toast telling the family why");
+    ok((await page.evaluate(() => document.getElementById("chatPending").hidden)) === true, "…and no pending-image preview is shown");
+    const smallOk = await page.evaluate(() => window.__GFFL__.UI.attachImage("chat", "data:image/jpeg;base64,AAAA"));
+    ok(smallOk === true, "a small dataURL is accepted");
+    ok((await page.evaluate(() => document.getElementById("chatPending").hidden)) === false, "…and shows a pending preview before sending");
+    await page.click("#chatSend");
+    await page.waitForFunction(() => !!document.querySelector(".chatImg"), { timeout: 5000 });
+    ok(true, "the accepted image posts and renders inline");
+    const posted = await page.evaluate(() => window.__GFFL__.LG.loadChat(null).then((m) => m.find((x) => x.img)));
+    ok(posted && posted.img === "data:image/jpeg;base64,AAAA", "the posted doc carries the exact image dataURL");
+    // Tap-to-zoom overlay, and the meme library re-posts a distinct recent image.
+    await page.evaluate(() => document.querySelector(".chatImg").click());
+    ok((await page.evaluate(() => document.getElementById("imgOverlay").hidden)) === false, "tapping a posted image opens the full-size overlay");
+    await page.evaluate(() => document.getElementById("imgOverlay").click());
+    ok((await page.evaluate(() => document.getElementById("imgOverlay").hidden)) === true, "…and tapping the overlay closes it again");
+    const recents = await page.evaluate(() => window.__GFFL__.LG.recentChatImages(12));
+    ok(recents.includes("data:image/jpeg;base64,AAAA"), "the meme library (recent distinct images) picks up what was just posted");
+    ok(errors.length === 0, "0 page errors through the image path");
+    await ctx.close();
+  }
+
+  // K7: GIF search — probed on first tap; hides itself permanently on
+  // gif-not-configured; a configured key returns real results end to end.
+  {
+    delete process.env.TENOR_API_KEY;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await page.evaluate(() => window.__GFFL__.UI.show("chat"));
+    await page.waitForSelector("#chatGifBtn", { timeout: 9000 });
+    ok((await page.evaluate(() => document.getElementById("chatGifBtn").hidden)) === false, "the GIF button starts visible — no proactive/uninvited probe");
+    await page.click("#chatGifBtn");
+    await page.waitForFunction(() => document.getElementById("chatGifBtn").hidden === true, { timeout: 5000 });
+    ok(true, "tapping it with no TENOR_API_KEY configured probes once and hides the button for the rest of the session");
+    ok((await page.evaluate(() => document.getElementById("chatGifBox").hidden)) === true, "…and the search box never opens");
+    ok(errors.length === 0, "0 page errors on the unconfigured GIF path");
+    await ctx.close();
+
+    process.env.TENOR_API_KEY = "testkey";
+    process.env.TENOR_BASE_URL = "http://127.0.0.1:" + TENOR_PORT;
+    const { ctx: ctx2, page: page2, errors: err2 } = await newTestPage(browser, fullSeed());
+    await bootPage(page2);
+    await page2.waitForSelector(".mucard", { timeout: 9000 });
+    await page2.evaluate(() => window.__GFFL__.UI.show("chat"));
+    await page2.waitForSelector("#chatGifBtn", { timeout: 9000 });
+    await page2.click("#chatGifBtn");
+    await page2.waitForSelector("#chatGifBox:not([hidden])", { timeout: 5000 });
+    ok(true, "with a key configured, the search box opens on tap");
+    await page2.type("#chatGifQ", "goat");
+    await page2.waitForFunction(() => document.querySelectorAll("#chatGifGrid .gifThumb").length === 2, { timeout: 5000 });
+    ok(true, "the (debounced) query returns the fake Tenor upstream's 2 results as thumbnails");
+    await page2.click("#chatGifGrid .gifThumb");
+    await page2.waitForSelector("#chatPending:not([hidden])", { timeout: 5000 });
+    await page2.click("#chatSend");
+    await page2.waitForFunction(() => !!document.querySelector(".chatImg"), { timeout: 5000 });
+    const gifMsg = await page2.evaluate(() => window.__GFFL__.LG.loadChat(null).then((m) => m.find((x) => x.gif)));
+    ok(gifMsg && gifMsg.gif.url === "http://tenor.test/goat1.gif", "picking a GIF posts the message carrying its {url,preview}");
+    ok(err2.length === 0, "0 page errors on the configured GIF path");
+    await ctx2.close();
+    delete process.env.TENOR_API_KEY; // restore: no key by default for every other section
+  }
+
+  // K8: event posts — rules save, waiver processing, executed + vetoed trades.
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    const r = await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      // Rules save.
+      const next = JSON.parse(JSON.stringify(LG.rules));
+      next.scoring.rec = 0.5;
+      await LG.saveRules(next, "Peter");
+      // Waivers (a real winning claim, so the summary has something to say).
+      await LG.addClaim(1, { id: "kchat1", teamId: 1, addKey: "dst_KC", addName: "KC D/ST", addPos: "DST", addTeam: "KC", dropKey: "111333", dropName: "B. Backup", bid: 10, t: 1 });
+      await LG.processWaivers(1);
+      // Executed trade.
+      const off = await LG.offerTrade(1, 2, ["4361741"], ["222333"], "");
+      const acc = await LG.acceptTrade(off.trade.id, 2);
+      LG.nowOverride = acc.reviewEndsAt + 1000;
+      await LG.executeTrade(off.trade.id);
+      LG.nowOverride = null;
+      // Vetoed trade.
+      const off2 = await LG.offerTrade(1, 2, ["111777"], ["dst_DAL"], "");
+      await LG.acceptTrade(off2.trade.id, 2);
+      await LG.vetoTrade(off2.trade.id, 3); await LG.vetoTrade(off2.trade.id, 4);
+      await LG.vetoTrade(off2.trade.id, 5); await LG.vetoTrade(off2.trade.id, 6);
+      const chat = await LG.loadChat(null);
+      return chat.filter((m) => m.sys).map((m) => m.text);
+    });
+    ok(r.some((t) => /updated the rules/.test(t) && /scoring\.rec/.test(t)), "a rules save posts an event with the change summary (" + JSON.stringify(r) + ")");
+    ok(r.some((t) => /Waivers processed/.test(t) && /KC D\/ST/.test(t)), "waiver processing posts a summary naming the winner");
+    ok(r.some((t) => /^🔁 Trade:/.test(t) && /W\. Receiver/.test(t)), "an executed trade posts the trade sentence with the real player names");
+    ok(r.some((t) => /vetoed by the league/.test(t)), "a vetoed trade posts its own event too");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // K9: matchup trash-talk thread is a genuinely separate channel.
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    const week = await page.evaluate(() => window.__GFFL__.UI.week);
+    ok(week === 1, "sanity: viewing week 1");
+    await clickIn(page, ".mucard.mine");
+    await page.waitForSelector(".muhead", { timeout: 9000 });
+    await page.waitForSelector("#muThreadText", { timeout: 9000 });
+    const threadKey = await page.evaluate(() => `w${window.__GFFL__.UI.week}_${window.__GFFL__.UI.matchup[0]}-${window.__GFFL__.UI.matchup[1]}`);
+    await page.type("#muThreadText", "smack talk only here");
+    await page.click("#muThreadSend");
+    await page.waitForFunction(() => document.querySelector("#muThreadList").textContent.includes("smack talk only here"), { timeout: 5000 });
+    ok(true, "the trash-talk thread renders on the matchup page and posts to it");
+    const [main, thread] = await page.evaluate((tk) => Promise.all([window.__GFFL__.LG.loadChat(null), window.__GFFL__.LG.loadChat(tk)]), threadKey);
+    ok(!main.some((m) => m.text === "smack talk only here"), "a thread message never shows up in the main league channel");
+    ok(thread.some((m) => m.text === "smack talk only here"), "…only in its own thread, keyed by week+matchup");
+    // And the reverse: a main-channel post doesn't leak into the thread.
+    await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "main channel only" }));
+    await page.evaluate(() => window.__GFFL__.UI.refreshChatList("muThread", window.__GFFL__.UI.matchup ? `w${window.__GFFL__.UI.week}_${window.__GFFL__.UI.matchup[0]}-${window.__GFFL__.UI.matchup[1]}` : null));
+    ok(!(await page.evaluate(() => document.querySelector("#muThreadList").textContent)).includes("main channel only"),
+      "…and a main-channel post never leaks into the thread's own list");
+    ok(errors.length === 0, "0 page errors");
+    if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_matchup_thread_390.png"), fullPage: true }); console.log("  📸 shots/gffl_matchup_thread_390.png"); }
+    await ctx.close();
+  }
+
+  // ---- L: locker rooms — team pages ----
+  section("L · locker rooms — record, roster, schedule, transactions, the wall, owner editing, palette");
+  {
+    const seedWithExtras = () => {
+      const base = fullSeed();
+      return {
+        docs: {
+          ...base.docs,
+          weekly_1: { kind: "weekly", week: 1, matchups: [{ home: 1, away: 2, homePts: 41, awayPts: 4 }] },
+        },
+        pass: base.pass, team: base.team, who: base.who,
+      };
+    };
+    const { ctx: ctx1, page: page1, errors: err1 } = await newTestPage(browser, seedWithExtras());
+    await bootPage(page1);
+    await page1.waitForSelector(".mucard", { timeout: 9000 });
+    // Seed a tx + a wall-mention chat message before opening the locker.
+    await page1.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      await LG.logTx("fa_add", 1, 1, { addKey: "999", addName: "Someone New" });
+      await LG.postChat({ text: "Battle Kreussers are going all the way this year!" });
+    });
+    await page1.evaluate(() => window.__GFFL__.UI.openLocker(1));
+    await page1.waitForSelector(".lockerhead", { timeout: 9000 });
+    const body1 = await page1.evaluate(() => document.body.textContent);
+    ok(/Battle Kreussers/.test(body1), "locker header shows the team name");
+    ok(/#1/.test(body1) && /41\.0/.test(body1), "locker header shows place + record derived from the weekly doc");
+    ok(/P\. Passer/.test(body1), "locker roster lists the current week's players");
+    ok(/End Zone Goats/.test(body1) && /W 41\.0-4\.0/.test(body1), "locker schedule shows the week-1 opponent and the finalized result");
+    ok(/Someone New/.test(body1), "locker transactions list shows the team's own tx history");
+    ok((await page1.$$eval(".chatRowMsg", (els) => els.length)) >= 1 && /going all the way/.test(body1),
+      "the wall picks up a chat message that mentions the team by name");
+    ok(/Add a motto/.test(body1), "no motto set yet — the owner-only placeholder invites them to add one");
+    ok(!!(await page1.$("#lockerEditName")) && !!(await page1.$("#lockerEditMotto")) && !!(await page1.$("#lockerEditLogo")),
+      "the OWNER (team 1, on their own locker) sees Name/Motto/Logo edit affordances");
+
+    // Owner edits the motto.
+    await page1.evaluate(() => { window.__prompts = ["Go Kreussers!"]; });
+    await clickIn(page1, "#lockerEditMotto");
+    await page1.waitForFunction(() => document.body.textContent.includes("Go Kreussers!"), { timeout: 5000 });
+    ok(true, "owner motto edit saves and re-renders");
+    const savedTeam = await page1.evaluate(() => window.__GFFL__.LG.teamById(1).motto);
+    ok(savedTeam === "Go Kreussers!", "…and persists to the team doc (max 80 chars enforced client-side)");
+
+    // Palette: real upload path (resize + extract + save), a solid-red PNG.
+    await page1.evaluate(() => document.getElementById("lockerEditLogo").click());
+    const uploaded = await page1.evaluate(async () => {
+      const cv = document.createElement("canvas");
+      cv.width = 16; cv.height = 16;
+      const c2 = cv.getContext("2d");
+      c2.fillStyle = "#e21e1e"; c2.fillRect(0, 0, 16, 16);
+      const blob = await new Promise((res) => cv.toBlob(res, "image/png"));
+      const file = new File([blob], "logo.png", { type: "image/png" });
+      const dt = new DataTransfer(); dt.items.add(file);
+      const input = document.getElementById("lockerLogoInput");
+      input.files = dt.files;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    });
+    ok(uploaded, "a red logo PNG is assigned to the hidden file input via a real change event");
+    await page1.waitForFunction(() => {
+      const el = document.querySelector(".lockerhead");
+      return el && /rgb\(\d/.test(getComputedStyle(el).backgroundColor);
+    }, { timeout: 9000 });
+    const bg = await page1.evaluate(() => getComputedStyle(document.querySelector(".lockerhead")).backgroundColor);
+    const rgb = (bg.match(/\d+/g) || []).map(Number);
+    ok(rgb.length === 3 && rgb[0] > rgb[1] + 30 && rgb[0] > rgb[2] + 30, "the extracted palette makes the header background REDDISH, not the default green (" + bg + ")");
+    const savedColors = await page1.evaluate(() => window.__GFFL__.LG.teamById(1).colors);
+    ok(savedColors && typeof savedColors.primary === "string", "the extracted colour is stored on the team doc (computed once at upload, not per render)");
+
+    // Non-owner viewing the SAME locker: no edit affordances at all.
+    const snap = await snapshotAllDocs(page1);
+    const { ctx: ctx2, page: page2, errors: err2 } = await newTestPage(browser, { docs: snap, pass: "amenfarms", team: 2, who: "Rival" });
+    await bootPage(page2);
+    await page2.waitForSelector(".mucard", { timeout: 9000 });
+    await page2.evaluate(() => window.__GFFL__.UI.openLocker(1));
+    await page2.waitForSelector(".lockerhead", { timeout: 9000 });
+    ok(/Go Kreussers!/.test(await page2.evaluate(() => document.body.textContent)), "the non-owner sees the same saved motto");
+    ok(!(await page2.$("#lockerEditName")) && !(await page2.$("#lockerEditMotto")) && !(await page2.$("#lockerEditLogo")),
+      "…but NO edit affordances on someone else's locker");
+
+    // Tap-through from standings / matchup header / "My locker".
+    await page2.evaluate(() => window.__GFFL__.UI.show("league"));
+    await page2.waitForSelector(".teamlink", { timeout: 9000 });
+    await clickIn(page2, ".teamlink", "Battle Kreussers");
+    await page2.waitForFunction(() => document.body.textContent.includes("Go Kreussers!"), { timeout: 5000 });
+    ok(true, "tapping a team name in the standings opens their locker");
+    await page2.evaluate(() => window.__GFFL__.UI.show("team"));
+    await page2.waitForSelector("#myLockerBtn", { timeout: 9000 });
+    await clickIn(page2, "#myLockerBtn");
+    await page2.waitForSelector(".lockerhead", { timeout: 9000 });
+    const lockerId2 = await page2.evaluate(() => window.__GFFL__.UI.lockerTeamId);
+    ok(lockerId2 === 2, "\"My locker\" on the team page opens the VIEWER's own locker (team 2)");
+
+    ok(err1.length === 0 && err2.length === 0, "0 page errors through the whole locker flow");
+    if (SHOTS) { await page1.screenshot({ path: path.join(ROOT, "shots", "gffl_locker_390.png"), fullPage: true }); console.log("  📸 shots/gffl_locker_390.png"); }
+    await ctx1.close(); await ctx2.close();
+  }
+
   await browser.close();
-  srv.close(); ffSrv.close();
+  srv.close(); ffSrv.close(); tenorSrv.close();
   console.log("\n================================");
   console.log(`PASS ${pass} · FAIL ${fail}`);
   if (fail) { console.log("Failures:"); failures.forEach((f) => console.log("  - " + f)); process.exit(1); }
