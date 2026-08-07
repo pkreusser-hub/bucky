@@ -938,10 +938,21 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     ok(r2.trades.reviewHours === 48 && r2.trades.vetoVotes === 4, "ESPN-standard trade rules adopted from the real league");
     const teams2 = await page.evaluate(() => window.__GFFL__.LG.teams.map((t) => t.name));
     ok(teams2.includes("Nails  For Breakfast") && teams2.length === 8, "teams refreshed from ESPN (8, double-space intact)");
-    // Schedule regenerate + validity.
+    // Schedule regenerate + validity. Read back through LG.loadSchedule() (the sanctioned
+    // accessor — decodes the Firestore-safe on-disk shape into the plain [[h,a],...][]
+    // every reader in the app expects), NOT raw localStorage — see the nested-array note below.
     await clickIn(page, "#schedGen");
     await page.waitForFunction(() => document.body.textContent.includes("Schedule saved"), { timeout: 6000 });
-    const sched = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)).weeks, LSPFX + "sched_2026");
+    // Cloud Firestore rejects a document field that's an array directly containing another
+    // array (verified live against the real project: "Nested arrays are not allowed") — the
+    // raw on-disk doc must never regress to weeks:[[[h,a],...],...] (2 levels of array-in-
+    // array) or a real deployed click silently throws with no toast, exactly the live bug
+    // report ("the generate schedule button doesn't work"). Every week must be a map ({g:[...]}),
+    // never an array, and every game inside it must be a map ({h,a}), never a bare [h,a] pair.
+    const rawShape = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)).weeks, LSPFX + "sched_2026");
+    ok(rawShape.every((wk) => !Array.isArray(wk) && Array.isArray(wk.g) && wk.g.every((g) => !Array.isArray(g) && typeof g.h === "number" && typeof g.a === "number")),
+      "on-disk schedule shape has NO array directly containing another array (Firestore-safe — real cloud proven live to reject the raw [[h,a],...][] shape)");
+    const sched = await page.evaluate(() => window.__GFFL__.LG.loadSchedule());
     ok(sched.length === 14, "schedule: 14 weeks");
     ok(sched.every((w) => w.length === 4), "schedule: 4 games every week");
     const pairCount = {}; let everyTeamOnce = true;
@@ -959,6 +970,101 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
       "schedule: true double round robin (every pair exactly twice)");
     ok(errors.length === 0, "0 page errors through rules/import/schedule");
     if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_rules_390.png"), fullPage: true }); console.log("  📸 shots/gffl_rules_390.png"); }
+    await ctx.close();
+  }
+
+  // ---- F2: live-bug repro — "the Generate schedule button doesn't work" ----
+  // ROOT CAUSE (live 2026-08-07): LG.generateSchedule's in-memory shape ([week][game] =
+  // [homeId, awayId]) is an array DIRECTLY containing arrays two levels deep — Cloud
+  // Firestore's document model explicitly forbids that ("an array value cannot directly
+  // contain another array value"), verified live against the real amen-farms-app project:
+  // a setDoc with this exact shape throws "Nested arrays are not allowed" (400). Every
+  // suite run before this section stayed in LOCAL mode (gstatic/firebase requests are
+  // aborted per house convention), so localStorage's plain JSON.stringify never caught
+  // it — the deployed (cloud-backend) site's #schedGen click handler had no try/catch, so
+  // the click silently did nothing: no toast, no saved schedule, no visible error at all.
+  // This section drives the REAL click path (gate → claim → Rules → tap Generate schedule,
+  // with the actual gateCommish() PIN-prompt sequence, not a shortcut) against a fake cloud
+  // that enforces the SAME rule real Firestore does, over the REAL, non-contiguous team-id
+  // shape a years-old ESPN league actually produces (ruled OUT as a separate hypothesis —
+  // LG.generateSchedule is pure array-permutation over whatever ids it's given and works
+  // fine with them; confirmed the schedule saves correctly with these ids under the LOCAL
+  // backend too, isolating the bug to the cloud/local storage boundary specifically).
+  section("F2 · schedGen against a Firestore-faithful cloud backend — the live bug repro");
+  {
+    const REAL_TEAM_IDS = [1, 2, 3, 4, 5, 9, 11, 12]; // non-contiguous, exactly like the real league
+    const names = ["Battle Kreussers", "End Zone Goats", "Wyoming Cowboys", "Waffle House Warriors",
+      "Nails  For Breakfast", "Team Six", "Team Seven", "The Goat Kids"];
+    const docs = {};
+    REAL_TEAM_IDS.forEach((id, i) => { docs["team_" + id] = { kind: "team", teamId: id, name: names[i], abbrev: "T" + id, owner: "" }; });
+    const { ctx, page, errors } = await newTestPage(browser, { docs, pass: "amenfarms", team: REAL_TEAM_IDS[0], who: "Peter" });
+    await bootPage(page);
+    await page.waitForSelector(".mucard, .tbl", { timeout: 9000 });
+    const idsSeen = await page.evaluate(() => window.__GFFL__.LG.teams.map((t) => t.id));
+    ok(JSON.stringify(idsSeen) === JSON.stringify(REAL_TEAM_IDS), "booted with the real, non-contiguous ESPN team ids " + JSON.stringify(REAL_TEAM_IDS));
+    // Install a fake cloud whose .set() enforces Cloud Firestore's REAL "an array can't
+    // directly contain another array" rule — proven live against the actual project (a
+    // curl PATCH with this exact 3-level-nested weeks shape returned HTTP 400 "Nested
+    // arrays are not allowed"; the fixed shape — weeks:[{g:[{h,a},...]},...], array of
+    // MAPS only — was separately proven to round-trip through the real project with 200).
+    await page.evaluate(() => {
+      const LG = window.__GFFL__.LG;
+      function assertNoNestedArrays(v, p) {
+        if (Array.isArray(v)) {
+          for (const item of v) if (Array.isArray(item)) throw new Error("Nested arrays are not allowed" + (p ? " (found in field " + p + ")" : ""));
+          for (const item of v) assertNoNestedArrays(item, p);
+        } else if (v && typeof v === "object") {
+          for (const k of Object.keys(v)) assertNoNestedArrays(v[k], (p ? p + "." : "") + k);
+        }
+      }
+      const store = new Map();
+      window.__cloudRejected = false;
+      LG.db._installFakeCloud({
+        async get(id) { return store.get(id) || null; },
+        async set(id, data) {
+          try { assertNoNestedArrays(data, id); } catch (e) { window.__cloudRejected = true; throw e; }
+          const cur = store.get(id) || {}; store.set(id, { ...cur, ...data });
+        },
+        async del(id) { store.delete(id); },
+        async list(kind) { const out = []; for (const [id, d] of store) if (!kind || d.kind === kind) out.push({ id, ...d }); return out; },
+        watch(id, cb) { cb(store.get(id) || null); return () => {}; },
+      });
+    });
+    await page.evaluate(() => window.__GFFL__.UI.show("rules"));
+    await page.waitForSelector("#schedGen", { timeout: 9000 });
+    ok((await text(page, "#schedGen")).includes("Generate"), "no schedule yet — button reads 'Generate schedule'");
+    // Real PIN-prompt sequence (create-on-first-use, exactly like a fresh commissioner) —
+    // no shortcut unlock. Also fires a genuine background "onChange" repaint (the perf
+    // batch's cloud-only quiet-refresh path) at the same macrotask boundary the prompt
+    // resolves on, to rule out a race between the async click handler and a mid-flight
+    // re-render replacing #schedGen with a new DOM node underneath it.
+    await page.evaluate(() => { window.__prompts = ["9876"]; });
+    const renderCountBefore = await page.evaluate(() => {
+      let n = 0;
+      const orig = window.__GFFL__.UI.show;
+      window.__GFFL__.UI.show = function (name) { n++; return orig.call(window.__GFFL__.UI, name); };
+      window.__renderCount = () => n;
+      setTimeout(() => { window.__GFFL__.LG.db.onChange && window.__GFFL__.LG.db.onChange("team"); }, 0);
+      return n;
+    });
+    await page.evaluate(() => document.querySelector("#schedGen").click());
+    await new Promise((r) => setTimeout(r, 400));
+    ok((await page.evaluate(() => window.__renderCount())) > renderCountBefore, "an interleaved background repaint (onChange -> UI.show) fired during the click, same as production's perf-batch quiet-refresh path");
+    const bodyTxt = await page.evaluate(() => document.body.textContent);
+    ok(/Schedule saved: 14 weeks\./.test(bodyTxt), "clicking Generate schedule against a Firestore-faithful cloud backend succeeds and toasts — THIS is the check that fails against the pre-fix code (verified: pre-fix it throws \"Nested arrays are not allowed\" as an unhandled rejection and the toast never appears)");
+    ok((await text(page, "#schedGen")).includes("Regenerate"), "button text flips to 'Regenerate schedule' — the module-level `schedule` var was actually updated, not just the toast shown");
+    const decoded = await page.evaluate(() => window.__GFFL__.LG.loadSchedule());
+    ok(decoded.length === 14, "LG.loadSchedule() reads back 14 weeks through the fake-cloud round trip");
+    const pairCount2 = {}; let every8 = true;
+    for (const wk of decoded) {
+      const seen = new Set();
+      for (const [h, a] of wk) { seen.add(h); seen.add(a); const key = [Math.min(h, a), Math.max(h, a)].join("-"); pairCount2[key] = (pairCount2[key] || 0) + 1; }
+      if (seen.size !== 8) every8 = false;
+    }
+    ok(every8, "every week: all 8 real (non-contiguous) team ids appear exactly once");
+    ok(Object.keys(pairCount2).length === 28 && Object.values(pairCount2).every((n) => n === 2), "true double round robin over the real team ids, saved through the Firestore-faithful backend (28 pairs x2)");
+    ok((await page.evaluate(() => window.__cloudRejected)) === false, "the fake cloud's nested-array guard was never tripped — the saved doc really is Firestore-safe");
+    ok(errors.length === 0, "0 page errors — no uncaught \"Nested arrays are not allowed\" rejection reaches the console");
     await ctx.close();
   }
 

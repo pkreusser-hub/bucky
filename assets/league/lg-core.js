@@ -393,8 +393,27 @@
     }
     return out; // [week][game] = [homeId, awayId]
   };
-  LG.loadSchedule = async () => (await LG.db.get("sched_" + LG.SEASON))?.weeks || null;
-  LG.saveSchedule = (weeks) => LG.db.set("sched_" + LG.SEASON, { kind: "sched", season: LG.SEASON, weeks });
+  // generateSchedule's in-memory shape ([week][game] = [homeId, awayId]) is an array
+  // DIRECTLY containing arrays two levels deep — weeks[i] is itself an array of [h,a]
+  // pairs. Cloud Firestore's document model explicitly forbids an array value containing
+  // another array value (verified live against the real project: setDoc throws "Nested
+  // arrays are not allowed"), so saving `weeks` raw silently threw inside the #schedGen
+  // click handler on the deployed (cloud-backend) site — no toast, no saved schedule, the
+  // button just "didn't work." Every suite run stays in LOCAL mode (gstatic/firebase
+  // requests are aborted), so localStorage's plain JSON.stringify never caught this.
+  // Fix at the boundary only: encode each week as {g:[{h,a},...]} for storage (array of
+  // MAPS, never array-of-array) and decode back to the raw [[h,a],...] shape every reader
+  // in this file already expects — old/seeded docs still holding the raw array shape are
+  // read as-is for backward compatibility.
+  LG.loadSchedule = async () => {
+    const weeks = (await LG.db.get("sched_" + LG.SEASON))?.weeks;
+    if (!weeks) return null;
+    return weeks.map((wk) => (Array.isArray(wk) ? wk : (wk.g || []).map((g) => [g.h, g.a])));
+  };
+  LG.saveSchedule = (weeks) => LG.db.set("sched_" + LG.SEASON, {
+    kind: "sched", season: LG.SEASON,
+    weeks: weeks.map((wk) => ({ g: wk.map(([h, a]) => ({ h, a })) })),
+  });
 
   // ---------------- rosters & lineups ----------------
   // One doc per team per week: { players: [{key,name,pos,team,slot}] }. `slot`
