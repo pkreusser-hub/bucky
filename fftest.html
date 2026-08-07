@@ -172,6 +172,17 @@ function scoreOf(st) { let p = 0; for (const k of STAT_KEYS) p += (st[k] || 0) *
 // ESPN team abbrev -> Sleeper team abbrev (they agree except Washington).
 function slpTeam(ab) { return ab === "WSH" ? "WAS" : ab; }
 
+// Identity fallback. Live finding (HOF game 2026-08-06): Sleeper's espn_id is
+// missing for most recent draftees — every active player in that game keyed
+// differently on the two sides, so rows duplicated and latency pairing never
+// fired. Names + team merge them. Known limit: true nicknames ("Bam" vs
+// "Zonovan" Knight) still split — the real app wants its own id-map table.
+function normName(n) {
+  return String(n || "").toLowerCase().replace(/[^a-z ]/g, "")
+    .replace(/\b(jr|sr|ii|iii|iv|v)\b/g, "").trim().replace(/ +/g, " ");
+}
+function nameKey(name, teamAb) { return normName(name) + "|" + slpTeam(teamAb || ""); }
+
 // ---------------- state ----------------
 const S = {
   gameId: null, teams: [], slpTeams: [], gameLabel: "",
@@ -193,6 +204,9 @@ const S = {
   lastChange: { espn: 0, slp: 0 },
   slpPlayers: null,          // espn_id-indexed sleeper metadata
   slpById: null,             // sleeper player_id -> meta
+  slpByName: null,           // nameKey -> sleeper meta (espn_id fallback)
+  espnKeyByName: new Map(),  // nameKey -> espn athlete id (seen in the box)
+  slpRowKeyByName: new Map(),// nameKey -> "slp_<pid>" row awaiting a merge
   proj: null,                // sleeper projections map
   startedAt: null,
 };
@@ -291,7 +305,7 @@ async function slpLoadPlayers() {
   if (S.slpById) return;
   $("#runstate").textContent = "loading Sleeper player directory (~15MB, once)…";
   const dump = await fx("sleeper players", `${SLP}/players/nfl`);
-  const byEspn = new Map(), byId = new Map();
+  const byEspn = new Map(), byId = new Map(), byName = new Map();
   let withEspn = 0, defs = 0;
   for (const pid in dump) {
     const p = dump[pid]; if (!p || typeof p !== "object") continue;
@@ -302,9 +316,10 @@ async function slpLoadPlayers() {
     };
     if (meta.pos === "DEF") { defs++; meta.name = pid + " D/ST"; }
     if (meta.espn_id) { withEspn++; byEspn.set(meta.espn_id, meta); }
+    if (meta.team) byName.set(nameKey(meta.name, meta.team), meta);
     byId.set(pid, meta);
   }
-  S.slpPlayers = byEspn; S.slpById = byId;
+  S.slpPlayers = byEspn; S.slpById = byId; S.slpByName = byName;
   S.seen.add("slp.players");
   if ([...byId.values()].some((m) => m.injury)) S.seen.add("slp.inj");
   log(`Sleeper directory: ${byId.size} players, ${withEspn} carry an espn_id, ${defs} team defenses`, "slp");
@@ -452,8 +467,23 @@ async function pollEspn() {
   const box = parseEspnBox(j);
   for (const [id, rec] of box) {
     S.espnIds.add(id);
-    const slpMeta = S.slpPlayers && S.slpPlayers.get(id);
+    const nk = nameKey(rec.meta.name, rec.meta.team);
+    S.espnKeyByName.set(nk, id);
+    const slpMeta = (S.slpPlayers && S.slpPlayers.get(id)) || (S.slpByName && S.slpByName.get(nk));
     if (slpMeta) S.matchedIds.add(id);
+    // If Sleeper polled first and parked this player under a slp_ key (no
+    // espn_id in its directory), fold that row into the canonical espn key.
+    const orphan = S.slpRowKeyByName.get(nk);
+    if (orphan && orphan !== id && S.players.has(orphan)) {
+      const old = S.players.get(orphan);
+      const dst = rowFor(id, rec.meta);
+      if (old.slp && !dst.slp) dst.slp = old.slp;
+      if (old.official != null) dst.official = old.official;
+      if (old.proj != null) dst.proj = old.proj;
+      if (old.injury) dst.injury = old.injury;
+      S.players.delete(orphan);
+      S.slpRowKeyByName.delete(nk);
+    }
     applySide("espn", id, rec.meta, { ...emptyNorm(), ...rec.stats }, rec.raw);
   }
   // Cross-provider identity is "good" when at least half the box score maps.
@@ -472,7 +502,9 @@ async function pollSleeper() {
     if (!meta) continue;
     if (!S.slpTeams.includes(meta.team)) continue;           // only this game's two teams
     if (meta.pos === "DEF") S.seen.add("slp.dst");
-    const key = meta.espn_id || ("slp_" + pid);
+    const nk = nameKey(meta.name, meta.team);
+    const key = meta.espn_id || S.espnKeyByName.get(nk) || ("slp_" + pid);
+    if (key === "slp_" + pid) S.slpRowKeyByName.set(nk, key);
     const row = rowFor(key, { name: meta.name, pos: meta.pos, team: meta.team });
     row.injury = meta.injury || row.injury;
     if (st.pts_ppr != null) row.official = st.pts_ppr;
@@ -568,7 +600,8 @@ function renderPlayers() {
     const d = eP != null && sP != null ? Math.round((eP - sP) * 10) / 10 : null;
     // DEF rows: our engine has no DST scoring (deliberate — checklist notes it),
     // so an engine-vs-official comparison there would just be noise.
-    const engine = s && r.official != null && r.pos !== "DEF"
+    const OFF_POS = ["QB", "RB", "WR", "TE", "K", "FB"];
+    const engine = s && r.official != null && OFF_POS.includes(r.pos)
       ? (Math.abs(s.pts - r.official) <= 0.11 ? '<span class="ok">✓</span>' : `<span class="warn">Δ${(Math.round((s.pts - r.official) * 10) / 10)}</span>`)
       : '<span class="mut">—</span>';
     const tr = document.createElement("tr");
