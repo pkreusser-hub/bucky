@@ -6,166 +6,331 @@
 <title>The GFFL — Goat Fantasy Football League</title>
 <meta name="description" content="The Goat Fantasy Football League — fast, clean, ours.">
 <meta name="theme-color" content="#101613">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
+  /* ============ Gridiron League design tokens ============
+     Ported from design_handoff_fantasy_app — dark broadcast/scoreboard system.
+     Fonts degrade to system stacks when the Google Fonts request is blocked/offline
+     (the family app must never depend on the network reaching fonts.googleapis.com). */
   :root {
-    --bg:#101613; --card:#1a231e; --line:#2b3a31; --ink:#eef4ef; --mut:#93a69a;
-    --green:#4cc38a; --gold:#e2b93b; --red:#e5534b; --blue:#6cb6ff;
-    --accent:#37905f; --mono:Consolas,Menlo,monospace;
+    --bg:#131315; --bg-page:#0C0D0E; --tabbar:#17181B; --band:#141517;
+    --card:#1B1C1F; --nested:#26282D; --nested2:#202226;
+    --border-card:#2B2D32; --divider:#232529; --divider2:#1E2024; --border-hover:#3A3D43;
+    --ink:#F4F3F0; --ink2:#C9CBCF; --mut:#9EA1A8; --faint:#6C6F76;
+    --accent:#D0454C; --green:#3E9B5F; --gold:#C98F1B; --blue:#4E7FD0;
+    --row-hover:#17181B; --row-hover2:#202226;
+    --radius-card:10px; --radius-sm:8px; --radius-xs:6px; --radius-badge:4px; --radius-pill:16px;
+    --font-display:'Barlow Condensed','Arial Narrow','Helvetica Neue',Arial,system-ui,sans-serif;
+    --font-body:'Public Sans',system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
   }
   * { box-sizing:border-box; }
   html,body { margin:0; }
-  body { background:var(--bg); color:var(--ink); font:15px/1.45 system-ui,Segoe UI,Roboto,sans-serif;
-         padding-bottom:calc(74px + env(safe-area-inset-bottom)); }
-  header { position:sticky; top:0; z-index:20; display:flex; align-items:baseline; gap:8px;
-           padding:10px 14px; background:rgba(16,22,19,.92); backdrop-filter:blur(8px);
-           border-bottom:1px solid var(--line); }
-  header .wordmark { font-weight:800; font-size:18px; letter-spacing:.02em; }
-  header .wordmark .goat { margin-right:6px; }
-  header .sub { color:var(--mut); font-size:11.5px; }
+  html { background:var(--bg-page); }
+  body { background:var(--bg); color:var(--ink); font:15px/1.45 var(--font-body);
+         padding-bottom:calc(64px + env(safe-area-inset-bottom)); }
+  h1, h2, h3 { font-family:var(--font-display); }
+  header { position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:16px;
+           padding:0 14px; height:52px; background:var(--tabbar); backdrop-filter:blur(8px);
+           border-bottom:1px solid var(--border-card); }
+  header .wordmark { font:700 20px/1 var(--font-display); letter-spacing:1.2px; text-transform:uppercase; white-space:nowrap; }
+  header .wordmark .goat { margin-right:4px; font-size:.95em; letter-spacing:0; text-transform:none; }
+  header .wordmark .accentword { color:var(--accent); }
+  header .sub { display:none; color:var(--mut); font-size:11px; }
+  header .hmeta { display:none; align-items:center; gap:10px; margin-left:auto; }
+  header .hmeta[hidden] { display:none; } /* the house [hidden]-override lesson — restate it, an author rule always beats the UA one */
+  #hWeekYear { font:600 12px var(--font-display); letter-spacing:1px; text-transform:uppercase; color:var(--mut); white-space:nowrap; }
+  #hAvatar { width:32px; height:32px; border-radius:50%; flex:0 0 auto; overflow:hidden; cursor:pointer;
+             background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center;
+             font:700 13px var(--font-display); }
+  #hAvatar[hidden] { display:none; }
+  #hAvatar img { width:100%; height:100%; object-fit:cover; display:block; }
   main { max-width:860px; margin:0 auto; padding:12px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:12px; }
+  .card { background:var(--card); border:1px solid var(--border-card); border-radius:var(--radius-card); padding:16px; margin-bottom:12px; }
   .card.center { text-align:center; }
-  h1 { margin:6px 0; } h2 { font-size:13px; margin:0 0 10px; color:var(--mut); text-transform:uppercase; letter-spacing:.06em; }
+  h1 { margin:6px 0; font:700 26px var(--font-display); letter-spacing:1px; text-transform:uppercase; }
+  h2 { font:600 12px var(--font-display); margin:0 0 10px; color:var(--mut); text-transform:uppercase; letter-spacing:2px; }
   .mut { color:var(--mut); } .small { font-size:12px; }
-  .bad { color:var(--red); } .ok { color:var(--green); } .warn { color:var(--gold); }
+  .bad { color:var(--accent); } .ok { color:var(--green); } .warn { color:var(--gold); }
   .logo { font-size:52px; }
-  button { background:#23312a; color:var(--ink); border:1px solid var(--line); border-radius:10px;
-           padding:9px 14px; font-size:14px; cursor:pointer; }
-  button.primary { background:var(--accent); border-color:#3f9f6c; font-weight:700; }
-  input { background:#0e1411; color:var(--ink); border:1px solid var(--line); border-radius:10px; padding:9px 10px; font-size:15px; }
+  /* Plain low-specificity base — every "row card" button below (.mucard/.lrow/
+     .swaprow/.teamrow/.bgame etc.) already redeclares background/border/padding
+     with a more specific selector, which is all a single class needs to win over
+     a bare `button` rule. (A `:not(...)` exclusion chain was tried first and
+     rejected — each `:not(.x)` clause counts as a class for specificity, so a
+     chain of eight of them outranks `.mucard`/`.bnav button`/etc. outright and
+     silently un-does their overrides — a real trap, not a style nit.) */
+  button {
+    background:var(--nested); color:var(--ink); border:1px solid var(--border-card); border-radius:var(--radius-sm);
+    padding:8px 14px; font:600 12.5px var(--font-display); letter-spacing:1px; text-transform:uppercase; cursor:pointer;
+    transition:border-color .15s,background .15s;
+  }
+  button:hover { border-color:var(--border-hover); }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:700; }
+  button.primary:hover { opacity:.88; border-color:var(--accent); }
+  input, select { background:var(--nested2); color:var(--ink); border:1px solid var(--border-card); border-radius:var(--radius-sm);
+          padding:9px 10px; font:15px var(--font-body); }
+  input:focus, select:focus { outline:none; border-color:var(--border-hover); }
+  select { color-scheme:dark; } /* keeps the native option-list dropdown dark too, not just the closed control */
   .card.center input { display:block; margin:14px auto; width:min(90%,280px); text-align:center; }
   .rowline { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
   .panner { overflow-x:auto; }
-  table.tbl { border-collapse:collapse; width:100%; font-size:14px; }
-  .tbl th, .tbl td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
-  .tbl th { color:var(--mut); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
-  .tbl td.num, .tbl th.num { text-align:right; font-family:var(--mono); }
+  table.tbl { border-collapse:collapse; width:100%; font-size:13.5px; }
+  .tbl th, .tbl td { text-align:left; padding:9px 8px; border-bottom:1px solid var(--divider); white-space:nowrap; font-family:var(--font-body); }
+  .tbl th { color:var(--faint); font:600 10.5px var(--font-display); text-transform:uppercase; letter-spacing:1px; padding-bottom:6px; }
+  .tbl td.num, .tbl th.num { text-align:right; }
+  .tbl td.num { font:700 14px var(--font-display); font-variant-numeric:tabular-nums; }
+  .tbl tbody tr:hover { background:var(--row-hover); }
   .tlogo { width:20px; height:20px; border-radius:50%; vertical-align:-4px; margin-right:6px; object-fit:cover; }
-  .health { font-size:12px; padding:2px 10px; border-radius:99px; border:1px solid var(--line); }
-  .health.ok { color:var(--green); } .health.warn { color:#101613; background:var(--gold); border-color:var(--gold); font-weight:700; }
-  .health.bad { color:#fff; background:var(--red); border-color:var(--red); font-weight:700; }
-  /* matchup cards on league home */
+  .health { font:600 11px var(--font-display); letter-spacing:.8px; text-transform:uppercase; padding:3px 10px; border-radius:var(--radius-pill); border:1px solid var(--border-card); }
+  .health.ok { color:var(--accent); border-color:var(--border-card); background:var(--nested); }
+  .health.warn { color:var(--bg); background:var(--gold); border-color:var(--gold); font-weight:700; }
+  .health.bad { color:#fff; background:var(--accent); border-color:var(--accent); font-weight:700; }
+
+  /* ---------------- matchup cards on league home ---------------- */
+  .mugrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin-bottom:2px; }
   .mucard { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:8px;
-            width:100%; text-align:left; margin-bottom:8px; padding:12px; }
-  .mucard.mine { outline:2px solid var(--accent); }
-  .muteam { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+            width:100%; text-align:left; background:var(--card); border:1px solid var(--border-card);
+            border-radius:var(--radius-sm); padding:10px 12px; cursor:pointer;
+            text-transform:none; letter-spacing:normal; } /* button's own uppercase must not inherit onto natural-case team names */
+  .mucard:hover, .mucard:focus-visible { border-color:var(--border-hover); background:var(--row-hover2); }
+  /* The hero ("mine") card can't keep the compact card's 3-column [name|score|name]
+     layout at its bigger type scale — a 32px combined "4.0 — 41.0" string in the middle
+     "auto" column leaves too little room either side and forces team names into an
+     ugly wrap-or-truncate fight. Reflowed into its own row-based grid instead: names
+     on row 1 (one per side, plenty of width each), the score centered full-width on
+     row 2, badge/win-prob full-width on row 3 — .muteam/.muscore keep their required
+     class names and text (data/tests are unaffected), only their grid placement differs
+     under .mine. */
+  .mucard.mine { grid-column:1 / -1; order:-1; grid-template-columns:1fr 1fr; grid-template-rows:auto auto auto;
+                 gap:4px 10px; border-color:var(--accent); border-radius:var(--radius-card);
+                 padding:16px; background:var(--card); }
+  .muteam { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font:600 13px var(--font-display); letter-spacing:.3px; }
   .muteam.right { text-align:right; }
-  .muscore { font-family:var(--mono); font-weight:700; }
-  /* matchup page */
+  .mucard.mine .muteam { grid-row:1; font-size:14px; }
+  .muscore { font:700 16px var(--font-display); font-variant-numeric:tabular-nums; }
+  .mucard.mine .muscore { grid-row:2; grid-column:1 / -1; text-align:center; font-size:32px; }
+  .herorow { grid-column:1 / -1; grid-row:3; display:flex; align-items:center; gap:12px; margin-top:2px; }
+  .herobadge { display:inline-flex; align-items:center; gap:6px; font:600 11px var(--font-display); letter-spacing:1px;
+               text-transform:uppercase; color:var(--faint); flex:0 0 auto; }
+  .herobadge.live { color:var(--accent); }
+  .herobadge .dot { width:6px; height:6px; border-radius:50%; background:var(--accent); }
+  .wpbar.mini { flex:1 1 auto; height:5px; }
+  .wpfillmini { height:100%; background:var(--accent); display:block; }
+
+  /* ---------------- matchup page ---------------- */
   .muhrow { display:grid; grid-template-columns:1fr auto 1fr; gap:10px; align-items:start; }
-  .muhteam { min-width:0; } .muhteam.right { text-align:right; }
-  .bigpts { font-family:var(--mono); font-size:26px; font-weight:800; }
-  .muhmid { text-align:center; min-width:96px; padding-top:6px; }
-  .wpbar { height:8px; border-radius:99px; background:#26332c; overflow:hidden; margin:6px 0; }
-  .wpfill { height:100%; background:linear-gradient(90deg,var(--blue),var(--green)); }
-  table.mutable td { vertical-align:top; }
-  .slotcell { color:var(--mut); font-size:11px; text-align:center; width:44px; font-weight:700; }
-  .pcell { width:50%; } .pcell.right { text-align:right; }
-  .pwrap { display:flex; justify-content:space-between; gap:8px; }
+  .muhteam { min-width:0; display:flex; flex-direction:column; gap:2px; }
+  .muhteam.right { text-align:right; align-items:flex-end; }
+  .muavatar { width:44px; height:44px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+              font:700 16px var(--font-display); background:var(--border-card); color:var(--mut); overflow:hidden;
+              margin-bottom:2px; }
+  .muavatar.mine { background:var(--accent); color:#fff; }
+  .muavatar img { width:100%; height:100%; object-fit:cover; display:block; }
+  .bigpts { font:800 30px var(--font-display); font-variant-numeric:tabular-nums; }
+  .muhmid { text-align:center; min-width:96px; padding-top:6px; display:flex; flex-direction:column; align-items:center; gap:6px; }
+  .mulive { display:flex; align-items:center; gap:6px; font:600 12px var(--font-display); letter-spacing:1px; color:var(--accent); text-transform:uppercase; }
+  .mulive .dot { width:6px; height:6px; border-radius:50%; background:var(--accent); }
+  .mulive.done { color:var(--mut); }
+  .wpbar { height:5px; border-radius:var(--radius-pill); background:var(--border-card); overflow:hidden; margin:2px 0; width:100%; }
+  .wpfill { height:100%; background:var(--accent); display:block; }
+  /* table-layout:fixed + an explicit white-space:normal override are both required here:
+     .tbl td (shared with the standings tables, which DO want single-line rows) sets
+     white-space:nowrap, which — under the default table-layout:auto — let a long player
+     name/meta string force this column wider than its declared share and shove the slot
+     badge + opposing player off the right edge of a 390px phone. Locking the layout AND
+     letting this table's own cells wrap keeps every row inside the card at any width. */
+  table.mutable { table-layout:fixed; }
+  table.mutable td { vertical-align:top; white-space:normal; }
+  .slotcell { color:var(--mut); font:600 11px var(--font-display); letter-spacing:.5px; text-align:center; width:14%;
+              background:var(--nested); border-radius:var(--radius-badge); padding:3px 0; }
+  .pcell { width:43%; } .pcell.right { text-align:right; }
+  .pwrap { display:flex; flex-wrap:wrap; justify-content:space-between; gap:2px 8px; }
   .pwrap.right { flex-direction:row-reverse; }
-  .pts { font-family:var(--mono); font-weight:700; display:block; }
-  .live { color:var(--green); font-weight:700; }
-  .fline { padding:5px 0; border-bottom:1px dotted #26332c; font-size:13.5px; }
+  .pts { font:700 14px var(--font-display); display:block; }
+  .live { color:var(--accent); font-weight:700; }
+  .fline { padding:6px 0; border-bottom:1px dotted var(--divider2); font-size:13.5px; }
   .fline.sys { color:var(--mut); }
-  .delta { font-family:var(--mono); font-weight:700; }
-  .delta.up { color:var(--green); } .delta.down { color:var(--red); }
-  /* team page */
-  .lrow { display:flex; align-items:center; gap:10px; width:100%; text-align:left; margin-bottom:6px; padding:10px 12px; }
+  .delta { font:700 13px var(--font-display); font-variant-numeric:tabular-nums; }
+  .delta.up { color:var(--green); } .delta.down { color:var(--accent); }
+
+  /* ---------------- team / roster page ---------------- */
+  .lrow { display:flex; align-items:center; gap:10px; width:100%; text-align:left; background:var(--card);
+          border:1px solid var(--border-card); border-radius:var(--radius-sm); margin-bottom:6px; padding:10px 12px;
+          text-transform:none; letter-spacing:normal; }
+  .lrow:hover { border-color:var(--border-hover); background:var(--row-hover2); }
   .lrow.locked { opacity:.72; }
-  .slotchip { flex:0 0 52px; text-align:center; font-size:11px; font-weight:800; color:var(--mut);
-              border:1px solid var(--line); border-radius:8px; padding:4px 0; }
-  .lname { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; }
-  .lpts { font-family:var(--mono); white-space:nowrap; }
+  .slotchip { flex:0 0 52px; text-align:center; font:600 11px var(--font-display); letter-spacing:.5px; color:var(--mut);
+              background:var(--nested); border:1px solid var(--border-card); border-radius:var(--radius-badge); padding:4px 0; }
+  .lname { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; font-family:var(--font-body); }
+  .lpts { font:700 14px var(--font-display); white-space:nowrap; }
   .lock { flex:0 0 auto; }
   .inj { color:var(--gold); font-weight:700; }
-  .sheet { position:fixed; inset:auto 0 0 0; z-index:40; padding:10px; background:rgba(10,14,12,.6); backdrop-filter:blur(3px); }
-  .sheet .card { max-height:60vh; overflow-y:auto; box-shadow:0 -8px 30px rgba(0,0,0,.5); }
-  .swaprow { display:flex; justify-content:space-between; gap:10px; width:100%; text-align:left; margin-bottom:6px; padding:11px 12px; }
-  .swaprow.picked { outline:2px solid var(--accent); background:#1c2b23; }
+  .sheet { position:fixed; inset:auto 0 0 0; z-index:40; padding:10px; background:rgba(6,7,8,.7); backdrop-filter:blur(3px); }
+  .sheet .card { max-height:60vh; overflow-y:auto; box-shadow:0 -8px 30px rgba(0,0,0,.55); }
+  .swaprow { display:flex; justify-content:space-between; gap:10px; width:100%; text-align:left; background:var(--card);
+             border:1px solid var(--border-card); border-radius:var(--radius-sm); margin-bottom:6px; padding:11px 12px;
+             text-transform:none; letter-spacing:normal; }
+  .swaprow:hover { border-color:var(--border-hover); background:var(--row-hover2); }
+  .swaprow.picked { border-color:var(--accent); background:var(--nested); }
   #mvGive, #mvGet { max-height:220px; overflow-y:auto; }
   #mvTradeTeam { width:100%; margin-bottom:8px; }
   #faSearch, #mvTradeNote { width:100%; margin:6px 0; }
-  .teamrow { display:flex; align-items:center; gap:12px; width:100%; text-align:left; margin-bottom:8px; padding:12px; }
+  .teamrow { display:flex; align-items:center; gap:12px; width:100%; text-align:left; background:var(--card);
+             border:1px solid var(--border-card); border-radius:var(--radius-sm); margin-bottom:8px; padding:12px;
+             text-transform:none; letter-spacing:normal; }
+  .teamrow:hover { border-color:var(--border-hover); background:var(--row-hover2); }
   .teamrow img { width:34px; height:34px; border-radius:50%; object-fit:cover; }
-  .rv input.redit { width:76px; text-align:right; font-family:var(--mono); padding:4px 6px; }
-  #toast { position:fixed; left:50%; transform:translateX(-50%); bottom:calc(84px + env(safe-area-inset-bottom));
-           background:#0e1411; border:1px solid var(--accent); border-radius:12px; padding:10px 16px; z-index:60; }
+  .rv input.redit { width:76px; text-align:right; font-family:var(--font-display); font-weight:700; padding:4px 6px; }
+  #toast { position:fixed; left:50%; transform:translateX(-50%); bottom:calc(74px + env(safe-area-inset-bottom));
+           background:var(--nested); border:1px solid var(--border-hover); border-left:3px solid var(--accent);
+           border-radius:var(--radius-sm); padding:10px 16px; font:13px var(--font-body); z-index:60;
+           box-shadow:0 8px 24px rgba(0,0,0,.5); }
   /* team-name tap targets -> locker */
   .teamlink { cursor:pointer; text-decoration:none; }
-  .teamlink:hover, .teamlink:focus { text-decoration:underline; }
-  /* chat */
+  .teamlink:hover, .teamlink:focus { text-decoration:underline; color:var(--accent); }
+
+  /* ---------------- chat ---------------- */
   .chatcard { padding-bottom:0; }
   .chatlist { max-height:52vh; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding:2px 2px 8px; }
   .chatRowMsg { display:flex; }
-  .chatBubble { background:#141d18; border:1px solid var(--line); border-radius:12px; padding:8px 10px; max-width:88%; }
-  .chatBubble.mine { background:#16241d; border-color:var(--accent); margin-left:auto; }
+  .chatBubble { background:var(--nested2); border:1px solid var(--border-card); border-radius:12px; padding:8px 10px; max-width:88%; }
+  .chatBubble.mine { background:var(--card); border-color:var(--accent); margin-left:auto; }
   .chatMeta { display:flex; justify-content:space-between; gap:10px; font-size:12px; margin-bottom:2px; }
-  .chatQuote { border-left:2px solid var(--line); padding-left:8px; margin:4px 0; color:var(--mut); font-size:12.5px; }
+  .chatMeta b { font-family:var(--font-display); font-weight:600; letter-spacing:.3px; }
+  .chatQuote { border-left:2px solid var(--border-card); padding-left:8px; margin:4px 0; color:var(--mut); font-size:12.5px; }
   .chatText2 { white-space:pre-wrap; word-break:break-word; }
   .chatImg { max-width:220px; max-height:220px; border-radius:10px; margin-top:6px; display:block; cursor:zoom-in; }
   .chatActions { display:flex; gap:6px; margin-top:6px; flex-wrap:wrap; }
-  .chatActions button { background:#0e1411; border:1px solid var(--line); border-radius:99px; padding:3px 9px; font-size:12px; }
-  .chatDel { color:var(--red); }
-  .chatSys { color:var(--mut); font-size:13px; background:#141d18; border:1px dashed var(--line); border-radius:10px; padding:6px 10px; width:100%; }
-  .chatcompose { border-top:1px solid var(--line); margin-top:8px; padding-top:10px; position:sticky; bottom:0; background:var(--card); }
+  .chatActions button { background:var(--nested2); border:1px solid var(--border-card); border-radius:var(--radius-pill);
+                         padding:3px 9px; font-size:12px; text-transform:none; letter-spacing:0; }
+  .chatDel { color:var(--accent); }
+  .chatSys { color:var(--mut); font-size:13px; background:var(--nested2); border:1px dashed var(--border-card);
+             border-radius:10px; padding:6px 10px; width:100%; }
+  .chatcompose { border-top:1px solid var(--border-card); margin-top:8px; padding-top:10px; position:sticky; bottom:0; background:var(--card); }
   .chatRow { display:flex; gap:6px; align-items:center; }
   .chaticon { padding:8px 10px; flex:0 0 auto; }
   .chatText { flex:1 1 auto; min-width:0; }
   .chatSend { flex:0 0 auto; }
-  .chatgifbox, .chatmeme { background:#0e1411; border:1px solid var(--line); border-radius:12px; padding:8px; margin-bottom:8px; }
+  .chatgifbox, .chatmeme { background:var(--nested2); border:1px solid var(--border-card); border-radius:12px; padding:8px; margin-bottom:8px; }
   .chatGifQ { width:100%; margin-bottom:8px; }
   .chatGifGrid, .chatmeme { display:grid; grid-template-columns:repeat(auto-fill,minmax(84px,1fr)); gap:6px; }
-  .gifThumb, .memeThumb { padding:0; border-radius:8px; overflow:hidden; border:1px solid var(--line); background:none; }
+  .gifThumb, .memeThumb { padding:0; border-radius:8px; overflow:hidden; border:1px solid var(--border-card); background:none; }
   .gifThumb img, .memeThumb img { width:100%; height:64px; object-fit:cover; display:block; }
-  .chatReplyPreview, .chatPending { display:flex; align-items:center; gap:8px; background:#0e1411; border:1px solid var(--line);
+  .chatReplyPreview, .chatPending { display:flex; align-items:center; gap:8px; background:var(--nested2); border:1px solid var(--border-card);
     border-radius:10px; padding:6px 10px; margin-bottom:8px; }
   .chatPending img { width:44px; height:44px; object-fit:cover; border-radius:8px; }
   .chatReplyX, .chatPendingX { margin-left:auto; background:none; border:none; padding:2px 6px; }
   /* the house [hidden]-override lesson, again — every chat auxiliary panel
      sets its own `display` unconditionally, so each needs this restated */
   .chatmeme[hidden], .chatgifbox[hidden], .chatReplyPreview[hidden], .chatPending[hidden] { display:none; }
-  .imgoverlay { position:fixed; inset:0; z-index:70; background:rgba(6,9,7,.92); display:flex; align-items:center; justify-content:center; padding:20px; }
+  .imgoverlay { position:fixed; inset:0; z-index:70; background:rgba(6,7,8,.92); display:flex; align-items:center; justify-content:center; padding:20px; }
   .imgoverlay[hidden] { display:none; } /* the house [hidden]-override lesson — an author rule always beats the UA [hidden]{display:none} */
   .imgoverlay img { max-width:100%; max-height:100%; border-radius:10px; }
-  /* lockers */
-  .lockerhead { border-radius:14px; padding:16px; margin-bottom:12px; background:var(--accent); color:#fff; }
+
+  /* ---------------- record book (S6) ---------------- */
+  .recordbook summary { cursor:pointer; font:600 12px var(--font-display); color:var(--mut); text-transform:uppercase;
+                         letter-spacing:2px; list-style:none; }
+  .recordbook summary::-webkit-details-marker { display:none; }
+  .recordbook summary::before { content:"▸ "; color:var(--accent); }
+  .recordbook[open] summary::before { content:"▾ "; }
+  .recordbook[open] summary { margin-bottom:10px; }
+  .h2hline { text-align:center; margin-top:6px; }
+
+  /* ---------------- playoff bracket (S7) ---------------- */
+  .champbanner { text-align:center; padding:18px; margin-bottom:12px; border-radius:var(--radius-card);
+                 background:linear-gradient(135deg,var(--gold),#8a6110); color:var(--bg); font:800 16px var(--font-display);
+                 letter-spacing:.5px; text-transform:uppercase; }
+  .toiletbanner { text-align:center; padding:10px; margin-bottom:12px; border-radius:var(--radius-sm);
+                  border:1px dashed var(--accent); color:var(--accent); font-size:13px; }
+  .bracketrounds { display:flex; flex-direction:column; gap:16px; }
+  .bracketcol { min-width:0; }
+  .byerow { padding:8px 10px; margin-bottom:6px; border:1px dashed var(--border-card); border-radius:var(--radius-sm); color:var(--mut); font-size:13px; }
+  .bgame { display:block; width:100%; text-align:left; background:var(--card); border:1px solid var(--border-card);
+           border-radius:var(--radius-sm); margin-bottom:8px; padding:10px 12px;
+           text-transform:none; letter-spacing:normal; }
+  .bgame:not([disabled]):hover { border-color:var(--border-hover); }
+  .bgame[disabled] { cursor:default; opacity:.82; }
+  .bgame .bside { display:flex; justify-content:space-between; gap:10px; font:500 13.5px var(--font-body); padding:2px 0; }
+  .bgame .bside .mut { font-family:var(--font-display); font-weight:700; }
+  .bgame .bside.winner { font-weight:800; color:var(--green); }
+  @media (min-width:900px) {
+    .bracketrounds { flex-direction:row; align-items:flex-start; }
+    .bracketcol { flex:1 1 0; }
+  }
+
+  /* ---------------- lockers ---------------- */
+  .lockerhead { border-radius:var(--radius-card); padding:16px; margin-bottom:12px; background:var(--accent); color:#fff; }
   .lockerhead-inner { display:flex; align-items:center; gap:14px; }
   .lockerlogo { width:64px; height:64px; border-radius:16px; object-fit:cover; flex:0 0 auto; background:rgba(255,255,255,.15); }
   .lockerlogo-ph { display:flex; align-items:center; justify-content:center; font-size:30px; }
-  .lockername { margin:0; font-size:22px; }
+  .lockername { margin:0; font:700 24px var(--font-display); letter-spacing:.5px; text-transform:uppercase; }
   .lockermotto { margin:2px 0; opacity:.92; font-style:italic; }
-  .lockerrec { margin:2px 0; font-family:var(--mono); opacity:.92; }
+  .lockerrec { margin:2px 0; font-family:var(--font-display); font-weight:600; opacity:.92; }
   .lockeredit { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
-  .lockeredit button { background:rgba(0,0,0,.25); border-color:rgba(255,255,255,.3); color:#fff; }
-  /* bottom nav */
+  .lockeredit button { background:rgba(0,0,0,.25); border-color:rgba(255,255,255,.35); color:#fff; }
+
+  /* ---------------- nav — mobile bottom bar / desktop top-nav row ---------------- */
   .bnav { position:fixed; left:0; right:0; bottom:0; z-index:30; display:flex;
-          background:rgba(14,20,17,.96); backdrop-filter:blur(8px); border-top:1px solid var(--line);
-          padding:6px 8px calc(6px + env(safe-area-inset-bottom)); }
-  .bnav button { flex:1 1 0; background:none; border:none; color:var(--mut); font-size:12px; padding:6px 2px; border-radius:10px; }
-  .bnav button .ico { display:block; font-size:20px; }
-  .bnav button.on { color:var(--ink); background:#222f28; }
-  @media (min-width:900px) {
-    header { padding:12px 20px; }
-    .bnav { position:sticky; top:49px; bottom:auto; max-width:860px; margin:0 auto; border:1px solid var(--line);
-            border-radius:12px; margin-top:10px; }
+          background:var(--tabbar); backdrop-filter:blur(8px); border-top:1px solid var(--border-card);
+          padding:6px 6px calc(6px + env(safe-area-inset-bottom)); }
+  .bnav button { flex:1 1 0; background:none; border:none; color:var(--faint); min-height:44px;
+                 font:600 11.5px var(--font-display); letter-spacing:1px; text-transform:uppercase;
+                 padding:6px 2px; cursor:pointer; }
+  .bnav button.on { color:var(--accent); }
+  .bnav button:hover { color:var(--ink2); }
+  .bnav button.on:hover { color:var(--accent); }
+
+  /* ============ desktop (≥1024px) — the design's top-nav pattern ============
+     header (wordmark + week/avatar meta) and #bnav (the link row) stay separate
+     elements — see the containing-block note above — but share one background
+     with no border between them, so together they read as the mockup's single
+     60px top-nav strip: wordmark left, links across the middle, "WEEK N · YEAR"
+     + avatar pinned right. */
+  @media (min-width:1024px) {
+    header { padding:0 24px; height:46px; border-bottom:none; }
+    header .sub { display:inline; margin-left:2px; }
+    header .hmeta { display:flex; }
+    main { max-width:1200px; padding:20px 24px; }
     body { padding-bottom:24px; }
-    .bnav button { font-size:13px; display:flex; gap:8px; align-items:center; justify-content:center; }
-    .bnav button .ico { display:inline; font-size:16px; }
+    .bnav { position:sticky; top:46px; background:var(--tabbar); border-top:none; border-bottom:1px solid var(--border-card);
+            padding:0 24px; max-width:none; margin:0; height:34px; }
+    .bnav button { flex:0 0 auto; display:flex; align-items:center; justify-content:center; min-height:0;
+                   height:100%; font-size:12.5px; letter-spacing:1.5px; padding:0 16px 0 0;
+                   border-bottom:2px solid transparent; color:var(--mut); }
+    .bnav button.on { color:var(--ink); border-bottom-color:var(--accent); }
+    .bnav button:hover { color:var(--ink2); }
+    /* league home: cheap multi-column dashboard feel without restructuring the cards themselves */
+    main[data-view="league"] { column-count:2; column-gap:20px; }
+    main[data-view="league"] > * { break-inside:avoid; -webkit-column-break-inside:avoid; }
+  }
+  @media (min-width:1360px) {
+    main[data-view="league"] { column-count:3; }
   }
 </style>
 </head>
 <body>
   <header>
-    <span class="wordmark"><span class="goat">🐐</span>The GFFL</span>
+    <span class="wordmark"><span class="goat">🐐</span>The <span class="accentword">GFFL</span></span>
     <span class="sub">Goat Fantasy Football League</span>
+    <span class="hmeta" id="hMeta" hidden>
+      <span id="hWeekYear"></span>
+      <span id="hAvatar" hidden></span>
+    </span>
   </header>
+  <!-- #bnav stays a SIBLING of <header>, never a descendant: header sets backdrop-filter,
+       and a backdrop-filter/filter/transform ancestor becomes the containing block for any
+       position:fixed descendant in Chromium — nesting nav inside header would silently break
+       the mobile fixed bottom bar. At ≥1024px the two are styled to read as one continuous
+       top-nav strip (matching background, no border between them) without that risk. -->
   <nav class="bnav" id="bnav">
-    <button data-v="league"><span class="ico">🏟</span>League</button>
-    <button data-v="matchup"><span class="ico">⚔️</span>Matchup</button>
-    <button data-v="team"><span class="ico">👥</span>My Team</button>
-    <button data-v="moves"><span class="ico">🔁</span>Moves</button>
-    <button data-v="chat"><span class="ico">💬</span>Chat</button>
-    <button data-v="rules"><span class="ico">📜</span>Rules</button>
+    <button data-v="league">League</button>
+    <button data-v="matchup">Matchup</button>
+    <button data-v="team">My Team</button>
+    <button data-v="moves">Moves</button>
+    <button data-v="chat">Chat</button>
+    <button data-v="rules">Rules</button>
   </nav>
   <main id="main"><div class="card mut">Loading the league…</div></main>
   <div id="toast" hidden></div>
@@ -179,6 +344,14 @@
     document.querySelectorAll(".bnav button").forEach((b) =>
       b.addEventListener("click", () => LG.ui.show(b.dataset.v)));
     document.getElementById("imgOverlay").addEventListener("click", () => { document.getElementById("imgOverlay").hidden = true; });
+    // Bound ONCE — #hAvatar is persistent header chrome, never re-created by a
+    // render (unlike main()'s innerHTML swaps), so wiring it through the
+    // per-render wireLockerTaps() convention would stack a new listener on
+    // every navigation. A single boot-time binding avoids that entirely.
+    document.getElementById("hAvatar").addEventListener("click", () => {
+      const id = LG.myTeamId();
+      if (id) LG.ui.openLocker(id);
+    });
     LG.backendReady.then(() => LG.ui.boot());
     // Test hook — the suites drive and inspect through this.
     window.__GFFL__ = { LG, get D() { return LG.data; }, get UI() { return LG.ui; } };

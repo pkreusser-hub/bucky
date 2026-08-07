@@ -7,11 +7,15 @@
   const UI = (LG.ui = {});
   const $ = (s) => document.querySelector(s);
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  // Up to 2-letter initials for a team-avatar fallback (design system §"Team avatars are
+  // initials on colored circles") — used only where a team has no logo on file.
+  const initials = (name) => (String(name || "?").trim().split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || "?");
 
   UI.view = "league";
   UI.week = null;           // viewed league week
   UI.matchup = null;        // [homeTeamId, awayTeamId]
   UI.lockerTeamId = null;   // viewed locker
+  UI._aiRead = null;        // {key, at, busy, error, mults:{name:{mult,why,proj,adj}}} — S5's AI read
   let schedule = null;
   const REACTS = ["🔥", "💀", "😂", "🐐"];
   const IMG_CAP = 80000; // ~80KB dataURL chars (design cap for chat images/logos)
@@ -31,13 +35,21 @@
     if (LG.teams.length) {
       await maybeAutoProcessWaivers().catch(() => {});
       await maybeAutoExecuteTrades().catch(() => {});
+      // Almost always a fast no-op here (the live engine hasn't polled anything yet at this
+      // point in boot, so the finalization guard can't confirm any game is final) — the REAL
+      // trigger is d.onUpdate below, once live data actually exists. Kept here too for the same
+      // "any client open past a deadline carries the league forward" symmetry as the two calls
+      // above, and because it costs nothing when it can't do anything. Same for the bracket
+      // (S7): build it once the regular season is fully final, advance it once a playoff week
+      // is — wrapped in maybeAdvanceLeague so boot and every live poll run the exact same chain.
+      await maybeAdvanceLeague().catch(() => {});
     }
     if (!LG.myTeamId() && LG.teams.length) { renderClaim(); return; }
     startData();
     const h = location.hash;
     const lockerM = /^#locker=(\d+)$/.exec(h);
     if (lockerM) { UI.lockerTeamId = Number(lockerM[1]); UI.show("locker"); return; }
-    UI.show(h === "#team" ? "team" : h === "#rules" ? "rules" : h === "#matchup" ? "matchup" : h === "#moves" ? "moves" : h === "#chat" ? "chat" : "league");
+    UI.show(h === "#team" ? "team" : h === "#rules" ? "rules" : h === "#matchup" ? "matchup" : h === "#moves" ? "moves" : h === "#chat" ? "chat" : h === "#bracket" ? "bracket" : "league");
   };
 
   async function startData() {
@@ -50,7 +62,15 @@
       for (const p of ros) if (p.team) abs.add(d.slpTeam(p.team));
     }
     d.trackTeams([...abs]);
-    d.onUpdate = () => { paintLive(); };
+    // Pre-game projection snapshot (S5): chained off the SAME initSleeper() promise
+    // (memoized — this never triggers a second directory fetch), so it fires once the
+    // engine's projections are actually warm rather than racing them.
+    d.initSleeper().then(() => { LG.snapshotProjections(UI.week).catch(() => {}); });
+    // The real trigger for auto-finalization (+ S7's bracket build/advance): once live data
+    // exists (after every poll — idempotent + cheap when there's nothing new to do, same
+    // posture as the waiver/trade auto-processing above), any past week missing a weekly doc
+    // gets carried forward, and the bracket follows right along.
+    d.onUpdate = () => { paintLive(); maybeAdvanceLeague().catch(() => {}); };
     d.start();
   }
 
@@ -58,6 +78,11 @@
     UI.view = name;
     stopChatPoll(); // leaving whatever view had one open — chat/matchup-thread restart their own
     document.querySelectorAll(".bnav button").forEach((b) => b.classList.toggle("on", b.dataset.v === name));
+    // Marks which screen main() holds so CSS alone can special-case a view's
+    // layout (the desktop multi-column league-home treatment) without any
+    // further JS — league.html's own stylesheet reads this attribute.
+    if (main()) main().dataset.view = name;
+    paintHeader();
     if (name === "league") renderLeague();
     else if (name === "matchup") renderMatchup();
     else if (name === "team") renderTeam();
@@ -65,6 +90,7 @@
     else if (name === "rules") renderRules();
     else if (name === "chat") renderChat();
     else if (name === "locker") renderLocker();
+    else if (name === "bracket") renderBracket();
   };
   // Reachable from anywhere a team name is tapped (standings, matchup header,
   // "My locker" on the team page) — plan §4.7 says lockers need no nav entry
@@ -73,6 +99,12 @@
     UI.lockerTeamId = Number(teamId);
     location.hash = "#locker=" + UI.lockerTeamId;
     UI.show("locker");
+  };
+  // Reachable from the league home's 🏆 Playoffs card (S7) — same no-nav-entry-needed
+  // posture as lockers.
+  UI.openBracket = function () {
+    location.hash = "#bracket";
+    UI.show("bracket");
   };
   function wireLockerTaps(root) {
     (root || document).querySelectorAll("[data-locker]").forEach((el) => el.addEventListener("click", (e) => {
@@ -95,6 +127,23 @@
     el.className = "health " + (h.mode === "dual" ? "ok" : h.mode === "none" ? "bad" : "warn");
     el.hidden = false;
   }
+  // Desktop-only header chrome (design's top-nav "WEEK 8 · 2026" + team avatar) —
+  // hidden by CSS below 1024px, so this is pure decoration on mobile. Reads
+  // UI.week/LG.rules/LG.myTeamId, none of which this function ever writes.
+  function paintHeader() {
+    const meta = $("#hMeta");
+    if (!meta || !LG.rules) return;
+    meta.hidden = false;
+    const wkEl = $("#hWeekYear");
+    if (wkEl) wkEl.textContent = UI.week != null ? "Week " + UI.week + (LG.rules.season ? " · " + LG.rules.season : "") : "";
+    const av = $("#hAvatar");
+    if (!av) return;
+    const tid = LG.myTeamId(), T = tid ? LG.teamById(tid) : null;
+    if (!T) { av.hidden = true; return; }
+    av.hidden = false;
+    av.innerHTML = T.logo ? `<img src="${esc(T.logo)}" alt="">` : esc(initials(T.name));
+    av.title = T.name || "";
+  }
 
   // ---------------- gate + claim ----------------
   function renderGate() {
@@ -110,6 +159,8 @@
     });
   }
   function renderClaim() {
+    if (main()) main().dataset.view = "claim";
+    paintHeader();
     main().innerHTML = `<div class="card">
       <h2>Who are you?</h2><p class="mut">Claim your team — this device remembers.</p>
       <div id="claimList">${LG.teams.map((t) => `
@@ -161,24 +212,128 @@
       await importFromEspn();
     });
   }
+  // 🏆 Power rankings card (plan §4.9): the LATEST finalized week's snapshot, ordered by rank,
+  // with a movement arrow against the PRIOR finalized week's own snapshot for the same team
+  // (blank on week 1 — nothing to move against). Renders nothing at all until at least one week
+  // is official — a ranking of an unplayed season would be meaningless.
+  function powerRankingsHtml(weeklyDocs) {
+    const sorted = [...(weeklyDocs || [])].filter((w) => Array.isArray(w.power) && w.power.length).sort((a, b) => b.week - a.week);
+    const latest = sorted[0];
+    if (!latest) return "";
+    const prior = sorted.find((w) => w.week === latest.week - 1);
+    const rows = [...latest.power].sort((a, b) => a.rank - b.rank).map((r) => {
+      const T = LG.teamById(r.teamId);
+      const prevR = prior ? (prior.power.find((p) => p.teamId === r.teamId) || {}).rank : null;
+      const move = prevR == null ? '<span class="mut">–</span>'
+        : prevR > r.rank ? `<span class="delta up">▲${prevR - r.rank}</span>`
+        : prevR < r.rank ? `<span class="delta down">▼${r.rank - prevR}</span>`
+        : '<span class="mut">–</span>';
+      return `<div class="rowline"><span>#${r.rank} <span class="teamlink" data-locker="${r.teamId}">${logoTd(T)}${esc(T ? T.name : "?")}</span></span>
+        <span>${move} <span class="mut small">${r.score}</span></span></div>`;
+    }).join("");
+    return `<div class="card"><h2>🏆 Power rankings <span class="mut">— through week ${latest.week}</span></h2>${rows}</div>`;
+  }
+  // 📈 Projection accuracy card (plan §5's scoreboard): our own running miss vs OUR pre-game
+  // snapshots. Never rendered as a comparison to ESPN — that data isn't logged (see the S5 plan
+  // entry) — and never rendered at all until there's at least one real player-week to report,
+  // so the card can never make an unbacked claim.
+  function accuracyHtml(acc) {
+    if (!acc) return "";
+    return `<div class="card"><h2>📈 Projection accuracy</h2>
+      <p class="mut small">Our projections: avg miss ${acc.avg} pts/player over ${acc.n} player-week${acc.n === 1 ? "" : "s"}.</p></div>`;
+  }
+  // 📜 Record book card (plan §4.8): collapsed by default so it doesn't crowd the home page —
+  // champions, the biggest single-week score/blowout ever, best season PF, and the all-time
+  // standings, all combined from imported ESPN history + this season's own finalized weeks.
+  // Empty state (nothing imported, nothing finalized yet) points the commissioner at Rules.
+  function recordBookHtml(rb) {
+    if (!rb) return "";
+    if (!rb.hasData) {
+      return `<div class="card"><details class="recordbook"><summary>📜 Record book</summary>
+        <p class="mut">No history imported yet.${isCommish() ? " Import it from the Rules page." : ""}</p></details></div>`;
+    }
+    const champRows = rb.champs.length
+      ? rb.champs.map((c) => `<div class="fline">${c.season}: <span class="teamlink" data-locker="${c.teamId}">${esc(c.name)}</span></div>`).join("")
+      : '<p class="mut small">No champions on file yet.</p>';
+    const hwRow = rb.highestWeek
+      ? `<div class="fline"><span class="teamlink" data-locker="${rb.highestWeek.teamId}">${esc(rb.highestWeek.name)}</span> —
+          ${LG.fmtPts(rb.highestWeek.pts)} <span class="mut">(wk ${rb.highestWeek.week}, ${rb.highestWeek.season})</span></div>`
+      : '<p class="mut small">—</p>';
+    const bbRow = rb.biggestBlowout
+      ? `<div class="fline"><span class="teamlink" data-locker="${rb.biggestBlowout.homeId}">${esc(rb.biggestBlowout.homeName)}</span>
+          ${LG.fmtPts(rb.biggestBlowout.homePts)} — ${LG.fmtPts(rb.biggestBlowout.awayPts)}
+          <span class="teamlink" data-locker="${rb.biggestBlowout.awayId}">${esc(rb.biggestBlowout.awayName)}</span>
+          <span class="mut">(margin ${LG.fmtPts(rb.biggestBlowout.margin)}, wk ${rb.biggestBlowout.week}, ${rb.biggestBlowout.season})</span></div>`
+      : '<p class="mut small">—</p>';
+    const pfRow = rb.bestSeasonPF
+      ? `<div class="fline"><span class="teamlink" data-locker="${rb.bestSeasonPF.teamId}">${esc(rb.bestSeasonPF.name)}</span> —
+          ${LG.fmtPts(rb.bestSeasonPF.pf)} <span class="mut">(${rb.bestSeasonPF.season})</span></div>`
+      : '<p class="mut small">—</p>';
+    return `<div class="card"><details class="recordbook">
+      <summary>📜 Record book</summary>
+      <h2 class="small mut">🏆 Champions</h2>${champRows}
+      <h2 class="small mut">🔥 Highest single-week score ever</h2>${hwRow}
+      <h2 class="small mut">💥 Biggest blowout</h2>${bbRow}
+      <h2 class="small mut">📈 Best season, points for</h2>${pfRow}
+      <h2 class="small mut">🐐 All-time standings</h2>
+      <div class="panner"><table class="tbl">
+        <thead><tr><th></th><th>Team</th><th class="num">W</th><th class="num">L</th><th class="num">PF</th><th class="num">🏆</th></tr></thead>
+        <tbody>${rb.standings.map((s, i) => `<tr><td class="mut">${i + 1}</td>
+            <td><span class="teamlink" data-locker="${s.teamId}">${esc(s.name)}</span></td>
+            <td class="num">${s.w}</td><td class="num">${s.l}</td><td class="num">${s.pf.toFixed(1)}</td><td class="num">${s.titles}</td></tr>`).join("")}
+        </tbody></table></div>
+    </details></div>`;
+  }
+  // 🏆 Playoffs card (plan §4.10, S7): once the regular season has moved past week
+  // seasonWeeks and there's no bracket yet, a prominent build prompt (commissioner-only
+  // button, everyone else just sees it's coming); once a bracket exists, a quiet link
+  // through to the bracket page — becomes the champion banner once one's crowned.
+  function playoffsCardHtml(bracket, week, seasonWeeks, commish) {
+    if (!bracket) {
+      if (week <= seasonWeeks) return "";
+      return `<div class="card"><h2>🏆 Playoffs</h2>
+        <p class="mut">The playoff bracket hasn't been built yet.</p>
+        ${commish ? '<button id="buildBracketBtn" class="primary">🏆 Build bracket</button>' : ""}</div>`;
+    }
+    const champTeam = bracket.champion != null ? LG.teamById(bracket.champion) : null;
+    return `<div class="card"><h2>🏆 Playoffs</h2>
+      ${champTeam ? `<p>🏆 <b>${esc(champTeam.name)}</b> are the ${bracket.season} GFFL Champions!</p>` : '<p class="mut">The bracket is set — best of luck.</p>'}
+      <button id="openBracketBtn">${champTeam ? "🏆 View the bracket" : "View the bracket →"}</button></div>`;
+  }
   async function renderLeague(repaint) {
     if (!LG.teams.length) { renderFirstRun(repaint); return; }
     if (!repaint) {
       await loadWeekRosters();
       UI._standings = await LG.loadStandings();
+      UI._weeklyDoc = await LG.loadWeekly(UI.week);
+      UI._allWeekly = await LG.db.list("weekly");
+      UI._accuracy = await LG.seasonAccuracy();
+      UI._recordBook = await LG.recordBook();
+      UI._bracket = await LG.loadBracket();
+      // The one source of "what's on this week" — the regular schedule for weeks <=
+      // seasonWeeks, the bracket's currently-resolved pairings for a playoff week (S7).
+      UI._wkGames = await LG.gamesForWeek(UI.week);
     }
     const st = UI._standings || {};
-    const wkGames = schedule ? (schedule[UI.week - 1] || []) : [];
+    const wkGames = UI._wkGames || [];
+    const seasonWeeks = LG.rules.seasonWeeks;
     const rows = [...LG.teams].sort((a, b) => {
       const A = st[a.id] || { w: 0, pf: 0 }, B = st[b.id] || { w: 0, pf: 0 };
       return (B.w - A.w) || (B.pf - A.pf);
     });
+    const finalizeBtn = (wkGames.length && isCommish() && !UI._weeklyDoc)
+      ? `<div class="rowline"><button id="finalizeBtn">✅ Finalize week ${UI.week}</button></div>` : "";
+    const noGamesMsg = !schedule ? `No schedule yet${isCommish() ? " — generate one in Rules" : ""}.`
+      : UI.week > seasonWeeks ? "See the Playoffs card below." : "No games this week.";
     main().innerHTML = `
       <div class="card">
         <div class="rowline"><h2>Week ${UI.week}</h2><span id="healthChip" class="health" hidden></span></div>
-        ${schedule ? wkGames.map(([h, a]) => matchupCard(h, a)).join("") :
-          `<p class="mut">No schedule yet${isCommish() ? " — generate one in Rules" : ""}.</p>`}
+        ${wkGames.length ? `<div class="mugrid">${wkGames.map(([h, a]) => matchupCard(h, a)).join("")}</div>` : `<p class="mut">${noGamesMsg}</p>`}
+        ${finalizeBtn}
       </div>
+      ${playoffsCardHtml(UI._bracket, UI.week, seasonWeeks, isCommish())}
+      ${powerRankingsHtml(UI._allWeekly)}
+      ${accuracyHtml(UI._accuracy)}
       <div class="card"><h2>Standings</h2><div class="panner"><table class="tbl">
         <thead><tr><th></th><th>Team</th><th class="num">W</th><th class="num">L</th><th class="num">PF</th><th class="num">PA</th></tr></thead>
         <tbody>${rows.map((t, i) => {
@@ -186,60 +341,229 @@
           return `<tr><td class="mut">${i + 1}</td><td><span class="teamlink" data-locker="${t.id}">${logoTd(t)}${esc(t.name)}</span></td>
             <td class="num">${s.w}</td><td class="num">${s.l}</td>
             <td class="num">${s.pf.toFixed(1)}</td><td class="num">${s.pa.toFixed(1)}</td></tr>`;
-        }).join("")}</tbody></table></div></div>`;
+        }).join("")}</tbody></table></div></div>
+      ${recordBookHtml(UI._recordBook)}`;
     document.querySelectorAll("[data-mu]").forEach((el) => el.addEventListener("click", () => {
       UI.matchup = el.dataset.mu.split("-").map(Number);
       UI.show("matchup");
     }));
+    $("#finalizeBtn") && $("#finalizeBtn").addEventListener("click", async () => {
+      if (!(await LG.gateCommish())) return;
+      let r = await LG.finalizeWeek(UI.week);
+      if (!r.ok && r.reason === "not-final") {
+        const n = (r.pending || []).length;
+        const msg = "Not every game is final yet (" + n + " starter" + (n === 1 ? "" : "s") + " still live or unresolved). Finalize anyway?";
+        if (!window.confirm(msg)) return;
+        r = await LG.finalizeWeek(UI.week, { force: true });
+      }
+      if (r.ok) {
+        toast("Week " + UI.week + " finalized.");
+        await LG.advanceBracket().catch(() => {}); // a playoff week just went final — walk the bracket forward right away
+        UI._standings = null; UI._bracket = null;
+        renderLeague();
+      } else toast("Couldn't finalize: " + reasonLabel(r.reason));
+    });
+    $("#buildBracketBtn") && $("#buildBracketBtn").addEventListener("click", async () => {
+      if (!(await LG.gateCommish())) return;
+      const r = await LG.buildBracket();
+      if (r.ok) { toast("Bracket built."); UI._bracket = null; renderLeague(); }
+      else toast("Couldn't build bracket: " + (r.reason === "weeks-not-final" ? "week(s) " + (r.missing || []).join(", ") + " aren't final yet." : reasonLabel(r.reason)));
+    });
+    $("#openBracketBtn") && $("#openBracketBtn").addEventListener("click", () => UI.openBracket());
     wireLockerTaps();
     paintHealth();
   }
   function logoTd(t) { return t.logo ? `<img class="tlogo" src="${esc(t.logo)}" alt="">` : ""; }
+  // 44px initial-circle avatar for the Matchup page header (design: "mine accent bg,
+  // opponent #2B2D32"). Falls back to the same `.logo` field logoTd() already reads —
+  // deliberately not `.logoData` too, to match logoTd()'s existing precedence exactly
+  // rather than introduce a second, inconsistent notion of "the team's picture".
+  function avatarHtml(t, mine) {
+    const cls = "muavatar" + (mine ? " mine" : "");
+    if (t && t.logo) return `<span class="${cls}"><img src="${esc(t.logo)}" alt=""></span>`;
+    return `<span class="${cls}">${esc(initials(t && t.name))}</span>`;
+  }
+  // "All-time series" line (plan §4.8's rivalries) — h2h is from the HOME
+  // team's perspective (LG.headToHead(hId, aId)), so aWins is H's wins.
+  // Omitted entirely when there's no shared history yet.
+  function h2hLine(h2h, H, A) {
+    if (!h2h) return "";
+    const total = h2h.aWins + h2h.bWins + h2h.ties;
+    if (!total) return "";
+    const tieSuffix = h2h.ties ? ` (${h2h.ties} tie${h2h.ties === 1 ? "" : "s"})` : "";
+    if (h2h.aWins === h2h.bWins) return `<div class="mut small h2hline">All-time series: tied ${h2h.aWins}–${h2h.bWins}${tieSuffix}</div>`;
+    const leaderName = h2h.aWins > h2h.bWins ? (H ? H.name : "?") : (A ? A.name : "?");
+    const lead = Math.max(h2h.aWins, h2h.bWins), trail = Math.min(h2h.aWins, h2h.bWins);
+    return `<div class="mut small h2hline">All-time series: ${esc(leaderName)} leads ${lead}–${trail}${tieSuffix}</div>`;
+  }
+  // Home-hero extras (design's "MY MATCHUP" card: LIVE badge + win-probability bar) —
+  // rendered ONLY for the .mine card, reusing the same d.remaining/d.winProb math the
+  // Matchup page already relies on (nothing new computed, just invoked from a second
+  // spot) so the hero never disagrees with what the dedicated Matchup page shows.
+  function matchupHeroExtra(h, a) {
+    const d = D();
+    const hKeys = teamStarters(h).map((p) => p.key), aKeys = teamStarters(a).map((p) => p.key);
+    const wp = d.winProb(aKeys, hKeys); // away perspective, same convention as the matchup page
+    const hRem = d.remaining(hKeys), aRem = d.remaining(aKeys);
+    const anyLive = hRem.playing > 0 || aRem.playing > 0;
+    const allDone = !anyLive && hRem.left === 0 && aRem.left === 0;
+    const badge = anyLive ? '<span class="herobadge live"><span class="dot"></span>Live</span>'
+      : allDone ? '<span class="herobadge">Final</span>' : '<span class="herobadge">Upcoming</span>';
+    return `<span class="herorow">${badge}<span class="wpbar mini"><span class="wpfillmini" style="width:${Math.round(wp * 100)}%"></span></span></span>`;
+  }
   function matchupCard(h, a) {
     const H = LG.teamById(h), A = LG.teamById(a);
     const mine = LG.myTeamId();
-    return `<button class="mucard ${h === mine || a === mine ? "mine" : ""}" data-mu="${h}-${a}">
+    const isMine = h === mine || a === mine;
+    return `<button class="mucard ${isMine ? "mine" : ""}" data-mu="${h}-${a}">
       <span class="muteam">${logoTd(A)}${esc(A?.name || "?")}</span>
       <span class="muscore">${LG.fmtPts(liveTotal(a))} — ${LG.fmtPts(liveTotal(h))}</span>
-      <span class="muteam right">${esc(H?.name || "?")}${logoTd(H)}</span></button>`;
+      <span class="muteam right">${esc(H?.name || "?")}${logoTd(H)}</span>
+      ${isMine ? matchupHeroExtra(h, a) : ""}</button>`;
+  }
+
+  // ---------------- 🏆 playoff bracket (plan §4.10, S7) ----------------
+  // #bracket — 3 columns (mobile: stacked, via league.html's .bracketrounds media query),
+  // one per playoff week: play-in + a bye list + consolation game A, semis + consolation game
+  // B, championship + 3rd place + the Toilet Bowl's consolation game C. Every resolved game is
+  // a tappable link into the matchup page (for THAT game's own week — a bracket game's week
+  // rides along on data-wk since it's rarely the week you're currently browsing); an unresolved
+  // one renders its build-time placeholder label ("Winner of #4/#5") and isn't clickable.
+  UI.renderBracket = renderBracket;
+  async function renderBracket() {
+    const bracket = await LG.loadBracket();
+    if (!bracket) {
+      main().innerHTML = `<div class="card"><p class="mut">No bracket yet${isCommish() ? " — build it from the League tab once every regular-season week is final." : "."}</p></div>`;
+      return;
+    }
+    const sw = LG.rules.seasonWeeks;
+    const weeklyByWeek = {};
+    weeklyByWeek[sw + 1] = await LG.loadWeekly(sw + 1);
+    weeklyByWeek[sw + 2] = await LG.loadWeekly(sw + 2);
+    weeklyByWeek[sw + 3] = await LG.loadWeekly(sw + 3);
+    const nm = (id) => (LG.teamById(id) || {}).name || ("Team " + id);
+    const champTeam = bracket.champion != null ? LG.teamById(bracket.champion) : null;
+    const toiletTeam = bracket.toilet != null ? LG.teamById(bracket.toilet) : null;
+
+    function scoreFor(g) {
+      const wd = weeklyByWeek[g.week];
+      if (!wd || g.home == null || g.away == null) return null;
+      const m = (wd.matchups || []).find((x) => (x.home === g.home && x.away === g.away) || (x.home === g.away && x.away === g.home));
+      if (!m) return null;
+      return { hp: m.home === g.home ? m.homePts : m.awayPts, ap: m.home === g.home ? m.awayPts : m.homePts };
+    }
+    function gameHtml(g) {
+      const H = g.home != null ? LG.teamById(g.home) : null;
+      const A = g.away != null ? LG.teamById(g.away) : null;
+      const sc = scoreFor(g);
+      const homeWon = !!sc && sc.hp > sc.ap, awayWon = !!sc && sc.ap > sc.hp;
+      const homeTxt = H ? esc(H.name) : esc(g.homeLabel || "TBD");
+      const awayTxt = A ? esc(A.name) : esc(g.awayLabel || "TBD");
+      const clickable = H && A;
+      return `<button class="bgame" ${clickable ? `data-mu="${g.home}-${g.away}" data-wk="${g.week}"` : "disabled"}>
+        <div class="bside ${homeWon ? "winner" : ""}"><span>${g.seedHome ? "#" + g.seedHome + " " : ""}${homeTxt}</span><span class="mut">${sc ? LG.fmtPts(sc.hp) : ""}</span></div>
+        <div class="bside ${awayWon ? "winner" : ""}"><span>${g.seedAway ? "#" + g.seedAway + " " : ""}${awayTxt}</span><span class="mut">${sc ? LG.fmtPts(sc.ap) : ""}</span></div>
+      </button>`;
+    }
+    const byeRows = bracket.seeds.slice(0, bracket.byes).map((tid, i) =>
+      `<div class="byerow">#${i + 1} ${esc(nm(tid))} — bye, advances to Round 2</div>`).join("");
+    const playIn = bracket.rounds.r1.filter((g) => g.kind === "playin");
+    const semis = bracket.rounds.r2.filter((g) => g.kind === "semi");
+    const champG = bracket.rounds.r3.find((g) => g.kind === "championship");
+    const thirdG = bracket.rounds.r3.find((g) => g.kind === "third");
+    const consR1 = bracket.rounds.r1.filter((g) => g.kind === "consolation");
+    const consR2 = bracket.rounds.r2.filter((g) => g.kind === "consolation");
+    const consR3 = bracket.rounds.r3.filter((g) => g.kind === "consolation");
+
+    main().innerHTML = `
+      ${champTeam ? `<div class="champbanner">🏆 ${esc(champTeam.name)} — ${bracket.season} GFFL CHAMPIONS!</div>` : ""}
+      ${toiletTeam ? `<div class="toiletbanner">🚽 Toilet Bowl: ${esc(toiletTeam.name)}</div>` : ""}
+      <div class="card"><h2>🏆 Playoff bracket</h2>
+        <div class="bracketrounds">
+          <div class="bracketcol">
+            <h2 class="small mut">Week ${sw + 1} — play-in</h2>
+            ${byeRows}
+            ${playIn.map(gameHtml).join("")}
+            <h2 class="small mut">Consolation</h2>
+            ${consR1.map(gameHtml).join("") || '<p class="mut small">—</p>'}
+          </div>
+          <div class="bracketcol">
+            <h2 class="small mut">Week ${sw + 2} — semifinals</h2>
+            ${semis.map(gameHtml).join("")}
+            <h2 class="small mut">Consolation</h2>
+            ${consR2.map(gameHtml).join("") || '<p class="mut small">—</p>'}
+          </div>
+          <div class="bracketcol">
+            <h2 class="small mut">Week ${sw + 3} — championship</h2>
+            ${champG ? gameHtml(champG) : ""}
+            <h2 class="small mut">3rd place</h2>
+            ${thirdG ? gameHtml(thirdG) : ""}
+            <h2 class="small mut">🚽 Toilet Bowl</h2>
+            ${consR3.map(gameHtml).join("") || '<p class="mut small">—</p>'}
+          </div>
+        </div>
+      </div>`;
+    document.querySelectorAll("[data-mu]").forEach((el) => el.addEventListener("click", () => {
+      const wk = Number(el.dataset.wk);
+      if (wk) UI.week = wk;
+      UI.matchup = el.dataset.mu.split("-").map(Number);
+      UI.show("matchup");
+    }));
+    paintHealth();
   }
 
   // ---------------- matchup (the heart) ----------------
-  function myMatchupThisWeek() {
+  // LG.gamesForWeek, not the raw schedule directly — during a playoff week (S7) that's the
+  // bracket's own resolved pairings (a bye seed, or a not-yet-resolved slot, genuinely has no
+  // matchup this week, which the "no matchup" fallback below already renders honestly).
+  async function myMatchupThisWeek() {
     const mine = LG.myTeamId();
-    if (!schedule || !mine) return null;
-    const wk = schedule[UI.week - 1] || [];
+    if (!mine) return null;
+    const wk = await LG.gamesForWeek(UI.week);
     return wk.find(([h, a]) => h === mine || a === mine) || wk[0] || null;
   }
   UI.renderMatchup = renderMatchup;
   async function renderMatchup(repaint) {
-    if (!UI.matchup) UI.matchup = myMatchupThisWeek();
+    if (!UI.matchup) UI.matchup = await myMatchupThisWeek();
     if (!UI.matchup) { main().innerHTML = `<div class="card"><p class="mut">No matchup — schedule missing.</p></div>`; return; }
     if (!repaint) await loadWeekRosters();
     const d = D();
     const [hId, aId] = UI.matchup;
+    const muKey = hId + "-" + aId;
+    if (!repaint || UI._h2hKey !== muKey) { UI._h2h = await LG.headToHead(hId, aId); UI._h2hKey = muKey; }
     const H = LG.teamById(hId), A = LG.teamById(aId);
     const hs = teamStarters(hId), as_ = teamStarters(aId);
     const hKeys = hs.map((p) => p.key), aKeys = as_.map((p) => p.key);
     const hTot = liveTotal(hId), aTot = liveTotal(aId);
     const wp = d.winProb(aKeys, hKeys); // away perspective, bar shows both
     const hRem = d.remaining(hKeys), aRem = d.remaining(aKeys);
+    const projSum = (keys) => keys.reduce((s, k) => s + (d.projFor(k) || 0), 0);
+    const hProj = projSum(hKeys), aProj = projSum(aKeys);
+    const mine = LG.myTeamId();
+    const anyLive = hRem.playing > 0 || aRem.playing > 0;
+    const allDone = !anyLive && hRem.left === 0 && aRem.left === 0;
+    const liveIndicator = anyLive ? '<div class="mulive"><span class="dot"></span>Live</div>'
+      : allDone ? '<div class="mulive done">Final</div>' : "";
     const rows = pairBySlots(as_, hs);
     const feed = d.S.events.filter((e) => e.msg || hKeys.includes(e.key) || aKeys.includes(e.key)).slice(0, 60);
     const threadKey = `w${UI.week}_${hId}-${aId}`;
     main().innerHTML = `
       <div class="card muhead">
         <div class="muhrow">
-          <div class="muhteam">${logoTd(A)}<b class="teamlink" data-locker="${aId}">${esc(A?.name || "?")}</b><div class="bigpts">${LG.fmtPts(aTot)}</div>
+          <div class="muhteam">${avatarHtml(A, aId === mine)}<b class="teamlink" data-locker="${aId}">${esc(A?.name || "?")}</b><div class="bigpts">${LG.fmtPts(aTot)}</div>
+            <div class="mut small">Proj ${LG.fmtPts(aProj)}</div>
             <div class="mut small">${aRem.left} to play · ${aRem.playing} live</div></div>
           <div class="muhmid">
+            ${liveIndicator}
             <div class="mut small">Week ${UI.week}</div>
             <div class="wpbar"><div class="wpfill" style="width:${Math.round(wp * 100)}%"></div></div>
             <div class="mut small">${Math.round(wp * 100)}% — ${Math.round((1 - wp) * 100)}%</div>
           </div>
-          <div class="muhteam right"><b class="teamlink" data-locker="${hId}">${esc(H?.name || "?")}</b>${logoTd(H)}<div class="bigpts">${LG.fmtPts(hTot)}</div>
+          <div class="muhteam right">${avatarHtml(H, hId === mine)}<b class="teamlink" data-locker="${hId}">${esc(H?.name || "?")}</b><div class="bigpts">${LG.fmtPts(hTot)}</div>
+            <div class="mut small">Proj ${LG.fmtPts(hProj)}</div>
             <div class="mut small">${hRem.left} to play · ${hRem.playing} live</div></div>
         </div>
+        ${h2hLine(UI._h2h, H, A)}
         <div class="rowline"><span id="healthChip" class="health" hidden></span></div>
       </div>
       <div class="card"><div class="panner"><table class="tbl mutable"><tbody>
@@ -251,13 +575,102 @@
       <div class="card"><h2>The feed</h2><div id="mufeed">
         ${feed.length ? feed.map(feedLine).join("") : '<p class="mut">Quiet so far — events land here the moment a starter does anything.</p>'}
       </div></div>
+      <div class="card" id="aiReadCard"><h2>✨ AI read</h2>
+        <button id="aiReadBtn" ${UI._aiRead && UI._aiRead.busy ? "disabled" : ""}>${UI._aiRead && UI._aiRead.busy ? "Reading the game…" : "✨ Get an AI read"}</button>
+        <div id="aiReadOut">${aiReadHtml()}</div>
+      </div>
       <div class="card"><h2>🗑️💬 Trash talk</h2>${chatWidgetHtml("muThread")}</div>`;
+    $("#aiReadBtn") && $("#aiReadBtn").addEventListener("click", () => askAiRead(hId, aId, hs, as_));
     wireLockerTaps();
     wireChat("muThread", threadKey);
     refreshChatList("muThread", threadKey);
     startChatPoll("muThread", threadKey);
     paintHealth();
   }
+
+  // ---------------- ✨ AI read (S5, plan §4.6's AI adjustment layer) ----------------
+  // Button-triggered only — deliberately NOT auto-polling in v1 (preseason has no live data to
+  // adjust against, and a matchup page that fires a Grok call every poll tick would spend real
+  // money for nothing most of the season). One result is cached 5 minutes per matchup so a
+  // second tap on the same matchup doesn't re-spend; a NEW matchup (or the cache going stale)
+  // starts fresh. Degrades SILENTLY on any failure — a toast, never a broken card.
+  const AI_READ_TTL = 5 * 60 * 1000;
+  function aiReadKey(week, h, a) { return `w${week}_${h}-${a}`; }
+  function aiReadHtml() {
+    const st = UI._aiRead;
+    const key = UI.matchup ? aiReadKey(UI.week, UI.matchup[0], UI.matchup[1]) : null;
+    if (!st || st.key !== key) return '<p class="mut small">Tap for live adjustments to players still playing, with reasons.</p>';
+    if (st.busy) return '<p class="mut small">Reading the game…</p>';
+    if (st.error && !st.mults) return `<p class="mut small">${esc(st.error)}</p>`;
+    const entries = Object.entries(st.mults || {});
+    if (!entries.length) return '<p class="mut small">Nothing has changed enough to adjust right now.</p>';
+    return entries.map(([name, m]) => {
+      const projTxt = m.proj != null ? LG.fmtPts(m.proj) : "—";
+      const adjTxt = m.adj != null ? LG.fmtPts(m.adj) : "—";
+      return `<div class="fline">✨ <b>${esc(name)}</b> proj ${projTxt} → <b>${adjTxt}</b>
+        <span class="delta ${m.mult >= 1 ? "up" : "down"}">×${m.mult.toFixed(2)}</span><br>
+        <small class="mut">${esc(m.why)}</small></div>`;
+    }).join("");
+  }
+  async function askAiRead(hId, aId, hPlayers, aPlayers) {
+    const key = aiReadKey(UI.week, hId, aId);
+    const cur = UI._aiRead;
+    if (cur && cur.busy) return;
+    if (cur && cur.key === key && cur.mults && (LG.now() - cur.at) < AI_READ_TTL) return; // fresh cache
+    const d = D();
+    // Roster data (name/pos/team) is authoritative and ALWAYS present; the live-poll row layers
+    // stats/game-state on top when it exists. A player the poll hasn't reached yet (e.g. no stat
+    // line has arrived for them this cycle) must still show their real name, not their raw key.
+    const buildSide = (players) => players.map((p) => {
+      const row = d.S.players.get(p.key);
+      const team = (row && row.team) || p.team;
+      const g = d.S.games.get(d.slpTeam(team));
+      return {
+        name: (row && row.name) || p.name, pos: (row && row.pos) || p.pos, team,
+        proj: d.projFor(p.key), actual: row && row.pts != null ? row.pts : 0,
+        gameState: g ? g.state : "pre", clock: g && g.state === "in" ? `Q${g.period} ${g.clock}` : "",
+      };
+    });
+    const H = LG.teamById(hId), A = LG.teamById(aId);
+    const payload = { week: UI.week, teams: [
+      { name: H ? H.name : "Home", players: buildSide(hPlayers) },
+      { name: A ? A.name : "Away", players: buildSide(aPlayers) },
+    ] };
+    UI._aiRead = { key, at: 0, busy: true, error: null, mults: null };
+    if (UI.view === "matchup") renderMatchup(true);
+    try {
+      const r = await fetch("/.netlify/functions/farmgpt", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ secret: LG.PASS, mode: "gfflproj", matchup: payload }),
+      });
+      if (!r.ok) throw new Error("http-" + r.status);
+      const reader = r.body.getReader(), dec = new TextDecoder();
+      let text = "";
+      for (;;) { const c = await reader.read(); if (c.done) break; text += dec.decode(c.value, { stream: true }); }
+      const cleaned = text.trim().replace(/^```(?:json)?/i, "").replace(/```\s*$/i, "").trim();
+      const parsed = JSON.parse(cleaned);
+      const byName = {};
+      for (const side of payload.teams) for (const p of side.players) byName[p.name] = p;
+      const mults = {};
+      for (const p of (parsed.players || [])) {
+        if (!p || typeof p.name !== "string") continue;
+        const src = byName[p.name];
+        const mult = Math.max(0.5, Math.min(1.5, Number(p.mult) || 1));
+        const proj = src && src.proj != null ? src.proj : null;
+        mults[p.name] = {
+          mult, why: String(p.why || "").slice(0, 200), proj,
+          adj: proj != null ? Math.round(proj * mult * 100) / 100 : null,
+        };
+      }
+      UI._aiRead = { key, at: LG.now(), busy: false, error: null, mults };
+    } catch (e) {
+      UI._aiRead = { key, at: 0, busy: false, error: "AI read isn't available right now.", mults: null };
+      toast("✨ AI read isn't available right now.");
+    }
+    if (UI.view === "matchup") renderMatchup(true);
+  }
+  UI.askAiRead = askAiRead;
+
   function starterSlotList() {
     const r = (LG.rules && LG.rules.roster) || {};
     const out = [];
@@ -755,8 +1168,60 @@
       if (tr.status === "accepted" && LG.now() >= (tr.reviewEndsAt || Infinity)) await LG.executeTrade(tr.id);
     }
   }
+  // S5: any past week (week < currentWeek()) with no weekly doc yet gets carried forward —
+  // idempotent (LG.finalizeWeek's own doc-exists check) and self-limiting (it naturally refuses
+  // — "not-final" — until the live engine actually confirms every relevant game is over), so
+  // calling this often and from several places (boot, every poll update, every Moves visit) is
+  // cheap and safe rather than something that needs its own scheduling. NEVER touches the
+  // CURRENT week (week === currentWeek()) — that's what the commissioner's explicit "Finalize"
+  // button on the league home is for.
+  async function maybeAutoFinalizeWeeks() {
+    if (!LG.teams.length) return;
+    const cw = LG.currentWeek();
+    for (let w = 1; w < cw; w++) {
+      const doc = await LG.loadWeekly(w);
+      if (doc && doc.kind === "weekly") continue;
+      await LG.finalizeWeek(w);
+    }
+  }
+  // S7: once the regular season has moved on past it (currentWeek() > seasonWeeks) and no
+  // bracket exists yet, build it. LG.buildBracket() itself refuses (harmlessly) until every
+  // regular-season week is actually final, so calling this eagerly/often is safe.
+  async function maybeAutoBuildBracket() {
+    if (!LG.teams.length) return;
+    const sw = (LG.rules || LG.DEFAULT_RULES).seasonWeeks;
+    if (LG.currentWeek() <= sw) return;
+    if (await LG.loadBracket()) return;
+    await LG.buildBracket();
+  }
+  // S7: fills in whatever the bracket can resolve from finalized playoff weeks — a no-op once
+  // a champion is crowned, and a no-op with no bracket built yet.
+  async function maybeAutoAdvanceBracket() {
+    if (!LG.teams.length) return;
+    const bracket = await LG.loadBracket();
+    if (!bracket || bracket.champion != null) return;
+    await LG.advanceBracket();
+  }
+  // The one chain boot() and every live poll run: finalize whatever's ready, build the bracket
+  // once the regular season is fully final, finalize again (that may have just unlocked a
+  // playoff week's own games), advance the bracket a few times so a boot that lands well past
+  // the whole postseason (all playoff weeks' data already sitting there final) can walk the
+  // bracket all the way to a champion in one pass rather than needing 3 separate visits.
+  async function maybeAdvanceLeague() {
+    if (!LG.teams.length) return;
+    await maybeAutoFinalizeWeeks().catch(() => {});
+    await maybeAutoBuildBracket().catch(() => {});
+    for (let i = 0; i < 3; i++) {
+      await maybeAutoFinalizeWeeks().catch(() => {});
+      await maybeAutoAdvanceBracket().catch(() => {});
+    }
+  }
   UI.maybeAutoProcessWaivers = maybeAutoProcessWaivers;
   UI.maybeAutoExecuteTrades = maybeAutoExecuteTrades;
+  UI.maybeAutoFinalizeWeeks = maybeAutoFinalizeWeeks;
+  UI.maybeAutoBuildBracket = maybeAutoBuildBracket;
+  UI.maybeAutoAdvanceBracket = maybeAutoAdvanceBracket;
+  UI.maybeAdvanceLeague = maybeAdvanceLeague;
   const REASON_LABEL = {
     outbid: "outbid by a higher blind bid", "player-taken": "taken by another claim",
     "drop-gone": "your drop player was gone", "insufficient-faab": "not enough FAAB",
@@ -781,6 +1246,7 @@
     await loadWeekRosters();
     await maybeAutoProcessWaivers();
     await maybeAutoExecuteTrades();
+    await maybeAutoFinalizeWeeks();
     UI._trades = await LG.loadTrades();
     UI._claims = await LG.loadClaims(UI.week);
     UI._tx = await LG.loadTx();
@@ -990,6 +1456,7 @@
           <button id="rulesImport" ${isCommish() ? "" : "hidden"}>⬇ Import from ESPN</button>
           <button id="schedGen" ${isCommish() ? "" : "hidden"}>📅 ${schedule ? "Regenerate" : "Generate"} schedule</button>
           <button id="rostersImport" ${isCommish() ? "" : "hidden"}>👥 Import ESPN rosters</button>
+          <button id="historyImport" ${isCommish() ? "" : "hidden"}>📜 Import history</button>
         </span></div>
       <div class="card mut small">${esc(r.name)} · season ${r.season} · ${r.seasonWeeks}-week regular season ·
         FAAB $${r.waivers.budget} · ${r.playoffs.teams}-team playoffs (top ${r.playoffs.byes} get byes, 4v5 play-in) ·
@@ -1025,6 +1492,10 @@
     $("#rostersImport") && $("#rostersImport").addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
       await importRosters();
+    });
+    $("#historyImport") && $("#historyImport").addEventListener("click", async () => {
+      if (!(await LG.gateCommish())) return;
+      await importHistory();
     });
     function enterEdit() {
       document.querySelectorAll(".rv").forEach((el) => {
@@ -1080,6 +1551,20 @@
       }
       return `<tr><td>${i + 1}</td><td>${esc(opp ? opp.name : "?")}</td><td class="num mut">${esc(result)}</td></tr>`;
     }).join("");
+  }
+  // Rivalries (plan §4.8): this team's all-time head-to-head vs every OTHER
+  // current franchise, skipping any pair with zero shared history (nothing
+  // to show yet — not the same as "0-0"). Sorted by most wins first.
+  async function lockerRivalries(teamId) {
+    const rows = [];
+    for (const t of LG.teams) {
+      if (t.id === teamId) continue;
+      const h2h = await LG.headToHead(teamId, t.id);
+      if (h2h.aWins + h2h.bWins + h2h.ties === 0) continue;
+      rows.push({ id: t.id, name: t.name, w: h2h.aWins, l: h2h.bWins, t: h2h.ties });
+    }
+    rows.sort((a, b) => (b.w - a.w) || (a.name || "").localeCompare(b.name || ""));
+    return rows;
   }
   // Dominant SATURATED colour of a data: image, sampled from a small canvas —
   // one bucket-by-hue pass, mid-lightness pick. Computed ONCE at upload time
@@ -1178,9 +1663,18 @@
     const T = LG.teamById(teamId);
     if (!T) { main().innerHTML = `<div class="card"><p class="mut">Team not found.</p></div>`; return; }
     main().innerHTML = `<div class="card mut">Loading locker…</div>`;
-    const [standings, tx, wall, scheduleRows, roster] = await Promise.all([
+    const [standings, tx, wall, scheduleRows, roster, rivalries, recordBook] = await Promise.all([
       LG.loadStandings(), LG.loadTx(), lockerWallMessages(T), lockerScheduleRows(teamId), LG.ensureRoster(UI.week, teamId),
+      lockerRivalries(teamId), LG.recordBook(),
     ]);
+    // S7: the season's own GFFL playoff trophy lives on the team doc (advanceBracket writes it
+    // the moment a champion's crowned — long before any January history import would pick it
+    // up), so it's merged in alongside the S6 history banners here rather than waiting a year.
+    // Dedupe by season, in case a January import ever re-adds the same season from history.
+    const historyBanners = (recordBook.champs || []).filter((c) => c.teamId === teamId);
+    const liveBanners = (T.trophies || []).filter((tr) => tr.kind === "champion").map((tr) => ({ season: tr.year, teamId, name: T.name }));
+    const bannerSeasons = new Set(historyBanners.map((b) => b.season));
+    const banners = [...historyBanners, ...liveBanners.filter((b) => !bannerSeasons.has(b.season))].sort((a, b) => a.season - b.season);
     const st = standings[teamId] || { w: 0, l: 0, t: 0, pf: 0, pa: 0 };
     const rows = [...LG.teams].sort((a, b) => { const A = standings[a.id] || { w: 0, pf: 0 }, B = standings[b.id] || { w: 0, pf: 0 }; return (B.w - A.w) || (B.pf - A.pf); });
     const place = rows.findIndex((t) => t.id === teamId) + 1;
@@ -1211,8 +1705,15 @@
         <thead><tr><th>Wk</th><th>Opp</th><th class="num">Result</th></tr></thead>
         <tbody>${scheduleRows}</tbody></table></div></div>
       <div class="card"><h2>Transactions</h2>${teamTx.length ? teamTx.map((t) => `<div class="fline sys"><span class="mut">${new Date(t.t).toLocaleDateString()}</span> ${esc(txSentence(t))}</div>`).join("") : '<p class="mut">No moves yet.</p>'}</div>
+      ${banners.length ? `<div class="card"><h2>🏆 Championships</h2>${banners.map((c) => `<div class="fline">🏆 ${c.season}</div>`).join("")}</div>` : ""}
+      <div class="card"><h2>Rivalries</h2>${rivalries.length ? `<div class="panner"><table class="tbl">
+          <thead><tr><th>Opponent</th><th class="num">W</th><th class="num">L</th><th class="num">T</th></tr></thead>
+          <tbody>${rivalries.map((r) => `<tr><td><span class="teamlink" data-locker="${r.id}">${esc(r.name)}</span></td>
+            <td class="num">${r.w}</td><td class="num">${r.l}</td><td class="num">${r.t}</td></tr>`).join("")}</tbody></table></div>`
+        : '<p class="mut">No history against current opponents yet.</p>'}</div>
       <div class="card"><h2>The wall</h2>${wall.length ? wall.map((m) => chatMsgHtml(m, new Map(), LG.myTeamId())).join("") : "<p class=\"mut\">Nobody's mentioned them yet.</p>"}</div>`;
     document.querySelectorAll(".chatImg").forEach((img) => img.addEventListener("click", () => openImageOverlay(img.dataset.full)));
+    wireLockerTaps();
     if (isOwner) wireLockerEdit(T);
     paintHealth();
   }
@@ -1285,5 +1786,46 @@
     }
     UI._rosters = null;
     out.innerHTML = `<div class="card ok">Rosters imported for ${(j.teams || []).length} teams (week ${UI.week}).</div>`;
+  }
+  // One-time (plus each January — plan §4.8) ESPN history import: walk
+  // seasons backward from last year, one action call each, writing
+  // `hist_<season>` docs as they land. Stops at the first miss ONCE at
+  // least one season has actually imported (a January re-run naturally
+  // stops right after the newest already-imported season, since that's
+  // the first year it now finds nothing new); before any success, gives
+  // up after 3 consecutive misses (an empty/never-existed league, or the
+  // real league simply doesn't go back that far) rather than grinding all
+  // the way to 2015 on every miss. Re-running always overwrites — the
+  // January refresh case.
+  async function importHistory() {
+    const out = $("#importOut");
+    const startYear = ((LG.rules && LG.rules.season) || LG.SEASON) - 1;
+    const imported = [];
+    let consecFails = 0;
+    for (let y = startYear; y >= 2015; y--) {
+      out.innerHTML = `<div class="card mut">Importing ${y}…${imported.length ? " (" + imported.length + " season" + (imported.length === 1 ? "" : "s") + " so far)" : ""}</div>`;
+      let j;
+      try { j = await lgFn("lg_espn_history", { season: y }); } catch (e) { j = { ok: false, reason: String(e) }; }
+      if (j.ok) {
+        await LG.db.set("hist_" + y, {
+          kind: "hist", season: y, leagueName: j.leagueName || "",
+          teams: j.teams || [], champion: j.champion || null, matchups: j.matchups || [],
+        });
+        imported.push(y);
+        consecFails = 0;
+      } else {
+        if (imported.length) break; // stop at the first miss once we've had a success
+        consecFails++;
+        if (consecFails >= 3) break; // give up after 3 straight misses with nothing found yet
+      }
+    }
+    if (!imported.length) {
+      out.innerHTML = '<div class="card bad">No importable seasons found (checked back from ' + startYear + ').</div>';
+      return;
+    }
+    imported.sort((a, b) => a - b);
+    const range = imported.length > 1 ? `${imported[0]}–${imported[imported.length - 1]}` : `${imported[0]}`;
+    out.innerHTML = `<div class="card ok">Imported ${imported.length} season${imported.length === 1 ? "" : "s"}: ${range}.</div>`;
+    UI._recordBook = null; // stale — reload next time the league home renders
   }
 })();
