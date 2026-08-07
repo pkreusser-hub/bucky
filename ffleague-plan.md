@@ -1218,6 +1218,41 @@ degrade path driven through the REAL in-process `sports.mjs` handler with `ESPN_
 genuinely deleted for that one request (not a client-side stub — proves `ffScoreboard()`'s actual
 failure branch, not an approximation of it), and the poll timer armed/cleared across a tab switch.
 
+## LIVE BUG FIX: "the Generate schedule button doesn't work" (2026-08-07)
+
+Root cause: `LG.generateSchedule`'s in-memory shape (`[week][game] = [homeId, awayId]`) is an
+array DIRECTLY containing arrays two levels deep, and `LG.saveSchedule` wrote it to the
+`sched_<season>` doc verbatim. Cloud Firestore's document model explicitly forbids an array
+value containing another array value — verified LIVE against the real `amen-farms-app` project
+(a `PATCH` with this exact nested shape returned HTTP 400 "Nested arrays are not allowed"; the
+fixed shape round-tripped 200). Every suite run stayed in LOCAL mode (gstatic/firebase requests
+aborted per house convention), so localStorage's plain `JSON.stringify` never caught it — on the
+real deployed (cloud-backend) site, `#schedGen`'s click handler had no try/catch around
+`await LG.saveSchedule(weeks)`, so the rejection was an unhandled promise rejection: no toast,
+no saved schedule, nothing visible at all. Two other hypotheses were investigated and RULED OUT
+with live evidence before landing on this one: non-contiguous real ESPN team ids (e.g.
+`[1,2,3,4,5,9,11,12]`, not `1..8`) — `generateSchedule` is pure array-permutation over whatever
+ids it's given and works fine with them, confirmed by a real-flow headless run; and a listener/
+race issue from the perf batch's `LG.db.onChange -> UI.show(view)` background repaint — ruled out
+because `window.prompt()` (inside `gateCommish()`) blocks the JS event loop entirely, so a
+background refresh can never interleave mid-prompt, and `renderRules()` re-attaches a fresh
+listener to a fresh `#schedGen` node on every call regardless of what triggered it (confirmed via
+a dedicated interleaved-repaint probe — the button still worked in local mode either way).
+FIX (`lg-core.js`, `LG.loadSchedule`/`LG.saveSchedule` only — the ONLY two functions in the app
+that touch this doc): `saveSchedule` now encodes each week as `{g:[{h,a},...]}` (array of maps,
+never array-of-array) before writing; `loadSchedule` decodes that shape back into the plain
+`[[h,a],...][]` every reader in the app already expects, with a backward-compat branch for any
+doc still holding the raw array shape. No other code changed — the in-memory `schedule`
+representation and every consumer (`renderRules`, `lockerScheduleRows`, `gamesForWeek`, the M2
+test fixture, etc.) are untouched. Verify: `tools/_verify-gffl.cjs` section F's schedule check
+now reads back through `LG.loadSchedule()` (not raw localStorage) and asserts the on-disk shape
+has no array-in-array; new section F2 drives the REAL flow (real, non-contiguous ESPN team ids,
+real `gateCommish()` PIN-prompt sequence, an interleaved background `onChange` repaint fired
+mid-click) against a fake cloud backend that enforces Firestore's actual nested-array rule —
+proven to fail against the pre-fix code (toast/button-text/page-error checks all failed with the
+exact "Nested arrays are not allowed" unhandled rejection when `lg-core.js` was reverted) and
+pass after the fix. 467/467 green (was 456).
+
 ## FYI, flagged but explicitly out of scope this batch
 
 While designing the getFresh regression test for item 1, found that `processWaivers`'s roster/
