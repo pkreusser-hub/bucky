@@ -63,6 +63,7 @@
       const cur = (await this.get(id)) || {};
       localStorage.setItem(this.key(id), JSON.stringify({ ...cur, ...data }));
     },
+    async del(id) { localStorage.removeItem(this.key(id)); },
     async list(kind) {
       const out = [];
       for (let i = 0; i < localStorage.length; i++) {
@@ -109,6 +110,7 @@
           return snap.exists() ? snap.data() : null;
         },
         async set(id, data) { await fs.setDoc(fs.doc(db, LG.COLL, id), data, { merge: true }); },
+        async del(id) { await fs.deleteDoc(fs.doc(db, LG.COLL, id)); },
         async list(kind) {
           const q = kind
             ? fs.query(fs.collection(db, LG.COLL), fs.where("kind", "==", kind))
@@ -132,6 +134,7 @@
   LG.db = {
     get: (id) => (LG.backendMode === "cloud" ? cloud : local).get(id),
     set: (id, data) => (LG.backendMode === "cloud" ? cloud : local).set(id, data),
+    del: (id) => (LG.backendMode === "cloud" ? cloud : local).del(id),
     list: (kind) => (LG.backendMode === "cloud" ? cloud : local).list(kind),
     watch: (id, cb) => (LG.backendMode === "cloud" ? cloud : local).watch(id, cb),
   };
@@ -183,6 +186,14 @@
     };
     await LG.db.set("settings", doc);
     LG.rulesDoc = doc; LG.rules = next;
+    // Event post (plan §4.5) — the transparency rule from §4.2 lands in chat
+    // too, never just the change log. Must never break a rules save.
+    try {
+      if (changes.length) {
+        const preview = changes.slice(0, 4).join("; ") + (changes.length > 4 ? "…" : "");
+        await LG.postSys(`📜 ${who || LG.who() || "The commissioner"} updated the rules (${changes.length}): ${preview}`);
+      }
+    } catch (e) { /* chat is never load-bearing */ }
     return changes;
   };
   function flat(obj, pfx) {
@@ -212,6 +223,40 @@
   };
   LG.saveTeam = (t) => LG.db.set("team_" + t.teamId, { kind: "team", ...t });
   LG.teamById = (id) => LG.teams.find((t) => t.id === Number(id)) || null;
+
+  // Standings derived from finalized "weekly" docs (there are none yet pre-S2
+  // finalization — every team reads 0-0-0 until then). Moved here (was a
+  // private helper inside lg-ui's renderLeague) because S3 waiver priority
+  // needs the exact same numbers for its tie-break.
+  LG.loadStandings = async function () {
+    const weekly = await LG.db.list("weekly");
+    const st = {};
+    for (const t of LG.teams) st[t.id] = { w: 0, l: 0, t: 0, pf: 0, pa: 0 };
+    for (const wd of weekly) {
+      for (const m of (wd.matchups || [])) {
+        const [h, a] = [m.home, m.away];
+        if (!st[h] || !st[a]) continue;
+        st[h].pf += m.homePts; st[h].pa += m.awayPts;
+        st[a].pf += m.awayPts; st[a].pa += m.homePts;
+        if (m.homePts > m.awayPts) { st[h].w++; st[a].l++; }
+        else if (m.awayPts > m.homePts) { st[a].w++; st[h].l++; }
+        else { st[h].t++; st[a].t++; }
+      }
+    }
+    return st;
+  };
+  // Waiver priority order, WORST record first (plan §4.3's FAAB tie-break):
+  // fewer wins, then fewer points-for, then lower teamId — deterministic even
+  // on an untouched 0-0-0 season.
+  LG.waiverPriorityOrder = async function () {
+    const st = await LG.loadStandings();
+    return LG.teams.map((t) => t.id).sort((a, b) => {
+      const A = st[a] || { w: 0, pf: 0 }, B = st[b] || { w: 0, pf: 0 };
+      return (A.w - B.w) || (A.pf - B.pf) || (a - b);
+    });
+  };
+  // FAAB budget lives on the team doc; a team that's never spent reads full.
+  LG.teamFaab = (t) => (t && t.faab != null ? t.faab : (LG.rules || LG.DEFAULT_RULES).waivers.budget);
 
   // ---------------- schedule ----------------
   // Double round robin for 8 teams by the circle method: 7 rounds twice = 14
@@ -268,6 +313,332 @@
   // The 3 IR spots take genuinely-out players only (standard rule).
   LG.irEligible = (injury) => ["IR", "O", "Out", "PUP", "NFI", "SUS", "Doubtful"].includes(String(injury || ""));
 
+  // ---------------- transactions log (append-only) ----------------
+  // One doc per event, id tx_<t>_<rand4>. Only actual roster moves land here
+  // (a losing waiver claim isn't a transaction) — kind:"tx" so LG.db.list("tx")
+  // pulls the whole history.
+  LG.txId = (t) => `tx_${t}_${Math.random().toString(36).slice(2, 6)}`;
+  LG.logTx = async function (type, week, teamId, detail) {
+    const t = Date.now();
+    const id = LG.txId(t);
+    await LG.db.set(id, { kind: "tx", t, week, type, teamId, detail: detail || {} });
+    return id;
+  };
+  LG.loadTx = async function () {
+    return (await LG.db.list("tx")).sort((a, b) => b.t - a.t);
+  };
+
+  // ---------------- weekly waivers (FAAB, plan §4.3) ----------------
+  // One doc per week: claims:[{id,teamId,addKey,addName,addPos,addTeam,
+  // dropKey,dropName,bid,t}]. Blind by UI convention only — the doc itself is
+  // a normal shared read; lg-ui never shows another team's claim pre-process.
+  LG.claimsId = (season, week) => `claims_${season}_w${week}`;
+  LG.loadClaims = async function (week) {
+    const doc = await LG.db.get(LG.claimsId(LG.SEASON, week));
+    return doc || { kind: "claims", week, claims: [], processed: false, results: null };
+  };
+  LG.saveClaims = (week, doc) => LG.db.set(LG.claimsId(LG.SEASON, week), { kind: "claims", week, ...doc });
+  LG.addClaim = async function (week, claim) {
+    const doc = await LG.loadClaims(week);
+    if (doc.processed) return { ok: false, reason: "already-processed" };
+    await LG.saveClaims(week, { claims: [...(doc.claims || []), claim], processed: false, results: null });
+    return { ok: true };
+  };
+  LG.cancelClaim = async function (week, claimId, byTeamId) {
+    const doc = await LG.loadClaims(week);
+    if (doc.processed) return { ok: false, reason: "already-processed" };
+    const c = (doc.claims || []).find((x) => x.id === claimId);
+    if (!c || c.teamId !== byTeamId) return { ok: false, reason: "not-found" };
+    await LG.saveClaims(week, { claims: doc.claims.filter((x) => x.id !== claimId), processed: false, results: null });
+    return { ok: true };
+  };
+
+  // Free agency (first-come, no bid) once claims have cleared for the week.
+  LG.faAdd = async function (week, teamId, addPlayer, dropKey) {
+    const ros = await LG.ensureRoster(week, teamId);
+    for (const t of LG.teams) {
+      const r = t.id === teamId ? ros : await LG.ensureRoster(week, t.id);
+      if (r.some((p) => p.key === addPlayer.key)) return { ok: false, reason: "player-taken" };
+    }
+    const idx = ros.findIndex((p) => p.key === dropKey);
+    if (idx < 0) return { ok: false, reason: "drop-not-found" };
+    const dropped = ros[idx];
+    const next = ros.slice();
+    next.splice(idx, 1, { key: addPlayer.key, name: addPlayer.name, pos: addPlayer.pos, team: addPlayer.team, slot: "BENCH" });
+    await LG.saveRoster(week, teamId, next);
+    await LG.logTx("fa_add", week, teamId, { addKey: addPlayer.key, addName: addPlayer.name });
+    await LG.logTx("drop", week, teamId, { dropKey, dropName: dropped ? dropped.name : dropKey });
+    return { ok: true };
+  };
+
+  // Process one week's blind-bid claims. PURE (given the same claims/rosters/
+  // standings it always resolves the same way) and IDEMPOTENT (a processed
+  // doc is returned untouched — re-read right before the final write so two
+  // clients racing the deadline can't double-run it). Sort by bid desc, tie
+  // by worse standings first; a claim wins iff its target isn't already
+  // owned/awarded-this-run, its drop is still on the roster, and the bid fits
+  // the team's remaining FAAB. Winners: drop out/add in (BENCH), FAAB
+  // deducted, one "waiver" tx logged. Losers get a reason, no tx (nothing
+  // moved).
+  LG.processWaivers = async function (week) {
+    const doc = await LG.loadClaims(week);
+    if (doc.processed) return doc;
+    await LG.loadTeams();
+    const claims = doc.claims || [];
+    if (!claims.length) {
+      const fresh = await LG.loadClaims(week);
+      if (fresh.processed) return fresh;
+      const done = { claims: [], processed: true, results: [] };
+      await LG.saveClaims(week, done);
+      return { kind: "claims", week, ...done };
+    }
+    const order = await LG.waiverPriorityOrder();
+    const rank = new Map(order.map((id, i) => [id, i]));
+    const sorted = [...claims].sort((a, b) => (b.bid - a.bid) || ((rank.get(a.teamId) ?? 999) - (rank.get(b.teamId) ?? 999)));
+
+    const rosterMap = new Map();
+    for (const t of LG.teams) rosterMap.set(t.id, (await LG.ensureRoster(week, t.id)).map((p) => ({ ...p })));
+    const faabMap = new Map();
+    for (const t of LG.teams) faabMap.set(t.id, LG.teamFaab(t));
+    const owned = new Set();
+    for (const [, ros] of rosterMap) for (const p of ros) owned.add(p.key);
+    const wonThisRun = new Set();
+    const dirtyTeams = new Set();
+    const results = [];
+    const txs = [];
+
+    for (const c of sorted) {
+      let reason = null;
+      if (owned.has(c.addKey)) reason = wonThisRun.has(c.addKey) ? "outbid" : "player-taken";
+      if (!reason) {
+        const ros = rosterMap.get(c.teamId) || [];
+        if (!ros.some((p) => p.key === c.dropKey)) reason = "drop-gone";
+        else if (c.bid > (faabMap.get(c.teamId) ?? 0)) reason = "insufficient-faab";
+      }
+      if (!reason) {
+        const ros = rosterMap.get(c.teamId);
+        const dropIdx = ros.findIndex((p) => p.key === c.dropKey);
+        const dropped = ros[dropIdx];
+        ros.splice(dropIdx, 1, { key: c.addKey, name: c.addName, pos: c.addPos, team: c.addTeam, slot: "BENCH" });
+        owned.delete(c.dropKey);
+        owned.add(c.addKey);
+        wonThisRun.add(c.addKey);
+        faabMap.set(c.teamId, (faabMap.get(c.teamId) ?? 0) - c.bid);
+        dirtyTeams.add(c.teamId);
+        results.push({ id: c.id, teamId: c.teamId, ok: true, reason: "won" });
+        txs.push({ teamId: c.teamId, detail: { addKey: c.addKey, addName: c.addName, dropKey: c.dropKey, dropName: dropped ? dropped.name : c.dropKey, bid: c.bid } });
+      } else {
+        results.push({ id: c.id, teamId: c.teamId, ok: false, reason });
+      }
+    }
+
+    for (const tid of dirtyTeams) await LG.saveRoster(week, tid, rosterMap.get(tid));
+    for (const tid of dirtyTeams) {
+      const t = LG.teamById(tid);
+      await LG.saveTeam({ ...t, teamId: tid, faab: faabMap.get(tid) });
+    }
+    for (const tx of txs) await LG.logTx("waiver", week, tx.teamId, tx.detail);
+    // Event post (plan §4.5) — waiver results in the league timeline.
+    try {
+      if (txs.length) {
+        const nm = (id) => (LG.teamById(id) || {}).name || ("Team " + id);
+        const winners = txs.map((tx) => `${nm(tx.teamId)} added ${tx.detail.addName}`).join("; ");
+        await LG.postSys(`🎯 Waivers processed for week ${week}: ${txs.length} claim(s) won — ${winners}.`);
+      }
+    } catch (e) { /* chat is never load-bearing */ }
+
+    const fresh = await LG.loadClaims(week); // guard: someone else may have processed while we worked
+    if (fresh.processed) return fresh;
+    const done = { claims, processed: true, results };
+    await LG.saveClaims(week, done);
+    await LG.loadTeams(); // refresh in-memory FAAB for the caller
+    return { kind: "claims", week, ...done };
+  };
+
+  // ---------------- trades (plan §4.4) ----------------
+  // Offer -> accept (starts a review window) -> auto-executes once the window
+  // passes, unless enough OTHER owners veto it first. Player-for-player only;
+  // uneven trades (2-for-1) are allowed, no roster-size cap in v1.
+  LG.tradeId = (t) => `trade_${t}_${Math.random().toString(36).slice(2, 6)}`;
+  LG.loadTrade = (id) => LG.db.get(id);
+  LG.saveTrade = (doc) => LG.db.set(doc.id, doc);
+  LG.loadTrades = async function () {
+    return (await LG.db.list("trade")).sort((a, b) => b.t - a.t);
+  };
+  LG.tradeDeadlinePassed = () => LG.currentWeek() > ((LG.rules && LG.rules.trades.deadlineWeek) || 99);
+  LG.offerTrade = async function (from, to, give, get, note) {
+    if (LG.tradeDeadlinePassed()) return { ok: false, reason: "deadline-passed" };
+    give = give || []; get = get || [];
+    if (!give.length || !get.length || give.length > 3 || get.length > 3) return { ok: false, reason: "invalid-players" };
+    const t = LG.now();
+    const id = LG.tradeId(t);
+    const doc = { kind: "trade", id, from, to, give, get, note: note || "", status: "offered", t, acceptedAt: null, reviewEndsAt: null, vetoes: [] };
+    await LG.saveTrade(doc);
+    return { ok: true, trade: doc };
+  };
+  LG.cancelTrade = async function (id, byTeamId) {
+    const doc = await LG.loadTrade(id);
+    if (!doc || doc.status !== "offered" || doc.from !== byTeamId) return null;
+    const next = { ...doc, status: "cancelled" };
+    await LG.saveTrade(next);
+    return next;
+  };
+  LG.declineTrade = async function (id, byTeamId) {
+    const doc = await LG.loadTrade(id);
+    if (!doc || doc.status !== "offered" || doc.to !== byTeamId) return null;
+    const next = { ...doc, status: "declined" };
+    await LG.saveTrade(next);
+    return next;
+  };
+  LG.acceptTrade = async function (id, byTeamId) {
+    const doc = await LG.loadTrade(id);
+    if (!doc || doc.status !== "offered" || doc.to !== byTeamId) return null;
+    const now = LG.now();
+    const reviewMs = ((LG.rules && LG.rules.trades.reviewHours) || 24) * 3600e3;
+    const next = { ...doc, status: "accepted", acceptedAt: now, reviewEndsAt: now + reviewMs };
+    await LG.saveTrade(next);
+    return next;
+  };
+  // Any owner NOT a party to the trade may add one veto vote; enough votes
+  // (rules.trades.vetoVotes, default 4) kills it before it ever executes.
+  LG.vetoTrade = async function (id, byTeamId) {
+    const doc = await LG.loadTrade(id);
+    if (!doc || doc.status !== "accepted") return doc;
+    if (byTeamId === doc.from || byTeamId === doc.to) return doc;
+    if ((doc.vetoes || []).includes(byTeamId)) return doc;
+    const vetoes = [...(doc.vetoes || []), byTeamId];
+    const needed = (LG.rules && LG.rules.trades.vetoVotes) || 4;
+    const status = vetoes.length >= needed ? "vetoed" : "accepted";
+    const next = { ...doc, vetoes, status };
+    await LG.saveTrade(next);
+    if (status === "vetoed") {
+      await LG.logTx("trade", LG.currentWeek(), doc.from, { tradeId: id, from: doc.from, to: doc.to, give: doc.give, get: doc.get, result: "vetoed" });
+      // Event post (plan §4.5).
+      try {
+        const nm = (tid) => (LG.teamById(tid) || {}).name || ("Team " + tid);
+        await LG.postSys(`🚫 Trade between ${nm(doc.from)} and ${nm(doc.to)} was vetoed by the league.`);
+      } catch (e) { /* chat is never load-bearing */ }
+    }
+    return next;
+  };
+  // Client-triggered (no scheduled function in v1 — plan §6 deviation): any
+  // client open past reviewEndsAt executes it. Re-reads right before writing
+  // (idempotency guard, same pattern as processWaivers) and fails SAFE to
+  // "cancelled" (never a half-swap) if either side's listed player has moved.
+  LG.executeTrade = async function (id) {
+    let doc = await LG.loadTrade(id);
+    if (!doc || doc.status !== "accepted") return doc;
+    if (LG.now() < (doc.reviewEndsAt ?? Infinity)) return doc;
+    const fresh = await LG.loadTrade(id);
+    if (!fresh || fresh.status !== "accepted") return fresh;
+    const week = LG.currentWeek();
+    const fromRoster = await LG.ensureRoster(week, fresh.from);
+    const toRoster = await LG.ensureRoster(week, fresh.to);
+    const giveOk = fresh.give.every((k) => fromRoster.some((p) => p.key === k));
+    const getOk = fresh.get.every((k) => toRoster.some((p) => p.key === k));
+    if (!giveOk || !getOk) {
+      const failed = { ...fresh, status: "cancelled", cancelReason: "roster-changed" };
+      await LG.saveTrade(failed);
+      return failed;
+    }
+    const movedFrom = fresh.give.map((k) => fromRoster.find((p) => p.key === k));
+    const movedTo = fresh.get.map((k) => toRoster.find((p) => p.key === k));
+    const newFromRoster = fromRoster.filter((p) => !fresh.give.includes(p.key)).concat(movedTo.map((p) => ({ ...p, slot: "BENCH" })));
+    const newToRoster = toRoster.filter((p) => !fresh.get.includes(p.key)).concat(movedFrom.map((p) => ({ ...p, slot: "BENCH" })));
+    await LG.saveRoster(week, fresh.from, newFromRoster);
+    await LG.saveRoster(week, fresh.to, newToRoster);
+    const executed = { ...fresh, status: "executed" };
+    await LG.saveTrade(executed);
+    await LG.logTx("trade", week, fresh.from, {
+      tradeId: id, from: fresh.from, to: fresh.to, give: fresh.give, get: fresh.get,
+      giveNames: movedFrom.map((p) => (p ? p.name : "?")), getNames: movedTo.map((p) => (p ? p.name : "?")), result: "executed",
+    });
+    // Event post (plan §4.5) — same names the transactions log shows.
+    try {
+      const nm = (tid) => (LG.teamById(tid) || {}).name || ("Team " + tid);
+      await LG.postSys(`🔁 Trade: ${nm(fresh.from)} sent ${movedFrom.map((p) => (p ? p.name : "?")).join(", ")} to ${nm(fresh.to)} for ${movedTo.map((p) => (p ? p.name : "?")).join(", ")}.`);
+    } catch (e) { /* chat is never load-bearing */ }
+    return executed;
+  };
+
+  // ---------------- chat (plan §4.5) ----------------
+  // One doc per message, id chat_<t>_<rand4>, kind:"chat" so LG.db.list("chat")
+  // pulls the whole history (as with tx — no id stored redundantly inside the
+  // doc; list() attaches it from the key). thread:null (or absent) = the main
+  // league channel; thread:"w<week>_<h>-<a>" = a per-matchup trash-talk thread.
+  LG.chatId = (t) => `chat_${t}_${Math.random().toString(36).slice(2, 6)}`;
+  LG.CHAT_MAX_TEXT = 500;
+  // Text max 500 chars (server-side clamp too — the composer's maxlength is
+  // just the UI half of this). ok:false/"empty" when there's truly nothing to
+  // post (no text, no image, no gif).
+  LG.postChat = async function (opts) {
+    opts = opts || {};
+    const text = String(opts.text || "").slice(0, LG.CHAT_MAX_TEXT).trim();
+    if (!text && !opts.img && !(opts.gif && opts.gif.url)) return { ok: false, reason: "empty" };
+    const t = LG.now();
+    const doc = {
+      kind: "chat", t, who: LG.who() || "?", teamId: LG.myTeamId(),
+      thread: opts.thread || null, reactions: {},
+    };
+    if (text) doc.text = text;
+    if (opts.img) doc.img = opts.img;
+    if (opts.gif && opts.gif.url) doc.gif = { url: opts.gif.url, preview: opts.gif.preview || opts.gif.url };
+    if (opts.replyTo) doc.replyTo = opts.replyTo;
+    await LG.db.set(LG.chatId(t), doc);
+    return { ok: true, msg: doc };
+  };
+  // Every mode-"story"-style event post below routes through here. Wrapped so
+  // a chat outage can NEVER break the flow it's narrating (waivers/trades/
+  // rules still complete even if this throws) — callers additionally wrap
+  // their own call in try/catch as a second layer, this is the first.
+  LG.postSys = async function (text) {
+    try {
+      const t = LG.now();
+      const doc = { kind: "chat", t, who: "GFFL", teamId: null, text: String(text || "").slice(0, LG.CHAT_MAX_TEXT), sys: true, thread: null, reactions: {} };
+      await LG.db.set(LG.chatId(t), doc);
+      return doc;
+    } catch (e) { return null; }
+  };
+  LG.loadAllChat = async function () {
+    return (await LG.db.list("chat")).sort((a, b) => b.t - a.t); // newest first
+  };
+  LG.loadChat = async function (thread) {
+    const key = thread || null;
+    const all = await LG.loadAllChat();
+    return all.filter((m) => (m.thread || null) === key).sort((a, b) => a.t - b.t); // oldest first for rendering top-to-bottom
+  };
+  // Meme library: the most recent DISTINCT images already posted anywhere in
+  // chat (main channel or any thread) — house classics, not per-thread.
+  LG.recentChatImages = async function (limit) {
+    const all = await LG.loadAllChat();
+    const seen = new Set(), out = [];
+    for (const m of all) {
+      if (!m.img || seen.has(m.img)) continue;
+      seen.add(m.img); out.push(m.img);
+      if (out.length >= (limit || 12)) break;
+    }
+    return out;
+  };
+  LG.toggleReaction = async function (id, emoji, teamId) {
+    const doc = await LG.db.get(id);
+    if (!doc || doc.kind !== "chat") return null;
+    const cur = new Set((doc.reactions && doc.reactions[emoji]) || []);
+    if (cur.has(teamId)) cur.delete(teamId); else cur.add(teamId);
+    const next = { ...doc, reactions: { ...(doc.reactions || {}), [emoji]: [...cur] } };
+    await LG.db.set(id, next);
+    return next;
+  };
+  // Delete-own, or commissioner-delete-any (plan §4.5's moderation posture —
+  // no infrastructure beyond these two). allowCommish is the CALLER'S PIN
+  // check (LG.commishUnlocked()) — this fn doesn't gate the PIN itself.
+  LG.deleteChat = async function (id, byTeamId, allowCommish) {
+    const doc = await LG.db.get(id);
+    if (!doc || doc.kind !== "chat") return { ok: false, reason: "not-found" };
+    if (!allowCommish && doc.teamId !== byTeamId) return { ok: false, reason: "not-yours" };
+    await LG.db.del(id);
+    return { ok: true };
+  };
+
   // ---------------- time ----------------
   LG.nowOverride = null; // test hook
   LG.now = () => LG.nowOverride || Date.now();
@@ -275,6 +646,20 @@
     const start = new Date(LG.SEASON_START + "T05:00:00-05:00").getTime();
     const w = 1 + Math.floor((LG.now() - start) / (7 * 24 * 3600 * 1000));
     return Math.max(1, Math.min(18, w));
+  };
+  // Waiver processing deadline for a given week, from rules.waivers.processDow
+  // /processHour (default Wed/8am — plan §4.3). SEASON_START anchors week N's
+  // Tuesday at the same "05:00 in a fixed -05:00 frame" clock reading
+  // currentWeek() uses; walk forward to the configured weekday+hour from there
+  // (Tuesday=dow 2, so the default Wed/8am is +1 day +3h).
+  LG.waiverDeadline = function (week) {
+    const start = new Date(LG.SEASON_START + "T05:00:00-05:00").getTime();
+    const wkStart = start + (week - 1) * 7 * 24 * 3600 * 1000; // that week's Tuesday, clock=05:00
+    const TUESDAY = 2;
+    const w = (LG.rules || LG.DEFAULT_RULES).waivers;
+    const dowOffsetDays = ((w.processDow ?? 3) - TUESDAY + 7) % 7;
+    const hourOffset = (w.processHour ?? 8) - 5; // wkStart's own clock reads 05:00
+    return wkStart + dowOffsetDays * 24 * 3600 * 1000 + hourOffset * 3600 * 1000;
   };
   LG.fmtPts = (n) => (n == null ? "—" : (Math.round(n * 100) / 100).toFixed(1));
 })();

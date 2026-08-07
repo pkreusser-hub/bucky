@@ -364,3 +364,166 @@ live function. Findings, and what changed because of them:
   through 214-style per-yard items. CONFIRMATION PLAN: pull a 2025 kicker's applied
   weekly stats (kona_player_info appliedStats) and solve the coefficients against his
   official weekly totals; adjust STAT_MAP + the engine before the season.
+
+# 🐐 GFFL S3 — waivers + trades + transactions log (2026-08-07)
+
+`assets/league/lg-core.js` (waiver/trade/tx state machine) + `lg-data.js` (free-agent
+search over the Sleeper directory) + `lg-ui.js` (the new 🔁 Moves tab) + `league.html`
+(nav button, `.picked`/list CSS). `netlify/functions/league.mjs` untouched — S3 is
+entirely client-side per the plan's own resilience posture (no server in the hot loop).
+- **FAAB claims**: one doc per week (`claims_<season>_w<week>`), blind by UI
+  convention only — the doc is a normal shared read, `lg-ui` just never renders another
+  team's claim before the week is processed. `LG.processWaivers(week)` is deterministic
+  and idempotent: sorts by bid desc, ties by `LG.waiverPriorityOrder()` (worst record
+  first — fewer wins, then fewer PF, then lower teamId, off the SAME standings math the
+  league-home table already used — that function moved from a private `lg-ui` helper to
+  `LG.loadStandings` so both share one source of truth). A claim wins iff its target
+  isn't already owned or won-this-run, its drop is still on the roster, and the bid fits
+  remaining FAAB (`team.faab`, default = `rules.waivers.budget`); winners get their
+  roster updated (drop out, add in on BENCH) + FAAB deducted + one `"waiver"` tx logged;
+  losers get a reason (`outbid`/`player-taken`/`drop-gone`/`insufficient-faab`) and
+  nothing moves. Re-reads the doc immediately before the final write (guards a
+  processed-twice race) and short-circuits instantly if already processed.
+- **Deadline**: `LG.waiverDeadline(week)` reads `rules.waivers.processDow/processHour`
+  (default Wed 8am, already in `DEFAULT_RULES` — nothing new to configure) off the same
+  fixed-clock convention `LG.currentWeek()` uses. Free agency (first-come, no bid,
+  `LG.faAdd`) is simply "whatever week it is once the deadline has passed" — no separate
+  FA-open flag to get out of sync.
+- **DEVIATION from plan §4.3/§6 (documented, not a scheduled function)**: processing is
+  **client-triggered** — `UI.boot()` and every `renderMoves()` call `maybeAutoProcess-
+  Waivers()`/`maybeAutoExecuteTrades()`, so the first client to open the app (or Moves)
+  past a deadline carries the league forward for everyone (idempotent, so simultaneous
+  clients can't double-run it). A commissioner "⚙ Process now" button (`gateCommish`) is
+  the manual backstop. A real Wednesday-morning scheduled function is future work if a
+  week ever goes by with nobody opening the app.
+- **Trades**: `LG.offerTrade/acceptTrade/declineTrade/cancelTrade/vetoTrade/executeTrade`.
+  Offer → accept (opens a `rules.trades.reviewHours`-hour window, `reviewEndsAt`) →
+  auto-executes once any client opens past that window, UNLESS `rules.trades.vetoVotes`
+  (default 4) distinct NON-party owners veto it first (repeat votes from one team don't
+  double-count; the two parties can't veto their own trade). Execution re-verifies both
+  rosters right before swapping and fails SAFE to `status:"cancelled"` (never a half-swap)
+  if a listed player has moved since the offer. Blocked entirely past
+  `rules.trades.deadlineWeek`. **No roster-size cap on an uneven trade in v1** (a 2-for-1
+  is legal) — the plan flagged this as a later-phase decision, left open here.
+- **Adds/drops are NOT kickoff-gated** (plan's explicit v1 scope — only the STARTING
+  LINEUP has locks); a trade can include a player whose game already started.
+- **Transactions log**: append-only, `tx_<t>_<rand4>` docs, one per actual roster move
+  (a LOSING waiver claim is not a transaction — nothing moved). Rendered as plain
+  sentences newest-first in the Moves "Log" card.
+- **UI**: new 🔁 Moves tab — My pending (my claims + my trades + a "trades under review"
+  block any non-party owner can vote on, + my last waiver results once the week's
+  processed) · Waivers (FA search over `D().searchFA`, min 3 chars, excludes anyone
+  already rostered league-wide, shows remaining FAAB + the next deadline; flips to
+  instant free-agency once the deadline's passed) · Propose a trade (counterparty picker
+  + up-to-3-a-side player chips) · Transaction log.
+- VERIFY: `node tools/_verify-gffl.cjs [--shots]` — **150/150, 0 page errors** (82 prior
+  + 68 new: blind claims across two independent browser contexts, bid/tie-break/FAAB
+  math, idempotent re-processing, deadline auto-process on boot, FAAB-never-negative,
+  claim cancel, a full offer→accept→hold→execute round trip across two devices with the
+  roster swap verified both directions, the veto threshold incl. self-veto and duplicate-
+  vote rejection, decline/cancel, and the trade deadline). SUITE GOTCHA: `UI.boot()`
+  originally fired the auto-process checks fire-and-forget (never blocking the more
+  time-sensitive league render) — correct for production, but it meant `await UI.boot()`
+  in a test returned before processing actually finished. Fixed by awaiting them in boot
+  after all: this path only does real work once a deadline/review-window has genuinely
+  passed (a couple of cheap doc reads otherwise), so the ordering guarantee is worth more
+  than the few extra ms.
+
+# 🐐 GFFL S4 — league chat + locker rooms (2026-08-07)
+
+`assets/league/lg-core.js` (chat data layer + event-post hooks), `assets/league/lg-ui.js`
+(the new 💬 Chat tab, matchup trash-talk threads, locker rooms), `league.html` (nav button,
+`#imgOverlay`, chat/locker CSS), `netlify/functions/league.mjs` (one new action, nothing
+else touched — `lg_gif_search`, a Tenor proxy).
+- **Chat data model**: one doc per message, `kind:"chat"`, id `chat_<t>_<rand4>` (no id
+  stored inside the doc — same convention as `tx_*`; `LG.db.list("chat")` attaches it from
+  the key). `LG.postChat({text?,img?,gif?,replyTo?,thread?})`, `LG.loadChat(thread)`
+  (oldest-first, filtered to that thread or the main channel when `thread` is null/absent),
+  `LG.loadAllChat()` (newest-first, every thread — feeds the meme library and lockers'
+  "wall"), `LG.toggleReaction(id,emoji,teamId)`, `LG.deleteChat(id,byTeamId,allowCommish)`.
+  `LG.db` gained a `del` (both backends — `localStorage.removeItem` / `fs.deleteDoc`, no new
+  import needed, `deleteDoc` already rides in on the existing `fs` module namespace).
+- **Event posts**: `LG.postSys(text)` (self-catching — chat can never break the flow it's
+  narrating) called from the three places the plan named — `saveRules` (after logging
+  changes), `processWaivers` (after the winners are decided, naming who won what),
+  `executeTrade`/`vetoTrade` (the same player names the transactions log already computes).
+  Every call site ALSO wraps its own `postSys` call in try/catch — belt and suspenders.
+- **Reactions** (🔥💀😂🐐): tap toggles your teamId in that emoji's array; counts render
+  inline, no count shown at zero.
+- **Reply-to**: composer captures `{id,who,text}` of the tapped message, renders a small
+  quoted preview above the compose row; the sent message carries `replyTo` and renders a
+  `.chatQuote` snippet of the original above its own body.
+- **Delete**: own messages always; `LG.commishUnlocked()` unlocks delete-any. Hard delete
+  (`LG.db.del`), not a soft/hidden flag.
+- **Images**: file-pick → resize to ≤320px longest side, JPEG q0.72 (`resizeImageToDataUrl`,
+  the same shape as index.html's photo pickers, written inline per house convention — no
+  shared JS module between pages). One gate, `UI.attachImage(idPfx,dataUrl)`, refuses over
+  `IMG_CAP` (~80,000 dataURL chars) with a toast; exposed so a test can drive the oversized
+  path directly without needing a real >320px source image. Tap a posted image → `#imgOverlay`
+  full-size view.
+- **Meme library**: `LG.recentChatImages(12)` — the most recent DISTINCT images posted
+  ANYWHERE in chat (main channel or any thread — "house classics" span the whole league, not
+  one thread), tap-to-repost via the same `UI.attachImage` gate.
+- **GIFs (Tenor)**: `netlify/functions/league.mjs`'s `lgGifSearch` — no `TENOR_API_KEY` →
+  `{ok:false,reason:"gif-not-configured"}` at HTTP 200, never a 500; a key configured →
+  `GET tenor.googleapis.com/v2/search` (base overridable via `TENOR_BASE_URL` for tests),
+  `contentfilter=high` (deliberate — kids are in this league), mapped to `{url,preview}`
+  from `media_formats.tinygif/nanogif`. Client: the GIF button starts VISIBLE (no proactive
+  probe — a blocked/no-key Tenor should never cost a request nobody asked for); the FIRST
+  tap probes once (`ensureGifAvailability`), and only the literal `gif-not-configured`
+  reason hides the button for the rest of the session (any other hiccup stays retryable).
+- **Matchup trash-talk threads**: `thread:"w<week>_<h>-<a>"` — the exact same chat widget
+  (`chatWidgetHtml`/`wireChat`/`refreshChatList`, id-prefixed `muThread`) mounted at the
+  bottom of the matchup page. Genuinely separate from the main channel and from every other
+  matchup's thread (asserted both directions).
+- **Polling**: the Chat tab refreshes every 8s while open (`startChatPoll`/`stopChatPoll`,
+  cleared at the top of every `UI.show()` so switching views can never leak a timer); the
+  matchup thread gets its own poll too, restarted only on a genuine idPfx/thread change so
+  the live-score repaint cycle (which already rebuilds the whole matchup page) doesn't spawn
+  a fresh interval every tick.
+- **Lockers** (plan §4.7): route `#locker=<teamId>`, reached by tapping a team name anywhere
+  sensible (standings rows, matchup header, both team names) via a shared `data-locker`
+  delegate (`UI.openLocker`/`wireLockerTaps`) — no new nav entry, per the plan. "My locker"
+  on the team page header jumps to the VIEWER's own team. Contents: themed header (name,
+  motto, place+record), current-week roster, schedule with results-so-far (reads `weekly`
+  docs when they exist, `—` otherwise — degrades honestly since finalization is S5+), that
+  team's own transaction history (reusing `txSentence`), and "the wall" — chat messages
+  (any thread) that mention the team's name or `abbrev`, newest first, capped at 15.
+- **Owner editing**: `LG.myTeamId() === teamId` gates Name/Motto (max 80 chars)/Logo edit
+  buttons — absent entirely for anyone else, verified from a second device.
+- **Palette extraction**: `extractPalette(dataUrl)` — draws to a 32×32 canvas, buckets
+  pixels by 10°-wide hue (skipping grayish/near-black/near-white), picks the most-populous
+  saturated bucket's average RGB. Computed ONCE at logo-upload time and stored as
+  `team.colors.primary`, never recomputed on render; the locker header uses it as its
+  background (white text) or falls back to the app's green. Verified against a REAL
+  upload — a canvas-generated red PNG assigned to the hidden file input via a synthesized
+  `File`+`DataTransfer`+`change` event (not a shortcut call), so the resize→extract→save→
+  re-render chain is exercised end to end.
+- **GOTCHA (found via a screenshot, not a test) — the house `[hidden]`-override lesson bit
+  FOUR new elements**: `#imgOverlay` (`.imgoverlay{display:flex}`) and three chat auxiliary
+  panels (`.chatmeme`/`.chatGifGrid{display:grid}`, `.chatReplyPreview`/`.chatPending
+  {display:flex}`) all stayed visually SHOWN despite their `hidden` attribute, because an
+  author rule with no matching `[hidden]` restatement always beats the UA default — this is
+  the third time this exact class of bug has hit this codebase per CLAUDE.md, and it's why
+  `#imgOverlay` was silently covering the WHOLE PAGE (including the passphrase gate button)
+  from first load. Fixed with explicit `[hidden]{display:none}` restatements on all four;
+  the suite now also asserts GEOMETRY (`getBoundingClientRect().height === 0`), never the
+  attribute, for exactly this reason.
+- VERIFY: `node tools/_verify-gffl.cjs [--shots]` — **217/217, 0 page errors** (150 prior +
+  67 new: sections K/chat — text post+persist, cross-device visibility via a snapshot-based
+  "second device" (the local backend's per-context storage stand-in — `snapshotAllDocs`/
+  `replaceAllDocs`, the latter clearing the target's whole doc set first since a MERGE can't
+  represent a deletion), reactions on/off, reply+quote, delete (own/absent/commissioner, incl.
+  proving delete propagates through `LG.db.del` rather than a per-context filter), images
+  (oversized refused/small posts/overlay/meme-repost), GIF search (no-key hides-on-first-tap,
+  keyed end-to-end against a fake Tenor upstream), all four event-post call sites, matchup
+  threads separate both directions — and L/lockers — header/roster/schedule/tx/wall, owner-
+  only editing (both directions), the real upload→palette→header-color pipeline, tap-through
+  from standings/matchup/"My locker". Fake Tenor server on its own port, same house pattern
+  as the fake ESPN fantasy upstream. Screenshots: `gffl_chat_390.png`, `gffl_matchup_
+  thread_390.png`, `gffl_locker_390.png`.
+- DEFERRED: no scheduled Wednesday-morning digest of chat activity (not asked for); GIF
+  search has no pagination/load-more (12 results, matches the design's grid); the meme
+  library doesn't distinguish "posted by me" from "posted by anyone" (deliberate — house
+  classics are shared); reader/read-state ("seen by") is out of scope, same posture as the
+  rest of the app's chat-adjacent surfaces.

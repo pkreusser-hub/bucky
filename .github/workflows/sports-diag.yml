@@ -340,3 +340,27 @@ jobs:
           done
           curl -sS "https://amenfarms.netlify.app/assets/league/lg-ui.js" -o /tmp/lgui.js
           grep -q "firstImport" /tmp/lgui.js && echo "lg-ui.js: first-run setup card PRESENT" || echo "lg-ui.js: first-run setup card MISSING (stale deploy)"
+\n
+      - name: live kicker scoring audit (206/209/214)
+        run: |
+          code=$(curl -sS -o /tmp/ka.json -w "%{http_code}" -X POST \
+            "https://amenfarms.netlify.app/.netlify/functions/league" \
+            -H "Content-Type: application/json" \
+            --data '{"secret":"amenfarms","action":"lg_espn_kicker_audit","season":2025}' || echo FAIL)
+          echo "lg_espn_kicker_audit HTTP $code, $(wc -c < /tmp/ka.json) bytes"
+          python3 <<'PY'
+          import json
+          try:
+              d = json.load(open('/tmp/ka.json'))
+          except Exception as e:
+              print('parse fail:', e); print(open('/tmp/ka.json','rb').read(400)); raise SystemExit
+          print('ok', d.get('ok'), '| reason', d.get('reason'), '| season', d.get('season'))
+          for k in (d.get('kickers') or []):
+              print('===', k.get('name'), '(espn', k.get('espnId'), ') appliedTotal', k.get('appliedTotal'))
+              st, ap = k.get('stats') or {}, k.get('appliedStats') or {}
+              ids = sorted(set(list(st.keys()) + list(ap.keys())), key=lambda x: float(x))
+              for i in ids:
+                  raw = st.get(i); pts = ap.get(i)
+                  coef = (pts / raw) if (isinstance(pts,(int,float)) and isinstance(raw,(int,float)) and raw) else None
+                  print(f'  statId {i:>5}: raw={raw} applied={pts} coef={round(coef,4) if coef is not None else "-"}')
+          PY
