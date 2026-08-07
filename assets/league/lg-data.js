@@ -334,27 +334,39 @@
     return D.score(normSlp(st));
   };
 
-  // ---------------- free agent search (S3 waivers) ----------------
+  // ---------------- free agent search (S3 waivers; item 1's browsable table) ----------------
   // Name search over the Sleeper directory (the only whole-NFL player list we
   // have). null = directory not loaded yet ("player search is warming up");
   // [] = loaded but nothing matched. Keys follow the SAME convention pollSleeper
   // uses (dst_<abbrev> / espn_id / slp_<pid> fallback) so a claimed/added
   // player's key matches whatever the live poll will key their stats under.
-  D.searchFA = function (q, ownedKeys, limit) {
+  // `opts.pos` (a roster position, or falsy/"ALL" for no filter) narrows the
+  // scan; an EMPTY `q` is no longer "too short to search" — it's browse mode,
+  // returning the best `opts.limit` free agents by Sleeper search_rank (best
+  // first, unranked pushed to the bottom, alphabetical tiebreak) so the Moves
+  // page has something to show before anyone types a letter. A genuinely
+  // typed-but-too-short query (1-2 chars) still yields [] — unfiltered
+  // substring matching on 1-2 letters is mostly noise.
+  D.searchFA = function (q, ownedKeys, opts) {
     if (!D.S.slpPlayers) return null;
+    opts = opts || {};
+    const limit = opts.limit || 20;
+    const pos = opts.pos && opts.pos !== "ALL" ? opts.pos : null;
     const needle = normName(q);
-    if (needle.length < 3) return [];
+    if (needle.length > 0 && needle.length < 3) return [];
     const owned = ownedKeys || new Set();
     const out = [];
     for (const [pid, m] of D.S.slpPlayers) {
       if (!m.name || !m.team) continue;
-      if (!normName(m.name).includes(needle)) continue;
+      const mpos = m.pos === "DEF" ? "DST" : m.pos;
+      if (pos && mpos !== pos) continue;
+      if (needle && !normName(m.name).includes(needle)) continue;
       const key = m.pos === "DEF" ? "dst_" + pid : (m.espn_id || "slp_" + pid);
       if (owned.has(key)) continue;
-      out.push({ key, name: m.name, pos: m.pos === "DEF" ? "DST" : m.pos, team: m.team, injury: m.injury || "", searchRank: m.searchRank });
+      out.push({ key, name: m.name, pos: mpos, team: m.team, injury: m.injury || "", searchRank: m.searchRank });
     }
     out.sort((a, b) => (a.searchRank ?? 1e9) - (b.searchRank ?? 1e9) || a.name.localeCompare(b.name));
-    return out.slice(0, limit || 20);
+    return out.slice(0, limit);
   };
 
   // ---------------- diff engine ----------------
@@ -427,10 +439,18 @@
       const st = (c.status && c.status.type) || {};
       const comps = c.competitors || [];
       const side = (comp) => comp ? { abbrev: comp.team?.abbreviation || "", name: comp.team?.shortDisplayName || comp.team?.abbreviation || "", score: comp.score != null ? String(comp.score) : "" } : null;
+      // TV network + betting line (item 2's Scores tab cards) — same fields/paths
+      // netlify/functions/sports.mjs already reads off this same public ESPN
+      // scoreboard shape: broadcasts[0].names[0] for the network, odds[0].details
+      // (a DISPLAY STRING ONLY, e.g. "PHI -3.5" — never a provider/price) for the
+      // spread. Both are commonly absent (bye-week/international slates, odds
+      // markets not yet posted) — "" degrades to "line simply isn't shown".
       events.push({
         id: String(ev.id || ""), date: ev.date || "",
         state: st.state || "pre", detail: st.shortDetail || "",
         period: c.status?.period || 0, clock: c.status?.displayClock || "",
+        broadcast: c.broadcasts?.[0]?.names?.[0] || "",
+        spread: (typeof c.odds?.[0]?.details === "string" ? c.odds[0].details : "").slice(0, 24),
         away: side(comps.find((x) => x.homeAway === "away")),
         home: side(comps.find((x) => x.homeAway === "home")),
       });

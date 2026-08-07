@@ -5,25 +5,43 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>The GFFL — Goat Fantasy Football League</title>
 <meta name="description" content="The Goat Fantasy Football League — fast, clean, ours.">
-<meta name="theme-color" content="#101613">
+<meta name="theme-color" content="#0c1017">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  /* ============ Gridiron League design tokens ============
-     Ported from design_handoff_fantasy_app — dark broadcast/scoreboard system.
-     Fonts degrade to system stacks when the Google Fonts request is blocked/offline
-     (the family app must never depend on the network reaching fonts.googleapis.com). */
+  /* ============ The GFFL design tokens ============
+     Item 9 (playtest batch 2, 2026-08-08): retheme'd to match ffdraft.html's aesthetic —
+     the family's own draft-day tool. ffdraft is a deep-navy broadcast-dark NFL theme (not
+     the old Gridiron black/red): --bg is a cold near-black navy (#0c1017, NOT true black),
+     cards float on it a shade lighter with a cool blue-grey line/border color, Barlow
+     Condensed still carries display type (headings/scores/tabs — unchanged, both apps
+     already shared it), but body copy moves off Public Sans onto Inter (ffdraft's body
+     font — a hair more geometric/neutral than Public Sans). Signature accents: a hot red
+     (#d50a0a, brighter/more saturated than the old #D0454C brick-red), a deep NFL navy
+     (#013369) used for "selected/active" chip fills and info badges — not just a wordmark
+     color — and a warm gold (#ffb612) for standout/highlight moments (a step brighter and
+     warmer than the old muted #C98F1B). Position-color tokens (--pos-QB/RB/WR/TE/K/DST/X)
+     are NEW — lifted straight from ffdraft's draft-board cell palette — used to tint the
+     Free Agents table's position badges (added this batch) the same way ffdraft's board
+     tints its player cells. TOKEN NAMES are unchanged from before (every component rule
+     below still just reads var(--bg)/var(--card)/var(--accent)/etc.) — only the VALUES
+     assigned to them moved, per the retheme brief ("swap the token layer, keep every
+     structural/layout improvement"). Fonts degrade to system stacks when the Google Fonts
+     request is blocked/offline (the family app must never depend on reaching
+     fonts.googleapis.com). */
   :root {
-    --bg:#131315; --bg-page:#0C0D0E; --tabbar:#17181B; --band:#141517;
-    --card:#1B1C1F; --nested:#26282D; --nested2:#202226;
-    --border-card:#2B2D32; --divider:#232529; --divider2:#1E2024; --border-hover:#3A3D43;
-    --ink:#F4F3F0; --ink2:#C9CBCF; --mut:#9EA1A8; --faint:#6C6F76;
-    --accent:#D0454C; --green:#3E9B5F; --gold:#C98F1B; --blue:#4E7FD0;
-    --row-hover:#17181B; --row-hover2:#202226;
-    --radius-card:10px; --radius-sm:8px; --radius-xs:6px; --radius-badge:4px; --radius-pill:16px;
+    --bg:#0c1017; --bg-page:#070a0f; --tabbar:#0d1320; --band:#101724;
+    --card:#151b26; --nested:#1a2231; --nested2:#0e131d;
+    --border-card:#263043; --divider:#263043; --divider2:#1c2534; --border-hover:#3a4558;
+    --ink:#e9edf4; --ink2:#c3cbdb; --mut:#8a94a7; --faint:#5b6579;
+    --accent:#d50a0a; --green:#2e8659; --gold:#ffb612; --blue:#013369;
+    --row-hover:#121722; --row-hover2:#171f2c;
+    --pos-QB:#a03449; --pos-RB:#2e8659; --pos-WR:#3a72b5; --pos-TE:#c07c2b;
+    --pos-K:#7b5ea7; --pos-DST:#6b6154; --pos-X:#454c5c;
+    --radius-card:10px; --radius-sm:7px; --radius-xs:6px; --radius-badge:4px; --radius-pill:16px;
     --font-display:'Barlow Condensed','Arial Narrow','Helvetica Neue',Arial,system-ui,sans-serif;
-    --font-body:'Public Sans',system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+    --font-body:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
   }
   * { box-sizing:border-box; }
   html,body { margin:0; }
@@ -31,11 +49,14 @@
   body { background:var(--bg); color:var(--ink); font:15px/1.45 var(--font-body);
          padding-bottom:calc(64px + env(safe-area-inset-bottom)); }
   h1, h2, h3 { font-family:var(--font-display); }
+  /* the ffdraft "broadcast" signature: a hairline accent rule along the very top edge of
+     chrome, ahead of everything else on the page (ffdraft's own header carries the same
+     3px accent top-border). box-sizing:border-box (above) keeps the header's own declared
+     height whole — the border eats into content padding, not layout height. */
   header { position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:16px;
            padding:0 14px; height:52px; background:var(--tabbar); backdrop-filter:blur(8px);
-           border-bottom:1px solid var(--border-card); }
+           border-top:3px solid var(--accent); border-bottom:1px solid var(--border-card); }
   header .wordmark { font:700 20px/1 var(--font-display); letter-spacing:1.2px; text-transform:uppercase; white-space:nowrap; }
-  header .wordmark .goat { margin-right:4px; font-size:.95em; letter-spacing:0; text-transform:none; }
   header .wordmark .accentword { color:var(--accent); }
   header .sub { display:none; color:var(--mut); font-size:11px; }
   header .hmeta { display:none; align-items:center; gap:10px; margin-left:auto; }
@@ -87,6 +108,41 @@
   .health.ok { color:var(--accent); border-color:var(--border-card); background:var(--nested); }
   .health.warn { color:var(--bg); background:var(--gold); border-color:var(--gold); font-weight:700; }
   .health.bad { color:#fff; background:var(--accent); border-color:var(--accent); font-weight:700; }
+
+  /* ---------------- free agents (item 1) — browsable table + position chips ----------------
+     .poschip mirrors ffdraft's own .chips button language (outlined pill, filled navy when
+     .on); .posbadge borrows ffdraft's per-position board-cell palette (--pos-QB/RB/WR/TE/K/
+     DST/X) as a small colored tag instead of a whole tinted cell — right-sized for a table
+     row. .rzdot/.conflictflag are item-10's "emoji becomes a CSS affordance" pieces: a red-
+     zone indicator that used to be a 🔴 emoji is now a plain pulsing dot, and a "sources
+     disagree" flag that used to be ⚠ is now a small bordered text chip. */
+  .poschips { display:flex; gap:5px; flex-wrap:wrap; margin-bottom:10px; }
+  .poschip { background:transparent; border:1px solid var(--border-card); color:var(--mut);
+             border-radius:var(--radius-xs); padding:5px 12px; font:600 12.5px var(--font-display);
+             letter-spacing:.8px; }
+  .poschip.on { background:var(--blue); border-color:var(--blue); color:#fff; }
+  table.faTable tbody tr { cursor:pointer; }
+  table.faTable .faname { width:38%; }
+  table.faTable .faname b { font-family:var(--font-body); font-weight:600; }
+  table.faTable .fapos { width:26%; }
+  table.faTable .faproj { width:16%; }
+  table.faTable .faadd { width:20%; text-align:right; }
+  .faAddBtn { padding:6px 12px; font-size:11.5px; }
+  .posbadge { display:inline-block; min-width:30px; text-align:center; border-radius:var(--radius-badge);
+              color:#fff; font:700 10.5px var(--font-display); letter-spacing:.5px; padding:2px 6px; }
+  .posbadge[data-pos="QB"] { background:var(--pos-QB); }
+  .posbadge[data-pos="RB"] { background:var(--pos-RB); }
+  .posbadge[data-pos="WR"] { background:var(--pos-WR); }
+  .posbadge[data-pos="TE"] { background:var(--pos-TE); }
+  .posbadge[data-pos="K"] { background:var(--pos-K); }
+  .posbadge[data-pos="DST"] { background:var(--pos-DST); }
+  .posbadge:not([data-pos="QB"]):not([data-pos="RB"]):not([data-pos="WR"]):not([data-pos="TE"]):not([data-pos="K"]):not([data-pos="DST"]) { background:var(--pos-X); }
+  .rzdot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--accent);
+           margin-right:5px; vertical-align:1px; animation:rzpulse 1.3s infinite; }
+  @keyframes rzpulse { 50% { opacity:.4; } }
+  .conflictflag { display:inline-block; border:1px solid #5b4a17; color:var(--gold); background:#1c1608;
+                  border-radius:var(--radius-xs); font:700 9.5px var(--font-display); letter-spacing:.6px;
+                  padding:1px 6px; margin-left:5px; }
 
   /* ---------------- matchup cards on league home ---------------- */
   .mugrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin-bottom:2px; }
@@ -166,7 +222,7 @@
   .lname { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; font-family:var(--font-body); }
   .lpts { font:700 14px var(--font-display); white-space:nowrap; }
   .lock { flex:0 0 auto; }
-  .inj { color:var(--gold); font-weight:700; }
+  .inj { color:#ef6a4d; font-weight:700; font-size:10.5px; letter-spacing:.3px; text-transform:uppercase; } /* ffdraft's own literal injury coral — distinct from --accent and --gold */
   .sheet { position:fixed; inset:auto 0 0 0; z-index:40; padding:10px; background:rgba(6,7,8,.7); backdrop-filter:blur(3px); }
   .sheet .card { max-height:60vh; overflow-y:auto; box-shadow:0 -8px 30px rgba(0,0,0,.55); }
   .swaprow { display:flex; justify-content:space-between; gap:10px; width:100%; text-align:left; background:var(--card);
@@ -182,7 +238,9 @@
              text-transform:none; letter-spacing:normal; }
   .teamrow:hover { border-color:var(--border-hover); background:var(--row-hover2); }
   .teamrow img { width:34px; height:34px; border-radius:50%; object-fit:cover; }
-  .rv input.redit { width:76px; text-align:right; font-family:var(--font-display); font-weight:700; padding:4px 6px; }
+  /* item 9 cleanup: this rule used to be scoped ".rv input.redit" — .rv never existed in the
+     markup, so it never actually applied. Fixed to target .redit directly. */
+  input.redit { width:76px; text-align:right; font-family:var(--font-display); font-weight:700; padding:4px 6px; }
   #toast { position:fixed; left:50%; transform:translateX(-50%); bottom:calc(74px + env(safe-area-inset-bottom));
            background:var(--nested); border:1px solid var(--border-hover); border-left:3px solid var(--accent);
            border-radius:var(--radius-sm); padding:10px 16px; font:13px var(--font-body); z-index:60;
@@ -230,7 +288,7 @@
   .imgoverlay img { max-width:100%; max-height:100%; border-radius:10px; }
 
   /* ---------------- record book (S6) + league-home collapsible cards (item 4) ----------------
-     .collapsecard (🔁 Recent moves / 💬 League chat) is a DELIBERATELY SEPARATE class from
+     .collapsecard ( Recent moves /  League chat) is a DELIBERATELY SEPARATE class from
      .recordbook, even though the disclosure styling is identical — several existing tests
      select ".recordbook" specifically to reach the ACTUAL record book, and the two new cards
      render ABOVE it in DOM order, so sharing the class made document.querySelector(".recordbook")
@@ -265,20 +323,25 @@
     .bracketcol { flex:1 1 0; }
   }
 
-  /* ---------------- scores tab (item 5) ---------------- */
-  .scoreday { margin-bottom:10px; }
-  .scoreday h2 { margin-bottom:4px; }
-  .gmrow { display:flex; align-items:center; gap:8px; padding:8px 4px; border-bottom:1px dotted var(--divider2); font-size:13.5px; }
-  .gmrow:last-child { border-bottom:none; }
-  .gmrow.live { color:var(--ink); }
-  .gmteam { flex:1 1 0; display:flex; align-items:center; gap:6px; font-family:var(--font-display); }
-  .gmpts { font-weight:800; font-variant-numeric:tabular-nums; }
-  .gmstate { flex:0 0 auto; text-align:right; min-width:64px; font:600 11.5px var(--font-display); letter-spacing:.5px; text-transform:uppercase; }
-  .gmstate.live { color:var(--accent); }
+  /* ---------------- scores tab (item 2, playtest batch 2 — ESPN-scoreboard-style day-grouped
+     cards, replacing the old plain gmrow list; card grid goes 2-up at ≥1024px below) ---------------- */
+  .scoreday { margin-bottom:14px; }
+  .scoreday h2 { margin-bottom:6px; }
+  .scgrid { display:grid; grid-template-columns:1fr; gap:8px; }
+  .sccard { background:var(--card); border:1px solid var(--border-card); border-radius:var(--radius-sm); padding:10px 12px; }
+  .sccard.live { border-color:var(--accent); }
+  .scnet { font:600 10.5px var(--font-display); letter-spacing:.5px; text-transform:uppercase; color:var(--mut); }
+  .scstate { font:600 11.5px var(--font-display); letter-spacing:.5px; text-transform:uppercase; color:var(--mut); }
+  .scstate.live { color:var(--accent); }
+  .scteams { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:4px; font:600 15px var(--font-display); }
+  .scteam { display:flex; align-items:center; gap:8px; }
+  .scpts { font-weight:800; font-variant-numeric:tabular-nums; }
+  .scspread, .scmine { margin-top:4px; }
   .ffrow { display:flex; align-items:center; justify-content:space-between; gap:10px; }
   .ffside { display:flex; flex-direction:column; gap:1px; min-width:0; }
   .ffside.mut { flex-direction:row; }
   .ffpts { font:700 15px var(--font-display); font-variant-numeric:tabular-nums; }
+  @media (min-width:1024px) { .scgrid { grid-template-columns:1fr 1fr; } }
 
   /* ---------------- lockers ---------------- */
   .lockerhead { border-radius:var(--radius-card); padding:16px; margin-bottom:12px; background:var(--accent); color:#fff; }
@@ -295,11 +358,19 @@
   .bnav { position:fixed; left:0; right:0; bottom:0; z-index:30; display:flex;
           background:var(--tabbar); backdrop-filter:blur(8px); border-top:1px solid var(--border-card);
           padding:6px 6px calc(6px + env(safe-area-inset-bottom)); }
-  .bnav button { flex:1 1 0; background:none; border:none; color:var(--faint); min-height:44px;
+  /* item 6 (2026-08-08 playtest): the active-tab indicator is a border-bottom that spans the
+     button's own FULL border-box — so it's only ever horizontally centered under the label when
+     that box's padding is itself symmetric (text-align:center centers the label within the same
+     box the border spans). Mobile's padding already is (2px/2px) — the border just needed to
+     exist. `* { box-sizing:border-box }` (top of this stylesheet) means adding it never nudges
+     the button's own size/height. */
+  .bnav button, .bnav .bnavlink { flex:1 1 0; background:none; border:none; border-bottom:2px solid transparent;
+                 color:var(--faint); min-height:44px; text-align:center;
                  font:600 11.5px var(--font-display); letter-spacing:1px; text-transform:uppercase;
-                 padding:6px 2px; cursor:pointer; }
-  .bnav button.on { color:var(--accent); }
-  .bnav button:hover { color:var(--ink2); }
+                 padding:6px 2px; cursor:pointer; text-decoration:none; display:flex;
+                 align-items:center; justify-content:center; box-sizing:border-box; }
+  .bnav button.on { color:var(--accent); border-bottom-color:var(--accent); }
+  .bnav button:hover, .bnav .bnavlink:hover { color:var(--ink2); }
   .bnav button.on:hover { color:var(--accent); }
 
   /* ============ desktop (≥1024px) — the design's top-nav pattern ============
@@ -316,11 +387,18 @@
     body { padding-bottom:24px; }
     .bnav { position:sticky; top:46px; background:var(--tabbar); border-top:none; border-bottom:1px solid var(--border-card);
             padding:0 24px; max-width:none; margin:0; height:34px; }
-    .bnav button { flex:0 0 auto; display:flex; align-items:center; justify-content:center; min-height:0;
-                   height:100%; font-size:12.5px; letter-spacing:1.5px; padding:0 16px 0 0;
+    /* item 6 fix, desktop half: the OLD padding here was asymmetric (0 16px 0 0 — "left" gap
+       folded entirely into the right side), so the border-bottom below — which spans the
+       button's FULL border-box — sat centered on a box whose CONTENT (and therefore its
+       justify-content:center label) was itself off-center within that box. Symmetric padding
+       (0 12px) makes the box's own center and its label's center the same point, so the
+       full-width border is correctly centered under the label at every label width, without
+       needing to know the label's rendered text width at all. */
+    .bnav button, .bnav .bnavlink { flex:0 0 auto; display:flex; align-items:center; justify-content:center; min-height:0;
+                   height:100%; font-size:12.5px; letter-spacing:1.5px; padding:0 12px;
                    border-bottom:2px solid transparent; color:var(--mut); }
     .bnav button.on { color:var(--ink); border-bottom-color:var(--accent); }
-    .bnav button:hover { color:var(--ink2); }
+    .bnav button:hover, .bnav .bnavlink:hover { color:var(--ink2); }
     /* league home: cheap multi-column dashboard feel without restructuring the cards themselves */
     main[data-view="league"] { column-count:2; column-gap:20px; }
     main[data-view="league"] > * { break-inside:avoid; -webkit-column-break-inside:avoid; }
@@ -332,7 +410,7 @@
 </head>
 <body>
   <header>
-    <span class="wordmark"><span class="goat">🐐</span>The <span class="accentword">GFFL</span></span>
+    <span class="wordmark">The <span class="accentword">GFFL</span></span>
     <span class="sub">Goat Fantasy Football League</span>
     <span class="hmeta" id="hMeta" hidden>
       <span id="hWeekYear"></span>
@@ -352,6 +430,11 @@
     <button data-v="chat">Chat</button>
     <button data-v="scores">Scores</button>
     <button data-v="rules">Rules</button>
+    <!-- Item 8 (2026-08-08): Draft leaves league.html entirely — it's ffdraft.html, the
+         family's separate keeper-draft-room page — so it's a plain link styled as a tab,
+         never toggles .on (that class only ever means "the current league.html view"),
+         and carries no data-v (nothing in lg-ui.js's nav-highlight loop should touch it). -->
+    <a class="bnavlink" href="ffdraft.html">Draft</a>
   </nav>
   <main id="main"><div class="card mut">Loading the league…</div></main>
   <div id="toast" hidden></div>

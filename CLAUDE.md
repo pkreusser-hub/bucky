@@ -8338,3 +8338,116 @@ Kreussers for Mom. Fix: `ffNorm` in sports.mjs collapses whitespace runs before 
 (client config keeps the natural single-space spelling); the fixture now carries the
 double-space name verbatim so the suite (263) proves the normalization against the shape that
 actually broke. Real league ids: Goat Kids 12 · Wyoming Cowboys 3 · Nails For Breakfast 5.
+
+---
+
+# 🏈 THE GFFL — league.html playtest batch 2 (2026-08-08, UNCOMMITTED)
+
+`league.html` (+ `assets/league/lg-{core,data,ui}.js`) is the family's fantasy-LEAGUE app —
+distinct from `sports.html`'s NFL-scores/ESPN-fantasy-viewer above and from `ffdraft.html`'s
+standalone live keeper-draft board (its own page, its own broadcast-dark theme, untouched by
+this batch except as a design reference). Ten user-reported playtest items, all landed in one
+pass, `node --check` clean, **533/533 green** (519 baseline + 14 new). No commits made, no push
+(house rule — league.html/lg-*.js auto-deploy on push to main; awaiting user preview).
+
+1. **Free agents = a real browsable table**, not just search. `D.searchFA(q, ownedKeys, {limit,
+   pos})` gained an empty-query BROWSE mode (top-N by Sleeper `search_rank`) + a position
+   filter; Moves' Waivers card gained `.poschips` (ALL/QB/RB/WR/TE/K/DST) feeding a
+   `table.tbl.faTable` (name+team / `.posbadge` + injury / weekly PROJ / ADD-or-CLAIM button),
+   paginated 40-at-a-time via "Show more ↓". Tapping any row opens the same claim sheet a
+   search hit does.
+2. **Scores tab reads like an ESPN scoreboard**: day-grouped `.sccard` cards (network, live/
+   Final/kickoff state, both scores, betting line when ESPN has one, a new "MINE: N players ·
+   OPP: N players" line — how many of the viewer's OWN current-matchup starters, and how many
+   of their opponent's, play in that specific real NFL game). `.scgrid` goes 2-column at
+   `≥1024px`.
+3. **Matchup page is a strict mirrored 3-column grid** now: my player LEFT / slot badge CENTER
+   / opponent RIGHT, EVERY slot renders for both sides (an empty slot shows "Empty", not a gap,
+   so both columns stay row-aligned), a fixed-width points column, a TOTAL row, and the bench
+   section in the same paired layout — `pairByIndex`/`halfCell`/`totalHalfCell` in lg-ui.js.
+4. **Chat GIF search audited against the real Tenor v2 API** (fixture rewritten to mirror
+   Tenor's documented response shape exactly — id/media_formats/tags/`next` cursor) — no server
+   bug was found (`lg_gif_search` in league.mjs was already correct); hardened the test fixture
+   instead and added a friendly inline retry state ("GIF search hiccuped — try again") instead
+   of silent failure on a transient hit.
+5. **Bigger chat composer**: `<textarea>` (1↔~5 rows, auto-grows via `autoGrowChatText`), Enter
+   sends / Shift+Enter newlines, ≥44px touch target — both the main chat and the matchup-page
+   "trash talk" thread composer.
+6. **Active-tab underline, off-center** — root cause: the desktop `.bnav` had ASYMMETRIC padding
+   (`0 16px 0 0`), so the border-bottom (spanning the button's full border-box) sat centered on
+   a box whose content — and therefore its centered label — wasn't itself centered in that box.
+   Fixed to symmetric `0 12px`; the underline is provably centered under the label at ANY label
+   width without measuring text at all. Verified via a `Range`-measured text-node center vs the
+   button's own box center, two different-width labels, both mobile and desktop.
+7. **Rules tab restructured like ESPN's settings page** — `RULE_LABELS` (one flat map, every
+   `DEFAULT_RULES` key → a plain-English fragment) + `SCORING_GROUPS` (Passing/Rushing/
+   Receiving/Kicking/Defense-Special-Teams/Misc) + a `PA_BRACKETS` points-allowed mini-table
+   (never hidden). View mode hides zero-valued scoring keys (noise) and renders Roster/Waivers/
+   Trades/Keepers/Playoffs/Schedule as derived plain sentences; edit mode shows EVERY key
+   (including zero-valued ones) with the same friendly label, same `data-k` attributes the save
+   path already reads. Suite proves no raw key (`bonus_pass_300`, `dst_pa_0`, …) is ever visible
+   in view mode, and spot-checks a handful of exact plain-English lines both modes.
+8. **A Draft tab** — a plain `<a class="bnavlink" href="ffdraft.html">` styled identically to
+   the button tabs (shared `.bnav button, .bnav .bnavlink` selector), living in the SAME bar on
+   both mobile and desktop (fits at 390px with 0 clipped labels and every target still ≥44px —
+   chose "same bar" over a league-home card since it fit cleanly and keeps Draft one tap from
+   anywhere, matching how the other 7 tabs behave). Never carries `.on` — it navigates away, it's
+   never "the current view."
+9. **Retheme to `ffdraft.html`'s aesthetic** (done LAST, per the brief). ffdraft's own look:
+   a cold near-black navy (`#0c1017`, not true black) broadcast-dark theme — cards a shade
+   lighter (`#151b26`) on a cool blue-grey border/line color, Barlow Condensed for all display
+   type (headings/scores/tabs — both apps already shared this font), Inter for body copy, a hot
+   saturated red accent (`#d50a0a`), a deep NFL navy (`#013369`) used for "selected" chip fills,
+   and a warm gold (`#ffb612`) for standout moments; position-colored badges
+   (`--pos-QB/RB/WR/TE/K/DST/X`, lifted straight from ffdraft's draft-board cell palette). The
+   retheme is a **pure token-value swap** — every existing CSS custom-property NAME in
+   league.html (`--bg`/`--card`/`--accent`/`--nested`/etc.) is untouched, only the hex VALUES
+   assigned to them moved, so every component rule below still just reads `var(--whatever)`.
+   New pieces added while doing the pass (previously-unstyled gaps this batch's own new markup
+   had left, plus one pre-existing dead selector): `.posbadge[data-pos]` per-position colors,
+   `.poschip`/`.poschips` (ffdraft's own outlined-pill/filled-navy-when-`.on` chip language),
+   `.rzdot` (a small pulsing CSS dot — the red-zone indicator that used to be a 🔴 emoji before
+   item 10) and `.conflictflag` ("sources disagree" — used to be ⚠), `.scgrid`/`.sccard`/etc.
+   for item 2's new Scores markup (had never been styled at all before this batch — was
+   rendering as unstyled block divs), a 3px accent top-border on `<header>` (ffdraft's own
+   broadcast signature), and a dead `.rv input.redit` selector fixed to plain `input.redit`
+   (`.rv` never existed in any markup — the rule had never once applied). Verified clean via a
+   Node script scanning the `<style>` block (comments excluded) for every old Gridiron hex
+   literal (`#131315`/`#0C0D0E`/`#1B1C1F`/`#D0454C`/etc.) — zero hits outside the batch's own
+   explanatory comment.
+10. **Zero emoji anywhere in app chrome.** Every nav label, view title, card heading, button,
+    chip, toast, sys-chat post (waiver/trade/rules-changed/champion/Toilet-Bowl announcements),
+    award name (Top Score/Bust of the Week/Bench Blunder), importer button, bracket/champion
+    banner, and empty state across `league.html` + `lg-ui.js` + `lg-core.js`'s `postSys()`
+    templates had its emoji stripped and replaced with plain text or a CSS affordance (the
+    red-zone dot and "sources disagree" flag above are the two cases where an emoji was doing
+    real visual work). Exempt by spec: user-typed chat content and family-chosen team names —
+    theirs, not the app's. New standing regression guard: **section U** in
+    `tools/_verify-gffl.cjs` renders all 8 real views (league/matchup/moves/chat/rules-view/
+    rules-EDIT/locker×2/scores/bracket-unbuilt/bracket-built) against populated fixtures (incl.
+    a real processed waiver claim so a genuine sys-post + tx-log sentence are on screen, not
+    just empty-state copy) and scans the DOM for any `\p{Extended_Pictographic}` codepoint.
+    Scoped to be robust rather than merely fixture-clean: it clones `<body>`, removes the
+    handful of containers that hold literal free-typed user content (`.chatText2`/`.chatQuote`/
+    `.lockermotto`/the poster's own identity name/every `input`/`textarea`/`option`), then
+    strips every CURRENT team name at the TEXT level (not by selector — team names recur in
+    dozens of hard-to-enumerate places: mucard, teamrow, `.lockername`, standings, bracket
+    rows, rivalries, and the sys-post/tx-log sentences that splice one into an app sentence) —
+    so a future family naming their team with an emoji, or typing one in chat, can never
+    false-positive this suite, while sys posts/tx-log sentences/banners/award names stay fully
+    IN SCOPE (per spec they must be clean; they only read clean here because their app-authored
+    template text was hand-verified emoji-free and the fixture's own team names are plain
+    ASCII).
+
+Two real, pre-existing CSS gaps were found and fixed along the way (not asked for, but the
+retheme pass touched every rule in the file so they surfaced): item 2's `.scgrid`/`.sccard`/
+etc. markup had NO CSS at all until this batch (rendered as unstyled block `<div>`s — the
+desktop "2-column card grid" requirement literally could not have passed without adding the
+grid rule), and `.rv input.redit` (item 7's numeric rule-edit inputs) had been scoped under a
+`.rv` ancestor class that never existed anywhere in the markup, so it had never applied since
+the day it was written.
+
+VERIFY: `node tools/_verify-gffl.cjs [--shots]` — 533/533, 0 page errors. Shots:
+`shots/gffl_theme_league_390.png` / `gffl_theme_bracket_390.png` (new this batch) plus every
+pre-existing `shots/gffl_*.png` plate, all now rendering in the retheme'd look (moves/FA table,
+rules view+edit, matchup, desktop league home + top-nav).
