@@ -426,6 +426,34 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     await ctx.close();
   }
 
+  // ---- B2: first run — an EMPTY league must guide, not blank ----
+  // Live 2026-08-07: a fresh device (no teams doc yet) skipped the claim
+  // screen (nothing to claim) and landed on an empty home with no way in.
+  section("B2 · first run — empty league → import → claim");
+  {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, { docs: {}, pass: "amenfarms", team: null, who: null });
+    await page.goto(BASE + "/league.html?fam=" + FAM, { waitUntil: "networkidle0" });
+    await page.waitForSelector("#firstImport", { timeout: 9000 });
+    ok(true, "empty league lands on the setup card, not a blank home");
+    const body0 = await page.evaluate(() => document.body.textContent);
+    ok(/isn't set up yet/.test(body0), "…and says why in plain words");
+    // Prompt order: commissioner PIN (create-on-first-use), then the claim name.
+    await page.evaluate(() => { window.__prompts = ["4321", "Peter"]; });
+    await clickIn(page, "#firstImport");
+    await page.waitForSelector("#importApply", { timeout: 9000 });
+    ok(true, "setup button gates the PIN and walks straight into the ESPN import preview");
+    await clickIn(page, "#importApply");
+    await page.waitForSelector(".teamrow", { timeout: 9000 });
+    ok((await page.$$eval(".teamrow", (els) => els.length)) === 8, "Apply lands on the CLAIM screen with all 8 imported teams");
+    await clickIn(page, ".teamrow", "Battle Kreussers");
+    await page.waitForSelector(".mucard, .tbl", { timeout: 9000 });
+    const persisted = await page.evaluate(() => [localStorage.getItem("gffl_team"), localStorage.getItem("gffl_who")]);
+    ok(persisted[0] === "1" && persisted[1] === "Peter", "claim persisted after the first-run flow (team 1, Peter)");
+    ok(errors.length === 0, "0 page errors through import-then-claim");
+    await ctx.close();
+  }
+
   // ---- C: league home, live totals ----
   section("C · league home — matchup cards + standings + hand-computed totals");
   {
