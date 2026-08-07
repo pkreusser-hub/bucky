@@ -342,3 +342,25 @@ setup steps), passphrase gate → claim-your-team identity, mobile bottom nav / 
   schedule) — the generator itself was proven correct standalone first.
 - Post-deploy: sports-diag.yml `gffl` job prints the REAL league's imported rules
   (scoring + unmapped + slots + trade + rosters) for review against what we encoded.
+
+# 🐐 GFFL rules review vs the REAL league (2026-08-07, live diag run 31140091195)
+
+The post-deploy `gffl` diag job pulled the Nerd league's actual 2026 settings through the
+live function. Findings, and what changed because of them:
+- **HALF-PPR** (rec = 0.5, not 1.0) · **3 RB / 3 WR** starting slots (not 2/2) ·
+  14 weeks ✓ · playoffs 5 ✓ (already our decided value) · **IR already 3 on ESPN** ✓ ·
+  FAAB $100 ✓ · trade review **24h** (not 48h) + 4 veto votes. The rules IMPORT adopts
+  all of these on apply, so the encoded defaults being off is self-healing — but the
+  import is now provably complete for this league's scoring (below).
+- **12 unmapped scoring items** in the first import. 9 identified with confidence and
+  NOW MAPPED + ENGINE-SUPPORTED: yardage GAME BONUSES 17/18 (pass 300+/400+),
+  37/38 (rush 100+/200+), 56/57 (rec 100+/200+) — derived in `D.score` from the stat
+  line as mutually-exclusive brackets exactly as ESPN applies them (a 410-yd game earns
+  the 400 bonus only); distance FG misses 79/82 → `fg_miss`; 63 → `off_fum_td`
+  (+ Sleeper's `fum_rec_td` normalized into it).
+- **3 STILL UNCERTAIN, must be confirmed empirically before week 1**: statId 206 (2 pts),
+  209 (1 pt), 214 (0.1/unit — possibly FG-made yards). Notably the league's scoring
+  carries NO conventional FG-made ids (74/77/80/83) — kicker scoring may run entirely
+  through 214-style per-yard items. CONFIRMATION PLAN: pull a 2025 kicker's applied
+  weekly stats (kona_player_info appliedStats) and solve the coefficients against his
+  official weekly totals; adjust STAT_MAP + the engine before the season.

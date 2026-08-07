@@ -45,6 +45,13 @@ function ffSettingsDoc() {
         { statId: 80, points: 3 }, { statId: 77, points: 4 }, { statId: 74, points: 5 },
         { statId: 86, points: 1 }, { statId: 99, points: 1 }, { statId: 95, points: 2 },
         { statId: 89, points: 5 }, { statId: 999, points: 7 },
+        // Live-league additions (diag 2026-08-07): yardage game bonuses,
+        // distance FG misses, offensive fumble-recovery TD.
+        { statId: 17, points: 3 }, { statId: 18, points: 4 },
+        { statId: 37, points: 3 }, { statId: 38, points: 4 },
+        { statId: 56, points: 3 }, { statId: 57, points: 4 },
+        { statId: 79, points: -1 }, { statId: 82, points: -1 },
+        { statId: 63, points: 6 },
       ]},
       rosterSettings: { lineupSlotCounts: { "0": 1, "2": 2, "4": 2, "6": 1, "23": 1, "16": 1, "17": 1, "20": 7, "21": 1 } },
       scheduleSettings: { matchupPeriodCount: 14, playoffTeamCount: 4 },
@@ -367,6 +374,9 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     ok(j.scoring.rec === 1 && j.scoring.pass_yd === 0.04 && j.scoring.fg_50 === 5 && j.scoring.dst_sack === 1 && j.scoring.dst_pa_0 === 5,
       "scoring items map to normalized keys (rec/pass_yd/fg_50/dst_sack/dst_pa_0)");
     ok(j.unmapped.length === 1 && j.unmapped[0].statId === 999, "unknown scoring item surfaces in `unmapped`, never dropped");
+    ok(j.scoring.bonus_pass_300 === 3 && j.scoring.bonus_pass_400 === 4 && j.scoring.bonus_rush_100 === 3 &&
+       j.scoring.bonus_rec_200 === 4 && j.scoring.fg_miss === -1 && j.scoring.off_fum_td === 6,
+      "live-league additions map: yardage game bonuses + distance FG misses + off fum TD");
     ok(j.slots.QB === 1 && j.slots.RB === 2 && j.slots.FLEX === 1 && j.slots.BENCH === 7 && j.slots.IR === 1,
       "roster slots decoded from ESPN slot ids (incl. their 1 IR — we override to 3 client-side)");
     ok(j.regularSeasonWeeks === 14 && j.trade.reviewHours === 48 && j.trade.vetoVotesRequired === 4,
@@ -566,6 +576,19 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
       return d.score(d.S.players.get("4361741").slp.stats);
     });
     ok(newPts === 9, "the scoring engine reads the edited doc live (Receiver 11.0 → 9.0 at half-PPR)");
+    // Yardage game bonuses: mutually-exclusive brackets, exactly as ESPN
+    // applies them (a 410-yd game earns the 400 bonus, NOT 300+400).
+    const bonusChecks = await page.evaluate(() => {
+      const d = window.__GFFL__.D;
+      const sc = { bonus_pass_300: 3, bonus_pass_400: 4, bonus_rush_100: 3, bonus_rush_200: 4, bonus_rec_100: 3, bonus_rec_200: 4 };
+      return [
+        d.score({ pass_yd: 299 }, sc),
+        d.score({ pass_yd: 320 }, sc),
+        d.score({ pass_yd: 410 }, sc),
+        d.score({ rush_yd: 150, rec_yd: 205 }, sc),
+      ].join(",");
+    });
+    ok(bonusChecks === "0,3,4,7", "yardage bonuses bracket correctly (299→0 · 320→+3 · 410→+4 only · 150ru+205rec→3+4) [" + bonusChecks + "]");
     // ESPN import.
     await page.waitForFunction(() => document.body.textContent.includes("Change log"), { timeout: 5000 });
     await clickIn(page, "#rulesImport");
