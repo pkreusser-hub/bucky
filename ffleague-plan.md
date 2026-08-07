@@ -296,3 +296,49 @@ Bucky):
 6. ~~Shadow vs main~~ — **DECIDED: build as the MAIN league.** Shadow season remains
    available as a fallback posture if season prep runs tight; the resilience section
    (§7) is what makes running it for real defensible.
+
+---
+
+# 🐐 GFFL S1+S2 — foundation + live scoring/matchup (2026-08-07)
+
+`league.html` + `assets/league/lg-{core,data,ui}.js` + `netlify/functions/league.mjs`.
+Standalone page (own future domain — commented host-rewrite block in netlify.toml with
+setup steps), passphrase gate → claim-your-team identity, mobile bottom nav / desktop rail.
+- **lg-core**: dual backend (Firestore `gffl_<fam>` collection w/ persistent cache +
+  includeMetadataChanges, localStorage fallback — suites run local), versioned rules doc
+  with append-only change log, commissioner = Dad-PIN gate (dadPinHash scheme), 14-week
+  double-round-robin generator (circle method, proven exactly-twice-per-pair), per-week
+  roster docs (lazily copied forward), slot/IR eligibility, Chicago week clock w/ test
+  override. DECISIONS ENCODED: FAAB $100 · 5-team playoffs (1-3 byes, 4v5 play-in) ·
+  **3 IR spots** · ESPN-standard trades (48h review, 4 votes veto) · the ffdraft keeper
+  rule (max 3, cost last-round−1 floor R1, 3 straight years max, waiver=last pick).
+- **lg-data**: the fftest engine promoted. One normalized schema fed by either provider;
+  rules-doc-driven scoring incl. FG distance buckets + DST PA brackets; ESPN-only gaps
+  CLOSED (DST derived from the opponent's offensive box — their thrown INTs are your
+  INTs — + scoring plays + header score; FG distances and 2-pt conversions parsed from
+  scoringPlays text); source-health state machine dual→espn-only/sleeper-only/none w/
+  self-announcing banner; Sleeper week-bucket hunt; name+team identity fallback w/ alias
+  table; league-scored projections from Sleeper proj stats; live-adjusted projections +
+  logistic win prob; change events carry FANTASY DELTAS (the feed's fuel). GOTCHA fixed:
+  pollSleeper must await the directory load (a pre-directory poll read as "empty bucket"
+  and rotated wrongly) and a failed directory load must THROW so health sees it.
+  ⚠ conflict flag = SETTLED disagreement only (game final, sources differ >0.5) — live
+  lag is 10-40s by measurement and must not flash.
+- **lg-ui**: league home (matchup cards + standings), matchup page (totals, win-prob bar,
+  slot-paired lineups, 🔴 red-zone, players-remaining, feed), team page (tap-to-swap
+  lineup editor, kickoff locks, bench, IR 3 w/ injury gating), rules page (view for all,
+  commissioner edit → version bump + logged diffs, ESPN import w/ unmapped-item review,
+  schedule generate, roster import).
+- **league.mjs**: read-only importers lg_espn_settings (mSettings/mTeam → mapped scoring
+  via STAT_MAP + RAW unmapped list + slots/trade/acquisition/teams) + lg_espn_rosters
+  (mRoster → espn ids/pos/proTeam/injury/slot). Import PRESERVES GFFL decisions (IR 3,
+  playoffs 5) and adopts ESPN's scoring/slots/trade values.
+- VERIFY: `node tools/_verify-gffl.cjs [--shots]` — **82/82, 0 page errors**: in-process
+  server section, gate/claim, hand-computed totals (41.0 dual == 41.0 espn-only == 41.0
+  sleeper-only — the §7 parity property, asserted), matchup feed deltas, locks/IR/FLEX
+  eligibility, rules versioning + live re-scoring, schedule validity, all three degraded
+  modes incl. honest STALE, 390px + 1280px. SUITE GOTCHA: the schedule pair-count check
+  failed via a CASCADE (fixture ESPN team ids diverged from seeds → 9 teams → 9-team
+  schedule) — the generator itself was proven correct standalone first.
+- Post-deploy: sports-diag.yml `gffl` job prints the REAL league's imported rules
+  (scoring + unmapped + slots + trade + rosters) for review against what we encoded.
