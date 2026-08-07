@@ -246,6 +246,71 @@ async function lgEspnKickerAudit(body) {
   }
 }
 
+// ESPN history import (plan §4.8) — one past season per call; the client
+// loops seasons backward until the import runs dry. Slimmed hard: final
+// standings + the champion + every real matchup's final score, nothing
+// else — once this lands in Firestore as `hist_<season>` the cookie's job
+// on that season is done for good (the record book/rivalries never touch
+// the network again). Unknown season / empty league -> {ok:false,
+// reason:"no-season"}, never a 500 — the client's loop treats that as "no
+// more history to find" and stops.
+async function lgEspnHistory(body) {
+  const cookies = ffCookies();
+  if (!cookies) return { ok: false, reason: "fantasy-not-configured" };
+  const season = Number(body?.season);
+  if (!(season >= 2000 && season <= 2100)) return { ok: false, reason: "no-season" };
+  const views = ["mMatchupScore", "mTeam", "mSettings"];
+  const vq = views.map((v) => "view=" + v).join("&");
+  // Past-season league reads sometimes want scoringPeriodId=0 (the kicker
+  // audit's finding, above) — try the plain form first, then that one.
+  const urls = [
+    `${FF_BASE}/apis/v3/games/ffl/seasons/${season}/segments/0/leagues/${FF_LEAGUE_ID}?${vq}`,
+    `${FF_BASE}/apis/v3/games/ffl/seasons/${season}/segments/0/leagues/${FF_LEAGUE_ID}?scoringPeriodId=0&${vq}`,
+  ];
+  let j = null, lastErr = null;
+  for (const url of urls) {
+    try {
+      const r = await fetch(url, { headers: { "User-Agent": UA, accept: "application/json", Cookie: cookies } });
+      if (r.status === 401 || r.status === 403) return { ok: false, reason: "fantasy-auth-expired" };
+      if (!r.ok) { lastErr = "http-" + r.status; continue; }
+      const data = await r.json();
+      if (Array.isArray(data?.teams) && data.teams.length) { j = data; break; }
+      lastErr = "no-season"; // valid response, but nobody there — try the other URL form once more
+    } catch (e) { lastErr = "fetch-failed"; }
+  }
+  if (!j) return { ok: false, reason: lastErr || "no-season" };
+  try {
+    const teams = j.teams.map((t) => {
+      const rec = t?.record?.overall || {};
+      return {
+        id: t?.id ?? 0,
+        name: ffTeamName(t),
+        abbrev: t?.abbrev || "",
+        owner: ffOwnerName(t, j?.members),
+        w: Number(rec.wins) || 0,
+        l: Number(rec.losses) || 0,
+        t: Number(rec.ties) || 0,
+        pf: Number(rec.pointsFor) || 0,
+        pa: Number(rec.pointsAgainst) || 0,
+        place: t?.rankCalculatedFinal ?? t?.playoffSeed ?? null,
+      };
+    });
+    const champT = j.teams.find((t) => t?.rankCalculatedFinal === 1);
+    const champion = champT ? { teamId: champT.id ?? 0, name: ffTeamName(champT) } : null;
+    const matchups = [];
+    for (const m of (Array.isArray(j?.schedule) ? j.schedule : [])) {
+      const h = m?.home, a = m?.away;
+      if (!h || !a || h.teamId == null || a.teamId == null) continue; // bye/incomplete pairing
+      const hp = Number(h.totalPoints) || 0, ap = Number(a.totalPoints) || 0;
+      if (!hp && !ap) continue; // unplayed/future — skip zero-zero
+      matchups.push({ week: m?.matchupPeriodId ?? 0, home: h.teamId, away: a.teamId, homePts: hp, awayPts: ap });
+    }
+    return { ok: true, season, leagueName: j?.settings?.name || "", teams, champion, matchups };
+  } catch {
+    return { ok: false, reason: "bad-shape" };
+  }
+}
+
 // GIF search proxy (plan §4.5) — Tenor, free API, key stays server-side. No
 // key configured -> { ok:false, reason:"gif-not-configured" }, never a 500;
 // the client hides the GIF affordance on that reason and never bothers again.
@@ -282,6 +347,7 @@ export default async (req) => {
   if (action === "lg_espn_settings") return json(await lgEspnSettings(body));
   if (action === "lg_espn_rosters") return json(await lgEspnRosters(body));
   if (action === "lg_espn_kicker_audit") return json(await lgEspnKickerAudit(body));
+  if (action === "lg_espn_history") return json(await lgEspnHistory(body));
   if (action === "lg_gif_search") return json(await lgGifSearch(body));
   return json({ ok: false, reason: "unknown-action" });
 };

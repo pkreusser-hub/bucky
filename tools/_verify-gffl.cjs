@@ -20,6 +20,7 @@ const ROOT = path.join(__dirname, "..");
 const SRV_PORT = 8843;
 const FF_PORT = 8844;
 const TENOR_PORT = 8845;
+const XAI_PORT = 8846;
 const BASE = "http://127.0.0.1:" + SRV_PORT;
 const SHOTS = process.argv.includes("--shots");
 
@@ -87,12 +88,63 @@ function ffRosterDoc() {
     ],
   };
 }
+// -- history fixtures (S6) — two hand-built past seasons + one empty one.
+// Every fixture team carries record.overall + rankCalculatedFinal (the
+// action's "place"/champion source); numbers below are chosen so every
+// record-book superlative (highest week, biggest blowout, best season PF,
+// all-time standings) has exactly one correct answer to hand-compute against.
+function ffHistTeams(list) {
+  return list.map((s) => ({
+    id: s.id, name: s.name, abbrev: s.abbrev, owners: ["o" + s.id],
+    record: { overall: { wins: s.w, losses: s.l, ties: s.t || 0, pointsFor: s.pf, pointsAgainst: s.pa } },
+    rankCalculatedFinal: s.place,
+  }));
+}
+const HIST_FIX = {
+  2024: {
+    settings: { name: "Nerd Fantasy Football League" }, members: [],
+    teams: ffHistTeams([
+      { id: 1, name: "Battle Kreussers", abbrev: "BK", w: 9, l: 5, pf: 1450.4, pa: 1300.1, place: 2 },
+      { id: 2, name: "End Zone Goats", abbrev: "EZG", w: 11, l: 3, pf: 1620.8, pa: 1355.0, place: 1 },
+      { id: 3, name: "Wyoming Cowboys", abbrev: "WYO", w: 4, l: 10, pf: 1180.2, pa: 1502.9, place: 8 },
+    ]),
+    schedule: [
+      { matchupPeriodId: 1, home: { teamId: 1, totalPoints: 182.4 }, away: { teamId: 2, totalPoints: 88.2 } },
+      { matchupPeriodId: 2, home: { teamId: 2, totalPoints: 130.0 }, away: { teamId: 3, totalPoints: 125.0 } },
+      { matchupPeriodId: 3, home: { teamId: 1, totalPoints: 0 }, away: { teamId: 3, totalPoints: 0 } }, // bye/unplayed — must be skipped
+    ],
+  },
+  2023: {
+    settings: { name: "Nerd Fantasy Football League" }, members: [],
+    teams: ffHistTeams([
+      { id: 1, name: "Battle Kreussers", abbrev: "BK", w: 12, l: 2, pf: 1710.6, pa: 1290.4, place: 1 },
+      { id: 2, name: "End Zone Goats", abbrev: "EZG", w: 6, l: 8, pf: 1390.0, pa: 1440.0, place: 5 },
+      { id: 3, name: "Wyoming Cowboys", abbrev: "WYO", w: 5, l: 9, pf: 1250.0, pa: 1480.0, place: 7 },
+    ]),
+    schedule: [
+      { matchupPeriodId: 1, home: { teamId: 1, totalPoints: 145.0 }, away: { teamId: 2, totalPoints: 100.0 } },
+      { matchupPeriodId: 2, home: { teamId: 1, totalPoints: 160.0 }, away: { teamId: 3, totalPoints: 60.0 } },
+    ],
+  },
+  // 2022 deliberately absent -> HIST_FIX[2022] undefined -> always empty/no-season below.
+};
 function startFfUpstream() {
   const srv = http.createServer((req, res) => {
     const u = req.url;
     res.writeHead(200, { "Content-Type": "application/json" });
-    if (u.includes("view=mRoster")) res.end(JSON.stringify(ffRosterDoc()));
-    else res.end(JSON.stringify(ffSettingsDoc()));
+    if (u.includes("view=mRoster")) { res.end(JSON.stringify(ffRosterDoc())); return; }
+    const seasonM = /\/seasons\/(\d+)\//.exec(u);
+    if (seasonM && u.includes("view=mMatchupScore")) {
+      const doc = HIST_FIX[Number(seasonM[1])];
+      // Mirrors the real kicker audit's finding (past-season kona reads want
+      // scoringPeriodId=0): the PLAIN url comes back empty on purpose here,
+      // so a passing test genuinely proves the action's retry ladder fired,
+      // not just that the happy path works.
+      const ready = doc && u.includes("scoringPeriodId=0");
+      res.end(JSON.stringify(ready ? doc : { settings: {}, teams: [], schedule: [] }));
+      return;
+    }
+    res.end(JSON.stringify(ffSettingsDoc()));
   });
   return new Promise((r) => srv.listen(FF_PORT, "127.0.0.1", () => r(srv)));
 }
@@ -107,6 +159,35 @@ function startTenorUpstream() {
     ] }));
   });
   return new Promise((r) => srv.listen(TENOR_PORT, "127.0.0.1", () => r(srv)));
+}
+
+function readBody(req) {
+  return new Promise((r) => { let b = ""; req.on("data", (c) => { b += c; }); req.on("end", () => r(b)); });
+}
+// -- fake xAI (S5 mode "gfflproj" — the AI read) — records every request, answers a canned
+// {"players":[...]} JSON as one SSE text delta (same shape _verify-ffai.cjs uses). T. Tight is
+// the shared fixture's ONLY player with a real Sleeper projection (slpProjFix pid "9001"), which
+// is what lets the UI test assert a real, non-null proj → adjusted-proj computation.
+const xaiReqs = [];
+function xaiSse(text) {
+  const esc = text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n");
+  return [
+    'data: {"choices":[{"delta":{"role":"assistant","content":""}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":"' + esc + '"}}]}\n\n',
+    'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+    'data: {"choices":[],"usage":{"prompt_tokens":500,"completion_tokens":60}}\n\n',
+    "data: [DONE]\n\n",
+  ].join("");
+}
+function startXaiUpstream() {
+  const srv = http.createServer(async (req, res) => {
+    const raw = await readBody(req);
+    let b = null; try { b = JSON.parse(raw); } catch { b = { parseError: raw }; }
+    xaiReqs.push(b);
+    res.setHeader("content-type", "text/event-stream");
+    res.end(xaiSse(JSON.stringify({ players: [{ name: "T. Tight", mult: 1.25, why: "KC up big, feeding the tight end in garbage time" }] })));
+  });
+  return new Promise((r) => srv.listen(XAI_PORT, "127.0.0.1", () => r(srv)));
 }
 
 // -- live-data fixtures (site API + sleeper) --
@@ -259,6 +340,37 @@ function fullSeed(opts) {
   };
 }
 
+// ---------------- S7 fixtures — a hand-designed 14-week regular season ----------------
+// FOUR pairings, each played every week 1-14 (not a realistic round robin — the point is
+// exact, hand-verifiable win/loss/PF totals, including ONE deliberate wins-TIE broken only by
+// points-for). Written directly as "weekly" docs (bypassing LG.finalizeWeek entirely — same
+// "synthetic weekly docs, independent of the live-data guard" technique section M4 already
+// uses for power rankings), so a whole 14-week season seeds in one shot.
+//   Pair A: team5 dominant over team2 (12-2)   Pair B: team7 dominant over team8 (11-3)
+//   Pair C: team1 dominant over team6 (10-4)   Pair D: team4 vs team3 — SAME 7-7 record,
+//   decided ONLY by points-for (team4 wins by a lot, loses by a little -> higher aggregate PF).
+// Final standings (wins desc, PF desc, teamId asc): team5(12,1620) > team7(11,1590) >
+// team1(10,1560) > team4(7,1575) > team3(7,1190) > team6(4,1380) > team8(3,1350) > team2(2,1320)
+// -> seeds = [5,7,1,4,3,6,8,2]. DELIBERATELY not team-id order, so a "seed by id" shortcut bug
+// would fail every check below.
+function regularSeasonWeeklyDocs() {
+  const docs = {};
+  for (let w = 1; w <= 14; w++) {
+    const matchups = [
+      w <= 12 ? { home: 5, away: 2, homePts: 120, awayPts: 90 } : { home: 5, away: 2, homePts: 90, awayPts: 120 },
+      w <= 11 ? { home: 7, away: 8, homePts: 120, awayPts: 90 } : { home: 7, away: 8, homePts: 90, awayPts: 120 },
+      w <= 10 ? { home: 1, away: 6, homePts: 120, awayPts: 90 } : { home: 1, away: 6, homePts: 90, awayPts: 120 },
+      w <= 7 ? { home: 4, away: 3, homePts: 130, awayPts: 70 } : { home: 4, away: 3, homePts: 95, awayPts: 100 },
+    ];
+    docs["weekly_2026_w" + w] = { kind: "weekly", week: w, matchups, awards: {}, power: [], accuracy: null, finalizedAt: 1000 + w };
+  }
+  return docs;
+}
+function seedFor7Playoffs() {
+  const base = fullSeed();
+  return { ...base, docs: { ...base.docs, ...regularSeasonWeeklyDocs() } };
+}
+
 // ---------------- plumbing ----------------
 function startStatic() {
   const srv = http.createServer((req, res) => {
@@ -283,6 +395,7 @@ async function launchBrowser() {
 }
 
 let leagueFn; // in-process handler
+let farmgptFn; // in-process handler (S5's mode "gfflproj" — the AI read)
 async function newTestPage(browser, seed, opts) {
   opts = opts || {};
   const ctx = await browser.createBrowserContext();
@@ -311,6 +424,13 @@ async function newTestPage(browser, seed, opts) {
         if (u.includes("/.netlify/functions/league")) {
           const r = await leagueFn(new Request("http://fn/league", { method: "POST", body: req.postData() || "{}" }));
           return req.respond({ status: r.status, contentType: "application/json", headers: cors, body: await r.text() });
+        }
+        // S5's "gfflproj" AI read. farmgpt.mjs streams plain text; answered here as one
+        // complete body (same simplification the /league route above already uses) — the
+        // page's own reader.getReader() loop is happy either way.
+        if (u.includes("/.netlify/functions/farmgpt")) {
+          const r = await farmgptFn(new Request("http://fn/farmgpt", { method: "POST", body: req.postData() || "{}" }));
+          return req.respond({ status: r.status, contentType: r.headers.get("content-type") || "text/plain", headers: cors, body: await r.text() });
         }
         if (u.startsWith(BASE)) return req.continue();
         if (/gstatic|googleapis|firebase/.test(u)) return req.abort();
@@ -403,11 +523,16 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
   section("A · league.mjs — ESPN import actions");
   const ffSrv = await startFfUpstream();
   const tenorSrv = await startTenorUpstream();
+  const xaiSrv = await startXaiUpstream();
   process.env.SPORTS_FF_BASE_URL = "http://127.0.0.1:" + FF_PORT;
   process.env.BUCKY_NOTIFY_SECRET = "amenfarms";
   process.env.ESPN_S2 = "s2test"; process.env.ESPN_SWID = "{SWID-TEST}";
+  process.env.XAI_API_KEY = "test-xai-key";
+  process.env.XAI_BASE_URL = "http://127.0.0.1:" + XAI_PORT;
   const mod = await import(pathToFileURL(path.join(ROOT, "netlify/functions/league.mjs")).href);
   leagueFn = mod.default;
+  const gptMod = await import(pathToFileURL(path.join(ROOT, "netlify/functions/farmgpt.mjs")).href);
+  farmgptFn = gptMod.default;
   const call = async (body) => { const r = await leagueFn(new Request("http://fn/", { method: "POST", body: JSON.stringify(body) })); return { status: r.status, j: JSON.parse(await r.text()) }; };
   {
     const { j } = await call({ secret: "amenfarms", action: "lg_espn_settings" });
@@ -801,6 +926,32 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     await ctx.close();
   }
   {
+    // H2: the re-skin's own desktop breakpoint (1024px+) — the design's mockup is drawn at
+    // 1440px, so that's what's screenshotted; asserts the top-nav bar (header + #bnav sharing
+    // one strip) and the league-home multi-column treatment are actually live at this width,
+    // not just present in the stylesheet.
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1440, height: 900 } });
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    const scroll = await page.evaluate(() => ({ b: document.body.scrollWidth, w: window.innerWidth }));
+    ok(scroll.b <= scroll.w + 1, "no sideways scroll at 1440px (" + scroll.b + "/" + scroll.w + ")");
+    const geom = await page.evaluate(() => {
+      const bnav = getComputedStyle(document.querySelector("#bnav"));
+      const main = getComputedStyle(document.querySelector("main"));
+      const hMeta = document.querySelector("#hMeta");
+      return { bnavPos: bnav.position, mainCols: main.columnCount, hMetaVisible: hMeta && getComputedStyle(hMeta).display !== "none" };
+    });
+    ok(geom.bnavPos === "sticky", "desktop nav reads as a persistent top strip (position:sticky), not the mobile fixed bottom bar");
+    // 1440px clears the stylesheet's own 1360px "go to 3 columns" step, so 3 is correct here —
+    // ">= 2" is the real invariant (any desktop width picks up SOME multi-column treatment).
+    ok(Number(geom.mainCols) >= 2, "league home picks up the desktop multi-column treatment (" + geom.mainCols + ")");
+    ok(geom.hMetaVisible === true, "the header's WEEK N · YEAR + avatar meta is visible at this width");
+    ok(errors.length === 0, "0 page errors on the 1440px league home");
+    if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_league_desktop_1440.png"), fullPage: true }); console.log("  📸 shots/gffl_league_desktop_1440.png"); }
+    await ctx.close();
+  }
+  {
     const { ctx, page } = await newTestPage(browser, fullSeed());
     await bootPage(page);
     await page.waitForSelector(".mucard", { timeout: 9000 });
@@ -832,6 +983,10 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     await page1.waitForFunction(() => (document.querySelector("#mvMyClaims") || {}).textContent && document.querySelector("#mvMyClaims").textContent.includes("KC D/ST"), { timeout: 5000 });
     ok(true, "claim submitted via search+sheet shows in MY PENDING on the claiming device");
     ok(/\$25/.test(await text(page1, "#mvMyClaims")), "…with the bid amount shown");
+    // Not one of the brief's required shots, but Moves is the app's densest page
+    // (pending claims + FAAB + free-agent search + trade builder + tx log all at
+    // once) — a quick visual QA capture of the re-skin there too, cheap to keep.
+    if (SHOTS) { await page1.screenshot({ path: path.join(ROOT, "shots", "gffl_moves_390.png"), fullPage: true }); console.log("  📸 shots/gffl_moves_390.png"); }
     const claimsDoc = await readDoc(page1, "claims_2026_w1");
     ok(claimsDoc && claimsDoc.claims.length === 1 && claimsDoc.claims[0].bid === 25 && claimsDoc.claims[0].teamId === 1,
       "claims doc persisted (team 1, $25, unprocessed)");
@@ -1456,8 +1611,766 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     await ctx1.close(); await ctx2.close();
   }
 
+  // ---- M: weekly finalization + projections + power rankings + weekly awards (S5) ----
+  section("M · finalization — official scores, accuracy, power rankings, awards, AI read");
+
+  // M1: the whole finalize flow, hand-computed end to end — guard, force, real numbers,
+  // awards, accuracy, power snapshot, standings, the sys chat post, and idempotency.
+  {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    // Real fixture data loads, then polling STOPS (waitLive's own contract) — everything from
+    // here on is deterministic direct manipulation, safe from any further background poll.
+    await waitLive(page);
+
+    // Guard: every one of week 1's starters' games is still "in" -> refuse.
+    await page.evaluate(() => {
+      const D = window.__GFFL__.D;
+      ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "in", period: 3, clock: "5:00" }));
+    });
+    const guarded = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(1));
+    ok(guarded.ok === false && guarded.reason === "not-final" && guarded.pending.length === 12,
+      "finalizeWeek refuses while starters' games are still live (12 pending — team1's 9 + team2's 3)");
+    ok(!(await page.evaluate(() => window.__GFFL__.LG.loadWeekly(1))), "…and no weekly doc was written");
+
+    // force:true bypasses the guard (still computes from whatever's currently on the board).
+    const forced = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(1, { force: true }));
+    ok(forced.ok === true && forced.kind === "weekly", "force:true bypasses the guard and finalizes anyway");
+    // Undo the force-finalize (doc AND its own sys chat post) so the rest of this test
+    // exercises the real, un-forced numbers against a clean slate.
+    await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      await LG.db.del("weekly_2026_w1");
+      const chats = await LG.loadAllChat();
+      const forceMsg = chats.find((m) => m.sys && /Week 1 is official/.test(m.text || ""));
+      if (forceMsg) await LG.db.del(forceMsg.id);
+    });
+    ok(!(await page.evaluate(() => window.__GFFL__.LG.loadWeekly(1))), "…the doc is gone again, ready for the real run");
+
+    // The hand-computable scenario: every relevant game final, exact per-player points, a
+    // seeded bench player (B. Backup, 50 pts) who should have started over the actual FLEX
+    // (F. Flexman, 2 pts) — the Bench Blunder case — and a pre-game projection snapshot for
+    // the accuracy scoreboard to grade against.
+    await page.evaluate(() => {
+      const D = window.__GFFL__.D;
+      const setP = (key, name, team, pos, pts) =>
+        D.S.players.set(key, { key, name, team, pos, pts, espn: null, slp: null, official: null, injury: "", src: "", conflict: false, last: 0 });
+      setP("3915511", "P. Passer", "PHI", "QB", 25);
+      setP("4241457", "R. Rusher", "DAL", "RB", 10);
+      setP("111888", "S. Second", "DEN", "RB", 8);
+      setP("4361741", "W. Receiver", "PHI", "WR", 15);
+      setP("111555", "W. Two", "DEN", "WR", 6);
+      setP("111222", "T. Tight", "KC", "TE", 5);
+      setP("111444", "F. Flexman", "DEN", "RB", 2);
+      setP("dst_PHI", "PHI D/ST", "PHI", "DST", 9);
+      setP("2473037", "K. Kicker", "DAL", "K", 7);
+      setP("111333", "B. Backup", "KC", "RB", 50);
+      setP("111666", "I. Injured", "KC", "WR", 1);
+      setP("111777", "H. Healthy", "DEN", "WR", 3);
+      setP("222111", "Q. Rival", "DAL", "QB", 20);
+      setP("222333", "X. Wideout", "PHI", "WR", 12);
+      setP("dst_DAL", "DAL D/ST", "DAL", "DST", 4);
+      ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "post", period: 4, clock: "0:00" }));
+      const table = { "3915511": 20, "4361741": 10, "111444": 12, "111888": 9, "2473037": 5, "222111": 15, "222333": 8 };
+      D.projFor = (key) => (key in table ? table[key] : null);
+    });
+    await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      await LG.db.set(LG.projSnapId(LG.SEASON, 1), { kind: "projsnap", week: 1, players: [
+        { key: "3915511", name: "P. Passer", teamId: 1, proj: 20 },
+        { key: "4361741", name: "W. Receiver", teamId: 1, proj: 10 },
+        { key: "111444", name: "F. Flexman", teamId: 1, proj: 12 },
+        { key: "222111", name: "Q. Rival", teamId: 2, proj: 15 },
+      ] });
+    });
+
+    const chatBefore = (await page.evaluate(() => window.__GFFL__.LG.loadAllChat())).length;
+    const r1 = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(1));
+    ok(r1.ok === true, "finalizeWeek succeeds once every relevant game reads post");
+    ok(r1.matchups.length === 4, "4 matchups written for week 1");
+    const m1 = r1.matchups.find((m) => m.home === 1 && m.away === 2);
+    ok(!!m1 && m1.homePts === 87 && m1.awayPts === 36, "hand-computed totals: team1 87.0, team2 36.0 (" + JSON.stringify(m1) + ")");
+    const m2 = r1.matchups.find((m) => m.home === 3);
+    ok(!!m2 && m2.homePts === 0 && m2.awayPts === 0, "an empty-roster matchup finalizes at 0-0, not an error");
+
+    ok(!!r1.awards.topScore && r1.awards.topScore.teamId === 1 && r1.awards.topScore.pts === 87,
+      "🏅 Top Score: team1 (87.0)");
+    ok(!!r1.awards.bust && r1.awards.bust.name === "F. Flexman" && r1.awards.bust.shortfall === 10,
+      "💀 Bust of the Week: F. Flexman, proj 12 → actual 2, shortfall 10.0 — the biggest of anyone with proj ≥8 (" + JSON.stringify(r1.awards.bust) + ")");
+    ok(!!r1.awards.benchBlunder && r1.awards.benchBlunder.teamId === 1 && r1.awards.benchBlunder.diff === 48,
+      "🪑 Bench Blunder: team1 left 48.0 on the bench (optimal 135.0 vs actual 87.0 — B. Backup(50) should have started over F. Flexman(2))");
+
+    ok(!!r1.accuracy && r1.accuracy.n === 4 && r1.accuracy.ours === 6.25,
+      "📈 accuracy: mean |proj-actual| over the 4 snapshotted starters = 6.25 (" + JSON.stringify(r1.accuracy) + ")");
+
+    const p1 = r1.power.find((p) => p.teamId === 1), p2 = r1.power.find((p) => p.teamId === 2);
+    ok(r1.power.length === 8 && !!p1 && p1.rank === 1 && !!p2 && p2.rank === 2,
+      "🏆 power rankings snapshot written into the doc — team1 #1, team2 #2");
+    ok(p1.score === 10.35, "team1's power score hand-computed: 4×1 + 0.05×87 + 2×1 = 10.35 (" + p1.score + ")");
+    ok(p2.score === 1.8, "team2's power score hand-computed: 4×0 + 0.05×36 + 2×0 = 1.8 (" + p2.score + ")");
+
+    const stAfter = await page.evaluate(() => window.__GFFL__.LG.loadStandings());
+    ok(stAfter[1].w === 1 && stAfter[1].pf === 87 && stAfter[2].l === 1 && stAfter[2].pf === 36,
+      "LG.loadStandings() reflects the finalized week — nothing else needed to change");
+
+    const chat1 = await page.evaluate(() => window.__GFFL__.LG.loadAllChat());
+    ok(chat1.length === chatBefore + 1, "exactly one new chat message was posted");
+    const sys = chat1.filter((m) => m.sys && /Week 1 is official/.test(m.text || ""));
+    ok(sys.length === 1, "…and it's the sys announcement");
+    ok(/Top score: Battle Kreussers \(87\.0\)/.test(sys[0].text) && /Bust of the week: F\. Flexman/.test(sys[0].text)
+      && /Bench blunder: Battle Kreussers left 48\.0/.test(sys[0].text),
+      "…naming the top score, the bust, and the bench blunder (" + sys[0].text + ")");
+
+    // Idempotent: a second call returns the SAME doc, untouched — no recomputation, no
+    // duplicate chat post.
+    const r2 = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(1));
+    ok(r2.ok === true && r2.finalizedAt === r1.finalizedAt, "re-calling finalizeWeek returns the SAME doc untouched (idempotent)");
+    const chat2 = await page.evaluate(() => window.__GFFL__.LG.loadAllChat());
+    ok(chat2.length === chat1.length, "…and posts no duplicate chat message");
+
+    ok(errors.length === 0, "0 page errors through the finalize flow");
+    if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_league_390.png"), fullPage: true }); console.log("  📸 shots/gffl_league_390.png"); }
+    await ctx.close();
+  }
+
+  // M2: auto-finalize on boot only ever touches a PAST week (week < currentWeek()) — never the
+  // live/current one, even when that week's own data would otherwise pass the guard too.
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    // A real 2-week schedule (both weeks share the same pairings — fine for this boundary
+    // check) so week 2 genuinely COULD be finalized if the week<currentWeek() guard were wrong.
+    await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      const wk1 = [[1, 2], [3, 4], [5, 6], [7, 8]];
+      await LG.saveSchedule([wk1, wk1]);
+    });
+    await page.evaluate(() => {
+      const D = window.__GFFL__.D;
+      const keys = ["3915511", "4241457", "111888", "4361741", "111555", "111222", "111444", "dst_PHI", "2473037", "222111", "222333", "dst_DAL"];
+      keys.forEach((k) => { const row = D.S.players.get(k) || { key: k, name: k, team: "", pos: "" }; row.pts = 10; D.S.players.set(k, row); });
+      ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "post", period: 4, clock: "0:00" }));
+    });
+    await page.evaluate(() => {
+      const LG = window.__GFFL__.LG;
+      const start = new Date(LG.SEASON_START + "T05:00:00-05:00").getTime();
+      LG.nowOverride = start + 8 * 24 * 3600 * 1000; // 8 days into the season -> week 2
+    });
+    const cw = await page.evaluate(() => window.__GFFL__.LG.currentWeek());
+    ok(cw === 2, "currentWeek() reads 2 under the simulated clock (8 days into the season)");
+    ok(!(await page.evaluate(() => window.__GFFL__.LG.loadWeekly(1))), "week 1's weekly doc doesn't exist yet");
+    await page.evaluate(() => window.__GFFL__.UI.maybeAutoFinalizeWeeks());
+    const after1 = await page.evaluate(() => window.__GFFL__.LG.loadWeekly(1));
+    ok(!!after1 && after1.kind === "weekly", "week 1 (< currentWeek()) got auto-finalized");
+    const after2 = await page.evaluate(() => window.__GFFL__.LG.loadWeekly(2));
+    ok(!after2, "week 2 (== currentWeek(), the LIVE week) was never touched, even though its own data would have passed the guard too");
+    await page.evaluate(() => { window.__GFFL__.LG.nowOverride = null; });
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // M3: projection snapshot — once per week, per device-first-in; skips already-started games.
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    // startData() ALSO fires this at boot (device-first-in, chained off initSleeper()'s own
+    // promise) — by now it's had time to run and already claimed week 1's snapshot slot using
+    // whatever the real fixture's projections were. That's the feature working, not a bug —
+    // prove it, then clear the slot so the rest of THIS test can drive snapshotProjections in
+    // isolation against its own hand-picked scenario.
+    const autoSnap = await page.evaluate(() => window.__GFFL__.LG.loadProjSnap(1));
+    ok(!!autoSnap && autoSnap.kind === "projsnap" && autoSnap.players.length > 0,
+      "the boot-time auto-snapshot already claimed week 1's slot on its own, using real fixture data");
+    await page.evaluate(() => window.__GFFL__.LG.db.del(window.__GFFL__.LG.projSnapId(window.__GFFL__.LG.SEASON, 1)));
+
+    // Seed + call atomically in ONE evaluate — a stray timer/promise continuation from the
+    // (stopped) poll loop must never land BETWEEN the seed and the call and race it.
+    const snap1 = await page.evaluate(() => {
+      const D = window.__GFFL__.D;
+      D.S.games.set("PHI", { state: "pre" });
+      D.S.games.set("DAL", { state: "in", period: 2, clock: "5:00" }); // Rusher + Kicker already live
+      D.S.games.set("DEN", { state: "pre" });
+      D.S.games.set("KC", { state: "pre" });
+      const table = { "3915511": 20, "4361741": 12, "111888": 9, "111555": 6, "111222": 5, "111444": 8, "4241457": 11, "2473037": 6, "222111": 15, "222333": 8 };
+      D.projFor = (key) => (key in table ? table[key] : null);
+      return window.__GFFL__.LG.snapshotProjections(1);
+    });
+    ok(!!snap1 && snap1.kind === "projsnap", "the first attempt writes a snapshot");
+    const keys1 = snap1.players.map((p) => p.key);
+    ok(!keys1.includes("4241457") && !keys1.includes("2473037"), "starters whose game already started (DAL) are excluded");
+    ok(keys1.includes("3915511") && keys1.includes("4361741"), "still-pre-game starters ARE captured");
+    ok(snap1.players.find((p) => p.key === "3915511").proj === 20, "the captured proj matches D.projFor at the moment of the snapshot");
+
+    // A second attempt, with the data now looking totally different, must NOT overwrite it.
+    const snap2 = await page.evaluate(() => {
+      const D = window.__GFFL__.D;
+      D.S.games.set("PHI", { state: "post" });
+      D.projFor = () => 999;
+      return window.__GFFL__.LG.snapshotProjections(1);
+    });
+    ok(snap2.at === snap1.at && snap2.players.length === snap1.players.length,
+      "a second call returns the SAME snapshot untouched — one device wins, for the whole week");
+    ok(!snap2.players.some((p) => p.proj === 999), "…the later (wrong) data never leaked in");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // M4: power rankings ordering + movement arrows against the prior finalized week's own
+  // snapshot (synthetic weekly docs — direct data, independent of the live-data guard above).
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      await LG.db.set(LG.weeklyId(2026, 1), { kind: "weekly", week: 1, matchups: [],
+        power: [{ teamId: 1, score: 10, rank: 1 }, { teamId: 2, score: 8, rank: 2 }, { teamId: 3, score: 5, rank: 3 }] });
+      await LG.db.set(LG.weeklyId(2026, 2), { kind: "weekly", week: 2, matchups: [],
+        power: [{ teamId: 3, score: 20, rank: 1 }, { teamId: 1, score: 9, rank: 2 }, { teamId: 2, score: 8, rank: 3 }] });
+    });
+    await page.evaluate(() => { window.__GFFL__.UI.week = 2; });
+    await page.evaluate(() => window.__GFFL__.UI.renderLeague());
+    await page.waitForFunction(() => document.body.textContent.includes("Power rankings"), { timeout: 5000 });
+    const rows = await page.evaluate(() => {
+      const h2 = [...document.querySelectorAll("h2")].find((h) => h.textContent.includes("Power rankings"));
+      const card = h2.closest(".card");
+      return [...card.querySelectorAll(".rowline")].map((el) => el.textContent.replace(/\s+/g, " ").trim());
+    });
+    ok(rows.length === 3, "power rankings card lists the 3 teams that have a snapshot for week 2 (" + rows.length + ")");
+    ok(/^#1/.test(rows[0]) && /Wyoming Cowboys/.test(rows[0]) && /▲2/.test(rows[0]), "team3 climbed #3→#1 — ▲2 shown (" + rows[0] + ")");
+    ok(/^#2/.test(rows[1]) && /Battle Kreussers/.test(rows[1]) && /▼1/.test(rows[1]), "team1 dropped #1→#2 — ▼1 shown (" + rows[1] + ")");
+    ok(/^#3/.test(rows[2]) && /End Zone Goats/.test(rows[2]) && /▼1/.test(rows[2]), "team2 dropped #2→#3 — ▼1 shown (" + rows[2] + ")");
+    ok(/through week 2/.test(await page.evaluate(() => document.body.textContent)), "the card labels which week it's through — always the LATEST finalized week, independent of which week you happen to be browsing");
+    // With only week 1 on file, there's no PRIOR week to compare against — a dash, not an arrow.
+    await page.evaluate(() => window.__GFFL__.LG.db.del(window.__GFFL__.LG.weeklyId(2026, 2)));
+    await page.evaluate(() => window.__GFFL__.UI.renderLeague());
+    await page.waitForFunction(() => document.body.textContent.includes("through week 1"), { timeout: 5000 });
+    const rows1 = await page.evaluate(() => {
+      const h2 = [...document.querySelectorAll("h2")].find((h) => h.textContent.includes("Power rankings"));
+      const card = h2.closest(".card");
+      return [...card.querySelectorAll(".rowline")].map((el) => el.textContent.replace(/\s+/g, " ").trim());
+    });
+    ok(rows1.length === 3 && !rows1.some((r) => /[▲▼]/.test(r)),
+      "…and week 1 alone (no prior week on file) shows no movement arrows for anyone (" + JSON.stringify(rows1) + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // M5a: the AI read degrades silently when the model is unreachable/unconfigured — a toast,
+  // never a broken card, never a page error.
+  {
+    const savedKey = process.env.XAI_API_KEY;
+    delete process.env.XAI_API_KEY; // and no ANTHROPIC_API_KEY is configured in this suite either
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    await clickIn(page, ".mucard.mine");
+    await page.waitForSelector("#aiReadBtn", { timeout: 9000 });
+    await clickIn(page, "#aiReadBtn");
+    await page.waitForFunction(() => /isn.t available/.test(document.querySelector("#aiReadOut").textContent), { timeout: 9000 });
+    ok(true, "with the model fully unreachable, the card shows a friendly note instead of hanging or breaking");
+    ok(!(await page.$("#aiReadBtn[disabled]")), "…and the button re-enables itself for another try");
+    ok(errors.length === 0, "0 page errors even on a total AI outage");
+    process.env.XAI_API_KEY = savedKey;
+    await ctx.close();
+  }
+
+  // M5b: the wire + applying the returned multiplier to a REAL rendered projection.
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    await clickIn(page, ".mucard.mine");
+    await page.waitForSelector("#aiReadBtn", { timeout: 9000 });
+    ok(/Tap for live adjustments/.test((await text(page, "#aiReadOut")) || ""), "an inviting placeholder shows before the button is used");
+
+    const xaiBefore = xaiReqs.length;
+    await clickIn(page, "#aiReadBtn");
+    await page.waitForFunction(() => {
+      const el = document.querySelector("#aiReadOut");
+      return el && /T\. Tight/.test(el.textContent) && !/Reading the game/.test(el.textContent);
+    }, { timeout: 9000 });
+    ok(xaiReqs.length === xaiBefore + 1, "the button fires exactly one request to the AI");
+    const w = xaiReqs[xaiReqs.length - 1];
+    ok(w && w.model === "grok-4.5", "…on Grok 4.5");
+    const sysMsg = (w.messages && w.messages[0] && w.messages[0].content) || "";
+    ok(/live in-game fantasy football projection adjuster/.test(sysMsg) && /STRICT JSON ONLY/.test(sysMsg), "GFFLPROJ_SYSTEM is stamped server-side");
+    const turn = (w.messages && w.messages[1] && w.messages[1].content) || "";
+    ok(/CURRENT MATCHUP — week 1/.test(turn) && turn.includes('"T. Tight"') && turn.includes('"gameState"'),
+      "the request carries the real matchup — week number, real player names, real game state");
+
+    const mult = await page.evaluate(() => (window.__GFFL__.UI._aiRead && window.__GFFL__.UI._aiRead.mults) || {})
+      .then((m) => m["T. Tight"]);
+    ok(!!mult && mult.mult === 1.25, "the parsed multiplier is exactly 1.25");
+    ok(mult.proj != null && mult.adj === Math.round(mult.proj * 1.25 * 100) / 100,
+      "the CLIENT computes the adjusted projection = proj × mult (proj " + mult.proj + " → adj " + mult.adj + ")");
+    const rendered = (await text(page, "#aiReadOut")) || "";
+    const projTxt = await page.evaluate((p) => window.__GFFL__.LG.fmtPts(p), mult.proj);
+    const adjTxt = await page.evaluate((p) => window.__GFFL__.LG.fmtPts(p), mult.adj);
+    ok(rendered.includes(projTxt) && rendered.includes(adjTxt) && rendered.includes("×1.25"),
+      "…and BOTH the original and the adjusted projection are on the rendered card, with the multiplier (" + projTxt + " → " + adjTxt + ")");
+    ok(/garbage time/.test(rendered), "the model's one-line reason renders too");
+
+    // A second tap within the 5-minute cache window doesn't re-spend.
+    const xaiAfter1 = xaiReqs.length;
+    await clickIn(page, "#aiReadBtn");
+    await sleep(150);
+    ok(xaiReqs.length === xaiAfter1, "a second tap inside the 5-minute cache window fires no new request");
+
+    ok(errors.length === 0, "0 page errors through the AI read flow");
+    if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_ai_read_390.png"), fullPage: true }); console.log("  📸 shots/gffl_ai_read_390.png"); }
+    await ctx.close();
+  }
+
+  // ---- N: ESPN history import + record book + rivalries (S6) ----
+  section("N · ESPN history import + record book + rivalries");
+
+  // N1: the raw action, in process — slimming, the retry ladder, champion/place, the
+  // 0-0-skip rule, and the no-season/out-of-range refusals. No browser needed.
+  {
+    const callHist = async (season) => {
+      const r = await leagueFn(new Request("http://fn/", { method: "POST", body: JSON.stringify({ secret: "amenfarms", action: "lg_espn_history", season }) }));
+      return JSON.parse(await r.text());
+    };
+    const h2024 = await callHist(2024);
+    ok(h2024.ok === true && h2024.leagueName === "Nerd Fantasy Football League", "2024 import reaches the league (" + h2024.leagueName + ")");
+    const bk24 = h2024.teams.find((t) => t.id === 1), ezg24 = h2024.teams.find((t) => t.id === 2);
+    ok(!!bk24 && bk24.w === 9 && bk24.l === 5 && bk24.pf === 1450.4 && bk24.pa === 1300.1 && bk24.place === 2,
+      "team slims record.overall + place from rankCalculatedFinal (Battle Kreussers 9-5, pf 1450.4, place 2)");
+    ok(!!ezg24 && ezg24.place === 1, "End Zone Goats' place is 1 (rankCalculatedFinal)");
+    ok(h2024.champion && h2024.champion.teamId === 2 && h2024.champion.name === "End Zone Goats",
+      "champion = the rankCalculatedFinal===1 team (End Zone Goats)");
+    ok(h2024.matchups.length === 2, "the 0-0 bye/unplayed matchup is skipped (2 real matchups, not 3)");
+    const m1 = h2024.matchups.find((m) => m.week === 1);
+    ok(!!m1 && m1.home === 1 && m1.away === 2 && m1.homePts === 182.4 && m1.awayPts === 88.2,
+      "matchup fields: week = matchupPeriodId, home/away = teamId, homePts/awayPts = totalPoints");
+    // 2023's fixture is only readable via the scoringPeriodId=0 retry (the plain URL
+    // deliberately comes back empty) — proves the retry ladder actually fires, not
+    // just that the happy path works.
+    const h2023 = await callHist(2023);
+    ok(h2023.ok === true && h2023.champion.teamId === 1, "2023 import succeeds via the retry ladder — champion Battle Kreussers");
+    const noSeason = await callHist(2022);
+    ok(noSeason.ok === false && noSeason.reason === "no-season", "an empty league season -> ok:false, reason:no-season");
+    const badRange = await callHist(1999);
+    ok(badRange.ok === false && badRange.reason === "no-season", "an out-of-range season is refused before ever touching the network");
+  }
+
+  // N2-N6: the client — import loop, record book, head-to-head, matchup line, locker.
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+
+    // N2: the client import loop — writes hist_2024 + hist_2023, STOPS at the first
+    // miss (2022) because by then it already has a success; 2025 (the league's
+    // current-year-minus-1 starting point) misses FIRST with zero successes yet, so
+    // it correctly keeps trying older seasons instead of giving up right away.
+    await page.evaluate(() => window.__GFFL__.UI.show("rules"));
+    await page.waitForSelector("#historyImport", { timeout: 5000 });
+    await clickIn(page, "#historyImport"); // gates the commissioner PIN (create-on-first-use)
+    await page.waitForFunction(() => /Imported \d+ season/.test(document.querySelector("#importOut").textContent), { timeout: 15000 });
+    const impText = await page.evaluate(() => document.querySelector("#importOut").textContent);
+    ok(/Imported 2 seasons/.test(impText) && /2023/.test(impText) && /2024/.test(impText),
+      "import summary names both seasons + the range (" + impText.trim() + ")");
+    const hist2024 = await readDoc(page, "hist_2024"), hist2023 = await readDoc(page, "hist_2023"), hist2022 = await readDoc(page, "hist_2022");
+    ok(!!hist2024 && hist2024.kind === "hist" && hist2024.season === 2024, "hist_2024 doc written");
+    ok(!!hist2023 && hist2023.kind === "hist" && hist2023.season === 2023, "hist_2023 doc written");
+    ok(!hist2022, "the loop stopped at 2022 — no hist_2022 doc");
+
+    // N3: the record book — every superlative hand-computed against the two imported seasons.
+    await page.evaluate(() => window.__GFFL__.UI.show("league"));
+    await page.waitForSelector(".recordbook", { timeout: 9000 });
+    await page.evaluate(() => { document.querySelector(".recordbook").open = true; });
+    const rbText = await page.evaluate(() => document.querySelector(".recordbook").textContent.replace(/\s+/g, " ").trim());
+    ok(/2023: Battle Kreussers/.test(rbText) && /2024: End Zone Goats/.test(rbText), "champions by year, both seasons (" + rbText.slice(0, 140) + ")");
+    ok(/Battle Kreussers.*182\.4.*wk 1, 2024/.test(rbText), "highest single-week score ever: Battle Kreussers 182.4, wk1 2024");
+    ok(/160\.0.*60\.0.*Wyoming Cowboys.*margin 100\.0.*wk 2, 2023/.test(rbText),
+      "biggest blowout: Battle Kreussers 160.0 — 60.0 Wyoming Cowboys, margin 100.0, wk2 2023");
+    ok(/1710\.6.*2023/.test(rbText), "best season PF: Battle Kreussers 1710.6 in 2023");
+    const rbRows = await page.evaluate(() => [...document.querySelectorAll(".recordbook table.tbl tbody tr")]
+      .map((r) => [...r.querySelectorAll("td")].map((td) => td.textContent.trim())));
+    ok(rbRows.length === 3, "all-time standings: 3 franchises with any recorded history (of 8 teams)");
+    ok(rbRows[0][1] === "Battle Kreussers" && rbRows[0][2] === "21" && rbRows[0][3] === "7" && rbRows[0][4] === "3161.0" && rbRows[0][5] === "1",
+      "row1: Battle Kreussers 21-7, 3161.0 PF, 1 title (" + JSON.stringify(rbRows[0]) + ")");
+    ok(rbRows[1][1] === "End Zone Goats" && rbRows[1][2] === "17" && rbRows[1][3] === "11" && rbRows[1][4] === "3010.8" && rbRows[1][5] === "1",
+      "row2: End Zone Goats 17-11, 3010.8 PF, 1 title (aggregate across BOTH seasons) (" + JSON.stringify(rbRows[1]) + ")");
+    ok(rbRows[2][1] === "Wyoming Cowboys" && rbRows[2][2] === "9" && rbRows[2][3] === "19" && rbRows[2][4] === "2430.2" && rbRows[2][5] === "0",
+      "row3: Wyoming Cowboys 9-19, 2430.2 PF, 0 titles (" + JSON.stringify(rbRows[2]) + ")");
+
+    // N4: head-to-head — hand-checked directly against LG.headToHead.
+    const h2h12 = await page.evaluate(() => window.__GFFL__.LG.headToHead(1, 2));
+    ok(h2h12.aWins === 2 && h2h12.bWins === 0 && h2h12.aPts === 327.4 && h2h12.bPts === 188.2,
+      "headToHead(1,2): Battle Kreussers lead 2-0, 327.4-188.2 across both seasons (" + JSON.stringify(h2h12) + ")");
+    const h2h13 = await page.evaluate(() => window.__GFFL__.LG.headToHead(1, 3));
+    ok(h2h13.aWins === 1 && h2h13.bWins === 0 && h2h13.aPts === 160 && h2h13.bPts === 60,
+      "headToHead(1,3): 1-0, 160-60 (the 2024 0-0 bye between them correctly contributes nothing)");
+    const h2h31 = await page.evaluate(() => window.__GFFL__.LG.headToHead(3, 1));
+    ok(h2h31.aWins === 0 && h2h31.bWins === 1, "headToHead(3,1) reads the exact mirror of (1,3) — argument order sets perspective, not the answer");
+    const h2h45 = await page.evaluate(() => window.__GFFL__.LG.headToHead(4, 5));
+    ok(h2h45.aWins === 0 && h2h45.bWins === 0 && h2h45.ties === 0, "two teams with no shared history read all-zero, not an error");
+
+    // N5: matchup page — "All-time series" line (this week's real matchup is team1 vs team2).
+    await page.waitForSelector(".mucard", { timeout: 5000 });
+    await clickIn(page, ".mucard.mine");
+    await page.waitForSelector(".muhead", { timeout: 9000 });
+    const seriesLine = await text(page, ".h2hline");
+    ok(!!seriesLine && /All-time series: Battle Kreussers leads 2.0/.test(seriesLine), "matchup header: All-time series line (" + seriesLine + ")");
+
+    // N6: locker — championship banner (2023 only — they didn't win 2024) + rivalries table
+    // (only opponents with shared history show, not all 7 other teams).
+    await page.evaluate(() => window.__GFFL__.UI.openLocker(1));
+    await page.waitForSelector(".lockerhead", { timeout: 9000 });
+    const lockerText = await page.evaluate(() => document.body.textContent);
+    ok(/🏆 Championships/.test(lockerText) && /🏆 2023/.test(lockerText) && !/🏆 2024/.test(lockerText),
+      "Battle Kreussers' locker shows their 2023 title banner, and only that one");
+    const rivRows = await page.evaluate(() => {
+      const h2 = [...document.querySelectorAll("h2")].find((h) => h.textContent === "Rivalries");
+      return h2 ? [...h2.closest(".card").querySelectorAll("tbody tr")].map((r) => [...r.querySelectorAll("td")].map((td) => td.textContent.trim())) : null;
+    });
+    ok(!!rivRows && rivRows.length === 2, "rivalries table lists only the 2 opponents with shared history (of 7 possible) (" + JSON.stringify(rivRows) + ")");
+    const ezgRow = rivRows.find((r) => r[0] === "End Zone Goats"), wyoRow = rivRows.find((r) => r[0] === "Wyoming Cowboys");
+    ok(!!ezgRow && ezgRow[1] === "2" && ezgRow[2] === "0" && ezgRow[3] === "0", "rivalry vs End Zone Goats: 2-0-0");
+    ok(!!wyoRow && wyoRow[1] === "1" && wyoRow[2] === "0" && wyoRow[3] === "0", "rivalry vs Wyoming Cowboys: 1-0-0");
+
+    ok(errors.length === 0, "0 page errors through import + record book + rivalries");
+    if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_recordbook_390.png"), fullPage: true }); console.log("  📸 shots/gffl_recordbook_390.png"); }
+    await ctx.close();
+  }
+
+  // N7: empty state — a league with no history imported (and no titles) shows the
+  // guiding message, not an empty table; a non-commissioner never sees the import hint.
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await page.waitForSelector(".recordbook", { timeout: 5000 });
+    const rbEmptyBefore = await page.evaluate(() => document.querySelector(".recordbook").textContent);
+    ok(/No history imported yet/.test(rbEmptyBefore), "record book empty state (no hist docs): 'No history imported yet'");
+    ok(!(await page.$(".recordbook table.tbl")), "…and no standings table renders with nothing imported");
+    ok(!/Import it from the Rules page/.test(rbEmptyBefore), "…no commissioner hint shown to a non-commissioner viewer");
+    await page.evaluate(() => window.__GFFL__.LG.gateCommish()); // create-on-first-use, consumes the stub prompt
+    await page.evaluate(() => window.__GFFL__.UI.renderLeague());
+    const rbEmptyAfter = await page.evaluate(() => document.querySelector(".recordbook").textContent);
+    ok(/Import it from the Rules page/.test(rbEmptyAfter), "…the commissioner DOES see a hint pointing at Rules");
+    await page.evaluate(() => window.__GFFL__.UI.openLocker(1));
+    await page.waitForSelector(".lockerhead", { timeout: 9000 });
+    const lockerEmptyText = await page.evaluate(() => document.body.textContent);
+    ok(!/🏆 Championships/.test(lockerEmptyText), "no championships card renders when nobody's won anything yet");
+    ok(/No history against current opponents yet/.test(lockerEmptyText), "rivalries card shows the empty-history message");
+    ok(errors.length === 0, "0 page errors on the empty-history state");
+    await ctx.close();
+  }
+
+  // ---- O: playoffs, bracket, trophies (S7) ----
+  section("O · playoffs — bracket build/advance, champion, Toilet Bowl, trophies");
+
+  // O1: the whole chain, one context — auto-build off the hand-designed 14-week season, the
+  // exact seed order (incl. the PF tiebreak), the play-in/semis/championship shape, byes, the
+  // league-home matchup-card list at both playoff weeks, the bracket page's placeholders,
+  // gamesForWeek's week<=14-vs->14 boundary, and that playoff weeks never leak into the
+  // (regular-season-only) standings.
+  {
+    const { ctx, page, errors } = await newTestPage(browser, seedFor7Playoffs());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+
+    // Regular season -> gamesForWeek(1) is just the seeded schedule's week 1.
+    const gfw1 = await page.evaluate(() => window.__GFFL__.LG.gamesForWeek(1));
+    ok(JSON.stringify(gfw1) === JSON.stringify([[1, 2], [3, 4], [5, 6], [7, 8]]), "gamesForWeek(1) reads straight off the regular schedule (" + JSON.stringify(gfw1) + ")");
+    // No bracket week yet -> nothing to play there.
+    const gfw15before = await page.evaluate(() => window.__GFFL__.LG.gamesForWeek(15));
+    ok(Array.isArray(gfw15before) && gfw15before.length === 0, "gamesForWeek(15) is empty before any bracket exists");
+
+    const stBefore = await page.evaluate(() => window.__GFFL__.LG.loadStandings());
+    ok(stBefore[5].w === 12 && stBefore[5].pf === 1620 && stBefore[4].w === 7 && stBefore[4].pf === 1575 && stBefore[3].w === 7 && stBefore[3].pf === 1190,
+      "hand-designed standings read back exactly (team5 12-2/1620, team4 7-7/1575, team3 7-7/1190)");
+
+    // Jump the clock past the regular season and run the SAME chain boot() and every live poll
+    // run — this is the "auto-builds on its own" contract, no button involved.
+    await page.evaluate(() => {
+      const LG = window.__GFFL__.LG;
+      const start = new Date(LG.SEASON_START + "T05:00:00-05:00").getTime();
+      LG.nowOverride = start + 14 * 7 * 24 * 3600 * 1000 + 3600000; // 1h into week 15
+      window.__GFFL__.UI.week = LG.currentWeek();
+    });
+    const cw = await page.evaluate(() => window.__GFFL__.LG.currentWeek());
+    ok(cw === 15, "currentWeek() reads 15 under the simulated clock");
+    ok(!(await page.evaluate(() => window.__GFFL__.LG.loadBracket())), "no bracket exists yet");
+    await page.evaluate(() => window.__GFFL__.UI.maybeAdvanceLeague());
+    const bracket = await page.evaluate(() => window.__GFFL__.LG.loadBracket());
+    ok(!!bracket && bracket.kind === "bracket", "the bracket auto-built the moment week > seasonWeeks");
+    ok(JSON.stringify(bracket.seeds) === JSON.stringify([5, 7, 1, 4, 3, 6, 8, 2]),
+      "seeds = final standings, wins -> PF, exactly [5,7,1,4,3,6,8,2] — the PF tiebreak (team4 over team3) landed correctly (" + JSON.stringify(bracket.seeds) + ")");
+    ok(bracket.byes === 3 && bracket.playoffCount === 5, "byes/playoffCount read straight off LG.rules.playoffs (3, 5)");
+
+    const playIn = bracket.rounds.r1.find((g) => g.kind === "playin");
+    ok(!!playIn && playIn.home === 4 && playIn.away === 3 && playIn.seedHome === 4 && playIn.seedAway === 5,
+      "play-in: seed4 (team4) vs seed5 (team3) — " + JSON.stringify(playIn));
+    const consR1 = bracket.rounds.r1.find((g) => g.kind === "consolation");
+    ok(!!consR1 && consR1.home === 2 && consR1.away === 8, "consolation game A (week 15): team2 vs team8 — the round-robin's own bye rotation (" + JSON.stringify(consR1) + ")");
+    const semi1 = bracket.rounds.r2.find((g) => g.id === "semi1"), semi2 = bracket.rounds.r2.find((g) => g.id === "semi2");
+    ok(!!semi1 && semi1.home === 5 && semi1.away == null && semi1.awayFrom && semi1.awayFrom.game === "playin1" && /Winner of #4\/#5/.test(semi1.awayLabel),
+      "semi1 = seed1 (team5) vs the play-in winner, unresolved — " + JSON.stringify(semi1));
+    ok(!!semi2 && semi2.home === 7 && semi2.away === 1, "semi2 = seed2 vs seed3 (team7 vs team1) — BOTH already known at build time (" + JSON.stringify(semi2) + ")");
+    const champG = bracket.rounds.r3.find((g) => g.kind === "championship"), thirdG = bracket.rounds.r3.find((g) => g.kind === "third");
+    ok(!!champG && champG.home == null && champG.away == null && champG.homeFrom.game === "semi1" && champG.awayFrom.game === "semi2", "championship unresolved, references both semis");
+    ok(!!thirdG && thirdG.homeFrom.result === "loser" && thirdG.awayFrom.result === "loser", "3rd-place game references the semis' LOSERS");
+
+    // Consolation round robin — every team plays 2 of the 3 weeks, one bye each week.
+    ok(bracket.rounds.r2.find((g) => g.kind === "consolation" && g.home === 6 && g.away === 2), "consolation game B (week 16): team6 vs team2");
+    ok(bracket.rounds.r3.find((g) => g.kind === "consolation" && g.home === 8 && g.away === 6), "consolation game C (week 17): team8 vs team6");
+
+    // League home at week 15: both fully-known games show as ordinary matchup cards.
+    await page.evaluate(() => window.__GFFL__.UI.renderLeague());
+    await page.waitForSelector(".mucard", { timeout: 5000 });
+    const wk15cards = await page.$$eval(".mucard", (els) => els.map((e) => e.textContent.replace(/\s+/g, " ").trim()));
+    ok(wk15cards.length === 2, "week 15's matchup-card list: exactly the play-in + consolation A games (" + wk15cards.length + ")");
+    ok(wk15cards.some((t) => /Waffle House Warriors/.test(t) && /Wyoming Cowboys/.test(t)), "…the play-in game (team4 vs team3)");
+    ok(wk15cards.some((t) => /End Zone Goats/.test(t) && /The Goat Kids/.test(t)), "…the consolation game (team2 vs team8)");
+
+    // Week 16: semi2 was ALREADY fully known at build time (both bye seeds — #2 vs #3), so it
+    // shows normally right alongside the consolation B game; semi1 (still waiting on the
+    // play-in winner) is simply omitted — no half-known matchup card for it.
+    await page.evaluate(() => { window.__GFFL__.UI.week = 16; });
+    await page.evaluate(() => window.__GFFL__.UI.renderLeague());
+    await page.waitForSelector(".mucard", { timeout: 5000 });
+    const wk16cards = await page.$$eval(".mucard", (els) => els.map((e) => e.textContent.replace(/\s+/g, " ").trim()));
+    ok(wk16cards.length === 2, "week 16's list: exactly semi2 (already known) + consolation B — semi1 is skipped, not guessed at (" + JSON.stringify(wk16cards) + ")");
+    ok(wk16cards.some((t) => /Battle Kreussers/.test(t) && /Team Seven/.test(t)), "…semi2, fully resolved (team7 vs team1)");
+    ok(wk16cards.some((t) => /Team Six/.test(t) && /End Zone Goats/.test(t)), "…the resolved consolation B game (team6 vs team2)");
+
+    // The bracket page: byes, the "Winner of #4/#5" placeholder for the still-open semi.
+    await page.evaluate(() => window.__GFFL__.UI.openBracket());
+    await page.waitForSelector(".bracketrounds", { timeout: 5000 });
+    // .replace(/\s+/g," ") collapses the team's own literal double space too — match single.
+    const bracketText = await page.evaluate(() => document.querySelector(".bracketrounds").textContent.replace(/\s+/g, " "));
+    ok(/#1 Nails For Breakfast — bye/.test(bracketText) && /#2 Team Seven — bye/.test(bracketText) && /#3 Battle Kreussers — bye/.test(bracketText),
+      "byes shown for seeds 1-3 (the top 3 regular-season finishers) in the week 15 column (" + bracketText.slice(0, 200) + ")");
+    ok(/Winner of #4\/#5/.test(bracketText), "the still-open semi shows its 'Winner of #4/#5' placeholder in the week 16 column");
+    ok(!(await page.$(".champbanner")) && !(await page.$(".toiletbanner")), "no champion/Toilet Bowl banner yet — nothing's been decided");
+
+    // Standings stay REGULAR-SEASON-ONLY — building the bracket (which only reads standings,
+    // never writes weekly docs itself) must not have moved anyone's record.
+    const stAfter = await page.evaluate(() => window.__GFFL__.LG.loadStandings());
+    ok(stAfter[5].w === 12 && stAfter[5].pf === 1620, "standings are exactly as before — building the bracket doesn't touch them");
+
+    // Idempotent: calling buildBracket again (still no playoff weeks final) returns the SAME
+    // doc and posts no second announcement.
+    const chatBefore = (await page.evaluate(() => window.__GFFL__.LG.loadAllChat())).length;
+    const rebuild = await page.evaluate(() => window.__GFFL__.LG.buildBracket());
+    ok(rebuild.ok === true, "re-calling buildBracket succeeds");
+    ok(JSON.stringify(rebuild.seeds) === JSON.stringify(bracket.seeds), "…and returns the SAME bracket, untouched");
+    const chatAfter = (await page.evaluate(() => window.__GFFL__.LG.loadAllChat())).length;
+    ok(chatAfter === chatBefore, "…with no duplicate 'bracket is set' chat post (idempotent)");
+
+    ok(errors.length === 0, "0 page errors through the build + week-15/16 display flow");
+    if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_bracket_390.png"), fullPage: true }); console.log("  📸 shots/gffl_bracket_390.png"); }
+
+    // O2 continues in the SAME context/state — seed wk15 -> advance -> wk16 -> advance ->
+    // wk17 -> advance, hand-verifying every resolution, the trophy, and both sys posts.
+    // Team names, for reference: 1 Battle Kreussers · 2 End Zone Goats · 3 Wyoming Cowboys ·
+    // 4 Waffle House Warriors · 5 Nails  For Breakfast · 6 Team Six · 7 Team Seven · 8 The Goat Kids.
+
+    // Week 15 final: the LOWER seed (team3) upsets the play-in; team8 takes consolation A.
+    await page.evaluate(() => window.__GFFL__.LG.db.set(window.__GFFL__.LG.weeklyId(2026, 15), {
+      kind: "weekly", week: 15, matchups: [
+        { home: 4, away: 3, homePts: 80, awayPts: 95 },   // play-in: team3 wins
+        { home: 2, away: 8, homePts: 60, awayPts: 70 },   // consolation A: team8 wins
+      ], awards: {}, power: [], accuracy: null, finalizedAt: 2000,
+    }));
+    const adv1 = await page.evaluate(() => window.__GFFL__.LG.advanceBracket());
+    ok(adv1.ok === true, "advanceBracket succeeds once week 15 is final");
+    const semi1After = adv1.rounds.r2.find((g) => g.id === "semi1");
+    ok(semi1After.home === 5 && semi1After.away === 3, "semi1 fills in correctly: seed1 (team5) vs the play-in WINNER (team3, the upset) — " + JSON.stringify(semi1After));
+    ok(adv1.rounds.r2.find((g) => g.id === "semi2").away === 1, "semi2 is untouched (was already fully known)");
+
+    // Week 16: seed1 wins as expected; seed3 upsets seed2 in the OTHER semi; team6 takes
+    // consolation B.
+    await page.evaluate(() => window.__GFFL__.LG.db.set(window.__GFFL__.LG.weeklyId(2026, 16), {
+      kind: "weekly", week: 16, matchups: [
+        { home: 5, away: 3, homePts: 110, awayPts: 90 },  // semi1: team5 wins
+        { home: 7, away: 1, homePts: 85, awayPts: 100 },  // semi2: team1 upsets team7
+        { home: 6, away: 2, homePts: 75, awayPts: 60 },   // consolation B: team6 wins
+      ], awards: {}, power: [], accuracy: null, finalizedAt: 3000,
+    }));
+    const adv2 = await page.evaluate(() => window.__GFFL__.LG.advanceBracket());
+    const champAfter = adv2.rounds.r3.find((g) => g.kind === "championship"), thirdAfter = adv2.rounds.r3.find((g) => g.kind === "third");
+    ok(champAfter.home === 5 && champAfter.away === 1, "championship fills in: the two semi WINNERS, team5 vs team1 — " + JSON.stringify(champAfter));
+    ok(thirdAfter.home === 3 && thirdAfter.away === 7, "3rd-place game fills in: the two semi LOSERS, team3 vs team7");
+    ok(adv2.champion == null, "champion still unset — week 17 hasn't happened yet");
+
+    // Week 17: seed3 (team1) upsets the top overall seed for the title, putting up the
+    // highest single score anyone's posted all season (140, topping the regular season's own
+    // max of 130); team3 takes 3rd; team6 sweeps consolation C, leaving team2 with the
+    // league's only 0-win cons record.
+    await page.evaluate(() => window.__GFFL__.LG.db.set(window.__GFFL__.LG.weeklyId(2026, 17), {
+      kind: "weekly", week: 17, matchups: [
+        { home: 5, away: 1, homePts: 95, awayPts: 140 },  // championship: team1 wins it all
+        { home: 3, away: 7, homePts: 90, awayPts: 80 },   // 3rd place: team3
+        { home: 8, away: 6, homePts: 50, awayPts: 65 },   // consolation C: team6 wins
+      ], awards: {}, power: [], accuracy: null, finalizedAt: 4000,
+    }));
+    const chatBeforeChamp = (await page.evaluate(() => window.__GFFL__.LG.loadAllChat())).length;
+    const adv3 = await page.evaluate(() => window.__GFFL__.LG.advanceBracket());
+    ok(adv3.champion === 1 && adv3.thirdPlace === 3, "champion = team1 (Battle Kreussers), 3rd place = team3 (Wyoming Cowboys) — " + JSON.stringify({ champion: adv3.champion, thirdPlace: adv3.thirdPlace }));
+    // Toilet Bowl: team8 1-1, team6 2-0, team2 0-2 — fewest wins loses it, no tie to break.
+    ok(adv3.toilet === 2, "Toilet Bowl: team2 (0-2 across the 3 consolation games — the league's only winless consolation record) — toilet=" + adv3.toilet);
+
+    const champTeamDoc = await page.evaluate(() => window.__GFFL__.LG.teamById(1));
+    ok(!!champTeamDoc.trophies && champTeamDoc.trophies.length === 1 && champTeamDoc.trophies[0].year === 2026 && champTeamDoc.trophies[0].kind === "champion",
+      "the champion's TEAM doc records the trophy: {year:2026, kind:'champion'} (" + JSON.stringify(champTeamDoc.trophies) + ")");
+
+    const chatFinal = await page.evaluate(() => window.__GFFL__.LG.loadAllChat());
+    ok(chatFinal.length === chatBeforeChamp + 2, "exactly 2 new chat messages posted (champion + Toilet Bowl)");
+    ok(chatFinal.some((m) => m.sys && /🏆 Battle Kreussers are the 2026 GFFL CHAMPIONS!/.test(m.text)), "…the champion announcement, by name");
+    ok(chatFinal.some((m) => m.sys && /🚽 End Zone Goats finish the season in the Toilet Bowl/.test(m.text)), "…and the Toilet Bowl announcement, by name");
+
+    // Idempotent: re-calling advanceBracket after the champion's crowned is a pure no-op —
+    // no more chat, no re-write.
+    const adv4 = await page.evaluate(() => window.__GFFL__.LG.advanceBracket());
+    ok(adv4.champion === 1 && adv4.toilet === 2, "re-calling advanceBracket returns the same resolved bracket");
+    const chatAfterIdempotent = await page.evaluate(() => window.__GFFL__.LG.loadAllChat());
+    ok(chatAfterIdempotent.length === chatFinal.length, "…and posts nothing new (idempotent once fully resolved)");
+    await page.evaluate(() => window.__GFFL__.UI.maybeAutoAdvanceBracket());
+    const chatAfterAutoNoop = await page.evaluate(() => window.__GFFL__.LG.loadAllChat());
+    ok(chatAfterAutoNoop.length === chatFinal.length, "…and UI.maybeAutoAdvanceBracket() is a safe no-op too, once a champion exists");
+
+    // Regular-season standings are STILL untouched — even a fully-played-out postseason never
+    // leaks into them.
+    const stFinal = await page.evaluate(() => window.__GFFL__.LG.loadStandings());
+    ok(stFinal[5].w === 12 && stFinal[1].w === 10 && stFinal[3].w === 7,
+      "regular-season standings unchanged after the ENTIRE postseason is finalized (team5 still 12, team1 still 10, team3 still 7)");
+    // ...but the record book (which reads ALL weekly docs) picks the playoff games up — the
+    // championship's 140 is now the season's highest single recorded score.
+    const rb = await page.evaluate(() => window.__GFFL__.LG.recordBook());
+    ok(!!rb.highestWeek && rb.highestWeek.pts === 140 && rb.highestWeek.week === 17 && rb.highestWeek.teamId === 1,
+      "the record book's 'highest week' picks up the championship score (140, wk17, Battle Kreussers) — playoff weeks are real weekly docs too, and this one topped even the regular season's own max of 130 (" + JSON.stringify(rb.highestWeek) + ")");
+
+    // The bracket page, fully resolved: champion banner, Toilet Bowl banner, every game a
+    // clickable card with the winner bolded.
+    await page.evaluate(() => window.__GFFL__.UI.openBracket());
+    await page.waitForSelector(".champbanner", { timeout: 5000 });
+    const champBannerTxt = await text(page, ".champbanner");
+    ok(/Battle Kreussers/.test(champBannerTxt) && /2026 GFFL CHAMPIONS/.test(champBannerTxt), "champion banner reads correctly (" + champBannerTxt + ")");
+    const toiletBannerTxt = await text(page, ".toiletbanner");
+    ok(/Toilet Bowl: End Zone Goats/.test(toiletBannerTxt), "Toilet Bowl banner reads correctly (" + toiletBannerTxt + ")");
+    const winners = await page.$$eval(".bside.winner", (els) => els.map((e) => e.textContent));
+    ok(winners.some((t) => /Battle Kreussers/.test(t)) && winners.length >= 6, "every decided bracket game bolds its winner (" + winners.length + " winner-marked sides)");
+
+    // Locker: the trophy from THIS season shows up immediately (S7), not just after a January
+    // history import (S6) — the two are additive, not either/or.
+    await page.evaluate(() => window.__GFFL__.UI.openLocker(1));
+    await page.waitForSelector(".lockerhead", { timeout: 9000 });
+    const lockerTxt = await page.evaluate(() => document.body.textContent);
+    ok(/🏆 Championships/.test(lockerTxt) && /🏆 2026/.test(lockerTxt), "Battle Kreussers' locker shows the 2026 trophy right away");
+
+    ok(errors.length === 0, "0 page errors through the full three-round advance + trophy + bracket-page flow");
+    if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_bracket_final_390.png"), fullPage: true }); console.log("  📸 shots/gffl_bracket_final_390.png"); }
+    await ctx.close();
+  }
+
+  // O3: the commissioner's "Build bracket" button — a fresh context, past the regular season,
+  // no bracket yet (the auto-chain hasn't run because this context's own boot() happened at
+  // the real, pre-season "now" and nothing has touched maybeAdvanceLeague since). Also proves
+  // the card's own commissioner gate: a non-commissioner viewer sees the "not built yet" note
+  // with NO button at all (same posture as the pre-existing ✅ Finalize-week button).
+  {
+    const { ctx, page, errors } = await newTestPage(browser, seedFor7Playoffs());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await page.evaluate(() => {
+      const LG = window.__GFFL__.LG;
+      const start = new Date(LG.SEASON_START + "T05:00:00-05:00").getTime();
+      LG.nowOverride = start + 14 * 7 * 24 * 3600 * 1000 + 3600000;
+      window.__GFFL__.UI.week = LG.currentWeek();
+    });
+    await page.evaluate(() => window.__GFFL__.UI.renderLeague());
+    await page.waitForFunction(() => document.body.textContent.includes("hasn't been built yet"), { timeout: 5000 });
+    ok(!(await page.$("#buildBracketBtn")), "a NON-commissioner sees the 'not built yet' card with no button at all");
+    ok(!(await page.evaluate(() => window.__GFFL__.LG.loadBracket())), "…and indeed no bracket exists before anything happens");
+
+    await page.evaluate(() => window.__GFFL__.LG.gateCommish()); // create-on-first-use, consumes the stub prompt
+    await page.evaluate(() => window.__GFFL__.UI.renderLeague());
+    await page.waitForSelector("#buildBracketBtn", { timeout: 5000 });
+    ok(true, "once commissioner-unlocked, the 🏆 Playoffs card shows the 'Build bracket' button");
+    await clickIn(page, "#buildBracketBtn");
+    await page.waitForFunction(() => document.body.textContent.includes("View the bracket"), { timeout: 9000 });
+    const built = await page.evaluate(() => window.__GFFL__.LG.loadBracket());
+    ok(!!built && built.kind === "bracket" && JSON.stringify(built.seeds) === JSON.stringify([5, 7, 1, 4, 3, 6, 8, 2]),
+      "the commissioner button built the exact same bracket the auto-chain would have");
+    ok(!(await page.$("#buildBracketBtn")), "…and the button is replaced by a 'View the bracket' link now that one exists");
+    await clickIn(page, "#openBracketBtn");
+    await page.waitForSelector(".bracketrounds", { timeout: 5000 });
+    ok(true, "…which opens the bracket page");
+    ok(errors.length === 0, "0 page errors through the commissioner build-button flow");
+    await ctx.close();
+  }
+
+  // O4: LG.gamesForWeek + LG.finalizeWeek's REAL flow (the live guard, real per-player scoring,
+  // awards, power rankings) driven for a PLAYOFF week — the same hand-computed live fixture
+  // section M1 uses (team1's roster 87.0 vs team2's roster 36.0), just with a minimal
+  // hand-built bracket doc standing in for a full 14-week build so the live-engine mechanics
+  // are what's under test here, not the seeding math (already proven in O1/O2).
+  {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+
+    await page.evaluate(() => window.__GFFL__.LG.db.set("bracket_2026", {
+      kind: "bracket", season: 2026, seeds: [1, 2, 3, 4, 5, 6, 7, 8], playoffCount: 5, byes: 3,
+      rounds: { r1: [{ id: "playin1", kind: "playin", week: 15, home: 1, away: 2, seedHome: 4, seedAway: 5 }], r2: [], r3: [] },
+      champion: null, thirdPlace: null, toilet: null,
+    }));
+    const gfw15 = await page.evaluate(() => window.__GFFL__.LG.gamesForWeek(15));
+    ok(JSON.stringify(gfw15) === JSON.stringify([[1, 2]]), "gamesForWeek(15) reads the bracket's resolved play-in pairing (" + JSON.stringify(gfw15) + ")");
+    const gfw1still = await page.evaluate(() => window.__GFFL__.LG.gamesForWeek(1));
+    ok(JSON.stringify(gfw1still) === JSON.stringify([[1, 2], [3, 4], [5, 6], [7, 8]]), "gamesForWeek(1) is completely unaffected — still the regular schedule");
+
+    // Exactly M1's hand-computed live scenario, aimed at week 15 instead of week 1.
+    await page.evaluate(() => {
+      const D = window.__GFFL__.D;
+      const setP = (key, name, team, pos, pts) =>
+        D.S.players.set(key, { key, name, team, pos, pts, espn: null, slp: null, official: null, injury: "", src: "", conflict: false, last: 0 });
+      setP("3915511", "P. Passer", "PHI", "QB", 25);
+      setP("4241457", "R. Rusher", "DAL", "RB", 10);
+      setP("111888", "S. Second", "DEN", "RB", 8);
+      setP("4361741", "W. Receiver", "PHI", "WR", 15);
+      setP("111555", "W. Two", "DEN", "WR", 6);
+      setP("111222", "T. Tight", "KC", "TE", 5);
+      setP("111444", "F. Flexman", "DEN", "RB", 2);
+      setP("dst_PHI", "PHI D/ST", "PHI", "DST", 9);
+      setP("2473037", "K. Kicker", "DAL", "K", 7);
+      setP("222111", "Q. Rival", "DAL", "QB", 20);
+      setP("222333", "X. Wideout", "PHI", "WR", 12);
+      setP("dst_DAL", "DAL D/ST", "DAL", "DST", 4);
+      ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "post", period: 4, clock: "0:00" }));
+    });
+    const r15 = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(15));
+    ok(r15.ok === true, "finalizeWeek(15) succeeds on a REAL playoff week driven by the live engine");
+    ok(r15.matchups.length === 1 && r15.matchups[0].home === 1 && r15.matchups[0].away === 2 && r15.matchups[0].homePts === 87 && r15.matchups[0].awayPts === 36,
+      "…the exact same hand-computed totals as M1 (team1 87.0, team2 36.0) — " + JSON.stringify(r15.matchups[0]));
+    ok(!!r15.awards.topScore && r15.awards.topScore.teamId === 1, "…awards still compute normally on a playoff week (Top Score: team1)");
+
+    const adv = await page.evaluate(() => window.__GFFL__.LG.advanceBracket());
+    ok(adv.ok === true && adv.rounds.r1.find((g) => g.id === "playin1") && adv.rounds.r2.length === 0 && adv.rounds.r3.length === 0,
+      "advanceBracket runs cleanly against a minimal hand-built bracket — nothing references r1's game, so nothing to fill and nothing crashes");
+
+    ok(errors.length === 0, "0 page errors driving finalizeWeek on a real playoff week");
+    await ctx.close();
+  }
+
   await browser.close();
-  srv.close(); ffSrv.close(); tenorSrv.close();
+  srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close();
   console.log("\n================================");
   console.log(`PASS ${pass} · FAIL ${fail}`);
   if (fail) { console.log("Failures:"); failures.forEach((f) => console.log("  - " + f)); process.exit(1); }

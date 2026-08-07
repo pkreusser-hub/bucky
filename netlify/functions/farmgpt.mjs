@@ -1320,6 +1320,29 @@ Write a fun 200-300 word weekly recap:
 - Use ONLY the results and standings in the data. Never invent players, scores or events.
 - Plain prose, **bold** for team names where it pops, a couple of emoji at most.`;
 
+// The live in-game projection adjuster (S5, plan §4.6's AI adjustment layer). Same Grok-with-
+// Sonnet-fallback shape as FANTASY_SYSTEM/FFRECAP_SYSTEM above. Deliberately narrow output (strict
+// JSON, a bounded multiplier, a short grounded reason) so a client can apply it mechanically to a
+// rendered projection without any further parsing risk.
+const GFFLPROJ_SYSTEM = `You are a live in-game fantasy football projection adjuster for the family's
+private league. You are given the CURRENT matchup as JSON: both teams' players, each with their
+position, real NFL team, pre-game projection, actual fantasy points scored so far tonight, and their
+real NFL game's state (pre/in/post, plus the clock when live).
+
+TASK: for players whose REST-OF-GAME outlook has genuinely changed from their pre-game projection —
+a blowout game script, a big workload or a quiet one so far, an injury, a team that's already lost a
+key teammate — return an adjustment MULTIPLIER to apply to their remaining projected points.
+
+RULES
+- Return STRICT JSON ONLY, no prose before or after it: {"players":[{"name":"...","mult":1.0,"why":"..."}]}
+- "mult" is a number between 0.5 and 1.5 (1.0 = no change).
+- "why" is at most 12 words — a concrete, specific reason grounded in the data given.
+- ONLY include a player whose outlook has genuinely changed. If nothing has changed for anyone,
+  return {"players":[]} — an empty list is a completely fine answer, and usually the right one.
+- Never adjust a player whose game state is "post" (nothing left to adjust) or "pre" (their game
+  hasn't started — nothing has happened yet to justify a change). Only "in" players can move.
+- Use ONLY the numbers and game state in the data. Never invent stats, injuries or news not in it.`;
+
 const MODES = {
   // 1600, not the long-standing 1200, and this is a MEASURED fix, not headroom for its own sake:
   // at 1200 a Haiku scene sometimes ran past the budget and arrived cut off mid-sentence with no
@@ -1366,6 +1389,10 @@ const MODES = {
   // 200-300 word column a week. cache:false — one-shot calls never read a cached prefix.
   fantasy:     { system: FANTASY_SYSTEM,    maxTokens: 1400, thinking: { type: "disabled" }, cache: false },
   ffrecap:     { system: FFRECAP_SYSTEM,    maxTokens: 1200, thinking: { type: "disabled" }, cache: false },
+  // The live in-game projection adjuster: strict JSON, small payload, small reply — 800 is
+  // comfortable headroom for a handful of {name,mult,why} objects. cache:false — one-shot, no
+  // cached prefix to read.
+  gfflproj:    { system: GFFLPROJ_SYSTEM,   maxTokens: 800,  thinking: { type: "disabled" }, cache: false },
 };
 const KID_ART_MODEL = RESEARCH_MODEL;   // Sonnet 5 — better at clean, readable vector art
 
@@ -1624,6 +1651,8 @@ async function logUsage(modeName, inTok, outTok, cacheWriteTok = 0, cacheReadTok
       // every chapter of that story look like it cost a share of a one-time build.
       : modeName === "storyseed" ? "f"
       : (modeName === "fantasy" || modeName === "ffrecap") ? "w"
+      // The live projection adjuster reuses "w" too — it's the same fantasy-AI spend.
+      : modeName === "gfflproj" ? "w"
       : modeName === "audit" ? "x" : "r";
     const base = `projects/${PROJECT_ID}/databases/(default)/documents`;
     const tf = (f, n) => ({ fieldPath: f, increment: { integerValue: String(n) } });
@@ -2773,6 +2802,20 @@ function buildRecapMessages(body) {
   parts.push("", "TASK: Write this week's column.");
   return [{ role: "user", content: parts.join("\n") }];
 }
+// The live projection adjuster's request: {week, teams:[{name, players:[{name,pos,team,proj,
+// actual,gameState,clock}]}]} — built client-side from the SAME live data the matchup page
+// already renders, sent verbatim (server-built turn, per the ledger lesson: MAX_CONTENT_CHARS
+// would slice a JSON payload stuffed into messages[]).
+function buildGfflProjMessages(body) {
+  const mu = body.matchup && typeof body.matchup === "object" && !Array.isArray(body.matchup) ? body.matchup : null;
+  if (!mu || !Array.isArray(mu.teams) || !mu.teams.length) return null;
+  const wk = Number(mu.week);
+  const parts = [];
+  parts.push("CURRENT MATCHUP — week " + (Number.isInteger(wk) ? wk : "?") + " (JSON):");
+  parts.push(clipJson({ week: mu.week, teams: mu.teams.slice(0, 2) }, 12000));
+  parts.push("", "TASK: Return adjustment multipliers for players whose rest-of-game outlook has genuinely changed.");
+  return [{ role: "user", content: parts.join("\n") }];
+}
 // One column per completed week, family-shared: doc farmgpt_ffrecap/<season>_w<week>.
 const FFRECAP_COLLECTION = "farmgpt_ffrecap";
 async function fetchFfRecap(id) {
@@ -3175,6 +3218,7 @@ export default async (req) => {
   else if (body.mode === "audit") messages = buildAuditMessages(body);
   else if (body.mode === "fantasy") messages = buildFantasyMessages(body);
   else if (body.mode === "ffrecap") messages = buildRecapMessages(body);
+  else if (body.mode === "gfflproj") messages = buildGfflProjMessages(body);
   else if (body.mode === "storyseed") {
     const built = buildSeedMessages(body);
     if (built) { messages = built.messages; seedHasPack = built.hasPack; }
@@ -3184,6 +3228,7 @@ export default async (req) => {
       : body.mode === "audit" ? "Bad audit request"
       : body.mode === "fantasy" ? "Bad fantasy request"
       : body.mode === "ffrecap" ? "Bad recap request"
+      : body.mode === "gfflproj" ? "Bad projection request"
       : body.mode === "storyseed" ? "Bad seed request" : "Bad messages array", jsonHeaders);
   }
 
@@ -3320,6 +3365,8 @@ export default async (req) => {
   // The fantasy analyst + the league columnist: Grok 4.5 (the user's pick — its voice suits
   // trash talk and hot takes), falling back to Sonnet, the quality tier for advice.
   else if (body.mode === "fantasy" || body.mode === "ffrecap") { provider = "xai"; model = XAI_MODEL; }
+  // The live projection adjuster: same Grok pick, same reasoning as the analyst/columnist above.
+  else if (body.mode === "gfflproj") { provider = "xai"; model = XAI_MODEL; }
 
   // DEGRADE BEFORE WE EVEN ASK. A site with no XAI_API_KEY is a working site: every xAI route
   // resolves back to its Anthropic equivalent here, so the reader gets a Haiku-narrated story
@@ -3330,6 +3377,11 @@ export default async (req) => {
       : (body.mode === "fantasy" || body.mode === "ffrecap") ? RESEARCH_MODEL
       : STORY_MODEL;
   }
+  // gfflproj falls under the block above too (it also starts on "xai"), but that block's ternary
+  // doesn't know about it and would leave it on STORY_MODEL (Haiku) — wrong tier for advice. Correct
+  // it here rather than touch that ternary: RESEARCH_MODEL is the fallback quality tier every other
+  // Grok-backed mode (fantasy/ffrecap) already gets.
+  if (body.mode === "gfflproj" && !process.env.XAI_API_KEY) { provider = "anthropic"; model = RESEARCH_MODEL; }
 
   let upstream;
   // One attempt at one provider. Returns {ok:true, upstream} or {ok:false, status, msg} — an
@@ -3437,6 +3489,12 @@ export default async (req) => {
     && (body.mode === "story" || body.mode === "fantasy" || body.mode === "ffrecap")) {
     provider = "anthropic";
     model = body.mode === "story" ? STORY_MODEL : RESEARCH_MODEL;
+    attempt = await openUpstream(provider, model);
+  }
+  // Same outage fallback, added separately for gfflproj so the condition above stays untouched.
+  if (!attempt.ok && provider !== "anthropic" && body.mode === "gfflproj") {
+    provider = "anthropic";
+    model = RESEARCH_MODEL;
     attempt = await openUpstream(provider, model);
   }
   if (!attempt.ok) return jsonError(attempt.status, attempt.msg, jsonHeaders);
