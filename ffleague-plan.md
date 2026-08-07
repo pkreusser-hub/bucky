@@ -527,3 +527,20 @@ else touched — `lg_gif_search`, a Tenor proxy).
   library doesn't distinguish "posted by me" from "posted by anyone" (deliberate — house
   classics are shared); reader/read-state ("seen by") is out of scope, same posture as the
   rest of the app's chat-adjacent surfaces.
+
+# 🐐 GFFL — the 3 mystery scoring ids SOLVED (2026-08-07, live kicker audit)
+
+`lg_espn_kicker_audit` pulled 2025 kickers' league-applied season lines and **Michael
+Badgley reconciled to the penny**: appliedTotal 64.5 = 20 XP (×1) + 0.1 × 445 FG made
+YARDS, his lone 50+ miss unpenalized. That proves:
+- **214 = FG made yards, 0.1/yd** — the league's ONLY per-make FG scoring (no flat FG
+  points exist; a 45-yarder is worth 4.5). Engine: Sleeper `fgm_yds` ↔ ESPN scoring-play
+  distance sum (uncounted makes approximate at 33 yds under the existing fgApprox flag).
+- **206 = 2-pt conversion returned for TD** (2 pts, DST) — ffscrapr's map confirms the
+  name; Sleeper `def_2pt` feeds it.
+- **209 = 1-pt safety** (1 pt) — rarest play in football; NO live source carries it
+  (documented ~0-impact approximation on both feeds; the import maps it so the rules doc
+  is complete).
+**Every scoring item in the real league now maps — unmapped list is empty.** Audit
+endpoint kept for future rule archaeology (the sort-filter 400s on past seasons; the
+slot-only fallback is what worked). Suite 220/220.

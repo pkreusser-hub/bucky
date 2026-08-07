@@ -53,6 +53,8 @@ function ffSettingsDoc() {
         { statId: 56, points: 3 }, { statId: 57, points: 4 },
         { statId: 79, points: -1 }, { statId: 82, points: -1 },
         { statId: 63, points: 6 },
+        // Kicker audit (2026-08-07): FG made yards + the two rare plays.
+        { statId: 214, points: 0.1 }, { statId: 206, points: 2 }, { statId: 209, points: 1 },
       ]},
       rosterSettings: { lineupSlotCounts: { "0": 1, "2": 2, "4": 2, "6": 1, "23": 1, "16": 1, "17": 1, "20": 7, "21": 1 } },
       scheduleSettings: { matchupPeriodCount: 14, playoffTeamCount: 4 },
@@ -416,6 +418,8 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     ok(j.scoring.bonus_pass_300 === 3 && j.scoring.bonus_pass_400 === 4 && j.scoring.bonus_rush_100 === 3 &&
        j.scoring.bonus_rec_200 === 4 && j.scoring.fg_miss === -1 && j.scoring.off_fum_td === 6,
       "live-league additions map: yardage game bonuses + distance FG misses + off fum TD");
+    ok(j.scoring.fg_made_yd === 0.1 && j.scoring.dst_2pt_ret === 2 && j.scoring.one_pt_safety === 1,
+      "kicker-audit ids map: 214 FG made yards (0.1/yd) + 206 2-pt return TD + 209 1-pt safety");
     ok(j.slots.QB === 1 && j.slots.RB === 2 && j.slots.FLEX === 1 && j.slots.BENCH === 7 && j.slots.IR === 1,
       "roster slots decoded from ESPN slot ids (incl. their 1 IR — we override to 3 client-side)");
     ok(j.regularSeasonWeeks === 14 && j.trade.reviewHours === 48 && j.trade.vetoVotesRequired === 4,
@@ -542,6 +546,19 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
       return tr ? tr.textContent : "";
     });
     ok(/10\.0/.test(passerCell), "Passer live points 10.0 (150yd+TD-INT+2pt, hand-computed)");
+    // Kicker audit follow-through: the ESPN play parser accumulates FG made
+    // YARDS, consistent with its own distance buckets (17-39 / 40-49 / 50-63).
+    const fgy = await page.evaluate(() => {
+      const d = window.__GFFL__.D;
+      for (const row of d.S.players.values()) {
+        const s = row.espn && row.espn.stats;
+        if (s && (s.fg_0_39 + s.fg_40_49 + s.fg_50) > 0)
+          return { yd: s.fg_made_yd, lo: s.fg_0_39 * 17 + s.fg_40_49 * 40 + s.fg_50 * 50, hi: s.fg_0_39 * 39 + s.fg_40_49 * 49 + s.fg_50 * 63 };
+      }
+      return null;
+    });
+    ok(!!fgy && fgy.yd >= fgy.lo && fgy.yd <= fgy.hi,
+      "ESPN scoring plays accumulate FG made YARDS within the distance-bucket bounds (" + JSON.stringify(fgy) + ")");
     ok(/Q2 5:00/.test(passerCell), "Passer cell carries the live clock");
     ok(/🔴/.test(passerCell), "red-zone flag on the PHI starter (drive inside the 20)");
     ok(!/⚠/.test(passerCell), "no conflict flag during ordinary live source lag");
@@ -668,6 +685,10 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
       ].join(",");
     });
     ok(bonusChecks === "0,3,4,7", "yardage bonuses bracket correctly (299→0 · 320→+3 · 410→+4 only · 150ru+205rec→3+4) [" + bonusChecks + "]");
+    // Kicker model (the audit's finding): a 445-yd season at 0.1/yd = 44.5,
+    // and Sleeper's fgm_yds normalizes into the same key (dual-source parity).
+    const kick = await page.evaluate(() => window.__GFFL__.D.score({ fg_made_yd: 445 }, { fg_made_yd: 0.1 }));
+    ok(kick === 44.5, "FG made yards score: 445 yds × 0.1 = 44.5 (" + kick + ")");
     // ESPN import.
     await page.waitForFunction(() => document.body.textContent.includes("Change log"), { timeout: 5000 });
     await clickIn(page, "#rulesImport");

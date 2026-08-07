@@ -38,6 +38,10 @@
     "fg_0_39", "fg_40_49", "fg_50", "fg_miss", "xp_made", "xp_miss",
     "dst_sack", "dst_int", "dst_fum_rec", "dst_td", "dst_safety", "dst_blk",
     "off_fum_td",
+    // Kicker audit 2026-08-07 (Badgley reconciled EXACTLY): statId 214 =
+    // FG made YARDS at 0.1/yd — the league's ONLY per-make FG scoring.
+    // 206 = 2-pt conversion return TD (DST), 209 = 1-pt safety (both rare).
+    "fg_made_yd", "dst_2pt_ret", "one_pt_safety",
   ];
   D.KEYS = KEYS;
   const empty = () => { const o = {}; for (const k of KEYS) o[k] = 0; o.dst_pa = null; return o; };
@@ -77,6 +81,10 @@
     n.rush_yd = st.rush_yd || 0; n.rush_td = st.rush_td || 0; n.rush_2pt = st.rush_2pt || 0;
     n.rec = st.rec || 0; n.rec_yd = st.rec_yd || 0; n.rec_td = st.rec_td || 0; n.rec_2pt = st.rec_2pt || 0;
     n.fum_lost = st.fum_lost || 0;
+    n.fg_made_yd = st.fgm_yds || 0;
+    n.dst_2pt_ret = st.def_2pt || 0;
+    // one_pt_safety: no Sleeper key exists — once-a-decade play, reads 0 here
+    // (documented approximation; ESPN side doesn't parse it either).
     n.fg_0_39 = (st.fgm_0_19 || 0) + (st.fgm_20_29 || 0) + (st.fgm_30_39 || 0);
     n.fg_40_49 = st.fgm_40_49 || 0; n.fg_50 = st.fgm_50p || 0;
     n.fg_miss = st.fgmiss || 0; n.xp_made = st.xpm || 0; n.xp_miss = st.xpmiss || 0;
@@ -156,9 +164,10 @@
         if (m) {
           const id = byName.get(normName(m[1]));
           if (id) {
-            const rec = kickersFg.get(id) || { fg_0_39: 0, fg_40_49: 0, fg_50: 0 };
+            const rec = kickersFg.get(id) || { fg_0_39: 0, fg_40_49: 0, fg_50: 0, yds: 0 };
             const yd = Number(m[2]);
             rec[yd >= 50 ? "fg_50" : yd >= 40 ? "fg_40_49" : "fg_0_39"]++;
+            rec.yds += yd;
             kickersFg.set(id, rec);
           }
         }
@@ -179,11 +188,14 @@
     for (const [id, rec] of box) {
       const made = rec.raw.fg_made || 0;
       if (!made) continue;
-      const d = kickersFg.get(id) || { fg_0_39: 0, fg_40_49: 0, fg_50: 0 };
+      const d = kickersFg.get(id) || { fg_0_39: 0, fg_40_49: 0, fg_50: 0, yds: 0 };
       const seen = d.fg_0_39 + d.fg_40_49 + d.fg_50;
       rec.stats.fg_0_39 = d.fg_0_39 + Math.max(0, made - seen);
       rec.stats.fg_40_49 = d.fg_40_49;
       rec.stats.fg_50 = d.fg_50;
+      // Made-yards (statId 214, 0.1/yd): exact from parsed plays; a lagging
+      // play feed's uncounted makes approximate at 33 yds (fgApprox flags it).
+      rec.stats.fg_made_yd = (d.yds || 0) + Math.max(0, made - seen) * 33;
       if (seen < made) rec.raw.fgApprox = true;
     }
   }
