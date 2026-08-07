@@ -6,6 +6,7 @@
 // lives in Firestore and is written client-side under the house identity
 // posture; waivers/trades/finalization grow server actions in S3.
 //
+// Deploy marker: 2026-08-07 redeploy (the 62a21d3 build never left Netlify's queue).
 // House conventions: zero deps, family-secret gate, every upstream read
 // optional-chained, failures are { ok:false, reason } at HTTP 200, cookie env
 // vars read at call time, CORS for the browser. Config duplicated from
