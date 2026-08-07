@@ -1019,5 +1019,213 @@ asked for) + `gffl_matchup_desktop.png`/`gffl_moves_390.png`/`gffl_team_390.png`
 capture points in the suite, now rendering the new system). NOT pushed/committed — re-skin only,
 per the task's ground rules.
 
-
   2-bye/2-play-in-game format.
+
+---
+
+# PLAYTEST FIX BATCH (2026-08-08) — perf, 2025 test data, merged locker, Scores tab
+
+Five items from live user feedback after actually playing the deployed app. All in the working
+tree, uncommitted. Suite: **456/456, 0 page errors** (was 385 baseline going in).
+
+## 1 · PERF — LG.db grew a doc-level cache (the priority complaint: "not snappy moving between tabs")
+
+Diagnosed for real before guessing: every view (league/matchup/locker/moves/chat/rules/bracket)
+re-fetched teams/rosters/weekly/tx/claims/trades through `LG.db` on EVERY tab switch, and on the
+cloud backend each of those is a real Firestore round trip — several cards (record book,
+power rankings, tx log, chat preview) each ran their OWN full-collection `list()`. Separately, the
+boot auto-checks (`maybeAutoProcessWaivers`/`maybeAutoExecuteTrades`/`maybeAdvanceLeague`) were
+wired into `renderMoves()` and the live poll's `d.onUpdate`, so the whole chain re-ran on every
+paint and every ~15s live tick.
+
+**Fix, `LG.db` (lg-core.js)**: an in-memory `docCache` (id→doc) + `listCache` (kind→{docs,at,
+refreshing}) sit in front of the existing local/cloud backend split. A cache hit resolves in the
+same microtask — no I/O — so a view can paint SYNCHRONOUSLY from cache on tab switch and let fresh
+data arrive quietly in the background. `set()`/`del()` update both caches in place (optimistic —
+this page's own writes are instantly visible without a round trip). On the CLOUD backend only, a
+`list()` call whose cached copy is >15s old (`CACHE_STALE_MS`) fires a background refetch; if the
+fresh result actually differs, `LG.db.onChange(kind)` fires and lg-ui's registered handler quietly
+re-shows the current view. Local mode (every test in this suite, and any offline session) never
+does the background refetch at all — the cache is simply always current, since every write on this
+device goes through the same `LG.db.set()`.
+
+`"chat"` is the ONE kind deliberately EXEMPTED from list-caching: message ids are minted by any
+client at any time and the app already has its own explicit poll cadence for it (8s) — caching
+it would make new messages read as stale exactly where staleness matters most.
+
+**Idempotency guards bypass the cache on purpose**: the five "re-read right before the final
+write, in case another device already got there first" races (`processWaivers`, `executeTrade`,
+`finalizeWeek`, `buildBracket`, `snapshotProjections`) now call `LG.db.getFresh(id)` instead of
+`LG.db.get(id)` at exactly their guard line — genuinely bypasses both caches and reads the real
+current backend state, which is the one place a stale local cache would be actively dangerous
+(the earlier double-count/double-post class of bug).
+
+**Auto-checks throttled**: `runAutoChecks(force)` runs the same three functions it always did, but
+now at most once per `AUTO_CHECK_MS` (60s) except at boot (`force:true`, so "open the app past a
+deadline" still carries the league forward immediately) and any DIRECT call the test suite makes
+to the underlying functions themselves. `renderMoves()` and `d.onUpdate` both switched from
+calling the chain unconditionally to `runAutoChecks(false)`.
+
+**A real bug the new caching layer introduced, found and fixed** (not shipped, caught by the
+suite's own "extracted colour is stored on the team doc" check going from passing-before-this-
+work to genuinely failing after it, then root-caused rather than special-cased away):
+`cacheUpsert()`'s list-row builder was `{ id, ...doc }` — id spread FIRST. A LOT of call sites
+round-trip an in-memory object straight back into `set()` (`LG.saveTeam({...T, teamId, colors})`,
+where `T` itself carries the numeric `id` `loadTeams()` stamps onto every in-memory team), and
+that stray `.id` field silently clobbered the real string doc-id inside the cached row. The NEXT
+upsert's own `findIndex` could then never find the row it had just written, pushed a stale
+DUPLICATE onto the list instead of updating in place, and array order made `LG.teamById()` return
+the pre-edit team FOREVER (a saved logo/colour genuinely never stuck). Fixed by spreading id LAST
+(`{ ...doc, id }`) so the real doc-id always wins over anything sitting inside the doc itself —
+this is a general fix at the one shared choke point, so it protects every doc kind, not just
+teams. Regression-guarded going forward (Section L: logo AND colour both survive two consecutive
+saves, `LG.teams` has exactly one row per team id afterward).
+
+**Measured, `--shots`-free instrumentation in the suite (`LG.db.stats` gets/lists/sets/dels/
+fresh counters, plus `LG.db._installFakeCloud()` test hook)**: a second full League render makes
+ZERO additional real `.get()` calls and at most one `.list()` (chat, deliberately uncached); a
+fake cloud backend at 60ms/call takes ~915ms on the FIRST visit and ~70ms on a second visit to the
+exact same view; the auto-check chain runs once at boot, stays throttled through 2 direct calls +
+a poll tick + a Moves visit, and fires again once the 60s window passes. Verify: Section P,
+`node tools/_verify-gffl.cjs`.
+
+## 2 · 2025 TEST DATA — a commissioner "🧪 test run" importer, separate from the live importer
+
+The 2026 ESPN league is pre-draft (every roster empty) until the season starts, so there was
+nothing real to exercise lineups/waivers/trades/scoring against yet. New server action
+`lg_espn_rosters_season` (netlify/functions/league.mjs, ADD-ONLY — the live `lg_espn_rosters`
+action is untouched, its inline mapping logic was pulled into a shared `mapRosterTeams(j)` helper
+both actions now call) seeds THIS WEEK'S GFFL rosters from a real, FINISHED past season instead —
+default 2025, `body.season` overridable. Same `mRoster`/`mTeam` view, same
+`applyImportedRosters()` slotting rule client-side as the live importer (a shared helper factored
+out of `importRosters()`), so lineups/waivers/trades built against it behave identically to a real
+in-season import.
+
+**Past-season retry ladder** (the kicker-audit/history-import finding): a past-season `mRoster`
+read sometimes needs `scoringPeriodId=0` appended to actually return roster entries — the plain
+URL can come back with a real team shell but an EMPTY roster. `lgEspnRostersSeason` tries the
+plain URL first, and only retries with `scoringPeriodId=0` if the first response's every team has
+zero roster entries. Cookie-gated (`fantasy-not-configured`) and auth-expiry-gated
+(`fantasy-auth-expired`) exactly like every other ESPN action in this file; an out-of-range season
+clamps to the 2025 default rather than erroring.
+
+**Rules page**: a third button, `🧪 Import 2025 rosters (test run)`, sits beside the existing
+`👥 Import ESPN rosters` and `📜 Import history` (all three commissioner-gated, all three
+rendered — just `hidden` — for everyone else, same as before). A short paragraph explains WHY it
+exists (2026 is pre-draft) and what it does (seeds from the real, final 2025 season) so the three
+importers read as one coherent toolkit rather than an unlabeled row of buttons. Success message
+names the source season and reminds the commissioner to re-import real rosters once the real
+draft happens.
+
+Verify: server-side retry ladder + cookie/range guards + live-importer non-interference in
+Section A; the Rules-page button flow (before/after roster contents, IR slot + injury carried,
+the locker's lineup editor picking up the new roster immediately, non-commissioner sees nothing)
+in Section Q.
+
+## 3 · MY TEAM = LOCKER — one page, not two
+
+The separate `renderTeam()` view (the old lineup editor) is GONE. "My Team" now routes straight
+into the same locker page every team's name-tap already opened (`#locker=<id>`), with the
+tap-to-swap/kickoff-lock/3-IR lineup editor embedded as the locker's OWN roster section for the
+locker's OWNER — `UI.show("team")` redirects to `#locker=<myTeamId>` and sets `UI.view = "locker"`
+before rendering, so the "team" view name still works as a routing target (and the bottom nav's
+"My Team" button still highlights correctly, via a small `myLocker` special-case in the nav
+highlight logic) without a second parallel code path existing anywhere. Every other team's locker
+keeps the exact read-only roster table it always had — `isOwner = LG.myTeamId() === teamId` is the
+only branch. Kickoff locks, IR-eligibility, the swap sheet, and the roster-doc persistence shape
+are byte-for-byte the same mechanics `renderTeam()` used to run, just relocated.
+
+The old `#myLockerBtn` (a button ON a team page that opened "your own locker" as a separate step)
+is gone too — pointless once My Team IS the locker; nav clicks now land directly on the viewer's
+own locker with no extra tap.
+
+Restaged with reasons, not silently changed: Section E's header/comment now says "(now the
+owner's own locker)"; its selectors moved from the old team-page ids to `#lockerStarters`/
+`#lockerBench`/`#lockerIR`; new assertions confirm `UI.view === "locker"`,
+`UI.lockerTeamId === myTeamId`, and the nav button's `.on` class. Section L's old "My locker
+button" flow is now "tapping My Team nav from someone else's locker jumps straight to the
+VIEWER's own locker" — proves the same reachability the button used to provide, through the nav
+alone.
+
+**One deliberate scope decision**: an experiment to also live-repaint the owner's own locker on
+every poll tick (mirroring how matchup/league already do) was tried and REVERTED — `renderLocker()`
+has no lightweight "repaint" mode (unlike the old `renderTeam(true)`'s cheaper fast path), and
+replacing `main().innerHTML` out from under an in-progress interaction (the swap sheet open, a
+logo upload mid-flight) is a real regression, not just a missed optimization. The lineup's
+points/proj simply refresh next time the locker is opened. Left as a comment in `paintLive()`
+rather than silently dropped.
+
+Verify: Section E (owner lineup editing on the merged page) + Section L (locker record/roster/
+schedule/tx/wall/editing/palette, non-owner read-only, nav reachability).
+
+## 4 · LEAGUE HOME ADDITIONS — recent moves + league chat, collapsed like the record book
+
+Two new `<details class="collapsecard">` cards on the league home, same collapsed-by-default
+posture as the existing `.recordbook` card (a new class rather than reusing `.recordbook` itself —
+tried first, then reverted: sharing the class broke every existing `document.querySelector(
+".recordbook")`-based check, since the new cards render earlier in DOM order and silently became
+the thing those selectors found instead of the real record book; the disclosure CSS rules were
+duplicated onto a combined `.recordbook, .collapsecard` selector so both look identical without
+either shadowing the other).
+
+**🔁 Recent moves**: the last 8 tx-log sentences (reusing `txSentence()`, the exact wording the
+full Moves log already uses) + a "View all →" link into Moves. **💬 League chat**: the last 6
+main-channel messages, sys posts included (they ARE the league's own timeline, not noise to
+filter) + an "Open chat →" link into Chat. Both ride the SAME `LG.loadTx()`/`LG.loadChat(null)`
+calls `renderLeague()` already made for other cards — no new network cost, and (per item 1) both
+kinds are cache-served on a second visit.
+
+Verify: Section R — both caps genuinely exercised (10 tx entries → exactly 8 shown, the two
+oldest trimmed; 8 chat messages → exactly 6 shown), a sys post appears in the preview, both links
+navigate. Test note: `LG.logTx()` timestamps off a raw `Date.now()` call (not the overridable
+`LG.now()`), and a tight synchronous seeding loop on the local backend can genuinely land several
+calls in the same millisecond — the suite patches `Date.now` itself for the seeding block
+(restored immediately after) so "most recent" has an unambiguous, deterministic answer rather than
+depending on `Array.sort`'s tie-breaking behavior.
+
+## 5 · SCORES TAB — real NFL slate + the family's ESPN fantasy scoreboard
+
+A sixth bottom-nav tab, `Scores` (`view: "scores"`). **NFL half**: `pollScoreboard()`
+(lg-data.js, already running as part of the existing live-scoring poll loop) now ALSO builds the
+full week's slate — one entry per game, not per tracked team — into `D.S.nflEvents`; a light
+parallel read of the exact same public no-key `site.api.espn.com` endpoint the per-team loop
+already polls, so zero new network cost. `nflScoresHtml()` groups games by calendar day, shows
+live games with their in-progress clock/period in red (`.gmrow.live`) and upcoming games with
+their kickoff time; `paintScores()` repaints this half on every live poll tick via the existing
+`paintLive()` dispatch (no separate timer needed — it rides the engine's own cadence).
+
+**Fantasy half**: a genuinely separate call to the ALREADY-DEPLOYED `sports.mjs` function's
+`ff_scoreboard` action (family-secret-gated, same `LG.PASS`), rendered as an "ESPN league (live)"
+card. Its own poll timer — 25s while the tab is open and any NFL game is live, else 2min —
+started in `renderScores()` and explicitly cleared the instant the tab is switched away from
+(`stopScoresPoll()`, called from `UI.show()`'s teardown alongside the existing `stopChatPoll()`).
+Degrades to hiding the card ENTIRELY on any failure (`{ok:false}` — unconfigured league, expired
+cookie, network hiccup): the NFL half is fully independent and keeps working regardless.
+
+**Test infra note**: `sports.mjs` needed its OWN fixture upstream, dedicated (`SPORTS_FF_PORT`,
+distinct from the `FF_PORT` `league.mjs`'s own history importer already uses — the two fixtures
+are shaped for different meanings of "roster/matchup data" and would collide if shared) and its
+own in-process import with `SPORTS_FF_BASE_URL` temporarily repointed at import time (module-level
+consts in `sports.mjs` capture the env var once, at import — the same gotcha `league.mjs` itself
+has). Puppeteer's request interception in `newTestPage()` gained a third routed prefix,
+`/.netlify/functions/sports`, alongside the existing `/league` and `/farmgpt` routes.
+
+Verify: Section S — nav presence + highlight, live game (both teams, both scores, in-progress
+clock, marked `.live`) scoped to its own row (not a whole-page substring match, which risks
+colliding with unrelated digits elsewhere on the page), an upcoming game grouped into its own
+day header, the fantasy card's own matchups (family's team + the rest of the league), the
+degrade path driven through the REAL in-process `sports.mjs` handler with `ESPN_S2`/`ESPN_SWID`
+genuinely deleted for that one request (not a client-side stub — proves `ffScoreboard()`'s actual
+failure branch, not an approximation of it), and the poll timer armed/cleared across a tab switch.
+
+## FYI, flagged but explicitly out of scope this batch
+
+While designing the getFresh regression test for item 1, found that `processWaivers`'s roster/
+team/tx WRITES happen UNCONDITIONALLY before its final idempotency-guard check (`fresh.processed`)
+— only the LAST doc-write is actually guarded, so two genuinely concurrent devices processing the
+same week's waivers could both compute and write duplicate roster/tx changes before either one's
+guard fires. This is PRE-EXISTING (predates this batch's caching work entirely) and was
+deliberately NOT touched — fixing a write-ordering race in the waiver-processing engine itself is
+a different, larger piece of surgery than "add a doc cache," and redesigning it under this
+session's scope risked a regression in the one system this app can least afford to get wrong
+(real money — FAAB budgets). Worth a dedicated pass on its own.

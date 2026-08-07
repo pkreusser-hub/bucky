@@ -21,6 +21,11 @@ const SRV_PORT = 8843;
 const FF_PORT = 8844;
 const TENOR_PORT = 8845;
 const XAI_PORT = 8846;
+const SPORTS_FF_PORT = 8847; // dedicated fantasy-upstream fixture for netlify/functions/sports.mjs
+                              // (item 5's Scores tab) — kept SEPARATE from FF_PORT above, which
+                              // league.mjs's own history importer already uses for a differently-
+                              // shaped fixture (mMatchupScore there means "a past season", not
+                              // "this week's live matchups" — sharing a port would collide).
 const BASE = "http://127.0.0.1:" + SRV_PORT;
 const SHOTS = process.argv.includes("--shots");
 
@@ -132,7 +137,21 @@ function startFfUpstream() {
   const srv = http.createServer((req, res) => {
     const u = req.url;
     res.writeHead(200, { "Content-Type": "application/json" });
-    if (u.includes("view=mRoster")) { res.end(JSON.stringify(ffRosterDoc())); return; }
+    if (u.includes("view=mRoster")) {
+      // Item 2 (2026-08-08): a season-aware branch, mirroring the mMatchupScore one below —
+      // season 2025's PLAIN url comes back with a real team but EMPTY rosters on purpose, so a
+      // passing test of lg_espn_rosters_season genuinely proves its own scoringPeriodId=0 retry
+      // fired, not just that the happy path works. Every OTHER season (incl. the live-season
+      // lg_espn_rosters action's implicit "current year" call, which never sets a season param
+      // matching 2025) is completely unaffected — same ffRosterDoc() as always.
+      const seasonRosterM = /\/seasons\/(\d+)\//.exec(u);
+      if (seasonRosterM && Number(seasonRosterM[1]) === 2025 && !u.includes("scoringPeriodId=0")) {
+        res.end(JSON.stringify({ teams: [{ id: 1, roster: { entries: [] } }] }));
+        return;
+      }
+      res.end(JSON.stringify(ffRosterDoc()));
+      return;
+    }
     const seasonM = /\/seasons\/(\d+)\//.exec(u);
     if (seasonM && u.includes("view=mMatchupScore")) {
       const doc = HIST_FIX[Number(seasonM[1])];
@@ -147,6 +166,39 @@ function startFfUpstream() {
     res.end(JSON.stringify(ffSettingsDoc()));
   });
   return new Promise((r) => srv.listen(FF_PORT, "127.0.0.1", () => r(srv)));
+}
+
+// -- fake sports.mjs fantasy upstream (item 5's Scores tab, ff_scoreboard) — a small, real
+// mMatchupScore/mTeam/mSettings-shaped week-1 slate. Distinct from HIST_FIX/startFfUpstream
+// above (which fixture PAST-season history reads and deliberately returns empty without
+// scoringPeriodId=0 — colliding semantics if shared with a "this week, live" request).
+function ffScoreboardFix() {
+  return {
+    settings: { name: "Nerd Fantasy Football League" },
+    status: { currentMatchupPeriod: 1 },
+    members: [],
+    teams: [
+      { id: 1, name: "Battle Kreussers", abbrev: "BK", record: { overall: { wins: 1, losses: 0 } } },
+      { id: 2, name: "End Zone Goats", abbrev: "EZG", record: { overall: { wins: 0, losses: 1 } } },
+      { id: 3, name: "Wyoming Cowboys", abbrev: "WYO", record: { overall: { wins: 1, losses: 0 } } },
+      { id: 4, name: "Waffle House Warriors", abbrev: "WHW", record: { overall: { wins: 0, losses: 1 } } },
+    ],
+    schedule: [
+      { id: 101, matchupPeriodId: 1,
+        home: { teamId: 1, totalPointsLive: 88.4, totalProjectedPointsLive: 95.0 },
+        away: { teamId: 2, totalPointsLive: 61.2, totalProjectedPointsLive: 70.0 }, winner: "" },
+      { id: 102, matchupPeriodId: 1,
+        home: { teamId: 3, totalPointsLive: 70.0, totalProjectedPointsLive: 70.0 },
+        away: { teamId: 4, totalPointsLive: 40.0, totalProjectedPointsLive: 40.0 }, winner: "" },
+    ],
+  };
+}
+function startSportsFfUpstream() {
+  const srv = http.createServer((req, res) => {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(ffScoreboardFix()));
+  });
+  return new Promise((r) => srv.listen(SPORTS_FF_PORT, "127.0.0.1", () => r(srv)));
 }
 
 // -- fake Tenor (S4 chat GIF search) — 2 fixture results, any query --
@@ -396,6 +448,7 @@ async function launchBrowser() {
 
 let leagueFn; // in-process handler
 let farmgptFn; // in-process handler (S5's mode "gfflproj" — the AI read)
+let sportsFn; // in-process handler (item 5's Scores tab — /.netlify/functions/sports)
 async function newTestPage(browser, seed, opts) {
   opts = opts || {};
   const ctx = await browser.createBrowserContext();
@@ -431,6 +484,13 @@ async function newTestPage(browser, seed, opts) {
         if (u.includes("/.netlify/functions/farmgpt")) {
           const r = await farmgptFn(new Request("http://fn/farmgpt", { method: "POST", body: req.postData() || "{}" }));
           return req.respond({ status: r.status, contentType: r.headers.get("content-type") || "text/plain", headers: cors, body: await r.text() });
+        }
+        // Item 5's Scores tab — league.html's ff_scoreboard calls go to the DEPLOYED sports
+        // function; answered here by the real sports.mjs handler in process against the
+        // dedicated fixture above (startSportsFfUpstream).
+        if (u.includes("/.netlify/functions/sports")) {
+          const r = await sportsFn(new Request("http://fn/sports", { method: "POST", body: req.postData() || "{}" }));
+          return req.respond({ status: r.status, contentType: "application/json", headers: cors, body: await r.text() });
         }
         if (u.startsWith(BASE)) return req.continue();
         if (/gstatic|googleapis|firebase/.test(u)) return req.abort();
@@ -524,6 +584,7 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
   const ffSrv = await startFfUpstream();
   const tenorSrv = await startTenorUpstream();
   const xaiSrv = await startXaiUpstream();
+  const sportsFfSrv = await startSportsFfUpstream();
   process.env.SPORTS_FF_BASE_URL = "http://127.0.0.1:" + FF_PORT;
   process.env.BUCKY_NOTIFY_SECRET = "amenfarms";
   process.env.ESPN_S2 = "s2test"; process.env.ESPN_SWID = "{SWID-TEST}";
@@ -533,6 +594,15 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
   leagueFn = mod.default;
   const gptMod = await import(pathToFileURL(path.join(ROOT, "netlify/functions/farmgpt.mjs")).href);
   farmgptFn = gptMod.default;
+  // sports.mjs's FF_BASE is a module-level const captured AT IMPORT TIME — point it at the
+  // dedicated fixture above just for this one import, then restore SPORTS_FF_BASE_URL to
+  // FF_PORT (league.mjs already captured its own copy of the env var at ITS import above, so
+  // this never affects league.mjs — purely hygiene for anything imported later).
+  const sportsFfBaseSaved = process.env.SPORTS_FF_BASE_URL;
+  process.env.SPORTS_FF_BASE_URL = "http://127.0.0.1:" + SPORTS_FF_PORT;
+  const sportsMod = await import(pathToFileURL(path.join(ROOT, "netlify/functions/sports.mjs")).href);
+  sportsFn = sportsMod.default;
+  process.env.SPORTS_FF_BASE_URL = sportsFfBaseSaved;
   const call = async (body) => { const r = await leagueFn(new Request("http://fn/", { method: "POST", body: JSON.stringify(body) })); return { status: r.status, j: JSON.parse(await r.text()) }; };
   {
     const { j } = await call({ secret: "amenfarms", action: "lg_espn_settings" });
@@ -562,6 +632,34 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
       "roster import: espn ids + pro teams decoded");
     ok(ros.j.teams[0].players[1].lineupSlot === "IR" && ros.j.teams[0].players[1].injury === "OUT",
       "roster import: IR slot + injury status carried");
+
+    // Item 2 (2026-08-08) — lg_espn_rosters_season: the "🧪 test run" past-season roster
+    // importer. The fixture's 2025 branch deliberately returns a real team with an EMPTY
+    // roster on the plain URL and only a real roster once scoringPeriodId=0 is appended, so a
+    // passing check here genuinely proves the retry ladder fired.
+    const rosSeason = await call({ secret: "amenfarms", action: "lg_espn_rosters_season", season: 2025 });
+    ok(rosSeason.j.ok && rosSeason.j.season === 2025 && rosSeason.j.teams[0].players[0].espnId === 3915511,
+      "lg_espn_rosters_season(2025): the plain URL's empty roster is REJECTED and the scoringPeriodId=0 retry's real roster is used (" + JSON.stringify(rosSeason.j.season) + ")");
+    ok(rosSeason.j.teams[0].players[1].lineupSlot === "IR" && rosSeason.j.teams[0].players[1].injury === "OUT",
+      "…same mapRosterTeams() shape as the live-season importer (IR slot + injury carried)");
+    // A season NOT deliberately faked to need the retry (e.g. any other year) still resolves
+    // via the plain URL — the ladder never over-fires against a season that didn't need it.
+    const rosOther = await call({ secret: "amenfarms", action: "lg_espn_rosters_season", season: 2024 });
+    ok(rosOther.j.ok && rosOther.j.season === 2024 && rosOther.j.teams[0].players[0].espnId === 3915511,
+      "…a different season resolves on the plain URL alone (no retry needed)");
+    const rosBadRange = await call({ secret: "amenfarms", action: "lg_espn_rosters_season", season: 1899 });
+    ok(rosBadRange.j.ok && rosBadRange.j.season === 2025, "…an out-of-range season clamps to the 2025 default rather than erroring");
+    const s2b = process.env.ESPN_S2; delete process.env.ESPN_S2;
+    const rosNoCookie = await call({ secret: "amenfarms", action: "lg_espn_rosters_season", season: 2025 });
+    ok(rosNoCookie.j.ok === false && rosNoCookie.j.reason === "fantasy-not-configured",
+      "…missing cookies → fantasy-not-configured, same as every other ESPN action (never a 500)");
+    process.env.ESPN_S2 = s2b;
+    // Live-season lg_espn_rosters (no `season` param at all) is completely unaffected by the
+    // 2025 fixture branch — proves the two actions are genuinely independent, not aliases.
+    const rosLiveAgain = await call({ secret: "amenfarms", action: "lg_espn_rosters" });
+    ok(rosLiveAgain.j.ok && rosLiveAgain.j.teams[0].players.length === 2,
+      "…and the ORIGINAL lg_espn_rosters action still reads the live-season fixture untouched");
+
     const unk = await call({ secret: "amenfarms", action: "nope" });
     ok(unk.j.ok === false && unk.j.reason === "unknown-action", "unknown action refused");
 
@@ -705,8 +803,14 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     await ctx.close();
   }
 
-  // ---- E: team page — lineup, locks, IR ----
-  section("E · my team — lineup editing, kickoff locks, 3 IR spots");
+  // ---- E: "My Team" = the owner's own locker (merged 2026-08-07) — lineup, locks, IR ----
+  // RESTAGED: "team" is no longer its own page — UI.show("team") now opens the owner's OWN
+  // locker with the lineup editor embedded as its roster section (item 3). The mechanic itself
+  // (tap-to-swap .lrow/.swaprow, locks, IR) is byte-identical to the old standalone team page —
+  // only the selector for "which card holds the starters" changed, since the header is now
+  // .lockerhead (not a .card), so the old ".card:nth-of-type(2)" no longer points at the same
+  // place. #lockerStarters is the new, explicit container id.
+  section("E · my team — lineup editing, kickoff locks, 3 IR spots (now the owner's own locker)");
   {
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
     await bootPage(page);
@@ -714,7 +818,12 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     await waitLive(page);
     await page.evaluate(() => window.__GFFL__.UI.show("team"));
     await page.waitForSelector(".lrow", { timeout: 9000 });
-    const starters = await page.$$eval(".card:nth-of-type(2) .lrow", (els) => els.length);
+    ok(await page.$(".lockerhead"), "\"My Team\" now renders the locker page (header present) — no separate team view any more");
+    ok((await page.evaluate(() => window.__GFFL__.UI.view)) === "locker" && (await page.evaluate(() => window.__GFFL__.UI.lockerTeamId)) === 1,
+      "UI.view is \"locker\", scoped to MY OWN team id");
+    ok(await page.evaluate(() => document.querySelector('.bnav button[data-v="team"]').classList.contains("on")),
+      "the bottom-nav \"My Team\" button still lights up as active, even though the underlying view is \"locker\"");
+    const starters = await page.$$eval("#lockerStarters .lrow", (els) => els.length);
     ok(starters === 9, "9 starter slots rendered");
     const locked = await page.$$eval(".lrow.locked", (els) => els.map((e) => e.textContent));
     ok(locked.length === 5 && locked.every((t) => t.includes("🔒")), "5 starters locked (their game is live) with 🔒");
@@ -1581,6 +1690,18 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     ok(rgb.length === 3 && rgb[0] > rgb[1] + 30 && rgb[0] > rgb[2] + 30, "the extracted palette makes the header background REDDISH, not the default green (" + bg + ")");
     const savedColors = await page1.evaluate(() => window.__GFFL__.LG.teamById(1).colors);
     ok(savedColors && typeof savedColors.primary === "string", "the extracted colour is stored on the team doc (computed once at upload, not per render)");
+    // Regression guard for the cache-corruption bug this test caught: cacheUpsert() used to
+    // build its list-cache row as {id, ...doc} (id spread FIRST), so a stray numeric `.id`
+    // field already sitting inside `doc` (every in-memory team object carries one — see
+    // LG.loadTeams()) silently clobbered the real string doc-id, the next upsert's own
+    // findIndex could no longer find the row it had just written, and a stale DUPLICATE got
+    // pushed instead of updating in place — LG.teamById kept returning the pre-edit team
+    // forever. Prove logoData survived the round trip too (same object, same bug class).
+    const savedLogo = await page1.evaluate(() => window.__GFFL__.LG.teamById(1).logoData);
+    ok(typeof savedLogo === "string" && savedLogo.startsWith("data:image/"),
+      "…and the logo image itself (not just the colour) survives — no stale duplicate shadowing the edited team");
+    const listedOnce = await page1.evaluate(() => window.__GFFL__.LG.teams.filter((t) => t.id === 1).length);
+    ok(listedOnce === 1, "…and LG.teams has exactly ONE row for team 1 after two consecutive saves — no duplicate left behind in the list cache");
 
     // Non-owner viewing the SAME locker: no edit affordances at all.
     const snap = await snapshotAllDocs(page1);
@@ -1593,18 +1714,19 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     ok(!(await page2.$("#lockerEditName")) && !(await page2.$("#lockerEditMotto")) && !(await page2.$("#lockerEditLogo")),
       "…but NO edit affordances on someone else's locker");
 
-    // Tap-through from standings / matchup header / "My locker".
+    // Tap-through from standings / "My Team" nav (item 3, 2026-08-07: "My Team" IS the locker
+    // now, so there's no separate "My locker" button on a team page to click through any more —
+    // RESTAGED to prove the nav itself lands on the viewer's OWN locker directly).
     await page2.evaluate(() => window.__GFFL__.UI.show("league"));
     await page2.waitForSelector(".teamlink", { timeout: 9000 });
     await clickIn(page2, ".teamlink", "Battle Kreussers");
     await page2.waitForFunction(() => document.body.textContent.includes("Go Kreussers!"), { timeout: 5000 });
     ok(true, "tapping a team name in the standings opens their locker");
+    ok((await page2.evaluate(() => window.__GFFL__.UI.lockerTeamId)) === 1, "…someone else's locker (team 1), while viewing as team 2");
     await page2.evaluate(() => window.__GFFL__.UI.show("team"));
-    await page2.waitForSelector("#myLockerBtn", { timeout: 9000 });
-    await clickIn(page2, "#myLockerBtn");
     await page2.waitForSelector(".lockerhead", { timeout: 9000 });
     const lockerId2 = await page2.evaluate(() => window.__GFFL__.UI.lockerTeamId);
-    ok(lockerId2 === 2, "\"My locker\" on the team page opens the VIEWER's own locker (team 2)");
+    ok(lockerId2 === 2, "…and tapping \"My Team\" nav from there jumps straight to the VIEWER's own locker (team 2)");
 
     ok(err1.length === 0 && err2.length === 0, "0 page errors through the whole locker flow");
     if (SHOTS) { await page1.screenshot({ path: path.join(ROOT, "shots", "gffl_locker_390.png"), fullPage: true }); console.log("  📸 shots/gffl_locker_390.png"); }
@@ -2369,8 +2491,346 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     await ctx.close();
   }
 
+  // ---- P: performance — LG.db caching + throttled auto-checks (playtest: "laggy tabs") ----
+  section("P · performance — doc cache + throttled auto-checks");
+  {
+    // P1: a second full visit to a view makes ZERO additional real .get() calls (teams/rosters/
+    // settings/weekly/bracket — everything a full renderLeague() reads) — the exact "tab switch
+    // completes without awaiting network" property, measured via LG.db.stats rather than
+    // wall-clock timing so it's deterministic even under CI load.
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page.waitForSelector("#faSearch", { timeout: 9000 }); // moves view fully settled
+    const statsBefore = await page.evaluate(() => ({ ...window.__GFFL__.LG.db.stats }));
+    await page.evaluate(() => window.__GFFL__.UI.show("league"));
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    const statsAfter = await page.evaluate(() => ({ ...window.__GFFL__.LG.db.stats }));
+    ok(statsAfter.gets === statsBefore.gets,
+      "a second full League render makes ZERO additional real .get() calls — every roster/team/settings/weekly/bracket doc served from cache (" + JSON.stringify({ statsBefore, statsAfter }) + ")");
+    ok(statsAfter.lists - statsBefore.lists <= 1,
+      "…and at most ONE additional .list() call — \"chat\" is the one kind deliberately EXEMPTED from caching (so the league home's own new 'recent chat' preview, and the live Chat tab, never go stale); every other kind (team/weekly/hist/tx/bracket) is cache-served");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+  {
+    // P2: idempotency guards still see the REAL backend, not this page's own STALE cache —
+    // LG.db.getFresh(id), used by processWaivers/executeTrade/finalizeWeek/buildBracket/
+    // snapshotProjections. Proven against finalizeWeek (the cleanest of the five — it computes
+    // entirely in memory and does its ONE write only after the guard, so there's nothing else
+    // in play): warm the cache on "no weekly doc yet" (a plain, cached negative lookup — LG.db
+    // caches nulls too), then have "another device" finalize the week via a RAW localStorage
+    // write that bypasses THIS page's LG.db entirely (the K-section's cross-device technique).
+    // A plain LG.db.get() is proven to still read the stale "doesn't exist" cache; finalizeWeek's
+    // own getFresh-backed guard is proven to see the real doc and skip recomputing/re-writing/
+    // re-announcing it.
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    const warmMissing = await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      const warm = await LG.loadWeekly(1); // ordinary cached read — caches the negative (null) result too
+      return warm == null;
+    });
+    ok(warmMissing, "week 1's weekly doc is cached on this page as NOT YET existing");
+    const chatBefore = (await page.evaluate(() => window.__GFFL__.LG.loadAllChat())).length;
+    const finalDoc = { kind: "weekly", week: 1, matchups: [{ home: 1, away: 2, homePts: 55, awayPts: 30 }], awards: {}, power: [], accuracy: null, finalizedAt: 999000 };
+    await page.evaluate((k, doc) => localStorage.setItem(k, JSON.stringify(doc)), LSPFX + "weekly_2026_w1", finalDoc);
+    const staleMissing = await page.evaluate(() => window.__GFFL__.LG.db.get(window.__GFFL__.LG.weeklyId(2026, 1)).then((d) => d == null));
+    ok(staleMissing, "…and a PLAIN LG.db.get() (cache-aware) genuinely still reads that stale \"missing\" cache — proving there's something real for getFresh to fix");
+    // force:true bypasses the (unrelated) "every game must read post" guard — this test is
+    // about the get-vs-getFresh idempotency guard specifically, not about live-game state.
+    const r1 = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(1, { force: true }));
+    ok(r1.ok === true && r1.finalizedAt === 999000 && r1.matchups[0].homePts === 55,
+      "…yet finalizeWeek's own idempotency guard (LG.db.getFresh) sees the ALREADY-finalized doc and returns it verbatim, not a freshly recomputed one");
+    const chatAfter = await page.evaluate(() => window.__GFFL__.LG.loadAllChat());
+    ok(chatAfter.length === chatBefore, "…and posts no duplicate \"week is official\" announcement — the getFresh guard fired BEFORE the write+announce block ever ran");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+  {
+    // P3: auto-checks (waivers/trades/finalize/bracket) run once at boot, then at most once per
+    // AUTO_CHECK_MS thereafter — never once per render. Driven directly through the exposed
+    // UI._runAutoChecks/UI._autoCheckRuns test hooks so the assertion is about the THROTTLE
+    // itself, not about any one downstream side effect.
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    const afterBoot = await page.evaluate(() => window.__GFFL__.UI._autoCheckRuns);
+    ok(afterBoot === 1, "boot runs the auto-check chain exactly once (forced, bypassing the throttle)");
+    // Two more unforced calls, same wall-clock window (< AUTO_CHECK_MS since boot) — both throttled.
+    await page.evaluate(() => window.__GFFL__.UI._runAutoChecks(false));
+    await page.evaluate(() => window.__GFFL__.UI._runAutoChecks(false));
+    // …and the two integration points that used to run it every time — d.onUpdate (a live poll
+    // tick) and renderMoves() — are ALSO throttled now, not just the raw hook.
+    await page.evaluate(() => window.__GFFL__.D.onUpdate());
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page.waitForSelector("#faSearch", { timeout: 9000 });
+    const stillThrottled = await page.evaluate(() => window.__GFFL__.UI._autoCheckRuns);
+    ok(stillThrottled === afterBoot, "…none of those (2 direct calls + a poll tick + a Moves visit) ran the chain again — still throttled");
+    // Once AUTO_CHECK_MS has genuinely passed, it runs again.
+    await page.evaluate(() => { window.__GFFL__.LG.nowOverride = Date.now() + 70000; });
+    await page.evaluate(() => window.__GFFL__.UI._runAutoChecks(false));
+    const afterWindow = await page.evaluate(() => window.__GFFL__.UI._autoCheckRuns);
+    ok(afterWindow === afterBoot + 1, "…but DOES run again once the 60s window has passed");
+    await page.evaluate(() => { window.__GFFL__.LG.nowOverride = null; });
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+  {
+    // P4: the cloud-only background-refresh path — LG.db._installFakeCloud (test-only hook) —
+    // proves the SAME view paints synchronously-from-cache even against a genuinely slow (60ms/
+    // call) backend once warm, while the FIRST (cold) visit really does await it.
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    // Switch AWAY first (so .mucard is genuinely absent from the DOM) before installing the
+    // fake cloud — otherwise a STALE .mucard left over from the earlier local-mode render would
+    // make the next waitForSelector resolve instantly, timing nothing real.
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page.waitForSelector("#faSearch", { timeout: 9000 });
+    const snap = await snapshotAllDocs(page);
+    await page.evaluate((docs) => {
+      const LG = window.__GFFL__.LG;
+      const store = new Map(Object.entries(docs));
+      window.__cloudCalls = 0;
+      const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+      LG.db._installFakeCloud({
+        async get(id) { window.__cloudCalls++; await delay(60); return store.get(id) || null; },
+        async set(id, data) { const cur = store.get(id) || {}; store.set(id, { ...cur, ...data }); },
+        async del(id) { store.delete(id); },
+        async list(kind) {
+          window.__cloudCalls++; await delay(60);
+          const out = []; for (const [id, d] of store) if (!kind || d.kind === kind) out.push({ id, ...d });
+          return out;
+        },
+        watch(id, cb) { cb(store.get(id) || null); return () => {}; },
+      });
+    }, snap);
+    // Cold: the fake cloud is freshly installed, its cache is empty — a full League render
+    // genuinely has to await the slow backend. waitForSelector only resolves once renderLeague()
+    // has actually finished (main().innerHTML is the LAST line of its async body), so this is a
+    // reliable full-completion signal, not just "the button was clicked."
+    const t0 = Date.now();
+    await page.evaluate(() => window.__GFFL__.UI.show("league"));
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    const coldMs = Date.now() - t0;
+    ok(coldMs >= 100, "the FIRST visit under a slow (60ms/call) fake cloud backend genuinely awaits it (" + coldMs + "ms, several distinct docs × 60ms)");
+    // Warm: switch away (forces main() to lose .mucard) and back — the SAME slow backend, but
+    // everything is now cached (the cold render above fully completed before this starts).
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page.waitForSelector("#faSearch", { timeout: 9000 });
+    const t1 = Date.now();
+    await page.evaluate(() => window.__GFFL__.UI.show("league"));
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    const warmMs = Date.now() - t1;
+    ok(warmMs < 100, "a second visit paints from cache almost instantly, even against the same 60ms/call backend (" + warmMs + "ms)");
+    ok(errors.length === 0, "0 page errors against the fake cloud backend");
+    await ctx.close();
+  }
+
+  // ---- Q: item 2 — the "🧪 Import 2025 rosters (test run)" commissioner button ----
+  section("Q · 2025 test-data import — commissioner button, coherent Rules presentation");
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    // Before import: the seeded fixture roster (12 players, none of them the real 2025 fixture's
+    // single QB+IR pair) — this is the baseline the import has to visibly change.
+    const before = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)).players.length, LSPFX + "roster_2026_w1_t1");
+    ok(before === 12, "before import: the seeded week-1 roster has its usual 12 players");
+    await page.evaluate(() => window.__GFFL__.UI.show("rules"));
+    await page.waitForFunction(() => document.body.textContent.includes("League rules"), { timeout: 5000 });
+    ok(/👥 Import ESPN rosters/.test(await page.evaluate(() => document.body.textContent))
+      && /🧪 Import 2025 rosters \(test run\)/.test(await page.evaluate(() => document.body.textContent))
+      && /📜 Import history/.test(await page.evaluate(() => document.body.textContent)),
+      "Rules page presents all THREE importer buttons even before commissioner unlock (rendered `hidden`, not absent)");
+    // Unlock commissioner status (stub prompt "1234" creates + unlocks, same as every other
+    // commissioner action in this suite) — the explanatory paragraph below is itself gated on
+    // isCommish(), same as the buttons, so a genuine commissioner is what "coherent presentation"
+    // has to be checked against.
+    await page.evaluate(() => window.__GFFL__.LG.gateCommish());
+    await page.evaluate(() => window.__GFFL__.UI.show("rules"));
+    await page.waitForFunction(() => document.body.textContent.includes("League rules"), { timeout: 5000 });
+    // Coherent presentation: the three importers sit together with distinct, readable
+    // explanations of what each one does (not just three unlabeled buttons).
+    const rulesTxt = await page.evaluate(() => document.body.textContent);
+    const rulesTxtFlat = rulesTxt.replace(/\s+/g, " "); // the source template wraps these sentences across lines
+    ok(/pre-draft \(every roster empty\)/.test(rulesTxtFlat) && /real, FINAL 2025/.test(rulesTxtFlat),
+      "…with an explanation of WHY the test-run importer exists (2026 is pre-draft) and what it does (seeds from the real final 2025 season)");
+    ok(!!(await page.$("#testRostersImport")) && !!(await page.$("#rostersImport")) && !!(await page.$("#historyImport")),
+      "all three importer buttons are present as a claimed commissioner");
+    // Click it — commissioner is already unlocked from the step above.
+    await clickIn(page, "#testRostersImport");
+    await page.waitForFunction(() => document.body.textContent.includes("Test rosters imported"), { timeout: 8000 });
+    const outTxt = await page.evaluate(() => document.querySelector("#importOut").textContent);
+    ok(/real 2025 season/.test(outTxt) && /re-import real 2026 rosters/.test(outTxt),
+      "success message names the source season and reminds the commissioner to re-import real rosters once the draft happens");
+    const after = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)), LSPFX + "roster_2026_w1_t1");
+    ok(after.players.length === 2, "after import: the CURRENT week's roster is REPLACED by the 2025 fixture's real roster (2 players, not 12)");
+    const passer = after.players.find((p) => p.name === "P. Passer");
+    ok(passer && passer.key === "3915511" && passer.team === "PHI" && passer.slot === "QB",
+      "…the real 2025 QB slots in correctly (same slotting rule as the live importer)");
+    const injured = after.players.find((p) => p.name === "I. Injured");
+    ok(injured && injured.slot === "IR" && injured.injury === "OUT",
+      "…and the IR-designated player lands in the IR slot with their injury status carried");
+    // The locker/lineup editor reflects the imported roster immediately (UI._rosters cleared).
+    await page.evaluate(() => window.__GFFL__.UI.openLocker(1));
+    await page.waitForSelector(".lockerhead", { timeout: 9000 });
+    const lockerTxt = await page.evaluate(() => document.body.textContent);
+    ok(/P\. Passer/.test(lockerTxt) && !/B\. Backup/.test(lockerTxt),
+      "the locker's own lineup editor shows the newly-imported roster, not the old seeded bench");
+    // A NON-commissioner viewer never sees any of the three import buttons at all.
+    const snap = await snapshotAllDocs(page);
+    const { ctx: ctx2, page: page2, errors: err2 } = await newTestPage(browser, { docs: snap, pass: "amenfarms", team: 2, who: "Rival" });
+    await bootPage(page2);
+    await page2.waitForSelector(".mucard", { timeout: 9000 });
+    await page2.evaluate(() => window.__GFFL__.UI.show("rules"));
+    await page2.waitForFunction(() => document.body.textContent.includes("League rules"), { timeout: 5000 });
+    const nonCommishHidden = await page2.evaluate(() =>
+      ["testRostersImport", "rostersImport", "historyImport"].every((id) => {
+        const el = document.getElementById(id);
+        return !el || el.hidden; // rendered `hidden` (not removed from the DOM), same pattern as F's rules-page gate
+      }));
+    ok(nonCommishHidden, "a non-commissioner sees none of the three import buttons (rendered `hidden`, sessionStorage-scoped unlock never crossed contexts)");
+    ok(err2.length === 0, "0 page errors as a non-commissioner viewer");
+    ok(errors.length === 0, "0 page errors through the whole test-import flow");
+    await ctx2.close();
+    await ctx.close();
+  }
+
+  // ---- R: item 4 — league home additions (recent moves + league chat cards) ----
+  section("R · league home additions — recent moves + league chat");
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    // Seed more than 8 tx-log entries and more than 6 chat messages, so both cards' own caps
+    // (8 moves, 6 chat) are genuinely exercised rather than just "whatever happened to exist".
+    // LG.logTx orders itself by a raw Date.now() call (NOT LG.now(), so LG.nowOverride has no
+    // effect on it), and a tight synchronous loop on the LOCAL backend can genuinely complete
+    // several iterations within the same millisecond — which would tie-break through
+    // Array.sort's STABILITY (insertion order) instead of the intended chronology. Patching
+    // Date.now itself (restored immediately after) pins a strictly-increasing clock covering
+    // BOTH logTx and postChat, so "10"/"8" are unambiguously the newest.
+    await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      const realNow = Date.now;
+      let fakeT = Date.now() - 1000000;
+      Date.now = () => (fakeT += 1000);
+      for (let i = 1; i <= 10; i++) await LG.logTx("fa_add", 1, 1, { addKey: "k" + i, addName: "Add Number " + i });
+      for (let i = 1; i <= 8; i++) await LG.postChat({ text: "chat message " + i });
+      Date.now = realNow;
+    });
+    await page.evaluate(() => window.__GFFL__.UI.show("league"));
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    ok(!!(await page.$(".collapsecard")), "the league home renders at least one collapsible card in the new house style");
+    const movesCard = await page.evaluate(() => {
+      const d = [...document.querySelectorAll(".collapsecard")].find((el) => el.textContent.includes("Recent moves"));
+      return d ? { html: d.innerHTML, rows: d.querySelectorAll(".fline").length, hasBtn: !!d.querySelector("#recentMovesAll") } : null;
+    });
+    ok(!!movesCard, "🔁 Recent moves card is present on the league home");
+    ok(movesCard.rows === 8, "…shows exactly the last 8 tx-log sentences (capped, not all 10)");
+    ok(/Add Number 10\b/.test(movesCard.html) && !/Add Number 1\b/.test(movesCard.html) && !/Add Number 2\b/.test(movesCard.html),
+      "…the MOST RECENT moves are shown (10 present, the oldest — #1 and #2 — trimmed off)");
+    ok(movesCard.hasBtn, "…and a 'View all →' link through to the full Moves log");
+    const chatCard = await page.evaluate(() => {
+      const d = [...document.querySelectorAll(".collapsecard")].find((el) => el.textContent.includes("League chat"));
+      return d ? { html: d.innerHTML, rows: d.querySelectorAll(".fline").length, hasBtn: !!d.querySelector("#recentChatOpen") } : null;
+    });
+    ok(!!chatCard, "💬 League chat card is present on the league home");
+    ok(chatCard.rows === 6, "…shows exactly the last 6 main-channel messages (capped, not all 8)");
+    ok(/chat message 8\b/.test(chatCard.html) && !/chat message 1\b/.test(chatCard.html) && !/chat message 2\b/.test(chatCard.html),
+      "…the MOST RECENT messages are shown (8 posted, the oldest — #1 and #2 — trimmed off)");
+    ok(chatCard.hasBtn, "…and an 'Open chat →' link through to the full Chat tab");
+    // Sys posts (e.g. an automatic announcement) are included, not filtered out — they ARE the
+    // league's own timeline. finalizeWeek/advanceBracket post sys chat messages via LG.postSys;
+    // trigger one cheaply here through that same real path.
+    await page.evaluate(() => window.__GFFL__.LG.postSys("🏆 A sys announcement"));
+    await page.evaluate(() => window.__GFFL__.UI.show("league"));
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    ok((await page.evaluate(() => document.body.textContent)).includes("A sys announcement"),
+      "sys-posted chat messages appear on the league-home preview too");
+    // "View all" / "Open chat" actually navigate.
+    await clickIn(page, "#recentMovesAll");
+    await page.waitForFunction(() => document.body.textContent.includes("Add Number 10"), { timeout: 5000 });
+    ok((await page.evaluate(() => window.__GFFL__.UI.view)) === "moves", "'View all →' opens the full Moves log");
+    await page.evaluate(() => window.__GFFL__.UI.show("league"));
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await clickIn(page, "#recentChatOpen");
+    await page.waitForFunction(() => window.__GFFL__.UI.view === "chat", { timeout: 5000 });
+    ok(true, "'Open chat →' opens the full Chat tab");
+    ok(errors.length === 0, "0 page errors through the league-home additions flow");
+    if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_home_cards_390.png"), fullPage: true }); console.log("  📸 shots/gffl_home_cards_390.png"); }
+    await ctx.close();
+  }
+
+  // ---- S: item 5 — the Scores tab (NFL slate + ESPN fantasy scoreboard) ----
+  section("S · Scores tab — real NFL slate + family ESPN fantasy scoreboard");
+  {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    ok(!!(await page.$('.bnav button[data-v="scores"]')), "bottom nav has a Scores tab");
+    await clickIn(page, '.bnav button[data-v="scores"]');
+    await page.waitForFunction(() => document.body.textContent.includes("NFL this week"), { timeout: 9000 });
+    ok((await page.evaluate(() => window.__GFFL__.UI.view)) === "scores", "nav click routes to the scores view");
+    ok((await page.evaluate(() => document.querySelector('.bnav button[data-v="scores"]').classList.contains("on"))),
+      "the Scores nav button highlights as active");
+    // NFL half: sbFix() has one LIVE game (DAL @ PHI) and one PRE game (KC @ DEN, next year) —
+    // grouped by day, since they fall on different calendar dates.
+    const body = await page.evaluate(() => document.body.textContent);
+    const liveRowTxt = await page.$eval(".gmrow.live", (el) => el.textContent);
+    ok(/DAL/.test(liveRowTxt) && /PHI/.test(liveRowTxt) && /10/.test(liveRowTxt) && /14/.test(liveRowTxt),
+      "live game (DAL @ PHI, 10-14) renders with both teams + both scores, scoped to its own row");
+    ok(/Q2 5:00/.test(liveRowTxt), "live game shows its in-progress clock/period, not a kickoff time");
+    ok((await page.$$eval(".gmrow.live", (els) => els.length)) === 1, "exactly one row is marked live (red-state CSS hook)");
+    ok(/KC/.test(body) && /DEN/.test(body), "upcoming game (KC @ DEN) renders too, not just the live one");
+    const dayHeaders = await page.$$eval(".scoreday h2", (els) => els.map((e) => e.textContent));
+    ok(dayHeaders.length === 2, "games group into 2 separate day headers — the live game and the future game fall on different calendar dates");
+    ok(!/Final/.test(await page.$eval(".gmrow.live", (el) => el.textContent)), "the live row itself doesn't say Final");
+    // Fantasy half: the real deployed sports function's ff_scoreboard action, fixtured — 2
+    // matchups, the family's own team (Battle Kreussers) among them.
+    ok(/ESPN league \(live\)/.test(body), "ESPN fantasy scoreboard card is present, labeled per spec");
+    ok(/Battle Kreussers/.test(body) && /88\.4/.test(body) && /End Zone Goats/.test(body) && /61\.2/.test(body),
+      "family's own matchup renders with live points (88.4 vs 61.2)");
+    ok(/Wyoming Cowboys/.test(body) && /Waffle House Warriors/.test(body), "the OTHER league matchup renders too, not just the family's own");
+    const ffRows = await page.$$eval(".ffrow", (els) => els.length);
+    ok(ffRows === 2, "exactly 2 fantasy matchup rows (the fixture's whole week-1 slate)");
+    // Degrade path: the SAME mechanism sports.mjs's own {ok:false,reason:"fantasy-not-configured"}
+    // uses server-side (no ESPN_S2/ESPN_SWID cookies) — real network round trip through the real
+    // in-process sports.mjs handler, genuinely exercising ffScoreboard()'s own failure branch,
+    // not a client-side stub. The NFL half must keep working and the fantasy card must simply
+    // disappear, never an error shown to the family.
+    const s2Saved = process.env.ESPN_S2, swidSaved = process.env.ESPN_SWID;
+    delete process.env.ESPN_S2; delete process.env.ESPN_SWID;
+    await page.evaluate(() => window.__GFFL__.UI.renderScores());
+    await page.waitForFunction(() => document.body.textContent.includes("NFL this week"), { timeout: 9000 });
+    process.env.ESPN_S2 = s2Saved; process.env.ESPN_SWID = swidSaved;
+    const ffSbAfter = await page.evaluate(() => window.__GFFL__.UI._ffSb);
+    ok(ffSbAfter && ffSbAfter.ok === false && ffSbAfter.reason === "fantasy-not-configured",
+      "the real in-process sports.mjs handler genuinely returned fantasy-not-configured (no cookies), not a stubbed response");
+    const degraded = await page.evaluate(() => document.body.textContent);
+    ok(!/ESPN league \(live\)/.test(degraded), "on a failed/unconfigured fantasy fetch, the ESPN fantasy card is hidden entirely — no error banner");
+    ok(/DAL/.test(degraded) && /PHI/.test(degraded), "…while the NFL slate keeps rendering, completely unaffected");
+    // Poll timers: armed while the tab is open, cleared on tab switch (never leak/keep firing
+    // against a page that's moved on).
+    const pollArmed = await page.evaluate(() => window.__GFFL__.UI._scoresPoll != null);
+    ok(pollArmed, "a poll timer is armed while the Scores tab is open");
+    await page.evaluate(() => window.__GFFL__.UI.show("league"));
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    const pollCleared = await page.evaluate(() => window.__GFFL__.UI._scoresPoll == null);
+    ok(pollCleared, "…and cleared the instant the tab is switched away from");
+    ok(errors.length === 0, "0 page errors through the whole Scores tab flow");
+    if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_scores_390.png"), fullPage: true }); console.log("  📸 shots/gffl_scores_390.png"); }
+    await ctx.close();
+  }
+
   await browser.close();
-  srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close();
+  srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close(); sportsFfSrv.close();
   console.log("\n================================");
   console.log(`PASS ${pass} · FAIL ${fail}`);
   if (fail) { console.log("Failures:"); failures.forEach((f) => console.log("  - " + f)); process.exit(1); }

@@ -131,12 +131,113 @@
       LG.backendMode = "local";
     }
   })();
+  // ---------------- doc-level cache (perf — playtest: "not snappy moving between tabs") ----------------
+  // Every view (league/matchup/locker/moves/chat/rules/bracket) re-reads teams/rosters/weekly/
+  // tx/claims/trades through LG.db on EVERY tab switch — on the cloud backend each call is a
+  // real network round-trip, and repeated full-view renders re-fetched everything from scratch.
+  // LG.db now caches every doc AND every list() result in memory: a cache hit resolves in the
+  // SAME microtask (no I/O), so a view can paint synchronously from cache and let fresh data
+  // arrive quietly. Every set()/del() from THIS page updates the cache in place, so a local
+  // write is instantly visible without waiting on the round trip.
+  //
+  // "chat" is the one kind EXEMPTED from list-caching: chat message ids are minted by any
+  // client at any time (not just this page) and the app already has its own explicit poll
+  // cadence for it (startChatPoll, 8s) — caching it would make new messages read as stale
+  // exactly where staleness matters most, so LG.db.list("chat") always goes straight to the
+  // backend, same as before this change.
+  //
+  // The 5 idempotency-race guards elsewhere in this file ("re-read right before the final
+  // write, in case another device already processed it") must see the REAL current backend
+  // state, not this page's own cache — LG.db.getFresh(id) bypasses the cache for exactly those
+  // call sites (processWaivers/executeTrade/finalizeWeek/buildBracket/snapshotProjections).
+  const docCache = new Map();   // id -> doc | null
+  const listCache = new Map();  // kind ("" = every doc) -> { docs:[...], at, refreshing }
+  const CACHE_STALE_MS = 15000; // cloud-only: how old a cached list() may be before a quiet background refresh
+  function backend() { return LG.backendMode === "cloud" ? cloud : local; }
+  // Keeps every list() cache entry that could plausibly contain `id` in sync with a set/del —
+  // upserts (or removes) the {id,...doc} row so a subsequent list() call for that kind sees it
+  // without a real fetch.
+  function cacheUpsert(id, doc) {
+    docCache.set(id, doc);
+    for (const [kind, entry] of listCache) {
+      if (kind && (!doc || doc.kind !== kind)) {
+        const i = entry.docs.findIndex((d) => d.id === id);
+        if (i >= 0) entry.docs.splice(i, 1);
+        continue;
+      }
+      // `id` must win over any stray `.id` FIELD already sitting inside `doc` — and there
+      // often is one: LG.db.list() rows are shaped {id, ...doc}, and a LOT of call sites round-
+      // trip an in-memory object straight back into set() (e.g. `LG.saveTeam({...T, teamId,
+      // colors})`, where T itself carries the numeric `id` loadTeams() adds on top of the raw
+      // doc). Spreading doc AFTER id (not before) is load-bearing: id-before-doc let a numeric
+      // `.id` clobber the real string doc-id here, so the NEXT upsert's `findIndex` couldn't
+      // find the row it had just written, pushed a stale DUPLICATE instead of updating in
+      // place, and array-order made LG.teamById silently return the pre-edit team forever
+      // (caught live: a saved team colour never stuck — playtest fix batch, item 1).
+      const row = doc ? { ...doc, id } : null;
+      const i = entry.docs.findIndex((d) => d.id === id);
+      if (row) { if (i >= 0) entry.docs[i] = row; else entry.docs.push(row); }
+      else if (i >= 0) entry.docs.splice(i, 1);
+    }
+  }
   LG.db = {
-    get: (id) => (LG.backendMode === "cloud" ? cloud : local).get(id),
-    set: (id, data) => (LG.backendMode === "cloud" ? cloud : local).set(id, data),
-    del: (id) => (LG.backendMode === "cloud" ? cloud : local).del(id),
-    list: (kind) => (LG.backendMode === "cloud" ? cloud : local).list(kind),
-    watch: (id, cb) => (LG.backendMode === "cloud" ? cloud : local).watch(id, cb),
+    stats: { gets: 0, lists: 0, sets: 0, dels: 0, fresh: 0 }, // real (non-cache) backend calls — perf test hook
+    onChange: null, // (kind) => void — lg-ui registers this to quietly repaint after a background refresh finds new data
+    async get(id) {
+      if (docCache.has(id)) return docCache.get(id);
+      LG.db.stats.gets++;
+      const v = await backend().get(id);
+      docCache.set(id, v);
+      return v;
+    },
+    // Bypasses the cache entirely — for the handful of "someone else may have already done
+    // this" idempotency guards, which must see the true current backend state.
+    async getFresh(id) {
+      LG.db.stats.fresh++;
+      const v = await backend().get(id);
+      docCache.set(id, v);
+      return v;
+    },
+    async set(id, data) {
+      LG.db.stats.sets++;
+      const cur = docCache.get(id) || {};
+      cacheUpsert(id, { ...cur, ...data }); // optimistic — instantly visible to this page's own next read
+      await backend().set(id, data);
+    },
+    async del(id) {
+      LG.db.stats.dels++;
+      cacheUpsert(id, null);
+      await backend().del(id);
+    },
+    async list(kind) {
+      if (kind === "chat") { LG.db.stats.lists++; return backend().list(kind); } // see the note above
+      const key = kind || "";
+      const entry = listCache.get(key);
+      if (entry) {
+        if (LG.backendMode === "cloud" && !entry.refreshing && LG.now() - entry.at > CACHE_STALE_MS) {
+          entry.refreshing = true;
+          LG.db.stats.lists++;
+          backend().list(kind).then((fresh) => {
+            entry.refreshing = false;
+            const changed = JSON.stringify(fresh) !== JSON.stringify(entry.docs);
+            entry.docs = fresh; entry.at = LG.now();
+            for (const d of fresh) docCache.set(d.id, d);
+            if (changed && LG.db.onChange) LG.db.onChange(kind);
+          }).catch(() => { entry.refreshing = false; });
+        }
+        return entry.docs;
+      }
+      LG.db.stats.lists++;
+      const docs = await backend().list(kind);
+      listCache.set(key, { docs, at: LG.now(), refreshing: false });
+      for (const d of docs) docCache.set(d.id, d);
+      return docs;
+    },
+    watch: (id, cb) => backend().watch(id, cb),
+    // Test-only: swaps the underlying "cloud" implementation + forces cloud mode, so the perf
+    // suite can exercise the background-refresh/quiet-repaint path without a real Firestore.
+    // Never called by production code.
+    _installFakeCloud(impl) { cloud = impl; LG.backendMode = "cloud"; docCache.clear(); listCache.clear(); },
   };
 
   // ---------------- the rules doc ----------------
@@ -341,8 +442,12 @@
   // dropKey,dropName,bid,t}]. Blind by UI convention only — the doc itself is
   // a normal shared read; lg-ui never shows another team's claim pre-process.
   LG.claimsId = (season, week) => `claims_${season}_w${week}`;
-  LG.loadClaims = async function (week) {
-    const doc = await LG.db.get(LG.claimsId(LG.SEASON, week));
+  // opts.fresh bypasses LG.db's cache — used only by the idempotency race guards below, which
+  // must see the REAL current backend state ("did someone else already process this?"), not
+  // whatever this page happened to have cached.
+  LG.loadClaims = async function (week, opts) {
+    const id = LG.claimsId(LG.SEASON, week);
+    const doc = opts && opts.fresh ? await LG.db.getFresh(id) : await LG.db.get(id);
     return doc || { kind: "claims", week, claims: [], processed: false, results: null };
   };
   LG.saveClaims = (week, doc) => LG.db.set(LG.claimsId(LG.SEASON, week), { kind: "claims", week, ...doc });
@@ -394,7 +499,7 @@
     await LG.loadTeams();
     const claims = doc.claims || [];
     if (!claims.length) {
-      const fresh = await LG.loadClaims(week);
+      const fresh = await LG.loadClaims(week, { fresh: true });
       if (fresh.processed) return fresh;
       const done = { claims: [], processed: true, results: [] };
       await LG.saveClaims(week, done);
@@ -455,7 +560,7 @@
       }
     } catch (e) { /* chat is never load-bearing */ }
 
-    const fresh = await LG.loadClaims(week); // guard: someone else may have processed while we worked
+    const fresh = await LG.loadClaims(week, { fresh: true }); // guard: someone else may have processed while we worked
     if (fresh.processed) return fresh;
     const done = { claims, processed: true, results };
     await LG.saveClaims(week, done);
@@ -468,7 +573,9 @@
   // passes, unless enough OTHER owners veto it first. Player-for-player only;
   // uneven trades (2-for-1) are allowed, no roster-size cap in v1.
   LG.tradeId = (t) => `trade_${t}_${Math.random().toString(36).slice(2, 6)}`;
-  LG.loadTrade = (id) => LG.db.get(id);
+  // opts.fresh bypasses LG.db's cache — see LG.loadClaims' note; executeTrade's own
+  // "someone else already executed/cancelled this" re-check needs the real backend state.
+  LG.loadTrade = (id, opts) => (opts && opts.fresh ? LG.db.getFresh(id) : LG.db.get(id));
   LG.saveTrade = (doc) => LG.db.set(doc.id, doc);
   LG.loadTrades = async function () {
     return (await LG.db.list("trade")).sort((a, b) => b.t - a.t);
@@ -537,7 +644,7 @@
     let doc = await LG.loadTrade(id);
     if (!doc || doc.status !== "accepted") return doc;
     if (LG.now() < (doc.reviewEndsAt ?? Infinity)) return doc;
-    const fresh = await LG.loadTrade(id);
+    const fresh = await LG.loadTrade(id, { fresh: true });
     if (!fresh || fresh.status !== "accepted") return fresh;
     const week = LG.currentWeek();
     const fromRoster = await LG.ensureRoster(week, fresh.from);
@@ -760,7 +867,7 @@
     }
     if (!rows.length) return null;
     const doc = { kind: "projsnap", week, players: rows, at: LG.now() };
-    const fresh = await LG.db.get(id); // idempotency race guard, same pattern as processWaivers
+    const fresh = await LG.db.getFresh(id); // idempotency race guard — bypasses LG.db's cache
     if (fresh && fresh.kind === "projsnap") return fresh;
     await LG.db.set(id, doc);
     return doc;
@@ -887,7 +994,7 @@
       accuracy, finalizedAt: LG.now(),
     };
 
-    const fresh = await LG.db.get(id); // idempotency race guard, same pattern as processWaivers
+    const fresh = await LG.db.getFresh(id); // idempotency race guard — bypasses LG.db's cache
     if (fresh && fresh.kind === "weekly") return { ok: true, ...fresh };
     await LG.db.set(id, doc);
 
@@ -1040,7 +1147,7 @@
       },
       champion: null, thirdPlace: null, toilet: null,
     };
-    const fresh = await LG.db.get(id); // idempotency race guard, same pattern as processWaivers
+    const fresh = await LG.db.getFresh(id); // idempotency race guard — bypasses LG.db's cache
     if (fresh && fresh.kind === "bracket" && !opts.force) return { ok: true, ...fresh };
     await LG.db.set(id, doc);
     try {
