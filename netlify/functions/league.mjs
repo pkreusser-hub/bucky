@@ -74,6 +74,14 @@ const STAT_MAP = {
   95: "dst_int", 96: "dst_fum_rec", 97: "dst_blk", 98: "dst_safety", 99: "dst_sack",
   101: "dst_kr_td", 102: "dst_pr_td", 103: "dst_fum_ret_td", 104: "dst_int_ret_td",
   93: "dst_blk_td", 106: "dst_fum_forced",
+  // Live-league review (diag 2026-08-07): the Nerd league scores yardage GAME
+  // BONUSES and distance-specific FG misses. Ids per the ffscrapr/espn-api
+  // community tables, consistent with the observed point values.
+  17: "bonus_pass_300", 18: "bonus_pass_400",
+  37: "bonus_rush_100", 38: "bonus_rush_200",
+  56: "bonus_rec_100", 57: "bonus_rec_200",
+  79: "fg_miss", 82: "fg_miss", // distance misses (0-39 / 40-49) share one key; 85 (50+ miss) already mapped above
+  63: "off_fum_td",
 };
 const SLOT_LABEL = {
   0: "QB", 2: "RB", 3: "RB/WR", 4: "WR", 5: "WR/TE", 6: "TE", 7: "OP",

@@ -37,6 +37,7 @@
     "fum_lost",
     "fg_0_39", "fg_40_49", "fg_50", "fg_miss", "xp_made", "xp_miss",
     "dst_sack", "dst_int", "dst_fum_rec", "dst_td", "dst_safety", "dst_blk",
+    "off_fum_td",
   ];
   D.KEYS = KEYS;
   const empty = () => { const o = {}; for (const k of KEYS) o[k] = 0; o.dst_pa = null; return o; };
@@ -58,6 +59,13 @@
     let p = 0;
     for (const k of KEYS) p += (st[k] || 0) * (sc[k] || 0);
     p += paPoints(st.dst_pa, sc);
+    // Yardage GAME BONUSES (live-league review): derived from the stat line,
+    // mutually-exclusive brackets exactly as ESPN applies them.
+    const bonus = (yd, lo, hi, kLo, kHi) =>
+      yd >= hi ? (sc[kHi] || 0) : yd >= lo ? (sc[kLo] || 0) : 0;
+    p += bonus(st.pass_yd || 0, 300, 400, "bonus_pass_300", "bonus_pass_400");
+    p += bonus(st.rush_yd || 0, 100, 200, "bonus_rush_100", "bonus_rush_200");
+    p += bonus(st.rec_yd || 0, 100, 200, "bonus_rec_100", "bonus_rec_200");
     return Math.round(p * 100) / 100;
   };
 
@@ -78,6 +86,7 @@
     n.dst_td = (st.def_td || 0) + (st.def_st_td || 0) + (st.st_td || 0);
     n.dst_safety = st.safe ?? st.safety ?? 0;
     n.dst_blk = st.blk_kick || 0;
+    n.off_fum_td = st.fum_rec_td || 0;
     if (st.pts_allow != null) n.dst_pa = st.pts_allow;
     return n;
   }
