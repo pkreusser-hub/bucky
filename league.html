@@ -229,13 +229,18 @@
   .imgoverlay[hidden] { display:none; } /* the house [hidden]-override lesson — an author rule always beats the UA [hidden]{display:none} */
   .imgoverlay img { max-width:100%; max-height:100%; border-radius:10px; }
 
-  /* ---------------- record book (S6) ---------------- */
-  .recordbook summary { cursor:pointer; font:600 12px var(--font-display); color:var(--mut); text-transform:uppercase;
+  /* ---------------- record book (S6) + league-home collapsible cards (item 4) ----------------
+     .collapsecard (🔁 Recent moves / 💬 League chat) is a DELIBERATELY SEPARATE class from
+     .recordbook, even though the disclosure styling is identical — several existing tests
+     select ".recordbook" specifically to reach the ACTUAL record book, and the two new cards
+     render ABOVE it in DOM order, so sharing the class made document.querySelector(".recordbook")
+     grab the wrong card. */
+  .recordbook summary, .collapsecard summary { cursor:pointer; font:600 12px var(--font-display); color:var(--mut); text-transform:uppercase;
                          letter-spacing:2px; list-style:none; }
-  .recordbook summary::-webkit-details-marker { display:none; }
-  .recordbook summary::before { content:"▸ "; color:var(--accent); }
-  .recordbook[open] summary::before { content:"▾ "; }
-  .recordbook[open] summary { margin-bottom:10px; }
+  .recordbook summary::-webkit-details-marker, .collapsecard summary::-webkit-details-marker { display:none; }
+  .recordbook summary::before, .collapsecard summary::before { content:"▸ "; color:var(--accent); }
+  .recordbook[open] summary::before, .collapsecard[open] summary::before { content:"▾ "; }
+  .recordbook[open] summary, .collapsecard[open] summary { margin-bottom:10px; }
   .h2hline { text-align:center; margin-top:6px; }
 
   /* ---------------- playoff bracket (S7) ---------------- */
@@ -259,6 +264,21 @@
     .bracketrounds { flex-direction:row; align-items:flex-start; }
     .bracketcol { flex:1 1 0; }
   }
+
+  /* ---------------- scores tab (item 5) ---------------- */
+  .scoreday { margin-bottom:10px; }
+  .scoreday h2 { margin-bottom:4px; }
+  .gmrow { display:flex; align-items:center; gap:8px; padding:8px 4px; border-bottom:1px dotted var(--divider2); font-size:13.5px; }
+  .gmrow:last-child { border-bottom:none; }
+  .gmrow.live { color:var(--ink); }
+  .gmteam { flex:1 1 0; display:flex; align-items:center; gap:6px; font-family:var(--font-display); }
+  .gmpts { font-weight:800; font-variant-numeric:tabular-nums; }
+  .gmstate { flex:0 0 auto; text-align:right; min-width:64px; font:600 11.5px var(--font-display); letter-spacing:.5px; text-transform:uppercase; }
+  .gmstate.live { color:var(--accent); }
+  .ffrow { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .ffside { display:flex; flex-direction:column; gap:1px; min-width:0; }
+  .ffside.mut { flex-direction:row; }
+  .ffpts { font:700 15px var(--font-display); font-variant-numeric:tabular-nums; }
 
   /* ---------------- lockers ---------------- */
   .lockerhead { border-radius:var(--radius-card); padding:16px; margin-bottom:12px; background:var(--accent); color:#fff; }
@@ -330,6 +350,7 @@
     <button data-v="team">My Team</button>
     <button data-v="moves">Moves</button>
     <button data-v="chat">Chat</button>
+    <button data-v="scores">Scores</button>
     <button data-v="rules">Rules</button>
   </nav>
   <main id="main"><div class="card mut">Loading the league…</div></main>

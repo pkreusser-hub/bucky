@@ -20,6 +20,32 @@
   const REACTS = ["🔥", "💀", "😂", "🐐"];
   const IMG_CAP = 80000; // ~80KB dataURL chars (design cap for chat images/logos)
 
+  // ---------------- auto-checks throttle (perf) ----------------
+  // maybeAutoProcessWaivers/maybeAutoExecuteTrades/maybeAdvanceLeague are each cheap ONCE a
+  // deadline/review-window has genuinely passed and idempotent otherwise, but chaining them
+  // from every d.onUpdate (every live poll, as often as 15s during a game) AND every renderMoves
+  // visit meant the league was re-running the whole check chain far more often than it could
+  // ever have new work to do. They now run at most once per AUTO_CHECK_MS, except at boot
+  // (force:true — always once, so "open the app past a deadline" still carries the league
+  // forward immediately) and any DIRECT call a caller makes to the underlying functions
+  // themselves (the test suite calls those directly in several places — this throttle only
+  // gates the three places that ran them automatically as a side effect of rendering).
+  const AUTO_CHECK_MS = 60000;
+  let lastAutoCheckAt = 0;
+  UI._autoCheckRuns = 0; // test hook — counts how many times the chain actually ran (past the throttle), not how many times it was CALLED
+  async function runAutoChecks(force) {
+    if (!LG.teams.length) return;
+    if (!force && LG.now() - lastAutoCheckAt < AUTO_CHECK_MS) return;
+    lastAutoCheckAt = LG.now();
+    UI._autoCheckRuns++;
+    await maybeAutoProcessWaivers().catch(() => {});
+    await maybeAutoExecuteTrades().catch(() => {});
+    // Build it once the regular season is fully final, advance it once a playoff week is —
+    // maybeAdvanceLeague also re-runs maybeAutoFinalizeWeeks, so this one call covers S5+S7.
+    await maybeAdvanceLeague().catch(() => {});
+  }
+  UI._runAutoChecks = runAutoChecks; // test hook
+
   // ---------------- boot ----------------
   UI.boot = async function () {
     if (!LG.unlocked()) { renderGate(); return; }
@@ -28,28 +54,16 @@
     schedule = await LG.loadSchedule();
     UI.week = LG.currentWeek() > (LG.rules.seasonWeeks + 3) ? LG.rules.seasonWeeks : LG.currentWeek();
     // Any client past a deadline can carry the league forward — no scheduled
-    // function in v1 (plan §6 deviation). Awaited: this only does real work
-    // once a deadline/review-window actually passed (a couple of cheap doc
-    // reads otherwise), and the alternative — racing UI.show() against a
-    // fire-and-forget process — is worse than a few extra ms on boot.
-    if (LG.teams.length) {
-      await maybeAutoProcessWaivers().catch(() => {});
-      await maybeAutoExecuteTrades().catch(() => {});
-      // Almost always a fast no-op here (the live engine hasn't polled anything yet at this
-      // point in boot, so the finalization guard can't confirm any game is final) — the REAL
-      // trigger is d.onUpdate below, once live data actually exists. Kept here too for the same
-      // "any client open past a deadline carries the league forward" symmetry as the two calls
-      // above, and because it costs nothing when it can't do anything. Same for the bracket
-      // (S7): build it once the regular season is fully final, advance it once a playoff week
-      // is — wrapped in maybeAdvanceLeague so boot and every live poll run the exact same chain.
-      await maybeAdvanceLeague().catch(() => {});
-    }
+    // function in v1 (plan §6 deviation). Forced (bypasses the throttle above) — this is the
+    // ONE guaranteed run per app open, so "open the app past a deadline" always carries the
+    // league forward on the spot rather than waiting up to a minute for the next poll tick.
+    await runAutoChecks(true).catch(() => {});
     if (!LG.myTeamId() && LG.teams.length) { renderClaim(); return; }
     startData();
     const h = location.hash;
     const lockerM = /^#locker=(\d+)$/.exec(h);
     if (lockerM) { UI.lockerTeamId = Number(lockerM[1]); UI.show("locker"); return; }
-    UI.show(h === "#team" ? "team" : h === "#rules" ? "rules" : h === "#matchup" ? "matchup" : h === "#moves" ? "moves" : h === "#chat" ? "chat" : h === "#bracket" ? "bracket" : "league");
+    UI.show(h === "#team" ? "team" : h === "#rules" ? "rules" : h === "#matchup" ? "matchup" : h === "#moves" ? "moves" : h === "#chat" ? "chat" : h === "#bracket" ? "bracket" : h === "#scores" ? "scores" : "league");
   };
 
   async function startData() {
@@ -67,17 +81,28 @@
     // engine's projections are actually warm rather than racing them.
     d.initSleeper().then(() => { LG.snapshotProjections(UI.week).catch(() => {}); });
     // The real trigger for auto-finalization (+ S7's bracket build/advance): once live data
-    // exists (after every poll — idempotent + cheap when there's nothing new to do, same
-    // posture as the waiver/trade auto-processing above), any past week missing a weekly doc
-    // gets carried forward, and the bracket follows right along.
-    d.onUpdate = () => { paintLive(); maybeAdvanceLeague().catch(() => {}); };
+    // exists. Throttled (see runAutoChecks above) — this fires on every poll tick, not just
+    // once a minute apart.
+    d.onUpdate = () => { paintLive(); runAutoChecks(false).catch(() => {}); };
+    // Quiet repaint after a background (cloud-only) list() refresh notices new data — reruns
+    // the current view's own full render, which now paints from the just-updated cache.
+    LG.db.onChange = () => { if (UI.view) UI.show(UI.view); };
     d.start();
   }
 
   UI.show = function (name) {
+    // "My Team" is now the owner's own locker (merged 2026-08-07) — kept as a distinct nav
+    // entry/hash for muscle memory, but there is no separate team view any more.
+    if (name === "team") {
+      const mine = LG.myTeamId();
+      if (mine != null) { UI.lockerTeamId = mine; location.hash = "#locker=" + mine; name = "locker"; }
+    }
     UI.view = name;
     stopChatPoll(); // leaving whatever view had one open — chat/matchup-thread restart their own
-    document.querySelectorAll(".bnav button").forEach((b) => b.classList.toggle("on", b.dataset.v === name));
+    stopScoresPoll(); // ditto for the Scores tab's fantasy-scoreboard poll
+    const myLocker = name === "locker" && UI.lockerTeamId === LG.myTeamId();
+    document.querySelectorAll(".bnav button").forEach((b) =>
+      b.classList.toggle("on", myLocker ? b.dataset.v === "team" : b.dataset.v === name));
     // Marks which screen main() holds so CSS alone can special-case a view's
     // layout (the desktop multi-column league-home treatment) without any
     // further JS — league.html's own stylesheet reads this attribute.
@@ -85,12 +110,12 @@
     paintHeader();
     if (name === "league") renderLeague();
     else if (name === "matchup") renderMatchup();
-    else if (name === "team") renderTeam();
     else if (name === "moves") renderMoves();
     else if (name === "rules") renderRules();
     else if (name === "chat") renderChat();
     else if (name === "locker") renderLocker();
     else if (name === "bracket") renderBracket();
+    else if (name === "scores") renderScores();
   };
   // Reachable from anywhere a team name is tapped (standings, matchup header,
   // "My locker" on the team page) — plan §4.7 says lockers need no nav entry
@@ -116,7 +141,13 @@
   function paintLive() {
     if (UI.view === "matchup") renderMatchup(true);
     else if (UI.view === "league") renderLeague(true);
-    else if (UI.view === "team") renderTeam(true);
+    // "team" is gone (merged into locker — item 3). Deliberately NOT live-repainted on every poll
+    // tick the way the old team page's points/proj were: renderLocker() has no lightweight
+    // "repaint" mode (it's always the full Promise.all, unlike renderTeam's old repaint=true fast
+    // path), and replacing main().innerHTML out from under an in-progress interaction (the swap
+    // sheet open, a logo upload mid-flight) is a real regression, not just a perf one. The
+    // lineup's points/proj simply refresh next time the locker is opened/re-opened.
+    else if (UI.view === "scores") paintScores(); // NFL half only — the fantasy half has its own poll (startScoresPoll)
     paintHealth();
   }
   function paintHealth() {
@@ -284,6 +315,34 @@
         </tbody></table></div>
     </details></div>`;
   }
+  // 🔁 Recent moves card — the last 8 transactions-log sentences on the league home, so the
+  // drama is visible without a dedicated trip to Moves. Reuses txSentence (defined further
+  // down, in the Moves section) — same wording as the full log.
+  function recentMovesHtml(tx) {
+    const recent = (tx || []).slice(0, 8);
+    return `<div class="card"><details class="collapsecard">
+      <summary>🔁 Recent moves</summary>
+      ${recent.length ? recent.map((t) => `<div class="fline sys"><span class="mut">${new Date(t.t).toLocaleDateString()}</span> ${esc(txSentence(t))}</div>`).join("")
+        : '<p class="mut">No moves yet.</p>'}
+      <button id="recentMovesAll" class="mut">View all →</button>
+    </details></div>`;
+  }
+  // 💬 League chat card — the last 6 main-channel messages (sys posts included, since those
+  // ARE the league's own timeline), collapsed the same way the record book is.
+  function recentChatHtml(chat) {
+    const recent = (chat || []).slice(-6);
+    const line = (m) => {
+      if (m.sys) return `<div class="fline sys">📣 ${esc(m.text || "")}</div>`;
+      const who = (LG.teamById(m.teamId) || {}).name || m.who || "?";
+      const body = m.text || (m.img ? "[photo]" : m.gif ? "[gif]" : "");
+      return `<div class="fline"><b>${esc(who)}:</b> ${esc(body.slice(0, 120))}</div>`;
+    };
+    return `<div class="card"><details class="collapsecard">
+      <summary>💬 League chat</summary>
+      ${recent.length ? recent.map(line).join("") : '<p class="mut">No messages yet — say hi!</p>'}
+      <button id="recentChatOpen" class="mut">Open chat →</button>
+    </details></div>`;
+  }
   // 🏆 Playoffs card (plan §4.10, S7): once the regular season has moved past week
   // seasonWeeks and there's no bracket yet, a prominent build prompt (commissioner-only
   // button, everyone else just sees it's coming); once a bracket exists, a quiet link
@@ -310,6 +369,8 @@
       UI._accuracy = await LG.seasonAccuracy();
       UI._recordBook = await LG.recordBook();
       UI._bracket = await LG.loadBracket();
+      UI._tx = await LG.loadTx();
+      UI._recentChat = await LG.loadChat(null);
       // The one source of "what's on this week" — the regular schedule for weeks <=
       // seasonWeeks, the bracket's currently-resolved pairings for a playoff week (S7).
       UI._wkGames = await LG.gamesForWeek(UI.week);
@@ -342,11 +403,15 @@
             <td class="num">${s.w}</td><td class="num">${s.l}</td>
             <td class="num">${s.pf.toFixed(1)}</td><td class="num">${s.pa.toFixed(1)}</td></tr>`;
         }).join("")}</tbody></table></div></div>
+      ${recentMovesHtml(UI._tx)}
+      ${recentChatHtml(UI._recentChat)}
       ${recordBookHtml(UI._recordBook)}`;
     document.querySelectorAll("[data-mu]").forEach((el) => el.addEventListener("click", () => {
       UI.matchup = el.dataset.mu.split("-").map(Number);
       UI.show("matchup");
     }));
+    $("#recentMovesAll") && $("#recentMovesAll").addEventListener("click", () => UI.show("moves"));
+    $("#recentChatOpen") && $("#recentChatOpen").addEventListener("click", () => UI.show("chat"));
     $("#finalizeBtn") && $("#finalizeBtn").addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
       let r = await LG.finalizeWeek(UI.week);
@@ -510,6 +575,96 @@
       UI.show("matchup");
     }));
     paintHealth();
+  }
+
+  // ---------------- 🏈 Scores tab (item 5, 2026-08-08) ----------------
+  // Real-NFL + family-ESPN-fantasy scoreboard, Gridiron-style — the same idea as the standalone
+  // Bucky sports app's score strip, folded into the league so nobody needs a second tab open.
+  // NFL half: D.S.nflEvents (lg-data.js's pollScoreboard, extended) — the SAME public no-key
+  // ESPN endpoint + poll loop the matchup engine already runs continuously, so viewing Scores
+  // costs no extra network call; it just paints whatever the engine currently has, and repaints
+  // again on the engine's own d.onUpdate (paintLive, above). Fantasy half: a genuinely separate
+  // call to the DEPLOYED sports function's ff_scoreboard action, which needs its own poll —
+  // 25s while this tab is open and any game live, else 2min; cleared on tab switch (UI.show).
+  async function sportsFn(action, extra) {
+    const r = await fetch("/.netlify/functions/sports", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ secret: LG.PASS, action, ...(extra || {}) }),
+    });
+    return r.json();
+  }
+  UI.sportsFn = sportsFn;
+  UI._ffSb = null; // last ff_scoreboard payload (or {ok:false,reason} — the card just hides)
+  UI._scoresPoll = null;
+
+  function kickTimeStr(iso) {
+    if (!iso) return "";
+    return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  }
+  function scoreRowHtml(e) {
+    const live = e.state === "in", done = e.state === "post";
+    const teamHtml = (t) => `<span class="gmteam"><b>${esc((t && t.abbrev) || "?")}</b>
+      ${live || done ? `<span class="gmpts">${esc((t && t.score) || "0")}</span>` : ""}</span>`;
+    const stateHtml = live ? `<span class="gmstate live">${esc(e.detail || ("Q" + e.period + " " + e.clock))}</span>`
+      : done ? '<span class="gmstate mut">Final</span>'
+      : `<span class="gmstate mut">${esc(kickTimeStr(e.date))}</span>`;
+    return `<div class="gmrow ${live ? "live" : ""}">${teamHtml(e.away)}<span class="mut small">@</span>${teamHtml(e.home)}${stateHtml}</div>`;
+  }
+  function nflScoresHtml(events) {
+    if (!events || !events.length) return '<p class="mut">No games this week.</p>';
+    const evs = [...events].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    const byDay = new Map();
+    for (const e of evs) {
+      const day = e.date ? new Date(e.date).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" }) : "TBD";
+      if (!byDay.has(day)) byDay.set(day, []);
+      byDay.get(day).push(e);
+    }
+    return [...byDay.entries()].map(([day, list]) =>
+      `<div class="scoreday"><h2 class="small mut">${esc(day)}</h2>${list.map(scoreRowHtml).join("")}</div>`).join("");
+  }
+  // Degrades to hiding the card entirely on any failure (unconfigured league, expired cookie,
+  // network hiccup) — the brief's spec, and matches how every other AI/fantasy card here degrades.
+  function ffScoresHtml(sb) {
+    if (!sb || !sb.ok || !Array.isArray(sb.matchups) || !sb.matchups.length) return "";
+    const side = (t) => t
+      ? `<span class="ffside"><b>${esc(t.name)}</b> <span class="mut small">${esc(t.record || "")}</span>
+          <span class="ffpts">${t.points != null ? LG.fmtPts(t.points) : "—"}</span></span>`
+      : '<span class="ffside mut">—</span>';
+    const rows = sb.matchups.map((m) => `<div class="fline ffrow">${side(m.away)}<span class="mut small">vs</span>${side(m.home)}</div>`).join("");
+    return `<div class="card"><h2>ESPN league (live)</h2>${rows}</div>`;
+  }
+  UI.renderScores = renderScores;
+  async function renderScores() {
+    main().innerHTML = `<div class="card mut">Loading scores…</div>`;
+    await loadFfScoreboard();
+    paintScores();
+    startScoresPoll();
+  }
+  async function loadFfScoreboard() {
+    const T = LG.teamById(LG.myTeamId());
+    try { UI._ffSb = await sportsFn("ff_scoreboard", T ? { teamName: T.name } : {}); } catch (e) { UI._ffSb = { ok: false, reason: "fetch-failed" }; }
+  }
+  function paintScores() {
+    const d = D();
+    main().innerHTML = `
+      <div class="card"><div class="rowline"><h2>🏈 NFL this week</h2><span id="healthChip" class="health" hidden></span></div>
+        ${nflScoresHtml(d.S && d.S.nflEvents)}
+      </div>
+      ${ffScoresHtml(UI._ffSb)}`;
+    paintHealth();
+  }
+  UI.paintScores = paintScores; // called from paintLive() when this tab is open — NFL half only
+  function startScoresPoll() {
+    stopScoresPoll();
+    const tick = async () => {
+      await loadFfScoreboard();
+      if (UI.view === "scores") paintScores();
+      UI._scoresPoll = setTimeout(tick, D().anyLive() ? 25000 : 120000);
+    };
+    UI._scoresPoll = setTimeout(tick, D().anyLive() ? 25000 : 120000);
+  }
+  function stopScoresPoll() {
+    if (UI._scoresPoll) { clearTimeout(UI._scoresPoll); UI._scoresPoll = null; }
   }
 
   // ---------------- matchup (the heart) ----------------
@@ -733,114 +888,6 @@
     if (!g) return false;
     if (g.state === "in" || g.state === "post") return true;
     return g.kickoff ? LG.now() >= new Date(g.kickoff).getTime() : false;
-  }
-  UI.renderTeam = renderTeam;
-  async function renderTeam(repaint) {
-    const tid = LG.myTeamId();
-    const T = LG.teamById(tid);
-    if (!T) { main().innerHTML = `<div class="card"><p class="mut">No team claimed.</p></div>`; return; }
-    if (!repaint) await loadWeekRosters();
-    const ros = (UI._rosters && UI._rosters[tid]) || [];
-    const d = D();
-    const slots = starterSlotList();
-    const taken = new Set();
-    const starters = slots.map((s) => {
-      for (const p of ros) if (p.slot === s && !taken.has(p)) { taken.add(p); return { slot: s, p }; }
-      return { slot: s, p: null };
-    });
-    const bench = ros.filter((p) => p.slot === "BENCH");
-    const ir = ros.filter((p) => p.slot === "IR");
-    const irMax = (LG.rules.roster && LG.rules.roster.IR) || 0;
-    const rowHtml = (slot, p, idx) => `
-      <button class="lrow ${p && playerLocked(p) ? "locked" : ""}" data-slot="${slot}" data-idx="${idx}">
-        <span class="slotchip">${slot}</span>
-        ${p ? `<span class="lname"><b>${esc(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)}${p ? injChip(p) : ""}</small></span>
-               <span class="lpts">${LG.fmtPts((d.S.players.get(p.key) || {}).pts ?? 0)}<small class="mut"> · proj ${LG.fmtPts(d.projFor(p.key))}</small></span>
-               ${playerLocked(p) ? '<span class="lock">🔒</span>' : ""}`
-            : '<span class="mut">empty</span>'}
-      </button>`;
-    main().innerHTML = `
-      <div class="card teamhead rowline"><span><h2>${logoTd(T)}${esc(T.name)}</h2>
-        <p class="mut">Week ${UI.week} lineup — tap a slot to swap. 🔒 = game started.</p></span>
-        <button id="myLockerBtn" data-locker="${tid}">🏠 My locker</button></div>
-      <div class="card">${starters.map((s, i) => rowHtml(s.slot, s.p, i)).join("")}</div>
-      <div class="card"><h2>Bench</h2>${bench.length ? bench.map((p, i) => rowHtml("BENCH", p, i)).join("") : '<p class="mut">Empty bench.</p>'}</div>
-      <div class="card"><h2>IR <span class="mut">(${ir.length}/${irMax})</span></h2>
-        ${ir.length ? ir.map((p, i) => rowHtml("IR", p, i)).join("") : '<p class="mut">Nobody stashed.</p>'}</div>
-      <div id="swapSheet" class="sheet" hidden></div>`;
-    document.querySelectorAll(".lrow").forEach((b) => b.addEventListener("click", () => openSwap(b.dataset.slot, Number(b.dataset.idx))));
-    wireLockerTaps();
-    paintHealth();
-
-    function injChip(p) {
-      const row = d.S.players.get(p.key);
-      const inj = (row && row.injury) || p.injury || "";
-      return inj ? ` <span class="inj">${esc(inj)}</span>` : "";
-    }
-    function openSwap(slot, idx) {
-      const sheet = $("#swapSheet");
-      // Who currently occupies the tapped row? (data-idx indexes each list.)
-      let cur = null;
-      if (slot === "BENCH") cur = bench[idx];
-      else if (slot === "IR") cur = ir[idx];
-      else cur = (starters[idx] || {}).p || null;
-      if (cur && playerLocked(cur)) { toast("🔒 " + cur.name + "'s game already started."); return; }
-      let cands;
-      if (slot === "IR") cands = ros.filter((p) => p.slot !== "IR" && LG.irEligible((d.S.players.get(p.key) || {}).injury || p.injury) && !playerLocked(p));
-      else if (slot === "BENCH") cands = []; // bench taps: move the player somewhere else via their target slot instead
-      else cands = ros.filter((p) => p !== cur && (p.slot === "BENCH" || p.slot === "IR") && LG.slotEligible(p.pos, slot) && !playerLocked(p) && (p.slot !== "IR" || true));
-      if (slot === "BENCH" && cur) {
-        // Tapping a bench player offers the starter slots he can fill + IR.
-        const opts = starterSlotList().filter((s) => LG.slotEligible(cur.pos, s));
-        const irOk = ir.length < irMax && LG.irEligible((d.S.players.get(cur.key) || {}).injury || cur.injury);
-        sheet.innerHTML = `<div class="card"><h2>Move ${esc(cur.name)}</h2>
-          ${[...new Set(opts)].map((s) => `<button class="swaprow" data-to="${s}">→ ${s}</button>`).join("")}
-          ${irOk ? `<button class="swaprow" data-to="IR">→ IR</button>` : ""}
-          <button class="swaprow mut" data-to="">Cancel</button></div>`;
-        sheet.hidden = false;
-        sheet.querySelectorAll(".swaprow").forEach((b) => b.addEventListener("click", () => {
-          sheet.hidden = true;
-          if (b.dataset.to) doMove(cur, b.dataset.to);
-        }));
-        return;
-      }
-      sheet.innerHTML = `<div class="card"><h2>${slot}: ${cur ? "swap out " + esc(cur.name) : "fill the slot"}</h2>
-        ${cands.length ? cands.map((p, i) => `<button class="swaprow" data-ci="${i}">
-            <b>${esc(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)} · ${p.slot}${injChip(p)}</small>
-            <span class="lpts">proj ${LG.fmtPts(d.projFor(p.key))}</span></button>`).join("")
-          : '<p class="mut">Nobody eligible and unlocked.</p>'}
-        <button class="swaprow mut" data-ci="">Cancel</button></div>`;
-      sheet.hidden = false;
-      sheet.querySelectorAll(".swaprow").forEach((b) => b.addEventListener("click", async () => {
-        sheet.hidden = true;
-        if (b.dataset.ci === "") return;
-        const incoming = cands[Number(b.dataset.ci)];
-        await swap(cur, incoming, slot);
-      }));
-    }
-    async function doMove(p, toSlot) {
-      if (toSlot === "IR" && ir.length >= irMax) { toast("IR is full (" + irMax + ")."); return; }
-      if (toSlot !== "IR" && toSlot !== "BENCH") {
-        // moving into a starter slot: bump the current occupant to bench
-        const occ = starters.filter((s) => s.slot === toSlot).map((s) => s.p).filter(Boolean);
-        const room = (LG.rules.roster[toSlot] || 0) - occ.length;
-        if (room <= 0) {
-          const bumped = occ[occ.length - 1];
-          if (playerLocked(bumped)) { toast("🔒 " + bumped.name + " is locked in."); return; }
-          bumped.slot = "BENCH";
-        }
-      }
-      p.slot = toSlot;
-      await LG.saveRoster(UI.week, tid, ros);
-      renderTeam();
-    }
-    async function swap(outP, inP, slot) {
-      if (inP.slot === "IR" && outP == null) { /* leaving IR into a starter slot directly */ }
-      inP.slot = slot;
-      if (outP) outP.slot = "BENCH";
-      await LG.saveRoster(UI.week, tid, ros);
-      renderTeam();
-    }
   }
   function toast(msg) {
     const t = $("#toast");
@@ -1244,9 +1291,7 @@
     const tid = LG.myTeamId();
     const T = LG.teamById(tid);
     await loadWeekRosters();
-    await maybeAutoProcessWaivers();
-    await maybeAutoExecuteTrades();
-    await maybeAutoFinalizeWeeks();
+    await runAutoChecks(false).catch(() => {}); // throttled — see runAutoChecks' own note
     UI._trades = await LG.loadTrades();
     UI._claims = await LG.loadClaims(UI.week);
     UI._tx = await LG.loadTx();
@@ -1456,8 +1501,18 @@
           <button id="rulesImport" ${isCommish() ? "" : "hidden"}>⬇ Import from ESPN</button>
           <button id="schedGen" ${isCommish() ? "" : "hidden"}>📅 ${schedule ? "Regenerate" : "Generate"} schedule</button>
           <button id="rostersImport" ${isCommish() ? "" : "hidden"}>👥 Import ESPN rosters</button>
+          <button id="testRostersImport" ${isCommish() ? "" : "hidden"}>🧪 Import 2025 rosters (test run)</button>
           <button id="historyImport" ${isCommish() ? "" : "hidden"}>📜 Import history</button>
         </span></div>
+      ${isCommish() ? `<div class="card mut small">
+        <b>⬇ Import from ESPN</b> — rules, scoring, and the 8 teams, from the real live league.<br>
+        <b>👥 Import ESPN rosters</b> — this week's rosters, from the real live (${r.season}) league.<br>
+        <b>🧪 Import 2025 rosters (test run)</b> — the ${r.season} league is pre-draft (every roster
+        empty) until the season starts; this seeds this week's rosters from the real, FINAL 2025
+        season instead, so lineups/waivers/trades/scoring can be exercised against real players.
+        Re-import real rosters once the ${r.season} draft has happened.<br>
+        <b>📜 Import history</b> — past seasons' standings/champions/scores, for the record book.
+      </div>` : ""}
       <div class="card mut small">${esc(r.name)} · season ${r.season} · ${r.seasonWeeks}-week regular season ·
         FAAB $${r.waivers.budget} · ${r.playoffs.teams}-team playoffs (top ${r.playoffs.byes} get byes, 4v5 play-in) ·
         keepers: max ${r.keepers.max}, cost = last round −${r.keepers.costRoundsEarlier} (floor R${r.keepers.costFloor}),
@@ -1492,6 +1547,10 @@
     $("#rostersImport") && $("#rostersImport").addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
       await importRosters();
+    });
+    $("#testRostersImport") && $("#testRostersImport").addEventListener("click", async () => {
+      if (!(await LG.gateCommish())) return;
+      await importTestRosters();
     });
     $("#historyImport") && $("#historyImport").addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
@@ -1657,12 +1716,23 @@
       });
     }
   }
+  // My Team = Locker (merged 2026-08-07): the owner's OWN locker embeds the editable lineup
+  // (tap-to-swap starters/bench/IR, kickoff locks — exactly what the old separate "team" page
+  // did) as its roster section; every other team's locker keeps the plain read-only roster
+  // table it always had. There is no more standalone renderTeam.
+  function injChip(d, p) {
+    const row = d.S.players.get(p.key);
+    const inj = (row && row.injury) || p.injury || "";
+    return inj ? ` <span class="inj">${esc(inj)}</span>` : "";
+  }
   UI.renderLocker = renderLocker;
   async function renderLocker() {
     const teamId = UI.lockerTeamId;
     const T = LG.teamById(teamId);
     if (!T) { main().innerHTML = `<div class="card"><p class="mut">Team not found.</p></div>`; return; }
     main().innerHTML = `<div class="card mut">Loading locker…</div>`;
+    const d = D();
+    const isOwner = LG.myTeamId() === teamId;
     const [standings, tx, wall, scheduleRows, roster, rivalries, recordBook] = await Promise.all([
       LG.loadStandings(), LG.loadTx(), lockerWallMessages(T), lockerScheduleRows(teamId), LG.ensureRoster(UI.week, teamId),
       lockerRivalries(teamId), LG.recordBook(),
@@ -1678,10 +1748,45 @@
     const st = standings[teamId] || { w: 0, l: 0, t: 0, pf: 0, pa: 0 };
     const rows = [...LG.teams].sort((a, b) => { const A = standings[a.id] || { w: 0, pf: 0 }, B = standings[b.id] || { w: 0, pf: 0 }; return (B.w - A.w) || (B.pf - A.pf); });
     const place = rows.findIndex((t) => t.id === teamId) + 1;
-    const isOwner = LG.myTeamId() === teamId;
     const teamTx = tx.filter((t) => t.teamId === teamId || (t.type === "trade" && (t.detail.from === teamId || t.detail.to === teamId)));
     const primary = T.colors && T.colors.primary;
     const logoSrc = T.logoData || T.logo || "";
+
+    // Owner-only editable lineup — the exact tap-to-swap mechanic the old "team" page had,
+    // operating on the SAME `roster` array (mutated in place by doMove/swap below, then
+    // persisted with LG.saveRoster).
+    let rosterHtml;
+    if (isOwner) {
+      const slots = starterSlotList();
+      const taken = new Set();
+      const starters = slots.map((s) => {
+        for (const p of roster) if (p.slot === s && !taken.has(p)) { taken.add(p); return { slot: s, p }; }
+        return { slot: s, p: null };
+      });
+      const bench = roster.filter((p) => p.slot === "BENCH");
+      const ir = roster.filter((p) => p.slot === "IR");
+      const irMax = (LG.rules.roster && LG.rules.roster.IR) || 0;
+      const rowHtml = (slot, p, idx) => `
+        <button class="lrow ${p && playerLocked(p) ? "locked" : ""}" data-slot="${slot}" data-idx="${idx}">
+          <span class="slotchip">${slot}</span>
+          ${p ? `<span class="lname"><b>${esc(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)}${injChip(d, p)}</small></span>
+                 <span class="lpts">${LG.fmtPts((d.S.players.get(p.key) || {}).pts ?? 0)}<small class="mut"> · proj ${LG.fmtPts(d.projFor(p.key))}</small></span>
+                 ${playerLocked(p) ? '<span class="lock">🔒</span>' : ""}`
+              : '<span class="mut">empty</span>'}
+        </button>`;
+      rosterHtml = `
+        <div class="card"><h2>Lineup — week ${UI.week}</h2><p class="mut small">Tap a slot to swap. 🔒 = game started.</p>
+          <div id="lockerStarters">${starters.map((s, i) => rowHtml(s.slot, s.p, i)).join("")}</div></div>
+        <div class="card"><h2>Bench</h2><div id="lockerBench">${bench.length ? bench.map((p, i) => rowHtml("BENCH", p, i)).join("") : '<p class="mut">Empty bench.</p>'}</div></div>
+        <div class="card"><h2>IR <span class="mut">(${ir.length}/${irMax})</span></h2>
+          <div id="lockerIR">${ir.length ? ir.map((p, i) => rowHtml("IR", p, i)).join("") : '<p class="mut">Nobody stashed.</p>'}</div></div>
+        <div id="swapSheet" class="sheet" hidden></div>`;
+    } else {
+      rosterHtml = `<div class="card"><h2>Roster — week ${UI.week}</h2>${roster.length ? `<div class="panner"><table class="tbl"><tbody>
+        ${roster.map((p) => `<tr><td>${esc(p.slot)}</td><td>${esc(p.name)}</td><td class="mut">${esc(p.pos)} · ${esc(p.team)}</td></tr>`).join("")}
+      </tbody></table></div>` : '<p class="mut">No roster yet.</p>'}</div>`;
+    }
+
     main().innerHTML = `
       <div class="lockerhead" style="${primary ? `background:${esc(primary)};` : ""}">
         <div class="lockerhead-inner">
@@ -1698,9 +1803,7 @@
           <button id="lockerEditLogo">🖼 Logo</button>
           <input type="file" accept="image/*" id="lockerLogoInput" hidden></div>` : ""}
       </div>
-      <div class="card"><h2>Roster — week ${UI.week}</h2>${roster.length ? `<div class="panner"><table class="tbl"><tbody>
-        ${roster.map((p) => `<tr><td>${esc(p.slot)}</td><td>${esc(p.name)}</td><td class="mut">${esc(p.pos)} · ${esc(p.team)}</td></tr>`).join("")}
-      </tbody></table></div>` : '<p class="mut">No roster yet.</p>'}</div>
+      ${rosterHtml}
       <div class="card"><h2>Schedule</h2><div class="panner"><table class="tbl">
         <thead><tr><th>Wk</th><th>Opp</th><th class="num">Result</th></tr></thead>
         <tbody>${scheduleRows}</tbody></table></div></div>
@@ -1714,8 +1817,87 @@
       <div class="card"><h2>The wall</h2>${wall.length ? wall.map((m) => chatMsgHtml(m, new Map(), LG.myTeamId())).join("") : "<p class=\"mut\">Nobody's mentioned them yet.</p>"}</div>`;
     document.querySelectorAll(".chatImg").forEach((img) => img.addEventListener("click", () => openImageOverlay(img.dataset.full)));
     wireLockerTaps();
-    if (isOwner) wireLockerEdit(T);
+    if (isOwner) { wireLockerEdit(T); wireLockerLineup(teamId, roster); }
     paintHealth();
+  }
+  // The tap-to-swap sheet, operating on THIS locker's `roster` array — same mechanic the old
+  // "team" page had, just scoped as its own wiring function so renderLocker's owner branch
+  // stays readable.
+  function wireLockerLineup(tid, ros) {
+    const d = D();
+    document.querySelectorAll(".lrow").forEach((b) => b.addEventListener("click", () => openSwap(b.dataset.slot, Number(b.dataset.idx))));
+    const slots = starterSlotList();
+    const taken = new Set();
+    const starters = slots.map((s) => {
+      for (const p of ros) if (p.slot === s && !taken.has(p)) { taken.add(p); return { slot: s, p }; }
+      return { slot: s, p: null };
+    });
+    const bench = ros.filter((p) => p.slot === "BENCH");
+    const ir = ros.filter((p) => p.slot === "IR");
+    const irMax = (LG.rules.roster && LG.rules.roster.IR) || 0;
+    function openSwap(slot, idx) {
+      const sheet = $("#swapSheet");
+      let cur = null;
+      if (slot === "BENCH") cur = bench[idx];
+      else if (slot === "IR") cur = ir[idx];
+      else cur = (starters[idx] || {}).p || null;
+      if (cur && playerLocked(cur)) { toast("🔒 " + cur.name + "'s game already started."); return; }
+      let cands;
+      if (slot === "IR") cands = ros.filter((p) => p.slot !== "IR" && LG.irEligible((d.S.players.get(p.key) || {}).injury || p.injury) && !playerLocked(p));
+      else if (slot === "BENCH") cands = []; // bench taps: move the player somewhere else via their target slot instead
+      else cands = ros.filter((p) => p !== cur && (p.slot === "BENCH" || p.slot === "IR") && LG.slotEligible(p.pos, slot) && !playerLocked(p) && (p.slot !== "IR" || true));
+      if (slot === "BENCH" && cur) {
+        const opts = starterSlotList().filter((s) => LG.slotEligible(cur.pos, s));
+        const irOk = ir.length < irMax && LG.irEligible((d.S.players.get(cur.key) || {}).injury || cur.injury);
+        sheet.innerHTML = `<div class="card"><h2>Move ${esc(cur.name)}</h2>
+          ${[...new Set(opts)].map((s) => `<button class="swaprow" data-to="${s}">→ ${s}</button>`).join("")}
+          ${irOk ? `<button class="swaprow" data-to="IR">→ IR</button>` : ""}
+          <button class="swaprow mut" data-to="">Cancel</button></div>`;
+        sheet.hidden = false;
+        sheet.querySelectorAll(".swaprow").forEach((b) => b.addEventListener("click", () => {
+          sheet.hidden = true;
+          if (b.dataset.to) doMove(cur, b.dataset.to);
+        }));
+        return;
+      }
+      sheet.innerHTML = `<div class="card"><h2>${slot}: ${cur ? "swap out " + esc(cur.name) : "fill the slot"}</h2>
+        ${cands.length ? cands.map((p, i) => `<button class="swaprow" data-ci="${i}">
+            <b>${esc(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)} · ${p.slot}${injChip(d, p)}</small>
+            <span class="lpts">proj ${LG.fmtPts(d.projFor(p.key))}</span></button>`).join("")
+          : '<p class="mut">Nobody eligible and unlocked.</p>'}
+        <button class="swaprow mut" data-ci="">Cancel</button></div>`;
+      sheet.hidden = false;
+      sheet.querySelectorAll(".swaprow").forEach((b) => b.addEventListener("click", async () => {
+        sheet.hidden = true;
+        if (b.dataset.ci === "") return;
+        const incoming = cands[Number(b.dataset.ci)];
+        await swap(cur, incoming, slot);
+      }));
+    }
+    async function doMove(p, toSlot) {
+      if (toSlot === "IR" && ir.length >= irMax) { toast("IR is full (" + irMax + ")."); return; }
+      if (toSlot !== "IR" && toSlot !== "BENCH") {
+        const occ = starters.filter((s) => s.slot === toSlot).map((s) => s.p).filter(Boolean);
+        const room = (LG.rules.roster[toSlot] || 0) - occ.length;
+        if (room <= 0) {
+          const bumped = occ[occ.length - 1];
+          if (playerLocked(bumped)) { toast("🔒 " + bumped.name + " is locked in."); return; }
+          bumped.slot = "BENCH";
+        }
+      }
+      p.slot = toSlot;
+      await LG.saveRoster(UI.week, tid, ros);
+      await loadWeekRosters(); // keep the league-wide roster cache (trade builder, matchup, etc.) in sync
+      renderLocker();
+    }
+    async function swap(outP, inP, slot) {
+      if (inP.slot === "IR" && outP == null) { /* leaving IR into a starter slot directly */ }
+      inP.slot = slot;
+      if (outP) outP.slot = "BENCH";
+      await LG.saveRoster(UI.week, tid, ros);
+      await loadWeekRosters();
+      renderLocker();
+    }
   }
 
   async function lgFn(action, extra) {
@@ -1763,12 +1945,9 @@
       renderRules();
     });
   }
-  async function importRosters() {
-    const out = $("#importOut");
-    out.innerHTML = '<div class="card mut">Importing current ESPN rosters…</div>';
-    let j;
-    try { j = await lgFn("lg_espn_rosters"); } catch (e) { j = { ok: false, reason: String(e) }; }
-    if (!j.ok) { out.innerHTML = `<div class="card bad">Import failed: ${esc(j.reason || "?")}</div>`; return; }
+  // Shared by importRosters() and importTestRosters() below — same shape from
+  // lg_espn_rosters and lg_espn_rosters_season, same slotting rule.
+  async function applyImportedRosters(j) {
     const slots = starterSlotList();
     for (const t of (j.teams || [])) {
       const taken = {};
@@ -1785,7 +1964,32 @@
       await LG.saveRoster(UI.week, t.id, players);
     }
     UI._rosters = null;
-    out.innerHTML = `<div class="card ok">Rosters imported for ${(j.teams || []).length} teams (week ${UI.week}).</div>`;
+    return (j.teams || []).length;
+  }
+  async function importRosters() {
+    const out = $("#importOut");
+    out.innerHTML = '<div class="card mut">Importing current ESPN rosters…</div>';
+    let j;
+    try { j = await lgFn("lg_espn_rosters"); } catch (e) { j = { ok: false, reason: String(e) }; }
+    if (!j.ok) { out.innerHTML = `<div class="card bad">Import failed: ${esc(j.reason || "?")}</div>`; return; }
+    const n = await applyImportedRosters(j);
+    out.innerHTML = `<div class="card ok">Rosters imported for ${n} teams (week ${UI.week}).</div>`;
+  }
+  // 🧪 Test-run rosters (2026-08-08): the real ${LG.rules.season} ESPN league is pre-draft
+  // (every roster empty) until the season starts, so there's nothing real to exercise lineups/
+  // waivers/trades/scoring against yet. This seeds this week's GFFL rosters from the real,
+  // FINAL 2025 season instead — same slotting logic, same wire shape, a completely separate
+  // server action (lg_espn_rosters_season) so the LIVE-season importer above stays untouched.
+  async function importTestRosters() {
+    const out = $("#importOut");
+    out.innerHTML = '<div class="card mut">Importing 2025 rosters for a test run…</div>';
+    let j;
+    try { j = await lgFn("lg_espn_rosters_season", { season: 2025 }); } catch (e) { j = { ok: false, reason: String(e) }; }
+    if (!j.ok) { out.innerHTML = `<div class="card bad">Test import failed: ${esc(j.reason || "?")}</div>`; return; }
+    const n = await applyImportedRosters(j);
+    out.innerHTML = `<div class="card ok">🧪 Test rosters imported from the real 2025 season for ${n} teams
+      (week ${UI.week}). These are for testing — re-import real ${LG.rules.season} rosters once the
+      season starts.</div>`;
   }
   // One-time (plus each January — plan §4.8) ESPN history import: walk
   // seasons backward from last year, one action call each, writing

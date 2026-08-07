@@ -168,28 +168,71 @@ async function lgEspnSettings(body) {
   }
 }
 
+// Shared by lg_espn_rosters and lg_espn_rosters_season below — same mRoster team/entry shape
+// either way, just a different season's data feeding it.
+function mapRosterTeams(j) {
+  return (Array.isArray(j?.teams) ? j.teams : []).map((t) => ({
+    id: t?.id ?? 0,
+    name: ffTeamName(t),
+    players: (t?.roster?.entries || []).map((e) => {
+      const p = e?.playerPoolEntry?.player || e?.player || {};
+      return {
+        espnId: p?.id ?? null,
+        name: p?.fullName || "",
+        pos: POS_LABEL[p?.defaultPositionId] || "",
+        proTeam: PRO_ABBREV[p?.proTeamId] || "",
+        injury: p?.injuryStatus || "",
+        lineupSlot: SLOT_LABEL[e?.lineupSlotId] || String(e?.lineupSlotId ?? ""),
+      };
+    }),
+  }));
+}
+
 // Current ESPN rosters per team — the bridge that seeds GFFL rosters while
 // ESPN is still where the league's players formally live.
 async function lgEspnRosters(body) {
   const { data: j, err, year } = await ffFetch(["mRoster", "mTeam"], body);
   if (err) return { ok: false, reason: err };
   try {
-    const teams = (Array.isArray(j?.teams) ? j.teams : []).map((t) => ({
-      id: t?.id ?? 0,
-      name: ffTeamName(t),
-      players: (t?.roster?.entries || []).map((e) => {
-        const p = e?.playerPoolEntry?.player || e?.player || {};
-        return {
-          espnId: p?.id ?? null,
-          name: p?.fullName || "",
-          pos: POS_LABEL[p?.defaultPositionId] || "",
-          proTeam: PRO_ABBREV[p?.proTeamId] || "",
-          injury: p?.injuryStatus || "",
-          lineupSlot: SLOT_LABEL[e?.lineupSlotId] || String(e?.lineupSlotId ?? ""),
-        };
-      }),
-    }));
-    return { ok: true, season: year, teams };
+    return { ok: true, season: year, teams: mapRosterTeams(j) };
+  } catch {
+    return { ok: false, reason: "bad-shape" };
+  }
+}
+
+// Past-season rosters (2026-08-08) — a commissioner "🧪 test run" button on Rules seeds this
+// week's GFFL rosters from a FINISHED past season's real, complete rosters, for exercising the
+// app while the live ESPN league is still pre-draft (every roster empty). A SEPARATE action
+// from lg_espn_rosters on purpose (never touches the live-season path): past-season mRoster
+// reads sometimes need the scoringPeriodId=0 retry (the kicker-audit/history-import finding —
+// ffFetch's plain form is built for the CURRENT season and doesn't carry that param), so this
+// tries the plain URL first and only falls back to the scoringPeriodId=0 form if the plain one
+// comes back with no real roster entries. Unlike lgEspnHistory this never returns a "no-season"
+// soft-stop — a single explicit season is asked for, so any failure is reported plainly.
+async function lgEspnRostersSeason(body) {
+  const cookies = ffCookies();
+  if (!cookies) return { ok: false, reason: "fantasy-not-configured" };
+  const season = Number(body?.season) >= 2000 && Number(body?.season) <= 2100 ? Number(body.season) : 2025;
+  const vq = ["mRoster", "mTeam"].map((v) => "view=" + v).join("&");
+  const urls = [
+    `${FF_BASE}/apis/v3/games/ffl/seasons/${season}/segments/0/leagues/${FF_LEAGUE_ID}?${vq}`,
+    `${FF_BASE}/apis/v3/games/ffl/seasons/${season}/segments/0/leagues/${FF_LEAGUE_ID}?scoringPeriodId=0&${vq}`,
+  ];
+  let j = null, lastErr = null;
+  for (const url of urls) {
+    try {
+      const r = await fetch(url, { headers: { "User-Agent": UA, accept: "application/json", Cookie: cookies } });
+      if (r.status === 401 || r.status === 403) return { ok: false, reason: "fantasy-auth-expired" };
+      if (!r.ok) { lastErr = "http-" + r.status; continue; }
+      const data = await r.json();
+      const hasRosters = Array.isArray(data?.teams) && data.teams.some((t) => (t?.roster?.entries || []).length > 0);
+      if (hasRosters) { j = data; break; }
+      lastErr = "no-rosters"; // a valid response, but nobody's roster has entries — try the other URL form
+    } catch (e) { lastErr = "fetch-failed"; }
+  }
+  if (!j) return { ok: false, reason: lastErr || "no-rosters" };
+  try {
+    return { ok: true, season, teams: mapRosterTeams(j) };
   } catch {
     return { ok: false, reason: "bad-shape" };
   }
@@ -346,6 +389,7 @@ export default async (req) => {
   const action = String(body?.action || "");
   if (action === "lg_espn_settings") return json(await lgEspnSettings(body));
   if (action === "lg_espn_rosters") return json(await lgEspnRosters(body));
+  if (action === "lg_espn_rosters_season") return json(await lgEspnRostersSeason(body));
   if (action === "lg_espn_kicker_audit") return json(await lgEspnKickerAudit(body));
   if (action === "lg_espn_history") return json(await lgEspnHistory(body));
   if (action === "lg_gif_search") return json(await lgGifSearch(body));

@@ -242,6 +242,7 @@
     players: new Map(),        // key -> {key,name,pos,team,espn:{stats,raw,last},slp:{stats,last,official},merged,pts,src,conflict}
     events: [],                // newest first, {t,src,key,name,stat,from,to,dPts}
     games: new Map(),          // slpTeam -> {eventId, state, period, clock, detail, kickoff, rz, oppAb}
+    nflEvents: [],             // the FULL weekly slate, one row per game — feeds the Scores tab
     espnSeeded: false, slpSeeded: false,
     espnKeyByName: new Map(), slpRowKeyByName: new Map(),
     slpPlayers: null, slpByEspn: null, slpByName: null, slpProj: null,
@@ -417,12 +418,25 @@
   // ---------------- pollers ----------------
   async function pollScoreboard() {
     const j = await fx("espn scoreboard", `${ESPN}/scoreboard`);
+    // The FULL slate this week, one entry per GAME (not per team) — the Scores tab's NFL half
+    // (league.html) reads this directly; a light parallel read of the same public no-key
+    // endpoint the per-team loop below already polls, so no new network cost.
+    const events = [];
     for (const ev of (j?.events || [])) {
       const c = ev.competitions && ev.competitions[0]; if (!c) continue;
       const st = (c.status && c.status.type) || {};
-      for (const comp of (c.competitors || [])) {
+      const comps = c.competitors || [];
+      const side = (comp) => comp ? { abbrev: comp.team?.abbreviation || "", name: comp.team?.shortDisplayName || comp.team?.abbreviation || "", score: comp.score != null ? String(comp.score) : "" } : null;
+      events.push({
+        id: String(ev.id || ""), date: ev.date || "",
+        state: st.state || "pre", detail: st.shortDetail || "",
+        period: c.status?.period || 0, clock: c.status?.displayClock || "",
+        away: side(comps.find((x) => x.homeAway === "away")),
+        home: side(comps.find((x) => x.homeAway === "home")),
+      });
+      for (const comp of comps) {
         const ab = comp?.team?.abbreviation; if (!ab) continue;
-        const opp = (c.competitors || []).find((x) => x !== comp);
+        const opp = comps.find((x) => x !== comp);
         D.S.games.set(slpTeam(ab), {
           eventId: String(ev.id), state: st.state || "pre",
           detail: st.shortDetail || "", period: c.status?.period || 0,
@@ -432,6 +446,7 @@
         });
       }
     }
+    D.S.nflEvents = events;
   }
   D.pollScoreboard = pollScoreboard;
 
