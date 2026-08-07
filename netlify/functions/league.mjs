@@ -83,6 +83,8 @@ const STAT_MAP = {
   56: "bonus_rec_100", 57: "bonus_rec_200",
   79: "fg_miss", 82: "fg_miss", // distance misses (0-39 / 40-49) share one key; 85 (50+ miss) already mapped above
   63: "off_fum_td",
+  // Kicker audit (diag 2026-08-07, Badgley's season reconciled to the penny):
+  214: "fg_made_yd", 206: "dst_2pt_ret", 209: "one_pt_safety",
 };
 const SLOT_LABEL = {
   0: "QB", 2: "RB", 3: "RB/WR", 4: "WR", 5: "WR/TE", 6: "TE", 7: "OP",
