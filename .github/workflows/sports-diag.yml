@@ -340,7 +340,7 @@ jobs:
           done
           curl -sS "https://amenfarms.netlify.app/assets/league/lg-ui.js" -o /tmp/lgui.js
           grep -q "firstImport" /tmp/lgui.js && echo "lg-ui.js: first-run setup card PRESENT" || echo "lg-ui.js: first-run setup card MISSING (stale deploy)"
-\n
+
       - name: live kicker scoring audit (206/209/214)
         run: |
           code=$(curl -sS -o /tmp/ka.json -w "%{http_code}" -X POST \
