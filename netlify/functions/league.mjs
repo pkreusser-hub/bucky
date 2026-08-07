@@ -201,24 +201,44 @@ async function lgEspnKickerAudit(body) {
   const cookies = ffCookies();
   if (!cookies) return { ok: false, reason: "fantasy-not-configured" };
   const year = Number(body?.season) >= 2020 ? Number(body.season) : 2025;
-  const url = `${FF_BASE}/apis/v3/games/ffl/seasons/${year}/segments/0/leagues/${FF_LEAGUE_ID}?view=kona_player_info`;
-  const filter = { players: { filterSlotIds: { value: [17] }, limit: 5, sortAppliedTotal: { sortPriority: 1, sortAsc: false } } };
+  // Past-season kona reads want scoringPeriodId=0; the sort filter 400'd live
+  // (2026-08-07), so try a ladder of filters and report which one worked.
+  const url = `${FF_BASE}/apis/v3/games/ffl/seasons/${year}/segments/0/leagues/${FF_LEAGUE_ID}?scoringPeriodId=0&view=kona_player_info`;
+  const attempts = [
+    { mode: "slot+sort", filter: { players: { filterSlotIds: { value: [17] }, limit: 8, sortAppliedTotal: { sortPriority: 1, sortAsc: false } } } },
+    { mode: "slot-only", filter: { players: { filterSlotIds: { value: [17] }, limit: 40 } } },
+    { mode: "no-filter", filter: null },
+  ];
+  let j = null, filterMode = null, lastErr = null;
+  for (const a of attempts) {
+    try {
+      const headers = { "User-Agent": UA, accept: "application/json", Cookie: cookies };
+      if (a.filter) headers["X-Fantasy-Filter"] = JSON.stringify(a.filter);
+      const r = await fetch(url, { headers });
+      if (r.status === 401 || r.status === 403) return { ok: false, reason: "fantasy-auth-expired" };
+      if (!r.ok) { lastErr = "http-" + r.status; continue; }
+      j = await r.json(); filterMode = a.mode; break;
+    } catch { lastErr = "fetch-failed"; }
+  }
+  if (!j) return { ok: false, reason: lastErr || "fetch-failed" };
   try {
-    const r = await fetch(url, { headers: { "User-Agent": UA, accept: "application/json", Cookie: cookies, "X-Fantasy-Filter": JSON.stringify(filter) } });
-    if (r.status === 401 || r.status === 403) return { ok: false, reason: "fantasy-auth-expired" };
-    if (!r.ok) return { ok: false, reason: "http-" + r.status };
-    const j = await r.json();
-    const kickers = (j?.players || []).map((e) => {
-      const p = e?.player || {};
-      // Season-total ACTUAL line: statSourceId 0 (real), statSplitTypeId 0 (full season).
-      const line = (p?.stats || []).find((s) => s?.statSourceId === 0 && s?.statSplitTypeId === 0 && Number(s?.seasonId) === year);
-      return {
-        name: p?.fullName || "", espnId: p?.id ?? null,
-        appliedTotal: line?.appliedTotal ?? null,
-        stats: line?.stats || {}, appliedStats: line?.appliedStats || {},
-      };
-    }).filter((k) => k.appliedTotal != null);
-    return { ok: true, season: year, kickers };
+    const pool = j?.players || [];
+    const kickers = pool
+      .filter((e) => e?.player?.defaultPositionId === 5) // kickers only, whatever the filter narrowed to
+      .map((e) => {
+        const p = e?.player || {};
+        // Season-total ACTUAL line: statSourceId 0 (real), statSplitTypeId 0 (full season).
+        const line = (p?.stats || []).find((s) => s?.statSourceId === 0 && s?.statSplitTypeId === 0 && Number(s?.seasonId) === year);
+        return {
+          name: p?.fullName || "", espnId: p?.id ?? null,
+          appliedTotal: line?.appliedTotal ?? null,
+          stats: line?.stats || {}, appliedStats: line?.appliedStats || {},
+        };
+      })
+      .filter((k) => k.appliedTotal != null)
+      .sort((a, b) => b.appliedTotal - a.appliedTotal)
+      .slice(0, 5);
+    return { ok: true, season: year, filterMode, poolCount: pool.length, kickers };
   } catch {
     return { ok: false, reason: "fetch-failed" };
   }
