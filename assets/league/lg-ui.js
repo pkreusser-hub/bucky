@@ -128,7 +128,25 @@
     return st;
   }
   UI.renderLeague = renderLeague;
+  // A brand-new league has no teams until the commissioner runs the one-time
+  // ESPN import — without this card a fresh device landed on an EMPTY home
+  // with nothing to claim and no path forward (live 2026-08-07).
+  function renderFirstRun(repaint) {
+    if (repaint && $("#firstImport")) return; // never churn the button under a tap
+    main().innerHTML = `<div class="card center">
+      <div class="logo">🐐</div><h2>Welcome to the GFFL</h2>
+      <p class="mut">The league isn't set up yet — the teams, rules and scoring
+        all come in from the family's ESPN league in one step.</p>
+      <button id="firstImport" class="primary">⬇ Import the league from ESPN</button>
+      <p class="mut"><small>Commissioner PIN required. Everyone claims their team right after.</small></p></div>`;
+    $("#firstImport").addEventListener("click", async () => {
+      if (!(await LG.gateCommish())) return;
+      UI.show("rules");
+      await importFromEspn();
+    });
+  }
   async function renderLeague(repaint) {
+    if (!LG.teams.length) { renderFirstRun(repaint); return; }
     if (!repaint) {
       await loadWeekRosters();
       UI._standings = await loadStandings();
@@ -507,6 +525,9 @@
       }
       await LG.loadTeams();
       toast("Rules + teams imported.");
+      // Fresh league: the importer hasn't claimed a team yet — go straight to
+      // the claim screen instead of leaving them on the rules page.
+      if (!LG.myTeamId()) { UI.boot(); return; }
       renderRules();
     });
   }

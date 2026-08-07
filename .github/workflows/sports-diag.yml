@@ -329,3 +329,14 @@ jobs:
           for t in teams:
               print(' ', (t.get('name'), len(t.get('players') or [])))
           PY
+      - name: live page assets (deploy marker)
+        run: |
+          # Confirms the LATEST static deploy is actually being served — the
+          # 2026-08-07 scoring-review deploy sat in Netlify's queue for an hour
+          # and only the function probes existed to notice.
+          for f in league.html assets/league/lg-ui.js assets/league/lg-core.js assets/league/lg-data.js; do
+            code=$(curl -sS -o /tmp/asset -w "%{http_code}" "https://amenfarms.netlify.app/$f" || echo FAIL)
+            echo "$f HTTP $code, $(wc -c < /tmp/asset) bytes"
+          done
+          curl -sS "https://amenfarms.netlify.app/assets/league/lg-ui.js" -o /tmp/lgui.js
+          grep -q "firstImport" /tmp/lgui.js && echo "lg-ui.js: first-run setup card PRESENT" || echo "lg-ui.js: first-run setup card MISSING (stale deploy)"
